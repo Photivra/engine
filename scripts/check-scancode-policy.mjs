@@ -37,7 +37,8 @@ const OWN_ALLOWLIST = "this script's allowlist names this key as data; no licenc
 /** Keys that ScanCode detects in this script's own allowlist strings (scan of this file). */
 const OWN_KEYS = [
   "Apache-2.0 OR MIT", "BSD-2-Clause", "BSD-3-Clause", "BlueOak-1.0.0", "CC-BY-4.0", "CC-BY-ND-3.0",
-  "CC-BY-SA-4.0", "CC0-1.0", "ISC", "JSON", "LicenseRef-scancode-other-copyleft", "LicenseRef-scancode-proprietary-license",
+  "CC-BY-SA-3.0", "CC-BY-SA-4.0", "CC0-1.0", "CDDL-1.0", "GPL-1.0-or-later", "ISC", "JSON",
+  "LGPL-2.1-only", "LicenseRef-scancode-other-copyleft", "LicenseRef-scancode-proprietary-license",
   "LicenseRef-scancode-public-domain", "LicenseRef-scancode-unknown-license-reference", "MIT", "MPL-2.0", "PSF-2.0",
   "LicenseRef-scancode-generic-cla"
 ];
@@ -76,7 +77,6 @@ const LICENSE_ALLOWLIST = [
   { path: "THIRD_PARTY.md", license: "CC-BY-ND-3.0", reason: LICENCE_NAMES_IN_DOCS },
   { path: "THIRD_PARTY.md", license: "CC-BY-SA-3.0", reason: LICENCE_NAMES_IN_DOCS },
   { path: "THIRD_PARTY.md", license: "CC-BY-SA-4.0", reason: LICENCE_NAMES_IN_DOCS },
-  { path: "THIRD_PARTY.md", license: "CC0-1.0", reason: LICENCE_NAMES_IN_DOCS },
   { path: "THIRD_PARTY.md", license: "CDDL-1.0", reason: LICENCE_NAMES_IN_DOCS },
   { path: "THIRD_PARTY.md", license: "GPL-1.0-or-later", reason: LICENCE_NAMES_IN_DOCS },
   { path: "THIRD_PARTY.md", license: "LGPL-2.1-only", reason: LICENCE_NAMES_IN_DOCS },
@@ -92,6 +92,7 @@ const LICENSE_ALLOWLIST = [
   { path: "docs/COLOR_PATCHES.md", license: "CC0-1.0", reason: COLOR_PATCH_SOURCES },
   { path: "docs/COLOR_PATCHES.md", license: "LicenseRef-scancode-public-domain", reason: COLOR_PATCH_SOURCES },
   { path: "docs/COLOR_PATCHES.md", license: "LicenseRef-scancode-unknown-license-reference", reason: COLOR_PATCH_SOURCES },
+  { path: "THIRD_PARTY.md", license: "CC0-1.0", reason: LICENCE_NAMES_IN_DOCS },
   { path: "docs/COLORIMETRY.md", license: "CC-BY-ND-3.0", reason: LICENCE_NAMES_IN_DOCS },
   { path: "docs/COLORIMETRY.md", license: "CC-BY-SA-4.0", reason: LICENCE_NAMES_IN_DOCS },
   { path: "docs/COLORIMETRY.md", license: "LicenseRef-scancode-other-copyleft", reason: `${LICENCE_NAMES_IN_DOCS} ("ShareAlike")` },
