@@ -284,6 +284,23 @@ soft patch at lower chroma than its strong one.
 | PV-G1 | `deep-orange` | `#DC511A` | Klout (Simple Icons 1.20.0) | brands | `#E44600` | 2.15 |
 | PV-G2 | `deep-violet` | `#4C1E9C` | Kodular (Simple Icons 16.36.0) | brands | `#4527A0` | 2.17 |
 
+**Sources of the "Its sRGB" column.** Each value is the closest reference color's own published sRGB hex, or for
+`colorchecker-lab` a conversion of its published CIELAB, given as a factual result of the check. Nothing else from the
+sources is reproduced here.
+
+- `colorchecker-srgb` (7 values) and `ral` (6 values): from Wikipedia contributors,
+  ["ColorChecker"](https://en.wikipedia.org/w/index.php?oldid=1367818471) (revision 1367818471) and
+  ["List of RAL colours"](https://en.wikipedia.org/w/index.php?oldid=1369650571) (revision 1369650571), Wikipedia,
+  licensed under [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/). The values are copied unchanged,
+  one per patch.
+- `colorchecker-lab` (1 value, PV-S2): the X-Rite (before November 2014) CIELAB value as collected in
+  [colour-science 0.4.6](https://github.com/colour-science/colour/tree/v0.4.6), Copyright 2013 Colour Developers,
+  BSD-3-Clause. The script adapted it from D50 to D65 (Bradford) and rounded it to an 8-bit sRGB hex.
+- `css` (2 values): the CSS named colors, W3C, CSS Color Module Level 4 (Candidate Recommendation Draft, 24 April
+  2025), under the [W3C Software and Document License](https://www.w3.org/copyright/software-license/).
+- `brands` (14 values): [Simple Icons](https://github.com/simple-icons/simple-icons), whose data is dedicated to the
+  public domain under [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/).
+
 All 24 colored patches are at least ΔE00 2.15 from every reference color. The six neutrals have no equal hex but stay
 within ΔE00 0.12–0.35 of the ColorChecker's neutral ramp, because that ramp, like this one, steps in about 15 L* from a
 90 % white; a ramp distinct from it by ΔE00 2 would need a darker white or uneven steps.
