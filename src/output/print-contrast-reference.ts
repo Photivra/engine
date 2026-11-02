@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // castleCSF numerical model material: Copyright (c) 2023 Graphics and Displays
-// group - University of Cambridge. MIT terms retained in NOTICE and
-// docs/licenses/castleCSF-MIT.txt. Original bounded TypeScript adapter.
+// group - University of Cambridge. MIT terms retained in NOTICE (the full
+// licence text). Original bounded TypeScript adapter.
 
 /** Contrast detection threshold for a static, neutral (D65 white) Gabor patch, from the castleCSF
  * contrast sensitivity function (CSF) model. A Gabor patch is a sine grating under a Gaussian envelope.

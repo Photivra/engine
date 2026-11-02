@@ -33,7 +33,7 @@ This inventory does not replace a transitive dependency/SBOM review before a rel
 
 These human reviews are **pending**. This inventory records them and the evidence for each; it does not complete them. A review is complete only when the owner signs it off: a check by an AI system is not legal evidence (`CONTRIBUTING.md`). Each is described in full in its section below.
 
-**Status on 2026-11-02.** 2.14.0 was tagged and published to npm with the owner's approval ([release record](https://github.com/Photivra/photivra/blob/main/docs/RELEASE_2_14_0.md)) while these five reviews were open. No owner sign-off for any of them is recorded in the repository, and the release record does not say whether the owner accepted them as open for the release. The evidence below was checked on 2026-11-02 against `main` at `v2.14.0` (`f4b09a7`), using the repository's own records.
+**Status on 2026-11-02.** 2.14.0 was tagged and published to npm with the owner's approval ([release record](https://github.com/Photivra/photivra/blob/main/docs/RELEASE_2_14_0.md)) while these five reviews were open. **The owner accepted 2.14.0 shipping with these reviews open, 2026-11-02.** None of them is signed off. What each still needs is tracked in [#544](https://github.com/Photivra/photivra/issues/544). The evidence below was checked on 2026-11-02 against `main` at `v2.14.0` (`f4b09a7`), using the repository's own records.
 
 | Review | Evidence checked on 2026-11-02 | Still needed from the owner |
 | --- | --- | --- |
