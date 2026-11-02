@@ -9,7 +9,7 @@
 //
 // - every detected licence (detections and low-confidence clues) must be
 //   Apache-2.0;
-// - every copyright holder must be William Shackelford or Photivra
+// - every copyright holder must be Shackelford Creative, LLC or Photivra
 //   contributors;
 // - no file may have a scan error.
 //
@@ -26,11 +26,12 @@ import process from "node:process";
 
 const EXPECTED_TOOL_VERSION = "32.5.0";
 const ALLOWED_LICENSE = "Apache-2.0";
-const ALLOWED_HOLDERS = new Set(["William Shackelford", "Photivra contributors"]);
+const ALLOWED_HOLDERS = new Set(["Shackelford Creative, LLC", "Photivra contributors"]);
 
 const CASTLE = "castleCSF model material under its MIT notice, recorded in THIRD_PARTY.md (Print contrast numerical model material)";
 const LICENCE_NAMES_IN_DOCS = "names licences of third-party material in prose (licence review); no licence text is included";
 const LOCK_METADATA = "npm dependency licence metadata; dependency licences are gated by scripts/check-license-policy.mjs";
+const COLOR_PATCH_SOURCES = "attribution of the reference colors' sRGB hex values in docs/COLOR_PATCHES.md (Result table), recorded in THIRD_PARTY.md (Distinctness check); names the sources' licences, no licence text";
 const OWN_ALLOWLIST = "this script's allowlist names this key as data; no licence text";
 
 /** Keys that ScanCode detects in this script's own allowlist strings (scan of this file). */
@@ -86,6 +87,12 @@ const LICENSE_ALLOWLIST = [
   { path: "THIRD_PARTY.md", license: "MIT", reason: LICENCE_NAMES_IN_DOCS },
   { path: "THIRD_PARTY.md", license: "MIT AND BSD-2-Clause", reason: LICENCE_NAMES_IN_DOCS },
   { path: "THIRD_PARTY.md", license: "MPL-2.0", reason: LICENCE_NAMES_IN_DOCS },
+  { path: "docs/COLOR_PATCHES.md", license: "BSD-3-Clause", reason: COLOR_PATCH_SOURCES },
+  { path: "docs/COLOR_PATCHES.md", license: "CC-BY-SA-4.0", reason: COLOR_PATCH_SOURCES },
+  { path: "docs/COLOR_PATCHES.md", license: "CC0-1.0", reason: COLOR_PATCH_SOURCES },
+  { path: "docs/COLOR_PATCHES.md", license: "LicenseRef-scancode-public-domain", reason: COLOR_PATCH_SOURCES },
+  { path: "docs/COLOR_PATCHES.md", license: "LicenseRef-scancode-unknown-license-reference", reason: COLOR_PATCH_SOURCES },
+  { path: "THIRD_PARTY.md", license: "CC0-1.0", reason: LICENCE_NAMES_IN_DOCS },
   { path: "docs/COLORIMETRY.md", license: "CC-BY-ND-3.0", reason: LICENCE_NAMES_IN_DOCS },
   { path: "docs/COLORIMETRY.md", license: "CC-BY-SA-4.0", reason: LICENCE_NAMES_IN_DOCS },
   { path: "docs/COLORIMETRY.md", license: "LicenseRef-scancode-other-copyleft", reason: `${LICENCE_NAMES_IN_DOCS} ("ShareAlike")` },
@@ -146,6 +153,7 @@ const HOLDER_ALLOWLIST = [
   { path: "THIRD_PARTY.md", holder: "ReportLab Inc", reason: "records the copyright holder of an offline PDF test-artifact tool (ReportLab/pypdf); the tool is not distributed" },
   { path: "THIRD_PARTY.md", holder: "Mathieu Fenniak", reason: "records the copyright holder of an offline PDF test-artifact tool (ReportLab/pypdf); the tool is not distributed" },
   { path: "THIRD_PARTY.md", holder: "Ashish Kulkarni and Steve Witham", reason: "records the copyright holder of an offline PDF test-artifact tool (ReportLab/pypdf); the tool is not distributed" },
+  { path: "docs/COLOR_PATCHES.md", holder: "Colour Developers", reason: COLOR_PATCH_SOURCES },
   { path: "docs/RELEASE_2_0_0.md", holder: "work Wyant & Creath Rump", reason: "false positive: prose about a copyrighted textbook that is cited, not copied" }
 ];
 

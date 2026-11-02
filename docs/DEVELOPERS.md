@@ -130,7 +130,7 @@ The [regional Print detail diagnostic](PRINT_DETAIL_ASSESSMENT.md) measures one 
 This section is for contributors to this repository. The `licence scan` job in [CI](../.github/workflows/ci.yml) scans every file in the repository with [ScanCode Toolkit](https://github.com/aboutcode-org/scancode-toolkit) (Apache-2.0, free). It then runs [`scripts/check-scancode-policy.mjs`](../scripts/check-scancode-policy.mjs) on the JSON report. The check fails when:
 
 - a file has a detected licence, or a low-confidence licence clue, other than Apache-2.0;
-- a file has a copyright holder other than William Shackelford or Photivra contributors;
+- a file has a copyright holder other than Shackelford Creative, LLC or Photivra contributors;
 - ScanCode reports a scan error for a file;
 - an allowlist entry's file is in the scan but no longer has that finding (remove stale entries). An entry for a file missing from the scan only prints a warning.
 

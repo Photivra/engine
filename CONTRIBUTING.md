@@ -86,7 +86,7 @@ Changes to sensor, capture, output or radiometry code should answer each questio
 
 ## Licensing of contributions
 
-The engine has one copyright holder, William Shackelford (see `NOTICE`). Keeping it that way keeps open the
+The engine has one copyright holder, Shackelford Creative, LLC (see `NOTICE`). Keeping it that way keeps open the
 option of offering the engine under other licence terms as well as Apache-2.0. That option is lost the moment a
 contribution by anyone else is merged without a grant covering it, so:
 
