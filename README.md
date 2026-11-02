@@ -504,7 +504,7 @@ Source code in this repository is licensed under Apache-2.0 unless a file clearl
 
 This product includes DNG technology under license by Adobe.
 
-The Apache license does not grant trademark rights to the Photivra name, logos or branding, except as allowed by applicable law and the license itself.
+The Photivra name, logos and branding are owned by Shackelford Creative, LLC. The Apache license does not grant trademark rights to them, except as allowed by applicable law and the license itself.
 
 **Trademarks.** ColorChecker, RAL and the other product, company and brand names mentioned are trademarks of their respective owners. They are used only to identify the color sets and products compared against or cited; Photivra is not affiliated with or endorsed by them.
 
