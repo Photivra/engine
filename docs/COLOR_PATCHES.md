@@ -301,6 +301,10 @@ sources is reproduced here.
 - `brands` (14 values): [Simple Icons](https://github.com/simple-icons/simple-icons), whose data is dedicated to the
   public domain under [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/).
 
+**Trademarks.** ColorChecker, RAL and the other product, company and brand names mentioned are trademarks of their
+respective owners. They are used only to identify the color sets and products compared against or cited; Photivra is
+not affiliated with or endorsed by them.
+
 All 24 colored patches are at least ΔE00 2.15 from every reference color. The six neutrals have no equal hex but stay
 within ΔE00 0.12–0.35 of the ColorChecker's neutral ramp, because that ramp, like this one, steps in about 15 L* from a
 90 % white; a ramp distinct from it by ΔE00 2 would need a darker white or uneven steps.

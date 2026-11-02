@@ -68,7 +68,7 @@ Prepared on 2026-10-11 from local files only (repository files, `package-lock.js
 ### DNG/TIFF and JPEG sample provenance
 
 - **Declared licence:** project Apache-2.0 (`LICENSE`, `package.json`). There are 26 tracked `.dng`/`.jpg` files under `test/fixtures/paired-export-acceptance`, `test/fixtures/producer-export-acceptance`, `test/fixtures/print-detail/jpeg` and `docs/validation/native-raw-print-2026-10-04`. Their READMEs and manifests describe them as Photivra-owned synthetic outputs of this repository's own encoders. The generators are `scripts/generate-photographic-export-fixtures.mjs`, `scripts/generate-producer-export-acceptance.mjs` and `scripts/generate-native-print-jpeg.mjs`. The adjacent `srgb.icc` is written by the engine's own `createSrgbIccProfile()`.
-- **Copyright holder:** "Copyright 2026 William Shackelford" (`NOTICE`).
+- **Copyright holder:** "Copyright 2026 Shackelford Creative, LLC" (`NOTICE`).
 - **Permissions:** Apache-2.0 permits commercial use, modification and redistribution.
 - **Obligations:**
   - Apache-2.0 requires keeping `LICENSE` and `NOTICE`, and marking modified files.

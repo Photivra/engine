@@ -9,7 +9,7 @@
 //
 // - every detected licence (detections and low-confidence clues) must be
 //   Apache-2.0;
-// - every copyright holder must be William Shackelford or Photivra
+// - every copyright holder must be Shackelford Creative, LLC or Photivra
 //   contributors;
 // - no file may have a scan error.
 //
@@ -26,7 +26,7 @@ import process from "node:process";
 
 const EXPECTED_TOOL_VERSION = "32.5.0";
 const ALLOWED_LICENSE = "Apache-2.0";
-const ALLOWED_HOLDERS = new Set(["William Shackelford", "Photivra contributors"]);
+const ALLOWED_HOLDERS = new Set(["Shackelford Creative, LLC", "Photivra contributors"]);
 
 const CASTLE = "castleCSF model material under its MIT notice, recorded in THIRD_PARTY.md (Print contrast numerical model material)";
 const LICENCE_NAMES_IN_DOCS = "names licences of third-party material in prose (licence review); no licence text is included";
@@ -37,8 +37,7 @@ const OWN_ALLOWLIST = "this script's allowlist names this key as data; no licenc
 /** Keys that ScanCode detects in this script's own allowlist strings (scan of this file). */
 const OWN_KEYS = [
   "Apache-2.0 OR MIT", "BSD-2-Clause", "BSD-3-Clause", "BlueOak-1.0.0", "CC-BY-4.0", "CC-BY-ND-3.0",
-  "CC-BY-SA-3.0", "CC-BY-SA-4.0", "CC0-1.0", "CDDL-1.0", "GPL-1.0-or-later", "ISC", "JSON",
-  "LGPL-2.1-only", "LicenseRef-scancode-other-copyleft", "LicenseRef-scancode-proprietary-license",
+  "CC-BY-SA-4.0", "CC0-1.0", "ISC", "JSON", "LicenseRef-scancode-other-copyleft", "LicenseRef-scancode-proprietary-license",
   "LicenseRef-scancode-public-domain", "LicenseRef-scancode-unknown-license-reference", "MIT", "MPL-2.0", "PSF-2.0",
   "LicenseRef-scancode-generic-cla"
 ];
