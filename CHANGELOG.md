@@ -1,6 +1,13 @@
 # Changelog
 
-## 2.14.0 — unreleased (prepared November 1, 2026)
+## 2.14.1 — unreleased (prepared November 3, 2026)
+
+A patch release of docs and legal files only. **No API, behavior or value change from 2.14.0:** `src/` differs only in `ENGINE_API_VERSION` and one source comment, root exports are unchanged (1,801), and captures, RAW codes, files and assumptions are the same.
+- **Copyright holder and trademark owner (#543, #545):** `NOTICE` names Shackelford Creative, LLC as the copyright holder (`Copyright 2026 Shackelford Creative, LLC`) and as the owner of the Photivra trade names, trademarks, logos and branding; `README.md` ("Licensing") says the same and gains a **Trademarks** paragraph for the third-party names it mentions (ColorChecker, RAL and others). `CONTRIBUTING.md` and the licence scan's allowed holder follow.
+- **Licence audit fixes (#543):** `THIRD_PARTY.md` says that `NOTICE` carries castleCSF's full MIT text (the repository-only `docs/licenses/castleCSF-MIT.txt` is not packed), lists the reference colors reproduced in `docs/COLOR_PATCHES.md` with their sources, names CSS Color 4's licence as the W3C Software and Document License, and gives the pending licence reviews a dated status (#544). `docs/COLOR_PATCHES.md` attributes its reference-color column per source. The castleCSF adapter's header comment (`src/output/print-contrast-reference.ts`) now points to `NOTICE`; the emitted code is unchanged.
+- **Packaged files that change:** `NOTICE`, `README.md`, `THIRD_PARTY.md`, `CHANGELOG.md`, `SECURITY.md`, `CITATION.cff`, the version fields and the generated reference's version, and that one comment in `dist/output/print-contrast-reference.*`.
+
+## 2.14.0 — published November 1, 2026
 
 A minor release for the app's Beta: color test charts from the engine's own spectra (#537, with Photivra names, codes and reasons, #542), grey-card (incident) exposure (#538), third-stop ISO and shutter grids (#541) and a smaller package (#540). Captures, RAW codes, files and assumptions are the same as 2.13.0 for every request that uses none of the new patches, `exposure.metering: "grey-card"`, third-stop ISOs or `exposure.autoIso.isoSteps`.
 - **New:** built-in Photivra color patches: the `color-patches` chart preset, the chart reflectance `{ kind: "color-patch", patchId }`, `getColorPatchSet()`, `evaluateColorPatchReflectance()`, each patch with a short code, a name and a reason (#537, #542). `exposure.greyCardDeviationStops` and `exposure.metering: "scene-average" | "grey-card"` (#538). Third-stop ISO settings on the generic tier bodies (presets 2.1.0), `exposure.autoIso.isoSteps`, and `GENERIC_THIRD_STOP_SHUTTER_SECONDS` (#541).

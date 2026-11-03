@@ -11,5 +11,5 @@ version they were made with. Proof-of-concept (POC), schema and model contracts 
 own versions. Release checks confirm it matches package.json and the packed package.
 
 ```ts
-ENGINE_API_VERSION = "2.14.0" as const
+ENGINE_API_VERSION = "2.14.1" as const
 ```
