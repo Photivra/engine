@@ -867,8 +867,10 @@ console.log(result.assumptions.find((a) => a.id === "output.diffractionCorrectio
 console.log(result.diagnostics.detail); // { diffractionCorrection: {...}, sharpening: {...} }
 ```
 
-- **Order:** demosaic → colour and white balance → **diffraction correction** (linear) → rendering exposure and tone curve →
-  gamut handling and sRGB transfer → **unsharp mask** → quantization. The `output.developmentOrder` assumption lists it.
+- **Order:** development exposure push on the RAW (`output.exposureCompensationStops`, when given) → demosaic → colour and
+  white balance → **diffraction correction** (linear) → rendering exposure and tone curve → gamut handling and sRGB transfer →
+  **unsharp mask** → quantization. The `output.developmentOrder` assumption lists it. A push clips at white before the
+  correction, on this path as on the default one.
 - **`output.diffractionCorrection`** needs `lens.diffraction`. It deconvolves the developed linear colour with the
   diffraction OTF of the ideal circular pupil at the capture's working f-number, through a bounded Wiener gain
   min(maximumGain, H(1 + α)/(H² + α)) built as a (2R + 1)² filter. Defaults: 550 nm, α = 0.01, gain bound 4, R = the Airy

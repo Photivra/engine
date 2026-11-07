@@ -79,10 +79,13 @@ describe("display-view bundles", () => {
   // and bundler versions; a change that adds to the display view raises them here and records its delta in CHANGELOG.md.
   // Raised for #457's AHD choice (#527): measured October 31, 2026 at 45,546 B minified and 18,186 B gzip (+3,307 B and
   // +1,294 B, all in facade/display-view.ts); the budgets are about 2 % above that.
+  // Raised for 2.16.0, #533's highlight count with #556's exposure gain: measured November 7, 2026 at 46,443 B minified and
+  // 18,554 B gzip (+730 B and +381 B over 2.15.0's 45,713 B and 18,173 B; each part alone fitted the old budgets, together
+  // they were 4 B gzip over); the budgets are about 2 % above that.
   it("keep the display view's added size within its budget", async () => {
     const base = await bundle(["simulateCapture", "simulateIdealReference"]);
     const view = await bundle(["simulateCapture", "simulateIdealReference", "simulateDisplayView"]);
-    expect(view.minified - base.minified).toBeLessThanOrEqual(46_500);
-    expect(view.gzip - base.gzip).toBeLessThanOrEqual(18_550);
+    expect(view.minified - base.minified).toBeLessThanOrEqual(47_400);
+    expect(view.gzip - base.gzip).toBeLessThanOrEqual(18_950);
   }, testTimeout(120_000));
 });

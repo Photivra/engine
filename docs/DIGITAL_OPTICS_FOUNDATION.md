@@ -171,7 +171,7 @@ Every correction has a cost, and the engine states it. Two development stages jo
 
 With these stages the development runs:
 
-1. (development exposure gain, #556, when it lands)
+1. the development exposure push (#556, `output.exposureCompensationStops`), on the black-subtracted, white-normalized RAW; pushed sites clip at white here
 2. demosaic
 3. colour and white balance
 4. **diffraction correction**, on linear colour
@@ -180,7 +180,7 @@ With these stages the development runs:
 7. **unsharp mask**, on the encoded values
 8. quantization to integer codes (encode)
 
-The deconvolution acts on linear light, where the optical blur is a convolution. The unsharp mask acts on the encoded values just before quantization, which is where image editors apply it. A linear gain (step 1) commutes with the linear deconvolution except where clipping differs. The order is reported in the `output.developmentOrder` assumption.
+The deconvolution acts on linear light, where the optical blur is a convolution. The unsharp mask acts on the encoded values just before quantization, which is where image editors apply it. A linear gain (step 1) commutes with the linear deconvolution except where clipping differs: because the push clips at white before the deconvolution, a pushed highlight is deconvolved as the clipped plateau the push made, exactly as an unpushed capture at the brighter exposure would be. The order is reported in the `output.developmentOrder` assumption, which lists the push first when one is given. The push applies identically on both development paths, `createNativeRawDevelopmentTask` (no detail stage) and `developLinearSrgb` (either detail stage): `test/development-detail-integration.test.ts` checks that a push with an unsharp mask that changes nothing is byte-identical to the push alone, and that a 2-stop push of a quarter exposure with both stages matches the full exposure within noise, with the same clipped highlight.
 
 Both stages filter the whole developed image, so a request with either develops through the native development's own linear operator (`developLinearSrgb`, the same operator as `createNativeRawDevelopmentTask`) and holds the full image in memory, as AHD already does. Image edges are clamped (edge pixels repeated). Neither stage combines with `output.region`, because a region's edge pixels would differ from the whole render; neither is offered by `simulateDisplayView` or `simulateIdealReference`. The DNG holds the native RAW codes and is never modified: a DNG request with both stages writes byte-identical DNG bytes and changes only `image.samples`.
 

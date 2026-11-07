@@ -1,6 +1,6 @@
 # Developer guide
 
-This is the entry point for **@photivra/engine 2.15.0**, root API contract **2.15.0**. 2.15.0 was published on November 7, 2026 ([2.15.0 release record](RELEASE_2_15_0.md)).
+This is the entry point for **@photivra/engine 2.16.0**, root API contract **2.16.0**. 2.16.0 was prepared on November 7, 2026; npm publishing runs only from the owner's `v2.16.0` tag, and the [2.16.0 release record](RELEASE_2_16_0.md) states whether that has happened. The latest published release is 2.15.0 (November 7, 2026, [record](RELEASE_2_15_0.md)).
 
 Repository `main` may later describe newer development. For the stable contract, use a published release's packaged docs or its exact tag. [Release notes and migration](RELEASE_1_3_0.md) explain why the package version and the root API version are now the same number.
 
@@ -10,13 +10,13 @@ The package does **not** supply a hosted API, a renderer, a UI, commercial camer
 
 ## Install and calculate
 
-Install with `npm install @photivra/engine@2.15.0`. The [2.15.0 release record](RELEASE_2_15_0.md) and the [changelog](../CHANGELOG.md) describe the current release.
+Install with `npm install @photivra/engine@2.16.0`. The [2.16.0 release record](RELEASE_2_16_0.md) and the [changelog](../CHANGELOG.md) describe the current release.
 
 ```ts
 import { calculateFieldOfView, ENGINE_API_VERSION } from "@photivra/engine";
 
 const horizontal = calculateFieldOfView({ focalLengthMm: 50, sensorDimensionMm: 36 });
-console.log(ENGINE_API_VERSION); // 2.15.0: matches the package version
+console.log(ENGINE_API_VERSION); // 2.16.0: matches the package version
 console.log(horizontal.value.degrees); // approximately 39.60, ideal infinity-focus geometry
 console.log(horizontal.provenance); // read assumptions/status with the value
 ```

@@ -3017,9 +3017,10 @@ export async function runCapture(options: SimulateCaptureOptions, run: "capture"
   "Unsharp mask y = x + amount·(x − G_σ∗x) where |x − G_σ∗x| ≥ threshold (the GIMP and ImageMagick unsharp mask: radius, amount, threshold), per channel on the sRGB-encoded values in [0, 1], " +
     "separable Gaussian truncated at ⌈3σ⌉ with clamped edges, then clipped to [0, 1] and rounded. It raises contrast at edges and creates halos (overshoot and undershoot; see diagnostics.detail.sharpening) " +
     "and sharpens noise above the threshold. It adds no optical detail.");
-  if (detailRequested) assume("output.developmentOrder", "model", ["demosaic", "colour and white balance", ...(diffractionCorrectionOption ? ["diffraction correction (linear)"] : []),
+  if (detailRequested) assume("output.developmentOrder", "model", [...(exposureGain === 1 ? [] : ["development exposure push (RAW)"]), "demosaic", "colour and white balance", ...(diffractionCorrectionOption ? ["diffraction correction (linear)"] : []),
     "rendering exposure and tone curve", "gamut handling", "transfer function", ...(sharpening ? ["unsharp mask"] : []), "quantization"],
-  "Development detail order: the deconvolution acts on linear light, where the blur is a convolution; the unsharp mask acts on the encoded values just before quantization.");
+  "Development detail order: the deconvolution acts on linear light, where the blur is a convolution; the unsharp mask acts on the encoded values just before quantization." +
+    (exposureGain === 1 ? "" : " A development exposure push (output.exposureCompensationStops) scales the black-subtracted, white-normalized RAW first, so pushed sites clip at white before the deconvolution sees them."));
   if (ahd || (detailRequested && !linearPath)) {
     let lastYield = Date.now();
     const linear = await developLinearSrgb({ ...development, raw: rawOutput.raw }, async (completed, total) => {
