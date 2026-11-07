@@ -238,6 +238,7 @@ function exactLatticeConstant(c: number, span: number): boolean {
  * 2·reach + 2 sites on each axis (so a reflected border site lies in the band's window).
  */
 export function displayViewQualityGpuUnsupportedReason(setup: DisplayViewSetup, signalInput: DisplayViewExpectedSignalInput): string | null {
+  if (signalInput.largeKernel) return LARGE_DEFOCUS_REASON;
   if (signalInput.scene.kind !== "materials") return "radiance scenes (caller functions) are not on the GPU";
   if (!signalInput.kernels && !signalInput.queryPoint) return "the expected signal has no query points";
   if (setup.ahdCollect) return "a collect pass of the correction states runs on the CPU";
@@ -904,6 +905,9 @@ function bilinearKernels(): DisplayViewKernelTap[][][] {
  * carries the expected signal's input and the chart; a setup without it, a coarse view or a frame the kernels do not cover
  * throws `unsupported-on-backend`), and throws `aborted` and `device-lost` as the accelerator's operations do.
  */
+/** #564: the GPU refusal of a defocus kernel above the direct radius (the CPU convolves it by runs). */
+const LARGE_DEFOCUS_REASON = "a defocus kernel radius above 64 sites (convolved by runs on the CPU, #564) is not on the GPU";
+
 export function createDisplayViewGpuRenderer(runtime: WebGpuRuntime, options: { maximumBandBytes?: number; yieldControl?: YieldControl } = {}): DisplayViewGpuRenderer {
   const pipelines = new Map<string, Promise<GPUComputePipeline>>(), stores = new Map<string, CorrectionStateStore>();
   const bandBytes = options.maximumBandBytes ?? Math.min(64 * 1024 * 1024, runtime.maximumStorageBindingBytes);
@@ -918,6 +922,7 @@ export function createDisplayViewGpuRenderer(runtime: WebGpuRuntime, options: { 
   return {
     id: "photivra-display-view",
     supports(request: DisplayViewGpuRequest): true | string {
+      if (request.largeDefocus) return LARGE_DEFOCUS_REASON;
       // #492: out of focus the expected signal carries the defocus disc as site kernels, which only the Quality site pass gathers;
       // a Speed request then runs the Quality passes with its own bilinear demosaic (one candidate) and finishing.
       if (request.defocus) return displayViewQualityGpuSupports(request);

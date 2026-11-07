@@ -48,6 +48,10 @@
  * samples and the kernel sums as that function does and gathers only the band's own values (`gatherInterior`), each summed
  * over the taps in the same fixed order (v outer, u inner, ascending; zero taps skipped, which adds exact zeros only). Like
  * the diffraction path (#419), it does not compute the 2R grid rows and columns around a band.
+ *
+ * Large defocus kernels (#564, `largeKernel`): above 64 sites the disc is convolved by runs in fixed tiles instead of bands
+ * (`large-defocus-lattice.ts`, `site-kernel-runs.ts`), each node's diffraction kernel after it; the plane points and the
+ * material lookup are the bands' own, and values stay independent of the window.
  */
 
 import { InvalidConfigurationError } from "../core/configuration-error.js";
@@ -57,6 +61,7 @@ import { createIrradianceConvolutionInteriorRunner } from "../optics/irradiance-
 import { siteDiffractionKernel } from "../optics/site-diffraction-kernel.js";
 import type { ResolveLensSampledPsfInput } from "../optics/lens-psf-profile.js";
 import type { PlanarSceneRadianceProvider } from "./scene-radiance.js";
+import { LARGE_DEFOCUS_CACHE_BYTES, createLargeDefocusNodeLattice, type LargeDefocusKernel, type LargeDefocusNodeLattice } from "./large-defocus-lattice.js";
 
 /** Rows of native sites per convolution band, and the bands kept. Banding changes memory only, never values. */
 const BAND_ROWS = 32;
@@ -96,6 +101,11 @@ export interface DiffractedPlanarProviderInput {
   window?: { x: number; y: number; width: number; height: number };
   /** Called with the duration in ms of each band convolution (diagnostics only; never changes values). */
   onConvolution?: (milliseconds: number) => void;
+  /**
+   * #564: a defocus kernel above the direct radius, convolved by runs in fixed tiles (`large-defocus-lattice.ts`), with each
+   * node's diffraction kernel after it; used instead of `siteKernels` and `psf` (`kernelRadius` is then unused).
+   */
+  largeKernel?: LargeDefocusKernel;
 }
 
 /** Internal (not exported from the package): the base provider with diffraction applied as an object-space convolution. */
@@ -121,12 +131,12 @@ export function createDiffractedPlanarProvider(input: DiffractedPlanarProviderIn
   if (!(lx0 < lx1 && ly0 < ly1)) throw new InvalidConfigurationError("Diffraction window must overlap the native raster.");
   const NW = lx1 - lx0;
   // One kernel per wavelength, on the site grid, from the engine's own tap-to-site mapping (field point 0, 0); kept across calls.
-  const siteKernels = input.siteKernels;
-  if (!siteKernels && !input.psf) throw new InvalidConfigurationError("The object-space convolution needs a PSF or site kernels.");
-  const kernels = wavelengthsNm.map((wavelengthNm) => siteKernels ? checkedSiteKernel(siteKernels(wavelengthNm), R) :
+  const siteKernels = input.siteKernels, large = input.largeKernel;
+  if (!siteKernels && !input.psf && !large) throw new InvalidConfigurationError("The object-space convolution needs a PSF or site kernels.");
+  const kernels = large ? [] : wavelengthsNm.map((wavelengthNm) => siteKernels ? checkedSiteKernel(siteKernels(wavelengthNm), R) :
     siteDiffractionKernel(input.psf!, wavelengthNm, pitch, R, "Diffraction kernels must sample the site pitch exactly."));
   // #492: each site kernel's non-zero taps as grid offsets, in the gather's order.
-  const taps = siteKernels ? kernels.map((kernel) => kernelTaps(kernel, R, NW + 2 * R)) : [];
+  const taps = siteKernels && !large ? kernels.map((kernel) => kernelTaps(kernel, R, NW + 2 * R)) : [];
   const gridWidth = NW + 2 * R;
   const now = (): number => globalThis.performance?.now() ?? Date.now();
   const bands = new Map<number, Float64Array[][]>();
@@ -181,6 +191,43 @@ export function createDiffractedPlanarProvider(input: DiffractedPlanarProviderIn
     if (input.onConvolution) input.onConvolution(now() - started);
     return values;
   }
+  // #564: one run lattice per shift (lattice points li, lj), its samples the base radiance at the same plane points as the bands'.
+  const largeLattices: (LargeDefocusNodeLattice | undefined)[] = [];
+  function largeLattice(s: number): LargeDefocusNodeLattice {
+    let lattice = largeLattices[s];
+    if (!lattice) {
+      const shift = shifts[s]!;
+      const vOf = (lj: number): number => shift.y === 0 ? -(lj - M + 0.5 - H / 2) * g : -(lj - M + 0.5 + shift.y - H / 2) * g;
+      const uOf = (li: number): number => shift.x === 0 ? (li - M + 0.5 - W / 2) * g : (li - M + 0.5 + shift.x - W / 2) * g;
+      lattice = largeLattices[s] = createLargeDefocusNodeLattice({ kernel: large!, wavelengthsNm, capacityBytes: LARGE_DEFOCUS_CACHE_BYTES / shifts.length, ...(input.onConvolution ? { onTile: input.onConvolution } : {}),
+        source: (x0, y0, width, height) => {
+          const size = width * height;
+          let materialOf: Int32Array | undefined;
+          if (materialAt && materialRadiance) {
+            materialOf = new Int32Array(size);
+            for (let y = 0; y < height; y++) { const v = vOf(y0 + y); for (let x = 0; x < width; x++) materialOf[y * width + x] = materialAt(uOf(x0 + x), v); }
+          }
+          return (node: number): Float64Array => {
+            const nm = wavelengthsNm[node]!, samples = new Float64Array(size);
+            if (materialOf) {
+              const radiance = new Map<number, number>();
+              for (let k = 0; k < size; k++) {
+                const m = materialOf[k]!;
+                let value = radiance.get(m);
+                if (value === undefined) { value = materialRadiance!(m, nm); radiance.set(m, value); }
+                samples[k] = value;
+              }
+            } else for (let y = 0; y < height; y++) { const v = vOf(y0 + y); for (let x = 0; x < width; x++) samples[y * width + x] = base.radianceAt(uOf(x0 + x), v, nm); }
+            return samples;
+          };
+        } });
+    }
+    return lattice;
+  }
+  /** The convolved value of shift s, node index w, at lattice point (li, lj) inside the window. */
+  function valueAt(s: number, w: number, li: number, lj: number): number {
+    return large ? largeLattice(s).valueAt(w, li, lj) : band(Math.floor((lj - ly0) / BAND_ROWS))[s]![w]![((lj - ly0) % BAND_ROWS) * NW + li - lx0]!;
+  }
   function blurredAt(u: number, v: number, nm: number): number {
     const w = index.get(nm), fi = u / g - 0.5 + W / 2, fj = -v / g - 0.5 + H / 2;
     if (w !== undefined) for (let s = 0; s < shifts.length; s++) {
@@ -188,7 +235,7 @@ export function createDiffractedPlanarProvider(input: DiffractedPlanarProviderIn
       if (Math.abs(fi - shift.x - i) > LATTICE_TOLERANCE_SITES || Math.abs(fj - shift.y - j) > LATTICE_TOLERANCE_SITES) continue;
       const li = i + M, lj = j + M;
       if (li < lx0 || lj < ly0 || li >= lx1 || lj >= ly1) break;
-      return band(Math.floor((lj - ly0) / BAND_ROWS))[s]![w]![((lj - ly0) % BAND_ROWS) * NW + li - lx0]!;
+      return valueAt(s, w, li, lj);
     }
     throw new InvalidConfigurationError("Diffraction query is off the site lattice; the object-space convolution does not apply.");
   }
@@ -222,7 +269,7 @@ export function createDiffractedPlanarProvider(input: DiffractedPlanarProviderIn
         const w = index.get(nm);
         if (w === undefined) throw new InvalidConfigurationError("Diffraction query is off the site lattice; the object-space convolution does not apply.");
         const li = key % LW, rest = (key - li) / LW, lj = rest % LH, s = (rest - lj) / LH;
-        return band(Math.floor((lj - ly0) / BAND_ROWS))[s]![w]![((lj - ly0) % BAND_ROWS) * NW + li - lx0]!;
+        return valueAt(s, w, li, lj);
       }
     });
   }

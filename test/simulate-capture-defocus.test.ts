@@ -54,12 +54,12 @@ describe("lens.defocus option (#492 step 1: parse and resolve; step 2a: the capt
     expect(Array.from(sharp.raw.codes)).not.toEqual(Array.from(r.raw.codes));
   });
 
-  it("fails past the kernel radius cap with the cap and the radius asked for", async () => {
-    // 50 mm f/4 focused at 0.5 m on a plane at 2 m: c = 2500·1.5/(4·2·0.45) mm = 1041.7 µm, 173.6 sites of 6 µm, radius 87 > 64.
-    const c = calculateDefocusCircle({ focalLengthMm: 50, aperture: 4, focusDistanceM: 0.5, subjectDistanceM: 2 }).value.diameterMm * 1000;
-    expect(defocusDiscKernelRadius(c / 6)).toBe(87);
-    await expect(simulateCapture(withDefocus({ fNumber: 4, focusDistanceM: 0.5 }))).rejects.toThrow(
-      /lens\.defocus: the blur circle is 1041\.6\d* µm \(173\.6\d* sites of 6 µm\)\. The defocus disc of 173\.6\d* sites needs a kernel radius of 87 sites; the limit is 64 sites \(DEFOCUS_DISC_KERNEL_MAXIMUM_RADIUS_SITES\)/u);
+  it("fails past the kernel radius cap (512 sites, #564) with a short message", async () => {
+    // 50 mm f/4 focused at 0.1 m on a plane at 2 m: c = 2500·1.9/(4·2·0.05) mm = 11.875 mm, 1979.2 sites of 6 µm, radius 990 > 512.
+    const c = calculateDefocusCircle({ focalLengthMm: 50, aperture: 4, focusDistanceM: 0.1, subjectDistanceM: 2 }).value.diameterMm * 1000;
+    expect(defocusDiscKernelRadius(c / 6)).toBe(990);
+    await expect(simulateCapture(withDefocus({ fNumber: 4, focusDistanceM: 0.1 }))).rejects.toThrow(new InvalidConfigurationError(
+      "lens.defocus: The blur circle is 11.9 mm (1,980 sites) across; the engine renders at most 1,025 sites (DEFOCUS_DISC_KERNEL_MAXIMUM_RADIUS_SITES)."));
   });
 
   it("validates the record and refuses double counting with pupil sampling or a caller PSF", async () => {

@@ -157,9 +157,20 @@ with K_λ the diffraction kernel (a unit tap without `lens.diffraction`).
 - **The same kernels as the capture.** The capture's object-space convolution (#492, step 2a) builds each node's kernel
   the same way (`siteDiffractionKernel`, then `convolveSiteKernels` of `src/optics/defocus-disc-kernel.ts`), so view
   and capture use the same bits.
-- **Limits:** the disc's radius is capped at 64 sites (`DEFOCUS_DISC_KERNEL_MAXIMUM_RADIUS_SITES`), the diffraction
-  kernel's at 32, so the combined radius is at most 96 sites, as in the capture. A larger disc fails with an
-  `InvalidConfigurationError` naming the cap and the radius it needed; the kernel is never clipped. Lattice points
+- **Limits:** the disc's radius is capped at 512 sites since 2.17.0 (`DEFOCUS_DISC_KERNEL_MAXIMUM_RADIUS_SITES`; 64
+  before, #564), the diffraction kernel's at 32, as in the capture. A larger disc fails with a short
+  `InvalidConfigurationError` (the blur's size and the largest disc, 1,025 sites); the kernel is never clipped. Up to a
+  disc radius of 64 sites the combined kernels above apply, unchanged (combined radius at most 96 sites).
+- **Above 64 sites (#564)** the tables keep only the in-focus kernels (each node's diffraction kernel, or a unit tap on the
+  lattice formula), and the expected signal applies the disc afterwards, once per channel on the native site lattice:
+  μ_c(x) = Σ_s D(s)·E_c(x − s), with E_c the channel's in-focus expected electrons at each site position. Defocus of a plane
+  is space-invariant and wavelength-independent, so it commutes with the spectral, offset and diffraction sums: the same
+  quantity, regrouped. D ⊛ E is computed by runs of equal kernel weights (prefix-sum differences, exact up to rounding) in
+  fixed 128-site tiles, kept per prepared view, so parts and regions stay bit-identical to the whole view. The estimators,
+  noise, demosaic and development are unchanged; the pilot grid is widened by the disc's radius. The `view.defocus`
+  assumption records `convolution: "runs"`. Method, accuracy and cost:
+  [Quick start, Large defocus discs](QUICK_START.md#large-defocus-discs-564). The GPU does not take these discs:
+  `gpu: "auto"` renders them on the CPU, labelled. Lattice points
   more than 64 columns beyond the raster edges, which a combined radius above 64 reaches, are looked up directly
   instead of from the lattice rings: the same values, at a higher cost. The cost grows with the square of the radius
   ([Cost, defocus](#defocus-1)).
@@ -851,11 +862,15 @@ lattice group (four groups for the 2 × 2 box). Sites whose whole window reads o
 so the cost is in the parts with edges. It grows about as R². Speed's median per-pixel cost is 1.0–1.3× that of the sharp
 view at R = 4 (f/8) and 32–45× at R = 60 (f/2.8), with medians and ranges as in the table.
 
-The disc's cap of 64 sites (set from the capture's cost, step 2a) applies: a larger blur fails rather than render
-slowly or be clipped. At radii of 30 sites and above, a 96 × 96 part takes seconds on one thread. A faster path (separable sums for the disc's
-rows, or an FFT) is not part of this step; it would be justified by these measurements, and the GPU gather of #492
-(step 2c, `docs/WEBGPU.md`) is the route for interactive use; its hardware timing is TBD-TIMING (#475; runs are recorded
-per device in [the hardware record](WEBGPU_DEVICES.md)).
+Up to a disc radius of 64 sites the direct gather above applies. At radii of 30 sites and above, a 96 × 96 part takes
+seconds on one thread. The GPU gather of #492 (step 2c, `docs/WEBGPU.md`) is the route for interactive use; its hardware
+timing is TBD-TIMING (#475; runs are recorded per device in [the hardware record](WEBGPU_DEVICES.md)).
+
+Above 64 sites (#564) the disc is applied by runs after the in-focus signal, whose cost grows with R rather than R². On the
+app's request with an 85 mm-equivalent f/1.4 prime (Speed, subject 3 m; Apple M5 Pro, Node 24.19.0, 8 parts timed, one
+round, load average about 5): part medians of 274 ms at R = 64 (direct), 327 ms at R = 179 and 1.10 s at R = 512, and
+extrapolated whole views of 431 s, 98 s and 296 s
+([Quick start, Large defocus discs](QUICK_START.md#large-defocus-discs-564)).
 
 ### Whole views against the 2.5 whole-frame view (2.6.0)
 
@@ -1282,7 +1297,7 @@ model:
   rotation (`motion.angularVelocityRadPerSec`): they move the queries off the site lattice or change the
   radiance-to-irradiance factor between sites (for defocus use `lens.defocus`, which stays on the lattice:
   [Defocus](#defocus));
-- `lens.defocus` with a disc radius above 64 sites (as the capture refuses it);
+- `lens.defocus` with a disc radius above 512 sites (as the capture refuses it; 64 before 2.17.0);
 - `output.whiteBalance: "auto"`: the capture measures it from its noisy full-resolution RAW (use
   `"scene-illuminant"` or a fixed white balance, as for region tiles);
 - luminance tone curves (`extended-reinhard-luminance`, `naka-rushton-luminance`) and

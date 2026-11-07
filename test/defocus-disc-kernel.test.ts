@@ -132,12 +132,12 @@ describe("geometric defocus disc on the site lattice (#492)", () => {
     expect(defocusDiscKernelRadius(0)).toBe(0);
   });
 
-  it("refuses a radius above the cap, naming the cap and the radius asked for, and malformed diameters", () => {
+  it("refuses a radius above the cap (512 sites since #564) with a short message, and malformed diameters", () => {
     const largest = 2 * DEFOCUS_DISC_KERNEL_MAXIMUM_RADIUS_SITES + 1;
     expect(kernel(largest).radius).toBe(DEFOCUS_DISC_KERNEL_MAXIMUM_RADIUS_SITES);
     expect(requireDefocusDiscKernelRadius(largest)).toBe(DEFOCUS_DISC_KERNEL_MAXIMUM_RADIUS_SITES);
     expect(() => createDefocusDiscSiteKernel(largest + 0.01)).toThrow(InvalidScientificInputError);
-    expect(() => createDefocusDiscSiteKernel(300)).toThrow(/kernel radius of 150 sites; the limit is 64 sites/u);
+    expect(() => createDefocusDiscSiteKernel(2400)).toThrow("The blur circle is 2,400 sites across; the engine renders at most 1,025 sites (DEFOCUS_DISC_KERNEL_MAXIMUM_RADIUS_SITES).");
     for (const bad of [-1, Number.NaN, Number.POSITIVE_INFINITY, "3" as unknown as number])
       expect(() => createDefocusDiscSiteKernel(bad)).toThrow(InvalidScientificInputError);
   });

@@ -224,7 +224,8 @@ function prepareView(context: DisplayViewRunContext): PreparedViewParts {
   const sceneMaterials = viewChart ? viewChart.materials : callerScene?.kind === "material-function" ? callerScene.materials : undefined;
   // Defocus (#492): the geometric disc on the site lattice, combined with the diffraction kernels in the tables (expected-signal-setup.ts).
   const defocusDisc = context.defocus, defocusKernel = defocusDisc && defocusDisc.diameterSites > 0 ? createDefocusDiscSiteKernel(defocusDisc.diameterSites) : null;
-  // The combined radius is at most 32 + 64 = 96 sites (the diffraction and disc caps), as in the capture.
+  // The combined radius is at most 32 + 512 sites (the diffraction and disc caps), as in the capture. #564: above 64 sites the disc is
+  // convolved by runs after the in-focus signal (expected-signal.ts), the same sums regrouped.
   const diffractionRadius = diffraction ? diffraction.kernelRadiusSamples : 0, combinedRadius = defocusKernel ? diffractionRadius + defocusKernel.radius : diffractionRadius;
   const { offsets, signalInput } = buildExpectedSignalInput({ nativeWidth, nativeHeight, width, wavelengths, perNode, apertureNodes: apertureNodeOffsets(boxSamples), boxSamples,
     antiAliasing, pitch, defocus: defocusKernel, diffraction: diffraction ? { radius: diffraction.kernelRadiusSamples, psf: diffractionPsf!.configuration.psf, profileWavelengths: diffraction.profile.axes.wavelengthNm } : undefined,
@@ -233,7 +234,7 @@ function prepareView(context: DisplayViewRunContext): PreparedViewParts {
         ...(chartSize ? [{ neutral: chartSize.surroundReflectance }] : [])],
       whiteRadiance: (nm: number): number => viewIrradianceScale * viewIlluminant.shape.evaluate(nm) / Math.PI } : undefined,
     radianceAt: viewProvider.radianceAt, imagingArea, focalLengthMm, focusDistanceM, subjectDistanceM, metresPerFrameUnit, caller: "simulateDisplayView" });
-  const kernels = signalInput.kernels;
+  const kernels = signalInput.kernels, largeDefocus = signalInput.largeKernel;
   // Readout moments per channel: normalized value k·e with variance k²·(e + σ_read²) plus the ADC quantization (1/12 code², times d² before a digital gain d).
   // #556: a development exposure push G multiplies the normalized value before the per-site clip at white: k → G·k and the constant variance → G²·(…).
   // Without a push G = 1, and x·1 = x exactly in IEEE 754 arithmetic, so the moments are bit-identical to those without the push.
@@ -254,7 +255,7 @@ function prepareView(context: DisplayViewRunContext): PreparedViewParts {
   const toSrgb = resolveCaptureColorModel().xyzToCameraRgb, m = colour.cameraToXyz;
   const matrix = [0, 1, 2].map((r) => [0, 1, 2].map((c) => toSrgb[r]![0]! * m[0]![c]! + toSrgb[r]![1]! * m[1]![c]! + toSrgb[r]![2]! * m[2]![c]!));
   // Reach of a footprint's pixels into the scene, in sites: the demosaic (1), the largest query offset and the kernel radius.
-  const reachSites = (ahd ? 3 : 1) + Math.ceil(Math.max(0, ...offsets.map((o) => Math.max(Math.abs(o.x), Math.abs(o.y))))) + (kernels ? kernels.radius : 0);
+  const reachSites = (ahd ? 3 : 1) + Math.ceil(Math.max(0, ...offsets.map((o) => Math.max(Math.abs(o.x), Math.abs(o.y))))) + (kernels ? kernels.radius : 0) + (largeDefocus ? largeDefocus.radius : 0);
   // The inputs of the AHD correction states (fixed here, so the correction key is too; #447).
   const gains = colour.appliedGains as [number, number, number], clipLevel = Math.min(...colour.appliedGains), viewToneCurve = toneCurve as "identity" | "positive-reinhard-per-channel";
   const ahdCorrection = ahd ? { labMatrix: CAMERA_TO_XYZ.map((row) => row.map((value, c) => value * (viewGains ? viewGains[c]! : 1))), drawsPerState: DISPLAY_VIEW_AHD_CORRECTION_DRAWS,
@@ -270,7 +271,7 @@ function prepareView(context: DisplayViewRunContext): PreparedViewParts {
     return { signal, setup: { frameWidth: width, frameHeight: height, margin, nativeWidth, nativeHeight, viewWidth: v.width, viewHeight: v.height,
       region: viewRegion, samplesPerAxis: v.samplesPerAxis, reachSites, bitDepth: v.bitDepth, seed: noiseSeed, signal, readout, demosaic: demosaicTable,
       ...(ahdCandidates && ahdCorrection ? { candidates: ahdCandidates, ahdCorrection } : {}), ...(ahdCollect ? { ahdCollect } : {}),
-      gains, clipLevel, matrix, toneCurve: viewToneCurve, yieldControl, checkAbort, gpu: { signalInput, chart: viewChart ?? null, layers: materialLayers ?? null, placement, ...(defocusKernel ? { defocusRadius: defocusKernel.radius } : {}) } } };
+      gains, clipLevel, matrix, toneCurve: viewToneCurve, yieldControl, checkAbort, gpu: { signalInput, chart: viewChart ?? null, layers: materialLayers ?? null, placement, ...(defocusKernel && !largeDefocus ? { defocusRadius: defocusKernel.radius } : {}) } } };
   };
   const correction: DisplayViewCorrectionSetup | undefined = ahdCorrection ? { seed: noiseSeed, readout, gains, clipLevel, matrix, toneCurve: viewToneCurve, ahdCorrection } : undefined;
   const collect = async (v: ParsedDisplayView, run: ViewRun): Promise<Int32Array> => {
@@ -279,7 +280,7 @@ function prepareView(context: DisplayViewRunContext): PreparedViewParts {
     return Int32Array.from(keys).sort();
   };
   // #492: out of focus the view reads the defocus disc (its kernel in signalInput.kernels); the GPU Quality site pass gathers it (step 2c).
-  const gpuRequest: DisplayViewGpuRequest = { ahd, defocus: defocusKernel !== null, diffraction: diffraction !== undefined, antiAliasing: antiAliasing !== undefined, boxSamples, toneCurve: viewToneCurve,
+  const gpuRequest: DisplayViewGpuRequest = { ahd, defocus: defocusKernel !== null, ...(largeDefocus ? { largeDefocus: true } : {}), diffraction: diffraction !== undefined, antiAliasing: antiAliasing !== undefined, boxSamples, toneCurve: viewToneCurve,
     scene: chart ? "chart" : materialLayers ? "material-layers" : callerScene!.kind };
   const render: RenderPreparedView = async (v, run, viewInternals, gpu) => {
     const { started, viewStarted } = run;
@@ -328,7 +329,8 @@ function prepareView(context: DisplayViewRunContext): PreparedViewParts {
         "The bilinear demosaic's linear kernels, exactly.");
     if (defocusKernel) {
       assume("view.defocus", "model", { kernel: diffraction ? "diffraction-convolved-with-disc" : "disc", defocusKernelRadiusSites: defocusKernel.radius,
-        diffractionKernelRadiusSites: diffraction ? diffractionRadius : null, kernelRadiusSites: combinedRadius, scientificStatus: "approximation" },
+        diffractionKernelRadiusSites: diffraction ? diffractionRadius : null, kernelRadiusSites: combinedRadius, scientificStatus: "approximation", ...(largeDefocus ? { convolution: "runs" } : {}) },
+        // #564: the lens.defocus assumption explains the run convolution above 64 sites (convolution: "runs").
         "The expected electrons of each real site read the scene on the site lattice through the defocus disc (" + defocusKernel.diameterSites + " sites across, a " + defocusKernel.width + " × " +
         defocusKernel.width + " window), as the capture's object-space convolution does; the estimators then run unchanged on the blurred signal. " + (diffraction ?
           "With lens.diffraction each spectral node's kernel is its diffraction kernel convolved with the disc (" + (2 * combinedRadius + 1) + " × " + (2 * combinedRadius + 1) + " taps): " +

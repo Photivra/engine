@@ -6,14 +6,15 @@ The package and root API versions are recorded once in [Navigation](../API_REFER
 
 Checks, before rendering, whether `lens.defocus: { model: "geometric-disc" }` can render a request: the geometric
 defocus disc's diameter on the site lattice, the kernel radius it needs, and whether that radius is within
-{@link DEFOCUS_DISC_KERNEL_MAXIMUM_RADIUS_SITES} (#532). Pure and cheap: no kernel is built and nothing is rendered.
+{@link DEFOCUS_DISC_KERNEL_MAXIMUM_RADIUS_SITES} (#532; 512 sites since 2.17.0, #564), and which convolution the renderers
+would use. Pure and cheap: no kernel is built and nothing is rendered.
 
 It runs the same resolution and the same limit test as `simulateCapture`, `simulateDisplayView` and `prepareDisplayView`
 (the blur circle c = f²·|s − d| / (N·d·(s − f)) of `calculateDefocusCircle`, thin-lens model 1.1.0, divided by the pitch),
 so for the same focal length, f-number, distances and pitch a request they refuse for its defocus size has
 `withinLimit: false`, and one they accept has `withinLimit: true`. Pass the values the capture uses: in an automatic
-exposure mode that is the resolved f-number. The limit applies to the disc alone; with `lens.diffraction` the combined
-kernel (diffraction radius plus defocus radius, at most 32 + 64 sites) has no further limit. Other reasons a capture
+exposure mode that is the resolved f-number. The limit applies to the disc alone; with `lens.diffraction` the diffraction
+kernel (at most 32 sites) is applied with it and has no further limit. Other reasons a capture
 refuses `lens.defocus` out of focus (pupil sampling, a caller PSF, camera rotation with a rolling shutter, a vignetting or
 distortion profile that does not reach the kernel's radius beyond the frame, and in the display view a projection,
 distortion, vignetting or rotation) are not checked here.
@@ -49,18 +50,19 @@ export interface CalculateDefocusDiscKernelRadiusInput {
 
 ## DEFOCUS_DISC_KERNEL_MAXIMUM_RADIUS_SITES
 
-Largest kernel radius in sites of `lens.defocus: { model: "geometric-disc" }`, R ≤ 64: a disc of at most 129 sites
-across (a 129 × 129 window, 16 641 taps per site; the diffraction kernels stop at 32). `simulateCapture`,
-`simulateDisplayView` and `prepareDisplayView` refuse a request whose disc needs more, and never clip the disc; check a
-request first with {@link calculateDefocusDiscKernelRadius}.
+Largest kernel radius in sites of `lens.defocus: { model: "geometric-disc" }`, R ≤ 512 (#564, 2.17.0; 64 before): a disc of
+at most 1025 sites across (6.15 mm at 6 µm). `simulateCapture`, `simulateDisplayView` and `prepareDisplayView` refuse a
+request whose disc needs more, and never clip the disc; check a request first with {@link calculateDefocusDiscKernelRadius}.
 
-Set from the cost measured in the capture (#492, step 2a; docs/QUICK_START.md, "Optics"): the capture's time grows with
-R² at every site the disc sees an edge from, and a 0.7 MP Siemens star took 0.37 s in focus, 2.9 s at R = 32, 4.7 s at
-R = 41 and 11.6 s at R = 64 (Node, one thread). 64 keeps the issue's 1.4 µm example (50 mm f/2.8, subject 2 m, focus
-1.6 m: R = 41) with room for larger blurs, at a cost the caller chooses and the docs state; past it the call fails.
+Up to 64 sites the disc is convolved directly ((2R + 1)² taps per site,
+byte-identical to 2.16.0). Above it the renderers use the exact run convolution (`site-kernel-runs.ts`: one prefix-sum
+difference per kernel row plus the cells the circle crosses, about 12·R reads per site), whose cost grows with R instead of
+R². 512 bounds that cost (6,145 reads per site, below the 16,641 taps of the direct gather at 64), the kernel's own
+memory ((2R + 1)² doubles, 8.4 MB) and each tile's source ((64 + 2R)² doubles per field, 9.5 MB): measured in
+docs/QUICK_START.md, "Optics".
 
 ```ts
-DEFOCUS_DISC_KERNEL_MAXIMUM_RADIUS_SITES = 64
+DEFOCUS_DISC_KERNEL_MAXIMUM_RADIUS_SITES = 512
 ```
 
 ## DefocusDiscKernelRadius
@@ -75,13 +77,18 @@ export interface DefocusDiscKernelRadius {
   diameterSites: number;
   /** Kernel radius R in sites the renderer needs for this disc, ⌈c / (2·pitch) − ½⌉ (0 for a disc inside one site, and in focus). */
   kernelRadiusSites: number;
-  /** {@link DEFOCUS_DISC_KERNEL_MAXIMUM_RADIUS_SITES}, 64. */
+  /** {@link DEFOCUS_DISC_KERNEL_MAXIMUM_RADIUS_SITES}, 512 (64 before 2.17.0). */
   maximumKernelRadiusSites: number;
-  /** Largest disc diameter in sites within the limit, 2·64 + 1 = 129: within the limit exactly when `diameterSites` ≤ 129. */
+  /** Largest disc diameter in sites within the limit, 2·512 + 1 = 1025: within the limit exactly when `diameterSites` ≤ 1025. */
   maximumDiameterSites: number;
   /** True when `kernelRadiusSites` ≤ `maximumKernelRadiusSites`: `lens.defocus` renders the request; false: it refuses it. */
   withinLimit: boolean;
-  /** How far past the limit the kernel radius is, max(0, R − 64) sites; 0 when within the limit. */
+  /** How far past the limit the kernel radius is, max(0, R − 512) sites; 0 when within the limit. */
   excessKernelRadiusSites: number;
+  /**
+   * How the renderers convolve this disc (#564): `"direct"` for a kernel radius up to 64 sites (as in 2.16.0; also in focus),
+   * `"runs"` above it (the exact run convolution, cost about proportional to R per site), null past the limit.
+   */
+  convolution: "direct" | "runs" | null;
 }
 ```
