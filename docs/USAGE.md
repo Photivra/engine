@@ -7802,16 +7802,24 @@ import { simulateDisplayView } from "@photivra/engine";
 const view = await simulateDisplayView({ scene: { preset: "slanted-edge" }, sensor: { pixelPitchMicrometers: 3 }, output: { width: 600, height: 400 } },
   { width: 60, height: 40 });
 console.log(view.kind, view.view.scaleX, view.assumptions.find((a) => a.id === "view.definition")?.value);
+// #533: the real capture's clipped-highlight pixels in the rendered region, as the expected value of simulateCapture's count.
+console.log(view.diagnostics.highlight.saturatedPixelCount, view.diagnostics.highlight.statistic); // a real number, "expected-value"
 ```
+
+`diagnostics.highlight.saturatedPixelCount` is the expected number of the real capture's output pixels in the rendered
+region that have a clipped contributing site. `simulateCapture` counts the same pixels on its one noise sample, so the two
+are equal where every site is far from white. Counts of regions that tile a view add up to the whole view's count. See
+[Highlight count](https://github.com/Photivra/photivra/blob/main/docs/DISPLAY_VIEW.md#highlight-count-533).
 
 #### Rendering a prepared view on the GPU (2.11, #481)
 
 `prepareDisplayView(request, { gpu })` chooses the renderer: `"off"` (the default) is the CPU reference, `"auto"` the GPU
 when a conforming device is available and the request is supported (else the CPU, labelled), `"require"` fails instead of
 falling back. `gpuDevice` hands the view a worker's `navigator.gpu` or an `ImageKernelAccelerator` whose device it shares.
-Every render says which path ran in `diagnostics.fast.execution`, in the accelerator's words. No GPU display-view renderer
-exists yet (#478), so today `"auto"` runs the CPU reference labelled `unsupported-on-backend` without requesting a device;
-see [Rendering on the GPU](https://github.com/Photivra/photivra/blob/main/docs/DISPLAY_VIEW.md#rendering-on-the-gpu).
+Every render says which path ran in `diagnostics.fast.execution`, in the accelerator's words. The engine's renderer runs the
+Speed (#478) and Quality (#479) kernels on a conforming device for the requests it covers. Elsewhere `"auto"` runs the CPU
+reference and gives the reason (in Node without a WebGPU entry point, for example); see
+[Rendering on the GPU](https://github.com/Photivra/photivra/blob/main/docs/DISPLAY_VIEW.md#rendering-on-the-gpu).
 
 ```ts
 import { prepareDisplayView, type SimulateCaptureOptions } from "@photivra/engine";

@@ -2803,6 +2803,11 @@
       "kind": "type"
     },
     {
+      "name": "DisplayViewHighlightDiagnostics",
+      "source": "src/facade/simulate-capture.ts",
+      "kind": "type"
+    },
+    {
       "name": "DisplayViewResult",
       "source": "src/facade/simulate-capture.ts",
       "kind": "type"

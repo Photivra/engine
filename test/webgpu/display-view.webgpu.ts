@@ -51,8 +51,8 @@ afterAll(async () => {
   if (report.length) process.stdout.write(`[test:webgpu display-view] ${JSON.stringify(report, null, 1)}\n`);
 });
 
-interface PageResult { cpu: { samples: Uint8Array; expected: Float64Array; noiseStd: Float64Array }; gpu: ComparableGpuResult; flaggedPixelIndices: Uint32Array;
-  hostRecomputedPixelIndices: Uint32Array; execution: ImageKernelExecution; gpuMilliseconds: number }
+interface PageResult { cpu: { samples: Uint8Array; expected: Float64Array; noiseStd: Float64Array; saturated: Float64Array }; gpu: ComparableGpuResult & { saturated: Float64Array };
+  flaggedPixelIndices: Uint32Array; hostRecomputedPixelIndices: Uint32Array; highlightRecomputedPixelIndices: Uint32Array; execution: ImageKernelExecution; gpuMilliseconds: number }
 
 const sensor = { pixelPitchMicrometers: 6, pixelAperture: { kind: "box" as const, samplesPerAxis: 2 } };
 const output = { ...SMALL_FRAME, format: "srgb-8" as const };
@@ -87,6 +87,8 @@ describe("webgpu-f32 display view (Speed) vs the float64 reference", () => {
     expect(a.largestCodeDifference).toBeLessThanOrEqual(1);
     expect(a.differingSamples).toBeLessThanOrEqual(0.01 * a.pixels * 3);
     expect(Array.from(result.hostRecomputedPixelIndices)).toEqual(Array.from(result.flaggedPixelIndices));
+    // #533: every display pixel's highlight count is the reference's, bit for bit.
+    expect(Array.from(result.gpu.saturated)).toEqual(Array.from(result.cpu.saturated));
     report.push({ case: name, pixels: a.pixels, deltaE2000Maximum: a.deltaEMaximum, deltaE2000Rms: a.deltaERms, sigmaUnitsMaximum: a.sigmaUnitsMaximum, sigmaUnitsRms: a.sigmaUnitsRms,
       sigmaRelativeMaximum: a.sigmaRelativeMaximum, differingSamples: a.differingSamples, flagged: result.flaggedPixelIndices.length, browserCpuVersusNodeCpuSamples: browserVersusNode,
       largestExpectedBoundRatio: a.largestExpectedRatio, largestVarianceBoundRatio: a.largestVarianceRatio, softwareAdapterMilliseconds: result.gpuMilliseconds });
@@ -201,6 +203,8 @@ describe("webgpu-f32 display view (Quality) vs the float64 reference", () => {
     expect(a.largestCodeDifference).toBeLessThanOrEqual(1);
     expect(a.differingSamples).toBeLessThanOrEqual(0.01 * a.pixels * 3);
     expect(Array.from(result.hostRecomputedPixelIndices)).toEqual(Array.from(result.flaggedPixelIndices));
+    // #533: every display pixel's highlight count is the reference's, bit for bit.
+    expect(Array.from(result.gpu.saturated)).toEqual(Array.from(result.cpu.saturated));
     expect(result.ahdCorrectedPixelCount).toBe(result.cpu.ahdCorrectedPixelCount);
     report.push({ case: "quality: " + name, pixels: a.pixels, deltaE2000Maximum: a.deltaEMaximum, deltaE2000Rms: a.deltaERms, sigmaUnitsMaximum: a.sigmaUnitsMaximum, sigmaUnitsRms: a.sigmaUnitsRms,
       sigmaRelativeMaximum: a.sigmaRelativeMaximum, differingSamples: a.differingSamples, flagged: result.flaggedPixelIndices.length, browserCpuVersusNodeCpuSamples: browserVersusNode,

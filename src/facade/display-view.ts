@@ -238,6 +238,16 @@ export interface DisplayViewRenderResult {
    * overlap weight (views where a footprint holds at most K² real pixels); "stratified-monte-carlo" otherwise.
    */
   estimation: "exact-area-mean" | "stratified-monte-carlo";
+  /**
+   * #533: per display pixel (region row-major), the expected number of the real capture's output pixels in its rectangle that
+   * have at least one clipped contributing site (`simulateCapture`'s `diagnostics.highlight.saturatedPixelCount`, counted on
+   * the capture's one noise sample): Σ_j w_j·P_j, w_j the area of real pixel j inside the rectangle and P_j the probability,
+   * under the view's site model, that a site j's demosaic reads is at or above the white level. Estimated as the expected value
+   * is (exact area mean or stratified Monte Carlo); it never changes a sample.
+   */
+  saturated: Float64Array;
+  /** #533: Σ of `saturated` in region row-major order: the region's expected saturated-pixel count (additive over regions). */
+  saturatedPixelCount: number;
 }
 
 /** One tap of a linear demosaic kernel: the site at (dx, dy) from the pixel, and its weight. */
@@ -287,6 +297,21 @@ export function overlaps(start: number, end: number, limit: number): { first: nu
   const first = Math.floor(start), last = Math.min(limit - 1, Math.ceil(end) - 1), w = new Float64Array(last - first + 1);
   for (let k = first; k <= last; k++) w[k - first] = Math.min(end, k + 1) - Math.max(start, k);
   return { first, w };
+}
+/**
+ * Internal (#533, the GPU renderers' host): the saturated-pixel share `renderDisplayView` gives a display pixel on the exact path
+ * when every real pixel's saturation probability is exactly 0 or 1: bit j·nx + i of the 36-bit mask (`low` bits 0–31, `high` bits
+ * 32–35) is 1 for P = 1, nx the columns' overlap count. The arithmetic is the render's own (Σ_j a_j·P_j in its order, a_j = w_x·w_y / A,
+ * then times A), so the value has the reference's bits.
+ */
+export function displayViewDecidedSaturation(columns: { w: Float64Array }, rows: { w: Float64Array }, area: number, low: number, high: number): number {
+  const nx = columns.w.length;
+  let sat = 0;
+  for (let j = 0; j < rows.w.length; j++) for (let i = 0; i < nx; i++) {
+    const bit = j * nx + i, set = bit < 32 ? (low >>> bit) & 1 : (high >>> (bit - 32)) & 1;
+    sat += columns.w[i]! * rows.w[j]! / area * (set === 1 ? 1 : 0);
+  }
+  return (sat / 1) * area;
 }
 /**
  * Internal (exported for tests). Footprint sums along one axis, for the closed-form B_c (docs/DISPLAY_VIEW.md, "Demosaic correlation"). Native
@@ -530,9 +555,10 @@ function correctionStates(key: string): CorrectionStates {
 /**
  * Recorded terms of a one-material sample: [0, 3) the channel site variances csv; [3, 21) per candidate d and channel c the
  * linear slopes a (3 + (3d + c)·3); [21, 27) per candidate the residual terms; [27, 30) the expected-value sums; [30, 33) the
- * AHD choice terms; 33 a 1 when the AHD correction applies and [34, 37) its values.
+ * AHD choice terms; 33 a 1 when the AHD correction applies and [34, 37) its values; 37 the real pixel's saturation probability
+ * (#533: the probability that at least one site its demosaic reads is clipped at the white level).
  */
-const MEMO_SIZE = 37;
+const MEMO_SIZE = 38;
 /** Most real pixels a display pixel's footprint may have for the per-real-pixel memo (#392); larger footprints rarely repeat a real pixel. */
 const PIXEL_MEMO_LIMIT = 1 << 16;
 /**
@@ -805,7 +831,8 @@ export async function renderDisplayView(setup: DisplayViewSetup): Promise<Displa
   const maximum = setup.bitDepth === 8 ? 255 : 65535, step = 1 / maximum;
   const pixelCount = region.width * region.height;
   const samples = setup.bitDepth === 8 ? new Uint8Array(pixelCount * 3) : new Uint16Array(pixelCount * 3);
-  const expected = new Float64Array(pixelCount * 3), noiseStd = new Float64Array(pixelCount * 3);
+  const expected = new Float64Array(pixelCount * 3), noiseStd = new Float64Array(pixelCount * 3), saturated = new Float64Array(pixelCount);
+  let saturatedTotal = 0;
   const columns = Array.from({ length: region.width }, (_, i) => axisSums((region.x + i) * sx, (region.x + i + 1) * sx, frameWidth, margin));
   const M = setup.matrix, m00 = M[0]![0]!, m01 = M[0]![1]!, m02 = M[0]![2]!, m10 = M[1]![0]!, m11 = M[1]![1]!, m12 = M[1]![2]!, m20 = M[2]![0]!, m21 = M[2]![1]!, m22 = M[2]![2]!;
   const g0 = setup.gains[0], g1 = setup.gains[1], g2 = setup.gains[2], L = setup.clipLevel, reinhard = setup.toneCurve === "positive-reinhard-per-channel";
@@ -816,6 +843,9 @@ export async function renderDisplayView(setup: DisplayViewSetup): Promise<Displa
   const reach = Math.max(1, ...candidates.flat(3).map((t) => Math.max(Math.abs(t.dx), Math.abs(t.dy)))), side = 2 * reach + 1, slotsCount = side * side;
   const slotOf = (t: DisplayViewKernelTap): number => (t.dy + reach) * side + t.dx + reach;
   const { dx: slotDx, dy: slotDy } = displayViewSlotOffsets(reach);
+  /** The raster index of native site (x, y) read reflect-101, as the sample loop reads it. */
+  const reflectedSite = (x: number, y: number): number =>
+    (y < 0 ? -y : y >= nativeHeight ? 2 * nativeHeight - 2 - y : y) * nativeWidth + (x < 0 ? -x : x >= nativeWidth ? 2 * nativeWidth - 2 - x : x);
   // Per phase: the bilinear kernels (for the site variance of each channel), the candidates, and the slots they read.
   const phaseSlots: Int32Array[][] = [], phaseWeights: Float64Array[][] = [], phaseW2: Float64Array[] = [], phaseList: Int32Array[] = [];
   const candidateSlots: Int32Array[][][] = [], candidateWeights: Float64Array[][][] = [], candidateDense: Float64Array[][] = [], candidateList: Int32Array[][] = [];
@@ -835,7 +865,7 @@ export async function renderDisplayView(setup: DisplayViewSetup): Promise<Displa
   }
   // The same tables flat (phase·2 + candidate, ·3 + channel), read by the sample loop below.
   const { count: candidateCount, denseAt, listAt, slotsAt, weightsAt } = flatDisplayViewCandidateTables(candidateSlots, candidateWeights, candidateDense, candidateList);
-  const siteElectrons = new Float64Array(slotsCount), siteMean = new Float64Array(slotsCount), siteVar = new Float64Array(slotsCount), siteThird = new Float64Array(slotsCount), siteChannel = new Int32Array(slotsCount), clip = new Float64Array(3), B = new Float64Array(4), C = new Float64Array(9);
+  const siteElectrons = new Float64Array(slotsCount), siteClip = new Float64Array(slotsCount), siteMean = new Float64Array(slotsCount), siteVar = new Float64Array(slotsCount), siteThird = new Float64Array(slotsCount), siteChannel = new Int32Array(slotsCount), clip = new Float64Array(3), B = new Float64Array(4), C = new Float64Array(9);
   const cm = new Float64Array(3), cv = new Float64Array(3), csv = new Float64Array(3), bm = new Float64Array(3), bv = new Float64Array(3), bs = new Float64Array(3);
   const hm = new Float64Array(3), hv = new Float64Array(3), hs = new Float64Array(3), an = new Float64Array(9);
   const reach2 = CLIP_REACH_SIGMA * CLIP_REACH_SIGMA;
@@ -855,7 +885,7 @@ export async function renderDisplayView(setup: DisplayViewSetup): Promise<Displa
   const siteMask = siteRows - 1, ringCapacity = siteRows * siteW, ringUsable = exactView && ringCapacity <= SITE_RING_LIMIT;
   // Allocated at the first display pixel that uses the ring (a render whose windows never fill allocates nothing).
   let ringStamp = new Int32Array(0), ringStatStamp = ringStamp, ringMat = ringStamp, siteSlotQ = ringStamp, siteSlotStamp = ringStamp, markX = ringStamp, markY = ringStamp, markM = ringStamp;
-  let ringV = new Float64Array(0), ringMean = ringV, ringVar = ringV, ringThird = ringV, markV = ringV;
+  let ringV = new Float64Array(0), ringMean = ringV, ringVar = ringV, ringThird = ringV, ringClip = ringV, markV = ringV;
   // (No closure assigns them, so they stay locals of the render loop.)
   // AHD low-signal correction: an 11 × 11 noisy neighbourhood (AHD reads up to 5 sites away) and the local AHD steps.
   const ahdCorrection = setup.ahdCorrection, windowReach = ahdCorrection ? Math.max(reach, AHD_REACH) : reach;
@@ -910,8 +940,9 @@ export async function renderDisplayView(setup: DisplayViewSetup): Promise<Displa
     const c = siteChannel[slot]!, e = siteElectrons[slot]!, kc = k[c]!, mean = kc * e, variance = kc * kc * e + c0[c]!, gap = 1 - mean;
     // Third cumulant of the normalized value: Poisson electrons have κ₃ = e (read and rounding noise add none).
     siteThird[slot] = kc * kc * kc * e;
-    if (gap > 0 && gap * gap > reach2 * variance) { siteMean[slot] = mean; siteVar[slot] = variance; }
-    else { upperClip(mean, variance, 1, clip); siteMean[slot] = clip[0]!; siteVar[slot] = clip[1]!; }
+    // #533: the clip probability P(value ≥ 1) is 1 − P(value < 1), the clip's own slope (0 where the clip is out of reach).
+    if (gap > 0 && gap * gap > reach2 * variance) { siteMean[slot] = mean; siteVar[slot] = variance; siteClip[slot] = 0; }
+    else { upperClip(mean, variance, 1, clip); siteMean[slot] = clip[0]!; siteVar[slot] = clip[1]!; siteClip[slot] = 1 - clip[2]!; }
   }
   let siteCount = 0, sampleCount = 0, detail = 0, uniform = 0, lastYield = Date.now();
   /** Recorded terms of samples whose sites all read one chart material, by material·4 + CFA phase (layout: MEMO_SIZE). */
@@ -971,7 +1002,7 @@ export async function renderDisplayView(setup: DisplayViewSetup): Promise<Displa
       const ringOn = ringUsable && setup.signal.marksReads, ringSign = tracking ? 1 : -1;
       if (ringOn && ringStamp.length === 0) {
         ringStamp = new Int32Array(ringCapacity); ringStatStamp = new Int32Array(ringCapacity); ringMat = new Int32Array(ringCapacity);
-        ringV = new Float64Array(ringCapacity); ringMean = new Float64Array(ringCapacity); ringVar = new Float64Array(ringCapacity); ringThird = new Float64Array(ringCapacity);
+        ringV = new Float64Array(ringCapacity); ringMean = new Float64Array(ringCapacity); ringVar = new Float64Array(ringCapacity); ringThird = new Float64Array(ringCapacity); ringClip = new Float64Array(ringCapacity);
         siteSlotQ = new Int32Array(slotsCount); siteSlotStamp = new Int32Array(slotsCount);
         markX = new Int32Array(slotsCount); markY = new Int32Array(slotsCount); markV = new Float64Array(slotsCount); markM = new Int32Array(slotsCount);
       }
@@ -983,7 +1014,7 @@ export async function renderDisplayView(setup: DisplayViewSetup): Promise<Displa
         if (pixelStamp.length < mw * mh) { pixelStamp = new Int32Array(mw * mh); pixelRecords = new Float64Array(mw * mh * MEMO_SIZE); pixelGeneration = 0; }
         pixelGeneration++;
       }
-      let s0 = 0, s1 = 0, s2 = 0, c00 = 0, c01 = 0, c02 = 0, c11 = 0, c12 = 0, c22 = 0, r0 = 0, r1 = 0, r2 = 0, pixelVariance = 0, corrected = false;
+      let s0 = 0, s1 = 0, s2 = 0, c00 = 0, c01 = 0, c02 = 0, c11 = 0, c12 = 0, c22 = 0, r0 = 0, r1 = 0, r2 = 0, pixelVariance = 0, corrected = false, sat = 0;
       for (let n = 0; n < sampleTotal; n++) {
         // A sample's weights: 1 for the stratified estimator (its sums are divided by Q below); a_j for the expected value and
         // linear covariance and a_j² for the independent residual on the exact path. Multiplying by 1 leaves every value's bits.
@@ -1035,14 +1066,14 @@ export async function renderDisplayView(setup: DisplayViewSetup): Promise<Displa
               if (q >= 0) { ringStamp[q] = rowStamp; ringV[q] = v; ringMat[q] = own; ringStatStamp[q] = 0; }
               if (tracking) { siteElectrons[slot] = e; material = material === -2 || material === own ? own : -1; continue; }
             }
-            if (q >= 0 && ringStatStamp[q] === rowStamp) { siteMean[slot] = ringMean[q]!; siteVar[slot] = ringVar[q]!; siteThird[slot] = ringThird[q]!; continue; }
+            if (q >= 0 && ringStatStamp[q] === rowStamp) { siteMean[slot] = ringMean[q]!; siteVar[slot] = ringVar[q]!; siteThird[slot] = ringThird[q]!; siteClip[slot] = ringClip[q]!; continue; }
             // As siteStatistics, written out here for the untracked (Speed) path.
             const kc = k[c]!, mean = kc * e, variance = kc * kc * e + c0[c]!, gap = 1 - mean, third = kc * kc * kc * e;
-            let sm: number, sv: number;
-            if (gap > 0 && gap * gap > reach2 * variance) { sm = mean; sv = variance; }
-            else { upperClip(mean, variance, 1, clip); sm = clip[0]!; sv = clip[1]!; }
-            siteMean[slot] = sm; siteVar[slot] = sv; siteThird[slot] = third;
-            if (q >= 0) { ringStatStamp[q] = rowStamp; ringMean[q] = sm; ringVar[q] = sv; ringThird[q] = third; }
+            let sm: number, sv: number, sp: number;
+            if (gap > 0 && gap * gap > reach2 * variance) { sm = mean; sv = variance; sp = 0; }
+            else { upperClip(mean, variance, 1, clip); sm = clip[0]!; sv = clip[1]!; sp = 1 - clip[2]!; }
+            siteMean[slot] = sm; siteVar[slot] = sv; siteThird[slot] = third; siteClip[slot] = sp;
+            if (q >= 0) { ringStatStamp[q] = rowStamp; ringMean[q] = sm; ringVar[q] = sv; ringThird[q] = third; ringClip[q] = sp; }
           }
           if (marks > 0) setup.signal.markReads(markX, markY, markV, markM, marks);
         } else if (!memo) for (let li = 0; li < list.length; li++) {
@@ -1067,8 +1098,8 @@ export async function renderDisplayView(setup: DisplayViewSetup): Promise<Displa
           // As siteStatistics, written out here for the untracked (Speed) path.
           const kc = k[c]!, mean = kc * e, variance = kc * kc * e + c0[c]!, gap = 1 - mean;
           siteThird[slot] = kc * kc * kc * e;
-          if (gap > 0 && gap * gap > reach2 * variance) { siteMean[slot] = mean; siteVar[slot] = variance; }
-          else { upperClip(mean, variance, 1, clip); siteMean[slot] = clip[0]!; siteVar[slot] = clip[1]!; }
+          if (gap > 0 && gap * gap > reach2 * variance) { siteMean[slot] = mean; siteVar[slot] = variance; siteClip[slot] = 0; }
+          else { upperClip(mean, variance, 1, clip); siteMean[slot] = clip[0]!; siteVar[slot] = clip[1]!; siteClip[slot] = 1 - clip[2]!; }
         }
         if (!tracking) material = -1;
         // A sample whose sites all read one chart material only has the statistics of every other such sample of that material
@@ -1090,6 +1121,7 @@ export async function renderDisplayView(setup: DisplayViewSetup): Promise<Displa
           s0 += wE * memo[mo + 27]!; s1 += wE * memo[mo + 28]!; s2 += wE * memo[mo + 29]!;
           if (count === 2) { r0 += wR * memo[mo + 30]!; r1 += wR * memo[mo + 31]!; r2 += wR * memo[mo + 32]!; }
           if (memo[mo + 33] === 1) { s0 += wE * memo[mo + 34]!; s1 += wE * memo[mo + 35]!; s2 += wE * memo[mo + 36]!; corrected = true; }
+          sat += wE * memo[mo + 37]!;
           continue;
         }
         // The terms are written where they are kept: the real pixel's memo slot, or (for the first sample of a one-material key)
@@ -1106,9 +1138,9 @@ export async function renderDisplayView(setup: DisplayViewSetup): Promise<Displa
         if (tracking && !ringOn) { if (!statistics) for (let li = 0; li < list.length; li++) siteStatistics(list[li]!); }
         else if (tracking) for (let li = 0; li < list.length; li++) {
           const slot = list[li]!, q = siteSlotQ[slot]!, rowStamp = siteSlotStamp[slot]!;
-          if (q >= 0 && ringStatStamp[q] === rowStamp) { siteMean[slot] = ringMean[q]!; siteVar[slot] = ringVar[q]!; siteThird[slot] = ringThird[q]!; continue; }
+          if (q >= 0 && ringStatStamp[q] === rowStamp) { siteMean[slot] = ringMean[q]!; siteVar[slot] = ringVar[q]!; siteThird[slot] = ringThird[q]!; siteClip[slot] = ringClip[q]!; continue; }
           siteStatistics(slot);
-          if (q >= 0) { ringStatStamp[q] = rowStamp; ringMean[q] = siteMean[slot]!; ringVar[q] = siteVar[slot]!; ringThird[q] = siteThird[slot]!; }
+          if (q >= 0) { ringStatStamp[q] = rowStamp; ringMean[q] = siteMean[slot]!; ringVar[q] = siteVar[slot]!; ringThird[q] = siteThird[slot]!; ringClip[q] = siteClip[slot]!; }
         }
         // Site variance of each channel through the bilinear kernels (for B_c), then the demosaic's own pixel statistics: the
         // mean and covariance of its camera channels, averaged over its candidates (AHD picks one per pixel).
@@ -1201,6 +1233,20 @@ export async function renderDisplayView(setup: DisplayViewSetup): Promise<Displa
         }
         s0 += wE * e0; s1 += wE * e1; s2 += wE * e2;
         if (rt) { rt[ro + 0] = csv[0]!; rt[ro + 1] = csv[1]!; rt[ro + 2] = csv[2]!; rt[ro + 27] = e0; rt[ro + 28] = e1; rt[ro + 29] = e2; }
+        // #533: the real pixel's saturation probability, 1 − Π_k (1 − p_k) over the distinct sites its demosaic reads (the
+        // capture counts a pixel with at least one clipped contributing site; the sites' noises are independent). A site read
+        // twice through the mirrored border counts once.
+        let unclipped = 1;
+        if (inside) for (let li = 0; li < list.length; li++) unclipped *= 1 - siteClip[list[li]!]!;
+        else for (let li = 0; li < list.length; li++) {
+          const slot = list[li]!, at = reflectedSite(x + slotDx[slot]!, y + slotDy[slot]!);
+          let repeated = false;
+          for (let lj = 0; lj < li && !repeated; lj++) repeated = reflectedSite(x + slotDx[list[lj]!]!, y + slotDy[list[lj]!]!) === at;
+          if (!repeated) unclipped *= 1 - siteClip[slot]!;
+        }
+        const saturation = 1 - unclipped;
+        sat += wE * saturation;
+        if (rt) rt[ro + 37] = saturation;
         if (count === 2) {
           // AHD's per-pixel choice between the candidates adds independent variance: with a noise-driven choice each pixel
           // deviates from the candidates' average by ±½(H − V), variance ¼·Var(H − V) (linear in the sites, at the last
@@ -1233,6 +1279,9 @@ export async function renderDisplayView(setup: DisplayViewSetup): Promise<Displa
       if (corrected) correctedPixels++;
       // Stratified: means over Q samples. Exact: the weights already sum to 1 (Σ a_j = 1) and the residual carries Σ a_j²·r_j.
       const Qd = exactView ? 1 : Q, mean0 = s0 / Qd, mean1 = s1 / Qd, mean2 = s2 / Qd, pixels = B[3]!;
+      // #533: the expected saturated real pixels of the rectangle (A real pixels): A·Σ_j a_j·P_j, or A times the samples' mean.
+      const saturatedHere = (sat / Qd) * area;
+      saturated[ry * region.width + rx] = saturatedHere; saturatedTotal += saturatedHere;
       // The real pixels' output rounding (Δ²/12 in the encoded domain), mapped to linear light at the mean.
       const q0 = quantizationVariance(mean0, step), q1 = quantizationVariance(mean1, step), q2 = quantizationVariance(mean2, step);
       // Covariance in linear light: the linear part plus the independent per-pixel residuals and rounding.
@@ -1258,7 +1307,7 @@ export async function renderDisplayView(setup: DisplayViewSetup): Promise<Displa
     }
   }
   return { samples, expected, noiseStd, sampleCount, siteCount, detailPixelCount: detail, uniformPixelCount: uniform, ahdCorrectedPixelCount: correctedPixels,
-    estimation: exactView ? "exact-area-mean" : "stratified-monte-carlo" };
+    estimation: exactView ? "exact-area-mean" : "stratified-monte-carlo", saturated, saturatedPixelCount: saturatedTotal };
 }
 
 /**

@@ -1268,6 +1268,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 | Export | Kind |
 | --- | --- |
+| [`DisplayViewHighlightDiagnostics`](api/facade-simulate-capture.md#displayviewhighlightdiagnostics) | Type |
 | [`DisplayViewResult`](api/facade-simulate-capture.md#displayviewresult) | Type |
 | [`IdealReferenceResult`](api/facade-simulate-capture.md#idealreferenceresult) | Type |
 | [`serializeSimulatedCaptureDngFromParts`](api/facade-simulate-capture.md#serializesimulatedcapturedngfromparts) | Runtime |

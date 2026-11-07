@@ -105,6 +105,9 @@ describe("display view without diffraction keeps its bytes (#444)", () => {
     if (name.includes("AHD")) expect(result.diagnostics.ahdCorrectedPixelCount).toBeGreaterThan(0);
     const diagnostics: Partial<typeof result.diagnostics> = { ...result.diagnostics }, hash = createHash("sha256");
     delete diagnostics.timingsMs; delete diagnostics.fast;
+    // #533: diagnostics.highlight is additive (it changes no sample); it is checked on its own and left out of the digests.
+    expect(diagnostics.highlight).toEqual({ saturatedPixelCount: internals.saturatedPixelCount, statistic: "expected-value" });
+    delete diagnostics.highlight;
     for (const a of [result.image.samples, internals.expected, internals.noiseStd]) hash.update(new Uint8Array(a.buffer, a.byteOffset, a.byteLength));
     hash.update(JSON.stringify(diagnostics));
     hash.update(JSON.stringify(result.assumptions));

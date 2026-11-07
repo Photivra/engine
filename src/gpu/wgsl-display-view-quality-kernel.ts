@@ -26,6 +26,13 @@
  *    states of a table the host uploaded (the states themselves are computed on the host, #447; the kernel records every
  *    grid key it needs in a bitmap and flags a display pixel whose state the table lacks).
  *
+ * **Highlights (#533).** The site pass records whether each site is certainly below white, certainly at or above it, or
+ * undecided (`clip_state`, from the site's mean and variance and their running bounds: certain only beyond twice the reference's
+ * 8.5 standard deviations after moving the mean by twice its bound, where the reference's clip probability is exactly 0 or 1), in
+ * bits 1 and 2 of its flag word. The pixel pass marks a real pixel saturated (P = 1) when a site its demosaic reads is certainly
+ * clipped, and the display pixel `highlightUndecided` when a real pixel is neither that nor certainly unclipped. Three flag words
+ * per display pixel: the flags, then a bit per real pixel j·nx + i of the footprint with P = 1 (36 bits).
+ *
  * **Running bounds.** Every quantity after the site table is carried as a pair (value, absolute bound) in float32: the bound
  * of a sum is the sum of the bounds plus one rounding of the result, of a product |a|·Δb + |b|·Δa plus one rounding, of a
  * square root Δv/(2s) plus 4.5 ULP, of a quotient 2.5 ULP plus the propagated terms; the clipped-normal moments add the
@@ -97,9 +104,13 @@ export const DISPLAY_VIEW_QUALITY_FLAG = /* @__PURE__ */ Object.freeze({
    * exceeds `DISPLAY_VIEW_QUALITY_CHOICE_SIGMA` times the pixel's noise standard deviation.
    */
   ahdChoice: 32,
+  /** #533: a real pixel's saturation is undecided (the host computes the display pixel's count with the reference; its samples stay). */
+  highlightUndecided: 64,
   /** The bits that require the host's recomputation. */
   recompute: 47
 });
+/** #533: flag words per display pixel: the flags, then the 36-bit mask of saturated real pixels. */
+export const DISPLAY_VIEW_QUALITY_FLAG_WORDS = 3;
 /**
  * #457: the largest move, in units of the display pixel's own noise σ, that AHD's choice between its candidates may make to a pixel
  * the kernel keeps (it renders the candidates' average and its bound carries the move); a larger one is recomputed on the host. A
@@ -183,6 +194,17 @@ fn b_sub(a: vec2<f32>, b: vec2<f32>) -> vec2<f32> { let v = a.x - b.x; return ve
 fn b_mul(a: vec2<f32>, b: vec2<f32>) -> vec2<f32> { let v = a.x * b.x; return vec2<f32>(v, abs(a.x) * b.y + abs(b.x) * a.y + E * abs(v)); }
 // Times an exact constant (a kernel weight, an integer, a power of two).
 fn b_scale(a: vec2<f32>, k: f32) -> vec2<f32> { let v = a.x * k; return vec2<f32>(v, a.y * abs(k) + E * abs(v)); }
+// #533: 0 when a site of mean m (bound dm) and variance v (bound dv) is certainly below white, 1 certainly at or above it, 2
+// undecided (the Speed kernel's rule: twice the reference's 8.5 standard deviations, the mean moved by twice its bound).
+fn clip_state(m: f32, dm: f32, v: f32, dv: f32) -> u32 {
+  let gap = 1.0 - m;
+  let wide = 4.0 * params.reach2 * (v + 2.0 * dv);
+  let below = gap - 2.0 * dm;
+  let above = gap + 2.0 * dm;
+  if (below > 0.0 && below * below > wide) { return 0u; }
+  if (above < 0.0 && above * above > wide) { return 1u; }
+  return 2u;
+}
 // A host constant rounded once to float32 (a gain, a matrix entry).
 fn b_rounded(k: f32) -> vec2<f32> { return vec2<f32>(k, E * abs(k)); }
 fn b_div(a: vec2<f32>, b: vec2<f32>) -> vec2<f32> { let v = a.x / b.x; return vec2<f32>(v, (a.y + abs(v) * b.y) / abs(b.x) + 2.5 * E * abs(v)); }
@@ -365,6 +387,9 @@ fn write_site(i: u32, c: u32, e: f32, de: f32, flag: u32) {
   var m = vec2<f32>(mean, kc * de + 2.0 * E * mean);
   var v = vec2<f32>(variance, kc * kc * de + 4.0 * E * variance);
   let gap = 1.0 - mean;
+  // #533: bits 1 (certainly clipped) and 2 (undecided) of the flag word.
+  let state = clip_state(m.x, m.y, v.x, v.y);
+  let bits = flag | select(0u, 2u, state == 1u) | select(0u, 4u, state == 2u);
   if (!(gap > 0.0 && gap * gap > params.reach2 * variance)) {
     let clipped = upper_clip(m, v, 1.0);
     m = clipped.mean; v = clipped.variance;
@@ -372,7 +397,7 @@ fn write_site(i: u32, c: u32, e: f32, de: f32, flag: u32) {
   let o = i * SITE;
   sites[o] = m.x; sites[o + 1u] = v.x; sites[o + 2u] = third;
   sites[o + 3u] = m.y; sites[o + 4u] = v.y; sites[o + 5u] = kc * kc * kc * de + 5.0 * E * third;
-  sites[o + 6u] = bitcast<f32>(flag); sites[o + 7u] = e;
+  sites[o + 6u] = bitcast<f32>(bits); sites[o + 7u] = e;
 }
 `;
 
@@ -509,6 +534,7 @@ const FLAG_STATE: u32 = ${DISPLAY_VIEW_QUALITY_FLAG.stateMissing}u;
 const FLAG_TIE: u32 = ${DISPLAY_VIEW_QUALITY_FLAG.thresholdTie}u;
 const FLAG_CORRECTED: u32 = ${DISPLAY_VIEW_QUALITY_FLAG.corrected}u;
 const FLAG_CHOICE: u32 = ${DISPLAY_VIEW_QUALITY_FLAG.ahdChoice}u;
+const FLAG_HIGHLIGHT: u32 = ${DISPLAY_VIEW_QUALITY_FLAG.highlightUndecided}u;
 const CHOICE_SIGMA: f32 = ${literal(DISPLAY_VIEW_QUALITY_CHOICE_SIGMA)};
 @group(0) @binding(1) var<storage, read> aux: array<f32>;
 @group(0) @binding(2) var<storage, read> geometry: array<f32>;
@@ -532,6 +558,8 @@ fn site_at(x: i32, y: i32) -> u32 {
   pixel_flags = pixel_flags | (bitcast<u32>(sites[o + 6u]) & 1u);
   return o;
 }
+// #533: the clip state bits (1 certainly clipped, 2 undecided) of the site at offset o.
+fn clip_bits(o: u32) -> u32 { return (bitcast<u32>(sites[o + 6u]) >> 1u) & 3u; }
 // The offset of a grid key in the sorted state table, or state_count when absent.
 fn find_state(key: i32) -> u32 {
   var lo = 0u; var hi = params.state_count;
@@ -627,6 +655,8 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_workgroups) 
   var res = array<vec2<f32>, 3>(vec2<f32>(0.0), vec2<f32>(0.0), vec2<f32>(0.0));
   // #457: Σ_j a_j·½|h(H) − h(V)| per component, how far the reference's choice can move the value from the candidates' average.
   var choice = array<f32, 3>(0.0, 0.0, 0.0);
+  // #533: the saturated real pixels (bit j·nx + i) and whether a real pixel is undecided.
+  var mask0 = 0u; var mask1 = 0u; var undecided = false;
   for (var j = 0u; j < ny; j = j + 1u) {
     let ay = geometry[row + 2u + j];
     for (var ii = 0u; ii < nx; ii = ii + 1u) {
@@ -650,6 +680,25 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_workgroups) 
       }
       let cb = CAND_BASE + phase * CAND_STRIDE;
       let entries = bitcast<u32>(aux[cb]);
+      // #533: the sites the demosaic reads (the bilinear kernels and every candidate's entries), as the reference's sample does.
+      var clip_any = 0u;
+      for (var c = 0u; c < 3u; c = c + 1u) {
+        let tb = ${DISPLAY_VIEW_QUALITY_AUX.bilinear}u + (phase * 3u + c) * 16u;
+        for (var t = 0u; t < 4u; t = t + 1u) {
+          if (aux[tb + 4u * t + 2u] == 0.0) { continue; }
+          clip_any = clip_any | clip_bits(site_at(x + i32(aux[tb + 4u * t]), y + i32(aux[tb + 4u * t + 1u])));
+        }
+      }
+      for (var n = 0u; n < entries; n = n + 1u) {
+        let eb = cb + 4u + n * ${DISPLAY_VIEW_QUALITY_CANDIDATE_FLOATS}u;
+        var used = false;
+        for (var k = 0u; k < 3u * count; k = k + 1u) { if (aux[eb + 2u + k] != 0.0) { used = true; } }
+        if (used) { clip_any = clip_any | clip_bits(site_at(x + i32(aux[eb]), y + i32(aux[eb + 1u]))); }
+      }
+      if ((clip_any & 1u) != 0u) {
+        let bit = j * nx + ii;
+        if (bit < 32u) { mask0 = mask0 | (1u << bit); } else { mask1 = mask1 | (1u << (bit - 32u)); }
+      } else if ((clip_any & 2u) != 0u) { undecided = true; }
       var e_mean = array<vec2<f32>, 3>(vec2<f32>(0.0), vec2<f32>(0.0), vec2<f32>(0.0));
       var cm_average = array<vec2<f32>, 3>(vec2<f32>(0.0), vec2<f32>(0.0), vec2<f32>(0.0));
       var pixel_variance = vec2<f32>(0.0, 0.0);
@@ -804,7 +853,9 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_workgroups) 
   out[o + 6u] = cov[1].x; out[o + 7u] = cov[2].x; out[o + 8u] = cov[4].x;
   out[o + 9u] = max(s[0].y, max(s[1].y, s[2].y));
   out[o + 10u] = max(max(cov[0].y + res[0].y, cov[3].y + res[1].y), max(cov[5].y + res[2].y, max(cov[1].y, max(cov[2].y, cov[4].y))));
-  flags[i] = pixel_flags;
+  flags[3u * i] = pixel_flags | select(0u, FLAG_HIGHLIGHT, undecided);
+  flags[3u * i + 1u] = mask0;
+  flags[3u * i + 2u] = mask1;
 }
 `;
 

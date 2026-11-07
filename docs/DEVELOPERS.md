@@ -1,6 +1,6 @@
 # Developer guide
 
-This is the entry point for **@photivra/engine 2.15.0**, root API contract **2.15.0**. 2.15.0 was prepared on November 7, 2026; npm publishing runs only from the owner's `v2.15.0` tag, and the [2.15.0 release record](RELEASE_2_15_0.md) states whether that has happened. The latest published release is 2.14.1 (November 3, 2026, [record](RELEASE_2_14_1.md)).
+This is the entry point for **@photivra/engine 2.15.0**, root API contract **2.15.0**. 2.15.0 was published on November 7, 2026 ([2.15.0 release record](RELEASE_2_15_0.md)).
 
 Repository `main` may later describe newer development. For the stable contract, use a published release's packaged docs or its exact tag. [Release notes and migration](RELEASE_1_3_0.md) explain why the package version and the root API version are now the same number.
 

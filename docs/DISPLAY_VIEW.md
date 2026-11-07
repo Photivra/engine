@@ -452,6 +452,81 @@ by bisection on the clipped-normal mean, so that the clipped draw keeps the expe
 matters only where each display pixel averages few, very noisy real pixels (a 1.4 µm sensor at
 ISO 6400 shown 800 pixels wide: the red error was +3.5 codes before, within ±0.4 after).
 
+## Highlight count (#533)
+
+`diagnostics.highlight` reports how many of the real capture's output pixels in the rendered region are saturated
+(clipped highlights), the count `simulateCapture` reports as `diagnostics.highlight.saturatedPixelCount`.
+
+**The capture's count is one noise sample.** The capture counts an output pixel when at least one RAW site its demosaic
+reads is clipped (flagged saturated, or at the white level). That count depends on the drawn noise
+(`sensor.noiseSeed`): a pixel whose sites sit near white is counted on some seeds and not on others.
+
+**The view reports its expected value.** The view renders no RAW, so it reports the count's expected value over the noise:
+
+  saturatedPixelCount = Σ_j w_j·P_j,  P_j = 1 − Π_k (1 − p_k),  p_k = P(value_k ≥ 1)
+
+- j runs over the real output pixels of the region, and w_j is the part of pixel j inside it: 1 inside, a fraction
+  where a region edge cuts a real pixel.
+- k runs over the distinct sites pixel j's demosaic reads. A site read twice through a mirrored border counts once.
+- p_k comes from the site model the expected value already uses (["Readout"](#readout-demosaic-and-development-of-a-sampled-pixel)):
+  the site's normalized value is normal with mean k·e and variance k²·e + c₀ (shot, dark, read and ADC noise). So
+  p_k = 1 − Φ((1 − k·e)/σ) is the clip's own slope, `upperClip`'s third moment.
+- p_k is exactly 0 or 1 beyond 8.5 σ from white, where the clip itself is out of reach.
+- The sites' noises are independent, so P_j is the probability that pixel j is counted.
+- The count is estimated the way the expected value is (`view.estimation`):
+  - exactly over every real pixel of the footprint (the exact area mean);
+  - or as A times the mean of P over the stratified samples (A real pixels per display pixel), which is unbiased.
+
+So the count is a real number, not an integer. The per-real-pixel memos, the one-material replay and the site ring carry
+P_j with the other recorded terms. The count reads no extra site and draws nothing, so no sample, expected value, noise
+σ or other diagnostic changes: the hash locks of `test/display-view.test.ts`, `display-view-pixel-memo.test.ts` and
+`display-view-speed-material.test.ts` leave `diagnostics.highlight` out and keep their hashes.
+
+**Agreement with the capture** (`test/display-view-highlight.test.ts`):
+
+- **Every site far from white.** Every P_j is then exactly 0 or 1, and the view's count equals the capture's count of
+  the same pixels exactly. A checkerboard 3 stops over white with point sites gives 1 632 pixels (bilinear) and 2 208
+  pixels (AHD) of 2 400, at 1:1, at 2 × 2 and at 3 × 4 real pixels per display pixel. A 6 × 5 footprint (stratified)
+  is within 1 %.
+- **Near white.** A uniform grey with its green sites at the white level, 40 × 30. Over noise seeds 1–3 the capture
+  counts 709, 702 and 696 pixels; the view's expected count is 697.4. The test checks the view against the mean of 8
+  seeds at three view sizes.
+- **Regions are additive.** A display pixel's share is the same in every region that renders it, so the counts of
+  regions that tile the view sum to the whole view's count, up to floating-point summation order (tested per pixel
+  and summed).
+
+**AHD is an approximation here.** With AHD the capture counts every site within 3 sites of the pixel, clipped to the
+raster (`AHD_VALUE_REACH`, its interpolation reach). That is 49 sites. The view counts only the 25–29 of them that its
+AHD candidates read. Reading the other sites would change `sceneLookups` and cost site evaluations the image does not
+need. The two counts agree along a straight clipped edge: each candidate reads a site 3 away in every row and column
+direction. The view's count can be lower where a clipped area ends in a corner, or at a clipped speck 2–3 sites away
+diagonally. On the checkerboard above they agree exactly.
+
+**The capture's other saturation flag.** The capture also flags a site whose electrons reach the full well before the
+ADC. The view assumes that this happens only at or above the white level. That holds because the white level is the
+code of the smaller of the full well and the pre-ADC saturation, capped by the ADC's and the digital top codes
+(`calculateSiteEffectiveSaturationCode`). A site at its full well is therefore at the white level or above.
+
+**Cost.** Each sample now forms one product over its read sites, and the clip's slope that it uses is already computed.
+On the app request ([the 2.15.0 table](#a-device-pixel-view-rendered-in-parts)), this build against 2.15.0 in the same run
+gave part medians of 38–41 ms against 39 ms (Speed) and 74–79 ms against 74–78 ms (Quality). The extrapolated whole view
+was 0–4 % slower; the two repeats of one build differed by up to 3 %.
+
+**On the GPU** ([Rendering on the GPU](#rendering-on-the-gpu)) the count is the CPU reference's, bit for bit:
+
+1. The kernels mark each site as certainly below white, certainly at or above it, or undecided. A site is certain
+   only beyond twice the reference's 8.5 σ, after moving its mean by twice its error bound and raising its variance
+   by twice its bound. There the reference's p_k is exactly 0 or 1.
+2. A real pixel is certainly saturated (P_j = 1) when it reads a certainly clipped site. It is certainly not saturated
+   when every site it reads is certainly below white.
+3. The host forms the share of a display pixel whose real pixels are all certain from the kernel's mask, with the
+   reference's own arithmetic.
+4. For a display pixel with an undecided real pixel, the host takes only the count from the reference's render of that
+   pixel. Its samples stay the kernel's.
+
+`diagnosticsExact` therefore stays true. The run-time self-checks compare the count, and so do the float32 emulation
+tests: the checkerboard's light squares are decided by the mask, and the near-white grey is undecided and recomputed.
+
 ## Validation
 
 See [Validation results](#validation-results) below for the tables; this section defines what was
@@ -692,7 +767,26 @@ times within 20 %. Ranges are over both builds and both repeats.
 | Quality | f/11 | 461–559 ms | 175–186 ms | 496–535 ms | 18.7–19.9 (16.9–57.5) | 65–67 s |
 
 The whole-view column is an extrapolation from the timed parts (their mean × 294), not a measurement. Quality costs about
-twice Speed per part. The slowest parts are the first one (its own warm-up) and those over the chart's busiest areas. The
+twice Speed per part.
+
+**Re-measured on 2.15.0** (#400). The same command, `REPEATS=2 node scripts/benchmark-display-view.mjs --app`, was run on the
+`v2.15.0` commit `0e2232f` (build B), interleaved with the #533 build (build A):
+
+- 30 of the 294 parts timed per row, two repeats per build;
+- built `dist`, Node 24.19.0, Apple M5 Pro (18 cores), macOS, one thread per process;
+- load average 5.7–6.1 from other work, so the times are upper bounds.
+
+Ranges are over the two repeats of build B.
+
+| Options | f | Prepare | Part median | Slowest part | µs per display pixel, median (min–max) | Whole view, one thread (extrapolated) |
+| --- | --- | --- | --- | --- | --- | --- |
+| Speed | f/8 | 25–26 ms | 39 ms | 150–152 ms | 4.2 (3.6–16.3) | 14.3–14.4 s |
+| Speed | f/11 | 26–27 ms | 39 ms | 145 ms | 4.2 (3.7–15.6) | 14.2–14.3 s |
+| Quality | f/8 | 49–50 ms | 74 ms | 295–298 ms | 7.9–8.0 (6.8–32.0) | 29.1–29.2 s |
+| Quality | f/11 | 50–52 ms | 77–78 ms | 289–307 ms | 8.3–8.4 (7.1–32.9) | 30.1–30.6 s |
+
+The host differs from the 2.9.0 table's, so the two tables do not measure the speed-ups between them. The prepare column
+already includes #443 and #446 (above). The slowest parts are the first one (its own warm-up) and those over the chart's busiest areas. The
 stand-in label costs a few comparisons per lookup; a caller's label tested by polygon winding costs more (about 3 % of the
 self time in one caller's profile). Comparing two builds: `DIST_B=<other dist/index.js> node
 scripts/benchmark-display-view.mjs --app` runs them interleaved, alternating which goes first.
@@ -1068,7 +1162,10 @@ it). A GPU render of the Quality options inherits the estimate's [known limit](#
 The Quality kernel does not compute [AHD's choice on the noise-free mosaic](#ahds-choice-where-the-scene-decides-it-457) (#457):
 it renders the candidates' average and flags a display pixel for recomputation with the CPU reference where the choice could
 move it by more than 2⁻¹⁰ of its noise σ (`docs/WEBGPU.md`, "Flags and host recomputation"), so a GPU render keeps the
-reference's values at structure at the cost of recomputing those pixels on the CPU. The speed-up over the CPU is not measured yet (#475).
+reference's values at structure at the cost of recomputing those pixels on the CPU. The [highlight count](#highlight-count-533)
+(#533) is the reference's too: the kernels decide each real pixel's saturation where it is certainly 0 or 1, and the host
+computes the count of any other display pixel with the reference, without changing its samples. The speed-up over the CPU is
+not measured yet (#475).
 
 ```ts
 import { prepareDisplayView, type SimulateCaptureOptions } from "@photivra/engine";

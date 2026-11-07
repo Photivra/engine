@@ -23,6 +23,13 @@
  * It outputs, per display pixel, the three means, the three variances (linear plus residual), the three covariances
  * and two running error terms: the absolute error bound of the mean and of the variance that the clip steps
  * contribute (a fixed formula evaluated from the pixel's own float32 values; docs/WEBGPU.md, "Display view (Speed)").
+ * #533: it also decides each real pixel's saturation probability where the float32 values leave no doubt: a site is
+ * certainly unclipped or certainly clipped when its standardized distance from white, with the site's mean moved by twice
+ * `DISPLAY_VIEW_SITE_RELATIVE_U`·E of itself, still exceeds twice the reference's 8.5 (where the reference's probability is
+ * exactly 0 or 1), and a real pixel is certainly saturated (P = 1) when a site its demosaic reads is certainly clipped and
+ * certainly not (P = 0) when all are certainly unclipped. Three flag words per display pixel: bit 0 of the first the
+ * material flag, bit 1 a real pixel left undecided (the host computes the pixel's count with the reference); the other two
+ * a bit per real pixel j·nx + i of the footprint with P = 1.
  * The host adds the output quantization term, draws the noise, encodes and rounds (`display-view-speed-gpu.ts`), so
  * the noise draw is the CPU's bit for bit.
  *
@@ -41,6 +48,14 @@ export const DISPLAY_VIEW_GPU_WINDOW_SIDE = DISPLAY_VIEW_GPU_MAXIMUM_PIXELS_PER_
 export const DISPLAY_VIEW_GPU_MAXIMUM_OFFSETS = 16;
 /** Floats per display pixel in the output buffer: m0 m1 m2, v00 v11 v22 (linear + residual), c01 c02 c12, mean bound, variance bound. */
 export const DISPLAY_VIEW_OUTPUT_FLOATS = 11;
+/** #533: flag words per display pixel: the flags (bit 0 material uncertain, bit 1 a highlight undecided), then the 36-bit saturated mask. */
+export const DISPLAY_VIEW_FLAG_WORDS = 3;
+/**
+ * #533: relative bound of a site's float32 mean and variance against the reference's float64, in units of E: the electrons'
+ * sum of at most 16 offsets (each term a host-rounded weight and table value and one product), the dark electrons, and the
+ * readout's products and sum carry at most 26 E; 64 leaves the rest as spare.
+ */
+export const DISPLAY_VIEW_SITE_RELATIVE_U = 64;
 /** Floats per column or row record of the geometry buffer. */
 export const DISPLAY_VIEW_GEOMETRY_STRIDE = 20;
 /** Layout of the aux table (float32 words). */
@@ -87,6 +102,7 @@ const SLACK: f32 = 1e-14;
 const CLIP_REACH: f32 = 8.5;
 const CLIP_MEAN_U: f32 = ${literal(DISPLAY_VIEW_CLIP_MEAN_U)};
 const CLIP_VARIANCE_U: f32 = ${literal(DISPLAY_VIEW_CLIP_VARIANCE_U)};
+const SITE_RELATIVE_U: f32 = ${literal(DISPLAY_VIEW_SITE_RELATIVE_U)};
 const WINDOW: u32 = ${DISPLAY_VIEW_GPU_WINDOW_SIDE}u;
 const STRIDE: u32 = ${DISPLAY_VIEW_GEOMETRY_STRIDE}u;
 struct Params {
@@ -112,6 +128,8 @@ var<private> site_mean: array<f32, 64>;
 var<private> site_var: array<f32, 64>;
 var<private> site_third: array<f32, 64>;
 var<private> site_bound: array<f32, 64>;
+// #533: 0 certainly below white, 1 certainly at or above it, 2 undecided.
+var<private> site_clip: array<u32, 64>;
 
 fn k_of(c: u32) -> f32 { if (c == 0u) { return params.k0; } if (c == 1u) { return params.k1; } return params.k2; }
 fn dark_of(c: u32) -> f32 { if (c == 0u) { return params.dark0; } if (c == 1u) { return params.dark1; } return params.dark2; }
@@ -134,6 +152,18 @@ fn pq(z: f32) -> vec2<f32> {
   let q = phi(x) * t * (0.319381530 + t * (-0.356563782 + t * (1.781477937 + t * (-1.821255978 + t * 1.330274429))));
   if (z >= 0.0) { return vec2<f32>(1.0 - q, q); }
   return vec2<f32>(q, 1.0 - q);
+}
+// #533: whether a site with mean m (bound dm) and variance v (bound dv) is certainly below white (0), certainly at or above it
+// (1) or undecided (2): the reference's clip probability is exactly 0 or 1 beyond 8.5 standard deviations, and the decision here
+// asks for twice that distance (4·reach²) after moving the mean by twice its bound and the variance up by twice its bound.
+fn clip_state(m: f32, dm: f32, v: f32, dv: f32) -> u32 {
+  let gap = 1.0 - m;
+  let wide = 4.0 * params.reach2 * (v + 2.0 * dv);
+  let below = gap - 2.0 * dm;
+  let above = gap + 2.0 * dm;
+  if (below > 0.0 && below * below > wide) { return 0u; }
+  if (above < 0.0 && above * above > wide) { return 1u; }
+  return 2u;
 }
 // Moments of min(Y, top) for Y ~ N(m, v): (mean, variance, slope P). The variance is v·(P − zφ + z²Q − δ²) with
 // δ = φ − zQ: algebraically E[min²] − E[min]² without the m² cancellation.
@@ -257,6 +287,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_workgroups) 
       let gap = 1.0 - mean;
       let slot = sj * window_w + si;
       site_third[slot] = kc * kc * kc * e;
+      site_clip[slot] = clip_state(mean, SITE_RELATIVE_U * E * mean, variance, SITE_RELATIVE_U * E * variance);
       if (gap > 0.0 && gap * gap > params.reach2 * variance) {
         site_mean[slot] = mean; site_var[slot] = variance; site_bound[slot] = 0.0;
       } else {
@@ -283,6 +314,8 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_workgroups) 
   var c00 = 0.0; var c01 = 0.0; var c02 = 0.0; var c11 = 0.0; var c12 = 0.0; var c22 = 0.0;
   var r0 = 0.0; var r1 = 0.0; var r2 = 0.0;
   var bound_mean = 0.0; var bound_var = 0.0;
+  // #533: the saturated real pixels (bit j·nx + i) and whether any real pixel is undecided.
+  var mask0 = 0u; var mask1 = 0u; var undecided = false;
   // 4. and 5.: every real pixel of the footprint with its overlap weight.
   for (var j = 0u; j < ny; j = j + 1u) {
     let ay = geometry[row + 2u + j];
@@ -292,6 +325,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_workgroups) 
       let y = row_first + i32(j) + margin;
       let phase = u32(y & 1) * 2u + u32(x & 1);
       var cm: array<f32, 3>; var cvv: array<f32, 3>; var cth: array<f32, 3>; var csv: array<f32, 3>; var cb: array<f32, 3>;
+      var clipped = false; var near_white = false;
       for (var c = 0u; c < 3u; c = c + 1u) {
         var mean = 0.0; var variance = 0.0; var third = 0.0; var bnd = 0.0;
         let taps = ${DISPLAY_VIEW_AUX.taps}u + (phase * 3u + c) * 16u;
@@ -302,10 +336,15 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_workgroups) 
           variance = variance + w * w * site_var[slot];
           third = third + w * w * w * site_third[slot];
           bnd = max(bnd, select(0.0, site_bound[slot], w != 0.0));
+          if (w != 0.0) { if (site_clip[slot] == 1u) { clipped = true; } else if (site_clip[slot] == 2u) { near_white = true; } }
         }
         cm[c] = mean; cvv[c] = variance; cth[c] = third; cb[c] = bnd;
         csv[c] = variance * aux[${DISPLAY_VIEW_AUX.inverseW2}u + phase * 3u + c];
       }
+      if (clipped) {
+        let bit = j * nx + ii;
+        if (bit < 32u) { mask0 = mask0 | (1u << bit); } else { mask1 = mask1 | (1u << (bit - 32u)); }
+      } else if (near_white) { undecided = true; }
       // White balance and the highlight clip at the smallest gain: bm, bv, bs (slope), with the clip's bound terms.
       var bm: array<f32, 3>; var bv: array<f32, 3>; var bs: array<f32, 3>; var bbm: array<f32, 3>; var bbv: array<f32, 3>;
       for (var c = 0u; c < 3u; c = c + 1u) {
@@ -380,7 +419,9 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_workgroups) 
   out[o + 3u] = c00 + r0; out[o + 4u] = c11 + r1; out[o + 5u] = c22 + r2;
   out[o + 6u] = c01; out[o + 7u] = c02; out[o + 8u] = c12;
   out[o + 9u] = bound_mean * E; out[o + 10u] = bound_var * E;
-  flags[i] = select(0u, 1u, material_uncertain);
+  flags[3u * i] = select(0u, 1u, material_uncertain) | select(0u, 2u, undecided);
+  flags[3u * i + 1u] = mask0;
+  flags[3u * i + 2u] = mask1;
 }
 `;
 

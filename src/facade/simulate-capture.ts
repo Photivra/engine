@@ -1408,11 +1408,41 @@ export interface DisplayViewResult {
   diagnostics: { sampleCount: number; siteEvaluations: number; sceneLookups: number; detailPixelCount: number; uniformPixelCount: number; ahdCorrectedPixelCount: number;
     timingsMs: { view: number; total: number };
     /** #395: exact or fast, as requested and as run; 2.11 (#481): plus `execution`, where the render ran (see {@link DisplayViewFastReport}). */
-    fast: DisplayViewFastReport };
+    fast: DisplayViewFastReport;
+    /** #533: the saturated (clipped highlight) pixels of the real capture in the rendered region, as an expected value (see {@link DisplayViewHighlightDiagnostics}). */
+    highlight: DisplayViewHighlightDiagnostics };
   provenance: { scientificStatus: "approximation"; cameraPresetId: string; cameraPresetVersion: string; evidence: readonly EvidenceProvenance[];
     composedContracts: readonly string[]; limitations: readonly string[] };
   /** The capture request's assumptions, then `view.definition`, `view.estimation`, `view.noise`, `view.demosaic` and `view.source`. */
   assumptions: readonly SimulateCaptureAssumption[];
+}
+
+/**
+ * #533: the display view's highlight count. `simulateCapture` reports `diagnostics.highlight.saturatedPixelCount`, the
+ * output pixels with at least one clipped contributing RAW site (a site flagged saturated or at the white level) counted on its
+ * one noise sample (`sensor.noiseSeed`). The display view renders no RAW, so it reports that count's expected value over the
+ * noise: Σ_j w_j·P_j over the real output pixels j of the rendered region, w_j the part of pixel j inside the region (1 inside,
+ * a fraction at a region edge that cuts a real pixel) and P_j the probability, under the view's own site model (each site's
+ * normalized value normal with its exact expected electrons, shot, dark, read and ADC noise, as the expected value uses), that at
+ * least one site pixel j's demosaic reads is at or above the white level, the sites' noises independent. It is estimated as the
+ * view's expected value is (`view.estimation`: exact over every real pixel, or the stratified samples), so it is not an integer.
+ *
+ * - Where every contributing site is far from white (more than 8.5 noise standard deviations either side) P_j is exactly 0 or 1,
+ *   and the expected count equals the capture's count of the same pixels exactly (they then have no noise to differ by).
+ * - Regions are additive: the counts of regions that tile the view sum to the whole view's count (up to floating-point summation
+ *   order), each display pixel's share being the same in every region that renders it.
+ * - With the bilinear demosaic the sites are the capture's own contributing sites. With AHD the capture counts every site within
+ *   3 sites of the pixel (its interpolation reach, clipped to the raster); the view counts the 25–29 of those 49 that its AHD
+ *   candidates read, so its count can be lower where a clipped area ends in a corner or a speck 2–3 sites away diagonally
+ *   (an approximation; along a straight clipped edge the two agree).
+ * - It never changes a sample of the view. On the GPU (`prepareDisplayView` with `gpu`) it is the CPU reference's value: the
+ *   kernel decides P_j only where it is certainly 0 or 1 and the host computes every other pixel's share with the reference.
+ */
+export interface DisplayViewHighlightDiagnostics {
+  /** Expected number of saturated real output pixels in the rendered region (a non-negative real number; see above). */
+  saturatedPixelCount: number;
+  /** The statistic: always "expected-value" (the capture's own count is one noise sample of it). */
+  statistic: "expected-value";
 }
 
 /** Internal: the resolved request state that the display view's renderer (simulate-display-view.ts) reads. */

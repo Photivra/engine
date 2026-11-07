@@ -10,6 +10,7 @@ import { DISPLAY_VIEW_QUALITY_AUX, DISPLAY_VIEW_QUALITY_CANDIDATE_FLOATS, DISPLA
 import { DISPLAY_VIEW_CLIP_MEAN_U, DISPLAY_VIEW_CLIP_VARIANCE_U, DISPLAY_VIEW_REINHARD_MEAN_U, DISPLAY_VIEW_REINHARD_VARIANCE_U } from "../../src/gpu/wgsl-display-view-speed-kernel.js";
 import { AHD_KEY_FLOOR, AHD_KEY_LEVELS, AHD_KEY_OCTAVES, AHD_KEY_STEPS } from "../../src/facade/display-view.js";
 import type { ChartMaterialEmulator } from "./fake-webgpu-stages.js";
+import { clipState } from "./fake-webgpu-display-view.js";
 
 const f = Math.fround;
 const E = f(2 ** -23), REACH = 8.5, CM = f(DISPLAY_VIEW_CLIP_MEAN_U), CV = f(DISPLAY_VIEW_CLIP_VARIANCE_U), CS = f(DISPLAY_VIEW_QUALITY_SLOPE_U);
@@ -126,11 +127,11 @@ function writeSite(P: Record<string, number>, sites: Float32Array, sw: Uint32Arr
   const k = [P.k0!, P.k1!, P.k2!], c0 = [P.c00!, P.c01!, P.c02!];
   const kc = k[c]!, mean = f(kc * e), variance = f(f(f(kc * kc) * e) + c0[c]!), third = f(f(f(kc * kc) * kc) * e);
   let m: B = [mean, f(f(kc * de) + f(f(2 * E) * mean))], v: B = [variance, f(f(f(kc * kc) * de) + f(f(4 * E) * variance))];
-  const gap = f(1 - mean);
+  const gap = f(1 - mean), state = clipState(m[0], m[1], v[0], v[1], P.reach2!), bits = flag | (state === 1 ? 2 : 0) | (state === 2 ? 4 : 0);
   if (!(gap > 0 && f(gap * gap) > f(P.reach2! * variance))) { const clipped = upperClip(m, v, 1); m = clipped.mean; v = clipped.variance; }
   const o = i * SITE;
   sites[o] = m[0]; sites[o + 1] = v[0]; sites[o + 2] = third; sites[o + 3] = m[1]; sites[o + 4] = v[1]; sites[o + 5] = f(f(f(f(kc * kc) * kc) * de) + f(f(5 * E) * third));
-  sw[o + 6] = flag; sites[o + 7] = e;
+  sw[o + 6] = bits; sites[o + 7] = e;
 }
 const channelOf = (x: number, y: number): number => ((y & 1) === 0 ? ((x & 1) === 0 ? 0 : 1) : ((x & 1) === 0 ? 1 : 2));
 
@@ -250,6 +251,7 @@ export function emulateDisplayViewQualityPixels(pw: Uint32Array, pf: Float32Arra
     const bOf = [f(xbE * ybE), f(green(xppO, xqqO, xpqO, yppE, yqqE, ypqE) + green(xppE, xqqE, xpqE, yppO, yqqO, ypqO)), f(xbO * ybO)];
     const s: B[] = [Z, Z, Z], cov: B[] = [Z, Z, Z, Z, Z, Z], res: B[] = [Z, Z, Z];
     const choice = [0, 0, 0];
+    let mask0 = 0, mask1 = 0, undecided = false;
     for (let j = 0; j < ny; j++) {
       const ay = G(row + 2 + j);
       for (let ii = 0; ii < nx; ii++) {
@@ -267,6 +269,20 @@ export function emulateDisplayViewQualityPixels(pw: Uint32Array, pf: Float32Arra
           csv.push(bMul(variance, bRounded(aux[DISPLAY_VIEW_QUALITY_AUX.inverseW2 + phase * 3 + c]!)));
         }
         const cb = CB + phase * CSTRIDE, entries = auxWords[cb]!;
+        let clipAny = 0;
+        const clipBits = (o: number): number => (siteWords[o + 6]! >>> 1) & 3;
+        for (let c = 0; c < 3; c++) {
+          const tb = DISPLAY_VIEW_QUALITY_AUX.bilinear + (phase * 3 + c) * 16;
+          for (let t = 0; t < 4; t++) { if (aux[tb + 4 * t + 2] === 0) continue; clipAny |= clipBits(siteAt(x + aux[tb + 4 * t]!, y + aux[tb + 4 * t + 1]!)); }
+        }
+        for (let n = 0; n < entries; n++) {
+          const eb = cb + 4 + n * CF;
+          let used = false;
+          for (let k = 0; k < 3 * count; k++) if (aux[eb + 2 + k] !== 0) used = true;
+          if (used) clipAny |= clipBits(siteAt(x + aux[eb]!, y + aux[eb + 1]!));
+        }
+        if ((clipAny & 1) !== 0) { const bit = j * nx + ii; if (bit < 32) mask0 = (mask0 | (1 << bit)) >>> 0; else mask1 = (mask1 | (1 << (bit - 32))) >>> 0; }
+        else if ((clipAny & 2) !== 0) undecided = true;
         const eMean: B[] = [Z, Z, Z], cmAverage: B[] = [Z, Z, Z];
         let pixelVariance: B = Z;
         let bs: B[] = [], hs: B[] = [];
@@ -370,6 +386,6 @@ export function emulateDisplayViewQualityPixels(pw: Uint32Array, pf: Float32Arra
     out[o + 6] = cov[1]![0]; out[o + 7] = cov[2]![0]; out[o + 8] = cov[4]![0];
     out[o + 9] = Math.max(s[0]![1], s[1]![1], s[2]![1]);
     out[o + 10] = Math.max(f(cov[0]![1] + res[0]![1]), f(cov[3]![1] + res[1]![1]), f(cov[5]![1] + res[2]![1]), cov[1]![1], cov[2]![1], cov[4]![1]);
-    flags[i] = pixelFlags >>> 0;
+    flags[3 * i] = (pixelFlags | (undecided ? DISPLAY_VIEW_QUALITY_FLAG.highlightUndecided : 0)) >>> 0; flags[3 * i + 1] = mask0; flags[3 * i + 2] = mask1;
   }
 }
