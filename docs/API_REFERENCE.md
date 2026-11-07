@@ -1289,6 +1289,8 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 | [`SimulateCaptureCostOption`](api/facade-simulate-capture.md#simulatecapturecostoption) | Type |
 | [`SimulateCaptureDemosaic`](api/facade-simulate-capture.md#simulatecapturedemosaic) | Type |
 | [`SimulateCaptureDemosaicRecord`](api/facade-simulate-capture.md#simulatecapturedemosaicrecord) | Type |
+| [`SimulateCaptureDetailDiagnostics`](api/facade-simulate-capture.md#simulatecapturedetaildiagnostics) | Type |
+| [`SimulateCaptureDiffractionCorrection`](api/facade-simulate-capture.md#simulatecapturediffractioncorrection) | Type |
 | [`SimulateCaptureDngPart`](api/facade-simulate-capture.md#simulatecapturedngpart) | Type |
 | [`SimulateCaptureExposureMode`](api/facade-simulate-capture.md#simulatecaptureexposuremode) | Type |
 | [`SimulateCaptureFastOption`](api/facade-simulate-capture.md#simulatecapturefastoption) | Type |
@@ -1302,6 +1304,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 | [`SimulateCaptureProgress`](api/facade-simulate-capture.md#simulatecaptureprogress) | Type |
 | [`SimulateCaptureResult`](api/facade-simulate-capture.md#simulatecaptureresult) | Type |
 | [`SimulateCaptureSensorAntiAliasing`](api/facade-simulate-capture.md#simulatecapturesensorantialiasing) | Type |
+| [`SimulateCaptureSharpening`](api/facade-simulate-capture.md#simulatecapturesharpening) | Type |
 | [`SimulateCaptureWhiteBalance`](api/facade-simulate-capture.md#simulatecapturewhitebalance) | Type |
 | [`SimulateDisplayViewOptions`](api/facade-simulate-capture.md#simulatedisplayviewoptions) | Type |
 | [`simulateIdealReference`](api/facade-simulate-capture.md#simulateidealreference) | Runtime |

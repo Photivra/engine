@@ -111,7 +111,7 @@ a capture does. `motion.rotation` is a non-zero angular velocity; `sensor.tempor
 SIMULATE_CAPTURE_COST_OPTIONS = Object.freeze(["lens.pupilSampling", "lens.projection", "lens.distortion", "lens.vignetting", "lens.psf",
   "lens.diffraction", "lens.defocus", "sensor.antiAliasing", "sensor.pixelAperture.box", "sensor.temporalSampleCount", "motion.rotation", "motion.shutter.rolling", "output.borderHandling.mirror", "output.region",
   "output.whiteBalance.auto", "output.demosaic.ahd", "output.highlightMode.reconstruct", "output.colorEncoding.wide-gamut", "output.gamutMapping.perceptual",
-  "output.format.jpeg", "output.format.png", "output.format.dng"] as const)
+  "output.diffractionCorrection", "output.sharpening", "output.format.jpeg", "output.format.png", "output.format.dng"] as const)
 ```
 
 ## SIMULATE_CAPTURE_DEFAULT_ILLUMINANCE_LUX
@@ -332,6 +332,56 @@ export type SimulateCaptureDemosaic = "bilinear" | "ahd";
 
 ```ts
 export interface SimulateCaptureDemosaicRecord { kind: SimulateCaptureDemosaic; fast?: boolean }
+```
+
+## SimulateCaptureDetailDiagnostics
+
+`diagnostics.detail` (#552): what the development detail stages did. Present only when one ran.
+
+```ts
+export interface SimulateCaptureDetailDiagnostics {
+  diffractionCorrection?: {
+    /** Corrected linear samples below 0 (ringing below black; clipped later by gamut handling) and above the RAW white level 1. */
+    negativeSampleCount: number;
+    aboveWhiteSampleCount: number;
+    /** The diffraction cut-off p/(λ·N_w) in cycles per pixel (Nyquist is 0.5); nothing beyond it is recovered. */
+    cutoffCyclesPerPixel: number;
+    /** Measured largest |response| of the filter, and largest |response| beyond the cut-off (null when the Nyquist square is inside it). */
+    responsePeakGain: number;
+    responseMaximumBeyondCutoff: number | null;
+  };
+  sharpening?: {
+    /** Half-width ⌈3σ⌉ of the Gaussian in pixels. */
+    kernelRadiusPixels: number;
+    /** Samples changed by the mask, and samples left alone because their detail was under the threshold. */
+    sharpenedSampleCount: number;
+    thresholdHeldSampleCount: number;
+    /** Sharpened samples clipped at 0 or 1. */
+    clippedLowSampleCount: number;
+    clippedHighSampleCount: number;
+    /** Largest increase and decrease amount·detail before clipping, in encoded units: the halo strength. */
+    maximumIncrease: number;
+    maximumDecrease: number;
+  };
+}
+```
+
+## SimulateCaptureDiffractionCorrection
+
+`output.diffractionCorrection` (#552): the Wiener–Tikhonov gain G(s) = min(maximumGain, H(s)(1 + α)/(H(s)² + α)) on the circular-pupil
+OTF H at s = f/f_c, f_c = 1/(λ·N_w), as a (2R + 1)² FIR per channel. Every field is optional.
+
+```ts
+export interface SimulateCaptureDiffractionCorrection {
+  /** Design wavelength in nm, 380–780, used for all three channels. Default 550. */
+  wavelengthNm?: number;
+  /** α, an assumed noise-to-signal power ratio, 1e-4–1. Larger is safer and restores less. Default 0.01. */
+  regularization?: number;
+  /** Upper bound on the gain at any frequency, 1–10 (it bounds the noise amplification). Default 4. */
+  maximumGain?: number;
+  /** FIR radius R in pixels, 1–16. Default: the Airy pattern's third dark ring at the design wavelength, within 1–16. */
+  kernelRadiusPixels?: number;
+}
 ```
 
 ## SimulateCaptureDngPart
@@ -587,6 +637,20 @@ export interface SimulateCaptureOptions {
      * as a capture of the region's size.
      */
     region?: { x: number; y: number; width: number; height: number };
+    /**
+     * Opt-in (#552) diffraction correction: a bounded, regularized deconvolution of the developed linear colour with the
+     * diffraction OTF of the ideal circular pupil at the capture's working f-number (see {@link SimulateCaptureDiffractionCorrection}).
+     * It runs after demosaic, colour and white balance and before the tone curve. Frequencies beyond the diffraction cut-off
+     * 1/(λ·N_w) never reached the sensor and stay lost: the correction's design gain there is 0. Needs `lens.diffraction`.
+     * Not combinable with `region`. The DNG's RAW codes are not changed. Default off.
+     */
+    diffractionCorrection?: SimulateCaptureDiffractionCorrection;
+    /**
+     * Opt-in (#552) unsharp mask (see {@link SimulateCaptureSharpening}) on the sRGB-encoded values after the tone curve and gamut
+     * handling, before quantization. It raises edge contrast and creates halos; it adds no optical detail. sRGB output only
+     * (not the wide-gamut or perceptual PNG paths); not combinable with `region`. The DNG's RAW codes are not changed. Default off.
+     */
+    sharpening?: SimulateCaptureSharpening;
   };
   /** Camera motion and shutter type. Default: still camera, global electronic shutter. */
   motion?: SimulateCaptureMotion;
@@ -781,6 +845,8 @@ export interface SimulateCaptureResult {
     rendering: SdrRenderingResult["diagnostics"];
     /** Present with output.gamutMapping "perceptual": pixels whose chroma or lightness the mapping changed. */
     gamutMapping?: { method: "cielab-hue-preserving-chroma-compression"; kneeFraction: number; adjustedPixelCount: number; lightnessClippedPixelCount: number };
+    /** #552: present with output.diffractionCorrection or output.sharpening. */
+    detail?: SimulateCaptureDetailDiagnostics;
     /**
      * Wall-clock milliseconds per stage. `raw`, `whiteBalance` (the second RAW pass of auto white balance), `development`
      * (includes DNG writing), `jpeg` and `total` are whole milliseconds (`Date.now()`). Since 2.1, where a stage ran:
@@ -829,6 +895,22 @@ export type SimulateCaptureSensorAntiAliasing =
   | { kind: "four-spot"; separationSites?: number; fast?: boolean }
   | { kind: "two-spot"; axis: "horizontal" | "vertical"; separationSites?: number; fast?: boolean }
   | { kind: "point-splitting"; components: readonly AntiAliasingPointSplitComponent[]; fast?: boolean };
+```
+
+## SimulateCaptureSharpening
+
+`output.sharpening` (#552): unsharp mask y = x + amount·(x − G_σ∗x) where |x − G_σ∗x| ≥ threshold (GIMP and ImageMagick
+unsharp mask), per channel on sRGB-encoded values in [0, 1], then clipped to [0, 1]. Every field is optional.
+
+```ts
+export interface SimulateCaptureSharpening {
+  /** Gaussian standard deviation σ in output pixels, (0, 8]; the kernel reaches ⌈3σ⌉. Default 1. */
+  radiusPixels?: number;
+  /** Gain on the detail signal, (0, 5]. Default 0.5. */
+  amount?: number;
+  /** Detail smaller than this (encoded units, [0, 1]) is left unchanged. Default 0 (every difference is sharpened). */
+  threshold?: number;
+}
 ```
 
 ## SimulateCaptureWhiteBalance
