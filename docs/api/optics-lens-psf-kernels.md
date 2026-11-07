@@ -4,10 +4,11 @@ The package and root API versions are recorded once in [Navigation](../API_REFER
 
 ## LENS_PSF_CONVOLUTION_KERNELS_MAXIMUM_WAVELENGTHS
 
-At most this many wavelengths per call.
+At most this many wavelengths per call: 400, the finest spectral sampling of `simulateCapture` (1 nm over 380–780 nm),
+as `DIFFRACTION_LIMITED_PSF_PROFILE_LIMITS.maximumWavelengths` (64 before 2.15.0). The work is linear in the count.
 
 ```ts
-LENS_PSF_CONVOLUTION_KERNELS_MAXIMUM_WAVELENGTHS = 64
+LENS_PSF_CONVOLUTION_KERNELS_MAXIMUM_WAVELENGTHS = 400
 ```
 
 ## LENS_PSF_CONVOLUTION_KERNELS_SCHEMA_VERSION

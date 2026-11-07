@@ -44,7 +44,7 @@
  * so captures at sensor pitch are unchanged; larger cells (binned and whole-frame views) change in the last bits only.
  *
  * **Reuse (2.6).** The cells depend only on (β, R) (and the test-only node scale), so `calculateAiryCellEnergies` keeps the
- * 256 most recently used results and returns copies: tiles of one frame rendered in the same worker, and captures that
+ * 800 most recently used results (256 before 2.15.0; 800 holds two whole 400-node grids) and returns copies: tiles of one frame rendered in the same worker, and captures that
  * change only the exposure, ISO, scene or output, reuse the kernels instead of integrating them again. The frequency-domain
  * loop also takes cos θ and sin θ from a per-call table computed with the same expressions, so the values are unchanged.
  *
@@ -70,8 +70,13 @@ import { parseLensSampledPsfProfile, type LensSampledPsfProfile } from "./lens-p
 
 export const DIFFRACTION_LIMITED_PSF_PROFILE_MODEL = /* @__PURE__ */ Object.freeze({
   modelId: "photivra-diffraction-limited-circular-pupil-psf" as const, modelVersion: "1.0.0" as const });
-/** Input limits: at most 64 wavelengths, kernel radius 0–32 samples (the irradiance-convolution limit). */
-export const DIFFRACTION_LIMITED_PSF_PROFILE_LIMITS = /* @__PURE__ */ Object.freeze({ maximumWavelengths: 64, maximumKernelRadiusSamples: 32 });
+/**
+ * Input limits: at most 400 wavelengths, kernel radius 0–32 samples (the irradiance-convolution limit). 400 is the finest spectral
+ * sampling of `simulateCapture` and the display view (`sensor.spectralStepNanometers` 1 nm over 380–780 nm), so `lens.diffraction`
+ * builds one exact kernel per spectral node at every allowed step; it was 64 before 2.15.0, which refused every step under 6.25 nm.
+ * The work and memory are linear in the count (measured in docs/PSF_FOUNDATION.md, "Spectral nodes").
+ */
+export const DIFFRACTION_LIMITED_PSF_PROFILE_LIMITS = /* @__PURE__ */ Object.freeze({ maximumWavelengths: 400, maximumKernelRadiusSamples: 32 });
 /**
  * Internal: β = p·f_c (cell side over the cut-off period) from which `calculateAiryCellEnergies` integrates the cells in
  * real space (2.5). Above every β of a `simulateCapture` pitch up to 100 µm, whose captures keep the frequency-domain values.
@@ -86,7 +91,7 @@ export interface CreateDiffractionLimitedPsfProfileInput {
   focalLengthMm: number;
   apertureFNumber: number;
   focus: FocusPlane;
-  /** Strictly increasing wavelengths, nm, in the medium of propagation (no air/vacuum conversion is applied). 1–64. */
+  /** Strictly increasing wavelengths, nm, in the medium of propagation (no air/vacuum conversion is applied). 1–400. */
   wavelengthsNm: readonly number[];
   /** Square sample pitch of every kernel, µm. */
   samplePitchMicrometers: number;
@@ -199,8 +204,11 @@ export function calculateAiryCellEnergies(beta: number, radius: number, scale = 
   if (AIRY_CELL_CACHE.size > AIRY_CELL_CACHE_ENTRIES) AIRY_CELL_CACHE.delete(AIRY_CELL_CACHE.keys().next().value!);
   return result;
 }
-/** Memoized cell energies (2.6): 256 entries of (R + 1)² values, at most 256 × 33² × 8 bytes ≈ 2.2 MB. */
-const AIRY_CELL_CACHE_ENTRIES = 256;
+/**
+ * Memoized cell energies (2.6): 800 entries of (R + 1)² values, at most 800 × 33² × 8 bytes ≈ 7.0 MB. 2.15.0: 800 (was 256), so the
+ * least-recently-used order still reuses a whole grid of the finest spectral sampling (400 nodes), which 256 entries never did.
+ */
+const AIRY_CELL_CACHE_ENTRIES = 800;
 const AIRY_CELL_CACHE = new Map<string, { cells: Float64Array; radialNodes: number; angularNodes: number; realSpace: boolean }>();
 
 /** Hankel asymptotic coefficients a_k(ν) of DLMF 10.17.1 for ν = 0 and 1, k = 0..15. */
@@ -367,7 +375,7 @@ export function createDiffractionLimitedPsfProfile(input: CreateDiffractionLimit
   const field = requireAllowlistedRecord(r.fieldHalfExtentMm, ["x", "y"], "Invalid fieldHalfExtentMm.");
   const fieldX = positive(field.x, "fieldHalfExtentMm.x"), fieldY = positive(field.y, "fieldHalfExtentMm.y");
   const list = r.wavelengthsNm;
-  if (!Array.isArray(list) || list.length < 1 || list.length > L.maximumWavelengths) throw new InvalidConfigurationError("wavelengthsNm must list 1 to 64 wavelengths.");
+  if (!Array.isArray(list) || list.length < 1 || list.length > L.maximumWavelengths) throw new InvalidConfigurationError("wavelengthsNm must list 1 to " + L.maximumWavelengths + " wavelengths.");
   const wavelengths = (list as unknown[]).map((value, index) => positive(value, "wavelengthsNm[" + index + "]"));
   for (let i = 1; i < wavelengths.length; i++) if (!(wavelengths[i]! > wavelengths[i - 1]!)) throw new InvalidConfigurationError("wavelengthsNm must be strictly increasing.");
   if (typeof r.profileId !== "string" || !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(r.profileId)) throw new InvalidConfigurationError("profileId must be a public opaque ID.");

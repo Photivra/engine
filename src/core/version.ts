@@ -8,4 +8,4 @@
  * own versions. Release checks confirm it matches package.json and the packed package.
  * @see docs/RELEASE_1_0_1.md
  */
-export const ENGINE_API_VERSION = "2.14.1" as const;
+export const ENGINE_API_VERSION = "2.15.0" as const;

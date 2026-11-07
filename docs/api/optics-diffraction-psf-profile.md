@@ -26,7 +26,7 @@ export interface CreateDiffractionLimitedPsfProfileInput {
   focalLengthMm: number;
   apertureFNumber: number;
   focus: FocusPlane;
-  /** Strictly increasing wavelengths, nm, in the medium of propagation (no air/vacuum conversion is applied). 1–64. */
+  /** Strictly increasing wavelengths, nm, in the medium of propagation (no air/vacuum conversion is applied). 1–400. */
   wavelengthsNm: readonly number[];
   /** Square sample pitch of every kernel, µm. */
   samplePitchMicrometers: number;
@@ -40,10 +40,13 @@ export interface CreateDiffractionLimitedPsfProfileInput {
 
 ## DIFFRACTION_LIMITED_PSF_PROFILE_LIMITS
 
-Input limits: at most 64 wavelengths, kernel radius 0–32 samples (the irradiance-convolution limit).
+Input limits: at most 400 wavelengths, kernel radius 0–32 samples (the irradiance-convolution limit). 400 is the finest spectral
+sampling of `simulateCapture` and the display view (`sensor.spectralStepNanometers` 1 nm over 380–780 nm), so `lens.diffraction`
+builds one exact kernel per spectral node at every allowed step; it was 64 before 2.15.0, which refused every step under 6.25 nm.
+The work and memory are linear in the count (measured in docs/PSF_FOUNDATION.md, "Spectral nodes").
 
 ```ts
-DIFFRACTION_LIMITED_PSF_PROFILE_LIMITS = Object.freeze({ maximumWavelengths: 64, maximumKernelRadiusSamples: 32 })
+DIFFRACTION_LIMITED_PSF_PROFILE_LIMITS = Object.freeze({ maximumWavelengths: 400, maximumKernelRadiusSamples: 32 })
 ```
 
 ## DIFFRACTION_LIMITED_PSF_PROFILE_MODEL
