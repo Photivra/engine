@@ -547,8 +547,13 @@ export interface SimulateCaptureOptions {
      * kernel is convolved with the disc (a further approximation). In focus the result is that of the same request
      * without the option, plus the assumption.
      * Not combinable with `pupilSampling` or `psf`. Default off.
+     *
+     * Bokeh character (#553), each part off by default (without them the disc is unchanged, byte for byte): `blades` (a
+     * polygonal or rounded-blade opening), `sphericalAberration` (primary W040: soft-edged blur on one side of the focus
+     * plane, bright-rimmed on the other) and `catsEye` (mechanical vignetting clipping the pupil by field position; the
+     * capture only, not with `diffraction`). See `calculateDefocusBokehKernel` and docs/QUICK_START.md, "Bokeh character".
      */
-    defocus?: { model: "geometric-disc" };
+    defocus?: { model: "geometric-disc" } & DefocusBokehOptions;
   };
   exposure?: {
     /** Default "manual". */

@@ -75,7 +75,8 @@ export interface SiteKernelRuns {
 /**
  * The run decomposition of a site kernel of radius R ((2R + 1)² row-major weights, out(p) = Σ_t K(t)·L(p − t)). Zero taps are
  * skipped. Fails with `InvalidConfigurationError` when the kernel would need more than {@link SITE_KERNEL_RUNS_MAXIMUM_READS}
- * reads per output.
+ * reads per output, with a short `lens.defocus:` message (the kernels it takes are `lens.defocus`'s; spherical aberration's ray binning
+ * is the one that can reach the limit).
  */
 export function siteKernelRuns(weights: Float64Array, radius: number): SiteKernelRuns {
   const width = 2 * radius + 1;
@@ -105,11 +106,14 @@ export function siteKernelRuns(weights: Float64Array, radius: number): SiteKerne
   }
   const readsPerOutput = 2 * runV.length + tapW.length;
   if (readsPerOutput > SITE_KERNEL_RUNS_MAXIMUM_READS)
-    throw new InvalidConfigurationError("This defocus kernel of radius " + radius + " sites has too little uniform area for the large-kernel method (" +
-      readsPerOutput + " reads per site, at most " + SITE_KERNEL_RUNS_MAXIMUM_READS + ").");
+    throw new InvalidConfigurationError("lens.defocus: this blur needs " + grouped(readsPerOutput) + " reads per site; above a kernel radius of " +
+      DEFOCUS_DIRECT_KERNEL_MAXIMUM_RADIUS_SITES + " sites the limit is " + grouped(SITE_KERNEL_RUNS_MAXIMUM_READS) + ". Reduce the spherical aberration or the defocus.");
   return { radius, groupWeights, runStart, runV: Int32Array.from(runV), runU0: Int32Array.from(runU0), runU1: Int32Array.from(runU1),
     tapV: Int32Array.from(tapV), tapU: Int32Array.from(tapU), tapW: Float64Array.from(tapW), readsPerOutput };
 }
+
+/** A non-negative integer with comma thousands separators (no locale data). */
+const grouped = (value: number): string => String(value).replace(/\B(?=(\d{3})+$)/gu, ",");
 
 /** Which outputs of a tile row to compute: columns start, start + step, … (tile coordinates); null skips the row. */
 export type SiteKernelRunsRowPattern = (tileRow: number) => { start: number; step: number } | null;

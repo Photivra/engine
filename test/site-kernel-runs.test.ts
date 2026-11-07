@@ -62,7 +62,7 @@ describe("siteKernelRuns and convolveSiteKernelRuns (#564)", () => {
   it("refuse a kernel with no uniform runs whose reads per site exceed the direct gather at radius 64", () => {
     const R = 70, kw = 2 * R + 1, random = stream(11), weights = Float64Array.from({ length: kw * kw }, () => random() / (kw * kw));
     expect(() => siteKernelRuns(weights, R)).toThrow(InvalidConfigurationError);
-    expect(() => siteKernelRuns(weights, R)).toThrow(/too little uniform area/u);
+    expect(() => siteKernelRuns(weights, R)).toThrow(/^lens\.defocus: this blur needs [0-9,]+ reads per site; above a kernel radius of 64 sites the limit is 16,641\. Reduce the spherical aberration or the defocus\.$/u);
   });
 
   it("refuse bad samples and shapes", () => {

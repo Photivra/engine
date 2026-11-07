@@ -7938,6 +7938,21 @@ const blurred = await simulateCapture({
 console.log(blurred.assumptions.find((a) => a.id === "lens.defocus")?.value); // diameterSites ≈ 5.95, kernelRadiusSites 3
 ```
 
+Bokeh character (#553): `lens.defocus` also takes `blades` (a polygonal or rounded-blade opening), `sphericalAberration`
+(primary W040: a soft-edged blur on one side of the focus plane and a bright-rimmed one on the other) and `catsEye`
+(mechanical vignetting by field position; `simulateCapture` only). Each is off by default. `calculateDefocusBokehKernel`
+returns the kernel without rendering. See [Bokeh character](QUICK_START.md#bokeh-character-553).
+
+```ts
+import { calculateDefocusBokehKernel } from "@photivra/engine";
+
+const kernel = calculateDefocusBokehKernel({
+  focalLengthMm: 50, aperture: 4, focusDistanceM: 1.4, subjectDistanceM: 2, pixelPitchMicrometers: 6,
+  bokeh: { blades: { count: 5 }, sphericalAberration: { w040Micrometers: 0.5, atFNumber: 4 } }
+});
+console.log(kernel.value.side, kernel.value.kernelRadiusSites, kernel.value.method); // "behind-focus", 17, "pupil-ray-binning"
+```
+
 `motion.angularVelocityRadPerSec` rotates the camera during the exposure (8 time midpoints by
 default). `motion.shutter: "rolling"` derives each site's exposure window from the body's rolling
 readout, with `resolveElectronicRollingShutterExposureSchedule`. See [Motion](QUICK_START.md#motion).

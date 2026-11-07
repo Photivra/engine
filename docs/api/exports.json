@@ -563,6 +563,16 @@
       "kind": "runtime"
     },
     {
+      "name": "calculateDefocusBokehKernel",
+      "source": "src/optics/defocus-bokeh-kernel.ts",
+      "kind": "runtime"
+    },
+    {
+      "name": "CalculateDefocusBokehKernelInput",
+      "source": "src/optics/defocus-bokeh-kernel.ts",
+      "kind": "type"
+    },
+    {
       "name": "calculateDefocusCircle",
       "source": "src/optics/depth-of-field.ts",
       "kind": "runtime"
@@ -2703,9 +2713,44 @@
       "kind": "type"
     },
     {
+      "name": "DEFOCUS_BOKEH_MAXIMUM_BLADES",
+      "source": "src/optics/defocus-bokeh-kernel.ts",
+      "kind": "runtime"
+    },
+    {
       "name": "DEFOCUS_DISC_KERNEL_MAXIMUM_RADIUS_SITES",
       "source": "src/optics/defocus-disc-kernel.ts",
       "kind": "runtime"
+    },
+    {
+      "name": "DefocusBokehBlades",
+      "source": "src/optics/defocus-bokeh-kernel.ts",
+      "kind": "type"
+    },
+    {
+      "name": "DefocusBokehCatsEye",
+      "source": "src/optics/defocus-bokeh-kernel.ts",
+      "kind": "type"
+    },
+    {
+      "name": "DefocusBokehClippingAperture",
+      "source": "src/optics/defocus-bokeh-kernel.ts",
+      "kind": "type"
+    },
+    {
+      "name": "DefocusBokehKernel",
+      "source": "src/optics/defocus-bokeh-kernel.ts",
+      "kind": "type"
+    },
+    {
+      "name": "DefocusBokehOptions",
+      "source": "src/optics/defocus-bokeh-kernel.ts",
+      "kind": "type"
+    },
+    {
+      "name": "DefocusBokehSphericalAberration",
+      "source": "src/optics/defocus-bokeh-kernel.ts",
+      "kind": "type"
     },
     {
       "name": "DefocusCircle",

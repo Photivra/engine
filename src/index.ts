@@ -1026,6 +1026,18 @@ export {
 } from "./optics/defocus-disc-kernel.js";
 
 export {
+  DEFOCUS_BOKEH_MAXIMUM_BLADES,
+  calculateDefocusBokehKernel,
+  type CalculateDefocusBokehKernelInput,
+  type DefocusBokehKernel,
+  type DefocusBokehOptions,
+  type DefocusBokehBlades,
+  type DefocusBokehSphericalAberration,
+  type DefocusBokehCatsEye,
+  type DefocusBokehClippingAperture
+} from "./optics/defocus-bokeh-kernel.js";
+
+export {
   calculateFocusBreathingFieldOfView,
   calculateFocusBreathingProjection,
   calculateGeometricFocusBreathing,

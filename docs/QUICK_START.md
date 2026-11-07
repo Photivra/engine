@@ -72,7 +72,7 @@ modelling choices (such as "no lens PSF") as `kind: "model"`.
 | `lens.distortion` | none | `{ kind: "radial", profile }` or `{ kind: "brown-conrady", profile }`. |
 | `lens.vignetting` | none | An `IlluminationVignettingProfile` (radial relative illumination). |
 | `lens.psf` | none | A `{ kind: "sampled-local", configuration }` sampled lens PSF, passed to the environment contract unchanged. |
-| `lens.defocus` | off | `{ model: "geometric-disc" }`: defocus of the scene plane as the geometric blur disc (see [Optics](#optics)). `simulateCapture` and `simulateDisplayView` render it. |
+| `lens.defocus` | off | `{ model: "geometric-disc" }`: defocus of the scene plane as the geometric blur disc (see [Optics](#optics)). `simulateCapture` and `simulateDisplayView` render it. Optional bokeh character (#553), each part off by default: `blades`, `sphericalAberration`, `catsEye` (see [Bokeh character](#bokeh-character-553)). |
 | `lens.diffraction` | off | 2.1: `"circular-aperture"` or `{ kind: "circular-aperture", kernelRadiusSamples, fast }`: diffraction blur of an ideal lens at the resolved f-number (see [Optics](#optics)). `aperture` is accepted as a deprecated alias of `kind` until 3.0.0. |
 | `exposure.mode` | `"manual"` | Also `"aperture-priority"`, `"shutter-priority"`, `"program"`. |
 | `exposure.iso` | 100 | Selects the body's ISO readout regime (gain and read noise). From 2.14 the tier bodies (preset 2.1.0) take the third-stop settings `GENERIC_THIRD_STOP_ISO_SETTINGS` (100, 125, 160, 200 … up to the body's maximum: 6400, 12 800 or 25 600). `"auto"` lets Auto ISO choose it from the meter in any mode (see [Auto ISO](#auto-iso-516)); it steps in whole stops unless `exposure.autoIso.isoSteps: "third-stop"`. |
@@ -1246,6 +1246,92 @@ object-space, image-space #548 and tabulated paths) and in `simulateDisplayView`
   each tile's source, at a measured cost (above). It covers the owner's case (R = 179), and at 6 µm a 50 mm or 85 mm f/1.2
   focused at infinity with the subject at 1 m or farther (R ≤ 502). A blur past it fails with a short message (above); the disc is never clipped.
 
+#### Bokeh character (#553)
+
+`lens.defocus` takes three optional parts that shape the defocus kernel by the lens. Each is off by default; without
+them the disc above is unchanged and every request is byte-identical. The same options, validated the same way, go to
+`calculateDefocusBokehKernel({ focalLengthMm, aperture, focusDistanceM, subjectDistanceM, pixelPitchMicrometers, bokeh,
+fieldTangent? })`, which returns the kernel the capture applies (for previews, tests and lens catalogues; the
+`DefocusBokehOptions` type is what a catalogue lens can carry, #549).
+
+```js
+lens: { focalLengthMm: 50, fNumber: 4, focusDistanceM: 1.4, defocus: { model: "geometric-disc",
+  blades: { count: 9, firstBladeEdgeAngleDegrees: 0, curvature: 0.3, circularAtOrBelowFNumber: 1.8 },
+  sphericalAberration: { w040Micrometers: 0.5, atFNumber: 4 },
+  catsEye: { apertures: [{ radiusMm: 7, shiftPerTanFieldMm: 20 }], fieldZonesAcrossLongSide: 8 } } }
+```
+
+- **The model.** A geometric defocused image of a point is the open pupil projected onto the sensor. The ray through
+  pupil point P = ρ·p̂ (in units of the radius of the f/N pupil) lands at (σ·c/2 + b·ρ²)·P sites from the chief ray: c is
+  the thin-lens blur diameter (`calculateDefocusCircle`), σ = +1 for a scene plane behind the focus plane and −1 in front
+  of it, and b = 8·N·W040/pitch is the transverse ray aberration of primary spherical aberration W = W040·ρ⁴,
+  ε = −(R/r_p)·∂W/∂ρ with R/r_p = 2N (Wyant & Creath 1992, §II.A, free). It is an approximation: geometric optics, an ideal thin
+  lens, the aberration referred to the paraxial focus, the exit pupil the same shape and orientation as the entrance pupil;
+  no diffraction of the defocused wave, onion rings, higher-order or field-dependent aberrations, and the same kernel at
+  every wavelength. The `lens.defocus` assumption gains `bokeh` (the options, the side, the shaped kernel's radius,
+  the method, b in sites, and the cat's-eye zones) and says all this.
+- **`blades`**: a regular polygon of `count` (3–32) straight blades, with `calculateIdealApertureGeometry`'s
+  `firstBladeEdgeAngleDegrees`; `curvature` κ in [0, 1] makes each edge an arc of radius 1/κ circumradii through its two
+  vertices (κ = 1 is the circle); at or below `circularAtOrBelowFNumber` the blades are open and the opening is circular.
+  The opening is scaled to the area of the f/N circle, so the f-number keeps its meaning for light and the blur has the
+  disc's area.
+- **Front against back.** Behind the focus plane the rays have crossed before the sensor, in front they have not, so the
+  two blurs are the same pupil turned through 180° (visible with an odd blade count or a cat's eye; shapes are declared as
+  the blur behind the focus plane appears in the output image, +X right, +Y up). With spherical aberration the term b·ρ²
+  adds to the defocus on one side and subtracts on the other: the image intensity at r = |σc/2·ρ + bρ³| of a circular
+  pupil is proportional to 1/(|σc/2 + bρ²|·|σc/2 + 3bρ²|), so undercorrected aberration (W040 > 0) gives a soft-edged blur
+  behind the focus plane and a bright-rimmed one in front, and overcorrected the reverse (the photographic description is
+  H. H. Nasse, "Depth of Field and Bokeh", Carl Zeiss, 2010, free). `sphericalAberration` gives W040 in µm at `atFNumber`,
+  scaled to the working f-number as W040·(N₀/N)⁴. The rim can widen the blur beyond the disc; past the 64-site cap the
+  request is refused with the radius needed.
+- **`catsEye`**: mechanical vignetting, the model of `calculateMechanicalVignetting` (Greivenkamp, OPTI-502 notes, sec. 10,
+  free): each clipping aperture is a circle of `radiusMm` in the entrance-pupil plane, shifted by
+  `shiftPerTanFieldMm`·tan θ toward the field point, and the open pupil is the opening inside every circle. The kernel
+  varies over the field, so the capture cuts the native raster into square zones (`fieldZonesAcrossLongSide`, 1–32,
+  default 8) and gives each site the kernel of its zone's centre: a piecewise-constant (sectioned) approximation of the
+  space-variant blur (also see L. Denis, É. Thiébaut, F. Soulez, J.-M. Becker, R. Mourya, "Fast approximations of
+  shift-variant blur", *International Journal of Computer Vision* 115, 2015, pp. 253–278). The assumption reports the
+  zones, the smallest open-area ratio and its largest step between neighbouring zones (the size of the seams; raise the
+  zone count to shrink it). The kernel has unit sum: the light the clip removes is not applied, so declare the falloff with
+  `lens.vignetting`, as for any field throughput (`lightLossApplied: false`). It runs on the object-space and the
+  image-space (#548) paths; the cat's eye skips the tabulated fast path (one kernel per node there), and it cannot be
+  combined with `lens.diffraction` (every zone would need its own combined kernel per node). `simulateDisplayView` and
+  `prepareDisplayView` refuse it; they render `blades` and `sphericalAberration`.
+- **Sampling.** Without spherical aberration each site's weight is the exact area of the projected open pupil (a convex
+  polygon; circles and blade arcs are 1024-gons scaled to their true area, within 5e-6 of the radius of the true curve)
+  inside the site's cell, divided by its area (`"exact-polygon-cell-area"`). With it the pupil is sampled on a square grid
+  fine enough that neighbouring rays land at most 1/8 site apart, each grid cell weighted by its exact overlap with the
+  pupil's chord, and every ray binned into the site cell it lands in (`"pupil-ray-binning"`; it handles the caustic).
+  Only correctly rounded operations and the portable trigonometry are used, so the weights are the same bits in every
+  JavaScript engine.
+- **Validation** (`test/defocus-bokeh-kernel.test.ts`, `test/simulate-capture-defocus-bokeh.test.ts`):
+  - Polygon area and shape: an interior cell holds 1/(π·(c/2)²) of the light (to 1e-6 relative) for 5, 6 and 9 blades, and
+    every cell matches a 16 × 16 supersampling of `calculateIdealApertureGeometry`'s polygon to its resolution (1/16 cell).
+    Without blades, at κ = 1 and with the blades open the kernel equals the exact disc kernel to 1e-4 of an interior weight.
+  - Cat's eye against field position: the open-area ratio equals `calculateMechanicalVignetting`'s exact two-circle area to
+    1e-4 at 0–25° and three azimuths; the radial spread falls against the tangential one as the field grows, the light kept
+    is on the field point's side behind the focus plane and on the other in front; on axis the disc is whole.
+  - Spherical-aberration edge profile: the kernel's encircled energy follows the ray map's analytic ρ(r)² within 0.012 at
+    c = 60 sites, b = 4.5 sites on both sides; the rim-to-centre intensity ratio matches the analytic one to 0.05 and is
+    below 0.8 behind and above 1.2 in front for W040 > 0, reversed for W040 < 0; W040 scales as (N₀/N)⁴.
+  - Front against back: a 5-blade kernel in front is the one behind turned through 180° to 1e-15; a circular pupil without
+    aberration gives the same blur on both sides.
+  - On the point grid out of focus (240 × 144, 6 µm, 50 mm f/4, subject 2 m, focus 1.4 m, a 23-site blur): the centre
+    point's blob has a max/min radial extent of 1.07 with the disc and 1.23 with 5 blades (1/cos 36° = 1.236), five-fold;
+    with a cat's eye the left point's blob has a radial-to-tangential spread of 0.57 (0.99–1.01 for the centre point and
+    without the option) and its centroid moves 3.5 px outward; with W040 0.5 µm the rim-to-centre ratio is 0.90 behind the
+    focus plane (focus 1.4 m) and 1.15 in front (focus 3.5 m).
+  - Requests without the options, and in focus with them, give the same RAW codes; regions equal the whole frame with a
+    cat's eye; the GPU display view's float32 emulation gathers a shaped asymmetric kernel within its a-priori bounds.
+- **Cost** (Apple M5 Pro, Node.js 24, built `dist`, one thread, median of 3 or 5; a shared machine). Building a kernel at
+  1.4 µm, 50 mm f/4, subject 2 m, focus 1.6 m (c = 57.6 sites): the circle or 9 blades 0.2–0.8 ms (R 29–30), a cat's-eye
+  kernel at tan θ = 0.3 3.5 ms, spherical aberration (b = 6.9 sites, R 36, about 0.5 million rays) 3–4 ms. A Siemens star
+  capture at 480 × 320, 6 µm, focus 1.6 m (c = 13.4 sites, R 7–9): the disc, 9 blades and spherical aberration all
+  0.06–0.08 s on the tabulated path; a cat's eye 2.2 s with 8 zones and 3.2 s with 16 (the zoned convolution itself 0.51 s
+  and 1.02 s), because it leaves the tabulated path for the per-site environment path. The display view (CPU, 240 × 160 of
+  that frame) took 0.12–0.16 s with the disc, 9 blades or spherical aberration. The GPU display view gathers the shaped
+  kernel with the disc's own pass and cost (no `src/gpu` change); it does not take the cat's eye.
+
 ### Pixel aperture (2.3)
 
 By default each site samples the irradiance at its centre (`sensor.pixelAperture: "point"`). Scene
@@ -1900,6 +1986,15 @@ provided, for rights reasons.
   independent test). The original analysis is G. B. Airy, "On the Diffraction of an Object-glass with
   Circular Aperture", *Transactions of the Cambridge Philosophical Society* 5, 1835, pp. 283–291. The
   engine's implementation and its tests are its own (see [PSF foundation](https://github.com/Photivra/photivra/blob/main/docs/PSF_FOUNDATION.md#diffraction-limited-sampled-profile-21)).
+- Bokeh character (`lens.defocus` blades, spherical aberration and cat's eye, `calculateDefocusBokehKernel`, #553): the
+  transverse ray aberration ε = −(R/r_p)·∂W/∂ρ of primary spherical aberration from Wyant & Creath 1992 (above), §II.A; the
+  mechanical-vignetting model from J. E. Greivenkamp, OPTI-502 Optical Design and Instrumentation I course notes, University
+  of Arizona, sec. 10 (free; as `calculateMechanicalVignetting`); the photographic account of front and back bokeh under
+  spherical aberration in H. H. Nasse, "Depth of Field and Bokeh", Carl Zeiss Camera Lens Division, March 2010, free at
+  <https://lenspire.zeiss.com/photo/app/uploads/2022/02/technical-article-depth-of-field-and-bokeh.pdf>. The intensity
+  profiles follow from the ray map; the polygon clipping (Sutherland–Hodgman) and the shoelace area are elementary geometry.
+  The zoned (sectioned) treatment of the field-varying cat's eye is surveyed in L. Denis et al., "Fast approximations of
+  shift-variant blur", *International Journal of Computer Vision* 115 (2015) 253–278.
 - Print planning (`calculatePrintPlan`, `calculatePrintSizeLimit`): Z. Alomar, K. D. Bojikian, "Visual Acuity
   Testing in Adults", EyeWiki, American Academy of Ophthalmology, last edited June 16, 2026, free to read at
   <https://eyewiki.aao.org/Visual_Acuity_Testing_in_Adults> (the minimum angle of resolution of an ideal eye under optimal

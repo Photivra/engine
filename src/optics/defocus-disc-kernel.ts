@@ -159,17 +159,17 @@ export function createDefocusDiscSiteKernel(diameterSites: number): DefocusDiscS
     for (const [u, v] of [[i, j], [j, i]] as const) for (const su of u === 0 ? [1] : [1, -1]) for (const sv of v === 0 ? [1] : [1, -1])
       weights[(sv * v + radius) * width + su * u + radius] = a;
   }
-  normalize(weights, (width * width - 1) / 2);
+  normalizeSiteKernel(weights, (width * width - 1) / 2);
   return { diameterSites, radius, width, weights };
 }
 
 /**
  * Divides by the float64 sum, then sets the centre weight to 1 minus the exact sum of the others (accumulated as a
  * double-double with Knuth's TwoSum), rounded once. The exact real sum of the weights is then 1 within half a unit in
- * the last place of the centre weight. (No float64 summation order can promise exactly 1: a one-ulp change of one weight
+ * the last place of the centre weight (internal; also used by the shaped kernels of #553). (No float64 summation order can promise exactly 1: a one-ulp change of one weight
  * can move a rounded sum from just below 1 to just above it.)
  */
-function normalize(weights: Float64Array, centre: number): void {
+export function normalizeSiteKernel(weights: Float64Array, centre: number): void {
   let total = 0;
   for (let k = 0; k < weights.length; k++) total += weights[k]!;
   for (let k = 0; k < weights.length; k++) weights[k]! /= total;
