@@ -191,10 +191,11 @@ export async function displayViewSpeed(payload: string): Promise<string> {
       milliseconds = performance.now() - start;
     }
     const gpu = result!;
-    return encodeTransport({ cpu: { samples: fixture.cpu.samples, expected: fixture.cpu.expected, noiseStd: fixture.cpu.noiseStd },
+    return encodeTransport({ cpu: { samples: fixture.cpu.samples, expected: fixture.cpu.expected, noiseStd: fixture.cpu.noiseStd, saturated: fixture.cpu.saturated },
       gpu: { samples: gpu.samples, expected: gpu.expected, noiseStd: gpu.noiseStd, expectedValueBound: gpu.expectedValueBound, varianceBound: gpu.varianceBound,
-        expectedValueAbsoluteBound: gpu.expectedValueAbsoluteBound, varianceAbsoluteBound: gpu.varianceAbsoluteBound },
-      flaggedPixelIndices: gpu.flaggedPixelIndices, hostRecomputedPixelIndices: gpu.hostRecomputedPixelIndices, execution: gpu.execution, gpuMilliseconds: milliseconds });
+        expectedValueAbsoluteBound: gpu.expectedValueAbsoluteBound, varianceAbsoluteBound: gpu.varianceAbsoluteBound, saturated: gpu.saturated },
+      flaggedPixelIndices: gpu.flaggedPixelIndices, hostRecomputedPixelIndices: gpu.hostRecomputedPixelIndices, highlightRecomputedPixelIndices: gpu.highlightRecomputedPixelIndices,
+      execution: gpu.execution, gpuMilliseconds: milliseconds });
   } finally { device.destroy(); }
 }
 
@@ -225,10 +226,12 @@ export async function displayViewQuality(payload: string): Promise<string> {
       milliseconds = performance.now() - start;
     }
     const gpu = result!;
-    return encodeTransport({ cpu: { samples: fixture.cpu.samples, expected: fixture.cpu.expected, noiseStd: fixture.cpu.noiseStd, ahdCorrectedPixelCount: fixture.cpu.ahdCorrectedPixelCount },
+    return encodeTransport({ cpu: { samples: fixture.cpu.samples, expected: fixture.cpu.expected, noiseStd: fixture.cpu.noiseStd, ahdCorrectedPixelCount: fixture.cpu.ahdCorrectedPixelCount,
+      saturated: fixture.cpu.saturated },
       gpu: { samples: gpu.samples, expected: gpu.expected, noiseStd: gpu.noiseStd, expectedValueBound: gpu.expectedValueBound, varianceBound: gpu.varianceBound,
-        expectedValueAbsoluteBound: gpu.expectedValueAbsoluteBound, varianceAbsoluteBound: gpu.varianceAbsoluteBound },
-      flaggedPixelIndices: gpu.flaggedPixelIndices, hostRecomputedPixelIndices: gpu.hostRecomputedPixelIndices, execution: gpu.execution, gpuMilliseconds: milliseconds,
+        expectedValueAbsoluteBound: gpu.expectedValueAbsoluteBound, varianceAbsoluteBound: gpu.varianceAbsoluteBound, saturated: gpu.saturated },
+      flaggedPixelIndices: gpu.flaggedPixelIndices, hostRecomputedPixelIndices: gpu.hostRecomputedPixelIndices, highlightRecomputedPixelIndices: gpu.highlightRecomputedPixelIndices,
+      execution: gpu.execution, gpuMilliseconds: milliseconds,
       stageMilliseconds: gpu.stageMilliseconds, tapsPerSite: gpu.tapsPerSite, statesComputed: gpu.statesComputed, ahdCorrectedPixelCount: gpu.ahdCorrectedPixelCount, cpuStages,
       blockedSum: gpu.blockedSum, siteSumRelativeBound: gpu.siteSumRelativeBound, latticePointsResolved: gpu.latticePointsResolved, pixelFlags: gpu.pixelFlags });
   } finally { device.destroy(); }

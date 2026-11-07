@@ -1,6 +1,21 @@
 # Changelog
 
-## 2.15.0 — unreleased (prepared November 7, 2026)
+## Unreleased
+
+- **New: the display view reports its highlight count (#533, for Photivra/apps#158, #223 and #240).** `simulateDisplayView` and `prepareDisplayView(...).render` return `diagnostics.highlight: { saturatedPixelCount, statistic: "expected-value" }`: the real capture's saturated output pixels (at least one clipped contributing RAW site) in the rendered region. `simulateCapture` counts these on its one noise sample as `diagnostics.highlight.saturatedPixelCount`. Until now an app could only show the count of a small quick capture.
+  - **Definition:** the expected value over the noise, Σ_j w_j·(1 − Π_k (1 − p_k)). j runs over the region's real pixels, with w_j the part of each inside the region. p_k is the probability that a site pixel j's demosaic reads is at or above the white level, under the view's own site model (normal, with exact expected electrons and shot, dark, read and ADC noise). It is estimated like the expected value (exact area mean, or stratified), so it is a real number. It equals the capture's count exactly where every site is more than 8.5 σ from white. With AHD it counts the 25–29 sites the view's candidates read, not the capture's full 7 × 7 square: an approximation that can be lower at clipped corners and specks (docs/DISPLAY_VIEW.md, "Highlight count").
+  - **Additive over parts:** a display pixel's share is the same in every region, so the counts of regions that tile a view sum to the whole view's.
+  - **No change to the view:** samples, expected values, noise, every other diagnostic and the assumptions are unchanged. The hash locks of `test/display-view.test.ts`, `display-view-pixel-memo.test.ts` and `display-view-speed-material.test.ts` leave the new field out and keep their recorded hashes.
+  - **GPU (`src/gpu`):** the Speed and Quality kernels mark each site certainly unclipped, certainly clipped (beyond twice the reference's 8.5 σ after their error bounds) or undecided. They return a bit per real pixel that is certainly saturated, and flag a display pixel with an undecided real pixel. The host forms the count with the reference's arithmetic and takes an undecided pixel's count from a one-pixel reference render; that pixel's samples stay the GPU's. The count is therefore the reference's bit for bit and `diagnosticsExact` stays true. The run-time self-checks now also compare the count. The flag output grows from one to three words per display pixel (Speed band: 48 → 56 bytes per display pixel).
+  - **Cost:** on the app request (Apple M5 Pro, Node 24.19.0, load average about 6), part medians were 38–41 ms against 2.15.0's 39 ms (Speed) and 74–79 ms against 74–78 ms (Quality). The extrapolated whole view was 0–4 % slower.
+  - **Tests:** `test/display-view-highlight.test.ts`: the capture's count reproduced exactly (bilinear and AHD, three exact views); the mean of 8 noise seeds near white; additivity per display pixel and over regions; a prepared view; the GPU float32 emulation (Speed and Quality, decided and undecided pixels) against the reference bit for bit.
+  - **API:** one new root export, the type `DisplayViewHighlightDiagnostics`; `DisplayViewResult.diagnostics` gains `highlight`. Nothing is removed or changed.
+- **Docs (#400):**
+  - 2.15.0 recorded as published (`README.md`, `SECURITY.md`, `docs/DEVELOPERS.md`, its record, this changelog).
+  - App-request display-view rows re-measured on 2.15.0 (docs/DISPLAY_VIEW.md, "A device-pixel view rendered in parts"; docs/QUICK_START.md, "Cost").
+  - A stale "no GPU display-view renderer exists yet" removed from docs/USAGE.md.
+
+## 2.15.0 — published November 7, 2026
 
 A minor release: `lens.diffraction` at every spectral step (a fix for the app's color chart), and the defocus size limit with a pre-check as root exports (#532, #560). Captures, RAW codes, files and assumptions are the same as 2.14.1 for every request that 2.14.1 renders.
 - **Fixed:** `lens.diffraction` with `sensor.spectralStepNanometers` under 6.25 nm, for example the color chart at the recommended 5 nm.

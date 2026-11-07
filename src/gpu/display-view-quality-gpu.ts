@@ -26,7 +26,7 @@
  * reference, so they are exact. Every stage's wall-clock time is reported (`stageMilliseconds`); on a software adapter it
  * is not GPU performance.
  */
-import { AHD_KEY_LEVELS, EXACT_AREA_MEAN_MAX_PIXELS, axisSums, computeDisplayViewCorrectionStates, createDisplayViewExpectedSignal, displayViewCorrectionKey, overlaps, renderDisplayView,
+import { AHD_KEY_LEVELS, EXACT_AREA_MEAN_MAX_PIXELS, axisSums, computeDisplayViewCorrectionStates, createDisplayViewExpectedSignal, displayViewCorrectionKey, displayViewDecidedSaturation, overlaps, renderDisplayView,
   ahdCandidateKernels, type AxisSums, type DisplayViewCorrectionSetup, type DisplayViewKernelTap, type DisplayViewRenderResult, type DisplayViewSetup } from "../facade/display-view.js";
 import { displayViewSignalTables, type DisplayViewExpectedSignalInput, type GroupTables } from "../facade/expected-signal.js";
 import type { DisplayViewGpuSetup } from "../facade/display-view.js";
@@ -41,7 +41,7 @@ import { createHostYieldGate } from "../capture/host-yield-cadence.js";
 import { createDefocusDiscSiteKernel } from "../optics/defocus-disc-kernel.js";
 import { ImageKernelExecutionError, WEBGPU_F32_UNIT_ROUNDOFF, webGpuExecution, type ImageKernelExecution, type ImageKernelRelativeErrorBound } from "./image-kernel-execution.js";
 import { BUFFER_USAGE, GpuResourceScope, abortedError, createComputePipeline, linearDispatch, runComputePass, type WebGpuRuntime } from "./webgpu-runtime.js";
-import { DISPLAY_VIEW_QUALITY_AUX, DISPLAY_VIEW_QUALITY_BITMAP_WORDS, DISPLAY_VIEW_QUALITY_CANDIDATE_ENTRIES, DISPLAY_VIEW_QUALITY_CANDIDATE_FLOATS, DISPLAY_VIEW_QUALITY_FLAG,
+import { DISPLAY_VIEW_QUALITY_AUX, DISPLAY_VIEW_QUALITY_BITMAP_WORDS, DISPLAY_VIEW_QUALITY_CANDIDATE_ENTRIES, DISPLAY_VIEW_QUALITY_CANDIDATE_FLOATS, DISPLAY_VIEW_QUALITY_FLAG, DISPLAY_VIEW_QUALITY_FLAG_WORDS,
   DISPLAY_VIEW_QUALITY_GEOMETRY_STRIDE, DISPLAY_VIEW_QUALITY_GROUP_WORDS, DISPLAY_VIEW_QUALITY_MAXIMUM_PIXELS_PER_AXIS, DISPLAY_VIEW_QUALITY_OUTPUT_FLOATS, DISPLAY_VIEW_QUALITY_PARAM_WORDS,
   DISPLAY_VIEW_QUALITY_PIXELS_WGSL, DISPLAY_VIEW_QUALITY_SITES_BLOCKED_WGSL, DISPLAY_VIEW_QUALITY_SITES_WGSL, DISPLAY_VIEW_QUALITY_SITE_FLOATS, DISPLAY_VIEW_QUALITY_TAP_WORDS, DISPLAY_VIEW_QUALITY_WORKGROUP_SIZE,
   assembleDisplayViewQualityLatticeWgsl } from "./wgsl-display-view-quality-kernel.js";
@@ -86,7 +86,7 @@ const WINDOW_SLOTS = (2 * MAXIMUM_REACH + 1) ** 2;
  */
 const QUANTIZATION_SLOPE = 6.04, QUANTIZATION_JOIN_JUMP = 2.1e-4, QUANTIZATION_JOIN = 0.0031308;
 /** Bytes per display pixel in the output buffers (moments plus the flag word). */
-const OUTPUT_BYTES_PER_PIXEL = 4 * DISPLAY_VIEW_QUALITY_OUTPUT_FLOATS + 4;
+const OUTPUT_BYTES_PER_PIXEL = 4 * DISPLAY_VIEW_QUALITY_OUTPUT_FLOATS + 4 * DISPLAY_VIEW_QUALITY_FLAG_WORDS;
 const SITE_BYTES = 4 * DISPLAY_VIEW_QUALITY_SITE_FLOATS;
 
 /** What a GPU render of a Quality display view needs: the reference's own setup and expected-signal input, plus the material module. */
@@ -143,6 +143,8 @@ export interface DisplayViewQualityGpuResult extends DisplayViewRenderResult {
   hostRecomputedPixelIndices: Uint32Array;
   /** The kernel's flag word per display pixel (`DISPLAY_VIEW_QUALITY_FLAG` bits). */
   pixelFlags: Uint32Array;
+  /** #533: display pixels (not flagged) with a real pixel whose saturation the kernel left undecided; their count is the host reference's. */
+  highlightRecomputedPixelIndices: Uint32Array;
   /** Correction states the render computed on the host (new to the store), and the states the table held at the end. */
   statesComputed: number;
   statesHeld: number;
@@ -538,7 +540,7 @@ export async function renderDisplayViewQualityOnGpu(runtime: WebGpuRuntime, band
   const sitesPipeline = blocked ? await pipelines("photivra-display-view-quality-sites-blocked", DISPLAY_VIEW_QUALITY_SITES_BLOCKED_WGSL) :
     await pipelines("photivra-display-view-quality-sites", DISPLAY_VIEW_QUALITY_SITES_WGSL);
   const pixelsPipeline = await pipelines("photivra-display-view-quality-pixels", DISPLAY_VIEW_QUALITY_PIXELS_WGSL);
-  const moments = new Float32Array(pixelCount * DISPLAY_VIEW_QUALITY_OUTPUT_FLOATS), pixelFlags = new Uint32Array(pixelCount);
+  const moments = new Float32Array(pixelCount * DISPLAY_VIEW_QUALITY_OUTPUT_FLOATS), pixelFlags = new Uint32Array(pixelCount), masks = new Uint32Array(2 * pixelCount);
   const states = input.states ?? new CorrectionStateStore(), correction = setup.ahdCorrection ? correctionSetup(setup) : null;
   let statesComputed = 0, latticePointsResolved = 0;
   const scope = new GpuResourceScope(runtime);
@@ -618,7 +620,7 @@ export async function renderDisplayViewQualityOnGpu(runtime: WebGpuRuntime, band
         // Pass 3: display pixels, repeated once when a correction state was missing and has been computed.
         words[0] = count;
         const out = band.buffer("photivra-display-view-moments", count * 4 * DISPLAY_VIEW_QUALITY_OUTPUT_FLOATS, BUFFER_USAGE.STORAGE | BUFFER_USAGE.COPY_SRC);
-        const flagBuffer = band.buffer("photivra-display-view-flags", count * 4, BUFFER_USAGE.STORAGE | BUFFER_USAGE.COPY_SRC);
+        const flagBuffer = band.buffer("photivra-display-view-flags", count * 4 * DISPLAY_VIEW_QUALITY_FLAG_WORDS, BUFFER_USAGE.STORAGE | BUFFER_USAGE.COPY_SRC);
         const bitmapBuffer = band.buffer("photivra-display-view-bitmap", 4 * DISPLAY_VIEW_QUALITY_BITMAP_WORDS, BUFFER_USAGE.STORAGE | BUFFER_USAGE.COPY_SRC);
         for (let attempt = 0; ; attempt++) {
           checkAbort(abort.signal);
@@ -636,10 +638,11 @@ export async function renderDisplayViewQualityOnGpu(runtime: WebGpuRuntime, band
               { binding: 3, resource: { buffer: siteBuffer } }, { binding: 4, resource: { buffer: keysBuffer } }, { binding: 5, resource: { buffer: valuesBuffer } },
               { binding: 6, resource: { buffer: bitmapBuffer } }, { binding: 7, resource: { buffer: out } }, { binding: 8, resource: { buffer: flagBuffer } }] });
             [data, flagData, bitmapData] = await runComputePass(runtime, pass, pixelsPipeline, pixelGroup, linearDispatch(count, DISPLAY_VIEW_QUALITY_WORKGROUP_SIZE, runtime.maximumWorkgroupsPerDimension),
-              [{ buffer: out, bytes: count * 4 * DISPLAY_VIEW_QUALITY_OUTPUT_FLOATS }, { buffer: flagBuffer, bytes: count * 4 }, { buffer: bitmapBuffer, bytes: 4 * DISPLAY_VIEW_QUALITY_BITMAP_WORDS }], abort.signal) as [ArrayBuffer, ArrayBuffer, ArrayBuffer];
+              [{ buffer: out, bytes: count * 4 * DISPLAY_VIEW_QUALITY_OUTPUT_FLOATS }, { buffer: flagBuffer, bytes: count * 4 * DISPLAY_VIEW_QUALITY_FLAG_WORDS }, { buffer: bitmapBuffer, bytes: 4 * DISPLAY_VIEW_QUALITY_BITMAP_WORDS }], abort.signal) as [ArrayBuffer, ArrayBuffer, ArrayBuffer];
           } finally { pass.release(); }
           timings.pixels += now() - t0;
-          const bandFlags = new Uint32Array(flagData, 0, count);
+          const flagWords = new Uint32Array(flagData, 0, count * DISPLAY_VIEW_QUALITY_FLAG_WORDS), bandFlags = new Uint32Array(count);
+          for (let i = 0; i < count; i++) bandFlags[i] = flagWords[DISPLAY_VIEW_QUALITY_FLAG_WORDS * i]!;
           let missing = false;
           for (let i = 0; i < count && !missing; i++) if ((bandFlags[i]! & DISPLAY_VIEW_QUALITY_FLAG.stateMissing) !== 0) missing = true;
           if (missing && correction && attempt === 0) {
@@ -661,6 +664,7 @@ export async function renderDisplayViewQualityOnGpu(runtime: WebGpuRuntime, band
           }
           moments.set(new Float32Array(data, 0, count * DISPLAY_VIEW_QUALITY_OUTPUT_FLOATS), first * DISPLAY_VIEW_QUALITY_OUTPUT_FLOATS);
           pixelFlags.set(bandFlags, first);
+          for (let i = 0; i < count; i++) { masks[2 * (first + i)] = flagWords[DISPLAY_VIEW_QUALITY_FLAG_WORDS * i + 1]!; masks[2 * (first + i) + 1] = flagWords[DISPLAY_VIEW_QUALITY_FLAG_WORDS * i + 2]!; }
           break;
         }
       } finally {
@@ -676,11 +680,17 @@ export async function renderDisplayViewQualityOnGpu(runtime: WebGpuRuntime, band
   let t0 = now();
   const maximum = setup.bitDepth === 8 ? 255 : 65535, step = 1 / maximum;
   const samples = setup.bitDepth === 8 ? new Uint8Array(pixelCount * 3) : new Uint16Array(pixelCount * 3);
-  const expected = new Float64Array(pixelCount * 3), noiseStd = new Float64Array(pixelCount * 3);
+  const expected = new Float64Array(pixelCount * 3), noiseStd = new Float64Array(pixelCount * 3), saturated = new Float64Array(pixelCount);
   const meanBound = new Float32Array(pixelCount), varianceBound = new Float32Array(pixelCount);
   const flagged: number[] = [];
   let largestMean = 0, largestVariance = 0, sampleCount = 0, siteCount = 0, corrected = 0;
   const counts = new Int32Array(geometry.buffer);
+  // #533: each display pixel's saturated-pixel share from the kernel's mask (the reference's arithmetic, exact where it decided).
+  const columnOverlaps = Array.from({ length: region.width }, (_, i) => overlaps((region.x + i) * shape.sx, (region.x + i + 1) * shape.sx, setup.frameWidth));
+  for (let ry = 0, i = 0; ry < region.height; ry++) {
+    const rowOverlaps = overlaps((region.y + ry) * shape.sy, (region.y + ry + 1) * shape.sy, setup.frameHeight);
+    for (let rx = 0; rx < region.width; rx++, i++) saturated[i] = displayViewDecidedSaturation(columnOverlaps[rx]!, rowOverlaps, area, masks[2 * i]!, masks[2 * i + 1]!);
+  }
   for (let ry = 0, i = 0; ry < region.height; ry++) {
     const rowWw = rowSums[ry]!.ww, ny = counts[(region.width + ry) * stride + 1]!;
     for (let rx = 0; rx < region.width; rx++, i++) {
@@ -700,7 +710,23 @@ export async function renderDisplayViewQualityOnGpu(runtime: WebGpuRuntime, band
   timings.finishing = now() - t0;
   // Flagged display pixels: the reference's own pixels (a region render is byte-identical to the whole view's pixels).
   t0 = now();
-  const recomputed: number[] = [];
+  const recomputed: number[] = [], highlights: number[] = [];
+  // #533: unflagged display pixels with an undecided real pixel take the reference's count only (their samples stay the kernel's).
+  const undecided: number[] = [], isFlagged = new Uint8Array(pixelCount);
+  for (const i of flagged) isFlagged[i] = 1;
+  for (let i = 0; i < pixelCount; i++) if (isFlagged[i] === 0 && (pixelFlags[i]! & DISPLAY_VIEW_QUALITY_FLAG.highlightUndecided) !== 0) undecided.push(i);
+  if (undecided.length > 0 && input.recomputeFlagged !== false) {
+    const signal = createDisplayViewExpectedSignal(signalInput);
+    for (let r = 0; r < undecided.length;) {
+      checkAbort(abort.signal);
+      const first = undecided[r]!, rx = first % region.width, ry = (first - rx) / region.width;
+      let run = 1;
+      while (r + run < undecided.length && undecided[r + run] === first + run && rx + run < region.width) run++;
+      const part = await renderDisplayView({ ...setup, signal, region: { x: region.x + rx, y: region.y + ry, width: run, height: 1 } });
+      for (let k = 0; k < run; k++) { saturated[first + k] = part.saturated[k]!; highlights.push(first + k); }
+      r += run;
+    }
+  }
   if (flagged.length > 0) {
     if (input.recomputeFlagged === false) {
       // Without recomputation a flagged pixel keeps the kernel's values where they are finite (its bound then does not hold).
@@ -724,7 +750,7 @@ export async function renderDisplayViewQualityOnGpu(runtime: WebGpuRuntime, band
         let run = 1;
         while (r + run < flagged.length && flagged[r + run] === first + run && rx + run < region.width) run++;
         const part = await renderDisplayView({ ...setup, signal, region: { x: region.x + rx, y: region.y + ry, width: run, height: 1 } });
-        samples.set(part.samples, first * 3); expected.set(part.expected, first * 3); noiseStd.set(part.noiseStd, first * 3);
+        samples.set(part.samples, first * 3); expected.set(part.expected, first * 3); noiseStd.set(part.noiseStd, first * 3); saturated.set(part.saturated, first);
         for (let k = 0; k < run; k++) { meanBound[first + k] = 0; varianceBound[first + k] = 0; recomputed.push(first + k); }
         corrected += part.ahdCorrectedPixelCount; sampleCount += part.sampleCount; siteCount += part.siteCount;
         r += run;
@@ -734,11 +760,13 @@ export async function renderDisplayViewQualityOnGpu(runtime: WebGpuRuntime, band
   timings.recompute = now() - t0;
   const relative = MARGIN * CPU_RELATIVE;
   const expectedValueBound: ImageKernelRelativeErrorBound = { kind: "relative-to-reference", relative, absolute: largestMean };
-  const uncertain = flagged.length - recomputed.length;
-  return { samples, expected, noiseStd, sampleCount, siteCount, detailPixelCount: pixelCount, uniformPixelCount: 0, ahdCorrectedPixelCount: corrected, estimation: "exact-area-mean",
+  const uncertain = flagged.length - recomputed.length + undecided.length - highlights.length;
+  let saturatedPixelCount = 0;
+  for (let i = 0; i < pixelCount; i++) saturatedPixelCount += saturated[i]!;
+  return { samples, expected, noiseStd, sampleCount, siteCount, detailPixelCount: pixelCount, uniformPixelCount: 0, ahdCorrectedPixelCount: corrected, estimation: "exact-area-mean", saturated, saturatedPixelCount,
     execution: webGpuExecution(expectedValueBound, uncertain), expectedValueBound, varianceBound: { kind: "relative-to-reference", relative, absolute: largestVariance },
     expectedValueAbsoluteBound: meanBound, varianceAbsoluteBound: varianceBound, flaggedPixelIndices: Uint32Array.from(flagged), hostRecomputedPixelIndices: Uint32Array.from(recomputed),
-    pixelFlags, statesComputed, statesHeld: states.size, tapsPerSite: gather.tapCount, blockedSum: blocked, siteSumRelativeBound: floats[50]!, latticePointsResolved, stageMilliseconds: timings };
+    pixelFlags, highlightRecomputedPixelIndices: Uint32Array.from(highlights), statesComputed, statesHeld: states.size, tapsPerSite: gather.tapCount, blockedSum: blocked, siteSumRelativeBound: floats[50]!, latticePointsResolved, stageMilliseconds: timings };
 }
 
 /**
@@ -848,6 +876,8 @@ async function runQualityConformance(handle: DisplayViewGpuRuntimeHandle, signal
       if (!(Math.abs(v1 - v0) <= varianceLimit)) return "component " + i + ": variance " + v1 + " differs from the reference " + v0 + " by more than the a-priori bound " + varianceLimit + ".";
       if (Math.abs(gpu.samples[i]! - reference.samples[i]!) > 1) return "component " + i + ": sample " + gpu.samples[i] + " differs from the reference " + reference.samples[i] + " by more than one code.";
     }
+    // #533: the saturated-pixel count is the reference's, bit for bit (the light squares sit at the white clip).
+    if (gpu.saturatedPixelCount !== reference.saturatedPixelCount) return "the saturated-pixel count " + gpu.saturatedPixelCount + " differs from the reference's " + reference.saturatedPixelCount + ".";
     return true;
   } finally { signal?.removeEventListener("abort", onAbort); }
 }
@@ -917,7 +947,8 @@ export function createDisplayViewGpuRenderer(runtime: WebGpuRuntime, options: { 
           result = await renderDisplayViewQualityOnGpu(runtime, bandBytes, { setup, signalInput, material, ...(states ? { states } : {}) }, abort, options.yieldControl, source);
         }
         return { samples: result.samples, expected: result.expected, noiseStd: result.noiseStd, sampleCount: result.sampleCount, siteCount: result.siteCount, detailPixelCount: result.detailPixelCount,
-          uniformPixelCount: result.uniformPixelCount, ahdCorrectedPixelCount: result.ahdCorrectedPixelCount, estimation: result.estimation, errorBound: result.expectedValueBound,
+          uniformPixelCount: result.uniformPixelCount, ahdCorrectedPixelCount: result.ahdCorrectedPixelCount, estimation: result.estimation, saturated: result.saturated,
+          saturatedPixelCount: result.saturatedPixelCount, errorBound: result.expectedValueBound,
           diagnosticUncertaintySampleCount: result.execution.diagnosticUncertaintySampleCount, ...(material.compositeProbe ? { compositeProbe: material.compositeProbe } : {}) };
       } finally { signal?.removeEventListener("abort", onAbort); }
     },

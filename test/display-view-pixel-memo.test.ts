@@ -38,6 +38,9 @@ describe("display view per-real-pixel memo (#392)", () => {
       // #395: diagnostics.fast is additive; it is checked on its own and left out of the recorded digests.
       expect(diagnostics.fast?.assurance).toBe("engine-reference");
       delete diagnostics.fast;
+      // #533: diagnostics.highlight is additive too (it changes no sample); it is checked on its own and left out of the digests.
+      expect(diagnostics.highlight).toEqual({ saturatedPixelCount: internals.saturatedPixelCount, statistic: "expected-value" });
+      delete diagnostics.highlight;
       for (const a of [result.image.samples, internals.expected, internals.noiseStd]) hash.update(new Uint8Array(a.buffer, a.byteOffset, a.byteLength));
       hash.update(JSON.stringify(diagnostics));
       expect(hash.digest("hex")).toBe(hashLockOnThisArchitecture(expected, ARM64_PIXEL_MEMO_HASHES));

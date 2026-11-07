@@ -1549,10 +1549,12 @@ Validated against real full-resolution captures resized in linear light: three s
 
 **Cost.** Where a display pixel covers more than 25 real pixels, the cost follows the detailed display pixels ×
 `samplesPerAxis`², not the real pixel count; at 25 or fewer (the exact area mean) it follows the real pixels the region
-touches. A device-pixel view of a 24 MP frame, 2028 × 1352 in 96 × 96 parts from one prepared view, takes about 0.09 s
-per part with the engine defaults and about 0.18 s with the Quality options (2.9.0, Node 24.21.0, one thread on a
-4-vCPU 2.80 GHz Xeon; [the table](https://github.com/Photivra/photivra/blob/main/docs/DISPLAY_VIEW.md#a-device-pixel-view-rendered-in-parts),
-`node scripts/benchmark-display-view.mjs --app`). The table below is the 2.6.0 record of whole views against the
+touches. A device-pixel view of a 24 MP frame, 2028 × 1352 in 96 × 96 parts from one prepared view, takes about 0.04 s
+per part with the engine defaults and about 0.08 s with the Quality options. Those are the medians on 2.15.0: Node 24.19.0,
+one thread on an Apple M5 Pro under a load average of about 6, two repeats. On 2.9.0 the same parts took about 0.09 s and
+0.18 s on a 4-vCPU 2.80 GHz Xeon (Node 24.21.0). Both measurements are in
+[the tables](https://github.com/Photivra/photivra/blob/main/docs/DISPLAY_VIEW.md#a-device-pixel-view-rendered-in-parts), from
+`node scripts/benchmark-display-view.mjs --app`. The table below is the 2.6.0 record of whole views against the
 whole-frame view of the same request (Siemens star, f/8, ISO 100, one run, same host; every row, and the times before
 the exact speed-ups, in [DISPLAY_VIEW.md](https://github.com/Photivra/photivra/blob/main/docs/DISPLAY_VIEW.md#cost)):
 
@@ -1604,6 +1606,19 @@ the WebGPU renderer, with the CPU reference as the labelled fallback or as a fai
 what ran (see [Rendering on the GPU](https://github.com/Photivra/photivra/blob/main/docs/DISPLAY_VIEW.md#rendering-on-the-gpu)). Renders may run concurrently and share only read-only setup. The request's own
 `signal` applies to preparing; give each render its own. Keep one prepared view per request in each worker: measured on
 a 24 MP request, an 8 × 8 region took 6–40 ms through a prepared view instead of 0.24–0.41 s as its own call (Speed).
+
+**Highlight count (#533).** `diagnostics.highlight.saturatedPixelCount` is the number of the real capture's output pixels
+in the rendered region that are saturated (a clipped contributing RAW site), as `simulateCapture` reports it. It is the
+expected value over the noise (`statistic: "expected-value"`), because the capture's own count is one noise sample:
+
+- it equals the capture's count where every site is far from white;
+- it is a real number, not an integer;
+- the counts of regions that tile a view add up to the view's count;
+- it changes no sample;
+- with AHD it counts the sites the view's AHD candidates read, so near a clipped corner it can be lower than the capture's
+  count.
+
+See [Highlight count](https://github.com/Photivra/photivra/blob/main/docs/DISPLAY_VIEW.md#highlight-count-533).
 
 **Not supported** (refused with an `InvalidConfigurationError`): `lens.pupilSampling`, `lens.projection`,
 `lens.distortion`, `lens.vignetting`, `lens.psf`, camera rotation, `output.whiteBalance: "auto"`, the luminance tone

@@ -363,7 +363,7 @@ The application can then use those results, while the photography calculations t
 
 ## Status
 
-- Repository package version: `2.15.0` (release candidate prepared November 7, 2026; publication is separate)
+- Repository package version: `2.15.0` (published November 7, 2026)
 - Engine API contract: `2.15.0`
 - Versioned generic tier reference assets: [GENERIC_TIER_PRESETS.md](https://github.com/Photivra/photivra/blob/main/docs/GENERIC_TIER_PRESETS.md).
 - Composed POC simulation API contract: `1.0.0`
