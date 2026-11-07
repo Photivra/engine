@@ -31,6 +31,14 @@ export function createNativeRawDevelopmentTask(input: NativeRawDevelopmentInput,
 
 This call is synchronous; any supplied provider must follow its explicit synchronous contract.
 
+## NATIVE_RAW_DEVELOPMENT_EXPOSURE_RANGE_STOPS
+
+Accepted range of `NativeRawDevelopmentInput.exposureCompensationStops` and `simulateCapture`'s `output.exposureCompensationStops` (#556).
+
+```ts
+NATIVE_RAW_DEVELOPMENT_EXPOSURE_RANGE_STOPS = Object.freeze({ minimum: -2, maximum: 5 } as const)
+```
+
 ## NativeRawDevelopmentInput
 
 The exact contract is declared below; use the domain guide for assumptions and staged integration.
@@ -56,6 +64,14 @@ export interface NativeRawDevelopmentInput {
    * always true for a 2×2 Bayer pattern. Interior pixels are unchanged.
    */
   borderHandling?: RawReconstructionBorderHandling;
+  /**
+   * Development exposure push in stops (#556), from {@link NATIVE_RAW_DEVELOPMENT_EXPOSURE_RANGE_STOPS} −2 to +5; default 0.
+   * Each site's black-subtracted, white-normalized value is multiplied by 2^stops before demosaic, white balance, the
+   * highlight mode, colour and the tone curve, like a raw editor's exposure slider. A site whose pushed value reaches the
+   * white level is clipped there and counted as saturated (so `highlightMode: "reconstruct"` rolls it off); values below
+   * black stay signed. The RAW codes are not changed. 0 (or omitted) develops exactly as before, byte for byte.
+   */
+  exposureCompensationStops?: number;
   /** Counts the kept packed RAW plus the integer output. It does not count caller buffers, process heap or GPU memory. */
   maximumRetainedPayloadBytes: number;
 }

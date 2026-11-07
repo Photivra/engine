@@ -60,7 +60,7 @@ import type { DisplayViewFastReport } from "./display-view-gpu.js";
 import { buildExpectedSignalInput } from "./expected-signal-setup.js";
 import { createNativeEnvironmentRawTask, createNativeEnvironmentRawRegionTask, type NativeEnvironmentRawInput,
   type NativeEnvironmentRawTask, type NativeEnvironmentRawTile } from "../capture/native-environment-raw.js";
-import { createNativeRawDevelopmentTask, type NativeRawDevelopmentInput, type RawHighlightDiagnostics } from "../capture/native-raw-development.js";
+import { createNativeRawDevelopmentTask, NATIVE_RAW_DEVELOPMENT_EXPOSURE_RANGE_STOPS, type NativeRawDevelopmentInput, type RawHighlightDiagnostics } from "../capture/native-raw-development.js";
 import type { RawFrameReconstructionPhaseProfile } from "../capture/raw-frame-reconstruction.js";
 import type { ExportSensorColorProfile } from "../capture/photographic-export.js";
 import { parseSdrRenderingProfile, type SdrRenderingProfile, type SdrToneCurve, type SdrToneCurveParameters, type SdrRenderingResult } from "../output/sdr-rendering.js";
@@ -404,6 +404,16 @@ export interface SimulateCaptureOptions {
     toneCurveParameters?: SdrToneCurveParameters;
     /** Default "clip". */
     highlightMode?: RawHighlightMode;
+    /**
+     * Opt-in (#556) development exposure push in stops, −2 to +5 (`NATIVE_RAW_DEVELOPMENT_EXPOSURE_RANGE_STOPS`); default 0.
+     * A linear gain 2^stops on the RAW after black subtraction and white normalization, before demosaic, white balance,
+     * the highlight mode, colour, the tone curve and encoding, like a raw editor's exposure slider ("brighten in development").
+     * A site pushed to or past white clips there and counts as saturated (`highlightMode: "reconstruct"` rolls it off);
+     * raised shadows keep their real noise and ADC quantization. The RAW codes, `result.raw` and a DNG are not changed;
+     * the developed samples (`image.samples`, also with format "dng"), JPEG, PNG, the ideal reference and the display view
+     * honour it. Reported in the assumption `output.exposureCompensationStops`. 0 or omitted: byte-identical to before.
+     */
+    exposureCompensationStops?: number;
     /** Default "scene-illuminant". */
     whiteBalance?: SimulateCaptureWhiteBalance;
     /** JPEG constant quantization step 1-255 (not a manufacturer 'quality'). Default 2. */
@@ -1140,7 +1150,8 @@ async function developLinearSrgb(input: NativeRawDevelopmentInput, afterRow: (co
   const native = plan.exposure.geometry.nativeRaster, g = plan.exposure.resolvedGeometry, active = g.activeCapture.nativeRect;
   checkNativeRawIntegrity(raw, native.pixelWidth, layout.repeatWidthSites, layout.repeatHeightSites, 0, native.pixelHeight);
   const developer = createRawPixelDeveloper({ nativeWidth: native.pixelWidth, repeatWidth: layout.repeatWidthSites, repeatHeight: layout.repeatHeightSites,
-    codes: raw.codes, blackLevels: raw.blackLevels, saturationFlags: raw.saturationFlags, whiteByPhase: raw.effectiveSaturationCodes }, v.phases, v.development, v.mirror);
+    codes: raw.codes, blackLevels: raw.blackLevels, saturationFlags: raw.saturationFlags, whiteByPhase: raw.effectiveSaturationCodes,
+    ...(v.exposureGain === 1 ? {} : { exposureGain: v.exposureGain }) }, v.phases, v.development, v.mirror);
   const width = v.raster.pixelWidth, height = v.raster.pixelHeight, rgb = new Float64Array(width * height * 3), row = new Float64Array(width * 3);
   const at = (x: number, y: number): { x: number; y: number } => {
     const q = transformOrientedRasterPointToNative({ point: { x: v.crop.x + x + 0.5, y: v.crop.y + y + 0.5 }, nativeRaster: g.activeCapture.raster, orientation: plan.exposure.geometry.orientation });
@@ -1170,7 +1181,7 @@ async function developAhd(v: ReturnType<typeof prepareNativeRawDevelopment>, raw
   host: { yieldControl: () => Promise<void>; checkAbort: () => void; onDemosaicMs?: (milliseconds: number) => void }): Promise<{ rgb: Float64Array; highlight: RawHighlightDiagnostics }> {
   const native = v.plan.exposure.geometry.nativeRaster, W = native.pixelWidth, H = native.pixelHeight;
   const source: RawDevelopmentSource = { nativeWidth: W, repeatWidth, repeatHeight, codes: raw.codes, blackLevels: raw.blackLevels,
-    saturationFlags: raw.saturationFlags, whiteByPhase: raw.effectiveSaturationCodes };
+    saturationFlags: raw.saturationFlags, whiteByPhase: raw.effectiveSaturationCodes, ...(v.exposureGain === 1 ? {} : { exposureGain: v.exposureGain }) };
   const samples = new Float32Array(W * H), saturated = new Uint8Array(W * H);
   for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
     samples[y * W + x] = normalizedRawSite(source, x, y);
@@ -1441,6 +1452,8 @@ export interface DisplayViewRunContext {
   focusDistanceM: number;
   height: number;
   highlightMode: RawHighlightMode;
+  /** #556: the development exposure gain 2^output.exposureCompensationStops (1 without a push). */
+  exposureGain: number;
   illuminanceLux: number;
   illuminant: ResolvedCaptureIlluminant;
   illuminantOption: CaptureIlluminant;
@@ -1691,7 +1704,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: "capture"
   const diffractionObjectSpace = diffractionRadiusOption !== undefined && !rotating && !lensFieldMapping && !vignetting;
 
   // Output and sensor
-  const outputOptions = allowKeys(top.output, "output", ["width", "height", "format", "toneCurve", "toneCurveParameters", "highlightMode", "whiteBalance", "jpegQuantizationStep",
+  const outputOptions = allowKeys(top.output, "output", ["width", "height", "format", "toneCurve", "toneCurveParameters", "highlightMode", "exposureCompensationStops", "whiteBalance", "jpegQuantizationStep",
     "colorEncoding", "bitDepth", "gamutMapping", "demosaic", "borderHandling", "dng", "maximumPixels", "region", "metadata"]);
   // Opt-in large images: a caller-raised native pixel limit. Without it the 4094-pixel sides are unchanged.
   const raisedPixels = outputOptions.maximumPixels === undefined ? undefined : integerIn(outputOptions.maximumPixels, "output.maximumPixels", 1, NATIVE_RAW_LIMITS.ceilingPixels);
@@ -1733,6 +1746,19 @@ export async function runCapture(options: SimulateCaptureOptions, run: "capture"
   const toneCurve = pick<SdrToneCurve>(outputOptions, "toneCurve", "output.toneCurve", DEFAULTS.toneCurve, "Identity tone curve: scene-linear values are clipped at display white, then sRGB-encoded.");
   if (linearPath && toneCurve !== "identity") fail("output.toneCurve other than identity is available only for sRGB output; wide-gamut encodings are converted from the linear developed colour.");
   const highlightMode = pick<RawHighlightMode>(outputOptions, "highlightMode", "output.highlightMode", DEFAULTS.highlightMode, "Saturated RAW highlights are clipped to neutral.");
+  // #556: development exposure push, a gain on the normalized RAW before white balance. Opt-in: no assumption when omitted.
+  let exposureCompensationStops = 0;
+  if (outputOptions.exposureCompensationStops !== undefined) {
+    const stops = outputOptions.exposureCompensationStops, range = NATIVE_RAW_DEVELOPMENT_EXPOSURE_RANGE_STOPS;
+    if (typeof stops !== "number" || !Number.isFinite(stops) || stops < range.minimum || stops > range.maximum) fail("output.exposureCompensationStops must be a finite number from -2 to +5.");
+    exposureCompensationStops = stops;
+    assume("output.exposureCompensationStops", "model", { stops, gain: 2 ** stops, appliedTo: "black-subtracted white-normalized RAW, before demosaic and white balance",
+      dng: format === "dng" ? "unmodified RAW (the push is a development setting)" : null },
+    "Development exposure push: each site's (code − black)/(white − black) is multiplied by 2^stops = " + 2 ** stops + " before demosaic, white balance, the highlight mode, colour, the tone curve and encoding, " +
+      "like a raw editor's exposure slider. It is not a capture exposure: no photons are added, so raised shadows show the RAW's real shot, read and dark noise and its ADC quantization steps, scaled by the gain. " +
+      "A site pushed to or past white clips at white and counts as saturated (highlightMode \"reconstruct\" rolls it off). The RAW codes are unchanged" + (format === "dng" ? ", and the DNG holds the unmodified RAW." : "."));
+  }
+  const exposureGain = exposureCompensationStops === 0 ? 1 : 2 ** exposureCompensationStops;
   const whiteBalanceOption = pick<SimulateCaptureWhiteBalance>(outputOptions, "whiteBalance", "output.whiteBalance", DEFAULTS.whiteBalance,
     "White balance measured from a perfect white diffuser under the scene illuminant (a custom/grey-card white balance).");
   const jpegStep = format === "jpeg" ? integerIn(pick(outputOptions, "jpegQuantizationStep", "output.jpegQuantizationStep", DEFAULTS.jpegQuantizationStep,
@@ -2237,9 +2263,10 @@ export async function runCapture(options: SimulateCaptureOptions, run: "capture"
     ...(outputOptions.toneCurveParameters === undefined ? {} : { toneCurveParameters: outputOptions.toneCurveParameters as SdrToneCurveParameters }),
     gamutHandling: "clip-components", outputDynamicRange: "sdr", transferFunction: "srgb", bitDepth: format === "srgb-16" || (format === "png" && !wideGamut && pngBitDepth === 16) ? 16 : 8, rounding: "nearest-ties-up", dither: "none" };
   if (!linearPath) assume("output.rendering", "model", { renderingExposureEv: 0, gamutHandling: "clip-components" },
-    "Developed linear sRGB/D65 with the RAW white level mapped to display white, no exposure push, out-of-gamut components clipped.");
+    exposureGain === 1 ? "Developed linear sRGB/D65 with the RAW white level mapped to display white, no exposure push, out-of-gamut components clipped." :
+      "Developed linear sRGB/D65 with the RAW white level mapped to display white, no further exposure push after development (output.exposureCompensationStops acts on the RAW), out-of-gamut components clipped.");
   else assume("output.rendering", "model", { renderingExposureEv: 0, gamutHandling: "clip-components-in-target-gamut", sdrRendererUsed: false },
-    "The sRGB SDR renderer is not used: the linear development (RAW white level = relative 1.0, no exposure push) is converted to the target encoding; request.development.rendering is validated but only its exposure and tone curve (identity) apply.");
+    "The sRGB SDR renderer is not used: the linear development (RAW white level = relative 1.0, " + (exposureGain === 1 ? "no exposure push" : "after the development exposure push on the RAW") + ") is converted to the target encoding; request.development.rendering is validated but only its exposure and tone curve (identity) apply.");
   // Rendering choices are validated before any radiance work, so a bad tone curve fails fast.
   parseSdrRenderingProfile(rendering);
   if (highlightMode !== "clip" && highlightMode !== "reconstruct") fail("output.highlightMode must be clip or reconstruct.");
@@ -2537,7 +2564,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: "capture"
   }
   // Display view: the renderer that simulate-display-view.ts passes in reads this request's resolved state, so a bundle
   // that only captures does not contain the display view.
-  if (displayView) return await renderView!({ ahd, fastReport, antiAliasing, aspect, assume, assumptions, axisChannelResponse, boxSamples, buildProvider, callerScene, chart, materialLayers, chartReport, chartSize, diffraction, defocus: displayViewDefocus, diffractionPsf, fNumber, focalLengthMm, focusDistanceM, height, highlightMode, illuminanceLux, illuminant, illuminantOption, imagingArea, intentOf, metresPerFrameUnit, noiseSeed, outputOptions, parsedView, pitch, preset, provider, regimeByChannel, resolvedIso, isoReport, standardExposureDeviationStops: exposureDeviationStops, standardExposureIlluminanceLux: exposureIlluminanceLux, greyCardDeviationStops: exposureGreyCardDeviationStops, metering, sceneOption, scenePreset, shutterSeconds, started, subjectDistanceM, toneCurve, whiteBalanceOption, whiteBalanceState, width, checkAbort, margin, mode, nativeHeight, nativeWidth, sourceSha256, yieldControl, kelvinWhiteBalanceInput });
+  if (displayView) return await renderView!({ ahd, fastReport, antiAliasing, aspect, assume, assumptions, axisChannelResponse, boxSamples, buildProvider, callerScene, chart, materialLayers, chartReport, chartSize, diffraction, defocus: displayViewDefocus, diffractionPsf, fNumber, focalLengthMm, focusDistanceM, height, highlightMode, exposureGain, illuminanceLux, illuminant, illuminantOption, imagingArea, intentOf, metresPerFrameUnit, noiseSeed, outputOptions, parsedView, pitch, preset, provider, regimeByChannel, resolvedIso, isoReport, standardExposureDeviationStops: exposureDeviationStops, standardExposureIlluminanceLux: exposureIlluminanceLux, greyCardDeviationStops: exposureGreyCardDeviationStops, metering, sceneOption, scenePreset, shutterSeconds, started, subjectDistanceM, toneCurve, whiteBalanceOption, whiteBalanceState, width, checkAbort, margin, mode, nativeHeight, nativeWidth, sourceSha256, yieldControl, kelvinWhiteBalanceInput });
   // Ideal reference (2.3): the scene without camera effects, at the capture's own exposure, white balance and encoding.
   if (idealReference) {
     const referenceStarted = clockMs();
@@ -2566,7 +2593,8 @@ export async function runCapture(options: SimulateCaptureOptions, run: "capture"
           sum[0] += s[0]; sum[1] += s[1]; sum[2] += s[2];
         }
         // Normalized RAW values saturate at the white level, as in development.
-        const c = sum.map((value) => Math.min(1, Math.max(0, value / (n * n))));
+        // #556: the development exposure push multiplies the normalized RAW before the white clip.
+        const c = exposureGain === 1 ? sum.map((value) => Math.min(1, Math.max(0, value / (n * n)))) : sum.map((value) => Math.min(1, Math.max(0, value / (n * n) * exposureGain)));
         development.developInto(c[0]!, c[1]!, c[2]!, rgb, (py * outputWidth + px) * 3, counts);
       }
       if ((py & 15) === 15) { await yieldControl(); checkAbort(); }
@@ -2755,6 +2783,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: "capture"
   // Development
   const development: Omit<NativeRawDevelopmentInput, "raw"> = { phaseProfiles, colorProfile,
     whiteBalance: developmentWhiteBalance, rendering, highlightMode, ...(mirrorBorder ? { borderHandling: "mirror" as const } : {}),
+    ...(exposureCompensationStops === 0 ? {} : { exposureCompensationStops }),
     maximumRetainedPayloadBytes: developmentPlan.outputBytes + outputWidth * outputHeight * 3 * (rendering.bitDepth / 8) };
   let developed: { raw: NativeRawOutput; integerSamples: Uint8Array | Uint16Array; highlight: RawHighlightDiagnostics; diagnostics: SdrRenderingResult["diagnostics"] };
   let gamutMappingDiagnostics: { method: "cielab-hue-preserving-chroma-compression"; kneeFraction: number; adjustedPixelCount: number; lightnessClippedPixelCount: number } | undefined;

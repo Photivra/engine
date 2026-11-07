@@ -118,6 +118,12 @@ that frequency aliases into the display pixel exactly as it does in the real ave
 value of the box-averaged mosaic contains Σ_k Ŝ(f − k/(2p)), and the box passes the aliases that land
 near zero frequency). Sampling theory: MIT OpenCourseWare 6.003, lectures on sampling and aliasing.
 
+**Development exposure push (#556).** With `output.exposureCompensationStops` the capture multiplies each site's
+normalized value by G = 2^stops before the per-site clip at white. The view does the same to its readout moments:
+the normalized value per electron k becomes G·k and the constant (read and ADC) variance G²·σ², so the per-site clip,
+white balance, demosaic and tone curve act on the pushed distribution, as in the capture. Nothing else in the view
+changes, and without the option the moments are unchanged.
+
 ### Defocus
 
 `lens.defocus: { model: "geometric-disc" }` with `lens.focusDistanceM` different from `subjectDistanceM` (#492, step

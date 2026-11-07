@@ -98,6 +98,7 @@ Two more stages were added for #277 in 2.0, scene radiance of the engine's chart
   - All four tone curves (2.0: the luminance curves too). `naka-rushton-luminance` needs exponent n ≥ 1 on the GPU (below 1 its ratio f(L)/L is unbounded as L → 0, so no useful bound exists there; `unsupported-on-backend`), 1/g(Lw) ≤ 2^60 and σⁿ ≥ 2^-60; `extended-reinhard-luminance` needs Lw ≥ 2^-20 (`unsupported-float32-domain` otherwise).
   - A luminance-toned sample whose value plus bound exceeds 2^100 fails closed (`unsupported-float32-domain`).
   - Only `borderHandling: "reject"`. Mirror borders (`borderHandling: "mirror"`) reject with `unsupported-on-backend`; use `cpu-reference` for them.
+  - No development exposure push (#556): `exposureCompensationStops` other than 0 rejects with `unsupported-on-backend`; use `cpu-reference` for it.
   - Sample magnitude times scale must stay ≤ 2^120 (`unsupported-float32-domain`).
   - In `reject-out-of-range` mode, any sample inside the float32 gamut classification band rejects with `indeterminate-float32-classification`. The backend fails closed rather than guessing whether the reference would reject.
 - **RAW development** takes ownership of `input.raw` exactly like the reference task: the caller's arrays are detached. The a-priori exposed-value bound must not exceed 1.

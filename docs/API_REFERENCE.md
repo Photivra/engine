@@ -223,6 +223,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 | Export | Kind |
 | --- | --- |
 | [`createNativeRawDevelopmentTask`](api/capture-native-raw-development.md#createnativerawdevelopmenttask) | Runtime |
+| [`NATIVE_RAW_DEVELOPMENT_EXPOSURE_RANGE_STOPS`](api/capture-native-raw-development.md#native_raw_development_exposure_range_stops) | Runtime |
 | [`NativeRawDevelopmentInput`](api/capture-native-raw-development.md#nativerawdevelopmentinput) | Type |
 | [`NativeRawDevelopmentOutput`](api/capture-native-raw-development.md#nativerawdevelopmentoutput) | Type |
 | [`NativeRawDevelopmentProvider`](api/capture-native-raw-development.md#nativerawdevelopmentprovider) | Type |

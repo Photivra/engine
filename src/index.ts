@@ -1736,7 +1736,7 @@ export type { NativeEnvironmentRawInput, NativeEnvironmentRawTile, NativeEnviron
 export { NATIVE_ENVIRONMENT_OPTICAL_STAGE_LIMITS } from "./capture/native-environment-optical-stage.js";
 export type { NativeEnvironmentOpticalStage, NativeEnvironmentOpticalStageRetention, NativeEnvironmentSensorStageInput,
   NativeEnvironmentSensorStageProvider } from "./capture/native-environment-optical-stage.js";
-export { createNativeRawDevelopmentTask } from "./capture/native-raw-development.js";
+export { createNativeRawDevelopmentTask, NATIVE_RAW_DEVELOPMENT_EXPOSURE_RANGE_STOPS } from "./capture/native-raw-development.js";
 export type { NativeRawDevelopmentInput, NativeRawDevelopmentOutput, NativeRawDevelopmentProvider, NativeRawDevelopmentTask,
   RawHighlightDiagnostics } from "./capture/native-raw-development.js";
 export type { NativeRawExposureInput, NativeRawExposure, NativeRawInput, NativeRawPlan, NativeRawTileRequest, NativeRawTile,

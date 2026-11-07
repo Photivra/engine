@@ -44,6 +44,14 @@ export interface NativeRawDevelopmentInput {
    * always true for a 2×2 Bayer pattern. Interior pixels are unchanged.
    */
   borderHandling?: RawReconstructionBorderHandling;
+  /**
+   * Development exposure push in stops (#556), from {@link NATIVE_RAW_DEVELOPMENT_EXPOSURE_RANGE_STOPS} −2 to +5; default 0.
+   * Each site's black-subtracted, white-normalized value is multiplied by 2^stops before demosaic, white balance, the
+   * highlight mode, colour and the tone curve, like a raw editor's exposure slider. A site whose pushed value reaches the
+   * white level is clipped there and counted as saturated (so `highlightMode: "reconstruct"` rolls it off); values below
+   * black stay signed. The RAW codes are not changed. 0 (or omitted) develops exactly as before, byte for byte.
+   */
+  exposureCompensationStops?: number;
   /** Counts the kept packed RAW plus the integer output. It does not count caller buffers, process heap or GPU memory. */
   maximumRetainedPayloadBytes: number;
 }
@@ -91,6 +99,8 @@ export interface NativeRawDevelopmentTask {
   takeOutput(): NativeRawDevelopmentOutput;
 }
 const TILE_WIDTH = 256;
+/** Accepted range of `NativeRawDevelopmentInput.exposureCompensationStops` and `simulateCapture`'s `output.exposureCompensationStops` (#556). */
+export const NATIVE_RAW_DEVELOPMENT_EXPOSURE_RANGE_STOPS = /* @__PURE__ */ Object.freeze({ minimum: -2, maximum: 5 } as const);
 /** Sites checked per integrity chunk before checking whether it is time to yield. */
 const INTEGRITY_CHUNK_SITES = 1 << 18;
 function canonical(value: unknown): string {
@@ -138,13 +148,15 @@ export interface PreparedDevelopment {
   whiteBalance: NativeRawDevelopmentInput["whiteBalance"]; highlightMode: RawHighlightMode; development: SensorColorDevelopment;
   crop: {x:number;y:number;width:number;height:number}; raster: {pixelWidth:number;pixelHeight:number};
   border: RawReconstructionBorderHandling; mirror: {nativeHeight:number;reach:number}|undefined;
+  /** Development exposure gain 2^exposureCompensationStops; exactly 1 without a push. */
+  exposureGain: number;
 }
 /**
  * Synchronous checks of metadata, kernel halo (the neighbourhood each pixel reads) and CFA, shared by the
  * task, the reference and the accelerator. No pixel loop. Not exported from the package.
  */
 export function prepareNativeRawDevelopment(input: NativeRawDevelopmentInput): PreparedDevelopment {
-  const r=requireAllowlistedRecord(input,["raw","phaseProfiles","colorProfile","whiteBalance","rendering","highlightMode","borderHandling","maximumRetainedPayloadBytes"],"Invalid native RAW development input.");
+  const r=requireAllowlistedRecord(input,["raw","phaseProfiles","colorProfile","whiteBalance","rendering","highlightMode","borderHandling","exposureCompensationStops","maximumRetainedPayloadBytes"],"Invalid native RAW development input.");
   const plan=validatePackedNativeRaw(input.raw),g=plan.exposure.resolvedGeometry,native=plan.exposure.geometry.nativeRaster;
   const phases=freezeOwnedData(parseRawReconstructionPhaseProfiles(r.phaseProfiles,plan.frame.modeId,plan.frame.colorSamplingProfile));
   const color=freezeOwnedData(parseExportSensorColorProfile(r.colorProfile)),profile=freezeOwnedData(parseSdrRenderingProfile(r.rendering));
@@ -153,6 +165,10 @@ export function prepareNativeRawDevelopment(input: NativeRawDevelopmentInput): P
   if(highlightMode!=="clip"&&highlightMode!=="reconstruct")throw new InvalidConfigurationError("Unsupported RAW highlight mode.");
   const border=r.borderHandling===undefined?"reject":r.borderHandling;
   if(border!=="reject"&&border!=="mirror")throw new InvalidConfigurationError("Unsupported RAW border handling.");
+  const stops=r.exposureCompensationStops===undefined?0:r.exposureCompensationStops;
+  if(typeof stops!=="number"||!Number.isFinite(stops)||stops<NATIVE_RAW_DEVELOPMENT_EXPOSURE_RANGE_STOPS.minimum||stops>NATIVE_RAW_DEVELOPMENT_EXPOSURE_RANGE_STOPS.maximum)
+    throw new InvalidConfigurationError("RAW development exposureCompensationStops must be a finite number from -2 to +5.");
+  const exposureGain=stops===0?1:2**stops;
   if(color.colorSamplingProfileId!==plan.frame.colorSamplingProfile.profileId||phases.some(p=>canonical(p.profile.kernels.map(k=>k.outputChannelId))!==canonical(color.channelIds))||
     (r.whiteBalance!=="not-required"&&r.whiteBalance!=="apply-resolved-sensor-gains")||(intent!==null)!==(r.whiteBalance==="apply-resolved-sensor-gains")||
     raster.pixelWidth!==crop.width||raster.pixelHeight!==crop.height)throw new InvalidConfigurationError("Development requires bound sensor RGB, explicit one-time WB and 1:1 output crop.");
@@ -189,7 +205,7 @@ export function prepareNativeRawDevelopment(input: NativeRawDevelopmentInput): P
     validateMirrorBorderCfaConsistency(layout,native.pixelWidth,native.pixelHeight,reach);
     mirror={nativeHeight:native.pixelHeight,reach};
   }
-  return {plan,phases,color,profile,whiteBalance:r.whiteBalance,highlightMode,development,crop,raster,border,mirror};
+  return {plan,phases,color,profile,whiteBalance:r.whiteBalance,highlightMode,development,crop,raster,border,mirror,exposureGain};
 }
 /** Checks the numbers in rows [y0,y1). Values below black stay signed; each white-minus-black span is positive. Not exported from the package. */
 export function checkNativeRawIntegrity(raw: NativeRawOutput, nativeWidth: number, repeatWidth: number, repeatHeight: number, y0: number, y1: number): void {
@@ -202,11 +218,11 @@ export function checkNativeRawIntegrity(raw: NativeRawOutput, nativeWidth: numbe
     }
   }
 }
-function source(raw: NativeRawOutput, plan: NativeRawOutput["plan"]): RawDevelopmentSource {
+function source(raw: NativeRawOutput, plan: NativeRawOutput["plan"], exposureGain: number): RawDevelopmentSource {
   const layout=plan.frame.colorSamplingProfile.layout;
   if(layout.kind!=="periodic-mosaic")throw new InvalidConfigurationError("Development requires periodic CFA.");
   return {nativeWidth:plan.exposure.geometry.nativeRaster.pixelWidth,repeatWidth:layout.repeatWidthSites,repeatHeight:layout.repeatHeightSites,
-    codes:raw.codes,blackLevels:raw.blackLevels,saturationFlags:raw.saturationFlags,whiteByPhase:raw.effectiveSaturationCodes};
+    codes:raw.codes,blackLevels:raw.blackLevels,saturationFlags:raw.saturationFlags,whiteByPhase:raw.effectiveSaturationCodes,...(exposureGain===1?{}:{exposureGain})};
 }
 function emptyDiagnostics(): SdrRenderingResult["diagnostics"] {
   return {renderingNegativeSampleCount:0,renderingAboveReferenceSampleCount:0,toneChangedSampleCount:0,gamutClippedLowSampleCount:0,gamutClippedHighSampleCount:0,captureSaturation:"consumed-in-raw-development"};
@@ -223,7 +239,7 @@ function highlightOf(mode: RawHighlightMode, counts: RawDevelopmentCounts): RawH
  * 256-pixel rows with the reference `calculateSdrRendering`. It does not take ownership of the RAW.
  */
 export function developNativeRawReference(input: NativeRawDevelopmentInput): {integerSamples:number[];diagnostics:SdrRenderingResult["diagnostics"];highlight:RawHighlightDiagnostics} {
-  const v=prepareNativeRawDevelopment(input),plan=v.plan,g=plan.exposure.resolvedGeometry,active=g.activeCapture.nativeRect,src=source(input.raw,plan);
+  const v=prepareNativeRawDevelopment(input),plan=v.plan,g=plan.exposure.resolvedGeometry,active=g.activeCapture.nativeRect,src=source(input.raw,plan,v.exposureGain);
   checkNativeRawIntegrity(input.raw,src.nativeWidth,src.repeatWidth,src.repeatHeight,0,plan.exposure.geometry.nativeRaster.pixelHeight);
   const counts=createRawDevelopmentCounts(),diagnostics=emptyDiagnostics(),out:number[]=[];
   for(let y=0;y<v.raster.pixelHeight;y++)for(let x=0;x<v.raster.pixelWidth;x+=TILE_WIDTH){
@@ -283,7 +299,7 @@ export function createNativeRawDevelopmentTaskWithCadence(input: NativeRawDevelo
   const nativeHeight=plan.exposure.geometry.nativeRaster.pixelHeight;
   // Ownership is transferred only after every synchronous check has passed.
   const raw=takeNativeRawOwnership(input.raw,plan);
-  const src=source(raw,plan),tilesPerRow=Math.ceil(raster.pixelWidth/TILE_WIDTH),totalTileCount=tilesPerRow*raster.pixelHeight;
+  const src=source(raw,plan,v.exposureGain),tilesPerRow=Math.ceil(raster.pixelWidth/TILE_WIDTH),totalTileCount=tilesPerRow*raster.pixelHeight;
   const abort=new AbortController();let state:NativeRawTaskState="ready",output:NativeRawDevelopmentOutput|null=null,codes:Uint8Array|Uint16Array|null=null,completed=0;
   function release(): void {raw.codes.fill(0);raw.blackLevels.fill(0);raw.digitalSaturationCodes.fill(0);raw.saturationFlags.fill(0);raw.effectiveSaturationCodes.fill(0);codes?.fill(0);codes=null;output=null;}
   function check(): void {if(abort.signal.aborted)throw new InvalidConfigurationError("Native RAW development aborted.");}

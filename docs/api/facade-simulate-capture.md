@@ -544,6 +544,16 @@ export interface SimulateCaptureOptions {
     toneCurveParameters?: SdrToneCurveParameters;
     /** Default "clip". */
     highlightMode?: RawHighlightMode;
+    /**
+     * Opt-in (#556) development exposure push in stops, −2 to +5 (`NATIVE_RAW_DEVELOPMENT_EXPOSURE_RANGE_STOPS`); default 0.
+     * A linear gain 2^stops on the RAW after black subtraction and white normalization, before demosaic, white balance,
+     * the highlight mode, colour, the tone curve and encoding, like a raw editor's exposure slider ("brighten in development").
+     * A site pushed to or past white clips there and counts as saturated (`highlightMode: "reconstruct"` rolls it off);
+     * raised shadows keep their real noise and ADC quantization. The RAW codes, `result.raw` and a DNG are not changed;
+     * the developed samples (`image.samples`, also with format "dng"), JPEG, PNG, the ideal reference and the display view
+     * honour it. Reported in the assumption `output.exposureCompensationStops`. 0 or omitted: byte-identical to before.
+     */
+    exposureCompensationStops?: number;
     /** Default "scene-illuminant". */
     whiteBalance?: SimulateCaptureWhiteBalance;
     /** JPEG constant quantization step 1-255 (not a manufacturer 'quality'). Default 2. */
