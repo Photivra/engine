@@ -236,15 +236,15 @@ function prepareView(context: DisplayViewRunContext): PreparedViewParts {
   const kernels = signalInput.kernels;
   // Readout moments per channel: normalized value k·e with variance k²·(e + σ_read²) plus the ADC quantization (1/12 code², times d² before a digital gain d).
   // #556: a development exposure push G multiplies the normalized value before the per-site clip at white: k → G·k and the constant variance → G²·(…).
+  // Without a push G = 1, and x·1 = x exactly in IEEE 754 arithmetic, so the moments are bit-identical to those without the push.
   const readout = CHANNELS.map((channel): DisplayViewChannelReadout => {
     const { readoutProfile, regimeId } = regimeByChannel[channel];
     const resolved = resolveSensorReadoutRegime({ profile: readoutProfile as Parameters<typeof resolveSensorReadoutRegime>[0]["profile"], regimeId });
     const k = relativePerElectron[channel], digitalGain = resolved.regime.adc.digitalGain ?? 1, gain = resolved.regime.systemConversionGainElectronsPerCode.value;
     const codeSpan = digitalGain / (gain * k), read = resolved.combinedReadNoiseRmsElectrons;
     const quantizationCodes = digitalGain * digitalGain / 12 + (digitalGain === 1 ? 0 : 1 / 12);
-    const constantVariance = k * k * read * read + quantizationCodes / (codeSpan * codeSpan);
-    return exposureGain === 1 ? { perElectron: k, darkElectrons: DARK_CURRENT_ELECTRONS_PER_SECOND * shutterSeconds, constantVariance }
-      : { perElectron: exposureGain * k, darkElectrons: DARK_CURRENT_ELECTRONS_PER_SECOND * shutterSeconds, constantVariance: exposureGain * exposureGain * constantVariance };
+    return { perElectron: exposureGain * k, darkElectrons: DARK_CURRENT_ELECTRONS_PER_SECOND * shutterSeconds,
+      constantVariance: exposureGain * exposureGain * (k * k * read * read + quantizationCodes / (codeSpan * codeSpan)) };
   }) as [DisplayViewChannelReadout, DisplayViewChannelReadout, DisplayViewChannelReadout];
   const phases = bilinearPhaseProfiles(), demosaicTable: { dx: number; dy: number; weight: number }[][][] = [];
   for (const phase of phases) demosaicTable[phase.phaseY * 2 + phase.phaseX] = CHANNELS.map((c) => phase.profile.kernels.find((k) => k.outputChannelId === c)!.contributions
