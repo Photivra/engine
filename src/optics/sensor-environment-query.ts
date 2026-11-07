@@ -24,7 +24,7 @@ import { approximationResult, type CalculationResult } from "../core/calculation
 import { InvalidScientificInputError } from "../core/validation.js";
 import { applyPhysicalCameraRotation, calculateInverseCameraRotationImageMapping,
   type CameraAngularVelocityRadPerSec } from "../motion/camera-rotation.js";
-import { lensProjectionDirectionValue, parseLensProjectionModel, type LensProjectionModel } from "../camera/lens-projection.js";
+import { insideRadialImageCircle, lensProjectionDirectionValue, parseLensProjectionModel, type LensProjectionModel } from "../camera/lens-projection.js";
 import {
   calculateInverseRadialSourcePointValue, validateRadialDistortionProfile, type RadialDistortionProfile, type ValidatedRadialProfile
 } from "./radial-distortion.js";
@@ -52,6 +52,12 @@ export interface EnvironmentLensFieldMapping {
     | { kind: "radial"; profile: RadialDistortionProfile }
     | { kind: "brown-conrady"; profile: BrownConradyDistortionProfile };
   radiometricAreaCorrection: "inverse-distortion-jacobian";
+  /**
+   * #549, optional: what an ideal image point outside a radial projection's image circle (for example beyond r = 2f of the
+   * equisolid fisheye) does. Omitted: the query fails, as before. `"backward-ray"`: the query looks straight back (0, 0, −1),
+   * a direction no forward scene answers, so a provider that treats directions beyond 90° as empty gives it zero radiance.
+   */
+  outsideImageCircle?: "backward-ray";
 }
 
 /** @internal Parsed mapping with validated profiles, reused across one plan's queries. */
@@ -68,7 +74,7 @@ export function prepareEnvironmentLensFieldMapping(value: unknown): PreparedEnvi
   }
   const record = value as Record<string, unknown>;
   for (const key of Object.keys(record)) {
-    if (!["projectionModel", "distortion", "radiometricAreaCorrection"].includes(key)) {
+    if (!["projectionModel", "distortion", "radiometricAreaCorrection", "outsideImageCircle"].includes(key)) {
       throw new InvalidConfigurationError(`lensFieldMapping has unknown field ${JSON.stringify(key)}.`);
     }
   }
@@ -76,22 +82,26 @@ export function prepareEnvironmentLensFieldMapping(value: unknown): PreparedEnvi
     throw new InvalidConfigurationError("lensFieldMapping.radiometricAreaCorrection must be \"inverse-distortion-jacobian\".");
   }
   const projectionModel = parseLensProjectionModel(record.projectionModel);
+  if (record.outsideImageCircle !== undefined && record.outsideImageCircle !== "backward-ray") {
+    throw new InvalidConfigurationError("lensFieldMapping.outsideImageCircle must be \"backward-ray\" when given.");
+  }
+  const outside = record.outsideImageCircle === undefined ? {} : { outsideImageCircle: "backward-ray" as const };
   const distortion = record.distortion as EnvironmentLensFieldMapping["distortion"] | undefined;
   if (typeof distortion !== "object" || distortion === null) {
     throw new InvalidConfigurationError("lensFieldMapping.distortion must be an object.");
   }
   if (distortion.kind === "none") {
-    return { mapping: { projectionModel, distortion: { kind: "none" }, radiometricAreaCorrection: "inverse-distortion-jacobian" } };
+    return { mapping: { projectionModel, distortion: { kind: "none" }, radiometricAreaCorrection: "inverse-distortion-jacobian", ...outside } };
   }
   if (distortion.kind === "radial") {
     const radial = validateRadialDistortionProfile(distortion.profile);
     return { mapping: { projectionModel, distortion: { kind: "radial", profile: distortion.profile },
-      radiometricAreaCorrection: "inverse-distortion-jacobian" }, radial };
+      radiometricAreaCorrection: "inverse-distortion-jacobian", ...outside }, radial };
   }
   if (distortion.kind === "brown-conrady") {
     const brownConrady = validateBrownConradyDistortionProfile(distortion.profile);
     return { mapping: { projectionModel, distortion: { kind: "brown-conrady", profile: distortion.profile },
-      radiometricAreaCorrection: "inverse-distortion-jacobian" }, brownConrady };
+      radiometricAreaCorrection: "inverse-distortion-jacobian", ...outside }, brownConrady };
   }
   throw new InvalidConfigurationError("lensFieldMapping.distortion.kind must be none, radial or brown-conrady.");
 }
@@ -274,7 +284,10 @@ export function calculateMappedSensorEnvironmentRadianceQuery(
     if (typeof t !== "number" || !Number.isFinite(t) || t < 0) {
       throw new InvalidScientificInputError("timeSecondsFromOpeningReference must be finite and non-negative.");
     }
-    const captured = lensProjectionDirectionValue(mapping.projectionModel, projectionScaleMm, ideal.x, ideal.y);
+    // #549: outside the image circle, with "backward-ray", look straight back (no forward scene there).
+    const captured = mapping.outsideImageCircle === "backward-ray" &&
+      !insideRadialImageCircle(mapping.projectionModel, projectionScaleMm, Math.hypot(ideal.x, ideal.y)) ? { x: 0, y: 0, z: -1 } :
+      lensProjectionDirectionValue(mapping.projectionModel, projectionScaleMm, ideal.x, ideal.y);
     const reference = applyPhysicalCameraRotation(captured,
       { pitch: velocity.pitch*t, yaw: velocity.yaw*t, roll: velocity.roll*t }, "camera-to-reference");
     const length = hypot3(reference.x, reference.y, reference.z);
