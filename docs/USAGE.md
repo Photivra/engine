@@ -1455,6 +1455,23 @@ console.log(blur.value.diameterMm);
 
 You supply the circle-of-confusion criterion used for depth of field (DOF). These are ideal geometric thin-lens models. They do not include diffraction or real-lens aberrations in the DOF criterion.
 
+`simulateCapture` and the display view render the defocus blur disc with `lens.defocus: { model: "geometric-disc" }`, up to a kernel radius of `DEFOCUS_DISC_KERNEL_MAXIMUM_RADIUS_SITES` (64 sites, a disc 129 sites across) and refuse a larger one. Use `calculateDefocusDiscKernelRadius()` to check a request before rendering it. It runs the capture's own resolution and limit test, so it agrees with the capture's refusal. Pass the f-number the capture uses (in an automatic exposure mode, the resolved one) and the sensor's pixel pitch:
+
+```ts
+import { calculateDefocusDiscKernelRadius } from "@photivra/engine";
+
+const check = calculateDefocusDiscKernelRadius({
+  focalLengthMm: 50,
+  aperture: 1.4,
+  focusDistanceM: 1,
+  subjectDistanceM: 2,
+  pixelPitchMicrometers: 6
+});
+
+console.log(check.value.withinLimit); // false: lens.defocus refuses this request
+console.log(check.value.kernelRadiusSites, check.value.excessKernelRadiusSites); // 78, 14
+```
+
 See [Physics Foundation](https://github.com/Photivra/photivra/blob/main/docs/PHYSICS_FOUNDATION.md#thin-lens-focus-and-depth-of-field).
 
 ## Real-lens PSF profiles and complex-pupil reference

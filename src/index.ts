@@ -1019,6 +1019,13 @@ export {
 } from "./optics/depth-of-field.js";
 
 export {
+  DEFOCUS_DISC_KERNEL_MAXIMUM_RADIUS_SITES,
+  calculateDefocusDiscKernelRadius,
+  type CalculateDefocusDiscKernelRadiusInput,
+  type DefocusDiscKernelRadius
+} from "./optics/defocus-disc-kernel.js";
+
+export {
   calculateFocusBreathingFieldOfView,
   calculateFocusBreathingProjection,
   calculateGeometricFocusBreathing,

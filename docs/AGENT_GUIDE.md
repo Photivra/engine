@@ -26,6 +26,7 @@ one-call capture, see the [Quick Start](QUICK_START.md). For every export, see t
 | Compare two exposures in stops | [`calculateRelativeRenderedExposure`](api/exposure-exposure.md#calculaterelativerenderedexposure) | Includes ISO as gain. |
 | Depth of field and hyperfocal distance | [`calculateDepthOfField`](api/optics-depth-of-field.md#calculatedepthoffield) | Thin-lens model. `farLimitM` is `null` when it is infinite. |
 | Blur of an out-of-focus subject | [`calculateDefocusCircle`](api/optics-depth-of-field.md#calculatedefocuscircle) | Geometric blur-circle diameter at the sensor. |
+| Check a defocus blur before rendering it | [`calculateDefocusDiscKernelRadius`](api/optics-defocus-disc-kernel.md#calculatedefocusdisckernelradius) | Whether `lens.defocus` renders the disc or refuses it (kernel radius at most `DEFOCUS_DISC_KERNEL_MAXIMUM_RADIUS_SITES`, 64 sites), and by how much it is over. |
 | Field (angle) of view | [`calculateFieldOfView`](api/camera-field-of-view.md#calculatefieldofview) | Pass the sensor width, height or diagonal for that angle. |
 | Crop factor and 35 mm-equivalent focal length | [`calculateEquivalentFocalLength35Mm`](api/camera-equivalent-focal-length.md#calculateequivalentfocallength35mm) | Diagonal-based, against a 36 × 24 mm frame. |
 | Pixels left after a centred crop | [`calculateCenteredCrop`](api/output-crop.md#calculatecenteredcrop) | Keeps the aspect ratio to whole pixels. |
