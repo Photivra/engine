@@ -185,6 +185,59 @@ export function calculateSensorEnvironmentRadianceQuery(
 }
 
 /**
+ * @internal The ideal (undistorted) image point of a physical sensor point (+X right, +Y up, mm) and the distortion area
+ * factor 1 / det(d distorted / d ideal) there; the ideal point is the sensor point itself without distortion. Shared by
+ * the mapped query below and the image-space defocus of `simulateCapture` (#548), so both use one arithmetic.
+ */
+export function undistortedImagePoint(prepared: PreparedEnvironmentLensFieldMapping, imagePointMm: { x: number; y: number }):
+  { ideal: { x: number; y: number }; distortionAreaFactor: number } {
+  let ideal = imagePointMm;
+  let distortionAreaFactor = 1;
+  if (prepared.radial !== undefined) {
+    ideal = calculateInverseRadialSourcePointValue(imagePointMm, prepared.radial, "sourcePointNativeSensorMm").sourceImagePointMm;
+    // Radial map p -> s(r) p: det = s (s + r ds/dr) with r ds/dr = 2 r^2 s'(r^2).
+    const { k1, k2, k3 } = prepared.radial.coefficients;
+    const r2 = (ideal.x*ideal.x+ideal.y*ideal.y)/prepared.radial.normalizationRadiusMm**2;
+    const scale = 1+k1*r2+k2*r2*r2+k3*r2*r2*r2;
+    const radialDerivative = 1+3*k1*r2+5*k2*r2*r2+7*k3*r2*r2*r2;
+    distortionAreaFactor = 1/(scale*radialDerivative);
+  } else if (prepared.brownConrady !== undefined) {
+    ideal = brownConradyInverseValue(prepared.brownConrady, imagePointMm);
+    const j = brownConradyForwardValue(prepared.brownConrady, ideal).jacobian;
+    distortionAreaFactor = 1/(j[0]*j[3]-j[1]*j[2]);
+  }
+  if (!(distortionAreaFactor > 0) || !Number.isFinite(distortionAreaFactor)) {
+    throw new InvalidScientificInputError("Distortion area factor must remain finite and positive.");
+  }
+  return { ideal, distortionAreaFactor };
+}
+
+/**
+ * @internal The forward distortion of an ideal image point (+X right, +Y up, mm) to the physical sensor point, with the
+ * singular values of d distorted / d ideal there (the largest and smallest local scale of the map; 1 and 1 without
+ * distortion). The inverse of {@link undistortedImagePoint} up to its solver's rounding (#548).
+ */
+export function distortedImagePoint(prepared: PreparedEnvironmentLensFieldMapping, ideal: { x: number; y: number }):
+  { pointMm: { x: number; y: number }; largestScale: number; smallestScale: number } {
+  if (prepared.radial !== undefined) {
+    const { k1, k2, k3 } = prepared.radial.coefficients;
+    const r2 = (ideal.x*ideal.x+ideal.y*ideal.y)/prepared.radial.normalizationRadiusMm**2;
+    const scale = 1+k1*r2+k2*r2*r2+k3*r2*r2*r2;
+    // Tangential scale s, radial scale s + r ds/dr (the two eigenvalues of the symmetric Jacobian of p -> s(r) p).
+    const radialDerivative = 1+3*k1*r2+5*k2*r2*r2+7*k3*r2*r2*r2;
+    return { pointMm: { x: ideal.x*scale, y: ideal.y*scale }, largestScale: Math.max(scale, radialDerivative), smallestScale: Math.min(scale, radialDerivative) };
+  }
+  if (prepared.brownConrady !== undefined) {
+    const forward = brownConradyForwardValue(prepared.brownConrady, ideal), [a, b, c, d] = forward.jacobian;
+    // Singular values of [[a, b], [c, d]]: sqrt of the eigenvalues of J^T J.
+    const p = a*a+b*b+c*c+d*d, q = Math.abs(a*d-b*c), root = Math.sqrt(Math.max(0, p*p-4*q*q));
+    const largest = Math.sqrt((p+root)/2);
+    return { pointMm: forward.mappedImagePointMm, largestScale: largest, smallestScale: largest > 0 ? q/largest : 0 };
+  }
+  return { pointMm: { ...ideal }, largestScale: 1, smallestScale: 1 };
+}
+
+/**
  * @internal Query with a lens field mapping that is already validated. The environment photo-signal
  * planner shares it, so profiles are validated once per plan.
  */
@@ -199,24 +252,7 @@ export function calculateMappedSensorEnvironmentRadianceQuery(
   const focus = parseFocusPlane(input.focus);
   const sourcePointImagePlaneMm = { x: input.sourcePointNativeSensorMm.x, y: -input.sourcePointNativeSensorMm.y };
   const mapping = prepared.mapping;
-  let ideal = sourcePointImagePlaneMm;
-  let distortionAreaFactor = 1;
-  if (prepared.radial !== undefined) {
-    ideal = calculateInverseRadialSourcePointValue(sourcePointImagePlaneMm, prepared.radial, "sourcePointNativeSensorMm").sourceImagePointMm;
-    // Radial map p -> s(r) p: det = s (s + r ds/dr) with r ds/dr = 2 r^2 s'(r^2).
-    const { k1, k2, k3 } = prepared.radial.coefficients;
-    const r2 = (ideal.x*ideal.x+ideal.y*ideal.y)/prepared.radial.normalizationRadiusMm**2;
-    const scale = 1+k1*r2+k2*r2*r2+k3*r2*r2*r2;
-    const radialDerivative = 1+3*k1*r2+5*k2*r2*r2+7*k3*r2*r2*r2;
-    distortionAreaFactor = 1/(scale*radialDerivative);
-  } else if (prepared.brownConrady !== undefined) {
-    ideal = brownConradyInverseValue(prepared.brownConrady, sourcePointImagePlaneMm);
-    const j = brownConradyForwardValue(prepared.brownConrady, ideal).jacobian;
-    distortionAreaFactor = 1/(j[0]*j[3]-j[1]*j[2]);
-  }
-  if (!(distortionAreaFactor > 0) || !Number.isFinite(distortionAreaFactor)) {
-    throw new InvalidScientificInputError("Distortion area factor must remain finite and positive.");
-  }
+  const { ideal, distortionAreaFactor } = undistortedImagePoint(prepared, sourcePointImagePlaneMm);
   let projection: ReturnType<typeof calculateInverseCameraRotationImageMapping> | null = null;
   let look: { x: number; y: number; z: number };
   let projectionScaleMm: number;

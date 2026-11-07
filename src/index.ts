@@ -1736,7 +1736,7 @@ export type { NativeEnvironmentRawInput, NativeEnvironmentRawTile, NativeEnviron
 export { NATIVE_ENVIRONMENT_OPTICAL_STAGE_LIMITS } from "./capture/native-environment-optical-stage.js";
 export type { NativeEnvironmentOpticalStage, NativeEnvironmentOpticalStageRetention, NativeEnvironmentSensorStageInput,
   NativeEnvironmentSensorStageProvider } from "./capture/native-environment-optical-stage.js";
-export { createNativeRawDevelopmentTask } from "./capture/native-raw-development.js";
+export { createNativeRawDevelopmentTask, NATIVE_RAW_DEVELOPMENT_EXPOSURE_RANGE_STOPS } from "./capture/native-raw-development.js";
 export type { NativeRawDevelopmentInput, NativeRawDevelopmentOutput, NativeRawDevelopmentProvider, NativeRawDevelopmentTask,
   RawHighlightDiagnostics } from "./capture/native-raw-development.js";
 export type { NativeRawExposureInput, NativeRawExposure, NativeRawInput, NativeRawPlan, NativeRawTileRequest, NativeRawTile,
@@ -1792,8 +1792,9 @@ export { SIMULATE_CAPTURE_FACADE_VERSION, SIMULATE_CAPTURE_DEFAULT_ILLUMINANCE_L
   type SimulateCaptureDemosaic, type SimulateCaptureBorderHandling, type SimulateCaptureLensDistortion, type SimulateCaptureMotion,
   type SimulateCaptureSensorAntiAliasing, type SimulateCaptureCostOption, type SimulateCapturePixelAperture, SIMULATE_CAPTURE_BOX_APERTURE_DEFAULT_SAMPLES,
   SIMULATE_CAPTURE_FAST_OPTIONS, type SimulateCaptureFastOption, type SimulateCaptureFastReport, type SimulateCaptureDemosaicRecord,
+  type SimulateCaptureSharpening, type SimulateCaptureDiffractionCorrection, type SimulateCaptureDetailDiagnostics,
   simulateIdealReference, type IdealReferenceResult, serializeSimulatedCaptureDngFromParts, type SimulateCaptureDngPart, type SimulateDisplayViewOptions, type DisplayViewResult,
-  SIMULATE_DISPLAY_VIEW_DEFAULT_SAMPLES_PER_AXIS } from "./facade/simulate-capture.js";
+  type DisplayViewHighlightDiagnostics, SIMULATE_DISPLAY_VIEW_DEFAULT_SAMPLES_PER_AXIS } from "./facade/simulate-capture.js";
 export { simulateDisplayView, prepareDisplayView, type PreparedDisplayView, type PreparedDisplayViewRenderOptions, serializeDisplayViewCorrectionStates, bindDisplayViewCorrectionStates,
   type DisplayViewCorrectionStateKeys, type DisplayViewCorrectionStateSet } from "./facade/simulate-display-view.js";
 export type { DisplayViewGpuMode, PrepareDisplayViewOptions, DisplayViewGpuFallbackReason, DisplayViewGpuConformance, DisplayViewExecution,

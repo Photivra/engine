@@ -1,6 +1,6 @@
 # Public API reference
 
-Generated from the exact root exports for **@photivra/engine 2.15.0 / root contract 2.15.0** by `node scripts/generate-api-reference.mjs`. No module deep import is supported.
+Generated from the exact root exports for **@photivra/engine 2.16.0 / root contract 2.16.0** by `node scripts/generate-api-reference.mjs`. No module deep import is supported.
 
 Use [the developer guide](https://github.com/Photivra/photivra/blob/main/docs/DEVELOPERS.md) for executable paths and scientific boundaries. Types are contracts, not runtime validation: parse untrusted data, preserve units/reference frames, read assessment blockers, and retain evidence/limitations. Optional properties do not imply a universal default. Model/schema IDs remain independent of the distribution.
 
@@ -223,6 +223,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 | Export | Kind |
 | --- | --- |
 | [`createNativeRawDevelopmentTask`](api/capture-native-raw-development.md#createnativerawdevelopmenttask) | Runtime |
+| [`NATIVE_RAW_DEVELOPMENT_EXPOSURE_RANGE_STOPS`](api/capture-native-raw-development.md#native_raw_development_exposure_range_stops) | Runtime |
 | [`NativeRawDevelopmentInput`](api/capture-native-raw-development.md#nativerawdevelopmentinput) | Type |
 | [`NativeRawDevelopmentOutput`](api/capture-native-raw-development.md#nativerawdevelopmentoutput) | Type |
 | [`NativeRawDevelopmentProvider`](api/capture-native-raw-development.md#nativerawdevelopmentprovider) | Type |
@@ -1268,6 +1269,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 | Export | Kind |
 | --- | --- |
+| [`DisplayViewHighlightDiagnostics`](api/facade-simulate-capture.md#displayviewhighlightdiagnostics) | Type |
 | [`DisplayViewResult`](api/facade-simulate-capture.md#displayviewresult) | Type |
 | [`IdealReferenceResult`](api/facade-simulate-capture.md#idealreferenceresult) | Type |
 | [`serializeSimulatedCaptureDngFromParts`](api/facade-simulate-capture.md#serializesimulatedcapturedngfromparts) | Runtime |
@@ -1289,6 +1291,8 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 | [`SimulateCaptureCostOption`](api/facade-simulate-capture.md#simulatecapturecostoption) | Type |
 | [`SimulateCaptureDemosaic`](api/facade-simulate-capture.md#simulatecapturedemosaic) | Type |
 | [`SimulateCaptureDemosaicRecord`](api/facade-simulate-capture.md#simulatecapturedemosaicrecord) | Type |
+| [`SimulateCaptureDetailDiagnostics`](api/facade-simulate-capture.md#simulatecapturedetaildiagnostics) | Type |
+| [`SimulateCaptureDiffractionCorrection`](api/facade-simulate-capture.md#simulatecapturediffractioncorrection) | Type |
 | [`SimulateCaptureDngPart`](api/facade-simulate-capture.md#simulatecapturedngpart) | Type |
 | [`SimulateCaptureExposureMode`](api/facade-simulate-capture.md#simulatecaptureexposuremode) | Type |
 | [`SimulateCaptureFastOption`](api/facade-simulate-capture.md#simulatecapturefastoption) | Type |
@@ -1302,6 +1306,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 | [`SimulateCaptureProgress`](api/facade-simulate-capture.md#simulatecaptureprogress) | Type |
 | [`SimulateCaptureResult`](api/facade-simulate-capture.md#simulatecaptureresult) | Type |
 | [`SimulateCaptureSensorAntiAliasing`](api/facade-simulate-capture.md#simulatecapturesensorantialiasing) | Type |
+| [`SimulateCaptureSharpening`](api/facade-simulate-capture.md#simulatecapturesharpening) | Type |
 | [`SimulateCaptureWhiteBalance`](api/facade-simulate-capture.md#simulatecapturewhitebalance) | Type |
 | [`SimulateDisplayViewOptions`](api/facade-simulate-capture.md#simulatedisplayviewoptions) | Type |
 | [`simulateIdealReference`](api/facade-simulate-capture.md#simulateidealreference) | Runtime |

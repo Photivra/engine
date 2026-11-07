@@ -1,6 +1,6 @@
 {
-  "packageVersion": "2.15.0",
-  "engineApiVersion": "2.15.0",
+  "packageVersion": "2.16.0",
+  "engineApiVersion": "2.16.0",
   "exports": [
     {
       "name": "AbsoluteUncertaintyEstimate",
@@ -2803,6 +2803,11 @@
       "kind": "type"
     },
     {
+      "name": "DisplayViewHighlightDiagnostics",
+      "source": "src/facade/simulate-capture.ts",
+      "kind": "type"
+    },
+    {
       "name": "DisplayViewResult",
       "source": "src/facade/simulate-capture.ts",
       "kind": "type"
@@ -4575,6 +4580,11 @@
     {
       "name": "NATIVE_ENVIRONMENT_OPTICAL_STAGE_LIMITS",
       "source": "src/capture/native-environment-optical-stage.ts",
+      "kind": "runtime"
+    },
+    {
+      "name": "NATIVE_RAW_DEVELOPMENT_EXPOSURE_RANGE_STOPS",
+      "source": "src/capture/native-raw-development.ts",
       "kind": "runtime"
     },
     {
@@ -8348,6 +8358,16 @@
       "kind": "type"
     },
     {
+      "name": "SimulateCaptureDetailDiagnostics",
+      "source": "src/facade/simulate-capture.ts",
+      "kind": "type"
+    },
+    {
+      "name": "SimulateCaptureDiffractionCorrection",
+      "source": "src/facade/simulate-capture.ts",
+      "kind": "type"
+    },
+    {
       "name": "SimulateCaptureDngPart",
       "source": "src/facade/simulate-capture.ts",
       "kind": "type"
@@ -8409,6 +8429,11 @@
     },
     {
       "name": "SimulateCaptureSensorAntiAliasing",
+      "source": "src/facade/simulate-capture.ts",
+      "kind": "type"
+    },
+    {
+      "name": "SimulateCaptureSharpening",
       "source": "src/facade/simulate-capture.ts",
       "kind": "type"
     },

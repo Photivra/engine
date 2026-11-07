@@ -99,6 +99,9 @@ modelling choices (such as "no lens PSF") as `kind: "model"`.
 | `output.toneCurve` | `"identity"` | Any `SdrToneCurve`, for example `"positive-reinhard-per-channel"`. |
 | `output.toneCurveParameters` | none | Required by the luminance curves (`extended-reinhard-luminance`, `naka-rushton-luminance`); the facade invents no curve parameters. |
 | `output.highlightMode` | `"clip"` | Or `"reconstruct"`. |
+| `output.exposureCompensationStops` | 0 | #556: a development exposure push, −2 to +5 stops, on the RAW before white balance (see [Development exposure push](#development-exposure-push-556)). |
+| `output.diffractionCorrection` | off | #552: `{ wavelengthNm?, regularization?, maximumGain?, kernelRadiusPixels? }`, a bounded deconvolution of the diffraction blur; needs `lens.diffraction`. It never restores detail beyond the diffraction cut-off (see [Sharpening and diffraction correction](#sharpening-and-diffraction-correction-552)). |
+| `output.sharpening` | off | #552: `{ radiusPixels?, amount?, threshold? }`, an unsharp mask after the tone curve; sRGB output only (see [Sharpening and diffraction correction](#sharpening-and-diffraction-correction-552)). |
 | `output.whiteBalance` | `"scene-illuminant"` | Also `"auto"`, `"none"`, `{ kelvin, tint? }` and `{ channelGains }`. |
 | `output.jpegQuantizationStep` | 2 | JPEG only: constant step 1–255, not a manufacturer quality scale. |
 | `sensor.pixelPitchMicrometers` | 6 | 0.5–1000 (2.5; 0.5–100 before). The sensor is `width × pitch` wide (see [Geometry](#geometry)); the ISO readout scales with the pixel area (see [ISO and pixel size](#iso-and-pixel-size)). Above 100 µm the capture is a downsized view of a whole frame (see [Whole-frame views](#whole-frame-views-25)). |
@@ -631,6 +634,41 @@ with diffraction, the four-spot filter and AHD.
 | `{ kelvin, tint? }` | A colour-temperature setting on the Planckian locus (tint as Duv). |
 | `{ channelGains }` | Manual channel gains. |
 
+## Development exposure push (#556)
+
+`output.exposureCompensationStops` brightens (or darkens) the same RAW in development, like a raw editor's exposure
+slider: underexpose, then push the shadows up. It takes −2 to +5 stops (`NATIVE_RAW_DEVELOPMENT_EXPOSURE_RANGE_STOPS`),
+whole or fractional; the default 0 gives byte-identical results.
+
+```ts
+import { simulateCapture } from "@photivra/engine";
+
+// Three stops under (1/1000 s instead of 1/125 s), brightened three stops in development.
+const pushed = await simulateCapture({ scene: { preset: "uniform" }, exposure: { shutterSeconds: 1 / 1000 },
+  output: { width: 64, height: 64, exposureCompensationStops: 3 } });
+console.log(pushed.assumptions.find((a) => a.id === "output.exposureCompensationStops")?.value); // { stops: 3, gain: 8, ... }
+```
+
+- **What it does.** Each site's black-subtracted, white-normalized value (code − black)/(white − black) is multiplied
+  by 2^stops before demosaic, white balance, the highlight mode, colour, the tone curve and encoding. It is a
+  development setting, not a capture exposure: no photons are added.
+- **Shadows keep their noise.** The pushed image shows the RAW's own shot, dark and read noise and its ADC quantization
+  steps, scaled by the gain. A sensor with less read noise or more bits per sample recovers shadows more cleanly: a
+  pushed gradient shows 12-bit steps that 14- and 16-bit RAWs do not. A +3-stop push of a 3-stop underexposure has the
+  normal exposure's mean, with about √8 times its shot noise.
+- **Highlights clip.** A site pushed to or past white clips at white and counts in
+  `diagnostics.highlight.saturatedPixelCount`; `highlightMode: "reconstruct"` rolls those pixels off toward neutral.
+  Nothing above white is recovered.
+- **Where it applies.** The developed samples (`image.samples`, also with format `"dng"`), JPEG, PNG (every encoding),
+  both demosaics, `simulateIdealReference` and `simulateDisplayView` (its per-site readout moments are scaled by the
+  gain) honour it. The RAW codes, `result.raw` and the DNG are the unmodified RAW. `output.whiteBalance: "auto"` is
+  measured on the unpushed RAW. `request.development.exposureCompensationStops` carries a non-zero push, so
+  `createNativeRawDevelopmentTask` replays it.
+- **Reported** in the assumption `output.exposureCompensationStops` (`{ stops, gain, appliedTo, dng }`), only when the
+  option is given.
+- **Not the same as `renderingExposureEv`.** The SDR rendering profile's exposure scales the developed colour after the
+  highlight clip, so it cannot clip a pushed site; the facade keeps it at 0.
+
 ## Modelling choices
 
 These choices appear in `assumptions` as `kind: "model"` entries:
@@ -644,7 +682,11 @@ These choices appear in `assumptions` as `kind: "model"` entries:
   lens capability. By default no PSF (point-spread function) or diffraction, vignetting, distortion,
   lateral colour or stray light is applied. The tier's optical data exist only at f/4 and 5 m, and
   the facade does not extrapolate them. Vignetting, distortion and PSF are applied only from profiles
-  you supply; diffraction of an ideal lens only with `lens.diffraction` (2.1).
+  you supply; diffraction of an ideal lens only with `lens.diffraction` (2.1); defocus only with
+  `lens.defocus`, as the geometric thin-lens disc (an approximation). With camera rotation, a projection,
+  distortion or vignetting the disc is applied in image space with the same diameter at every field point,
+  a further approximation whose bounds the `lens.defocus` assumption records (`fieldVariation`, #548; see
+  [Optics](#optics)).
 - **Sensor.** Square pixels with a fill factor of 1 and no anti-aliasing filter. A global
   electronic shutter unless `motion.shutter` is `"rolling"`. A synthetic uniform dark current of
   1 e⁻/s at 20 °C (the tiers declare none). The charge capacity equals the body's base-ISO saturation signal,
@@ -655,8 +697,9 @@ These choices appear in `assumptions` as `kind: "model"` entries:
   false-colour artefacts; `"ahd"` and `lens.diffraction` reduce them.
 - **Scene.** A planar Lambertian surface: radiance = reflectance × irradiance / π, with illuminance
   from K_m = 683 lm/W and the analytic ȳ. No shadows, inter-reflection, gloss or fluorescence.
-- **Rendering.** Linear sRGB with RAW white at display white, no exposure push, out-of-gamut
-  components clipped, then the sRGB transfer function.
+- **Rendering.** Linear sRGB with RAW white at display white, no exposure push (unless
+  `output.exposureCompensationStops` asks for one on the RAW), out-of-gamut components clipped, then the sRGB
+  transfer function.
 
 ## Output formats
 
@@ -807,6 +850,46 @@ Why these containers:
 Pillow 12.3 and ImageMagick 6.9 read the PNG text chunks and the JPEG comment, and Python's XML parser
 reads both XMP packets.
 
+## Sharpening and diffraction correction (#552)
+
+Two development stages, both off by default. Without them a request takes the same path and gives the same bytes as before.
+
+```ts
+import { simulateCapture } from "@photivra/engine";
+
+const result = await simulateCapture({
+  scene: { preset: "slanted-edge" },
+  lens: { fNumber: 16, diffraction: "circular-aperture" },
+  output: { width: 16, height: 16, format: "jpeg", diffractionCorrection: {}, sharpening: { radiusPixels: 1, amount: 0.5 } }
+});
+// The value holds cutoffCyclesPerPixel (the diffraction cut-off) and recoversBeyondCutoff: false.
+console.log(result.assumptions.find((a) => a.id === "output.diffractionCorrection")?.value);
+console.log(result.diagnostics.detail); // { diffractionCorrection: {...}, sharpening: {...} }
+```
+
+- **Order:** development exposure push on the RAW (`output.exposureCompensationStops`, when given) → demosaic → colour and
+  white balance → **diffraction correction** (linear) → rendering exposure and tone curve → gamut handling and sRGB transfer →
+  **unsharp mask** → quantization. The `output.developmentOrder` assumption lists it. A push clips at white before the
+  correction, on this path as on the default one.
+- **`output.diffractionCorrection`** needs `lens.diffraction`. It deconvolves the developed linear colour with the
+  diffraction OTF of the ideal circular pupil at the capture's working f-number, through a bounded Wiener gain
+  min(maximumGain, H(1 + α)/(H² + α)) built as a (2R + 1)² filter. Defaults: 550 nm, α = 0.01, gain bound 4, R = the Airy
+  third dark ring in pixels (1–16). The OTF is zero beyond the cut-off 1/(λ·N_w): that detail never reached the sensor and
+  stays lost. Below it, contrast is only partly restored and noise is amplified by up to the reported `responsePeakGain`.
+- **`output.sharpening`** is an unsharp mask on the sRGB-encoded values: y = x + amount·(x − G_σ∗x) where the difference is at
+  least `threshold`. Defaults: σ = 1 pixel, amount 0.5, threshold 0. It creates halos on both sides of an edge and sharpens
+  noise; it adds no detail. Not with a wide-gamut `output.colorEncoding` or `output.gamutMapping: "perceptual"`.
+- **Reported:** the `output.diffractionCorrection` and `output.sharpening` assumptions (settings, cut-off, measured filter
+  response, defaults used), `diagnostics.detail` (ringing, clipping and halo counts) and `diagnostics.options`.
+- **Not combinable** with `output.region`; not offered by `simulateDisplayView` or `simulateIdealReference`. The DNG holds the
+  RAW codes and is unchanged; only `image.samples` (and the JPEG or PNG made from them) change.
+- **Cost:** both stages hold the whole developed image, as AHD does. At 256 × 256 on an Apple M5 Pro (Node.js 24.19.0) the
+  development took 8 ms by default, 15 ms with sharpening and 18–20 ms with diffraction correction (R = 3–5), one run each.
+
+The trade-offs of these and the lens corrections (corner resolution after distortion correction, corner noise after
+vignetting correction, residual longitudinal CA, halo overshoot, nothing beyond the cut-off) are measured in
+[Digital optics foundation](https://github.com/Photivra/photivra/blob/main/docs/DIGITAL_OPTICS_FOUNDATION.md#sharpening-diffraction-correction-and-their-trade-offs-552).
+
 ## Demosaic
 
 `output.demosaic` selects:
@@ -907,7 +990,7 @@ The optics options feed only what the environment site contract accepts:
     is sampled at its centre). It cannot be
     combined with `lens.psf` or `lens.pupilSampling`.
 
-- `lens.defocus: { model: "geometric-disc" }` (#492; the capture renders it, the display view does not yet) models defocus of the flat scene plane when
+- `lens.defocus: { model: "geometric-disc" }` (#492; the capture and the display view render it) models defocus of the flat scene plane when
   `lens.focusDistanceM` differs from `subjectDistanceM`.
   - The model is a geometric approximation for an ideal uniform circular pupil. Each in-focus image point spreads
     into a uniform disc of diameter c = f²·|s − d| / (N·d·(s − f)) on the sensor (`calculateDefocusCircle`, thin-lens
@@ -953,9 +1036,88 @@ The optics options feed only what the environment site contract accepts:
     [Display view, Defocus](https://github.com/Photivra/photivra/blob/main/docs/DISPLAY_VIEW.md#defocus).
   - In focus (c = 0) no kernel is applied, and the image is byte-identical to the same request without the option.
     `simulateIdealReference`, which has no camera effects, only records the disc.
-  - **Refused out of focus** with camera rotation, `lens.projection` or `lens.distortion`, and `lens.vignetting`. Each
-    of these moves the scene points that a site sees off the site lattice, so the convolution does not apply. In
-    focus they render as without `lens.defocus`.
+  - **With camera rotation, `lens.projection`, `lens.distortion` or `lens.vignetting` (#548)** the capture applies the
+    disc in image space instead. Each of these moves the scene points that a site sees off the plane lattice (or, for
+    vignetting, gives each point its own radiance-to-irradiance factor), so the object-space convolution does not apply.
+    - **Method.** For each spectral node, the sensor-plane irradiance before any PSF is formed on the sensor's site
+      lattice: each lattice point's scene ray through the inverse distortion, the declared projection and (with rotation)
+      the camera's orientation at that instant, times its field factor (vignetting throughput × distortion area factor
+      1/det J). That image is convolved with the disc, and each site query is answered with the result divided by the
+      queried point's own field factor, which the environment multiplies back. This is the environment PSF quadrature with
+      the disc as a sampled PSF (one scene query per kernel tap), summed in another order: a test checks it to 1e-12 per
+      site in expected electrons, and the RAW codes equal those of the same request with the disc passed as `lens.psf`.
+      With the identity mapping (`lens.projection: "rectilinear"`, no distortion) it gives the object-space path's RAW.
+    - **Rotation.** Each environment temporal midpoint is a still camera, so the disc is applied to that instant's
+      image in that instant's frame, then the midpoints are summed as before.
+    - **Vignetting** is applied at each scene point before the disc spreads its light, as for any environment PSF. No
+      multiplier is moved past the blur, so there is no commutation error to bound.
+      The disc does not take the cat's-eye shape of mechanical (pupil) vignetting; the vignetting profile models
+      illumination falloff only.
+    - **With `lens.diffraction`** each node's diffraction kernel convolved with the disc is the image-space kernel, and
+      `request.diffraction.execution` and the `lens.diffraction` assumption say `"image-space-convolution"`.
+    - **What is approximate**, beyond the disc itself: the disc has the same diameter at every field point, centred on
+      each point's chief ray. For the rectilinear, distortion-free thin lens that is exact (a fronto-parallel plane is
+      imaged onto a plane, and the cone from the circular pupil cuts the sensor in a circle of the same size everywhere).
+      For the other cases the `lens.defocus` assumption's `fieldVariation` records a bound for the request, evaluated on
+      a 9 × 9 grid of sensor points over the frame (edges included):
+      - `rotationMaximumDiameterChangeSites`: pitch or yaw tilts the scene plane in the rotated camera, so the disc of a
+        scene point's axial depth there differs from the one used; the largest change over the rendered instants, in
+        sites (0 for roll alone).
+      - `distortionMaximumLocalScaleDeviation`: the largest departure from 1 of the distortion's local scale (singular
+        values of d distorted / d ideal), the relative disc-size difference to a model that blurs the undistorted image
+        and then distorts it. Which model a real lens follows depends on where its distortion arises; the first-order
+        argument (the image-side cone is bounded by the exit pupil, which distortion does not change) favours the
+        constant disc used here.
+      - `projectionMaximumDiameterChangeSites`: for a fisheye or equirectangular projection, the disc of the distance
+        along each scene point's ray instead of its axial depth. The engine has no pupil model for these projections
+        (`lens.pupilSampling` refuses them; a traced reference waits for the 3D ray provider, #358), so a real lens may lie
+        anywhere between the two.
+    - **Refused:** camera rotation with `motion.shutter: "rolling"` (each row has its own instants, so each row would
+      need its own image of the 2R + 1 rows the disc reaches), and a vignetting or distortion profile that does not
+      reach the frame's corners plus the kernel radius (the message names the reach). `lens.pupilSampling` stays refused
+      with projection and distortion. `simulateDisplayView` and `prepareDisplayView` refuse rotation, projection,
+      distortion and vignetting in any focus (the expected-signal tables assume the rectilinear lattice and one field
+      factor), so they have nothing to add here.
+    - **Sampling** is the lattice sampling below, unchanged. Measured against a fine-grid oracle: the environment PSF
+      quadrature with the disc sampled 5 times finer than the site pitch (3 times with the box aperture), on a 16 × 12
+      slanted edge with the 5.95-site disc (50 mm f/4, subject 2 m, focus 1.8 m, 6 µm, 80 nm spectral step), as the relative
+      difference in expected electrons per site (max / RMS). Each image-space case stays within the rectilinear capture's
+      error (the motion-blur rows are lower because the rotation smears the edge):
+
+      | Case (#548) | Point aperture | 4 × 4 box |
+      | --- | --- | --- |
+      | rectilinear, no option (object-space path) | 0.110 / 0.026 | 0.032 / 0.0060 |
+      | `lens.vignetting` (r2 −0.3 at 0.2 mm) | 0.110 / 0.026 | 0.032 / 0.0061 |
+      | `"fisheye-equisolid-angle"` | 0.110 / 0.026 | 0.032 / 0.0060 |
+      | radial distortion, k1 −0.2 at 0.25 mm | 0.110 / 0.026 | 0.032 / 0.0060 |
+      | rotation pitch 0.2, yaw 0.5, roll 3 rad/s, 2 midpoints | 0.069 / 0.016 | 0.017 / 0.0029 |
+      | all of them (equidistant fisheye, Brown–Conrady) | 0.065 / 0.015 | 0.015 / 0.0027 |
+
+      The recorded bounds on these frames were small: distortion local scale 0.046 (radial) and 0.044 (Brown–Conrady),
+      rotation 5.0e-4 sites, projection 4.7e-5 sites (a frame 0.1 mm wide sees little field angle). On a real frame the
+      projection and distortion bounds grow with the field: read them from the assumption. On the app's full frame
+      (36 × 24 mm at 93.75 µm, 50 mm f/2.8, subject 2 m, focus 1 m, a 5.0-site disc): an equisolid fisheye 0.43 sites
+      (8.6 % of the disc), radial distortion k1 −0.1 at 25 mm a local scale 0.28 off 1 at the corners, yaw 0.05 and pitch
+      0.02 rad/s at 1/125 s 8e-4 sites.
+    - **Cost** at the app's defaults (Speed preset: 384 × 256 whole frame at 93.75 µm with the 2 × 2 box; Siemens star;
+      50 mm f/2.8, subject 2 m; Apple M5 Pro, Node.js 24.19.0, built `dist`, median [range] of 3, one round for the last
+      row; a shared machine, so the slow rows varied by up to a third between sessions). The image-space convolution itself
+      is `diagnostics.timingsMs.defocus`; with one kernel for every node (no diffraction) it convolves once per scene
+      material in each band instead of once per spectral node, the same sum regrouped.
+
+      | Option | In focus | Focus 1 m (R 3) | Focus 0.6 m (R 6) |
+      | --- | --- | --- | --- |
+      | none (object-space path) | 0.06 s | 0.05 s | 0.07 s |
+      | `lens.vignetting` | 1.0 s | 1.6 s [1.5–1.6] (convolution 0.27 s) | 1.7 s (0.38 s) |
+      | `"fisheye-equisolid-angle"` | 11 s | 15–19 s (0.18 s) | |
+      | radial distortion | 18–21 s | 19–20 s (0.36 s) | |
+      | rotation (yaw 0.05, pitch 0.02 rad/s, 8 midpoints) | 2.1–3.3 s | 7.5–8.8 s (1.3–2.2 s) | 6.5 s (1.8 s) |
+      | fisheye + distortion + vignetting + rotation | 94–97 s | 101–124 s (3.4–5.9 s) | |
+
+      The in-focus cost of a lens mapping is the environment's per-site query path, which `lens.defocus` does not change;
+      out of focus adds the band convolutions and one lattice lookup per query (a forward map of the query's ray to the
+      sensor). Without a lens mapping the lean executor reads the values by lattice key, as for the diffraction provider.
+      In focus every request is byte-identical to the same request without the option.
   - **Sampling.** The scene enters at the lattice points the sites query: site centres, or the pixel-aperture nodes
     and anti-aliasing spots. So near an edge the result can differ from the continuous disc integral by the lattice's
     point sampling of the edge. Measured on a 16 × 12 slanted edge, as the relative difference in expected electrons
@@ -1549,10 +1711,12 @@ Validated against real full-resolution captures resized in linear light: three s
 
 **Cost.** Where a display pixel covers more than 25 real pixels, the cost follows the detailed display pixels ×
 `samplesPerAxis`², not the real pixel count; at 25 or fewer (the exact area mean) it follows the real pixels the region
-touches. A device-pixel view of a 24 MP frame, 2028 × 1352 in 96 × 96 parts from one prepared view, takes about 0.09 s
-per part with the engine defaults and about 0.18 s with the Quality options (2.9.0, Node 24.21.0, one thread on a
-4-vCPU 2.80 GHz Xeon; [the table](https://github.com/Photivra/photivra/blob/main/docs/DISPLAY_VIEW.md#a-device-pixel-view-rendered-in-parts),
-`node scripts/benchmark-display-view.mjs --app`). The table below is the 2.6.0 record of whole views against the
+touches. A device-pixel view of a 24 MP frame, 2028 × 1352 in 96 × 96 parts from one prepared view, takes about 0.04 s
+per part with the engine defaults and about 0.08 s with the Quality options. Those are the medians on 2.15.0: Node 24.19.0,
+one thread on an Apple M5 Pro under a load average of about 6, two repeats. On 2.9.0 the same parts took about 0.09 s and
+0.18 s on a 4-vCPU 2.80 GHz Xeon (Node 24.21.0). Both measurements are in
+[the tables](https://github.com/Photivra/photivra/blob/main/docs/DISPLAY_VIEW.md#a-device-pixel-view-rendered-in-parts), from
+`node scripts/benchmark-display-view.mjs --app`. The table below is the 2.6.0 record of whole views against the
 whole-frame view of the same request (Siemens star, f/8, ISO 100, one run, same host; every row, and the times before
 the exact speed-ups, in [DISPLAY_VIEW.md](https://github.com/Photivra/photivra/blob/main/docs/DISPLAY_VIEW.md#cost)):
 
@@ -1605,9 +1769,23 @@ what ran (see [Rendering on the GPU](https://github.com/Photivra/photivra/blob/m
 `signal` applies to preparing; give each render its own. Keep one prepared view per request in each worker: measured on
 a 24 MP request, an 8 × 8 region took 6–40 ms through a prepared view instead of 0.24–0.41 s as its own call (Speed).
 
+**Highlight count (#533).** `diagnostics.highlight.saturatedPixelCount` is the number of the real capture's output pixels
+in the rendered region that are saturated (a clipped contributing RAW site), as `simulateCapture` reports it. It is the
+expected value over the noise (`statistic: "expected-value"`), because the capture's own count is one noise sample:
+
+- it equals the capture's count where every site is far from white;
+- it is a real number, not an integer;
+- the counts of regions that tile a view add up to the view's count;
+- it changes no sample;
+- with AHD it counts the sites the view's AHD candidates read, so near a clipped corner it can be lower than the capture's
+  count.
+
+See [Highlight count](https://github.com/Photivra/photivra/blob/main/docs/DISPLAY_VIEW.md#highlight-count-533).
+
 **Not supported** (refused with an `InvalidConfigurationError`): `lens.pupilSampling`, `lens.projection`,
 `lens.distortion`, `lens.vignetting`, `lens.psf`, camera rotation, `output.whiteBalance: "auto"`, the luminance tone
-curves, `output.highlightMode: "reconstruct"` and `output.region` (use `view.region`). `lens.defocus` is rendered as a
+curves, `output.highlightMode: "reconstruct"` and `output.region` (use `view.region`). `output.exposureCompensationStops` is
+supported (#556). `lens.defocus` is rendered as a
 site kernel in the expected signal (#492; see [Optics](#optics)). `onProgress` is not called; `signal` cancels.
 
 The result is labelled `kind: "display-view"` with a `label` for the user interface; it has no RAW, plan or file, and

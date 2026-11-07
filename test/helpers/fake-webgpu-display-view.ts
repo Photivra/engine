@@ -5,7 +5,8 @@
  * WebGPU device. It mirrors the WGSL line by line; the material module is an emulator object (`ChartMaterialEmulator`
  * for the chart presets). Real-device conformance lives in test/webgpu.
  */
-import { DISPLAY_VIEW_AUX, DISPLAY_VIEW_CLIP_MEAN_U, DISPLAY_VIEW_CLIP_VARIANCE_U, DISPLAY_VIEW_GEOMETRY_STRIDE, DISPLAY_VIEW_OUTPUT_FLOATS } from "../../src/gpu/wgsl-display-view-speed-kernel.js";
+import { DISPLAY_VIEW_AUX, DISPLAY_VIEW_CLIP_MEAN_U, DISPLAY_VIEW_CLIP_VARIANCE_U, DISPLAY_VIEW_GEOMETRY_STRIDE, DISPLAY_VIEW_OUTPUT_FLOATS,
+  DISPLAY_VIEW_SITE_RELATIVE_U } from "../../src/gpu/wgsl-display-view-speed-kernel.js";
 import type { ChartMaterialEmulator } from "./fake-webgpu-stages.js";
 
 const f = Math.fround;
@@ -17,6 +18,13 @@ function pq(z: number): [number, number] {
   const x = Math.abs(z), t = f(1 / f(1 + f(AS[0]! * x)));
   const q = f(f(phi(x) * t) * f(AS[1]! + f(t * f(AS[2]! + f(t * f(AS[3]! + f(t * f(AS[4]! + f(t * AS[5]!)))))))));
   return z >= 0 ? [f(1 - q), q] : [q, f(1 - q)];
+}
+/** #533: `clip_state` of the kernels: 0 certainly below white, 1 certainly at or above it, 2 undecided. */
+export function clipState(m: number, dm: number, v: number, dv: number, reach2: number): number {
+  const gap = f(1 - m), wide = f(f(4 * reach2) * f(v + f(2 * dv))), below = f(gap - f(2 * dm)), above = f(gap + f(2 * dm));
+  if (below > 0 && f(below * below) > wide) return 0;
+  if (above < 0 && f(above * above) > wide) return 1;
+  return 2;
 }
 function upperClip(m: number, v: number, top: number): [number, number, number] {
   if (!(v > 0)) return [Math.min(m, top), 0, m < top ? 1 : 0];
@@ -71,7 +79,8 @@ export function emulateDisplayViewSpeed(pw: Uint32Array, pf: Float32Array, aux: 
   const reinhard = tone === 1;
   const reflectX = (x: number): number => (x < 0 ? -x : x >= nativeW! ? 2 * nativeW! - 2 - x : x), reflectY = (y: number): number => (y < 0 ? -y : y >= nativeH! ? 2 * nativeH! - 2 - y : y);
   const channelOf = (x: number, y: number): number => ((y & 1) === 0 ? ((x & 1) === 0 ? 0 : 1) : ((x & 1) === 0 ? 1 : 2));
-  const siteMean = new Float32Array(64), siteVar = new Float32Array(64), siteThird = new Float32Array(64), siteBound = new Float32Array(64);
+  const siteMean = new Float32Array(64), siteVar = new Float32Array(64), siteThird = new Float32Array(64), siteBound = new Float32Array(64), siteClip = new Uint8Array(64);
+  const SITE_U = f(DISPLAY_VIEW_SITE_RELATIVE_U);
   const siteElectrons = (x: number, y: number, c: number): number => {
     let sum = 0;
     const fx = f(x), fy = f(y);
@@ -97,6 +106,7 @@ export function emulateDisplayViewSpeed(pw: Uint32Array, pf: Float32Array, aux: 
         const sx = reflectX(x0 + si), c = channelOf(sx, sy), e = f(siteElectrons(sx, sy, c) + dark[c]!), kc = k[c]!;
         const mean = f(kc * e), variance = f(f(f(kc * kc) * e) + c0[c]!), gap = f(1 - mean), slot = sj * windowW + si;
         siteThird[slot] = f(f(f(kc * kc) * kc) * e);
+        siteClip[slot] = clipState(mean, f(f(SITE_U * E) * mean), variance, f(f(SITE_U * E) * variance), reach2);
         if (gap > 0 && f(gap * gap) > f(reach2 * variance)) { siteMean[slot] = mean; siteVar[slot] = variance; siteBound[slot] = 0; }
         else { const [cm0, cv0] = upperClip(mean, variance, 1); siteMean[slot] = cm0; siteVar[slot] = cv0; siteBound[slot] = f(Math.sqrt(variance)); }
       }
@@ -107,11 +117,12 @@ export function emulateDisplayViewSpeed(pw: Uint32Array, pf: Float32Array, aux: 
     const green = (xpp: number, xqq: number, xpq: number, ypp: number, yqq: number, ypq: number): number =>
       f(f(f(f(f(f(xpp * ypp) + f(xqq * ypp)) + f(xpp * yqq)) + f(f(2 * xpq) * ypp)) + f(f(2 * xpp) * ypq)) + f(f(2 * xpq) * ypq));
     const b = [f(xbE * ybE), f(green(xppO, xqqO, xpqO, yppE, yqqE, ypqE) + green(xppE, xqqE, xpqE, yppO, yqqO, ypqO)), f(xbO * ybO)];
-    let s0 = 0, s1 = 0, s2 = 0, c00 = 0, c01 = 0, c02 = 0, c11 = 0, c12 = 0, c22 = 0, r0 = 0, r1 = 0, r2 = 0, boundMean = 0, boundVar = 0;
+    let s0 = 0, s1 = 0, s2 = 0, c00 = 0, c01 = 0, c02 = 0, c11 = 0, c12 = 0, c22 = 0, r0 = 0, r1 = 0, r2 = 0, boundMean = 0, boundVar = 0, mask0 = 0, mask1 = 0, undecided = false;
     for (let j = 0; j < ny; j++) {
       const ay = G(row + 2 + j);
       for (let ii = 0; ii < nx; ii++) {
         const aj = f(G(col + 2 + ii) * ay), x = colFirst + ii + margin!, y = rowFirst + j + margin!, phase = (y & 1) * 2 + (x & 1);
+        let clipped = false, nearWhite = false;
         for (let c = 0; c < 3; c++) {
           let mean = 0, variance = 0, third = 0, bnd = 0;
           const taps = DISPLAY_VIEW_AUX.taps + (phase * 3 + c) * 16;
@@ -119,9 +130,12 @@ export function emulateDisplayViewSpeed(pw: Uint32Array, pf: Float32Array, aux: 
             const w = aux[taps + 4 * t + 2]!, slot = (j + 1 + aux[taps + 4 * t + 1]!) * windowW + ii + 1 + aux[taps + 4 * t]!;
             mean = f(mean + f(w * siteMean[slot]!)); variance = f(variance + f(f(w * w) * siteVar[slot]!)); third = f(third + f(f(f(w * w) * w) * siteThird[slot]!));
             bnd = Math.max(bnd, w !== 0 ? siteBound[slot]! : 0);
+            if (w !== 0) { if (siteClip[slot] === 1) clipped = true; else if (siteClip[slot] === 2) nearWhite = true; }
           }
           cm[c] = mean; cvv[c] = variance; cth[c] = third; cb[c] = bnd; csv[c] = f(variance * aux[DISPLAY_VIEW_AUX.inverseW2 + phase * 3 + c]!);
         }
+        if (clipped) { const bit = j * nx + ii; if (bit < 32) mask0 = (mask0 | (1 << bit)) >>> 0; else mask1 = (mask1 | (1 << (bit - 32))) >>> 0; }
+        else if (nearWhite) undecided = true;
         for (let c = 0; c < 3; c++) {
           const gc = g[c]!, um = f(gc * cm[c]!), uv = f(f(gc * gc) * cvv[c]!), gap = f(L - um);
           bbm[c] = f(f(gc * CM) * cb[c]!); bbv[c] = f(f(f(f(gc * gc) * CV) * cb[c]!) * cb[c]!);
@@ -165,7 +179,7 @@ export function emulateDisplayViewSpeed(pw: Uint32Array, pf: Float32Array, aux: 
     const o = i * DISPLAY_VIEW_OUTPUT_FLOATS;
     out[o] = s0; out[o + 1] = s1; out[o + 2] = s2; out[o + 3] = f(c00 + r0); out[o + 4] = f(c11 + r1); out[o + 5] = f(c22 + r2);
     out[o + 6] = c01; out[o + 7] = c02; out[o + 8] = c12; out[o + 9] = f(boundMean * E); out[o + 10] = f(boundVar * E);
-    flags[i] = material.flagged ? 1 : 0;
+    flags[3 * i] = (material.flagged ? 1 : 0) | (undecided ? 2 : 0); flags[3 * i + 1] = mask0; flags[3 * i + 2] = mask1;
   }
 }
 /** Internal test hooks. */

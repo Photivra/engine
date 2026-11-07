@@ -14,7 +14,7 @@
  * #477); `display-view-chart-material-module.ts` provides one for the eight 2.0 chart presets and
  * `display-view-composite-material-module.ts` (#491) one for composite charts, the 2.3 elements and `material-layers` scenes.
  */
-import { DISPLAY_VIEW_NOISE_STREAM_ID, EXACT_AREA_MEAN_MAX_PIXELS, axisSums, clipCentre, createDisplayViewExpectedSignal, overlaps,
+import { DISPLAY_VIEW_NOISE_STREAM_ID, EXACT_AREA_MEAN_MAX_PIXELS, axisSums, clipCentre, createDisplayViewExpectedSignal, displayViewDecidedSaturation, overlaps,
   quantizationVariance, renderDisplayView, type AxisSums, type DisplayViewKernelTap, type DisplayViewRenderResult, type DisplayViewSetup } from "../facade/display-view.js";
 import type { DisplayViewExpectedSignalInput } from "../facade/expected-signal.js";
 import { resolvePortableChartScene } from "../facade/chart-scenes.js";
@@ -27,7 +27,7 @@ import { createDeterministicUniformStream, deriveNativeSiteStreamSeedUint32, sam
 import { createHostYieldGate } from "../capture/host-yield-cadence.js";
 import { ImageKernelExecutionError, WEBGPU_F32_UNIT_ROUNDOFF, webGpuExecution, type ChartCompositeProbeRecord, type ImageKernelExecution, type ImageKernelRelativeErrorBound } from "./image-kernel-execution.js";
 import { BUFFER_USAGE, GpuResourceScope, abortedError, createComputePipeline, linearDispatch, runComputePass, type WebGpuRuntime } from "./webgpu-runtime.js";
-import { DISPLAY_VIEW_AUX, DISPLAY_VIEW_GEOMETRY_STRIDE, DISPLAY_VIEW_GPU_MAXIMUM_OFFSETS, DISPLAY_VIEW_GPU_MAXIMUM_PIXELS_PER_AXIS,
+import { DISPLAY_VIEW_AUX, DISPLAY_VIEW_FLAG_WORDS, DISPLAY_VIEW_GEOMETRY_STRIDE, DISPLAY_VIEW_GPU_MAXIMUM_OFFSETS, DISPLAY_VIEW_GPU_MAXIMUM_PIXELS_PER_AXIS,
   DISPLAY_VIEW_OUTPUT_FLOATS, DISPLAY_VIEW_PARAM_WORDS, DISPLAY_VIEW_REINHARD_MEAN_U, DISPLAY_VIEW_REINHARD_VARIANCE_U, DISPLAY_VIEW_WORKGROUP_SIZE,
   assembleDisplayViewSpeedWgsl } from "./wgsl-display-view-speed-kernel.js";
 
@@ -56,8 +56,8 @@ const CPU_RELATIVE = 2 ** -40;
  * The Quality kernel's constants (#479).
  */
 const QUANTIZATION_SLOPE = 6.04, QUANTIZATION_JOIN_JUMP = 2.1e-4, QUANTIZATION_JOIN = 0.0031308;
-/** Workgroups per band are limited by the output buffer: DISPLAY_VIEW_OUTPUT_FLOATS floats plus one flag word per display pixel. */
-const BYTES_PER_PIXEL = 4 * DISPLAY_VIEW_OUTPUT_FLOATS + 4;
+/** Workgroups per band are limited by the output buffer: DISPLAY_VIEW_OUTPUT_FLOATS floats plus the flag words (#533: three) per display pixel. */
+const BYTES_PER_PIXEL = 4 * DISPLAY_VIEW_OUTPUT_FLOATS + 4 * DISPLAY_VIEW_FLAG_WORDS;
 
 /**
  * The material lookup of a GPU display view (the seam of #477, GPU chart radiance for the composite chart and label
@@ -104,6 +104,8 @@ export interface DisplayViewSpeedGpuResult extends DisplayViewRenderResult {
   /** Display pixels (region row-major) whose material lookup was uncertain; equal to `hostRecomputedPixelIndices` when recomputing. */
   flaggedPixelIndices: Uint32Array;
   hostRecomputedPixelIndices: Uint32Array;
+  /** #533: display pixels (not flagged) with a real pixel whose saturation the kernel left undecided; their count is the host reference's. */
+  highlightRecomputedPixelIndices: Uint32Array;
 }
 
 function checkAbort(signal: AbortSignal): void {
@@ -303,7 +305,7 @@ export async function renderDisplayViewSpeedOnGpu(runtime: WebGpuRuntime, bandBy
   if (Math.max(rows * region.width * 4 * DISPLAY_VIEW_OUTPUT_FLOATS, geometry.byteLength, table.byteLength) > runtime.maximumStorageBindingBytes)
     throw new ImageKernelExecutionError("insufficient-limits", "One display-view band exceeds the device's storage binding limit.");
   const pipeline = await pipelines("photivra-display-view-speed:" + material.id, assembleDisplayViewSpeedWgsl(material.wgsl));
-  const moments = new Float32Array(pixelCount * DISPLAY_VIEW_OUTPUT_FLOATS), flagged: number[] = [];
+  const moments = new Float32Array(pixelCount * DISPLAY_VIEW_OUTPUT_FLOATS), flagged: number[] = [], flagWords = new Uint32Array(pixelCount * DISPLAY_VIEW_FLAG_WORDS);
   const words = new Uint32Array(params);
   const scope = new GpuResourceScope(runtime);
   try {
@@ -320,17 +322,18 @@ export async function renderDisplayViewSpeedOnGpu(runtime: WebGpuRuntime, bandBy
       const band = new GpuResourceScope(runtime);
       try {
         const out = band.buffer("photivra-display-view-moments", count * 4 * DISPLAY_VIEW_OUTPUT_FLOATS, BUFFER_USAGE.STORAGE | BUFFER_USAGE.COPY_SRC);
-        const flagBuffer = band.buffer("photivra-display-view-flags", count * 4, BUFFER_USAGE.STORAGE | BUFFER_USAGE.COPY_SRC);
+        const flagBuffer = band.buffer("photivra-display-view-flags", count * 4 * DISPLAY_VIEW_FLAG_WORDS, BUFFER_USAGE.STORAGE | BUFFER_USAGE.COPY_SRC);
         const uniform = band.upload("photivra-display-view-params", new Uint8Array(params), BUFFER_USAGE.UNIFORM);
         const bindGroup = runtime.device.createBindGroup({ layout: pipeline.getBindGroupLayout(0), entries: [
           { binding: 0, resource: { buffer: uniform } }, { binding: 1, resource: { buffer: auxBuffer } }, { binding: 2, resource: { buffer: geometryBuffer } },
           { binding: 3, resource: { buffer: tableBuffer } }, { binding: 4, resource: { buffer: out } }, { binding: 5, resource: { buffer: flagBuffer } }] });
         const [data, flagData] = await runComputePass(runtime, band, pipeline, [bindGroup, materialGroup], linearDispatch(count, DISPLAY_VIEW_WORKGROUP_SIZE, runtime.maximumWorkgroupsPerDimension),
-          [{ buffer: out, bytes: count * 4 * DISPLAY_VIEW_OUTPUT_FLOATS }, { buffer: flagBuffer, bytes: count * 4 }], abort.signal);
+          [{ buffer: out, bytes: count * 4 * DISPLAY_VIEW_OUTPUT_FLOATS }, { buffer: flagBuffer, bytes: count * 4 * DISPLAY_VIEW_FLAG_WORDS }], abort.signal);
         moments.set(new Float32Array(data!, 0, count * DISPLAY_VIEW_OUTPUT_FLOATS), first * DISPLAY_VIEW_OUTPUT_FLOATS);
-        const bandFlags = new Uint32Array(flagData!, 0, count);
+        const bandFlags = new Uint32Array(flagData!, 0, count * DISPLAY_VIEW_FLAG_WORDS);
+        flagWords.set(bandFlags, first * DISPLAY_VIEW_FLAG_WORDS);
         for (let i = 0; i < count; i++) {
-          let flag = bandFlags[i] !== 0;
+          let flag = (bandFlags[DISPLAY_VIEW_FLAG_WORDS * i]! & 1) !== 0;
           for (let k = 0; k < DISPLAY_VIEW_OUTPUT_FLOATS && !flag; k++) if (!Number.isFinite(moments[(first + i) * DISPLAY_VIEW_OUTPUT_FLOATS + k]!)) flag = true;
           if (flag) flagged.push(first + i);
         }
@@ -346,10 +349,16 @@ export async function renderDisplayViewSpeedOnGpu(runtime: WebGpuRuntime, bandBy
   // The reference's finishing per display pixel (float64).
   const maximum = setup.bitDepth === 8 ? 255 : 65535, step = 1 / maximum;
   const samples = setup.bitDepth === 8 ? new Uint8Array(pixelCount * 3) : new Uint16Array(pixelCount * 3);
-  const expected = new Float64Array(pixelCount * 3), noiseStd = new Float64Array(pixelCount * 3);
+  const expected = new Float64Array(pixelCount * 3), noiseStd = new Float64Array(pixelCount * 3), saturated = new Float64Array(pixelCount);
   const meanBound = new Float32Array(pixelCount), varianceBound = new Float32Array(pixelCount);
   let largestMean = 0, largestVariance = 0, sampleCount = 0, siteCount = 0;
   const counts = new Int32Array(geometry.buffer), relative = displayViewSpeedGpuRelativeBounds(setup.toneCurve);
+  // #533: each display pixel's saturated-pixel share from the kernel's mask (the reference's arithmetic, exact where it decided).
+  const columnOverlaps = Array.from({ length: region.width }, (_, i) => overlaps((region.x + i) * shape.sx, (region.x + i + 1) * shape.sx, setup.frameWidth));
+  for (let ry = 0, i = 0; ry < region.height; ry++) {
+    const rowOverlaps = overlaps((region.y + ry) * shape.sy, (region.y + ry + 1) * shape.sy, setup.frameHeight);
+    for (let rx = 0; rx < region.width; rx++, i++) saturated[i] = displayViewDecidedSaturation(columnOverlaps[rx]!, rowOverlaps, area, flagWords[DISPLAY_VIEW_FLAG_WORDS * i + 1]!, flagWords[DISPLAY_VIEW_FLAG_WORDS * i + 2]!);
+  }
   for (let ry = 0, i = 0; ry < region.height; ry++) {
     const rowWw = rowSums[ry]!.ww, ny = counts[(region.width + ry) * stride + 1]!;
     for (let rx = 0; rx < region.width; rx++, i++) {
@@ -362,25 +371,37 @@ export async function renderDisplayViewSpeedOnGpu(runtime: WebGpuRuntime, bandBy
     }
   }
   // Flagged display pixels: the reference's own pixel (a one-pixel region render is byte-identical to the whole view's pixel).
-  const recomputed: number[] = [];
-  if (input.recomputeFlagged !== false && flagged.length > 0) {
+  const recomputed: number[] = [], highlights: number[] = [];
+  // #533: unflagged display pixels with an undecided real pixel take the reference's count only (their samples stay the kernel's).
+  const undecided: number[] = [], isFlagged = new Uint8Array(pixelCount);
+  for (const i of flagged) isFlagged[i] = 1;
+  for (let i = 0; i < pixelCount; i++) if (isFlagged[i] === 0 && (flagWords[DISPLAY_VIEW_FLAG_WORDS * i]! & 2) !== 0) undecided.push(i);
+  if (input.recomputeFlagged !== false && flagged.length + undecided.length > 0) {
     const signal = createDisplayViewExpectedSignal(signalInput);
     for (const i of flagged) {
       checkAbort(abort.signal);
       const rx = i % region.width, ry = (i - rx) / region.width;
       const pixel = await renderDisplayView({ ...setup, signal, region: { x: region.x + rx, y: region.y + ry, width: 1, height: 1 } });
-      samples.set(pixel.samples, i * 3); expected.set(pixel.expected, i * 3); noiseStd.set(pixel.noiseStd, i * 3);
+      samples.set(pixel.samples, i * 3); expected.set(pixel.expected, i * 3); noiseStd.set(pixel.noiseStd, i * 3); saturated[i] = pixel.saturated[0]!;
       meanBound[i] = 0; varianceBound[i] = 0;
       recomputed.push(i);
     }
+    for (const i of undecided) {
+      checkAbort(abort.signal);
+      const rx = i % region.width, ry = (i - rx) / region.width;
+      saturated[i] = (await renderDisplayView({ ...setup, signal, region: { x: region.x + rx, y: region.y + ry, width: 1, height: 1 } })).saturated[0]!;
+      highlights.push(i);
+    }
   }
+  let saturatedPixelCount = 0;
+  for (let i = 0; i < pixelCount; i++) saturatedPixelCount += saturated[i]!;
   const expectedValueBound: ImageKernelRelativeErrorBound = { kind: "relative-to-reference", relative: relative.mean, absolute: largestMean };
-  const uncertain = flagged.length - recomputed.length;
-  return { samples, expected, noiseStd, sampleCount, siteCount, detailPixelCount: pixelCount, uniformPixelCount: 0, ahdCorrectedPixelCount: 0, estimation: "exact-area-mean",
+  const uncertain = flagged.length - recomputed.length + undecided.length - highlights.length;
+  return { samples, expected, noiseStd, sampleCount, siteCount, detailPixelCount: pixelCount, uniformPixelCount: 0, ahdCorrectedPixelCount: 0, estimation: "exact-area-mean", saturated, saturatedPixelCount,
     execution: webGpuExecution(expectedValueBound, uncertain), expectedValueBound,
     varianceBound: { kind: "relative-to-reference", relative: relative.variance, absolute: largestVariance },
     expectedValueAbsoluteBound: meanBound, varianceAbsoluteBound: varianceBound,
-    flaggedPixelIndices: Uint32Array.from(flagged), hostRecomputedPixelIndices: Uint32Array.from(recomputed) };
+    flaggedPixelIndices: Uint32Array.from(flagged), hostRecomputedPixelIndices: Uint32Array.from(recomputed), highlightRecomputedPixelIndices: Uint32Array.from(highlights) };
 }
 
 /** The pixel-aperture samples per axis and anti-aliasing spots a request may have for the kernel's offset table. */
@@ -445,6 +466,8 @@ export const DISPLAY_VIEW_SPEED_CONFORMANCE_CASE: DisplayViewGpuConformanceCase 
       if (!(Math.abs(v1 - v0) <= varianceLimit)) return "component " + i + ": variance " + v1 + " differs from the reference " + v0 + " by more than the a-priori bound " + varianceLimit + ".";
       if (Math.abs(gpu.samples[i]! - reference.samples[i]!) > 1) return "component " + i + ": sample " + gpu.samples[i] + " differs from the reference " + reference.samples[i] + " by more than one code.";
     }
+    // #533: the saturated-pixel count is the reference's, bit for bit (the light squares sit at the white clip).
+    if (gpu.saturatedPixelCount !== reference.saturatedPixelCount) return "the saturated-pixel count " + gpu.saturatedPixelCount + " differs from the reference's " + reference.saturatedPixelCount + ".";
     return true;
   } finally { signal?.removeEventListener("abort", onAbort); }
 } };
@@ -480,7 +503,8 @@ export function createDisplayViewSpeedGpuRenderer(runtime: WebGpuRuntime, option
         const material = await modules.moduleFor(setup.gpu, abort.signal);
         const result = await renderDisplayViewSpeedOnGpu(runtime, bandBytes, { setup, signalInput: setup.gpu.signalInput, material }, abort, options.yieldControl, source);
         return { samples: result.samples, expected: result.expected, noiseStd: result.noiseStd, sampleCount: result.sampleCount, siteCount: result.siteCount, detailPixelCount: result.detailPixelCount,
-          uniformPixelCount: result.uniformPixelCount, ahdCorrectedPixelCount: result.ahdCorrectedPixelCount, estimation: result.estimation, errorBound: result.expectedValueBound,
+          uniformPixelCount: result.uniformPixelCount, ahdCorrectedPixelCount: result.ahdCorrectedPixelCount, estimation: result.estimation, saturated: result.saturated,
+          saturatedPixelCount: result.saturatedPixelCount, errorBound: result.expectedValueBound,
           diagnosticUncertaintySampleCount: result.execution.diagnosticUncertaintySampleCount, ...(material.compositeProbe ? { compositeProbe: material.compositeProbe } : {}) };
       } finally { signal?.removeEventListener("abort", onAbort); }
     },

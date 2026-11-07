@@ -2,6 +2,37 @@
 
 The package and root API versions are recorded once in [Navigation](../API_REFERENCE.md) · [Developer guide](https://github.com/Photivra/photivra/blob/main/docs/DEVELOPERS.md). Generated signatures retain independent schema/model versions. Only the exports listed here are root-package contracts; module-local helpers are not supported deep imports.
 
+## DisplayViewHighlightDiagnostics
+
+#533: the display view's highlight count. `simulateCapture` reports `diagnostics.highlight.saturatedPixelCount`, the
+output pixels with at least one clipped contributing RAW site (a site flagged saturated or at the white level) counted on its
+one noise sample (`sensor.noiseSeed`). The display view renders no RAW, so it reports that count's expected value over the
+noise: Σ_j w_j·P_j over the real output pixels j of the rendered region, w_j the part of pixel j inside the region (1 inside,
+a fraction at a region edge that cuts a real pixel) and P_j the probability, under the view's own site model (each site's
+normalized value normal with its exact expected electrons, shot, dark, read and ADC noise, as the expected value uses), that at
+least one site pixel j's demosaic reads is at or above the white level, the sites' noises independent. It is estimated as the
+view's expected value is (`view.estimation`: exact over every real pixel, or the stratified samples), so it is not an integer.
+
+- Where every contributing site is far from white (more than 8.5 noise standard deviations either side) P_j is exactly 0 or 1,
+  and the expected count equals the capture's count of the same pixels exactly (they then have no noise to differ by).
+- Regions are additive: the counts of regions that tile the view sum to the whole view's count (up to floating-point summation
+  order), each display pixel's share being the same in every region that renders it.
+- With the bilinear demosaic the sites are the capture's own contributing sites. With AHD the capture counts every site within
+  3 sites of the pixel (its interpolation reach, clipped to the raster); the view counts the 25–29 of those 49 that its AHD
+  candidates read, so its count can be lower where a clipped area ends in a corner or a speck 2–3 sites away diagonally
+  (an approximation; along a straight clipped edge the two agree).
+- It never changes a sample of the view. On the GPU (`prepareDisplayView` with `gpu`) it is the CPU reference's value: the
+  kernel decides P_j only where it is certainly 0 or 1 and the host computes every other pixel's share with the reference.
+
+```ts
+export interface DisplayViewHighlightDiagnostics {
+  /** Expected number of saturated real output pixels in the rendered region (a non-negative real number; see above). */
+  saturatedPixelCount: number;
+  /** The statistic: always "expected-value" (the capture's own count is one noise sample of it). */
+  statistic: "expected-value";
+}
+```
+
 ## DisplayViewResult
 
 Result of {@link simulateDisplayView }: the full-resolution capture resized for display, estimated; not a capture.
@@ -43,7 +74,9 @@ export interface DisplayViewResult {
   diagnostics: { sampleCount: number; siteEvaluations: number; sceneLookups: number; detailPixelCount: number; uniformPixelCount: number; ahdCorrectedPixelCount: number;
     timingsMs: { view: number; total: number };
     /** #395: exact or fast, as requested and as run; 2.11 (#481): plus `execution`, where the render ran (see {@link DisplayViewFastReport}). */
-    fast: DisplayViewFastReport };
+    fast: DisplayViewFastReport;
+    /** #533: the saturated (clipped highlight) pixels of the real capture in the rendered region, as an expected value (see {@link DisplayViewHighlightDiagnostics}). */
+    highlight: DisplayViewHighlightDiagnostics };
   provenance: { scientificStatus: "approximation"; cameraPresetId: string; cameraPresetVersion: string; evidence: readonly EvidenceProvenance[];
     composedContracts: readonly string[]; limitations: readonly string[] };
   /** The capture request's assumptions, then `view.definition`, `view.estimation`, `view.noise`, `view.demosaic` and `view.source`. */
@@ -111,7 +144,7 @@ a capture does. `motion.rotation` is a non-zero angular velocity; `sensor.tempor
 SIMULATE_CAPTURE_COST_OPTIONS = Object.freeze(["lens.pupilSampling", "lens.projection", "lens.distortion", "lens.vignetting", "lens.psf",
   "lens.diffraction", "lens.defocus", "sensor.antiAliasing", "sensor.pixelAperture.box", "sensor.temporalSampleCount", "motion.rotation", "motion.shutter.rolling", "output.borderHandling.mirror", "output.region",
   "output.whiteBalance.auto", "output.demosaic.ahd", "output.highlightMode.reconstruct", "output.colorEncoding.wide-gamut", "output.gamutMapping.perceptual",
-  "output.format.jpeg", "output.format.png", "output.format.dng"] as const)
+  "output.diffractionCorrection", "output.sharpening", "output.format.jpeg", "output.format.png", "output.format.dng"] as const)
 ```
 
 ## SIMULATE_CAPTURE_DEFAULT_ILLUMINANCE_LUX
@@ -334,6 +367,56 @@ export type SimulateCaptureDemosaic = "bilinear" | "ahd";
 export interface SimulateCaptureDemosaicRecord { kind: SimulateCaptureDemosaic; fast?: boolean }
 ```
 
+## SimulateCaptureDetailDiagnostics
+
+`diagnostics.detail` (#552): what the development detail stages did. Present only when one ran.
+
+```ts
+export interface SimulateCaptureDetailDiagnostics {
+  diffractionCorrection?: {
+    /** Corrected linear samples below 0 (ringing below black; clipped later by gamut handling) and above the RAW white level 1. */
+    negativeSampleCount: number;
+    aboveWhiteSampleCount: number;
+    /** The diffraction cut-off p/(λ·N_w) in cycles per pixel (Nyquist is 0.5); nothing beyond it is recovered. */
+    cutoffCyclesPerPixel: number;
+    /** Measured largest |response| of the filter, and largest |response| beyond the cut-off (null when the Nyquist square is inside it). */
+    responsePeakGain: number;
+    responseMaximumBeyondCutoff: number | null;
+  };
+  sharpening?: {
+    /** Half-width ⌈3σ⌉ of the Gaussian in pixels. */
+    kernelRadiusPixels: number;
+    /** Samples changed by the mask, and samples left alone because their detail was under the threshold. */
+    sharpenedSampleCount: number;
+    thresholdHeldSampleCount: number;
+    /** Sharpened samples clipped at 0 or 1. */
+    clippedLowSampleCount: number;
+    clippedHighSampleCount: number;
+    /** Largest increase and decrease amount·detail before clipping, in encoded units: the halo strength. */
+    maximumIncrease: number;
+    maximumDecrease: number;
+  };
+}
+```
+
+## SimulateCaptureDiffractionCorrection
+
+`output.diffractionCorrection` (#552): the Wiener–Tikhonov gain G(s) = min(maximumGain, H(s)(1 + α)/(H(s)² + α)) on the circular-pupil
+OTF H at s = f/f_c, f_c = 1/(λ·N_w), as a (2R + 1)² FIR per channel. Every field is optional.
+
+```ts
+export interface SimulateCaptureDiffractionCorrection {
+  /** Design wavelength in nm, 380–780, used for all three channels. Default 550. */
+  wavelengthNm?: number;
+  /** α, an assumed noise-to-signal power ratio, 1e-4–1. Larger is safer and restores less. Default 0.01. */
+  regularization?: number;
+  /** Upper bound on the gain at any frequency, 1–10 (it bounds the noise amplification). Default 4. */
+  maximumGain?: number;
+  /** FIR radius R in pixels, 1–16. Default: the Airy pattern's third dark ring at the design wavelength, within 1–16. */
+  kernelRadiusPixels?: number;
+}
+```
+
 ## SimulateCaptureDngPart
 
 One part of a whole-frame DNG (#391): a region render's packed RAW and where its native sites lie (`result.raw`, `result.region`).
@@ -544,6 +627,16 @@ export interface SimulateCaptureOptions {
     toneCurveParameters?: SdrToneCurveParameters;
     /** Default "clip". */
     highlightMode?: RawHighlightMode;
+    /**
+     * Opt-in (#556) development exposure push in stops, −2 to +5 (`NATIVE_RAW_DEVELOPMENT_EXPOSURE_RANGE_STOPS`); default 0.
+     * A linear gain 2^stops on the RAW after black subtraction and white normalization, before demosaic, white balance,
+     * the highlight mode, colour, the tone curve and encoding, like a raw editor's exposure slider ("brighten in development").
+     * A site pushed to or past white clips there and counts as saturated (`highlightMode: "reconstruct"` rolls it off);
+     * raised shadows keep their real noise and ADC quantization. The RAW codes, `result.raw` and a DNG are not changed;
+     * the developed samples (`image.samples`, also with format "dng"), JPEG, PNG, the ideal reference and the display view
+     * honour it. Reported in the assumption `output.exposureCompensationStops`. 0 or omitted: byte-identical to before.
+     */
+    exposureCompensationStops?: number;
     /** Default "scene-illuminant". */
     whiteBalance?: SimulateCaptureWhiteBalance;
     /** JPEG constant quantization step 1-255 (not a manufacturer 'quality'). Default 2. */
@@ -587,6 +680,20 @@ export interface SimulateCaptureOptions {
      * as a capture of the region's size.
      */
     region?: { x: number; y: number; width: number; height: number };
+    /**
+     * Opt-in (#552) diffraction correction: a bounded, regularized deconvolution of the developed linear colour with the
+     * diffraction OTF of the ideal circular pupil at the capture's working f-number (see {@link SimulateCaptureDiffractionCorrection}).
+     * It runs after demosaic, colour and white balance and before the tone curve. Frequencies beyond the diffraction cut-off
+     * 1/(λ·N_w) never reached the sensor and stay lost: the correction's design gain there is 0. Needs `lens.diffraction`.
+     * Not combinable with `region`. The DNG's RAW codes are not changed. Default off.
+     */
+    diffractionCorrection?: SimulateCaptureDiffractionCorrection;
+    /**
+     * Opt-in (#552) unsharp mask (see {@link SimulateCaptureSharpening}) on the sRGB-encoded values after the tone curve and gamut
+     * handling, before quantization. It raises edge contrast and creates halos; it adds no optical detail. sRGB output only
+     * (not the wide-gamut or perceptual PNG paths); not combinable with `region`. The DNG's RAW codes are not changed. Default off.
+     */
+    sharpening?: SimulateCaptureSharpening;
   };
   /** Camera motion and shutter type. Default: still camera, global electronic shutter. */
   motion?: SimulateCaptureMotion;
@@ -708,7 +815,7 @@ export interface SimulateCaptureResult {
      * scene provider gives the same expected signal (to float rounding) through the per-tap environment quadrature.
      */
     diffraction?: { profile: DiffractionLimitedPsfProfile; psf: Extract<CalculateEnvironmentSensorPhotoSignalInput["psf"], { kind: "sampled-local" }>;
-      execution: "object-space-convolution" | "environment-psf-quadrature" };
+      execution: "object-space-convolution" | "environment-psf-quadrature" | "image-space-convolution" };
   };
   exposure: {
     mode: SimulateCaptureExposureMode;
@@ -781,6 +888,8 @@ export interface SimulateCaptureResult {
     rendering: SdrRenderingResult["diagnostics"];
     /** Present with output.gamutMapping "perceptual": pixels whose chroma or lightness the mapping changed. */
     gamutMapping?: { method: "cielab-hue-preserving-chroma-compression"; kneeFraction: number; adjustedPixelCount: number; lightnessClippedPixelCount: number };
+    /** #552: present with output.diffractionCorrection or output.sharpening. */
+    detail?: SimulateCaptureDetailDiagnostics;
     /**
      * Wall-clock milliseconds per stage. `raw`, `whiteBalance` (the second RAW pass of auto white balance), `development`
      * (includes DNG writing), `jpeg` and `total` are whole milliseconds (`Date.now()`). Since 2.1, where a stage ran:
@@ -829,6 +938,22 @@ export type SimulateCaptureSensorAntiAliasing =
   | { kind: "four-spot"; separationSites?: number; fast?: boolean }
   | { kind: "two-spot"; axis: "horizontal" | "vertical"; separationSites?: number; fast?: boolean }
   | { kind: "point-splitting"; components: readonly AntiAliasingPointSplitComponent[]; fast?: boolean };
+```
+
+## SimulateCaptureSharpening
+
+`output.sharpening` (#552): unsharp mask y = x + amount·(x − G_σ∗x) where |x − G_σ∗x| ≥ threshold (GIMP and ImageMagick
+unsharp mask), per channel on sRGB-encoded values in [0, 1], then clipped to [0, 1]. Every field is optional.
+
+```ts
+export interface SimulateCaptureSharpening {
+  /** Gaussian standard deviation σ in output pixels, (0, 8]; the kernel reaches ⌈3σ⌉. Default 1. */
+  radiusPixels?: number;
+  /** Gain on the detail signal, (0, 5]. Default 0.5. */
+  amount?: number;
+  /** Detail smaller than this (encoded units, [0, 1]) is left unchanged. Default 0 (every difference is sharpened). */
+  threshold?: number;
+}
 ```
 
 ## SimulateCaptureWhiteBalance

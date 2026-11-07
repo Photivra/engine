@@ -135,7 +135,7 @@ The plan reports the physical captured edge FOV from the declared physical proje
 **Components.** Each component declares its image domain, identity and version, residual limits, availability and dependencies.
 
 - Supported families: geometry, lateral channel registration and scalar peripheral illumination.
-- Separate, unsupported families: colour shading, longitudinal chromatic aberration (CA), and diffraction or deconvolution restoration.
+- Separate, unsupported families: colour shading, longitudinal chromatic aberration (CA), and diffraction or deconvolution restoration. (Diffraction correction is not a profile component: `simulateCapture` offers it as a development stage, `output.diffractionCorrection`; see [Sharpening, diffraction correction and their trade-offs](#sharpening-diffraction-correction-and-their-trade-offs-552).)
 - RAW-like output keeps the metadata and intent without applying ("baking") the correction. Processed output bakes in the supported downstream operations.
 
 **Peripheral illumination.** `calculatePeripheralIlluminationCorrection()` uses the existing positive, bounded illumination profile, with gain = throughput^(−strength) and strength in [0,1].
@@ -162,6 +162,61 @@ The plan reports the physical captured edge FOV from the declared physical proje
 - Output dimensions must match the exact profile binding.
 
 This replaced an earlier unmerged draft's unconditional Off passthrough; no released API changed.
+
+## Sharpening, diffraction correction and their trade-offs (#552)
+
+Every correction has a cost, and the engine states it. Two development stages joined the three post-capture corrections in #552. Both are opt-in options of `simulateCapture` and off by default: a request without them takes exactly the code path it took before, with the same bytes. The code is in `src/processing/development-detail.ts`; the facade wiring is in `src/facade/simulate-capture.ts`.
+
+### Development order
+
+With these stages the development runs:
+
+1. the development exposure push (#556, `output.exposureCompensationStops`), on the black-subtracted, white-normalized RAW; pushed sites clip at white here
+2. demosaic
+3. colour and white balance
+4. **diffraction correction**, on linear colour
+5. rendering exposure and tone curve
+6. gamut handling and the sRGB transfer function
+7. **unsharp mask**, on the encoded values
+8. quantization to integer codes (encode)
+
+The deconvolution acts on linear light, where the optical blur is a convolution. The unsharp mask acts on the encoded values just before quantization, which is where image editors apply it. A linear gain (step 1) commutes with the linear deconvolution except where clipping differs: because the push clips at white before the deconvolution, a pushed highlight is deconvolved as the clipped plateau the push made, exactly as an unpushed capture at the brighter exposure would be. The order is reported in the `output.developmentOrder` assumption, which lists the push first when one is given. The push applies identically on both development paths, `createNativeRawDevelopmentTask` (no detail stage) and `developLinearSrgb` (either detail stage): `test/development-detail-integration.test.ts` checks that a push with an unsharp mask that changes nothing is byte-identical to the push alone, and that a 2-stop push of a quarter exposure with both stages matches the full exposure within noise, with the same clipped highlight.
+
+Both stages filter the whole developed image, so a request with either develops through the native development's own linear operator (`developLinearSrgb`, the same operator as `createNativeRawDevelopmentTask`) and holds the full image in memory, as AHD already does. Image edges are clamped (edge pixels repeated). Neither stage combines with `output.region`, because a region's edge pixels would differ from the whole render; neither is offered by `simulateDisplayView` or `simulateIdealReference`. The DNG holds the native RAW codes and is never modified: a DNG request with both stages writes byte-identical DNG bytes and changes only `image.samples`.
+
+### Diffraction correction (`output.diffractionCorrection`)
+
+It needs `lens.diffraction`: it inverts the blur that option simulates, with the same known PSF.
+
+- **OTF.** An ideal, aberration-free circular pupil at the capture's working f-number N_w = N·v/f (thin-lens image distance v, as `lens.diffraction` uses) has the incoherent OTF H(s) = (2/π)(acos s − s√(1 − s²)) for s = f/f_c < 1 and **H = 0 for s ≥ 1**, with cut-off f_c = 1/(λ·N_w). In output pixels f_c·p = p/(λ·N_w), against the sampling Nyquist frequency 0.5 cycles per pixel.
+- **Gain.** G(s) = min(maximumGain, H(s)·(1 + α)/(H(s)² + α)): the Wiener deconvolution filter H*/(|H|² + K) with a constant noise-to-signal power ratio K = α, scaled so that G(0) = 1, and bounded. G(s) = 0 wherever H(s) = 0.
+- **Filter.** G is sampled on an M × M grid (M ≥ 64, a power of two, at least 4(2R + 1)), inverse transformed, tapered with a radial raised cosine 0.5(1 + cos(πr/(R + 1))), truncated to (2R + 1)² taps and renormalized to unit DC gain. Each linear channel is convolved with it. The achieved response is then measured over the Nyquist square on a 1/64-cycle grid, never assumed.
+- **Options** (all optional): `wavelengthNm` (380–780, default 550, one design wavelength for all channels), `regularization` α (1e-4–1, default 0.01), `maximumGain` (1–10, default 4) and `kernelRadiusPixels` R (1–16, default the Airy third dark ring 3.2383·λ·N_w in pixels).
+- **Reported.** The `output.diffractionCorrection` assumption gives the f-number, N_w, the settings, `cutoffCyclesPerPixel`, `nyquistAreaBeyondCutoffFraction`, `designPeakGain`, the measured `responsePeakGain` and `responseMaximumBeyondCutoff`, and `recoversBeyondCutoff: false`. `diagnostics.detail.diffractionCorrection` counts corrected samples below 0 (ringing below black) and above the RAW white level.
+
+**What it cannot do.** Detail beyond f_c never reached the sensor: the OTF there is exactly zero, so no deconvolution can restore it, and the engine never says otherwise. The design gain beyond f_c is 0. The truncated filter leaks a little response there (`responseMaximumBeyondCutoff`, below 1 in every tested case), which passes noise and aliasing only, because the optics delivered no signal at those frequencies. Below f_c the gain is bounded, so attenuated detail is only partly restored and the noise is amplified by up to `responsePeakGain` at the frequencies where the gain is largest. One design wavelength stands in for a polychromatic blur, and longer wavelengths have a lower cut-off than the one used. The pixel aperture, the optical anti-aliasing filter, demosaic blur, defocus and aberrations are not inverted.
+
+### Sharpening (`output.sharpening`)
+
+An unsharp mask with the three controls image editors give it (GIMP, ImageMagick): d = x − G_σ∗x; y = x + amount·d where |d| ≥ threshold, else y = x; then y is clipped to [0, 1] and quantized. It runs per channel on the sRGB-encoded values. G_σ is a separable Gaussian with σ = `radiusPixels` (0–8, default 1), truncated at ⌈3σ⌉ and normalized. `amount` is in (0, 5] (default 0.5); `threshold` is in [0, 1] encoded units (default 0). It runs on the sRGB SDR path only, not with a wide-gamut `output.colorEncoding` or `output.gamutMapping: "perceptual"`.
+
+**What it costs.** It raises contrast at edges by adding a halo on both sides: an overshoot on the bright side and an undershoot on the dark side, each amount·h·Σ(weights across the edge) for a step of height h, about amount·h·(1 − Φ(0.5/σ)) (0.367·amount·h at σ = 1.5). It sharpens noise above the threshold, it can create colour fringes because the channels are sharpened separately, and halos that leave [0, 1] are clipped. It adds no optical detail. `diagnostics.detail.sharpening` gives the kernel reach, the sharpened and threshold-held sample counts, the clipped samples and the largest increase and decrease (the halo strength).
+
+### The trade-offs, measured
+
+Each row is a deterministic test. The numbers are those tests' values, in the stated synthetic setups, not claims about a real lens.
+
+| Correction | Trade-off | Measured | Test |
+| --- | --- | --- | --- |
+| Distortion (barrel correction, k1 = −0.15, 96 × 64 raster) | Stretching the corners lowers corner resolution | A 0.25 cycle/pixel source grating appears at 0.2495 cycles per output pixel at the centre (local d(source)/d(destination) 0.997) and 0.1855 at the corner (0.752): the corner's finest detail is J·0.5 cycles per output pixel, not 0.5. Bilinear resampling also lowers the modulation of the 0.40 grating to 0.321 at the corner, against 0.398 at the centre | `test/lens-correction-tradeoffs.test.ts` |
+| Vignetting (gain 1/(1 − 0.5ρ²), up to 1.66 at the corner) | The gain raises corner noise | Corner noise ×1.285 and corner signal ×1.290 over a 16 × 16 corner patch; centre noise ×1.009. The SNR is unchanged, not improved: the gain adds no photons | same |
+| Lateral CA (per-channel registration) | It cannot remove longitudinal CA | Edges registered to within 0.005 px (from 0.61 and 0.40 px apart), but red and blue edges stay wider than green (10–90 %: 2.64 and 3.02 px against 0.80 px; 2.28 and 3.01 px before), because longitudinal CA is a difference in blur, not position. No longitudinal-CA correction component exists | same |
+| Sharpening (σ = 1.5, amount 1, step 0.3 → 0.7) | Halos and artificial-looking detail | Overshoot and undershoot of 0.1468 each (0.367·h), as predicted from the Gaussian, spread over the 5-pixel kernel reach; overshoot past 1 clipped and counted | `test/development-detail.test.ts` |
+| Diffraction correction (f/16 working, 2 µm pixels, 550 nm; f_c = 0.227 cycles per pixel) | It cannot recover detail lost to diffraction | A grating at 1.375·f_c, amplitude 0.2 in the scene, is 0 after diffraction and still 0 after correction (below 10⁻¹⁵). A grating at 0.55·f_c is restored from 0.337 to 0.820 of its scene contrast, not to 1. In-band noise at 0.15 cycles per pixel is amplified 3.15×; the measured peak response is 3.12 against the bound 4, and the largest response beyond f_c is 0.87 | same |
+
+In the facade, `output.diffractionCorrection` at f/16 on 2 µm pixels narrows the slanted edge's 10–90 % rise from 13.2 to 8.4 pixels, and reports the cut-off it cannot pass.
+
+**Sources.** The circular-pupil OTF and its cut-off: MIT OpenCourseWare 2.71 *Optics* (Spring 2009), lectures 21–22, free at <https://ocw.mit.edu/courses/2-71-optics-spring-2009/resources/mit2_71s09_lec22/> (also see Goodman, *Introduction to Fourier Optics*, 4th ed., 2017, §7.3). Wiener deconvolution with a constant noise-to-signal ratio, as a regularized inverse filter: scikit-image `skimage.restoration.wiener` (its licence is recorded in THIRD_PARTY.md), documentation free at <https://scikit-image.org/docs/stable/api/skimage.restoration.html#skimage.restoration.wiener>, after F. Orieux, J.-F. Giovannelli, T. Rodet, "Bayesian estimation of regularization and point spread function parameters for Wiener–Hunt deconvolution", *JOSA A* 27(7), 2010. The unsharp mask's definition and its radius, amount and threshold controls: the GIMP 2.10 manual, "Unsharp Mask", free at <https://docs.gimp.org/2.10/en/gimp-filter-unsharp-mask.html>, and ImageMagick's `-unsharp` option, free at <https://imagemagick.org/script/command-line-options.php#unsharp>. No code was taken from any of them; the engine's implementation, its filter design and its tests are its own.
 
 ## Verification and provenance
 

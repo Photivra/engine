@@ -661,6 +661,10 @@ async function developRawOnGpu(runtime: WebGpuRuntime, bandBytes: number, input:
     throw new ImageKernelExecutionError("unsupported-on-backend",
       "webgpu-f32 develops with rejected borders only; use cpu-reference for borderHandling \"mirror\".");
   }
+  if (v.exposureGain !== 1) {
+    throw new ImageKernelExecutionError("unsupported-on-backend",
+      "webgpu-f32 develops without an exposure push only; use cpu-reference for exposureCompensationStops other than 0 (#556).");
+  }
   const plan = v.plan, layout = plan.frame.colorSamplingProfile.layout, native = plan.exposure.geometry.nativeRaster;
   if (layout.kind !== "periodic-mosaic") throw new InvalidConfigurationError("Development requires periodic CFA.");
   const affine = orientedToNativeAffine(plan);
