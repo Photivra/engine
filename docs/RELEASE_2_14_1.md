@@ -1,6 +1,6 @@
-# 2.14.1 release candidate
+# 2.14.1 release
 
-> **Prepared November 3, 2026; not published.** Publishing runs only from the `v2.14.1` tag, after `main` CI on the tagged commit has passed, and only with the owner's explicit approval to tag (AGENTS.md rule 3; see [Release gates](#release-gates)).
+> **Published November 3, 2026.** The `v2.14.1` tag is on `4044ee4` (#546), after `main` CI on that commit had passed; npm publishing ran from the tag ([Publication](#publication)).
 
 ## At a glance
 
@@ -43,7 +43,17 @@ The candidate's packed tarball (`npm pack`, 912 files, the same file list) was c
 - [x] Version surfaces aligned at 2.14.1 (`npm run release:prepare -- 2.14.1`). Root exports 1,801.
 - [x] Packed tarball compared with the published 2.14.0 (above).
 - [x] 2.14.0 recorded as published (`CHANGELOG.md`, `SECURITY.md`, [its record](RELEASE_2_14_0.md)).
-- [ ] Green CI on this pull request, then on `main` after merge.
-- [ ] The owner's approval to tag `v2.14.1`.
-- [ ] The `v2.14.1` tag on the `main` commit that merges this record.
-- [ ] After publication: npm version, dist-tag, integrity and provenance verified; GitHub release notes published; publication dates updated in `CHANGELOG.md`, `README.md`, `SECURITY.md`, `docs/DEVELOPERS.md` and this record.
+- [x] Green CI on this pull request, then on `main` after merge ([CI run 41680898274](https://github.com/Photivra/photivra/actions/runs/41680898274) on `4044ee4`: `main smoke` passed).
+- [x] The owner's approval to tag `v2.14.1`: the tag push that ran the publish workflow is the owner's (`bshack`); no separate written approval is recorded in the repository.
+- [x] The `v2.14.1` tag on the `main` commit that merges this record (`4044ee4`).
+- [x] After publication: npm version, dist-tag, integrity and provenance verified ([Publication](#publication)); GitHub release notes published (`@photivra/engine 2.14.1`, November 3, 2026, 17:49:32 UTC); publication dates updated in `CHANGELOG.md`, `README.md`, `SECURITY.md`, `docs/DEVELOPERS.md` and this record (#400's docs pull request).
+
+## Publication
+
+| Fact | Value |
+| --- | --- |
+| Tag | `v2.14.1` → `4044ee41cf462a37b3a7639fa52f832844fac56c` (#546), after `main` CI on that commit passed ([CI run 41680898274](https://github.com/Photivra/photivra/actions/runs/41680898274)) |
+| Publish workflow | [Publish npm run 34](https://github.com/Photivra/photivra/actions/runs/41684374081): coverage shards 5.5–14.6 min and gate 1.1 min passed, `verify` passed 17:27:14–17:29:57 UTC, `publish` passed 17:43:04–17:43:32 UTC |
+| npm | `@photivra/engine@2.14.1`, dist-tag `latest`, registry time 17:45:36 UTC |
+| Integrity | `sha512-DUFJJArUnOwVH/rMR7aGGOYLzbRMr9ErkgUhNT9T+YdkL6CGnF1T6uCkgGTtwYMCkw4csWaMf3ZEnVGs3PV/ww==` (shasum `10b34ace3ed8c8a14a84316f1178efcb0f11ee60`, 912 files), the same as a local `npm pack` of `4044ee4` (Node 24.19.0, November 6, 2026) |
+| Provenance | The registry lists an SLSA v1 provenance attestation for 2.14.1 |

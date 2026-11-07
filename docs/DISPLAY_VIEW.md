@@ -600,7 +600,11 @@ added to the view's expected image instead of the view's draw, +0.04): the expec
 noise is not. Since AHD's choice on the noise-free mosaic (#457) case 92's false-colour difference is +0.41 code. Speed (bilinear) is exact. On the 6 µm and 3.76 µm sensors at 800 pixels wide or less, and on the 1.4 µm sensor at
 384 pixels wide or less, the predicted noise is within 0.89–1.08. At device-pixel widths, about 3 × 3 real pixels per
 display pixel, the 6 µm and 3.76 µm sensors reach 1.13–1.20 as well (set F, October 26, 2026). A redesign of the Quality noise model, from the autocovariance of
-the real AHD output, is planned for 2.7.0 (#379).
+the real AHD output, was planned for 2.7.0 and moved to 2.8.0 and then 2.9.0; it is not built, and no release is
+scheduled for it. #379 was closed on October 31, 2026 when #527 merged, although #527 fixed
+#457 and states that it does not fix #379: the uniform-patch ratios above are unchanged. #379 holds the measured diagnosis
+(October 31, 2026): a Monte Carlo through the engine's own AHD on flat mosaics reproduces the capture's noise within
+0.97–1.02 in every failing uniform-patch case; the in-engine estimator and its cost are open.
 
 Known-limit misses in the validation, recorded under #379 and accepted for 2.6.0 by the owner (October 20, 2026), with
 the limits unchanged: case 138 (noise ratio, above) and case 92 (false colour +0.48 code, within its 0.5-code limit with
@@ -750,7 +754,8 @@ view at R = 4 (f/8) and 32–45× at R = 60 (f/2.8), with medians and ranges as 
 The disc's cap of 64 sites (set from the capture's cost, step 2a) applies: a larger blur fails rather than render
 slowly or be clipped. At radii of 30 sites and above, a 96 × 96 part takes seconds on one thread. A faster path (separable sums for the disc's
 rows, or an FFT) is not part of this step; it would be justified by these measurements, and the GPU gather of #492
-(step 2c, `docs/WEBGPU.md`) is the route for interactive use; its hardware timing is TBD-TIMING (#475).
+(step 2c, `docs/WEBGPU.md`) is the route for interactive use; its hardware timing is TBD-TIMING (#475; runs are recorded
+per device in [the hardware record](WEBGPU_DEVICES.md)).
 
 ### Whole views against the 2.5 whole-frame view (2.6.0)
 
@@ -765,7 +770,8 @@ then one timed `simulateDisplayView` of the whole view and one timed 2.5 whole-f
 pitch = sensor width ÷ view width) of the same scene, lens, exposure and options. f/8, ISO 100, default
 `samplesPerAxis` (16). Speed is the engine defaults; Quality is `lens.diffraction: "circular-aperture"`, the four-spot
 anti-aliasing filter and AHD. "Before" is the display view as first merged (#368), "after" the
-[exact speed-ups](#exact-speed-ups); the two builds ran interleaved, row by row, on the same host (built `dist`,
+[exact speed-ups](#exact-speed-ups). The script times one build per run (its `DIST_B` A/B option is for `--app`
+only), so the two columns are two builds run by hand, interleaved row by row, on the same host (built `dist`,
 Node 24.21.0, 4-vCPU Intel Xeon 2.80 GHz, Linux, nothing else running). The whole-frame column is the after build's.
 One run per cell on one machine: not a performance claim. Rows within about ±10 % are within this host's run-to-run
 spread (Speed did not change: six alternating runs of the phone at 384 wide took a median 12.7 s before and 12.8 s
@@ -805,8 +811,10 @@ after).
 | Dead leaves | 100 MP medium format | Quality | 384 × 288 | 282.3 s | 68.2 s | 4.1× | 26.7 s | 2.6× |
 
 **Speed** costs 0.6–2.4× the whole-frame view at every size and sensor: 0.9–1.2× for the star and 1.6–2.3× for dead
-leaves at 384 pixels wide (2.6.0). On the stratified estimator the cost follows the detailed display pixels × K², not the
-12–100 million real pixels.
+leaves at 384 pixels wide (2.6.0). In 2.6.0 every row was on the stratified estimator, whose cost follows the detailed
+display pixels × K², not the 12–100 million real pixels. Since 2.8.0 a display pixel that covers 25 real pixels or
+fewer takes the [exact area mean](#exact-area-mean) instead (in this table, the phone's 800-wide rows at 5 × 5 real
+pixels), whose cost follows the real pixels it touches: the two regimes at the start of [Cost](#cost).
 
 **Quality** costs more on small pixels, for two reasons that the accuracy requirements impose (12 MP phone star at
 96 × 72, one option at a time, before → after: diffraction 55.6 → 8.2 s, AHD 312.5 → 100.1 s):
@@ -821,7 +829,8 @@ leaves at 384 pixels wide (2.6.0). On the stratified estimator the cost follows 
   on the logarithmic grid). With the correction off, a uniform 18 % grey at ISO 100 on that sensor moves by
   −0.11 code in red (+0.05 in blue); at ISO 1600 by −1.07 code. Those are the biases the correction removes.
 
-**Where the phone's 106 s at 384 × 288 go** (CPU profile of the after build, 108 s under the profiler): the AHD
+**Where the phone's 106 s at 384 × 288 went in 2.6.0** (the 2.6.0 profile: a CPU profile of the after build, 108 s under
+the profiler; not re-profiled since): the AHD
 correction states 40 s (1 155 states × about 35 ms: the 248 000 Poisson and normal draws of each state and its 2048 AHD
 evaluations), the per-sample statistics 42 s (14.3 million samples: the site reads, the clips, the two candidates'
 moments and the noise terms), the diffraction sums 13 s, the per-sample correction interpolation 2.4 s and the rest
@@ -1156,8 +1165,9 @@ single flight under concurrent renders; a failed renderer case and a device that
 (`conformance-failed`, adapter recorded, not repeated; `"require"` throws); loss during a render and between renders;
 an unsupported request releasing the device; a missing adapter; the accelerator handle sharing its device without
 destroying it, a disposed one refused, a CPU one falling back; `globalThis.navigator.gpu` absent in Node; and a render's
-signal aborting a GPU render. No hardware run has been made through this API yet (#481's hardware evidence waits for #478's
-renderer and #480's harness); the host of this work has no GPU.
+signal aborting a GPU render. The host of this work has no GPU. On hardware, the #480 harness renders through this API
+(`gpu: "require"`); the owner's Apple M5 Pro passed it, 26 of 26 cases, at the 2.11.0 release gate (October 28, 2026,
+`main` at 78f2731; [hardware record](WEBGPU_DEVICES.md)). Other devices are #475.
 
 ## Limits and refusals
 

@@ -853,7 +853,7 @@ export interface SimulateDisplayViewOptions {
   /** Display pixels, 1 to the capture's output width and height. */
   width: number;
   height: number;
-  /** Stratified Monte Carlo samples per axis for each display pixel's expected value (1–32, default 8: 64 real pixels). */
+  /** Stratified Monte Carlo samples per axis for each display pixel's expected value (1–32, default 16: 256 real pixels where the display pixel has detail). */
   samplesPerAxis?: number;
   /** "srgb-8" (default) or "srgb-16". */
   format?: "srgb-8" | "srgb-16";
