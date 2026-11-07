@@ -1005,15 +1005,20 @@ The optics options feed only what the environment site contract accepts:
     - A test blurs a sampled straight edge with the kernel and compares it with the disc's closed-form
       edge-spread function, the circular-segment area. They agree to rounding (2e-13) when the edge lies on cell
       boundaries. Elsewhere they agree within the site sampling of the edge.
-  - The kernel radius is capped at 64 sites, a 129 × 129 window (`DEFOCUS_DISC_KERNEL_MAXIMUM_RADIUS_SITES`). A larger
-    blur is refused with an error that names the cap and the radius needed; the disc is never clipped.
+  - The kernel radius is capped at 512 sites, a disc of at most 1025 sites across (`DEFOCUS_DISC_KERNEL_MAXIMUM_RADIUS_SITES`;
+    64 sites before 2.17.0, #564). At 6 µm that is a blur circle of 6.15 mm. A larger blur is refused with a short error,
+    for example `lens.defocus: The blur circle is 7.81 mm (1,303 sites) across; the engine renders at most 1,025 sites
+    (DEFOCUS_DISC_KERNEL_MAXIMUM_RADIUS_SITES).` The disc is never clipped.
+    - Up to a radius of 64 sites the disc is convolved directly, byte for byte as in 2.16.0. Above it, the
+      [large-disc method](#large-defocus-discs-564) below applies.
     - **Check before rendering (#532):** `calculateDefocusDiscKernelRadius({ focalLengthMm, aperture, focusDistanceM,
       subjectDistanceM, pixelPitchMicrometers })` returns the disc's diameter in µm and in sites, the kernel radius it
-      needs, `withinLimit` and `excessKernelRadiusSites`, without rendering. It runs the capture's own resolution and limit
-      test, so it agrees with the refusal of `simulateCapture`, `simulateDisplayView` and `prepareDisplayView` at the
-      boundary (`test/defocus-disc-limit.test.ts`, at two adjacent focus distances). Pass the f-number the capture uses
-      (in an automatic mode, `exposure.settings.fNumber`). The limit is on the disc alone: with `lens.diffraction` the
-      combined radius has no further limit. The other refusals below are not checked.
+      needs, `withinLimit`, `excessKernelRadiusSites` and `convolution` (`"direct"`, `"runs"` or null past the limit),
+      without rendering. It runs the capture's own resolution and limit test, so it agrees with the refusal of
+      `simulateCapture`, `simulateDisplayView` and `prepareDisplayView` at the boundary (`test/defocus-disc-limit.test.ts`,
+      at two adjacent focus distances, for the limit and for the 64-site switch to runs). Pass the f-number the capture
+      uses (in an automatic mode, `exposure.settings.fNumber`). The limit is on the disc alone: with `lens.diffraction`
+      the diffraction kernel is applied with it and has no further limit. The other refusals below are not checked.
   - **The capture renders it** (#492, step 2a). The scene radiance on the site lattice is convolved with the disc,
     the same kernel at every spectral node, and each site query is answered with the result. This is the object-space
     convolution that `lens.diffraction` uses.
@@ -1022,7 +1027,8 @@ The optics options feed only what the environment site contract accepts:
     - `diagnostics.options` lists `lens.defocus`, and `diagnostics.timingsMs.defocus` times the provider's convolution.
     - The site inputs declare no PSF, because the defocus is applied upstream.
   - **With `lens.diffraction`**, each spectral node's diffraction kernel is convolved with the disc and applied as
-    one kernel. The combined radius is the diffraction radius plus the defocus radius, at most 32 + 64 = 96 sites.
+    one kernel. The combined radius is the diffraction radius plus the defocus radius, at most 32 + 64 = 96 sites. Above a
+    disc radius of 64 sites the diffraction kernel is applied after the disc instead (#564, below).
     - This is a further approximation, and the assumption says so. The defocused wave PSF of a circular pupil is not
       exactly the in-focus Airy pattern convolved with the geometric disc. Where the two differ is measured in a
       later step of #492.
@@ -1143,7 +1149,7 @@ The optics options feed only what the environment site contract accepts:
     - The tabulated and environment paths give the same RAW.
     - Regions and DNG parts equal the whole frame: chart, Quality options with diffraction, a `material-layers`
       scene and a caller function.
-  - **Cost and the 64-site cap.** Direct convolution costs (2R + 1)² multiply-adds per site and node wherever the disc
+  - **Cost of the direct convolution (up to 64 sites).** Direct convolution costs (2R + 1)² multiply-adds per site and node wherever the disc
     sees more than one material. Uniform areas cost almost nothing on the tabulated path. Measured on the tabulated
     capture path (Node 24, one thread, rounds interleaved over the radii, median [range] of 3 rounds; 2 at 2048 × 1366;
     a shared 4-vCPU host):
@@ -1156,16 +1162,89 @@ The optics options feed only what the environment site contract accepts:
     | Siemens star, 1024 × 683, Quality (diffraction, four-spot, 2 × 2 box, AHD) | 0.81 s | 0.87 s | 1.7 s | 4.1 s | 12.5 s | 20.0 s | 52.9 s [52.0–53.2] |
     | Siemens star, 2048 × 1366 | 1.39 s | | 1.8 s | | 10.4 s | | 38.3 s [37.5–38.3] |
 
-    - The cap stays at 64 sites, set from these numbers. It covers the 1.4 µm example of #492 (50 mm f/2.8, subject
-      2 m, focus 1.6 m: R = 41) with room for larger blurs.
-    - The time grows with R² per edge site, and the caller chooses it through the focus distance. Past the cap the
-      request fails and names the radius it needed.
+    - 2.16.0 capped the radius at 64 sites from these numbers. Since 2.17.0 (#564) the direct convolution stops there and
+      larger discs take the run convolution below.
+    - The time grows with R² per edge site, and the caller chooses it through the focus distance.
     - A 24 MP frame costs proportionally more. Render it in parts across workers, as for diffraction.
     - Off the tabulated path (caller reflectance or radiance functions), the provider gathers only each 32-row band's
       own values, not the 2R extra rows a full-grid convolution would return (#419). On a 256 × 171
       function scene the convolution took 0.3 s at R 8, 3.5 s at R 32 and 12.9 s at R 64.
   - It cannot be combined with `lens.pupilSampling` (the rays already render defocus) or `lens.psf` (a caller PSF
     declares its own defocus). It can be combined with `lens.diffraction`.
+
+#### Large defocus discs (#564)
+
+Wide apertures blur far more than 129 sites. 50 mm f/1.4 on a 6 µm full-frame sensor, focused at infinity with the
+subject at 0.83 m, gives a 2,144 µm blur circle, 357 sites across (kernel radius 179). Since 2.17.0 `lens.defocus` renders
+discs up to a kernel radius of 512 sites (1025 sites across, 6.15 mm at 6 µm). It does this in `simulateCapture` (the
+object-space, image-space #548 and tabulated paths) and in `simulateDisplayView` and `prepareDisplayView` on the CPU.
+
+- **Method: runs of equal weights.** Each kernel row is split into runs of consecutive equal weights. A run's contribution,
+  w·Σ L over the run, is the difference of two prefix sums of that source row, so it costs two reads however long the run
+  is. Runs that share a weight are summed first and multiplied once. This is the summed-area table of Crow (1984)
+  applied row by row; Heckbert (1986) convolves any piecewise-constant kernel this way. Both are free to read.
+  - Every cell wholly inside the disc has the same weight (its area is exactly 1). So the disc of radius R costs one run
+    per row plus the cells the circle crosses: 2,149 reads per output at R = 179, against 101,689 taps for the direct
+    gather; 6,145 at R = 512 (`src/optics/site-kernel-runs.ts`).
+  - The shaped kernels of #553 without spherical aberration (blade polygons, the cat's eye) have the same uniform
+    interior, so they can take this path. A kernel with no equal neighbours costs as much as the direct gather, and the
+    engine refuses one that needs more reads per site than the direct gather at radius 64 (16,641).
+  - **Not an approximation.** Each output is the same sum of the same products as the direct gather, regrouped. Only
+    the rounding changes. Measured against a compensated (Neumaier) sum of the same products, on the Siemens star,
+    slanted edge and dead leaves at radii 65, 179 and 512, the runs were within 2.5e-14 relative. The direct gather was
+    up to 9.9e-12 off, because it adds up to 826,537 products in one running sum. The runs and the direct gather
+    differed by at most 9.9e-12 relative (RMS 9.9e-12 at R = 512 on dead leaves; 1.6e-12 at R = 179)
+    (`node scripts/benchmark-large-defocus.mjs accuracy`).
+  - Prefix sums of non-negative samples never decrease, so every output is non-negative.
+- **Where it runs.** Up to 64 sites nothing changes: the direct convolution, byte for byte as in 2.16.0, and every hash
+  lock holds. Above it:
+  - **The providers** (object space, and image space with the field factor) convolve each spectral node's samples with the
+    disc by runs in fixed 64-site tiles. With `lens.diffraction` each node's diffraction kernel is gathered directly
+    afterwards (associativity: K ⊛ (D ⊛ L) = (K ⊛ D) ⊛ L, the combined kernel's sum regrouped).
+  - **The tabulated expected signal** (the capture's fast path and the display view) uses the fact that defocus of a plane
+    is space-invariant and the same at every wavelength. It commutes with the spectral, query-offset and diffraction sums,
+    so μ_c(x) = Σ_s D(s)·E_c(x − s). Here E_c is a channel's in-focus expected electrons at each site position, on the
+    lattice formula, with diffraction when it is on. The disc is then applied once per channel on the native site lattice
+    instead of once per spectral node and lattice group: E in fixed 64-site tiles, D ⊛ E by runs in fixed 128-site tiles,
+    each site taking its own channel.
+  - **Fixed tiles at absolute positions** make every value a function of its site alone. Regions, strips, DNG parts and
+    display-view parts are bit-identical to the whole frame (tested), and the tabulated and environment paths give the
+    same RAW (tested at R = 179, with and without diffraction and the Quality filters).
+  - The `lens.defocus` and `view.defocus` assumptions record `convolution: "runs"`; below 64 sites the field is absent.
+  - **The GPU display view does not take these discs.** `gpu: "auto"` renders them on the CPU, labelled
+    `unsupported-on-backend` with the reason.
+- **Validation** (`test/large-defocus.test.ts`, `test/site-kernel-runs.test.ts`, `test/display-view-defocus.test.mjs`):
+  - Each path is compared with the direct gather of the same disc: object space (alone and with a diffraction kernel),
+    image space with vignetting, and the tabulated expected signal with and without diffraction. All agree within 1e-12
+    relative.
+  - A vertical edge between lattice columns at R = 179 gives the exact circular-segment fraction to 1e-12.
+  - The display view at R = 194 (Speed and Quality) matches the in-focus view of the scene blurred beforehand by the disc
+    within ΔE2000 1e-6.
+- **Cost** (Apple M5 Pro, Node 24.19.0, built `dist`, one process per case, two rounds; the machine was shared, load average
+  5–7, so the times are upper bounds):
+
+  | Case | In focus | R 64 (direct) | R 65 (runs) | R 179 (runs) | R 512 (runs) |
+  | --- | --- | --- | --- | --- | --- |
+  | Per output, one 64-site tile (kernel only) | | 11.4 µs | 0.60 µs | 1.52 µs (direct: 65 µs) | 4.6 µs |
+  | Capture, Siemens star 1024 × 683, 6 µm (tabulated) | 0.24–0.26 s | 5.7–6.8 s | 0.72–0.77 s | 1.59–1.66 s | 5.4–5.7 s |
+  | Peak resident memory of that capture | 134–135 MiB | 157–158 MiB | 216–230 MiB | 247–253 MiB | 440–457 MiB |
+  | Display view, the app's request (24 MP at 6 µm, 2028 × 1352 in 96 × 96 parts, Speed, 85 mm-equivalent f/1.4, subject 3 m), part median [slowest of 8], one round | 44 ms [105 ms] | 274 ms [5.6 s] | | 327 ms [540 ms] | 1.10 s [1.20 s] |
+  | The same view on one thread, extrapolated from the 8 parts (mean × 294) | 14 s | 431 s | | 98 s | 296 s |
+  | Peak resident memory of that view process | 260 MiB | 217 MiB | | 394 MiB | 390 MiB |
+
+  The disc of the owner's case (R = 179) costs the capture 1.6 s here, against 6–7 s for the direct convolution at R = 64;
+  the display view's whole-view estimate is 98 s, against 431 s at R = 64. The view's parts are rendered on the CPU (the GPU
+  does not take these discs) and can be spread across workers as today.
+
+  - Memory: the disc's own weights are (2R + 1)² doubles (1.0 MB at R = 179, 8.4 MB at 512), and each provider tile's
+    source and prefix sums (64 + 2R)² doubles each (1.4 MB each at R = 179, 9.5 MB each at 512). Kept tiles are capped at 96 MiB per
+    capture for the providers, and 32 MiB each for the expected signal's in-focus and output tiles per prepared input (the
+    in-focus cache grows to one output tile's span, about 37 MiB at R = 512).
+  - The cost grows with R, not R²: about 12·R reads per output plus a fixed part per tile. Measured with
+    `RADII=0,64,65,179,512 REPEATS=2 node scripts/benchmark-large-defocus.mjs capture` (and `kernel`, `view`).
+- **Why 512.** It bounds the reads per site (6,145, below the 16,641 of the direct gather at 64), the kernel's memory and
+  each tile's source, at a measured cost (above). It covers the owner's case (R = 179), and at 6 µm a 50 mm or 85 mm f/1.2
+  focused at infinity with the subject at 1 m or farther (R ≤ 502). A blur past it fails with a short message (above); the disc is never clipped.
 
 ### Pixel aperture (2.3)
 

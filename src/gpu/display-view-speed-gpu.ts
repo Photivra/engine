@@ -129,6 +129,7 @@ function footprintShape(setup: DisplayViewSetup): { sx: number; sy: number; exac
  * tone curve, and at most 16 query offsets.
  */
 export function displayViewSpeedGpuUnsupportedReason(setup: DisplayViewSetup, signalInput: DisplayViewExpectedSignalInput): string | null {
+  if (signalInput.largeKernel) return "a defocus kernel radius above 64 sites (convolved by runs on the CPU, #564) is not on the GPU";
   if (signalInput.kernels) return "diffraction kernels (the Quality path) are not on the GPU";
   if (signalInput.scene.kind !== "materials") return "radiance scenes (caller functions) are not on the GPU";
   if (!signalInput.queryPoint) return "the expected signal has no query points";

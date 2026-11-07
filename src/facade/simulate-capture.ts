@@ -92,9 +92,11 @@ import { calculateCaptureExposureWindows } from "../sensor/exposure-window.js";
 import { calculateSensorSpectralQuadrature } from "../sensor/spectral-quadrature.js";
 import { createDiffractionLimitedPsfProfile, type DiffractionLimitedPsfProfile } from "../optics/diffraction-psf-profile.js";
 import { registerDiffractionPsfKey, siteDiffractionKernel } from "../optics/site-diffraction-kernel.js";
-import { convolveSiteKernels, createDefocusDiscSiteKernel, requireDefocusDiscKernelRadius, resolveDefocusDisc, type ResolvedDefocusDisc } from "../optics/defocus-disc-kernel.js";
+import { convolveSiteKernels, createDefocusDiscSiteKernel, defocusDiscLimitMessage, requireDefocusDiscKernelRadius, resolveDefocusDisc, type ResolvedDefocusDisc } from "../optics/defocus-disc-kernel.js";
 import { calculateDefocusFieldVariation, createDefocusImageSpaceProvider, prepareDefocusImageSpaceGeometry, type DefocusFieldVariation } from "./defocus-image-space-provider.js";
 import { createDiffractedPlanarProvider } from "./diffraction-provider.js";
+import type { LargeDefocusKernel } from "./large-defocus-lattice.js";
+import { DEFOCUS_DIRECT_KERNEL_MAXIMUM_RADIUS_SITES, siteKernelRuns } from "../optics/site-kernel-runs.js";
 import { resolveGenericPrimeLens, type GenericPrimeLens } from "../equipment/generic-prime-lenses.js";
 import { calculateChannelElectronsPerRadiance } from "./channel-response.js";
 import { calculateSiteEffectiveSaturationCode } from "../capture/raw-white-level.js";
@@ -1628,15 +1630,18 @@ function resolveDefocusOption(input: { run: "capture" | "ideal-reference" | "dis
   imageSpace?: (disc: ResolvedDefocusDisc) => { options: readonly string[]; fieldVariation: DefocusFieldVariation } }): ResolvedDefocusDisc | undefined {
   const { run, assume, focalLengthMm, fNumber, focusDistanceM, subjectDistanceM, pitch } = input;
   const disc = resolveDefocusDisc({ focalLengthMm, aperture: fNumber, focusDistanceM, subjectDistanceM, pitchMicrometers: pitch });
-  const size = disc.diameterMicrometers + " µm (" + disc.diameterSites + " sites of " + pitch + " µm)";
   let radius: number;
-  try { radius = requireDefocusDiscKernelRadius(disc.diameterSites); } catch (error) { fail("lens.defocus: the blur circle is " + size + ". " + (error as Error).message); }
+  try { radius = requireDefocusDiscKernelRadius(disc.diameterSites); } catch { fail("lens.defocus: " + defocusDiscLimitMessage(disc.diameterSites, disc.diameterMicrometers)); }
   const value = { model: "geometric-disc", scientificStatus: "approximation", diameterMicrometers: disc.diameterMicrometers, diameterSites: disc.diameterSites,
     kernelRadiusSites: disc.diameterSites === 0 ? null : radius, fNumber, focusDistanceM, subjectDistanceM, samplePitchMicrometers: pitch,
-    defocusCircleModel: { id: "thin-lens-defocus-circle", version: "1.1.0" } };
+    defocusCircleModel: { id: "thin-lens-defocus-circle", version: "1.1.0" },
+    // #564: above the direct radius the disc is convolved by runs; the field is absent below it, so those records are unchanged.
+    ...(radius > DEFOCUS_DIRECT_KERNEL_MAXIMUM_RADIUS_SITES ? { convolution: "runs" } : {}) };
   const model = "Geometric defocus of the flat scene plane (an approximation): the thin-lens blur circle of an ideal uniform circular pupil, " +
     "c = f²·|s − d| / (N·d·(s − f)) (calculateDefocusCircle 1.1.0), as a uniform disc sampled on the site lattice (exact disc area in each site's cell). " +
-    "No diffraction of the defocused wave, aberrations or pupil vignetting. ";
+    "No diffraction of the defocused wave, aberrations or pupil vignetting. " + (radius > DEFOCUS_DIRECT_KERNEL_MAXIMUM_RADIUS_SITES ? "The kernel radius is above 64 sites, " +
+    "so the disc is convolved by runs (#564): each kernel row's run of equal weights is a difference of two prefix sums, the circle's edge cells are read one by one, and " +
+    "with lens.diffraction each node's diffraction kernel is applied after the disc. That is the same sum as the direct convolution, regrouped (exact up to rounding, not an approximation). " : "");
   if (disc.diameterSites === 0) {
     assume("lens.defocus", "model", value, model + "In focus (lens.focusDistanceM equals subjectDistanceM): the disc has zero diameter, so no defocus kernel is applied.");
     return undefined;
@@ -2589,8 +2594,24 @@ export async function runCapture(options: SimulateCaptureOptions, run: "capture"
   }
   // #492: each spectral node's kernel for lens.defocus out of focus: the disc, or with lens.diffraction the node's diffraction kernel convolved
   // with the disc, radius R_diffraction + R_defocus (built on first use, kept for the request). Object space, or image space (#548).
-  let defocusSiteKernels: { radius: number; wavelengthsNm: readonly number[]; at(wavelengthNm: number): Float64Array } | undefined;
-  if (defocusKernel) {
+  let defocusSiteKernels: { radius: number; wavelengthsNm: readonly number[]; at(wavelengthNm: number): Float64Array; large?: LargeDefocusKernel } | undefined;
+  if (defocusKernel && defocusKernel.radius > DEFOCUS_DIRECT_KERNEL_MAXIMUM_RADIUS_SITES) {
+    // #564: above the direct radius the disc is convolved by runs (site-kernel-runs.ts) and each node's diffraction kernel applied
+    // after it, instead of one combined kernel per node: the same sums regrouped. `at` is never read on this path.
+    const runs = siteKernelRuns(defocusKernel.weights, defocusKernel.radius), diffractionRadius = diffraction ? diffraction.kernelRadiusSamples : 0;
+    const psfConfiguration = diffraction ? diffractionPsf!.configuration.psf : undefined, profileWavelengths = diffraction ? diffraction.profile.axes.wavelengthNm : quadratureWavelengths();
+    const diffractionKernels = new Map<number, Float64Array>();
+    defocusSiteKernels = { radius: diffractionRadius + defocusKernel.radius, wavelengthsNm: profileWavelengths, at: (): Float64Array => fail("simulateCapture: the large defocus kernel has no combined kernels."),
+      large: { runs, ...(diffraction ? { diffraction: { radius: diffractionRadius, kernelAt(wavelengthNm: number): Float64Array {
+        let kernel = diffractionKernels.get(wavelengthNm);
+        if (!kernel) {
+          if (!profileWavelengths.includes(wavelengthNm)) fail("simulateCapture: a spectral node has no diffraction kernel.");
+          kernel = siteDiffractionKernel(psfConfiguration!, wavelengthNm, pitch, diffractionRadius, "simulateCapture: diffraction kernels must sample the site pitch exactly.");
+          diffractionKernels.set(wavelengthNm, kernel);
+        }
+        return kernel;
+      } } } : {}) } };
+  } else if (defocusKernel) {
     if (diffraction) {
       const diffractionRadius = diffraction.kernelRadiusSamples, combined = new Map<number, Float64Array>(), profileWavelengths = diffraction.profile.axes.wavelengthNm;
       const radius = diffractionRadius + defocusKernel.radius;
@@ -2670,9 +2691,10 @@ export async function runCapture(options: SimulateCaptureOptions, run: "capture"
   const diffractedProvider = (window: { x: number; y: number; width: number; height: number } | undefined): PlanarSceneRadianceProvider =>
     // #548: the disc (or diffraction ⊛ disc) in image space, on the sensor's site lattice, through the mapping, field throughput and rotation.
     defocusSiteKernels && defocusGeometry && defocusImageSpace ? createDefocusImageSpaceProvider({ base: provider, geometry: defocusGeometry, siteKernels: defocusSiteKernels.at,
+      ...(defocusSiteKernels.large ? { largeKernel: defocusSiteKernels.large } : {}),
       wavelengthsNm: defocusSiteKernels.wavelengthsNm, kernelRadius: defocusSiteKernels.radius, nativeWidth, nativeHeight, sitePitchMicrometers: pitch, distanceM: subjectDistanceM,
       metresPerFrameUnit, queryOffsetsSites, timesPerBand: temporalSampleCount, onConvolution: (ms) => { defocusMs += ms; }, ...(window ? { window } : {}) }) :
-    defocusSiteKernels ? createDiffractedPlanarProvider({ base: provider, siteKernels: defocusSiteKernels.at,
+    defocusSiteKernels ? createDiffractedPlanarProvider({ base: provider, siteKernels: defocusSiteKernels.at, ...(defocusSiteKernels.large ? { largeKernel: defocusSiteKernels.large } : {}),
       wavelengthsNm: defocusSiteKernels.wavelengthsNm, kernelRadius: defocusSiteKernels.radius, nativeWidth, nativeHeight, outputWidth: width,
       sitePitchMicrometers: pitch, distanceM: subjectDistanceM, metresPerFrameUnit, onConvolution: (ms) => { defocusMs += ms; },
       ...(window ? { window } : {}),
@@ -2861,16 +2883,22 @@ export async function runCapture(options: SimulateCaptureOptions, run: "capture"
     const { electronsPerRadiance, wavelengths } = axisChannelResponse("simulateCapture");
     const perNode = CHANNELS.map((c) => Float64Array.from(wavelengths, (nm) => electronsPerRadiance[c].get(nm) ?? 0)) as [Float64Array, Float64Array, Float64Array];
     const sceneMaterials = chart ? chart.materials : (callerScene as ResolvedCallerMaterialScene).materials, materialRadiance = provider.materialRadiance;
+    const tabulatedMaterials = { materialAt: provider.chartMaterialAt, whiteRadiance: (nm: number): number => irradianceScale * illuminant.shape.evaluate(nm) / Math.PI,
+      list: [...sceneMaterials.map((m, index) => (m.kind === "neutral" ? { neutral: m.reflectance } : { radiance: (nm: number): number => materialRadiance(index, nm) })),
+        ...(chartSize ? [{ neutral: chartSize.surroundReflectance }] : [])] };
     const { signalInput: builtSignalInput } = buildExpectedSignalInput({ nativeWidth, nativeHeight, width, wavelengths, perNode, apertureNodes: apertureNodeOffsets(boxSamples), boxSamples, antiAliasing, pitch,
       diffraction: diffraction && !defocusSiteKernels ? { radius: diffraction.kernelRadiusSamples, psf: diffractionPsf!.configuration.psf, profileWavelengths: diffraction.profile.axes.wavelengthNm } : undefined,
-      materials: { materialAt: provider.chartMaterialAt, whiteRadiance: (nm: number): number => irradianceScale * illuminant.shape.evaluate(nm) / Math.PI,
-        list: [...sceneMaterials.map((m, index) => (m.kind === "neutral" ? { neutral: m.reflectance } : { radiance: (nm: number): number => materialRadiance(index, nm) })),
-          ...(chartSize ? [{ neutral: chartSize.surroundReflectance }] : [])] },
-      radianceAt: provider.radianceAt, imagingArea, focalLengthMm, focusDistanceM, subjectDistanceM, metresPerFrameUnit, caller: "simulateCapture" });
+      materials: tabulatedMaterials, radianceAt: provider.radianceAt, imagingArea, focalLengthMm, focusDistanceM, subjectDistanceM, metresPerFrameUnit, caller: "simulateCapture" });
     // #492: with lens.defocus the table convolves the lattice radiance with each node's defocus (or combined) kernel, on the
     // lattice formula, exactly as the object-space provider does.
     let signalInput = builtSignalInput;
-    if (defocusSiteKernels) {
+    if (defocusSiteKernels?.large) {
+      // #564: the in-focus signal on the lattice formula (diffraction kernels, or a unit tap per node), then the disc by runs.
+      signalInput = buildExpectedSignalInput({ nativeWidth, nativeHeight, width, wavelengths, perNode, apertureNodes: apertureNodeOffsets(boxSamples), boxSamples, antiAliasing, pitch,
+        diffraction: diffraction ? { radius: diffraction.kernelRadiusSamples, psf: diffractionPsf!.configuration.psf, profileWavelengths: diffraction.profile.axes.wavelengthNm } : undefined,
+        largeDefocus: defocusSiteKernels.large.runs, materials: tabulatedMaterials,
+        radianceAt: provider.radianceAt, imagingArea, focalLengthMm, focusDistanceM, subjectDistanceM, metresPerFrameUnit, caller: "simulateCapture" }).signalInput;
+    } else if (defocusSiteKernels) {
       const lattice = { ...builtSignalInput };
       delete lattice.queryPoint;
       signalInput = { ...lattice, kernels: { radius: defocusSiteKernels.radius, perNode: wavelengths.map((nm) => defocusSiteKernels!.at(nm)) } };

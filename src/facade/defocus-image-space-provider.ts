@@ -39,6 +39,8 @@
  * each combination), not this evaluation of it.
  */
 
+// #564: a defocus kernel above 64 sites (`largeKernel`) takes the run lattice of large-defocus-lattice.ts instead of the bands:
+// the samples F·L at the same lattice points, convolved by runs in fixed tiles, then divided by each queried point's own F.
 import { InvalidConfigurationError } from "../core/configuration-error.js";
 import { hypot3 } from "../core/portable-math.js";
 import { isInternalSceneRadianceEvaluator, markInternalSceneRadianceEvaluator, registerInternalRadianceAccess } from "../core/internal-radiance-evaluator.js";
@@ -49,6 +51,7 @@ import { calculateIlluminationVignetting, type IlluminationVignettingProfile } f
 import { distortedImagePoint, undistortedImagePoint, type PreparedEnvironmentLensFieldMapping } from "../optics/sensor-environment-query.js";
 import { checkedSiteKernel, gatherInterior, kernelTaps } from "./diffraction-provider.js";
 import type { PlanarSceneRadianceProvider } from "./scene-radiance.js";
+import { LARGE_DEFOCUS_CACHE_BYTES, createLargeDefocusNodeLattice, type LargeDefocusKernel, type LargeDefocusNodeLattice } from "./large-defocus-lattice.js";
 
 /** Rows of native sites per band; bands kept per time. Banding changes memory only, never values. */
 const BAND_ROWS = 32;
@@ -157,6 +160,11 @@ export interface DefocusImageSpaceProviderInput {
   timesPerBand?: number;
   /** Called with the duration in ms of each band convolution (diagnostics only). */
   onConvolution?: (milliseconds: number) => void;
+  /**
+   * #564: a defocus kernel above the direct radius, convolved by runs in fixed tiles (`large-defocus-lattice.ts`), with each
+   * node's diffraction kernel after it; used instead of `siteKernels` (`kernelRadius` is then unused).
+   */
+  largeKernel?: LargeDefocusKernel;
 }
 
 /** Internal (not exported from the package): the base provider with the defocus disc applied in image space (#548). */
@@ -178,9 +186,10 @@ export function createDefocusImageSpaceProvider(input: DefocusImageSpaceProvider
   const ly0 = Math.max(0, win.y), ly1 = Math.min(LH, win.y + win.height + 2 * M);
   if (!(lx0 < lx1 && ly0 < ly1)) throw new InvalidConfigurationError("Defocus window must overlap the native raster.");
   const NW = lx1 - lx0, gridWidth = NW + 2 * R;
-  const kernels = wavelengthsNm.map((nm) => checkedSiteKernel(input.siteKernels(nm), R));
+  const large = input.largeKernel;
+  const kernels = large ? [] : wavelengthsNm.map((nm) => checkedSiteKernel(input.siteKernels(nm), R));
   const taps = kernels.map((kernel) => kernelTaps(kernel, R, gridWidth));
-  const sharedKernel = kernels.every((kernel) => kernel === kernels[0]);
+  const sharedKernel = !large && kernels.every((kernel) => kernel === kernels[0]);
   const scale = input.metresPerFrameUnit, distance = input.distanceM;
   const materialAt = base.chartMaterialAt?.bind(base), materialRadiance = base.materialRadiance?.bind(base);
   const now = (): number => globalThis.performance?.now() ?? Date.now();
@@ -282,7 +291,60 @@ export function createDefocusImageSpaceProvider(input: DefocusImageSpaceProvider
     const w = index.get(nm);
     if (w === undefined) throw new InvalidConfigurationError("Defocus query is off the sensor site lattice; the image-space convolution does not apply.");
     const li = key % LW, rest = (key - li) / LW, lj = rest % LH, s = (rest - lj) / LH;
+    if (large) return largeValue(s, t, w, li, lj);
     return band(Math.floor((lj - ly0) / BAND_ROWS), t)[s]![w]![((lj - ly0) % BAND_ROWS) * NW + li - lx0]!;
+  }
+  // #564: one run lattice per (time, shift) of the samples F·L at the lattice points, and the own field factors F by tile, so a
+  // query is answered with (K ⊛ D ⊛ F·L) / F as on the band path.
+  const largeLattices = new Map<string, { lattice: LargeDefocusNodeLattice; own: Map<number, Float64Array> }>();
+  const largeLatticeCount = shifts.length * Math.max(1, input.timesPerBand ?? 1);
+  function largeValue(s: number, time: number, w: number, li: number, lj: number): number {
+    const key = time + ":" + s;
+    let entry = largeLattices.get(key);
+    if (!entry) {
+      const shift = shifts[s]!;
+      const lattice = createLargeDefocusNodeLattice({ kernel: large!, wavelengthsNm, capacityBytes: LARGE_DEFOCUS_CACHE_BYTES / largeLatticeCount, ...(input.onConvolution ? { onTile: input.onConvolution } : {}),
+        source: (x0, y0, width, height) => {
+          const size = width * height, factor = new Float64Array(size), u = new Float64Array(size), v = new Float64Array(size);
+          const material = materialAt && materialRadiance ? new Int32Array(size) : undefined;
+          for (let y = 0; y < height; y++) {
+            const yMm = yMmOf(y0 + y, shift);
+            for (let x = 0; x < width; x++) {
+              const k = y * width + x, look = geometry.lookOf(xMmOf(x0 + x, shift), yMm, time);
+              if (!(look.z > 0)) throw new InvalidConfigurationError("lens.defocus: a lattice point's ray does not point toward the scene plane.");
+              const t = distance / look.z;
+              factor[k] = look.factor; u[k] = look.x * t / scale; v[k] = look.y * t / scale;
+              if (material) material[k] = materialAt!(u[k]!, v[k]!);
+            }
+          }
+          return (node: number): Float64Array => {
+            const nm = wavelengthsNm[node]!, samples = new Float64Array(size);
+            if (material) {
+              const radiance = new Map<number, number>();
+              for (let k = 0; k < size; k++) {
+                const m = material[k]!;
+                let value = radiance.get(m);
+                if (value === undefined) { value = materialRadiance!(m, nm); radiance.set(m, value); }
+                samples[k] = factor[k]! * value;
+              }
+            } else for (let k = 0; k < size; k++) samples[k] = factor[k]! * base.radianceAt(u[k]!, v[k]!, nm);
+            return samples;
+          };
+        } });
+      entry = { lattice, own: new Map() };
+      largeLattices.set(key, entry);
+      if (largeLattices.size > largeLatticeCount) largeLattices.delete(largeLattices.keys().next().value!);
+    }
+    // The own factor of the lattice point, by 64-point tiles (kept for the request: 8 bytes per lattice point read).
+    const T = 64, tx = Math.floor(li / T), ty = Math.floor(lj / T), tileKey = ty * 1048576 + tx;
+    let own = entry.own.get(tileKey);
+    if (!own) {
+      own = new Float64Array(T * T);
+      const shift = shifts[s]!;
+      for (let y = 0; y < T; y++) { const yMm = yMmOf(ty * T + y, shift); for (let x = 0; x < T; x++) own[y * T + x] = geometry.lookOf(xMmOf(tx * T + x, shift), yMm, time).factor; }
+      entry.own.set(tileKey, own);
+    }
+    return entry.lattice.valueAt(w, li, lj) / own[(lj - ty * T) * T + li - tx * T]!;
   }
   function blurredAt(look: { x: number; y: number; z: number }, time: number, nm: number): number {
     const t = geometry.timeDependent ? time : 0, key = keyOf(look, t);

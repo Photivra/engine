@@ -1455,7 +1455,7 @@ console.log(blur.value.diameterMm);
 
 You supply the circle-of-confusion criterion used for depth of field (DOF). These are ideal geometric thin-lens models. They do not include diffraction or real-lens aberrations in the DOF criterion.
 
-`simulateCapture` and the display view render the defocus blur disc with `lens.defocus: { model: "geometric-disc" }`, up to a kernel radius of `DEFOCUS_DISC_KERNEL_MAXIMUM_RADIUS_SITES` (64 sites, a disc 129 sites across) and refuse a larger one. Use `calculateDefocusDiscKernelRadius()` to check a request before rendering it. It runs the capture's own resolution and limit test, so it agrees with the capture's refusal. Pass the f-number the capture uses (in an automatic exposure mode, the resolved one) and the sensor's pixel pitch:
+`simulateCapture` and the display view render the defocus blur disc with `lens.defocus: { model: "geometric-disc" }`, up to a kernel radius of `DEFOCUS_DISC_KERNEL_MAXIMUM_RADIUS_SITES` (512 sites, a disc 1025 sites across, 6.15 mm at 6 µm; 64 sites before 2.17.0) and refuse a larger one. Up to 64 sites the disc is convolved directly, as before; above it, by runs of equal kernel weights (#564), the same sums at a cost that grows with the radius instead of its square ([Quick start, Large defocus discs](QUICK_START.md#large-defocus-discs-564)). Use `calculateDefocusDiscKernelRadius()` to check a request before rendering it. It runs the capture's own resolution and limit test, so it agrees with the capture's refusal, and `convolution` says which method renders it. Pass the f-number the capture uses (in an automatic exposure mode, the resolved one) and the sensor's pixel pitch:
 
 ```ts
 import { calculateDefocusDiscKernelRadius } from "@photivra/engine";
@@ -1463,13 +1463,14 @@ import { calculateDefocusDiscKernelRadius } from "@photivra/engine";
 const check = calculateDefocusDiscKernelRadius({
   focalLengthMm: 50,
   aperture: 1.4,
-  focusDistanceM: 1,
+  focusDistanceM: 0.25,
   subjectDistanceM: 2,
   pixelPitchMicrometers: 6
 });
 
-console.log(check.value.withinLimit); // false: lens.defocus refuses this request
-console.log(check.value.kernelRadiusSites, check.value.excessKernelRadiusSites); // 78, 14
+console.log(check.value.withinLimit); // false: lens.defocus refuses this request (a 7.81 mm blur, 1,303 sites across)
+console.log(check.value.kernelRadiusSites, check.value.excessKernelRadiusSites); // 651, 139
+// Focused at 1 m instead: 157 sites across, radius 78, withinLimit true, convolution "runs".
 ```
 
 See [Physics Foundation](https://github.com/Photivra/photivra/blob/main/docs/PHYSICS_FOUNDATION.md#thin-lens-focus-and-depth-of-field).
