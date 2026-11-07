@@ -644,7 +644,11 @@ These choices appear in `assumptions` as `kind: "model"` entries:
   lens capability. By default no PSF (point-spread function) or diffraction, vignetting, distortion,
   lateral colour or stray light is applied. The tier's optical data exist only at f/4 and 5 m, and
   the facade does not extrapolate them. Vignetting, distortion and PSF are applied only from profiles
-  you supply; diffraction of an ideal lens only with `lens.diffraction` (2.1).
+  you supply; diffraction of an ideal lens only with `lens.diffraction` (2.1); defocus only with
+  `lens.defocus`, as the geometric thin-lens disc (an approximation). With camera rotation, a projection,
+  distortion or vignetting the disc is applied in image space with the same diameter at every field point,
+  a further approximation whose bounds the `lens.defocus` assumption records (`fieldVariation`, #548; see
+  [Optics](#optics)).
 - **Sensor.** Square pixels with a fill factor of 1 and no anti-aliasing filter. A global
   electronic shutter unless `motion.shutter` is `"rolling"`. A synthetic uniform dark current of
   1 e⁻/s at 20 °C (the tiers declare none). The charge capacity equals the body's base-ISO saturation signal,
@@ -907,7 +911,7 @@ The optics options feed only what the environment site contract accepts:
     is sampled at its centre). It cannot be
     combined with `lens.psf` or `lens.pupilSampling`.
 
-- `lens.defocus: { model: "geometric-disc" }` (#492; the capture renders it, the display view does not yet) models defocus of the flat scene plane when
+- `lens.defocus: { model: "geometric-disc" }` (#492; the capture and the display view render it) models defocus of the flat scene plane when
   `lens.focusDistanceM` differs from `subjectDistanceM`.
   - The model is a geometric approximation for an ideal uniform circular pupil. Each in-focus image point spreads
     into a uniform disc of diameter c = f²·|s − d| / (N·d·(s − f)) on the sensor (`calculateDefocusCircle`, thin-lens
@@ -953,9 +957,88 @@ The optics options feed only what the environment site contract accepts:
     [Display view, Defocus](https://github.com/Photivra/photivra/blob/main/docs/DISPLAY_VIEW.md#defocus).
   - In focus (c = 0) no kernel is applied, and the image is byte-identical to the same request without the option.
     `simulateIdealReference`, which has no camera effects, only records the disc.
-  - **Refused out of focus** with camera rotation, `lens.projection` or `lens.distortion`, and `lens.vignetting`. Each
-    of these moves the scene points that a site sees off the site lattice, so the convolution does not apply. In
-    focus they render as without `lens.defocus`.
+  - **With camera rotation, `lens.projection`, `lens.distortion` or `lens.vignetting` (#548)** the capture applies the
+    disc in image space instead. Each of these moves the scene points that a site sees off the plane lattice (or, for
+    vignetting, gives each point its own radiance-to-irradiance factor), so the object-space convolution does not apply.
+    - **Method.** For each spectral node, the sensor-plane irradiance before any PSF is formed on the sensor's site
+      lattice: each lattice point's scene ray through the inverse distortion, the declared projection and (with rotation)
+      the camera's orientation at that instant, times its field factor (vignetting throughput × distortion area factor
+      1/det J). That image is convolved with the disc, and each site query is answered with the result divided by the
+      queried point's own field factor, which the environment multiplies back. This is the environment PSF quadrature with
+      the disc as a sampled PSF (one scene query per kernel tap), summed in another order: a test checks it to 1e-12 per
+      site in expected electrons, and the RAW codes equal those of the same request with the disc passed as `lens.psf`.
+      With the identity mapping (`lens.projection: "rectilinear"`, no distortion) it gives the object-space path's RAW.
+    - **Rotation.** Each environment temporal midpoint is a still camera, so the disc is applied to that instant's
+      image in that instant's frame, then the midpoints are summed as before.
+    - **Vignetting** is applied at each scene point before the disc spreads its light, as for any environment PSF. No
+      multiplier is moved past the blur, so there is no commutation error to bound.
+      The disc does not take the cat's-eye shape of mechanical (pupil) vignetting; the vignetting profile models
+      illumination falloff only.
+    - **With `lens.diffraction`** each node's diffraction kernel convolved with the disc is the image-space kernel, and
+      `request.diffraction.execution` and the `lens.diffraction` assumption say `"image-space-convolution"`.
+    - **What is approximate**, beyond the disc itself: the disc has the same diameter at every field point, centred on
+      each point's chief ray. For the rectilinear, distortion-free thin lens that is exact (a fronto-parallel plane is
+      imaged onto a plane, and the cone from the circular pupil cuts the sensor in a circle of the same size everywhere).
+      For the other cases the `lens.defocus` assumption's `fieldVariation` records a bound for the request, evaluated on
+      a 9 × 9 grid of sensor points over the frame (edges included):
+      - `rotationMaximumDiameterChangeSites`: pitch or yaw tilts the scene plane in the rotated camera, so the disc of a
+        scene point's axial depth there differs from the one used; the largest change over the rendered instants, in
+        sites (0 for roll alone).
+      - `distortionMaximumLocalScaleDeviation`: the largest departure from 1 of the distortion's local scale (singular
+        values of d distorted / d ideal), the relative disc-size difference to a model that blurs the undistorted image
+        and then distorts it. Which model a real lens follows depends on where its distortion arises; the first-order
+        argument (the image-side cone is bounded by the exit pupil, which distortion does not change) favours the
+        constant disc used here.
+      - `projectionMaximumDiameterChangeSites`: for a fisheye or equirectangular projection, the disc of the distance
+        along each scene point's ray instead of its axial depth. The engine has no pupil model for these projections
+        (`lens.pupilSampling` refuses them; a traced reference waits for the 3D ray provider, #358), so a real lens may lie
+        anywhere between the two.
+    - **Refused:** camera rotation with `motion.shutter: "rolling"` (each row has its own instants, so each row would
+      need its own image of the 2R + 1 rows the disc reaches), and a vignetting or distortion profile that does not
+      reach the frame's corners plus the kernel radius (the message names the reach). `lens.pupilSampling` stays refused
+      with projection and distortion. `simulateDisplayView` and `prepareDisplayView` refuse rotation, projection,
+      distortion and vignetting in any focus (the expected-signal tables assume the rectilinear lattice and one field
+      factor), so they have nothing to add here.
+    - **Sampling** is the lattice sampling below, unchanged. Measured against a fine-grid oracle: the environment PSF
+      quadrature with the disc sampled 5 times finer than the site pitch (3 times with the box aperture), on a 16 × 12
+      slanted edge with the 5.95-site disc (50 mm f/4, subject 2 m, focus 1.8 m, 6 µm, 80 nm spectral step), as the relative
+      difference in expected electrons per site (max / RMS). Each image-space case stays within the rectilinear capture's
+      error (the motion-blur rows are lower because the rotation smears the edge):
+
+      | Case (#548) | Point aperture | 4 × 4 box |
+      | --- | --- | --- |
+      | rectilinear, no option (object-space path) | 0.110 / 0.026 | 0.032 / 0.0060 |
+      | `lens.vignetting` (r2 −0.3 at 0.2 mm) | 0.110 / 0.026 | 0.032 / 0.0061 |
+      | `"fisheye-equisolid-angle"` | 0.110 / 0.026 | 0.032 / 0.0060 |
+      | radial distortion, k1 −0.2 at 0.25 mm | 0.110 / 0.026 | 0.032 / 0.0060 |
+      | rotation pitch 0.2, yaw 0.5, roll 3 rad/s, 2 midpoints | 0.069 / 0.016 | 0.017 / 0.0029 |
+      | all of them (equidistant fisheye, Brown–Conrady) | 0.065 / 0.015 | 0.015 / 0.0027 |
+
+      The recorded bounds on these frames were small: distortion local scale 0.046 (radial) and 0.044 (Brown–Conrady),
+      rotation 5.0e-4 sites, projection 4.7e-5 sites (a frame 0.1 mm wide sees little field angle). On a real frame the
+      projection and distortion bounds grow with the field: read them from the assumption. On the app's full frame
+      (36 × 24 mm at 93.75 µm, 50 mm f/2.8, subject 2 m, focus 1 m, a 5.0-site disc): an equisolid fisheye 0.43 sites
+      (8.6 % of the disc), radial distortion k1 −0.1 at 25 mm a local scale 0.28 off 1 at the corners, yaw 0.05 and pitch
+      0.02 rad/s at 1/125 s 8e-4 sites.
+    - **Cost** at the app's defaults (Speed preset: 384 × 256 whole frame at 93.75 µm with the 2 × 2 box; Siemens star;
+      50 mm f/2.8, subject 2 m; Apple M5 Pro, Node.js 24.19.0, built `dist`, median [range] of 3, one round for the last
+      row; a shared machine, so the slow rows varied by up to a third between sessions). The image-space convolution itself
+      is `diagnostics.timingsMs.defocus`; with one kernel for every node (no diffraction) it convolves once per scene
+      material in each band instead of once per spectral node, the same sum regrouped.
+
+      | Option | In focus | Focus 1 m (R 3) | Focus 0.6 m (R 6) |
+      | --- | --- | --- | --- |
+      | none (object-space path) | 0.06 s | 0.05 s | 0.07 s |
+      | `lens.vignetting` | 1.0 s | 1.6 s [1.5–1.6] (convolution 0.27 s) | 1.7 s (0.38 s) |
+      | `"fisheye-equisolid-angle"` | 11 s | 15–19 s (0.18 s) | |
+      | radial distortion | 18–21 s | 19–20 s (0.36 s) | |
+      | rotation (yaw 0.05, pitch 0.02 rad/s, 8 midpoints) | 2.1–3.3 s | 7.5–8.8 s (1.3–2.2 s) | 6.5 s (1.8 s) |
+      | fisheye + distortion + vignetting + rotation | 94–97 s | 101–124 s (3.4–5.9 s) | |
+
+      The in-focus cost of a lens mapping is the environment's per-site query path, which `lens.defocus` does not change;
+      out of focus adds the band convolutions and one lattice lookup per query (a forward map of the query's ray to the
+      sensor). Without a lens mapping the lean executor reads the values by lattice key, as for the diffraction provider.
+      In focus every request is byte-identical to the same request without the option.
   - **Sampling.** The scene enters at the lattice points the sites query: site centres, or the pixel-aperture nodes
     and anti-aliasing spots. So near an edge the result can differ from the continuous disc integral by the lattice's
     point sampling of the edge. Measured on a 16 × 12 slanted edge, as the relative difference in expected electrons

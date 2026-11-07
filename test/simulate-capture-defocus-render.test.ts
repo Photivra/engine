@@ -119,16 +119,15 @@ describe("lens.defocus in the capture (#492 step 2a)", () => {
     expect(Array.from(r.raw.codes)).not.toEqual(Array.from(diffracted.raw.codes));
   }, scaledTimeout(60_000));
 
-  it("refuses the cases that take the convolution off the site lattice, and a combined radius past the limit", async () => {
-    const base: SimulateCaptureOptions = { scene: { preset: "slanted-edge" }, subjectDistanceM: 2, output: { width: 8, height: 8 } };
+  it("takes the image-space path (#548) when rotation, a field mapping or vignetting moves the scene points off the plane lattice", async () => {
+    const base: SimulateCaptureOptions = { scene: { preset: "slanted-edge" }, subjectDistanceM: 2, output: { width: 8, height: 8 }, sensor: { spectralStepNanometers: 80, temporalSampleCount: 2 } };
     const lens = { focalLengthMm: 50, fNumber: 4, focusDistanceM: 1.8, defocus };
-    await expect(simulateCapture({ ...base, lens, motion: { angularVelocityRadPerSec: { yaw: 0.01 } } }))
-      .rejects.toThrow(/simulateCapture does not support lens\.defocus out of focus with camera rotation/u);
-    await expect(simulateCapture({ ...base, lens: { ...lens, distortion: { kind: "radial", profile: { normalizationRadiusMm: 0.05, maximumNormalizedRadius: 1, coefficients: { k1: -0.2, k2: 0, k3: 0 } } } as never } }))
-      .rejects.toThrow(/does not support lens\.defocus out of focus with lens\.projection or lens\.distortion/u);
-    await expect(simulateCapture({ ...base, lens: { ...lens, vignetting: { normalizationRadiusMm: 0.5, maximumNormalizedRadius: 1, coefficients: { r2: -0.3, r4: 0, r6: 0 } } as never } }))
-      .rejects.toThrow(/does not support lens\.defocus out of focus with lens\.vignetting/u);
-    // In focus each of them renders as without lens.defocus.
+    for (const extra of [{ motion: { angularVelocityRadPerSec: { yaw: 0.01 } } },
+      { lens: { ...lens, distortion: { kind: "radial", profile: { normalizationRadiusMm: 0.1, maximumNormalizedRadius: 1, coefficients: { k1: -0.2, k2: 0, k3: 0 } } } } },
+      { lens: { ...lens, vignetting: { normalizationRadiusMm: 0.5, maximumNormalizedRadius: 1, coefficients: { r2: -0.3, r4: 0, r6: 0 } } } }]) {
+      expect(defocusOf(await simulateCapture({ ...base, lens, ...extra } as SimulateCaptureOptions)).execution).toBe("image-space-convolution");
+    }
+    // In focus each of them renders as without lens.defocus (test/simulate-capture-defocus-optics.test.ts covers the others).
     const rotating = { ...base, motion: { angularVelocityRadPerSec: { yaw: 0.01 } }, sensor: { temporalSampleCount: 2 } } as SimulateCaptureOptions;
     const plain = await simulateCapture({ ...rotating, lens: { focalLengthMm: 50, fNumber: 4 } });
     const focused = await simulateCapture({ ...rotating, lens: { focalLengthMm: 50, fNumber: 4, defocus } });

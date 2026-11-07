@@ -413,7 +413,7 @@ function geometry(t: Template, k: PlanConstants, frame: NativeEnvironmentLeanFra
             if (!Number.isFinite(norm) || Math.abs(norm - 1) > 1e-9) return undefined;
             // #394: the key the evaluator would read for this request (undefined where it would throw: the full path decides).
             if (access !== undefined) {
-              key = access.keyOfDirection(direction);
+              key = access.keyOfDirection(direction, time);
               if (key === undefined) return undefined;
             } else request = Object.freeze({ schemaVersion: "0.1.0" as const, sampleId, providerProfileId: base.providerProfileId,
               sceneId: base.sceneId, illuminationProfileId: base.illuminationProfileId, materialResponseProfileId: base.materialResponseProfileId,
