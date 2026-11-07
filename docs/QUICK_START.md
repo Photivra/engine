@@ -1526,7 +1526,11 @@ resolves them).
 
 **How it is computed** (details and error analysis in [DISPLAY_VIEW.md](https://github.com/Photivra/photivra/blob/main/docs/DISPLAY_VIEW.md)):
 
-- The expected value of each display pixel is a stratified Monte Carlo average over K × K real pixels of its rectangle
+- Where a display pixel's rectangle holds at most 25 real pixels (and at most `view.samplesPerAxis`²), so views at least
+  1/5 of the frame's width, its expected value is the exact area mean (2.8.0, #393): every real pixel it touches is
+  evaluated once and weighted by its exact overlap, with no sampling error. The `view.estimation` assumption names the
+  method used.
+- Coarser display pixels take a stratified Monte Carlo average over K × K real pixels of their rectangle
   (`view.samplesPerAxis`, default 16), seeded and unbiased. For each sampled pixel the expected electrons of the real
   sites its demosaic reads are exact, and the clips and tone curve act on the pixel's own noise distribution. A pilot
   grid gives uniform areas K/4 samples per axis; their error is zero anyway.
@@ -1559,9 +1563,10 @@ the exact speed-ups, in [DISPLAY_VIEW.md](https://github.com/Photivra/photivra/b
 
 Quality costs more on small pixels. The diffraction kernel spans several real sites, and at 1.4 µm even ISO 100 is
 noisy enough for the AHD correction to run on every sampled pixel; its correction states are kept for later views of
-the same sensor, exposure and development in the same JavaScript realm (a second 384-wide phone view of the same
-request took 73 s instead of 103 s). The results are byte-identical to those of the display view as first merged,
-which took 222 s, 450 s and 837 s on the phone.
+the same sensor, exposure and development in the same JavaScript realm (2.6.0: a second 384-wide phone view of the same
+request took 73 s instead of 103 s). In 2.6.0 the results were byte-identical to those of the display view as first
+merged, which took 222 s, 450 s and 837 s on the phone; later releases changed some views' values (for example the
+exact area mean, 2.8.0; AHD's choice, 2.13.0).
 
 **Options.** `view.width` and `view.height` (1 to the capture's output size), `view.samplesPerAxis` (1–32),
 `view.format` (`"srgb-8"` default or `"srgb-16"`) and `view.region` (a rectangle in display pixels, byte-identical to
