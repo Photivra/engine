@@ -12,10 +12,18 @@
  * own fields (everything the kernel is a function of besides the wavelength, pitch and radius of the query). Records with an equal
  * string share their kernels, in a least-recently-used cache of `SITE_DIFFRACTION_KERNEL_CACHE_SIZE` records. A record that was not
  * registered (a caller's own profile) keeps its kernels while it lives, by identity, as before.
+ *
+ * 2.15.0: the most recently used entry also keeps one private, engine-owned clone of the profile, taken on its first resolve,
+ * and every later wavelength resolves from it (`resolveLensPsfConvolutionKernelsWithOwnedProfile`), so a request's profile is
+ * cloned and parsed once rather than once per wavelength; only one clone is held at a time. Before, N wavelengths cost N clones
+ * and parses of an N-wavelength profile, O(N²): at radius 32, 124 s for the 400 nodes of a 1 nm spectral step and 5.1 s for 80
+ * nodes, against 1.4 s and 0.12 s now (one machine, docs/PSF_FOUNDATION.md "Spectral nodes (2.15.0)"). The kernels are the same
+ * numbers (test/diffraction-spectral-grid.test.ts): both paths parse a structured clone of the same profile, and the clone is never changed.
  */
 
 import { InvalidConfigurationError } from "../core/configuration-error.js";
-import { resolveLensPsfConvolutionKernels } from "./lens-psf-kernels.js";
+import { resolveLensPsfConvolutionKernelsWithOwnedProfile, type resolveLensPsfConvolutionKernels } from "./lens-psf-kernels.js";
+import { markEngineOwnedLensSampledPsfProfile } from "./lens-psf-profile.js";
 
 type Psf = Parameters<typeof resolveLensPsfConvolutionKernels>[0]["psf"];
 
@@ -24,10 +32,14 @@ export const SITE_DIFFRACTION_KERNEL_CACHE_SIZE = 4;
 
 /** Canonical value key of each registered PSF record. */
 const keys = new WeakMap<object, string>();
-/** Kernels per registered value key (least recently used first), then per wavelength, pitch and radius. */
-const byValue = new Map<string, Map<string, Float64Array>>();
-/** Kernels per unregistered PSF record (by identity: the record is large, so it is not serialized), then per wavelength, pitch and radius. */
-const byIdentity = new WeakMap<object, Map<string, Float64Array>>();
+/** One entry's kernels per wavelength, pitch and radius, and its private clone of the profile (taken on the first resolve). */
+interface Entry { kernels: Map<string, Float64Array>; ownedProfile?: object }
+/** Entries per registered value key (least recently used first). */
+const byValue = new Map<string, Entry>();
+/** Entries per unregistered PSF record (by identity: the record is large, so it is not serialized). */
+const byIdentity = new WeakMap<object, Entry>();
+/** The one entry that holds its private clone of the profile. */
+let lastOwner: Entry | undefined;
 /** Kernels resolved so far (test hook). */
 let resolves = 0;
 
@@ -46,31 +58,39 @@ export function registerDiffractionPsfKey(psf: Psf, profileInput: object): void 
   keys.set(psf as object, canonical(["createDiffractionLimitedPsfProfile", profileInput, fields]));
 }
 
-/** The kernels kept for `psf`, made the most recently used. */
-function kernelsOf(psf: Psf): Map<string, Float64Array> {
+/** The entry kept for `psf`, made the most recently used. */
+function entryOf(psf: Psf): Entry {
   const key = keys.get(psf as object);
   if (key === undefined) {
-    let kernels = byIdentity.get(psf as object);
-    if (!kernels) byIdentity.set(psf as object, (kernels = new Map()));
-    return kernels;
+    let entry = byIdentity.get(psf as object);
+    if (!entry) byIdentity.set(psf as object, (entry = { kernels: new Map() }));
+    return entry;
   }
-  let kernels = byValue.get(key);
-  if (kernels) byValue.delete(key);
-  else kernels = new Map();
-  byValue.set(key, kernels);
+  let entry = byValue.get(key);
+  if (entry) byValue.delete(key);
+  else entry = { kernels: new Map() };
+  byValue.set(key, entry);
   while (byValue.size > SITE_DIFFRACTION_KERNEL_CACHE_SIZE) byValue.delete(byValue.keys().next().value!);
-  return kernels;
+  return entry;
 }
 
 /** The (2·radius + 1)² kernel of `psf` at `wavelengthNm` on a square site grid of `pitchMicrometers`; `failure` is the error message when the kernel cannot sample the pitch exactly. */
 export function siteDiffractionKernel(psf: Psf, wavelengthNm: number, pitchMicrometers: number, radius: number, failure: string): Float64Array {
-  const kernels = kernelsOf(psf);
+  const entry = entryOf(psf), kernels = entry.kernels;
   const key = canonical([wavelengthNm, pitchMicrometers, radius]);
   let kernel = kernels.get(key);
   if (!kernel) {
-    const k = resolveLensPsfConvolutionKernels({ schemaVersion: "0.1.0", psf, spectralWeights: [{ wavelengthNm, weight: 1 }],
+    if (!entry.ownedProfile) {
+      const owned = structuredClone((psf as { profile: unknown }).profile) as object;
+      markEngineOwnedLensSampledPsfProfile(owned);
+      // Only the most recent entry keeps its clone (a request resolves its wavelengths in one run), so at most one is held.
+      if (lastOwner) delete lastOwner.ownedProfile;
+      entry.ownedProfile = owned;
+      lastOwner = entry;
+    }
+    const k = resolveLensPsfConvolutionKernelsWithOwnedProfile({ schemaVersion: "0.1.0", psf, spectralWeights: [{ wavelengthNm, weight: 1 }],
       grid: { width: 1, height: 1, sitePitchMicrometers: { x: pitchMicrometers, y: pitchMicrometers }, opticalAxisSite: { x: 0.5, y: 0.5 } }, patchWidth: 1, patchHeight: 1,
-      kernelRadius: radius }).value;
+      kernelRadius: radius }, entry.ownedProfile).value;
     if (!k.exactSiteSampling || k.kernelRadius !== radius) throw new InvalidConfigurationError(failure);
     kernel = Float64Array.from(k.kernels);
     resolves++;
@@ -87,4 +107,5 @@ export function siteDiffractionKernelCacheState(psf?: Psf): { valueEntries: numb
 /** Test hook: forgets every kernel kept by value. */
 export function clearSiteDiffractionKernelCache(): void {
   byValue.clear();
+  lastOwner = undefined;
 }

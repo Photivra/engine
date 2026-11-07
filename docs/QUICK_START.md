@@ -871,6 +871,10 @@ The optics options feed only what the environment site contract accepts:
     lit circular pupil (scalar Fraunhofer diffraction), aberration-free and in focus, with pupil diameter
     f/N and the thin-lens image distance (working f-number N·v/f). Each kernel holds the PSF energy of
     site-sized cells, one kernel per spectral node.
+  - Every spectral step works (2.15.0): the 1–100 nm range of `sensor.spectralStepNanometers` gives 4–400 nodes,
+    and each node gets its own exact kernel. Before 2.15.0 a step under 6.25 nm (more than 64 nodes, for example
+    the 5 nm step recommended for color work) failed with "wavelengthsNm must list 1 to 64 wavelengths." Time and
+    memory are linear in the node count; measurements are in [PSF foundation](https://github.com/Photivra/photivra/blob/main/docs/PSF_FOUNDATION.md#spectral-nodes-2150).
   - Sources: the Airy pattern is the textbook Fraunhofer diffraction pattern of a circular aperture
     (Born & Wolf, *Principles of Optics*, 7th ed., §8.5.2; Goodman, *Introduction to Fourier Optics*,
     4th ed., §4.4). The kernels come from the pupil's incoherent optical transfer function (Goodman,

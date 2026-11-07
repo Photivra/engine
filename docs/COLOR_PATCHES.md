@@ -97,7 +97,8 @@ const labels = getColorPatchSet().patches.map((p) => p.code + " " + p.name);
 console.log(COLOR_PATCH_IDS.length, labels[0], capture.scene.parameters);
 ```
 
-For color work use `sensor.spectralStepNanometers: 5` (see [Accuracy](#accuracy)).
+For color work use `sensor.spectralStepNanometers: 5` (see [Accuracy](#accuracy)). From 2.15.0 this step also works with
+`lens.diffraction`, with one exact Airy kernel per spectral node (2.14.x refused steps under 6.25 nm with diffraction).
 
 ## The spectra
 

@@ -174,7 +174,7 @@ describe("createDiffractionLimitedPsfProfile", () => {
     expect(infinity.profile.axes.focusDiopters).toEqual([0]);
     const bad: [Record<string, unknown>, RegExp][] = [
       [{ aperture: "hexagon" }, /aperture/], [{ apertureFNumber: 0 }, /apertureFNumber/], [{ kernelRadiusSamples: 33 }, /kernelRadiusSamples/],
-      [{ kernelRadiusSamples: 1.5 }, /kernelRadiusSamples/], [{ wavelengthsNm: [550, 550] }, /increasing/], [{ wavelengthsNm: [] }, /1 to 64/],
+      [{ kernelRadiusSamples: 1.5 }, /kernelRadiusSamples/], [{ wavelengthsNm: [550, 550] }, /increasing/], [{ wavelengthsNm: [] }, /1 to 400/],
       [{ focus: { kind: "finite" } }, /distanceM/], [{ focus: { kind: "infinity", distanceM: 2 } }, /infinity/], [{ fieldHalfExtentMm: { x: 0, y: 1 } }, /fieldHalfExtentMm/],
       [{ profileId: "bad id" }, /profileId/], [{ extra: 1 }, /Invalid diffraction/]
     ];

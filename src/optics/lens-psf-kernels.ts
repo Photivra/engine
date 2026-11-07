@@ -37,8 +37,11 @@ import { IRRADIANCE_CONVOLUTION_LIMITS } from "./irradiance-convolution.js";
 import { markEngineOwnedLensSampledPsfProfile, resolveLensSampledPsf, type ResolveLensSampledPsfInput } from "./lens-psf-profile.js";
 
 export const LENS_PSF_CONVOLUTION_KERNELS_SCHEMA_VERSION = "0.1.0" as const;
-/** At most this many wavelengths per call. */
-export const LENS_PSF_CONVOLUTION_KERNELS_MAXIMUM_WAVELENGTHS = 64;
+/**
+ * At most this many wavelengths per call: 400, the finest spectral sampling of `simulateCapture` (1 nm over 380–780 nm),
+ * as `DIFFRACTION_LIMITED_PSF_PROFILE_LIMITS.maximumWavelengths` (64 before 2.15.0). The work is linear in the count.
+ */
+export const LENS_PSF_CONVOLUTION_KERNELS_MAXIMUM_WAVELENGTHS = 400;
 
 export interface LensPsfConvolutionKernelsInput {
   schemaVersion: typeof LENS_PSF_CONVOLUTION_KERNELS_SCHEMA_VERSION;
@@ -87,6 +90,21 @@ function integer(value: unknown, minimum: number, maximum: number, message: stri
  * @see docs/WEBGPU.md, "Kernels from a lens PSF profile".
  */
 export function resolveLensPsfConvolutionKernels(input: LensPsfConvolutionKernelsInput): CalculationResult<LensPsfConvolutionKernels> {
+  return resolveKernels(input, undefined);
+}
+
+/**
+ * Internal (not exported from the package): `resolveLensPsfConvolutionKernels` with `ownedProfile` used in place of a fresh
+ * private clone of `input.psf.profile`. `ownedProfile` must be a structured clone of that profile that no caller code can
+ * reach, already passed to `markEngineOwnedLensSampledPsfProfile`; repeated calls then share one parse (the clone is frozen
+ * and its parse cached on the first resolve), so N one-wavelength calls cost O(N) instead of O(N²) (2.15.0).
+ * The values are the same: the public function parses its own clone the same way.
+ */
+export function resolveLensPsfConvolutionKernelsWithOwnedProfile(input: LensPsfConvolutionKernelsInput, ownedProfile: object): CalculationResult<LensPsfConvolutionKernels> {
+  return resolveKernels(input, ownedProfile);
+}
+
+function resolveKernels(input: LensPsfConvolutionKernelsInput, ownedProfile: object | undefined): CalculationResult<LensPsfConvolutionKernels> {
   const r = requireAllowlistedRecord(input, ["schemaVersion", "psf", "spectralWeights", "grid", "patchWidth", "patchHeight", "kernelRadius"],
     "Invalid lens PSF convolution kernel input.");
   if (r.schemaVersion !== LENS_PSF_CONVOLUTION_KERNELS_SCHEMA_VERSION) throw new InvalidConfigurationError("Unsupported lens PSF convolution kernel schema.");
@@ -104,7 +122,7 @@ export function resolveLensPsfConvolutionKernels(input: LensPsfConvolutionKernel
   if (columns * rows > L.maximumPatchCount) throw new InvalidConfigurationError("Too many patches.");
   const list = r.spectralWeights;
   if (!Array.isArray(list) || list.length < 1 || list.length > LENS_PSF_CONVOLUTION_KERNELS_MAXIMUM_WAVELENGTHS) {
-    throw new InvalidConfigurationError("spectralWeights must list 1 to 64 wavelengths.");
+    throw new InvalidConfigurationError("spectralWeights must list 1 to " + LENS_PSF_CONVOLUTION_KERNELS_MAXIMUM_WAVELENGTHS + " wavelengths.");
   }
   const spectral = list.map((entry: unknown) => {
     const e = requireAllowlistedRecord(entry, ["wavelengthNm", "weight"], "Invalid spectral weight.");
@@ -114,9 +132,9 @@ export function resolveLensPsfConvolutionKernels(input: LensPsfConvolutionKernel
   const totalWeight = spectral.reduce((s, e) => s + e.weight, 0);
   if (!(totalWeight > 0 && totalWeight <= Number.MAX_VALUE)) throw new InvalidConfigurationError("At least one spectral weight must be positive.");
   const psf = requireAllowlistedRecord(r.psf, ["profile", "focalLengthMm", "focus", "apertureFNumber", "signedDefocusImagePlaneMicrometers"], "Invalid PSF state.");
-  // One private parse of the profile for every patch and wavelength.
-  const profile = structuredClone(psf.profile);
-  markEngineOwnedLensSampledPsfProfile(profile);
+  // One private parse of the profile for every patch and wavelength (and, with an owned profile, for every call).
+  const profile = ownedProfile ?? structuredClone(psf.profile);
+  if (!ownedProfile) markEngineOwnedLensSampledPsfProfile(profile);
   const state = { ...(psf as unknown as Omit<ResolveLensSampledPsfInput, "fieldPointMm" | "wavelengthNm">), profile } as Omit<ResolveLensSampledPsfInput, "fieldPointMm" | "wavelengthNm">;
 
   // Resolve every patch and wavelength, splatting straight into one scratch displacement map sized for the largest

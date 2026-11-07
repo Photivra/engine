@@ -774,10 +774,15 @@ const channelResponseCache = new Map<string, Record<"red" | "green" | "blue", Ma
  * DIFFRACTION_PROFILE_CACHE_SIZE, most recently used last). Every region part and detail tile of one request builds the same
  * input. The kept record is private: each call gets its own copy, as mutable as a newly built one, so a caller's change
  * never reaches another call. The copy is made of plain records and arrays (plainDataCopy): the kernel set-up structured-clones
- * the profile once per spectral node, and in a CPU profile of the 96 × 64 Quality tile that clone took about twice as long
- * (24 instead of 12 ms per call) on a deep-frozen record or on a structuredClone copy as on a newly built record or this copy.
+ * the profile (once per spectral node before 2.15.0, once per request since), and in a CPU profile of the 96 × 64 Quality tile
+ * that clone took about twice as long (24 instead of 12 ms per call) on a deep-frozen record or on a structuredClone copy as on a newly built record or this copy.
+ * 2.15.0: profiles may hold up to 400 wavelengths (a 1 nm spectral step), so the cache also keeps at most
+ * DIFFRACTION_PROFILE_CACHE_KERNEL_VALUES kernel values in all (wavelengths × (2R + 1)², summed), the most it could hold before
+ * (8 profiles of 64 wavelengths at radius 32); the newest profile is always kept.
  */
 const DIFFRACTION_PROFILE_CACHE_SIZE = 8;
+const DIFFRACTION_PROFILE_CACHE_KERNEL_VALUES = 8 * 64 * 65 * 65;
+const kernelValuesOf = (profile: DiffractionLimitedPsfProfile): number => profile.wavelengths.length * (2 * profile.kernelRadiusSamples + 1) ** 2;
 const diffractionProfileCache = new Map<string, DiffractionLimitedPsfProfile>();
 /** A copy of plain data (records, arrays, primitives; typed arrays are sliced), built from ordinary literals. */
 function plainDataCopy<T>(value: T): T {
@@ -795,7 +800,13 @@ function cachedDiffractionProfile(input: Parameters<typeof createDiffractionLimi
   if (kept) diffractionProfileCache.delete(key);
   else kept = createDiffractionLimitedPsfProfile(input).value;
   diffractionProfileCache.set(key, kept);
-  if (diffractionProfileCache.size > DIFFRACTION_PROFILE_CACHE_SIZE) diffractionProfileCache.delete(diffractionProfileCache.keys().next().value!);
+  let kernelValues = 0;
+  for (const profile of diffractionProfileCache.values()) kernelValues += kernelValuesOf(profile);
+  while (diffractionProfileCache.size > 1 && (diffractionProfileCache.size > DIFFRACTION_PROFILE_CACHE_SIZE || kernelValues > DIFFRACTION_PROFILE_CACHE_KERNEL_VALUES)) {
+    const oldest = diffractionProfileCache.keys().next().value!;
+    kernelValues -= kernelValuesOf(diffractionProfileCache.get(oldest)!);
+    diffractionProfileCache.delete(oldest);
+  }
   // The same fields in the same order as the built record, frozen at the top level like it; `model` is the frozen constant.
   return Object.freeze({ ...kept, profile: plainDataCopy(kept.profile), wavelengths: plainDataCopy(kept.wavelengths), quadrature: plainDataCopy(kept.quadrature) });
 }
