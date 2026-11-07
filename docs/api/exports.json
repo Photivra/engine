@@ -4583,6 +4583,11 @@
       "kind": "runtime"
     },
     {
+      "name": "NATIVE_RAW_DEVELOPMENT_EXPOSURE_RANGE_STOPS",
+      "source": "src/capture/native-raw-development.ts",
+      "kind": "runtime"
+    },
+    {
       "name": "NATIVE_RAW_DNG_SCHEMA_VERSION",
       "source": "src/capture/native-raw-dng.ts",
       "kind": "runtime"

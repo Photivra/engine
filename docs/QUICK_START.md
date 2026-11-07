@@ -99,6 +99,7 @@ modelling choices (such as "no lens PSF") as `kind: "model"`.
 | `output.toneCurve` | `"identity"` | Any `SdrToneCurve`, for example `"positive-reinhard-per-channel"`. |
 | `output.toneCurveParameters` | none | Required by the luminance curves (`extended-reinhard-luminance`, `naka-rushton-luminance`); the facade invents no curve parameters. |
 | `output.highlightMode` | `"clip"` | Or `"reconstruct"`. |
+| `output.exposureCompensationStops` | 0 | #556: a development exposure push, −2 to +5 stops, on the RAW before white balance (see [Development exposure push](#development-exposure-push-556)). |
 | `output.whiteBalance` | `"scene-illuminant"` | Also `"auto"`, `"none"`, `{ kelvin, tint? }` and `{ channelGains }`. |
 | `output.jpegQuantizationStep` | 2 | JPEG only: constant step 1–255, not a manufacturer quality scale. |
 | `sensor.pixelPitchMicrometers` | 6 | 0.5–1000 (2.5; 0.5–100 before). The sensor is `width × pitch` wide (see [Geometry](#geometry)); the ISO readout scales with the pixel area (see [ISO and pixel size](#iso-and-pixel-size)). Above 100 µm the capture is a downsized view of a whole frame (see [Whole-frame views](#whole-frame-views-25)). |
@@ -631,6 +632,41 @@ with diffraction, the four-spot filter and AHD.
 | `{ kelvin, tint? }` | A colour-temperature setting on the Planckian locus (tint as Duv). |
 | `{ channelGains }` | Manual channel gains. |
 
+## Development exposure push (#556)
+
+`output.exposureCompensationStops` brightens (or darkens) the same RAW in development, like a raw editor's exposure
+slider: underexpose, then push the shadows up. It takes −2 to +5 stops (`NATIVE_RAW_DEVELOPMENT_EXPOSURE_RANGE_STOPS`),
+whole or fractional; the default 0 gives byte-identical results.
+
+```ts
+import { simulateCapture } from "@photivra/engine";
+
+// Three stops under (1/1000 s instead of 1/125 s), brightened three stops in development.
+const pushed = await simulateCapture({ scene: { preset: "uniform" }, exposure: { shutterSeconds: 1 / 1000 },
+  output: { width: 64, height: 64, exposureCompensationStops: 3 } });
+console.log(pushed.assumptions.find((a) => a.id === "output.exposureCompensationStops")?.value); // { stops: 3, gain: 8, ... }
+```
+
+- **What it does.** Each site's black-subtracted, white-normalized value (code − black)/(white − black) is multiplied
+  by 2^stops before demosaic, white balance, the highlight mode, colour, the tone curve and encoding. It is a
+  development setting, not a capture exposure: no photons are added.
+- **Shadows keep their noise.** The pushed image shows the RAW's own shot, dark and read noise and its ADC quantization
+  steps, scaled by the gain. A sensor with less read noise or more bits per sample recovers shadows more cleanly: a
+  pushed gradient shows 12-bit steps that 14- and 16-bit RAWs do not. A +3-stop push of a 3-stop underexposure has the
+  normal exposure's mean, with about √8 times its shot noise.
+- **Highlights clip.** A site pushed to or past white clips at white and counts in
+  `diagnostics.highlight.saturatedPixelCount`; `highlightMode: "reconstruct"` rolls those pixels off toward neutral.
+  Nothing above white is recovered.
+- **Where it applies.** The developed samples (`image.samples`, also with format `"dng"`), JPEG, PNG (every encoding),
+  both demosaics, `simulateIdealReference` and `simulateDisplayView` (its per-site readout moments are scaled by the
+  gain) honour it. The RAW codes, `result.raw` and the DNG are the unmodified RAW. `output.whiteBalance: "auto"` is
+  measured on the unpushed RAW. `request.development.exposureCompensationStops` carries a non-zero push, so
+  `createNativeRawDevelopmentTask` replays it.
+- **Reported** in the assumption `output.exposureCompensationStops` (`{ stops, gain, appliedTo, dng }`), only when the
+  option is given.
+- **Not the same as `renderingExposureEv`.** The SDR rendering profile's exposure scales the developed colour after the
+  highlight clip, so it cannot clip a pushed site; the facade keeps it at 0.
+
 ## Modelling choices
 
 These choices appear in `assumptions` as `kind: "model"` entries:
@@ -655,8 +691,9 @@ These choices appear in `assumptions` as `kind: "model"` entries:
   false-colour artefacts; `"ahd"` and `lens.diffraction` reduce them.
 - **Scene.** A planar Lambertian surface: radiance = reflectance × irradiance / π, with illuminance
   from K_m = 683 lm/W and the analytic ȳ. No shadows, inter-reflection, gloss or fluorescence.
-- **Rendering.** Linear sRGB with RAW white at display white, no exposure push, out-of-gamut
-  components clipped, then the sRGB transfer function.
+- **Rendering.** Linear sRGB with RAW white at display white, no exposure push (unless
+  `output.exposureCompensationStops` asks for one on the RAW), out-of-gamut components clipped, then the sRGB
+  transfer function.
 
 ## Output formats
 
@@ -1622,7 +1659,8 @@ See [Highlight count](https://github.com/Photivra/photivra/blob/main/docs/DISPLA
 
 **Not supported** (refused with an `InvalidConfigurationError`): `lens.pupilSampling`, `lens.projection`,
 `lens.distortion`, `lens.vignetting`, `lens.psf`, camera rotation, `output.whiteBalance: "auto"`, the luminance tone
-curves, `output.highlightMode: "reconstruct"` and `output.region` (use `view.region`). `lens.defocus` is rendered as a
+curves, `output.highlightMode: "reconstruct"` and `output.region` (use `view.region`). `output.exposureCompensationStops` is
+supported (#556). `lens.defocus` is rendered as a
 site kernel in the expected signal (#492; see [Optics](#optics)). `onProgress` is not called; `signal` cancels.
 
 The result is labelled `kind: "display-view"` with a `label` for the user interface; it has no RAW, plan or file, and

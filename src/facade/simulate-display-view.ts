@@ -206,7 +206,7 @@ async function renderDisplayViewResult(context: DisplayViewRunContext, viewInter
  * signal caches, lookup count and assumptions), so its results are those of separate calls.
  */
 function prepareView(context: DisplayViewRunContext): PreparedViewParts {
-  const { ahd, antiAliasing, aspect, axisChannelResponse, boxSamples, buildProvider, callerScene, chart, materialLayers, chartReport, chartSize, diffraction, diffractionPsf, fNumber, focalLengthMm, focusDistanceM, height, highlightMode, illuminanceLux, illuminant, illuminantOption, imagingArea, intentOf, metresPerFrameUnit, noiseSeed, outputOptions, pitch, preset, provider, regimeByChannel, resolvedIso, isoReport, standardExposureDeviationStops, standardExposureIlluminanceLux, greyCardDeviationStops, metering, sceneOption, scenePreset, shutterSeconds, subjectDistanceM, toneCurve, whiteBalanceOption, whiteBalanceState, width, margin, mode, nativeHeight, nativeWidth, sourceSha256 } = context;
+  const { ahd, antiAliasing, aspect, axisChannelResponse, boxSamples, buildProvider, callerScene, chart, materialLayers, chartReport, chartSize, diffraction, diffractionPsf, fNumber, focalLengthMm, focusDistanceM, height, highlightMode, exposureGain, illuminanceLux, illuminant, illuminantOption, imagingArea, intentOf, metresPerFrameUnit, noiseSeed, outputOptions, pitch, preset, provider, regimeByChannel, resolvedIso, isoReport, standardExposureDeviationStops, standardExposureIlluminanceLux, greyCardDeviationStops, metering, sceneOption, scenePreset, shutterSeconds, subjectDistanceM, toneCurve, whiteBalanceOption, whiteBalanceState, width, margin, mode, nativeHeight, nativeWidth, sourceSha256 } = context;
   const kelvinInput = context.kelvinWhiteBalanceInput;
   const portableKelvinWhiteBalance = kelvinInput ? (): ResolvedWhiteBalanceState => resolvePortableColorTemperatureWhiteBalance(kelvinInput) : undefined;
   // The engine's illuminant formulas (Planckian, CIE A, daylight locus) evaluated with the portable power and e^x − 1, so
@@ -235,13 +235,16 @@ function prepareView(context: DisplayViewRunContext): PreparedViewParts {
     radianceAt: viewProvider.radianceAt, imagingArea, focalLengthMm, focusDistanceM, subjectDistanceM, metresPerFrameUnit, caller: "simulateDisplayView" });
   const kernels = signalInput.kernels;
   // Readout moments per channel: normalized value k·e with variance k²·(e + σ_read²) plus the ADC quantization (1/12 code², times d² before a digital gain d).
+  // #556: a development exposure push G multiplies the normalized value before the per-site clip at white: k → G·k and the constant variance → G²·(…).
   const readout = CHANNELS.map((channel): DisplayViewChannelReadout => {
     const { readoutProfile, regimeId } = regimeByChannel[channel];
     const resolved = resolveSensorReadoutRegime({ profile: readoutProfile as Parameters<typeof resolveSensorReadoutRegime>[0]["profile"], regimeId });
     const k = relativePerElectron[channel], digitalGain = resolved.regime.adc.digitalGain ?? 1, gain = resolved.regime.systemConversionGainElectronsPerCode.value;
     const codeSpan = digitalGain / (gain * k), read = resolved.combinedReadNoiseRmsElectrons;
     const quantizationCodes = digitalGain * digitalGain / 12 + (digitalGain === 1 ? 0 : 1 / 12);
-    return { perElectron: k, darkElectrons: DARK_CURRENT_ELECTRONS_PER_SECOND * shutterSeconds, constantVariance: k * k * read * read + quantizationCodes / (codeSpan * codeSpan) };
+    const constantVariance = k * k * read * read + quantizationCodes / (codeSpan * codeSpan);
+    return exposureGain === 1 ? { perElectron: k, darkElectrons: DARK_CURRENT_ELECTRONS_PER_SECOND * shutterSeconds, constantVariance }
+      : { perElectron: exposureGain * k, darkElectrons: DARK_CURRENT_ELECTRONS_PER_SECOND * shutterSeconds, constantVariance: exposureGain * exposureGain * constantVariance };
   }) as [DisplayViewChannelReadout, DisplayViewChannelReadout, DisplayViewChannelReadout];
   const phases = bilinearPhaseProfiles(), demosaicTable: { dx: number; dy: number; weight: number }[][][] = [];
   for (const phase of phases) demosaicTable[phase.phaseY * 2 + phase.phaseX] = CHANNELS.map((c) => phase.profile.kernels.find((k) => k.outputChannelId === c)!.contributions

@@ -6,7 +6,9 @@
  *
  * For native site i with CFA (colour filter array) phase p: if any saturation flag is set, or code ≥ W_p,
  * the normalized value is 1 (clipped at the sensor's effective white level; this uses up the flags).
- * Otherwise it is the signed (code − black)/(W_p − black). Reconstruction sums value·weight in the declared
+ * Otherwise it is the signed (code − black)/(W_p − black). With a development exposure gain G ≠ 1 (#556) the value is
+ * multiplied by G, and a site whose pushed value reaches 1 is clipped at 1 and counted as saturated, like a site at
+ * its white level. Reconstruction sums value·weight in the declared
  * contribution order (the same order as `calculateRawReconstructionChannel`). Then
  * `SensorColorDevelopment.developInto` applies white balance (WB), highlight handling and colour.
  *
@@ -28,23 +30,36 @@ export interface RawDevelopmentSource {
   saturationFlags: ArrayLike<number>;
   /** Effective white code per CFA phase, `phaseY*repeatWidth+phaseX`. */
   whiteByPhase: ArrayLike<number>;
+  /**
+   * Development exposure gain 2^stops on the black-subtracted, white-normalized value (#556). Omitted or 1: no push, and
+   * every value is unchanged bit for bit.
+   */
+  exposureGain?: number;
 }
 /** Development counters; `saturatedPixelCount` counts pixels with at least one clipped contributing site. */
 export interface RawDevelopmentCounts extends SensorColorDevelopmentCounts { saturatedPixelCount: number }
 export function createRawDevelopmentCounts(): RawDevelopmentCounts {
   return { saturatedPixelCount: 0, whiteBalanceClippedSampleCount: 0, reconstructedPixelCount: 0 };
 }
-/** Normalized value of one site, or 1 when it is saturated. Shared by the reference read callback. */
+/** Normalized (and pushed) value of one site, or 1 when it is saturated. Shared by the reference read callback. */
 export function normalizedRawSite(source: RawDevelopmentSource, x: number, y: number): number {
   const i = y*source.nativeWidth+x, code = source.codes[i]!, black = source.blackLevels[i]!,
     white = source.whiteByPhase[(y % source.repeatHeight)*source.repeatWidth + x % source.repeatWidth]!;
-  return source.saturationFlags[i]! !== 0 || code >= white ? 1 : (code-black)/(white-black);
+  if (source.saturationFlags[i]! !== 0 || code >= white) return 1;
+  const value = (code-black)/(white-black), gain = source.exposureGain;
+  if (gain === undefined || gain === 1) return value;
+  const pushed = value*gain;
+  return pushed >= 1 ? 1 : pushed;
 }
-/** True when the site is clipped at the white level or flagged. */
+/** True when the site is clipped at the white level or flagged, or its pushed value reaches 1. */
 export function rawSiteSaturated(source: RawDevelopmentSource, x: number, y: number): boolean {
-  const i = y*source.nativeWidth+x;
-  return source.saturationFlags[i]! !== 0 ||
-    source.codes[i]! >= source.whiteByPhase[(y % source.repeatHeight)*source.repeatWidth + x % source.repeatWidth]!;
+  const i = y*source.nativeWidth+x, code = source.codes[i]!,
+    white = source.whiteByPhase[(y % source.repeatHeight)*source.repeatWidth + x % source.repeatWidth]!;
+  if (source.saturationFlags[i]! !== 0 || code >= white) return true;
+  const gain = source.exposureGain;
+  if (gain === undefined || gain === 1) return false;
+  const black = source.blackLevels[i]!;
+  return (code-black)/(white-black)*gain >= 1;
 }
 
 interface FlatKernel { delta: Int32Array; weight: Float64Array; white: Float64Array }
@@ -73,6 +88,7 @@ export function createRawPixelDeveloper(source: RawDevelopmentSource, phases: re
     }));
   }
   const codes = source.codes, blacks = source.blackLevels, flags = source.saturationFlags, counts = createRawDevelopmentCounts();
+  const gain = source.exposureGain ?? 1, pushed = gain !== 1;
   const channel = new Float64Array(3);
   const mirrorTable = mirror === undefined ? null : phases.map((phase) => phase.profile.kernels);
   function developMirroredAt(x: number, y: number, out: Float64Array | number[], offset: number): void {
@@ -102,7 +118,10 @@ export function createRawPixelDeveloper(source: RawDevelopmentSource, phases: re
         for (let j = 0; j < delta.length; j++) {
           const i = center+delta[j]!, code = codes[i]!, top = white[j]!;
           let normalized: number;
-          if (flags[i]! !== 0 || code >= top) { normalized = 1; saturated = true; } else { const black = blacks[i]!; normalized = (code-black)/(top-black); }
+          if (flags[i]! !== 0 || code >= top) { normalized = 1; saturated = true; } else {
+            const black = blacks[i]!; normalized = (code-black)/(top-black);
+            if (pushed) { normalized *= gain; if (normalized >= 1) { normalized = 1; saturated = true; } }
+          }
           value += normalized*weight[j]!;
         }
         channel[k] = value;

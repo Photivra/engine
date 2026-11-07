@@ -3293,6 +3293,9 @@ void develop;
 
 - `highlightMode: "reconstruct"` blends pixels above 0.8 of white towards neutral, instead of clipping
   each WB-scaled channel. It is an approximation, not a recovery of the clipped signal.
+- `exposureCompensationStops` (#556, −2 to +5, default 0) multiplies each site's black-subtracted, white-normalized
+  value by 2^stops before demosaic and white balance. A site pushed to white clips and counts as saturated; the RAW
+  codes are not changed. 0 develops byte for byte as before. The WebGPU accelerator rejects a non-zero push.
 - `extended-reinhard-luminance` takes `{ whiteLuminance }`, the luminance mapped to output white.
 - `createPhotographicExportPair(input, { signal })` accepts an optional `AbortSignal`.
 
