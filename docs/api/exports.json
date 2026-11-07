@@ -8358,6 +8358,16 @@
       "kind": "type"
     },
     {
+      "name": "SimulateCaptureDetailDiagnostics",
+      "source": "src/facade/simulate-capture.ts",
+      "kind": "type"
+    },
+    {
+      "name": "SimulateCaptureDiffractionCorrection",
+      "source": "src/facade/simulate-capture.ts",
+      "kind": "type"
+    },
+    {
       "name": "SimulateCaptureDngPart",
       "source": "src/facade/simulate-capture.ts",
       "kind": "type"
@@ -8419,6 +8429,11 @@
     },
     {
       "name": "SimulateCaptureSensorAntiAliasing",
+      "source": "src/facade/simulate-capture.ts",
+      "kind": "type"
+    },
+    {
+      "name": "SimulateCaptureSharpening",
       "source": "src/facade/simulate-capture.ts",
       "kind": "type"
     },

@@ -100,6 +100,8 @@ modelling choices (such as "no lens PSF") as `kind: "model"`.
 | `output.toneCurveParameters` | none | Required by the luminance curves (`extended-reinhard-luminance`, `naka-rushton-luminance`); the facade invents no curve parameters. |
 | `output.highlightMode` | `"clip"` | Or `"reconstruct"`. |
 | `output.exposureCompensationStops` | 0 | #556: a development exposure push, −2 to +5 stops, on the RAW before white balance (see [Development exposure push](#development-exposure-push-556)). |
+| `output.diffractionCorrection` | off | #552: `{ wavelengthNm?, regularization?, maximumGain?, kernelRadiusPixels? }`, a bounded deconvolution of the diffraction blur; needs `lens.diffraction`. It never restores detail beyond the diffraction cut-off (see [Sharpening and diffraction correction](#sharpening-and-diffraction-correction-552)). |
+| `output.sharpening` | off | #552: `{ radiusPixels?, amount?, threshold? }`, an unsharp mask after the tone curve; sRGB output only (see [Sharpening and diffraction correction](#sharpening-and-diffraction-correction-552)). |
 | `output.whiteBalance` | `"scene-illuminant"` | Also `"auto"`, `"none"`, `{ kelvin, tint? }` and `{ channelGains }`. |
 | `output.jpegQuantizationStep` | 2 | JPEG only: constant step 1–255, not a manufacturer quality scale. |
 | `sensor.pixelPitchMicrometers` | 6 | 0.5–1000 (2.5; 0.5–100 before). The sensor is `width × pitch` wide (see [Geometry](#geometry)); the ISO readout scales with the pixel area (see [ISO and pixel size](#iso-and-pixel-size)). Above 100 µm the capture is a downsized view of a whole frame (see [Whole-frame views](#whole-frame-views-25)). |
@@ -843,6 +845,44 @@ Why these containers:
 
 Pillow 12.3 and ImageMagick 6.9 read the PNG text chunks and the JPEG comment, and Python's XML parser
 reads both XMP packets.
+
+## Sharpening and diffraction correction (#552)
+
+Two development stages, both off by default. Without them a request takes the same path and gives the same bytes as before.
+
+```ts
+import { simulateCapture } from "@photivra/engine";
+
+const result = await simulateCapture({
+  scene: { preset: "slanted-edge" },
+  lens: { fNumber: 16, diffraction: "circular-aperture" },
+  output: { width: 16, height: 16, format: "jpeg", diffractionCorrection: {}, sharpening: { radiusPixels: 1, amount: 0.5 } }
+});
+// The value holds cutoffCyclesPerPixel (the diffraction cut-off) and recoversBeyondCutoff: false.
+console.log(result.assumptions.find((a) => a.id === "output.diffractionCorrection")?.value);
+console.log(result.diagnostics.detail); // { diffractionCorrection: {...}, sharpening: {...} }
+```
+
+- **Order:** demosaic → colour and white balance → **diffraction correction** (linear) → rendering exposure and tone curve →
+  gamut handling and sRGB transfer → **unsharp mask** → quantization. The `output.developmentOrder` assumption lists it.
+- **`output.diffractionCorrection`** needs `lens.diffraction`. It deconvolves the developed linear colour with the
+  diffraction OTF of the ideal circular pupil at the capture's working f-number, through a bounded Wiener gain
+  min(maximumGain, H(1 + α)/(H² + α)) built as a (2R + 1)² filter. Defaults: 550 nm, α = 0.01, gain bound 4, R = the Airy
+  third dark ring in pixels (1–16). The OTF is zero beyond the cut-off 1/(λ·N_w): that detail never reached the sensor and
+  stays lost. Below it, contrast is only partly restored and noise is amplified by up to the reported `responsePeakGain`.
+- **`output.sharpening`** is an unsharp mask on the sRGB-encoded values: y = x + amount·(x − G_σ∗x) where the difference is at
+  least `threshold`. Defaults: σ = 1 pixel, amount 0.5, threshold 0. It creates halos on both sides of an edge and sharpens
+  noise; it adds no detail. Not with a wide-gamut `output.colorEncoding` or `output.gamutMapping: "perceptual"`.
+- **Reported:** the `output.diffractionCorrection` and `output.sharpening` assumptions (settings, cut-off, measured filter
+  response, defaults used), `diagnostics.detail` (ringing, clipping and halo counts) and `diagnostics.options`.
+- **Not combinable** with `output.region`; not offered by `simulateDisplayView` or `simulateIdealReference`. The DNG holds the
+  RAW codes and is unchanged; only `image.samples` (and the JPEG or PNG made from them) change.
+- **Cost:** both stages hold the whole developed image, as AHD does. At 256 × 256 on an Apple M5 Pro (Node.js 24.19.0) the
+  development took 8 ms by default, 15 ms with sharpening and 18–20 ms with diffraction correction (R = 3–5), one run each.
+
+The trade-offs of these and the lens corrections (corner resolution after distortion correction, corner noise after
+vignetting correction, residual longitudinal CA, halo overshoot, nothing beyond the cut-off) are measured in
+[Digital optics foundation](https://github.com/Photivra/photivra/blob/main/docs/DIGITAL_OPTICS_FOUNDATION.md#sharpening-diffraction-correction-and-their-trade-offs-552).
 
 ## Demosaic
 

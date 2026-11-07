@@ -203,6 +203,20 @@ factual constants only, independently implemented; no code or data copied):
 - Bradford cone matrix (Lam 1985), already used by the ICC serializer, now also
   for ForwardMatrix1.
 
+Development detail references (#552; published equations and documented
+behaviour only, independently implemented in `src/processing/development-detail.ts`;
+no code, table or data copied):
+
+- Circular-pupil incoherent OTF and its cut-off 1/(λN): MIT OpenCourseWare 2.71
+  *Optics* (Spring 2009), lectures 21–22 (already cited for `lens.diffraction`).
+- Wiener deconvolution with a constant noise-to-signal ratio: the scikit-image
+  `skimage.restoration.wiener` documentation (BSD-3-Clause project; documentation
+  read, no code used) and Orieux, Giovannelli & Rodet (2010), JOSA A 27(7).
+- Unsharp mask (radius, amount, threshold): the GIMP 2.10 manual, "Unsharp Mask",
+  and ImageMagick's `-unsharp` option documentation (documented behaviour only).
+- Patent status: no public-record patent check has been recorded for these two
+  long-published methods; it is left for the owner's review with the others.
+
 The DNG patent-license notice appears in `NOTICE` and exporter source. These
 references do not authorize copying SDK code or scientific datasets. Human
 provenance/license review remains required before release.

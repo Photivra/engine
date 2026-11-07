@@ -102,6 +102,9 @@ import { resolveAntiAliasingSpatialKernel, type AntiAliasingPointSplitComponent,
 import { multiplyMatrices, type ColorMatrix3x3, type ColorVector3 } from "../color/colorimetry-math.js";
 import { prepareRgbGamutMapping, type PreparedRgbGamutMapping } from "../color/gamut-mapping.js";
 import { serializeNativeRawDng, type NativeRawDng } from "../capture/native-raw-dng.js";
+import { applyDiffractionCorrection, defaultDiffractionCorrectionRadiusPixels, designDiffractionCorrectionFilter, parseDiffractionCorrectionSettings,
+  parseUnsharpMaskSettings, renderSdrWithUnsharpMask, DEVELOPMENT_DETAIL_MODEL_VERSION, type DiffractionCorrectionSettings,
+  type UnsharpMaskSettings } from "../processing/development-detail.js";
 import { parseSensorReadoutConversionProfile, resolveSensorReadoutRegime } from "../sensor/raw-readout.js";
 import { resolveChartScene, chartMaterialInputs, CHART_SCENE_PRESETS, type ChartScene, type ResolvedChartScene } from "./chart-scenes.js";
 import { resolveChartMaterialLayers, type ChartMaterialLayerScene, type ResolvedChartMaterialLayers } from "./chart-material-layers.js";
@@ -268,6 +271,58 @@ export type SimulateCaptureSensorAntiAliasing =
 export type SimulateCapturePixelAperture = "point" | "box" | { kind: "box"; samplesPerAxis?: number; fast?: boolean };
 /** Default midpoint samples per axis of `sensor.pixelAperture: "box"`. */
 export const SIMULATE_CAPTURE_BOX_APERTURE_DEFAULT_SAMPLES = 4;
+/**
+ * `output.sharpening` (#552): unsharp mask y = x + amount·(x − G_σ∗x) where |x − G_σ∗x| ≥ threshold (GIMP and ImageMagick
+ * unsharp mask), per channel on sRGB-encoded values in [0, 1], then clipped to [0, 1]. Every field is optional.
+ */
+export interface SimulateCaptureSharpening {
+  /** Gaussian standard deviation σ in output pixels, (0, 8]; the kernel reaches ⌈3σ⌉. Default 1. */
+  radiusPixels?: number;
+  /** Gain on the detail signal, (0, 5]. Default 0.5. */
+  amount?: number;
+  /** Detail smaller than this (encoded units, [0, 1]) is left unchanged. Default 0 (every difference is sharpened). */
+  threshold?: number;
+}
+/**
+ * `output.diffractionCorrection` (#552): the Wiener–Tikhonov gain G(s) = min(maximumGain, H(s)(1 + α)/(H(s)² + α)) on the circular-pupil
+ * OTF H at s = f/f_c, f_c = 1/(λ·N_w), as a (2R + 1)² FIR per channel. Every field is optional.
+ */
+export interface SimulateCaptureDiffractionCorrection {
+  /** Design wavelength in nm, 380–780, used for all three channels. Default 550. */
+  wavelengthNm?: number;
+  /** α, an assumed noise-to-signal power ratio, 1e-4–1. Larger is safer and restores less. Default 0.01. */
+  regularization?: number;
+  /** Upper bound on the gain at any frequency, 1–10 (it bounds the noise amplification). Default 4. */
+  maximumGain?: number;
+  /** FIR radius R in pixels, 1–16. Default: the Airy pattern's third dark ring at the design wavelength, within 1–16. */
+  kernelRadiusPixels?: number;
+}
+/** `diagnostics.detail` (#552): what the development detail stages did. Present only when one ran. */
+export interface SimulateCaptureDetailDiagnostics {
+  diffractionCorrection?: {
+    /** Corrected linear samples below 0 (ringing below black; clipped later by gamut handling) and above the RAW white level 1. */
+    negativeSampleCount: number;
+    aboveWhiteSampleCount: number;
+    /** The diffraction cut-off p/(λ·N_w) in cycles per pixel (Nyquist is 0.5); nothing beyond it is recovered. */
+    cutoffCyclesPerPixel: number;
+    /** Measured largest |response| of the filter, and largest |response| beyond the cut-off (null when the Nyquist square is inside it). */
+    responsePeakGain: number;
+    responseMaximumBeyondCutoff: number | null;
+  };
+  sharpening?: {
+    /** Half-width ⌈3σ⌉ of the Gaussian in pixels. */
+    kernelRadiusPixels: number;
+    /** Samples changed by the mask, and samples left alone because their detail was under the threshold. */
+    sharpenedSampleCount: number;
+    thresholdHeldSampleCount: number;
+    /** Sharpened samples clipped at 0 or 1. */
+    clippedLowSampleCount: number;
+    clippedHighSampleCount: number;
+    /** Largest increase and decrease amount·detail before clipping, in encoded units: the halo strength. */
+    maximumIncrease: number;
+    maximumDecrease: number;
+  };
+}
 export interface SimulateCaptureMotion {
   /** Constant camera angular velocity, rad/s, in the engine's pitch/yaw/roll convention. Missing axes are 0. */
   angularVelocityRadPerSec?: { pitch?: number; yaw?: number; roll?: number };
@@ -457,6 +512,20 @@ export interface SimulateCaptureOptions {
      * as a capture of the region's size.
      */
     region?: { x: number; y: number; width: number; height: number };
+    /**
+     * Opt-in (#552) diffraction correction: a bounded, regularized deconvolution of the developed linear colour with the
+     * diffraction OTF of the ideal circular pupil at the capture's working f-number (see {@link SimulateCaptureDiffractionCorrection}).
+     * It runs after demosaic, colour and white balance and before the tone curve. Frequencies beyond the diffraction cut-off
+     * 1/(λ·N_w) never reached the sensor and stay lost: the correction's design gain there is 0. Needs `lens.diffraction`.
+     * Not combinable with `region`. The DNG's RAW codes are not changed. Default off.
+     */
+    diffractionCorrection?: SimulateCaptureDiffractionCorrection;
+    /**
+     * Opt-in (#552) unsharp mask (see {@link SimulateCaptureSharpening}) on the sRGB-encoded values after the tone curve and gamut
+     * handling, before quantization. It raises edge contrast and creates halos; it adds no optical detail. sRGB output only
+     * (not the wide-gamut or perceptual PNG paths); not combinable with `region`. The DNG's RAW codes are not changed. Default off.
+     */
+    sharpening?: SimulateCaptureSharpening;
   };
   /** Camera motion and shutter type. Default: still camera, global electronic shutter. */
   motion?: SimulateCaptureMotion;
@@ -506,7 +575,7 @@ export interface SimulateCaptureOptions {
 export const SIMULATE_CAPTURE_COST_OPTIONS = /* @__PURE__ */ Object.freeze(["lens.pupilSampling", "lens.projection", "lens.distortion", "lens.vignetting", "lens.psf",
   "lens.diffraction", "lens.defocus", "sensor.antiAliasing", "sensor.pixelAperture.box", "sensor.temporalSampleCount", "motion.rotation", "motion.shutter.rolling", "output.borderHandling.mirror", "output.region",
   "output.whiteBalance.auto", "output.demosaic.ahd", "output.highlightMode.reconstruct", "output.colorEncoding.wide-gamut", "output.gamutMapping.perceptual",
-  "output.format.jpeg", "output.format.png", "output.format.dng"] as const);
+  "output.diffractionCorrection", "output.sharpening", "output.format.jpeg", "output.format.png", "output.format.dng"] as const);
 export type SimulateCaptureCostOption = typeof SIMULATE_CAPTURE_COST_OPTIONS[number];
 
 /**
@@ -660,6 +729,8 @@ export interface SimulateCaptureResult {
     rendering: SdrRenderingResult["diagnostics"];
     /** Present with output.gamutMapping "perceptual": pixels whose chroma or lightness the mapping changed. */
     gamutMapping?: { method: "cielab-hue-preserving-chroma-compression"; kneeFraction: number; adjustedPixelCount: number; lightnessClippedPixelCount: number };
+    /** #552: present with output.diffractionCorrection or output.sharpening. */
+    detail?: SimulateCaptureDetailDiagnostics;
     /**
      * Wall-clock milliseconds per stage. `raw`, `whiteBalance` (the second RAW pass of auto white balance), `development`
      * (includes DNG writing), `jpeg` and `total` are whole milliseconds (`Date.now()`). Since 2.1, where a stage ran:
@@ -1735,7 +1806,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: "capture"
 
   // Output and sensor
   const outputOptions = allowKeys(top.output, "output", ["width", "height", "format", "toneCurve", "toneCurveParameters", "highlightMode", "exposureCompensationStops", "whiteBalance", "jpegQuantizationStep",
-    "colorEncoding", "bitDepth", "gamutMapping", "demosaic", "borderHandling", "dng", "maximumPixels", "region", "metadata"]);
+    "colorEncoding", "bitDepth", "gamutMapping", "demosaic", "borderHandling", "dng", "maximumPixels", "region", "metadata", "diffractionCorrection", "sharpening"]);
   // Opt-in large images: a caller-raised native pixel limit. Without it the 4094-pixel sides are unchanged.
   const raisedPixels = outputOptions.maximumPixels === undefined ? undefined : integerIn(outputOptions.maximumPixels, "output.maximumPixels", 1, NATIVE_RAW_LIMITS.ceilingPixels);
   const maximumSide = raisedPixels === undefined ? 4094 : NATIVE_RAW_LIMITS.maximumDimension;
@@ -1835,6 +1906,8 @@ export async function runCapture(options: SimulateCaptureOptions, run: "capture"
     if (outputOptions.toneCurve !== undefined && outputOptions.toneCurve !== "identity" && outputOptions.toneCurve !== "positive-reinhard-per-channel")
       unsupported("output.toneCurve " + String(outputOptions.toneCurve), "luminance tone curves couple the channels; the view supports identity and positive-reinhard-per-channel.");
     if (outputOptions.highlightMode === "reconstruct") unsupported("output.highlightMode \"reconstruct\"", "the view supports the per-channel highlight clip.");
+    if (outputOptions.diffractionCorrection !== undefined || outputOptions.sharpening !== undefined)
+      unsupported("output.diffractionCorrection or output.sharpening", "the development detail stages filter the whole developed capture image.");
   }
 
   const colorSamplingProfile = { schemaVersion: "0.1.0" as const, profileId: IDS.cfa, evidence: FACADE_EVIDENCE, coordinateSystem: "native-sensor-color-sampling-site-index" as const,
@@ -1893,6 +1966,31 @@ export async function runCapture(options: SimulateCaptureOptions, run: "capture"
     // region results without diffraction stay byte-identical to 2.5.0.
     (diffractionRadiusOption !== undefined ? "With lens.diffraction the object-space convolution (when it applies) covers only the lattice the region's native sites query (plus the kernel radius), in bands of at most 32 native rows; its values are the whole render's." :
       "With lens.diffraction the object-space convolution runs over whole-width bands of 32 native rows that the region touches."));
+  // Development detail (#552): opt-in sharpening and diffraction correction, validated before any scene work.
+  let sharpening: UnsharpMaskSettings | undefined, diffractionCorrectionOption: (Omit<DiffractionCorrectionSettings, "kernelRadiusPixels"> & { kernelRadiusPixels?: number }) | undefined;
+  if (outputOptions.diffractionCorrection !== undefined || outputOptions.sharpening !== undefined) {
+    if (idealReference) fail("simulateIdealReference does not take output.diffractionCorrection or output.sharpening: a reference has no camera development.");
+    if (region) fail("output.diffractionCorrection and output.sharpening are not combinable with output.region: they filter across the whole developed image, so a region's edge pixels would differ from the whole render.");
+  }
+  if (outputOptions.diffractionCorrection !== undefined) {
+    if (diffractionRadiusOption === undefined) fail("output.diffractionCorrection needs lens.diffraction: it inverts the diffraction blur that option simulates.");
+    const o = allowKeys(outputOptions.diffractionCorrection, "output.diffractionCorrection", ["wavelengthNm", "regularization", "maximumGain", "kernelRadiusPixels"]);
+    const parsed = parseDiffractionCorrectionSettings({
+      wavelengthNm: pick(o, "wavelengthNm", "output.diffractionCorrection.wavelengthNm", 550, "Design wavelength 550 nm, near the photopic peak, for all three channels: the real blur is polychromatic, and longer wavelengths have a lower cut-off than the one used here."),
+      regularization: pick(o, "regularization", "output.diffractionCorrection.regularization", 0.01, "Regularization α = 0.01: an assumed noise-to-signal power ratio of 1 %, a first-party choice, not a measurement of this capture's noise."),
+      maximumGain: pick(o, "maximumGain", "output.diffractionCorrection.maximumGain", 4, "Gain bound 4: no frequency is amplified more than 4×, which bounds the noise gain."),
+      kernelRadiusPixels: o.kernelRadiusPixels === undefined ? 1 : o.kernelRadiusPixels as number }, "output.diffractionCorrection");
+    diffractionCorrectionOption = { wavelengthNm: parsed.wavelengthNm, regularization: parsed.regularization, maximumGain: parsed.maximumGain,
+      ...(o.kernelRadiusPixels === undefined ? {} : { kernelRadiusPixels: parsed.kernelRadiusPixels }) };
+  }
+  if (outputOptions.sharpening !== undefined) {
+    if (linearPath) fail("output.sharpening runs on the sRGB SDR path only, not with a wide-gamut output.colorEncoding or output.gamutMapping \"perceptual\".");
+    const o = allowKeys(outputOptions.sharpening, "output.sharpening", ["radiusPixels", "amount", "threshold"]);
+    sharpening = parseUnsharpMaskSettings({
+      radiusPixels: pick(o, "radiusPixels", "output.sharpening.radiusPixels", 1, "Unsharp-mask Gaussian σ = 1 output pixel (kernel reach 3 pixels)."),
+      amount: pick(o, "amount", "output.sharpening.amount", 0.5, "Unsharp-mask amount 0.5: half the detail signal is added back."),
+      threshold: pick(o, "threshold", "output.sharpening.threshold", 0, "Unsharp-mask threshold 0: every difference is sharpened, including noise.") }, "output.sharpening");
+  }
   if (raisedPixels !== undefined) {
     if (nativeWidth > NATIVE_RAW_LIMITS.maximumDimension || nativeHeight > NATIVE_RAW_LIMITS.maximumDimension || nativeWidth * nativeHeight > raisedPixels) {
       fail("output.maximumPixels (" + raisedPixels + ") must cover the native sensor raster of " + nativeWidth + " × " + nativeHeight +
@@ -2817,24 +2915,71 @@ export async function runCapture(options: SimulateCaptureOptions, run: "capture"
     maximumRetainedPayloadBytes: developmentPlan.outputBytes + outputWidth * outputHeight * 3 * (rendering.bitDepth / 8) };
   let developed: { raw: NativeRawOutput; integerSamples: Uint8Array | Uint16Array; highlight: RawHighlightDiagnostics; diagnostics: SdrRenderingResult["diagnostics"] };
   let gamutMappingDiagnostics: { method: "cielab-hue-preserving-chroma-compression"; kneeFraction: number; adjustedPixelCount: number; lightnessClippedPixelCount: number } | undefined;
-  if (ahd) {
+  // Development detail (#552): diffraction correction on the developed linear colour, then the unsharp mask between the sRGB
+  // transfer and quantization. Both need the whole developed image, so a request with either develops through developLinearSrgb
+  // (the native development's own operator); without them every path below is unchanged.
+  const detailRequested = sharpening !== undefined || diffractionCorrectionOption !== undefined;
+  const detailDiagnostics: SimulateCaptureDetailDiagnostics = {};
+  let diffractionFilter: ReturnType<typeof designDiffractionCorrectionFilter> | undefined;
+  if (diffractionCorrectionOption) {
+    const workingFNumber = fNumber * imageDistanceMm / focalLengthMm;
+    const settings: DiffractionCorrectionSettings = { ...diffractionCorrectionOption, kernelRadiusPixels: diffractionCorrectionOption.kernelRadiusPixels ??
+      defaultDiffractionCorrectionRadiusPixels(workingFNumber, diffractionCorrectionOption.wavelengthNm, pitch) };
+    if (diffractionCorrectionOption.kernelRadiusPixels === undefined) assume("output.diffractionCorrection.kernelRadiusPixels", "default", settings.kernelRadiusPixels,
+      "FIR radius: the Airy pattern's third dark ring (3.2383·λ·N_w) at the design wavelength, in pixels, rounded up, within 1–16.");
+    diffractionFilter = designDiffractionCorrectionFilter({ workingFNumber, pixelPitchMicrometers: pitch, settings });
+    assume("output.diffractionCorrection", "model", { model: "development-detail", modelVersion: DEVELOPMENT_DETAIL_MODEL_VERSION, method: "bounded-wiener-tikhonov-fir",
+      stage: "linear colour after demosaic, colour and white balance; before the tone curve", fNumber, workingFNumber, ...settings, pixelPitchMicrometers: pitch,
+      cutoffCyclesPerPixel: diffractionFilter.cutoffCyclesPerPixel, nyquistCyclesPerPixel: 0.5, nyquistAreaBeyondCutoffFraction: diffractionFilter.nyquistAreaBeyondCutoffFraction,
+      designPeakGain: diffractionFilter.designPeakGain, responsePeakGain: diffractionFilter.responsePeakGain, responseMaximumBeyondCutoff: diffractionFilter.responseMaximumBeyondCutoff,
+      edgeHandling: "clamp", recoversBeyondCutoff: false },
+    "Deconvolution with the known diffraction OTF of an ideal, aberration-free circular pupil at the capture's working f-number N_w = N·v/f, H(s) = (2/π)(acos s − s√(1 − s²)), s = f/f_c, f_c = 1/(λ·N_w) " +
+      "(MIT OpenCourseWare 2.71, lectures 21–22). Gain G = min(maximumGain, H(1 + α)/(H² + α)) (Wiener deconvolution with a constant noise-to-signal ratio α, as in scikit-image's Wiener–Hunt filter), " +
+      "sampled, inverse transformed and truncated to a raised-cosine (2R + 1)² FIR with unit DC gain, applied to each linear channel with clamped edges. " +
+      "The OTF is exactly zero beyond f_c: that detail never reached the sensor, and no correction restores it. The design gain there is 0; responseMaximumBeyondCutoff is the truncated FIR's leakage, which passes only noise and aliasing. " +
+      "Below f_c the gain is bounded, so attenuated detail is only partly restored and noise is amplified by up to the measured responsePeakGain. " +
+      "Not inverted: the pixel aperture, optical anti-aliasing filter, demosaic blur, defocus and aberrations. One design wavelength for all channels (the simulated blur is polychromatic).");
+  }
+  const correctLinear = (rgb: Float64Array): Float64Array => {
+    if (!diffractionFilter) return rgb;
+    const corrected = applyDiffractionCorrection(rgb, outputWidth, outputHeight, diffractionFilter);
+    detailDiagnostics.diffractionCorrection = { ...corrected.diagnostics, cutoffCyclesPerPixel: diffractionFilter.cutoffCyclesPerPixel,
+      responsePeakGain: diffractionFilter.responsePeakGain, responseMaximumBeyondCutoff: diffractionFilter.responseMaximumBeyondCutoff };
+    return corrected.samples;
+  };
+  if (sharpening) assume("output.sharpening", "model", { model: "development-detail", modelVersion: DEVELOPMENT_DETAIL_MODEL_VERSION, method: "unsharp-mask", ...sharpening,
+    kernelRadiusPixels: Math.ceil(3 * sharpening.radiusPixels), domain: "srgb-encoded", stage: "after the tone curve, gamut handling and sRGB transfer; before quantization", edgeHandling: "clamp" },
+  "Unsharp mask y = x + amount·(x − G_σ∗x) where |x − G_σ∗x| ≥ threshold (the GIMP and ImageMagick unsharp mask: radius, amount, threshold), per channel on the sRGB-encoded values in [0, 1], " +
+    "separable Gaussian truncated at ⌈3σ⌉ with clamped edges, then clipped to [0, 1] and rounded. It raises contrast at edges and creates halos (overshoot and undershoot; see diagnostics.detail.sharpening) " +
+    "and sharpens noise above the threshold. It adds no optical detail.");
+  if (detailRequested) assume("output.developmentOrder", "model", ["demosaic", "colour and white balance", ...(diffractionCorrectionOption ? ["diffraction correction (linear)"] : []),
+    "rendering exposure and tone curve", "gamut handling", "transfer function", ...(sharpening ? ["unsharp mask"] : []), "quantization"],
+  "Development detail order: the deconvolution acts on linear light, where the blur is a convolution; the unsharp mask acts on the encoded values just before quantization.");
+  if (ahd || (detailRequested && !linearPath)) {
     let lastYield = Date.now();
     const linear = await developLinearSrgb({ ...development, raw: rawOutput.raw }, async (completed, total) => {
       onProgress?.({ stage: "development", completedTileCount: completed, totalTileCount: total });
       if (Date.now() - lastYield >= 8) { await yieldControl(); checkAbort(); lastYield = Date.now(); }
-    }, { yieldControl: () => yieldControl(), checkAbort, onDemosaicMs: (ms) => { demosaicMs = ms; } });
-    if (!linearPath) {
+    }, ahd ? { yieldControl: (): Promise<void> => yieldControl(), checkAbort, onDemosaicMs: (ms: number): void => { demosaicMs = ms; } } : undefined);
+    const rgb = correctLinear(linear.rgb);
+    if (!linearPath && sharpening) {
+      const rendered = renderSdrWithUnsharpMask(rgb, outputWidth, outputHeight, rendering, sharpening);
+      detailDiagnostics.sharpening = rendered.sharpening;
+      developed = { raw: rawOutput.raw, integerSamples: rendered.codes, highlight: linear.highlight, diagnostics: { renderingNegativeSampleCount: rendered.counts.negative,
+        renderingAboveReferenceSampleCount: rendered.counts.above, toneChangedSampleCount: rendered.counts.changed, gamutClippedLowSampleCount: rendered.counts.low,
+        gamutClippedHighSampleCount: rendered.counts.high, captureSaturation: "consumed-in-raw-development" } };
+    } else if (!linearPath) {
       // The native development's SDR kernel, row by row, on the AHD-developed linear sRGB.
       const maximum = 2 ** rendering.bitDepth - 1, tone = prepareSdrPixelTone(rendering), scratch = new Float64Array(3);
       const codes = rendering.bitDepth === 8 ? new Uint8Array(outputWidth * outputHeight * 3) : new Uint16Array(outputWidth * outputHeight * 3);
       const counts: SdrPixelCounts = { negative: 0, above: 0, changed: 0, low: 0, high: 0, outOfGamut: false };
-      for (let y = 0; y < outputHeight; y++) renderSdrRunInto(linear.rgb, y * outputWidth * 3, outputWidth, rendering, tone, 2 ** rendering.renderingExposureEv, maximum, codes, y * outputWidth * 3, scratch, counts);
+      for (let y = 0; y < outputHeight; y++) renderSdrRunInto(rgb, y * outputWidth * 3, outputWidth, rendering, tone, 2 ** rendering.renderingExposureEv, maximum, codes, y * outputWidth * 3, scratch, counts);
       developed = { raw: rawOutput.raw, integerSamples: codes, highlight: linear.highlight, diagnostics: { renderingNegativeSampleCount: counts.negative,
         renderingAboveReferenceSampleCount: counts.above, toneChangedSampleCount: counts.changed, gamutClippedLowSampleCount: counts.low,
         gamutClippedHighSampleCount: counts.high, captureSaturation: "consumed-in-raw-development" } };
     } else {
       const mapping = perceptual ? prepareRgbGamutMapping({ colorSpace: colorEncoding!, method: "cielab-hue-preserving-chroma-compression", kneeFraction: PERCEPTUAL_GAMUT_KNEE_FRACTION }) : undefined;
-      const encoded = encodeSdrFromLinear(linear.rgb, colorEncoding!, pngBitDepth!, mapping);
+      const encoded = encodeSdrFromLinear(rgb, colorEncoding!, pngBitDepth!, mapping);
       developed = { raw: rawOutput.raw, integerSamples: encoded.samples, highlight: linear.highlight, diagnostics: encoded.diagnostics };
       if (mapping) gamutMappingDiagnostics = { method: "cielab-hue-preserving-chroma-compression", kneeFraction: PERCEPTUAL_GAMUT_KNEE_FRACTION,
         adjustedPixelCount: encoded.adjustedPixelCount, lightnessClippedPixelCount: encoded.lightnessClippedPixelCount };
@@ -2853,7 +2998,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: "capture"
     });
     {
       const mapping = perceptual ? prepareRgbGamutMapping({ colorSpace: colorEncoding!, method: "cielab-hue-preserving-chroma-compression", kneeFraction: PERCEPTUAL_GAMUT_KNEE_FRACTION }) : undefined;
-      const encoded = encodeSdrFromLinear(linear.rgb, colorEncoding!, pngBitDepth!, mapping);
+      const encoded = encodeSdrFromLinear(correctLinear(linear.rgb), colorEncoding!, pngBitDepth!, mapping);
       developed = { raw: rawOutput.raw, integerSamples: encoded.samples, highlight: linear.highlight, diagnostics: encoded.diagnostics };
       if (mapping) {
         gamutMappingDiagnostics = { method: "cielab-hue-preserving-chroma-compression", kneeFraction: PERCEPTUAL_GAMUT_KNEE_FRACTION,
@@ -2914,7 +3059,10 @@ export async function runCapture(options: SimulateCaptureOptions, run: "capture"
     ...(rollingSchedule ? ["motion.shutter.rolling" as const] : []), ...(mirrorBorder ? ["output.borderHandling.mirror" as const] : []), ...(region ? ["output.region" as const] : []),
     ...(needsAuto ? ["output.whiteBalance.auto" as const] : []), ...(ahd ? ["output.demosaic.ahd" as const] : []),
     ...(highlightMode === "reconstruct" ? ["output.highlightMode.reconstruct" as const] : []), ...(wideGamut ? ["output.colorEncoding.wide-gamut" as const] : []),
-    ...(perceptual ? ["output.gamutMapping.perceptual" as const] : []), ...(format === "jpeg" || format === "png" || format === "dng" ? ["output.format." + format as SimulateCaptureCostOption] : [])]);
+    ...(perceptual ? ["output.gamutMapping.perceptual" as const] : []), ...(diffractionFilter ? ["output.diffractionCorrection" as const] : []),
+    ...(sharpening ? ["output.sharpening" as const] : []), ...(format === "jpeg" || format === "png" || format === "dng" ? ["output.format." + format as SimulateCaptureCostOption] : [])]);
+  // #552: the detail stages' contracts, in execution order inside the development.
+  const detailContracts = diffractionFilter ? ["designDiffractionCorrectionFilter", "applyDiffractionCorrection"] : [], sdrContract = sharpening ? "renderSdrWithUnsharpMask" : "SDR rendering kernel";
   return Object.freeze({
     facadeVersion: SIMULATE_CAPTURE_FACADE_VERSION, engineApiVersion: ENGINE_API_VERSION,
     image: { width: outputWidth, height: outputHeight, format, samples: developed.integerSamples, ...(jpeg ? { jpeg } : {}), ...(png ? { png, colorEncoding: colorEncoding! } : {}), ...(dng ? { dng: dng.bytes } : {}) },
@@ -2929,6 +3077,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: "capture"
       illuminant: { id: illuminant.id, description: illuminant.description, illuminanceLux }, distanceM: subjectDistanceM,
       framedWidthM: 2 * metresPerFrameUnit, framedHeightM: 2 * metresPerFrameUnit * aspect, ...(chartReport ? { chart: chartReport } : {}), sourceSha256 },
     diagnostics: { providerEvaluationCount, highlight: developed.highlight, rendering: developed.diagnostics, ...(gamutMappingDiagnostics ? { gamutMapping: gamutMappingDiagnostics } : {}),
+      ...(detailRequested ? { detail: Object.freeze(detailDiagnostics) } : {}),
       timingsMs: { raw: rawMs, whiteBalance: wbMs, development: devMs, jpeg: jpegMs, total: Date.now() - started,
         ...(diffraction && diffractionObjectSpace && !defocusSiteKernels ? { diffraction: diffractionMs } : {}), ...(defocusSiteKernels ? { defocus: defocusMs } : {}), ...(demosaicMs === undefined ? {} : { demosaic: demosaicMs }),
         ...(encodeMs === undefined ? {} : { encode: encodeMs }) },
@@ -2942,7 +3091,9 @@ export async function runCapture(options: SimulateCaptureOptions, run: "capture"
         ...(defocusSiteKernels ? ["calculateDefocusCircle", "defocus disc site kernel (object-space convolution)"] : []),
         ...(antiAliasing ? ["resolveAntiAliasingSpatialKernel"] : []), "resolveGenericIsoSignalChain", "createNativeEnvironmentRawTask", ...(needsAuto ? ["estimateAutoWhiteBalance"] : []),
         ...(builtInDemosaic ? ["createBuiltInBayerDemosaicProfiles"] : []), ...(ahd ? ["createAhdDemosaicTask"] : []),
-        ...(ahd ? ["native RAW development operator (colour, after AHD)", ...(linearPath ? ["resolveRgbColorSpace", ...(perceptual ? ["prepareRgbGamutMapping"] : [])] : ["SDR rendering kernel"])] : linearPath ? ["native RAW development operator (linear, pre-clip)", "resolveRgbColorSpace", ...(perceptual ? ["prepareRgbGamutMapping"] : [])] : ["createNativeRawDevelopmentTask"]),
+        ...(ahd ? ["native RAW development operator (colour, after AHD)", ...detailContracts, ...(linearPath ? ["resolveRgbColorSpace", ...(perceptual ? ["prepareRgbGamutMapping"] : [])] : [sdrContract])] :
+          linearPath ? ["native RAW development operator (linear, pre-clip)", ...detailContracts, "resolveRgbColorSpace", ...(perceptual ? ["prepareRgbGamutMapping"] : [])] :
+          detailRequested ? ["native RAW development operator (linear, pre-clip)", ...detailContracts, sdrContract] : ["createNativeRawDevelopmentTask"]),
         ...(jpeg ? ["createPrintJpegTask"] : []), ...(png ? ["serializePngImage"] : []), ...(dng ? ["resolveSensorReadoutRegime", "serializeNativeRawDng"] : [])],
       limitations: ["Educational approximation: synthetic tier sensor values, idealized colorimetric sensor, planar Lambertian scene and point optics; not a calibrated camera emulation.",
         "Not offered by the facade: atmospheric haze and polarizers (the scene-radiance provider contract declares no volumetric transport or polarization), flash, video, HDR brackets and processing operators; compose those APIs directly."] },
