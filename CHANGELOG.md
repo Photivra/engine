@@ -1,6 +1,6 @@
 # Changelog
 
-## 2.14.1 — unreleased (prepared November 3, 2026)
+## 2.14.1 — published November 3, 2026
 
 A patch release of docs and legal files only. **No API, behavior or value change from 2.14.0:** `src/` differs only in `ENGINE_API_VERSION` and one source comment, root exports are unchanged (1,801), and captures, RAW codes, files and assumptions are the same.
 - **Copyright holder and trademark owner (#543, #545):** `NOTICE` names Shackelford Creative, LLC as the copyright holder (`Copyright 2026 Shackelford Creative, LLC`) and as the owner of the Photivra trade names, trademarks, logos and branding; `README.md` ("Licensing") says the same and gains a **Trademarks** paragraph for the third-party names it mentions (ColorChecker, RAL and others). `CONTRIBUTING.md` and the licence scan's allowed holder follow.
@@ -398,6 +398,7 @@ A minor release: new functions for writing a whole-frame DNG from region parts a
 - **Faster preview:** in the app's Quality preview (Chromium, four workers), the quick frame takes 0.7 s instead of 4.0 s, and the fully sharp preview 65 s instead of 170 s.
 - **Faster captures:** a 24 MP chart capture takes 16.4 s instead of 18.5 s, and with AHD 28.5 s instead of 33.6 s (Node, one thread), with the same bytes.
 - **Compatibility:** five new root exports (1,734); no option, default or result field changes. `createDisplayViewExpectedSignal`, which is internal, takes an optional span hint.
+- **Known limit** (line added after release, #400): the Quality noise limit of 2.6.0 remains (#379), unchanged from 2.8.1; 2.9.0 did not fix it, and no release is scheduled for the fix.
 
 ### Added
 

@@ -4,7 +4,7 @@ Please do not open a public issue that contains vulnerability details.
 
 ## Supported versions
 
-The published 1.0.0 release started the 1.x root-package compatibility line, and 2.0.0 started the 2.x line. The current release is **2.14.0**, published on November 1, 2026 (see [CHANGELOG.md](CHANGELOG.md)).
+The published 1.0.0 release started the 1.x root-package compatibility line, and 2.0.0 started the 2.x line. The current release is **2.14.1**, published on November 3, 2026 (see [CHANGELOG.md](CHANGELOG.md)).
 
 Security fixes target the current maintained development and release line. Do not assume that older 1.x releases, snapshots or pre-1.0 releases will receive fixes.
 
