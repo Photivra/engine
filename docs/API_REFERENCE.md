@@ -1575,6 +1575,22 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 | [`LensComplexPupilPsfSampling`](api/optics-complex-pupil-psf.md#lenscomplexpupilpsfsampling) | Type |
 | [`parseLensComplexPupilProfile`](api/optics-complex-pupil-psf.md#parselenscomplexpupilprofile) | Runtime |
 
+## optics/defocus-bokeh-kernel.ts
+
+[Detailed contracts](api/optics-defocus-bokeh-kernel.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/optics/defocus-bokeh-kernel.ts)
+
+| Export | Kind |
+| --- | --- |
+| [`calculateDefocusBokehKernel`](api/optics-defocus-bokeh-kernel.md#calculatedefocusbokehkernel) | Runtime |
+| [`CalculateDefocusBokehKernelInput`](api/optics-defocus-bokeh-kernel.md#calculatedefocusbokehkernelinput) | Type |
+| [`DEFOCUS_BOKEH_MAXIMUM_BLADES`](api/optics-defocus-bokeh-kernel.md#defocus_bokeh_maximum_blades) | Runtime |
+| [`DefocusBokehBlades`](api/optics-defocus-bokeh-kernel.md#defocusbokehblades) | Type |
+| [`DefocusBokehCatsEye`](api/optics-defocus-bokeh-kernel.md#defocusbokehcatseye) | Type |
+| [`DefocusBokehClippingAperture`](api/optics-defocus-bokeh-kernel.md#defocusbokehclippingaperture) | Type |
+| [`DefocusBokehKernel`](api/optics-defocus-bokeh-kernel.md#defocusbokehkernel) | Type |
+| [`DefocusBokehOptions`](api/optics-defocus-bokeh-kernel.md#defocusbokehoptions) | Type |
+| [`DefocusBokehSphericalAberration`](api/optics-defocus-bokeh-kernel.md#defocusbokehsphericalaberration) | Type |
+
 ## optics/defocus-disc-kernel.ts
 
 [Detailed contracts](api/optics-defocus-disc-kernel.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/optics/defocus-disc-kernel.ts)

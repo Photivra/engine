@@ -126,6 +126,11 @@ changes, and without the option the moments are unchanged.
 
 ### Defocus
 
+**Bokeh character (#553).** With `lens.defocus.blades` or `lens.defocus.sphericalAberration` the view's tables carry the
+shaped kernel (`calculateDefocusBokehKernel`) instead of the disc, on the CPU and through the GPU's blocked site sum
+unchanged; `view.defocus` records `kernel: "shaped-kernel"`. `lens.defocus.catsEye` varies the kernel over the field and is
+refused (`simulateCapture` renders it). See [Bokeh character](QUICK_START.md#bokeh-character-553).
+
 `lens.defocus: { model: "geometric-disc" }` with `lens.focusDistanceM` different from `subjectDistanceM` (#492, step
 2b) blurs the view by the defocus of the flat scene plane. The model, an approximation recorded in the `lens.defocus`
 assumption, is the thin-lens blur circle of an ideal uniform circular pupil, c = f²·|s − d| / (N·d·(s − f))

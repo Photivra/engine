@@ -96,6 +96,8 @@ export interface DiffractedPlanarProviderInput {
   window?: { x: number; y: number; width: number; height: number };
   /** Called with the duration in ms of each band convolution (diagnostics only; never changes values). */
   onConvolution?: (milliseconds: number) => void;
+  /** #553: a field-varying kernel by zones (the cat's eye), used instead of `siteKernels` in the gather; needs `siteKernels`. */
+  fieldZones?: SiteKernelFieldZones;
 }
 
 /** Internal (not exported from the package): the base provider with diffraction applied as an object-space convolution. */
@@ -128,6 +130,7 @@ export function createDiffractedPlanarProvider(input: DiffractedPlanarProviderIn
   // #492: each site kernel's non-zero taps as grid offsets, in the gather's order.
   const taps = siteKernels ? kernels.map((kernel) => kernelTaps(kernel, R, NW + 2 * R)) : [];
   const gridWidth = NW + 2 * R;
+  const zonedGather = input.fieldZones && siteKernels ? createZonedGather(input.fieldZones, R, gridWidth, W, H, M) : undefined;
   const now = (): number => globalThis.performance?.now() ?? Date.now();
   const bands = new Map<number, Float64Array[][]>();
   const materialAt = base.chartMaterialAt?.bind(base), materialRadiance = base.materialRadiance?.bind(base);
@@ -172,6 +175,7 @@ export function createDiffractedPlanarProvider(input: DiffractedPlanarProviderIn
             for (let gx = 0, x = lx0; gx < gridWidth; gx++, x++) samples[gy * gridWidth + gx] = base.radianceAt(uOf(x), v, nm);
           }
         }
+        if (zonedGather) return zonedGather(samples, lx0, y0, NW, rows);
         if (!convolve) return gatherInterior(samples, taps[w]!, gridWidth, NW, rows, R);
         return convolve(samples, kernels[w]!);
       });
@@ -267,10 +271,7 @@ export function kernelTaps(kernel: Float64Array, R: number, gridWidth: number): 
  * `calculateIrradianceConvolution` checks them.
  */
 export function gatherInterior(samples: Float64Array, taps: { offsets: Int32Array; weights: Float64Array }, gridWidth: number, width: number, rows: number, R: number): Float64Array {
-  for (let k = 0; k < samples.length; k++) {
-    const v = samples[k]!;
-    if (!(v >= 0 && v <= MAXIMUM_SAMPLE)) throw new InvalidConfigurationError("Irradiance samples must be finite, non-negative and within the declared magnitude.");
-  }
+  checkSamples(samples);
   const { offsets, weights } = taps, count = weights.length, out = new Float64Array(width * rows);
   for (let y = 0; y < rows; y++) {
     const rowBase = (y + R) * gridWidth + R;
@@ -282,4 +283,66 @@ export function gatherInterior(samples: Float64Array, taps: { offsets: Int32Arra
     }
   }
   return out;
+}
+
+/** Samples are checked as `calculateIrradianceConvolution` checks them. */
+function checkSamples(samples: Float64Array): void {
+  for (let k = 0; k < samples.length; k++) {
+    const v = samples[k]!;
+    if (!(v >= 0 && v <= MAXIMUM_SAMPLE)) throw new InvalidConfigurationError("Irradiance samples must be finite, non-negative and within the declared magnitude.");
+  }
+}
+
+/**
+ * #553: a field-varying site kernel (the cat's eye of `lens.defocus`) as square zones of the native raster, each zone with
+ * the kernel of its centre's field point, the same at every spectral node. A piecewise-constant (sectioned) approximation
+ * of a space-variant PSF (Denis, Thiébaut, Soulez, Becker and Mourya 2015, "Fast approximations of shift-variant blur",
+ * International Journal of Computer Vision 115:253–278, §3.1, open preprint arXiv:1502.03305).
+ */
+export interface SiteKernelFieldZones {
+  /** Zone side in native sites: zone (zx, zy) holds the native sites [zx·size, (zx + 1)·size) × [zy·size, (zy + 1)·size). */
+  size: number;
+  columns: number;
+  rows: number;
+  /** The kernel of zone zy·columns + zx, (2R + 1)² row-major taps with R the provider's `kernelRadius`. */
+  kernelOf(zone: number): Float64Array;
+}
+
+/**
+ * #553: the band gather with {@link SiteKernelFieldZones}: out(x) = Σ_t K_z(t)·samples(x − t), z the zone of output site x
+ * (its native site, clamped to the raster for the margins of offset lattices). Each value is summed over its zone's taps in
+ * the order of {@link gatherInterior} (v outer, u inner, ascending), so a zoned gather whose zones all hold one kernel gives
+ * gatherInterior's bits. The zones' taps are built on first use and the last 3 rows of zones kept.
+ */
+export function createZonedGather(zones: SiteKernelFieldZones, R: number, gridWidth: number, nativeWidth: number, nativeHeight: number, margin: number):
+  (samples: Float64Array, latticeX0: number, latticeY0: number, width: number, rows: number) => Float64Array {
+  const cache = new Map<number, { offsets: Int32Array; weights: Float64Array }>(), capacity = 3 * zones.columns;
+  const tapsOf = (zone: number): { offsets: Int32Array; weights: Float64Array } => {
+    let taps = cache.get(zone);
+    if (taps) { cache.delete(zone); cache.set(zone, taps); return taps; }
+    taps = kernelTaps(checkedSiteKernel(zones.kernelOf(zone), R), R, gridWidth);
+    cache.set(zone, taps);
+    if (cache.size > capacity) cache.delete(cache.keys().next().value!);
+    return taps;
+  };
+  const zoneOf = (lattice: number, extent: number, count: number): number => Math.min(count - 1, Math.floor(Math.min(extent - 1, Math.max(0, lattice - margin)) / zones.size));
+  return (samples, latticeX0, latticeY0, width, rows) => {
+    checkSamples(samples);
+    const out = new Float64Array(width * rows), columnZone = new Int32Array(width);
+    for (let x = 0; x < width; x++) columnZone[x] = zoneOf(latticeX0 + x, nativeWidth, zones.columns);
+    for (let y = 0; y < rows; y++) {
+      const rowBase = (y + R) * gridWidth + R, zoneRow = zoneOf(latticeY0 + y, nativeHeight, zones.rows) * zones.columns;
+      let x = 0;
+      while (x < width) {
+        const zx = columnZone[x]!, { offsets, weights } = tapsOf(zoneRow + zx), count = weights.length;
+        for (; x < width && columnZone[x] === zx; x++) {
+          const base = rowBase + x;
+          let sum = 0;
+          for (let k = 0; k < count; k++) sum += samples[base + offsets[k]!]! * weights[k]!;
+          out[y * width + x] = sum;
+        }
+      }
+    }
+    return out;
+  };
 }

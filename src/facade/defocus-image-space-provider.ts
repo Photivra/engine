@@ -47,7 +47,7 @@ import { lensProjectionDirectionValue, lensProjectionImagePointValue, type LensP
 import { applyPhysicalCameraRotation, resolveProjectionDistanceMm, type CameraAngularVelocityRadPerSec } from "../motion/camera-rotation.js";
 import { calculateIlluminationVignetting, type IlluminationVignettingProfile } from "../optics/illumination-vignetting.js";
 import { distortedImagePoint, undistortedImagePoint, type PreparedEnvironmentLensFieldMapping } from "../optics/sensor-environment-query.js";
-import { checkedSiteKernel, gatherInterior, kernelTaps } from "./diffraction-provider.js";
+import { checkedSiteKernel, createZonedGather, gatherInterior, kernelTaps, type SiteKernelFieldZones } from "./diffraction-provider.js";
 import type { PlanarSceneRadianceProvider } from "./scene-radiance.js";
 
 /** Rows of native sites per band; bands kept per time. Banding changes memory only, never values. */
@@ -157,6 +157,8 @@ export interface DefocusImageSpaceProviderInput {
   timesPerBand?: number;
   /** Called with the duration in ms of each band convolution (diagnostics only). */
   onConvolution?: (milliseconds: number) => void;
+  /** #553: a field-varying kernel by zones (the cat's eye of lens.defocus), gathered instead of `siteKernels`, the same at every node. */
+  fieldZones?: SiteKernelFieldZones;
 }
 
 /** Internal (not exported from the package): the base provider with the defocus disc applied in image space (#548). */
@@ -180,7 +182,8 @@ export function createDefocusImageSpaceProvider(input: DefocusImageSpaceProvider
   const NW = lx1 - lx0, gridWidth = NW + 2 * R;
   const kernels = wavelengthsNm.map((nm) => checkedSiteKernel(input.siteKernels(nm), R));
   const taps = kernels.map((kernel) => kernelTaps(kernel, R, gridWidth));
-  const sharedKernel = kernels.every((kernel) => kernel === kernels[0]);
+  const zonedGather = input.fieldZones ? createZonedGather(input.fieldZones, R, gridWidth, W, H, M) : undefined;
+  const sharedKernel = zonedGather !== undefined || kernels.every((kernel) => kernel === kernels[0]);
   const scale = input.metresPerFrameUnit, distance = input.distanceM;
   const materialAt = base.chartMaterialAt?.bind(base), materialRadiance = base.materialRadiance?.bind(base);
   const now = (): number => globalThis.performance?.now() ?? Date.now();
@@ -229,7 +232,7 @@ export function createDefocusImageSpaceProvider(input: DefocusImageSpaceProvider
           const perMaterial = present.map((m) => {
             const samples = new Float64Array(size);
             for (let k = 0; k < size; k++) if (material[k] === m) samples[k] = factor[k]!;
-            return gatherInterior(samples, taps[0]!, gridWidth, NW, rows, R);
+            return zonedGather ? zonedGather(samples, lx0, y0, NW, rows) : gatherInterior(samples, taps[0]!, gridWidth, NW, rows, R);
           });
           return wavelengthsNm.map((nm) => {
             const radiance = present.map((m) => materialRadiance!(m, nm)), out = new Float64Array(rows * NW);
@@ -254,7 +257,7 @@ export function createDefocusImageSpaceProvider(input: DefocusImageSpaceProvider
             samples[k] = factor[k]! * value;
           }
         } else for (let k = 0; k < size; k++) samples[k] = factor[k]! * base.radianceAt(u[k]!, v[k]!, nm);
-        const gathered = gatherInterior(samples, taps[w]!, gridWidth, NW, rows, R);
+        const gathered = zonedGather ? zonedGather(samples, lx0, y0, NW, rows) : gatherInterior(samples, taps[w]!, gridWidth, NW, rows, R);
         for (let k = 0; k < gathered.length; k++) gathered[k] = gathered[k]! / own[k]!;
         return gathered;
       });

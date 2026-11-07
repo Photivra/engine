@@ -223,7 +223,9 @@ function prepareView(context: DisplayViewRunContext): PreparedViewParts {
   // The tabulated expected signal's input (#394: shared with the capture's tabulated RAW path).
   const sceneMaterials = viewChart ? viewChart.materials : callerScene?.kind === "material-function" ? callerScene.materials : undefined;
   // Defocus (#492): the geometric disc on the site lattice, combined with the diffraction kernels in the tables (expected-signal-setup.ts).
-  const defocusDisc = context.defocus, defocusKernel = defocusDisc && defocusDisc.diameterSites > 0 ? createDefocusDiscSiteKernel(defocusDisc.diameterSites) : null;
+  // #553: with bokeh options (blades, spherical aberration) the capture built the shaped kernel; it replaces the disc.
+  const defocusDisc = context.defocus, defocusKernel = defocusDisc && defocusDisc.diameterSites > 0 ? defocusDisc.siteKernel ?? createDefocusDiscSiteKernel(defocusDisc.diameterSites) : null;
+  const shaped = defocusDisc?.siteKernel !== undefined;
   // The combined radius is at most 32 + 64 = 96 sites (the diffraction and disc caps), as in the capture.
   const diffractionRadius = diffraction ? diffraction.kernelRadiusSamples : 0, combinedRadius = defocusKernel ? diffractionRadius + defocusKernel.radius : diffractionRadius;
   const { offsets, signalInput } = buildExpectedSignalInput({ nativeWidth, nativeHeight, width, wavelengths, perNode, apertureNodes: apertureNodeOffsets(boxSamples), boxSamples,
@@ -327,9 +329,10 @@ function prepareView(context: DisplayViewRunContext): PreparedViewParts {
         "the flat-neighbourhood state is an approximation at edges (docs/DISPLAY_VIEW.md, validation)." :
         "The bilinear demosaic's linear kernels, exactly.");
     if (defocusKernel) {
-      assume("view.defocus", "model", { kernel: diffraction ? "diffraction-convolved-with-disc" : "disc", defocusKernelRadiusSites: defocusKernel.radius,
+      assume("view.defocus", "model", { kernel: shaped ? (diffraction ? "diffraction-convolved-with-shaped-kernel" : "shaped-kernel") : diffraction ? "diffraction-convolved-with-disc" : "disc", defocusKernelRadiusSites: defocusKernel.radius,
         diffractionKernelRadiusSites: diffraction ? diffractionRadius : null, kernelRadiusSites: combinedRadius, scientificStatus: "approximation" },
-        "The expected electrons of each real site read the scene on the site lattice through the defocus disc (" + defocusKernel.diameterSites + " sites across, a " + defocusKernel.width + " × " +
+        "The expected electrons of each real site read the scene on the site lattice through the defocus " + (shaped ? "kernel shaped by the lens (#553; see the lens.defocus assumption; " : "disc (") +
+        defocusKernel.diameterSites + " sites across, a " + defocusKernel.width + " × " +
         defocusKernel.width + " window), as the capture's object-space convolution does; the estimators then run unchanged on the blurred signal. " + (diffraction ?
           "With lens.diffraction each spectral node's kernel is its diffraction kernel convolved with the disc (" + (2 * combinedRadius + 1) + " × " + (2 * combinedRadius + 1) + " taps): " +
           "an approximation, because the PSF of a defocused wave is not the in-focus Airy pattern convolved with a geometric disc." :
