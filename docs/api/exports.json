@@ -573,6 +573,16 @@
       "kind": "type"
     },
     {
+      "name": "calculateDefocusDiscKernelRadius",
+      "source": "src/optics/defocus-disc-kernel.ts",
+      "kind": "runtime"
+    },
+    {
+      "name": "CalculateDefocusDiscKernelRadiusInput",
+      "source": "src/optics/defocus-disc-kernel.ts",
+      "kind": "type"
+    },
+    {
       "name": "calculateDefocusWavefront",
       "source": "src/optics/zernike-wavefront.ts",
       "kind": "runtime"
@@ -2693,8 +2703,18 @@
       "kind": "type"
     },
     {
+      "name": "DEFOCUS_DISC_KERNEL_MAXIMUM_RADIUS_SITES",
+      "source": "src/optics/defocus-disc-kernel.ts",
+      "kind": "runtime"
+    },
+    {
       "name": "DefocusCircle",
       "source": "src/optics/depth-of-field.ts",
+      "kind": "type"
+    },
+    {
+      "name": "DefocusDiscKernelRadius",
+      "source": "src/optics/defocus-disc-kernel.ts",
       "kind": "type"
     },
     {

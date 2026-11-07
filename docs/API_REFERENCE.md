@@ -1570,6 +1570,17 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 | [`LensComplexPupilPsfSampling`](api/optics-complex-pupil-psf.md#lenscomplexpupilpsfsampling) | Type |
 | [`parseLensComplexPupilProfile`](api/optics-complex-pupil-psf.md#parselenscomplexpupilprofile) | Runtime |
 
+## optics/defocus-disc-kernel.ts
+
+[Detailed contracts](api/optics-defocus-disc-kernel.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/optics/defocus-disc-kernel.ts)
+
+| Export | Kind |
+| --- | --- |
+| [`calculateDefocusDiscKernelRadius`](api/optics-defocus-disc-kernel.md#calculatedefocusdisckernelradius) | Runtime |
+| [`CalculateDefocusDiscKernelRadiusInput`](api/optics-defocus-disc-kernel.md#calculatedefocusdisckernelradiusinput) | Type |
+| [`DEFOCUS_DISC_KERNEL_MAXIMUM_RADIUS_SITES`](api/optics-defocus-disc-kernel.md#defocus_disc_kernel_maximum_radius_sites) | Runtime |
+| [`DefocusDiscKernelRadius`](api/optics-defocus-disc-kernel.md#defocusdisckernelradius) | Type |
+
 ## optics/depth-of-field.ts
 
 [Detailed contracts](api/optics-depth-of-field.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/optics/depth-of-field.ts)

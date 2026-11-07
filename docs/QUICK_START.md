@@ -920,6 +920,13 @@ The optics options feed only what the environment site contract accepts:
       boundaries. Elsewhere they agree within the site sampling of the edge.
   - The kernel radius is capped at 64 sites, a 129 × 129 window (`DEFOCUS_DISC_KERNEL_MAXIMUM_RADIUS_SITES`). A larger
     blur is refused with an error that names the cap and the radius needed; the disc is never clipped.
+    - **Check before rendering (#532):** `calculateDefocusDiscKernelRadius({ focalLengthMm, aperture, focusDistanceM,
+      subjectDistanceM, pixelPitchMicrometers })` returns the disc's diameter in µm and in sites, the kernel radius it
+      needs, `withinLimit` and `excessKernelRadiusSites`, without rendering. It runs the capture's own resolution and limit
+      test, so it agrees with the refusal of `simulateCapture`, `simulateDisplayView` and `prepareDisplayView` at the
+      boundary (`test/defocus-disc-limit.test.ts`, at two adjacent focus distances). Pass the f-number the capture uses
+      (in an automatic mode, `exposure.settings.fNumber`). The limit is on the disc alone: with `lens.diffraction` the
+      combined radius has no further limit. The other refusals below are not checked.
   - **The capture renders it** (#492, step 2a). The scene radiance on the site lattice is convolved with the disc,
     the same kernel at every spectral node, and each site query is answered with the result. This is the object-space
     convolution that `lens.diffraction` uses.
