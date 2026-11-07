@@ -45,7 +45,7 @@ import { isInternalSceneRadianceEvaluator, markInternalSceneRadianceEvaluator, r
 import type { SceneRadianceEvaluationRequest, SceneRadianceEvaluationResult } from "../schema/scene-radiance.js";
 import { lensProjectionDirectionValue, lensProjectionImagePointValue, type LensProjectionModel } from "../camera/lens-projection.js";
 import { applyPhysicalCameraRotation, resolveProjectionDistanceMm, type CameraAngularVelocityRadPerSec } from "../motion/camera-rotation.js";
-import { calculateIlluminationVignetting, type IlluminationVignettingProfile } from "../optics/illumination-vignetting.js";
+import { prepareIlluminationVignettingThroughput, type IlluminationVignettingProfile } from "../optics/illumination-vignetting.js";
 import { distortedImagePoint, undistortedImagePoint, type PreparedEnvironmentLensFieldMapping } from "../optics/sensor-environment-query.js";
 import { checkedSiteKernel, gatherInterior, kernelTaps } from "./diffraction-provider.js";
 import type { PlanarSceneRadianceProvider } from "./scene-radiance.js";
@@ -86,6 +86,8 @@ export function prepareDefocusImageSpaceGeometry(geometry: DefocusImageSpaceGeom
   const pd = resolveProjectionDistanceMm(focalLengthMm, focusDistanceM).projectionDistanceMm;
   const model: LensProjectionModel = lensMapping?.mapping.projectionModel ?? "rectilinear";
   const timeDependent = omega.pitch !== 0 || omega.yaw !== 0 || omega.roll !== 0;
+  // calculateIlluminationVignetting's throughput with the profile validated once (#563: the same numbers, without a result envelope per point).
+  const throughputAt = vignetting ? prepareIlluminationVignettingThroughput(vignetting) : undefined;
   const displacement = (t: number): { pitch: number; yaw: number; roll: number } =>
     timeDependent ? { pitch: omega.pitch * t, yaw: omega.yaw * t, roll: omega.roll * t } : { pitch: 0, yaw: 0, roll: 0 };
   // The reference-to-camera rotation at the last time asked, as a matrix (its columns: the rotated basis vectors), so a lattice
@@ -116,7 +118,7 @@ export function prepareDefocusImageSpaceGeometry(geometry: DefocusImageSpaceGeom
         lx = reference.x; ly = reference.y; lz = reference.z;
       }
       const length = hypot3(lx, ly, lz);
-      const throughput = vignetting ? calculateIlluminationVignetting({ imagePointMm: image, profile: vignetting }).value.linearThroughputFactor : 1;
+      const throughput = throughputAt ? throughputAt(image) : 1;
       return { x: lx / length, y: ly / length, z: lz / length, factor: throughput * distortionAreaFactor };
     },
     sensorPointOf(look, t): { x: number; y: number } | undefined {
