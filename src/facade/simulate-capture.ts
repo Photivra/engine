@@ -93,6 +93,7 @@ import { calculateSensorSpectralQuadrature } from "../sensor/spectral-quadrature
 import { createDiffractionLimitedPsfProfile, type DiffractionLimitedPsfProfile } from "../optics/diffraction-psf-profile.js";
 import { registerDiffractionPsfKey, siteDiffractionKernel } from "../optics/site-diffraction-kernel.js";
 import { convolveSiteKernels, createDefocusDiscSiteKernel, requireDefocusDiscKernelRadius, resolveDefocusDisc, type ResolvedDefocusDisc } from "../optics/defocus-disc-kernel.js";
+import { calculateDefocusFieldVariation, createDefocusImageSpaceProvider, prepareDefocusImageSpaceGeometry, type DefocusFieldVariation } from "./defocus-image-space-provider.js";
 import { createDiffractedPlanarProvider } from "./diffraction-provider.js";
 import { resolveGenericPrimeLens, type GenericPrimeLens } from "../equipment/generic-prime-lenses.js";
 import { calculateChannelElectronsPerRadiance } from "./channel-response.js";
@@ -656,7 +657,7 @@ export interface SimulateCaptureResult {
      * scene provider gives the same expected signal (to float rounding) through the per-tap environment quadrature.
      */
     diffraction?: { profile: DiffractionLimitedPsfProfile; psf: Extract<CalculateEnvironmentSensorPhotoSignalInput["psf"], { kind: "sampled-local" }>;
-      execution: "object-space-convolution" | "environment-psf-quadrature" };
+      execution: "object-space-convolution" | "environment-psf-quadrature" | "image-space-convolution" };
   };
   exposure: {
     mode: SimulateCaptureExposureMode;
@@ -1623,7 +1624,8 @@ export function parseDisplayViewOption(value: unknown, frameWidth: number, frame
  * back; the ideal reference, which has no camera effects, only records it.
  */
 function resolveDefocusOption(input: { run: "capture" | "ideal-reference" | "display-view" | "dng-from-parts"; assume: DisplayViewRunContext["assume"];
-  focalLengthMm: number; fNumber: number; focusDistanceM: number; subjectDistanceM: number; pitch: number; diffraction: boolean }): ResolvedDefocusDisc | undefined {
+  focalLengthMm: number; fNumber: number; focusDistanceM: number; subjectDistanceM: number; pitch: number; diffraction: boolean;
+  imageSpace?: (disc: ResolvedDefocusDisc) => { options: readonly string[]; fieldVariation: DefocusFieldVariation } }): ResolvedDefocusDisc | undefined {
   const { run, assume, focalLengthMm, fNumber, focusDistanceM, subjectDistanceM, pitch } = input;
   const disc = resolveDefocusDisc({ focalLengthMm, aperture: fNumber, focusDistanceM, subjectDistanceM, pitchMicrometers: pitch });
   const size = disc.diameterMicrometers + " µm (" + disc.diameterSites + " sites of " + pitch + " µm)";
@@ -1650,6 +1652,27 @@ function resolveDefocusOption(input: { run: "capture" | "ideal-reference" | "dis
       "diffraction kernel convolved with the disc, a further approximation)" : "") + "; see the view.defocus assumption.");
     return disc;
   }
+  // #548: with a lens field mapping, vignetting or camera rotation the capture applies the disc in image space, on the sensor's site lattice.
+  if (input.imageSpace) {
+    const { options, fieldVariation } = input.imageSpace(disc), v = fieldVariation, bounds: string[] = [];
+    if (v.rotationMaximumDiameterChangeSites !== null) bounds.push("camera rotation: pitch or yaw tilts the scene plane in the rotated camera, so the disc of a scene point's " +
+      "axial depth there differs from the disc used by at most " + formatBound(v.rotationMaximumDiameterChangeSites) + " sites over the rendered instants (0 for roll alone)");
+    if (v.distortionMaximumLocalScaleDeviation !== null) bounds.push("distortion: its local scale departs from 1 by at most " + formatBound(v.distortionMaximumLocalScaleDeviation) +
+      " (fraction), the relative disc-size difference to a model that blurs the undistorted image and then distorts it");
+    if (v.projectionMaximumDiameterChangeSites !== null) bounds.push("non-rectilinear projection: the disc of the distance along each scene point's ray, instead of its axial depth, " +
+      "differs by at most " + formatBound(v.projectionMaximumDiameterChangeSites) + " sites (a real lens of that projection may lie anywhere between the two)");
+    assume("lens.defocus", "model", { ...value, execution: "image-space-convolution", combinedWithDiffraction: input.diffraction, imageSpaceOptions: [...options],
+      fieldVariation: { ...fieldVariation } }, model +
+      "Applied as an image-space convolution (#548, with " + options.join(", ") + "): for each spectral node (and, with camera rotation, each temporal midpoint, in that instant's camera frame) " +
+      "the sensor-plane irradiance before any PSF, through the lens field mapping and the field throughput, is formed on the site lattice of the sensor and convolved with the disc, " +
+      "the disc of the same diameter at every field point, centred on each point's chief ray. This is the environment PSF quadrature with the disc as a sampled PSF, summed in another order " +
+      "(a test checks it to 1e-12 per site). Vignetting is applied at each scene point before the disc spreads its light (field throughput, as for any PSF); the disc does not take the " +
+      "cat's-eye shape of mechanical vignetting. " + (input.diffraction ? "With lens.diffraction, each spectral node's diffraction kernel is convolved with the disc and applied as one " +
+      "image-space kernel, a further approximation (the defocused wave PSF is not exactly the Airy pattern convolved with the disc). " : "") +
+      (bounds.length > 0 ? "Field-variation bounds of the constant disc, on a " + v.gridPointsPerSide + " × " + v.gridPointsPerSide + " grid over the frame: " + bounds.join("; ") + ". " : "") +
+      "The disc kernel is a sampling of the disc on the site lattice, as on the object-space path.");
+    return disc;
+  }
   // The capture (#492, step 2a): an object-space convolution of the scene radiance on the site lattice.
   assume("lens.defocus", "model", { ...value, execution: "object-space-convolution", combinedWithDiffraction: input.diffraction }, model +
     "Applied as an object-space convolution: the scene radiance on the site lattice is convolved with the disc, the same kernel at every spectral node, " +
@@ -1658,6 +1681,11 @@ function resolveDefocusOption(input: { run: "capture" | "ideal-reference" | "dis
       "the defocused wave PSF of a circular pupil is not exactly the in-focus Airy pattern convolved with the geometric disc. " : "") +
     "The disc kernel is a sampling of the disc on the site lattice; lens.pupilSampling (ray-sampled, no diffraction) is the independent reference.");
   return disc;
+}
+
+/** A field-variation bound for an explanation: 3 significant digits (the assumption value keeps the full number). */
+function formatBound(value: number): string {
+  return value === 0 ? "0" : String(Number(value.toPrecision(3)));
 }
 
 /** Internal: passed as the view of a "display-view" run to resolve the request without a view (`prepareDisplayView`, #387). */
@@ -1892,6 +1920,9 @@ export async function runCapture(options: SimulateCaptureOptions, run: "capture"
     }
   }
   const boxAperture = sensorOptions.pixelAperture !== undefined && sensorOptions.pixelAperture !== "point";
+  // The environment queries each site at each aperture node minus each anti-aliasing split offset (sites, +x right, +y down).
+  const queryOffsetsSites = apertureNodeOffsets(boxSamples).flatMap((node) =>
+    (antiAliasing ? antiAliasing.components : [{ offsetMicrometers: { x: 0, y: 0 } }]).map((c) => ({ x: node.x - c.offsetMicrometers.x / pitch, y: node.y - c.offsetMicrometers.y / pitch })));
   // Display view: its own parameters, and the capture options it reproduces, checked before any scene work.
   const parsedView = displayView && viewOption !== DISPLAY_VIEW_WITHOUT_VIEW ? parseDisplayViewOption(viewOption, width, height) : undefined;
   if (displayView) {
@@ -2257,14 +2288,26 @@ export async function runCapture(options: SimulateCaptureOptions, run: "capture"
   const exposureIlluminanceLux = standardExposureIlluminanceLux(fNumber, shutterSeconds, resolvedIso, meteredLuminance, illuminanceLux,
     callerScene?.kind !== "radiance-function");
   const exposureGreyCardDeviationStops = callerScene?.kind === "radiance-function" ? null : greyCardDeviationStops(fNumber, shutterSeconds, resolvedIso, illuminanceLux);
-  const defocusDisc = defocusModel === undefined ? undefined :
-    resolveDefocusOption({ run, assume, focalLengthMm, fNumber, focusDistanceM, subjectDistanceM, pitch, diffraction: diffractionRadiusOption !== undefined });
   // #492: the capture applies the disc as an object-space convolution, which needs every disc point a site sees to be another site's scene point.
-  if (defocusDisc) {
-    const reason = rotating ? "camera rotation (motion.angularVelocityRadPerSec)" : lensFieldMapping ? "lens.projection or lens.distortion" : vignetting ? "lens.vignetting" : undefined;
-    if (reason !== undefined) fail("simulateCapture does not support lens.defocus out of focus with " + reason + ": the defocus disc is applied as an object-space convolution " +
-      "on the site lattice, and " + reason + " moves the scene points the sites see off that lattice. Set lens.focusDistanceM equal to subjectDistanceM, or omit one of the two options.");
-  }
+  // #548: a lens field mapping, vignetting or camera rotation breaks that, so the capture then applies the disc in image space, on the sensor's
+  // site lattice (defocus-image-space-provider.ts). The display view refuses those options in any focus (above).
+  const imageSpaceOptions = [...(lensFieldMapping ? [lensOptions.distortion !== undefined ? (lensOptions.projection !== undefined ? "lens.projection, lens.distortion" : "lens.distortion") : "lens.projection"] : []),
+    ...(vignetting ? ["lens.vignetting"] : []), ...(rotating ? ["camera rotation"] : [])];
+  const defocusGeometry = defocusModel !== undefined && !displayView && imageSpaceOptions.length > 0 ? prepareDefocusImageSpaceGeometry({ focalLengthMm, focusDistanceM,
+    angularVelocityRadPerSec: angular, ...(lensFieldMapping ? { lensMapping: prepareEnvironmentLensFieldMapping(lensFieldMapping) } : {}), ...(vignetting ? { vignetting } : {}) }) : undefined;
+  const defocusDisc = defocusModel === undefined ? undefined :
+    resolveDefocusOption({ run, assume, focalLengthMm, fNumber, focusDistanceM, subjectDistanceM, pitch, diffraction: diffractionRadiusOption !== undefined,
+      ...(defocusGeometry ? { imageSpace: (disc: ResolvedDefocusDisc): { options: readonly string[]; fieldVariation: DefocusFieldVariation } => {
+        // Rotation with a rolling shutter: each row's instants differ, so one instant's image on the lattice would mix rows exposed at other times.
+        if (rotating && shutterKind === "rolling") fail("simulateCapture does not support lens.defocus out of focus with camera rotation and motion.shutter \"rolling\": the disc is applied " +
+          "to each temporal midpoint's image on the sensor lattice, and under a rolling shutter every row has its own instants, so each row would need its own image of the rows the disc " +
+          "reaches (about 2R + 1 rows per row, R the kernel radius). Use motion.shutter \"global\", set lens.focusDistanceM equal to subjectDistanceM, or omit one of the options.");
+        const temporalMidpointsSeconds = rotating ? Array.from({ length: temporalSampleCount }, (_, i) => (i + 0.5) * (shutterSeconds / temporalSampleCount)) : [];
+        return { options: imageSpaceOptions, fieldVariation: calculateDefocusFieldVariation({ geometry: defocusGeometry, ...(lensFieldMapping ? { lensMapping: prepareEnvironmentLensFieldMapping(lensFieldMapping) } : {}),
+          focalLengthMm, fNumber, focusDistanceM, subjectDistanceM, pitchMicrometers: pitch, nativeWidth, nativeHeight, angularVelocityRadPerSec: angular, temporalMidpointsSeconds,
+          diameterSites: disc.diameterSites, discAt: (distanceM) => resolveDefocusDisc({ focalLengthMm, aperture: fNumber, focusDistanceM, subjectDistanceM: distanceM, pitchMicrometers: pitch }).diameterSites }) };
+      } } : {}) });
+  const defocusImageSpace = defocusDisc !== undefined && defocusGeometry !== undefined;
   // #492: the disc on the site lattice (radius 0 for a disc inside one cell: the identity, still applied).
   const defocusKernel = defocusDisc && !displayView ? createDefocusDiscSiteKernel(defocusDisc.diameterSites) ?? undefined : undefined;
   // The display view's disc (#492, step 2b): its expected-signal tables apply it (simulate-display-view.ts).
@@ -2482,7 +2525,8 @@ export async function runCapture(options: SimulateCaptureOptions, run: "capture"
       fidelity: { spectral: "wavelength-resolved" as const, material: "spectral-data" as const, visibility: "resolved" as const, directTransport: "approximation" as const, indirectTransport: "not-modeled" as const },
       wavelengthChangingTransportModeled: false, volumetricTransportModeled: false, polarizationModeled: false, evidence, limitations: ["Engine-authored planar chart or caller scene function.",
         ...(diffractionObjectSpace ? ["Radiance is the scene radiance convolved with the lens diffraction PSF mapped onto the scene plane (object-space convolution, request.diffraction)."] : []),
-        ...(defocusKernel ? ["Radiance is the scene radiance convolved with the geometric defocus disc mapped onto the scene plane (object-space convolution, lens.defocus)."] : [])] } };
+        ...(defocusKernel ? [defocusImageSpace ? "Radiance is the sensor-plane irradiance before any PSF convolved with the geometric defocus disc on the sensor's site lattice, divided by " +
+          "the queried point's field factor (image-space convolution, lens.defocus)." : "Radiance is the scene radiance convolved with the geometric defocus disc mapped onto the scene plane (object-space convolution, lens.defocus)."] : [])] } };
   const lensId = lensExposure.profileId;
   const opticsProfile = { schemaVersion: "0.1.0" as const, profileId: lensId + ":facade-transmission", profileVersion: SIMULATE_CAPTURE_FACADE_VERSION, lensProfileId: lensId,
     scientificStatus: "approximation" as const, applicability: { focalLengthMm: { minimum: capabilities.selectedFocalLengthMm, maximum: capabilities.selectedFocalLengthMm },
@@ -2532,17 +2576,19 @@ export async function runCapture(options: SimulateCaptureOptions, run: "capture"
     assume("lens.diffraction", "model", { model: diffraction.model, aperture: "circular-aperture", fNumber, workingFNumber: diffraction.workingFNumber,
       kernelRadiusSamples, samplePitchMicrometers: pitch, maximumTruncatedEnergyFraction: diffraction.maximumTruncatedEnergyFraction,
       truncatedEnergyByWavelength: diffraction.wavelengths.map((w) => ({ wavelengthNm: w.wavelengthNm, truncatedEnergyFraction: w.truncatedEnergyFraction })),
-      execution: diffractionObjectSpace ? "object-space-convolution" : "environment-psf-quadrature" },
+      execution: diffractionObjectSpace ? "object-space-convolution" : defocusImageSpace ? "image-space-convolution" : "environment-psf-quadrature" },
       "Scalar Fraunhofer diffraction of an ideal, aberration-free circular pupil (Airy pattern, createDiffractionLimitedPsfProfile) at the resolved f-number, in focus, with D = f/N and the thin-lens image distance (working f-number N·v/f). " +
       "One kernel per spectral node, binned into site-sized cells over a " + (2 * kernelRadiusSamples + 1) + " × " + (2 * kernelRadiusSamples + 1) + " window" +
       (diffractionRadiusOption !== null ? "" : thirdRingSites > 32 ? " (capped at 32 sites; the third dark ring at the longest node needs " + thirdRingSites + ")" :
         " (reaching the third dark ring at the longest node)") + "; the Airy tail energy outside it (listed per wavelength) is put back by unit-sum renormalization. " +
       (diffractionObjectSpace ? "Applied as an object-space convolution: the scene radiance on the site lattice is convolved once per spectral node (calculateIrradianceConvolution) and the provider answers each site query with it, so the site inputs declare no PSF; this equals the per-tap environment PSF quadrature for this still, distortion-free planar scene (request.diffraction.psf). " :
+        defocusImageSpace ? "Applied with lens.defocus as one image-space kernel per spectral node (the diffraction kernel convolved with the disc) on the sensor's site lattice (#548; see the lens.defocus assumption), " +
+          "the same sum as the environment PSF quadrature with that kernel. " :
         "Applied through the environment PSF quadrature (one scene query per kernel tap), because camera rotation, a lens field mapping or vignetting moves the taps off the site lattice. ") +
       "No defocus, aberration or pupil clipping; " + (boxAperture ? "the pixel aperture is integrated as declared by sensor.pixelAperture." : "the sensor pixel aperture is still point-sampled at the site centre."));
   }
-  // #492: each spectral node's kernel for lens.defocus out of focus: the disc, or with lens.diffraction (always on the object-space path here)
-  // the node's diffraction kernel convolved with the disc, radius R_diffraction + R_defocus (built on first use, kept for the request).
+  // #492: each spectral node's kernel for lens.defocus out of focus: the disc, or with lens.diffraction the node's diffraction kernel convolved
+  // with the disc, radius R_diffraction + R_defocus (built on first use, kept for the request). Object space, or image space (#548).
   let defocusSiteKernels: { radius: number; wavelengthsNm: readonly number[]; at(wavelengthNm: number): Float64Array } | undefined;
   if (defocusKernel) {
     if (diffraction) {
@@ -2564,8 +2610,23 @@ export async function runCapture(options: SimulateCaptureOptions, run: "capture"
       } };
     } else defocusSiteKernels = { radius: defocusKernel.radius, wavelengthsNm: quadratureWavelengths(), at: (): Float64Array => defocusKernel.weights };
   }
+  // #548: in image space the kernel reaches its radius (plus the anti-aliasing and pixel-aperture offsets) beyond the frame, so the lens
+  // field mapping and the vignetting profile must cover the frame's corners plus that reach.
+  if (defocusSiteKernels && defocusGeometry && defocusImageSpace) {
+    const reach = defocusSiteKernels.radius + Math.max(0, ...queryOffsetsSites.map((o) => Math.ceil(Math.max(Math.abs(o.x), Math.abs(o.y)) - 1e-6))) + 0.5;
+    const xMm = (nativeWidth / 2 + reach) * pitch / 1000, yMm = (nativeHeight / 2 + reach) * pitch / 1000;
+    for (const [x, y] of [[-xMm, -yMm], [xMm, -yMm], [-xMm, yMm], [xMm, yMm]] as const) {
+      try { defocusGeometry.lookOf(x, y, 0); } catch (error) {
+        fail("lens.defocus out of focus with " + imageSpaceOptions.join(", ") + " reads the scene through the lens up to " + defocusSiteKernels.radius + " sites beyond the frame (the " +
+          (diffraction ? "kernel radius of the diffraction kernel convolved with the disc" : "disc's kernel radius") + "), and at the frame's corner plus that reach (" +
+          Math.hypot(x, y).toFixed(3) + " mm from the axis) " + (error as Error).message + " Extend the profile's range, or bring the focus closer to the subject.");
+      }
+    }
+  }
   const psf = lensPsf ?? (diffractionObjectSpace ? { kind: "not-applied" as const, evidence,
     limitation: "No environment PSF: lens diffraction is applied upstream by the scene provider as an object-space convolution (request.diffraction)." } : undefined) ??
+    (defocusSiteKernels && defocusImageSpace ? { kind: "not-applied" as const, evidence, limitation: "No environment PSF: lens defocus" + (diffraction ? " (with lens.diffraction)" : "") +
+      " is applied upstream by the scene provider as an image-space convolution on the sensor's site lattice (lens.defocus)." } : undefined) ??
     diffractionPsf ?? (defocusSiteKernels ? { kind: "not-applied" as const, evidence,
       limitation: "No environment PSF: lens defocus is applied upstream by the scene provider as an object-space convolution (lens.defocus)." } : undefined) ??
     { kind: "not-applied" as const, evidence, limitation: "No lens PSF (point optics)." };
@@ -2607,6 +2668,10 @@ export async function runCapture(options: SimulateCaptureOptions, run: "capture"
   const perSite = queriesPerSite * (diffraction && psf === diffractionPsf ? (2 * diffraction.kernelRadiusSamples + 1) ** 2 : 1);
   let diffractionMs = 0, defocusMs = 0, demosaicMs: number | undefined, encodeMs: number | undefined;
   const diffractedProvider = (window: { x: number; y: number; width: number; height: number } | undefined): PlanarSceneRadianceProvider =>
+    // #548: the disc (or diffraction ⊛ disc) in image space, on the sensor's site lattice, through the mapping, field throughput and rotation.
+    defocusSiteKernels && defocusGeometry && defocusImageSpace ? createDefocusImageSpaceProvider({ base: provider, geometry: defocusGeometry, siteKernels: defocusSiteKernels.at,
+      wavelengthsNm: defocusSiteKernels.wavelengthsNm, kernelRadius: defocusSiteKernels.radius, nativeWidth, nativeHeight, sitePitchMicrometers: pitch, distanceM: subjectDistanceM,
+      metresPerFrameUnit, queryOffsetsSites, timesPerBand: temporalSampleCount, onConvolution: (ms) => { defocusMs += ms; }, ...(window ? { window } : {}) }) :
     defocusSiteKernels ? createDiffractedPlanarProvider({ base: provider, siteKernels: defocusSiteKernels.at,
       wavelengthsNm: defocusSiteKernels.wavelengthsNm, kernelRadius: defocusSiteKernels.radius, nativeWidth, nativeHeight, outputWidth: width,
       sitePitchMicrometers: pitch, distanceM: subjectDistanceM, metresPerFrameUnit, onConvolution: (ms) => { defocusMs += ms; },
@@ -3069,7 +3134,8 @@ export async function runCapture(options: SimulateCaptureOptions, run: "capture"
     raw: developed.raw, plan: developmentPlan,
     ...(region && regionNative ? { region: { ...region, frameWidth: width, frameHeight: height, nativeRect: { ...regionNative } } } : {}),
     request: { environmentRaw: finalRawInput, siteInput, development, whiteBalanceState,
-      ...(diffraction ? { diffraction: { profile: diffraction, psf: diffractionPsf!, execution: diffractionObjectSpace ? "object-space-convolution" as const : "environment-psf-quadrature" as const } } : {}) },
+      ...(diffraction ? { diffraction: { profile: diffraction, psf: diffractionPsf!, execution: diffractionObjectSpace ? "object-space-convolution" as const :
+        defocusImageSpace ? "image-space-convolution" as const : "environment-psf-quadrature" as const } } : {}) },
     exposure: { mode, settings: { fNumber, shutterSeconds, iso: resolvedIso }, ev100: Math.log2(fNumber ** 2 / shutterSeconds), ...isoReport,
       metering, meteredSceneLuminanceCdPerSquareMeter: meteredLuminance, standardExposureDeviationStops: exposureDeviationStops,
       standardExposureIlluminanceLux: exposureIlluminanceLux, greyCardDeviationStops: exposureGreyCardDeviationStops, resolution },
@@ -3088,7 +3154,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: "capture"
         "resolve" + (mode === "manual" ? "Manual" : mode === "aperture-priority" ? "AperturePriority" : mode === "shutter-priority" ? "ShutterPriority" : "ProgramAuto") + "ExposureMode",
         ...(rollingSchedule ? ["resolveElectronicRollingShutterExposureSchedule", "createRollingShutterCaptureExposureSchedule"] : []),
         ...(diffraction ? ["createDiffractionLimitedPsfProfile", ...(diffractionObjectSpace ? ["resolveLensPsfConvolutionKernels", ...(defocusSiteKernels ? [] : ["calculateIrradianceConvolution"])] : [])] : []),
-        ...(defocusSiteKernels ? ["calculateDefocusCircle", "defocus disc site kernel (object-space convolution)"] : []),
+        ...(defocusSiteKernels ? ["calculateDefocusCircle", defocusImageSpace ? "defocus disc site kernel (image-space convolution)" : "defocus disc site kernel (object-space convolution)"] : []),
         ...(antiAliasing ? ["resolveAntiAliasingSpatialKernel"] : []), "resolveGenericIsoSignalChain", "createNativeEnvironmentRawTask", ...(needsAuto ? ["estimateAutoWhiteBalance"] : []),
         ...(builtInDemosaic ? ["createBuiltInBayerDemosaicProfiles"] : []), ...(ahd ? ["createAhdDemosaicTask"] : []),
         ...(ahd ? ["native RAW development operator (colour, after AHD)", ...detailContracts, ...(linearPath ? ["resolveRgbColorSpace", ...(perceptual ? ["prepareRgbGamutMapping"] : [])] : [sdrContract])] :

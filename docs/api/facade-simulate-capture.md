@@ -815,7 +815,7 @@ export interface SimulateCaptureResult {
      * scene provider gives the same expected signal (to float rounding) through the per-tap environment quadrature.
      */
     diffraction?: { profile: DiffractionLimitedPsfProfile; psf: Extract<CalculateEnvironmentSensorPhotoSignalInput["psf"], { kind: "sampled-local" }>;
-      execution: "object-space-convolution" | "environment-psf-quadrature" };
+      execution: "object-space-convolution" | "environment-psf-quadrature" | "image-space-convolution" };
   };
   exposure: {
     mode: SimulateCaptureExposureMode;

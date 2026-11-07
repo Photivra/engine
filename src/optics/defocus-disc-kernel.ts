@@ -228,8 +228,9 @@ export interface DefocusDiscKernelRadius {
  * `withinLimit: false`, and one they accept has `withinLimit: true`. Pass the values the capture uses: in an automatic
  * exposure mode that is the resolved f-number. The limit applies to the disc alone; with `lens.diffraction` the combined
  * kernel (diffraction radius plus defocus radius, at most 32 + 64 sites) has no further limit. Other reasons a capture
- * refuses `lens.defocus` out of focus (camera rotation, projection, distortion, vignetting, pupil sampling, a caller PSF)
- * are not checked here.
+ * refuses `lens.defocus` out of focus (pupil sampling, a caller PSF, camera rotation with a rolling shutter, a vignetting or
+ * distortion profile that does not reach the kernel's radius beyond the frame, and in the display view a projection,
+ * distortion, vignetting or rotation) are not checked here.
  *
  * The blur circle is a geometric thin-lens approximation for an ideal uniform circular pupil (no diffraction, aberrations
  * or pupil vignetting). Inputs follow `calculateDefocusCircle`: all positive and finite, both distances beyond the focal

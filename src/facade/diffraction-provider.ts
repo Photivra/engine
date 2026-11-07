@@ -239,7 +239,7 @@ export function createDiffractedPlanarProvider(input: DiffractedPlanarProviderIn
 const MAXIMUM_KERNEL_SUM = 1 + 2 ** -20, MAXIMUM_SAMPLE = 2 ** 100;
 
 /** #492: a site kernel of radius R, checked as `calculateIrradianceConvolution` checks its kernels. */
-function checkedSiteKernel(kernel: Float64Array, R: number): Float64Array {
+export function checkedSiteKernel(kernel: Float64Array, R: number): Float64Array {
   if (!(kernel instanceof Float64Array) || kernel.length !== (2 * R + 1) ** 2) throw new InvalidConfigurationError("Site kernels must be (2R + 1)² taps.");
   let sum = 0;
   for (let k = 0; k < kernel.length; k++) {
@@ -252,7 +252,7 @@ function checkedSiteKernel(kernel: Float64Array, R: number): Float64Array {
 }
 
 /** #492: the non-zero taps of a kernel as offsets into a grid of `gridWidth` columns (−v·gridWidth − u) and weights, v outer, u inner, ascending. */
-function kernelTaps(kernel: Float64Array, R: number, gridWidth: number): { offsets: Int32Array; weights: Float64Array } {
+export function kernelTaps(kernel: Float64Array, R: number, gridWidth: number): { offsets: Int32Array; weights: Float64Array } {
   const offsets: number[] = [], weights: number[] = [];
   for (let v = -R, t = 0; v <= R; v++) for (let u = -R; u <= R; u++, t++) {
     const w = kernel[t]!;
@@ -266,7 +266,7 @@ function kernelTaps(kernel: Float64Array, R: number, gridWidth: number): { offse
  * these lies inside the grid (it holds R extra samples on each side), so no boundary rule applies. Samples are checked as
  * `calculateIrradianceConvolution` checks them.
  */
-function gatherInterior(samples: Float64Array, taps: { offsets: Int32Array; weights: Float64Array }, gridWidth: number, width: number, rows: number, R: number): Float64Array {
+export function gatherInterior(samples: Float64Array, taps: { offsets: Int32Array; weights: Float64Array }, gridWidth: number, width: number, rows: number, R: number): Float64Array {
   for (let k = 0; k < samples.length; k++) {
     const v = samples[k]!;
     if (!(v >= 0 && v <= MAXIMUM_SAMPLE)) throw new InvalidConfigurationError("Irradiance samples must be finite, non-negative and within the declared magnitude.");

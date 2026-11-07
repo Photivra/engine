@@ -26,8 +26,11 @@ export function isInternalSceneRadianceEvaluator(evaluator: unknown): boolean {
  * function of a location key (a chart material, a convolved lattice site) and the wavelength.
  */
 export interface InternalRadianceAccess {
-  /** The key the evaluator reads for a query with this outgoing direction; undefined where it would throw. */
-  keyOfDirection(direction: Readonly<{ x: number; y: number; z: number }>): number | undefined;
+  /**
+   * The key the evaluator reads for a query with this outgoing direction at this request time (`timeSecondsFromExposureStart`);
+   * undefined where it would throw. Most evaluators ignore the time; the image-space defocus with camera rotation (#548) does not.
+   */
+  keyOfDirection(direction: Readonly<{ x: number; y: number; z: number }>, timeSeconds: number): number | undefined;
   /** The radiance the evaluator returns for a query of that key at that wavelength. */
   radianceOfKey(key: number, wavelengthNanometers: number): number;
   /** True when keys are few (chart materials), so the native environment may keep a table of their radiances. */
