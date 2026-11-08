@@ -14,58 +14,67 @@ import { scaledTimeout } from "./helpers/test-timeout.js";
 
 const defocus = { model: "geometric-disc" } as const;
 const lensAt = { focalLengthMm: 50, aperture: 4, subjectDistanceM: 2, pixelPitchMicrometers: 6 } as const;
+/** #564: the blur passes the 512-site limit with 50 mm f/4 on a plane at 2 m focused at about 0.14 m in front of the lens. */
+const wideAt = lensAt;
 const check = (focusDistanceM: number): ReturnType<typeof calculateDefocusDiscKernelRadius>["value"] =>
   calculateDefocusDiscKernelRadius({ ...lensAt, focusDistanceM }).value;
+const checkWide = (focusDistanceM: number): ReturnType<typeof calculateDefocusDiscKernelRadius>["value"] =>
+  calculateDefocusDiscKernelRadius({ ...wideAt, focusDistanceM }).value;
 
 /**
- * The focus distances on either side of the limit, focused in front of a plane at 2 m (50 mm f/4, 6 µm): the blur
- * shrinks as the focus distance grows towards the subject, so bisect between a refused 0.5 m and an accepted 1.9 m to
- * two adjacent doubles.
+ * The focus distances on either side of a radius, focused in front of a plane at 2 m (50 mm f/4, 6 µm): the blur
+ * shrinks as the focus distance grows towards the subject, so bisect between 0.06 m and 1.9 m to two adjacent doubles.
  */
-function boundaryFocusDistances(): { inside: number; outside: number } {
-  let outside = 0.5, inside = 1.9;
-  expect(check(outside).withinLimit).toBe(false);
-  expect(check(inside).withinLimit).toBe(true);
+function boundaryFocusDistances(radius: number): { inside: number; outside: number } {
+  let outside = 0.06, inside = 1.9;
+  expect(checkWide(outside).kernelRadiusSites).toBeGreaterThan(radius);
+  expect(checkWide(inside).kernelRadiusSites).toBeLessThanOrEqual(radius);
   for (;;) {
     const mid = outside + (inside - outside) / 2;
     if (mid === outside || mid === inside) break;
-    if (check(mid).withinLimit) inside = mid; else outside = mid;
+    if (checkWide(mid).kernelRadiusSites <= radius) inside = mid; else outside = mid;
   }
   return { inside, outside };
 }
 
 describe("DEFOCUS_DISC_KERNEL_MAXIMUM_RADIUS_SITES and calculateDefocusDiscKernelRadius (#532)", () => {
-  it("exports the limit of 64 sites, a disc of at most 129 sites across", () => {
-    expect(DEFOCUS_DISC_KERNEL_MAXIMUM_RADIUS_SITES).toBe(64);
-    expect(defocusDiscKernelRadius(129)).toBe(64);
-    expect(defocusDiscKernelRadius(129 + 2 ** -45)).toBe(65);
+  it("exports the limit of 512 sites (#564; 64 before 2.17.0), a disc of at most 1025 sites across", () => {
+    expect(DEFOCUS_DISC_KERNEL_MAXIMUM_RADIUS_SITES).toBe(512);
+    expect(defocusDiscKernelRadius(1025)).toBe(512);
+    expect(defocusDiscKernelRadius(1025 + 2 ** -42)).toBe(513);
     const atLimit = calculateDefocusDiscKernelRadius({ ...lensAt, focusDistanceM: 1.8 }).value;
-    expect(atLimit.maximumKernelRadiusSites).toBe(64);
-    expect(atLimit.maximumDiameterSites).toBe(129);
+    expect(atLimit.maximumKernelRadiusSites).toBe(512);
+    expect(atLimit.maximumDiameterSites).toBe(1025);
   });
 
   it("reports the same disc the capture resolves, with the closed form and the documented fields", () => {
     // 50 mm f/4 focused at 0.5 m on a plane at 2 m: c = 2500·1.5/(4·2·0.45) mm = 1041.7 µm, 173.6 sites of 6 µm, radius 87 > 64.
     const result = calculateDefocusDiscKernelRadius({ ...lensAt, focusDistanceM: 0.5 });
     const c = calculateDefocusCircle({ focalLengthMm: 50, aperture: 4, focusDistanceM: 0.5, subjectDistanceM: 2 }).value.diameterMm * 1000;
-    expect(result.value).toEqual({ diameterMicrometers: c, diameterSites: c / 6, kernelRadiusSites: 87, maximumKernelRadiusSites: 64,
-      maximumDiameterSites: 129, withinLimit: false, excessKernelRadiusSites: 23 });
+    expect(result.value).toEqual({ diameterMicrometers: c, diameterSites: c / 6, kernelRadiusSites: 87, maximumKernelRadiusSites: 512,
+      maximumDiameterSites: 1025, withinLimit: true, excessKernelRadiusSites: 0, convolution: "runs" });
     expect(result.value.diameterMicrometers).toBeCloseTo(2500 * 1.5 / (4 * 2 * 0.45), 9);
     expect(resolveDefocusDisc({ focalLengthMm: 50, aperture: 4, focusDistanceM: 0.5, subjectDistanceM: 2, pitchMicrometers: 6 }))
       .toEqual({ diameterMicrometers: c, diameterSites: c / 6, kernelRadiusSites: 87 });
-    expect(result.provenance).toMatchObject({ model: "defocus-disc-kernel-radius", modelVersion: "1.0.0" });
+    expect(result.provenance).toMatchObject({ model: "defocus-disc-kernel-radius", modelVersion: "1.1.0" });
     expect((result.provenance.assumptions ?? []).join(" ")).toMatch(/approximation/u);
     expect(Object.isFrozen(result.value)).toBe(true);
     // Within the limit: 1.8 m gives c = 2500·0.2/(4·2·1.75) mm = 35.7 µm, 5.95 sites, radius 3.
-    expect(check(1.8)).toMatchObject({ kernelRadiusSites: 3, withinLimit: true, excessKernelRadiusSites: 0 });
-    // docs/USAGE.md's example: 50 mm f/1.4 focused at 1 m on a plane at 2 m, 6 µm: 156.6 sites, radius 78, 14 over.
+    expect(check(1.8)).toMatchObject({ kernelRadiusSites: 3, withinLimit: true, excessKernelRadiusSites: 0, convolution: "direct" });
+    // 50 mm f/1.4 focused at 1 m on a plane at 2 m, 6 µm: 156.6 sites, radius 78: within the limit since #564, by runs.
     expect(calculateDefocusDiscKernelRadius({ focalLengthMm: 50, aperture: 1.4, focusDistanceM: 1, subjectDistanceM: 2, pixelPitchMicrometers: 6 }).value)
-      .toMatchObject({ withinLimit: false, kernelRadiusSites: 78, excessKernelRadiusSites: 14 });
+      .toMatchObject({ withinLimit: true, kernelRadiusSites: 78, excessKernelRadiusSites: 0, convolution: "runs" });
+    // The owner's case (#564): 50 mm f/1.4 focused at infinity on a plane at 0.833 m: 2,144 µm, 357 sites, radius 179.
+    expect(calculateDefocusDiscKernelRadius({ focalLengthMm: 50, aperture: 1.4, focusDistanceM: 1e6, subjectDistanceM: 0.833, pixelPitchMicrometers: 6 }).value)
+      .toMatchObject({ withinLimit: true, kernelRadiusSites: 179, convolution: "runs" });
+    // docs/USAGE.md's example past the limit: focused at 0.25 m on the plane at 2 m, 1,302 sites, radius 651, 139 over.
+    expect(calculateDefocusDiscKernelRadius({ focalLengthMm: 50, aperture: 1.4, focusDistanceM: 0.25, subjectDistanceM: 2, pixelPitchMicrometers: 6 }).value)
+      .toMatchObject({ withinLimit: false, kernelRadiusSites: 651, excessKernelRadiusSites: 139, convolution: null });
   });
 
   it("gives radius 0 in focus, and for a disc inside one site", () => {
-    expect(check(2)).toEqual({ diameterMicrometers: 0, diameterSites: 0, kernelRadiusSites: 0, maximumKernelRadiusSites: 64, maximumDiameterSites: 129,
-      withinLimit: true, excessKernelRadiusSites: 0 });
+    expect(check(2)).toEqual({ diameterMicrometers: 0, diameterSites: 0, kernelRadiusSites: 0, maximumKernelRadiusSites: 512, maximumDiameterSites: 1025,
+      withinLimit: true, excessKernelRadiusSites: 0, convolution: "direct" });
     expect(check(1.999)).toMatchObject({ kernelRadiusSites: 0, withinLimit: true });
     expect(check(1.999).diameterSites).toBeGreaterThan(0);
     // Behind the subject (focused past it) the disc is measured the same way.
@@ -73,24 +82,33 @@ describe("DEFOCUS_DISC_KERNEL_MAXIMUM_RADIUS_SITES and calculateDefocusDiscKerne
   });
 
   it("at adjacent focus distances, agrees with simulateCapture's, the display view's and the ideal reference's accept and refuse", async () => {
-    const { inside, outside } = boundaryFocusDistances();
-    expect(check(inside)).toMatchObject({ kernelRadiusSites: 64, withinLimit: true, excessKernelRadiusSites: 0 });
-    expect(check(inside).diameterSites).toBeLessThanOrEqual(129);
-    expect(check(outside)).toMatchObject({ kernelRadiusSites: 65, withinLimit: false, excessKernelRadiusSites: 1 });
-    expect(check(outside).diameterSites).toBeGreaterThan(129);
+    const { inside, outside } = boundaryFocusDistances(512);
+    expect(checkWide(inside)).toMatchObject({ kernelRadiusSites: 512, withinLimit: true, excessKernelRadiusSites: 0, convolution: "runs" });
+    expect(checkWide(inside).diameterSites).toBeLessThanOrEqual(1025);
+    expect(checkWide(outside)).toMatchObject({ kernelRadiusSites: 513, withinLimit: false, excessKernelRadiusSites: 1, convolution: null });
+    expect(checkWide(outside).diameterSites).toBeGreaterThan(1025);
 
     const request = (focusDistanceM: number): SimulateCaptureOptions => ({ scene: { preset: "slanted-edge" }, subjectDistanceM: 2,
       lens: { focalLengthMm: 50, fNumber: 4, focusDistanceM, defocus }, sensor: { pixelPitchMicrometers: 6 }, output: { width: 4, height: 4 } });
-    const limit = /lens\.defocus: the blur circle is .*needs a kernel radius of 65 sites; the limit is 64 sites \(DEFOCUS_DISC_KERNEL_MAXIMUM_RADIUS_SITES\)/u;
+    // #564: a short message, the blur rounded (3 digits, sites up) and the largest disc.
+    const limit = /^lens\.defocus: The blur circle is 6\.15 mm \(1,026 sites\) across; the engine renders at most 1,025 sites \(DEFOCUS_DISC_KERNEL_MAXIMUM_RADIUS_SITES\)\.$/u;
     await expect(simulateCapture(request(outside))).rejects.toThrow(limit);
     await expect(prepareDisplayView(request(outside))).rejects.toThrow(limit);
     await expect(simulateIdealReference(request(outside))).rejects.toThrow(limit);
 
     const accepted = await simulateCapture(request(inside));
-    expect(accepted.assumptions.find((a) => a.id === "lens.defocus")!.value).toMatchObject({ kernelRadiusSites: 64, diameterSites: check(inside).diameterSites,
-      diameterMicrometers: check(inside).diameterMicrometers, execution: "object-space-convolution" });
+    expect(accepted.assumptions.find((a) => a.id === "lens.defocus")!.value).toMatchObject({ kernelRadiusSites: 512, diameterSites: checkWide(inside).diameterSites,
+      diameterMicrometers: checkWide(inside).diameterMicrometers, execution: "object-space-convolution", convolution: "runs" });
     await expect(prepareDisplayView(request(inside))).resolves.toBeDefined();
-  }, scaledTimeout(120_000));
+
+    // The direct radius (64): the same focus distances on either side, both rendered, by the direct gather and by runs.
+    const direct = boundaryFocusDistances(64);
+    expect(checkWide(direct.inside)).toMatchObject({ kernelRadiusSites: 64, convolution: "direct" });
+    expect(checkWide(direct.outside)).toMatchObject({ kernelRadiusSites: 65, convolution: "runs" });
+    const atDirect = await simulateCapture(request(direct.inside)), pastDirect = await simulateCapture(request(direct.outside));
+    expect(atDirect.assumptions.find((a) => a.id === "lens.defocus")!.value).not.toHaveProperty("convolution");
+    expect(pastDirect.assumptions.find((a) => a.id === "lens.defocus")!.value).toMatchObject({ kernelRadiusSites: 65, convolution: "runs" });
+  }, scaledTimeout(240_000));
 
   it("agrees in an automatic exposure mode at the resolved f-number", async () => {
     const request: SimulateCaptureOptions = { scene: { preset: "slanted-edge" }, subjectDistanceM: 2, exposure: { mode: "program" },

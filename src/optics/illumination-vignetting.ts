@@ -200,6 +200,35 @@ function validateProfile(
   };
 }
 
+/** The normalized radius and throughput factor at an image point, for a validated profile (the arithmetic of calculateIlluminationVignetting). */
+function throughputAt(profile: ValidatedIlluminationProfile, imagePointMm: LensFieldPointMm): { normalizedRadius: number; linearThroughputFactor: number } {
+  const radiusMm = Math.hypot(imagePointMm.x, imagePointMm.y);
+  const normalizedRadius = radiusMm / profile.normalizationRadiusMm;
+
+  if (normalizedRadius > profile.maximumNormalizedRadius) {
+    throw new InvalidScientificInputError(
+      "imagePointMm lies outside the illumination vignetting profile maximumNormalizedRadius."
+    );
+  }
+
+  const squaredRadius = normalizedRadius * normalizedRadius;
+  return { normalizedRadius, linearThroughputFactor: throughputFromSquaredRadius(squaredRadius, profile.coefficients) };
+}
+
+/**
+ * @internal (#563) The `linearThroughputFactor` that {@link calculateIlluminationVignetting} returns, from a profile validated once:
+ * the same arithmetic and the same errors, without the result envelope, for callers that evaluate one profile at many points
+ * (the image-space field factor of `prepareDefocusImageSpaceGeometry`).
+ */
+export function prepareIlluminationVignettingThroughput(profile: IlluminationVignettingProfile): (imagePointMm: LensFieldPointMm) => number {
+  const validated = validateProfile(profile);
+  return (imagePointMm) => {
+    requireFinite("imagePointMm.x", imagePointMm.x);
+    requireFinite("imagePointMm.y", imagePointMm.y);
+    return throughputAt(validated, imagePointMm).linearThroughputFactor;
+  };
+}
+
 function assumptions(): readonly string[] {
   return [
     "Generic rotationally symmetric illumination-vignetting approximation evaluated from ideal image-plane field radius",
@@ -228,20 +257,7 @@ export function calculateIlluminationVignetting(
   requireFinite("imagePointMm.y", input.imagePointMm.y);
 
   const profile = validateProfile(input.profile);
-  const radiusMm = Math.hypot(input.imagePointMm.x, input.imagePointMm.y);
-  const normalizedRadius = radiusMm / profile.normalizationRadiusMm;
-
-  if (normalizedRadius > profile.maximumNormalizedRadius) {
-    throw new InvalidScientificInputError(
-      "imagePointMm lies outside the illumination vignetting profile maximumNormalizedRadius."
-    );
-  }
-
-  const squaredRadius = normalizedRadius * normalizedRadius;
-  const linearThroughputFactor = throughputFromSquaredRadius(
-    squaredRadius,
-    profile.coefficients
-  );
+  const { normalizedRadius, linearThroughputFactor } = throughputAt(profile, input.imagePointMm);
 
   const attenuationStops =
     linearThroughputFactor === 1

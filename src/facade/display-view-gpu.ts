@@ -143,6 +143,16 @@ export interface DisplayViewGpuRequest {
    * Quality site pass (step 2c). Absent or false otherwise.
    */
   defocus?: boolean;
+  /**
+   * #564: true when the defocus kernel's radius is above 64 sites, so the expected signal convolves it by runs on the CPU
+   * (`largeKernel`); no GPU renderer takes it. Absent or false otherwise.
+   */
+  largeDefocus?: boolean;
+  /**
+   * #563: true when the request has `lens.projection`, `lens.distortion`, `lens.vignetting` or camera rotation: the CPU reference
+   * renders it (display-view-lens-signal.ts) and no GPU renderer is asked or device requested (`unsupported-on-backend`).
+   */
+  lens?: boolean;
   /** The scene's form: an engine chart, a declared `material-layers` scene (#491), or a caller function. */
   scene: "chart" | "material-layers" | "material-function" | "reflectance-function" | "radiance-function";
 }

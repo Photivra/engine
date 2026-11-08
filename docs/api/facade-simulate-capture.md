@@ -142,7 +142,7 @@ a capture does. `motion.rotation` is a non-zero angular velocity; `sensor.tempor
 
 ```ts
 SIMULATE_CAPTURE_COST_OPTIONS = Object.freeze(["lens.pupilSampling", "lens.projection", "lens.distortion", "lens.vignetting", "lens.psf",
-  "lens.diffraction", "lens.defocus", "sensor.antiAliasing", "sensor.pixelAperture.box", "sensor.temporalSampleCount", "motion.rotation", "motion.shutter.rolling", "output.borderHandling.mirror", "output.region",
+  "lens.diffraction", "lens.defocus", "lens.catalogue", "sensor.antiAliasing", "sensor.pixelAperture.box", "sensor.temporalSampleCount", "motion.rotation", "motion.shutter.rolling", "output.borderHandling.mirror", "output.region",
   "output.whiteBalance.auto", "output.demosaic.ahd", "output.highlightMode.reconstruct", "output.colorEncoding.wide-gamut", "output.gamutMapping.perceptual",
   "output.diffractionCorrection", "output.sharpening", "output.format.jpeg", "output.format.png", "output.format.dng"] as const)
 ```
@@ -514,6 +514,22 @@ export interface SimulateCaptureOptions {
      * focus distance below its minimum focus distance, is rejected. Not combinable with `focalLengthMm`.
      */
     prime?: number;
+    /**
+     * Opt-in (#549): a lens of the generic lens catalogue by id (`GENERIC_LENS_IDS`, for example "pv-50-1.2-pro" or "pv-50-1.8";
+     * docs/LENS_CATALOGUE.md). Like `prime`, its focal length is the full-frame equivalent ÷ the simulated frame's diagonal crop
+     * factor and it replaces the tier lens's focal length and f-number range (the transmission is kept). The capture renders the
+     * lens's character, all labelled approximations: its PSF (diffraction with the lens's Seidel aberrations, axial and lateral
+     * colour, at the resolved f-number and focus) through the environment PSF quadrature, its radial distortion, its vignetting
+     * and, for the fisheyes, the equisolid projection. Flare, focus breathing and bokeh shape are not rendered. Not combinable
+     * with `prime`, `focalLengthMm`, `projection`, `distortion`, `vignetting`, `psf`, `diffraction` or `pupilSampling` (the
+     * lens sets them); `defocus` convolves the disc into the lens's PSF. Not offered by the display view. Default off.
+     */
+    catalogue?: string;
+    /**
+     * Opt-in (#549), with `catalogue` only: a seeded autofocus error (`simulateGenericLensFocusError`). The focus distance becomes
+     * the sampled one for (seed, shotIndex), reported in the `lens.focusScatter` assumption; it is visible with `defocus`. Default off.
+     */
+    focusScatter?: { seed: number; shotIndex?: number };
     /** Aperture for manual and aperture-priority modes. Default 8. */
     fNumber?: number;
     /** Focus distance in metres. Default: the subject distance. */
@@ -547,8 +563,13 @@ export interface SimulateCaptureOptions {
      * kernel is convolved with the disc (a further approximation). In focus the result is that of the same request
      * without the option, plus the assumption.
      * Not combinable with `pupilSampling` or `psf`. Default off.
+     *
+     * Bokeh character (#553), each part off by default (without them the disc is unchanged, byte for byte): `blades` (a
+     * polygonal or rounded-blade opening), `sphericalAberration` (primary W040: soft-edged blur on one side of the focus
+     * plane, bright-rimmed on the other) and `catsEye` (mechanical vignetting clipping the pupil by field position; the
+     * capture only, not with `diffraction`). See `calculateDefocusBokehKernel` and docs/QUICK_START.md, "Bokeh character".
      */
-    defocus?: { model: "geometric-disc" };
+    defocus?: { model: "geometric-disc" } & DefocusBokehOptions;
   };
   exposure?: {
     /** Default "manual". */

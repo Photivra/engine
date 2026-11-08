@@ -55,7 +55,7 @@ import { createCaptureWhiteBalanceIntent, type CaptureWhiteBalanceIntent } from 
 import { SENSOR_RAW_PRODUCER_NOISE_MODEL } from "../capture/sensor-raw-producer.js";
 import { calculateNativeRawPlan, nativeRawMaximumProviderEvaluations, NATIVE_RAW_LIMITS, type NativeRawInput, type NativeRawOutput, type NativeRawPlan } from "../capture/native-raw.js";
 import { renderTabulatedNativeRaw, TABULATED_RELATIVE_TOLERANCE } from "../capture/native-environment-tabulated.js";
-import { createDisplayViewExpectedSignal } from "./expected-signal.js";
+import { createDisplayViewExpectedSignal, type DisplayViewExpectedSignal, type DisplayViewExpectedSignalInput } from "./expected-signal.js";
 import type { DisplayViewFastReport } from "./display-view-gpu.js";
 import { buildExpectedSignalInput } from "./expected-signal-setup.js";
 import { createNativeEnvironmentRawTask, createNativeEnvironmentRawRegionTask, type NativeEnvironmentRawInput,
@@ -92,10 +92,15 @@ import { calculateCaptureExposureWindows } from "../sensor/exposure-window.js";
 import { calculateSensorSpectralQuadrature } from "../sensor/spectral-quadrature.js";
 import { createDiffractionLimitedPsfProfile, type DiffractionLimitedPsfProfile } from "../optics/diffraction-psf-profile.js";
 import { registerDiffractionPsfKey, siteDiffractionKernel } from "../optics/site-diffraction-kernel.js";
-import { convolveSiteKernels, createDefocusDiscSiteKernel, requireDefocusDiscKernelRadius, resolveDefocusDisc, type ResolvedDefocusDisc } from "../optics/defocus-disc-kernel.js";
+import { convolveSiteKernels, createDefocusDiscSiteKernel, defocusDiscKernelRadius, defocusDiscLimitMessage, requireDefocusDiscKernelRadius, resolveDefocusDisc, type DefocusDiscSiteKernel, type ResolvedDefocusDisc } from "../optics/defocus-disc-kernel.js";
 import { calculateDefocusFieldVariation, createDefocusImageSpaceProvider, prepareDefocusImageSpaceGeometry, type DefocusFieldVariation } from "./defocus-image-space-provider.js";
 import { createDiffractedPlanarProvider } from "./diffraction-provider.js";
+import type { LargeDefocusKernel } from "./large-defocus-lattice.js";
+import { DEFOCUS_DIRECT_KERNEL_MAXIMUM_RADIUS_SITES, siteKernelRuns } from "../optics/site-kernel-runs.js";
+import { createDefocusBokehSiteKernel, resolveDefocusBokehOptions, type DefocusBokehOptions, type DefocusBokehSiteKernel, type ResolvedDefocusBokehOptions } from "../optics/defocus-bokeh-kernel.js";
+import { planDefocusBokehZones, type DefocusBokehZonePlan } from "./defocus-bokeh-zones.js";
 import { resolveGenericPrimeLens, type GenericPrimeLens } from "../equipment/generic-prime-lenses.js";
+import type { ResolvedGenericLens } from "../equipment/generic-lens-catalogue.js";
 import { calculateChannelElectronsPerRadiance } from "./channel-response.js";
 import { calculateSiteEffectiveSaturationCode } from "../capture/raw-white-level.js";
 import { prepareSensorColorDevelopment } from "../color/sensor-color-development.js";
@@ -347,6 +352,22 @@ export interface SimulateCaptureOptions {
      * focus distance below its minimum focus distance, is rejected. Not combinable with `focalLengthMm`.
      */
     prime?: number;
+    /**
+     * Opt-in (#549): a lens of the generic lens catalogue by id (`GENERIC_LENS_IDS`, for example "pv-50-1.2-pro" or "pv-50-1.8";
+     * docs/LENS_CATALOGUE.md). Like `prime`, its focal length is the full-frame equivalent ÷ the simulated frame's diagonal crop
+     * factor and it replaces the tier lens's focal length and f-number range (the transmission is kept). The capture renders the
+     * lens's character, all labelled approximations: its PSF (diffraction with the lens's Seidel aberrations, axial and lateral
+     * colour, at the resolved f-number and focus) through the environment PSF quadrature, its radial distortion, its vignetting
+     * and, for the fisheyes, the equisolid projection. Flare, focus breathing and bokeh shape are not rendered. Not combinable
+     * with `prime`, `focalLengthMm`, `projection`, `distortion`, `vignetting`, `psf`, `diffraction` or `pupilSampling` (the
+     * lens sets them); `defocus` convolves the disc into the lens's PSF. Not offered by the display view. Default off.
+     */
+    catalogue?: string;
+    /**
+     * Opt-in (#549), with `catalogue` only: a seeded autofocus error (`simulateGenericLensFocusError`). The focus distance becomes
+     * the sampled one for (seed, shotIndex), reported in the `lens.focusScatter` assumption; it is visible with `defocus`. Default off.
+     */
+    focusScatter?: { seed: number; shotIndex?: number };
     /** Aperture for manual and aperture-priority modes. Default 8. */
     fNumber?: number;
     /** Focus distance in metres. Default: the subject distance. */
@@ -380,8 +401,13 @@ export interface SimulateCaptureOptions {
      * kernel is convolved with the disc (a further approximation). In focus the result is that of the same request
      * without the option, plus the assumption.
      * Not combinable with `pupilSampling` or `psf`. Default off.
+     *
+     * Bokeh character (#553), each part off by default (without them the disc is unchanged, byte for byte): `blades` (a
+     * polygonal or rounded-blade opening), `sphericalAberration` (primary W040: soft-edged blur on one side of the focus
+     * plane, bright-rimmed on the other) and `catsEye` (mechanical vignetting clipping the pupil by field position; the
+     * capture only, not with `diffraction`). See `calculateDefocusBokehKernel` and docs/QUICK_START.md, "Bokeh character".
      */
-    defocus?: { model: "geometric-disc" };
+    defocus?: { model: "geometric-disc" } & DefocusBokehOptions;
   };
   exposure?: {
     /** Default "manual". */
@@ -574,7 +600,7 @@ export interface SimulateCaptureOptions {
  * a capture does. `motion.rotation` is a non-zero angular velocity; `sensor.temporalSampleCount` a count above 1.
  */
 export const SIMULATE_CAPTURE_COST_OPTIONS = /* @__PURE__ */ Object.freeze(["lens.pupilSampling", "lens.projection", "lens.distortion", "lens.vignetting", "lens.psf",
-  "lens.diffraction", "lens.defocus", "sensor.antiAliasing", "sensor.pixelAperture.box", "sensor.temporalSampleCount", "motion.rotation", "motion.shutter.rolling", "output.borderHandling.mirror", "output.region",
+  "lens.diffraction", "lens.defocus", "lens.catalogue", "sensor.antiAliasing", "sensor.pixelAperture.box", "sensor.temporalSampleCount", "motion.rotation", "motion.shutter.rolling", "output.borderHandling.mirror", "output.region",
   "output.whiteBalance.auto", "output.demosaic.ahd", "output.highlightMode.reconstruct", "output.colorEncoding.wide-gamut", "output.gamutMapping.perceptual",
   "output.diffractionCorrection", "output.sharpening", "output.format.jpeg", "output.format.png", "output.format.dng"] as const);
 export type SimulateCaptureCostOption = typeof SIMULATE_CAPTURE_COST_OPTIONS[number];
@@ -1546,8 +1572,13 @@ export interface DisplayViewRunContext {
   chartReport: { widthM: number; heightM: number; surroundReflectance: number; frameWidthFraction: number; frameHeightFraction: number; magnification: number; imageWidthMm: number; imageHeightMm: number; imageWidthPixels: number; imageHeightPixels: number; } | undefined;
   chartSize: { widthM: number; heightM: number; surroundReflectance: number; defaulted: ("heightM" | "surroundReflectance")[]; } | undefined;
   diffraction: DiffractionLimitedPsfProfile | undefined;
-  /** `lens.defocus` (#492): the resolved geometric disc out of focus; undefined in focus or without the option. */
-  defocus: ResolvedDefocusDisc | undefined;
+  /** `lens.defocus` (#492): the resolved geometric disc out of focus; undefined in focus or without the option. #553: with bokeh options, the shaped kernel. */
+  defocus: (ResolvedDefocusDisc & { siteKernel?: DefocusDiscSiteKernel }) | undefined;
+  /**
+   * #563: with `lens.projection`, `lens.distortion`, `lens.vignetting` or camera rotation, the factory of the view's expected signal
+   * through the lens (display-view-lens-signal.ts, loaded on demand); undefined without them (the rectilinear expected signal).
+   */
+  lens?: ((input: DisplayViewExpectedSignalInput, spanColumns?: number) => DisplayViewExpectedSignal) | undefined;
   diffractionPsf: { kind: "sampled-local"; configuration: Pick<CalculateSensorPsfIrradianceQuadratureInput, "psf" | "psfWavelengthBasis" | "spatialModel">; } | undefined;
   fNumber: number;
   focalLengthMm: number;
@@ -1625,18 +1656,38 @@ export function parseDisplayViewOption(value: unknown, frameWidth: number, frame
  */
 function resolveDefocusOption(input: { run: "capture" | "ideal-reference" | "display-view" | "dng-from-parts"; assume: DisplayViewRunContext["assume"];
   focalLengthMm: number; fNumber: number; focusDistanceM: number; subjectDistanceM: number; pitch: number; diffraction: boolean;
-  imageSpace?: (disc: ResolvedDefocusDisc) => { options: readonly string[]; fieldVariation: DefocusFieldVariation } }): ResolvedDefocusDisc | undefined {
+  imageSpace?: (disc: ResolvedDefocusDisc) => { options: readonly string[]; fieldVariation: DefocusFieldVariation };
+  /** #553: the bokeh options as given, and (out of focus, where the kernel is applied) the shaped kernel's record and explanation. */
+  bokehOptions?: ResolvedDefocusBokehOptions; bokeh?: (disc: ResolvedDefocusDisc) => { value: Record<string, unknown>; explanation: string } }): ResolvedDefocusDisc | undefined {
   const { run, assume, focalLengthMm, fNumber, focusDistanceM, subjectDistanceM, pitch } = input;
   const disc = resolveDefocusDisc({ focalLengthMm, aperture: fNumber, focusDistanceM, subjectDistanceM, pitchMicrometers: pitch });
-  const size = disc.diameterMicrometers + " µm (" + disc.diameterSites + " sites of " + pitch + " µm)";
   let radius: number;
-  try { radius = requireDefocusDiscKernelRadius(disc.diameterSites); } catch (error) { fail("lens.defocus: the blur circle is " + size + ". " + (error as Error).message); }
-  const value = { model: "geometric-disc", scientificStatus: "approximation", diameterMicrometers: disc.diameterMicrometers, diameterSites: disc.diameterSites,
+  try { radius = requireDefocusDiscKernelRadius(disc.diameterSites); } catch { fail("lens.defocus: " + defocusDiscLimitMessage(disc.diameterSites, disc.diameterMicrometers)); }
+  let value: Record<string, unknown> = { model: "geometric-disc", scientificStatus: "approximation", diameterMicrometers: disc.diameterMicrometers, diameterSites: disc.diameterSites,
     kernelRadiusSites: disc.diameterSites === 0 ? null : radius, fNumber, focusDistanceM, subjectDistanceM, samplePitchMicrometers: pitch,
     defocusCircleModel: { id: "thin-lens-defocus-circle", version: "1.1.0" } };
-  const model = "Geometric defocus of the flat scene plane (an approximation): the thin-lens blur circle of an ideal uniform circular pupil, " +
+  let model = "Geometric defocus of the flat scene plane (an approximation): the thin-lens blur circle of an ideal uniform circular pupil, " +
     "c = f²·|s − d| / (N·d·(s − f)) (calculateDefocusCircle 1.1.0), as a uniform disc sampled on the site lattice (exact disc area in each site's cell). " +
     "No diffraction of the defocused wave, aberrations or pupil vignetting. ";
+  // #553: the bokeh options. Out of focus, where a kernel is applied, the shaped kernel replaces the disc and its record joins the value.
+  let kernelRadius = radius;
+  if (input.bokehOptions) {
+    value = { ...value, bokeh: { options: input.bokehOptions } };
+    if (disc.diameterSites > 0 && run !== "ideal-reference" && input.bokeh) {
+      const shaped = input.bokeh(disc);
+      value = { ...value, bokeh: shaped.value };
+      model += shaped.explanation;
+      kernelRadius = shaped.value.kernelRadiusSites as number;
+    }
+  }
+  // #564: above the direct radius the kernel (the disc, or the shaped kernel of #553) is convolved by runs; the field is absent below it,
+  // so those records are unchanged.
+  if (kernelRadius > DEFOCUS_DIRECT_KERNEL_MAXIMUM_RADIUS_SITES) {
+    value = { ...value, convolution: "runs" };
+    model += "The kernel radius is above 64 sites, so the kernel is convolved by runs (#564): each kernel row's run of equal weights is a difference of two prefix sums, " +
+      "the other cells (the edge) are read one by one, and with lens.diffraction each node's diffraction kernel is applied after the defocus kernel. " +
+      "That is the same sum as the direct convolution, regrouped (exact up to rounding, not an approximation). ";
+  }
   if (disc.diameterSites === 0) {
     assume("lens.defocus", "model", value, model + "In focus (lens.focusDistanceM equals subjectDistanceM): the disc has zero diameter, so no defocus kernel is applied.");
     return undefined;
@@ -1645,8 +1696,9 @@ function resolveDefocusOption(input: { run: "capture" | "ideal-reference" | "dis
     assume("lens.defocus", "model", value, model + "Resolved but not applied: the ideal reference has no camera effects.");
     return undefined;
   }
-  // The display view (#492, step 2b): a site kernel in its expected-signal tables (simulate-display-view.ts).
-  if (run === "display-view") {
+  // The display view (#492, step 2b): a site kernel in its expected-signal tables (simulate-display-view.ts); with a lens field mapping,
+  // vignetting or rotation (#563) applied in image space as in the capture, so it records the capture's assumption below.
+  if (run === "display-view" && !input.imageSpace) {
     assume("lens.defocus", "model", { ...value, execution: "expected-signal-site-kernel", combinedWithDiffraction: input.diffraction }, model +
       "Applied in the display view's expected-signal tables as a site kernel on the lattice" + (input.diffraction ? " (with lens.diffraction, each spectral node's " +
       "diffraction kernel convolved with the disc, a further approximation)" : "") + "; see the view.defocus assumption.");
@@ -1723,7 +1775,8 @@ export async function runCapture(options: SimulateCaptureOptions, run: "capture"
   const body = preset.body, lens = preset.lens;
 
   // Lens
-  const lensOptions = allowKeys(top.lens, "lens", ["focalLengthMm", "fNumber", "focusDistanceM", "pupilSampling", "projection", "distortion", "vignetting", "psf", "diffraction", "prime", "defocus"]);
+  const lensOptions = allowKeys(top.lens, "lens", ["focalLengthMm", "fNumber", "focusDistanceM", "pupilSampling", "projection", "distortion", "vignetting", "psf", "diffraction", "prime", "defocus",
+    "catalogue", "focusScatter"]);
   // Generic prime (2.3): resolved on the simulated frame's size, which the output and sensor sections validate again below.
   let prime: GenericPrimeLens | undefined;
   if (lensOptions.prime !== undefined) {
@@ -1737,20 +1790,44 @@ export async function runCapture(options: SimulateCaptureOptions, run: "capture"
     "Generic prime (not a real product): focal length = equivalent ÷ the simulated frame's diagonal crop factor, f/" + prime.widestFNumber + "–f/" + prime.narrowestFNumber +
       ", minimum focus max(0.10 m, f·(1 + 1/0.15)) (thin-lens approximation). It replaces the tier lens's focal length and f-number range; the tier lens's transmission is kept.");
   }
-  const lensExposure = prime ? { ...lens.exposure, profileId: "photivra-" + prime.lensId + ":exposure",
-    focalLengthMmRange: { ...lens.exposure.focalLengthMmRange, value: { minimum: prime.focalLengthMm, maximum: prime.focalLengthMm } },
-    aperture: { ...lens.exposure.aperture, widestAvailableFNumber: { kind: "constant" as const, fNumber: { value: prime.widestFNumber, evidence: FACADE_EVIDENCE } },
-      narrowestAvailableFNumber: { value: prime.narrowestFNumber, evidence: FACADE_EVIDENCE } } } as typeof lens.exposure : lens.exposure;
+  // Generic lens catalogue (#549): resolved on the simulated frame like the prime; its character is built once the f-number is known.
+  let catalogue: ResolvedGenericLens | undefined, catalogueFrame: { widthMm: number; heightMm: number } | undefined;
+  let lensKit: typeof import("./generic-lens-capture.js") | undefined;
+  if (lensOptions.catalogue !== undefined) {
+    for (const key of ["prime", "focalLengthMm", "projection", "distortion", "vignetting", "psf", "diffraction", "pupilSampling"])
+      if (lensOptions[key] !== undefined) fail("lens.catalogue cannot be combined with lens." + key + ": the catalogue lens sets its own focal length, projection, distortion, vignetting and PSF (with diffraction).");
+    if (displayView) fail("simulateDisplayView does not support lens.catalogue: the catalogue lens's field-dependent PSF, distortion and vignetting run through the capture's environment quadrature.");
+    const o = (typeof top.output === "object" && top.output !== null ? top.output : {}) as Record<string, unknown>, sn = (typeof top.sensor === "object" && top.sensor !== null ? top.sensor : {}) as Record<string, unknown>;
+    const frameW = positive(o.width ?? DEFAULTS.width, "output.width"), frameH = positive(o.height ?? DEFAULTS.height, "output.height"), framePitch = positive(sn.pixelPitchMicrometers ?? DEFAULTS.pixelPitchMicrometers, "sensor.pixelPitchMicrometers");
+    catalogueFrame = { widthMm: frameW * framePitch / 1000, heightMm: frameH * framePitch / 1000 };
+    lensKit = await import("./generic-lens-capture.js");
+    catalogue = lensKit.resolveGenericLens({ lensId: lensOptions.catalogue as string, activeImagingArea: catalogueFrame });
+    assume("lens.catalogue", "model", { lensId: catalogue.lensId, name: catalogue.name, set: catalogue.set, kind: catalogue.kind, equivalentFocalLengthMm: catalogue.equivalentFocalLengthMm,
+      focalLengthMm: catalogue.focalLengthMm, cropFactor35Mm: catalogue.cropFactor35Mm, widestFNumber: catalogue.widestFNumber, narrowestFNumber: catalogue.narrowestFNumber,
+      minimumFocusDistanceM: catalogue.minimumFocusDistanceM, maximumMagnification: catalogue.maximumMagnification, projection: catalogue.projection, fisheyeImage: catalogue.fisheyeImage },
+    "Generic catalogue lens " + catalogue.name + " (#549; Photivra's own design, not a real product): focal length = equivalent ÷ the simulated frame's diagonal crop factor, f/" +
+      catalogue.widestFNumber + "–f/" + catalogue.narrowestFNumber + ", minimum focus max(0.10 m, f·(1 + 1/" + catalogue.maximumMagnification + ")) (thin lens). Its character is a labelled " +
+      "approximation (the lens.catalogue.character assumption). It replaces the tier lens's focal length and f-number range; the tier lens's transmission is kept.");
+  } else if (lensOptions.focusScatter !== undefined) fail("lens.focusScatter needs lens.catalogue: the focus scatter is a catalogue lens's own.");
+  const lensRange = prime ? { id: prime.lensId, focalLengthMm: prime.focalLengthMm, widestFNumber: prime.widestFNumber, narrowestFNumber: prime.narrowestFNumber } :
+    catalogue ? { id: catalogue.lensId, focalLengthMm: catalogue.focalLengthMm, widestFNumber: catalogue.widestFNumber, narrowestFNumber: catalogue.narrowestFNumber } : undefined;
+  const lensExposure = lensRange ? { ...lens.exposure, profileId: "photivra-" + lensRange.id + ":exposure",
+    focalLengthMmRange: { ...lens.exposure.focalLengthMmRange, value: { minimum: lensRange.focalLengthMm, maximum: lensRange.focalLengthMm } },
+    aperture: { ...lens.exposure.aperture, widestAvailableFNumber: { kind: "constant" as const, fNumber: { value: lensRange.widestFNumber, evidence: FACADE_EVIDENCE } },
+      narrowestAvailableFNumber: { value: lensRange.narrowestFNumber, evidence: FACADE_EVIDENCE } } } as typeof lens.exposure : lens.exposure;
   const focalDefault = lensExposure.focalLengthMmRange.value.minimum;
-  const focalLengthMm = prime ? prime.focalLengthMm :
+  const focalLengthMm = lensRange ? lensRange.focalLengthMm :
     positive(pick(lensOptions, "focalLengthMm", "lens.focalLengthMm", focalDefault, "The preset lens's focal length (the generic primes are 50 mm)."), "lens.focalLengthMm");
   const capabilities = resolveGenericEquipmentExposureCapabilities({ bodyProfile: body.exposure, lensProfile: lensExposure, selectedFocalLengthMm: focalLengthMm });
   const subjectDistanceM = positive(pick(top, "subjectDistanceM", "subjectDistanceM", DEFAULTS.subjectDistanceM, "Scene plane 5 m in front of the camera (the generic tiers' reference focus distance)."), "subjectDistanceM");
   if (subjectDistanceM * 1000 <= focalLengthMm * 2) fail("subjectDistanceM must exceed twice the focal length.");
-  const focusDistanceM = positive(pick(lensOptions, "focusDistanceM", "lens.focusDistanceM", subjectDistanceM, "Focused on the scene plane."), "lens.focusDistanceM");
+  let focusDistanceM = positive(pick(lensOptions, "focusDistanceM", "lens.focusDistanceM", subjectDistanceM, "Focused on the scene plane."), "lens.focusDistanceM");
   if (focusDistanceM * 1000 <= focalLengthMm) fail("lens.focusDistanceM must exceed the focal length.");
   if (prime && (subjectDistanceM < prime.minimumFocusDistanceM || focusDistanceM < prime.minimumFocusDistanceM))
     fail("The " + prime.lensId + " focuses no closer than " + prime.minimumFocusDistanceM + " m (max(0.10 m, f·(1 + 1/0.15))); subjectDistanceM and lens.focusDistanceM must be at least that.");
+  if (catalogue && (subjectDistanceM < catalogue.minimumFocusDistanceM || focusDistanceM < catalogue.minimumFocusDistanceM))
+    fail("The " + catalogue.name + " focuses no closer than " + catalogue.minimumFocusDistanceM + " m (max(0.10 m, f·(1 + 1/" + catalogue.maximumMagnification +
+      "))); subjectDistanceM and lens.focusDistanceM must be at least that.");
   let pupil: { radialSamples: number; angularSamples: number } | undefined;
   if (lensOptions.pupilSampling === undefined) assume("lens.pupilSampling", "default", null, lensOptions.defocus === undefined ?
     "No pupil sampling: each scene query follows the central (chief) ray, so defocus and depth of field are not rendered. Enable lens.pupilSampling for an ideal circular pupil." :
@@ -1762,14 +1839,18 @@ export async function runCapture(options: SimulateCaptureOptions, run: "capture"
     if (pupil.radialSamples * pupil.angularSamples > 256) fail("lens.pupilSampling needs at most 256 rays (radialSamples × angularSamples).");
   }
   // 2.0 optics hooks: only what the environment site contract accepts.
-  const projection: LensProjectionModel | undefined = lensOptions.projection === undefined ? undefined : parseLensProjectionModel(lensOptions.projection);
+  const projection: LensProjectionModel | undefined = lensOptions.projection === undefined ? (catalogue && catalogue.projection !== "rectilinear" ? catalogue.projection : undefined) :
+    parseLensProjectionModel(lensOptions.projection);
   let distortion: SimulateCaptureLensDistortion | undefined;
   if (lensOptions.distortion !== undefined) {
     const d = allowKeys(lensOptions.distortion, "lens.distortion", ["kind", "profile"]);
     if (d.kind !== "radial" && d.kind !== "brown-conrady") fail("lens.distortion.kind must be radial or brown-conrady.");
     distortion = d as unknown as SimulateCaptureLensDistortion;
   }
-  const lensFieldMapping: EnvironmentLensFieldMapping | undefined = projection === undefined && distortion === undefined ? undefined :
+  // #549: a catalogue lens's distortion (and the fisheyes' projection) is set once its field reach is known (below); the mapping
+  // stands in for it in the combination checks until then.
+  if (catalogue) distortion = { kind: "radial", profile: lensKit!.genericLensDistortionProfile(catalogue.character.distortion.corner, catalogue.halfDiagonalMm) };
+  let lensFieldMapping: EnvironmentLensFieldMapping | undefined = projection === undefined && distortion === undefined ? undefined :
     { projectionModel: projection ?? "rectilinear", distortion: distortion ?? { kind: "none" }, radiometricAreaCorrection: "inverse-distortion-jacobian" };
   if (lensFieldMapping) {
     if (pupil) fail("lens.projection and lens.distortion cannot be combined with lens.pupilSampling: ideal pupil rays use the rectilinear, distortion-free projection.");
@@ -1803,13 +1884,25 @@ export async function runCapture(options: SimulateCaptureOptions, run: "capture"
     if (pupil) fail("lens.diffraction cannot be combined with lens.pupilSampling: the environment contract does not mix a sampled PSF with pupil rays.");
   }
   // Defocus (#492): validated here, resolved once the f-number is.
-  let defocusModel: "geometric-disc" | undefined;
+  let defocusModel: "geometric-disc" | undefined, defocusBokeh: ResolvedDefocusBokehOptions | undefined;
   if (lensOptions.defocus !== undefined) {
-    const record = allowKeys(lensOptions.defocus, "lens.defocus", ["model"]);
+    const record = allowKeys(lensOptions.defocus, "lens.defocus", ["model", "blades", "sphericalAberration", "catsEye"]);
     if (record.model !== "geometric-disc") fail("lens.defocus.model must be \"geometric-disc\".");
+    // #553: the bokeh options; none given keeps the disc of #492 (byte-identical requests).
+    if (record.blades !== undefined || record.sphericalAberration !== undefined || record.catsEye !== undefined) {
+      const bokeh: Record<string, unknown> = { ...record };
+      delete bokeh.model;
+      try { defocusBokeh = resolveDefocusBokehOptions(bokeh, "lens.defocus"); } catch (error) { fail((error as Error).message); }
+      if (defocusBokeh.catsEye && diffractionRadiusOption !== undefined) fail("lens.defocus.catsEye cannot be combined with lens.diffraction: the cat's eye varies over the field, " +
+        "so each field zone would need its own diffraction kernel convolved with its clipped pupil at every spectral node. Omit one of the options.");
+    }
     if (pupil) fail("lens.defocus cannot be combined with lens.pupilSampling: the pupil rays already render defocus, so it would be counted twice.");
     if (lensPsf) fail("lens.defocus cannot be combined with lens.psf: a caller PSF declares its own defocus, so it could be counted twice.");
-    defocusModel = "geometric-disc";
+    // #549: with a catalogue lens the disc is convolved into the lens's PSF (below), not applied by the lens.defocus paths. The bokeh
+    // options (#553) shape the lens.defocus kernel only, so they are refused rather than dropped (a follow-up for a later release).
+    if (catalogue && defocusBokeh) fail("lens.defocus.blades, sphericalAberration and catsEye cannot be combined with lens.catalogue: the catalogue lens " +
+      "folds a plain disc into its own PSF. Omit the bokeh options, or use lens.focalLengthMm instead of the catalogue lens.");
+    if (!catalogue) defocusModel = "geometric-disc";
   }
 
   // Motion (2.0): constant camera rotation and the shutter type.
@@ -1928,10 +2021,10 @@ export async function runCapture(options: SimulateCaptureOptions, run: "capture"
   if (displayView) {
     const unsupported = (option: string, reason: string): never => fail("simulateDisplayView does not support " + option + ": " + reason);
     if (pupil) unsupported("lens.pupilSampling", "pupil rays move each query off the site lattice the expected-signal tables use; lens.defocus renders the defocus of the scene plane on the lattice.");
-    if (lensFieldMapping) unsupported("lens.projection or lens.distortion", "the expected signal assumes the ideal rectilinear, distortion-free mapping of the site lattice.");
-    if (vignetting) unsupported("lens.vignetting", "the expected signal assumes the same radiance-to-irradiance factor at every site.");
     if (lensPsf) unsupported("lens.psf", "only the engine-built diffraction kernels (lens.diffraction) are tabulated.");
-    if (rotating) unsupported("motion.angularVelocityRadPerSec", "camera rotation moves the queries off the site lattice.");
+    // #563: projection, distortion, vignetting and rotation are supported (display-view-lens-signal.ts), except rotation under a rolling shutter.
+    if (rotating && shutterKind === "rolling") unsupported("camera rotation with motion.shutter \"rolling\"", "every row has its own instants, so the view's " +
+      "scene points of one instant would mix rows exposed at other times; use motion.shutter \"global\" for the view.");
     if (outputOptions.region !== undefined) unsupported("output.region", "pass the rectangle as view.region, in display pixels.");
     if (outputOptions.whiteBalance === "auto") unsupported("output.whiteBalance \"auto\"", "the capture measures it from its noisy full-resolution RAW; use \"scene-illuminant\" or a fixed white balance.");
     if (outputOptions.toneCurve !== undefined && outputOptions.toneCurve !== "identity" && outputOptions.toneCurve !== "positive-reinhard-per-channel")
@@ -1939,6 +2032,8 @@ export async function runCapture(options: SimulateCaptureOptions, run: "capture"
     if (outputOptions.highlightMode === "reconstruct") unsupported("output.highlightMode \"reconstruct\"", "the view supports the per-channel highlight clip.");
     if (outputOptions.diffractionCorrection !== undefined || outputOptions.sharpening !== undefined)
       unsupported("output.diffractionCorrection or output.sharpening", "the development detail stages filter the whole developed capture image.");
+    if (defocusBokeh?.catsEye) unsupported("lens.defocus.catsEye", "the expected-signal tables hold one kernel per spectral node, and the cat's eye varies over the field; " +
+      "simulateCapture renders it. lens.defocus.blades and lens.defocus.sphericalAberration are supported.");
   }
 
   const colorSamplingProfile = { schemaVersion: "0.1.0" as const, profileId: IDS.cfa, evidence: FACADE_EVIDENCE, coordinateSystem: "native-sensor-color-sampling-site-index" as const,
@@ -2123,7 +2218,8 @@ export async function runCapture(options: SimulateCaptureOptions, run: "capture"
   const buildProvider = (sceneIlluminant: ResolvedCaptureIlluminant, scale: number): PlanarSceneRadianceProvider => buildPlanarSceneRadianceProvider({ scene: chart ?? callerScene!,
     sceneId: IDS.scene, providerProfileId: IDS.provider, illuminant: sceneIlluminant, irradianceScale: scale, geometry: { distanceM: subjectDistanceM, metresPerFrameUnit,
       ...(chartSize ? { chart: { widthM: chartSize.widthM, heightM: chartSize.heightM, surroundReflectance: chartSize.surroundReflectance } } : {}) }, evidence: FACADE_EVIDENCE,
-    limitations: Object.freeze(["Planar Lambertian scene under uniform illumination; no shadows, inter-reflection, gloss or fluorescence."]) });
+    limitations: Object.freeze(["Planar Lambertian scene under uniform illumination; no shadows, inter-reflection, gloss or fluorescence."]),
+    ...(catalogue?.kind === "fisheye" ? { zeroBeyondHorizon: true as const } : {}) });
   const provider = buildProvider(illuminant, irradianceScale);
   // 2.6: a chart preset's evaluator is engine-built end to end (its results: the schema's exact keys, constant fields,
   // the request's identifiers, deep-frozen FACADE_EVIDENCE, UNCERTAINTY and limitations, and an engine-computed
@@ -2190,6 +2286,8 @@ export async function runCapture(options: SimulateCaptureOptions, run: "capture"
     fNumber = positive(pick(lensOptions, "fNumber", "lens.fNumber", DEFAULTS.fNumber, "f/8."), "lens.fNumber");
     if (prime && (fNumber < prime.widestFNumber || fNumber > prime.narrowestFNumber))
       fail("lens.fNumber " + fNumber + " is outside the " + prime.lensId + " range f/" + prime.widestFNumber + "–f/" + prime.narrowestFNumber + ".");
+    if (catalogue && (fNumber < catalogue.widestFNumber || fNumber > catalogue.narrowestFNumber))
+      fail("lens.fNumber " + fNumber + " is outside the " + catalogue.name + " range f/" + catalogue.widestFNumber + "–f/" + catalogue.narrowestFNumber + ".");
   } else {
     if (lensOptions.fNumber !== undefined) fail("lens.fNumber is resolved automatically in " + mode + " mode; omit it.");
     fNumber = NaN;
@@ -2288,15 +2386,140 @@ export async function runCapture(options: SimulateCaptureOptions, run: "capture"
   const exposureIlluminanceLux = standardExposureIlluminanceLux(fNumber, shutterSeconds, resolvedIso, meteredLuminance, illuminanceLux,
     callerScene?.kind !== "radiance-function");
   const exposureGreyCardDeviationStops = callerScene?.kind === "radiance-function" ? null : greyCardDeviationStops(fNumber, shutterSeconds, resolvedIso, illuminanceLux);
+  // #549: the catalogue lens's character at the resolved f-number and focus: focus scatter, the defocus disc folded into its PSF, then
+  // its distortion and vignetting profiles over the field the PSF and the queries reach, and its PSF profile.
+  let catalogueTaps: number | undefined, catalogueDefocusApplied = false;
+  if (catalogue && lensKit) {
+    const { GENERIC_LENS_EVIDENCE, genericLensDistortionProfile, genericLensVignettingProfile, resolveGenericLens, simulateGenericLensFocusError, createGenericLensPsfProfile,
+      genericLensPsfKernelRadius, GENERIC_LENS_PSF_MAXIMUM_COMBINED_RADIUS_SITES } = lensKit;
+    if (fNumber < catalogue.widestFNumber || fNumber > catalogue.narrowestFNumber)
+      fail("lens.fNumber " + fNumber + " is outside the " + catalogue.name + " range f/" + catalogue.widestFNumber + "–f/" + catalogue.narrowestFNumber + ".");
+    if (lensOptions.focusScatter !== undefined) {
+      const scatterOptions = allowKeys(lensOptions.focusScatter, "lens.focusScatter", ["seed", "shotIndex"]);
+      const sample = simulateGenericLensFocusError({ lensId: catalogue.lensId, activeImagingArea: catalogueFrame!, fNumber, focusDistanceM, seed: scatterOptions.seed as number,
+        ...(scatterOptions.shotIndex === undefined ? {} : { shotIndex: scatterOptions.shotIndex as number }) });
+      assume("lens.focusScatter", "model", { ...sample },
+        "Seeded autofocus error (an approximation of focus consistency): image-side error z·σ·2Nc with z a standard normal draw from the seed and shot index, σ = " + sample.depthOfFocusFraction +
+        " of the depth of focus 2·N·c (c = the frame diagonal / 1500), read back through the thin lens. The focus distance " + sample.intendedFocusDistanceM + " m becomes " + sample.focusDistanceM + " m" +
+        (lensOptions.defocus === undefined ? "; without lens.defocus the capture renders no defocus, so the image does not change." : "."));
+      focusDistanceM = sample.focusDistanceM;
+    }
+    const character = resolveGenericLens({ lensId: catalogue.lensId, activeImagingArea: catalogueFrame!, fNumber, focusDistanceM });
+    let extraKernel: { weights: Float64Array; radius: number } | undefined;
+    if (lensOptions.defocus !== undefined) {
+      const disc = resolveDefocusDisc({ focalLengthMm, aperture: fNumber, focusDistanceM, subjectDistanceM, pitchMicrometers: pitch });
+      let discRadius: number;
+      try { discRadius = requireDefocusDiscKernelRadius(disc.diameterSites); } catch { fail("lens.defocus: " + defocusDiscLimitMessage(disc.diameterSites, disc.diameterMicrometers)); }
+      const kernel = run === "ideal-reference" ? null : createDefocusDiscSiteKernel(disc.diameterSites);
+      if (kernel) { extraKernel = { weights: kernel.weights, radius: kernel.radius }; catalogueDefocusApplied = true; }
+      assume("lens.defocus", "model", { model: "geometric-disc", scientificStatus: "approximation", diameterMicrometers: disc.diameterMicrometers, diameterSites: disc.diameterSites,
+        kernelRadiusSites: disc.diameterSites === 0 ? null : discRadius, fNumber, focusDistanceM, subjectDistanceM, samplePitchMicrometers: pitch,
+        defocusCircleModel: { id: "thin-lens-defocus-circle", version: "1.1.0" }, execution: "catalogue-lens-psf" },
+      "Geometric defocus of the flat scene plane (an approximation): the thin-lens blur circle c = f²·|s − d| / (N·d·(s − f)) (calculateDefocusCircle 1.1.0) as a uniform disc sampled on the site lattice. " +
+        (disc.diameterSites === 0 ? "In focus: no disc is applied." : run === "ideal-reference" ? "Resolved but not applied: the ideal reference has no camera effects." :
+          "With the catalogue lens the disc is convolved into every node of the lens's PSF (a further approximation: the defocused aberrated wave PSF is not exactly the in-focus PSF convolved with the disc) and applied through the environment PSF quadrature."));
+    }
+    // An upper bound of the PSF's radius (the built window may be narrower): the field reach below uses it.
+    const kernelRadius = genericLensPsfKernelRadius({ lens: character, focusDistanceM, sitePitchMicrometers: pitch }) + (extraKernel ? extraKernel.radius : 0);
+    // The field the PSF taps and the site queries reach: the native raster plus the kernel radius and the query offsets.
+    const queryReach = Math.max(0, ...queryOffsetsSites.map((q) => Math.max(Math.abs(q.x), Math.abs(q.y))));
+    const reachMm = (kernelRadius + queryReach + 1) * pitch / 1000;
+    const frameHalfMm = { x: nativeWidth * pitch / 2000, y: nativeHeight * pitch / 2000 }, extentMm = { x: frameHalfMm.x + reachMm, y: frameHalfMm.y + reachMm };
+    const reachRadius = Math.hypot(extentMm.x, extentMm.y) / catalogue.halfDiagonalMm;
+    const b = 1 - 2 ** (-character.character.vignetting.cornerStops / 2);
+    if (!(b * reachRadius * reachRadius < 0.98))
+      fail("lens.catalogue: the " + catalogue.name + "'s vignetting E(ρ) = (1 − bρ²)² is defined inside ρ < " + (1 / Math.sqrt(b)).toFixed(3) + " of the frame's half-diagonal, and this frame's PSF reach goes to ρ = " +
+        reachRadius.toFixed(3) + ". Use a larger output (or smaller pixels' fewer sites of reach): the reach is " + (kernelRadius + queryReach + 1) + " sites beyond the frame.");
+    vignetting = genericLensVignettingProfile(character.character.vignetting.cornerStops, catalogue.halfDiagonalMm, reachRadius);
+    const corner = character.character.distortion.corner;
+    distortion = { kind: "radial", profile: genericLensDistortionProfile(corner, catalogue.halfDiagonalMm, corner < 0 ? reachRadius / (1 + corner * reachRadius * reachRadius) * 1.01 : reachRadius) };
+    lensFieldMapping = { projectionModel: projection ?? "rectilinear", distortion, radiometricAreaCorrection: "inverse-distortion-jacobian",
+      ...(catalogue.kind === "fisheye" ? { outsideImageCircle: "backward-ray" as const } : {}) };
+    try { prepareEnvironmentLensFieldMapping(lensFieldMapping); } catch (error) { fail("lens.catalogue: the " + catalogue.name + "'s distortion over this frame's reach: " + (error as Error).message); }
+    const c = character.character;
+    let psfReport: Record<string, unknown> | null = null;
+    if (run !== "ideal-reference") {
+      const built = createGenericLensPsfProfile({ lens: character, focusDistanceM, sitePitchMicrometers: pitch, fieldHalfExtentMm: extentMm, frameHalfMm, evidence: GENERIC_LENS_EVIDENCE,
+        ...(extraKernel ? { extraKernel } : {}) });
+      lensPsf = { kind: "sampled-local", configuration: { psf: { profile: built.profile, focalLengthMm, focus: { kind: "finite", distanceM: focusDistanceM }, apertureFNumber: fNumber,
+        signedDefocusImagePlaneMicrometers: 0 }, psfWavelengthBasis: { value: "vacuum", evidence: GENERIC_LENS_EVIDENCE },
+      spatialModel: { kind: "destination-local-shift-invariant-approximation", evidence: GENERIC_LENS_EVIDENCE,
+        limitation: "Catalogue lens PSF: a 5 × 5 field grid × 5 wavelengths, interpolated with centroid alignment; each site's PSF is that of its own field point." } } } as typeof lensPsf;
+      if (built.kernelRadiusSites > GENERIC_LENS_PSF_MAXIMUM_COMBINED_RADIUS_SITES)
+        fail("lens.catalogue with lens.defocus needs a PSF of radius " + built.kernelRadiusSites + " sites (the lens's " + built.aberrationKernelRadiusSites + " plus the disc's " +
+          (built.kernelRadiusSites - built.aberrationKernelRadiusSites) + "), over the limit of " + GENERIC_LENS_PSF_MAXIMUM_COMBINED_RADIUS_SITES + " (" + (2 * built.kernelRadiusSites + 1) ** 2 +
+          " scene queries per site and spectral node through the environment quadrature). Bring the focus closer to the subject, stop down, or use larger pixels.");
+      catalogueTaps = (2 * built.kernelRadiusSites + 1) ** 2;
+      psfReport = { aberrationKernelRadiusSites: built.aberrationKernelRadiusSites, kernelRadiusSites: built.kernelRadiusSites, maximumTruncatedEnergyFraction: built.maximumTruncatedEnergyFraction,
+        fieldNodesMm: { x: built.fieldXmm, y: built.fieldYmm }, wavelengthNodesNm: built.wavelengthsNm, transformSize: built.transformSize, maximumPhaseStepWaves: built.maximumPhaseStepWaves };
+    }
+    assume("lens.catalogue.character", "model", { lensId: catalogue.lensId, fNumber, focusDistanceM, magnification: c.magnification, closeFocusGain: c.closeFocusGain, pupilScale: c.pupilScale,
+      aberrationsWaves550: { ...c.aberrations }, lateralColor: { ...c.lateralColor }, distortionCorner: c.distortion.corner, vignettingCornerStops: c.vignetting.cornerStops,
+      notRendered: { strayLight: { ...c.strayLight }, breathing: { ...c.breathing }, focusScatterDepthOfFocusFraction: c.focusScatterDepthOfFocusFraction, bokeh: "disc (#553)" },
+      psf: psfReport, profiles: { vignetting, distortion: distortion.profile, maximumNormalizedRadius: reachRadius } },
+    "The catalogue lens's character, a labelled approximation of a generic lens (docs/LENS_CATALOGUE.md): Seidel wave aberrations at the frame corner (spherical, balanced by defocus; coma; astigmatism; field curvature), " +
+      "scaled from the widest aperture by the pupil ratio a = N0/N (a⁴, a³, a², a²) and by the close-focus factor; axial colour as a defocus and lateral colour as a radial shift, both with the normalised Cauchy dispersion. " +
+      (run === "ideal-reference" ? "Not applied: the ideal reference has no camera effects. " :
+        "Rendered as a sampled PSF (scalar Fraunhofer diffraction of the aberrated circular pupil, integrated over each site cell, on a 5 × 5 field grid × 5 wavelengths with centroid-aligned interpolation) " +
+        "through the environment PSF quadrature (one scene query per kernel tap), with the lens's radial distortion (r_d = r·(1 + k1ρ²)) and relative illumination (E = (1 − bρ²)²) as lens field mapping and field throughput" +
+        (catalogue.kind === "fisheye" ? ", and the equisolid projection; directions at or beyond 90° see no scene (zero radiance), so a circular fisheye's image ends at its 180° circle" : "") + ". ") +
+      "Flare, focus breathing and bokeh shape are reported, not rendered; ρ is normalised to the frame's half-diagonal, so the lens is scaled to the simulated frame like lens.prime.");
+  }
   // #492: the capture applies the disc as an object-space convolution, which needs every disc point a site sees to be another site's scene point.
   // #548: a lens field mapping, vignetting or camera rotation breaks that, so the capture then applies the disc in image space, on the sensor's
-  // site lattice (defocus-image-space-provider.ts). The display view refuses those options in any focus (above).
+  // site lattice (defocus-image-space-provider.ts). #563: the display view reads the same geometry in any focus (display-view-lens-signal.ts).
   const imageSpaceOptions = [...(lensFieldMapping ? [lensOptions.distortion !== undefined ? (lensOptions.projection !== undefined ? "lens.projection, lens.distortion" : "lens.distortion") : "lens.projection"] : []),
     ...(vignetting ? ["lens.vignetting"] : []), ...(rotating ? ["camera rotation"] : [])];
-  const defocusGeometry = defocusModel !== undefined && !displayView && imageSpaceOptions.length > 0 ? prepareDefocusImageSpaceGeometry({ focalLengthMm, focusDistanceM,
+  const lensGeometry = (defocusModel !== undefined || displayView) && imageSpaceOptions.length > 0 ? prepareDefocusImageSpaceGeometry({ focalLengthMm, focusDistanceM,
     angularVelocityRadPerSec: angular, ...(lensFieldMapping ? { lensMapping: prepareEnvironmentLensFieldMapping(lensFieldMapping) } : {}), ...(vignetting ? { vignetting } : {}) }) : undefined;
+  const defocusGeometry = defocusModel !== undefined ? lensGeometry : undefined;
+  // #553: the shaped kernel (on axis) and, with a cat's eye, its field zones; built when the disc is resolved out of focus.
+  let bokehAxisKernel: DefocusBokehSiteKernel | undefined, bokehZones: DefocusBokehZonePlan | undefined;
+  const bokehSummary = defocusBokeh === undefined ? undefined : (disc: ResolvedDefocusDisc): { value: Record<string, unknown>; explanation: string } => {
+    const options = defocusBokeh!, side = subjectDistanceM > focusDistanceM ? 1 : -1;
+    const build = (field?: { x: number; y: number }): DefocusBokehSiteKernel => {
+      try {
+        return createDefocusBokehSiteKernel({ diameterSites: disc.diameterSites, side, fNumber, focalLengthMm, pitchMicrometers: pitch, options, ...(field ? { field } : {}) });
+      } catch (error) { const message = (error as Error).message; fail(message.startsWith("lens.defocus") ? message : "lens.defocus: " + message); }
+    };
+    const axis = build();
+    bokehAxisKernel = axis;
+    // The run convolution above 64 sites (#564) takes one kernel for the whole frame; the cat's eye needs one per field zone.
+    if (options.catsEye && !displayView && axis.radius > DEFOCUS_DIRECT_KERNEL_MAXIMUM_RADIUS_SITES)
+      fail("lens.defocus.catsEye: the blur needs a kernel radius of " + axis.radius + " sites; with a cat's eye the limit is " + DEFOCUS_DIRECT_KERNEL_MAXIMUM_RADIUS_SITES +
+        " sites (129 across). Reduce the defocus or omit catsEye.");
+    if (options.catsEye && !displayView) {
+      // The field tangent of a native point (sites from the top-left corner), in output-image axes (+Y up): through the lens
+      // mapping in image space (#548; at the exposure start, so camera rotation does not move the field), else the planar lattice's.
+      const g = 2 / width, mmPerSite = pitch / 1000;
+      const fieldOf = defocusGeometry ? (x: number, y: number): { x: number; y: number } => {
+        const look = defocusGeometry.lookOf((x - nativeWidth / 2) * mmPerSite, (y - nativeHeight / 2) * mmPerSite, 0);
+        return { x: look.x / look.z, y: look.y / look.z };
+      } : (x: number, y: number): { x: number; y: number } => ({ x: (x - nativeWidth / 2) * g * metresPerFrameUnit / subjectDistanceM, y: -(y - nativeHeight / 2) * g * metresPerFrameUnit / subjectDistanceM });
+      bokehZones = planDefocusBokehZones({ options, nativeWidth, nativeHeight, radius: axis.radius, fNumber, focalLengthMm, fieldOf, kernelAt: build });
+      if (!(bokehZones.minimumOpenAreaRatio > 0)) fail("lens.defocus.catsEye: the clipping apertures close the pupil in part of the frame; reduce shiftPerTanFieldMm or enlarge radiusMm.");
+    }
+    const zones = bokehZones;
+    return { value: { options, side: side === 1 ? "behind-focus" : "in-front-of-focus", kernelRadiusSites: axis.radius, method: axis.method, raySamples: axis.raySamples,
+      sphericalAberrationSites: axis.sphericalAberrationSites, axisOpenAreaRatio: axis.openAreaRatio,
+      ...(zones ? { catsEye: { execution: "piecewise-constant-field-zones", zoneSizeSites: zones.zones.size, columns: zones.zones.columns, rows: zones.zones.rows,
+        minimumOpenAreaRatio: zones.minimumOpenAreaRatio, largestAdjacentOpenAreaRatioChange: zones.largestAdjacentOpenAreaRatioChange, lightLossApplied: false } } : {}) },
+      explanation: "The kernel is shaped by the lens instead (#553, bokeh character; calculateDefocusBokehKernel): the projected open pupil " +
+        (options.blades ? "(" + options.blades.count + " blades" + (options.blades.curvature > 0 ? ", curvature " + options.blades.curvature : "") +
+          (options.blades.circularAtOrBelowFNumber !== null ? ", circular at or below f/" + options.blades.circularAtOrBelowFNumber : "") + ", scaled to the disc's area) " : "(a circle) ") +
+        "of a point " + (side === 1 ? "behind" : "in front of") + " the focus plane" + (side === 1 ? "" : " (the pupil turned through 180°: the rays have not crossed yet)") +
+        (options.sphericalAberration ? ", with primary spherical aberration W040 " + options.sphericalAberration.w040Micrometers + " µm at f/" + options.sphericalAberration.atFNumber +
+          " (" + axis.sphericalAberrationSites + " sites at the marginal ray here; ray map (σc/2 + bρ²)·P, rays binned per site cell)" : " (exact polygon area in each site's cell)") +
+        (zones ? ". Cat's eye: the pupil is clipped by " + options.catsEye!.apertures.length + " aperture(s) shifted by field position (calculateMechanicalVignetting's model), applied as " +
+          zones.zones.columns + " × " + zones.zones.rows + " field zones of " + zones.zones.size + " sites, each with its centre's kernel (a piecewise-constant approximation; " +
+          "the open-area ratio falls to " + formatBound(zones.minimumOpenAreaRatio) + " and changes by at most " + formatBound(zones.largestAdjacentOpenAreaRatioChange) +
+          " between neighbouring zones). The kernel has unit sum: the light the clip removes is not applied; declare it with lens.vignetting" : "") +
+        ". A geometric approximation: no diffraction, onion rings, higher-order or field-dependent aberrations; the same kernel at every wavelength. "
+    };
+  };
   const defocusDisc = defocusModel === undefined ? undefined :
     resolveDefocusOption({ run, assume, focalLengthMm, fNumber, focusDistanceM, subjectDistanceM, pitch, diffraction: diffractionRadiusOption !== undefined,
+      ...(defocusBokeh ? { bokehOptions: defocusBokeh, bokeh: bokehSummary! } : {}),
       ...(defocusGeometry ? { imageSpace: (disc: ResolvedDefocusDisc): { options: readonly string[]; fieldVariation: DefocusFieldVariation } => {
         // Rotation with a rolling shutter: each row's instants differ, so one instant's image on the lattice would mix rows exposed at other times.
         if (rotating && shutterKind === "rolling") fail("simulateCapture does not support lens.defocus out of focus with camera rotation and motion.shutter \"rolling\": the disc is applied " +
@@ -2309,9 +2532,10 @@ export async function runCapture(options: SimulateCaptureOptions, run: "capture"
       } } : {}) });
   const defocusImageSpace = defocusDisc !== undefined && defocusGeometry !== undefined;
   // #492: the disc on the site lattice (radius 0 for a disc inside one cell: the identity, still applied).
-  const defocusKernel = defocusDisc && !displayView ? createDefocusDiscSiteKernel(defocusDisc.diameterSites) ?? undefined : undefined;
-  // The display view's disc (#492, step 2b): its expected-signal tables apply it (simulate-display-view.ts).
-  const displayViewDefocus = displayView ? defocusDisc : undefined;
+  // #553: the shaped kernel replaces the disc (with a cat's eye, the axis kernel; the zones replace it in the gather).
+  const defocusKernel = defocusDisc && !displayView ? bokehAxisKernel ?? createDefocusDiscSiteKernel(defocusDisc.diameterSites) ?? undefined : undefined;
+  // The display view's disc (#492, step 2b): its expected-signal tables apply it (simulate-display-view.ts); #553: or the shaped kernel.
+  const displayViewDefocus = displayView ? (defocusDisc && bokehAxisKernel ? { ...defocusDisc, siteKernel: bokehAxisKernel } : defocusDisc) : undefined;
 
   // Sensor readout for the ISO setting. Standard output sensitivity S = 10/H (CIPA DC-004 §3.2) is defined at the
   // output, independent of pixel size, while the collected charge is proportional to the sensitive-aperture area
@@ -2390,7 +2614,9 @@ export async function runCapture(options: SimulateCaptureOptions, run: "capture"
   } else assume("sensor.shutter", "model", "global-electronic", "Global electronic shutter: every site integrates the same exposure window.");
   if (rotating) assume("motion.angularVelocityRadPerSec", "model", { ...angular },
     "Constant camera angular velocity applied to every scene ray at each temporal midpoint of each site's exposure window (engine rotation convention, docs/SENSOR_ENVIRONMENT_QUERY.md); motion blur is the midpoint quadrature over sensor.temporalSampleCount samples.");
-  if (lensPsf) assume("lens.psf", "model", { kind: "sampled-local" }, "Caller-supplied sampled lens PSF redistributes irradiance through the environment PSF quadrature; its evidence and limits are the caller's.");
+  if (catalogue) assume("lens.psf", "model", lensPsf ? { kind: "sampled-local", source: "lens.catalogue" } : "not-applied", lensPsf ?
+    "The catalogue lens's engine-built sampled PSF (see lens.catalogue.character) redistributes irradiance through the environment PSF quadrature." : "No lens PSF: the ideal reference has no camera effects.");
+  else if (lensPsf) assume("lens.psf", "model", { kind: "sampled-local" }, "Caller-supplied sampled lens PSF redistributes irradiance through the environment PSF quadrature; its evidence and limits are the caller's.");
   // With lens.diffraction the PSF is recorded as lens.diffraction once its kernels are built.
   else if (diffractionRadiusOption === undefined) assume("lens.psf", "model", "not-applied", "No lens PSF or diffraction blur is applied (point optics); the generic tiers' optical data are declared only at f/4.");
   assume("lens.transmission", "model", lens.matchedReference.transmission,
@@ -2398,10 +2624,10 @@ export async function runCapture(options: SimulateCaptureOptions, run: "capture"
   if (!vignetting && !lensFieldMapping) assume("lens.fieldThroughput", "model", "unity", "No vignetting, distortion, lateral colour or stray light.");
   else {
     if (vignetting) assume("lens.vignetting", "model", { kind: "radial-illumination-vignetting", profile: vignetting },
-      "Caller-declared radial relative illumination 1 + r2·ρ² + r4·ρ⁴ + r6·ρ⁶, applied once as environment field throughput at the physical sensor point before any PSF.");
+      (catalogue ? "The catalogue lens's" : "Caller-declared") + " radial relative illumination 1 + r2·ρ² + r4·ρ⁴ + r6·ρ⁶, applied once as environment field throughput at the physical sensor point before any PSF.");
     else assume("lens.fieldThroughput", "model", "unity", "No vignetting, lateral colour or stray light.");
     if (distortion) assume("lens.distortion", "model", distortion,
-      "Caller-declared " + distortion.kind + " distortion: each sensor point is inverse-distorted before the scene-ray query and irradiance is multiplied exactly once by the area factor 1/det(J).");
+      (catalogue ? "The catalogue lens's " : "Caller-declared ") + distortion.kind + " distortion: each sensor point is inverse-distorted before the scene-ray query and irradiance is multiplied exactly once by the area factor 1/det(J).");
   }
   if (projection === undefined) assume("lens.projection", "default", "rectilinear", "Ideal rectilinear (pinhole) projection.");
   else assume("lens.projection", "model", projection, "Ideal " + projection + " projection through the environment lens field mapping. At finite focus its scale is the thin-lens image distance (an approximation); the chart is still sized with the rectilinear thin-lens scale, so its edges move with the projection.");
@@ -2589,8 +2815,24 @@ export async function runCapture(options: SimulateCaptureOptions, run: "capture"
   }
   // #492: each spectral node's kernel for lens.defocus out of focus: the disc, or with lens.diffraction the node's diffraction kernel convolved
   // with the disc, radius R_diffraction + R_defocus (built on first use, kept for the request). Object space, or image space (#548).
-  let defocusSiteKernels: { radius: number; wavelengthsNm: readonly number[]; at(wavelengthNm: number): Float64Array } | undefined;
-  if (defocusKernel) {
+  let defocusSiteKernels: { radius: number; wavelengthsNm: readonly number[]; at(wavelengthNm: number): Float64Array; large?: LargeDefocusKernel } | undefined;
+  if (defocusKernel && defocusKernel.radius > DEFOCUS_DIRECT_KERNEL_MAXIMUM_RADIUS_SITES) {
+    // #564: above the direct radius the disc is convolved by runs (site-kernel-runs.ts) and each node's diffraction kernel applied
+    // after it, instead of one combined kernel per node: the same sums regrouped. `at` is never read on this path.
+    const runs = siteKernelRuns(defocusKernel.weights, defocusKernel.radius), diffractionRadius = diffraction ? diffraction.kernelRadiusSamples : 0;
+    const psfConfiguration = diffraction ? diffractionPsf!.configuration.psf : undefined, profileWavelengths = diffraction ? diffraction.profile.axes.wavelengthNm : quadratureWavelengths();
+    const diffractionKernels = new Map<number, Float64Array>();
+    defocusSiteKernels = { radius: diffractionRadius + defocusKernel.radius, wavelengthsNm: profileWavelengths, at: (): Float64Array => fail("simulateCapture: the large defocus kernel has no combined kernels."),
+      large: { runs, ...(diffraction ? { diffraction: { radius: diffractionRadius, kernelAt(wavelengthNm: number): Float64Array {
+        let kernel = diffractionKernels.get(wavelengthNm);
+        if (!kernel) {
+          if (!profileWavelengths.includes(wavelengthNm)) fail("simulateCapture: a spectral node has no diffraction kernel.");
+          kernel = siteDiffractionKernel(psfConfiguration!, wavelengthNm, pitch, diffractionRadius, "simulateCapture: diffraction kernels must sample the site pitch exactly.");
+          diffractionKernels.set(wavelengthNm, kernel);
+        }
+        return kernel;
+      } } } : {}) } };
+  } else if (defocusKernel) {
     if (diffraction) {
       const diffractionRadius = diffraction.kernelRadiusSamples, combined = new Map<number, Float64Array>(), profileWavelengths = diffraction.profile.axes.wavelengthNm;
       const radius = diffractionRadius + defocusKernel.radius;
@@ -2665,17 +2907,19 @@ export async function runCapture(options: SimulateCaptureOptions, run: "capture"
   const readTile = async (request: { captureId: string; frameId: string; x: number; y: number; width: number; height: number }): Promise<NativeEnvironmentRawTile> =>
     ({ ...request, sites: Array.from({ length: request.width }, (_, j) => siteInput(request.y * nativeWidth + request.x + j)) });
   const yieldControl = createHostYield().yieldControl;
-  const perSite = queriesPerSite * (diffraction && psf === diffractionPsf ? (2 * diffraction.kernelRadiusSamples + 1) ** 2 : 1);
+  const perSite = queriesPerSite * (diffraction && psf === diffractionPsf ? (2 * diffraction.kernelRadiusSamples + 1) ** 2 : catalogueTaps ?? 1);
   let diffractionMs = 0, defocusMs = 0, demosaicMs: number | undefined, encodeMs: number | undefined;
   const diffractedProvider = (window: { x: number; y: number; width: number; height: number } | undefined): PlanarSceneRadianceProvider =>
     // #548: the disc (or diffraction ⊛ disc) in image space, on the sensor's site lattice, through the mapping, field throughput and rotation.
     defocusSiteKernels && defocusGeometry && defocusImageSpace ? createDefocusImageSpaceProvider({ base: provider, geometry: defocusGeometry, siteKernels: defocusSiteKernels.at,
+      ...(defocusSiteKernels.large ? { largeKernel: defocusSiteKernels.large } : {}),
       wavelengthsNm: defocusSiteKernels.wavelengthsNm, kernelRadius: defocusSiteKernels.radius, nativeWidth, nativeHeight, sitePitchMicrometers: pitch, distanceM: subjectDistanceM,
-      metresPerFrameUnit, queryOffsetsSites, timesPerBand: temporalSampleCount, onConvolution: (ms) => { defocusMs += ms; }, ...(window ? { window } : {}) }) :
-    defocusSiteKernels ? createDiffractedPlanarProvider({ base: provider, siteKernels: defocusSiteKernels.at,
+      metresPerFrameUnit, queryOffsetsSites, timesPerBand: temporalSampleCount, onConvolution: (ms) => { defocusMs += ms; }, ...(window ? { window } : {}),
+      ...(bokehZones ? { fieldZones: bokehZones.zones } : {}) }) :
+    defocusSiteKernels ? createDiffractedPlanarProvider({ base: provider, siteKernels: defocusSiteKernels.at, ...(defocusSiteKernels.large ? { largeKernel: defocusSiteKernels.large } : {}),
       wavelengthsNm: defocusSiteKernels.wavelengthsNm, kernelRadius: defocusSiteKernels.radius, nativeWidth, nativeHeight, outputWidth: width,
       sitePitchMicrometers: pitch, distanceM: subjectDistanceM, metresPerFrameUnit, onConvolution: (ms) => { defocusMs += ms; },
-      ...(window ? { window } : {}),
+      ...(window ? { window } : {}), ...(bokehZones ? { fieldZones: bokehZones.zones } : {}),
       ...(antiAliasing || boxSamples > 1 ? { queryOffsetsSites: apertureNodeOffsets(boxSamples).flatMap((node) =>
         (antiAliasing ? antiAliasing.components : [{ offsetMicrometers: { x: 0, y: 0 } }]).map((c) => ({ x: node.x - c.offsetMicrometers.x / pitch, y: node.y - c.offsetMicrometers.y / pitch }))) } : {}) }) :
     diffraction && diffractionObjectSpace ? createDiffractedPlanarProvider({ base: provider, psf: diffractionPsf!.configuration.psf,
@@ -2757,7 +3001,14 @@ export async function runCapture(options: SimulateCaptureOptions, run: "capture"
   }
   // Display view: the renderer that simulate-display-view.ts passes in reads this request's resolved state, so a bundle
   // that only captures does not contain the display view.
-  if (displayView) return await renderView!({ ahd, fastReport, antiAliasing, aspect, assume, assumptions, axisChannelResponse, boxSamples, buildProvider, callerScene, chart, materialLayers, chartReport, chartSize, diffraction, defocus: displayViewDefocus, diffractionPsf, fNumber, focalLengthMm, focusDistanceM, height, highlightMode, exposureGain, illuminanceLux, illuminant, illuminantOption, imagingArea, intentOf, metresPerFrameUnit, noiseSeed, outputOptions, parsedView, pitch, preset, provider, regimeByChannel, resolvedIso, isoReport, standardExposureDeviationStops: exposureDeviationStops, standardExposureIlluminanceLux: exposureIlluminanceLux, greyCardDeviationStops: exposureGreyCardDeviationStops, metering, sceneOption, scenePreset, shutterSeconds, started, subjectDistanceM, toneCurve, whiteBalanceOption, whiteBalanceState, width, checkAbort, margin, mode, nativeHeight, nativeWidth, sourceSha256, yieldControl, kelvinWhiteBalanceInput });
+  // #563: the view's expected signal through the lens, from the capture's own geometry (#548), checked to cover its farthest source point: the outer
+  // site centre plus the kernel radius and the largest query offset.
+  const lensSignal = displayView && lensGeometry ? (await import("./display-view-lens-signal.js")).prepareDisplayViewLensSignal({ geometry: lensGeometry,
+    times: rotating ? Array.from({ length: temporalSampleCount }, (_, i) => (i + 0.5) * (shutterSeconds / temporalSampleCount)) : [0], distanceM: subjectDistanceM, metresPerFrameUnit,
+    pitch, imagingArea, boxSamples, spots: antiAliasing ? antiAliasing.components : [{ offsetMicrometers: { x: 0, y: 0 } }] }, nativeWidth, nativeHeight,
+  (diffraction ? diffraction.kernelRadiusSamples : 0) + (displayViewDefocus ? (bokehAxisKernel?.radius ?? defocusDiscKernelRadius(displayViewDefocus.diameterSites)) : 0) +
+    Math.max(0, ...queryOffsetsSites.map((o) => Math.max(Math.abs(o.x), Math.abs(o.y)))) - 0.5, imageSpaceOptions.join(", ")) : undefined;
+  if (displayView) return await renderView!({ lens: lensSignal, ahd, fastReport, antiAliasing, aspect, assume, assumptions, axisChannelResponse, boxSamples, buildProvider, callerScene, chart, materialLayers, chartReport, chartSize, diffraction, defocus: displayViewDefocus, diffractionPsf, fNumber, focalLengthMm, focusDistanceM, height, highlightMode, exposureGain, illuminanceLux, illuminant, illuminantOption, imagingArea, intentOf, metresPerFrameUnit, noiseSeed, outputOptions, parsedView, pitch, preset, provider, regimeByChannel, resolvedIso, isoReport, standardExposureDeviationStops: exposureDeviationStops, standardExposureIlluminanceLux: exposureIlluminanceLux, greyCardDeviationStops: exposureGreyCardDeviationStops, metering, sceneOption, scenePreset, shutterSeconds, started, subjectDistanceM, toneCurve, whiteBalanceOption, whiteBalanceState, width, checkAbort, margin, mode, nativeHeight, nativeWidth, sourceSha256, yieldControl, kelvinWhiteBalanceInput });
   // Ideal reference (2.3): the scene without camera effects, at the capture's own exposure, white balance and encoding.
   if (idealReference) {
     const referenceStarted = clockMs();
@@ -2857,20 +3108,27 @@ export async function runCapture(options: SimulateCaptureOptions, run: "capture"
   if (run === "dng-from-parts" && regionNative) fail("serializeSimulatedCaptureDngFromParts writes the whole frame: the options take no output.region.");
   const dngParts = run === "dng-from-parts" ? viewOption : undefined;
   let tabulated: Awaited<ReturnType<typeof renderTabulatedNativeRaw>>;
-  if (dngParts === undefined && tabulatedScene && !pupil && !lensFieldMapping && !vignetting && !lensPsf && !rotating && (!diffraction || diffractionObjectSpace) && provider.chartMaterialAt && provider.materialRadiance) {
+  // #553: a cat's eye varies the kernel over the field, which the expected-signal tables (one kernel per node) do not take.
+  if (dngParts === undefined && tabulatedScene && !pupil && !lensFieldMapping && !vignetting && !lensPsf && !rotating && !bokehZones && (!diffraction || diffractionObjectSpace) && provider.chartMaterialAt && provider.materialRadiance) {
     const { electronsPerRadiance, wavelengths } = axisChannelResponse("simulateCapture");
     const perNode = CHANNELS.map((c) => Float64Array.from(wavelengths, (nm) => electronsPerRadiance[c].get(nm) ?? 0)) as [Float64Array, Float64Array, Float64Array];
     const sceneMaterials = chart ? chart.materials : (callerScene as ResolvedCallerMaterialScene).materials, materialRadiance = provider.materialRadiance;
+    const tabulatedMaterials = { materialAt: provider.chartMaterialAt, whiteRadiance: (nm: number): number => irradianceScale * illuminant.shape.evaluate(nm) / Math.PI,
+      list: [...sceneMaterials.map((m, index) => (m.kind === "neutral" ? { neutral: m.reflectance } : { radiance: (nm: number): number => materialRadiance(index, nm) })),
+        ...(chartSize ? [{ neutral: chartSize.surroundReflectance }] : [])] };
     const { signalInput: builtSignalInput } = buildExpectedSignalInput({ nativeWidth, nativeHeight, width, wavelengths, perNode, apertureNodes: apertureNodeOffsets(boxSamples), boxSamples, antiAliasing, pitch,
       diffraction: diffraction && !defocusSiteKernels ? { radius: diffraction.kernelRadiusSamples, psf: diffractionPsf!.configuration.psf, profileWavelengths: diffraction.profile.axes.wavelengthNm } : undefined,
-      materials: { materialAt: provider.chartMaterialAt, whiteRadiance: (nm: number): number => irradianceScale * illuminant.shape.evaluate(nm) / Math.PI,
-        list: [...sceneMaterials.map((m, index) => (m.kind === "neutral" ? { neutral: m.reflectance } : { radiance: (nm: number): number => materialRadiance(index, nm) })),
-          ...(chartSize ? [{ neutral: chartSize.surroundReflectance }] : [])] },
-      radianceAt: provider.radianceAt, imagingArea, focalLengthMm, focusDistanceM, subjectDistanceM, metresPerFrameUnit, caller: "simulateCapture" });
+      materials: tabulatedMaterials, radianceAt: provider.radianceAt, imagingArea, focalLengthMm, focusDistanceM, subjectDistanceM, metresPerFrameUnit, caller: "simulateCapture" });
     // #492: with lens.defocus the table convolves the lattice radiance with each node's defocus (or combined) kernel, on the
     // lattice formula, exactly as the object-space provider does.
     let signalInput = builtSignalInput;
-    if (defocusSiteKernels) {
+    if (defocusSiteKernels?.large) {
+      // #564: the in-focus signal on the lattice formula (diffraction kernels, or a unit tap per node), then the disc by runs.
+      signalInput = buildExpectedSignalInput({ nativeWidth, nativeHeight, width, wavelengths, perNode, apertureNodes: apertureNodeOffsets(boxSamples), boxSamples, antiAliasing, pitch,
+        diffraction: diffraction ? { radius: diffraction.kernelRadiusSamples, psf: diffractionPsf!.configuration.psf, profileWavelengths: diffraction.profile.axes.wavelengthNm } : undefined,
+        largeDefocus: defocusSiteKernels.large.runs, materials: tabulatedMaterials,
+        radianceAt: provider.radianceAt, imagingArea, focalLengthMm, focusDistanceM, subjectDistanceM, metresPerFrameUnit, caller: "simulateCapture" }).signalInput;
+    } else if (defocusSiteKernels) {
       const lattice = { ...builtSignalInput };
       delete lattice.queryPoint;
       signalInput = { ...lattice, kernels: { radius: defocusSiteKernels.radius, perNode: wavelengths.map((nm) => defocusSiteKernels!.at(nm)) } };
@@ -3120,7 +3378,8 @@ export async function runCapture(options: SimulateCaptureOptions, run: "capture"
 
   const ranOptions = new Set<SimulateCaptureCostOption>([...(pupil ? ["lens.pupilSampling" as const] : []), ...(projection !== undefined ? ["lens.projection" as const] : []),
     ...(distortion ? ["lens.distortion" as const] : []), ...(vignetting ? ["lens.vignetting" as const] : []), ...(lensPsf ? ["lens.psf" as const] : []),
-    ...(diffraction ? ["lens.diffraction" as const] : []), ...(defocusSiteKernels ? ["lens.defocus" as const] : []), ...(antiAliasing ? ["sensor.antiAliasing" as const] : []), ...(boxAperture ? ["sensor.pixelAperture.box" as const] : []),
+    ...(catalogue ? ["lens.catalogue" as const] : []),
+    ...(diffraction ? ["lens.diffraction" as const] : []), ...(defocusSiteKernels || catalogueDefocusApplied ? ["lens.defocus" as const] : []), ...(antiAliasing ? ["sensor.antiAliasing" as const] : []), ...(boxAperture ? ["sensor.pixelAperture.box" as const] : []),
     ...(temporalSampleCount > 1 ? ["sensor.temporalSampleCount" as const] : []), ...(rotating ? ["motion.rotation" as const] : []),
     ...(rollingSchedule ? ["motion.shutter.rolling" as const] : []), ...(mirrorBorder ? ["output.borderHandling.mirror" as const] : []), ...(region ? ["output.region" as const] : []),
     ...(needsAuto ? ["output.whiteBalance.auto" as const] : []), ...(ahd ? ["output.demosaic.ahd" as const] : []),

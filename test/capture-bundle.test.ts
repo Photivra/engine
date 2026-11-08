@@ -15,6 +15,8 @@ interface Bundle {
   /** The entry chunk's minified size and its gzip size (level 9). */
   minified: number;
   gzip: number;
+  /** Every chunk's gzip size (level 9) added up, the lazy ones included: what an application's total-JavaScript budget counts. */
+  totalGzip: number;
 }
 const srcPath = (id: string): string => id.replace(/\\/g, "/").replace(/^.*\/src\//, "");
 /**
@@ -29,8 +31,9 @@ async function bundle(names: string[]): Promise<Bundle> {
     const build = await rolldown({ input: entry, logLevel: "silent", resolve: { extensionAlias: { ".js": [".ts", ".js"] } } });
     const { output } = await build.generate({ format: "esm", minify: true });
     await build.close();
-    const result: Bundle = { modules: new Map(), lazyModules: new Set(), minified: 0, gzip: 0 };
+    const result: Bundle = { modules: new Map(), lazyModules: new Set(), minified: 0, gzip: 0, totalGzip: 0 };
     for (const chunk of output) if (chunk.type === "chunk") {
+      result.totalGzip += gzipSync(chunk.code, { level: 9 }).length;
       if (!chunk.isEntry) { for (const id of Object.keys(chunk.modules)) result.lazyModules.add(srcPath(id)); continue; }
       for (const [id, m] of Object.entries(chunk.modules)) result.modules.set(srcPath(id), m.renderedExports);
       result.minified = Buffer.byteLength(chunk.code);
@@ -50,8 +53,9 @@ describe("capture-only bundles", () => {
     expect(modules.has("facade/display-view.ts")).toBe(false);
     expect(modules.has("facade/simulate-display-view.ts")).toBe(false);
     // Captures use only these portable-math exports: the two of 2.5.0 and V8's three-argument hypot sequence of the
-    // capture's query arithmetic (#452), and the arcsine of the defocus disc kernel the capture applies for lens.defocus (#492).
-    expect([...(modules.get("core/portable-math.ts") ?? [])].sort()).toEqual(["equalWithinUlps", "hypot3", "portableAsin", "portableHypot"]);
+    // capture's query arithmetic (#452), the arcsine of the defocus disc kernel the capture applies for lens.defocus (#492), and
+    // the cosine and sine of the shaped defocus kernel's blade and circle vertices (lens.defocus bokeh options, #553).
+    expect([...(modules.get("core/portable-math.ts") ?? [])].sort()).toEqual(["equalWithinUlps", "hypot3", "portableAsin", "portableCosTwoPi", "portableHypot", "portableSinTwoPi"]);
   }, testTimeout(60_000));
 
   it("keep them when the display view is imported", async () => {
@@ -84,5 +88,18 @@ describe("display-view bundles", () => {
     const view = await bundle(["simulateCapture", "simulateIdealReference", "simulateDisplayView"]);
     expect(view.minified - base.minified).toBeLessThanOrEqual(46_500);
     expect(view.gzip - base.gzip).toBeLessThanOrEqual(18_550);
+  }, testTimeout(120_000));
+});
+
+// The app's capture worker (Photivra/apps, src/capture/capture.worker.ts and gpuWorker.ts) imports exactly these root exports.
+// Its total JavaScript budget counts every chunk, lazy ones included, so this measures them all. Measured November 7, 2026 on
+// 2.17.0: 347,775 B gzip in total (2.16.0: 323,428 B; 2.15.0: 311,439 B), the growth being the new options' own code, which
+// `simulateCapture` and `prepareDisplayView` reach at run time (tree-shaking leaves out the unused root exports). The limit is that
+// measurement plus a few hundred bytes, so a change that grows the app's worker shows here instead of in the app's build. Raising
+// it is the owner's decision.
+describe("the app's capture-worker shape", () => {
+  it("keeps every chunk of the app's engine imports within its measured size", async () => {
+    const worker = await bundle(["NATIVE_RAW_LIMITS", "prepareDisplayView", "serializeSimulatedCaptureDngFromParts", "simulateCapture", "simulateIdealReference"]);
+    expect(worker.totalGzip).toBeLessThanOrEqual(348_000);
   }, testTimeout(120_000));
 });

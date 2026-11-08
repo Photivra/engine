@@ -238,6 +238,16 @@ function radialImageRadiusLimit(
   }
 }
 
+/**
+ * @internal Whether an image radius lies inside a radial model's image circle (the domain of {@link radialProjectionFieldAngle}).
+ * Equirectangular is not radial and returns true.
+ */
+export function insideRadialImageCircle(model: LensProjectionModel, focalLengthMm: number, imageRadiusMm: number): boolean {
+  if (model === "equirectangular") return true;
+  const limit = radialImageRadiusLimit(model, focalLengthMm);
+  return imageRadiusMm >= 0 && (imageRadiusMm < limit.radiusMm || (limit.inclusive && imageRadiusMm === limit.radiusMm));
+}
+
 /** Inverse theta(r) for one radial model; throws outside the image circle. */
 export function radialProjectionFieldAngle(
   model: RadialLensProjectionModel,

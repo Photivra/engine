@@ -438,11 +438,11 @@ describe("simulateDisplayView", () => {
     for (const view of [undefined, { width: 0, height: 4 }, { width: 17, height: 4 }, { width: 4, height: 4, samplesPerAxis: 33 }, { width: 4, height: 4, format: "png" },
       { width: 4, height: 4, region: { x: 3, y: 0, width: 2, height: 1 } }, { width: 4, height: 4, extra: 1 }])
       await expect(simulateDisplayView(base, view as never)).rejects.toThrow(InvalidConfigurationError);
-    for (const extra of [{ lens: { pupilSampling: { radialSamples: 1, angularSamples: 4 } } }, { lens: { projection: "fisheye-equisolid-angle" } },
-      { motion: { angularVelocityRadPerSec: { yaw: 0.01 } } }, { output: { width: 16, height: 16, region: { x: 0, y: 0, width: 4, height: 4 } } },
+    // #563: lens.projection, lens.distortion, lens.vignetting and camera rotation render (test/display-view-lens.test.ts), except rotation under a rolling shutter.
+    for (const extra of [{ lens: { pupilSampling: { radialSamples: 1, angularSamples: 4 } } }, { motion: { angularVelocityRadPerSec: { yaw: 0.01 }, shutter: "rolling" } },
+      { output: { width: 16, height: 16, region: { x: 0, y: 0, width: 4, height: 4 } } },
       { output: { width: 16, height: 16, whiteBalance: "auto" } }, { output: { width: 16, height: 16, toneCurve: "extended-reinhard-luminance", toneCurveParameters: { whiteLuminance: 2 } } },
-      { output: { width: 16, height: 16, highlightMode: "reconstruct" } },
-      { lens: { vignetting: { normalizationRadiusMm: 0.5, maximumNormalizedRadius: 1, coefficients: { r2: -0.3, r4: 0, r6: 0 } } } }] as Partial<SimulateCaptureOptions>[])
+      { output: { width: 16, height: 16, highlightMode: "reconstruct" } }] as Partial<SimulateCaptureOptions>[])
       await expect(simulateDisplayView({ ...base, ...extra } as SimulateCaptureOptions, { width: 4, height: 4 })).rejects.toThrow(InvalidConfigurationError);
   });
 });

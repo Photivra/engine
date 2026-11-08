@@ -1,6 +1,6 @@
 # Public API reference
 
-Generated from the exact root exports for **@photivra/engine 2.16.0 / root contract 2.16.0** by `node scripts/generate-api-reference.mjs`. No module deep import is supported.
+Generated from the exact root exports for **@photivra/engine 2.17.0 / root contract 2.17.0** by `node scripts/generate-api-reference.mjs`. No module deep import is supported.
 
 Use [the developer guide](https://github.com/Photivra/photivra/blob/main/docs/DEVELOPERS.md) for executable paths and scientific boundaries. Types are contracts, not runtime validation: parse untrusted data, preserve units/reference frames, read assessment blockers, and retain evidence/limitations. Optional properties do not imply a universal default. Model/schema IDs remain independent of the distribution.
 
@@ -827,6 +827,28 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 | [`ResolveGenericEquipmentExposureCapabilitiesInput`](api/equipment-exposure-capabilities.md#resolvegenericequipmentexposurecapabilitiesinput) | Type |
 | [`WidestAvailableFNumberCapability`](api/equipment-exposure-capabilities.md#widestavailablefnumbercapability) | Type |
 
+## equipment/generic-lens-catalogue.ts
+
+[Detailed contracts](api/equipment-generic-lens-catalogue.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/equipment/generic-lens-catalogue.ts)
+
+| Export | Kind |
+| --- | --- |
+| [`GENERIC_LENS_CATALOGUE`](api/equipment-generic-lens-catalogue.md#generic_lens_catalogue) | Runtime |
+| [`GENERIC_LENS_IDS`](api/equipment-generic-lens-catalogue.md#generic_lens_ids) | Runtime |
+| [`GENERIC_LENS_SET_BASELINES`](api/equipment-generic-lens-catalogue.md#generic_lens_set_baselines) | Runtime |
+| [`GenericLensAdjustments`](api/equipment-generic-lens-catalogue.md#genericlensadjustments) | Type |
+| [`GenericLensCatalogueEntry`](api/equipment-generic-lens-catalogue.md#genericlenscatalogueentry) | Type |
+| [`GenericLensCharacter`](api/equipment-generic-lens-catalogue.md#genericlenscharacter) | Type |
+| [`GenericLensCharacterValues`](api/equipment-generic-lens-catalogue.md#genericlenscharactervalues) | Type |
+| [`GenericLensFocusError`](api/equipment-generic-lens-catalogue.md#genericlensfocuserror) | Type |
+| [`GenericLensKind`](api/equipment-generic-lens-catalogue.md#genericlenskind) | Type |
+| [`GenericLensSet`](api/equipment-generic-lens-catalogue.md#genericlensset) | Type |
+| [`ResolvedGenericLens`](api/equipment-generic-lens-catalogue.md#resolvedgenericlens) | Type |
+| [`resolveGenericLens`](api/equipment-generic-lens-catalogue.md#resolvegenericlens) | Runtime |
+| [`ResolveGenericLensInput`](api/equipment-generic-lens-catalogue.md#resolvegenericlensinput) | Type |
+| [`simulateGenericLensFocusError`](api/equipment-generic-lens-catalogue.md#simulategenericlensfocuserror) | Runtime |
+| [`SimulateGenericLensFocusErrorInput`](api/equipment-generic-lens-catalogue.md#simulategenericlensfocuserrorinput) | Type |
+
 ## equipment/generic-prime-lenses.ts
 
 [Detailed contracts](api/equipment-generic-prime-lenses.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/equipment/generic-prime-lenses.ts)
@@ -1575,6 +1597,22 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 | [`LensComplexPupilPsfSampling`](api/optics-complex-pupil-psf.md#lenscomplexpupilpsfsampling) | Type |
 | [`parseLensComplexPupilProfile`](api/optics-complex-pupil-psf.md#parselenscomplexpupilprofile) | Runtime |
 
+## optics/defocus-bokeh-kernel.ts
+
+[Detailed contracts](api/optics-defocus-bokeh-kernel.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/optics/defocus-bokeh-kernel.ts)
+
+| Export | Kind |
+| --- | --- |
+| [`calculateDefocusBokehKernel`](api/optics-defocus-bokeh-kernel.md#calculatedefocusbokehkernel) | Runtime |
+| [`CalculateDefocusBokehKernelInput`](api/optics-defocus-bokeh-kernel.md#calculatedefocusbokehkernelinput) | Type |
+| [`DEFOCUS_BOKEH_MAXIMUM_BLADES`](api/optics-defocus-bokeh-kernel.md#defocus_bokeh_maximum_blades) | Runtime |
+| [`DefocusBokehBlades`](api/optics-defocus-bokeh-kernel.md#defocusbokehblades) | Type |
+| [`DefocusBokehCatsEye`](api/optics-defocus-bokeh-kernel.md#defocusbokehcatseye) | Type |
+| [`DefocusBokehClippingAperture`](api/optics-defocus-bokeh-kernel.md#defocusbokehclippingaperture) | Type |
+| [`DefocusBokehKernel`](api/optics-defocus-bokeh-kernel.md#defocusbokehkernel) | Type |
+| [`DefocusBokehOptions`](api/optics-defocus-bokeh-kernel.md#defocusbokehoptions) | Type |
+| [`DefocusBokehSphericalAberration`](api/optics-defocus-bokeh-kernel.md#defocusbokehsphericalaberration) | Type |
+
 ## optics/defocus-disc-kernel.ts
 
 [Detailed contracts](api/optics-defocus-disc-kernel.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/optics/defocus-disc-kernel.ts)
@@ -2028,6 +2066,16 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 | [`calculateCenteredCrop`](api/output-crop.md#calculatecenteredcrop) | Runtime |
 | [`CalculateCenteredCropInput`](api/output-crop.md#calculatecenteredcropinput) | Type |
 | [`CenteredCrop`](api/output-crop.md#centeredcrop) | Type |
+
+## output/generic-lens-corrections.ts
+
+[Detailed contracts](api/output-generic-lens-corrections.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/output/generic-lens-corrections.ts)
+
+| Export | Kind |
+| --- | --- |
+| [`createGenericLensCorrectionProfile`](api/output-generic-lens-corrections.md#creategenericlenscorrectionprofile) | Runtime |
+| [`CreateGenericLensCorrectionProfileInput`](api/output-generic-lens-corrections.md#creategenericlenscorrectionprofileinput) | Type |
+| [`GENERIC_LENS_CORRECTION_CHANNEL_WAVELENGTHS_NM`](api/output-generic-lens-corrections.md#generic_lens_correction_channel_wavelengths_nm) | Runtime |
 
 ## output/geometric-transforms.ts
 

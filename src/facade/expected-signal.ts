@@ -7,6 +7,7 @@
  */
 
 import { InvalidConfigurationError } from "../core/configuration-error.js";
+import { createSiteKernelRunsLattice, type SiteKernelRuns, type SiteKernelRunsLattice, type SiteKernelRunsRowPattern } from "../optics/site-kernel-runs.js";
 
 /** A query offset from a site centre in sites (+x right, +y down) and its weight (pixel-aperture node × filter spot). */
 export interface DisplayViewQueryOffset { x: number; y: number; weight: number }
@@ -45,6 +46,13 @@ export interface DisplayViewExpectedSignalInput {
    * lattice formula, as here.
    */
   queryPoint?(x: number, y: number, offset: number, out: Float64Array): void;
+  /**
+   * #564: a defocus kernel D above the direct radius (64 sites), as runs. Each site's expected electrons are then
+   * Σ_t D(t)·E_c(x − t, y − t), with E_c the expected electrons of channel c (the site's own) through `kernels` (each node's
+   * diffraction kernel, or a unit tap for the lattice formula) at every native site position, convolved over the site
+   * lattice by runs in fixed tiles (see {@link createDisplayViewExpectedSignal}). Requires `kernels`.
+   */
+  largeKernel?: SiteKernelRuns;
 }
 
 /** Expected photo electrons of real native sites. */
@@ -263,6 +271,7 @@ function buildTables(input: DisplayViewExpectedSignalInput): SignalTables {
  * built wider). Only a speed hint: a window past it rebuilds its band, with the same values.
  */
 export function createDisplayViewExpectedSignal(input: DisplayViewExpectedSignalInput, spanColumns = Infinity): DisplayViewExpectedSignal {
+  if (input.largeKernel) return createLargeKernelSignal(input);
   const W = input.nativeWidth, H = input.nativeHeight, g = 2 / input.outputWidth, nodes = input.wavelengthsNm.length;
   const R = input.kernels ? input.kernels.radius : 0;
   if (input.kernels && input.kernels.perNode.length !== nodes) throw new InvalidConfigurationError("Display view kernels must match the spectral nodes.");
@@ -710,4 +719,132 @@ export function createDisplayViewExpectedSignal(input: DisplayViewExpectedSignal
       return scene.kind === "materials" ? scene.materialAt(u, v) : scene.radianceAt(u, v, pilotNode);
     }
   };
+}
+
+/** #564: tile sides of the large-kernel expected signal: the in-focus signal E (3 channels) and the convolved sites. */
+const LARGE_E_TILE = 64, LARGE_OUTPUT_TILE = 128;
+/** Bytes kept per input for each of the two tile caches (least recently used first; a dropped tile is recomputed with the same bits). */
+const LARGE_CACHE_BYTES = 32 * 1048576;
+
+/** Per input object: the in-focus tiles, the convolved lattice and the scene lookups made so far (shared by the renders of the input). */
+interface LargeKernelState { lattice: SiteKernelRunsLattice; lookups: number }
+const LARGE_PREPARED = new WeakMap<DisplayViewExpectedSignalInput, LargeKernelState>();
+
+/**
+ * #564: the expected signal with a defocus kernel D above the direct radius. Defocus of a plane is space-invariant and
+ * wavelength-independent, so it commutes with the spectral and query-offset sums and with the diffraction kernels:
+ *   μ_c(x) = Σ_o w_o Σ_λ A_c(λ) Σ_t (K_λ ∗ D)(t)·L(p_o(x) − t, λ) = Σ_s D(s)·E_c(x − s),
+ * with E_c(x) = Σ_o w_o Σ_λ A_c(λ) Σ_t K_λ(t)·L(p_o(x) − t, λ) the in-focus expected electrons of channel c at site position x
+ * (the same sum as `kernelSite`, on the lattice formula), so the disc is applied once per channel on the native site lattice
+ * instead of once per spectral node and lattice group. E is computed in fixed 64-site tiles (all three channels), and D ⊛ E_c
+ * by runs in fixed 128-site tiles, each site taking its own channel: every value depends only on the site, so regions and parts
+ * are bit-identical to the whole frame. The tiles are kept per input object, across its renders.
+ *
+ * Diagnostics: `lookups` counts the scene lookups this signal's calls caused (tiles computed for it; a tile an earlier render of
+ * the input computed costs none). `uniformMaterial` is −1 and nothing is tracked or marked, as for radiance scenes.
+ */
+function createLargeKernelSignal(input: DisplayViewExpectedSignalInput): DisplayViewExpectedSignal {
+  if (!input.kernels || !input.largeKernel) throw new InvalidConfigurationError("The large-kernel expected signal needs the in-focus kernels.");
+  let state = LARGE_PREPARED.get(input);
+  if (!state) { state = prepareLargeKernel(input); LARGE_PREPARED.set(input, state); }
+  const prepared = state, start = prepared.lookups, channelAt = input.channelAt, scene = input.scene, nodes = input.wavelengthsNm.length;
+  const pilotNode = input.wavelengthsNm[Math.floor(nodes / 2)]!;
+  let pilots = 0;
+  return {
+    get lookups(): number { return prepared.lookups - start + pilots; },
+    get uniformMaterial(): number { return -1; },
+    get tracksMaterial(): boolean { return false; },
+    get cachesSites(): boolean { return false; },
+    get marksReads(): boolean { return false; },
+    markReads(): void { /* nothing is marked: marksReads is false */ },
+    window(): void { /* the tiles are fixed and kept per input; a window changes nothing */ },
+    site(x: number, y: number): number { return prepared.lattice.valueAt(channelAt(x, y), x, y); },
+    pilot(u: number, v: number): number {
+      pilots++;
+      return scene.kind === "materials" ? scene.materialAt(u, v) : scene.radianceAt(u, v, pilotNode);
+    }
+  };
+}
+
+function prepareLargeKernel(input: DisplayViewExpectedSignalInput): LargeKernelState {
+  const W = input.nativeWidth, H = input.nativeHeight, g = 2 / input.outputWidth, nodes = input.wavelengthsNm.length, R = input.kernels!.radius;
+  const tables = displayViewSignalTables(input), { reflectance, spectralIndex, groups } = tables, scene = input.scene;
+  const state = { lookups: 0 } as LargeKernelState;
+  const latticeU = (group: GroupTables, p: number): number => (group.fx === 0 ? (p + 0.5 - W / 2) * g : (p + 0.5 + group.fx - W / 2) * g);
+  const latticeV = (group: GroupTables, q: number): number => (group.fy === 0 ? -(q + 0.5 - H / 2) * g : -(q + 0.5 + group.fy - H / 2) * g);
+  /** E_c of the native site positions [x0, x0 + T) × [y0, y0 + T), all three channels: kernelSite's sum, each group's lattice read once. */
+  function inFocusTile(x0: number, y0: number, T: number): Float64Array[] {
+    const out = [0, 1, 2].map(() => new Float64Array(T * T));
+    for (const group of groups) {
+      const cw = group.cw, ch = group.ch, gw = T + cw - 1, gh = T + ch - 1, p0 = x0 + group.minIx - R, q0 = y0 + group.minIy - R;
+      if (scene.kind === "materials") {
+        const material = new Int32Array(gw * gh);
+        for (let j = 0; j < gh; j++) { const v = latticeV(group, q0 + j); for (let i = 0; i < gw; i++) material[j * gw + i] = scene.materialAt(latticeU(group, p0 + i), v); }
+        state.lookups += gw * gh;
+        for (let c = 0; c < 3; c++) {
+          const nk = group.neutral[c]!, sk = group.spectral[c]!, e = out[c]!;
+          for (let y = 0; y < T; y++) for (let x = 0; x < T; x++) {
+            let sum = 0;
+            for (let dy = 0; dy < ch; dy++) for (let dx = 0; dx < cw; dx++) {
+              const m = material[(y + dy) * gw + x + dx]!, si = spectralIndex[m];
+              if (si === undefined) throw new InvalidConfigurationError("Unknown chart material.");
+              sum += si < 0 ? reflectance[m]! * nk[dy * cw + dx]! : sk[si]![dy * cw + dx]!;
+            }
+            e[y * T + x] = e[y * T + x]! + sum;
+          }
+        }
+      } else {
+        const radiance = new Float64Array(gw * gh * nodes);
+        for (let j = 0; j < gh; j++) {
+          const v = latticeV(group, q0 + j);
+          for (let i = 0; i < gw; i++) { const u = latticeU(group, p0 + i); for (let n = 0; n < nodes; n++) radiance[(j * gw + i) * nodes + n] = scene.radianceAt(u, v, input.wavelengthsNm[n]!); }
+        }
+        state.lookups += gw * gh * nodes;
+        for (let c = 0; c < 3; c++) {
+          const e = out[c]!;
+          for (let y = 0; y < T; y++) for (let x = 0; x < T; x++) {
+            let sum = 0;
+            for (let dy = 0; dy < ch; dy++) for (let dx = 0; dx < cw; dx++) {
+              const r = ((y + dy) * gw + x + dx) * nodes;
+              for (let n = 0; n < nodes; n++) sum += group.perNode[n]![c]![dy * cw + dx]! * radiance[r + n]!;
+            }
+            e[y * T + x] = e[y * T + x]! + sum;
+          }
+        }
+      }
+    }
+    return out;
+  }
+  // At least the in-focus tiles one output tile's source spans plus one more row of them, so the next output tile of a row
+  // reuses them (about 37 MiB at radius 512); otherwise the byte budget.
+  const span = Math.ceil((LARGE_OUTPUT_TILE + 2 * input.largeKernel!.radius) / LARGE_E_TILE) + 1;
+  const inFocus = new Map<number, Float64Array[]>(), inFocusCapacity = Math.max(span * (span + 1), Math.floor(LARGE_CACHE_BYTES / (3 * LARGE_E_TILE * LARGE_E_TILE * 8)));
+  function inFocusTileAt(tx: number, ty: number): Float64Array[] {
+    const T = LARGE_E_TILE, key = (ty + 1048576) * 2097152 + tx + 1048576;
+    let tile = inFocus.get(key);
+    if (tile) { inFocus.delete(key); inFocus.set(key, tile); }
+    else {
+      tile = inFocusTile(tx * T, ty * T, T);
+      inFocus.set(key, tile);
+      if (inFocus.size > inFocusCapacity) inFocus.delete(inFocus.keys().next().value!);
+    }
+    return tile;
+  }
+  // Which sites of a tile row hold channel c: the CFA's 2 × 2 period, from channelAt (tile origins are even).
+  const phase = [0, 1].map((py) => [0, 1].map((px) => input.channelAt(px, py)));
+  const patterns: SiteKernelRunsRowPattern[] = [0, 1, 2].map((c) => (row: number) => {
+    const p = phase[row & 1]!, even = p[0] === c, odd = p[1] === c;
+    return even && odd ? { start: 0, step: 1 } : even ? { start: 0, step: 2 } : odd ? { start: 1, step: 2 } : null;
+  });
+  state.lattice = createSiteKernelRunsLattice({ runs: input.largeKernel!, tile: LARGE_OUTPUT_TILE, fields: 3, capacityBytes: LARGE_CACHE_BYTES,
+    pattern: (c) => patterns[c], source: (x0, y0, width, height) => (c: number): Float64Array => {
+      // Copied from the in-focus tiles the rectangle overlaps, tile by tile, row segment by row segment (the values are copies).
+      const samples = new Float64Array(width * height), T = LARGE_E_TILE;
+      for (let ty = Math.floor(y0 / T); ty * T < y0 + height; ty++) for (let tx = Math.floor(x0 / T); tx * T < x0 + width; tx++) {
+        const tile = inFocusTileAt(tx, ty)[c]!, ax = Math.max(x0, tx * T), bx = Math.min(x0 + width, (tx + 1) * T), ay = Math.max(y0, ty * T), by = Math.min(y0 + height, (ty + 1) * T);
+        for (let y = ay; y < by; y++) samples.set(tile.subarray((y - ty * T) * T + ax - tx * T, (y - ty * T) * T + bx - tx * T), (y - y0) * width + ax - x0);
+      }
+      return samples;
+    } });
+  return state;
 }

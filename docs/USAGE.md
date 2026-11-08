@@ -1455,7 +1455,7 @@ console.log(blur.value.diameterMm);
 
 You supply the circle-of-confusion criterion used for depth of field (DOF). These are ideal geometric thin-lens models. They do not include diffraction or real-lens aberrations in the DOF criterion.
 
-`simulateCapture` and the display view render the defocus blur disc with `lens.defocus: { model: "geometric-disc" }`, up to a kernel radius of `DEFOCUS_DISC_KERNEL_MAXIMUM_RADIUS_SITES` (64 sites, a disc 129 sites across) and refuse a larger one. Use `calculateDefocusDiscKernelRadius()` to check a request before rendering it. It runs the capture's own resolution and limit test, so it agrees with the capture's refusal. Pass the f-number the capture uses (in an automatic exposure mode, the resolved one) and the sensor's pixel pitch:
+`simulateCapture` and the display view render the defocus blur disc with `lens.defocus: { model: "geometric-disc" }`, up to a kernel radius of `DEFOCUS_DISC_KERNEL_MAXIMUM_RADIUS_SITES` (512 sites, a disc 1025 sites across, 6.15 mm at 6 µm; 64 sites before 2.17.0) and refuse a larger one. Up to 64 sites the disc is convolved directly, as before; above it, by runs of equal kernel weights (#564), the same sums at a cost that grows with the radius instead of its square ([Quick start, Large defocus discs](QUICK_START.md#large-defocus-discs-564)). Use `calculateDefocusDiscKernelRadius()` to check a request before rendering it. It runs the capture's own resolution and limit test, so it agrees with the capture's refusal, and `convolution` says which method renders it. Pass the f-number the capture uses (in an automatic exposure mode, the resolved one) and the sensor's pixel pitch:
 
 ```ts
 import { calculateDefocusDiscKernelRadius } from "@photivra/engine";
@@ -1463,13 +1463,14 @@ import { calculateDefocusDiscKernelRadius } from "@photivra/engine";
 const check = calculateDefocusDiscKernelRadius({
   focalLengthMm: 50,
   aperture: 1.4,
-  focusDistanceM: 1,
+  focusDistanceM: 0.25,
   subjectDistanceM: 2,
   pixelPitchMicrometers: 6
 });
 
-console.log(check.value.withinLimit); // false: lens.defocus refuses this request
-console.log(check.value.kernelRadiusSites, check.value.excessKernelRadiusSites); // 78, 14
+console.log(check.value.withinLimit); // false: lens.defocus refuses this request (a 7.81 mm blur, 1,303 sites across)
+console.log(check.value.kernelRadiusSites, check.value.excessKernelRadiusSites); // 651, 139
+// Focused at 1 m instead: 157 sites across, radius 78, withinLimit true, convolution "runs".
 ```
 
 See [Physics Foundation](https://github.com/Photivra/photivra/blob/main/docs/PHYSICS_FOUNDATION.md#thin-lens-focus-and-depth-of-field).
@@ -7470,6 +7471,28 @@ console.log(calculateGeometricFocusBreathing({
 }).value.deltaDegrees);
 ```
 
+## Generic lens catalogue (#549)
+
+`GENERIC_LENS_CATALOGUE` lists the engine's 30 generic primes (17 professional, 13 consumer, "PV 50 1.2 Pro", "PV 50 1.8"; Photivra's
+own designs, not real products). `resolveGenericLens` resolves one for a sensor, an f-number and a focus distance: its focal length
+(scaled by the crop factor), aperture range, close focus, projection and its character, Seidel aberrations, axial and lateral
+colour, distortion and vignetting profiles, flare, breathing and focus scatter, each a labelled approximation.
+`simulateGenericLensFocusError` draws a seeded autofocus error; `createGenericLensCorrectionProfile` builds the lens's generic
+correction profile for `resolveLensCorrectionPlan`. `simulateCapture` renders a catalogue lens with `lens.catalogue`
+([quick start](QUICK_START.md#generic-lens-catalogue-549)). Equations, tables and the chart measurements:
+[LENS_CATALOGUE.md](https://github.com/Photivra/photivra/blob/main/docs/LENS_CATALOGUE.md).
+
+```ts
+import { GENERIC_LENS_CATALOGUE, resolveGenericLens, simulateGenericLensFocusError } from "@photivra/engine";
+
+const frame = { widthMm: 36, heightMm: 24 };
+const pro = resolveGenericLens({ lensId: "pv-50-1.2-pro", activeImagingArea: frame, fNumber: 2 });
+const consumer = resolveGenericLens({ lensId: "pv-50-1.8", activeImagingArea: frame, fNumber: 2 });
+console.log(GENERIC_LENS_CATALOGUE.length, pro.character.aberrations.comaWaves < consumer.character.aberrations.comaWaves); // 30 true
+const shot = simulateGenericLensFocusError({ lensId: "pv-50-1.8", activeImagingArea: frame, fNumber: 1.8, focusDistanceM: 2, seed: 1, shotIndex: 0 });
+console.log(shot.focusDistanceM, shot.imageSideErrorMicrometers);
+```
+
 ## Parallel native environment RAW (row-band partitions, 2.0)
 
 `createNativeEnvironmentRawTask` runs on one thread. For several cores, split the capture into row bands with
@@ -7814,6 +7837,20 @@ region that have a clipped contributing site. `simulateCapture` counts the same 
 are equal where every site is far from white. Counts of regions that tile a view add up to the whole view's count. See
 [Highlight count](https://github.com/Photivra/photivra/blob/main/docs/DISPLAY_VIEW.md#highlight-count-533).
 
+From #563 the view renders `lens.projection`, `lens.distortion`, `lens.vignetting` and camera rotation (global
+shutter), in focus and with `lens.defocus` out of focus, with each real site's expected electrons as the capture's. These
+requests run on the CPU (`gpu: "auto"` falls back labelled `unsupported-on-backend`); rotation with a rolling shutter is
+refused. See [Lens projection, distortion, vignetting and rotation](https://github.com/Photivra/photivra/blob/main/docs/DISPLAY_VIEW.md#lens-projection-distortion-vignetting-and-rotation).
+
+```ts
+import { simulateDisplayView } from "@photivra/engine";
+
+const fisheye = await simulateDisplayView({ scene: { preset: "siemens-star" }, sensor: { pixelPitchMicrometers: 3 }, output: { width: 120, height: 80 },
+  lens: { projection: "fisheye-equisolid-angle", vignetting: { normalizationRadiusMm: 0.25, maximumNormalizedRadius: 1, coefficients: { r2: -0.4, r4: 0, r6: 0 } } } },
+  { width: 30, height: 20 });
+console.log(fisheye.kind, fisheye.assumptions.find((a) => a.id === "lens.vignetting")?.kind); // "display-view" "model"
+```
+
 #### Rendering a prepared view on the GPU (2.11, #481)
 
 `prepareDisplayView(request, { gpu })` chooses the renderer: `"off"` (the default) is the CPU reference, `"auto"` the GPU
@@ -7923,7 +7960,7 @@ console.log(barrel.request.siteInput(0).environment.lensFieldMapping?.distortion
 lattice, and the capture convolves the scene radiance with it, which is a geometric approximation. With
 `lens.diffraction`, each spectral node's diffraction kernel is convolved with the disc, which is a further
 approximation. The `lens.defocus` assumption records the diameter in µm and in sites, the kernel radius and the
-execution. `simulateDisplayView` does not render it yet. See [Optics](QUICK_START.md#optics).
+execution. `simulateDisplayView` renders it too, also with projection, distortion, vignetting and rotation (#563). See [Optics](QUICK_START.md#optics).
 
 ```ts
 import { simulateCapture } from "@photivra/engine";
@@ -7935,6 +7972,21 @@ const blurred = await simulateCapture({
   output: { width: 16, height: 12 }
 });
 console.log(blurred.assumptions.find((a) => a.id === "lens.defocus")?.value); // diameterSites ≈ 5.95, kernelRadiusSites 3
+```
+
+Bokeh character (#553): `lens.defocus` also takes `blades` (a polygonal or rounded-blade opening), `sphericalAberration`
+(primary W040: a soft-edged blur on one side of the focus plane and a bright-rimmed one on the other) and `catsEye`
+(mechanical vignetting by field position; `simulateCapture` only). Each is off by default. `calculateDefocusBokehKernel`
+returns the kernel without rendering. See [Bokeh character](QUICK_START.md#bokeh-character-553).
+
+```ts
+import { calculateDefocusBokehKernel } from "@photivra/engine";
+
+const kernel = calculateDefocusBokehKernel({
+  focalLengthMm: 50, aperture: 4, focusDistanceM: 1.4, subjectDistanceM: 2, pixelPitchMicrometers: 6,
+  bokeh: { blades: { count: 5 }, sphericalAberration: { w040Micrometers: 0.5, atFNumber: 4 } }
+});
+console.log(kernel.value.side, kernel.value.kernelRadiusSites, kernel.value.method); // "behind-focus", 17, "pupil-ray-binning"
 ```
 
 `motion.angularVelocityRadPerSec` rotates the camera during the exposure (8 time midpoints by

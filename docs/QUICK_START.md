@@ -65,6 +65,8 @@ modelling choices (such as "no lens PSF") as `kind: "model"`.
 | `camera` | `"professional"` | A generic tier id (`"consumer"`, `"prosumer"`, `"professional"`) or a full `GenericEquipmentTierPreset` record. A record must have exactly the preset shape (unknown fields at the top level, in `body`, `lens` or `lens.matchedReference` are rejected) and each profile is re-checked by its own parser. Tier values are synthetic educational designs, not real cameras. |
 | `lens.focalLengthMm` | 50 | Must lie in the lens capability; the generic primes are 50 mm. |
 | `lens.prime` | off | 2.3: a generic prime by full-frame-equivalent focal length (see [Generic prime lenses](#generic-prime-lenses-23)). |
+| `lens.catalogue` | off | #549: a generic catalogue lens by id, with its rendered character (see [Generic lens catalogue](#generic-lens-catalogue-549)). |
+| `lens.focusScatter` | off | #549, with `lens.catalogue`: a seeded autofocus error `{ seed, shotIndex? }`. |
 | `lens.fNumber` | 8 | Used in `manual` and `aperture-priority`; resolved automatically otherwise. Must lie in f/4–f/16. |
 | `lens.focusDistanceM` | the subject distance | |
 | `lens.pupilSampling` | off | `{ radialSamples, angularSamples }` traces an ideal circular pupil, which renders defocus. Off means one chief ray per sample. Angular samples 4–64, at most 256 rays. |
@@ -72,7 +74,7 @@ modelling choices (such as "no lens PSF") as `kind: "model"`.
 | `lens.distortion` | none | `{ kind: "radial", profile }` or `{ kind: "brown-conrady", profile }`. |
 | `lens.vignetting` | none | An `IlluminationVignettingProfile` (radial relative illumination). |
 | `lens.psf` | none | A `{ kind: "sampled-local", configuration }` sampled lens PSF, passed to the environment contract unchanged. |
-| `lens.defocus` | off | `{ model: "geometric-disc" }`: defocus of the scene plane as the geometric blur disc (see [Optics](#optics)). `simulateCapture` and `simulateDisplayView` render it. |
+| `lens.defocus` | off | `{ model: "geometric-disc" }`: defocus of the scene plane as the geometric blur disc (see [Optics](#optics)). `simulateCapture` and `simulateDisplayView` render it. Optional bokeh character (#553), each part off by default: `blades`, `sphericalAberration`, `catsEye` (see [Bokeh character](#bokeh-character-553)). |
 | `lens.diffraction` | off | 2.1: `"circular-aperture"` or `{ kind: "circular-aperture", kernelRadiusSamples, fast }`: diffraction blur of an ideal lens at the resolved f-number (see [Optics](#optics)). `aperture` is accepted as a deprecated alias of `kind` until 3.0.0. |
 | `exposure.mode` | `"manual"` | Also `"aperture-priority"`, `"shutter-priority"`, `"program"`. |
 | `exposure.iso` | 100 | Selects the body's ISO readout regime (gain and read noise). From 2.14 the tier bodies (preset 2.1.0) take the third-stop settings `GENERIC_THIRD_STOP_ISO_SETTINGS` (100, 125, 160, 200 … up to the body's maximum: 6400, 12 800 or 25 600). `"auto"` lets Auto ISO choose it from the meter in any mode (see [Auto ISO](#auto-iso-516)); it steps in whole stops unless `exposure.autoIso.isoSteps: "third-stop"`. |
@@ -190,6 +192,46 @@ The prime replaces the tier lens's focal length and f-number range; the tier len
 kept, and the assumption `lens.prime` records the resolved lens. `resolveGenericPrimeLens` gives the
 same lens for any sensor size. `lens.focalLengthMm` keeps working as before and cannot be combined with
 `lens.prime`.
+
+### Generic lens catalogue (#549)
+
+`lens.catalogue` picks one of the engine's 30 generic lenses by id: two sets of primes, Professional ("PV 50 1.2 Pro",
+`pv-50-1.2-pro`) and Consumer ("PV 50 1.8", `pv-50-1.8`), from the 8 mm circular fisheye to 1200 mm, listed in
+`GENERIC_LENS_CATALOGUE` and [docs/LENS_CATALOGUE.md](https://github.com/Photivra/photivra/blob/main/docs/LENS_CATALOGUE.md). They are Photivra's own designs, not real products,
+and every number is a labelled approximation.
+
+- **Like `lens.prime`:** the focal length is the full-frame equivalent ÷ the simulated frame's diagonal crop factor, and the lens
+  replaces the tier lens's focal length and f-number range (its transmission is kept). Close focus is the generic 0.15× rule (1:1
+  for the macro); an f-number or distance outside the lens's range is refused.
+- **Its character is rendered:** a field- and wavelength-dependent PSF (diffraction with the lens's Seidel aberrations, axial and
+  lateral colour) through the environment PSF quadrature, its radial distortion, its vignetting and, for the fisheyes, the
+  equisolid projection (beyond 90° there is no scene, so the 8 mm's circle is black outside). Flare, focus breathing and the bokeh
+  shape are reported in the assumption `lens.catalogue.character`, not rendered.
+- **Professional lenses are better** where the owner's table says so: sharper centres and corners, less coma, lateral colour,
+  distortion and vignetting, better close focus and focus consistency. The measurements are in the catalogue page.
+- **Combinations:** `lens.defocus` convolves the disc into the lens's PSF (a combined kernel up to 16 sites in radius);
+  `lens.focusScatter: { seed, shotIndex? }` moves the focus by a seeded autofocus error (`simulateGenericLensFocusError`), off
+  by default. `prime`, `focalLengthMm`, `projection`, `distortion`, `vignetting`, `psf`, `diffraction` and `pupilSampling` are
+  set by the lens and refused with it; the display view refuses `lens.catalogue`.
+- **Cost:** one scene query per kernel tap through the lens field mapping, like `lens.distortion`: a 48 × 48 region of a full frame
+  at 6 µm takes about 1 s with *PV 50 1.2 Pro* and 6 s with *PV 50 1.8* (Apple M5 Pro), against 0.01 s with `lens.prime`. Render
+  regions, or use a coarser `sensor.spectralStepNanometers`.
+
+```ts
+import { resolveGenericLens, simulateCapture } from "@photivra/engine";
+
+const lens = resolveGenericLens({ lensId: "pv-50-1.8", activeImagingArea: { widthMm: 36, heightMm: 24 }, fNumber: 2.8 });
+console.log(lens.name, lens.focalLengthMm, lens.character.distortion.corner); // PV 50 1.8, 50, about -0.009 (barrel)
+const capture = await simulateCapture({
+  scene: { preset: "point-grid" },
+  // A whole 36 × 24 mm frame on 48 × 32 pixels.
+  output: { width: 48, height: 32 },
+  sensor: { pixelPitchMicrometers: 750, spectralStepNanometers: 50 },
+  lens: { catalogue: "pv-50-1.8", fNumber: 2.8 },
+  exposure: { mode: "manual", shutterSeconds: 1 / 1000, iso: 100 }
+});
+console.log(capture.assumptions.find((a) => a.id === "lens.catalogue.character")?.value);
+```
 
 ### Fitting a chart to the frame (2.3)
 
@@ -1005,15 +1047,20 @@ The optics options feed only what the environment site contract accepts:
     - A test blurs a sampled straight edge with the kernel and compares it with the disc's closed-form
       edge-spread function, the circular-segment area. They agree to rounding (2e-13) when the edge lies on cell
       boundaries. Elsewhere they agree within the site sampling of the edge.
-  - The kernel radius is capped at 64 sites, a 129 × 129 window (`DEFOCUS_DISC_KERNEL_MAXIMUM_RADIUS_SITES`). A larger
-    blur is refused with an error that names the cap and the radius needed; the disc is never clipped.
+  - The kernel radius is capped at 512 sites, a disc of at most 1025 sites across (`DEFOCUS_DISC_KERNEL_MAXIMUM_RADIUS_SITES`;
+    64 sites before 2.17.0, #564). At 6 µm that is a blur circle of 6.15 mm. A larger blur is refused with a short error,
+    for example `lens.defocus: The blur circle is 7.81 mm (1,303 sites) across; the engine renders at most 1,025 sites
+    (DEFOCUS_DISC_KERNEL_MAXIMUM_RADIUS_SITES).` The disc is never clipped.
+    - Up to a radius of 64 sites the disc is convolved directly, byte for byte as in 2.16.0. Above it, the
+      [large-disc method](#large-defocus-discs-564) below applies.
     - **Check before rendering (#532):** `calculateDefocusDiscKernelRadius({ focalLengthMm, aperture, focusDistanceM,
       subjectDistanceM, pixelPitchMicrometers })` returns the disc's diameter in µm and in sites, the kernel radius it
-      needs, `withinLimit` and `excessKernelRadiusSites`, without rendering. It runs the capture's own resolution and limit
-      test, so it agrees with the refusal of `simulateCapture`, `simulateDisplayView` and `prepareDisplayView` at the
-      boundary (`test/defocus-disc-limit.test.ts`, at two adjacent focus distances). Pass the f-number the capture uses
-      (in an automatic mode, `exposure.settings.fNumber`). The limit is on the disc alone: with `lens.diffraction` the
-      combined radius has no further limit. The other refusals below are not checked.
+      needs, `withinLimit`, `excessKernelRadiusSites` and `convolution` (`"direct"`, `"runs"` or null past the limit),
+      without rendering. It runs the capture's own resolution and limit test, so it agrees with the refusal of
+      `simulateCapture`, `simulateDisplayView` and `prepareDisplayView` at the boundary (`test/defocus-disc-limit.test.ts`,
+      at two adjacent focus distances, for the limit and for the 64-site switch to runs). Pass the f-number the capture
+      uses (in an automatic mode, `exposure.settings.fNumber`). The limit is on the disc alone: with `lens.diffraction`
+      the diffraction kernel is applied with it and has no further limit. The other refusals below are not checked.
   - **The capture renders it** (#492, step 2a). The scene radiance on the site lattice is convolved with the disc,
     the same kernel at every spectral node, and each site query is answered with the result. This is the object-space
     convolution that `lens.diffraction` uses.
@@ -1022,7 +1069,8 @@ The optics options feed only what the environment site contract accepts:
     - `diagnostics.options` lists `lens.defocus`, and `diagnostics.timingsMs.defocus` times the provider's convolution.
     - The site inputs declare no PSF, because the defocus is applied upstream.
   - **With `lens.diffraction`**, each spectral node's diffraction kernel is convolved with the disc and applied as
-    one kernel. The combined radius is the diffraction radius plus the defocus radius, at most 32 + 64 = 96 sites.
+    one kernel. The combined radius is the diffraction radius plus the defocus radius, at most 32 + 64 = 96 sites. Above a
+    disc radius of 64 sites the diffraction kernel is applied after the disc instead (#564, below).
     - This is a further approximation, and the assumption says so. The defocused wave PSF of a circular pupil is not
       exactly the in-focus Airy pattern convolved with the geometric disc. Where the two differ is measured in a
       later step of #492.
@@ -1075,9 +1123,8 @@ The optics options feed only what the environment site contract accepts:
     - **Refused:** camera rotation with `motion.shutter: "rolling"` (each row has its own instants, so each row would
       need its own image of the 2R + 1 rows the disc reaches), and a vignetting or distortion profile that does not
       reach the frame's corners plus the kernel radius (the message names the reach). `lens.pupilSampling` stays refused
-      with projection and distortion. `simulateDisplayView` and `prepareDisplayView` refuse rotation, projection,
-      distortion and vignetting in any focus (the expected-signal tables assume the rectilinear lattice and one field
-      factor), so they have nothing to add here.
+      with projection and distortion. `simulateDisplayView` and `prepareDisplayView` render these combinations too (#563),
+      with the same image-space disc and the same refusals ([Display view](#display-view)).
     - **Sampling** is the lattice sampling below, unchanged. Measured against a fine-grid oracle: the environment PSF
       quadrature with the disc sampled 5 times finer than the site pitch (3 times with the box aperture), on a 16 × 12
       slanted edge with the 5.95-site disc (50 mm f/4, subject 2 m, focus 1.8 m, 6 µm, 80 nm spectral step), as the relative
@@ -1143,7 +1190,7 @@ The optics options feed only what the environment site contract accepts:
     - The tabulated and environment paths give the same RAW.
     - Regions and DNG parts equal the whole frame: chart, Quality options with diffraction, a `material-layers`
       scene and a caller function.
-  - **Cost and the 64-site cap.** Direct convolution costs (2R + 1)² multiply-adds per site and node wherever the disc
+  - **Cost of the direct convolution (up to 64 sites).** Direct convolution costs (2R + 1)² multiply-adds per site and node wherever the disc
     sees more than one material. Uniform areas cost almost nothing on the tabulated path. Measured on the tabulated
     capture path (Node 24, one thread, rounds interleaved over the radii, median [range] of 3 rounds; 2 at 2048 × 1366;
     a shared 4-vCPU host):
@@ -1156,16 +1203,192 @@ The optics options feed only what the environment site contract accepts:
     | Siemens star, 1024 × 683, Quality (diffraction, four-spot, 2 × 2 box, AHD) | 0.81 s | 0.87 s | 1.7 s | 4.1 s | 12.5 s | 20.0 s | 52.9 s [52.0–53.2] |
     | Siemens star, 2048 × 1366 | 1.39 s | | 1.8 s | | 10.4 s | | 38.3 s [37.5–38.3] |
 
-    - The cap stays at 64 sites, set from these numbers. It covers the 1.4 µm example of #492 (50 mm f/2.8, subject
-      2 m, focus 1.6 m: R = 41) with room for larger blurs.
-    - The time grows with R² per edge site, and the caller chooses it through the focus distance. Past the cap the
-      request fails and names the radius it needed.
+    - 2.16.0 capped the radius at 64 sites from these numbers. Since 2.17.0 (#564) the direct convolution stops there and
+      larger discs take the run convolution below.
+    - The time grows with R² per edge site, and the caller chooses it through the focus distance.
     - A 24 MP frame costs proportionally more. Render it in parts across workers, as for diffraction.
     - Off the tabulated path (caller reflectance or radiance functions), the provider gathers only each 32-row band's
       own values, not the 2R extra rows a full-grid convolution would return (#419). On a 256 × 171
       function scene the convolution took 0.3 s at R 8, 3.5 s at R 32 and 12.9 s at R 64.
   - It cannot be combined with `lens.pupilSampling` (the rays already render defocus) or `lens.psf` (a caller PSF
     declares its own defocus). It can be combined with `lens.diffraction`.
+
+#### Large defocus discs (#564)
+
+Wide apertures blur far more than 129 sites. 50 mm f/1.4 on a 6 µm full-frame sensor, focused at infinity with the
+subject at 0.83 m, gives a 2,144 µm blur circle, 357 sites across (kernel radius 179). Since 2.17.0 `lens.defocus` renders
+discs up to a kernel radius of 512 sites (1025 sites across, 6.15 mm at 6 µm). It does this in `simulateCapture` (the
+object-space, image-space #548 and tabulated paths) and in `simulateDisplayView` and `prepareDisplayView` on the CPU.
+
+- **Method: runs of equal weights.** Each kernel row is split into runs of consecutive equal weights. A run's contribution,
+  w·Σ L over the run, is the difference of two prefix sums of that source row, so it costs two reads however long the run
+  is. Runs that share a weight are summed first and multiplied once. This is the summed-area table of Crow (1984)
+  applied row by row; Heckbert (1986) convolves any piecewise-constant kernel this way. Both are free to read.
+  - Every cell wholly inside the disc has the same weight (its area is exactly 1). So the disc of radius R costs one run
+    per row plus the cells the circle crosses: 2,149 reads per output at R = 179, against 101,689 taps for the direct
+    gather; 6,145 at R = 512 (`src/optics/site-kernel-runs.ts`).
+  - **With bokeh character (#553).** The kernel convolved is the shaped kernel when `lens.defocus` has bokeh options, and
+    the disc otherwise. Blade polygons have the disc's uniform interior, so they take this path at little cost: a 7-blade
+    kernel of radius 85 needs 3,002 reads per output, against 29,241 taps for the direct gather. Spherical aberration's binned
+    kernel has no equal neighbours, so it costs as much as the direct gather. The engine refuses any kernel that needs more
+    reads per site than the direct gather at radius 64 (16,641): `lens.defocus: this blur needs 157,644 reads per site;
+    above a kernel radius of 64 sites the limit is 16,641. Reduce the spherical aberration or the defocus.` A cat's eye
+    above 64 sites is refused too, because this path takes one kernel per request and the cat's eye needs one per field
+    zone (`lens.defocus.catsEye: the blur needs a kernel radius of 179 sites; with a cat's eye the limit is 64 sites
+    (129 across). Reduce the defocus or omit catsEye.`).
+  - **With the display view's lens character (#563).** With `lens.projection`, `lens.distortion`, `lens.vignetting` or
+    camera rotation, the view applies the disc to each channel's in-focus signal through the lens, which already carries
+    each source point's field factor. This is the same reordering as without them. Its site values match the capture's
+    image-space provider within 1e-9 relative at R = 179 with distortion and vignetting
+    (`test/defocus-integration-2-17.test.ts`). The fixed tiles never map lattice points beyond the kernel's reach, so a
+    lens profile only has to cover the reach the error message names.
+  - **Not an approximation.** Each output is the same sum of the same products as the direct gather, regrouped. Only
+    the rounding changes. Measured against a compensated (Neumaier) sum of the same products, on the Siemens star,
+    slanted edge and dead leaves at radii 65, 179 and 512, the runs were within 2.5e-14 relative. The direct gather was
+    up to 9.9e-12 off, because it adds up to 826,537 products in one running sum. The runs and the direct gather
+    differed by at most 9.9e-12 relative (RMS 9.9e-12 at R = 512 on dead leaves; 1.6e-12 at R = 179)
+    (`node scripts/benchmark-large-defocus.mjs accuracy`).
+  - Prefix sums of non-negative samples never decrease, so every output is non-negative.
+- **Where it runs.** Up to 64 sites nothing changes: the direct convolution, byte for byte as in 2.16.0, and every hash
+  lock holds. Above it:
+  - **The providers** (object space, and image space with the field factor) convolve each spectral node's samples with the
+    disc by runs in fixed 64-site tiles. With `lens.diffraction` each node's diffraction kernel is gathered directly
+    afterwards (associativity: K ⊛ (D ⊛ L) = (K ⊛ D) ⊛ L, the combined kernel's sum regrouped).
+  - **The tabulated expected signal** (the capture's fast path and the display view) uses the fact that defocus of a plane
+    is space-invariant and the same at every wavelength. It commutes with the spectral, query-offset and diffraction sums,
+    so μ_c(x) = Σ_s D(s)·E_c(x − s). Here E_c is a channel's in-focus expected electrons at each site position, on the
+    lattice formula, with diffraction when it is on. The disc is then applied once per channel on the native site lattice
+    instead of once per spectral node and lattice group: E in fixed 64-site tiles, D ⊛ E by runs in fixed 128-site tiles,
+    each site taking its own channel.
+  - **Fixed tiles at absolute positions** make every value a function of its site alone. Regions, strips, DNG parts and
+    display-view parts are bit-identical to the whole frame (tested), and the tabulated and environment paths give the
+    same RAW (tested at R = 179, with and without diffraction and the Quality filters).
+  - The `lens.defocus` and `view.defocus` assumptions record `convolution: "runs"`; below 64 sites the field is absent.
+  - **The GPU display view does not take these discs.** `gpu: "auto"` renders them on the CPU, labelled
+    `unsupported-on-backend` with the reason.
+- **Validation** (`test/large-defocus.test.ts`, `test/site-kernel-runs.test.ts`, `test/display-view-defocus.test.mjs`):
+  - Each path is compared with the direct gather of the same disc: object space (alone and with a diffraction kernel),
+    image space with vignetting, and the tabulated expected signal with and without diffraction. All agree within 1e-12
+    relative.
+  - A vertical edge between lattice columns at R = 179 gives the exact circular-segment fraction to 1e-12.
+  - The display view at R = 194 (Speed and Quality) matches the in-focus view of the scene blurred beforehand by the disc
+    within ΔE2000 1e-6.
+- **Cost** (Apple M5 Pro, Node 24.19.0, built `dist`, one process per case, two rounds; the machine was shared, load average
+  5–7, so the times are upper bounds):
+
+  | Case | In focus | R 64 (direct) | R 65 (runs) | R 179 (runs) | R 512 (runs) |
+  | --- | --- | --- | --- | --- | --- |
+  | Per output, one 64-site tile (kernel only) | | 11.4 µs | 0.60 µs | 1.52 µs (direct: 65 µs) | 4.6 µs |
+  | Capture, Siemens star 1024 × 683, 6 µm (tabulated) | 0.24–0.26 s | 5.7–6.8 s | 0.72–0.77 s | 1.59–1.66 s | 5.4–5.7 s |
+  | Peak resident memory of that capture | 134–135 MiB | 157–158 MiB | 216–230 MiB | 247–253 MiB | 440–457 MiB |
+  | Display view, the app's request (24 MP at 6 µm, 2028 × 1352 in 96 × 96 parts, Speed, 85 mm-equivalent f/1.4, subject 3 m), part median [slowest of 8], one round | 44 ms [105 ms] | 274 ms [5.6 s] | | 327 ms [540 ms] | 1.10 s [1.20 s] |
+  | The same view on one thread, extrapolated from the 8 parts (mean × 294) | 14 s | 431 s | | 98 s | 296 s |
+  | Peak resident memory of that view process | 260 MiB | 217 MiB | | 394 MiB | 390 MiB |
+
+  The disc of the owner's case (R = 179) costs the capture 1.6 s here, against 6–7 s for the direct convolution at R = 64;
+  the display view's whole-view estimate is 98 s, against 431 s at R = 64. The view's parts are rendered on the CPU (the GPU
+  does not take these discs) and can be spread across workers as today.
+
+  - Memory: the disc's own weights are (2R + 1)² doubles (1.0 MB at R = 179, 8.4 MB at 512), and each provider tile's
+    source and prefix sums (64 + 2R)² doubles each (1.4 MB each at R = 179, 9.5 MB each at 512). Kept tiles are capped at 96 MiB per
+    capture for the providers, and 32 MiB each for the expected signal's in-focus and output tiles per prepared input (the
+    in-focus cache grows to one output tile's span, about 37 MiB at R = 512).
+  - The cost grows with R, not R²: about 12·R reads per output plus a fixed part per tile. Measured with
+    `RADII=0,64,65,179,512 REPEATS=2 node scripts/benchmark-large-defocus.mjs capture` (and `kernel`, `view`).
+- **Why 512.** It bounds the reads per site (6,145, below the 16,641 of the direct gather at 64), the kernel's memory and
+  each tile's source, at a measured cost (above). It covers the owner's case (R = 179), and at 6 µm a 50 mm or 85 mm f/1.2
+  focused at infinity with the subject at 1 m or farther (R ≤ 502). A blur past it fails with a short message (above); the disc is never clipped.
+
+#### Bokeh character (#553)
+
+`lens.defocus` takes three optional parts that shape the defocus kernel by the lens. Each is off by default; without
+them the disc above is unchanged and every request is byte-identical. The same options, validated the same way, go to
+`calculateDefocusBokehKernel({ focalLengthMm, aperture, focusDistanceM, subjectDistanceM, pixelPitchMicrometers, bokeh,
+fieldTangent? })`, which returns the kernel the capture applies (for previews, tests and lens catalogues; the
+`DefocusBokehOptions` type is what a catalogue lens can carry, #549).
+
+```js
+lens: { focalLengthMm: 50, fNumber: 4, focusDistanceM: 1.4, defocus: { model: "geometric-disc",
+  blades: { count: 9, firstBladeEdgeAngleDegrees: 0, curvature: 0.3, circularAtOrBelowFNumber: 1.8 },
+  sphericalAberration: { w040Micrometers: 0.5, atFNumber: 4 },
+  catsEye: { apertures: [{ radiusMm: 7, shiftPerTanFieldMm: 20 }], fieldZonesAcrossLongSide: 8 } } }
+```
+
+- **The model.** A geometric defocused image of a point is the open pupil projected onto the sensor. The ray through
+  pupil point P = ρ·p̂ (in units of the radius of the f/N pupil) lands at (σ·c/2 + b·ρ²)·P sites from the chief ray: c is
+  the thin-lens blur diameter (`calculateDefocusCircle`), σ = +1 for a scene plane behind the focus plane and −1 in front
+  of it, and b = 8·N·W040/pitch is the transverse ray aberration of primary spherical aberration W = W040·ρ⁴,
+  ε = −(R/r_p)·∂W/∂ρ with R/r_p = 2N (Wyant & Creath 1992, §II.A, free). It is an approximation: geometric optics, an ideal thin
+  lens, the aberration referred to the paraxial focus, the exit pupil the same shape and orientation as the entrance pupil;
+  no diffraction of the defocused wave, onion rings, higher-order or field-dependent aberrations, and the same kernel at
+  every wavelength. The `lens.defocus` assumption gains `bokeh` (the options, the side, the shaped kernel's radius,
+  the method, b in sites, and the cat's-eye zones) and says all this.
+- **`blades`**: a regular polygon of `count` (3–32) straight blades, with `calculateIdealApertureGeometry`'s
+  `firstBladeEdgeAngleDegrees`; `curvature` κ in [0, 1] makes each edge an arc of radius 1/κ circumradii through its two
+  vertices (κ = 1 is the circle); at or below `circularAtOrBelowFNumber` the blades are open and the opening is circular.
+  The opening is scaled to the area of the f/N circle, so the f-number keeps its meaning for light and the blur has the
+  disc's area.
+- **Front against back.** Behind the focus plane the rays have crossed before the sensor, in front they have not, so the
+  two blurs are the same pupil turned through 180° (visible with an odd blade count or a cat's eye; shapes are declared as
+  the blur behind the focus plane appears in the output image, +X right, +Y up). With spherical aberration the term b·ρ²
+  adds to the defocus on one side and subtracts on the other: the image intensity at r = |σc/2·ρ + bρ³| of a circular
+  pupil is proportional to 1/(|σc/2 + bρ²|·|σc/2 + 3bρ²|), so undercorrected aberration (W040 > 0) gives a soft-edged blur
+  behind the focus plane and a bright-rimmed one in front, and overcorrected the reverse (the photographic description is
+  H. H. Nasse, "Depth of Field and Bokeh", Carl Zeiss, 2010, free). `sphericalAberration` gives W040 in µm at `atFNumber`,
+  scaled to the working f-number as W040·(N₀/N)⁴. The rim can widen the blur beyond the disc. Past a kernel radius of
+  512 sites the request is refused with the disc's short message. Above 64 sites it is refused when its binned kernel
+  needs more than 16,641 reads per site, the run path's limit ("Large defocus discs", above).
+- **`catsEye`**: mechanical vignetting, the model of `calculateMechanicalVignetting` (Greivenkamp, OPTI-502 notes, sec. 10,
+  free): each clipping aperture is a circle of `radiusMm` in the entrance-pupil plane, shifted by
+  `shiftPerTanFieldMm`·tan θ toward the field point, and the open pupil is the opening inside every circle. The kernel
+  varies over the field, so the capture cuts the native raster into square zones (`fieldZonesAcrossLongSide`, 1–32,
+  default 8) and gives each site the kernel of its zone's centre: a piecewise-constant (sectioned) approximation of the
+  space-variant blur (also see L. Denis, É. Thiébaut, F. Soulez, J.-M. Becker, R. Mourya, "Fast approximations of
+  shift-variant blur", *International Journal of Computer Vision* 115, 2015, pp. 253–278). The assumption reports the
+  zones, the smallest open-area ratio and its largest step between neighbouring zones (the size of the seams; raise the
+  zone count to shrink it). The kernel has unit sum: the light the clip removes is not applied, so declare the falloff with
+  `lens.vignetting`, as for any field throughput (`lightLossApplied: false`). It runs on the object-space and the
+  image-space (#548) paths; the cat's eye skips the tabulated fast path (one kernel per node there), and it cannot be
+  combined with `lens.diffraction` (every zone would need its own combined kernel per node). Above a kernel radius of 64
+  sites it is refused: #564's run convolution takes one kernel per request, and extending it to one kernel per zone is left
+  for later. `simulateDisplayView` and `prepareDisplayView` refuse it; they render `blades` and `sphericalAberration`.
+- **With `lens.catalogue` (#549)** the three options are refused by name. The catalogue lens folds a plain disc into its
+  own PSF, so they would otherwise be dropped. Feeding a catalogue lens's spherical aberration and character into the
+  bokeh kernel is a follow-up ([#567](https://github.com/Photivra/photivra/issues/567)), not a 2.17.0 feature.
+- **Sampling.** Without spherical aberration each site's weight is the exact area of the projected open pupil (a convex
+  polygon; circles and blade arcs are 1024-gons scaled to their true area, within 5e-6 of the radius of the true curve)
+  inside the site's cell, divided by its area (`"exact-polygon-cell-area"`). With it the pupil is sampled on a square grid
+  fine enough that neighbouring rays land at most 1/8 site apart, each grid cell weighted by its exact overlap with the
+  pupil's chord, and every ray binned into the site cell it lands in (`"pupil-ray-binning"`; it handles the caustic).
+  Only correctly rounded operations and the portable trigonometry are used, so the weights are the same bits in every
+  JavaScript engine.
+- **Validation** (`test/defocus-bokeh-kernel.test.ts`, `test/simulate-capture-defocus-bokeh.test.ts`):
+  - Polygon area and shape: an interior cell holds 1/(π·(c/2)²) of the light (to 1e-6 relative) for 5, 6 and 9 blades, and
+    every cell matches a 16 × 16 supersampling of `calculateIdealApertureGeometry`'s polygon to its resolution (1/16 cell).
+    Without blades, at κ = 1 and with the blades open the kernel equals the exact disc kernel to 1e-4 of an interior weight.
+  - Cat's eye against field position: the open-area ratio equals `calculateMechanicalVignetting`'s exact two-circle area to
+    1e-4 at 0–25° and three azimuths; the radial spread falls against the tangential one as the field grows, the light kept
+    is on the field point's side behind the focus plane and on the other in front; on axis the disc is whole.
+  - Spherical-aberration edge profile: the kernel's encircled energy follows the ray map's analytic ρ(r)² within 0.012 at
+    c = 60 sites, b = 4.5 sites on both sides; the rim-to-centre intensity ratio matches the analytic one to 0.05 and is
+    below 0.8 behind and above 1.2 in front for W040 > 0, reversed for W040 < 0; W040 scales as (N₀/N)⁴.
+  - Front against back: a 5-blade kernel in front is the one behind turned through 180° to 1e-15; a circular pupil without
+    aberration gives the same blur on both sides.
+  - On the point grid out of focus (240 × 144, 6 µm, 50 mm f/4, subject 2 m, focus 1.4 m, a 23-site blur): the centre
+    point's blob has a max/min radial extent of 1.07 with the disc and 1.23 with 5 blades (1/cos 36° = 1.236), five-fold;
+    with a cat's eye the left point's blob has a radial-to-tangential spread of 0.57 (0.99–1.01 for the centre point and
+    without the option) and its centroid moves 3.5 px outward; with W040 0.5 µm the rim-to-centre ratio is 0.90 behind the
+    focus plane (focus 1.4 m) and 1.15 in front (focus 3.5 m).
+  - Requests without the options, and in focus with them, give the same RAW codes; regions equal the whole frame with a
+    cat's eye; the GPU display view's float32 emulation gathers a shaped asymmetric kernel within its a-priori bounds.
+- **Cost** (Apple M5 Pro, Node.js 24, built `dist`, one thread, median of 3 or 5; a shared machine). Building a kernel at
+  1.4 µm, 50 mm f/4, subject 2 m, focus 1.6 m (c = 57.6 sites): the circle or 9 blades 0.2–0.8 ms (R 29–30), a cat's-eye
+  kernel at tan θ = 0.3 3.5 ms, spherical aberration (b = 6.9 sites, R 36, about 0.5 million rays) 3–4 ms. A Siemens star
+  capture at 480 × 320, 6 µm, focus 1.6 m (c = 13.4 sites, R 7–9): the disc, 9 blades and spherical aberration all
+  0.06–0.08 s on the tabulated path; a cat's eye 2.2 s with 8 zones and 3.2 s with 16 (the zoned convolution itself 0.51 s
+  and 1.02 s), because it leaves the tabulated path for the per-site environment path. The display view (CPU, 240 × 160 of
+  that frame) took 0.12–0.16 s with the disc, 9 blades or spherical aberration. The GPU display view gathers the shaped
+  kernel with the disc's own pass and cost (no `src/gpu` change); it does not take the cat's eye.
 
 ### Pixel aperture (2.3)
 
@@ -1736,6 +1959,14 @@ request took 73 s instead of 103 s). In 2.6.0 the results were byte-identical to
 merged, which took 222 s, 450 s and 837 s on the phone; later releases changed some views' values (for example the
 exact area mean, 2.8.0; AHD's choice, 2.13.0).
 
+**Lens character (#563).** `lens.projection`, `lens.distortion`, `lens.vignetting` and camera rotation (global shutter)
+render in the view, in focus and with `lens.defocus` out of focus: each real site's expected electrons are the capture's,
+through the same mapping, field factor and rotation (within 1e-9 relative per site). They run on the CPU: with
+`gpu: "auto"` the view falls back labelled `unsupported-on-backend`. They cost more than the rectilinear view, most for
+distortion (the inverse distortion is solved per point) and rotation (one scene point per temporal midpoint)
+([DISPLAY_VIEW.md](https://github.com/Photivra/photivra/blob/main/docs/DISPLAY_VIEW.md#lens-projection-distortion-vignetting-and-rotation)).
+Rotation with a rolling shutter stays refused.
+
 **Options.** `view.width` and `view.height` (1 to the capture's output size), `view.samplesPerAxis` (1–32),
 `view.format` (`"srgb-8"` default or `"srgb-16"`) and `view.region` (a rectangle in display pixels, byte-identical to
 the same pixels of the whole view, for tiling across workers). The capture's file-format options (`format`,
@@ -1821,6 +2052,15 @@ provided, for rights reasons.
   independent test). The original analysis is G. B. Airy, "On the Diffraction of an Object-glass with
   Circular Aperture", *Transactions of the Cambridge Philosophical Society* 5, 1835, pp. 283–291. The
   engine's implementation and its tests are its own (see [PSF foundation](https://github.com/Photivra/photivra/blob/main/docs/PSF_FOUNDATION.md#diffraction-limited-sampled-profile-21)).
+- Bokeh character (`lens.defocus` blades, spherical aberration and cat's eye, `calculateDefocusBokehKernel`, #553): the
+  transverse ray aberration ε = −(R/r_p)·∂W/∂ρ of primary spherical aberration from Wyant & Creath 1992 (above), §II.A; the
+  mechanical-vignetting model from J. E. Greivenkamp, OPTI-502 Optical Design and Instrumentation I course notes, University
+  of Arizona, sec. 10 (free; as `calculateMechanicalVignetting`); the photographic account of front and back bokeh under
+  spherical aberration in H. H. Nasse, "Depth of Field and Bokeh", Carl Zeiss Camera Lens Division, March 2010, free at
+  <https://lenspire.zeiss.com/photo/app/uploads/2022/02/technical-article-depth-of-field-and-bokeh.pdf>. The intensity
+  profiles follow from the ray map; the polygon clipping (Sutherland–Hodgman) and the shoelace area are elementary geometry.
+  The zoned (sectioned) treatment of the field-varying cat's eye is surveyed in L. Denis et al., "Fast approximations of
+  shift-variant blur", *International Journal of Computer Vision* 115 (2015) 253–278.
 - Print planning (`calculatePrintPlan`, `calculatePrintSizeLimit`): Z. Alomar, K. D. Bojikian, "Visual Acuity
   Testing in Adults", EyeWiki, American Academy of Ophthalmology, last edited June 16, 2026, free to read at
   <https://eyewiki.aao.org/Visual_Acuity_Testing_in_Adults> (the minimum angle of resolution of an ideal eye under optimal

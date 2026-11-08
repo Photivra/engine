@@ -18,9 +18,13 @@ import { InvalidConfigurationError } from "../core/configuration-error.js";
 import type { resolveLensPsfConvolutionKernels } from "../optics/lens-psf-kernels.js";
 import { siteDiffractionKernel } from "../optics/site-diffraction-kernel.js";
 import { convolveSiteKernels } from "../optics/defocus-disc-kernel.js";
+import { DEFOCUS_DIRECT_KERNEL_MAXIMUM_RADIUS_SITES, siteKernelRuns, type SiteKernelRuns } from "../optics/site-kernel-runs.js";
 import { resolveProjectionDistanceMm } from "../motion/camera-rotation.js";
 import { hypot3 } from "../core/portable-math.js";
 import type { DisplayViewExpectedSignalInput, DisplayViewScene } from "./display-view.js";
+
+/** A unit site kernel of radius 0 (shared: the tables only read it). */
+const UNIT_TAP = Float64Array.of(1);
 
 type Psf = Parameters<typeof resolveLensPsfConvolutionKernels>[0]["psf"];
 
@@ -41,6 +45,12 @@ export interface ExpectedSignalSetupInput {
   diffraction?: { radius: number; psf: Psf; profileWavelengths: readonly number[] } | undefined;
   /** Defocus (#492): the geometric disc on the site lattice, (2R + 1)² row-major weights; absent or null in focus. */
   defocus?: { radius: number; weights: Float64Array } | null | undefined;
+  /**
+   * #564: a defocus kernel above the direct radius, as runs, used instead of `defocus`: the tables keep the in-focus kernels
+   * (diffraction, or a unit tap per node for the lattice formula) and the expected signal convolves the result with it. A
+   * `defocus` disc of radius above 64 sites takes this path too.
+   */
+  largeDefocus?: SiteKernelRuns | undefined;
   /** Material scenes: the materials (neutral reflectances, or radiance per wavelength), the material lookup and the white radiance. */
   materials?: { list: readonly ({ neutral: number } | { radiance: (nm: number) => number })[]; materialAt(u: number, v: number): number; whiteRadiance(nm: number): number } | undefined;
   radianceAt(u: number, v: number, nm: number): number;
@@ -70,13 +80,19 @@ export function buildExpectedSignalInput(input: ExpectedSignalSetupInput): { off
       return siteDiffractionKernel(diffraction.psf, wavelengthNm, pitch, radius, input.caller + ": diffraction kernels must sample the site pitch exactly.");
     }) };
   }
+  // #564: a disc above the direct radius (64 sites) is convolved by runs after the in-focus signal instead (below).
+  const largeDefocus = input.largeDefocus ?? (input.defocus && input.defocus.radius > DEFOCUS_DIRECT_KERNEL_MAXIMUM_RADIUS_SITES ?
+    siteKernelRuns(input.defocus.weights, input.defocus.radius) : undefined);
   // Defocus (#492): the disc alone at every node (one shared array), or each node's diffraction kernel convolved with it.
-  const defocus = input.defocus;
+  const defocus = largeDefocus ? undefined : input.defocus;
   if (defocus) {
     const diffracted = kernels;
     kernels = diffracted ? { radius: diffracted.radius + defocus.radius, perNode: diffracted.perNode.map((k) => convolveSiteKernels(k, diffracted.radius, defocus.weights, defocus.radius)) } :
       { radius: defocus.radius, perNode: wavelengths.map(() => defocus.weights) };
   }
+  // #564: a large defocus kernel is applied after the in-focus signal (expected-signal.ts); without diffraction the in-focus
+  // kernels are a unit tap per node, so the tables read the scene on the lattice formula as the defocus path does.
+  if (largeDefocus && !kernels) kernels = { radius: 0, perNode: wavelengths.map(() => UNIT_TAP) };
   // Chart presets and (2.7) caller material scenes take the material path: each material tabulated once per node.
   const materials = input.materials;
   const scene: DisplayViewScene = materials ? { kind: "materials", materialAt: materials.materialAt,
@@ -98,6 +114,6 @@ export function buildExpectedSignalInput(input: ExpectedSignalSetupInput): { off
     out[0] = rx / length * t / metresPerFrameUnit; out[1] = ry / length * t / metresPerFrameUnit;
   };
   return { offsets, signalInput: { nativeWidth: input.nativeWidth, nativeHeight: input.nativeHeight, outputWidth: input.width, wavelengthsNm: wavelengths,
-    electronsPerRadiance: input.perNode, offsets, ...(kernels ? { kernels } : { queryPoint }), scene, channelAt: channelIndex } };
+    electronsPerRadiance: input.perNode, offsets, ...(kernels ? { kernels } : { queryPoint }), ...(largeDefocus ? { largeKernel: largeDefocus } : {}), scene, channelAt: channelIndex } };
 }
 

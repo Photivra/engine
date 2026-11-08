@@ -211,9 +211,24 @@ describe("display view with lens.defocus (#492 step 2b)", () => {
       for (let y = 0; y < 3; y++) for (let x = 0; x < 5; x++) for (let ch = 0; ch < 3; ch++) expect(part.image.samples[(y * 5 + x) * 3 + ch]).toBe(whole.image.samples[(y * width + x) * 3 + ch]);
       expect(Array.from(whole.image.samples)).toEqual(Array.from(view.result.image.samples));
     } finally { prepared.dispose(); }
-    // A disc past the kernel's own cap fails as in the capture.
-    await expect(simulateDisplayView({ ...requests.candidate, lens: { prime: 300, fNumber: 2.8, focusDistanceM: 0.9, defocus: DEFOCUS } }, requests.view))
-      .rejects.toThrow(/lens\.defocus: the blur circle is .* the limit is 64 sites/u);
+    // A disc past the kernel's own cap (512 sites since #564; this one is about 1,250 sites across) fails as in the capture.
+    await expect(simulateDisplayView({ ...requests.candidate, lens: { prime: 300, fNumber: 2.8, focusDistanceM: 0.4, defocus: DEFOCUS } }, requests.view))
+      .rejects.toThrow(/^lens\.defocus: The blur circle is .* across; the engine renders at most 1,025 sites \(DEFOCUS_DISC_KERNEL_MAXIMUM_RADIUS_SITES\)\.$/u);
+  }, scaledTimeout(240_000));
+
+  // #564: a disc above the direct radius (here 388 sites across, radius 194) is applied by runs to each channel's in-focus signal.
+  // The reference is the in-focus view of the scene blurred beforehand by the same disc, directly, as for the cases above.
+  it("renders a disc above 64 sites by runs, against the scene blurred beforehand (Speed and Quality)", async () => {
+    for (const quality of [false, true]) {
+      const requests = defocusCaseRequests({ pitch: "1.4", fNumber: 2.8, focusFactor: 0.45, quality }, { k: 2, block: { width: 16, height: 12 } });
+      const view = await simulateDisplayViewWithInternals(requests.candidate, requests.view);
+      expect(recorded(view.result, "view.defocus")).toMatchObject({ defocusKernelRadiusSites: 194, convolution: "runs" });
+      expect(recorded(view.result, "lens.defocus")).toMatchObject({ kernelRadiusSites: 194, convolution: "runs" });
+      const reference = await simulateDisplayViewWithInternals(requests.referenceFor(createDefocusDiscSiteKernel(recorded(view.result, "lens.defocus").diameterSites)), requests.view);
+      const { width, height } = requests.view.region;
+      const m = compareExpectedImages({ width, height, reference: reference.internals.expected, candidate: view.internals.expected, referenceNoiseStd: reference.internals.noiseStd });
+      expect(m.maxDeltaE).toBeLessThan(1e-6);
+    }
   }, scaledTimeout(240_000));
 
   /*

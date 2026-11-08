@@ -270,8 +270,13 @@ export function buildPlanarSceneRadianceProvider(input: {
   geometry: PlanarSceneGeometry;
   evidence: readonly EvidenceProvenance[];
   limitations: readonly string[];
+  /**
+   * #549, catalogue fisheyes only: a direction at or beyond 90° from the axis (or straight back) sees no scene and gets zero
+   * radiance instead of failing; the plane fills the forward hemisphere only. Omitted: such a query fails, as before.
+   */
+  zeroBeyondHorizon?: true;
 }): PlanarSceneRadianceProvider {
-  const { scene, illuminant, irradianceScale, geometry } = input;
+  const { scene, illuminant, irradianceScale, geometry } = input, zeroBeyondHorizon = input.zeroBeyondHorizon === true;
   const scale = geometry.metresPerFrameUnit, distance = geometry.distanceM, sceneId = input.sceneId, providerProfileId = input.providerProfileId;
   const evidence = input.evidence, limitations = input.limitations;
   const caller = "kind" in scene ? scene : undefined, chart = caller ? undefined : scene as ResolvedChartScene;
@@ -351,7 +356,10 @@ export function buildPlanarSceneRadianceProvider(input: {
       const target = request.target;
       if (target.kind !== "environment-direction") throw new InvalidConfigurationError("Planar scene provider needs environment-direction queries.");
       const o = target.outgoingDirectionUnitVector, lz = -o.z;
-      if (!(lz > 0)) throw new InvalidConfigurationError("Planar scene query does not point toward the scene plane.");
+      if (!(lz > 0)) {
+        if (zeroBeyondHorizon && Number.isFinite(lz)) return result(request, 0);
+        throw new InvalidConfigurationError("Planar scene query does not point toward the scene plane.");
+      }
       const t = distance / lz;
       return result(request, radianceAt(-o.x * t / scale, -o.y * t / scale, request.wavelengthNanometers));
     },

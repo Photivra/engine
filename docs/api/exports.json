@@ -1,6 +1,6 @@
 {
-  "packageVersion": "2.16.0",
-  "engineApiVersion": "2.16.0",
+  "packageVersion": "2.17.0",
+  "engineApiVersion": "2.17.0",
   "exports": [
     {
       "name": "AbsoluteUncertaintyEstimate",
@@ -561,6 +561,16 @@
       "name": "calculateCorrelatedColorTemperature",
       "source": "src/color/illuminants.ts",
       "kind": "runtime"
+    },
+    {
+      "name": "calculateDefocusBokehKernel",
+      "source": "src/optics/defocus-bokeh-kernel.ts",
+      "kind": "runtime"
+    },
+    {
+      "name": "CalculateDefocusBokehKernelInput",
+      "source": "src/optics/defocus-bokeh-kernel.ts",
+      "kind": "type"
     },
     {
       "name": "calculateDefocusCircle",
@@ -2433,6 +2443,16 @@
       "kind": "runtime"
     },
     {
+      "name": "createGenericLensCorrectionProfile",
+      "source": "src/output/generic-lens-corrections.ts",
+      "kind": "runtime"
+    },
+    {
+      "name": "CreateGenericLensCorrectionProfileInput",
+      "source": "src/output/generic-lens-corrections.ts",
+      "kind": "type"
+    },
+    {
       "name": "createHdrBracketMergeTask",
       "source": "src/processing/hdr.ts",
       "kind": "runtime"
@@ -2703,9 +2723,44 @@
       "kind": "type"
     },
     {
+      "name": "DEFOCUS_BOKEH_MAXIMUM_BLADES",
+      "source": "src/optics/defocus-bokeh-kernel.ts",
+      "kind": "runtime"
+    },
+    {
       "name": "DEFOCUS_DISC_KERNEL_MAXIMUM_RADIUS_SITES",
       "source": "src/optics/defocus-disc-kernel.ts",
       "kind": "runtime"
+    },
+    {
+      "name": "DefocusBokehBlades",
+      "source": "src/optics/defocus-bokeh-kernel.ts",
+      "kind": "type"
+    },
+    {
+      "name": "DefocusBokehCatsEye",
+      "source": "src/optics/defocus-bokeh-kernel.ts",
+      "kind": "type"
+    },
+    {
+      "name": "DefocusBokehClippingAperture",
+      "source": "src/optics/defocus-bokeh-kernel.ts",
+      "kind": "type"
+    },
+    {
+      "name": "DefocusBokehKernel",
+      "source": "src/optics/defocus-bokeh-kernel.ts",
+      "kind": "type"
+    },
+    {
+      "name": "DefocusBokehOptions",
+      "source": "src/optics/defocus-bokeh-kernel.ts",
+      "kind": "type"
+    },
+    {
+      "name": "DefocusBokehSphericalAberration",
+      "source": "src/optics/defocus-bokeh-kernel.ts",
+      "kind": "type"
     },
     {
       "name": "DefocusCircle",
@@ -3483,6 +3538,26 @@
       "kind": "runtime"
     },
     {
+      "name": "GENERIC_LENS_CATALOGUE",
+      "source": "src/equipment/generic-lens-catalogue.ts",
+      "kind": "runtime"
+    },
+    {
+      "name": "GENERIC_LENS_CORRECTION_CHANNEL_WAVELENGTHS_NM",
+      "source": "src/output/generic-lens-corrections.ts",
+      "kind": "runtime"
+    },
+    {
+      "name": "GENERIC_LENS_IDS",
+      "source": "src/equipment/generic-lens-catalogue.ts",
+      "kind": "runtime"
+    },
+    {
+      "name": "GENERIC_LENS_SET_BASELINES",
+      "source": "src/equipment/generic-lens-catalogue.ts",
+      "kind": "runtime"
+    },
+    {
       "name": "GENERIC_PRIME_EQUIVALENT_FOCAL_LENGTHS_MM",
       "source": "src/equipment/generic-prime-lenses.ts",
       "kind": "runtime"
@@ -3588,6 +3663,26 @@
       "kind": "type"
     },
     {
+      "name": "GenericLensAdjustments",
+      "source": "src/equipment/generic-lens-catalogue.ts",
+      "kind": "type"
+    },
+    {
+      "name": "GenericLensCatalogueEntry",
+      "source": "src/equipment/generic-lens-catalogue.ts",
+      "kind": "type"
+    },
+    {
+      "name": "GenericLensCharacter",
+      "source": "src/equipment/generic-lens-catalogue.ts",
+      "kind": "type"
+    },
+    {
+      "name": "GenericLensCharacterValues",
+      "source": "src/equipment/generic-lens-catalogue.ts",
+      "kind": "type"
+    },
+    {
       "name": "GenericLensCorrectionProfile",
       "source": "src/output/lens-corrections.ts",
       "kind": "type"
@@ -3595,6 +3690,21 @@
     {
       "name": "GenericLensExposureCapabilityProfile",
       "source": "src/equipment/exposure-capabilities.ts",
+      "kind": "type"
+    },
+    {
+      "name": "GenericLensFocusError",
+      "source": "src/equipment/generic-lens-catalogue.ts",
+      "kind": "type"
+    },
+    {
+      "name": "GenericLensKind",
+      "source": "src/equipment/generic-lens-catalogue.ts",
+      "kind": "type"
+    },
+    {
+      "name": "GenericLensSet",
+      "source": "src/equipment/generic-lens-catalogue.ts",
       "kind": "type"
     },
     {
@@ -6623,6 +6733,11 @@
       "kind": "type"
     },
     {
+      "name": "ResolvedGenericLens",
+      "source": "src/equipment/generic-lens-catalogue.ts",
+      "kind": "type"
+    },
+    {
       "name": "ResolvedGenericTierLensProfiles",
       "source": "src/equipment/generic-tier-presets.ts",
       "kind": "type"
@@ -6781,6 +6896,16 @@
       "name": "resolveGenericIsoSignalChainPreset",
       "source": "src/sensor/iso-signal-chain.ts",
       "kind": "runtime"
+    },
+    {
+      "name": "resolveGenericLens",
+      "source": "src/equipment/generic-lens-catalogue.ts",
+      "kind": "runtime"
+    },
+    {
+      "name": "ResolveGenericLensInput",
+      "source": "src/equipment/generic-lens-catalogue.ts",
+      "kind": "type"
     },
     {
       "name": "resolveGenericPrimeLens",
@@ -8475,6 +8600,16 @@
     {
       "name": "SimulateEnvironmentSensorRawFrameInput",
       "source": "src/capture/environment-raw-producer.ts",
+      "kind": "type"
+    },
+    {
+      "name": "simulateGenericLensFocusError",
+      "source": "src/equipment/generic-lens-catalogue.ts",
+      "kind": "runtime"
+    },
+    {
+      "name": "SimulateGenericLensFocusErrorInput",
+      "source": "src/equipment/generic-lens-catalogue.ts",
       "kind": "type"
     },
     {
