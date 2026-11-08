@@ -179,7 +179,7 @@ function createLensSignal(lens: DisplayViewLensSetup, input: DisplayViewExpected
   if (input.largeKernel) return createLargeLensSignal(input, inFocusLensTile, () => lookups, pilot);
   /** E_c (#564) of the native site positions [x0, x0 + T) × [y0, y0 + T) for the three channels: kernelSite's sum for each channel. */
   function inFocusLensTile(x0: number, y0: number, TS: number): Float64Array[] {
-    const out = [0, 1, 2].map(() => new Float64Array(TS * TS)), sum = [0, 1, 2].map(() => new Float64Array(TS * TS));
+    const out = [0, 1, 2].map(() => new Float64Array(TS * TS));
     // A fixed tile reaches past the raster: positions more than the disc's radius beyond it feed no site, so they stay 0 and are never
     // mapped (the lens profiles are checked only up to the view's reach).
     const D = input.largeKernel!.radius;

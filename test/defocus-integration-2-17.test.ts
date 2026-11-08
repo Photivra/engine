@@ -96,7 +96,7 @@ describe("bokeh above 64 sites (#553 with #564)", () => {
     const W = 40, H = 30, wavelengthsNm = [500, 600], g = 2 / W;
     const star = (u: number, v: number, nm: number): number => ((Math.floor((Math.atan2(v, u) + Math.PI) / (Math.PI / 8)) % 2 === 0 ? 0.9 : 0.05) * (1 + (nm - 550) / 1000));
     const base = { sceneId: "s", providerProfileId: "p", radianceAt: star, evaluateRadiance: () => ({}), evaluateApertureRadiance: () => { throw new Error("unused"); } } as never;
-    const common = { base, wavelengthsNm, nativeWidth: W, nativeHeight: H, outputWidth: W, sitePitchMicrometers: 6, distanceM: 2, metresPerFrameUnit: 0.01, siteKernels: () => kernel.weights, kernelRadius: kernel.radius };
+    const common = { base, wavelengthsNm, nativeWidth: W, nativeHeight: H, outputWidth: W, sitePitchMicrometers: 6, distanceM: 2, metresPerFrameUnit: 0.01, siteKernels: (): Float64Array => kernel.weights, kernelRadius: kernel.radius };
     const direct = createDiffractedPlanarProvider(common), large = createDiffractedPlanarProvider({ ...common, largeKernel: { runs } });
     const value = (provider: typeof direct, i: number, j: number): number => {
       const u = (i + 0.5 - W / 2) * g, v = -(j + 0.5 - H / 2) * g, x = u * 0.01, y = v * 0.01, length = Math.hypot(x, y, 2);
