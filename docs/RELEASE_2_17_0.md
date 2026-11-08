@@ -128,16 +128,17 @@ The app (Photivra/apps at `97ee309`, its own `npm run build` and `check:bundle`)
 | 2.15.0 | 498.6 KiB (about 510,570 B) | within | 311,439 B |
 | 2.16.0 | 521,974 B | 9,974 B | 323,428 B |
 | 2.17.0 (`ae0f8f4`) | 546,294 B | 34,294 B | 347,775 B |
+| 2.17.0 (this pull request's head: summaries and profile reach) | 546,366 B | 34,366 B | within the 348,000 B guard |
 
 - **The cause is the new options' code, not broken tree-shaking or splitting.** The engine bundle of exactly the app's worker imports (`NATIVE_RAW_LIMITS`, `prepareDisplayView`, `serializeSimulatedCaptureDngFromParts`, `simulateCapture`, `simulateIdealReference`) grows by the same amounts as the app. Unused root exports (`calculateDefocusBokehKernel`, `createGenericLensCorrectionProfile`, `calculateDefocusDiscKernelRadius`) are absent from it. The largest additions (minified, before gzip) are reached by `simulateCapture` at run time, because options are chosen at run time: in 2.16.0, #548's image-space provider (17 KB) and #552's development detail (15 KB); in 2.17.0, the catalogue data and PSF (43 KB, lazy), the lens signal (19 KB, lazy), `simulateCapture`'s option handling (+24 KB), the bokeh kernel (13 KB) and the run convolution (10 KB).
 - **The worker chunk's +65 KB is mostly a move.** The app's `capture.worker` chunk grew from 221,075 B to 286,252 B. But the three chunks the bundler used to split out (the display-view GPU host 41,390 B, text metadata 15,114 B, pixel limits 3,670 B; all static imports of the worker) are now inside it, and six lazy chunks appeared (about 19 KB, mostly the catalogue and the lens signal). The total grows by 24,320 B.
-- **No behaviour-neutral change in the engine recovers 34 KB.** Lazy-loading more option code would shrink the worker's first load but not the app's total, which counts every chunk. **This needs the owner's decision** on the app's budget or on which engine features the app takes; no budget was raised.
+- **No behaviour-neutral change in the engine recovers 34 KB (34,366 B at the head).** Lazy-loading more option code would shrink the worker's first load but not the app's total, which counts every chunk. **This needs the owner's decision** on the app's budget or on which engine features the app takes; no budget was raised.
 - **A guard against silent growth:** `test/capture-bundle.test.ts` bundles that import shape and checks the total of every chunk against 348,000 B gzip, today's 347,775 B plus a few hundred bytes. A change that grows the app's worker fails in the engine first. Raising it is the owner's decision.
 
 ## For the owner
 
 - **#566, decided:** fixed in 2.18.0 as a breaking fix with an orientation test (owner, 2026-11-07); labelled P1. 2.17.0 leaves the behaviour as is.
-- **The app's total JavaScript budget (512,000 B gzip) does not fit 2.16.0 or 2.17.0** (below, "The app's bundle"). The engine cannot recover 34,294 B without removing features. This needs your decision on the app's budget, or on which engine features the app takes.
+- **The app's total JavaScript budget (512,000 B gzip) does not fit 2.16.0 or 2.17.0** (below, "The app's bundle"). The engine cannot recover 34,366 B without removing features. This needs your decision on the app's budget, or on which engine features the app takes.
 - **Follow-ups filed:** #565 (bug: in-focus diffraction PSF quadrature at chart-boundary ties, 12,663 against 3,560 e⁻ on a 20 × 14 Siemens star with an identity vignetting profile) and #567 (enhancement: catalogue character into bokeh).
 - `THIRD_PARTY.md` records the methods the 2.17 parts cite (summed-area tables, Crow 1984 and Heckbert 1986; the bokeh and catalogue optics references). No public-record patent check is recorded for them; they are left for your review with the others.
 
