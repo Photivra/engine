@@ -210,9 +210,9 @@ export interface GenericLensCharacter {
   aberrations: { sphericalWaves: number; balancingDefocusWaves: number; comaWaves: number; astigmatismWaves: number; fieldCurvatureWaves: number; axialColorWaves: number };
   /** Lateral colour: F-to-C image-radius difference at the corner, fraction of the half-diagonal and micrometres on this sensor. */
   lateralColor: { fraction: number; cornerMicrometers: number };
-  /** Radial distortion profile (normalised to the half-diagonal, valid to it) and its corner value (fraction; negative = barrel). */
+  /** Radial distortion profile (normalised to the half-diagonal, valid to 1.25 of it, beyond the corner) and its corner value (fraction; negative = barrel). */
   distortion: { profile: RadialDistortionProfile; corner: number };
-  /** Relative illumination profile (normalised to the half-diagonal) and the corner fall-off in stops. */
+  /** Relative illumination profile (normalised to the half-diagonal, valid to 1.25 of it) and the corner fall-off in stops. */
   vignetting: { profile: IlluminationVignettingProfile; cornerStops: number };
   strayLight: { veilingGlareFraction: number; ghostFraction: number };
   /** Field-of-view change at this focus and at minimum focus, beyond thin-lens unit focusing (fraction, negative = narrower). */
@@ -291,6 +291,21 @@ export function genericLensDistortionProfile(corner: number, halfDiagonalMm: num
   return { normalizationRadiusMm: halfDiagonalMm, maximumNormalizedRadius, coefficients: { k1: corner, k2: 0, k3: 0 } };
 }
 
+/**
+ * @internal How far the profiles `resolveGenericLens` returns reach, in units of the half-diagonal. A request that reads the scene
+ * through them (`simulateCapture`, `simulateDisplayView`) needs them beyond the frame's corner: the outer site centres plus the
+ * kernel radius and the query offsets. 1.25 covers a kernel reaching a quarter of the half-diagonal past the corner (on full
+ * frame 5.4 mm, beyond the 512-site disc at 6 µm). Every catalogue lens stays valid there: its vignetting E = (1 − bρ²)² keeps
+ * bρ² ≤ 0.83 (b ≤ 0.53, the 2.16-stop corner of PV 16 2.8), and its distortion stays monotonic (1 + 3k1ρ² ≥ 0.75 at k1 = −0.045).
+ * Only the operating range grows; the coefficients, and so every value inside the frame, are unchanged.
+ */
+export const GENERIC_LENS_RESOLVED_PROFILE_REACH = 1.25;
+/** The distortion profile's range for that reach: with barrel distortion an image point at ρ_d comes from ρ_d/(1 + k1ρ²), farther out. */
+function resolvedDistortionReach(k1: number): number {
+  const r = GENERIC_LENS_RESOLVED_PROFILE_REACH;
+  return k1 < 0 ? r / (1 + k1 * r * r) * 1.01 : r;
+}
+
 function positiveFinite(value: unknown, name: string): number {
   if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) throw new InvalidScientificInputError(name + " must be a positive finite number.");
   return value;
@@ -325,8 +340,8 @@ export function resolveGenericLens(input: ResolveGenericLensInput): ResolvedGene
       comaWaves: values.comaWaves * a ** 3 * closeFocusGain, astigmatismWaves: values.astigmatismWaves * a * a * closeFocusGain,
       fieldCurvatureWaves: values.fieldCurvatureWaves * a * a * closeFocusGain, axialColorWaves: values.axialColorWaves * a * a * closeFocusGain },
     lateralColor: { fraction: values.lateralColorFraction, cornerMicrometers: values.lateralColorFraction * halfDiagonalMm * 1000 },
-    distortion: { profile: genericLensDistortionProfile(values.distortionMagnitude, halfDiagonalMm), corner: values.distortionMagnitude },
-    vignetting: { profile: genericLensVignettingProfile(cornerStops, halfDiagonalMm), cornerStops },
+    distortion: { profile: genericLensDistortionProfile(values.distortionMagnitude, halfDiagonalMm, resolvedDistortionReach(values.distortionMagnitude)), corner: values.distortionMagnitude },
+    vignetting: { profile: genericLensVignettingProfile(cornerStops, halfDiagonalMm, GENERIC_LENS_RESOLVED_PROFILE_REACH), cornerStops },
     strayLight: { veilingGlareFraction: values.veilingGlareFraction, ghostFraction: values.ghostFraction },
     breathing: { fieldOfViewChange: values.breathingFraction * closeness, atMinimumFocus: values.breathingFraction },
     focusScatterDepthOfFocusFraction: values.focusScatterDepthOfFocusFraction };

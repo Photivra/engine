@@ -3,7 +3,7 @@
 The engine's own lenses (#549, owner specification of November 6, 2026): two sets of primes, **Professional** and **Consumer**, 30 lenses in all, each with a focal length, an aperture range, a close-focus distance, a projection and a documented optical character. Every lens is a generic Photivra "PV" design: it is not modelled on any manufacturer's product, and **every number on this page is a labelled approximation** chosen by Photivra, not a measurement. The engine reports it as `scientificStatus: "approximation"` and in the capture's assumptions.
 
 - Data: `GENERIC_LENS_CATALOGUE`, `GENERIC_LENS_IDS`, `GENERIC_LENS_SET_BASELINES` (`src/equipment/generic-lens-catalogue.ts`). The data are kept apart from the PSF built from them (`src/optics/generic-lens-psf.ts`), so other models, for example the bokeh shape of #553, read the same lenses. Each entry, and `resolveGenericLens`'s result, has a `summary`: a short plain-English description of the lens's character (at most 40 characters, US spelling) for lists and pickers. It is written from the lens's adjustments and reason in the table below, and a test checks each claim against them.
-- One lens on a sensor, at an f-number and focus distance: `resolveGenericLens`.
+- One lens on a sensor, at an f-number and focus distance: `resolveGenericLens`. Its distortion and vignetting profiles reach 1.25 of the half-diagonal, past the corner, so they can be passed to `simulateCapture` and `simulateDisplayView` as `lens.distortion` and `lens.vignetting` (which read beyond the outer site centres); inside the frame the values are the same.
 - A capture with it: `simulateCapture({ lens: { catalogue: "pv-50-1.2-pro", fNumber: 1.2 } })`.
 - Its correction profile: `createGenericLensCorrectionProfile`. A seeded autofocus error: `simulateGenericLensFocusError`, or `lens.focusScatter` in a capture.
 
@@ -140,7 +140,7 @@ The time grows with the site count and the kernel: the kernel grows with the abe
 
 ### Kernel orientation
 
-The environment PSF quadrature applies a kernel row index as image +Y (`sensorPsfSourcePoint`), and the catalogue builds its kernels that way, so coma flares and the blue image point away from the axis in the rendered image; a test checks it in every quadrant. (The rotationally symmetric interpolation mode of `LensSampledPsfProfile` rotates kernels as if rows ran towards −Y, so an asymmetric kernel under that mode renders mirrored in y; the catalogue uses the 2-D grid mode instead. Changing that mode would change existing captures, so it is left as found: [#566](https://github.com/Photivra/photivra/issues/566), for the owner's decision.)
+The environment PSF quadrature applies a kernel row index as image +Y (`sensorPsfSourcePoint`), and the catalogue builds its kernels that way, so coma flares and the blue image point away from the axis in the rendered image; a test checks it in every quadrant. (The rotationally symmetric interpolation mode of `LensSampledPsfProfile` rotates kernels as if rows ran towards −Y, so an asymmetric kernel under that mode renders mirrored in y; the catalogue uses the 2-D grid mode instead. Changing that mode changes existing captures; owner decision 2026-11-07: fixed in 2.18.0 as a breaking fix with an orientation test, [#566](https://github.com/Photivra/photivra/issues/566).)
 
 ## Measured on the charts
 

@@ -2,7 +2,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { calculateEnvironmentSensorPhotoSignal, createPlanarSceneRadianceProvider, prepareDisplayView, simulateCapture, simulateDisplayView,
+import { calculateEnvironmentSensorPhotoSignal, createPlanarSceneRadianceProvider, GENERIC_LENS_IDS, prepareDisplayView, resolveGenericLens, simulateCapture, simulateDisplayView,
   type SimulateCaptureOptions, type SimulateCaptureResult } from "../src/index.js";
 import { simulateDisplayViewWithInternals } from "../src/facade/simulate-display-view.js";
 import { createDiffractedPlanarProvider } from "../src/facade/diffraction-provider.js";
@@ -130,5 +130,35 @@ describe("the lens catalogue with bokeh options (#549 with #553)", () => {
       await expect(simulateCapture({ scene: { preset: "siemens-star" }, subjectDistanceM: 2, output: { width: 24, height: 16 },
         lens: { catalogue: "pv-50-1.8", fNumber: 4, focusDistanceM: 1.8, defocus: { model: "geometric-disc", ...bokeh } } as never }))
         .rejects.toThrow(/^lens\.defocus\.blades, sphericalAberration and catsEye cannot be combined with lens\.catalogue/u);
+  });
+});
+
+describe("resolveGenericLens profiles reach beyond the frame (#549, app report)", () => {
+  // A full-frame-sized frame (240 × 160 sites of 150 µm = 36 × 24 mm): the view and the capture read the profiles past the corner.
+  // The tier lens is a 50 mm, so the two 50 mm lenses render end to end; every lens's profiles are checked below.
+  const W = 240, H = 160, pitch = 150;
+  for (const lensId of ["pv-50-1.8", "pv-50-1.2-pro"]) {
+    it(lensId + "'s own distortion and vignetting profiles are accepted by simulateDisplayView and simulateCapture", async () => {
+      const lens = resolveGenericLens({ lensId, activeImagingArea: { widthMm: W * pitch / 1000, heightMm: H * pitch / 1000 }, fNumber: 4 });
+      expect(lens.character.vignetting.profile.maximumNormalizedRadius).toBe(1.25);
+      expect(lens.character.distortion.profile.maximumNormalizedRadius).toBeGreaterThanOrEqual(1.25);
+      const request = { scene: { preset: "siemens-star" }, subjectDistanceM: 2, sensor: { pixelPitchMicrometers: pitch, spectralStepNanometers: 80 }, output: { width: W, height: H },
+        lens: { focalLengthMm: lens.focalLengthMm, fNumber: 4, distortion: { kind: "radial", profile: lens.character.distortion.profile }, vignetting: lens.character.vignetting.profile } } as SimulateCaptureOptions;
+      const view = await simulateDisplayView(request, { width: 24, height: 16 });
+      expect(view.image.samples.length).toBe(24 * 16 * 3);
+      const capture = await simulateCapture(request);
+      expect(capture.image.samples.length).toBe(W * H * 3);
+    }, scaledTimeout(120_000));
+  }
+
+  it("keeps every lens's vignetting positive and its distortion monotonic over that reach", () => {
+    for (const id of GENERIC_LENS_IDS) {
+      const lens = resolveGenericLens({ lensId: id, activeImagingArea: { widthMm: 36, heightMm: 24 } });
+      const v = lens.character.vignetting.profile, rho = v.maximumNormalizedRadius;
+      expect(1 + v.coefficients.r2 * rho ** 2 + v.coefficients.r4 * rho ** 4, id).toBeGreaterThan(0.02);
+      const d = lens.character.distortion.profile, r = d.maximumNormalizedRadius;
+      expect(1 + 3 * d.coefficients.k1 * r * r, id).toBeGreaterThan(0.5);
+      expect(() => prepareEnvironmentLensFieldMapping({ projectionModel: "rectilinear", distortion: { kind: "radial", profile: d }, radiometricAreaCorrection: "inverse-distortion-jacobian" } as never), id).not.toThrow();
+    }
   });
 });
