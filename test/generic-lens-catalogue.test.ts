@@ -36,6 +36,26 @@ describe("the generic lens catalogue (#549)", () => {
     expect(new Set(GENERIC_LENS_IDS).size).toBe(30);
   });
 
+  it("gives every lens a short plain-English summary (at most 40 characters, US spelling) that agrees with its character values", () => {
+    for (const lens of GENERIC_LENS_CATALOGUE) {
+      expect(lens.summary.length, lens.lensId).toBeGreaterThan(0);
+      expect(lens.summary.length, lens.lensId).toBeLessThanOrEqual(40);
+      // US spelling, no product names, and nothing the catalogue does not model (bokeh shape: the defocus is a disc).
+      expect(lens.summary, lens.lensId).not.toMatch(/colour|grey|fall-off|licence|optimis|bokeh|PV /iu);
+      const a = lens.adjustments;
+      if (/barrel/u.test(lens.summary)) expect(a.distortion, lens.lensId).toBeLessThan(0);
+      if (/pincushion/u.test(lens.summary)) expect(a.distortion, lens.lensId).toBeGreaterThan(0);
+      if (/nearly no distortion/u.test(lens.summary)) expect(Math.abs(a.distortion), lens.lensId).toBeLessThanOrEqual(0.3);
+      if (/low coma/u.test(lens.summary)) expect(a.coma ?? 1, lens.lensId).toBeLessThan(1);
+      else if (/coma/u.test(lens.summary)) expect(a.coma ?? 1, lens.lensId).toBeGreaterThan(1);
+      if (/axial color/u.test(lens.summary)) expect(a.axialColor ?? 1, lens.lensId).toBeGreaterThan(1);
+      if (/lateral color/u.test(lens.summary)) expect(a.lateralColor ?? 1, lens.lensId).toBeGreaterThan(1);
+      if (/fisheye/iu.test(lens.summary)) expect(lens.kind, lens.lensId).toBe("fisheye");
+      if (/little falloff/u.test(lens.summary)) expect(a.vignetting ?? 1, lens.lensId).toBeLessThan(1);
+      expect(resolveGenericLens({ lensId: lens.lensId, activeImagingArea: FULL_FRAME }).summary).toBe(lens.summary);
+    }
+  });
+
   it("uses the generic smallest apertures, close focus and projections", () => {
     for (const lens of GENERIC_LENS_CATALOGUE) {
       expect(lens.narrowestFNumber).toBe(lens.equivalentFocalLengthMm <= 16 ? 16 : lens.equivalentFocalLengthMm <= 135 ? 22 : 32);

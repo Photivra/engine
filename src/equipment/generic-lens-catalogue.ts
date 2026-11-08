@@ -100,6 +100,11 @@ export interface GenericLensCatalogueEntry {
   adjustments: Readonly<GenericLensAdjustments>;
   /** Why this lens departs from its set's baseline. */
   note: string;
+  /**
+   * A short plain-English summary of the lens's character (at most 40 characters, US spelling), written from its adjustments and
+   * `note`, for lists and pickers. It describes only what the catalogue models (bokeh shape is not modeled: the defocus is a disc).
+   */
+  summary: string;
 }
 
 /** The set baselines (owner's table, #549), each lens's starting point before its adjustments. */
@@ -115,58 +120,58 @@ export const GENERIC_LENS_SET_BASELINES: Readonly<Record<GenericLensSet, Readonl
 /** The generic smallest aperture of both sets: f/16 up to 16 mm, f/22 up to 135 mm, f/32 beyond (as `lens.prime`). */
 function narrowest(equivalent: number): number { return equivalent <= 16 ? 16 : equivalent <= 135 ? 22 : 32; }
 
-type Row = [focal: number, widest: number, kind: GenericLensKind, adjustments: GenericLensAdjustments, note: string, fisheye?: "circular" | "full-frame"];
+type Row = [focal: number, widest: number, kind: GenericLensKind, adjustments: GenericLensAdjustments, note: string, summary: string, fisheye?: "circular" | "full-frame"];
 const PRO: readonly Row[] = [
   [8, 3.5, "fisheye", { distortion: 0.5, astigmatism: 1.5, fieldCurvature: 1.5, lateralColor: 2, vignetting: 0.8, strayLight: 1.5, breathing: 0.3, closeFocus: 0.5 },
-    "Circular fisheye: astigmatism, field curvature and lateral colour grow towards the image circle; the exposed front element flares more; little breathing at 8 mm. Its distortion is the small departure from the equisolid projection.", "circular"],
+    "Circular fisheye: astigmatism, field curvature and lateral colour grow towards the image circle; the exposed front element flares more; little breathing at 8 mm. Its distortion is the small departure from the equisolid projection.", "Circular fisheye; softer toward the rim", "circular"],
   [10, 3.2, "standard", { distortion: -2.5, astigmatism: 1.4, fieldCurvature: 1.3, lateralColor: 1.8, vignetting: 1.4, strayLight: 1.3 },
-    "Rectilinear ultra-wide: strong barrel distortion, softer corners, lateral colour and corner fall-off."],
+    "Rectilinear ultra-wide: strong barrel distortion, softer corners, lateral colour and corner fall-off.", "Strong barrel distortion; softer corners"],
   [15, 2.8, "fisheye", { distortion: 0.5, astigmatism: 1.4, fieldCurvature: 1.3, lateralColor: 1.8, vignetting: 0.9, strayLight: 1.5, breathing: 0.3, closeFocus: 0.5 },
-    "Full-frame fisheye: as the circular fisheye, with its image filling the frame.", "full-frame"],
+    "Full-frame fisheye: as the circular fisheye, with its image filling the frame.", "Full-frame fisheye; softer edges", "full-frame"],
   [16, 1.8, "standard", { distortion: -1.8, coma: 1.4, astigmatism: 1.3, lateralColor: 1.5, vignetting: 1.5, strayLight: 1.2 },
-    "Fast ultra-wide: coma and corner fall-off wide open, barrel distortion."],
-  [20, 1.4, "standard", { distortion: -1.3, coma: 1.4, astigmatism: 1.2, lateralColor: 1.3, vignetting: 1.4 }, "Fast wide angle: coma wide open, barrel distortion."],
-  [24, 1.4, "standard", { distortion: -1, coma: 1.3, astigmatism: 1.1, lateralColor: 1.2, vignetting: 1.3 }, "Fast wide angle: some coma wide open."],
-  [35, 1.2, "standard", { distortion: -0.6, spherical: 1.3, coma: 1.2, axialColor: 1.3, vignetting: 1.3 }, "Very fast: spherical aberration and axial colour wide open."],
-  [50, 1.2, "standard", { distortion: -0.3, spherical: 1.3, axialColor: 1.3, vignetting: 1.2 }, "Very fast normal lens: spherical aberration and axial colour wide open; nearly no distortion."],
+    "Fast ultra-wide: coma and corner fall-off wide open, barrel distortion.", "Fast ultra-wide; coma wide open"],
+  [20, 1.4, "standard", { distortion: -1.3, coma: 1.4, astigmatism: 1.2, lateralColor: 1.3, vignetting: 1.4 }, "Fast wide angle: coma wide open, barrel distortion.", "Fast wide angle; coma wide open"],
+  [24, 1.4, "standard", { distortion: -1, coma: 1.3, astigmatism: 1.1, lateralColor: 1.2, vignetting: 1.3 }, "Fast wide angle: some coma wide open.", "Fast wide angle; some coma wide open"],
+  [35, 1.2, "standard", { distortion: -0.6, spherical: 1.3, coma: 1.2, axialColor: 1.3, vignetting: 1.3 }, "Very fast: spherical aberration and axial colour wide open.", "Very fast; axial color wide open"],
+  [50, 1.2, "standard", { distortion: -0.3, spherical: 1.3, axialColor: 1.3, vignetting: 1.2 }, "Very fast normal lens: spherical aberration and axial colour wide open; nearly no distortion.", "Very fast; nearly no distortion"],
   [85, 1.2, "standard", { distortion: 0.3, spherical: 1.2, axialColor: 1.4, coma: 0.8, astigmatism: 0.7, vignetting: 1.1 },
-    "Very fast short telephoto: axial colour wide open, a small field angle so less coma and astigmatism; slight pincushion."],
+    "Very fast short telephoto: axial colour wide open, a small field angle so less coma and astigmatism; slight pincushion.", "Even across the frame; axial color"],
   [100, 2.8, "macro", { distortion: 0.1, spherical: 0.8, coma: 0.7, astigmatism: 0.7, fieldCurvature: 0.5, axialColor: 0.8, vignetting: 0.6, breathing: 1.5, closeFocus: 0.2 },
-    "Macro: a flat field and corrections optimised for close focus (to 1:1), but strong breathing."],
-  [200, 2, "standard", { distortion: 0.4, axialColor: 1.5, lateralColor: 0.8, coma: 0.6, astigmatism: 0.6, vignetting: 0.9 }, "Fast long telephoto: axial colour; a small field angle."],
-  [300, 2.8, "standard", { distortion: 0.4, axialColor: 1.4, coma: 0.5, astigmatism: 0.5, vignetting: 0.8 }, "Long telephoto: axial colour; a small field angle."],
-  [400, 2.8, "standard", { distortion: 0.4, axialColor: 1.5, coma: 0.5, astigmatism: 0.5, vignetting: 0.9 }, "Fast super telephoto: axial colour."],
-  [500, 4, "standard", { distortion: 0.3, axialColor: 1.2, coma: 0.5, astigmatism: 0.5, vignetting: 0.7 }, "Super telephoto."],
-  [600, 4, "standard", { distortion: 0.3, axialColor: 1.3, coma: 0.5, astigmatism: 0.5, vignetting: 0.8 }, "Super telephoto."],
-  [800, 5.6, "standard", { distortion: 0.3, axialColor: 1.2, coma: 0.5, astigmatism: 0.5, vignetting: 0.7 }, "Super telephoto."],
-  [1200, 8, "standard", { distortion: 0.2, axialColor: 1.1, coma: 0.5, astigmatism: 0.5, vignetting: 0.6 }, "Slow extreme telephoto: little vignetting."]
+    "Macro: a flat field and corrections optimised for close focus (to 1:1), but strong breathing.", "Flat field to 1:1; strong breathing"],
+  [200, 2, "standard", { distortion: 0.4, axialColor: 1.5, lateralColor: 0.8, coma: 0.6, astigmatism: 0.6, vignetting: 0.9 }, "Fast long telephoto: axial colour; a small field angle.", "Fast telephoto; axial color wide open"],
+  [300, 2.8, "standard", { distortion: 0.4, axialColor: 1.4, coma: 0.5, astigmatism: 0.5, vignetting: 0.8 }, "Long telephoto: axial colour; a small field angle.", "Long telephoto; axial color"],
+  [400, 2.8, "standard", { distortion: 0.4, axialColor: 1.5, coma: 0.5, astigmatism: 0.5, vignetting: 0.9 }, "Fast super telephoto: axial colour.", "Fast super telephoto; axial color"],
+  [500, 4, "standard", { distortion: 0.3, axialColor: 1.2, coma: 0.5, astigmatism: 0.5, vignetting: 0.7 }, "Super telephoto.", "Super telephoto; low coma"],
+  [600, 4, "standard", { distortion: 0.3, axialColor: 1.3, coma: 0.5, astigmatism: 0.5, vignetting: 0.8 }, "Super telephoto.", "Super telephoto; low coma, axial color"],
+  [800, 5.6, "standard", { distortion: 0.3, axialColor: 1.2, coma: 0.5, astigmatism: 0.5, vignetting: 0.7 }, "Super telephoto.", "Slow super telephoto; low coma"],
+  [1200, 8, "standard", { distortion: 0.2, axialColor: 1.1, coma: 0.5, astigmatism: 0.5, vignetting: 0.6 }, "Slow extreme telephoto: little vignetting.", "Slow extreme telephoto; little falloff"]
 ];
 const CONSUMER: readonly Row[] = [
   [16, 2.8, "standard", { distortion: -1.5, coma: 1.1, astigmatism: 1.2, fieldCurvature: 1.2, lateralColor: 1.3, vignetting: 1.2, strayLight: 1.2 },
-    "Ultra-wide: strong barrel distortion and soft corners, left to the correction profile."],
-  [20, 2, "standard", { distortion: -1.2, coma: 1.15, astigmatism: 1.1, lateralColor: 1.2, vignetting: 1.15 }, "Wide angle: barrel distortion, coma wide open."],
-  [24, 1.8, "standard", { distortion: -1, coma: 1.1, lateralColor: 1.1, vignetting: 1.1 }, "Wide angle: barrel distortion."],
-  [35, 1.8, "standard", { distortion: -0.6 }, "The consumer baseline."],
+    "Ultra-wide: strong barrel distortion and soft corners, left to the correction profile.", "Strong barrel distortion; soft corners"],
+  [20, 2, "standard", { distortion: -1.2, coma: 1.15, astigmatism: 1.1, lateralColor: 1.2, vignetting: 1.15 }, "Wide angle: barrel distortion, coma wide open.", "Barrel distortion; coma wide open"],
+  [24, 1.8, "standard", { distortion: -1, coma: 1.1, lateralColor: 1.1, vignetting: 1.1 }, "Wide angle: barrel distortion.", "Barrel distortion; mild corner falloff"],
+  [35, 1.8, "standard", { distortion: -0.6 }, "The consumer baseline.", "The consumer baseline; mild barrel"],
   [50, 1.8, "standard", { distortion: -0.3, spherical: 0.7, coma: 0.7, astigmatism: 0.7, fieldCurvature: 0.7, axialColor: 0.8, lateralColor: 0.6, vignetting: 0.8 },
-    "A simple, well-corrected normal design: quite good for its set (owner's example)."],
-  [85, 1.8, "standard", { distortion: 0.3, spherical: 0.9, axialColor: 1.1, coma: 0.8, astigmatism: 0.8 }, "Short telephoto: axial colour wide open."],
-  [100, 2, "standard", { distortion: 0.4, axialColor: 1.2, coma: 0.85 }, "Short telephoto: axial colour wide open."],
-  [200, 5.6, "standard", { distortion: 0.6, axialColor: 0.9, lateralColor: 1.2, coma: 0.8, astigmatism: 0.9, vignetting: 0.8 }, "Slow telephoto: lateral colour, pincushion."],
-  [300, 5.6, "standard", { distortion: 0.6, lateralColor: 1.3 }, "Slow telephoto: lateral colour, pincushion."],
-  [400, 5.6, "standard", { distortion: 0.6, lateralColor: 1.3, axialColor: 1.1 }, "Slow super telephoto: lateral and axial colour."],
-  [500, 5.6, "standard", { distortion: 0.6, lateralColor: 1.4, axialColor: 1.15, astigmatism: 1.1, fieldCurvature: 1.1 }, "Slow super telephoto: softer edges."],
+    "A simple, well-corrected normal design: quite good for its set (owner's example).", "Simple, well-corrected normal lens"],
+  [85, 1.8, "standard", { distortion: 0.3, spherical: 0.9, axialColor: 1.1, coma: 0.8, astigmatism: 0.8 }, "Short telephoto: axial colour wide open.", "Short telephoto; axial color wide open"],
+  [100, 2, "standard", { distortion: 0.4, axialColor: 1.2, coma: 0.85 }, "Short telephoto: axial colour wide open.", "Short telephoto; axial color, pincushion"],
+  [200, 5.6, "standard", { distortion: 0.6, axialColor: 0.9, lateralColor: 1.2, coma: 0.8, astigmatism: 0.9, vignetting: 0.8 }, "Slow telephoto: lateral colour, pincushion.", "Lateral color and pincushion"],
+  [300, 5.6, "standard", { distortion: 0.6, lateralColor: 1.3 }, "Slow telephoto: lateral colour, pincushion.", "Lateral color and pincushion"],
+  [400, 5.6, "standard", { distortion: 0.6, lateralColor: 1.3, axialColor: 1.1 }, "Slow super telephoto: lateral and axial colour.", "Slow super telephoto; lateral color"],
+  [500, 5.6, "standard", { distortion: 0.6, lateralColor: 1.4, axialColor: 1.15, astigmatism: 1.1, fieldCurvature: 1.1 }, "Slow super telephoto: softer edges.", "Slow super telephoto; softer edges"],
   [600, 6.3, "standard", { distortion: 0.6, spherical: 1.2, coma: 1.2, astigmatism: 1.25, fieldCurvature: 1.25, lateralColor: 1.4, axialColor: 1.2, vignetting: 1.2 },
-    "Soft at the edges and wide open (owner's example)."],
-  [800, 9, "standard", { distortion: 0.5, astigmatism: 1.15, fieldCurvature: 1.15, lateralColor: 1.4, axialColor: 1.1 }, "Slow extreme telephoto: softer edges, lateral colour."]
+    "Soft at the edges and wide open (owner's example).", "Soft at the edges and wide open"],
+  [800, 9, "standard", { distortion: 0.5, astigmatism: 1.15, fieldCurvature: 1.15, lateralColor: 1.4, axialColor: 1.1 }, "Slow extreme telephoto: softer edges, lateral colour.", "Slow extreme telephoto; softer edges"]
 ];
 
-function entry(set: GenericLensSet, [focal, widest, kind, adjustments, note, fisheye]: Row): GenericLensCatalogueEntry {
+function entry(set: GenericLensSet, [focal, widest, kind, adjustments, note, summary, fisheye]: Row): GenericLensCatalogueEntry {
   const special = kind === "macro" ? " Macro" : kind === "fisheye" ? " Fisheye" : "";
   const suffix = set === "professional" ? " Pro" : "";
   return Object.freeze({ lensId: ("pv-" + focal + "-" + widest + special + suffix).toLowerCase().replace(/ /g, "-"), name: "PV " + focal + " " + widest + special + suffix,
     set, kind, equivalentFocalLengthMm: focal, widestFNumber: widest, narrowestFNumber: narrowest(focal),
     maximumMagnification: kind === "macro" ? 1 : GENERIC_PRIME_MINIMUM_FOCUS.magnification, projection: kind === "fisheye" ? "fisheye-equisolid-angle" as const : "rectilinear" as const,
-    ...(fisheye ? { fisheyeImage: fisheye } : {}), adjustments: Object.freeze({ ...adjustments }), note });
+    ...(fisheye ? { fisheyeImage: fisheye } : {}), adjustments: Object.freeze({ ...adjustments }), note, summary });
 }
 
 /** The 30 lenses: 17 professional, then 13 consumer, each set by focal length. */
@@ -240,6 +245,8 @@ export interface ResolvedGenericLens {
   imageCircleRadiusMm: number | null;
   character: GenericLensCharacter;
   note: string;
+  /** The catalogue entry's `summary`: a short plain-English description of the lens's character (at most 40 characters). */
+  summary: string;
   evidence: readonly EvidenceProvenance[];
   scientificStatus: "approximation";
   limitations: readonly string[];
@@ -328,7 +335,7 @@ export function resolveGenericLens(input: ResolveGenericLensInput): ResolvedGene
     cropFactor35Mm: crop, halfDiagonalMm, widestFNumber: lens.widestFNumber, narrowestFNumber: lens.narrowestFNumber,
     fNumbers: Object.freeze(GENERIC_PRIME_THIRD_STOP_F_NUMBERS.filter((n) => n >= lens.widestFNumber && n <= lens.narrowestFNumber)),
     minimumFocusDistanceM, maximumMagnification, projection: lens.projection, fisheyeImage: lens.fisheyeImage ?? null,
-    imageCircleRadiusMm: fisheye ? 2 * focalLengthMm * Math.SQRT1_2 : null, character, note: lens.note, evidence: GENERIC_LENS_EVIDENCE,
+    imageCircleRadiusMm: fisheye ? 2 * focalLengthMm * Math.SQRT1_2 : null, character, note: lens.note, summary: lens.summary, evidence: GENERIC_LENS_EVIDENCE,
     scientificStatus: "approximation" as const, limitations: Object.freeze([
       "A generic Photivra lens, not a real product: every coefficient is a Photivra choice that reproduces typical behaviour of its class, not a measurement.",
       "Primary (Seidel) aberrations only, scaled with the pupil radius and a generic close-focus factor; no higher-order terms, no zoom or focus-group design.",
