@@ -123,3 +123,12 @@ describe("bokeh above 64 sites (#553 with #564)", () => {
       .rejects.toThrow(/^lens\.defocus\.catsEye: the blur needs a kernel radius of 179 sites; with a cat's eye the limit is 64 sites \(129 across\)\. Reduce the defocus or omit catsEye\.$/u);
   }, scaledTimeout(120_000));
 });
+
+describe("the lens catalogue with bokeh options (#549 with #553)", () => {
+  it("refuses blades, spherical aberration and the cat's eye with a catalogue lens instead of dropping them", async () => {
+    for (const bokeh of [{ blades: { count: 9 } }, { sphericalAberration: { w040Micrometers: 0.5, atFNumber: 4 } }, { catsEye: { apertures: [{ radiusMm: 7, shiftPerTanFieldMm: 20 }] } }])
+      await expect(simulateCapture({ scene: { preset: "siemens-star" }, subjectDistanceM: 2, output: { width: 24, height: 16 },
+        lens: { catalogue: "pv-50-1.8", fNumber: 4, focusDistanceM: 1.8, defocus: { model: "geometric-disc", ...bokeh } } as never }))
+        .rejects.toThrow(/^lens\.defocus\.blades, sphericalAberration and catsEye cannot be combined with lens\.catalogue/u);
+  });
+});

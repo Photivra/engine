@@ -1898,7 +1898,10 @@ export async function runCapture(options: SimulateCaptureOptions, run: "capture"
     }
     if (pupil) fail("lens.defocus cannot be combined with lens.pupilSampling: the pupil rays already render defocus, so it would be counted twice.");
     if (lensPsf) fail("lens.defocus cannot be combined with lens.psf: a caller PSF declares its own defocus, so it could be counted twice.");
-    // #549: with a catalogue lens the disc is convolved into the lens's PSF (below), not applied by the lens.defocus paths.
+    // #549: with a catalogue lens the disc is convolved into the lens's PSF (below), not applied by the lens.defocus paths. The bokeh
+    // options (#553) shape the lens.defocus kernel only, so they are refused rather than dropped (a follow-up for a later release).
+    if (catalogue && defocusBokeh) fail("lens.defocus.blades, sphericalAberration and catsEye cannot be combined with lens.catalogue: the catalogue lens " +
+      "folds a plain disc into its own PSF. Omit the bokeh options, or use lens.focalLengthMm instead of the catalogue lens.");
     if (!catalogue) defocusModel = "geometric-disc";
   }
 
@@ -2406,7 +2409,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: "capture"
     if (lensOptions.defocus !== undefined) {
       const disc = resolveDefocusDisc({ focalLengthMm, aperture: fNumber, focusDistanceM, subjectDistanceM, pitchMicrometers: pitch });
       let discRadius: number;
-      try { discRadius = requireDefocusDiscKernelRadius(disc.diameterSites); } catch (error) { fail("lens.defocus: the blur circle is " + disc.diameterMicrometers + " µm. " + (error as Error).message); }
+      try { discRadius = requireDefocusDiscKernelRadius(disc.diameterSites); } catch { fail("lens.defocus: " + defocusDiscLimitMessage(disc.diameterSites, disc.diameterMicrometers)); }
       const kernel = run === "ideal-reference" ? null : createDefocusDiscSiteKernel(disc.diameterSites);
       if (kernel) { extraKernel = { weights: kernel.weights, radius: kernel.radius }; catalogueDefocusApplied = true; }
       assume("lens.defocus", "model", { model: "geometric-disc", scientificStatus: "approximation", diameterMicrometers: disc.diameterMicrometers, diameterSites: disc.diameterSites,
