@@ -221,7 +221,7 @@ describe("lens.defocus out of focus with projection, distortion, vignetting and 
     expect(defocusOf(roll).fieldVariation!.rotationMaximumDiameterChangeSites).toBeLessThan(1e-9);
   }, scaledTimeout(120_000));
 
-  it("refuses rotation with a rolling shutter, a vignetting profile that does not cover the disc's reach, and keeps the display view's refusals", async () => {
+  it("refuses rotation with a rolling shutter and a vignetting profile that does not cover the disc's reach; the display view renders these options (#563)", async () => {
     await expect(simulateCapture({ ...base, lens, motion: { angularVelocityRadPerSec: { yaw: 0.5 }, shutter: "rolling" } }))
       .rejects.toThrow(/does not support lens\.defocus out of focus with camera rotation and motion\.shutter "rolling"/u);
     // In focus the same request renders.
@@ -230,7 +230,8 @@ describe("lens.defocus out of focus with projection, distortion, vignetting and 
     const short = { ...vignetting, normalizationRadiusMm: 0.07 };
     await simulateCapture({ ...base, lens: { ...lens, focusDistanceM: 2, vignetting: short } });
     await expect(simulateCapture({ ...base, lens: { ...lens, vignetting: short } })).rejects.toThrow(/reads the scene through the lens up to 3 sites beyond the frame/u);
-    await expect(simulateDisplayView({ ...base, lens: { ...lens, vignetting } }, { width: 8, height: 6 })).rejects.toThrow(/simulateDisplayView does not support lens\.vignetting/u);
+    // #563: the display view renders them out of focus too (test/display-view-lens.test.ts checks its site values against this capture's).
+    await expect(simulateDisplayView({ ...base, lens: { ...lens, vignetting } }, { width: 8, height: 6 })).resolves.toMatchObject({ kind: "display-view" });
   }, scaledTimeout(60_000));
 
   it("output regions are the whole frame's pixels (Quality filters, all combinations)", async () => {

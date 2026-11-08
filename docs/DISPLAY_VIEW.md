@@ -84,7 +84,8 @@ The display view therefore combines them:
 
 ## Expected signal at the real sites
 
-For a still camera, an ideal rectilinear distortion-free lens and the facade's planar Lambertian scene,
+For a still camera, an ideal rectilinear distortion-free lens and the facade's planar Lambertian scene (for projection,
+distortion, vignetting and rotation see [below](#lens-projection-distortion-vignetting-and-rotation)),
 the environment chain's radiance-to-irradiance factor is the same at every site (paraxial π/(4N_w²),
 no cos⁴ term). The expected photo-electrons of site (i, j) with CFA channel c are therefore a linear
 functional of the scene radiance,
@@ -219,6 +220,129 @@ with K_λ the diffraction kernel (a unit tap without `lens.diffraction`).
   blocks) every RAW code was identical. A rerun of those 8 cases after merging step 2a gave the same view numbers as the
   table run. This closes the chain: the view with the option equals
   the view of the pre-blurred scene, which matches its capture (#480), which equals the capture with the option.
+
+### Lens projection, distortion, vignetting and rotation
+
+From #563 the view accepts `lens.projection`, `lens.distortion`, `lens.vignetting` and camera rotation
+(`motion.angularVelocityRadPerSec`, global shutter), in focus and with `lens.defocus` out of focus, the combinations
+`simulateCapture` renders (#548). Each of them moves the scene points a site sees off the plane lattice, or (vignetting,
+the distortion's area factor) gives each point its own radiance-to-irradiance factor, so the tables above no longer
+describe the capture. The view then forms the sum the capture's environment chain forms:
+
+  μ_c(i, j) = Σ_o w_o · (1/T) Σ_t Σ_λ A_c(λ) Σ_k K_λ(k) · F(s) · L(D_t(s), λ),   s = q_o(i, j) − k·p,
+
+with q_o the query point of offset o, K_λ the site kernel (diffraction, the defocus disc or both; one unit tap
+without them), D_t the scene ray of sensor point s at temporal midpoint t (the inverse distortion, the declared
+projection and the camera rotation at t), F = T·A its field factor (vignetting throughput × distortion area factor
+1/det J) and A_c(λ) the channel response on the axis, as before. The field factor applies at the source point, before
+the kernel spreads its light, as for any environment PSF.
+
+- **Scene points.** Without a kernel each query point is formed with the environment's own arithmetic (site centre,
+  aperture node, split offset), then the scene ray and field factor of #548's geometry (`prepareDefocusImageSpaceGeometry`,
+  the environment's mapping, rotation and vignetting) and the planar provider's own plane-point arithmetic. With a
+  kernel the sources run over the site lattice of each fractional offset, with #548's lattice formula. The combined
+  kernels and per-material sums are the view's own tables, unchanged.
+- **What it equals.** In focus without a kernel: the environment's per-query sum. In focus with `lens.diffraction`: the
+  environment PSF quadrature (one scene query per tap). Out of focus: #548's image-space disc, and the view records the
+  capture's `lens.defocus` assumption (`execution: "image-space-convolution"`, `imageSpaceOptions`, `fieldVariation`).
+  The disc's own approximations, and its field-variation bounds, are #548's ([Quick start, Optics](QUICK_START.md#optics)).
+- **Unchanged:** both estimators, the noise, AHD and its correction, the development and the highlight count run on
+  these site values as on the rectilinear ones. The pilot maps its points through the lens at every temporal midpoint
+  and counts a point whose scene value changes between the midpoints as detail.
+- **Rectilinear requests keep their bytes.** The code is a separate module (`src/facade/display-view-lens-signal.ts`)
+  that `runCapture` loads on demand only for these options; every hash lock holds.
+- **Refused:** camera rotation with `motion.shutter: "rolling"` (each row has its own instants, so the scene points
+  of one instant would mix rows exposed at other times; the capture refuses it out of focus for the same reason), and
+  a mapping or vignetting profile that does not reach the farthest source point the view reads: the outer site centres
+  plus the kernel radius and the largest query offset (the message names the reach and the point). `lens.pupilSampling`
+  and `lens.psf` stay refused. The capture's own request limits apply first: rotation with the four-spot filter and
+  `lens.diffraction` in focus (the PSF quadrature) can exceed the environment's 100 000 scene queries per site, and
+  both the capture and the view then refuse it (the app's Quality options at f/8 with the default eight midpoints need
+  217 728).
+- **GPU:** these requests stay on the CPU reference. With `gpu: "auto"` the prepared view runs the CPU path labelled
+  `unsupported-on-backend` (the limitation names #563), and no device is requested; `"require"` fails with that reason.
+  An app can show "estimated on the CPU" from `diagnostics.fast.execution`. No `src/gpu` code changed.
+- **Caches** change memory only: site values in a ring of native rows, and with a kernel each lattice point's material
+  (or radiance per node) and field factor per lattice group and temporal midpoint, in a ring tagged with the point, at
+  most 2²² entries.
+
+**Validation** (`test/display-view-lens.test.ts`):
+
+- *Against the capture, per site.* As for the rectilinear view, every native site's expected electrons are compared
+  with `calculateEnvironmentSensorPhotoSignal` on the capture's own site record and provider: in focus with vignetting,
+  an equisolid fisheye, radial distortion with the box aperture and four-spot filter, Brown–Conrady distortion with
+  vignetting, rotation (3 midpoints), distortion and vignetting with diffraction (the PSF quadrature), a radiance scene
+  through an equidistant fisheye with vignetting, and all of them together; out of focus against #548's image-space
+  provider with vignetting and distortion (box and filter), and with all four options, diffraction and AHD. Every case
+  agrees within 1e-9 relative, the rectilinear view's tolerance.
+- *Ties on chart boundaries.* With a kernel the view rounds as the lattice does (as the rectilinear view and the
+  out-of-focus capture do): an identity vignetting profile gives the rectilinear view's bytes. The in-focus capture with
+  `lens.diffraction` forms each tap's source point from its own site, so a source point exactly on a chart boundary can
+  resolve to the other material. That happens on symmetric charts in symmetric frames (a Siemens star's diagonals
+  through the frame centre); there the capture's PSF quadrature also differs from its own rectilinear object-space path
+  (on a 20 × 14 star at f/11, the site next to the centre: 12 663 against 3 560 electrons with an identity vignetting
+  profile). Elsewhere the two agree to 1e-9 (the dead-leaves case above).
+- *Against the box-downsized capture.* A slanted edge through radial distortion and vignetting, in focus and out of
+  focus (3 µm, 192 × 128 shown at 24 × 16): expected-value RMS below 0.6 code and maximum below 3 codes, the thresholds of
+  the rectilinear slanted-edge test.
+- Regions are byte-identical to the whole view, and prepared renders to `simulateDisplayView`.
+
+*Against real captures, at the app's scale.* Blocks of a 6000 × 4000, 6 µm request near the bottom-right corner (display
+pixels (1330, 870) onward, about 0.85 of the half diagonal, where distortion and vignetting are strongest) shown at
+1500 × 1000 (4 × 4 real pixels per display pixel), on a 74-square caller material checkerboard (block standard deviation
+36–44 codes), ISO 100, 50 mm-equivalent prime at f/8, subject 2 m. Reference: the capture of the block (`output.region`,
+16-bit) at three noise seeds, area-averaged in linear light; candidate: the view's noise-free expected value. Lens variants
+as in the cost table below; defocus is focus 1.6 m with distortion and vignetting. Speed is the 2 × 2 box (24 × 24 display
+pixels); Quality adds diffraction, the four-spot filter and AHD at a 40 nm spectral step (12 × 12 pixels out of focus, 6 × 6
+in focus, where the capture's PSF quadrature costs about 35 s per seed for 24 × 24 real pixels). Errors in 8-bit codes;
+the reference's own noise is the standard error of its three-seed mean (scratch script, November 7, 2026):
+
+| Options | Lens | RMS | Largest | Reference noise (RMS) | Mean error per channel |
+| --- | --- | --- | --- | --- | --- |
+| Speed | distortion + vignetting | 0.291 | 1.34 | 0.303 | −0.003, −0.010, −0.001 |
+| Speed | equisolid fisheye | 0.286 | 1.36 | 0.300 | 0.008, −0.009, −0.001 |
+| Speed | rotation | 0.285 | 1.20 | 0.301 | −0.001, −0.007, −0.002 |
+| Speed | defocus + distortion + vignetting | 0.292 | 1.33 | 0.303 | −0.003, −0.010, −0.001 |
+| Quality | equisolid fisheye | 0.271 | 0.97 | 0.337 | −0.039, 0.013, 0.009 |
+| Quality | distortion + vignetting | 0.248 | 0.82 | 0.315 | −0.013, −0.011, −0.038 |
+| Quality | defocus + distortion + vignetting | 0.282 | 1.22 | 0.307 | −0.032, −0.010, 0.034 |
+
+In every case the RMS difference is no larger than the reference's own noise, so the view's error is below what these
+blocks resolve; every mean error is within 0.04 code (the validation's limit is 0.5). The Quality distortion block (6 × 6)
+fell on a flat square. Quality with rotation is refused (below).
+
+**Cost** (the app request of [A device-pixel view rendered in parts](#a-device-pixel-view-rendered-in-parts), f/8, 2028 × 1352
+in 96 × 96 parts, 30 of 294 parts timed, two repeats interleaved:
+`ROWS=0,2 LENS=none,vignetting,distortion,fisheye,rotation node scripts/benchmark-display-view.mjs --app`, November 7, 2026,
+built from this change, Node 24.19.0, Apple M5 Pro, one thread per process, load average 9.6–32.9 from other work, so
+absolute times are upper bounds and the ratios are the measure). Lens variants: `vignetting` r2 −0.5 at 21.7 mm (−1 stop
+at the corner); `distortion` that profile plus radial distortion k1 −0.05, k2 0.005 at 21.7 mm; `fisheye` the equisolid
+projection; `rotation` yaw 0.05 and pitch 0.03 rad/s at 1/125 s, the default eight midpoints.
+
+| Options | Lens | Part median | µs per display pixel, median | Against no lens | Whole view, one thread (extrapolated) |
+| --- | --- | --- | --- | --- | --- |
+| Speed | none | 43–48 ms | 4.6–5.2 | 1 | 16–18 s |
+| Speed | vignetting | 53–59 ms | 5.7–6.3 | 1.2× | 19–20 s |
+| Speed | fisheye | 66–73 ms | 7.2–7.8 | 1.5× | 22–24 s |
+| Speed | distortion + vignetting | 169–179 ms | 18.2–19.3 | 3.8× | 51–55 s |
+| Speed | rotation (8 midpoints) | 284–307 ms | 30.4–32.7 | 6.5× | 87–93 s |
+| Quality | none | 75–79 ms | 8.1–8.4 | 1 | 30–33 s |
+| Quality | vignetting | 389–415 ms | 41.8–44.1 | 5.2× | 117–123 s |
+| Quality | fisheye | 350 ms | 37.5 | 4.5× | 104 s |
+| Quality | distortion + vignetting | 510–526 ms | 54.8–56.5 | 6.7× | 151–156 s |
+| Quality | rotation | refused | | | |
+
+- Prepare times do not change (28–55 ms over every row).
+- **Speed** reads one scene point per query offset per midpoint, through the lens. Its cost is the mapping: radial
+  distortion is inverted by the capture's own bisection per point (about 40 % of the profile), rotation multiplies the
+  points by the midpoints.
+- **Quality** sums every kernel tap with its own field factor, so the rectilinear view's shortcut (a site whose kernel
+  reads one material takes a precomputed value) does not apply; most of the time is that sum (about 400 taps per site
+  here), the lattice points themselves are cached.
+- **Quality with rotation** is refused by the capture's own request limit (217 728 scene queries per site against the
+  environment's 100 000; see the refusals above).
+- The capture's own cost with these options (#548's table in [Quick start, Optics](QUICK_START.md#optics)) is far higher;
+  the view's follows the display pixels as before.
 
 ### Monte Carlo estimator and its error
 
@@ -1102,6 +1226,12 @@ root exports of the built package, minified, gzip level 9; `test/capture-bundle.
   (rendered 55,908 → 64,855 B): the test's build measures 45,546 B and 18,186 B gzip. The test keeps the addition within
   46,500 B minified and 18,550 B gzip (about 2 % above the measured size; 43,100 B and 17,250 B before #527); a change that
   adds to the display view raises the budget there and records its delta.
+- **Lens character is loaded on demand (#563).** The expected signal through a lens mapping, vignetting or rotation
+  (`facade/display-view-lens-signal.ts`) is imported dynamically by `runCapture`, only for a display view with those
+  options: a 4,380 B (2,173 B gzip) chunk. The display view's addition is then 46,341 B minified and 18,527 B gzip
+  (rolldown 1.2.9; 46,380 B and 18,540 B before: a simpler Kelvin white-balance branch and one view-region expression
+  more than pay for the lens hook), within the unchanged budget; the capture-only entry grows by 642 B (212 B gzip) for
+  the request setup in `runCapture`, and a splitting bundler emits the chunk for capture-only consumers too, never loaded.
 - **The GPU display view is loaded on demand.** `prepareDisplayView` imports `facade/display-view-gpu-session.ts` (the GPU
   session, the Speed and Quality renderers and their WGSL) dynamically, and only when `gpu` is `"auto"` or `"require"`, so a
   bundler that splits dynamic imports puts it in a chunk the default `gpu: "off"` never loads (52 kB gzip, 15 `src/gpu`
@@ -1226,7 +1356,9 @@ with that reason for `"require"`:
    `adapter-unavailable`, `device-request-failed`, `insufficient-limits`, `unsupported-platform-endianness`). The request's
    own `signal` aborts the acquisition. A disposed accelerator handle is a configuration error; one on the CPU reference
    gives its own fallback reason (`webgpu-unavailable` when it has none).
-4. The renderer must support the request (AHD, diffraction, the anti-aliasing filter, the pixel aperture, the tone curve
+4. A request with `lens.projection`, `lens.distortion`, `lens.vignetting` or camera rotation (#563) gives
+   `unsupported-on-backend` before the device step, with no adapter requested: the CPU reference renders it.
+5. The renderer must support the request (AHD, diffraction, the anti-aliasing filter, the pixel aperture, the tone curve
    and the scene kind: a chart or `material-layers`, not a caller function): `unsupported-on-backend` otherwise, and a device
    the view acquired is released.
 
@@ -1298,10 +1430,11 @@ signal aborting a GPU render. The host of this work has no GPU. On hardware, the
 options whose expected signal it cannot tabulate on the site lattice or whose statistics it does not
 model:
 
-- `lens.pupilSampling`, `lens.projection`, `lens.distortion`, `lens.vignetting`, `lens.psf` and camera
-  rotation (`motion.angularVelocityRadPerSec`): they move the queries off the site lattice or change the
-  radiance-to-irradiance factor between sites (for defocus use `lens.defocus`, which stays on the lattice:
+- `lens.pupilSampling` and `lens.psf`: pupil rays and caller PSFs are not tabulated (for defocus use `lens.defocus`:
   [Defocus](#defocus));
+- camera rotation with `motion.shutter: "rolling"`, and a lens mapping or vignetting profile that does not reach the
+  view's farthest source point ([Lens projection, distortion, vignetting and rotation](#lens-projection-distortion-vignetting-and-rotation));
+  projection, distortion, vignetting and rotation themselves render since #563;
 - `lens.defocus` with a disc radius above 512 sites (as the capture refuses it; 64 before 2.17.0);
 - `output.whiteBalance: "auto"`: the capture measures it from its noisy full-resolution RAW (use
   `"scene-illuminant"` or a fixed white balance, as for region tiles);

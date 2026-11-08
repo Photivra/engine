@@ -89,6 +89,9 @@ export async function openDisplayViewGpuSession(options: ParsedPrepareDisplayVie
   if (!getWebGpuEnabled()) return fallBack(options, "webgpu-disabled", "WebGPU is switched off in this realm (setWebGpuEnabled(false)).");
   const factory = displayViewGpuRendererFactory();
   if (!factory) return fallBack(options, "unsupported-on-backend", "this version of the engine has no GPU display-view renderer (#478); no device was requested.");
+  // #563: the lens signal (projection, distortion, vignetting, rotation) runs on the CPU reference only; no device is requested for it.
+  if (request.lens) return fallBack(options, "unsupported-on-backend", "the GPU display-view renderers do not render lens.projection, lens.distortion, lens.vignetting or " +
+    "camera rotation (#563); the CPU reference renders them. No device was requested.");
   let runtime: WebGpuRuntime, owned = false;
   if (isAccelerator(options.gpuDevice)) {
     const shared = acceleratorRuntime(options.gpuDevice) as WebGpuRuntime | null | undefined;

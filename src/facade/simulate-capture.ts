@@ -55,7 +55,7 @@ import { createCaptureWhiteBalanceIntent, type CaptureWhiteBalanceIntent } from 
 import { SENSOR_RAW_PRODUCER_NOISE_MODEL } from "../capture/sensor-raw-producer.js";
 import { calculateNativeRawPlan, nativeRawMaximumProviderEvaluations, NATIVE_RAW_LIMITS, type NativeRawInput, type NativeRawOutput, type NativeRawPlan } from "../capture/native-raw.js";
 import { renderTabulatedNativeRaw, TABULATED_RELATIVE_TOLERANCE } from "../capture/native-environment-tabulated.js";
-import { createDisplayViewExpectedSignal } from "./expected-signal.js";
+import { createDisplayViewExpectedSignal, type DisplayViewExpectedSignal, type DisplayViewExpectedSignalInput } from "./expected-signal.js";
 import type { DisplayViewFastReport } from "./display-view-gpu.js";
 import { buildExpectedSignalInput } from "./expected-signal-setup.js";
 import { createNativeEnvironmentRawTask, createNativeEnvironmentRawRegionTask, type NativeEnvironmentRawInput,
@@ -92,7 +92,7 @@ import { calculateCaptureExposureWindows } from "../sensor/exposure-window.js";
 import { calculateSensorSpectralQuadrature } from "../sensor/spectral-quadrature.js";
 import { createDiffractionLimitedPsfProfile, type DiffractionLimitedPsfProfile } from "../optics/diffraction-psf-profile.js";
 import { registerDiffractionPsfKey, siteDiffractionKernel } from "../optics/site-diffraction-kernel.js";
-import { convolveSiteKernels, createDefocusDiscSiteKernel, defocusDiscLimitMessage, requireDefocusDiscKernelRadius, resolveDefocusDisc, type DefocusDiscSiteKernel, type ResolvedDefocusDisc } from "../optics/defocus-disc-kernel.js";
+import { convolveSiteKernels, createDefocusDiscSiteKernel, defocusDiscKernelRadius, defocusDiscLimitMessage, requireDefocusDiscKernelRadius, resolveDefocusDisc, type DefocusDiscSiteKernel, type ResolvedDefocusDisc } from "../optics/defocus-disc-kernel.js";
 import { calculateDefocusFieldVariation, createDefocusImageSpaceProvider, prepareDefocusImageSpaceGeometry, type DefocusFieldVariation } from "./defocus-image-space-provider.js";
 import { createDiffractedPlanarProvider } from "./diffraction-provider.js";
 import type { LargeDefocusKernel } from "./large-defocus-lattice.js";
@@ -1557,6 +1557,11 @@ export interface DisplayViewRunContext {
   diffraction: DiffractionLimitedPsfProfile | undefined;
   /** `lens.defocus` (#492): the resolved geometric disc out of focus; undefined in focus or without the option. #553: with bokeh options, the shaped kernel. */
   defocus: (ResolvedDefocusDisc & { siteKernel?: DefocusDiscSiteKernel }) | undefined;
+  /**
+   * #563: with `lens.projection`, `lens.distortion`, `lens.vignetting` or camera rotation, the factory of the view's expected signal
+   * through the lens (display-view-lens-signal.ts, loaded on demand); undefined without them (the rectilinear expected signal).
+   */
+  lens?: ((input: DisplayViewExpectedSignalInput, spanColumns?: number) => DisplayViewExpectedSignal) | undefined;
   diffractionPsf: { kind: "sampled-local"; configuration: Pick<CalculateSensorPsfIrradianceQuadratureInput, "psf" | "psfWavelengthBasis" | "spatialModel">; } | undefined;
   fNumber: number;
   focalLengthMm: number;
@@ -1674,8 +1679,9 @@ function resolveDefocusOption(input: { run: "capture" | "ideal-reference" | "dis
     assume("lens.defocus", "model", value, model + "Resolved but not applied: the ideal reference has no camera effects.");
     return undefined;
   }
-  // The display view (#492, step 2b): a site kernel in its expected-signal tables (simulate-display-view.ts).
-  if (run === "display-view") {
+  // The display view (#492, step 2b): a site kernel in its expected-signal tables (simulate-display-view.ts); with a lens field mapping,
+  // vignetting or rotation (#563) applied in image space as in the capture, so it records the capture's assumption below.
+  if (run === "display-view" && !input.imageSpace) {
     assume("lens.defocus", "model", { ...value, execution: "expected-signal-site-kernel", combinedWithDiffraction: input.diffraction }, model +
       "Applied in the display view's expected-signal tables as a site kernel on the lattice" + (input.diffraction ? " (with lens.diffraction, each spectral node's " +
       "diffraction kernel convolved with the disc, a further approximation)" : "") + "; see the view.defocus assumption.");
@@ -1965,10 +1971,10 @@ export async function runCapture(options: SimulateCaptureOptions, run: "capture"
   if (displayView) {
     const unsupported = (option: string, reason: string): never => fail("simulateDisplayView does not support " + option + ": " + reason);
     if (pupil) unsupported("lens.pupilSampling", "pupil rays move each query off the site lattice the expected-signal tables use; lens.defocus renders the defocus of the scene plane on the lattice.");
-    if (lensFieldMapping) unsupported("lens.projection or lens.distortion", "the expected signal assumes the ideal rectilinear, distortion-free mapping of the site lattice.");
-    if (vignetting) unsupported("lens.vignetting", "the expected signal assumes the same radiance-to-irradiance factor at every site.");
     if (lensPsf) unsupported("lens.psf", "only the engine-built diffraction kernels (lens.diffraction) are tabulated.");
-    if (rotating) unsupported("motion.angularVelocityRadPerSec", "camera rotation moves the queries off the site lattice.");
+    // #563: projection, distortion, vignetting and rotation are supported (display-view-lens-signal.ts), except rotation under a rolling shutter.
+    if (rotating && shutterKind === "rolling") unsupported("camera rotation with motion.shutter \"rolling\"", "every row has its own instants, so the view's " +
+      "scene points of one instant would mix rows exposed at other times; use motion.shutter \"global\" for the view.");
     if (outputOptions.region !== undefined) unsupported("output.region", "pass the rectangle as view.region, in display pixels.");
     if (outputOptions.whiteBalance === "auto") unsupported("output.whiteBalance \"auto\"", "the capture measures it from its noisy full-resolution RAW; use \"scene-illuminant\" or a fixed white balance.");
     if (outputOptions.toneCurve !== undefined && outputOptions.toneCurve !== "identity" && outputOptions.toneCurve !== "positive-reinhard-per-channel")
@@ -2329,11 +2335,12 @@ export async function runCapture(options: SimulateCaptureOptions, run: "capture"
   const exposureGreyCardDeviationStops = callerScene?.kind === "radiance-function" ? null : greyCardDeviationStops(fNumber, shutterSeconds, resolvedIso, illuminanceLux);
   // #492: the capture applies the disc as an object-space convolution, which needs every disc point a site sees to be another site's scene point.
   // #548: a lens field mapping, vignetting or camera rotation breaks that, so the capture then applies the disc in image space, on the sensor's
-  // site lattice (defocus-image-space-provider.ts). The display view refuses those options in any focus (above).
+  // site lattice (defocus-image-space-provider.ts). #563: the display view reads the same geometry in any focus (display-view-lens-signal.ts).
   const imageSpaceOptions = [...(lensFieldMapping ? [lensOptions.distortion !== undefined ? (lensOptions.projection !== undefined ? "lens.projection, lens.distortion" : "lens.distortion") : "lens.projection"] : []),
     ...(vignetting ? ["lens.vignetting"] : []), ...(rotating ? ["camera rotation"] : [])];
-  const defocusGeometry = defocusModel !== undefined && !displayView && imageSpaceOptions.length > 0 ? prepareDefocusImageSpaceGeometry({ focalLengthMm, focusDistanceM,
+  const lensGeometry = (defocusModel !== undefined || displayView) && imageSpaceOptions.length > 0 ? prepareDefocusImageSpaceGeometry({ focalLengthMm, focusDistanceM,
     angularVelocityRadPerSec: angular, ...(lensFieldMapping ? { lensMapping: prepareEnvironmentLensFieldMapping(lensFieldMapping) } : {}), ...(vignetting ? { vignetting } : {}) }) : undefined;
+  const defocusGeometry = defocusModel !== undefined ? lensGeometry : undefined;
   // #553: the shaped kernel (on axis) and, with a cat's eye, its field zones; built when the disc is resolved out of focus.
   let bokehAxisKernel: DefocusBokehSiteKernel | undefined, bokehZones: DefocusBokehZonePlan | undefined;
   const bokehSummary = defocusBokeh === undefined ? undefined : (disc: ResolvedDefocusDisc): { value: Record<string, unknown>; explanation: string } => {
@@ -2860,7 +2867,14 @@ export async function runCapture(options: SimulateCaptureOptions, run: "capture"
   }
   // Display view: the renderer that simulate-display-view.ts passes in reads this request's resolved state, so a bundle
   // that only captures does not contain the display view.
-  if (displayView) return await renderView!({ ahd, fastReport, antiAliasing, aspect, assume, assumptions, axisChannelResponse, boxSamples, buildProvider, callerScene, chart, materialLayers, chartReport, chartSize, diffraction, defocus: displayViewDefocus, diffractionPsf, fNumber, focalLengthMm, focusDistanceM, height, highlightMode, exposureGain, illuminanceLux, illuminant, illuminantOption, imagingArea, intentOf, metresPerFrameUnit, noiseSeed, outputOptions, parsedView, pitch, preset, provider, regimeByChannel, resolvedIso, isoReport, standardExposureDeviationStops: exposureDeviationStops, standardExposureIlluminanceLux: exposureIlluminanceLux, greyCardDeviationStops: exposureGreyCardDeviationStops, metering, sceneOption, scenePreset, shutterSeconds, started, subjectDistanceM, toneCurve, whiteBalanceOption, whiteBalanceState, width, checkAbort, margin, mode, nativeHeight, nativeWidth, sourceSha256, yieldControl, kelvinWhiteBalanceInput });
+  // #563: the view's expected signal through the lens, from the capture's own geometry (#548), checked to cover its farthest source point: the outer
+  // site centre plus the kernel radius and the largest query offset.
+  const lensSignal = displayView && lensGeometry ? (await import("./display-view-lens-signal.js")).prepareDisplayViewLensSignal({ geometry: lensGeometry,
+    times: rotating ? Array.from({ length: temporalSampleCount }, (_, i) => (i + 0.5) * (shutterSeconds / temporalSampleCount)) : [0], distanceM: subjectDistanceM, metresPerFrameUnit,
+    pitch, imagingArea, boxSamples, spots: antiAliasing ? antiAliasing.components : [{ offsetMicrometers: { x: 0, y: 0 } }] }, nativeWidth, nativeHeight,
+  (diffraction ? diffraction.kernelRadiusSamples : 0) + (displayViewDefocus ? (bokehAxisKernel?.radius ?? defocusDiscKernelRadius(displayViewDefocus.diameterSites)) : 0) +
+    Math.max(0, ...queryOffsetsSites.map((o) => Math.max(Math.abs(o.x), Math.abs(o.y)))) - 0.5, imageSpaceOptions.join(", ")) : undefined;
+  if (displayView) return await renderView!({ lens: lensSignal, ahd, fastReport, antiAliasing, aspect, assume, assumptions, axisChannelResponse, boxSamples, buildProvider, callerScene, chart, materialLayers, chartReport, chartSize, diffraction, defocus: displayViewDefocus, diffractionPsf, fNumber, focalLengthMm, focusDistanceM, height, highlightMode, exposureGain, illuminanceLux, illuminant, illuminantOption, imagingArea, intentOf, metresPerFrameUnit, noiseSeed, outputOptions, parsedView, pitch, preset, provider, regimeByChannel, resolvedIso, isoReport, standardExposureDeviationStops: exposureDeviationStops, standardExposureIlluminanceLux: exposureIlluminanceLux, greyCardDeviationStops: exposureGreyCardDeviationStops, metering, sceneOption, scenePreset, shutterSeconds, started, subjectDistanceM, toneCurve, whiteBalanceOption, whiteBalanceState, width, checkAbort, margin, mode, nativeHeight, nativeWidth, sourceSha256, yieldControl, kelvinWhiteBalanceInput });
   // Ideal reference (2.3): the scene without camera effects, at the capture's own exposure, white balance and encoding.
   if (idealReference) {
     const referenceStarted = clockMs();

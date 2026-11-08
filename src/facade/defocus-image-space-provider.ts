@@ -47,7 +47,7 @@ import { isInternalSceneRadianceEvaluator, markInternalSceneRadianceEvaluator, r
 import type { SceneRadianceEvaluationRequest, SceneRadianceEvaluationResult } from "../schema/scene-radiance.js";
 import { lensProjectionDirectionValue, lensProjectionImagePointValue, type LensProjectionModel } from "../camera/lens-projection.js";
 import { applyPhysicalCameraRotation, resolveProjectionDistanceMm, type CameraAngularVelocityRadPerSec } from "../motion/camera-rotation.js";
-import { calculateIlluminationVignetting, type IlluminationVignettingProfile } from "../optics/illumination-vignetting.js";
+import { prepareIlluminationVignettingThroughput, type IlluminationVignettingProfile } from "../optics/illumination-vignetting.js";
 import { distortedImagePoint, undistortedImagePoint, type PreparedEnvironmentLensFieldMapping } from "../optics/sensor-environment-query.js";
 import { checkedSiteKernel, createZonedGather, gatherInterior, kernelTaps, type SiteKernelFieldZones } from "./diffraction-provider.js";
 import type { PlanarSceneRadianceProvider } from "./scene-radiance.js";
@@ -89,6 +89,8 @@ export function prepareDefocusImageSpaceGeometry(geometry: DefocusImageSpaceGeom
   const pd = resolveProjectionDistanceMm(focalLengthMm, focusDistanceM).projectionDistanceMm;
   const model: LensProjectionModel = lensMapping?.mapping.projectionModel ?? "rectilinear";
   const timeDependent = omega.pitch !== 0 || omega.yaw !== 0 || omega.roll !== 0;
+  // calculateIlluminationVignetting's throughput with the profile validated once (#563: the same numbers, without a result envelope per point).
+  const throughputAt = vignetting ? prepareIlluminationVignettingThroughput(vignetting) : undefined;
   const displacement = (t: number): { pitch: number; yaw: number; roll: number } =>
     timeDependent ? { pitch: omega.pitch * t, yaw: omega.yaw * t, roll: omega.roll * t } : { pitch: 0, yaw: 0, roll: 0 };
   // The reference-to-camera rotation at the last time asked, as a matrix (its columns: the rotated basis vectors), so a lattice
@@ -119,7 +121,7 @@ export function prepareDefocusImageSpaceGeometry(geometry: DefocusImageSpaceGeom
         lx = reference.x; ly = reference.y; lz = reference.z;
       }
       const length = hypot3(lx, ly, lz);
-      const throughput = vignetting ? calculateIlluminationVignetting({ imagePointMm: image, profile: vignetting }).value.linearThroughputFactor : 1;
+      const throughput = throughputAt ? throughputAt(image) : 1;
       return { x: lx / length, y: ly / length, z: lz / length, factor: throughput * distortionAreaFactor };
     },
     sensorPointOf(look, t): { x: number; y: number } | undefined {
@@ -301,6 +303,8 @@ export function createDefocusImageSpaceProvider(input: DefocusImageSpaceProvider
   // query is answered with (K ⊛ D ⊛ F·L) / F as on the band path.
   const largeLattices = new Map<string, { lattice: LargeDefocusNodeLattice; own: Map<number, Float64Array> }>();
   const largeLatticeCount = shifts.length * Math.max(1, input.timesPerBand ?? 1);
+  // Lattice points at most `reach` beyond the lattice feed queried values: the defocus kernel's radius plus the diffraction kernel's.
+  const reach = large ? large.runs.radius + (large.diffraction ? large.diffraction.radius : 0) : 0;
   function largeValue(s: number, time: number, w: number, li: number, lj: number): number {
     const key = time + ":" + s;
     let entry = largeLattices.get(key);
@@ -309,11 +313,15 @@ export function createDefocusImageSpaceProvider(input: DefocusImageSpaceProvider
       const lattice = createLargeDefocusNodeLattice({ kernel: large!, wavelengthsNm, capacityBytes: LARGE_DEFOCUS_CACHE_BYTES / largeLatticeCount, ...(input.onConvolution ? { onTile: input.onConvolution } : {}),
         source: (x0, y0, width, height) => {
           const size = width * height, factor = new Float64Array(size), u = new Float64Array(size), v = new Float64Array(size);
-          const material = materialAt && materialRadiance ? new Int32Array(size) : undefined;
+          const material = materialAt && materialRadiance ? new Int32Array(size) : undefined, beyond = new Uint8Array(size);
           for (let y = 0; y < height; y++) {
             const yMm = yMmOf(y0 + y, shift);
             for (let x = 0; x < width; x++) {
-              const k = y * width + x, look = geometry.lookOf(xMmOf(x0 + x, shift), yMm, time);
+              const k = y * width + x;
+              // A fixed tile's source reaches past the lattice: points beyond its reach feed no queried value, so they are 0 and never
+              // mapped (the lens profiles are checked only up to the reach).
+              if (x0 + x < -reach || x0 + x >= LW + reach || y0 + y < -reach || y0 + y >= LH + reach) { beyond[k] = 1; continue; }
+              const look = geometry.lookOf(xMmOf(x0 + x, shift), yMm, time);
               if (!(look.z > 0)) throw new InvalidConfigurationError("lens.defocus: a lattice point's ray does not point toward the scene plane.");
               const t = distance / look.z;
               factor[k] = look.factor; u[k] = look.x * t / scale; v[k] = look.y * t / scale;
@@ -325,12 +333,13 @@ export function createDefocusImageSpaceProvider(input: DefocusImageSpaceProvider
             if (material) {
               const radiance = new Map<number, number>();
               for (let k = 0; k < size; k++) {
+                if (beyond[k]) continue;
                 const m = material[k]!;
                 let value = radiance.get(m);
                 if (value === undefined) { value = materialRadiance!(m, nm); radiance.set(m, value); }
                 samples[k] = factor[k]! * value;
               }
-            } else for (let k = 0; k < size; k++) samples[k] = factor[k]! * base.radianceAt(u[k]!, v[k]!, nm);
+            } else for (let k = 0; k < size; k++) if (!beyond[k]) samples[k] = factor[k]! * base.radianceAt(u[k]!, v[k]!, nm);
             return samples;
           };
         } });
@@ -344,7 +353,8 @@ export function createDefocusImageSpaceProvider(input: DefocusImageSpaceProvider
     if (!own) {
       own = new Float64Array(T * T);
       const shift = shifts[s]!;
-      for (let y = 0; y < T; y++) { const yMm = yMmOf(ty * T + y, shift); for (let x = 0; x < T; x++) own[y * T + x] = geometry.lookOf(xMmOf(tx * T + x, shift), yMm, time).factor; }
+      // Only the lattice's own points are queried; the rest of the tile is never read (and may lie beyond the lens profiles).
+      for (let y = 0; y < T && ty * T + y < LH; y++) { const yMm = yMmOf(ty * T + y, shift); for (let x = 0; x < T && tx * T + x < LW; x++) own[y * T + x] = geometry.lookOf(xMmOf(tx * T + x, shift), yMm, time).factor; }
       entry.own.set(tileKey, own);
     }
     return entry.lattice.valueAt(w, li, lj) / own[(lj - ty * T) * T + li - tx * T]!;

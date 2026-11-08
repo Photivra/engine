@@ -7815,6 +7815,20 @@ region that have a clipped contributing site. `simulateCapture` counts the same 
 are equal where every site is far from white. Counts of regions that tile a view add up to the whole view's count. See
 [Highlight count](https://github.com/Photivra/photivra/blob/main/docs/DISPLAY_VIEW.md#highlight-count-533).
 
+From #563 the view renders `lens.projection`, `lens.distortion`, `lens.vignetting` and camera rotation (global
+shutter), in focus and with `lens.defocus` out of focus, with each real site's expected electrons as the capture's. These
+requests run on the CPU (`gpu: "auto"` falls back labelled `unsupported-on-backend`); rotation with a rolling shutter is
+refused. See [Lens projection, distortion, vignetting and rotation](https://github.com/Photivra/photivra/blob/main/docs/DISPLAY_VIEW.md#lens-projection-distortion-vignetting-and-rotation).
+
+```ts
+import { simulateDisplayView } from "@photivra/engine";
+
+const fisheye = await simulateDisplayView({ scene: { preset: "siemens-star" }, sensor: { pixelPitchMicrometers: 3 }, output: { width: 120, height: 80 },
+  lens: { projection: "fisheye-equisolid-angle", vignetting: { normalizationRadiusMm: 0.25, maximumNormalizedRadius: 1, coefficients: { r2: -0.4, r4: 0, r6: 0 } } } },
+  { width: 30, height: 20 });
+console.log(fisheye.kind, fisheye.assumptions.find((a) => a.id === "lens.vignetting")?.kind); // "display-view" "model"
+```
+
 #### Rendering a prepared view on the GPU (2.11, #481)
 
 `prepareDisplayView(request, { gpu })` chooses the renderer: `"off"` (the default) is the CPU reference, `"auto"` the GPU
@@ -7924,7 +7938,7 @@ console.log(barrel.request.siteInput(0).environment.lensFieldMapping?.distortion
 lattice, and the capture convolves the scene radiance with it, which is a geometric approximation. With
 `lens.diffraction`, each spectral node's diffraction kernel is convolved with the disc, which is a further
 approximation. The `lens.defocus` assumption records the diameter in µm and in sites, the kernel radius and the
-execution. `simulateDisplayView` does not render it yet. See [Optics](QUICK_START.md#optics).
+execution. `simulateDisplayView` renders it too, also with projection, distortion, vignetting and rotation (#563). See [Optics](QUICK_START.md#optics).
 
 ```ts
 import { simulateCapture } from "@photivra/engine";

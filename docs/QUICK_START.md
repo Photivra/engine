@@ -1081,9 +1081,8 @@ The optics options feed only what the environment site contract accepts:
     - **Refused:** camera rotation with `motion.shutter: "rolling"` (each row has its own instants, so each row would
       need its own image of the 2R + 1 rows the disc reaches), and a vignetting or distortion profile that does not
       reach the frame's corners plus the kernel radius (the message names the reach). `lens.pupilSampling` stays refused
-      with projection and distortion. `simulateDisplayView` and `prepareDisplayView` refuse rotation, projection,
-      distortion and vignetting in any focus (the expected-signal tables assume the rectilinear lattice and one field
-      factor), so they have nothing to add here.
+      with projection and distortion. `simulateDisplayView` and `prepareDisplayView` render these combinations too (#563),
+      with the same image-space disc and the same refusals ([Display view](#display-view)).
     - **Sampling** is the lattice sampling below, unchanged. Measured against a fine-grid oracle: the environment PSF
       quadrature with the disc sampled 5 times finer than the site pitch (3 times with the box aperture), on a 16 × 12
       slanted edge with the 5.95-site disc (50 mm f/4, subject 2 m, focus 1.8 m, 6 µm, 80 nm spectral step), as the relative
@@ -1900,6 +1899,14 @@ the same sensor, exposure and development in the same JavaScript realm (2.6.0: a
 request took 73 s instead of 103 s). In 2.6.0 the results were byte-identical to those of the display view as first
 merged, which took 222 s, 450 s and 837 s on the phone; later releases changed some views' values (for example the
 exact area mean, 2.8.0; AHD's choice, 2.13.0).
+
+**Lens character (#563).** `lens.projection`, `lens.distortion`, `lens.vignetting` and camera rotation (global shutter)
+render in the view, in focus and with `lens.defocus` out of focus: each real site's expected electrons are the capture's,
+through the same mapping, field factor and rotation (within 1e-9 relative per site). They run on the CPU: with
+`gpu: "auto"` the view falls back labelled `unsupported-on-backend`. They cost more than the rectilinear view, most for
+distortion (the inverse distortion is solved per point) and rotation (one scene point per temporal midpoint)
+([DISPLAY_VIEW.md](https://github.com/Photivra/photivra/blob/main/docs/DISPLAY_VIEW.md#lens-projection-distortion-vignetting-and-rotation)).
+Rotation with a rolling shutter stays refused.
 
 **Options.** `view.width` and `view.height` (1 to the capture's output size), `view.samplesPerAxis` (1–32),
 `view.format` (`"srgb-8"` default or `"srgb-16"`) and `view.region` (a rectangle in display pixels, byte-identical to
