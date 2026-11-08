@@ -723,7 +723,7 @@ differing and flagged counts) were identical; only the stage timings differ.
 
 ## Running on hardware
 
-The conformance suite and the timing run are the two checks to make on a real GPU. Every hardware run goes into the [hardware record](WEBGPU_DEVICES.md) (device, adapter, driver, browser, OS, engine commit, result, timings file); so far one device, an Apple M5 Pro, has been run; its October 27, 2026 runs after the #471 changes passed every non-composite test and were refused by the composite probe, and its runs with the rounding barrier (#507), at the 2.11.0 release gate on `main` at 78f2731 (October 28, 2026) and last at the 2.16.0 release gate on ecb1068 (November 7, 2026), passed 167 of 167 tests and 26 of 26 acceptance cases (below). Other devices are #475. In this container, `npm run test:webgpu:hardware` was run only to confirm that it refuses SwiftShader.
+The conformance suite and the timing run are the two checks to make on a real GPU. Every hardware run goes into the [hardware record](WEBGPU_DEVICES.md) (device, adapter, driver, browser, OS, engine commit, result, timings file); so far one device, an Apple M5 Pro, has been run; its October 27, 2026 runs after the #471 changes passed every non-composite test and were refused by the composite probe, and its runs with the rounding barrier (#507), at the 2.11.0 release gate on `main` at 78f2731 (October 28, 2026) the 2.16.0 release gate on ecb1068 and last at the 2.17.0 release gate on ae0f8f4 (both November 7, 2026), passed 167 of 167 tests and 26 of 26 acceptance cases (below). Other devices are #475. In this container, `npm run test:webgpu:hardware` was run only to confirm that it refuses SwiftShader.
 
 **Once:**
 
