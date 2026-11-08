@@ -21,6 +21,7 @@
 - [calculateDepthOfField()](https://github.com/Photivra/photivra/blob/main/docs/api/optics-depth-of-field.md#calculatedepthoffield): near and far limits and hyperfocal distance (thin lens)
 - [calculateDefocusCircle()](https://github.com/Photivra/photivra/blob/main/docs/api/optics-depth-of-field.md#calculatedefocuscircle): blur-circle size for an out-of-focus subject
 - [calculateDefocusDiscKernelRadius()](https://github.com/Photivra/photivra/blob/main/docs/api/optics-defocus-disc-kernel.md#calculatedefocusdisckernelradius): whether `lens.defocus` can render a blur before you render it (the 64-site limit)
+- [resolveGenericLens()](https://github.com/Photivra/photivra/blob/main/docs/api/equipment-generic-lens-catalogue.md#resolvegenericlens): one of the 30 generic catalogue lenses ("PV 50 1.2 Pro") on a sensor, with its approximated optical character; `simulateCapture` renders it with `lens.catalogue`
 - [calculateFieldOfView()](https://github.com/Photivra/photivra/blob/main/docs/api/camera-field-of-view.md#calculatefieldofview): angle of view from focal length and sensor size
 - [calculateEquivalentFocalLength35Mm()](https://github.com/Photivra/photivra/blob/main/docs/api/camera-equivalent-focal-length.md#calculateequivalentfocallength35mm): crop factor and 35 mm-equivalent focal length
 - [calculateCenteredCrop()](https://github.com/Photivra/photivra/blob/main/docs/api/output-crop.md#calculatecenteredcrop): pixels left after a centred crop

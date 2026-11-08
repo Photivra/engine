@@ -65,6 +65,8 @@ modelling choices (such as "no lens PSF") as `kind: "model"`.
 | `camera` | `"professional"` | A generic tier id (`"consumer"`, `"prosumer"`, `"professional"`) or a full `GenericEquipmentTierPreset` record. A record must have exactly the preset shape (unknown fields at the top level, in `body`, `lens` or `lens.matchedReference` are rejected) and each profile is re-checked by its own parser. Tier values are synthetic educational designs, not real cameras. |
 | `lens.focalLengthMm` | 50 | Must lie in the lens capability; the generic primes are 50 mm. |
 | `lens.prime` | off | 2.3: a generic prime by full-frame-equivalent focal length (see [Generic prime lenses](#generic-prime-lenses-23)). |
+| `lens.catalogue` | off | #549: a generic catalogue lens by id, with its rendered character (see [Generic lens catalogue](#generic-lens-catalogue-549)). |
+| `lens.focusScatter` | off | #549, with `lens.catalogue`: a seeded autofocus error `{ seed, shotIndex? }`. |
 | `lens.fNumber` | 8 | Used in `manual` and `aperture-priority`; resolved automatically otherwise. Must lie in f/4–f/16. |
 | `lens.focusDistanceM` | the subject distance | |
 | `lens.pupilSampling` | off | `{ radialSamples, angularSamples }` traces an ideal circular pupil, which renders defocus. Off means one chief ray per sample. Angular samples 4–64, at most 256 rays. |
@@ -190,6 +192,46 @@ The prime replaces the tier lens's focal length and f-number range; the tier len
 kept, and the assumption `lens.prime` records the resolved lens. `resolveGenericPrimeLens` gives the
 same lens for any sensor size. `lens.focalLengthMm` keeps working as before and cannot be combined with
 `lens.prime`.
+
+### Generic lens catalogue (#549)
+
+`lens.catalogue` picks one of the engine's 30 generic lenses by id: two sets of primes, Professional ("PV 50 1.2 Pro",
+`pv-50-1.2-pro`) and Consumer ("PV 50 1.8", `pv-50-1.8`), from the 8 mm circular fisheye to 1200 mm, listed in
+`GENERIC_LENS_CATALOGUE` and [docs/LENS_CATALOGUE.md](https://github.com/Photivra/photivra/blob/main/docs/LENS_CATALOGUE.md). They are Photivra's own designs, not real products,
+and every number is a labelled approximation.
+
+- **Like `lens.prime`:** the focal length is the full-frame equivalent ÷ the simulated frame's diagonal crop factor, and the lens
+  replaces the tier lens's focal length and f-number range (its transmission is kept). Close focus is the generic 0.15× rule (1:1
+  for the macro); an f-number or distance outside the lens's range is refused.
+- **Its character is rendered:** a field- and wavelength-dependent PSF (diffraction with the lens's Seidel aberrations, axial and
+  lateral colour) through the environment PSF quadrature, its radial distortion, its vignetting and, for the fisheyes, the
+  equisolid projection (beyond 90° there is no scene, so the 8 mm's circle is black outside). Flare, focus breathing and the bokeh
+  shape are reported in the assumption `lens.catalogue.character`, not rendered.
+- **Professional lenses are better** where the owner's table says so: sharper centres and corners, less coma, lateral colour,
+  distortion and vignetting, better close focus and focus consistency. The measurements are in the catalogue page.
+- **Combinations:** `lens.defocus` convolves the disc into the lens's PSF (a combined kernel up to 16 sites in radius);
+  `lens.focusScatter: { seed, shotIndex? }` moves the focus by a seeded autofocus error (`simulateGenericLensFocusError`), off
+  by default. `prime`, `focalLengthMm`, `projection`, `distortion`, `vignetting`, `psf`, `diffraction` and `pupilSampling` are
+  set by the lens and refused with it; the display view refuses `lens.catalogue`.
+- **Cost:** one scene query per kernel tap through the lens field mapping, like `lens.distortion`: a 48 × 48 region of a full frame
+  at 6 µm takes about 1 s with *PV 50 1.2 Pro* and 6 s with *PV 50 1.8* (Apple M5 Pro), against 0.01 s with `lens.prime`. Render
+  regions, or use a coarser `sensor.spectralStepNanometers`.
+
+```ts
+import { resolveGenericLens, simulateCapture } from "@photivra/engine";
+
+const lens = resolveGenericLens({ lensId: "pv-50-1.8", activeImagingArea: { widthMm: 36, heightMm: 24 }, fNumber: 2.8 });
+console.log(lens.name, lens.focalLengthMm, lens.character.distortion.corner); // PV 50 1.8, 50, about -0.009 (barrel)
+const capture = await simulateCapture({
+  scene: { preset: "point-grid" },
+  // A whole 36 × 24 mm frame on 48 × 32 pixels.
+  output: { width: 48, height: 32 },
+  sensor: { pixelPitchMicrometers: 750, spectralStepNanometers: 50 },
+  lens: { catalogue: "pv-50-1.8", fNumber: 2.8 },
+  exposure: { mode: "manual", shutterSeconds: 1 / 1000, iso: 100 }
+});
+console.log(capture.assumptions.find((a) => a.id === "lens.catalogue.character")?.value);
+```
 
 ### Fitting a chart to the frame (2.3)
 

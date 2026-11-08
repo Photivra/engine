@@ -7471,6 +7471,28 @@ console.log(calculateGeometricFocusBreathing({
 }).value.deltaDegrees);
 ```
 
+## Generic lens catalogue (#549)
+
+`GENERIC_LENS_CATALOGUE` lists the engine's 30 generic primes (17 professional, 13 consumer, "PV 50 1.2 Pro", "PV 50 1.8"; Photivra's
+own designs, not real products). `resolveGenericLens` resolves one for a sensor, an f-number and a focus distance: its focal length
+(scaled by the crop factor), aperture range, close focus, projection and its character, Seidel aberrations, axial and lateral
+colour, distortion and vignetting profiles, flare, breathing and focus scatter, each a labelled approximation.
+`simulateGenericLensFocusError` draws a seeded autofocus error; `createGenericLensCorrectionProfile` builds the lens's generic
+correction profile for `resolveLensCorrectionPlan`. `simulateCapture` renders a catalogue lens with `lens.catalogue`
+([quick start](QUICK_START.md#generic-lens-catalogue-549)). Equations, tables and the chart measurements:
+[LENS_CATALOGUE.md](https://github.com/Photivra/photivra/blob/main/docs/LENS_CATALOGUE.md).
+
+```ts
+import { GENERIC_LENS_CATALOGUE, resolveGenericLens, simulateGenericLensFocusError } from "@photivra/engine";
+
+const frame = { widthMm: 36, heightMm: 24 };
+const pro = resolveGenericLens({ lensId: "pv-50-1.2-pro", activeImagingArea: frame, fNumber: 2 });
+const consumer = resolveGenericLens({ lensId: "pv-50-1.8", activeImagingArea: frame, fNumber: 2 });
+console.log(GENERIC_LENS_CATALOGUE.length, pro.character.aberrations.comaWaves < consumer.character.aberrations.comaWaves); // 30 true
+const shot = simulateGenericLensFocusError({ lensId: "pv-50-1.8", activeImagingArea: frame, fNumber: 1.8, focusDistanceM: 2, seed: 1, shotIndex: 0 });
+console.log(shot.focusDistanceM, shot.imageSideErrorMicrometers);
+```
+
 ## Parallel native environment RAW (row-band partitions, 2.0)
 
 `createNativeEnvironmentRawTask` runs on one thread. For several cores, split the capture into row bands with

@@ -827,6 +827,28 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 | [`ResolveGenericEquipmentExposureCapabilitiesInput`](api/equipment-exposure-capabilities.md#resolvegenericequipmentexposurecapabilitiesinput) | Type |
 | [`WidestAvailableFNumberCapability`](api/equipment-exposure-capabilities.md#widestavailablefnumbercapability) | Type |
 
+## equipment/generic-lens-catalogue.ts
+
+[Detailed contracts](api/equipment-generic-lens-catalogue.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/equipment/generic-lens-catalogue.ts)
+
+| Export | Kind |
+| --- | --- |
+| [`GENERIC_LENS_CATALOGUE`](api/equipment-generic-lens-catalogue.md#generic_lens_catalogue) | Runtime |
+| [`GENERIC_LENS_IDS`](api/equipment-generic-lens-catalogue.md#generic_lens_ids) | Runtime |
+| [`GENERIC_LENS_SET_BASELINES`](api/equipment-generic-lens-catalogue.md#generic_lens_set_baselines) | Runtime |
+| [`GenericLensAdjustments`](api/equipment-generic-lens-catalogue.md#genericlensadjustments) | Type |
+| [`GenericLensCatalogueEntry`](api/equipment-generic-lens-catalogue.md#genericlenscatalogueentry) | Type |
+| [`GenericLensCharacter`](api/equipment-generic-lens-catalogue.md#genericlenscharacter) | Type |
+| [`GenericLensCharacterValues`](api/equipment-generic-lens-catalogue.md#genericlenscharactervalues) | Type |
+| [`GenericLensFocusError`](api/equipment-generic-lens-catalogue.md#genericlensfocuserror) | Type |
+| [`GenericLensKind`](api/equipment-generic-lens-catalogue.md#genericlenskind) | Type |
+| [`GenericLensSet`](api/equipment-generic-lens-catalogue.md#genericlensset) | Type |
+| [`ResolvedGenericLens`](api/equipment-generic-lens-catalogue.md#resolvedgenericlens) | Type |
+| [`resolveGenericLens`](api/equipment-generic-lens-catalogue.md#resolvegenericlens) | Runtime |
+| [`ResolveGenericLensInput`](api/equipment-generic-lens-catalogue.md#resolvegenericlensinput) | Type |
+| [`simulateGenericLensFocusError`](api/equipment-generic-lens-catalogue.md#simulategenericlensfocuserror) | Runtime |
+| [`SimulateGenericLensFocusErrorInput`](api/equipment-generic-lens-catalogue.md#simulategenericlensfocuserrorinput) | Type |
+
 ## equipment/generic-prime-lenses.ts
 
 [Detailed contracts](api/equipment-generic-prime-lenses.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/equipment/generic-prime-lenses.ts)
@@ -2044,6 +2066,16 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 | [`calculateCenteredCrop`](api/output-crop.md#calculatecenteredcrop) | Runtime |
 | [`CalculateCenteredCropInput`](api/output-crop.md#calculatecenteredcropinput) | Type |
 | [`CenteredCrop`](api/output-crop.md#centeredcrop) | Type |
+
+## output/generic-lens-corrections.ts
+
+[Detailed contracts](api/output-generic-lens-corrections.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/output/generic-lens-corrections.ts)
+
+| Export | Kind |
+| --- | --- |
+| [`createGenericLensCorrectionProfile`](api/output-generic-lens-corrections.md#creategenericlenscorrectionprofile) | Runtime |
+| [`CreateGenericLensCorrectionProfileInput`](api/output-generic-lens-corrections.md#creategenericlenscorrectionprofileinput) | Type |
+| [`GENERIC_LENS_CORRECTION_CHANNEL_WAVELENGTHS_NM`](api/output-generic-lens-corrections.md#generic_lens_correction_channel_wavelengths_nm) | Runtime |
 
 ## output/geometric-transforms.ts
 

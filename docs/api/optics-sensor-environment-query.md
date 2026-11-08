@@ -57,6 +57,12 @@ export interface EnvironmentLensFieldMapping {
     | { kind: "radial"; profile: RadialDistortionProfile }
     | { kind: "brown-conrady"; profile: BrownConradyDistortionProfile };
   radiometricAreaCorrection: "inverse-distortion-jacobian";
+  /**
+   * #549, optional: what an ideal image point outside a radial projection's image circle (for example beyond r = 2f of the
+   * equisolid fisheye) does. Omitted: the query fails, as before. `"backward-ray"`: the query looks straight back (0, 0, −1),
+   * a direction no forward scene answers, so a provider that treats directions beyond 90° as empty gives it zero radiance.
+   */
+  outsideImageCircle?: "backward-ray";
 }
 ```
 
