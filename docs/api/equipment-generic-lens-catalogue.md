@@ -93,9 +93,9 @@ export interface GenericLensCharacter {
   aberrations: { sphericalWaves: number; balancingDefocusWaves: number; comaWaves: number; astigmatismWaves: number; fieldCurvatureWaves: number; axialColorWaves: number };
   /** Lateral colour: F-to-C image-radius difference at the corner, fraction of the half-diagonal and micrometres on this sensor. */
   lateralColor: { fraction: number; cornerMicrometers: number };
-  /** Radial distortion profile (normalised to the half-diagonal, valid to it) and its corner value (fraction; negative = barrel). */
+  /** Radial distortion profile (normalised to the half-diagonal, valid to 1.25 of it, beyond the corner) and its corner value (fraction; negative = barrel). */
   distortion: { profile: RadialDistortionProfile; corner: number };
-  /** Relative illumination profile (normalised to the half-diagonal) and the corner fall-off in stops. */
+  /** Relative illumination profile (normalised to the half-diagonal, valid to 1.25 of it) and the corner fall-off in stops. */
   vignetting: { profile: IlluminationVignettingProfile; cornerStops: number };
   strayLight: { veilingGlareFraction: number; ghostFraction: number };
   /** Field-of-view change at this focus and at minimum focus, beyond thin-lens unit focusing (fraction, negative = narrower). */
