@@ -3,6 +3,8 @@
 // Repository tooling; not published.
 // Renders a large-disc display view (kernel radius 179) and an in-focus control with prepareDisplayView(request, { gpu: "auto" })
 // in Chromium on the built engine, and prints each render's diagnostics.fast.execution and view.defocus.
+import console from "node:console";
+import process from "node:process";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 const root = resolve(process.argv[2]);
