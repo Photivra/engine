@@ -67,6 +67,11 @@ export interface GenericLensCatalogueEntry {
   adjustments: Readonly<GenericLensAdjustments>;
   /** Why this lens departs from its set's baseline. */
   note: string;
+  /**
+   * A short plain-English summary of the lens's character (at most 40 characters, US spelling), written from its adjustments and
+   * `note`, for lists and pickers. It describes only what the catalogue models (bokeh shape is not modeled: the defocus is a disc).
+   */
+  summary: string;
 }
 ```
 
@@ -204,6 +209,8 @@ export interface ResolvedGenericLens {
   imageCircleRadiusMm: number | null;
   character: GenericLensCharacter;
   note: string;
+  /** The catalogue entry's `summary`: a short plain-English description of the lens's character (at most 40 characters). */
+  summary: string;
   evidence: readonly EvidenceProvenance[];
   scientificStatus: "approximation";
   limitations: readonly string[];

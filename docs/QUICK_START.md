@@ -1227,9 +1227,21 @@ object-space, image-space #548 and tabulated paths) and in `simulateDisplayView`
   - Every cell wholly inside the disc has the same weight (its area is exactly 1). So the disc of radius R costs one run
     per row plus the cells the circle crosses: 2,149 reads per output at R = 179, against 101,689 taps for the direct
     gather; 6,145 at R = 512 (`src/optics/site-kernel-runs.ts`).
-  - The shaped kernels of #553 without spherical aberration (blade polygons, the cat's eye) have the same uniform
-    interior, so they can take this path. A kernel with no equal neighbours costs as much as the direct gather, and the
-    engine refuses one that needs more reads per site than the direct gather at radius 64 (16,641).
+  - **With bokeh character (#553).** The kernel convolved is the shaped kernel when `lens.defocus` has bokeh options, and
+    the disc otherwise. Blade polygons have the disc's uniform interior, so they take this path at little cost: a 7-blade
+    kernel of radius 85 needs 3,002 reads per output, against 29,241 taps for the direct gather. Spherical aberration's binned
+    kernel has no equal neighbours, so it costs as much as the direct gather. The engine refuses any kernel that needs more
+    reads per site than the direct gather at radius 64 (16,641): `lens.defocus: this blur needs 157,644 reads per site;
+    above a kernel radius of 64 sites the limit is 16,641. Reduce the spherical aberration or the defocus.` A cat's eye
+    above 64 sites is refused too, because this path takes one kernel per request and the cat's eye needs one per field
+    zone (`lens.defocus.catsEye: the blur needs a kernel radius of 179 sites; with a cat's eye the limit is 64 sites
+    (129 across). Reduce the defocus or omit catsEye.`).
+  - **With the display view's lens character (#563).** With `lens.projection`, `lens.distortion`, `lens.vignetting` or
+    camera rotation, the view applies the disc to each channel's in-focus signal through the lens, which already carries
+    each source point's field factor. This is the same reordering as without them. Its site values match the capture's
+    image-space provider within 1e-9 relative at R = 179 with distortion and vignetting
+    (`test/defocus-integration-2-17.test.ts`). The fixed tiles never map lattice points beyond the kernel's reach, so a
+    lens profile only has to cover the reach the error message names.
   - **Not an approximation.** Each output is the same sum of the same products as the direct gather, regrouped. Only
     the rounding changes. Measured against a compensated (Neumaier) sum of the same products, on the Siemens star,
     slanted edge and dead leaves at radii 65, 179 and 512, the runs were within 2.5e-14 relative. The direct gather was
@@ -1323,8 +1335,9 @@ lens: { focalLengthMm: 50, fNumber: 4, focusDistanceM: 1.4, defocus: { model: "g
   pupil is proportional to 1/(|σc/2 + bρ²|·|σc/2 + 3bρ²|), so undercorrected aberration (W040 > 0) gives a soft-edged blur
   behind the focus plane and a bright-rimmed one in front, and overcorrected the reverse (the photographic description is
   H. H. Nasse, "Depth of Field and Bokeh", Carl Zeiss, 2010, free). `sphericalAberration` gives W040 in µm at `atFNumber`,
-  scaled to the working f-number as W040·(N₀/N)⁴. The rim can widen the blur beyond the disc; past the 64-site cap the
-  request is refused with the radius needed.
+  scaled to the working f-number as W040·(N₀/N)⁴. The rim can widen the blur beyond the disc. Past a kernel radius of
+  512 sites the request is refused with the disc's short message. Above 64 sites it is refused when its binned kernel
+  needs more than 16,641 reads per site, the run path's limit ("Large defocus discs", above).
 - **`catsEye`**: mechanical vignetting, the model of `calculateMechanicalVignetting` (Greivenkamp, OPTI-502 notes, sec. 10,
   free): each clipping aperture is a circle of `radiusMm` in the entrance-pupil plane, shifted by
   `shiftPerTanFieldMm`·tan θ toward the field point, and the open pupil is the opening inside every circle. The kernel
@@ -1336,8 +1349,12 @@ lens: { focalLengthMm: 50, fNumber: 4, focusDistanceM: 1.4, defocus: { model: "g
   zone count to shrink it). The kernel has unit sum: the light the clip removes is not applied, so declare the falloff with
   `lens.vignetting`, as for any field throughput (`lightLossApplied: false`). It runs on the object-space and the
   image-space (#548) paths; the cat's eye skips the tabulated fast path (one kernel per node there), and it cannot be
-  combined with `lens.diffraction` (every zone would need its own combined kernel per node). `simulateDisplayView` and
-  `prepareDisplayView` refuse it; they render `blades` and `sphericalAberration`.
+  combined with `lens.diffraction` (every zone would need its own combined kernel per node). Above a kernel radius of 64
+  sites it is refused: #564's run convolution takes one kernel per request, and extending it to one kernel per zone is left
+  for later. `simulateDisplayView` and `prepareDisplayView` refuse it; they render `blades` and `sphericalAberration`.
+- **With `lens.catalogue` (#549)** the three options are refused by name. The catalogue lens folds a plain disc into its
+  own PSF, so they would otherwise be dropped. Feeding a catalogue lens's spherical aberration and character into the
+  bokeh kernel is a follow-up ([#567](https://github.com/Photivra/photivra/issues/567)), not a 2.17.0 feature.
 - **Sampling.** Without spherical aberration each site's weight is the exact area of the projected open pupil (a convex
   polygon; circles and blade arcs are 1024-gons scaled to their true area, within 5e-6 of the radius of the true curve)
   inside the site's cell, divided by its area (`"exact-polygon-cell-area"`). With it the pupil is sampled on a square grid

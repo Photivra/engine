@@ -1,6 +1,6 @@
 {
   "name": "@photivra/engine",
-  "version": "2.16.0",
+  "version": "2.17.0",
   "private": false,
   "description": "Scientific TypeScript engine for camera optics, exposure, focus, motion, sensor sampling, diffraction, and digital imaging calculations.",
   "type": "module",

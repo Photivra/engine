@@ -130,7 +130,9 @@ changes, and without the option the moments are unchanged.
 **Bokeh character (#553).** With `lens.defocus.blades` or `lens.defocus.sphericalAberration` the view's tables carry the
 shaped kernel (`calculateDefocusBokehKernel`) instead of the disc, on the CPU and through the GPU's blocked site sum
 unchanged; `view.defocus` records `kernel: "shaped-kernel"`. `lens.defocus.catsEye` varies the kernel over the field and is
-refused (`simulateCapture` renders it). See [Bokeh character](QUICK_START.md#bokeh-character-553).
+refused (`simulateCapture` renders it). Above a kernel radius of 64 sites the shaped kernel takes #564's run path below,
+on the CPU, like the disc; spherical aberration's binned kernel is refused there when it needs more than 16,641 reads per
+site. See [Bokeh character](QUICK_START.md#bokeh-character-553).
 
 `lens.defocus: { model: "geometric-disc" }` with `lens.focusDistanceM` different from `subjectDistanceM` (#492, step
 2b) blurs the view by the defocus of the flat scene plane. The model, an approximation recorded in the `lens.defocus`
@@ -249,6 +251,15 @@ the kernel spreads its light, as for any environment PSF.
 - **Unchanged:** both estimators, the noise, AHD and its correction, the development and the highlight count run on
   these site values as on the rectilinear ones. The pilot maps its points through the lens at every temporal midpoint
   and counts a point whose scene value changes between the midpoints as detail.
+- **Large discs (2.17.0 integration of #563 with #564).** Above a disc radius of 64 sites the lens signal applies the disc
+  as the rectilinear view does: E_c, each channel's in-focus sum above (through the diffraction kernels or a unit tap,
+  with each source point's field factor), in fixed 64-site tiles, then D ⊛ E_c by runs in fixed 128-site tiles, each site
+  taking its own channel. Because the disc is the same at every lattice group, node and midpoint, this equals the sum above
+  with K_λ ⊛ D. The tiles never map points more than the disc's radius beyond the raster, so the profiles only need to
+  reach what the error message names. Tested at R = 179 with radial distortion, vignetting and the box aperture: every
+  site matches the capture's image-space provider within 1e-9 relative, and regions equal the whole view
+  (`test/defocus-integration-2-17.test.ts`). The cost grows with R, as in [Large defocus discs](QUICK_START.md#large-defocus-discs-564),
+  on top of the lens mapping's own cost (below).
 - **Rectilinear requests keep their bytes.** The code is a separate module (`src/facade/display-view-lens-signal.ts`)
   that `runCapture` loads on demand only for these options; every hash lock holds.
 - **Refused:** camera rotation with `motion.shutter: "rolling"` (each row has its own instants, so the scene points
@@ -281,7 +292,8 @@ the kernel spreads its light, as for any environment PSF.
   resolve to the other material. That happens on symmetric charts in symmetric frames (a Siemens star's diagonals
   through the frame centre); there the capture's PSF quadrature also differs from its own rectilinear object-space path
   (on a 20 × 14 star at f/11, the site next to the centre: 12 663 against 3 560 electrons with an identity vignetting
-  profile). Elsewhere the two agree to 1e-9 (the dead-leaves case above).
+  profile). Elsewhere the two agree to 1e-9 (the dead-leaves case above). Tracked as
+  [#565](https://github.com/Photivra/photivra/issues/565).
 - *Against the box-downsized capture.* A slanted edge through radial distortion and vignetting, in focus and out of
   focus (3 µm, 192 × 128 shown at 24 × 16): expected-value RMS below 0.6 code and maximum below 3 codes, the thresholds of
   the rectilinear slanted-edge test.

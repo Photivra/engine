@@ -217,6 +217,30 @@ no code, table or data copied):
 - Patent status: no public-record patent check has been recorded for these two
   long-published methods; it is left for the owner's review with the others.
 
+Defocus and lens-character references (2.17.0: #564, #553, #549; published
+methods and qualitative descriptions only, independently implemented; no code,
+table or data copied):
+
+- Run-length convolution by prefix sums (#564, `src/optics/site-kernel-runs.ts`):
+  F. C. Crow, "Summed-area tables for texture mapping", SIGGRAPH 1984, and
+  P. S. Heckbert, "Filtering by repeated integration", SIGGRAPH 1986.
+- Bokeh kernel (#553, `src/optics/defocus-bokeh-kernel.ts`): the transverse ray
+  aberration of primary spherical aberration, Wyant & Creath (1992), *Applied
+  Optics and Optical Engineering* XI ch. 1 (free author copy); mechanical
+  vignetting, Greivenkamp, OPTI-502 course notes sec. 10; sectioned
+  shift-variant blur, Denis, Thiébaut, Soulez, Becker & Mourya (2015), IJCV 115
+  (open preprint arXiv:1502.03305); the photographic description of front and
+  back bokeh, H. H. Nasse, "Depth of Field and Bokeh", Carl Zeiss (2010).
+- Generic lens catalogue (#549, `src/equipment/generic-lens-catalogue.ts`,
+  `src/optics/generic-lens-psf.ts`): Seidel aberrations, Hopkins (1950) and
+  Wyant & Creath (1992); scalar Fraunhofer imaging, Goodman, *Introduction to
+  Fourier Optics*; the FFT, Cooley & Tukey (1965); qualitative Wikipedia
+  articles on vignetting, distortion, chromatic aberration, coma, flare and
+  focus breathing (CC BY-SA text read, nothing reproduced). Every catalogue
+  number is Photivra's own choice (docs/LENS_CATALOGUE.md).
+- Patent status: no public-record patent check has been recorded for these
+  methods; it is left for the owner's review with the others.
+
 The DNG patent-license notice appears in `NOTICE` and exporter source. These
 references do not authorize copying SDK code or scientific datasets. Human
 provenance/license review remains required before release.
