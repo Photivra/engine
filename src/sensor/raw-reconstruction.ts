@@ -39,9 +39,8 @@ import type {
 import type {
   SensorSpectralResponseScientificStatus
 } from "./spectral-response.js";
-import { requireInputObject, requireInputKeys, rejectUnknownFields } from "../core/record-validation.js";
-
-type UnknownRecord = Record<string, unknown>;
+import { requireInputObject, requireInputKeys, requireConfigRecord as requireRecord, requireTrimmedConfigString as requireNonEmptyString, requireConfigFinite as requireFinite, parseConfigScientificStatus as parseStatus, requireInputNonNegativeSafeInteger as requireNonNegativeSafeIntegerInput, parseConfigLimitations as parseLimitations } from "../core/record-validation.js";
+import { requireSafeInteger } from "./raw-readout.js";
 
 export const SENSOR_RAW_CAPTURE_SAMPLE_VERSION =
   "0.1.0" as const;
@@ -199,133 +198,6 @@ export interface SensorRawReconstructedPixel {
     false;
   reconstructionDoesNotModifyRawSamples:
     true;
-}
-
-function requireRecord(
-  value: unknown,
-  path: string,
-  allowedKeys: readonly string[] | null
-): UnknownRecord {
-  if (
-    typeof value !== "object" ||
-    value === null ||
-    Array.isArray(value)
-  ) {
-    throw new InvalidConfigurationError(
-      path + " must be an object."
-    );
-  }
-  if (allowedKeys !== null) rejectUnknownFields(value, allowedKeys, path);
-  return value as UnknownRecord;
-}
-
-function requireNonEmptyString(
-  value: unknown,
-  path: string
-): string {
-  if (
-    typeof value !== "string" ||
-    value.trim().length === 0
-  ) {
-    throw new InvalidConfigurationError(
-      path +
-        " must be a non-empty string."
-    );
-  }
-  return value.trim();
-}
-
-function requireFinite(
-  value: unknown,
-  path: string
-): number {
-  if (
-    typeof value !== "number" ||
-    !Number.isFinite(value)
-  ) {
-    throw new InvalidConfigurationError(
-      path + " must be finite."
-    );
-  }
-  return value;
-}
-
-function requireSafeInteger(
-  value: unknown,
-  path: string
-): number {
-  if (
-    typeof value !== "number" ||
-    !Number.isSafeInteger(value)
-  ) {
-    throw new InvalidConfigurationError(
-      path + " must be a safe integer."
-    );
-  }
-  return value;
-}
-
-function requireNonNegativeSafeIntegerInput(
-  value: unknown,
-  path: string
-): number {
-  if (
-    typeof value !== "number" ||
-    !Number.isSafeInteger(value) ||
-    value < 0
-  ) {
-    throw new InvalidScientificInputError(
-      path +
-        " must be a non-negative safe integer."
-    );
-  }
-  return value;
-}
-
-function parseLimitations(
-  value: unknown,
-  path: string
-): readonly string[] {
-  if (!Array.isArray(value)) {
-    throw new InvalidConfigurationError(
-      path + " must be an array."
-    );
-  }
-  const parsed =
-    value.map((entry, index) =>
-      requireNonEmptyString(
-        entry,
-        path +
-          "[" +
-          index +
-          "]"
-      )
-    );
-  if (
-    new Set(parsed).size !==
-    parsed.length
-  ) {
-    throw new InvalidConfigurationError(
-      path +
-        " must not contain duplicates."
-    );
-  }
-  return parsed;
-}
-
-function parseStatus(
-  value: unknown,
-  path: string
-): SensorSpectralResponseScientificStatus {
-  if (
-    value !== "calibrated" &&
-    value !== "approximation"
-  ) {
-    throw new InvalidConfigurationError(
-      path + " is invalid."
-    );
-  }
-  return value;
 }
 
 function parseContribution(

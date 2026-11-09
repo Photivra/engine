@@ -49,7 +49,7 @@ import {
   InvalidScientificInputError,
   requirePositiveFinite
 } from "../core/validation.js";
-import { requireInputKeys } from "../core/record-validation.js";
+import { requireInputKeys, requireNamedFinite as requireFinite } from "../core/record-validation.js";
 import { InvalidConfigurationError } from "../core/configuration-error.js";
 
 export type NaturalVignettingModel =
@@ -118,13 +118,6 @@ export interface MechanicalVignetting {
   openPupilPolygonMm: readonly { x: number; y: number }[];
   /** Area centroid of the boundary polygon, mm (null when fully vignetted). */
   openPupilCentroidMm: { x: number; y: number } | null;
-}
-
-function requireFinite(name: string, value: unknown): number {
-  if (typeof value !== "number" || !Number.isFinite(value)) {
-    throw new InvalidScientificInputError(`${name} must be finite.`);
-  }
-  return value;
 }
 
 /**

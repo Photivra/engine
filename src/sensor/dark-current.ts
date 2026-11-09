@@ -33,9 +33,8 @@ import type {
   SensorSpectralResponseScientificStatus,
   SensorSpectralResponseUncertainty
 } from "./spectral-response.js";
-import { requireInputObject, requireInputKeys, rejectUnknownFields, rejectUnknownVariantFields, UNCERTAINTY_VARIANT_FIELDS } from "../core/record-validation.js";
-
-type UnknownRecord = Record<string, unknown>;
+import { requireInputObject, requireInputKeys, rejectUnknownVariantFields, UNCERTAINTY_VARIANT_FIELDS, requireConfigRecord as requireRecord, requireConfigFinite as requireFinite, requireConfigString as requireNonEmptyString, requireConfigNonNegativeSafeInteger as requireSiteIndex, requireConfigFiniteAtLeastZero as requireNonNegativeFinite } from "../core/record-validation.js";
+import { sameSite } from "../core/shared-helpers.js";
 
 export type SensorDarkCurrentSiteApplicability =
   | {
@@ -182,86 +181,6 @@ export type SensorTemporalDarkCurrentCharge = Omit<SensorDarkCurrentCharge, "sta
   componentEvidence: Omit<SensorDarkCurrentCharge["componentEvidence"], "exposure"> & { exposure: SensorEqeTemporalPhotoSignal["componentEvidence"] };
 };
 export type SensorPhotoDarkCurrentCharge = SensorDarkCurrentCharge | SensorTemporalDarkCurrentCharge;
-
-function requireRecord(
-  value: unknown,
-  path: string,
-  allowedKeys: readonly string[] | null
-): UnknownRecord {
-  if (
-    typeof value !== "object" ||
-    value === null ||
-    Array.isArray(value)
-  ) {
-    throw new InvalidConfigurationError(
-      path + " must be an object."
-    );
-  }
-  if (allowedKeys !== null) rejectUnknownFields(value, allowedKeys, path);
-  return value as UnknownRecord;
-}
-
-function requireNonEmptyString(
-  value: unknown,
-  path: string
-): string {
-  if (
-    typeof value !== "string" ||
-    value.trim().length === 0
-  ) {
-    throw new InvalidConfigurationError(
-      path + " must be a non-empty string."
-    );
-  }
-  return value;
-}
-
-function requireFinite(
-  value: unknown,
-  path: string
-): number {
-  if (
-    typeof value !== "number" ||
-    !Number.isFinite(value)
-  ) {
-    throw new InvalidConfigurationError(
-      path + " must be finite."
-    );
-  }
-  return value;
-}
-
-function requireNonNegativeFinite(
-  value: unknown,
-  path: string
-): number {
-  const parsed =
-    requireFinite(value, path);
-  if (parsed < 0) {
-    throw new InvalidConfigurationError(
-      path +
-        " must be greater than or equal to zero."
-    );
-  }
-  return parsed;
-}
-
-function requireSiteIndex(
-  value: unknown,
-  path: string
-): number {
-  if (
-    typeof value !== "number" ||
-    !Number.isSafeInteger(value) ||
-    value < 0
-  ) {
-    throw new InvalidConfigurationError(
-      path +
-        " must be a non-negative safe integer."
-    );
-  }
-  return value;
-}
 
 function parseUncertainty(
   value: unknown,
@@ -652,13 +571,6 @@ export function parseSensorDarkCurrentProfile(
       record
         .spatialDarkCurrentNonuniformityModeled
   };
-}
-
-function sameSite(
-  a: { x: number; y: number },
-  b: { x: number; y: number }
-): boolean {
-  return a.x === b.x && a.y === b.y;
 }
 
 function resolveDarkCurrentRate(

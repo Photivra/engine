@@ -43,9 +43,7 @@ import {
 import type {
   NativeImageRaster
 } from "./sensor-geometry.js";
-import { requireInputKeys, rejectUnknownFields } from "../core/record-validation.js";
-
-type UnknownRecord = Record<string, unknown>;
+import { requireInputKeys, requireConfigRecord as requireRecord, requireTrimmedConfigString as requireNonEmptyString, requireConfigNonNegativeFinite as requireNonNegativeFinite, parseConfigLimitations as parseLimitations } from "../core/record-validation.js";
 
 export const CAPTURE_MODE_TIMING_PROFILE_SCHEMA_VERSION =
   "0.1.0" as const;
@@ -124,84 +122,6 @@ const SCAN_DIRECTIONS =
     "left-to-right",
     "right-to-left"
   ]);
-
-function requireRecord(
-  value: unknown,
-  path: string,
-  allowedKeys: readonly string[] | null
-): UnknownRecord {
-  if (
-    typeof value !== "object" ||
-    value === null ||
-    Array.isArray(value)
-  ) {
-    throw new InvalidConfigurationError(
-      path + " must be an object."
-    );
-  }
-  if (allowedKeys !== null) rejectUnknownFields(value, allowedKeys, path);
-  return value as UnknownRecord;
-}
-
-function requireNonEmptyString(
-  value: unknown,
-  path: string
-): string {
-  if (
-    typeof value !== "string" ||
-    value.trim().length === 0
-  ) {
-    throw new InvalidConfigurationError(
-      path + " must be a non-empty string."
-    );
-  }
-  return value.trim();
-}
-
-function requireNonNegativeFinite(
-  value: unknown,
-  path: string
-): number {
-  if (
-    typeof value !== "number" ||
-    !Number.isFinite(value) ||
-    value < 0
-  ) {
-    throw new InvalidConfigurationError(
-      path +
-        " must be finite and greater than or equal to zero."
-    );
-  }
-  return value;
-}
-
-function parseLimitations(
-  value: unknown,
-  path: string
-): readonly string[] {
-  if (!Array.isArray(value)) {
-    throw new InvalidConfigurationError(
-      path + " must be an array."
-    );
-  }
-  const parsed =
-    value.map((entry, index) =>
-      requireNonEmptyString(
-        entry,
-        path + "[" + index + "]"
-      )
-    );
-  if (
-    new Set(parsed).size !==
-    parsed.length
-  ) {
-    throw new InvalidConfigurationError(
-      path +
-        " must not contain duplicates."
-    );
-  }
-  return parsed;
-}
 
 function parseSecondsFact(
   value: unknown,

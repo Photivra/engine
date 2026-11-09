@@ -29,9 +29,9 @@ import type {
   SensorSpectralResponseScientificStatus,
   SensorSpectralResponseUncertainty
 } from "./spectral-response.js";
-import { requireInputObject, requireInputKeys, rejectUnknownFields, rejectUnknownVariantFields, UNCERTAINTY_VARIANT_FIELDS } from "../core/record-validation.js";
-
-type UnknownRecord = Record<string, unknown>;
+import { requireInputObject, requireInputKeys, rejectUnknownVariantFields, requireConfigRecord as requireRecord, requireConfigFinite as requireFinite, requireConfigString as requireNonEmptyString, requireInputNonNegativeFinite as requireNonNegativeFiniteInput, requireConfigNonNegativeSafeInteger as requireSiteIndex, requireConfigFiniteAboveZero as requirePositiveFinite } from "../core/record-validation.js";
+import { sameSite } from "../core/shared-helpers.js";
+import { parseUncertainty } from "./camera-saturation-capacity.js";
 
 export type SensorPhysicalChargeCapacitySiteApplicability =
   | {
@@ -157,148 +157,6 @@ export interface SensorPhysicalChargeCapacityAssessment {
     chargeCompleteness:
       SensorAccumulatedChargeComposition["componentEvidence"]["completeness"];
   };
-}
-
-function requireRecord(
-  value: unknown,
-  path: string,
-  allowedKeys: readonly string[] | null
-): UnknownRecord {
-  if (
-    typeof value !== "object" ||
-    value === null ||
-    Array.isArray(value)
-  ) {
-    throw new InvalidConfigurationError(
-      path + " must be an object."
-    );
-  }
-  if (allowedKeys !== null) rejectUnknownFields(value, allowedKeys, path);
-  return value as UnknownRecord;
-}
-
-function requireNonEmptyString(
-  value: unknown,
-  path: string
-): string {
-  if (
-    typeof value !== "string" ||
-    value.trim().length === 0
-  ) {
-    throw new InvalidConfigurationError(
-      path + " must be a non-empty string."
-    );
-  }
-  return value;
-}
-
-function requireFinite(
-  value: unknown,
-  path: string
-): number {
-  if (
-    typeof value !== "number" ||
-    !Number.isFinite(value)
-  ) {
-    throw new InvalidConfigurationError(
-      path + " must be finite."
-    );
-  }
-  return value;
-}
-
-function requirePositiveFinite(
-  value: unknown,
-  path: string
-): number {
-  const parsed =
-    requireFinite(value, path);
-  if (parsed <= 0) {
-    throw new InvalidConfigurationError(
-      path +
-        " must be greater than zero."
-    );
-  }
-  return parsed;
-}
-
-function requireNonNegativeFiniteInput(
-  value: unknown,
-  path: string
-): number {
-  if (
-    typeof value !== "number" ||
-    !Number.isFinite(value) ||
-    value < 0
-  ) {
-    throw new InvalidScientificInputError(
-      path +
-        " must be finite and greater than or equal to zero."
-    );
-  }
-  return value;
-}
-
-function requireSiteIndex(
-  value: unknown,
-  path: string
-): number {
-  if (
-    typeof value !== "number" ||
-    !Number.isSafeInteger(value) ||
-    value < 0
-  ) {
-    throw new InvalidConfigurationError(
-      path +
-        " must be a non-negative safe integer."
-    );
-  }
-  return value;
-}
-
-function parseUncertainty(
-  value: unknown,
-  path: string
-): SensorSpectralResponseUncertainty {
-  const record =
-    requireRecord(value, path, null);
-  rejectUnknownVariantFields(record, "kind", UNCERTAINTY_VARIANT_FIELDS, path);
-  if (record.kind === "relative") {
-    const fraction =
-      requireFinite(
-        record.fraction,
-        path + ".fraction"
-      );
-    if (fraction < 0) {
-      throw new InvalidConfigurationError(
-        path +
-          ".fraction must be nonnegative."
-      );
-    }
-    return {
-      kind: "relative",
-      fraction,
-      basis: requireNonEmptyString(
-        record.basis,
-        path + ".basis"
-      )
-    };
-  }
-  if (
-    record.kind === "not-quantified"
-  ) {
-    return {
-      kind: "not-quantified",
-      limitation:
-        requireNonEmptyString(
-          record.limitation,
-          path + ".limitation"
-        )
-    };
-  }
-  throw new InvalidConfigurationError(
-    path + ".kind is invalid."
-  );
 }
 
 function parseSiteApplicability(
@@ -533,13 +391,6 @@ export function parseSensorPhysicalChargeCapacityProfile(
     },
     temperatureApplicability
   };
-}
-
-function sameSite(
-  a: { x: number; y: number },
-  b: { x: number; y: number }
-): boolean {
-  return a.x === b.x && a.y === b.y;
 }
 
 function validateCharge(

@@ -6,7 +6,7 @@
  * and support limits.
  */
 
-import { rejectUnknownFields, rejectUnknownVariantFields } from "../core/record-validation.js";
+import { rejectUnknownVariantFields, requireConfigRecord as requireRecord, requireConfigRecordString as requireString } from "../core/record-validation.js";
 import { InvalidConfigurationError } from "../core/configuration-error.js";
 export { InvalidConfigurationError } from "../core/configuration-error.js";
 
@@ -39,32 +39,6 @@ const SCENE_CAPABILITIES = new Set<SceneCapability>([
   "absolute-radiometry"
 ]);
 
-function requireRecord(
-  value: unknown,
-  path: string,
-  allowedKeys: readonly string[] | null
-): UnknownRecord {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    throw new InvalidConfigurationError(`${path} must be an object.`);
-  }
-  if (allowedKeys !== null) rejectUnknownFields(value, allowedKeys, path);
-  return value as UnknownRecord;
-}
-
-function requireString(
-  record: UnknownRecord,
-  key: string,
-  path: string
-): string {
-  const value = record[key];
-  if (typeof value !== "string" || value.trim().length === 0) {
-    throw new InvalidConfigurationError(
-      `${path}.${key} must be a non-empty string.`
-    );
-  }
-  return value;
-}
-
 function requireBoolean(
   record: UnknownRecord,
   key: string,
@@ -79,7 +53,7 @@ function requireBoolean(
   return value;
 }
 
-function requirePositiveNumber(
+export function requirePositiveNumber(
   record: UnknownRecord,
   key: string,
   path: string

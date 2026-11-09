@@ -42,7 +42,7 @@ import {
   type SourcedSensorTimingSeconds
 } from "./readout-timing.js";
 import type { NativeImageRaster } from "./sensor-geometry.js";
-import { requireInputKeys, rejectUnknownFields } from "../core/record-validation.js";
+import { requireInputKeys, requireConfigRecord as requireRecord } from "../core/record-validation.js";
 import { InvalidConfigurationError } from "../core/configuration-error.js";
 
 export type ReadoutExposureBoundaryId = "opening" | "closing";
@@ -149,7 +149,6 @@ export interface ReadoutExposureTimingLinkageAssessment {
   };
 }
 
-type UnknownRecord = Record<string, unknown>;
 
 const BOUNDARIES = new Set<ReadoutExposureBoundaryId>([
   "opening",
@@ -161,18 +160,6 @@ const PHASE_ORIENTATIONS =
     "same",
     "reversed"
   ]);
-
-function requireRecord(
-  value: unknown,
-  path: string,
-  allowedKeys: readonly string[] | null
-): UnknownRecord {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    throw new InvalidConfigurationError(path + " must be an object.");
-  }
-  if (allowedKeys !== null) rejectUnknownFields(value, allowedKeys, path);
-  return value as UnknownRecord;
-}
 
 function parseSpatialLink(
   value: unknown,

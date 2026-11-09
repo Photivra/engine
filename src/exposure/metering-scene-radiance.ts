@@ -39,9 +39,8 @@ import type {
   ExposureMeteringSampleSet,
   ExposureMeteringZoneSample
 } from "./metering.js";
-import { requireInputKeys, requireInputObject, rejectUnknownFields } from "../core/record-validation.js";
+import { requireInputKeys, requireInputObject, requireConfigRecord as requireRecord, requireTrimmedConfigString as requireNonEmptyString, requireInputFinite as requireFinite } from "../core/record-validation.js";
 
-type UnknownRecord = Record<string, unknown>;
 
 export const SCENE_RADIANCE_METERING_DERIVATION_SCHEMA_VERSION =
   "0.1.0" as const;
@@ -122,54 +121,6 @@ export interface CreateSceneRadianceDerivedExposureMeteringSampleSetInput {
     SceneRadianceMeteringDerivationProfile;
   samples:
     readonly ExposureMeteringZoneSample[];
-}
-
-function requireRecord(
-  value: unknown,
-  path: string,
-  allowedKeys: readonly string[] | null
-): UnknownRecord {
-  if (
-    typeof value !== "object" ||
-    value === null ||
-    Array.isArray(value)
-  ) {
-    throw new InvalidConfigurationError(
-      path + " must be an object."
-    );
-  }
-  if (allowedKeys !== null) rejectUnknownFields(value, allowedKeys, path);
-  return value as UnknownRecord;
-}
-
-function requireNonEmptyString(
-  value: unknown,
-  path: string
-): string {
-  if (
-    typeof value !== "string" ||
-    value.trim().length === 0
-  ) {
-    throw new InvalidConfigurationError(
-      path + " must be a non-empty string."
-    );
-  }
-  return value.trim();
-}
-
-function requireFinite(
-  value: unknown,
-  path: string
-): number {
-  if (
-    typeof value !== "number" ||
-    !Number.isFinite(value)
-  ) {
-    throw new InvalidScientificInputError(
-      path + " must be finite."
-    );
-  }
-  return value;
 }
 
 /**

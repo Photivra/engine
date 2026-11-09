@@ -85,7 +85,7 @@ let leanDisabled = false;
 export const nativeEnvironmentLeanStatistics = { plannedSites: 0, executedSites: 0, sensorSites: 0, psfFallbacks: 0, keySites: 0 };
 export function setNativeEnvironmentLeanExecutionEnabled(enabled: boolean): void { leanDisabled = !enabled; }
 
-function isPlainRecord(value: object): boolean {
+export function isPlainRecord(value: object): boolean {
   const prototype = Object.getPrototypeOf(value) as unknown;
   return prototype === Object.prototype || prototype === null;
 }

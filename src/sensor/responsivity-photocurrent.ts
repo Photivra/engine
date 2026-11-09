@@ -47,9 +47,10 @@ import type {
   SensorSpatioSpectralIrradianceReduction,
   SensorSpatioSpectralWavelengthReduction
 } from "./spatio-spectral-reduction.js";
-import { requireInputObject, requireInputKeys, rejectUnknownFields, rejectUnknownVariantFields, UNCERTAINTY_VARIANT_FIELDS } from "../core/record-validation.js";
-
-type UnknownRecord = Record<string, unknown>;
+import { requireInputObject, requireInputKeys, rejectUnknownVariantFields, requireConfigRecord as requireRecord, requireConfigString as requireNonEmptyString, requireConfigPositiveFinite as requirePositiveFiniteConfiguration, requireInputNonNegativeFinite as requireNonNegativeFiniteInput, requireInputPositiveFinite as requirePositiveFiniteInput, requireInputNonNegativeSafeInteger as requireSafeNonNegativeInteger } from "../core/record-validation.js";
+import { addCompensated } from "../core/shared-helpers.js";
+import { parseReferenceConditionPolicy as parseConditionPolicy } from "./response-application-compatibility.js";
+import { parseUncertainty } from "./response-operating-range.js";
 
 const REDUCTION_TOLERANCE = 1e-10;
 
@@ -217,182 +218,6 @@ interface CompensatedSum {
   correction: number;
 }
 
-function addCompensated(
-  state: CompensatedSum,
-  value: number
-): void {
-  const adjusted =
-    value - state.correction;
-  const next =
-    state.sum + adjusted;
-  state.correction =
-    (next - state.sum) - adjusted;
-  state.sum = next;
-}
-
-function requireRecord(
-  value: unknown,
-  path: string,
-  allowedKeys: readonly string[] | null
-): UnknownRecord {
-  if (
-    typeof value !== "object" ||
-    value === null ||
-    Array.isArray(value)
-  ) {
-    throw new InvalidConfigurationError(
-      path + " must be an object."
-    );
-  }
-  if (allowedKeys !== null) rejectUnknownFields(value, allowedKeys, path);
-  return value as UnknownRecord;
-}
-
-function requireNonEmptyString(
-  value: unknown,
-  path: string
-): string {
-  if (
-    typeof value !== "string" ||
-    value.trim().length === 0
-  ) {
-    throw new InvalidConfigurationError(
-      path + " must be a non-empty string."
-    );
-  }
-  return value;
-}
-
-function requireFiniteNonNegative(
-  value: unknown,
-  path: string
-): number {
-  if (
-    typeof value !== "number" ||
-    !Number.isFinite(value) ||
-    value < 0
-  ) {
-    throw new InvalidConfigurationError(
-      path +
-        " must be finite and greater than or equal to zero."
-    );
-  }
-  return value;
-}
-
-function requirePositiveFiniteConfiguration(
-  value: unknown,
-  path: string
-): number {
-  if (
-    typeof value !== "number" ||
-    !Number.isFinite(value) ||
-    value <= 0
-  ) {
-    throw new InvalidConfigurationError(
-      path +
-        " must be finite and greater than zero."
-    );
-  }
-  return value;
-}
-
-function requirePositiveFiniteInput(
-  value: unknown,
-  path: string
-): number {
-  if (
-    typeof value !== "number" ||
-    !Number.isFinite(value) ||
-    value <= 0
-  ) {
-    throw new InvalidScientificInputError(
-      path +
-        " must be finite and greater than zero."
-    );
-  }
-  return value;
-}
-
-function requireNonNegativeFiniteInput(
-  value: unknown,
-  path: string
-): number {
-  if (
-    typeof value !== "number" ||
-    !Number.isFinite(value) ||
-    value < 0
-  ) {
-    throw new InvalidScientificInputError(
-      path +
-        " must be finite and greater than or equal to zero."
-    );
-  }
-  return value;
-}
-
-function requireSafeNonNegativeInteger(
-  value: unknown,
-  path: string
-): number {
-  if (
-    typeof value !== "number" ||
-    !Number.isSafeInteger(value) ||
-    value < 0
-  ) {
-    throw new InvalidScientificInputError(
-      path +
-        " must be a non-negative safe integer."
-    );
-  }
-  return value;
-}
-
-function parseUncertainty(
-  value: unknown,
-  path: string
-): SensorSpectralResponseUncertainty {
-  const record = requireRecord(
-    value,
-    path, null
-  );
-  rejectUnknownVariantFields(record, "kind", UNCERTAINTY_VARIANT_FIELDS, path);
-
-  if (record.kind === "relative") {
-    const fraction =
-      requireFiniteNonNegative(
-        record.fraction,
-        path + ".fraction"
-      );
-    return {
-      kind: "relative",
-      fraction,
-      basis:
-        requireNonEmptyString(
-          record.basis,
-          path + ".basis"
-        )
-    };
-  }
-
-  if (
-    record.kind === "not-quantified"
-  ) {
-    return {
-      kind: "not-quantified",
-      limitation:
-        requireNonEmptyString(
-          record.limitation,
-          path + ".limitation"
-        )
-    };
-  }
-
-  throw new InvalidConfigurationError(
-    path + ".kind is invalid."
-  );
-}
-
 function parseElectricalConditions(
   value: unknown,
   path: string
@@ -471,49 +296,6 @@ function parseElectricalConditions(
     bias: parsedBias,
     readoutLoad: parsedReadout
   };
-}
-
-function parseConditionPolicy(
-  value: unknown,
-  path: string
-): SensorResponsivityElectricalConditionPolicy {
-  const record = requireRecord(
-    value,
-    path, null
-  );
-  rejectUnknownVariantFields(record, "kind", { "exact-match-required": ["kind"], "assume-compatible": ["kind", "limitation", "evidence"] }, path);
-
-  if (
-    record.kind ===
-      "exact-match-required"
-  ) {
-    return {
-      kind: "exact-match-required"
-    };
-  }
-
-  if (
-    record.kind ===
-      "assume-compatible"
-  ) {
-    return {
-      kind: "assume-compatible",
-      limitation:
-        requireNonEmptyString(
-          record.limitation,
-          path + ".limitation"
-        ),
-      evidence:
-        parseEvidenceList(
-          record.evidence,
-          path + ".evidence"
-        )
-    };
-  }
-
-  throw new InvalidConfigurationError(
-    path + ".kind is invalid."
-  );
 }
 
 /**

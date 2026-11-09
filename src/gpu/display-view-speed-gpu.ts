@@ -14,8 +14,7 @@
  * #477); `display-view-chart-material-module.ts` provides one for the eight 2.0 chart presets and
  * `display-view-composite-material-module.ts` (#491) one for composite charts, the 2.3 elements and `material-layers` scenes.
  */
-import { DISPLAY_VIEW_NOISE_STREAM_ID, EXACT_AREA_MEAN_MAX_PIXELS, axisSums, clipCentre, createDisplayViewExpectedSignal, displayViewDecidedSaturation, overlaps,
-  quantizationVariance, renderDisplayView, type AxisSums, type DisplayViewKernelTap, type DisplayViewRenderResult, type DisplayViewSetup } from "../facade/display-view.js";
+import { DISPLAY_VIEW_NOISE_STREAM_ID, axisSums, clipCentre, createDisplayViewExpectedSignal, displayViewDecidedSaturation, overlaps, quantizationVariance, renderDisplayView, type AxisSums, type DisplayViewRenderResult, type DisplayViewSetup } from "../facade/display-view.js";
 import type { DisplayViewExpectedSignalInput } from "../facade/expected-signal.js";
 import { resolvePortableChartScene } from "../facade/chart-scenes.js";
 import { setDisplayViewGpuRendererFactory, type DisplayViewGpuConformanceCase, type DisplayViewGpuPart, type DisplayViewGpuRenderOutput, type DisplayViewGpuRenderer,
@@ -26,10 +25,11 @@ import { encodeSrgbComponentPortable } from "../color/srgb-transfer.js";
 import { createDeterministicUniformStream, deriveNativeSiteStreamSeedUint32, samplePortableStandardNormal } from "../sensor/stochastic-seed.js";
 import { createHostYieldGate } from "../capture/host-yield-cadence.js";
 import { ImageKernelExecutionError, WEBGPU_F32_UNIT_ROUNDOFF, webGpuExecution, type ChartCompositeProbeRecord, type ImageKernelExecution, type ImageKernelRelativeErrorBound } from "./image-kernel-execution.js";
-import { BUFFER_USAGE, GpuResourceScope, abortedError, createComputePipeline, linearDispatch, runComputePass, type WebGpuRuntime } from "./webgpu-runtime.js";
+import { BUFFER_USAGE, GpuResourceScope, abortedError, createComputePipeline, linearDispatch, runComputePass, type WebGpuRuntime, throwIfAborted as checkAbort } from "./webgpu-runtime.js";
 import { DISPLAY_VIEW_AUX, DISPLAY_VIEW_FLAG_WORDS, DISPLAY_VIEW_GEOMETRY_STRIDE, DISPLAY_VIEW_GPU_MAXIMUM_OFFSETS, DISPLAY_VIEW_GPU_MAXIMUM_PIXELS_PER_AXIS,
   DISPLAY_VIEW_OUTPUT_FLOATS, DISPLAY_VIEW_PARAM_WORDS, DISPLAY_VIEW_REINHARD_MEAN_U, DISPLAY_VIEW_REINHARD_VARIANCE_U, DISPLAY_VIEW_WORKGROUP_SIZE,
   assembleDisplayViewSpeedWgsl } from "./wgsl-display-view-speed-kernel.js";
+import { footprintShape, bilinearKernels, offsetCount } from "./display-view-quality-gpu.js";
 
 type PipelineSource = (label: string, code: string) => Promise<GPUComputePipeline>;
 type YieldControl = ((signal: AbortSignal) => Promise<void>) | undefined;
@@ -106,20 +106,6 @@ export interface DisplayViewSpeedGpuResult extends DisplayViewRenderResult {
   hostRecomputedPixelIndices: Uint32Array;
   /** #533: display pixels (not flagged) with a real pixel whose saturation the kernel left undecided; their count is the host reference's. */
   highlightRecomputedPixelIndices: Uint32Array;
-}
-
-function checkAbort(signal: AbortSignal): void {
-  if (signal.aborted) throw abortedError();
-}
-
-/** The footprint shape of a view: real pixels per display pixel along each axis, and whether the exact area mean applies. */
-function footprintShape(setup: DisplayViewSetup): { sx: number; sy: number; exact: boolean; maximumColumns: number; maximumRows: number } {
-  const sx = setup.frameWidth / setup.viewWidth, sy = setup.frameHeight / setup.viewHeight, area = sx * sy;
-  const exact = area <= Math.min(EXACT_AREA_MEAN_MAX_PIXELS, setup.samplesPerAxis * setup.samplesPerAxis);
-  let maximumColumns = 0, maximumRows = 0;
-  for (let i = 0; i < setup.region.width; i++) maximumColumns = Math.max(maximumColumns, overlaps((setup.region.x + i) * sx, (setup.region.x + i + 1) * sx, setup.frameWidth).w.length);
-  for (let j = 0; j < setup.region.height; j++) maximumRows = Math.max(maximumRows, overlaps((setup.region.y + j) * sy, (setup.region.y + j + 1) * sy, setup.frameHeight).w.length);
-  return { sx, sy, exact, maximumColumns, maximumRows };
 }
 
 /**
@@ -405,9 +391,6 @@ export async function renderDisplayViewSpeedOnGpu(runtime: WebGpuRuntime, bandBy
     flaggedPixelIndices: Uint32Array.from(flagged), hostRecomputedPixelIndices: Uint32Array.from(recomputed), highlightRecomputedPixelIndices: Uint32Array.from(highlights) };
 }
 
-/** The pixel-aperture samples per axis and anti-aliasing spots a request may have for the kernel's offset table. */
-function offsetCount(request: DisplayViewGpuRequest): number { return request.boxSamples * request.boxSamples * (request.antiAliasing ? 4 : 1); }
-
 /**
  * Why the Speed renderer does not support a prepared request (`DisplayViewGpuRenderer.supports`), or true. It covers every
  * engine chart (the 2.0 presets through `display-view-chart-material-module.ts`; composites, the 2.3 elements, the sine star
@@ -423,13 +406,6 @@ export function displayViewSpeedGpuSupports(request: DisplayViewGpuRequest): tru
   if (request.toneCurve !== "identity" && request.toneCurve !== "positive-reinhard-per-channel") return "unsupported tone curve " + String(request.toneCurve);
   if (offsetCount(request) > DISPLAY_VIEW_GPU_MAXIMUM_OFFSETS) return "more than " + DISPLAY_VIEW_GPU_MAXIMUM_OFFSETS + " query offsets per site";
   return true;
-}
-
-/** The bilinear RGGB demosaic kernels per phase (phaseY·2 + phaseX) and channel, as `bilinearPhaseProfiles` gives them, for the self-check. */
-function bilinearKernels(): DisplayViewKernelTap[][][] {
-  const cross = [[1, 0], [-1, 0], [0, 1], [0, -1]], diagonal = [[1, 1], [1, -1], [-1, 1], [-1, -1]], horizontal = [[1, 0], [-1, 0]], vertical = [[0, 1], [0, -1]];
-  const average = (offsets: number[][]): DisplayViewKernelTap[] => offsets.map(([dx, dy]) => ({ dx: dx!, dy: dy!, weight: 1 / offsets.length })), self = [{ dx: 0, dy: 0, weight: 1 }];
-  return [[self, average(cross), average(diagonal)], [average(horizontal), self, average(vertical)], [average(vertical), self, average(horizontal)], [average(diagonal), average(cross), self]];
 }
 
 /**

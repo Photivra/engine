@@ -41,7 +41,7 @@ import {
   type LensFieldPointMm,
   type ValidatedRadialProfile
 } from "./radial-distortion.js";
-import { requireInputKeys } from "../core/record-validation.js";
+import { requireInputKeys, requireNamedFinite as requireFinite } from "../core/record-validation.js";
 import { InvalidConfigurationError } from "../core/configuration-error.js";
 
 export interface BrownConradyDistortionCoefficients {
@@ -110,13 +110,6 @@ interface ValidatedBrownConradyProfile {
 const VALIDATION_RINGS = 64;
 const VALIDATION_AZIMUTHS = 256;
 const MAXIMUM_NEWTON_ITERATIONS = 100;
-
-function requireFinite(name: string, value: unknown): number {
-  if (typeof value !== "number" || !Number.isFinite(value)) {
-    throw new InvalidScientificInputError(`${name} must be finite.`);
-  }
-  return value;
-}
 
 function requirePoint(name: string, point: unknown): LensFieldPointMm {
   if (typeof point !== "object" || point === null) {

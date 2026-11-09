@@ -42,8 +42,9 @@ import type {
   NativeSensorReadoutScanDirection,
   SourcedSensorTimingSeconds
 } from "./readout-timing.js";
-import { requireInputObject, requireInputKeys, rejectUnknownFields } from "../core/record-validation.js";
+import { requireInputObject, requireInputKeys, requireConfigRecord as requireRecord } from "../core/record-validation.js";
 import { InvalidConfigurationError } from "../core/configuration-error.js";
+import { fullRect } from "../core/shared-helpers.js";
 
 export type CaptureExposureBoundaryActuator = "mechanical" | "electronic";
 
@@ -138,8 +139,6 @@ export interface CaptureExposureWindows {
   samples: readonly CaptureExposureWindowSample[];
 }
 
-type UnknownRecord = Record<string, unknown>;
-
 const SHUTTER_MECHANISMS = new Set<CaptureShutterMechanism>([
   "mechanical",
   "electronic-first-curtain",
@@ -158,19 +157,7 @@ const BOUNDARY_KINDS = new Set<ExposureBoundarySchedule["kind"]>([
   "uniform-linear-native-scan"
 ]);
 
-function requireRecord(
-  value: unknown,
-  path: string,
-  allowedKeys: readonly string[] | null
-): UnknownRecord {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    throw new InvalidConfigurationError(path + " must be an object.");
-  }
-  if (allowedKeys !== null) rejectUnknownFields(value, allowedKeys, path);
-  return value as UnknownRecord;
-}
-
-function requireNonNegativeInteger(name: string, value: number): void {
+export function requireNonNegativeInteger(name: string, value: number): void {
   if (!Number.isSafeInteger(value) || value < 0) {
     throw new InvalidScientificInputError(
       name + " must be a non-negative safe integer."
@@ -178,7 +165,7 @@ function requireNonNegativeInteger(name: string, value: number): void {
   }
 }
 
-function requirePositiveFinite(name: string, value: unknown): number {
+export function requirePositiveFinite(name: string, value: unknown): number {
   if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
     throw new InvalidScientificInputError(
       name + " must be a finite number greater than zero."
@@ -280,19 +267,10 @@ export function parseBoundarySchedule(
   };
 }
 
-function validateNativeRaster(raster: NativeImageRaster): void {
+export function validateNativeRaster(raster: NativeImageRaster): void {
   requireInputObject(raster, "raster input");
   requirePositiveInteger("nativeRaster.pixelWidth", raster.pixelWidth);
   requirePositiveInteger("nativeRaster.pixelHeight", raster.pixelHeight);
-}
-
-function fullRect(raster: NativeImageRaster): RasterRect {
-  return {
-    x: 0,
-    y: 0,
-    width: raster.pixelWidth,
-    height: raster.pixelHeight
-  };
 }
 
 function validateActiveCaptureRect(
@@ -348,7 +326,7 @@ function validatePointWithinActiveCapture(
   }
 }
 
-function scanVector(
+export function scanVector(
   direction: NativeSensorReadoutScanDirection
 ): RasterVector {
   switch (direction) {
@@ -363,7 +341,7 @@ function scanVector(
   }
 }
 
-function normalizedScanPosition(
+export function normalizedScanPosition(
   point: RasterPoint,
   rect: RasterRect,
   direction: NativeSensorReadoutScanDirection

@@ -82,7 +82,7 @@ function fraction(value: unknown, name: string): number {
   if (n < 0 || n > 1) throw new InvalidScientificInputError(`${name} must lie in [0,1].`);
   return n;
 }
-function point(value: unknown): LensFieldPointMm {
+export function point(value: unknown): LensFieldPointMm {
   const p = record(value, ["x", "y"]); return { x: finite(p.x, "x"), y: finite(p.y, "y") };
 }
 /** Strict generic profile parser. Checks that the profile adds no energy at any source angle in its range. */

@@ -32,9 +32,8 @@ import {
   type SensorColorSamplingProfile
 } from "./color-sampling.js";
 import type { NativeImageRaster } from "./sensor-geometry.js";
-import { requireInputObject, requireInputKeys, rejectUnknownFields } from "../core/record-validation.js";
+import { requireInputObject, requireInputKeys, requireConfigRecord as requireRecord, requireConfigString as requireNonEmptyString, requireConfigPositiveSafeInteger as requirePositiveSafeInteger } from "../core/record-validation.js";
 
-type UnknownRecord = Record<string, unknown>;
 
 export interface NativeEffectiveRasterColorSamplingBindingProfile {
   schemaVersion: "0.1.0";
@@ -218,55 +217,6 @@ export interface ResolvedCaptureModeColorSamplingContributors {
     colorSamplingProfile: readonly EvidenceProvenance[];
     captureMode: readonly EvidenceProvenance[];
   };
-}
-
-function requireRecord(
-  value: unknown,
-  path: string,
-  allowedKeys: readonly string[] | null
-): UnknownRecord {
-  if (
-    typeof value !== "object" ||
-    value === null ||
-    Array.isArray(value)
-  ) {
-    throw new InvalidConfigurationError(
-      path + " must be an object."
-    );
-  }
-  if (allowedKeys !== null) rejectUnknownFields(value, allowedKeys, path);
-  return value as UnknownRecord;
-}
-
-function requireNonEmptyString(
-  value: unknown,
-  path: string
-): string {
-  if (
-    typeof value !== "string" ||
-    value.trim().length === 0
-  ) {
-    throw new InvalidConfigurationError(
-      path + " must be a non-empty string."
-    );
-  }
-  return value;
-}
-
-function requirePositiveSafeInteger(
-  value: unknown,
-  path: string
-): number {
-  if (
-    typeof value !== "number" ||
-    !Number.isSafeInteger(value) ||
-    value <= 0
-  ) {
-    throw new InvalidConfigurationError(
-      path + " must be a positive safe integer."
-    );
-  }
-  return value;
 }
 
 function parseBoundNativeRaster(

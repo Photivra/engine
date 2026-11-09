@@ -32,9 +32,7 @@ import {
   parseFocusPlane,
   type FocusPlane
 } from "./focus-state.js";
-import { requireInputKeys, rejectUnknownFields, rejectUnknownVariantFields, UNCERTAINTY_VARIANT_FIELDS } from "../core/record-validation.js";
-
-type UnknownRecord = Record<string, unknown>;
+import { requireInputKeys, rejectUnknownVariantFields, UNCERTAINTY_VARIANT_FIELDS, requireConfigRecord as requireRecord, requireTrimmedConfigString as requireNonEmptyString, requireConfigFinite as requireFinite, parseConfigScientificStatus as parseStatus, requireConfigNonNegativeSafeInteger as requireNonNegativeSafeInteger, requireConfigPositiveSafeInteger as requirePositiveSafeInteger, requireInputFinite as requireScientificFinite, parseConfigLimitations as parseLimitations, requireConfigFiniteAboveZero as requirePositiveFinite, requireConfigFiniteAtLeastZero as requireNonNegativeFinite, requireInputFiniteAboveZero as requireScientificPositiveFinite, requireConfigUnitInterval as requireUnitInterval } from "../core/record-validation.js";
 
 export const LENS_SAMPLED_PSF_PROFILE_SCHEMA_VERSION =
   "0.1.0" as const;
@@ -310,153 +308,7 @@ const AXIS_KEYS = [
 type AxisKey =
   typeof AXIS_KEYS[number];
 
-function requireRecord(
-  value: unknown,
-  path: string,
-  allowedKeys: readonly string[] | null
-): UnknownRecord {
-  if (
-    typeof value !== "object" ||
-    value === null ||
-    Array.isArray(value)
-  ) {
-    throw new InvalidConfigurationError(
-      path + " must be an object."
-    );
-  }
-  if (allowedKeys !== null) rejectUnknownFields(value, allowedKeys, path);
-  return value as UnknownRecord;
-}
-
-function requireNonEmptyString(
-  value: unknown,
-  path: string
-): string {
-  if (
-    typeof value !== "string" ||
-    value.trim().length === 0
-  ) {
-    throw new InvalidConfigurationError(
-      path +
-        " must be a non-empty string."
-    );
-  }
-  return value.trim();
-}
-
-function requireFinite(
-  value: unknown,
-  path: string
-): number {
-  if (
-    typeof value !== "number" ||
-    !Number.isFinite(value)
-  ) {
-    throw new InvalidConfigurationError(
-      path + " must be finite."
-    );
-  }
-  return value;
-}
-
-function requirePositiveFinite(
-  value: unknown,
-  path: string
-): number {
-  const parsed =
-    requireFinite(value, path);
-  if (parsed <= 0) {
-    throw new InvalidConfigurationError(
-      path +
-        " must be greater than zero."
-    );
-  }
-  return parsed;
-}
-
-function requireNonNegativeFinite(
-  value: unknown,
-  path: string
-): number {
-  const parsed =
-    requireFinite(value, path);
-  if (parsed < 0) {
-    throw new InvalidConfigurationError(
-      path +
-        " must be greater than or equal to zero."
-    );
-  }
-  return parsed;
-}
-
-function requireUnitInterval(
-  value: unknown,
-  path: string
-): number {
-  const parsed =
-    requireFinite(value, path);
-  if (
-    parsed < 0 ||
-    parsed > 1
-  ) {
-    throw new InvalidConfigurationError(
-      path +
-        " must lie from zero through one."
-    );
-  }
-  return parsed;
-}
-
-function requirePositiveSafeInteger(
-  value: unknown,
-  path: string
-): number {
-  if (
-    typeof value !== "number" ||
-    !Number.isSafeInteger(value) ||
-    value <= 0
-  ) {
-    throw new InvalidConfigurationError(
-      path +
-        " must be a positive safe integer."
-    );
-  }
-  return value;
-}
-
-function requireNonNegativeSafeInteger(
-  value: unknown,
-  path: string
-): number {
-  if (
-    typeof value !== "number" ||
-    !Number.isSafeInteger(value) ||
-    value < 0
-  ) {
-    throw new InvalidConfigurationError(
-      path +
-        " must be a non-negative safe integer."
-    );
-  }
-  return value;
-}
-
-function parseStatus(
-  value: unknown,
-  path: string
-): LensPsfScientificStatus {
-  if (
-    value !== "calibrated" &&
-    value !== "approximation"
-  ) {
-    throw new InvalidConfigurationError(
-      path + " is invalid."
-    );
-  }
-  return value;
-}
-
-function parseUncertainty(
+export function parseUncertainty(
   value: unknown,
   path: string
 ): LensPsfUncertainty {
@@ -495,38 +347,6 @@ function parseUncertainty(
   throw new InvalidConfigurationError(
     path + ".kind is invalid."
   );
-}
-
-function parseLimitations(
-  value: unknown,
-  path: string
-): readonly string[] {
-  if (!Array.isArray(value)) {
-    throw new InvalidConfigurationError(
-      path + " must be an array."
-    );
-  }
-  const parsed =
-    value.map(
-      (entry, index) =>
-        requireNonEmptyString(
-          entry,
-          path +
-            "[" +
-            index +
-            "]"
-        )
-    );
-  if (
-    new Set(parsed).size !==
-    parsed.length
-  ) {
-    throw new InvalidConfigurationError(
-      path +
-        " must not contain duplicates."
-    );
-  }
-  return parsed;
 }
 
 function parseAxis(
@@ -1302,39 +1122,6 @@ function focusDiopters(
     ? 0
     : 1 /
       parsed.distanceM;
-}
-
-function requireScientificFinite(
-  value: number,
-  path: string
-): number {
-  if (
-    typeof value !== "number" ||
-    !Number.isFinite(value)
-  ) {
-    throw new InvalidScientificInputError(
-      path + " must be finite."
-    );
-  }
-  return value;
-}
-
-function requireScientificPositiveFinite(
-  value: number,
-  path: string
-): number {
-  const parsed =
-    requireScientificFinite(
-      value,
-      path
-    );
-  if (parsed <= 0) {
-    throw new InvalidScientificInputError(
-      path +
-        " must be greater than zero."
-    );
-  }
-  return parsed;
 }
 
 function bracketAxis(

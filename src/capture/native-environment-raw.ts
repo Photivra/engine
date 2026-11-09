@@ -12,12 +12,9 @@ import type { SensorRawProducerSiteInput } from "./sensor-raw-producer.js";
 import { createEnvironmentRawFrameCanonicalMemo, planEnvironmentRawSite, type SimulateEnvironmentSensorRawFrameInput } from "./environment-raw-producer.js";
 import { DEFAULT_HOST_YIELD_CADENCE, createHostYieldGate, type HostYieldCadence } from "./host-yield-cadence.js";
 import { executeEnvironmentSensorPhotoSignal, prebuildApertureRadianceQuery } from "../sensor/environment-photo-signal.js";
-import { composeNativeEnvironmentSensorSite, createNativeEnvironmentOpticalStageRecorder, createSensorStageRawTask,
-  parseNativeEnvironmentOpticalStageRetention, type NativeEnvironmentOpticalStage, type NativeEnvironmentOpticalStageRetention,
-  type NativeEnvironmentSensorStageInput, type NativeEnvironmentSensorStageProvider } from "./native-environment-optical-stage.js";
+import { composeNativeEnvironmentSensorSite, createNativeEnvironmentOpticalStageRecorder, createSensorStageRawTask, parseNativeEnvironmentOpticalStageRetention, type NativeEnvironmentOpticalStage, type NativeEnvironmentOpticalStageRetention, type NativeEnvironmentSensorStageInput, type NativeEnvironmentSensorStageProvider, canonical } from "./native-environment-optical-stage.js";
 import { parseEvidenceList } from "../core/evidence-provenance.js";
 import { rejectUnknownFields, requireAllowlistedRecord, requirePublicOpaqueId } from "../core/record-validation.js";
-import { stringifyCanonicalJson } from "../core/canonical-json.js";
 import { freezeOwnedData } from "../core/owned-data.js";
 import { InvalidConfigurationError } from "../core/configuration-error.js";
 import { createNativeEnvironmentLeanExecutor, createNativeEnvironmentSensorLean, isLeanEnvironmentPlan,
@@ -84,9 +81,6 @@ export interface NativeEnvironmentRawOutput {
 export interface NativeEnvironmentRawTask extends Omit<NativeRawTask,"takeOutput"> {
   readonly providerEvaluationCount: number;
   takeOutput(): NativeEnvironmentRawOutput;
-}
-function canonical(value:unknown):string {
-  return stringifyCanonicalJson(value,{undefinedObjectProperties:"omit",nonFiniteNumberMessage:"Invalid native scene binding.",unsupportedValueMessage:"Invalid native scene binding."});
 }
 /** Site-environment fields that one native event shares across every site (same set as the optical-stage binding). */
 const SHARED_STATE_KEYS = ["sceneBindings","optics","motion","psf","pupil","fieldThroughput"] as const;

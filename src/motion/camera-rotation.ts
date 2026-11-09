@@ -29,7 +29,7 @@ import {
   requirePositiveFinite
 } from "../core/validation.js";
 import { calculateThinLensImageDistance } from "../optics/thin-lens.js";
-import { rejectUnknownFields, requireInputKeys, requireInputObject } from "../core/record-validation.js";
+import { rejectUnknownFields, requireInputKeys, requireInputObject, assertNamedFinite as requireFinite } from "../core/record-validation.js";
 
 /** Checks the nested objects of a rotation-mapping input before any of their fields are read. */
 function requireRotationMappingSubObjects(input: {
@@ -200,12 +200,6 @@ interface Vector3 {
   x: number;
   y: number;
   z: number;
-}
-
-function requireFinite(name: string, value: number): void {
-  if (!Number.isFinite(value)) {
-    throw new InvalidScientificInputError(`${name} must be finite.`);
-  }
 }
 
 function requireNonNegativeFinite(name: string, value: number): void {
@@ -481,7 +475,6 @@ export function calculateCameraRotationImageMapping(
     ]
   );
 }
-
 
 /**
  * Maps a captured stationary-world ray at one non-negative capture time back

@@ -22,7 +22,7 @@
 
 import { approximationResult, type CalculationResult } from "../core/calculation-result.js";
 import { InvalidConfigurationError } from "../core/configuration-error.js";
-import { rejectUnknownFields, requireInputKeys, requireInputObject } from "../core/record-validation.js";
+import { rejectUnknownFields, requireInputKeys, requireInputObject, requireInputPositiveFinite as requirePositive } from "../core/record-validation.js";
 import { InvalidScientificInputError, InvalidScientificResultError } from "../core/validation.js";
 import { portableHypot } from "../core/portable-math.js";
 import type { ResolvedGenericEquipmentExposureCapabilities } from "../equipment/exposure-capabilities.js";
@@ -111,13 +111,6 @@ export interface AutoIsoSlowestShutterEstimate {
   residualMotionFactor: number;
   angularVelocityRadPerSec: { yaw: number; pitch: number };
   stabilizationStopsEquivalent: number;
-}
-
-function requirePositive(value: unknown, path: string): number {
-  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
-    throw new InvalidScientificInputError(path + " must be finite and greater than zero.");
-  }
-  return value;
 }
 
 function parseBudget(value: unknown): { budgetMm: number; budgetPixels?: number; pixelPitchMicrometers?: number } {

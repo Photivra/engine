@@ -19,7 +19,7 @@ import {
   requirePositiveFinite
 } from "../core/validation.js";
 import type { LensFieldPointMm } from "./radial-distortion.js";
-import { requireInputObject, requireInputKeys } from "../core/record-validation.js";
+import { requireInputObject, requireInputKeys, assertNamedFinite as requireFinite } from "../core/record-validation.js";
 
 export interface IlluminationVignettingCoefficients {
   /** Coefficient on normalized radius squared. */
@@ -78,12 +78,6 @@ interface ValidatedIlluminationProfile {
   coefficients: IlluminationVignettingCoefficients;
   minimumThroughputFactor: number;
   maximumThroughputFactor: number;
-}
-
-function requireFinite(name: string, value: number): void {
-  if (!Number.isFinite(value)) {
-    throw new InvalidScientificInputError(`${name} must be finite.`);
-  }
 }
 
 function throughputFromSquaredRadius(

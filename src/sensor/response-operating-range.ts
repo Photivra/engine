@@ -36,9 +36,8 @@ import type {
 import type {
   SensorSpatioSpectralIrradianceReduction
 } from "./spatio-spectral-reduction.js";
-import { requireInputObject, requireInputKeys, rejectUnknownFields, rejectUnknownVariantFields, UNCERTAINTY_VARIANT_FIELDS } from "../core/record-validation.js";
-
-type UnknownRecord = Record<string, unknown>;
+import { requireInputObject, requireInputKeys, rejectUnknownVariantFields, UNCERTAINTY_VARIANT_FIELDS, requireConfigRecord as requireRecord, requireConfigString as requireNonEmptyString, requireConfigPositiveFinite as requirePositiveFinite, requireConfigNonNegativeFinite as requireFiniteNonNegative } from "../core/record-validation.js";
+import { parseReferenceConditionPolicy, conditionsMatch } from "./response-application-compatibility.js";
 
 export type SensorResponseOperatingInputRange =
   | {
@@ -239,74 +238,7 @@ export interface SensorResponseOperatingRangeAssessment {
   };
 }
 
-function requireRecord(
-  value: unknown,
-  path: string,
-  allowedKeys: readonly string[] | null
-): UnknownRecord {
-  if (
-    typeof value !== "object" ||
-    value === null ||
-    Array.isArray(value)
-  ) {
-    throw new InvalidConfigurationError(
-      path + " must be an object."
-    );
-  }
-  if (allowedKeys !== null) rejectUnknownFields(value, allowedKeys, path);
-  return value as UnknownRecord;
-}
-
-function requireNonEmptyString(
-  value: unknown,
-  path: string
-): string {
-  if (
-    typeof value !== "string" ||
-    value.trim().length === 0
-  ) {
-    throw new InvalidConfigurationError(
-      path + " must be a non-empty string."
-    );
-  }
-  return value;
-}
-
-function requireFiniteNonNegative(
-  value: unknown,
-  path: string
-): number {
-  if (
-    typeof value !== "number" ||
-    !Number.isFinite(value) ||
-    value < 0
-  ) {
-    throw new InvalidConfigurationError(
-      path +
-        " must be finite and greater than or equal to zero."
-    );
-  }
-  return value;
-}
-
-function requirePositiveFinite(
-  value: unknown,
-  path: string
-): number {
-  if (
-    typeof value !== "number" ||
-    !Number.isFinite(value) ||
-    value <= 0
-  ) {
-    throw new InvalidConfigurationError(
-      path +
-        " must be finite and greater than zero."
-    );
-  }
-  return value;
-}
-
-function parseUncertainty(
+export function parseUncertainty(
   value: unknown,
   path: string
 ): SensorSpectralResponseUncertainty {
@@ -430,45 +362,6 @@ function parseReferenceConditions(
   }
 
   return result;
-}
-
-function parseReferenceConditionPolicy(
-  value: unknown,
-  path: string
-): SensorResponseReferenceConditionPolicy {
-  const record =
-    requireRecord(value, path, null);
-  rejectUnknownVariantFields(record, "kind", { "exact-match-required": ["kind"], "assume-compatible": ["kind", "limitation", "evidence"] }, path);
-
-  if (
-    record.kind ===
-      "exact-match-required"
-  ) {
-    return {
-      kind: "exact-match-required"
-    };
-  }
-
-  if (
-    record.kind === "assume-compatible"
-  ) {
-    return {
-      kind: "assume-compatible",
-      limitation:
-        requireNonEmptyString(
-          record.limitation,
-          path + ".limitation"
-        ),
-      evidence: parseEvidenceList(
-        record.evidence,
-        path + ".evidence"
-      )
-    };
-  }
-
-  throw new InvalidConfigurationError(
-    path + ".kind is invalid."
-  );
 }
 
 function parseInputRange(
@@ -938,42 +831,6 @@ export function parseSensorResponseOperatingRangeProfile(
       : { referenceConditions }),
     referenceConditionPolicy
   };
-}
-
-function conditionsMatch(
-  reference:
-    SensorSpectralReferenceConditions,
-  operating:
-    SensorSpectralReferenceConditions
-): boolean {
-  if (
-    reference.temperatureC !==
-      undefined &&
-    operating.temperatureC !==
-      reference.temperatureC
-  ) {
-    return false;
-  }
-  if (
-    reference
-      .incidenceAngleDegreesFromNormal !==
-      undefined &&
-    operating
-      .incidenceAngleDegreesFromNormal !==
-      reference
-        .incidenceAngleDegreesFromNormal
-  ) {
-    return false;
-  }
-  if (
-    reference.polarization !==
-      undefined &&
-    operating.polarization !==
-      reference.polarization
-  ) {
-    return false;
-  }
-  return true;
 }
 
 function requireReductionMetric(

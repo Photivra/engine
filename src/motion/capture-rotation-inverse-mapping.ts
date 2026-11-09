@@ -141,7 +141,7 @@ function requireExposurePhase(value: number): void {
   }
 }
 
-function requireNonEmptySamples(
+export function requireNonEmptySamples(
   value: readonly RasterPoint[]
 ): void {
   if (!Array.isArray(value) || value.length === 0) {
@@ -152,7 +152,7 @@ function requireNonEmptySamples(
   value.forEach((point, index) => requireInputObject(point, "samplePointsNative[" + index + "]"));
 }
 
-function nativePointToImagePlane(
+export function nativePointToImagePlane(
   point: RasterPoint,
   activeCaptureRect: {
     x: number;

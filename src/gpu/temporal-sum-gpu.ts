@@ -8,8 +8,9 @@
 import { createHostYieldGate } from "../capture/host-yield-cadence.js";
 import { sumTemporalExposureRows, type TemporalExposureSumInput, type TemporalExposureSumPlan } from "../motion/temporal-exposure-sum.js";
 import { ImageKernelExecutionError, float32Gamma, webGpuExecution, type ImageKernelExecution, type ImageKernelRelativeErrorBound } from "./image-kernel-execution.js";
-import { BUFFER_USAGE, GpuResourceScope, abortedError, runComputePass, type WebGpuRuntime } from "./webgpu-runtime.js";
+import { BUFFER_USAGE, GpuResourceScope, runComputePass, type WebGpuRuntime } from "./webgpu-runtime.js";
 import type { TemporalExposureSumResult } from "./image-kernel-accelerator.js";
+import { checkAbort } from "./image-kernel-accelerator.js";
 
 type PipelineSource = (label: string, code: string) => Promise<GPUComputePipeline>;
 type YieldControl = ((signal: AbortSignal) => Promise<void>) | undefined;
@@ -77,10 +78,6 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
   result[local_y * params.width + gid.x] = sum;
 }
 `;
-
-function checkAbort(abort: AbortController): void {
-  if (abort.signal.aborted) throw abortedError();
-}
 
 export async function sumTemporalExposureOnCpu(plan: TemporalExposureSumPlan, input: TemporalExposureSumInput, abort: AbortController,
   yieldControl: YieldControl, execution: ImageKernelExecution): Promise<TemporalExposureSumResult> {

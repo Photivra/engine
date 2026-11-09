@@ -31,9 +31,8 @@ import type {
   NativeImageRaster,
   SensorImagingArea
 } from "./sensor-geometry.js";
-import { requireInputObject, requireInputKeys, rejectUnknownFields } from "../core/record-validation.js";
+import { requireInputObject, requireInputKeys, requireConfigRecord as requireRecord, requireConfigString as requireNonEmptyString, requireConfigFiniteNumber as requireFinite } from "../core/record-validation.js";
 
-type UnknownRecord = Record<string, unknown>;
 
 export interface SensorSiteCenterLatticeRegistration {
   kind: "regular-rectangular-site-center-lattice";
@@ -173,39 +172,6 @@ export interface ResolvedSensorSamplingAperture {
   };
 }
 
-function requireRecord(
-  value: unknown,
-  path: string,
-  allowedKeys: readonly string[] | null
-): UnknownRecord {
-  if (
-    typeof value !== "object" ||
-    value === null ||
-    Array.isArray(value)
-  ) {
-    throw new InvalidConfigurationError(
-      path + " must be an object."
-    );
-  }
-  if (allowedKeys !== null) rejectUnknownFields(value, allowedKeys, path);
-  return value as UnknownRecord;
-}
-
-function requireNonEmptyString(
-  value: unknown,
-  path: string
-): string {
-  if (
-    typeof value !== "string" ||
-    value.trim().length === 0
-  ) {
-    throw new InvalidConfigurationError(
-      path + " must be a non-empty string."
-    );
-  }
-  return value;
-}
-
 function requirePositiveFinite(
   value: unknown,
   path: string
@@ -218,21 +184,6 @@ function requirePositiveFinite(
     throw new InvalidConfigurationError(
       path +
         " must be a finite number greater than zero."
-    );
-  }
-  return value;
-}
-
-function requireFinite(
-  value: unknown,
-  path: string
-): number {
-  if (
-    typeof value !== "number" ||
-    !Number.isFinite(value)
-  ) {
-    throw new InvalidConfigurationError(
-      path + " must be a finite number."
     );
   }
   return value;

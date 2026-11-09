@@ -39,6 +39,8 @@ function hostIsLittleEndian(): boolean {
 export function abortedError(): ImageKernelExecutionError {
   return new ImageKernelExecutionError("aborted", "Image-kernel execution was aborted; no output is available.");
 }
+/** Throws `abortedError()` when the signal has aborted. */
+export function throwIfAborted(signal: AbortSignal): void { if (signal.aborted) throw abortedError(); }
 
 /** Rejects when the signal aborts; the returned cleanup removes the listener. */
 function abortRace(signal: AbortSignal | undefined): { promise: Promise<never>; cleanup: () => void } {

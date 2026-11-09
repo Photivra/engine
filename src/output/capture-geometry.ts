@@ -31,6 +31,7 @@ import {
 } from "../sensor/sensor-geometry.js";
 import { requireInputKeys, requireInputObject } from "../core/record-validation.js";
 import { InvalidConfigurationError } from "../core/configuration-error.js";
+import { fullRect } from "../core/shared-helpers.js";
 
 export type CaptureOrientation =
   | "landscape"
@@ -460,15 +461,6 @@ function normalizePhysicalCoordinateToUv(
 
   const clamped = Math.max(minimum, Math.min(maximum, value));
   return (clamped - minimum) / span;
-}
-
-function fullRect(raster: RasterDimensions): RasterRect {
-  return {
-    x: 0,
-    y: 0,
-    width: raster.pixelWidth,
-    height: raster.pixelHeight
-  };
 }
 
 function orientRaster(

@@ -29,8 +29,9 @@ import type {
   SceneIlluminationTemporalProfile
 } from "./illumination-temporal.js";
 import type { Vector3 } from "./scene.js";
-import { requireInputObject, requireInputArray, requireInputKeys, rejectUnknownFields, rejectUnknownVariantFields, UNCERTAINTY_VARIANT_FIELDS } from "../core/record-validation.js";
+import { requireInputObject, requireInputArray, requireInputKeys, rejectUnknownVariantFields, UNCERTAINTY_VARIANT_FIELDS, requireConfigRecord as requireRecord, requireTrimmedConfigString as requireNonEmptyString, requireConfigFiniteNumber as requireFinite, parseConfigLimitations as parseLimitations, requireConfigFraction as requireFraction, requireConfigNumberAtLeastZero as requireNonNegativeFinite } from "../core/record-validation.js";
 import { hypot3 } from "../core/portable-math.js";
+import { parseVector3 } from "./illumination.js";
 
 type UnknownRecord = Record<string, unknown>;
 
@@ -241,94 +242,6 @@ export interface SceneRadianceEvaluationBindingAssessment {
   photonsCalculated: false;
 }
 
-function requireRecord(
-  value: unknown,
-  path: string,
-  allowedKeys: readonly string[] | null
-): UnknownRecord {
-  if (
-    typeof value !== "object" ||
-    value === null ||
-    Array.isArray(value)
-  ) {
-    throw new InvalidConfigurationError(
-      path + " must be an object."
-    );
-  }
-  if (allowedKeys !== null) rejectUnknownFields(value, allowedKeys, path);
-  return value as UnknownRecord;
-}
-
-function requireNonEmptyString(
-  value: unknown,
-  path: string
-): string {
-  if (
-    typeof value !== "string" ||
-    value.trim().length === 0
-  ) {
-    throw new InvalidConfigurationError(
-      path + " must be a non-empty string."
-    );
-  }
-  return value.trim();
-}
-
-function requireFinite(
-  value: unknown,
-  path: string
-): number {
-  if (
-    typeof value !== "number" ||
-    !Number.isFinite(value)
-  ) {
-    throw new InvalidConfigurationError(
-      path + " must be a finite number."
-    );
-  }
-  return value;
-}
-
-function requireNonNegativeFinite(
-  value: unknown,
-  path: string
-): number {
-  const number = requireFinite(value, path);
-  if (number < 0) {
-    throw new InvalidConfigurationError(
-      path +
-        " must be greater than or equal to zero."
-    );
-  }
-  return number;
-}
-
-function requireFraction(
-  value: unknown,
-  path: string
-): number {
-  const number = requireFinite(value, path);
-  if (number < 0 || number > 1) {
-    throw new InvalidConfigurationError(
-      path +
-        " must be a finite fraction from 0 through 1."
-    );
-  }
-  return number;
-}
-
-function parseVector3(
-  value: unknown,
-  path: string
-): Vector3 {
-  const record = requireRecord(value, path, ["x", "y", "z"]);
-  return {
-    x: requireFinite(record.x, path + ".x"),
-    y: requireFinite(record.y, path + ".y"),
-    z: requireFinite(record.z, path + ".z")
-  };
-}
-
 function parseUnitDirection(
   value: unknown,
   path: string
@@ -382,33 +295,6 @@ function parseUncertainty(
   throw new InvalidConfigurationError(
     path + ".kind is invalid."
   );
-}
-
-function parseLimitations(
-  value: unknown,
-  path: string
-): readonly string[] {
-  if (!Array.isArray(value)) {
-    throw new InvalidConfigurationError(
-      path + " must be an array."
-    );
-  }
-  const limitations = value.map(
-    (entry, index) =>
-      requireNonEmptyString(
-        entry,
-        path + "[" + index + "]"
-      )
-  );
-  if (
-    new Set(limitations).size !==
-    limitations.length
-  ) {
-    throw new InvalidConfigurationError(
-      path + " must not contain duplicates."
-    );
-  }
-  return limitations;
 }
 
 function parseArtifact(

@@ -95,7 +95,9 @@ describe("developing joined parts (#571)", () => {
     const whole = await simulateCapture(options);
     expect(whole.assumptions.find((a) => a.id === "output.developmentOrder")!.value).toEqual(["demosaic", "colour and white balance", "lens corrections (linear)",
       "rendering exposure and tone curve", "gamut handling", "transfer function", "unsharp mask", "quantization"]);
-    const uncorrectedParts = await partsOf({ ...options, output: { ...options.output!, lensCorrections: undefined } }, 2, 2);
+    const uncorrected = { ...options.output! };
+    delete uncorrected.lensCorrections;
+    const uncorrectedParts = await partsOf({ ...options, output: uncorrected }, 2, 2);
     const correctedParts = await partsOf(options, 2, 2);
     for (const [label, parts] of [["parts without corrections", uncorrectedParts], ["parts with corrections", correctedParts]] as const) {
       const joined = await simulateCaptureFromParts({ ...options, onProgress: (p) => events.push(p) }, parts);

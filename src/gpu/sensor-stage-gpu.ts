@@ -11,7 +11,7 @@ import { calculatePackedSensorRawPlan, createPackedFixedPattern, packedSensorDia
 import { adcTransfer, type SensorReadoutConversionRegime } from "../sensor/raw-readout.js";
 import { ImageKernelExecutionError, webGpuExecution, type ImageKernelExecution } from "./image-kernel-execution.js";
 import type { AcceleratedPackedSensorRawResult } from "./image-kernel-accelerator.js";
-import { BUFFER_USAGE, GpuResourceScope, abortedError, linearDispatch, runComputePass, type WebGpuRuntime } from "./webgpu-runtime.js";
+import { BUFFER_USAGE, GpuResourceScope, linearDispatch, runComputePass, type WebGpuRuntime, throwIfAborted as checkAbort } from "./webgpu-runtime.js";
 import { SENSOR_AUX, SENSOR_EXTRAS, SENSOR_MEAN_CATEGORY, SENSOR_OUTPUT, SENSOR_PIECE_WORDS, SENSOR_RAW_WGSL, SENSOR_ROUNDING, SENSOR_SITE_WORDS,
   SENSOR_WORKGROUP_SIZE } from "./wgsl-sensor-kernel.js";
 
@@ -29,10 +29,6 @@ const CPU_RELATIVE = 2 ** -47;
 /** One WGSL rounding, either direction (2^-23). */
 const E = SENSOR_ROUNDING;
 const POISSON_NORMAL_MINIMUM_MEAN = 1e9;
-
-function checkAbort(signal: AbortSignal): void {
-  if (signal.aborted) throw abortedError();
-}
 
 /** CPU reference with host yields and abort, row-chunked; codes equal `simulatePackedSensorRaw`. */
 export async function simulateSensorRawOnCpu(input: PackedSensorRawInput, abort: AbortController, yieldControl: YieldControl,

@@ -18,7 +18,7 @@ import {
   parseEvidenceProvenance,
   type EvidenceProvenance
 } from "./evidence-provenance.js";
-import { requireInputKeys } from "./record-validation.js";
+import { requireInputKeys, requireTrimmedConfigString as requireNonEmptyString, requireInputNonNegativeFinite as requireNonNegativeFinite } from "./record-validation.js";
 import { InvalidConfigurationError } from "./configuration-error.js";
 
 export const SCIENTIFIC_ASSURANCE_CONTRACT_VERSION =
@@ -181,39 +181,6 @@ const SOURCE_KINDS =
     "model",
     "fixture"
   ]);
-
-function requireNonEmptyString(
-  value: unknown,
-  path: string
-): string {
-  if (
-    typeof value !== "string" ||
-    value.trim().length === 0
-  ) {
-    throw new InvalidConfigurationError(
-      path +
-        " must be a non-empty string."
-    );
-  }
-  return value.trim();
-}
-
-function requireNonNegativeFinite(
-  value: unknown,
-  path: string
-): number {
-  if (
-    typeof value !== "number" ||
-    !Number.isFinite(value) ||
-    value < 0
-  ) {
-    throw new InvalidScientificInputError(
-      path +
-        " must be finite and greater than or equal to zero."
-    );
-  }
-  return value;
-}
 
 function validateSourceIdentity(
   value:

@@ -103,9 +103,8 @@ import {
   type SceneRadianceEvaluationResult,
   type SceneRadianceUncertainty
 } from "../schema/scene-radiance.js";
-import { requireInputObject, requireInputKeys, rejectUnknownFields, rejectUnknownVariantFields } from "../core/record-validation.js";
-
-type UnknownRecord = Record<string, unknown>;
+import { requireInputObject, requireInputKeys, rejectUnknownFields, rejectUnknownVariantFields, requireConfigRecord as requireRecord, requireTrimmedConfigString as requireNonEmptyString, requireConfigFinite as requireFinite, requireConfigFiniteAboveZero as requirePositiveFinite } from "../core/record-validation.js";
+import { deepFreeze, cloneJson } from "../core/shared-helpers.js";
 
 export const PRODUCTION_IMAGE_FORMATION_PLAN_VERSION =
   "0.7.0" as const;
@@ -628,69 +627,6 @@ const COMPOSER_SUPPORTED_EFFECTS =
     "spatial-camera-rotation",
     "rolling-readout"
   ]);
-
-function requireRecord(
-  value: unknown,
-  path: string,
-  allowedKeys: readonly string[] | null
-): UnknownRecord {
-  if (
-    typeof value !== "object" ||
-    value === null ||
-    Array.isArray(value)
-  ) {
-    throw new InvalidConfigurationError(
-      path + " must be an object."
-    );
-  }
-  if (allowedKeys !== null) rejectUnknownFields(value, allowedKeys, path);
-  return value as UnknownRecord;
-}
-
-function requireNonEmptyString(
-  value: unknown,
-  path: string
-): string {
-  if (
-    typeof value !== "string" ||
-    value.trim().length === 0
-  ) {
-    throw new InvalidConfigurationError(
-      path + " must be a non-empty string."
-    );
-  }
-  return value.trim();
-}
-
-function requireFinite(
-  value: unknown,
-  path: string
-): number {
-  if (
-    typeof value !== "number" ||
-    !Number.isFinite(value)
-  ) {
-    throw new InvalidConfigurationError(
-      path + " must be finite."
-    );
-  }
-  return value;
-}
-
-function requirePositiveFinite(
-  value: unknown,
-  path: string
-): number {
-  const parsed =
-    requireFinite(value, path);
-  if (parsed <= 0) {
-    throw new InvalidConfigurationError(
-      path +
-        " must be greater than zero."
-    );
-  }
-  return parsed;
-}
 
 function requireUint32(
   value: unknown,
@@ -1261,7 +1197,7 @@ function validateEquipmentCapabilities(
   );
 }
 
-function settingEquals(
+export function settingEquals(
   left: number,
   right: number
 ): boolean {
@@ -1311,37 +1247,6 @@ function validateSetting(
         " is not present in the prepared discrete equipment setting grid."
     );
   }
-}
-
-function cloneJson<T>(
-  value: T
-): T {
-  return JSON.parse(
-    JSON.stringify(value)
-  ) as T;
-}
-
-function deepFreeze<T>(
-  value: T
-): T {
-  if (
-    typeof value !== "object" ||
-    value === null ||
-    Object.isFrozen(value)
-  ) {
-    return value;
-  }
-
-  Object.freeze(value);
-  for (
-    const child of
-    Object.values(
-      value as UnknownRecord
-    )
-  ) {
-    deepFreeze(child);
-  }
-  return value;
 }
 
 function canonicalStringify(value: unknown): string {

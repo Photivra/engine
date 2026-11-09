@@ -10,7 +10,6 @@
  * and support limits.
  */
 
-import { rejectUnknownFields } from "../core/record-validation.js";
 import { InvalidConfigurationError } from "../core/configuration-error.js";
 import {
   parseEvidenceList,
@@ -18,8 +17,8 @@ import {
   type EvidenceProvenance
 } from "../core/evidence-provenance.js";
 import type { GenericCapabilityAvailability } from "./exposure-capabilities.js";
+import { requireConfigRecord as requireRecord, requireTrimmedConfigString as requireNonEmptyString, requireConfigPositiveFinite as requirePositiveFinite, requireConfigPositiveSafeInteger as requirePositiveSafeInteger, requireConfigNonNegativeFinite as requireNonNegativeFinite, parseConfigAvailability as parseAvailability } from "../core/record-validation.js";
 
-type UnknownRecord = Record<string, unknown>;
 
 export const GENERIC_RELEASE_CAPABILITY_SCHEMA_VERSION =
   "0.1.0" as const;
@@ -82,106 +81,6 @@ const BRACKET_AXES =
     "iso",
     "aperture"
   ]);
-
-function requireRecord(
-  value: unknown,
-  path: string,
-  allowedKeys: readonly string[] | null
-): UnknownRecord {
-  if (
-    typeof value !== "object" ||
-    value === null ||
-    Array.isArray(value)
-  ) {
-    throw new InvalidConfigurationError(
-      path + " must be an object."
-    );
-  }
-  if (allowedKeys !== null) rejectUnknownFields(value, allowedKeys, path);
-  return value as UnknownRecord;
-}
-
-function requireNonEmptyString(
-  value: unknown,
-  path: string
-): string {
-  if (
-    typeof value !== "string" ||
-    value.trim().length === 0
-  ) {
-    throw new InvalidConfigurationError(
-      path + " must be a non-empty string."
-    );
-  }
-  return value.trim();
-}
-
-function requirePositiveFinite(
-  value: unknown,
-  path: string
-): number {
-  if (
-    typeof value !== "number" ||
-    !Number.isFinite(value) ||
-    value <= 0
-  ) {
-    throw new InvalidConfigurationError(
-      path +
-        " must be finite and greater than zero."
-    );
-  }
-  return value;
-}
-
-function requireNonNegativeFinite(
-  value: unknown,
-  path: string
-): number {
-  if (
-    typeof value !== "number" ||
-    !Number.isFinite(value) ||
-    value < 0
-  ) {
-    throw new InvalidConfigurationError(
-      path +
-        " must be finite and greater than or equal to zero."
-    );
-  }
-  return value;
-}
-
-function requirePositiveSafeInteger(
-  value: unknown,
-  path: string
-): number {
-  if (
-    typeof value !== "number" ||
-    !Number.isSafeInteger(value) ||
-    value <= 0
-  ) {
-    throw new InvalidConfigurationError(
-      path +
-        " must be a positive safe integer."
-    );
-  }
-  return value;
-}
-
-function parseAvailability(
-  value: unknown,
-  path: string
-): GenericCapabilityAvailability {
-  if (
-    value !== "supported" &&
-    value !== "unsupported" &&
-    value !== "unknown"
-  ) {
-    throw new InvalidConfigurationError(
-      path + " is invalid."
-    );
-  }
-  return value;
-}
 
 function parseFact<T>(
   value: unknown,

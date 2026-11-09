@@ -6,10 +6,9 @@
  * @see docs/API_STYLE.md for equations, coordinate/unit conventions, blockers and support limits.
  */
 
-import { rejectUnknownFields } from "./record-validation.js";
 import { InvalidConfigurationError } from "./configuration-error.js";
+import { requireConfigRecord as requireRecord, requireConfigRecordString as requireNonEmptyString } from "./record-validation.js";
 
-type UnknownRecord = Record<string, unknown>;
 
 export type EvidenceSourceOrigin =
   | "manufacturer"
@@ -67,32 +66,6 @@ const REUSE_STATUSES = new Set<EvidenceReuseStatus>([
   "reusable-data",
   "photivra-owned"
 ]);
-
-function requireRecord(
-  value: unknown,
-  path: string,
-  allowedKeys: readonly string[] | null
-): UnknownRecord {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    throw new InvalidConfigurationError(`${path} must be an object.`);
-  }
-  if (allowedKeys !== null) rejectUnknownFields(value, allowedKeys, path);
-  return value as UnknownRecord;
-}
-
-function requireNonEmptyString(
-  record: UnknownRecord,
-  key: string,
-  path: string
-): string {
-  const value = record[key];
-  if (typeof value !== "string" || value.trim().length === 0) {
-    throw new InvalidConfigurationError(
-      `${path}.${key} must be a non-empty string.`
-    );
-  }
-  return value;
-}
 
 /**
  * Parses one provenance (evidence) record.

@@ -23,6 +23,7 @@ import { requireAllowlistedRecord } from "../core/record-validation.js";
 import { stringifyCanonicalJson } from "../core/canonical-json.js";
 import { freezeOwnedData } from "../core/owned-data.js";
 import { InvalidConfigurationError } from "../core/configuration-error.js";
+import { isPlainRecord } from "./native-environment-lean.js";
 
 type EnvironmentSite = SimulateEnvironmentSensorRawFrameInput["sites"][number];
 type SiteEnvironment = EnvironmentSite["environment"];
@@ -80,14 +81,9 @@ export interface NativeEnvironmentSensorStageProvider {
 const FIXED_VALUES = 7;
 const ENVIRONMENT_SHARED_KEYS = ["sceneBindings", "optics", "motion", "psf", "pupil", "fieldThroughput"] as const;
 
-function canonical(value: unknown): string {
+export function canonical(value: unknown): string {
   return stringifyCanonicalJson(value, { undefinedObjectProperties: "omit", nonFiniteNumberMessage: "Invalid native scene binding.",
     unsupportedValueMessage: "Invalid native scene binding." });
-}
-
-function isPlainRecord(value: object): boolean {
-  const prototype = Object.getPrototypeOf(value);
-  return prototype === Object.prototype || prototype === null;
 }
 
 /**

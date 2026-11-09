@@ -26,7 +26,7 @@ import {
 import type {
   SceneRadianceDerivedExposureMeteringSampleSet
 } from "./metering-scene-radiance.js";
-import { requireInputKeys, requireInputObject } from "../core/record-validation.js";
+import { requireInputKeys, requireInputObject, requireTrimmedConfigString as requireNonEmptyString } from "../core/record-validation.js";
 import { InvalidConfigurationError } from "../core/configuration-error.js";
 
 const NORMALIZED_WEIGHT_TOLERANCE =
@@ -102,21 +102,6 @@ export type SceneRadianceTemporalExposureMeteringResult =
       exposureOffsetStopsResolved:
         false;
     });
-
-function requireNonEmptyString(
-  value: unknown,
-  path: string
-): string {
-  if (
-    typeof value !== "string" ||
-    value.trim().length === 0
-  ) {
-    throw new InvalidConfigurationError(
-      path + " must be a non-empty string."
-    );
-  }
-  return value.trim();
-}
 
 function requireNormalizedWeight(
   value: unknown,

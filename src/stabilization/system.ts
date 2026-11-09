@@ -35,9 +35,8 @@ import type {
 import type {
   ResolvedCaptureModeTiming
 } from "../sensor/capture-mode-timing.js";
-import { requireInputKeys, requireInputObject, rejectUnknownFields, rejectUnknownVariantFields } from "../core/record-validation.js";
-
-type UnknownRecord = Record<string, unknown>;
+import { requireInputKeys, requireInputObject, rejectUnknownVariantFields, requireConfigRecord as requireRecord, requireTrimmedConfigString as requireNonEmptyString, requireConfigFinite as requireFinite, parseConfigLimitations as parseLimitations, requireConfigFiniteAtLeastZero as requireNonNegativeFinite, requireConfigUnitInterval as requireFraction } from "../core/record-validation.js";
+import { parseNonNegativeFact, parsePositiveFact } from "../sensor/raw-readout.js";
 
 export const STABILIZATION_SYSTEM_PROFILE_SCHEMA_VERSION =
   "0.1.0" as const;
@@ -308,134 +307,6 @@ const CAPTURE_KINDS =
     "video"
   ]);
 
-function requireRecord(
-  value: unknown,
-  path: string,
-  allowedKeys: readonly string[] | null
-): UnknownRecord {
-  if (
-    typeof value !== "object" ||
-    value === null ||
-    Array.isArray(value)
-  ) {
-    throw new InvalidConfigurationError(
-      path + " must be an object."
-    );
-  }
-  if (allowedKeys !== null) rejectUnknownFields(value, allowedKeys, path);
-  return value as UnknownRecord;
-}
-
-function requireNonEmptyString(
-  value: unknown,
-  path: string
-): string {
-  if (
-    typeof value !== "string" ||
-    value.trim().length === 0
-  ) {
-    throw new InvalidConfigurationError(
-      path +
-        " must be a non-empty string."
-    );
-  }
-  return value.trim();
-}
-
-function requireFinite(
-  value: unknown,
-  path: string
-): number {
-  if (
-    typeof value !== "number" ||
-    !Number.isFinite(value)
-  ) {
-    throw new InvalidConfigurationError(
-      path + " must be finite."
-    );
-  }
-  return value;
-}
-
-function requireNonNegativeFinite(
-  value: unknown,
-  path: string
-): number {
-  const parsed =
-    requireFinite(value, path);
-  if (parsed < 0) {
-    throw new InvalidConfigurationError(
-      path +
-        " must be greater than or equal to zero."
-    );
-  }
-  return parsed;
-}
-
-function requirePositiveFinite(
-  value: unknown,
-  path: string
-): number {
-  const parsed =
-    requireFinite(value, path);
-  if (parsed <= 0) {
-    throw new InvalidConfigurationError(
-      path +
-        " must be greater than zero."
-    );
-  }
-  return parsed;
-}
-
-function requireFraction(
-  value: unknown,
-  path: string
-): number {
-  const parsed =
-    requireFinite(value, path);
-  if (
-    parsed < 0 ||
-    parsed > 1
-  ) {
-    throw new InvalidConfigurationError(
-      path +
-        " must lie from zero through one."
-    );
-  }
-  return parsed;
-}
-
-function parseLimitations(
-  value: unknown,
-  path: string
-): readonly string[] {
-  if (!Array.isArray(value)) {
-    throw new InvalidConfigurationError(
-      path + " must be an array."
-    );
-  }
-  const parsed =
-    value.map((entry, index) =>
-      requireNonEmptyString(
-        entry,
-        path +
-          "[" +
-          index +
-          "]"
-      )
-    );
-  if (
-    new Set(parsed).size !==
-    parsed.length
-  ) {
-    throw new InvalidConfigurationError(
-      path +
-        " must not contain duplicates."
-    );
-  }
-  return parsed;
-}
-
 function parseFractionFact(
   value: unknown,
   path: string
@@ -445,46 +316,6 @@ function parseFractionFact(
   return {
     value:
       requireFraction(
-        record.value,
-        path + ".value"
-      ),
-    evidence:
-      parseEvidenceList(
-        record.evidence,
-        path + ".evidence"
-      )
-  };
-}
-
-function parseNonNegativeFact(
-  value: unknown,
-  path: string
-): EvidenceBackedFact<number> {
-  const record =
-    requireRecord(value, path, ["value", "evidence"]);
-  return {
-    value:
-      requireNonNegativeFinite(
-        record.value,
-        path + ".value"
-      ),
-    evidence:
-      parseEvidenceList(
-        record.evidence,
-        path + ".evidence"
-      )
-  };
-}
-
-function parsePositiveFact(
-  value: unknown,
-  path: string
-): EvidenceBackedFact<number> {
-  const record =
-    requireRecord(value, path, ["value", "evidence"]);
-  return {
-    value:
-      requirePositiveFinite(
         record.value,
         path + ".value"
       ),

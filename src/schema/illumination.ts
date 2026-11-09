@@ -10,7 +10,7 @@
  * and support limits.
  */
 
-import { rejectUnknownFields, rejectUnknownVariantFields, requireFixedFieldsWhenPresent } from "../core/record-validation.js";
+import { rejectUnknownFields, rejectUnknownVariantFields, requireFixedFieldsWhenPresent, requireConfigRecord as requireRecord, requireTrimmedConfigString as requireNonEmptyString, parseConfigScientificStatus as parseScientificStatus, requireConfigFiniteNumber as requireFinite, parseConfigLimitations as parseLimitations, requireConfigFraction as requireFraction, requireConfigNumberAtLeastZero as requireNonNegativeFinite, requireConfigNumberAboveZero as requirePositiveFinite } from "../core/record-validation.js";
 import { InvalidConfigurationError } from "../core/configuration-error.js";
 import {
   parseEvidenceList,
@@ -25,8 +25,6 @@ import {
   type NormalizedDiscreteSpectralLineDistribution
 } from "../core/spectral-composition.js";
 import type { Vector3 } from "./scene.js";
-
-type UnknownRecord = Record<string, unknown>;
 
 export const SCENE_ILLUMINATION_PROFILE_SCHEMA_VERSION = "0.1.0" as const;
 
@@ -195,39 +193,6 @@ export interface SceneIlluminationProfile {
   polarizationModeled: false;
 }
 
-function requireRecord(
-  value: unknown,
-  path: string,
-  allowedKeys: readonly string[] | null
-): UnknownRecord {
-  if (
-    typeof value !== "object" ||
-    value === null ||
-    Array.isArray(value)
-  ) {
-    throw new InvalidConfigurationError(
-      path + " must be an object."
-    );
-  }
-  if (allowedKeys !== null) rejectUnknownFields(value, allowedKeys, path);
-  return value as UnknownRecord;
-}
-
-function requireNonEmptyString(
-  value: unknown,
-  path: string
-): string {
-  if (
-    typeof value !== "string" ||
-    value.trim().length === 0
-  ) {
-    throw new InvalidConfigurationError(
-      path + " must be a non-empty string."
-    );
-  }
-  return value.trim();
-}
-
 function requireBoolean(
   value: unknown,
   path: string
@@ -240,61 +205,7 @@ function requireBoolean(
   return value;
 }
 
-function requireFinite(
-  value: unknown,
-  path: string
-): number {
-  if (
-    typeof value !== "number" ||
-    !Number.isFinite(value)
-  ) {
-    throw new InvalidConfigurationError(
-      path + " must be a finite number."
-    );
-  }
-  return value;
-}
-
-function requirePositiveFinite(
-  value: unknown,
-  path: string
-): number {
-  const number = requireFinite(value, path);
-  if (number <= 0) {
-    throw new InvalidConfigurationError(
-      path + " must be greater than zero."
-    );
-  }
-  return number;
-}
-
-function requireNonNegativeFinite(
-  value: unknown,
-  path: string
-): number {
-  const number = requireFinite(value, path);
-  if (number < 0) {
-    throw new InvalidConfigurationError(
-      path + " must be greater than or equal to zero."
-    );
-  }
-  return number;
-}
-
-function requireFraction(
-  value: unknown,
-  path: string
-): number {
-  const number = requireFinite(value, path);
-  if (number < 0 || number > 1) {
-    throw new InvalidConfigurationError(
-      path + " must be a finite fraction from 0 through 1."
-    );
-  }
-  return number;
-}
-
-function parseVector3(
+export function parseVector3(
   value: unknown,
   path: string
 ): Vector3 {
@@ -325,21 +236,6 @@ function parseDirectionUnitVector(
     );
   }
   return vector;
-}
-
-function parseScientificStatus(
-  value: unknown,
-  path: string
-): SceneIlluminationScientificStatus {
-  if (
-    value !== "calibrated" &&
-    value !== "approximation"
-  ) {
-    throw new InvalidConfigurationError(
-      path + " is invalid."
-    );
-  }
-  return value;
 }
 
 function parseUncertainty(
@@ -972,33 +868,6 @@ function parseSpectrum(
     evidence,
     samples
   };
-}
-
-function parseLimitations(
-  value: unknown,
-  path: string
-): readonly string[] {
-  if (!Array.isArray(value)) {
-    throw new InvalidConfigurationError(
-      path + " must be an array."
-    );
-  }
-  const limitations = value.map(
-    (entry, index) =>
-      requireNonEmptyString(
-        entry,
-        path + "[" + index + "]"
-      )
-  );
-  if (
-    new Set(limitations).size !==
-    limitations.length
-  ) {
-    throw new InvalidConfigurationError(
-      path + " must not contain duplicates."
-    );
-  }
-  return limitations;
 }
 
 function parseFamily(

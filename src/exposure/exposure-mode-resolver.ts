@@ -29,7 +29,7 @@ import {
   parseExposureProgramLineProfile,
   type ExposureProgramLineProfile
 } from "./program-line.js";
-import { rejectUnknownFields, requireInputKeys } from "../core/record-validation.js";
+import { rejectUnknownFields, requireInputKeys, requireTrimmedConfigString as requireNonEmptyString, requireInputPositiveFinite as requirePositiveFinite } from "../core/record-validation.js";
 import { InvalidConfigurationError } from "../core/configuration-error.js";
 
 type UnknownRecord = Record<string, unknown>;
@@ -942,23 +942,6 @@ function requireRecord(
   return value as UnknownRecord;
 }
 
-function requirePositiveFinite(
-  value: unknown,
-  path: string
-): number {
-  if (
-    typeof value !== "number" ||
-    !Number.isFinite(value) ||
-    value <= 0
-  ) {
-    throw new InvalidScientificInputError(
-      path +
-        " must be finite and greater than zero."
-    );
-  }
-  return value;
-}
-
 function settingEquals(
   left: number,
   right: number
@@ -1088,21 +1071,6 @@ function validateTarget(
   }
 
   return value as ExposureMeterTarget;
-}
-
-function requireNonEmptyString(
-  value: unknown,
-  path: string
-): string {
-  if (
-    typeof value !== "string" ||
-    value.trim().length === 0
-  ) {
-    throw new InvalidConfigurationError(
-      path + " must be a non-empty string."
-    );
-  }
-  return value.trim();
 }
 
 function validateResolvedGrid(

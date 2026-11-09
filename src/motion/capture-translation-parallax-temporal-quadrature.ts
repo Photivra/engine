@@ -34,8 +34,9 @@ import type {
 import type {
   SensorImagingArea
 } from "../sensor/sensor-geometry.js";
-import { requireInputObject, requireInputKeys } from "../core/record-validation.js";
+import { requireInputObject, requireInputKeys, requireTrimmedConfigString as requireNonEmptyString } from "../core/record-validation.js";
 import { InvalidConfigurationError } from "../core/configuration-error.js";
+import { sameSite as samePoint } from "../core/shared-helpers.js";
 
 export interface CaptureTranslationParallaxSceneSample {
   sampleId: string;
@@ -157,7 +158,7 @@ export interface CaptureTranslationParallaxTemporalQuadrature {
     false;
 }
 
-function requireFiniteVector(
+export function requireFiniteVector(
   value: Vector3,
   path: string
 ): Vector3 {
@@ -182,32 +183,6 @@ function requireFiniteVector(
   return {
     ...value
   };
-}
-
-function requireNonEmptyString(
-  value: string,
-  path: string
-): string {
-  if (
-    typeof value !== "string" ||
-    value.trim().length === 0
-  ) {
-    throw new InvalidConfigurationError(
-      path +
-        " must be a non-empty string."
-    );
-  }
-  return value.trim();
-}
-
-function samePoint(
-  a: RasterPoint,
-  b: RasterPoint
-): boolean {
-  return (
-    a.x === b.x &&
-    a.y === b.y
-  );
 }
 
 function projectPoint(
