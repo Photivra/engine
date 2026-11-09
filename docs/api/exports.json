@@ -7118,6 +7118,11 @@
       "kind": "runtime"
     },
     {
+      "name": "resolveSensorProfile",
+      "source": "src/equipment/sensor-profiles.ts",
+      "kind": "runtime"
+    },
+    {
       "name": "resolveSensorRawReconstruction",
       "source": "src/sensor/raw-reconstruction.ts",
       "kind": "runtime"
@@ -7663,6 +7668,21 @@
       "kind": "runtime"
     },
     {
+      "name": "SENSOR_PROFILE_IDS",
+      "source": "src/equipment/sensor-profiles.ts",
+      "kind": "runtime"
+    },
+    {
+      "name": "SENSOR_PROFILE_ISO_ANCHOR",
+      "source": "src/equipment/sensor-profiles.ts",
+      "kind": "runtime"
+    },
+    {
+      "name": "SENSOR_PROFILES",
+      "source": "src/equipment/sensor-profiles.ts",
+      "kind": "runtime"
+    },
+    {
       "name": "SENSOR_RAW_CAPTURE_SAMPLE_VERSION",
       "source": "src/sensor/raw-reconstruction.ts",
       "kind": "runtime"
@@ -8020,6 +8040,16 @@
     {
       "name": "SensorPhysicalChargeCapacityTemperatureApplicability",
       "source": "src/sensor/physical-charge-capacity.ts",
+      "kind": "type"
+    },
+    {
+      "name": "SensorProfile",
+      "source": "src/equipment/sensor-profiles.ts",
+      "kind": "type"
+    },
+    {
+      "name": "SensorProfileValueKind",
+      "source": "src/equipment/sensor-profiles.ts",
       "kind": "type"
     },
     {

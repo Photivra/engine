@@ -526,6 +526,23 @@ SNR is 88.5 (38.9 dB); at ISO 6400 with 1/64 of the light, S ≈ 123 e⁻ and th
 the photon shot noise grows as √S, so less light means more noise whatever the ISO. The display view
 reports the same `sensor` record as its capture.
 
+### Sensor profiles (#554)
+
+`sensor.profile` picks one of eight representative sensors whose values come from published
+specifications (`SENSOR_PROFILE_IDS`; unnamed, by format, resolution, architecture and era). It
+replaces the body's ISO range, readout regimes (full well, read noise of each conversion gain, the
+dual-gain switch and the high gain's storage, ADC bit depth), readout time and fixed-pattern noise,
+and sets the default pitch and peak QE; the characteristics above still override it one at a time.
+
+```ts
+const phone = await simulateCapture({ scene: { preset: "uniform" }, sensor: { profile: "phone-50mp-stacked" } });
+phone.sensor.fullWellElectrons;   // 8 600 e⁻ at 1.197 µm
+```
+
+Each profile's base ISO is re-rated from its full well, QE and pixel area, so the same ISO reaches
+the RAW white at the same exposure on every profile (the assumption `sensor.profile` records the
+values and the rounding). Values, sources and the ISO rating: [SENSOR_PROFILES.md](SENSOR_PROFILES.md).
+
 ## Exposure
 
 The facade meters the scene like a reflected-light meter:

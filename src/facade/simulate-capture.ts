@@ -38,6 +38,7 @@ import { ENGINE_API_VERSION } from "../core/version.js";
 import type { EvidenceProvenance } from "../core/evidence-provenance.js";
 import { GENERIC_TIER_ASSETS, type GenericEquipmentTier, type GenericEquipmentTierPreset } from "../equipment/generic-tier-assets.js";
 import { parseCallerCameraPreset } from "./camera-preset.js";
+import type { SensorProfile } from "../equipment/sensor-profiles.js";
 import { createHostYield } from "./host-yield.js";
 import { resolveGenericEquipmentExposureCapabilities, type ResolvedGenericEquipmentExposureCapabilities } from "../equipment/exposure-capabilities.js";
 import { resolveGenericIsoSignalChain } from "../sensor/iso-signal-chain.js";
@@ -602,6 +603,13 @@ export interface SimulateCaptureOptions {
   /** #555: plus the sensor characteristics ({@link SimulateCaptureSensorCharacteristics}), each off by default. */
   sensor?: SimulateCaptureSensorCharacteristics & {
     /**
+     * #554: a sensor profile id (`SENSOR_PROFILE_IDS`), loaded on demand. It replaces the body's ISO range, readout regimes
+     * (full well, read noise of each conversion gain, the dual-gain switch, high-gain storage, ADC bit depth), readout time and
+     * fixed-pattern noise, and sets the default pixel pitch and peak QE; explicit fields here still override it one at a time.
+     * Default: none (the body's own sensor). See docs/SENSOR_PROFILES.md.
+     */
+    profile?: string;
+    /**
      * Pixel pitch in micrometres, 0.5–1000. Default 6. The simulated sensor is output width × pitch wide. 2.5: above 100 µm the
      * capture is a downsized view of a whole frame (for example 36 mm / 48 pixels = 750 µm), recorded in the assumption
      * `sensor.wholeFrameView`: brightness is unchanged and the noise is that of a binned view, not of the real sensor's pixels.
@@ -1119,13 +1127,13 @@ function luminanceOf(radiance: (nm: number) => number): number {
   return PHOTOPIC_MAXIMUM_LUMINOUS_EFFICACY_LM_PER_W * sum;
 }
 /**
- * 2.14: the capabilities with the ISO grid cut to its whole stops (ISO 100·2^k, as the 2.0.0 tier bodies list them), for
+ * 2.14: the capabilities with the ISO grid cut to its whole stops from the base ISO (ISO 100·2^k on the tiers, as the 2.0.0 bodies list them; #554: a profile's base·2^k), for
  * Auto ISO's default `isoSteps: "whole-stop"`. A whole-stop grid is returned unchanged, so 2.0.0 records resolve as before.
  */
 function wholeStopIsoCapabilities(capabilities: ResolvedGenericEquipmentExposureCapabilities): ResolvedGenericEquipmentExposureCapabilities {
   const grid = capabilities.iso.settingGrid;
   if (grid.kind !== "discrete-values") return capabilities;
-  const whole = grid.values.filter((iso) => Number.isInteger(Math.log2(iso / 100)));
+  const whole = grid.values.filter((iso) => Number.isInteger(Math.log2(iso / grid.values[0]!)));
   if (whole.length === grid.values.length || whole.length === 0) return capabilities;
   return { ...capabilities, iso: { ...capabilities.iso, settingGrid: { kind: "discrete-values", values: Object.freeze(whole) } } };
 }
@@ -1821,6 +1829,19 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   let preset: GenericEquipmentTierPreset;
   if (typeof cameraOption === "string") preset = GENERIC_TIER_ASSETS.find((p) => p.tier === cameraOption) ?? fail("Unknown camera tier.");
   else preset = parseCallerCameraPreset(cameraOption);
+  // #554: a sensor profile (a lazy chunk) replaces the body's sensor assets; its other capabilities and the lens are kept.
+  const profileId = (typeof top.sensor === "object" && top.sensor !== null ? top.sensor as Record<string, unknown> : {}).profile;
+  let profile: SensorProfile | undefined;
+  if (profileId !== undefined) {
+    const kit = await import("../equipment/sensor-profiles.js");
+    profile = kit.resolveSensorProfile(profileId);
+    preset = { ...preset, body: kit.sensorProfileBody(profile, preset.body, preset.presetVersion) };
+    const { provenance, goodFor, description, ...values } = profile;
+    assume("sensor.profile", "model", { ...values, sensitivityOffsetStops: Math.log2(kit.sensorProfileSaturationIso(profile) / profile.baseIso), provenance },
+      "Sensor profile " + profile.name + " (#554), " + profile.marketTag + " (a market label only): " + description + " Its values are published specifications, values derived from them or " +
+      "labelled design values (docs/SENSOR_PROFILES.md), not a calibration of any camera. It replaces the body's ISO range, readout regimes, readout time and fixed-pattern noise; " +
+      "the base ISO is re-rated from full well, QE and pixel area so the RAW white at base ISO is the full well (rounding: sensitivityOffsetStops). Good for: " + goodFor.join(", ") + ".");
+  }
   const body = preset.body, lens = preset.lens;
 
   // Lens
@@ -1831,7 +1852,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   // The simulated frame in mm (output width × height × pixel pitch), validated again below.
   const frameMm = (): { widthMm: number; heightMm: number } => {
     const o = (typeof top.output === "object" && top.output !== null ? top.output : {}) as Record<string, unknown>, sn = (typeof top.sensor === "object" && top.sensor !== null ? top.sensor : {}) as Record<string, unknown>;
-    const frameW = positive(o.width ?? DEFAULTS.width, "output.width"), frameH = positive(o.height ?? DEFAULTS.height, "output.height"), framePitch = positive(sn.pixelPitchMicrometers ?? DEFAULTS.pixelPitchMicrometers, "sensor.pixelPitchMicrometers");
+    const frameW = positive(o.width ?? DEFAULTS.width, "output.width"), frameH = positive(o.height ?? DEFAULTS.height, "output.height"), framePitch = positive(sn.pixelPitchMicrometers ?? profile?.pixelPitchMicrometers ?? DEFAULTS.pixelPitchMicrometers, "sensor.pixelPitchMicrometers");
     return { widthMm: frameW * framePitch / 1000, heightMm: frameH * framePitch / 1000 };
   };
   if (lensOptions.prime !== undefined) {
@@ -2060,9 +2081,10 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   const jpegStep = format === "jpeg" ? integerIn(pick(outputOptions, "jpegQuantizationStep", "output.jpegQuantizationStep", DEFAULTS.jpegQuantizationStep,
     "Constant JPEG quantization step 2 (not a manufacturer quality scale)."), "output.jpegQuantizationStep", 1, 255) : undefined;
   if (format !== "jpeg" && outputOptions.jpegQuantizationStep !== undefined) fail("output.jpegQuantizationStep applies only to output.format \"jpeg\".");
-  const sensorOptions = allowKeys(top.sensor, "sensor", ["pixelPitchMicrometers", "spectralStepNanometers", "temporalSampleCount", "noiseSeed", "antiAliasing", "pixelAperture", ...SENSOR_CHARACTERISTIC_KEYS]);
-  const pitch = positive(pick(sensorOptions, "pixelPitchMicrometers", "sensor.pixelPitchMicrometers", DEFAULTS.pixelPitchMicrometers,
-    "6 µm pixels (about a 24 MP full-frame sensor). The simulated sensor is width × pitch wide, so small images are a central crop of a large sensor, not a downscaled full frame."), "sensor.pixelPitchMicrometers");
+  const sensorOptions = allowKeys(top.sensor, "sensor", ["pixelPitchMicrometers", "spectralStepNanometers", "temporalSampleCount", "noiseSeed", "antiAliasing", "pixelAperture", "profile", ...SENSOR_CHARACTERISTIC_KEYS]);
+  const pitch = positive(pick(sensorOptions, "pixelPitchMicrometers", "sensor.pixelPitchMicrometers", profile?.pixelPitchMicrometers ?? DEFAULTS.pixelPitchMicrometers,
+    (profile ? "The profile's " + profile.pixelPitchMicrometers + " µm photosites" : "6 µm pixels (about a 24 MP full-frame sensor)") +
+    ". The simulated sensor is width × pitch wide, so small images are a central crop of a large sensor, not a downscaled full frame."), "sensor.pixelPitchMicrometers");
   if (pitch < 0.5 || pitch > SIMULATE_CAPTURE_PIXEL_PITCH_MAXIMUM_MICROMETERS) fail("sensor.pixelPitchMicrometers must be 0.5-" + SIMULATE_CAPTURE_PIXEL_PITCH_MAXIMUM_MICROMETERS + ".");
   const spectralStep = positive(pick(sensorOptions, "spectralStepNanometers", "sensor.spectralStepNanometers", DEFAULTS.spectralStepNanometers,
     "Spectral midpoint quadrature over 380-780 nm with subintervals of at most 20 nm."), "sensor.spectralStepNanometers");
@@ -2072,6 +2094,8 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
     pick(sensorOptions, "temporalSampleCount", "sensor.temporalSampleCount", DEFAULTS.temporalSampleCount,
       "One temporal sample: the static scene and still camera make more samples unnecessary."), "sensor.temporalSampleCount", 1, 256);
   const characteristics = parseSensorCharacteristics(sensorOptions);
+  // The EQE scale over the facade's QE 0.5 curve: an explicit peak QE, else the profile's (#554), else 1.
+  const bodyQeScale = profile ? profile.peakQuantumEfficiency / 0.5 : 1, qeScale = characteristics?.peakQuantumEfficiency !== undefined ? characteristics.qeScale : bodyQeScale;
   const noiseSeed = integerIn(pick(sensorOptions, "noiseSeed", "sensor.noiseSeed", DEFAULTS.noiseSeed, "Fixed noise seed 1 (deterministic output)."), "sensor.noiseSeed", 0, 0xffffffff);
   const antiAliasing = sensorOptions.antiAliasing === undefined ? undefined : parseAntiAliasing(sensorOptions.antiAliasing, pitch);
   const antiAliasingFast = antiAliasing ? fastOverride(sensorOptions.antiAliasing as Record<string, unknown>, "sensor.antiAliasing") : undefined;
@@ -2337,7 +2361,9 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   if (!(SIMULATE_CAPTURE_METERING_MODES as readonly unknown[]).includes(metering)) fail('exposure.metering must be "scene-average" or "grey-card".');
   const mode = pick<SimulateCaptureExposureMode>(exposureOptions, "mode", "exposure.mode", "manual", "Manual exposure.");
   if (!["manual", "aperture-priority", "shutter-priority", "program"].includes(mode)) fail("Unknown exposure mode.");
-  const isoOption = pick<unknown>(exposureOptions, "iso", "exposure.iso", DEFAULTS.iso, "ISO 100, the tiers' base ISO.");
+  // #554: a profile whose range starts above ISO 100 defaults to its base ISO.
+  const isoOption = profile && profile.baseIso > DEFAULTS.iso ? pick<unknown>(exposureOptions, "iso", "exposure.iso", profile.baseIso, "The sensor profile's base ISO, " + profile.baseIso + ".") :
+    pick<unknown>(exposureOptions, "iso", "exposure.iso", DEFAULTS.iso, profile ? "ISO 100, within the sensor profile's range." : "ISO 100, the tiers' base ISO.");
   // #516: "auto" resolves the ISO with the mode's Auto ISO resolver; NaN marks the ISO as not yet known.
   const automaticIso = isoOption === "auto";
   if (typeof isoOption === "string" && !automaticIso) fail('exposure.iso must be a positive finite number or "auto".');
@@ -2354,7 +2380,9 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   const clamp = (n: number): number => lensRange ? Math.min(lensRange.narrowestFNumber, Math.max(lensRange.widestFNumber, n)) : n, referenceAperture = clamp(DEFAULTS.fNumber);
   // (N0/8)² is exactly 1 at f/8, so f/8 keeps 1/125 s exactly.
   const sameShutter = DEFAULTS.shutterSeconds * (referenceAperture / DEFAULTS.fNumber) ** 2;
-  const reference = { aperture: referenceAperture, shutterSeconds: Math.max(sameShutter, capabilities.shutter.minimumSeconds), iso: DEFAULTS.iso };
+  // #554: a profile whose range starts above ISO 100 takes the same N²/(t·S) at its base ISO (a shorter t).
+  const referenceIso = profile && profile.baseIso > DEFAULTS.iso ? profile.baseIso : DEFAULTS.iso;
+  const reference = { aperture: referenceAperture, shutterSeconds: Math.max(sameShutter * DEFAULTS.iso / referenceIso, capabilities.shutter.minimumSeconds), iso: referenceIso };
   const referenceLuminance = sosReferenceLuminance(reference.aperture, reference.shutterSeconds, reference.iso);
   assume("exposure.referenceExposure", "model", { ...reference, meteredLuminanceCdPerSquareMeter: referenceLuminance },
     "Exposure anchor: f/8, 1/125 s, ISO 100 gives the CIPA DC-004 standard output sensitivity reference exposure H = 10/S = 0.1 lx·s for an average scene luminance of 10·N²/(0.65·t·S) ≈ 1230.77 cd/m² (camera equation H = 0.65·L·t/N²)" +
@@ -2650,7 +2678,8 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   // output, independent of pixel size, while the collected charge is proportional to the sensitive-aperture area
   // (EMVA 1288 Release 4.0, Eq. 3). The tier's signal chain is anchored to the 6 µm aperture; at another area the
   // charge-domain readout scales with the area so the same H gives the same code. At 6 µm nothing is changed.
-  const areaScale = pitch * pitch / ISO_REFERENCE_APERTURE_AREA_SQUARE_MICROMETERS;
+  // #554: a profile's readout is declared at its own photosite area.
+  const referenceArea = profile ? profile.pixelPitchMicrometers ** 2 : ISO_REFERENCE_APERTURE_AREA_SQUARE_MICROMETERS, areaScale = pitch * pitch / referenceArea;
   // #555: a full well replaces the area-scaled base-ISO saturation; the charge-domain transfer scales by the same rule.
   const fullWell = characteristics?.fullWell, fullWellElectrons = fullWell && (fullWell.link === "none" ? fullWell.electrons : fullWell.electrons * (pitch / (fullWell.referencePixelPitchMicrometers ?? 6)) ** 2);
   if (fullWellElectrons !== undefined && !(fullWellElectrons >= 100 && fullWellElectrons <= 1e10)) fail("sensor.fullWell must give 100 to 1e10 electrons at the pixel pitch (" + fullWellElectrons + ").");
@@ -2668,7 +2697,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
     baseRegime.preAdcSaturationElectronEquivalent.value);
   assume("sensor.capacityElectrons", "derived", capacityElectrons, "Physical charge capacity set to the body's largest declared pre-ADC saturation (its base-ISO saturation signal), so storage never clips before the declared readout white.");
   if (areaScale !== 1 && !fullWell) {
-    assume("sensor.isoAreaNormalization", "model", { referenceApertureAreaSquareMicrometers: ISO_REFERENCE_APERTURE_AREA_SQUARE_MICROMETERS,
+    assume("sensor.isoAreaNormalization", "model", { referenceApertureAreaSquareMicrometers: referenceArea,
       apertureAreaSquareMicrometers: pitch * pitch, areaScale },
     "Approximation. The tier's ISO signal chain is declared for a 6 µm square aperture. Standard output sensitivity S = 10/H (CIPA DC-004-2020 §3.2) is defined at the output, " +
       "independent of pixel size, and the collected charge is proportional to the aperture area (EMVA 1288 Release 4.0, Eq. 3), so the system conversion gain (e⁻ per code) and the " +
@@ -2680,7 +2709,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   if (characteristics) {
     const density = capacityElectrons / (pitch * pitch);
     assume("sensor.characteristics", "model", { ...Object.fromEntries(SENSOR_CHARACTERISTIC_KEYS.filter((k) => sensorOptions[k] !== undefined).map((k) => [k, sensorOptions[k]])),
-      chargeScale, sensitivityOffsetStops: Math.log2(characteristics.qeScale * areaScale / chargeScale) },
+      chargeScale, sensitivityOffsetStops: Math.log2(qeScale / bodyQeScale * areaScale / chargeScale) },
     "Approximation (#555), not a measured sensor: these replace the body's values. The full well is the base-ISO charge at the RAW white level (EMVA 1288 Release 4.0 saturation capacity); " +
       "every ISO regime's conversion gain and pre-ADC saturation are multiplied by chargeScale. Each ISO keeps its regime, so the output per unit exposure changes by 2^sensitivityOffsetStops: " +
       "the rating S = 10/H (CIPA DC-004-2020 §3.2) holds only if peak QE × pixel area / full well is the body's. Read noise replaces each regime's; the high gain's smaller storage is not modelled. " +
@@ -2826,7 +2855,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   const eqeSpacing = (range.maximum - range.minimum) / Math.ceil((range.maximum - range.minimum) / spectralStep);
   const eqeSamples = (channel: Channel): { nm: number; value: number }[] => {
     const out: { nm: number; value: number }[] = [];
-    for (let nm = range.minimum; nm <= range.maximum + 1e-9; nm += eqeSpacing) out.push({ nm, value: EQE_SCALE[channel] * estimateCie1931ColorMatchingFunctions(nm)[CMF_KEY[channel]] * 555 / nm * (characteristics?.qeScale ?? 1) });
+    for (let nm = range.minimum; nm <= range.maximum + 1e-9; nm += eqeSpacing) out.push({ nm, value: EQE_SCALE[channel] * estimateCie1931ColorMatchingFunctions(nm)[CMF_KEY[channel]] * 555 / nm * qeScale });
     return out;
   };
   const operatingConditions = { temperatureC: 25, incidenceAngleDegreesFromNormal: 0, polarization: "unpolarized" as const };
@@ -3147,7 +3176,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   let greyElectrons = 0;
   if (!idealReference) for (const [nm, a] of axisChannelResponse(displayView ? "simulateDisplayView" : "simulateCapture").electronsPerRadiance.green) greyElectrons += a * GREY_CARD_REFLECTANCE * irradianceScale * illuminant.shape.evaluate(nm) / Math.PI;
   const sensor = sensorReport(regimeByChannel.green.readoutProfile, regimeByChannel.green.regimeId, capacityElectrons, greyElectrons, DARK_CURRENT_ELECTRONS_PER_SECOND * shutterSeconds,
-    { pixelPitchMicrometers: pitch, peakQuantumEfficiency: 0.5 * (characteristics?.qeScale ?? 1),
+    { pixelPitchMicrometers: pitch, peakQuantumEfficiency: 0.5 * qeScale,
       readoutSeconds: characteristics?.readoutSeconds ?? (body as { rollingReadoutTiming?: { profile: { spatialSamplingSkewSeconds?: { value: number } } } }).rollingReadoutTiming?.profile.spatialSamplingSkewSeconds?.value ?? null }, fixedPattern);
   if (displayView) return await renderView!({ sensor, lens: lensSignal, lensPsf: displayViewLensPsf, ahd, fastReport, antiAliasing, aspect, assume, assumptions, axisChannelResponse, boxSamples, buildProvider, callerScene, chart, materialLayers, chartReport, chartSize, diffraction, defocus: displayViewDefocus, diffractionPsf, fNumber, focalLengthMm, focusDistanceM, height, highlightMode, exposureGain, illuminanceLux, illuminant, illuminantOption, imagingArea, intentOf, metresPerFrameUnit, noiseSeed, outputOptions, parsedView, pitch, preset, provider, regimeByChannel, resolvedIso, isoReport, standardExposureDeviationStops: exposureDeviationStops, standardExposureIlluminanceLux: exposureIlluminanceLux, greyCardDeviationStops: exposureGreyCardDeviationStops, metering, sceneOption, scenePreset, shutterSeconds, started, subjectDistanceM, toneCurve, whiteBalanceOption, whiteBalanceState, width, checkAbort, margin, mode, nativeHeight, nativeWidth, sourceSha256, yieldControl, kelvinWhiteBalanceInput });
   // Ideal reference (2.3): the scene without camera effects, at the capture's own exposure, white balance and encoding.

@@ -1,0 +1,126 @@
+# Sensor profiles (#554)
+
+`simulateCapture({ sensor: { profile: "<id>" } })` (and `simulateDisplayView`) simulates one of eight representative
+sensors whose values come from published specifications. The profiles are named by format, resolution, architecture
+and era. They name no camera maker or product, and their market tag ("consumer", "professional") is a label only: a
+profile's values decide how it behaves.
+
+This catalogue is separate from the generic tier presets ([GENERIC_TIER_PRESETS.md](GENERIC_TIER_PRESETS.md)), whose
+sensor numbers stay synthetic and unchanged. The owner approved the policy change for this catalogue only (2026-11-06):
+values may come from manufacturer-published specifications, standards and openly published papers, with no
+copyrighted or licence-restricted data. **The owner's review of the sources is pending** (THIRD_PARTY.md, "Pending
+licence and source reviews").
+
+```ts
+import { simulateCapture, SENSOR_PROFILES } from "@photivra/engine";
+
+const r = await simulateCapture({ scene: { preset: "uniform" }, sensor: { profile: "full-frame-24mp-bsi-2020s" },
+  exposure: { mode: "manual", iso: 3200, shutterSeconds: 1 / 4000 } });
+r.sensor.dynamicRangeStops; r.sensor.midGrey.snr;
+SENSOR_PROFILES.map((p) => p.name);
+```
+
+## What a profile sets
+
+A profile replaces the camera body's sensor assets: the ISO range and settings, the readout regimes (full well, the
+read noise of each conversion gain, the dual-gain switch ISO, the high gain's charge storage, the ADC bit depth and
+black level), the readout time (the rolling-shutter skew with `motion.shutter: "rolling"`) and the fixed-pattern noise
+used with `sensor.fixedPatternNoise: true`. It also sets the default pixel pitch and peak QE. The body's other
+capabilities (shutter range, release, focus, stabilization, metering, white balance) and the lens are kept.
+
+The sensor characteristics of #555 still override a profile one at a time ([quick start](QUICK_START.md#sensor-characteristics-555)):
+for example `{ profile: "aps-c-26mp-bsi-2020s", readNoise: { lowGainElectrons: 2 } }`. A pitch other than the
+profile's scales its full well with the pixel area, the rule the tiers use from 6 µm. The capture records the
+profile's values in the assumption `sensor.profile`. The profile data is loaded on demand (a lazy chunk), so a capture
+without a profile does not load it, and a request without `sensor.profile` is byte-identical to one before #554.
+
+Not modelled (owner, 2026-11-06): colour-response differences between sensors (one idealized response, scaled by the
+peak QE, stays for every profile, so the QE curve's shape for BSI versus front-illuminated sensors is described, not
+simulated), thermal behaviour, burst rate, video and autofocus. The phone profile is simulated as a single frame; its
+three fixed lenses belong to the lens catalogue and are not part of this release.
+
+## ISO rating
+
+Each profile's base ISO is re-rated from its own full well FW, green peak QE η and pixel area A:
+
+S0 = 100 · (η / 0.5) · (A / 36 µm²) · (60 000 e⁻ / FW), rounded to the nearest third-stop marking.
+
+This is the engine's existing ISO 100 anchor, the Professional tier (60 000 e⁻ at the RAW white, 6 µm pixels, QE 0.5):
+the RAW white at base ISO is the full well, and the same ISO reaches the white at the same focal-plane exposure on every
+profile and tier with that anchor, so S = 10/H (CIPA DC-004-2020 §3.2) means the same on all of them. The rounding leaves
+at most 1/6 stop, reported as `sensitivityOffsetStops` in the `sensor.profile` assumption (−0.12 to +0.06 stops). The
+anchor agrees within 2 % with the saturation-based speed S = 78/H_sat of ISO 12232:2019: an 18 % grey patch at standard
+exposure gives 7 842 e⁻ on the Professional tier ([quick start](QUICK_START.md#sensor-characteristics-555)), and
+7 842 × 7.8 = 61 168 e⁻. The alternative, keeping a maker's published base ISO and re-anchoring the regimes to it, is an
+open owner question (#554). A profile whose range starts above ISO 100 defaults to its base ISO, and its exposure
+reference takes the same N²/(t·S) at that ISO.
+
+The high conversion gain's charge storage is the white charge at the switch ISO, FW × S0 / S_switch (a design value): the
+engine's ISO gain builder refuses any regime that would need more, so a capture at or above the switch never exceeds it.
+
+## The profiles
+
+Kinds: **P** published (source key below), **D** derived from published values, **X** a design value inside the range the
+sources support. Figures under "Calculated" are the engine's model figures (#555): the engineering dynamic range at base
+ISO and at ISO 3200, and the mid-grey SNR at ISO 3200 with 1/32 of the default light (the Professional tier gives 14.7 and
+10.7 stops and an SNR of 15.1).
+
+| Profile id | Name | Tag | Pixels, pitch | Sensor, mm | QE | Full well, e⁻ | Read noise LCG / HCG, e⁻ (switch) | ADC | ISO | Readout | Calculated |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `full-frame-24mp-bsi-2020s` | Full frame 24 MP BSI, 2020s | consumer | 6072 × 4042 P, 5.94 µm P | 36.07 × 24.01 D | 0.80 P | 100 000 P | 6.4 / 1.1 P (ISO 500 D) | 14 P | 100 D – 51 200 X | 50 ms X | 13.9 / 11.5 stops, SNR 18.9 |
+| `full-frame-45mp-stacked-2020s` | Full frame 45 MP stacked, 2020s | professional | 8256 × 5504 X, 4.36 µm D | 36 × 24 X | 0.80 X | 69 000 X | 3.5 / 1.5 X (ISO 250 X) | 14 X | 80 D – 25 600 X | 5 ms X | 14.2 / 10.2, SNR 13.8 |
+| `full-frame-24mp-stacked-sports-2020s` | Full frame 24 MP stacked (sports), 2020s | professional | 6000 × 4000 X, 6.0 µm D | 36 × 24 X | 0.80 X | 80 000 X | 3.0 / 1.0 X (ISO 400 X) | 14 X | 125 D – 102 400 X | 2.5 ms X | 14.5 / 11.6, SNR 19.1 |
+| `full-frame-24mp-fsi-2010s` | Full frame 24 MP front-illuminated, 2010s | professional | 6032 × 4032 P, 5.97 µm P | 36.01 × 24.07 D | 0.53 P | 76 000 P | 4.0 X, one gain | 14 P | 80 D – 25 600 X | 80 ms X | 14.1 / 8.9, SNR 15.0 |
+| `aps-c-24mp-fsi-2020s` | APS-C 24 MP front-illuminated, 2020s | consumer | 6024 × 4024 P, 3.91 µm P | 23.55 × 15.73 D | 0.55 X | 36 000 P | 2.7 P, one gain | 14 P | 80 D – 25 600 X | 60 ms X | 13.7 / 8.4, SNR 10.0 |
+| `aps-c-26mp-bsi-2020s` | APS-C 26 MP BSI, 2020s | professional | 6248 × 4176 P, 3.76 µm P | 23.49 × 15.70 D | 0.80 P | 50 000 P | 3.3 / 1.0 P (ISO 250 X) | 14 X | 80 D – 25 600 X | 25 ms X | 13.8 / 10.3, SNR 12.0 |
+| `medium-format-100mp-bsi-16bit` | Medium format 100 MP BSI, 16-bit | professional | 11656 × 8750 P, 3.76 µm P | 43.856 × 32.9 P | 0.80 X | 50 300 P | 3.3 / 1.0 P (ISO 250 D) | 16 P | 80 D – 12 800 X | 250 ms X | 13.9 / 10.3, SNR 12.0 |
+| `phone-50mp-stacked` | Phone, large, 50 MP stacked | consumer | 8192 × 6144 P, 1.197 µm P | 9.844 × 7.431 P | 0.75 X | 8 600 X | 3.0 X / 1.4 P (ISO 160 X) | 12 P | 40 D – 6 400 X | 33.3 ms D | 11.5 / 6.3, SNR 3.5 |
+
+Each profile also records, in `provenance`, every value's kind and source key, and in `goodFor` and `description` what
+it suits (landscape, sports, wildlife, portrait, studio, journalism and so on). Fixed-pattern magnitudes (PRNU, DSNU,
+hot pixels, row and column offsets) are design values: the Professional tier's synthetic magnitudes for the BSI and
+stacked profiles, the Prosumer tier's for the front-illuminated ones, and for the phone profile PRNU 0.8 % and row and
+column offsets 0.2 e⁻ from S10. The analog gain reaches 64× base ISO (a design value); above it the gain is digital.
+
+What the table shows: the modern consumer full-frame BSI sensor beats the older professional front-illuminated one at
+high ISO (11.5 against 8.9 stops at ISO 3200), mostly through its higher QE and its low high-gain read noise; the APS-C BSI
+profile reads out faster than the consumer full frame (25 against 50 ms); the medium-format 16-bit sensor's dynamic range
+at base ISO is set by its full well and read noise, not by its bit depth; and the phone's small full well gives the least
+dynamic range and the lowest SNR at the same exposure.
+
+### Derivations
+
+- **Gain setting to ISO** (the switch ISOs marked D). The makers' manuals give the high-conversion-gain switch as a gain
+  setting in 0.1 dB above their lowest gain, at which the full well fills the ADC (S1: unity gain 158, so
+  10^(15.8/20) = 6.17 e⁻ per code × 16 383 codes = 101 ke⁻, the published 100 ke⁻). Taking that lowest gain as base ISO,
+  gain g is S0 · 10^(g/200): 140 → 5.01 × S0, 100 → 3.16 × S0, rounded to a third-stop marking. An approximation.
+- **Dimensions** (D): pixels × pitch. Where the maker publishes an image area (the medium-format and phone profiles) it
+  is used; the phone's published height is 1.0 % more than its active pixels × pitch.
+- **Scaled full well** (X, from a source): FW_ref × (pitch / pitch_ref)², the rule #555 uses for its default.
+- **Phone readout** (D): at most 1 / the full-resolution frame rate (30 fps, S9), used as the value. The astronomy
+  cameras' frame rates are limited by their interfaces, so they are not used for readout; those readouts are design values.
+- **QE** is the green channel's peak, part A's `peakQuantumEfficiency`; a maker's colour-camera "QE peak" is used for it.
+
+## Sources
+
+Every published value comes from one of these free documents (full citations, with links and section numbers, are in
+the owner's source review for #554). The documents name products; the engine does not. Camera makers do not publish full
+well or read noise; the photon-transfer databases and test websites that do are excluded by the sourcing rules and were
+not used.
+
+| Key | Source (kind) | Used for |
+| --- | --- | --- |
+| S1 | A camera maker's manual (2021) for an astronomy camera built on a 36 × 24 mm 24 MP BSI sensor: specification table and read-noise section | profile 1 |
+| S2 | The same maker's manual (2021) for a 36 × 24 mm 61 MP BSI sensor | profile 2 (design basis) |
+| S3 | The same maker's product announcement (2017) for a camera on a 36 × 24 mm 24 MP sensor of 2012 | profile 4 |
+| S4 | A sensor maker's press release (June 2015) announcing the first back-illuminated 35 mm full-frame sensor | profile 4's architecture |
+| S5 | A maker's specification table (reproduced by a retailer; the maker's page is withdrawn) for an APS-C 24 MP front-illuminated sensor | profile 5 |
+| S6 | A camera maker's manual for an APS-C 26 MP BSI sensor | profile 6 |
+| S7 | A camera maker's manual (2026) for a 44 × 33 mm 100 MP BSI 16-bit sensor | profile 7 |
+| S8 | A second maker's product page for the same sensor | profile 7 (cross-check, architecture) |
+| S9 | A sensor maker's product page for a 1/1.3-inch 50 MP stacked phone sensor | profile 8 |
+| S10 | Venezia et al., "1.0 µm pixel improvements with hybrid bond stacking technology", International Image Sensor Workshop 2017, paper R03, Table 1 (open proceedings, imagesensors.org) | profile 8 (full well basis, high-gain read noise, PRNU, offsets) |
+| — | CIPA DC-004-2020, *Sensitivity of digital cameras*, §3.2 (free); EMVA Standard 1288 Release 4.0 (free); ISO 12232:2019 (paywalled; named only for the saturation-based check above) | the ISO anchor and the definitions |
+
+The astronomy-camera manuals describe each sensor driven by that maker's own readout electronics, not by a photographic
+camera: the sensor's values (pixels, pitch, full well, read noise, QE, ADC) are taken from them, its readout speed is not.

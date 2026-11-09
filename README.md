@@ -366,6 +366,7 @@ The application can then use those results, while the photography calculations t
 - Repository package version: `2.19.0` (release candidate prepared November 9, 2026; publication is separate)
 - Engine API contract: `2.19.0`
 - Versioned generic tier reference assets: [GENERIC_TIER_PRESETS.md](https://github.com/Photivra/photivra/blob/main/docs/GENERIC_TIER_PRESETS.md).
+- Sensor profiles from published specifications (#554, unnamed): [SENSOR_PROFILES.md](https://github.com/Photivra/photivra/blob/main/docs/SENSOR_PROFILES.md).
 - Composed POC simulation API contract: `1.0.0`
 - Stability: 1.0 root-package compatibility policy; bounded scientific models and independent POC contract
 

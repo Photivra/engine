@@ -77,9 +77,10 @@ export interface GenericEquipmentTierPreset {
   tradeoffs: readonly string[];
 }
 
-const evidence: readonly EvidenceProvenance[] = [{ sourceOrigin: "photivra", sourceReference: "photivra:generic-tier-assets-v1",
+const tierEvidence: readonly EvidenceProvenance[] = [{ sourceOrigin: "photivra", sourceReference: "photivra:generic-tier-assets-v1",
   reuseStatus: "photivra-owned" }];
-const limitations = ["Synthetic educational design values; no named camera/lens calibration or population ranking."];
+const tierLimitations = ["Synthetic educational design values; no named camera/lens calibration or population ranking."];
+const evidence = tierEvidence, limitations = tierLimitations;
 const fact = <T>(value: T): EvidenceBackedFact<T> => ({ value, evidence });
 /**
  * The exact versions of the generic tier presets (no "latest" alias). 2.1.0 (2.14, round 5) adds the third-stop ISO
@@ -117,26 +118,33 @@ const far = near.map((v) => -v);
  * and fixed-pattern noise sizes. They are plausible orders of magnitude for consumer
  * interchangeable-lens sensors. They are not data from any real camera.
  */
-interface SyntheticSensorDesign {
+export interface SyntheticSensorDesign {
   bitDepth: number; blackLevelCode: number; saturationElectrons: number; maximumAnalogGain: number;
+  /** #554: a high gain from above the top ISO (or equal read noise) is one conversion gain, `single-conversion-gain`. */
   lowGainReadNoise: number; highGainReadNoise: number; highGainFromIso: number; highGainMaximumCharge: number;
   prnu: number; dsnu: number; hotFraction: number; hotMultiplier: number; rowRms: number; columnRms: number; instanceSeed: number;
 }
+/** #554: a sensor profile's own ISO settings (base first) and provenance; the tiers use ISO 100 and their own. */
+export interface GenericBodyAssetsSource { isoValues: readonly number[]; evidence: readonly EvidenceProvenance[]; limitations: readonly string[] }
 /** Used only to build data. Tier labels never enter any scientific equation. */
-function bodyAssets(version: GenericTierPresetVersion, id: string, isoMax: number, cadence: number, frames: number, sensor: SyntheticSensorDesign,
-  dataReadoutSeconds: number, gain: number, maxAngle: number, continuousAf: boolean, advancedPolicies: boolean): GenericTierBodyAssets {
-  const isoValues: number[] = (version === "2.0.0" ? GENERIC_WHOLE_STOP_ISO_SETTINGS : GENERIC_THIRD_STOP_ISO_SETTINGS).filter((v) => v <= isoMax);
+export function bodyAssets(version: GenericTierPresetVersion, id: string, isoMax: number, cadence: number, frames: number, sensor: SyntheticSensorDesign,
+  dataReadoutSeconds: number, gain: number, maxAngle: number, continuousAf: boolean, advancedPolicies: boolean, source?: GenericBodyAssetsSource): GenericTierBodyAssets {
+  const evidence = source?.evidence ?? tierEvidence, limitations = source?.limitations ?? tierLimitations;
+  const fact = <T>(value: T): EvidenceBackedFact<T> => ({ value, evidence });
+  const isoValues: number[] = source ? [...source.isoValues] : (version === "2.0.0" ? GENERIC_WHOLE_STOP_ISO_SETTINGS : GENERIC_THIRD_STOP_ISO_SETTINGS).filter((v) => v <= isoMax);
+  const baseIso = isoValues[0]!, single = sensor.highGainFromIso > isoMax;
   const exposure = parseGenericBodyExposureCapabilityProfile({ schemaVersion: "0.1.0", profileId: id+":exposure", profileVersion: version,
     scientificStatus: "approximation", evidence, shutter: { durationSecondsRange: fact({ minimum: 1/8000, maximum: 30 }), settingGrid: { kind: "continuous-within-range" } },
-    iso: { range: fact({ minimum: 100, maximum: isoMax }), settingGrid: { kind: "discrete-values", values: fact(isoValues) }, autoIso: fact("supported") } });
+    iso: { range: fact({ minimum: baseIso, maximum: isoMax }), settingGrid: { kind: "discrete-values", values: fact(isoValues) }, autoIso: fact("supported") } });
   const iso = parseIsoCapabilityProfile({ schemaVersion: "0.1.0", profileId: id+":iso", profileVersion: version,
-    capabilityMeaning: "reported-exposure-index-capability-not-physical-gain", standard: { exposureIndexRange: { minimum: 100, maximum: isoMax },
-      settingGrid: { kind: "discrete-values", values: isoValues } }, expandedSettings: [], autoIso: { availability: "supported", standardExposureIndexRange: { minimum: 100, maximum: isoMax }, evidence },
+    capabilityMeaning: "reported-exposure-index-capability-not-physical-gain", standard: { exposureIndexRange: { minimum: baseIso, maximum: isoMax },
+      settingGrid: { kind: "discrete-values", values: isoValues } }, expandedSettings: [], autoIso: { availability: "supported", standardExposureIndexRange: { minimum: baseIso, maximum: isoMax }, evidence },
     captureModePolicies: [], evidence });
-  const isoGain = createIsoGainReadoutRegimes({ regimeIdPrefix: "", scientificStatus: "approximation", baseExposureIndex: 100,
+  const isoGain = createIsoGainReadoutRegimes({ regimeIdPrefix: "", scientificStatus: "approximation", baseExposureIndex: baseIso,
     exposureIndices: isoValues, baseSaturationElectronEquivalent: fact(sensor.saturationElectrons), maximumAnalogGain: fact(sensor.maximumAnalogGain),
     adc: { bitDepth: sensor.bitDepth, blackLevelCode: sensor.blackLevelCode, digitalSaturationCode: 2**sensor.bitDepth-1 },
-    conversionGainModes: [{ mode: "low-conversion-gain", minimumExposureIndex: 100, readNoiseRmsElectrons: fact(sensor.lowGainReadNoise) },
+    conversionGainModes: single ? [{ mode: "single-conversion-gain", minimumExposureIndex: baseIso, readNoiseRmsElectrons: fact(sensor.lowGainReadNoise) }] :
+      [{ mode: "low-conversion-gain", minimumExposureIndex: baseIso, readNoiseRmsElectrons: fact(sensor.lowGainReadNoise) },
       { mode: "high-conversion-gain", minimumExposureIndex: sensor.highGainFromIso, readNoiseRmsElectrons: fact(sensor.highGainReadNoise),
         maximumChargeElectrons: fact(sensor.highGainMaximumCharge) }],
     evidence, limitations: [...limitations, "ISO gain follows the declared base-ISO saturation signal and analog range; read noise per conversion-gain mode is a synthetic design value."] });
