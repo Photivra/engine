@@ -32,6 +32,8 @@
  *   §1.1.6, Table 13) always carries every given field in UTF-8: `dc:description` (the full ImageDescription text,
  *   statement first, as XMP Part 3 §3.2.3 maps tag 270), `dc:rights`, `xmp:CreatorTool` and `exif:UserComment`.
  *   The Software tag keeps naming the engine's writer. Without `textMetadata` the bytes are unchanged.
+ * - Opcodes (#587, only with `opcodeList3`): the caller's big-endian DNG opcode list as OpcodeList3 (51022, UNDEFINED), framing checked
+ *   (count, 16-byte headers, parameter sizes filling the bytes). Without it the bytes are unchanged.
  * @see docs/NATIVE_RAW_AND_PRINT.md for the tag table, limits and the round trip through parseDngRawImage.
  */
 
@@ -72,6 +74,12 @@ export interface SerializeNativeRawDngInput {
   capturedAtUtc?: string;
   /** Optional (2.4) caller text: description, software, copyright, comment (see the module notes). If omitted, no text is added. */
   textMetadata?: OutputTextMetadata;
+  /**
+   * Optional (#587) OpcodeList3 (tag 51022) bytes, for example `createDngLensCorrectionOpcodes(...).opcodeList3`: a big-endian DNG
+   * opcode list (DNG 1.3.0.0+, "Opcode List Processing") that readers apply to the demosaiced stage-3 image. Only its framing is
+   * checked (count, per-opcode headers and parameter sizes filling the bytes exactly). The RAW codes are unchanged. If omitted, no tag.
+   */
+  opcodeList3?: Uint8Array;
 }
 export interface NativeRawDng {
   schemaVersion: typeof NATIVE_RAW_DNG_SCHEMA_VERSION;
@@ -115,7 +123,16 @@ const ORIENTATION = { landscape: 1, "portrait-clockwise": 6, "landscape-inverted
  * where its value comes from. The input arrays are copied before the first await.
  */
 export async function serializeNativeRawDng(input: SerializeNativeRawDngInput): Promise<NativeRawDng> {
-  const r = requireAllowlistedRecord(input, ["raw", "colorProfile", "noise", "baselineExposureEv", "capturedAtUtc", "textMetadata"], "Invalid native RAW DNG input.");
+  const r = requireAllowlistedRecord(input, ["raw", "colorProfile", "noise", "baselineExposureEv", "capturedAtUtc", "textMetadata", "opcodeList3"], "Invalid native RAW DNG input.");
+  let opcodeList3: Uint8Array | undefined;
+  if (r.opcodeList3 !== undefined) {
+    if (!(r.opcodeList3 instanceof Uint8Array) || r.opcodeList3.length < 4) fail("opcodeList3 must be a Uint8Array opcode list.");
+    opcodeList3 = r.opcodeList3.slice();
+    const v = new DataView(opcodeList3.buffer);
+    let at = 4;
+    for (let n = v.getUint32(0); n > 0 && at <= opcodeList3.length; n--) at = at + 16 > opcodeList3.length ? Infinity : at + 16 + v.getUint32(at + 12);
+    if (at !== opcodeList3.length) fail("opcodeList3 is not a whole DNG opcode list (big-endian count, 16-byte headers, parameter sizes).");
+  }
   const raw = r.raw as NativeRawOutput, plan = validatePackedNativeRaw(raw);
   const mosaic = plan.frame.colorSamplingProfile.layout;
   if (mosaic.kind === "periodic-mosaic") checkNativeRawIntegrity(raw, plan.exposure.geometry.nativeRaster.pixelWidth, mosaic.repeatWidthSites, mosaic.repeatHeightSites, 0, plan.exposure.geometry.nativeRaster.pixelHeight);
@@ -210,7 +227,7 @@ export async function serializeNativeRawDng(input: SerializeNativeRawDngInput): 
     rationals(50730, true, [baseline]), numbers(50778, 3, [21]),
     rawBytes(50781, 1, Uint8Array.from(rawDataUniqueId.match(/../g)!.map((s) => parseInt(s, 16)))),
     numbers(50829, 4, [active.y, active.x, active.y + active.height, active.x + active.width]),
-    rationals(50964, true, forward.flat()), ...(noiseProfile ? [doubles(51041, noiseProfile)] : []), ...textTags], exif, pixels);
+    rationals(50964, true, forward.flat()), ...(noiseProfile ? [doubles(51041, noiseProfile)] : []), ...(opcodeList3 ? [rawBytes(51022, 7, opcodeList3)] : []), ...textTags], exif, pixels);
   return Object.freeze({ schemaVersion: NATIVE_RAW_DNG_SCHEMA_VERSION, mediaType: "image/dng" as const, bytes, sha256: await sha256(bytes), rawDataUniqueId, uniqueCameraModel,
     activeArea: { ...active }, defaultCrop: { ...crop }, orientation, blackLevels, whiteLevel, cfaPattern, colorMatrix1: stored(colorMatrixTag), asShotNeutral: stored(neutralTag),
     noiseProfile, unrepresentedSaturationFlagCount: unrepresented, source: "packed-native-raw" as const, linearMasterDeclared: false as const });

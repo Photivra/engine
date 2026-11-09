@@ -715,8 +715,13 @@ export interface SimulateCaptureOptions {
     demosaic?: SimulateCaptureDemosaic | SimulateCaptureDemosaicRecord;
     /** Default "margin". */
     borderHandling?: SimulateCaptureBorderHandling;
-    /** DNG only: optional capture-event time (YYYY-MM-DDTHH:mm:ss.sssZ); without it no date tags are written. */
-    dng?: { capturedAtUtc?: string };
+    /**
+     * DNG only: optional capture-event time (YYYY-MM-DDTHH:mm:ss.sssZ); without it no date tags are written. Opt-in (#587), with
+     * `lens.catalogue`: `lensCorrectionOpcodes` writes the selected corrections of {@link SimulateCaptureLensCorrections} into the DNG as
+     * optional DNG opcodes in OpcodeList3 (FixVignetteRadial, WarpRectilinear with the zoom-to-fill; docs/NATIVE_RAW_AND_PRINT.md), for RAW editors
+     * that apply them; the RAW codes are unchanged. Whole frame only (no `region`). All off (or omitted): the same DNG bytes as without it.
+     */
+    dng?: { capturedAtUtc?: string; lensCorrectionOpcodes?: SimulateCaptureLensCorrections };
     /**
      * Opt-in (2.4) text written into the file for formats "jpeg", "png" and "dng": the caller's description,
      * software, copyright and comment, unchanged (JPEG XMP + COM, PNG tEXt/iTXt, DNG TIFF tags + XMP; see the
