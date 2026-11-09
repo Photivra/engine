@@ -308,6 +308,20 @@ export {
 } from "./camera/equivalent-focal-length.js";
 
 export {
+  calculateBlurShareOfFrame,
+  calculateSensorEquivalence,
+  type BlurShareOfFrame,
+  type BlurShareOfPrint,
+  type CalculateBlurShareOfFrameInput,
+  type CalculateSensorEquivalenceInput,
+  type EquivalenceExactness,
+  type EquivalenceValueBasis,
+  type SensorEquivalence,
+  type SensorEquivalenceFieldOfView,
+  type SensorEquivalenceQuantity
+} from "./camera/sensor-equivalence.js";
+
+export {
   COLOR_TEMPERATURE_WHITE_BALANCE_INTENT_VERSION,
   WHITE_BALANCE_PROFILE_SCHEMA_VERSION,
   WHITE_BALANCE_STATE_VERSION,

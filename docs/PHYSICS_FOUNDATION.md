@@ -112,6 +112,25 @@ The actual focal length stays the optical focal length. The equivalent focal len
 
 Photivra bases equivalence on the active physical capture area, not on any later digital crop. Rotating the camera leaves the active diagonal unchanged, so it does not change the equivalent focal length. Two formats with the same diagonal-equivalent number can still have different horizontal and vertical FOV if their aspect ratios differ.
 
+### Sensor equivalence: f-number, area and blur share
+
+`calculateSensorEquivalence()` (model `sensor-equivalence` 1.0.0) compares a lens of focal length `f` at f-number `N` on a sensor with a reference format (36 × 24 mm by default). With the diagonal crop factor `k = referenceDiagonal / sensorDiagonal`:
+
+| Quantity | Formula | Exact or approximated |
+| --- | --- | --- |
+| Crop factor | `k` | Exact (diagonal convention). |
+| Equivalent focal length | `k·f` | Exact: same diagonal angle of view, ideal rectilinear lens at infinity focus. Horizontal and vertical angles match only when aspect ratios match. |
+| Equivalent f-number (depth of field, blur, total light) | `k·N` | Approximation, see below. |
+| Exposure f-number | `N` | Exact: image illuminance is proportional to `1/N²` and does not depend on sensor size (Greivenkamp, [OPTI-502 course notes, sec. 11](https://wp.optics.arizona.edu/jgreivenkamp/wp-content/uploads/sites/11/2019/08/502-11-Radiative-Transfer.pdf), free). Transmission, vignetting and close-focus bellows factor are excluded. |
+| Entrance-pupil diameter | `D = f/N` | Exact by definition of the f-number. The equivalent lens `k·f` at `k·N` has the same `D`. |
+| Area ratio | `(w·h)/(w_ref·h_ref)` | Exact. |
+| Total-light difference | `log2(areaRatio)` stops | Exact at the same f-number, shutter and scene, for uniform image illuminance. |
+| Angles of view | `2·atan(dimension / 2f)` | Exact for an ideal rectilinear lens at infinity focus. |
+
+**Why `k·N` is an approximation.** Take the thin-lens defocus-circle diameter `c = f²|s − d|/(N d (s − f))` (see [Thin-lens focus and depth of field](#thin-lens-focus-and-depth-of-field); Greivenkamp sec. 12). Express the blur as a share of the frame diagonal and compare focal length `f` on the sensor with `k·f` on the reference, at the same focus distance `s` and subject distance `d`. The shares are equal when the reference f-number is `k·N·(s − f)/(s − k·f)`. This factor does not depend on `d`, and it tends to `k·N` when `s ≫ f`. Same framing, same subject distance and the same output size are assumed. The equivalent f-number concerns depth of field and blur (and total light through the same entrance pupil); it is never an exposure setting.
+
+`calculateBlurShareOfFrame()` (model `blur-share-of-frame` 1.0.0) divides a blur-circle diameter by the frame diagonal, width and height. With a print size it enlarges the whole frame to fit inside the print, long side to long side, and reports the blur on the print. These are exact ratios. Equal shares of the diagonal look the same at the same output size, which is the convention behind the diagonal-scaled circle of confusion. Whether a blur is visible depends on viewing distance and acuity, which neither function judges.
+
 ### Projection, focus extension, object size, and motion
 
 Four calculations support two projection modes: field of view, projected size of a flat object facing the camera, projected subject motion (of one representative point), and projected camera shake.

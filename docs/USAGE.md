@@ -7999,3 +7999,41 @@ import { simulateCapture } from "@photivra/engine";
 const rolling = await simulateCapture({ scene: { preset: "checkerboard" }, motion: { angularVelocityRadPerSec: { pitch: 0.02 }, shutter: "rolling" }, output: { width: 6, height: 6 } });
 console.log(rolling.request.siteInput(7 * 8).charge.completenessProfile.startOffsetSecondsFromOpeningReference);
 ```
+
+## Equivalent f-number, sensor area and blur as a share of the frame
+
+`calculateSensorEquivalence()` says what a lens on one sensor corresponds to on a 36 × 24 mm frame (or on a `reference` you pass). Call it once per sensor to fill a lens table:
+
+```ts
+import { calculateBlurShareOfFrame, calculateSensorEquivalence } from "@photivra/engine";
+
+const apsC = calculateSensorEquivalence({
+  sensor: { widthMm: 23.5, heightMm: 15.6 },
+  focalLengthMm: 50,
+  fNumber: 2
+}).value;
+
+console.log(apsC.cropFactor); // ≈ 1.53
+console.log(apsC.equivalentFocalLengthMm); // ≈ 76.7 (framing)
+console.log(apsC.equivalentFNumber); // ≈ 3.07 (depth of field, blur and total light; not exposure)
+console.log(apsC.exposureFNumber); // 2 (exposure does not change with sensor size)
+console.log(apsC.areaRatio); // ≈ 0.42 of the full-frame area
+console.log(apsC.totalLightDifferenceStops); // ≈ -1.24 stops at the same f-number and shutter
+console.log(apsC.basis.equivalentFNumber.kind); // "approximation"
+
+const share = calculateBlurShareOfFrame({
+  blurCircleMm: 0.03,
+  sensor: { widthMm: 36, heightMm: 24 },
+  print: { widthMm: 300, heightMm: 200 }
+}).value;
+
+console.log(share.shareOfDiagonal); // ≈ 0.00069 of the frame diagonal
+console.log(share.print?.blurOnPrintMm); // 0.25 mm on the print
+```
+
+- `basis` gives, for every number, `kind: "exact"` or `"approximation"` and the conditions. Crop factor, equivalent focal length, area ratio, total-light difference, entrance pupil and angles of view are exact under their stated conditions.
+- The equivalent f-number (crop factor × f-number) assumes the same framing, subject distance and output size. It is a thin-lens approximation that is exact only when the focus distance is much greater than the focal length; at close focus the blur shares match at `k·N·(s − f)/(s − k·f)`.
+- Exposure uses the f-number on the lens. Equivalence never changes shutter, ISO or exposure.
+- Equal shares of the frame diagonal look the same when images are shown at the same size. `calculateBlurShareOfFrame()` does not judge whether a blur is visible.
+
+See [Physics Foundation](https://github.com/Photivra/photivra/blob/main/docs/PHYSICS_FOUNDATION.md#sensor-equivalence-f-number-area-and-blur-share).
