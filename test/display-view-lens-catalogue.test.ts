@@ -72,7 +72,9 @@ describe("display view with lens.catalogue (#569)", () => {
       ["PV 50 1.8 on a radiance scene", { ...small, scene: rings, lens: { catalogue: "pv-50-1.8", fNumber: 1.8 } } as SimulateCaptureOptions]
     ];
     for (const [name, options] of cases) {
-      const capture = await simulateCapture(options), { signal, result } = await simulateDisplayViewWithInternals(options, { width: 6, height: 4, samplesPerAxis: 1 });
+      // A 2 × 2 region's capture: its site records cover the whole frame (as in the tests below), at a fraction of the whole capture's cost.
+      const capture = await simulateCapture({ ...options, output: { ...options.output, region: { x: 0, y: 0, width: 2, height: 2 } } });
+      const { signal, result } = await simulateDisplayViewWithInternals(options, { width: 6, height: 4, samplesPerAxis: 1 });
       const lensPsf = result.assumptions.find((a) => a.id === "view.lensPsf")!.value as { zoneSites: number; kernelRadiusSites: number };
       expect(lensPsf.zoneSites, name).toBe(1);
       expect(differences(capture, signal, sceneEvaluator(options, capture), 1.5, 400).largest, name).toBeLessThan(1e-12);

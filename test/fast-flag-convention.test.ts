@@ -70,8 +70,9 @@ describe("exact-or-fast flag convention (#395)", () => {
     expect(Object.keys(result.diagnostics.fast.applied)).toEqual(SIMULATE_CAPTURE_FAST_OPTIONS.filter((option) => option !== "lens.catalogue"));
     expect(Object.values(result.diagnostics.fast.applied).every((value) => value === false)).toBe(true);
     // With anti-aliasing (off the site centres) the catalogue's fast method does not apply, so it reports false.
-    const catalogue = await simulateCapture(request({ lens: { catalogue: "pv-50-1.8", fNumber: 8 }, sensor: { pixelPitchMicrometers: 750, antiAliasing: { kind: "four-spot" }, pixelAperture: "box" },
-      output: { demosaic: { kind: "ahd" } }, fast: true }));
+    // An 8 × 8 region at an 80 nm spectral step keeps the exact catalogue quadrature (every tap a scene query) affordable on CI runners.
+    const catalogue = await simulateCapture(request({ lens: { catalogue: "pv-50-1.8", fNumber: 8 }, sensor: { pixelPitchMicrometers: 750, spectralStepNanometers: 80, antiAliasing: { kind: "four-spot" }, pixelAperture: "box" },
+      output: { demosaic: { kind: "ahd" }, region: { x: 0, y: 0, width: 8, height: 8 } }, fast: true }));
     expect(Object.keys(catalogue.diagnostics.fast.applied)).toEqual(SIMULATE_CAPTURE_FAST_OPTIONS.filter((option) => option !== "lens.diffraction"));
     expect(Object.values(catalogue.diagnostics.fast.applied).every((value) => value === false)).toBe(true);
   }, scaledTimeout(120_000));
