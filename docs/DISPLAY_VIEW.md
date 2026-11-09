@@ -394,8 +394,9 @@ f-number of each lens's range and down to its close focus, with `lens.defocus` a
 - `subjectDistanceM` may now equal twice the focal length (it had to exceed it), so *PV 100 2.8 Macro Pro* renders at its
   1:1 close focus f·(1 + 1/1) = 2f, in the capture and the view.
 - A lens whose range excludes f/8 (*PV 800 9*, f/9–f/32) failed every request: the exposure anchor f/8, 1/125 s, ISO 100 lay
-  outside its range. Such a lens now takes the same reference exposure at its widest aperture (t = 1/125 s × (N₀/8)², the same
-  N²/t and so the same reference luminance); every other lens keeps f/8.
+  outside its range. Such a lens now takes the same reference exposure at the aperture of its range nearest f/8, here its widest
+  (t = 1/125 s × (N₀/8)², the same N²/t and so the same reference luminance); every other lens keeps f/8. (An ideal lens with a
+  narrowed range, 2.18.0, takes the same rule.)
 
 **Validation** (`test/display-view-lens-catalogue.test.ts`; reference: `calculateEnvironmentSensorPhotoSignal` on the
 capture's own site record, its catalogue PSF quadrature, evaluated with the capture's scene):

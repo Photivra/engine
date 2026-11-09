@@ -123,6 +123,39 @@ describe("lens.ideal (#576)", () => {
     expect(view.exposure.settings.fNumber).toBe(1.2);
   }, scaledTimeout(60_000));
 
+  it("narrows the f-number range with widestFNumber and narrowestFNumber for every exposure mode (owner, 2026-11-09)", async () => {
+    const base = { scene: { preset: "uniform" as const }, output: { width: 16, height: 16 }, illuminanceLux: 2000 };
+    // Shutter priority at 1/4000 s and ISO 100 in 2000 lx needs a very wide aperture: the whole range opens below f/1.4, the narrowed one stops at f/1.4.
+    const fast = { mode: "shutter-priority" as const, shutterSeconds: 1 / 4000, iso: 100 };
+    const open = await simulateCapture({ ...base, lens: { ideal: { focalLengthMm: 50 } }, exposure: fast });
+    expect(open.exposure.settings.fNumber).toBeLessThan(1.4);
+    const ranged = await simulateCapture({ ...base, lens: { ideal: { focalLengthMm: 50, widestFNumber: 1.4, narrowestFNumber: 16 } }, exposure: fast });
+    expect(ranged.exposure.settings.fNumber).toBe(1.4);
+    expect(recorded(ranged, "lens.ideal")).toEqual({ lensId: "ideal-50mm", focalLengthMm: 50, widestFNumber: 1.4, narrowestFNumber: 16 });
+    // Program follows the engine's program line (f/4–f/16): a range that holds it renders as the whole range does; one that does not is
+    // refused, as for lens.prime and lens.catalogue ranges.
+    const program = await simulateCapture({ ...base, lens: { ideal: { focalLengthMm: 50, widestFNumber: 2, narrowestFNumber: 22 } }, exposure: { mode: "program" } });
+    const programOpen = await simulateCapture({ ...base, lens: { ideal: { focalLengthMm: 50 } }, exposure: { mode: "program" } });
+    expect(program.exposure.settings).toEqual(programOpen.exposure.settings);
+    expect(recorded(program, "lens.ideal")).toEqual({ lensId: "ideal-50mm", focalLengthMm: 50, widestFNumber: 2, narrowestFNumber: 22 });
+    await expect(simulateCapture({ ...base, lens: { ideal: { focalLengthMm: 50, narrowestFNumber: 4 } }, exposure: { mode: "program" } })).rejects.toThrow("Program-line aperture lies outside");
+    // A range without f/8 takes the reference exposure at its aperture nearest f/8 (the same N²/t), as #569 does for PV 800 9.
+    const narrow = await simulateCapture({ ...base, lens: { ideal: { focalLengthMm: 50, narrowestFNumber: 4 }, fNumber: 2 } });
+    expect(recorded(narrow, "exposure.referenceExposure")).toMatchObject({ aperture: 4, shutterSeconds: 1 / 500, iso: 100 });
+    // Manual and aperture priority: lens.fNumber must lie in the range, by the shared message.
+    await expect(simulateCapture({ ...base, lens: { ideal: { focalLengthMm: 50, widestFNumber: 1.4 }, fNumber: 1.2 } })).rejects.toThrow("lens.fNumber 1.2 is outside the ideal-50mm range f/1.4–f/128.");
+    const view = await simulateDisplayView({ ...base, lens: { ideal: { focalLengthMm: 50, widestFNumber: 2, narrowestFNumber: 2 } }, exposure: fast }, { width: 8, height: 8 });
+    expect(view.exposure.settings.fNumber).toBe(2);
+    // Without the range the request, its assumption and its pixels are unchanged.
+    const plain = await simulateCapture({ ...base, lens: { ideal: { focalLengthMm: 50 }, fNumber: 2 } });
+    const same = await simulateCapture({ ...base, lens: { ideal: { focalLengthMm: 50, widestFNumber: 0.5, narrowestFNumber: 128 }, fNumber: 2 } });
+    expect(recorded(plain, "lens.ideal")).toEqual({ lensId: "ideal-50mm", focalLengthMm: 50 });
+    expect(Buffer.from(same.image.samples).equals(Buffer.from(plain.image.samples))).toBe(true);
+    const message = "lens.ideal.widestFNumber and narrowestFNumber must be f-numbers in f/0.5–f/128 (IDEAL_LENS_LIMITS), the widest no larger than the narrowest.";
+    for (const range of [{ widestFNumber: 0.4 }, { narrowestFNumber: 180 }, { widestFNumber: 4, narrowestFNumber: 2 }, { widestFNumber: Number.NaN }, { narrowestFNumber: "8" }, { widestFNumber: null }])
+      await expect(simulateCapture({ ...base, lens: { ideal: { focalLengthMm: 50, ...range } } } as SimulateCaptureOptions)).rejects.toThrow(message);
+  }, scaledTimeout(60_000));
+
   it("refuses values beyond the bounds and other lens choices by name", async () => {
     const base = { scene: { preset: "uniform" as const }, output: { width: 8, height: 8 } };
     const refuses = async (lens: unknown, message: string): Promise<void> => {

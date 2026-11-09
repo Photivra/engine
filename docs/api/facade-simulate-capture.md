@@ -530,9 +530,10 @@ export interface SimulateCaptureOptions {
      * assumption. Its blur is that of `defocus`, `diffraction` and `vignetting`, the same models as with `prime`. It focuses at any
      * distance beyond the focal length (no minimum focus distance; `subjectDistanceM` must be at least twice the focal length, as for
      * every lens). Works in `simulateCapture` and the display view. Not combinable with `prime`, `catalogue` or `focalLengthMm`.
-     * Default off.
+     * Optional `widestFNumber` and `narrowestFNumber` (within `IDEAL_LENS_LIMITS`, widest ≤ narrowest; each defaults to its bound)
+     * narrow the range: `fNumber` must lie in it, and shutter priority and program choose apertures only in it. Default off.
      */
-    ideal?: { focalLengthMm: number };
+    ideal?: { focalLengthMm: number; widestFNumber?: number; narrowestFNumber?: number };
     /**
      * Opt-in (#549): a lens of the generic lens catalogue by id (`GENERIC_LENS_IDS`, for example "pv-50-1.2-pro" or "pv-50-1.8";
      * docs/LENS_CATALOGUE.md). Like `prime`, its focal length is the full-frame equivalent ÷ the simulated frame's diagonal crop

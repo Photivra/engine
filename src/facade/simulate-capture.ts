@@ -364,9 +364,10 @@ export interface SimulateCaptureOptions {
      * assumption. Its blur is that of `defocus`, `diffraction` and `vignetting`, the same models as with `prime`. It focuses at any
      * distance beyond the focal length (no minimum focus distance; `subjectDistanceM` must be at least twice the focal length, as for
      * every lens). Works in `simulateCapture` and the display view. Not combinable with `prime`, `catalogue` or `focalLengthMm`.
-     * Default off.
+     * Optional `widestFNumber` and `narrowestFNumber` (within `IDEAL_LENS_LIMITS`, widest ≤ narrowest; each defaults to its bound)
+     * narrow the range: `fNumber` must lie in it, and shutter priority and program choose apertures only in it. Default off.
      */
-    ideal?: { focalLengthMm: number };
+    ideal?: { focalLengthMm: number; widestFNumber?: number; narrowestFNumber?: number };
     /**
      * Opt-in (#549): a lens of the generic lens catalogue by id (`GENERIC_LENS_IDS`, for example "pv-50-1.2-pro" or "pv-50-1.8";
      * docs/LENS_CATALOGUE.md). Like `prime`, its focal length is the full-frame equivalent ÷ the simulated frame's diagonal crop
@@ -1819,11 +1820,16 @@ export async function runCapture(options: SimulateCaptureOptions, run: "capture"
   let ideal: { id: string; name: string; focalLengthMm: number; widestFNumber: number; narrowestFNumber: number } | undefined;
   if (lensOptions.ideal !== undefined) {
     for (const key of ["prime", "catalogue", "focalLengthMm"]) if (lensOptions[key] !== undefined) fail("lens.ideal cannot be combined with lens." + key + ".");
-    const f = allowKeys(lensOptions.ideal, "lens.ideal", ["focalLengthMm"]).focalLengthMm, { focalLengthMm: b, fNumber: n } = IDEAL_LENS_LIMITS;
+    const io = allowKeys(lensOptions.ideal, "lens.ideal", ["focalLengthMm", "widestFNumber", "narrowestFNumber"]), f = io.focalLengthMm, { focalLengthMm: b, fNumber: n } = IDEAL_LENS_LIMITS;
     if (!(typeof f === "number" && f >= b.minimum && f <= b.maximum)) fail("lens.ideal.focalLengthMm must be " + b.minimum + "–" + b.maximum + " mm (IDEAL_LENS_LIMITS).");
+    // #576 (owner, 2026-11-09): an optional f-number range within IDEAL_LENS_LIMITS, for the automatic exposure modes; default the whole range.
+    const ranged = io.widestFNumber !== undefined || io.narrowestFNumber !== undefined, lo = io.widestFNumber === undefined ? n.minimum : io.widestFNumber, hi = io.narrowestFNumber === undefined ? n.maximum : io.narrowestFNumber;
+    if (!(typeof lo === "number" && typeof hi === "number" && lo >= n.minimum && hi <= n.maximum && lo <= hi))
+      fail("lens.ideal.widestFNumber and narrowestFNumber must be f-numbers in f/" + n.minimum + "–f/" + n.maximum + " (IDEAL_LENS_LIMITS), the widest no larger than the narrowest.");
     const lensId = "ideal-" + f + "mm";
-    ideal = { id: lensId, name: lensId, focalLengthMm: f as number, widestFNumber: n.minimum, narrowestFNumber: n.maximum };
-    assume("lens.ideal", "model", { lensId, focalLengthMm: f }, "Ideal thin lens without aberrations (not a real product) at this physical focal length; the tier lens's transmission is kept.");
+    ideal = { id: lensId, name: lensId, focalLengthMm: f as number, widestFNumber: lo as number, narrowestFNumber: hi as number };
+    assume("lens.ideal", "model", { lensId, focalLengthMm: f, ...(ranged ? { widestFNumber: lo, narrowestFNumber: hi } : {}) }, "Ideal thin lens without aberrations (not a real product) at this physical focal length" +
+      (ranged ? ", f/" + lo + "–f/" + hi : "") + "; the tier lens's transmission is kept.");
   }
   // Generic lens catalogue (#549): resolved on the simulated frame like the prime; its character is built once the f-number is known.
   let catalogue: ResolvedGenericLens | undefined, catalogueFrame: { widthMm: number; heightMm: number } | undefined;
@@ -2293,9 +2299,10 @@ export async function runCapture(options: SimulateCaptureOptions, run: "capture"
   const compensation = exposureOptions.compensationStops === undefined ? DEFAULTS.compensationStops : exposureOptions.compensationStops;
   if (typeof compensation !== "number" || !Number.isFinite(compensation) || Math.abs(compensation) > 10) fail("exposure.compensationStops must be within ±10.");
   if (exposureOptions.compensationStops === undefined) assume("exposure.compensationStops", "default", 0, "No exposure compensation.");
-  // #569: a lens whose range excludes f/8 (the catalogue's PV 800 9, f/9–f/32) takes the same reference exposure at its widest aperture,
-  // N0 with t = 1/125 s × (N0/8)², which has the same N²/t and so the same reference luminance; every other request keeps f/8, 1/125 s.
-  const referenceAperture = lensRange && (DEFAULTS.fNumber < lensRange.widestFNumber || DEFAULTS.fNumber > lensRange.narrowestFNumber) ? lensRange.widestFNumber : DEFAULTS.fNumber;
+  // #569: a lens whose range excludes f/8 (the catalogue's PV 800 9, f/9–f/32; an ideal lens with a narrowed range) takes the same reference
+  // exposure at the aperture of its range nearest f/8, N0 with t = 1/125 s × (N0/8)², which has the same N²/t and so the same reference
+  // luminance; every other request keeps f/8, 1/125 s.
+  const referenceAperture = lensRange ? Math.min(lensRange.narrowestFNumber, Math.max(lensRange.widestFNumber, DEFAULTS.fNumber)) : DEFAULTS.fNumber;
   const reference = { aperture: referenceAperture, shutterSeconds: referenceAperture === DEFAULTS.fNumber ? DEFAULTS.shutterSeconds :
     DEFAULTS.shutterSeconds * (referenceAperture / DEFAULTS.fNumber) ** 2, iso: DEFAULTS.iso };
   const referenceLuminance = sosReferenceLuminance(reference.aperture, reference.shutterSeconds, reference.iso);

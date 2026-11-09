@@ -96,10 +96,12 @@ describe("display-view bundles", () => {
 // 2.17.0: 347,775 B gzip in total (2.16.0: 323,428 B; 2.15.0: 311,439 B), the growth being the new options' own code, which
 // `simulateCapture` and `prepareDisplayView` reach at run time (tree-shaking leaves out the unused root exports). The limit is that
 // measurement plus a few hundred bytes, so a change that grows the app's worker shows here instead of in the app's build. Raising
-// it is the owner's decision.
+// it is the owner's decision. Raised 348,000 → 352,000 B: owner-approved 2026-11-09 for engine 2.18.0 (#568 fast catalogue chunk);
+// 2.18.0 measured 351,859 B (#568's lazily loaded fast catalogue code +2,907 B, #569's display-view catalogue PSF +550 B, #576's
+// ideal lens and its f-number range, #569's fixes).
 describe("the app's capture-worker shape", () => {
   it("keeps every chunk of the app's engine imports within its measured size", async () => {
     const worker = await bundle(["NATIVE_RAW_LIMITS", "prepareDisplayView", "serializeSimulatedCaptureDngFromParts", "simulateCapture", "simulateIdealReference"]);
-    expect(worker.totalGzip).toBeLessThanOrEqual(348_000);
+    expect(worker.totalGzip).toBeLessThanOrEqual(352_000);
   }, testTimeout(120_000));
 });

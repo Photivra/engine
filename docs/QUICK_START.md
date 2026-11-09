@@ -249,6 +249,12 @@ the crop factor, so a 50 mm lens is 50 mm on full frame and on APS-C, as when a 
   f/0.5 is the physical limit of a lens in air (the sine condition: N = 1/(2·sin θ′) ≥ 0.5); the others are engine bounds. Values
   beyond them are refused by name. Shutter priority and program may choose any aperture in that range (in dim light, wider
   than real lenses open).
+- **An optional f-number range:** `lens.ideal: { focalLengthMm, widestFNumber, narrowestFNumber }` (either or both, within
+  `IDEAL_LENS_LIMITS`, the widest no larger than the narrowest; each defaults to its bound) narrows that range like a real
+  lens's: `lens.fNumber` must lie in it, and shutter priority and program choose apertures only in it. The assumption then
+  records the range (`{ lensId, focalLengthMm, widestFNumber, narrowestFNumber }`); without it nothing changes. Program follows
+  the engine's program line (f/4–f/16) and refuses a range that does not hold it, as for `lens.prime` and `lens.catalogue`; a
+  range without f/8 takes the reference exposure at its aperture nearest f/8 (the same N²/t).
 - **The same blur models as `lens.prime`:** `lens.defocus` (the thin-lens blur circle of `calculateDefocusCircle`), `lens.diffraction`
   (the Airy pattern) and `lens.vignetting` (a caller profile). Without them the ideal lens renders sharp and evenly lit. It focuses
   at any distance beyond the focal length (no minimum focus distance; the subject must be at least twice the focal length away, as

@@ -1,6 +1,6 @@
 # 2.17.0 release
 
-> **Prepared November 7, 2026; not published.** npm publishing runs only from the owner's `v2.17.0` tag ([Release gates](#release-gates)).
+> **Published November 8, 2026 (01:57 UTC).** The `v2.17.0` tag is on `8bbe20c` (#572), after `main` CI on that commit had passed; npm publishing ran from the tag ([Publication](#publication)).
 
 ## At a glance
 
@@ -153,10 +153,20 @@ The app (Photivra/apps at `97ee309`, its own `npm run build` and `check:bundle`)
 - [x] Version surfaces aligned at 2.17.0 (`npm run release:prepare -- 2.17.0`). Root exports 1,837.
 - [x] Packed tarball compared with the published 2.16.0 (above).
 - [x] WebGPU hardware gate on the integrated tree (above).
-- [ ] Green CI on this pull request, then on `main` after merge.
-- [ ] The owner's approval to tag `v2.17.0`.
-- [ ] The `v2.17.0` tag on the `main` commit that merges this record.
-- [ ] After publication:
-  - [ ] npm version, dist-tag, integrity and provenance verified;
-  - [ ] GitHub release notes published;
-  - [ ] publication dates updated in `CHANGELOG.md`, `README.md`, `SECURITY.md`, `docs/DEVELOPERS.md` and this record.
+- [x] Green CI on this pull request, then on `main` after merge ([CI run 42434803921](https://github.com/Photivra/photivra/actions/runs/42434803921) on `8bbe20c`).
+- [x] The owner's approval to tag `v2.17.0`.
+- [x] The `v2.17.0` tag on the `main` commit that merges this record (`8bbe20c`).
+- [x] After publication:
+  - [x] npm version, dist-tag, integrity and provenance verified ([Publication](#publication));
+  - [x] GitHub release notes published ([v2.17.0](https://github.com/Photivra/photivra/releases/tag/v2.17.0), November 8, 2026);
+  - [x] publication dates updated in `CHANGELOG.md`, `SECURITY.md`, `docs/DEVELOPERS.md` and this record (with the 2.18.0 preparation).
+
+## Publication
+
+| Fact | Value |
+| --- | --- |
+| Tag | `v2.17.0` → `8bbe20c6bbe3f27a20724e5a5e6a3d2921c66539` (#572), after `main` CI on that commit passed ([CI run 42434803921](https://github.com/Photivra/photivra/actions/runs/42434803921)) |
+| Publish workflow | [Publish npm run 42434837541](https://github.com/Photivra/photivra/actions/runs/42434837541): `verify` passed 01:34:38–01:37:17 UTC, coverage shards 7.0–19.2 min and gate 0.9 min passed, `publish` passed 01:54:49–01:55:04 UTC |
+| npm | `@photivra/engine@2.17.0`, dist-tag `latest`, registry time 01:57:09 UTC, November 8, 2026 |
+| Integrity | `sha512-HqqPAkeqQ0pFzkHQO56okJ3rx+qnVs3oWXkoCi69GLQoSiVDwDk+IqEoG/D+PU5uO/iC2Md7cydIm8WM0gDicg==` (shasum `9d506d4adeee6aa395470b11d1d1e0b8f280f086`, 949 files) |
+| Provenance | The registry lists an SLSA v1 provenance attestation for 2.17.0 |
