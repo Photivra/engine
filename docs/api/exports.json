@@ -3609,7 +3609,7 @@
     },
     {
       "name": "GENERIC_LENS_CORRECTION_CHANNEL_WAVELENGTHS_NM",
-      "source": "src/output/generic-lens-corrections.ts",
+      "source": "src/output/developed-lens-corrections.ts",
       "kind": "runtime"
     },
     {
@@ -8619,6 +8619,11 @@
     },
     {
       "name": "SimulateCaptureLensCatalogueRecord",
+      "source": "src/facade/simulate-capture.ts",
+      "kind": "type"
+    },
+    {
+      "name": "SimulateCaptureLensCorrections",
       "source": "src/facade/simulate-capture.ts",
       "kind": "type"
     },

@@ -42,6 +42,18 @@
 - **Tests:** `test/simulate-capture-develop-parts.test.ts` (whole frame against joined parts byte for byte on six requests: JPEG with both stages, 16-bit with a thresholded mask, AHD with auto white balance, a push and the four-spot filter, Display P3 PNG with correction, DNG with both stages, no stage; progress order and rows; refusals and abort; the in-place stages against whole-image passes on odd sizes, R up to 16 on a 12 × 20 image).
 - **Docs:** docs/QUICK_START.md ("Developing a capture rendered in parts (#571)", the `onProgress` row, the sharpening section), docs/USAGE.md; API reference regenerated.
 
+### 2.19.0 part: #570 Development option: apply lens corrections to the JPEG
+
+- **New: `output.lensCorrections: { distortion?, lateralColor?, vignetting? }`** (#570, for Photivra/apps#253 story 3.1), with `lens.catalogue`: the lens's generic correction profile (`createGenericLensCorrectionProfile`, #549) applied to the developed linear colour (after demosaic, colour, white balance and `diffractionCorrection`; before the tone curve and `sharpening`), for the JPEG, PNG and `image.samples`. Each correction is off unless `true`; all off (or omitted) develops byte for byte as before. **The RAW and the DNG are never corrected** (tested: identical DNG bytes).
+  - **Model** (labelled approximation, the new `output.lensCorrections` assumption): inverse mapping s = q(1 + k1|q|²/R²), q = m·a_c·p, bilinear, one resampling per channel; the image keeps its size and is magnified by 1/m, the smallest that leaves no missing pixel (1 for the barrel wide angles, 1.017 for *PV 300 5.6*). Vignetting is corrected to a flat field with det J/E at the source point, E the lens's relative illumination and 1/det J its distortion's area factor, which the capture applies (flat to 0.03 %; E alone would leave a *PV 16 2.8* corner about 18 % bright). The kernel matches `calculateLensCorrectedCapture` to 1e-12 for distortion and lateral colour.
+  - **Regions and parts:** byte-identical to the whole frame (barrel, pincushion with fill, AHD 16-bit PNG). A region develops the frame pixels its corrected pixels read (`developedRect`; `region.nativeRect`, `raw` and `plan` describe that rectangle).
+  - **Trade-offs measured through the option** (#552's): distortion correction × 0.706 corner detail (centre × 0.998); vignetting correction raises corner signal × 2.44 and noise × 2.50 (SNR unchanged).
+  - **Not offered** by `simulateDisplayView` or `simulateIdealReference` (refused by name); refused without `lens.catalogue`.
+  - **Cost:** about 1.3 s per 24 MP frame on one thread (Apple M5 Pro), loaded with the catalogue chunk on demand.
+  - **API:** one new root type, `SimulateCaptureLensCorrections`; `SIMULATE_CAPTURE_COST_OPTIONS` gains `"output.lensCorrections"`. `GENERIC_LENS_CORRECTION_CHANNEL_WAVELENGTHS_NM` now lives in `src/output/developed-lens-corrections.ts` (same value, still a root export).
+  - **Bundle:** the app's capture-worker shape grows by 1,735 B gzip (entry +756 B, catalogue chunk +979 B), over `test/capture-bundle.test.ts`'s 352,000 B limit; the limit is not raised (owner decision pending).
+  - **Docs and tests:** docs/DIGITAL_OPTICS_FOUNDATION.md ("Lens corrections in the development"), docs/QUICK_START.md, docs/USAGE.md; `test/simulate-capture-lens-corrections.test.ts`.
+
 ## 2.18.0 — unreleased (prepared November 9, 2026)
 
 A minor release of four issues: equivalence numbers for teaching (#573), an ideal lens at any physical focal length and f-number (#576), catalogue lenses in the display view (#569) and fast catalogue lens captures (#568). Captures, RAW codes, files and assumptions are the same as 2.17.0 for every request that 2.17.0 renders and that uses none of the new options (every hash lock holds).

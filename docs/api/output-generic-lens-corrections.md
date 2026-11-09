@@ -28,12 +28,3 @@ export interface CreateGenericLensCorrectionProfileInput {
   state: OpticalProfileState;
 }
 ```
-
-## GENERIC_LENS_CORRECTION_CHANNEL_WAVELENGTHS_NM
-
-Effective wavelengths of the red, green and blue channels for the lateral-colour map, nm: a generic approximation of where
-a camera's channel responses peak, not a measured camera.
-
-```ts
-GENERIC_LENS_CORRECTION_CHANNEL_WAVELENGTHS_NM: Readonly<Record<LensCorrectionChannel, number>> = Object.freeze({ red: 610, green: 540, blue: 465 })
-```

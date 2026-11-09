@@ -144,7 +144,7 @@ a capture does. `motion.rotation` is a non-zero angular velocity; `sensor.tempor
 SIMULATE_CAPTURE_COST_OPTIONS = Object.freeze(["lens.pupilSampling", "lens.projection", "lens.distortion", "lens.vignetting", "lens.psf",
   "lens.diffraction", "lens.defocus", "lens.catalogue", "sensor.antiAliasing", "sensor.pixelAperture.box", "sensor.temporalSampleCount", "motion.rotation", "motion.shutter.rolling", "output.borderHandling.mirror", "output.region",
   "output.whiteBalance.auto", "output.demosaic.ahd", "output.highlightMode.reconstruct", "output.colorEncoding.wide-gamut", "output.gamutMapping.perceptual",
-  "output.diffractionCorrection", "output.sharpening", "output.format.jpeg", "output.format.png", "output.format.dng"] as const)
+  "output.diffractionCorrection", "output.sharpening", "output.lensCorrections", "output.format.jpeg", "output.format.png", "output.format.dng"] as const)
 ```
 
 ## SIMULATE_CAPTURE_DEFAULT_ILLUMINANCE_LUX
@@ -467,6 +467,22 @@ export interface SimulateCaptureFastReport {
 export interface SimulateCaptureLensCatalogueRecord { kind: string; fast?: boolean }
 ```
 
+## SimulateCaptureLensCorrections
+
+`output.lensCorrections` (#570): which of the catalogue lens's generic corrections (`createGenericLensCorrectionProfile`) the
+development applies. Each is off unless set to true.
+
+```ts
+export interface SimulateCaptureLensCorrections {
+  /** Radial distortion r_d = r(1 + k1ρ²), inverted by resampling: it stretches the corners and lowers their resolution. */
+  distortion?: boolean;
+  /** Lateral colour: each channel rescaled by 1/(1 + L·D(λ_c)) into register; axial (longitudinal) colour stays. */
+  lateralColor?: boolean;
+  /** Vignetting: a gain 1/E(ρ) at each pixel's source point; corner noise rises with the signal, the SNR does not. */
+  vignetting?: boolean;
+}
+```
+
 ## SimulateCaptureLensDistortion
 
 The exact contract is declared below; use the domain guide for assumptions and staged integration.
@@ -739,6 +755,16 @@ export interface SimulateCaptureOptions {
      * (not the wide-gamut or perceptual PNG paths); not combinable with `region`. The DNG's RAW codes are not changed. Default off.
      */
     sharpening?: SimulateCaptureSharpening;
+    /**
+     * Opt-in (#570), with `lens.catalogue`: the lens's generic corrections (see {@link SimulateCaptureLensCorrections}) on the
+     * developed linear colour, after demosaic, colour, white balance and `diffractionCorrection`, before the tone curve; for the JPEG,
+     * PNG and samples. The RAW and the DNG are never corrected. To keep the output size with no missing pixels, the corrected image is
+     * magnified by the smallest factor 1/m ≥ 1 that keeps every pixel's source inside the frame (recorded in the
+     * `output.lensCorrections` assumption). Works with `region`: a region develops the frame pixels its corrected pixels read
+     * (`region.nativeRect`, `raw` and `plan` describe that rectangle) and its pixels are the whole render's. All off (or omitted):
+     * the development is unchanged.
+     */
+    lensCorrections?: SimulateCaptureLensCorrections;
   };
   /** Camera motion and shutter type. Default: still camera, global electronic shutter. */
   motion?: SimulateCaptureMotion;

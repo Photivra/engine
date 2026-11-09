@@ -104,6 +104,7 @@ modelling choices (such as "no lens PSF") as `kind: "model"`.
 | `output.exposureCompensationStops` | 0 | #556: a development exposure push, −2 to +5 stops, on the RAW before white balance (see [Development exposure push](#development-exposure-push-556)). |
 | `output.diffractionCorrection` | off | #552: `{ wavelengthNm?, regularization?, maximumGain?, kernelRadiusPixels? }`, a bounded deconvolution of the diffraction blur; needs `lens.diffraction`. It never restores detail beyond the diffraction cut-off (see [Sharpening and diffraction correction](#sharpening-and-diffraction-correction-552)). |
 | `output.sharpening` | off | #552: `{ radiusPixels?, amount?, threshold? }`, an unsharp mask after the tone curve; sRGB output only (see [Sharpening and diffraction correction](#sharpening-and-diffraction-correction-552)). |
+| `output.lensCorrections` | off | #570, with `lens.catalogue`: `{ distortion?, lateralColor?, vignetting? }`, the lens's own corrections on the developed JPEG, PNG and samples; the DNG is never corrected. Works with `output.region` (see [Generic lens catalogue](#generic-lens-catalogue-549)). |
 | `output.whiteBalance` | `"scene-illuminant"` | Also `"auto"`, `"none"`, `{ kelvin, tint? }` and `{ channelGains }`. |
 | `output.jpegQuantizationStep` | 2 | JPEG only: constant step 1–255, not a manufacturer quality scale. |
 | `sensor.pixelPitchMicrometers` | 6 | 0.5–1000 (2.5; 0.5–100 before). The sensor is `width × pitch` wide (see [Geometry](#geometry)); the ISO readout scales with the pixel area (see [ISO and pixel size](#iso-and-pixel-size)). Above 100 µm the capture is a downsized view of a whole frame (see [Whole-frame views](#whole-frame-views-25)). |
@@ -217,6 +218,13 @@ and every number is a labelled approximation.
 - **Cost:** one scene query per kernel tap through the lens field mapping, like `lens.distortion`: a 48 × 48 region of a full frame
   at 6 µm takes about 1 s with *PV 50 1.2 Pro* and 6 s with *PV 50 1.8* (Apple M5 Pro), against 0.01 s with `lens.prime`. Render
   regions, or use a coarser `sensor.spectralStepNanometers`.
+- **Lens corrections (#570):** `output: { lensCorrections: { distortion: true, lateralColor: true, vignetting: true } }` applies the
+  lens's generic correction profile (`createGenericLensCorrectionProfile`) to the developed linear colour, each correction
+  switched on separately, as cameras do for their JPEGs. The RAW and the DNG are never corrected. The image keeps its size and is
+  magnified just enough to have no missing pixels (`magnification` in the `output.lensCorrections` assumption, 1 for the barrel
+  wide angles); vignetting is corrected to a flat field. Regions and parts are byte-identical to the whole frame. The costs are
+  real: stretched corners lose resolution and brightened corners are noisier
+  ([DIGITAL_OPTICS_FOUNDATION.md](https://github.com/Photivra/photivra/blob/main/docs/DIGITAL_OPTICS_FOUNDATION.md#lens-corrections-in-the-development-570)).
 - **Fast method (#568):** `fast: true` (or `lens: { catalogue: { kind: "pv-50-1.8", fast: true } }`) blends the PSF over a field
   grid and tabulates each site's signal, a labeled approximation within 2.3e-4 of the frame's peak signal of the exact method
   (measured): a 768 × 512 whole full frame renders within 2× of the same `lens.prime` capture. It needs a still camera, site-center

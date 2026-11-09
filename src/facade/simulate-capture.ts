@@ -307,6 +307,18 @@ export interface SimulateCaptureDiffractionCorrection {
   /** FIR radius R in pixels, 1–16. Default: the Airy pattern's third dark ring at the design wavelength, within 1–16. */
   kernelRadiusPixels?: number;
 }
+/**
+ * `output.lensCorrections` (#570): which of the catalogue lens's generic corrections (`createGenericLensCorrectionProfile`) the
+ * development applies. Each is off unless set to true.
+ */
+export interface SimulateCaptureLensCorrections {
+  /** Radial distortion r_d = r(1 + k1ρ²), inverted by resampling: it stretches the corners and lowers their resolution. */
+  distortion?: boolean;
+  /** Lateral colour: each channel rescaled by 1/(1 + L·D(λ_c)) into register; axial (longitudinal) colour stays. */
+  lateralColor?: boolean;
+  /** Vignetting: a gain 1/E(ρ) at each pixel's source point; corner noise rises with the signal, the SNR does not. */
+  vignetting?: boolean;
+}
 /** `diagnostics.detail` (#552): what the development detail stages did. Present only when one ran. */
 export interface SimulateCaptureDetailDiagnostics {
   diffractionCorrection?: {
@@ -573,6 +585,16 @@ export interface SimulateCaptureOptions {
      * (not the wide-gamut or perceptual PNG paths); not combinable with `region`. The DNG's RAW codes are not changed. Default off.
      */
     sharpening?: SimulateCaptureSharpening;
+    /**
+     * Opt-in (#570), with `lens.catalogue`: the lens's generic corrections (see {@link SimulateCaptureLensCorrections}) on the
+     * developed linear colour, after demosaic, colour, white balance and `diffractionCorrection`, before the tone curve; for the JPEG,
+     * PNG and samples. The RAW and the DNG are never corrected. To keep the output size with no missing pixels, the corrected image is
+     * magnified by the smallest factor 1/m ≥ 1 that keeps every pixel's source inside the frame (recorded in the
+     * `output.lensCorrections` assumption). Works with `region`: a region develops the frame pixels its corrected pixels read
+     * (`region.nativeRect`, `raw` and `plan` describe that rectangle) and its pixels are the whole render's. All off (or omitted):
+     * the development is unchanged.
+     */
+    lensCorrections?: SimulateCaptureLensCorrections;
   };
   /** Camera motion and shutter type. Default: still camera, global electronic shutter. */
   motion?: SimulateCaptureMotion;
@@ -622,7 +644,7 @@ export interface SimulateCaptureOptions {
 export const SIMULATE_CAPTURE_COST_OPTIONS = /* @__PURE__ */ Object.freeze(["lens.pupilSampling", "lens.projection", "lens.distortion", "lens.vignetting", "lens.psf",
   "lens.diffraction", "lens.defocus", "lens.catalogue", "sensor.antiAliasing", "sensor.pixelAperture.box", "sensor.temporalSampleCount", "motion.rotation", "motion.shutter.rolling", "output.borderHandling.mirror", "output.region",
   "output.whiteBalance.auto", "output.demosaic.ahd", "output.highlightMode.reconstruct", "output.colorEncoding.wide-gamut", "output.gamutMapping.perceptual",
-  "output.diffractionCorrection", "output.sharpening", "output.format.jpeg", "output.format.png", "output.format.dng"] as const);
+  "output.diffractionCorrection", "output.sharpening", "output.lensCorrections", "output.format.jpeg", "output.format.png", "output.format.dng"] as const);
 export type SimulateCaptureCostOption = typeof SIMULATE_CAPTURE_COST_OPTIONS[number];
 
 /**
@@ -1982,7 +2004,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
 
   // Output and sensor
   const outputOptions = allowKeys(top.output, "output", ["width", "height", "format", "toneCurve", "toneCurveParameters", "highlightMode", "exposureCompensationStops", "whiteBalance", "jpegQuantizationStep",
-    "colorEncoding", "bitDepth", "gamutMapping", "demosaic", "borderHandling", "dng", "maximumPixels", "region", "metadata", "diffractionCorrection", "sharpening"]);
+    "colorEncoding", "bitDepth", "gamutMapping", "demosaic", "borderHandling", "dng", "maximumPixels", "region", "metadata", "diffractionCorrection", "sharpening", "lensCorrections"]);
   // Opt-in large images: a caller-raised native pixel limit. Without it the 4094-pixel sides are unchanged.
   const raisedPixels = outputOptions.maximumPixels === undefined ? undefined : integerIn(outputOptions.maximumPixels, "output.maximumPixels", 1, NATIVE_RAW_LIMITS.ceilingPixels);
   const maximumSide = raisedPixels === undefined ? 4094 : NATIVE_RAW_LIMITS.maximumDimension;
@@ -2087,6 +2109,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
     if (outputOptions.highlightMode === "reconstruct") unsupported("output.highlightMode \"reconstruct\"", "the view supports the per-channel highlight clip.");
     if (outputOptions.diffractionCorrection !== undefined || outputOptions.sharpening !== undefined)
       unsupported("output.diffractionCorrection or output.sharpening", "the development detail stages filter the whole developed capture image.");
+    if (outputOptions.lensCorrections !== undefined) unsupported("output.lensCorrections", "the corrections resample the developed capture image.");
     if (defocusBokeh?.catsEye) unsupported("lens.defocus.catsEye", "the expected-signal tables hold one kernel per spectral node, and the cat's eye varies over the field; " +
       "simulateCapture renders it. lens.defocus.blades and lens.defocus.sphericalAberration are supported.");
   }
@@ -2129,21 +2152,38 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
 
   // Geometry: the demosaic border (if any) on each side; output crop is the active area.
   const nativeWidth = width + 2 * margin, nativeHeight = height + 2 * margin;
+  // Lens corrections (#570): the catalogue lens's corrections on the developed linear colour; all off is no option at all.
+  let lensCorrection: ReturnType<NonNullable<typeof lensKit>["prepareDevelopedLensCorrection"]> | undefined, lensCorrectionSelection: Record<string, boolean> | undefined;
+  if (outputOptions.lensCorrections !== undefined) {
+    const keys = ["distortion", "lateralColor", "vignetting"], o = allowKeys(outputOptions.lensCorrections, "output.lensCorrections", keys), selection: Record<string, boolean> = {};
+    for (const key of keys) {
+      if (o[key] !== undefined && typeof o[key] !== "boolean") fail("output.lensCorrections." + key + " must be true or false.");
+      selection[key] = o[key] === true;
+    }
+    if (keys.some((key) => selection[key])) {
+      if (idealReference) fail("simulateIdealReference does not take output.lensCorrections: a reference has no camera development.");
+      if (!catalogue || !lensKit) fail("output.lensCorrections needs lens.catalogue: the corrections are the catalogue lens's own profile.");
+      lensCorrectionSelection = selection;
+      lensCorrection = lensKit!.prepareDevelopedLensCorrection(catalogue!, selection as { distortion: boolean; lateralColor: boolean; vignetting: boolean }, width, height, pitch / 1000, lensKit!.genericLensDispersion);
+    }
+  }
   // Region (2.3): a rectangle of the whole frame. Its native sites are the region plus the demosaic reach on each side
   // (clipped to the raster, where mirror borders apply exactly as in the whole render), with the origin rounded down to
   // the 2 × 2 CFA repeat so the region raster keeps the frame's CFA phase.
-  let region: { x: number; y: number; width: number; height: number } | undefined, regionNative: typeof region;
+  let region: { x: number; y: number; width: number; height: number } | undefined, regionNative: typeof region, imageRegion: typeof region;
   if (outputOptions.region !== undefined) {
     const r = allowKeys(outputOptions.region, "output.region", ["x", "y", "width", "height"]);
     const x = integerIn(r.x, "output.region.x", 0, width - 1), y = integerIn(r.y, "output.region.y", 0, height - 1);
     region = { x, y, width: integerIn(r.width, "output.region.width", 1, width - x), height: integerIn(r.height, "output.region.height", 1, height - y) };
+    // #570: a corrected region develops the frame pixels its corrected pixels read.
+    if (lensCorrection) { imageRegion = region; region = lensKit!.developedLensCorrectionSourceRect(lensCorrection, region); }
     const reach = margin > 0 ? margin : ahd ? AHD_MARGIN : builtInDemosaic ? builtInDemosaic.kernelReachSites : MARGIN;
     let x0 = Math.max(0, region.x + margin - reach), y0 = Math.max(0, region.y + margin - reach);
     x0 -= x0 % 2; y0 -= y0 % 2;
     regionNative = { x: x0, y: y0, width: Math.min(nativeWidth, region.x + region.width + margin + reach) - x0, height: Math.min(nativeHeight, region.y + region.height + margin + reach) - y0 };
   }
-  const outputWidth = region ? region.width : width, outputHeight = region ? region.height : height;
-  if (region && regionNative) assume("output.region", "model", { ...region, frameWidth: width, frameHeight: height, nativeRect: { ...regionNative } },
+  let outputWidth = region ? region.width : width, outputHeight = region ? region.height : height;
+  if (region && regionNative) assume("output.region", "model", { ...imageRegion ?? region, frameWidth: width, frameHeight: height, nativeRect: { ...regionNative } },
     "Only this rectangle of the " + width + " × " + height + " frame is rendered. Framing, metering, exposure, diffraction kernels and every site's physics, noise seeds and exposure window (rolling-shutter row timing) are those of the whole frame (absolute native indices), " +
     "and the native rectangle includes the demosaic reach on each side (" + (margin > 0 ? margin : "mirror-border") + "), so the pixels are byte-identical to the same pixels of the whole render. " +
     // 2.6: with lens.diffraction the convolution is limited to the region; the sentence of 2.3–2.5 is kept verbatim otherwise, so
@@ -3375,6 +3415,17 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
       "Below f_c the gain is bounded, so attenuated detail is only partly restored and noise is amplified by up to the measured responsePeakGain. " +
       "Not inverted: the pixel aperture, optical anti-aliasing filter, demosaic blur, defocus and aberrations. One design wavelength for all channels (the simulated blur is polychromatic).");
   }
+  // #570: the lens corrections after the diffraction correction (which acts on the sensor's own lattice), before the tone curve.
+  let cornerStops: number | null = null;
+  if (lensCorrection) {
+    const s = lensCorrectionSelection!, c = lensCorrection, k = (channel: number): number => c.scales[channel]!;
+    if (s.vignetting) cornerStops = lensKit!.resolveGenericLens({ lensId: catalogue!.lensId, activeImagingArea: catalogueFrame!, fNumber }).character.vignetting.cornerStops;
+    assume("output.lensCorrections", "model", { profileId: "photivra-" + catalogue!.lensId + ":corrections", ...s, k1: c.k1, channelScales: { red: k(0), green: k(1), blue: k(2) },
+      cornerStops, cornerGain: cornerStops === null ? 1 : 2 ** cornerStops, magnification: 1 / c.fill, ...(imageRegion ? { developedRect: region } : {}), dng: "uncorrected" },
+    "The catalogue lens's correction profile (createGenericLensCorrectionProfile; an approximation) on the developed linear colour: pixel p reads channel c bilinearly at q(1 + k1|q|²/R²), q = a_c·p/magnification " +
+      "(the smallest magnification ≥ 1 that keeps every source in the frame), times det J/E at the source, so a flat field stays flat (E = (1 − bρ²)², 1/det J the distortion's area factor). " +
+      "Corners lose resolution, corner noise rises with the gain, axial colour stays. The DNG is not corrected.");
+  }
   // Row progress of a development stage, yielding to the host about every 8 ms. #571: the detail stages run row by row in place
   // (one developed image in memory) and report each output row.
   const rowProgress = (stage: SimulateCaptureProgress["stage"]) => {
@@ -3391,10 +3442,16 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
     return step.value;
   };
   const correctLinear = async (rgb: Float64Array): Promise<Float64Array> => {
-    if (!diffractionFilter) return rgb;
-    const corrected = await detailRows("diffraction-correction", correctDiffractionInPlace(rgb, outputWidth, outputHeight, diffractionFilter));
-    detailDiagnostics.diffractionCorrection = { ...corrected, cutoffCyclesPerPixel: diffractionFilter.cutoffCyclesPerPixel,
-      responsePeakGain: diffractionFilter.responsePeakGain, responseMaximumBeyondCutoff: diffractionFilter.responseMaximumBeyondCutoff };
+    if (diffractionFilter) {
+      const corrected = await detailRows("diffraction-correction", correctDiffractionInPlace(rgb, outputWidth, outputHeight, diffractionFilter));
+      detailDiagnostics.diffractionCorrection = { ...corrected, cutoffCyclesPerPixel: diffractionFilter.cutoffCyclesPerPixel,
+        responsePeakGain: diffractionFilter.responsePeakGain, responseMaximumBeyondCutoff: diffractionFilter.responseMaximumBeyondCutoff };
+    }
+    if (lensCorrection) {
+      const into = imageRegion ?? { x: 0, y: 0, width, height };
+      rgb = lensKit!.applyDevelopedLensCorrection(lensCorrection, rgb, region ?? into, into, cornerStops);
+      outputWidth = into.width; outputHeight = into.height;
+    }
     return rgb;
   };
   if (sharpening) assume("output.sharpening", "model", { model: "development-detail", modelVersion: DEVELOPMENT_DETAIL_MODEL_VERSION, method: "unsharp-mask", ...sharpening,
@@ -3402,7 +3459,8 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   "Unsharp mask y = x + amount·(x − G_σ∗x) where |x − G_σ∗x| ≥ threshold (the GIMP and ImageMagick unsharp mask: radius, amount, threshold), per channel on the sRGB-encoded values in [0, 1], " +
     "separable Gaussian truncated at ⌈3σ⌉ with clamped edges, then clipped to [0, 1] and rounded. It raises contrast at edges and creates halos (overshoot and undershoot; see diagnostics.detail.sharpening) " +
     "and sharpens noise above the threshold. It adds no optical detail.");
-  if (detailRequested) assume("output.developmentOrder", "model", [...(exposureGain === 1 ? [] : ["development exposure push (RAW)"]), "demosaic", "colour and white balance", ...(diffractionCorrectionOption ? ["diffraction correction (linear)"] : []),
+  if (detailRequested || lensCorrection) assume("output.developmentOrder", "model", [...(exposureGain === 1 ? [] : ["development exposure push (RAW)"]), "demosaic", "colour and white balance", ...(diffractionCorrectionOption ? ["diffraction correction (linear)"] : []),
+    ...(lensCorrection ? ["lens corrections (linear)"] : []),
     "rendering exposure and tone curve", "gamut handling", "transfer function", ...(sharpening ? ["unsharp mask"] : []), "quantization"],
   "Development detail order: the deconvolution acts on linear light, where the blur is a convolution; the unsharp mask acts on the encoded values just before quantization." +
     (exposureGain === 1 ? "" : " A development exposure push (output.exposureCompensationStops) scales the black-subtracted, white-normalized RAW first, so pushed sites clip at white before the deconvolution sees them."));
@@ -3414,7 +3472,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
       adjustedPixelCount: encoded.adjustedPixelCount, lightnessClippedPixelCount: encoded.lightnessClippedPixelCount };
     return { raw: rawOutput.raw, integerSamples: encoded.samples, highlight, diagnostics: encoded.diagnostics };
   };
-  if (ahd || (detailRequested && !linearPath)) {
+  if (ahd || ((detailRequested || lensCorrection) && !linearPath)) {
     const linear = await developLinearSrgb({ ...development, raw: rawOutput.raw }, rowProgress("development"), ahd ? { yieldControl: (): Promise<void> => yieldControl(), checkAbort, onDemosaicMs: (ms: number): void => { demosaicMs = ms; } } : undefined);
     const rgb = await correctLinear(linear.rgb);
     if (!linearPath) {
@@ -3503,14 +3561,14 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
     ...(needsAuto ? ["output.whiteBalance.auto" as const] : []), ...(ahd ? ["output.demosaic.ahd" as const] : []),
     ...(highlightMode === "reconstruct" ? ["output.highlightMode.reconstruct" as const] : []), ...(wideGamut ? ["output.colorEncoding.wide-gamut" as const] : []),
     ...(perceptual ? ["output.gamutMapping.perceptual" as const] : []), ...(diffractionFilter ? ["output.diffractionCorrection" as const] : []),
-    ...(sharpening ? ["output.sharpening" as const] : []), ...(format === "jpeg" || format === "png" || format === "dng" ? ["output.format." + format as SimulateCaptureCostOption] : [])]);
+    ...(sharpening ? ["output.sharpening" as const] : []), ...(lensCorrection ? ["output.lensCorrections" as const] : []), ...(format === "jpeg" || format === "png" || format === "dng" ? ["output.format." + format as SimulateCaptureCostOption] : [])]);
   // #552: the detail stages' contracts, in execution order inside the development.
-  const detailContracts = diffractionFilter ? ["designDiffractionCorrectionFilter", "applyDiffractionCorrection"] : [], sdrContract = sharpening ? "renderSdrWithUnsharpMask" : "SDR rendering kernel";
+  const detailContracts = [...(diffractionFilter ? ["designDiffractionCorrectionFilter", "applyDiffractionCorrection"] : []), ...(lensCorrection ? ["createGenericLensCorrectionProfile (developed linear colour)"] : [])], sdrContract = sharpening ? "renderSdrWithUnsharpMask" : "SDR rendering kernel";
   return Object.freeze({
     facadeVersion: SIMULATE_CAPTURE_FACADE_VERSION, engineApiVersion: ENGINE_API_VERSION,
     image: { width: outputWidth, height: outputHeight, format, samples: developed.integerSamples, ...(jpeg ? { jpeg } : {}), ...(png ? { png, colorEncoding: colorEncoding! } : {}), ...(dng ? { dng: dng.bytes } : {}) },
     raw: developed.raw, plan: developmentPlan,
-    ...(region && regionNative ? { region: { ...region, frameWidth: width, frameHeight: height, nativeRect: { ...regionNative } } } : {}),
+    ...(region && regionNative ? { region: { ...imageRegion ?? region, frameWidth: width, frameHeight: height, nativeRect: { ...regionNative } } } : {}),
     request: { environmentRaw: finalRawInput, siteInput, development, whiteBalanceState,
       ...(diffraction ? { diffraction: { profile: diffraction, psf: diffractionPsf!, execution: diffractionObjectSpace ? "object-space-convolution" as const :
         defocusImageSpace ? "image-space-convolution" as const : "environment-psf-quadrature" as const } } : {}) },
@@ -3537,7 +3595,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
         ...(builtInDemosaic ? ["createBuiltInBayerDemosaicProfiles"] : []), ...(ahd ? ["createAhdDemosaicTask"] : []),
         ...(ahd ? ["native RAW development operator (colour, after AHD)", ...detailContracts, ...(linearPath ? ["resolveRgbColorSpace", ...(perceptual ? ["prepareRgbGamutMapping"] : [])] : [sdrContract])] :
           linearPath ? ["native RAW development operator (linear, pre-clip)", ...detailContracts, "resolveRgbColorSpace", ...(perceptual ? ["prepareRgbGamutMapping"] : [])] :
-          detailRequested ? ["native RAW development operator (linear, pre-clip)", ...detailContracts, sdrContract] : ["createNativeRawDevelopmentTask"]),
+          detailRequested || lensCorrection ? ["native RAW development operator (linear, pre-clip)", ...detailContracts, sdrContract] : ["createNativeRawDevelopmentTask"]),
         ...(jpeg ? ["createPrintJpegTask"] : []), ...(png ? ["serializePngImage"] : []), ...(dng ? ["resolveSensorReadoutRegime", "serializeNativeRawDng"] : [])],
       limitations: ["Educational approximation: synthetic tier sensor values, idealized colorimetric sensor, planar Lambertian scene and point optics; not a calibrated camera emulation.",
         "Not offered by the facade: atmospheric haze and polarizers (the scene-radiance provider contract declares no volumetric transport or polarization), flash, video, HDR brackets and processing operators; compose those APIs directly."] },
