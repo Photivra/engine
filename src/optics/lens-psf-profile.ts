@@ -66,7 +66,9 @@ export type LensPsfUncertainty =
  * - `rotationally-symmetric-radial-field-centroid-aligned`: for a rotationally symmetric lens. Nodes
  *   are declared only along the +X field axis (fieldYmm = [0], fieldXmm >= 0). A query at field
  *   (x, y) is interpolated, with centroid alignment, at radius hypot(x, y). The kernel is then
- *   rotated by atan2(y, x) about its centre. The sample pitch must be square.
+ *   rotated by atan2(y, x) about its centre, with the kernel row index increasing with image +Y (the
+ *   convention the environment PSF quadrature applies), so an asymmetric kernel points the same way
+ *   as in the 2-D grid modes. The sample pitch must be square.
  * Shifts and rotations use bilinear resampling. This smooths the kernel slightly (by at most about
  * one sample). Samples outside the kernel are zero, and the result is renormalised to unit energy.
  */
@@ -1774,7 +1776,13 @@ function interpolateKernelCentroidAligned(
   return normalizedKernel(first, values);
 }
 
-/** Rotates a kernel by angleRadians (counter-clockwise, +Y up) about its centre sample. */
+/**
+ * Rotates a kernel by angleRadians (counter-clockwise from image +X towards image +Y) about its centre sample.
+ * The row index increases with image +Y, the convention the environment PSF quadrature applies (`sensorPsfSourcePoint`:
+ * tap (kx, ky) lands at image offset (+(kx − cx)·pₓ, +(ky − cy)·p_y), +Y up), so a kernel declared along +X and rotated to
+ * field azimuth atan2(y, x) points the same way in the rendered image as a 2-D grid node declared at (x, y). Before 2.19.0
+ * this read rows as image −Y, which mirrored asymmetric kernels in y (#566).
+ */
 function rotateKernel(
   kernel: LensPsfKernel,
   angleRadians: number
@@ -1783,8 +1791,8 @@ function rotateKernel(
   const sin = Math.sin(angleRadians);
   const values: number[] = [];
   for (let row = 0; row < kernel.heightSamples; row += 1) {
-    // Array rows increase downward; image +Y is up.
-    const y = kernel.centerSampleY - row;
+    // Row index increases with image +Y (sensorPsfSourcePoint).
+    const y = row - kernel.centerSampleY;
     for (let column = 0; column < kernel.widthSamples; column += 1) {
       const x = column - kernel.centerSampleX;
       // Inverse rotation: destination (x, y) samples source R(-angle) (x, y).
@@ -1794,7 +1802,7 @@ function rotateKernel(
         bilinearSample(
           kernel,
           kernel.centerSampleX + sourceX,
-          kernel.centerSampleY - sourceY
+          kernel.centerSampleY + sourceY
         )
       );
     }

@@ -177,7 +177,7 @@ Load average 2–5 (a shared machine); the exact column is one run per width. Th
 
 ### Kernel orientation
 
-The environment PSF quadrature applies a kernel row index as image +Y (`sensorPsfSourcePoint`), and the catalogue builds its kernels that way, so coma flares and the blue image point away from the axis in the rendered image; a test checks it in every quadrant. (The rotationally symmetric interpolation mode of `LensSampledPsfProfile` rotates kernels as if rows ran towards −Y, so an asymmetric kernel under that mode renders mirrored in y; the catalogue uses the 2-D grid mode instead. Changing that mode changes existing captures; owner decision 2026-11-07: fixed in 2.18.0 as a breaking fix with an orientation test, [#566](https://github.com/Photivra/photivra/issues/566).)
+The environment PSF quadrature applies a kernel row index as image +Y (`sensorPsfSourcePoint`), and the catalogue builds its kernels that way, so coma flares and the blue image point away from the axis in the rendered image; a test checks it in every quadrant.
 
 ## Measured on the charts
 

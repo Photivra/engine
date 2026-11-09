@@ -9,17 +9,21 @@ import {
   type LensSampledPsfInterpolation,
   type LensSampledPsfProfile
 } from "../src/index.js";
+import { sensorPsfSourcePoint } from "../src/optics/sensor-psf-support.js";
 
 const SIZE = 21;
 const CENTER = 10;
 
-/** Elliptical Gaussian centred at (cx, cy) samples from the kernel centre (+Y up). */
+/**
+ * Elliptical Gaussian centred at (cx, cy) samples from the kernel centre. The row index increases with image +Y (up), the
+ * convention the environment PSF quadrature applies (`sensorPsfSourcePoint`).
+ */
 function gaussian(cx: number, cy: number, sx = 1.2, sy = 1.2): LensPsfKernel {
   const values: number[] = [];
   for (let row = 0; row < SIZE; row += 1) {
     for (let column = 0; column < SIZE; column += 1) {
       const x = column - CENTER - cx;
-      const y = CENTER - row - cy;
+      const y = row - CENTER - cy;
       values.push(Math.exp(-0.5 * ((x / sx) ** 2 + (y / sy) ** 2)));
     }
   }
@@ -38,8 +42,10 @@ function gaussian(cx: number, cy: number, sx = 1.2, sy = 1.2): LensPsfKernel {
 function profile(
   interpolation: LensSampledPsfInterpolation,
   fields: readonly number[],
-  kernelAt: (fieldXmm: number) => LensPsfKernel
+  kernelAt: (fieldXmm: number, fieldYmm: number) => LensPsfKernel,
+  fieldsY: readonly number[] = [0]
 ): LensSampledPsfProfile {
+  const coordinates = fieldsY.flatMap((fieldYmm) => fields.map((fieldXmm) => ({ fieldXmm, fieldYmm })));
   return parseLensSampledPsfProfile({
     schemaVersion: "0.1.0",
     profileId: "interpolation-test",
@@ -61,14 +67,14 @@ function profile(
       focusDiopters: [0],
       apertureFNumber: [4],
       fieldXmm: fields,
-      fieldYmm: [0],
+      fieldYmm: fieldsY,
       wavelengthNm: [550],
       signedDefocusImagePlaneMicrometers: [0]
     },
-    nodes: fields.map((fieldXmm, index) => ({
+    nodes: coordinates.map(({ fieldXmm, fieldYmm }, index) => ({
       nodeId: `n${index}`,
-      coordinate: { focalLengthMm: 50, focusDiopters: 0, apertureFNumber: 4, fieldXmm, fieldYmm: 0, wavelengthNm: 550, signedDefocusImagePlaneMicrometers: 0 },
-      kernel: kernelAt(fieldXmm),
+      coordinate: { focalLengthMm: 50, focusDiopters: 0, apertureFNumber: 4, fieldXmm, fieldYmm, wavelengthNm: 550, signedDefocusImagePlaneMicrometers: 0 },
+      kernel: kernelAt(fieldXmm, fieldYmm),
       bestFocusImagePlaneOffsetMicrometers: 0,
       relativePupilThroughputFactor: 1,
       evidence: [{ sourceOrigin: "photivra", sourceReference: `n${index}`, reuseStatus: "photivra-owned" }],
@@ -108,7 +114,7 @@ function centroid(kernel: LensPsfKernel): { x: number; y: number } {
   let y = 0;
   kernel.normalizedIntensity.forEach((v, index) => {
     x += v * ((index % SIZE) - CENTER);
-    y += v * (CENTER - Math.floor(index / SIZE));
+    y += v * (Math.floor(index / SIZE) - CENTER);
   });
   return { x, y };
 }
@@ -180,6 +186,52 @@ describe("sampled PSF field interpolation", () => {
     expect(diagonal.x).toBeCloseTo(r / 2 / Math.SQRT2, 2);
     expect(diagonal.y).toBeCloseTo(r / 2 / Math.SQRT2, 2);
     expect(() => resolve(p, 8, 8)).toThrow(/extrapolation/);
+  });
+
+  it("renders an asymmetric kernel with the 2-D grid's orientation in the rotationally symmetric mode, in all four quadrants (#566)", () => {
+    // A core shifted radially outward plus a weaker blob off to the counter-clockwise side: no mirror symmetry, so a y mirror
+    // (the pre-2.19.0 behavior) or a wrong rotation sense shows in both moments. Isotropic Gaussians rotate analytically.
+    const asymmetric = (fieldXmm: number, fieldYmm: number): LensPsfKernel => {
+      const angle = Math.atan2(fieldYmm, fieldXmm), cos = Math.cos(angle), sin = Math.sin(angle);
+      const core = gaussian(1.5 * cos, 1.5 * sin, 1, 1), blob = gaussian(4 * cos - 2 * sin, 4 * sin + 2 * cos, 1, 1);
+      const values = core.normalizedIntensity.map((v, i) => 0.7 * v + 0.3 * blob.normalizedIntensity[i]!), sum = values.reduce((a, b) => a + b, 0);
+      return { ...core, normalizedIntensity: values.map((v) => v / sum) };
+    };
+    // Where a point source's light lands in the rendered image, as the environment PSF quadrature applies the kernel:
+    // tap (kx, ky) of a destination's kernel reads the source at sensorPsfSourcePoint (native, +Y down), so light from a
+    // source reaches the destination offset by minus that, which is (−o.x, +o.y) in image coordinates (+Y up).
+    const rendered = (kernel: LensPsfKernel): { x: number; y: number } => {
+      let x = 0, y = 0;
+      kernel.normalizedIntensity.forEach((v, i) => {
+        const o = sensorPsfSourcePoint({ x: 0, y: 0 }, kernel, i % kernel.widthSamples, Math.floor(i / kernel.widthSamples));
+        x += v * -o.x * 1000; y += v * o.y * 1000;
+      });
+      return { x, y };
+    };
+    const a = 6, radius = Math.hypot(a, a);
+    const grid = profile("bounded-regular-grid-centroid-aligned", [-a, a], asymmetric, [-a, a]);
+    const rotational = profile("rotationally-symmetric-radial-field-centroid-aligned", [0, radius], (field) => (field === 0 ? gaussian(0, 0, 1, 1) : asymmetric(field, 0)));
+    for (const [sx, sy] of [[1, 1], [-1, 1], [-1, -1], [1, -1]] as const) {
+      const x = sx * a, y = sy * a, ux = x / radius, uy = y / radius;
+      const fromGrid = resolve(grid, x, y).value.kernel, fromRotation = resolve(rotational, x, y).value.kernel;
+      expect(fromGrid.normalizedIntensity).toEqual(asymmetric(x, y).normalizedIntensity); // an exact grid node
+      const moments = [fromGrid, fromRotation].map((k) => {
+        const m = rendered(k);
+        return { ...m, radial: m.x * ux + m.y * uy, across: m.y * ux - m.x * uy };
+      });
+      // Analytic moments of the declared kernel: radial 0.7·1.5 + 0.3·4 = 2.25, across 0.3·2 = 0.6 samples (1 µm).
+      for (const m of moments) {
+        expect(m.radial).toBeCloseTo(2.25, 1);
+        expect(m.across).toBeCloseTo(0.6, 1);
+      }
+      // The rotated kernel is the grid kernel up to bilinear resampling (about one sample of smoothing).
+      expect(moments[1]!.x).toBeCloseTo(moments[0]!.x, 1);
+      expect(moments[1]!.y).toBeCloseTo(moments[0]!.y, 1);
+      const l1 = (p: LensPsfKernel, q: LensPsfKernel): number => p.normalizedIntensity.reduce((s, v, i) => s + Math.abs(v - q.normalizedIntensity[i]!), 0);
+      const mirrored = { ...fromGrid, normalizedIntensity: fromGrid.normalizedIntensity.map((_, i) => fromGrid.normalizedIntensity[(SIZE - 1 - Math.floor(i / SIZE)) * SIZE + (i % SIZE)]!) };
+      expect(l1(fromRotation, fromGrid)).toBeLessThan(0.25);
+      expect(l1(fromRotation, mirrored)).toBeGreaterThan(1);
+    }
   });
 
   it("rejects rotational profiles that are not declared along +X with square pitch", () => {

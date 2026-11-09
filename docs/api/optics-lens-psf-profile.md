@@ -200,7 +200,9 @@ Kernel interpolation between regular-grid nodes.
 - `rotationally-symmetric-radial-field-centroid-aligned`: for a rotationally symmetric lens. Nodes
   are declared only along the +X field axis (fieldYmm = [0], fieldXmm >= 0). A query at field
   (x, y) is interpolated, with centroid alignment, at radius hypot(x, y). The kernel is then
-  rotated by atan2(y, x) about its centre. The sample pitch must be square.
+  rotated by atan2(y, x) about its centre, with the kernel row index increasing with image +Y (the
+  convention the environment PSF quadrature applies), so an asymmetric kernel points the same way
+  as in the 2-D grid modes. The sample pitch must be square.
 Shifts and rotations use bilinear resampling. This smooths the kernel slightly (by at most about
 one sample). Samples outside the kernel are zero, and the result is renormalised to unit energy.
 
