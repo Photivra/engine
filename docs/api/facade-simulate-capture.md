@@ -461,7 +461,9 @@ export interface SimulateCaptureFastReport {
 
 ## SimulateCaptureLensCatalogueRecord
 
-`lens.catalogue` as a record (#568): the lens id as `kind` and the `fast` override (see {@link SimulateCaptureOptions.fast}).
+`lens.catalogue` as a record (#568): the lens id as `kind` and the `fast` override (see {@link SimulateCaptureOptions.fast}). `fast`
+selects the field-grid method (#568) and, with camera rotation under `motion.shutter: "rolling"`, the per-tap PSF points instead of
+the lattice reading (#588; there, without a record or top-level `fast`, fast except for an `output.format` of "dng", "jpeg" or "png").
 
 ```ts
 export interface SimulateCaptureLensCatalogueRecord { kind: string; fast?: boolean }

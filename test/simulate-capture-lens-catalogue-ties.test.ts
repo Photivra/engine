@@ -61,3 +61,43 @@ describe("lens.catalogue resolves chart-boundary ties as the lattice does (#588)
     }, scaledTimeout(120_000));
   }
 });
+
+/*
+ * #588, owner decision: with camera rotation under `motion.shutter: "rolling"` every row has its own instants, so reading the lattice
+ * costs a band per instant. There the per-tap points are `lens.catalogue`'s fast choice (the field-grid method never runs with
+ * rotation) and the lattice reading its full method: the record's `fast`, else the top-level `fast`, else fast except for a DNG, JPEG
+ * or PNG. `diagnostics.fast.applied["lens.catalogue"]` is true where the per-tap points ran, with the `fast.lens.catalogue` assumption.
+ */
+describe("lens.catalogue with rotation under a rolling shutter: the per-tap points are the fast choice (#588)", () => {
+  const rolling = (scene: "siemens-star" | "dead-leaves", lens = "pv-24-1.8", extra: { fast?: boolean; record?: boolean; format?: "dng" | "jpeg" | "png" } = {}): SimulateCaptureOptions => ({
+    scene: { preset: scene }, subjectDistanceM: 3, output: { width: 21, height: 14, ...(extra.format ? { format: extra.format } : {}) },
+    sensor: { pixelPitchMicrometers: 60, spectralStepNanometers: 80, temporalSampleCount: 2 }, motion: { angularVelocityRadPerSec: { pitch: 0.02 }, shutter: "rolling" },
+    lens: { catalogue: extra.record === undefined ? lens : { kind: lens, fast: extra.record }, fNumber: lens === "pv-24-1.8" ? 1.8 : 3.5 },
+    exposure: { mode: "manual", shutterSeconds: 1 / 125, iso: 100 }, ...(extra.fast === undefined ? {} : { fast: extra.fast }) });
+  const ranFast = (r: SimulateCaptureResult): boolean | undefined => r.diagnostics.fast.applied["lens.catalogue"];
+
+  it("defaults to the per-tap points on screen and to the lattice for a DNG, JPEG or PNG; an explicit fast wins and is reported", async () => {
+    const screen = await simulateCapture(rolling("siemens-star")), full = await simulateCapture(rolling("siemens-star", undefined, { record: false }));
+    expect(screen.diagnostics.fast).toEqual({ requested: false, applied: { "lens.catalogue": true }, assurance: "approximation-with-a-priori-bound" });
+    expect((screen.assumptions.find((a) => a.id === "fast.lens.catalogue")!.value as { method: string }).method).toBe("per-tap-points");
+    expect(full.diagnostics.fast).toEqual({ requested: false, applied: { "lens.catalogue": false }, assurance: "engine-reference" });
+    expect(full.assumptions.some((a) => a.id === "fast.lens.catalogue")).toBe(false);
+    // A pitch rotation keeps the odd frame's centre column on the star's vertical spokes: ties, where the two readings differ.
+    expect(Array.from(full.raw.codes)).not.toEqual(Array.from(screen.raw.codes));
+    const cases: [Parameters<typeof rolling>[2], boolean][] = [[{ format: "dng" }, false], [{ format: "jpeg" }, false], [{ format: "png" }, false],
+      [{ format: "dng", record: true }, true], [{ format: "dng", fast: true }, true], [{ fast: false }, false], [{ fast: true, record: false }, false], [{ fast: false, record: true }, true]];
+    for (const [extra, fast] of cases) {
+      const r = await simulateCapture(rolling("siemens-star", undefined, extra));
+      expect(ranFast(r), JSON.stringify(extra)).toBe(fast);
+      expect(Array.from(r.raw.codes), JSON.stringify(extra)).toEqual(Array.from((fast ? screen : full).raw.codes));
+    }
+  }, scaledTimeout(240_000));
+
+  it("changes nothing but ties: dead leaves give the same RAW either way, also through a fisheye beyond its horizon", async () => {
+    for (const lens of ["pv-24-1.8", "pv-8-3.5-fisheye-pro"]) {
+      const fast = await simulateCapture(rolling("dead-leaves", lens, { record: true })), full = await simulateCapture(rolling("dead-leaves", lens, { record: false }));
+      expect([ranFast(fast), ranFast(full)], lens).toEqual([true, false]);
+      expect(Array.from(full.raw.codes), lens).toEqual(Array.from(fast.raw.codes));
+    }
+  }, scaledTimeout(240_000));
+});

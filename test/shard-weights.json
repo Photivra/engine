@@ -315,7 +315,7 @@
   "test/simulate-capture-exposure-push.test.ts": 700,
   "test/simulate-capture-integration.test.ts": 1880,
   "test/simulate-capture-lens-catalogue-fast.test.ts": 46019,
-  "test/simulate-capture-lens-catalogue-ties.test.ts": 15572,
+  "test/simulate-capture-lens-catalogue-ties.test.ts": 23408,
   "test/simulate-capture-lens-catalogue.test.ts": 364991,
   "test/simulate-capture-lens-corrections.test.ts": 9955,
   "test/simulate-capture-optics.test.ts": 13022,

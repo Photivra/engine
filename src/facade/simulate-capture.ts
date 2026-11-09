@@ -238,7 +238,11 @@ export type SimulateCaptureColorEncoding = "srgb" | "display-p3" | "rec2020";
  * edge-directed method that reduces zipper and false colour on sharp edges.
  */
 export type SimulateCaptureDemosaic = "bilinear" | "ahd";
-/** `lens.catalogue` as a record (#568): the lens id as `kind` and the `fast` override (see {@link SimulateCaptureOptions.fast}). */
+/**
+ * `lens.catalogue` as a record (#568): the lens id as `kind` and the `fast` override (see {@link SimulateCaptureOptions.fast}). `fast`
+ * selects the field-grid method (#568) and, with camera rotation under `motion.shutter: "rolling"`, the per-tap PSF points instead of
+ * the lattice reading (#588; there, without a record or top-level `fast`, fast except for an `output.format` of "dng", "jpeg" or "png").
+ */
 export interface SimulateCaptureLensCatalogueRecord { kind: string; fast?: boolean }
 /** `output.demosaic` as a record (#395): the demosaic and its `fast` override (see {@link SimulateCaptureOptions.fast}). */
 export interface SimulateCaptureDemosaicRecord { kind: SimulateCaptureDemosaic; fast?: boolean }
@@ -2584,9 +2588,20 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   // site lattice (defocus-image-space-provider.ts). #563: the display view reads the same geometry in any focus (display-view-lens-signal.ts).
   const imageSpaceOptions = [...(lensFieldMapping ? [lensOptions.distortion !== undefined ? (lensOptions.projection !== undefined ? "lens.projection, lens.distortion" : "lens.distortion") : "lens.projection"] : []),
     ...(vignetting ? ["lens.vignetting"] : []), ...(rotating ? ["camera rotation"] : [])];
-  // #588: and with a catalogue lens's PSF, whose quadrature reads each tap's source on this lattice (not with rotation under a rolling shutter).
-  // A catalogue lens always has a lens field mapping (its radial distortion), so the geometry is then always built.
-  const catalogueLattice = catalogueTaps !== undefined && !(rotating && shutterKind === "rolling");
+  // #588: and with a catalogue lens's PSF, whose quadrature reads each tap's source on this lattice. With rotation under a rolling shutter
+  // (each row has its own instants, so a band per instant) the per-tap points are lens.catalogue's fast choice: its record's fast, else
+  // the top-level one, else fast except for a DNG, JPEG or PNG. A catalogue lens always has a lens field mapping, so the geometry is built.
+  const rollingCatalogue = catalogueTaps !== undefined && rotating && shutterKind === "rolling";
+  const catalogueLattice = catalogueTaps !== undefined && !(rollingCatalogue && (catalogueFast ?? top.fast ?? !["dng", "jpeg", "png"].includes(format)));
+  // lens.catalogue's fast choice ran: the field-grid method (#568) or, with rolling rotation, the per-tap points (#588).
+  const catalogueRanFast = (): void => {
+    fastApplied["lens.catalogue"] = true;
+    fastReport = Object.freeze({ ...fastReport, applied: Object.freeze({ ...fastApplied }), assurance: "approximation-with-a-priori-bound" as const });
+  };
+  if (rollingCatalogue && !catalogueLattice) {
+    catalogueRanFast();
+    assume("fast.lens.catalogue", "model", { method: "per-tap-points" }, "#588: each PSF tap reads its own point, not its lattice point; they differ only at scene-boundary ties.");
+  }
   const lensGeometry = (defocusModel !== undefined || displayView || catalogueLattice) && imageSpaceOptions.length > 0 ? prepareDefocusImageSpaceGeometry({ focalLengthMm, focusDistanceM,
     angularVelocityRadPerSec: angular, ...(lensFieldMapping ? { lensMapping: prepareEnvironmentLensFieldMapping(lensFieldMapping) } : {}), ...(vignetting ? { vignetting } : {}) }) : undefined;
   const defocusGeometry = defocusModel !== undefined ? lensGeometry : undefined;
@@ -3300,8 +3315,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   }
   else if (tabulated && catalogueFastRun) {
     rawOutput = { raw: tabulated.raw, providerEvaluationCount: tabulated.providerEvaluationCount };
-    fastApplied["lens.catalogue"] = true;
-    fastReport = Object.freeze({ ...fastReport, applied: Object.freeze({ ...fastApplied }), assurance: "approximation-with-a-priori-bound" as const });
+    catalogueRanFast();
     for (const a of lensKit!.catalogueFastAssumptions(catalogueFastRun)) assume(a.id, "model", a.value, a.explanation);
   }
   else if (tabulated) {

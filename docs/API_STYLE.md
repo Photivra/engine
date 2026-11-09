@@ -223,7 +223,8 @@ have a fast method, a measured and bounded approximation of it. One flag style s
 - **The first fast method** (#568, 2.18.0): `lens.catalogue` (shorthand: the lens id; record `{ kind: <lens id>, fast }`) blends
   the lens's PSF over a field grid and tabulates each site's expected signal (docs/LENS_CATALOGUE.md, "Fast method"). It runs for
   a still camera with site-center queries and a chart or material scene; otherwise the exact method runs and `applied` says
-  `false`. The other listed options have no fast method yet.
+  `false`. With camera rotation under a rolling shutter its fast choice is instead the per-tap PSF points (#588, 2.21.0;
+  default fast except for a DNG, JPEG or PNG; docs/LENS_CATALOGUE.md, "Ties on chart boundaries"). The other listed options have no fast method yet.
 - **One report** on every capture and display view: `diagnostics.fast = { requested, applied, assurance }`. `requested` is true
   when `fast: true` was given anywhere; `applied` names each listed option that ran, `true` where its fast method ran;
   `assurance` is `engine-reference` when everything ran exact and `approximation-with-a-priori-bound` otherwise. A fast method
