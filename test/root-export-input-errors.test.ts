@@ -103,7 +103,7 @@ describe("root exports reject malformed input with domain errors (API review #4)
     "createPrintJpegStrip", "createPrintJpegTask", "composePrintJpegStrips", "createReinhardGlobalToneMappingTask", "createSensorRawFrame", "createSimulatedCapture",
     "createSyntheticFilmGrainTask", "mapEnvironmentDirectionsToChartPoints", "createUnsharpMaskTask", "resolveCaptureIlluminant", "resolveLensPsfConvolutionKernels", "resolveGenericEquipmentTierCatalog",
     "resolveGenericEquipmentTierLensProfiles", "resolveRawFrameReconstruction", "serializeNativeRawDng", "serializePngImage",
-    "prepareDisplayView", "serializeSimulatedCaptureDngFromParts", "simulateCapture", "simulateDisplayView", "simulateIdealReference", "simulatePackedSensorRaw", "simulateSensorRawFrame"
+    "prepareDisplayView", "serializeSimulatedCaptureDngFromParts", "simulateCapture", "simulateCaptureFromParts", "simulateDisplayView", "simulateIdealReference", "simulatePackedSensorRaw", "simulateSensorRawFrame"
   ]);
   const NO_INPUT_OBJECT = new Set([
     // Positional scalars or bound objects, a string id, raw bytes, result factories or no argument at all.

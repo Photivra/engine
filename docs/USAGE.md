@@ -7742,6 +7742,12 @@ console.log(star.assumptions.filter((a) => a.kind === "default").map((a) => a.id
 console.log(star.request.siteInput(0).environment.optics.nominalFNumber);
 ```
 
+A capture can render its RAW in parallel parts (`output.region`, one call per part). `serializeSimulatedCaptureDngFromParts()`
+writes the whole frame's DNG from the parts, and `simulateCaptureFromParts()` (#571) develops the whole frame from them,
+including the whole-image stages `output.diffractionCorrection` and `output.sharpening` that a region refuses, with the same
+bytes as a whole-frame `simulateCapture()` and per-row progress (`diffraction-correction`, `sharpening`). See
+[Quick start, Developing a capture rendered in parts](QUICK_START.md#developing-a-capture-rendered-in-parts-571).
+
 ### Color charts (2.14)
 
 The engine's own [color patches](https://github.com/Photivra/photivra/blob/main/docs/COLOR_PATCHES.md) are reflectance spectra lit by the capture's illuminant. Draw the

@@ -8573,6 +8573,11 @@
       "kind": "type"
     },
     {
+      "name": "simulateCaptureFromParts",
+      "source": "src/facade/develop-joined-parts.ts",
+      "kind": "runtime"
+    },
+    {
       "name": "SimulateCaptureLensCatalogueRecord",
       "source": "src/facade/simulate-capture.ts",
       "kind": "type"

@@ -1267,6 +1267,14 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 | [`EvaluateColorPatchReflectanceInput`](api/facade-color-patches.md#evaluatecolorpatchreflectanceinput) | Type |
 | [`getColorPatchSet`](api/facade-color-patches.md#getcolorpatchset) | Runtime |
 
+## facade/develop-joined-parts.ts
+
+[Detailed contracts](api/facade-develop-joined-parts.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/facade/develop-joined-parts.ts)
+
+| Export | Kind |
+| --- | --- |
+| [`simulateCaptureFromParts`](api/facade-develop-joined-parts.md#simulatecapturefromparts) | Runtime |
+
 ## facade/display-view-gpu.ts
 
 [Detailed contracts](api/facade-display-view-gpu.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/facade/display-view-gpu.ts)

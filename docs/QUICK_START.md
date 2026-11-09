@@ -116,7 +116,7 @@ modelling choices (such as "no lens PSF") as `kind: "model"`.
 | `motion.angularVelocityRadPerSec` | still | `{ pitch?, yaw?, roll? }` in rad/s (see [Motion](#motion)). |
 | `motion.shutter` | `"global"` | Or `"rolling"`. |
 | `motion.rollingShutterSkewSeconds` | the body's readout skew | Rolling only. |
-| `signal`, `onProgress` | none | An `AbortSignal` cancels the running task; `onProgress` reports `raw`, `white-balance`, `development` and `jpeg` tiles. The last event of each stage has `completedTileCount === totalTileCount`. The capture yields to the host about every 8 ms with a `MessageChannel` message (else `setImmediate`, else `setTimeout`), so other queued tasks run in between: an abort sent from another task, such as a Web Worker `message` event, takes effect at the next yield. |
+| `signal`, `onProgress` | none | An `AbortSignal` cancels the running task; `onProgress` reports `raw`, `white-balance`, `development`, `diffraction-correction` and `sharpening` (#571: output rows, with those options) and `jpeg` tiles. The last event of each stage has `completedTileCount === totalTileCount`. The capture yields to the host about every 8 ms with a `MessageChannel` message (else `setImmediate`, else `setTimeout`), so other queued tasks run in between: an abort sent from another task, such as a Web Worker `message` event, takes effect at the next yield. |
 
 Unknown fields are rejected, so a typo never silently falls back to a default.
 
@@ -971,10 +971,14 @@ console.log(result.diagnostics.detail); // { diffractionCorrection: {...}, sharp
   noise; it adds no detail. Not with a wide-gamut `output.colorEncoding` or `output.gamutMapping: "perceptual"`.
 - **Reported:** the `output.diffractionCorrection` and `output.sharpening` assumptions (settings, cut-off, measured filter
   response, defaults used), `diagnostics.detail` (ringing, clipping and halo counts) and `diagnostics.options`.
-- **Not combinable** with `output.region`; not offered by `simulateDisplayView` or `simulateIdealReference`. The DNG holds the
-  RAW codes and is unchanged; only `image.samples` (and the JPEG or PNG made from them) change.
-- **Cost:** both stages hold the whole developed image, as AHD does. At 256 × 256 on an Apple M5 Pro (Node.js 24.19.0) the
+- **Not combinable** with `output.region`; not offered by `simulateDisplayView` or `simulateIdealReference`. A capture rendered
+  in region parts takes them through `simulateCaptureFromParts` (#571, [Developing a capture rendered in parts](#developing-a-capture-rendered-in-parts-571)).
+  The DNG holds the RAW codes and is unchanged; only `image.samples` (and the JPEG or PNG made from them) change.
+- **Cost:** both stages need the whole developed image, as AHD does. At 256 × 256 on an Apple M5 Pro (Node.js 24.19.0) the
   development took 8 ms by default, 15 ms with sharpening and 18–20 ms with diffraction correction (R = 3–5), one run each.
+  Since #571 they run row by row in place, with the same sums in the same order (the same bytes as 2.18.0): one developed
+  image in memory instead of up to six, and `onProgress` reports each output row as the `diffraction-correction` and
+  `sharpening` stages. At 24 MP see [Developing a capture rendered in parts](#developing-a-capture-rendered-in-parts-571).
 
 The trade-offs of these and the lens corrections (corner resolution after distortion correction, corner noise after
 vignetting correction, residual longitudinal CA, halo overshoot, nothing beyond the cut-off) are measured in
@@ -1864,6 +1868,60 @@ const parts: SimulateCaptureDngPart[] = await Promise.all([0, 32].map(async (y) 
 const dng = await serializeSimulatedCaptureDngFromParts(dngFrame, parts);
 console.log(dng.bytes.length);
 ```
+
+### Developing a capture rendered in parts (#571)
+
+`simulateCaptureFromParts(options, parts)` develops the whole frame of `options` from region renders of the same
+request. It joins the parts' RAW exactly as `serializeSimulatedCaptureDngFromParts` does (the same parts, the same checks),
+then develops the joined RAW as `simulateCapture(options)` would, including the steps that filter across the whole image and
+that a region refuses: `output.diffractionCorrection` and `output.sharpening`. The joined RAW is the whole render's RAW, so the
+result's `image.samples`, JPEG or PNG bytes, `raw` and `plan` are those of the whole-frame capture, bit for bit. Pass the
+whole request (no `output.region`); render the parts with the same request plus `output.region`, without the detail stages,
+`output.dng` and auto white balance (none changes the RAW codes; auto white balance is measured here over the joined frame).
+
+`onProgress` reports `development`, then `diffraction-correction` and `sharpening` once per output row of the whole image
+(each stage ends with `completedTileCount === totalTileCount`), then `jpeg`; no `raw` stage, since no RAW is rendered. A host
+can show these as "Applying diffraction correction to the whole image" and "Applying sharpening to the whole image".
+`signal` cancels the step. In the result, `diagnostics.providerEvaluationCount` is 0, `diagnostics.timingsMs` are this call's
+(`raw` is the join), `diagnostics.fast` and the `raw.*` assumptions of how the RAW was rendered are in the parts' results
+instead, and a `parts` assumption records the join.
+
+```ts
+import { simulateCaptureFromParts, simulateCapture, type SimulateCaptureDngPart, type SimulateCaptureOptions } from "@photivra/engine";
+
+const whole: SimulateCaptureOptions = { scene: { preset: "slanted-edge" }, lens: { fNumber: 16, diffraction: "circular-aperture" },
+  output: { width: 96, height: 64, format: "jpeg", diffractionCorrection: {}, sharpening: {} } };
+// Two strips rendered without the whole-image stages (in an application, in separate Web Workers).
+const parts: SimulateCaptureDngPart[] = await Promise.all([0, 32].map(async (y) => {
+  const part = await simulateCapture({ ...whole, output: { width: 96, height: 64, region: { x: 0, y, width: 96, height: 32 } } });
+  return { raw: part.raw, region: part.region! };
+}));
+const developed = await simulateCaptureFromParts({ ...whole, onProgress: ({ stage, completedTileCount, totalTileCount }) => {
+  if (stage === "sharpening") console.log("Applying sharpening to the whole image", completedTileCount / totalTileCount);
+} }, parts);
+console.log(developed.image.jpeg!.length); // the bytes of simulateCapture(whole).image.jpeg
+```
+
+Tests compare the result with the whole-frame capture byte for byte: JPEG with both stages, 16-bit sRGB with a thresholded
+mask, AHD with auto white balance, a development push and the four-spot filter, Display P3 PNG with diffraction correction,
+DNG with both stages, and no stage at all; and the row-by-row stages against whole-image passes on odd sizes.
+
+**Measured at 24 MP** (6000 × 4000 at 6 µm, slanted edge at f/8 with `lens.diffraction`, 8 parts; Apple M5 Pro, Node.js 24.19.0,
+one thread, a shared machine, two runs; `node scripts/benchmark-joined-development.mjs`):
+
+| Step | Time | Peak memory (process) |
+| --- | --- | --- |
+| Join and develop, no detail stage | 1.9–2.2 s (join 0.13–0.15 s) | 532–551 MiB |
+| … with sharpening (σ = 1) | 3.3–3.7 s (sharpening 1.9–2.1 s) | 1,080 MiB |
+| … with diffraction correction (R = 3, the default) | 3.7–3.9 s (correction 2.0 s) | 1,079–1,080 MiB |
+| … with both | 5.1–5.4 s (development 1.2 s, correction 2.0–2.1 s, sharpening 1.7–1.8 s) | 1,079 MiB |
+| Whole `simulateCapture` with both, for comparison | 10.0–10.4 s (RAW 4.8–4.9 s) | 924 MiB |
+
+The peak includes the parts' RAW read back (7 bytes per native site) and the joined RAW. The detail stages' share is the one
+developed image in 64-bit floats (24 bytes per pixel, 549 MiB at 24 MP), held as before by AHD and the wide-gamut paths. In
+2.18.0 the stages held up to six such images: the same whole capture with both stages peaked at 3,670 MB (resident set
+sampled every 50 ms). The extra pass therefore costs about 5 s on one worker after the parts, against about 10 s to render
+the whole frame again on one worker.
 
 ### A Print JPEG written in strips
 
