@@ -13,7 +13,8 @@ Nominal filters vary: a "10-stop" or ND1000 (OD 3.0, 9.97 stops) filter transmit
 exactly, its rating, so the result is only as good as the profile. The envelope is an
 approximation whenever any profile's `scientificStatus` is `"approximation"`.
 
-Example: 1/125 s with a 10-stop filter gives 1024/125 ≈ 8.19 s; on a third-stop dial, 8 s.
+Example: 1/125 s with `GENERIC_ND_FILTER_PROFILES[10]` (exactly 2^-10) gives 1024/125 = 8.192 s;
+on a third-stop dial, 8 s.
 
 ```ts
 export function calculateFilteredExposureTime(

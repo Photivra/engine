@@ -3,10 +3,13 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  GENERIC_ND_FILTER_PROFILES,
+  GENERIC_ND_FILTER_STOPS,
   GENERIC_THIRD_STOP_SHUTTER_SECONDS,
   InvalidConfigurationError,
   InvalidScientificInputError,
   calculateFilteredExposureTime,
+  composeFrontOfLensFilterTransmission,
   parseFrontOfLensFilterProfile,
   type FrontOfLensFilterProfile,
   type FrontOfLensFilterTransmissionModel
@@ -141,5 +144,56 @@ describe("calculateFilteredExposureTime (#578)", () => {
     expect(() => calculateFilteredExposureTime({ shutterSeconds: 1, filter, wavelengthNanometers: 900 })).toThrow(InvalidScientificInputError);
     expect(() => calculateFilteredExposureTime({ shutterSeconds: 1, filter, wavelengthBasis: "vacuum" })).toThrow(InvalidScientificInputError);
     expect(() => calculateFilteredExposureTime({ shutterSeconds: Number.MAX_VALUE, filter })).toThrow(RangeError);
+  });
+});
+
+describe("generic ND filter presets (#578, owner decision 2026-11-09)", () => {
+  it("are exactly 2^-N for 3, 6 and 10 stops, spectrally flat, idealized and unbranded", () => {
+    expect(GENERIC_ND_FILTER_STOPS).toEqual([3, 6, 10]);
+    const expected = { 3: 1 / 8, 6: 1 / 64, 10: 1 / 1024 } as const;
+    for (const stops of GENERIC_ND_FILTER_STOPS) {
+      const profile = GENERIC_ND_FILTER_PROFILES[stops];
+      expect(profile.filterId).toBe(`generic-nd-${stops}-stop`);
+      expect(profile.identityScope).toBe("photivra-generic-unbranded");
+      expect(profile.scientificStatus).toBe("approximation");
+      expect(profile.uncertainty.kind).toBe("not-quantified");
+      expect(profile.transmission).toMatchObject({ kind: "neutral-linear-transmission", linearTransmissionFactor: { value: expected[stops] } });
+      expect(profile.evidence[0]?.note).toMatch(/Idealized/);
+      // The parser accepts the preset unchanged.
+      expect(parseFrontOfLensFilterProfile(profile)).toEqual(profile);
+      // Flat: the same transmittance at both ends of the range and in the middle.
+      for (const wavelengthNanometers of [380, 550, 780]) {
+        const composed = composeFrontOfLensFilterTransmission({ filters: [profile], wavelengthNanometers, wavelengthBasis: "air" });
+        expect(composed.combinedLinearTransmissionFactor).toBe(expected[stops]);
+        expect(composed.combinedAttenuationStops).toBe(stops);
+      }
+    }
+  });
+
+  it("are frozen all the way down", () => {
+    expect(Object.isFrozen(GENERIC_ND_FILTER_STOPS)).toBe(true);
+    expect(Object.isFrozen(GENERIC_ND_FILTER_PROFILES)).toBe(true);
+    const profile = GENERIC_ND_FILTER_PROFILES[10];
+    expect(Object.isFrozen(profile)).toBe(true);
+    expect(Object.isFrozen(profile.transmission)).toBe(true);
+    expect(Object.isFrozen(profile.evidence[0])).toBe(true);
+    expect(Object.isFrozen(profile.limitations)).toBe(true);
+  });
+
+  it("give exact filtered times: 1/125 s → 1024/125 s with 10 stops (8 s on the third-stop dial), ×8 and ×64 with 3 and 6", () => {
+    const ten = calculateFilteredExposureTime({
+      shutterSeconds: 1 / 125, filter: GENERIC_ND_FILTER_PROFILES[10], shutterDialSeconds: GENERIC_THIRD_STOP_SHUTTER_SECONDS
+    });
+    expect(ten.value.filteredShutterSeconds).toBe(8.192);
+    expect(ten.value.filteredShutterSeconds.toFixed(2)).toBe("8.19");
+    expect(ten.value.attenuationStops).toBe(10);
+    expect(ten.value.exposureFactor).toBe(1024);
+    expect(ten.value.dial?.shutterSeconds).toBe(8);
+    expect(ten.provenance.kind).toBe("approximation");
+    expect(calculateFilteredExposureTime({ shutterSeconds: 1, filter: GENERIC_ND_FILTER_PROFILES[3] }).value.filteredShutterSeconds).toBe(8);
+    expect(calculateFilteredExposureTime({ shutterSeconds: 1, filter: GENERIC_ND_FILTER_PROFILES[6] }).value.filteredShutterSeconds).toBe(64);
+    const stacked = calculateFilteredExposureTime({ shutterSeconds: 1 / 8, filter: [GENERIC_ND_FILTER_PROFILES[3], GENERIC_ND_FILTER_PROFILES[6]] });
+    expect(stacked.value.attenuationStops).toBe(9);
+    expect(stacked.value.filteredShutterSeconds).toBe(64);
   });
 });

@@ -1137,6 +1137,12 @@ export {
 } from "./optics/front-of-lens-filter.js";
 
 export {
+  GENERIC_ND_FILTER_PROFILES,
+  GENERIC_ND_FILTER_STOPS,
+  type GenericNdFilterStops
+} from "./optics/generic-nd-filter-presets.js";
+
+export {
   FILTERED_EXPOSURE_DEFAULT_WAVELENGTH_NANOMETERS,
   calculateFilteredExposureTime,
   type CalculateFilteredExposureTimeInput,

@@ -1064,36 +1064,19 @@ The stack keeps each filter's identity and evidence. The combined numeric uncert
 
 - Exact under the linear sensor model (exposure `H = E·t`); film reciprocity failure is not modelled.
 - Nominal filters vary: a "10-stop" filter (`T = 2^-10`) gives 1/125 s → 8.19 s, an ND1000 (OD 3.0, 9.97 stops) gives exactly 8 s. The result is only as good as the profile, and is an approximation whenever a profile is.
+- Generic presets: `GENERIC_ND_FILTER_PROFILES[3]`, `[6]` and `[10]` (keys in `GENERIC_ND_FILTER_STOPS`) are frozen, unbranded, spectrally flat profiles over 380–780 nm with a transmittance of exactly 2^-N (1/8, 1/64, 1/1024). They are idealized (`scientificStatus: "approximation"`, uncertainty not quantified), and any function that takes a front-of-lens filter profile accepts them. For other filters, build a profile with `parseFrontOfLensFilterProfile()`.
 - Filters are resolved at 550 nm unless `wavelengthNanometers` is given; neutral filters do not depend on it. `incidentPolarization` matters only with a polarizer in the stack.
 
 ```ts
 import {
+  GENERIC_ND_FILTER_PROFILES,
   GENERIC_THIRD_STOP_SHUTTER_SECONDS,
-  calculateFilteredExposureTime,
-  parseFrontOfLensFilterProfile
+  calculateFilteredExposureTime
 } from "@photivra/engine";
-
-const evidence = [{ sourceOrigin: "photivra", sourceReference: "nominal 10-stop rating", reuseStatus: "photivra-owned" }] as const;
-const tenStop = parseFrontOfLensFilterProfile({
-  schemaVersion: "0.1.0",
-  filterId: "generic-nd-10-stop",
-  profileVersion: "1.0.0",
-  identityScope: "photivra-generic-unbranded",
-  position: "front-of-lens",
-  scientificStatus: "approximation",
-  wavelengthBasis: "air",
-  wavelengthRangeNanometers: { minimum: 400, maximum: 700 },
-  transmission: { kind: "neutral-linear-transmission", linearTransmissionFactor: { value: 2 ** -10, evidence } },
-  uncertainty: { kind: "not-quantified", limitation: "Nominal rating; real filters vary." },
-  polarizationModeled: false,
-  wavelengthChangingBehaviorModeled: false,
-  evidence,
-  limitations: []
-});
 
 const { value } = calculateFilteredExposureTime({
   shutterSeconds: 1 / 125,
-  filter: tenStop,
+  filter: GENERIC_ND_FILTER_PROFILES[10],
   shutterDialSeconds: GENERIC_THIRD_STOP_SHUTTER_SECONDS
 });
 console.log(value.filteredShutterSeconds.toFixed(2), value.dial?.shutterSeconds); // 8.19 8

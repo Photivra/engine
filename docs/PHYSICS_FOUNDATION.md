@@ -444,6 +444,8 @@ t_filtered = t / T = t · 2^stops,   stops = −log2 T = OD / log10 2
 | `T` | As good as the filter profile, from `composeFrontOfLensFilterTransmission()`. Nominal ratings are approximate: a "10-stop" filter means `T = 2^-10` (1/125 s → 1024/125 ≈ 8.19 s), an ND1000 means OD 3.0, 9.97 stops (1/125 s → 8 s). The result envelope is an approximation whenever any profile is. |
 | Nearest dial value | Exact selection: the dial value nearest in stops, the shorter on a tie (the policy `nearest-log2-shorter-on-tie` of the exposure-mode resolver). Its `exposureErrorStops = log2(dial / t_filtered)`. Outside the dial the nearest end is reported with `clamped`. |
 
+**Generic presets.** `GENERIC_ND_FILTER_PROFILES` holds idealized 3-, 6- and 10-stop filters. By definition (owner decision 2026-11-09) an N-stop filter transmits exactly `T = 2^-N`: 1/8, 1/64 and 1/1024, so 1/125 s with the 10-stop preset gives exactly 8.192 s (8 s on the third-stop dial). They are spectrally flat (`neutral-linear-transmission`) over 380–780 nm in air, unbranded, and marked `scientificStatus: "approximation"` with unquantified uncertainty, because real filters deviate from their rating and are not perfectly flat.
+
 Filters are resolved at 550 nm unless the caller gives a wavelength; neutral filters do not depend on it. Not modelled: inter-filter reflections, flare, and light leaking around the filter or in through the viewfinder.
 
 ### Atmospheric haze (2.0)

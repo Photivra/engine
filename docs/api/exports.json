@@ -3623,6 +3623,16 @@
       "kind": "runtime"
     },
     {
+      "name": "GENERIC_ND_FILTER_PROFILES",
+      "source": "src/optics/generic-nd-filter-presets.ts",
+      "kind": "runtime"
+    },
+    {
+      "name": "GENERIC_ND_FILTER_STOPS",
+      "source": "src/optics/generic-nd-filter-presets.ts",
+      "kind": "runtime"
+    },
+    {
       "name": "GENERIC_PRIME_EQUIVALENT_FOCAL_LENGTHS_MM",
       "source": "src/equipment/generic-prime-lenses.ts",
       "kind": "runtime"
@@ -3770,6 +3780,11 @@
     {
       "name": "GenericLensSet",
       "source": "src/equipment/generic-lens-catalogue.ts",
+      "kind": "type"
+    },
+    {
+      "name": "GenericNdFilterStops",
+      "source": "src/optics/generic-nd-filter-presets.ts",
       "kind": "type"
     },
     {

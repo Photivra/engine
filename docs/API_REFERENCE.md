@@ -1752,6 +1752,16 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 | [`resolveFrontOfLensFilterTransmission`](api/optics-front-of-lens-filter.md#resolvefrontoflensfiltertransmission) | Runtime |
 | [`ResolveFrontOfLensFilterTransmissionInput`](api/optics-front-of-lens-filter.md#resolvefrontoflensfiltertransmissioninput) | Type |
 
+## optics/generic-nd-filter-presets.ts
+
+[Detailed contracts](api/optics-generic-nd-filter-presets.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/optics/generic-nd-filter-presets.ts)
+
+| Export | Kind |
+| --- | --- |
+| [`GENERIC_ND_FILTER_PROFILES`](api/optics-generic-nd-filter-presets.md#generic_nd_filter_profiles) | Runtime |
+| [`GENERIC_ND_FILTER_STOPS`](api/optics-generic-nd-filter-presets.md#generic_nd_filter_stops) | Runtime |
+| [`GenericNdFilterStops`](api/optics-generic-nd-filter-presets.md#genericndfilterstops) | Type |
+
 ## optics/illumination-vignetting.ts
 
 [Detailed contracts](api/optics-illumination-vignetting.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/optics/illumination-vignetting.ts)
