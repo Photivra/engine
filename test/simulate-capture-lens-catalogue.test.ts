@@ -43,11 +43,11 @@ function undistort(id: string, u: number, v: number, aspect: number): { u: numbe
   return { u: u * ri / rd, v: v * ri / rd };
 }
 async function regionCapture(id: string, fNumber: number, pitch: number, size: number, where: "centre" | "corner",
-  element: (at: { u: number; v: number }, pixel: number) => Element): Promise<SimulateCaptureResult> {
+  element: (at: { u: number; v: number }, pixel: number) => Element, fast = false): Promise<SimulateCaptureResult> {
   const f = frame(pitch, size, where), at = undistort(id, f.centre.u, f.centre.v, f.H / f.W);
   return simulateCapture({ scene: { preset: "composite", background: { preset: "uniform", reflectance: 0.02 }, elements: [element(at, 2 / f.W)] }, subjectDistanceM: 3,
     output: { width: f.W, height: f.H, maximumPixels: 2 ** 27, format: "srgb-16", region: { x: f.x0, y: f.y0, width: size, height: size } },
-    sensor: { pixelPitchMicrometers: pitch, spectralStepNanometers: 50 }, lens: { catalogue: id, fNumber }, exposure: exposureAt(fNumber) });
+    sensor: { pixelPitchMicrometers: pitch, spectralStepNanometers: 50 }, lens: { catalogue: id, fNumber }, exposure: exposureAt(fNumber), fast }).then((r) => (fast ? ranFast(r) : r));
 }
 
 /** ISO 12233-style slanted-edge analysis: per-row edge centroid, line fit, 4× oversampled ESF; the 10–90 % rise and the 50 % position. */
@@ -102,11 +102,29 @@ function radialCentroidOffset(r: SimulateCaptureResult, where: { u: number; v: n
   return (mx / m0 - (S / 2 - 0.5)) * ux + (my / m0 - (S / 2 - 0.5)) * uy;
 }
 
+/**
+ * #568: each chart measure below is also taken with lens.catalogue's fast method (`fast: true`), which must run and agree with the
+ * exact method within FAST_TOLERANCE (measured 2026-11-09: edge rise within 0.01 px, lateral colour 0.003 px, coma, distortion and
+ * vignetting 0.000).
+ */
+const FAST_TOLERANCE = { rise: 0.02, coma: 0.02, lateral: 0.02, distortion: 0.02, vignettingStops: 0.005 };
+function fastAgrees(measure: keyof typeof FAST_TOLERANCE, name: string, fast: number, exact: number): void {
+  expect(Math.abs(fast - exact), "fast " + measure + " " + name).toBeLessThan(FAST_TOLERANCE[measure]);
+}
+function ranFast(r: SimulateCaptureResult): SimulateCaptureResult {
+  expect(r.diagnostics.fast.applied["lens.catalogue"]).toBe(true);
+  return r;
+}
+
 describe("simulateCapture lens.catalogue on the charts (#549)", () => {
   const PRO = "pv-24-1.4-pro", CONSUMER = "pv-24-1.8";
 
   it("sharpness across the frame: the pro lens's edges are sharper at the centre and the corner, and the consumer's corner is softer than its centre", async () => {
-    const rise = async (id: string, where: "centre" | "corner", fNumber = widest(id)): Promise<number> => edge(await regionCapture(id, fNumber, 6, 48, where, slantedEdge)).rise;
+    const rise = async (id: string, where: "centre" | "corner", fNumber = widest(id)): Promise<number> => {
+      const exact = edge(await regionCapture(id, fNumber, 6, 48, where, slantedEdge)).rise, fast = edge(await regionCapture(id, fNumber, 6, 48, where, slantedEdge, true)).rise;
+      fastAgrees("rise", id + " " + where, fast, exact);
+      return exact;
+    };
     const proCentre = await rise(PRO, "centre"), proCorner = await rise(PRO, "corner"), consumerCentre = await rise(CONSUMER, "centre"), consumerCorner = await rise(CONSUMER, "corner");
     expect(proCorner).toBeLessThan(consumerCorner);
     expect(proCentre).toBeLessThanOrEqual(consumerCentre);
@@ -116,17 +134,19 @@ describe("simulateCapture lens.catalogue on the charts (#549)", () => {
   }, scaledTimeout(120_000));
 
   it("coma: the consumer lens's corner point flares outward wide open; the pro lens's much less", async () => {
-    const f = frame(3, 32, "corner"), comaShift = async (id: string): Promise<number> =>
-      radialCentroidOffset(await regionCapture(id, widest(id), 3, 32, "corner", point), f.centre) - radialCentroidOffset(await regionCapture(id, 5.6, 3, 32, "corner", point), f.centre);
+    const f = frame(3, 32, "corner"), shift = async (id: string, fast: boolean): Promise<number> =>
+      radialCentroidOffset(await regionCapture(id, widest(id), 3, 32, "corner", point, fast), f.centre) - radialCentroidOffset(await regionCapture(id, 5.6, 3, 32, "corner", point, fast), f.centre);
+    const comaShift = async (id: string): Promise<number> => { const exact = await shift(id, false); fastAgrees("coma", id, await shift(id, true), exact); return exact; };
     const consumer = await comaShift(CONSUMER), pro = await comaShift(PRO);
     // Measured 2026-11-07 (3 µm, 50 nm spectral step): consumer 0.36 px outward, pro 0.02 px.
     expect(consumer).toBeGreaterThan(0.25);
     expect(pro).toBeLessThan(consumer / 3);
-  }, scaledTimeout(120_000));
+  }, scaledTimeout(240_000));
 
   it("lateral colour: blue and red edges separate at the corner, three times more with the consumer lens", async () => {
-    const ca = async (id: string): Promise<number> => edge(await regionCapture(id, widest(id), 6, 48, "corner", slantedEdge)).blueMinusRed -
-      edge(await regionCapture(id, widest(id), 6, 48, "centre", slantedEdge)).blueMinusRed;
+    const offset = async (id: string, fast: boolean): Promise<number> => edge(await regionCapture(id, widest(id), 6, 48, "corner", slantedEdge, fast)).blueMinusRed -
+      edge(await regionCapture(id, widest(id), 6, 48, "centre", slantedEdge, fast)).blueMinusRed;
+    const ca = async (id: string): Promise<number> => { const exact = await offset(id, false); fastAgrees("lateral", id, await offset(id, true), exact); return exact; };
     const consumer = await ca(CONSUMER), pro = await ca(PRO);
     // Expected horizontal component of L·R·(D_blue − D_red) at the corner: about 1 px (consumer) and 0.3 px (pro) at 6 µm.
     expect(consumer).toBeGreaterThan(0.5);
@@ -135,14 +155,14 @@ describe("simulateCapture lens.catalogue on the charts (#549)", () => {
   }, scaledTimeout(120_000));
 
   /** Whole-frame view (36 × 24 mm on 120 × 80 or 300 × 200 pixels): the field-scale characters. */
-  const wholeFrame = (id: string, fNumber: number, scene: SimulateCaptureOptions["scene"], W: number): Promise<SimulateCaptureResult> => simulateCapture({ scene, subjectDistanceM: 5,
-    output: { width: W, height: W * 2 / 3, format: "srgb-16" }, sensor: { pixelPitchMicrometers: 36000 / W, spectralStepNanometers: 50 }, lens: { catalogue: id, fNumber }, exposure: exposureAt(fNumber) });
+  const wholeFrame = (id: string, fNumber: number, scene: SimulateCaptureOptions["scene"], W: number, fast = false): Promise<SimulateCaptureResult> => simulateCapture({ scene, subjectDistanceM: 5,
+    output: { width: W, height: W * 2 / 3, format: "srgb-16" }, sensor: { pixelPitchMicrometers: 36000 / W, spectralStepNanometers: 50 }, lens: { catalogue: id, fNumber }, exposure: exposureAt(fNumber), fast }).then((r) => (fast ? ranFast(r) : r));
 
   it("distortion: a grid line near the frame edge bows by the lens's k1, barrel, more for the consumer lens", async () => {
     const W = 300, H = 200;
-    const bow = async (id: string): Promise<{ measured: number; expected: number }> => {
+    const bowOf = async (id: string, fast: boolean): Promise<{ measured: number; expected: number }> => {
       // Vertical lines at u = 0, ±0.45, ±0.9; horizontal ones at v = 0, ±0.45, so rows 66 (v ≈ 0.22) and 7 (v ≈ 0.62) cross only the vertical line.
-      const r = await wholeFrame(id, 8, { preset: "line-grid", spacing: 0.45, lineWidth: 0.03, lineReflectance: 0.05, backgroundReflectance: 0.6 }, W), g = linear(r, 1);
+      const r = await wholeFrame(id, 8, { preset: "line-grid", spacing: 0.45, lineWidth: 0.03, lineReflectance: 0.05, backgroundReflectance: 0.6 }, W, fast), g = linear(r, 1);
       /** The x position of the vertical line at u = 0.9 in row y (centroid of darkness in a window). */
       const lineX = (y: number): number => {
         // Darkness relative to the row's background, flat-fielded by a line through the window's ends (vignetting dims it towards the corner).
@@ -160,24 +180,34 @@ describe("simulateCapture lens.catalogue on the charts (#549)", () => {
       const xd = (x: number, y: number): number => x * (1 + k1 * (x * x + y * y) / half ** 2);
       return { measured: mid - top, expected: xd(0.9 * W / 2, H / 2 - 67) - xd(0.9 * W / 2, H / 2 - 8) };
     };
+    const bow = async (id: string): Promise<{ measured: number; expected: number }> => {
+      const exact = await bowOf(id, false);
+      fastAgrees("distortion", id, (await bowOf(id, true)).measured, exact.measured);
+      return exact;
+    };
     const consumer = await bow(CONSUMER), pro = await bow(PRO);
     // Measured 2026-11-07 (120 µm pixels, so positions move in steps): consumer 0.60 px (expected 0.92), pro within 0.5 px of its 0.31.
     expect(consumer.measured).toBeGreaterThan(0.3);
     expect(Math.abs(consumer.measured - consumer.expected)).toBeLessThan(0.5);
     expect(Math.abs(pro.measured - pro.expected)).toBeLessThan(0.5);
     expect(consumer.measured).toBeGreaterThan(pro.measured);
-  }, scaledTimeout(120_000));
+  }, scaledTimeout(300_000));
 
   it("vignetting: the corner fall-off follows the profile (with the distortion's area factor), more for the consumer lens and less stopped down", async () => {
     const W = 120, H = 80;
-    const falloff = async (id: string, fNumber: number): Promise<{ measured: number; expected: number }> => {
-      const g = linear(await wholeFrame(id, fNumber, { preset: "uniform", reflectance: 0.5 }, W), 1);
+    const falloffOf = async (id: string, fNumber: number, fast: boolean): Promise<{ measured: number; expected: number }> => {
+      const g = linear(await wholeFrame(id, fNumber, { preset: "uniform", reflectance: 0.5 }, W, fast), 1);
       const mean = (x0: number, y0: number, n: number): number => { let s = 0; for (let y = y0; y < y0 + n; y++) for (let x = x0; x < x0 + n; x++) s += g[y * W + x]!; return s / (n * n); };
       const c = resolveGenericLens({ lensId: id, activeImagingArea: { widthMm: 36, heightMm: 24 }, fNumber }).character;
       const rho = Math.hypot(W / 2 - 1.5, H / 2 - 1.5) / Math.hypot(W / 2, H / 2), b = 1 - 2 ** (-c.vignetting.cornerStops / 2), k1 = c.distortion.corner;
       // Relative illumination (1 − bρ²)² times the distortion area factor 1/det J, det J = (1 + k1ρ_i²)(1 + 3k1ρ_i²) (ρ_i ≈ ρ here).
       const expected = -Math.log2((1 - b * rho * rho) ** 2) + Math.log2((1 + k1 * rho * rho) * (1 + 3 * k1 * rho * rho));
       return { measured: Math.log2(mean(W / 2 - 4, H / 2 - 4, 8) / mean(0, 0, 3)), expected };
+    };
+    const falloff = async (id: string, fNumber: number): Promise<{ measured: number; expected: number }> => {
+      const exact = await falloffOf(id, fNumber, false);
+      fastAgrees("vignettingStops", id + " f/" + fNumber, (await falloffOf(id, fNumber, true)).measured, exact.measured);
+      return exact;
     };
     const consumer = await falloff(CONSUMER, 1.8), pro = await falloff(PRO, 1.4), consumerStopped = await falloff(CONSUMER, 5.6);
     for (const v of [consumer, pro, consumerStopped]) expect(Math.abs(v.measured - v.expected)).toBeLessThan(0.08);
@@ -227,7 +257,7 @@ describe("simulateCapture lens.catalogue options (#549)", () => {
     // A disc too large for the quadrature's combined limit is refused, with the reason.
     await expect(simulateCapture({ ...options(1, true), lens: { catalogue: "pv-50-1.8", fNumber: 1.8, focusDistanceM: 1, defocus: { model: "geometric-disc" } }, exposure: exposureAt(1.8) }))
       .rejects.toThrow(/over the limit of 16/);
-  }, scaledTimeout(60_000));
+  }, scaledTimeout(120_000));
 
   it("lens.focusScatter moves the focus by the seeded sample and is off by default", async () => {
     const options = (scatter: boolean): SimulateCaptureOptions => ({ ...base, subjectDistanceM: 2,
@@ -242,7 +272,7 @@ describe("simulateCapture lens.catalogue options (#549)", () => {
     expect(scattered.image.samples).not.toEqual(plain.image.samples);
   }, scaledTimeout(60_000));
 
-  it("refuses combinations the lens sets itself, unknown ids, out-of-range settings and the display view", async () => {
+  it("refuses combinations the lens sets itself, unknown ids and out-of-range settings, in the capture and the display view", async () => {
     for (const lens of [{ catalogue: "pv-50-1.8", prime: 50 }, { catalogue: "pv-50-1.8", focalLengthMm: 50 }, { catalogue: "pv-50-1.8", diffraction: "circular-aperture" },
       { catalogue: "pv-50-1.8", projection: "rectilinear" }, { catalogue: "pv-50-1.8", pupilSampling: { radialSamples: 1, angularSamples: 4 } }, { catalogue: "pv-50-1.4" },
       { focusScatter: { seed: 1 } }, { catalogue: "pv-50-1.8", focusScatter: { seed: 1, extra: 1 } }]) {
@@ -252,7 +282,8 @@ describe("simulateCapture lens.catalogue options (#549)", () => {
     // On a whole full frame the 50 mm focuses no closer than 0.05·(1 + 1/0.15) = 0.383 m.
     await expect(simulateCapture({ ...base, output: { width: 24, height: 16 }, sensor: { pixelPitchMicrometers: 1500 }, subjectDistanceM: 0.3, lens: { catalogue: "pv-50-1.8", fNumber: 2 } }))
       .rejects.toThrow(/focuses no closer than 0.383/);
-    await expect(simulateDisplayView({ ...base, lens: { catalogue: "pv-50-1.8" } }, { width: 12, height: 8 })).rejects.toThrow(/does not support lens.catalogue/);
+    // #569: the display view renders catalogue lenses (test/display-view-lens-catalogue.test.ts) and refuses what the capture refuses.
+    await expect(simulateDisplayView({ ...base, lens: { catalogue: "pv-50-1.8", fNumber: 1.4 } }, { width: 12, height: 8 })).rejects.toThrow(/outside the PV 50 1.8 range/);
   });
 });
 

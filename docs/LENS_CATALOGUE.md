@@ -125,9 +125,9 @@ The assumptions `lens.catalogue` (the lens) and `lens.catalogue.character` (the 
 
 **`lens.defocus`** convolves the defocus disc into every PSF node (a further approximation: the defocused aberrated wave PSF is not exactly the in-focus PSF convolved with the disc) and runs through the same quadrature; the `lens.defocus` assumption says `execution: "catalogue-lens-psf"`. The combined kernel is limited to a radius of 16 sites (33² scene queries per site and spectral node); larger is refused with the reason. #553's bokeh options (`blades`, `sphericalAberration`, `catsEye`) are refused with `lens.catalogue`: the lens folds a plain disc into its PSF, so they would otherwise be dropped. Feeding each lens's spherical aberration and character into the bokeh kernel is a follow-up ([#567](https://github.com/Photivra/photivra/issues/567)), not a 2.17.0 feature.
 
-**Not combinable** with `lens.prime`, `focalLengthMm`, `projection`, `distortion`, `vignetting`, `psf`, `diffraction` or `pupilSampling` (the lens sets them). The display view (`simulateDisplayView`, `prepareDisplayView`) refuses `lens.catalogue`: its field-dependent PSF, distortion and vignetting need the capture's quadrature. Flare, focus breathing and the bokeh shape are reported, not rendered.
+**Not combinable** with `lens.prime`, `focalLengthMm`, `projection`, `distortion`, `vignetting`, `psf`, `diffraction` or `pupilSampling` (the lens sets them). The display view (`simulateDisplayView`, `prepareDisplayView`) renders `lens.catalogue` since #569: the same distortion, projection and vignetting at every kernel tap, and the PSF the capture resolves, taken at the centre of each of up to 64 × 43 field zones (an approximation within 1 % per site of the capture; [Display view, Catalogue lenses](DISPLAY_VIEW.md#catalogue-lenses-569)). Flare, focus breathing and the bokeh shape are reported, not rendered.
 
-**Cost.** The quadrature runs one scene query per kernel tap and spectral node through the lens field mapping, so, like `lens.distortion`, a catalogue capture is far slower than one without lens options. A 48 × 48 region of a full frame at 6 µm (Apple M5 Pro, Node.js 24.19.0, at each lens's widest aperture; the same region with `lens.prime` 24 takes 0.01 s):
+**Cost.** The quadrature runs one scene query per kernel tap and spectral node through the lens field mapping, so, like `lens.distortion`, a catalogue capture with the exact method is far slower than one without lens options. A 48 × 48 region of a full frame at 6 µm (Apple M5 Pro, Node.js 24.19.0, at each lens's widest aperture; the same region with `lens.prime` 24 takes 0.01 s):
 
 | Lens | Kernel | 20 nm spectral step (default) | 50 nm step |
 | --- | --- | --- | --- |
@@ -136,7 +136,44 @@ The assumptions `lens.catalogue` (the lens) and `lens.catalogue.character` (the 
 | PV 50 1.8 | 7 × 7 | 5.9 s | 2.4 s |
 | PV 24 1.8 | 9 × 9 | 9.7 s | 3.9 s |
 
-The time grows with the site count and the kernel: the kernel grows with the aberrations, with the f-number (the Airy pattern) and with smaller pixels. The catalogue's data and PSF builder are loaded on demand (`src/facade/generic-lens-capture.ts`), so a capture bundle that never asks for a catalogue lens does not carry them.
+The time grows with the site count and the kernel: the kernel grows with the aberrations, with the f-number (the Airy pattern) and with smaller pixels. The catalogue's data and PSF builder are loaded on demand (`src/facade/generic-lens-capture.ts`), so a capture bundle that never asks for a catalogue lens does not carry them. For interactive captures use the fast method below.
+
+### Fast method (`fast: true`, #568)
+
+For interactive use the catalogue lens has a fast method behind the engine's exact-or-fast flag (#395; docs/API_STYLE.md): `fast: true` on the request, or the record form `lens: { catalogue: { kind: "pv-50-1.8", fast: true }, fNumber }`, whose `fast` overrides the top-level flag. Without the flag the exact method above runs and the image is unchanged.
+
+**What it changes (the only approximation).** The exact method resolves the PSF at every site's own field point and spectral node (the centroid-aligned interpolation of the 5 × 5 × 5 node grid) and queries the scene once per kernel tap. The fast method resolves the same PSF exactly on a finer field grid (each interval between the profile's field nodes split into at least 4 cells, and into more where the node kernels' intensity centroids move by more than 0.05 site per cell, as lateral color does on small pixels) and gives each site the bilinear blend of its four grid points' kernels. The blend is linear, so the channel response and each chart material's radiance fold into the grid kernels once per grid point, and a site's expected electrons become Σ over the taps of the field factor (vignetting × distortion area factor) at the tap's lattice point times the blended kernel for the material there. Distortion, vignetting and the fisheye projection are the exact method's (the radial inverse is solved by Newton's method instead of bisection, the same root to rounding); outside a circular fisheye's image circle and beyond the horizon the scene radiance is zero, as in the exact method. The sensor stage (dark charge, Poisson draws, read noise, ADC) is the tabulated RAW path's, with each site's own seeds (`src/facade/catalogue-lens-signal.ts`).
+
+**Where it runs.** A still camera (no `motion.angularVelocityRadPerSec`), site-center queries (no `sensor.antiAliasing`, `sensor.pixelAperture` "point") and a chart preset or caller material scene, in whole frames and regions, with or without `lens.defocus`. Elsewhere, or if the run-time check below fails, the exact method runs and `diagnostics.fast.applied["lens.catalogue"]` is `false`. The display view renders `lens.catalogue` with #569's per-zone PSF and never takes the fast method (`applied` is `false` there).
+
+**Labels.** `diagnostics.fast` reports `applied: { "lens.catalogue": true }` and `assurance: "approximation-with-a-priori-bound"`; the assumption `fast.lens.catalogue` names the method (`field-grid-bilinear-psf`), the grid and its rules; `raw.expectedSignal` has the method `tabulated-expected-electrons-catalogue-psf-field-grid`, the tolerance and the measured verification difference.
+
+**Run-time check.** One site of each CFA phase (the region's top-left 2 × 2 block) runs the exact chain, the environment PSF quadrature: its readout must be reproduced bit for bit and its expected electrons must agree with the fast ones within 0.5 % (`CATALOGUE_FAST_VERIFICATION_TOLERANCE`, internal), or the capture runs the exact method.
+
+**Accuracy against the exact method** (November 9, 2026; `test/simulate-capture-lens-catalogue-fast.test.ts` and the chart tests):
+
+| Check | Measured | Tested bound |
+| --- | --- | --- |
+| The fast sum with each site's exact kernels instead of the blend, against the exact chain at the verification sites (rectilinear wide open, a 6 µm corner region, both fisheyes, `lens.defocus`) | ≤ 1e-9 relative | 1e-9 |
+| Expected electrons, blend against exact kernels, site by site: PV 24 1.8 at f/1.8 and PV 50 1.8 at f/8 on 768 × 512, PV 15 2.8 fisheye on 768 × 512, PV 24 1.8 at f/1.8 in 6 µm regions at the corner and mid-field | at most 2.3e-4 of the frame's peak; at most 2.0e-3 of a site's own value | 1e-3 of the peak; 5e-3 of the site |
+| Slanted-edge 10–90 % rise, center and corner, both lenses (6 µm) | within 0.010 px | 0.02 px |
+| Coma (corner point, 3 µm) | within 0.0001 px | 0.02 px |
+| Lateral color (corner minus center, 6 µm) | within 0.003 px | 0.02 px |
+| Distortion bow (120 µm) | 0.000 px | 0.02 px |
+| Vignetting fall-off (300 µm), three cases | 0.000 stops | 0.005 stops |
+
+In the images most codes are identical: where the blend's error moves a site's expected electrons across a Poisson draw's boundary, that site draws one electron more or less.
+
+**Cost.** The issue's benchmark (`node scripts/benchmark-catalogue-capture.mjs`): Siemens star, whole full frame (36 × 24 mm), f/8, the default 20 nm spectral step, PV 50 1.8 (the app's default lens) against `lens.prime` 50, one thread, Apple M5 Pro, Node.js 24.19.0; medians of 5 rounds after a warm-up in one process, the captures alternating:
+
+| Width × height (pixel pitch) | `lens.prime` 50 | `lens.catalogue` fast | Fast ÷ prime | `lens.catalogue` exact | Exact ÷ fast |
+| --- | --- | --- | --- | --- | --- |
+| 48 × 32 (750 µm) | 0.006 s | 0.042 s | 7.0 | 0.90 s | 21 |
+| 192 × 128 (188 µm) | 0.013 s | 0.052 s | 3.9 | 12.0 s | 230 |
+| 384 × 256 (94 µm) | 0.039 s | 0.084 s | 2.1 | 47.5 s | 570 |
+| 768 × 512 (47 µm) | 0.145 s | 0.209 s | **1.44** | 185 s | 890 |
+
+Load average 2–5 (a shared machine); the exact column is one run per width. The fast method's fixed cost, about 40 ms (the PSF profile's FFTs, shared with the exact method, and the grid's kernels), dominates the smallest frames; from 768 × 512 up it is within 2× of `lens.prime`, the issue's target. In those images the largest sRGB-16 code difference between fast and exact was 0, 57, 46 and 339 (single sites whose Poisson draw moved by an electron in the dark sectors).
 
 ### Kernel orientation
 

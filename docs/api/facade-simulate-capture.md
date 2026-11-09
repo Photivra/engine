@@ -173,7 +173,7 @@ the record form with `fast` and is reported in `diagnostics.fast.applied` when i
 whether or not it has a fast method yet; one without runs exact and reports `false`.
 
 ```ts
-SIMULATE_CAPTURE_FAST_OPTIONS = Object.freeze(["lens.diffraction", "sensor.antiAliasing", "sensor.pixelAperture.box", "output.demosaic.ahd"] as const)
+SIMULATE_CAPTURE_FAST_OPTIONS = Object.freeze(["lens.diffraction", "lens.catalogue", "sensor.antiAliasing", "sensor.pixelAperture.box", "output.demosaic.ahd"] as const)
 ```
 
 ## SIMULATE_CAPTURE_METERING_MODES
@@ -459,6 +459,14 @@ export interface SimulateCaptureFastReport {
 }
 ```
 
+## SimulateCaptureLensCatalogueRecord
+
+`lens.catalogue` as a record (#568): the lens id as `kind` and the `fast` override (see {@link SimulateCaptureOptions.fast}).
+
+```ts
+export interface SimulateCaptureLensCatalogueRecord { kind: string; fast?: boolean }
+```
+
 ## SimulateCaptureLensDistortion
 
 The exact contract is declared below; use the domain guide for assumptions and staged integration.
@@ -515,6 +523,18 @@ export interface SimulateCaptureOptions {
      */
     prime?: number;
     /**
+     * Opt-in (#576): an ideal lens, an aberration-free thin lens of this physical focal length (1–4000 mm) on whatever sensor the
+     * frame is (output width × height × pixel pitch; no crop-factor scaling), at any `fNumber` from f/0.5 to f/128
+     * (`IDEAL_LENS_LIMITS`; beyond them the request is refused). It replaces the tier lens's focal length and f-number range (the
+     * transmission is kept); shutter priority and program may choose any aperture in that range. Recorded in the `lens.ideal`
+     * assumption. Its blur is that of `defocus`, `diffraction` and `vignetting`, the same models as with `prime`. It focuses at any
+     * distance beyond the focal length (no minimum focus distance; `subjectDistanceM` must be at least twice the focal length, as for
+     * every lens). Works in `simulateCapture` and the display view. Not combinable with `prime`, `catalogue` or `focalLengthMm`.
+     * Optional `widestFNumber` and `narrowestFNumber` (within `IDEAL_LENS_LIMITS`, widest ≤ narrowest; each defaults to its bound)
+     * narrow the range: `fNumber` must lie in it, and shutter priority and program choose apertures only in it. Default off.
+     */
+    ideal?: { focalLengthMm: number; widestFNumber?: number; narrowestFNumber?: number };
+    /**
      * Opt-in (#549): a lens of the generic lens catalogue by id (`GENERIC_LENS_IDS`, for example "pv-50-1.2-pro" or "pv-50-1.8";
      * docs/LENS_CATALOGUE.md). Like `prime`, its focal length is the full-frame equivalent ÷ the simulated frame's diagonal crop
      * factor and it replaces the tier lens's focal length and f-number range (the transmission is kept). The capture renders the
@@ -522,9 +542,12 @@ export interface SimulateCaptureOptions {
      * colour, at the resolved f-number and focus) through the environment PSF quadrature, its radial distortion, its vignetting
      * and, for the fisheyes, the equisolid projection. Flare, focus breathing and bokeh shape are not rendered. Not combinable
      * with `prime`, `focalLengthMm`, `projection`, `distortion`, `vignetting`, `psf`, `diffraction` or `pupilSampling` (the
-     * lens sets them); `defocus` convolves the disc into the lens's PSF. Not offered by the display view. Default off.
+     * lens sets them); `defocus` convolves the disc into the lens's PSF. The display view renders it with the PSF taken per field zone (#569; docs/DISPLAY_VIEW.md). Default off.
+     * #568: the record form `{ kind: <lens id>, fast }` overrides the top-level `fast` flag for this option; the fast method
+     * blends the PSF between exactly resolved kernels on a field grid and tabulates each site's expected signal
+     * (docs/LENS_CATALOGUE.md, "Fast method").
      */
-    catalogue?: string;
+    catalogue?: string | SimulateCaptureLensCatalogueRecord;
     /**
      * Opt-in (#549), with `catalogue` only: a seeded autofocus error (`simulateGenericLensFocusError`). The focus distance becomes
      * the sampled one for (seed, shotIndex), reported in the `lens.focusScatter` assumption; it is visible with `defocus`. Default off.
@@ -748,7 +771,7 @@ export interface SimulateCaptureOptions {
    * Exact or fast (#395). `false` or omitted: every option runs its exact method, the engine reference. `true`: each option
    * listed in {@link SIMULATE_CAPTURE_FAST_OPTIONS} runs its fast method where it has one, a measured, bounded approximation of
    * the exact one; an option without a fast method runs exact. An option's own record `fast` overrides this for that option
-   * only. `diagnostics.fast` reports what was requested and what ran. No option has a fast method yet, so every result is exact.
+   * only. `diagnostics.fast` reports what was requested and what ran. `lens.catalogue` has a fast method (#568); the other options run exact.
    */
   fast?: boolean;
   /** Aborting cancels the running task; the promise rejects with a domain error and returns no partial image. */

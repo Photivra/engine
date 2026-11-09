@@ -212,10 +212,15 @@ and every number is a labelled approximation.
 - **Combinations:** `lens.defocus` convolves the disc into the lens's PSF (a combined kernel up to 16 sites in radius);
   `lens.focusScatter: { seed, shotIndex? }` moves the focus by a seeded autofocus error (`simulateGenericLensFocusError`), off
   by default. `prime`, `focalLengthMm`, `projection`, `distortion`, `vignetting`, `psf`, `diffraction` and `pupilSampling` are
-  set by the lens and refused with it; the display view refuses `lens.catalogue`.
+  set by the lens and refused with it. The display view renders `lens.catalogue` since #569, with the PSF taken per field zone
+  ([Display view, Catalogue lenses](https://github.com/Photivra/photivra/blob/main/docs/DISPLAY_VIEW.md#catalogue-lenses-569)).
 - **Cost:** one scene query per kernel tap through the lens field mapping, like `lens.distortion`: a 48 × 48 region of a full frame
   at 6 µm takes about 1 s with *PV 50 1.2 Pro* and 6 s with *PV 50 1.8* (Apple M5 Pro), against 0.01 s with `lens.prime`. Render
   regions, or use a coarser `sensor.spectralStepNanometers`.
+- **Fast method (#568):** `fast: true` (or `lens: { catalogue: { kind: "pv-50-1.8", fast: true } }`) blends the PSF over a field
+  grid and tabulates each site's signal, a labeled approximation within 2.3e-4 of the frame's peak signal of the exact method
+  (measured): a 768 × 512 whole full frame renders within 2× of the same `lens.prime` capture. It needs a still camera, site-center
+  queries and a chart or material scene; elsewhere the exact method runs (`diagnostics.fast` says which ran).
 
 ```ts
 import { resolveGenericLens, simulateCapture } from "@photivra/engine";
@@ -231,6 +236,49 @@ const capture = await simulateCapture({
   exposure: { mode: "manual", shutterSeconds: 1 / 1000, iso: 100 }
 });
 console.log(capture.assumptions.find((a) => a.id === "lens.catalogue.character")?.value);
+```
+
+### Ideal lens at any focal length and f-number (#576)
+
+`lens.ideal: { focalLengthMm }` is a plain ideal lens: an aberration-free thin lens named by its **physical** focal length, on
+whatever sensor the frame is (output width × height × pixel pitch). Unlike `lens.prime` and `lens.catalogue` it is not scaled by
+the crop factor, so a 50 mm lens is 50 mm on full frame and on APS-C, as when a full-frame lens is mounted on a smaller sensor
+(narrower field of view, the same blur in millimetres).
+
+- **Any f-number within the bounds:** `lens.fNumber` from f/0.5 to f/128, focal lengths from 1 to 4000 mm (`IDEAL_LENS_LIMITS`).
+  f/0.5 is the physical limit of a lens in air (the sine condition: N = 1/(2·sin θ′) ≥ 0.5); the others are engine bounds. Values
+  beyond them are refused by name. Shutter priority and program may choose any aperture in that range (in dim light, wider
+  than real lenses open).
+- **An optional f-number range:** `lens.ideal: { focalLengthMm, widestFNumber, narrowestFNumber }` (either or both, within
+  `IDEAL_LENS_LIMITS`, the widest no larger than the narrowest; each defaults to its bound) narrows that range like a real
+  lens's: `lens.fNumber` must lie in it, and shutter priority and program choose apertures only in it. The assumption then
+  records the range (`{ lensId, focalLengthMm, widestFNumber, narrowestFNumber }`); without it nothing changes. Program follows
+  the engine's program line (f/4–f/16) and refuses a range that does not hold it, as for `lens.prime` and `lens.catalogue`; a
+  range without f/8 takes the reference exposure at its aperture nearest f/8 (the same N²/t).
+- **The same blur models as `lens.prime`:** `lens.defocus` (the thin-lens blur circle of `calculateDefocusCircle`), `lens.diffraction`
+  (the Airy pattern) and `lens.vignetting` (a caller profile). Without them the ideal lens renders sharp and evenly lit. It focuses
+  at any distance beyond the focal length (no minimum focus distance; the subject must be at least twice the focal length away, as
+  for every lens).
+- **Capture and display view:** `simulateCapture`, `simulateDisplayView` and `prepareDisplayView` take it. It replaces the tier
+  lens's focal length and f-number range (its transmission is kept) and is recorded in the `lens.ideal` assumption
+  (`{ lensId: "ideal-50mm", focalLengthMm: 50 }`). At the same focal length and f-number it renders the same pixels as the tier
+  lens (`lens.focalLengthMm`) and the generic prime.
+- **Not combinable** with `lens.prime`, `lens.catalogue` or `lens.focalLengthMm`.
+
+A 50 mm f/1.8 lens on APS-C (23.5 × 15.6 mm: 235 × 156 pixels at 100 µm):
+
+```ts
+import { simulateCapture } from "@photivra/engine";
+
+const capture = await simulateCapture({
+  scene: { preset: "siemens-star" },
+  output: { width: 235, height: 156 },
+  sensor: { pixelPitchMicrometers: 100 },
+  subjectDistanceM: 3,
+  lens: { ideal: { focalLengthMm: 50 }, fNumber: 1.8, focusDistanceM: 2.5, defocus: { model: "geometric-disc" } },
+  exposure: { mode: "aperture-priority" }
+});
+console.log(capture.assumptions.find((a) => a.id === "lens.defocus")?.value); // diameterMicrometers 94.5 on any sensor
 ```
 
 ### Fitting a chart to the frame (2.3)

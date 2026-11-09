@@ -356,6 +356,100 @@ projection; `rotation` yaw 0.05 and pitch 0.03 rad/s at 1/125 s, the default eig
 - The capture's own cost with these options (#548's table in [Quick start, Optics](QUICK_START.md#optics)) is far higher;
   the view's follows the display pixels as before.
 
+### Catalogue lenses (#569)
+
+From #569 the view accepts `lens.catalogue` (the 30 generic lenses of [the lens catalogue](LENS_CATALOGUE.md)), at every
+f-number of each lens's range and down to its close focus, with `lens.defocus` and `lens.focusScatter`, the combinations
+`simulateCapture` renders. The lens's distortion, vignetting and (for the fisheyes) projection go through the
+[lens signal](#lens-projection-distortion-vignetting-and-rotation) as above; its PSF is the new part.
+
+- **What the capture does.** The catalogue lens's sampled PSF (5 × 5 field nodes × 5 wavelengths, centroid-aligned
+  interpolation, diffraction and the lens's aberrations included) is resolved by the environment PSF quadrature at each
+  query point's own field position and spectral node, and each of its (2R + 1)² taps reads the scene through the lens with its
+  own field factor.
+- **What the view does (an approximation, the `view.lensPsf` assumption).** The native raster is cut into square field
+  zones of Z = ⌈max(W, H) / 64⌉ sites (94 on a 6000 × 4000 frame: 64 × 43 zones; one site on frames of at most 64 sites a
+  side). Every site of a zone takes the PSF the capture's own resolver (`resolveLensSampledPsfKernel`) gives at the zone's
+  centre, at each spectral node. Everything else is the capture's sum: every tap reads the lattice source point through the
+  distortion and projection, with its own vignetting and distortion area factor. The error is the PSF's change across half a
+  zone, plus, with the box aperture or the four-spot filter, the capture's per-query PSF positions (a fraction of a site
+  from the site centre). `createDisplayViewLensPsf` in `src/facade/display-view-lens-signal.ts`, loaded on demand.
+- **Fisheyes.** A ray at or beyond 90° from the axis sees no scene (zero radiance), and a sensor point outside the
+  equisolid image circle looks straight back, as in the capture, so the 8 mm's view is black outside its 180° circle. The
+  lens signal reads such a ray as zero instead of refusing it; the profiles' reach check skips it.
+- **Tables.** Each zone's combined kernels (per lattice group and channel, per material or per spectral node) are the
+  expected signal's own tables built with the zone's kernels, when a site of the zone is first read, and kept per prepared
+  request in a least-recently-used cache of at most 64 MB (at least four zones). They change time and memory only. A zone
+  costs about 0.7 ms at R = 4 with 20 spectral nodes (a 64 × 43 view of a 6 µm full frame, which reads every one of the
+  2,752 zones once, took 1.9 s against 0.04–0.09 s with `lens.prime` and vignetting, for dead leaves and a radiance scene
+  alike; Apple M5 Pro, Node 24.19.0); a 96 × 96 part of the app's view (about 284 native sites a side, plus the kernel's reach) reads at most 5 × 5 zones.
+- **GPU:** these requests stay on the CPU reference, labelled `unsupported-on-backend` with `gpu: "auto"`, as for #563.
+  No `src/gpu` code changed.
+- **Limits:** the capture's own. `lens.diffraction`, `lens.psf` and the bokeh options are refused with the lens, a catalogue
+  PSF with a defocus disc above a combined radius of 16 sites is refused, and with the four-spot filter a large PSF can pass
+  the environment's 100 000 scene queries per site (*PV 100 2.8 Macro Pro* at f/22 on 6 µm: 210 000), refused by both.
+
+**Two capture fixes this needed** (each changes only requests that failed before):
+
+- `subjectDistanceM` may now equal twice the focal length (it had to exceed it), so *PV 100 2.8 Macro Pro* renders at its
+  1:1 close focus f·(1 + 1/1) = 2f, in the capture and the view.
+- A lens whose range excludes f/8 (*PV 800 9*, f/9–f/32) failed every request: the exposure anchor f/8, 1/125 s, ISO 100 lay
+  outside its range. Such a lens now takes the same reference exposure at the aperture of its range nearest f/8, here its widest
+  (t = 1/125 s × (N₀/8)², the same N²/t and so the same reference luminance); every other lens keeps f/8. (An ideal lens with a
+  narrowed range, 2.18.0, takes the same rule.)
+
+**Validation** (`test/display-view-lens-catalogue.test.ts`; reference: `calculateEnvironmentSensorPhotoSignal` on the
+capture's own site record, its catalogue PSF quadrature, evaluated with the capture's scene):
+
+| Case | Zones | Largest per-site difference | Mean |
+| --- | --- | --- | --- |
+| 60 × 40 sites of 1.5 µm, dead leaves or a radiance scene: PV 50 1.2 Pro, PV 8 and PV 15 fisheyes, PV 50 1.8 (kernel radius 3–10) | 1 site | ≤ 2e-15 (test: 1e-12) | |
+| The same frame, PV 24 1.4 Pro at f/2 with the 2 × 2 box, four-spot filter, AHD, `lens.defocus` and `lens.focusScatter` | 1 site | 2.5e-3 (test: 5e-3) | |
+| Whole 6 µm full frame (6000 × 4000), 300 sites, dead leaves: PV 24 1.8 and PV 16 2.8 wide open, PV 100 Macro at 1:1 f/22, PV 8 fisheye | 94 sites | 0.66 % (test: 1 %) | ≤ 1.2e-4 (test: 3e-4) |
+| All 30 lenses at their widest and narrowest f-number at their close focus, 12 µm full frame, 12 sites each | 47 sites | below 1 % (test) | |
+
+- *Ties on chart boundaries.* On the Siemens star in a symmetric frame, lattice source points that fall exactly on a spoke
+  through the frame centre round as the lattice does, while the capture's quadrature forms each tap's point from its own site
+  and can resolve it to the other material: the same difference as with `lens.diffraction` ([above](#lens-projection-distortion-vignetting-and-rotation),
+  [#565](https://github.com/Photivra/photivra/issues/565)). Dead leaves and radiance scenes have no such ties, so the table uses them.
+- *Against the box-downsized capture:* a slanted edge through *PV 24 1.8* wide open (6 µm, 192 × 128 shown at 24 × 16)
+  within the rectilinear test's 0.6-code RMS and 3-code maximum.
+- Regions are byte-identical to the whole view, and prepared renders (also with `gpu: "auto"`) to `simulateDisplayView`.
+
+**Cost** (the app request of [A device-pixel view rendered in parts](#a-device-pixel-view-rendered-in-parts): 6000 × 4000 at
+6 µm, 2028 × 1352 in 96 × 96 parts, the app's composite chart at 0.63 m, 30 of 294 parts timed, two repeats interleaved;
+`ROWS=0,2 PARTS=30 REPEATS=2 LENS=none,catalogue:pv-50-1.2-pro,catalogue:pv-50-1.2-pro:open,catalogue:pv-24-1.8:open,catalogue:pv-16-2.8:open,catalogue:pv-100-2.8-macro-pro:22 node scripts/benchmark-display-view.mjs --app`,
+November 9, 2026, built from this change, Node 24.19.0, Apple M5 Pro, one thread per process, load average 7.7–40.4 from
+other work, so absolute times are upper bounds and the ratios are the measure). The catalogue rows replace the prime with the
+lens (no `lens.diffraction`: the lens's PSF includes it) and keep the row's exposure; R is the PSF's kernel radius.
+
+| Options | Lens | Prepare | Part median | µs per display pixel, median | Against no lens | Whole view, one thread (extrapolated) |
+| --- | --- | --- | --- | --- | --- | --- |
+| Speed | none (`lens.prime` 50, f/8) | 32–45 ms | 47–77 ms | 5.0–8.3 | 1 | 18–26 s |
+| Speed | PV 50 1.2 Pro, f/1.2 | 71–91 ms | 211–321 ms | 22.6–34.3 | 4.2–4.5× | 63–96 s |
+| Speed | PV 24 1.8, f/1.8 | 81–93 ms | 372–420 ms | 40.0–44.8 | 5.4–8.0× | 119–124 s |
+| Speed | PV 50 1.2 Pro, f/8 | 52–65 ms | 436–720 ms | 46.8–77.1 | 9.3–9.4× | 129–212 s |
+| Speed | PV 16 2.8, f/2.8 | 84–86 ms | 590–655 ms | 62.8–69.9 | 8.4–12.6× | 174–193 s |
+| Speed | PV 100 2.8 Macro Pro, f/22 | 65–71 ms | 1.80–1.91 s | 193–204 | 25–39× | 531–559 s |
+| Quality | none (`lens.prime` 50, f/8, diffraction) | 49–81 ms | 74–165 ms | 8.0–17.6 | 1 | 30–63 s |
+| Quality | PV 50 1.2 Pro, f/1.2 | 75–82 ms | 299–318 ms | 32.1–33.9 | 1.9–4.0× | 90–94 s |
+| Quality | PV 24 1.8, f/1.8 | 90–98 ms | 514–533 ms | 55.0–57.2 | 3.2–6.9× | 152–157 s |
+| Quality | PV 50 1.2 Pro, f/8 | 51–84 ms | 522–637 ms | 55.7–68.4 | 3.9–7.0× | 154–248 s |
+| Quality | PV 16 2.8, f/2.8 | 91–95 ms | 766–789 ms | 82.4–84.4 | 4.8–10.3× | 228–232 s |
+| Quality | PV 100 2.8 Macro Pro, f/22 | refused (210 000 scene queries per site) | | | | |
+
+- The cost is the tap sum, as for Quality with a lens (#563): every tap of every lattice group with its own field factor,
+  about (2R + 2)² × 4 taps per site with the 2 × 2 box. It grows with R², so it is lowest wide open for the sharp lenses and
+  highest stopped down (diffraction) and for the softer wide lenses. The ratios pair the extremes of the two rows' medians.
+  Prepare grows from 32–81 ms to 51–98 ms (the lens's PSF profile); the zone tables are built during the renders and are
+  inside the part times.
+- **For interactive use:** a 96 × 96 part takes about 0.2–0.8 s on one thread for most lenses and settings (1.9 s at the
+  Macro's f/22), against 50–80 ms without a lens, so a whole 2028 × 1352 view takes about 1–3 minutes of CPU (9 minutes for the
+  Macro stopped down), divided by the workers rendering parts. A progressive viewer should render the visible parts first, or a
+  coarser view (cost follows the display pixels), until the GPU renders these requests.
+- The capture's own cost with a catalogue lens is far higher ([Lens catalogue, Cost](LENS_CATALOGUE.md)); the view's follows
+  the display pixels as before.
+
 ### Monte Carlo estimator and its error
 
 A point drawn uniformly in F_P lands in real pixel j with probability w_j/A, so the mean of
@@ -1446,7 +1540,8 @@ model:
   [Defocus](#defocus));
 - camera rotation with `motion.shutter: "rolling"`, and a lens mapping or vignetting profile that does not reach the
   view's farthest source point ([Lens projection, distortion, vignetting and rotation](#lens-projection-distortion-vignetting-and-rotation));
-  projection, distortion, vignetting and rotation themselves render since #563;
+  projection, distortion, vignetting and rotation themselves render since #563, and `lens.catalogue` since #569
+  ([Catalogue lenses](#catalogue-lenses-569));
 - `lens.defocus` with a disc radius above 512 sites (as the capture refuses it; 64 before 2.17.0);
 - `output.whiteBalance: "auto"`: the capture measures it from its noisy full-resolution RAW (use
   `"scene-illuminant"` or a fixed white balance, as for region tiles);

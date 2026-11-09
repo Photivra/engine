@@ -49,7 +49,7 @@ describe("root exports reject malformed input with domain errors (API review #4)
   });
 
   it("rejects unknown fields on the simple scalar calculators", () => {
-    const strict = ["calculateEquivalentFocalLength35Mm", "calculateFieldOfView", "calculateFieldOfViewBounds", "calculateProjectedObjectSize",
+    const strict = ["calculateEquivalentFocalLength35Mm", "calculateSensorEquivalence", "calculateBlurShareOfFrame", "calculateFieldOfView", "calculateFieldOfViewBounds", "calculateProjectedObjectSize",
       "calculateDepthOfField", "calculateDefocusCircle", "calculateDefocusDiscKernelRadius", "estimateEquivalentViewingCircleOfConfusion", "calculateAiryDisk",
       "calculateExposureValue100", "calculateRelativeOpticalExposure", "calculateRelativeRenderedExposure", "calculateEquivalentIso",
       "calculateThinLensImageDistance", "calculateIdealApertureGeometry", "calculatePixelPitch", "calculatePlanckianSpectralRadiance",

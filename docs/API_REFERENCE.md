@@ -1,6 +1,6 @@
 # Public API reference
 
-Generated from the exact root exports for **@photivra/engine 2.17.0 / root contract 2.17.0** by `node scripts/generate-api-reference.mjs`. No module deep import is supported.
+Generated from the exact root exports for **@photivra/engine 2.18.0 / root contract 2.18.0** by `node scripts/generate-api-reference.mjs`. No module deep import is supported.
 
 Use [the developer guide](https://github.com/Photivra/photivra/blob/main/docs/DEVELOPERS.md) for executable paths and scientific boundaries. Types are contracts, not runtime validation: parse untrusted data, preserve units/reference frames, read assessment blockers, and retain evidence/limitations. Optional properties do not imply a universal default. Model/schema IDs remain independent of the distribution.
 
@@ -16,6 +16,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 | Depth of field, hyperfocal distance and defocus blur | [`calculateDepthOfField`](api/optics-depth-of-field.md#calculatedepthoffield), [`calculateDefocusCircle`](api/optics-depth-of-field.md#calculatedefocuscircle) |
 | Field of view | [`calculateFieldOfView`](api/camera-field-of-view.md#calculatefieldofview) |
 | Crop factor, 35 mm-equivalent focal length and crops | [`calculateEquivalentFocalLength35Mm`](api/camera-equivalent-focal-length.md#calculateequivalentfocallength35mm), [`calculateCenteredCrop`](api/output-crop.md#calculatecenteredcrop) |
+| Equivalent f-number, sensor area and blur as a share of the frame | [`calculateSensorEquivalence`](api/camera-sensor-equivalence.md#calculatesensorequivalence), [`calculateBlurShareOfFrame`](api/camera-sensor-equivalence.md#calculateblurshareofframe) |
 | Motion blur and shutter speed | [`calculateProjectedMotionBlur`](api/motion-projected-motion.md#calculateprojectedmotionblur), [`calculateShutterAngleExposureSeconds`](api/motion-video-sequence.md#calculateshutterangleexposureseconds) |
 | Diffraction | [`calculateAiryDisk`](api/optics-diffraction.md#calculateairydisk) |
 | Sensor signal, noise and SNR | [`calculatePhotoelectrons`](api/sensor-signal-noise.md#calculatephotoelectrons), [`calculateSignalToNoise`](api/sensor-signal-noise.md#calculatesignaltonoise) |
@@ -78,6 +79,24 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 | [`calculateProjectedObjectSize`](api/camera-projected-object-size.md#calculateprojectedobjectsize) | Runtime |
 | [`CalculateProjectedObjectSizeInput`](api/camera-projected-object-size.md#calculateprojectedobjectsizeinput) | Type |
 | [`ProjectedObjectSize`](api/camera-projected-object-size.md#projectedobjectsize) | Type |
+
+## camera/sensor-equivalence.ts
+
+[Detailed contracts](api/camera-sensor-equivalence.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/camera/sensor-equivalence.ts)
+
+| Export | Kind |
+| --- | --- |
+| [`BlurShareOfFrame`](api/camera-sensor-equivalence.md#blurshareofframe) | Type |
+| [`BlurShareOfPrint`](api/camera-sensor-equivalence.md#blurshareofprint) | Type |
+| [`calculateBlurShareOfFrame`](api/camera-sensor-equivalence.md#calculateblurshareofframe) | Runtime |
+| [`CalculateBlurShareOfFrameInput`](api/camera-sensor-equivalence.md#calculateblurshareofframeinput) | Type |
+| [`calculateSensorEquivalence`](api/camera-sensor-equivalence.md#calculatesensorequivalence) | Runtime |
+| [`CalculateSensorEquivalenceInput`](api/camera-sensor-equivalence.md#calculatesensorequivalenceinput) | Type |
+| [`EquivalenceExactness`](api/camera-sensor-equivalence.md#equivalenceexactness) | Type |
+| [`EquivalenceValueBasis`](api/camera-sensor-equivalence.md#equivalencevaluebasis) | Type |
+| [`SensorEquivalence`](api/camera-sensor-equivalence.md#sensorequivalence) | Type |
+| [`SensorEquivalenceFieldOfView`](api/camera-sensor-equivalence.md#sensorequivalencefieldofview) | Type |
+| [`SensorEquivalenceQuantity`](api/camera-sensor-equivalence.md#sensorequivalencequantity) | Type |
 
 ## capture/capture-export-metadata.ts
 
@@ -896,6 +915,14 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 | [`resolveGenericEquipmentTierCatalog`](api/equipment-generic-tier-presets.md#resolvegenericequipmenttiercatalog) | Runtime |
 | [`resolveGenericEquipmentTierLensProfiles`](api/equipment-generic-tier-presets.md#resolvegenericequipmenttierlensprofiles) | Runtime |
 
+## equipment/ideal-lens.ts
+
+[Detailed contracts](api/equipment-ideal-lens.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/equipment/ideal-lens.ts)
+
+| Export | Kind |
+| --- | --- |
+| [`IDEAL_LENS_LIMITS`](api/equipment-ideal-lens.md#ideal_lens_limits) | Runtime |
+
 ## equipment/iso-capabilities.ts
 
 [Detailed contracts](api/equipment-iso-capabilities.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/equipment/iso-capabilities.ts)
@@ -1319,6 +1346,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 | [`SimulateCaptureExposureMode`](api/facade-simulate-capture.md#simulatecaptureexposuremode) | Type |
 | [`SimulateCaptureFastOption`](api/facade-simulate-capture.md#simulatecapturefastoption) | Type |
 | [`SimulateCaptureFastReport`](api/facade-simulate-capture.md#simulatecapturefastreport) | Type |
+| [`SimulateCaptureLensCatalogueRecord`](api/facade-simulate-capture.md#simulatecapturelenscataloguerecord) | Type |
 | [`SimulateCaptureLensDistortion`](api/facade-simulate-capture.md#simulatecapturelensdistortion) | Type |
 | [`SimulateCaptureMetering`](api/facade-simulate-capture.md#simulatecapturemetering) | Type |
 | [`SimulateCaptureMotion`](api/facade-simulate-capture.md#simulatecapturemotion) | Type |

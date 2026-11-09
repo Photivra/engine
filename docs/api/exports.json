@@ -1,6 +1,6 @@
 {
-  "packageVersion": "2.17.0",
-  "engineApiVersion": "2.17.0",
+  "packageVersion": "2.18.0",
+  "engineApiVersion": "2.18.0",
   "exports": [
     {
       "name": "AbsoluteUncertaintyEstimate",
@@ -283,6 +283,16 @@
       "kind": "type"
     },
     {
+      "name": "BlurShareOfFrame",
+      "source": "src/camera/sensor-equivalence.ts",
+      "kind": "type"
+    },
+    {
+      "name": "BlurShareOfPrint",
+      "source": "src/camera/sensor-equivalence.ts",
+      "kind": "type"
+    },
+    {
       "name": "BOLTZMANN_CONSTANT_JOULES_PER_KELVIN",
       "source": "src/color/illuminants.ts",
       "kind": "runtime"
@@ -366,6 +376,16 @@
       "name": "calculateBarGroupTargets",
       "source": "src/facade/chart-scenes.ts",
       "kind": "runtime"
+    },
+    {
+      "name": "calculateBlurShareOfFrame",
+      "source": "src/camera/sensor-equivalence.ts",
+      "kind": "runtime"
+    },
+    {
+      "name": "CalculateBlurShareOfFrameInput",
+      "source": "src/camera/sensor-equivalence.ts",
+      "kind": "type"
     },
     {
       "name": "calculateBrownConradyDistortionMapping",
@@ -1285,6 +1305,16 @@
     {
       "name": "CalculateSensorEqeTemporalExposureInput",
       "source": "src/sensor/eqe-temporal-exposure.ts",
+      "kind": "type"
+    },
+    {
+      "name": "calculateSensorEquivalence",
+      "source": "src/camera/sensor-equivalence.ts",
+      "kind": "runtime"
+    },
+    {
+      "name": "CalculateSensorEquivalenceInput",
+      "source": "src/camera/sensor-equivalence.ts",
       "kind": "type"
     },
     {
@@ -2958,6 +2988,16 @@
       "kind": "type"
     },
     {
+      "name": "EquivalenceExactness",
+      "source": "src/camera/sensor-equivalence.ts",
+      "kind": "type"
+    },
+    {
+      "name": "EquivalenceValueBasis",
+      "source": "src/camera/sensor-equivalence.ts",
+      "kind": "type"
+    },
+    {
       "name": "EquivalentFocalLength35Mm",
       "source": "src/camera/equivalent-focal-length.ts",
       "kind": "type"
@@ -3891,6 +3931,11 @@
       "name": "HyperbolicWedgeChartScene",
       "source": "src/facade/chart-scenes.ts",
       "kind": "type"
+    },
+    {
+      "name": "IDEAL_LENS_LIMITS",
+      "source": "src/equipment/ideal-lens.ts",
+      "kind": "runtime"
     },
     {
       "name": "IdealApertureGeometry",
@@ -7828,6 +7873,21 @@
       "kind": "type"
     },
     {
+      "name": "SensorEquivalence",
+      "source": "src/camera/sensor-equivalence.ts",
+      "kind": "type"
+    },
+    {
+      "name": "SensorEquivalenceFieldOfView",
+      "source": "src/camera/sensor-equivalence.ts",
+      "kind": "type"
+    },
+    {
+      "name": "SensorEquivalenceQuantity",
+      "source": "src/camera/sensor-equivalence.ts",
+      "kind": "type"
+    },
+    {
       "name": "SensorExpectedReadoutSignal",
       "source": "src/sensor/raw-readout.ts",
       "kind": "type"
@@ -8509,6 +8569,11 @@
     },
     {
       "name": "SimulateCaptureFastReport",
+      "source": "src/facade/simulate-capture.ts",
+      "kind": "type"
+    },
+    {
+      "name": "SimulateCaptureLensCatalogueRecord",
       "source": "src/facade/simulate-capture.ts",
       "kind": "type"
     },

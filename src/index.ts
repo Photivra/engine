@@ -308,6 +308,20 @@ export {
 } from "./camera/equivalent-focal-length.js";
 
 export {
+  calculateBlurShareOfFrame,
+  calculateSensorEquivalence,
+  type BlurShareOfFrame,
+  type BlurShareOfPrint,
+  type CalculateBlurShareOfFrameInput,
+  type CalculateSensorEquivalenceInput,
+  type EquivalenceExactness,
+  type EquivalenceValueBasis,
+  type SensorEquivalence,
+  type SensorEquivalenceFieldOfView,
+  type SensorEquivalenceQuantity
+} from "./camera/sensor-equivalence.js";
+
+export {
   COLOR_TEMPERATURE_WHITE_BALANCE_INTENT_VERSION,
   WHITE_BALANCE_PROFILE_SCHEMA_VERSION,
   WHITE_BALANCE_STATE_VERSION,
@@ -1803,7 +1817,7 @@ export { SIMULATE_CAPTURE_FACADE_VERSION, SIMULATE_CAPTURE_DEFAULT_ILLUMINANCE_L
   type SimulateCaptureAutomaticSlowestShutterReport, type SimulateCaptureOutputFormat, type SimulateCaptureWhiteBalance, type SimulateCaptureColorEncoding,
   type SimulateCaptureDemosaic, type SimulateCaptureBorderHandling, type SimulateCaptureLensDistortion, type SimulateCaptureMotion,
   type SimulateCaptureSensorAntiAliasing, type SimulateCaptureCostOption, type SimulateCapturePixelAperture, SIMULATE_CAPTURE_BOX_APERTURE_DEFAULT_SAMPLES,
-  SIMULATE_CAPTURE_FAST_OPTIONS, type SimulateCaptureFastOption, type SimulateCaptureFastReport, type SimulateCaptureDemosaicRecord,
+  SIMULATE_CAPTURE_FAST_OPTIONS, type SimulateCaptureFastOption, type SimulateCaptureFastReport, type SimulateCaptureDemosaicRecord, type SimulateCaptureLensCatalogueRecord,
   type SimulateCaptureSharpening, type SimulateCaptureDiffractionCorrection, type SimulateCaptureDetailDiagnostics,
   simulateIdealReference, type IdealReferenceResult, serializeSimulatedCaptureDngFromParts, type SimulateCaptureDngPart, type SimulateDisplayViewOptions, type DisplayViewResult,
   type DisplayViewHighlightDiagnostics, SIMULATE_DISPLAY_VIEW_DEFAULT_SAMPLES_PER_AXIS } from "./facade/simulate-capture.js";
@@ -1815,6 +1829,7 @@ export { type OutputTextMetadata, addJpegTextMetadata, addPngTextMetadata } from
 export { GENERIC_THIRD_STOP_ISO_SETTINGS, GENERIC_THIRD_STOP_SHUTTER_SECONDS, GENERIC_WHOLE_STOP_ISO_SETTINGS, type GenericTierPresetVersion } from "./equipment/generic-tier-assets.js";
 export { GENERIC_PRIME_EQUIVALENT_FOCAL_LENGTHS_MM, GENERIC_PRIME_THIRD_STOP_F_NUMBERS, GENERIC_PRIME_MINIMUM_FOCUS, resolveGenericPrimeLens,
   calculateGenericPrimeMinimumFocusDistanceM, type GenericPrimeLens, type GenericPrimeEquivalentFocalLengthMm } from "./equipment/generic-prime-lenses.js";
+export { IDEAL_LENS_LIMITS } from "./equipment/ideal-lens.js";
 export { GENERIC_LENS_CATALOGUE, GENERIC_LENS_IDS, GENERIC_LENS_SET_BASELINES, resolveGenericLens, simulateGenericLensFocusError, type GenericLensCatalogueEntry,
   type GenericLensSet, type GenericLensKind, type GenericLensCharacterValues, type GenericLensAdjustments, type GenericLensCharacter, type ResolvedGenericLens,
   type ResolveGenericLensInput, type SimulateGenericLensFocusErrorInput, type GenericLensFocusError } from "./equipment/generic-lens-catalogue.js";

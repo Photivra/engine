@@ -229,7 +229,7 @@ function prepareView(context: DisplayViewRunContext): PreparedViewParts {
   // convolved by runs after the in-focus signal (expected-signal.ts), the same sums regrouped.
   const diffractionRadius = diffraction ? diffraction.kernelRadiusSamples : 0, combinedRadius = defocusKernel ? diffractionRadius + defocusKernel.radius : diffractionRadius;
   const { offsets, signalInput } = buildExpectedSignalInput({ nativeWidth, nativeHeight, width, wavelengths, perNode, apertureNodes: apertureNodeOffsets(boxSamples), boxSamples,
-    antiAliasing, pitch, defocus: defocusKernel, diffraction: diffraction ? { radius: diffraction.kernelRadiusSamples, psf: diffractionPsf!.configuration.psf, profileWavelengths: diffraction.profile.axes.wavelengthNm } : undefined,
+    antiAliasing, pitch, defocus: defocusKernel, ...(context.lensPsf ? { lensKernels: context.lensPsf.axisKernels(wavelengths) } : {}), diffraction: diffraction ? { radius: diffraction.kernelRadiusSamples, psf: diffractionPsf!.configuration.psf, profileWavelengths: diffraction.profile.axes.wavelengthNm } : undefined,
     materials: sceneMaterials && provider.chartMaterialAt ? { materialAt: provider.chartMaterialAt,
       list: [...sceneMaterials.map((m, index) => (m.kind === "neutral" ? { neutral: m.reflectance } : { radiance: (nm: number): number => viewProvider.materialRadiance!(index, nm) })),
         ...(chartSize ? [{ neutral: chartSize.surroundReflectance }] : [])],
