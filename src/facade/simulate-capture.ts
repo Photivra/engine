@@ -846,6 +846,8 @@ const DEFAULTS = /* @__PURE__ */ Object.freeze({ camera: "professional" as const
   temporalSampleCount: 1, noiseSeed: 1, illuminantKelvin: 6500 });
 /** Standard output sensitivity S = 10 / H (CIPA DC-004-2020 §3.2): the reference exposure in lx·s is 10 / S. */
 const SOS_REFERENCE_EXPOSURE_NUMERATOR_LUX_SECONDS = 10;
+/** #565: the one-tap kernel that makes the image-space provider read each query at its lattice point. */
+const UNIT_SITE_KERNEL = /* @__PURE__ */ new Float64Array([1]);
 /** Camera equation H = 0.65·L·t/N² (CIPA DC-004-2020 §5.5 (4); 0.65 = τ·π/4 with τ = 0.828, Explanation 4). */
 const CAMERA_EQUATION_CONSTANT = 0.65;
 /** Neutral reference reflectance: DC-004 ties the SOS reference level to an 18 % grey (Explanation 1 and 2.2). */
@@ -2582,7 +2584,10 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   // site lattice (defocus-image-space-provider.ts). #563: the display view reads the same geometry in any focus (display-view-lens-signal.ts).
   const imageSpaceOptions = [...(lensFieldMapping ? [lensOptions.distortion !== undefined ? (lensOptions.projection !== undefined ? "lens.projection, lens.distortion" : "lens.distortion") : "lens.projection"] : []),
     ...(vignetting ? ["lens.vignetting"] : []), ...(rotating ? ["camera rotation"] : [])];
-  const lensGeometry = (defocusModel !== undefined || displayView) && imageSpaceOptions.length > 0 ? prepareDefocusImageSpaceGeometry({ focalLengthMm, focusDistanceM,
+  // #588: and with a catalogue lens's PSF, whose quadrature reads each tap's source on this lattice (not with rotation under a rolling shutter).
+  // A catalogue lens always has a lens field mapping (its radial distortion), so the geometry is then always built.
+  const catalogueLattice = catalogueTaps !== undefined && !(rotating && shutterKind === "rolling");
+  const lensGeometry = (defocusModel !== undefined || displayView || catalogueLattice) && imageSpaceOptions.length > 0 ? prepareDefocusImageSpaceGeometry({ focalLengthMm, focusDistanceM,
     angularVelocityRadPerSec: angular, ...(lensFieldMapping ? { lensMapping: prepareEnvironmentLensFieldMapping(lensFieldMapping) } : {}), ...(vignetting ? { vignetting } : {}) }) : undefined;
   const defocusGeometry = defocusModel !== undefined ? lensGeometry : undefined;
   // #553: the shaped kernel (on axis) and, with a cat's eye, its field zones; built when the disc is resolved out of focus.
@@ -3041,7 +3046,12 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
       ...(window ? { window } : {}),
       // The environment queries each site at each aperture node minus each split offset (sites, +x right, +y down).
       ...(antiAliasing || boxSamples > 1 ? { queryOffsetsSites: apertureNodeOffsets(boxSamples).flatMap((node) =>
-        (antiAliasing ? antiAliasing.components : [{ offsetMicrometers: { x: 0, y: 0 } }]).map((c) => ({ x: node.x - c.offsetMicrometers.x / pitch, y: node.y - c.offsetMicrometers.y / pitch }))) } : {}) }) : provider;
+        (antiAliasing ? antiAliasing.components : [{ offsetMicrometers: { x: 0, y: 0 } }]).map((c) => ({ x: node.x - c.offsetMicrometers.x / pitch, y: node.y - c.offsetMicrometers.y / pitch }))) } : {}) }) :
+    // #588: the catalogue PSF quadrature reads each tap's source at its lattice point (a unit kernel on #548's lattice), so ties resolve as on the lattice.
+    catalogueLattice ? createDefocusImageSpaceProvider({ base: provider, geometry: lensGeometry!, siteKernels: () => UNIT_SITE_KERNEL, kernelRadius: 0,
+      wavelengthsNm: quadratureWavelengths(), nativeWidth, nativeHeight, sitePitchMicrometers: pitch, distanceM: subjectDistanceM, metresPerFrameUnit,
+      queryOffsetsSites: [-1, 0, 1].flatMap((k) => queryOffsetsSites.map((o) => ({ x: o.x + k * catalogueKernelRadius, y: o.y + k * catalogueKernelRadius }))),
+      timesPerBand: temporalSampleCount, zeroBeyondHorizon: catalogue!.kind === "fisheye", ...(window ? { window } : {}) }) : provider;
   // Built on first use: a capture that takes the tabulated path (#394 step 2) never queries it, and its kernels cost a setup.
   let rawProviderBuilt: PlanarSceneRadianceProvider | undefined;
   const rawProvider = (): PlanarSceneRadianceProvider => (rawProviderBuilt ??= diffractedProvider(regionNative));
