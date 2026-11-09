@@ -217,6 +217,10 @@ and every number is a labelled approximation.
 - **Cost:** one scene query per kernel tap through the lens field mapping, like `lens.distortion`: a 48 × 48 region of a full frame
   at 6 µm takes about 1 s with *PV 50 1.2 Pro* and 6 s with *PV 50 1.8* (Apple M5 Pro), against 0.01 s with `lens.prime`. Render
   regions, or use a coarser `sensor.spectralStepNanometers`.
+- **Fast method (#568):** `fast: true` (or `lens: { catalogue: { kind: "pv-50-1.8", fast: true } }`) blends the PSF over a field
+  grid and tabulates each site's signal, a labeled approximation within 2.3e-4 of the frame's peak signal of the exact method
+  (measured): a 768 × 512 whole full frame renders within 2× of the same `lens.prime` capture. It needs a still camera, site-center
+  queries and a chart or material scene; elsewhere the exact method runs (`diagnostics.fast` says which ran).
 
 ```ts
 import { resolveGenericLens, simulateCapture } from "@photivra/engine";

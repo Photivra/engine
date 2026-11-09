@@ -8573,6 +8573,11 @@
       "kind": "type"
     },
     {
+      "name": "SimulateCaptureLensCatalogueRecord",
+      "source": "src/facade/simulate-capture.ts",
+      "kind": "type"
+    },
+    {
       "name": "SimulateCaptureLensDistortion",
       "source": "src/facade/simulate-capture.ts",
       "kind": "type"

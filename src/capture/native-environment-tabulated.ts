@@ -70,6 +70,11 @@ export interface TabulatedNativeRawInput {
   /** Called once per native tile-equivalent (progress), as the environment task reads its tiles. */
   onTile?: () => void;
   tileWidth: number;
+  /**
+   * #568: the largest relative difference the verification accepts (default `TABULATED_RELATIVE_TOLERANCE`): a fast method that
+   * approximates the chain (`lens.catalogue`'s field-grid PSF) passes its own measured bound.
+   */
+  relativeTolerance?: number;
   yieldControl(): Promise<void>;
   checkAbort(): void;
 }
@@ -134,7 +139,7 @@ export async function renderTabulatedNativeRaw(t: TabulatedNativeRawInput): Prom
     t.electrons.window(x, y, x + 1, y + 1);
     const chain = photo.expectedGeneratedElectronCount, tabulated = testHook?.tabulatedElectrons ? testHook.tabulatedElectrons(t.electrons.site(x, y), x, y) : t.electrons.site(x, y);
     const difference = chain === tabulated ? 0 : Math.abs(tabulated - chain) / Math.max(Math.abs(chain), Number.MIN_VALUE);
-    if (!(difference <= TABULATED_RELATIVE_TOLERANCE)) return undefined;
+    if (!(difference <= (t.relativeTolerance ?? TABULATED_RELATIVE_TOLERANCE))) return undefined;
     worst = Math.max(worst, difference);
     readouts[(y & 1) * 2 + (x & 1)] = readout;
   }

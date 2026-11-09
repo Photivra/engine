@@ -219,7 +219,11 @@ have a fast method, a measured and bounded approximation of it. One flag style s
 - **Every listed option takes the flag**, whether or not it has a fast method. Without one it runs exact and reports `false`,
   so callers never need to know which options have a fast method.
 - **One list:** `SIMULATE_CAPTURE_FAST_OPTIONS`, in the path style of `SIMULATE_CAPTURE_COST_OPTIONS`:
-  `lens.diffraction`, `sensor.antiAliasing`, `sensor.pixelAperture.box` and `output.demosaic.ahd`.
+  `lens.diffraction`, `lens.catalogue`, `sensor.antiAliasing`, `sensor.pixelAperture.box` and `output.demosaic.ahd`.
+- **The first fast method** (#568, 2.18.0): `lens.catalogue` (shorthand: the lens id; record `{ kind: <lens id>, fast }`) blends
+  the lens's PSF over a field grid and tabulates each site's expected signal (docs/LENS_CATALOGUE.md, "Fast method"). It runs for
+  a still camera with site-center queries and a chart or material scene; otherwise the exact method runs and `applied` says
+  `false`. The other listed options have no fast method yet.
 - **One report** on every capture and display view: `diagnostics.fast = { requested, applied, assurance }`. `requested` is true
   when `fast: true` was given anywhere; `applied` names each listed option that ran, `true` where its fast method ran;
   `assurance` is `engine-reference` when everything ran exact and `approximation-with-a-priori-bound` otherwise. A fast method

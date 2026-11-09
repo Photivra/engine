@@ -173,7 +173,7 @@ the record form with `fast` and is reported in `diagnostics.fast.applied` when i
 whether or not it has a fast method yet; one without runs exact and reports `false`.
 
 ```ts
-SIMULATE_CAPTURE_FAST_OPTIONS = Object.freeze(["lens.diffraction", "sensor.antiAliasing", "sensor.pixelAperture.box", "output.demosaic.ahd"] as const)
+SIMULATE_CAPTURE_FAST_OPTIONS = Object.freeze(["lens.diffraction", "lens.catalogue", "sensor.antiAliasing", "sensor.pixelAperture.box", "output.demosaic.ahd"] as const)
 ```
 
 ## SIMULATE_CAPTURE_METERING_MODES
@@ -459,6 +459,14 @@ export interface SimulateCaptureFastReport {
 }
 ```
 
+## SimulateCaptureLensCatalogueRecord
+
+`lens.catalogue` as a record (#568): the lens id as `kind` and the `fast` override (see {@link SimulateCaptureOptions.fast}).
+
+```ts
+export interface SimulateCaptureLensCatalogueRecord { kind: string; fast?: boolean }
+```
+
 ## SimulateCaptureLensDistortion
 
 The exact contract is declared below; use the domain guide for assumptions and staged integration.
@@ -533,9 +541,12 @@ export interface SimulateCaptureOptions {
      * colour, at the resolved f-number and focus) through the environment PSF quadrature, its radial distortion, its vignetting
      * and, for the fisheyes, the equisolid projection. Flare, focus breathing and bokeh shape are not rendered. Not combinable
      * with `prime`, `focalLengthMm`, `projection`, `distortion`, `vignetting`, `psf`, `diffraction` or `pupilSampling` (the
-     * lens sets them); `defocus` convolves the disc into the lens's PSF. Not offered by the display view. Default off.
+     * lens sets them); `defocus` convolves the disc into the lens's PSF. The display view renders it with the PSF taken per field zone (#569; docs/DISPLAY_VIEW.md). Default off.
+     * #568: the record form `{ kind: <lens id>, fast }` overrides the top-level `fast` flag for this option; the fast method
+     * blends the PSF between exactly resolved kernels on a field grid and tabulates each site's expected signal
+     * (docs/LENS_CATALOGUE.md, "Fast method").
      */
-    catalogue?: string;
+    catalogue?: string | SimulateCaptureLensCatalogueRecord;
     /**
      * Opt-in (#549), with `catalogue` only: a seeded autofocus error (`simulateGenericLensFocusError`). The focus distance becomes
      * the sampled one for (seed, shotIndex), reported in the `lens.focusScatter` assumption; it is visible with `defocus`. Default off.
@@ -759,7 +770,7 @@ export interface SimulateCaptureOptions {
    * Exact or fast (#395). `false` or omitted: every option runs its exact method, the engine reference. `true`: each option
    * listed in {@link SIMULATE_CAPTURE_FAST_OPTIONS} runs its fast method where it has one, a measured, bounded approximation of
    * the exact one; an option without a fast method runs exact. An option's own record `fast` overrides this for that option
-   * only. `diagnostics.fast` reports what was requested and what ran. No option has a fast method yet, so every result is exact.
+   * only. `diagnostics.fast` reports what was requested and what ran. `lens.catalogue` has a fast method (#568); the other options run exact.
    */
   fast?: boolean;
   /** Aborting cancels the running task; the promise rejects with a domain error and returns no partial image. */
