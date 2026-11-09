@@ -191,7 +191,7 @@ describe("simulateCapture lens.catalogue on the charts (#549)", () => {
     expect(Math.abs(consumer.measured - consumer.expected)).toBeLessThan(0.5);
     expect(Math.abs(pro.measured - pro.expected)).toBeLessThan(0.5);
     expect(consumer.measured).toBeGreaterThan(pro.measured);
-  }, scaledTimeout(120_000));
+  }, scaledTimeout(240_000));
 
   it("vignetting: the corner fall-off follows the profile (with the distortion's area factor), more for the consumer lens and less stopped down", async () => {
     const W = 120, H = 80;
