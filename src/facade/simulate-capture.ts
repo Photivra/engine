@@ -100,6 +100,7 @@ import { DEFOCUS_DIRECT_KERNEL_MAXIMUM_RADIUS_SITES, siteKernelRuns } from "../o
 import { createDefocusBokehSiteKernel, resolveDefocusBokehOptions, type DefocusBokehOptions, type DefocusBokehSiteKernel, type ResolvedDefocusBokehOptions } from "../optics/defocus-bokeh-kernel.js";
 import { planDefocusBokehZones, type DefocusBokehZonePlan } from "./defocus-bokeh-zones.js";
 import { resolveGenericPrimeLens, type GenericPrimeLens } from "../equipment/generic-prime-lenses.js";
+import { IDEAL_LENS_LIMITS } from "../equipment/ideal-lens.js";
 import type { ResolvedGenericLens } from "../equipment/generic-lens-catalogue.js";
 import { calculateChannelElectronsPerRadiance } from "./channel-response.js";
 import { calculateSiteEffectiveSaturationCode } from "../capture/raw-white-level.js";
@@ -352,6 +353,17 @@ export interface SimulateCaptureOptions {
      * focus distance below its minimum focus distance, is rejected. Not combinable with `focalLengthMm`.
      */
     prime?: number;
+    /**
+     * Opt-in (#576): an ideal lens, an aberration-free thin lens of this physical focal length (1–4000 mm) on whatever sensor the
+     * frame is (output width × height × pixel pitch; no crop-factor scaling), at any `fNumber` from f/0.5 to f/128
+     * (`IDEAL_LENS_LIMITS`; beyond them the request is refused). It replaces the tier lens's focal length and f-number range (the
+     * transmission is kept); shutter priority and program may choose any aperture in that range. Recorded in the `lens.ideal`
+     * assumption. Its blur is that of `defocus`, `diffraction` and `vignetting`, the same models as with `prime`. It focuses at any
+     * distance beyond the focal length (no minimum focus distance; `subjectDistanceM` must exceed twice the focal length, as for
+     * every lens). Works in `simulateCapture` and the display view. Not combinable with `prime`, `catalogue` or `focalLengthMm`.
+     * Default off.
+     */
+    ideal?: { focalLengthMm: number };
     /**
      * Opt-in (#549): a lens of the generic lens catalogue by id (`GENERIC_LENS_IDS`, for example "pv-50-1.2-pro" or "pv-50-1.8";
      * docs/LENS_CATALOGUE.md). Like `prime`, its focal length is the full-frame equivalent ÷ the simulated frame's diagonal crop
@@ -1776,19 +1788,34 @@ export async function runCapture(options: SimulateCaptureOptions, run: "capture"
 
   // Lens
   const lensOptions = allowKeys(top.lens, "lens", ["focalLengthMm", "fNumber", "focusDistanceM", "pupilSampling", "projection", "distortion", "vignetting", "psf", "diffraction", "prime", "defocus",
-    "catalogue", "focusScatter"]);
+    "catalogue", "focusScatter", "ideal"]);
   // Generic prime (2.3): resolved on the simulated frame's size, which the output and sensor sections validate again below.
   let prime: GenericPrimeLens | undefined;
-  if (lensOptions.prime !== undefined) {
-    if (lensOptions.focalLengthMm !== undefined) fail("lens.prime and lens.focalLengthMm cannot both be given: the prime sets the focal length.");
+  // The simulated frame in mm (output width × height × pixel pitch), validated again below.
+  const frameMm = (): { widthMm: number; heightMm: number } => {
     const o = (typeof top.output === "object" && top.output !== null ? top.output : {}) as Record<string, unknown>, sn = (typeof top.sensor === "object" && top.sensor !== null ? top.sensor : {}) as Record<string, unknown>;
     const frameW = positive(o.width ?? DEFAULTS.width, "output.width"), frameH = positive(o.height ?? DEFAULTS.height, "output.height"), framePitch = positive(sn.pixelPitchMicrometers ?? DEFAULTS.pixelPitchMicrometers, "sensor.pixelPitchMicrometers");
+    return { widthMm: frameW * framePitch / 1000, heightMm: frameH * framePitch / 1000 };
+  };
+  if (lensOptions.prime !== undefined) {
+    if (lensOptions.focalLengthMm !== undefined) fail("lens.prime and lens.focalLengthMm cannot both be given: the prime sets the focal length.");
+    const activeImagingArea = frameMm();
     if (typeof lensOptions.prime !== "number") fail("lens.prime must be a generic prime's full-frame-equivalent focal length in mm.");
-    prime = resolveGenericPrimeLens({ equivalentFocalLengthMm: lensOptions.prime as number, activeImagingArea: { widthMm: frameW * framePitch / 1000, heightMm: frameH * framePitch / 1000 } });
+    prime = resolveGenericPrimeLens({ equivalentFocalLengthMm: lensOptions.prime as number, activeImagingArea });
     assume("lens.prime", "model", { lensId: prime.lensId, equivalentFocalLengthMm: prime.equivalentFocalLengthMm, focalLengthMm: prime.focalLengthMm, cropFactor35Mm: prime.cropFactor35Mm,
       widestFNumber: prime.widestFNumber, narrowestFNumber: prime.narrowestFNumber, minimumFocusDistanceM: prime.minimumFocusDistanceM },
     "Generic prime (not a real product): focal length = equivalent ÷ the simulated frame's diagonal crop factor, f/" + prime.widestFNumber + "–f/" + prime.narrowestFNumber +
       ", minimum focus max(0.10 m, f·(1 + 1/0.15)) (thin-lens approximation). It replaces the tier lens's focal length and f-number range; the tier lens's transmission is kept.");
+  }
+  // Ideal lens (#576): a physical focal length on any frame, every f-number within IDEAL_LENS_LIMITS.
+  let ideal: { id: string; name: string; focalLengthMm: number; widestFNumber: number; narrowestFNumber: number } | undefined;
+  if (lensOptions.ideal !== undefined) {
+    for (const key of ["prime", "catalogue", "focalLengthMm"]) if (lensOptions[key] !== undefined) fail("lens.ideal cannot be combined with lens." + key + ".");
+    const f = allowKeys(lensOptions.ideal, "lens.ideal", ["focalLengthMm"]).focalLengthMm, { focalLengthMm: b, fNumber: n } = IDEAL_LENS_LIMITS;
+    if (!(typeof f === "number" && f >= b.minimum && f <= b.maximum)) fail("lens.ideal.focalLengthMm must be " + b.minimum + "–" + b.maximum + " mm (IDEAL_LENS_LIMITS).");
+    const lensId = "ideal-" + f + "mm";
+    ideal = { id: lensId, name: lensId, focalLengthMm: f as number, widestFNumber: n.minimum, narrowestFNumber: n.maximum };
+    assume("lens.ideal", "model", { lensId, focalLengthMm: f }, "Ideal thin lens without aberrations (not a real product) at this physical focal length; the tier lens's transmission is kept.");
   }
   // Generic lens catalogue (#549): resolved on the simulated frame like the prime; its character is built once the f-number is known.
   let catalogue: ResolvedGenericLens | undefined, catalogueFrame: { widthMm: number; heightMm: number } | undefined;
@@ -1797,9 +1824,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: "capture"
     for (const key of ["prime", "focalLengthMm", "projection", "distortion", "vignetting", "psf", "diffraction", "pupilSampling"])
       if (lensOptions[key] !== undefined) fail("lens.catalogue cannot be combined with lens." + key + ": the catalogue lens sets its own focal length, projection, distortion, vignetting and PSF (with diffraction).");
     if (displayView) fail("simulateDisplayView does not support lens.catalogue: the catalogue lens's field-dependent PSF, distortion and vignetting run through the capture's environment quadrature.");
-    const o = (typeof top.output === "object" && top.output !== null ? top.output : {}) as Record<string, unknown>, sn = (typeof top.sensor === "object" && top.sensor !== null ? top.sensor : {}) as Record<string, unknown>;
-    const frameW = positive(o.width ?? DEFAULTS.width, "output.width"), frameH = positive(o.height ?? DEFAULTS.height, "output.height"), framePitch = positive(sn.pixelPitchMicrometers ?? DEFAULTS.pixelPitchMicrometers, "sensor.pixelPitchMicrometers");
-    catalogueFrame = { widthMm: frameW * framePitch / 1000, heightMm: frameH * framePitch / 1000 };
+    catalogueFrame = frameMm();
     lensKit = await import("./generic-lens-capture.js");
     catalogue = lensKit.resolveGenericLens({ lensId: lensOptions.catalogue as string, activeImagingArea: catalogueFrame });
     assume("lens.catalogue", "model", { lensId: catalogue.lensId, name: catalogue.name, set: catalogue.set, kind: catalogue.kind, equivalentFocalLengthMm: catalogue.equivalentFocalLengthMm,
@@ -1809,8 +1834,8 @@ export async function runCapture(options: SimulateCaptureOptions, run: "capture"
       catalogue.widestFNumber + "–f/" + catalogue.narrowestFNumber + ", minimum focus max(0.10 m, f·(1 + 1/" + catalogue.maximumMagnification + ")) (thin lens). Its character is a labelled " +
       "approximation (the lens.catalogue.character assumption). It replaces the tier lens's focal length and f-number range; the tier lens's transmission is kept.");
   } else if (lensOptions.focusScatter !== undefined) fail("lens.focusScatter needs lens.catalogue: the focus scatter is a catalogue lens's own.");
-  const lensRange = prime ? { id: prime.lensId, focalLengthMm: prime.focalLengthMm, widestFNumber: prime.widestFNumber, narrowestFNumber: prime.narrowestFNumber } :
-    catalogue ? { id: catalogue.lensId, focalLengthMm: catalogue.focalLengthMm, widestFNumber: catalogue.widestFNumber, narrowestFNumber: catalogue.narrowestFNumber } : undefined;
+  const lensRange = prime ? { id: prime.lensId, name: prime.lensId, focalLengthMm: prime.focalLengthMm, widestFNumber: prime.widestFNumber, narrowestFNumber: prime.narrowestFNumber } :
+    catalogue ? { id: catalogue.lensId, name: catalogue.name, focalLengthMm: catalogue.focalLengthMm, widestFNumber: catalogue.widestFNumber, narrowestFNumber: catalogue.narrowestFNumber } : ideal;
   const lensExposure = lensRange ? { ...lens.exposure, profileId: "photivra-" + lensRange.id + ":exposure",
     focalLengthMmRange: { ...lens.exposure.focalLengthMmRange, value: { minimum: lensRange.focalLengthMm, maximum: lensRange.focalLengthMm } },
     aperture: { ...lens.exposure.aperture, widestAvailableFNumber: { kind: "constant" as const, fNumber: { value: lensRange.widestFNumber, evidence: FACADE_EVIDENCE } },
@@ -2282,12 +2307,13 @@ export async function runCapture(options: SimulateCaptureOptions, run: "capture"
   if (compensation !== 0) target = setExposureCompensationOnMeterTarget({ targetId: "facade-target-ec", baseTarget: target, exposureCompensationStops: compensation });
   let resolution: { status: string; resolvedSettings?: { aperture?: number; shutterSeconds?: number; iso?: number } };
   let fNumber: number, shutterSeconds: number;
+  const checkFNumber = (): void => {
+    if (lensRange && (fNumber < lensRange.widestFNumber || fNumber > lensRange.narrowestFNumber))
+      fail("lens.fNumber " + fNumber + " is outside the " + lensRange.name + " range f/" + lensRange.widestFNumber + "–f/" + lensRange.narrowestFNumber + ".");
+  };
   if (mode === "manual" || mode === "aperture-priority") {
     fNumber = positive(pick(lensOptions, "fNumber", "lens.fNumber", DEFAULTS.fNumber, "f/8."), "lens.fNumber");
-    if (prime && (fNumber < prime.widestFNumber || fNumber > prime.narrowestFNumber))
-      fail("lens.fNumber " + fNumber + " is outside the " + prime.lensId + " range f/" + prime.widestFNumber + "–f/" + prime.narrowestFNumber + ".");
-    if (catalogue && (fNumber < catalogue.widestFNumber || fNumber > catalogue.narrowestFNumber))
-      fail("lens.fNumber " + fNumber + " is outside the " + catalogue.name + " range f/" + catalogue.widestFNumber + "–f/" + catalogue.narrowestFNumber + ".");
+    checkFNumber();
   } else {
     if (lensOptions.fNumber !== undefined) fail("lens.fNumber is resolved automatically in " + mode + " mode; omit it.");
     fNumber = NaN;
@@ -2392,8 +2418,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: "capture"
   if (catalogue && lensKit) {
     const { GENERIC_LENS_EVIDENCE, genericLensDistortionProfile, genericLensVignettingProfile, resolveGenericLens, simulateGenericLensFocusError, createGenericLensPsfProfile,
       genericLensPsfKernelRadius, GENERIC_LENS_PSF_MAXIMUM_COMBINED_RADIUS_SITES } = lensKit;
-    if (fNumber < catalogue.widestFNumber || fNumber > catalogue.narrowestFNumber)
-      fail("lens.fNumber " + fNumber + " is outside the " + catalogue.name + " range f/" + catalogue.widestFNumber + "–f/" + catalogue.narrowestFNumber + ".");
+    checkFNumber();
     if (lensOptions.focusScatter !== undefined) {
       const scatterOptions = allowKeys(lensOptions.focusScatter, "lens.focusScatter", ["seed", "shotIndex"]);
       const sample = simulateGenericLensFocusError({ lensId: catalogue.lensId, activeImagingArea: catalogueFrame!, fNumber, focusDistanceM, seed: scatterOptions.seed as number,

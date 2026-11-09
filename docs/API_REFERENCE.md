@@ -896,6 +896,14 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 | [`resolveGenericEquipmentTierCatalog`](api/equipment-generic-tier-presets.md#resolvegenericequipmenttiercatalog) | Runtime |
 | [`resolveGenericEquipmentTierLensProfiles`](api/equipment-generic-tier-presets.md#resolvegenericequipmenttierlensprofiles) | Runtime |
 
+## equipment/ideal-lens.ts
+
+[Detailed contracts](api/equipment-ideal-lens.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/equipment/ideal-lens.ts)
+
+| Export | Kind |
+| --- | --- |
+| [`IDEAL_LENS_LIMITS`](api/equipment-ideal-lens.md#ideal_lens_limits) | Runtime |
+
 ## equipment/iso-capabilities.ts
 
 [Detailed contracts](api/equipment-iso-capabilities.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/equipment/iso-capabilities.ts)

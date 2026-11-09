@@ -515,6 +515,17 @@ export interface SimulateCaptureOptions {
      */
     prime?: number;
     /**
+     * Opt-in (#576): an ideal lens, an aberration-free thin lens of this physical focal length (1–4000 mm) on whatever sensor the
+     * frame is (output width × height × pixel pitch; no crop-factor scaling), at any `fNumber` from f/0.5 to f/128
+     * (`IDEAL_LENS_LIMITS`; beyond them the request is refused). It replaces the tier lens's focal length and f-number range (the
+     * transmission is kept); shutter priority and program may choose any aperture in that range. Recorded in the `lens.ideal`
+     * assumption. Its blur is that of `defocus`, `diffraction` and `vignetting`, the same models as with `prime`. It focuses at any
+     * distance beyond the focal length (no minimum focus distance; `subjectDistanceM` must exceed twice the focal length, as for
+     * every lens). Works in `simulateCapture` and the display view. Not combinable with `prime`, `catalogue` or `focalLengthMm`.
+     * Default off.
+     */
+    ideal?: { focalLengthMm: number };
+    /**
      * Opt-in (#549): a lens of the generic lens catalogue by id (`GENERIC_LENS_IDS`, for example "pv-50-1.2-pro" or "pv-50-1.8";
      * docs/LENS_CATALOGUE.md). Like `prime`, its focal length is the full-frame equivalent ÷ the simulated frame's diagonal crop
      * factor and it replaces the tier lens's focal length and f-number range (the transmission is kept). The capture renders the
