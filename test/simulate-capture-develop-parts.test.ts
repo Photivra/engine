@@ -83,6 +83,30 @@ describe("developing joined parts (#571)", () => {
     expect(wholeStages).toEqual(["raw", "development", "diffraction-correction", "sharpening", "jpeg"]);
   }, scaledTimeout(60_000));
 
+  it("honours output.lensCorrections (#570) as the whole frame does, bit for bit, with sharpening after the corrections", async () => {
+    // A catalogue lens (fast method) with all three corrections and sharpening (a catalogue lens takes no lens.diffraction, so no
+    // diffraction correction). The parts may be rendered with or without the corrections: a corrected region only widens its
+    // native rectangle, and the RAW codes are the same.
+    const options = { scene: { preset: "checkerboard", squaresAcross: 12, darkReflectance: 0.1, lightReflectance: 0.8 }, subjectDistanceM: 5, fast: true,
+      lens: { catalogue: "pv-16-2.8", fNumber: 8 }, exposure: { mode: "manual", shutterSeconds: 1 / 1000, iso: 100 },
+      sensor: { pixelPitchMicrometers: 36000 / 36, spectralStepNanometers: 50 },
+      output: { width: 36, height: 24, format: "jpeg", lensCorrections: { distortion: true, lateralColor: true, vignetting: true }, sharpening: {} } } as SimulateCaptureOptions;
+    const events: SimulateCaptureProgress[] = [];
+    const whole = await simulateCapture(options);
+    expect(whole.assumptions.find((a) => a.id === "output.developmentOrder")!.value).toEqual(["demosaic", "colour and white balance", "lens corrections (linear)",
+      "rendering exposure and tone curve", "gamut handling", "transfer function", "unsharp mask", "quantization"]);
+    const uncorrectedParts = await partsOf({ ...options, output: { ...options.output!, lensCorrections: undefined } }, 2, 2);
+    const correctedParts = await partsOf(options, 2, 2);
+    for (const [label, parts] of [["parts without corrections", uncorrectedParts], ["parts with corrections", correctedParts]] as const) {
+      const joined = await simulateCaptureFromParts({ ...options, onProgress: (p) => events.push(p) }, parts);
+      expectSameCapture(joined, whole, label);
+      expect(joined.assumptions.find((a) => a.id === "output.lensCorrections")!.value, label).toEqual(whole.assumptions.find((a) => a.id === "output.lensCorrections")!.value);
+    }
+    // Development, then sharpening row by row, then the JPEG: the lens corrections report no stage of their own.
+    const stages = events.map((e) => e.stage).filter((stage, i, all) => i === 0 || all[i - 1] !== stage);
+    expect(stages).toEqual(["development", "sharpening", "jpeg", "development", "sharpening", "jpeg"]);
+  }, scaledTimeout(60_000));
+
   it("refuses a region request, missing sites, parts of another request and no parts", async () => {
     const options = { scene: { preset: "siemens-star" }, output: { width: 24, height: 16, format: "srgb-8", sharpening: {} } } as SimulateCaptureOptions;
     const parts = await partsOf(options, 2, 1);

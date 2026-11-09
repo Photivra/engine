@@ -668,7 +668,8 @@ export interface SimulateCaptureFastReport {
 /**
  * One progress event of `onProgress`. Stages run in this order: `raw`, `white-balance` (with auto white balance), `development`
  * (rows), then, when requested, `diffraction-correction` and `sharpening` (#571: one event per output row of the whole image;
- * each stage's last event has `completedTileCount === totalTileCount`), then `jpeg`. {@link simulateCaptureFromParts}
+ * each stage's last event has `completedTileCount === totalTileCount`), then `jpeg`. `output.lensCorrections` (#570) runs between
+ * `diffraction-correction` and `sharpening` and reports no stage of its own. {@link simulateCaptureFromParts}
  * reports no `raw` stage: its RAW comes from the parts.
  */
 export interface SimulateCaptureProgress {

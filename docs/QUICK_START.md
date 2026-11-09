@@ -1897,10 +1897,14 @@ that a region refuses: `output.diffractionCorrection` and `output.sharpening`. T
 result's `image.samples`, JPEG or PNG bytes, `raw` and `plan` are those of the whole-frame capture, bit for bit. Pass the
 whole request (no `output.region`); render the parts with the same request plus `output.region`, without the detail stages,
 `output.dng` and auto white balance (none changes the RAW codes; auto white balance is measured here over the joined frame).
+`output.lensCorrections` (#570) is honored as in the whole-frame capture, bit for bit; a part may keep or drop it (a corrected
+region only widens its `region.nativeRect`). The corrections run on the whole developed frame and hold a second developed
+image while they resample it.
 
 `onProgress` reports `development`, then `diffraction-correction` and `sharpening` once per output row of the whole image
 (each stage ends with `completedTileCount === totalTileCount`), then `jpeg`; no `raw` stage, since no RAW is rendered. A host
-can show these as "Applying diffraction correction to the whole image" and "Applying sharpening to the whole image".
+can show these as "Applying diffraction correction to the whole image" and "Applying sharpening to the whole image". The
+lens corrections run between the two and report no stage of their own.
 `signal` cancels the step. In the result, `diagnostics.providerEvaluationCount` is 0, `diagnostics.timingsMs` are this call's
 (`raw` is the join), `diagnostics.fast` and the `raw.*` assumptions of how the RAW was rendered are in the parts' results
 instead, and a `parts` assumption records the join.
@@ -1923,7 +1927,8 @@ console.log(developed.image.jpeg!.length); // the bytes of simulateCapture(whole
 
 Tests compare the result with the whole-frame capture byte for byte: JPEG with both stages, 16-bit sRGB with a thresholded
 mask, AHD with auto white balance, a development push and the four-spot filter, Display P3 PNG with diffraction correction,
-DNG with both stages, and no stage at all; and the row-by-row stages against whole-image passes on odd sizes.
+DNG with both stages, no stage at all, and a catalogue lens with all three lens corrections and sharpening (parts rendered
+with and without the corrections); and the row-by-row stages against whole-image passes on odd sizes.
 
 **Measured at 24 MP** (6000 × 4000 at 6 µm, slanted edge at f/8 with `lens.diffraction`, 8 parts; Apple M5 Pro, Node.js 24.19.0,
 one thread, a shared machine, two runs; `node scripts/benchmark-joined-development.mjs`):
