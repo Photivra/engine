@@ -99,9 +99,25 @@ From the part branches (Apple M5 Pro, Node.js 24.19.0, one thread):
 
 `git diff v2.18.0 -- src/gpu` changes only how the GPU modules reach shared helpers: the abort check (`throwIfAborted`, now exported once from `webgpu-runtime.ts`), and the speed view's `footprintShape`, `bilinearKernels` and `offsetCount`, now imported from the quality view, where identical copies were. No WGSL and no dispatch changes.
 
+The hardware gates ran on the integrated tree (`b8af756`) on the owner's Apple M5 Pro (Metal, headless Chrome 157), recorded in [WebGPU devices](WEBGPU_DEVICES.md):
+
+- `npm run test:webgpu:hardware`: **167 of 167 passed**, product path `dekker`.
+- `npm run accept:gpu:hardware`: **PASS, 26 of 26 cases** on `webgpu-f32`, every pixel within ΔE2000 1, largest ΔE2000 0.0018, the 8-bit display codes equal to the reference's ([record](validation/display-view-acceptance-m5-pro-2026-11-09-b8af756/README.md)).
+
+## Local gates
+
+On the integrated tree, Apple M5 Pro:
+
+- `npm run check:static`: passed.
+- `npm run coverage` on Node.js 24.19.0: 359 files passed (1 skipped), 4,201 tests passed (2 skipped); coverage 95.9 % statements, 92.3 % branches, 98.72 % functions, 97.34 % lines; 6.2 min. `test/shard-weights.json` re-recorded from this run (`scripts/record-shard-weights.mjs`): the four parts now balance to within 1 s of measured time (867 s each); with the 2.18.0 weights they spread 814–899 s, and the 2.18.0 publish run's first coverage shard took 19.9 of its 20 minutes.
+- The full suite on Node.js 26.13.0: 359 files passed (1 skipped), 4,201 tests passed (2 skipped); 2.4 min.
+- Every test 2.19.0 added or changed (42 tests in 6 files) took at most 10.2 % of its deadline on Node.js 26 (the slowest: #583's byte pins, 6.1 s of 60 s, and the prime and catalogue ranges, 10.7 s of 120 s).
+- `npm run build`, `npm run docs:check`, `npm run pack:check` (979 files) and `npm run release:consumer-check`: passed.
+
 ## For the owner
 
-See the pull request for the questions this integration leaves open.
+- **The lens corrections are one uninterrupted step.** They run between the `diffraction-correction` and `sharpening` progress stages with no events and no host yield, so `signal` cannot cancel them while they run (about 1.3 s per 24 MP frame on the Mac, longer on phones). A follow-up could yield and check the signal row by row (no API change) or add a `lens-corrections` stage (additive, like #571's two).
+- **Capture-worker headroom is 225 B** under the 352,000 B limit; the next option that reaches `simulateCapture` will probably need either further savings or the owner's decision on the limit.
 
 ## Release gates
 
