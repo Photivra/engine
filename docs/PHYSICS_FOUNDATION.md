@@ -428,6 +428,26 @@ Here `P` is the incident degree of linear polarization, `ψ` its angle and `θ` 
 - The scene-to-sensor bridge treats scene light as unpolarized.
 - Not modelled: circular polarization, retardance (the quarter-wave plate in a circular polarizer), dependence on angle of incidence, and depolarization.
 
+### Exposure time with an ND filter
+
+`calculateFilteredExposureTime()` (model `filtered-exposure-time` 1.0.0, #578) gives the shutter time that keeps the same exposure after front-of-lens filters are added, at the same f-number and ISO.
+
+Focal-plane exposure is the time integral of image-plane irradiance, `H = E·t` (EMVA Standard 1288 Release 4.0 Linear, §2, free), or `H = 0.65·L·t/N²` for a scene of luminance `L` ([CIPA DC-004-2020](https://www.cipa.jp/e/std/std-sec.html) §5.5 (4), free). A filter of intensity transmittance `T` in front of the lens scales `E` by `T`, so the same `H` needs:
+
+```text
+t_filtered = t / T = t · 2^stops,   stops = −log2 T = OD / log10 2
+```
+
+| Quantity | Exact or approximated |
+| --- | --- |
+| `t / T` for a given `T` | Exact under the linear sensor model: collected charge is proportional to `H` (EMVA 1288 linear model). Film reciprocity failure is not modelled. |
+| `T` | As good as the filter profile, from `composeFrontOfLensFilterTransmission()`. Nominal ratings are approximate: a "10-stop" filter means `T = 2^-10` (1/125 s → 1024/125 ≈ 8.19 s), an ND1000 means OD 3.0, 9.97 stops (1/125 s → 8 s). The result envelope is an approximation whenever any profile is. |
+| Nearest dial value | Exact selection: the dial value nearest in stops, the shorter on a tie (the policy `nearest-log2-shorter-on-tie` of the exposure-mode resolver). Its `exposureErrorStops = log2(dial / t_filtered)`. Outside the dial the nearest end is reported with `clamped`. |
+
+**Generic presets.** `GENERIC_ND_FILTER_PROFILES` holds idealized 3-, 6- and 10-stop filters. By definition (owner decision 2026-11-09) an N-stop filter transmits exactly `T = 2^-N`: 1/8, 1/64 and 1/1024, so 1/125 s with the 10-stop preset gives exactly 8.192 s (8 s on the third-stop dial). They are spectrally flat (`neutral-linear-transmission`) over 380–780 nm in air, unbranded, and marked `scientificStatus: "approximation"` with unquantified uncertainty, because real filters deviate from their rating and are not perfectly flat.
+
+Filters are resolved at 550 nm unless the caller gives a wavelength; neutral filters do not depend on it. Not modelled: inter-filter reflections, flare, and light leaking around the filter or in through the viewfinder.
+
 ### Atmospheric haze (2.0)
 
 `calculateAtmosphericHaze()` changes scene radiance along one uniform line of sight using Koschmieder's model (Koschmieder 1924; Middleton, *Vision Through the Atmosphere*, 1952; McCartney, *Optics of the Atmosphere*, 1976):

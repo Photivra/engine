@@ -43,6 +43,7 @@ const TASK_INDEX = [
   ["Crop factor, 35 mm-equivalent focal length and crops", ["calculateEquivalentFocalLength35Mm", "calculateCenteredCrop"]],
   ["Equivalent f-number, sensor area and blur as a share of the frame", ["calculateSensorEquivalence", "calculateBlurShareOfFrame"]],
   ["Motion blur and shutter speed", ["calculateProjectedMotionBlur", "calculateShutterAngleExposureSeconds"]],
+  ["Shutter time with an ND filter", ["calculateFilteredExposureTime"]],
   ["Diffraction", ["calculateAiryDisk"]],
   ["Sensor signal, noise and SNR", ["calculatePhotoelectrons", "calculateSignalToNoise"]],
   ["Colour temperature", ["calculateChromaticityFromCorrelatedColorTemperature", "calculateCorrelatedColorTemperature"]],
