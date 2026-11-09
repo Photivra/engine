@@ -7,6 +7,7 @@
 - [Agent guide](https://github.com/Photivra/photivra/blob/main/docs/AGENT_GUIDE.md): which function to call, units, reading results, errors and limits
 - [Quick start](https://github.com/Photivra/photivra/blob/main/docs/QUICK_START.md): `simulateCapture()` inputs, defaults, chart presets and output formats
 - [Color patches](https://github.com/Photivra/photivra/blob/main/docs/COLOR_PATCHES.md): the built-in color chart patches (`color-patches` preset, `{ kind: "color-patch", patchId }`), their spectra and CIELAB
+- [Light sources](https://github.com/Photivra/photivra/blob/main/docs/LIGHT_SOURCES.md): representative fluorescent and LED spectra designed by Photivra (`createRepresentativeLightSourceIlluminant`), their CCT and color rendering
 - [Usage guide](https://github.com/Photivra/photivra/blob/main/docs/USAGE.md): worked examples for every public area
 - [API reference](https://github.com/Photivra/photivra/blob/main/docs/API_REFERENCE.md): every root export, with a task-to-function index
 

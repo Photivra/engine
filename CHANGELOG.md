@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+### 2.22.0 part: #557 Representative light-source spectra designed by Photivra
+
+- **New:** four representative light sources designed by Photivra (owner decision 2026-11-06: Photivra's own parametric spectra, no CIE data, no named products), each labeled "representative, not a named product": `tri-phosphor-fluorescent-4000k`, `white-led-low-rendering-4000k`, `white-led-high-rendering-4000k` and `warm-white-led-2700k`. Each is S(λ) = b + Σ aₖ·exp(−½((λ − μₖ)/σₖ)²) on 360–830 nm; formulas and design reasons in docs/LIGHT_SOURCES.md. `createRepresentativeLightSourceIlluminant({ sourceId })` returns `{ kind: "spectrum", spectrum, label }` for any `illuminant` option; `createRepresentativeLightSourceSpectrum({ sourceId })` the spectrum alone; `getRepresentativeLightSourceSet()` the frozen set.
+- **Checked:** each spectrum's CCT with the engine's own locus search is within 1 K of its stated CCT (4000.8, 3999.6, 4000.0, 2699.9 K) with |Duv| ≤ 0.0001, and McCamy within 10 K. The same-CCT pair (low vs high color rendering, 4000 K) differs by ΔE00 5.05 on PV-S1, 4.67 on PV-P2 and 5.86 on PV-G1 (mean 3.68 over the 24 colored patches); against a Planckian reference at the same CCT the mean patch ΔE00 is 2.87, 4.00, 0.67 and 1.18. This is Photivra's own figure from its own patches, not CIE Ra or TM-30 (their data is not bundled).
+- **Unchanged:** `illuminants.ts`, `scene-radiance.ts` and `simulateCapture` are untouched; the existing illuminants resolve byte-identically (hash locks of CIE A and Planckian 2700/6500 K, portable path). Use `sensor.spectralStepNanometers: 5` with these sources: at the default 20 nm the fluorescent's narrow bands leave a strong cast (documented and measured).
+- **Root exports:** 11 new (7 runtime): `REPRESENTATIVE_LIGHT_SOURCE_SET_ID`, `REPRESENTATIVE_LIGHT_SOURCE_SET_VERSION`, `REPRESENTATIVE_LIGHT_SOURCE_IDS`, `REPRESENTATIVE_LIGHT_SOURCE_WAVELENGTH_RANGE_NANOMETERS`, `getRepresentativeLightSourceSet`, `createRepresentativeLightSourceSpectrum`, `createRepresentativeLightSourceIlluminant` and the types `RepresentativeLightSource`, `RepresentativeLightSourceBand`, `RepresentativeLightSourceId`, `RepresentativeLightSourceSet`.
+- **Bundle:** the capture-worker shape is unchanged at 351,770 B gzip (limit 352,000 B); the sources reach only bundles that import them (+1,553 B gzip).
+- **Docs and tests:** docs/LIGHT_SOURCES.md (new), docs/USAGE.md, docs/AGENT_GUIDE.md, llms.txt, THIRD_PARTY.md, API reference; `test/representative-light-sources.test.ts`.
+
 ## 2.19.0 — unreleased (prepared November 9, 2026)
 
 A minor release of six issues: exposure time with an ND filter and generic ND presets (#578), the program line within the lens's f-number range (#583), very fast `lens.ideal` ranges (#585), developing a capture rendered in parts (#571), lens corrections in the development (#570) and the sampled-PSF orientation fix (#566). See the [2.19.0 release record](https://github.com/Photivra/photivra/blob/main/docs/RELEASE_2_19_0.md).

@@ -2653,6 +2653,16 @@
       "kind": "runtime"
     },
     {
+      "name": "createRepresentativeLightSourceIlluminant",
+      "source": "src/facade/representative-light-sources.ts",
+      "kind": "runtime"
+    },
+    {
+      "name": "createRepresentativeLightSourceSpectrum",
+      "source": "src/facade/representative-light-sources.ts",
+      "kind": "runtime"
+    },
+    {
       "name": "createRollingShutterCaptureExposureSchedule",
       "source": "src/sensor/readout-exposure-linkage.ts",
       "kind": "runtime"
@@ -3900,6 +3910,11 @@
     {
       "name": "getPsfFoundationContract",
       "source": "src/optics/psf-foundation.ts",
+      "kind": "runtime"
+    },
+    {
+      "name": "getRepresentativeLightSourceSet",
+      "source": "src/facade/representative-light-sources.ts",
       "kind": "runtime"
     },
     {
@@ -6600,6 +6615,46 @@
     {
       "name": "RendererConsumerKind",
       "source": "src/composition/image-formation-plan.ts",
+      "kind": "type"
+    },
+    {
+      "name": "REPRESENTATIVE_LIGHT_SOURCE_IDS",
+      "source": "src/facade/representative-light-sources.ts",
+      "kind": "runtime"
+    },
+    {
+      "name": "REPRESENTATIVE_LIGHT_SOURCE_SET_ID",
+      "source": "src/facade/representative-light-sources.ts",
+      "kind": "runtime"
+    },
+    {
+      "name": "REPRESENTATIVE_LIGHT_SOURCE_SET_VERSION",
+      "source": "src/facade/representative-light-sources.ts",
+      "kind": "runtime"
+    },
+    {
+      "name": "REPRESENTATIVE_LIGHT_SOURCE_WAVELENGTH_RANGE_NANOMETERS",
+      "source": "src/facade/representative-light-sources.ts",
+      "kind": "runtime"
+    },
+    {
+      "name": "RepresentativeLightSource",
+      "source": "src/facade/representative-light-sources.ts",
+      "kind": "type"
+    },
+    {
+      "name": "RepresentativeLightSourceBand",
+      "source": "src/facade/representative-light-sources.ts",
+      "kind": "type"
+    },
+    {
+      "name": "RepresentativeLightSourceId",
+      "source": "src/facade/representative-light-sources.ts",
+      "kind": "type"
+    },
+    {
+      "name": "RepresentativeLightSourceSet",
+      "source": "src/facade/representative-light-sources.ts",
       "kind": "type"
     },
     {

@@ -7807,6 +7807,12 @@ const sky = getColorPatchSet().patches.find((p) => p.patchId === "sky-blue");
 console.log(tungsten.scene.parameters.patchSet, sky?.code, sky?.name, sky?.reference.cielabD65); // "PV-M1", "Midday Sky"
 ```
 
+**Representative light sources (2.22).** The engine's own [representative light sources](https://github.com/Photivra/photivra/blob/main/docs/LIGHT_SOURCES.md) are four relative spectra
+designed by Photivra: a tri-phosphor fluorescent tube and white LEDs of low and high color rendering at 4000 K and a warm one at
+2700 K, each "representative, not a named product". `createRepresentativeLightSourceIlluminant({ sourceId })` returns an
+`illuminant` (`{ kind: "spectrum", spectrum, label }`); under the two 4000 K LEDs the color patches differ by up to ΔE00 5.9 while
+the neutrals stay neutral. Use `sensor.spectralStepNanometers: 5`. The page has a runnable example.
+
 In `aperture-priority` mode, the shutter comes from the meter (CIPA DC-004 relations S = 10/H and H = 0.65·L·t/N²) through
 `resolveAperturePriorityExposureMode()`.
 `exposure.standardExposureDeviationStops` is the exposure used minus the standard exposure for the metered luminance L, in stops,

@@ -42,6 +42,7 @@ one-call capture, see the [Quick Start](QUICK_START.md). For every export, see t
 | Sensor noise and signal-to-noise ratio (SNR) | [`calculateSignalToNoise`](api/sensor-signal-noise.md#calculatesignaltonoise) | Shot noise plus read noise, in electrons. |
 | Colour temperature to a white point | [`calculateChromaticityFromCorrelatedColorTemperature`](api/color-illuminants.md#calculatechromaticityfromcorrelatedcolortemperature) | Kelvin and Duv (tint) to CIE 1931 xy. |
 | White point to colour temperature | [`calculateCorrelatedColorTemperature`](api/color-illuminants.md#calculatecorrelatedcolortemperature) | CIE 1931 xy to kelvin and Duv. |
+| Fluorescent or LED light with realistic color rendering | [`createRepresentativeLightSourceIlluminant`](api/facade-representative-light-sources.md#createrepresentativelightsourceilluminant) | Photivra's own representative spectra (not named products), passed as `illuminant`; same-CCT LEDs render colors differently. Use `sensor.spectralStepNanometers: 5`. |
 | White balance from Kelvin and tint | [`createColorTemperatureWhiteBalanceIntent`](api/color-white-balance.md#createcolortemperaturewhitebalanceintent), then [`resolveColorTemperatureWhiteBalance`](api/color-white-balance.md#resolvecolortemperaturewhitebalance) | Needs an explicit camera colour matrix. In `simulateCapture()`, use `output.whiteBalance: { kelvin, tint }` instead. |
 
 If a task is not in this table, search the [API reference](API_REFERENCE.md) or the

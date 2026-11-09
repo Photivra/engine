@@ -1312,6 +1312,24 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 | [`DisplayViewCorrectionStateSet`](api/facade-display-view.md#displayviewcorrectionstateset) | Type |
 | [`serializeDisplayViewCorrectionStates`](api/facade-display-view.md#serializedisplayviewcorrectionstates) | Runtime |
 
+## facade/representative-light-sources.ts
+
+[Detailed contracts](api/facade-representative-light-sources.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/facade/representative-light-sources.ts)
+
+| Export | Kind |
+| --- | --- |
+| [`createRepresentativeLightSourceIlluminant`](api/facade-representative-light-sources.md#createrepresentativelightsourceilluminant) | Runtime |
+| [`createRepresentativeLightSourceSpectrum`](api/facade-representative-light-sources.md#createrepresentativelightsourcespectrum) | Runtime |
+| [`getRepresentativeLightSourceSet`](api/facade-representative-light-sources.md#getrepresentativelightsourceset) | Runtime |
+| [`REPRESENTATIVE_LIGHT_SOURCE_IDS`](api/facade-representative-light-sources.md#representative_light_source_ids) | Runtime |
+| [`REPRESENTATIVE_LIGHT_SOURCE_SET_ID`](api/facade-representative-light-sources.md#representative_light_source_set_id) | Runtime |
+| [`REPRESENTATIVE_LIGHT_SOURCE_SET_VERSION`](api/facade-representative-light-sources.md#representative_light_source_set_version) | Runtime |
+| [`REPRESENTATIVE_LIGHT_SOURCE_WAVELENGTH_RANGE_NANOMETERS`](api/facade-representative-light-sources.md#representative_light_source_wavelength_range_nanometers) | Runtime |
+| [`RepresentativeLightSource`](api/facade-representative-light-sources.md#representativelightsource) | Type |
+| [`RepresentativeLightSourceBand`](api/facade-representative-light-sources.md#representativelightsourceband) | Type |
+| [`RepresentativeLightSourceId`](api/facade-representative-light-sources.md#representativelightsourceid) | Type |
+| [`RepresentativeLightSourceSet`](api/facade-representative-light-sources.md#representativelightsourceset) | Type |
+
 ## facade/scene-radiance.ts
 
 [Detailed contracts](api/facade-scene-radiance.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/facade/scene-radiance.ts)
