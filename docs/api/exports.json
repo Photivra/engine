@@ -1153,6 +1153,11 @@
       "kind": "runtime"
     },
     {
+      "name": "calculatePrintSizeLimitWithBlurAndNoise",
+      "source": "src/output/print-size-blur-noise.ts",
+      "kind": "runtime"
+    },
+    {
       "name": "calculateProcessedSensorRaw",
       "source": "src/capture/photographic-export.ts",
       "kind": "runtime"
@@ -5968,6 +5973,11 @@
       "kind": "runtime"
     },
     {
+      "name": "PrintBlurInput",
+      "source": "src/output/print-size-blur-noise.ts",
+      "kind": "type"
+    },
+    {
       "name": "PrintContrastReference",
       "source": "src/output/print-contrast-reference.ts",
       "kind": "type"
@@ -5990,6 +6000,11 @@
     {
       "name": "PrintedImageSize",
       "source": "src/output/print-plan.ts",
+      "kind": "type"
+    },
+    {
+      "name": "PrintImageMm",
+      "source": "src/output/print-size-blur-noise.ts",
       "kind": "type"
     },
     {
@@ -6045,6 +6060,11 @@
     {
       "name": "PrintNativeSource",
       "source": "src/output/print-plan.ts",
+      "kind": "type"
+    },
+    {
+      "name": "PrintNoiseInput",
+      "source": "src/output/print-size-blur-noise.ts",
       "kind": "type"
     },
     {
@@ -6113,6 +6133,11 @@
       "kind": "type"
     },
     {
+      "name": "PrintSharpCleanCriterion",
+      "source": "src/output/print-size-blur-noise.ts",
+      "kind": "type"
+    },
+    {
       "name": "PrintSinusoidalMeasurement",
       "source": "src/output/print-detail.ts",
       "kind": "type"
@@ -6130,6 +6155,16 @@
     {
       "name": "PrintSizeLimitInput",
       "source": "src/output/print-plan.ts",
+      "kind": "type"
+    },
+    {
+      "name": "PrintSizeLimitWithBlurAndNoise",
+      "source": "src/output/print-size-blur-noise.ts",
+      "kind": "type"
+    },
+    {
+      "name": "PrintSizeLimitWithBlurAndNoiseInput",
+      "source": "src/output/print-size-blur-noise.ts",
       "kind": "type"
     },
     {

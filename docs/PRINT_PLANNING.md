@@ -7,6 +7,8 @@ This standalone, browser-safe API answers two questions:
 - Does the captured native image have enough pixels for a given print size and viewing distance?
 - What is the smallest compatible raster (pixel size) for the printer file?
 
+From 2.20.0, [a third function](#print-size-limit-with-blur-and-noise) also counts the capture's blur and noise.
+
 It generates no pixels and no files. See [API conventions](API_STYLE.md), [staged geometry](PHYSICS_FOUNDATION.md), [processed output](PROCESSED_OUTPUT.md) and the [historical 1.1.0 release review](RELEASE_1_1_0.md).
 
 ## Authority and units
@@ -152,11 +154,44 @@ For untrusted requests, use `parsePrintPlanInput()`. The calculation functions a
 
 When you build output metadata, keep the returned binding of capture, input, model and API. This API does not call the image exporter itself, and does not attach serialisation tags.
 
+## Print size limit with blur and noise
+
+`calculatePrintSizeLimitWithBlurAndNoise()` (2.20.0, model `print-size-limit-blur-noise` 1.0.0, #574) answers "how big can I print this?" counting the capture's blur and noise as well as its pixels, at a fixed viewing distance. It returns the largest print, at the raster's aspect ratio, at which the capture still looks sharp and clean under the caller's criterion, the factor that limits it (`pixels`, `blur` or `noise`; on a tie in that order), and each factor's own limit (null when that factor never limits). It is a pure function; the capture path does not use it.
+
+**Input.** The printed raster (after any crop, square pixels) and the sensor length one of its pixels covers (`pixelPitchMm`); the viewing distance; the criterion `{ kind: "visual-resolution", arcminutes, minimumVisibleSnr }`; the blur as sensor-plane diameters in millimetres, either `components` (`lensMm`, `defocusMm`, `diffractionMm`, `motionMm`; for example from `calculateDefocusCircle`, `calculateAiryDisk` and `calculateProjectedMotionBlur`) or one `measured-total`; and the noise, either `shot-and-read-noise` (signal and read noise in electrons, through the engine's noise model `calculateSignalToNoise`: Poisson shot noise plus RMS read noise) or a per-pixel `pixel-snr` the caller already has, for the tone that matters (for example mid-gray).
+
+**Equations.** With θ the criterion angle and d the viewing distance, the criterion covers s = 2·d·tan(θ/2) on the print (exact geometry at the print's center). With N_w the raster width, b the blur diameter in pixels and SNR_px the pixel SNR, the print width W is limited by:
+
+| Factor | Condition | Limit |
+| --- | --- | --- |
+| Pixels | a print pixel W/N_w covers at most s | W ≤ N_w·s |
+| Blur | the blur on the print b·W/N_w covers at most s | W ≤ N_w·s/b |
+| Noise | the visible SNR, SNR_px·N_w·s/W while a print pixel is smaller than s, is at least SNR_min | W ≤ N_w·s·SNR_px/SNR_min, none if SNR_px ≥ SNR_min |
+
+The pixel limit is `calculatePrintPlan`'s `angular-pixel-pitch` bound before its whole-pixel rounding. The blur limit is the acceptable-circle-of-confusion convention with the eye's resolution as the acceptable blur on the print. The noise limit assumes the eye averages the pixels inside an s × s square: (s·N_w/W)² independent pixels, whose mean has 1/√n of their standard deviation, so the SNR rises by s·N_w/W. Blur parts add in root-sum-square: exact for Gaussian spots, whose variances add under convolution, and an approximation for discs and Airy patterns. Doubling the viewing distance doubles every limit.
+
+**An approximation.** The equations are exact under the model, but the model is a convention: one arcminute is normal (20/20) acuity under optimal conditions, and some viewers resolve finer detail and many coarser; the SNR threshold has no default and is the caller's (uncalibrated). Not modeled: correlated noise from demosaicing, denoising and sharpening; the eye's contrast sensitivity; the print medium, paper and printer; viewing off the print's center. A zero pixel SNR gives `no-positive-size`. Values that overflow throw a configuration error; results never hold NaN or Infinity.
+
+```ts
+import { calculatePrintSizeLimitWithBlurAndNoise } from "@photivra/engine";
+const limit = calculatePrintSizeLimitWithBlurAndNoise({
+  raster: { pixelWidth: 6000, pixelHeight: 4000 }, pixelPitchMm: 0.004,
+  viewingDistance: { value: 500, unit: "mm" },
+  criterion: { kind: "visual-resolution", arcminutes: 1, minimumVisibleSnr: 20 },
+  blur: { kind: "components", defocusMm: 0.012, diffractionMm: 0.003, motionMm: 0.004 },
+  noise: { kind: "shot-and-read-noise", signalElectrons: 2000, readNoiseElectrons: 3 }
+}).value;
+// 13 µm of blur is 3.25 pixels: blur limits the print to about 268.5 x 179.0 mm at 500 mm.
+if (limit.limitingFactor !== "blur" || Math.floor(limit.maximumImageMm.width) !== 268) throw new Error("Unexpected print size limit");
+console.log(limit.limitingFactor, limit.maximumImageMm, limit.limits);
+```
+
 ## References and evidence
 
 - [NIST length units](https://www.nist.gov/pml/owm/si-units-length): unit conversion reference.
 - [Adobe image resolution](https://helpx.adobe.com/photoshop/desktop/crop-resize-transform/resize-adjust-resolution/printed-image-resolution.html): physical image dimensions versus pixel density.
 - Z. Alomar, K. D. Bojikian, ["Visual Acuity Testing in Adults"](https://eyewiki.aao.org/Visual_Acuity_Testing_in_Adults), EyeWiki, American Academy of Ophthalmology, last edited June 16, 2026: for an ideal eye under optimal conditions the minimum angle of resolution is about 1 minute of arc, and 20/20 letters are built from 1-arcmin elements. The source for the one-arcminute rule of thumb; it describes clinical acuity testing, not print sampling.
+- C. M. Grinstead, J. L. Snell, [*Introduction to Probability*](https://math.dartmouth.edu/~prob/prob/prob.pdf), 2nd rev. ed., American Mathematical Society, 1997, sec. 6.2 (free under the GNU Free Documentation License): the variance of a sum of independent random variables is the sum of their variances, so the mean of n independent values has 1/√n of their standard deviation; the basis of the noise averaging and of the root-sum-square blur for Gaussian spots.
 - [University of Iowa acuity testing](https://webeye.ophth.uiowa.edu/eyeforum/video/Refraction/Visual-Acuity-Testing/index.htm): the critical stroke detail of a test character is different from the whole character. This is why conventions must be declared explicitly. It gives no universal guarantee about print sampling or quality.
 
 The implementation, prose and tests are original. The references informed terminology and equations. No source tables, calibration, datasets or protected text were included.
