@@ -27,6 +27,15 @@
  * ring tagged with the point, sized from the window and capped at LATTICE_CACHE_LIMIT entries (beyond it, points are
  * evaluated as they are read).
  *
+ * Field-dependent PSF (#569, `lens.catalogue`; {@link createDisplayViewLensPsf}). The capture's environment PSF quadrature resolves the
+ * catalogue lens's sampled PSF at each query point's own field position. The view cuts the native raster into square zones of
+ * Z = ⌈max(W, H) / DISPLAY_VIEW_LENS_PSF_ZONES⌉ sites (one site on frames of at most that many sites a side) and every site of a zone
+ * takes the PSF the capture's own resolver gives at the zone's centre, at each spectral node (an approximation: the PSF's change
+ * across half a zone). A profile kernel's rows run with image +Y (up) and its tap (i, j) reads (x − (i − c)·p, y + (j − c)·p) in
+ * native coordinates (`sensorPsfSourcePoint`), so the view's kernel (reading in(x − t)) is the profile kernel flipped vertically.
+ * Each zone's combined kernels are the expected signal's own tables (`buildTables`) with the zone's kernels, built when a site of
+ * the zone is first read and kept per input in a least-recently-used cache of at most 64 MB (at least four zones).
+ *
  * Large defocus kernels (#564, `input.largeKernel`, radius above 64 sites). The image-space disc D is the same at every lattice
  * group, spectral node and temporal midpoint, so it commutes with those sums as in the rectilinear signal (`expected-signal.ts`):
  * μ_c(x) = Σ_s D(s)·E_c(x − s), with E_c(x) the sum above through the in-focus kernels (each node's diffraction kernel, or a unit
@@ -38,7 +47,67 @@
 import { InvalidConfigurationError } from "../core/configuration-error.js";
 import { createSiteKernelRunsLattice, type SiteKernelRunsRowPattern } from "../optics/site-kernel-runs.js";
 import type { PreparedDefocusImageSpaceGeometry } from "./defocus-image-space-provider.js";
-import { displayViewSignalTables, type DisplayViewExpectedSignal, type DisplayViewExpectedSignalInput } from "./expected-signal.js";
+import { resolveLensSampledPsfKernel, type ResolveLensSampledPsfInput } from "../optics/lens-psf-profile.js";
+import { buildTables, displayViewSignalTables, type DisplayViewExpectedSignal, type DisplayViewExpectedSignalInput, type GroupTables } from "./expected-signal.js";
+
+/** #569: field zones along the native raster's longer side. */
+export const DISPLAY_VIEW_LENS_PSF_ZONES = 64;
+
+/** #569: a field-dependent PSF for the display view (see the module comment). */
+export interface DisplayViewLensPsf {
+  /** Kernel radius and zone side, in sites. */
+  readonly radius: number;
+  readonly zoneSites: number;
+  /** The kernels at the frame centre's zone, for the expected-signal input's lattice groups and reach. */
+  axisKernels(wavelengthsNm: readonly number[]): { radius: number; perNode: Float64Array[] };
+  /** The combined kernels of the zone of native site (x, y), for an input whose kernels are the axis kernels. */
+  tables(input: DisplayViewExpectedSignalInput): (x: number, y: number) => readonly GroupTables[];
+}
+
+/**
+ * #569: the field-dependent PSF of a display view from the sampled PSF the capture resolves (everything but the field point and wavelength),
+ * of kernel radius R, on the W × H native raster of `pitch` µm.
+ */
+export function createDisplayViewLensPsf(psf: Omit<ResolveLensSampledPsfInput, "fieldPointMm" | "wavelengthNm">, R: number, W: number, H: number, pitch: number): DisplayViewLensPsf {
+  const Z = Math.ceil(Math.max(W, H) / DISPLAY_VIEW_LENS_PSF_ZONES), zonesX = Math.ceil(W / Z), w = 2 * R + 1;
+  const zoneOf = (x: number, y: number): number => Math.floor(y / Z) * zonesX + Math.floor(x / Z);
+  const kernelsOf = (zone: number, wavelengthsNm: readonly number[]): Float64Array[] => {
+    // The zone's centre in sites from the top-left corner (an edge zone may be narrower), in image millimetres (+Y up).
+    const zx = zone % zonesX, zy = (zone - zx) / zonesX, fieldPointMm = { x: ((zx * Z + Math.min(W, zx * Z + Z)) / 2 - W / 2) * pitch / 1000,
+      y: (H / 2 - (zy * Z + Math.min(H, zy * Z + Z)) / 2) * pitch / 1000 };
+    return wavelengthsNm.map((wavelengthNm) => {
+      // Every node of the engine-built profile has the same (2R + 1)² window, so every resolved kernel has it too.
+      const values = resolveLensSampledPsfKernel({ ...psf, fieldPointMm, wavelengthNm } as ResolveLensSampledPsfInput).normalizedIntensity, out = new Float64Array(w * w);
+      for (let j = 0; j < w; j++) for (let i = 0; i < w; i++) out[(w - 1 - j) * w + i] = values[j * w + i]!;
+      return out;
+    });
+  };
+  const caches = new WeakMap<DisplayViewExpectedSignalInput, (x: number, y: number) => readonly GroupTables[]>();
+  return { radius: R, zoneSites: Z,
+    axisKernels: (wavelengthsNm) => ({ radius: R, perNode: kernelsOf(zoneOf(W >> 1, H >> 1), wavelengthsNm) }),
+    tables(input): (x: number, y: number) => readonly GroupTables[] {
+      let read = caches.get(input);
+      if (read) return read;
+      const cache = new Map<number, readonly GroupTables[]>();
+      let kept = 0, last = -1, lastTables: readonly GroupTables[] = [];
+      read = (x, y): readonly GroupTables[] => {
+        const zone = zoneOf(x, y);
+        if (zone === last) return lastTables;
+        let tables = cache.get(zone);
+        if (tables) cache.delete(zone);
+        else {
+          tables = buildTables({ ...input, kernels: { radius: R, perNode: kernelsOf(zone, input.wavelengthsNm) } }).groups;
+          // Zones kept: at least 4, and at most 64 MB of them (every zone's tables have the same size).
+          kept ||= Math.max(4, (1 << 23) / tables.reduce((n, g) => n + g.cw * g.ch * (g.neutral.length + g.spectral.flat().length + g.perNode.flat().length), 0));
+          if (cache.size >= kept) cache.delete(cache.keys().next().value!);
+        }
+        cache.set(zone, tables); last = zone; lastTables = tables;
+        return tables;
+      };
+      caches.set(input, read);
+      return read;
+    } };
+}
 
 /** What the lens signal needs from the resolved request. */
 export interface DisplayViewLensSetup {
@@ -53,6 +122,16 @@ export interface DisplayViewLensSetup {
   boxSamples: number;
   /** Anti-aliasing split spots (or one zero spot), in the order of the expected signal's offsets within each aperture node. */
   spots: readonly { offsetMicrometers: { x: number; y: number } }[];
+  /**
+   * #569: a field-dependent lens PSF (`lens.catalogue`, {@link createDisplayViewLensPsf}): each site reads its field zone's kernels
+   * instead of the input's. The input's kernels (the axis zone's) set the lattice groups and the reach; absent, every site reads them.
+   */
+  psf?: DisplayViewLensPsf | undefined;
+  /**
+   * #569 (catalogue fisheyes): a ray that does not point toward the scene plane sees no scene (zero radiance), as the capture's provider
+   * with `zeroBeyondHorizon` gives it, instead of failing.
+   */
+  zeroBeyondHorizon?: boolean | undefined;
 }
 
 /** Largest lattice cache, in entries over all lattice groups and temporal midpoints (times the spectral nodes for radiance scenes). */
@@ -69,7 +148,7 @@ export function prepareDisplayViewLensSignal(lens: DisplayViewLensSetup, nativeW
   (input: DisplayViewExpectedSignalInput, spanColumns?: number) => DisplayViewExpectedSignal {
   const xMm = (nativeWidth / 2 + reachSites) * lens.pitch / 1000, yMm = (nativeHeight / 2 + reachSites) * lens.pitch / 1000;
   for (const t of lens.times) for (const [x, y] of [[-xMm, -yMm], [xMm, -yMm], [-xMm, yMm], [xMm, yMm]] as const) {
-    try { if (!(lens.geometry.lookOf(x, y, t).z > 0)) throw new InvalidConfigurationError("its ray does not point toward the scene plane."); } catch (error) {
+    try { if (!(lens.geometry.lookOf(x, y, t).z > 0) && !lens.zeroBeyondHorizon) throw new InvalidConfigurationError("its ray does not point toward the scene plane."); } catch (error) {
       throw new InvalidConfigurationError("simulateDisplayView with " + options + " reads the scene through the lens up to " + (reachSites + 0.5) + " sites beyond the native " +
         "raster's outer site centres (the kernel radius and the query offsets), and there (" + Math.hypot(x, y).toFixed(3) + " mm from the axis) " + (error as Error).message);
     }
@@ -84,13 +163,22 @@ function createLensSignal(lens: DisplayViewLensSetup, input: DisplayViewExpected
   const materials = scene.kind === "materials" ? scene : undefined, radianceAt = scene.kind === "radiance" ? scene.radianceAt : undefined;
   const { reflectance, spectralIndex, neutralDirect, spectralDirect, groups } = displayViewSignalTables(input);
   const kernels = input.kernels, R = kernels ? kernels.radius : 0;
+  /** #569: the combined kernels of the zone of site (x, y), or the input's own without a field-dependent PSF. */
+  const zoneTables = lens.psf ? lens.psf.tables(input) : (): typeof groups => groups;
   let lookups = 0;
   // The plane point (frame units) and field factor of native sensor point (x, y) mm at time t: the environment's mapping (lookOf) and
   // the planar provider's own arithmetic for the outgoing direction −look.
-  let pu = 0, pv = 0, pf = 0;
+  // #569: with zeroBeyondHorizon, a ray at or beyond 90° reads the plane's origin with a zero factor (zero radiance; `beyond` is set).
+  let pu = 0, pv = 0, pf = 0, beyond = false;
+  const zeroBeyond = lens.zeroBeyondHorizon === true;
   const map = (xMm: number, yMm: number, t: number): void => {
     const look = geometry.lookOf(xMm, yMm, t);
-    if (!(look.z > 0)) throw new InvalidConfigurationError("simulateDisplayView: a query ray does not point toward the scene plane.");
+    beyond = !(look.z > 0);
+    if (beyond) {
+      if (!zeroBeyond || !Number.isFinite(look.z)) throw new InvalidConfigurationError("simulateDisplayView: a query ray does not point toward the scene plane.");
+      pu = 0; pv = 0; pf = 0;
+      return;
+    }
     const s = distance / look.z;
     pu = look.x * s / scale; pv = look.y * s / scale; pf = look.factor;
   };
@@ -146,14 +234,14 @@ function createLensSignal(lens: DisplayViewLensSetup, input: DisplayViewExpected
     }
   }
   function kernelSite(x: number, y: number): number {
-    const c = channelAt(x, y), rowMask = cacheRows - 1, colMask = cacheCols - 1;
+    const c = channelAt(x, y), rowMask = cacheRows - 1, colMask = cacheCols - 1, zone = zoneTables(x, y);
     let total = 0;
     for (let ti = 0; ti < T; ti++) {
       let sum = 0;
       for (let g = 0; g < G; g++) {
-        const group = groups[g]!, p0 = x + group.minIx - R, q0 = y + group.minIy - R, cw = group.cw, ch = group.ch;
+        const group = groups[g]!, p0 = x + group.minIx - R, q0 = y + group.minIy - R, cw = group.cw, ch = group.ch, weights = zone[g]!;
         if (materials) {
-          const nk = group.neutral[c]!, sk = group.spectral[c]!;
+          const nk = weights.neutral[c]!, sk = weights.spectral[c]!;
           for (let dy = 0, t = 0; dy < ch; dy++) {
             // The cache row of lattice row q (read inline: the common case is a hit).
             const q = q0 + dy, row = cacheRows > 0 ? ((g * T + ti) * cacheRows + (q & rowMask)) * cacheCols : -1;
@@ -167,7 +255,7 @@ function createLensSignal(lens: DisplayViewLensSetup, input: DisplayViewExpected
         } else for (let dy = 0, t = 0; dy < ch; dy++) for (let dx = 0; dx < cw; dx++, t++) {
           lattice(g, ti, p0 + dx, q0 + dy);
           let value = 0;
-          for (let n = 0; n < nodes; n++) value += group.perNode[n]![c]![t]! * radiance[n]!;
+          for (let n = 0; n < nodes; n++) value += weights.perNode[n]![c]![t]! * radiance[n]!;
           sum += lf * value;
         }
       }
@@ -282,7 +370,7 @@ function createLensSignal(lens: DisplayViewLensSetup, input: DisplayViewExpected
     try {
       for (let ti = 0; ti < T; ti++) {
         map(xMm, yMm, times[ti]!);
-        const value = materials ? materials.materialAt(pu, pv) : radianceAt!(pu, pv, pilotNode);
+        const value = beyond ? -1 : materials ? materials.materialAt(pu, pv) : radianceAt!(pu, pv, pilotNode);
         lookups++;
         if (ti === 0) first = value; else if (value !== first) return NaN;
       }

@@ -212,7 +212,8 @@ and every number is a labelled approximation.
 - **Combinations:** `lens.defocus` convolves the disc into the lens's PSF (a combined kernel up to 16 sites in radius);
   `lens.focusScatter: { seed, shotIndex? }` moves the focus by a seeded autofocus error (`simulateGenericLensFocusError`), off
   by default. `prime`, `focalLengthMm`, `projection`, `distortion`, `vignetting`, `psf`, `diffraction` and `pupilSampling` are
-  set by the lens and refused with it; the display view refuses `lens.catalogue`.
+  set by the lens and refused with it. The display view renders `lens.catalogue` since #569, with the PSF taken per field zone
+  ([Display view, Catalogue lenses](https://github.com/Photivra/photivra/blob/main/docs/DISPLAY_VIEW.md#catalogue-lenses-569)).
 - **Cost:** one scene query per kernel tap through the lens field mapping, like `lens.distortion`: a 48 × 48 region of a full frame
   at 6 µm takes about 1 s with *PV 50 1.2 Pro* and 6 s with *PV 50 1.8* (Apple M5 Pro), against 0.01 s with `lens.prime`. Render
   regions, or use a coarser `sensor.spectralStepNanometers`.

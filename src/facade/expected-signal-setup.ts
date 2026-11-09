@@ -43,6 +43,11 @@ export interface ExpectedSignalSetupInput {
   pitch: number;
   /** Object-space diffraction: the kernel radius, the PSF and its profile wavelengths. */
   diffraction?: { radius: number; psf: Psf; profileWavelengths: readonly number[] } | undefined;
+  /**
+   * #569: a lens PSF's kernels per spectral node on the site lattice (the catalogue lens's at the frame centre; the display view's
+   * lens signal reads each field zone's own), used when there is no diffraction and no defocus disc (the lens's PSF includes both).
+   */
+  lensKernels?: { radius: number; perNode: Float64Array[] } | undefined;
   /** Defocus (#492): the geometric disc on the site lattice, (2R + 1)² row-major weights; absent or null in focus. */
   defocus?: { radius: number; weights: Float64Array } | null | undefined;
   /**
@@ -79,6 +84,11 @@ export function buildExpectedSignalInput(input: ExpectedSignalSetupInput): { off
       if (!diffraction.profileWavelengths.includes(wavelengthNm)) throw new InvalidConfigurationError(input.caller + ": a spectral node has no diffraction kernel.");
       return siteDiffractionKernel(diffraction.psf, wavelengthNm, pitch, radius, input.caller + ": diffraction kernels must sample the site pitch exactly.");
     }) };
+  }
+  if (input.lensKernels) {
+    if (diffraction || input.defocus || input.largeDefocus) throw new InvalidConfigurationError(input.caller + ": a lens PSF includes its own diffraction and defocus.");
+    if (input.lensKernels.perNode.length !== wavelengths.length) throw new InvalidConfigurationError(input.caller + ": the lens PSF needs one kernel per spectral node.");
+    kernels = input.lensKernels;
   }
   // #564: a disc above the direct radius (64 sites) is convolved by runs after the in-focus signal instead (below).
   const largeDefocus = input.largeDefocus ?? (input.defocus && input.defocus.radius > DEFOCUS_DIRECT_KERNEL_MAXIMUM_RADIUS_SITES ?

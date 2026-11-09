@@ -242,7 +242,7 @@ describe("simulateCapture lens.catalogue options (#549)", () => {
     expect(scattered.image.samples).not.toEqual(plain.image.samples);
   }, scaledTimeout(60_000));
 
-  it("refuses combinations the lens sets itself, unknown ids, out-of-range settings and the display view", async () => {
+  it("refuses combinations the lens sets itself, unknown ids and out-of-range settings, in the capture and the display view", async () => {
     for (const lens of [{ catalogue: "pv-50-1.8", prime: 50 }, { catalogue: "pv-50-1.8", focalLengthMm: 50 }, { catalogue: "pv-50-1.8", diffraction: "circular-aperture" },
       { catalogue: "pv-50-1.8", projection: "rectilinear" }, { catalogue: "pv-50-1.8", pupilSampling: { radialSamples: 1, angularSamples: 4 } }, { catalogue: "pv-50-1.4" },
       { focusScatter: { seed: 1 } }, { catalogue: "pv-50-1.8", focusScatter: { seed: 1, extra: 1 } }]) {
@@ -252,7 +252,8 @@ describe("simulateCapture lens.catalogue options (#549)", () => {
     // On a whole full frame the 50 mm focuses no closer than 0.05·(1 + 1/0.15) = 0.383 m.
     await expect(simulateCapture({ ...base, output: { width: 24, height: 16 }, sensor: { pixelPitchMicrometers: 1500 }, subjectDistanceM: 0.3, lens: { catalogue: "pv-50-1.8", fNumber: 2 } }))
       .rejects.toThrow(/focuses no closer than 0.383/);
-    await expect(simulateDisplayView({ ...base, lens: { catalogue: "pv-50-1.8" } }, { width: 12, height: 8 })).rejects.toThrow(/does not support lens.catalogue/);
+    // #569: the display view renders catalogue lenses (test/display-view-lens-catalogue.test.ts) and refuses what the capture refuses.
+    await expect(simulateDisplayView({ ...base, lens: { catalogue: "pv-50-1.8", fNumber: 1.4 } }, { width: 12, height: 8 })).rejects.toThrow(/outside the PV 50 1.8 range/);
   });
 });
 

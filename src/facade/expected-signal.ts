@@ -195,7 +195,11 @@ export function displayViewSignalTables(input: DisplayViewExpectedSignalInput): 
   return (PREPARED.get(input) ?? prepareSignal(input)).tables;
 }
 
-function buildTables(input: DisplayViewExpectedSignalInput): SignalTables {
+/**
+ * Internal (#569): the tables of an input, built without the content cache (the display view's lens PSF builds one per field zone,
+ * which would only evict the view's own entries).
+ */
+export function buildTables(input: DisplayViewExpectedSignalInput): SignalTables {
   const nodes = input.wavelengthsNm.length, R = input.kernels ? input.kernels.radius : 0, size = 2 * R + 1;
   const A = input.electronsPerRadiance, scene = input.scene, offsets = input.offsets;
   const kernelAt = (node: number, t: number): number => (input.kernels ? input.kernels.perNode[node]![t]! : 1);

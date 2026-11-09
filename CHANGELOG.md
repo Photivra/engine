@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+### 2.18.0 part: #569 Display view: render catalogue lenses
+
+- **New: the display view renders `lens.catalogue` (#569, for Photivra/apps#251 and #252).** `simulateDisplayView` and `prepareDisplayView` accept the 30 generic catalogue lenses at every f-number of each lens's range and down to its close focus, with `lens.defocus` and `lens.focusScatter`, where 2.17.0 refused `lens.catalogue`. The lens's distortion, vignetting and fisheye projection go through #563's lens signal; its PSF is taken per field zone.
+  - **Model (an approximation, the new `view.lensPsf` assumption):** the native raster is cut into square zones of ⌈max(W, H) / 64⌉ sites (94 on 6000 × 4000; one site on frames of at most 64 sites a side), and every site of a zone takes the PSF the capture's own resolver gives at the zone's centre, at each spectral node; every tap reads the scene through the lens with its own field factor, as the capture's environment PSF quadrature does. Catalogue fisheyes see zero radiance beyond 90°, as in the capture. `createDisplayViewLensPsf` in `src/facade/display-view-lens-signal.ts`, loaded on demand; the zones' tables are the expected signal's own (`buildTables`, now exported internally).
+  - **Accuracy** (per site, against the capture's own site record and PSF quadrature): ≤ 2e-15 with one-site zones; 2.5e-3 with the box aperture, four-spot filter and defocus (the capture resolves the PSF at each query point); on a whole 6 µm full frame at most 0.66 % per site and 1.2e-4 on average over four hard lenses; all 30 lenses at their widest and narrowest f-number at close focus within 1 %. A slanted edge against the box-downsized capture is within the rectilinear test's 0.6-code RMS and 3-code maximum. Siemens-star boundary ties behave as with `lens.diffraction` (#565).
+  - **Cost** on the app's request (24 MP, 2028 × 1352 in 96 × 96 parts, one thread, loaded host): part medians 0.2–0.8 s for most lenses (1.9 s for the Macro at f/22) against 50–80 ms without a lens; 1.9–39× the no-lens view per display pixel (docs/DISPLAY_VIEW.md, "Catalogue lenses"). The CPU renders these requests; `gpu: "auto"` falls back, labelled `unsupported-on-backend`. `scripts/benchmark-display-view.mjs` gains `LENS=catalogue:<id>[:open|:<f-number>]`.
+  - **Capture fixes** (only requests that failed before change): `subjectDistanceM` may equal twice the focal length (the Macro's 1:1 close focus was refused); a lens whose range excludes f/8 (*PV 800 9*) takes the reference exposure at its widest aperture with the same N²/t, where every request with it failed.
+  - **Unchanged:** every request without `lens.catalogue` gives the same bytes; no root export is added; no `src/gpu` change. `lensGeometry`'s image-space mapping (#548) now honours `outsideImageCircle: "backward-ray"`, which only catalogue fisheyes set.
+  - **Docs and tests:** docs/DISPLAY_VIEW.md ("Catalogue lenses"), docs/LENS_CATALOGUE.md, docs/QUICK_START.md; `test/display-view-lens-catalogue.test.ts`.
+
 ## 2.17.0 — unreleased (prepared November 7, 2026)
 
 A minor release of four issues: large defocus discs (#564), bokeh character (#553), lens projection, distortion, vignetting and rotation in the display view (#563), and the generic lens catalogue (#549). Captures, RAW codes, files and assumptions are the same as 2.16.0 for every request that 2.16.0 renders and that uses none of the new options (every hash lock holds).
