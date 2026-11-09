@@ -1,10 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 import { describe, expect, it } from "vitest";
-import { calculateEnvironmentSensorPhotoSignal, createPlanarSceneRadianceProvider, GENERIC_LENS_CATALOGUE, prepareDisplayView, resolveGenericLens, simulateCapture, simulateDisplayView,
-  type SimulateCaptureOptions, type SimulateCaptureResult } from "../src/index.js";
+import { GENERIC_LENS_CATALOGUE, prepareDisplayView, resolveGenericLens, simulateCapture, simulateDisplayView, type SimulateCaptureOptions } from "../src/index.js";
 import { simulateDisplayViewWithInternals } from "../src/facade/simulate-display-view.js";
-import { DISPLAY_VIEW_LENS_PSF_ZONES } from "../src/facade/display-view-lens-signal.js";
 import { scaledTimeout } from "./helpers/test-timeout.js";
+import { exposure, differences, fullFrame, sceneEvaluator } from "./helpers/display-view-lens-catalogue.js";
 
 /*
  * #569: the display view with lens.catalogue (src/facade/display-view-lens-signal.ts, createDisplayViewLensPsf). As for #563
@@ -18,83 +17,7 @@ import { scaledTimeout } from "./helpers/test-timeout.js";
  * (measured: 0.66 % and 1.2e-4 at most over the lenses below, at dead-leaves edges, where the PSF's change matters most).
  */
 
-const exposure = { mode: "manual", shutterSeconds: 1 / 125, iso: 100 } as const;
-
-/** Expected photo electrons of one site's environment record with an evaluator (the environment chain, noise-free). */
-function electrons(environment: unknown, evaluateRadiance: unknown): number {
-  return (calculateEnvironmentSensorPhotoSignal({ ...(environment as object), evaluateRadiance } as never).value as unknown as
-    { photo: { value: { photoSignal: { expectedGeneratedElectronCount: number } } } }).photo.value.photoSignal.expectedGeneratedElectronCount;
-}
-/** The capture's scene as a provider; like the capture's for a catalogue fisheye, a ray at or beyond 90° sees zero radiance. */
-function sceneEvaluator(options: SimulateCaptureOptions, r: SimulateCaptureResult): (request: { target: { outgoingDirectionUnitVector: { x: number; y: number; z: number } } }) => unknown {
-  const provider = createPlanarSceneRadianceProvider({ scene: options.scene as never, illuminant: { kind: "planckian", temperatureKelvin: 6500 }, illuminanceLux: r.scene.illuminant.illuminanceLux,
-    distanceM: r.scene.distanceM, framedWidthM: r.scene.framedWidthM, aspect: r.scene.framedHeightM / r.scene.framedWidthM, sceneId: "facade-scene", providerProfileId: "facade-provider" });
-  return (request) => {
-    if (-request.target.outgoingDirectionUnitVector.z > 0) return provider.evaluateRadiance(request as never);
-    const result = provider.evaluateRadiance({ ...request, target: { ...request.target, outgoingDirectionUnitVector: { x: 0, y: 0, z: -1 } } } as never);
-    return { ...result, spectralRadianceWattsPerSquareMeterSteradianNanometer: 0 };
-  };
-}
-type Signal = Awaited<ReturnType<typeof simulateDisplayViewWithInternals>>["signal"];
-/**
- * Relative differences between the view's site values and the reference at `count` sites spread over the native raster (its corners and
- * centre included), or every site (count undefined). The capture may be a region capture: its site records are the whole frame's.
- */
-function differences(capture: SimulateCaptureResult, signal: Signal, evaluate: unknown, pitch: number, count?: number): { largest: number; mean: number } {
-  const area = (capture.request.siteInput(0).environment as unknown as { sensor: { spatialSampling: { imagingArea: { widthMm: number; heightMm: number } } } }).sensor.spatialSampling.imagingArea;
-  const W = Math.round(area.widthMm * 1000 / pitch), H = Math.round(area.heightMm * 1000 / pitch), sites: [number, number][] = [];
-  if (count === undefined) for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) sites.push([x, y]);
-  else {
-    sites.push([0, 0], [W - 1, 0], [0, H - 1], [W - 1, H - 1], [W >> 1, H >> 1]);
-    for (let k = 0; sites.length < count; k++) sites.push([(k * 7919 + 13) % W, (k * 3571 + 7) % H]);
-  }
-  let largest = 0, sum = 0;
-  for (const [x, y] of sites) {
-    const reference = electrons(capture.request.siteInput(y * W + x).environment, evaluate), value = signal.site(x, y);
-    const d = reference === 0 ? (value === 0 ? 0 : Infinity) : Math.abs(value - reference) / reference;
-    largest = Math.max(largest, d); sum += d;
-  }
-  return { largest, mean: sum / sites.length };
-}
-/** A full frame (36 × 24 mm) of `pitch` µm and its capture of a 2 × 2 region (whose site records cover the whole frame). */
-const fullFrame = (pitch: number): NonNullable<SimulateCaptureOptions["output"]> => ({ width: Math.round(36000 / pitch), height: Math.round(24000 / pitch), maximumPixels: 2 ** 27 });
-
 describe("display view with lens.catalogue (#569)", () => {
-  it("one-site zones: every site's expected electrons are the capture's PSF quadrature's (coma, lateral colour, fisheyes, radiance scenes)", async () => {
-    expect(DISPLAY_VIEW_LENS_PSF_ZONES).toBe(64);
-    // 60 × 40 sites of 1.5 µm: the catalogue lens scaled to that frame, kernels of radius 3–10 sites (the profile's orientation matters).
-    const small = { output: { width: 60, height: 40 }, sensor: { pixelPitchMicrometers: 1.5, spectralStepNanometers: 80 }, subjectDistanceM: 3, exposure };
-    const rings = { kind: "reflectance-function", sceneId: "rings", evaluate: (p: { u: number; v: number }): number => 0.4 + 0.3 * Math.cos(40 * Math.hypot(p.u, p.v)) } as const;
-    const cases: [string, SimulateCaptureOptions][] = [
-      ["PV 50 1.2 Pro wide open", { ...small, scene: { preset: "dead-leaves" }, lens: { catalogue: "pv-50-1.2-pro", fNumber: 1.2 } }],
-      ["PV 8 3.5 Fisheye Pro (black outside its 180° circle)", { ...small, scene: { preset: "dead-leaves" }, lens: { catalogue: "pv-8-3.5-fisheye-pro", fNumber: 3.5 } }],
-      ["PV 15 2.8 Fisheye Pro", { ...small, scene: { preset: "dead-leaves" }, lens: { catalogue: "pv-15-2.8-fisheye-pro", fNumber: 2.8 } }],
-      ["PV 50 1.8 on a radiance scene", { ...small, scene: rings, lens: { catalogue: "pv-50-1.8", fNumber: 1.8 } } as SimulateCaptureOptions]
-    ];
-    for (const [name, options] of cases) {
-      // A 2 × 2 region's capture: its site records cover the whole frame (as in the tests below), at a fraction of the whole capture's cost.
-      const capture = await simulateCapture({ ...options, output: { ...options.output, region: { x: 0, y: 0, width: 2, height: 2 } } });
-      const { signal, result } = await simulateDisplayViewWithInternals(options, { width: 6, height: 4, samplesPerAxis: 1 });
-      const lensPsf = result.assumptions.find((a) => a.id === "view.lensPsf")!.value as { zoneSites: number; kernelRadiusSites: number };
-      expect(lensPsf.zoneSites, name).toBe(1);
-      expect(differences(capture, signal, sceneEvaluator(options, capture), 1.5, 400).largest, name).toBeLessThan(1e-12);
-      expect(result.diagnostics.fast.execution.backend).toBe("cpu-reference");
-    }
-  }, scaledTimeout(360_000));
-
-  it("one-site zones with the box aperture, the four-spot filter, AHD, lens.defocus and lens.focusScatter: within 5e-3 of the capture", async () => {
-    const options: SimulateCaptureOptions = { scene: { preset: "dead-leaves" }, output: { width: 60, height: 40, demosaic: "ahd" }, subjectDistanceM: 3, exposure,
-      sensor: { pixelPitchMicrometers: 1.5, spectralStepNanometers: 80, pixelAperture: { kind: "box", samplesPerAxis: 2 }, antiAliasing: { kind: "four-spot" } },
-      lens: { catalogue: "pv-24-1.4-pro", fNumber: 2, focusDistanceM: 2.6, defocus: { model: "geometric-disc" }, focusScatter: { seed: 7 } } };
-    const capture = await simulateCapture({ ...options, output: { ...options.output, region: { x: 0, y: 0, width: 2, height: 2 } } });
-    const { signal, result } = await simulateDisplayViewWithInternals(options, { width: 6, height: 4, samplesPerAxis: 1 });
-    // The view records the capture's resolved focus scatter and its disc folded into the lens's PSF.
-    expect(result.assumptions.find((a) => a.id === "lens.focusScatter")!.value).toEqual(capture.assumptions.find((a) => a.id === "lens.focusScatter")!.value);
-    expect((result.assumptions.find((a) => a.id === "lens.defocus")!.value as { execution: string }).execution).toBe("catalogue-lens-psf");
-    // The capture resolves the PSF at each of the 16 query points, up to 0.75 sites from the centre the view resolves it at: 2.5e-3 at most here.
-    expect(differences(capture, signal, sceneEvaluator(options, capture), 1.5, 300).largest).toBeLessThan(5e-3);
-  }, scaledTimeout(600_000));
-
   it("a whole 6 µm full frame (94-site zones): within 1 % per site and 3e-4 on average of the capture", async () => {
     const cases: [string, number, number][] = [["pv-24-1.8", 1.8, 3], ["pv-16-2.8", 2.8, 3], ["pv-100-2.8-macro-pro", 22, 0.2], ["pv-8-3.5-fisheye-pro", 3.5, 3]];
     for (const [lensId, fNumber, subjectDistanceM] of cases) {
