@@ -365,7 +365,8 @@ export interface SimulateCaptureOptions {
      * distance beyond the focal length (no minimum focus distance; `subjectDistanceM` must be at least twice the focal length, as for
      * every lens). Works in `simulateCapture` and the display view. Not combinable with `prime`, `catalogue` or `focalLengthMm`.
      * Optional `widestFNumber` and `narrowestFNumber` (within `IDEAL_LENS_LIMITS`, widest ≤ narrowest; each defaults to its bound)
-     * narrow the range: `fNumber` must lie in it, and shutter priority and program choose apertures only in it. Default off.
+     * narrow the range: `fNumber` must lie in it, and shutter priority and program choose apertures only in it (program limits its
+     * line to a range that does not hold f/4–f/16, #583). Default off.
      */
     ideal?: { focalLengthMm: number; widestFNumber?: number; narrowestFNumber?: number };
     /**
@@ -1232,20 +1233,24 @@ function resolveAutomaticSlowestShutterOption(value: unknown, context: { focalLe
     "reciprocal rule is a rule of thumb and is not used.");
   return report;
 }
-function defaultProgramLine(): ExposureProgramLineProfile {
+function defaultProgramLine(wide = 4, narrow = 16): ExposureProgramLineProfile {
   // Generic educational program line written for the engine, relative to the f/8, 1/125 s reference. For less light
   // it first opens the aperture toward f/4, then lengthens the shutter. For more light it first closes toward
-  // f/16, then shortens the shutter.
-  return parseExposureProgramLineProfile({ schemaVersion: "0.1.0", profileId: "facade-generic-program-line", profileVersion: "1.0.0",
+  // f/16, then shortens the shutter. #583: a lens range without f/4–f/16 moves those ends to the range (wide/narrow, the line's
+  // f/4 and f/16 clamped to it): the same shape, the aperture held at the range's end and the shutter taking up the stops
+  // (stops = log2(8000·t/N²), the same N²/t as the reference), still from 1/2000 s to 1.024 s.
+  const own = wide === 4 && narrow === 16;
+  return parseExposureProgramLineProfile({ schemaVersion: "0.1.0", profileId: "facade-generic-program-line" + (own ? "" : "-lens-range"), profileVersion: "1.0.0",
     scientificStatus: "approximation", policyKind: "generic-program-line", interpolation: "log2-aperture-shutter", evidence: FACADE_EVIDENCE,
     limitations: ["Generic educational program line authored for the capture facade; not any manufacturer's program."],
-    nodes: [
+    nodes: own ? [
       { nodeId: "minus-6", opticalExposureStopsFromReference: -6, aperture: 16, shutterSeconds: 1 / 2000 },
       { nodeId: "minus-2", opticalExposureStopsFromReference: -2, aperture: 16, shutterSeconds: 1 / 125 },
       { nodeId: "zero", opticalExposureStopsFromReference: 0, aperture: 8, shutterSeconds: 1 / 125 },
       { nodeId: "plus-2", opticalExposureStopsFromReference: 2, aperture: 4, shutterSeconds: 1 / 125 },
       { nodeId: "plus-9", opticalExposureStopsFromReference: 9, aperture: 4, shutterSeconds: 128 / 125 }
-    ] });
+    ] : [[narrow, 1 / 2000], [narrow, 1 / 125], [wide, 1 / 125], [wide, 128 / 125]].filter((_, i) => i !== 2 || wide < narrow)
+      .map(([aperture, shutterSeconds], i) => ({ nodeId: "n" + i, opticalExposureStopsFromReference: Math.log2(8000 * shutterSeconds! / aperture! ** 2), aperture, shutterSeconds })) });
 }
 
 /** PNG colour signalling: the sRGB chunk for sRGB, ITU-T H.273 code points through cICP otherwise. */
@@ -2426,8 +2431,12 @@ export async function runCapture(options: SimulateCaptureOptions, run: "capture"
       isoControl: automaticIso ? { kind: "automatic", policy: { kind: "minimum-iso-aperture-first", apertureSelectionPolicy: "not-wider-than-target", ...autoIsoBaseline, ...limitsPolicy } } :
         { kind: "manual", iso, apertureQuantizationPolicy: "nearest-log2-narrower-on-tie" } });
   } else {
-    assume("exposure.programLine", "model", "facade-generic-program-line", "Engine-authored generic program line (f/16 1/2000 s … f/8 1/125 s … f/4 1.024 s); not a manufacturer program.");
-    resolution = resolveProgramAutoExposureMode({ target, capabilities: resolverCapabilities, referenceExposure: reference, programLine: defaultProgramLine(),
+    // #583: a lens range without f/4–f/16 limits the line to it; every other request keeps the line and its assumption.
+    const clamp = (n: number): number => lensRange ? Math.min(lensRange.narrowestFNumber, Math.max(lensRange.widestFNumber, n)) : n, programLine = defaultProgramLine(clamp(4), clamp(16));
+    // A limited line (#583) records its nodes under the profile id "facade-generic-program-line-lens-range".
+    assume("exposure.programLine", "model", programLine.nodes.length > 4 ? programLine.profileId : { profileId: programLine.profileId, nodes: programLine.nodes },
+      "Engine-authored generic program line (f/16 1/2000 s … f/8 1/125 s … f/4 1.024 s); not a manufacturer program.");
+    resolution = resolveProgramAutoExposureMode({ target, capabilities: resolverCapabilities, referenceExposure: reference, programLine,
       isoControl: automaticIso ? { kind: "automatic", ...autoIsoBaseline, ...limitsPolicy, ...(autoIsoShutterPolicy ? { slowestPreferredShutter: { ...autoIsoShutterPolicy } } : {}) } :
         { kind: "manual", iso } });
   }

@@ -1,0 +1,130 @@
+// SPDX-License-Identifier: Apache-2.0
+/**
+ * #583: in program mode the program line follows the lens's f-number range (`lens.ideal` widestFNumber/narrowestFNumber,
+ * `lens.prime`, `lens.catalogue`). Requests whose range holds the line (f/4–f/16), and requests with no range, keep their bytes.
+ */
+import { createHash } from "node:crypto";
+import { describe, expect, it } from "vitest";
+import { simulateCapture, simulateDisplayView, type SimulateCaptureOptions, type SimulateCaptureResult } from "../src/index.js";
+import { scaledTimeout } from "./helpers/test-timeout.js";
+
+const sha = (data: ArrayBufferView | string): string => createHash("sha256")
+  .update(typeof data === "string" ? data : new Uint8Array(data.buffer, data.byteOffset, data.byteLength)).digest("hex");
+/** Developed samples, packed RAW codes and the result's settings and assumptions. */
+const digest = (r: SimulateCaptureResult): Record<string, string> => ({ samples: sha(r.image.samples), codes: sha(r.raw.codes),
+  exposure: sha(JSON.stringify(r.exposure)), assumptions: sha(JSON.stringify(r.assumptions)) });
+
+const base = { scene: { preset: "siemens-star" as const }, output: { width: 16, height: 16 } };
+/** Program-mode requests without a range, or with one that holds f/4–f/16: their digests from main 3f9d65b (2.18.0), before #583. */
+const UNCHANGED: Record<string, SimulateCaptureOptions> = {
+  tierLens: { ...base, exposure: { mode: "program" } },
+  tierLensAutoIso: { ...base, illuminanceLux: 20, exposure: { mode: "program", iso: "auto" } },
+  idealNoRange: { ...base, lens: { ideal: { focalLengthMm: 50 } }, exposure: { mode: "program" } },
+  idealHoldingRange: { ...base, illuminanceLux: 50, lens: { ideal: { focalLengthMm: 50, widestFNumber: 2, narrowestFNumber: 22 } }, exposure: { mode: "program" } },
+  prime50: { ...base, lens: { prime: 50 }, exposure: { mode: "program" } },
+  catalogue50: { ...base, lens: { catalogue: "pv-50-1.8" }, exposure: { mode: "program", iso: "auto" } }
+};
+const PINNED: Record<string, Record<string, string>> = {
+  tierLens: { samples: "e93c1106936f4744f0e16b5718eb7c88f2d33844652e4e56dc168ecc3b1e91f8", codes: "ace2bd2120a3f5b59e2076a289198be5f235ef19f3a35d399ca97f983633b28d",
+    exposure: "00b53a317629402d6abb579d4805ec2dc134ff172ac6ab779162d2ab6e55f379", assumptions: "8a3e8a04e134e38e9775ce964e42b21e7f04bae2afecf89f92d367169ec952c6" },
+  tierLensAutoIso: { samples: "d67e0c3eb390d3d7bb0c7c5a454feace7ead68e1a3c8fab97f655d360f6aa550", codes: "891682f8617420571ee190656f16f351d150dd560759e1f3dcb53d55340d1787",
+    exposure: "d9f7046536ce47d72997a3d243b599602caaf35f4d66ba8e6bcb703579f76240", assumptions: "52c20138adca0410266e814066e9f3d8b50e6e349689b64799e3ca4d735bcb25" },
+  idealNoRange: { samples: "e93c1106936f4744f0e16b5718eb7c88f2d33844652e4e56dc168ecc3b1e91f8", codes: "ace2bd2120a3f5b59e2076a289198be5f235ef19f3a35d399ca97f983633b28d",
+    exposure: "00b53a317629402d6abb579d4805ec2dc134ff172ac6ab779162d2ab6e55f379", assumptions: "cc47724a86aeafd9ecc14990b418cbcbbe3064e83a25ddca80b4330e8c0881c0" },
+  idealHoldingRange: { samples: "12d562e5f22fdd95f074e5c322a526f690b116dfbb9ea0f4348ad3b4cd3a1743", codes: "46227fc4d9d9a4ba35ea007cd8c382c35081a22964b039c357733e269b6cadb4",
+    exposure: "59758981082e8b5ded4f7d403abaeac2af94d67554b9fe7d5dee8a7d03cf592e", assumptions: "02eb6ca513304c98a5043233dd5897ca674065ed772a80e94b083470d20227a3" },
+  prime50: { samples: "81ffece58d5fe93ad4ba841aa425ad44be60829ed69cb242764d482369dff549", codes: "506b5c2e72835c75b5b14a22bf29ff8d358b4123ce0c5d58082dffc89932fe0d",
+    exposure: "00b53a317629402d6abb579d4805ec2dc134ff172ac6ab779162d2ab6e55f379", assumptions: "0bcef252a188774c8e36ef19ebfe51e45a54d7ac4ce4158120afddf156549214" },
+  catalogue50: { samples: "dec04f95afab61dd4ede7b7e1f519472f17ccec7817467280df79f2788524bb8", codes: "72ba688387d09c4b15e3de599d12376c0311f3ae3e63c62ef6e701676275f3c9",
+    exposure: "bb54027b8c93f83b0a5a524441a9e1ee0ee153a8c0eb9699fefe7806bc64ccd8", assumptions: "2842f0d0283c53f1dfd805013c06ba018d3a599ae73aefe30b1d8f59cdd7bed3" }
+};
+
+const recorded = (result: { assumptions: readonly { id: string; value: unknown }[] }, id: string): unknown => result.assumptions.find((a) => a.id === id)!.value;
+
+type Node = { opticalExposureStopsFromReference: number; aperture: number; shutterSeconds: number };
+/** The facade's generic line (f/16 1/2000 s … f/8 1/125 s … f/4 1.024 s), relative to f/8, 1/125 s. */
+const LINE: Node[] = [[-6, 16, 1 / 2000], [-2, 16, 1 / 125], [0, 8, 1 / 125], [2, 4, 1 / 125], [9, 4, 128 / 125]]
+  .map(([opticalExposureStopsFromReference, aperture, shutterSeconds]) => ({ opticalExposureStopsFromReference: opticalExposureStopsFromReference!, aperture: aperture!, shutterSeconds: shutterSeconds! }));
+/** log2 aperture and shutter of a line at `value` stops (its log2 interpolation, held at its ends). */
+function at(n: readonly Node[], value: number): { a: number; u: number } {
+  const stops = Math.min(n[n.length - 1]!.opticalExposureStopsFromReference, Math.max(n[0]!.opticalExposureStopsFromReference, value));
+  let i = 0;
+  while (i < n.length - 2 && stops > n[i + 1]!.opticalExposureStopsFromReference) i++;
+  const p = (stops - n[i]!.opticalExposureStopsFromReference) / (n[i + 1]!.opticalExposureStopsFromReference - n[i]!.opticalExposureStopsFromReference);
+  return { a: Math.log2(n[i]!.aperture) + p * (Math.log2(n[i + 1]!.aperture) - Math.log2(n[i]!.aperture)),
+    u: Math.log2(n[i]!.shutterSeconds) + p * (Math.log2(n[i + 1]!.shutterSeconds) - Math.log2(n[i]!.shutterSeconds)) };
+}
+const program = (ideal: { widestFNumber?: number; narrowestFNumber?: number }, lux = 2000): SimulateCaptureOptions =>
+  ({ scene: { preset: "uniform" }, output: { width: 8, height: 8 }, illuminanceLux: lux, lens: { ideal: { focalLengthMm: 50, ...ideal } }, exposure: { mode: "program" } });
+const nodesOf = (r: SimulateCaptureResult): Node[] => (recorded(r, "exposure.programLine") as { nodes: Node[] }).nodes;
+
+describe("program line limited to the lens's f-number range (#583)", () => {
+  it("keeps the bytes of program requests with no range or a range that holds f/4–f/16", async () => {
+    const out: Record<string, Record<string, string>> = {};
+    for (const [name, options] of Object.entries(UNCHANGED)) out[name] = digest(await simulateCapture(options));
+    expect(out).toEqual(PINNED);
+  }, scaledTimeout(60_000));
+
+  it("limits the line to the range: the line's aperture clamped in log2 at the same exposure, from 1/2000 s to 1.024 s", async () => {
+    for (const range of [{ widestFNumber: 2, narrowestFNumber: 22 }, { widestFNumber: 4, narrowestFNumber: 16 }, {}])
+      expect(recorded(await simulateCapture(program(range)), "exposure.programLine")).toBe("facade-generic-program-line");
+    for (const [w, n] of [[5.6, 32], [8, 32], [9, 32], [5.6, 11], [0.5, 4], [1, 1], [2, 2.8], [22, 32], [128, 128], [4, 11]] as const) {
+      const capture = await simulateCapture(program({ widestFNumber: w, narrowestFNumber: n })), nodes = nodesOf(capture);
+      expect(recorded(capture, "exposure.programLine")).toMatchObject({ profileId: "facade-generic-program-line-lens-range" });
+      expect(nodes[0]!.shutterSeconds).toBe(1 / 2000);
+      expect(nodes[nodes.length - 1]!.shutterSeconds).toBe(128 / 125);
+      for (const node of nodes) {
+        expect(node.aperture).toBeGreaterThanOrEqual(w);
+        expect(node.aperture).toBeLessThanOrEqual(n);
+        // The stops are the node's exposure against f/8, 1/125 s: log2((t/N²)/(1/8000)).
+        expect(node.opticalExposureStopsFromReference).toBeCloseTo(Math.log2(8000 * node.shutterSeconds / node.aperture ** 2), 12);
+      }
+      // Where both lines run, the aperture is the old line's clamped to the range (and so, at the same stops, the same t/N²).
+      const first = Math.max(-6, nodes[0]!.opticalExposureStopsFromReference), last = Math.min(9, nodes[nodes.length - 1]!.opticalExposureStopsFromReference);
+      for (let k = 0; k <= 200; k++) {
+        const stops = first + (last - first) * k / 200, now = at(nodes, stops), old = at(LINE, stops);
+        expect(now.a).toBeCloseTo(Math.min(Math.log2(n), Math.max(Math.log2(w), old.a)), 9);
+        expect(now.u - 2 * now.a).toBeCloseTo(old.u - 2 * old.a, 9);
+      }
+    }
+    // 1200 mm prime-like f/8–f/32: f/16 1/2000 s, f/16 1/125 s, f/8 1/125 s, f/8 1.024 s.
+    expect(nodesOf(await simulateCapture(program({ widestFNumber: 8, narrowestFNumber: 32 }))).map((node) => [node.opticalExposureStopsFromReference, node.aperture, node.shutterSeconds]))
+      .toEqual([[-6, 16, 1 / 2000], [-2, 16, 1 / 125], [0, 8, 1 / 125], [7, 8, 128 / 125]]);
+  }, scaledTimeout(60_000));
+
+  it("resolves an exposure in program for ideal-lens ranges that do not hold f/4–f/16, with apertures only in the range", async () => {
+    const options = program;
+    for (const range of [{ widestFNumber: 8 }, { narrowestFNumber: 4 }, { widestFNumber: 5.6, narrowestFNumber: 11 }, { widestFNumber: 22, narrowestFNumber: 32 },
+      { widestFNumber: 128 }, { narrowestFNumber: 1 }, { widestFNumber: 2, narrowestFNumber: 2 }]) {
+      const w = range.widestFNumber ?? 0.5, n = range.narrowestFNumber ?? 128;
+      for (const lux of [5, 2000, 200_000]) {
+        const capture = await simulateCapture(options(range, lux));
+        expect(capture.exposure.settings.fNumber).toBeGreaterThanOrEqual(w);
+        expect(capture.exposure.settings.fNumber).toBeLessThanOrEqual(n);
+        expect(recorded(capture, "exposure.programLine")).toMatchObject({ profileId: "facade-generic-program-line-lens-range" });
+      }
+    }
+    // In daylight the 1200 mm-like f/8–f/128 range meters exactly as the open lens does where the line is unchanged (f/16 and narrower);
+    // in dim light it holds f/8 and lengthens the shutter: f/8 at 4× the open lens's f/4 shutter, the same exposure.
+    const bright = await simulateCapture(options({ widestFNumber: 8 }, 200_000)), brightOpen = await simulateCapture(options({}, 200_000));
+    expect(bright.exposure.settings).toEqual(brightOpen.exposure.settings);
+    const lux = 2000, dim = await simulateCapture(options({ widestFNumber: 8 }, lux)), dimOpen = await simulateCapture(options({}, lux));
+    expect(dimOpen.exposure.settings.fNumber).toBe(4);
+    expect(dim.exposure.settings.fNumber).toBe(8);
+    expect(dim.exposure.settings.shutterSeconds).toBeCloseTo(4 * dimOpen.exposure.settings.shutterSeconds, 12);
+    expect(dim.exposure.standardExposureDeviationStops).toBeCloseTo(dimOpen.exposure.standardExposureDeviationStops!, 9);
+    // The display view follows the same line.
+    const view = await simulateDisplayView(options({ widestFNumber: 8 }, lux), { width: 8, height: 8 });
+    expect(view.exposure.settings).toEqual(dim.exposure.settings);
+  }, scaledTimeout(60_000));
+
+  it("applies to lens.prime and lens.catalogue ranges that do not hold f/4–f/16 (previously refused)", async () => {
+    const prime = await simulateCapture({ scene: { preset: "uniform" }, output: { width: 8, height: 8 }, illuminanceLux: 125, lens: { prime: 800 }, exposure: { mode: "program" } });
+    expect(prime.exposure.settings.fNumber).toBe(5.6);
+    expect(nodesOf(prime).map((node) => node.aperture)).toEqual([16, 16, 5.6, 5.6]);
+    const catalogue = await simulateCapture({ scene: { preset: "uniform" }, output: { width: 64, height: 64 }, illuminanceLux: 125, lens: { catalogue: { kind: "pv-800-9", fast: true } },
+      exposure: { mode: "program" } });
+    expect(catalogue.exposure.settings.fNumber).toBe(9);
+    expect(nodesOf(catalogue).map((node) => node.aperture)).toEqual([16, 16, 9, 9]);
+  }, scaledTimeout(120_000));
+});

@@ -252,9 +252,18 @@ the crop factor, so a 50 mm lens is 50 mm on full frame and on APS-C, as when a 
 - **An optional f-number range:** `lens.ideal: { focalLengthMm, widestFNumber, narrowestFNumber }` (either or both, within
   `IDEAL_LENS_LIMITS`, the widest no larger than the narrowest; each defaults to its bound) narrows that range like a real
   lens's: `lens.fNumber` must lie in it, and shutter priority and program choose apertures only in it. The assumption then
-  records the range (`{ lensId, focalLengthMm, widestFNumber, narrowestFNumber }`); without it nothing changes. Program follows
-  the engine's program line (f/4–f/16) and refuses a range that does not hold it, as for `lens.prime` and `lens.catalogue`; a
-  range without f/8 takes the reference exposure at its aperture nearest f/8 (the same N²/t).
+  records the range (`{ lensId, focalLengthMm, widestFNumber, narrowestFNumber }`); without it nothing changes. A range without
+  f/8 takes the reference exposure at its aperture nearest f/8 (the same N²/t).
+- **Program with a range (#583):** program follows the engine's program line (f/16 1/2000 s … f/8 1/125 s … f/4 1.024 s). A
+  range that holds f/4–f/16 keeps it unchanged. Otherwise the line's f/4 and f/16 move to the range (each clamped to it): the
+  same shape, with the aperture held at the range's end and the shutter taking up the stops (the same N²/t, so the same
+  exposure), still from 1/2000 s to 1.024 s. Beyond the line's ends the resolver holds them, as before (with `iso: "auto"` the
+  ISO rises in dim light; with a fixed ISO the capture is under- or overexposed and `exposure.standardExposureDeviationStops`
+  says by how much). For example f/8–f/32 gives f/16 1/2000 s … f/16 1/125 s … f/8 1/125 s … f/8 1.024 s. The
+  `exposure.programLine` assumption then records `{ profileId: "facade-generic-program-line-lens-range", nodes }`. The same
+  applies to the `lens.prime` and `lens.catalogue` ranges that do not hold f/4–f/16 (the 800 mm and 1200 mm-equivalent primes;
+  *PV 800 5.6 Pro*, *PV 1200 8 Pro*, *PV 200 5.6*, *PV 300 5.6*, *PV 400 5.6*, *PV 500 5.6*, *PV 600 6.3* and *PV 800 9*),
+  which program refused before 2.19.0. An approximation: a generic line, not a manufacturer's program.
 - **The same blur models as `lens.prime`:** `lens.defocus` (the thin-lens blur circle of `calculateDefocusCircle`), `lens.diffraction`
   (the Airy pattern) and `lens.vignetting` (a caller profile). Without them the ideal lens renders sharp and evenly lit. It focuses
   at any distance beyond the focal length (no minimum focus distance; the subject must be at least twice the focal length away, as
@@ -533,7 +542,7 @@ Exposure compensation applies to the meter target first, as with a numeric ISO.
 | `manual` | Your aperture and shutter; the ISO makes up the exposure (`resolveManualExposureMode`, automatic ISO). |
 | `aperture-priority` | Your aperture. The shutter follows the meter at the lowest ISO, but no slower than `exposure.autoIso.slowestPreferredShutterSeconds` (required; seconds within the body's shutter range, or `"auto"`, see below); the ISO makes up the rest. At the Auto ISO maximum, `afterMaximumIso` decides: `"allow-slower-shutter"` (the default) lengthens the shutter to reach the target, `"hold-preferred-shutter"` keeps it and leaves the exposure under target (`resolveAperturePriorityAutoIsoExposureMode`). |
 | `shutter-priority` | Your shutter. The aperture is chosen at the lowest ISO, no wider than the target needs, so it stops at the widest aperture; the ISO makes up the rest (`resolveShutterPriorityExposureMode`, policy `minimum-iso-aperture-first`). |
-| `program` | The generic program line at the lowest ISO; beyond the line's end (f/4, 1.024 s) the ISO rises (`resolveProgramAutoExposureMode`, automatic ISO). With `exposure.autoIso.slowestPreferredShutterSeconds` (optional, a number or `"auto"`, #504) the line's shutter is held at it before the ISO rises, and `afterMaximumIso` applies as in aperture priority, never past the line's own shutter. |
+| `program` | The generic program line (limited to the lens's f-number range, #583) at the lowest ISO; beyond the line's end (f/4, 1.024 s) the ISO rises (`resolveProgramAutoExposureMode`, automatic ISO). With `exposure.autoIso.slowestPreferredShutterSeconds` (optional, a number or `"auto"`, #504) the line's shutter is held at it before the ISO rises, and `afterMaximumIso` applies as in aperture priority, never past the line's own shutter. |
 
 The result says what happened. `exposure.settings.iso` is the ISO used and `exposure.isoControl` is `"automatic"`.
 `exposure.autoIso` reports `idealIsoBeforeConstraints`, the Auto ISO range (`autoIsoMinimum`, `autoIsoMaximum`),

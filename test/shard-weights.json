@@ -251,6 +251,7 @@
   "test/production-capture-release-binding.test.ts": 11,
   "test/production-image-formation-plan.test.ts": 3794,
   "test/program-full-auto-resolver.test.ts": 12,
+  "test/program-line-lens-range.test.ts": 63263,
   "test/projected-object-size.test.ts": 2,
   "test/psf-foundation.test.ts": 5,
   "test/pupil-vignetting.test.ts": 45,

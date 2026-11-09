@@ -374,7 +374,7 @@ The actual focal length stays the physical optical quantity used by projection a
 - Focus distance is not part of conventional 35 mm-equivalent focal length. A later digital/output crop and the output resolution are also excluded.
 - If a product wants to describe the final digital framing, it should label it as output framing. It should not silently replace the optical focal length or the capture-equivalent focal length.
 
-To render a lens by its physical focal length on any sensor, give `simulateCapture()` or the display view `lens.ideal: { focalLengthMm }` with any `lens.fNumber` within `IDEAL_LENS_LIMITS` (f/0.5–f/128, 1–4000 mm; optional `widestFNumber` and `narrowestFNumber` narrow the f-number range for the automatic exposure modes): an aberration-free thin lens that is not scaled by the crop factor, unlike `lens.prime` (see docs/QUICK_START.md, "Ideal lens at any focal length and f-number").
+To render a lens by its physical focal length on any sensor, give `simulateCapture()` or the display view `lens.ideal: { focalLengthMm }` with any `lens.fNumber` within `IDEAL_LENS_LIMITS` (f/0.5–f/128, 1–4000 mm; optional `widestFNumber` and `narrowestFNumber` narrow the f-number range for the automatic exposure modes; in program the engine's program line is limited to that range, #583): an aberration-free thin lens that is not scaled by the crop factor, unlike `lens.prime` (see docs/QUICK_START.md, "Ideal lens at any focal length and f-number").
 
 `calculateImagingAreaMetrics()` provides the same canonical diagonal crop-factor calculation, independent of raster density, so other engine modules do not need to repeat that formula.
 
@@ -5526,6 +5526,18 @@ All modes:
 - do not apply flash policy or safety shift.
 
 Flash-aware behaviour, safety shift and the program behaviour of named cameras are separate work.
+
+### The capture facade's program line and the lens's f-number range (#583)
+
+`simulateCapture()` and the display view in `exposure.mode: "program"` use an engine-authored generic line (f/16 1/2000 s … f/8
+1/125 s … f/4 1.024 s, assumption `exposure.programLine`). `resolveProgramAutoExposureMode()` refuses a line whose apertures leave
+the capability range, so with a lens range that does not hold f/4–f/16 (`lens.ideal` `widestFNumber`/`narrowestFNumber`,
+`lens.prime`, `lens.catalogue`) the facade limits the line to the range first: the line's f/4 and f/16 are clamped to the range, giving the same shape with
+the aperture held at the range's end and the shutter keeping each point's exposure (t/N², camera equation H = 0.65·L·t/N²),
+still from 1/2000 s to 1.024 s. Where both lines run, the limited line's aperture is the old one clamped in log2 to the range.
+Beyond the line's ends the resolver holds them as before. A range that holds f/4–f/16, or no range, keeps the line and its
+bytes. The limited line is recorded as `{ profileId: "facade-generic-program-line-lens-range", nodes }`. An approximation of a generic
+program, not a manufacturer's.
 
 ## Program Auto and Full Auto exposure
 
