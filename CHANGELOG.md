@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+### 2.22.0 part: #580 Lateral color as a fringe width in pixels for a lens and sensor
+
+- **New: `calculateLateralColorFringe({ lensId, activeImagingArea, pixelPitchMicrometers, fieldPosition? })`** (model `generic-lens-lateral-color-fringe` 1.0.0, for the app's Guide page on color fringing): a catalogue lens's blue-minus-red image displacement at a field position (`{ x, y }` in fractions of the half-width and half-height; default the top-right corner), radial and as x and y parts, in µm and in pixels, plus the fringe width |Δr| and the lens's F-to-C displacement. It reads the lens's own lateral-color model Δr(λ) = L·R·H·D(λ) at the lens corrections' channel wavelengths (610 and 465 nm), an approximation. Full frame, corner: PV 24 1.8 7.24 µm (1.21 px at 6 µm), PV 24 1.4 Pro 2.11 µm (0.35 px).
+- **Tests** (`test/generic-lens-lateral-color.test.ts`): the formula written out from the Fraunhofer lines, linearity in the field height, direction in every quadrant, sensor scaling, every catalogue lens, refusals, and the chart measurements of the catalogue tests: at the corner region's centre it predicts 0.28 px (pro, measured 0.31 px) and 0.96 px (consumer, measured 0.71 px; the rendered edge also carries the consumer lens's larger blur, the demosaic and the color conversion).
+- **Root exports:** 4 new (1 runtime): `calculateLateralColorFringe` and the types `CalculateLateralColorFringeInput`, `LateralColorFringe`, `LateralColorDisplacement`. A pure function in its own module (`src/optics/generic-lens-lateral-color.ts`); the capture worker does not import it.
+- **Docs:** docs/LENS_CATALOGUE.md ("Lateral color as a fringe width"), docs/USAGE.md, API reference regenerated.
+
 ## 2.19.0 — unreleased (prepared November 9, 2026)
 
 A minor release of six issues: exposure time with an ND filter and generic ND presets (#578), the program line within the lens's f-number range (#583), very fast `lens.ideal` ranges (#585), developing a capture rendered in parts (#571), lens corrections in the development (#570) and the sampled-PSF orientation fix (#566). See the [2.19.0 release record](https://github.com/Photivra/photivra/blob/main/docs/RELEASE_2_19_0.md).

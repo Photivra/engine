@@ -938,6 +938,16 @@
       "kind": "type"
     },
     {
+      "name": "calculateLateralColorFringe",
+      "source": "src/optics/generic-lens-lateral-color.ts",
+      "kind": "runtime"
+    },
+    {
+      "name": "CalculateLateralColorFringeInput",
+      "source": "src/optics/generic-lens-lateral-color.ts",
+      "kind": "type"
+    },
+    {
       "name": "calculateLensComplexPupilPsf",
       "source": "src/optics/complex-pupil-psf.ts",
       "kind": "runtime"
@@ -4390,6 +4400,16 @@
     {
       "name": "LateralChromaticAberrationSeparation",
       "source": "src/optics/lateral-chromatic-aberration.ts",
+      "kind": "type"
+    },
+    {
+      "name": "LateralColorDisplacement",
+      "source": "src/optics/generic-lens-lateral-color.ts",
+      "kind": "type"
+    },
+    {
+      "name": "LateralColorFringe",
+      "source": "src/optics/generic-lens-lateral-color.ts",
       "kind": "type"
     },
     {
