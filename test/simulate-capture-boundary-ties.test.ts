@@ -50,3 +50,29 @@ describe("in-focus lens.diffraction resolves chart-boundary ties as the lattice 
     }, scaledTimeout(120_000));
   }
 });
+
+describe("lens.diffraction.rollingShutterLatticeTaps: the lattice reading under a rolling shutter with camera rotation (#565)", () => {
+  const options = (scene: "siemens-star" | "dead-leaves", rollingShutterLatticeTaps?: boolean, format?: "dng" | "jpeg"): SimulateCaptureOptions => ({ scene: { preset: scene },
+    output: { width: 13, height: 8, ...(format ? { format } : {}) }, motion: { angularVelocityRadPerSec: { pitch: 0.02 }, shutter: "rolling" }, sensor: { spectralStepNanometers: 80, temporalSampleCount: 2 },
+    lens: { fNumber: 11, diffraction: rollingShutterLatticeTaps === undefined ? "circular-aperture" : { kind: "circular-aperture", rollingShutterLatticeTaps } } });
+  const assumption = (r: SimulateCaptureResult): unknown => r.assumptions.find((a) => a.id === "lens.diffraction.rollingShutterLatticeTaps")?.value;
+
+  it("is off by default (per-tap points), on by default for a DNG or JPEG, and an explicit value wins", async () => {
+    const off = await simulateCapture(options("siemens-star")), on = await simulateCapture(options("siemens-star", true));
+    const dng = await simulateCapture(options("siemens-star", undefined, "dng")), dngOff = await simulateCapture(options("siemens-star", false, "dng"));
+    const jpeg = await simulateCapture(options("siemens-star", undefined, "jpeg"));
+    expect(off.request.diffraction!.execution).toBe("environment-psf-quadrature");
+    expect([off, on, dng, dngOff, jpeg].map(assumption)).toEqual([false, true, true, false, true]);
+    // A pitch rotation keeps the odd frame's centre column on the star's vertical spokes (u = 0 on the lattice): ties, where the two
+    // readings differ; a DNG or JPEG takes the lattice one.
+    expect(Array.from(on.raw.codes)).not.toEqual(Array.from(off.raw.codes));
+    expect(Array.from(dng.raw.codes)).toEqual(Array.from(on.raw.codes));
+    expect(Array.from(dngOff.raw.codes)).toEqual(Array.from(off.raw.codes));
+    expect(Array.from(jpeg.raw.codes)).toEqual(Array.from(on.raw.codes));
+  }, scaledTimeout(120_000));
+
+  it("changes nothing but ties: dead leaves give the same RAW either way", async () => {
+    const off = await simulateCapture(options("dead-leaves", false)), on = await simulateCapture(options("dead-leaves", true));
+    expect(Array.from(on.raw.codes)).toEqual(Array.from(off.raw.codes));
+  }, scaledTimeout(120_000));
+});

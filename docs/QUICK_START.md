@@ -75,7 +75,7 @@ modelling choices (such as "no lens PSF") as `kind: "model"`.
 | `lens.vignetting` | none | An `IlluminationVignettingProfile` (radial relative illumination). |
 | `lens.psf` | none | A `{ kind: "sampled-local", configuration }` sampled lens PSF, passed to the environment contract unchanged. |
 | `lens.defocus` | off | `{ model: "geometric-disc" }`: defocus of the scene plane as the geometric blur disc (see [Optics](#optics)). `simulateCapture` and `simulateDisplayView` render it. Optional bokeh character (#553), each part off by default: `blades`, `sphericalAberration`, `catsEye` (see [Bokeh character](#bokeh-character-553)). |
-| `lens.diffraction` | off | 2.1: `"circular-aperture"` or `{ kind: "circular-aperture", kernelRadiusSamples, fast }`: diffraction blur of an ideal lens at the resolved f-number (see [Optics](#optics)). `aperture` is accepted as a deprecated alias of `kind` until 3.0.0. |
+| `lens.diffraction` | off | 2.1: `"circular-aperture"` or `{ kind: "circular-aperture", kernelRadiusSamples, fast, rollingShutterLatticeTaps }`: diffraction blur of an ideal lens at the resolved f-number (see [Optics](#optics)). `aperture` is accepted as a deprecated alias of `kind` until 3.0.0. |
 | `exposure.mode` | `"manual"` | Also `"aperture-priority"`, `"shutter-priority"`, `"program"`. |
 | `exposure.iso` | 100 | Selects the body's ISO readout regime (gain and read noise). From 2.14 the tier bodies (preset 2.1.0) take the third-stop settings `GENERIC_THIRD_STOP_ISO_SETTINGS` (100, 125, 160, 200 … up to the body's maximum: 6400, 12 800 or 25 600). `"auto"` lets Auto ISO choose it from the meter in any mode (see [Auto ISO](#auto-iso-516)); it steps in whole stops unless `exposure.autoIso.isoSteps: "third-stop"`. |
 | `exposure.autoIso` | none | With `iso: "auto"` only. `aperture-priority` requires `{ slowestPreferredShutterSeconds, afterMaximumIso? }`, and `program` takes them optionally; the slowest shutter may be `"auto"`, set by `automaticSlowestShutter`. Every mode takes `limits: { maximum, minimum? }`, the photographer's Auto ISO range (see [Auto ISO](#auto-iso-516)). |
@@ -1093,6 +1093,18 @@ The optics options feed only what the environment site contract accepts:
     scene; a test checks it to 1e-12 per site. With camera rotation, a projection or distortion, or
     vignetting, the per-tap quadrature runs instead (much slower). `request.diffraction` holds the profile,
     the equivalent `sampled-local` PSF and which execution ran.
+  - Ties on chart boundaries (2.20.0, #565): the per-tap quadrature reads each tap's scene point at its site-lattice point, as
+    the object-space convolution, the out-of-focus capture and the display view do, so a tap exactly on a chart boundary (a
+    Siemens star's spokes through lattice points) resolves to the same material on every path. With camera rotation under
+    `motion.shutter: "rolling"` every row has its own instants, so the lattice is read once per instant; there the default
+    keeps each tap's own point, the faster choice, and `rollingShutterLatticeTaps: true` reads the lattice instead, at about
+    1.2× the time (dead leaves 48 × 32 at f/8: 4.0–4.1 s against 4.8–5.0 s; a Siemens star 32 × 24 at f/16: 6.8 s against
+    8.1–8.2 s; November 9, 2026, Apple M5 Pro, Node 24.19.0). A capture that writes a DNG or a JPEG (`output.format`
+    `"dng"` or `"jpeg"`) defaults it to true, the accurate choice; an explicit value wins, and the
+    `lens.diffraction.rollingShutterLatticeTaps` assumption reports the value used. The two readings differ only at such
+    ties. The RAW then depends on `output.format`, so region renders joined into one frame
+    (`serializeSimulatedCaptureDngFromParts`, `simulateCaptureFromParts`) match the whole-frame render only if every part
+    reads the lattice the same way: set the flag explicitly on the parts and the whole request.
   - The convolution runs in 32-row bands and computes only each band's own values, not the 2R rows and
     columns of padding around it (#419; the values are bit-identical to the full-grid convolution's). On a
     function scene with the Quality options at 1 µm and f/16 (R 32), 96 × 72, `diagnostics.timingsMs.diffraction`

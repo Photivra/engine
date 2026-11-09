@@ -258,10 +258,19 @@ export type SimulateCaptureLensDistortion =
  */
 export type SimulateCaptureLensDiffraction =
   | "circular-aperture"
-  | { kind: "circular-aperture"; kernelRadiusSamples?: number; fast?: boolean }
+  | {
+    kind: "circular-aperture"; kernelRadiusSamples?: number; fast?: boolean;
+    /**
+     * #565: in focus with camera rotation and `motion.shutter: "rolling"`, read each PSF tap's scene point at its site-lattice point,
+     * as every other path does, so a tap exactly on a chart boundary resolves as on the lattice. Default false (the faster per-tap
+     * points), except for `output.format` `"dng"` or `"jpeg"`, where it defaults to true; no effect elsewhere. Costs about 1.2× the per-tap
+     * quadrature's time (docs/QUICK_START.md, "Optics").
+     */
+    rollingShutterLatticeTaps?: boolean;
+  }
   | {
     /** @deprecated Since #395: use `kind`. Accepted until 3.0.0. */
-    aperture: "circular-aperture"; kernelRadiusSamples?: number; fast?: boolean;
+    aperture: "circular-aperture"; kernelRadiusSamples?: number; fast?: boolean; rollingShutterLatticeTaps?: boolean;
   };
 /**
  * Optical anti-aliasing (low-pass) filter (2.1), modelled as birefringent point splitting: each image point is
@@ -974,9 +983,9 @@ const AA_DEFAULT_SEPARATION_SITES = 1;
 interface ParsedAntiAliasing { kind: SimulateCaptureSensorAntiAliasing["kind"]; separationSites?: number; axis?: "horizontal" | "vertical";
   components: AntiAliasingPointSplitComponent[] }
 /** #395: the `fast` override of an option record (undefined when absent), which must be a Boolean. */
-function fastOverride(record: Record<string, unknown>, path: string): boolean | undefined {
-  const value = record.fast;
-  if (value !== undefined && typeof value !== "boolean") fail(path + ".fast must be true or false.");
+function fastOverride(record: Record<string, unknown>, path: string, key = "fast"): boolean | undefined {
+  const value = record[key];
+  if (value !== undefined && typeof value !== "boolean") fail(path + "." + key + " must be true or false.");
   return value as boolean | undefined;
 }
 /** Parses `sensor.antiAliasing` into engine point-splitting components (offsets in µm, +x right, +y down). */
@@ -1947,18 +1956,19 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
     lensPsf = p as unknown as typeof lensPsf;
   }
   // Diffraction (2.1): validated here, built once the f-number is resolved.
-  let diffractionRadiusOption: number | null | undefined, diffractionFast: boolean | undefined;
+  let diffractionRadiusOption: number | null | undefined, diffractionFast: boolean | undefined, rollingLatticeTaps: boolean | undefined;
   if (lensOptions.diffraction !== undefined) {
     const d = lensOptions.diffraction;
     if (d === "circular-aperture") diffractionRadiusOption = null;
     else {
-      const record = allowKeys(d, "lens.diffraction", ["kind", "aperture", "kernelRadiusSamples", "fast"]);
+      const record = allowKeys(d, "lens.diffraction", ["kind", "aperture", "kernelRadiusSamples", "fast", "rollingShutterLatticeTaps"]);
       // #395: the record names the model by `kind`; `aperture` is its deprecated alias (until 3.0.0).
       if (record.kind !== undefined && record.aperture !== undefined) fail("lens.diffraction takes kind or its deprecated alias aperture, not both.");
       const model = record.kind !== undefined ? record.kind : record.aperture;
       if (model !== "circular-aperture") fail("lens.diffraction must be \"circular-aperture\" or { kind: \"circular-aperture\", kernelRadiusSamples, fast }.");
       diffractionRadiusOption = record.kernelRadiusSamples === undefined ? null : integerIn(record.kernelRadiusSamples, "lens.diffraction.kernelRadiusSamples", 0, 32);
       diffractionFast = fastOverride(record, "lens.diffraction");
+      rollingLatticeTaps = fastOverride(record, "lens.diffraction", "rollingShutterLatticeTaps");
     }
     if (lensPsf) fail("lens.diffraction cannot be combined with lens.psf: diffraction would be counted twice.");
     if (pupil) fail("lens.diffraction cannot be combined with lens.pupilSampling: the environment contract does not mix a sampled PSF with pupil rays.");
@@ -2587,8 +2597,12 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   const lensGeometry = (defocusModel !== undefined || displayView || diffractionRadiusOption !== undefined) && imageSpaceOptions.length > 0 ? prepareDefocusImageSpaceGeometry({ focalLengthMm, focusDistanceM,
     angularVelocityRadPerSec: angular, ...(lensFieldMapping ? { lensMapping: prepareEnvironmentLensFieldMapping(lensFieldMapping) } : {}), ...(vignetting ? { vignetting } : {}) }) : undefined;
   const defocusGeometry = defocusModel !== undefined ? lensGeometry : undefined;
-  // #565: the in-focus PSF quadrature reads each tap's source on this lattice (not with rotation under a rolling shutter: each row has its own instants).
-  const latticeTaps = lensGeometry && !(rotating && shutterKind === "rolling");
+  // #565: the in-focus PSF quadrature reads each tap's source on this lattice; with rotation under a rolling shutter (each row has its own
+  // instants, so a band per instant) only with lens.diffraction.rollingShutterLatticeTaps, by default only when writing a DNG or JPEG.
+  const rollingTaps = rotating && shutterKind === "rolling" && diffractionRadiusOption !== undefined && lensGeometry !== undefined;
+  rollingLatticeTaps ??= format === "dng" || format === "jpeg";
+  if (rollingTaps) assume("lens.diffraction.rollingShutterLatticeTaps", "model", rollingLatticeTaps, "See lens.diffraction; default true for a DNG or JPEG, else false (faster).");
+  const latticeTaps = lensGeometry && (!rollingTaps || rollingLatticeTaps);
   // #553: the shaped kernel (on axis) and, with a cat's eye, its field zones; built when the disc is resolved out of focus.
   let bokehAxisKernel: DefocusBokehSiteKernel | undefined, bokehZones: DefocusBokehZonePlan | undefined;
   const bokehSummary = defocusBokeh === undefined ? undefined : (disc: ResolvedDefocusDisc): { value: Record<string, unknown>; explanation: string } => {
@@ -3036,16 +3050,14 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
       wavelengthsNm: defocusSiteKernels.wavelengthsNm, kernelRadius: defocusSiteKernels.radius, nativeWidth, nativeHeight, outputWidth: width,
       sitePitchMicrometers: pitch, distanceM: subjectDistanceM, metresPerFrameUnit, onConvolution: (ms) => { defocusMs += ms; },
       ...(window ? { window } : {}), ...(bokehZones ? { fieldZones: bokehZones.zones } : {}),
-      ...(antiAliasing || boxSamples > 1 ? { queryOffsetsSites: apertureNodeOffsets(boxSamples).flatMap((node) =>
-        (antiAliasing ? antiAliasing.components : [{ offsetMicrometers: { x: 0, y: 0 } }]).map((c) => ({ x: node.x - c.offsetMicrometers.x / pitch, y: node.y - c.offsetMicrometers.y / pitch }))) } : {}) }) :
+      ...(antiAliasing || boxSamples > 1 ? { queryOffsetsSites } : {}) }) :
     diffraction && diffractionObjectSpace ? createDiffractedPlanarProvider({ base: provider, psf: diffractionPsf!.configuration.psf,
       wavelengthsNm: diffraction.profile.axes.wavelengthNm, kernelRadius: diffraction.kernelRadiusSamples, nativeWidth, nativeHeight, outputWidth: width,
       sitePitchMicrometers: pitch, distanceM: subjectDistanceM, metresPerFrameUnit, onConvolution: (ms) => { diffractionMs += ms; },
       // Region (2.6): convolve only the lattice the region's native sites query; the values are the whole render's.
       ...(window ? { window } : {}),
       // The environment queries each site at each aperture node minus each split offset (sites, +x right, +y down).
-      ...(antiAliasing || boxSamples > 1 ? { queryOffsetsSites: apertureNodeOffsets(boxSamples).flatMap((node) =>
-        (antiAliasing ? antiAliasing.components : [{ offsetMicrometers: { x: 0, y: 0 } }]).map((c) => ({ x: node.x - c.offsetMicrometers.x / pitch, y: node.y - c.offsetMicrometers.y / pitch }))) } : {}) }) :
+      ...(antiAliasing || boxSamples > 1 ? { queryOffsetsSites } : {}) }) :
     // #565: the PSF quadrature reads each tap's source at its lattice point (a unit kernel on #548's lattice), so ties resolve as on the lattice.
     diffraction && latticeTaps ? createDefocusImageSpaceProvider({ base: provider, geometry: lensGeometry, siteKernels: () => UNIT_SITE_KERNEL,
       kernelRadius: 0, wavelengthsNm: diffraction.profile.axes.wavelengthNm, nativeWidth, nativeHeight, sitePitchMicrometers: pitch, distanceM: subjectDistanceM, metresPerFrameUnit,

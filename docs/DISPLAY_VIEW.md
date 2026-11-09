@@ -293,8 +293,9 @@ the kernel spreads its light, as for any environment PSF.
   symmetric frame's centre, its vertical spokes through an odd frame's centre column) resolves to the same material on
   every path. Before, on a 20 × 14 star at f/11 next to the centre, the capture gave 12 663 against 3 560 electrons with
   and without an identity vignetting profile; now the two agree within 1e-9 relative at every site and give the same RAW
-  (`test/simulate-capture-boundary-ties.test.ts`, [#565](https://github.com/Photivra/photivra/issues/565)). Exception:
-  camera rotation with `motion.shutter: "rolling"` keeps the per-tap source points (every row has its own instants).
+  (`test/simulate-capture-boundary-ties.test.ts`, [#565](https://github.com/Photivra/photivra/issues/565)). With camera
+  rotation under `motion.shutter: "rolling"` this takes `lens.diffraction.rollingShutterLatticeTaps` (default off, faster;
+  on by default for a DNG or JPEG; [Quick start, Optics](QUICK_START.md#optics)).
 - *Against the box-downsized capture.* A slanted edge through radial distortion and vignetting, in focus and out of
   focus (3 µm, 192 × 128 shown at 24 × 16): expected-value RMS below 0.6 code and maximum below 3 codes, the thresholds of
   the rectilinear slanted-edge test.
