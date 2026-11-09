@@ -82,6 +82,15 @@ Limitation: if the crop dimensions share no common factor, you may need to keep 
 - Output resizing always uses one equal scale on both axes.
 - An aspect mismatch returns `crop-confirmation-required`. Choose and confirm a different crop or physical image size, then plan again. The engine never silently crops or stretches.
 
+**Contain fit (2.22.0).** To print on paper of another shape, pass `fit: { kind: "contain", paperOrientation }` and give the paper (or its printable area) as `printedImage`. The engine scales the native raster's aspect ratio to the largest image that fits inside the paper, centers it, and plans that image exactly as a `confirmed-native-aspect` plan of the same size.
+
+- With paper `(P_w, P_h)` and native crop `(W, H)`, the scale is `min(P_w/W, P_h/H)`: the binding side equals the paper exactly, the other is `P_w·H/W` or `P_h·W/H`. This is the "contain" sizing of the W3C CSS Images Module Level 3, §5.5 ("Sizing Objects: the object-fit property"), used here only as the definition of the term. The geometry is exact up to binary64 rounding; `relativeAspectError` reports that rounding and no tolerance applies.
+- `paperOrientation: "match-image"` turns the paper a quarter turn when it is portrait and the image landscape, or the other way round (a square image or paper is never turned). `"as-given"` keeps it.
+- `printedImageMm` is the printed image. `plan.contain` gives `paperMm` (as placed), `paperRotated` and `bordersMm` (`left`, `right`, `top`, `bottom`; unprinted, equal on opposite sides, zero for paper of the image's shape). Borders are computed in the paper's unit and then converted, so whole-unit borders stay exact. Without a native raster, `printedImageMm` and `contain` are null.
+- `calculatePrintSizeLimit()` uses the same layout: `maximumImageMm` keeps the fitted image's shape, and `maximumPaperMm` is the paper, scaled by the same factor, that holds it (null when the bound is not finite).
+- Layout only: nothing is cropped, stretched or resampled, and the sampling criterion is unchanged. `contain` and `maximumPaperMm` are absent from `confirmed-native-aspect` results, which are byte-identical to 2.19.0.
+- Example: a 6000 × 4000 raster on 8 × 10 in paper with `match-image` prints 10 × 6.667 in with 0.667 in borders on the long edges; on 6 × 4 in or 4 × 6 in paper the borders are zero.
+
 **Sufficiency.** The same minimum raster is compared with the retained native pixels on **both axes**.
 
 - `sufficient` only means the native pixels cover the declared criterion.

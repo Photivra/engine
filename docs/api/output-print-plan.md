@@ -42,12 +42,42 @@ export function parsePrintPlanInput(value: unknown): PrintPlanInput;
 
 This call is synchronous; any supplied provider must follow its explicit synchronous contract.
 
+## PrintContainLayout
+
+The layout of a `contain` fit, in millimetres. The printed image itself is the plan's `printedImageMm`.
+
+```ts
+export interface PrintContainLayout {
+  /** The paper as placed: after the quarter turn when `paperRotated`. */
+  paperMm: { width: number; height: number };
+  paperRotated: boolean;
+  /** Unprinted border on each side of the centered image; zero when the paper has the image's aspect ratio. */
+  bordersMm: { left: number; right: number; top: number; bottom: number };
+}
+```
+
 ## PrintedImageSize
 
 The flat printed image area. It excludes paper margins, borders and canvas wraps.
+With a `contain` fit it is instead the paper, or the printable area of it, that the image is fitted inside.
 
 ```ts
 export interface PrintedImageSize { width: number; height: number; unit: PrintLength["unit"] }
+```
+
+## PrintFit
+
+How the printed image relates to `printedImage`.
+- `confirmed-native-aspect`: `printedImage` is the printed image itself and must already have the native aspect ratio,
+ within the stated relative error.
+- `contain`: `printedImage` is the paper. The image keeps the native aspect ratio and is scaled to the largest size that
+ fits inside it, centered; the rest is unprinted border. `match-image` turns the paper a quarter turn when its
+ orientation (portrait or landscape) differs from the image's; `as-given` keeps it. Layout only: nothing is cropped or resampled.
+
+```ts
+export type PrintFit =
+  | { kind: "confirmed-native-aspect"; maximumRelativeAspectError: number }
+  | { kind: "contain"; paperOrientation: "as-given" | "match-image" };
 ```
 
 ## PrintLength
@@ -90,6 +120,8 @@ export interface PrintPlan {
   alternatives: { maximumImageMmAtCurrentDistance: { width: number; height: number }; minimumViewingDistanceMmAtCurrentSize: number | null } | null;
   capturedDetailAssessment: "unassessed";
   deliveryAssessment: "unassessed";
+  /** Present only with a `contain` fit; null when the native raster is unknown. */
+  contain?: PrintContainLayout | null;
 }
 ```
 
@@ -103,7 +135,7 @@ export interface PrintPlanInput {
   printedImage: PrintedImageSize;
   viewingDistance: PrintLength;
   sampling: PrintSamplingCriterion;
-  fit: { kind: "confirmed-native-aspect"; maximumRelativeAspectError: number };
+  fit: PrintFit;
   provider?: PrintProviderConstraints;
 }
 ```
@@ -156,6 +188,8 @@ export interface PrintSizeLimit {
   maximumImageMm: { width: number; height: number } | null;
   reasons: string[];
   referencePlan: PrintPlan;
+  /** Present only with a `contain` fit: the paper that holds `maximumImageMm` with the same layout (borders scale with it). */
+  maximumPaperMm?: { width: number; height: number } | null;
 }
 ```
 

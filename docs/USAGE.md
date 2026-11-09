@@ -7146,6 +7146,7 @@ console.log(png.length, same);
 See [Print planning](https://github.com/Photivra/photivra/blob/main/docs/PRINT_PLANNING.md) for a complete, strict packed example and the exact-ratio integer policy.
 
 - `calculatePrintPlan()` says whether the native sampling is enough, and gives a compatible minimum file raster.
+- `fit: { kind: "contain", paperOrientation }` (2.22.0) fits the whole image inside paper of another shape and reports the borders ([Contain fit](https://github.com/Photivra/photivra/blob/main/docs/PRINT_PLANNING.md#integer-policy-fit-and-sufficiency)).
 - `calculatePrintSizeLimit()` distinguishes finite, unbounded and unavailable sampling limits.
 - Print quality and delivery are not assessed.
 

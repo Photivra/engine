@@ -14,7 +14,9 @@ import type { RasterDimensions } from "../sensor/sensor-geometry.js";
 
 /** A physical length. Not to be confused with image pixels or printer dots. */
 export interface PrintLength { value: number; unit: "mm" | "cm" | "inches" | "m" }
-/** The flat printed image area. It excludes paper margins, borders and canvas wraps. */
+/** The flat printed image area. It excludes paper margins, borders and canvas wraps.
+ * With a `contain` fit it is instead the paper, or the printable area of it, that the image is fitted inside.
+ */
 export interface PrintedImageSize { width: number; height: number; unit: PrintLength["unit"] }
 /** How to choose pixel density: one of three angular criteria at the viewing distance, or a manual PPI (pixels per inch), which gives a different kind of plan. */
 export type PrintSamplingCriterion =
@@ -33,13 +35,31 @@ export interface PrintProviderConstraints {
   minimumPpi?: number;
   exactPpi?: number;
 }
+/** How the printed image relates to `printedImage`.
+ * - `confirmed-native-aspect`: `printedImage` is the printed image itself and must already have the native aspect ratio,
+ *   within the stated relative error.
+ * - `contain`: `printedImage` is the paper. The image keeps the native aspect ratio and is scaled to the largest size that
+ *   fits inside it, centered; the rest is unprinted border. `match-image` turns the paper a quarter turn when its
+ *   orientation (portrait or landscape) differs from the image's; `as-given` keeps it. Layout only: nothing is cropped or resampled.
+ */
+export type PrintFit =
+  | { kind: "confirmed-native-aspect"; maximumRelativeAspectError: number }
+  | { kind: "contain"; paperOrientation: "as-given" | "match-image" };
+/** The layout of a `contain` fit, in millimetres. The printed image itself is the plan's `printedImageMm`. */
+export interface PrintContainLayout {
+  /** The paper as placed: after the quarter turn when `paperRotated`. */
+  paperMm: { width: number; height: number };
+  paperRotated: boolean;
+  /** Unprinted border on each side of the centered image; zero when the paper has the image's aspect ratio. */
+  bordersMm: { left: number; right: number; top: number; bottom: number };
+}
 /** Plan input. The output keeps the exact native aspect ratio; the allowed physical aspect error is explicit and reported. */
 export interface PrintPlanInput {
   source: PrintNativeSource;
   printedImage: PrintedImageSize;
   viewingDistance: PrintLength;
   sampling: PrintSamplingCriterion;
-  fit: { kind: "confirmed-native-aspect"; maximumRelativeAspectError: number };
+  fit: PrintFit;
   provider?: PrintProviderConstraints;
 }
 /** Pixel density and angular pixel pitch for each axis. The angles are pure geometry, not a measure of visual acuity. */
@@ -66,6 +86,8 @@ export interface PrintPlan {
   alternatives: { maximumImageMmAtCurrentDistance: { width: number; height: number }; minimumViewingDistanceMmAtCurrentSize: number | null } | null;
   capturedDetailAssessment: "unassessed";
   deliveryAssessment: "unassessed";
+  /** Present only with a `contain` fit; null when the native raster is unknown. */
+  contain?: PrintContainLayout | null;
 }
 
 const UNIT_MM = { mm: 1, cm: 10, inches: 25.4, m: 1000 } as const;
@@ -160,9 +182,7 @@ export function parsePrintPlanInput(value: unknown): PrintPlanInput {
     parsedSource = { kind: "unavailable", reason: source.reason };
   } else throw new InvalidConfigurationError("Invalid native source kind.");
   const image = record(r.printedImage, ["width", "height", "unit"]);
-  const fit = record(r.fit, ["kind", "maximumRelativeAspectError"]);
-  if (fit.kind !== "confirmed-native-aspect" || typeof fit.maximumRelativeAspectError !== "number" || !Number.isFinite(fit.maximumRelativeAspectError) || fit.maximumRelativeAspectError < 0 || fit.maximumRelativeAspectError > 0.01) throw new InvalidConfigurationError("Declare a native-aspect fit tolerance in [0, 0.01].");
-  const parsed: PrintPlanInput = { source: parsedSource, printedImage: { width: number(image.width, "printedImage.width"), height: number(image.height, "printedImage.height"), unit: unit(image.unit) }, viewingDistance: length(r.viewingDistance), sampling: sampling(r.sampling), fit: { kind: "confirmed-native-aspect", maximumRelativeAspectError: fit.maximumRelativeAspectError } };
+  const parsed: PrintPlanInput = { source: parsedSource, printedImage: { width: number(image.width, "printedImage.width"), height: number(image.height, "printedImage.height"), unit: unit(image.unit) }, viewingDistance: length(r.viewingDistance), sampling: sampling(r.sampling), fit: parseFit(r.fit) };
   if (r.provider !== undefined) {
     const p = record(r.provider, ["minimumRaster", "exactRaster", "minimumPpi", "exactPpi"]);
     parsed.provider = {
@@ -173,6 +193,28 @@ export function parsePrintPlanInput(value: unknown): PrintPlanInput {
     };
   }
   return parsed;
+}
+function parseFit(value: unknown): PrintFit {
+  const fit = record(value, ["kind", "maximumRelativeAspectError", "paperOrientation"]);
+  if (fit.kind === "contain") {
+    record(value, ["kind", "paperOrientation"]);
+    if (fit.paperOrientation !== "as-given" && fit.paperOrientation !== "match-image") throw new InvalidConfigurationError("Declare a contain-fit paper orientation: as-given or match-image.");
+    return { kind: "contain", paperOrientation: fit.paperOrientation };
+  }
+  if (fit.kind !== "confirmed-native-aspect" || fit.paperOrientation !== undefined || typeof fit.maximumRelativeAspectError !== "number" || !Number.isFinite(fit.maximumRelativeAspectError) || fit.maximumRelativeAspectError < 0 || fit.maximumRelativeAspectError > 0.01) throw new InvalidConfigurationError("Declare a native-aspect fit tolerance in [0, 0.01].");
+  return { kind: "confirmed-native-aspect", maximumRelativeAspectError: fit.maximumRelativeAspectError };
+}
+/** The largest image at the native aspect ratio inside the paper, in the paper's unit, and its centered layout.
+ * The binding axis equals the paper exactly; the other is clamped so rounding never makes a negative border.
+ */
+function containImage(native: RasterDimensions, paperWidth: number, paperHeight: number, orientation: "as-given" | "match-image"): { width: number; height: number; paperWidth: number; paperHeight: number; paperRotated: boolean } {
+  const imageLandscape = native.pixelWidth > native.pixelHeight, imagePortrait = native.pixelWidth < native.pixelHeight;
+  const paperRotated = orientation === "match-image" && ((imageLandscape && paperWidth < paperHeight) || (imagePortrait && paperWidth > paperHeight));
+  const pw = paperRotated ? paperHeight : paperWidth, ph = paperRotated ? paperWidth : paperHeight;
+  const widthBinds = native.pixelWidth * ph >= native.pixelHeight * pw;
+  const width = widthBinds ? pw : Math.min(pw, ph * native.pixelWidth / native.pixelHeight);
+  const height = widthBinds ? Math.min(ph, pw * native.pixelHeight / native.pixelWidth) : ph;
+  return { width, height, paperWidth: pw, paperHeight: ph, paperRotated };
 }
 function gcd(a: number, b: number): number { while (b !== 0) { const next = a % b; a = b; b = next; } return a; }
 function positiveSupported(...values: number[]): boolean { return values.every(v => Number.isFinite(v) && v > 0); }
@@ -208,11 +250,20 @@ function diagnostics(raster: RasterDimensions, width: number, height: number, di
 export function calculatePrintPlan(value: PrintPlanInput): CalculationResult<PrintPlan> {
   const input = parsePrintPlanInput(value);
   const plan: PrintPlan = { engineApiVersion: ENGINE_API_VERSION, input, status: "cannot-assess", nativePixelSufficiency: "cannot-assess", reasons: [], printedImageMm: null, viewingDistanceMm: null, guidance: null, relativeAspectError: null, native: null, minimumSamplingRaster: null, recommended: null, resamplingScale: null, alternatives: null, capturedDetailAssessment: "unassessed", deliveryAssessment: "unassessed" };
-  const finish = (): CalculationResult<PrintPlan> => calculatedResult(plan, "native-only-print-plan", "0.1.0", ["Declared native authority; flat image, normal viewing at image center.", "Output preserves the exact retained native aspect ratio; no upscale.", "Angular sampling is conditional guidance, not captured-detail or print-quality certification."]);
+  const contain = input.fit.kind === "contain" ? input.fit : null;
+  if (contain !== null) plan.contain = null;
+  const finish = (): CalculationResult<PrintPlan> => calculatedResult(plan, "native-only-print-plan", "0.1.0", ["Declared native authority; flat image, normal viewing at image center.", "Output preserves the exact retained native aspect ratio; no upscale.", "Angular sampling is conditional guidance, not captured-detail or print-quality certification.", ...(contain === null ? [] : ["Contain fit: the image is centered inside the paper; the borders are unprinted and the paper is not a print area."])]);
   const unsupported = (): CalculationResult<PrintPlan> => { plan.status = "unsupported"; plan.nativePixelSufficiency = "cannot-assess"; plan.reasons.push("unsupported-numeric-range"); return finish(); };
-  const width = input.printedImage.width * UNIT_MM[input.printedImage.unit], height = input.printedImage.height * UNIT_MM[input.printedImage.unit], distance = input.viewingDistance.value * UNIT_MM[input.viewingDistance.unit];
+  const unitMm = UNIT_MM[input.printedImage.unit], distance = input.viewingDistance.value * UNIT_MM[input.viewingDistance.unit];
+  // A contain fit needs the native aspect ratio before the printed image size is known.
+  const resolved = input.source.kind === "native-retained" ? resolveCaptureGeometry(input.source.geometry).value : null;
+  const native = resolved === null ? null : { pixelWidth: resolved.output.cropRect.width, pixelHeight: resolved.output.cropRect.height };
+  const fitted = contain === null || native === null ? null : containImage(native, input.printedImage.width, input.printedImage.height, contain.paperOrientation);
+  const imageWidth = fitted?.width ?? input.printedImage.width, imageHeight = fitted?.height ?? input.printedImage.height;
+  const width = imageWidth * unitMm, height = imageHeight * unitMm;
   if (!positiveSupported(width, height, distance)) return unsupported();
-  plan.printedImageMm = { width, height }; plan.viewingDistanceMm = distance;
+  if (contain === null || fitted !== null) plan.printedImageMm = { width, height };
+  plan.viewingDistanceMm = distance;
   const angle = input.sampling.kind === "manual-ppi" ? null : angularLimit(input.sampling);
   const pitchFactor = angle === null ? null : 2 * Math.tan((angle * RAD_PER_ARCMIN) / 2);
   const pitch = input.sampling.kind === "manual-ppi" ? 25.4 / input.sampling.pixelsPerInch : distance * (pitchFactor ?? 0);
@@ -220,18 +271,25 @@ export function calculatePrintPlan(value: PrintPlanInput): CalculationResult<Pri
   if (!positiveSupported(pitch, ppi, width / pitch, height / pitch)) return unsupported();
   const guidance = { derivedPixelsPerInch: ppi, maximumPixelPitchMm: pitch, maximumArcminutesPerPixel: angle };
   plan.guidance = angle === null ? calculatedResult(guidance, "manual-print-density", "0.1.0", ["Explicit manual PPI plan; no angular criterion is certified."]) : approximationResult(guidance, "declared-angular-print-sampling", "0.1.0", ["Exact centered pixel angle uses 2 atan(pitch / (2 distance)); no small-angle substitution.", "Declared angular sampling convention is an uncalibrated usage assumption."]);
-  if (input.source.kind === "unavailable") { plan.reasons.push(input.source.reason); return finish(); }
-  const resolved = resolveCaptureGeometry(input.source.geometry).value;
-  const native = { pixelWidth: resolved.output.cropRect.width, pixelHeight: resolved.output.cropRect.height };
+  if (input.source.kind === "unavailable" || native === null) { if (input.source.kind === "unavailable") plan.reasons.push(input.source.reason); return finish(); }
+  if (fitted !== null) {
+    const paperWidth = fitted.paperWidth * unitMm, paperHeight = fitted.paperHeight * unitMm;
+    // Borders are taken in the paper's unit, then converted, so whole-unit borders stay exact.
+    const side = (paper: number, image: number): number => Math.max(0, (paper - image) / 2) * unitMm;
+    const x = side(fitted.paperWidth, imageWidth), y = side(fitted.paperHeight, imageHeight);
+    if (!positiveSupported(paperWidth, paperHeight) || !Number.isFinite(x) || !Number.isFinite(y)) return unsupported();
+    plan.contain = { paperMm: { width: paperWidth, height: paperHeight }, paperRotated: fitted.paperRotated, bordersMm: { left: x, right: x, top: y, bottom: y } };
+  }
   const aspectError = Math.abs((width / height) / (native.pixelWidth / native.pixelHeight) - 1);
   if (!Number.isFinite(aspectError)) return unsupported();
   plan.relativeAspectError = aspectError;
   const nativeDiagnostics = diagnostics(native, width, height, distance);
   if (!positiveSupported(nativeDiagnostics.pixelsPerInch.x, nativeDiagnostics.pixelsPerInch.y, nativeDiagnostics.angularPixelPitchArcminutes.x, nativeDiagnostics.angularPixelPitchArcminutes.y)) return unsupported();
   plan.native = nativeDiagnostics;
-  if (aspectError > input.fit.maximumRelativeAspectError) { plan.status = "crop-confirmation-required"; plan.reasons.push("printed-image-and-confirmed-crop-aspect-mismatch"); return finish(); }
-  const widthInches = input.printedImage.unit === "inches" ? input.printedImage.width : width / 25.4;
-  const heightInches = input.printedImage.unit === "inches" ? input.printedImage.height : height / 25.4;
+  // A contain fit has the native aspect ratio by construction; its rounding error is reported, not checked.
+  if (input.fit.kind === "confirmed-native-aspect" && aspectError > input.fit.maximumRelativeAspectError) { plan.status = "crop-confirmation-required"; plan.reasons.push("printed-image-and-confirmed-crop-aspect-mismatch"); return finish(); }
+  const widthInches = input.printedImage.unit === "inches" ? imageWidth : width / 25.4;
+  const heightInches = input.printedImage.unit === "inches" ? imageHeight : height / 25.4;
   const required = input.sampling.kind === "manual-ppi"
     ? minimumRaster(native, widthInches * ppi, heightInches * ppi)
     : minimumRaster(native, width / pitch, height / pitch);
@@ -298,6 +356,8 @@ export interface PrintSizeLimit {
   maximumImageMm: { width: number; height: number } | null;
   reasons: string[];
   referencePlan: PrintPlan;
+  /** Present only with a `contain` fit: the paper that holds `maximumImageMm` with the same layout (borders scale with it). */
+  maximumPaperMm?: { width: number; height: number } | null;
 }
 /** Calculates the largest print size under the stated conditions. Lab constraints need individual plans,
  * so this size query reports them as unsupported rather than ignoring them.
@@ -317,6 +377,11 @@ export function calculatePrintSizeLimit(value: PrintSizeLimitInput): Calculation
     if (r.viewingDistancePolicy === "proportional-to-image-size" && referencePlan.input.sampling.kind !== "manual-ppi") {
       result.status = referencePlan.nativePixelSufficiency === "sufficient" ? "unbounded" : "no-positive-size";
     } else { result.status = "finite"; result.maximumImageMm = referencePlan.alternatives.maximumImageMmAtCurrentDistance; }
+  }
+  if (referencePlan.input.fit.kind === "contain") {
+    const layout = referencePlan.contain, image = referencePlan.printedImageMm, maximum = result.maximumImageMm;
+    const scale = layout && image && maximum ? maximum.width / image.width : null;
+    result.maximumPaperMm = layout && scale !== null && positiveSupported(layout.paperMm.width * scale, layout.paperMm.height * scale) ? { width: layout.paperMm.width * scale, height: layout.paperMm.height * scale } : null;
   }
   return calculatedResult(result, "conditional-native-print-size-limit", "0.1.0", ["Native sampling capacity only; no perceived-quality or physical-printer bound.", "Proportional distance and image scaling preserve angular pixel pitch."]);
 }

@@ -66,7 +66,7 @@ describe("native Print planning", () => {
   it("requires confirmation of aspect, reports declared physical tolerance, never changes native crop", () => {
     const r = manual(100); r.printedImage.height = 10;
     expect(calculatePrintPlan(r).value.status).toBe("crop-confirmation-required");
-    r.printedImage.height = 9.001; r.fit.maximumRelativeAspectError = 0.001;
+    r.printedImage.height = 9.001; r.fit = { kind: "confirmed-native-aspect", maximumRelativeAspectError: 0.001 };
     const p = calculatePrintPlan(r).value;
     expect(p.relativeAspectError).toBeGreaterThan(0); expect(p.status).toBe("ready");
     expect(p.resamplingScale?.x).toBe(p.resamplingScale?.y);
