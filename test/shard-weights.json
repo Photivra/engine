@@ -304,6 +304,7 @@
   "test/signal-conformance.test.ts": 4,
   "test/simulate-capture-antialiasing.test.ts": 47069,
   "test/simulate-capture-auto-iso.test.ts": 1799,
+  "test/simulate-capture-boundary-ties.test.ts": 24473,
   "test/simulate-capture-chart-size.test.ts": 488,
   "test/simulate-capture-defocus-bokeh.test.ts": 17425,
   "test/simulate-capture-defocus-optics.test.ts": 80662,
