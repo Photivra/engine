@@ -88,9 +88,6 @@ export interface CatalogueLensSignal {
   readonly lookups: number;
   /** Grid points per axis (columns, rows) and how many were resolved so far. */
   readonly grid: { columns: number; rows: number; resolved: number };
-  /** The grid's field coordinates, mm (+X right, +Y up). */
-  readonly gridXmm: readonly number[];
-  readonly gridYmm: readonly number[];
 }
 
 /** A kernel's intensity centroid, in samples. */
@@ -293,8 +290,7 @@ export function createCatalogueLensSignal(given: CatalogueLensSignalInput): Cata
   return {
     window, site,
     get lookups(): number { return lookups; },
-    get grid(): { columns: number; rows: number; resolved: number } { return { columns: GX, rows: gy.length, resolved }; },
-    gridXmm: gx, gridYmm: gy
+    get grid(): { columns: number; rows: number; resolved: number } { return { columns: GX, rows: gy.length, resolved }; }
   };
 }
 

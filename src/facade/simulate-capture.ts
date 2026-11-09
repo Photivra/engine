@@ -3167,15 +3167,19 @@ export async function runCapture(options: SimulateCaptureOptions, run: "capture"
   let catalogueFastRun: { columns: number; rows: number; resolved: number; verificationRelativeDifference: number } | undefined;
   const catalogueFastEligible = catalogueFastRequested && catalogueTaps !== undefined && lensKit !== undefined && lensPsf !== undefined && dngParts === undefined && tabulatedScene &&
     !pupil && !rotating && boxSamples === 1 && !antiAliasing && distortion?.kind === "radial" && provider.chartMaterialAt !== undefined && provider.materialRadiance !== undefined;
-  if (catalogueFastEligible) {
+  // The tabulated paths' channel response per spectral node and material tables (the fast catalogue path and the expected-signal path).
+  const tabulatedTables = (): { wavelengths: number[]; perNode: [Float64Array, Float64Array, Float64Array]; materials: NonNullable<Parameters<typeof buildExpectedSignalInput>[0]["materials"]> } => {
     const { electronsPerRadiance, wavelengths } = axisChannelResponse("simulateCapture");
-    const perNode = CHANNELS.map((c) => Float64Array.from(wavelengths, (nm) => electronsPerRadiance[c].get(nm) ?? 0)) as [Float64Array, Float64Array, Float64Array];
     const sceneMaterials = chart ? chart.materials : (callerScene as ResolvedCallerMaterialScene).materials, materialRadiance = provider.materialRadiance!;
-    const { signalInput } = buildExpectedSignalInput({ nativeWidth, nativeHeight, width, wavelengths, perNode, apertureNodes: apertureNodeOffsets(1), boxSamples: 1, antiAliasing: undefined, pitch,
+    return { wavelengths, perNode: CHANNELS.map((c) => Float64Array.from(wavelengths, (nm) => electronsPerRadiance[c].get(nm) ?? 0)) as [Float64Array, Float64Array, Float64Array],
       materials: { materialAt: provider.chartMaterialAt!, whiteRadiance: (nm: number): number => irradianceScale * illuminant.shape.evaluate(nm) / Math.PI,
         list: [...sceneMaterials.map((m, index) => (m.kind === "neutral" ? { neutral: m.reflectance } : { radiance: (nm: number): number => materialRadiance(index, nm) })),
-          ...(chartSize ? [{ neutral: chartSize.surroundReflectance }] : [])] },
-      radianceAt: provider.radianceAt, imagingArea, focalLengthMm, focusDistanceM, subjectDistanceM, metresPerFrameUnit, caller: "simulateCapture" });
+          ...(chartSize ? [{ neutral: chartSize.surroundReflectance }] : [])] } };
+  };
+  if (catalogueFastEligible) {
+    const { wavelengths, perNode, materials } = tabulatedTables();
+    const { signalInput } = buildExpectedSignalInput({ nativeWidth, nativeHeight, width, wavelengths, perNode, apertureNodes: apertureNodeOffsets(1), boxSamples: 1, antiAliasing: undefined, pitch,
+      materials, radianceAt: provider.radianceAt, imagingArea, focalLengthMm, focusDistanceM, subjectDistanceM, metresPerFrameUnit, caller: "simulateCapture" });
     const radial = (distortion as Extract<SimulateCaptureLensDistortion, { kind: "radial" }>).profile;
     const signal = lensKit!.createCatalogueLensSignal({ nativeWidth, nativeHeight, pitch, psf: lensPsf!.configuration.psf, wavelengthsNm: wavelengths, electronsPerRadiance: perNode,
       scene: signalInput.scene as Extract<typeof signalInput.scene, { kind: "materials" }>, channelAt: signalInput.channelAt,
@@ -3188,12 +3192,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: "capture"
   }
   // #553: a cat's eye varies the kernel over the field, which the expected-signal tables (one kernel per node) do not take.
   else if (dngParts === undefined && tabulatedScene && !pupil && !lensFieldMapping && !vignetting && !lensPsf && !rotating && !bokehZones && (!diffraction || diffractionObjectSpace) && provider.chartMaterialAt && provider.materialRadiance) {
-    const { electronsPerRadiance, wavelengths } = axisChannelResponse("simulateCapture");
-    const perNode = CHANNELS.map((c) => Float64Array.from(wavelengths, (nm) => electronsPerRadiance[c].get(nm) ?? 0)) as [Float64Array, Float64Array, Float64Array];
-    const sceneMaterials = chart ? chart.materials : (callerScene as ResolvedCallerMaterialScene).materials, materialRadiance = provider.materialRadiance;
-    const tabulatedMaterials = { materialAt: provider.chartMaterialAt, whiteRadiance: (nm: number): number => irradianceScale * illuminant.shape.evaluate(nm) / Math.PI,
-      list: [...sceneMaterials.map((m, index) => (m.kind === "neutral" ? { neutral: m.reflectance } : { radiance: (nm: number): number => materialRadiance(index, nm) })),
-        ...(chartSize ? [{ neutral: chartSize.surroundReflectance }] : [])] };
+    const { wavelengths, perNode, materials: tabulatedMaterials } = tabulatedTables();
     const { signalInput: builtSignalInput } = buildExpectedSignalInput({ nativeWidth, nativeHeight, width, wavelengths, perNode, apertureNodes: apertureNodeOffsets(boxSamples), boxSamples, antiAliasing, pitch,
       diffraction: diffraction && !defocusSiteKernels ? { radius: diffraction.kernelRadiusSamples, psf: diffractionPsf!.configuration.psf, profileWavelengths: diffraction.profile.axes.wavelengthNm } : undefined,
       materials: tabulatedMaterials, radianceAt: provider.radianceAt, imagingArea, focalLengthMm, focusDistanceM, subjectDistanceM, metresPerFrameUnit, caller: "simulateCapture" });
