@@ -14,12 +14,9 @@ import { parseOpticalProfileState, type OpticalProfileState } from "../optics/pr
 import { GENERIC_LENS_EVIDENCE, genericLensDispersion, resolveGenericLens } from "../equipment/generic-lens-catalogue.js";
 import { parseGenericLensCorrectionProfile, type GenericLensCorrectionProfile, type LensCorrectionChannel } from "./lens-corrections.js";
 import type { AffineGeometricTransform } from "./geometric-transforms.js";
+import { genericLensChannelScale } from "./developed-lens-corrections.js";
 
-/**
- * Effective wavelengths of the red, green and blue channels for the lateral-colour map, nm: a generic approximation of where
- * a camera's channel responses peak, not a measured camera.
- */
-export const GENERIC_LENS_CORRECTION_CHANNEL_WAVELENGTHS_NM: Readonly<Record<LensCorrectionChannel, number>> = /* @__PURE__ */ Object.freeze({ red: 610, green: 540, blue: 465 });
+export { GENERIC_LENS_CORRECTION_CHANNEL_WAVELENGTHS_NM } from "./developed-lens-corrections.js";
 
 export interface CreateGenericLensCorrectionProfileInput {
   /** A catalogue id (`GENERIC_LENS_IDS`); `state.lensId` must be the same id. */
@@ -45,7 +42,7 @@ export function createGenericLensCorrectionProfile(input: CreateGenericLensCorre
     throw new InvalidScientificInputError("state.focalLengthMm must be the " + lens.name + "'s focal length on this sensor, " + lens.focalLengthMm + " mm.");
   const c = lens.character, domain = "reconstructed-linear" as const;
   const identity = { version: "1.0.0", domain, availability: "toggle" as const, defaultEnabled: true, dependencies: [] as string[], requiredByStabilizationModes: [] as string[] };
-  const scale = (channel: LensCorrectionChannel): number => 1 + c.lateralColor.fraction * genericLensDispersion(GENERIC_LENS_CORRECTION_CHANNEL_WAVELENGTHS_NM[channel]);
+  const scale = (channel: LensCorrectionChannel): number => genericLensChannelScale(c.lateralColor.fraction, genericLensDispersion, channel);
   const affine = (channel: LensCorrectionChannel): AffineGeometricTransform => ({ id: lens.lensId + ":lateral-ca:" + channel, version: "1.0.0", domain, purpose: "lateral-ca" as const, kind: "affine" as const,
     matrix: [scale(channel), 0, 0, scale(channel)] as [number, number, number, number], offsetMm: { x: 0, y: 0 } });
   return parseGenericLensCorrectionProfile({ schemaVersion: "0.1.0", id: "photivra-" + lens.lensId + ":corrections", version: "1.0.0", state,

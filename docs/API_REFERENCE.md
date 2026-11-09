@@ -1347,6 +1347,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 | [`SimulateCaptureFastOption`](api/facade-simulate-capture.md#simulatecapturefastoption) | Type |
 | [`SimulateCaptureFastReport`](api/facade-simulate-capture.md#simulatecapturefastreport) | Type |
 | [`SimulateCaptureLensCatalogueRecord`](api/facade-simulate-capture.md#simulatecapturelenscataloguerecord) | Type |
+| [`SimulateCaptureLensCorrections`](api/facade-simulate-capture.md#simulatecapturelenscorrections) | Type |
 | [`SimulateCaptureLensDistortion`](api/facade-simulate-capture.md#simulatecapturelensdistortion) | Type |
 | [`SimulateCaptureMetering`](api/facade-simulate-capture.md#simulatecapturemetering) | Type |
 | [`SimulateCaptureMotion`](api/facade-simulate-capture.md#simulatecapturemotion) | Type |
@@ -2095,6 +2096,14 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 | [`CalculateCenteredCropInput`](api/output-crop.md#calculatecenteredcropinput) | Type |
 | [`CenteredCrop`](api/output-crop.md#centeredcrop) | Type |
 
+## output/developed-lens-corrections.ts
+
+[Detailed contracts](api/output-developed-lens-corrections.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/output/developed-lens-corrections.ts)
+
+| Export | Kind |
+| --- | --- |
+| [`GENERIC_LENS_CORRECTION_CHANNEL_WAVELENGTHS_NM`](api/output-developed-lens-corrections.md#generic_lens_correction_channel_wavelengths_nm) | Runtime |
+
 ## output/generic-lens-corrections.ts
 
 [Detailed contracts](api/output-generic-lens-corrections.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/output/generic-lens-corrections.ts)
@@ -2103,7 +2112,6 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 | --- | --- |
 | [`createGenericLensCorrectionProfile`](api/output-generic-lens-corrections.md#creategenericlenscorrectionprofile) | Runtime |
 | [`CreateGenericLensCorrectionProfileInput`](api/output-generic-lens-corrections.md#creategenericlenscorrectionprofileinput) | Type |
-| [`GENERIC_LENS_CORRECTION_CHANNEL_WAVELENGTHS_NM`](api/output-generic-lens-corrections.md#generic_lens_correction_channel_wavelengths_nm) | Runtime |
 
 ## output/geometric-transforms.ts
 
