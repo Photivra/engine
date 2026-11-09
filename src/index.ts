@@ -1875,6 +1875,21 @@ export { parseLosslessJpeg, type LosslessJpegImage, type LosslessJpegLimits } fr
 export { PNG_ENCODER_ID, PNG_ENCODER_LIMITS, serializePngImage } from "./output/png-encoder.js";
 export type { PngEncodeInput, PngColourEncoding, PngCicpPrimaries, PngCicpTransfer, PngMasteringDisplay, PngContentLightLevel } from "./output/png-encoder.js";
 
+export {
+  DETAIL_LIMIT_LIMITS,
+  calculateDetailLimit,
+  type CalculateDetailLimitInput,
+  type DetailLimit,
+  type DetailLimitBasis,
+  type DetailLimitCatalogueLens,
+  type DetailLimitIdealLens,
+  type DetailLimitOptics,
+  type DetailLimitSampling,
+  type DetailLimitSystem,
+  type DetailLimitedBy,
+  type DetailLimitingFactor
+} from "./optics/detail-limit.js";
+
 declare global {
   /**
    * Minimal global AbortSignal type. It lets the published declarations type-check with
