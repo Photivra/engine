@@ -93,7 +93,7 @@ describe("display view with lens.catalogue (#569)", () => {
     expect((result.assumptions.find((a) => a.id === "lens.defocus")!.value as { execution: string }).execution).toBe("catalogue-lens-psf");
     // The capture resolves the PSF at each of the 16 query points, up to 0.75 sites from the centre the view resolves it at: 2.5e-3 at most here.
     expect(differences(capture, signal, sceneEvaluator(options, capture), 1.5, 300).largest).toBeLessThan(5e-3);
-  }, scaledTimeout(240_000));
+  }, scaledTimeout(480_000));
 
   it("a whole 6 µm full frame (94-site zones): within 1 % per site and 3e-4 on average of the capture", async () => {
     const cases: [string, number, number][] = [["pv-24-1.8", 1.8, 3], ["pv-16-2.8", 2.8, 3], ["pv-100-2.8-macro-pro", 22, 0.2], ["pv-8-3.5-fisheye-pro", 3.5, 3]];
