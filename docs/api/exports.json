@@ -8643,6 +8643,11 @@
       "kind": "type"
     },
     {
+      "name": "SimulateCaptureNoiseComponents",
+      "source": "src/sensor/sensor-characteristics.ts",
+      "kind": "type"
+    },
+    {
       "name": "SimulateCaptureOptions",
       "source": "src/facade/simulate-capture.ts",
       "kind": "type"
@@ -8670,6 +8675,16 @@
     {
       "name": "SimulateCaptureSensorAntiAliasing",
       "source": "src/facade/simulate-capture.ts",
+      "kind": "type"
+    },
+    {
+      "name": "SimulateCaptureSensorCharacteristics",
+      "source": "src/sensor/sensor-characteristics.ts",
+      "kind": "type"
+    },
+    {
+      "name": "SimulateCaptureSensorReport",
+      "source": "src/sensor/sensor-characteristics.ts",
       "kind": "type"
     },
     {
