@@ -13,13 +13,14 @@
  * Development order with these stages: (exposure gain) → demosaic → colour and white balance → diffraction correction
  * (linear) → rendering exposure and tone curve → gamut handling → sRGB transfer → unsharp mask → quantization (encode).
  *
- * Image edges are handled by clamping (edge pixels repeated). Both stages work on a whole in-memory image.
+ * Image edges are handled by clamping (edge pixels repeated). Both stages need the whole image; since #571 they also run row by
+ * row in place (`correctDiffractionInPlace`, `renderSdrWithUnsharpMaskInPlace`), with the same sums in the same order.
  * @see docs/DIGITAL_OPTICS_FOUNDATION.md for the equations, sources, trade-offs and limits.
  */
 
-import { encodeSrgbComponent } from "../color/srgb-transfer.js";
 import { InvalidConfigurationError } from "../core/configuration-error.js";
 import { InvalidScientificResultError } from "../core/validation.js";
+import { renderSdrRunInto, type SdrPixelCounts } from "../output/native-capture-sdr.js";
 import { prepareSdrPixelTone, type SdrRenderingProfile } from "../output/sdr-rendering.js";
 
 /** Version of the `development-detail` model (diffraction correction and unsharp mask). */
@@ -183,30 +184,52 @@ export interface DiffractionCorrectionDiagnostics {
 export function applyDiffractionCorrection(rgb: Float64Array, width: number, height: number, filter: Pick<DiffractionCorrectionFilter, "weights" | "settings">):
   { samples: Float64Array; diagnostics: DiffractionCorrectionDiagnostics } {
   if (rgb.length !== width * height * 3) throw new InvalidConfigurationError("Diffraction correction raster size mismatch.");
-  const R = filter.settings.kernelRadiusPixels, size = 2 * R + 1, w = filter.weights, out = new Float64Array(rgb.length);
+  const samples = Float64Array.from(rgb);
+  return { samples, diagnostics: drainDetailRows(correctDiffractionInPlace(samples, width, height, filter)) };
+}
+/** Runs a row-by-row detail stage to its end and returns its result. */
+export function drainDetailRows<T>(rows: Generator<number, T, void>): T {
+  let step = rows.next();
+  while (!step.done) step = rows.next();
+  return step.value;
+}
+/**
+ * `applyDiffractionCorrection` in place, one output row per step (#571); each step yields the number of rows done. Output row y
+ * reads input rows y − R … y + R, so it waits in a ring of R + 1 rows and replaces input row y once row y + R is done. Every sample
+ * is the same sum in the same order as in a separate output image, so the result is bit-identical, with one image in memory
+ * instead of two. `rgb` must hold width × height pixels.
+ */
+export function* correctDiffractionInPlace(rgb: Float64Array, width: number, height: number, filter: Pick<DiffractionCorrectionFilter, "weights" | "settings">):
+  Generator<number, DiffractionCorrectionDiagnostics, void> {
+  const R = filter.settings.kernelRadiusPixels, size = 2 * R + 1, w = filter.weights, rowLength = width * 3, ring = new Float64Array((R + 1) * rowLength);
   const xs = new Int32Array(width + 2 * R);
   for (let i = 0; i < xs.length; i++) xs[i] = Math.min(width - 1, Math.max(0, i - R)) * 3;
   let negative = 0, above = 0;
-  for (let y = 0; y < height; y++) {
-    const o = y * width * 3;
+  for (let y = 0; y <= height + R; y++) {
+    // Output row y − R − 1 holds the slot of row y; input row y − R − 1 is read by no later output row, so it takes its place.
+    const o = (y % (R + 1)) * rowLength;
+    if (y > R) rgb.set(ring.subarray(o, o + rowLength), (y - R - 1) * rowLength);
+    if (y >= height) continue;
+    ring.fill(0, o, o + rowLength);
     for (let dy = -R; dy <= R; dy++) {
-      const row = Math.min(height - 1, Math.max(0, y + dy)) * width * 3, wr = (dy + R) * size;
+      const row = Math.min(height - 1, Math.max(0, y + dy)) * rowLength, wr = (dy + R) * size;
       for (let dx = 0; dx < size; dx++) {
         const weight = w[wr + dx]!;
         if (weight === 0) continue;
         for (let x = 0; x < width; x++) {
           const s = row + xs[x + dx]!, d = o + 3 * x;
-          out[d] = out[d]! + weight * rgb[s]!; out[d + 1] = out[d + 1]! + weight * rgb[s + 1]!; out[d + 2] = out[d + 2]! + weight * rgb[s + 2]!;
+          ring[d] = ring[d]! + weight * rgb[s]!; ring[d + 1] = ring[d + 1]! + weight * rgb[s + 1]!; ring[d + 2] = ring[d + 2]! + weight * rgb[s + 2]!;
         }
       }
     }
+    for (let i = o; i < o + rowLength; i++) {
+      const v = ring[i]!;
+      if (!Number.isFinite(v)) throw new InvalidScientificResultError("Diffraction correction produced a non-finite sample.");
+      if (v < 0) negative++; else if (v > 1) above++;
+    }
+    yield y + 1;
   }
-  for (let i = 0; i < out.length; i++) {
-    const v = out[i]!;
-    if (!Number.isFinite(v)) throw new InvalidScientificResultError("Diffraction correction produced a non-finite sample.");
-    if (v < 0) negative++; else if (v > 1) above++;
-  }
-  return { samples: out, diagnostics: { negativeSampleCount: negative, aboveWhiteSampleCount: above } };
+  return { negativeSampleCount: negative, aboveWhiteSampleCount: above };
 }
 
 /** Normalized Gaussian weights exp(−i²/(2σ²)), i = −r..r with r = ⌈3σ⌉. */
@@ -241,40 +264,62 @@ export function applyUnsharpMask(encoded: Float64Array, width: number, height: n
   { samples: Float64Array; diagnostics: UnsharpMaskDiagnostics } {
   const s = parseUnsharpMaskSettings(settings);
   if (encoded.length !== width * height * 3) throw new InvalidConfigurationError("Unsharp mask raster size mismatch.");
-  const k = unsharpMaskKernel(s.radiusPixels), r = (k.length - 1) / 2, horizontal = new Float64Array(encoded.length), blurred = new Float64Array(encoded.length);
-  for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) {
-    const d = (y * width + x) * 3;
-    let a = 0, b = 0, c = 0;
-    for (let i = -r; i <= r; i++) {
-      const sx = (y * width + Math.min(width - 1, Math.max(0, x + i))) * 3, w = k[i + r]!;
-      a += w * encoded[sx]!; b += w * encoded[sx + 1]!; c += w * encoded[sx + 2]!;
+  const samples = new Float64Array(encoded.length);
+  return { samples, diagnostics: drainDetailRows(unsharpMaskRows(encoded, width, height, s, samples)) };
+}
+/**
+ * The unsharp mask one output row per step (#571); each step yields the number of rows done. The horizontal Gaussian pass of
+ * each input row is kept in a ring of 2r + 1 rows, and `prepareRow(y)`, when given, runs once on input row y before it is
+ * first read (`renderSdrWithUnsharpMaskInPlace` encodes the row there). Output row y goes to `out`: the clipped value, or
+ * Math.round(value · scale) with a `scale`. Every sum is the same, in the same order, as in whole-image passes, so the
+ * result is bit-identical, with 2r + 1 rows of working memory instead of three images. `settings` must be parsed and the
+ * raster sizes must match.
+ */
+export function* unsharpMaskRows(encoded: Float64Array, width: number, height: number, settings: UnsharpMaskSettings, out: Float64Array | Uint8Array | Uint16Array,
+  scale?: number, prepareRow?: (y: number) => void): Generator<number, UnsharpMaskDiagnostics, void> {
+  const k = unsharpMaskKernel(settings.radiusPixels), r = (k.length - 1) / 2, span = 2 * r + 1, rowLength = width * 3, ring = new Float64Array(span * rowLength);
+  const amount = settings.amount, threshold = settings.threshold;
+  let sharpened = 0, held = 0, low = 0, high = 0, increase = 0, decrease = 0, ready = 0;
+  for (let y = 0; y < height; y++) {
+    // Rows up to y + r, prepared and horizontally blurred.
+    for (const last = Math.min(height - 1, y + r); ready <= last; ready++) {
+      prepareRow?.(ready);
+      const source = ready * rowLength, slot = (ready % span) * rowLength;
+      for (let x = 0; x < width; x++) {
+        let a = 0, b = 0, c = 0;
+        for (let i = -r; i <= r; i++) {
+          const sx = source + Math.min(width - 1, Math.max(0, x + i)) * 3, w = k[i + r]!;
+          a += w * encoded[sx]!; b += w * encoded[sx + 1]!; c += w * encoded[sx + 2]!;
+        }
+        ring[slot + 3 * x] = a; ring[slot + 3 * x + 1] = b; ring[slot + 3 * x + 2] = c;
+      }
     }
-    horizontal[d] = a; horizontal[d + 1] = b; horizontal[d + 2] = c;
-  }
-  for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) {
-    const d = (y * width + x) * 3;
-    let a = 0, b = 0, c = 0;
-    for (let i = -r; i <= r; i++) {
-      const sy = (Math.min(height - 1, Math.max(0, y + i)) * width + x) * 3, w = k[i + r]!;
-      a += w * horizontal[sy]!; b += w * horizontal[sy + 1]!; c += w * horizontal[sy + 2]!;
+    const o = y * rowLength;
+    for (let x = 0; x < width; x++) {
+      let a = 0, b = 0, c = 0;
+      for (let i = -r; i <= r; i++) {
+        const sy = (Math.min(height - 1, Math.max(0, y + i)) % span) * rowLength + 3 * x, w = k[i + r]!;
+        a += w * ring[sy]!; b += w * ring[sy + 1]!; c += w * ring[sy + 2]!;
+      }
+      for (let channel = 0; channel < 3; channel++) {
+        const index = o + 3 * x + channel, value = encoded[index]!, detail = value - (channel === 0 ? a : channel === 1 ? b : c);
+        let v = value;
+        if (detail === 0 || Math.abs(detail) < threshold) { if (detail !== 0) held++; }
+        else {
+          const change = amount * detail;
+          v = value + change;
+          sharpened++;
+          if (change > increase) increase = change;
+          if (-change > decrease) decrease = -change;
+          if (v < 0) { v = 0; low++; } else if (v > 1) { v = 1; high++; }
+        }
+        out[index] = scale === undefined ? v : Math.round(v * scale);
+      }
     }
-    blurred[d] = a; blurred[d + 1] = b; blurred[d + 2] = c;
+    yield y + 1;
   }
-  const out = new Float64Array(encoded.length);
-  let sharpened = 0, held = 0, low = 0, high = 0, increase = 0, decrease = 0;
-  for (let i = 0; i < encoded.length; i++) {
-    const x = encoded[i]!, detail = x - blurred[i]!;
-    if (detail === 0 || Math.abs(detail) < s.threshold) { if (detail !== 0) held++; out[i] = x; continue; }
-    const change = s.amount * detail;
-    let v = x + change;
-    sharpened++;
-    if (change > increase) increase = change;
-    if (-change > decrease) decrease = -change;
-    if (v < 0) { v = 0; low++; } else if (v > 1) { v = 1; high++; }
-    out[i] = v;
-  }
-  return { samples: out, diagnostics: { kernelRadiusPixels: r, sharpenedSampleCount: sharpened, thresholdHeldSampleCount: held, clippedLowSampleCount: low,
-    clippedHighSampleCount: high, maximumIncrease: increase, maximumDecrease: decrease } };
+  return { kernelRadiusPixels: r, sharpenedSampleCount: sharpened, thresholdHeldSampleCount: held, clippedLowSampleCount: low,
+    clippedHighSampleCount: high, maximumIncrease: increase, maximumDecrease: decrease };
 }
 
 /** SDR counters in the shape of the SDR rendering diagnostics. */
@@ -287,30 +332,26 @@ export interface DetailSdrCounts { negative: number; above: number; changed: num
 export function renderSdrWithUnsharpMask(rgb: Float64Array, width: number, height: number, profile: SdrRenderingProfile, settings: UnsharpMaskSettings):
   { codes: Uint8Array | Uint16Array; counts: DetailSdrCounts; sharpening: UnsharpMaskDiagnostics } {
   if (rgb.length !== width * height * 3) throw new InvalidConfigurationError("SDR raster size mismatch.");
-  const scale = 2 ** profile.renderingExposureEv, tone = prepareSdrPixelTone(profile), scratch = new Float64Array(3), encoded = new Float64Array(rgb.length);
+  const { codes, counts: { negative, above, changed, low, high }, sharpening } =
+    drainDetailRows(renderSdrWithUnsharpMaskInPlace(Float64Array.from(rgb), width, height, profile, parseUnsharpMaskSettings(settings)));
+  return { codes, counts: { negative, above, changed, low, high }, sharpening };
+}
+/**
+ * `renderSdrWithUnsharpMask` one output row per step (#571), encoding each row of `rgb` in place just before the mask first reads
+ * it (`rgb` then holds the encoded values). Bit-identical to the whole-image function, with no second image in memory. `settings`
+ * must be parsed and `rgb` must hold width × height pixels.
+ */
+export function* renderSdrWithUnsharpMaskInPlace(rgb: Float64Array, width: number, height: number, profile: SdrRenderingProfile, settings: UnsharpMaskSettings):
+  Generator<number, { codes: Uint8Array | Uint16Array; counts: SdrPixelCounts; sharpening: UnsharpMaskDiagnostics }, void> {
+  const scale = 2 ** profile.renderingExposureEv, tone = prepareSdrPixelTone(profile), scratch = new Float64Array(3);
   if (!Number.isFinite(scale) || scale <= 0) throw new InvalidConfigurationError("Rendering scale is unrepresentable.");
-  const reject = profile.gamutHandling === "reject-out-of-range", counts: DetailSdrCounts = { negative: 0, above: 0, changed: 0, low: 0, high: 0 };
-  for (let i = 0; i < rgb.length; i += 3) {
-    const r = rgb[i]!, g = rgb[i + 1]!, b = rgb[i + 2]!;
-    const er = (r === 0 ? 0 : r) * scale, eg = (g === 0 ? 0 : g) * scale, eb = (b === 0 ? 0 : b) * scale;
-    if (!Number.isFinite(er) || !Number.isFinite(eg) || !Number.isFinite(eb)) throw new InvalidScientificResultError("Rendering exposure produced a non-finite sample.");
-    tone(er, eg, eb, scratch);
-    for (let c = 0; c < 3; c++) {
-      const exposed = c === 0 ? er : c === 1 ? eg : eb;
-      if (exposed < 0) counts.negative++;
-      if (exposed > 1) counts.above++;
-      let mapped = scratch[c]!;
-      if (mapped !== exposed) counts.changed++;
-      if (mapped === 0) mapped = 0;
-      if (mapped < 0 || mapped > 1) {
-        if (reject) throw new InvalidConfigurationError("Tone output exceeds the declared SDR gamut range.");
-        if (mapped < 0) { counts.low++; mapped = 0; } else { counts.high++; mapped = 1; }
-      }
-      encoded[i + c] = encodeSrgbComponent(mapped);
-    }
-  }
-  const sharpened = applyUnsharpMask(encoded, width, height, settings), maximum = 2 ** profile.bitDepth - 1;
+  const counts: SdrPixelCounts = { negative: 0, above: 0, changed: 0, low: 0, high: 0, outOfGamut: false };
+  // The native SDR kernel per row, unquantized (maximum 0), in place: the reference renderer's operations in its order.
+  const encodeRow = (y: number): void => {
+    renderSdrRunInto(rgb, y * width * 3, width, profile, tone, scale, 0, rgb, y * width * 3, scratch, counts);
+    if (counts.outOfGamut) throw new InvalidConfigurationError("Tone output exceeds the declared SDR gamut range.");
+  };
   const codes = profile.bitDepth === 8 ? new Uint8Array(rgb.length) : new Uint16Array(rgb.length);
-  for (let i = 0; i < codes.length; i++) codes[i] = Math.round(sharpened.samples[i]! * maximum);
-  return { codes, counts, sharpening: sharpened.diagnostics };
+  const sharpening = yield* unsharpMaskRows(rgb, width, height, settings, codes, 2 ** profile.bitDepth - 1, encodeRow);
+  return { codes, counts, sharpening };
 }

@@ -241,12 +241,12 @@ export interface SdrPixelCounts { negative: number; above: number; changed: numb
  * For `pixelCount` interleaved linear-sRGB pixels starting at `source[start]`, it runs exactly the
  * reference (`calculateSdrRendering`) operations in the same order per pixel: -0 → +0 → rendering
  * exposure → shared tone operator → gamut → sRGB transfer → quantization (nearest, ties up) into
- * `codes[outOffset]`. A gamut rejection is delayed via `counts.outOfGamut`, because the reference
+ * `codes[outOffset]` (with `maximum` 0, the encoded value unquantized). A gamut rejection is delayed via `counts.outOfGamut`, because the reference
  * finishes the whole tone pass (and its exposure errors) first. `scratch` must hold at least 3
  * values. Not exported from the package.
  */
 export function renderSdrRunInto(source: Float32Array | Float64Array, start: number, pixelCount: number, profile: SdrRenderingProfile,
-  tone: SdrPixelTone, scale: number, maximum: number, codes: Uint8Array | Uint16Array, outOffset: number, scratch: Float64Array, counts: SdrPixelCounts): void {
+  tone: SdrPixelTone, scale: number, maximum: number, codes: Uint8Array | Uint16Array | Float64Array, outOffset: number, scratch: Float64Array, counts: SdrPixelCounts): void {
   const reject = profile.gamutHandling === "reject-out-of-range", quantizer = maximum === 255 ? srgb8Quantizer() : null;
   let negative = 0, above = 0, changed = 0, low = 0, high = 0, outOfGamut = false;
   for (let p = 0, i = start, o = outOffset; p < pixelCount; p++, i += 3) {
@@ -269,7 +269,8 @@ export function renderSdrRunInto(source: Float32Array | Float64Array, start: num
         else { high++; linear = 1; }
       }
       // Encoded values are in [0,1]: Math.round is exact nearest-ties-up here.
-      codes[o] = quantizer ? quantizeSrgb8(quantizer, linear) : Math.round(encodeSrgbComponent(linear) * maximum);
+      // maximum 0 (#571): the encoded value itself, unquantized, into a Float64Array (the unsharp mask's input).
+      codes[o] = quantizer ? quantizeSrgb8(quantizer, linear) : maximum === 0 ? encodeSrgbComponent(linear) : Math.round(encodeSrgbComponent(linear) * maximum);
     }
   }
   counts.negative += negative; counts.above += above; counts.changed += changed; counts.low += low; counts.high += high;

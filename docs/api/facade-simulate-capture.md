@@ -777,7 +777,7 @@ export interface SimulateCaptureOptions {
   fast?: boolean;
   /** Aborting cancels the running task; the promise rejects with a domain error and returns no partial image. */
   signal?: AbortSignal;
-  /** Called after each committed RAW, development or JPEG tile. Cannot change output. */
+  /** Called after each committed RAW, development, detail or JPEG tile (see {@link SimulateCaptureProgress}). Cannot change output. */
   onProgress?: (progress: SimulateCaptureProgress) => void;
 }
 ```
@@ -800,11 +800,14 @@ export type SimulateCapturePixelAperture = "point" | "box" | { kind: "box"; samp
 
 ## SimulateCaptureProgress
 
-The exact contract is declared below; use the domain guide for assumptions and staged integration.
+One progress event of `onProgress`. Stages run in this order: `raw`, `white-balance` (with auto white balance), `development`
+(rows), then, when requested, `diffraction-correction` and `sharpening` (#571: one event per output row of the whole image;
+each stage's last event has `completedTileCount === totalTileCount`), then `jpeg`. {@link simulateCaptureFromParts }
+reports no `raw` stage: its RAW comes from the parts.
 
 ```ts
 export interface SimulateCaptureProgress {
-  stage: "raw" | "white-balance" | "development" | "jpeg";
+  stage: "raw" | "white-balance" | "development" | "diffraction-correction" | "sharpening" | "jpeg";
   completedTileCount: number;
   totalTileCount: number;
 }

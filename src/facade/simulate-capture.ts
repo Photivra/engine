@@ -110,8 +110,8 @@ import { resolveAntiAliasingSpatialKernel, type AntiAliasingPointSplitComponent,
 import { multiplyMatrices, type ColorMatrix3x3, type ColorVector3 } from "../color/colorimetry-math.js";
 import { prepareRgbGamutMapping, type PreparedRgbGamutMapping } from "../color/gamut-mapping.js";
 import { serializeNativeRawDng, type NativeRawDng } from "../capture/native-raw-dng.js";
-import { applyDiffractionCorrection, defaultDiffractionCorrectionRadiusPixels, designDiffractionCorrectionFilter, parseDiffractionCorrectionSettings,
-  parseUnsharpMaskSettings, renderSdrWithUnsharpMask, DEVELOPMENT_DETAIL_MODEL_VERSION, type DiffractionCorrectionSettings,
+import { correctDiffractionInPlace, defaultDiffractionCorrectionRadiusPixels, designDiffractionCorrectionFilter, parseDiffractionCorrectionSettings,
+  parseUnsharpMaskSettings, renderSdrWithUnsharpMaskInPlace, DEVELOPMENT_DETAIL_MODEL_VERSION, type DiffractionCorrectionSettings,
   type UnsharpMaskSettings } from "../processing/development-detail.js";
 import { parseSensorReadoutConversionProfile, resolveSensorReadoutRegime } from "../sensor/raw-readout.js";
 import { resolveChartScene, chartMaterialInputs, CHART_SCENE_PRESETS, type ChartScene, type ResolvedChartScene } from "./chart-scenes.js";
@@ -611,7 +611,7 @@ export interface SimulateCaptureOptions {
   fast?: boolean;
   /** Aborting cancels the running task; the promise rejects with a domain error and returns no partial image. */
   signal?: AbortSignal;
-  /** Called after each committed RAW, development or JPEG tile. Cannot change output. */
+  /** Called after each committed RAW, development, detail or JPEG tile (see {@link SimulateCaptureProgress}). Cannot change output. */
   onProgress?: (progress: SimulateCaptureProgress) => void;
 }
 
@@ -643,8 +643,14 @@ export interface SimulateCaptureFastReport {
   assurance: "engine-reference" | "approximation-with-a-priori-bound";
 }
 
+/**
+ * One progress event of `onProgress`. Stages run in this order: `raw`, `white-balance` (with auto white balance), `development`
+ * (rows), then, when requested, `diffraction-correction` and `sharpening` (#571: one event per output row of the whole image;
+ * each stage's last event has `completedTileCount === totalTileCount`), then `jpeg`. {@link simulateCaptureFromParts}
+ * reports no `raw` stage: its RAW comes from the parts.
+ */
 export interface SimulateCaptureProgress {
-  stage: "raw" | "white-balance" | "development" | "jpeg";
+  stage: "raw" | "white-balance" | "development" | "diffraction-correction" | "sharpening" | "jpeg";
   completedTileCount: number;
   totalTileCount: number;
 }
@@ -1413,12 +1419,12 @@ export async function serializeSimulatedCaptureDngFromParts(options: SimulateCap
 }
 
 /** The whole frame's packed RAW from region parts (see `serializeSimulatedCaptureDngFromParts`). */
-function joinNativeRawParts(value: unknown, plan: NativeRawOutput["plan"], width: number, height: number): NativeRawOutput {
-  if (!Array.isArray(value) || value.length === 0) throw new InvalidConfigurationError("serializeSimulatedCaptureDngFromParts needs at least one part.");
+function joinNativeRawParts(value: unknown, plan: NativeRawOutput["plan"], width: number, height: number, caller: string): NativeRawOutput {
+  if (!Array.isArray(value) || value.length === 0) throw new InvalidConfigurationError(caller + " needs at least one part.");
   const parts = value as readonly SimulateCaptureDngPart[], count = width * height;
   const codes = new Uint16Array(count), blackLevels = new Uint16Array(count), digitalSaturationCodes = new Uint16Array(count), saturationFlags = new Uint8Array(count);
   const covered = new Uint8Array(count), white = new Uint16Array(4);
-  const bad = (k: number, what: string): never => { throw new InvalidConfigurationError("DNG part " + k + ": " + what); };
+  const bad = (k: number, what: string): never => { throw new InvalidConfigurationError("Part " + k + ": " + what); };
   parts.forEach((part, k) => {
     const rect = part?.region?.nativeRect, raw = part?.raw;
     if (!rect || !raw) bad(k, "needs raw and region.nativeRect (a region render's result).");
@@ -1447,8 +1453,8 @@ function joinNativeRawParts(value: unknown, plan: NativeRawOutput["plan"], width
       digitalSaturationCodes[to] = raw!.digitalSaturationCodes[from]!; saturationFlags[to] = raw!.saturationFlags[from]!;
     }
   });
-  if (covered.includes(0)) throw new InvalidConfigurationError("The DNG parts do not cover every native site of the frame.");
-  if (white.includes(0)) throw new InvalidConfigurationError("The DNG parts lack a white level for a CFA phase.");
+  if (covered.includes(0)) throw new InvalidConfigurationError("The parts do not cover every native site of the frame.");
+  if (white.includes(0)) throw new InvalidConfigurationError("The parts lack a white level for a CFA phase.");
   return { plan, codes, blackLevels, digitalSaturationCodes, saturationFlags, effectiveSaturationCodes: white };
 }
 
@@ -1676,7 +1682,7 @@ export function parseDisplayViewOption(value: unknown, frameWidth: number, frame
  * object-space convolution and the display view (step 2b) as a site kernel in its expected-signal tables, and both get it
  * back; the ideal reference, which has no camera effects, only records it.
  */
-function resolveDefocusOption(input: { run: "capture" | "ideal-reference" | "display-view" | "dng-from-parts"; assume: DisplayViewRunContext["assume"];
+function resolveDefocusOption(input: { run: CaptureRun; assume: DisplayViewRunContext["assume"];
   focalLengthMm: number; fNumber: number; focusDistanceM: number; subjectDistanceM: number; pitch: number; diffraction: boolean;
   imageSpace?: (disc: ResolvedDefocusDisc) => { options: readonly string[]; fieldVariation: DefocusFieldVariation };
   /** #553: the bokeh options as given, and (out of focus, where the kernel is applied) the shaped kernel's record and explanation. */
@@ -1764,11 +1770,13 @@ function formatBound(value: number): string {
 
 /** Internal: passed as the view of a "display-view" run to resolve the request without a view (`prepareDisplayView`, #387). */
 export const DISPLAY_VIEW_WITHOUT_VIEW: unique symbol = Symbol("display view without view");
+/** Internal: what `runCapture` produces. The two `-from-parts` runs take the parts as `viewOption`. */
+type CaptureRun = "capture" | "ideal-reference" | "display-view" | "dng-from-parts" | "develop-from-parts";
 /**
  * Internal: the request path shared by {@link simulateCapture}, {@link simulateIdealReference} and the display view, whose renderer is
  * passed in; for a display view the renderer's value is returned (a result, or a prepared view with DISPLAY_VIEW_WITHOUT_VIEW).
  */
-export async function runCapture(options: SimulateCaptureOptions, run: "capture" | "ideal-reference" | "display-view" | "dng-from-parts", viewOption?: unknown,
+export async function runCapture(options: SimulateCaptureOptions, run: CaptureRun, viewOption?: unknown,
   renderView?: (context: DisplayViewRunContext) => Promise<unknown>):
   Promise<unknown> {
   const started = Date.now(), idealReference = run === "ideal-reference", displayView = run === "display-view";
@@ -3174,8 +3182,10 @@ export async function runCapture(options: SimulateCaptureOptions, run: "capture"
   // pupil rays or caller PSF) takes its expected electrons from the tabulated signal, verified per CFA phase against the chain.
   const tabulatedScene = chart !== undefined || callerScene?.kind === "material-function";
   // #391: a DNG from region parts takes the whole frame's RAW from the parts instead of rendering it.
-  if (run === "dng-from-parts" && regionNative) fail("serializeSimulatedCaptureDngFromParts writes the whole frame: the options take no output.region.");
-  const dngParts = run === "dng-from-parts" ? viewOption : undefined;
+  // #571: simulateCaptureFromParts takes the RAW from the parts in the same way, then develops it as a capture does.
+  const dngParts = run === "dng-from-parts" || run === "develop-from-parts" ? viewOption : undefined,
+    partsCaller = run === "dng-from-parts" ? "serializeSimulatedCaptureDngFromParts" : "simulateCaptureFromParts";
+  if (dngParts !== undefined && regionNative) fail(partsCaller + " takes the whole frame: the options take no output.region.");
   let tabulated: Awaited<ReturnType<typeof renderTabulatedNativeRaw>>;
   // #568: lens.catalogue's fast method: tabulated expected electrons with the PSF blended over a field grid (catalogue-lens-signal.ts), for a
   // still camera, site-centre queries and a chart or material scene; verified per CFA phase against the exact chain within its tolerance.
@@ -3232,7 +3242,11 @@ export async function runCapture(options: SimulateCaptureOptions, run: "capture"
       electrons: createDisplayViewExpectedSignal(signalInput), onTile: rawTick, tileWidth, yieldControl: () => yieldControl(), checkAbort });
   }
   let rawOutput: { raw: NativeRawOutput; providerEvaluationCount: number };
-  if (dngParts !== undefined) rawOutput = { raw: joinNativeRawParts(dngParts, plan, nativeWidth, nativeHeight), providerEvaluationCount: 0 };
+  if (dngParts !== undefined) {
+    rawOutput = { raw: joinNativeRawParts(dngParts, plan, nativeWidth, nativeHeight, partsCaller), providerEvaluationCount: 0 };
+    if (run === "develop-from-parts") assume("parts", "model", { partCount: (dngParts as readonly unknown[]).length },
+      "The whole render's RAW, joined from region renders of this request (#571); how they were rendered is in their results.");
+  }
   else if (tabulated && catalogueFastRun) {
     rawOutput = { raw: tabulated.raw, providerEvaluationCount: tabulated.providerEvaluationCount };
     fastApplied["lens.catalogue"] = true;
@@ -3327,7 +3341,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: "capture"
       noiseProfile: dng.noiseProfile, unrepresentedSaturationFlagCount: dng.unrepresentedSaturationFlagCount },
       "Lossless uncompressed 16-bit CFA DNG of exactly the packed native RAW codes: per-phase BlackLevel, WhiteLevel = smallest per-phase effective white, ActiveArea and DefaultCrop from the capture geometry, ColorMatrix1/ForwardMatrix1 from the facade's diagonal camera→XYZ profile (D65), AsShotNeutral from the white-balance intent, BaselineExposure 0, and NoiseProfile from each channel's readout regime (conversion gain ÷ digital gain, combined read noise; Poisson + Gaussian + quantization only). No linear master or developed image is declared; saturation flags below WhiteLevel are not representable and are counted.");
   }
-  if (dngParts !== undefined) return dng;
+  if (run === "dng-from-parts") return dng;
 
   // Development
   const development: Omit<NativeRawDevelopmentInput, "raw"> = { phaseProfiles, colorProfile,
@@ -3361,12 +3375,27 @@ export async function runCapture(options: SimulateCaptureOptions, run: "capture"
       "Below f_c the gain is bounded, so attenuated detail is only partly restored and noise is amplified by up to the measured responsePeakGain. " +
       "Not inverted: the pixel aperture, optical anti-aliasing filter, demosaic blur, defocus and aberrations. One design wavelength for all channels (the simulated blur is polychromatic).");
   }
-  const correctLinear = (rgb: Float64Array): Float64Array => {
+  // Row progress of a development stage, yielding to the host about every 8 ms. #571: the detail stages run row by row in place
+  // (one developed image in memory) and report each output row.
+  const rowProgress = (stage: SimulateCaptureProgress["stage"]) => {
+    let lastYield = Date.now();
+    return async (completed: number, total: number): Promise<void> => {
+      onProgress?.({ stage, completedTileCount: completed, totalTileCount: total });
+      if (Date.now() - lastYield >= 8) { await yieldControl(); checkAbort(); lastYield = Date.now(); }
+    };
+  };
+  const detailRows = async <T>(stage: "diffraction-correction" | "sharpening", rows: Generator<number, T, void>): Promise<T> => {
+    const tick = rowProgress(stage);
+    let step = rows.next();
+    for (; !step.done; step = rows.next()) await tick(step.value, outputHeight);
+    return step.value;
+  };
+  const correctLinear = async (rgb: Float64Array): Promise<Float64Array> => {
     if (!diffractionFilter) return rgb;
-    const corrected = applyDiffractionCorrection(rgb, outputWidth, outputHeight, diffractionFilter);
-    detailDiagnostics.diffractionCorrection = { ...corrected.diagnostics, cutoffCyclesPerPixel: diffractionFilter.cutoffCyclesPerPixel,
+    const corrected = await detailRows("diffraction-correction", correctDiffractionInPlace(rgb, outputWidth, outputHeight, diffractionFilter));
+    detailDiagnostics.diffractionCorrection = { ...corrected, cutoffCyclesPerPixel: diffractionFilter.cutoffCyclesPerPixel,
       responsePeakGain: diffractionFilter.responsePeakGain, responseMaximumBeyondCutoff: diffractionFilter.responseMaximumBeyondCutoff };
-    return corrected.samples;
+    return rgb;
   };
   if (sharpening) assume("output.sharpening", "model", { model: "development-detail", modelVersion: DEVELOPMENT_DETAIL_MODEL_VERSION, method: "unsharp-mask", ...sharpening,
     kernelRadiusPixels: Math.ceil(3 * sharpening.radiusPixels), domain: "srgb-encoded", stage: "after the tone curve, gamut handling and sRGB transfer; before quantization", edgeHandling: "clamp" },
@@ -3377,35 +3406,34 @@ export async function runCapture(options: SimulateCaptureOptions, run: "capture"
     "rendering exposure and tone curve", "gamut handling", "transfer function", ...(sharpening ? ["unsharp mask"] : []), "quantization"],
   "Development detail order: the deconvolution acts on linear light, where the blur is a convolution; the unsharp mask acts on the encoded values just before quantization." +
     (exposureGain === 1 ? "" : " A development exposure push (output.exposureCompensationStops) scales the black-subtracted, white-normalized RAW first, so pushed sites clip at white before the deconvolution sees them."));
+  // Wide gamut: linear sRGB/D65 → target primaries (perceptual gamut mapping when asked), encoded.
+  const encodeLinear = (rgb: Float64Array, highlight: RawHighlightDiagnostics): typeof developed => {
+    const mapping = perceptual ? prepareRgbGamutMapping({ colorSpace: colorEncoding!, method: "cielab-hue-preserving-chroma-compression", kneeFraction: PERCEPTUAL_GAMUT_KNEE_FRACTION }) : undefined;
+    const encoded = encodeSdrFromLinear(rgb, colorEncoding!, pngBitDepth!, mapping);
+    if (mapping) gamutMappingDiagnostics = { method: "cielab-hue-preserving-chroma-compression", kneeFraction: PERCEPTUAL_GAMUT_KNEE_FRACTION,
+      adjustedPixelCount: encoded.adjustedPixelCount, lightnessClippedPixelCount: encoded.lightnessClippedPixelCount };
+    return { raw: rawOutput.raw, integerSamples: encoded.samples, highlight, diagnostics: encoded.diagnostics };
+  };
   if (ahd || (detailRequested && !linearPath)) {
-    let lastYield = Date.now();
-    const linear = await developLinearSrgb({ ...development, raw: rawOutput.raw }, async (completed, total) => {
-      onProgress?.({ stage: "development", completedTileCount: completed, totalTileCount: total });
-      if (Date.now() - lastYield >= 8) { await yieldControl(); checkAbort(); lastYield = Date.now(); }
-    }, ahd ? { yieldControl: (): Promise<void> => yieldControl(), checkAbort, onDemosaicMs: (ms: number): void => { demosaicMs = ms; } } : undefined);
-    const rgb = correctLinear(linear.rgb);
-    if (!linearPath && sharpening) {
-      const rendered = renderSdrWithUnsharpMask(rgb, outputWidth, outputHeight, rendering, sharpening);
-      detailDiagnostics.sharpening = rendered.sharpening;
-      developed = { raw: rawOutput.raw, integerSamples: rendered.codes, highlight: linear.highlight, diagnostics: { renderingNegativeSampleCount: rendered.counts.negative,
-        renderingAboveReferenceSampleCount: rendered.counts.above, toneChangedSampleCount: rendered.counts.changed, gamutClippedLowSampleCount: rendered.counts.low,
-        gamutClippedHighSampleCount: rendered.counts.high, captureSaturation: "consumed-in-raw-development" } };
-    } else if (!linearPath) {
-      // The native development's SDR kernel, row by row, on the AHD-developed linear sRGB.
-      const maximum = 2 ** rendering.bitDepth - 1, tone = prepareSdrPixelTone(rendering), scratch = new Float64Array(3);
-      const codes = rendering.bitDepth === 8 ? new Uint8Array(outputWidth * outputHeight * 3) : new Uint16Array(outputWidth * outputHeight * 3);
-      const counts: SdrPixelCounts = { negative: 0, above: 0, changed: 0, low: 0, high: 0, outOfGamut: false };
-      for (let y = 0; y < outputHeight; y++) renderSdrRunInto(rgb, y * outputWidth * 3, outputWidth, rendering, tone, 2 ** rendering.renderingExposureEv, maximum, codes, y * outputWidth * 3, scratch, counts);
+    const linear = await developLinearSrgb({ ...development, raw: rawOutput.raw }, rowProgress("development"), ahd ? { yieldControl: (): Promise<void> => yieldControl(), checkAbort, onDemosaicMs: (ms: number): void => { demosaicMs = ms; } } : undefined);
+    const rgb = await correctLinear(linear.rgb);
+    if (!linearPath) {
+      let codes: Uint8Array | Uint16Array, counts: SdrPixelCounts;
+      if (sharpening) {
+        const rendered = await detailRows("sharpening", renderSdrWithUnsharpMaskInPlace(rgb, outputWidth, outputHeight, rendering, sharpening));
+        detailDiagnostics.sharpening = rendered.sharpening;
+        ({ codes, counts } = rendered);
+      } else {
+        // The native development's SDR kernel, row by row, on the AHD-developed linear sRGB.
+        const maximum = 2 ** rendering.bitDepth - 1, tone = prepareSdrPixelTone(rendering), scratch = new Float64Array(3);
+        codes = rendering.bitDepth === 8 ? new Uint8Array(outputWidth * outputHeight * 3) : new Uint16Array(outputWidth * outputHeight * 3);
+        counts = { negative: 0, above: 0, changed: 0, low: 0, high: 0, outOfGamut: false };
+        for (let y = 0; y < outputHeight; y++) renderSdrRunInto(rgb, y * outputWidth * 3, outputWidth, rendering, tone, 2 ** rendering.renderingExposureEv, maximum, codes, y * outputWidth * 3, scratch, counts);
+      }
       developed = { raw: rawOutput.raw, integerSamples: codes, highlight: linear.highlight, diagnostics: { renderingNegativeSampleCount: counts.negative,
         renderingAboveReferenceSampleCount: counts.above, toneChangedSampleCount: counts.changed, gamutClippedLowSampleCount: counts.low,
         gamutClippedHighSampleCount: counts.high, captureSaturation: "consumed-in-raw-development" } };
-    } else {
-      const mapping = perceptual ? prepareRgbGamutMapping({ colorSpace: colorEncoding!, method: "cielab-hue-preserving-chroma-compression", kneeFraction: PERCEPTUAL_GAMUT_KNEE_FRACTION }) : undefined;
-      const encoded = encodeSdrFromLinear(rgb, colorEncoding!, pngBitDepth!, mapping);
-      developed = { raw: rawOutput.raw, integerSamples: encoded.samples, highlight: linear.highlight, diagnostics: encoded.diagnostics };
-      if (mapping) gamutMappingDiagnostics = { method: "cielab-hue-preserving-chroma-compression", kneeFraction: PERCEPTUAL_GAMUT_KNEE_FRACTION,
-        adjustedPixelCount: encoded.adjustedPixelCount, lightnessClippedPixelCount: encoded.lightnessClippedPixelCount };
-    }
+    } else developed = encodeLinear(rgb, linear.highlight);
   } else if (!linearPath) {
     const devTask = createNativeRawDevelopmentTask({ ...development, raw: rawOutput.raw }, { yieldControl,
       onProgress: (p) => onProgress?.({ stage: "development", completedTileCount: p.completedTileCount, totalTileCount: p.totalTileCount }) });
@@ -3413,18 +3441,10 @@ export async function runCapture(options: SimulateCaptureOptions, run: "capture"
     developed = devTask.takeOutput();
   } else {
     // Wide gamut: the native development operator up to linear sRGB/D65 (unclipped), then XYZ → target primaries.
-    let lastYield = Date.now();
-    const linear = await developLinearSrgb({ ...development, raw: rawOutput.raw }, async (completed, total) => {
-      onProgress?.({ stage: "development", completedTileCount: completed, totalTileCount: total });
-      if (Date.now() - lastYield >= 8) { await yieldControl(); checkAbort(); lastYield = Date.now(); }
-    });
+    const linear = await developLinearSrgb({ ...development, raw: rawOutput.raw }, rowProgress("development"));
     {
-      const mapping = perceptual ? prepareRgbGamutMapping({ colorSpace: colorEncoding!, method: "cielab-hue-preserving-chroma-compression", kneeFraction: PERCEPTUAL_GAMUT_KNEE_FRACTION }) : undefined;
-      const encoded = encodeSdrFromLinear(correctLinear(linear.rgb), colorEncoding!, pngBitDepth!, mapping);
-      developed = { raw: rawOutput.raw, integerSamples: encoded.samples, highlight: linear.highlight, diagnostics: encoded.diagnostics };
-      if (mapping) {
-        gamutMappingDiagnostics = { method: "cielab-hue-preserving-chroma-compression", kneeFraction: PERCEPTUAL_GAMUT_KNEE_FRACTION,
-          adjustedPixelCount: encoded.adjustedPixelCount, lightnessClippedPixelCount: encoded.lightnessClippedPixelCount };
+      developed = encodeLinear(await correctLinear(linear.rgb), linear.highlight);
+      if (perceptual) {
         assume("output.gamutMapping", "model", { method: "cielab-hue-preserving-chroma-compression", kneeFraction: PERCEPTUAL_GAMUT_KNEE_FRACTION, colorSpace: colorEncoding },
           "prepareRgbGamutMapping: CIELAB L* and hue held, chroma above 90 % of the boundary chroma C_max(L*, h) compressed with a tanh knee so it never reaches C_max (Morovič 2008, §10). In-gamut colours below the knee are unchanged; saturated in-gamut colours above it are desaturated slightly. L* ≥ 100 (above the RAW white) maps to white. CIELAB hue is not perceptually constant for saturated blues, so they can shift toward purple.");
       }
