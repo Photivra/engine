@@ -49,7 +49,7 @@ import {
   requirePositiveFinite
 } from "../core/validation.js";
 import type { LensComplexPupilGrid } from "./complex-pupil-psf.js";
-import { requireInputKeys } from "../core/record-validation.js";
+import { requireInputKeys, requireNamedFinite as requireFinite } from "../core/record-validation.js";
 import { InvalidConfigurationError } from "../core/configuration-error.js";
 
 /** Largest supported Noll index (radial order n <= 10). */
@@ -145,13 +145,6 @@ export interface DefocusWavefront {
 export interface EstimateMarechalStrehlRatioInput {
   rmsWavefrontErrorMicrometers: number;
   wavelengthNm: number;
-}
-
-function requireFinite(name: string, value: unknown): number {
-  if (typeof value !== "number" || !Number.isFinite(value)) {
-    throw new InvalidScientificInputError(`${name} must be finite.`);
-  }
-  return value;
 }
 
 function requireNollIndex(value: unknown): number {

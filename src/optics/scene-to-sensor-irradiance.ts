@@ -32,15 +32,9 @@ import {
   type EvidenceBackedFact,
   type EvidenceProvenance
 } from "../core/evidence-provenance.js";
-import {
-  parseSpectralWavelengthBasis,
-  type SpectralWavelengthBasis
-} from "../core/spectral.js";
+import { type SpectralWavelengthBasis } from "../core/spectral.js";
 import { InvalidScientificInputError } from "../core/validation.js";
-import {
-  composeFrontOfLensFilterTransmission,
-  type FrontOfLensFilterProfile
-} from "./front-of-lens-filter.js";
+import { composeFrontOfLensFilterTransmission, type FrontOfLensFilterProfile, parseRange, parseResolvedBasis } from "./front-of-lens-filter.js";
 import type { IlluminationVignetting } from "./illumination-vignetting.js";
 import { calculateThinLensImageDistance } from "./thin-lens.js";
 import {
@@ -49,9 +43,8 @@ import {
   type SceneRadianceEvaluationRequest,
   type SceneRadianceEvaluationResult
 } from "../schema/scene-radiance.js";
-import { requireInputKeys, rejectUnknownFields, rejectUnknownVariantFields, UNCERTAINTY_VARIANT_FIELDS } from "../core/record-validation.js";
-
-type UnknownRecord = Record<string, unknown>;
+import { requireInputKeys, rejectUnknownVariantFields, UNCERTAINTY_VARIANT_FIELDS, requireConfigRecord as requireRecord, requireTrimmedConfigString as requireNonEmptyString, parseConfigScientificStatus as parseScientificStatus, requireInputPositiveFinite as requirePositiveFiniteScientific, parseConfigLimitations as parseLimitations, requireConfigFiniteAboveZero as requirePositiveFinite } from "../core/record-validation.js";
+import { requireFraction } from "../color/white-balance.js";
 
 export const SCENE_TO_SENSOR_IRRADIANCE_PROFILE_SCHEMA_VERSION =
   "0.1.0" as const;
@@ -314,130 +307,6 @@ export interface SceneToSensorIrradianceResult {
     readonly string[];
 }
 
-function requireRecord(
-  value: unknown,
-  path: string,
-  allowedKeys: readonly string[] | null
-): UnknownRecord {
-  if (
-    typeof value !== "object" ||
-    value === null ||
-    Array.isArray(value)
-  ) {
-    throw new InvalidConfigurationError(
-      path + " must be an object."
-    );
-  }
-  if (allowedKeys !== null) rejectUnknownFields(value, allowedKeys, path);
-  return value as UnknownRecord;
-}
-
-function requireNonEmptyString(
-  value: unknown,
-  path: string
-): string {
-  if (
-    typeof value !== "string" ||
-    value.trim().length === 0
-  ) {
-    throw new InvalidConfigurationError(
-      path + " must be a non-empty string."
-    );
-  }
-  return value.trim();
-}
-
-function requireFinite(
-  value: unknown,
-  path: string
-): number {
-  if (
-    typeof value !== "number" ||
-    !Number.isFinite(value)
-  ) {
-    throw new InvalidConfigurationError(
-      path + " must be finite."
-    );
-  }
-  return value;
-}
-
-function requirePositiveFinite(
-  value: unknown,
-  path: string
-): number {
-  const parsed =
-    requireFinite(value, path);
-  if (parsed <= 0) {
-    throw new InvalidConfigurationError(
-      path +
-        " must be greater than zero."
-    );
-  }
-  return parsed;
-}
-
-function requireFraction(
-  value: unknown,
-  path: string
-): number {
-  const parsed =
-    requireFinite(value, path);
-  if (
-    parsed < 0 ||
-    parsed > 1
-  ) {
-    throw new InvalidConfigurationError(
-      path +
-        " must be from zero through one."
-    );
-  }
-  return parsed;
-}
-
-function parseRange(
-  value: unknown,
-  path: string
-): NumericRange {
-  const record =
-    requireRecord(value, path, ["minimum", "maximum"]);
-  const minimum =
-    requirePositiveFinite(
-      record.minimum,
-      path + ".minimum"
-    );
-  const maximum =
-    requirePositiveFinite(
-      record.maximum,
-      path + ".maximum"
-    );
-  if (minimum > maximum) {
-    throw new InvalidConfigurationError(
-      path +
-        ".minimum must be less than or equal to maximum."
-    );
-  }
-  return {
-    minimum,
-    maximum
-  };
-}
-
-function parseScientificStatus(
-  value: unknown,
-  path: string
-): OpticalBridgeScientificStatus {
-  if (
-    value !== "calibrated" &&
-    value !== "approximation"
-  ) {
-    throw new InvalidConfigurationError(
-      path + " is invalid."
-    );
-  }
-  return value;
-}
-
 function parseUncertainty(
   value: unknown,
   path: string
@@ -479,37 +348,6 @@ function parseUncertainty(
   throw new InvalidConfigurationError(
     path + ".kind is invalid."
   );
-}
-
-function parseLimitations(
-  value: unknown,
-  path: string
-): readonly string[] {
-  if (!Array.isArray(value)) {
-    throw new InvalidConfigurationError(
-      path + " must be an array."
-    );
-  }
-  const parsed = value.map(
-    (entry, index) =>
-      requireNonEmptyString(
-        entry,
-        path +
-          "[" +
-          index +
-          "]"
-      )
-  );
-  if (
-    new Set(parsed).size !==
-    parsed.length
-  ) {
-    throw new InvalidConfigurationError(
-      path +
-        " must not contain duplicates."
-    );
-  }
-  return parsed;
 }
 
 function parseReusableNumericEvidence(
@@ -753,27 +591,6 @@ function parseTransmission(
   throw new InvalidConfigurationError(
     path + ".kind is invalid."
   );
-}
-
-function parseResolvedBasis(
-  value: unknown,
-  path: string
-): Exclude<
-  SpectralWavelengthBasis,
-  "unspecified"
-> {
-  const parsed =
-    parseSpectralWavelengthBasis(
-      value,
-      path
-    );
-  if (parsed === "unspecified") {
-    throw new InvalidConfigurationError(
-      path +
-        ' must resolve to "air" or "vacuum".'
-    );
-  }
-  return parsed;
 }
 
 function parseFocusApplicability(
@@ -1041,23 +858,6 @@ function workingFNumber(
   throw new InvalidConfigurationError(
     "focus.kind is invalid."
   );
-}
-
-function requirePositiveFiniteScientific(
-  value: unknown,
-  path: string
-): number {
-  if (
-    typeof value !== "number" ||
-    !Number.isFinite(value) ||
-    value <= 0
-  ) {
-    throw new InvalidScientificInputError(
-      path +
-        " must be finite and greater than zero."
-    );
-  }
-  return value;
 }
 
 function finiteFocusDistance(

@@ -19,9 +19,8 @@ import {
   type EvidenceProvenance
 } from "../core/evidence-provenance.js";
 import { InvalidScientificInputError } from "../core/validation.js";
-import { requireInputKeys, rejectUnknownFields } from "../core/record-validation.js";
+import { requireInputKeys, requireConfigRecord as requireRecord, requireConfigString as requireNonEmptyString, requireConfigPositiveSafeInteger as requirePositiveSafeInteger } from "../core/record-validation.js";
 
-type UnknownRecord = Record<string, unknown>;
 
 export type NativeColorSamplingSiteCoordinateSystem =
   "native-sensor-color-sampling-site-index";
@@ -142,55 +141,6 @@ export interface ResolvedColorSamplingSite {
   spectralResponseEstablished: false;
   nativeImageRasterBindingEstablished: false;
   physicalPhotodiodeBindingEstablished: false;
-}
-
-function requireRecord(
-  value: unknown,
-  path: string,
-  allowedKeys: readonly string[] | null
-): UnknownRecord {
-  if (
-    typeof value !== "object" ||
-    value === null ||
-    Array.isArray(value)
-  ) {
-    throw new InvalidConfigurationError(
-      path + " must be an object."
-    );
-  }
-  if (allowedKeys !== null) rejectUnknownFields(value, allowedKeys, path);
-  return value as UnknownRecord;
-}
-
-function requireNonEmptyString(
-  value: unknown,
-  path: string
-): string {
-  if (
-    typeof value !== "string" ||
-    value.trim().length === 0
-  ) {
-    throw new InvalidConfigurationError(
-      path + " must be a non-empty string."
-    );
-  }
-  return value;
-}
-
-function requirePositiveSafeInteger(
-  value: unknown,
-  path: string
-): number {
-  if (
-    typeof value !== "number" ||
-    !Number.isSafeInteger(value) ||
-    value <= 0
-  ) {
-    throw new InvalidConfigurationError(
-      path + " must be a positive safe integer."
-    );
-  }
-  return value;
 }
 
 function parseChannelIds(

@@ -22,9 +22,8 @@ import {
   parseFocusPlane,
   type FocusPlane
 } from "../optics/focus-state.js";
-import { requireInputObject, requireInputKeys, rejectUnknownFields } from "../core/record-validation.js";
-
-type UnknownRecord = Record<string, unknown>;
+import { requireInputObject, requireInputKeys, requireConfigRecord as requireRecord, requireTrimmedConfigString as requireNonEmptyString, requireTrimmedConfigString as requireScientificNonEmptyString, requireInputNonNegativeFinite as requireScientificNonNegativeFinite, requireInputPositiveFinite as requireScientificPositiveFinite, parseConfigLimitations as parseLimitations } from "../core/record-validation.js";
+import { deepFreeze, cloneJson } from "../core/shared-helpers.js";
 
 export const FOCUS_CONTROL_PROFILE_SCHEMA_VERSION =
   "0.1.0" as const;
@@ -259,121 +258,6 @@ const TARGET_LOSS_REASONS =
     "outside-focus-area"
   ]);
 
-function requireRecord(
-  value: unknown,
-  path: string,
-  allowedKeys: readonly string[] | null
-): UnknownRecord {
-  if (
-    typeof value !== "object" ||
-    value === null ||
-    Array.isArray(value)
-  ) {
-    throw new InvalidConfigurationError(
-      path + " must be an object."
-    );
-  }
-  if (allowedKeys !== null) rejectUnknownFields(value, allowedKeys, path);
-  return value as UnknownRecord;
-}
-
-function requireNonEmptyString(
-  value: unknown,
-  path: string
-): string {
-  if (
-    typeof value !== "string" ||
-    value.trim().length === 0
-  ) {
-    throw new InvalidConfigurationError(
-      path +
-        " must be a non-empty string."
-    );
-  }
-  return value.trim();
-}
-
-function requireScientificNonEmptyString(
-  value: string,
-  path: string
-): string {
-  if (
-    typeof value !== "string" ||
-    value.trim().length === 0
-  ) {
-    throw new InvalidConfigurationError(
-      path +
-        " must be a non-empty string."
-    );
-  }
-  return value.trim();
-}
-
-function requireScientificNonNegativeFinite(
-  value: number,
-  path: string
-): number {
-  if (
-    typeof value !== "number" ||
-    !Number.isFinite(value) ||
-    value < 0
-  ) {
-    throw new InvalidScientificInputError(
-      path +
-        " must be finite and greater than or equal to zero."
-    );
-  }
-  return value;
-}
-
-function requireScientificPositiveFinite(
-  value: number,
-  path: string
-): number {
-  if (
-    typeof value !== "number" ||
-    !Number.isFinite(value) ||
-    value <= 0
-  ) {
-    throw new InvalidScientificInputError(
-      path +
-        " must be finite and greater than zero."
-    );
-  }
-  return value;
-}
-
-function parseLimitations(
-  value: unknown,
-  path: string
-): readonly string[] {
-  if (!Array.isArray(value)) {
-    throw new InvalidConfigurationError(
-      path + " must be an array."
-    );
-  }
-  const parsed =
-    value.map((entry, index) =>
-      requireNonEmptyString(
-        entry,
-        path +
-          "[" +
-          index +
-          "]"
-      )
-    );
-  if (
-    new Set(parsed).size !==
-    parsed.length
-  ) {
-    throw new InvalidConfigurationError(
-      path +
-        " must not contain duplicates."
-    );
-  }
-  return parsed;
-}
-
 function parseUniqueEnumList<T extends string>(
   value: unknown,
   path: string,
@@ -529,37 +413,6 @@ export function parseFocusControlProfile(
         "focusControlProfile.limitations"
       )
   };
-}
-
-function cloneJson<T>(
-  value: T
-): T {
-  return JSON.parse(
-    JSON.stringify(value)
-  ) as T;
-}
-
-function deepFreeze<T>(
-  value: T
-): T {
-  if (
-    typeof value !== "object" ||
-    value === null ||
-    Object.isFrozen(value)
-  ) {
-    return value;
-  }
-
-  Object.freeze(value);
-  for (
-    const child of
-    Object.values(
-      value as UnknownRecord
-    )
-  ) {
-    deepFreeze(child);
-  }
-  return value;
 }
 
 function immutableState(

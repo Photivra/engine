@@ -20,7 +20,7 @@ import type {
 import type {
   SceneRadianceTemporalExposureMeteringResult
 } from "./metering-temporal.js";
-import { requireInputObject, requireInputKeys } from "../core/record-validation.js";
+import { requireInputObject, requireInputKeys, requireTrimmedConfigString as requireNonEmptyString, requireInputFinite as requireFinite, requireInputFiniteAboveZero as requirePositiveFinite, requireInputFiniteAtLeastZero as requireNonNegativeFinite } from "../core/record-validation.js";
 import { InvalidConfigurationError } from "../core/configuration-error.js";
 
 export const EXPOSURE_METER_TARGET_SCHEMA_VERSION =
@@ -97,69 +97,6 @@ export interface SetExposureCompensationOnMeterTargetInput {
   targetId: string;
   baseTarget: ExposureMeterTarget;
   exposureCompensationStops: number;
-}
-
-function requireNonEmptyString(
-  value: unknown,
-  path: string
-): string {
-  if (
-    typeof value !== "string" ||
-    value.trim().length === 0
-  ) {
-    throw new InvalidConfigurationError(
-      path + " must be a non-empty string."
-    );
-  }
-  return value.trim();
-}
-
-function requireFinite(
-  value: unknown,
-  path: string
-): number {
-  if (
-    typeof value !== "number" ||
-    !Number.isFinite(value)
-  ) {
-    throw new InvalidScientificInputError(
-      path + " must be finite."
-    );
-  }
-  return value;
-}
-
-function requirePositiveFinite(
-  value: unknown,
-  path: string
-): number {
-  const parsed = requireFinite(
-    value,
-    path
-  );
-  if (parsed <= 0) {
-    throw new InvalidScientificInputError(
-      path + " must be greater than zero."
-    );
-  }
-  return parsed;
-}
-
-function requireNonNegativeFinite(
-  value: unknown,
-  path: string
-): number {
-  const parsed = requireFinite(
-    value,
-    path
-  );
-  if (parsed < 0) {
-    throw new InvalidScientificInputError(
-      path +
-        " must be greater than or equal to zero."
-    );
-  }
-  return parsed;
 }
 
 function meterSnapshotIdentity(

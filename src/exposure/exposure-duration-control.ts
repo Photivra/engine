@@ -22,7 +22,7 @@ import { InvalidScientificInputError } from "../core/validation.js";
 import type {
   CalculateCaptureExposureWindowsInput
 } from "../sensor/exposure-window.js";
-import { requireInputObject, requireInputKeys } from "../core/record-validation.js";
+import { requireInputObject, requireInputKeys, requireInputFinite as requireFiniteSeconds, requireInputFiniteAboveZero as requirePositiveSeconds } from "../core/record-validation.js";
 import { InvalidConfigurationError } from "../core/configuration-error.js";
 
 export const EXPOSURE_DURATION_CONTROL_VERSION =
@@ -94,39 +94,6 @@ export interface BindResolvedExposureDurationToCaptureExposureInput {
       CalculateCaptureExposureWindowsInput,
       "nominalExposureDurationSeconds"
     >;
-}
-
-function requireFiniteSeconds(
-  value: unknown,
-  path: string
-): number {
-  if (
-    typeof value !== "number" ||
-    !Number.isFinite(value)
-  ) {
-    throw new InvalidScientificInputError(
-      path + " must be finite."
-    );
-  }
-  return value;
-}
-
-function requirePositiveSeconds(
-  value: unknown,
-  path: string
-): number {
-  const parsed =
-    requireFiniteSeconds(
-      value,
-      path
-    );
-  if (parsed <= 0) {
-    throw new InvalidScientificInputError(
-      path +
-        " must be greater than zero."
-    );
-  }
-  return parsed;
 }
 
 function resolved(

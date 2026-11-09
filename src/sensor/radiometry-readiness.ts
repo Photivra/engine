@@ -14,8 +14,9 @@ import {
   parseEvidenceList,
   type EvidenceProvenance
 } from "../core/evidence-provenance.js";
-import { rejectUnknownFields, rejectUnknownVariantFields, UNCERTAINTY_VARIANT_FIELDS } from "../core/record-validation.js";
+import { rejectUnknownVariantFields, UNCERTAINTY_VARIANT_FIELDS, requireConfigRecord as requireRecord, requireConfigRecordString as requireString } from "../core/record-validation.js";
 import { InvalidConfigurationError } from "../core/configuration-error.js";
+import { requirePositiveNumber } from "../schema/validation.js";
 
 type UnknownRecord = Record<string, unknown>;
 
@@ -174,46 +175,6 @@ const SCIENTIFIC_STATUSES = new Set<RadiometryScientificStatus>([
   "calibrated",
   "approximation"
 ]);
-
-function requireRecord(
-  value: unknown,
-  path: string,
-  allowedKeys: readonly string[] | null
-): UnknownRecord {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    throw new InvalidConfigurationError(`${path} must be an object.`);
-  }
-  if (allowedKeys !== null) rejectUnknownFields(value, allowedKeys, path);
-  return value as UnknownRecord;
-}
-
-function requireString(
-  record: UnknownRecord,
-  key: string,
-  path: string
-): string {
-  const value = record[key];
-  if (typeof value !== "string" || value.trim().length === 0) {
-    throw new InvalidConfigurationError(
-      `${path}.${key} must be a non-empty string.`
-    );
-  }
-  return value;
-}
-
-function requirePositiveNumber(
-  record: UnknownRecord,
-  key: string,
-  path: string
-): number {
-  const value = record[key];
-  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
-    throw new InvalidConfigurationError(
-      `${path}.${key} must be a finite number greater than zero.`
-    );
-  }
-  return value;
-}
 
 function requireFraction(
   record: UnknownRecord,

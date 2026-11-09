@@ -43,6 +43,7 @@ import type {
   SensorImagingArea
 } from "./sensor-geometry.js";
 import { requireInputKeys } from "../core/record-validation.js";
+import { midpointPhase as midpointCoordinate } from "../motion/capture-rotation-temporal-quadrature.js";
 
 const MAX_SPATIAL_QUADRATURE_NODES = 100_000;
 
@@ -173,13 +174,6 @@ export interface SensorSpatialSamplingQuadrature {
     opticalStackProfile: readonly import("../core/evidence-provenance.js").EvidenceProvenance[];
     antiAliasingResponse: readonly import("../core/evidence-provenance.js").EvidenceProvenance[];
   };
-}
-
-function midpointCoordinate(
-  index: number,
-  count: number
-): number {
-  return (index + 0.5) / count;
 }
 
 function insideImagingArea(

@@ -14,7 +14,7 @@ import type { ResolvedChartMaskLayer } from "../facade/chart-material-layers.js"
 import { ImageKernelExecutionError, webGpuExecution, type ChartCompositeProbeComponent, type ChartCompositeProbeMismatch, type ChartCompositeProbeRecord,
   type ImageKernelExecution } from "./image-kernel-execution.js";
 import type { ChartRadianceResult } from "./image-kernel-accelerator.js";
-import { BUFFER_USAGE, GpuResourceScope, abortedError, linearDispatch, runComputePass, type WebGpuRuntime } from "./webgpu-runtime.js";
+import { BUFFER_USAGE, GpuResourceScope, linearDispatch, runComputePass, type WebGpuRuntime, throwIfAborted as checkAbort } from "./webgpu-runtime.js";
 import { CHART_COMPOSITE_PROBE_LABEL, CHART_COMPOSITE_PROBE_OUTPUTS, CHART_COMPOSITE_PROBE_WGSL, CHART_COMPOSITE_WORKGROUP_SIZE, CHART_ELEMENT_KIND,
   CHART_PLACEMENT, CHART_RECORD_STRIDE, chartCompositeLabel, chartCompositeWgsl } from "./wgsl-chart-composite-kernel.js";
 
@@ -410,8 +410,6 @@ export class ChartSceneUploads {
   get size(): number { return this.#entries.length; }
   release(): void { for (const entry of this.#entries.splice(0)) entry.scope.release(); }
 }
-
-function checkAbort(signal: AbortSignal): void { if (signal.aborted) throw abortedError(); }
 
 /** Points as float32 pairs (hi, lo) per coordinate: the float64 point to 2^-48. */
 export function splitPoints(points: Float32Array | Float64Array): Float32Array<ArrayBuffer> {

@@ -49,7 +49,7 @@ type ResponseCurve =
       }
     >["channelFilterTransmittance"];
 
-function responseCurves(
+export function responseCurves(
   response:
     SensorSpectralChannelResponse
 ): readonly ResponseCurve[] {

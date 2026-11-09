@@ -111,7 +111,7 @@ export interface CaptureRotationTemporalQuadrature {
   };
 }
 
-function midpointPhase(index: number, sampleCount: number): number {
+export function midpointPhase(index: number, sampleCount: number): number {
   return (index + 0.5) / sampleCount;
 }
 

@@ -32,7 +32,7 @@ import {
   InvalidScientificInputError,
   requirePositiveFinite
 } from "../core/validation.js";
-import { rejectUnknownFields, requireInputKeys } from "../core/record-validation.js";
+import { rejectUnknownFields, requireInputKeys, requireNamedFinite as requireFinite } from "../core/record-validation.js";
 import { InvalidConfigurationError } from "../core/configuration-error.js";
 
 export interface AtmosphericExtinctionModel {
@@ -89,13 +89,6 @@ export interface CalculateExtinctionFromVisibilityInput {
 function requireNonNegativeFinite(name: string, value: unknown): number {
   if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
     throw new InvalidScientificInputError(`${name} must be finite and non-negative.`);
-  }
-  return value;
-}
-
-function requireFinite(name: string, value: unknown): number {
-  if (typeof value !== "number" || !Number.isFinite(value)) {
-    throw new InvalidScientificInputError(`${name} must be finite.`);
   }
   return value;
 }

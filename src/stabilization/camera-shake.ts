@@ -25,7 +25,7 @@ import {
 } from "../core/validation.js";
 import { portableHypot } from "../core/portable-math.js";
 import { calculateThinLensImageDistance } from "../optics/thin-lens.js";
-import { rejectUnknownFields, requireInputKeys, requireInputObject } from "../core/record-validation.js";
+import { rejectUnknownFields, requireInputKeys, requireInputObject, assertNamedFinite as requireFinite } from "../core/record-validation.js";
 
 export interface EstimateCameraShakeBlurInput {
   focalLengthMm: number;
@@ -71,12 +71,6 @@ export interface CameraShakeEstimate {
   projectionDistanceMm: number;
   unstabilized: CameraShakeBlurSample;
   stabilized: CameraShakeBlurSample;
-}
-
-function requireFinite(name: string, value: number): void {
-  if (!Number.isFinite(value)) {
-    throw new InvalidScientificInputError(`${name} must be finite.`);
-  }
 }
 
 function projectAngularDisplacement(

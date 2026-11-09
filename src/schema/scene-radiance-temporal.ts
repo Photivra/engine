@@ -25,8 +25,8 @@ import {
 import type {
   ResolvedCaptureModeTiming
 } from "../sensor/capture-mode-timing.js";
-import { requireInputKeys } from "../core/record-validation.js";
-import { InvalidConfigurationError } from "../core/configuration-error.js";
+import { requireInputKeys, requireTrimmedConfigString as requireNonEmptyString } from "../core/record-validation.js";
+import { sameSite as samePoint } from "../core/shared-helpers.js";
 
 export const SCENE_RADIANCE_TEMPORAL_SAMPLING_PLAN_VERSION =
   "0.1.0" as const;
@@ -154,32 +154,6 @@ export interface ReducedSceneRadianceTemporalExposure {
   uncertaintyLimitation: string;
   sensorReadoutTimingUsedAsExposureTiming:
     false;
-}
-
-function requireNonEmptyString(
-  value: string,
-  path: string
-): string {
-  if (
-    typeof value !== "string" ||
-    value.trim().length === 0
-  ) {
-    throw new InvalidConfigurationError(
-      path +
-        " must be a non-empty string."
-    );
-  }
-  return value.trim();
-}
-
-function samePoint(
-  a: RasterPoint,
-  b: RasterPoint
-): boolean {
-  return (
-    a.x === b.x &&
-    a.y === b.y
-  );
 }
 
 function exposureForPoint(

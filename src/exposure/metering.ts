@@ -28,9 +28,7 @@ import type {
   NormalizedRasterUv,
   ResolvedCaptureGeometry
 } from "../output/capture-geometry.js";
-import { requireInputKeys, requireInputObject, rejectUnknownFields, rejectUnknownVariantFields } from "../core/record-validation.js";
-
-type UnknownRecord = Record<string, unknown>;
+import { requireInputKeys, requireInputObject, rejectUnknownVariantFields, requireConfigRecord as requireRecord, requireTrimmedConfigString as requireNonEmptyString, requireTrimmedConfigString as requireInputString, requireConfigFinite as requireFinite, requireInputFinite, requireConfigFiniteAboveZero as requirePositiveFinite, parseConfigLimitations as parseLimitations, requireInputFiniteAboveZero as requireInputPositiveFinite, requireInputFiniteAtLeastZero as requireInputNonNegativeFinite } from "../core/record-validation.js";
 
 export const EXPOSURE_METERING_PROFILE_SCHEMA_VERSION =
   "0.1.0" as const;
@@ -199,70 +197,6 @@ export interface MeterRelativeExposureInput {
   sampleSet: ExposureMeteringSampleSet;
 }
 
-function requireRecord(
-  value: unknown,
-  path: string,
-  allowedKeys: readonly string[] | null
-): UnknownRecord {
-  if (
-    typeof value !== "object" ||
-    value === null ||
-    Array.isArray(value)
-  ) {
-    throw new InvalidConfigurationError(
-      path + " must be an object."
-    );
-  }
-  if (allowedKeys !== null) rejectUnknownFields(value, allowedKeys, path);
-  return value as UnknownRecord;
-}
-
-function requireNonEmptyString(
-  value: unknown,
-  path: string
-): string {
-  if (
-    typeof value !== "string" ||
-    value.trim().length === 0
-  ) {
-    throw new InvalidConfigurationError(
-      path + " must be a non-empty string."
-    );
-  }
-  return value.trim();
-}
-
-function requireFinite(
-  value: unknown,
-  path: string
-): number {
-  if (
-    typeof value !== "number" ||
-    !Number.isFinite(value)
-  ) {
-    throw new InvalidConfigurationError(
-      path + " must be finite."
-    );
-  }
-  return value;
-}
-
-function requirePositiveFinite(
-  value: unknown,
-  path: string
-): number {
-  const parsed = requireFinite(
-    value,
-    path
-  );
-  if (parsed <= 0) {
-    throw new InvalidConfigurationError(
-      path + " must be greater than zero."
-    );
-  }
-  return parsed;
-}
-
 function requireFraction(
   value: unknown,
   path: string
@@ -308,33 +242,6 @@ function parseUv(
     );
   }
   return { u, v };
-}
-
-function parseLimitations(
-  value: unknown,
-  path: string
-): readonly string[] {
-  if (!Array.isArray(value)) {
-    throw new InvalidConfigurationError(
-      path + " must be an array."
-    );
-  }
-  const limitations = value.map(
-    (entry, index) =>
-      requireNonEmptyString(
-        entry,
-        path + "[" + index + "]"
-      )
-  );
-  if (
-    new Set(limitations).size !==
-    limitations.length
-  ) {
-    throw new InvalidConfigurationError(
-      path + " must not contain duplicates."
-    );
-  }
-  return limitations;
 }
 
 function parsePolicy(
@@ -663,69 +570,6 @@ export function parseExposureMeteringProfile(
       "exposureMeteringProfile.limitations"
     )
   };
-}
-
-function requireInputString(
-  value: unknown,
-  path: string
-): string {
-  if (
-    typeof value !== "string" ||
-    value.trim().length === 0
-  ) {
-    throw new InvalidConfigurationError(
-      path + " must be a non-empty string."
-    );
-  }
-  return value.trim();
-}
-
-function requireInputFinite(
-  value: unknown,
-  path: string
-): number {
-  if (
-    typeof value !== "number" ||
-    !Number.isFinite(value)
-  ) {
-    throw new InvalidScientificInputError(
-      path + " must be finite."
-    );
-  }
-  return value;
-}
-
-function requireInputPositiveFinite(
-  value: unknown,
-  path: string
-): number {
-  const parsed = requireInputFinite(
-    value,
-    path
-  );
-  if (parsed <= 0) {
-    throw new InvalidScientificInputError(
-      path + " must be greater than zero."
-    );
-  }
-  return parsed;
-}
-
-function requireInputNonNegativeFinite(
-  value: unknown,
-  path: string
-): number {
-  const parsed = requireInputFinite(
-    value,
-    path
-  );
-  if (parsed < 0) {
-    throw new InvalidScientificInputError(
-      path +
-        " must be greater than or equal to zero."
-    );
-  }
-  return parsed;
 }
 
 function validateSampleUv(

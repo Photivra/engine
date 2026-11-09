@@ -35,8 +35,9 @@ import {
   type SensorSpectralResponseScientificStatus,
   type SensorSpectralResponseUncertainty
 } from "./spectral-response.js";
-import { requireInputKeys } from "../core/record-validation.js";
+import { requireInputKeys, requireInputPositiveFinite as requirePositiveFinite, requireInputNonNegativeSafeInteger as requireNonNegativeSafeInteger } from "../core/record-validation.js";
 import { InvalidConfigurationError } from "../core/configuration-error.js";
+import { responseCurves } from "./spectral-coverage.js";
 
 const MAX_SPECTRAL_QUADRATURE_NODES = 100_000;
 
@@ -179,22 +180,6 @@ interface SegmentPlan {
   subintervalWidthNanometers: number;
 }
 
-function requirePositiveFinite(
-  value: unknown,
-  path: string
-): number {
-  if (
-    typeof value !== "number" ||
-    !Number.isFinite(value) ||
-    value <= 0
-  ) {
-    throw new InvalidScientificInputError(
-      path + " must be finite and greater than zero."
-    );
-  }
-  return value;
-}
-
 function channelResponse(
   profile: SensorSpectralResponseProfile,
   channelId: string
@@ -217,32 +202,6 @@ function channelResponse(
     );
   }
   return response;
-}
-
-function responseCurves(
-  response:
-    SensorSpectralResponseProfile["channels"][number]
-): readonly ResponseCurveSupport[] {
-  if (
-    response.kind ===
-    "effective-external-quantum-efficiency"
-  ) {
-    return [
-      response.externalQuantumEfficiency
-    ];
-  }
-  if (
-    response.kind ===
-    "effective-spectral-responsivity"
-  ) {
-    return [
-      response.spectralResponsivity
-    ];
-  }
-  return [
-    response.channelFilterTransmittance,
-    response.detectorExternalQuantumEfficiency
-  ];
 }
 
 function usableResponseRange(
@@ -494,22 +453,6 @@ function planSegments(
 }
 
 const SPECTRAL_VALIDATION_TOLERANCE = 1e-10;
-
-function requireNonNegativeSafeInteger(
-  value: unknown,
-  path: string
-): number {
-  if (
-    typeof value !== "number" ||
-    !Number.isSafeInteger(value) ||
-    value < 0
-  ) {
-    throw new InvalidScientificInputError(
-      path + " must be a non-negative safe integer."
-    );
-  }
-  return value;
-}
 
 function approximatelyEqual(
   actual: number,

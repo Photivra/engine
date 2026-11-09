@@ -21,7 +21,7 @@ import {
   InvalidScientificInputError,
   requirePositiveFinite
 } from "../core/validation.js";
-import { requireInputObject, requireInputKeys } from "../core/record-validation.js";
+import { requireInputObject, requireInputKeys, assertNamedFinite as requireFinite } from "../core/record-validation.js";
 import { InvalidConfigurationError } from "../core/configuration-error.js";
 
 export interface RadialDistortionCoefficients {
@@ -120,12 +120,6 @@ export interface ValidatedRadialProfile {
 
 const INVERSE_BISECTION_ITERATIONS = 80;
 const INVERSE_MAPPED_RADIUS_FLOATING_TOLERANCE_ULPS = 16;
-
-function requireFinite(name: string, value: number): void {
-  if (!Number.isFinite(value)) {
-    throw new InvalidScientificInputError(`${name} must be finite.`);
-  }
-}
 
 function inverseMappedRadiusTolerance(
   distortedNormalizedRadius: number,

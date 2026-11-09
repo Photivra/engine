@@ -28,7 +28,7 @@ import {
   type SensorSpectralQuadrature,
   type SensorSpectralQuadratureNode
 } from "./spectral-quadrature.js";
-import { requireInputKeys } from "../core/record-validation.js";
+import { requireInputKeys, requireInputNonNegativeFinite as requireNonNegativeFinite, requireInputNonNegativeSafeInteger as requireSafeNonNegativeInteger } from "../core/record-validation.js";
 import { InvalidConfigurationError } from "../core/configuration-error.js";
 
 const SQUARE_MICROMETERS_TO_SQUARE_METERS = 1e-12;
@@ -184,39 +184,6 @@ export interface SensorSpatioSpectralIrradianceReduction {
     spectral:
       SensorSpectralQuadrature["componentEvidence"];
   };
-}
-
-function requireSafeNonNegativeInteger(
-  value: unknown,
-  path: string
-): number {
-  if (
-    typeof value !== "number" ||
-    !Number.isSafeInteger(value) ||
-    value < 0
-  ) {
-    throw new InvalidScientificInputError(
-      path + " must be a non-negative safe integer."
-    );
-  }
-  return value;
-}
-
-function requireNonNegativeFinite(
-  value: unknown,
-  path: string
-): number {
-  if (
-    typeof value !== "number" ||
-    !Number.isFinite(value) ||
-    value < 0
-  ) {
-    throw new InvalidScientificInputError(
-      path +
-        " must be finite and greater than or equal to zero."
-    );
-  }
-  return value;
 }
 
 function sampleKey(

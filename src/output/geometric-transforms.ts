@@ -34,6 +34,7 @@ import {
   lensProjectionRemapValue, lensProjectionSignedAxisAngle, parseLensProjectionModel,
   type LensProjectionModel
 } from "../camera/lens-projection.js";
+import { point } from "../optics/stray-light.js";
 
 /** A domain change separates maps: only adjacent maps in the same domain share one resampling pass. */
 export type GeometricImageDomain = "raw-channel" | "reconstructed-linear" | "processed-output";
@@ -129,10 +130,6 @@ export interface GeometricSamplingPlan {
   retainedSampleRayEnvelopeDegrees: { minX: number; maxX: number; minY: number; maxY: number } | null;
 }
 
-function point(value: unknown): LensFieldPointMm {
-  const p = record(value, ["x", "y"]);
-  return { x: finite(p.x, "x"), y: finite(p.y, "y") };
-}
 function multiply(a: GeometricJacobian, b: GeometricJacobian): GeometricJacobian {
   return [a[0]*b[0]+a[1]*b[2], a[0]*b[1]+a[1]*b[3],
     a[2]*b[0]+a[3]*b[2], a[2]*b[1]+a[3]*b[3]];

@@ -28,7 +28,7 @@ import {
 
 export const TTL_FLASH_MODEL = /* @__PURE__ */ Object.freeze({ id: "preflash-linear-ttl", version: "1.0.0" } as const);
 
-function requirePositive(value: unknown, name: string): number {
+export function requirePositive(value: unknown, name: string): number {
   if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
     throw new InvalidScientificInputError(name + " must be a finite number greater than zero.");
   }

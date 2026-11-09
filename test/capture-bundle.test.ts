@@ -99,6 +99,8 @@ describe("display-view bundles", () => {
 // it is the owner's decision. Raised 348,000 → 352,000 B: owner-approved 2026-11-09 for engine 2.18.0 (#568 fast catalogue chunk);
 // 2.18.0 measured 351,859 B (#568's lazily loaded fast catalogue code +2,907 B, #569's display-view catalogue PSF +550 B, #576's
 // ideal lens and its f-number range, #569's fixes).
+// 2.19.0 measured 351,775 B: the five parts merged measured 353,811 B (#570's lens corrections +1,735 B), and sharing the
+// parsers' duplicated private field checks (docs/RELEASE_2_19_0.md, "Sizes") saved 2,036 B. The limit is unchanged.
 describe("the app's capture-worker shape", () => {
   it("keeps every chunk of the app's engine imports within its measured size", async () => {
     const worker = await bundle(["NATIVE_RAW_LIMITS", "prepareDisplayView", "serializeSimulatedCaptureDngFromParts", "simulateCapture", "simulateIdealReference"]);

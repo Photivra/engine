@@ -22,9 +22,8 @@ import {
   type ExposureMeteringProfile
 } from "../exposure/metering.js";
 import type { GenericCapabilityAvailability } from "./exposure-capabilities.js";
-import { requireInputKeys, rejectUnknownFields } from "../core/record-validation.js";
+import { requireInputKeys, requireConfigRecord as requireRecord, requireTrimmedConfigString as requireNonEmptyString, parseConfigAvailability as parseAvailability } from "../core/record-validation.js";
 
-type UnknownRecord = Record<string, unknown>;
 
 export const GENERIC_BODY_METERING_CAPABILITY_SCHEMA_VERSION =
   "0.1.0" as const;
@@ -89,55 +88,6 @@ const POLICY_KINDS =
     "highlight-weighted",
     "highlight-priority"
   ]);
-
-function requireRecord(
-  value: unknown,
-  path: string,
-  allowedKeys: readonly string[] | null
-): UnknownRecord {
-  if (
-    typeof value !== "object" ||
-    value === null ||
-    Array.isArray(value)
-  ) {
-    throw new InvalidConfigurationError(
-      path + " must be an object."
-    );
-  }
-  if (allowedKeys !== null) rejectUnknownFields(value, allowedKeys, path);
-  return value as UnknownRecord;
-}
-
-function requireNonEmptyString(
-  value: unknown,
-  path: string
-): string {
-  if (
-    typeof value !== "string" ||
-    value.trim().length === 0
-  ) {
-    throw new InvalidConfigurationError(
-      path + " must be a non-empty string."
-    );
-  }
-  return value.trim();
-}
-
-function parseAvailability(
-  value: unknown,
-  path: string
-): GenericCapabilityAvailability {
-  if (
-    value !== "supported" &&
-    value !== "unsupported" &&
-    value !== "unknown"
-  ) {
-    throw new InvalidConfigurationError(
-      path + " is invalid."
-    );
-  }
-  return value;
-}
 
 function parsePolicyKind(
   value: unknown,

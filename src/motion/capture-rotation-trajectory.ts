@@ -30,11 +30,7 @@ import {
   InvalidScientificInputError,
   requirePositiveFinite
 } from "../core/validation.js";
-import {
-  mapOrientedPhysicalUvToImagePlanePoint,
-  resolveCaptureGeometry,
-  type RasterPoint
-} from "../output/capture-geometry.js";
+import { resolveCaptureGeometry, type RasterPoint } from "../output/capture-geometry.js";
 import {
   calculateCaptureExposureWindows,
   type CalculateCaptureExposureWindowsInput,
@@ -48,7 +44,7 @@ import {
   type ImagePlanePointMm
 } from "./camera-rotation.js";
 import { requireInputObject, requireInputKeys } from "../core/record-validation.js";
-import { InvalidConfigurationError } from "../core/configuration-error.js";
+import { requireNonEmptySamples, nativePointToImagePlane as nativePointToReferenceImagePlane } from "./capture-rotation-inverse-mapping.js";
 
 export interface CalculateCaptureRotationTrajectoriesInput
   extends CalculateCaptureExposureWindowsInput {
@@ -125,43 +121,6 @@ export interface CaptureRotationTrajectories {
     exposureWindows: CalculationProvenance;
     cameraRotation: CalculationProvenance;
   };
-}
-
-function requireNonEmptySamples(
-  samplePointsNative: readonly RasterPoint[]
-): void {
-  if (!Array.isArray(samplePointsNative) || samplePointsNative.length === 0) {
-    throw new InvalidConfigurationError(
-      "samplePointsNative must be a non-empty array."
-    );
-  }
-  samplePointsNative.forEach((point, index) => requireInputObject(point, "samplePointsNative[" + index + "]"));
-}
-
-function nativePointToReferenceImagePlane(
-  point: RasterPoint,
-  activeCaptureRect: {
-    x: number;
-    y: number;
-    width: number;
-    height: number;
-  },
-  activePhysicalBoundsFromOpticalAxisMm: {
-    left: number;
-    right: number;
-    top: number;
-    bottom: number;
-  }
-): ImagePlanePointMm {
-  const u = (point.x - activeCaptureRect.x) / activeCaptureRect.width;
-  const v = (point.y - activeCaptureRect.y) / activeCaptureRect.height;
-
-  return mapOrientedPhysicalUvToImagePlanePoint({
-    uv: { u, v },
-    orientedPhysicalBoundsFromOpticalAxisMm:
-      activePhysicalBoundsFromOpticalAxisMm,
-    orientation: "landscape"
-  });
 }
 
 function endpointFromMapping(

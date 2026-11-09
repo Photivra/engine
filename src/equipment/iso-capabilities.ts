@@ -24,9 +24,8 @@ import type {
   ResolvedGenericEquipmentExposureCapabilities,
   ResolvedNumericSettingGrid
 } from "./exposure-capabilities.js";
-import { requireInputKeys, rejectUnknownFields, rejectUnknownVariantFields } from "../core/record-validation.js";
-
-type UnknownRecord = Record<string, unknown>;
+import { requireInputKeys, rejectUnknownVariantFields, requireConfigRecord as requireRecord, requireTrimmedConfigString as requireNonEmptyString, requireConfigPositiveFinite as requirePositiveFinite, parseConfigAvailability as parseAvailability } from "../core/record-validation.js";
+import { parseRange } from "./exposure-capabilities.js";
 
 export const ISO_CAPABILITY_PROFILE_SCHEMA_VERSION =
   "0.1.0" as const;
@@ -167,85 +166,6 @@ export interface ResolvedIsoCapability {
     false;
 }
 
-function requireRecord(
-  value: unknown,
-  path: string,
-  allowedKeys: readonly string[] | null
-): UnknownRecord {
-  if (
-    typeof value !== "object" ||
-    value === null ||
-    Array.isArray(value)
-  ) {
-    throw new InvalidConfigurationError(
-      path + " must be an object."
-    );
-  }
-  if (allowedKeys !== null) rejectUnknownFields(value, allowedKeys, path);
-  return value as UnknownRecord;
-}
-
-function requireNonEmptyString(
-  value: unknown,
-  path: string
-): string {
-  if (
-    typeof value !== "string" ||
-    value.trim().length === 0
-  ) {
-    throw new InvalidConfigurationError(
-      path +
-        " must be a non-empty string."
-    );
-  }
-  return value.trim();
-}
-
-function requirePositiveFinite(
-  value: unknown,
-  path: string
-): number {
-  if (
-    typeof value !== "number" ||
-    !Number.isFinite(value) ||
-    value <= 0
-  ) {
-    throw new InvalidConfigurationError(
-      path +
-        " must be finite and greater than zero."
-    );
-  }
-  return value;
-}
-
-function parseRange(
-  value: unknown,
-  path: string
-): IsoExposureIndexRange {
-  const record =
-    requireRecord(value, path, ["minimum", "maximum"]);
-  const minimum =
-    requirePositiveFinite(
-      record.minimum,
-      path + ".minimum"
-    );
-  const maximum =
-    requirePositiveFinite(
-      record.maximum,
-      path + ".maximum"
-    );
-  if (minimum > maximum) {
-    throw new InvalidConfigurationError(
-      path +
-        ".minimum must be less than or equal to maximum."
-    );
-  }
-  return {
-    minimum,
-    maximum
-  };
-}
-
 function rangeWithin(
   inner:
     IsoExposureIndexRange,
@@ -350,22 +270,6 @@ function parseGrid(
   throw new InvalidConfigurationError(
     path + ".kind is invalid."
   );
-}
-
-function parseAvailability(
-  value: unknown,
-  path: string
-): IsoCapabilityAvailability {
-  if (
-    value !== "supported" &&
-    value !== "unsupported" &&
-    value !== "unknown"
-  ) {
-    throw new InvalidConfigurationError(
-      path + " is invalid."
-    );
-  }
-  return value;
 }
 
 function parseAutoIso(
@@ -1102,7 +1006,6 @@ export function resolveIsoCapability(
       false
   };
 }
-
 
 export interface BindIsoCapabilityToExposureCapabilitiesInput {
   isoCapabilityProfile:

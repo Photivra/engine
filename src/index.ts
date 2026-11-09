@@ -1137,6 +1137,20 @@ export {
 } from "./optics/front-of-lens-filter.js";
 
 export {
+  GENERIC_ND_FILTER_PROFILES,
+  GENERIC_ND_FILTER_STOPS,
+  type GenericNdFilterStops
+} from "./optics/generic-nd-filter-presets.js";
+
+export {
+  FILTERED_EXPOSURE_DEFAULT_WAVELENGTH_NANOMETERS,
+  calculateFilteredExposureTime,
+  type CalculateFilteredExposureTimeInput,
+  type FilteredExposureDialSetting,
+  type FilteredExposureTime
+} from "./exposure/filtered-exposure-time.js";
+
+export {
   calculateIlluminationVignetting,
   type CalculateIlluminationVignettingInput,
   type IlluminationVignetting,
@@ -1818,9 +1832,10 @@ export { SIMULATE_CAPTURE_FACADE_VERSION, SIMULATE_CAPTURE_DEFAULT_ILLUMINANCE_L
   type SimulateCaptureDemosaic, type SimulateCaptureBorderHandling, type SimulateCaptureLensDistortion, type SimulateCaptureMotion,
   type SimulateCaptureSensorAntiAliasing, type SimulateCaptureCostOption, type SimulateCapturePixelAperture, SIMULATE_CAPTURE_BOX_APERTURE_DEFAULT_SAMPLES,
   SIMULATE_CAPTURE_FAST_OPTIONS, type SimulateCaptureFastOption, type SimulateCaptureFastReport, type SimulateCaptureDemosaicRecord, type SimulateCaptureLensCatalogueRecord,
-  type SimulateCaptureSharpening, type SimulateCaptureDiffractionCorrection, type SimulateCaptureDetailDiagnostics,
+  type SimulateCaptureSharpening, type SimulateCaptureDiffractionCorrection, type SimulateCaptureLensCorrections, type SimulateCaptureDetailDiagnostics,
   simulateIdealReference, type IdealReferenceResult, serializeSimulatedCaptureDngFromParts, type SimulateCaptureDngPart, type SimulateDisplayViewOptions, type DisplayViewResult,
   type DisplayViewHighlightDiagnostics, SIMULATE_DISPLAY_VIEW_DEFAULT_SAMPLES_PER_AXIS } from "./facade/simulate-capture.js";
+export { simulateCaptureFromParts } from "./facade/develop-joined-parts.js";
 export { simulateDisplayView, prepareDisplayView, type PreparedDisplayView, type PreparedDisplayViewRenderOptions, serializeDisplayViewCorrectionStates, bindDisplayViewCorrectionStates,
   type DisplayViewCorrectionStateKeys, type DisplayViewCorrectionStateSet } from "./facade/simulate-display-view.js";
 export type { DisplayViewGpuMode, PrepareDisplayViewOptions, DisplayViewGpuFallbackReason, DisplayViewGpuConformance, DisplayViewExecution,

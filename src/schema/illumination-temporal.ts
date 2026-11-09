@@ -27,9 +27,9 @@ import type {
   SceneIlluminationProfile,
   SceneIlluminationUncertainty
 } from "./illumination.js";
-import { requireInputKeys, rejectUnknownFields, rejectUnknownVariantFields, UNCERTAINTY_VARIANT_FIELDS, requireFixedFieldsWhenPresent } from "../core/record-validation.js";
-
-type UnknownRecord = Record<string, unknown>;
+import { requireInputKeys, rejectUnknownVariantFields, requireFixedFieldsWhenPresent, requireConfigRecord as requireRecord, requireTrimmedConfigString as requireNonEmptyString, requireConfigFinite as requireFinite, parseConfigScientificStatus as parseScientificStatus, requireConfigFiniteAboveZero as requirePositiveFinite, requireConfigFiniteAtLeastZero as requireNonNegativeFinite } from "../core/record-validation.js";
+import { parseUncertainty } from "../optics/lens-psf-profile.js";
+import { positiveModulo } from "../optics/complex-pupil-psf.js";
 
 export const SCENE_ILLUMINATION_TEMPORAL_PROFILE_SCHEMA_VERSION =
   "0.1.0" as const;
@@ -206,88 +206,6 @@ export interface SceneIlluminationTemporalExposureIntegration {
   convergenceErrorEstimated: false;
 }
 
-function requireRecord(
-  value: unknown,
-  path: string,
-  allowedKeys: readonly string[] | null
-): UnknownRecord {
-  if (
-    typeof value !== "object" ||
-    value === null ||
-    Array.isArray(value)
-  ) {
-    throw new InvalidConfigurationError(
-      path + " must be an object."
-    );
-  }
-  if (allowedKeys !== null) rejectUnknownFields(value, allowedKeys, path);
-  return value as UnknownRecord;
-}
-
-function requireNonEmptyString(
-  value: unknown,
-  path: string
-): string {
-  if (
-    typeof value !== "string" ||
-    value.trim().length === 0
-  ) {
-    throw new InvalidConfigurationError(
-      path + " must be a non-empty string."
-    );
-  }
-  return value.trim();
-}
-
-function requireFinite(
-  value: unknown,
-  path: string
-): number {
-  if (
-    typeof value !== "number" ||
-    !Number.isFinite(value)
-  ) {
-    throw new InvalidConfigurationError(
-      path + " must be finite."
-    );
-  }
-  return value;
-}
-
-function requirePositiveFinite(
-  value: unknown,
-  path: string
-): number {
-  const parsed = requireFinite(
-    value,
-    path
-  );
-  if (parsed <= 0) {
-    throw new InvalidConfigurationError(
-      path +
-        " must be greater than zero."
-    );
-  }
-  return parsed;
-}
-
-function requireNonNegativeFinite(
-  value: unknown,
-  path: string
-): number {
-  const parsed = requireFinite(
-    value,
-    path
-  );
-  if (parsed < 0) {
-    throw new InvalidConfigurationError(
-      path +
-        " must be greater than or equal to zero."
-    );
-  }
-  return parsed;
-}
-
 function requireReusableNumericEvidence(
   value: unknown,
   path: string
@@ -311,59 +229,6 @@ function requireReusableNumericEvidence(
     );
   }
   return evidence;
-}
-
-function parseScientificStatus(
-  value: unknown,
-  path: string
-): SceneIlluminationTemporalScientificStatus {
-  if (
-    value !== "calibrated" &&
-    value !== "approximation"
-  ) {
-    throw new InvalidConfigurationError(
-      path + " is invalid."
-    );
-  }
-  return value;
-}
-
-function parseUncertainty(
-  value: unknown,
-  path: string
-): SceneIlluminationUncertainty {
-  const record = requireRecord(
-    value,
-    path, null
-  );
-  rejectUnknownVariantFields(record, "kind", UNCERTAINTY_VARIANT_FIELDS, path);
-  if (record.kind === "relative") {
-    return {
-      kind: "relative",
-      fraction:
-        requireNonNegativeFinite(
-          record.fraction,
-          path + ".fraction"
-        ),
-      basis: requireNonEmptyString(
-        record.basis,
-        path + ".basis"
-      )
-    };
-  }
-  if (record.kind === "not-quantified") {
-    return {
-      kind: "not-quantified",
-      limitation:
-        requireNonEmptyString(
-          record.limitation,
-          path + ".limitation"
-        )
-    };
-  }
-  throw new InvalidConfigurationError(
-    path + ".kind is invalid."
-  );
 }
 
 function parseRegistrationUncertainty(
@@ -1013,16 +878,6 @@ function interpolateWaveform(
 
   return last
     .relativeMagnitudeMultiplier;
-}
-
-function positiveModulo(
-  value: number,
-  modulus: number
-): number {
-  const remainder = value % modulus;
-  return remainder < 0
-    ? remainder + modulus
-    : remainder;
 }
 
 function evaluateWaveform(

@@ -33,9 +33,9 @@ import type {
 import type {
   SensorResponsivityPhotocurrent
 } from "./responsivity-photocurrent.js";
-import { requireInputObject, requireInputKeys, rejectUnknownFields } from "../core/record-validation.js";
+import { requireInputObject, requireInputKeys, requireConfigRecord as requireRecord, requireConfigFinite as requireFinite, requireConfigString as requireNonEmptyString, requireInputNonNegativeFinite as requireNonNegativeFiniteRate, requireConfigNonNegativeSafeInteger as requireNonNegativeSafeInteger } from "../core/record-validation.js";
+import { sameSite } from "../core/shared-helpers.js";
 
-type UnknownRecord = Record<string, unknown>;
 
 export type SensorRateStationarityStatus =
   | "established"
@@ -161,71 +161,6 @@ export interface SensorResponsivityExposureIntegration
 export type SensorStationaryRateExposureIntegration =
   | SensorEqeExposureIntegration
   | SensorResponsivityExposureIntegration;
-
-function requireRecord(
-  value: unknown,
-  path: string,
-  allowedKeys: readonly string[] | null
-): UnknownRecord {
-  if (
-    typeof value !== "object" ||
-    value === null ||
-    Array.isArray(value)
-  ) {
-    throw new InvalidConfigurationError(
-      path + " must be an object."
-    );
-  }
-  if (allowedKeys !== null) rejectUnknownFields(value, allowedKeys, path);
-  return value as UnknownRecord;
-}
-
-function requireNonEmptyString(
-  value: unknown,
-  path: string
-): string {
-  if (
-    typeof value !== "string" ||
-    value.trim().length === 0
-  ) {
-    throw new InvalidConfigurationError(
-      path + " must be a non-empty string."
-    );
-  }
-  return value;
-}
-
-function requireNonNegativeSafeInteger(
-  value: unknown,
-  path: string
-): number {
-  if (
-    typeof value !== "number" ||
-    !Number.isSafeInteger(value) ||
-    value < 0
-  ) {
-    throw new InvalidConfigurationError(
-      path +
-        " must be a non-negative safe integer."
-    );
-  }
-  return value;
-}
-
-function requireFinite(
-  value: unknown,
-  path: string
-): number {
-  if (
-    typeof value !== "number" ||
-    !Number.isFinite(value)
-  ) {
-    throw new InvalidConfigurationError(
-      path + " must be finite."
-    );
-  }
-  return value;
-}
 
 /**
  * Validates untrusted input and returns it as a normalized, typed value. Unknown enum values,
@@ -393,13 +328,6 @@ export function parseSensorRateTemporalStationarityProfile(
       ? {}
       : { limitation })
   };
-}
-
-function sameSite(
-  a: { x: number; y: number },
-  b: { x: number; y: number }
-): boolean {
-  return a.x === b.x && a.y === b.y;
 }
 
 function requireRateSite(
@@ -601,23 +529,6 @@ function validateStationarity(
       "stationarityProfile must apply to the exact bound rate domain, site, binding, and local exposure window."
     );
   }
-}
-
-function requireNonNegativeFiniteRate(
-  value: unknown,
-  path: string
-): number {
-  if (
-    typeof value !== "number" ||
-    !Number.isFinite(value) ||
-    value < 0
-  ) {
-    throw new InvalidScientificInputError(
-      path +
-        " must be finite and greater than or equal to zero."
-    );
-  }
-  return value;
 }
 
 /**

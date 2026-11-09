@@ -40,7 +40,7 @@ import { DISPLAY_VIEW_SPEED_CONFORMANCE_CASE, axisRecord, displayViewSpeedGpuSup
 import { createHostYieldGate } from "../capture/host-yield-cadence.js";
 import { createDefocusDiscSiteKernel } from "../optics/defocus-disc-kernel.js";
 import { ImageKernelExecutionError, WEBGPU_F32_UNIT_ROUNDOFF, webGpuExecution, type ImageKernelExecution, type ImageKernelRelativeErrorBound } from "./image-kernel-execution.js";
-import { BUFFER_USAGE, GpuResourceScope, abortedError, createComputePipeline, linearDispatch, runComputePass, type WebGpuRuntime } from "./webgpu-runtime.js";
+import { BUFFER_USAGE, GpuResourceScope, abortedError, createComputePipeline, linearDispatch, runComputePass, type WebGpuRuntime, throwIfAborted as checkAbort } from "./webgpu-runtime.js";
 import { DISPLAY_VIEW_QUALITY_AUX, DISPLAY_VIEW_QUALITY_BITMAP_WORDS, DISPLAY_VIEW_QUALITY_CANDIDATE_ENTRIES, DISPLAY_VIEW_QUALITY_CANDIDATE_FLOATS, DISPLAY_VIEW_QUALITY_FLAG, DISPLAY_VIEW_QUALITY_FLAG_WORDS,
   DISPLAY_VIEW_QUALITY_GEOMETRY_STRIDE, DISPLAY_VIEW_QUALITY_GROUP_WORDS, DISPLAY_VIEW_QUALITY_MAXIMUM_PIXELS_PER_AXIS, DISPLAY_VIEW_QUALITY_OUTPUT_FLOATS, DISPLAY_VIEW_QUALITY_PARAM_WORDS,
   DISPLAY_VIEW_QUALITY_PIXELS_WGSL, DISPLAY_VIEW_QUALITY_SITES_BLOCKED_WGSL, DISPLAY_VIEW_QUALITY_SITES_WGSL, DISPLAY_VIEW_QUALITY_SITE_FLOATS, DISPLAY_VIEW_QUALITY_TAP_WORDS, DISPLAY_VIEW_QUALITY_WORKGROUP_SIZE,
@@ -190,10 +190,6 @@ export class CorrectionStateStore {
   }
 }
 
-function checkAbort(signal: AbortSignal): void {
-  if (signal.aborted) throw abortedError();
-}
-
 /**
  * Waits until the queue has finished the work submitted so far (`GPUQueue.onSubmittedWorkDone`), so a pass that reads nothing
  * back is timed with its own execution, not the next pass's wait. The passes depend on each other in order anyway.
@@ -204,7 +200,7 @@ async function queueIdle(runtime: WebGpuRuntime, signal: AbortSignal): Promise<v
 }
 
 /** The footprint shape of a view: real pixels per display pixel along each axis, and whether the exact area mean applies. */
-function footprintShape(setup: DisplayViewSetup): { sx: number; sy: number; exact: boolean; maximumColumns: number; maximumRows: number } {
+export function footprintShape(setup: DisplayViewSetup): { sx: number; sy: number; exact: boolean; maximumColumns: number; maximumRows: number } {
   const sx = setup.frameWidth / setup.viewWidth, sy = setup.frameHeight / setup.viewHeight, area = sx * sy;
   const exact = area <= Math.min(EXACT_AREA_MEAN_MAX_PIXELS, setup.samplesPerAxis * setup.samplesPerAxis);
   let maximumColumns = 0, maximumRows = 0;
@@ -801,7 +797,7 @@ export function qualityMaterialModule(modules: DisplayViewMaterialModules, gpu: 
 }
 
 /** The pixel-aperture samples per axis and anti-aliasing spots of a request. */
-function offsetCount(request: DisplayViewGpuRequest): number { return request.boxSamples * request.boxSamples * (request.antiAliasing ? 4 : 1); }
+export function offsetCount(request: DisplayViewGpuRequest): number { return request.boxSamples * request.boxSamples * (request.antiAliasing ? 4 : 1); }
 
 /**
  * Why the Quality renderer does not support a prepared request (`DisplayViewGpuRenderer.supports`), or true: engine charts and
@@ -890,7 +886,7 @@ export const DISPLAY_VIEW_QUALITY_DEFOCUS_CONFORMANCE_CASE: DisplayViewGpuConfor
   run: (handle, signal) => runQualityConformance(handle, signal, true) };
 
 /** The bilinear RGGB demosaic kernels per phase (phaseY·2 + phaseX) and channel, as `bilinearPhaseProfiles` gives them. */
-function bilinearKernels(): DisplayViewKernelTap[][][] {
+export function bilinearKernels(): DisplayViewKernelTap[][][] {
   const cross = [[1, 0], [-1, 0], [0, 1], [0, -1]], diagonal = [[1, 1], [1, -1], [-1, 1], [-1, -1]], horizontal = [[1, 0], [-1, 0]], vertical = [[0, 1], [0, -1]];
   const average = (offsets: number[][]): DisplayViewKernelTap[] => offsets.map(([dx, dy]) => ({ dx: dx!, dy: dy!, weight: 1 / offsets.length })), self = [{ dx: 0, dy: 0, weight: 1 }];
   return [[self, average(cross), average(diagonal)], [average(horizontal), self, average(vertical)], [average(vertical), self, average(horizontal)], [average(diagonal), average(cross), self]];

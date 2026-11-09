@@ -47,15 +47,13 @@ import type {
 import type {
   SensorSpectralResponseScientificStatus
 } from "./spectral-response.js";
-import { requireInputKeys, rejectUnknownFields } from "../core/record-validation.js";
+import { requireInputKeys, requireConfigRecord as requireRecord, requireTrimmedConfigString as requireNonEmptyString, requireConfigFinite as requireFinite, parseConfigScientificStatus as parseStatus, parseConfigLimitations as parseLimitations, requireConfigFiniteAboveZero as requirePositiveFinite, requireConfigFiniteAtLeastZero as requireNonNegativeFinite } from "../core/record-validation.js";
 import {
   evaluateParsedFixedPatternSite,
   parseSensorFixedPatternNoiseProfile,
   type SensorFixedPatternNoiseProfile,
   type SensorFixedPatternSiteValues
 } from "./fixed-pattern-noise.js";
-
-type UnknownRecord = Record<string, unknown>;
 
 export const SENSOR_CHARGE_SAMPLING_PROFILE_SCHEMA_VERSION =
   "0.1.0" as const;
@@ -428,84 +426,6 @@ export interface SensorRawCodeSample {
     true;
 }
 
-function requireRecord(
-  value: unknown,
-  path: string,
-  allowedKeys: readonly string[] | null
-): UnknownRecord {
-  if (
-    typeof value !== "object" ||
-    value === null ||
-    Array.isArray(value)
-  ) {
-    throw new InvalidConfigurationError(
-      path + " must be an object."
-    );
-  }
-  if (allowedKeys !== null) rejectUnknownFields(value, allowedKeys, path);
-  return value as UnknownRecord;
-}
-
-function requireNonEmptyString(
-  value: unknown,
-  path: string
-): string {
-  if (
-    typeof value !== "string" ||
-    value.trim().length === 0
-  ) {
-    throw new InvalidConfigurationError(
-      path + " must be a non-empty string."
-    );
-  }
-  return value.trim();
-}
-
-function requireFinite(
-  value: unknown,
-  path: string
-): number {
-  if (
-    typeof value !== "number" ||
-    !Number.isFinite(value)
-  ) {
-    throw new InvalidConfigurationError(
-      path + " must be finite."
-    );
-  }
-  return value;
-}
-
-function requireNonNegativeFinite(
-  value: unknown,
-  path: string
-): number {
-  const parsed =
-    requireFinite(value, path);
-  if (parsed < 0) {
-    throw new InvalidConfigurationError(
-      path +
-        " must be greater than or equal to zero."
-    );
-  }
-  return parsed;
-}
-
-function requirePositiveFinite(
-  value: unknown,
-  path: string
-): number {
-  const parsed =
-    requireFinite(value, path);
-  if (parsed <= 0) {
-    throw new InvalidConfigurationError(
-      path +
-        " must be greater than zero."
-    );
-  }
-  return parsed;
-}
-
 function requireUint32(
   value: unknown,
   path: string
@@ -524,7 +444,7 @@ function requireUint32(
   return value;
 }
 
-function requireSafeInteger(
+export function requireSafeInteger(
   value: unknown,
   path: string
 ): number {
@@ -539,38 +459,7 @@ function requireSafeInteger(
   return value;
 }
 
-function parseLimitations(
-  value: unknown,
-  path: string
-): readonly string[] {
-  if (!Array.isArray(value)) {
-    throw new InvalidConfigurationError(
-      path + " must be an array."
-    );
-  }
-  const parsed =
-    value.map((entry, index) =>
-      requireNonEmptyString(
-        entry,
-        path +
-          "[" +
-          index +
-          "]"
-      )
-    );
-  if (
-    new Set(parsed).size !==
-    parsed.length
-  ) {
-    throw new InvalidConfigurationError(
-      path +
-        " must not contain duplicates."
-    );
-  }
-  return parsed;
-}
-
-function parsePositiveFact(
+export function parsePositiveFact(
   value: unknown,
   path: string
 ): EvidenceBackedFact<number> {
@@ -590,7 +479,7 @@ function parsePositiveFact(
   };
 }
 
-function parseNonNegativeFact(
+export function parseNonNegativeFact(
   value: unknown,
   path: string
 ): EvidenceBackedFact<number> {
@@ -748,21 +637,6 @@ export function parseSensorChargeSamplingProfile(
         "sensorChargeSamplingProfile.limitations"
       )
   };
-}
-
-function parseStatus(
-  value: unknown,
-  path: string
-): SensorSpectralResponseScientificStatus {
-  if (
-    value !== "calibrated" &&
-    value !== "approximation"
-  ) {
-    throw new InvalidConfigurationError(
-      path + " is invalid."
-    );
-  }
-  return value;
 }
 
 function parseReadNoiseComponent(

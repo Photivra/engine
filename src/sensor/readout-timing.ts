@@ -25,8 +25,10 @@ import { InvalidScientificInputError, requirePositiveInteger } from "../core/val
 import type { RasterPoint, RasterRect } from "../output/capture-geometry.js";
 import type { NativeImageRaster } from "./sensor-geometry.js";
 import type { SensorReadoutArchitecture } from "./architecture.js";
-import { requireInputObject, requireInputKeys, rejectUnknownFields } from "../core/record-validation.js";
+import { requireInputKeys, requireConfigRecord as requireRecord } from "../core/record-validation.js";
 import { InvalidConfigurationError } from "../core/configuration-error.js";
+import { fullRect } from "../core/shared-helpers.js";
+import { normalizedScanPosition, validateNativeRaster, scanVector, requirePositiveFinite, requireNonNegativeInteger } from "./exposure-window.js";
 
 /**
  * The readout mode chosen for one capture.
@@ -147,8 +149,6 @@ export interface SensorReadoutTiming {
   samples: readonly SensorReadoutTimingSample[];
 }
 
-type UnknownRecord = Record<string, unknown>;
-
 const READOUT_MODES = new Set<SensorReadoutMode>(["rolling", "global"]);
 const SCAN_DIRECTIONS = new Set<NativeSensorReadoutScanDirection>([
   "top-to-bottom",
@@ -162,39 +162,10 @@ const SHUTTER_MECHANISMS = new Set<CaptureShutterMechanism>([
   "electronic"
 ]);
 
-function requireRecord(
-  value: unknown,
-  path: string,
-  allowedKeys: readonly string[] | null
-): UnknownRecord {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    throw new InvalidConfigurationError(path + " must be an object.");
-  }
-  if (allowedKeys !== null) rejectUnknownFields(value, allowedKeys, path);
-  return value as UnknownRecord;
-}
-
-function requireNonNegativeInteger(name: string, value: number): void {
-  if (!Number.isSafeInteger(value) || value < 0) {
-    throw new InvalidScientificInputError(
-      name + " must be a non-negative safe integer."
-    );
-  }
-}
-
 function requireNonNegativeFinite(name: string, value: unknown): number {
   if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
     throw new InvalidScientificInputError(
       name + " must be a finite number greater than or equal to zero."
-    );
-  }
-  return value;
-}
-
-function requirePositiveFinite(name: string, value: unknown): number {
-  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
-    throw new InvalidScientificInputError(
-      name + " must be a finite number greater than zero."
     );
   }
   return value;
@@ -291,21 +262,6 @@ function parseReadoutDeclaration(
   };
 }
 
-function validateNativeRaster(raster: NativeImageRaster): void {
-  requireInputObject(raster, "raster input");
-  requirePositiveInteger("nativeRaster.pixelWidth", raster.pixelWidth);
-  requirePositiveInteger("nativeRaster.pixelHeight", raster.pixelHeight);
-}
-
-function fullRect(raster: NativeImageRaster): RasterRect {
-  return {
-    x: 0,
-    y: 0,
-    width: raster.pixelWidth,
-    height: raster.pixelHeight
-  };
-}
-
 function validateActiveCaptureRect(
   rect: RasterRect,
   raster: NativeImageRaster
@@ -358,38 +314,6 @@ function validatePointWithinActiveCapture(
         index +
         "] must lie within activeCaptureRect edge-coordinate bounds."
     );
-  }
-}
-
-function scanVector(
-  direction: NativeSensorReadoutScanDirection
-): { x: number; y: number } {
-  switch (direction) {
-    case "top-to-bottom":
-      return { x: 0, y: 1 };
-    case "bottom-to-top":
-      return { x: 0, y: -1 };
-    case "left-to-right":
-      return { x: 1, y: 0 };
-    case "right-to-left":
-      return { x: -1, y: 0 };
-  }
-}
-
-function normalizedScanPosition(
-  point: RasterPoint,
-  rect: RasterRect,
-  direction: NativeSensorReadoutScanDirection
-): number {
-  switch (direction) {
-    case "top-to-bottom":
-      return (point.y - rect.y) / rect.height;
-    case "bottom-to-top":
-      return 1 - (point.y - rect.y) / rect.height;
-    case "left-to-right":
-      return (point.x - rect.x) / rect.width;
-    case "right-to-left":
-      return 1 - (point.x - rect.x) / rect.width;
   }
 }
 

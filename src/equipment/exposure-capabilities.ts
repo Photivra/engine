@@ -21,7 +21,7 @@ import {
   type EvidenceProvenance
 } from "../core/evidence-provenance.js";
 import { InvalidScientificInputError } from "../core/validation.js";
-import { requireInputKeys, rejectUnknownFields, rejectUnknownVariantFields } from "../core/record-validation.js";
+import { requireInputKeys, rejectUnknownVariantFields, requireConfigRecord as requireRecord, requireTrimmedConfigString as requireNonEmptyString, requireConfigPositiveFinite as requirePositiveFinite, parseConfigAvailability as parseAvailability } from "../core/record-validation.js";
 
 type UnknownRecord = Record<string, unknown>;
 
@@ -178,57 +178,7 @@ export interface ResolveGenericEquipmentExposureCapabilitiesInput {
   selectedFocalLengthMm: number;
 }
 
-function requireRecord(
-  value: unknown,
-  path: string,
-  allowedKeys: readonly string[] | null
-): UnknownRecord {
-  if (
-    typeof value !== "object" ||
-    value === null ||
-    Array.isArray(value)
-  ) {
-    throw new InvalidConfigurationError(
-      path + " must be an object."
-    );
-  }
-  if (allowedKeys !== null) rejectUnknownFields(value, allowedKeys, path);
-  return value as UnknownRecord;
-}
-
-function requireNonEmptyString(
-  value: unknown,
-  path: string
-): string {
-  if (
-    typeof value !== "string" ||
-    value.trim().length === 0
-  ) {
-    throw new InvalidConfigurationError(
-      path + " must be a non-empty string."
-    );
-  }
-  return value.trim();
-}
-
-function requirePositiveFinite(
-  value: unknown,
-  path: string
-): number {
-  if (
-    typeof value !== "number" ||
-    !Number.isFinite(value) ||
-    value <= 0
-  ) {
-    throw new InvalidConfigurationError(
-      path +
-        " must be finite and greater than zero."
-    );
-  }
-  return value;
-}
-
-function parseRange(
+export function parseRange(
   value: unknown,
   path: string
 ): NumericCapabilityRange {
@@ -298,22 +248,6 @@ function parseSourcedPositiveNumber(
       path + ".evidence"
     )
   };
-}
-
-function parseAvailability(
-  value: unknown,
-  path: string
-): GenericCapabilityAvailability {
-  if (
-    value !== "supported" &&
-    value !== "unsupported" &&
-    value !== "unknown"
-  ) {
-    throw new InvalidConfigurationError(
-      path + " is invalid."
-    );
-  }
-  return value;
 }
 
 function parseSourcedAvailability(

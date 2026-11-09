@@ -17,8 +17,8 @@ import {
   type EvidenceReuseStatus,
   type EvidenceSourceOrigin
 } from "../core/evidence-provenance.js";
-import { rejectUnknownFields } from "../core/record-validation.js";
 import { InvalidConfigurationError } from "../core/configuration-error.js";
+import { requireConfigRecord as requireRecord, requireConfigRecordString as requireNonEmptyString } from "../core/record-validation.js";
 
 type UnknownRecord = Record<string, unknown>;
 
@@ -119,32 +119,6 @@ const COLOR_SAMPLING_VALUES = new Set<SensorColorSamplingFamily>([
   "custom-rgb-mosaic",
   "layered-color"
 ]);
-
-function requireRecord(
-  value: unknown,
-  path: string,
-  allowedKeys: readonly string[] | null
-): UnknownRecord {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    throw new InvalidConfigurationError(`${path} must be an object.`);
-  }
-  if (allowedKeys !== null) rejectUnknownFields(value, allowedKeys, path);
-  return value as UnknownRecord;
-}
-
-function requireNonEmptyString(
-  record: UnknownRecord,
-  key: string,
-  path: string
-): string {
-  const value = record[key];
-  if (typeof value !== "string" || value.trim().length === 0) {
-    throw new InvalidConfigurationError(
-      `${path}.${key} must be a non-empty string.`
-    );
-  }
-  return value;
-}
 
 function parseScalarFact<T extends string>(
   value: unknown,

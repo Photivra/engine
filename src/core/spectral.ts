@@ -6,10 +6,9 @@
  * @see docs/API_STYLE.md for equations, coordinate/unit conventions, blockers and support limits.
  */
 
-import { rejectUnknownFields } from "./record-validation.js";
 import { InvalidConfigurationError } from "./configuration-error.js";
+import { requireConfigRecord as requireRecord, requireConfigPositiveFinite as requirePositiveFinite } from "./record-validation.js";
 
-type UnknownRecord = Record<string, unknown>;
 
 /**
  * Whether wavelengths are measured in air or in vacuum.
@@ -36,40 +35,6 @@ export interface SpectralWavelengthSample {
 export interface SpectralWavelengthRangeNanometers {
   minimum: number;
   maximum: number;
-}
-
-function requireRecord(
-  value: unknown,
-  path: string,
-  allowedKeys: readonly string[] | null
-): UnknownRecord {
-  if (
-    typeof value !== "object" ||
-    value === null ||
-    Array.isArray(value)
-  ) {
-    throw new InvalidConfigurationError(
-      path + " must be an object."
-    );
-  }
-  if (allowedKeys !== null) rejectUnknownFields(value, allowedKeys, path);
-  return value as UnknownRecord;
-}
-
-function requirePositiveFinite(
-  value: unknown,
-  path: string
-): number {
-  if (
-    typeof value !== "number" ||
-    !Number.isFinite(value) ||
-    value <= 0
-  ) {
-    throw new InvalidConfigurationError(
-      path + " must be finite and greater than zero."
-    );
-  }
-  return value;
 }
 
 /**

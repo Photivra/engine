@@ -48,8 +48,9 @@ import type {
   SensorSpatioSpectralIrradianceReduction,
   SensorSpatioSpectralWavelengthReduction
 } from "./spatio-spectral-reduction.js";
-import { requireInputObject, requireInputKeys } from "../core/record-validation.js";
+import { requireInputObject, requireInputKeys, requireInputNonNegativeFinite as requireNonNegativeFinite, requireInputPositiveFinite as requirePositiveFinite, requireInputNonNegativeSafeInteger as requireSafeNonNegativeInteger } from "../core/record-validation.js";
 import { InvalidConfigurationError } from "../core/configuration-error.js";
+import { addCompensated } from "../core/shared-helpers.js";
 
 const REDUCTION_TOLERANCE = 1e-10;
 
@@ -169,70 +170,6 @@ export interface SensorEqeElectronRate {
 interface CompensatedSum {
   sum: number;
   correction: number;
-}
-
-function addCompensated(
-  state: CompensatedSum,
-  value: number
-): void {
-  const adjusted =
-    value - state.correction;
-  const next =
-    state.sum + adjusted;
-  state.correction =
-    (next - state.sum) - adjusted;
-  state.sum = next;
-}
-
-function requireNonNegativeFinite(
-  value: unknown,
-  path: string
-): number {
-  if (
-    typeof value !== "number" ||
-    !Number.isFinite(value) ||
-    value < 0
-  ) {
-    throw new InvalidScientificInputError(
-      path +
-        " must be finite and greater than or equal to zero."
-    );
-  }
-  return value;
-}
-
-function requirePositiveFinite(
-  value: unknown,
-  path: string
-): number {
-  if (
-    typeof value !== "number" ||
-    !Number.isFinite(value) ||
-    value <= 0
-  ) {
-    throw new InvalidScientificInputError(
-      path +
-        " must be finite and greater than zero."
-    );
-  }
-  return value;
-}
-
-function requireSafeNonNegativeInteger(
-  value: unknown,
-  path: string
-): number {
-  if (
-    typeof value !== "number" ||
-    !Number.isSafeInteger(value) ||
-    value < 0
-  ) {
-    throw new InvalidScientificInputError(
-      path +
-        " must be a non-negative safe integer."
-    );
-  }
-  return value;
 }
 
 function approximatelyEqual(

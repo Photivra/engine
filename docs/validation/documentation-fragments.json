@@ -57,7 +57,7 @@
   },
   {
     "file": "docs/USAGE.md",
-    "block": 24,
+    "block": 25,
     "bindings": [
       "sceneRadianceRequest",
       "sceneRadianceResult"
@@ -65,21 +65,21 @@
   },
   {
     "file": "docs/USAGE.md",
-    "block": 35,
+    "block": 36,
     "bindings": [
       "evidence"
     ]
   },
   {
     "file": "docs/USAGE.md",
-    "block": 45,
+    "block": 46,
     "bindings": [
       "topology"
     ]
   },
   {
     "file": "docs/USAGE.md",
-    "block": 46,
+    "block": 47,
     "bindings": [
       "binding",
       "modes",
@@ -88,7 +88,7 @@
   },
   {
     "file": "docs/USAGE.md",
-    "block": 48,
+    "block": 49,
     "bindings": [
       "binding",
       "topology"
@@ -96,7 +96,7 @@
   },
   {
     "file": "docs/USAGE.md",
-    "block": 49,
+    "block": 50,
     "bindings": [
       "binding",
       "sampling",
@@ -106,7 +106,7 @@
   },
   {
     "file": "docs/USAGE.md",
-    "block": 50,
+    "block": 51,
     "bindings": [
       "colorSamplingProfile",
       "spectralResponseProfile"
@@ -114,7 +114,7 @@
   },
   {
     "file": "docs/USAGE.md",
-    "block": 51,
+    "block": 52,
     "bindings": [
       "sampleValues",
       "spatialPlan",
@@ -123,7 +123,7 @@
   },
   {
     "file": "docs/USAGE.md",
-    "block": 65,
+    "block": 66,
     "bindings": [
       "evidence",
       "profile"
@@ -131,7 +131,7 @@
   },
   {
     "file": "docs/USAGE.md",
-    "block": 66,
+    "block": 67,
     "bindings": [
       "captureGeometry",
       "illuminationProfile",
@@ -142,7 +142,7 @@
   },
   {
     "file": "docs/USAGE.md",
-    "block": 67,
+    "block": 68,
     "bindings": [
       "profile",
       "sampleAtTime0",
@@ -151,7 +151,7 @@
   },
   {
     "file": "docs/USAGE.md",
-    "block": 68,
+    "block": 69,
     "bindings": [
       "evidence",
       "exposureCapabilities"
@@ -159,17 +159,9 @@
   },
   {
     "file": "docs/USAGE.md",
-    "block": 70,
+    "block": 71,
     "bindings": [
       "meterResult"
-    ]
-  },
-  {
-    "file": "docs/USAGE.md",
-    "block": 72,
-    "bindings": [
-      "capabilities",
-      "target"
     ]
   },
   {
@@ -182,7 +174,7 @@
   },
   {
     "file": "docs/USAGE.md",
-    "block": 75,
+    "block": 74,
     "bindings": [
       "capabilities",
       "target"
@@ -190,35 +182,43 @@
   },
   {
     "file": "docs/USAGE.md",
-    "block": 79,
+    "block": 76,
+    "bindings": [
+      "capabilities",
+      "target"
+    ]
+  },
+  {
+    "file": "docs/USAGE.md",
+    "block": 80,
     "bindings": [
       "capabilities"
     ]
   },
   {
     "file": "docs/USAGE.md",
-    "block": 104,
+    "block": 105,
     "bindings": [
       "spectralResponseProfile"
     ]
   },
   {
     "file": "docs/USAGE.md",
-    "block": 105,
+    "block": 106,
     "bindings": [
       "illumination"
     ]
   },
   {
     "file": "docs/USAGE.md",
-    "block": 106,
+    "block": 107,
     "bindings": [
       "illuminationProfile"
     ]
   },
   {
     "file": "docs/USAGE.md",
-    "block": 107,
+    "block": 108,
     "bindings": [
       "cameraJson",
       "sceneJson"

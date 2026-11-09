@@ -41,7 +41,7 @@ import {
   requirePositiveFinite
 } from "../core/validation.js";
 import { calculateDefocusWavefront } from "./zernike-wavefront.js";
-import { requireInputKeys } from "../core/record-validation.js";
+import { requireInputKeys, requireNamedFinite as requireFinite } from "../core/record-validation.js";
 import { InvalidConfigurationError } from "../core/configuration-error.js";
 
 /** Fraunhofer spectral-line wavelengths in nm (SCHOTT TIE-29 table; also ISO 7944 reference wavelengths). */
@@ -105,13 +105,6 @@ export interface LongitudinalChromaticFocus {
   w020Micrometers: number;
   /** Equivalent Noll Z4 coefficient, micrometres. */
   zernikeZ4Micrometers: number;
-}
-
-function requireFinite(name: string, value: unknown): number {
-  if (typeof value !== "number" || !Number.isFinite(value)) {
-    throw new InvalidScientificInputError(`${name} must be finite.`);
-  }
-  return value;
 }
 
 function cauchyIndex(

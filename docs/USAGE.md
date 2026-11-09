@@ -374,7 +374,7 @@ The actual focal length stays the physical optical quantity used by projection a
 - Focus distance is not part of conventional 35 mm-equivalent focal length. A later digital/output crop and the output resolution are also excluded.
 - If a product wants to describe the final digital framing, it should label it as output framing. It should not silently replace the optical focal length or the capture-equivalent focal length.
 
-To render a lens by its physical focal length on any sensor, give `simulateCapture()` or the display view `lens.ideal: { focalLengthMm }` with any `lens.fNumber` within `IDEAL_LENS_LIMITS` (f/0.5–f/128, 1–4000 mm; optional `widestFNumber` and `narrowestFNumber` narrow the f-number range for the automatic exposure modes): an aberration-free thin lens that is not scaled by the crop factor, unlike `lens.prime` (see docs/QUICK_START.md, "Ideal lens at any focal length and f-number").
+To render a lens by its physical focal length on any sensor, give `simulateCapture()` or the display view `lens.ideal: { focalLengthMm }` with any `lens.fNumber` within `IDEAL_LENS_LIMITS` (f/0.5–f/128, 1–4000 mm; optional `widestFNumber` and `narrowestFNumber` narrow the f-number range for the automatic exposure modes; in program the engine's program line is limited to that range, #583): an aberration-free thin lens that is not scaled by the crop factor, unlike `lens.prime` (see docs/QUICK_START.md, "Ideal lens at any focal length and f-number").
 
 `calculateImagingAreaMetrics()` provides the same canonical diagonal crop-factor calculation, independent of raster density, so other engine modules do not need to repeat that formula.
 
@@ -1057,6 +1057,30 @@ T_stack = T_1 * T_2 * ... * T_n
 ```
 
 The stack keeps each filter's identity and evidence. The combined numeric uncertainty is deliberately reported as **not propagated**, unless it is established whether the filters' errors are correlated or independent. Each filter's own uncertainty stays attached to that filter.
+
+### Exposure time with an ND filter
+
+`calculateFilteredExposureTime({ shutterSeconds, filter, shutterDialSeconds? })` (model `filtered-exposure-time` 1.0.0, #578) gives the shutter time that keeps the same exposure at the same f-number and ISO after adding one filter or a stack (`filter` takes one profile or an array in light-path order): `filteredShutterSeconds = shutterSeconds / T`, with `T` the stack's combined transmittance from `composeFrontOfLensFilterTransmission()`. It also returns `attenuationStops`, `exposureFactor` (`1/T`) and the full `filterTransmission`. With a `shutterDialSeconds` list (for example `GENERIC_THIRD_STOP_SHUTTER_SECONDS`) it adds `dial`: the nearest dial value in stops (the shorter on a tie), its exposure error in stops, and `clamped: "maximum"` when the exact time is longer than the longest dial value (use bulb).
+
+- Exact under the linear sensor model (exposure `H = E·t`); film reciprocity failure is not modelled.
+- Nominal filters vary: a "10-stop" filter (`T = 2^-10`) gives 1/125 s → 8.19 s, an ND1000 (OD 3.0, 9.97 stops) gives exactly 8 s. The result is only as good as the profile, and is an approximation whenever a profile is.
+- Generic presets: `GENERIC_ND_FILTER_PROFILES[3]`, `[6]` and `[10]` (keys in `GENERIC_ND_FILTER_STOPS`) are frozen, unbranded, spectrally flat profiles over 380–780 nm with a transmittance of exactly 2^-N (1/8, 1/64, 1/1024). They are idealized (`scientificStatus: "approximation"`, uncertainty not quantified), and any function that takes a front-of-lens filter profile accepts them. For other filters, build a profile with `parseFrontOfLensFilterProfile()`.
+- Filters are resolved at 550 nm unless `wavelengthNanometers` is given; neutral filters do not depend on it. `incidentPolarization` matters only with a polarizer in the stack.
+
+```ts
+import {
+  GENERIC_ND_FILTER_PROFILES,
+  GENERIC_THIRD_STOP_SHUTTER_SECONDS,
+  calculateFilteredExposureTime
+} from "@photivra/engine";
+
+const { value } = calculateFilteredExposureTime({
+  shutterSeconds: 1 / 125,
+  filter: GENERIC_ND_FILTER_PROFILES[10],
+  shutterDialSeconds: GENERIC_THIRD_STOP_SHUTTER_SECONDS
+});
+console.log(value.filteredShutterSeconds.toFixed(2), value.dial?.shutterSeconds); // 8.19 8
+```
 
 ### Spectral boundary
 
@@ -5527,6 +5551,20 @@ All modes:
 
 Flash-aware behaviour, safety shift and the program behaviour of named cameras are separate work.
 
+### The capture facade's program line and the lens's f-number range (#583)
+
+`simulateCapture()` and the display view in `exposure.mode: "program"` use an engine-authored generic line (f/16 1/2000 s … f/8
+1/125 s … f/4 1.024 s, assumption `exposure.programLine`). `resolveProgramAutoExposureMode()` refuses a line whose apertures leave
+the capability range, so with a lens range that does not hold f/4–f/16 (`lens.ideal` `widestFNumber`/`narrowestFNumber`,
+`lens.prime`, `lens.catalogue`) the facade limits the line to the range first: the line's f/4 and f/16 are clamped to the range, giving the same shape with
+the aperture held at the range's end and the shutter keeping each point's exposure (t/N², camera equation H = 0.65·L·t/N²),
+still from 1/2000 s to 1.024 s. Where both lines run, the limited line's aperture is the old one clamped in log2 to the range.
+Beyond the line's ends the resolver holds them as before. A range that holds f/4–f/16, or no range, keeps the line and its
+bytes. The limited line is recorded as its profile (id `"facade-generic-program-line-lens-range"`), with node stops measured from the
+capture's exposure anchor (f/8, 1/125 s; the same N²/t at the range's aperture nearest f/8; or, #585, that aperture at the
+body's shortest shutter when the same N²/t would need a shorter one). An approximation of a generic
+program, not a manufacturer's.
+
 ## Program Auto and Full Auto exposure
 
 Program Auto and Full Auto exposure both need a declared, versioned **program line**: a curve that says which aperture and shutter to use at each brightness level. The engine does not invent one "correct" aperture/shutter pair.
@@ -7480,7 +7518,8 @@ own designs, not real products). `resolveGenericLens` resolves one for a sensor,
 (scaled by the crop factor), aperture range, close focus, projection and its character, Seidel aberrations, axial and lateral
 colour, distortion and vignetting profiles, flare, breathing and focus scatter, each a labelled approximation.
 `simulateGenericLensFocusError` draws a seeded autofocus error; `createGenericLensCorrectionProfile` builds the lens's generic
-correction profile for `resolveLensCorrectionPlan`. `simulateCapture` renders a catalogue lens with `lens.catalogue`
+correction profile for `resolveLensCorrectionPlan`, which `simulateCapture` applies to its developed image with
+`output.lensCorrections` (#570; never to the RAW or the DNG). `simulateCapture` renders a catalogue lens with `lens.catalogue`
 ([quick start](QUICK_START.md#generic-lens-catalogue-549)); `fast: true` (or `lens: { catalogue: { kind, fast: true } }`) takes its
 fast method (#568), a labeled approximation that blends the PSF over a field grid, for interactive captures. Equations, tables and the
 chart measurements: [LENS_CATALOGUE.md](https://github.com/Photivra/photivra/blob/main/docs/LENS_CATALOGUE.md).
@@ -7741,6 +7780,12 @@ console.log(star.exposure.settings.shutterSeconds, star.exposure.ev100, star.exp
 console.log(star.assumptions.filter((a) => a.kind === "default").map((a) => a.id));
 console.log(star.request.siteInput(0).environment.optics.nominalFNumber);
 ```
+
+A capture can render its RAW in parallel parts (`output.region`, one call per part). `serializeSimulatedCaptureDngFromParts()`
+writes the whole frame's DNG from the parts, and `simulateCaptureFromParts()` (#571) develops the whole frame from them,
+including the whole-image stages `output.diffractionCorrection` and `output.sharpening` that a region refuses, with the same
+bytes as a whole-frame `simulateCapture()` and per-row progress (`diffraction-correction`, `sharpening`). See
+[Quick start, Developing a capture rendered in parts](QUICK_START.md#developing-a-capture-rendered-in-parts-571).
 
 ### Color charts (2.14)
 

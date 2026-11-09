@@ -11,7 +11,7 @@ import { calculateChartRadianceBatchPlan, type ChartRadianceBatchInput, type Cha
 import { calculatePointGridCenters } from "../facade/chart-scenes.js";
 import { ImageKernelExecutionError, webGpuExecution, type ImageKernelExecution } from "./image-kernel-execution.js";
 import type { ChartRadianceResult } from "./image-kernel-accelerator.js";
-import { BUFFER_USAGE, GpuResourceScope, abortedError, linearDispatch, runComputePass, type WebGpuRuntime } from "./webgpu-runtime.js";
+import { BUFFER_USAGE, GpuResourceScope, linearDispatch, runComputePass, type WebGpuRuntime, throwIfAborted as checkAbort } from "./webgpu-runtime.js";
 import { CHART_PRESET_CODE, CHART_RADIANCE_WGSL, CHART_WORKGROUP_SIZE } from "./wgsl-chart-kernel.js";
 import { evaluateChartCompositeOnGpu, type ChartSceneUploads } from "./chart-composite-gpu.js";
 
@@ -21,11 +21,6 @@ type YieldControl = ((signal: AbortSignal) => Promise<void>) | undefined;
 /** Frame-unit magnitude limit for GPU points. */
 export const CHART_GPU_MAXIMUM_COORDINATE = 2 ** 20;
 const FLOAT32_SAFE_MAGNITUDE = 2 ** 120;
-
-
-function checkAbort(signal: AbortSignal): void {
-  if (signal.aborted) throw abortedError();
-}
 
 export async function evaluateChartRadianceOnCpu(input: ChartRadianceBatchInput, abort: AbortController, yieldControl: YieldControl,
   execution: ImageKernelExecution): Promise<ChartRadianceResult> {

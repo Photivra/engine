@@ -1,6 +1,6 @@
 # Public API reference
 
-Generated from the exact root exports for **@photivra/engine 2.18.0 / root contract 2.18.0** by `node scripts/generate-api-reference.mjs`. No module deep import is supported.
+Generated from the exact root exports for **@photivra/engine 2.19.0 / root contract 2.19.0** by `node scripts/generate-api-reference.mjs`. No module deep import is supported.
 
 Use [the developer guide](https://github.com/Photivra/photivra/blob/main/docs/DEVELOPERS.md) for executable paths and scientific boundaries. Types are contracts, not runtime validation: parse untrusted data, preserve units/reference frames, read assessment blockers, and retain evidence/limitations. Optional properties do not imply a universal default. Model/schema IDs remain independent of the distribution.
 
@@ -18,6 +18,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 | Crop factor, 35 mm-equivalent focal length and crops | [`calculateEquivalentFocalLength35Mm`](api/camera-equivalent-focal-length.md#calculateequivalentfocallength35mm), [`calculateCenteredCrop`](api/output-crop.md#calculatecenteredcrop) |
 | Equivalent f-number, sensor area and blur as a share of the frame | [`calculateSensorEquivalence`](api/camera-sensor-equivalence.md#calculatesensorequivalence), [`calculateBlurShareOfFrame`](api/camera-sensor-equivalence.md#calculateblurshareofframe) |
 | Motion blur and shutter speed | [`calculateProjectedMotionBlur`](api/motion-projected-motion.md#calculateprojectedmotionblur), [`calculateShutterAngleExposureSeconds`](api/motion-video-sequence.md#calculateshutterangleexposureseconds) |
+| Shutter time with an ND filter | [`calculateFilteredExposureTime`](api/exposure-filtered-exposure-time.md#calculatefilteredexposuretime) |
 | Diffraction | [`calculateAiryDisk`](api/optics-diffraction.md#calculateairydisk) |
 | Sensor signal, noise and SNR | [`calculatePhotoelectrons`](api/sensor-signal-noise.md#calculatephotoelectrons), [`calculateSignalToNoise`](api/sensor-signal-noise.md#calculatesignaltonoise) |
 | Colour temperature | [`calculateChromaticityFromCorrelatedColorTemperature`](api/color-illuminants.md#calculatechromaticityfromcorrelatedcolortemperature), [`calculateCorrelatedColorTemperature`](api/color-illuminants.md#calculatecorrelatedcolortemperature) |
@@ -1056,6 +1057,18 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 | [`RelativeOpticalExposure`](api/exposure-exposure.md#relativeopticalexposure) | Type |
 | [`RelativeRenderedExposure`](api/exposure-exposure.md#relativerenderedexposure) | Type |
 
+## exposure/filtered-exposure-time.ts
+
+[Detailed contracts](api/exposure-filtered-exposure-time.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/exposure/filtered-exposure-time.ts)
+
+| Export | Kind |
+| --- | --- |
+| [`calculateFilteredExposureTime`](api/exposure-filtered-exposure-time.md#calculatefilteredexposuretime) | Runtime |
+| [`CalculateFilteredExposureTimeInput`](api/exposure-filtered-exposure-time.md#calculatefilteredexposuretimeinput) | Type |
+| [`FILTERED_EXPOSURE_DEFAULT_WAVELENGTH_NANOMETERS`](api/exposure-filtered-exposure-time.md#filtered_exposure_default_wavelength_nanometers) | Runtime |
+| [`FilteredExposureDialSetting`](api/exposure-filtered-exposure-time.md#filteredexposuredialsetting) | Type |
+| [`FilteredExposureTime`](api/exposure-filtered-exposure-time.md#filteredexposuretime) | Type |
+
 ## exposure/flash-ttl.ts
 
 [Detailed contracts](api/exposure-flash-ttl.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/exposure/flash-ttl.ts)
@@ -1267,6 +1280,14 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 | [`EvaluateColorPatchReflectanceInput`](api/facade-color-patches.md#evaluatecolorpatchreflectanceinput) | Type |
 | [`getColorPatchSet`](api/facade-color-patches.md#getcolorpatchset) | Runtime |
 
+## facade/develop-joined-parts.ts
+
+[Detailed contracts](api/facade-develop-joined-parts.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/facade/develop-joined-parts.ts)
+
+| Export | Kind |
+| --- | --- |
+| [`simulateCaptureFromParts`](api/facade-develop-joined-parts.md#simulatecapturefromparts) | Runtime |
+
 ## facade/display-view-gpu.ts
 
 [Detailed contracts](api/facade-display-view-gpu.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/facade/display-view-gpu.ts)
@@ -1347,6 +1368,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 | [`SimulateCaptureFastOption`](api/facade-simulate-capture.md#simulatecapturefastoption) | Type |
 | [`SimulateCaptureFastReport`](api/facade-simulate-capture.md#simulatecapturefastreport) | Type |
 | [`SimulateCaptureLensCatalogueRecord`](api/facade-simulate-capture.md#simulatecapturelenscataloguerecord) | Type |
+| [`SimulateCaptureLensCorrections`](api/facade-simulate-capture.md#simulatecapturelenscorrections) | Type |
 | [`SimulateCaptureLensDistortion`](api/facade-simulate-capture.md#simulatecapturelensdistortion) | Type |
 | [`SimulateCaptureMetering`](api/facade-simulate-capture.md#simulatecapturemetering) | Type |
 | [`SimulateCaptureMotion`](api/facade-simulate-capture.md#simulatecapturemotion) | Type |
@@ -1739,6 +1761,16 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 | [`resolveFrontOfLensFilterTransmission`](api/optics-front-of-lens-filter.md#resolvefrontoflensfiltertransmission) | Runtime |
 | [`ResolveFrontOfLensFilterTransmissionInput`](api/optics-front-of-lens-filter.md#resolvefrontoflensfiltertransmissioninput) | Type |
 
+## optics/generic-nd-filter-presets.ts
+
+[Detailed contracts](api/optics-generic-nd-filter-presets.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/optics/generic-nd-filter-presets.ts)
+
+| Export | Kind |
+| --- | --- |
+| [`GENERIC_ND_FILTER_PROFILES`](api/optics-generic-nd-filter-presets.md#generic_nd_filter_profiles) | Runtime |
+| [`GENERIC_ND_FILTER_STOPS`](api/optics-generic-nd-filter-presets.md#generic_nd_filter_stops) | Runtime |
+| [`GenericNdFilterStops`](api/optics-generic-nd-filter-presets.md#genericndfilterstops) | Type |
+
 ## optics/illumination-vignetting.ts
 
 [Detailed contracts](api/optics-illumination-vignetting.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/optics/illumination-vignetting.ts)
@@ -2095,6 +2127,14 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 | [`CalculateCenteredCropInput`](api/output-crop.md#calculatecenteredcropinput) | Type |
 | [`CenteredCrop`](api/output-crop.md#centeredcrop) | Type |
 
+## output/developed-lens-corrections.ts
+
+[Detailed contracts](api/output-developed-lens-corrections.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/output/developed-lens-corrections.ts)
+
+| Export | Kind |
+| --- | --- |
+| [`GENERIC_LENS_CORRECTION_CHANNEL_WAVELENGTHS_NM`](api/output-developed-lens-corrections.md#generic_lens_correction_channel_wavelengths_nm) | Runtime |
+
 ## output/generic-lens-corrections.ts
 
 [Detailed contracts](api/output-generic-lens-corrections.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/output/generic-lens-corrections.ts)
@@ -2103,7 +2143,6 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 | --- | --- |
 | [`createGenericLensCorrectionProfile`](api/output-generic-lens-corrections.md#creategenericlenscorrectionprofile) | Runtime |
 | [`CreateGenericLensCorrectionProfileInput`](api/output-generic-lens-corrections.md#creategenericlenscorrectionprofileinput) | Type |
-| [`GENERIC_LENS_CORRECTION_CHANNEL_WAVELENGTHS_NM`](api/output-generic-lens-corrections.md#generic_lens_correction_channel_wavelengths_nm) | Runtime |
 
 ## output/geometric-transforms.ts
 

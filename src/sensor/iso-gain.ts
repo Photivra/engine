@@ -28,7 +28,7 @@
 
 import { InvalidConfigurationError } from "../core/configuration-error.js";
 import { parseEvidenceList, type EvidenceBackedFact, type EvidenceProvenance } from "../core/evidence-provenance.js";
-import { requireAllowlistedRecord, requirePublicOpaqueId } from "../core/record-validation.js";
+import { requireAllowlistedRecord, requirePublicOpaqueId, requireConfigPositiveFinite as positive } from "../core/record-validation.js";
 import { parseSensorReadoutConversionProfile, type SensorReadoutConversionRegime,
   type SensorReadoutExposureIndexGain } from "./raw-readout.js";
 import type { GenericIsoStandardRegimeBand } from "./iso-signal-chain.js";
@@ -63,13 +63,6 @@ export interface IsoGainReadoutRegimes {
   regimes: readonly SensorReadoutConversionRegime[];
   /** One single-value band per setting, ready for a GenericIsoSignalChainProfile. */
   standardRegimeBands: readonly GenericIsoStandardRegimeBand[];
-}
-
-function positive(value: unknown, path: string): number {
-  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
-    throw new InvalidConfigurationError(path + " must be finite and greater than zero.");
-  }
-  return value;
 }
 
 function positiveFact(value: unknown, path: string): EvidenceBackedFact<number> {

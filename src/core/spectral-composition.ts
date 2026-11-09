@@ -18,9 +18,8 @@ import {
   type SpectralWavelengthBasis,
   type SpectralWavelengthRangeNanometers
 } from "./spectral.js";
-import { requireInputKeys, rejectUnknownFields } from "./record-validation.js";
+import { requireInputKeys, requireConfigRecord as requireRecord, requireTrimmedConfigString as requireNonEmptyString, requireConfigPositiveFinite as requirePositiveFinite, requireConfigNonNegativeFinite as requireNonNegativeFinite } from "./record-validation.js";
 
-type UnknownRecord = Record<string, unknown>;
 
 export type ResolvedSpectralWavelengthBasis =
   Exclude<SpectralWavelengthBasis, "unspecified">;
@@ -127,73 +126,6 @@ export interface IntegratedDiscreteSpectralLineMeasure {
   continuousQuadratureApplied: false;
   wavelengthMeasureMultiplicationApplied:
     false;
-}
-
-function requireRecord(
-  value: unknown,
-  path: string,
-  allowedKeys: readonly string[] | null
-): UnknownRecord {
-  if (
-    typeof value !== "object" ||
-    value === null ||
-    Array.isArray(value)
-  ) {
-    throw new InvalidConfigurationError(
-      path + " must be an object."
-    );
-  }
-  if (allowedKeys !== null) rejectUnknownFields(value, allowedKeys, path);
-  return value as UnknownRecord;
-}
-
-function requireNonEmptyString(
-  value: unknown,
-  path: string
-): string {
-  if (
-    typeof value !== "string" ||
-    value.trim().length === 0
-  ) {
-    throw new InvalidConfigurationError(
-      path + " must be a non-empty string."
-    );
-  }
-  return value.trim();
-}
-
-function requirePositiveFinite(
-  value: unknown,
-  path: string
-): number {
-  if (
-    typeof value !== "number" ||
-    !Number.isFinite(value) ||
-    value <= 0
-  ) {
-    throw new InvalidConfigurationError(
-      path +
-        " must be finite and greater than zero."
-    );
-  }
-  return value;
-}
-
-function requireNonNegativeFinite(
-  value: unknown,
-  path: string
-): number {
-  if (
-    typeof value !== "number" ||
-    !Number.isFinite(value) ||
-    value < 0
-  ) {
-    throw new InvalidConfigurationError(
-      path +
-        " must be finite and greater than or equal to zero."
-    );
-  }
-  return value;
 }
 
 function parseResolvedBasis(

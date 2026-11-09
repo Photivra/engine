@@ -26,9 +26,8 @@ import type {
   NativeImageRaster,
   RasterDimensions
 } from "./sensor-geometry.js";
-import { requireInputObject, requireInputKeys, rejectUnknownFields } from "../core/record-validation.js";
+import { requireInputObject, requireInputKeys, requireConfigRecord as requireRecord, requireConfigString as requireNonEmptyString, requireConfigPositiveSafeInteger as requirePositiveSafeIntegerValue } from "../core/record-validation.js";
 
-type UnknownRecord = Record<string, unknown>;
 
 export type CaptureModeSampleCombinationDomain =
   | "charge-domain"
@@ -232,43 +231,6 @@ const DEPENDENCIES = new Set<CaptureModeDependency>([
   "radiometric-calibration",
   "inter-frame-registration"
 ]);
-
-function requireRecord(
-  value: unknown,
-  path: string,
-  allowedKeys: readonly string[] | null
-): UnknownRecord {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    throw new InvalidConfigurationError(path + " must be an object.");
-  }
-  if (allowedKeys !== null) rejectUnknownFields(value, allowedKeys, path);
-  return value as UnknownRecord;
-}
-
-function requireNonEmptyString(value: unknown, path: string): string {
-  if (typeof value !== "string" || value.trim().length === 0) {
-    throw new InvalidConfigurationError(
-      path + " must be a non-empty string."
-    );
-  }
-  return value;
-}
-
-function requirePositiveSafeIntegerValue(
-  value: unknown,
-  path: string
-): number {
-  if (
-    typeof value !== "number" ||
-    !Number.isSafeInteger(value) ||
-    value <= 0
-  ) {
-    throw new InvalidConfigurationError(
-      path + " must be a positive safe integer."
-    );
-  }
-  return value;
-}
 
 function parseIntegerFact(
   value: unknown,

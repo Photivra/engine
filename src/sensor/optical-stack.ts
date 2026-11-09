@@ -13,15 +13,14 @@
  * limits.
  */
 
-import { rejectUnknownFields } from "../core/record-validation.js";
 import { InvalidConfigurationError } from "../core/configuration-error.js";
 import {
   parseEvidenceList,
   type EvidenceProvenance
 } from "../core/evidence-provenance.js";
 import { InvalidScientificInputError } from "../core/validation.js";
+import { requireConfigRecord as requireRecord, requireConfigString as requireNonEmptyString, requireConfigFiniteNumber as requireFiniteNumber } from "../core/record-validation.js";
 
-type UnknownRecord = Record<string, unknown>;
 
 export type SensorOpticalStackComponentRole =
   | "cover-glass"
@@ -154,39 +153,6 @@ const COMPONENT_ROLES = new Set<SensorOpticalStackComponentRole>([
   "other-optical-filter"
 ]);
 
-function requireRecord(
-  value: unknown,
-  path: string,
-  allowedKeys: readonly string[] | null
-): UnknownRecord {
-  if (
-    typeof value !== "object" ||
-    value === null ||
-    Array.isArray(value)
-  ) {
-    throw new InvalidConfigurationError(
-      path + " must be an object."
-    );
-  }
-  if (allowedKeys !== null) rejectUnknownFields(value, allowedKeys, path);
-  return value as UnknownRecord;
-}
-
-function requireNonEmptyString(
-  value: unknown,
-  path: string
-): string {
-  if (
-    typeof value !== "string" ||
-    value.trim().length === 0
-  ) {
-    throw new InvalidConfigurationError(
-      path + " must be a non-empty string."
-    );
-  }
-  return value;
-}
-
 function parseComponentRoles(
   value: unknown,
   path: string
@@ -262,21 +228,6 @@ function parseOrderedComponents(
   }
 
   return components;
-}
-
-function requireFiniteNumber(
-  value: unknown,
-  path: string
-): number {
-  if (
-    typeof value !== "number" ||
-    !Number.isFinite(value)
-  ) {
-    throw new InvalidConfigurationError(
-      path + " must be a finite number."
-    );
-  }
-  return value;
 }
 
 function parsePointSplitComponents(

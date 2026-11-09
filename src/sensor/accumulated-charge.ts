@@ -37,7 +37,8 @@ import type {
   SensorSpectralResponseScientificStatus,
   SensorSpectralResponseUncertainty
 } from "./spectral-response.js";
-import { requireInputObject, requireInputKeys, rejectUnknownFields, rejectUnknownVariantFields, UNCERTAINTY_VARIANT_FIELDS } from "../core/record-validation.js";
+import { requireInputObject, requireInputKeys, rejectUnknownVariantFields, UNCERTAINTY_VARIANT_FIELDS, requireConfigRecord as requireRecord, requireConfigFinite as requireFinite, requireConfigString as requireNonEmptyString, parseConfigScientificStatus as parseStatus, requireConfigNonNegativeSafeInteger as requireSiteIndex, requireConfigFiniteAtLeastZero as requireNonNegativeFinite } from "../core/record-validation.js";
+import { addCompensated, sameSite } from "../core/shared-helpers.js";
 
 type UnknownRecord = Record<string, unknown>;
 
@@ -198,99 +199,6 @@ interface CompensatedSum {
   correction: number;
 }
 
-function addCompensated(
-  state: CompensatedSum,
-  value: number
-): void {
-  const adjusted =
-    value - state.correction;
-  const next =
-    state.sum + adjusted;
-  state.correction =
-    (next - state.sum) - adjusted;
-  state.sum = next;
-}
-
-function requireRecord(
-  value: unknown,
-  path: string,
-  allowedKeys: readonly string[] | null
-): UnknownRecord {
-  if (
-    typeof value !== "object" ||
-    value === null ||
-    Array.isArray(value)
-  ) {
-    throw new InvalidConfigurationError(
-      path + " must be an object."
-    );
-  }
-  if (allowedKeys !== null) rejectUnknownFields(value, allowedKeys, path);
-  return value as UnknownRecord;
-}
-
-function requireNonEmptyString(
-  value: unknown,
-  path: string
-): string {
-  if (
-    typeof value !== "string" ||
-    value.trim().length === 0
-  ) {
-    throw new InvalidConfigurationError(
-      path + " must be a non-empty string."
-    );
-  }
-  return value;
-}
-
-function requireFinite(
-  value: unknown,
-  path: string
-): number {
-  if (
-    typeof value !== "number" ||
-    !Number.isFinite(value)
-  ) {
-    throw new InvalidConfigurationError(
-      path + " must be finite."
-    );
-  }
-  return value;
-}
-
-function requireNonNegativeFinite(
-  value: unknown,
-  path: string
-): number {
-  const parsed =
-    requireFinite(value, path);
-  if (parsed < 0) {
-    throw new InvalidConfigurationError(
-      path +
-        " must be greater than or equal to zero."
-    );
-  }
-  return parsed;
-}
-
-function requireSiteIndex(
-  value: unknown,
-  path: string
-): number {
-  if (
-    typeof value !== "number" ||
-    !Number.isSafeInteger(value) ||
-    value < 0
-  ) {
-    throw new InvalidConfigurationError(
-      path +
-        " must be a non-negative safe integer."
-    );
-  }
-  return value;
-}
-
 function parseUncertainty(
   value: unknown,
   path: string
@@ -331,21 +239,6 @@ function parseUncertainty(
   throw new InvalidConfigurationError(
     path + ".kind is invalid."
   );
-}
-
-function parseStatus(
-  value: unknown,
-  path: string
-): SensorSpectralResponseScientificStatus {
-  if (
-    value !== "calibrated" &&
-    value !== "approximation"
-  ) {
-    throw new InvalidConfigurationError(
-      path + " is invalid."
-    );
-  }
-  return value;
 }
 
 function parseWindowIdentity(
@@ -669,13 +562,6 @@ export function parseSensorAccumulatedChargeCompletenessProfile(
       ? {}
       : { limitation })
   };
-}
-
-function sameSite(
-  a: { x: number; y: number },
-  b: { x: number; y: number }
-): boolean {
-  return a.x === b.x && a.y === b.y;
 }
 
 function sameWindow(

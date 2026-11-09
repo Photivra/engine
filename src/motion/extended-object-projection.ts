@@ -34,8 +34,12 @@ import type {
 import type {
   ResolvedCaptureModeTiming
 } from "../sensor/capture-mode-timing.js";
-import { requireInputKeys, requireInputObject } from "../core/record-validation.js";
+import { requireInputKeys, requireInputObject, requireTrimmedConfigString as requireNonEmptyString } from "../core/record-validation.js";
 import { InvalidConfigurationError } from "../core/configuration-error.js";
+import { sameSite as samePoint } from "../core/shared-helpers.js";
+import { requireFiniteVector } from "./capture-translation-parallax-temporal-quadrature.js";
+import { requireScientificFinite as requireFiniteTime } from "../color/white-balance.js";
+import { settingEquals as approximatelyEqual } from "../composition/image-formation-plan.js";
 
 export interface ExtendedObjectMetricPoint {
   pointId: string;
@@ -241,79 +245,6 @@ export interface CaptureExtendedObjectTemporalProjection {
     false;
   timeVaryingDefocusMayBeRequired:
     boolean;
-}
-
-function requireNonEmptyString(
-  value: string,
-  path: string
-): string {
-  if (
-    typeof value !== "string" ||
-    value.trim().length === 0
-  ) {
-    throw new InvalidConfigurationError(
-      path +
-        " must be a non-empty string."
-    );
-  }
-  return value.trim();
-}
-
-function requireFiniteVector(
-  value: Vector3,
-  path: string
-): Vector3 {
-  requireInputObject(value, path);
-  for (
-    const axis of
-    ["x", "y", "z"] as const
-  ) {
-    if (
-      !Number.isFinite(
-        value[axis]
-      )
-    ) {
-      throw new InvalidScientificInputError(
-        path +
-          "." +
-          axis +
-          " must be finite."
-      );
-    }
-  }
-  return {
-    ...value
-  };
-}
-
-function requireFiniteTime(
-  value: number,
-  path: string
-): number {
-  if (!Number.isFinite(value)) {
-    throw new InvalidScientificInputError(
-      path + " must be finite."
-    );
-  }
-  return value;
-}
-
-function approximatelyEqual(
-  a: number,
-  b: number
-): boolean {
-  const scale =
-    Math.max(
-      1,
-      Math.abs(a),
-      Math.abs(b)
-    );
-  return (
-    Math.abs(a - b) <=
-    Number.EPSILON *
-      32 *
-      scale
-  );
 }
 
 function resolveProjectionDistanceMm(
@@ -823,16 +754,6 @@ export function calculateExtendedObjectProjectionTrajectory(
       "Visibility, occlusion/disocclusion, frame-boundary coverage, radiance integration and blur-kernel synthesis remain downstream.",
       "When relative Z translation is nonzero, downstream defocus/PSF state may also vary with time."
     ]
-  );
-}
-
-function samePoint(
-  a: RasterPoint,
-  b: RasterPoint
-): boolean {
-  return (
-    a.x === b.x &&
-    a.y === b.y
   );
 }
 

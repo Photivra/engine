@@ -144,7 +144,7 @@ a capture does. `motion.rotation` is a non-zero angular velocity; `sensor.tempor
 SIMULATE_CAPTURE_COST_OPTIONS = Object.freeze(["lens.pupilSampling", "lens.projection", "lens.distortion", "lens.vignetting", "lens.psf",
   "lens.diffraction", "lens.defocus", "lens.catalogue", "sensor.antiAliasing", "sensor.pixelAperture.box", "sensor.temporalSampleCount", "motion.rotation", "motion.shutter.rolling", "output.borderHandling.mirror", "output.region",
   "output.whiteBalance.auto", "output.demosaic.ahd", "output.highlightMode.reconstruct", "output.colorEncoding.wide-gamut", "output.gamutMapping.perceptual",
-  "output.diffractionCorrection", "output.sharpening", "output.format.jpeg", "output.format.png", "output.format.dng"] as const)
+  "output.diffractionCorrection", "output.sharpening", "output.lensCorrections", "output.format.jpeg", "output.format.png", "output.format.dng"] as const)
 ```
 
 ## SIMULATE_CAPTURE_DEFAULT_ILLUMINANCE_LUX
@@ -467,6 +467,22 @@ export interface SimulateCaptureFastReport {
 export interface SimulateCaptureLensCatalogueRecord { kind: string; fast?: boolean }
 ```
 
+## SimulateCaptureLensCorrections
+
+`output.lensCorrections` (#570): which of the catalogue lens's generic corrections (`createGenericLensCorrectionProfile`) the
+development applies. Each is off unless set to true.
+
+```ts
+export interface SimulateCaptureLensCorrections {
+  /** Radial distortion r_d = r(1 + k1ρ²), inverted by resampling: it stretches the corners and lowers their resolution. */
+  distortion?: boolean;
+  /** Lateral colour: each channel rescaled by 1/(1 + L·D(λ_c)) into register; axial (longitudinal) colour stays. */
+  lateralColor?: boolean;
+  /** Vignetting: a gain 1/E(ρ) at each pixel's source point; corner noise rises with the signal, the SNR does not. */
+  vignetting?: boolean;
+}
+```
+
 ## SimulateCaptureLensDistortion
 
 The exact contract is declared below; use the domain guide for assumptions and staged integration.
@@ -531,7 +547,8 @@ export interface SimulateCaptureOptions {
      * distance beyond the focal length (no minimum focus distance; `subjectDistanceM` must be at least twice the focal length, as for
      * every lens). Works in `simulateCapture` and the display view. Not combinable with `prime`, `catalogue` or `focalLengthMm`.
      * Optional `widestFNumber` and `narrowestFNumber` (within `IDEAL_LENS_LIMITS`, widest ≤ narrowest; each defaults to its bound)
-     * narrow the range: `fNumber` must lie in it, and shutter priority and program choose apertures only in it. Default off.
+     * narrow the range: `fNumber` must lie in it, and shutter priority and program choose apertures only in it (program limits its
+     * line to a range that does not hold f/4–f/16, #583). Default off.
      */
     ideal?: { focalLengthMm: number; widestFNumber?: number; narrowestFNumber?: number };
     /**
@@ -738,6 +755,16 @@ export interface SimulateCaptureOptions {
      * (not the wide-gamut or perceptual PNG paths); not combinable with `region`. The DNG's RAW codes are not changed. Default off.
      */
     sharpening?: SimulateCaptureSharpening;
+    /**
+     * Opt-in (#570), with `lens.catalogue`: the lens's generic corrections (see {@link SimulateCaptureLensCorrections}) on the
+     * developed linear colour, after demosaic, colour, white balance and `diffractionCorrection`, before the tone curve; for the JPEG,
+     * PNG and samples. The RAW and the DNG are never corrected. To keep the output size with no missing pixels, the corrected image is
+     * magnified by the smallest factor 1/m ≥ 1 that keeps every pixel's source inside the frame (recorded in the
+     * `output.lensCorrections` assumption). Works with `region`: a region develops the frame pixels its corrected pixels read
+     * (`region.nativeRect`, `raw` and `plan` describe that rectangle) and its pixels are the whole render's. All off (or omitted):
+     * the development is unchanged.
+     */
+    lensCorrections?: SimulateCaptureLensCorrections;
   };
   /** Camera motion and shutter type. Default: still camera, global electronic shutter. */
   motion?: SimulateCaptureMotion;
@@ -776,7 +803,7 @@ export interface SimulateCaptureOptions {
   fast?: boolean;
   /** Aborting cancels the running task; the promise rejects with a domain error and returns no partial image. */
   signal?: AbortSignal;
-  /** Called after each committed RAW, development or JPEG tile. Cannot change output. */
+  /** Called after each committed RAW, development, detail or JPEG tile (see {@link SimulateCaptureProgress}). Cannot change output. */
   onProgress?: (progress: SimulateCaptureProgress) => void;
 }
 ```
@@ -799,11 +826,15 @@ export type SimulateCapturePixelAperture = "point" | "box" | { kind: "box"; samp
 
 ## SimulateCaptureProgress
 
-The exact contract is declared below; use the domain guide for assumptions and staged integration.
+One progress event of `onProgress`. Stages run in this order: `raw`, `white-balance` (with auto white balance), `development`
+(rows), then, when requested, `diffraction-correction` and `sharpening` (#571: one event per output row of the whole image;
+each stage's last event has `completedTileCount === totalTileCount`), then `jpeg`. `output.lensCorrections` (#570) runs between
+`diffraction-correction` and `sharpening` and reports no stage of its own. {@link simulateCaptureFromParts }
+reports no `raw` stage: its RAW comes from the parts.
 
 ```ts
 export interface SimulateCaptureProgress {
-  stage: "raw" | "white-balance" | "development" | "jpeg";
+  stage: "raw" | "white-balance" | "development" | "diffraction-correction" | "sharpening" | "jpeg";
   completedTileCount: number;
   totalTileCount: number;
 }

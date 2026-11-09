@@ -29,9 +29,7 @@ import type {
 import type {
   SensorSpatioSpectralIrradianceReduction
 } from "./spatio-spectral-reduction.js";
-import { requireInputObject, requireInputKeys, rejectUnknownFields, rejectUnknownVariantFields } from "../core/record-validation.js";
-
-type UnknownRecord = Record<string, unknown>;
+import { requireInputObject, requireInputKeys, rejectUnknownVariantFields, requireConfigRecord as requireRecord, requireConfigString as requireNonEmptyString, requireConfigPositiveFinite as requirePositiveFinite } from "../core/record-validation.js";
 
 const AREA_TOLERANCE = 1e-10;
 
@@ -193,56 +191,6 @@ export interface SensorResponseApplicationCompatibilityAssessment {
   };
 }
 
-function requireRecord(
-  value: unknown,
-  path: string,
-  allowedKeys: readonly string[] | null
-): UnknownRecord {
-  if (
-    typeof value !== "object" ||
-    value === null ||
-    Array.isArray(value)
-  ) {
-    throw new InvalidConfigurationError(
-      path + " must be an object."
-    );
-  }
-  if (allowedKeys !== null) rejectUnknownFields(value, allowedKeys, path);
-  return value as UnknownRecord;
-}
-
-function requireNonEmptyString(
-  value: unknown,
-  path: string
-): string {
-  if (
-    typeof value !== "string" ||
-    value.trim().length === 0
-  ) {
-    throw new InvalidConfigurationError(
-      path + " must be a non-empty string."
-    );
-  }
-  return value;
-}
-
-function requirePositiveFinite(
-  value: unknown,
-  path: string
-): number {
-  if (
-    typeof value !== "number" ||
-    !Number.isFinite(value) ||
-    value <= 0
-  ) {
-    throw new InvalidConfigurationError(
-      path +
-        " must be finite and greater than zero."
-    );
-  }
-  return value;
-}
-
 function parseIncidentAreaBasis(
   value: unknown,
   path: string
@@ -348,7 +296,7 @@ function parseSpatialResponseModel(
   };
 }
 
-function parseReferenceConditionPolicy(
+export function parseReferenceConditionPolicy(
   value: unknown,
   path: string
 ): SensorResponseReferenceConditionPolicy {
@@ -516,7 +464,7 @@ function approximatelyEqual(
   );
 }
 
-function conditionsMatch(
+export function conditionsMatch(
   reference:
     SensorSpectralReferenceConditions,
   operating:

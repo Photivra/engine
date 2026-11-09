@@ -24,8 +24,8 @@ import {
   parseFocusPlane,
   type FocusPlane
 } from "../optics/focus-state.js";
-import { requireInputKeys } from "../core/record-validation.js";
-import { InvalidConfigurationError } from "../core/configuration-error.js";
+import { requireInputKeys, requireTrimmedConfigString as requireNonEmptyString, requireInputFinite as requireFinite, requireInputFiniteAboveZero as requirePositiveFinite, requireInputFiniteAtLeastZero as requireNonNegativeFinite } from "../core/record-validation.js";
+import { deepFreeze, cloneJson } from "../core/shared-helpers.js";
 
 export const RELEASE_SEQUENCE_VERSION =
   "0.1.0" as const;
@@ -179,66 +179,6 @@ export interface CancelledReleaseSequence {
   sourceSequenceUnmodified: true;
 }
 
-function requireNonEmptyString(
-  value: string,
-  path: string
-): string {
-  if (
-    typeof value !== "string" ||
-    value.trim().length === 0
-  ) {
-    throw new InvalidConfigurationError(
-      path + " must be a non-empty string."
-    );
-  }
-  return value.trim();
-}
-
-function requireFinite(
-  value: number,
-  path: string
-): number {
-  if (
-    typeof value !== "number" ||
-    !Number.isFinite(value)
-  ) {
-    throw new InvalidScientificInputError(
-      path + " must be finite."
-    );
-  }
-  return value;
-}
-
-function requireNonNegativeFinite(
-  value: number,
-  path: string
-): number {
-  const parsed =
-    requireFinite(value, path);
-  if (parsed < 0) {
-    throw new InvalidScientificInputError(
-      path +
-        " must be greater than or equal to zero."
-    );
-  }
-  return parsed;
-}
-
-function requirePositiveFinite(
-  value: number,
-  path: string
-): number {
-  const parsed =
-    requireFinite(value, path);
-  if (parsed <= 0) {
-    throw new InvalidScientificInputError(
-      path +
-        " must be greater than zero."
-    );
-  }
-  return parsed;
-}
-
 function requirePositiveSafeInteger(
   value: number,
   path: string
@@ -268,33 +208,6 @@ function requireUint32(
       path +
         " must be an unsigned 32-bit integer."
     );
-  }
-  return value;
-}
-
-function cloneJson<T>(value: T): T {
-  return JSON.parse(
-    JSON.stringify(value)
-  ) as T;
-}
-
-function deepFreeze<T>(value: T): T {
-  if (
-    typeof value !== "object" ||
-    value === null ||
-    Object.isFrozen(value)
-  ) {
-    return value;
-  }
-
-  Object.freeze(value);
-  for (
-    const child of
-    Object.values(
-      value as Record<string, unknown>
-    )
-  ) {
-    deepFreeze(child);
   }
   return value;
 }

@@ -33,9 +33,7 @@ import type {
   LensPsfScientificStatus,
   LensPsfUncertainty
 } from "./lens-psf-profile.js";
-import { requireInputKeys, rejectUnknownFields, rejectUnknownVariantFields, UNCERTAINTY_VARIANT_FIELDS } from "../core/record-validation.js";
-
-type UnknownRecord = Record<string, unknown>;
+import { requireInputKeys, rejectUnknownVariantFields, UNCERTAINTY_VARIANT_FIELDS, requireConfigRecord as requireRecord, requireTrimmedConfigString as requireNonEmptyString, requireConfigFinite as requireFinite, parseConfigScientificStatus as parseStatus, requireConfigNonNegativeSafeInteger as requireNonNegativeSafeInteger, requireConfigPositiveSafeInteger as requirePositiveSafeInteger, parseConfigLimitations as parseLimitations, requireConfigFiniteAboveZero as requirePositiveFinite, requireConfigUnitInterval as requireUnitInterval } from "../core/record-validation.js";
 
 export const LENS_COMPLEX_PUPIL_PROFILE_SCHEMA_VERSION =
   "0.1.0" as const;
@@ -168,137 +166,6 @@ export interface LensComplexPupilPsf {
     LensPsfUncertainty;
 }
 
-function requireRecord(
-  value: unknown,
-  path: string,
-  allowedKeys: readonly string[] | null
-): UnknownRecord {
-  if (
-    typeof value !== "object" ||
-    value === null ||
-    Array.isArray(value)
-  ) {
-    throw new InvalidConfigurationError(
-      path + " must be an object."
-    );
-  }
-  if (allowedKeys !== null) rejectUnknownFields(value, allowedKeys, path);
-  return value as UnknownRecord;
-}
-
-function requireNonEmptyString(
-  value: unknown,
-  path: string
-): string {
-  if (
-    typeof value !== "string" ||
-    value.trim().length === 0
-  ) {
-    throw new InvalidConfigurationError(
-      path +
-        " must be a non-empty string."
-    );
-  }
-  return value.trim();
-}
-
-function requireFinite(
-  value: unknown,
-  path: string
-): number {
-  if (
-    typeof value !== "number" ||
-    !Number.isFinite(value)
-  ) {
-    throw new InvalidConfigurationError(
-      path + " must be finite."
-    );
-  }
-  return value;
-}
-
-function requirePositiveFinite(
-  value: unknown,
-  path: string
-): number {
-  const parsed =
-    requireFinite(value, path);
-  if (parsed <= 0) {
-    throw new InvalidConfigurationError(
-      path +
-        " must be greater than zero."
-    );
-  }
-  return parsed;
-}
-
-function requireUnitInterval(
-  value: unknown,
-  path: string
-): number {
-  const parsed =
-    requireFinite(value, path);
-  if (
-    parsed < 0 ||
-    parsed > 1
-  ) {
-    throw new InvalidConfigurationError(
-      path +
-        " must lie from zero through one."
-    );
-  }
-  return parsed;
-}
-
-function requirePositiveSafeInteger(
-  value: unknown,
-  path: string
-): number {
-  if (
-    typeof value !== "number" ||
-    !Number.isSafeInteger(value) ||
-    value <= 0
-  ) {
-    throw new InvalidConfigurationError(
-      path +
-        " must be a positive safe integer."
-    );
-  }
-  return value;
-}
-
-function requireNonNegativeSafeInteger(
-  value: unknown,
-  path: string
-): number {
-  if (
-    typeof value !== "number" ||
-    !Number.isSafeInteger(value) ||
-    value < 0
-  ) {
-    throw new InvalidConfigurationError(
-      path +
-        " must be a non-negative safe integer."
-    );
-  }
-  return value;
-}
-
-function parseStatus(
-  value: unknown,
-  path: string
-): LensPsfScientificStatus {
-  if (
-    value !== "calibrated" &&
-    value !== "approximation"
-  ) {
-    throw new InvalidConfigurationError(
-      path + " is invalid."
-    );
-  }
-  return value;
-}
-
 function parseUncertainty(
   value: unknown,
   path: string
@@ -345,38 +212,6 @@ function parseUncertainty(
   throw new InvalidConfigurationError(
     path + ".kind is invalid."
   );
-}
-
-function parseLimitations(
-  value: unknown,
-  path: string
-): readonly string[] {
-  if (!Array.isArray(value)) {
-    throw new InvalidConfigurationError(
-      path + " must be an array."
-    );
-  }
-  const parsed =
-    value.map(
-      (entry, index) =>
-        requireNonEmptyString(
-          entry,
-          path +
-            "[" +
-            index +
-            "]"
-        )
-    );
-  if (
-    new Set(parsed).size !==
-    parsed.length
-  ) {
-    throw new InvalidConfigurationError(
-      path +
-        " must not contain duplicates."
-    );
-  }
-  return parsed;
 }
 
 function parseGrid(
@@ -915,7 +750,7 @@ function twiddleTable(size: number): { cos: number[]; sin: number[] } {
   return { cos, sin };
 }
 
-function positiveModulo(value: number, size: number): number {
+export function positiveModulo(value: number, size: number): number {
   const remainder = value % size;
   return remainder < 0 ? remainder + size : remainder;
 }
