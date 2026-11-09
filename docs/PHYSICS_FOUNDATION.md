@@ -131,6 +131,18 @@ Photivra bases equivalence on the active physical capture area, not on any later
 
 `calculateBlurShareOfFrame()` (model `blur-share-of-frame` 1.0.0) divides a blur-circle diameter by the frame diagonal, width and height. With a print size it enlarges the whole frame to fit inside the print, long side to long side, and reports the blur on the print. These are exact ratios. Equal shares of the diagonal look the same at the same output size, which is the convention behind the diagonal-scaled circle of confusion. Whether a blur is visible depends on viewing distance and acuity, which neither function judges.
 
+### Aperture (entrance-pupil) diameter
+
+`calculateApertureDiameter()` (model `aperture-diameter` 1.0.0, #577) gives the entrance-pupil diameter `D = f/N` in millimetres from the focal length `f` and the f-number `N`; 50 mm at f/2 gives 25 mm. It is exact by the definition of the f-number, `N = f/D` for an object at infinity (Greivenkamp, [OPTI-502 course notes, sec. 12](https://wp.optics.arizona.edu/jgreivenkamp/wp-content/uploads/sites/11/2019/08/502-12-Objectives.pdf), free). `D` is the diameter of the entrance pupil, the aperture stop as seen from the front of the lens, not of the diaphragm's physical opening. One stop (a factor √2 in `N`) halves the pupil's area.
+
+Not modelled: at close focus the f-number that sets exposure and diffraction is the working f-number `N·(1 + m/P)`, with magnification `m` and pupil magnification `P` (exit-pupil over entrance-pupil diameter; also see Ray, *Applied Photographic Optics*, 3rd ed.); the engine's irradiance bridge uses `N·(1 + m)`, unit pupil magnification. A lens that focuses by changing its focal length changes `f`, and so `D` at the same marked `N`.
+
+### Crop to match a longer focal length
+
+`calculateCropToMatchFocalLength()` (model `crop-to-match-focal-length` 1.0.0, #579) gives the centred crop that makes an image taken at focal length `f` match the framing of a longer focal length `F` from the same camera position, and the pixels that crop leaves. An ideal rectilinear lens focused at infinity images a scene point at field angle `θ` at height `f·tan θ` (Greivenkamp, sec. 12), so the image at `F` is the image at `f` scaled by `F/f`: the crop factor is `F/f`, exact at infinity focus, with the same perspective because the camera has not moved. The crop is `calculateCenteredCrop()`'s, which keeps the aspect ratio to whole pixels. A 24 MP (6000 × 4000) image at 50 mm cropped to match 100 mm: factor 2, 3000 × 2000, 6 MP.
+
+Not modelled: at close focus the thin-lens magnification is `m = f/(d − f)` at object distance `d` from the lens, so at the same `d` the matching factor is `F·(d − f)/(f·(d − F))`, larger than `F/f` and tending to it when `d ≫ F` (at `d` = 1 m, 50 → 100 mm needs 2.11 instead of 2). Distortion and focus breathing are not modelled either. The crop has the longer lens's framing but only the pixels of the cropped region, so it records no more detail than that part of the shorter lens's image.
+
 ### Projection, focus extension, object size, and motion
 
 Four calculations support two projection modes: field of view, projected size of a flat object facing the camera, projected subject motion (of one representative point), and projected camera shake.

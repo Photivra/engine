@@ -1,5 +1,19 @@
 # Changelog
 
+## Unreleased
+
+### 2.20.0 part: #577 Aperture (entrance pupil) diameter in mm
+
+- **New: `calculateApertureDiameter({ focalLengthMm, fNumber })`** (model `aperture-diameter` 1.0.0, for the app's Guide page "F-stops explained" and its aperture animation): the entrance-pupil diameter `D = f/N` in millimetres, returned as `entrancePupilDiameterMm` with the inputs. 50 mm at f/2 gives 25 mm. Exact by the definition of the f-number for an object at infinity (Greivenkamp, OPTI-502 course notes, sec. 12, free). Stated, not modelled: the close-focus working f-number `N·(1 + m/P)` with pupil magnification `P`, and focal-length changes while focusing. `D` is the entrance pupil, not the diaphragm's physical opening. `calculateSensorEquivalence` already reported the same number as `entrancePupilDiameterMm` (tested equal).
+- **Root exports:** 3 new (1 runtime): `calculateApertureDiameter` and the types `CalculateApertureDiameterInput`, `ApertureDiameter` (new module `src/optics/aperture-diameter.ts`). Pure function; no capture, RAW or bundle change (the app's capture-worker shape measures 351,775 B gzip, unchanged; the display view's added size is unchanged).
+- **Docs and tests:** docs/PHYSICS_FOUNDATION.md ("Aperture (entrance-pupil) diameter"), docs/USAGE.md (a new last section with a runnable example, so no fragment index shifts), docs/AGENT_GUIDE.md, llms.txt, API reference task index; `test/aperture-diameter-and-crop-to-match.test.ts`; strict-input list in `test/root-export-input-errors.test.ts`.
+
+### 2.20.0 part: #579 Crop to match a longer focal length: factor and remaining pixels
+
+- **New: `calculateCropToMatchFocalLength({ focalLengthMm, targetFocalLengthMm, pixelWidth, pixelHeight })`** (model `crop-to-match-focal-length` 1.0.0, for the app's Guide page "Cropping vs a longer focal length"): the linear crop factor `targetFocalLengthMm / focalLengthMm` and the centred crop it leaves (`pixelWidth`, `pixelHeight`, `megapixels`, `sourceMegapixels`, `retainedAreaFraction`), the crop being `calculateCenteredCrop`'s (aspect ratio kept to whole pixels). 24 MP (6000 × 4000) at 50 mm matched to 100 mm: factor 2, 3000 × 2000, 6 MP. Exact for ideal rectilinear lenses focused at infinity, from the same camera position (image height `f·tan θ`, Greivenkamp sec. 12). Stated, not applied: at close focus the thin-lens matching factor is `F·(d − f)/(f·(d − F))` at object distance `d` (2.11 instead of 2 for 50 → 100 mm at 1 m); distortion and focus breathing. A target shorter than the focal length is refused. A new function rather than a change to `calculateCenteredCrop`, whose contract stays as it is.
+- **Root exports:** 3 new (1 runtime): `calculateCropToMatchFocalLength` and the types `CalculateCropToMatchFocalLengthInput`, `CropToMatchFocalLength` (new module `src/output/crop-to-match-focal-length.ts`). Pure function; no capture, RAW or bundle change (capture-worker shape unchanged at 351,775 B gzip).
+- **Docs and tests:** docs/PHYSICS_FOUNDATION.md ("Crop to match a longer focal length"), docs/USAGE.md, docs/AGENT_GUIDE.md, llms.txt, the API reference task index row for crops; `test/aperture-diameter-and-crop-to-match.test.ts`.
+
 ## 2.19.0 — unreleased (prepared November 9, 2026)
 
 A minor release of six issues: exposure time with an ND filter and generic ND presets (#578), the program line within the lens's f-number range (#583), very fast `lens.ideal` ranges (#585), developing a capture rendered in parts (#571), lens corrections in the development (#570) and the sampled-PSF orientation fix (#566). See the [2.19.0 release record](https://github.com/Photivra/photivra/blob/main/docs/RELEASE_2_19_0.md).
