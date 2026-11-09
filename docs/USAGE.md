@@ -1058,6 +1058,47 @@ T_stack = T_1 * T_2 * ... * T_n
 
 The stack keeps each filter's identity and evidence. The combined numeric uncertainty is deliberately reported as **not propagated**, unless it is established whether the filters' errors are correlated or independent. Each filter's own uncertainty stays attached to that filter.
 
+### Exposure time with an ND filter
+
+`calculateFilteredExposureTime({ shutterSeconds, filter, shutterDialSeconds? })` (model `filtered-exposure-time` 1.0.0, #578) gives the shutter time that keeps the same exposure at the same f-number and ISO after adding one filter or a stack (`filter` takes one profile or an array in light-path order): `filteredShutterSeconds = shutterSeconds / T`, with `T` the stack's combined transmittance from `composeFrontOfLensFilterTransmission()`. It also returns `attenuationStops`, `exposureFactor` (`1/T`) and the full `filterTransmission`. With a `shutterDialSeconds` list (for example `GENERIC_THIRD_STOP_SHUTTER_SECONDS`) it adds `dial`: the nearest dial value in stops (the shorter on a tie), its exposure error in stops, and `clamped: "maximum"` when the exact time is longer than the longest dial value (use bulb).
+
+- Exact under the linear sensor model (exposure `H = E·t`); film reciprocity failure is not modelled.
+- Nominal filters vary: a "10-stop" filter (`T = 2^-10`) gives 1/125 s → 8.19 s, an ND1000 (OD 3.0, 9.97 stops) gives exactly 8 s. The result is only as good as the profile, and is an approximation whenever a profile is.
+- Filters are resolved at 550 nm unless `wavelengthNanometers` is given; neutral filters do not depend on it. `incidentPolarization` matters only with a polarizer in the stack.
+
+```ts
+import {
+  GENERIC_THIRD_STOP_SHUTTER_SECONDS,
+  calculateFilteredExposureTime,
+  parseFrontOfLensFilterProfile
+} from "@photivra/engine";
+
+const evidence = [{ sourceOrigin: "photivra", sourceReference: "nominal 10-stop rating", reuseStatus: "photivra-owned" }] as const;
+const tenStop = parseFrontOfLensFilterProfile({
+  schemaVersion: "0.1.0",
+  filterId: "generic-nd-10-stop",
+  profileVersion: "1.0.0",
+  identityScope: "photivra-generic-unbranded",
+  position: "front-of-lens",
+  scientificStatus: "approximation",
+  wavelengthBasis: "air",
+  wavelengthRangeNanometers: { minimum: 400, maximum: 700 },
+  transmission: { kind: "neutral-linear-transmission", linearTransmissionFactor: { value: 2 ** -10, evidence } },
+  uncertainty: { kind: "not-quantified", limitation: "Nominal rating; real filters vary." },
+  polarizationModeled: false,
+  wavelengthChangingBehaviorModeled: false,
+  evidence,
+  limitations: []
+});
+
+const { value } = calculateFilteredExposureTime({
+  shutterSeconds: 1 / 125,
+  filter: tenStop,
+  shutterDialSeconds: GENERIC_THIRD_STOP_SHUTTER_SECONDS
+});
+console.log(value.filteredShutterSeconds.toFixed(2), value.dial?.shutterSeconds); // 8.19 8
+```
+
 ### Spectral boundary
 
 Spectral filter data stays wavelength-resolved all the way through the [scene-radiance-to-sensor bridge](#scene-radiance-to-sensor-irradiance). Photivra does not turn a spectral filter into an undocumented RGB tint.

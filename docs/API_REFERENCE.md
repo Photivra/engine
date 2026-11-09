@@ -18,6 +18,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 | Crop factor, 35 mm-equivalent focal length and crops | [`calculateEquivalentFocalLength35Mm`](api/camera-equivalent-focal-length.md#calculateequivalentfocallength35mm), [`calculateCenteredCrop`](api/output-crop.md#calculatecenteredcrop) |
 | Equivalent f-number, sensor area and blur as a share of the frame | [`calculateSensorEquivalence`](api/camera-sensor-equivalence.md#calculatesensorequivalence), [`calculateBlurShareOfFrame`](api/camera-sensor-equivalence.md#calculateblurshareofframe) |
 | Motion blur and shutter speed | [`calculateProjectedMotionBlur`](api/motion-projected-motion.md#calculateprojectedmotionblur), [`calculateShutterAngleExposureSeconds`](api/motion-video-sequence.md#calculateshutterangleexposureseconds) |
+| Shutter time with an ND filter | [`calculateFilteredExposureTime`](api/exposure-filtered-exposure-time.md#calculatefilteredexposuretime) |
 | Diffraction | [`calculateAiryDisk`](api/optics-diffraction.md#calculateairydisk) |
 | Sensor signal, noise and SNR | [`calculatePhotoelectrons`](api/sensor-signal-noise.md#calculatephotoelectrons), [`calculateSignalToNoise`](api/sensor-signal-noise.md#calculatesignaltonoise) |
 | Colour temperature | [`calculateChromaticityFromCorrelatedColorTemperature`](api/color-illuminants.md#calculatechromaticityfromcorrelatedcolortemperature), [`calculateCorrelatedColorTemperature`](api/color-illuminants.md#calculatecorrelatedcolortemperature) |
@@ -1055,6 +1056,18 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 | [`CalculateRelativeRenderedExposureInput`](api/exposure-exposure.md#calculaterelativerenderedexposureinput) | Type |
 | [`RelativeOpticalExposure`](api/exposure-exposure.md#relativeopticalexposure) | Type |
 | [`RelativeRenderedExposure`](api/exposure-exposure.md#relativerenderedexposure) | Type |
+
+## exposure/filtered-exposure-time.ts
+
+[Detailed contracts](api/exposure-filtered-exposure-time.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/exposure/filtered-exposure-time.ts)
+
+| Export | Kind |
+| --- | --- |
+| [`calculateFilteredExposureTime`](api/exposure-filtered-exposure-time.md#calculatefilteredexposuretime) | Runtime |
+| [`CalculateFilteredExposureTimeInput`](api/exposure-filtered-exposure-time.md#calculatefilteredexposuretimeinput) | Type |
+| [`FILTERED_EXPOSURE_DEFAULT_WAVELENGTH_NANOMETERS`](api/exposure-filtered-exposure-time.md#filtered_exposure_default_wavelength_nanometers) | Runtime |
+| [`FilteredExposureDialSetting`](api/exposure-filtered-exposure-time.md#filteredexposuredialsetting) | Type |
+| [`FilteredExposureTime`](api/exposure-filtered-exposure-time.md#filteredexposuretime) | Type |
 
 ## exposure/flash-ttl.ts
 

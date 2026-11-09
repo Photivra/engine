@@ -53,7 +53,7 @@ describe("root exports reject malformed input with domain errors (API review #4)
       "calculateDepthOfField", "calculateDefocusCircle", "calculateDefocusDiscKernelRadius", "estimateEquivalentViewingCircleOfConfusion", "calculateAiryDisk",
       "calculateExposureValue100", "calculateRelativeOpticalExposure", "calculateRelativeRenderedExposure", "calculateEquivalentIso",
       "calculateThinLensImageDistance", "calculateIdealApertureGeometry", "calculatePixelPitch", "calculatePlanckianSpectralRadiance",
-      "estimatePlanckianLocusChromaticity", "prepareBt1886Eotf",
+      "estimatePlanckianLocusChromaticity", "prepareBt1886Eotf", "calculateFilteredExposureTime",
       "calculateSignalToNoise", "calculateProjectedMotionBlur"] as const;
     for (const name of strict) {
       const fn = engine[name] as (input: unknown) => unknown;

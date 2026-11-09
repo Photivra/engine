@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+### 2.19.0 part: #578 Exposure time with an ND filter
+
+- **New: `calculateFilteredExposureTime({ shutterSeconds, filter, shutterDialSeconds?, wavelengthNanometers?, wavelengthBasis?, incidentPolarization? })`** (model `filtered-exposure-time` 1.0.0, for the app's Guide page on ND filters and the calculator's ND table): the shutter time that keeps the same exposure at the same f-number and ISO after adding front-of-lens filters, `shutterSeconds / T`, with `T` from the existing filter profiles through `composeFrontOfLensFilterTransmission` (one profile or a stack). Returns `filteredShutterSeconds`, `linearTransmissionFactor`, `attenuationStops`, `exposureFactor`, the full `filterTransmission` and, with a dial list, `dial` (nearest value in stops, shorter on a tie, its exposure error in stops, and `clamped` outside the dial). 1/125 s with a 10-stop filter gives 1024/125 ≈ 8.19 s, 8 s on `GENERIC_THIRD_STOP_SHUTTER_SECONDS`; an ND1000 (OD 3.0) gives 8 s. Exact under the linear sensor model (H = E·t, CIPA DC-004-2020 §5.5, EMVA 1288 §2); reciprocity failure is not modelled; nominal filters vary, and the envelope is an approximation whenever a profile is. Filters are resolved at 550 nm by default (neutral filters do not depend on it).
+- **Root exports:** 5 new (2 runtime): `calculateFilteredExposureTime`, `FILTERED_EXPOSURE_DEFAULT_WAVELENGTH_NANOMETERS` and the types `CalculateFilteredExposureTimeInput`, `FilteredExposureTime`, `FilteredExposureDialSetting`. Pure function; no capture, RAW or bundle change.
+- **Docs and tests:** docs/PHYSICS_FOUNDATION.md ("Exposure time with an ND filter"), docs/USAGE.md (with a runnable example; later USAGE.md fragment indices in docs/validation/documentation-fragments.json shift by one), docs/AGENT_GUIDE.md, llms.txt, API reference task index; `test/filtered-exposure-time.test.ts`.
+
 ## 2.18.0 — unreleased (prepared November 9, 2026)
 
 A minor release of four issues: equivalence numbers for teaching (#573), an ideal lens at any physical focal length and f-number (#576), catalogue lenses in the display view (#569) and fast catalogue lens captures (#568). Captures, RAW codes, files and assumptions are the same as 2.17.0 for every request that 2.17.0 renders and that uses none of the new options (every hash lock holds).

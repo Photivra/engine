@@ -1137,6 +1137,14 @@ export {
 } from "./optics/front-of-lens-filter.js";
 
 export {
+  FILTERED_EXPOSURE_DEFAULT_WAVELENGTH_NANOMETERS,
+  calculateFilteredExposureTime,
+  type CalculateFilteredExposureTimeInput,
+  type FilteredExposureDialSetting,
+  type FilteredExposureTime
+} from "./exposure/filtered-exposure-time.js";
+
+export {
   calculateIlluminationVignetting,
   type CalculateIlluminationVignettingInput,
   type IlluminationVignetting,
