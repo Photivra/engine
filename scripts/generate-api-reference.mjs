@@ -41,6 +41,7 @@ const TASK_INDEX = [
   ["Depth of field, hyperfocal distance and defocus blur", ["calculateDepthOfField", "calculateDefocusCircle"]],
   ["Field of view", ["calculateFieldOfView"]],
   ["Crop factor, 35 mm-equivalent focal length and crops", ["calculateEquivalentFocalLength35Mm", "calculateCenteredCrop"]],
+  ["Equivalent f-number, sensor area and blur as a share of the frame", ["calculateSensorEquivalence", "calculateBlurShareOfFrame"]],
   ["Motion blur and shutter speed", ["calculateProjectedMotionBlur", "calculateShutterAngleExposureSeconds"]],
   ["Diffraction", ["calculateAiryDisk"]],
   ["Sensor signal, noise and SNR", ["calculatePhotoelectrons", "calculateSignalToNoise"]],

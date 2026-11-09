@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+### 2.18.0 part: #573 Equivalence for teaching: equivalent f-number, sensor area ratio and blur as a share of the frame
+
+- **New: `calculateSensorEquivalence({ sensor, focalLengthMm, fNumber, reference? })`** (model `sensor-equivalence` 1.0.0): for a lens on one sensor against 36 × 24 mm (or a `reference`), the crop factor, equivalent focal length, equivalent f-number (k·N, for depth of field, background blur and total light at the same framing and output size), the unchanged exposure f-number, entrance-pupil diameter, sensor area ratio, total-light difference in stops at the same f-number and shutter, and horizontal, vertical and diagonal angles of view. A `basis` record states, for every value, `"exact"` or `"approximation"` and its conditions; the equivalent f-number is a thin-lens approximation, exact only when the focus distance is much greater than the focal length (the exact thin-lens factor k·N·(s − f)/(s − k·f) is stated and tested). 50 mm f/2 on 23.5 × 15.6 mm gives ≈ 76.7 mm and ≈ f/3.07. With the default reference the crop factor and equivalent focal length are bit-identical to `calculateEquivalentFocalLength35Mm`.
+- **New: `calculateBlurShareOfFrame({ blurCircleMm, sensor, print? })`** (model `blur-share-of-frame` 1.0.0): a blur-circle diameter as a share of the frame diagonal, width and height, and with a print size, the enlargement (whole frame fitted, long side to long side) and the blur on the print.
+- **Root exports:** 11 new (2 runtime): the two functions and the types `CalculateSensorEquivalenceInput`, `SensorEquivalence`, `SensorEquivalenceFieldOfView`, `SensorEquivalenceQuantity`, `EquivalenceExactness`, `EquivalenceValueBasis`, `CalculateBlurShareOfFrameInput`, `BlurShareOfFrame`, `BlurShareOfPrint`. Pure functions; no capture, RAW or bundle change.
+- **Docs and tests:** docs/PHYSICS_FOUNDATION.md ("Sensor equivalence: f-number, area and blur share"), docs/USAGE.md, docs/AGENT_GUIDE.md, llms.txt, API reference task index; `test/sensor-equivalence.test.ts` (hand-checked values, the thin-lens check of the approximation, validation).
+
 ## 2.17.0 — unreleased (prepared November 7, 2026)
 
 A minor release of four issues: large defocus discs (#564), bokeh character (#553), lens projection, distortion, vignetting and rotation in the display view (#563), and the generic lens catalogue (#549). Captures, RAW codes, files and assumptions are the same as 2.16.0 for every request that 2.16.0 renders and that uses none of the new options (every hash lock holds).

@@ -24,6 +24,8 @@
 - [resolveGenericLens()](https://github.com/Photivra/photivra/blob/main/docs/api/equipment-generic-lens-catalogue.md#resolvegenericlens): one of the 30 generic catalogue lenses ("PV 50 1.2 Pro") on a sensor, with its approximated optical character; `simulateCapture` renders it with `lens.catalogue`
 - [calculateFieldOfView()](https://github.com/Photivra/photivra/blob/main/docs/api/camera-field-of-view.md#calculatefieldofview): angle of view from focal length and sensor size
 - [calculateEquivalentFocalLength35Mm()](https://github.com/Photivra/photivra/blob/main/docs/api/camera-equivalent-focal-length.md#calculateequivalentfocallength35mm): crop factor and 35 mm-equivalent focal length
+- [calculateSensorEquivalence()](https://github.com/Photivra/photivra/blob/main/docs/api/camera-sensor-equivalence.md#calculatesensorequivalence): equivalent focal length and f-number, sensor area ratio and angles of view of a lens on one sensor, each marked exact or approximated
+- [calculateBlurShareOfFrame()](https://github.com/Photivra/photivra/blob/main/docs/api/camera-sensor-equivalence.md#calculateblurshareofframe): a blur circle as a share of the frame diagonal, or its size on a print
 - [calculateCenteredCrop()](https://github.com/Photivra/photivra/blob/main/docs/api/output-crop.md#calculatecenteredcrop): pixels left after a centred crop
 - [calculateProjectedMotionBlur()](https://github.com/Photivra/photivra/blob/main/docs/api/motion-projected-motion.md#calculateprojectedmotionblur): how far a moving subject smears on the sensor during the shutter time
 - [calculateAiryDisk()](https://github.com/Photivra/photivra/blob/main/docs/api/optics-diffraction.md#calculateairydisk): diffraction spot size from f-number and wavelength
