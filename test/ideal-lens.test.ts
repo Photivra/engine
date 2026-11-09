@@ -137,6 +137,6 @@ describe("lens.ideal (#576)", () => {
     await refuses({ ideal: 50 }, "lens.ideal");
     for (const other of [{ prime: 50 }, { catalogue: "pv-50-1.8" }, { focalLengthMm: 50 }])
       await refuses({ ideal: { focalLengthMm: 50 }, ...other }, "lens.ideal cannot be combined with lens." + Object.keys(other)[0] + ".");
-    await refuses({ ideal: { focalLengthMm: 4000 } }, "subjectDistanceM must exceed twice the focal length.");
+    await refuses({ ideal: { focalLengthMm: 4000 } }, "subjectDistanceM must be at least twice the focal length.");
   });
 });

@@ -520,7 +520,7 @@ export interface SimulateCaptureOptions {
      * (`IDEAL_LENS_LIMITS`; beyond them the request is refused). It replaces the tier lens's focal length and f-number range (the
      * transmission is kept); shutter priority and program may choose any aperture in that range. Recorded in the `lens.ideal`
      * assumption. Its blur is that of `defocus`, `diffraction` and `vignetting`, the same models as with `prime`. It focuses at any
-     * distance beyond the focal length (no minimum focus distance; `subjectDistanceM` must exceed twice the focal length, as for
+     * distance beyond the focal length (no minimum focus distance; `subjectDistanceM` must be at least twice the focal length, as for
      * every lens). Works in `simulateCapture` and the display view. Not combinable with `prime`, `catalogue` or `focalLengthMm`.
      * Default off.
      */

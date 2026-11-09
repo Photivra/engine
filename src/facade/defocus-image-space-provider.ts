@@ -45,7 +45,7 @@ import { InvalidConfigurationError } from "../core/configuration-error.js";
 import { hypot3 } from "../core/portable-math.js";
 import { isInternalSceneRadianceEvaluator, markInternalSceneRadianceEvaluator, registerInternalRadianceAccess } from "../core/internal-radiance-evaluator.js";
 import type { SceneRadianceEvaluationRequest, SceneRadianceEvaluationResult } from "../schema/scene-radiance.js";
-import { lensProjectionDirectionValue, lensProjectionImagePointValue, type LensProjectionModel } from "../camera/lens-projection.js";
+import { insideRadialImageCircle, lensProjectionDirectionValue, lensProjectionImagePointValue, type LensProjectionModel } from "../camera/lens-projection.js";
 import { applyPhysicalCameraRotation, resolveProjectionDistanceMm, type CameraAngularVelocityRadPerSec } from "../motion/camera-rotation.js";
 import { prepareIlluminationVignettingThroughput, type IlluminationVignettingProfile } from "../optics/illumination-vignetting.js";
 import { distortedImagePoint, undistortedImagePoint, type PreparedEnvironmentLensFieldMapping } from "../optics/sensor-environment-query.js";
@@ -88,6 +88,8 @@ export function prepareDefocusImageSpaceGeometry(geometry: DefocusImageSpaceGeom
   // The projection scale: the thin-lens image distance at the finite focus, for every projection model (the environment's).
   const pd = resolveProjectionDistanceMm(focalLengthMm, focusDistanceM).projectionDistanceMm;
   const model: LensProjectionModel = lensMapping?.mapping.projectionModel ?? "rectilinear";
+  // #569: with "backward-ray" (catalogue fisheyes), a point outside the image circle looks straight back, as the environment's mapped query does.
+  const backward = lensMapping?.mapping.outsideImageCircle === "backward-ray";
   const timeDependent = omega.pitch !== 0 || omega.yaw !== 0 || omega.roll !== 0;
   // calculateIlluminationVignetting's throughput with the profile validated once (#563: the same numbers, without a result envelope per point).
   const throughputAt = vignetting ? prepareIlluminationVignettingThroughput(vignetting) : undefined;
@@ -117,7 +119,8 @@ export function prepareDefocusImageSpaceGeometry(geometry: DefocusImageSpaceGeom
         if (!(reference.z > 0)) throw new InvalidConfigurationError("lens.defocus: a lattice point's ray points to or behind the reference camera plane.");
         lx = pd * (reference.x / reference.z); ly = pd * (reference.y / reference.z); lz = pd;
       } else {
-        const reference = applyPhysicalCameraRotation(lensProjectionDirectionValue(model, pd, ideal.x, ideal.y), displacement(t), "camera-to-reference");
+        const reference = applyPhysicalCameraRotation(backward && !insideRadialImageCircle(model, pd, Math.hypot(ideal.x, ideal.y)) ? { x: 0, y: 0, z: -1 } :
+          lensProjectionDirectionValue(model, pd, ideal.x, ideal.y), displacement(t), "camera-to-reference");
         lx = reference.x; ly = reference.y; lz = reference.z;
       }
       const length = hypot3(lx, ly, lz);

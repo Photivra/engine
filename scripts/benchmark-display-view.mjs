@@ -28,6 +28,8 @@
  * LENS (#563: comma-separated lens variants, default "none"): "vignetting" (a radial relative-illumination profile, about −1 stop at
  * the frame's corner), "distortion" (barrel distortion plus that vignetting), "fisheye" (an equisolid-angle projection) and
  * "rotation" (camera shake at 0.05 rad/s yaw and 0.03 pitch, the default eight temporal midpoints); they run interleaved like the radii.
+ * #569: "catalogue:<lens id>" replaces the prime with that catalogue lens at the row's f-number (clamped to the lens's range), and
+ * "catalogue:<lens id>:open" at its widest, "catalogue:<lens id>:<f-number>" at that f-number; `lens.diffraction` is dropped (the lens's PSF includes it) and the shutter keeps the row's exposure (at most 1/8000 s faster).
  *
  *   node scripts/benchmark-display-view.mjs --app
  *   DIST_B=/path/to/other/dist/index.js node scripts/benchmark-display-view.mjs --app
@@ -103,7 +105,7 @@ function withDefocusRadius(engine, options, radius) {
 }
 
 /** #563: the app request with a lens variant (see LENS above); the profiles reach 10 % beyond the 36 × 24 mm frame's half diagonal. */
-function withLens(options, variant) {
+function withLens(engine, options, variant) {
   const vignetting = { normalizationRadiusMm: 21.7, maximumNormalizedRadius: 1.1, coefficients: { r2: -0.5, r4: 0, r6: 0 } };
   if (variant === "none") return options;
   if (variant === "vignetting") return { ...options, lens: { ...options.lens, vignetting } };
@@ -111,12 +113,19 @@ function withLens(options, variant) {
     distortion: { kind: "radial", profile: { normalizationRadiusMm: 21.7, maximumNormalizedRadius: 1.1, coefficients: { k1: -0.05, k2: 0.005, k3: 0 } } } } };
   if (variant === "fisheye") return { ...options, lens: { ...options.lens, projection: "fisheye-equisolid-angle" } };
   if (variant === "rotation") return { ...options, motion: { angularVelocityRadPerSec: { yaw: 0.05, pitch: 0.03 } } };
+  if (variant.startsWith("catalogue:")) {
+    const [, lensId, open] = variant.split(":"), entry = engine.GENERIC_LENS_CATALOGUE.find((l) => l.lensId === lensId);
+    if (!entry) throw new Error(`unknown catalogue lens ${lensId}`);
+    const narrowest = engine.resolveGenericLens({ lensId, activeImagingArea: { widthMm: 36, heightMm: 24 } }).narrowestFNumber;
+    const fNumber = open === "open" ? entry.widestFNumber : Math.min(narrowest, Math.max(entry.widestFNumber, open === undefined ? options.lens.fNumber : Number(open)));
+    return { ...options, lens: { catalogue: lensId, fNumber }, exposure: { ...options.exposure, shutterSeconds: Math.max(1 / 8000, options.exposure.shutterSeconds * (fNumber / options.lens.fNumber) ** 2) } };
+  }
   throw new Error(`unknown lens variant ${variant}`);
 }
 
 async function appRow(id, distPath, count, radius = 0, lensVariant = "none") {
   const engine = await import(pathToFileURL(distPath).href), row = APP_ROWS[id], load = loadavg()[0];
-  const options = withLens(withDefocusRadius(engine, appRequestOptions(engine, row), radius), lensVariant), parts = appParts(APP_VIEW.width, APP_VIEW.height, APP_PART_SIDE), timed = sampledParts(parts, count);
+  const options = withLens(engine, withDefocusRadius(engine, appRequestOptions(engine, row), radius), lensVariant), parts = appParts(APP_VIEW.width, APP_VIEW.height, APP_PART_SIDE), timed = sampledParts(parts, count);
   let t = performance.now();
   const view = await engine.prepareDisplayView(options);
   const prepareMs = performance.now() - t, ms = [], usPerPixel = [], estimation = new Set();
