@@ -6,3 +6,4 @@
  */
 export { GENERIC_LENS_EVIDENCE, genericLensDistortionProfile, genericLensVignettingProfile, resolveGenericLens, simulateGenericLensFocusError } from "../equipment/generic-lens-catalogue.js";
 export { createGenericLensPsfProfile, genericLensPsfKernelRadius, GENERIC_LENS_PSF_MAXIMUM_COMBINED_RADIUS_SITES } from "../optics/generic-lens-psf.js";
+export { CATALOGUE_FAST_VERIFICATION_TOLERANCE, catalogueFastAssumptions, createCatalogueLensSignal } from "./catalogue-lens-signal.js";

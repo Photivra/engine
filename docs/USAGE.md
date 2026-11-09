@@ -7479,8 +7479,9 @@ own designs, not real products). `resolveGenericLens` resolves one for a sensor,
 colour, distortion and vignetting profiles, flare, breathing and focus scatter, each a labelled approximation.
 `simulateGenericLensFocusError` draws a seeded autofocus error; `createGenericLensCorrectionProfile` builds the lens's generic
 correction profile for `resolveLensCorrectionPlan`. `simulateCapture` renders a catalogue lens with `lens.catalogue`
-([quick start](QUICK_START.md#generic-lens-catalogue-549)). Equations, tables and the chart measurements:
-[LENS_CATALOGUE.md](https://github.com/Photivra/photivra/blob/main/docs/LENS_CATALOGUE.md).
+([quick start](QUICK_START.md#generic-lens-catalogue-549)); `fast: true` (or `lens: { catalogue: { kind, fast: true } }`) takes its
+fast method (#568), a labeled approximation that blends the PSF over a field grid, for interactive captures. Equations, tables and the
+chart measurements: [LENS_CATALOGUE.md](https://github.com/Photivra/photivra/blob/main/docs/LENS_CATALOGUE.md).
 
 ```ts
 import { GENERIC_LENS_CATALOGUE, resolveGenericLens, simulateGenericLensFocusError } from "@photivra/engine";

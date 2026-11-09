@@ -236,6 +236,8 @@ export type SimulateCaptureColorEncoding = "srgb" | "display-p3" | "rec2020";
  * edge-directed method that reduces zipper and false colour on sharp edges.
  */
 export type SimulateCaptureDemosaic = "bilinear" | "ahd";
+/** `lens.catalogue` as a record (#568): the lens id as `kind` and the `fast` override (see {@link SimulateCaptureOptions.fast}). */
+export interface SimulateCaptureLensCatalogueRecord { kind: string; fast?: boolean }
 /** `output.demosaic` as a record (#395): the demosaic and its `fast` override (see {@link SimulateCaptureOptions.fast}). */
 export interface SimulateCaptureDemosaicRecord { kind: SimulateCaptureDemosaic; fast?: boolean }
 /**
@@ -361,8 +363,11 @@ export interface SimulateCaptureOptions {
      * and, for the fisheyes, the equisolid projection. Flare, focus breathing and bokeh shape are not rendered. Not combinable
      * with `prime`, `focalLengthMm`, `projection`, `distortion`, `vignetting`, `psf`, `diffraction` or `pupilSampling` (the
      * lens sets them); `defocus` convolves the disc into the lens's PSF. Not offered by the display view. Default off.
+     * #568: the record form `{ kind: <lens id>, fast }` overrides the top-level `fast` flag for this option; the fast method
+     * blends the PSF between exactly resolved kernels on a field grid and tabulates each site's expected signal
+     * (docs/LENS_CATALOGUE.md, "Fast method").
      */
-    catalogue?: string;
+    catalogue?: string | SimulateCaptureLensCatalogueRecord;
     /**
      * Opt-in (#549), with `catalogue` only: a seeded autofocus error (`simulateGenericLensFocusError`). The focus distance becomes
      * the sampled one for (seed, shotIndex), reported in the `lens.focusScatter` assumption; it is visible with `defocus`. Default off.
@@ -586,7 +591,7 @@ export interface SimulateCaptureOptions {
    * Exact or fast (#395). `false` or omitted: every option runs its exact method, the engine reference. `true`: each option
    * listed in {@link SIMULATE_CAPTURE_FAST_OPTIONS} runs its fast method where it has one, a measured, bounded approximation of
    * the exact one; an option without a fast method runs exact. An option's own record `fast` overrides this for that option
-   * only. `diagnostics.fast` reports what was requested and what ran. No option has a fast method yet, so every result is exact.
+   * only. `diagnostics.fast` reports what was requested and what ran. `lens.catalogue` has a fast method (#568); the other options run exact.
    */
   fast?: boolean;
   /** Aborting cancels the running task; the promise rejects with a domain error and returns no partial image. */
@@ -610,7 +615,7 @@ export type SimulateCaptureCostOption = typeof SIMULATE_CAPTURE_COST_OPTIONS[num
  * the record form with `fast` and is reported in `diagnostics.fast.applied` when it runs. Every one of them takes the flag,
  * whether or not it has a fast method yet; one without runs exact and reports `false`.
  */
-export const SIMULATE_CAPTURE_FAST_OPTIONS = /* @__PURE__ */ Object.freeze(["lens.diffraction", "sensor.antiAliasing", "sensor.pixelAperture.box", "output.demosaic.ahd"] as const);
+export const SIMULATE_CAPTURE_FAST_OPTIONS = /* @__PURE__ */ Object.freeze(["lens.diffraction", "lens.catalogue", "sensor.antiAliasing", "sensor.pixelAperture.box", "output.demosaic.ahd"] as const);
 export type SimulateCaptureFastOption = typeof SIMULATE_CAPTURE_FAST_OPTIONS[number];
 
 /** `diagnostics.fast` of a capture or display view (#395): what was asked for and what ran. */
@@ -1793,6 +1798,13 @@ export async function runCapture(options: SimulateCaptureOptions, run: "capture"
   // Generic lens catalogue (#549): resolved on the simulated frame like the prime; its character is built once the f-number is known.
   let catalogue: ResolvedGenericLens | undefined, catalogueFrame: { widthMm: number; heightMm: number } | undefined;
   let lensKit: typeof import("./generic-lens-capture.js") | undefined;
+  // #568: the shorthand id or the record { kind: <id>, fast }.
+  let catalogueId: string | undefined, catalogueFast: boolean | undefined;
+  if (lensOptions.catalogue !== undefined && typeof lensOptions.catalogue === "object" && lensOptions.catalogue !== null) {
+    const record = allowKeys(lensOptions.catalogue, "lens.catalogue", ["kind", "fast"]);
+    if (typeof record.kind !== "string") fail("lens.catalogue.kind must be a catalogue lens id (GENERIC_LENS_IDS).");
+    catalogueId = record.kind; catalogueFast = fastOverride(record, "lens.catalogue");
+  } else if (lensOptions.catalogue !== undefined) catalogueId = lensOptions.catalogue as string;
   if (lensOptions.catalogue !== undefined) {
     for (const key of ["prime", "focalLengthMm", "projection", "distortion", "vignetting", "psf", "diffraction", "pupilSampling"])
       if (lensOptions[key] !== undefined) fail("lens.catalogue cannot be combined with lens." + key + ": the catalogue lens sets its own focal length, projection, distortion, vignetting and PSF (with diffraction).");
@@ -1801,7 +1813,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: "capture"
     const frameW = positive(o.width ?? DEFAULTS.width, "output.width"), frameH = positive(o.height ?? DEFAULTS.height, "output.height"), framePitch = positive(sn.pixelPitchMicrometers ?? DEFAULTS.pixelPitchMicrometers, "sensor.pixelPitchMicrometers");
     catalogueFrame = { widthMm: frameW * framePitch / 1000, heightMm: frameH * framePitch / 1000 };
     lensKit = await import("./generic-lens-capture.js");
-    catalogue = lensKit.resolveGenericLens({ lensId: lensOptions.catalogue as string, activeImagingArea: catalogueFrame });
+    catalogue = lensKit.resolveGenericLens({ lensId: catalogueId as string, activeImagingArea: catalogueFrame });
     assume("lens.catalogue", "model", { lensId: catalogue.lensId, name: catalogue.name, set: catalogue.set, kind: catalogue.kind, equivalentFocalLengthMm: catalogue.equivalentFocalLengthMm,
       focalLengthMm: catalogue.focalLengthMm, cropFactor35Mm: catalogue.cropFactor35Mm, widestFNumber: catalogue.widestFNumber, narrowestFNumber: catalogue.narrowestFNumber,
       minimumFocusDistanceM: catalogue.minimumFocusDistanceM, maximumMagnification: catalogue.maximumMagnification, projection: catalogue.projection, fisheyeImage: catalogue.fisheyeImage },
@@ -2051,16 +2063,19 @@ export async function runCapture(options: SimulateCaptureOptions, run: "capture"
   const borderOption = outputOptions.borderHandling as SimulateCaptureBorderHandling | undefined;
   if (demosaicOption !== undefined && demosaicOption !== "bilinear" && demosaicOption !== "ahd") fail("output.demosaic must be bilinear or ahd.");
   const ahd = demosaicOption === "ahd";
-  // #395: exact or fast per option. No option has a fast method yet, so each runs exact and reports false.
+  // #395: exact or fast per option. Only lens.catalogue has a fast method (#568); it reports true below when it ran.
   if (top.fast !== undefined && typeof top.fast !== "boolean") fail("fast must be true or false.");
   const fastTop = top.fast === true;
   const fastInUse: [SimulateCaptureFastOption, boolean, boolean | undefined][] = [["lens.diffraction", diffractionRadiusOption !== undefined, diffractionFast],
+    ["lens.catalogue", catalogue !== undefined, catalogueFast],
     ["sensor.antiAliasing", antiAliasing !== undefined, antiAliasingFast], ["sensor.pixelAperture.box", boxAperture, boxFast], ["output.demosaic.ahd", ahd, demosaicFast]];
   const fastApplied: Partial<Record<SimulateCaptureFastOption, boolean>> = {};
   for (const [option, used] of fastInUse) if (used) fastApplied[option] = false;
-  const fastReport: SimulateCaptureFastReport = Object.freeze({
-    requested: fastTop || [diffractionFast, antiAliasingFast, boxFast, demosaicFast].some((value) => value === true),
-    applied: Object.freeze(fastApplied), assurance: "engine-reference" as const });
+  // #568: the catalogue's fast method, when requested (its record's flag, else the top-level one); whether it runs is decided with the RAW path.
+  const catalogueFastRequested = catalogue !== undefined && (catalogueFast ?? fastTop);
+  let fastReport: SimulateCaptureFastReport = Object.freeze({
+    requested: fastTop || [diffractionFast, catalogueFast, antiAliasingFast, boxFast, demosaicFast].some((value) => value === true),
+    applied: Object.freeze({ ...fastApplied }), assurance: "engine-reference" as const });
   if (borderOption !== undefined && borderOption !== "margin" && borderOption !== "mirror") fail("output.borderHandling must be margin or mirror.");
   const builtInDemosaic = demosaicOption === undefined ? undefined : createBuiltInBayerDemosaicProfiles({ kernel: "bilinear",
     captureModeId: IDS.mode, colorSamplingProfile, channelRoles: { red: "red", green: "green", blue: "blue" } }).value;
@@ -3108,8 +3123,32 @@ export async function runCapture(options: SimulateCaptureOptions, run: "capture"
   if (run === "dng-from-parts" && regionNative) fail("serializeSimulatedCaptureDngFromParts writes the whole frame: the options take no output.region.");
   const dngParts = run === "dng-from-parts" ? viewOption : undefined;
   let tabulated: Awaited<ReturnType<typeof renderTabulatedNativeRaw>>;
+  // #568: lens.catalogue's fast method: tabulated expected electrons with the PSF blended over a field grid (catalogue-lens-signal.ts), for a
+  // still camera, site-centre queries and a chart or material scene; verified per CFA phase against the exact chain within its tolerance.
+  let catalogueFastRun: { columns: number; rows: number; resolved: number; verificationRelativeDifference: number } | undefined;
+  const catalogueFastEligible = catalogueFastRequested && catalogueTaps !== undefined && lensKit !== undefined && lensPsf !== undefined && dngParts === undefined && tabulatedScene &&
+    !pupil && !rotating && boxSamples === 1 && !antiAliasing && distortion?.kind === "radial" && provider.chartMaterialAt !== undefined && provider.materialRadiance !== undefined;
+  if (catalogueFastEligible) {
+    const { electronsPerRadiance, wavelengths } = axisChannelResponse("simulateCapture");
+    const perNode = CHANNELS.map((c) => Float64Array.from(wavelengths, (nm) => electronsPerRadiance[c].get(nm) ?? 0)) as [Float64Array, Float64Array, Float64Array];
+    const sceneMaterials = chart ? chart.materials : (callerScene as ResolvedCallerMaterialScene).materials, materialRadiance = provider.materialRadiance!;
+    const { signalInput } = buildExpectedSignalInput({ nativeWidth, nativeHeight, width, wavelengths, perNode, apertureNodes: apertureNodeOffsets(1), boxSamples: 1, antiAliasing: undefined, pitch,
+      materials: { materialAt: provider.chartMaterialAt!, whiteRadiance: (nm: number): number => irradianceScale * illuminant.shape.evaluate(nm) / Math.PI,
+        list: [...sceneMaterials.map((m, index) => (m.kind === "neutral" ? { neutral: m.reflectance } : { radiance: (nm: number): number => materialRadiance(index, nm) })),
+          ...(chartSize ? [{ neutral: chartSize.surroundReflectance }] : [])] },
+      radianceAt: provider.radianceAt, imagingArea, focalLengthMm, focusDistanceM, subjectDistanceM, metresPerFrameUnit, caller: "simulateCapture" });
+    const radial = (distortion as Extract<SimulateCaptureLensDistortion, { kind: "radial" }>).profile;
+    const signal = lensKit!.createCatalogueLensSignal({ nativeWidth, nativeHeight, pitch, psf: lensPsf!.configuration.psf, wavelengthsNm: wavelengths, electronsPerRadiance: perNode,
+      scene: signalInput.scene as Extract<typeof signalInput.scene, { kind: "materials" }>, channelAt: signalInput.channelAt,
+      distortion: { normalizationRadiusMm: radial.normalizationRadiusMm, coefficients: { k1: radial.coefficients.k1, k2: radial.coefficients.k2 ?? 0, k3: radial.coefficients.k3 ?? 0 } },
+      ...(vignetting ? { vignetting } : {}), projection: projection === "fisheye-equisolid-angle" ? projection : "rectilinear", outsideImageCircleSeesNothing: catalogue!.kind === "fisheye",
+      focalLengthMm, focusDistanceM, distanceM: subjectDistanceM, metresPerFrameUnit });
+    tabulated = await renderTabulatedNativeRaw({ input: environmentRaw, region: regionNative, siteInput, evaluateRadiance: rawProvider().evaluateRadiance,
+      electrons: signal, relativeTolerance: lensKit!.CATALOGUE_FAST_VERIFICATION_TOLERANCE, onTile: rawTick, tileWidth, yieldControl: () => yieldControl(), checkAbort });
+    if (tabulated) catalogueFastRun = { ...signal.grid, verificationRelativeDifference: tabulated.verificationRelativeDifference };
+  }
   // #553: a cat's eye varies the kernel over the field, which the expected-signal tables (one kernel per node) do not take.
-  if (dngParts === undefined && tabulatedScene && !pupil && !lensFieldMapping && !vignetting && !lensPsf && !rotating && !bokehZones && (!diffraction || diffractionObjectSpace) && provider.chartMaterialAt && provider.materialRadiance) {
+  else if (dngParts === undefined && tabulatedScene && !pupil && !lensFieldMapping && !vignetting && !lensPsf && !rotating && !bokehZones && (!diffraction || diffractionObjectSpace) && provider.chartMaterialAt && provider.materialRadiance) {
     const { electronsPerRadiance, wavelengths } = axisChannelResponse("simulateCapture");
     const perNode = CHANNELS.map((c) => Float64Array.from(wavelengths, (nm) => electronsPerRadiance[c].get(nm) ?? 0)) as [Float64Array, Float64Array, Float64Array];
     const sceneMaterials = chart ? chart.materials : (callerScene as ResolvedCallerMaterialScene).materials, materialRadiance = provider.materialRadiance;
@@ -3141,6 +3180,12 @@ export async function runCapture(options: SimulateCaptureOptions, run: "capture"
   }
   let rawOutput: { raw: NativeRawOutput; providerEvaluationCount: number };
   if (dngParts !== undefined) rawOutput = { raw: joinNativeRawParts(dngParts, plan, nativeWidth, nativeHeight), providerEvaluationCount: 0 };
+  else if (tabulated && catalogueFastRun) {
+    rawOutput = { raw: tabulated.raw, providerEvaluationCount: tabulated.providerEvaluationCount };
+    fastApplied["lens.catalogue"] = true;
+    fastReport = Object.freeze({ ...fastReport, applied: Object.freeze({ ...fastApplied }), assurance: "approximation-with-a-priori-bound" as const });
+    for (const a of lensKit!.catalogueFastAssumptions(catalogueFastRun)) assume(a.id, "model", a.value, a.explanation);
+  }
   else if (tabulated) {
     rawOutput = { raw: tabulated.raw, providerEvaluationCount: tabulated.providerEvaluationCount };
     // The verification's relative difference itself is not reported: it is a last-bits quantity, and captures use the JavaScript
