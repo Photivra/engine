@@ -531,7 +531,8 @@ export interface SimulateCaptureOptions {
      * distance beyond the focal length (no minimum focus distance; `subjectDistanceM` must be at least twice the focal length, as for
      * every lens). Works in `simulateCapture` and the display view. Not combinable with `prime`, `catalogue` or `focalLengthMm`.
      * Optional `widestFNumber` and `narrowestFNumber` (within `IDEAL_LENS_LIMITS`, widest ≤ narrowest; each defaults to its bound)
-     * narrow the range: `fNumber` must lie in it, and shutter priority and program choose apertures only in it. Default off.
+     * narrow the range: `fNumber` must lie in it, and shutter priority and program choose apertures only in it (program limits its
+     * line to a range that does not hold f/4–f/16, #583). Default off.
      */
     ideal?: { focalLengthMm: number; widestFNumber?: number; narrowestFNumber?: number };
     /**

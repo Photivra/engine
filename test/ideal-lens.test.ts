@@ -132,13 +132,13 @@ describe("lens.ideal (#576)", () => {
     const ranged = await simulateCapture({ ...base, lens: { ideal: { focalLengthMm: 50, widestFNumber: 1.4, narrowestFNumber: 16 } }, exposure: fast });
     expect(ranged.exposure.settings.fNumber).toBe(1.4);
     expect(recorded(ranged, "lens.ideal")).toEqual({ lensId: "ideal-50mm", focalLengthMm: 50, widestFNumber: 1.4, narrowestFNumber: 16 });
-    // Program follows the engine's program line (f/4–f/16): a range that holds it renders as the whole range does; one that does not is
-    // refused, as for lens.prime and lens.catalogue ranges.
+    // Program follows the engine's program line (f/4–f/16): a range that holds it renders as the whole range does; since #583 the line is
+    // limited to a range that does not hold it (test/program-line-lens-range.test.ts).
     const program = await simulateCapture({ ...base, lens: { ideal: { focalLengthMm: 50, widestFNumber: 2, narrowestFNumber: 22 } }, exposure: { mode: "program" } });
     const programOpen = await simulateCapture({ ...base, lens: { ideal: { focalLengthMm: 50 } }, exposure: { mode: "program" } });
     expect(program.exposure.settings).toEqual(programOpen.exposure.settings);
     expect(recorded(program, "lens.ideal")).toEqual({ lensId: "ideal-50mm", focalLengthMm: 50, widestFNumber: 2, narrowestFNumber: 22 });
-    await expect(simulateCapture({ ...base, lens: { ideal: { focalLengthMm: 50, narrowestFNumber: 4 } }, exposure: { mode: "program" } })).rejects.toThrow("Program-line aperture lies outside");
+    expect((await simulateCapture({ ...base, lens: { ideal: { focalLengthMm: 50, narrowestFNumber: 4 } }, exposure: { mode: "program" } })).exposure.settings.fNumber).toBe(4);
     // A range without f/8 takes the reference exposure at its aperture nearest f/8 (the same N²/t), as #569 does for PV 800 9.
     const narrow = await simulateCapture({ ...base, lens: { ideal: { focalLengthMm: 50, narrowestFNumber: 4 }, fNumber: 2 } });
     expect(recorded(narrow, "exposure.referenceExposure")).toMatchObject({ aperture: 4, shutterSeconds: 1 / 500, iso: 100 });
