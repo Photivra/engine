@@ -1233,24 +1233,20 @@ function resolveAutomaticSlowestShutterOption(value: unknown, context: { focalLe
     "reciprocal rule is a rule of thumb and is not used.");
   return report;
 }
-function defaultProgramLine(wide = 4, narrow = 16): ExposureProgramLineProfile {
+function defaultProgramLine(wide: number, narrow: number, anchor: { aperture: number; shutterSeconds: number }): ExposureProgramLineProfile {
   // Generic educational program line written for the engine, relative to the f/8, 1/125 s reference. For less light
   // it first opens the aperture toward f/4, then lengthens the shutter. For more light it first closes toward
   // f/16, then shortens the shutter. #583: a lens range without f/4–f/16 moves those ends to the range (wide/narrow, the line's
   // f/4 and f/16 clamped to it): the same shape, the aperture held at the range's end and the shutter taking up the stops
-  // (stops = log2(8000·t/N²), the same N²/t as the reference), still from 1/2000 s to 1.024 s.
+  // (stops = log2 of t/N² over the anchor's t/N²; #585 may move the anchor), still from 1/2000 s to 1.024 s.
   const own = wide === 4 && narrow === 16;
   return parseExposureProgramLineProfile({ schemaVersion: "0.1.0", profileId: "facade-generic-program-line" + (own ? "" : "-lens-range"), profileVersion: "1.0.0",
     scientificStatus: "approximation", policyKind: "generic-program-line", interpolation: "log2-aperture-shutter", evidence: FACADE_EVIDENCE,
     limitations: ["Generic educational program line authored for the capture facade; not any manufacturer's program."],
-    nodes: own ? [
-      { nodeId: "minus-6", opticalExposureStopsFromReference: -6, aperture: 16, shutterSeconds: 1 / 2000 },
-      { nodeId: "minus-2", opticalExposureStopsFromReference: -2, aperture: 16, shutterSeconds: 1 / 125 },
-      { nodeId: "zero", opticalExposureStopsFromReference: 0, aperture: 8, shutterSeconds: 1 / 125 },
-      { nodeId: "plus-2", opticalExposureStopsFromReference: 2, aperture: 4, shutterSeconds: 1 / 125 },
-      { nodeId: "plus-9", opticalExposureStopsFromReference: 9, aperture: 4, shutterSeconds: 128 / 125 }
-    ] : [[narrow, 1 / 2000], [narrow, 1 / 125], [wide, 1 / 125], [wide, 128 / 125]].filter((_, i) => i !== 2 || wide < narrow)
-      .map(([aperture, shutterSeconds], i) => ({ nodeId: "n" + i, opticalExposureStopsFromReference: Math.log2(8000 * shutterSeconds! / aperture! ** 2), aperture, shutterSeconds })) });
+    nodes: (own ? [["minus-6", -6, 16, 1 / 2000], ["minus-2", -2, 16, 1 / 125], ["zero", 0, 8, 1 / 125], ["plus-2", 2, 4, 1 / 125], ["plus-9", 9, 4, 128 / 125]] as const :
+      [[narrow, 1 / 2000], [narrow, 1 / 125], [wide, 1 / 125], [wide, 128 / 125]].filter((_, i) => i !== 2 || wide < narrow)
+        .map(([aperture, shutterSeconds], i) => ["n" + i, Math.log2(shutterSeconds! * anchor.aperture ** 2 / anchor.shutterSeconds / aperture! ** 2), aperture!, shutterSeconds!] as const))
+      .map(([nodeId, opticalExposureStopsFromReference, aperture, shutterSeconds]) => ({ nodeId, opticalExposureStopsFromReference, aperture, shutterSeconds })) });
 }
 
 /** PNG colour signalling: the sRGB chunk for sRGB, ITU-T H.273 code points through cICP otherwise. */
@@ -1859,8 +1855,8 @@ export async function runCapture(options: SimulateCaptureOptions, run: "capture"
       catalogue.widestFNumber + "–f/" + catalogue.narrowestFNumber + ", minimum focus max(0.10 m, f·(1 + 1/" + catalogue.maximumMagnification + ")) (thin lens). Its character is a labelled " +
       "approximation (the lens.catalogue.character assumption). It replaces the tier lens's focal length and f-number range; the tier lens's transmission is kept.");
   } else if (lensOptions.focusScatter !== undefined) fail("lens.focusScatter needs lens.catalogue: the focus scatter is a catalogue lens's own.");
-  const lensRange = prime ? { id: prime.lensId, name: prime.lensId, focalLengthMm: prime.focalLengthMm, widestFNumber: prime.widestFNumber, narrowestFNumber: prime.narrowestFNumber } :
-    catalogue ? { id: catalogue.lensId, name: catalogue.name, focalLengthMm: catalogue.focalLengthMm, widestFNumber: catalogue.widestFNumber, narrowestFNumber: catalogue.narrowestFNumber } : ideal;
+  const listed = prime ?? catalogue, lensRange = listed ? { id: listed.lensId, name: catalogue ? catalogue.name : listed.lensId, focalLengthMm: listed.focalLengthMm,
+    widestFNumber: listed.widestFNumber, narrowestFNumber: listed.narrowestFNumber } : ideal;
   const lensExposure = lensRange ? { ...lens.exposure, profileId: "photivra-" + lensRange.id + ":exposure",
     focalLengthMmRange: { ...lens.exposure.focalLengthMmRange, value: { minimum: lensRange.focalLengthMm, maximum: lensRange.focalLengthMm } },
     aperture: { ...lens.exposure.aperture, widestAvailableFNumber: { kind: "constant" as const, fNumber: { value: lensRange.widestFNumber, evidence: FACADE_EVIDENCE } },
@@ -2306,14 +2302,17 @@ export async function runCapture(options: SimulateCaptureOptions, run: "capture"
   if (exposureOptions.compensationStops === undefined) assume("exposure.compensationStops", "default", 0, "No exposure compensation.");
   // #569: a lens whose range excludes f/8 (the catalogue's PV 800 9, f/9–f/32; an ideal lens with a narrowed range) takes the same reference
   // exposure at the aperture of its range nearest f/8, N0 with t = 1/125 s × (N0/8)², which has the same N²/t and so the same reference
-  // luminance; every other request keeps f/8, 1/125 s.
-  const referenceAperture = lensRange ? Math.min(lensRange.narrowestFNumber, Math.max(lensRange.widestFNumber, DEFAULTS.fNumber)) : DEFAULTS.fNumber;
-  const reference = { aperture: referenceAperture, shutterSeconds: referenceAperture === DEFAULTS.fNumber ? DEFAULTS.shutterSeconds :
-    DEFAULTS.shutterSeconds * (referenceAperture / DEFAULTS.fNumber) ** 2, iso: DEFAULTS.iso };
+  // luminance; every other request keeps f/8, 1/125 s. #585: when that t is shorter than the body's shortest shutter (N0 below about f/1),
+  // the anchor takes the shortest shutter instead, a lower N²/t; the meter, the resolvers and the program line all measure from the anchor.
+  // An f-number clamped to the lens's range (#583 limits the program line's f/4 and f/16 with it).
+  const clamp = (n: number): number => lensRange ? Math.min(lensRange.narrowestFNumber, Math.max(lensRange.widestFNumber, n)) : n, referenceAperture = clamp(DEFAULTS.fNumber);
+  // (N0/8)² is exactly 1 at f/8, so f/8 keeps 1/125 s exactly.
+  const sameShutter = DEFAULTS.shutterSeconds * (referenceAperture / DEFAULTS.fNumber) ** 2;
+  const reference = { aperture: referenceAperture, shutterSeconds: Math.max(sameShutter, capabilities.shutter.minimumSeconds), iso: DEFAULTS.iso };
   const referenceLuminance = sosReferenceLuminance(reference.aperture, reference.shutterSeconds, reference.iso);
   assume("exposure.referenceExposure", "model", { ...reference, meteredLuminanceCdPerSquareMeter: referenceLuminance },
     "Exposure anchor: f/8, 1/125 s, ISO 100 gives the CIPA DC-004 standard output sensitivity reference exposure H = 10/S = 0.1 lx·s for an average scene luminance of 10·N²/(0.65·t·S) ≈ 1230.77 cd/m² (camera equation H = 0.65·L·t/N²)" +
-    (referenceAperture === DEFAULTS.fNumber ? "." : "; the lens excludes f/8: the same N²/t at f/" + referenceAperture + "."));
+    (referenceAperture === DEFAULTS.fNumber ? "." : "; the lens excludes f/8: " + (reference.shutterSeconds > sameShutter ? "the shortest shutter" : "the same N²/t") + " at f/" + referenceAperture + "."));
   const meterProfile = body.metering[0]!.profile, zones = 16, zoneSamples = [];
   let luminanceSum = 0;
   for (let j = 0; j < zones; j++) for (let i = 0; i < zones; i++) {
@@ -2343,8 +2342,8 @@ export async function runCapture(options: SimulateCaptureOptions, run: "capture"
   let resolution: { status: string; resolvedSettings?: { aperture?: number; shutterSeconds?: number; iso?: number } };
   let fNumber: number, shutterSeconds: number;
   const checkFNumber = (): void => {
-    if (lensRange && (fNumber < lensRange.widestFNumber || fNumber > lensRange.narrowestFNumber))
-      fail("lens.fNumber " + fNumber + " is outside the " + lensRange.name + " range f/" + lensRange.widestFNumber + "–f/" + lensRange.narrowestFNumber + ".");
+    if (clamp(fNumber) !== fNumber)
+      fail("lens.fNumber " + fNumber + " is outside the " + lensRange!.name + " range f/" + lensRange!.widestFNumber + "–f/" + lensRange!.narrowestFNumber + ".");
   };
   if (mode === "manual" || mode === "aperture-priority") {
     fNumber = positive(pick(lensOptions, "fNumber", "lens.fNumber", DEFAULTS.fNumber, "f/8."), "lens.fNumber");
@@ -2432,9 +2431,9 @@ export async function runCapture(options: SimulateCaptureOptions, run: "capture"
         { kind: "manual", iso, apertureQuantizationPolicy: "nearest-log2-narrower-on-tie" } });
   } else {
     // #583: a lens range without f/4–f/16 limits the line to it; every other request keeps the line and its assumption.
-    const clamp = (n: number): number => lensRange ? Math.min(lensRange.narrowestFNumber, Math.max(lensRange.widestFNumber, n)) : n, programLine = defaultProgramLine(clamp(4), clamp(16));
+    const programLine = defaultProgramLine(clamp(4), clamp(16), reference);
     // A limited line (#583) records its nodes under the profile id "facade-generic-program-line-lens-range".
-    assume("exposure.programLine", "model", programLine.nodes.length > 4 ? programLine.profileId : { profileId: programLine.profileId, nodes: programLine.nodes },
+    assume("exposure.programLine", "model", programLine.nodes.length > 4 ? programLine.profileId : programLine,
       "Engine-authored generic program line (f/16 1/2000 s … f/8 1/125 s … f/4 1.024 s); not a manufacturer program.");
     resolution = resolveProgramAutoExposureMode({ target, capabilities: resolverCapabilities, referenceExposure: reference, programLine,
       isoControl: automaticIso ? { kind: "automatic", ...autoIsoBaseline, ...limitsPolicy, ...(autoIsoShutterPolicy ? { slowestPreferredShutter: { ...autoIsoShutterPolicy } } : {}) } :

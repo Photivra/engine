@@ -5536,7 +5536,9 @@ the capability range, so with a lens range that does not hold f/4–f/16 (`lens.
 the aperture held at the range's end and the shutter keeping each point's exposure (t/N², camera equation H = 0.65·L·t/N²),
 still from 1/2000 s to 1.024 s. Where both lines run, the limited line's aperture is the old one clamped in log2 to the range.
 Beyond the line's ends the resolver holds them as before. A range that holds f/4–f/16, or no range, keeps the line and its
-bytes. The limited line is recorded as `{ profileId: "facade-generic-program-line-lens-range", nodes }`. An approximation of a generic
+bytes. The limited line is recorded as its profile (id `"facade-generic-program-line-lens-range"`), with node stops measured from the
+capture's exposure anchor (f/8, 1/125 s; the same N²/t at the range's aperture nearest f/8; or, #585, that aperture at the
+body's shortest shutter when the same N²/t would need a shorter one). An approximation of a generic
 program, not a manufacturer's.
 
 ## Program Auto and Full Auto exposure

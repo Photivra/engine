@@ -2,6 +2,7 @@
 /**
  * #583: in program mode the program line follows the lens's f-number range (`lens.ideal` widestFNumber/narrowestFNumber,
  * `lens.prime`, `lens.catalogue`). Requests whose range holds the line (f/4–f/16), and requests with no range, keep their bytes.
+ * #585: a range narrower than about f/1 anchors the exposure at the body's shortest shutter; requests that resolved before keep theirs.
  */
 import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
@@ -15,14 +16,19 @@ const digest = (r: SimulateCaptureResult): Record<string, string> => ({ samples:
   exposure: sha(JSON.stringify(r.exposure)), assumptions: sha(JSON.stringify(r.assumptions)) });
 
 const base = { scene: { preset: "siemens-star" as const }, output: { width: 16, height: 16 } };
-/** Program-mode requests without a range, or with one that holds f/4–f/16: their digests from main 3f9d65b (2.18.0), before #583. */
+/** Program-mode requests without a range, or with one that holds f/4–f/16: their digests from main 3f9d65b (2.18.0), before #583; and (#585) other modes. */
 const UNCHANGED: Record<string, SimulateCaptureOptions> = {
   tierLens: { ...base, exposure: { mode: "program" } },
   tierLensAutoIso: { ...base, illuminanceLux: 20, exposure: { mode: "program", iso: "auto" } },
   idealNoRange: { ...base, lens: { ideal: { focalLengthMm: 50 } }, exposure: { mode: "program" } },
   idealHoldingRange: { ...base, illuminanceLux: 50, lens: { ideal: { focalLengthMm: 50, widestFNumber: 2, narrowestFNumber: 22 } }, exposure: { mode: "program" } },
   prime50: { ...base, lens: { prime: 50 }, exposure: { mode: "program" } },
-  catalogue50: { ...base, lens: { catalogue: "pv-50-1.8" }, exposure: { mode: "program", iso: "auto" } }
+  catalogue50: { ...base, lens: { catalogue: "pv-50-1.8" }, exposure: { mode: "program", iso: "auto" } },
+  // #585: other modes, three with the exposure anchor off f/8 at a shutter in the body's range (pinned from afefcb6, before the fix).
+  idealAboveF8Manual: { ...base, lens: { ideal: { focalLengthMm: 50, widestFNumber: 9 }, fNumber: 11 } },
+  idealBelowF8Aperture: { ...base, lens: { ideal: { focalLengthMm: 50, narrowestFNumber: 4 }, fNumber: 2 }, exposure: { mode: "aperture-priority" } },
+  idealF1Shutter: { ...base, lens: { ideal: { focalLengthMm: 50, widestFNumber: 1, narrowestFNumber: 1 } }, exposure: { mode: "shutter-priority", shutterSeconds: 1 / 500, iso: "auto" } },
+  prime800Manual: { ...base, output: { width: 8, height: 8 }, lens: { prime: 800, fNumber: 8 } }
 };
 const PINNED: Record<string, Record<string, string>> = {
   tierLens: { samples: "e93c1106936f4744f0e16b5718eb7c88f2d33844652e4e56dc168ecc3b1e91f8", codes: "ace2bd2120a3f5b59e2076a289198be5f235ef19f3a35d399ca97f983633b28d",
@@ -36,7 +42,15 @@ const PINNED: Record<string, Record<string, string>> = {
   prime50: { samples: "81ffece58d5fe93ad4ba841aa425ad44be60829ed69cb242764d482369dff549", codes: "506b5c2e72835c75b5b14a22bf29ff8d358b4123ce0c5d58082dffc89932fe0d",
     exposure: "00b53a317629402d6abb579d4805ec2dc134ff172ac6ab779162d2ab6e55f379", assumptions: "0bcef252a188774c8e36ef19ebfe51e45a54d7ac4ce4158120afddf156549214" },
   catalogue50: { samples: "dec04f95afab61dd4ede7b7e1f519472f17ccec7817467280df79f2788524bb8", codes: "72ba688387d09c4b15e3de599d12376c0311f3ae3e63c62ef6e701676275f3c9",
-    exposure: "bb54027b8c93f83b0a5a524441a9e1ee0ee153a8c0eb9699fefe7806bc64ccd8", assumptions: "2842f0d0283c53f1dfd805013c06ba018d3a599ae73aefe30b1d8f59cdd7bed3" }
+    exposure: "bb54027b8c93f83b0a5a524441a9e1ee0ee153a8c0eb9699fefe7806bc64ccd8", assumptions: "2842f0d0283c53f1dfd805013c06ba018d3a599ae73aefe30b1d8f59cdd7bed3" },
+  idealAboveF8Manual: { samples: "5e929bb9533f1c4c0007f96a44bb58016f959311184609bf38fe4c99ba44eab3", codes: "a7c8a08b2e99486fcc001e4197343bb5ff6c24ed5251e8d0209857a47c739874",
+    exposure: "006914fc3987a766d02070f5bb328685533ac903998205648c496168de997191", assumptions: "812aef066115982228591be5f3733ca6edd009aac48c65fc71a7f1bcc4e5a212" },
+  idealBelowF8Aperture: { samples: "e93c1106936f4744f0e16b5718eb7c88f2d33844652e4e56dc168ecc3b1e91f8", codes: "c6d4a30f45b20872c38650cc5c0ce9e13595033744c365f4aa388879737d2d81",
+    exposure: "f5639233332165644252b4f7ca082b0e991ce9c150289b943b003d16569921e3", assumptions: "fc0e51b14c6ab20d6f92d4e2c112a962e90befd85b916a5a3258b888c10b73c2" },
+  idealF1Shutter: { samples: "dc9f53838b7d18ce23e66946e27a84540ead46245f7c1e335a1d71e94882f3d1", codes: "e246d15d13332a6a893482bd8058816122eca72445425282efb56e1cec331bc1",
+    exposure: "a5fde5bedd32d403bafdbe58aad1c8a598edf90d5efec466fdf947d5679c35b2", assumptions: "49587ac9e5d73a039d6e2aa104048b6e5c07bc27b33509f25d6af55f31e7f0ed" },
+  prime800Manual: { samples: "a7f9afc94a67b2716f04f128c77046cf86bd54dc998d2947132ea8d03f193398", codes: "6df8376768a166e2bee828d1de7cafdf7fcaf182b089510772f51a12d8789815",
+    exposure: "47786c2b611d37b2719d16113b410737be5db13d29cd947d072fffa40eb7d90b", assumptions: "1fbe8f36ea43ff62fdd99d5178d622120d018759a082ff47809c30353425c49d" }
 };
 
 const recorded = (result: { assumptions: readonly { id: string; value: unknown }[] }, id: string): unknown => result.assumptions.find((a) => a.id === id)!.value;
@@ -127,4 +141,28 @@ describe("program line limited to the lens's f-number range (#583)", () => {
     expect(catalogue.exposure.settings.fNumber).toBe(9);
     expect(nodesOf(catalogue).map((node) => node.aperture)).toEqual([16, 16, 9, 9]);
   }, scaledTimeout(120_000));
+
+  it("takes an ideal range narrower than about f/1 in every mode: the anchor at the body's shortest shutter (#585)", async () => {
+    const lens = { ideal: { focalLengthMm: 50, widestFNumber: 0.5, narrowestFNumber: 0.9 } }, at = { scene: { preset: "uniform" as const }, output: { width: 8, height: 8 }, illuminanceLux: 20 };
+    const open = { ideal: { focalLengthMm: 50 } };
+    for (const exposure of [{ mode: "program" as const }, { mode: "aperture-priority" as const }, { mode: "shutter-priority" as const, shutterSeconds: 1 / 4000 },
+      { mode: "manual" as const, shutterSeconds: 1 / 8000 }, { mode: "program" as const, iso: "auto" as const }]) {
+      const fNumber = exposure.mode === "manual" || exposure.mode === "aperture-priority" ? { fNumber: 0.7 } : {};
+      const capture = await simulateCapture({ ...at, lens: { ...lens, ...fNumber }, exposure });
+      expect(capture.exposure.settings.fNumber).toBeGreaterThanOrEqual(0.5);
+      expect(capture.exposure.settings.fNumber).toBeLessThanOrEqual(0.9);
+      // f/0.9 at 1/125 s × (0.9/8)² ≈ 1/9877 s is shorter than the body's 1/8000 s: the anchor takes 1/8000 s, a lower N²/t.
+      expect(recorded(capture, "exposure.referenceExposure")).toMatchObject({ aperture: 0.9, shutterSeconds: 1 / 8000, iso: 100 });
+      expect(capture.assumptions.find((a) => a.id === "exposure.referenceExposure")!.explanation).toContain("the lens excludes f/8: the shortest shutter at f/0.9.");
+      if (exposure.mode === "program") expect(recorded(capture, "exposure.programLine")).toMatchObject({ profileId: "facade-generic-program-line-lens-range" });
+      // The anchor only sets where the stops are measured from: at the same settings the open ideal lens (anchored at f/8, 1/125 s) meters the same.
+      if (exposure.mode === "aperture-priority" || exposure.mode === "shutter-priority") {
+        const same = await simulateCapture({ ...at, lens: { ...open, ...fNumber }, exposure });
+        expect(capture.exposure.settings.shutterSeconds).toBeCloseTo(same.exposure.settings.shutterSeconds, 12);
+        expect(capture.exposure.settings.fNumber).toBeCloseTo(same.exposure.settings.fNumber, 12);
+      }
+      // Program and aperture priority reach the meter target in 20 lx (shutter priority at 1/4000 s and manual at 1/8000 s cannot).
+      if (exposure.mode === "program" || exposure.mode === "aperture-priority") expect(Math.abs(capture.exposure.standardExposureDeviationStops!), exposure.mode).toBeLessThan(0.5);
+    }
+  }, scaledTimeout(60_000));
 });

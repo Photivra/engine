@@ -253,14 +253,16 @@ the crop factor, so a 50 mm lens is 50 mm on full frame and on APS-C, as when a 
   `IDEAL_LENS_LIMITS`, the widest no larger than the narrowest; each defaults to its bound) narrows that range like a real
   lens's: `lens.fNumber` must lie in it, and shutter priority and program choose apertures only in it. The assumption then
   records the range (`{ lensId, focalLengthMm, widestFNumber, narrowestFNumber }`); without it nothing changes. A range without
-  f/8 takes the reference exposure at its aperture nearest f/8 (the same N²/t).
+  f/8 takes the reference exposure at its aperture nearest f/8 (the same N²/t). Where that shutter would be shorter than the
+  body's shortest (a range narrower than about f/1, such as f/0.5–f/0.9), the anchor takes the shortest shutter instead, a lower
+  N²/t that the meter and the exposure modes measure from, so the exposure is the same (#585; refused in every mode before 2.19.0).
 - **Program with a range (#583):** program follows the engine's program line (f/16 1/2000 s … f/8 1/125 s … f/4 1.024 s). A
   range that holds f/4–f/16 keeps it unchanged. Otherwise the line's f/4 and f/16 move to the range (each clamped to it): the
   same shape, with the aperture held at the range's end and the shutter taking up the stops (the same N²/t, so the same
   exposure), still from 1/2000 s to 1.024 s. Beyond the line's ends the resolver holds them, as before (with `iso: "auto"` the
   ISO rises in dim light; with a fixed ISO the capture is under- or overexposed and `exposure.standardExposureDeviationStops`
   says by how much). For example f/8–f/32 gives f/16 1/2000 s … f/16 1/125 s … f/8 1/125 s … f/8 1.024 s. The
-  `exposure.programLine` assumption then records `{ profileId: "facade-generic-program-line-lens-range", nodes }`. The same
+  `exposure.programLine` assumption then records the limited line (profile id `"facade-generic-program-line-lens-range"`, with its `nodes`). The same
   applies to the `lens.prime` and `lens.catalogue` ranges that do not hold f/4–f/16 (the 800 mm and 1200 mm-equivalent primes;
   *PV 800 5.6 Pro*, *PV 1200 8 Pro*, *PV 200 5.6*, *PV 300 5.6*, *PV 400 5.6*, *PV 500 5.6*, *PV 600 6.3* and *PV 800 9*),
   which program refused before 2.19.0. An approximation: a generic line, not a manufacturer's program.
