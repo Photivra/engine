@@ -2,7 +2,7 @@
 
 ## 2.19.0 — unreleased (prepared November 9, 2026)
 
-A minor release of six issues: exposure time with an ND filter and generic ND presets (#578), the program line within the lens's f-number range (#583), very fast `lens.ideal` ranges (#585), developing a capture rendered in parts (#571), lens corrections in the development (#570) and the sampled-PSF orientation fix (#566). See the [2.19.0 release record](docs/RELEASE_2_19_0.md).
+A minor release of six issues: exposure time with an ND filter and generic ND presets (#578), the program line within the lens's f-number range (#583), very fast `lens.ideal` ranges (#585), developing a capture rendered in parts (#571), lens corrections in the development (#570) and the sampled-PSF orientation fix (#566). See the [2.19.0 release record](https://github.com/Photivra/photivra/blob/main/docs/RELEASE_2_19_0.md).
 
 - **New:** `calculateFilteredExposureTime` and the generic ND presets `GENERIC_ND_FILTER_PROFILES` / `GENERIC_ND_FILTER_STOPS` (#578); `simulateCaptureFromParts` (#571); `output.lensCorrections` (#570); the progress stages `"diffraction-correction"` and `"sharpening"` (#571).
 - **Changed:** program mode limits the generic program line to a lens range that does not hold f/4–f/16 instead of refusing it (#583); a `lens.ideal` range narrower than about f/1 now resolves in every exposure mode (#585).

@@ -329,7 +329,7 @@ function createAccelerator(requested: ImageKernelBackend, fallbackReason: ImageK
 
 type PipelineSource = (label: string, code: string) => Promise<GPUComputePipeline>;
 
-export function checkAbort(abort: AbortController): void {
+function checkAbort(abort: AbortController): void {
   if (abort.signal.aborted) throw abortedError();
 }
 
