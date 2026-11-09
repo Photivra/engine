@@ -31,7 +31,9 @@ This call is synchronous; any supplied provider must follow its explicit synchro
 ## calculatePeripheralIlluminationCorrection
 
 Applies a gain after capture and reports the variance before clipping. It does not rewrite
-the photon or SNR (signal-to-noise ratio) history of the capture.
+the photon or SNR (signal-to-noise ratio) history of the capture. The gain is T^(−strength), T the relative illumination at
+`imagePointMm`: E(ρ) of the component's profile, divided by det J(ρ_i) when the component has a `distortionAreaFactor` (#584;
+then `imagePointMm` is the capture's sensor point, where the capture applied both).
 
 ```ts
 export function calculatePeripheralIlluminationCorrection(input: {
@@ -77,6 +79,14 @@ export interface IlluminationLensCorrection extends CorrectionComponentIdentity 
   kind: "peripheral-illumination";
   profile: IlluminationVignettingProfile;
   strength: number;
+  /**
+   * Optional (#584): the capture's radial distortion r_d = r(1 + k1ρ² + k2ρ⁴ + k3ρ⁶), whose area factor 1/det J the capture also
+   * multiplied into the irradiance (det J = (1 + k1ρ_i² + k2ρ_i⁴ + k3ρ_i⁶)(1 + 3k1ρ_i² + 5k2ρ_i⁴ + 7k3ρ_i⁶) at the ideal point ρ_i that
+   * the lens images to the sensor point). With it, the relative illumination corrected is E(ρ_s)/det J(ρ_i), evaluated at the
+   * capture's sensor (source) point, so strength 1 flattens a flat field. It holds whether or not the distortion itself is corrected.
+   * Without it the gain is 1/E alone, as before.
+   */
+  distortionAreaFactor?: RadialDistortionProfile;
 }
 ```
 

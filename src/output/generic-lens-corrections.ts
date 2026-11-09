@@ -30,7 +30,9 @@ export interface CreateGenericLensCorrectionProfileInput {
 /**
  * Builds the catalogue lens's generic correction profile for one camera state: a radial distortion map (the lens's own
  * r_d = r(1 + k1ρ²), read at each ideal destination point), per-channel lateral-colour scales 1 + L·D(λ_channel), and the
- * relative-illumination gain at the state's aperture (strength 1). The result passes `parseGenericLensCorrectionProfile`.
+ * relative-illumination gain at the state's aperture (strength 1). From profile version 1.1.0 (#584) the vignetting component
+ * (version 1.1.0) carries the distortion's area factor (`distortionAreaFactor`): its gain is det J(ρ_i)/E(ρ_s) at the capture's
+ * sensor point, so it flattens a flat-field capture. The result passes `parseGenericLensCorrectionProfile`.
  */
 export function createGenericLensCorrectionProfile(input: CreateGenericLensCorrectionProfileInput): GenericLensCorrectionProfile {
   requireInputObject(input, "createGenericLensCorrectionProfile input");
@@ -45,7 +47,7 @@ export function createGenericLensCorrectionProfile(input: CreateGenericLensCorre
   const scale = (channel: LensCorrectionChannel): number => genericLensChannelScale(c.lateralColor.fraction, genericLensDispersion, channel);
   const affine = (channel: LensCorrectionChannel): AffineGeometricTransform => ({ id: lens.lensId + ":lateral-ca:" + channel, version: "1.0.0", domain, purpose: "lateral-ca" as const, kind: "affine" as const,
     matrix: [scale(channel), 0, 0, scale(channel)] as [number, number, number, number], offsetMm: { x: 0, y: 0 } });
-  return parseGenericLensCorrectionProfile({ schemaVersion: "0.1.0", id: "photivra-" + lens.lensId + ":corrections", version: "1.0.0", state,
+  return parseGenericLensCorrectionProfile({ schemaVersion: "0.1.0", id: "photivra-" + lens.lensId + ":corrections", version: "1.1.0", state,
     evidence: { kind: "generic-parametric", basis: "Generic catalogue lens " + lens.name + " (#549): the inverse of its own distortion, lateral colour and vignetting.",
       residualNote: "Generic approximation, not a measured lens; axial colour, coma and the other aberrations stay.", sources: [...GENERIC_LENS_EVIDENCE] },
     components: [
@@ -54,7 +56,9 @@ export function createGenericLensCorrectionProfile(input: CreateGenericLensCorre
           profile: { normalizationRadiusMm: lens.halfDiagonalMm, maximumNormalizedRadius: 1.05, coefficients: { k1: c.distortion.corner, k2: 0, k3: 0 } } } },
       { ...identity, id: "lateral-ca", kind: "lateral-ca", residualNote: "Registers the channels at one effective wavelength each; colour inside a channel's band and axial colour stay.",
         transforms: { red: affine("red"), green: affine("green"), blue: affine("blue") } },
-      { ...identity, id: "vignetting", kind: "peripheral-illumination", residualNote: "Gain 1/E at the profile's aperture; it raises corner noise with the signal.",
-        profile: { ...c.vignetting.profile, maximumNormalizedRadius: 1.05 }, strength: 1 }
+      // #584 (component 1.1.0): the gain also undoes the distortion's area factor, so a flat field comes out flat.
+      { ...identity, version: "1.1.0", id: "vignetting", kind: "peripheral-illumination",
+        residualNote: "Gain det J/E at the capture's sensor point and the profile's aperture (E the lens's relative illumination, 1/det J its distortion's area factor); it raises corner noise with the signal.",
+        profile: { ...c.vignetting.profile, maximumNormalizedRadius: 1.05 }, strength: 1, distortionAreaFactor: { ...c.distortion.profile, coefficients: { ...c.distortion.profile.coefficients } } }
     ] });
 }
