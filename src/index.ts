@@ -1829,6 +1829,7 @@ export { type OutputTextMetadata, addJpegTextMetadata, addPngTextMetadata } from
 export { GENERIC_THIRD_STOP_ISO_SETTINGS, GENERIC_THIRD_STOP_SHUTTER_SECONDS, GENERIC_WHOLE_STOP_ISO_SETTINGS, type GenericTierPresetVersion } from "./equipment/generic-tier-assets.js";
 export { GENERIC_PRIME_EQUIVALENT_FOCAL_LENGTHS_MM, GENERIC_PRIME_THIRD_STOP_F_NUMBERS, GENERIC_PRIME_MINIMUM_FOCUS, resolveGenericPrimeLens,
   calculateGenericPrimeMinimumFocusDistanceM, type GenericPrimeLens, type GenericPrimeEquivalentFocalLengthMm } from "./equipment/generic-prime-lenses.js";
+export { IDEAL_LENS_LIMITS } from "./equipment/ideal-lens.js";
 export { GENERIC_LENS_CATALOGUE, GENERIC_LENS_IDS, GENERIC_LENS_SET_BASELINES, resolveGenericLens, simulateGenericLensFocusError, type GenericLensCatalogueEntry,
   type GenericLensSet, type GenericLensKind, type GenericLensCharacterValues, type GenericLensAdjustments, type GenericLensCharacter, type ResolvedGenericLens,
   type ResolveGenericLensInput, type SimulateGenericLensFocusErrorInput, type GenericLensFocusError } from "./equipment/generic-lens-catalogue.js";

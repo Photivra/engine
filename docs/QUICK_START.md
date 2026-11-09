@@ -233,6 +233,43 @@ const capture = await simulateCapture({
 console.log(capture.assumptions.find((a) => a.id === "lens.catalogue.character")?.value);
 ```
 
+### Ideal lens at any focal length and f-number (#576)
+
+`lens.ideal: { focalLengthMm }` is a plain ideal lens: an aberration-free thin lens named by its **physical** focal length, on
+whatever sensor the frame is (output width × height × pixel pitch). Unlike `lens.prime` and `lens.catalogue` it is not scaled by
+the crop factor, so a 50 mm lens is 50 mm on full frame and on APS-C, as when a full-frame lens is mounted on a smaller sensor
+(narrower field of view, the same blur in millimetres).
+
+- **Any f-number within the bounds:** `lens.fNumber` from f/0.5 to f/128, focal lengths from 1 to 4000 mm (`IDEAL_LENS_LIMITS`).
+  f/0.5 is the physical limit of a lens in air (the sine condition: N = 1/(2·sin θ′) ≥ 0.5); the others are engine bounds. Values
+  beyond them are refused by name. Shutter priority and program may choose any aperture in that range (in dim light, wider
+  than real lenses open).
+- **The same blur models as `lens.prime`:** `lens.defocus` (the thin-lens blur circle of `calculateDefocusCircle`), `lens.diffraction`
+  (the Airy pattern) and `lens.vignetting` (a caller profile). Without them the ideal lens renders sharp and evenly lit. It focuses
+  at any distance beyond the focal length (no minimum focus distance; the subject must be farther than twice the focal length, as
+  for every lens).
+- **Capture and display view:** `simulateCapture`, `simulateDisplayView` and `prepareDisplayView` take it. It replaces the tier
+  lens's focal length and f-number range (its transmission is kept) and is recorded in the `lens.ideal` assumption
+  (`{ lensId: "ideal-50mm", focalLengthMm: 50 }`). At the same focal length and f-number it renders the same pixels as the tier
+  lens (`lens.focalLengthMm`) and the generic prime.
+- **Not combinable** with `lens.prime`, `lens.catalogue` or `lens.focalLengthMm`.
+
+A 50 mm f/1.8 lens on APS-C (23.5 × 15.6 mm: 235 × 156 pixels at 100 µm):
+
+```ts
+import { simulateCapture } from "@photivra/engine";
+
+const capture = await simulateCapture({
+  scene: { preset: "siemens-star" },
+  output: { width: 235, height: 156 },
+  sensor: { pixelPitchMicrometers: 100 },
+  subjectDistanceM: 3,
+  lens: { ideal: { focalLengthMm: 50 }, fNumber: 1.8, focusDistanceM: 2.5, defocus: { model: "geometric-disc" } },
+  exposure: { mode: "aperture-priority" }
+});
+console.log(capture.assumptions.find((a) => a.id === "lens.defocus")?.value); // diameterMicrometers 94.5 on any sensor
+```
+
 ### Fitting a chart to the frame (2.3)
 
 `calculateSubjectDistanceForFraming({ sensor, focalLengthMm | equivalentFocalLengthMm, chart, fit? })`

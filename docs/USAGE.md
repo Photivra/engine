@@ -374,6 +374,8 @@ The actual focal length stays the physical optical quantity used by projection a
 - Focus distance is not part of conventional 35 mm-equivalent focal length. A later digital/output crop and the output resolution are also excluded.
 - If a product wants to describe the final digital framing, it should label it as output framing. It should not silently replace the optical focal length or the capture-equivalent focal length.
 
+To render a lens by its physical focal length on any sensor, give `simulateCapture()` or the display view `lens.ideal: { focalLengthMm }` with any `lens.fNumber` within `IDEAL_LENS_LIMITS` (f/0.5–f/128, 1–4000 mm): an aberration-free thin lens that is not scaled by the crop factor, unlike `lens.prime` (see docs/QUICK_START.md, "Ideal lens at any focal length and f-number").
+
 `calculateImagingAreaMetrics()` provides the same canonical diagonal crop-factor calculation, independent of raster density, so other engine modules do not need to repeat that formula.
 
 ## Focus-breathing projection

@@ -3933,6 +3933,11 @@
       "kind": "type"
     },
     {
+      "name": "IDEAL_LENS_LIMITS",
+      "source": "src/equipment/ideal-lens.ts",
+      "kind": "runtime"
+    },
+    {
       "name": "IdealApertureGeometry",
       "source": "src/optics/aperture.ts",
       "kind": "type"
