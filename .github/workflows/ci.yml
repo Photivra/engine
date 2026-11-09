@@ -46,6 +46,14 @@ jobs:
           node-version: "lts/*"
       - name: Test the CI scope and proof rules
         run: node --test .github/test-ci-tools.mjs
+      - name: Check the Node matrix against the support policy
+        # The matrix, the required checks, publish.yml, NODE_SUPPORT.md and engines.node must
+        # agree with the roles of .github/node-lts-policy.mjs (photivra/photivra#231). Under a
+        # second, in this job only: no job and no install of its own. Findings that need an
+        # owner decision (two legs on one runtime) print as notices and do not fail.
+        run: |
+          node --test .github/test-node-ci-roles.mjs
+          node .github/node-ci-roles.mjs
       - name: Classify the change
         id: scope
         env:

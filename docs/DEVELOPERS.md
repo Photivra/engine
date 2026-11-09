@@ -153,6 +153,23 @@ The scan and the other required checks run on pull requests and on merge-queue e
 
 CI tests a tree once per runtime ([#510](https://github.com/photivra/photivra/issues/510)). A job that passes uploads a proof artifact named by the tree, the job and the Node.js release (`.github/ci-proof.mjs`). A merge-queue entry, a push to `main` or the publish workflow's coverage gate skips a job's work when that proof exists for its exact tree and runtime from a run of this repository; a pull request never skips on a proof. A change that touches only Markdown no test reads (`.github/ci-scope.mjs`) skips the test suite and coverage and keeps the static, documentation, packed-consumer, package and licence gates. `--shard=k/n` splits files by the measured times in `test/shard-weights.json`; re-record them from the `coverage-timings-k` artifacts of a CI run with `node scripts/record-shard-weights.mjs <reports> --source "<run>"`.
 
+The `change scope` job checks the Node.js matrix against the support policy (`.github/node-ci-roles.mjs`, [#231](https://github.com/photivra/photivra/issues/231)): the `test` and required `verify` lines, the primary `lts/*` jobs, `publish.yml`, the alias table in [NODE_SUPPORT.md](../NODE_SUPPORT.md) and `engines.node` must agree with the roles of `.github/node-lts-policy.mjs`, or the check fails. It takes under a second in a job that already runs. Findings that need an owner decision print as notices: since Node 26 entered LTS (2026-10-28), the `node` and `lts/*` legs both run Node 26.13.0, and the primary leg is Node 26 while the tooling major is 24.
+
+Runner time, measured from the job start and end times of GitHub Actions runs (25 pull-request runs of `ci.yml` that ran the tests, 2026-10-31 to 2026-11-09, runs 41239798152 to 42673865424; one docs-only run left out). Minutes are job wall time summed per leg; "billed" rounds each job up to a whole minute, as GitHub does. Standard runners are free for this public repository, so these are runner minutes, not costs.
+
+| Leg (jobs) | Median min | Range | Billed median | Last 3 runs (2.17.0–2.19.0) median |
+| --- | --- | --- | --- | --- |
+| `22.13.0` (3 test parts + verify) | 13.4 | 11.1–24.6 | 16 | 21.2 |
+| `lts/-1` (3 + verify) | 13.7 | 10.6–23.8 | 17 | 23.2 |
+| `node` (3 + verify) | 13.6 | 10.3–23.6 | 15 | 15.9 |
+| `lts/*` (4 coverage shards + `verify (lts/*)`) | 43.5 | 37.8–58.0 | 45 | 56.7 |
+| `licence scan` | 6.5 | 3.8–6.8 | 7 | 6.5 |
+| `change scope` | 0.1 | 0.1–0.3 | 1 | 0.2 |
+| Linux total per run | 90.1 | 78.8–136.7 | 101 | 121.2 |
+| `hash locks (macos-latest)` | 1.5 | 1.0–2.1 | 2 | 1.7 |
+
+A push to `main` runs only `main smoke` (0.4–2.2 min, 3 runs). Re-measure after a CI change from `gh run list --workflow ci.yml` and the run's jobs (`gh api repos/Photivra/photivra/actions/runs/<id>/jobs`), without starting runs for the purpose.
+
 Write the report outside the repository, or the next scan will include it. `-n "$(nproc)"` runs one scan process per CPU, as CI does.
 
 To add an allowlist entry, add one object with `path`, the exact `license` (or `holder`) string from the failure message, and a `reason` that says why the material is allowed. Record any third-party material in [THIRD_PARTY.md](../THIRD_PARTY.md). A new or widened entry needs the owner's review in the pull request before merge. Never add a directory-wide or wildcard entry.

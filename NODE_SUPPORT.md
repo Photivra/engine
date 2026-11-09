@@ -70,6 +70,8 @@ A broad `engines.node` range is a compatibility hint. It is not evidence of supp
 
 `.github/test-node-lts-policy.mjs` tests the acceptance and rejection boundaries, the grace period and the look-ahead against recorded release data. Both scripts run before dependency installation in every Node CI job. That includes each verification matrix leg and the `native-performance.yml` benchmark job (path-filtered and nightly).
 
+`.github/node-ci-roles.mjs` derives the CI roles from the same snapshot: the exact `engines.node` minimum, the maintained LTS majors, the Current major, the primary leg (`lts/*`) and the tooling major. The `change scope` job checks the files against them on every pull request and merge-queue entry, so the matrix cannot drift from the policy unnoticed. It fails when the `test` and `verify` lines differ, when an exact-version leg is not the `engines.node` minimum, when the primary jobs or `publish.yml` leave their roles, when the alias table above differs from the matrix, or when a supported line has no leg. It reports two legs on one runtime, a primary leg off the tooling major and a line tested only at its minimum as notices for review. `.github/test-node-ci-roles.mjs` tests it on the repository's files across the lifecycle transitions.
+
 The lifecycle snapshot is local and reviewed. Ordinary CI does not fetch it from the network. It uses UTC dates and fails closed on the recorded end-of-life date.
 
 Reverify the official schedule:
