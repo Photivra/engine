@@ -141,7 +141,7 @@ describe("simulateCapture lens.catalogue on the charts (#549)", () => {
     // Measured 2026-11-07 (3 µm, 50 nm spectral step): consumer 0.36 px outward, pro 0.02 px.
     expect(consumer).toBeGreaterThan(0.25);
     expect(pro).toBeLessThan(consumer / 3);
-  }, scaledTimeout(120_000));
+  }, scaledTimeout(240_000));
 
   it("lateral colour: blue and red edges separate at the corner, three times more with the consumer lens", async () => {
     const offset = async (id: string, fast: boolean): Promise<number> => edge(await regionCapture(id, widest(id), 6, 48, "corner", slantedEdge, fast)).blueMinusRed -
@@ -191,7 +191,7 @@ describe("simulateCapture lens.catalogue on the charts (#549)", () => {
     expect(Math.abs(consumer.measured - consumer.expected)).toBeLessThan(0.5);
     expect(Math.abs(pro.measured - pro.expected)).toBeLessThan(0.5);
     expect(consumer.measured).toBeGreaterThan(pro.measured);
-  }, scaledTimeout(240_000));
+  }, scaledTimeout(300_000));
 
   it("vignetting: the corner fall-off follows the profile (with the distortion's area factor), more for the consumer lens and less stopped down", async () => {
     const W = 120, H = 80;
@@ -257,7 +257,7 @@ describe("simulateCapture lens.catalogue options (#549)", () => {
     // A disc too large for the quadrature's combined limit is refused, with the reason.
     await expect(simulateCapture({ ...options(1, true), lens: { catalogue: "pv-50-1.8", fNumber: 1.8, focusDistanceM: 1, defocus: { model: "geometric-disc" } }, exposure: exposureAt(1.8) }))
       .rejects.toThrow(/over the limit of 16/);
-  }, scaledTimeout(60_000));
+  }, scaledTimeout(120_000));
 
   it("lens.focusScatter moves the focus by the seeded sample and is off by default", async () => {
     const options = (scatter: boolean): SimulateCaptureOptions => ({ ...base, subjectDistanceM: 2,

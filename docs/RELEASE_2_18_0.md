@@ -86,7 +86,8 @@ Apple M5 Pro, Node.js 24.19.0, load average about 2.5, on the integrated tree:
 ## For the owner
 
 - **Moved to 2.19.0:** #570, #571 and #566 (#566's breaking orientation fix, decided for 2.18.0 on 2026-11-07, moves with them).
-- **The ideal lens in program mode:** the program line runs f/4–f/16, so an ideal range that does not hold it is refused in program mode (shutter priority, aperture priority and manual take any range). Making the program line follow a lens's range would also change *PV 800 9*'s program refusals; it is left as is.
+- **The ideal lens in program mode (owner, 2026-11-09: "stays as is for 2.19.0"):** the program line runs f/4–f/16, so an ideal range that does not hold it is refused in program mode, as `lens.prime` and `lens.catalogue` ranges are (shutter priority, aperture priority and manual take any range).
+- **The exposure anchor (owner, 2026-11-09: accepted):** a lens whose range excludes f/8 takes the reference exposure at the aperture of its range closest to f/8, with the same N²/t. That is *PV 800 9*'s widest, as #569 had it, and the narrowest for an ideal range below f/8; no other lens changes.
 
 ## Release gates
 
