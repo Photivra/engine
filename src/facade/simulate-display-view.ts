@@ -218,7 +218,9 @@ function prepareView(context: DisplayViewRunContext): PreparedViewParts {
   // the view's radiances, irradiance scale and scene-illuminant white balance have the same bits in every JavaScript
   // engine; they differ from the capture's own by at most a few ulps (docs/DISPLAY_VIEW.md, "Same bytes in every engine").
   const viewIlluminant = resolvePortableCaptureIlluminant(illuminantOption), viewIrradianceScale = calculateIlluminantIrradianceScale(viewIlluminant.shape, illuminanceLux);
-  const viewProvider = buildProvider(viewIlluminant, viewIrradianceScale);
+  const stillViewProvider = buildProvider(viewIlluminant, viewIrradianceScale);
+  // #551: a moving subject is read at each temporal midpoint as radiance (no material tables).
+  const viewProvider = context.movingScene ? context.movingScene(stillViewProvider, viewIrradianceScale, (nm) => viewIlluminant.shape.evaluate(nm)) : stillViewProvider;
   const viewWhiteBalanceState = whiteBalanceOption === "scene-illuminant" ? sceneIlluminantWhiteBalance(viewIlluminant) : kelvinInput ? resolvePortableColorTemperatureWhiteBalance(kelvinInput) : whiteBalanceState;
   // The chart's materials likewise (a step wedge's geometric levels use the portable power); same geometry and order.
   const viewChart = chart ? resolvePortableChartScene({ scene: sceneOption as ChartScene, aspect: chartSize ? chartSize.heightM / chartSize.widthM : aspect }) : undefined;
@@ -236,7 +238,7 @@ function prepareView(context: DisplayViewRunContext): PreparedViewParts {
   const diffractionRadius = diffraction ? diffraction.kernelRadiusSamples : 0, combinedRadius = defocusKernel ? diffractionRadius + defocusKernel.radius : diffractionRadius;
   const { offsets, signalInput } = buildExpectedSignalInput({ nativeWidth, nativeHeight, width, wavelengths, perNode, apertureNodes: apertureNodeOffsets(boxSamples), boxSamples,
     antiAliasing, pitch, defocus: defocusKernel, ...(context.lensPsf ? { lensKernels: context.lensPsf.axisKernels(wavelengths) } : {}), diffraction: diffraction ? { radius: diffraction.kernelRadiusSamples, psf: diffractionPsf!.configuration.psf, profileWavelengths: diffraction.profile.axes.wavelengthNm } : undefined,
-    materials: sceneMaterials && provider.chartMaterialAt ? { materialAt: provider.chartMaterialAt,
+    materials: sceneMaterials && provider.chartMaterialAt && !context.movingScene ? { materialAt: provider.chartMaterialAt,
       list: [...sceneMaterials.map((m, index) => (m.kind === "neutral" ? { neutral: m.reflectance } : { radiance: (nm: number): number => viewProvider.materialRadiance!(index, nm) })),
         ...(chartSize ? [{ neutral: chartSize.surroundReflectance }] : [])],
       whiteRadiance: (nm: number): number => viewIrradianceScale * viewIlluminant.shape.evaluate(nm) / Math.PI } : undefined,

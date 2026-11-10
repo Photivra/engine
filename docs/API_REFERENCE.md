@@ -1576,6 +1576,14 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 | [`CalculateProjectedMotionBlurInput`](api/motion-projected-motion.md#calculateprojectedmotionblurinput) | Type |
 | [`ProjectedMotionBlur`](api/motion-projected-motion.md#projectedmotionblur) | Type |
 
+## motion/subject-motion.ts
+
+[Detailed contracts](api/motion-subject-motion.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/motion/subject-motion.ts)
+
+| Export | Kind |
+| --- | --- |
+| [`SimulateCaptureSubjectMotion`](api/motion-subject-motion.md#simulatecapturesubjectmotion) | Type |
+
 ## motion/temporal-exposure-sum.ts
 
 [Detailed contracts](api/motion-temporal-exposure-sum.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/motion/temporal-exposure-sum.ts)

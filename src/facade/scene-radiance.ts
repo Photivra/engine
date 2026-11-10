@@ -211,8 +211,11 @@ export interface PlanarSceneRadianceProvider {
   providerProfileId: string;
   evaluateRadiance(request: Readonly<SceneRadianceEvaluationRequest>): SceneRadianceEvaluationResult;
   evaluateApertureRadiance(request: Readonly<SceneRadianceEvaluationRequest>, ray: Readonly<SensorApertureRay>): SceneRadianceEvaluationResult;
-  /** Spectral radiance at a plane point (frame units), the same value the callbacks return. */
-  radianceAt(u: number, v: number, wavelengthNanometers: number): number;
+  /**
+   * Spectral radiance at a plane point (frame units), the same value the callbacks return. #551: a moving subject's provider
+   * reads it at time `t` (seconds from the first opening, default 0); a still scene ignores it.
+   */
+  radianceAt(u: number, v: number, wavelengthNanometers: number, t?: number): number;
   /**
    * 2.3, chart scenes only: the chart material at a plane point (frame units), or `materials.length` for the
    * surround of a fixed-size chart; `materialRadiance` gives that material's spectral radiance, the same value

@@ -8057,6 +8057,18 @@ const rolling = await simulateCapture({ scene: { preset: "checkerboard" }, motio
 console.log(rolling.request.siteInput(7 * 8).charge.completenessProfile.startOffsetSecondsFromOpeningReference);
 ```
 
+`motion.subject` (2.22.0) moves the subject instead: the whole scene, or one `region` of it over a still background,
+at `velocityMPerSec` on the scene plane, optionally rotating at `angularVelocityRadPerSec` about the optical axis. It
+uses the same temporal midpoints, so a rolling shutter skews the moving subject. The display view renders sideways
+motion under a global shutter and refuses the rest. See [Subject motion](QUICK_START.md#subject-motion).
+
+```ts
+import { simulateCapture } from "@photivra/engine";
+
+const moving = await simulateCapture({ scene: { preset: "slanted-edge" }, motion: { subject: { velocityMPerSec: { x: 0.5 } } }, output: { width: 8, height: 8 } });
+console.log(moving.assumptions.find((a) => a.id === "motion.subject")?.value);
+```
+
 ## Equivalent f-number, sensor area and blur as a share of the frame
 
 `calculateSensorEquivalence()` says what a lens on one sensor corresponds to on a 36 × 24 mm frame (or on a `reference` you pass). Call it once per sensor to fill a lens table:

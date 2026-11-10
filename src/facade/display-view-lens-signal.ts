@@ -204,7 +204,7 @@ function createLensSignal(lens: DisplayViewLensSetup, input: DisplayViewExpected
         if (materials) {
           const m = materialOf(materials.materialAt(pu, pv)), si = spectralIndex[m]!;
           value = si < 0 ? reflectance[m]! * neutralDirect[c]! : spectralDirect[c]![si]!; lookups++;
-        } else { value = 0; for (let n = 0; n < nodes; n++) value += A[c]![n]! * radianceAt!(pu, pv, input.wavelengthsNm[n]!); lookups += nodes; }
+        } else { value = 0; for (let n = 0; n < nodes; n++) value += A[c]![n]! * radianceAt!(pu, pv, input.wavelengthsNm[n]!, times[ti]!); lookups += nodes; }
         sum += offsets[o]!.weight * (pf * value);
       }
       total += sum;
@@ -230,7 +230,7 @@ function createLensSignal(lens: DisplayViewLensSetup, input: DisplayViewExpected
     map((p + 0.5 + group.fx - W / 2) * mmPerSite, (q + 0.5 + group.fy - H / 2) * mmPerSite, times[ti]!);
     lf = pf;
     if (materials) { lm = materialOf(materials.materialAt(pu, pv)); lookups++; }
-    else { for (let n = 0; n < nodes; n++) radiance[n] = radianceAt!(pu, pv, input.wavelengthsNm[n]!); lookups += nodes; }
+    else { for (let n = 0; n < nodes; n++) radiance[n] = radianceAt!(pu, pv, input.wavelengthsNm[n]!, times[ti]!); lookups += nodes; }
     if (k >= 0) {
       tagQ[k] = q; tagP[k] = p; cacheFactor[k] = lf;
       if (materials) cacheMaterial[k] = lm; else for (let n = 0; n < nodes; n++) cacheRadiance[k * nodes + n] = radiance[n]!;
@@ -296,7 +296,7 @@ function createLensSignal(lens: DisplayViewLensSetup, input: DisplayViewExpected
           map((p0 + i + 0.5 + group.fx - W / 2) * mmPerSite, (q0 + j + 0.5 + group.fy - H / 2) * mmPerSite, times[ti]!);
           factor[k] = pf;
           if (material) material[k] = materialOf(materials!.materialAt(pu, pv));
-          else for (let n = 0; n < nodes; n++) values![k * nodes + n] = radianceAt!(pu, pv, input.wavelengthsNm[n]!);
+          else for (let n = 0; n < nodes; n++) values![k * nodes + n] = radianceAt!(pu, pv, input.wavelengthsNm[n]!, times[ti]!);
         }
         lookups += material ? gw * gh : gw * gh * nodes;
         for (let c = 0; c < 3; c++) {
@@ -373,7 +373,7 @@ function createLensSignal(lens: DisplayViewLensSetup, input: DisplayViewExpected
     try {
       for (let ti = 0; ti < T; ti++) {
         map(xMm, yMm, times[ti]!);
-        const value = beyond ? -1 : materials ? materials.materialAt(pu, pv) : radianceAt!(pu, pv, pilotNode);
+        const value = beyond ? -1 : materials ? materials.materialAt(pu, pv) : radianceAt!(pu, pv, pilotNode, times[ti]!);
         lookups++;
         if (ti === 0) first = value; else if (value !== first) return NaN;
       }

@@ -144,7 +144,7 @@ a capture does. `motion.rotation` is a non-zero angular velocity; `sensor.tempor
 
 ```ts
 SIMULATE_CAPTURE_COST_OPTIONS = Object.freeze(["lens.pupilSampling", "lens.projection", "lens.distortion", "lens.vignetting", "lens.psf",
-  "lens.diffraction", "lens.defocus", "lens.catalogue", "sensor.antiAliasing", "sensor.pixelAperture.box", "sensor.temporalSampleCount", "motion.rotation", "motion.shutter.rolling", "output.borderHandling.mirror", "output.region",
+  "lens.diffraction", "lens.defocus", "lens.catalogue", "sensor.antiAliasing", "sensor.pixelAperture.box", "sensor.temporalSampleCount", "motion.rotation", "motion.subject", "motion.shutter.rolling", "output.borderHandling.mirror", "output.region",
   "output.whiteBalance.auto", "output.demosaic.ahd", "output.highlightMode.reconstruct", "output.colorEncoding.wide-gamut", "output.gamutMapping.perceptual",
   "output.diffractionCorrection", "output.sharpening", "output.lensCorrections", "output.format.jpeg", "output.format.png", "output.format.dng"] as const)
 ```
@@ -175,7 +175,7 @@ the record form with `fast` and is reported in `diagnostics.fast.applied` when i
 whether or not it has a fast method yet; one without runs exact and reports `false`.
 
 ```ts
-SIMULATE_CAPTURE_FAST_OPTIONS = Object.freeze(["lens.diffraction", "lens.catalogue", "sensor.antiAliasing", "sensor.pixelAperture.box", "output.demosaic.ahd"] as const)
+SIMULATE_CAPTURE_FAST_OPTIONS = Object.freeze(["lens.diffraction", "lens.catalogue", "sensor.antiAliasing", "sensor.pixelAperture.box", "output.demosaic.ahd", "motion.subject"] as const)
 ```
 
 ## SIMULATE_CAPTURE_METERING_MODES
@@ -529,6 +529,11 @@ export interface SimulateCaptureMotion {
   shutter?: "global" | "rolling";
   /** Rolling shutter only: time from the first to the last line over the simulated frame, in s. Default: the body's declared readout skew. */
   rollingShutterSkewSeconds?: number;
+  /**
+   * #551: a moving subject: the whole scene, or one rectangle of it over a still background, translating on the scene plane
+   * (and optionally rotating about the optical axis) during the exposure. Off by default (a still scene).
+   */
+  subject?: SimulateCaptureSubjectMotion;
 }
 ```
 

@@ -116,6 +116,7 @@ import { correctDiffractionInPlace, defaultDiffractionCorrectionRadiusPixels, de
   parseUnsharpMaskSettings, renderSdrWithUnsharpMaskInPlace, DEVELOPMENT_DETAIL_MODEL_VERSION, type DiffractionCorrectionSettings,
   type UnsharpMaskSettings } from "../processing/development-detail.js";
 import { resolveSensorReadoutRegime } from "../sensor/raw-readout.js";
+import { createSubjectMotionProvider, subjectTravelM, type SimulateCaptureSubjectMotion, type SubjectMotion } from "../motion/subject-motion.js";
 import { characterizeReadout, parseSensorCharacteristics, sensorReport, SENSOR_CHARACTERISTIC_KEYS, type SimulateCaptureSensorCharacteristics, type SimulateCaptureSensorReport } from "../sensor/sensor-characteristics.js";
 import { resolveChartScene, chartMaterialInputs, CHART_SCENE_PRESETS, type ChartScene, type ResolvedChartScene } from "./chart-scenes.js";
 import { resolveChartMaterialLayers, type ChartMaterialLayerScene, type ResolvedChartMaterialLayers } from "./chart-material-layers.js";
@@ -367,6 +368,11 @@ export interface SimulateCaptureMotion {
   shutter?: "global" | "rolling";
   /** Rolling shutter only: time from the first to the last line over the simulated frame, in s. Default: the body's declared readout skew. */
   rollingShutterSkewSeconds?: number;
+  /**
+   * #551: a moving subject: the whole scene, or one rectangle of it over a still background, translating on the scene plane
+   * (and optionally rotating about the optical axis) during the exposure. Off by default (a still scene).
+   */
+  subject?: SimulateCaptureSubjectMotion;
 }
 
 export interface SimulateCaptureOptions {
@@ -667,7 +673,7 @@ export interface SimulateCaptureOptions {
  * a capture does. `motion.rotation` is a non-zero angular velocity; `sensor.temporalSampleCount` a count above 1.
  */
 export const SIMULATE_CAPTURE_COST_OPTIONS = /* @__PURE__ */ Object.freeze(["lens.pupilSampling", "lens.projection", "lens.distortion", "lens.vignetting", "lens.psf",
-  "lens.diffraction", "lens.defocus", "lens.catalogue", "sensor.antiAliasing", "sensor.pixelAperture.box", "sensor.temporalSampleCount", "motion.rotation", "motion.shutter.rolling", "output.borderHandling.mirror", "output.region",
+  "lens.diffraction", "lens.defocus", "lens.catalogue", "sensor.antiAliasing", "sensor.pixelAperture.box", "sensor.temporalSampleCount", "motion.rotation", "motion.subject", "motion.shutter.rolling", "output.borderHandling.mirror", "output.region",
   "output.whiteBalance.auto", "output.demosaic.ahd", "output.highlightMode.reconstruct", "output.colorEncoding.wide-gamut", "output.gamutMapping.perceptual",
   "output.diffractionCorrection", "output.sharpening", "output.lensCorrections", "output.format.jpeg", "output.format.png", "output.format.dng"] as const);
 export type SimulateCaptureCostOption = typeof SIMULATE_CAPTURE_COST_OPTIONS[number];
@@ -677,7 +683,7 @@ export type SimulateCaptureCostOption = typeof SIMULATE_CAPTURE_COST_OPTIONS[num
  * the record form with `fast` and is reported in `diagnostics.fast.applied` when it runs. Every one of them takes the flag,
  * whether or not it has a fast method yet; one without runs exact and reports `false`.
  */
-export const SIMULATE_CAPTURE_FAST_OPTIONS = /* @__PURE__ */ Object.freeze(["lens.diffraction", "lens.catalogue", "sensor.antiAliasing", "sensor.pixelAperture.box", "output.demosaic.ahd"] as const);
+export const SIMULATE_CAPTURE_FAST_OPTIONS = /* @__PURE__ */ Object.freeze(["lens.diffraction", "lens.catalogue", "sensor.antiAliasing", "sensor.pixelAperture.box", "output.demosaic.ahd", "motion.subject"] as const);
 export type SimulateCaptureFastOption = typeof SIMULATE_CAPTURE_FAST_OPTIONS[number];
 
 /** `diagnostics.fast` of a capture or display view (#395): what was asked for and what ran. */
@@ -1658,6 +1664,8 @@ export interface DisplayViewRunContext {
    * through the lens (display-view-lens-signal.ts, loaded on demand); undefined without them (the rectilinear expected signal).
    */
   lens?: ((input: DisplayViewExpectedSignalInput, spanColumns?: number) => DisplayViewExpectedSignal) | undefined;
+  /** #551: with motion.subject, the moving scene of a provider (its irradiance scale and illuminant shape give the revealed background). */
+  movingScene?: ((base: PlanarSceneRadianceProvider, scale: number, shape: (nm: number) => number) => PlanarSceneRadianceProvider) | undefined;
   /** #569: with `lens.catalogue`, the field-dependent PSF the lens signal reads (createDisplayViewLensPsf, display-view-lens-signal.ts); its axis kernels set the expected signal's lattice. */
   lensPsf?: DisplayViewLensPsf | undefined;
   diffractionPsf: { kind: "sampled-local"; configuration: Pick<CalculateSensorPsfIrradianceQuadratureInput, "psf" | "psfWavelengthBasis" | "spatialModel">; } | undefined;
@@ -2018,7 +2026,25 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   }
 
   // Motion (2.0): constant camera rotation and the shutter type.
-  const motionOptions = allowKeys(top.motion, "motion", ["angularVelocityRadPerSec", "shutter", "rollingShutterSkewSeconds"]);
+  const motionOptions = allowKeys(top.motion, "motion", ["angularVelocityRadPerSec", "shutter", "rollingShutterSkewSeconds", "subject"]);
+  // #551: the moving subject (subject-motion.ts); its plane points depend on time, as camera rotation's rays do.
+  let subject: SubjectMotion | undefined, subjectFast: boolean | undefined;
+  if (motionOptions.subject !== undefined) {
+    const record = allowKeys(motionOptions.subject, "motion.subject", ["velocityMPerSec", "angularVelocityRadPerSec", "region", "fast"]);
+    const v = allowKeys(record.velocityMPerSec, "motion.subject.velocityMPerSec", ["x", "y"]), r = record.region === undefined ? undefined :
+      allowKeys(record.region, "motion.subject.region", ["centerXM", "centerYM", "widthM", "heightM"]);
+    // Each number finite and within ±10000 (m/s, rad/s, m); a missing velocity component or rate is 0.
+    const finite = (x: unknown, name: string, fallback?: 0): number => {
+      if (x === undefined && fallback === 0) return 0;
+      if (typeof x !== "number" || !Number.isFinite(x) || Math.abs(x) > 1e4) fail("motion.subject." + name + " must be a finite number within ±10000.");
+      return x as number;
+    };
+    subject = { vx: finite(v.x, "velocityMPerSec.x", 0), vy: finite(v.y, "velocityMPerSec.y", 0), omega: finite(record.angularVelocityRadPerSec, "angularVelocityRadPerSec", 0),
+      region: r && { cx: finite(r.centerXM, "region.centerXM"), cy: finite(r.centerYM, "region.centerYM"), hw: positive(r.widthM, "motion.subject.region.widthM") / 2,
+        hh: positive(r.heightM, "motion.subject.region.heightM") / 2 } };
+    subjectFast = fastOverride(record, "motion.subject");
+  }
+  if (subject && pupil) fail("motion.subject cannot be combined with lens.pupilSampling.");
   const angular = { pitch: 0, yaw: 0, roll: 0 };
   if (motionOptions.angularVelocityRadPerSec !== undefined) {
     const a = allowKeys(motionOptions.angularVelocityRadPerSec, "motion.angularVelocityRadPerSec", ["pitch", "yaw", "roll"]);
@@ -2035,7 +2061,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   const rollingSkewOption = motionOptions.rollingShutterSkewSeconds === undefined ? undefined : positive(motionOptions.rollingShutterSkewSeconds, "motion.rollingShutterSkewSeconds");
   // Diffraction runs as an object-space convolution when every PSF tap's source is another site centre seen
   // through one linear map (still camera, rectilinear, no distortion or field throughput); otherwise per tap.
-  const diffractionObjectSpace = diffractionRadiusOption !== undefined && !rotating && !lensFieldMapping && !vignetting;
+  const diffractionObjectSpace = diffractionRadiusOption !== undefined && !rotating && !subject && !lensFieldMapping && !vignetting;
 
   // Output and sensor
   const outputOptions = allowKeys(top.output, "output", ["width", "height", "format", "toneCurve", "toneCurveParameters", "highlightMode", "exposureCompensationStops", "whiteBalance", "jpegQuantizationStep",
@@ -2121,8 +2147,9 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   const spectralStep = positive(pick(sensorOptions, "spectralStepNanometers", "sensor.spectralStepNanometers", DEFAULTS.spectralStepNanometers,
     "Spectral midpoint quadrature over 380-780 nm with subintervals of at most 20 nm."), "sensor.spectralStepNanometers");
   if (spectralStep < 1 || spectralStep > 100) fail("sensor.spectralStepNanometers must be 1-100.");
-  const temporalSampleCount = integerIn(rotating ? pick(sensorOptions, "temporalSampleCount", "sensor.temporalSampleCount", ROTATING_TEMPORAL_SAMPLE_COUNT,
-    "Eight temporal midpoints across each site's exposure window sample the camera rotation (motion blur); raise it for long exposures or fast rotation.") :
+  let temporalSampleCount = integerIn(rotating || subject ? pick(sensorOptions, "temporalSampleCount", "sensor.temporalSampleCount", ROTATING_TEMPORAL_SAMPLE_COUNT,
+    rotating ? "Eight temporal midpoints across each site's exposure window sample the camera rotation (motion blur); raise it for long exposures or fast rotation." :
+      "Eight temporal midpoints sample the subject's motion; raise it for long streaks.") :
     pick(sensorOptions, "temporalSampleCount", "sensor.temporalSampleCount", DEFAULTS.temporalSampleCount,
       "One temporal sample: the static scene and still camera make more samples unnecessary."), "sensor.temporalSampleCount", 1, 256);
   const characteristics = parseSensorCharacteristics(sensorOptions);
@@ -2154,6 +2181,8 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
     // #563: projection, distortion, vignetting and rotation are supported (display-view-lens-signal.ts), except rotation under a rolling shutter.
     if (rotating && shutterKind === "rolling") unsupported("camera rotation with motion.shutter \"rolling\"", "every row has its own instants, so the view's " +
       "scene points of one instant would mix rows exposed at other times; use motion.shutter \"global\" for the view.");
+    if (subject && (shutterKind === "rolling" || subject.omega !== 0)) unsupported("motion.subject with a rolling shutter or angularVelocityRadPerSec",
+      "the view renders sideways motion under a global shutter only; simulateCapture renders both.");
     if (outputOptions.region !== undefined) unsupported("output.region", "pass the rectangle as view.region, in display pixels.");
     if (outputOptions.whiteBalance === "auto") unsupported("output.whiteBalance \"auto\"", "the capture measures it from its noisy full-resolution RAW; use \"scene-illuminant\" or a fixed white balance.");
     if (outputOptions.toneCurve !== undefined && outputOptions.toneCurve !== "identity" && outputOptions.toneCurve !== "positive-reinhard-per-channel")
@@ -2187,13 +2216,14 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   const fastTop = resolveFast(top.fast as boolean | undefined, fastFormatDefault(format, displayView ? "display-view" : idealReference ? "ideal-reference" : "capture"));
   const fastInUse: [SimulateCaptureFastOption, boolean, boolean | undefined][] = [["lens.diffraction", diffractionRadiusOption !== undefined, diffractionFast],
     ["lens.catalogue", catalogue !== undefined, catalogueFast],
-    ["sensor.antiAliasing", antiAliasing !== undefined, antiAliasingFast], ["sensor.pixelAperture.box", boxAperture, boxFast], ["output.demosaic.ahd", ahd, demosaicFast]];
+    ["sensor.antiAliasing", antiAliasing !== undefined, antiAliasingFast], ["sensor.pixelAperture.box", boxAperture, boxFast], ["output.demosaic.ahd", ahd, demosaicFast],
+    ["motion.subject", subject !== undefined, subjectFast]];
   const fastApplied: Partial<Record<SimulateCaptureFastOption, boolean>> = {};
   for (const [option, used] of fastInUse) if (used) fastApplied[option] = false;
   // #568: the catalogue's fast method, when requested (its record's flag, else the top-level one); whether it runs is decided with the RAW path.
   const catalogueFastRequested = catalogue !== undefined && resolveFast(catalogueFast, fastTop);
   let fastReport: SimulateCaptureFastReport = Object.freeze({
-    requested: fastTop || [diffractionFast, catalogueFast, antiAliasingFast, boxFast, demosaicFast].some((value) => value === true),
+    requested: fastTop || [diffractionFast, catalogueFast, antiAliasingFast, boxFast, demosaicFast, subjectFast].some((value) => value === true),
     defaultedFrom: top.fast === undefined ? "format" : "request", applied: Object.freeze({ ...fastApplied }), assurance: "engine-reference" as const });
   const markFast = (option: SimulateCaptureFastOption): void => {
     fastApplied[option] = true;
@@ -2315,7 +2345,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   // Radiance queries per native site: spectral subintervals × temporal midpoints × pupil rays × PSF taps.
   const psfTaps = lensPsf ? Math.max(1, ...((lensPsf.configuration.psf.profile.nodes ?? []) as readonly { kernel?: { widthSamples?: unknown; heightSamples?: unknown } }[])
     .map((node) => Number(node.kernel?.widthSamples) * Number(node.kernel?.heightSamples)).filter((taps) => Number.isSafeInteger(taps) && taps > 0)) : 1;
-  const queriesPerSite = temporalSampleCount * (Math.ceil((FACADE_SPECTRAL_RANGE_NANOMETERS.maximum - FACADE_SPECTRAL_RANGE_NANOMETERS.minimum) / spectralStep) + 1) *
+  let queriesPerSite = temporalSampleCount * (Math.ceil((FACADE_SPECTRAL_RANGE_NANOMETERS.maximum - FACADE_SPECTRAL_RANGE_NANOMETERS.minimum) / spectralStep) + 1) *
     (pupil ? pupil.radialSamples * pupil.angularSamples : 1) * psfTaps * (antiAliasing ? antiAliasing.components.length : 1) * boxSamples * boxSamples;
 
   // Scene and illuminant
@@ -2368,6 +2398,10 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
     limitations: Object.freeze(["Planar Lambertian scene under uniform illumination; no shadows, inter-reflection, gloss or fluorescence."]),
     ...(catalogue?.kind === "fisheye" ? { zeroBeyondHorizon: true as const } : {}) });
   const provider = buildProvider(illuminant, irradianceScale);
+  // #551: the moving subject's scene; renderers read it at each query's time. The revealed background is a neutral reflectance.
+  const movingScene = subject ? (base: PlanarSceneRadianceProvider, scale: number, shape: (nm: number) => number): PlanarSceneRadianceProvider =>
+    createSubjectMotionProvider(base, subject, subjectDistanceM, metresPerFrameUnit, (nm) => 0.18 * scale * shape(nm) / Math.PI) : undefined;
+  const sceneProvider = movingScene ? movingScene(provider, irradianceScale, (nm) => illuminant.shape.evaluate(nm)) : provider;
   // 2.6: a chart preset's evaluator is engine-built end to end (its results: the schema's exact keys, constant fields,
   // the request's identifiers, deep-frozen FACADE_EVIDENCE, UNCERTAINTY and limitations, and an engine-computed
   // radiance), so the native task may skip re-parsing the fixed parts. Caller scenes keep the full validation.
@@ -2540,6 +2574,20 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   fNumber = resolution.resolvedSettings.aperture ?? fNumber;
   shutterSeconds = resolution.resolvedSettings.shutterSeconds ?? shutterSeconds;
   const resolvedIso = resolution.resolvedSettings.iso ?? iso;
+  // #551: motion.subject's fast method: with the default count and a still camera, one midpoint per site of the streak, plus one.
+  if (subject) {
+    const streakSites = subjectTravelM(subject, shutterSeconds, metresPerFrameUnit * Math.hypot(1, aspect)) * width / (2 * metresPerFrameUnit), fewer = Math.ceil(streakSites) + 1;
+    if (sensorOptions.temporalSampleCount === undefined && !rotating && resolveFast(subjectFast, fastTop) && fewer < temporalSampleCount) {
+      queriesPerSite = queriesPerSite / temporalSampleCount * fewer;
+      temporalSampleCount = fewer;
+      markFast("motion.subject");
+      assume("fast.motion.subject", "model", { temporalSampleCount: fewer, streakSites }, "Fast: temporal midpoints less than one site apart along the subject's streak replace the default 8; exact is fast: false.");
+    }
+    assume("motion.subject", "model", { velocityMPerSec: { x: subject.vx, y: subject.vy }, angularVelocityRadPerSec: subject.omega,
+      region: subject.region ? { centerXM: subject.region.cx, centerYM: subject.region.cy, widthM: 2 * subject.region.hw, heightM: 2 * subject.region.hh } : null,
+      streakSites, timeReference: "first-opening-boundary-phase" },
+    "Rigid motion on the scene plane, read at each query's time (docs/QUICK_START.md, \"Subject motion\"); streakSites = v·T·m on the sensor.");
+  }
   if (!Number.isFinite(resolvedIso) || resolvedIso <= 0) fail("Exposure could not be resolved: the resolved ISO is not a positive finite number.");
   const isoReport = automaticIso ? { isoControl: "automatic" as const, autoIso: autoIsoReport(resolution, resolverCapabilities.iso, autoIsoShutterPolicy, autoIsoLimits, automaticSlowestShutter,
     autoIsoOptions.isoSteps === undefined ? undefined : autoIsoIsoSteps) } : { isoControl: "manual" as const };
@@ -2640,13 +2688,13 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   // #548: a lens field mapping, vignetting or camera rotation breaks that, so the capture then applies the disc in image space, on the sensor's
   // site lattice (defocus-image-space-provider.ts). #563: the display view reads the same geometry in any focus (display-view-lens-signal.ts).
   const imageSpaceOptions = [...(lensFieldMapping ? [lensOptions.distortion !== undefined ? (lensOptions.projection !== undefined ? "lens.projection, lens.distortion" : "lens.distortion") : "lens.projection"] : []),
-    ...(vignetting ? ["lens.vignetting"] : []), ...(rotating ? ["camera rotation"] : [])];
+    ...(vignetting ? ["lens.vignetting"] : []), ...(rotating ? ["camera rotation"] : []), ...(subject ? ["motion.subject"] : [])];
   const lensGeometry = (defocusModel !== undefined || displayView || diffractionRadiusOption !== undefined) && imageSpaceOptions.length > 0 ? prepareDefocusImageSpaceGeometry({ focalLengthMm, focusDistanceM,
     angularVelocityRadPerSec: angular, ...(lensFieldMapping ? { lensMapping: prepareEnvironmentLensFieldMapping(lensFieldMapping) } : {}), ...(vignetting ? { vignetting } : {}) }) : undefined;
   const defocusGeometry = defocusModel !== undefined ? lensGeometry : undefined;
   // #565: the in-focus PSF quadrature reads each tap's source on this lattice; with rotation under a rolling shutter (each row has its own
   // instants, so a band per instant, about 1.2× the time) that is lens.diffraction's exact method, and each tap's own point its fast one.
-  const rollingFastTaps = !displayView && rotating && shutterKind === "rolling" && diffractionRadiusOption !== undefined && lensGeometry !== undefined && resolveFast(diffractionFast, fastTop);
+  const rollingFastTaps = !displayView && (rotating || subject !== undefined) && shutterKind === "rolling" && diffractionRadiusOption !== undefined && lensGeometry !== undefined && resolveFast(diffractionFast, fastTop);
   if (rollingFastTaps) {
     markFast("lens.diffraction");
     assume("fast.lens.diffraction", "model", { method: "per-tap-source-points" }, "Fast: under rolling-shutter rotation each PSF tap reads the scene at its own source point, " +
@@ -2702,7 +2750,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
       ...(defocusBokeh ? { bokehOptions: defocusBokeh, bokeh: bokehSummary! } : {}),
       ...(defocusGeometry ? { imageSpace: (disc: ResolvedDefocusDisc): { options: readonly string[]; fieldVariation: DefocusFieldVariation } => {
         // Rotation with a rolling shutter: each row's instants differ, so one instant's image on the lattice would mix rows exposed at other times.
-        if (rotating && shutterKind === "rolling") fail("simulateCapture does not support lens.defocus out of focus with camera rotation and motion.shutter \"rolling\": the disc is applied " +
+        if ((rotating || subject) && shutterKind === "rolling") fail("simulateCapture does not support lens.defocus out of focus with camera rotation and motion.shutter \"rolling\" (or motion.subject with it): the disc is applied " +
           "to each temporal midpoint's image on the sensor lattice, and under a rolling shutter every row has its own instants, so each row would need its own image of the rows the disc " +
           "reaches (about 2R + 1 rows per row, R the kernel radius). Use motion.shutter \"global\", set lens.focusDistanceM equal to subjectDistanceM, or omit one of the options.");
         const temporalMidpointsSeconds = rotating ? Array.from({ length: temporalSampleCount }, (_, i) => (i + 0.5) * (shutterSeconds / temporalSampleCount)) : [];
@@ -3109,10 +3157,10 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   let diffractionMs = 0, defocusMs = 0, demosaicMs: number | undefined, encodeMs: number | undefined;
   const diffractedProvider = (window: { x: number; y: number; width: number; height: number } | undefined): PlanarSceneRadianceProvider =>
     // #548: the disc (or diffraction ⊛ disc) in image space, on the sensor's site lattice, through the mapping, field throughput and rotation.
-    defocusSiteKernels && defocusGeometry && defocusImageSpace ? createDefocusImageSpaceProvider({ base: provider, geometry: defocusGeometry, siteKernels: defocusSiteKernels.at,
+    defocusSiteKernels && defocusGeometry && defocusImageSpace ? createDefocusImageSpaceProvider({ base: sceneProvider, geometry: defocusGeometry, siteKernels: defocusSiteKernels.at,
       ...(defocusSiteKernels.large ? { largeKernel: defocusSiteKernels.large } : {}),
       wavelengthsNm: defocusSiteKernels.wavelengthsNm, kernelRadius: defocusSiteKernels.radius, nativeWidth, nativeHeight, sitePitchMicrometers: pitch, distanceM: subjectDistanceM,
-      metresPerFrameUnit, queryOffsetsSites, timesPerBand: temporalSampleCount, onConvolution: (ms) => { defocusMs += ms; }, ...(window ? { window } : {}),
+      metresPerFrameUnit, queryOffsetsSites, timesPerBand: temporalSampleCount, onConvolution: (ms) => { defocusMs += ms; }, ...(window ? { window } : {}), ...(subject ? { timeDependentScene: true } : {}),
       ...(bokehZones ? { fieldZones: bokehZones.zones } : {}) }) :
     defocusSiteKernels ? createDiffractedPlanarProvider({ base: provider, siteKernels: defocusSiteKernels.at, ...(defocusSiteKernels.large ? { largeKernel: defocusSiteKernels.large } : {}),
       wavelengthsNm: defocusSiteKernels.wavelengthsNm, kernelRadius: defocusSiteKernels.radius, nativeWidth, nativeHeight, outputWidth: width,
@@ -3127,10 +3175,10 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
       // The environment queries each site at each aperture node minus each split offset (sites, +x right, +y down).
       ...(antiAliasing || boxSamples > 1 ? { queryOffsetsSites } : {}) }) :
     // #565: the PSF quadrature reads each tap's source at its lattice point (a unit kernel on #548's lattice), so ties resolve as on the lattice.
-    diffraction && latticeTaps ? createDefocusImageSpaceProvider({ base: provider, geometry: lensGeometry, siteKernels: () => UNIT_SITE_KERNEL,
+    diffraction && latticeTaps ? createDefocusImageSpaceProvider({ base: sceneProvider, geometry: lensGeometry, siteKernels: () => UNIT_SITE_KERNEL,
       kernelRadius: 0, wavelengthsNm: diffraction.profile.axes.wavelengthNm, nativeWidth, nativeHeight, sitePitchMicrometers: pitch, distanceM: subjectDistanceM, metresPerFrameUnit,
       queryOffsetsSites: [-1, 0, 1].flatMap((k) => queryOffsetsSites.map((o) => ({ x: o.x + k * diffraction.kernelRadiusSamples, y: o.y + k * diffraction.kernelRadiusSamples }))),
-      timesPerBand: temporalSampleCount, ...(window ? { window } : {}) }) : provider;
+      timesPerBand: temporalSampleCount, ...(window ? { window } : {}), ...(subject ? { timeDependentScene: true } : {}) }) : sceneProvider;
   // Built on first use: a capture that takes the tabulated path (#394 step 2) never queries it, and its kernels cost a setup.
   let rawProviderBuilt: PlanarSceneRadianceProvider | undefined;
   const rawProvider = (): PlanarSceneRadianceProvider => (rawProviderBuilt ??= diffractedProvider(regionNative));
@@ -3216,7 +3264,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   if (displayViewLensPsf) assume("view.lensPsf", "model", { method: "piecewise-constant-field-zones", zoneSites: displayViewLensPsf.zoneSites, kernelRadiusSites: catalogueKernelRadius, scientificStatus: "approximation" },
   "Each site takes the lens PSF at its field zone's centre, where the capture resolves it at each query point (docs/DISPLAY_VIEW.md, \"Catalogue lenses\").");
   const lensSignal = viewLensKit ? viewLensKit.prepareDisplayViewLensSignal({ geometry: lensGeometry!,
-    times: rotating ? Array.from({ length: temporalSampleCount }, (_, i) => (i + 0.5) * (shutterSeconds / temporalSampleCount)) : [0], distanceM: subjectDistanceM, metresPerFrameUnit,
+    times: rotating || subject ? Array.from({ length: temporalSampleCount }, (_, i) => (i + 0.5) * (shutterSeconds / temporalSampleCount)) : [0], distanceM: subjectDistanceM, metresPerFrameUnit,
     pitch, imagingArea, boxSamples, spots: antiAliasing ? antiAliasing.components : [{ offsetMicrometers: { x: 0, y: 0 } }], psf: displayViewLensPsf, zeroBeyondHorizon: catalogue?.kind === "fisheye" }, nativeWidth, nativeHeight,
   (diffraction ? diffraction.kernelRadiusSamples : 0) + (displayViewDefocus ? (bokehAxisKernel?.radius ?? defocusDiscKernelRadius(displayViewDefocus.diameterSites)) : 0) + catalogueKernelRadius +
     Math.max(0, ...queryOffsetsSites.map((o) => Math.max(Math.abs(o.x), Math.abs(o.y)))) - 0.5, catalogue ? "lens.catalogue" : imageSpaceOptions.join(", ")) : undefined;
@@ -3227,7 +3275,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   const sensor = sensorReport(regimeByChannel.green.readoutProfile, regimeByChannel.green.regimeId, capacityElectrons, greyElectrons, DARK_CURRENT_ELECTRONS_PER_SECOND * shutterSeconds,
     { pixelPitchMicrometers: pitch, peakQuantumEfficiency: 0.5 * (characteristics?.qeScale ?? 1),
       readoutSeconds: characteristics?.readoutSeconds ?? (body as { rollingReadoutTiming?: { profile: { spatialSamplingSkewSeconds?: { value: number } } } }).rollingReadoutTiming?.profile.spatialSamplingSkewSeconds?.value ?? null }, fixedPattern);
-  if (displayView) return await renderView!({ sensor, viewFast: { ahd: viewAhdFast, uniformSampling: fastTop }, lens: lensSignal, lensPsf: displayViewLensPsf, ahd, fastReport, antiAliasing, aspect, assume, assumptions, axisChannelResponse, boxSamples, buildProvider, callerScene, chart, materialLayers, chartReport, chartSize, diffraction, defocus: displayViewDefocus, diffractionPsf, fNumber, focalLengthMm, focusDistanceM, height, highlightMode, exposureGain, illuminanceLux, illuminant, illuminantOption, imagingArea, intentOf, metresPerFrameUnit, noiseSeed, outputOptions, parsedView, pitch, preset, provider, regimeByChannel, resolvedIso, isoReport, standardExposureDeviationStops: exposureDeviationStops, standardExposureIlluminanceLux: exposureIlluminanceLux, greyCardDeviationStops: exposureGreyCardDeviationStops, metering, sceneOption, scenePreset, shutterSeconds, started, subjectDistanceM, toneCurve, whiteBalanceOption, whiteBalanceState, width, checkAbort, margin, mode, nativeHeight, nativeWidth, sourceSha256, yieldControl, kelvinWhiteBalanceInput });
+  if (displayView) return await renderView!({ sensor, viewFast: { ahd: viewAhdFast, uniformSampling: fastTop }, lens: lensSignal, lensPsf: displayViewLensPsf, movingScene, ahd, fastReport, antiAliasing, aspect, assume, assumptions, axisChannelResponse, boxSamples, buildProvider, callerScene, chart, materialLayers, chartReport, chartSize, diffraction, defocus: displayViewDefocus, diffractionPsf, fNumber, focalLengthMm, focusDistanceM, height, highlightMode, exposureGain, illuminanceLux, illuminant, illuminantOption, imagingArea, intentOf, metresPerFrameUnit, noiseSeed, outputOptions, parsedView, pitch, preset, provider, regimeByChannel, resolvedIso, isoReport, standardExposureDeviationStops: exposureDeviationStops, standardExposureIlluminanceLux: exposureIlluminanceLux, greyCardDeviationStops: exposureGreyCardDeviationStops, metering, sceneOption, scenePreset, shutterSeconds, started, subjectDistanceM, toneCurve, whiteBalanceOption, whiteBalanceState, width, checkAbort, margin, mode, nativeHeight, nativeWidth, sourceSha256, yieldControl, kelvinWhiteBalanceInput });
   // Ideal reference (2.3): the scene without camera effects, at the capture's own exposure, white balance and encoding.
   if (idealReference) {
     const referenceStarted = clockMs();
@@ -3280,7 +3328,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
     assume("reference.kind", "model", "ideal-reference",
       "An ideal reference, not a capture: the same scene, framing, chart size, output size, region and pixel grid as the capture request, with no camera effects.");
     assume("reference.excludes", "model", ["lens PSF, diffraction, defocus and pupil sampling", "projection and distortion (ideal rectilinear mapping)", "vignetting", "anti-aliasing filter",
-      "colour filter mosaic and demosaicing (every pixel has all three channels)", "photon, dark and read noise", "dark signal", "ADC rounding and non-linearity", "camera motion and rolling shutter"],
+      "colour filter mosaic and demosaicing (every pixel has all three channels)", "photon, dark and read noise", "dark signal", "ADC rounding and non-linearity", "camera motion and rolling shutter", ...(subject ? ["subject motion"] : [])],
     "None of these is applied; each pixel's channels come from the scene radiance at the pixel alone.");
     assume("reference.exposure", "model", { convention: "exposure-matched", fNumber, shutterSeconds, iso: resolvedIso, illuminanceLux,
       normalizedSignalPerElectron: { ...relativePerElectron } },
@@ -3333,7 +3381,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   // still camera, site-centre queries and a chart or material scene; verified per CFA phase against the exact chain within its tolerance.
   let catalogueFastRun: { columns: number; rows: number; resolved: number; verificationRelativeDifference: number } | undefined;
   const catalogueFastEligible = catalogueFastRequested && catalogueTaps !== undefined && lensKit !== undefined && lensPsf !== undefined && dngParts === undefined && tabulatedScene &&
-    !pupil && !rotating && boxSamples === 1 && !antiAliasing && distortion?.kind === "radial" && provider.chartMaterialAt !== undefined && provider.materialRadiance !== undefined;
+    !pupil && !rotating && !subject && boxSamples === 1 && !antiAliasing && distortion?.kind === "radial" && provider.chartMaterialAt !== undefined && provider.materialRadiance !== undefined;
   // The tabulated paths' channel response per spectral node and material tables (the fast catalogue path and the expected-signal path).
   const tabulatedTables = (): { wavelengths: number[]; perNode: [Float64Array, Float64Array, Float64Array]; materials: NonNullable<Parameters<typeof buildExpectedSignalInput>[0]["materials"]> } => {
     const { electronsPerRadiance, wavelengths } = axisChannelResponse("simulateCapture");
@@ -3358,7 +3406,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
     if (tabulated) catalogueFastRun = { ...signal.grid, verificationRelativeDifference: tabulated.verificationRelativeDifference };
   }
   // #553: a cat's eye varies the kernel over the field, which the expected-signal tables (one kernel per node) do not take.
-  else if (dngParts === undefined && tabulatedScene && !pupil && !lensFieldMapping && !vignetting && !lensPsf && !rotating && !bokehZones && (!diffraction || diffractionObjectSpace) && provider.chartMaterialAt && provider.materialRadiance) {
+  else if (dngParts === undefined && tabulatedScene && !pupil && !lensFieldMapping && !vignetting && !lensPsf && !rotating && !subject && !bokehZones && (!diffraction || diffractionObjectSpace) && provider.chartMaterialAt && provider.materialRadiance) {
     const { wavelengths, perNode, materials: tabulatedMaterials } = tabulatedTables();
     const { signalInput: builtSignalInput } = buildExpectedSignalInput({ nativeWidth, nativeHeight, width, wavelengths, perNode, apertureNodes: apertureNodeOffsets(boxSamples), boxSamples, antiAliasing, pitch,
       diffraction: diffraction && !defocusSiteKernels ? { radius: diffraction.kernelRadiusSamples, psf: diffractionPsf!.configuration.psf, profileWavelengths: diffraction.profile.axes.wavelengthNm } : undefined,
@@ -3660,7 +3708,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
     ...(distortion ? ["lens.distortion" as const] : []), ...(vignetting ? ["lens.vignetting" as const] : []), ...(lensPsf ? ["lens.psf" as const] : []),
     ...(catalogue ? ["lens.catalogue" as const] : []),
     ...(diffraction ? ["lens.diffraction" as const] : []), ...(defocusSiteKernels || catalogueDefocusApplied ? ["lens.defocus" as const] : []), ...(antiAliasing ? ["sensor.antiAliasing" as const] : []), ...(boxAperture ? ["sensor.pixelAperture.box" as const] : []),
-    ...(temporalSampleCount > 1 ? ["sensor.temporalSampleCount" as const] : []), ...(rotating ? ["motion.rotation" as const] : []),
+    ...(temporalSampleCount > 1 ? ["sensor.temporalSampleCount" as const] : []), ...(rotating ? ["motion.rotation" as const] : []), ...(subject ? ["motion.subject" as const] : []),
     ...(rollingSchedule ? ["motion.shutter.rolling" as const] : []), ...(mirrorBorder ? ["output.borderHandling.mirror" as const] : []), ...(region ? ["output.region" as const] : []),
     ...(needsAuto ? ["output.whiteBalance.auto" as const] : []), ...(ahd ? ["output.demosaic.ahd" as const] : []),
     ...(highlightMode === "reconstruct" ? ["output.highlightMode.reconstruct" as const] : []), ...(wideGamut ? ["output.colorEncoding.wide-gamut" as const] : []),

@@ -1853,6 +1853,7 @@ export { simulateCaptureFromParts } from "./facade/develop-joined-parts.js";
 export { EXPOSURE_BUILD_UP_MAXIMUM_FRACTIONS, EXPOSURE_BUILD_UP_STREAM_BASE, simulateExposureBuildUp, type SimulateExposureBuildUpFrame, type SimulateExposureBuildUpOptions,
   type SimulateExposureBuildUpResult } from "./facade/exposure-build-up.js";
 export type { SimulateCaptureSensorCharacteristics, SimulateCaptureSensorReport, SimulateCaptureNoiseComponents } from "./sensor/sensor-characteristics.js";
+export type { SimulateCaptureSubjectMotion } from "./motion/subject-motion.js";
 export { simulateDisplayView, prepareDisplayView, type PreparedDisplayView, type PreparedDisplayViewRenderOptions, serializeDisplayViewCorrectionStates, bindDisplayViewCorrectionStates,
   type DisplayViewCorrectionStateKeys, type DisplayViewCorrectionStateSet } from "./facade/simulate-display-view.js";
 export type { DisplayViewGpuMode, PrepareDisplayViewOptions, DisplayViewGpuFallbackReason, DisplayViewGpuConformance, DisplayViewExecution,
