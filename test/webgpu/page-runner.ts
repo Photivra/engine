@@ -223,6 +223,7 @@ export async function displayViewImagePlaneConformance(): Promise<string> {
 export async function displayViewQuality(payload: string): Promise<string> {
   const { options, view, maximumBandBytes, recomputeFlagged, repeat, timeCpu } = decodeTransport<{ options: SimulateCaptureOptions; view: SimulateDisplayViewOptions; maximumBandBytes?: number;
     recomputeFlagged?: boolean; repeat?: number; timeCpu?: boolean }>(payload);
+  await prepareImagePlaneScenes(); // #581: the image-plane cases (charts are unaffected)
   const fixture = await displayViewGpuFixture(options, view), device = await runtime();
   try {
     // The CPU reference's stages in this realm, on request (#479's AHD placement); then the GPU render with the realm's correction

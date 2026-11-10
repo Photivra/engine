@@ -51,7 +51,7 @@ describe("WGSL minification (#536)", () => {
       // The code outside the literals is unchanged.
       expect(minifyWgslTemplates(result.code).code).toBe(result.code);
     }
-    expect(literals).toBe(22);
+    expect(literals).toBe(23);
     expect(after).toBeLessThan(0.86 * before);
   });
 

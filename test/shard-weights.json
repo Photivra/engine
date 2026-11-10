@@ -80,7 +80,7 @@
   "test/display-view-exact-mean.test.ts": 10399,
   "test/display-view-gpu-option.test.ts": 397,
   "test/display-view-highlight.test.ts": 4681,
-  "test/display-view-image-gpu.test.ts": 42000,
+  "test/display-view-image-gpu.test.ts": 45000,
   "test/display-view-lens-catalogue-zones-box.test.ts": 160853,
   "test/display-view-lens-catalogue-zones.test.ts": 132432,
   "test/display-view-lens-catalogue.test.ts": 262500,

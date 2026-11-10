@@ -21,7 +21,7 @@ export interface ImagePlaneSupport {
 }
 /** Internal: the GPU side (src/gpu/display-view-image-material-module.ts), typed loosely so that this module imports no GPU code. */
 export interface ImagePlaneGpuSupport {
-  createDisplayViewImageModules(runtime: unknown): { moduleFor(gpu: DisplayViewGpuSetup, path: "dekker" | "fma"): Promise<unknown>; release(): void };
+  createDisplayViewImageModules(runtime: unknown, probe: (signal: AbortSignal) => Promise<unknown>): { moduleFor(gpu: DisplayViewGpuSetup, signal: AbortSignal): Promise<unknown>; release(): void };
   runImagePlaneConformance(runtime: unknown, signal: AbortSignal | undefined): Promise<true | string>;
 }
 

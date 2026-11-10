@@ -228,7 +228,7 @@ export interface ImagePlaneSignalScene {
   kind: "radiance";
   radianceAt(u: number, v: number, nm: number): number;
   signalAt(u: number, v: number, c: number): number;
-  image: { scene: ResolvedImagePlaneScene; tables: ImagePlaneChannelTables; surround: readonly [number, number, number] };
+  image: { scene: ResolvedImagePlaneScene; tables: ImagePlaneChannelTables; surround: readonly [number, number, number]; whiteRadiance: Float64Array; surroundReflectance: number };
 }
 /**
  * Internal (#581): a validated image-plane scene (src/facade/image-plane.ts, a lazily loaded module), placed on a print of
@@ -259,6 +259,10 @@ export interface ResolvedImagePlaneScene {
   sampleAt(cu: number, cv: number, nodeValues: Float64Array, neutral: number): number;
   /** One pixel (row-major index) in node values. */
   pixelValue(index: number, nodeValues: Float64Array, neutral: number): number;
+  /** One pixel's lattice cell (its base node r·25 + g·5 + b, returned) and its fractions within the cell per channel (written to `out[0..2]`). */
+  pixelLattice(index: number, out: Float64Array): number;
+  /** Every lattice node's reflectance at one wavelength (nm, 380–780). */
+  nodeReflectances(nm: number): Float64Array;
   /**
    * The print placed on the plane (frame point → print-local cu = u·scale/half, cv = v·scale/half; outside |cu| ≤ 1, |cv| ≤ aspect the
    * surround) as the expected signal's scene at these nodes, responses and white radiance (see `ImagePlaneSignalScene`).
@@ -396,8 +400,9 @@ export function buildPlanarSceneRadianceProvider(input: {
       // Fixed-size chart (2.3): chart-local frame units from the plane point in metres.
       const xM = u * scale, yM = v * scale, cu = xM / half, cv = yM / half;
       if (!(Math.abs(cu) <= 1 && Math.abs(cv) <= chartAspect)) return placed.surroundReflectance * irradianceScale * shapeAt(nm) / Math.PI;
-      if (chart) return chart.reflectanceAt(cu, cv, nm) * irradianceScale * shapeAt(nm) / Math.PI;
-      if (imageScene) return imageScene.reflectanceAt(cu, cv, nm) * irradianceScale * shapeAt(nm) / Math.PI;
+      // #581: an image-plane print, like a chart, in print-local units.
+      const planar = chart ?? imageScene;
+      if (planar) return planar.reflectanceAt(cu, cv, nm) * irradianceScale * shapeAt(nm) / Math.PI;
       return callerValue({ xM, yM, u, v, wavelengthNanometers: nm, chartU: cu, chartV: cv }, nm);
     }
     if (chart) return chart.reflectanceAt(u, v, nm) * irradianceScale * shapeAt(nm) / Math.PI;
@@ -552,7 +557,6 @@ export function createPlanarSceneRadianceProvider(input: {
 export function requireCallerScene(value: unknown): ResolvedCallerScene {
   requireInputObject(value, "scene");
   const record = value as Record<string, unknown>;
-  if (record.kind === "image-plane") throw new InvalidConfigurationError("Pass an image-plane scene to simulateCapture or the display view.");
   if (record.kind === "material-function") {
     for (const key of Object.keys(record)) if (key !== "kind" && key !== "sceneId" && key !== "materials" && key !== "materialAt") throw new InvalidConfigurationError("Unknown scene field: " + key + ".");
     if (typeof record.materialAt !== "function" || typeof record.sceneId !== "string" || !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$/.test(record.sceneId) ||

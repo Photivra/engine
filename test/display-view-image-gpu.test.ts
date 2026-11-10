@@ -8,12 +8,12 @@
  * (diffraction) falling back labeled. Real-device conformance: test/webgpu/display-view.webgpu.ts.
  */
 import { beforeAll, describe, expect, it } from "vitest";
-import { prepareImagePlaneScenes, prepareDisplayView } from "../src/index.js";
-import { IMAGE_PLANE_GPU_CASES, IMAGE_PLANE_GPU_LENS } from "./helpers/image-plane-fixtures.js";
+import { prepareImagePlaneScenes, prepareDisplayView, simulateDisplayView } from "../src/index.js";
+import { IMAGE_PLANE_GPU_CASES, IMAGE_PLANE_GPU_LENS, IMAGE_PLANE_GPU_QUALITY_CASES } from "./helpers/image-plane-fixtures.js";
 import { registerDisplayViewGpuRenderer } from "../src/gpu/display-view-quality-gpu.js";
 import { imagePlaneMaterialModuleId } from "../src/gpu/display-view-image-material-module.js";
 import { createFakeGpu } from "./helpers/fake-webgpu.js";
-import { SMALL_VIEW, compareDisplayViews, displayViewGpuFixture, materialModuleOf, renderOnGpu, runtimeOf } from "./helpers/display-view-gpu-fixture.js";
+import { SMALL_VIEW, compareDisplayViews, displayViewGpuFixture, materialModuleOf, renderOnGpu, renderOnGpuQuality, runtimeOf } from "./helpers/display-view-gpu-fixture.js";
 import { acceptanceOf } from "./helpers/display-view-acceptance-metrics.js";
 import { scaledTimeout } from "./helpers/test-timeout.js";
 
@@ -45,7 +45,47 @@ describe("display view Speed kernel with the image-plane module (float32 emulati
     runtime.destroy();
   }, scaledTimeout(300_000));
 
-  it("through prepareDisplayView: gpu \"auto\" renders a photo on the device, labeled; a request that needs the Quality passes runs the CPU reference, labeled", async () => {
+  // #581 (owner decision 2026-11-09): the Quality passes for photos: diffraction, the four-spot filter and AHD, defocus of the plane.
+  const qualityCases = IMAGE_PLANE_GPU_QUALITY_CASES;
+  it.each(qualityCases)("Quality: %s: inside the a-priori bounds, samples within one code", async (name, options, caseView) => {
+    const fixture = await displayViewGpuFixture(options, caseView), runtime = await runtimeOf(createFakeGpu().gpu);
+    const gpu = await renderOnGpuQuality(runtime, fixture), a = compareDisplayViews(fixture.cpu, gpu);
+    let byLattice = 0, byChoice = 0;
+    for (const i of gpu.flaggedPixelIndices) { if ((gpu.pixelFlags[i]! & 1) !== 0) byLattice++; if ((gpu.pixelFlags[i]! & 32) !== 0) byChoice++; }
+    report.push({ case: "quality: " + name, pixels: a.pixels, taps: gpu.tapsPerSite, flagged: gpu.flaggedPixelIndices.length, flaggedByLatticePoint: byLattice, flaggedByAhdChoice: byChoice, resolved: gpu.latticePointsResolved, deltaE2000Maximum: a.deltaEMaximum,
+      sigmaUnitsMaximum: a.sigmaUnitsMaximum, largestExpectedBoundRatio: a.largestExpectedRatio, largestVarianceBoundRatio: a.largestVarianceRatio, siteSumRelativeBound: gpu.siteSumRelativeBound });
+    expect(gpu.execution).toMatchObject({ backend: "webgpu-f32", arithmetic: "float32" });
+    expect(a.outsideExpectedBound).toBe(0);
+    expect(a.outsideVarianceBound).toBe(0);
+    expect(a.largestCodeDifference).toBeLessThanOrEqual(1);
+    expect(a.deltaEMaximum).toBeLessThan(0.01);
+    expect(Array.from(gpu.hostRecomputedPixelIndices)).toEqual(Array.from(gpu.flaggedPixelIndices));
+    expect(gpu.ahdCorrectedPixelCount).toBe(fixture.cpu.ahdCorrectedPixelCount);
+    if (name.startsWith("defocus")) expect(gpu.tapsPerSite).toBeGreaterThan(100);
+
+    runtime.destroy();
+  }, scaledTimeout(300_000));
+
+  it("Quality: a print edge exactly on the lattice: with kernels the host resolves the flagged points, without kernels their pixels are recomputed", async () => {
+    // The print's right edge at the lattice points u = (p + 0.5 + 0.75 − W/2)·g of the 2 × 2 box's 0.75 group: half its width is
+    // that u times the metres per frame unit, so cu = 1 there up to the reference's rounding, within every bound of the edge.
+    const base = cases[1]![1], outW = base.output!.width!, W = outW + 2, p = W / 2 + outW / 4 - 1, u = (p + 0.5 + 0.75 - W / 2) * 2 / outW;
+    const framed = (await simulateDisplayView(base, { width: 4, height: 4 })).scene.framedWidthM;
+    const placedAtLattice = { ...base, chartSize: { widthM: u * framed } }, edgeView = { ...SMALL_VIEW, region: { x: 140, y: 50, width: 40, height: 30 } };
+    for (const [options, kernels] of [[{ ...placedAtLattice, lens: { ...lens, diffraction: "circular-aperture" as const } }, true], [{ ...placedAtLattice, output: { ...base.output, demosaic: "ahd" as const } }, false]] as const) {
+      const fixture = await displayViewGpuFixture(options, edgeView), runtime = await runtimeOf(createFakeGpu().gpu);
+      const gpu = await renderOnGpuQuality(runtime, fixture), a = compareDisplayViews(fixture.cpu, gpu);
+      let byLattice = 0;
+      for (const i of gpu.flaggedPixelIndices) if ((gpu.pixelFlags[i]! & 1) !== 0) byLattice++;
+      report.push({ case: "quality: print edge on the lattice, " + (kernels ? "diffraction" : "AHD without kernels"), resolved: gpu.latticePointsResolved, flaggedByLatticePoint: byLattice, flagged: gpu.flaggedPixelIndices.length });
+      if (kernels) { expect(gpu.latticePointsResolved).toBeGreaterThan(0); expect(byLattice).toBe(0); } else expect(byLattice).toBeGreaterThan(0);
+      expect(a.outsideExpectedBound + a.outsideVarianceBound).toBe(0);
+      expect(a.largestCodeDifference).toBeLessThanOrEqual(1);
+      runtime.destroy();
+    }
+  }, scaledTimeout(300_000));
+
+  it("through prepareDisplayView: gpu \"auto\" renders a photo on the device, labeled, in the Speed and the Quality paths", async () => {
     const previous = registerDisplayViewGpuRenderer();
     try {
       const options = cases[0]![1], gpu = await prepareDisplayView(options, { gpu: "auto", gpuDevice: createFakeGpu().gpu }), cpu = await prepareDisplayView(options);
@@ -55,11 +95,11 @@ describe("display view Speed kernel with the image-plane module (float32 emulati
         expect(view.diagnostics.fast.execution.conformance).toMatchObject({ passed: true });
         for (let i = 0; i < reference.image.samples.length; i++) expect(Math.abs(view.image.samples[i]! - reference.image.samples[i]!)).toBeLessThanOrEqual(1);
       } finally { gpu.dispose(); cpu.dispose(); }
+      // #581 (owner decision 2026-11-09): a request that needs the Quality passes renders on the device too.
       const quality = await prepareDisplayView({ ...options, lens: { ...lens, diffraction: "circular-aperture" } }, { gpu: "auto", gpuDevice: createFakeGpu().gpu });
       try {
-        const execution = (await quality.render(SMALL_VIEW)).diagnostics.fast.execution;
-        expect(execution).toMatchObject({ backend: "cpu-reference", fallbackReason: "unsupported-on-backend" });
-        expect(execution.limitations.join(" ")).toMatch(/image-plane prints render on the GPU in the Speed path only/u);
+        const execution = (await quality.render({ ...SMALL_VIEW, region: { x: 70, y: 40, width: 24, height: 18 } })).diagnostics.fast.execution;
+        expect(execution).toMatchObject({ backend: "webgpu-f32", fallbackReason: null });
       } finally { quality.dispose(); }
     } finally { (await import("../src/facade/display-view-gpu.js")).setDisplayViewGpuRendererFactory(previous); }
     console.log("[display-view image-plane gpu] " + JSON.stringify(report));

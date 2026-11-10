@@ -282,6 +282,25 @@ export function displayViewSpeedQuantizationBound(moments: ArrayLike<number>, re
   return MARGIN * pixels * largest * step * step / 12;
 }
 
+/**
+ * Renders the display pixels `indices` (ascending, region row-major) with the reference, a run of consecutive pixels along a row
+ * as one region (#457: AHD's choice flags stretches near edges): a region render is byte-identical to the same pixels of the whole
+ * view, so each pixel equals its one-pixel render, and a run's counts are the sums of its pixels'.
+ */
+export async function recomputeRuns(setup: DisplayViewSetup, signalInput: DisplayViewExpectedSignalInput, indices: readonly number[], abort: AbortController,
+  take: (first: number, run: number, part: DisplayViewRenderResult) => void): Promise<void> {
+  const region = setup.region;
+  let reference: DisplayViewSetup["signal"] | undefined;
+  for (let r = 0; r < indices.length;) {
+    checkAbort(abort.signal);
+    const first = indices[r]!, rx = first % region.width, ry = (first - rx) / region.width;
+    let run = 1;
+    while (r + run < indices.length && indices[r + run] === first + run && rx + run < region.width) run++;
+    take(first, run, await renderDisplayView({ ...setup, signal: reference ??= createDisplayViewExpectedSignal(signalInput), region: { x: region.x + rx, y: region.y + ry, width: run, height: 1 } }));
+    r += run;
+  }
+}
+
 /** Renders one region of a Speed display view on the GPU (see the module comment). */
 export async function renderDisplayViewSpeedOnGpu(runtime: WebGpuRuntime, bandBytes: number, input: DisplayViewSpeedGpuInput, abort: AbortController,
   yieldControl: YieldControl, pipelines: PipelineSource): Promise<DisplayViewSpeedGpuResult> {
@@ -369,22 +388,12 @@ export async function renderDisplayViewSpeedOnGpu(runtime: WebGpuRuntime, bandBy
   const undecided: number[] = [], isFlagged = new Uint8Array(pixelCount);
   for (const i of flagged) isFlagged[i] = 1;
   for (let i = 0; i < pixelCount; i++) if (isFlagged[i] === 0 && (flagWords[DISPLAY_VIEW_FLAG_WORDS * i]! & 2) !== 0) undecided.push(i);
-  if (input.recomputeFlagged !== false && flagged.length + undecided.length > 0) {
-    const signal = createDisplayViewExpectedSignal(signalInput);
-    for (const i of flagged) {
-      checkAbort(abort.signal);
-      const rx = i % region.width, ry = (i - rx) / region.width;
-      const pixel = await renderDisplayView({ ...setup, signal, region: { x: region.x + rx, y: region.y + ry, width: 1, height: 1 } });
-      samples.set(pixel.samples, i * 3); expected.set(pixel.expected, i * 3); noiseStd.set(pixel.noiseStd, i * 3); saturated[i] = pixel.saturated[0]!;
-      meanBound[i] = 0; varianceBound[i] = 0;
-      recomputed.push(i);
-    }
-    for (const i of undecided) {
-      checkAbort(abort.signal);
-      const rx = i % region.width, ry = (i - rx) / region.width;
-      saturated[i] = (await renderDisplayView({ ...setup, signal, region: { x: region.x + rx, y: region.y + ry, width: 1, height: 1 } })).saturated[0]!;
-      highlights.push(i);
-    }
+  if (input.recomputeFlagged !== false) {
+    await recomputeRuns(setup, signalInput, flagged, abort, (first, run, part) => {
+      samples.set(part.samples, first * 3); expected.set(part.expected, first * 3); noiseStd.set(part.noiseStd, first * 3); saturated.set(part.saturated, first);
+      for (let k = 0; k < run; k++) { meanBound[first + k] = 0; varianceBound[first + k] = 0; recomputed.push(first + k); }
+    });
+    await recomputeRuns(setup, signalInput, undecided, abort, (first, run, part) => { for (let k = 0; k < run; k++) { saturated[first + k] = part.saturated[k]!; highlights.push(first + k); } });
   }
   let saturatedPixelCount = 0;
   for (let i = 0; i < pixelCount; i++) saturatedPixelCount += saturated[i]!;
@@ -408,14 +417,11 @@ export async function renderDisplayViewSpeedOnGpu(runtime: WebGpuRuntime, bandBy
 export function displayViewSpeedGpuSupports(request: DisplayViewGpuRequest): true | string {
   if (request.ahd) return "AHD (the Quality demosaic) is not on the GPU";
   if (request.diffraction) return "diffraction (the Quality optics) is not on the GPU";
-  return request.scene === "image-plane" ? toneAndOffsetsReason(request, DISPLAY_VIEW_GPU_MAXIMUM_OFFSETS) : sceneToneAndOffsetsReason(request, DISPLAY_VIEW_GPU_MAXIMUM_OFFSETS);
+  return sceneToneAndOffsetsReason(request, DISPLAY_VIEW_GPU_MAXIMUM_OFFSETS);
 }
 /** Why the GPU's material lookup, tone curves or query-offset table do not cover a request (shared by the Speed and Quality support checks), or true. */
 export function sceneToneAndOffsetsReason(request: DisplayViewGpuRequest, maximumOffsets: number): true | string {
-  if (request.scene !== "chart" && request.scene !== "material-layers") return "the scene is a caller " + request.scene + "; the GPU material lookup covers engine charts and declared material-layers scenes (describe the scene as material-layers)";
-  return toneAndOffsetsReason(request, maximumOffsets);
-}
-function toneAndOffsetsReason(request: DisplayViewGpuRequest, maximumOffsets: number): true | string {
+  if (request.scene !== "chart" && request.scene !== "material-layers" && request.scene !== "image-plane") return "the scene is a caller " + request.scene + "; the GPU material lookup covers engine charts and declared material-layers scenes (describe the scene as material-layers)";
   if (request.toneCurve !== "identity" && request.toneCurve !== "positive-reinhard-per-channel") return "unsupported tone curve " + String(request.toneCurve);
   if (offsetCount(request) > maximumOffsets) return "more than " + maximumOffsets + " query offsets per site";
   return true;

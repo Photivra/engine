@@ -47,6 +47,7 @@ import { DISPLAY_VIEW_GPU_MAXIMUM_OFFSETS } from "./wgsl-display-view-speed-kern
 import type { DisplayViewGpuMaterialModule } from "./display-view-speed-gpu.js";
 import { imagePlaneSupport } from "../facade/image-plane-support.js";
 import type { DisplayViewImageModules } from "./display-view-image-material-module.js";
+import type { DisplayViewQualityImagePasses } from "./display-view-quality-gpu.js";
 
 type PipelineSource = (label: string, code: string) => Promise<GPUComputePipeline>;
 
@@ -215,6 +216,8 @@ interface UploadedRecords { key: object; scope: GpuResourceScope; af: GPUBuffer;
 export interface DisplayViewMaterialModules {
   /** The module of a setup's scene, or an `unsupported-on-backend` error (a caller function scene, a failed probe, a materials mismatch). */
   moduleFor(gpu: DisplayViewGpuSetup, signal: AbortSignal): Promise<DisplayViewGpuMaterialModule>;
+  /** #581: an image-plane print's Quality passes (after `prepareImagePlaneScenes()`), or an `unsupported-on-backend` error. */
+  imagePasses(gpu: DisplayViewGpuSetup, signal: AbortSignal): Promise<DisplayViewQualityImagePasses>;
   /** Uploaded scenes (for tests). */
   readonly uploadedScenes: number;
   release(): void;
@@ -225,6 +228,8 @@ export function createDisplayViewMaterialModules(runtime: WebGpuRuntime, pipelin
   // #581: image-plane prints (their double-float32 arithmetic is the composite kernel's, so the same probe gates them), through the
   // module prepareImagePlaneScenes() loaded; created on the first photo.
   let images: DisplayViewImageModules | undefined;
+  // A photo reaches the GPU only after the request was resolved, so the module is enabled.
+  const imageModules = async (): Promise<DisplayViewImageModules> => images ??= (await imagePlaneSupport()!.loadGpuModule()).createDisplayViewImageModules(runtime, probe) as DisplayViewImageModules;
   let probed: Promise<ChartCompositeProbeRecord> | null = null;
   const wgsl = new Map<ChartCompositeProductPath, string>();
   const probe = (signal: AbortSignal): Promise<ChartCompositeProbeRecord> => {
@@ -245,13 +250,7 @@ export function createDisplayViewMaterialModules(runtime: WebGpuRuntime, pipelin
   };
   return {
     async moduleFor(gpu, signal): Promise<DisplayViewGpuMaterialModule> {
-      if ((gpu.signalInput.scene as { image?: unknown }).image) {
-        const support = imagePlaneSupport();
-        if (!support) throw new ImageKernelExecutionError("unsupported-on-backend", "Image-plane scenes are not enabled.");
-        const record = await probe(signal);
-        images ??= (await support.loadGpuModule()).createDisplayViewImageModules(runtime) as DisplayViewImageModules;
-        return await images.moduleFor(gpu, record.productPath ?? "dekker");
-      }
+      if ((gpu.signalInput.scene as { image?: unknown }).image) return await (await imageModules()).moduleFor(gpu, signal);
       const scene = sceneOf(gpu), placement = gpu.placement ?? null, signalInput = gpu.signalInput;
       const tableMaterials = signalInput.scene.kind === "materials" ? signalInput.scene.materials.length : -1;
       if (tableMaterials !== scene.materials.length + (placement ? 1 : 0))
@@ -269,6 +268,7 @@ export function createDisplayViewMaterialModules(runtime: WebGpuRuntime, pipelin
         { binding: 0, kind: "storage", buffer: uploaded.af }, { binding: 1, kind: "storage", buffer: uploaded.ai },
         { binding: 2, kind: "uniform", data: new Uint8Array(lattice.params) }, { binding: 3, kind: "storage", data: lattice.offsets }] };
     },
+    async imagePasses(gpu, signal): Promise<DisplayViewQualityImagePasses> { return await (await imageModules()).qualityPasses(gpu, signal); },
     get uploadedScenes(): number { return uploads.length; },
     release(): void { for (const entry of uploads.splice(0)) entry.scope.release(); images?.release(); }
   };

@@ -22,7 +22,7 @@ import { resolveChartScene } from "../../src/index.js";
 import { DEFOCUS_GPU_EXTRA, DEFOCUS_GPU_GRID } from "../helpers/display-view-defocus-gpu-fixtures.js";
 import { adapterSkipReason, findChromium, isSoftwareAdapter, openBrowserPage, type BrowserPage, type WebGpuAdapterProbe } from "./chromium.js";
 import { decodeTransport, encodeTransport } from "./codec.js";
-import { IMAGE_PLANE_GPU_CASES } from "../helpers/image-plane-fixtures.js";
+import { IMAGE_PLANE_GPU_CASES, IMAGE_PLANE_GPU_QUALITY_CASES } from "../helpers/image-plane-fixtures.js";
 import { prepareImagePlaneScenes } from "../../src/index.js";
 
 const root = fileURLToPath(new URL("../..", import.meta.url));
@@ -170,7 +170,7 @@ describe("webgpu-f32 display view (Speed) vs the float64 reference", () => {
 });
 
 // #581: the image-plane module, the same cases as the emulation (test/display-view-image-gpu.test.ts).
-describe("webgpu-f32 display view (Speed): the image-plane module vs the float64 reference", () => {
+describe("webgpu-f32 display view: the image-plane module (Speed) and passes (Quality) vs the float64 reference", () => {
   beforeAll(async () => { await prepareImagePlaneScenes(); });
   it.each(IMAGE_PLANE_GPU_CASES)("image-plane module, %s: inside the a-priori bounds; samples within one code; the #480 thresholds met", async (name, options) => {
     if (guard()) return;
@@ -191,6 +191,19 @@ describe("webgpu-f32 display view (Speed): the image-plane module vs the float64
       sigmaRelativeMaximum: a.sigmaRelativeMaximum, differingSamples: a.differingSamples, flagged: result.flaggedPixelIndices.length, browserCpuVersusNodeCpuSamples: browserVersusNode,
       largestExpectedBoundRatio: a.largestExpectedRatio, largestVarianceBoundRatio: a.largestVarianceRatio, softwareAdapterMilliseconds: result.gpuMilliseconds,
       acceptance: { withinFraction: metrics.withinFraction, maxDeltaE: metrics.maxDeltaE, maxSigma: metrics.maxSigma, maxCode8: metrics.maxCode8, pass: verdict.pass } });
+  });
+  it.each(IMAGE_PLANE_GPU_QUALITY_CASES)("image-plane Quality passes, %s: inside the a-priori bounds; samples within one code", async (name, options, view) => {
+    if (guard()) return;
+    const result = await call<QualityPageResult>("displayViewQuality", { options, view });
+    const a = compareDisplayViews(result.cpu, result.gpu);
+    expect(result.execution).toMatchObject({ backend: "webgpu-f32", arithmetic: "float32" });
+    expect(a.outsideExpectedBound).toBe(0);
+    expect(a.outsideVarianceBound).toBe(0);
+    expect(a.largestCodeDifference).toBeLessThanOrEqual(1);
+    expect(Array.from(result.hostRecomputedPixelIndices)).toEqual(Array.from(result.flaggedPixelIndices));
+    expect(result.ahdCorrectedPixelCount).toBe(result.cpu.ahdCorrectedPixelCount);
+    report.push({ case: "image-plane quality: " + name, pixels: a.pixels, taps: result.tapsPerSite, deltaE2000Maximum: a.deltaEMaximum, sigmaUnitsMaximum: a.sigmaUnitsMaximum,
+      flagged: result.flaggedPixelIndices.length, largestExpectedBoundRatio: a.largestExpectedRatio, largestVarianceBoundRatio: a.largestVarianceRatio, softwareAdapterMilliseconds: result.gpuMilliseconds });
   });
   it("the image-plane self-check case passes on the device", async () => {
     if (guard()) return;

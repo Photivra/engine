@@ -8,11 +8,11 @@
 import { SDR_COUNTER, SDR_TONE_MODE } from "../../src/gpu/wgsl-kernels.js";
 import { createChartMaterialEmulator, emulateChart, emulateSensor, emulateTemporalSum, nearestArithmetic, type EmulationArithmetic } from "./fake-webgpu-stages.js";
 import { emulateDisplayViewSpeed } from "./fake-webgpu-display-view.js";
-import { emulateDisplayViewQualityLattice, emulateDisplayViewQualityPixels, emulateDisplayViewQualitySites, emulateDisplayViewQualitySitesBlocked } from "./fake-webgpu-display-view-quality.js";
+import { emulateDisplayViewQualityLattice, emulateDisplayViewQualityPixels, emulateDisplayViewQualitySites, emulateDisplayViewQualitySitesBlocked, emulateImagePlaneQualitySites } from "./fake-webgpu-display-view-quality.js";
 
 const f = Math.fround;
 // #477: the composite chart kernel and its probe are emulated in their own module.
-import { createCompositeDisplayViewMaterialEmulator, createImagePlaneDisplayViewMaterialEmulator, emulateComposite, NEAREST_COMPOSITE_ARITHMETIC, type CompositeArithmetic } from "./fake-webgpu-composite.js";
+import { createCompositeDisplayViewMaterialEmulator, createImagePlaneDisplayViewMaterialEmulator, emulateComposite, emulateImagePlaneQualityLattice, NEAREST_COMPOSITE_ARITHMETIC, type CompositeArithmetic } from "./fake-webgpu-composite.js";
 import { chartCompositeMaterialModuleId } from "../../src/gpu/display-view-composite-material-module.js";
 import type { ChartCompositeProductPath } from "../../src/gpu/wgsl-chart-composite-kernel.js";
 
@@ -260,6 +260,11 @@ function emulate(label: string, buffers: Map<number, FakeBuffer>, arithmetic: Em
     emulateDisplayViewQualityLattice(u32(0), f32(0), u32(1), u32(2), material);
   } else if (label === "photivra-display-view-quality-sites") {
     emulateDisplayViewQualitySites(u32(0), f32(0), u32(1), u32(2), f32(3), u32(4), f32(5), f32(6));
+  } else if (label === "photivra-display-view-quality-photo-lattice:image-plane" || label === "photivra-display-view-quality-photo-lattice:image-plane-fma") {
+    // #581: the print's pass 1 (group 0: params, groups, values, flags; group 1: records 100, photo uniform 101, node table 102).
+    emulateImagePlaneQualityLattice(u32(0), u32(1), f32(2), u32(3), u32(100), u32(101), f32(101), f32(102), label.endsWith("-fma") ? "fma" : "dekker", composite);
+  } else if (label === "photivra-display-view-quality-photo-sites") {
+    emulateImagePlaneQualitySites(u32(0), f32(0), u32(1), f32(3), f32(4), f32(5), u32(6));
   } else if (label === "photivra-display-view-quality-sites-blocked") {
     emulateDisplayViewQualitySitesBlocked(u32(0), f32(0), u32(1), f32(3), u32(4), f32(5), f32(6), u32(7));
   } else if (label === "photivra-display-view-quality-pixels") {

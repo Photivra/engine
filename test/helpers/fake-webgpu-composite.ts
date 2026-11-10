@@ -581,3 +581,73 @@ export function createImagePlaneDisplayViewMaterialEmulator(photoWords: Uint32Ar
   };
   return { material: () => 0, value, get flagged(): boolean { return uncertain; }, reset(): void { uncertain = false; } };
 }
+
+/**
+ * #581: the image-plane print's pass 1 (`imagePlaneQualityLatticeWgsl`, src/gpu/display-view-image-quality.ts): per lattice point
+ * the exact point in double-float32, the print's edge, the pixel coordinates, the bilinear weights or the nearest pixel, and the
+ * radiance per node from the pixel records and the node table, with the moved-weight flag. Line by line the WGSL.
+ */
+export function emulateImagePlaneQualityLattice(pw: Uint32Array, groups: Uint32Array, values: Float32Array, flags: Uint32Array, records: Uint32Array, photoWords: Uint32Array,
+  photoFloats: Float32Array, nodeTable: Float32Array, path: ChartCompositeProductPath = "dekker", model: CompositeArithmetic = NEAREST_COMPOSITE_ARITHMETIC): void {
+  const GROUP_WORDS = 8, latticeTotal = pw[20]!, groupCount = pw[19]!, gi = new Int32Array(groups.buffer, groups.byteOffset, groups.length), gf = new Float32Array(groups.buffer, groups.byteOffset, groups.length);
+  const recordFloats = new Float32Array(records.buffer, records.byteOffset, records.length);
+  const [width, height, nearest, N, row0] = [photoWords[0]!, photoWords[1]!, photoWords[2] !== 0, photoWords[3]!, photoWords[4]!];
+  const F = (a: number): Dw => [photoFloats[a]!, photoFloats[a + 1]!];
+  const su = F(8), sv = F(10), k = F(12), hw = F(14), hh = F(16), aspect = F(18), slackX = photoFloats[20]!, slackY = photoFloats[21]!, black = photoFloats[22]!, span = photoFloats[23]!;
+  let uncertain: boolean;
+  const K = opsOf(model), D = doubleWord(K, path), { bd, bx, babs, le, bfloor } = boundsOf(model, K, () => { uncertain = true; });
+  const white = 125 * N;
+  const pixelSlack = (x: Dw, slack: number): number => K.add(f(4 * f(DW * K.add(Math.abs(x[0]), 1))), f(4 * slack));
+  const axis = (s: Dw, n: number): [number, number, number, number] => {
+    let f0 = Math.floor(s[0]);
+    if (f0 === s[0] && s[1] < 0) f0 = f(f0 - 1);
+    const frac = D.dSub(s, [f0, 0]), comp = D.dSub([K.add(f0, 1), 0], s);
+    let w0: number, w1: number;
+    if (frac[0] <= 0.5) { w1 = K.add(frac[0], frac[1]); w0 = K.sub(1, w1); } else { w0 = K.add(comp[0], comp[1]); w1 = K.sub(1, w0); }
+    return [Math.min(n - 1, Math.max(0, f0)), Math.min(n - 1, Math.max(0, f0 + 1)), w0, w1];
+  };
+  const weights = (word: number, bit: number, small: number): [number, number] => (((word >>> bit) & 1) === 0 ? [f(1 - small), small] : [small, f(1 - small)]);
+  const pixelAt = (i: number, j: number): { base: number; r: [number, number]; g: [number, number]; b: [number, number] } => {
+    const o = ((j - row0) * width + i) * 4, w = records[o]!;
+    return { base: (w & 3) * 25 + ((w >>> 2) & 3) * 5 + ((w >>> 4) & 3), r: weights(w, 6, recordFloats[o + 1]!), g: weights(w, 7, recordFloats[o + 2]!), b: weights(w, 8, recordFloats[o + 3]!) };
+  };
+  const node = (kk: number, n: number): number => nodeTable[kk * N + n]!;
+  const pixelValue = (px: ReturnType<typeof pixelAt>, n: number): number => {
+    const b = px.base;
+    const inner = (o: number): number => f(f(px.b[0] * node(b + o, n)) + f(px.b[1] * node(b + o + 1, n)));
+    const mid = (o: number): number => f(f(px.g[0] * inner(o)) + f(px.g[1] * inner(o + 5)));
+    const lat = f(f(px.r[0] * mid(0)) + f(px.r[1] * mid(25)));
+    return f(black + f(span * lat));
+  };
+  for (let i = 0; i < latticeTotal; i++) {
+    let g = 0;
+    for (let kk = 1; kk < groupCount; kk++) if (i >= groups[kk * GROUP_WORDS + 4]!) g = kk;
+    const base = g * GROUP_WORDS, lw = groups[base + 2]!, local = i - groups[base + 4]!;
+    const q = gi[base + 1]! + Math.floor(local / lw), p = gi[base]! + (local % lw);
+    uncertain = false;
+    const out = i * N;
+    const u = D.dMul(D.dMul([f(p + gf[base + 6]!), 0], su), k), v = D.dMul(D.dMul([f(q + gf[base + 7]!), 0], sv), k);
+    if (!(le(babs(bd(u)), bx(1)) && le(babs(bd(v)), bd(aspect)))) {
+      for (let n = 0; n < N; n++) values[out + n] = nodeTable[white + N + n]!;
+      flags[i] = uncertain ? 1 : 0;
+      continue;
+    }
+    const x = D.dMul(D.dAdd(u, [1, 0]), hw), y = D.dMul(D.dSub(aspect, v), hh);
+    if (nearest) {
+      const lastX = width - 1, lastY = height - 1;
+      const px = pixelAt(Math.min(lastX, Math.max(0, bfloor(bd(x), 1, lastX))), Math.min(lastY, Math.max(0, bfloor(bd(y), 1, lastY))));
+      for (let n = 0; n < N; n++) values[out + n] = f(nodeTable[white + n]! * pixelValue(px, n));
+    } else {
+      const [i0, i1, x0, x1] = axis(D.dSub(x, [0.5, 0]), width), [j0, j1, y0, y1] = axis(D.dSub(y, [0.5, 0]), height);
+      const p00 = pixelAt(i0, j0), p10 = pixelAt(i1, j0), p01 = pixelAt(i0, j1), p11 = pixelAt(i1, j1);
+      const slack = f(f(pixelSlack(x, slackX) + pixelSlack(y, slackY)) * 2);
+      for (let n = 0; n < N; n++) {
+        const s00 = pixelValue(p00, n), s10 = pixelValue(p10, n), s01 = pixelValue(p01, n), s11 = pixelValue(p11, n);
+        const value = f(f(y0 * f(f(x0 * s00) + f(x1 * s10))) + f(y1 * f(f(x0 * s01) + f(x1 * s11))));
+        if (!(f(slack * Math.max(Math.max(s00, s10), Math.max(s01, s11))) <= f(E * value))) uncertain = true;
+        values[out + n] = f(nodeTable[white + n]! * value);
+      }
+    }
+    flags[i] = uncertain ? 1 : 0;
+  }
+}

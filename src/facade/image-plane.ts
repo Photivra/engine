@@ -150,16 +150,21 @@ export async function resolveImagePlaneScene(value: unknown, aspect: number,
   const alpha = channels === 3 ? null : encoding === "linear-srgb" ? color : (i: number): number => samples[i]! / scale;
   const rgb = new Float64Array(3), span = white - black;
   const cellOf = (v: number): number => (v > LEVELS[3]! ? 3 : v > LEVELS[2]! ? 2 : v > LEVELS[1]! ? 1 : 0);
-  /** One pixel in node values: the trilinear weights of its linear sRGB in the lattice cell, then the paper. */
-  function pixelValue(index: number, nodeValues: Float64Array, neutral: number): number {
+  const fractions = new Float64Array(3);
+  /** One pixel's lattice cell (its base node, returned) and its fractions in the cell (into `out`). */
+  function pixelLattice(index: number, out: Float64Array): number {
     const base = index * channels;
     if (alpha) {
       const a = alpha(base + 3);
       for (let c = 0; c < 3; c++) rgb[c] = a * color(base + c) + (1 - a);
     } else for (let c = 0; c < 3; c++) rgb[c] = color(base + c);
     const kr = cellOf(rgb[0]!), kg = cellOf(rgb[1]!), kb = cellOf(rgb[2]!);
-    const fr = (rgb[0]! - LEVELS[kr]!) / (LEVELS[kr + 1]! - LEVELS[kr]!), fg = (rgb[1]! - LEVELS[kg]!) / (LEVELS[kg + 1]! - LEVELS[kg]!), fb = (rgb[2]! - LEVELS[kb]!) / (LEVELS[kb + 1]! - LEVELS[kb]!);
-    const n = kr * 25 + kg * 5 + kb;
+    out[0] = (rgb[0]! - LEVELS[kr]!) / (LEVELS[kr + 1]! - LEVELS[kr]!); out[1] = (rgb[1]! - LEVELS[kg]!) / (LEVELS[kg + 1]! - LEVELS[kg]!); out[2] = (rgb[2]! - LEVELS[kb]!) / (LEVELS[kb + 1]! - LEVELS[kb]!);
+    return kr * 25 + kg * 5 + kb;
+  }
+  /** One pixel in node values: the trilinear weights of its linear sRGB in the lattice cell, then the paper. */
+  function pixelValue(index: number, nodeValues: Float64Array, neutral: number): number {
+    const n = pixelLattice(index, fractions), fr = fractions[0]!, fg = fractions[1]!, fb = fractions[2]!;
     const lattice = (1 - fr) * ((1 - fg) * ((1 - fb) * nodeValues[n]! + fb * nodeValues[n + 1]!) + fg * ((1 - fb) * nodeValues[n + 5]! + fb * nodeValues[n + 6]!)) +
       fr * ((1 - fg) * ((1 - fb) * nodeValues[n + 25]! + fb * nodeValues[n + 26]!) + fg * ((1 - fb) * nodeValues[n + 30]! + fb * nodeValues[n + 31]!));
     return black * neutral + span * lattice;
@@ -200,11 +205,11 @@ export async function resolveImagePlaneScene(value: unknown, aspect: number,
     return { kind: "radiance", radianceAt, signalAt(u: number, v: number, c: number): number {
       const cu = u * scale / half, cv = v * scale / half;
       return Math.abs(cu) <= 1 && Math.abs(cv) <= aspect ? sampleAt(cu, cv, nodes[c as 0], neutral[c as 0]) : surroundReflectance * neutral[c as 0];
-    }, image: { scene: resolved, tables, surround: [surroundReflectance * neutral[0], surroundReflectance * neutral[1], surroundReflectance * neutral[2]] } };
+    }, image: { scene: resolved, tables, surround: [surroundReflectance * neutral[0], surroundReflectance * neutral[1], surroundReflectance * neutral[2]], whiteRadiance, surroundReflectance } };
   }
   const resolved: ResolvedImagePlaneScene = Object.freeze({ kind: "image-plane" as const, sceneId: record.sceneId, width, height, aspect, channels, encoding: encoding as ResolvedImagePlaneScene["encoding"],
     interpolation, paperWhiteReflectance: white, paperBlackReflectance: black, maximumPixels, clippedSampleCount: clipped, dataSha256,
-    reflectanceAt, channelTables, sampleAt, pixelValue, signalScene, get digestForm() { return imagePlaneDigestForm(resolved); }, parameters: Object.freeze({ width, height, channels, encoding, interpolation, paperWhiteReflectance: white, paperBlackReflectance: black,
+    reflectanceAt, channelTables, sampleAt, pixelValue, pixelLattice, nodeReflectances: nodeReflectancesAt, signalScene, get digestForm() { return imagePlaneDigestForm(resolved); }, parameters: Object.freeze({ width, height, channels, encoding, interpolation, paperWhiteReflectance: white, paperBlackReflectance: black,
       clippedSampleCount: clipped, imageSha256: dataSha256 }) });
   if (assume) for (const [id, kind, v, explanation] of imagePlaneAssumptions(resolved, record)) assume(id, kind, v, explanation);
   return resolved;

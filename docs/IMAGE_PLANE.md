@@ -153,49 +153,83 @@ freedom-to-operate opinion.
 
 ## On the GPU
 
-`prepareDisplayView(request, { gpu: "auto" | "require" })` renders a photo on WebGPU in the display view's **Speed** path, the
-exact area mean without diffraction, `lens.defocus` or AHD. It uses the image-plane module (`src/gpu/display-view-image-material-module.ts`;
-[WebGPU, Display view (Speed)](WEBGPU.md#display-view-speed-on-the-gpu)):
+`prepareDisplayView(request, { gpu: "auto" | "require" })` renders a photo on WebGPU in both of the display view's paths. A photo
+falls back to the CPU only for the reasons a chart does: no device, a failed self-check, a defocus disc above 64 sites, a
+stratified footprint, or the device's storage limit.
+
+**Speed** (the exact area mean without diffraction, `lens.defocus` or AHD) uses the image-plane module
+(`src/gpu/display-view-image-material-module.ts`; [WebGPU, Display view (Speed)](WEBGPU.md#display-view-speed-on-the-gpu)):
 
 - **Host side.** The host computes every pixel's three channel signals in float64 and uploads them once as float32 (12 bytes per
-  pixel, refused with `insufficient-limits` above the device's storage binding limit).
+  pixel). Above the device's storage binding limit this is refused with `insufficient-limits`.
 - **The point.** The module recovers the exact query point in double-float32, as the composite chart module does. It forms the
-  pixel coordinates and the bilinear weights with only relative error, and flags the points it cannot decide (the print's edge, a
-  weight moved next to a much brighter pixel, a nearest-pixel edge). The host recomputes a flagged display pixel with the
-  reference.
-- **The bound.** The kernel's a-priori bound grows by the module's ten roundings: γ₇₄ instead of γ₆₄ on the expected value, doubled.
-- **The Quality path.** A request that needs the Quality passes (diffraction, defocus, AHD) runs on the CPU reference, labeled
-  `unsupported-on-backend`. The Quality passes for photos are a later part.
-- **Self-check.** The module checks itself on a device's first photo (`runImagePlaneConformance`: a 12 × 8 photo on a 38 × 26
-  frame against the CPU reference within the bounds). A device that fails it renders photos on the CPU, labeled
-  `unsupported-on-backend`. The renderer's own self-check cases are unchanged, so charts never wait for a photo check.
+  pixel coordinates and the bilinear weights with only relative error. It flags the points it cannot decide: the print's edge, a
+  weight moved next to a much brighter pixel, a nearest-pixel edge. The host recomputes a flagged display pixel with the reference.
+- **The bound.** The kernel's a-priori bound grows by the module's ten roundings: γ₇₄ instead of γ₆₄ on the expected value,
+  doubled.
 
-Measured agreement with the CPU reference, per display pixel, 600 × 400 frame of 6 µm sites, 2 × 2 box, 203 × 135 view (82 215
-components), float32 emulation (`test/display-view-image-gpu.test.ts`). SwiftShader (Chromium headless, `test/webgpu/display-view.webgpu.ts`)
-passes the same cases within the same bounds. Every component lies inside its bound and every sample within one code:
+**Quality** (diffraction, `lens.defocus`, the anti-aliasing filter's spots, AHD; owner decision, 2026-11-09) uses the print's own
+passes 1 and 2 (`src/gpu/display-view-image-quality.ts`; [WebGPU, Image-plane prints in the Quality passes](WEBGPU.md#image-plane-prints-in-the-quality-passes-581)).
 
-| Case | ΔE2000 max | σ units max | Bound used (mean / variance) | Samples differing | Flagged, recomputed |
+- **Pass 1.** Per lattice point, the print's radiance at every spectral node. It is computed from per-pixel lattice records (cell
+  and fractions, 16 bytes per pixel), uploaded per band for the rows the band reaches.
+- **Pass 2.** The blocked sum of radiance times the reference's combined kernel per node. The Quality pixel pass and the host
+  finishing then run unchanged.
+- **Flagged points.** With site kernels the host replaces a flagged lattice point's values with the reference's own radiance there.
+  Without kernels the sites that read it are recomputed.
+- **The bound.** The site sum's bound is (32 + N + cw + ch + G + 4)·E relative: N spectral nodes, the kernel's dense width and
+  height, G lattice groups.
+
+**Self-check.** The module checks itself on a device's first photo (`runImagePlaneConformance`): a 12 × 8 photo on a 38 × 26 frame,
+the Speed kernel, then the Quality passes with the four-spot filter and radius-1 kernels at three nodes, against the CPU reference
+within the bounds. A device that fails it renders photos on the CPU, labeled `unsupported-on-backend`. The renderer's own
+self-check cases are unchanged, so charts never wait for a photo check.
+
+Measured agreement with the CPU reference, per display pixel, on a 600 × 400 frame of 6 µm sites with the 2 × 2 box.
+- **Speed:** a 203 × 135 view.
+- **Quality:** 48 × 36 regions of that view, and 16 × 12 blocks of the 24 MP 6 µm frame for the defocused cases, as the chart
+  defocus fixtures frame them.
+- **Where:** the float32 emulation (`test/display-view-image-gpu.test.ts`) and SwiftShader (Chromium headless,
+  `test/webgpu/display-view.webgpu.ts`), which agree to the digits shown.
+- **Result:** every component lies inside its bound and every sample within one code. Flagged display pixels are recomputed with
+  the reference, so they are exact.
+- **Quality flags:** they come from AHD's choice on the noise-free mosaic (#457), as for charts, unless stated.
+
+| Case | Taps per site | ΔE2000 max | σ units max | Bound used (mean / variance) | Flagged, recomputed |
 | --- | --- | --- | --- | --- | --- |
-| 160 × 120 sRGB photo, 42 mm print at 0.63 m, bilinear | 2.2e-5 | 4.4e-5 | 3.4 % / 2.6 % | 0 | 0 |
-| The same, fitted inside the frame | 4.2e-5 | 8.6e-5 | 6.1 % / 3.0 % | 1 | 0 |
-| The same, nearest pixel | 2.0e-5 | 3.1e-5 | 1.8 % / 2.6 % | 0 | 315 (1.1 %) |
-| 600 × 400 photo, bilinear | 2.0e-5 | 4.7e-5 | 4.2 % / 2.6 % | 0 | 0 |
-| Linear RGBA with half-transparent pixels, custom paper | 2.0e-5 | 4.2e-5 | 2.6 % / 2.6 % | 0 | 0 |
-| Reinhard at the white clip | 3.7e-5 | 2.8e-4 | 3.1 % / 2.7 % | 0 | 0 |
+| Speed: 160 × 120 sRGB photo, 42 mm print at 0.63 m, bilinear | 4 | 2.2e-5 | 4.4e-5 | 3.4 % / 2.6 % | 0 |
+| Speed: the same, fitted inside the frame | 4 | 4.2e-5 | 8.6e-5 | 6.1 % / 3.0 % | 0 |
+| Speed: the same, nearest pixel | 4 | 2.0e-5 | 3.1e-5 | 1.8 % / 2.6 % | 315 of 27 405 (pixel edges) |
+| Speed: 600 × 400 photo, bilinear | 4 | 2.0e-5 | 4.7e-5 | 4.2 % / 2.6 % | 0 |
+| Speed: linear RGBA with half-transparent pixels, custom paper | 4 | 2.0e-5 | 4.2e-5 | 2.6 % / 2.6 % | 0 |
+| Speed: Reinhard at the white clip | 4 | 3.7e-5 | 2.8e-4 | 3.1 % / 2.7 % | 0 |
+| Quality: diffraction, four-spot filter and AHD | 400 | 7.3e-4 | 9.4e-4 | 3.3 % / 0.9 % | 466 of 1 728 |
+| Quality: AHD without diffraction | 4 | 1.6e-5 | 3.8e-5 | 0.1 % / 1.2 % | 357 of 1 728 |
+| Quality: diffraction, linear RGBA, fitted in the frame | 324 | 2.3e-5 | 7.3e-5 | 0.6 % / 1.2 % | 0 |
+| Quality: defocus of the plane, 24 MP f/2.8 focus 0.8× (a Speed request's route) | 1 764 | 7.5e-6 | 6.5e-5 | 0.4 % / 0.01 % | 0 of 192 |
+| Quality: defocus with diffraction, four-spot filter and AHD, f/8 focus 0.8×, nearest | 1 024 | 1.7e-4 | 8.9e-4 | 1.4 % / 0.01 % | 184 of 192 |
+| Quality: the print's edge exactly on the lattice, diffraction (emulation) | — | inside the bounds | — | — | 0; 200 lattice points resolved on the host |
+| Quality: the same, AHD without kernels (emulation) | 4 | inside the bounds | — | — | 420, of which 90 by flagged lattice points |
 
 Timing on a hardware adapter is not measured yet.
 
 ## Lazy loading and size
 
-The scene's module, its lattice data (9.5 KB gzip as source) and its GPU module are reachable only through `prepareImagePlaneScenes()`.
-That function is in a module of its own and loads them with a dynamic import: a lazy chunk of 13,633 B gzip, plus the GPU
-module's own chunk of 3,523 B when a display view renders a photo on WebGPU (measured with the worker shape below plus the function:
-17,597 B more in total, the rest being shared code that moves into the entry).
+The scene's module, its lattice data (9.5 KB gzip as source) and its GPU code are reachable only through
+`prepareImagePlaneScenes()`. That function is in a module of its own and loads them with dynamic imports:
+- a lazy chunk of 13,692 B gzip;
+- the GPU module's own chunk of 7,254 B (Speed and Quality), loaded on a display view's first photo on WebGPU;
+- shared code that moves into the entry.
+
+Measured with the worker shape below plus the function, that is 21,486 B more in total.
 - **Without it.** A bundle that never imports the function carries none of these bytes, not even as a lazy chunk. A request with an
   image-plane scene then fails with a message that names the function.
 - **Measured on the app's capture-worker shape** (`test/capture-bundle.test.ts`: `NATIVE_RAW_LIMITS`, `prepareDisplayView`,
-  `serializeSimulatedCaptureDngFromParts`, `simulateCapture`, `simulateIdealReference`; every chunk counted): 351,979 B gzip, +204 B
-  over 2.19.0, within the unchanged 352,000 B limit.
-- **An application that enables photos adds that lazy chunk** to its total JavaScript.
+  `serializeSimulatedCaptureDngFromParts`, `simulateCapture`, `simulateIdealReference`; every chunk counted): 351,980 B gzip,
+  +205 B over 2.19.0, within the unchanged 352,000 B limit.
+  - The GPU display view's chunk is 54,623 B, 84 B below 2.19.0's 54,707 B. The photo routing it gained is paid for by sharing
+    code: the self-checks' fixtures and verdict, the support checks, the display-pixel recomputation and the lattice formula.
+  - The entry is +283 B: the facade's dispatch.
+- **An application that enables photos adds those chunks** to its total JavaScript.
 
-`createPlanarSceneRadianceProvider` is synchronous and does not take the scene; it says so.
+`createPlanarSceneRadianceProvider` is synchronous and does not take the scene (it refuses it as an unknown caller scene).

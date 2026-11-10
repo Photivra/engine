@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 /** #581: image-plane fixtures shared by the emulation tests and the WebGPU suite. */
-import type { ImagePlaneScene, SimulateCaptureOptions } from "../../src/index.js";
-import { SMALL_FRAME } from "./display-view-gpu-fixture.js";
+import type { ImagePlaneScene, SimulateCaptureOptions, SimulateDisplayViewOptions } from "../../src/index.js";
+import { SMALL_FRAME, SMALL_VIEW } from "./display-view-gpu-fixture.js";
+import { defocusGpuCase } from "./display-view-defocus-gpu-fixtures.js";
 
 /** A deterministic synthetic photo: a sky-to-ground gradient, saturated discs with hard edges, a seeded fine texture and a black/white bar block. */
 export function syntheticPhoto(width: number, height: number, encoding: "srgb-8" | "linear-srgb" = "srgb-8", channels: 3 | 4 = 3): ImagePlaneScene["image"] {
@@ -40,3 +41,17 @@ export const IMAGE_PLANE_GPU_CASES: [string, SimulateCaptureOptions][] = [
   ["Reinhard at the white clip", { scene: photo(), lens, sensor, output: { ...output, toneCurve: "positive-reinhard-per-channel" }, exposure: { mode: "manual", iso: 100, shutterSeconds: 1 / 30 }, ...placed }]
 ];
 export const IMAGE_PLANE_GPU_LENS = lens;
+const region = { x: 70, y: 40, width: 48, height: 36 }, quality = { ...sensor, antiAliasing: { kind: "four-spot" as const } };
+const view = { ...SMALL_VIEW, region };
+const defocused = (name: string, fNumber: number, focus: number, quality: boolean, extra: Partial<ImagePlaneScene> = {}): [string, SimulateCaptureOptions, SimulateDisplayViewOptions] => {
+  const c = defocusGpuCase(name, "6", fNumber, focus, quality, 0, { scene: photo(syntheticPhoto(300, 200), extra) });
+  return [name, c.options, c.view];
+};
+/** #581: the Quality cases of the image-plane passes (48 × 36 regions; the defocused ones as the defocus fixtures frame them). */
+export const IMAGE_PLANE_GPU_QUALITY_CASES: [string, SimulateCaptureOptions, SimulateDisplayViewOptions][] = [
+  ["diffraction, four-spot filter and AHD, bilinear", { ...IMAGE_PLANE_GPU_CASES[0]![1], lens: { ...lens, diffraction: "circular-aperture" }, sensor: quality, output: { ...IMAGE_PLANE_GPU_CASES[0]![1].output, demosaic: "ahd" } }, view],
+  ["AHD without diffraction (query points; one-tap groups)", { ...IMAGE_PLANE_GPU_CASES[0]![1], output: { ...IMAGE_PLANE_GPU_CASES[0]![1].output, demosaic: "ahd" } }, view],
+  ["diffraction, linear RGBA, fitted in the frame", { scene: IMAGE_PLANE_GPU_CASES[4]![1].scene, sensor, output: IMAGE_PLANE_GPU_CASES[4]![1].output!, lens: { ...lens, diffraction: "circular-aperture" } }, view],
+  defocused("defocus of the plane, 24 MP 6 µm f/2.8 focus 0.8×, Speed route (bilinear)", 2.8, 0.8, false),
+  defocused("defocus with diffraction, four-spot filter and AHD, 24 MP 6 µm f/8 focus 0.8×, nearest pixel", 8, 0.8, true, { interpolation: "nearest" })
+];

@@ -28,20 +28,21 @@
  * The surround's three channel signals are the kernel's site table (so the kernel's binding 3 stays in use).
  */
 
-import { ImageKernelExecutionError } from "./image-kernel-execution.js";
+import { ImageKernelExecutionError, type ChartCompositeProbeRecord } from "./image-kernel-execution.js";
 import { BUFFER_USAGE, GpuResourceScope, type WebGpuRuntime } from "./webgpu-runtime.js";
 import { dwSplit } from "./chart-composite-gpu.js";
 import type { ChartCompositeProductPath } from "./wgsl-chart-composite-kernel.js";
 import { displayViewModuleCommonWgsl, displayViewLatticeConstants, LATTICE_BINDINGS_WGSL, LATTICE_POINT_WGSL } from "./display-view-composite-material-module.js";
 import type { DisplayViewGpuMaterialModule } from "./display-view-speed-gpu.js";
-import { createDisplayViewExpectedSignal, renderDisplayView, type DisplayViewGpuSetup, type DisplayViewSetup } from "../facade/display-view.js";
+import { renderDisplayView, type DisplayViewGpuSetup } from "../facade/display-view.js";
 import type { DisplayViewExpectedSignalInput } from "../facade/expected-signal.js";
 import type { ImagePlaneSignalScene } from "../facade/scene-radiance.js";
 import { imagePlaneSupport } from "../facade/image-plane-support.js";
-import { conformanceVerdict, renderDisplayViewSpeedOnGpu } from "./display-view-speed-gpu.js";
-import { bilinearKernels } from "./display-view-quality-gpu.js";
+import { CONFORMANCE_FRAME, conformanceChannelAt, conformanceResponses, conformanceSetup, conformanceVerdict, renderDisplayViewSpeedOnGpu, withConformanceAbort } from "./display-view-speed-gpu.js";
+import { renderDisplayViewQualityOnGpu, type DisplayViewQualityImagePasses } from "./display-view-quality-gpu.js";
+import { imagePlaneQualityPasses } from "./display-view-image-quality.js";
 import { ChartCompositeProbeError, probeChartCompositeDevice } from "./chart-composite-gpu.js";
-import { abortedError, createComputePipeline } from "./webgpu-runtime.js";
+import { createComputePipeline } from "./webgpu-runtime.js";
 
 /** The module's id per product path. */
 export function imagePlaneMaterialModuleId(path: ChartCompositeProductPath): string { return path === "dekker" ? "image-plane" : "image-plane-fma"; }
@@ -123,13 +124,19 @@ interface UploadedImage { key: object; scope: GpuResourceScope; buffer: GPUBuffe
 /** The image-plane modules of one display-view renderer: `moduleFor` builds the setup's module (its uploads kept), `release` frees them. */
 export interface DisplayViewImageModules {
   /** The setup's module; the first call on a runtime runs the module's self-check (`runImagePlaneConformance`) and refuses the device if it fails. */
-  moduleFor(gpu: DisplayViewGpuSetup, path: ChartCompositeProductPath): Promise<DisplayViewGpuMaterialModule>;
+  moduleFor(gpu: DisplayViewGpuSetup, signal: AbortSignal): Promise<DisplayViewGpuMaterialModule>;
   /** The setup's module without the self-check (the self-check itself uses it). */
   build(gpu: DisplayViewGpuSetup, path: ChartCompositeProductPath): DisplayViewGpuMaterialModule;
+  /** #581: the print's Quality passes 1 and 2 (src/gpu/display-view-image-quality.ts), after the same self-check. */
+  qualityPasses(gpu: DisplayViewGpuSetup, signal: AbortSignal): Promise<DisplayViewQualityImagePasses>;
   release(): void;
 }
 
-export function createDisplayViewImageModules(runtime: WebGpuRuntime): DisplayViewImageModules {
+/**
+ * The image-plane modules of a renderer; `probe` is the composite module's device probe (single flight), whose double-word product
+ * path the module's double-float32 takes.
+ */
+export function createDisplayViewImageModules(runtime: WebGpuRuntime, probe: (signal: AbortSignal) => Promise<ChartCompositeProbeRecord>): DisplayViewImageModules {
   const uploads: UploadedImage[] = [], wgsl = new Map<ChartCompositeProductPath, string>();
   const upload = (image: ImagePlaneSignalScene["image"]): UploadedImage => {
     const key = image as object, index = uploads.findIndex((e) => e.key === key);
@@ -166,63 +173,68 @@ export function createDisplayViewImageModules(runtime: WebGpuRuntime): DisplayVi
         { binding: 0, kind: "storage", buffer: uploaded.buffer }, { binding: 1, kind: "uniform", data: new Uint8Array(params) },
         { binding: 2, kind: "uniform", data: new Uint8Array(lattice.params) }, { binding: 3, kind: "storage", data: lattice.offsets }] };
   };
+  // The module's self-check, once per runtime (single flight; a failure is retried on the next photo).
+  const check = async (): Promise<void> => {
+    checked ??= runImagePlaneConformance(runtime, undefined).catch((error: unknown) => { checked = null; throw error; });
+    const verdict = await checked;
+    if (verdict !== true) { checked = null; throw new ImageKernelExecutionError("unsupported-on-backend", "The image-plane module failed its self-check on this device: " + verdict); }
+  };
   return {
-    async moduleFor(gpu, path): Promise<DisplayViewGpuMaterialModule> {
-      // The module's self-check, once per runtime (single flight; a failure is retried on the next photo).
-      checked ??= runImagePlaneConformance(runtime, undefined).catch((error: unknown) => { checked = null; throw error; });
-      const verdict = await checked;
-      if (verdict !== true) { checked = null; throw new ImageKernelExecutionError("unsupported-on-backend", "The image-plane module failed its self-check on this device: " + verdict); }
-      return build(gpu, path);
-    },
+    async moduleFor(gpu, signal): Promise<DisplayViewGpuMaterialModule> { const path = (await probe(signal)).productPath ?? "dekker"; await check(); return build(gpu, path); },
+    async qualityPasses(gpu, signal): Promise<DisplayViewQualityImagePasses> { const path = (await probe(signal)).productPath ?? "dekker"; await check(); return imagePlaneQualityPasses(runtime, gpu, path); },
     build,
     release(): void { for (const entry of uploads.splice(0)) entry.scope.release(); }
   };
 }
 
 /**
- * #581's run-time self-check of the module (`display-view:speed:image-plane-13x9`): a 12 × 8 photo (a color ramp with hard edges,
- * every lattice cell's corner colors among its pixels) printed at 0.8 of the frame's width on the 18 % surround of a 38 × 26 frame
- * shown at 13 × 9, the GPU against `renderDisplayView` within the a-priori bounds, every flagged pixel recomputed. A device that
- * fails the double-float32 probe refuses photos (unsupported-on-backend, as composite charts), so the check passes there without
- * keeping the device's charts off the GPU.
+ * #581's run-time self-check of the module, run on a device's first photo: a 12 × 8 photo (a color ramp with hard edges, every
+ * lattice cell's corner colors among its pixels) printed at 0.8 of the frame's width on the 18 % surround of a 38 × 26 frame shown
+ * at 13 × 9, the GPU against `renderDisplayView` within the a-priori bounds, every flagged pixel recomputed: the Speed kernel with
+ * the 2 × 2 box, then the Quality passes with the four-spot filter's 16 offsets and synthetic radius-1 kernels at three nodes.
+ * A device that fails the double-float32 probe refuses photos (unsupported-on-backend, as composite charts), so the check passes
+ * there without keeping the device's charts off the GPU.
  */
 export async function runImagePlaneConformance(handle: unknown, signal: AbortSignal | undefined): Promise<true | string> {
-
   const runtime = handle as WebGpuRuntime, support = imagePlaneSupport();
   if (!support) return true;
-  const nativeWidth = 40, nativeHeight = 28, margin = 1, frameWidth = 38, frameHeight = 26, g = 2 / frameWidth, nodes = [450, 550, 650];
+  const { nativeWidth, nativeHeight, frameWidth, nodes } = CONFORMANCE_FRAME, g = 2 / frameWidth;
   const width = 12, height = 8, data = new Uint8Array(width * height * 3);
   for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) for (let c = 0; c < 3; c++) data[(y * width + x) * 3 + c] = [(x * 23) % 256, (y * 37 + x * 5) % 256, x < 6 ? 255 - y * 30 : 10][c]!;
-  const printWidth = 1.6, aspect = height / width, k = 2 / printWidth, surround = 0.18;
+  const printWidth = 1.6, aspect = height / width, k = 2 / printWidth, surround = 0.18, placement = { chartUnitsPerFrameUnit: k, aspect };
   const scene = await support.resolveImagePlaneScene({ kind: "image-plane", sceneId: "conformance", image: { width, height, channels: 3, encoding: "srgb-8", data } }, aspect);
-  const white = Float64Array.of(0.5, 0.9, 0.7), A: [Float64Array, Float64Array, Float64Array] = [Float64Array.of(9000, 30000, 4000), Float64Array.of(6000, 42000, 9000), Float64Array.of(30000, 9000, 3000)];
-  const printScene = scene.signalScene(nodes, A, white, () => { throw new ImageKernelExecutionError("gpu-validation", "The self-check reads the node tables only."); }, k, 1, surround);
-  const offsets = [[-0.25, -0.25], [0.25, -0.25], [-0.25, 0.25], [0.25, 0.25]].map(([x, y]) => ({ x: x!, y: y!, weight: 0.25 }));
-  const signalInput: DisplayViewExpectedSignalInput = { nativeWidth, nativeHeight, outputWidth: frameWidth, wavelengthsNm: nodes, electronsPerRadiance: A, offsets,
-    scene: printScene,
-    channelAt: (x, y) => ((y & 1) === 0 ? ((x & 1) === 0 ? 0 : 1) : ((x & 1) === 0 ? 1 : 2)),
-    queryPoint: (x, y, o, out) => { out[0] = (x + 0.5 + offsets[o]!.x - nativeWidth / 2) * g; out[1] = -(y + 0.5 + offsets[o]!.y - nativeHeight / 2) * g; } };
-  const readout = { perElectron: 1 / 60000, darkElectrons: 0.07, constantVariance: 1.5e-9 };
-  const setup: DisplayViewSetup = { frameWidth, frameHeight, margin, nativeWidth, nativeHeight, viewWidth: 13, viewHeight: 9, region: { x: 0, y: 0, width: 13, height: 9 },
-    samplesPerAxis: 16, reachSites: 2, bitDepth: 8, seed: 581, signal: createDisplayViewExpectedSignal(signalInput), readout: [readout, readout, readout], demosaic: bilinearKernels(),
-    gains: [1.1, 1, 1.6], clipLevel: 1, matrix: [[3.08, -1.54, -0.54], [-0.92, 1.88, 0.045], [0.053, -0.2, 1.15]], toneCurve: "identity",
-    yieldControl: async () => undefined, checkAbort: () => { if (signal?.aborted) throw abortedError(); },
-    gpu: { signalInput, chart: null, placement: { chartUnitsPerFrameUnit: k, aspect } } };
-  const reference = await renderDisplayView(setup);
-  const abort = new AbortController(), onAbort = (): void => abort.abort();
-  signal?.addEventListener("abort", onAbort, { once: true });
-  const images = createDisplayViewImageModules(runtime);
+  const white = Float64Array.of(0.5, 0.9, 0.7), A = conformanceResponses(1);
+  // The print's radiance as the provider forms it: the print-local point, the surround outside, times the white radiance at the node.
+  const radianceAt = (u: number, v: number, nm: number): number => {
+    const cu = u * k, cv = v * k;
+    return (Math.abs(cu) <= 1 && Math.abs(cv) <= aspect ? scene.reflectanceAt(cu, cv, nm) : surround) * white[nodes.indexOf(nm)]!;
+  };
+  const printScene = scene.signalScene(nodes, A, white, radianceAt, k, 1, surround), readout = { perElectron: 1 / 60000, darkElectrons: 0.07, constantVariance: 1.5e-9 };
+  const speedOffsets = [[-0.25, -0.25], [0.25, -0.25], [-0.25, 0.25], [0.25, 0.25]].map(([x, y]) => ({ x: x!, y: y!, weight: 0.25 }));
+  const speedInput: DisplayViewExpectedSignalInput = { nativeWidth, nativeHeight, outputWidth: frameWidth, wavelengthsNm: nodes, electronsPerRadiance: A, offsets: speedOffsets, scene: printScene,
+    channelAt: conformanceChannelAt, queryPoint: (x, y, o, out) => { out[0] = (x + 0.5 + speedOffsets[o]!.x - nativeWidth / 2) * g; out[1] = -(y + 0.5 + speedOffsets[o]!.y - nativeHeight / 2) * g; } };
+  const speed = conformanceSetup(speedInput, readout, 581, 2, signal, { gpu: { signalInput: speedInput, chart: null, placement } });
+  const qualityOffsets: { x: number; y: number; weight: number }[] = [];
+  for (const [nx, ny] of [[-0.25, -0.25], [0.25, -0.25], [-0.25, 0.25], [0.25, 0.25]] as const) for (const [ax, ay] of [[-0.5, -0.5], [0.5, -0.5], [-0.5, 0.5], [0.5, 0.5]] as const) qualityOffsets.push({ x: nx - ax, y: ny - ay, weight: 1 / 16 });
+  const kernel = (sigma: number): Float64Array => { const w = Float64Array.from({ length: 9 }, (_, t) => Math.exp(-0.5 * (((t % 3) - 1) ** 2 + (Math.floor(t / 3) - 1) ** 2) / (sigma * sigma))); const sum = w.reduce((a, b) => a + b, 0); return w.map((v) => v / sum); };
+  const qualityInput: DisplayViewExpectedSignalInput = { nativeWidth, nativeHeight, outputWidth: frameWidth, wavelengthsNm: nodes, electronsPerRadiance: A, offsets: qualityOffsets,
+    kernels: { radius: 1, perNode: [kernel(0.6), kernel(0.7), kernel(0.8)] }, scene: printScene, channelAt: conformanceChannelAt };
+  const quality = conformanceSetup(qualityInput, readout, 582, 5, signal, { gpu: { signalInput: qualityInput, chart: null, placement } });
+  const [speedReference, qualityReference] = [await renderDisplayView(speed), await renderDisplayView(quality)];
+  const images = createDisplayViewImageModules(runtime, (s) => probeChartCompositeDevice(runtime, (label, code) => createComputePipeline(runtime, label, code, s), s));
   try {
-    if (signal?.aborted) abort.abort();
-    const pipelines = (label: string, code: string): Promise<GPUComputePipeline> => createComputePipeline(runtime, label, code, abort.signal);
-    // A device that fails the double-float32 probe refuses image-plane renders (unsupported-on-backend, as composite charts); the
-    // self-check then has nothing of the module's to check, and must not keep the device's charts off the GPU.
-    let path: "dekker" | "fma";
-    try { path = (await probeChartCompositeDevice(runtime, pipelines, abort.signal)).productPath ?? "dekker"; } catch (error) {
-      if (error instanceof ChartCompositeProbeError) return true;
-      throw error;
-    }
-    const gpu = await renderDisplayViewSpeedOnGpu(runtime, 1 << 20, { setup, signalInput, material: images.build(setup.gpu!, path) }, abort, undefined, pipelines);
-    return conformanceVerdict(reference, gpu);
-  } finally { images.release(); signal?.removeEventListener("abort", onAbort); }
+    return await withConformanceAbort(runtime, signal, async (abort, pipelines) => {
+      let path: "dekker" | "fma";
+      try { path = (await probeChartCompositeDevice(runtime, pipelines, abort.signal)).productPath ?? "dekker"; } catch (error) {
+        if (error instanceof ChartCompositeProbeError) return true;
+        throw error;
+      }
+      const verdict = conformanceVerdict(speedReference, await renderDisplayViewSpeedOnGpu(runtime, 1 << 20, { setup: speed, signalInput: speedInput, material: images.build(speed.gpu!, path) }, abort, undefined, pipelines));
+      if (verdict !== true) return "Speed: " + verdict;
+      const gpu = await renderDisplayViewQualityOnGpu(runtime, 1 << 20, { setup: quality, signalInput: qualityInput, material: { id: "image-plane", wgsl: "", bindings: [] },
+        image: imagePlaneQualityPasses(runtime, quality.gpu!, path) }, abort, undefined, pipelines);
+      const qualityVerdict = conformanceVerdict(qualityReference, gpu);
+      return qualityVerdict === true ? true : "Quality: " + qualityVerdict;
+    });
+  } finally { images.release(); }
 }
