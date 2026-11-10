@@ -1878,7 +1878,7 @@ export { COLOR_PATCH_SET_ID, COLOR_PATCH_SET_VERSION, COLOR_PATCH_IDS, COLOR_PAT
 export { PHOTOPIC_MAXIMUM_LUMINOUS_EFFICACY_LM_PER_W, resolveCaptureIlluminant, createPlanarSceneRadianceProvider, CHART_SIZE_DEFAULT_SURROUND_REFLECTANCE, CALLER_MATERIAL_SCENE_MAX_MATERIALS, type ChartSizeOption,
   type CaptureIlluminant, type ResolvedCaptureIlluminant, type CallerReflectanceScene, type CallerRadianceScene, type CallerMaterialScene, type ScenePlanePoint, type SceneMaterialPoint,
   type PlanarSceneRadianceProvider } from "./facade/scene-radiance.js";
-export type { MixedIllumination, MixedIlluminationBlend, MixedIlluminationPoint, MixedIlluminationSource } from "./facade/mixed-illumination.js";
+export type { MixedIllumination, MixedIlluminationBlend, MixedIlluminationPoint, MixedIlluminationPointSource, MixedIlluminationSource } from "./facade/mixed-illumination.js";
 export { CHART_RADIANCE_BATCH_SCHEMA_VERSION, CHART_RADIANCE_BATCH_LIMITS, calculateChartRadianceBatchPlan, calculateChartRadianceBatch,
   mapEnvironmentDirectionsToChartPoints, type ChartRadianceBatchInput, type ChartRadianceBatchPlan } from "./facade/chart-radiance-batch.js";
 export { resolveChartMaterialLayers, CHART_MASK_INDEX_GRAIN, CHART_MATERIAL_LAYER_LIMITS, type ChartMaterialLayerScene, type ChartMaskLayer, type ChartMaskShape,

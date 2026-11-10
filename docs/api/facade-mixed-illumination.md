@@ -4,14 +4,16 @@ The package and root API versions are recorded once in [Navigation](../API_REFER
 
 ## MixedIllumination
 
-2.22 (#550), `simulateCapture` `illumination`: two or more sources blended across the chart (docs/MIXED_ILLUMINATION.md). It
-replaces `illuminant` and `illuminanceLux`. Coordinates are chart-local with `chartSize` and frame units without it; (0, 0) is
-the frame center.
+2.22 (#550), `simulateCapture` `illumination`: sources blended across the chart and point sources with inverse-square falloff
+(docs/MIXED_ILLUMINATION.md). It replaces `illuminant` and `illuminanceLux`. `sources` lists 1 to 8 sources (with two or more, a
+`blend` is required; one lights the whole plane); `points` lists 1 to 8 point sources; a request needs two or more sources or at least one point. Blend
+coordinates are chart-local with `chartSize` and frame units without it; (0, 0) is the frame center.
 
 ```ts
 export interface MixedIllumination {
-  sources: readonly MixedIlluminationSource[];
-  blend: MixedIlluminationBlend;
+  sources?: readonly MixedIlluminationSource[];
+  blend?: MixedIlluminationBlend;
+  points?: readonly MixedIlluminationPointSource[];
 }
 ```
 
@@ -36,6 +38,20 @@ A point in chart coordinates (see {@link MixedIllumination}).
 
 ```ts
 export interface MixedIlluminationPoint { u: number; v: number }
+```
+
+## MixedIlluminationPointSource
+
+2.22 (#550): a point light on the scene plane's front side: an illuminant spectrum, a position in metres (`xM`, `yM` on the plane
+from the optical axis, +x right and +y up as seen from the camera; `heightM` > 0 in front of the plane, toward the camera) and an
+intensity, either in candela or as the illuminance it gives at normal incidence at a reference distance (I = E·r²).
+
+```ts
+export interface MixedIlluminationPointSource {
+  illuminant: CaptureIlluminant;
+  position: { xM: number; yM: number; heightM: number };
+  intensity: { candela: number } | { illuminanceLux: number; distanceM: number };
+}
 ```
 
 ## MixedIlluminationSource
