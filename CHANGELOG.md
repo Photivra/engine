@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+### 2.20.0 part: #231 CI Node matrix drift test and runner-minute baseline
+
+- **CI only; no package, API or bundle change.** `.github/node-ci-roles.mjs` derives the CI Node roles (exact `engines.node` minimum, maintained LTS majors, Current major, primary `lts/*` leg, tooling major) from `.github/node-lts-policy.mjs` (new export `lifecycleAt`) and checks `ci.yml`, `publish.yml`, `NODE_SUPPORT.md` and `package.json` against them. It runs in the existing `change scope` job (under a second; no new job, no install). Drift fails; owner-decision findings print as notices.
+- **Tests:** `.github/test-node-ci-roles.mjs` (alias resolution before and after Node 26 entered LTS and at Node 22's end of life, deduplication findings, and nine kinds of drift).
+- **Runner-minute baseline:** recorded per leg in docs/DEVELOPERS.md from 25 pull-request runs (2026-10-31 to 2026-11-09): median 90.1 Linux job-minutes per run (101 billed), 121.2 over the last three.
+- **Docs:** NODE_SUPPORT.md describes the check.
+
 ## 2.19.0 — unreleased (prepared November 9, 2026)
 
 A minor release of six issues: exposure time with an ND filter and generic ND presets (#578), the program line within the lens's f-number range (#583), very fast `lens.ideal` ranges (#585), developing a capture rendered in parts (#571), lens corrections in the development (#570) and the sampled-PSF orientation fix (#566). See the [2.19.0 release record](https://github.com/Photivra/photivra/blob/main/docs/RELEASE_2_19_0.md).

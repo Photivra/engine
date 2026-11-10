@@ -41,6 +41,15 @@ export function assertMaintainedLts(major, at = new Date()) {
   assert.ok(withinWindow(window, at), `Node ${major} is outside its approved LTS support window.`);
 }
 
+// The reviewed lifecycle on a date: the supported majors in an LTS window, newest first, and the
+// supported major in its Current window, if any. `.github/node-ci-roles.mjs` derives the CI
+// matrix roles from it.
+export function lifecycleAt(at = new Date()) {
+  const maintainedLts = supportedNodeMajors.filter((major) => withinWindow(ltsWindows.get(major), at)).sort((a, b) => b - a);
+  const current = supportedNodeMajors.filter((major) => withinWindow(currentWindows.get(major), at)).sort((a, b) => b - a)[0];
+  return { maintainedLts, current };
+}
+
 function withinLtsMarkerGrace(major, at) {
   const window = ltsWindows.get(major);
   if (!window) return false;
