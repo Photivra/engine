@@ -155,13 +155,18 @@ freedom-to-operate opinion.
 
 `prepareDisplayView(request, { gpu: "auto" | "require" })` renders a photo on WebGPU in both of the display view's paths. A photo
 falls back to the CPU only for the reasons a chart does: no device, a failed self-check, a defocus disc above 64 sites, a
-stratified footprint, or the device's storage limit.
+stratified footprint, or a kernel table above the device's storage limit. Its pixel data is banded in both paths.
 
 **Speed** (the exact area mean without diffraction, `lens.defocus` or AHD) uses the image-plane module
 (`src/gpu/display-view-image-material-module.ts`; [WebGPU, Display view (Speed)](WEBGPU.md#display-view-speed-on-the-gpu)):
 
-- **Host side.** The host computes every pixel's three channel signals in float64 and uploads them once as float32 (12 bytes per
-  pixel). Above the device's storage binding limit this is refused with `insufficient-limits`.
+- **Host side.** The host computes every pixel's three channel signals in float64 and rounds them once to float32 (12 bytes per
+  pixel).
+  - **When they fit one storage binding**, they are uploaded once per scene.
+  - **Otherwise each band** of display rows uploads only the pixel rows its native site rows reach. That is the print-local v of
+    the band's first and last site rows at every query offset, plus two rows either side. The renderer caps a band's display rows
+    so that those rows fit the binding (owner decision, 2026-11-09). A very large photo therefore never meets the device's storage
+    binding limit, and a banded render equals the whole upload byte for byte (tested with a 2400 × 1600 photo under a 16 MB limit).
 - **The point.** The module recovers the exact query point in double-float32, as the composite chart module does. It forms the
   pixel coordinates and the bilinear weights with only relative error. It flags the points it cannot decide: the print's edge, a
   weight moved next to a much brighter pixel, a nearest-pixel edge. The host recomputes a flagged display pixel with the reference.
@@ -217,18 +222,19 @@ Timing on a hardware adapter is not measured yet.
 
 The scene's module, its lattice data (9.5 KB gzip as source) and its GPU code are reachable only through
 `prepareImagePlaneScenes()`. That function is in a module of its own and loads them with dynamic imports:
-- a lazy chunk of 13,692 B gzip;
-- the GPU module's own chunk of 7,254 B (Speed and Quality), loaded on a display view's first photo on WebGPU;
+- a lazy chunk of 13,694 B gzip;
+- the GPU module's own chunk of 7,572 B (Speed and Quality), loaded on a display view's first photo on WebGPU;
 - shared code that moves into the entry.
 
-Measured with the worker shape below plus the function, that is 21,486 B more in total.
+Measured with the worker shape below plus the function, that is about 21.8 KB more in total.
 - **Without it.** A bundle that never imports the function carries none of these bytes, not even as a lazy chunk. A request with an
   image-plane scene then fails with a message that names the function.
 - **Measured on the app's capture-worker shape** (`test/capture-bundle.test.ts`: `NATIVE_RAW_LIMITS`, `prepareDisplayView`,
-  `serializeSimulatedCaptureDngFromParts`, `simulateCapture`, `simulateIdealReference`; every chunk counted): 351,980 B gzip,
-  +205 B over 2.19.0, within the unchanged 352,000 B limit.
-  - The GPU display view's chunk is 54,623 B, 84 B below 2.19.0's 54,707 B. The photo routing it gained is paid for by sharing
-    code: the self-checks' fixtures and verdict, the support checks, the display-pixel recomputation and the lattice formula.
+  `serializeSimulatedCaptureDngFromParts`, `simulateCapture`, `simulateIdealReference`; every chunk counted): 351,950 B gzip,
+  +175 B over 2.19.0, within the unchanged 352,000 B limit.
+  - The GPU display view's chunk is 54,591 B, 116 B below 2.19.0's 54,707 B. The photo routing and banding it gained are paid for
+    by sharing code: the self-checks' fixtures and verdict, the support checks, the display-pixel recomputation, the lattice
+    formula and the materials' channel signals.
   - The entry is +283 B: the facade's dispatch.
 - **An application that enables photos adds those chunks** to its total JavaScript.
 

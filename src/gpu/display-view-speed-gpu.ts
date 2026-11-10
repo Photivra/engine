@@ -15,7 +15,7 @@
  * `display-view-composite-material-module.ts` (#491) one for composite charts, the 2.3 elements and `material-layers` scenes.
  */
 import { DISPLAY_VIEW_NOISE_STREAM_ID, axisSums, clipCentre, createDisplayViewExpectedSignal, displayViewDecidedSaturation, overlaps, quantizationVariance, renderDisplayView, type AxisSums, type DisplayViewRenderResult, type DisplayViewSetup } from "../facade/display-view.js";
-import type { DisplayViewExpectedSignalInput } from "../facade/expected-signal.js";
+import { displayViewSignalTables, type DisplayViewExpectedSignalInput } from "../facade/expected-signal.js";
 import { resolvePortableChartScene } from "../facade/chart-scenes.js";
 import { setDisplayViewGpuRendererFactory, type DisplayViewGpuConformanceCase, type DisplayViewGpuPart, type DisplayViewGpuRenderOutput, type DisplayViewGpuRenderer,
   type DisplayViewGpuRendererFactory, type DisplayViewGpuRequest, type DisplayViewGpuRuntimeHandle } from "../facade/display-view-gpu.js";
@@ -84,6 +84,12 @@ export interface DisplayViewGpuMaterialModule {
    */
   readonly extraSiteRoundings?: number;
   readonly siteTable?: Float32Array<ArrayBuffer>;
+  /**
+   * #581: a module whose data is too large for one binding (a large photo) gives group 1 per band instead of `bindings`: for the
+   * native site rows [y0, y1] the band reads, and the most display rows a band may hold at `sitesPerDisplayRow`.
+   */
+  band?(scope: GpuResourceScope, layout: GPUBindGroupLayout, y0: number, y1: number): GPUBindGroup;
+  bandRows?(sitesPerDisplayRow: number): number;
 }
 
 /** What a GPU render of a display view needs: the reference's own setup and expected-signal input, plus the material module. */
@@ -140,20 +146,19 @@ export function displayViewSpeedGpuUnsupportedReason(setup: DisplayViewSetup, si
   return null;
 }
 
-/** The site table: Σ_λ A_c(λ)·L_m(λ) per material and channel in float64 (the reference's `materialSignalDirect`), rounded once to float32. */
+/** A material's channel signal Σ_λ A_c(λ)·L_m(λ) from the reference's own tables (`materialSignalDirect`, the same doubles). */
+export function materialSignal(tables: ReturnType<typeof displayViewSignalTables>, m: number, c: number): number {
+  const si = tables.spectralIndex[m]!;
+  return si < 0 ? tables.reflectance[m]! * tables.neutralDirect[c]! : tables.spectralDirect[c]![si]!;
+}
+/** The site table: every material's channel signals, rounded once to float32. */
 function siteTable(signalInput: DisplayViewExpectedSignalInput): Float32Array<ArrayBuffer> {
-  const scene = signalInput.scene as Extract<DisplayViewExpectedSignalInput["scene"], { kind: "materials" }>, A = signalInput.electronsPerRadiance, nodes = signalInput.wavelengthsNm.length;
-  const neutral = [0, 1, 2].map((c) => { let s = 0; for (let n = 0; n < nodes; n++) s += A[c]![n]! * scene.whiteRadiance[n]!; return s; });
-  const table = new Float32Array(scene.materials.length * 3);
-  scene.materials.forEach((m, index) => {
-    for (let c = 0; c < 3; c++) {
-      let value: number;
-      if ("neutral" in m) value = m.neutral * neutral[c]!;
-      else { value = 0; for (let n = 0; n < nodes; n++) value += A[c]![n]! * m.radiance[n]!; }
-      if (!(Math.abs(value) <= FLOAT32_SAFE_MAGNITUDE)) throw new ImageKernelExecutionError("unsupported-float32-domain", "A material's channel signal exceeds the float32 domain.");
-      table[index * 3 + c] = value;
-    }
-  });
+  const tables = displayViewSignalTables(signalInput), table = new Float32Array(tables.reflectance.length * 3);
+  for (let i = 0; i < table.length; i++) {
+    const value = materialSignal(tables, Math.floor(i / 3), i % 3);
+    if (!(Math.abs(value) <= FLOAT32_SAFE_MAGNITUDE)) throw new ImageKernelExecutionError("unsupported-float32-domain", "A material's channel signal exceeds the float32 domain.");
+    table[i] = value;
+  }
   return table;
 }
 
@@ -313,7 +318,7 @@ export async function renderDisplayViewSpeedOnGpu(runtime: WebGpuRuntime, bandBy
   for (let i = 0; i < region.width; i++) { axisRecord(geometry, i * stride, (region.x + i) * shape.sx, (region.x + i + 1) * shape.sx, setup.frameWidth, margin, shape.sx); columnSums.push(axisSums((region.x + i) * shape.sx, (region.x + i + 1) * shape.sx, setup.frameWidth, margin)); }
   for (let j = 0; j < region.height; j++) { axisRecord(geometry, (region.width + j) * stride, (region.y + j) * shape.sy, (region.y + j + 1) * shape.sy, setup.frameHeight, margin, shape.sy); rowSums.push(axisSums((region.y + j) * shape.sy, (region.y + j + 1) * shape.sy, setup.frameHeight, margin)); }
   const area = shape.sx * shape.sy, pixelCount = region.width * region.height;
-  const rows = Math.max(1, Math.min(region.height, Math.floor(bandBytes / (region.width * BYTES_PER_PIXEL))));
+  const rows = Math.max(1, Math.min(region.height, Math.floor(bandBytes / (region.width * BYTES_PER_PIXEL)), material.bandRows?.(shape.sy) ?? Infinity));
   if (Math.max(rows * region.width * 4 * DISPLAY_VIEW_OUTPUT_FLOATS, geometry.byteLength, table.byteLength) > runtime.maximumStorageBindingBytes)
     throw new ImageKernelExecutionError("insufficient-limits", "One display-view band exceeds the device's storage binding limit.");
   const pipeline = await pipelines("photivra-display-view-speed:" + material.id, assembleDisplayViewSpeedWgsl(material.wgsl));
@@ -324,8 +329,8 @@ export async function renderDisplayViewSpeedOnGpu(runtime: WebGpuRuntime, bandBy
     const auxBuffer = scope.upload("photivra-display-view-aux", aux, BUFFER_USAGE.STORAGE);
     const geometryBuffer = scope.upload("photivra-display-view-geometry", geometry, BUFFER_USAGE.STORAGE);
     const tableBuffer = scope.upload("photivra-display-view-table", table, BUFFER_USAGE.STORAGE);
-    const materialEntries = material.bindings.map((b) => ({ binding: b.binding, resource: { buffer: b.buffer ?? scope.upload("photivra-display-view-material-" + b.binding, b.data, b.kind === "uniform" ? BUFFER_USAGE.UNIFORM : BUFFER_USAGE.STORAGE) } }));
-    const materialGroup = runtime.device.createBindGroup({ layout: pipeline.getBindGroupLayout(1), entries: materialEntries });
+    const materialGroup = material.band ? null : runtime.device.createBindGroup({ layout: pipeline.getBindGroupLayout(1), entries: material.bindings.map((b) => ({ binding: b.binding,
+      resource: { buffer: b.buffer ?? scope.upload("photivra-display-view-material-" + b.binding, b.data, b.kind === "uniform" ? BUFFER_USAGE.UNIFORM : BUFFER_USAGE.STORAGE) } })) });
     const gate = createHostYieldGate();
     for (let row0 = 0; row0 < region.height; row0 += rows) {
       checkAbort(abort.signal);
@@ -339,7 +344,9 @@ export async function renderDisplayViewSpeedOnGpu(runtime: WebGpuRuntime, bandBy
         const bindGroup = runtime.device.createBindGroup({ layout: pipeline.getBindGroupLayout(0), entries: [
           { binding: 0, resource: { buffer: uniform } }, { binding: 1, resource: { buffer: auxBuffer } }, { binding: 2, resource: { buffer: geometryBuffer } },
           { binding: 3, resource: { buffer: tableBuffer } }, { binding: 4, resource: { buffer: out } }, { binding: 5, resource: { buffer: flagBuffer } }] });
-        const [data, flagData] = await runComputePass(runtime, band, pipeline, [bindGroup, materialGroup], linearDispatch(count, DISPLAY_VIEW_WORKGROUP_SIZE, runtime.maximumWorkgroupsPerDimension),
+        // #581: a module that bands its own data (a large photo) gives group 1 per band, for the native rows the band reads (with margin).
+        const [data, flagData] = await runComputePass(runtime, band, pipeline, [bindGroup, materialGroup ?? material.band!(band, pipeline.getBindGroupLayout(1),
+          Math.floor((region.y + row0) * shape.sy) + margin - 2, Math.ceil((region.y + row1) * shape.sy) + margin + 2)], linearDispatch(count, DISPLAY_VIEW_WORKGROUP_SIZE, runtime.maximumWorkgroupsPerDimension),
           [{ buffer: out, bytes: count * 4 * DISPLAY_VIEW_OUTPUT_FLOATS }, { buffer: flagBuffer, bytes: count * 4 * DISPLAY_VIEW_FLAG_WORDS }], abort.signal);
         moments.set(new Float32Array(data!, 0, count * DISPLAY_VIEW_OUTPUT_FLOATS), first * DISPLAY_VIEW_OUTPUT_FLOATS);
         const bandFlags = new Uint32Array(flagData!, 0, count * DISPLAY_VIEW_FLAG_WORDS);

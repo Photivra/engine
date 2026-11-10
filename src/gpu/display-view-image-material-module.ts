@@ -49,7 +49,7 @@ export function imagePlaneMaterialModuleId(path: ChartCompositeProductPath): str
 /** Roundings of the module's value beyond the table lookup's one (see the module comment). */
 export const IMAGE_PLANE_EXTRA_SITE_ROUNDINGS = 10;
 /** Layout of the photo uniform (float32 / u32 words, 64 bytes). */
-export const IMAGE_PLANE_PARAMS = /* @__PURE__ */ Object.freeze({ width: 0, height: 1, nearest: 2, halfWHi: 4, halfWLo: 5, halfHHi: 6, halfHLo: 7, aspectHi: 8, aspectLo: 9,
+export const IMAGE_PLANE_PARAMS = /* @__PURE__ */ Object.freeze({ width: 0, height: 1, nearest: 2, row0: 3, halfWHi: 4, halfWLo: 5, halfHHi: 6, halfHLo: 7, aspectHi: 8, aspectLo: 9,
   slackX: 10, slackY: 11, words: 16 });
 /** Table values above this are outside the float32 domain. */
 const FLOAT32_SAFE_MAGNITUDE = 2 ** 120;
@@ -61,7 +61,7 @@ export function imagePlaneMaterialWgsl(path: ChartCompositeProductPath = "dekker
   return `${displayViewModuleCommonWgsl(path)}
 @group(1) @binding(0) var<storage, read> photo_signal: array<f32>;
 struct PhotoParams {
-  width: u32, height: u32, nearest: u32, pad0: u32,
+  width: u32, height: u32, nearest: u32, row0: u32,
   half_w_hi: f32, half_w_lo: f32, half_h_hi: f32, half_h_lo: f32,
   aspect_hi: f32, aspect_lo: f32, slack_x: f32, slack_y: f32,
   pad1: f32, pad2: f32, pad3: f32, pad4: f32,
@@ -83,7 +83,7 @@ fn bilinear_axis(s: D, n: u32) -> Axis {
   let last = i32(n) - 1;
   return Axis(u32(clamp(i32(f0), 0, last)), u32(clamp(i32(f0) + 1, 0, last)), w0, w1);
 }
-fn photo_at(i: u32, j: u32, c: u32) -> f32 { return photo_signal[(j * photo.width + i) * 3u + c]; }
+fn photo_at(i: u32, j: u32, c: u32) -> f32 { return photo_signal[((j - photo.row0) * photo.width + i) * 3u + c]; }
 fn scene_value(p: vec2<f32>, c: u32) -> f32 {
   let k = D(lattice.chart_k_hi, lattice.chart_k_lo);
   let u = d_mul(lattice_point(p.x, D(lattice.scale_u_hi, lattice.scale_u_lo), 0u), k);
@@ -138,18 +138,26 @@ export interface DisplayViewImageModules {
  */
 export function createDisplayViewImageModules(runtime: WebGpuRuntime, probe: (signal: AbortSignal) => Promise<ChartCompositeProbeRecord>): DisplayViewImageModules {
   const uploads: UploadedImage[] = [], wgsl = new Map<ChartCompositeProductPath, string>();
-  const upload = (image: ImagePlaneSignalScene["image"]): UploadedImage => {
-    const key = image as object, index = uploads.findIndex((e) => e.key === key);
-    if (index >= 0) { const [entry] = uploads.splice(index, 1); uploads.push(entry!); return entry!; }
+  // The pixels' channel signals (float64 rounded once), per scene; uploaded whole when they fit one binding, else per band (#581).
+  const signals = new Map<object, Float32Array<ArrayBuffer>>();
+  const signalsOf = (image: ImagePlaneSignalScene["image"]): Float32Array<ArrayBuffer> => {
+    let values = signals.get(image);
+    if (values) return values;
     const { scene, tables } = image, pixels = scene.width * scene.height;
-    if (pixels * 12 > runtime.maximumStorageBindingBytes) throw new ImageKernelExecutionError("insufficient-limits", "The image's pixel signals (" + pixels * 12 + " bytes) exceed the device's storage binding limit.");
-    const values = new Float32Array(pixels * 3);
+    values = new Float32Array(pixels * 3);
     for (let j = 0; j < pixels; j++) for (let c = 0; c < 3; c++) {
       const value = scene.pixelValue(j, tables.nodes[c as 0 | 1 | 2], tables.neutral[c as 0 | 1 | 2]);
       if (!(value >= 0 && value <= FLOAT32_SAFE_MAGNITUDE)) throw new ImageKernelExecutionError("unsupported-float32-domain", "A pixel's channel signal is outside the float32 domain.");
       values[j * 3 + c] = value;
     }
-    const surround = Float32Array.from(image.surround);
+    signals.set(image, values);
+    while (signals.size > KEPT_SCENES) signals.delete(signals.keys().next().value!);
+    return values;
+  };
+  const upload = (image: ImagePlaneSignalScene["image"]): UploadedImage => {
+    const key = image as object, index = uploads.findIndex((e) => e.key === key);
+    if (index >= 0) { const [entry] = uploads.splice(index, 1); uploads.push(entry!); return entry!; }
+    const values = signalsOf(image), surround = Float32Array.from(image.surround);
     const scope = new GpuResourceScope(runtime);
     const entry: UploadedImage = { key, scope, buffer: scope.upload("photivra-display-view-image-signal", values, BUFFER_USAGE.STORAGE), surround };
     uploads.push(entry);
@@ -160,7 +168,7 @@ export function createDisplayViewImageModules(runtime: WebGpuRuntime, probe: (si
   const build = (gpu: DisplayViewGpuSetup, path: ChartCompositeProductPath): DisplayViewGpuMaterialModule => {
       const image = imagePlaneOf(gpu);
       if (!image || !gpu.placement) throw new ImageKernelExecutionError("unsupported-on-backend", "The setup carries no image-plane print and placement; use cpu-reference.");
-      const scene = image.scene, lattice = displayViewLatticeConstants(gpu.signalInput, gpu.placement, 0), uploaded = upload(image);
+      const scene = image.scene, lattice = displayViewLatticeConstants(gpu.signalInput, gpu.placement, 0), rowBytes = scene.width * 12, banded = scene.height * rowBytes > runtime.maximumStorageBindingBytes;
       const params = new ArrayBuffer(4 * IMAGE_PLANE_PARAMS.words), words = new Uint32Array(params), floats = new Float32Array(params), P = IMAGE_PLANE_PARAMS;
       words[P.width] = scene.width; words[P.height] = scene.height; words[P.nearest] = scene.interpolation === "nearest" ? 1 : 0;
       const halfW = scene.width / 2, halfH = scene.height / (2 * scene.aspect);
@@ -169,9 +177,32 @@ export function createDisplayViewImageModules(runtime: WebGpuRuntime, probe: (si
       floats[P.slackX] = 1e-14 * gpu.placement.chartUnitsPerFrameUnit * halfW; floats[P.slackY] = 1e-14 * gpu.placement.chartUnitsPerFrameUnit * halfH;
       let code = wgsl.get(path);
       if (code === undefined) { code = imagePlaneMaterialWgsl(path); wgsl.set(path, code); }
-      return { id: imagePlaneMaterialModuleId(path), wgsl: code, extraSiteRoundings: IMAGE_PLANE_EXTRA_SITE_ROUNDINGS, siteTable: uploaded.surround, bindings: [
-        { binding: 0, kind: "storage", buffer: uploaded.buffer }, { binding: 1, kind: "uniform", data: new Uint8Array(params) },
-        { binding: 2, kind: "uniform", data: new Uint8Array(lattice.params) }, { binding: 3, kind: "storage", data: lattice.offsets }] };
+      const base = { id: imagePlaneMaterialModuleId(path), wgsl: code, extraSiteRoundings: IMAGE_PLANE_EXTRA_SITE_ROUNDINGS, siteTable: Float32Array.from(image.surround) };
+      if (!banded) {
+        const uploaded = upload(image);
+        return { ...base, bindings: [{ binding: 0, kind: "storage", buffer: uploaded.buffer }, { binding: 1, kind: "uniform", data: new Uint8Array(params) },
+          { binding: 2, kind: "uniform", data: new Uint8Array(lattice.params) }, { binding: 3, kind: "storage", data: lattice.offsets }] };
+      }
+      // A photo larger than one binding: per band the pixel rows its native site rows reach. The print-local v of site row y and
+      // query offset o is (y + c_o)·scale_v·k; the photo row is (aspect − v)·H/(2·aspect), plus two rows of margin either side.
+      const values = signalsOf(image), offsetsV = Array.from({ length: lattice.offsets.length / 4 }, (_, o) => lattice.offsets[4 * o + 2]! + lattice.offsets[4 * o + 3]!);
+      const rowOf = (y: number, c: number): number => (scene.aspect - (y + c) * lattice.scaleV * gpu.placement!.chartUnitsPerFrameUnit) * halfH;
+      const rate = Math.abs(lattice.scaleV) * gpu.placement.chartUnitsPerFrameUnit * halfH, maximumRows = Math.floor(runtime.maximumStorageBindingBytes / rowBytes);
+      return { ...base, bindings: [],
+        bandRows: (sitesPerDisplayRow: number): number => Math.max(1, Math.floor(((maximumRows - 6) / rate - 6) / sitesPerDisplayRow)),
+        band(scope, layout, y0, y1): GPUBindGroup {
+          let low = Infinity, high = -Infinity;
+          for (const y of [y0, y1]) for (const c of offsetsV) { const r = rowOf(y, c); low = Math.min(low, r); high = Math.max(high, r); }
+          const j0 = Math.max(0, Math.min(scene.height - 1, Math.floor(low) - 2)), j1 = Math.max(j0, Math.min(scene.height - 1, Math.floor(high) + 2));
+          if ((j1 - j0 + 1) * rowBytes > runtime.maximumStorageBindingBytes) throw new ImageKernelExecutionError("insufficient-limits", "A band's pixel signals exceed the device's storage binding limit.");
+          const bandParams = params.slice(0);
+          new Uint32Array(bandParams)[P.row0] = j0;
+          return runtime.device.createBindGroup({ layout, entries: [
+            { binding: 0, resource: { buffer: scope.upload("photivra-display-view-image-signal-band", values.subarray(j0 * scene.width * 3, (j1 + 1) * scene.width * 3), BUFFER_USAGE.STORAGE) } },
+            { binding: 1, resource: { buffer: scope.upload("photivra-display-view-image-params", new Uint8Array(bandParams), BUFFER_USAGE.UNIFORM) } },
+            { binding: 2, resource: { buffer: scope.upload("photivra-display-view-image-lattice", new Uint8Array(lattice.params), BUFFER_USAGE.UNIFORM) } },
+            { binding: 3, resource: { buffer: scope.upload("photivra-display-view-image-offsets", lattice.offsets, BUFFER_USAGE.STORAGE) } }] });
+        } };
   };
   // The module's self-check, once per runtime (single flight; a failure is retried on the next photo).
   const check = async (): Promise<void> => {
@@ -183,7 +214,7 @@ export function createDisplayViewImageModules(runtime: WebGpuRuntime, probe: (si
     async moduleFor(gpu, signal): Promise<DisplayViewGpuMaterialModule> { const path = (await probe(signal)).productPath ?? "dekker"; await check(); return build(gpu, path); },
     async qualityPasses(gpu, signal): Promise<DisplayViewQualityImagePasses> { const path = (await probe(signal)).productPath ?? "dekker"; await check(); return imagePlaneQualityPasses(runtime, gpu, path); },
     build,
-    release(): void { for (const entry of uploads.splice(0)) entry.scope.release(); }
+    release(): void { for (const entry of uploads.splice(0)) entry.scope.release(); signals.clear(); }
   };
 }
 

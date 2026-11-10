@@ -536,7 +536,7 @@ export function createImagePlaneDisplayViewMaterialEmulator(photoWords: Uint32Ar
   const L = DISPLAY_VIEW_LATTICE, count = latticeWords[L.offsets]!, tolerance = latticeFloats[L.tolerance]!;
   const scaleU: Dw = [latticeFloats[L.scaleUHi]!, latticeFloats[L.scaleULo]!], scaleV: Dw = [latticeFloats[L.scaleVHi]!, latticeFloats[L.scaleVLo]!];
   const k: Dw = [latticeFloats[L.chartKHi]!, latticeFloats[L.chartKLo]!];
-  const width = photoWords[0]!, height = photoWords[1]!, nearest = photoWords[2] !== 0;
+  const width = photoWords[0]!, height = photoWords[1]!, nearest = photoWords[2] !== 0, row0 = photoWords[3]!;
   const halfW: Dw = [photoFloats[4]!, photoFloats[5]!], halfH: Dw = [photoFloats[6]!, photoFloats[7]!], aspect: Dw = [photoFloats[8]!, photoFloats[9]!];
   const slackX = photoFloats[10]!, slackY = photoFloats[11]!;
   let uncertain = false;
@@ -561,7 +561,7 @@ export function createImagePlaneDisplayViewMaterialEmulator(photoWords: Uint32Ar
     const last = n - 1;
     return [Math.min(last, Math.max(0, f0)), Math.min(last, Math.max(0, f0 + 1)), w0, w1];
   };
-  const at = (i: number, j: number, c: number): number => signal[(j * width + i) * 3 + c]!;
+  const at = (i: number, j: number, c: number): number => signal[((j - row0) * width + i) * 3 + c]!;
   const value = (pu: number, pv: number, c: number): number => {
     const u = D.dMul(latticePoint(pu, scaleU, 0), k), v = D.dMul(latticePoint(pv, scaleV, 1), k);
     if (!(le(babs(bd(u)), bx(1)) && le(babs(bd(v)), bd(aspect)))) return surround[c]!;

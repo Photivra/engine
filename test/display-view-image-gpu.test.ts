@@ -9,7 +9,8 @@
  */
 import { beforeAll, describe, expect, it } from "vitest";
 import { prepareImagePlaneScenes, prepareDisplayView, simulateDisplayView } from "../src/index.js";
-import { IMAGE_PLANE_GPU_CASES, IMAGE_PLANE_GPU_LENS, IMAGE_PLANE_GPU_QUALITY_CASES } from "./helpers/image-plane-fixtures.js";
+import { IMAGE_PLANE_GPU_CASES, IMAGE_PLANE_GPU_LENS, IMAGE_PLANE_GPU_QUALITY_CASES, photo, syntheticPhoto } from "./helpers/image-plane-fixtures.js";
+import type { SimulateCaptureOptions } from "../src/index.js";
 import { registerDisplayViewGpuRenderer } from "../src/gpu/display-view-quality-gpu.js";
 import { imagePlaneMaterialModuleId } from "../src/gpu/display-view-image-material-module.js";
 import { createFakeGpu } from "./helpers/fake-webgpu.js";
@@ -43,6 +44,24 @@ describe("display view Speed kernel with the image-plane module (float32 emulati
     // Flagged display pixels (near the print's edge, or a weight moved next to a much brighter pixel) cost one CPU pixel each.
     expect(gpu.flaggedPixelIndices.length / a.pixels).toBeLessThanOrEqual(0.1);
     runtime.destroy();
+  }, scaledTimeout(300_000));
+
+  it("Speed: a photo larger than one storage binding renders in bands, each with the pixel rows it reaches, identical to the whole upload", async () => {
+    // 2400 × 1600 pixels of 12 bytes is 46 MB of signals; the smallest binding limit a runtime takes (16 MB) and small bands make the
+    // module upload per band.
+    const options: SimulateCaptureOptions = { ...cases[0]![1], scene: photo(syntheticPhoto(2400, 1600)) };
+    const fixture = await displayViewGpuFixture(options, SMALL_VIEW);
+    const small = await runtimeOf(createFakeGpu({ maxStorageBufferBindingSize: 16 * 1024 * 1024 }).gpu), large = await runtimeOf(createFakeGpu().gpu);
+    const module = await materialModuleOf(small, fixture.input.setup);
+    expect(module.bindings).toHaveLength(0);
+    expect(module.bandRows!(fixture.input.setup.frameHeight / SMALL_VIEW.height)).toBeLessThan(SMALL_VIEW.height);
+    const banded = await renderOnGpu(small, fixture, 64 * 1024), whole = await renderOnGpu(large, fixture), a = compareDisplayViews(fixture.cpu, banded);
+    expect(a.outsideExpectedBound + a.outsideVarianceBound).toBe(0);
+    expect(a.largestCodeDifference).toBeLessThanOrEqual(1);
+    expect(banded.samples).toEqual(whole.samples);
+    expect(banded.expected).toEqual(whole.expected);
+    report.push({ case: "speed: 2400 × 1600 photo in bands (16 MB binding limit)", deltaE2000Maximum: a.deltaEMaximum, largestExpectedBoundRatio: a.largestExpectedRatio });
+    small.destroy(); large.destroy();
   }, scaledTimeout(300_000));
 
   // #581 (owner decision 2026-11-09): the Quality passes for photos: diffraction, the four-spot filter and AHD, defocus of the plane.

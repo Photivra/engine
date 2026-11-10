@@ -34,7 +34,7 @@ import { createDisplayViewMaterialModules, type DisplayViewMaterialModules } fro
 import { setDisplayViewGpuRendererFactory, type DisplayViewGpuConformanceCase, type DisplayViewGpuPart, type DisplayViewGpuRenderOutput, type DisplayViewGpuRenderer,
   type DisplayViewGpuRendererFactory, type DisplayViewGpuRequest, type DisplayViewGpuRuntimeHandle } from "../facade/display-view-gpu.js";
 import { chartPresetMaterialModule } from "./display-view-chart-material-module.js";
-import { DISPLAY_VIEW_SPEED_CONFORMANCE_CASE, CONFORMANCE_FRAME, recomputeRuns, sceneToneAndOffsetsReason, conformanceChannelAt, conformanceChart, conformanceResponses, conformanceSetup, conformanceVerdict, withConformanceAbort, axisRecord, displayViewSpeedGpuSupports, displayViewSpeedGpuUnsupportedReason, finishDisplayViewPixel, gaussLegendre16, queryGeometry,
+import { DISPLAY_VIEW_SPEED_CONFORMANCE_CASE, CONFORMANCE_FRAME, materialSignal, recomputeRuns, sceneToneAndOffsetsReason, conformanceChannelAt, conformanceChart, conformanceResponses, conformanceSetup, conformanceVerdict, withConformanceAbort, axisRecord, displayViewSpeedGpuSupports, displayViewSpeedGpuUnsupportedReason, finishDisplayViewPixel, gaussLegendre16, queryGeometry,
   renderDisplayViewSpeedOnGpu, type DisplayViewGpuMaterialModule } from "./display-view-speed-gpu.js";
 import { createHostYieldGate } from "../capture/host-yield-cadence.js";
 import { createDefocusDiscSiteKernel } from "../optics/defocus-disc-kernel.js";
@@ -332,7 +332,7 @@ function signalGather(signalInput: DisplayViewExpectedSignalInput, factored: boo
     groups.push({ dpMin, dqMin, dpSpan: dpMax - dpMin, dqSpan: dqMax - dqMin, cu: 0.5 + group.fx - W / 2, cv: 0.5 + group.fy - H / 2, firstTap: first,
       cw: signalInput.kernels ? group.cw : 0, ch: signalInput.kernels ? group.ch : 0 });
   });
-  const direct = (m: number, c: number): number => { const si = tables.spectralIndex[m]!; return si < 0 ? tables.reflectance[m]! * tables.neutralDirect[c]! : tables.spectralDirect[c]![si]!; };
+  const direct = (m: number, c: number): number => materialSignal(tables, m, c);
   const T = tapGroup.length, taps = new Uint32Array(T * DISPLAY_VIEW_QUALITY_TAP_WORDS), spread = new Float32Array(3 * T);
   for (let t = 0; t < T; t++) {
     const g = tapGroup[t]!, group = groups[g]!;
