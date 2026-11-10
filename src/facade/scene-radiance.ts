@@ -219,9 +219,9 @@ export interface ImagePlaneScene {
 }
 /**
  * Internal (#581): what a pixel's signals are integrated from (`ResolvedImagePlaneScene.pixelSignals`): the lattice's node spectra at
- * the N spectral nodes (node k's reflectance at λ_n at k·N + n), the white radiance and the channel responses per node, and a scratch.
+ * the N spectral nodes (node k's reflectance at λ_n at k·N + n), the white radiance and the channel responses per node.
  */
-export interface ImagePlaneSpectralNodes { count: number; nodeSpectra: Float64Array; whiteRadiance: Float64Array; response: readonly Float64Array[]; scratch: Float64Array }
+export interface ImagePlaneSpectralNodes { count: number; nodeSpectra: Float64Array; whiteRadiance: Float64Array; response: readonly Float64Array[] }
 /**
  * Internal (#581): an image-plane print as the tabulated expected signal's scene (`ResolvedImagePlaneScene.signalScene`): its radiance
  * per node, the direct path's signal (each pixel's Σ_n A_c(λ_n)·L_n integrated from its reconstructed spectrum, `pixelSignals`, then

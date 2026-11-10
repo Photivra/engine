@@ -46,7 +46,7 @@ describe("display view Speed kernel with the image-plane module (float32 emulati
     runtime.destroy();
   }, scaledTimeout(300_000));
 
-  it("Speed: a photo larger than one storage binding renders in bands, each with the pixel rows it reaches, identical to the whole upload, built 4 MiB at a time", async () => {
+  it("Speed: a photo larger than one storage binding renders in bands, each with the pixel rows it reaches, identical to the whole upload, built 4 MiB at a time, each row once", async () => {
     // 2400 × 1600 pixels of 12 bytes is 46 MB of signals; the smallest binding limit a runtime takes (16 MB) and small bands make the
     // module upload per band.
     const options: SimulateCaptureOptions = { ...cases[0]![1], scene: photo(syntheticPhoto(2400, 1600)) };
@@ -57,16 +57,20 @@ describe("display view Speed kernel with the image-plane module (float32 emulati
     expect(module.bandRows!(fixture.input.setup.frameHeight / SMALL_VIEW.height)).toBeLessThan(SMALL_VIEW.height);
     // The host builds the pixel signals 4 MiB of rows at a time, banded or whole (owner decision 2026-11-09): no write is larger.
     const writes: number[] = [];
+    let bandBytes = 0;
     for (const runtime of [small, large]) {
       const queue = runtime.device.queue, write = queue.writeBuffer.bind(queue);
       queue.writeBuffer = ((buffer: GPUBuffer, offset: number, data: ArrayBuffer, dataOffset?: number, size?: number) => {
         if (buffer.label.includes("image-signal")) writes.push(size!);
+        if (buffer.label.includes("image-signal-band")) bandBytes += size!;
         write(buffer, offset, data, dataOffset, size);
       }) as typeof queue.writeBuffer;
     }
     const banded = await renderOnGpu(small, fixture, 64 * 1024), whole = await renderOnGpu(large, fixture), a = compareDisplayViews(fixture.cpu, banded);
     expect(writes.length).toBeGreaterThan(20);
     expect(Math.max(...writes)).toBeLessThanOrEqual(4 << 20);
+    // Rows two bands share are copied on the device from the previous band: each photo row the render reaches is built once.
+    expect(bandBytes).toBeLessThanOrEqual(1600 * 2400 * 12);
     expect(a.outsideExpectedBound + a.outsideVarianceBound).toBe(0);
     expect(a.largestCodeDifference).toBeLessThanOrEqual(1);
     expect(banded.samples).toEqual(whole.samples);

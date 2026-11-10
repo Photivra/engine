@@ -134,10 +134,10 @@ The cost, measured in Node on one thread (a 6000 × 4000 synthetic photo on a 0.
 
 | Request | Before | After |
 | --- | --- | --- |
-| Capture, 24 MP | 13.6 s | 13.1 s |
+| Capture, 24 MP | 13.6 s | 12.6 s |
 | Capture, 48-pixel quick frame | 0.08 s | 0.08 s |
-| Display view, a 384 × 384 region of a 2028 × 1352 view | 0.95 s | 0.97 s |
-| Display view, a 48-pixel view of the 24 MP frame | 1.16 s | 1.50 s |
+| Display view, a 384 × 384 region of a 2028 × 1352 view | 0.95 s | 0.92 s |
+| Display view, a 48-pixel view of the 24 MP frame | 1.16 s | 1.39 s |
 - **Sources read.** I read the Burns paper (arXiv v5, CC BY-SA 4.0). I could not open the full PDFs of Mallett & Yuksel (the digital
   library refused the request) or Jakob & Hanika (above the fetch size limit). Their claims here come from the authors' project
   pages and are not used by the method.
@@ -192,9 +192,10 @@ stratified footprint, or a kernel table above the device's storage limit. Its pi
     the band's first and last site rows at every query offset, plus two rows either side. The renderer caps a band's display rows
     so that those rows fit the binding (owner decision, 2026-11-09). A very large photo therefore never meets the device's storage
     binding limit, and a banded render equals the whole upload byte for byte (tested with a 2400 × 1600 photo under a 16 MB limit).
-    Each render builds its bands' rows again. On the emulation, with 20 spectral nodes, a banded 24 MP render takes about 4.5 s
-    against 1.1 s for the whole upload, whose one-time build takes 2.2 s (0.75 s and 2.0 s when the node spectra were integrated
-    once per channel).
+    Each render builds its bands' rows again, but a band's rows shared with the previous band are copied on the device from that
+    band's buffer (kept until the next band), so each photo row a render reaches is built once. Memory: the host holds at most one
+    4 MiB chunk of signals; the device holds at most two band buffers, each within the binding limit. On the emulation, with 20
+    spectral nodes, a banded 24 MP render takes about 2.8 s against 1.0 s for the whole upload, whose one-time build takes 1.8 s.
 - **The point.** The module recovers the exact query point in double-float32, as the composite chart module does. It forms the
   pixel coordinates and the bilinear weights with only relative error. It flags the points it cannot decide: the print's edge, a
   weight moved next to a much brighter pixel, a nearest-pixel edge. The host recomputes a flagged display pixel with the reference.
@@ -250,11 +251,11 @@ Timing on a hardware adapter is not measured yet.
 
 The scene's module, its lattice data (9.5 KB gzip as source) and its GPU code are reachable only through
 `prepareImagePlaneScenes()`. That function is in a module of its own and loads them with dynamic imports:
-- a lazy chunk of 14,202 B gzip;
-- the GPU module's own chunk of 7,629 B (Speed and Quality), loaded on a display view's first photo on WebGPU;
+- a lazy chunk of 14,212 B gzip;
+- the GPU module's own chunk of 7,857 B (Speed and Quality), loaded on a display view's first photo on WebGPU;
 - shared code that moves into the entry.
 
-Measured with the worker shape below plus the function, that is about 22.4 KB more in total.
+Measured with the worker shape below plus the function, that is about 22.6 KB more in total.
 - **Without it.** A bundle that never imports the function carries none of these bytes, not even as a lazy chunk. A request with an
   image-plane scene then fails with a message that names the function.
 - **Measured on the app's capture-worker shape** (`test/capture-bundle.test.ts`: `NATIVE_RAW_LIMITS`, `prepareDisplayView`,

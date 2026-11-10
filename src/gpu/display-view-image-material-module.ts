@@ -158,11 +158,34 @@ export function createDisplayViewImageModules(runtime: WebGpuRuntime, probe: (si
     }
     return values;
   };
-  // A storage buffer of rows [j0, j1)'s signals, built and written UPLOAD_CHUNK_BYTES of rows at a time.
+  // Rows [a, b)'s signals written to `buffer` (whose first row is `base`), built UPLOAD_CHUNK_BYTES of rows at a time.
+  const fill = (buffer: GPUBuffer, image: ImagePlaneSignalScene["image"], a: number, b: number, base: number): void => {
+    const rowBytes = image.scene.width * 12, chunk = Math.max(1, Math.floor(UPLOAD_CHUNK_BYTES / rowBytes));
+    for (let j = a; j < b; j += chunk) { const rows = rowsOf(image, j, Math.min(b, j + chunk)); runtime.device.queue.writeBuffer(buffer, (j - base) * rowBytes, rows.buffer, 0, rows.byteLength); }
+  };
   const rowsBuffer = (scope: GpuResourceScope, label: string, image: ImagePlaneSignalScene["image"], j0: number, j1: number): GPUBuffer => {
-    const rowBytes = image.scene.width * 12, chunk = Math.max(1, Math.floor(UPLOAD_CHUNK_BYTES / rowBytes)), buffer = scope.buffer(label, (j1 - j0) * rowBytes, BUFFER_USAGE.STORAGE | BUFFER_USAGE.COPY_DST);
-    for (let j = j0; j < j1; j += chunk) { const rows = rowsOf(image, j, Math.min(j1, j + chunk)); runtime.device.queue.writeBuffer(buffer, (j - j0) * rowBytes, rows.buffer, 0, rows.byteLength); }
+    const buffer = scope.buffer(label, (j1 - j0) * image.scene.width * 12, BUFFER_USAGE.STORAGE | BUFFER_USAGE.COPY_DST);
+    fill(buffer, image, j0, j1, j0);
     return buffer;
+  };
+  // The latest band's rows stay on the device until the next band: the rows the two share are copied there on the device, and
+  // only the others are built on the host (the same bytes; the host still holds one chunk at most).
+  let lastBand: { image: object; j0: number; j1: number; scope: GpuResourceScope; buffer: GPUBuffer } | null = null;
+  const bandBuffer = (image: ImagePlaneSignalScene["image"], j0: number, j1: number): GPUBuffer => {
+    const rowBytes = image.scene.width * 12, scope = new GpuResourceScope(runtime), last = lastBand?.image === image ? lastBand : null;
+    try {
+      const buffer = scope.buffer("photivra-display-view-image-signal-band", (j1 - j0) * rowBytes, BUFFER_USAGE.STORAGE | BUFFER_USAGE.COPY_DST | BUFFER_USAGE.COPY_SRC);
+      const o0 = last ? Math.max(j0, last.j0) : j0, o1 = last ? Math.min(j1, last.j1) : j0;
+      if (o1 > o0) {
+        const encoder = runtime.device.createCommandEncoder({ label: "photivra-display-view-image-band-rows" });
+        encoder.copyBufferToBuffer(last!.buffer, (o0 - last!.j0) * rowBytes, buffer, (o0 - j0) * rowBytes, (o1 - o0) * rowBytes);
+        runtime.device.queue.submit([encoder.finish()]);
+        fill(buffer, image, j0, o0, j0); fill(buffer, image, o1, j1, j0);
+      } else fill(buffer, image, j0, j1, j0);
+      lastBand?.scope.release();
+      lastBand = { image, j0, j1, scope, buffer };
+      return buffer;
+    } catch (error) { scope.release(); throw error; }
   };
   const upload = (image: ImagePlaneSignalScene["image"]): UploadedImage => {
     const key = image as object, index = uploads.findIndex((e) => e.key === key);
@@ -209,7 +232,7 @@ export function createDisplayViewImageModules(runtime: WebGpuRuntime, probe: (si
           const bandParams = params.slice(0);
           new Uint32Array(bandParams)[P.row0] = j0;
           return runtime.device.createBindGroup({ layout, entries: [
-            { binding: 0, resource: { buffer: rowsBuffer(scope, "photivra-display-view-image-signal-band", image, j0, j1 + 1) } },
+            { binding: 0, resource: { buffer: bandBuffer(image, j0, j1 + 1) } },
             { binding: 1, resource: { buffer: scope.upload("photivra-display-view-image-params", new Uint8Array(bandParams), BUFFER_USAGE.UNIFORM) } },
             { binding: 2, resource: { buffer: scope.upload("photivra-display-view-image-lattice", new Uint8Array(lattice.params), BUFFER_USAGE.UNIFORM) } },
             { binding: 3, resource: { buffer: scope.upload("photivra-display-view-image-offsets", lattice.offsets, BUFFER_USAGE.STORAGE) } }] });
@@ -225,7 +248,7 @@ export function createDisplayViewImageModules(runtime: WebGpuRuntime, probe: (si
     async moduleFor(gpu, signal): Promise<DisplayViewGpuMaterialModule> { const path = (await probe(signal)).productPath ?? "dekker"; await check(); return build(gpu, path); },
     async qualityPasses(gpu, signal): Promise<DisplayViewQualityImagePasses> { const path = (await probe(signal)).productPath ?? "dekker"; await check(); return imagePlaneQualityPasses(runtime, gpu, path); },
     build,
-    release(): void { for (const entry of uploads.splice(0)) entry.scope.release(); }
+    release(): void { for (const entry of uploads.splice(0)) entry.scope.release(); lastBand?.scope.release(); lastBand = null; }
   };
 }
 

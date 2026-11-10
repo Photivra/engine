@@ -195,27 +195,25 @@ export async function resolveImagePlaneScene(value: unknown, aspect: number,
    * radiance W_n, then per channel Σ_n A_c(λ_n)·ρ_n·W_n. Written to out[at..at + 2].
    */
   function pixelSignals(index: number, nodes: ImagePlaneSpectralNodes, out: Float64Array, at: number): void {
-    const N = nodes.count, R = nodes.nodeSpectra, W = nodes.whiteRadiance, radiance = nodes.scratch;
+    const N = nodes.count, R = nodes.nodeSpectra, W = nodes.whiteRadiance, A0 = nodes.response[0]!, A1 = nodes.response[1]!, A2 = nodes.response[2]!;
     const base = pixelLattice(index, fractions) * N, fr = fractions[0]!, fg = fractions[1]!, fb = fractions[2]!, gb = 1 - fb;
     const a00 = (1 - fr) * (1 - fg), a01 = (1 - fr) * fg, a10 = fr * (1 - fg), a11 = fr * fg;
     const w0 = a00 * gb, w1 = a00 * fb, w5 = a01 * gb, w6 = a01 * fb, w25 = a10 * gb, w26 = a10 * fb, w30 = a11 * gb, w31 = a11 * fb;
+    let s0 = 0, s1 = 0, s2 = 0;
     for (let n = 0, k = base; n < N; n++, k++) {
       const lattice = w0 * R[k]! + w1 * R[k + N]! + w5 * R[k + 5 * N]! + w6 * R[k + 6 * N]! + w25 * R[k + 25 * N]! + w26 * R[k + 26 * N]! + w30 * R[k + 30 * N]! + w31 * R[k + 31 * N]!;
-      radiance[n] = (black + span * lattice) * W[n]!;
+      // Each channel's sum in node order (one pass over the spectrum).
+      const radiance = (black + span * lattice) * W[n]!;
+      s0 += A0[n]! * radiance; s1 += A1[n]! * radiance; s2 += A2[n]! * radiance;
     }
-    for (let c = 0; c < 3; c++) {
-      const A = nodes.response[c]!;
-      let sum = 0;
-      for (let n = 0; n < N; n++) sum += A[n]! * radiance[n]!;
-      out[at + c] = sum;
-    }
+    out[at] = s0; out[at + 1] = s1; out[at + 2] = s2;
   }
   function signalScene(wavelengths: readonly number[], perNode: readonly Float64Array[], whiteRadiance: Float64Array, radianceAt: (u: number, v: number, nm: number) => number,
     scale: number, half: number, surroundReflectance: number): ImagePlaneSignalScene {
     // The lattice's spectra at the nodes (node k's reflectance at λ_n at k·N + n); no channel response is folded in.
     const N = wavelengths.length, spectraAt = wavelengths.map((nm) => nodeReflectancesAt(nm)), nodeSpectra = new Float64Array(NODES * N);
     for (let k = 0; k < NODES; k++) for (let n = 0; n < N; n++) nodeSpectra[k * N + n] = spectraAt[n]![k]!;
-    const nodes: ImagePlaneSpectralNodes = { count: N, nodeSpectra, whiteRadiance, response: perNode, scratch: new Float64Array(N) };
+    const nodes: ImagePlaneSpectralNodes = { count: N, nodeSpectra, whiteRadiance, response: perNode };
     const neutral = [0, 1, 2].map((c) => { let s = 0; for (let n = 0; n < N; n++) s += perNode[c]![n]! * whiteRadiance[n]!; return s; });
     // The pixels' signals as the query points reach them: rows of three values per pixel (NaN until computed), the latest rows kept.
     const rows = new Map<number, Float64Array>(), keptRows = Math.max(8, Math.floor(SIGNAL_ROW_CACHE_BYTES / (width * 24)));
