@@ -3179,6 +3179,16 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 | [`CalculateSceneSensorEqeTemporalExposureInput`](api/sensor-scene-eqe-temporal-exposure.md#calculatescenesensoreqetemporalexposureinput) | Type |
 | [`SceneSensorEqeTemporalExposure`](api/sensor-scene-eqe-temporal-exposure.md#scenesensoreqetemporalexposure) | Type |
 
+## sensor/sensor-characteristics.ts
+
+[Detailed contracts](api/sensor-sensor-characteristics.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/sensor/sensor-characteristics.ts)
+
+| Export | Kind |
+| --- | --- |
+| [`SimulateCaptureNoiseComponents`](api/sensor-sensor-characteristics.md#simulatecapturenoisecomponents) | Type |
+| [`SimulateCaptureSensorCharacteristics`](api/sensor-sensor-characteristics.md#simulatecapturesensorcharacteristics) | Type |
+| [`SimulateCaptureSensorReport`](api/sensor-sensor-characteristics.md#simulatecapturesensorreport) | Type |
+
 ## sensor/sensor-geometry.ts
 
 [Detailed contracts](api/sensor-sensor-geometry.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/sensor/sensor-geometry.ts)

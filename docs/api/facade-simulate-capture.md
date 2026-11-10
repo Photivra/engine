@@ -66,6 +66,8 @@ export interface DisplayViewResult {
     /** #516: as in the capture result. */
     isoControl: "manual" | "automatic"; autoIso?: SimulateCaptureAutoIsoReport };
   scene: SimulateCaptureResult["scene"];
+  /** #555, #535: as in the capture result. */
+  sensor: SimulateCaptureSensorReport;
   /**
    * Work done: real pixels sampled, real-site expectations evaluated, scene queries, display pixels sampled in full (detail) or with
    * a quarter of the samples per axis (uniform), display pixels whose value includes the AHD low-signal correction, and wall-clock
@@ -776,7 +778,8 @@ export interface SimulateCaptureOptions {
   };
   /** Camera motion and shutter type. Default: still camera, global electronic shutter. */
   motion?: SimulateCaptureMotion;
-  sensor?: {
+  /** #555: plus the sensor characteristics ({@link SimulateCaptureSensorCharacteristics}), each off by default. */
+  sensor?: SimulateCaptureSensorCharacteristics & {
     /**
      * Pixel pitch in micrometres, 0.5–1000. Default 6. The simulated sensor is output width × pitch wide. 2.5: above 100 µm the
      * capture is a downsized view of a whole frame (for example 36 mm / 48 pixels = 750 µm), recorded in the assumption
@@ -1002,6 +1005,8 @@ export interface SimulateCaptureResult {
     limitations: readonly string[];
   };
   assumptions: readonly SimulateCaptureAssumption[];
+  /** #555, #535: the sensor characteristics used, the calculated dynamic range and the mid-grey noise figure. */
+  sensor: SimulateCaptureSensorReport;
 }
 ```
 
