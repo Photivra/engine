@@ -1463,8 +1463,9 @@ function interpolateKernel(
   };
 }
 
-function kernelCentroid(
-  kernel: LensPsfKernel
+/** @internal A kernel's intensity centroid in samples from its centre sample (also used by the catalogue PSF and its fast grid, #589). */
+export function kernelCentroid(
+  kernel: Pick<LensPsfKernel, "widthSamples" | "heightSamples" | "centerSampleX" | "centerSampleY"> & { normalizedIntensity: ArrayLike<number> }
 ): { x: number; y: number } {
   let sum = 0;
   let x = 0;

@@ -35,7 +35,7 @@
  */
 
 import { InvalidConfigurationError } from "../core/configuration-error.js";
-import { prepareDevelopedLensCorrection, type DevelopedLensCorrectionSelection } from "../output/developed-lens-corrections.js";
+import { prepareDevelopedLensCorrection, type ChannelDispersion, type DevelopedLensCorrectionSelection } from "../output/developed-lens-corrections.js";
 
 /** @internal An opcode as written (application order), for the assumptions. */
 export type DngLensCorrectionOpcode =
@@ -52,7 +52,7 @@ export const DNG_VIGNETTE_FIT_TOLERANCE = 1e-3;
  * W × H ActiveArea of pitch `pitchMm`) and the selected corrections, at least one on (see the module notes).
  */
 export function createDngLensCorrectionOpcodes(lens: Parameters<typeof prepareDevelopedLensCorrection>[0] & { name: string; character: { vignetting: { cornerStops: number } } },
-  selection: DevelopedLensCorrectionSelection, width: number, height: number, pitchMm: number, dispersion: (wavelengthNm: number) => number): { opcodeList3: Uint8Array; opcodes: DngLensCorrectionOpcode[] } {
+  selection: DevelopedLensCorrectionSelection, width: number, height: number, pitchMm: number, channels: ChannelDispersion): { opcodeList3: Uint8Array; opcodes: DngLensCorrectionOpcode[] } {
   const opcodes: DngLensCorrectionOpcode[] = [], params: number[][] = [];
   // R_DNG / R: the stage-3 image's centre-to-corner distance over the profile's half-diagonal (1 when the frame is the lens's area).
   const scale = Math.hypot(width, height) / 2 / (lens.halfDiagonalMm / pitchMm);
@@ -86,7 +86,7 @@ export function createDngLensCorrectionOpcodes(lens: Parameters<typeof prepareDe
     params.push([...best, 0.5, 0.5]);
   }
   if (selection.distortion || selection.lateralColor) {
-    const c = prepareDevelopedLensCorrection(lens, { ...selection, vignetting: false }, width, height, pitchMm, dispersion);
+    const c = prepareDevelopedLensCorrection(lens, { ...selection, vignetting: false }, width, height, pitchMm, channels);
     const planes = (selection.lateralColor ? c.scales : [1]).map((s) => { const a = c.fill * s; return [a, c.k1 * a ** 3 * scale * scale, 0, 0, 0, 0]; });
     opcodes.push({ opcode: "WarpRectilinear", planes, magnification: 1 / c.fill });
     params.push([planes.length, ...planes.flat(), 0.5, 0.5]);

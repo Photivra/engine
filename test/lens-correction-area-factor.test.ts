@@ -11,7 +11,6 @@ import {
   resolveGenericLens, resolveLensCorrectionPlan, simulateCapture, type GenericLensCorrectionProfile, type GeometricRaster, type IlluminationLensCorrection,
   type SimulateCaptureResult
 } from "../src/index.js";
-import { genericLensDispersion } from "../src/equipment/generic-lens-catalogue.js";
 import { applyDevelopedLensCorrection, prepareDevelopedLensCorrection } from "../src/output/developed-lens-corrections.js";
 import { resampler } from "./optics-group-fixtures.js";
 import { scaledTimeout } from "./helpers/test-timeout.js";
@@ -106,7 +105,7 @@ describe("the catalogue profile's vignetting gain includes the distortion's area
   it("gives output.lensCorrections' kernel gain exactly (the #570 kernel keeps its own arithmetic)", () => {
     for (const [lensId, fNumber] of [["pv-16-2.8", 2.8], ["pv-300-5.6", 5.6]] as const) {
       const lens = resolveGenericLens({ lensId, activeImagingArea: AREA, fNumber }), profile = createGenericLensCorrectionProfile({ lensId, activeImagingArea: AREA, state: stateOf(lensId, fNumber) });
-      const c = prepareDevelopedLensCorrection(lens, { distortion: false, lateralColor: false, vignetting: true }, W, H, PITCH_MM, genericLensDispersion), frameRect = { x: 0, y: 0, width: W, height: H };
+      const c = prepareDevelopedLensCorrection(lens, { distortion: false, lateralColor: false, vignetting: true }, W, H, PITCH_MM), frameRect = { x: 0, y: 0, width: W, height: H };
       const ones = applyDevelopedLensCorrection(c, new Float64Array(W * H * 3).fill(1), frameRect, frameRect, lens.character.vignetting.cornerStops);
       for (const [x, y] of [[0, 0], [47, 31], [10, 20], [24, 16]] as const) {
         const gain = calculatePeripheralIlluminationCorrection({ component: profile.components[2] as IlluminationLensCorrection,

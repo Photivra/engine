@@ -2183,6 +2183,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 | Export | Kind |
 | --- | --- |
+| [`ChannelDispersion`](api/output-developed-lens-corrections.md#channeldispersion) | Type |
 | [`GENERIC_LENS_CORRECTION_CHANNEL_WAVELENGTHS_NM`](api/output-developed-lens-corrections.md#generic_lens_correction_channel_wavelengths_nm) | Runtime |
 
 ## output/generic-lens-corrections.ts
@@ -2191,6 +2192,8 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 | Export | Kind |
 | --- | --- |
+| [`calculateChannelEffectiveDispersion`](api/output-generic-lens-corrections.md#calculatechanneleffectivedispersion) | Runtime |
+| [`CalculateChannelEffectiveDispersionInput`](api/output-generic-lens-corrections.md#calculatechanneleffectivedispersioninput) | Type |
 | [`createGenericLensCorrectionProfile`](api/output-generic-lens-corrections.md#creategenericlenscorrectionprofile) | Runtime |
 | [`CreateGenericLensCorrectionProfileInput`](api/output-generic-lens-corrections.md#creategenericlenscorrectionprofileinput) | Type |
 

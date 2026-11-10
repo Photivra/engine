@@ -66,7 +66,8 @@ describe("lens.catalogue fast method (#568)", () => {
       consumerMidField6um: await measure(fullFrame("pv-24-1.8", 1.8, 6000, fine, { fast: true }, { x: 4476, y: 1176, width: 48, height: 48 }), block(4478, 1178, 44)),
       fisheye768: await measure(fullFrame("pv-15-2.8-fisheye-pro", 2.8, 768, star, { fast: true }), stride)
     };
-    // Measured 2026-11-09: at most 2.3e-4 of the frame's peak (6 µm mid-field) and 2.0e-3 of a site's own value (docs/LENS_CATALOGUE.md).
+    // Measured 2026-11-09 (#589, the kernels' centroids aligned, at least 10 grid cells per interval): at most 2.0e-4 of the frame's
+    // peak (6 µm mid-field) and 3.4e-3 of a site's own value (768 × 512, PV 24 1.8 wide open); docs/LENS_CATALOGUE.md.
     for (const [name, v] of Object.entries(results)) {
       expect(v.ofPeak, name).toBeLessThan(1e-3);
       expect(v.relative, name).toBeLessThan(CATALOGUE_FAST_VERIFICATION_TOLERANCE);
@@ -99,7 +100,9 @@ describe("lens.catalogue fast method (#568)", () => {
     // The fast image differs from the exact one only where the blend's tiny error moves a Poisson draw by an electron (most codes are equal).
     let worst = 0, differing = 0;
     top.image.samples.forEach((v, i) => { const d = Math.abs(v - exact.image.samples[i]!); worst = Math.max(worst, d); if (d > 0) differing++; });
-    expect(differing / top.image.samples.length).toBeLessThan(0.02);
+    // #589: 3.9 % of the codes differ here (96 × 64 at 375 µm: the blend of the aligned narrow kernels), by at most 91 (before #589,
+    // where every kernel at this pitch was a single tap, under 2 %).
+    expect(differing / top.image.samples.length).toBeLessThan(0.05);
     expect(worst).toBeLessThan(512);
   }, scaledTimeout(120_000));
 

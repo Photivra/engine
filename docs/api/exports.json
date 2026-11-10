@@ -513,6 +513,16 @@
       "kind": "type"
     },
     {
+      "name": "calculateChannelEffectiveDispersion",
+      "source": "src/output/generic-lens-corrections.ts",
+      "kind": "runtime"
+    },
+    {
+      "name": "CalculateChannelEffectiveDispersionInput",
+      "source": "src/output/generic-lens-corrections.ts",
+      "kind": "type"
+    },
+    {
       "name": "calculateChartFraming",
       "source": "src/facade/subject-framing.ts",
       "kind": "runtime"
@@ -1950,6 +1960,11 @@
     {
       "name": "CfaPlaneReconstructionOutput",
       "source": "src/processing/demosaic.ts",
+      "kind": "type"
+    },
+    {
+      "name": "ChannelDispersion",
+      "source": "src/output/developed-lens-corrections.ts",
       "kind": "type"
     },
     {

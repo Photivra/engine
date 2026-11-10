@@ -43,9 +43,9 @@ const PINNED: Record<string, Record<string, string>> = {
     exposure: "59758981082e8b5ded4f7d403abaeac2af94d67554b9fe7d5dee8a7d03cf592e", assumptions: "02eb6ca513304c98a5043233dd5897ca674065ed772a80e94b083470d20227a3" },
   prime50: { samples: "81ffece58d5fe93ad4ba841aa425ad44be60829ed69cb242764d482369dff549", codes: "506b5c2e72835c75b5b14a22bf29ff8d358b4123ce0c5d58082dffc89932fe0d",
     exposure: "00b53a317629402d6abb579d4805ec2dc134ff172ac6ab779162d2ab6e55f379", assumptions: "0bcef252a188774c8e36ef19ebfe51e45a54d7ac4ce4158120afddf156549214" },
-  // #588: samples and codes re-pinned (the exact catalogue quadrature reads the star's ties at lattice points; the RAW equals the lattice
-  // reading's, test/simulate-capture-lens-catalogue-ties.test.ts); the same digests as on the #588 branch.
-  catalogue50: { samples: "fb04d3f9bc95d882705d53197069e8355dcbe87d640d7b1a1c2b6e13bf648ece", codes: "de8d8bd8d40d14b5340d2c1ae90929afa0213075b540fafc40482c280327dd36",
+  // #588 and #589: samples and codes re-pinned on the merged tree: the exact catalogue quadrature reads the star's ties at lattice
+  // points (#588; test/simulate-capture-lens-catalogue-ties.test.ts), and the off-axis kernels carry the PSF's own centroid (#589).
+  catalogue50: { samples: "d14f71e0d15541621bf2e0f54a08237c6d58d6a762a764fe04f43172b1bf2fa1", codes: "6e9885b34fb07a068711607dd975a99fa8a8619005f274ddfbd4fc9d60eda3f9",
     exposure: "bb54027b8c93f83b0a5a524441a9e1ee0ee153a8c0eb9699fefe7806bc64ccd8", assumptions: "719ef58f535b470602ff35bd3af5a4588a0be6e3af25c8a1ede9928737975866" },
   idealAboveF8Manual: { samples: "5e929bb9533f1c4c0007f96a44bb58016f959311184609bf38fe4c99ba44eab3", codes: "a7c8a08b2e99486fcc001e4197343bb5ff6c24ed5251e8d0209857a47c739874",
     exposure: "006914fc3987a766d02070f5bb328685533ac903998205648c496168de997191", assumptions: "812aef066115982228591be5f3733ca6edd009aac48c65fc71a7f1bcc4e5a212" },

@@ -2213,7 +2213,9 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   const lensCorrectionSelection = correctionSelection(outputOptions.lensCorrections, "output.lensCorrections");
   if (lensCorrectionSelection) {
     if (idealReference) fail("simulateIdealReference does not take output.lensCorrections: a reference has no camera development.");
-    lensCorrection = lensKit!.prepareDevelopedLensCorrection(catalogue!, lensCorrectionSelection, width, height, pitch / 1000, lensKit!.genericLensDispersion);
+    // #589: the channel scales follow the capture's own channels, known only once the sensor is built (below); until then they
+    // span every channel's possible dispersion, so the developed rectangle a region reads holds the sources of any of them.
+    lensCorrection = lensKit!.prepareDevelopedLensCorrection(catalogue!, lensCorrectionSelection, width, height, pitch / 1000);
   }
   // Region (2.3): a rectangle of the whole frame. Its native sites are the region plus the demosaic reach on each side
   // (clipped to the raster, where mirror borders apply exactly as in the whole render), with the origin rounded down to
@@ -2548,7 +2550,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   const exposureGreyCardDeviationStops = callerScene?.kind === "radiance-function" ? null : greyCardDeviationStops(fNumber, shutterSeconds, resolvedIso, illuminanceLux);
   // #549: the catalogue lens's character at the resolved f-number and focus: focus scatter, the defocus disc folded into its PSF, then
   // its distortion and vignetting profiles over the field the PSF and the queries reach, and its PSF profile.
-  let catalogueTaps: number | undefined, catalogueDefocusApplied = false, catalogueKernelRadius = 0;
+  let catalogueTaps: number | undefined, catalogueDefocusApplied = false, catalogueKernelRadius = 0, catalogueCornerStops = 0;
   if (catalogue && lensKit) {
     const { GENERIC_LENS_EVIDENCE, genericLensDistortionProfile, genericLensVignettingProfile, resolveGenericLens, simulateGenericLensFocusError, createGenericLensPsfProfile,
       genericLensPsfKernelRadius, GENERIC_LENS_PSF_MAXIMUM_COMBINED_RADIUS_SITES, genericLensBokehKernel } = lensKit;
@@ -2564,6 +2566,8 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
       focusDistanceM = sample.focusDistanceM;
     }
     const character = resolveGenericLens({ lensId: catalogue.lensId, activeImagingArea: catalogueFrame!, fNumber, focusDistanceM });
+    // The vignetting depends on the f-number only (output.lensCorrections reads it).
+    catalogueCornerStops = character.character.vignetting.cornerStops;
     let extraKernel: ReturnType<typeof genericLensBokehKernel> | undefined;
     if (lensOptions.defocus !== undefined) {
       const disc = resolveDefocusDisc({ focalLengthMm, aperture: fNumber, focusDistanceM, subjectDistanceM, pitchMicrometers: pitch });
@@ -3469,6 +3473,14 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   const developmentWhiteBalance = whiteBalanceState ? "apply-resolved-sensor-gains" as const : "not-required" as const;
 
 
+  // #589: each channel's effective dispersion (its own response × the illuminant at the capture's spectral nodes) for the catalogue
+  // lens's lateral-colour corrections: the developed ones and, in a DNG, the opcodes (#587), so both use the same channel scales.
+  let channelDispersion: ReturnType<NonNullable<typeof lensKit>["channelEffectiveDispersion"]> | undefined;
+  const captureChannelDispersion = (): NonNullable<typeof channelDispersion> => {
+    if (channelDispersion) return channelDispersion;
+    const { electronsPerRadiance, wavelengths } = axisChannelResponse("simulateCapture");
+    return channelDispersion = lensKit!.channelEffectiveDispersion(wavelengths, CHANNELS.map((c) => wavelengths.map((nm) => electronsPerRadiance[c].get(nm) ?? 0)), wavelengths.map((nm) => illuminant.shape.evaluate(nm)));
+  };
   // DNG (2.0): the packed native RAW itself, before development takes ownership of it.
   let dng: NativeRawDng | undefined;
   if (format === "dng") {
@@ -3478,10 +3490,10 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
         readNoiseRmsElectrons: resolved.combinedReadNoiseRmsElectrons }];
     }));
     const dngStarted = clockMs(), opcodes = dngOpcodeSelection && lensKit!.createDngLensCorrectionOpcodes(lensKit!.resolveGenericLens({ lensId: catalogue!.lensId, activeImagingArea: catalogueFrame!, fNumber }),
-      dngOpcodeSelection, width, height, pitch / 1000, lensKit!.genericLensDispersion);
+      dngOpcodeSelection, width, height, pitch / 1000, captureChannelDispersion());
     dng = await serializeNativeRawDng({ raw: rawOutput.raw, colorProfile, noise, ...(dngCapturedAtUtc === undefined ? {} : { capturedAtUtc: dngCapturedAtUtc }),
       ...(textMetadata ? { textMetadata } : {}), ...(opcodes ? { opcodeList3: opcodes.opcodeList3 } : {}) });
-    if (opcodes) assume("output.dng.lensCorrectionOpcodes", "model", { tag: 51022, opcodes: opcodes.opcodes },
+    if (opcodes) assume("output.dng.lensCorrectionOpcodes", "model", { tag: 51022, channelDispersion: captureChannelDispersion(), opcodes: opcodes.opcodes },
       "output.lensCorrections' profile as optional DNG opcodes, in order (docs/NATIVE_RAW_AND_PRINT.md, \"Lens-correction opcodes\"); the RAW is unchanged.");
     encodeMs = clockMs() - dngStarted;
     assumeTextMetadata(TEXT_METADATA_LAYOUT.dng);
@@ -3527,9 +3539,11 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   // #570: the lens corrections after the diffraction correction (which acts on the sensor's own lattice), before the tone curve.
   let cornerStops: number | null = null;
   if (lensCorrection) {
+    const channelDispersion = captureChannelDispersion();
+    lensCorrection = lensKit!.prepareDevelopedLensCorrection(catalogue!, lensCorrectionSelection!, width, height, pitch / 1000, channelDispersion);
     const s = lensCorrectionSelection!, c = lensCorrection, k = (channel: number): number => c.scales[channel]!;
-    if (s.vignetting) cornerStops = lensKit!.resolveGenericLens({ lensId: catalogue!.lensId, activeImagingArea: catalogueFrame!, fNumber }).character.vignetting.cornerStops;
-    assume("output.lensCorrections", "model", { profileId: "photivra-" + catalogue!.lensId + ":corrections", ...s, k1: c.k1, channelScales: { red: k(0), green: k(1), blue: k(2) },
+    if (s.vignetting) cornerStops = catalogueCornerStops;
+    assume("output.lensCorrections", "model", { profileId: "photivra-" + catalogue!.lensId + ":corrections", ...s, k1: c.k1, channelDispersion, channelScales: { red: k(0), green: k(1), blue: k(2) },
       cornerStops, cornerGain: cornerStops === null ? 1 : 2 ** cornerStops, magnification: 1 / c.fill, ...(imageRegion ? { developedRect: region } : {}), dng: "uncorrected" },
     "The catalogue lens's correction profile (createGenericLensCorrectionProfile; an approximation) on the developed linear colour: pixel p reads channel c bilinearly at q(1 + k1|q|²/R²), q = a_c·p/magnification " +
       "(the smallest magnification ≥ 1 that keeps every source in the frame), times det J/E at the source, so a flat field stays flat (E = (1 − bρ²)², 1/det J the distortion's area factor). " +

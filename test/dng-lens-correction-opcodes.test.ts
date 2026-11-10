@@ -12,9 +12,12 @@ import {
   resolveGenericLens, serializeNativeRawDng, serializeSimulatedCaptureDngFromParts, simulateCapture, type IlluminationLensCorrection, type SimulateCaptureOptions,
   type SimulateCaptureResult
 } from "../src/index.js";
-import { genericLensDispersion } from "../src/equipment/generic-lens-catalogue.js";
 import { createDngLensCorrectionOpcodes, DNG_VIGNETTE_FIT_TOLERANCE } from "../src/capture/dng-lens-correction-opcodes.js";
 import { scaledTimeout } from "./helpers/test-timeout.js";
+import { genericLensDispersion } from "../src/equipment/generic-lens-catalogue.js";
+
+/** D at the generic channel wavelengths (createGenericLensCorrectionProfile's default channel dispersion). */
+const GENERIC_CHANNELS = { red: genericLensDispersion(610), green: genericLensDispersion(540), blue: genericLensDispersion(465) };
 
 type Selection = { distortion?: boolean; lateralColor?: boolean; vignetting?: boolean };
 const ALL = { distortion: true, lateralColor: true, vignetting: true };
@@ -107,7 +110,10 @@ describe("output.dng.lensCorrectionOpcodes (#587)", { timeout: scaledTimeout(60_
     const [vignette, warp] = opcodeList(dngRun.image.dng!) as [Opcode, Opcode];
     const lens = resolveGenericLens({ lensId, activeImagingArea: AREA, fNumber });
     const profile = createGenericLensCorrectionProfile({ lensId, activeImagingArea: AREA, state: { bodyId: "b", bodyVersion: "1", lensId, lensVersion: "1",
-      focalLengthMm: lens.focalLengthMm, aperture: fNumber, focusDistanceM: 5, captureMode: "still", outputWidth: W, outputHeight: H, frameRateHz: 0, stabilizationMode: "off" } });
+      focalLengthMm: lens.focalLengthMm, aperture: fNumber, focusDistanceM: 5, captureMode: "still", outputWidth: W, outputHeight: H, frameRateHz: 0, stabilizationMode: "off" },
+      // #589: the capture's own channels' effective dispersion, which the opcodes and output.lensCorrections share.
+      channelDispersion: (assumption(dngRun, "output.dng.lensCorrectionOpcodes") as { channelDispersion: { red: number; green: number; blue: number } }).channelDispersion });
+    expect((assumption(jpegLike, "output.lensCorrections") as { channelDispersion: unknown }).channelDispersion).toEqual((assumption(dngRun, "output.dng.lensCorrectionOpcodes") as { channelDispersion: unknown }).channelDispersion);
     const [d, ca, v] = profile.components as [{ transform: { profile: { coefficients: { k1: number } } } }, { transforms: Record<string, { matrix: number[] }> }, IlluminationLensCorrection];
     // Gain: the profile's det J/E (#584) at the sensor point, from calculatePeripheralIlluminationCorrection, on a fine grid.
     const R = Math.hypot(W, H) / 2;
@@ -135,7 +141,7 @@ describe("output.dng.lensCorrectionOpcodes (#587)", { timeout: scaledTimeout(60_
     let worst = 0;
     for (const entry of GENERIC_LENS_CATALOGUE) for (const fNumber of [entry.widestFNumber, Math.min(entry.narrowestFNumber, entry.widestFNumber * 2), entry.narrowestFNumber]) {
       const lens = resolveGenericLens({ lensId: entry.lensId, activeImagingArea: AREA, fNumber });
-      const { opcodes } = createDngLensCorrectionOpcodes(lens, { distortion: false, lateralColor: false, vignetting: true }, W, H, PITCH_MM, genericLensDispersion);
+      const { opcodes } = createDngLensCorrectionOpcodes(lens, { distortion: false, lateralColor: false, vignetting: true }, W, H, PITCH_MM, GENERIC_CHANNELS);
       worst = Math.max(worst, (opcodes[0] as { maximumRelativeFitError: number }).maximumRelativeFitError);
     }
     // Measured 2026-11-09: 0.062 % at most (PV 600 6.3 wide open).
@@ -162,7 +168,7 @@ describe("output.dng.lensCorrectionOpcodes (#587)", { timeout: scaledTimeout(60_
     const r = await simulateCapture(options("pv-50-1.8", 4)), colorProfile = r.request.development.colorProfile;
     for (const bad of [new Uint8Array(3), Uint8Array.of(0, 0, 0, 1), Uint8Array.of(0, 0, 0, 1, ...new Array<number>(12).fill(0), 0), Uint8Array.of(0, 0, 0, 2, ...new Array<number>(16).fill(0))])
       await expect(serializeNativeRawDng({ raw: r.raw, colorProfile, opcodeList3: bad })).rejects.toThrow(/opcodeList3/);
-    const list = createDngLensCorrectionOpcodes(resolveGenericLens({ lensId: "pv-50-1.8", activeImagingArea: AREA, fNumber: 4 }), { distortion: true, lateralColor: false, vignetting: false }, W, H, PITCH_MM, genericLensDispersion).opcodeList3;
+    const list = createDngLensCorrectionOpcodes(resolveGenericLens({ lensId: "pv-50-1.8", activeImagingArea: AREA, fNumber: 4 }), { distortion: true, lateralColor: false, vignetting: false }, W, H, PITCH_MM, GENERIC_CHANNELS).opcodeList3;
     const dng = await serializeNativeRawDng({ raw: r.raw, colorProfile, opcodeList3: list });
     expect(Buffer.from(ifd0Tag(dng.bytes, 51022)!.data).equals(Buffer.from(list))).toBe(true);
   });
