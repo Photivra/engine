@@ -181,8 +181,8 @@ export interface PlanarSceneRadianceProvider {
   materialRadiance?(material: number, wavelengthNanometers: number): number;
   /**
    * 2.21 (#581), image-plane scenes only: the tabulated expected signal's scene at these spectral nodes and channel responses, its
-   * radiance per node and, for the direct path, Σ_n A_c(λ_n)·L(λ_n) from the print's node tables (`ResolvedImagePlaneScene.sampleAt`,
-   * the surround's reflectance times the neutral signal outside the print): the same sums regrouped.
+   * radiance per node and, for the direct path, Σ_n A_c(λ_n)·L(λ_n) integrated from each pixel's reconstructed spectrum
+   * (`ResolvedImagePlaneScene.pixelSignals`, the surround's reflectance times the neutral signal outside the print).
    */
   imageSignalScene?(wavelengths: readonly number[], perNode: readonly Float64Array[]): ImagePlaneSignalScene;
 }
