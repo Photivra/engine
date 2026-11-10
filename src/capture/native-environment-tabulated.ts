@@ -28,6 +28,7 @@ import { admitNativeEnvironmentInput, type NativeEnvironmentRawInput } from "./n
 import { composeNativeEnvironmentSensorSite } from "./native-environment-optical-stage.js";
 import { calculateNativeRawSite, parseNativeRawProducerSite } from "./sensor-raw-producer.js";
 import { calculateSiteEffectiveSaturationCode, createPhaseWhiteLevelAccumulator } from "./raw-white-level.js";
+import { EXPOSURE_BUILD_UP_STAGES } from "./exposure-build-up-stage.js";
 import { createVerifiedNativeSiteReadout, type NativeSiteReadout } from "./native-environment-lean.js";
 import type { NativeRawOutput } from "./native-raw.js";
 
@@ -114,7 +115,7 @@ export async function renderTabulatedNativeRaw(t: TabulatedNativeRawInput): Prom
   if (layout.kind !== "periodic-mosaic" || layout.repeatWidthSites !== 2 || layout.repeatHeightSites !== 2 || !plan.exposureWindow) return undefined;
   const region = t.region ?? { x: 0, y: 0, width: W, height: native.pixelHeight };
   if (region.width < 2 || region.height < 2) return undefined;
-  const seed = plan.exposure.noise.seedUint32, schedule = plan.exposureWindow, memo = createEnvironmentRawFrameCanonicalMemo(plan.frame, schedule);
+  const seed = plan.exposure.noise.seedUint32, b = EXPOSURE_BUILD_UP_STAGES.get(plan.exposure.noise.realizationId), schedule = plan.exposureWindow, memo = createEnvironmentRawFrameCanonicalMemo(plan.frame, schedule);
   let evaluations = 0;
   const evaluate: EnvironmentRadianceEvaluator = (request) => { evaluations++; return t.evaluateRadiance(request); };
   // The counting wrapper returns the evaluator's own results, so they are engine-built exactly when the evaluator is.
@@ -132,9 +133,9 @@ export async function renderTabulatedNativeRaw(t: TabulatedNativeRawInput): Prom
     if (testHook?.fullPhoto) testHook.fullPhoto(photoResult, executeEnvironmentSensorPhotoSignal(full, t.evaluateRadiance, undefined, "photo-only").value.photo);
     const timing = calculateCaptureExposureWindows({ ...schedule, nativeRaster: native, samplePointsNative: [{ x: x + 0.5, y: y + 0.5 }] }).value.samples[0];
     const parsed = parseNativeRawProducerSite(composeNativeEnvironmentSensorSite(site, photo), index, plan.frame, timing);
-    const result = calculateNativeRawSite(parsed, seed, index);
+    const result = calculateNativeRawSite(parsed, seed, index, b);
     const whiteCode = calculateSiteEffectiveSaturationCode(result.readout.value, parsed.readoutProfile, parsed.regimeId);
-    const readout = createVerifiedNativeSiteReadout(parsed, result, whiteCode, photo, x, y, index, seed);
+    const readout = createVerifiedNativeSiteReadout(parsed, result, whiteCode, photo, x, y, index, seed, b);
     if (!readout) return undefined;
     t.electrons.window(x, y, x + 1, y + 1);
     const chain = photo.expectedGeneratedElectronCount, tabulated = testHook?.tabulatedElectrons ? testHook.tabulatedElectrons(t.electrons.site(x, y), x, y) : t.electrons.site(x, y);

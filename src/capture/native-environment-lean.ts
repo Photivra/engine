@@ -62,6 +62,7 @@ import { calculateNativeRawSite, parseNativeRawProducerSite, type NativeRawProdu
   type SensorRawProducerSiteInput } from "./sensor-raw-producer.js";
 import type { NativeRawLeanOutput, NativeRawLeanSensorHook } from "./native-raw.js";
 import { calculateSiteEffectiveSaturationCode } from "./raw-white-level.js";
+import type { ExposureBuildUpStage } from "./exposure-build-up-stage.js";
 import { adcTransfer, resolveSensorReadoutRegime, samplePoisson, type ResolvedSensorReadoutRegime } from "../sensor/raw-readout.js";
 import { createResettableUniformStream, deriveNativeSiteStreamSeedUint32, sampleDeterministicStandardNormal,
   NATIVE_SITE_CHARGE_STREAM_ID, NATIVE_SITE_READ_NOISE_STREAM_ID } from "../sensor/stochastic-seed.js";
@@ -971,6 +972,8 @@ interface SensorTemplate {
   readout: ResolvedSensorReadoutRegime;
   pattern: SensorFixedPatternNoiseProfile | undefined;
   whiteCode: number;
+  /** Its sensor stage, made on first use. */
+  flat?: FlatSensorStage;
 }
 interface SensorHandle {
   template: SensorTemplate; site: Site; photo: SensorEqeTemporalPhotoSignal; x: number; y: number; darkE: number; total: number;
@@ -1008,54 +1011,19 @@ function sensorMatches(site: Site, photo: SensorEqeTemporalPhotoSignal, x: numbe
     photo.temporalSamples.length === t.photo.temporalSamples.length;
 }
 
-/** The sensor stage of calculateNativeRawSite, in the same operation order. Returns undefined when one of its checks would throw. */
 /**
- * #418: the charge and read-noise streams of the site leanSensorSite is computing, reseeded for each site. leanSensorSite is
+ * #418: the charge and read-noise streams of the site flatSensorSite is computing, reseeded for each site. flatSensorSite is
  * synchronous and never re-entered, so one pair serves every call; reseeding sets exactly the state a new
  * createDeterministicUniformStream would start from, so every draw is unchanged.
  */
 const chargeStream = createResettableUniformStream(), readNoiseStream = createResettableUniformStream();
 
-function leanSensorSite(t: Pick<SensorTemplate, "capacity" | "readout" | "pattern" | "whiteCode">, h: Pick<SensorHandle, "photo" | "darkE" | "total" | "x" | "y">, index: number, seed: number):
-  (NativeRawLeanOutput & { photoRealized: number; darkRealized: number }) | undefined {
-  const ratio = h.total / t.capacity, headroom = t.capacity - h.total;
-  if (!Number.isFinite(ratio) || !Number.isFinite(headroom)) return undefined;
-  const pattern = t.pattern === undefined ? null : evaluateParsedFixedPatternSite(t.pattern, { x: h.x, y: h.y });
-  const photoE = h.photo.expectedGeneratedElectronCount;
-  const photoMean = pattern === null ? photoE : photoE * pattern.photoResponseGainFactor;
-  const darkMean = pattern === null ? h.darkE : h.darkE * pattern.darkCurrentFactor;
-  if (!Number.isFinite(photoMean) || photoMean < 0 || !Number.isFinite(darkMean) || darkMean < 0) return undefined;
-  const random = chargeStream;
-  random.reset(deriveNativeSiteStreamSeedUint32(seed, index, NATIVE_SITE_CHARGE_STREAM_ID));
-  const photoRealized = samplePoisson(photoMean, random), darkRealized = samplePoisson(darkMean, random);
-  const realized = photoRealized + darkRealized + 0;
-  if (!Number.isFinite(realized) || realized < 0) return undefined;
-  const readRandom = readNoiseStream;
-  readRandom.reset(deriveNativeSiteStreamSeedUint32(seed, index, NATIVE_SITE_READ_NOISE_STREAM_ID));
-  const regime = t.readout.regime, capacity = t.capacity;
-  const afterPhysical = Math.min(realized, capacity), physicalSaturation = afterPhysical < realized;
-  // The components' draws and their sum in one loop: the same draws, added to 0 in the same order as before (#418).
-  const components = regime.readNoiseComponents;
-  let totalReadNoise = 0;
-  for (let k = 0; k < components.length; k++) {
-    const rms = components[k]!.rmsElectrons.value;
-    totalReadNoise = totalReadNoise + (rms === 0 ? 0 : sampleDeterministicStandardNormal(readRandom) * rms);
-  }
-  const afterReadNoise = afterPhysical + totalReadNoise + (pattern === null ? 0 : pattern.readoutOffsetElectrons);
-  const threshold = regime.preAdcSaturationElectronEquivalent.value;
-  const afterPreAdc = Math.min(afterReadNoise, threshold), preAdcSaturation = afterReadNoise > threshold;
-  const quantized = adcTransfer(regime, t.readout.adcMaximumCode, afterPreAdc).quantized;
-  const digitalSaturationCode = regime.adc.digitalSaturationCode;
-  return { rawCode: Math.max(0, Math.min(quantized, digitalSaturationCode)), blackLevelCode: regime.adc.blackLevelCode, digitalSaturationCode,
-    flags: Number(physicalSaturation) | Number(preAdcSaturation) << 1 | Number(quantized >= digitalSaturationCode) << 2,
-    whiteCode: t.whiteCode, photoRealized, darkRealized };
-}
-
 /**
- * #449: leanSensorSite for one verified readout, with the readout regime's constants read once into flat fields, the dark
- * Poisson threshold e^(−mean) kept while the dark mean repeats, adcTransfer's arithmetic inline when there is no integral non-linearity,
- * and the outputs written into one record that every call reuses. The same operations in the same order as leanSensorSite;
- * createVerifiedNativeSiteReadout checks it against the full site as it checks leanSensorSite.
+ * #449: the sensor stage of calculateNativeRawSite for one verified readout, in the same operation order, with the readout
+ * regime's constants read once into flat fields, the dark Poisson threshold e^(−mean) kept while the dark mean repeats,
+ * adcTransfer's arithmetic inline when there is no integral non-linearity, and the outputs written into one record that every
+ * call reuses. Templates and createVerifiedNativeSiteReadout check it against the full site bit for bit. (#534: it also serves
+ * the templates, in place of a second copy of the same stage.)
  */
 interface FlatSensorStage {
   darkRate: number; capacity: number; pattern: SensorFixedPatternNoiseProfile | undefined; whiteCode: number;
@@ -1063,18 +1031,20 @@ interface FlatSensorStage {
   gain: number; black: number; digitalGain: number | undefined; digitalSaturationCode: number; threshold: number; rms: Float64Array;
   /** The dark mean of the last site and its samplePoisson threshold e^(−mean) (used for 0 < mean < 30). */
   darkMean: number; darkThreshold: number;
-  /** The reused output record: the caller reads its five fields before the next call. */
-  out: NativeRawLeanOutput;
+  /** The reused output record: the caller reads its fields before the next call. */
+  out: NativeRawLeanOutput & { photoRealized: number; darkRealized: number };
+  /** #534: the build-up fraction's stage, if any. */
+  b: ExposureBuildUpStage | undefined;
 }
-function flatSensorStage(t: Pick<SensorTemplate, "darkRate" | "capacity" | "readout" | "pattern" | "whiteCode">): FlatSensorStage {
+function flatSensorStage(t: Pick<SensorTemplate, "darkRate" | "capacity" | "readout" | "pattern" | "whiteCode">, b: ExposureBuildUpStage | undefined): FlatSensorStage {
   const regime = t.readout.regime;
   return { darkRate: t.darkRate, capacity: t.capacity, pattern: t.pattern, whiteCode: t.whiteCode, regime, adcMaximumCode: t.readout.adcMaximumCode,
     inlDefined: regime.adc.integralNonLinearity !== undefined, gain: regime.systemConversionGainElectronsPerCode.value, black: regime.adc.blackLevelCode,
     digitalGain: regime.adc.digitalGain, digitalSaturationCode: regime.adc.digitalSaturationCode, threshold: regime.preAdcSaturationElectronEquivalent.value,
     rms: Float64Array.from(regime.readNoiseComponents, (component) => component.rmsElectrons.value), darkMean: NaN, darkThreshold: NaN,
-    out: { rawCode: 0, blackLevelCode: 0, digitalSaturationCode: 0, flags: 0, whiteCode: 0 } };
+    out: { rawCode: 0, blackLevelCode: 0, digitalSaturationCode: 0, flags: 0, whiteCode: 0, photoRealized: 0, darkRealized: 0 }, b };
 }
-/** Writes the site's outputs into `f.out`; false where leanSensorSite returns undefined. */
+/** Writes the site's outputs into `f.out`; false where a check of calculateNativeRawSite would throw. */
 function flatSensorSite(f: FlatSensorStage, photoE: number, darkE: number, total: number, x: number, y: number, index: number, seed: number): boolean {
   const ratio = total / f.capacity, headroom = f.capacity - total;
   if (!Number.isFinite(ratio) || !Number.isFinite(headroom)) return false;
@@ -1084,8 +1054,7 @@ function flatSensorSite(f: FlatSensorStage, photoE: number, darkE: number, total
   if (!Number.isFinite(photoMean) || photoMean < 0 || !Number.isFinite(darkMean) || darkMean < 0) return false;
   const random = chargeStream;
   random.reset(deriveNativeSiteStreamSeedUint32(seed, index, NATIVE_SITE_CHARGE_STREAM_ID));
-  const photoRealized = samplePoisson(photoMean, random);
-  let darkRealized: number;
+  let photoRealized = samplePoisson(photoMean, random), darkRealized: number;
   if (darkMean > 0 && darkMean < 30) {
     // samplePoisson's branch for 0 < mean < 30 (Knuth's product of uniforms) with its threshold Math.exp(−mean) kept while the
     // mean repeats: the same draws from the same stream. (createPoissonSampler would also do this, but it brings the
@@ -1096,10 +1065,12 @@ function flatSensorSite(f: FlatSensorStage, photoE: number, darkE: number, total
     do { count += 1; product *= random.next(); } while (product > threshold);
     darkRealized = count - 1;
   } else darkRealized = samplePoisson(darkMean, random);
+  const b = f.b;
+  if (b) { photoRealized = b.thin(photoRealized, index, 0); darkRealized = b.thin(darkRealized, index, 1); }
   const realized = photoRealized + darkRealized + 0;
   if (!Number.isFinite(realized) || realized < 0) return false;
   const readRandom = readNoiseStream;
-  readRandom.reset(deriveNativeSiteStreamSeedUint32(seed, index, NATIVE_SITE_READ_NOISE_STREAM_ID));
+  readRandom.reset(deriveNativeSiteStreamSeedUint32(seed, index, b ? b.read : NATIVE_SITE_READ_NOISE_STREAM_ID));
   const capacity = f.capacity;
   const afterPhysical = Math.min(realized, capacity), physicalSaturation = afterPhysical < realized;
   const rmsAll = f.rms;
@@ -1126,7 +1097,7 @@ function flatSensorSite(f: FlatSensorStage, photoE: number, darkE: number, total
   const digitalSaturationCode = f.digitalSaturationCode, out = f.out;
   out.rawCode = Math.max(0, Math.min(quantized, digitalSaturationCode)); out.blackLevelCode = f.black; out.digitalSaturationCode = digitalSaturationCode;
   out.flags = Number(physicalSaturation) | Number(preAdcSaturation) << 1 | Number(quantized >= digitalSaturationCode) << 2;
-  out.whiteCode = f.whiteCode;
+  out.whiteCode = f.whiteCode; out.photoRealized = photoRealized; out.darkRealized = darkRealized;
   return true;
 }
 
@@ -1147,27 +1118,34 @@ export interface NativeSiteReadout {
 }
 
 /**
+ * True when the flat stage `f` reproduces the fully computed site `result` bit for bit: its dark and total charge, both charge
+ * realizations, its codes and its flags.
+ */
+function reproducesSite(f: FlatSensorStage, parsed: SensorRawProducerSiteInput, result: ReturnType<typeof calculateNativeRawSite>, photo: SensorEqeTemporalPhotoSignal,
+  x: number, y: number, index: number, seed: number): boolean {
+  const darkE = f.darkRate * photo.localExposureDurationSeconds, total = chargeTotal(photo.expectedGeneratedElectronCount, darkE);
+  const r = result.readout.value, realization = result.realization.value, out = f.out;
+  return flatSensorSite(f, photo.expectedGeneratedElectronCount, darkE, total, x, y, index, seed) && Object.is(darkE, parsed.charge.darkCharge.expectedDarkElectronCount) &&
+    Object.is(total, result.accumulatedCharge.value.totalExpectedStoredElectronCount) &&
+    Object.is(out.photoRealized, realization.photoRealizedElectronCount) && Object.is(out.darkRealized, realization.darkRealizedElectronCount) &&
+    realization.additionalComponents.length === 0 && out.rawCode === r.rawCode && out.blackLevelCode === r.blackLevelCode && out.digitalSaturationCode === r.digitalSaturationCode &&
+    out.flags === (Number(r.physicalScalarSaturationApplied) | Number(r.preAdcSaturationApplied) << 1 | Number(r.digitalSaturationApplied) << 2);
+}
+
+/**
  * #394: a sensor template from one fully parsed and computed site (`calculateNativeRawSite`), as the lean sensor stage builds
  * its templates; undefined unless the lean arithmetic reproduces that site's dark and total charge, both charge realizations,
  * its codes and its flags bit for bit. Its `compute` then gives `calculateNativeRawSite`'s outputs for any site of the same
  * readout inputs (same CFA channel, dark current, capacity, readout regime and fixed-pattern profile).
  */
 export function createVerifiedNativeSiteReadout(parsed: SensorRawProducerSiteInput, result: ReturnType<typeof calculateNativeRawSite>, whiteCode: number,
-  photo: SensorEqeTemporalPhotoSignal, x: number, y: number, index: number, seed: number): NativeSiteReadout | undefined {
+  photo: SensorEqeTemporalPhotoSignal, x: number, y: number, index: number, seed: number, b?: ExposureBuildUpStage): NativeSiteReadout | undefined {
   try {
     const readout = resolveSensorReadoutRegime({ profile: parsed.readoutProfile, regimeId: parsed.regimeId });
     const t: Pick<SensorTemplate, "darkRate" | "capacity" | "readout" | "pattern" | "whiteCode"> = { darkRate: parsed.charge.darkCharge.darkCurrentElectronsPerSecond,
       capacity: result.capacity.value.physicalChargeCapacityElectrons, readout, pattern: parsed.fixedPatternNoise, whiteCode };
-    const darkE = t.darkRate * photo.localExposureDurationSeconds, total = chargeTotal(photo.expectedGeneratedElectronCount, darkE);
-    const r = result.readout.value, realization = result.realization.value, out = leanSensorSite(t, { photo, darkE, total, x, y }, index, seed);
-    if (!out || !Object.is(darkE, parsed.charge.darkCharge.expectedDarkElectronCount) || !Object.is(total, result.accumulatedCharge.value.totalExpectedStoredElectronCount) ||
-      !Object.is(out.photoRealized, realization.photoRealizedElectronCount) || !Object.is(out.darkRealized, realization.darkRealizedElectronCount) ||
-      realization.additionalComponents.length !== 0 || out.rawCode !== r.rawCode || out.blackLevelCode !== r.blackLevelCode || out.digitalSaturationCode !== r.digitalSaturationCode ||
-      out.flags !== (Number(r.physicalScalarSaturationApplied) | Number(r.preAdcSaturationApplied) << 1 | Number(r.digitalSaturationApplied) << 2)) return undefined;
-    // #449: the flat stage must reproduce the verification site too.
-    const flat = flatSensorStage(t), fo = flat.out;
-    if (!flatSensorSite(flat, photo.expectedGeneratedElectronCount, darkE, total, x, y, index, seed) || fo.rawCode !== out.rawCode || fo.blackLevelCode !== out.blackLevelCode ||
-      fo.digitalSaturationCode !== out.digitalSaturationCode || fo.flags !== out.flags || fo.whiteCode !== out.whiteCode) return undefined;
+    const flat = flatSensorStage(t, b), fo = flat.out;
+    if (!reproducesSite(flat, parsed, result, photo, x, y, index, seed)) return undefined;
     return {
       compute(photoE, duration, sx, sy, siteIndex, siteSeed): NativeRawLeanOutput | undefined {
         // The parse-phase predicates of the full path (claim()): finite non-negative dark and total charge.
@@ -1245,18 +1223,18 @@ export function createNativeEnvironmentSensorLean(frame: NativeEnvironmentLeanFr
       claim(site: unknown): object | undefined {
         return typeof site === "object" && site !== null && handles.has(site) ? site : undefined;
       },
-      compute(handle, index, seed, timing): NativeRawLeanOutput {
-        const h = handles.get(handle)!, out = leanSensorSite(h.template, h, index, seed);
-        if (out) nativeEnvironmentLeanStatistics.sensorSites++;
-        if (out) return { rawCode: out.rawCode, blackLevelCode: out.blackLevelCode, digitalSaturationCode: out.digitalSaturationCode, flags: out.flags, whiteCode: out.whiteCode };
+      compute(handle, index, seed, timing, b): NativeRawLeanOutput {
+        // The template's flat stage (made in observe(), with the same build-up stage); the caller copies the outputs at once.
+        const h = handles.get(handle)!, f = h.template.flat!;
+        if (flatSensorSite(f, h.photo.expectedGeneratedElectronCount, h.darkE, h.total, h.x, h.y, index, seed)) { nativeEnvironmentLeanStatistics.sensorSites++; return f.out; }
         // A compute-phase check failed: the full path computes (and throws) exactly as it would have.
         const parsed = parseNativeRawProducerSite(composeNativeEnvironmentSensorSite(h.site, h.photo), index, producerFrame, timing);
-        const r = calculateNativeRawSite(parsed, seed, index).readout.value;
+        const r = calculateNativeRawSite(parsed, seed, index, b).readout.value;
         return { rawCode: r.rawCode, blackLevelCode: r.blackLevelCode, digitalSaturationCode: r.digitalSaturationCode,
           flags: Number(r.physicalScalarSaturationApplied) | Number(r.preAdcSaturationApplied) << 1 | Number(r.digitalSaturationApplied) << 2,
           whiteCode: calculateSiteEffectiveSaturationCode(r, parsed.readoutProfile, parsed.regimeId) };
       },
-      observe(index: number, parsed: SensorRawProducerSiteInput, result: ReturnType<typeof calculateNativeRawSite>, whiteCode: number, seed: number): void {
+      observe(index: number, parsed: SensorRawProducerSiteInput, result: ReturnType<typeof calculateNativeRawSite>, whiteCode: number, seed: number, b?: ExposureBuildUpStage): void {
         const entry = pending.get(index);
         pending.delete(index);
         if (!entry || templates.length >= MAXIMUM_TEMPLATES) return;
@@ -1267,17 +1245,10 @@ export function createNativeEnvironmentSensorLean(frame: NativeEnvironmentLeanFr
           const t: SensorTemplate = { site, photo, phase, x, y, verified: false, darkRate: parsed.charge.darkCharge.darkCurrentElectronsPerSecond,
             capacity: result.capacity.value.physicalChargeCapacityElectrons, readout, pattern: parsed.fixedPatternNoise, whiteCode };
           templates.push(t);
-          // Self-check: the template matches itself and the lean arithmetic reproduces its full computation bit for bit.
+          // Self-check: the template matches itself and its flat stage reproduces its full computation bit for bit.
           if (!sensorMatches(site, photo, x, y, t, new WeakMap())) return;
-          const darkE = t.darkRate * photo.localExposureDurationSeconds, total = chargeTotal(photo.expectedGeneratedElectronCount, darkE);
-          const r = result.readout.value, realization = result.realization.value;
-          const out = leanSensorSite(t, { photo, darkE, total, x, y }, index, seed);
-          if (!out || !Object.is(darkE, parsed.charge.darkCharge.expectedDarkElectronCount) ||
-            !Object.is(total, result.accumulatedCharge.value.totalExpectedStoredElectronCount) ||
-            !Object.is(out.photoRealized, realization.photoRealizedElectronCount) || !Object.is(out.darkRealized, realization.darkRealizedElectronCount) ||
-            realization.additionalComponents.length !== 0 || out.rawCode !== r.rawCode || out.blackLevelCode !== r.blackLevelCode ||
-            out.digitalSaturationCode !== r.digitalSaturationCode || out.flags !== (Number(r.physicalScalarSaturationApplied) |
-              Number(r.preAdcSaturationApplied) << 1 | Number(r.digitalSaturationApplied) << 2)) return;
+          t.flat = flatSensorStage(t, b);
+          if (!reproducesSite(t.flat, parsed, result, photo, x, y, index, seed)) return;
           t.verified = true;
         } catch {
           // An unverified template leaves its sites on the full path.

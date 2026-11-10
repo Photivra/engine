@@ -4,6 +4,7 @@
  * Native RAW capture with the existing per-site (scalar) RAW model: an up-front plan and limit check from
  * metadata only, then bounded tile-by-tile execution.
  */
+import { EXPOSURE_BUILD_UP_STAGES, type ExposureBuildUpStage } from "./exposure-build-up-stage.js";
 import { normalizeCaptureExposureMetadata, type SimulatedCaptureInput, type SimulatedCapture, type CaptureExposureSource } from "./simulated-capture.js";
 import { ENGINE_API_VERSION } from "../core/version.js";
 import { InvalidConfigurationError } from "../core/configuration-error.js";
@@ -96,8 +97,8 @@ export interface NativeRawLeanOutput { rawCode: number; blackLevelCode: number; 
  */
 export interface NativeRawLeanSensorHook {
   claim(site: unknown): object | undefined;
-  compute(handle: object, index: number, seed: number, timing: ReturnType<typeof calculateCaptureExposureWindows>["value"]["samples"][number] | undefined): NativeRawLeanOutput;
-  observe(index: number, parsed: SensorRawProducerSiteInput, result: ReturnType<typeof calculateNativeRawSite>, whiteCode: number, seed: number): void;
+  compute(handle: object, index: number, seed: number, timing: ReturnType<typeof calculateCaptureExposureWindows>["value"]["samples"][number] | undefined, b?: ExposureBuildUpStage): NativeRawLeanOutput;
+  observe(index: number, parsed: SensorRawProducerSiteInput, result: ReturnType<typeof calculateNativeRawSite>, whiteCode: number, seed: number, b?: ExposureBuildUpStage): void;
 }
 export type NativeRawTaskState = "ready" | "running" | "completed" | "cancelled" | "failed" | "disposed" | "transferred";
 export interface NativeRawTask {
@@ -221,21 +222,21 @@ export function createNativeRawTaskWithCadence(input: NativeRawInput,provider: N
             const sites=tile.sites.map((site,j)=>lean?.[j]?undefined:parseNativeRawProducerSite(site,y*native.pixelWidth+x+j,plan.frame,timing?.samples[j]));
             if(first===undefined){first=sites[0];if(first)rows?.firstSite?.(first);}for(const s of sites)if(s)validateNativeRawReadoutIdentity(s,first!);
             // Every site in this tile is validated before any output is written. A failure never returns partial output.
-            const seed=plan.exposure.noise.seedUint32;
+            const seed=plan.exposure.noise.seedUint32,b=EXPOSURE_BUILD_UP_STAGES.get(plan.exposure.noise.realizationId);
             for(let j=0;j<sites.length;j++){
               // index: absolute native index (seeds, CFA phase); at: position in this task's output arrays.
               const index=y*native.pixelWidth+x+j,at=(y-rowStart)*bandWidth+x+j-colStart,handle=lean?.[j];
               if(handle){
-                const o=leanSensor!.compute(handle,index,seed,timing?.samples[j]);
+                const o=leanSensor!.compute(handle,index,seed,timing?.samples[j],b);
                 output.codes[at]=o.rawCode;output.blackLevels[at]=o.blackLevelCode;output.digitalSaturationCodes[at]=o.digitalSaturationCode;
                 output.saturationFlags[at]=o.flags;white.record(index,o.whiteCode);continue;
               }
-              const result=calculateNativeRawSite(sites[j]!,seed,index),r=result.readout.value;
+              const result=calculateNativeRawSite(sites[j]!,seed,index,b),r=result.readout.value;
               output.codes[at]=r.rawCode;output.blackLevels[at]=r.blackLevelCode;output.digitalSaturationCodes[at]=r.digitalSaturationCode;
               output.saturationFlags[at]=Number(r.physicalScalarSaturationApplied)|Number(r.preAdcSaturationApplied)<<1|Number(r.digitalSaturationApplied)<<2;
               const whiteCode=calculateSiteEffectiveSaturationCode(r,sites[j]!.readoutProfile,sites[j]!.regimeId);
               white.record(index,whiteCode);
-              leanSensor?.observe(index,sites[j]!,result,whiteCode,seed);
+              leanSensor?.observe(index,sites[j]!,result,whiteCode,seed,b);
             }
             count++;
           }

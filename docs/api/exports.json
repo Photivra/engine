@@ -3248,6 +3248,16 @@
       "kind": "type"
     },
     {
+      "name": "EXPOSURE_BUILD_UP_MAXIMUM_FRACTIONS",
+      "source": "src/facade/exposure-build-up.ts",
+      "kind": "runtime"
+    },
+    {
+      "name": "EXPOSURE_BUILD_UP_STREAM_BASE",
+      "source": "src/facade/exposure-build-up.ts",
+      "kind": "runtime"
+    },
+    {
       "name": "EXPOSURE_DURATION_CONTROL_VERSION",
       "source": "src/exposure/exposure-duration-control.ts",
       "kind": "runtime"
@@ -8865,6 +8875,26 @@
     {
       "name": "SimulateEnvironmentSensorRawFrameInput",
       "source": "src/capture/environment-raw-producer.ts",
+      "kind": "type"
+    },
+    {
+      "name": "simulateExposureBuildUp",
+      "source": "src/facade/exposure-build-up.ts",
+      "kind": "runtime"
+    },
+    {
+      "name": "SimulateExposureBuildUpFrame",
+      "source": "src/facade/exposure-build-up.ts",
+      "kind": "type"
+    },
+    {
+      "name": "SimulateExposureBuildUpOptions",
+      "source": "src/facade/exposure-build-up.ts",
+      "kind": "type"
+    },
+    {
+      "name": "SimulateExposureBuildUpResult",
+      "source": "src/facade/exposure-build-up.ts",
       "kind": "type"
     },
     {

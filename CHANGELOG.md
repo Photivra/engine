@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+### 2.22.0 part: #534 Exposure build-up
+
+- **New (#534): `simulateExposureBuildUp(options, { fractions })`**, fractions of one exposure as one accumulating process (a camera's live readout of a long exposure). The whole exposure's photo and dark counts at each site are its ordinary draws; going down the fractions each is split by a binomial draw N(fⱼ) ~ Binomial(N(fⱼ₊₁), fⱼ/fⱼ₊₁), the conditional law of a Poisson process. Each fraction's counts are Poisson with f times the mean (a single exposure's mean and variance at f·t), never decrease, and covary as the increment model says. Fixed-pattern noise is the same in every fraction; each fraction is clipped at the full well and read out once with its own read-noise stream, dual gain, pre-ADC/ADC saturation and ADC bits (#555; #554 profiles feed the same stage). The fraction at 1 is `simulateCapture(options)` byte for byte (owner decision 2026-11-06). Still cameras, static scenes and `"srgb-8"`/`"srgb-16"` only (refused otherwise). The request's `fast` applies to every fraction; no new fast method (nothing to register).
+- **Internal:** an exact seeded binomial sampler (`src/sensor/binomial-sample.ts`: inversion below a mean of 10, Hörmann's BTRS above; not a root export). The sensor stage takes an optional build-up stage (`src/capture/exposure-build-up-stage.ts`) in `calculateNativeRawSite`, the native RAW loop, the lean templates and the tabulated path, found by the fraction capture's noise realization ID; without one every path is unchanged.
+- **Capture-worker refactor (results bit-identical):** the lean sensor templates use the flat sensor stage (#449) instead of a second copy of the same stage (`leanSensorSite` removed), and one `reproducesSite` check serves both verifications.
+- **Root exports:** 6 new (3 runtime): `simulateExposureBuildUp`, `EXPOSURE_BUILD_UP_MAXIMUM_FRACTIONS`, `EXPOSURE_BUILD_UP_STREAM_BASE` and the types `SimulateExposureBuildUpOptions`, `SimulateExposureBuildUpFrame`, `SimulateExposureBuildUpResult`.
+- **Bundle:** the capture-worker shape shrinks by 138 B gzip (355,994 → 355,856 B; limit 356,000 B). A worker that also imports `simulateExposureBuildUp` measures 357,256 B (+1,400 B).
+- **Docs and tests:** docs/QUICK_START.md ("Exposure build-up (#534)"), docs/USAGE.md, API reference; `test/exposure-build-up.test.ts`, `test/binomial-sample.test.ts`.
+
 ## 2.20.0 — unreleased (prepared November 9, 2026)
 
 A minor release of ten issues and one speed-versus-accuracy scheme: adjustable sensor characteristics and the mid-gray noise figure (#555, #535), the aperture diameter (#577), the crop that matches a longer lens (#579), which limits detail, the lens or the sensor (#575), the print size limit with blur and noise (#574), the lens profile's vignetting area factor (#584), lens corrections as optional DNG opcodes (#587), each catalogue lens's own bokeh (#567), chart-boundary ties in the diffraction PSF quadrature (#565) and the CI Node drift check (#231). See the [2.20.0 release record](https://github.com/Photivra/photivra/blob/main/docs/RELEASE_2_20_0.md).

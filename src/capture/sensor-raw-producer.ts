@@ -27,6 +27,7 @@ import { assessSensorPhysicalChargeCapacity, parseSensorPhysicalChargeCapacityPr
 import { simulateSensorChargeRealization, simulateSensorRawCode, parseSensorChargeSamplingProfile,
   parseSensorReadoutConversionProfile, resolveSensorReadoutRegime, type SensorChargeSamplingProfile, type SensorReadoutConversionProfile } from "../sensor/raw-readout.js";
 import { createSensorRawCaptureSample } from "../sensor/raw-reconstruction.js";
+import type { ExposureBuildUpStage } from "./exposure-build-up-stage.js";
 import { parseSensorFixedPatternNoiseProfile, type SensorFixedPatternNoiseProfile } from "../sensor/fixed-pattern-noise.js";
 import { deriveNativeSiteStreamSeedUint32, NATIVE_SITE_CHARGE_STREAM_ID, NATIVE_SITE_READ_NOISE_STREAM_ID } from "../sensor/stochastic-seed.js";
 import { parseSensorColorSamplingProfile } from "../sensor/color-sampling.js";
@@ -267,16 +268,23 @@ export function validateNativeRawReadoutIdentity(s: SensorRawProducerSiteInput, 
     }
 }
 /** The shared per-site pipeline holds all the charge, capacity, random-noise and ADC equations. `i` is the absolute native row-major index. */
-export function calculateNativeRawSite(s: SensorRawProducerSiteInput, seed: number, i: number): SensorRawProducerResult["sites"][number] {
+export function calculateNativeRawSite(s: SensorRawProducerSiteInput, seed: number, i: number,
+  /** Internal (#534): a build-up fraction's stage, which splits the realized counts down to the fraction and reads with its own stream. */
+  b?: ExposureBuildUpStage): SensorRawProducerResult["sites"][number] {
   const accumulatedCharge = composeSensorAccumulatedCharge(s.charge);
   const capacity = assessSensorPhysicalChargeCapacity({ accumulatedCharge: accumulatedCharge.value, capacityProfile: s.capacityProfile,
     operatingStateId: s.operatingStateId, operatingTemperatureC: s.charge.darkCharge.operatingTemperatureC });
   const pattern = s.fixedPatternNoise === undefined ? {} : { fixedPatternNoise: s.fixedPatternNoise };
-  const realization = simulateSensorChargeRealization({ accumulatedCharge: accumulatedCharge.value, samplingProfile: s.samplingProfile,
+  let realization = simulateSensorChargeRealization({ accumulatedCharge: accumulatedCharge.value, samplingProfile: s.samplingProfile,
     seedUint32: deriveNativeSiteStreamSeedUint32(seed, i, NATIVE_SITE_CHARGE_STREAM_ID), ...pattern });
+  if (b) {
+    const v = realization.value, photo = b.thin(v.photoRealizedElectronCount, i, 0), dark = b.thin(v.darkRealizedElectronCount, i, 1);
+    if (v.additionalComponents.length) throw new InvalidConfigurationError("An exposure build-up takes photo and dark charge only.");
+    realization = { ...realization, value: { ...v, photoRealizedElectronCount: photo, darkRealizedElectronCount: dark, totalRealizedStoredElectronEquivalentCount: photo + dark + 0 } };
+  }
   const readout = simulateSensorRawCode({ chargeRealization: realization.value, physicalCapacityAssessment: capacity.value,
     readoutProfile: s.readoutProfile, regimeId: s.regimeId,
-    readNoiseSeedUint32: deriveNativeSiteStreamSeedUint32(seed, i, NATIVE_SITE_READ_NOISE_STREAM_ID), ...pattern });
+    readNoiseSeedUint32: deriveNativeSiteStreamSeedUint32(seed, i, b ? b.read : NATIVE_SITE_READ_NOISE_STREAM_ID), ...pattern });
   return { accumulatedCharge, capacity, realization, readout };
 }
 /** The selected regime's declared INL, which the effective white level needs at saturation. */

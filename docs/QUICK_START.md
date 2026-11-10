@@ -2029,6 +2029,50 @@ developed image in 64-bit floats (24 bytes per pixel, 549 MiB at 24 MP), held as
 sampled every 50 ms). The extra pass therefore costs about 5 s on one worker after the parts, against about 10 s to render
 the whole frame again on one worker.
 
+### Exposure build-up (#534)
+
+`simulateExposureBuildUp(options, { fractions })` renders fractions of one exposure as one accumulating process, the way a
+camera's live readout of a long exposure shows the light building up. Each fraction is read out and developed as its own
+photo, and the fraction at 1 is `simulateCapture(options)`, byte for byte (owner decision, 2026-11-06).
+
+- **Charge.** Photon and dark-charge arrivals are Poisson processes. The whole exposure's photo and dark counts at each site are
+  its ordinary draws, with its ordinary seeds. Going down the fractions, each count is split by a binomial draw,
+  N(fⱼ) ~ Binomial(N(fⱼ₊₁), fⱼ / fⱼ₊₁): given a Poisson count at t, the count at s < t is Binomial(n, s/t) (R. G. Gallager,
+  *Discrete Stochastic Processes*, chapter 2, section 2.5, MIT OpenCourseWare 6.262, free). So each fraction's counts are
+  Poisson with f times the whole exposure's mean, with the mean and variance of a single exposure of f·t. They never decrease
+  from one fraction to the next, and the covariance of two fractions' counts is the earlier one's variance: the later count is
+  the earlier count plus an independent increment. The binomial draws are exact (inversion, and Hörmann's BTRS rejection; `src/sensor/binomial-sample.ts`).
+- **Sensor.** Fixed-pattern noise (PRNU, DSNU, hot pixels, offsets) belongs to the sensor and is the same in every fraction. Each
+  fraction's charge is clipped at the full well (`sensor.fullWell`), then read out once: its own read noise (the regime's
+  components; dual gain as the ISO selects), pre-ADC and ADC saturation and quantization at the ADC bit depth (#555; a #554
+  sensor profile's readout feeds the same stage).
+- **Cost and settings.** Every fraction renders the whole request again (exposure resolution, metering, ISO, lens, framing and
+  white balance; `"auto"` white balance is measured on each fraction as its own photo), so it costs one capture per fraction.
+  The request's `fast` and the format default apply to every fraction, and the build-up adds no fast method: with `fast: false`
+  (the calculator's setting) every fraction is the exact capture's.
+- **Limits.** The fraction scales the whole exposure's expected signal, which equals a capture of f·t only when the signal is
+  constant over the exposure: a still camera (`motion.angularVelocityRadPerSec` is refused) and the facade's static scenes.
+  Formats `"srgb-8"` and `"srgb-16"` only: a fraction's JPEG, PNG or DNG would carry the whole exposure's metadata. 1 to 64
+  fractions, strictly increasing, above 0 and at most 1. A fraction's realization depends on the whole list (each step of the
+  chain has its own seeded streams, `EXPOSURE_BUILD_UP_STREAM_BASE`); the same request and list always give the same frames.
+- **Result.** One frame per fraction: `{ fraction, elapsedSeconds, result }`. Below 1, `result.image` and `result.raw` are the
+  fraction's readout, and the assumption `exposure.buildUp` records it; `exposure`, `sensor`, `plan` and `request` describe the
+  whole exposure (the camera's settings), not the elapsed part.
+
+```ts
+import { simulateExposureBuildUp } from "@photivra/engine";
+
+const build = await simulateExposureBuildUp({ scene: { preset: "uniform" }, exposure: { mode: "manual", shutterSeconds: 2, iso: 400 },
+  illuminanceLux: 20, output: { width: 64, height: 48 } }, { fractions: [0.2, 0.4, 0.6, 0.8, 1] });
+for (const frame of build.frames) console.log(frame.fraction, frame.elapsedSeconds, frame.result.image.samples.length);
+```
+
+Tests (`test/exposure-build-up.test.ts`): the last fraction equals `simulateCapture` byte for byte (tabulated and lean paths,
+fixed pattern, dual gain, auto white balance and Auto ISO); each fraction's mean and variance match a single capture at f·t;
+without read noise the codes never decrease and Cov(c₁, c₂) = Var(c₁); dark frames' read noise is independent between
+readouts; a fraction past the full well clips. `test/binomial-sample.test.ts` checks the binomial draws with chi-square tests
+of the probability mass function.
+
 ### A Print JPEG written in strips
 
 At 1:1 (output size equal to the crop), a Print JPEG's rows can be coded on separate workers.

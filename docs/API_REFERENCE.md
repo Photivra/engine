@@ -1314,6 +1314,19 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 | [`DisplayViewCorrectionStateSet`](api/facade-display-view.md#displayviewcorrectionstateset) | Type |
 | [`serializeDisplayViewCorrectionStates`](api/facade-display-view.md#serializedisplayviewcorrectionstates) | Runtime |
 
+## facade/exposure-build-up.ts
+
+[Detailed contracts](api/facade-exposure-build-up.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/facade/exposure-build-up.ts)
+
+| Export | Kind |
+| --- | --- |
+| [`EXPOSURE_BUILD_UP_MAXIMUM_FRACTIONS`](api/facade-exposure-build-up.md#exposure_build_up_maximum_fractions) | Runtime |
+| [`EXPOSURE_BUILD_UP_STREAM_BASE`](api/facade-exposure-build-up.md#exposure_build_up_stream_base) | Runtime |
+| [`simulateExposureBuildUp`](api/facade-exposure-build-up.md#simulateexposurebuildup) | Runtime |
+| [`SimulateExposureBuildUpFrame`](api/facade-exposure-build-up.md#simulateexposurebuildupframe) | Type |
+| [`SimulateExposureBuildUpOptions`](api/facade-exposure-build-up.md#simulateexposurebuildupoptions) | Type |
+| [`SimulateExposureBuildUpResult`](api/facade-exposure-build-up.md#simulateexposurebuildupresult) | Type |
+
 ## facade/fast-methods.ts
 
 [Detailed contracts](api/facade-fast-methods.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/facade/fast-methods.ts)

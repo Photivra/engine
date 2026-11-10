@@ -7790,6 +7790,12 @@ including the whole-image stages `output.diffractionCorrection` and `output.shar
 bytes as a whole-frame `simulateCapture()` and per-row progress (`diffraction-correction`, `sharpening`). See
 [Quick start, Developing a capture rendered in parts](QUICK_START.md#developing-a-capture-rendered-in-parts-571).
 
+`simulateExposureBuildUp(options, { fractions })` (#534) renders fractions of one exposure as one accumulating process: the
+photo and dark charge build up in place (binomial splits of the whole exposure's own counts), each fraction is clipped at the full
+well and read out once with its own read noise, and developed as its own photo. The fraction at 1 is `simulateCapture(options)`
+byte for byte. Still cameras and the sRGB sample formats only. See
+[Quick start, Exposure build-up](QUICK_START.md#exposure-build-up-534).
+
 ### Color charts (2.14)
 
 The engine's own [color patches](https://github.com/Photivra/photivra/blob/main/docs/COLOR_PATCHES.md) are reflectance spectra lit by the capture's illuminant. Draw the

@@ -1832,7 +1832,9 @@ type CaptureRun = "capture" | "ideal-reference" | "display-view" | "dng-from-par
  * Internal: the request path shared by {@link simulateCapture}, {@link simulateIdealReference} and the display view, whose renderer is
  * passed in; for a display view the renderer's value is returned (a result, or a prepared view with DISPLAY_VIEW_WITHOUT_VIEW).
  */
-export async function runCapture(options: SimulateCaptureOptions, run: CaptureRun, viewOption?: unknown,
+export async function runCapture(options: SimulateCaptureOptions, run: CaptureRun,
+  /** The display view option, the parts, or (#534) for a capture the noise realization ID of an exposure build-up fraction. */
+  viewOption?: unknown,
   renderView?: (context: DisplayViewRunContext) => Promise<unknown>):
   Promise<unknown> {
   const started = Date.now(), idealReference = run === "ideal-reference", displayView = run === "display-view";
@@ -2881,7 +2883,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
     binding: NativeRawInput["bindingProfile"], sites: number): NativeRawInput => ({
     exposure: { captureId: IDS.capture, sceneStateId: IDS.sceneState, sceneTimeSeconds: 0, geometry: rasterGeometry,
       exposure: { focalLengthMm, aperture: fNumber, shutterSeconds, iso: resolvedIso }, focus: { kind: "finite", distanceM: focusDistanceM },
-      noise: { seedUint32: noiseSeed, realizationId: "facade-noise", model: { ...SENSOR_RAW_PRODUCER_NOISE_MODEL } },
+      noise: { seedUint32: noiseSeed, realizationId: run === "capture" && viewOption as string || "facade-noise", model: { ...SENSOR_RAW_PRODUCER_NOISE_MODEL } },
       source: { kind: "scene-radiance-source", artifactId: "facade-scene-" + scenePreset, sha256: sourceSha256, dynamicRangeHistory: "no-loss-declared" },
       whiteBalanceIntent: intent, adoptedWhiteXyz: null,
       models: [{ profile: { id: "photivra-simulate-capture", version: SIMULATE_CAPTURE_FACADE_VERSION }, scientificStatus: "approximation", publicEvidenceIds: ["photivra:simulate-capture-facade"] }] },
