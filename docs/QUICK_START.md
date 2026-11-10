@@ -528,20 +528,24 @@ reports the same `sensor` record as its capture.
 
 ### Sensor profiles (#554)
 
-`sensor.profile` picks one of eight representative sensors whose values come from published
-specifications (`SENSOR_PROFILE_IDS`; unnamed, by format, resolution, architecture and era). It
+`sensor.profile` takes one of eight representative sensor profile records whose values come from
+published specifications (`SENSOR_PROFILES`, or `resolveSensorProfile(id)`; unnamed, by format,
+resolution, architecture and era), checked strictly, so a modified copy also works. It
 replaces the body's ISO range, readout regimes (full well, read noise of each conversion gain, the
 dual-gain switch and the high gain's storage, ADC bit depth), readout time and fixed-pattern noise,
 and sets the default pitch and peak QE; the characteristics above still override it one at a time.
 
 ```ts
-const phone = await simulateCapture({ scene: { preset: "uniform" }, sensor: { profile: "phone-50mp-stacked" } });
+import { resolveSensorProfile } from "@photivra/engine";
+const phone = await simulateCapture({ scene: { preset: "uniform" }, sensor: { profile: resolveSensorProfile("phone-50mp-stacked") } });
 phone.sensor.fullWellElectrons;   // 8 600 e⁻ at 1.197 µm
 ```
 
 Each profile's base ISO is re-rated from its full well, QE and pixel area, so the same ISO reaches
 the RAW white at the same exposure on every profile (the assumption `sensor.profile` records the
-values and the rounding). Values, sources and the ISO rating: [SENSOR_PROFILES.md](SENSOR_PROFILES.md).
+values and the rounding). The phone profile takes the catalogue's three phone lenses
+(`lens: { catalogue: "pv-24-1.8-phone" }`), and they need it. Values, sources and the ISO rating:
+[SENSOR_PROFILES.md](SENSOR_PROFILES.md).
 
 ## Exposure
 

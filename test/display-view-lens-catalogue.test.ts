@@ -33,8 +33,10 @@ describe("display view with lens.catalogue (#569)", () => {
   }, scaledTimeout(300_000));
 
   it("every one of the 30 lenses renders at its widest and narrowest f-number at its close focus, each site near the capture's", async () => {
-    expect(GENERIC_LENS_CATALOGUE).toHaveLength(30);
-    for (const lens of GENERIC_LENS_CATALOGUE) {
+    // #554: the three phone lenses need the phone sensor profile; test/sensor-profiles.test.ts renders them.
+    const lenses = GENERIC_LENS_CATALOGUE.filter((lens) => lens.set !== "phone");
+    expect(lenses).toHaveLength(30);
+    for (const lens of lenses) {
       const resolved = resolveGenericLens({ lensId: lens.lensId, activeImagingArea: { widthMm: 36, heightMm: 24 } });
       for (const fNumber of [resolved.widestFNumber, resolved.narrowestFNumber]) {
         const options: SimulateCaptureOptions = { scene: { preset: "dead-leaves" }, output: fullFrame(12), sensor: { pixelPitchMicrometers: 12, spectralStepNanometers: 80 },

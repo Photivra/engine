@@ -38,7 +38,7 @@ import { ENGINE_API_VERSION } from "../core/version.js";
 import type { EvidenceProvenance } from "../core/evidence-provenance.js";
 import { GENERIC_TIER_ASSETS, type GenericEquipmentTier, type GenericEquipmentTierPreset } from "../equipment/generic-tier-assets.js";
 import { parseCallerCameraPreset } from "./camera-preset.js";
-import type { SensorProfile } from "../equipment/sensor-profiles.js";
+import type { SensorProfile } from "../equipment/sensor-profile-body.js";
 import { createHostYield } from "./host-yield.js";
 import { resolveGenericEquipmentExposureCapabilities, type ResolvedGenericEquipmentExposureCapabilities } from "../equipment/exposure-capabilities.js";
 import { resolveGenericIsoSignalChain } from "../sensor/iso-signal-chain.js";
@@ -603,12 +603,12 @@ export interface SimulateCaptureOptions {
   /** #555: plus the sensor characteristics ({@link SimulateCaptureSensorCharacteristics}), each off by default. */
   sensor?: SimulateCaptureSensorCharacteristics & {
     /**
-     * #554: a sensor profile id (`SENSOR_PROFILE_IDS`), loaded on demand. It replaces the body's ISO range, readout regimes
+     * #554: a sensor profile record (`SENSOR_PROFILES`, or `resolveSensorProfile(id)`), checked strictly. It replaces the body's ISO range, readout regimes
      * (full well, read noise of each conversion gain, the dual-gain switch, high-gain storage, ADC bit depth), readout time and
      * fixed-pattern noise, and sets the default pixel pitch and peak QE; explicit fields here still override it one at a time.
      * Default: none (the body's own sensor). See docs/SENSOR_PROFILES.md.
      */
-    profile?: string;
+    profile?: SensorProfile;
     /**
      * Pixel pitch in micrometres, 0.5–1000. Default 6. The simulated sensor is output width × pitch wide. 2.5: above 100 µm the
      * capture is a downsized view of a whole frame (for example 36 mm / 48 pixels = 750 µm), recorded in the assumption
@@ -1829,18 +1829,16 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   let preset: GenericEquipmentTierPreset;
   if (typeof cameraOption === "string") preset = GENERIC_TIER_ASSETS.find((p) => p.tier === cameraOption) ?? fail("Unknown camera tier.");
   else preset = parseCallerCameraPreset(cameraOption);
-  // #554: a sensor profile (a lazy chunk) replaces the body's sensor assets; its other capabilities and the lens are kept.
-  const profileId = (typeof top.sensor === "object" && top.sensor !== null ? top.sensor as Record<string, unknown> : {}).profile;
+  // #554: a sensor profile record (its parser and body builder are a lazy chunk; the catalogue is never imported) replaces the
+  // body's sensor assets; its other capabilities and the lens are kept.
+  const profileRecord = (typeof top.sensor === "object" && top.sensor !== null ? top.sensor as Record<string, unknown> : {}).profile;
   let profile: SensorProfile | undefined;
-  if (profileId !== undefined) {
-    const kit = await import("../equipment/sensor-profiles.js");
-    profile = kit.resolveSensorProfile(profileId);
+  if (profileRecord !== undefined) {
+    const kit = await import("../equipment/sensor-profile-body.js");
+    profile = kit.parseSensorProfile(profileRecord);
     preset = { ...preset, body: kit.sensorProfileBody(profile, preset.body, preset.presetVersion) };
-    const { provenance, goodFor, description, ...values } = profile;
-    assume("sensor.profile", "model", { ...values, sensitivityOffsetStops: Math.log2(kit.sensorProfileSaturationIso(profile) / profile.baseIso), provenance },
-      "Sensor profile " + profile.name + " (#554), " + profile.marketTag + " (a market label only): " + description + " Its values are published specifications, values derived from them or " +
-      "labelled design values (docs/SENSOR_PROFILES.md), not a calibration of any camera. It replaces the body's ISO range, readout regimes, readout time and fixed-pattern noise; " +
-      "the base ISO is re-rated from full well, QE and pixel area so the RAW white at base ISO is the full well (rounding: sensitivityOffsetStops). Good for: " + goodFor.join(", ") + ".");
+    assume("sensor.profile", "model", { ...profile, sensitivityOffsetStops: Math.log2(kit.sensorProfileSaturationIso(profile) / profile.baseIso) },
+      "Sensor profile (#554; docs/SENSOR_PROFILES.md): published, derived and design values, not a camera calibration; its base ISO is re-rated from full well, QE and pixel area.");
   }
   const body = preset.body, lens = preset.lens;
 
@@ -1896,6 +1894,8 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
     catalogueFrame = frameMm();
     lensKit = await import("./generic-lens-capture.js");
     catalogue = lensKit.resolveGenericLens({ lensId: catalogueId as string, activeImagingArea: catalogueFrame });
+    // #554: the phone lenses are fixed to a phone sensor profile, and it takes only them.
+    if ((catalogue.set === "phone") !== (profile?.fixedLenses === "phone")) fail("lens.catalogue: the phone lenses go only with a phone sensor.profile (fixedLenses \"phone\"), which takes only them.");
     assume("lens.catalogue", "model", { lensId: catalogue.lensId, name: catalogue.name, set: catalogue.set, kind: catalogue.kind, equivalentFocalLengthMm: catalogue.equivalentFocalLengthMm,
       focalLengthMm: catalogue.focalLengthMm, cropFactor35Mm: catalogue.cropFactor35Mm, widestFNumber: catalogue.widestFNumber, narrowestFNumber: catalogue.narrowestFNumber,
       minimumFocusDistanceM: catalogue.minimumFocusDistanceM, maximumMagnification: catalogue.maximumMagnification, projection: catalogue.projection, fisheyeImage: catalogue.fisheyeImage },
@@ -2083,7 +2083,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   if (format !== "jpeg" && outputOptions.jpegQuantizationStep !== undefined) fail("output.jpegQuantizationStep applies only to output.format \"jpeg\".");
   const sensorOptions = allowKeys(top.sensor, "sensor", ["pixelPitchMicrometers", "spectralStepNanometers", "temporalSampleCount", "noiseSeed", "antiAliasing", "pixelAperture", "profile", ...SENSOR_CHARACTERISTIC_KEYS]);
   const pitch = positive(pick(sensorOptions, "pixelPitchMicrometers", "sensor.pixelPitchMicrometers", profile?.pixelPitchMicrometers ?? DEFAULTS.pixelPitchMicrometers,
-    (profile ? "The profile's " + profile.pixelPitchMicrometers + " µm photosites" : "6 µm pixels (about a 24 MP full-frame sensor)") +
+    (profile ? "The profile's pitch" : "6 µm pixels (about a 24 MP full-frame sensor)") +
     ". The simulated sensor is width × pitch wide, so small images are a central crop of a large sensor, not a downscaled full frame."), "sensor.pixelPitchMicrometers");
   if (pitch < 0.5 || pitch > SIMULATE_CAPTURE_PIXEL_PITCH_MAXIMUM_MICROMETERS) fail("sensor.pixelPitchMicrometers must be 0.5-" + SIMULATE_CAPTURE_PIXEL_PITCH_MAXIMUM_MICROMETERS + ".");
   const spectralStep = positive(pick(sensorOptions, "spectralStepNanometers", "sensor.spectralStepNanometers", DEFAULTS.spectralStepNanometers,
@@ -2362,8 +2362,8 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   const mode = pick<SimulateCaptureExposureMode>(exposureOptions, "mode", "exposure.mode", "manual", "Manual exposure.");
   if (!["manual", "aperture-priority", "shutter-priority", "program"].includes(mode)) fail("Unknown exposure mode.");
   // #554: a profile whose range starts above ISO 100 defaults to its base ISO.
-  const isoOption = profile && profile.baseIso > DEFAULTS.iso ? pick<unknown>(exposureOptions, "iso", "exposure.iso", profile.baseIso, "The sensor profile's base ISO, " + profile.baseIso + ".") :
-    pick<unknown>(exposureOptions, "iso", "exposure.iso", DEFAULTS.iso, profile ? "ISO 100, within the sensor profile's range." : "ISO 100, the tiers' base ISO.");
+  const isoOption = profile && profile.baseIso > DEFAULTS.iso ? pick<unknown>(exposureOptions, "iso", "exposure.iso", profile.baseIso, "The sensor profile's base ISO.") :
+    pick<unknown>(exposureOptions, "iso", "exposure.iso", DEFAULTS.iso, "ISO 100, the tiers' base ISO.");
   // #516: "auto" resolves the ISO with the mode's Auto ISO resolver; NaN marks the ISO as not yet known.
   const automaticIso = isoOption === "auto";
   if (typeof isoOption === "string" && !automaticIso) fail('exposure.iso must be a positive finite number or "auto".');
@@ -2420,7 +2420,9 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
       fail("lens.fNumber " + fNumber + " is outside the " + lensRange!.name + " range f/" + lensRange!.widestFNumber + "–f/" + lensRange!.narrowestFNumber + ".");
   };
   if (mode === "manual" || mode === "aperture-priority") {
-    fNumber = positive(pick(lensOptions, "fNumber", "lens.fNumber", DEFAULTS.fNumber, "f/8."), "lens.fNumber");
+    // #554: a fixed-aperture lens (the phone lenses) defaults to its one f-number.
+    const fixed = lensRange && lensRange.widestFNumber === lensRange.narrowestFNumber ? lensRange.widestFNumber : undefined;
+    fNumber = positive(pick(lensOptions, "fNumber", "lens.fNumber", fixed ?? DEFAULTS.fNumber, fixed ? "The lens's fixed f/" + fixed + "." : "f/8."), "lens.fNumber");
     checkFNumber();
   } else {
     if (lensOptions.fNumber !== undefined) fail("lens.fNumber is resolved automatically in " + mode + " mode; omit it.");

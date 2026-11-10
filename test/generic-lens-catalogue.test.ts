@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * #549: the generic lens catalogue's data (30 lenses, owner's names, apertures, close focus, projections, set baselines and
+ * #549: the generic lens catalogue's data (30 lenses and, #554, 3 phone lenses, owner's names, apertures, close focus, projections, set baselines and
  * adjustments), its resolution on a sensor, the seeded focus-scatter sampler, and the PSF builder (against the engine's own
  * diffraction kernels, its sampling, and the orientation of coma and lateral colour).
  */
@@ -18,12 +18,15 @@ const FULL_FRAME = { widthMm: 36, heightMm: 24 };
 const EVIDENCE = [{ sourceOrigin: "photivra" as const, sourceReference: "test:generic-lens-catalogue", reuseStatus: "photivra-owned" as const }];
 
 describe("the generic lens catalogue (#549)", () => {
-  it("defines the owner's 30 lenses: 17 professional and 13 consumer, named PV <focal> <aperture>", () => {
+  it("defines the owner's 33 lenses: 17 professional, 13 consumer and 3 phone (#554), named PV <focal> <aperture>", () => {
     const pro = [[8, 3.5, "PV 8 3.5 Fisheye Pro"], [10, 3.2, "PV 10 3.2 Pro"], [15, 2.8, "PV 15 2.8 Fisheye Pro"], [16, 1.8, "PV 16 1.8 Pro"], [20, 1.4, "PV 20 1.4 Pro"],
       [24, 1.4, "PV 24 1.4 Pro"], [35, 1.2, "PV 35 1.2 Pro"], [50, 1.2, "PV 50 1.2 Pro"], [85, 1.2, "PV 85 1.2 Pro"], [100, 2.8, "PV 100 2.8 Macro Pro"], [200, 2, "PV 200 2 Pro"],
       [300, 2.8, "PV 300 2.8 Pro"], [400, 2.8, "PV 400 2.8 Pro"], [500, 4, "PV 500 4 Pro"], [600, 4, "PV 600 4 Pro"], [800, 5.6, "PV 800 5.6 Pro"], [1200, 8, "PV 1200 8 Pro"]] as const;
     const consumer = [[16, 2.8], [20, 2], [24, 1.8], [35, 1.8], [50, 1.8], [85, 1.8], [100, 2], [200, 5.6], [300, 5.6], [400, 5.6], [500, 5.6], [600, 6.3], [800, 9]] as const;
-    expect(GENERIC_LENS_CATALOGUE).toHaveLength(30);
+    expect(GENERIC_LENS_CATALOGUE).toHaveLength(33);
+    // #554: the phone lenses, fixed apertures, after the two sets.
+    expect(GENERIC_LENS_CATALOGUE.slice(30).map((lens) => [lens.set, lens.name, lens.lensId, lens.widestFNumber, lens.narrowestFNumber])).toEqual([
+      ["phone", "PV 13 2.2 Phone", "pv-13-2.2-phone", 2.2, 2.2], ["phone", "PV 24 1.8 Phone", "pv-24-1.8-phone", 1.8, 1.8], ["phone", "PV 77 2.8 Phone", "pv-77-2.8-phone", 2.8, 2.8]]);
     expect(GENERIC_LENS_IDS).toEqual(GENERIC_LENS_CATALOGUE.map((lens) => lens.lensId));
     const professional = GENERIC_LENS_CATALOGUE.filter((lens) => lens.set === "professional"), consumers = GENERIC_LENS_CATALOGUE.filter((lens) => lens.set === "consumer");
     expect(professional.map((lens) => [lens.equivalentFocalLengthMm, lens.widestFNumber, lens.name])).toEqual(pro.map((row) => [...row]));
@@ -33,7 +36,7 @@ describe("the generic lens catalogue (#549)", () => {
     expect(GENERIC_LENS_IDS).toContain("pv-50-1.8");
     expect(GENERIC_LENS_IDS).toContain("pv-100-2.8-macro-pro");
     expect(GENERIC_LENS_IDS).toContain("pv-8-3.5-fisheye-pro");
-    expect(new Set(GENERIC_LENS_IDS).size).toBe(30);
+    expect(new Set(GENERIC_LENS_IDS).size).toBe(33);
   });
 
   it("gives every lens a short plain-English summary (at most 40 characters, US spelling) that agrees with its character values", () => {
@@ -58,7 +61,7 @@ describe("the generic lens catalogue (#549)", () => {
 
   it("uses the generic smallest apertures, close focus and projections", () => {
     for (const lens of GENERIC_LENS_CATALOGUE) {
-      expect(lens.narrowestFNumber).toBe(lens.equivalentFocalLengthMm <= 16 ? 16 : lens.equivalentFocalLengthMm <= 135 ? 22 : 32);
+      expect(lens.narrowestFNumber).toBe(lens.set === "phone" ? lens.widestFNumber : lens.equivalentFocalLengthMm <= 16 ? 16 : lens.equivalentFocalLengthMm <= 135 ? 22 : 32);
       expect(lens.maximumMagnification).toBe(lens.lensId === "pv-100-2.8-macro-pro" ? 1 : 0.15);
       expect(lens.projection).toBe(lens.kind === "fisheye" ? "fisheye-equisolid-angle" : "rectilinear");
       expect(lens.kind === "fisheye").toBe(lens.set === "professional" && (lens.equivalentFocalLengthMm === 8 || lens.equivalentFocalLengthMm === 15));

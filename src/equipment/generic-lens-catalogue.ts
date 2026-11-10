@@ -42,7 +42,8 @@ import type { IlluminationVignettingProfile } from "../optics/illumination-vigne
 import { GENERIC_PRIME_MINIMUM_FOCUS, GENERIC_PRIME_THIRD_STOP_F_NUMBERS } from "./generic-prime-lenses.js";
 import { createDeterministicUniformStream, deriveNativeSiteStreamSeedUint32, sampleDeterministicStandardNormal } from "../sensor/stochastic-seed.js";
 
-export type GenericLensSet = "professional" | "consumer";
+/** #554: "phone", the three fixed lenses of a phone sensor profile (`sensor.profile` with `fixedLenses: "phone"`). */
+export type GenericLensSet = "professional" | "consumer" | "phone";
 export type GenericLensKind = "standard" | "macro" | "fisheye";
 
 /** The character of a set, at each lens's widest aperture. Aberrations are in waves at 550 nm at the frame corner. */
@@ -114,7 +115,12 @@ export const GENERIC_LENS_SET_BASELINES: Readonly<Record<GenericLensSet, Readonl
     breathingFraction: -0.03, focusScatterDepthOfFocusFraction: 0.1, closeFocusFactor: 0.15 }),
   consumer: /* @__PURE__ */ Object.freeze({ sphericalWaves: 0.5, comaWaves: 1.0, astigmatismWaves: 0.8, fieldCurvatureWaves: 0.45, axialColorWaves: 0.4,
     lateralColorFraction: 0.0003, distortionMagnitude: 0.03, naturalVignettingStops: 0.7, opticalVignettingStops: 1.1, veilingGlareFraction: 0.02, ghostFraction: 0.008,
-    breathingFraction: -0.08, focusScatterDepthOfFocusFraction: 0.3, closeFocusFactor: 0.5 })
+    breathingFraction: -0.08, focusScatterDepthOfFocusFraction: 0.3, closeFocusFactor: 0.5 }),
+  // #554: design values (docs/LENS_CATALOGUE.md, "Phone lenses"): the consumer baseline with the stronger fall-off, flare and distortion
+  // (corrected in software on phones) of small fixed-aperture phone lenses, and no optical-vignetting change (the aperture is fixed).
+  phone: /* @__PURE__ */ Object.freeze({ sphericalWaves: 0.5, comaWaves: 1.0, astigmatismWaves: 0.8, fieldCurvatureWaves: 0.5, axialColorWaves: 0.3,
+    lateralColorFraction: 0.0004, distortionMagnitude: 0.03, naturalVignettingStops: 1.2, opticalVignettingStops: 0.5, veilingGlareFraction: 0.03, ghostFraction: 0.01,
+    breathingFraction: -0.05, focusScatterDepthOfFocusFraction: 0.3, closeFocusFactor: 0.5 })
 });
 
 /** The generic smallest aperture of both sets: f/16 up to 16 mm, f/22 up to 135 mm, f/32 beyond (as `lens.prime`). */
@@ -146,6 +152,14 @@ const PRO: readonly Row[] = [
   [800, 5.6, "standard", { distortion: 0.3, axialColor: 1.2, coma: 0.5, astigmatism: 0.5, vignetting: 0.7 }, "Super telephoto.", "Slow super telephoto; low coma"],
   [1200, 8, "standard", { distortion: 0.2, axialColor: 1.1, coma: 0.5, astigmatism: 0.5, vignetting: 0.6 }, "Slow extreme telephoto: little vignetting.", "Slow extreme telephoto; little falloff"]
 ];
+// #554: the owner's phone lenses (13, 24 and 77 mm equivalents at f/2.2, f/1.8 and f/2.8, fixed apertures); adjustments are design values.
+const PHONE: readonly Row[] = [
+  [13, 2.2, "standard", { distortion: -1.5, astigmatism: 1.3, fieldCurvature: 1.3, lateralColor: 1.5, vignetting: 1.2, strayLight: 1.2 },
+    "Phone ultra-wide: strong barrel distortion, softer corners and lateral colour, left to the phone's software correction.", "Strong barrel distortion; soft corners"],
+  [24, 1.8, "standard", { distortion: -0.5 }, "Phone main camera: the phone baseline.", "The phone baseline; mild barrel"],
+  [77, 2.8, "standard", { distortion: 0.4, coma: 0.7, astigmatism: 0.8, axialColor: 1.2, vignetting: 0.8 },
+    "Phone telephoto: a small field angle, so less coma and astigmatism; axial colour; slight pincushion.", "Telephoto; axial color, pincushion"]
+];
 const CONSUMER: readonly Row[] = [
   [16, 2.8, "standard", { distortion: -1.5, coma: 1.1, astigmatism: 1.2, fieldCurvature: 1.2, lateralColor: 1.3, vignetting: 1.2, strayLight: 1.2 },
     "Ultra-wide: strong barrel distortion and soft corners, left to the correction profile.", "Strong barrel distortion; soft corners"],
@@ -167,16 +181,16 @@ const CONSUMER: readonly Row[] = [
 
 function entry(set: GenericLensSet, [focal, widest, kind, adjustments, note, summary, fisheye]: Row): GenericLensCatalogueEntry {
   const special = kind === "macro" ? " Macro" : kind === "fisheye" ? " Fisheye" : "";
-  const suffix = set === "professional" ? " Pro" : "";
+  const suffix = set === "professional" ? " Pro" : set === "phone" ? " Phone" : "";
   return Object.freeze({ lensId: ("pv-" + focal + "-" + widest + special + suffix).toLowerCase().replace(/ /g, "-"), name: "PV " + focal + " " + widest + special + suffix,
-    set, kind, equivalentFocalLengthMm: focal, widestFNumber: widest, narrowestFNumber: narrowest(focal),
+    set, kind, equivalentFocalLengthMm: focal, widestFNumber: widest, narrowestFNumber: set === "phone" ? widest : narrowest(focal),
     maximumMagnification: kind === "macro" ? 1 : GENERIC_PRIME_MINIMUM_FOCUS.magnification, projection: kind === "fisheye" ? "fisheye-equisolid-angle" as const : "rectilinear" as const,
     ...(fisheye ? { fisheyeImage: fisheye } : {}), adjustments: Object.freeze({ ...adjustments }), note, summary });
 }
 
-/** The 30 lenses: 17 professional, then 13 consumer, each set by focal length. */
+/** The 33 lenses: 17 professional, 13 consumer and (#554) 3 phone lenses, each set by focal length. */
 export const GENERIC_LENS_CATALOGUE: readonly GenericLensCatalogueEntry[] = /* @__PURE__ */ Object.freeze([...PRO.map((row) => entry("professional", row)),
-  ...CONSUMER.map((row) => entry("consumer", row))]);
+  ...CONSUMER.map((row) => entry("consumer", row)), ...PHONE.map((row) => entry("phone", row))]);
 /** The catalogue ids, in catalogue order. */
 export const GENERIC_LENS_IDS: readonly string[] = /* @__PURE__ */ Object.freeze(GENERIC_LENS_CATALOGUE.map((lens) => lens.lensId));
 

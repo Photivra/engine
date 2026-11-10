@@ -1,20 +1,21 @@
 # Sensor profiles (#554)
 
-`simulateCapture({ sensor: { profile: "<id>" } })` (and `simulateDisplayView`) simulates one of eight representative
-sensors whose values come from published specifications. The profiles are named by format, resolution, architecture
+`simulateCapture({ sensor: { profile: <record> } })` (and `simulateDisplayView`) simulates a sensor profile: one of the
+eight representative profiles in `SENSOR_PROFILES`, whose values come from published specifications, or a caller's
+modified copy of one. The profiles are named by format, resolution, architecture
 and era. They name no camera maker or product, and their market tag ("consumer", "professional") is a label only: a
 profile's values decide how it behaves.
 
 This catalogue is separate from the generic tier presets ([GENERIC_TIER_PRESETS.md](GENERIC_TIER_PRESETS.md)), whose
 sensor numbers stay synthetic and unchanged. The owner approved the policy change for this catalogue only (2026-11-06):
 values may come from manufacturer-published specifications, standards and openly published papers, with no
-copyrighted or licence-restricted data. **The owner's review of the sources is pending** (THIRD_PARTY.md, "Pending
-licence and source reviews").
+copyrighted or licence-restricted data. **The owner reviewed and approved the sources listed below on 2026-11-09**,
+including the astronomy-camera manuals (for sensor values only) and the retailer copy of one maker specification.
 
 ```ts
-import { simulateCapture, SENSOR_PROFILES } from "@photivra/engine";
+import { simulateCapture, SENSOR_PROFILES, resolveSensorProfile } from "@photivra/engine";
 
-const r = await simulateCapture({ scene: { preset: "uniform" }, sensor: { profile: "full-frame-24mp-bsi-2020s" },
+const r = await simulateCapture({ scene: { preset: "uniform" }, sensor: { profile: resolveSensorProfile("full-frame-24mp-bsi-2020s") },
   exposure: { mode: "manual", iso: 3200, shutterSeconds: 1 / 4000 } });
 r.sensor.dynamicRangeStops; r.sensor.midGrey.snr;
 SENSOR_PROFILES.map((p) => p.name);
@@ -29,15 +30,31 @@ used with `sensor.fixedPatternNoise: true`. It also sets the default pixel pitch
 capabilities (shutter range, release, focus, stabilization, metering, white balance) and the lens are kept.
 
 The sensor characteristics of #555 still override a profile one at a time ([quick start](QUICK_START.md#sensor-characteristics-555)):
-for example `{ profile: "aps-c-26mp-bsi-2020s", readNoise: { lowGainElectrons: 2 } }`. A pitch other than the
+for example `{ profile: resolveSensorProfile("aps-c-26mp-bsi-2020s"), readNoise: { lowGainElectrons: 2 } }`. A pitch other than the
 profile's scales its full well with the pixel area, the rule the tiers use from 6 µm. The capture records the
-profile's values in the assumption `sensor.profile`. The profile data is loaded on demand (a lazy chunk), so a capture
-without a profile does not load it, and a request without `sensor.profile` is byte-identical to one before #554.
+profile's values in the assumption `sensor.profile`.
+
+**The record, not an id** (owner, 2026-11-09). The capture takes the record itself and never imports the catalogue, so an
+application's capture worker does not bundle the profile data: the application imports `SENSOR_PROFILES` where it needs
+them (for example its main thread) and passes the chosen record. The capture checks the record strictly
+(`SensorProfile`): every field present and no other, each number in range (for example QE 0.05–0.9, full well
+100–1e10 e⁻, pitch 0.5–100 µm, readout 1 µs–1 s), base, maximum and switch ISO on the third-stop markings from ISO 32 to
+102 400, base ISO no higher than the maximum, and a dual-gain switch above base ISO with a high-gain storage no larger
+than the full well (without a switch, equal read noises and no storage). The engine's readout and fixed-pattern parsers
+check the built body again. A modified copy keeps the ISO rule's report: its `sensitivityOffsetStops` is the distance
+from its own S0. The parser and body builder are loaded on demand (a lazy chunk), and a request without `sensor.profile`
+is byte-identical to one before #554.
 
 Not modelled (owner, 2026-11-06): colour-response differences between sensors (one idealized response, scaled by the
 peak QE, stays for every profile, so the QE curve's shape for BSI versus front-illuminated sensors is described, not
-simulated), thermal behaviour, burst rate, video and autofocus. The phone profile is simulated as a single frame; its
-three fixed lenses belong to the lens catalogue and are not part of this release.
+simulated), thermal behaviour, burst rate, video and autofocus. The phone profile is simulated as a single frame
+(multi-frame stacking is not applied).
+
+**The phone profile's lenses.** Its `fixedLenses` is `"phone"`: it takes only the catalogue's three phone lenses
+(PV 13 2.2 Phone, PV 24 1.8 Phone, PV 77 2.8 Phone; [LENS_CATALOGUE.md](LENS_CATALOGUE.md#phone-lenses-554)), and they render
+only on such a profile. Like every catalogue lens they resolve on the simulated frame (output size × pitch), so a capture
+is a crop with that frame's crop factor; the PSF's reach needs an output of about 96 × 96 sites or more at the phone's
+1.197 µm pitch.
 
 ## ISO rating
 
@@ -51,8 +68,7 @@ profile and tier with that anchor, so S = 10/H (CIPA DC-004-2020 §3.2) means th
 at most 1/6 stop, reported as `sensitivityOffsetStops` in the `sensor.profile` assumption (−0.12 to +0.06 stops). The
 anchor agrees within 2 % with the saturation-based speed S = 78/H_sat of ISO 12232:2019: an 18 % grey patch at standard
 exposure gives 7 842 e⁻ on the Professional tier ([quick start](QUICK_START.md#sensor-characteristics-555)), and
-7 842 × 7.8 = 61 168 e⁻. The alternative, keeping a maker's published base ISO and re-anchoring the regimes to it, is an
-open owner question (#554). A profile whose range starts above ISO 100 defaults to its base ISO, and its exposure
+7 842 × 7.8 = 61 168 e⁻. The owner chose this re-rating over keeping a maker's published base ISO (2026-11-09). A profile whose range starts above ISO 100 defaults to its base ISO, and its exposure
 reference takes the same N²/(t·S) at that ISO.
 
 The high conversion gain's charge storage is the white charge at the switch ISO, FW × S0 / S_switch (a design value): the
@@ -103,24 +119,24 @@ dynamic range and the lowest SNR at the same exposure.
 
 ## Sources
 
-Every published value comes from one of these free documents (full citations, with links and section numbers, are in
-the owner's source review for #554). The documents name products; the engine does not. Camera makers do not publish full
+Every published value comes from one of these free documents. The documents (and so their titles and links) name
+products; the engine's data, API and names do not, and this page is the only place the links appear (owner, 2026-11-09). Camera makers do not publish full
 well or read noise; the photon-transfer databases and test websites that do are excluded by the sourcing rules and were
 not used.
 
 | Key | Source (kind) | Used for |
 | --- | --- | --- |
-| S1 | A camera maker's manual (2021) for an astronomy camera built on a 36 × 24 mm 24 MP BSI sensor: specification table and read-noise section | profile 1 |
-| S2 | The same maker's manual (2021) for a 36 × 24 mm 61 MP BSI sensor | profile 2 (design basis) |
-| S3 | The same maker's product announcement (2017) for a camera on a 36 × 24 mm 24 MP sensor of 2012 | profile 4 |
-| S4 | A sensor maker's press release (June 2015) announcing the first back-illuminated 35 mm full-frame sensor | profile 4's architecture |
-| S5 | A maker's specification table (reproduced by a retailer; the maker's page is withdrawn) for an APS-C 24 MP front-illuminated sensor | profile 5 |
-| S6 | A camera maker's manual for an APS-C 26 MP BSI sensor | profile 6 |
-| S7 | A camera maker's manual (2026) for a 44 × 33 mm 100 MP BSI 16-bit sensor | profile 7 |
-| S8 | A second maker's product page for the same sensor | profile 7 (cross-check, architecture) |
-| S9 | A sensor maker's product page for a 1/1.3-inch 50 MP stacked phone sensor | profile 8 |
-| S10 | Venezia et al., "1.0 µm pixel improvements with hybrid bond stacking technology", International Image Sensor Workshop 2017, paper R03, Table 1 (open proceedings, imagesensors.org) | profile 8 (full well basis, high-gain read noise, PRNU, offsets) |
-| — | CIPA DC-004-2020, *Sensitivity of digital cameras*, §3.2 (free); EMVA Standard 1288 Release 4.0 (free); ISO 12232:2019 (paywalled; named only for the saturation-based check above) | the ISO anchor and the definitions |
+| S1 | An astronomy-camera maker's manual (v1.2, Aug 2021) on a 36 × 24 mm 24 MP BSI sensor, §3 specification table p. 5 and §4 read noise p. 6: [PDF](https://i.zwoastro.com/zwo-website/manuals/ASI2400_Manual_EN_V1.2.pdf) | profile 1 |
+| S2 | The same maker's manual (v1.4, Jul 2021) on a 36 × 24 mm 61 MP BSI sensor, §3 p. 5 and §4 p. 6: [PDF](https://i.zwoastro.com/zwo-website/manuals/ASI6200_Manual_EN_v1.4.pdf) | profile 2 (design basis) |
+| S3 | The same maker's product announcement (2017-09-11, page 3) on a 36 × 24 mm 24 MP sensor of 2012: [page](https://www.zwoastro.com/2017/09/11/zwo-new-full-frame-cameras-asi094-pro-and-asi128-pro-released/3/) | profile 4 |
+| S4 | A sensor maker's press release (2015-06-10) announcing the first back-illuminated 35 mm full-frame sensor: [release](https://sony.mediaroom.com/2015-06-10-Sonys-New-a7R-II-Camera-Delivers-Innovative-Imaging-Experience-with-Worlds-First-Back-Illuminated-35mm-Full-Frame-Sensor) | profile 4's architecture |
+| S5 | A maker's specification table for an APS-C 24 MP front-illuminated sensor, as reproduced by a retailer (the maker's page is withdrawn): [page](https://cloudbreakoptics.com/products/247c) | profile 5 |
+| S6 | An astronomy-camera maker's manual on an APS-C 26 MP BSI sensor, §3 p. 5: [PDF](https://i.zwoastro.com/zwo-website/manuals/ZWO_ASI2600_Manual_EN.pdf) | profile 6 |
+| S7 | The same maker's manual (2026-03) on a 44 × 33 mm 100 MP BSI 16-bit sensor, §3.2 p. 5 and §3.3 p. 7: [PDF](https://i.zwoastro.com/wp-content/uploads/2026/03/9c73a6c478517fda5a90ef9985e661f1.pdf) | profile 7 |
+| S8 | A second maker's product page for the same sensor: [page](https://www.qhyccd.com/qhy461ph/) | profile 7 (cross-check, architecture) |
+| S9 | A sensor maker's product page for a 1/1.3-inch 50 MP stacked phone sensor: [page](https://www.ovt.com/products/ov50h) | profile 8 |
+| S10 | Venezia et al., "1.0 µm pixel improvements with hybrid bond stacking technology", International Image Sensor Workshop 2017, paper R03, Table 1 (open proceedings): [PDF](https://imagesensors.org/Past%20Workshops/2017%20Workshop/2017%20Papers/R03.pdf) | profile 8 (full well basis, high-gain read noise, PRNU, offsets) |
+| — | [CIPA DC-004-2020](https://www.cipa.jp/e/std/std-sec.html), *Sensitivity of digital cameras*, §3.2 (free); [EMVA Standard 1288 Release 4.0](https://www.emva.org/standards-technology/emva-1288/) (free); ISO 12232:2019 (**paywalled**; named only for the saturation-based check above) | the ISO anchor and the definitions |
 
 The astronomy-camera manuals describe each sensor driven by that maker's own readout electronics, not by a photographic
 camera: the sensor's values (pixels, pitch, full well, read noise, QE, ADC) are taken from them, its readout speed is not.

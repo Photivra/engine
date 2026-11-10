@@ -7515,7 +7515,8 @@ console.log(calculateGeometricFocusBreathing({
 
 `SENSOR_PROFILES` lists eight representative sensors (full frame, APS-C, medium format and a large phone sensor; BSI,
 stacked and front-illuminated; 2010s and 2020s) whose values come from published specifications, values derived from them
-or labelled design values, with no maker or product named. `simulateCapture({ sensor: { profile: id } })` simulates one:
+or labelled design values, with no maker or product named. `simulateCapture({ sensor: { profile: record } })` simulates one
+(the record is checked strictly; `resolveSensorProfile(id)` finds one by id):
 it replaces the body's ISO range, readout regimes, readout time and fixed-pattern noise, and the #555 characteristics
 override it one at a time. `resolveSensorProfile(id)` returns one profile; `SENSOR_PROFILE_ISO_ANCHOR` is the ISO anchor its base ISO is re-rated from. Values, sources and the ISO
 rating: [SENSOR_PROFILES.md](https://github.com/Photivra/photivra/blob/main/docs/SENSOR_PROFILES.md).
@@ -7524,7 +7525,7 @@ rating: [SENSOR_PROFILES.md](https://github.com/Photivra/photivra/blob/main/docs
 import { SENSOR_PROFILES, simulateCapture } from "@photivra/engine";
 
 for (const p of SENSOR_PROFILES) {
-  const r = await simulateCapture({ scene: { preset: "uniform" }, sensor: { profile: p.id }, exposure: { mode: "manual", iso: 3200, shutterSeconds: 1 / 4000 } });
+  const r = await simulateCapture({ scene: { preset: "uniform" }, sensor: { profile: p }, exposure: { mode: "manual", iso: 3200, shutterSeconds: 1 / 4000 } });
   console.log(p.name, r.sensor.dynamicRangeStops.toFixed(1), r.sensor.midGrey.snr.toFixed(1));
 }
 ```

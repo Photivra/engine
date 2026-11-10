@@ -7674,7 +7674,7 @@
     },
     {
       "name": "SENSOR_PROFILE_ISO_ANCHOR",
-      "source": "src/equipment/sensor-profiles.ts",
+      "source": "src/equipment/sensor-profile-body.ts",
       "kind": "runtime"
     },
     {
@@ -8044,12 +8044,12 @@
     },
     {
       "name": "SensorProfile",
-      "source": "src/equipment/sensor-profiles.ts",
+      "source": "src/equipment/sensor-profile-body.ts",
       "kind": "type"
     },
     {
       "name": "SensorProfileValueKind",
-      "source": "src/equipment/sensor-profiles.ts",
+      "source": "src/equipment/sensor-profile-body.ts",
       "kind": "type"
     },
     {

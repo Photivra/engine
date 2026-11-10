@@ -1,6 +1,6 @@
 # Generic lens catalogue
 
-The engine's own lenses (#549, owner specification of November 6, 2026): two sets of primes, **Professional** and **Consumer**, 30 lenses in all, each with a focal length, an aperture range, a close-focus distance, a projection and a documented optical character. Every lens is a generic Photivra "PV" design: it is not modelled on any manufacturer's product, and **every number on this page is a labelled approximation** chosen by Photivra, not a measurement. The engine reports it as `scientificStatus: "approximation"` and in the capture's assumptions.
+The engine's own lenses (#549, owner specification of November 6, 2026): two sets of primes, **Professional** and **Consumer**, 30 lenses, and (#554) the three fixed lenses of the phone sensor profile, 33 in all, each with a focal length, an aperture range, a close-focus distance, a projection and a documented optical character. Every lens is a generic Photivra "PV" design: it is not modelled on any manufacturer's product, and **every number on this page is a labelled approximation** chosen by Photivra, not a measurement. The engine reports it as `scientificStatus: "approximation"` and in the capture's assumptions.
 
 - Data: `GENERIC_LENS_CATALOGUE`, `GENERIC_LENS_IDS`, `GENERIC_LENS_SET_BASELINES` (`src/equipment/generic-lens-catalogue.ts`). The data are kept apart from the PSF built from them (`src/optics/generic-lens-psf.ts`), so other models, for example the bokeh shape of #553, read the same lenses. Each entry, and `resolveGenericLens`'s result, has a `summary`: a short plain-English description of the lens's character (at most 40 characters, US spelling) for lists and pickers. It is written from the lens's adjustments and reason in the table below, and a test checks each claim against them.
 - One lens on a sensor, at an f-number and focus distance: `resolveGenericLens`. Its distortion and vignetting profiles reach 1.25 of the half-diagonal, past the corner, so they can be passed to `simulateCapture` and `simulateDisplayView` as `lens.distortion` and `lens.vignetting` (which read beyond the outer site centres); inside the frame the values are the same.
@@ -101,6 +101,31 @@ Resolved at each lens's widest aperture, focused at infinity, on a full frame (a
 | PV 500 5.6 | 0.50 | 1.00 | 0.88 | 0.50 | 0.46 | 9.1 | 1.8 % | 1.80 |
 | PV 600 6.3 | 0.60 | 1.20 | 1.00 | 0.56 | 0.48 | 9.1 | 1.8 % | 2.16 |
 | PV 800 9 | 0.50 | 1.00 | 0.92 | 0.52 | 0.44 | 9.1 | 1.5 % | 1.80 |
+| PV 13 2.2 Phone | 0.50 | 1.00 | 1.04 | 0.65 | 0.30 | 13.0 | -4.5 % | 2.04 |
+| PV 24 1.8 Phone | 0.50 | 1.00 | 0.80 | 0.50 | 0.30 | 8.7 | -1.5 % | 1.70 |
+| PV 77 2.8 Phone | 0.50 | 0.70 | 0.64 | 0.50 | 0.36 | 8.7 | 1.2 % | 1.36 |
+
+### Phone lenses (#554)
+
+The phone sensor profile's three fixed lenses ([SENSOR_PROFILES.md](SENSOR_PROFILES.md)), a third set, **Phone**, named
+*PV <focal length> <aperture> Phone*. Their equivalent focal lengths and apertures are the owner's (issue #554:
+ultra-wide 13 mm f/2.2, main 24 mm f/1.8, telephoto 77 mm f/2.8, fixed apertures); every other number is a Photivra design
+value. They render only with a sensor profile whose `fixedLenses` is `"phone"`, which in turn takes only them, and
+`lens.fNumber` defaults to the fixed f-number. They resolve on the simulated frame like every catalogue lens; at the
+phone's 1.197 µm pitch the PSF's reach needs an output of about 96 × 96 sites or more.
+
+| Lens | id | Summary (`summary`) | Aperture | Close focus (full frame) | Projection | Adjustments of the phone baseline | Why |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| PV 13 2.2 Phone | `pv-13-2.2-phone` | Strong barrel distortion; soft corners | f/2.2 (fixed) | 0.1 m (0.15×) | rectilinear | distortion -1.5, astigmatism ×1.3, fieldCurvature ×1.3, lateralColor ×1.5, vignetting ×1.2, strayLight ×1.2 | Phone ultra-wide: strong barrel distortion, softer corners and lateral colour, left to the phone's software correction. |
+| PV 24 1.8 Phone | `pv-24-1.8-phone` | The phone baseline; mild barrel | f/1.8 (fixed) | 0.184 m (0.15×) | rectilinear | distortion -0.5 | Phone main camera: the phone baseline. |
+| PV 77 2.8 Phone | `pv-77-2.8-phone` | Telephoto; axial color, pincushion | f/2.8 (fixed) | 0.59 m (0.15×) | rectilinear | distortion +0.4, coma ×0.7, astigmatism ×0.8, axialColor ×1.2, vignetting ×0.8 | Phone telephoto: a small field angle, so less coma and astigmatism; axial colour; slight pincushion. |
+
+The **phone baseline** (design values): the consumer baseline's aberrations (spherical 0.5, coma 1.0, astigmatism 0.8 waves),
+field curvature 0.5 and axial colour 0.3 waves, lateral colour 0.04 % of the half-diagonal, distortion 3 % at the corner
+(phones correct it in software; the correction profile applies as for the other lenses), 1.2 stops of natural and 0.5 of
+optical vignetting (always present: the aperture is fixed), veiling glare 3 % and ghosts 1 %, breathing −5 %, focus
+scatter σ = 0.3 of the depth of focus and close-focus factor 0.5. The close-focus row assumes full frame, like the table
+above; on the phone sensor the 0.10 m floor applies.
 
 ### Models
 

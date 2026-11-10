@@ -3,7 +3,7 @@
 import { describe, expect, it } from "vitest";
 import { GENERIC_THIRD_STOP_ISO_SETTINGS, InvalidConfigurationError, InvalidScientificInputError, SENSOR_PROFILE_IDS, SENSOR_PROFILES, resolveSensorProfile as sensorProfile, simulateCapture,
   simulateDisplayView, type SimulateCaptureOptions, type SimulateCaptureResult } from "../src/index.js";
-import { sensorProfileSaturationIso } from "../src/equipment/sensor-profiles.js";
+import { sensorProfileSaturationIso } from "../src/equipment/sensor-profile-body.js";
 import { scaledTimeout } from "./helpers/test-timeout.js";
 
 // #554: the sensor profile catalogue.
@@ -35,7 +35,7 @@ describe("sensor profile catalogue (#554)", () => {
   });
 
   it.each(SENSOR_PROFILE_IDS)("%s: pitch, saturation, read noise, readout and dynamic range as declared", async (id) => {
-    const p = sensorProfile(id), r = await capture({ profile: id }, { exposure: { mode: "manual", iso: p.baseIso } });
+    const p = sensorProfile(id), r = await capture({ profile: p }, { exposure: { mode: "manual", iso: p.baseIso } });
     expect(r.sensor).toMatchObject({ pixelPitchMicrometers: p.pixelPitchMicrometers, peakQuantumEfficiency: p.peakQuantumEfficiency, fullWellElectrons: p.fullWellElectrons,
       adcBitDepth: p.adcBitDepth, readoutSeconds: p.readoutSeconds, readNoise: p.readNoise.highGainFromIso === null ?
         { lowGainElectrons: p.readNoise.lowGainElectrons, highGainElectrons: p.readNoise.lowGainElectrons, highGainFromIso: null } : p.readNoise });
@@ -47,7 +47,7 @@ describe("sensor profile catalogue (#554)", () => {
     expect(r.sensor.dynamicRangeByIso.at(-1)!.iso).toBe(p.maximumIso);
     // The high gain's white never exceeds its storage.
     if (p.readNoise.highGainFromIso !== null) {
-      const high = await capture({ profile: id }, { exposure: { mode: "manual", iso: p.readNoise.highGainFromIso, shutterSeconds: 1 / 1000 } });
+      const high = await capture({ profile: p }, { exposure: { mode: "manual", iso: p.readNoise.highGainFromIso, shutterSeconds: 1 / 1000 } });
       expect(high.sensor.dynamicRangeStops).toBeCloseTo(Math.log2(p.highGainFullWellElectrons! / Math.hypot(p.readNoise.highGainElectrons, high.sensor.midGrey.noiseElectrons.quantization)), 6);
     }
     expect(assumption(r, "sensor.profile")).toMatchObject({ id, baseIso: p.baseIso, fullWellElectrons: p.fullWellElectrons });
@@ -58,30 +58,86 @@ describe("sensor profile catalogue (#554)", () => {
     const reference = await capture({}, { exposure: { mode: "manual", iso: 400 } });
     const fraction = (r: SimulateCaptureResult): number => r.sensor.midGrey.signalElectrons / (r.sensor.fullWellElectrons * (r.sensor.dynamicRangeByIso[0]!.iso / 400));
     for (const p of SENSOR_PROFILES) {
-      const r = await capture({ profile: p.id }, { exposure: { mode: "manual", iso: 400 } });
+      const r = await capture({ profile: p }, { exposure: { mode: "manual", iso: 400 } });
       const offset = assumption(r, "sensor.profile") as { sensitivityOffsetStops: number };
       expect(Math.log2(fraction(r) / fraction(reference)), p.id).toBeCloseTo(offset.sensitivityOffsetStops, 2);
     }
   }, scaledTimeout(60_000));
 
   it("lets explicit characteristics override the profile and defaults the ISO into its range", async () => {
-    const r = await capture({ profile: "full-frame-24mp-bsi-2020s", readNoise: { lowGainElectrons: 2 }, adcBitDepth: 16, readoutSeconds: 0.01 });
+    const r = await capture({ profile: sensorProfile("full-frame-24mp-bsi-2020s"), readNoise: { lowGainElectrons: 2 }, adcBitDepth: 16, readoutSeconds: 0.01 });
     expect(r.sensor).toMatchObject({ readNoise: { lowGainElectrons: 2, highGainElectrons: 1.1, highGainFromIso: 500 }, adcBitDepth: 16, readoutSeconds: 0.01, fullWellElectrons: 100000 });
-    const sports = await capture({ profile: "full-frame-24mp-stacked-sports-2020s" });
+    const sports = await capture({ profile: sensorProfile("full-frame-24mp-stacked-sports-2020s") });
     expect(sports.exposure.settings.iso).toBe(125);
-    expect((await capture({ profile: "phone-50mp-stacked" })).exposure.settings.iso).toBe(100);
+    expect((await capture({ profile: sensorProfile("phone-50mp-stacked") })).exposure.settings.iso).toBe(100);
     // A pitch other than the profile's scales its full well with the area, as the tiers do from 6 µm.
-    const scaled = await capture({ profile: "aps-c-26mp-bsi-2020s", pixelPitchMicrometers: 7.52 });
+    const scaled = await capture({ profile: sensorProfile("aps-c-26mp-bsi-2020s"), pixelPitchMicrometers: 7.52 });
     expect(scaled.sensor.fullWellElectrons).toBeCloseTo(200000, 6);
-    await expect(capture({ profile: "full-frame-24mp-stacked-sports-2020s" }, { exposure: { mode: "manual", iso: 100 } })).rejects.toThrow(InvalidScientificInputError);
-    await expect(capture({ profile: "nope" })).rejects.toThrow("sensor.profile must be one of");
+    await expect(capture({ profile: sensorProfile("full-frame-24mp-stacked-sports-2020s") }, { exposure: { mode: "manual", iso: 100 } })).rejects.toThrow(InvalidScientificInputError);
+    expect(() => sensorProfile("nope")).toThrow("resolveSensorProfile: the id must be one of");
   }, scaledTimeout(60_000));
 
   it("uses the profile's fixed pattern on request and reaches the display view", async () => {
-    const fpn = await capture({ profile: "phone-50mp-stacked", fixedPatternNoise: true });
+    const fpn = await capture({ profile: sensorProfile("phone-50mp-stacked"), fixedPatternNoise: true });
     expect(fpn.sensor.fixedPatternNoise).toBe(true);
     expect(fpn.sensor.midGrey.noiseElectrons.fixedPattern).toBeCloseTo(Math.hypot(0.008 * fpn.sensor.midGrey.signalElectrons, 0.3 * fpn.sensor.midGrey.noiseElectrons.darkCurrent ** 2, 0.2, 0.2), 9);
-    const view = await simulateDisplayView({ scene: { preset: "uniform" }, sensor: { profile: "medium-format-100mp-bsi-16bit" } }, { width: 8, height: 8 });
+    const view = await simulateDisplayView({ scene: { preset: "uniform" }, sensor: { profile: sensorProfile("medium-format-100mp-bsi-16bit") } }, { width: 8, height: 8 });
     expect(view.sensor).toMatchObject({ adcBitDepth: 16, fullWellElectrons: 50300, pixelPitchMicrometers: 3.76 });
+  }, scaledTimeout(60_000));
+});
+
+describe("sensor profile records (#554)", () => {
+  const phone = sensorProfile("phone-50mp-stacked");
+  it("are checked strictly: unknown and missing fields, ranges, ISO markings and the dual-gain fields", async () => {
+    const bad = async (profile: unknown, message: string | RegExp): Promise<void> => {
+      await expect(capture({ profile: profile as never })).rejects.toThrow(message);
+      await expect(capture({ profile: profile as never })).rejects.toThrow(InvalidConfigurationError);
+    };
+    await bad("phone-50mp-stacked", "sensor.profile must be a sensor profile record");
+    await bad({ ...phone, maker: "x" }, 'sensor.profile has unknown field "maker".');
+    const missing: Record<string, unknown> = { ...phone };
+    delete missing.readoutSeconds;
+    await bad(missing, "sensor.profile.readoutSeconds is missing or out of range.");
+    await bad({ ...phone, fullWellElectrons: 50 }, "sensor.profile.fullWellElectrons is missing or out of range");
+    await bad({ ...phone, peakQuantumEfficiency: Number.NaN }, "sensor.profile.peakQuantumEfficiency");
+    await bad({ ...phone, baseIso: 42 }, "sensor.profile.baseIso");
+    await bad({ ...phone, baseIso: 12800 }, "baseIso must not exceed maximumIso");
+    await bad({ ...phone, pixelsWide: 8192.5 }, "whole numbers");
+    await bad({ ...phone, adcBitDepth: 10 }, "sensor.profile.adcBitDepth");
+    await bad({ ...phone, readNoise: { ...phone.readNoise, extra: 1 } }, 'sensor.profile.readNoise has unknown field "extra".');
+    await bad({ ...phone, highGainFullWellElectrons: null }, "dual-gain switch");
+    await bad({ ...phone, readNoise: { ...phone.readNoise, highGainFromIso: 40 } }, "dual-gain switch");
+    await bad({ ...phone, fixedPattern: { ...phone.fixedPattern, prnu: 2 } }, "sensor.profile.fixedPattern.prnu");
+    await bad({ ...phone, goodFor: [42] }, "sensor.profile.goodFor");
+    await bad({ ...phone, provenance: { fullWellElectrons: 1 } }, "sensor.profile.provenance");
+    await bad({ ...phone, fixedLenses: "tele" }, "sensor.profile.fixedLenses");
+  }, scaledTimeout(60_000));
+
+  it("accept a caller's modified copy, re-rated by the same rule", async () => {
+    const custom = { ...phone, id: "my-phone", fullWellElectrons: 6000, highGainFullWellElectrons: 1500 };
+    const r = await capture({ profile: custom }, { exposure: { mode: "manual", iso: 40 } });
+    expect(r.sensor.fullWellElectrons).toBe(6000);
+    expect((assumption(r, "sensor.profile") as { sensitivityOffsetStops: number }).sensitivityOffsetStops).toBeCloseTo(Math.log2(sensorProfileSaturationIso(custom) / 40), 12);
+  }, scaledTimeout(60_000));
+});
+
+describe("the phone profile's fixed lenses (#554)", () => {
+  const phone = sensorProfile("phone-50mp-stacked");
+  const lensed = (lens: NonNullable<SimulateCaptureOptions["lens"]>, profile?: typeof phone): Promise<SimulateCaptureResult> =>
+    simulateCapture({ scene: { preset: "uniform" }, sensor: { spectralStepNanometers: 100, ...(profile ? { profile } : {}) }, output: { width: 96, height: 96 }, lens, fast: true });
+  it("render on the phone profile at their fixed apertures, and only there", async () => {
+    for (const [id, n] of [["pv-13-2.2-phone", 2.2], ["pv-24-1.8-phone", 1.8], ["pv-77-2.8-phone", 2.8]] as const) {
+      const r = await lensed({ catalogue: id, fNumber: n }, phone);
+      expect(assumption(r, "lens.catalogue")).toMatchObject({ lensId: id, set: "phone", widestFNumber: n, narrowestFNumber: n });
+      expect(r.exposure.settings.fNumber).toBe(n);
+    }
+    // Without an f-number the fixed aperture is used, and program mode keeps it.
+    expect((await lensed({ catalogue: "pv-24-1.8-phone" }, phone)).exposure.settings.fNumber).toBe(1.8);
+    expect((await simulateCapture({ scene: { preset: "uniform" }, sensor: { spectralStepNanometers: 100, profile: phone }, output: { width: 96, height: 96 }, fast: true,
+      lens: { catalogue: "pv-77-2.8-phone" }, exposure: { mode: "program" } })).exposure.settings.fNumber).toBe(2.8);
+    await expect(lensed({ catalogue: "pv-24-1.8-phone", fNumber: 1.8 })).rejects.toThrow("the phone lenses go only with a phone sensor.profile");
+    await expect(lensed({ catalogue: "pv-24-1.8", fNumber: 1.8 }, phone)).rejects.toThrow("which takes only them");
+    await expect(lensed({ catalogue: "pv-24-1.8-phone", fNumber: 2.8 }, phone)).rejects.toThrow(InvalidConfigurationError);
+    await expect(lensed({ catalogue: "pv-24-1.8-phone", fNumber: 1.8 }, sensorProfile("full-frame-24mp-bsi-2020s"))).rejects.toThrow("the phone lenses go only");
   }, scaledTimeout(60_000));
 });

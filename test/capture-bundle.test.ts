@@ -106,4 +106,11 @@ describe("the app's capture-worker shape", () => {
     const worker = await bundle(["NATIVE_RAW_LIMITS", "prepareDisplayView", "serializeSimulatedCaptureDngFromParts", "simulateCapture", "simulateIdealReference"]);
     expect(worker.totalGzip).toBeLessThanOrEqual(352_000);
   }, testTimeout(120_000));
+
+  // #554 (owner, 2026-11-09): sensor.profile takes the record, so the worker never bundles the profile catalogue, only its parser.
+  it("leaves out the sensor profile catalogue", async () => {
+    const worker = await bundle(["NATIVE_RAW_LIMITS", "prepareDisplayView", "serializeSimulatedCaptureDngFromParts", "simulateCapture", "simulateIdealReference"]);
+    expect(worker.modules.has("equipment/sensor-profiles.ts") || worker.lazyModules.has("equipment/sensor-profiles.ts")).toBe(false);
+    expect(worker.lazyModules.has("equipment/sensor-profile-body.ts")).toBe(true);
+  }, testTimeout(120_000));
 });

@@ -773,12 +773,12 @@ export interface SimulateCaptureOptions {
   /** #555: plus the sensor characteristics ({@link SimulateCaptureSensorCharacteristics}), each off by default. */
   sensor?: SimulateCaptureSensorCharacteristics & {
     /**
-     * #554: a sensor profile id (`SENSOR_PROFILE_IDS`), loaded on demand. It replaces the body's ISO range, readout regimes
+     * #554: a sensor profile record (`SENSOR_PROFILES`, or `resolveSensorProfile(id)`), checked strictly. It replaces the body's ISO range, readout regimes
      * (full well, read noise of each conversion gain, the dual-gain switch, high-gain storage, ADC bit depth), readout time and
      * fixed-pattern noise, and sets the default pixel pitch and peak QE; explicit fields here still override it one at a time.
      * Default: none (the body's own sensor). See docs/SENSOR_PROFILES.md.
      */
-    profile?: string;
+    profile?: SensorProfile;
     /**
      * Pixel pitch in micrometres, 0.5–1000. Default 6. The simulated sensor is output width × pitch wide. 2.5: above 100 µm the
      * capture is a downsized view of a whole frame (for example 36 mm / 48 pixels = 750 µm), recorded in the assumption
