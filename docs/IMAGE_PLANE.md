@@ -161,12 +161,15 @@ stratified footprint, or a kernel table above the device's storage limit. Its pi
 (`src/gpu/display-view-image-material-module.ts`; [WebGPU, Display view (Speed)](WEBGPU.md#display-view-speed-on-the-gpu)):
 
 - **Host side.** The host computes every pixel's three channel signals in float64 and rounds them once to float32 (12 bytes per
-  pixel).
-  - **When they fit one storage binding**, they are uploaded once per scene.
+  pixel). It builds and writes them 4 MiB of rows at a time and keeps none of them (owner decision, 2026-11-09), so a 24 MP
+  photo needs about 4 MiB of host memory for them instead of 288 MB per scene (two scenes were kept, 576 MB).
+  - **When they fit one storage binding**, they are uploaded once per scene and kept on the device.
   - **Otherwise each band** of display rows uploads only the pixel rows its native site rows reach. That is the print-local v of
     the band's first and last site rows at every query offset, plus two rows either side. The renderer caps a band's display rows
     so that those rows fit the binding (owner decision, 2026-11-09). A very large photo therefore never meets the device's storage
     binding limit, and a banded render equals the whole upload byte for byte (tested with a 2400 × 1600 photo under a 16 MB limit).
+    Each render builds its bands' rows again. On the emulation a banded 24 MP render took about 1 s longer than the whole upload
+    (about 2.0 s against 1.0 s); the whole upload's one-time build took 0.75 s (1.4 s before).
 - **The point.** The module recovers the exact query point in double-float32, as the composite chart module does. It forms the
   pixel coordinates and the bilinear weights with only relative error. It flags the points it cannot decide: the print's edge, a
   weight moved next to a much brighter pixel, a nearest-pixel edge. The host recomputes a flagged display pixel with the reference.
@@ -222,11 +225,11 @@ Timing on a hardware adapter is not measured yet.
 
 The scene's module, its lattice data (9.5 KB gzip as source) and its GPU code are reachable only through
 `prepareImagePlaneScenes()`. That function is in a module of its own and loads them with dynamic imports:
-- a lazy chunk of 13,694 B gzip;
-- the GPU module's own chunk of 7,572 B (Speed and Quality), loaded on a display view's first photo on WebGPU;
+- a lazy chunk of 13,692 B gzip;
+- the GPU module's own chunk of 7,729 B (Speed and Quality), loaded on a display view's first photo on WebGPU;
 - shared code that moves into the entry.
 
-Measured with the worker shape below plus the function, that is about 21.8 KB more in total.
+Measured with the worker shape below plus the function, that is about 22.0 KB more in total.
 - **Without it.** A bundle that never imports the function carries none of these bytes, not even as a lazy chunk. A request with an
   image-plane scene then fails with a message that names the function.
 - **Measured on the app's capture-worker shape** (`test/capture-bundle.test.ts`: `NATIVE_RAW_LIMITS`, `prepareDisplayView`,

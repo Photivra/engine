@@ -10,8 +10,10 @@
  * centers (clamped to the edge) times each pixel's channel signal S_j,c = ρ_black·N_c + (ρ_white − ρ_black)·Σ_k w_jk·T_k,c (its
  * eight lattice nodes' table values, `ResolvedImagePlaneScene.pixelValue`), or the nearest pixel's.
  *
- * **On the device.** The host computes every pixel's S_j,c in float64 and rounds it once to float32 (one buffer, 3 values per
- * pixel, uploaded once per scene and kept while the renderer lives). The module recovers the exact lattice point from the
+ * **On the device.** The host computes every pixel's S_j,c in float64 and rounds it once to float32 (3 values per pixel). When
+ * they fit one storage binding they are uploaded once per scene and kept on the device while the renderer lives; otherwise each
+ * band of a render builds and uploads only its rows. Either way they are built and written 4 MiB of rows at a time, so the host
+ * never holds more than that of S (owner decision 2026-11-09; the bytes are those of the whole array). The module recovers the exact lattice point from the
  * kernel's float32 point as the composite module does (`LATTICE_POINT_WGSL`, about 2⁻⁴⁶ relative), forms cu, cv, X and Y
  * in double-float32 and decides the print's edge in the composite kernel's bound arithmetic (a point within its bound of the
  * edge is flagged: the display pixel is recomputed on the host). Per axis it splits s = X − ½ into its integer part n and
@@ -53,6 +55,8 @@ export const IMAGE_PLANE_PARAMS = /* @__PURE__ */ Object.freeze({ width: 0, heig
   slackX: 10, slackY: 11, words: 16 });
 /** Table values above this are outside the float32 domain. */
 const FLOAT32_SAFE_MAGNITUDE = 2 ** 120;
+/** Host bytes of pixel signals built per write (whole uploads and bands). */
+const UPLOAD_CHUNK_BYTES = 4 << 20;
 /** Scenes whose pixel signals stay uploaded per renderer. */
 const KEPT_SCENES = 2;
 
@@ -138,28 +142,37 @@ export interface DisplayViewImageModules {
  */
 export function createDisplayViewImageModules(runtime: WebGpuRuntime, probe: (signal: AbortSignal) => Promise<ChartCompositeProbeRecord>): DisplayViewImageModules {
   const uploads: UploadedImage[] = [], wgsl = new Map<ChartCompositeProductPath, string>();
-  // The pixels' channel signals (float64 rounded once), per scene; uploaded whole when they fit one binding, else per band (#581).
-  const signals = new Map<object, Float32Array<ArrayBuffer>>();
-  const signalsOf = (image: ImagePlaneSignalScene["image"]): Float32Array<ArrayBuffer> => {
-    let values = signals.get(image);
-    if (values) return values;
-    const { scene, tables } = image, pixels = scene.width * scene.height;
-    values = new Float32Array(pixels * 3);
-    for (let j = 0; j < pixels; j++) for (let c = 0; c < 3; c++) {
-      const value = scene.pixelValue(j, tables.nodes[c as 0 | 1 | 2], tables.neutral[c as 0 | 1 | 2]);
-      if (!(value >= 0 && value <= FLOAT32_SAFE_MAGNITUDE)) throw new ImageKernelExecutionError("unsupported-float32-domain", "A pixel's channel signal is outside the float32 domain.");
-      values[j * 3 + c] = value;
+  // Pixel rows [j0, j1)'s channel signals, built on demand so that the host holds one chunk or band (#581): `pixelValue`'s float64
+  // operations in its order (the same bytes), with the pixel's lattice cell found once for its three channels; rounded once.
+  const fractions = new Float64Array(3);
+  const rowsOf = (image: ImagePlaneSignalScene["image"], j0: number, j1: number): Float32Array<ArrayBuffer> => {
+    const { scene, tables } = image, values = new Float32Array((j1 - j0) * scene.width * 3), black = scene.paperBlackReflectance, span = scene.paperWhiteReflectance - black;
+    for (let j = j0 * scene.width, o = 0; j < j1 * scene.width; j++) {
+      const n = scene.pixelLattice(j, fractions), fr = fractions[0]!, fg = fractions[1]!, fb = fractions[2]!;
+      for (let c = 0; c < 3; c++) {
+        const t = tables.nodes[c as 0 | 1 | 2];
+        const lattice = (1 - fr) * ((1 - fg) * ((1 - fb) * t[n]! + fb * t[n + 1]!) + fg * ((1 - fb) * t[n + 5]! + fb * t[n + 6]!)) +
+          fr * ((1 - fg) * ((1 - fb) * t[n + 25]! + fb * t[n + 26]!) + fg * ((1 - fb) * t[n + 30]! + fb * t[n + 31]!));
+        const value = black * tables.neutral[c as 0 | 1 | 2] + span * lattice;
+        if (!(value >= 0 && value <= FLOAT32_SAFE_MAGNITUDE)) throw new ImageKernelExecutionError("unsupported-float32-domain", "A pixel's channel signal is outside the float32 domain.");
+        values[o++] = value;
+      }
     }
-    signals.set(image, values);
-    while (signals.size > KEPT_SCENES) signals.delete(signals.keys().next().value!);
     return values;
+  };
+  // A storage buffer of rows [j0, j1)'s signals, built and written UPLOAD_CHUNK_BYTES of rows at a time.
+  const rowsBuffer = (scope: GpuResourceScope, label: string, image: ImagePlaneSignalScene["image"], j0: number, j1: number): GPUBuffer => {
+    const rowBytes = image.scene.width * 12, chunk = Math.max(1, Math.floor(UPLOAD_CHUNK_BYTES / rowBytes)), buffer = scope.buffer(label, (j1 - j0) * rowBytes, BUFFER_USAGE.STORAGE | BUFFER_USAGE.COPY_DST);
+    for (let j = j0; j < j1; j += chunk) { const rows = rowsOf(image, j, Math.min(j1, j + chunk)); runtime.device.queue.writeBuffer(buffer, (j - j0) * rowBytes, rows.buffer, 0, rows.byteLength); }
+    return buffer;
   };
   const upload = (image: ImagePlaneSignalScene["image"]): UploadedImage => {
     const key = image as object, index = uploads.findIndex((e) => e.key === key);
     if (index >= 0) { const [entry] = uploads.splice(index, 1); uploads.push(entry!); return entry!; }
-    const values = signalsOf(image), surround = Float32Array.from(image.surround);
     const scope = new GpuResourceScope(runtime);
-    const entry: UploadedImage = { key, scope, buffer: scope.upload("photivra-display-view-image-signal", values, BUFFER_USAGE.STORAGE), surround };
+    let buffer: GPUBuffer;
+    try { buffer = rowsBuffer(scope, "photivra-display-view-image-signal", image, 0, image.scene.height); } catch (error) { scope.release(); throw error; }
+    const entry: UploadedImage = { key, scope, buffer, surround: Float32Array.from(image.surround) };
     uploads.push(entry);
     while (uploads.length > KEPT_SCENES) uploads.shift()!.scope.release();
     return entry;
@@ -185,7 +198,7 @@ export function createDisplayViewImageModules(runtime: WebGpuRuntime, probe: (si
       }
       // A photo larger than one binding: per band the pixel rows its native site rows reach. The print-local v of site row y and
       // query offset o is (y + c_o)·scale_v·k; the photo row is (aspect − v)·H/(2·aspect), plus two rows of margin either side.
-      const values = signalsOf(image), offsetsV = Array.from({ length: lattice.offsets.length / 4 }, (_, o) => lattice.offsets[4 * o + 2]! + lattice.offsets[4 * o + 3]!);
+      const offsetsV = Array.from({ length: lattice.offsets.length / 4 }, (_, o) => lattice.offsets[4 * o + 2]! + lattice.offsets[4 * o + 3]!);
       const rowOf = (y: number, c: number): number => (scene.aspect - (y + c) * lattice.scaleV * gpu.placement!.chartUnitsPerFrameUnit) * halfH;
       const rate = Math.abs(lattice.scaleV) * gpu.placement.chartUnitsPerFrameUnit * halfH, maximumRows = Math.floor(runtime.maximumStorageBindingBytes / rowBytes);
       return { ...base, bindings: [],
@@ -198,7 +211,7 @@ export function createDisplayViewImageModules(runtime: WebGpuRuntime, probe: (si
           const bandParams = params.slice(0);
           new Uint32Array(bandParams)[P.row0] = j0;
           return runtime.device.createBindGroup({ layout, entries: [
-            { binding: 0, resource: { buffer: scope.upload("photivra-display-view-image-signal-band", values.subarray(j0 * scene.width * 3, (j1 + 1) * scene.width * 3), BUFFER_USAGE.STORAGE) } },
+            { binding: 0, resource: { buffer: rowsBuffer(scope, "photivra-display-view-image-signal-band", image, j0, j1 + 1) } },
             { binding: 1, resource: { buffer: scope.upload("photivra-display-view-image-params", new Uint8Array(bandParams), BUFFER_USAGE.UNIFORM) } },
             { binding: 2, resource: { buffer: scope.upload("photivra-display-view-image-lattice", new Uint8Array(lattice.params), BUFFER_USAGE.UNIFORM) } },
             { binding: 3, resource: { buffer: scope.upload("photivra-display-view-image-offsets", lattice.offsets, BUFFER_USAGE.STORAGE) } }] });
@@ -214,7 +227,7 @@ export function createDisplayViewImageModules(runtime: WebGpuRuntime, probe: (si
     async moduleFor(gpu, signal): Promise<DisplayViewGpuMaterialModule> { const path = (await probe(signal)).productPath ?? "dekker"; await check(); return build(gpu, path); },
     async qualityPasses(gpu, signal): Promise<DisplayViewQualityImagePasses> { const path = (await probe(signal)).productPath ?? "dekker"; await check(); return imagePlaneQualityPasses(runtime, gpu, path); },
     build,
-    release(): void { for (const entry of uploads.splice(0)) entry.scope.release(); signals.clear(); }
+    release(): void { for (const entry of uploads.splice(0)) entry.scope.release(); }
   };
 }
 
