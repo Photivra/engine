@@ -545,8 +545,13 @@ export interface SimulateCaptureOptions {
     demosaic?: SimulateCaptureDemosaic | SimulateCaptureDemosaicRecord;
     /** Default "margin". */
     borderHandling?: SimulateCaptureBorderHandling;
-    /** DNG only: optional capture-event time (YYYY-MM-DDTHH:mm:ss.sssZ); without it no date tags are written. */
-    dng?: { capturedAtUtc?: string };
+    /**
+     * DNG only: optional capture-event time (YYYY-MM-DDTHH:mm:ss.sssZ); without it no date tags are written. Opt-in (#587), with
+     * `lens.catalogue`: `lensCorrectionOpcodes` writes the selected corrections of {@link SimulateCaptureLensCorrections} into the DNG as
+     * optional DNG opcodes in OpcodeList3 (FixVignetteRadial, WarpRectilinear with the zoom-to-fill; docs/NATIVE_RAW_AND_PRINT.md), for RAW editors
+     * that apply them; the RAW codes are unchanged. Whole frame only (no `region`). All off (or omitted): the same DNG bytes as without it.
+     */
+    dng?: { capturedAtUtc?: string; lensCorrectionOpcodes?: SimulateCaptureLensCorrections };
     /**
      * Opt-in (2.4) text written into the file for formats "jpeg", "png" and "dng": the caller's description,
      * software, copyright and comment, unchanged (JPEG XMP + COM, PNG tEXt/iTXt, DNG TIFF tags + XMP; see the
@@ -2013,10 +2018,26 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   const height = integerIn(pick(outputOptions, "height", "output.height", DEFAULTS.height, "64 × 64 output pixels."), "output.height", 1, maximumSide);
   const format = pick<SimulateCaptureOutputFormat>(outputOptions, "format", "output.format", DEFAULTS.format, "8-bit sRGB samples.");
   if (!["srgb-8", "srgb-16", "jpeg", "png", "dng"].includes(format)) fail("output.format must be srgb-8, srgb-16, jpeg, png or dng.");
-  let dngCapturedAtUtc: string | undefined;
+  // #570 and #587: which of the catalogue lens's corrections an option selects; none on is no option at all.
+  type Selection = { distortion: boolean; lateralColor: boolean; vignetting: boolean };
+  const correctionSelection = (value: unknown, name: string): Selection | undefined => {
+    if (value === undefined) return undefined;
+    const o = allowKeys(value, name, ["distortion", "lateralColor", "vignetting"]), selection = {} as Record<string, boolean>;
+    for (const key of ["distortion", "lateralColor", "vignetting"]) {
+      if (o[key] !== undefined && typeof o[key] !== "boolean") fail(name + "." + key + " must be true or false.");
+      selection[key] = o[key] === true;
+    }
+    if (!Object.values(selection).includes(true)) return undefined;
+    if (!catalogue) fail(name + " needs lens.catalogue: the corrections are the catalogue lens's own profile.");
+    return selection as Selection;
+  };
+  let dngCapturedAtUtc: string | undefined, dngOpcodeSelection: Selection | undefined;
   if (format === "dng") {
-    const d = allowKeys(outputOptions.dng, "output.dng", ["capturedAtUtc"]);
+    const d = allowKeys(outputOptions.dng, "output.dng", ["capturedAtUtc", "lensCorrectionOpcodes"]);
     dngCapturedAtUtc = d.capturedAtUtc as string | undefined;
+    // #587: the corrections as DNG opcodes, which apply to the whole frame's ActiveArea.
+    dngOpcodeSelection = correctionSelection(d.lensCorrectionOpcodes, "output.dng.lensCorrectionOpcodes");
+    if (dngOpcodeSelection && outputOptions.region !== undefined) fail("output.dng.lensCorrectionOpcodes needs the whole frame (no output.region).");
     if (dngCapturedAtUtc === undefined) assume("output.dng.capturedAtUtc", "default", null, "No capture time: the DNG carries no DateTimeOriginal (the engine never invents a wall clock).");
   } else if (outputOptions.dng !== undefined) fail("output.dng applies only to output.format \"dng\".");
   if (run === "dng-from-parts" && format !== "dng") fail("serializeSimulatedCaptureDngFromParts needs output.format \"dng\".");
@@ -2154,19 +2175,11 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   // Geometry: the demosaic border (if any) on each side; output crop is the active area.
   const nativeWidth = width + 2 * margin, nativeHeight = height + 2 * margin;
   // Lens corrections (#570): the catalogue lens's corrections on the developed linear colour; all off is no option at all.
-  let lensCorrection: ReturnType<NonNullable<typeof lensKit>["prepareDevelopedLensCorrection"]> | undefined, lensCorrectionSelection: Record<string, boolean> | undefined;
-  if (outputOptions.lensCorrections !== undefined) {
-    const keys = ["distortion", "lateralColor", "vignetting"], o = allowKeys(outputOptions.lensCorrections, "output.lensCorrections", keys), selection: Record<string, boolean> = {};
-    for (const key of keys) {
-      if (o[key] !== undefined && typeof o[key] !== "boolean") fail("output.lensCorrections." + key + " must be true or false.");
-      selection[key] = o[key] === true;
-    }
-    if (keys.some((key) => selection[key])) {
-      if (idealReference) fail("simulateIdealReference does not take output.lensCorrections: a reference has no camera development.");
-      if (!catalogue || !lensKit) fail("output.lensCorrections needs lens.catalogue: the corrections are the catalogue lens's own profile.");
-      lensCorrectionSelection = selection;
-      lensCorrection = lensKit!.prepareDevelopedLensCorrection(catalogue!, selection as { distortion: boolean; lateralColor: boolean; vignetting: boolean }, width, height, pitch / 1000, lensKit!.genericLensDispersion);
-    }
+  let lensCorrection: ReturnType<NonNullable<typeof lensKit>["prepareDevelopedLensCorrection"]> | undefined;
+  const lensCorrectionSelection = correctionSelection(outputOptions.lensCorrections, "output.lensCorrections");
+  if (lensCorrectionSelection) {
+    if (idealReference) fail("simulateIdealReference does not take output.lensCorrections: a reference has no camera development.");
+    lensCorrection = lensKit!.prepareDevelopedLensCorrection(catalogue!, lensCorrectionSelection, width, height, pitch / 1000, lensKit!.genericLensDispersion);
   }
   // Region (2.3): a rectangle of the whole frame. Its native sites are the region plus the demosaic reach on each side
   // (clipped to the raster, where mirror borders apply exactly as in the whole render), with the origin rounded down to
@@ -3372,9 +3385,12 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
       return [channel, { conversionGainElectronsPerCode: resolved.regime.systemConversionGainElectronsPerCode.value / (resolved.regime.adc.digitalGain ?? 1),
         readNoiseRmsElectrons: resolved.combinedReadNoiseRmsElectrons }];
     }));
-    const dngStarted = clockMs();
+    const dngStarted = clockMs(), opcodes = dngOpcodeSelection && lensKit!.createDngLensCorrectionOpcodes(lensKit!.resolveGenericLens({ lensId: catalogue!.lensId, activeImagingArea: catalogueFrame!, fNumber }),
+      dngOpcodeSelection, width, height, pitch / 1000, lensKit!.genericLensDispersion);
     dng = await serializeNativeRawDng({ raw: rawOutput.raw, colorProfile, noise, ...(dngCapturedAtUtc === undefined ? {} : { capturedAtUtc: dngCapturedAtUtc }),
-      ...(textMetadata ? { textMetadata } : {}) });
+      ...(textMetadata ? { textMetadata } : {}), ...(opcodes ? { opcodeList3: opcodes.opcodeList3 } : {}) });
+    if (opcodes) assume("output.dng.lensCorrectionOpcodes", "model", { tag: 51022, opcodes: opcodes.opcodes },
+      "output.lensCorrections' profile as optional DNG opcodes, in order (docs/NATIVE_RAW_AND_PRINT.md, \"Lens-correction opcodes\"); the RAW is unchanged.");
     encodeMs = clockMs() - dngStarted;
     assumeTextMetadata(TEXT_METADATA_LAYOUT.dng);
     checkAbort();

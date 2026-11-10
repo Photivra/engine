@@ -18,7 +18,7 @@ import {
   choice, finite, list, parseEvidence, parseOpticalProfileState, positive, record,
   requireSameState, textValue, type GenericOpticalEvidence, type OpticalProfileState
 } from "../optics/profile-contract.js";
-import type { LensFieldPointMm } from "../optics/radial-distortion.js";
+import { calculateInverseRadialSourcePointValue, validateRadialDistortionProfile, type LensFieldPointMm, type RadialDistortionProfile } from "../optics/radial-distortion.js";
 import {
   calculateGeometricResampling, calculateGeometricSamplingPlan, parseDigitalGeometricTransform,
   prepareGeometricMapping, parseGeometricRaster, calculateValidSourceCrop, type DigitalGeometricTransform, type GeometricImageDomain,
@@ -54,6 +54,14 @@ export interface IlluminationLensCorrection extends CorrectionComponentIdentity 
   kind: "peripheral-illumination";
   profile: IlluminationVignettingProfile;
   strength: number;
+  /**
+   * Optional (#584): the capture's radial distortion r_d = r(1 + k1ρ² + k2ρ⁴ + k3ρ⁶), whose area factor 1/det J the capture also
+   * multiplied into the irradiance (det J = (1 + k1ρ_i² + k2ρ_i⁴ + k3ρ_i⁶)(1 + 3k1ρ_i² + 5k2ρ_i⁴ + 7k3ρ_i⁶) at the ideal point ρ_i that
+   * the lens images to the sensor point). With it, the relative illumination corrected is E(ρ_s)/det J(ρ_i), evaluated at the
+   * capture's sensor (source) point, so strength 1 flattens a flat field. It holds whether or not the distortion itself is corrected.
+   * Without it the gain is 1/E alone, as before.
+   */
+  distortionAreaFactor?: RadialDistortionProfile;
 }
 export type LensCorrectionComponent = GeometricLensCorrection | LateralCaLensCorrection | IlluminationLensCorrection;
 /** A correction profile for one exact lens-and-camera system. Components are listed in the order they are applied. */
@@ -88,7 +96,7 @@ export function parseGenericLensCorrectionProfile(value: unknown): GenericLensCo
   const r = record(value, ["schemaVersion", "id", "version", "state", "evidence", "components"]);
   const components = list(r.components, 16).map((value): LensCorrectionComponent => {
     const c = record(value, ["id", "version", "domain", "availability", "defaultEnabled", "dependencies",
-      "requiredByStabilizationModes", "residualNote", "kind", "transform", "transforms", "profile", "strength"]);
+      "requiredByStabilizationModes", "residualNote", "kind", "transform", "transforms", "profile", "strength", "distortionAreaFactor"]);
     if (typeof c.defaultEnabled !== "boolean") throw new InvalidConfigurationError("defaultEnabled must be boolean.");
     const identity = { id: textValue(c.id), version: textValue(c.version),
       domain: choice(c.domain, ["raw-channel", "reconstructed-linear", "processed-output"]),
@@ -97,13 +105,13 @@ export function parseGenericLensCorrectionProfile(value: unknown): GenericLensCo
       requiredByStabilizationModes: list(c.requiredByStabilizationModes, 16).map(textValue), residualNote: textValue(c.residualNote) };
     const kind = choice(c.kind, ["geometry", "lateral-ca", "peripheral-illumination"]);
     if (kind === "geometry") {
-      if (c.transforms !== undefined || c.profile !== undefined || c.strength !== undefined) throw new InvalidScientificInputError("Extraneous geometry parameters.");
+      if (c.transforms !== undefined || c.profile !== undefined || c.strength !== undefined || c.distortionAreaFactor !== undefined) throw new InvalidScientificInputError("Extraneous geometry parameters.");
       const transform = parseDigitalGeometricTransform(c.transform);
       if (transform.domain !== identity.domain || !["distortion", "breathing"].includes(transform.purpose)) throw new InvalidScientificInputError("Geometry domain/purpose mismatch.");
       return { ...identity, kind, transform };
     }
     if (kind === "lateral-ca") {
-      if (c.transform !== undefined || c.profile !== undefined || c.strength !== undefined) throw new InvalidScientificInputError("Extraneous CA parameters.");
+      if (c.transform !== undefined || c.profile !== undefined || c.strength !== undefined || c.distortionAreaFactor !== undefined) throw new InvalidScientificInputError("Extraneous CA parameters.");
       const t = record(c.transforms, ["red", "green", "blue"]);
       const transforms = { red: parseDigitalGeometricTransform(t.red), green: parseDigitalGeometricTransform(t.green), blue: parseDigitalGeometricTransform(t.blue) };
       for (const transform of Object.values(transforms)) {
@@ -114,7 +122,12 @@ export function parseGenericLensCorrectionProfile(value: unknown): GenericLensCo
     if (c.transform !== undefined || c.transforms !== undefined) throw new InvalidScientificInputError("Extraneous illumination geometry.");
     const strength = finite(c.strength, "strength");
     if (strength < 0 || strength > 1) throw new InvalidScientificInputError("Strength must lie in [0,1].");
-    return { ...identity, kind, profile: illumination(c.profile), strength };
+    if (c.distortionAreaFactor === undefined) return { ...identity, kind, profile: illumination(c.profile), strength };
+    const d = record(c.distortionAreaFactor, ["normalizationRadiusMm", "maximumNormalizedRadius", "coefficients"]), k = record(d.coefficients, ["k1", "k2", "k3"]);
+    const distortionAreaFactor = { normalizationRadiusMm: positive(d.normalizationRadiusMm, "normalizationRadiusMm"), maximumNormalizedRadius: positive(d.maximumNormalizedRadius, "maximumNormalizedRadius"),
+      coefficients: { k1: finite(k.k1, "k1"), k2: finite(k.k2, "k2"), k3: finite(k.k3, "k3") } };
+    validateRadialDistortionProfile(distortionAreaFactor);
+    return { ...identity, kind, profile: illumination(c.profile), strength, distortionAreaFactor };
   });
   const preceding = new Set<string>(), mappingIds = new Set<string>();
   for (const c of components) {
@@ -169,7 +182,9 @@ export function resolveLensCorrectionPlan(input: {
 
 /**
  * Applies a gain after capture and reports the variance before clipping. It does not rewrite
- * the photon or SNR (signal-to-noise ratio) history of the capture.
+ * the photon or SNR (signal-to-noise ratio) history of the capture. The gain is T^(−strength), T the relative illumination at
+ * `imagePointMm`: E(ρ) of the component's profile, divided by det J(ρ_i) when the component has a `distortionAreaFactor` (#584;
+ * then `imagePointMm` is the capture's sensor point, where the capture applied both).
  */
 export function calculatePeripheralIlluminationCorrection(input: {
   component: IlluminationLensCorrection; imagePointMm: LensFieldPointMm;
@@ -182,7 +197,12 @@ export function calculatePeripheralIlluminationCorrection(input: {
   const signal = finite(input.signal, "signal"), variance = finite(input.noiseVariance, "noiseVariance");
   const level = positive(input.clippingLevel, "clippingLevel");
   if (variance < 0) throw new InvalidScientificInputError("Variance must be nonnegative.");
-  const throughput = calculateIlluminationVignetting({ imagePointMm: input.imagePointMm, profile: component.profile }).value.linearThroughputFactor;
+  let throughput = calculateIlluminationVignetting({ imagePointMm: input.imagePointMm, profile: component.profile }).value.linearThroughputFactor;
+  if (component.distortionAreaFactor !== undefined) {
+    const { k1, k2, k3 } = component.distortionAreaFactor.coefficients;
+    const p2 = calculateInverseRadialSourcePointValue(input.imagePointMm, validateRadialDistortionProfile(component.distortionAreaFactor), "imagePointMm").sourceNormalizedRadius ** 2;
+    throughput /= (1 + p2 * (k1 + p2 * (k2 + p2 * k3))) * (1 + p2 * (3 * k1 + p2 * (5 * k2 + p2 * 7 * k3)));
+  }
   const gain = throughput**(-component.strength), before = signal*gain;
   return approximationResult({ gain, signalBeforeClipping: before, signal: Math.min(level, before),
     noiseVarianceBeforeClipping: variance*gain*gain, clipped: before > level },
@@ -273,8 +293,9 @@ export function calculateLensCorrectedCapture(input: {
       data = data.map((signal, index): number | null => {
         if (signal === null) return null;
         const raster = input.destinationRaster, x = index%raster.width, y = Math.floor(index/raster.width);
+        // #584: a gain that carries the distortion's area factor is the capture's own, so it is read at the source point.
         const corrected = calculatePeripheralIlluminationCorrection({ component: c,
-          imagePointMm: { x: raster.centerMm.x+(x+.5-raster.width/2)*raster.pitchMm,
+          imagePointMm: c.distortionAreaFactor ? sampling.points[index]!.sourcePointMm : { x: raster.centerMm.x+(x+.5-raster.width/2)*raster.pitchMm,
             y: raster.centerMm.y-(y+.5-raster.height/2)*raster.pitchMm },
           signal, noiseVariance: 0, clippingLevel: input.clippingLevel }).value;
         if (corrected.clipped) illuminationClippingEventCount++;

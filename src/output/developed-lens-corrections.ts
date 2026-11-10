@@ -15,8 +15,8 @@
  * Vignetting is corrected to a flat field: the sample is multiplied by det J(ρ_i) / E(ρ_s), the inverse of the relative
  * illumination the capture delivered at s: the lens's E(ρ) = (1 − bρ²)² at the sensor point and its distortion's area factor
  * 1/det J, det J = (1 + k1ρ_i²)(1 + 3k1ρ_i²) at the ideal point ρ_i that the lens images to ρ_s (the capture's
- * "inverse-distortion-jacobian"; a relative illumination measured on a flat field contains it too). The profile's vignetting
- * component holds E only; without the area factor a PV 16 2.8 corner would come out about 18 % too bright.
+ * "inverse-distortion-jacobian"; a relative illumination measured on a flat field contains it too). From profile 1.1.0 (#584) the
+ * profile's vignetting component carries the same area factor (`distortionAreaFactor`), and its gain equals this kernel's.
  * Every position is computed in whole-frame pixel coordinates, so a region renders the same values as the whole frame.
  */
 

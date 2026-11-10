@@ -82,5 +82,11 @@ export interface SerializeNativeRawDngInput {
   capturedAtUtc?: string;
   /** Optional (2.4) caller text: description, software, copyright, comment (see the module notes). If omitted, no text is added. */
   textMetadata?: OutputTextMetadata;
+  /**
+   * Optional (#587) OpcodeList3 (tag 51022) bytes, for example `createDngLensCorrectionOpcodes(...).opcodeList3`: a big-endian DNG
+   * opcode list (DNG 1.3.0.0+, "Opcode List Processing") that readers apply to the demosaiced stage-3 image. Only its framing is
+   * checked (count, per-opcode headers and parameter sizes filling the bytes exactly). The RAW codes are unchanged. If omitted, no tag.
+   */
+  opcodeList3?: Uint8Array;
 }
 ```
