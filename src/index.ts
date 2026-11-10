@@ -1766,7 +1766,7 @@ export { simulateEnvironmentSensorRawFrame, type SimulateEnvironmentSensorRawFra
 export { calculateProcessedSensorRaw, parseProcessedSensorRawInput, type ProcessedSensorRawInput,
   type ProcessedSensorRawResult } from "./capture/photographic-export.js";
 export { calculatePrintPlan, calculatePrintSizeLimit, parsePrintPlanInput } from "./output/print-plan.js";
-export type { PrintLength, PrintedImageSize, PrintSamplingCriterion, PrintNativeSource, PrintProviderConstraints, PrintPlanInput, PrintRasterSampling, PrintPlan, PrintSizeLimitInput, PrintSizeLimit } from "./output/print-plan.js";
+export type { PrintLength, PrintedImageSize, PrintSamplingCriterion, PrintNativeSource, PrintProviderConstraints, PrintPlanInput, PrintRasterSampling, PrintPlan, PrintSizeLimitInput, PrintSizeLimit, PrintFit, PrintContainLayout } from "./output/print-plan.js";
 export { calculatePrintSizeLimitWithBlurAndNoise } from "./output/print-size-blur-noise.js";
 export type { PrintBlurInput, PrintNoiseInput, PrintSharpCleanCriterion, PrintSizeLimitWithBlurAndNoiseInput, PrintImageMm, PrintSizeLimitWithBlurAndNoise } from "./output/print-size-blur-noise.js";
 export { PRINT_REGION_DETAIL_MODEL_VERSION, MAX_PRINT_DETAIL_REGION_SAMPLES, calculatePrintRegionDetail, parsePrintRegionDetailInput } from "./output/print-detail.js";

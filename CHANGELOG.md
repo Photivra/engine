@@ -137,6 +137,14 @@
 - **Bundle:** the capture-worker shape is unchanged at 351,770 B gzip (limit 352,000 B); the sources reach only bundles that import them (+1,553 B gzip).
 - **Docs and tests:** docs/LIGHT_SOURCES.md (new), docs/USAGE.md, docs/AGENT_GUIDE.md, llms.txt, THIRD_PARTY.md, API reference; `test/representative-light-sources.test.ts`.
 
+### 2.22.0 part: #365 Print planner: fit an image inside paper of another aspect ratio (contain), with the borders reported
+
+- **New: `fit: { kind: "contain", paperOrientation: "as-given" | "match-image" }`** for `calculatePrintPlan` and `calculatePrintSizeLimit`: `printedImage` is then the paper; the image keeps the native aspect ratio, is scaled to the largest size inside the paper (scale `min(P_w/W, P_h/H)`, the "contain" sizing of CSS Images Level 3 §5.5) and centered, and is planned exactly as a `confirmed-native-aspect` plan of that size. `match-image` turns the paper a quarter turn to the image's orientation. The plan adds `contain: { paperMm, paperRotated, bordersMm: { left, right, top, bottom } }` (null without a native raster) and the size limit adds `maximumPaperMm`. Exact geometry (binary64 rounding reported in `relativeAspectError`); layout only, no crop or resampling. 6000 × 4000 on 8 × 10 in gives a 10 × 6.667 in image with 0.667 in borders on the long edges; 3:2 paper gives zero borders.
+- **Unchanged:** `confirmed-native-aspect` plans and size limits are byte-identical to 2.19.0 (no new keys; checked over 720 inputs across every sampling kind, provider constraint, unit, orientation and unavailable source).
+- **Type change:** `PrintPlanInput.fit` is now the union `PrintFit`; code that reads `fit.maximumRelativeAspectError` must first narrow on `fit.kind === "confirmed-native-aspect"`.
+- **Root exports:** 2 new types, `PrintFit` and `PrintContainLayout`. Pure module (`src/output/print-plan.ts`); not in the capture worker.
+- **Docs and tests:** docs/PRINT_PLANNING.md ("Contain fit"), docs/USAGE.md, API reference regenerated; `test/print-plan-contain.test.ts` (the issue's 8 × 10 in and 3:2 cases, as-given paper, portrait and square images, equality with the direct plan, size limit, unknown raster, input errors).
+
 ## 2.20.0 — unreleased (prepared November 9, 2026)
 
 A minor release of ten issues and one speed-versus-accuracy scheme: adjustable sensor characteristics and the mid-gray noise figure (#555, #535), the aperture diameter (#577), the crop that matches a longer lens (#579), which limits detail, the lens or the sensor (#575), the print size limit with blur and noise (#574), the lens profile's vignetting area factor (#584), lens corrections as optional DNG opcodes (#587), each catalogue lens's own bokeh (#567), chart-boundary ties in the diffraction PSF quadrature (#565) and the CI Node drift check (#231). See the [2.20.0 release record](https://github.com/Photivra/photivra/blob/main/docs/RELEASE_2_20_0.md).

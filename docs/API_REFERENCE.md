@@ -2403,7 +2403,9 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 | [`calculatePrintPlan`](api/output-print-plan.md#calculateprintplan) | Runtime |
 | [`calculatePrintSizeLimit`](api/output-print-plan.md#calculateprintsizelimit) | Runtime |
 | [`parsePrintPlanInput`](api/output-print-plan.md#parseprintplaninput) | Runtime |
+| [`PrintContainLayout`](api/output-print-plan.md#printcontainlayout) | Type |
 | [`PrintedImageSize`](api/output-print-plan.md#printedimagesize) | Type |
+| [`PrintFit`](api/output-print-plan.md#printfit) | Type |
 | [`PrintLength`](api/output-print-plan.md#printlength) | Type |
 | [`PrintNativeSource`](api/output-print-plan.md#printnativesource) | Type |
 | [`PrintPlan`](api/output-print-plan.md#printplan) | Type |
