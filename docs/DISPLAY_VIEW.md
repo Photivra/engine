@@ -287,13 +287,15 @@ the kernel spreads its light, as for any environment PSF.
   provider with vignetting and distortion (box and filter), and with all four options, diffraction and AHD. Every case
   agrees within 1e-9 relative, the rectilinear view's tolerance.
 - *Ties on chart boundaries.* With a kernel the view rounds as the lattice does (as the rectilinear view and the
-  out-of-focus capture do): an identity vignetting profile gives the rectilinear view's bytes. The in-focus capture with
-  `lens.diffraction` forms each tap's source point from its own site, so a source point exactly on a chart boundary can
-  resolve to the other material. That happens on symmetric charts in symmetric frames (a Siemens star's diagonals
-  through the frame centre); there the capture's PSF quadrature also differs from its own rectilinear object-space path
-  (on a 20 × 14 star at f/11, the site next to the centre: 12 663 against 3 560 electrons with an identity vignetting
-  profile). Elsewhere the two agree to 1e-9 (the dead-leaves case above). Tracked as
-  [#565](https://github.com/Photivra/photivra/issues/565).
+  out-of-focus capture do): an identity vignetting profile gives the rectilinear view's bytes. Since 2.20.0 the in-focus
+  capture with `lens.diffraction` does too: its PSF quadrature reads each tap's source at the lattice point's own plane
+  point (#548's lattice formula), so a source point exactly on a chart boundary (a Siemens star's diagonals through a
+  symmetric frame's centre, its vertical spokes through an odd frame's centre column) resolves to the same material on
+  every path. Before, on a 20 × 14 star at f/11 next to the centre, the capture gave 12 663 against 3 560 electrons with
+  and without an identity vignetting profile; now the two agree within 1e-9 relative at every site and give the same RAW
+  (`test/simulate-capture-boundary-ties.test.ts`, [#565](https://github.com/Photivra/photivra/issues/565)). With camera
+  rotation under `motion.shutter: "rolling"` this takes `lens.diffraction.rollingShutterLatticeTaps` (default off, faster;
+  on by default for a DNG or JPEG; [Quick start, Optics](QUICK_START.md#optics)).
 - *Against the box-downsized capture.* A slanted edge through radial distortion and vignetting, in focus and out of
   focus (3 µm, 192 × 128 shown at 24 × 16): expected-value RMS below 0.6 code and maximum below 3 codes, the thresholds of
   the rectilinear slanted-edge test.
@@ -410,8 +412,8 @@ capture's own site record, its catalogue PSF quadrature, evaluated with the capt
 
 - *Ties on chart boundaries.* On the Siemens star in a symmetric frame, lattice source points that fall exactly on a spoke
   through the frame centre round as the lattice does, while the capture's quadrature forms each tap's point from its own site
-  and can resolve it to the other material: the same difference as with `lens.diffraction` ([above](#lens-projection-distortion-vignetting-and-rotation),
-  [#565](https://github.com/Photivra/photivra/issues/565)). Dead leaves and radiance scenes have no such ties, so the table uses them.
+  and can resolve it to the other material. (2.20.0 fixed this for `lens.diffraction`, [above](#lens-projection-distortion-vignetting-and-rotation),
+  [#565](https://github.com/Photivra/photivra/issues/565); the catalogue PSF quadrature keeps it.) Dead leaves and radiance scenes have no such ties, so the table uses them.
 - *Against the box-downsized capture:* a slanted edge through *PV 24 1.8* wide open (6 µm, 192 × 128 shown at 24 × 16)
   within the rectilinear test's 0.6-code RMS and 3-code maximum.
 - Regions are byte-identical to the whole view, and prepared renders (also with `gpu: "auto"`) to `simulateDisplayView`.
