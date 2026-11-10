@@ -116,9 +116,10 @@ import { correctDiffractionInPlace, defaultDiffractionCorrectionRadiusPixels, de
 import { parseSensorReadoutConversionProfile, resolveSensorReadoutRegime } from "../sensor/raw-readout.js";
 import { resolveChartScene, chartMaterialInputs, CHART_SCENE_PRESETS, type ChartScene, type ResolvedChartScene } from "./chart-scenes.js";
 import { resolveChartMaterialLayers, type ChartMaterialLayerScene, type ResolvedChartMaterialLayers } from "./chart-material-layers.js";
+import { imagePlaneSupport } from "./image-plane-support.js";
 import { resolveCaptureIlluminant, calculateIlluminantIrradianceScale, buildPlanarSceneRadianceProvider, requireCallerScene, FACADE_SPECTRAL_RANGE_NANOMETERS,
   resolveChartSizeOption, type ChartSizeOption,
-  PHOTOPIC_MAXIMUM_LUMINOUS_EFFICACY_LM_PER_W, type CaptureIlluminant, type CallerMaterialScene, type CallerRadianceScene, type CallerReflectanceScene, type ResolvedCallerScene,
+  PHOTOPIC_MAXIMUM_LUMINOUS_EFFICACY_LM_PER_W, type CaptureIlluminant, type CallerMaterialScene, type CallerRadianceScene, type CallerReflectanceScene, type ImagePlaneScene, type ResolvedCallerScene,
   planarProviderMaterialOfDirection, type PlanarSceneRadianceProvider, type ResolvedCallerMaterialScene, type ResolvedCaptureIlluminant } from "./scene-radiance.js";
 
 /** Version of how the facade builds requests. It changes whenever the same input would build a different request. */
@@ -489,9 +490,10 @@ export interface SimulateCaptureOptions {
   /**
    * Required: an engine chart (for example `{ preset: "uniform" }`, an 18 % grey card), a declared `material-layers` scene (#491:
    * a chart under shape-mask layers, as `resolveChartMaterialLayers` takes it; the capture is that of its `callerScene`, byte for
-   * byte, and the display view can render it on the GPU), or a caller reflectance, radiance or material function.
+   * byte, and the display view can render it on the GPU), a caller reflectance, radiance or material function, or (2.21, #581) an
+   * `image-plane` scene: a photo as a flat print (docs/IMAGE_PLANE.md).
    */
-  scene: ChartScene | ChartMaterialLayerScene | CallerReflectanceScene | CallerRadianceScene | CallerMaterialScene;
+  scene: ChartScene | ChartMaterialLayerScene | CallerReflectanceScene | CallerRadianceScene | CallerMaterialScene | ImagePlaneScene;
   /** Distance from the camera to the scene plane in metres. Default 5. */
   subjectDistanceM?: number;
   /**
@@ -1663,7 +1665,7 @@ export interface DisplayViewRunContext {
   /** 2.14: the capture's `exposure.metering`. */
   metering: SimulateCaptureMetering;
   sceneOption: unknown;
-  scenePreset: "composite" | "uniform" | "patches" | "slanted-edge" | "siemens-star" | "step-wedge" | "grey-ramp" | "checkerboard" | "point-grid" | "dead-leaves" | "bar-groups" | "hyperbolic-wedge" | "zone-plate" | "slanted-squares" | "line-grid" | "fiducial" | "color-patches" | "reflectance-function" | "radiance-function" | "material-function";
+  scenePreset: "composite" | "uniform" | "patches" | "slanted-edge" | "siemens-star" | "step-wedge" | "grey-ramp" | "checkerboard" | "point-grid" | "dead-leaves" | "bar-groups" | "hyperbolic-wedge" | "zone-plate" | "slanted-squares" | "line-grid" | "fiducial" | "color-patches" | "reflectance-function" | "radiance-function" | "material-function" | "image-plane";
   shutterSeconds: number;
   started: number;
   subjectDistanceM: number;
@@ -2231,8 +2233,11 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   const imageDistanceMm = focalLengthMm * focusDistanceM * 1000 / (focusDistanceM * 1000 - focalLengthMm);
   const metresPerFrameUnit = (width * pitch / 2000) * subjectDistanceM / imageDistanceMm;
   const aspect = height / width;
+  // #581: an image-plane scene takes the module prepareImagePlaneScenes() loaded, which places its print (chartSize, or fitted in the frame).
+  const imagePlaneModule = (top.scene as { kind?: unknown } | undefined)?.kind === "image-plane" ? imagePlaneSupport() ?? fail("Call prepareImagePlaneScenes() before an image-plane scene.") : undefined;
   // Fixed-size chart (2.3): validated here, before any scene work.
-  const chartSize = top.chartSize === undefined ? undefined : resolveChartSizeOption(top.chartSize, aspect);
+  const chartSize = imagePlaneModule ? imagePlaneModule.imagePlanePrint(top.scene, top.chartSize, 2 * metresPerFrameUnit, aspect, assume) :
+    top.chartSize === undefined ? undefined : resolveChartSizeOption(top.chartSize, aspect);
   assume("scene.framing", "derived", { framedWidthM: 2 * metresPerFrameUnit, framedHeightM: 2 * metresPerFrameUnit * aspect },
     chartSize ? "The scene plane is perpendicular to the optical axis; the frame covers this much of it (thin lens, focused distance), and the chart has the physical size in scene.chartSize." :
       "The scene plane is perpendicular to the optical axis and the chart is sized to fill the active frame exactly.");
@@ -2287,7 +2292,8 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
     // #491: a declared material-layers scene is its callerScene (the same validation, materials, digest and bytes as passing that scene);
     // the resolved layers are kept for the display view's GPU renderer.
     if (sceneRecord.kind === "material-layers") materialLayers = resolveChartMaterialLayers({ scene: sceneOption as ChartMaterialLayerScene, aspect: chartSize ? chartSize.heightM / chartSize.widthM : aspect });
-    callerScene = requireCallerScene(materialLayers ? materialLayers.callerScene : sceneOption);
+    callerScene = imagePlaneModule ? await imagePlaneModule.resolveImagePlaneScene(sceneOption, chartSize!.heightM / chartSize!.widthM, assume) :
+      requireCallerScene(materialLayers ? materialLayers.callerScene : sceneOption);
   } else {
     chart = resolveChartScene({ scene: sceneOption as ChartScene, aspect: chartSize ? chartSize.heightM / chartSize.widthM : aspect });
     // Composite charts (2.3) report nested defaults by dotted path, for example "elements.2.parameters.cycles".
@@ -2307,11 +2313,13 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   const sceneMaterials = callerScene?.kind === "material-function" ? callerScene.materials.map((m, index) => (m.kind === "neutral" ? m.reflectance :
     spectrumDigestForm(callerScene.materialInputs[index], m.spectrum))) : undefined;
   const sceneDescription = { facadeVersion: SIMULATE_CAPTURE_FACADE_VERSION, scene: chart ? { preset: chart.preset, parameters: chart.parameters } :
+    callerScene!.kind === "image-plane" ? callerScene!.digestForm :
     { kind: callerScene!.kind, sceneId: callerScene!.sceneId }, illuminant: illuminant.id, illuminanceLux, subjectDistanceM, framedWidthM: 2 * metresPerFrameUnit, aspect,
     ...(chartSize ? { chartSize: { widthM: chartSize.widthM, heightM: chartSize.heightM, surroundReflectance: chartSize.surroundReflectance } } : {}),
     ...(illuminantSpectrum === undefined ? {} : { illuminantSpectrum }), ...(sceneSpectra.length === 0 ? {} : { sceneSpectra }), ...(sceneMaterials ? { sceneMaterials } : {}) };
   if (callerScene?.kind === "material-function") assume("scene.digest", "model", "caller-function-not-hashed", "The source digest covers the caller's sceneId, its materials and the framing, not the body of the caller's materialAt function.");
-  else if (callerScene) assume("scene.digest", "model", "caller-function-not-hashed", "The source digest covers the caller's sceneId and the framing, not the body of the caller's evaluate function.");
+  // #581: an image-plane scene recorded its own digest assumption when it was resolved.
+  else if (callerScene && callerScene.kind !== "image-plane") assume("scene.digest", "model", "caller-function-not-hashed", "The source digest covers the caller's sceneId and the framing, not the body of the caller's evaluate function.");
   const sourceSha256 = await sha256Hex(JSON.stringify(sceneDescription, (_key, value: unknown) => (typeof value === "object" && value !== null && "evaluate" in value ? "caller-spectrum" : value)));
   checkAbort();
   const buildProvider = (sceneIlluminant: ResolvedCaptureIlluminant, scale: number): PlanarSceneRadianceProvider => buildPlanarSceneRadianceProvider({ scene: chart ?? callerScene!,
@@ -2326,7 +2334,8 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   // #394: a caller material scene's evaluator is engine-built in the same way (its radiance comes from the validated materials;
   // only materialAt, validated on every call, is the caller's).
   const materialEvaluator = chart !== undefined || callerScene?.kind === "material-function";
-  if (materialEvaluator) markInternalSceneRadianceEvaluator(provider.evaluateRadiance);
+  // #581: an image-plane print's evaluator is engine-built too (its radiance comes from the validated image and the lattice).
+  if (materialEvaluator || callerScene?.kind === "image-plane") markInternalSceneRadianceEvaluator(provider.evaluateRadiance);
   // #394: its results are materialRadiance(material at the queried point, wavelength), so the lean executor may tabulate them.
   const materialOfDirection = planarProviderMaterialOfDirection(provider);
   if (materialEvaluator && materialOfDirection && provider.materialRadiance) registerInternalRadianceAccess(provider.evaluateRadiance,
@@ -3192,7 +3201,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
     return Object.freeze({ kind: "ideal-reference" as const, label: "Ideal reference (no camera effects); not a capture.", facadeVersion: SIMULATE_CAPTURE_FACADE_VERSION, engineApiVersion: ENGINE_API_VERSION,
       image: { width: outputWidth, height: outputHeight, format, samples, ...(png ? { png, colorEncoding: colorEncoding! } : {}) },
       exposure: { mode, settings: { fNumber, shutterSeconds, iso: resolvedIso }, ev100: Math.log2(fNumber ** 2 / shutterSeconds), ...isoReport },
-      scene: { sceneId: chart ? "chart:" + chart.preset : callerScene!.sceneId, preset: scenePreset, parameters: chart ? chart.parameters : {},
+      scene: { sceneId: chart ? "chart:" + chart.preset : callerScene!.sceneId, preset: scenePreset, parameters: chart ? chart.parameters : (callerScene as { parameters?: Readonly<Record<string, unknown>> }).parameters ?? {},
         illuminant: { id: illuminant.id, description: illuminant.description, illuminanceLux }, distanceM: subjectDistanceM,
         framedWidthM: 2 * metresPerFrameUnit, framedHeightM: 2 * metresPerFrameUnit * aspect, ...(chartReport ? { chart: chartReport } : {}), sourceSha256 },
       ...(region && regionNative ? { region: { ...region, frameWidth: width, frameHeight: height } } : {}),
@@ -3221,7 +3230,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
     evaluateRadiance: rawProvider().evaluateRadiance, ...(pupil ? { evaluateApertureRadiance: provider.evaluateApertureRadiance } : {}), yieldControl });
   // #394 step 2: an engine-built planar scene (chart preset or caller material scene; still, rectilinear, no distortion, vignetting,
   // pupil rays or caller PSF) takes its expected electrons from the tabulated signal, verified per CFA phase against the chain.
-  const tabulatedScene = chart !== undefined || callerScene?.kind === "material-function";
+  const tabulatedScene = chart !== undefined || callerScene?.kind === "material-function" || callerScene?.kind === "image-plane";
   // #391: a DNG from region parts takes the whole frame's RAW from the parts instead of rendering it.
   // #571: simulateCaptureFromParts takes the RAW from the parts in the same way, then develops it as a capture does.
   const dngParts = run === "dng-from-parts" || run === "develop-from-parts" ? viewOption : undefined,
@@ -3236,7 +3245,8 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   // The tabulated paths' channel response per spectral node and material tables (the fast catalogue path and the expected-signal path).
   const tabulatedTables = (): { wavelengths: number[]; perNode: [Float64Array, Float64Array, Float64Array]; materials: NonNullable<Parameters<typeof buildExpectedSignalInput>[0]["materials"]> } => {
     const { electronsPerRadiance, wavelengths } = axisChannelResponse("simulateCapture");
-    const sceneMaterials = chart ? chart.materials : (callerScene as ResolvedCallerMaterialScene).materials, materialRadiance = provider.materialRadiance!;
+    // #581: an image-plane print has no materials (its node tables are the expected signal's, `image`).
+    const sceneMaterials = chart ? chart.materials : (callerScene as ResolvedCallerMaterialScene).materials ?? [], materialRadiance = provider.materialRadiance!;
     return { wavelengths, perNode: CHANNELS.map((c) => Float64Array.from(wavelengths, (nm) => electronsPerRadiance[c].get(nm) ?? 0)) as [Float64Array, Float64Array, Float64Array],
       materials: { materialAt: provider.chartMaterialAt!, whiteRadiance: (nm: number): number => irradianceScale * illuminant.shape.evaluate(nm) / Math.PI,
         list: [...sceneMaterials.map((m, index) => (m.kind === "neutral" ? { neutral: m.reflectance } : { radiance: (nm: number): number => materialRadiance(index, nm) })),
@@ -3257,11 +3267,14 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
     if (tabulated) catalogueFastRun = { ...signal.grid, verificationRelativeDifference: tabulated.verificationRelativeDifference };
   }
   // #553: a cat's eye varies the kernel over the field, which the expected-signal tables (one kernel per node) do not take.
-  else if (dngParts === undefined && tabulatedScene && !pupil && !lensFieldMapping && !vignetting && !lensPsf && !rotating && !bokehZones && (!diffraction || diffractionObjectSpace) && provider.chartMaterialAt && provider.materialRadiance) {
-    const { wavelengths, perNode, materials: tabulatedMaterials } = tabulatedTables();
+  else if (dngParts === undefined && tabulatedScene && !pupil && !lensFieldMapping && !vignetting && !lensPsf && !rotating && !bokehZones && (!diffraction || diffractionObjectSpace) &&
+    (provider.chartMaterialAt && provider.materialRadiance || provider.imageSignalScene)) {
+    // #581: an image-plane print takes the radiance path with its node tables instead of material tables.
+    const { wavelengths, perNode, materials } = tabulatedTables(), tabulatedMaterials = provider.imageSignalScene ? undefined : materials;
+    const tabulatedImage = { imageSignalScene: provider.imageSignalScene };
     const { signalInput: builtSignalInput } = buildExpectedSignalInput({ nativeWidth, nativeHeight, width, wavelengths, perNode, apertureNodes: apertureNodeOffsets(boxSamples), boxSamples, antiAliasing, pitch,
       diffraction: diffraction && !defocusSiteKernels ? { radius: diffraction.kernelRadiusSamples, psf: diffractionPsf!.configuration.psf, profileWavelengths: diffraction.profile.axes.wavelengthNm } : undefined,
-      materials: tabulatedMaterials, radianceAt: provider.radianceAt, imagingArea, focalLengthMm, focusDistanceM, subjectDistanceM, metresPerFrameUnit, caller: "simulateCapture" });
+      materials: tabulatedMaterials, ...tabulatedImage, radianceAt: provider.radianceAt, imagingArea, focalLengthMm, focusDistanceM, subjectDistanceM, metresPerFrameUnit, caller: "simulateCapture" });
     // #492: with lens.defocus the table convolves the lattice radiance with each node's defocus (or combined) kernel, on the
     // lattice formula, exactly as the object-space provider does.
     let signalInput = builtSignalInput;
@@ -3269,7 +3282,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
       // #564: the in-focus signal on the lattice formula (diffraction kernels, or a unit tap per node), then the disc by runs.
       signalInput = buildExpectedSignalInput({ nativeWidth, nativeHeight, width, wavelengths, perNode, apertureNodes: apertureNodeOffsets(boxSamples), boxSamples, antiAliasing, pitch,
         diffraction: diffraction ? { radius: diffraction.kernelRadiusSamples, psf: diffractionPsf!.configuration.psf, profileWavelengths: diffraction.profile.axes.wavelengthNm } : undefined,
-        largeDefocus: defocusSiteKernels.large.runs, materials: tabulatedMaterials,
+        largeDefocus: defocusSiteKernels.large.runs, materials: tabulatedMaterials, ...tabulatedImage,
         radianceAt: provider.radianceAt, imagingArea, focalLengthMm, focusDistanceM, subjectDistanceM, metresPerFrameUnit, caller: "simulateCapture" }).signalInput;
     } else if (defocusSiteKernels) {
       const lattice = { ...builtSignalInput };
@@ -3576,7 +3589,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
     exposure: { mode, settings: { fNumber, shutterSeconds, iso: resolvedIso }, ev100: Math.log2(fNumber ** 2 / shutterSeconds), ...isoReport,
       metering, meteredSceneLuminanceCdPerSquareMeter: meteredLuminance, standardExposureDeviationStops: exposureDeviationStops,
       standardExposureIlluminanceLux: exposureIlluminanceLux, greyCardDeviationStops: exposureGreyCardDeviationStops, resolution },
-    scene: { sceneId: chart ? "chart:" + chart.preset : callerScene!.sceneId, preset: scenePreset, parameters: chart ? chart.parameters : {},
+    scene: { sceneId: chart ? "chart:" + chart.preset : callerScene!.sceneId, preset: scenePreset, parameters: chart ? chart.parameters : (callerScene as { parameters?: Readonly<Record<string, unknown>> }).parameters ?? {},
       illuminant: { id: illuminant.id, description: illuminant.description, illuminanceLux }, distanceM: subjectDistanceM,
       framedWidthM: 2 * metresPerFrameUnit, framedHeightM: 2 * metresPerFrameUnit * aspect, ...(chartReport ? { chart: chartReport } : {}), sourceSha256 },
     diagnostics: { providerEvaluationCount, highlight: developed.highlight, rendering: developed.diagnostics, ...(gamutMappingDiagnostics ? { gamutMapping: gamutMappingDiagnostics } : {}),

@@ -10,8 +10,9 @@
  *    divided by the scale in float64; the kernel multiplies the two axes);
  * 2. for every native site the real pixels' demosaic reads (the footprint plus one site of reach), the expected
  *    electrons: the scene material at the pixel aperture's query offsets (the material module, `material_at`), the
- *    material's channel signal from a table the host computed in float64 (Σ_λ A_c(λ)·L(λ)), summed over the offsets
- *    in the reference's order, plus the dark electrons;
+ *    material's channel signal from a table the host computed in float64 (Σ_λ A_c(λ)·L(λ)), or (#581) the image-plane
+ *    module's channel signal at the point (`scene_value`), summed over the offsets in the reference's order, plus the dark
+ *    electrons;
  * 3. the readout moments of each site (mean k·e, variance k²·e + c₀, third cumulant k³·e) and the clip at the white
  *    level (the clipped-normal moments, in a cancellation-free standardized form);
  * 4. per real pixel the bilinear kernels, white balance and highlight clip, the colour matrix, the tone curve
@@ -94,7 +95,10 @@ const literal = (value: number): string => {
  * The kernel's own WGSL, without the material module. `assembleDisplayViewSpeedWgsl` appends a module that defines
  * `fn material_at(p: vec2<f32>) -> u32` and `var<private> material_uncertain: bool` (set to true when the point's
  * classification is within its bound of a material boundary; the kernel then flags the display pixel for host
- * recomputation). The module may declare bindings in @group(1) and use the constants E and SLACK declared here.
+ * recomputation), and the adapter `scene_value(p, c) = site_table[material_at(p)·3 + c]`. #581: a module may instead define
+ * `fn scene_value(p: vec2<f32>, c: u32) -> f32` itself (the image-plane module: the print's channel signal at p) and then
+ * declares how many roundings it adds (`DisplayViewGpuMaterialModule.extraSiteRoundings`). The module may declare bindings
+ * in @group(1) and use the constants E and SLACK declared here.
  */
 export const DISPLAY_VIEW_SPEED_KERNEL_WGSL = /* wgsl */ `
 const E: f32 = ${E_LITERAL};
@@ -243,7 +247,8 @@ fn channel_of(x: i32, y: i32) -> u32 {
   if ((y & 1) == 0) { return select(1u, 0u, (x & 1) == 0); }
   return select(2u, 1u, (x & 1) == 0);
 }
-// The expected photo electrons of native site (x, y): Σ_o w_o·table[m_o, c] in offset order (directSite).
+// The expected photo electrons of native site (x, y): Σ_o w_o·scene_value(p_o, c) in offset order (directSite); with a material
+// module scene_value is table[m_o, c].
 fn site_electrons(x: i32, y: i32, c: u32) -> f32 {
   var sum = 0.0;
   let fx = f32(x);
@@ -252,8 +257,7 @@ fn site_electrons(x: i32, y: i32, c: u32) -> f32 {
     let base = ${DISPLAY_VIEW_AUX.offsets}u + 4u * o;
     let u = (fx + aux[base]) * params.scale_u;
     let v = (fy + aux[base + 1u]) * params.scale_v;
-    let m = material_at(vec2<f32>(u, v));
-    sum = sum + aux[base + 2u] * site_table[m * 3u + c];
+    sum = sum + aux[base + 2u] * scene_value(vec2<f32>(u, v), c);
   }
   return sum;
 }
@@ -425,7 +429,12 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_workgroups) 
 }
 `;
 
-/** The full shader: the kernel plus a material module (see `DISPLAY_VIEW_SPEED_KERNEL_WGSL`). */
+/** The material table lookup a material module's `material_at` feeds (the kernel's `scene_value`). */
+export const DISPLAY_VIEW_MATERIAL_SCENE_VALUE_WGSL = /* wgsl */ `
+fn scene_value(p: vec2<f32>, c: u32) -> f32 { return site_table[material_at(p) * 3u + c]; }
+`;
+/** The full shader: the kernel plus a material module (see `DISPLAY_VIEW_SPEED_KERNEL_WGSL`), and the table adapter unless the module defines `scene_value`. */
 export function assembleDisplayViewSpeedWgsl(materialModuleWgsl: string): string {
-  return DISPLAY_VIEW_SPEED_KERNEL_WGSL + "\n" + materialModuleWgsl + "\n";
+  const adapter = /\bfn scene_value\(/u.test(materialModuleWgsl) ? "" : DISPLAY_VIEW_MATERIAL_SCENE_VALUE_WGSL;
+  return DISPLAY_VIEW_SPEED_KERNEL_WGSL + "\n" + materialModuleWgsl + "\n" + adapter;
 }

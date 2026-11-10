@@ -30,12 +30,11 @@ import { AHD_KEY_LEVELS, EXACT_AREA_MEAN_MAX_PIXELS, axisSums, computeDisplayVie
   ahdCandidateKernels, type AxisSums, type DisplayViewCorrectionSetup, type DisplayViewKernelTap, type DisplayViewRenderResult, type DisplayViewSetup } from "../facade/display-view.js";
 import { displayViewSignalTables, type DisplayViewExpectedSignalInput, type GroupTables } from "../facade/expected-signal.js";
 import type { DisplayViewGpuSetup } from "../facade/display-view.js";
-import { resolvePortableChartScene } from "../facade/chart-scenes.js";
 import { createDisplayViewMaterialModules, type DisplayViewMaterialModules } from "./display-view-composite-material-module.js";
 import { setDisplayViewGpuRendererFactory, type DisplayViewGpuConformanceCase, type DisplayViewGpuPart, type DisplayViewGpuRenderOutput, type DisplayViewGpuRenderer,
   type DisplayViewGpuRendererFactory, type DisplayViewGpuRequest, type DisplayViewGpuRuntimeHandle } from "../facade/display-view-gpu.js";
 import { chartPresetMaterialModule } from "./display-view-chart-material-module.js";
-import { DISPLAY_VIEW_SPEED_CONFORMANCE_CASE, axisRecord, displayViewSpeedGpuSupports, displayViewSpeedGpuUnsupportedReason, finishDisplayViewPixel, gaussLegendre16, queryGeometry,
+import { DISPLAY_VIEW_SPEED_CONFORMANCE_CASE, CONFORMANCE_FRAME, sceneToneAndOffsetsReason, conformanceChannelAt, conformanceChart, conformanceResponses, conformanceSetup, conformanceVerdict, withConformanceAbort, axisRecord, displayViewSpeedGpuSupports, displayViewSpeedGpuUnsupportedReason, finishDisplayViewPixel, gaussLegendre16, queryGeometry,
   renderDisplayViewSpeedOnGpu, type DisplayViewGpuMaterialModule } from "./display-view-speed-gpu.js";
 import { createHostYieldGate } from "../capture/host-yield-cadence.js";
 import { createDefocusDiscSiteKernel } from "../optics/defocus-disc-kernel.js";
@@ -808,10 +807,7 @@ export function offsetCount(request: DisplayViewGpuRequest): number { return req
  * table fits the device's storage binding limit, is known only per render.
  */
 export function displayViewQualityGpuSupports(request: DisplayViewGpuRequest): true | string {
-  if (request.scene !== "chart" && request.scene !== "material-layers") return "the scene is a caller " + request.scene + "; the GPU material lookup covers engine charts and declared material-layers scenes (describe the scene as material-layers)";
-  if (request.toneCurve !== "identity" && request.toneCurve !== "positive-reinhard-per-channel") return "unsupported tone curve " + String(request.toneCurve);
-  if (offsetCount(request) > MAXIMUM_GROUPS) return "more than " + MAXIMUM_GROUPS + " query offsets per site";
-  return true;
+  return request.scene === "image-plane" ? IMAGE_PLANE_QUALITY_REASON : sceneToneAndOffsetsReason(request, MAXIMUM_GROUPS);
 }
 
 /** A normalized, symmetric site kernel of radius R for the self-check (a binned Gaussian of width `sigma` sites). */
@@ -836,47 +832,25 @@ function syntheticKernel(radius: number, sigma: number): Float64Array {
  *   each band's site pass over several dispatches.
  */
 async function runQualityConformance(handle: DisplayViewGpuRuntimeHandle, signal: AbortSignal | undefined, defocus: boolean): Promise<true | string> {
-  const runtime = handle as WebGpuRuntime;
-  const nativeWidth = 40, nativeHeight = 28, margin = 1, frameWidth = 38, frameHeight = 26, nodes = [450, 550, 650];
-  const chart = resolvePortableChartScene({ scene: { preset: "checkerboard", squaresAcross: 6 }, aspect: frameHeight / frameWidth });
+  const runtime = handle as WebGpuRuntime, { nativeWidth, nativeHeight, frameWidth, nodes } = CONFORMANCE_FRAME, { chart, scene } = conformanceChart();
   const offsets: { x: number; y: number; weight: number }[] = [];
   for (const [nx, ny] of [[-0.25, -0.25], [0.25, -0.25], [-0.25, 0.25], [0.25, 0.25]] as const) for (const [ax, ay] of [[-0.5, -0.5], [0.5, -0.5], [-0.5, 0.5], [0.5, 0.5]] as const) offsets.push({ x: nx - ax, y: ny - ay, weight: 1 / 16 });
   const disc = defocus ? createDefocusDiscSiteKernel(6.3)! : null;
   const kernels = disc ? { radius: disc.radius, perNode: nodes.map(() => disc.weights) } : { radius: 1, perNode: [syntheticKernel(1, 0.6), syntheticKernel(1, 0.7), syntheticKernel(1, 0.8)] };
-  const signalInput: DisplayViewExpectedSignalInput = { nativeWidth, nativeHeight, outputWidth: frameWidth, wavelengthsNm: nodes,
-    electronsPerRadiance: defocus ? [Float64Array.of(9000, 30000, 4000), Float64Array.of(6000, 42000, 9000), Float64Array.of(30000, 9000, 3000)] :
-      [Float64Array.of(900, 3000, 400), Float64Array.of(600, 4200, 900), Float64Array.of(3000, 900, 300)], offsets, kernels,
-    scene: { kind: "materials", materialAt: (u, v) => chart.materialAt(u, v), materials: chart.materials.map((m) => ({ neutral: m.kind === "neutral" ? m.reflectance : 0.5 })), whiteRadiance: Float64Array.of(0.5, 0.9, 0.7) },
-    channelAt: (x, y) => ((y & 1) === 0 ? ((x & 1) === 0 ? 0 : 1) : ((x & 1) === 0 ? 1 : 2)) };
-  const readout = { perElectron: defocus ? 1 / 40000 : 1 / 4000, darkElectrons: 0.07, constantVariance: 2.5e-7 };
-  const bilinear = bilinearKernels();
-  const setup: DisplayViewSetup = { frameWidth, frameHeight, margin, nativeWidth, nativeHeight, viewWidth: 13, viewHeight: 9, region: { x: 0, y: 0, width: 13, height: 9 },
-    samplesPerAxis: 16, reachSites: 5 + (disc ? disc.radius : 0), bitDepth: 8, seed: 479, signal: createDisplayViewExpectedSignal(signalInput), readout: [readout, readout, readout], demosaic: bilinear,
-    ...(defocus ? {} : { candidates: [0, 1, 2, 3].map((p) => ahdCandidateKernels(p % 2, Math.floor(p / 2))),
-      ahdCorrection: { labMatrix: [[0.4124, 0.3576, 0.1805], [0.2126, 0.7152, 0.0722], [0.0193, 0.1192, 0.9505]].map((row) => row.map((v, c) => v * [1.1, 1, 1.6][c]!)), drawsPerState: 64, thresholdVariance: 1e-4 } }),
-    gains: [1.1, 1, 1.6], clipLevel: 1, matrix: [[3.08, -1.54, -0.54], [-0.92, 1.88, 0.045], [0.053, -0.2, 1.15]], toneCurve: "identity",
-    yieldControl: async () => undefined, checkAbort: () => { if (signal?.aborted) throw abortedError(); } };
+  const signalInput: DisplayViewExpectedSignalInput = { nativeWidth, nativeHeight, outputWidth: frameWidth, wavelengthsNm: nodes, electronsPerRadiance: conformanceResponses(defocus ? 1 : 0.1),
+    offsets, kernels, scene, channelAt: conformanceChannelAt };
+  const setup = conformanceSetup(signalInput, { perElectron: defocus ? 1 / 40000 : 1 / 4000, darkElectrons: 0.07, constantVariance: 2.5e-7 }, 479, 5 + (disc ? disc.radius : 0), signal,
+    defocus ? {} : { candidates: [0, 1, 2, 3].map((p) => ahdCandidateKernels(p % 2, Math.floor(p / 2))),
+      ahdCorrection: { labMatrix: [[0.4124, 0.3576, 0.1805], [0.2126, 0.7152, 0.0722], [0.0193, 0.1192, 0.9505]].map((row) => row.map((v, c) => v * [1.1, 1, 1.6][c]!)), drawsPerState: 64, thresholdVariance: 1e-4 } });
   const reference = await renderDisplayView(setup);
-  const abort = new AbortController(), onAbort = (): void => abort.abort();
-  signal?.addEventListener("abort", onAbort, { once: true });
-  try {
-    if (signal?.aborted) abort.abort();
+  return await withConformanceAbort(runtime, signal, async (abort, pipelines) => {
     const gather = defocus ? { blockedSum: true, maximumSiteTapsPerDispatch: 64 * 4 * (2 * 3 + 2) ** 2 } : {};
-    const gpu = await renderDisplayViewQualityOnGpu(runtime, 1 << 20, { setup, signalInput, material: chartPresetMaterialModule(chart), ...gather }, abort, undefined,
-      (label, code) => createComputePipeline(runtime, label, code, abort.signal));
+    const gpu = await renderDisplayViewQualityOnGpu(runtime, 1 << 20, { setup, signalInput, material: chartPresetMaterialModule(chart), ...gather }, abort, undefined, pipelines);
     if (!defocus && (gpu.ahdCorrectedPixelCount === 0 || reference.ahdCorrectedPixelCount === 0)) return "the self-check did not exercise the low-signal correction.";
     if (defocus && (!gpu.blockedSum || gpu.stageMilliseconds.siteDispatches < 2)) return "the self-check did not exercise the blocked site sum over several dispatches.";
-    for (let i = 0; i < reference.expected.length; i++) {
-      const p = Math.floor(i / 3), e0 = reference.expected[i]!, e1 = gpu.expected[i]!, v0 = reference.noiseStd[i]! * reference.noiseStd[i]!, v1 = gpu.noiseStd[i]! * gpu.noiseStd[i]!;
-      const expectedLimit = gpu.expectedValueBound.relative * Math.abs(e0) + gpu.expectedValueAbsoluteBound[p]!, varianceLimit = gpu.varianceBound.relative * v0 + gpu.varianceAbsoluteBound[p]!;
-      if (!(Math.abs(e1 - e0) <= expectedLimit)) return "component " + i + ": expected value " + e1 + " differs from the reference " + e0 + " by more than the a-priori bound " + expectedLimit + ".";
-      if (!(Math.abs(v1 - v0) <= varianceLimit)) return "component " + i + ": variance " + v1 + " differs from the reference " + v0 + " by more than the a-priori bound " + varianceLimit + ".";
-      if (Math.abs(gpu.samples[i]! - reference.samples[i]!) > 1) return "component " + i + ": sample " + gpu.samples[i] + " differs from the reference " + reference.samples[i] + " by more than one code.";
-    }
-    // #533: the saturated-pixel count is the reference's, bit for bit (the light squares sit at the white clip).
-    if (gpu.saturatedPixelCount !== reference.saturatedPixelCount) return "the saturated-pixel count " + gpu.saturatedPixelCount + " differs from the reference's " + reference.saturatedPixelCount + ".";
-    return true;
-  } finally { signal?.removeEventListener("abort", onAbort); }
+    // #533: the verdict includes the saturated-pixel count (the light squares sit at the white clip).
+    return conformanceVerdict(reference, gpu);
+  });
 }
 /** #479's self-check (see `runQualityConformance`). */
 export const DISPLAY_VIEW_QUALITY_CONFORMANCE_CASE: DisplayViewGpuConformanceCase = { id: "display-view:quality:checkerboard-13x9-diffraction-ahd",
@@ -901,6 +875,11 @@ export function bilinearKernels(): DisplayViewKernelTap[][][] {
  * carries the expected signal's input and the chart; a setup without it, a coarse view or a frame the kernels do not cover
  * throws `unsupported-on-backend`), and throws `aborted` and `device-lost` as the accelerator's operations do.
  */
+/**
+ * #581: an image-plane print renders on the GPU in the Speed path only (its module is the Speed kernel's `scene_value`); a request
+ * that needs the Quality passes (diffraction, defocus, AHD, a stratified footprint) runs on the CPU reference.
+ */
+const IMAGE_PLANE_QUALITY_REASON = "image-plane prints render on the GPU in the Speed path only";
 /** #564: the GPU refusal of a defocus kernel above the direct radius (the CPU convolves it by runs). */
 const LARGE_DEFOCUS_REASON = "a defocus kernel radius above 64 sites (convolved by runs on the CPU, #564) is not on the GPU";
 
@@ -937,7 +916,9 @@ export function createDisplayViewGpuRenderer(runtime: WebGpuRuntime, options: { 
         const signalInput = setup.gpu.signalInput;
         let result: DisplayViewRenderResult & { expectedValueBound: ImageKernelRelativeErrorBound; execution: ImageKernelExecution };
         let material: DisplayViewGpuMaterialModule;
-        if (displayViewSpeedGpuUnsupportedReason(setup, signalInput) === null) {
+        const speedReason = displayViewSpeedGpuUnsupportedReason(setup, signalInput);
+        if ((signalInput.scene as { image?: unknown }).image && speedReason !== null) throw new ImageKernelExecutionError("unsupported-on-backend", IMAGE_PLANE_QUALITY_REASON + ": " + speedReason);
+        if (speedReason === null) {
           material = await modules.moduleFor(setup.gpu, abort.signal);
           result = await renderDisplayViewSpeedOnGpu(runtime, bandBytes, { setup, signalInput, material }, abort, options.yieldControl, source);
         } else {

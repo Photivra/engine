@@ -87,8 +87,8 @@ export function emulateDisplayViewSpeed(pw: Uint32Array, pf: Float32Array, aux: 
     for (let o = 0; o < offsets!; o++) {
       const base = DISPLAY_VIEW_AUX.offsets + 4 * o;
       const u = f(f(fx + aux[base]!) * scaleU), v = f(f(fy + aux[base + 1]!) * scaleV);
-      const m = material.material(u, v);
-      sum = f(sum + f(aux[base + 2]! * table[m * 3 + c]!));
+      const value = material.value ? material.value(u, v, c) : table[material.material(u, v) * 3 + c]!;
+      sum = f(sum + f(aux[base + 2]! * value));
     }
     return sum;
   };

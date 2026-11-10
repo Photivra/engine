@@ -1,5 +1,28 @@
 # Changelog
 
+## Unreleased
+
+### 2.21.0 part: #581 Image-plane scene: a photo as a flat print in front of the camera
+
+- **New: `prepareImagePlaneScenes()` and the `image-plane` scene.** Call `await prepareImagePlaneScenes()` once: it loads the scene's module and lattice data (a lazy chunk of 13,633 B gzip, and 3,523 B more for the GPU module; +17,597 B in all on the worker shape). A bundle that never imports it carries none of those bytes. Then the scene is (`{ kind: "image-plane", sceneId, image: { width, height, channels: 3 | 4, encoding: "srgb-8" | "srgb-16" | "linear-srgb", data }, paper?, interpolation?, maximumPixels? }`, types `ImagePlaneScene`, `ImagePlaneImage`). An sRGB (8- or 16-bit) or linear image prints as a flat matte Lambertian print on the scene plane, lit by the request's illuminant. It is taken by `simulateCapture`, `simulateIdealReference`, `simulateDisplayView` and `prepareDisplayView`, with exposure, noise, diffraction, defocus of the plane, distortion and vignetting acting on it. `createPlanarSceneRadianceProvider` refuses it with a clear message. See docs/IMAGE_PLANE.md.
+- **Method (owner decision 2026-11-09): the print reflectance lattice.**
+  - **Lattice.** 5 × 5 × 5 nodes at the sRGB code values 0, ¼, ½, ¾ and 1. The nodes are flat on the neutral axis; the other 120 are Photivra's own fits of Burns' LHTSS method (arXiv:1710.05732 v5, pp. 24–26, implemented from the equations; the CC BY-SA code is not used). They are fitted against CIE D65 and the CIE 1931 2° observer at fit time only (`scripts/fit-image-plane-lattice.mjs`) and stored at 10 nm over 380–780 nm in 16 bits.
+  - **Per pixel.** Each pixel is the trilinear interpolation of its cell's spectra in linear sRGB, then the paper: ρ = black + (white − black)·ρ. Defaults white 0.90 and black 0.01, labeled assumptions.
+  - **Round trip under D65** (the fit's check over a 17³ grid of sRGB codes): ΔE00 at most 6.4·10⁻⁴. Every spectrum stays in [0, 1].
+  - **Under other lights** the print is a metamer. The spread is measured on synthetic spectra and recorded in the docs, and the result is labeled an approximation (assumption `scene.imagePlane`).
+  - **No `fast` option.** The lattice is piecewise linear in RGB, so the tabulated paths stay exact.
+- **Input and placement.** Alpha is composited over the paper. Linear samples outside [0, 1] are clipped and counted (`scene.parameters.clippedSampleCount`, assumption `scene.image.clippedSamples`). The image is limited to 24 MP by default, raised with `maximumPixels`. Reconstruction is bilinear by default (the pixels' spectra, so bilinear in linear sRGB under D65), with `nearest` as the option. `chartSize` sets the print, its height defaulting to the image's aspect; without it the print is fitted inside the frame on the 18 % surround. The scene digest covers the image's SHA-256.
+- **GPU.** `prepareDisplayView` renders photos on WebGPU in the Speed path through a new image-plane module (`src/gpu/display-view-image-material-module.ts`).
+  - The Speed kernel's site lookup became `scene_value(p, c)`. Material modules get a table adapter with the same value; the chart bytes are unchanged, and the SwiftShader display-view suite passes all 64 tests.
+  - The module carries a bound of ten extra roundings (γ_74 instead of γ_64 for that module), and it checks itself on a device's first photo.
+  - Photo requests that need the Quality passes (diffraction, defocus, AHD) run the CPU reference, labeled `unsupported-on-backend`.
+  - Measured against the CPU reference on the emulation and SwiftShader: ΔE2000 at most 4.2·10⁻⁵, every component inside its bound, samples within one code.
+- **Size.** The app's capture-worker shape measures 351,979 B gzip (2.19.0: 351,775 B; limit 352,000 B, not raised).
+  - The scene's module, its lattice data and its GPU module load only through `prepareImagePlaneScenes()`, which that shape does not import.
+  - The +204 B is the dispatch left in the facade and the GPU display view, after sharing the GPU self-checks' fixtures and support checks (−76 B in the GPU chunk).
+- **Root exports:** 3 new (`prepareImagePlaneScenes`, types `ImagePlaneScene`, `ImagePlaneImage`).
+- **Tests:** `test/image-plane.test.ts`, `test/display-view-image-gpu.test.ts` (float32 emulation), image-plane cases in `test/webgpu/display-view.webgpu.ts` (SwiftShader).
+
 ## 2.19.0 — unreleased (prepared November 9, 2026)
 
 A minor release of six issues: exposure time with an ND filter and generic ND presets (#578), the program line within the lens's f-number range (#583), very fast `lens.ideal` ranges (#585), developing a capture rendered in parts (#571), lens corrections in the development (#570) and the sampled-PSF orientation fix (#566). See the [2.19.0 release record](https://github.com/Photivra/photivra/blob/main/docs/RELEASE_2_19_0.md).

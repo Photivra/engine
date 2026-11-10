@@ -1312,6 +1312,14 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 | [`DisplayViewCorrectionStateSet`](api/facade-display-view.md#displayviewcorrectionstateset) | Type |
 | [`serializeDisplayViewCorrectionStates`](api/facade-display-view.md#serializedisplayviewcorrectionstates) | Runtime |
 
+## facade/image-plane-enable.ts
+
+[Detailed contracts](api/facade-image-plane-enable.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/facade/image-plane-enable.ts)
+
+| Export | Kind |
+| --- | --- |
+| [`prepareImagePlaneScenes`](api/facade-image-plane-enable.md#prepareimageplanescenes) | Runtime |
+
 ## facade/scene-radiance.ts
 
 [Detailed contracts](api/facade-scene-radiance.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/facade/scene-radiance.ts)
@@ -1326,6 +1334,8 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 | [`CHART_SIZE_DEFAULT_SURROUND_REFLECTANCE`](api/facade-scene-radiance.md#chart_size_default_surround_reflectance) | Runtime |
 | [`ChartSizeOption`](api/facade-scene-radiance.md#chartsizeoption) | Type |
 | [`createPlanarSceneRadianceProvider`](api/facade-scene-radiance.md#createplanarsceneradianceprovider) | Runtime |
+| [`ImagePlaneImage`](api/facade-scene-radiance.md#imageplaneimage) | Type |
+| [`ImagePlaneScene`](api/facade-scene-radiance.md#imageplanescene) | Type |
 | [`PHOTOPIC_MAXIMUM_LUMINOUS_EFFICACY_LM_PER_W`](api/facade-scene-radiance.md#photopic_maximum_luminous_efficacy_lm_per_w) | Runtime |
 | [`PlanarSceneRadianceProvider`](api/facade-scene-radiance.md#planarsceneradianceprovider) | Type |
 | [`resolveCaptureIlluminant`](api/facade-scene-radiance.md#resolvecaptureilluminant) | Runtime |

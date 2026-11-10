@@ -1417,7 +1417,8 @@ AHD placement decision). Both render every engine chart (the 2.0 presets, compos
 and, since #491, declared `material-layers` scenes: a chart under shape-mask layers, the form in which an application gives a
 printed label (`resolveChartMaterialLayers`; `scene: { kind: "material-layers", sceneId, chart, layers }` is accepted by
 `prepareDisplayView`, `simulateDisplayView` and `simulateCapture` directly and evaluated exactly as its `callerScene`, so a CPU
-render is byte-identical to the caller-scene form). A request it does not cover (a caller scene function, a coarser view than the
+render is byte-identical to the caller-scene form). Since #581 the Speed path also renders `image-plane` prints (a photo as a
+print; [Image-plane scene, On the GPU](IMAGE_PLANE.md#on-the-gpu)), whose Quality requests stay on the CPU. A request it does not cover (a caller scene function, a coarser view than the
 exact area mean, a footprint above 6 real pixels per axis) runs the CPU reference labelled `unsupported-on-backend` (or fails with
 it). A GPU render of the Quality options inherits the estimate's [known limit](#known-limit-quality-noise-at-small-footprints)
 (#379): it agrees with the CPU reference within its bound, not with the real AHD capture any better than the reference does.

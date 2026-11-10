@@ -59,6 +59,8 @@ export interface ExpectedSignalSetupInput {
   /** Material scenes: the materials (neutral reflectances, or radiance per wavelength), the material lookup and the white radiance. */
   materials?: { list: readonly ({ neutral: number } | { radiance: (nm: number) => number })[]; materialAt(u: number, v: number): number; whiteRadiance(nm: number): number } | undefined;
   radianceAt(u: number, v: number, nm: number): number;
+  /** #581, image-plane scenes: the provider's `imageSignalScene` (the radiance and the direct path's sums from the print's node tables). */
+  imageSignalScene?: ((wavelengths: readonly number[], perNode: readonly Float64Array[]) => DisplayViewScene) | undefined;
   imagingArea: { widthMm: number; heightMm: number };
   focalLengthMm: number;
   focusDistanceM: number;
@@ -108,7 +110,7 @@ export function buildExpectedSignalInput(input: ExpectedSignalSetupInput): { off
   const scene: DisplayViewScene = materials ? { kind: "materials", materialAt: materials.materialAt,
     materials: materials.list.map((m) => ("neutral" in m ? { neutral: m.neutral } : { radiance: Float64Array.from(wavelengths, (nm) => m.radiance(nm)) })),
     whiteRadiance: Float64Array.from(wavelengths, (nm) => materials.whiteRadiance(nm)) } :
-    { kind: "radiance", radianceAt: input.radianceAt };
+    input.imageSignalScene ? input.imageSignalScene(wavelengths, input.perNode) : { kind: "radiance", radianceAt: input.radianceAt };
   const channelIndex = (x: number, y: number): number => ((y & 1) === 0 ? ((x & 1) === 0 ? 0 : 1) : ((x & 1) === 0 ? 1 : 2));
   // Without diffraction the environment's own query arithmetic (native-environment-lean.ts `geometry`, then the rectilinear
   // still-camera ray and the planar provider's plane point), so boundary points resolve as in the capture.
@@ -126,4 +128,3 @@ export function buildExpectedSignalInput(input: ExpectedSignalSetupInput): { off
   return { offsets, signalInput: { nativeWidth: input.nativeWidth, nativeHeight: input.nativeHeight, outputWidth: input.width, wavelengthsNm: wavelengths,
     electronsPerRadiance: input.perNode, offsets, ...(kernels ? { kernels } : { queryPoint }), ...(largeDefocus ? { largeKernel: largeDefocus } : {}), scene, channelAt: channelIndex } };
 }
-

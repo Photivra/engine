@@ -101,9 +101,14 @@ describe("display-view bundles", () => {
 // ideal lens and its f-number range, #569's fixes).
 // 2.19.0 measured 351,775 B: the five parts merged measured 353,811 B (#570's lens corrections +1,735 B), and sharing the
 // parsers' duplicated private field checks (docs/RELEASE_2_19_0.md, "Sizes") saved 2,036 B. The limit is unchanged.
+// 2.21.0 part #581 measured 351,979 B (+204 B): the image-plane scene's module and lattice data load only through
+// prepareImagePlaneScenes(), which this shape does not import (its own lazy chunk is about 13 KB gzip); the dispatch it leaves in
+// the facade and the GPU display view is paid for by sharing the self-checks' fixtures and support checks (-76 B in the GPU chunk).
 describe("the app's capture-worker shape", () => {
   it("keeps every chunk of the app's engine imports within its measured size", async () => {
     const worker = await bundle(["NATIVE_RAW_LIMITS", "prepareDisplayView", "serializeSimulatedCaptureDngFromParts", "simulateCapture", "simulateIdealReference"]);
     expect(worker.totalGzip).toBeLessThanOrEqual(352_000);
+    // #581: the image-plane scene's module, lattice data and GPU module are reachable only through prepareImagePlaneScenes().
+    expect([...worker.lazyModules, ...worker.modules.keys()].filter((id) => /image-plane(?!-support)/u.test(id))).toEqual([]);
   }, testTimeout(120_000));
 });

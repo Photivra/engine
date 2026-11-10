@@ -7807,6 +7807,27 @@ const sky = getColorPatchSet().patches.find((p) => p.patchId === "sky-blue");
 console.log(tungsten.scene.parameters.patchSet, sky?.code, sky?.name, sky?.reference.cielabD65); // "PV-M1", "Midday Sky"
 ```
 
+### A photo as a print (2.21)
+
+An [image-plane scene](https://github.com/Photivra/photivra/blob/main/docs/IMAGE_PLANE.md) (#581) puts an sRGB (8- or 16-bit) or linear image in front of the camera as a flat matte
+print. Each pixel becomes a smooth reflectance spectrum in [0, 1] that gives back its sRGB under CIE D65. Under other lights the print's colors are an approximation.
+`chartSize` sets the print's size (its height follows the image). Without it the print is fitted inside the frame. `prepareDisplayView` renders it on WebGPU in the Speed path.
+`prepareImagePlaneScenes()` loads the scene's module first, so bundles that never print a photo do not carry it.
+
+```ts
+import { prepareImagePlaneScenes, simulateCapture } from "@photivra/engine";
+
+await prepareImagePlaneScenes(); // loads the scene's module (a lazy chunk) once
+const width = 2, height = 1, data = Uint8Array.of(255, 255, 255, 30, 60, 200);
+const print = await simulateCapture({
+  scene: { kind: "image-plane", sceneId: "snapshot", image: { width, height, channels: 3, encoding: "srgb-8", data }, paper: { whiteReflectance: 0.9 } },
+  chartSize: { widthM: 0.1 },
+  subjectDistanceM: 0.4,
+  output: { width: 32, height: 16 }
+});
+console.log(print.scene.parameters.encoding, print.assumptions.some((a) => a.id === "scene.imagePlane")); // "srgb-8", true
+```
+
 In `aperture-priority` mode, the shutter comes from the meter (CIPA DC-004 relations S = 10/H and H = 0.65·L·t/N²) through
 `resolveAperturePriorityExposureMode()`.
 `exposure.standardExposureDeviationStops` is the exposure used minus the standard exposure for the metered luminance L, in stops,

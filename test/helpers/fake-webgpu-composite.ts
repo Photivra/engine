@@ -524,3 +524,60 @@ function wgslRound(x: number): number {
   if (Math.abs(x - Math.trunc(x)) === 0.5) return 2 * Math.round(x / 2);
   return Math.round(x);
 }
+
+/**
+ * #581: the display view's image-plane module (src/gpu/display-view-image-material-module.ts) on the fake device: the lattice
+ * recovery, the print's edge in bound arithmetic, the pixel coordinates in double-float32, the bilinear weights (the smaller of
+ * f and 1 − f rounded once, the other as 1 minus it) or the nearest pixel, and the flag on a moved weight. Line by line the WGSL.
+ */
+export function createImagePlaneDisplayViewMaterialEmulator(photoWords: Uint32Array, photoFloats: Float32Array, signal: Float32Array, surround: Float32Array,
+  latticeWords: Uint32Array, latticeFloats: Float32Array, offsets: Float32Array, path: ChartCompositeProductPath = "dekker", model: CompositeArithmetic = NEAREST_COMPOSITE_ARITHMETIC):
+  { material(u: number, v: number): number; value(u: number, v: number, c: number): number; readonly flagged: boolean; reset(): void } {
+  const L = DISPLAY_VIEW_LATTICE, count = latticeWords[L.offsets]!, tolerance = latticeFloats[L.tolerance]!;
+  const scaleU: Dw = [latticeFloats[L.scaleUHi]!, latticeFloats[L.scaleULo]!], scaleV: Dw = [latticeFloats[L.scaleVHi]!, latticeFloats[L.scaleVLo]!];
+  const k: Dw = [latticeFloats[L.chartKHi]!, latticeFloats[L.chartKLo]!];
+  const width = photoWords[0]!, height = photoWords[1]!, nearest = photoWords[2] !== 0;
+  const halfW: Dw = [photoFloats[4]!, photoFloats[5]!], halfH: Dw = [photoFloats[6]!, photoFloats[7]!], aspect: Dw = [photoFloats[8]!, photoFloats[9]!];
+  const slackX = photoFloats[10]!, slackY = photoFloats[11]!;
+  let uncertain = false;
+  const K = opsOf(model), D = doubleWord(K, path), { bd, bx, babs, le, bfloor } = boundsOf(model, K, () => { uncertain = true; });
+  const latticePoint = (p: number, scale: Dw, axis: 0 | 1): Dw => {
+    const rough = f(p / scale[0]);
+    let best = f(3e38), site = 0, cHi = 0, cLo = 0;
+    for (let o = 0; o < count; o++) {
+      const hi = offsets[4 * o + 2 * axis]!, lo = offsets[4 * o + 2 * axis + 1]!, d = K.sub(rough, hi), n = wgslRound(d), r = Math.abs(K.sub(d, n));
+      if (r < best) { best = r; site = n; cHi = hi; cLo = lo; }
+    }
+    if (!(best <= tolerance)) uncertain = true;
+    return D.dMul(D.dAdd([site, 0], [cHi, cLo]), scale);
+  };
+  const slackOf = (x: Dw, slack: number): number => K.add(f(4 * f(DW * K.add(Math.abs(x[0]), 1))), f(4 * slack));
+  const axis = (s: Dw, n: number): [number, number, number, number] => {
+    let f0 = Math.floor(s[0]);
+    if (f0 === s[0] && s[1] < 0) f0 = f(f0 - 1);
+    const frac = D.dSub(s, [f0, 0]), comp = D.dSub([K.add(f0, 1), 0], s);
+    let w0: number, w1: number;
+    if (frac[0] <= 0.5) { w1 = K.add(frac[0], frac[1]); w0 = K.sub(1, w1); } else { w0 = K.add(comp[0], comp[1]); w1 = K.sub(1, w0); }
+    const last = n - 1;
+    return [Math.min(last, Math.max(0, f0)), Math.min(last, Math.max(0, f0 + 1)), w0, w1];
+  };
+  const at = (i: number, j: number, c: number): number => signal[(j * width + i) * 3 + c]!;
+  const value = (pu: number, pv: number, c: number): number => {
+    const u = D.dMul(latticePoint(pu, scaleU, 0), k), v = D.dMul(latticePoint(pv, scaleV, 1), k);
+    if (!(le(babs(bd(u)), bx(1)) && le(babs(bd(v)), bd(aspect)))) return surround[c]!;
+    const x = D.dMul(D.dAdd(u, [1, 0]), halfW), y = D.dMul(D.dSub(aspect, v), halfH);
+    if (nearest) {
+      const lastX = width - 1, lastY = height - 1;
+      const i = Math.min(lastX, Math.max(0, bfloor(bd(x), 1, lastX))), j = Math.min(lastY, Math.max(0, bfloor(bd(y), 1, lastY)));
+      return at(i, j, c);
+    }
+    const [i0, i1, x0, x1] = axis(D.dSub(x, [0.5, 0]), width), [j0, j1, y0, y1] = axis(D.dSub(y, [0.5, 0]), height);
+    const s00 = at(i0, j0, c), s10 = at(i1, j0, c), s01 = at(i0, j1, c), s11 = at(i1, j1, c);
+    const result = K.add(K.v(K.mul(y0, K.add(K.mul(x0, s00), K.mul(x1, s10)))), K.v(K.mul(y1, K.add(K.mul(x0, s01), K.mul(x1, s11)))));
+    const largest = Math.max(Math.max(s00, s10), Math.max(s01, s11));
+    const moved = f(f(f(slackOf(x, slackX) + slackOf(y, slackY)) * 2) * largest);
+    if (!(moved <= f(E * result))) uncertain = true;
+    return result;
+  };
+  return { material: () => 0, value, get flagged(): boolean { return uncertain; }, reset(): void { uncertain = false; } };
+}

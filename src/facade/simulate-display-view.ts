@@ -234,7 +234,8 @@ function prepareView(context: DisplayViewRunContext): PreparedViewParts {
       list: [...sceneMaterials.map((m, index) => (m.kind === "neutral" ? { neutral: m.reflectance } : { radiance: (nm: number): number => viewProvider.materialRadiance!(index, nm) })),
         ...(chartSize ? [{ neutral: chartSize.surroundReflectance }] : [])],
       whiteRadiance: (nm: number): number => viewIrradianceScale * viewIlluminant.shape.evaluate(nm) / Math.PI } : undefined,
-    radianceAt: viewProvider.radianceAt, imagingArea, focalLengthMm, focusDistanceM, subjectDistanceM, metresPerFrameUnit, caller: "simulateDisplayView" });
+    radianceAt: viewProvider.radianceAt, imageSignalScene: viewProvider.imageSignalScene,
+    imagingArea, focalLengthMm, focusDistanceM, subjectDistanceM, metresPerFrameUnit, caller: "simulateDisplayView" });
   const kernels = signalInput.kernels, largeDefocus = signalInput.largeKernel;
   // Readout moments per channel: normalized value k·e with variance k²·(e + σ_read²) plus the ADC quantization (1/12 code², times d² before a digital gain d).
   // #556: a development exposure push G multiplies the normalized value before the per-site clip at white: k → G·k and the constant variance → G²·(…).
@@ -351,7 +352,7 @@ function prepareView(context: DisplayViewRunContext): PreparedViewParts {
       image: { width: viewRegion.width, height: viewRegion.height, format: v.format, samples: rendered.samples },
       view: { width: v.width, height: v.height, frameWidth: width, frameHeight: height, scaleX, scaleY, samplesPerAxis: v.samplesPerAxis, ...(v.region ? { region: { ...v.region } } : {}) },
       exposure: { mode, settings: { fNumber, shutterSeconds, iso: resolvedIso }, ev100: Math.log2(fNumber ** 2 / shutterSeconds), ...isoReport, standardExposureDeviationStops, standardExposureIlluminanceLux, greyCardDeviationStops, metering },
-      scene: { sceneId: chart ? "chart:" + chart.preset : callerScene!.sceneId, preset: scenePreset, parameters: chart ? chart.parameters : {},
+      scene: { sceneId: chart ? "chart:" + chart.preset : callerScene!.sceneId, preset: scenePreset, parameters: chart ? chart.parameters : (callerScene as { parameters?: Readonly<Record<string, unknown>> }).parameters ?? {},
         illuminant: { id: illuminant.id, description: illuminant.description, illuminanceLux }, distanceM: subjectDistanceM,
         framedWidthM: 2 * metresPerFrameUnit, framedHeightM: 2 * metresPerFrameUnit * aspect, ...(chartReport ? { chart: chartReport } : {}), sourceSha256 },
       diagnostics: { sampleCount: rendered.sampleCount, siteEvaluations: rendered.siteCount, sceneLookups: signal.lookups, detailPixelCount: rendered.detailPixelCount,

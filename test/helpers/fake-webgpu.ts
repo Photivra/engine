@@ -12,7 +12,7 @@ import { emulateDisplayViewQualityLattice, emulateDisplayViewQualityPixels, emul
 
 const f = Math.fround;
 // #477: the composite chart kernel and its probe are emulated in their own module.
-import { createCompositeDisplayViewMaterialEmulator, emulateComposite, NEAREST_COMPOSITE_ARITHMETIC, type CompositeArithmetic } from "./fake-webgpu-composite.js";
+import { createCompositeDisplayViewMaterialEmulator, createImagePlaneDisplayViewMaterialEmulator, emulateComposite, NEAREST_COMPOSITE_ARITHMETIC, type CompositeArithmetic } from "./fake-webgpu-composite.js";
 import { chartCompositeMaterialModuleId } from "../../src/gpu/display-view-composite-material-module.js";
 import type { ChartCompositeProductPath } from "../../src/gpu/wgsl-chart-composite-kernel.js";
 
@@ -239,6 +239,10 @@ function emulate(label: string, buffers: Map<number, FakeBuffer>, arithmetic: Em
     emulateChart(u32(0), f32(0), f32(1), f32(2), f32(3), u32(4), f32(5), u32(6), arithmetic);
   } else if (label === "photivra-temporal-sum") {
     emulateTemporalSum(u32(0), f32(1), buffers.get(2)!.data, f32(3), f32(4));
+  } else if (label === "photivra-display-view-speed:image-plane" || label === "photivra-display-view-speed:image-plane-fma") {
+    // #581: the image-plane module (group 1): the pixel signals at 100, the photo uniform at 101, the lattice uniform at 102, the offsets at 103; the surround is the site table (3).
+    const material = createImagePlaneDisplayViewMaterialEmulator(u32(101), f32(101), f32(100), f32(3), u32(102), f32(102), f32(103), label.endsWith("-fma") ? "fma" : "dekker", composite);
+    emulateDisplayViewSpeed(u32(0), f32(0), f32(1), f32(2), f32(3), f32(4), u32(5), material);
   } else if (compositeModulePath(label, "photivra-display-view-speed")) {
     // #491: the composite material module (group 1): the scene's float records at 100, integer records at 101, the lattice uniform at 102, the offsets at 103.
     const material = createCompositeDisplayViewMaterialEmulator(u32(102), f32(102), f32(103), f32(100), u32(101), compositeModulePath(label, "photivra-display-view-speed")!, composite);

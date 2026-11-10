@@ -45,6 +45,8 @@ import type { DisplayViewGpuSetup } from "../facade/display-view.js";
 import { BUFFER_USAGE, GpuResourceScope, type WebGpuRuntime } from "./webgpu-runtime.js";
 import { DISPLAY_VIEW_GPU_MAXIMUM_OFFSETS } from "./wgsl-display-view-speed-kernel.js";
 import type { DisplayViewGpuMaterialModule } from "./display-view-speed-gpu.js";
+import { imagePlaneSupport } from "../facade/image-plane-support.js";
+import type { DisplayViewImageModules } from "./display-view-image-material-module.js";
 
 type PipelineSource = (label: string, code: string) => Promise<GPUComputePipeline>;
 
@@ -68,23 +70,30 @@ export const DISPLAY_VIEW_LATTICE = /* @__PURE__ */ Object.freeze({ scaleUHi: 0,
  * defines `material_at(p: vec2<f32>)` (see the module comment). The constants E and SLACK come from the kernel's preamble. `path`
  * is the double-word product path the device's probe chose (default Dekker's).
  */
-export function chartCompositeMaterialWgsl(path: ChartCompositeProductPath = "dekker"): string {
+/** The composite kernel's text renamed for a display-view module: its flag is `material_uncertain`, its barrier word `lattice.zero`. */
+function renameForDisplayView(code: string): string {
+  return code.replace(/^const SLACK: f32 = [^\n]*\n/mu, "").replace(/\bflagged\b/gu, "material_uncertain").replace(/\bmargin\(/gu, "bmargin(").replace(/\bparams\.zero\b/gu, "lattice.zero");
+}
+/**
+ * #581: the composite kernel's common part (double-float32 with its rounding barrier, the bound arithmetic, `bfloor`) renamed for a
+ * display-view module (shared by the composite and the image-plane modules); the kernel's preamble gives E and SLACK.
+ */
+export function displayViewModuleCommonWgsl(path: ChartCompositeProductPath): string {
   const source = chartCompositeWgsl(path);
-  const commonStart = source.indexOf("const DW: f32"), commonEnd = source.indexOf("struct Params"), bodyStart = source.indexOf("const SEGMENT_BOX"), bodyEnd = source.indexOf("@compute");
-  if (commonStart < 0 || commonEnd < commonStart || bodyStart < commonEnd || bodyEnd < bodyStart) throw new ImageKernelExecutionError("gpu-validation", "The composite chart kernel's material functions were not found.");
-  const rename = (code: string): string => code.replace(/^const SLACK: f32 = [^\n]*\n/mu, "").replace(/\bflagged\b/gu, "material_uncertain").replace(/\bmargin\(/gu, "bmargin(").replace(/\bparams\.zero\b/gu, "lattice.zero");
-  return `${rename(source.slice(commonStart, commonEnd))}
-@group(1) @binding(0) var<storage, read> af: array<f32>;
-@group(1) @binding(1) var<storage, read> ai: array<u32>;
-struct LatticeParams {
+  const commonStart = source.indexOf("const DW: f32"), commonEnd = source.indexOf("struct Params");
+  if (commonStart < 0 || commonEnd < commonStart) throw new ImageKernelExecutionError("gpu-validation", "The composite chart kernel's material functions were not found.");
+  return renameForDisplayView(source.slice(commonStart, commonEnd));
+}
+/** The lattice uniform and the offsets table of a display-view module (@group(1) bindings 2 and 3; `DISPLAY_VIEW_LATTICE`). */
+export const LATTICE_BINDINGS_WGSL = `struct LatticeParams {
   scale_u_hi: f32, scale_u_lo: f32, scale_v_hi: f32, scale_v_lo: f32,
   chart_k_hi: f32, chart_k_lo: f32, chart_aspect: f32, tolerance: f32,
   offsets: u32, placed: u32, surround: u32, zero: u32,
 };
 @group(1) @binding(2) var<uniform> lattice: LatticeParams;
-@group(1) @binding(3) var<storage, read> lattice_offsets: array<vec4<f32>>;
-${rename(source.slice(bodyStart, bodyEnd))}
-// The exact lattice point of one axis from the kernel's p = fl(fl(x + c)·scale): the offset whose constant c puts p/scale
+@group(1) @binding(3) var<storage, read> lattice_offsets: array<vec4<f32>>;`;
+/** The exact lattice point recovery (see the module comment), shared by the composite and the image-plane modules. */
+export const LATTICE_POINT_WGSL = `// The exact lattice point of one axis from the kernel's p = fl(fl(x + c)·scale): the offset whose constant c puts p/scale
 // nearest an integer x, then (x + c)·scale in double-float32 from the exact integer and the float64 constants (hi + lo).
 fn lattice_point(p: f32, scale: D, axis: u32) -> D {
   let rough = p / scale.h;
@@ -100,7 +109,16 @@ fn lattice_point(p: f32, scale: D, axis: u32) -> D {
   }
   if (!(best <= lattice.tolerance)) { material_uncertain = true; }
   return d_mul(d_add(D(site, 0.0), D(c_hi, c_lo)), scale);
-}
+}`;
+export function chartCompositeMaterialWgsl(path: ChartCompositeProductPath = "dekker"): string {
+  const source = chartCompositeWgsl(path), bodyStart = source.indexOf("const SEGMENT_BOX"), bodyEnd = source.indexOf("@compute");
+  if (bodyStart < 0 || bodyEnd < bodyStart) throw new ImageKernelExecutionError("gpu-validation", "The composite chart kernel's material functions were not found.");
+  return `${displayViewModuleCommonWgsl(path)}
+@group(1) @binding(0) var<storage, read> af: array<f32>;
+@group(1) @binding(1) var<storage, read> ai: array<u32>;
+${LATTICE_BINDINGS_WGSL}
+${renameForDisplayView(source.slice(bodyStart, bodyEnd))}
+${LATTICE_POINT_WGSL}
 fn material_at(p: vec2<f32>) -> u32 {
   var u = lattice_point(p.x, D(lattice.scale_u_hi, lattice.scale_u_lo), 0u);
   var v = lattice_point(p.y, D(lattice.scale_v_hi, lattice.scale_v_lo), 1u);
@@ -204,6 +222,9 @@ export interface DisplayViewMaterialModules {
 
 export function createDisplayViewMaterialModules(runtime: WebGpuRuntime, pipelines: PipelineSource): DisplayViewMaterialModules {
   const presets = new WeakMap<ResolvedChartScene, DisplayViewGpuMaterialModule>(), uploads: UploadedRecords[] = [];
+  // #581: image-plane prints (their double-float32 arithmetic is the composite kernel's, so the same probe gates them), through the
+  // module prepareImagePlaneScenes() loaded; created on the first photo.
+  let images: DisplayViewImageModules | undefined;
   let probed: Promise<ChartCompositeProbeRecord> | null = null;
   const wgsl = new Map<ChartCompositeProductPath, string>();
   const probe = (signal: AbortSignal): Promise<ChartCompositeProbeRecord> => {
@@ -224,6 +245,13 @@ export function createDisplayViewMaterialModules(runtime: WebGpuRuntime, pipelin
   };
   return {
     async moduleFor(gpu, signal): Promise<DisplayViewGpuMaterialModule> {
+      if ((gpu.signalInput.scene as { image?: unknown }).image) {
+        const support = imagePlaneSupport();
+        if (!support) throw new ImageKernelExecutionError("unsupported-on-backend", "Image-plane scenes are not enabled.");
+        const record = await probe(signal);
+        images ??= (await support.loadGpuModule()).createDisplayViewImageModules(runtime) as DisplayViewImageModules;
+        return await images.moduleFor(gpu, record.productPath ?? "dekker");
+      }
       const scene = sceneOf(gpu), placement = gpu.placement ?? null, signalInput = gpu.signalInput;
       const tableMaterials = signalInput.scene.kind === "materials" ? signalInput.scene.materials.length : -1;
       if (tableMaterials !== scene.materials.length + (placement ? 1 : 0))
@@ -242,6 +270,6 @@ export function createDisplayViewMaterialModules(runtime: WebGpuRuntime, pipelin
         { binding: 2, kind: "uniform", data: new Uint8Array(lattice.params) }, { binding: 3, kind: "storage", data: lattice.offsets }] };
     },
     get uploadedScenes(): number { return uploads.length; },
-    release(): void { for (const entry of uploads.splice(0)) entry.scope.release(); }
+    release(): void { for (const entry of uploads.splice(0)) entry.scope.release(); images?.release(); }
   };
 }

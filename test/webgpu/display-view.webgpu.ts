@@ -22,6 +22,8 @@ import { resolveChartScene } from "../../src/index.js";
 import { DEFOCUS_GPU_EXTRA, DEFOCUS_GPU_GRID } from "../helpers/display-view-defocus-gpu-fixtures.js";
 import { adapterSkipReason, findChromium, isSoftwareAdapter, openBrowserPage, type BrowserPage, type WebGpuAdapterProbe } from "./chromium.js";
 import { decodeTransport, encodeTransport } from "./codec.js";
+import { IMAGE_PLANE_GPU_CASES } from "../helpers/image-plane-fixtures.js";
+import { prepareImagePlaneScenes } from "../../src/index.js";
 
 const root = fileURLToPath(new URL("../..", import.meta.url));
 const required = process.env.PHOTIVRA_WEBGPU_REQUIRED === "1";
@@ -163,6 +165,36 @@ describe("webgpu-f32 display view (Speed) vs the float64 reference", () => {
   it("the renderer's self-check case passes on the device", async () => {
     if (guard()) return;
     const { outcome } = await call<{ outcome: true | string }>("displayViewConformance", {});
+    expect(outcome).toBe(true);
+  });
+});
+
+// #581: the image-plane module, the same cases as the emulation (test/display-view-image-gpu.test.ts).
+describe("webgpu-f32 display view (Speed): the image-plane module vs the float64 reference", () => {
+  beforeAll(async () => { await prepareImagePlaneScenes(); });
+  it.each(IMAGE_PLANE_GPU_CASES)("image-plane module, %s: inside the a-priori bounds; samples within one code; the #480 thresholds met", async (name, options) => {
+    if (guard()) return;
+    const result = await call<PageResult>("displayViewSpeed", { options, view: SMALL_VIEW });
+    const node = await simulateDisplayViewWithInternals(options, SMALL_VIEW);
+    let browserVersusNode = 0;
+    for (let i = 0; i < node.internals.samples.length; i++) if (result.cpu.samples[i] !== node.internals.samples[i]) browserVersusNode++;
+    const a = compareDisplayViews(result.cpu, result.gpu), { metrics, verdict } = acceptanceOf(SMALL_VIEW.width, SMALL_VIEW.height, result.cpu, result.gpu);
+    expect(result.execution).toMatchObject({ backend: "webgpu-f32", arithmetic: "float32" });
+    expect(a.outsideExpectedBound).toBe(0);
+    expect(a.outsideVarianceBound).toBe(0);
+    expect(a.largestCodeDifference).toBeLessThanOrEqual(1);
+    expect(a.differingSamples).toBeLessThanOrEqual(0.01 * a.pixels * 3);
+    expect(verdict.pass, JSON.stringify(verdict.checks)).toBe(true);
+    expect(Array.from(result.hostRecomputedPixelIndices)).toEqual(Array.from(result.flaggedPixelIndices));
+    expect(result.flaggedPixelIndices.length / a.pixels).toBeLessThanOrEqual(0.1);
+    report.push({ case: name, module: "image-plane", pixels: a.pixels, deltaE2000Maximum: a.deltaEMaximum, deltaE2000Rms: a.deltaERms, sigmaUnitsMaximum: a.sigmaUnitsMaximum,
+      sigmaRelativeMaximum: a.sigmaRelativeMaximum, differingSamples: a.differingSamples, flagged: result.flaggedPixelIndices.length, browserCpuVersusNodeCpuSamples: browserVersusNode,
+      largestExpectedBoundRatio: a.largestExpectedRatio, largestVarianceBoundRatio: a.largestVarianceRatio, softwareAdapterMilliseconds: result.gpuMilliseconds,
+      acceptance: { withinFraction: metrics.withinFraction, maxDeltaE: metrics.maxDeltaE, maxSigma: metrics.maxSigma, maxCode8: metrics.maxCode8, pass: verdict.pass } });
+  });
+  it("the image-plane self-check case passes on the device", async () => {
+    if (guard()) return;
+    const { outcome } = await call<{ outcome: true | string }>("displayViewImagePlaneConformance", {});
     expect(outcome).toBe(true);
   });
 });

@@ -351,7 +351,7 @@ export function emulateTemporalSum(p: Uint32Array, source: Float32Array, nodeDat
 }
 
 /** A float32 emulation of the chart kernel's material classification (`material()` of wgsl-chart-kernel.ts) with its `flagged` state. */
-export interface ChartMaterialEmulator { material(u: number, v: number): number; readonly flagged: boolean; reset(): void }
+export interface ChartMaterialEmulator { material(u: number, v: number): number; readonly flagged: boolean; reset(): void; /** #581: a module's own `scene_value`. */ value?(u: number, v: number, c: number): number }
 /**
  * Mirrors `material()` of CHART_RADIANCE_WGSL on an `EmulationArithmetic`, from the kernel's uniform words (preset and integer
  * constants), floats (f0–f4) and aux table. `safety` is the kernel's SAFETY factor (4 in the chart kernel; 8 in the display view's
