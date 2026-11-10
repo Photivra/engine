@@ -244,8 +244,9 @@ export type SimulateCaptureDemosaic = "bilinear" | "ahd";
 /**
  * `lens.catalogue` as a record (#568): the lens id as `kind` and the `fast` override (see {@link SimulateCaptureOptions.fast}).
  * Fast: the tabulated fast method (#568), and with `lens.defocus` the lens's bokeh without its cat's eye (#567; fast wides and
- * normals only), whose field-varying PSF needs a finer fast grid (measured 2.2–3.4× slower). Exact: the per-site PSF with the
- * cat's eye. Blades and spherical aberration always apply (they cost nothing).
+ * normals only), whose field-varying PSF needs a finer fast grid (measured 2.2–3.4× slower); with camera rotation under
+ * `motion.shutter: "rolling"`, the per-tap PSF points instead of the lattice reading (#588). Exact: the per-site PSF with the
+ * cat's eye, read on the lattice. Blades and spherical aberration always apply (they cost nothing).
  */
 export interface SimulateCaptureLensCatalogueRecord { kind: string; fast?: boolean }
 /** `output.demosaic` as a record (#395): the demosaic and its `fast` override (see {@link SimulateCaptureOptions.fast}). */
@@ -2639,16 +2640,21 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   // site lattice (defocus-image-space-provider.ts). #563: the display view reads the same geometry in any focus (display-view-lens-signal.ts).
   const imageSpaceOptions = [...(lensFieldMapping ? [lensOptions.distortion !== undefined ? (lensOptions.projection !== undefined ? "lens.projection, lens.distortion" : "lens.distortion") : "lens.projection"] : []),
     ...(vignetting ? ["lens.vignetting"] : []), ...(rotating ? ["camera rotation"] : [])];
-  const lensGeometry = (defocusModel !== undefined || displayView || diffractionRadiusOption !== undefined) && imageSpaceOptions.length > 0 ? prepareDefocusImageSpaceGeometry({ focalLengthMm, focusDistanceM,
+  // #565, #588: the in-focus diffraction PSF's and a catalogue lens's PSF quadrature read each tap's source on this lattice (the two are
+  // never combined). With rotation under a rolling shutter (each row has its own instants, so a band per instant, about 1.1–1.2× the
+  // time) that is the option's exact method, and each tap's own point its fast one (lens.diffraction, lens.catalogue).
+  const rollingTaps = !displayView && rotating && shutterKind === "rolling";
+  const rollingFastTaps = rollingTaps && (diffractionRadiusOption !== undefined && resolveFast(diffractionFast, fastTop) || catalogueTaps !== undefined && catalogueFastRequested);
+  const lensGeometry = (defocusModel !== undefined || displayView || diffractionRadiusOption !== undefined || catalogueTaps !== undefined && !rollingFastTaps) && imageSpaceOptions.length > 0 ? prepareDefocusImageSpaceGeometry({ focalLengthMm, focusDistanceM,
     angularVelocityRadPerSec: angular, ...(lensFieldMapping ? { lensMapping: prepareEnvironmentLensFieldMapping(lensFieldMapping) } : {}), ...(vignetting ? { vignetting } : {}) }) : undefined;
   const defocusGeometry = defocusModel !== undefined ? lensGeometry : undefined;
   // #565: the in-focus PSF quadrature reads each tap's source on this lattice; with rotation under a rolling shutter (each row has its own
   // instants, so a band per instant, about 1.2× the time) that is lens.diffraction's exact method, and each tap's own point its fast one.
-  const rollingFastTaps = !displayView && rotating && shutterKind === "rolling" && diffractionRadiusOption !== undefined && lensGeometry !== undefined && resolveFast(diffractionFast, fastTop);
   if (rollingFastTaps) {
-    markFast("lens.diffraction");
-    assume("fast.lens.diffraction", "model", { method: "per-tap-source-points" }, "Fast: under rolling-shutter rotation each PSF tap reads the scene at its own source point, " +
-      "not at its site-lattice point, so a tap exactly on a chart boundary can resolve to the other material (#565); elsewhere the values agree to rounding. The exact method is fast: false.");
+    const catalogueTapsFast = catalogueTaps !== undefined;
+    markFast(catalogueTapsFast ? "lens.catalogue" : "lens.diffraction");
+    assume(catalogueTapsFast ? "fast.lens.catalogue" : "fast.lens.diffraction", "model", { method: "per-tap-source-points" }, "Fast: under rolling-shutter rotation each PSF tap reads the scene at its own source point, " +
+      "not at its site-lattice point, so a tap exactly on a chart boundary can resolve to the other material (#565, #588); elsewhere the values agree to rounding. The exact method is fast: false.");
   }
   const latticeTaps = lensGeometry && !rollingFastTaps;
   // #553: the shaped kernel (on axis) and, with a cat's eye, its field zones; built when the disc is resolved out of focus.
@@ -3124,11 +3130,11 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
       ...(window ? { window } : {}),
       // The environment queries each site at each aperture node minus each split offset (sites, +x right, +y down).
       ...(antiAliasing || boxSamples > 1 ? { queryOffsetsSites } : {}) }) :
-    // #565: the PSF quadrature reads each tap's source at its lattice point (a unit kernel on #548's lattice), so ties resolve as on the lattice.
-    diffraction && latticeTaps ? createDefocusImageSpaceProvider({ base: provider, geometry: lensGeometry, siteKernels: () => UNIT_SITE_KERNEL,
-      kernelRadius: 0, wavelengthsNm: diffraction.profile.axes.wavelengthNm, nativeWidth, nativeHeight, sitePitchMicrometers: pitch, distanceM: subjectDistanceM, metresPerFrameUnit,
-      queryOffsetsSites: [-1, 0, 1].flatMap((k) => queryOffsetsSites.map((o) => ({ x: o.x + k * diffraction.kernelRadiusSamples, y: o.y + k * diffraction.kernelRadiusSamples }))),
-      timesPerBand: temporalSampleCount, ...(window ? { window } : {}) }) : provider;
+    // #565, #588: the PSF quadrature reads each tap's source at its lattice point (a unit kernel on #548's lattice), so ties resolve as on the lattice.
+    (diffraction || catalogueTaps !== undefined) && latticeTaps ? createDefocusImageSpaceProvider({ base: provider, geometry: lensGeometry, siteKernels: () => UNIT_SITE_KERNEL,
+      kernelRadius: 0, wavelengthsNm: diffraction ? diffraction.profile.axes.wavelengthNm : quadratureWavelengths(), nativeWidth, nativeHeight, sitePitchMicrometers: pitch, distanceM: subjectDistanceM, metresPerFrameUnit,
+      queryOffsetsSites: [-1, 0, 1].flatMap((k) => { const r = k * (diffraction ? diffraction.kernelRadiusSamples : catalogueKernelRadius); return queryOffsetsSites.map((o) => ({ x: o.x + r, y: o.y + r })); }),
+      timesPerBand: temporalSampleCount, zeroBeyondHorizon: catalogue?.kind === "fisheye", ...(window ? { window } : {}) }) : provider;
   // Built on first use: a capture that takes the tabulated path (#394 step 2) never queries it, and its kernels cost a setup.
   let rawProviderBuilt: PlanarSceneRadianceProvider | undefined;
   const rawProvider = (): PlanarSceneRadianceProvider => (rawProviderBuilt ??= diffractedProvider(regionNative));

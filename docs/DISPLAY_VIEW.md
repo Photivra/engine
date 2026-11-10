@@ -412,10 +412,11 @@ capture's own site record, its catalogue PSF quadrature, evaluated with the capt
 | Whole 6 µm full frame (6000 × 4000), 300 sites, dead leaves: PV 24 1.8 and PV 16 2.8 wide open, PV 100 Macro at 1:1 f/22, PV 8 fisheye | 94 sites | 0.66 % (test: 1 %) | ≤ 1.2e-4 (test: 3e-4) |
 | All 30 lenses at their widest and narrowest f-number at their close focus, 12 µm full frame, 12 sites each | 47 sites | below 1 % (test) | |
 
-- *Ties on chart boundaries.* On the Siemens star in a symmetric frame, lattice source points that fall exactly on a spoke
-  through the frame centre round as the lattice does, while the capture's quadrature forms each tap's point from its own site
-  and can resolve it to the other material. (2.20.0 fixed this for `lens.diffraction`, [above](#lens-projection-distortion-vignetting-and-rotation),
-  [#565](https://github.com/Photivra/photivra/issues/565); the catalogue PSF quadrature keeps it.) Dead leaves and radiance scenes have no such ties, so the table uses them.
+- *Ties on chart boundaries.* Lattice source points that fall exactly on a chart boundary (a Siemens star's spokes through the
+  frame centre) round as the lattice does in the view and, since 2.21.0, in the capture's quadrature too, which reads each tap at
+  its lattice point ([#588](https://github.com/Photivra/photivra/issues/588), as [#565](https://github.com/Photivra/photivra/issues/565)
+  does for `lens.diffraction`; [Generic lens catalogue](LENS_CATALOGUE.md)), so both resolve a tie to the same material. The table
+  uses dead leaves and radiance scenes, which have no such ties.
 - *Against the box-downsized capture:* a slanted edge through *PV 24 1.8* wide open (6 µm, 192 × 128 shown at 24 × 16)
   within the rectilinear test's 0.6-code RMS and 3-code maximum.
 - Regions are byte-identical to the whole view, and prepared renders (also with `gpu: "auto"`) to `simulateDisplayView`.

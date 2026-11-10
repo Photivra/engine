@@ -172,6 +172,11 @@ export interface DefocusImageSpaceProviderInput {
   largeKernel?: LargeDefocusKernel;
   /** #553: a field-varying kernel by zones (the cat's eye of lens.defocus), gathered instead of `siteKernels`, the same at every node. */
   fieldZones?: SiteKernelFieldZones;
+  /**
+   * #588, catalogue fisheyes (with the base provider's own `zeroBeyondHorizon`): a lattice point whose ray is at or beyond 90°
+   * sees no scene (zero radiance), and a query in such a direction gets the base provider's zero, instead of failing.
+   */
+  zeroBeyondHorizon?: boolean;
 }
 
 /** Internal (not exported from the package): the base provider with the defocus disc applied in image space (#548). */
@@ -199,11 +204,35 @@ export function createDefocusImageSpaceProvider(input: DefocusImageSpaceProvider
   const zonedGather = input.fieldZones ? createZonedGather(input.fieldZones, R, gridWidth, W, H, M) : undefined;
   const sharedKernel = !large && (zonedGather !== undefined || kernels.every((kernel) => kernel === kernels[0]));
   const scale = input.metresPerFrameUnit, distance = input.distanceM;
-  const materialAt = base.chartMaterialAt?.bind(base), materialRadiance = base.materialRadiance?.bind(base);
+  const materialAt = base.chartMaterialAt?.bind(base), materialRadiance = base.materialRadiance?.bind(base), zeroBeyond = input.zeroBeyondHorizon === true;
   const now = (): number => globalThis.performance?.now() ?? Date.now();
   // Lattice point (li, lj) of shift s, as a native sensor point in mm (+Y down): site centre plus the shift.
   const xMmOf = (li: number, s: { x: number }): number => (li - M + 0.5 + s.x - W / 2) * mmPerSite;
   const yMmOf = (lj: number, s: { y: number }): number => (lj - M + 0.5 + s.y - H / 2) * mmPerSite;
+  // Lattice point k's field factor and plane point (or material) from its sensor point; #588: beyond the horizon it keeps factor 0
+  // (a zero sample at the plane's origin), and such a point is never queried (evaluateRadiance).
+  function mapInto(k: number, xMm: number, yMm: number, time: number, factor: Float64Array, u: Float64Array, v: Float64Array, material: Int32Array | undefined): void {
+    const look = geometry.lookOf(xMm, yMm, time);
+    if (!(look.z > 0)) { if (zeroBeyond) return; throw new InvalidConfigurationError("lens.defocus: a lattice point's ray does not point toward the scene plane."); }
+    // The base provider's own plane-point arithmetic for the outgoing direction −look.
+    const t = distance / look.z;
+    factor[k] = look.factor; u[k] = look.x * t / scale; v[k] = look.y * t / scale;
+    if (material) material[k] = materialAt!(u[k]!, v[k]!);
+  }
+  // The samples F·L at one spectral node (a point with factor 0 gives 0).
+  function samplesOf(nm: number, factor: Float64Array, u: Float64Array, v: Float64Array, material: Int32Array | undefined): Float64Array {
+    const size = factor.length, samples = new Float64Array(size);
+    if (material) {
+      const radiance = new Map<number, number>();
+      for (let k = 0; k < size; k++) {
+        const m = material[k]!;
+        let value = radiance.get(m);
+        if (value === undefined) { value = materialRadiance!(m, nm); radiance.set(m, value); }
+        samples[k] = factor[k]! * value;
+      }
+    } else for (let k = 0; k < size; k++) samples[k] = factor[k]! * base.radianceAt(u[k]!, v[k]!, nm);
+    return samples;
+  }
   // Bands per time (LRU over (time, band)): values[shift][node] holds G_t / F at the band's own lattice points.
   const cache = new Map<string, Float64Array[][]>();
   const capacity = CACHED_BANDS * Math.max(1, input.timesPerBand ?? 1);
@@ -226,14 +255,7 @@ export function createDefocusImageSpaceProvider(input: DefocusImageSpaceProvider
       const material = materialAt && materialRadiance ? new Int32Array(size) : undefined;
       for (let gy = 0; gy < gridHeight; gy++) {
         const yMm = yMmOf(y0 + gy - R, shift);
-        for (let gx = 0; gx < gridWidth; gx++) {
-          const k = gy * gridWidth + gx, look = geometry.lookOf(xMmOf(lx0 + gx - R, shift), yMm, time);
-          if (!(look.z > 0)) throw new InvalidConfigurationError("lens.defocus: a lattice point's ray does not point toward the scene plane.");
-          // The base provider's own plane-point arithmetic for the outgoing direction −look.
-          const t = distance / look.z;
-          factor[k] = look.factor; u[k] = look.x * t / scale; v[k] = look.y * t / scale;
-          if (material) material[k] = materialAt!(u[k]!, v[k]!);
-        }
+        for (let gx = 0; gx < gridWidth; gx++) mapInto(gy * gridWidth + gx, xMmOf(lx0 + gx - R, shift), yMm, time, factor, u, v, material);
       }
       // The band's own lattice points' factors, to answer each query with G / F.
       const own = new Float64Array(rows * NW);
@@ -261,16 +283,7 @@ export function createDefocusImageSpaceProvider(input: DefocusImageSpaceProvider
         }
       }
       return wavelengthsNm.map((nm, w) => {
-        const samples = new Float64Array(size);
-        if (material) {
-          const radiance = new Map<number, number>();
-          for (let k = 0; k < size; k++) {
-            const m = material[k]!;
-            let value = radiance.get(m);
-            if (value === undefined) { value = materialRadiance!(m, nm); radiance.set(m, value); }
-            samples[k] = factor[k]! * value;
-          }
-        } else for (let k = 0; k < size; k++) samples[k] = factor[k]! * base.radianceAt(u[k]!, v[k]!, nm);
+        const samples = samplesOf(nm, factor, u, v, material);
         const gathered = zonedGather ? zonedGather(samples, lx0, y0, NW, rows) : gatherInterior(samples, taps[w]!, gridWidth, NW, rows, R);
         for (let k = 0; k < gathered.length; k++) gathered[k] = gathered[k]! / own[k]!;
         return gathered;
@@ -295,9 +308,9 @@ export function createDefocusImageSpaceProvider(input: DefocusImageSpaceProvider
     }
     return undefined;
   }
-  function valueOf(key: number, t: number, nm: number): number {
+  function valueOf(key: number | undefined, t: number, nm: number): number {
     const w = index.get(nm);
-    if (w === undefined) throw new InvalidConfigurationError("Defocus query is off the sensor site lattice; the image-space convolution does not apply.");
+    if (w === undefined || key === undefined) throw new InvalidConfigurationError("Defocus query is off the sensor site lattice; the image-space convolution does not apply.");
     const li = key % LW, rest = (key - li) / LW, lj = rest % LH, s = (rest - lj) / LH;
     if (large) return largeValue(s, t, w, li, lj);
     return band(Math.floor((lj - ly0) / BAND_ROWS), t)[s]![w]![((lj - ly0) % BAND_ROWS) * NW + li - lx0]!;
@@ -316,35 +329,17 @@ export function createDefocusImageSpaceProvider(input: DefocusImageSpaceProvider
       const lattice = createLargeDefocusNodeLattice({ kernel: large!, wavelengthsNm, capacityBytes: LARGE_DEFOCUS_CACHE_BYTES / largeLatticeCount, ...(input.onConvolution ? { onTile: input.onConvolution } : {}),
         source: (x0, y0, width, height) => {
           const size = width * height, factor = new Float64Array(size), u = new Float64Array(size), v = new Float64Array(size);
-          const material = materialAt && materialRadiance ? new Int32Array(size) : undefined, beyond = new Uint8Array(size);
+          const material = materialAt && materialRadiance ? new Int32Array(size) : undefined;
           for (let y = 0; y < height; y++) {
             const yMm = yMmOf(y0 + y, shift);
             for (let x = 0; x < width; x++) {
-              const k = y * width + x;
-              // A fixed tile's source reaches past the lattice: points beyond its reach feed no queried value, so they are 0 and never
-              // mapped (the lens profiles are checked only up to the reach).
-              if (x0 + x < -reach || x0 + x >= LW + reach || y0 + y < -reach || y0 + y >= LH + reach) { beyond[k] = 1; continue; }
-              const look = geometry.lookOf(xMmOf(x0 + x, shift), yMm, time);
-              if (!(look.z > 0)) throw new InvalidConfigurationError("lens.defocus: a lattice point's ray does not point toward the scene plane.");
-              const t = distance / look.z;
-              factor[k] = look.factor; u[k] = look.x * t / scale; v[k] = look.y * t / scale;
-              if (material) material[k] = materialAt!(u[k]!, v[k]!);
+              // A fixed tile's source reaches past the lattice: points beyond its reach feed no queried value, so they keep factor 0
+              // (sample 0) and are never mapped (the lens profiles are checked only up to the reach).
+              if (x0 + x < -reach || x0 + x >= LW + reach || y0 + y < -reach || y0 + y >= LH + reach) continue;
+              mapInto(y * width + x, xMmOf(x0 + x, shift), yMm, time, factor, u, v, material);
             }
           }
-          return (node: number): Float64Array => {
-            const nm = wavelengthsNm[node]!, samples = new Float64Array(size);
-            if (material) {
-              const radiance = new Map<number, number>();
-              for (let k = 0; k < size; k++) {
-                if (beyond[k]) continue;
-                const m = material[k]!;
-                let value = radiance.get(m);
-                if (value === undefined) { value = materialRadiance!(m, nm); radiance.set(m, value); }
-                samples[k] = factor[k]! * value;
-              }
-            } else for (let k = 0; k < size; k++) if (!beyond[k]) samples[k] = factor[k]! * base.radianceAt(u[k]!, v[k]!, nm);
-            return samples;
-          };
+          return (node: number): Float64Array => samplesOf(wavelengthsNm[node]!, factor, u, v, material);
         } });
       entry = { lattice, own: new Map() };
       largeLattices.set(key, entry);
@@ -363,19 +358,23 @@ export function createDefocusImageSpaceProvider(input: DefocusImageSpaceProvider
     return entry.lattice.valueAt(w, li, lj) / own[(lj - ty * T) * T + li - tx * T]!;
   }
   function blurredAt(look: { x: number; y: number; z: number }, time: number, nm: number): number {
-    const t = geometry.timeDependent ? time : 0, key = keyOf(look, t);
-    if (key === undefined) throw new InvalidConfigurationError("Defocus query is off the sensor site lattice; the image-space convolution does not apply.");
-    return valueOf(key, t, nm);
+    const t = geometry.timeDependent ? time : 0;
+    return valueOf(keyOf(look, t), t, nm);
   }
-  const baseEvaluate = base.evaluateRadiance;
+  const baseEvaluate = base.evaluateRadiance, internal = isInternalSceneRadianceEvaluator(baseEvaluate);
   const evaluateRadiance = (request: Readonly<SceneRadianceEvaluationRequest>): SceneRadianceEvaluationResult => {
     const result = baseEvaluate.call(base, request), o = (request.target as { outgoingDirectionUnitVector: { x: number; y: number; z: number } }).outgoingDirectionUnitVector;
-    return { ...result, spectralRadianceWattsPerSquareMeterSteradianNanometer: blurredAt({ x: -o.x, y: -o.y, z: -o.z }, request.timeSecondsFromExposureStart, request.wavelengthNanometers) };
+    // #588: at or beyond the horizon the base provider's own zero.
+    if (zeroBeyond && !(o.z < 0)) return result;
+    const radiance = blurredAt({ x: -o.x, y: -o.y, z: -o.z }, request.timeSecondsFromExposureStart, request.wavelengthNanometers);
+    // #588: an engine-built base returns a new result object per call, so its radiance is replaced in place (no copy per query).
+    if (internal) { (result as { spectralRadianceWattsPerSquareMeterSteradianNanometer: number }).spectralRadianceWattsPerSquareMeterSteradianNanometer = radiance; return result; }
+    return { ...result, spectralRadianceWattsPerSquareMeterSteradianNanometer: radiance };
   };
   // The result is the base result with only its radiance replaced, so an engine-built base evaluator keeps its mark. Its radiance is
   // a pure function of the lattice key (and, with rotation, the request time) and the wavelength, so the lean executor may read it by
   // key, as for the diffraction provider.
-  if (isInternalSceneRadianceEvaluator(baseEvaluate)) {
+  if (internal) {
     markInternalSceneRadianceEvaluator(evaluateRadiance);
     // With rotation the key also carries the request time, as an index into the distinct times seen (one per temporal midpoint).
     const times: number[] = [], timeIndex = new Map<number, number>(), latticeKeys = shifts.length * LH * LW;

@@ -323,6 +323,7 @@
   "test/simulate-capture-integration.test.ts": 3672,
   "test/simulate-capture-lens-catalogue-bokeh.test.ts": 254864,
   "test/simulate-capture-lens-catalogue-fast.test.ts": 129263,
+  "test/simulate-capture-lens-catalogue-ties.test.ts": 23408,
   "test/simulate-capture-lens-catalogue.test.ts": 708009,
   "test/simulate-capture-lens-corrections.test.ts": 21956,
   "test/simulate-capture-optics.test.ts": 29452,
