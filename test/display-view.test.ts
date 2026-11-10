@@ -256,7 +256,8 @@ describe("simulateDisplayView", () => {
       const diagnostics: Partial<typeof result.diagnostics> = { ...result.diagnostics }, hash = createHash("sha256");
       delete diagnostics.timingsMs;
       // #395: diagnostics.fast is additive; it is checked on its own and left out of the recorded digests.
-      expect(diagnostics.fast?.assurance).toBe("engine-reference");
+      // 2.20.0: the view's AHD low-signal correction is its fast method (the view's default), so AHD views report the approximation.
+      expect(diagnostics.fast?.assurance).toBe(diagnostics.fast?.applied["output.demosaic.ahd"] ? "approximation-with-a-priori-bound" : "engine-reference");
       delete diagnostics.fast;
       // #533: diagnostics.highlight is additive too (it changes no sample); it is checked on its own and left out of the digests.
       expect(diagnostics.highlight).toEqual({ saturatedPixelCount: internals.saturatedPixelCount, statistic: "expected-value" });

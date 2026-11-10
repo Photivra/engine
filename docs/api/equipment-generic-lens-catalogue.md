@@ -132,7 +132,7 @@ export interface GenericLensCharacterValues {
   distortionMagnitude: number;
   /** Corner fall-off in stops that stays when stopped down (natural vignetting). */
   naturalVignettingStops: number;
-  /** Extra corner fall-off in stops at the widest aperture (optical vignetting); gone two stops down. */
+  /** Extra corner fall-off in stops at the widest aperture (optical vignetting); gone four stops down (N = 4·N0). */
   opticalVignettingStops: number;
   /** Veiling glare: the fraction of the image's mean irradiance spread as a uniform veil. */
   veilingGlareFraction: number;

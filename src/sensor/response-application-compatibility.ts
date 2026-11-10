@@ -30,8 +30,8 @@ import type {
   SensorSpatioSpectralIrradianceReduction
 } from "./spatio-spectral-reduction.js";
 import { requireInputObject, requireInputKeys, rejectUnknownVariantFields, requireConfigRecord as requireRecord, requireConfigString as requireNonEmptyString, requireConfigPositiveFinite as requirePositiveFinite } from "../core/record-validation.js";
+import { approximatelyEqual } from "../core/shared-helpers.js";
 
-const AREA_TOLERANCE = 1e-10;
 
 export type SensorResponseSourcePlane =
   | "sensor-package-incident"
@@ -449,20 +449,6 @@ function requiredSourcePlane(
     : "site-incident";
 }
 
-function approximatelyEqual(
-  actual: number,
-  expected: number
-): boolean {
-  const scale = Math.max(
-    1,
-    Math.abs(actual),
-    Math.abs(expected)
-  );
-  return (
-    Math.abs(actual - expected) <=
-    AREA_TOLERANCE * scale
-  );
-}
 
 export function conditionsMatch(
   reference:

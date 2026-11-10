@@ -33,3 +33,8 @@ export function sameSite(a: { x: number; y: number }, b: { x: number; y: number 
 export function fullRect(raster: { pixelWidth: number; pixelHeight: number }): { x: number; y: number; width: number; height: number } {
   return { x: 0, y: 0, width: raster.pixelWidth, height: raster.pixelHeight };
 }
+
+/** |actual − expected| ≤ tolerance · max(1, |actual|, |expected|): the parsers' shared consistency check (default 1e-10). */
+export function approximatelyEqual(actual: number, expected: number, tolerance = 1e-10): boolean {
+  return Math.abs(actual - expected) <= tolerance * Math.max(1, Math.abs(actual), Math.abs(expected));
+}

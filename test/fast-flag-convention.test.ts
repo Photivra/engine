@@ -15,7 +15,9 @@ import { scaledTimeout } from "./helpers/test-timeout.js";
 /** Options with a fast method. */
 const WITH_FAST_METHOD: readonly SimulateCaptureFastOption[] = ["lens.catalogue"];
 type Options = Record<string, Record<string, unknown> | unknown>;
-const base: Options = { scene: { preset: "siemens-star" }, output: { width: 32, height: 24 } };
+// 2.20.0: fast: false here, so a test's own fast overrides an exact request (the format default, fast for sRGB, is tested at the end
+// and in fast-methods-registry.test.ts).
+const base: Options = { scene: { preset: "siemens-star" }, output: { width: 32, height: 24 }, fast: false };
 /** Two-level merge: `extra`'s groups (lens, sensor, output) are merged into the base's. */
 const request = (extra: Options): SimulateCaptureOptions => {
   const out: Options = { ...base };
@@ -42,22 +44,26 @@ describe("exact-or-fast flag convention (#395)", () => {
     expect(Object.keys(FORMS).sort()).toEqual([...SIMULATE_CAPTURE_FAST_OPTIONS].sort());
   });
 
-  it("reports exact and nothing requested by default", async () => {
+  it("reports exact and nothing requested with fast: false, and the format's default without it (2.20.0)", async () => {
     const result = await simulateCapture(request({}));
-    expect(result.diagnostics.fast).toEqual({ requested: false, applied: {}, assurance: "engine-reference" });
+    expect(result.diagnostics.fast).toEqual({ requested: false, defaultedFrom: "request", applied: {}, assurance: "engine-reference" });
+    const { fast: _omitted, ...withoutFast } = base;
+    expect((await simulateCapture(withoutFast as unknown as SimulateCaptureOptions)).diagnostics.fast).toEqual({ requested: true, defaultedFrom: "format", applied: {}, assurance: "engine-reference" });
+    expect((await simulateCapture({ ...withoutFast, output: { width: 32, height: 24, format: "png" } } as unknown as SimulateCaptureOptions)).diagnostics.fast)
+      .toEqual({ requested: false, defaultedFrom: "format", applied: {}, assurance: "engine-reference" });
   });
 
   it("accepts the top-level flag and each option's record flag, runs exact unless the option has a fast method, and reports what ran", async () => {
     for (const option of SIMULATE_CAPTURE_FAST_OPTIONS) {
       const form = FORMS[option], hasFast = WITH_FAST_METHOD.includes(option);
       const exact = await simulateCapture(request(form.shorthand));
-      expect(exact.diagnostics.fast).toEqual({ requested: false, applied: { [option]: false }, assurance: "engine-reference" });
+      expect(exact.diagnostics.fast).toEqual({ requested: false, defaultedFrom: "request", applied: { [option]: false }, assurance: "engine-reference" });
       // [request, requested, effective flag of the option]
       for (const [extra, requested, effective] of [[{ ...form.shorthand, fast: true }, true, true], [form.record(true), true, true], [form.record(false), false, false],
         [{ ...form.record(false), fast: true }, true, false], [{ ...form.record(true), fast: false }, true, true]] as [Options, boolean, boolean][]) {
         const result = await simulateCapture(request(extra)), ran = hasFast && effective;
         if (!ran) expect(samples(result), option).toEqual(samples(exact));
-        expect(result.diagnostics.fast, option).toEqual({ requested, applied: { [option]: ran }, assurance: ran ? "approximation-with-a-priori-bound" : "engine-reference" });
+        expect(result.diagnostics.fast, option).toEqual({ requested, defaultedFrom: "request", applied: { [option]: ran }, assurance: ran ? "approximation-with-a-priori-bound" : "engine-reference" });
       }
     }
   }, scaledTimeout(300_000));
@@ -103,7 +109,7 @@ describe("exact-or-fast flag convention (#395)", () => {
     const execution = { gpu: "off", backend: "cpu-reference", requestedBackend: "cpu-reference", fallbackReason: null, assurance: "engine-reference", fast: false };
     expect(exact.diagnostics.fast).toMatchObject({ requested: false, applied: { "lens.diffraction": false }, assurance: "engine-reference", execution });
     expect(fast.diagnostics.fast).toMatchObject({ requested: true, applied: { "lens.diffraction": false }, assurance: "engine-reference", execution });
-    expect(Object.keys(exact.diagnostics.fast).sort()).toEqual(["applied", "assurance", "execution", "requested"]);
+    expect(Object.keys(exact.diagnostics.fast).sort()).toEqual(["applied", "assurance", "defaultedFrom", "execution", "requested"]);
   }, scaledTimeout(120_000));
 
   it("names every fast-capable option in docs/API_STYLE.md", () => {

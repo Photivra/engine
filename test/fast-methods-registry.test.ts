@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 import { readdirSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { SIMULATE_CAPTURE_FAST_OPTIONS, prepareDisplayView, simulateCapture, simulateDisplayView, type SimulateCaptureOptions } from "../src/index.js";
+import { SIMULATE_CAPTURE_FAST_OPTIONS, prepareDisplayView, serializeSimulatedCaptureDngFromParts, simulateCapture, simulateDisplayView, type SimulateCaptureOptions } from "../src/index.js";
 import { FAST_METHODS } from "../src/facade/fast-methods.js";
 import { fastFormatDefault, resolveFast } from "../src/facade/fast-resolution.js";
 import { scaledTimeout } from "./helpers/test-timeout.js";
@@ -73,4 +73,58 @@ describe("the fast-method registry (2.20.0)", () => {
     expect((await exactView.render({ width: 4, height: 4 })).diagnostics.fast.execution.gpu).toBe("off");
     await exactView.dispose();
   }, scaledTimeout(120_000));
+
+  it("saves JPEG at quantization step 1 by default (full quality, 2.20.0) and keeps step 2 on request", async () => {
+    const options: SimulateCaptureOptions = { scene: { preset: "checkerboard" }, output: { width: 16, height: 16, format: "jpeg" } };
+    const full = await simulateCapture(options), old = await simulateCapture({ ...options, output: { ...options.output, jpegQuantizationStep: 2 } });
+    expect(full.assumptions.find((a) => a.id === "output.jpegQuantizationStep")?.value).toBe(1);
+    expect(full.image.jpeg!.length).toBeGreaterThan(old.image.jpeg!.length);
+  }, scaledTimeout(60_000));
+
+  it("refuses fast parts in a join that resolves to exact, and takes them in one that resolves to fast", async () => {
+    const options: SimulateCaptureOptions = { scene: { preset: "siemens-star" }, output: { width: 16, height: 12, format: "dng" }, sensor: { spectralStepNanometers: 100 } };
+    const parts = [];
+    for (const y of [0, 6]) {
+      const r = await simulateCapture({ ...options, output: { width: 16, height: 12, region: { x: 0, y, width: 16, height: 6 } } });
+      parts.push({ raw: r.raw, region: r.region!, fast: Object.values(r.diagnostics.fast.applied).includes(true) });
+    }
+    const exactBytes = (await serializeSimulatedCaptureDngFromParts(options, parts)).bytes;
+    expect(exactBytes).toEqual((await simulateCapture(options)).image.dng);
+    const flagged = parts.map((p) => ({ ...p, fast: true }));
+    await expect(serializeSimulatedCaptureDngFromParts(options, flagged)).rejects.toThrow(/Part 0: a fast method rendered it/u);
+    expect((await serializeSimulatedCaptureDngFromParts({ ...options, fast: true }, flagged)).bytes).toEqual(exactBytes);
+  }, scaledTimeout(60_000));
+
+  it("gives the display view's AHD low-signal correction an exact method (H3)", async () => {
+    const options: SimulateCaptureOptions = { scene: { preset: "uniform" }, output: { width: 16, height: 12, demosaic: "ahd" }, sensor: { spectralStepNanometers: 100 } };
+    const value = (r: { assumptions: readonly { id: string; value: unknown }[] }): unknown => r.assumptions.find((a) => a.id === "view.demosaic")!.value;
+    const fast = await simulateDisplayView(options, { width: 4, height: 3 }), exact = await simulateDisplayView({ ...options, fast: false }, { width: 4, height: 3 });
+    expect(value(fast)).toMatchObject({ correctionDrawsPerState: 2048, correctionThresholdLinearStd: 0.01 });
+    expect(value(exact)).toMatchObject({ correctionDrawsPerState: 8192, correctionThresholdLinearStd: 0 });
+    expect(fast.diagnostics.fast).toMatchObject({ applied: { "output.demosaic.ahd": true }, assurance: "approximation-with-a-priori-bound" });
+    expect(exact.diagnostics.fast).toMatchObject({ applied: { "output.demosaic.ahd": false }, assurance: "engine-reference" });
+  }, scaledTimeout(60_000));
+
+  it("gives the display view's sampling of uniform pixels an exact method (H2)", async () => {
+    const options: SimulateCaptureOptions = { scene: { preset: "siemens-star" }, output: { width: 96, height: 64 }, sensor: { spectralStepNanometers: 100 } };
+    const value = (r: { assumptions: readonly { id: string; value: unknown }[] }): unknown => r.assumptions.find((a) => a.id === "view.estimation")!.value;
+    const fast = await simulateDisplayView(options, { width: 12, height: 8, samplesPerAxis: 8 });
+    const exact = await simulateDisplayView({ ...options, fast: false }, { width: 12, height: 8, samplesPerAxis: 8 });
+    expect(value(fast)).toMatchObject({ samplesPerAxis: 8, uniformSamplesPerAxis: 2 });
+    expect(value(exact)).toMatchObject({ samplesPerAxis: 8, uniformSamplesPerAxis: 8 });
+    expect(exact.diagnostics.sampleCount).toBeGreaterThan(fast.diagnostics.sampleCount);
+  }, scaledTimeout(60_000));
+
+  it("gives the display view's catalogue PSF zones an exact method, one site per zone (H1)", async () => {
+    const options: SimulateCaptureOptions = { scene: { preset: "uniform" }, output: { width: 66, height: 44 }, lens: { catalogue: "pv-50-1.8" },
+      sensor: { pixelPitchMicrometers: 36000 / 66, spectralStepNanometers: 100 } };
+    const view = { width: 33, height: 22, region: { x: 16, y: 11, width: 1, height: 1 } };
+    const zones = (r: { assumptions: readonly { id: string; value: unknown }[] }): unknown => (r.assumptions.find((a) => a.id === "view.lensPsf")!.value as { zoneSites: number }).zoneSites;
+    const fast = await simulateDisplayView(options, view);
+    expect(zones(fast)).toBe(2);
+    expect(fast.diagnostics.fast.applied).toMatchObject({ "lens.catalogue": true });
+    const exact = await simulateDisplayView({ ...options, fast: false }, view);
+    expect(zones(exact)).toBe(1);
+    expect(exact.diagnostics.fast.applied).toMatchObject({ "lens.catalogue": false });
+  }, scaledTimeout(60_000));
 });

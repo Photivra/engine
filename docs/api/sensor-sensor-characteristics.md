@@ -97,8 +97,9 @@ export interface SimulateCaptureSensorReport {
    * #535: the expected signal-to-noise ratio of an 18 % Lambertian grey patch under the request's illuminant and illuminance
    * at the capture's exposure, ISO and sensor, on the green channel next to the optical axis (no vignetting, PSF or motion).
    * `snr` = S/σ_total and `snrDecibels` = 20·log₁₀(snr). `clipped`: S is at or above the white level, where the RAW clips and
-   * the figure no longer describes the image.
+   * the figure no longer describes the image. Computed only when the request resolves to exact (`fast: false`, the default for
+   * DNG, JPEG and PNG exports; omitted for a fast request).
    */
-  midGrey: { reflectance: 0.18; channel: "green"; signalElectrons: number; noiseElectrons: SimulateCaptureNoiseComponents; snr: number; snrDecibels: number; clipped: boolean };
+  midGrey?: { reflectance: 0.18; channel: "green"; signalElectrons: number; noiseElectrons: SimulateCaptureNoiseComponents; snr: number; snrDecibels: number; clipped: boolean };
 }
 ```

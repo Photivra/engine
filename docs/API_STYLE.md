@@ -211,8 +211,13 @@ have a fast method, a measured and bounded approximation of it. One flag style s
 - **One Boolean, one name.** The choice is always `fast?: boolean`: `false` or omitted is exact, `true` is fast. No option
   uses "quality", "fidelity", "accuracy", "precise", "approximate" or "mode" for this choice (`fidelity` and `mode` already
   name other things).
-- **One top-level default.** `fast` on the `simulateCapture` request sets every listed option. `simulateDisplayView` and
-  `prepareDisplayView` take the same request, so the flag is set there once.
+- **One top-level default, one resolver** (2.20.0, owner rule). `fast` on the `simulateCapture` request sets every listed
+  option. `simulateDisplayView` and `prepareDisplayView` take the same request, so the flag is set there once. Every choice
+  resolves the same way, in `resolveFast` and `fastFormatDefault` (`src/facade/fast-resolution.ts`): the option record's
+  `fast`, else the top-level `fast`, else the format default. The format default is fast for `output.format` `"srgb-8"` and
+  `"srgb-16"` and for the display view, and exact (full quality) for the exports `"dng"`, `"jpeg"` and `"png"` and for
+  `simulateIdealReference`. No option keeps a default of its own. The app's calculator always passes `fast: false`, so every
+  engine function it uses must offer its exact mode and say so in its docs.
 - **The override sits inside the option.** Each listed option has a shorthand string (its model with defaults) and a record
   `{ kind: <model>; fast?: boolean; …parameters }`. The record's `fast` overrides the top-level flag for that option only.
   There is no separate overrides map.
@@ -223,11 +228,23 @@ have a fast method, a measured and bounded approximation of it. One flag style s
 - **The first fast method** (#568, 2.18.0): `lens.catalogue` (shorthand: the lens id; record `{ kind: <lens id>, fast }`) blends
   the lens's PSF over a field grid and tabulates each site's expected signal (docs/LENS_CATALOGUE.md, "Fast method"). It runs for
   a still camera with site-center queries and a chart or material scene; otherwise the exact method runs and `applied` says
-  `false`. The other listed options have no fast method yet.
-- **One report** on every capture and display view: `diagnostics.fast = { requested, applied, assurance }`. `requested` is true
-  when `fast: true` was given anywhere; `applied` names each listed option that ran, `true` where its fast method ran;
+  `false`. The registry below lists the fast methods added since.
+- **One report** on every capture and display view: `diagnostics.fast = { requested, defaultedFrom, applied, assurance }`.
+  `requested` is the resolved top-level value (or true when a record sets `fast: true`); `defaultedFrom` is `"request"` when the
+  request gave `fast` and `"format"` when the format default chose it; `applied` names each listed option that ran, `true` where its fast method ran;
   `assurance` is `engine-reference` when everything ran exact and `approximation-with-a-priori-bound` otherwise. A fast method
   that runs also adds an assumption `fast.<path>` naming its method and its bound.
+- **One registry, enforced** (2.20.0). `FAST_METHODS` in `src/facade/fast-methods.ts` lists every speed-versus-accuracy
+  choice: its id, the record path that takes the override (or the top-level flag only), whether a fast method exists
+  (`fast-and-exact`) or the record takes `fast` with none yet (`exact-only`), where it runs, its resolver call and how it is
+  reported (a `diagnostics.fast.applied` key, a `fast.<path>` or other assumption, or a result field). In 2.20.0: `lens.catalogue`'s
+  field grid (#568), its cat's eye (#567: fast leaves it out) and the display view's PSF zones (H1); `lens.diffraction`'s per-tap
+  points under rolling-shutter rotation (#565); the display view's AHD low-signal correction (H3: 2048 draws and a 0.01 threshold
+  fast, 8192 draws and threshold 0 exact) and its quarter sampling of uniform pixels (H2); `prepareDisplayView`'s `gpu`
+  (`"auto"` fast, `"off"` exact; an explicit value wins); and `result.sensor.midGrey` (#535, computed only on exact requests). The
+  records of `lens.diffraction`, `sensor.antiAliasing`, `sensor.pixelAperture` and `output.demosaic` (in captures) take `fast`
+  with no fast method yet. `test/fast-methods-registry.test.ts` fails when a record accepts `fast` without an entry, an entry
+  lacks its resolver or report, or a format default leaves the rule. **Every new fast method adds its entry.**
 - **The same words on WebGPU.** The image-kernel execution record carries `fast` (`false` for `cpu-reference`, `true` for
   `webgpu-f32`) beside `assurance`; `backend` still names where the work runs.
 - **When a fast method needs no flag.** A faster method that is byte-identical to the exact one, or differs only by rounding

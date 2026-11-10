@@ -53,12 +53,16 @@ export interface PrintImageMm { width: number; height: number }
 
 The noise of one pixel of the printed raster, for the tone the caller cares about (for example mid-gray).
 `shot-and-read-noise` uses the engine's noise model (`calculateSignalToNoise`: Poisson shot noise plus RMS read noise);
-`pixel-snr` is a per-pixel signal-to-noise ratio the caller already has.
+`pixel-snr` is a per-pixel signal-to-noise ratio the caller already has. `capture-noise-figure` (2.20.0) takes a capture's own
+mid-gray noise figure (#535: `result.sensor.midGrey` of a `simulateCapture` with `fast: false`), whose SNR S/σ_total counts photon
+shot, read, dark-current, quantization and any fixed-pattern noise; it is one sensor site's, so it applies as the pixel SNR when one
+printed pixel is one capture pixel. A clipped figure (the patch at white) is refused.
 
 ```ts
 export type PrintNoiseInput =
   | { kind: "shot-and-read-noise"; signalElectrons: number; readNoiseElectrons: number }
-  | { kind: "pixel-snr"; snrLinear: number };
+  | { kind: "pixel-snr"; snrLinear: number }
+  | { kind: "capture-noise-figure"; midGrey: NonNullable<SimulateCaptureSensorReport["midGrey"]> };
 ```
 
 ## PrintSharpCleanCriterion

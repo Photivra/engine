@@ -59,13 +59,15 @@ describe("simulateCapture without the 2.1 options is byte-identical to 2.0.0", (
     const dng = (await simulateCapture({ scene: { preset: "point-grid" }, output: { width: 12, height: 12, format: "dng" }, exposure: { mode: "program" } })).image.dng!;
     expect(Buffer.from(dng).includes(Buffer.from("Photivra " + ENGINE_API_VERSION + "\0"))).toBe(true);
   });
+  // 2.20.0: the JPEG default step is 1; the 2.0.0 bytes are kept with the old step 2 given explicitly (its assumption list, and so its
+  // metadata digest, then lacks the default-step entry).
   const cases: Record<string, [SimulateCaptureOptions, string, string]> = {
     edge: [{ scene: { preset: "slanted-edge" }, output: { width: 24, height: 16 } },
       "0cce9455f8a541eed2ebe6f652556d7ea0d10601f2a35f8529768311e8ec0acf", "7b1a17b64caf4b4f6cfcccabcee01bbc2224402681debb68626f17e61e13339a"],
     star: [{ scene: { preset: "siemens-star" }, output: { width: 20, height: 20, format: "png" }, lens: { fNumber: 4 } },
       "775575f46b684c0eb44196270893632995c8ae7ca9400e878efcf2e29c9a7f1b", "4d64c6fd94fd2cb58e7f2fbc255db8442f091cd73624aa95f8aa97375232e12a"],
-    jpeg: [{ scene: { preset: "checkerboard" }, output: { width: 16, height: 16, format: "jpeg", whiteBalance: "auto" } },
-      "afeb03932b61751778c2ac285ce8245cd6feec4d0c18ffe7732f0a2d0588b70c", "d80eab922b346250cf7461f0e7ff00f9a5820ceb3d59d23e5039f06f06c9d753"],
+    jpeg: [{ scene: { preset: "checkerboard" }, output: { width: 16, height: 16, format: "jpeg", whiteBalance: "auto", jpegQuantizationStep: 2 } },
+      "afeb03932b61751778c2ac285ce8245cd6feec4d0c18ffe7732f0a2d0588b70c", "d01609ea9cef802e41b0566fb813176d5be7cbc82d60cf5346dde66499b226ec"],
     mirror: [{ scene: { preset: "grey-ramp" }, output: { width: 16, height: 12, demosaic: "bilinear", borderHandling: "mirror", format: "srgb-16" } },
       "f8f7c5dc63ba0ad1ee0390d03ac08f3ee202bf57a560f9a834942303e3924c39", "49d1e73d74ad084d405dd6b770016ac346e1af0222a0e27215e40cdbe137e7d3"],
     p3: [{ scene: { preset: "step-wedge" }, output: { width: 16, height: 8, format: "png", colorEncoding: "display-p3" } },
@@ -86,7 +88,8 @@ describe("simulateCapture without the 2.1 options is byte-identical to 2.0.0", (
       // diagnostics.options (2.1) and diagnostics.fast (#395), both additive, are checked below and left out of the 2.0.0 digest, like the timings.
       expect(hex(JSON.stringify({ a: r.assumptions, c: r.provenance.composedContracts, d: { ...r.diagnostics, timingsMs: 0, options: undefined, fast: undefined } }))).toBe(meta);
       expect(r.diagnostics.options).toEqual(expectedOptions[name]);
-      expect(r.diagnostics.fast.requested).toBe(false);
+      // 2.20.0: fast follows the format (fast for sRGB; no option here has a fast method, so the bytes are the same).
+      expect(r.diagnostics.fast.defaultedFrom).toBe("format");
       expect(r.diagnostics.fast.assurance).toBe("engine-reference");
     });
   }

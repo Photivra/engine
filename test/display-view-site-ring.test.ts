@@ -62,7 +62,7 @@ describe("display view site ring (#441)", () => {
       // A part's samples, expected values and noise are the whole view's (its lookup count is the part's own).
       expect(own(rendered)).toEqual(crop(wholeRender, VIEW.width, region));
     }
-    const prepared = await prepareDisplayView(options);
+    const prepared = await prepareDisplayView(options, { gpu: "off" });
     const forward: DisplayViewResult[] = [];
     for (const region of REGIONS) forward.push(await prepared.render({ ...VIEW, region }));
     const backward: DisplayViewResult[] = [];

@@ -38,6 +38,7 @@ import {
 import { requireInputKeys, requireInputPositiveFinite as requirePositiveFinite, requireInputNonNegativeSafeInteger as requireNonNegativeSafeInteger } from "../core/record-validation.js";
 import { InvalidConfigurationError } from "../core/configuration-error.js";
 import { responseCurves } from "./spectral-coverage.js";
+import { approximatelyEqual } from "../core/shared-helpers.js";
 
 const MAX_SPECTRAL_QUADRATURE_NODES = 100_000;
 
@@ -452,23 +453,7 @@ function planSegments(
   };
 }
 
-const SPECTRAL_VALIDATION_TOLERANCE = 1e-10;
 
-function approximatelyEqual(
-  actual: number,
-  expected: number,
-  tolerance = SPECTRAL_VALIDATION_TOLERANCE
-): boolean {
-  const scale = Math.max(
-    1,
-    Math.abs(actual),
-    Math.abs(expected)
-  );
-  return (
-    Math.abs(actual - expected) <=
-    tolerance * scale
-  );
-}
 
 /**
  * Rechecks a supplied wavelength plan (node identities, coverage and widths in nanometres) before it

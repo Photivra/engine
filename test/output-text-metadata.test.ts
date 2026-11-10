@@ -79,7 +79,8 @@ const UNICODE = { description: "Mesure de netteté – 日本語", software: "Т
  * suite had no lock on facade PNG or DNG bytes; these prove the default path is unchanged.
  */
 const V2_3_0_FILES: { name: string; options: SimulateCaptureOptions; file: "jpeg" | "png" | "dng"; sha256: string; reference?: true }[] = [
-  { name: "jpeg", options: { scene: { preset: "checkerboard" }, output: { width: 8, height: 8, format: "jpeg" } }, file: "jpeg",
+  // 2.20.0: the JPEG default step is 1; the 2.3.0 file needs the old step 2, given explicitly.
+  { name: "jpeg", options: { scene: { preset: "checkerboard" }, output: { width: 8, height: 8, format: "jpeg", jpegQuantizationStep: 2 } }, file: "jpeg",
     sha256: "dd2832317168ac961e1a46bb7ed9a9a2c14237b35c6e9b5c66a13257bd6262f5" },
   { name: "png", options: { scene: { preset: "checkerboard" }, output: { width: 8, height: 8, format: "png" } }, file: "png",
     sha256: "74b2ca46bd4dd766dd77bfdf9afd084c2f436c8969a2738d4409cf45feb6a809" },

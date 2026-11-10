@@ -26,7 +26,7 @@ const REQUESTS: [string, SimulateCaptureOptions][] = [
 
 describe("prepared display view (#387)", () => {
   it.each(REQUESTS)("%s: regions and whole views equal separate calls", async (_, options) => {
-    const prepared = await prepareDisplayView(options);
+    const prepared = await prepareDisplayView(options, { gpu: "off" });
     const w = Math.round((options.output!.width as number) * 0.6), h = Math.round((options.output!.height as number) * 0.6);
     const views: SimulateDisplayViewOptions[] = [{ width: w, height: h }, { width: w, height: h, region: { x: 0, y: 0, width: 7, height: 5 } },
       { width: w, height: h, region: { x: w - 9, y: h - 4, width: 9, height: 4 }, format: "srgb-16" }, { width: 20, height: 13, samplesPerAxis: 4 }];
@@ -35,7 +35,7 @@ describe("prepared display view (#387)", () => {
 
   // The Quality chart takes the filled path, whose tables and lattice rings the renders of one prepared view share (2.9).
   it.each(REQUESTS.slice(0, 2))("%s: renders concurrently with the results of separate calls", async (_, options) => {
-    const prepared = await prepareDisplayView(options);
+    const prepared = await prepareDisplayView(options, { gpu: "off" });
     const regions = [0, 1, 2, 3].map((i) => ({ width: 48, height: 32, region: { x: (i % 2) * 24, y: Math.floor(i / 2) * 16, width: 24, height: 16 } }));
     const together = await Promise.all(regions.map((view) => prepared.render(view)));
     for (let i = 0; i < regions.length; i++) expect(comparable(together[i]!)).toEqual(comparable(await simulateDisplayView(options, regions[i]!)));
@@ -57,7 +57,7 @@ describe("prepared display view (#387)", () => {
       sensor: { pixelPitchMicrometers: 6, pixelAperture: { kind: "box", samplesPerAxis: 2 }, antiAliasing: { kind: "four-spot" } },
       output: { width, height, format: "srgb-8", demosaic: "ahd" }
     };
-    const prepared = await prepareDisplayView(options), side = 12, parts: { x: number; y: number; width: number; height: number }[] = [];
+    const prepared = await prepareDisplayView(options, { gpu: "off" }), side = 12, parts: { x: number; y: number; width: number; height: number }[] = [];
     for (let y = 0; y < view.height; y += side) for (let x = 0; x < view.width; x += side) parts.push({ x, y, width: Math.min(side, view.width - x), height: Math.min(side, view.height - y) });
     const centre = (r: { x: number; y: number; width: number; height: number }): number => Math.hypot(r.x + r.width / 2 - view.width / 2, r.y + r.height / 2 - view.height / 2);
     parts.sort((a, b) => centre(a) - centre(b));

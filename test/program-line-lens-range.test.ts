@@ -23,7 +23,8 @@ const UNCHANGED: Record<string, SimulateCaptureOptions> = {
   idealNoRange: { ...base, lens: { ideal: { focalLengthMm: 50 } }, exposure: { mode: "program" } },
   idealHoldingRange: { ...base, illuminanceLux: 50, lens: { ideal: { focalLengthMm: 50, widestFNumber: 2, narrowestFNumber: 22 } }, exposure: { mode: "program" } },
   prime50: { ...base, lens: { prime: 50 }, exposure: { mode: "program" } },
-  catalogue50: { ...base, lens: { catalogue: "pv-50-1.8" }, exposure: { mode: "program", iso: "auto" } },
+  // 2.20.0: a catalogue lens resolves to its fast method by default for sRGB; fast: false keeps the pinned exact bytes.
+  catalogue50: { ...base, lens: { catalogue: "pv-50-1.8" }, exposure: { mode: "program", iso: "auto" }, fast: false },
   // #585: other modes, three with the exposure anchor off f/8 at a shutter in the body's range (pinned from afefcb6, before the fix).
   idealAboveF8Manual: { ...base, lens: { ideal: { focalLengthMm: 50, widestFNumber: 9 }, fNumber: 11 } },
   idealBelowF8Aperture: { ...base, lens: { ideal: { focalLengthMm: 50, narrowestFNumber: 4 }, fNumber: 2 }, exposure: { mode: "aperture-priority" } },

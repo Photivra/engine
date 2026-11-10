@@ -25,7 +25,8 @@
  *   D(λ) = (1/λ² − 1/λ_d²)/(1/λ_F² − 1/λ_C²) (Fraunhofer d, F and C lines; `calculateCauchyRefractiveIndex`).
  * - Distortion: radial r_d = r·(1 + k1·ρ²), ρ normalised to the frame's half-diagonal, so k1 is the corner distortion.
  * - Vignetting: relative illumination E(ρ) = (1 − b·ρ²)² with E(1) = 2^−s, s the corner fall-off in stops: a natural part,
- *   plus an optical part that fades over the first two stops of stopping down.
+ *   plus an optical part that fades over the first four stops of stopping down (log2(N/N0) = 2 is four stops, since a
+ *   stop is a factor √2 in N).
  * - Bokeh (#567), the options of `lens.defocus` (#553) that `simulateCapture` folds into the PSF with `lens.defocus`: rounded
  *   aperture blades (9 at curvature 0.7 for the professional set, 7 at 0.3 for the consumer set, open to a circle at the widest
  *   aperture), the lens's own W040 as `sphericalAberration`, and, for the fast (f/2 or faster) rectilinear wides and normals
@@ -71,7 +72,7 @@ export interface GenericLensCharacterValues {
   distortionMagnitude: number;
   /** Corner fall-off in stops that stays when stopped down (natural vignetting). */
   naturalVignettingStops: number;
-  /** Extra corner fall-off in stops at the widest aperture (optical vignetting); gone two stops down. */
+  /** Extra corner fall-off in stops at the widest aperture (optical vignetting); gone four stops down (N = 4·N0). */
   opticalVignettingStops: number;
   /** Veiling glare: the fraction of the image's mean irradiance spread as a uniform veil. */
   veilingGlareFraction: number;

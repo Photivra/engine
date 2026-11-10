@@ -427,6 +427,12 @@ One part of a whole-frame DNG (#391): a region render's packed RAW and where its
 export interface SimulateCaptureDngPart {
   raw: Pick<NativeRawOutput, "codes" | "blackLevels" | "digitalSaturationCodes" | "saturationFlags" | "effectiveSaturationCodes">;
   region: { nativeRect: { x: number; y: number; width: number; height: number } };
+  /**
+   * 2.20.0: true when a fast method ran for this part (`Object.values(result.diagnostics.fast.applied).includes(true)`). The join
+   * refuses such a part unless its own request resolves to fast too (a DNG, JPEG or PNG is exact by default): render the parts with
+   * the same `fast` as the join, or with `fast: false`.
+   */
+  fast?: boolean;
 }
 ```
 
@@ -452,8 +458,10 @@ export type SimulateCaptureFastOption = typeof SIMULATE_CAPTURE_FAST_OPTIONS[num
 
 ```ts
 export interface SimulateCaptureFastReport {
-  /** True when `fast: true` was given at the top level or in any option's record. */
+  /** 2.20.0: the resolved top-level value (`fast`, else the format default), or true when any option's record sets `fast: true`. */
   requested: boolean;
+  /** 2.20.0: where the top-level value came from: the request's `fast`, or the format default (see {@link SimulateCaptureOptions.fast}). */
+  defaultedFrom: "request" | "format";
   /** Each fast-capable option that ran, in {@link SIMULATE_CAPTURE_FAST_OPTIONS} order: true where its fast method ran. */
   applied: Readonly<Partial<Record<SimulateCaptureFastOption, boolean>>>;
   /** `engine-reference` when every option ran exact; `approximation-with-a-priori-bound` when any fast method ran (the WebGPU execution record's values). */
@@ -464,12 +472,12 @@ export interface SimulateCaptureFastReport {
 ## SimulateCaptureLensCatalogueRecord
 
 `lens.catalogue` as a record (#568): the lens id as `kind` and the `fast` override (see {@link SimulateCaptureOptions.fast}).
-`catsEye` (#567), with `lens.defocus`: whether the lens's cat's eye (fast wides and normals only) shapes its bokeh. It makes the
-PSF vary over the field, so the fast method needs a finer field grid (measured 1.6–3.6× slower); default true when
-`output.format` is "dng" or "jpeg", false otherwise (blades and spherical aberration always apply: they cost nothing).
+Fast: the tabulated fast method (#568), and with `lens.defocus` the lens's bokeh without its cat's eye (#567; fast wides and
+normals only), whose field-varying PSF needs a finer fast grid (measured 2.2–3.4× slower). Exact: the per-site PSF with the
+cat's eye. Blades and spherical aberration always apply (they cost nothing).
 
 ```ts
-export interface SimulateCaptureLensCatalogueRecord { kind: string; fast?: boolean; catsEye?: boolean }
+export interface SimulateCaptureLensCatalogueRecord { kind: string; fast?: boolean }
 ```
 
 ## SimulateCaptureLensCorrections
@@ -705,7 +713,7 @@ export interface SimulateCaptureOptions {
     exposureCompensationStops?: number;
     /** Default "scene-illuminant". */
     whiteBalance?: SimulateCaptureWhiteBalance;
-    /** JPEG constant quantization step 1-255 (not a manufacturer 'quality'). Default 2. */
+    /** JPEG constant quantization step 1-255 (not a manufacturer 'quality'). Default 1 (2.20.0; 2 before), the full-quality export. */
     jpegQuantizationStep?: number;
     /** PNG only. Default "srgb". */
     colorEncoding?: SimulateCaptureColorEncoding;
@@ -806,10 +814,14 @@ export interface SimulateCaptureOptions {
     pixelAperture?: SimulateCapturePixelAperture;
   };
   /**
-   * Exact or fast (#395). `false` or omitted: every option runs its exact method, the engine reference. `true`: each option
-   * listed in {@link SIMULATE_CAPTURE_FAST_OPTIONS} runs its fast method where it has one, a measured, bounded approximation of
-   * the exact one; an option without a fast method runs exact. An option's own record `fast` overrides this for that option
-   * only. `diagnostics.fast` reports what was requested and what ran. `lens.catalogue` has a fast method (#568); the other options run exact.
+   * Exact or fast (#395). `false`: every option runs its exact method, the engine reference. `true`: each option listed in
+   * {@link SIMULATE_CAPTURE_FAST_OPTIONS} runs its fast method where it has one, a measured, bounded approximation of the exact
+   * one; an option without a fast method runs exact. An option's own record `fast` overrides this for that option only.
+   * Omitted (2.20.0), the format decides: fast for `output.format` "srgb-8" and "srgb-16" and for the display view, exact for
+   * "dng", "jpeg" and "png" (exports) and for `simulateIdealReference`. `diagnostics.fast` reports the resolved value, where it
+   * came from and what ran. Fast methods: `lens.catalogue` (#568, #567) and `lens.diffraction` under rolling-shutter rotation
+   * (#565); in the display view also its catalogue PSF zones, its sampling of uniform pixels and its AHD low-signal correction
+   * (docs/DISPLAY_VIEW.md). The exact result also carries `result.sensor.midGrey` (#535). Calculators should pass `fast: false`.
    */
   fast?: boolean;
   /** Aborting cancels the running task; the promise rejects with a domain error and returns no partial image. */
@@ -1005,7 +1017,7 @@ export interface SimulateCaptureResult {
     limitations: readonly string[];
   };
   assumptions: readonly SimulateCaptureAssumption[];
-  /** #555, #535: the sensor characteristics used, the calculated dynamic range and the mid-grey noise figure. */
+  /** #555, #535: the sensor characteristics used, the calculated dynamic range and (when the request resolves to exact) the mid-grey noise figure. */
   sensor: SimulateCaptureSensorReport;
 }
 ```

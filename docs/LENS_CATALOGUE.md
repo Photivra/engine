@@ -110,7 +110,7 @@ All of these are approximations, with free sources:
 - **Stopping down** from N0 to N scales the pupil radius by a = N0/N, so each term W_klm·ρ^l scales by a^l.
 - **Colour.** D(λ) = (1/λ² − 1/λ_d²)/(1/λ_F² − 1/λ_C²), the normalised Cauchy dispersion (0 at the d line, F minus C = 1). Lateral colour displaces the PSF radially by L·R·H·D(λ): shorter wavelengths outward.
 - **Close focus.** Every aberration × (1 + c·m/m_max), with m the thin-lens magnification at the focus distance: a generic stand-in for the change of aberrations with conjugate distance, not a lens design.
-- **Distortion and vignetting** are normalised to the frame's half-diagonal. Optical vignetting fades over the first two stops: s(N) = s_natural + s_optical·clamp(1 − log2(N/N0)/2, 0, 1).
+- **Distortion and vignetting** are normalised to the frame's half-diagonal. Optical vignetting fades over the first four stops (N = 4·N0, since one stop is a factor √2 in N): s(N) = s_natural + s_optical·clamp(1 − log2(N/N0)/2, 0, 1).
 - **Scaling to the sensor.** On a smaller sensor the design is scaled by the crop factor with its wavefront error in waves kept: the PSF has the same size in micrometres, while distortion, vignetting and lateral colour follow the frame.
 
 ### How `simulateCapture` renders it
