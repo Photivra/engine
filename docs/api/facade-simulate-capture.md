@@ -462,9 +462,12 @@ export interface SimulateCaptureFastReport {
 ## SimulateCaptureLensCatalogueRecord
 
 `lens.catalogue` as a record (#568): the lens id as `kind` and the `fast` override (see {@link SimulateCaptureOptions.fast}).
+`catsEye` (#567), with `lens.defocus`: whether the lens's cat's eye (fast wides and normals only) shapes its bokeh. It makes the
+PSF vary over the field, so the fast method needs a finer field grid (measured 1.6–3.6× slower); default true when
+`output.format` is "dng" or "jpeg", false otherwise (blades and spherical aberration always apply: they cost nothing).
 
 ```ts
-export interface SimulateCaptureLensCatalogueRecord { kind: string; fast?: boolean }
+export interface SimulateCaptureLensCatalogueRecord { kind: string; fast?: boolean; catsEye?: boolean }
 ```
 
 ## SimulateCaptureLensCorrections
@@ -557,9 +560,9 @@ export interface SimulateCaptureOptions {
      * factor and it replaces the tier lens's focal length and f-number range (the transmission is kept). The capture renders the
      * lens's character, all labelled approximations: its PSF (diffraction with the lens's Seidel aberrations, axial and lateral
      * colour, at the resolved f-number and focus) through the environment PSF quadrature, its radial distortion, its vignetting
-     * and, for the fisheyes, the equisolid projection. Flare, focus breathing and bokeh shape are not rendered. Not combinable
+     * and, for the fisheyes, the equisolid projection. Flare and focus breathing are not rendered. Not combinable
      * with `prime`, `focalLengthMm`, `projection`, `distortion`, `vignetting`, `psf`, `diffraction` or `pupilSampling` (the
-     * lens sets them); `defocus` convolves the disc into the lens's PSF. The display view renders it with the PSF taken per field zone (#569; docs/DISPLAY_VIEW.md). Default off.
+     * lens sets them); `defocus` convolves the lens's bokeh kernel (#567) into its PSF. The display view renders it with the PSF taken per field zone (#569; docs/DISPLAY_VIEW.md). Default off.
      * #568: the record form `{ kind: <lens id>, fast }` overrides the top-level `fast` flag for this option; the fast method
      * blends the PSF between exactly resolved kernels on a field grid and tabulates each site's expected signal
      * (docs/LENS_CATALOGUE.md, "Fast method").

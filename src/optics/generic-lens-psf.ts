@@ -26,6 +26,7 @@ import type { EvidenceProvenance } from "../core/evidence-provenance.js";
 import { genericLensDispersion, type ResolvedGenericLens } from "../equipment/generic-lens-catalogue.js";
 import { markEngineOwnedLensSampledPsfProfile, type LensSampledPsfGridNode, type LensSampledPsfProfile } from "./lens-psf-profile.js";
 import { convolveSiteKernels } from "./defocus-disc-kernel.js";
+import { createDefocusBokehSiteKernel, type DefocusBokehSiteKernel, type ResolvedDefocusBokehOptions } from "./defocus-bokeh-kernel.js";
 
 /** Wavelength nodes of a catalogue PSF profile, nm (they span the facade's 380–780 nm quadrature). */
 export const GENERIC_LENS_PSF_WAVELENGTHS_NM = /* @__PURE__ */ Object.freeze([380, 450, 550, 650, 780] as const);
@@ -51,8 +52,8 @@ export interface GenericLensPsfInput {
   fieldHalfExtentMm: { x: number; y: number };
   /** The frame's half width and height, mm (the inner field nodes sit at half of them). */
   frameHalfMm: { x: number; y: number };
-  /** Optional site kernel (2R_d + 1)² to convolve into every node (the `lens.defocus` disc). */
-  extraKernel?: { weights: Float64Array; radius: number };
+  /** Optional site kernel (2R_d + 1)² to convolve into each node, by its field point (mm, +Y up): the `lens.defocus` bokeh kernel. */
+  extraKernel?: { radius: number; clipped?: boolean; at(fieldXmm: number, fieldYmm: number): Float64Array };
   evidence: readonly EvidenceProvenance[];
 }
 
@@ -284,7 +285,7 @@ export function createGenericLensPsfProfile(input: GenericLensPsfInput): Generic
   for (const x of fieldX) for (const y of fieldY) for (const nm of GENERIC_LENS_PSF_WAVELENGTHS_NM) {
     const base = quadrant.get(Math.abs(x) + ":" + Math.abs(y) + ":" + nm)!;
     let kernel = mirror(crop(base), radius, x < 0, y < 0);
-    if (extra) kernel = convolveSiteKernels(kernel, radius, extra.weights, extra.radius);
+    if (extra) kernel = convolveSiteKernels(kernel, radius, extra.at(x, y), extra.radius);
     nodes.push({ nodeId: "pv-" + x.toFixed(6) + "-" + y.toFixed(6) + "-" + nm,
       coordinate: { focalLengthMm: f, focusDiopters, apertureFNumber: N, fieldXmm: x, fieldYmm: y, wavelengthNm: nm, signedDefocusImagePlaneMicrometers: 0 },
       kernel: { widthSamples: w, heightSamples: w, samplePitchMicrometersX: pitch, samplePitchMicrometersY: pitch, centerSampleX: kernelRadius, centerSampleY: kernelRadius,
@@ -294,7 +295,7 @@ export function createGenericLensPsfProfile(input: GenericLensPsfInput): Generic
   const profile: LensSampledPsfProfile = { schemaVersion: "0.1.0", profileId: "photivra-" + lens.lensId + ":psf", profileVersion: "1.0.0", scientificStatus: "approximation",
     opticalDomain: "lens-primary-optical-path-only", coordinateSystem: "image-plane-metric", fieldAxes: "+X right, +Y up", kernelEnergyNormalization: "unit-energy-shape",
     interpolation: "bounded-regular-grid-centroid-aligned", throughputOwnership: "separate-relative-pupil-throughput-factor",
-    responseIncludes: { diffraction: true, aberration: true, defocus: extra !== undefined, pupilClippingShape: false },
+    responseIncludes: { diffraction: true, aberration: true, defocus: extra !== undefined, pupilClippingShape: extra?.clipped === true },
     sensorOpticalStackIncluded: false, sensorSamplingIncluded: false, reconstructionIncluded: false, strayLightIncluded: false,
     axes: { focalLengthMm: [f], focusDiopters: [focusDiopters], apertureFNumber: [N], fieldXmm: fieldX, fieldYmm: fieldY, wavelengthNm: [...GENERIC_LENS_PSF_WAVELENGTHS_NM],
       signedDefocusImagePlaneMicrometers: [0] }, nodes, evidence: input.evidence,
@@ -304,4 +305,26 @@ export function createGenericLensPsfProfile(input: GenericLensPsfInput): Generic
   return { profile, aberrationKernelRadiusSites: radius, kernelRadiusSites: kernelRadius, maximumTruncatedEnergyFraction: truncated,
     transformSize: { minimum: minimumTransform, maximum: maximumTransform }, maximumPhaseStepWaves: phaseStep, fieldXmm: fieldX, fieldYmm: fieldY,
     wavelengthsNm: [...GENERIC_LENS_PSF_WAVELENGTHS_NM] };
+}
+
+/**
+ * #567: the catalogue lens's own bokeh kernel for `lens.defocus` (#553's shaped kernel with `lens.character.bokeh`), as the
+ * PSF's field-dependent extra kernel. The defocus is referred to the lens's focus, the balanced one of its PSF (W020 = −W040):
+ * the ray map (σc/2 + bρ²)·P of the paraxial focus gains −(b/2)·P, so the kernel is #553's for the signed blur σc − b. Rows are
+ * flipped from #553's (+Y down) to the profile's (+Y up). With a cat's eye each field point (tangent x/f, y/f: the rectilinear
+ * chief ray, distortion neglected) has its own kernel, padded to the axis kernel's radius (clipping only narrows the blur). Each
+ * call builds its kernel (the profile calls it once per field and wavelength node: 125 small kernels). `catsEye` false leaves it out.
+ */
+export function genericLensBokehKernel(lens: ResolvedGenericLens, diameterSites: number, side: 1 | -1, pitch: number, catsEye: boolean):
+  { axis: DefocusBokehSiteKernel; radius: number; clipped: boolean; at(fieldXmm: number, fieldYmm: number): Float64Array } {
+  const b = lens.character.bokeh, options = (catsEye ? b : { blades: b.blades, sphericalAberration: b.sphericalAberration }) as ResolvedDefocusBokehOptions, N = lens.character.fNumber, f = lens.focalLengthMm;
+  const s = side * diameterSites - 8 * N * options.sphericalAberration!.w040Micrometers / pitch;
+  const build = (x: number, y: number): DefocusBokehSiteKernel => createDefocusBokehSiteKernel({ diameterSites: Math.abs(s), side: s < 0 ? -1 : 1, fNumber: N,
+    focalLengthMm: f, pitchMicrometers: pitch, options, field: { x: x / f, y: y / f } });
+  const axis = build(0, 0), R = axis.radius, w = 2 * R + 1;
+  return { axis, radius: R, clipped: !!options.catsEye, at(x, y): Float64Array {
+    const k = options.catsEye ? build(x, y) : axis, r = k.radius, out = new Float64Array(w * w);
+    for (let j = -r; j <= r; j++) for (let i = -r; i <= r; i++) out[(R - j) * w + i + R] = k.weights[(j + r) * k.width + i + r]!;
+    return out;
+  } };
 }

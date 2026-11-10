@@ -238,8 +238,13 @@ export type SimulateCaptureColorEncoding = "srgb" | "display-p3" | "rec2020";
  * edge-directed method that reduces zipper and false colour on sharp edges.
  */
 export type SimulateCaptureDemosaic = "bilinear" | "ahd";
-/** `lens.catalogue` as a record (#568): the lens id as `kind` and the `fast` override (see {@link SimulateCaptureOptions.fast}). */
-export interface SimulateCaptureLensCatalogueRecord { kind: string; fast?: boolean }
+/**
+ * `lens.catalogue` as a record (#568): the lens id as `kind` and the `fast` override (see {@link SimulateCaptureOptions.fast}).
+ * `catsEye` (#567), with `lens.defocus`: whether the lens's cat's eye (fast wides and normals only) shapes its bokeh. It makes the
+ * PSF vary over the field, so the fast method needs a finer field grid (measured 1.6–3.6× slower); default true when
+ * `output.format` is "dng" or "jpeg", false otherwise (blades and spherical aberration always apply: they cost nothing).
+ */
+export interface SimulateCaptureLensCatalogueRecord { kind: string; fast?: boolean; catsEye?: boolean }
 /** `output.demosaic` as a record (#395): the demosaic and its `fast` override (see {@link SimulateCaptureOptions.fast}). */
 export interface SimulateCaptureDemosaicRecord { kind: SimulateCaptureDemosaic; fast?: boolean }
 /**
@@ -396,9 +401,9 @@ export interface SimulateCaptureOptions {
      * factor and it replaces the tier lens's focal length and f-number range (the transmission is kept). The capture renders the
      * lens's character, all labelled approximations: its PSF (diffraction with the lens's Seidel aberrations, axial and lateral
      * colour, at the resolved f-number and focus) through the environment PSF quadrature, its radial distortion, its vignetting
-     * and, for the fisheyes, the equisolid projection. Flare, focus breathing and bokeh shape are not rendered. Not combinable
+     * and, for the fisheyes, the equisolid projection. Flare and focus breathing are not rendered. Not combinable
      * with `prime`, `focalLengthMm`, `projection`, `distortion`, `vignetting`, `psf`, `diffraction` or `pupilSampling` (the
-     * lens sets them); `defocus` convolves the disc into the lens's PSF. The display view renders it with the PSF taken per field zone (#569; docs/DISPLAY_VIEW.md). Default off.
+     * lens sets them); `defocus` convolves the lens's bokeh kernel (#567) into its PSF. The display view renders it with the PSF taken per field zone (#569; docs/DISPLAY_VIEW.md). Default off.
      * #568: the record form `{ kind: <lens id>, fast }` overrides the top-level `fast` flag for this option; the fast method
      * blends the PSF between exactly resolved kernels on a field grid and tabulates each site's expected signal
      * (docs/LENS_CATALOGUE.md, "Fast method").
@@ -1883,10 +1888,12 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   let catalogue: ResolvedGenericLens | undefined, catalogueFrame: { widthMm: number; heightMm: number } | undefined;
   let lensKit: typeof import("./generic-lens-capture.js") | undefined;
   // #568: the shorthand id or the record { kind: <id>, fast }.
-  let catalogueId: string | undefined, catalogueFast: boolean | undefined;
+  let catalogueId: string | undefined, catalogueFast: boolean | undefined, catalogueCatsEye: unknown;
   if (lensOptions.catalogue !== undefined && typeof lensOptions.catalogue === "object" && lensOptions.catalogue !== null) {
-    const record = allowKeys(lensOptions.catalogue, "lens.catalogue", ["kind", "fast"]);
+    const record = allowKeys(lensOptions.catalogue, "lens.catalogue", ["kind", "fast", "catsEye"]);
     if (typeof record.kind !== "string") fail("lens.catalogue.kind must be a catalogue lens id (GENERIC_LENS_IDS).");
+    catalogueCatsEye = record.catsEye;
+    if (catalogueCatsEye !== undefined && typeof catalogueCatsEye !== "boolean") fail("lens.catalogue.catsEye must be true or false.");
     catalogueId = record.kind; catalogueFast = fastOverride(record, "lens.catalogue");
   } else if (lensOptions.catalogue !== undefined) catalogueId = lensOptions.catalogue as string;
   if (lensOptions.catalogue !== undefined) {
@@ -1993,10 +2000,9 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
     }
     if (pupil) fail("lens.defocus cannot be combined with lens.pupilSampling: the pupil rays already render defocus, so it would be counted twice.");
     if (lensPsf) fail("lens.defocus cannot be combined with lens.psf: a caller PSF declares its own defocus, so it could be counted twice.");
-    // #549: with a catalogue lens the disc is convolved into the lens's PSF (below), not applied by the lens.defocus paths. The bokeh
-    // options (#553) shape the lens.defocus kernel only, so they are refused rather than dropped (a follow-up for a later release).
+    // #549, #567: with a catalogue lens its own bokeh kernel is convolved into its PSF (below); it sets all three bokeh options.
     if (catalogue && defocusBokeh) fail("lens.defocus.blades, sphericalAberration and catsEye cannot be combined with lens.catalogue: the catalogue lens " +
-      "folds a plain disc into its own PSF. Omit the bokeh options, or use lens.focalLengthMm instead of the catalogue lens.");
+      "sets its own (lens.catalogue.character). Omit the bokeh options, or use lens.focalLengthMm instead of the catalogue lens.");
     if (!catalogue) defocusModel = "geometric-disc";
   }
 
@@ -2529,7 +2535,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   let catalogueTaps: number | undefined, catalogueDefocusApplied = false, catalogueKernelRadius = 0;
   if (catalogue && lensKit) {
     const { GENERIC_LENS_EVIDENCE, genericLensDistortionProfile, genericLensVignettingProfile, resolveGenericLens, simulateGenericLensFocusError, createGenericLensPsfProfile,
-      genericLensPsfKernelRadius, GENERIC_LENS_PSF_MAXIMUM_COMBINED_RADIUS_SITES } = lensKit;
+      genericLensPsfKernelRadius, GENERIC_LENS_PSF_MAXIMUM_COMBINED_RADIUS_SITES, genericLensBokehKernel } = lensKit;
     checkFNumber();
     if (lensOptions.focusScatter !== undefined) {
       const scatterOptions = allowKeys(lensOptions.focusScatter, "lens.focusScatter", ["seed", "shotIndex"]);
@@ -2542,19 +2548,23 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
       focusDistanceM = sample.focusDistanceM;
     }
     const character = resolveGenericLens({ lensId: catalogue.lensId, activeImagingArea: catalogueFrame!, fNumber, focusDistanceM });
-    let extraKernel: { weights: Float64Array; radius: number } | undefined;
+    let extraKernel: ReturnType<typeof genericLensBokehKernel> | undefined;
     if (lensOptions.defocus !== undefined) {
       const disc = resolveDefocusDisc({ focalLengthMm, aperture: fNumber, focusDistanceM, subjectDistanceM, pitchMicrometers: pitch });
       let discRadius: number;
       try { discRadius = requireDefocusDiscKernelRadius(disc.diameterSites); } catch { fail("lens.defocus: " + defocusDiscLimitMessage(disc.diameterSites, disc.diameterMicrometers)); }
-      const kernel = run === "ideal-reference" ? null : createDefocusDiscSiteKernel(disc.diameterSites);
-      if (kernel) { extraKernel = { weights: kernel.weights, radius: kernel.radius }; catalogueDefocusApplied = true; }
+      // #567: the lens's bokeh kernel (blades, its W040, a cat's eye) instead of the plain disc.
+      // The cat's eye (its finer fast grid) by lens.catalogue.catsEye; default only for the exported formats.
+      const catsEye = (catalogueCatsEye ?? (format === "dng" || format === "jpeg")) as boolean;
+      if (run !== "ideal-reference" && disc.diameterSites > 0) { extraKernel = genericLensBokehKernel(character, disc.diameterSites, subjectDistanceM > focusDistanceM ? 1 : -1, pitch, catsEye); catalogueDefocusApplied = true; }
+      const k = extraKernel?.axis;
       assume("lens.defocus", "model", { model: "geometric-disc", scientificStatus: "approximation", diameterMicrometers: disc.diameterMicrometers, diameterSites: disc.diameterSites,
-        kernelRadiusSites: disc.diameterSites === 0 ? null : discRadius, fNumber, focusDistanceM, subjectDistanceM, samplePitchMicrometers: pitch,
-        defocusCircleModel: { id: "thin-lens-defocus-circle", version: "1.1.0" }, execution: "catalogue-lens-psf" },
+        kernelRadiusSites: disc.diameterSites === 0 ? null : k ? k.radius : discRadius, fNumber, focusDistanceM, subjectDistanceM, samplePitchMicrometers: pitch,
+        defocusCircleModel: { id: "thin-lens-defocus-circle", version: "1.1.0" }, execution: "catalogue-lens-psf",
+        ...(k ? { bokeh: { catsEye: catsEye && !!character.character.bokeh.catsEye, method: k.method, sphericalAberrationSites: k.sphericalAberrationSites, axisOpenAreaRatio: k.openAreaRatio } } : {}) },
       "Geometric defocus of the flat scene plane (an approximation): the thin-lens blur circle c = f²·|s − d| / (N·d·(s − f)) (calculateDefocusCircle 1.1.0) as a uniform disc sampled on the site lattice. " +
         (disc.diameterSites === 0 ? "In focus: no disc is applied." : run === "ideal-reference" ? "Resolved but not applied: the ideal reference has no camera effects." :
-          "With the catalogue lens the disc is convolved into every node of the lens's PSF (a further approximation: the defocused aberrated wave PSF is not exactly the in-focus PSF convolved with the disc) and applied through the environment PSF quadrature."));
+          "With the catalogue lens the disc is shaped by the lens's bokeh (#567, #553's kernel; see lens.catalogue.character) and convolved into every node of the lens's PSF (a further approximation: the defocused aberrated wave PSF is not exactly the in-focus PSF convolved with the disc) and applied through the environment PSF quadrature."));
     }
     // An upper bound of the PSF's radius (the built window may be narrower): the field reach below uses it.
     const kernelRadius = genericLensPsfKernelRadius({ lens: character, focusDistanceM, sitePitchMicrometers: pitch }) + (extraKernel ? extraKernel.radius : 0);
@@ -2592,7 +2602,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
     }
     assume("lens.catalogue.character", "model", { lensId: catalogue.lensId, fNumber, focusDistanceM, magnification: c.magnification, closeFocusGain: c.closeFocusGain, pupilScale: c.pupilScale,
       aberrationsWaves550: { ...c.aberrations }, lateralColor: { ...c.lateralColor }, distortionCorner: c.distortion.corner, vignettingCornerStops: c.vignetting.cornerStops,
-      notRendered: { strayLight: { ...c.strayLight }, breathing: { ...c.breathing }, focusScatterDepthOfFocusFraction: c.focusScatterDepthOfFocusFraction, bokeh: "disc (#553)" },
+      bokeh: c.bokeh, notRendered: { strayLight: { ...c.strayLight }, breathing: { ...c.breathing }, focusScatterDepthOfFocusFraction: c.focusScatterDepthOfFocusFraction },
       psf: psfReport, profiles: { vignetting, distortion: distortion.profile, maximumNormalizedRadius: reachRadius } },
     "The catalogue lens's character, a labelled approximation of a generic lens (docs/LENS_CATALOGUE.md): Seidel wave aberrations at the frame corner (spherical, balanced by defocus; coma; astigmatism; field curvature), " +
       "scaled from the widest aperture by the pupil ratio a = N0/N (a⁴, a³, a², a²) and by the close-focus factor; axial colour as a defocus and lateral colour as a radial shift, both with the normalised Cauchy dispersion. " +
@@ -2600,7 +2610,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
         "Rendered as a sampled PSF (scalar Fraunhofer diffraction of the aberrated circular pupil, integrated over each site cell, on a 5 × 5 field grid × 5 wavelengths with centroid-aligned interpolation) " +
         "through the environment PSF quadrature (one scene query per kernel tap), with the lens's radial distortion (r_d = r·(1 + k1ρ²)) and relative illumination (E = (1 − bρ²)²) as lens field mapping and field throughput" +
         (catalogue.kind === "fisheye" ? ", and the equisolid projection; directions at or beyond 90° see no scene (zero radiance), so a circular fisheye's image ends at its 180° circle" : "") + ". ") +
-      "Flare, focus breathing and bokeh shape are reported, not rendered; ρ is normalised to the frame's half-diagonal, so the lens is scaled to the simulated frame like lens.prime.");
+      "Flare and focus breathing are reported, not rendered; the bokeh shapes lens.defocus; ρ is normalised to the frame's half-diagonal, so the lens is scaled to the simulated frame like lens.prime.");
   }
   // #492: the capture applies the disc as an object-space convolution, which needs every disc point a site sees to be another site's scene point.
   // #548: a lens field mapping, vignetting or camera rotation breaks that, so the capture then applies the disc in image space, on the sensor's

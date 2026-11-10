@@ -7517,7 +7517,8 @@ console.log(calculateGeometricFocusBreathing({
 `GENERIC_LENS_CATALOGUE` lists the engine's 30 generic primes (17 professional, 13 consumer, "PV 50 1.2 Pro", "PV 50 1.8"; Photivra's
 own designs, not real products). `resolveGenericLens` resolves one for a sensor, an f-number and a focus distance: its focal length
 (scaled by the crop factor), aperture range, close focus, projection and its character, Seidel aberrations, axial and lateral
-colour, distortion and vignetting profiles, flare, breathing and focus scatter, each a labelled approximation.
+colour, distortion and vignetting profiles, flare, breathing, focus scatter and its bokeh (`character.bokeh`, #567: the options of
+`lens.defocus` and `calculateDefocusBokehKernel`), each a labelled approximation.
 `simulateGenericLensFocusError` draws a seeded autofocus error; `createGenericLensCorrectionProfile` builds the lens's generic
 correction profile for `resolveLensCorrectionPlan`, which `simulateCapture` applies to its developed image with
 `output.lensCorrections` (#570; never to the RAW or the DNG), and which a DNG can carry for RAW editors as optional DNG opcodes with

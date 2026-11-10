@@ -6,7 +6,7 @@
  * corrections (`output.lensCorrections`, #570) and their DNG opcodes (`output.dng.lensCorrectionOpcodes`, #587), which need a catalogue lens.
  */
 export { GENERIC_LENS_EVIDENCE, genericLensDispersion, genericLensDistortionProfile, genericLensVignettingProfile, resolveGenericLens, simulateGenericLensFocusError } from "../equipment/generic-lens-catalogue.js";
-export { createGenericLensPsfProfile, genericLensPsfKernelRadius, GENERIC_LENS_PSF_MAXIMUM_COMBINED_RADIUS_SITES } from "../optics/generic-lens-psf.js";
+export { createGenericLensPsfProfile, genericLensBokehKernel, genericLensPsfKernelRadius, GENERIC_LENS_PSF_MAXIMUM_COMBINED_RADIUS_SITES } from "../optics/generic-lens-psf.js";
 export { CATALOGUE_FAST_VERIFICATION_TOLERANCE, catalogueFastAssumptions, createCatalogueLensSignal } from "./catalogue-lens-signal.js";
 export { applyDevelopedLensCorrection, developedLensCorrectionSourceRect, prepareDevelopedLensCorrection } from "../output/developed-lens-corrections.js";
 export { createDngLensCorrectionOpcodes } from "../capture/dng-lens-correction-opcodes.js";
