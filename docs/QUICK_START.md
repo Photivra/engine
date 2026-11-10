@@ -88,6 +88,7 @@ modelling choices (such as "no lens PSF") as `kind: "model"`.
 | `chartSize` | fill the frame | 2.3: `{ widthM, heightM?, surroundReflectance? }` places the chart at its physical size (see [Fixed-size chart](#fixed-size-chart-23)). |
 | `illuminant` | Planckian 6500 K | Also `"cie-a"`, `{ kind: "planckian", temperatureKelvin }`, `{ kind: "daylight", correlatedColorTemperatureKelvin, basis }` or `{ kind: "spectrum", spectrum }`. |
 | `illuminanceLux` | 21 481 (π·80 000/11.7) | See [Exposure](#exposure). |
+| `illumination` | off | 2.22 (#550): mixed lighting, two to eight sources (`{ illuminant, illuminanceLux }`) blended across the chart by a linear gradient, a radial falloff or regions, and point sources (`points`) with inverse-square falloff, instead of `illuminant` and `illuminanceLux`. The frame center's light sets the grey card and its strongest source the `"scene-illuminant"` white balance (see [Mixed lighting](MIXED_ILLUMINATION.md)). |
 | `output.width`, `output.height` | 64 × 64 | Output pixels, 1–4094 each. The sensor has one extra site on each side for demosaicing (see `output.borderHandling`). |
 | `output.maximumPixels` | off | Opt-in large images (2.2): the most native sensor sites the capture may allocate, up to `NATIVE_RAW_LIMITS.ceilingPixels` (2^27). Sides may then reach 16 384 sites including the margin (see [Large images](#large-images)). |
 | `output.region` | whole frame | 2.3: `{ x, y, width, height }` renders that rectangle of the frame, byte-identical to the whole render (see [Region rendering](#region-rendering-23)). |
@@ -118,6 +119,7 @@ modelling choices (such as "no lens PSF") as `kind: "model"`.
 | `motion.angularVelocityRadPerSec` | still | `{ pitch?, yaw?, roll? }` in rad/s (see [Motion](#motion)). |
 | `motion.shutter` | `"global"` | Or `"rolling"`. |
 | `motion.rollingShutterSkewSeconds` | the body's readout skew | Rolling only. |
+| `motion.subject` | still subject | 2.22.0: `{ velocityMPerSec?: { x?, y? }, angularVelocityRadPerSec?, region?, fast? }`, a moving subject (see [Subject motion](#subject-motion)). |
 | `signal`, `onProgress` | none | An `AbortSignal` cancels the running task; `onProgress` reports `raw`, `white-balance`, `development`, `diffraction-correction` and `sharpening` (#571: output rows, with those options) and `jpeg` tiles. The last event of each stage has `completedTileCount === totalTileCount`. The capture yields to the host about every 8 ms with a `MessageChannel` message (else `setImmediate`, else `setTimeout`), so other queued tasks run in between: an abort sent from another task, such as a Web Worker `message` event, takes effect at the next yield. |
 
 Unknown fields are rejected, so a typo never silently falls back to a default.
@@ -1712,6 +1714,48 @@ const pan = await simulateCapture({
 console.log(pan.assumptions.find((a) => a.id === "sensor.shutter")?.value, pan.exposure.settings.shutterSeconds);
 ```
 
+## Subject motion
+
+`motion.subject` (2.22.0, #551) moves the subject on the scene plane during the exposure: the whole scene, or one
+rectangle of it (`region: { centerXM, centerYM, widthM, heightM }` in metres at rest) over a still background.
+
+- `velocityMPerSec: { x, y }` is a translation in m/s on the plane (+x right, +y up as seen from the camera).
+  `angularVelocityRadPerSec` adds a rotation about an axis parallel to the optical axis, counter-clockwise as seen from
+  the camera: the optical axis for the whole scene, the region's center for a region.
+- The model is rigid motion of a planar layer. At time t from the first opening (camera rotation's time reference), a
+  subject point at rest q is at R(ωt)(q − c) + c + v·t. A plane point shows the subject where one is there, else the
+  region's rest rectangle shows a neutral 18 % background (what the subject revealed), else the still scene. The background
+  is lit by the plane's irradiance at that point: the illuminant, or with `illumination` (#550) the blend and point sources there.
+- Every scene query reads the subject at its own time. The blur is therefore the same temporal midpoint quadrature as
+  camera rotation (`sensor.temporalSampleCount`, default 8 with a moving subject), and an edge streaks over
+  v·T·m on the sensor (m = v′/D, the thin-lens image distance over the subject distance). With few samples a long streak
+  shows separate copies; raise the count. A test checks the length within sampling error.
+- A rolling shutter skews a moving subject: each row's exposure window opens later, so it sees the subject later. A test
+  checks the skew against the site windows' start offsets.
+- Panning: a camera yaw of −v/D rad/s (the engine's rotation convention) follows a subject moving at v m/s in +x. The
+  subject stays sharp and the background streaks.
+- It combines with `lens.diffraction`, `lens.defocus` (global shutter; their site lattices are formed at each midpoint), the
+  lens projection, distortion and vignetting, and camera rotation. `lens.pupilSampling` is refused.
+- Display view: sideways motion under a global shutter only. It refuses a rotating subject and a rolling shutter with a
+  reason; `simulateCapture` renders both.
+- Fast method (2.20.0 convention): with the default count and a still camera, `fast` takes one midpoint per site of the
+  streak plus one when that is fewer than 8 (taps less than one site apart). Exact keeps 8, and an explicit
+  `sensor.temporalSampleCount` always wins. Fast is the default for sRGB samples and the display view, exact for DNG,
+  JPEG and PNG.
+- Off by default: a request without `motion.subject` is byte-identical to 2.20.0.
+
+```ts
+import { simulateCapture } from "@photivra/engine";
+
+// A subject 4 mm wide moving right at 0.2 m/s, with the camera panning to follow it.
+const pan = await simulateCapture({
+  scene: { preset: "bar-groups" }, subjectDistanceM: 2, lens: { focalLengthMm: 50 },
+  motion: { angularVelocityRadPerSec: { yaw: -0.1 }, subject: { velocityMPerSec: { x: 0.2 }, region: { centerXM: 0.002, centerYM: 0, widthM: 0.004, heightM: 0.004 } } },
+  output: { width: 32, height: 16 }
+});
+console.log(pan.assumptions.find((a) => a.id === "motion.subject")?.value);
+```
+
 ## Performance
 
 Almost all of the cost is engine time per sensor site; the facade itself adds little. Since 2.0, the
@@ -2051,6 +2095,64 @@ developed image in 64-bit floats (24 bytes per pixel, 549 MiB at 24 MP), held as
 2.18.0 the stages held up to six such images: the same whole capture with both stages peaked at 3,670 MB (resident set
 sampled every 50 ms). The extra pass therefore costs about 5 s on one worker after the parts, against about 10 s to render
 the whole frame again on one worker.
+
+### Exposure build-up (#534)
+
+`simulateExposureBuildUp(options, { fractions })` renders fractions of one exposure as one accumulating process, the way a
+camera's live readout of a long exposure shows the light building up. Each fraction is read out and developed as its own
+photo, and the fraction at 1 is `simulateCapture(options)`, byte for byte (owner decision, 2026-11-06).
+
+- **Signal.** Each fraction fⱼ below 1 is a capture of the same request in manual mode at the whole exposure's resolved
+  f-number and ISO and the shutter fⱼ·t. So its expected signal at every site is integrated from the spectrum over the window
+  [0, fⱼ·t] by the capture itself. That includes camera rotation, `motion.subject` (#551), mixed lighting (#550, which does not
+  change over time) and, with a rolling shutter, each row's own window. No per-channel signal is precomputed (owner rule).
+- **Charge.** Photon and dark-charge arrivals are Poisson processes with any rate over time. Given a count n over [0, t], the
+  count over [0, s] is Binomial(n, Λ(s)/Λ(t)), with Λ the expected count (R. G. Gallager, *Discrete Stochastic Processes*,
+  chapter 2, sections 2.4 and 2.5, MIT OpenCourseWare 6.262, free). The whole exposure keeps its ordinary draws. Going down
+  the fractions, each site's photo and dark counts are split: N(fⱼ) ~ Binomial(N(fⱼ₊₁), λ(fⱼ)/λ(fⱼ₊₁)), with λ the site's
+  expected mean in each render (after PRNU and DSNU). As a result:
+  - each fraction's counts are Poisson with that fraction's own mean, which is the mean and variance of a capture at fⱼ·t;
+  - the counts never decrease from one fraction to the next;
+  - two fractions' counts covary by the earlier one's mean.
+
+  The binomial draws are exact: inversion, and Hörmann's BTRS rejection (`src/sensor/binomial-sample.ts`).
+- **Quadrature.** The windows are nested, so the true means never decrease. The temporal midpoint quadrature can still give an
+  earlier fraction a larger estimate than a later one at a site under motion. There the count is kept (probability 1), and the
+  `exposure.buildUp` assumption counts those sites (`nonMonotoneSites`). Raise `sensor.temporalSampleCount` to remove them.
+- **Sensor.** Fixed-pattern noise (PRNU, DSNU, hot pixels, offsets) belongs to the sensor and is the same in every fraction.
+  Each fraction's charge is clipped at the full well (`sensor.fullWell`), then read out once: its own read noise (the regime's
+  components; dual gain as the ISO selects), pre-ADC and ADC saturation, and quantization at the ADC bit depth (#555; a #554
+  sensor profile's readout feeds the same stage).
+- **Cost and settings.** One capture per fraction, plus about 64 bytes per native site for the chain. The request's `fast`
+  and the format default apply to every fraction, and the build-up adds no fast method: with `fast: false` (the calculator's
+  setting) every fraction is an exact capture. `"auto"` white balance is measured on each fraction, as its own photo.
+- **Limits.** On screen only: formats `"srgb-8"` and `"srgb-16"` (a fraction's JPEG, PNG or DNG is refused). 1 to 64
+  fractions, strictly increasing, above 0 and at most 1. Each fraction's shutter fⱼ·t must be one the body can set. A
+  fraction's realization depends on the whole list, because each step of the chain has its own seeded streams
+  (`EXPOSURE_BUILD_UP_STREAM_BASE`). The same request and list always give the same frames.
+- **Result.** One frame per fraction: `{ fraction, elapsedSeconds, result }`. Below 1, `result` is the fraction capture's
+  result (`image`, `raw`, `plan` and `request` at fⱼ·t), with the build-up's counts and the assumption `exposure.buildUp`.
+  Its `exposure` and `sensor` are the whole exposure's reports: the camera's settings and noise figure, not the elapsed part's.
+
+```ts
+import { simulateExposureBuildUp } from "@photivra/engine";
+
+const build = await simulateExposureBuildUp({ scene: { preset: "slanted-edge" }, exposure: { mode: "manual", shutterSeconds: 1 / 15, iso: 400 },
+  motion: { angularVelocityRadPerSec: { yaw: 0.2 } }, output: { width: 64, height: 48 } }, { fractions: [0.2, 0.4, 0.6, 0.8, 1] });
+for (const frame of build.frames) console.log(frame.fraction, frame.elapsedSeconds, frame.result.image.samples.length);
+```
+
+The tests are in `test/exposure-build-up.test.ts`:
+
+- The last fraction equals `simulateCapture` byte for byte: tabulated and lean paths, fixed pattern, dual gain, auto white
+  balance and Auto ISO, camera rotation, rolling shutter, a moving subject and mixed lighting.
+- Each fraction's mean and variance match a single capture at f·t. Under motion this is checked column by column, and the
+  fraction is shown to differ from the whole exposure scaled by f.
+- Without read noise the codes never decrease, and Cov(c₁, c₂) = Var(c₁).
+- Dark frames' read noise is independent between readouts.
+- A fraction past the full well clips.
+
+`test/binomial-sample.test.ts` checks the binomial draws with chi-square tests of the probability mass function.
 
 ### A Print JPEG written in strips
 

@@ -227,6 +227,10 @@ with K_λ the diffraction kernel (a unit tap without `lens.diffraction`).
 
 ### Lens projection, distortion, vignetting and rotation
 
+(2.22.0, #551: `motion.subject` takes this path too. Its sideways motion, under a global shutter, is read at each temporal
+midpoint t of the sum below, L(D_t(s), λ) then being the moving scene at t. The view refuses a rotating subject and a
+rolling shutter; `simulateCapture` renders both.)
+
 From #563 the view accepts `lens.projection`, `lens.distortion`, `lens.vignetting` and camera rotation
 (`motion.angularVelocityRadPerSec`, global shutter), in focus and with `lens.defocus` out of focus, the combinations
 `simulateCapture` renders (#548). Each of them moves the scene points a site sees off the plane lattice, or (vignetting,

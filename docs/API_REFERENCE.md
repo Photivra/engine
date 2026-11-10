@@ -1334,6 +1334,19 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 | [`DisplayViewCorrectionStateSet`](api/facade-display-view.md#displayviewcorrectionstateset) | Type |
 | [`serializeDisplayViewCorrectionStates`](api/facade-display-view.md#serializedisplayviewcorrectionstates) | Runtime |
 
+## facade/exposure-build-up.ts
+
+[Detailed contracts](api/facade-exposure-build-up.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/facade/exposure-build-up.ts)
+
+| Export | Kind |
+| --- | --- |
+| [`EXPOSURE_BUILD_UP_MAXIMUM_FRACTIONS`](api/facade-exposure-build-up.md#exposure_build_up_maximum_fractions) | Runtime |
+| [`EXPOSURE_BUILD_UP_STREAM_BASE`](api/facade-exposure-build-up.md#exposure_build_up_stream_base) | Runtime |
+| [`simulateExposureBuildUp`](api/facade-exposure-build-up.md#simulateexposurebuildup) | Runtime |
+| [`SimulateExposureBuildUpFrame`](api/facade-exposure-build-up.md#simulateexposurebuildupframe) | Type |
+| [`SimulateExposureBuildUpOptions`](api/facade-exposure-build-up.md#simulateexposurebuildupoptions) | Type |
+| [`SimulateExposureBuildUpResult`](api/facade-exposure-build-up.md#simulateexposurebuildupresult) | Type |
+
 ## facade/fast-methods.ts
 
 [Detailed contracts](api/facade-fast-methods.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/facade/fast-methods.ts)
@@ -1342,6 +1355,18 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 | --- | --- |
 | [`SIMULATE_CAPTURE_FAST_METHODS`](api/facade-fast-methods.md#simulate_capture_fast_methods) | Runtime |
 | [`SimulateCaptureFastMethod`](api/facade-fast-methods.md#simulatecapturefastmethod) | Type |
+
+## facade/mixed-illumination.ts
+
+[Detailed contracts](api/facade-mixed-illumination.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/facade/mixed-illumination.ts)
+
+| Export | Kind |
+| --- | --- |
+| [`MixedIllumination`](api/facade-mixed-illumination.md#mixedillumination) | Type |
+| [`MixedIlluminationBlend`](api/facade-mixed-illumination.md#mixedilluminationblend) | Type |
+| [`MixedIlluminationPoint`](api/facade-mixed-illumination.md#mixedilluminationpoint) | Type |
+| [`MixedIlluminationPointSource`](api/facade-mixed-illumination.md#mixedilluminationpointsource) | Type |
+| [`MixedIlluminationSource`](api/facade-mixed-illumination.md#mixedilluminationsource) | Type |
 
 ## facade/scene-radiance.ts
 
@@ -1582,6 +1607,14 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 | [`calculateProjectedMotionBlur`](api/motion-projected-motion.md#calculateprojectedmotionblur) | Runtime |
 | [`CalculateProjectedMotionBlurInput`](api/motion-projected-motion.md#calculateprojectedmotionblurinput) | Type |
 | [`ProjectedMotionBlur`](api/motion-projected-motion.md#projectedmotionblur) | Type |
+
+## motion/subject-motion.ts
+
+[Detailed contracts](api/motion-subject-motion.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/motion/subject-motion.ts)
+
+| Export | Kind |
+| --- | --- |
+| [`SimulateCaptureSubjectMotion`](api/motion-subject-motion.md#simulatecapturesubjectmotion) | Type |
 
 ## motion/temporal-exposure-sum.ts
 

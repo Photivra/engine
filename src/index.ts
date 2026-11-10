@@ -1850,9 +1850,12 @@ export { SIMULATE_CAPTURE_FACADE_VERSION, SIMULATE_CAPTURE_DEFAULT_ILLUMINANCE_L
   simulateIdealReference, type IdealReferenceResult, serializeSimulatedCaptureDngFromParts, type SimulateCaptureDngPart, type SimulateDisplayViewOptions, type DisplayViewResult,
   type DisplayViewHighlightDiagnostics, SIMULATE_DISPLAY_VIEW_DEFAULT_SAMPLES_PER_AXIS } from "./facade/simulate-capture.js";
 export { simulateCaptureFromParts } from "./facade/develop-joined-parts.js";
+export { EXPOSURE_BUILD_UP_MAXIMUM_FRACTIONS, EXPOSURE_BUILD_UP_STREAM_BASE, simulateExposureBuildUp, type SimulateExposureBuildUpFrame, type SimulateExposureBuildUpOptions,
+  type SimulateExposureBuildUpResult } from "./facade/exposure-build-up.js";
 export type { SimulateCaptureSensorCharacteristics, SimulateCaptureSensorReport, SimulateCaptureNoiseComponents } from "./sensor/sensor-characteristics.js";
 export { SENSOR_PROFILES, SENSOR_PROFILE_IDS, resolveSensorProfile } from "./equipment/sensor-profiles.js";
 export { SENSOR_PROFILE_ISO_ANCHOR, type SensorProfile, type SensorProfileValueKind } from "./equipment/sensor-profile-body.js";
+export type { SimulateCaptureSubjectMotion } from "./motion/subject-motion.js";
 export { simulateDisplayView, prepareDisplayView, type PreparedDisplayView, type PreparedDisplayViewRenderOptions, serializeDisplayViewCorrectionStates, bindDisplayViewCorrectionStates,
   type DisplayViewCorrectionStateKeys, type DisplayViewCorrectionStateSet } from "./facade/simulate-display-view.js";
 export type { DisplayViewGpuMode, PrepareDisplayViewOptions, DisplayViewGpuFallbackReason, DisplayViewGpuConformance, DisplayViewExecution,
@@ -1882,6 +1885,7 @@ export { PHOTOPIC_MAXIMUM_LUMINOUS_EFFICACY_LM_PER_W, resolveCaptureIlluminant, 
   type CaptureIlluminant, type ResolvedCaptureIlluminant, type CallerReflectanceScene, type CallerRadianceScene, type CallerMaterialScene, type ScenePlanePoint, type SceneMaterialPoint,
   type PlanarSceneRadianceProvider, type ImagePlaneScene, type ImagePlaneImage } from "./facade/scene-radiance.js";
 export { prepareImagePlaneScenes } from "./facade/image-plane-enable.js";
+export type { MixedIllumination, MixedIlluminationBlend, MixedIlluminationPoint, MixedIlluminationPointSource, MixedIlluminationSource } from "./facade/mixed-illumination.js";
 export { CHART_RADIANCE_BATCH_SCHEMA_VERSION, CHART_RADIANCE_BATCH_LIMITS, calculateChartRadianceBatchPlan, calculateChartRadianceBatch,
   mapEnvironmentDirectionsToChartPoints, type ChartRadianceBatchInput, type ChartRadianceBatchPlan } from "./facade/chart-radiance-batch.js";
 export { resolveChartMaterialLayers, CHART_MASK_INDEX_GRAIN, CHART_MATERIAL_LAYER_LIMITS, type ChartMaterialLayerScene, type ChartMaskLayer, type ChartMaskShape,

@@ -13,7 +13,7 @@ import { scaledTimeout } from "./helpers/test-timeout.js";
  * for byte, and report `false`; `lens.catalogue` reports `true` exactly when its effective flag is true.
  */
 /** Options with a fast method. */
-const WITH_FAST_METHOD: readonly SimulateCaptureFastOption[] = ["lens.catalogue"];
+const WITH_FAST_METHOD: readonly SimulateCaptureFastOption[] = ["lens.catalogue", "motion.subject"];
 type Options = Record<string, Record<string, unknown> | unknown>;
 // 2.20.0: fast: false here, so a test's own fast overrides an exact request (the format default, fast for sRGB, is tested at the end
 // and in fast-methods-registry.test.ts).
@@ -32,7 +32,9 @@ const FORMS: Record<SimulateCaptureFastOption, { shorthand: Options; record: (fa
   "lens.catalogue": { shorthand: { lens: { catalogue: "pv-50-1.8", fNumber: 8 } }, record: (fast) => ({ lens: { catalogue: { kind: "pv-50-1.8", fast }, fNumber: 8 } }) },
   "sensor.antiAliasing": { shorthand: { sensor: { antiAliasing: { kind: "four-spot" } } }, record: (fast) => ({ sensor: { antiAliasing: { kind: "four-spot", fast } } }) },
   "sensor.pixelAperture.box": { shorthand: { sensor: { pixelAperture: "box" } }, record: (fast) => ({ sensor: { pixelAperture: { kind: "box", fast } } }) },
-  "output.demosaic.ahd": { shorthand: { output: { demosaic: "ahd" } }, record: (fast) => ({ output: { demosaic: { kind: "ahd", fast } } }) }
+  "output.demosaic.ahd": { shorthand: { output: { demosaic: "ahd" } }, record: (fast) => ({ output: { demosaic: { kind: "ahd", fast } } }) },
+  // #551: a short streak (well under one site), so the fast method takes fewer temporal midpoints than the default 8.
+  "motion.subject": { shorthand: { motion: { subject: { velocityMPerSec: { x: 0.001 } } } }, record: (fast) => ({ motion: { subject: { velocityMPerSec: { x: 0.001 }, fast } } }) }
 };
 const samples = (r: { image: { samples: Uint8Array | Uint16Array } }): number[] => Array.from(r.image.samples);
 
@@ -74,13 +76,14 @@ describe("exact-or-fast flag convention (#395)", () => {
     const all = request({ lens: { diffraction: { kind: "circular-aperture", fast: true } }, sensor: { antiAliasing: { kind: "four-spot" }, pixelAperture: "box" },
       output: { demosaic: { kind: "ahd" } }, fast: true });
     const result = await simulateCapture(all);
-    expect(Object.keys(result.diagnostics.fast.applied)).toEqual(SIMULATE_CAPTURE_FAST_OPTIONS.filter((option) => option !== "lens.catalogue"));
+    // motion.subject (#551) has its own cases above; it would multiply this request's scene queries by its temporal midpoints.
+    expect(Object.keys(result.diagnostics.fast.applied)).toEqual(SIMULATE_CAPTURE_FAST_OPTIONS.filter((option) => option !== "lens.catalogue" && option !== "motion.subject"));
     expect(Object.values(result.diagnostics.fast.applied).every((value) => value === false)).toBe(true);
     // With anti-aliasing (off the site centres) the catalogue's fast method does not apply, so it reports false.
     // An 8 × 8 region at an 80 nm spectral step keeps the exact catalogue quadrature (every tap a scene query) affordable on CI runners.
     const catalogue = await simulateCapture(request({ lens: { catalogue: "pv-50-1.8", fNumber: 8 }, sensor: { pixelPitchMicrometers: 750, spectralStepNanometers: 80, antiAliasing: { kind: "four-spot" }, pixelAperture: "box" },
       output: { demosaic: { kind: "ahd" }, region: { x: 0, y: 0, width: 8, height: 8 } }, fast: true }));
-    expect(Object.keys(catalogue.diagnostics.fast.applied)).toEqual(SIMULATE_CAPTURE_FAST_OPTIONS.filter((option) => option !== "lens.diffraction"));
+    expect(Object.keys(catalogue.diagnostics.fast.applied)).toEqual(SIMULATE_CAPTURE_FAST_OPTIONS.filter((option) => option !== "lens.diffraction" && option !== "motion.subject"));
     expect(Object.values(catalogue.diagnostics.fast.applied).every((value) => value === false)).toBe(true);
   }, scaledTimeout(120_000));
 

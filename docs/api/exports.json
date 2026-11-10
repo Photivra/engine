@@ -3263,6 +3263,16 @@
       "kind": "type"
     },
     {
+      "name": "EXPOSURE_BUILD_UP_MAXIMUM_FRACTIONS",
+      "source": "src/facade/exposure-build-up.ts",
+      "kind": "runtime"
+    },
+    {
+      "name": "EXPOSURE_BUILD_UP_STREAM_BASE",
+      "source": "src/facade/exposure-build-up.ts",
+      "kind": "runtime"
+    },
+    {
       "name": "EXPOSURE_DURATION_CONTROL_VERSION",
       "source": "src/exposure/exposure-duration-control.ts",
       "kind": "runtime"
@@ -4870,6 +4880,31 @@
     {
       "name": "MeterSceneRadianceTemporalExposureInput",
       "source": "src/exposure/metering-temporal.ts",
+      "kind": "type"
+    },
+    {
+      "name": "MixedIllumination",
+      "source": "src/facade/mixed-illumination.ts",
+      "kind": "type"
+    },
+    {
+      "name": "MixedIlluminationBlend",
+      "source": "src/facade/mixed-illumination.ts",
+      "kind": "type"
+    },
+    {
+      "name": "MixedIlluminationPoint",
+      "source": "src/facade/mixed-illumination.ts",
+      "kind": "type"
+    },
+    {
+      "name": "MixedIlluminationPointSource",
+      "source": "src/facade/mixed-illumination.ts",
+      "kind": "type"
+    },
+    {
+      "name": "MixedIlluminationSource",
+      "source": "src/facade/mixed-illumination.ts",
       "kind": "type"
     },
     {
@@ -8888,6 +8923,11 @@
       "kind": "type"
     },
     {
+      "name": "SimulateCaptureSubjectMotion",
+      "source": "src/motion/subject-motion.ts",
+      "kind": "type"
+    },
+    {
       "name": "SimulateCaptureWhiteBalance",
       "source": "src/facade/simulate-capture.ts",
       "kind": "type"
@@ -8925,6 +8965,26 @@
     {
       "name": "SimulateEnvironmentSensorRawFrameInput",
       "source": "src/capture/environment-raw-producer.ts",
+      "kind": "type"
+    },
+    {
+      "name": "simulateExposureBuildUp",
+      "source": "src/facade/exposure-build-up.ts",
+      "kind": "runtime"
+    },
+    {
+      "name": "SimulateExposureBuildUpFrame",
+      "source": "src/facade/exposure-build-up.ts",
+      "kind": "type"
+    },
+    {
+      "name": "SimulateExposureBuildUpOptions",
+      "source": "src/facade/exposure-build-up.ts",
+      "kind": "type"
+    },
+    {
+      "name": "SimulateExposureBuildUpResult",
+      "source": "src/facade/exposure-build-up.ts",
       "kind": "type"
     },
     {

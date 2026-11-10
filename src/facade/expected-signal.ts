@@ -20,7 +20,7 @@ export type DisplayViewScene =
     materials: readonly ({ neutral: number } | { radiance: Float64Array })[];
     /** Illuminant radiance of a perfect white diffuser at each spectral node: irradianceScale·shape(λ)/π. */
     whiteRadiance: Float64Array }
-  | { kind: "radiance"; radianceAt(u: number, v: number, nm: number): number;
+  | { kind: "radiance"; radianceAt(u: number, v: number, nm: number, t?: number): number;
     /**
      * #581, an image-plane scene's direct path: the signal of channel c, each pixel's Σ_n A_c(λ_n)·L_n integrated from its
      * reconstructed spectrum and interpolated between pixels (a site without kernels takes it instead of one radiance lookup per node).

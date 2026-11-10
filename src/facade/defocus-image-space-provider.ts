@@ -161,6 +161,8 @@ export interface DefocusImageSpaceProviderInput {
   queryOffsetsSites?: readonly { x: number; y: number }[];
   /** Region renders: the native sites that will be queried. Values are bit-identical to the whole render's. Default: the whole raster. */
   window?: { x: number; y: number; width: number; height: number };
+  /** #551: the scene itself depends on time (a moving subject): each request time keeps its own image even without rotation. */
+  timeDependentScene?: boolean;
   /** Most distinct request times kept per band (the temporal sample count). Default 1. */
   timesPerBand?: number;
   /** Called with the duration in ms of each band convolution (diagnostics only). */
@@ -205,6 +207,7 @@ export function createDefocusImageSpaceProvider(input: DefocusImageSpaceProvider
   const sharedKernel = !large && (zonedGather !== undefined || kernels.every((kernel) => kernel === kernels[0]));
   const scale = input.metresPerFrameUnit, distance = input.distanceM;
   const materialAt = base.chartMaterialAt?.bind(base), materialRadiance = base.materialRadiance?.bind(base), zeroBeyond = input.zeroBeyondHorizon === true;
+  const timeDependent = geometry.timeDependent || input.timeDependentScene === true;
   const now = (): number => globalThis.performance?.now() ?? Date.now();
   // Lattice point (li, lj) of shift s, as a native sensor point in mm (+Y down): site centre plus the shift.
   const xMmOf = (li: number, s: { x: number }): number => (li - M + 0.5 + s.x - W / 2) * mmPerSite;
@@ -220,7 +223,7 @@ export function createDefocusImageSpaceProvider(input: DefocusImageSpaceProvider
     if (material) material[k] = materialAt!(u[k]!, v[k]!);
   }
   // The samples F·L at one spectral node (a point with factor 0 gives 0).
-  function samplesOf(nm: number, factor: Float64Array, u: Float64Array, v: Float64Array, material: Int32Array | undefined): Float64Array {
+  function samplesOf(nm: number, time: number, factor: Float64Array, u: Float64Array, v: Float64Array, material: Int32Array | undefined): Float64Array {
     const size = factor.length, samples = new Float64Array(size);
     if (material) {
       const radiance = new Map<number, number>();
@@ -230,7 +233,7 @@ export function createDefocusImageSpaceProvider(input: DefocusImageSpaceProvider
         if (value === undefined) { value = materialRadiance!(m, nm); radiance.set(m, value); }
         samples[k] = factor[k]! * value;
       }
-    } else for (let k = 0; k < size; k++) samples[k] = factor[k]! * base.radianceAt(u[k]!, v[k]!, nm);
+    } else for (let k = 0; k < size; k++) samples[k] = factor[k]! * base.radianceAt(u[k]!, v[k]!, nm, time);
     return samples;
   }
   // Bands per time (LRU over (time, band)): values[shift][node] holds G_t / F at the band's own lattice points.
@@ -244,6 +247,7 @@ export function createDefocusImageSpaceProvider(input: DefocusImageSpaceProvider
     lastBand = b; lastTime = time; lastValues = values;
     return values;
   }
+
   function bandOf(b: number, time: number): Float64Array[][] {
     const key = time + ":" + b, cached = cache.get(key);
     if (cached) { cache.delete(key); cache.set(key, cached); return cached; }
@@ -283,7 +287,7 @@ export function createDefocusImageSpaceProvider(input: DefocusImageSpaceProvider
         }
       }
       return wavelengthsNm.map((nm, w) => {
-        const samples = samplesOf(nm, factor, u, v, material);
+        const samples = samplesOf(nm, time, factor, u, v, material);
         const gathered = zonedGather ? zonedGather(samples, lx0, y0, NW, rows) : gatherInterior(samples, taps[w]!, gridWidth, NW, rows, R);
         for (let k = 0; k < gathered.length; k++) gathered[k] = gathered[k]! / own[k]!;
         return gathered;
@@ -339,7 +343,7 @@ export function createDefocusImageSpaceProvider(input: DefocusImageSpaceProvider
               mapInto(y * width + x, xMmOf(x0 + x, shift), yMm, time, factor, u, v, material);
             }
           }
-          return (node: number): Float64Array => samplesOf(wavelengthsNm[node]!, factor, u, v, material);
+          return (node: number): Float64Array => samplesOf(wavelengthsNm[node]!, time, factor, u, v, material);
         } });
       entry = { lattice, own: new Map() };
       largeLattices.set(key, entry);
@@ -358,7 +362,7 @@ export function createDefocusImageSpaceProvider(input: DefocusImageSpaceProvider
     return entry.lattice.valueAt(w, li, lj) / own[(lj - ty * T) * T + li - tx * T]!;
   }
   function blurredAt(look: { x: number; y: number; z: number }, time: number, nm: number): number {
-    const t = geometry.timeDependent ? time : 0;
+    const t = timeDependent ? time : 0;
     return valueOf(keyOf(look, t), t, nm);
   }
   const baseEvaluate = base.evaluateRadiance, internal = isInternalSceneRadianceEvaluator(baseEvaluate);
@@ -381,7 +385,7 @@ export function createDefocusImageSpaceProvider(input: DefocusImageSpaceProvider
     registerInternalRadianceAccess(evaluateRadiance, {
       tabulated: false,
       keyOfDirection(o, time): number | undefined {
-        const t = geometry.timeDependent ? time : 0, key = keyOf({ x: -o.x, y: -o.y, z: -o.z }, t);
+        const t = timeDependent ? time : 0, key = keyOf({ x: -o.x, y: -o.y, z: -o.z }, t);
         if (key === undefined) return undefined;
         let index = timeIndex.get(t);
         if (index === undefined) { index = times.length; times.push(t); timeIndex.set(t, index); }

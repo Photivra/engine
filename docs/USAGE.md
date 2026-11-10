@@ -7809,6 +7809,13 @@ including the whole-image stages `output.diffractionCorrection` and `output.shar
 bytes as a whole-frame `simulateCapture()` and per-row progress (`diffraction-correction`, `sharpening`). See
 [Quick start, Developing a capture rendered in parts](QUICK_START.md#developing-a-capture-rendered-in-parts-571).
 
+`simulateExposureBuildUp(options, { fractions })` (#534) renders fractions of one exposure as one accumulating process. Each
+fraction's expected signal is its own capture at the elapsed time, so camera rotation, a moving subject and mixed lighting are
+included. Its photo and dark counts are binomial splits of the next fraction's, so they build up in place. Each fraction is
+clipped at the full well, read out once with its own read noise and developed as its own photo. The fraction at 1 is
+`simulateCapture(options)` byte for byte. Only the sRGB sample formats are accepted (on screen). See
+[Quick start, Exposure build-up](QUICK_START.md#exposure-build-up-534).
+
 ### Color charts (2.14)
 
 The engine's own [color patches](https://github.com/Photivra/photivra/blob/main/docs/COLOR_PATCHES.md) are reflectance spectra lit by the capture's illuminant. Draw the
@@ -7905,6 +7912,28 @@ The chart presets are also available on their own:
 - `resolveChartScene()` gives the analytic reflectance at any point in the frame.
 - `createPlanarSceneRadianceProvider()` turns a chart into an `evaluateRadiance` callback for the native
   environment RAW contract.
+
+### Mixed lighting (2.22, #550)
+
+`illumination` lights the chart with two or more sources blended across it (a linear gradient, a radial falloff or regions),
+for example window daylight on one side and a lamp on the other. The frame center's light sets the grey-card meter and its
+strongest source the `"scene-illuminant"` white balance; both are reported in `assumptions`. See
+[Mixed lighting](MIXED_ILLUMINATION.md) for the model and every field.
+
+```ts
+import { simulateCapture } from "@photivra/engine";
+
+const lampPool = await simulateCapture({
+  scene: { preset: "step-wedge" },
+  exposure: { mode: "aperture-priority", metering: "grey-card" },
+  illumination: {
+    sources: [{ illuminant: "cie-a", illuminanceLux: 500 }, { illuminant: { kind: "planckian", temperatureKelvin: 6500 }, illuminanceLux: 20000 }],
+    blend: { kind: "radial", radius: 0.8, stops: [0.25, 1] }
+  },
+  output: { width: 32, height: 16 }
+});
+console.log(lampPool.assumptions.find((a) => a.id === "output.whiteBalanceSource")?.value); // { source: 0, illuminant: "cie-a" }
+```
 
 ### Display view of a capture
 
@@ -8089,6 +8118,18 @@ import { simulateCapture } from "@photivra/engine";
 
 const rolling = await simulateCapture({ scene: { preset: "checkerboard" }, motion: { angularVelocityRadPerSec: { pitch: 0.02 }, shutter: "rolling" }, output: { width: 6, height: 6 } });
 console.log(rolling.request.siteInput(7 * 8).charge.completenessProfile.startOffsetSecondsFromOpeningReference);
+```
+
+`motion.subject` (2.22.0) moves the subject instead: the whole scene, or one `region` of it over a still background,
+at `velocityMPerSec` on the scene plane, optionally rotating at `angularVelocityRadPerSec` about the optical axis. It
+uses the same temporal midpoints, so a rolling shutter skews the moving subject. The display view renders sideways
+motion under a global shutter and refuses the rest. See [Subject motion](QUICK_START.md#subject-motion).
+
+```ts
+import { simulateCapture } from "@photivra/engine";
+
+const moving = await simulateCapture({ scene: { preset: "slanted-edge" }, motion: { subject: { velocityMPerSec: { x: 0.5 } } }, output: { width: 8, height: 8 } });
+console.log(moving.assumptions.find((a) => a.id === "motion.subject")?.value);
 ```
 
 ## Equivalent f-number, sensor area and blur as a share of the frame
