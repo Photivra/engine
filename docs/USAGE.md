@@ -7147,6 +7147,7 @@ See [Print planning](https://github.com/Photivra/photivra/blob/main/docs/PRINT_P
 
 - `calculatePrintPlan()` says whether the native sampling is enough, and gives a compatible minimum file raster.
 - `calculatePrintSizeLimit()` distinguishes finite, unbounded and unavailable sampling limits.
+- `calculatePrintSizeLimitWithBlurAndNoise()` (2.20.0) gives the largest print at a viewing distance that still looks sharp and clean, counting blur and noise as well as pixels, and names the limiting factor ([Print size limit with blur and noise](https://github.com/Photivra/photivra/blob/main/docs/PRINT_PLANNING.md#print-size-limit-with-blur-and-noise)). An approximation.
 - Print quality and delivery are not assessed.
 
 The [regional Print detail diagnostic](https://github.com/Photivra/photivra/blob/main/docs/PRINT_DETAIL_ASSESSMENT.md) measures one declared, coherent sinusoidal fundamental in a selected linear-luminance ROI, and records the exact pipeline stage it measured. Its [validation protocol](https://github.com/Photivra/photivra/blob/main/docs/PRINT_DETAIL_VALIDATION.md) and [capability ledger](https://github.com/Photivra/photivra/blob/main/docs/validation/print-detail-capabilities.json) separate mathematical conformance from the still-blocked qualification of acquired images, renderers and perceived quality.

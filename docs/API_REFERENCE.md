@@ -2357,6 +2357,20 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 | [`PrintRegionRaster`](api/output-print-region-statistics.md#printregionraster) | Type |
 | [`PrintRegionStatisticsAssessment`](api/output-print-region-statistics.md#printregionstatisticsassessment) | Type |
 
+## output/print-size-blur-noise.ts
+
+[Detailed contracts](api/output-print-size-blur-noise.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/output/print-size-blur-noise.ts)
+
+| Export | Kind |
+| --- | --- |
+| [`calculatePrintSizeLimitWithBlurAndNoise`](api/output-print-size-blur-noise.md#calculateprintsizelimitwithblurandnoise) | Runtime |
+| [`PrintBlurInput`](api/output-print-size-blur-noise.md#printblurinput) | Type |
+| [`PrintImageMm`](api/output-print-size-blur-noise.md#printimagemm) | Type |
+| [`PrintNoiseInput`](api/output-print-size-blur-noise.md#printnoiseinput) | Type |
+| [`PrintSharpCleanCriterion`](api/output-print-size-blur-noise.md#printsharpcleancriterion) | Type |
+| [`PrintSizeLimitWithBlurAndNoise`](api/output-print-size-blur-noise.md#printsizelimitwithblurandnoise) | Type |
+| [`PrintSizeLimitWithBlurAndNoiseInput`](api/output-print-size-blur-noise.md#printsizelimitwithblurandnoiseinput) | Type |
+
 ## output/sdr-rendering.ts
 
 [Detailed contracts](api/output-sdr-rendering.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/output/sdr-rendering.ts)
