@@ -104,9 +104,10 @@ export interface SimulateCaptureSensorReport {
    * #535: the expected signal-to-noise ratio of an 18 % Lambertian grey patch under the request's illuminant and illuminance
    * at the capture's exposure, ISO and sensor, on the green channel next to the optical axis (no vignetting, PSF or motion).
    * `snr` = S/σ_total and `snrDecibels` = 20·log₁₀(snr). `clipped`: S is at or above the white level, where the RAW clips and
-   * the figure no longer describes the image.
+   * the figure no longer describes the image. Computed only when the request resolves to exact (`fast: false`, the default for
+   * DNG, JPEG and PNG exports; omitted for a fast request).
    */
-  midGrey: { reflectance: 0.18; channel: "green"; signalElectrons: number; noiseElectrons: SimulateCaptureNoiseComponents; snr: number; snrDecibels: number; clipped: boolean };
+  midGrey?: { reflectance: 0.18; channel: "green"; signalElectrons: number; noiseElectrons: SimulateCaptureNoiseComponents; snr: number; snrDecibels: number; clipped: boolean };
 }
 
 /** The request's characteristics, range-checked, with the EQE scale peakQuantumEfficiency / 0.5. */
@@ -194,16 +195,18 @@ function regimeRange(profile: SensorReadoutConversionProfile, regime: SensorRead
  * The report: the characteristics used, the dynamic range per ISO, and the mid-grey noise figure for `greyElectrons`, the
  * green channel's expected charge from an 18 % grey patch, after a `darkElectrons` dark charge.
  */
-export function sensorReport(profile: SensorReadoutConversionProfile, regimeId: string, capacityElectrons: number, greyElectrons: number, darkElectrons: number,
+export function sensorReport(profile: SensorReadoutConversionProfile, regimeId: string, capacityElectrons: number, greyElectrons: number | undefined, darkElectrons: number,
   base: Pick<SimulateCaptureSensorReport, "pixelPitchMicrometers" | "peakQuantumEfficiency" | "readoutSeconds">, pattern?: SensorFixedPatternNoiseProfile): SimulateCaptureSensorReport {
   const stops = (r: SensorReadoutConversionRegime): number => { const q = regimeRange(profile, r, capacityElectrons); return Math.log2(q.saturation / Math.hypot(q.read, q.quantization)); };
   const regime = profile.regimes.find((r) => r.regimeId === regimeId)!, range = regimeRange(profile, regime, capacityElectrons);
+  const report: SimulateCaptureSensorReport = { ...base, fullWellElectrons: capacityElectrons, readNoise: declaredReadNoise(profile), adcBitDepth: regime.adc.bitDepth, fixedPatternNoise: !!pattern,
+    dynamicRangeStops: stops(regime), dynamicRangeByIso: profile.regimes.map((r) => ({ iso: r.exposureIndexGain?.exposureIndex ?? NaN, stops: stops(r) })).filter((e) => e.iso > 0) };
+  if (greyElectrons === undefined) return report;
   const fixedPattern = pattern && Math.hypot(pattern.photoResponseNonUniformity.relativeStandardDeviation.value * greyElectrons,
     pattern.darkSignalNonUniformity.relativeStandardDeviation.value * darkElectrons, pattern.rowOffset.rmsElectrons.value, pattern.columnOffset.rmsElectrons.value);
   const noise = { photonShot: Math.sqrt(greyElectrons), read: range.read, darkCurrent: Math.sqrt(darkElectrons), quantization: range.quantization, ...(fixedPattern === undefined ? {} : { fixedPattern }), total: 0 };
   noise.total = Math.hypot(noise.photonShot, noise.read, noise.darkCurrent, noise.quantization, fixedPattern ?? 0);
   const snr = greyElectrons / noise.total;
-  return { ...base, fullWellElectrons: capacityElectrons, readNoise: declaredReadNoise(profile), adcBitDepth: regime.adc.bitDepth, fixedPatternNoise: !!pattern,
-    dynamicRangeStops: stops(regime), dynamicRangeByIso: profile.regimes.map((r) => ({ iso: r.exposureIndexGain?.exposureIndex ?? NaN, stops: stops(r) })).filter((e) => e.iso > 0),
-    midGrey: { reflectance: 0.18, channel: "green", signalElectrons: greyElectrons, noiseElectrons: noise, snr, snrDecibels: 20 * Math.log10(snr || Number.MIN_VALUE), clipped: greyElectrons + darkElectrons >= range.saturation } };
+  report.midGrey = { reflectance: 0.18, channel: "green", signalElectrons: greyElectrons, noiseElectrons: noise, snr, snrDecibels: 20 * Math.log10(snr || Number.MIN_VALUE), clipped: greyElectrons + darkElectrons >= range.saturation };
+  return report;
 }

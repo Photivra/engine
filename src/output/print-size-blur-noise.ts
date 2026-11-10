@@ -12,6 +12,7 @@ import { ENGINE_API_VERSION } from "../core/version.js";
 import { calculateSignalToNoise } from "../sensor/signal-noise.js";
 import type { RasterDimensions } from "../sensor/sensor-geometry.js";
 import type { PrintLength } from "./print-plan.js";
+import type { SimulateCaptureSensorReport } from "../sensor/sensor-characteristics.js";
 
 /** The capture's blur at the sensor plane, as blur-spot diameters in millimetres.
  * `components` combines the parts by root-sum-square (an approximation, see the docs); `measured-total` is one measured diameter.
@@ -23,11 +24,15 @@ export type PrintBlurInput =
   | { kind: "measured-total"; diameterMm: number };
 /** The noise of one pixel of the printed raster, for the tone the caller cares about (for example mid-gray).
  * `shot-and-read-noise` uses the engine's noise model (`calculateSignalToNoise`: Poisson shot noise plus RMS read noise);
- * `pixel-snr` is a per-pixel signal-to-noise ratio the caller already has.
+ * `pixel-snr` is a per-pixel signal-to-noise ratio the caller already has. `capture-noise-figure` (2.20.0) takes a capture's own
+ * mid-gray noise figure (#535: `result.sensor.midGrey` of a `simulateCapture` with `fast: false`), whose SNR S/σ_total counts photon
+ * shot, read, dark-current, quantization and any fixed-pattern noise; it is one sensor site's, so it applies as the pixel SNR when one
+ * printed pixel is one capture pixel. A clipped figure (the patch at white) is refused.
  */
 export type PrintNoiseInput =
   | { kind: "shot-and-read-noise"; signalElectrons: number; readNoiseElectrons: number }
-  | { kind: "pixel-snr"; snrLinear: number };
+  | { kind: "pixel-snr"; snrLinear: number }
+  | { kind: "capture-noise-figure"; midGrey: NonNullable<SimulateCaptureSensorReport["midGrey"]> };
 /** What "looks sharp and clean" means: the smallest angle the viewer resolves, and the lowest signal-to-noise ratio the viewer
  * accepts after the eye averages over that angle. Both are the caller's choice; one arcminute is normal (20/20) acuity.
  */
@@ -90,9 +95,9 @@ function parseBlur(value: unknown): { diameterMm: number; largestComponent: Prin
   }
   return { diameterMm: Math.sqrt(sumSquares), largestComponent };
 }
-/** The one place the noise input becomes a per-pixel SNR. A capture's own noise figure (#535) plugs in here as another case. */
+/** The one place the noise input becomes a per-pixel SNR, including a capture's own noise figure (#535). */
 function resolvePixelSnr(value: unknown): number {
-  const r = record(value, ["kind", "signalElectrons", "readNoiseElectrons", "snrLinear"]);
+  const r = record(value, ["kind", "signalElectrons", "readNoiseElectrons", "snrLinear", "midGrey"]);
   switch (r.kind) {
     case "shot-and-read-noise": {
       record(value, ["kind", "signalElectrons", "readNoiseElectrons"]);
@@ -101,6 +106,14 @@ function resolvePixelSnr(value: unknown): number {
     case "pixel-snr":
       record(value, ["kind", "snrLinear"]);
       return requireInputNonNegativeFinite(r.snrLinear, "noise.snrLinear");
+    case "capture-noise-figure": {
+      record(value, ["kind", "midGrey"]);
+      const figure = r.midGrey as { signalElectrons?: unknown; noiseElectrons?: { total?: unknown }; clipped?: unknown } | null;
+      if (typeof figure !== "object" || figure === null || typeof figure.noiseElectrons !== "object" || figure.noiseElectrons === null)
+        throw new InvalidConfigurationError("noise.midGrey must be a capture's result.sensor.midGrey (simulateCapture with fast: false).");
+      if (figure.clipped !== false) throw new InvalidConfigurationError("noise.midGrey is clipped (or not a capture's figure): the patch reaches white, where the figure no longer describes the image.");
+      return requireInputNonNegativeFinite(figure.signalElectrons, "noise.midGrey.signalElectrons") / requireInputPositiveFinite(figure.noiseElectrons.total, "noise.midGrey.noiseElectrons.total");
+    }
     default: throw new InvalidConfigurationError("Invalid print noise kind.");
   }
 }

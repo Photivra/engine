@@ -30,13 +30,16 @@ export type DisplayViewGpuMode = "off" | "auto" | "require";
 
 /** 2.11 (#481): the second argument of `prepareDisplayView`. */
 export interface PrepareDisplayViewOptions {
-  /** See {@link DisplayViewGpuMode}. Default `"off"`. */
+  /**
+   * See {@link DisplayViewGpuMode}. 2.20.0: default `"auto"` when the request resolves to fast (`fast` omitted or true: the
+   * display view's default) and `"off"` when it is exact (`fast: false`); an explicit value wins.
+   */
   gpu?: DisplayViewGpuMode;
   /**
    * Where the device comes from, with `gpu: "auto"` or `"require"`: a WebGPU entry point (a worker's `navigator.gpu`), or an
    * `ImageKernelAccelerator` whose device the view shares (the accelerator keeps ownership; `dispose()` of the prepared view
    * leaves it alone). Without it the engine acquires a device from `globalThis.navigator.gpu` and owns it until `dispose()`.
-   * Refused with `gpu: "off"`.
+   * Refused when `gpu` is or defaults to `"off"`.
    */
   gpuDevice?: unknown;
 }
@@ -44,13 +47,13 @@ export interface PrepareDisplayViewOptions {
 /** The parsed form of {@link PrepareDisplayViewOptions}. @internal */
 export interface ParsedPrepareDisplayViewOptions { gpu: DisplayViewGpuMode; gpuDevice: unknown }
 
-/** Internal: validates the second argument of `prepareDisplayView`. */
-export function parsePrepareDisplayViewOptions(value: unknown): ParsedPrepareDisplayViewOptions {
-  if (value === undefined) return { gpu: "off", gpuDevice: undefined };
+/** Internal: validates the second argument of `prepareDisplayView`; `fast` is the request's resolved top-level fast (the GPU default). */
+export function parsePrepareDisplayViewOptions(value: unknown, fast = false): ParsedPrepareDisplayViewOptions {
+  if (value === undefined) value = {};
   if (typeof value !== "object" || value === null || Array.isArray(value)) throw new InvalidConfigurationError("prepareDisplayView options must be an object { gpu, gpuDevice }.");
   for (const key of Object.keys(value)) if (key !== "gpu" && key !== "gpuDevice") throw new InvalidConfigurationError("Unknown prepareDisplayView options field: " + key + ".");
   const { gpu, gpuDevice } = value as Record<string, unknown>;
-  const mode: DisplayViewGpuMode = gpu === undefined ? "off" : gpu as DisplayViewGpuMode;
+  const mode: DisplayViewGpuMode = gpu === undefined ? fast ? "auto" : "off" : gpu as DisplayViewGpuMode;
   if (mode !== "off" && mode !== "auto" && mode !== "require") throw new InvalidConfigurationError("prepareDisplayView options.gpu must be \"off\", \"auto\" or \"require\".");
   if (gpuDevice !== undefined && (typeof gpuDevice !== "object" || gpuDevice === null)) throw new InvalidConfigurationError("prepareDisplayView options.gpuDevice must be a WebGPU entry point (navigator.gpu) or an ImageKernelAccelerator.");
   if (gpuDevice !== undefined && mode === "off") throw new InvalidConfigurationError("prepareDisplayView options.gpuDevice needs gpu \"auto\" or \"require\".");

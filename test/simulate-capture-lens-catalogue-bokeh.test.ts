@@ -23,15 +23,16 @@ function focusFor(id: string, N: number, c: number, side: 1 | -1): number {
 }
 /**
  * `gain`: the exposure over the mid-grey reference (the points are small, so a brighter one lowers their relative shot noise).
- * `extra`: `lens.catalogue` record fields (`catsEye`, `fast`) and output fields (`format`, a smaller region `size`).
+ * `extra`: the cat's eye (2.20.0: lens.catalogue's exact method, so `catsEye` sets `fast: !catsEye`), `fast` (default true; null: omitted,
+ * the format decides) and output fields (`format`, a smaller region `size`).
  */
 const capture = (id: string, N: number, focusDistanceM: number, at: { x: number; y: number }, defocus = true, gain = 96,
-  extra: { catsEye?: boolean; fast?: boolean; format?: "jpeg" | "srgb-16"; size?: number } = {}): Promise<SimulateCaptureResult> => simulateCapture({
+  extra: { catsEye?: boolean; fast?: boolean | null; format?: "jpeg" | "png" | "srgb-16"; size?: number } = {}): Promise<SimulateCaptureResult> => simulateCapture({
   scene: { preset: "point-grid", radius: 0.0005, pointReflectance: 0.9, backgroundReflectance: 0 } as SimulateCaptureOptions["scene"], subjectDistanceM: 2,
   output: { width: W, height: H, format: extra.format ?? "srgb-16", region: { x: at.x - (extra.size ?? S) / 2, y: at.y - (extra.size ?? S) / 2, width: extra.size ?? S, height: extra.size ?? S } },
   sensor: { pixelPitchMicrometers: 6, spectralStepNanometers: 50 }, exposure: { mode: "manual", shutterSeconds: (N / 8) ** 2 / 125 * gain, iso: 100 },
-  lens: { catalogue: { kind: id, ...(extra.catsEye === undefined ? {} : { catsEye: extra.catsEye }) }, fNumber: N, focusDistanceM, ...(defocus ? { defocus: { model: "geometric-disc" as const } } : {}) },
-  fast: extra.fast ?? true });
+  lens: { catalogue: id, fNumber: N, focusDistanceM, ...(defocus ? { defocus: { model: "geometric-disc" as const } } : {}) },
+  ...(extra.fast === null ? {} : { fast: extra.catsEye !== undefined ? !extra.catsEye : extra.fast ?? true }) });
 
 interface Moments { x: number; y: number; xx: number; yy: number; xy: number; total: number }
 /** Weighted moments (rows +Y down) of non-negative weights w[(j)·width + i] about their centroid. */
@@ -87,7 +88,7 @@ function harmonics(w: ArrayLike<number>, width: number): { size: number; phase: 
 }
 /** Cumulants of the defocused point minus those of the point in focus: the blur's own. */
 async function blurOf(id: string, N: number, focus: number, at: { x: number; y: number }, catsEye?: boolean): Promise<{ blur: Moments; result: SimulateCaptureResult }> {
-  const result = await capture(id, N, focus, at, true, 96, catsEye === undefined ? {} : { catsEye }), sharp = moments(light(await capture(id, N, 2, at, false)), S), blurred = moments(light(result), S);
+  const result = await capture(id, N, focus, at, true, 96, catsEye === undefined ? {} : { catsEye }), sharp = moments(light(await capture(id, N, 2, at, false, 96, catsEye === undefined ? {} : { catsEye })), S), blurred = moments(light(result), S);
   return { result, blur: { x: blurred.x - sharp.x, y: blurred.y - sharp.y, xx: blurred.xx - sharp.xx, yy: blurred.yy - sharp.yy, xy: blurred.xy - sharp.xy, total: blurred.total } };
 }
 
@@ -142,30 +143,37 @@ describe("lens.catalogue with lens.defocus renders the lens's bokeh (#567)", () 
     expect(blur.xy / kernel.xy).toBeGreaterThan(0.6);
     expect(blur.xy / kernel.xy).toBeLessThan(1.4);
     expect(result.assumptions.find((a) => a.id === "lens.defocus")!.value).toMatchObject({ bokeh: { catsEye: true } });
-    expect(result.diagnostics.fast?.applied).toEqual({ "lens.catalogue": true });
+    expect(result.diagnostics.fast?.applied).toEqual({ "lens.catalogue": false });
   }, scaledTimeout(30_000));
 
-  it("leaves the cat's eye out by default except for the exported formats (lens.catalogue.catsEye, the speed rule)", async () => {
+  it("leaves the cat's eye out when lens.catalogue resolves to fast: sRGB by default, not the exported formats (the speed rule)", async () => {
     const N = 1.8, focus = focusFor("pv-50-1.8", N, 12, 1), at = { x: 300, y: 333 }, catsEyeOf = (r: SimulateCaptureResult): unknown =>
       (r.assumptions.find((a) => a.id === "lens.defocus")!.value as { bokeh: { catsEye: boolean } }).bokeh.catsEye;
     const plain = await capture("pv-50-1.8", N, focus, at), off = await capture("pv-50-1.8", N, focus, at, true, 96, { catsEye: false });
     expect(catsEyeOf(plain)).toBe(false);
     expect(plain.image.samples).toEqual(off.image.samples);
+    expect(plain.assumptions.some((a) => a.id === "fast.lens.catalogue.catsEye")).toBe(true);
     // Without the cat's eye the off-axis blur is the axis kernel: its centroid stays (within the measurement's noise, about 0.5 site)
     // where the in-focus point's is, while the cat's eye's kernel moves it by 1.7 sites.
     const { blur } = await blurOf("pv-50-1.8", N, focus, at, false), clipped = oracle("pv-50-1.8", N, focus, { xMm: (at.x - W / 2) * 0.006, yMm: (H / 2 - at.y) * 0.006 });
     expect(Math.hypot(blur.x, blur.y)).toBeLessThan(0.4 * Math.hypot(clipped.x, clipped.y));
-    expect(catsEyeOf(await capture("pv-50-1.8", N, focus, at, true, 96, { format: "jpeg", size: 16 }))).toBe(true);
-    expect(catsEyeOf(await capture("pv-50-1.8", N, focus, at, true, 96, { format: "jpeg", size: 16, catsEye: false }))).toBe(false);
-    await expect(simulateCapture({ scene: { preset: "uniform" }, output: { width: 64, height: 48 }, lens: { catalogue: { kind: "pv-50-1.8", catsEye: 1 as never } } }))
-      .rejects.toThrow(/lens\.catalogue\.catsEye must be true or false/u);
+    const jpeg = await capture("pv-50-1.8", N, focus, at, true, 96, { format: "jpeg", size: 16, fast: null });
+    expect(catsEyeOf(jpeg)).toBe(true);
+    expect(jpeg.diagnostics.fast).toMatchObject({ requested: false, defaultedFrom: "format" });
+    expect(catsEyeOf(await capture("pv-50-1.8", N, focus, at, true, 96, { format: "png", size: 16, fast: null }))).toBe(true);
+    expect(catsEyeOf(await capture("pv-50-1.8", N, focus, at, true, 96, { format: "jpeg", size: 16, fast: true }))).toBe(false);
+    expect(catsEyeOf(await capture("pv-50-1.8", N, focus, at, true, 96, { format: "srgb-16", size: 16, fast: null }))).toBe(false);
+    // The 2.20.0 integration folded part F's catsEye option into lens.catalogue's fast resolution: it is no longer a field.
+    await expect(simulateCapture({ scene: { preset: "uniform" }, output: { width: 64, height: 48 }, lens: { catalogue: { kind: "pv-50-1.8", catsEye: true } as never } }))
+      .rejects.toThrow(/Unknown lens\.catalogue field: catsEye/u);
   }, scaledTimeout(30_000));
 
   it("renders the same bokeh on the exact catalogue method as on the fast one", async () => {
-    // A 16 × 16 region around the top-left point with the cat's eye: the exact quadrature and the fast field grid agree.
-    const N = 1.8, focus = focusFor("pv-50-1.8", N, 12, 1), at = { x: 300, y: 333 }, size = 16;
-    const exact = await capture("pv-50-1.8", N, focus, at, true, 96, { catsEye: true, fast: false, size });
-    const fast = await capture("pv-50-1.8", N, focus, at, true, 96, { catsEye: true, size });
+    // A 16 × 16 region around the top-left point of a lens without a cat's eye: the exact quadrature and the fast field grid agree.
+    const id = "pv-200-5.6", N = 5.6, focus = focusFor(id, N, 12, 1), at = { x: 300, y: 333 }, size = 16;
+    expect(resolveGenericLens({ lensId: id, activeImagingArea: AREA, fNumber: N }).character.bokeh.catsEye).toBeUndefined();
+    const exact = await capture(id, N, focus, at, true, 96, { fast: false, size });
+    const fast = await capture(id, N, focus, at, true, 96, { size });
     expect(exact.diagnostics.fast?.applied ?? {}).not.toHaveProperty("lens.catalogue", true);
     expect(fast.diagnostics.fast?.applied).toEqual({ "lens.catalogue": true });
     let peak = 0, worst = 0;

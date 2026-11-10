@@ -6,7 +6,7 @@ import { scaledTimeout } from "./helpers/test-timeout.js";
 
 // #555 (sensor characteristics) and #535 (noise figure).
 const uniform = (sensor: SimulateCaptureOptions["sensor"] = {}, extra: Partial<SimulateCaptureOptions> = {}): Promise<SimulateCaptureResult> =>
-  simulateCapture({ scene: { preset: "uniform" }, sensor: { spectralStepNanometers: 100, ...sensor }, output: { width: 16, height: 16 }, ...extra });
+  simulateCapture({ scene: { preset: "uniform" }, sensor: { spectralStepNanometers: 100, ...sensor }, output: { width: 16, height: 16 }, fast: false, ...extra });
 /** Mean and variance of the black-subtracted green-site codes (sites (1, 0) and (0, 1) of each 2 × 2 repeat) inside the output area. */
 function greenStats(r: SimulateCaptureResult): { mean: number; variance: number; n: number } {
   const width = Math.round(Math.sqrt(r.raw.codes.length)), values: number[] = [];
@@ -31,7 +31,7 @@ describe("sensor characteristics (#555)", () => {
 
   it("scale the collected charge with the peak QE", async () => {
     const base = await uniform(), doubled = await uniform({ peakQuantumEfficiency: 0.8 });
-    expect(doubled.sensor.midGrey.signalElectrons / base.sensor.midGrey.signalElectrons).toBeCloseTo(1.6, 12);
+    expect(doubled.sensor.midGrey!.signalElectrons / base.sensor.midGrey!.signalElectrons).toBeCloseTo(1.6, 12);
     // The RAW signal follows (same readout): mean codes within the noise of 128 sites.
     expect(greenStats(doubled).mean / greenStats(base).mean).toBeCloseTo(1.6, 1);
     expect(assumption(doubled, "sensor.characteristics")).toMatchObject({ peakQuantumEfficiency: 0.8, chargeScale: 1, sensitivityOffsetStops: Math.log2(1.6) });
@@ -45,7 +45,7 @@ describe("sensor characteristics (#555)", () => {
     expect(unlinked.sensor.fullWellElectrons).toBeCloseTo(40000, 9);
     expect(assumption(unlinked, "sensor.isoAreaNormalization")).toBeUndefined();
     // Still the white level: the base-ISO white code holds that charge.
-    expect(unlinked.sensor.dynamicRangeStops).toBeCloseTo(Math.log2(40000 / Math.hypot(2, unlinked.sensor.midGrey.noiseElectrons.quantization)), 2);
+    expect(unlinked.sensor.dynamicRangeStops).toBeCloseTo(Math.log2(40000 / Math.hypot(2, unlinked.sensor.midGrey!.noiseElectrons.quantization)), 2);
     const tiny = (await uniform({ pixelPitchMicrometers: 1, fullWell: { electrons: 60000, link: "none" } })).assumptions.find((a) => a.id === "sensor.characteristics")!;
     expect(tiny.explanation).toContain("Unusual for the pitch");
     await expect(uniform({ fullWell: { electrons: 40000, link: "none", referencePixelPitchMicrometers: 4 } })).rejects.toThrow(InvalidConfigurationError);
@@ -58,7 +58,7 @@ describe("sensor characteristics (#555)", () => {
       uniform({ ...sensor, noiseSeed: 7 }, { illuminanceLux: 1e-9, exposure: { mode: "manual", shutterSeconds: 1 / 1000, iso }, output: { width: 48, height: 48 } });
     const options = { readNoise: { lowGainElectrons: 8, highGainElectrons: 3, highGainFromIso: 400 } };
     for (const [iso, expected] of [[200, 8], [400, 3], [1600, 3]] as const) {
-      const r = await dark(options, iso), s = r.sensor.midGrey.noiseElectrons;
+      const r = await dark(options, iso), s = r.sensor.midGrey!.noiseElectrons;
       expect(s.read).toBe(expected);
       const regime = r.request.siteInput(1).readout as unknown as { readoutProfile: { regimes: { regimeId: string; systemConversionGainElectronsPerCode: { value: number }; adc: { digitalGain?: number } }[] }; regimeId: string };
       const found = regime.readoutProfile.regimes.find((g) => g.regimeId === regime.regimeId)!, perCode = found.systemConversionGainElectronsPerCode.value / (found.adc.digitalGain ?? 1);
@@ -97,7 +97,7 @@ describe("sensor characteristics (#555)", () => {
     const off = await uniform(), on = await uniform({ fixedPatternNoise: true });
     expect(Array.from(on.raw.codes)).not.toEqual(Array.from(off.raw.codes));
     expect(on.sensor.fixedPatternNoise).toBe(true);
-    expect(on.sensor.midGrey.noiseElectrons.fixedPattern).toBeGreaterThan(0);
+    expect(on.sensor.midGrey!.noiseElectrons.fixedPattern).toBeGreaterThan(0);
     await expect(simulateDisplayView({ scene: { preset: "uniform" }, sensor: { fixedPatternNoise: true } }, { width: 8, height: 8 })).rejects.toThrow("sensor.fixedPatternNoise");
   }, scaledTimeout(60_000));
 
@@ -119,18 +119,18 @@ describe("sensor characteristics (#555)", () => {
 
   it("run the docs/QUICK_START.md example", async () => {
     const r = await simulateCapture({ scene: { preset: "uniform" }, sensor: { pixelPitchMicrometers: 4, peakQuantumEfficiency: 0.8, fullWell: { electrons: 50_000, link: "none" },
-      readNoise: { lowGainElectrons: 3, highGainElectrons: 1.2, highGainFromIso: 640 }, readoutSeconds: 0.012, adcBitDepth: 16, fixedPatternNoise: true }, output: { width: 16, height: 16 } });
+      readNoise: { lowGainElectrons: 3, highGainElectrons: 1.2, highGainFromIso: 640 }, readoutSeconds: 0.012, adcBitDepth: 16, fixedPatternNoise: true }, output: { width: 16, height: 16 }, fast: false });
     expect(r.sensor).toMatchObject({ pixelPitchMicrometers: 4, peakQuantumEfficiency: 0.8, adcBitDepth: 16, readoutSeconds: 0.012, fixedPatternNoise: true,
       readNoise: { lowGainElectrons: 3, highGainElectrons: 1.2, highGainFromIso: 640 } });
     expect(r.sensor.fullWellElectrons).toBeCloseTo(50_000, 6);
-    expect(Number.isFinite(r.sensor.dynamicRangeStops) && Number.isFinite(r.sensor.midGrey.snrDecibels)).toBe(true);
+    expect(Number.isFinite(r.sensor.dynamicRangeStops) && Number.isFinite(r.sensor.midGrey!.snrDecibels)).toBe(true);
   }, scaledTimeout(60_000));
 });
 
 describe("mid-grey noise figure (#535)", () => {
   it("agrees with the variance of a uniform 18 % grey patch", async () => {
     // The default request exposes the uniform 18 % chart exactly like the figure's grey patch.
-    const r = await uniform({ noiseSeed: 3 }, { output: { width: 48, height: 48 } }), g = r.sensor.midGrey;
+    const r = await uniform({ noiseSeed: 3 }, { output: { width: 48, height: 48 } }), g = r.sensor.midGrey!;
     expect(g.clipped).toBe(false);
     const regime = r.request.siteInput(1).readout as unknown as { readoutProfile: { regimes: { regimeId: string; systemConversionGainElectronsPerCode: { value: number } }[] }; regimeId: string };
     const perCode = regime.readoutProfile.regimes.find((x) => x.regimeId === regime.regimeId)!.systemConversionGainElectronsPerCode.value;
@@ -143,16 +143,26 @@ describe("mid-grey noise figure (#535)", () => {
 
   it("changes as expected with exposure and ISO", async () => {
     const base = await uniform(), lower = await uniform({}, { illuminanceLux: 21480.98 / 4 });
-    expect(base.sensor.midGrey.signalElectrons / lower.sensor.midGrey.signalElectrons).toBeCloseTo(4, 3);
-    expect(base.sensor.midGrey.noiseElectrons.photonShot / lower.sensor.midGrey.noiseElectrons.photonShot).toBeCloseTo(2, 3);
+    expect(base.sensor.midGrey!.signalElectrons / lower.sensor.midGrey!.signalElectrons).toBeCloseTo(4, 3);
+    expect(base.sensor.midGrey!.noiseElectrons.photonShot / lower.sensor.midGrey!.noiseElectrons.photonShot).toBeCloseTo(2, 3);
     // Higher ISO at a lower light keeps the image level but lowers the SNR.
     const highIso = await uniform({}, { illuminanceLux: 21480.98 / 64, exposure: { iso: 6400 } });
-    expect(highIso.sensor.midGrey.snr).toBeLessThan(base.sensor.midGrey.snr / 7);
-    expect(highIso.sensor.midGrey.noiseElectrons.read).toBe(1.1);
+    expect(highIso.sensor.midGrey!.snr).toBeLessThan(base.sensor.midGrey!.snr / 7);
+    expect(highIso.sensor.midGrey!.noiseElectrons.read).toBe(1.1);
   }, scaledTimeout(60_000));
 
   it("is reported by the display view too", async () => {
-    const view = await simulateDisplayView({ scene: { preset: "uniform" } }, { width: 8, height: 8 }), capture = await simulateCapture({ scene: { preset: "uniform" } });
+    const view = await simulateDisplayView({ scene: { preset: "uniform" }, fast: false }, { width: 8, height: 8 }), capture = await simulateCapture({ scene: { preset: "uniform" }, fast: false });
     expect(view.sensor).toEqual(capture.sensor);
+  }, scaledTimeout(60_000));
+
+  it("is computed only when the request resolves to exact (2.20.0: fast: false, the exports' default)", async () => {
+    const fast = await simulateCapture({ scene: { preset: "uniform" }, output: { width: 16, height: 16 } });
+    const dng = await simulateCapture({ scene: { preset: "uniform" }, output: { width: 16, height: 16, format: "dng" } });
+    const exact = await simulateCapture({ scene: { preset: "uniform" }, output: { width: 16, height: 16 }, fast: false });
+    expect(fast.sensor.midGrey).toBeUndefined();
+    expect(fast.sensor.dynamicRangeStops).toBe(exact.sensor.dynamicRangeStops);
+    expect(dng.sensor.midGrey).toEqual(exact.sensor.midGrey);
+    expect(exact.sensor.midGrey!.snr).toBeGreaterThan(0);
   }, scaledTimeout(60_000));
 });

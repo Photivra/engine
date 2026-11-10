@@ -74,6 +74,17 @@ describe("print size limit with blur and noise (#574)", () => {
     expect(noBlur.limits.blur).toBeNull(); expect(noBlur.blur.largestComponent).toBeNull();
   });
 
+  it("takes a capture's own mid-gray noise figure (#535) as the pixel SNR", async () => {
+    const { simulateCapture } = await import("../src/index.js");
+    const midGrey = (await simulateCapture({ scene: { preset: "uniform" }, output: { width: 16, height: 16 }, exposure: { iso: 6400 }, illuminanceLux: 21480.98 / 64, fast: false })).sensor.midGrey!;
+    const figure = calculatePrintSizeLimitWithBlurAndNoise(request({ noise: { kind: "capture-noise-figure", midGrey } })).value;
+    const snr = calculatePrintSizeLimitWithBlurAndNoise(request({ noise: { kind: "pixel-snr", snrLinear: midGrey.snr } })).value;
+    expect(figure.noise.pixelSnr).toBeCloseTo(midGrey.snr, 12);
+    expect(figure.maximumImageMm.width).toBeCloseTo(snr.maximumImageMm.width, 9);
+    expect(() => calculatePrintSizeLimitWithBlurAndNoise(request({ noise: { kind: "capture-noise-figure", midGrey: { ...midGrey, clipped: true } } }))).toThrow(/clipped/u);
+    expect(() => calculatePrintSizeLimitWithBlurAndNoise(request({ noise: { kind: "capture-noise-figure", midGrey: undefined as never } }))).toThrow(InvalidConfigurationError);
+  }, 60_000);
+
   it("rejects invalid input with domain errors", () => {
     const bad: unknown[] = [
       { ...request(), extra: 1 }, request({ pixelPitchMm: 0 }), request({ raster: { pixelWidth: 1.5, pixelHeight: 2 } }),

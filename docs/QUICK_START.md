@@ -48,7 +48,7 @@ the example above is [simulate-capture.mjs](examples/simulate-capture.mjs).
 | `raw` | The packed native RAW: codes, black levels, saturation flags and per-phase white levels |
 | `plan` | The native RAW plan the engine executed |
 | `request` | The complete underlying request: `environmentRaw` (the native environment RAW input), `siteInput(index)` (rebuilds the physical input of any sensor site), `development` (the RAW development input) and `whiteBalanceState` |
-| `sensor` | 2.20 (#555, #535): the sensor characteristics used (pitch, peak QE, full well, read noise of each conversion gain and the dual-gain switch ISO, readout time, ADC bit depth, fixed-pattern noise), the calculated dynamic range (`dynamicRangeStops`, and per ISO setting) and the mid-grey noise figure (`midGrey`); see [Sensor characteristics](#sensor-characteristics-555) |
+| `sensor` | 2.20 (#555, #535): the sensor characteristics used (pitch, peak QE, full well, read noise of each conversion gain and the dual-gain switch ISO, readout time, ADC bit depth, fixed-pattern noise), the calculated dynamic range (`dynamicRangeStops`, and per ISO setting) and, on exact requests, the mid-gray noise figure (`midGrey`); see [Sensor characteristics](#sensor-characteristics-555) |
 | `exposure` | Mode, resolved settings, EV100, `isoControl` (`"manual"` or `"automatic"`) and, with `iso: "auto"`, `autoIso` (how the ISO was chosen and what limited it), metered scene luminance, the deviation from the standard exposure in stops (`standardExposureDeviationStops`), the illuminance at which the settings give the standard exposure (`standardExposureIlluminanceLux`), from 2.14 the deviation from the standard exposure of an 18 % grey card under the scene's illuminance (`greyCardDeviationStops`, incident metering) and the exposure-mode resolver's full output |
 | `scene` | Chart parameters, illuminant, distance, framed size and the scene's SHA-256 digest (it covers caller illuminant and reflectance spectra; see `sourceSha256`) |
 | `diagnostics` | Radiance query count, highlight and rendering counters, per-stage timings (`timingsMs`) and, from 2.1, the opt-ins that ran (`options`); see [Cost of each option](#cost-of-each-option) |
@@ -479,8 +479,8 @@ const r = await simulateCapture({ scene: { preset: "uniform" }, sensor: {
   readoutSeconds: 0.012,                            // rolling-shutter skew
   adcBitDepth: 16,                                  // 12, 14 or 16
   fixedPatternNoise: true                           // the body's synthetic pattern (advanced)
-} });
-r.sensor.dynamicRangeStops; r.sensor.midGrey.snrDecibels;
+}, fast: false });                                  // fast: false computes the mid-gray noise figure
+r.sensor.dynamicRangeStops; r.sensor.midGrey?.snrDecibels;
 ```
 
 | Option | Range | Default | Effect |
@@ -514,8 +514,10 @@ gain) in electrons. With no read noise the range is limited by the ADC alone: lo
 The Professional tier gives 14.7 stops at ISO 100, 12.7 at ISO 800 (high gain) and 9.7 at ISO 6400;
 the Consumer tier 11.7, 10.0 and 7.0.
 
-**Noise figure** (#535, `sensor.midGrey`): the expected signal-to-noise ratio of an 18 % Lambertian
-grey patch under the request's illuminant and illuminance, at the capture's exposure, ISO and
+**Noise figure** (#535, `sensor.midGrey`): computed only when the request resolves to exact (`fast:
+false`, the default for DNG, JPEG and PNG exports; about 0.3 ms); a fast request (the sRGB default)
+omits it. The expected signal-to-noise ratio of an 18 % Lambertian
+gray patch under the request's illuminant and illuminance, at the capture's exposure, ISO and
 sensor, from the engine's own noise model (a model figure, not a measurement). It is the green
 channel next to the optical axis (no vignetting, PSF or motion). `signalElectrons` S is the patch's
 expected charge; `noiseElectrons` splits the noise into photon shot √S, read, dark-current shot
