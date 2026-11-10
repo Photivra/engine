@@ -112,23 +112,36 @@ export interface SimulateCaptureSensorReport {
 /** The request's characteristics, range-checked, with the EQE scale peakQuantumEfficiency / 0.5. */
 export type ParsedSensorCharacteristics = SimulateCaptureSensorCharacteristics & { qeScale: number };
 
+/**
+ * A field's check: [minimum, maximum] (a number), the values allowed, 0 (a nested record) or a predicate. #554 shares the checker
+ * with the sensor profile parser.
+ */
+export type FieldRange = readonly [number, number] | readonly unknown[] | 0 | ((value: unknown) => boolean);
 /** Accepted ranges (design limits) and values of each characteristic, by path below `sensor`. */
-const RANGES: Readonly<Record<string, readonly [number, number] | readonly unknown[] | 0>> = { peakQuantumEfficiency: [0.05, 0.9], fullWell: 0, "fullWell.electrons": [100, 1e10],
+const RANGES: Readonly<Record<string, FieldRange>> = { peakQuantumEfficiency: [0.05, 0.9], fullWell: 0, "fullWell.electrons": [100, 1e10],
   "fullWell.link": ["pixel-area", "none"], "fullWell.referencePixelPitchMicrometers": [0.5, 1000], readNoise: 0, "readNoise.lowGainElectrons": [0, 100],
   "readNoise.highGainElectrons": [0, 100], "readNoise.highGainFromIso": [100, 1e7], readoutSeconds: [1e-6, 1], adcBitDepth: [12, 14, 16], fixedPatternNoise: [true, false] };
 function fail(message: string): never { throw new InvalidConfigurationError(message); }
-function check(record: Record<string, unknown>, keys: readonly string[], prefix: string): void {
-  for (const key of keys) {
-    const path = prefix + key, value = record[key], range = RANGES[path];
-    if (value === undefined) continue;
-    if (range === undefined) fail("Unknown sensor." + prefix.slice(0, -1) + " field: " + key + ".");
+/**
+ * Checks `keys` of `record` against `ranges` (by path below `root`; nested records by "a.b"). An undefined field is skipped, or
+ * with `required` refused, and with `required` every field `ranges` lists at that level is checked.
+ */
+export function checkFieldRanges(record: Record<string, unknown>, keys: readonly string[], prefix: string, ranges: Readonly<Record<string, FieldRange>> = RANGES, root = "sensor.", required = false): void {
+  const all = required ? [...new Set([...keys, ...Object.keys(ranges).filter((k) => k.startsWith(prefix) && !k.slice(prefix.length).includes(".")).map((k) => k.slice(prefix.length))])] : keys;
+  for (const key of all) {
+    const path = prefix + key, value = record[key], range = ranges[path];
+    if (value === undefined && !required) continue;
+    if (range === undefined) fail("Unknown " + (root + prefix).slice(0, -1) + " field: " + key + ".");
+    if (value === undefined) fail(root + path + " is required.");
     if (range === 0) {
-      requireInputObject(value, "sensor." + path);
-      check(value as Record<string, unknown>, Object.keys(value as object), path + ".");
+      requireInputObject(value, root + path);
+      checkFieldRanges(value as Record<string, unknown>, Object.keys(value as object), path + ".", ranges, root, required);
+    } else if (typeof range === "function") {
+      if (!range(value)) fail(root + path + " is invalid.");
     } else {
       const choice = range.length > 2 || typeof range[0] !== "number", [minimum, maximum] = range as readonly [number, number];
       if (choice ? !(range as readonly unknown[]).includes(value) : typeof value !== "number" || !(value >= minimum && value <= maximum)) {
-        fail("sensor." + path + " must be " + (choice ? range.join(" or ") : "a number from " + minimum + " to " + maximum) + ".");
+        fail(root + path + " must be " + (choice ? range.map(String).join(" or ") : "a number from " + minimum + " to " + maximum) + ".");
       }
     }
   }
@@ -137,7 +150,7 @@ function check(record: Record<string, unknown>, keys: readonly string[], prefix:
 /** Checks the characteristics of the request's `sensor` record (its other keys already checked); undefined when it sets none. */
 export function parseSensorCharacteristics(sensor: Record<string, unknown>): ParsedSensorCharacteristics | undefined {
   if (!SENSOR_CHARACTERISTIC_KEYS.some((key) => sensor[key] !== undefined)) return undefined;
-  check(sensor, SENSOR_CHARACTERISTIC_KEYS, "");
+  checkFieldRanges(sensor, SENSOR_CHARACTERISTIC_KEYS, "");
   const c = sensor as SimulateCaptureSensorCharacteristics, fullWell = c.fullWell;
   if (fullWell && fullWell.electrons === undefined) fail("sensor.fullWell.electrons is required.");
   if (fullWell?.link === "none" && fullWell.referencePixelPitchMicrometers !== undefined) fail("sensor.fullWell.referencePixelPitchMicrometers applies only to link \"pixel-area\".");

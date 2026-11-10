@@ -544,7 +544,9 @@ phone.sensor.fullWellElectrons;   // 8 600 e⁻ at 1.197 µm
 Each profile's base ISO is re-rated from its full well, QE and pixel area, so the same ISO reaches
 the RAW white at the same exposure on every profile (the assumption `sensor.profile` records the
 values and the rounding). The phone profile takes the catalogue's three phone lenses
-(`lens: { catalogue: "pv-24-1.8-phone" }`), and they need it. Values, sources and the ISO rating:
+(`lens: { catalogue: "pv-24-1.8-phone" }`), and they need it. With a profile, a catalogue lens is framed on
+the profile's real sensor (the largest centred region of the output's aspect; assumption `sensor.profileView`), so it
+shows its real field of view. Values, sources, the framing and the ISO rating:
 [SENSOR_PROFILES.md](SENSOR_PROFILES.md).
 
 ## Exposure

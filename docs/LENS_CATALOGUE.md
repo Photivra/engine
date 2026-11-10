@@ -111,8 +111,10 @@ The phone sensor profile's three fixed lenses ([SENSOR_PROFILES.md](SENSOR_PROFI
 *PV <focal length> <aperture> Phone*. Their equivalent focal lengths and apertures are the owner's (issue #554:
 ultra-wide 13 mm f/2.2, main 24 mm f/1.8, telephoto 77 mm f/2.8, fixed apertures); every other number is a Photivra design
 value. They render only with a sensor profile whose `fixedLenses` is `"phone"`, which in turn takes only them, and
-`lens.fNumber` defaults to the fixed f-number. They resolve on the simulated frame like every catalogue lens; at the
-phone's 1.197 µm pitch the PSF's reach needs an output of about 96 × 96 sites or more.
+`lens.fNumber` defaults to the fixed f-number. With a sensor profile, every catalogue lens, these included, is resolved on
+the profile's whole sensor and the capture is its centred frame of the output's aspect
+([SENSOR_PROFILES.md](SENSOR_PROFILES.md#catalogue-lenses-on-a-profiles-sensor)), so a phone lens shows its real field of
+view.
 
 | Lens | id | Summary (`summary`) | Aperture | Close focus (full frame) | Projection | Adjustments of the phone baseline | Why |
 | --- | --- | --- | --- | --- | --- | --- | --- |

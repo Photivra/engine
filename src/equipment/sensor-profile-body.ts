@@ -15,6 +15,8 @@
 
 import { InvalidConfigurationError } from "../core/configuration-error.js";
 import type { EvidenceProvenance } from "../core/evidence-provenance.js";
+import { requireInputObject } from "../core/record-validation.js";
+import { checkFieldRanges, type FieldRange } from "../sensor/sensor-characteristics.js";
 import { bodyAssets, GENERIC_THIRD_STOP_ISO_SETTINGS, type GenericTierBodyAssets, type GenericTierPresetVersion } from "./generic-tier-assets.js";
 
 /** How a profile value was obtained: copied from a source, calculated from sourced values, or Photivra's design value. */
@@ -66,37 +68,25 @@ const ISO_MARKINGS = SENSOR_PROFILE_ISO_MARKINGS;
 
 const fail = (message: string): never => { throw new InvalidConfigurationError(message); };
 const isoMarking = (v: unknown): boolean => ISO_MARKINGS.includes(v as number);
-type Spec = readonly [number, number] | readonly unknown[] | "text" | "texts" | "kinds" | { readonly [key: string]: Spec } | ((v: unknown) => boolean);
-const FRACTION = [0, 1] as const, ELECTRONS = [0, 100] as const;
-/** The record's fields: [minimum, maximum] (a number), a list of the values allowed, text, or a nested record. */
-const SCHEMA: { readonly [key: string]: Spec } = { id: "text", name: "text", marketTag: ["consumer", "professional"], architecture: ["front-illuminated", "back-illuminated", "stacked"],
-  sensorWidthMm: [1, 100], sensorHeightMm: [1, 100], pixelsWide: [1, 1e5], pixelsHigh: [1, 1e5], pixelPitchMicrometers: [0.5, 100], peakQuantumEfficiency: [0.05, 0.9],
-  fullWellElectrons: [100, 1e10], readNoise: { lowGainElectrons: ELECTRONS, highGainElectrons: ELECTRONS, highGainFromIso: (v) => v === null || isoMarking(v) },
-  highGainFullWellElectrons: (v) => v === null || typeof v === "number" && v >= 1 && v <= 1e10, adcBitDepth: [12, 14, 16], baseIso: isoMarking, maximumIso: isoMarking,
-  maximumAnalogGain: [1, 1024], readoutSeconds: [1e-6, 1], fixedPattern: { prnu: FRACTION, dsnu: [0, 100], hotPixelFraction: FRACTION, hotPixelMultiplier: [1, 1e4],
-    rowElectrons: ELECTRONS, columnElectrons: ELECTRONS }, goodFor: "texts", description: "text", fixedLenses: [null, "phone"], provenance: "kinds" };
 const text = (v: unknown): boolean => typeof v === "string" && v.length > 0 && v.length <= 400;
-function check(value: unknown, schema: { readonly [key: string]: Spec }, path: string): void {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) fail(path + " must be a sensor profile record (SENSOR_PROFILES).");
-  const record = value as Record<string, unknown>;
-  for (const key of Object.keys(record)) if (!(key in schema)) fail(path + " has unknown field \"" + key + "\".");
-  for (const [key, spec] of Object.entries(schema)) {
-    const v = record[key], at = path + "." + key;
-    if (typeof spec === "function" || typeof spec === "string" || Array.isArray(spec)) {
-      const ok = typeof spec === "function" ? spec(v) : spec === "text" ? text(v) : spec === "texts" ? Array.isArray(v) && v.length <= 16 && v.every(text) :
-        spec === "kinds" ? typeof v === "object" && v !== null && !Array.isArray(v) && Object.entries(v).every(([k, s]) => k.length <= 64 && text(s)) :
-        typeof spec[0] === "number" && spec.length === 2 ? typeof v === "number" && v >= (spec[0] as number) && v <= (spec[1] as number) : spec.includes(v);
-      if (!ok) fail(at + " is missing or out of range.");
-    } else check(v, spec as { readonly [key: string]: Spec }, at);
-  }
-}
+const FRACTION = [0, 1] as const, ELECTRONS = [0, 100] as const;
+/** The record's fields, by path (#555's range checker: [minimum, maximum], the values allowed, 0 a nested record, or a predicate). */
+const SCHEMA: Readonly<Record<string, FieldRange>> = { id: text, name: text, marketTag: ["consumer", "professional"], architecture: ["front-illuminated", "back-illuminated", "stacked"],
+  sensorWidthMm: [1, 100], sensorHeightMm: [1, 100], pixelsWide: [1, 1e5], pixelsHigh: [1, 1e5], pixelPitchMicrometers: [0.5, 100], peakQuantumEfficiency: [0.05, 0.9],
+  fullWellElectrons: [100, 1e10], readNoise: 0, "readNoise.lowGainElectrons": ELECTRONS, "readNoise.highGainElectrons": ELECTRONS, "readNoise.highGainFromIso": (v) => v === null || isoMarking(v),
+  highGainFullWellElectrons: (v) => v === null || typeof v === "number" && v >= 1 && v <= 1e10, adcBitDepth: [12, 14, 16], baseIso: isoMarking, maximumIso: isoMarking,
+  maximumAnalogGain: [1, 1024], readoutSeconds: [1e-6, 1], fixedPattern: 0, "fixedPattern.prnu": FRACTION, "fixedPattern.dsnu": [0, 100], "fixedPattern.hotPixelFraction": FRACTION,
+  "fixedPattern.hotPixelMultiplier": [1, 1e4], "fixedPattern.rowElectrons": ELECTRONS, "fixedPattern.columnElectrons": ELECTRONS,
+  goodFor: (v) => Array.isArray(v) && v.length <= 16 && v.every(text), description: text, fixedLenses: [null, "phone"],
+  provenance: (v) => typeof v === "object" && v !== null && !Array.isArray(v) && Object.entries(v).every(([k, s]) => k.length <= 64 && text(s)) };
 /**
  * The profile record checked strictly: every field present, no unknown field, each value in range, base ISO no higher than
  * the maximum, and a dual-gain switch above base ISO with its storage limit (no switch: one read noise, no storage limit).
  * Fixed-pattern magnitudes and the ISO regimes are checked again by the engine's parsers when the body is built.
  */
 export function parseSensorProfile(value: unknown, path = "sensor.profile"): SensorProfile {
-  check(value, SCHEMA, path);
+  requireInputObject(value, path);
+  checkFieldRanges(value as Record<string, unknown>, Object.keys(value as object), "", SCHEMA, path + ".", true);
   const p = value as SensorProfile, n = p.readNoise;
   if (!Number.isInteger(p.pixelsWide) || !Number.isInteger(p.pixelsHigh)) fail(path + ".pixelsWide and pixelsHigh must be whole numbers.");
   if (p.baseIso > p.maximumIso) fail(path + ".baseIso must not exceed maximumIso.");
@@ -115,13 +105,16 @@ export function sensorProfileSaturationIso(p: Pick<SensorProfile, "peakQuantumEf
 }
 
 
-/** The profile's sensor assets on a camera body: the body's other capabilities are kept. */
-export function sensorProfileBody(p: SensorProfile, body: GenericTierBodyAssets, version: GenericTierPresetVersion): GenericTierBodyAssets {
+/**
+ * The profile's sensor assets on a camera body: the body's other capabilities are kept. `readNoiseScale` (≥ 1) multiplies both
+ * read noises: √N for a site that sums N photosites (a downsized view, #554).
+ */
+export function sensorProfileBody(p: SensorProfile, body: GenericTierBodyAssets, version: GenericTierPresetVersion, readNoiseScale = 1): GenericTierBodyAssets {
   const evidence: readonly EvidenceProvenance[] = [{ sourceOrigin: "manufacturer", sourceReference: "photivra:sensor-profiles-v1#" + p.id, reuseStatus: "factual-reference-only",
     note: "Published specifications and open papers (docs/SENSOR_PROFILES.md); unpublished values are Photivra design values." }];
   const black = { 12: 256, 14: 1024, 16: 4096 }[p.adcBitDepth], n = p.readNoise;
   const built = bodyAssets(version, "photivra-sensor-profile-" + p.id, p.maximumIso, 1, 1, { bitDepth: p.adcBitDepth, blackLevelCode: black,
-    saturationElectrons: p.fullWellElectrons, maximumAnalogGain: p.maximumAnalogGain, lowGainReadNoise: n.lowGainElectrons, highGainReadNoise: n.highGainElectrons,
+    saturationElectrons: p.fullWellElectrons, maximumAnalogGain: p.maximumAnalogGain, lowGainReadNoise: n.lowGainElectrons * readNoiseScale, highGainReadNoise: n.highGainElectrons * readNoiseScale,
     highGainFromIso: n.highGainFromIso ?? Infinity, highGainMaximumCharge: (p.highGainFullWellElectrons ?? p.fullWellElectrons) * (1 + 1e-12),
     prnu: p.fixedPattern.prnu, dsnu: p.fixedPattern.dsnu, hotFraction: p.fixedPattern.hotPixelFraction, hotMultiplier: p.fixedPattern.hotPixelMultiplier,
     rowRms: p.fixedPattern.rowElectrons, columnRms: p.fixedPattern.columnElectrons, instanceSeed: (0x9e3779b9 ^ (p.pixelsWide * 8191 + p.pixelsHigh)) >>> 0 },

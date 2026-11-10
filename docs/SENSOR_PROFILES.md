@@ -52,9 +52,30 @@ simulated), thermal behaviour, burst rate, video and autofocus. The phone profil
 
 **The phone profile's lenses.** Its `fixedLenses` is `"phone"`: it takes only the catalogue's three phone lenses
 (PV 13 2.2 Phone, PV 24 1.8 Phone, PV 77 2.8 Phone; [LENS_CATALOGUE.md](LENS_CATALOGUE.md#phone-lenses-554)), and they render
-only on such a profile. Like every catalogue lens they resolve on the simulated frame (output size × pitch), so a capture
-is a crop with that frame's crop factor; the PSF's reach needs an output of about 96 × 96 sites or more at the phone's
-1.197 µm pitch.
+only on such a profile. The profile keeps accepting the body's default lens (owner, 2026-11-09).
+
+## Catalogue lenses on a profile's sensor
+
+With a sensor profile, a catalogue lens (`lens.catalogue`, the phone lenses included) is framed on the profile's real
+sensor (owner, 2026-11-09), so it shows its real field of view: the lens is resolved on the whole sensor
+(`sensorWidthMm × sensorHeightMm`), which gives its focal length (equivalent ÷ the sensor's diagonal crop factor) and the
+half-diagonal its distortion, vignetting and lateral colour are normalised to. The capture is then a centred frame of it:
+
+- **Default pitch:** the largest centred region of the sensor with the output's aspect, pitch = min(W/w, H/h) for a
+  W × H mm sensor and a w × h output. The other axis is cropped, never stretched: a 16:9 output on a 3:2 sensor crops
+  the height; a square one crops the width. The assumption `sensor.profileView` reports the frame, the pitch and
+  `croppedSensorAxis` ("width", "height" or "none").
+- **An explicit `sensor.pixelPitchMicrometers`** gives the centred crop it implies (for example the profile's own pitch, a
+  100 % crop); a frame larger than the sensor is refused.
+- **A downsized view.** At a pitch above the profile's, each site stands for N = (pitch / photosite pitch)² photosites: their
+  charge adds (the full well scales with the area, as before) and their read noise adds in quadrature (×√N, also for explicit
+  `readNoise` values, which are per photosite). Below one photosite the read noise is kept. Dark current and ADC
+  quantization stay per site, an approximation, and `sensor.fixedPatternNoise` (a per-photosite pattern) is refused at a pitch
+  other than the profile's. The same √N rule applies to a profile with an explicit pitch and no catalogue lens, reported in
+  the same assumption.
+- **The same in every path.** The exact and fast catalogue methods and the display view read the same frame, lens and
+  readout. `lens.prime` and `lens.ideal` keep the simulated-frame rule (output × pitch); a capture without a profile is
+  byte-identical.
 
 ## ISO rating
 

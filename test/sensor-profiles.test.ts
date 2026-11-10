@@ -93,24 +93,24 @@ describe("sensor profile records (#554)", () => {
       await expect(capture({ profile: profile as never })).rejects.toThrow(message);
       await expect(capture({ profile: profile as never })).rejects.toThrow(InvalidConfigurationError);
     };
-    await bad("phone-50mp-stacked", "sensor.profile must be a sensor profile record");
-    await bad({ ...phone, maker: "x" }, 'sensor.profile has unknown field "maker".');
+    await bad("phone-50mp-stacked", "sensor.profile must be an object.");
+    await bad({ ...phone, maker: "x" }, "Unknown sensor.profile field: maker.");
     const missing: Record<string, unknown> = { ...phone };
     delete missing.readoutSeconds;
-    await bad(missing, "sensor.profile.readoutSeconds is missing or out of range.");
-    await bad({ ...phone, fullWellElectrons: 50 }, "sensor.profile.fullWellElectrons is missing or out of range");
+    await bad(missing, "sensor.profile.readoutSeconds is required.");
+    await bad({ ...phone, fullWellElectrons: 50 }, "sensor.profile.fullWellElectrons must be a number from 100 to 10000000000.");
     await bad({ ...phone, peakQuantumEfficiency: Number.NaN }, "sensor.profile.peakQuantumEfficiency");
     await bad({ ...phone, baseIso: 42 }, "sensor.profile.baseIso");
     await bad({ ...phone, baseIso: 12800 }, "baseIso must not exceed maximumIso");
     await bad({ ...phone, pixelsWide: 8192.5 }, "whole numbers");
     await bad({ ...phone, adcBitDepth: 10 }, "sensor.profile.adcBitDepth");
-    await bad({ ...phone, readNoise: { ...phone.readNoise, extra: 1 } }, 'sensor.profile.readNoise has unknown field "extra".');
+    await bad({ ...phone, readNoise: { ...phone.readNoise, extra: 1 } }, "Unknown sensor.profile.readNoise field: extra.");
     await bad({ ...phone, highGainFullWellElectrons: null }, "dual-gain switch");
     await bad({ ...phone, readNoise: { ...phone.readNoise, highGainFromIso: 40 } }, "dual-gain switch");
     await bad({ ...phone, fixedPattern: { ...phone.fixedPattern, prnu: 2 } }, "sensor.profile.fixedPattern.prnu");
-    await bad({ ...phone, goodFor: [42] }, "sensor.profile.goodFor");
+    await bad({ ...phone, goodFor: [42] }, "sensor.profile.goodFor is invalid.");
     await bad({ ...phone, provenance: { fullWellElectrons: 1 } }, "sensor.profile.provenance");
-    await bad({ ...phone, fixedLenses: "tele" }, "sensor.profile.fixedLenses");
+    await bad({ ...phone, fixedLenses: "tele" }, "sensor.profile.fixedLenses must be null or phone.");
   }, scaledTimeout(60_000));
 
   it("accept a caller's modified copy, re-rated by the same rule", async () => {
@@ -139,5 +139,50 @@ describe("the phone profile's fixed lenses (#554)", () => {
     await expect(lensed({ catalogue: "pv-24-1.8", fNumber: 1.8 }, phone)).rejects.toThrow("which takes only them");
     await expect(lensed({ catalogue: "pv-24-1.8-phone", fNumber: 2.8 }, phone)).rejects.toThrow(InvalidConfigurationError);
     await expect(lensed({ catalogue: "pv-24-1.8-phone", fNumber: 1.8 }, sensorProfile("full-frame-24mp-bsi-2020s"))).rejects.toThrow("the phone lenses go only");
+  }, scaledTimeout(60_000));
+});
+
+describe("catalogue lenses framed on a profile's sensor (#554)", () => {
+  const view = (r: { assumptions: readonly { id: string; value: unknown }[] }): Record<string, unknown> => assumption(r, "sensor.profileView") as Record<string, unknown>;
+  const lensOf = (r: { assumptions: readonly { id: string; value: unknown }[] }): { focalLengthMm: number; cropFactor35Mm: number } => assumption(r, "lens.catalogue") as never;
+  it("resolve the lens on the whole sensor and capture its largest centred region of the output's aspect", async () => {
+    const phone = sensorProfile("phone-50mp-stacked");
+    const r = await simulateCapture({ scene: { preset: "uniform" }, sensor: { profile: phone, spectralStepNanometers: 100 }, output: { width: 64, height: 48 }, lens: { catalogue: "pv-24-1.8-phone" }, fast: true });
+    const crop = Math.hypot(36, 24) / Math.hypot(phone.sensorWidthMm, phone.sensorHeightMm);
+    expect(lensOf(r).cropFactor35Mm).toBeCloseTo(crop, 9);
+    expect(lensOf(r).focalLengthMm).toBeCloseTo(24 / crop, 9);
+    // 64:48 is wider than the sensor's 9.844:7.431, so the width fills it and the height is cropped.
+    const pitch = phone.sensorWidthMm / 64 * 1000;
+    expect(view(r)).toMatchObject({ croppedSensorAxis: "height", lensFramedOnSensor: true, frameWidthMm: phone.sensorWidthMm, photositesPerSite: (pitch / phone.pixelPitchMicrometers) ** 2 });
+    expect(view(r).pixelPitchMicrometers).toBeCloseTo(pitch, 9);
+    expect(view(r).frameHeightMm as number).toBeLessThan(phone.sensorHeightMm);
+    // A site sums its photosites: the full well by the area, the read noise in quadrature.
+    const scale = pitch / phone.pixelPitchMicrometers;
+    expect(r.sensor.fullWellElectrons).toBeCloseTo(phone.fullWellElectrons * scale * scale, 3);
+    expect(r.sensor.readNoise.lowGainElectrons).toBeCloseTo(phone.readNoise.lowGainElectrons * scale, 9);
+  }, scaledTimeout(60_000));
+
+  it("crop the width for a narrower output, keep the focal length, and agree between the exact, fast and display-view paths", async () => {
+    const ff = sensorProfile("full-frame-24mp-bsi-2020s");
+    const options: SimulateCaptureOptions = { scene: { preset: "slanted-edge" }, sensor: { profile: ff, spectralStepNanometers: 80 }, output: { width: 48, height: 48 }, lens: { catalogue: "pv-50-1.8", fNumber: 4 } };
+    const exact = await simulateCapture(options), fast = await simulateCapture({ ...options, fast: true });
+    expect(view(exact)).toMatchObject({ croppedSensorAxis: "width", frameHeightMm: ff.sensorHeightMm });
+    expect(lensOf(exact).focalLengthMm).toBeCloseTo(50 / (Math.hypot(36, 24) / Math.hypot(ff.sensorWidthMm, ff.sensorHeightMm)), 9);
+    expect(view(fast)).toEqual(view(exact));
+    const mean = (r: SimulateCaptureResult): number => r.raw.codes.reduce((a, c, i) => a + c - r.raw.blackLevels[i]!, 0) / r.raw.codes.length;
+    expect(mean(fast) / mean(exact)).toBeCloseTo(1, 2);
+    const display = await simulateDisplayView(options, { width: 12, height: 12 });
+    expect(view(display)).toEqual(view(exact));
+    expect(display.sensor).toEqual(exact.sensor);
+  }, scaledTimeout(60_000));
+
+  it("take an explicit pitch as a centred crop, refuse a frame beyond the sensor and the fixed pattern on a downsized view", async () => {
+    const ff = sensorProfile("full-frame-24mp-bsi-2020s");
+    const crop = await simulateCapture({ scene: { preset: "uniform" }, sensor: { profile: ff, pixelPitchMicrometers: 5.94, spectralStepNanometers: 100 }, output: { width: 48, height: 32 }, lens: { catalogue: "pv-50-1.8", fNumber: 4 }, fast: true });
+    expect(view(crop)).toMatchObject({ croppedSensorAxis: "width", photositesPerSite: 1, readNoiseScale: 1 });
+    expect(lensOf(crop).focalLengthMm).toBeCloseTo(50 / (Math.hypot(36, 24) / Math.hypot(ff.sensorWidthMm, ff.sensorHeightMm)), 9);
+    await expect(simulateCapture({ scene: { preset: "uniform" }, sensor: { profile: ff, pixelPitchMicrometers: 900 }, output: { width: 48, height: 32 }, lens: { catalogue: "pv-50-1.8" } }))
+      .rejects.toThrow("makes the frame larger than the profile's");
+    await expect(capture({ profile: ff, fixedPatternNoise: true, pixelPitchMicrometers: 12 })).rejects.toThrow("sensor.fixedPatternNoise needs the profile's own pixel pitch");
   }, scaledTimeout(60_000));
 });

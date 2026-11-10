@@ -1832,11 +1832,29 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   // #554: a sensor profile record (its parser and body builder are a lazy chunk; the catalogue is never imported) replaces the
   // body's sensor assets; its other capabilities and the lens are kept.
   const profileRecord = (typeof top.sensor === "object" && top.sensor !== null ? top.sensor as Record<string, unknown> : {}).profile;
-  let profile: SensorProfile | undefined;
+  let profile: SensorProfile | undefined, profileSensor: { widthMm: number; heightMm: number } | undefined, profilePitch: number = DEFAULTS.pixelPitchMicrometers, profileReadNoiseScale = 1;
   if (profileRecord !== undefined) {
     const kit = await import("../equipment/sensor-profile-body.js");
     profile = kit.parseSensorProfile(profileRecord);
-    preset = { ...preset, body: kit.sensorProfileBody(profile, preset.body, preset.presetVersion) };
+    profilePitch = profile.pixelPitchMicrometers;
+    // #554: with a catalogue lens the capture frames on the profile's sensor: by default the largest centred region of the output's
+    // aspect (pitch = min(W/w, H/h)); an explicit pitch gives a centred crop of it. A site of N photosites sums their charge (the
+    // full well scales with the area) and their read noise in quadrature (×√N); below one photosite the read noise is kept.
+    const o = (typeof top.output === "object" && top.output !== null ? top.output : {}) as Record<string, unknown>, explicit = (top.sensor as Record<string, unknown>).pixelPitchMicrometers;
+    const W = profile.sensorWidthMm, H = profile.sensorHeightMm, w = positive(o.width ?? DEFAULTS.width, "output.width"), h = positive(o.height ?? DEFAULTS.height, "output.height");
+    if (typeof top.lens === "object" && top.lens !== null && (top.lens as Record<string, unknown>).catalogue !== undefined) {
+      profilePitch = typeof explicit === "number" ? explicit : Math.min(W / w, H / h) * 1000;
+      if (w * profilePitch > W * 1000 * (1 + 1e-9) || h * profilePitch > H * 1000 * (1 + 1e-9)) fail("sensor.pixelPitchMicrometers makes the frame larger than the profile's sensor.");
+      profileSensor = { widthMm: W, heightMm: H };
+    } else if (typeof explicit === "number") profilePitch = explicit;
+    const sites = (profilePitch / profile.pixelPitchMicrometers) ** 2;
+    profileReadNoiseScale = Math.sqrt(Math.max(1, sites));
+    preset = { ...preset, body: kit.sensorProfileBody(profile, preset.body, preset.presetVersion, profileReadNoiseScale) };
+    if (profileSensor || sites !== 1) assume("sensor.profileView", "model", { sensorWidthMm: W, sensorHeightMm: H, frameWidthMm: w * profilePitch / 1000, frameHeightMm: h * profilePitch / 1000,
+      pixelPitchMicrometers: profilePitch, croppedSensorAxis: profileSensor ? (w * profilePitch < W * 1000 * (1 - 1e-9) ? "width" : h * profilePitch < H * 1000 * (1 - 1e-9) ? "height" : "none") : null,
+      photositesPerSite: sites, readNoiseScale: profileReadNoiseScale, lensFramedOnSensor: !!profileSensor },
+    "Approximation (#554; docs/SENSOR_PROFILES.md): the catalogue lens is resolved on the profile's sensor and the capture is its centred frame of the output's aspect (cropped, " +
+      "not stretched); a site sums photositesPerSite photosites (charge by area, read noise ×readNoiseScale). A downsized view, not the sensor's own pixels.");
     assume("sensor.profile", "model", { ...profile, sensitivityOffsetStops: Math.log2(kit.sensorProfileSaturationIso(profile) / profile.baseIso) },
       "Sensor profile (#554; docs/SENSOR_PROFILES.md): published, derived and design values, not a camera calibration; its base ISO is re-rated from full well, QE and pixel area.");
   }
@@ -1850,7 +1868,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   // The simulated frame in mm (output width × height × pixel pitch), validated again below.
   const frameMm = (): { widthMm: number; heightMm: number } => {
     const o = (typeof top.output === "object" && top.output !== null ? top.output : {}) as Record<string, unknown>, sn = (typeof top.sensor === "object" && top.sensor !== null ? top.sensor : {}) as Record<string, unknown>;
-    const frameW = positive(o.width ?? DEFAULTS.width, "output.width"), frameH = positive(o.height ?? DEFAULTS.height, "output.height"), framePitch = positive(sn.pixelPitchMicrometers ?? profile?.pixelPitchMicrometers ?? DEFAULTS.pixelPitchMicrometers, "sensor.pixelPitchMicrometers");
+    const frameW = positive(o.width ?? DEFAULTS.width, "output.width"), frameH = positive(o.height ?? DEFAULTS.height, "output.height"), framePitch = positive(sn.pixelPitchMicrometers ?? profilePitch, "sensor.pixelPitchMicrometers");
     return { widthMm: frameW * framePitch / 1000, heightMm: frameH * framePitch / 1000 };
   };
   if (lensOptions.prime !== undefined) {
@@ -1891,7 +1909,8 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   if (lensOptions.catalogue !== undefined) {
     for (const key of ["prime", "focalLengthMm", "projection", "distortion", "vignetting", "psf", "diffraction", "pupilSampling"])
       if (lensOptions[key] !== undefined) fail("lens.catalogue cannot be combined with lens." + key + ": the catalogue lens sets its own focal length, projection, distortion, vignetting and PSF (with diffraction).");
-    catalogueFrame = frameMm();
+    // #554: with a sensor profile, the lens is resolved on the profile's sensor (sensor.profileView), the capture being its centred frame.
+    catalogueFrame = profileSensor ?? frameMm();
     lensKit = await import("./generic-lens-capture.js");
     catalogue = lensKit.resolveGenericLens({ lensId: catalogueId as string, activeImagingArea: catalogueFrame });
     // #554: the phone lenses are fixed to a phone sensor profile, and it takes only them.
@@ -2082,8 +2101,8 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
     "Constant JPEG quantization step 2 (not a manufacturer quality scale)."), "output.jpegQuantizationStep", 1, 255) : undefined;
   if (format !== "jpeg" && outputOptions.jpegQuantizationStep !== undefined) fail("output.jpegQuantizationStep applies only to output.format \"jpeg\".");
   const sensorOptions = allowKeys(top.sensor, "sensor", ["pixelPitchMicrometers", "spectralStepNanometers", "temporalSampleCount", "noiseSeed", "antiAliasing", "pixelAperture", "profile", ...SENSOR_CHARACTERISTIC_KEYS]);
-  const pitch = positive(pick(sensorOptions, "pixelPitchMicrometers", "sensor.pixelPitchMicrometers", profile?.pixelPitchMicrometers ?? DEFAULTS.pixelPitchMicrometers,
-    (profile ? "The profile's pitch" : "6 µm pixels (about a 24 MP full-frame sensor)") +
+  const pitch = positive(pick(sensorOptions, "pixelPitchMicrometers", "sensor.pixelPitchMicrometers", profilePitch,
+    (profileSensor ? "The profile's sensor across the output (sensor.profileView)" : profile ? "The profile's pitch" : "6 µm pixels (about a 24 MP full-frame sensor)") +
     ". The simulated sensor is width × pitch wide, so small images are a central crop of a large sensor, not a downscaled full frame."), "sensor.pixelPitchMicrometers");
   if (pitch < 0.5 || pitch > SIMULATE_CAPTURE_PIXEL_PITCH_MAXIMUM_MICROMETERS) fail("sensor.pixelPitchMicrometers must be 0.5-" + SIMULATE_CAPTURE_PIXEL_PITCH_MAXIMUM_MICROMETERS + ".");
   const spectralStep = positive(pick(sensorOptions, "spectralStepNanometers", "sensor.spectralStepNanometers", DEFAULTS.spectralStepNanometers,
@@ -2093,7 +2112,11 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
     "Eight temporal midpoints across each site's exposure window sample the camera rotation (motion blur); raise it for long exposures or fast rotation.") :
     pick(sensorOptions, "temporalSampleCount", "sensor.temporalSampleCount", DEFAULTS.temporalSampleCount,
       "One temporal sample: the static scene and still camera make more samples unnecessary."), "sensor.temporalSampleCount", 1, 256);
-  const characteristics = parseSensorCharacteristics(sensorOptions);
+  const parsedCharacteristics = parseSensorCharacteristics(sensorOptions), rn = parsedCharacteristics?.readNoise, rs = profileReadNoiseScale;
+  // #554: on a profile's downsized view a site sums photosites: explicit read noises (per photosite) scale as the profile's do; no fixed pattern.
+  const characteristics = rn && rs !== 1 ? { ...parsedCharacteristics!, readNoise: { ...rn, ...(rn.lowGainElectrons === undefined ? {} : { lowGainElectrons: rn.lowGainElectrons * rs }),
+    ...(rn.highGainElectrons === undefined ? {} : { highGainElectrons: rn.highGainElectrons * rs }) } } : parsedCharacteristics;
+  if (characteristics?.fixedPatternNoise && profile && pitch !== profile.pixelPitchMicrometers) fail("sensor.fixedPatternNoise needs the profile's own pixel pitch: the pattern is per photosite.");
   // The EQE scale over the facade's QE 0.5 curve: an explicit peak QE, else the profile's (#554), else 1.
   const bodyQeScale = profile ? profile.peakQuantumEfficiency / 0.5 : 1, qeScale = characteristics?.peakQuantumEfficiency !== undefined ? characteristics.qeScale : bodyQeScale;
   const noiseSeed = integerIn(pick(sensorOptions, "noiseSeed", "sensor.noiseSeed", DEFAULTS.noiseSeed, "Fixed noise seed 1 (deterministic output)."), "sensor.noiseSeed", 0, 0xffffffff);
