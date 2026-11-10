@@ -1577,6 +1577,13 @@ Notable public changes to `@photivra/engine` are documented here.
 
 ## Unreleased
 
+### 2.21.0 part: #589 Catalogue lenses: check rendered lateral color against the lens model on large-blur corners
+
+- **Measured (no render change):** the blue-minus-red displacement in RAW, independent of blur and demosaicing: the per-CFA-channel centroid of an isolated lattice-point source in the 6 µm corner region's expected electrons (summed over the four points of a 2 × 2 cell, so each channel sees every kernel tap), fast and exact. *PV 24 1.8* wide open renders 103 % of the lens model radially (0.80 px right, 0.56 px up), with the model taken at the channels' effective dispersion (the capture's own channel response; 0.833 of the single-wavelength L·R·H·(D(465) − D(610)) for the default sensor). The large-blur consumer corner is not short of lateral color.
+- **Why the developed edge differs** (0.71 px against the single-wavelength model's 0.96 px): the channels' effective wavelengths (above), the color matrix that undoes the channels' spectral overlap, the edge's 50 % point being the line spread function's median under an asymmetric PSF, and the demosaic (docs/LENS_CATALOGUE.md, "Lateral color in RAW").
+- **Found:** *PV 24 1.4 Pro*'s RAW displacement is 64 % of the model at the corner (its PSF is narrower than a site, and the node kernels' cell integration quantizes the centroid); mid-field, 19 % / 12 % (pro) and 121 % / 83 % (consumer, the kernel window's truncation), x / y. Pinned as found; a fix is proposed to the owner.
+- **Tests and docs:** `test/simulate-capture-lens-catalogue-lateral-color.test.ts` (new); docs/LENS_CATALOGUE.md ("Lateral color in RAW (#589)"). No source change; bundle sizes unchanged.
+
 ### Added
 
 - Added #1 ideal regular-polygon scalar Fraunhofer diffraction. The additive `calculateIdealPolygonDiffractionPsf()` returns continuous 1/µm² unit-energy density plus peak-normalized intensity using an analytical polygon boundary integral, explicit equal-area pupil size, propagation distance and resolved wavelength basis. No finite-support renormalization, throughput loss or real-lens effects are inferred. PSF foundation advances to `0.3.0`; root API advances to `0.94.0`. Existing circular Airy, sampled/complex-pupil schemas, production composition and POC behavior are unchanged.
