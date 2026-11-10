@@ -1870,6 +1870,7 @@ export { GENERIC_LENS_CATALOGUE, GENERIC_LENS_IDS, GENERIC_LENS_SET_BASELINES, r
   type ResolveGenericLensInput, type SimulateGenericLensFocusErrorInput, type GenericLensFocusError } from "./equipment/generic-lens-catalogue.js";
 export { calculateChannelEffectiveDispersion, createGenericLensCorrectionProfile, GENERIC_LENS_CORRECTION_CHANNEL_WAVELENGTHS_NM, type CalculateChannelEffectiveDispersionInput, type ChannelDispersion,
   type CreateGenericLensCorrectionProfileInput } from "./output/generic-lens-corrections.js";
+export { calculateLateralColorFringe, type CalculateLateralColorFringeInput, type LateralColorFringe, type LateralColorDisplacement } from "./optics/generic-lens-lateral-color.js";
 export { calculateChartFraming, calculateSubjectDistanceForFraming, type CalculateChartFramingInput, type CalculateSubjectDistanceForFramingInput, type ChartFraming,
   type SubjectFraming, type SubjectFramingFit } from "./facade/subject-framing.js";
 export { CHART_SCENE_PRESETS, CHART_SCENE_DEFAULTS, CHART_SPECTRAL_RANGE_NANOMETERS, resolveChartScene, calculateStepWedgeReflectances,

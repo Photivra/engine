@@ -1854,6 +1854,17 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 | [`resolveFrontOfLensFilterTransmission`](api/optics-front-of-lens-filter.md#resolvefrontoflensfiltertransmission) | Runtime |
 | [`ResolveFrontOfLensFilterTransmissionInput`](api/optics-front-of-lens-filter.md#resolvefrontoflensfiltertransmissioninput) | Type |
 
+## optics/generic-lens-lateral-color.ts
+
+[Detailed contracts](api/optics-generic-lens-lateral-color.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/optics/generic-lens-lateral-color.ts)
+
+| Export | Kind |
+| --- | --- |
+| [`calculateLateralColorFringe`](api/optics-generic-lens-lateral-color.md#calculatelateralcolorfringe) | Runtime |
+| [`CalculateLateralColorFringeInput`](api/optics-generic-lens-lateral-color.md#calculatelateralcolorfringeinput) | Type |
+| [`LateralColorDisplacement`](api/optics-generic-lens-lateral-color.md#lateralcolordisplacement) | Type |
+| [`LateralColorFringe`](api/optics-generic-lens-lateral-color.md#lateralcolorfringe) | Type |
+
 ## optics/generic-nd-filter-presets.ts
 
 [Detailed contracts](api/optics-generic-nd-filter-presets.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/optics/generic-nd-filter-presets.ts)
