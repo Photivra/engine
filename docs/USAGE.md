@@ -7866,6 +7866,28 @@ The chart presets are also available on their own:
 - `createPlanarSceneRadianceProvider()` turns a chart into an `evaluateRadiance` callback for the native
   environment RAW contract.
 
+### Mixed lighting (2.22, #550)
+
+`illumination` lights the chart with two or more sources blended across it (a linear gradient, a radial falloff or regions),
+for example window daylight on one side and a lamp on the other. The frame center's light sets the grey-card meter and its
+strongest source the `"scene-illuminant"` white balance; both are reported in `assumptions`. See
+[Mixed lighting](MIXED_ILLUMINATION.md) for the model and every field.
+
+```ts
+import { simulateCapture } from "@photivra/engine";
+
+const lampPool = await simulateCapture({
+  scene: { preset: "step-wedge" },
+  exposure: { mode: "aperture-priority", metering: "grey-card" },
+  illumination: {
+    sources: [{ illuminant: "cie-a", illuminanceLux: 500 }, { illuminant: { kind: "planckian", temperatureKelvin: 6500 }, illuminanceLux: 20000 }],
+    blend: { kind: "radial", radius: 0.8, stops: [0.25, 1] }
+  },
+  output: { width: 32, height: 16 }
+});
+console.log(lampPool.assumptions.find((a) => a.id === "output.whiteBalanceSource")?.value); // { source: 0, illuminant: "cie-a" }
+```
+
 ### Display view of a capture
 
 `simulateDisplayView(options, view)` takes a capture request and a display size and returns the real

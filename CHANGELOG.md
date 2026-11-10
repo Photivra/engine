@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+### 2.22.0 part: #550 Spatially varying illumination (mixed lighting)
+
+- **New:** `simulateCapture` (and `simulateIdealReference`, `simulateDisplayView`, `prepareDisplayView`) option `illumination`: two to eight sources, each an illuminant at an illuminance, blended across the chart by a `linear-gradient`, a `radial` falloff or `regions` (docs/MIXED_ILLUMINATION.md). The irradiance at a point is Σ w_i·E_i(λ) with weights summing to 1 (exact for the declared blend; not a falloff model). It replaces `illuminant` and `illuminanceLux`. Root type exports: `MixedIllumination`, `MixedIlluminationBlend`, `MixedIlluminationPoint`, `MixedIlluminationSource` (4 types, no runtime export).
+- **Exposure and white balance:** scene-average metering reads the lit frame; the grey card sits at the frame center and reads the light there (`exposure.meteringCard`); `"scene-illuminant"` white balance uses the source strongest at the frame center (`output.whiteBalanceSource`); an explicit white balance wins. The assumption `scene.illumination` reports the blend.
+- **Display view:** the CPU reference reads the radiance under the blend at every query point, as the capture does (no approximation, so no fast method). The GPU renderers refuse it with a reason (`unsupported-on-backend`, no device requested).
+- **Capture:** a chart or material scene under a blend keeps the tabulated expected signal (#394), reading the radiance at each lattice point instead of per-material tables, verified per CFA phase against the chain (1e-9); caller reflectance functions take the chain.
+- **Off by default:** requests without `illumination` load no new code and keep their bytes. The module is loaded on demand (`src/facade/mixed-illumination.ts`).
+- **Size (rolldown 1.2.9, gzip level 9):** the app's capture-worker shape 355,994 → 358,007 B in total (+2,013 B: the lazily loaded `mixed-illumination` chunk 1,631 B, the facade glue and the chunk split the rest), above its 356,000 B limit, which this part does not raise (owner question). The capture-only entry chunk 263,817 → 264,632 B (+815 B); the display view's added entry size 18,187 → 16,198 B (the bundler moved shared modules between chunks).
+
 ## 2.20.0 — unreleased (prepared November 9, 2026)
 
 A minor release of ten issues and one speed-versus-accuracy scheme: adjustable sensor characteristics and the mid-gray noise figure (#555, #535), the aperture diameter (#577), the crop that matches a longer lens (#579), which limits detail, the lens or the sensor (#575), the print size limit with blur and noise (#574), the lens profile's vignetting area factor (#584), lens corrections as optional DNG opcodes (#587), each catalogue lens's own bokeh (#567), chart-boundary ties in the diffraction PSF quadrature (#565) and the CI Node drift check (#231). See the [2.20.0 release record](https://github.com/Photivra/photivra/blob/main/docs/RELEASE_2_20_0.md).

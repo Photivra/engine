@@ -59,6 +59,7 @@ import { calculateNativeRawPlan, nativeRawMaximumProviderEvaluations, NATIVE_RAW
 import { renderTabulatedNativeRaw, TABULATED_RELATIVE_TOLERANCE } from "../capture/native-environment-tabulated.js";
 import { createDisplayViewExpectedSignal, type DisplayViewExpectedSignal, type DisplayViewExpectedSignalInput } from "./expected-signal.js";
 import type { DisplayViewFastReport } from "./display-view-gpu.js";
+import type { MixedIllumination, ResolvedMixedIllumination } from "./mixed-illumination.js";
 import type { DisplayViewLensPsf } from "./display-view-lens-signal.js";
 import { buildExpectedSignalInput } from "./expected-signal-setup.js";
 import { createNativeEnvironmentRawTask, createNativeEnvironmentRawRegionTask, type NativeEnvironmentRawInput,
@@ -521,6 +522,12 @@ export interface SimulateCaptureOptions {
   illuminant?: CaptureIlluminant;
   /** Illuminance on the scene plane, lux. Default about 21 481 lux (see `SIMULATE_CAPTURE_DEFAULT_ILLUMINANCE_LUX` and the assumptions). */
   illuminanceLux?: number;
+  /**
+   * 2.22 (#550), opt-in mixed lighting: two or more sources blended across the chart (docs/MIXED_ILLUMINATION.md), instead of
+   * `illuminant` and `illuminanceLux`. The frame center's light sets the grey-card meter and the standard-exposure figures, and
+   * its strongest source the "scene-illuminant" white balance; both are reported in `assumptions`.
+   */
+  illumination?: MixedIllumination;
   output?: {
     /** Output pixels; the native sensor raster adds a one-site demosaic border on each side. Defaults 64 × 64. */
     width?: number;
@@ -1643,7 +1650,7 @@ export interface DisplayViewRunContext {
   assumptions: SimulateCaptureAssumption[];
   axisChannelResponse: (caller: string) => { electronsPerRadiance: Record<Channel, Map<number, number>>; wavelengths: number[]; relativePerElectron: Record<Channel, number>; };
   boxSamples: number;
-  buildProvider: (sceneIlluminant: ResolvedCaptureIlluminant, scale: number) => PlanarSceneRadianceProvider;
+  buildProvider: (sceneIlluminant: ResolvedCaptureIlluminant, scale: number, light?: ResolvedMixedIllumination) => PlanarSceneRadianceProvider;
   callerScene: ResolvedCallerScene | undefined;
   chart: ResolvedChartScene | undefined;
   /** #491: the declared material-layers scene behind `callerScene`, when the request gave one. */
@@ -1713,6 +1720,8 @@ export interface DisplayViewRunContext {
   yieldControl: () => Promise<void>;
   /** The Kelvin white balance request, which the view resolves with the portable functions. */
   kelvinWhiteBalanceInput: Parameters<typeof resolveColorTemperatureWhiteBalance>[0] | undefined;
+  /** #550: with `illumination`, resolves it again with the given illuminant formulas (the view's portable ones). */
+  mixedIllumination?: ((resolve: (value: CaptureIlluminant) => ResolvedCaptureIlluminant) => ResolvedMixedIllumination) | undefined;
 }
 export interface ParsedDisplayView { width: number; height: number; samplesPerAxis: number; bitDepth: 8 | 16; format: "srgb-8" | "srgb-16"; region?: { x: number; y: number; width: number; height: number } }
 /** Internal: validates a display view against the capture's output size and fills its defaults. */
@@ -1838,7 +1847,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   const started = Date.now(), idealReference = run === "ideal-reference", displayView = run === "display-view";
   requireInputObject(options, "simulateCapture options");
   const top = allowKeys(options, "simulateCapture options", ["camera", "lens", "exposure", "scene", "subjectDistanceM", "chartSize", "illuminant",
-    "illuminanceLux", "output", "sensor", "motion", "fast", "signal", "onProgress"]);
+    "illuminanceLux", "illumination", "output", "sensor", "motion", "fast", "signal", "onProgress"]);
   const signal = top.signal as AbortSignal | undefined, onProgress = top.onProgress as SimulateCaptureOptions["onProgress"];
   if (signal !== undefined && (typeof signal !== "object" || signal === null || typeof (signal as AbortSignal).aborted !== "boolean")) fail("signal must be an AbortSignal.");
   if (onProgress !== undefined && typeof onProgress !== "function") fail("onProgress must be a function.");
@@ -2321,12 +2330,23 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   if (top.scene === undefined) fail("simulateCapture needs a scene, for example { preset: \"uniform\" } (an 18 % grey card) or { preset: \"slanted-edge\" }.");
   const sceneOption = top.scene;
   requireInputObject(sceneOption, "scene");
-  const illuminantOption = pick<CaptureIlluminant>(top, "illuminant", "illuminant", { kind: "planckian", temperatureKelvin: DEFAULTS.illuminantKelvin },
+  // #550: mixed lighting (loaded only when asked for). Its frame-center light stands in for the single illuminant below: the strongest
+  // source at the center (white balance, the illumination profile) and the center's illuminance (grey card, standard exposure).
+  const mixedKit = top.illumination === undefined ? undefined : await import("./mixed-illumination.js");
+  if (mixedKit && (top.illuminant !== undefined || top.illuminanceLux !== undefined)) fail("illumination replaces illuminant and illuminanceLux; omit them.");
+  const lightKit = (resolveIlluminant: (value: CaptureIlluminant) => ResolvedCaptureIlluminant): ResolvedMixedIllumination =>
+    mixedKit!.resolveMixedIllumination(top.illumination, resolveIlluminant);
+  const mixed = mixedKit && lightKit(resolveCaptureIlluminant), strongest = mixed?.sources[mixed.center.strongestSource];
+  const illuminantOption = strongest ? strongest.option : pick<CaptureIlluminant>(top, "illuminant", "illuminant", { kind: "planckian", temperatureKelvin: DEFAULTS.illuminantKelvin },
     "Planckian (blackbody) 6500 K as a stand-in for daylight. CIE D65 is not bundled; pass its S0/S1/S2 basis as a daylight illuminant to use it.");
-  const illuminant = resolveCaptureIlluminant(illuminantOption);
-  const illuminanceLux = positive(pick(top, "illuminanceLux", "illuminanceLux", SIMULATE_CAPTURE_DEFAULT_ILLUMINANCE_LUX,
+  const illuminant = strongest ? strongest.illuminant : resolveCaptureIlluminant(illuminantOption);
+  const illuminanceLux = mixed ? mixed.center.illuminanceLux : positive(pick(top, "illuminanceLux", "illuminanceLux", SIMULATE_CAPTURE_DEFAULT_ILLUMINANCE_LUX,
     "π·10·N²/(0.65·t·S·0.18) lux at f/8, 1/125 s, ISO 100 (CIPA DC-004 standard output sensitivity H = 10/S and camera equation H = 0.65·L·t/N²): an 18 % grey card then gets the reference exposure for the default settings. It does not follow the caller's exposure settings."), "illuminanceLux");
-  const irradianceScale = calculateIlluminantIrradianceScale(illuminant.shape, illuminanceLux);
+  const irradianceScale = strongest ? strongest.irradianceScale : calculateIlluminantIrradianceScale(illuminant.shape, illuminanceLux);
+  if (mixed) assume("scene.illumination", "model", { sources: mixed.sources.map((s) => ({ illuminant: s.illuminant.id, illuminanceLux: s.illuminanceLux })), blend: mixed.blend,
+    coordinates: chartSize ? "chart-local" : "frame", center: mixed.center },
+  "Mixed lighting (#550): the irradiance at a point is the declared blend Σ w_i·E_i(λ) of the sources (each scaled to its illuminance, weights summing to 1; a crossfade, not a falloff model). " +
+    "Scene-average metering reads the lit frame; the frame center's light sets the grey card, the standard-exposure illuminance (all sources scaled together) and the grey-card deviation.");
   let chart: ResolvedChartScene | undefined, callerScene: ResolvedCallerScene | undefined, materialLayers: ResolvedChartMaterialLayers | undefined;
   const sceneRecord = sceneOption as Record<string, unknown>;
   if ("kind" in sceneRecord) {
@@ -2355,17 +2375,18 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   const sceneDescription = { facadeVersion: SIMULATE_CAPTURE_FACADE_VERSION, scene: chart ? { preset: chart.preset, parameters: chart.parameters } :
     { kind: callerScene!.kind, sceneId: callerScene!.sceneId }, illuminant: illuminant.id, illuminanceLux, subjectDistanceM, framedWidthM: 2 * metresPerFrameUnit, aspect,
     ...(chartSize ? { chartSize: { widthM: chartSize.widthM, heightM: chartSize.heightM, surroundReflectance: chartSize.surroundReflectance } } : {}),
-    ...(illuminantSpectrum === undefined ? {} : { illuminantSpectrum }), ...(sceneSpectra.length === 0 ? {} : { sceneSpectra }), ...(sceneMaterials ? { sceneMaterials } : {}) };
+    ...(illuminantSpectrum === undefined ? {} : { illuminantSpectrum }), ...(sceneSpectra.length === 0 ? {} : { sceneSpectra }), ...(sceneMaterials ? { sceneMaterials } : {}),
+    ...(mixed ? { illumination: { blend: mixed.blend, sources: mixed.sources.map((s) => [s.illuminanceLux, spectrumDigestForm(s.illuminant.spectrum, s.illuminant.shape)]) } } : {}) };
   if (callerScene?.kind === "material-function") assume("scene.digest", "model", "caller-function-not-hashed", "The source digest covers the caller's sceneId, its materials and the framing, not the body of the caller's materialAt function.");
   else if (callerScene) assume("scene.digest", "model", "caller-function-not-hashed", "The source digest covers the caller's sceneId and the framing, not the body of the caller's evaluate function.");
   const sourceSha256 = await sha256Hex(JSON.stringify(sceneDescription, (_key, value: unknown) => (typeof value === "object" && value !== null && "evaluate" in value ? "caller-spectrum" : value)));
   checkAbort();
-  const buildProvider = (sceneIlluminant: ResolvedCaptureIlluminant, scale: number): PlanarSceneRadianceProvider => buildPlanarSceneRadianceProvider({ scene: chart ?? callerScene!,
+  const buildProvider = (sceneIlluminant: ResolvedCaptureIlluminant, scale: number, light?: ResolvedMixedIllumination): PlanarSceneRadianceProvider => buildPlanarSceneRadianceProvider({ scene: chart ?? callerScene!,
     sceneId: IDS.scene, providerProfileId: IDS.provider, illuminant: sceneIlluminant, irradianceScale: scale, geometry: { distanceM: subjectDistanceM, metresPerFrameUnit,
       ...(chartSize ? { chart: { widthM: chartSize.widthM, heightM: chartSize.heightM, surroundReflectance: chartSize.surroundReflectance } } : {}) }, evidence: FACADE_EVIDENCE,
-    limitations: Object.freeze(["Planar Lambertian scene under uniform illumination; no shadows, inter-reflection, gloss or fluorescence."]),
-    ...(catalogue?.kind === "fisheye" ? { zeroBeyondHorizon: true as const } : {}) });
-  const provider = buildProvider(illuminant, irradianceScale);
+    limitations: Object.freeze(["Planar Lambertian scene under " + (light ? "blended" : "uniform") + " illumination; no shadows, inter-reflection, gloss or fluorescence."]),
+    ...(catalogue?.kind === "fisheye" ? { zeroBeyondHorizon: true as const } : {}), ...(light ? { irradianceAt: light.irradianceAt } : {}) });
+  const provider = buildProvider(illuminant, irradianceScale, mixed);
   // 2.6: a chart preset's evaluator is engine-built end to end (its results: the schema's exact keys, constant fields,
   // the request's identifiers, deep-frozen FACADE_EVIDENCE, UNCERTAINTY and limitations, and an engine-computed
   // radiance), so the native task may skip re-parsing the fixed parts. Caller scenes keep the full validation.
@@ -2425,6 +2446,8 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
     if (callerScene?.kind === "radiance-function") fail('exposure.metering "grey-card" needs a scene lit by the illuminance; a radiance-function scene ignores illuminanceLux.');
     const cardLuminance = GREY_CARD_REFLECTANCE * illuminanceLux / Math.PI;
     for (const sample of zoneSamples) sample.relativeLinearSignal = meterProfile.target.targetRelativeSignal * cardLuminance / referenceLuminance;
+    if (mixed) assume("exposure.meteringCard", "model", { position: { u: 0, v: 0 }, illuminanceLux },
+      "Mixed lighting (#550): the grey card sits at the frame center and reads the light there.");
     assume("exposure.meteringSource", "model", { metering, greyCardReflectance: GREY_CARD_REFLECTANCE, luminanceCdPerSquareMeter: cardLuminance },
       "Grey-card (incident) metering: every meter zone reads an 18 % Lambertian grey card under the scene illuminance, L = 0.18·E/π, instead of the scene.");
   }
@@ -2834,7 +2857,11 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
     if (region) fail("output.region cannot be combined with output.whiteBalance \"auto\": grey-world statistics of a region differ from the whole frame's.");
     needsAuto = true;
   }
-  else if (whiteBalanceOption === "scene-illuminant") whiteBalanceState = sceneIlluminantWhiteBalance(illuminant);
+  else if (whiteBalanceOption === "scene-illuminant") {
+    whiteBalanceState = sceneIlluminantWhiteBalance(illuminant);
+    if (mixed) assume("output.whiteBalanceSource", "model", { source: mixed.center.strongestSource, illuminant: illuminant.id },
+      "Mixed lighting (#550): measured under the source strongest at the frame center (largest w_i·E_i, the first on a tie). An explicit white balance is used as given.");
+  }
   else if (typeof whiteBalanceOption === "object" && whiteBalanceOption !== null && "kelvin" in whiteBalanceOption) {
     const wb = allowKeys(whiteBalanceOption, "output.whiteBalance", ["kelvin", "tint"]);
     const intent = createColorTemperatureWhiteBalanceIntent({ intentId: "facade-wb-cct", colorTemperatureKelvin: positive(wb.kelvin, "output.whiteBalance.kelvin"),
@@ -3221,11 +3248,13 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   // #535: the green channel's expected charge from an 18 % Lambertian grey patch (radiance 0.18·E·S(λ)/π) next to the axis, and the sensor report;
   // the mid-grey figure only when the request resolves to exact (fast: false, the exports' default): it costs about 0.3 ms.
   let greyElectrons: number | undefined = fastTop ? undefined : 0;
-  if (!idealReference && greyElectrons !== undefined) for (const [nm, a] of axisChannelResponse(displayView ? "simulateDisplayView" : "simulateCapture").electronsPerRadiance.green) greyElectrons += a * GREY_CARD_REFLECTANCE * irradianceScale * illuminant.shape.evaluate(nm) / Math.PI;
+  if (!idealReference && greyElectrons !== undefined) for (const [nm, a] of axisChannelResponse(displayView ? "simulateDisplayView" : "simulateCapture").electronsPerRadiance.green) greyElectrons += mixed ? a * GREY_CARD_REFLECTANCE * mixed.irradianceAt(0, 0, nm) / Math.PI :
+    a * GREY_CARD_REFLECTANCE * irradianceScale * illuminant.shape.evaluate(nm) / Math.PI;
   const sensor = sensorReport(regimeByChannel.green.readoutProfile, regimeByChannel.green.regimeId, capacityElectrons, greyElectrons, DARK_CURRENT_ELECTRONS_PER_SECOND * shutterSeconds,
     { pixelPitchMicrometers: pitch, peakQuantumEfficiency: 0.5 * (characteristics?.qeScale ?? 1),
       readoutSeconds: characteristics?.readoutSeconds ?? (body as { rollingReadoutTiming?: { profile: { spatialSamplingSkewSeconds?: { value: number } } } }).rollingReadoutTiming?.profile.spatialSamplingSkewSeconds?.value ?? null }, fixedPattern);
-  if (displayView) return await renderView!({ sensor, viewFast: { ahd: viewAhdFast, uniformSampling: fastTop }, lens: lensSignal, lensPsf: displayViewLensPsf, ahd, fastReport, antiAliasing, aspect, assume, assumptions, axisChannelResponse, boxSamples, buildProvider, callerScene, chart, materialLayers, chartReport, chartSize, diffraction, defocus: displayViewDefocus, diffractionPsf, fNumber, focalLengthMm, focusDistanceM, height, highlightMode, exposureGain, illuminanceLux, illuminant, illuminantOption, imagingArea, intentOf, metresPerFrameUnit, noiseSeed, outputOptions, parsedView, pitch, preset, provider, regimeByChannel, resolvedIso, isoReport, standardExposureDeviationStops: exposureDeviationStops, standardExposureIlluminanceLux: exposureIlluminanceLux, greyCardDeviationStops: exposureGreyCardDeviationStops, metering, sceneOption, scenePreset, shutterSeconds, started, subjectDistanceM, toneCurve, whiteBalanceOption, whiteBalanceState, width, checkAbort, margin, mode, nativeHeight, nativeWidth, sourceSha256, yieldControl, kelvinWhiteBalanceInput });
+  if (displayView) return await renderView!({ sensor, viewFast: { ahd: viewAhdFast, uniformSampling: fastTop }, lens: lensSignal, lensPsf: displayViewLensPsf, ahd, fastReport, antiAliasing, aspect, assume, assumptions, axisChannelResponse, boxSamples, buildProvider, callerScene, chart, materialLayers, chartReport, chartSize, diffraction, defocus: displayViewDefocus, diffractionPsf, fNumber, focalLengthMm, focusDistanceM, height, highlightMode, exposureGain, illuminanceLux, illuminant, illuminantOption, imagingArea, intentOf, metresPerFrameUnit, noiseSeed, outputOptions, parsedView, pitch, preset, provider, regimeByChannel, resolvedIso, isoReport, standardExposureDeviationStops: exposureDeviationStops, standardExposureIlluminanceLux: exposureIlluminanceLux, greyCardDeviationStops: exposureGreyCardDeviationStops, metering, sceneOption, scenePreset, shutterSeconds, started, subjectDistanceM, toneCurve, whiteBalanceOption, whiteBalanceState, width, checkAbort, margin, mode, nativeHeight, nativeWidth, sourceSha256, yieldControl, kelvinWhiteBalanceInput,
+    mixedIllumination: mixedKit && lightKit });
   // Ideal reference (2.3): the scene without camera effects, at the capture's own exposure, white balance and encoding.
   if (idealReference) {
     const referenceStarted = clockMs();
@@ -3333,11 +3362,12 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   const catalogueFastEligible = catalogueFastRequested && catalogueTaps !== undefined && lensKit !== undefined && lensPsf !== undefined && dngParts === undefined && tabulatedScene &&
     !pupil && !rotating && boxSamples === 1 && !antiAliasing && distortion?.kind === "radial" && provider.chartMaterialAt !== undefined && provider.materialRadiance !== undefined;
   // The tabulated paths' channel response per spectral node and material tables (the fast catalogue path and the expected-signal path).
-  const tabulatedTables = (): { wavelengths: number[]; perNode: [Float64Array, Float64Array, Float64Array]; materials: NonNullable<Parameters<typeof buildExpectedSignalInput>[0]["materials"]> } => {
+  // #550: under mixed lighting a point's radiance is not its material's, so the tables read the provider's radiance instead (materials undefined).
+  const tabulatedTables = (): { wavelengths: number[]; perNode: [Float64Array, Float64Array, Float64Array]; materials: Parameters<typeof buildExpectedSignalInput>[0]["materials"] } => {
     const { electronsPerRadiance, wavelengths } = axisChannelResponse("simulateCapture");
     const sceneMaterials = chart ? chart.materials : (callerScene as ResolvedCallerMaterialScene).materials, materialRadiance = provider.materialRadiance!;
     return { wavelengths, perNode: CHANNELS.map((c) => Float64Array.from(wavelengths, (nm) => electronsPerRadiance[c].get(nm) ?? 0)) as [Float64Array, Float64Array, Float64Array],
-      materials: { materialAt: provider.chartMaterialAt!, whiteRadiance: (nm: number): number => irradianceScale * illuminant.shape.evaluate(nm) / Math.PI,
+      materials: mixed ? undefined : { materialAt: provider.chartMaterialAt!, whiteRadiance: (nm: number): number => irradianceScale * illuminant.shape.evaluate(nm) / Math.PI,
         list: [...sceneMaterials.map((m, index) => (m.kind === "neutral" ? { neutral: m.reflectance } : { radiance: (nm: number): number => materialRadiance(index, nm) })),
           ...(chartSize ? [{ neutral: chartSize.surroundReflectance }] : [])] } };
   };
@@ -3356,7 +3386,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
     if (tabulated) catalogueFastRun = { ...signal.grid, verificationRelativeDifference: tabulated.verificationRelativeDifference };
   }
   // #553: a cat's eye varies the kernel over the field, which the expected-signal tables (one kernel per node) do not take.
-  else if (dngParts === undefined && tabulatedScene && !pupil && !lensFieldMapping && !vignetting && !lensPsf && !rotating && !bokehZones && (!diffraction || diffractionObjectSpace) && provider.chartMaterialAt && provider.materialRadiance) {
+  else if (dngParts === undefined && tabulatedScene && !pupil && !lensFieldMapping && !vignetting && !lensPsf && !rotating && !bokehZones && (!diffraction || diffractionObjectSpace) && (mixed || provider.chartMaterialAt && provider.materialRadiance)) {
     const { wavelengths, perNode, materials: tabulatedMaterials } = tabulatedTables();
     const { signalInput: builtSignalInput } = buildExpectedSignalInput({ nativeWidth, nativeHeight, width, wavelengths, perNode, apertureNodes: apertureNodeOffsets(boxSamples), boxSamples, antiAliasing, pitch,
       diffraction: diffraction && !defocusSiteKernels ? { radius: diffraction.kernelRadiusSamples, psf: diffractionPsf!.configuration.psf, profileWavelengths: diffraction.profile.axes.wavelengthNm } : undefined,

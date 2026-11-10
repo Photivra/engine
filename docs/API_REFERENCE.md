@@ -1323,6 +1323,17 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 | [`SIMULATE_CAPTURE_FAST_METHODS`](api/facade-fast-methods.md#simulate_capture_fast_methods) | Runtime |
 | [`SimulateCaptureFastMethod`](api/facade-fast-methods.md#simulatecapturefastmethod) | Type |
 
+## facade/mixed-illumination.ts
+
+[Detailed contracts](api/facade-mixed-illumination.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/facade/mixed-illumination.ts)
+
+| Export | Kind |
+| --- | --- |
+| [`MixedIllumination`](api/facade-mixed-illumination.md#mixedillumination) | Type |
+| [`MixedIlluminationBlend`](api/facade-mixed-illumination.md#mixedilluminationblend) | Type |
+| [`MixedIlluminationPoint`](api/facade-mixed-illumination.md#mixedilluminationpoint) | Type |
+| [`MixedIlluminationSource`](api/facade-mixed-illumination.md#mixedilluminationsource) | Type |
+
 ## facade/scene-radiance.ts
 
 [Detailed contracts](api/facade-scene-radiance.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/facade/scene-radiance.ts)
