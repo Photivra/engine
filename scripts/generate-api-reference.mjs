@@ -46,6 +46,7 @@ const TASK_INDEX = [
   ["Motion blur and shutter speed", ["calculateProjectedMotionBlur", "calculateShutterAngleExposureSeconds"]],
   ["Shutter time with an ND filter", ["calculateFilteredExposureTime"]],
   ["Diffraction", ["calculateAiryDisk"]],
+  ["Which limits detail: the lens or the sensor", ["calculateDetailLimit"]],
   ["Sensor signal, noise and SNR", ["calculatePhotoelectrons", "calculateSignalToNoise"]],
   ["Colour temperature", ["calculateChromaticityFromCorrelatedColorTemperature", "calculateCorrelatedColorTemperature"]],
   ["White balance from Kelvin and tint", ["createColorTemperatureWhiteBalanceIntent", "resolveColorTemperatureWhiteBalance"]]

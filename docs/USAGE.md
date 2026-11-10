@@ -8112,3 +8112,36 @@ console.log(crop.megapixels, crop.sourceMegapixels); // 6 24
 - The crop factor `target ÷ focal length` is exact for ideal rectilinear lenses focused at infinity; at close focus the matching factor is larger, `F·(d − f)/(f·(d − F))` at object distance `d` (thin lens), which is not applied. The crop is `calculateCenteredCrop()`'s (aspect ratio kept to whole pixels), and `targetFocalLengthMm` must be at least `focalLengthMm`.
 
 See [Physics Foundation](https://github.com/Photivra/photivra/blob/main/docs/PHYSICS_FOUNDATION.md#aperture-entrance-pupil-diameter).
+
+## Which limits detail: the lens or the sensor
+
+`calculateDetailLimit()` (model `detail-limit` 1.0.0, #575) answers "would a sharper lens or a denser sensor help?" for given settings. It returns the optics' resolution (MTF50 in cycles/mm, from diffraction, the lens's aberrations and any defocus), the sampling's (the Nyquist frequency 1/(2p) and, with a Bayer filter, the red and blue sites' 1/(4p)), the system MTF50, and which one limits:
+
+```ts
+import { calculateDetailLimit } from "@photivra/engine";
+
+const sensor = { widthMm: 36, heightMm: 24, pixelWidth: 6000 }; // 6 µm pixels
+
+const stoppedDown = calculateDetailLimit({ sensor, lens: { kind: "ideal", focalLengthMm: 50 }, fNumber: 22 }).value;
+console.log(stoppedDown.limitedBy, stoppedDown.limitingFactor); // "lens" "diffraction"
+console.log(stoppedDown.optics.mtf50CyclesPerMm); // ≈ 33.4, against a Nyquist frequency of ≈ 83.3
+console.log(stoppedDown.diffractionLimitedFNumber); // ≈ 8.8: from here on diffraction limits on this sensor
+
+const wideOpen = calculateDetailLimit({ sensor, lens: { kind: "catalogue", lensId: "pv-50-1.2-pro" }, fNumber: 4 }).value;
+console.log(wideOpen.limitedBy, wideOpen.limitingFactor); // "sensor" "pixel-pitch"
+
+const outOfFocus = calculateDetailLimit({
+  sensor,
+  lens: { kind: "ideal", focalLengthMm: 50 },
+  fNumber: 2,
+  focus: { focusDistanceM: 3, subjectDistanceM: 2.5 }
+}).value;
+console.log(outOfFocus.limitingFactor); // "defocus"
+```
+
+- The sensor limits when the optics still pass 50 % contrast at the Nyquist frequency (`opticsToNyquistRatio ≥ 1`): a denser sensor would record finer detail. Otherwise the lens limits, through `"diffraction"` when its RMS wavefront error is within λ/14 (the Maréchal criterion), else `"aberrations"` or `"defocus"`, whichever is larger. This rule is an approximation; the MTF values are the exact scalar OTF of the stated wavefront at one wavelength (550 nm unless `wavelengthNm` is given).
+- `lens.catalogue` lenses use their generic Seidel aberrations at `fieldPosition` (0 the centre, 1 the corner), so corners are softer; `lens.ideal` has none.
+- Tangential and sagittal MTF50 are both reported; the decision uses the lower one.
+- Demosaicing, sharpening, noise and motion are not included.
+
+See [Physics Foundation](https://github.com/Photivra/photivra/blob/main/docs/PHYSICS_FOUNDATION.md#which-limits-detail-the-lens-or-the-sensor).

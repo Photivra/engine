@@ -21,6 +21,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 | Motion blur and shutter speed | [`calculateProjectedMotionBlur`](api/motion-projected-motion.md#calculateprojectedmotionblur), [`calculateShutterAngleExposureSeconds`](api/motion-video-sequence.md#calculateshutterangleexposureseconds) |
 | Shutter time with an ND filter | [`calculateFilteredExposureTime`](api/exposure-filtered-exposure-time.md#calculatefilteredexposuretime) |
 | Diffraction | [`calculateAiryDisk`](api/optics-diffraction.md#calculateairydisk) |
+| Which limits detail: the lens or the sensor | [`calculateDetailLimit`](api/optics-detail-limit.md#calculatedetaillimit) |
 | Sensor signal, noise and SNR | [`calculatePhotoelectrons`](api/sensor-signal-noise.md#calculatephotoelectrons), [`calculateSignalToNoise`](api/sensor-signal-noise.md#calculatesignaltonoise) |
 | Colour temperature | [`calculateChromaticityFromCorrelatedColorTemperature`](api/color-illuminants.md#calculatechromaticityfromcorrelatedcolortemperature), [`calculateCorrelatedColorTemperature`](api/color-illuminants.md#calculatecorrelatedcolortemperature) |
 | White balance from Kelvin and tint | [`createColorTemperatureWhiteBalanceIntent`](api/color-white-balance.md#createcolortemperaturewhitebalanceintent), [`resolveColorTemperatureWhiteBalance`](api/color-white-balance.md#resolvecolortemperaturewhitebalance) |
@@ -1697,6 +1698,25 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 | [`CalculateDepthOfFieldInput`](api/optics-depth-of-field.md#calculatedepthoffieldinput) | Type |
 | [`DefocusCircle`](api/optics-depth-of-field.md#defocuscircle) | Type |
 | [`DepthOfField`](api/optics-depth-of-field.md#depthoffield) | Type |
+
+## optics/detail-limit.ts
+
+[Detailed contracts](api/optics-detail-limit.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/optics/detail-limit.ts)
+
+| Export | Kind |
+| --- | --- |
+| [`calculateDetailLimit`](api/optics-detail-limit.md#calculatedetaillimit) | Runtime |
+| [`CalculateDetailLimitInput`](api/optics-detail-limit.md#calculatedetaillimitinput) | Type |
+| [`DETAIL_LIMIT_LIMITS`](api/optics-detail-limit.md#detail_limit_limits) | Runtime |
+| [`DetailLimit`](api/optics-detail-limit.md#detaillimit) | Type |
+| [`DetailLimitBasis`](api/optics-detail-limit.md#detaillimitbasis) | Type |
+| [`DetailLimitCatalogueLens`](api/optics-detail-limit.md#detaillimitcataloguelens) | Type |
+| [`DetailLimitedBy`](api/optics-detail-limit.md#detaillimitedby) | Type |
+| [`DetailLimitIdealLens`](api/optics-detail-limit.md#detaillimitideallens) | Type |
+| [`DetailLimitingFactor`](api/optics-detail-limit.md#detaillimitingfactor) | Type |
+| [`DetailLimitOptics`](api/optics-detail-limit.md#detaillimitoptics) | Type |
+| [`DetailLimitSampling`](api/optics-detail-limit.md#detaillimitsampling) | Type |
+| [`DetailLimitSystem`](api/optics-detail-limit.md#detaillimitsystem) | Type |
 
 ## optics/diffraction-psf-profile.ts
 

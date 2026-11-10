@@ -658,6 +658,16 @@
       "kind": "type"
     },
     {
+      "name": "calculateDetailLimit",
+      "source": "src/optics/detail-limit.ts",
+      "kind": "runtime"
+    },
+    {
+      "name": "CalculateDetailLimitInput",
+      "source": "src/optics/detail-limit.ts",
+      "kind": "type"
+    },
+    {
       "name": "calculatedResult",
       "source": "src/core/calculation-result.ts",
       "kind": "runtime"
@@ -2850,6 +2860,56 @@
     {
       "name": "DepthOfField",
       "source": "src/optics/depth-of-field.ts",
+      "kind": "type"
+    },
+    {
+      "name": "DETAIL_LIMIT_LIMITS",
+      "source": "src/optics/detail-limit.ts",
+      "kind": "runtime"
+    },
+    {
+      "name": "DetailLimit",
+      "source": "src/optics/detail-limit.ts",
+      "kind": "type"
+    },
+    {
+      "name": "DetailLimitBasis",
+      "source": "src/optics/detail-limit.ts",
+      "kind": "type"
+    },
+    {
+      "name": "DetailLimitCatalogueLens",
+      "source": "src/optics/detail-limit.ts",
+      "kind": "type"
+    },
+    {
+      "name": "DetailLimitedBy",
+      "source": "src/optics/detail-limit.ts",
+      "kind": "type"
+    },
+    {
+      "name": "DetailLimitIdealLens",
+      "source": "src/optics/detail-limit.ts",
+      "kind": "type"
+    },
+    {
+      "name": "DetailLimitingFactor",
+      "source": "src/optics/detail-limit.ts",
+      "kind": "type"
+    },
+    {
+      "name": "DetailLimitOptics",
+      "source": "src/optics/detail-limit.ts",
+      "kind": "type"
+    },
+    {
+      "name": "DetailLimitSampling",
+      "source": "src/optics/detail-limit.ts",
+      "kind": "type"
+    },
+    {
+      "name": "DetailLimitSystem",
+      "source": "src/optics/detail-limit.ts",
       "kind": "type"
     },
     {
