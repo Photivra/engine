@@ -1671,8 +1671,8 @@ export interface DisplayViewRunContext {
    * through the lens (display-view-lens-signal.ts, loaded on demand); undefined without them (the rectilinear expected signal).
    */
   lens?: ((input: DisplayViewExpectedSignalInput, spanColumns?: number) => DisplayViewExpectedSignal) | undefined;
-  /** #551: with motion.subject, the moving scene of a provider (its irradiance scale and illuminant shape give the revealed background). */
-  movingScene?: ((base: PlanarSceneRadianceProvider, scale: number, shape: (nm: number) => number) => PlanarSceneRadianceProvider) | undefined;
+  /** #551: with motion.subject, the moving scene of a provider (its irradiance scale and illuminant shape, or #550's mixed lighting, light the revealed background). */
+  movingScene?: ((base: PlanarSceneRadianceProvider, scale: number, shape: (nm: number) => number, light?: ResolvedMixedIllumination) => PlanarSceneRadianceProvider) | undefined;
   /** #569: with `lens.catalogue`, the field-dependent PSF the lens signal reads (createDisplayViewLensPsf, display-view-lens-signal.ts); its axis kernels set the expected signal's lattice. */
   lensPsf?: DisplayViewLensPsf | undefined;
   diffractionPsf: { kind: "sampled-local"; configuration: Pick<CalculateSensorPsfIrradianceQuadratureInput, "psf" | "psfWavelengthBasis" | "spatialModel">; } | undefined;
@@ -2420,12 +2420,13 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
     limitations: Object.freeze(["Planar Lambertian scene under " + (light ? "blended" : "uniform") + " illumination; no shadows, inter-reflection, gloss or fluorescence."]),
     ...(catalogue?.kind === "fisheye" ? { zeroBeyondHorizon: true as const } : {}), ...(light ? { irradianceAt: light.irradianceAt } : {}) });
   const provider = buildProvider(illuminant, irradianceScale, mixed);
-  // #551: the moving subject's scene; renderers read it at each query's time. The revealed background is a neutral reflectance.
-  // (Merge of #550 and #551: the background is lit by one illuminant, so a moving subject under mixed lighting is refused.)
-  if (subject && mixed) fail("motion.subject cannot be combined with illumination (mixed lighting): the revealed background is lit by one illuminant.");
-  const movingScene = subject ? (base: PlanarSceneRadianceProvider, scale: number, shape: (nm: number) => number): PlanarSceneRadianceProvider =>
-    createSubjectMotionProvider(base, subject, subjectDistanceM, metresPerFrameUnit, (nm) => 0.18 * scale * shape(nm) / Math.PI) : undefined;
-  const sceneProvider = movingScene ? movingScene(provider, irradianceScale, (nm) => illuminant.shape.evaluate(nm)) : provider;
+  // #551: the moving subject's scene; renderers read it at each query's time. The revealed background is a neutral 18 % reflectance
+  // under the plane's irradiance at the revealed point: the illuminant, or (#550) the blend and point sources there, from the spectrum.
+  const half = chartSize ? chartSize.widthM / 2 / metresPerFrameUnit : 1;
+  const movingScene = subject ? (base: PlanarSceneRadianceProvider, scale: number, shape: (nm: number) => number, light?: ResolvedMixedIllumination): PlanarSceneRadianceProvider =>
+    createSubjectMotionProvider(base, subject, subjectDistanceM, metresPerFrameUnit,
+      (u, v, nm): number => 0.18 * (light ? light.irradianceAt(u / half, v / half, u * metresPerFrameUnit, v * metresPerFrameUnit, nm) : scale * shape(nm)) / Math.PI) : undefined;
+  const sceneProvider = movingScene ? movingScene(provider, irradianceScale, (nm) => illuminant.shape.evaluate(nm), mixed) : provider;
   // 2.6: a chart preset's evaluator is engine-built end to end (its results: the schema's exact keys, constant fields,
   // the request's identifiers, deep-frozen FACADE_EVIDENCE, UNCERTAINTY and limitations, and an engine-computed
   // radiance), so the native task may skip re-parsing the fixed parts. Caller scenes keep the full validation.

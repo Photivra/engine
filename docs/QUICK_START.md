@@ -1701,7 +1701,8 @@ rectangle of it (`region: { centerXM, centerYM, widthM, heightM }` in metres at 
   the camera: the optical axis for the whole scene, the region's center for a region.
 - The model is rigid motion of a planar layer. At time t from the first opening (camera rotation's time reference), a
   subject point at rest q is at R(ωt)(q − c) + c + v·t. A plane point shows the subject where one is there, else the
-  region's rest rectangle shows a neutral 18 % background (what the subject revealed), else the still scene.
+  region's rest rectangle shows a neutral 18 % background (what the subject revealed), else the still scene. The background
+  is lit by the plane's irradiance at that point: the illuminant, or with `illumination` (#550) the blend and point sources there.
 - Every scene query reads the subject at its own time. The blur is therefore the same temporal midpoint quadrature as
   camera rotation (`sensor.temporalSampleCount`, default 8 with a moving subject), and an edge streaks over
   v·T·m on the sensor (m = v′/D, the thin-lens image distance over the subject distance). With few samples a long streak

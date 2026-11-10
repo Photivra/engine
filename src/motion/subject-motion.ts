@@ -71,15 +71,15 @@ export function subjectSourcePoint(motion: SubjectMotion, x: number, y: number, 
  * The scene of `base` with the subject moving: `evaluateRadiance` reads each query at its request time (the base result, with the
  * radiance read where the subject shows), and `radianceAt` takes the time as a fourth argument (default 0) for the image-space
  * lattices and the display view. It has no chart material access, so renderers read radiance. `revealedRadiance` is the revealed
- * background's spectral radiance (an 18 % neutral reflectance).
+ * background's spectral radiance at a plane point in frame units (an 18 % neutral reflectance under the irradiance there).
  */
 export function createSubjectMotionProvider(base: PlanarSceneRadianceProvider, motion: SubjectMotion, distanceM: number, scale: number,
-  revealedRadiance: (nm: number) => number): PlanarSceneRadianceProvider {
+  revealedRadiance: (u: number, v: number, nm: number) => number): PlanarSceneRadianceProvider {
   // The motion in frame units, so a still instant reads the base at the queried point itself.
   const r = motion.region, framed: SubjectMotion = { vx: motion.vx / scale, vy: motion.vy / scale, omega: motion.omega,
     region: r && { cx: r.cx / scale, cy: r.cy / scale, hw: r.hw / scale, hh: r.hh / scale } }, point = new Float64Array(2);
   const radianceAt = (u: number, v: number, nm: number, t = 0): number =>
-    subjectSourcePoint(framed, u, v, t, point) ? base.radianceAt(point[0]!, point[1]!, nm) : revealedRadiance(nm);
+    subjectSourcePoint(framed, u, v, t, point) ? base.radianceAt(point[0]!, point[1]!, nm) : revealedRadiance(u, v, nm);
   return { sceneId: base.sceneId, providerProfileId: base.providerProfileId, radianceAt, evaluateApertureRadiance: base.evaluateApertureRadiance,
     evaluateRadiance(request: Readonly<SceneRadianceEvaluationRequest>): SceneRadianceEvaluationResult {
       const result = base.evaluateRadiance(request), o = (request.target as { outgoingDirectionUnitVector: { x: number; y: number; z: number } }).outgoingDirectionUnitVector;

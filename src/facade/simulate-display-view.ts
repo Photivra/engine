@@ -223,7 +223,7 @@ function prepareView(context: DisplayViewRunContext): PreparedViewParts {
   const viewIrradianceScale = viewStrongest ? viewStrongest.irradianceScale : calculateIlluminantIrradianceScale(viewIlluminant.shape, illuminanceLux);
   const stillViewProvider = buildProvider(viewIlluminant, viewIrradianceScale, viewMixed);
   // #551: a moving subject is read at each temporal midpoint as radiance (no material tables).
-  const viewProvider = context.movingScene ? context.movingScene(stillViewProvider, viewIrradianceScale, (nm) => viewIlluminant.shape.evaluate(nm)) : stillViewProvider;
+  const viewProvider = context.movingScene ? context.movingScene(stillViewProvider, viewIrradianceScale, (nm) => viewIlluminant.shape.evaluate(nm), viewMixed) : stillViewProvider;
   const viewWhiteBalanceState = whiteBalanceOption === "scene-illuminant" ? sceneIlluminantWhiteBalance(viewIlluminant) : kelvinInput ? resolvePortableColorTemperatureWhiteBalance(kelvinInput) : whiteBalanceState;
   // The chart's materials likewise (a step wedge's geometric levels use the portable power); same geometry and order.
   const viewChart = chart ? resolvePortableChartScene({ scene: sceneOption as ChartScene, aspect: chartSize ? chartSize.heightM / chartSize.widthM : aspect }) : undefined;
