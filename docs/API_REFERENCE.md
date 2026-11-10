@@ -976,6 +976,26 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 | [`GenericReleaseDriveMode`](api/equipment-release-capabilities.md#genericreleasedrivemode) | Type |
 | [`parseGenericReleaseCapabilityProfile`](api/equipment-release-capabilities.md#parsegenericreleasecapabilityprofile) | Runtime |
 
+## equipment/sensor-profile-body.ts
+
+[Detailed contracts](api/equipment-sensor-profile-body.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/equipment/sensor-profile-body.ts)
+
+| Export | Kind |
+| --- | --- |
+| [`SENSOR_PROFILE_ISO_ANCHOR`](api/equipment-sensor-profile-body.md#sensor_profile_iso_anchor) | Runtime |
+| [`SensorProfile`](api/equipment-sensor-profile-body.md#sensorprofile) | Type |
+| [`SensorProfileValueKind`](api/equipment-sensor-profile-body.md#sensorprofilevaluekind) | Type |
+
+## equipment/sensor-profiles.ts
+
+[Detailed contracts](api/equipment-sensor-profiles.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/equipment/sensor-profiles.ts)
+
+| Export | Kind |
+| --- | --- |
+| [`resolveSensorProfile`](api/equipment-sensor-profiles.md#resolvesensorprofile) | Runtime |
+| [`SENSOR_PROFILE_IDS`](api/equipment-sensor-profiles.md#sensor_profile_ids) | Runtime |
+| [`SENSOR_PROFILES`](api/equipment-sensor-profiles.md#sensor_profiles) | Runtime |
+
 ## exposure/auto-iso-slowest-shutter.ts
 
 [Detailed contracts](api/exposure-auto-iso-slowest-shutter.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/exposure/auto-iso-slowest-shutter.ts)
