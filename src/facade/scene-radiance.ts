@@ -278,6 +278,12 @@ export function buildPlanarSceneRadianceProvider(input: {
    * radiance instead of failing; the plane fills the forward hemisphere only. Omitted: such a query fails, as before.
    */
   zeroBeyondHorizon?: true;
+  /**
+   * #550, mixed illumination: the plane's spectral irradiance at a chart point (chart-local units with a fixed-size chart, frame
+   * units without), used instead of `irradianceScale`·S(λ). The provider then has no material access (the radiance at a point is
+   * no longer a function of its material alone), so every renderer reads `radianceAt`. A radiance-function scene is refused.
+   */
+  irradianceAt?: (u: number, v: number, wavelengthNanometers: number) => number;
 }): PlanarSceneRadianceProvider {
   const { scene, illuminant, irradianceScale, geometry } = input, zeroBeyondHorizon = input.zeroBeyondHorizon === true;
   const scale = geometry.metresPerFrameUnit, distance = geometry.distanceM, sceneId = input.sceneId, providerProfileId = input.providerProfileId;
@@ -299,6 +305,18 @@ export function buildPlanarSceneRadianceProvider(input: {
     if (!Number.isInteger(index) || index < 0 || index >= materialScene!.materials.length) throw new InvalidConfigurationError("Scene materialAt must return an index into its materials.");
     return index;
   }
+  const light = input.irradianceAt;
+  if (light && caller?.kind === "radiance-function") throw new InvalidConfigurationError("illumination needs a lit scene; a radiance-function scene ignores the illuminant.");
+  /** #550: reflectance × the blended irradiance at the point (chart-local units with a fixed-size chart) / π. */
+  function litRadianceAt(u: number, v: number, nm: number): number {
+    let cu = u, cv = v, reflectance: number;
+    if (placed) { cu = u * scale / half; cv = v * scale / half; }
+    if (materialScene) reflectance = materialReflectanceOf(callerMaterialAt(u, v), nm);
+    else if (placed && !(Math.abs(cu) <= 1 && Math.abs(cv) <= chartAspect)) reflectance = placed.surroundReflectance;
+    else if (chart) reflectance = chart.reflectanceAt(cu, cv, nm);
+    else reflectance = callerReflectance(placed ? { xM: u * scale, yM: v * scale, u, v, wavelengthNanometers: nm, chartU: cu, chartV: cv } : { xM: u * scale, yM: v * scale, u, v, wavelengthNanometers: nm });
+    return reflectance * light!(cu, cv, nm) / Math.PI;
+  }
   function radianceAt(u: number, v: number, nm: number): number {
     if (materialScene) return materialRadianceOf(callerMaterialAt(u, v), nm);
     if (placed) {
@@ -311,12 +329,14 @@ export function buildPlanarSceneRadianceProvider(input: {
     if (chart) return chart.reflectanceAt(u, v, nm) * irradianceScale * shapeAt(nm) / Math.PI;
     return callerValue({ xM: u * scale, yM: v * scale, u, v, wavelengthNanometers: nm }, nm);
   }
+  function callerReflectance(point: Readonly<ScenePlanePoint>): number {
+    const value = (caller as CallerReflectanceScene).evaluate(point);
+    if (typeof value !== "number" || !Number.isFinite(value) || value < 0 || value > 1) throw new InvalidConfigurationError("Scene reflectance function must return a value in [0, 1].");
+    return value;
+  }
   function callerValue(point: Readonly<ScenePlanePoint>, nm: number): number {
-    const value = (caller as CallerReflectanceScene | CallerRadianceScene).evaluate(point);
-    if (caller!.kind === "reflectance-function") {
-      if (typeof value !== "number" || !Number.isFinite(value) || value < 0 || value > 1) throw new InvalidConfigurationError("Scene reflectance function must return a value in [0, 1].");
-      return value * irradianceScale * shapeAt(nm) / Math.PI;
-    }
+    if (caller!.kind === "reflectance-function") return callerReflectance(point) * irradianceScale * shapeAt(nm) / Math.PI;
+    const value = (caller as CallerRadianceScene).evaluate(point);
     if (typeof value !== "number" || !Number.isFinite(value) || value < 0) throw new InvalidConfigurationError("Scene radiance function must return a finite non-negative radiance.");
     return value;
   }
@@ -327,6 +347,9 @@ export function buildPlanarSceneRadianceProvider(input: {
   }
   /** Spectral radiance of material `material` (`materials.length`: a fixed-size chart's surround), in the chart's expression order. */
   function materialRadianceOf(material: number, nm: number): number {
+    return materialReflectanceOf(material, nm) * irradianceScale * shapeAt(nm) / Math.PI;
+  }
+  function materialReflectanceOf(material: number, nm: number): number {
     const m = materials![material];
     let value: number;
     if (m === undefined) value = placed ? placed.surroundReflectance : NaN;
@@ -336,25 +359,26 @@ export function buildPlanarSceneRadianceProvider(input: {
       if (!(value >= 0 && value <= 1)) throw new InvalidConfigurationError("Chart reflectance spectrum left [0, 1].");
     }
     if (!(value >= 0)) throw new InvalidConfigurationError("Unknown chart material.");
-    return value * irradianceScale * shapeAt(nm) / Math.PI;
+    return value;
   }
   function chartMaterialAt(u: number, v: number): number {
     if (!placed) return chart!.materialAt(u, v);
     const cu = u * scale / half, cv = v * scale / half;
     return Math.abs(cu) <= 1 && Math.abs(cv) <= chartAspect ? chart!.materialAt(cu, cv) : chart!.materials.length;
   }
-  const chartAccess = chart ? { chartMaterialAt, materialRadiance: materialRadianceOf } :
+  const chartAccess = light ? {} : chart ? { chartMaterialAt, materialRadiance: materialRadianceOf } :
     materialScene ? { chartMaterialAt: callerMaterialAt, materialRadiance: materialRadianceOf } : {};
   // #394: evaluateRadiance's own plane-point arithmetic; radianceAt is then materialRadianceOf(material, nm) for both scene forms.
-  const materialAtPoint = chart ? chartMaterialAt : materialScene ? callerMaterialAt : undefined;
+  const materialAtPoint = light ? undefined : chart ? chartMaterialAt : materialScene ? callerMaterialAt : undefined;
   const materialOfDirection = materialAtPoint === undefined ? undefined : (o: Readonly<{ x: number; y: number; z: number }>): number | undefined => {
     const lz = -o.z;
     if (!(lz > 0)) return undefined;
     const t = distance / lz;
     return materialAtPoint(-o.x * t / scale, -o.y * t / scale);
   };
+  const radiance = light ? litRadianceAt : radianceAt;
   const provider: PlanarSceneRadianceProvider = {
-    sceneId, providerProfileId, radianceAt, ...chartAccess,
+    sceneId, providerProfileId, radianceAt: radiance, ...chartAccess,
     evaluateRadiance(request): SceneRadianceEvaluationResult {
       const target = request.target;
       if (target.kind !== "environment-direction") throw new InvalidConfigurationError("Planar scene provider needs environment-direction queries.");
@@ -364,13 +388,13 @@ export function buildPlanarSceneRadianceProvider(input: {
         throw new InvalidConfigurationError("Planar scene query does not point toward the scene plane.");
       }
       const t = distance / lz;
-      return result(request, radianceAt(-o.x * t / scale, -o.y * t / scale, request.wavelengthNanometers));
+      return result(request, radiance(-o.x * t / scale, -o.y * t / scale, request.wavelengthNanometers));
     },
     evaluateApertureRadiance(request, ray): SceneRadianceEvaluationResult {
       const d = ray.directionUnitVector, origin = ray.originM;
       if (!(d.z > 0)) throw new InvalidConfigurationError("Planar scene pupil ray does not point toward the scene plane.");
       const t = (distance - origin.z) / d.z;
-      return result(request, radianceAt((origin.x + d.x * t) / scale, (origin.y + d.y * t) / scale, request.wavelengthNanometers));
+      return result(request, radiance((origin.x + d.x * t) / scale, (origin.y + d.y * t) / scale, request.wavelengthNanometers));
     }
   };
   if (materialOfDirection) MATERIAL_OF_DIRECTION.set(provider, materialOfDirection);

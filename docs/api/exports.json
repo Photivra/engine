@@ -4858,6 +4858,26 @@
       "kind": "type"
     },
     {
+      "name": "MixedIllumination",
+      "source": "src/facade/mixed-illumination.ts",
+      "kind": "type"
+    },
+    {
+      "name": "MixedIlluminationBlend",
+      "source": "src/facade/mixed-illumination.ts",
+      "kind": "type"
+    },
+    {
+      "name": "MixedIlluminationPoint",
+      "source": "src/facade/mixed-illumination.ts",
+      "kind": "type"
+    },
+    {
+      "name": "MixedIlluminationSource",
+      "source": "src/facade/mixed-illumination.ts",
+      "kind": "type"
+    },
+    {
       "name": "MonochromeColorSamplingLayout",
       "source": "src/sensor/color-sampling.ts",
       "kind": "type"

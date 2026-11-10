@@ -694,6 +694,12 @@ export interface SimulateCaptureOptions {
   illuminant?: CaptureIlluminant;
   /** Illuminance on the scene plane, lux. Default about 21 481 lux (see `SIMULATE_CAPTURE_DEFAULT_ILLUMINANCE_LUX` and the assumptions). */
   illuminanceLux?: number;
+  /**
+   * 2.22 (#550), opt-in mixed lighting: two or more sources blended across the chart (docs/MIXED_ILLUMINATION.md), instead of
+   * `illuminant` and `illuminanceLux`. The frame center's light sets the grey-card meter and the standard-exposure figures, and
+   * its strongest source the "scene-illuminant" white balance; both are reported in `assumptions`.
+   */
+  illumination?: MixedIllumination;
   output?: {
     /** Output pixels; the native sensor raster adds a one-site demosaic border on each side. Defaults 64 × 64. */
     width?: number;

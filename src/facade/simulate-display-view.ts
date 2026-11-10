@@ -217,8 +217,11 @@ function prepareView(context: DisplayViewRunContext): PreparedViewParts {
   // The engine's illuminant formulas (Planckian, CIE A, daylight locus) evaluated with the portable power and e^x − 1, so
   // the view's radiances, irradiance scale and scene-illuminant white balance have the same bits in every JavaScript
   // engine; they differ from the capture's own by at most a few ulps (docs/DISPLAY_VIEW.md, "Same bytes in every engine").
-  const viewIlluminant = resolvePortableCaptureIlluminant(illuminantOption), viewIrradianceScale = calculateIlluminantIrradianceScale(viewIlluminant.shape, illuminanceLux);
-  const stillViewProvider = buildProvider(viewIlluminant, viewIrradianceScale);
+  // #550: mixed lighting resolved with the same portable formulas; its strongest source at the frame center stands in for the illuminant.
+  const viewMixed = context.mixedIllumination?.(resolvePortableCaptureIlluminant), viewStrongest = viewMixed?.sources[viewMixed.center.strongestSource];
+  const viewIlluminant = viewStrongest ? viewStrongest.illuminant : resolvePortableCaptureIlluminant(illuminantOption);
+  const viewIrradianceScale = viewStrongest ? viewStrongest.irradianceScale : calculateIlluminantIrradianceScale(viewIlluminant.shape, illuminanceLux);
+  const stillViewProvider = buildProvider(viewIlluminant, viewIrradianceScale, viewMixed);
   // #551: a moving subject is read at each temporal midpoint as radiance (no material tables).
   const viewProvider = context.movingScene ? context.movingScene(stillViewProvider, viewIrradianceScale, (nm) => viewIlluminant.shape.evaluate(nm)) : stillViewProvider;
   const viewWhiteBalanceState = whiteBalanceOption === "scene-illuminant" ? sceneIlluminantWhiteBalance(viewIlluminant) : kelvinInput ? resolvePortableColorTemperatureWhiteBalance(kelvinInput) : whiteBalanceState;
@@ -293,7 +296,7 @@ function prepareView(context: DisplayViewRunContext): PreparedViewParts {
     return Int32Array.from(keys).sort();
   };
   // #492: out of focus the view reads the defocus disc (its kernel in signalInput.kernels); the GPU Quality site pass gathers it (step 2c).
-  const gpuRequest: DisplayViewGpuRequest = { ahd, lens: !!context.lens, defocus: defocusKernel !== null, ...(largeDefocus ? { largeDefocus: true } : {}), diffraction: diffraction !== undefined, antiAliasing: antiAliasing !== undefined, boxSamples, toneCurve: viewToneCurve,
+  const gpuRequest: DisplayViewGpuRequest = { ahd, lens: !!context.lens, ...(viewMixed ? { mixedIllumination: true } : {}), defocus: defocusKernel !== null, ...(largeDefocus ? { largeDefocus: true } : {}), diffraction: diffraction !== undefined, antiAliasing: antiAliasing !== undefined, boxSamples, toneCurve: viewToneCurve,
     scene: chart ? "chart" : materialLayers ? "material-layers" : callerScene!.kind };
   const render: RenderPreparedView = async (v, run, viewInternals, gpu) => {
     const { started, viewStarted } = run;
@@ -350,6 +353,8 @@ function prepareView(context: DisplayViewRunContext): PreparedViewParts {
           "an approximation, because the PSF of a defocused wave is not the in-focus Airy pattern convolved with a geometric disc." :
           "The disc is the same at every spectral node (geometric optics)."));
     }
+    if (viewMixed) assume("view.illumination", "model", { method: "radiance-at-every-query-point" },
+      "Mixed lighting (#550): the radiance at every query point, as in the capture (no material tables; exact). Not on the GPU.");
     if (execution.backend === "webgpu-f32") {
       assume("view.execution", "model", { backend: execution.backend, arithmetic: execution.arithmetic, errorBound: execution.errorBound, adapter: execution.adapter },
         "Estimated on the GPU: this view was rendered by the WebGPU float32 display-view renderer, a labelled approximation of the float64 CPU reference within the a-priori " +

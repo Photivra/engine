@@ -88,6 +88,7 @@ modelling choices (such as "no lens PSF") as `kind: "model"`.
 | `chartSize` | fill the frame | 2.3: `{ widthM, heightM?, surroundReflectance? }` places the chart at its physical size (see [Fixed-size chart](#fixed-size-chart-23)). |
 | `illuminant` | Planckian 6500 K | Also `"cie-a"`, `{ kind: "planckian", temperatureKelvin }`, `{ kind: "daylight", correlatedColorTemperatureKelvin, basis }` or `{ kind: "spectrum", spectrum }`. |
 | `illuminanceLux` | 21 481 (π·80 000/11.7) | See [Exposure](#exposure). |
+| `illumination` | off | 2.22 (#550): mixed lighting, two to eight sources (`{ illuminant, illuminanceLux }`) blended across the chart by a linear gradient, a radial falloff or regions, instead of `illuminant` and `illuminanceLux`. The frame center's light sets the grey card and its strongest source the `"scene-illuminant"` white balance (see [Mixed lighting](MIXED_ILLUMINATION.md)). |
 | `output.width`, `output.height` | 64 × 64 | Output pixels, 1–4094 each. The sensor has one extra site on each side for demosaicing (see `output.borderHandling`). |
 | `output.maximumPixels` | off | Opt-in large images (2.2): the most native sensor sites the capture may allocate, up to `NATIVE_RAW_LIMITS.ceilingPixels` (2^27). Sides may then reach 16 384 sites including the margin (see [Large images](#large-images)). |
 | `output.region` | whole frame | 2.3: `{ x, y, width, height }` renders that rectangle of the frame, byte-identical to the whole render (see [Region rendering](#region-rendering-23)). |
