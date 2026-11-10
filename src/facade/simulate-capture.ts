@@ -38,6 +38,7 @@ import { ENGINE_API_VERSION } from "../core/version.js";
 import type { EvidenceProvenance } from "../core/evidence-provenance.js";
 import { GENERIC_TIER_ASSETS, type GenericEquipmentTier, type GenericEquipmentTierPreset } from "../equipment/generic-tier-assets.js";
 import { parseCallerCameraPreset } from "./camera-preset.js";
+import * as sensorProfileKit from "../equipment/sensor-profile-body.js";
 import type { SensorProfile } from "../equipment/sensor-profile-body.js";
 import { createHostYield } from "./host-yield.js";
 import { fastFormatDefault, resolveFast } from "./fast-resolution.js";
@@ -60,6 +61,7 @@ import { calculateNativeRawPlan, nativeRawMaximumProviderEvaluations, NATIVE_RAW
 import { renderTabulatedNativeRaw, TABULATED_RELATIVE_TOLERANCE } from "../capture/native-environment-tabulated.js";
 import { createDisplayViewExpectedSignal, type DisplayViewExpectedSignal, type DisplayViewExpectedSignalInput } from "./expected-signal.js";
 import type { DisplayViewFastReport } from "./display-view-gpu.js";
+import * as mixedIlluminationKit from "./mixed-illumination.js";
 import type { MixedIllumination, ResolvedMixedIllumination } from "./mixed-illumination.js";
 import type { DisplayViewLensPsf } from "./display-view-lens-signal.js";
 import { buildExpectedSignalInput } from "./expected-signal-setup.js";
@@ -1888,12 +1890,13 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   let preset: GenericEquipmentTierPreset;
   if (typeof cameraOption === "string") preset = GENERIC_TIER_ASSETS.find((p) => p.tier === cameraOption) ?? fail("Unknown camera tier.");
   else preset = parseCallerCameraPreset(cameraOption);
-  // #554: a sensor profile record (its parser and body builder are a lazy chunk; the catalogue is never imported) replaces the
-  // body's sensor assets; its other capabilities and the lens are kept.
+  // #554: a sensor profile record (the catalogue is never imported) replaces the body's sensor assets; its other capabilities and
+  // the lens are kept. The parser and body builder are a static import (2.21.0 size pass): as a lazy chunk they made the bundler
+  // split the core modules into a shared chunk of their own, which cost more than the 1.7 KB they keep out of the entry.
   const profileRecord = (typeof top.sensor === "object" && top.sensor !== null ? top.sensor as Record<string, unknown> : {}).profile;
   let profile: SensorProfile | undefined, profileSensor: { widthMm: number; heightMm: number } | undefined, profilePitch: number = DEFAULTS.pixelPitchMicrometers, profileReadNoiseScale = 1;
   if (profileRecord !== undefined) {
-    const kit = await import("../equipment/sensor-profile-body.js");
+    const kit = sensorProfileKit;
     profile = kit.parseSensorProfile(profileRecord);
     profilePitch = profile.pixelPitchMicrometers;
     // #554: with a catalogue lens the capture frames on the profile's sensor: by default the largest centred region of the output's
@@ -2419,7 +2422,8 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   requireInputObject(sceneOption, "scene");
   // #550: mixed lighting (loaded only when asked for). Its frame-center light stands in for the single illuminant below: the strongest
   // source at the center (white balance, the illumination profile) and the center's illuminance (grey card, standard exposure).
-  const mixedKit = top.illumination === undefined ? undefined : await import("./mixed-illumination.js");
+  // A static import (2.21.0 size pass): as a lazy chunk it made the bundler split the core modules into a shared chunk of their own.
+  const mixedKit = top.illumination === undefined ? undefined : mixedIlluminationKit;
   if (mixedKit && (top.illuminant !== undefined || top.illuminanceLux !== undefined)) fail("illumination replaces illuminant and illuminanceLux; omit them.");
   const lightKit = (resolveIlluminant: (value: CaptureIlluminant) => ResolvedCaptureIlluminant): ResolvedMixedIllumination =>
     mixedKit!.resolveMixedIllumination(top.illumination, resolveIlluminant);

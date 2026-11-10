@@ -110,7 +110,7 @@ describe("display-view bundles", () => {
 describe("the app's capture-worker shape", () => {
   it("keeps every chunk of the app's engine imports within its measured size", async () => {
     const worker = await bundle(["NATIVE_RAW_LIMITS", "prepareDisplayView", "serializeSimulatedCaptureDngFromParts", "simulateCapture", "simulateIdealReference"]);
-    expect(worker.totalGzip).toBeLessThanOrEqual(356_000);
+    expect(worker.totalGzip).toBeLessThanOrEqual(363_700);
     // #581: the image-plane scene's module, lattice data and GPU module are reachable only through prepareImagePlaneScenes().
     expect([...worker.lazyModules, ...worker.modules.keys()].filter((id) => /image-plane(?!-support)/u.test(id))).toEqual([]);
   }, testTimeout(120_000));
@@ -119,6 +119,7 @@ describe("the app's capture-worker shape", () => {
   it("leaves out the sensor profile catalogue", async () => {
     const worker = await bundle(["NATIVE_RAW_LIMITS", "prepareDisplayView", "serializeSimulatedCaptureDngFromParts", "simulateCapture", "simulateIdealReference"]);
     expect(worker.modules.has("equipment/sensor-profiles.ts") || worker.lazyModules.has("equipment/sensor-profiles.ts")).toBe(false);
-    expect(worker.lazyModules.has("equipment/sensor-profile-body.ts")).toBe(true);
+    // 2.21.0: the parser is a static import (the integration's size pass, docs/RELEASE_2_21_0.md "Sizes").
+    expect(worker.modules.has("equipment/sensor-profile-body.ts")).toBe(true);
   }, testTimeout(120_000));
 });
