@@ -35,17 +35,17 @@ An upstream line being eligible does not mean this repository has tested it. The
 
 This repository tests Node 22, 24 and 26. That includes the current patched release of each line and a regression job on the Node 22.13.0 minimum.
 
-CI picks the patched lines with setup-node aliases that move by themselves:
+CI picks the patched lines with setup-node versions; the test legs use aliases that move by themselves:
 
 | Alias | Line | Role |
 | --- | --- | --- |
-| `lts/*` | newest LTS | Primary leg. Also runs the static, coverage, documentation and package-surface gates. |
-| `lts/-1` | the LTS line before it | Test leg. |
-| `node` | newest stable release (Current, or the newest LTS while no Current line has a stable build) | Test leg. |
+| `24` | Node 24, the tooling major (pinned) | Primary leg (owner decision for 2.20.0, #231). Runs the coverage shards and the static, coverage, documentation and package-surface gates; its required check keeps the name `verify (lts/*)`. |
+| `lts/-1` | the LTS line before the newest | Test leg. While it resolves to the primary leg's release (Node 24 since Node 26 entered LTS), it skips its test work; its required `verify (lts/-1)` check still runs. |
+| `node` | newest stable release (Current, or the newest LTS while no Current line has a stable build) | Test leg (Node 26 since it entered LTS). |
 
 CI resolves `node` itself to the newest stable version in `https://nodejs.org/dist/index.json` (`.github/node-lts-lookahead.mjs --newest-stable`), because setup-node's alias takes the index's first entry, which can be a prerelease: `v27.0.0-alpha.0.0.0` was listed first on 2026-10-29 and every `node` job failed the guard with "Use a stable, exact Node/typings version" ([#511](https://github.com/photivra/photivra/pull/511)).
 
-Every leg runs the test suite and the packed-consumer acceptance check.
+Every leg runs the test suite and the packed-consumer acceptance check, except a leg that resolves to exactly the primary leg's release (`node .github/node-lts-lookahead.mjs --same-as-primary`): the primary leg already runs the whole suite (under coverage) and the packed-consumer acceptance on it, so that leg skips them and its required check passes.
 
 - The minimum-version leg matches `engines.node`. It rises when that line reaches end of life.
 - The policy guard runs before installation. If an alias moves to an unreviewed or end-of-life major, CI fails instead of adopting it. An alias cannot silently widen the support set.
@@ -70,7 +70,7 @@ A broad `engines.node` range is a compatibility hint. It is not evidence of supp
 
 `.github/test-node-lts-policy.mjs` tests the acceptance and rejection boundaries, the grace period and the look-ahead against recorded release data. Both scripts run before dependency installation in every Node CI job. That includes each verification matrix leg and the `native-performance.yml` benchmark job (path-filtered and nightly).
 
-`.github/node-ci-roles.mjs` derives the CI roles from the same snapshot: the exact `engines.node` minimum, the maintained LTS majors, the Current major, the primary leg (`lts/*`) and the tooling major. The `change scope` job checks the files against them on every pull request and merge-queue entry, so the matrix cannot drift from the policy unnoticed. It fails when the `test` and `verify` lines differ, when an exact-version leg is not the `engines.node` minimum, when the primary jobs or `publish.yml` leave their roles, when the alias table above differs from the matrix, or when a supported line has no leg. It reports two legs on one runtime, a primary leg off the tooling major and a line tested only at its minimum as notices for review. `.github/test-node-ci-roles.mjs` tests it on the repository's files across the lifecycle transitions.
+`.github/node-ci-roles.mjs` derives the CI roles from the same snapshot: the exact `engines.node` minimum, the maintained LTS majors, the Current major, the primary leg (Node 24, pinned to the tooling major) and the tooling major. The `change scope` job checks the files against them on every pull request and merge-queue entry, so the matrix cannot drift from the policy unnoticed. It fails when the `test` and `verify` lines differ, when an exact-version leg is not the `engines.node` minimum, when the primary jobs or `publish.yml` leave their roles, when the alias table above differs from the matrix, when a supported line has no leg, or when the `test` job lacks the skip of a leg on the primary leg's release. It reports two legs on one runtime, a primary leg off the tooling major and a line tested only at its minimum as notices for review. `.github/test-node-ci-roles.mjs` tests it on the repository's files across the lifecycle transitions.
 
 The lifecycle snapshot is local and reviewed. Ordinary CI does not fetch it from the network. It uses UTC dates and fails closed on the recorded end-of-life date.
 

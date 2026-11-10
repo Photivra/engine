@@ -13,7 +13,7 @@ Whether a real stimulus matches this reference stays unassessed.
 
 ## Model and source review
 
-**Source code.** The numerical source is [castleCSF revision f4b0b722af83001d7af979281e06ca642d36e4e8](https://github.com/gfxdisp/castleCSF/tree/f4b0b722af83001d7af979281e06ca642d36e4e8), including `CSF_castleCSF.m`, `CSF_stelaCSF_lum_peak.m`, `CSF_castleCSF_chrom.m` and `CSF_base.m`. These files contain the model equations, numerical parameters, the neutral D65 background and the mechanism projections.
+**Source code.** The numerical source is [castleCSF revision f4b0b722af83001d7af979281e06ca642d36e4e8](https://github.com/gfxdisp/castleCSF/tree/f4b0b722af83001d7af979281e06ca642d36e4e8), including `CSF_castleCSF.m`, `CSF_stelaCSF_lum_peak.m`, `CSF_castleCSF_chrom.m` and `CSF_base.m`. These files contain the model equations, numerical parameters, the neutral D65 background and the mechanism projections. Where the paper's printed equations differ from this code, the code wins: as printed, Eq. 21 reads `(1 − (1 + k_s4)/Y)^(−k_s5)` where the code has `1 − (1 + k_s4/Y)^(−k_s5)`, and Eq. 22 prints the exponent `+k_s3` where the code has `−k_s3`. Both printed forms give implausible results (Eq. 21 diverges at Y = 1; Eq. 22 would make chromatic sensitivity fall with luminance), so they appear to be typesetting errors.
 
 **Licence.** The repository licence is MIT, copyright 2023 Graphics and Displays group, University of Cambridge. Keep the [exact licence](licenses/castleCSF-MIT.txt), the copyright in source and `NOTICE`, and the inventory in `THIRD_PARTY.md`.
 
@@ -21,11 +21,11 @@ Whether a real stimulus matches this reference stays unassessed.
 
 **Paper.** The [primary paper, Ashraf et al. (2024)](https://pmc.ncbi.nlm.nih.gov/articles/PMC10996938/), describes sensitivity as a function of stimulus conditions, and reports how the population model was validated. Its fixed-size static achromatic Gabor reference is relevant to this restricted stimulus.
 
-We do not reproduce the paper, its tables, figures or observational datasets. No CSV from the combined historical datasets is included; their reuse and collection history is not inferred from the code licence. Review of the source and licence of this new numerical material remains a substantive human release gate.
+The adapter's coefficients are the same fitted values that the paper prints in its Appendix Tables 5–7 (rounded there to about four significant figures); they are taken at full precision from the MIT-licensed code, not copied from the tables. We do not reproduce the paper's text, figures or observational datasets. No CSV from the combined historical datasets is included; their reuse and collection history is not inferred from the code licence. The owner signed off the scientific, source and licence review of this numerical material on 2026-11-09 ([#544](https://github.com/Photivra/photivra/issues/544)).
 
 ## Explicit conditions and quantities
 
-**Inputs must be explicit.** Every input must name the stimulus, and the published reference assumption (binocular viewing, natural pupil).
+**Inputs must be explicit.** Every input must name the stimulus, and the published reference assumption (binocular viewing, natural pupil). The label rests on the paper's datasets: it excluded the datasets measured with an artificial pupil (it models natural viewing), and its anchor dataset, the HDR CSF data of Wuerger et al. (2020), was measured binocularly with natural pupils; the other datasets' viewing differences are absorbed by per-dataset shifts (Eq. 32).
 
 **Supported range** (model-evaluation limits, not a calibration certificate for every observer or combination):
 
@@ -50,10 +50,10 @@ Positive values outside this range give `unsupported`; there is no extrapolation
 
 **How it is evaluated.**
 
-- Equal fractional modulation of the upstream neutral D65 LMS (cone) background is selected.
+- Equal fractional modulation of the upstream neutral D65 LMS (cone) background is selected. It is the direction of upstream's default `lms_delta` [0.6855, 0.2951, 0.0194] (0.9806 × the background, rounded to four decimals), but because of that rounding a plain upstream call with only `luminance` reads about 2.5e-4 (relative) higher sensitivity.
 - The achromatic sustained and transient responses, and both opponent-mechanism projections, are kept. The neutral background has small nonzero opponent projections.
 - The static temporal response and the Gaussian effective area `pi sigma²` follow the pinned model.
-- Luminance-dependent hyperbolic terms are evaluated with log1p/expm1, to keep the small saturation term accurate. This evaluates the mathematical equations directly; it does not copy MATLAB's cancellation in `1 - power(...)` bit for bit.
+- Luminance-dependent hyperbolic terms are evaluated with log1p/expm1, to keep them accurate where k_s4/Y is small (about 5.6e-10 at 1000 cd/m²). This evaluates the mathematical equations directly; it does not copy MATLAB's cancellation in `1 - power(...)` bit for bit.
 
 **Outputs.** The function returns three continuous model quantities:
 

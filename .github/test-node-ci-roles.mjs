@@ -18,7 +18,7 @@ test("the lifecycle snapshot gives the maintained LTS majors newest first and th
   assert.deepEqual(lifecycleAt(afterNode22Eol), { maintainedLts: [26, 24], current: undefined });
 });
 test("the roles come from engines.node and the policy", () => {
-  assert.deepEqual(ciNodeRoles(">=22.13.0", afterNode26Lts), { minimum: "22.13.0", maintainedLts: [26, 24, 22], current: undefined, primary: "lts/*", toolingMajor: 24 });
+  assert.deepEqual(ciNodeRoles(">=22.13.0", afterNode26Lts), { minimum: "22.13.0", maintainedLts: [26, 24, 22], current: undefined, primary: "24", toolingMajor: 24 });
   assert.throws(() => ciNodeRoles("^22.13.0", afterNode26Lts), /exact minimum/);
 });
 test("aliases resolve over the snapshot through the lifecycle transitions", () => {
@@ -31,7 +31,7 @@ test("aliases resolve over the snapshot through the lifecycle transitions", () =
 test("the workflow reader takes block lists, flow lists and setup inputs, and fails closed", () => {
   assert.deepEqual(jobNodeVersions(files.ciText, "test").matrix, ["22.13.0", "lts/-1", "node"]);
   assert.deepEqual(jobNodeVersions(files.ciText, "verify").matrix, ["22.13.0", "lts/-1", "node"]);
-  assert.deepEqual(jobNodeVersions(files.ciText, "coverage-shard"), { matrix: undefined, setup: ["lts/*"] });
+  assert.deepEqual(jobNodeVersions(files.ciText, "coverage-shard"), { matrix: undefined, setup: ["24"] });
   assert.throws(() => jobNodeVersions(files.ciText, "no-such-job"), /no job/);
 });
 
@@ -43,12 +43,22 @@ test("before Node 26 entered LTS every leg tested a different line", () => {
   assert.deepEqual(legs.map(({ major }) => major), [22, 22, 26, 24]);
   assert.deepEqual(notices, []);
 });
-test("since Node 26 entered LTS the node and lts/* legs converge and the primary leg left the tooling major", () => {
-  assert.deepEqual(matrixDrift(files, afterNode26Lts).notices, [
-    "Legs node and lts/* both test the newest Node 26: the same runtime twice.",
-    "The primary leg lts/* is Node 26, not tooling major 24 (typings and publish.yml).",
-    "Node 22 is tested only at its exact minimum 22.13.0, not at its newest release."
-  ]);
+test("since Node 26 entered LTS the lts/-1 leg runs the primary leg's Node 24 and skips its test work; node tests Node 26", () => {
+  const { legs, skipping, notices } = matrixDrift(files, afterNode26Lts);
+  assert.deepEqual(legs.map(({ leg, major }) => leg + ":" + major), ["22.13.0:22", "lts/-1:24", "node:26", "24:24"]);
+  assert.deepEqual(skipping, ["lts/-1"]);
+  assert.deepEqual(notices, ["Node 22 is tested only at its exact minimum 22.13.0, not at its newest release."]);
+});
+test("a leg on the primary leg's release must skip its test work", () => {
+  const unskipped = edit(({ ciText }) => ({ ciText: ciText.replace(/(name: Test suite, this part\n\s+if: [^\n]*?) && steps\.same\.outputs\.skip != 'true'/, "$1") }));
+  assert.match(matrixDrift(unskipped, afterNode26Lts).errors.join("\n"), /must skip its test work/);
+});
+test("the leg compares its runtime with the primary leg's release", async () => {
+  const { sameRelease } = await import("./node-lts-lookahead.mjs");
+  assert.equal(sameRelease("24.19.0", "24.19.0"), true);
+  assert.equal(sameRelease("v24.19.0", "24.19.0"), true);
+  assert.equal(sameRelease("24.18.0", "24.19.0"), false);
+  assert.equal(sameRelease("26.13.0", "24.19.0"), false);
 });
 test("at Node 22's end of life the minimum leg fails until engines.node rises", () => {
   assert.match(matrixDrift(files, afterNode22Eol).errors.join("\n"), /Leg 22\.13\.0 resolves to no supported/);
@@ -66,9 +76,9 @@ test("drift between the workflow and the policy fails", () => {
     [({ ciText }) => ({ ciText: ciText.replace('- "lts/-1"', '- "lts/-1"\n          - "24.1.0"') }), /only exact-version leg/],
     [({ ciText }) => ({ ciText: ciText.replace('- "22.13.0"', '- "22.14.0"') }), /only exact-version leg must be the engines.node minimum 22\.13\.0/],
     [() => ({ enginesNode: ">=22.14.0" }), /engines.node minimum 22\.14\.0/],
-    [({ ciText }) => ({ ciText: ciText.replace('- "lts/-1"', '- "lts/*"') }), /must not also be a `test` matrix leg/],
-    [({ ciText }) => ({ ciText: ciText.replace('- "lts/-1"', '- "lts/-2"').replace('"lts/-1", "node"]', '"lts/-2", "node"]') }), /Supported Node 24 has no CI leg/],
-    [({ ciText }) => ({ ciText: ciText.replace(/(coverage-shard:[\s\S]*?node-version: )"lts\/\*"/, '$1"24"') }), /`coverage-shard` must run on the primary leg/],
+    [({ ciText }) => ({ ciText: ciText.replace('- "lts/-1"', '- "24"').replace('"lts/-1", "node"]', '"24", "node"]') }), /must not also be a `test` matrix leg/],
+    [({ ciText }) => ({ ciText: ciText.replace('- "node"', '- "lts/-2"').replace('"lts/-1", "node"]', '"lts/-1", "lts/-2"]') }), /Supported Node 26 has no CI leg/],
+    [({ ciText }) => ({ ciText: ciText.replace(/(coverage-shard:[\s\S]*?node-version: )"24"/, '$1"lts/*"') }), /`coverage-shard` must run on the primary leg/],
     [({ publishText }) => ({ publishText: publishText.replace('node-version: "24"', 'node-version: "lts/*"') }), /publish.yml must pin tooling major 24/],
     [({ supportText }) => ({ supportText: supportText.replace("| `lts/-1` |", "| `lts/-2` |") }), /alias table/]
   ];

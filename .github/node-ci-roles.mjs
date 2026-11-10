@@ -4,8 +4,11 @@
 // `NODE_SUPPORT.md` and `package.json` agree with them (photivra/photivra#231).
 //
 // Roles: the exact public minimum (`engines.node`), the maintained LTS majors, the Current
-// major, the primary leg (`lts/*`: coverage, static, documentation and package gates) and the
-// tooling major (`toolingNodeMajor`: typings and `publish.yml`).
+// major, the primary leg (Node 24, pinned to the tooling major since 2.20.0: coverage, static,
+// documentation and package gates; its required check keeps the name `verify (lts/*)`) and the
+// tooling major (`toolingNodeMajor`: typings and `publish.yml`). A `test` leg that resolves to
+// the primary leg's release skips its test work (`--same-as-primary` in node-lts-lookahead.mjs);
+// its required `verify` check still runs (owner decision for 2.20.0, #231).
 //
 // The alias resolution here is a model of setup-node's aliases over the reviewed snapshot,
 // not a lookup of Node's release index: `lts/*` is the newest major in an LTS window, `lts/-N`
@@ -23,7 +26,10 @@ import process from "node:process";
 import { pathToFileURL, URL } from "node:url";
 import { lifecycleAt, supportedNodeMajors, toolingNodeMajor } from "./node-lts-policy.mjs";
 
-export const primaryAlias = "lts/*";
+export const primaryNodeMajor = 24;
+export const primaryAlias = String(primaryNodeMajor);
+// The primary leg's required check: named before the pin, and kept (renaming needs a ruleset change).
+export const primaryCheckName = "verify (lts/*)";
 const exactVersion = /^\d+\.\d+\.\d+$/;
 
 // The `node-version` values of one job of a workflow: the matrix list, if any, and every
@@ -106,7 +112,7 @@ export function matrixDrift({ ciText, publishText, supportText, enginesNode }, a
     if (setup.length !== 1 || setup[0] !== roles.primary)
       errors.push(`Job \`${job}\` must run on the primary leg ${roles.primary}; found ${setup.join(", ") || "none"}.`);
   }
-  if (!ciText.includes(`name: verify (${roles.primary})`)) errors.push(`No required check named \`verify (${roles.primary})\`.`);
+  if (!ciText.includes(`name: ${primaryCheckName}`)) errors.push(`No required check named \`${primaryCheckName}\` for the primary leg.`);
   if (!/node-version: \$\{\{ steps\.newest\.outputs\.version \|\| matrix\.node-version \}\}/.test(ciText))
     errors.push("The `test` job must set up the resolved newest stable release for the `node` leg, else its matrix value.");
 
@@ -122,6 +128,12 @@ export function matrixDrift({ ciText, publishText, supportText, enginesNode }, a
   if (!supportText.includes(`tooling major ${roles.toolingMajor}`)) errors.push(`NODE_SUPPORT.md does not name tooling major ${roles.toolingMajor}.`);
 
   const resolved = [...legs, roles.primary].map((leg) => ({ leg, major: resolveLeg(leg, at) }));
+  const primaryMajor = resolveLeg(roles.primary, at);
+  // A moving leg on the primary's major runs the primary's release: it must skip its test work.
+  const onPrimary = resolved.filter(({ leg, major }) => leg !== roles.primary && !exactVersion.test(leg) && major === primaryMajor).map(({ leg }) => leg);
+  const skips = ciText.includes("run: node .github/node-lts-lookahead.mjs --same-as-primary") &&
+    /name: Test suite, this part\n\s+if: [^\n]*steps\.same\.outputs\.skip != 'true'/.test(ciText);
+  if (!skips) errors.push("The `test` job must skip its test work on a leg that runs the primary leg's release (step `same`, `--same-as-primary`).");
   for (const { leg, major } of resolved)
     if (major === undefined || !supportedNodeMajors.includes(major))
       errors.push(`Leg ${leg} resolves to no supported, maintained Node line on ${at.toISOString().slice(0, 10)}.`);
@@ -132,16 +144,16 @@ export function matrixDrift({ ciText, publishText, supportText, enginesNode }, a
   // Owner-decision findings: they cost runner time or leave a role open, but change nothing.
   const moving = resolved.filter(({ leg, major }) => major !== undefined && !exactVersion.test(leg));
   for (const major of new Set(moving.map((leg) => leg.major))) {
-    const same = moving.filter((leg) => leg.major === major).map((leg) => leg.leg);
+    // Legs on the primary's release skip their test work (above), so they do not run it twice.
+    const same = moving.filter((leg) => leg.major === major && !(skips && onPrimary.includes(leg.leg))).map((leg) => leg.leg);
     if (same.length > 1) notices.push(`Legs ${same.join(" and ")} both test the newest Node ${major}: the same runtime twice.`);
   }
-  const primaryMajor = resolveLeg(roles.primary, at);
   if (primaryMajor !== undefined && primaryMajor !== roles.toolingMajor)
     notices.push(`The primary leg ${roles.primary} is Node ${primaryMajor}, not tooling major ${roles.toolingMajor} (typings and publish.yml).`);
   for (const major of required)
     if (!moving.some((leg) => leg.major === major))
       notices.push(`Node ${major} is tested only at its exact minimum ${roles.minimum}, not at its newest release.`);
-  return { roles, legs: resolved, errors, notices };
+  return { roles, legs: resolved, skipping: skips ? onPrimary : [], errors, notices };
 }
 
 export function readRepositoryFiles(root = new URL("../", import.meta.url)) {
@@ -156,8 +168,9 @@ export function readRepositoryFiles(root = new URL("../", import.meta.url)) {
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const at = new Date();
-  const { legs, errors, notices } = matrixDrift(readRepositoryFiles(), at);
-  log(`CI Node legs on ${at.toISOString().slice(0, 10)}: ${legs.map(({ leg, major }) => `${leg} → ${major ?? "none"}`).join(", ")}.`);
+  const { legs, skipping, errors, notices } = matrixDrift(readRepositoryFiles(), at);
+  log(`CI Node legs on ${at.toISOString().slice(0, 10)}: ${legs.map(({ leg, major }) => `${leg} → ${major ?? "none"}`).join(", ")}` +
+    (skipping.length ? `; ${skipping.join(", ")} skip their test work (the primary leg's release).` : "."));
   for (const notice of notices) log(`::notice title=CI Node roles::${notice}`);
   for (const message of errors) error(`::error title=CI Node matrix drift::${message}`);
   if (errors.length > 0) process.exitCode = 1;
