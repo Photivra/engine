@@ -39,11 +39,16 @@ describe("simulateExposureBuildUp (#534)", () => {
       expect(build.shutterSeconds).toBe(ordinary.exposure.settings.shutterSeconds);
       expect(last.result.image.samples).toEqual(ordinary.image.samples);
       for (const key of ["codes", "blackLevels", "digitalSaturationCodes", "saturationFlags", "effectiveSaturationCodes"] as const) expect(last.result.raw[key]).toEqual(ordinary.raw[key]);
-      expect(last.result.assumptions.map((a) => a.id)).toEqual(ordinary.assumptions.map((a) => a.id));
+      expect(last.result.assumptions).toEqual(ordinary.assumptions);
+      expect(last.result.plan).toEqual(ordinary.plan);
       // The earlier fractions are readouts of their own, with the fraction recorded.
       expect(build.frames[1]!.result.raw.codes).not.toEqual(ordinary.raw.codes);
       expect(build.frames[1]!.result.assumptions.find((a) => a.id === "exposure.buildUp")?.value)
-        .toEqual({ fraction: 0.4, fractions: [0.2, 0.4, 0.6, 0.8, 1], elapsedSeconds: 0.4 * build.shutterSeconds, shutterSeconds: build.shutterSeconds });
+        .toEqual({ fraction: 0.4, fractions: [0.2, 0.4, 0.6, 0.8, 1], elapsedSeconds: 0.4 * build.shutterSeconds, shutterSeconds: build.shutterSeconds, nonMonotoneSites: 0 });
+      // The whole exposure's reports; the fraction's own capture is at the elapsed time.
+      expect(build.frames[1]!.result.exposure).toEqual(ordinary.exposure);
+      expect(build.frames[1]!.result.sensor).toEqual(ordinary.sensor);
+      expect(build.frames[1]!.result.plan.exposure.exposure.shutterSeconds).toBeCloseTo(0.4 * build.shutterSeconds, 15);
     }
   }, scaledTimeout(60_000));
 
@@ -102,6 +107,47 @@ describe("simulateExposureBuildUp (#534)", () => {
     expect(green(build.frames[1]!.result)).toEqual(green(build.frames[2]!.result));
   }, scaledTimeout(60_000));
 
+  // Owner decision (2026-11-09): time-varying signals are supported. Each fraction's expected signal is its own capture's at f·t.
+  const moving: [string, Partial<SimulateCaptureOptions>][] = [
+    ["a rotating camera", { motion: { angularVelocityRadPerSec: { yaw: 3 } }, scene: { preset: "slanted-edge" } }],
+    ["a moving subject", { motion: { subject: { velocityMPerSec: { x: 40 }, region: { centerXM: -0.6, centerYM: 0, widthM: 0.8, heightM: 2 } } },
+      scene: { kind: "reflectance-function", sceneId: "test:build-up-subject", evaluate: ({ u }: { u: number }) => (u < -0.5 ? 0.9 : 0.05) } }],
+    ["a rotating camera with a rolling shutter", { motion: { angularVelocityRadPerSec: { pitch: 2 }, shutter: "rolling" }, scene: { preset: "slanted-edge" } }],
+    ["mixed lighting", { illumination: { sources: [{ illuminant: { kind: "planckian", temperatureKelvin: 3000 }, illuminanceLux: 20000 },
+      { illuminant: { kind: "planckian", temperatureKelvin: 6500 }, illuminanceLux: 5000 }], blend: { kind: "linear-gradient", from: { u: -1, v: 0 }, to: { u: 1, v: 0 } } } }]
+  ];
+  for (const [name, extra] of moving) {
+    it("follows " + name + ": the whole exposure byte for byte, each fraction's own signal, counts that never decrease", async () => {
+      const zero = { readNoise: { lowGainElectrons: 0, highGainElectrons: 0 } };
+      const options = request({ ...extra, exposure: { mode: "manual", shutterSeconds: 1 / 30, iso: 100 } }, { temporalSampleCount: 8, ...zero }, 48);
+      const build = await simulateExposureBuildUp(options, { fractions: [0.25, 0.5, 1] }), ordinary = await simulateCapture(options);
+      expect(build.frames[2]!.result.raw.codes).toEqual(ordinary.raw.codes);
+      expect(build.frames[2]!.result.image.samples).toEqual(ordinary.image.samples);
+      // Without read noise the codes are the clipped counts over the gain, rounded: they never decrease.
+      const codes = build.frames.map((f) => f.result.raw.codes);
+      for (let i = 0; i < codes[0]!.length; i++) { expect(codes[0]![i]!).toBeLessThanOrEqual(codes[1]![i]!); expect(codes[1]![i]!).toBeLessThanOrEqual(codes[2]![i]!); }
+      for (const frame of build.frames.slice(0, 2)) {
+        // The fraction's mean, column by column (the motion varies the signal across the frame), against a capture at f·t with another seed.
+        const single = await simulateCapture({ ...options, exposure: { mode: "manual", shutterSeconds: frame.fraction / 30, iso: 100 }, sensor: { ...options.sensor, noiseSeed: 98 } });
+        const width = 50, columns = (r: SimulateCaptureResult): number[] => Array.from({ length: width }, (_, x) => {
+          let sum = 0;
+          for (let y = 0; y < width; y++) sum += r.raw.codes[y * width + x]! - r.raw.blackLevels[y * width + x]!;
+          return sum / width;
+        });
+        const a = columns(frame.result), b = columns(single);
+        expect(Math.max(...b), name).toBeGreaterThan(20);
+        // Shot noise of a column mean of 50 sites (half of them a CFA colour each, so allow for the colour mix): about √(mean / 50 / gain).
+        for (let x = 0; x < width; x++) expect(Math.abs(a[x]! - b[x]!), name + " fraction " + frame.fraction + " column " + x).toBeLessThan(6 * Math.sqrt((a[x]! + b[x]!) / 50) + 1);
+        if (frame.fraction === 0.25 && name !== "mixed lighting") {
+          // The signal is not the whole exposure's scaled by f: somewhere a column differs far beyond the noise.
+          const w = columns(build.frames[2]!.result);
+          expect(Math.max(...a.map((v, x) => Math.abs(v - w[x]! / 4) / (Math.sqrt((v + w[x]! / 4) / 50) + 1))), name).toBeGreaterThan(10);
+        }
+        expect((frame.result.assumptions.find((x) => x.id === "exposure.buildUp")!.value as { nonMonotoneSites: number }).nonMonotoneSites).toBeGreaterThanOrEqual(0);
+      }
+    }, scaledTimeout(60_000));
+  }
+
   it("reproduces its frames, without a listed whole exposure too, and refuses what it cannot render", async () => {
     const options = request({}, {}, 16);
     const a = await simulateExposureBuildUp(options, { fractions: [0.3, 0.7] }), b = await simulateExposureBuildUp(options, { fractions: [0.3, 0.7] });
@@ -119,7 +165,8 @@ describe("simulateExposureBuildUp (#534)", () => {
       [Array.from({ length: 65 }, (_, i) => (i + 1) / 65), "fractions takes 1 to 64"]] as const)
       await expect(simulateExposureBuildUp(options, { fractions: fractions as number[] })).rejects.toThrow(message);
     await expect(simulateExposureBuildUp({ ...options, output: { format: "jpeg" } }, { fractions: [1] })).rejects.toThrow(InvalidConfigurationError);
-    await expect(simulateExposureBuildUp({ ...options, motion: { angularVelocityRadPerSec: { yaw: 0.1 } } }, { fractions: [1] })).rejects.toThrow("rotating camera");
+    await expect(simulateExposureBuildUp({ ...options, exposure: { mode: "manual", shutterSeconds: 1 / 8000 } }, { fractions: [0.1, 1] }))
+      .rejects.toThrow("Fraction 0.1 (manual, 0.0000125 s): manualShutterSeconds lies outside the resolved equipment capability range.");
     await expect(simulateExposureBuildUp(options, { fractions: [1], extra: 1 } as never)).rejects.toThrow("Unknown simulateExposureBuildUp option");
   }, scaledTimeout(60_000));
 });

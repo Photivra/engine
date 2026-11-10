@@ -1850,7 +1850,7 @@ type CaptureRun = "capture" | "ideal-reference" | "display-view" | "dng-from-par
  * passed in; for a display view the renderer's value is returned (a result, or a prepared view with DISPLAY_VIEW_WITHOUT_VIEW).
  */
 export async function runCapture(options: SimulateCaptureOptions, run: CaptureRun,
-  /** The display view option, the parts, or (#534) for a capture the noise realization ID of an exposure build-up fraction. */
+  /** The display view option, the parts, or (#534) for a capture an exposure build-up's callback, which sees each native RAW input. */
   viewOption?: unknown,
   renderView?: (context: DisplayViewRunContext) => Promise<unknown>):
   Promise<unknown> {
@@ -2955,12 +2955,17 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
     opening: { kind: "simultaneous" }; closing: { kind: "simultaneous" } } :
     { shutterMechanism: "electronic" as const, nominalExposureDurationSeconds: { value: shutterSeconds, unit: "s" as const, evidence },
       opening: { kind: "simultaneous" as const }, closing: { kind: "simultaneous" as const } };
-  const buildRawInput = (intent: CaptureWhiteBalanceIntent | null): NativeRawInput => buildRawInputFor(intent, geometry, captureModeProfile, bindingProfile, nativeWidth * nativeHeight);
+  // #534: an exposure build-up render sees each native RAW input it renders (to attach its sensor stage).
+  const buildRawInput = (intent: CaptureWhiteBalanceIntent | null): NativeRawInput => {
+    const input = buildRawInputFor(intent, geometry, captureModeProfile, bindingProfile, nativeWidth * nativeHeight);
+    if (run === "capture") (viewOption as ((raw: NativeRawInput) => void) | undefined)?.(input);
+    return input;
+  };
   const buildRawInputFor = (intent: CaptureWhiteBalanceIntent | null, rasterGeometry: typeof geometry, modeProfile: NativeRawInput["captureModeProfile"],
     binding: NativeRawInput["bindingProfile"], sites: number): NativeRawInput => ({
     exposure: { captureId: IDS.capture, sceneStateId: IDS.sceneState, sceneTimeSeconds: 0, geometry: rasterGeometry,
       exposure: { focalLengthMm, aperture: fNumber, shutterSeconds, iso: resolvedIso }, focus: { kind: "finite", distanceM: focusDistanceM },
-      noise: { seedUint32: noiseSeed, realizationId: run === "capture" && viewOption as string || "facade-noise", model: { ...SENSOR_RAW_PRODUCER_NOISE_MODEL } },
+      noise: { seedUint32: noiseSeed, realizationId: "facade-noise", model: { ...SENSOR_RAW_PRODUCER_NOISE_MODEL } },
       source: { kind: "scene-radiance-source", artifactId: "facade-scene-" + scenePreset, sha256: sourceSha256, dynamicRangeHistory: "no-loss-declared" },
       whiteBalanceIntent: intent, adoptedWhiteXyz: null,
       models: [{ profile: { id: "photivra-simulate-capture", version: SIMULATE_CAPTURE_FACADE_VERSION }, scientificStatus: "approximation", publicEvidenceIds: ["photivra:simulate-capture-facade"] }] },

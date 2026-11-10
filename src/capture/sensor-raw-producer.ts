@@ -278,9 +278,10 @@ export function calculateNativeRawSite(s: SensorRawProducerSiteInput, seed: numb
   let realization = simulateSensorChargeRealization({ accumulatedCharge: accumulatedCharge.value, samplingProfile: s.samplingProfile,
     seedUint32: deriveNativeSiteStreamSeedUint32(seed, i, NATIVE_SITE_CHARGE_STREAM_ID), ...pattern });
   if (b) {
-    const v = realization.value, photo = b.thin(v.photoRealizedElectronCount, i, 0), dark = b.thin(v.darkRealizedElectronCount, i, 1);
+    const v = realization.value;
     if (v.additionalComponents.length) throw new InvalidConfigurationError("An exposure build-up takes photo and dark charge only.");
-    realization = { ...realization, value: { ...v, photoRealizedElectronCount: photo, darkRealizedElectronCount: dark, totalRealizedStoredElectronEquivalentCount: photo + dark + 0 } };
+    b.split(i, v.photoSampledMeanElectronCount, v.darkSampledMeanElectronCount, v.photoRealizedElectronCount, v.darkRealizedElectronCount);
+    realization = { ...realization, value: { ...v, photoRealizedElectronCount: b.photo, darkRealizedElectronCount: b.dark, totalRealizedStoredElectronEquivalentCount: b.photo + b.dark + 0 } };
   }
   const readout = simulateSensorRawCode({ chargeRealization: realization.value, physicalCapacityAssessment: capacity.value,
     readoutProfile: s.readoutProfile, regimeId: s.regimeId,

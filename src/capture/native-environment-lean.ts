@@ -1066,7 +1066,7 @@ function flatSensorSite(f: FlatSensorStage, photoE: number, darkE: number, total
     darkRealized = count - 1;
   } else darkRealized = samplePoisson(darkMean, random);
   const b = f.b;
-  if (b) { photoRealized = b.thin(photoRealized, index, 0); darkRealized = b.thin(darkRealized, index, 1); }
+  if (b) { b.split(index, photoMean, darkMean, photoRealized, darkRealized); photoRealized = b.photo; darkRealized = b.dark; }
   const realized = photoRealized + darkRealized + 0;
   if (!Number.isFinite(realized) || realized < 0) return false;
   const readRandom = readNoiseStream;

@@ -25,27 +25,32 @@ EXPOSURE_BUILD_UP_STREAM_BASE = 0x42550000
 Renders fractions of one exposure as one accumulating process (#534), the way a camera's live readout of a long exposure
 would show the light building up. Each fraction is read out and developed as its own photo.
 
-The model: photon and dark-charge arrivals are Poisson processes (photon shot noise: EMVA 1288 Release 4.0, section 2, free).
-Given a Poisson process's count n at t, its arrival times are n independent uniform times on [0, t], so its count at s < t is
-Binomial(n, s/t) (R. G. Gallager, Discrete Stochastic Processes, chapter 2, section 2.5, MIT OpenCourseWare 6.262, free). The whole exposure's photo and dark counts at each site are its ordinary draws, with its ordinary seeds. Going down the
-fractions f₁ < … < fₘ, each count is split by a binomial draw: N(fⱼ) ~ Binomial(N(fⱼ₊₁), fⱼ / fⱼ₊₁). So each fraction's counts are Poisson with mean fⱼ times the whole
-exposure's (the mean and variance of a single exposure of fⱼ·t), they never decrease from one fraction to the next, and the
-covariance of two fractions' counts is the earlier one's mean: the later count is the earlier one plus an independent
-increment. Fixed-pattern noise (PRNU, DSNU, hot pixels, offsets) is the sensor's own and the same in every fraction. Each
-fraction's charge is clipped at the full well (`sensor.fullWell`), then read once: its own read noise (the regime's
-components, dual gain as the ISO selects), pre-ADC and ADC saturation and quantization at the ADC bit depth. The fraction at
-1 is `simulateCapture(options)`, byte for byte.
+The model: photon and dark-charge arrivals at a site are Poisson processes (photon shot noise: EMVA 1288 Release 4.0,
+section 2, free), with any rate over time. Given the count n over [0, t] of a Poisson process with mean Λ(t), its arrival
+times are n independent times with distribution Λ(s)/Λ(t) on [0, t], so its count over [0, s] is Binomial(n, Λ(s)/Λ(t))
+(R. G. Gallager, Discrete Stochastic Processes, chapter 2, sections 2.4 and 2.5, MIT OpenCourseWare 6.262, free).
 
-Every fraction renders the whole request again (the same exposure resolution, metering, ISO, lens, framing, `fast` and white
-balance; `"auto"` white balance is measured on each fraction, as its own photo), so it costs one capture per fraction. The
-whole exposure's expected signal is scaled by the fraction, which equals a capture of fⱼ·t only for a signal constant over
-the exposure: a still camera (no `motion.angularVelocityRadPerSec`) and the facade's static scenes. Exact or fast: the
-request's own `fast` (and the format default) applies to every fraction; this function adds no fast method, so with
-`fast: false` (the calculator's setting) every fraction is the exact capture's.
+The method: the whole exposure is `simulateCapture(options)` itself, with its ordinary draws and seeds. Each earlier fraction
+fⱼ is a capture of the same request in manual mode at the whole exposure's resolved f-number and ISO and the shutter fⱼ·t,
+so its expected signal at every site is integrated from the spectrum over the window [0, fⱼ·t] by the capture itself (the
+camera rotation, `motion.subject` and mixed lighting included, and each row's own window with a rolling shutter). Its
+counts are not drawn anew: going down the fractions, each site's photo and dark counts are N(fⱼ) ~ Binomial(N(fⱼ₊₁), λ(fⱼ) /
+λ(fⱼ₊₁)), with λ the site's expected mean in each render (after PRNU and DSNU). So every fraction's counts are Poisson with
+that fraction's own mean (the mean and variance of `simulateCapture` at fⱼ·t), they never decrease from one fraction to the
+next, and two fractions' counts covary by the earlier one's mean. Fixed-pattern noise is the sensor's own and the same in
+every fraction. Each fraction's charge is clipped at the full well, then read once: its own read noise (dual gain as the ISO
+selects), pre-ADC and ADC saturation and quantization at the ADC bit depth.
 
-Formats: "srgb-8" and "srgb-16" (sample arrays to show). A fraction's JPEG, PNG or DNG would carry the whole exposure's
-metadata, so those formats are refused. A fraction's realization depends on the whole `fractions` list (each step of the
-chain has its own streams); the same request and list always give the same frames.
+The windows are nested, so the true means never decrease; the capture's temporal midpoint quadrature can still put an
+earlier fraction's estimate above a later one's at a site (motion blur). There the split takes probability 1 (the count is
+kept), and the `exposure.buildUp` assumption counts those sites (`nonMonotoneSites`): an approximation of the quadrature,
+not of the binomial law. Raise `sensor.temporalSampleCount` to remove them.
+
+Cost: one capture per fraction, plus about 64 bytes per native site for the chain. Exact or fast: the request's own `fast`
+(and the format default) applies to every fraction; the build-up adds no fast method, so with `fast: false` (the calculator's
+setting) every fraction is an exact capture. On screen only: formats "srgb-8" and "srgb-16" (a fraction's JPEG, PNG or DNG
+is refused). A fraction's realization depends on the whole `fractions` list (each step of the chain has its own streams);
+the same request and list always give the same frames.
 
 ```ts
 export async function simulateExposureBuildUp(options: SimulateCaptureOptions, buildUp: SimulateExposureBuildUpOptions): Promise<SimulateExposureBuildUpResult>;
@@ -64,10 +69,10 @@ export interface SimulateExposureBuildUpFrame {
   /** fraction × the request's shutter time, in s. */
   elapsedSeconds: number;
   /**
-   * The fraction developed as its own photo. At fraction 1 it is `simulateCapture(options)` itself, byte for byte. Below 1 its
-   * `image` and `raw` codes are the fraction's readout and development, and the `exposure.buildUp` assumption records the fraction;
-   * every report of the request (`exposure`, with the shutter time and how it was chosen, `sensor`, with the mid-gray noise figure,
-   * `plan`, `request`) describes the whole exposure, the camera's settings, not the elapsed part.
+   * The fraction developed as its own photo. At fraction 1 it is `simulateCapture(options)` itself, byte for byte. Below 1 it is
+   * the result of the fraction's capture (manual, the whole exposure's f-number and ISO, shutter fraction·t: its `image`, `raw`,
+   * `plan` and `request`), with the build-up's counts, the `exposure.buildUp` assumption, and the whole exposure's `exposure` and
+   * `sensor` reports (the camera's settings and noise figure, not the elapsed part's).
    */
   result: SimulateCaptureResult;
 }

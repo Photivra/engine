@@ -222,7 +222,7 @@ export function createNativeRawTaskWithCadence(input: NativeRawInput,provider: N
             const sites=tile.sites.map((site,j)=>lean?.[j]?undefined:parseNativeRawProducerSite(site,y*native.pixelWidth+x+j,plan.frame,timing?.samples[j]));
             if(first===undefined){first=sites[0];if(first)rows?.firstSite?.(first);}for(const s of sites)if(s)validateNativeRawReadoutIdentity(s,first!);
             // Every site in this tile is validated before any output is written. A failure never returns partial output.
-            const seed=plan.exposure.noise.seedUint32,b=EXPOSURE_BUILD_UP_STAGES.get(plan.exposure.noise.realizationId);
+            const seed=plan.exposure.noise.seedUint32,b=EXPOSURE_BUILD_UP_STAGES.get(input);
             for(let j=0;j<sites.length;j++){
               // index: absolute native index (seeds, CFA phase); at: position in this task's output arrays.
               const index=y*native.pixelWidth+x+j,at=(y-rowStart)*bandWidth+x+j-colStart,handle=lean?.[j];

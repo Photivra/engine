@@ -1,18 +1,20 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Internal (#534): the sensor-stage hook of one fraction of an exposure build-up (`simulateExposureBuildUp`). A fraction
- * renders the whole exposure's request, so every site draws its ordinary photo and dark counts with its ordinary seeds; the
- * hook then splits each count down to the fraction (`thin`) and names the fraction's own read-noise stream (`read`). The
- * binomial splitting lives in facade/exposure-build-up.ts, so captures without a build-up carry only this registry.
+ * Internal (#534): the sensor-stage hook of one render of an exposure build-up (`simulateExposureBuildUp`). After a site's
+ * ordinary photo and dark draws, `split` gets the render's expected means and those draws, and sets the counts the readout
+ * uses (`photo`, `dark`); `read` names the readout's read-noise stream. The build-up's own logic (binomial splitting, the
+ * per-site chain) lives in facade/exposure-build-up.ts, so captures without a build-up carry only this registry.
  */
 
 export interface ExposureBuildUpStage {
-  /** The fraction's count from the whole exposure's realized `count` at the absolute native site `index`: photo (`which` 0) or dark (1). */
-  thin(count: number, index: number, which: 0 | 1): number;
-  /** The read-noise stream ID of the fraction's readout (`deriveNativeSiteStreamSeedUint32`). */
+  /** Sets `photo` and `dark` for the absolute native site `index` from this render's expected means and ordinary draws. */
+  split(index: number, photoMean: number, darkMean: number, photo: number, dark: number): void;
+  photo: number;
+  dark: number;
+  /** The read-noise stream ID of the readout (`deriveNativeSiteStreamSeedUint32`). */
   read: number;
 }
 
-/** The running build-up fractions, by the noise realization ID of their capture (`plan.exposure.noise.realizationId`). */
-export const EXPOSURE_BUILD_UP_STAGES = new Map<string, ExposureBuildUpStage>();
+/** The running build-up renders' stages, by their native RAW input (`NativeRawInput`, the object the capture facade builds). */
+export const EXPOSURE_BUILD_UP_STAGES = new WeakMap<object, ExposureBuildUpStage>();

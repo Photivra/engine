@@ -115,7 +115,7 @@ export async function renderTabulatedNativeRaw(t: TabulatedNativeRawInput): Prom
   if (layout.kind !== "periodic-mosaic" || layout.repeatWidthSites !== 2 || layout.repeatHeightSites !== 2 || !plan.exposureWindow) return undefined;
   const region = t.region ?? { x: 0, y: 0, width: W, height: native.pixelHeight };
   if (region.width < 2 || region.height < 2) return undefined;
-  const seed = plan.exposure.noise.seedUint32, b = EXPOSURE_BUILD_UP_STAGES.get(plan.exposure.noise.realizationId), schedule = plan.exposureWindow, memo = createEnvironmentRawFrameCanonicalMemo(plan.frame, schedule);
+  const seed = plan.exposure.noise.seedUint32, b = EXPOSURE_BUILD_UP_STAGES.get(t.input.raw), schedule = plan.exposureWindow, memo = createEnvironmentRawFrameCanonicalMemo(plan.frame, schedule);
   let evaluations = 0;
   const evaluate: EnvironmentRadianceEvaluator = (request) => { evaluations++; return t.evaluateRadiance(request); };
   // The counting wrapper returns the evaluator's own results, so they are engine-built exactly when the evaluator is.
