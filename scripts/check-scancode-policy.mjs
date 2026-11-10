@@ -37,7 +37,7 @@ const OWN_ALLOWLIST = "this script's allowlist names this key as data; no licenc
 /** Keys that ScanCode detects in this script's own allowlist strings (scan of this file). */
 const OWN_KEYS = [
   "Apache-2.0 OR MIT", "BSD-2-Clause", "BSD-3-Clause", "BlueOak-1.0.0", "CC-BY-4.0", "CC-BY-ND-3.0",
-  "CC-BY-SA-3.0", "CC-BY-SA-4.0", "CC0-1.0", "CDDL-1.0", "GPL-1.0-or-later", "ISC", "JSON",
+  "CC-BY-SA-3.0", "CC-BY-SA-4.0", "CC0-1.0", "CDDL-1.0", "GFDL-1.1-or-later", "GPL-1.0-or-later", "ISC", "JSON",
   "LGPL-2.1-only", "LicenseRef-scancode-other-copyleft", "LicenseRef-scancode-proprietary-license",
   "LicenseRef-scancode-public-domain", "LicenseRef-scancode-unknown-license-reference", "MIT", "MPL-2.0", "PSF-2.0",
   "LicenseRef-scancode-generic-cla"

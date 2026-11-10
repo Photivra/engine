@@ -88,7 +88,7 @@ function harmonics(w: ArrayLike<number>, width: number): { size: number; phase: 
 }
 /** Cumulants of the defocused point minus those of the point in focus: the blur's own. */
 async function blurOf(id: string, N: number, focus: number, at: { x: number; y: number }, catsEye?: boolean): Promise<{ blur: Moments; result: SimulateCaptureResult }> {
-  const result = await capture(id, N, focus, at, true, 96, catsEye === undefined ? {} : { catsEye }), sharp = moments(light(await capture(id, N, 2, at, false, 96, catsEye === undefined ? {} : { catsEye })), S), blurred = moments(light(result), S);
+  const result = await capture(id, N, focus, at, true, 96, catsEye === undefined ? {} : { catsEye }), sharp = moments(light(await capture(id, N, 2, at, false)), S), blurred = moments(light(result), S);
   return { result, blur: { x: blurred.x - sharp.x, y: blurred.y - sharp.y, xx: blurred.xx - sharp.xx, yy: blurred.yy - sharp.yy, xy: blurred.xy - sharp.xy, total: blurred.total } };
 }
 
@@ -130,6 +130,8 @@ describe("lens.catalogue with lens.defocus renders the lens's bokeh (#567)", () 
     expect(Math.abs(Math.atan2(Math.sin(image[7]!.phase - kernel[7]!.phase), Math.cos(image[7]!.phase - kernel[7]!.phase)))).toBeLessThan(Math.PI / 4);
   }, scaledTimeout(30_000));
 
+  // 2.20.0: the cat's eye is lens.catalogue's exact method, so the defocused point renders exactly: about 13.5 s on an M5 Pro, so a 90 s deadline
+  // (GitHub's runners are 2–4× slower; the exact tests below take 60 s for the same reason).
   it("clips a fast normal's blur into a cat's eye toward the corner, in the right orientation", async () => {
     // The top-left point (300, 333): field point up and to the left. The kept light lies toward the field point behind the focus plane.
     const N = 1.8, focus = focusFor("pv-50-1.8", N, 12, 1), at = { x: 300, y: 333 }, { blur, result } = await blurOf("pv-50-1.8", N, focus, at, true);
@@ -144,7 +146,7 @@ describe("lens.catalogue with lens.defocus renders the lens's bokeh (#567)", () 
     expect(blur.xy / kernel.xy).toBeLessThan(1.4);
     expect(result.assumptions.find((a) => a.id === "lens.defocus")!.value).toMatchObject({ bokeh: { catsEye: true } });
     expect(result.diagnostics.fast?.applied).toEqual({ "lens.catalogue": false });
-  }, scaledTimeout(30_000));
+  }, scaledTimeout(90_000));
 
   it("leaves the cat's eye out when lens.catalogue resolves to fast: sRGB by default, not the exported formats (the speed rule)", async () => {
     const N = 1.8, focus = focusFor("pv-50-1.8", N, 12, 1), at = { x: 300, y: 333 }, catsEyeOf = (r: SimulateCaptureResult): unknown =>
@@ -166,7 +168,7 @@ describe("lens.catalogue with lens.defocus renders the lens's bokeh (#567)", () 
     // The 2.20.0 integration folded part F's catsEye option into lens.catalogue's fast resolution: it is no longer a field.
     await expect(simulateCapture({ scene: { preset: "uniform" }, output: { width: 64, height: 48 }, lens: { catalogue: { kind: "pv-50-1.8", catsEye: true } as never } }))
       .rejects.toThrow(/Unknown lens\.catalogue field: catsEye/u);
-  }, scaledTimeout(30_000));
+  }, scaledTimeout(60_000));
 
   it("renders the same bokeh on the exact catalogue method as on the fast one", async () => {
     // A 16 × 16 region around the top-left point of a lens without a cat's eye: the exact quadrature and the fast field grid agree.
