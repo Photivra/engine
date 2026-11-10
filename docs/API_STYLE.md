@@ -234,7 +234,7 @@ have a fast method, a measured and bounded approximation of it. One flag style s
   request gave `fast` and `"format"` when the format default chose it; `applied` names each listed option that ran, `true` where its fast method ran;
   `assurance` is `engine-reference` when everything ran exact and `approximation-with-a-priori-bound` otherwise. A fast method
   that runs also adds an assumption `fast.<path>` naming its method and its bound.
-- **One registry, enforced** (2.20.0). `FAST_METHODS` in `src/facade/fast-methods.ts` lists every speed-versus-accuracy
+- **One registry, enforced** (2.20.0). `SIMULATE_CAPTURE_FAST_METHODS` in `src/facade/fast-methods.ts` lists every speed-versus-accuracy
   choice: its id, the record path that takes the override (or the top-level flag only), whether a fast method exists
   (`fast-and-exact`) or the record takes `fast` with none yet (`exact-only`), where it runs, its resolver call and how it is
   reported (a `diagnostics.fast.applied` key, a `fast.<path>` or other assumption, or a result field). In 2.20.0: `lens.catalogue`'s

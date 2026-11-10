@@ -1890,6 +1890,7 @@ export { parseLosslessJpeg, type LosslessJpegImage, type LosslessJpegLimits } fr
 export { PNG_ENCODER_ID, PNG_ENCODER_LIMITS, serializePngImage } from "./output/png-encoder.js";
 export type { PngEncodeInput, PngColourEncoding, PngCicpPrimaries, PngCicpTransfer, PngMasteringDisplay, PngContentLightLevel } from "./output/png-encoder.js";
 
+export { SIMULATE_CAPTURE_FAST_METHODS, type SimulateCaptureFastMethod } from "./facade/fast-methods.js";
 export {
   DETAIL_LIMIT_LIMITS,
   calculateDetailLimit,

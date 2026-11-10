@@ -8638,6 +8638,11 @@
       "kind": "runtime"
     },
     {
+      "name": "SIMULATE_CAPTURE_FAST_METHODS",
+      "source": "src/facade/fast-methods.ts",
+      "kind": "runtime"
+    },
+    {
       "name": "SIMULATE_CAPTURE_FAST_OPTIONS",
       "source": "src/facade/simulate-capture.ts",
       "kind": "runtime"
@@ -8725,6 +8730,11 @@
     {
       "name": "SimulateCaptureExposureMode",
       "source": "src/facade/simulate-capture.ts",
+      "kind": "type"
+    },
+    {
+      "name": "SimulateCaptureFastMethod",
+      "source": "src/facade/fast-methods.ts",
       "kind": "type"
     },
     {

@@ -76,7 +76,7 @@ modelling choices (such as "no lens PSF") as `kind: "model"`.
 | `lens.vignetting` | none | An `IlluminationVignettingProfile` (radial relative illumination). |
 | `lens.psf` | none | A `{ kind: "sampled-local", configuration }` sampled lens PSF, passed to the environment contract unchanged. |
 | `lens.defocus` | off | `{ model: "geometric-disc" }`: defocus of the scene plane as the geometric blur disc (see [Optics](#optics)). `simulateCapture` and `simulateDisplayView` render it. Optional bokeh character (#553), each part off by default: `blades`, `sphericalAberration`, `catsEye` (see [Bokeh character](#bokeh-character-553)). |
-| `lens.diffraction` | off | 2.1: `"circular-aperture"` or `{ kind: "circular-aperture", kernelRadiusSamples, fast, rollingShutterLatticeTaps }`: diffraction blur of an ideal lens at the resolved f-number (see [Optics](#optics)). `aperture` is accepted as a deprecated alias of `kind` until 3.0.0. |
+| `lens.diffraction` | off | 2.1: `"circular-aperture"` or `{ kind: "circular-aperture", kernelRadiusSamples, fast }`: diffraction blur of an ideal lens at the resolved f-number (see [Optics](#optics)). `aperture` is accepted as a deprecated alias of `kind` until 3.0.0. |
 | `exposure.mode` | `"manual"` | Also `"aperture-priority"`, `"shutter-priority"`, `"program"`. |
 | `exposure.iso` | 100 | Selects the body's ISO readout regime (gain and read noise). From 2.14 the tier bodies (preset 2.1.0) take the third-stop settings `GENERIC_THIRD_STOP_ISO_SETTINGS` (100, 125, 160, 200 … up to the body's maximum: 6400, 12 800 or 25 600). `"auto"` lets Auto ISO choose it from the meter in any mode (see [Auto ISO](#auto-iso-516)); it steps in whole stops unless `exposure.autoIso.isoSteps: "third-stop"`. |
 | `exposure.autoIso` | none | With `iso: "auto"` only. `aperture-priority` requires `{ slowestPreferredShutterSeconds, afterMaximumIso? }`, and `program` takes them optionally; the slowest shutter may be `"auto"`, set by `automaticSlowestShutter`. Every mode takes `limits: { maximum, minimum? }`, the photographer's Auto ISO range (see [Auto ISO](#auto-iso-516)). |
@@ -212,8 +212,8 @@ and every number is a labelled approximation.
 - **Professional lenses are better** where the owner's table says so: sharper centres and corners, less coma, lateral colour,
   distortion and vignetting, better close focus and focus consistency. The measurements are in the catalogue page.
 - **Combinations:** `lens.defocus` convolves the lens's own bokeh kernel (#567: its blades, its W040 and, on the fast wides
-  and normals, a cat's eye, which `lens.catalogue: { kind, catsEye }` sets and which is on by default only for DNG and
-  JPEG output: it slows the fast method 2–3.5×; [Bokeh](LENS_CATALOGUE.md#bokeh-567)) into the lens's PSF (a combined kernel up to 16 sites in radius);
+  and normals, a cat's eye, which is lens.catalogue's exact method: on when the request resolves to exact (`fast: false`, the
+  default for DNG, JPEG and PNG), off on fast requests, since it would slow the fast method 2–3.5×; [Bokeh](https://github.com/Photivra/photivra/blob/main/docs/LENS_CATALOGUE.md#bokeh-567)) into the lens's PSF (a combined kernel up to 16 sites in radius);
   `lens.focusScatter: { seed, shotIndex? }` moves the focus by a seeded autofocus error (`simulateGenericLensFocusError`), off
   by default. `prime`, `focalLengthMm`, `projection`, `distortion`, `vignetting`, `psf`, `diffraction` and `pupilSampling` are
   set by the lens and refused with it. The display view renders `lens.catalogue` since #569, with the PSF taken per field zone
@@ -1166,15 +1166,15 @@ The optics options feed only what the environment site contract accepts:
   - Ties on chart boundaries (2.20.0, #565): the per-tap quadrature reads each tap's scene point at its site-lattice point, as
     the object-space convolution, the out-of-focus capture and the display view do, so a tap exactly on a chart boundary (a
     Siemens star's spokes through lattice points) resolves to the same material on every path. With camera rotation under
-    `motion.shutter: "rolling"` every row has its own instants, so the lattice is read once per instant; there the default
-    keeps each tap's own point, the faster choice, and `rollingShutterLatticeTaps: true` reads the lattice instead, at about
+    `motion.shutter: "rolling"` every row has its own instants, so the lattice is read once per instant; there reading the
+    lattice is `lens.diffraction`'s exact method and keeping each tap's own point its fast method; the lattice costs about
     1.2× the time (dead leaves 48 × 32 at f/8: 4.0–4.1 s against 4.8–5.0 s; a Siemens star 32 × 24 at f/16: 6.8 s against
-    8.1–8.2 s; November 9, 2026, Apple M5 Pro, Node 24.19.0). A capture that writes a DNG or a JPEG (`output.format`
-    `"dng"` or `"jpeg"`) defaults it to true, the accurate choice; an explicit value wins, and the
-    `lens.diffraction.rollingShutterLatticeTaps` assumption reports the value used. The two readings differ only at such
-    ties. The RAW then depends on `output.format`, so region renders joined into one frame
-    (`serializeSimulatedCaptureDngFromParts`, `simulateCaptureFromParts`) match the whole-frame render only if every part
-    reads the lattice the same way: set the flag explicitly on the parts and the whole request.
+    8.1–8.2 s; November 9, 2026, Apple M5 Pro, Node 24.19.0). The format default decides (2.20.0): fast for sRGB samples, exact for
+    DNG, JPEG and PNG; `lens.diffraction: { kind, fast }` or the top-level `fast` wins, and the fast method reports
+    `diagnostics.fast.applied["lens.diffraction"]: true` and the assumption `fast.lens.diffraction`. The two readings differ
+    only at such ties. Region renders joined into one frame (`serializeSimulatedCaptureDngFromParts`,
+    `simulateCaptureFromParts`) match the whole-frame render only if every part resolves `fast` the same way: give the parts
+    and the whole request the same `fast` (a part rendered fast is refused by an exact join).
   - The convolution runs in 32-row bands and computes only each band's own values, not the 2R rows and
     columns of padding around it (#419; the values are bit-identical to the full-grid convolution's). On a
     function scene with the Quality options at 1 µm and f/16 (R 32), 96 × 72, `diagnostics.timingsMs.diffraction`
@@ -1507,7 +1507,7 @@ lens: { focalLengthMm: 50, fNumber: 4, focusDistanceM: 1.4, defocus: { model: "g
   for later. `simulateDisplayView` and `prepareDisplayView` refuse it; they render `blades` and `sphericalAberration`.
 - **With `lens.catalogue` (#549)** the three options are refused by name: since 2.20.0 (#567) the catalogue lens sets
   all three itself (its blades, its own W040 and, on the fast wides and normals, a cat's eye) and folds that kernel into
-  its PSF ([Lens catalogue, Bokeh](LENS_CATALOGUE.md#bokeh-567)).
+  its PSF ([Lens catalogue, Bokeh](https://github.com/Photivra/photivra/blob/main/docs/LENS_CATALOGUE.md#bokeh-567)).
 - **Sampling.** Without spherical aberration each site's weight is the exact area of the projected open pupil (a convex
   polygon; circles and blade arcs are 1024-gons scaled to their true area, within 5e-6 of the radius of the true curve)
   inside the site's cell, divided by its area (`"exact-polygon-cell-area"`). With it the pupil is sampled on a square grid

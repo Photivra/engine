@@ -6,13 +6,15 @@
  * `resolveFast` and `fastFormatDefault` (fast-resolution.ts): an option record's `fast`, else the top-level `fast`, else the
  * format default (fast for "srgb-8", "srgb-16" and the display view; exact for "dng", "jpeg", "png" and `simulateIdealReference`).
  *
- * Data only, read by `test/fast-methods-registry.test.ts`, which fails when an option accepts `fast` without an entry here, an
- * entry lacks its resolver or its report, or a format's default leaves the rule. Captures and display views do not import this
- * module (it costs no bundle bytes). A new fast method adds its entry here and to docs/API_STYLE.md, "Exact and fast modes".
+ * Data only (a root export, so developers can read which choices exist), read by `test/fast-methods-registry.test.ts`, which
+ * fails when an option accepts `fast` without an entry here, an entry lacks its resolver or its report, or a format's default
+ * leaves the rule. Captures and display views do not import this module (tree-shaking leaves it out of their bundles). A new
+ * fast method adds its entry here and to docs/API_STYLE.md, "Exact and fast modes".
+ * @see docs/API_STYLE.md, "Exact and fast modes".
  */
 
-/** One speed-versus-accuracy choice. */
-export interface FastMethodEntry {
+/** One speed-versus-accuracy choice of {@link SIMULATE_CAPTURE_FAST_METHODS} (2.20.0). */
+export interface SimulateCaptureFastMethod {
   /** A short id: the option path and, where one option has several fast methods, the method. */
   id: string;
   /**
@@ -43,7 +45,8 @@ export interface FastMethodEntry {
 
 const CAPTURE = "src/facade/simulate-capture.ts", VIEW = "src/facade/simulate-display-view.ts";
 
-export const FAST_METHODS: readonly FastMethodEntry[] = Object.freeze([
+/** 2.20.0: every speed-versus-accuracy choice of the capture facade and the display view (see the module comment). */
+export const SIMULATE_CAPTURE_FAST_METHODS: readonly SimulateCaptureFastMethod[] = /* @__PURE__ */ Object.freeze([
   { id: "lens.catalogue/field-grid", override: "lens.catalogue", methods: "fast-and-exact", runs: ["simulateCapture"],
     fast: "#568: the PSF blended over a field grid and tabulated expected electrons, verified per CFA phase against the exact chain",
     exact: "the environment PSF quadrature with the PSF resolved at each query point", followsFormatDefault: true,
@@ -88,4 +91,4 @@ export const FAST_METHODS: readonly FastMethodEntry[] = Object.freeze([
   { id: "output.demosaic.ahd", override: "output.demosaic", methods: "exact-only", runs: ["simulateCapture"],
     fast: "", exact: "the AHD demosaic of the capture (a fast method only in the display view's correction, above)", followsFormatDefault: true,
     resolver: { file: CAPTURE, call: "resolveFast(demosaicFast, fastTop)" }, report: { applied: "output.demosaic.ahd" } }
-] as const satisfies readonly FastMethodEntry[]);
+] as const satisfies readonly SimulateCaptureFastMethod[]);

@@ -2,7 +2,7 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { SIMULATE_CAPTURE_FAST_OPTIONS, prepareDisplayView, serializeSimulatedCaptureDngFromParts, simulateCapture, simulateDisplayView, type SimulateCaptureOptions } from "../src/index.js";
-import { FAST_METHODS } from "../src/facade/fast-methods.js";
+import { SIMULATE_CAPTURE_FAST_METHODS } from "../src/facade/fast-methods.js";
 import { fastFormatDefault, resolveFast } from "../src/facade/fast-resolution.js";
 import { scaledTimeout } from "./helpers/test-timeout.js";
 
@@ -16,19 +16,19 @@ const facade = readdirSync("src/facade").filter((f) => f.endsWith(".ts")).map((f
 
 describe("the fast-method registry (2.20.0)", () => {
   it("has an entry for every record that accepts fast, and for every listed fast option", () => {
-    const overrides = new Set(FAST_METHODS.map((e) => e.override));
+    const overrides = new Set(SIMULATE_CAPTURE_FAST_METHODS.map((e) => e.override));
     const accepting = new Set<string>();
     for (const file of facade) for (const m of source(file).matchAll(/allowKeys\([^,]+,\s*"([^"]+)",\s*\[[^\]]*"fast"/gu)) accepting.add(m[1] === "simulateCapture options" ? "fast" : m[1]!);
     for (const m of source("src/facade/simulate-capture.ts").matchAll(/fastOverride\([^,]+,\s*"([^"]+)"\)/gu)) accepting.add(m[1]!);
     expect(accepting.size).toBeGreaterThan(4);
     for (const path of accepting) expect(overrides, path + " accepts fast without a registry entry").toContain(path);
-    const applied = new Set(FAST_METHODS.map((e) => e.report.applied).filter((a) => a !== undefined));
+    const applied = new Set(SIMULATE_CAPTURE_FAST_METHODS.map((e) => e.report.applied).filter((a) => a !== undefined));
     for (const option of SIMULATE_CAPTURE_FAST_OPTIONS) expect(applied, option).toContain(option);
   });
 
   it("gives every entry a resolver found in its source, a report, and the format default", () => {
-    expect(new Set(FAST_METHODS.map((e) => e.id)).size).toBe(FAST_METHODS.length);
-    for (const entry of FAST_METHODS) {
+    expect(new Set(SIMULATE_CAPTURE_FAST_METHODS.map((e) => e.id)).size).toBe(SIMULATE_CAPTURE_FAST_METHODS.length);
+    for (const entry of SIMULATE_CAPTURE_FAST_METHODS) {
       expect(entry.followsFormatDefault, entry.id).toBe(true);
       expect(source(entry.resolver.file), entry.id + ": resolver call").toContain(entry.resolver.call);
       const { applied, assumption, field } = entry.report;

@@ -1314,6 +1314,15 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 | [`DisplayViewCorrectionStateSet`](api/facade-display-view.md#displayviewcorrectionstateset) | Type |
 | [`serializeDisplayViewCorrectionStates`](api/facade-display-view.md#serializedisplayviewcorrectionstates) | Runtime |
 
+## facade/fast-methods.ts
+
+[Detailed contracts](api/facade-fast-methods.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/facade/fast-methods.ts)
+
+| Export | Kind |
+| --- | --- |
+| [`SIMULATE_CAPTURE_FAST_METHODS`](api/facade-fast-methods.md#simulate_capture_fast_methods) | Runtime |
+| [`SimulateCaptureFastMethod`](api/facade-fast-methods.md#simulatecapturefastmethod) | Type |
+
 ## facade/scene-radiance.ts
 
 [Detailed contracts](api/facade-scene-radiance.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/facade/scene-radiance.ts)
