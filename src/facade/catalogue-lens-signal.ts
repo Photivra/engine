@@ -34,7 +34,7 @@ import { InvalidConfigurationError } from "../core/configuration-error.js";
 import { insideRadialImageCircle, lensProjectionDirectionValue } from "../camera/lens-projection.js";
 import { resolveProjectionDistanceMm } from "../motion/camera-rotation.js";
 import { prepareIlluminationVignettingThroughput, type IlluminationVignettingProfile } from "../optics/illumination-vignetting.js";
-import { resolveLensSampledPsfKernel, type ResolveLensSampledPsfInput } from "../optics/lens-psf-profile.js";
+import { kernelCentroid, resolveLensSampledPsfKernel, type ResolveLensSampledPsfInput } from "../optics/lens-psf-profile.js";
 import type { DisplayViewScene } from "./expected-signal.js";
 
 /** Fewest grid cells between neighboring profile field nodes. */
@@ -90,13 +90,6 @@ export interface CatalogueLensSignal {
   readonly grid: { columns: number; rows: number; resolved: number };
 }
 
-/** A kernel's intensity centroid, in samples. */
-function centroid(values: readonly number[], width: number): { x: number; y: number } {
-  let sum = 0, x = 0, y = 0;
-  for (let i = 0; i < values.length; i++) { const v = values[i]!; sum += v; x += v * (i % width); y += v * Math.floor(i / width); }
-  return { x: x / sum, y: y / sum };
-}
-
 /**
  * The grid axes: each interval between neighboring profile field nodes split into max(GRID_MINIMUM_SUBDIVISIONS,
  * ⌈Δc / GRID_CENTROID_STEP_SITES⌉) equal cells, Δc the largest centroid move between the interval's two nodes over the other
@@ -107,7 +100,7 @@ export function catalogueFastGridAxes(psf: CatalogueLensSignalInput["psf"]): { x
   const centroids = new Map<string, { x: number; y: number }>();
   for (const node of profile.nodes) {
     const c = node.coordinate;
-    centroids.set(c.fieldXmm + ":" + c.fieldYmm + ":" + c.wavelengthNm, centroid(node.kernel.normalizedIntensity, node.kernel.widthSamples));
+    centroids.set(c.fieldXmm + ":" + c.fieldYmm + ":" + c.wavelengthNm, kernelCentroid(node.kernel));
   }
   const at = (x: number, y: number, nm: number): { x: number; y: number } => {
     const c = centroids.get(x + ":" + y + ":" + nm);

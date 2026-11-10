@@ -62,10 +62,17 @@ describe("output.lensCorrections (#570)", { timeout: scaledTimeout(60_000) }, ()
   it("applies the lens's own profile: the same k1, channel scales and vignetting as createGenericLensCorrectionProfile", async () => {
     const W = 48, area = { widthMm: 36, heightMm: 24 }, lens = resolveGenericLens({ lensId: "pv-300-5.6", activeImagingArea: area, fNumber: 5.6 });
     const r = await simulateCapture(frame("pv-300-5.6", 5.6, W, flat, { lensCorrections: ALL }));
-    const profile = createGenericLensCorrectionProfile({ lensId: "pv-300-5.6", activeImagingArea: area, state: { bodyId: "b", bodyVersion: "1", lensId: "pv-300-5.6", lensVersion: "1",
+    // #589: the capture's channel scales use its own channels' effective dispersion, which it reports; the profile takes it too.
+    const a = lensAssumption(r)! as { k1: number; channelDispersion: { red: number; green: number; blue: number }; channelScales: Record<string, number>; cornerStops: number; magnification: number };
+    const profile = createGenericLensCorrectionProfile({ lensId: "pv-300-5.6", activeImagingArea: area, channelDispersion: a.channelDispersion, state: { bodyId: "b", bodyVersion: "1", lensId: "pv-300-5.6", lensVersion: "1",
       focalLengthMm: lens.focalLengthMm, aperture: 5.6, focusDistanceM: 5, captureMode: "still", outputWidth: W, outputHeight: 32, frameRateHz: 0, stabilizationMode: "off" } });
     const [d, ca, v] = profile.components as [any, any, any]; // eslint-disable-line @typescript-eslint/no-explicit-any
-    const a = lensAssumption(r)! as { k1: number; channelScales: Record<string, number>; cornerStops: number; magnification: number };
+    // The default sensor's red channel reaches into the green and blue: its effective dispersion (0.20 at a 20 nm step, 0.23 at
+    // 50 nm) is far above D(610 nm) = −0.11; the blue's (1.04 and 1.10) above D(465 nm) = 0.90.
+    expect(a.channelDispersion.red).toBeGreaterThan(0.15);
+    expect(a.channelDispersion.red).toBeLessThan(0.3);
+    expect(a.channelDispersion.blue).toBeGreaterThan(1);
+    expect(a.channelDispersion.blue).toBeLessThan(1.15);
     expect(a.k1).toBe(d.transform.profile.coefficients.k1);
     for (const c of ["red", "green", "blue"]) expect(a.channelScales[c]).toBe(ca.transforms[c].matrix[0]);
     const b = 1 - 2 ** (-a.cornerStops / 2);
@@ -89,7 +96,8 @@ describe("output.lensCorrections (#570)", { timeout: scaledTimeout(60_000) }, ()
     const plan = resolveLensCorrectionPlan({ profile, state, selections: { vignetting: "off" }, outputKind: "processed", selectionKind: "camera-selectable" }).value;
     const reference = calculateLensCorrectedCapture({ plan, capture: { state, captureId: "c", noiseRealizationId: "n", timeSeconds: 0, raster, channels },
       destinationRaster: raster, resampler, physicalProjectionDistanceMm: 16, clippingLevel: 10 }).value;
-    const c = { ...prepareDevelopedLensCorrection(lens, { distortion: true, lateralColor: true, vignetting: false }, W, H, pitchMm, genericLensDispersion), fill: 1 };
+    const c = { ...prepareDevelopedLensCorrection(lens, { distortion: true, lateralColor: true, vignetting: false }, W, H, pitchMm,
+      { red: genericLensDispersion(610), green: genericLensDispersion(540), blue: genericLensDispersion(465) }), fill: 1 };
     const frameRect = { x: 0, y: 0, width: W, height: H }, ours = applyDevelopedLensCorrection(c, rgb, frameRect, frameRect, null);
     let compared = 0;
     for (let i = 0; i < W * H; i++) (["red", "green", "blue"] as const).forEach((ch, k) => {

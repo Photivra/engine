@@ -41,7 +41,9 @@ const PINNED: Record<string, Record<string, string>> = {
     exposure: "59758981082e8b5ded4f7d403abaeac2af94d67554b9fe7d5dee8a7d03cf592e", assumptions: "02eb6ca513304c98a5043233dd5897ca674065ed772a80e94b083470d20227a3" },
   prime50: { samples: "81ffece58d5fe93ad4ba841aa425ad44be60829ed69cb242764d482369dff549", codes: "506b5c2e72835c75b5b14a22bf29ff8d358b4123ce0c5d58082dffc89932fe0d",
     exposure: "00b53a317629402d6abb579d4805ec2dc134ff172ac6ab779162d2ab6e55f379", assumptions: "0bcef252a188774c8e36ef19ebfe51e45a54d7ac4ce4158120afddf156549214" },
-  catalogue50: { samples: "dec04f95afab61dd4ede7b7e1f519472f17ccec7817467280df79f2788524bb8", codes: "72ba688387d09c4b15e3de599d12376c0311f3ae3e63c62ef6e701676275f3c9",
+  // #589: the catalogue PSF's off-axis kernels carry the PSF's own centroid (lateral colour and coma), so this capture's samples and
+  // codes changed; its exposure and assumptions did not.
+  catalogue50: { samples: "41330b92c8ee8c14378644854eac3d2c8d6ca7bf91b92259cde8642de1122930", codes: "055124ad6551e4a13bf51c403b716c1d35c57085ab0b2b111869de24e7c840bf",
     exposure: "bb54027b8c93f83b0a5a524441a9e1ee0ee153a8c0eb9699fefe7806bc64ccd8", assumptions: "2842f0d0283c53f1dfd805013c06ba018d3a599ae73aefe30b1d8f59cdd7bed3" },
   idealAboveF8Manual: { samples: "5e929bb9533f1c4c0007f96a44bb58016f959311184609bf38fe4c99ba44eab3", codes: "a7c8a08b2e99486fcc001e4197343bb5ff6c24ed5251e8d0209857a47c739874",
     exposure: "006914fc3987a766d02070f5bb328685533ac903998205648c496168de997191", assumptions: "812aef066115982228591be5f3733ca6edd009aac48c65fc71a7f1bcc4e5a212" },

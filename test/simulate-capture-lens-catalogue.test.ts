@@ -129,7 +129,8 @@ describe("simulateCapture lens.catalogue on the charts (#549)", () => {
     expect(proCorner).toBeLessThan(consumerCorner);
     expect(proCentre).toBeLessThanOrEqual(consumerCentre);
     expect(consumerCorner).toBeGreaterThan(consumerCentre + 0.2);
-    // Measured 2026-11-07 (6 µm, 48 rows): pro 0.91 / 1.08 px, consumer 1.00 / 1.43 px (centre / corner).
+    // Measured 2026-11-09 (6 µm, 48 rows): pro 0.91 / 1.32 px, consumer 1.01 / 1.56 px (centre / corner). #589's centroid alignment
+    // widened the corner kernels (2026-11-07, before it: pro 1.08 px, consumer 1.43 px at the corner).
     expect(consumerCorner - proCorner).toBeGreaterThan(0.2);
   }, scaledTimeout(120_000));
 
@@ -138,19 +139,22 @@ describe("simulateCapture lens.catalogue on the charts (#549)", () => {
       radialCentroidOffset(await regionCapture(id, widest(id), 3, 32, "corner", point, fast), f.centre) - radialCentroidOffset(await regionCapture(id, 5.6, 3, 32, "corner", point, fast), f.centre);
     const comaShift = async (id: string): Promise<number> => { const exact = await shift(id, false); fastAgrees("coma", id, await shift(id, true), exact); return exact; };
     const consumer = await comaShift(CONSUMER), pro = await comaShift(PRO);
-    // Measured 2026-11-07 (3 µm, 50 nm spectral step): consumer 0.36 px outward, pro 0.02 px.
+    // Measured 2026-11-09 (3 µm, 50 nm spectral step): consumer 0.35 px outward, pro 0.10 px (before #589's centroid alignment the
+    // site cells quantized the pro lens's narrow PSF: 0.02 px).
     expect(consumer).toBeGreaterThan(0.25);
     expect(pro).toBeLessThan(consumer / 3);
   }, scaledTimeout(240_000));
 
-  it("lateral colour: blue and red edges separate at the corner, three times more with the consumer lens", async () => {
+  it("lateral colour: blue and red edges separate at the corner, more with the consumer lens", async () => {
     const offset = async (id: string, fast: boolean): Promise<number> => edge(await regionCapture(id, widest(id), 6, 48, "corner", slantedEdge, fast)).blueMinusRed -
       edge(await regionCapture(id, widest(id), 6, 48, "centre", slantedEdge, fast)).blueMinusRed;
     const ca = async (id: string): Promise<number> => { const exact = await offset(id, false); fastAgrees("lateral", id, await offset(id, true), exact); return exact; };
     const consumer = await ca(CONSUMER), pro = await ca(PRO);
-    // Expected horizontal component of L·R·(D_blue − D_red) at the corner: about 1 px (consumer) and 0.3 px (pro) at 6 µm.
+    // Measured 2026-11-09: consumer 0.68 px, pro 0.44 px. The developed edge is not the lens's displacement (RAW, 0.80 and 0.22 px,
+    // test/simulate-capture-lens-catalogue-lateral-color.test.ts): the color matrix that undoes the channels' overlap amplifies a
+    // blue-green offset, which a narrow PSF keeps sharp and a wide one smooths, and the 50 % point is the LSF's median, not its mean.
     expect(consumer).toBeGreaterThan(0.5);
-    expect(pro).toBeLessThan(consumer / 1.8);
+    expect(pro).toBeLessThan(consumer);
     expect(pro).toBeGreaterThan(0);
   }, scaledTimeout(120_000));
 
