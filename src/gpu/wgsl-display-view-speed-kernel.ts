@@ -52,10 +52,16 @@ export const DISPLAY_VIEW_OUTPUT_FLOATS = 11;
 export const DISPLAY_VIEW_FLAG_WORDS = 3;
 /**
  * #533: relative bound of a site's float32 mean and variance against the reference's float64, in units of E: the electrons'
- * sum of at most 16 offsets (each term a host-rounded weight and table value and one product), the dark electrons, and the
- * readout's products and sum carry at most 26 E; 64 leaves the rest as spare.
+ * sum of at most 16 offsets (each term a host-rounded weight and a material signal and one product), the dark electrons, and
+ * the readout's products and sum carry at most 26 E with a host-rounded material signal (E/2). 2.21.0: the kernel integrates
+ * the material signal Σ_n A_c(λ_n)·L_m(λ_n) itself from the host-rounded response and spectrum: each non-negative product
+ * carries E/2 + E/2 for its operands and E for its rounding, and the products are summed in blocks of 16 nodes (at most 15
+ * additions within a block and 16 across blocks for N ≤ 256 nodes): 33 E instead of E/2, so a site carries at most 58.5 E,
+ * inside the unchanged 64.
  */
 export const DISPLAY_VIEW_SITE_RELATIVE_U = 64;
+/** Most spectral nodes the Speed kernel integrates per site (DISPLAY_VIEW_SITE_RELATIVE_U: 16 blocks of 16). */
+export const DISPLAY_VIEW_SPEED_MAXIMUM_NODES = 256;
 /** Floats per column or row record of the geometry buffer. */
 export const DISPLAY_VIEW_GEOMETRY_STRIDE = 20;
 /** Layout of the aux table (float32 words). */
@@ -108,7 +114,7 @@ const STRIDE: u32 = ${DISPLAY_VIEW_GEOMETRY_STRIDE}u;
 struct Params {
   count: u32, row0: u32, region_w: u32, region_x: u32,
   region_y: u32, margin: u32, native_w: u32, native_h: u32,
-  columns: u32, tone: u32, offsets: u32, pad0: u32,
+  columns: u32, tone: u32, offsets: u32, nodes: u32,
   k0: f32, k1: f32, k2: f32, reach2: f32,
   dark0: f32, dark1: f32, dark2: f32, clip_level: f32,
   c0_0: f32, c0_1: f32, c0_2: f32, pad1: f32,
@@ -120,7 +126,7 @@ struct Params {
 @group(0) @binding(0) var<uniform> params: Params;
 @group(0) @binding(1) var<storage, read> aux: array<f32>;
 @group(0) @binding(2) var<storage, read> geometry: array<f32>;
-@group(0) @binding(3) var<storage, read> site_table: array<f32>;
+@group(0) @binding(3) var<storage, read> spectral_table: array<f32>;
 @group(0) @binding(4) var<storage, read_write> out: array<f32>;
 @group(0) @binding(5) var<storage, read_write> flags: array<u32>;
 
@@ -243,9 +249,21 @@ fn channel_of(x: i32, y: i32) -> u32 {
   if ((y & 1) == 0) { return select(1u, 0u, (x & 1) == 0); }
   return select(2u, 1u, (x & 1) == 0);
 }
-// The expected photo electrons of native site (x, y): Σ_o w_o·table[m_o, c] in offset order (directSite).
+fn material_signal(m: u32, c: u32) -> f32 {
+  let n = params.nodes;
+  var s = 0.0;
+  var b = 0.0;
+  for (var k = 0u; k < n; k = k + 1u) {
+    b = b + spectral_table[c * n + k] * spectral_table[(3u + m) * n + k];
+    if ((k & 15u) == 15u) { s = s + b; b = 0.0; }
+  }
+  return s + b;
+}
+// The expected photo electrons of native site (x, y): Σ_o w_o·S_c(m_o) in offset order (directSite).
 fn site_electrons(x: i32, y: i32, c: u32) -> f32 {
   var sum = 0.0;
+  var last = 0xffffffffu;
+  var value = 0.0;
   let fx = f32(x);
   let fy = f32(y);
   for (var o = 0u; o < params.offsets; o = o + 1u) {
@@ -253,7 +271,8 @@ fn site_electrons(x: i32, y: i32, c: u32) -> f32 {
     let u = (fx + aux[base]) * params.scale_u;
     let v = (fy + aux[base + 1u]) * params.scale_v;
     let m = material_at(vec2<f32>(u, v));
-    sum = sum + aux[base + 2u] * site_table[m * 3u + c];
+    if (m != last) { value = material_signal(m, c); last = m; }
+    sum = sum + aux[base + 2u] * value;
   }
   return sum;
 }

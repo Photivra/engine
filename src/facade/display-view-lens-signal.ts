@@ -48,7 +48,7 @@ import { InvalidConfigurationError } from "../core/configuration-error.js";
 import { createSiteKernelRunsLattice, type SiteKernelRunsRowPattern } from "../optics/site-kernel-runs.js";
 import type { PreparedDefocusImageSpaceGeometry } from "./defocus-image-space-provider.js";
 import { resolveLensSampledPsfKernel, type ResolveLensSampledPsfInput } from "../optics/lens-psf-profile.js";
-import { buildTables, displayViewSignalTables, type DisplayViewExpectedSignal, type DisplayViewExpectedSignalInput, type GroupTables } from "./expected-signal.js";
+import { buildTables, createMaterialSums, displayViewSignalTables, materialSpectrumSignal, type DisplayViewExpectedSignal, type DisplayViewExpectedSignalInput, type GroupTables } from "./expected-signal.js";
 
 /** #569: field zones along the native raster's longer side. */
 export const DISPLAY_VIEW_LENS_PSF_ZONES = 64;
@@ -98,7 +98,7 @@ export function createDisplayViewLensPsf(psf: Omit<ResolveLensSampledPsfInput, "
         else {
           tables = buildTables({ ...input, kernels: { radius: R, perNode: kernelsOf(zone, input.wavelengthsNm) } }).groups;
           // Zones kept: at least 4, and at most 64 MB of them (every zone's tables have the same size).
-          kept ||= Math.max(4, (1 << 23) / tables.reduce((n, g) => n + g.cw * g.ch * (g.neutral.length + g.spectral.flat().length + g.perNode.flat().length), 0));
+          kept ||= Math.max(4, (1 << 23) / tables.reduce((n, g) => n + g.cw * g.ch * (g.nodeKernels.length * input.wavelengthsNm.length + g.perNode.flat().length), 0));
           if (cache.size >= kept) cache.delete(cache.keys().next().value!);
         }
         cache.set(zone, tables); last = zone; lastTables = tables;
@@ -161,7 +161,7 @@ function createLensSignal(lens: DisplayViewLensSetup, input: DisplayViewExpected
   const { geometry, distanceM: distance, metresPerFrameUnit: scale, pitch, imagingArea } = lens;
   const mmPerSite = pitch / 1000, scene = input.scene, offsets = input.offsets, A = input.electronsPerRadiance, channelAt = input.channelAt;
   const materials = scene.kind === "materials" ? scene : undefined, radianceAt = scene.kind === "radiance" ? scene.radianceAt : undefined;
-  const { reflectance, spectralIndex, neutralDirect, spectralDirect, groups } = displayViewSignalTables(input);
+  const { spectra, groups } = displayViewSignalTables(input), acc = createMaterialSums(nodes, spectra);
   const kernels = input.kernels, R = kernels ? kernels.radius : 0;
   /** #569: the combined kernels of the zone of site (x, y), or the input's own without a field-dependent PSF. */
   const zoneTables = lens.psf ? lens.psf.tables(input) : (): typeof groups => groups;
@@ -182,7 +182,7 @@ function createLensSignal(lens: DisplayViewLensSetup, input: DisplayViewExpected
     const s = distance / look.z;
     pu = look.x * s / scale; pv = look.y * s / scale; pf = look.factor;
   };
-  const materialOf = (m: number): number => { if (spectralIndex[m] === undefined) throw new InvalidConfigurationError("Unknown chart material."); return m; };
+  const materialOf = (m: number): number => { if (spectra[m] === undefined) throw new InvalidConfigurationError("Unknown chart material."); return m; };
   // Without a kernel: the environment's query point of offset o of site (x, y) (native-environment-lean.ts, as buildExpectedSignalInput's queryPoint).
   const box = lens.boxSamples, siteWidthMm = pitch / 1000;
   const phases = offsets.map((_, o) => {
@@ -199,8 +199,8 @@ function createLensSignal(lens: DisplayViewLensSetup, input: DisplayViewExpected
         map((centerX - siteWidthMm / 2 + node.xPhase * siteWidthMm) - node.aaX, (centerY - siteWidthMm / 2 + node.yPhase * siteWidthMm) - node.aaY, times[ti]!);
         let value: number;
         if (materials) {
-          const m = materialOf(materials.materialAt(pu, pv)), si = spectralIndex[m]!;
-          value = si < 0 ? reflectance[m]! * neutralDirect[c]! : spectralDirect[c]![si]!; lookups++;
+          // Integrated from the material's spectrum against the site's channel when it is read.
+          value = materialSpectrumSignal(A[c]!, spectra[materials.materialAt(pu, pv)], nodes); lookups++;
         } else { value = 0; for (let n = 0; n < nodes; n++) value += A[c]![n]! * radianceAt!(pu, pv, input.wavelengthsNm[n]!); lookups += nodes; }
         sum += offsets[o]!.weight * (pf * value);
       }
@@ -238,18 +238,19 @@ function createLensSignal(lens: DisplayViewLensSetup, input: DisplayViewExpected
     let total = 0;
     for (let ti = 0; ti < T; ti++) {
       let sum = 0;
+      acc.reset();
       for (let g = 0; g < G; g++) {
         const group = groups[g]!, p0 = x + group.minIx - R, q0 = y + group.minIy - R, cw = group.cw, ch = group.ch, weights = zone[g]!;
         if (materials) {
-          const nk = weights.neutral[c]!, sk = weights.spectral[c]!;
+          const k = weights.nodeKernels[c]!;
           for (let dy = 0, t = 0; dy < ch; dy++) {
             // The cache row of lattice row q (read inline: the common case is a hit).
             const q = q0 + dy, row = cacheRows > 0 ? ((g * T + ti) * cacheRows + (q & rowMask)) * cacheCols : -1;
             for (let dx = 0; dx < cw; dx++, t++) {
-              const p = p0 + dx, k = row + (p & colMask);
-              if (row >= 0 && tagQ[k] === q && tagP[k] === p) { lm = cacheMaterial[k]!; lf = cacheFactor[k]!; } else lattice(g, ti, p, q);
-              const si = spectralIndex[lm]!;
-              sum += lf * (si < 0 ? reflectance[lm]! * nk[t]! : sk[si]![t]!);
+              const p = p0 + dx;
+              const at = row + (p & colMask);
+              if (row >= 0 && tagQ[at] === q && tagP[at] === p) { lm = cacheMaterial[at]!; lf = cacheFactor[at]!; } else lattice(g, ti, p, q);
+              acc.add(lm, k, t * nodes, lf);
             }
           }
         } else for (let dy = 0, t = 0; dy < ch; dy++) for (let dx = 0; dx < cw; dx++, t++) {
@@ -259,7 +260,7 @@ function createLensSignal(lens: DisplayViewLensSetup, input: DisplayViewExpected
           sum += lf * value;
         }
       }
-      total += sum;
+      total += materials ? acc.value() : sum;
     }
     return total / T;
   }
@@ -297,14 +298,16 @@ function createLensSignal(lens: DisplayViewLensSetup, input: DisplayViewExpected
         }
         lookups += material ? gw * gh : gw * gh * nodes;
         for (let c = 0; c < 3; c++) {
-          const e = sum[c]!, nk = group.neutral[c], sk = group.spectral[c];
+          const e = sum[c]!, kc = material ? group.nodeKernels[c]! : undefined;
           for (let y = 0; y < TH; y++) for (let x = 0; x < TW; x++) {
             let v = 0;
+            acc.reset();
             for (let dy = 0, t = 0; dy < ch; dy++) for (let dx = 0; dx < cw; dx++, t++) {
               const k = (y + dy) * gw + x + dx;
-              if (material) { const m = material[k]!, si = spectralIndex[m]!; v += factor[k]! * (si < 0 ? reflectance[m]! * nk![t]! : sk![si]![t]!); }
+              if (material) acc.add(material[k]!, kc!, t * nodes, factor[k]!);
               else { let r = 0; for (let n = 0; n < nodes; n++) r += group.perNode[n]![c]![t]! * values![k * nodes + n]!; v += factor[k]! * r; }
             }
+            if (material) v = acc.value();
             e[y * TW + x] = e[y * TW + x]! + v;
           }
         }

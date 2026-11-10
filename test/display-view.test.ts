@@ -13,11 +13,11 @@ import { hashLockOnThisArchitecture } from "./helpers/architecture-hash-locks.js
 // #508: the arm64 hashes of the "keeps its bytes" locks whose bytes differ there, keyed by the x64 lock (recorded on
 // Node 24.19.0 and 24.22.1, macOS arm64 and Linux arm64). The Speed case without diffraction is the same on both.
 const ARM64_DISPLAY_VIEW_HASHES: Readonly<Record<string, string>> = {
-  "0b049fcb5c770bc018cfb318b292f1cffe23b2e4b6dbe53004756c107d7b0e57": "bfcf6d420791e74c553774e46a666e5528583b9ffcae61dbbd64e37b13f4b1b1",
-  "3c4d6097d5358111358165c7a820eab707b41eb5621c4ba5f2fe51bd004fb3b0": "ac0e3d1c116e0f3fc82be7d9d7d055a2859ba2d4209da55bbeb139d6533b20e4",
-  "d1f47df34a757135ce4335656e9294b1a6995429e28183451d0386b5a03de451": "cbad28f5bdfd0027959c074acb149682bf358cfa7aaf7aa5357cfd51f4216552",
+  "fdb4a0cc334ab6a05658e3b94ee165131d724ec695f34273b070ff591d66cd87": "c93e6ffc9bcb0eadc463966a7832e4a5b11b9480d99e4d77ba5b020c7bace048",
+  "3773f078245079b1077e3fa6c326ee48f42770c232cf78a5a52f8161d01c2806": "30cec9b799d1f6769e773ce6749caee3bb0628188aaa2450a137d325e54449c9",
+  "de8b8d2dec86f8f250caefe465ca4089e0f742b6dc91758ebd9ff99a9cc899eb": "74f1ae184a78231faf7c2c755710f862af976fe4201241b83f780264ac0ccda9",
   "992eec6e7a1d8d3ec4817baf703156c46f9dda4a8dd340624dac8d1b8f439b77": "c92d880f0fff487be141eba45bc103f28e404c3ca2282c9ee9e3bf93ce5d69c8",
-  "80b0ee70106adfde5dbc6aad21d90de700e27a65ede35cc60d147d639d9ff153": "ca1bee1dd655c892c68a02c52abe9b6759255d5b03b3cb9ebddd4bd26f72b807"
+  "8f0dac20f3c0272bbc18107d8d8fc328b33d96418e89e227e6c86f2b4e8894c5": "cc65fbe992dbbfdd521ecd9a77c6a64335eb4c75f2c4fa622778200911e8911c"
 };
 
 const decode = (code: number, maximum: number): number => { const e = code / maximum; return e <= 0.04045 ? e / 12.92 : ((e + 0.055) / 1.055) ** 2.4; };
@@ -225,6 +225,10 @@ describe("simulateDisplayView", () => {
     // Re-recorded for #457 (AHD's choice on the noise-free mosaic): the AHD dead-leaves case (fifth) only, whose expected values
     // moved by up to 1.73 8-bit codes toward the capture (0.37 → 0.16 codes RMS against 16 reference captures); the others,
     // the uniform AHD case included, keep their hashes. Recorded on Linux x64 (CI); see #508 for macOS arm64.
+    // Re-recorded for 2.21.0 (signals integrated from the material spectrum per site): every chart case (the radiance scene keeps
+    // its hash). The samples are unchanged; the float64 expected values move by at most 9.5·10⁻¹⁵ relative and the noise standard
+    // deviations by at most 2.1·10⁻¹³ (a neutral material's spectrum is integrated per site, and with kernels the taps are summed
+    // per material and node). The x64 locks were taken with x64 Node 24.1.0 (under Rosetta 2), which reproduces every earlier x64 lock.
     // Each case exercises one path: non-uniform and uniform diffraction sites, the AHD correction, spectral materials with
     // mirror borders, a radiance scene, AHD with a tone curve, and Speed. The display view's own arithmetic and its
     // illuminant use only correctly rounded operations and the engine's portable functions (src/core/portable-math.ts), so
@@ -238,18 +242,18 @@ describe("simulateDisplayView", () => {
     const rings = (p: { u: number; v: number }): number => { const t = 20 * (p.u * p.u + p.v * p.v), f = t - Math.floor(t); return 0.1 + 0.6 * (f < 0.5 ? 2 * f : 2 - 2 * f); };
     const cases: [SimulateCaptureOptions, SimulateDisplayViewOptions, string][] = [
       [{ scene: { preset: "siemens-star" }, lens: { fNumber: 8, diffraction: "circular-aperture" }, sensor: { pixelPitchMicrometers: 1.4, antiAliasing: { kind: "four-spot" } },
-        output: { width: 400, height: 300 } }, { width: 20, height: 15 }, "0b049fcb5c770bc018cfb318b292f1cffe23b2e4b6dbe53004756c107d7b0e57"],
+        output: { width: 400, height: 300 } }, { width: 20, height: 15 }, "fdb4a0cc334ab6a05658e3b94ee165131d724ec695f34273b070ff591d66cd87"],
       [{ scene: { preset: "uniform", reflectance: 0.18 }, lens: { fNumber: 8, diffraction: "circular-aperture" }, exposure: { iso: 1600, shutterSeconds: 1 / 2000 },
-        sensor: { pixelPitchMicrometers: 1.4 }, output: { width: 200, height: 150, demosaic: "ahd" } }, { width: 10, height: 8 }, "3c4d6097d5358111358165c7a820eab707b41eb5621c4ba5f2fe51bd004fb3b0"],
+        sensor: { pixelPitchMicrometers: 1.4 }, output: { width: 200, height: 150, demosaic: "ahd" } }, { width: 10, height: 8 }, "3773f078245079b1077e3fa6c326ee48f42770c232cf78a5a52f8161d01c2806"],
       [{ scene: { preset: "patches", patches: [{ patchId: "a", reflectance: red }, { patchId: "b", reflectance: 0.5 }], columns: 2 }, chartSize: { widthM: 0.002, surroundReflectance: 0.3 },
         lens: { diffraction: "circular-aperture" }, sensor: { pixelPitchMicrometers: 2 }, output: { width: 60, height: 40, borderHandling: "mirror" } }, { width: 12, height: 8 },
-      "d1f47df34a757135ce4335656e9294b1a6995429e28183451d0386b5a03de451"],
+      "de8b8d2dec86f8f250caefe465ca4089e0f742b6dc91758ebd9ff99a9cc899eb"],
       [{ scene: { kind: "reflectance-function", sceneId: "rings", evaluate: rings }, lens: { diffraction: "circular-aperture" },
         sensor: { pixelAperture: { kind: "box", samplesPerAxis: 2 } }, output: { width: 48, height: 32 } }, { width: 12, height: 8 }, "992eec6e7a1d8d3ec4817baf703156c46f9dda4a8dd340624dac8d1b8f439b77"],
       [{ scene: { preset: "dead-leaves" }, lens: { fNumber: 11, diffraction: "circular-aperture" }, sensor: { pixelPitchMicrometers: 4 },
         output: { width: 300, height: 200, demosaic: "ahd", toneCurve: "positive-reinhard-per-channel" } }, { width: 30, height: 20, region: { x: 5, y: 4, width: 9, height: 7 }, format: "srgb-16" },
-      "80b0ee70106adfde5dbc6aad21d90de700e27a65ede35cc60d147d639d9ff153"],
-      [{ scene: { preset: "dead-leaves" }, sensor: { pixelPitchMicrometers: 2 }, output: { width: 300, height: 200 } }, { width: 30, height: 20 }, "c3c2809d9aab37e7c8269a97804d14d930fd7bf06f29eedb02f1141dcded03e8"]
+      "8f0dac20f3c0272bbc18107d8d8fc328b33d96418e89e227e6c86f2b4e8894c5"],
+      [{ scene: { preset: "dead-leaves" }, sensor: { pixelPitchMicrometers: 2 }, output: { width: 300, height: 200 } }, { width: 30, height: 20 }, "92c3c98e64304843f89968c2c3ddb0ca72467fb993f09c27a657232be4c18245"]
     ];
     for (const [options, view, expected] of cases) {
       const { result, internals } = await simulateDisplayViewWithInternals(options, view);

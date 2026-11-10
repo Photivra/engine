@@ -15,7 +15,7 @@
  * `display-view-composite-material-module.ts` (#491) one for composite charts, the 2.3 elements and `material-layers` scenes.
  */
 import { DISPLAY_VIEW_NOISE_STREAM_ID, axisSums, clipCentre, createDisplayViewExpectedSignal, displayViewDecidedSaturation, overlaps, quantizationVariance, renderDisplayView, type AxisSums, type DisplayViewRenderResult, type DisplayViewSetup } from "../facade/display-view.js";
-import type { DisplayViewExpectedSignalInput } from "../facade/expected-signal.js";
+import { displayViewSignalTables, type DisplayViewExpectedSignalInput } from "../facade/expected-signal.js";
 import { resolvePortableChartScene } from "../facade/chart-scenes.js";
 import { setDisplayViewGpuRendererFactory, type DisplayViewGpuConformanceCase, type DisplayViewGpuPart, type DisplayViewGpuRenderOutput, type DisplayViewGpuRenderer,
   type DisplayViewGpuRendererFactory, type DisplayViewGpuRequest, type DisplayViewGpuRuntimeHandle } from "../facade/display-view-gpu.js";
@@ -26,7 +26,7 @@ import { createDeterministicUniformStream, deriveNativeSiteStreamSeedUint32, sam
 import { createHostYieldGate } from "../capture/host-yield-cadence.js";
 import { ImageKernelExecutionError, WEBGPU_F32_UNIT_ROUNDOFF, webGpuExecution, type ChartCompositeProbeRecord, type ImageKernelExecution, type ImageKernelRelativeErrorBound } from "./image-kernel-execution.js";
 import { BUFFER_USAGE, GpuResourceScope, abortedError, createComputePipeline, linearDispatch, runComputePass, type WebGpuRuntime, throwIfAborted as checkAbort } from "./webgpu-runtime.js";
-import { DISPLAY_VIEW_AUX, DISPLAY_VIEW_FLAG_WORDS, DISPLAY_VIEW_GEOMETRY_STRIDE, DISPLAY_VIEW_GPU_MAXIMUM_OFFSETS, DISPLAY_VIEW_GPU_MAXIMUM_PIXELS_PER_AXIS,
+import { DISPLAY_VIEW_AUX, DISPLAY_VIEW_FLAG_WORDS, DISPLAY_VIEW_SPEED_MAXIMUM_NODES, DISPLAY_VIEW_GEOMETRY_STRIDE, DISPLAY_VIEW_GPU_MAXIMUM_OFFSETS, DISPLAY_VIEW_GPU_MAXIMUM_PIXELS_PER_AXIS,
   DISPLAY_VIEW_OUTPUT_FLOATS, DISPLAY_VIEW_PARAM_WORDS, DISPLAY_VIEW_REINHARD_MEAN_U, DISPLAY_VIEW_REINHARD_VARIANCE_U, DISPLAY_VIEW_WORKGROUP_SIZE,
   assembleDisplayViewSpeedWgsl } from "./wgsl-display-view-speed-kernel.js";
 import { footprintShape, bilinearKernels, offsetCount } from "./display-view-quality-gpu.js";
@@ -122,6 +122,7 @@ export function displayViewSpeedGpuUnsupportedReason(setup: DisplayViewSetup, si
   if (setup.candidates || setup.ahdCorrection || setup.ahdCollect) return "AHD candidates and the low-signal correction are not on the GPU";
   if (setup.toneCurve !== "identity" && setup.toneCurve !== "positive-reinhard-per-channel") return "unsupported tone curve " + String(setup.toneCurve);
   if (signalInput.offsets.length < 1 || signalInput.offsets.length > DISPLAY_VIEW_GPU_MAXIMUM_OFFSETS) return "the kernel holds 1 to " + DISPLAY_VIEW_GPU_MAXIMUM_OFFSETS + " query offsets";
+  if (signalInput.wavelengthsNm.length < 1 || signalInput.wavelengthsNm.length > DISPLAY_VIEW_SPEED_MAXIMUM_NODES) return "the kernel integrates 1 to " + DISPLAY_VIEW_SPEED_MAXIMUM_NODES + " spectral nodes per site";
   if (setup.region.width < 1 || setup.region.height < 1) return "an empty region";
   const shape = footprintShape(setup);
   if (!shape.exact) return "the stratified estimator (footprints above 25 real pixels) is not on the GPU";
@@ -134,20 +135,18 @@ export function displayViewSpeedGpuUnsupportedReason(setup: DisplayViewSetup, si
   return null;
 }
 
-/** The site table: Σ_λ A_c(λ)·L_m(λ) per material and channel in float64 (the reference's `materialSignalDirect`), rounded once to float32. */
-function siteTable(signalInput: DisplayViewExpectedSignalInput): Float32Array<ArrayBuffer> {
-  const scene = signalInput.scene as Extract<DisplayViewExpectedSignalInput["scene"], { kind: "materials" }>, A = signalInput.electronsPerRadiance, nodes = signalInput.wavelengthsNm.length;
-  const neutral = [0, 1, 2].map((c) => { let s = 0; for (let n = 0; n < nodes; n++) s += A[c]![n]! * scene.whiteRadiance[n]!; return s; });
-  const table = new Float32Array(scene.materials.length * 3);
-  scene.materials.forEach((m, index) => {
-    for (let c = 0; c < 3; c++) {
-      let value: number;
-      if ("neutral" in m) value = m.neutral * neutral[c]!;
-      else { value = 0; for (let n = 0; n < nodes; n++) value += A[c]![n]! * m.radiance[n]!; }
-      if (!(Math.abs(value) <= FLOAT32_SAFE_MAGNITUDE)) throw new ImageKernelExecutionError("unsupported-float32-domain", "A material's channel signal exceeds the float32 domain.");
-      table[index * 3 + c] = value;
-    }
-  });
+/**
+ * The spectral table (2.21.0: signals are integrated from the material spectrum per site): the three channel responses A_c(λ_n)
+ * (3·N floats), then each material's spectral radiance L_m(λ_n) (N floats per material; a neutral one its reflectance times the
+ * white radiance, the reference's own float64 spectra), each rounded once to float32. The kernel integrates Σ_n A_c(λ_n)·L_m(λ_n)
+ * for the material and channel a site reads, when it reads it; no per-material channel value is formed.
+ *
+ * Domain: every value is non-negative and the largest possible sum, N·max A·max L, stays below the float32 safe magnitude (NaN fails it).
+ */
+function spectralTable(signalInput: DisplayViewExpectedSignalInput): Float32Array<ArrayBuffer> {
+  const N = signalInput.wavelengthsNm.length, rows = [...signalInput.electronsPerRadiance, ...displayViewSignalTables(signalInput).spectra], largest = [0, 0];
+  const table = Float32Array.from(rows.flatMap((row, r) => Array.from(row.subarray(0, N), (v) => { largest[r < 3 ? 0 : 1] = Math.max(largest[r < 3 ? 0 : 1]!, v >= 0 ? v : Infinity); return v; })));
+  if (!(largest[0]! * largest[1]! * N <= FLOAT32_SAFE_MAGNITUDE)) throw new ImageKernelExecutionError("unsupported-float32-domain", "A material's channel signal exceeds the float32 domain.");
   return table;
 }
 
@@ -211,7 +210,7 @@ export function axisRecord(geometry: Float32Array, at: number, start: number, en
 function constants(setup: DisplayViewSetup, signalInput: DisplayViewExpectedSignalInput): { params: ArrayBuffer; aux: Float32Array<ArrayBuffer> } {
   const params = new ArrayBuffer(4 * DISPLAY_VIEW_PARAM_WORDS), words = new Uint32Array(params), floats = new Float32Array(params);
   words[2] = setup.region.width; words[3] = setup.region.x; words[4] = setup.region.y; words[5] = setup.margin; words[6] = setup.nativeWidth; words[7] = setup.nativeHeight;
-  words[8] = setup.region.width; words[9] = setup.toneCurve === "positive-reinhard-per-channel" ? 1 : 0; words[10] = signalInput.offsets.length;
+  words[8] = setup.region.width; words[9] = setup.toneCurve === "positive-reinhard-per-channel" ? 1 : 0; words[10] = signalInput.offsets.length; words[11] = signalInput.wavelengthsNm.length;
   for (let c = 0; c < 3; c++) { floats[12 + c] = setup.readout[c]!.perElectron; floats[16 + c] = setup.readout[c]!.darkElectrons; floats[20 + c] = setup.readout[c]!.constantVariance; floats[24 + c] = setup.gains[c]!; }
   floats[15] = 8.5 * 8.5; floats[19] = setup.clipLevel;
   for (let r = 0; r < 3; r++) for (let c = 0; c < 3; c++) floats[28 + r * 3 + c] = setup.matrix[r]![c]!;
@@ -282,7 +281,7 @@ export async function renderDisplayViewSpeedOnGpu(runtime: WebGpuRuntime, bandBy
   const { setup, signalInput, material } = input;
   const reason = displayViewSpeedGpuUnsupportedReason(setup, signalInput);
   if (reason) throw new ImageKernelExecutionError("unsupported-on-backend", "webgpu-f32 display view (Speed): " + reason + "; use cpu-reference.");
-  const { region, margin } = setup, shape = footprintShape(setup), table = siteTable(signalInput), { params, aux } = constants(setup, signalInput);
+  const { region, margin } = setup, shape = footprintShape(setup), table = spectralTable(signalInput), { params, aux } = constants(setup, signalInput);
   const stride = DISPLAY_VIEW_GEOMETRY_STRIDE, geometry = new Float32Array((region.width + region.height) * stride);
   const columnSums: AxisSums[] = [], rowSums: AxisSums[] = [];
   for (let i = 0; i < region.width; i++) { axisRecord(geometry, i * stride, (region.x + i) * shape.sx, (region.x + i + 1) * shape.sx, setup.frameWidth, margin, shape.sx); columnSums.push(axisSums((region.x + i) * shape.sx, (region.x + i + 1) * shape.sx, setup.frameWidth, margin)); }

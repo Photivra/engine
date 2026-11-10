@@ -137,12 +137,12 @@ describe("#492: defocus in the GPU display view (float32 emulation) vs the CPU r
   }, scaledTimeout(900_000));
 
   it("a kernel table past the device's storage binding limit is refused by name (insufficient-limits): \"auto\" renders the CPU reference with that label, \"require\" fails", async () => {
-    // Radius 94, three spectral materials of the patches chart beside the neutral white: (1 + 3) rows × 3 × 144 400 taps × 4 bytes ≈ 6.9 MB.
+    // Radius 94, the patches chart: 3 channels × 144 400 taps × 21 spectral nodes × 4 bytes ≈ 36 MB of per-node kernel values (2.21.0).
     const c = DEFOCUS_GPU_EXTRA[4]!, options = { ...c.options, scene: { preset: "patches" as const, columns: 2, patches: Array.from({ length: 4 }, (_, i) => ({ patchId: `p${i}`, reflectance: i % 2 === 0 ?
       { kind: "tabulated" as const, samples: [380, 580, 780].map((w, j) => ({ wavelengthNanometers: w, value: 0.1 + 0.1 * i + 0.1 * j })) } : 0.2 + 0.1 * i })) } };
     const view = { ...c.view, region: { ...c.view.region!, width: 2, height: 2 } };
     const fixture = await displayViewGpuFixture(options, view), small = await runtimeOf(createFakeGpu({ maxStorageBufferBindingSize: 16 * 1024 * 1024 }).gpu);
-    // A 16 MiB device holds it; the same table at 4 MiB does not (the runtime's limit, scaled down as a smaller device's).
+    // The table does not fit the runtime's limit, scaled down to 4 MiB as a smaller device's.
     const runtime = Object.create(small, { maximumStorageBindingBytes: { value: 4 * 1024 * 1024 } }) as typeof small;
     await expect(renderOnGpuQuality(runtime, fixture)).rejects.toMatchObject({ reason: "insufficient-limits", message: expect.stringMatching(/kernel table .* exceeds the device's storage binding limit/u) });
     small.destroy();
@@ -187,9 +187,9 @@ describe("#492: defocus in the GPU display view (float32 emulation) vs the CPU r
       for (const id of declared(code)) { if (seen.has(id)) twice.push(id); seen.add(id); }
       expect(twice, name).toEqual([]);
     }
-    // The blocked pass binds no tap records and reads the material rows; the tap-list pass keeps its bindings.
+    // The blocked pass binds no tap records; since 2.21.0 it reads the tap-list pass's spectral table (no material rows).
     expect(DISPLAY_VIEW_QUALITY_SITES_BLOCKED_WGSL).not.toMatch(/@binding\(2\)/u);
-    expect(DISPLAY_VIEW_QUALITY_SITES_BLOCKED_WGSL).toMatch(/@binding\(7\) var<storage, read> materials/u);
+    expect(DISPLAY_VIEW_QUALITY_SITES_BLOCKED_WGSL).not.toMatch(/@binding\(7\)/u);
     expect(DISPLAY_VIEW_QUALITY_SITES_WGSL).toMatch(/@binding\(2\) var<storage, read> taps/u);
     expect(DISPLAY_VIEW_QUALITY_SITES_BLOCKED_WGSL.match(/var<storage/gu)!.length).toBeLessThanOrEqual(8);
   });

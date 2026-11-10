@@ -945,8 +945,6 @@ export async function renderDisplayView(setup: DisplayViewSetup): Promise<Displa
     else { upperClip(mean, variance, 1, clip); siteMean[slot] = clip[0]!; siteVar[slot] = clip[1]!; siteClip[slot] = 1 - clip[2]!; }
   }
   let siteCount = 0, sampleCount = 0, detail = 0, uniform = 0, lastYield = Date.now();
-  /** Recorded terms of samples whose sites all read one chart material, by material·4 + CFA phase (layout: MEMO_SIZE). */
-  const sampleMemo = new Map<number, Float64Array>(), recordScratch = new Float64Array(MEMO_SIZE);
   // Per-real-pixel memo (#392): a sample's recorded terms depend only on its real pixel (its sites' expected electrons and its
   // CFA phase), not on the display pixel or the sample, so a later sample of the same real pixel in the same display pixel
   // replays them (the same values added to the same sums in the same order, as the one-material memo does). Slots cover the
@@ -1102,13 +1100,6 @@ export async function renderDisplayView(setup: DisplayViewSetup): Promise<Displa
           else { upperClip(mean, variance, 1, clip); siteMean[slot] = clip[0]!; siteVar[slot] = clip[1]!; siteClip[slot] = 1 - clip[2]!; }
         }
         if (!tracking) material = -1;
-        // A sample whose sites all read one chart material only has the statistics of every other such sample of that material
-        // and CFA phase: replay its recorded terms (the same values added to the same sums in the same order).
-        const memoKey = !memo && material >= 0 ? material * 4 + phase : -1;
-        if (memoKey >= 0) {
-          memo = sampleMemo.get(memoKey);
-          if (memo && pk >= 0) { records.set(memo, pk * MEMO_SIZE); stamps[pk] = stamp; }
-        }
         const count = candidateCount, share = 1 / count;
         if (memo) {
           for (let d = 0; d < count; d++) {
@@ -1124,9 +1115,8 @@ export async function renderDisplayView(setup: DisplayViewSetup): Promise<Displa
           sat += wE * memo[mo + 37]!;
           continue;
         }
-        // The terms are written where they are kept: the real pixel's memo slot, or (for the first sample of a one-material key)
-        // a scratch buffer that is then copied; no typed-array view per sample.
-        const rt = memoKey >= 0 ? recordScratch : pk >= 0 ? records : undefined, ro = memoKey < 0 && pk >= 0 ? pk * MEMO_SIZE : 0;
+        // The terms are written where they are kept: the real pixel's memo slot; no typed-array view per sample.
+        const rt = pk >= 0 ? records : undefined, ro = pk >= 0 ? pk * MEMO_SIZE : 0;
         // Every field of the record (MEMO_SIZE layout) that the propagation below does not write for this sample is zeroed, as a
         // fill of the whole record would leave it. Always written: [0, 3), [27, 30) and candidate 0's [3, 12) and [21, 24); with
         // two candidates also candidate 1's [12, 21) and [24, 27) and the choice terms [30, 33); [33, 37) only with the AHD
@@ -1225,9 +1215,9 @@ export async function renderDisplayView(setup: DisplayViewSetup): Promise<Displa
         // edges as the capture's AHD reads them), and a decided direction takes that candidate's rendered mean. A tie (every flat
         // neighbourhood, where the noise decides) keeps the average, and the low-signal correction below stays the noise's
         // bias of a flat neighbourhood. Skipped where the two candidates' channel means are equal (the choice cannot change the
-        // value) and for one-material samples (equal up to rounding; their memo is keyed by material and phase, not by the
-        // patch). The noise terms are unchanged.
-        if (choicePlane && count === 2 && memoKey < 0 && (candidateChannels[0] !== candidateChannels[3] || candidateChannels[1] !== candidateChannels[4] || candidateChannels[2] !== candidateChannels[5])) {
+        // value) and for one-material samples (equal up to rounding). The noise terms are unchanged.
+        // (2.21.0: a one-material sample's terms are computed like any other sample's; no record is kept per material.)
+        if (choicePlane && count === 2 && material < 0 && (candidateChannels[0] !== candidateChannels[3] || candidateChannels[1] !== candidateChannels[4] || candidateChannels[2] !== candidateChannels[5])) {
           const direction = choicePlane.direction(x, y);
           if (direction !== 2) { e0 = candidateRendered[3 * direction]!; e1 = candidateRendered[3 * direction + 1]!; e2 = candidateRendered[3 * direction + 2]!; }
         }
@@ -1271,7 +1261,6 @@ export async function renderDisplayView(setup: DisplayViewSetup): Promise<Displa
           s0 += wE * fix[0]!; s1 += wE * fix[1]!; s2 += wE * fix[2]!; corrected = true;
           if (rt) { rt[ro + 33] = 1; rt[ro + 34] = fix[0]!; rt[ro + 35] = fix[1]!; rt[ro + 36] = fix[2]!; }
         }
-        if (rt && memoKey >= 0) { sampleMemo.set(memoKey, rt.slice()); if (pk >= 0) records.set(rt, pk * MEMO_SIZE); }
         if (pk >= 0) stamps[pk] = stamp;
         pixelVariance = 0;
       }

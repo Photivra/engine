@@ -1,5 +1,29 @@
 # Changelog
 
+## Unreleased
+
+### 2.21.0 part: chart scenes, signals integrated from the material spectrum per site
+
+- **Changed (design choice, owner decision 2026-11-09): every chart-scene render path integrates each site's signal from its material's spectrum when the site is read.** A chart material is kept as its spectral radiance at the spectral nodes (a neutral one: its reflectance times the white radiance), and a site's signal is formed from the spectra of the materials it reads against its own channel's response (and kernel). No per-material channel value, and no white-integral shortcut for neutral materials, remains:
+  - **Capture** (the tabulated RAW path, #394, and #564's large-kernel tiles), **CPU display view** (direct and kernel paths, #563/#569 lens zones) and **ideal reference**: per-node kernels C_c(t, λ) = Σ_members w·A_c(λ)·K_λ(t), and per site the sums of C over the taps of each material it reads, then Σ_m Σ_λ L_m(λ)·P_m(λ) (`MaterialSums`, `src/facade/expected-signal.ts`). `neutralDirect`, `spectralDirect`, the per-material combined kernels and `uniformSite` are gone; a site that reads one material only takes the channel's kernel sums in the same order, so it is the same value.
+  - **Catalogue fast method (#568):** grid kernels per spectral node (A_c(λ)·K_{g,λ}), no material class folded in; each tap integrates its material's spectrum against the blend. The blend is taken along y once per grid column and native row.
+  - **Display view:** the per-material sample memo is removed (the per-real-pixel memo, within one render, stays).
+  - **GPU Speed:** the host uploads the channel responses and the material spectra (rounded once); the kernel integrates Σ_λ A_c(λ)·L_m(λ) per site in blocks of 16 nodes, inside the unchanged 64E site budget (up to 256 nodes).
+  - **GPU Quality:** the host uploads the per-node kernel values and the spectra; the site passes accumulate one partial per node and sum the partials and the dark electrons in integer arithmetic (`src/gpu/wgsl-exact-sum.ts`, rounded once), so the (T + 3)·E and blocked (cw + ch + G + 3)·E bounds are unchanged (at most 96 nodes; more fall back to the CPU). The factored neutral table and its material-row binding are gone; the uncertain-tap spread is bounded from the spectra's envelope.
+  - **`evaluateChartRadiance`, spectral-integral mode:** the GPU returns each query's material and the host integrates its spectrum against the channel weights per query (the same float64 operations; values unchanged).
+- **Results.** Output samples are unchanged in every measured request but one: in the Quality display view of a 384 × 384 region of the composite chart, 1 of 442,368 samples moves by one code (an expected value's last bits crossing a code boundary). Float64 internals move by rounding: 11 display-view hash locks re-recorded (x64 with x64 Node 24.1.0 under Rosetta 2, which reproduces every earlier x64 lock; arm64 natively), expected values within 1.9·10⁻¹⁴ relative, except the #444 AHD case, where 30 of 360 expected components at a patch edge move by at most 0.025 8-bit codes (AHD's choice is now taken where the two candidates' means were equal to the last bit). Every GPU case stays inside its bound (emulation).
+- **Cost** (Node, one thread, measured before and after interleaved in one run; the app's request shape: 6000 × 4000, 6 µm, 2 × 2 box, f/8, Quality with diffraction, the four-spot filter and AHD; the app's composite chart, all neutral, and the spectral `color-patches` chart; 21 spectral nodes):
+  - Capture 24 MP, Speed: 11.2 → 11.5 s (composite), 9.4 → 9.6 s (patches). Quality: 13.6 → 96.3 s, 10.9 → 15.9 s.
+  - 48-pixel quick frame, Speed: 21 → 23 ms, 20 → 20 ms. Quality: 65 → 68 ms, 64 → 65 ms.
+  - Display view, a 384 × 384 region of a 2028 × 1352 view, Speed: 1.06 → 1.06 s, 0.62 → 0.79 s. Quality: 2.7 → 33.9 s, 1.10 → 2.07 s.
+  - Display view, a 48-pixel view of the 24 MP frame, Speed: 0.73 → 0.93 s, 0.43 → 0.54 s. Quality: 5.6 → 76.7 s, 2.4 → 6.4 s.
+  - Ideal reference, 24 MP: 4.1 → 5.8 s, 2.9 → 3.1 s.
+  - Catalogue fast method (#568), 768-pixel quick frame: 193 → 242 ms (Siemens star), 207 → 242 ms (patches).
+  - GPU float32 emulation, a 384 × 384 Speed region: 0.93 → 1.07 s (checkerboard), 6.2 → 6.3 s (patches); Quality site pass of a 2028 × 32 band: 1.0 → 5.2 s (pixel pass unchanged, 14 s).
+  - The Quality paths integrate N products per kernel tap (400 taps at f/8) instead of reading one value, as the owner accepted.
+- **Size.** The app's capture-worker shape measures 351,992 B gzip (main: 351,775 B; limit 352,000 B, not raised).
+- **Tests:** `test/exact-sum.test.ts` (new); hash locks in `test/display-view.test.ts`, `test/display-view-pixel-memo.test.ts`, `test/display-view-speed-material.test.ts`.
+
 ## 2.19.0 — unreleased (prepared November 9, 2026)
 
 A minor release of six issues: exposure time with an ND filter and generic ND presets (#578), the program line within the lens's f-number range (#583), very fast `lens.ideal` ranges (#585), developing a capture rendered in parts (#571), lens corrections in the development (#570) and the sampled-PSF orientation fix (#566). See the [2.19.0 release record](https://github.com/Photivra/photivra/blob/main/docs/RELEASE_2_19_0.md).
