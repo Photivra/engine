@@ -1882,6 +1882,9 @@ export { CHART_SCENE_PRESETS, CHART_SCENE_DEFAULTS, CHART_SPECTRAL_RANGE_NANOMET
   type ChartRectangle, type ChartBarGroupTarget, type ChartSlantedSquare, type ColorPatchReflectance, type ColorPatchesChartScene } from "./facade/chart-scenes.js";
 export { COLOR_PATCH_SET_ID, COLOR_PATCH_SET_VERSION, COLOR_PATCH_IDS, COLOR_PATCH_WAVELENGTH_RANGE_NANOMETERS, getColorPatchSet, evaluateColorPatchReflectance,
   type ColorPatch, type ColorPatchId, type ColorPatchGroup, type ColorPatchSet, type ColorPatchSpectralTerm, type EvaluateColorPatchReflectanceInput } from "./facade/color-patches.js";
+export { REPRESENTATIVE_LIGHT_SOURCE_SET_ID, REPRESENTATIVE_LIGHT_SOURCE_SET_VERSION, REPRESENTATIVE_LIGHT_SOURCE_IDS, REPRESENTATIVE_LIGHT_SOURCE_WAVELENGTH_RANGE_NANOMETERS,
+  getRepresentativeLightSourceSet, createRepresentativeLightSourceSpectrum, createRepresentativeLightSourceIlluminant, type RepresentativeLightSource,
+  type RepresentativeLightSourceBand, type RepresentativeLightSourceId, type RepresentativeLightSourceSet } from "./facade/representative-light-sources.js";
 export { PHOTOPIC_MAXIMUM_LUMINOUS_EFFICACY_LM_PER_W, resolveCaptureIlluminant, createPlanarSceneRadianceProvider, CHART_SIZE_DEFAULT_SURROUND_REFLECTANCE, CALLER_MATERIAL_SCENE_MAX_MATERIALS, type ChartSizeOption,
   type CaptureIlluminant, type ResolvedCaptureIlluminant, type CallerReflectanceScene, type CallerRadianceScene, type CallerMaterialScene, type ScenePlanePoint, type SceneMaterialPoint,
   type PlanarSceneRadianceProvider, type ImagePlaneScene, type ImagePlaneImage } from "./facade/scene-radiance.js";

@@ -127,7 +127,9 @@ describe("root exports reject malformed input with domain errors (API review #4)
     // #554: a sensor profile by its string id.
     "resolveSensorProfile",
     // 2.21 (#581): loads the image-plane scene's module; no argument.
-    "prepareImagePlaneScenes"
+    "prepareImagePlaneScenes",
+    // #557: the built-in representative light-source set, a static contract with no argument.
+    "getRepresentativeLightSourceSet"
   ]);
   /*
    * 2.0.0: the parse*() record parsers and the functions that take a whole engine or versioned record
