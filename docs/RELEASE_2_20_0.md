@@ -67,13 +67,13 @@ The display view's addition to a capture bundle: 46,008 B minified and 18,118 B 
 
 ## Local gates
 
-On the integrated tree before the last documentation and registry-export commit, Apple M5 Pro, one run each through the shared lock:
+On the integrated tree (`release-2.20.0` before its last generated-reference commit), Apple M5 Pro, one run through the shared lock:
 
-- `npm run check:static` (lint, typecheck, licence, licence-header, identity and browser-surface gates): passed. `npm run check:licenses`: "Dependency license policy passed: Apache-2.0=15, BlueOak-1.0.0=1, BSD-2-Clause=6, BSD-3-Clause=2, ISC=7, MIT=125, MPL-2.0=12". `package-lock.json` differs from 2.19.0's only in the version fields: no new or changed licence.
-- `npm run coverage` on Node.js 24.19.0: 367 files passed (1 skipped), 4,265 tests passed (2 skipped), **1 failed: the capture-worker limit** (356,345 B against 352,000 B); 5.6 min. The coverage report is not written when a test fails, so the thresholds were not evaluated in this run. `test/shard-weights.json` re-recorded from this run (`scripts/record-shard-weights.mjs`); the 2.19.0 publish run's first coverage shard took 19.8 of its 20 minutes.
-- The full suite on Node.js 26.13.0: the same result (367 passed, 1 skipped, the same 1 failure); 2.5 min.
-- `npm run build` and `npm run release:consumer-check`: passed. `npm run docs:check` and `npm run pack:check` failed on this record's absence, the registry module's reachability and two relative links; all three are fixed in the last commit and both checks pass (re-run alone).
-- CI tooling: `node --test` of `.github/test-node-ci-roles.mjs` (11), `test-node-lts-policy.mjs` (21) and `test-ci-tools.mjs` (5): passed; `node .github/node-ci-roles.mjs`: "The CI Node matrix matches the reviewed support policy" (lts/-1 skips; one notice: Node 22 tested only at its exact minimum).
+- `npm run check:static` (lint, typecheck, licence, licence-header, identity and browser-surface gates): passed. `npm run check:licenses`: "Dependency license policy passed: Apache-2.0=15, BlueOak-1.0.0=1, BSD-2-Clause=6, BSD-3-Clause=2, ISC=7, MIT=125, MPL-2.0=12". `package-lock.json` differs from 2.19.0's only in its version fields: no new or changed licence.
+- `npm run coverage` on Node.js 24.19.0: 368 files passed (1 skipped), 4,266 tests passed (2 skipped); coverage 95.97 % statements, 92.4 % branches, 98.74 % functions, 97.39 % lines (thresholds met); 5.6 min. `test/shard-weights.json` was re-recorded from the integration's first local coverage run (the 2.19.0 publish run's first coverage shard took 19.8 of its 20 minutes).
+- The full suite on Node.js 26.13.0: 368 files passed (1 skipped), 4,266 tests passed (2 skipped); 2.3 min. Every hash lock passes on both.
+- `npm run build`, `npm run pack:check` (1,009 files) and `npm run release:consumer-check`: passed. `npm run docs:check` passed after the generated API reference was refreshed for the registry's H3 wording (a generated-file change only).
+- CI tooling: `node --test` of `.github/test-node-ci-roles.mjs` (11), `test-node-lts-policy.mjs` (21) and `test-ci-tools.mjs` (5): passed; `node .github/node-ci-roles.mjs`: "The CI Node matrix matches the reviewed support policy" (lts/-1 skips its test work; one notice: Node 22 is tested only at its exact minimum).
 
 ## For the owner
 
