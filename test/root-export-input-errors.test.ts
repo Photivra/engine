@@ -104,7 +104,7 @@ describe("root exports reject malformed input with domain errors (API review #4)
     "createPrintJpegStrip", "createPrintJpegTask", "composePrintJpegStrips", "createReinhardGlobalToneMappingTask", "createSensorRawFrame", "createSimulatedCapture",
     "createSyntheticFilmGrainTask", "mapEnvironmentDirectionsToChartPoints", "createUnsharpMaskTask", "resolveCaptureIlluminant", "resolveLensPsfConvolutionKernels", "resolveGenericEquipmentTierCatalog",
     "resolveGenericEquipmentTierLensProfiles", "resolveRawFrameReconstruction", "serializeNativeRawDng", "serializePngImage",
-    "prepareDisplayView", "serializeSimulatedCaptureDngFromParts", "simulateCapture", "simulateCaptureFromParts", "simulateDisplayView", "simulateIdealReference", "simulatePackedSensorRaw", "simulateSensorRawFrame"
+    "prepareDisplayView", "serializeSimulatedCaptureDngFromParts", "simulateCapture", "simulateCaptureFromParts", "simulateDisplayView", "simulateExposureBuildUp", "simulateIdealReference", "simulatePackedSensorRaw", "simulateSensorRawFrame"
   ]);
   const NO_INPUT_OBJECT = new Set([
     // Positional scalars or bound objects, a string id, raw bytes, result factories or no argument at all.
@@ -123,7 +123,13 @@ describe("root exports reject malformed input with domain errors (API review #4)
     // #388: the text writers take a file's raw bytes and the text; the text rejects unknown fields as output.metadata does.
     "addJpegTextMetadata", "addPngTextMetadata",
     // 2.14: the built-in colour-patch set, a static contract with no argument.
-    "getColorPatchSet"
+    "getColorPatchSet",
+    // #554: a sensor profile by its string id.
+    "resolveSensorProfile",
+    // 2.21 (#581): loads the image-plane scene's module; no argument.
+    "prepareImagePlaneScenes",
+    // #557: the built-in representative light-source set, a static contract with no argument.
+    "getRepresentativeLightSourceSet"
   ]);
   /*
    * 2.0.0: the parse*() record parsers and the functions that take a whole engine or versioned record

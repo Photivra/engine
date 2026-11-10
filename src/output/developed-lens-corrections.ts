@@ -22,16 +22,38 @@
 
 import { InvalidScientificResultError } from "../core/validation.js";
 import type { LensCorrectionChannel } from "./lens-corrections.js";
+import { genericLensDispersion } from "../equipment/generic-lens-catalogue.js";
 
 /**
  * Effective wavelengths of the red, green and blue channels for the lateral-colour map, nm: a generic approximation of where
- * a camera's channel responses peak, not a measured camera.
+ * a camera's channel responses peak, not a measured camera. The default of `createGenericLensCorrectionProfile` without a
+ * `channelDispersion`; `simulateCapture`'s `output.lensCorrections` uses the capture's own channels instead (#589).
  */
 export const GENERIC_LENS_CORRECTION_CHANNEL_WAVELENGTHS_NM: Readonly<Record<LensCorrectionChannel, number>> = /* @__PURE__ */ Object.freeze({ red: 610, green: 540, blue: 465 });
 
-/** @internal The lateral-colour scale of one channel, 1 + L·D(λ_channel) (`D` the catalogue's normalized dispersion). */
-export function genericLensChannelScale(fraction: number, dispersion: (wavelengthNm: number) => number, channel: LensCorrectionChannel): number {
-  return 1 + fraction * dispersion(GENERIC_LENS_CORRECTION_CHANNEL_WAVELENGTHS_NM[channel]);
+/** A normalized dispersion per channel (`genericLensDispersion` units: 0 at the d line, F minus C = 1). */
+export type ChannelDispersion = Readonly<Record<LensCorrectionChannel, number>>;
+
+/**
+ * @internal #589: each channel's effective dispersion D̄_c = Σ_n w_c,n·D(λ_n) / Σ_n w_c,n, w_c,n = response_c(λ_n)·illuminant(λ_n), the
+ * dispersion a neutral surface's image in that channel carries (its centroid moves by L·r·D̄_c under lateral colour L·r·D(λ)).
+ * `response` holds the red, green and blue values at the nodes `wavelengthsNm`; each channel needs a positive total weight.
+ */
+export function channelEffectiveDispersion(wavelengthsNm: readonly number[], response: readonly ArrayLike<number>[], illuminant: ArrayLike<number>): ChannelDispersion {
+  const [red, green, blue] = response.map((r) => {
+    let weighted = 0, total = 0;
+    wavelengthsNm.forEach((nm, n) => { const w = r[n]! * illuminant[n]!; weighted += w * genericLensDispersion(nm); total += w; });
+    return weighted / total;
+  }) as [number, number, number];
+  return { red, green, blue };
+}
+
+/**
+ * @internal The lateral-colour scale of one channel, 1 + L·D̄ with D̄ the channel's effective dispersion, or D(λ_channel) at
+ * {@link GENERIC_LENS_CORRECTION_CHANNEL_WAVELENGTHS_NM} without one (`D` the catalogue's normalized dispersion).
+ */
+export function genericLensChannelScale(fraction: number, channel: LensCorrectionChannel, channels?: ChannelDispersion): number {
+  return 1 + fraction * (channels ? channels[channel] : genericLensDispersion(GENERIC_LENS_CORRECTION_CHANNEL_WAVELENGTHS_NM[channel]));
 }
 
 /** @internal Which corrections run. */
@@ -62,16 +84,18 @@ function border(r: Rect, visit: (x: number, y: number) => void): void {
 
 /**
  * @internal Prepares the correction of a W × H frame. `lens` is the resolved catalogue lens (`resolveGenericLens`) on the
- * frame; `dispersion` is `genericLensDispersion`. The mapping's source radius grows with the output radius (the catalogue's
+ * frame; `channels` the channels' effective dispersion (#589). Without it the scales span every channel's possible dispersion
+ * (red and green at D(780 nm), blue at D(380 nm), the spectral range's ends): `simulateCapture` prepares that first, so the
+ * developed rectangle a region reads (`developedLensCorrectionSourceRect`) holds the sources of any channel scales. The mapping's source radius grows with the output radius (the catalogue's
  * distortion is monotonic over the frame), so the sources of the border pixel centres bound every source, and the fill factor
  * is found by bisection on them.
  */
 export function prepareDevelopedLensCorrection(lens: { halfDiagonalMm: number; character: { distortion: { corner: number }; lateralColor: { fraction: number } } },
-  selection: DevelopedLensCorrectionSelection, width: number, height: number, pitchMm: number, dispersion: (wavelengthNm: number) => number): DevelopedLensCorrection {
-  const fraction = selection.lateralColor ? lens.character.lateralColor.fraction : 0;
+  selection: DevelopedLensCorrectionSelection, width: number, height: number, pitchMm: number,
+  channels: ChannelDispersion = { red: genericLensDispersion(780), green: genericLensDispersion(780), blue: genericLensDispersion(380) }): DevelopedLensCorrection {
+  const fraction = selection.lateralColor ? lens.character.lateralColor.fraction : 0, scale = (c: LensCorrectionChannel): number => genericLensChannelScale(fraction, c, channels);
   const c: DevelopedLensCorrection = { width, height, radius: lens.halfDiagonalMm / pitchMm,
-    k1: selection.distortion ? lens.character.distortion.corner : 0, lensK1: lens.character.distortion.corner,
-    scales: [genericLensChannelScale(fraction, dispersion, "red"), genericLensChannelScale(fraction, dispersion, "green"), genericLensChannelScale(fraction, dispersion, "blue")], fill: 1 };
+    k1: selection.distortion ? lens.character.distortion.corner : 0, lensK1: lens.character.distortion.corner, scales: [scale("red"), scale("green"), scale("blue")], fill: 1 };
   const p = new Float64Array(2), frame = { x: 0, y: 0, width, height };
   const fits = (m: number): boolean => {
     let ok = true;

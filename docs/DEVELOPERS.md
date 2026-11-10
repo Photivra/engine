@@ -1,6 +1,6 @@
 # Developer guide
 
-This is the entry point for **@photivra/engine 2.20.0**, root API contract **2.20.0**. 2.20.0 was prepared on November 9, 2026; npm publishing runs only from the owner's `v2.20.0` tag, and the [2.20.0 release record](RELEASE_2_20_0.md) states whether that has happened. The latest published release is 2.19.0 (November 9, 2026, [record](RELEASE_2_19_0.md)).
+This is the entry point for **@photivra/engine 2.21.0**, root API contract **2.21.0**. 2.21.0 was prepared on November 10, 2026; npm publishing runs only from the owner's `v2.21.0` tag, and the [2.21.0 release record](RELEASE_2_21_0.md) states whether that has happened. The latest published release is 2.20.0 (November 10, 2026, [record](RELEASE_2_20_0.md)).
 
 Repository `main` may later describe newer development. For the stable contract, use a published release's packaged docs or its exact tag. [Release notes and migration](RELEASE_1_3_0.md) explain why the package version and the root API version are now the same number.
 
@@ -10,13 +10,13 @@ The package does **not** supply a hosted API, a renderer, a UI, commercial camer
 
 ## Install and calculate
 
-Install with `npm install @photivra/engine@2.20.0`. The [2.20.0 release record](RELEASE_2_20_0.md) and the [changelog](../CHANGELOG.md) describe the current release.
+Install with `npm install @photivra/engine@2.21.0`. The [2.21.0 release record](RELEASE_2_21_0.md) and the [changelog](../CHANGELOG.md) describe the current release.
 
 ```ts
 import { calculateFieldOfView, ENGINE_API_VERSION } from "@photivra/engine";
 
 const horizontal = calculateFieldOfView({ focalLengthMm: 50, sensorDimensionMm: 36 });
-console.log(ENGINE_API_VERSION); // 2.20.0: matches the package version
+console.log(ENGINE_API_VERSION); // 2.21.0: matches the package version
 console.log(horizontal.value.degrees); // approximately 39.60, ideal infinity-focus geometry
 console.log(horizontal.provenance); // read assumptions/status with the value
 ```
@@ -149,7 +149,7 @@ python3.13 -m venv /tmp/scancode-venv
 node scripts/check-scancode-policy.mjs /tmp/scancode.json
 ```
 
-The scan and the other required checks run on pull requests and on merge-queue entries; a push to `main` runs only the `main smoke` job (build, hash-lock tests and the packed-consumer acceptance). Each Node.js line's `verify (<line>)` check passes when its `test (<line>, 1/2)`, `test (<line>, 2/2)` and `test (<line>, package)` parts pass. The coverage gate runs as four parallel `coverage shard (k/4)` jobs; the required `verify (lts/*)` job merges their reports (`vitest --merge-reports --coverage`) and enforces the thresholds in `vitest.config.ts` on the whole suite. Locally, `npm run coverage` runs the whole suite and enforces them directly.
+The scan and the other required checks run on pull requests and on merge-queue entries; a push to `main` runs only the `main smoke` job (build, hash-lock tests and the packed-consumer acceptance). Each Node.js line's `verify (<line>)` check passes when its `test (<line>, 1/2)`, `test (<line>, 2/2)` and `test (<line>, package)` parts pass. The coverage gate runs as six parallel `coverage shard (k/6)` jobs (four before 2.21.0); the required `verify (lts/*)` job merges their reports (`vitest --merge-reports --coverage`) and enforces the thresholds in `vitest.config.ts` on the whole suite. Locally, `npm run coverage` runs the whole suite and enforces them directly.
 
 CI tests a tree once per runtime ([#510](https://github.com/photivra/photivra/issues/510)). A job that passes uploads a proof artifact named by the tree, the job and the Node.js release (`.github/ci-proof.mjs`). A merge-queue entry, a push to `main` or the publish workflow's coverage gate skips a job's work when that proof exists for its exact tree and runtime from a run of this repository; a pull request never skips on a proof. A change that touches only Markdown no test reads (`.github/ci-scope.mjs`) skips the test suite and coverage and keeps the static, documentation, packed-consumer, package and licence gates. `--shard=k/n` splits files by the measured times in `test/shard-weights.json`; re-record them from the `coverage-timings-k` artifacts of a CI run with `node scripts/record-shard-weights.mjs <reports> --source "<run>"`.
 

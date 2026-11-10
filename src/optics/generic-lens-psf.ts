@@ -10,7 +10,8 @@
  * U(x) = Σ_pupil exp(i·2π·W(u)/λ)·exp(−i·2π·x·u/(λ·z)) is evaluated with a zero-padded radix-2 FFT (Cooley & Tukey 1965) on
  * an image grid of pitch δ = min(λ·N_w/2, p/4) (p the site pitch), and |U|² is integrated over each site's square cell (exact
  * overlap of each δ-square with the cell). Lateral colour displaces the PSF radially by Δr(λ). The kernel window is (2R + 1)²
- * sites; the energy outside it is reported and put back by unit-sum renormalisation, as for `lens.diffraction`.
+ * sites; the energy outside it is reported and put back by unit-sum renormalisation, as for `lens.diffraction`. Each kernel's
+ * centroid is then moved onto the PSF's own first moment (#589, `alignKernelCentroid`): the lateral colour and coma's mean tilt.
  *
  * Nodes: a 5 × 5 regular grid of field points (0, ±half the frame, ±the frame edge plus the kernel reach) × 5 wavelengths
  * (380, 450, 550, 650, 780 nm), each computed at its own field azimuth (no rotation of a radial node), interpolated by the
@@ -24,7 +25,7 @@
 import { InvalidScientificInputError } from "../core/validation.js";
 import type { EvidenceProvenance } from "../core/evidence-provenance.js";
 import { genericLensDispersion, type ResolvedGenericLens } from "../equipment/generic-lens-catalogue.js";
-import { markEngineOwnedLensSampledPsfProfile, type LensSampledPsfGridNode, type LensSampledPsfProfile } from "./lens-psf-profile.js";
+import { kernelCentroid, markEngineOwnedLensSampledPsfProfile, type LensSampledPsfGridNode, type LensSampledPsfProfile } from "./lens-psf-profile.js";
 import { convolveSiteKernels } from "./defocus-disc-kernel.js";
 import { createDefocusBokehSiteKernel, type DefocusBokehSiteKernel, type ResolvedDefocusBokehOptions } from "./defocus-bokeh-kernel.js";
 
@@ -107,8 +108,11 @@ function overlaps(count: number, delta: number, shift: number, pitch: number, ra
   return { cell, weight, cell2, weight2 };
 }
 
-/** A node's energy per site cell over the (2R₀ + 1)² window (not normalised) and the whole period's energy. */
-interface NodeResult { kernel: Float64Array; total: number; transform: number; phaseStep: number }
+/**
+ * A node's energy per site cell over the (2R₀ + 1)² window (not normalised), the whole period's energy, and the PSF's own first
+ * moment (centroid) in sites from the paraxial image point (+x right, +y up).
+ */
+interface NodeResult { kernel: Float64Array; total: number; transform: number; phaseStep: number; centroid: { x: number; y: number } }
 
 /** Seidel OPD (µm) at normalised pupil (px, py) for a field point at height H and azimuth φ, at wavelength λ (µm). */
 function opdMicrometers(lens: ResolvedGenericLens, H: number, cosPhi: number, sinPhi: number, lambdaUm: number, px: number, py: number): number {
@@ -125,11 +129,33 @@ function geometricRadiusMicrometers(lens: ResolvedGenericLens, H: number, lambda
   for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) {
     const px = -1 + 2 * i / (n - 1), py = -1 + 2 * j / (n - 1);
     if (px * px + py * py > 1) continue;
-    const gx = (opdMicrometers(lens, H, 1, 0, lambdaUm, px + h, py) - opdMicrometers(lens, H, 1, 0, lambdaUm, px - h, py)) / (2 * h);
-    const gy = (opdMicrometers(lens, H, 1, 0, lambdaUm, px, py + h) - opdMicrometers(lens, H, 1, 0, lambdaUm, px, py - h)) / (2 * h);
-    largest = Math.max(largest, Math.hypot(gx, gy));
+    const slope = (dx: number, dy: number): number => (opdMicrometers(lens, H, 1, 0, lambdaUm, px + dx, py + dy) - opdMicrometers(lens, H, 1, 0, lambdaUm, px - dx, py - dy)) / (2 * h);
+    largest = Math.max(largest, Math.hypot(slope(h, 0), slope(0, h)));
   }
   return 2 * workingF * largest;
+}
+
+/**
+ * #589: moves a unit-sum kernel's intensity centroid to `target` (sites from the centre tap, +x right, +y up = the row index), each
+ * axis by a linear-interpolation shift of the whole kernel; energy that would leave the window stays on its edge tap, so the shift
+ * repeats (at most 8 passes per axis) while that leaves a residual. Cell integration alone quantises the centroid of a PSF narrower than a
+ * site, and the window's truncation pulls a wide one inwards: either moves the rendered lateral colour and coma off the lens's
+ * model. The shift keeps the sum and the other axis's moment, and widens the kernel by f·(1 − f) site² of variance for a move of f.
+ */
+function alignKernelCentroid(kernel: Float64Array, radius: number, target: { x: number; y: number }): void {
+  const w = 2 * radius + 1;
+  const shape = { widthSamples: w, heightSamples: w, centerSampleX: radius, centerSampleY: radius, normalizedIntensity: kernel };
+  for (let axis = 0; axis < 2; axis++) for (let pass = 0; pass < 8; pass++) {
+    const c = kernelCentroid(shape), r = axis ? target.y - c.y : target.x - c.x, whole = Math.floor(r), f = r - whole, moved = new Float64Array(kernel.length);
+    if (Math.abs(r) < 1e-9) break;
+    kernel.forEach((v, k) => {
+      // Tap k's index t along the axis moves to t + whole and t + whole + 1, held at the window's edges.
+      const t = axis ? Math.floor(k / w) : k % w, step = axis ? w : 1;
+      moved[k + (Math.min(w - 1, Math.max(0, t + whole)) - t) * step]! += v * (1 - f);
+      moved[k + (Math.min(w - 1, Math.max(0, t + whole + 1)) - t) * step]! += v * f;
+    });
+    kernel.set(moved);
+  }
 }
 
 function nodeKernel(lens: ResolvedGenericLens, xMm: number, yMm: number, lambdaNm: number, workingF: number, pupilDiameterMm: number, zMm: number,
@@ -159,28 +185,21 @@ function nodeKernel(lens: ResolvedGenericLens, xMm: number, yMm: number, lambdaN
       const index = ((v + size) % size) * size + (u + size) % size;
       re[index] = Math.cos(phase); im[index] = Math.sin(phase); rowUsed[(v + size) % size] = 1; open++;
     }
+    // The largest step to the next sample in a row and in a column (outside the pupil the OPD is NaN, and so is the step: skipped).
     const width = 2 * reach + 1;
-    for (let j = 0; j < width; j++) for (let i = 0; i < width; i++) {
-      const w = opd[j * width + i]!;
-      if (Number.isNaN(w)) continue;
-      if (i + 1 < width && !Number.isNaN(opd[j * width + i + 1]!)) phaseStep = Math.max(phaseStep, Math.abs(opd[j * width + i + 1]! - w) / lambdaUm);
-      if (j + 1 < width && !Number.isNaN(opd[(j + 1) * width + i]!)) phaseStep = Math.max(phaseStep, Math.abs(opd[(j + 1) * width + i]! - w) / lambdaUm);
+    for (let k = 0; k < opd.length; k++) {
+      if ((k + 1) % width) phaseStep = Math.max(phaseStep, Math.abs(opd[k + 1]! - opd[k]!) / lambdaUm || 0);
+      if (k + width < opd.length) phaseStep = Math.max(phaseStep, Math.abs(opd[k + width]! - opd[k]!) / lambdaUm || 0);
     }
     if (open < 9) throw new InvalidScientificInputError("The catalogue lens PSF pupil has fewer than 9 samples.");
     if (phaseStep > MAXIMUM_PHASE_STEP_WAVES) { size *= 2; continue; }
     const cos = new Float64Array(size / 2), sin = new Float64Array(size / 2);
     for (let k = 0; k < size / 2; k++) { cos[k] = Math.cos(2 * Math.PI * k / size); sin[k] = Math.sin(2 * Math.PI * k / size); }
-    const rowRe = new Float64Array(size), rowIm = new Float64Array(size);
-    for (let y = 0; y < size; y++) {
-      if (!rowUsed[y]) continue;
-      rowRe.set(re.subarray(y * size, (y + 1) * size)); rowIm.set(im.subarray(y * size, (y + 1) * size));
-      radix2Fft(rowRe, rowIm, size, cos, sin);
-      re.set(rowRe, y * size); im.set(rowIm, y * size);
-    }
+    for (let y = 0; y < size; y++) if (rowUsed[y]) radix2Fft(re.subarray(y * size, (y + 1) * size), im.subarray(y * size, (y + 1) * size), size, cos, sin);
     const colRe = new Float64Array(size), colIm = new Float64Array(size);
     const ox = overlaps(size, delta, shift * cosPhi, pitch, radius), oy = overlaps(size, delta, shift * sinPhi, pitch, radius);
     const w2 = 2 * radius + 1, kernel = new Float64Array(w2 * w2);
-    let total = 0, inside = 0;
+    let total = 0;
     for (let x = 0; x < size; x++) {
       for (let y = 0; y < size; y++) { colRe[y] = re[y * size + x]!; colIm[y] = im[y * size + x]!; }
       radix2Fft(colRe, colIm, size, cos, sin);
@@ -193,23 +212,21 @@ function nodeKernel(lens: ResolvedGenericLens, xMm: number, yMm: number, lambdaN
         if (cy < 0) continue;
         const cy2 = oy.cell2[y]!, wy = oy.weight[y]!, wy2 = oy.weight2[y]!;
         // Row index increases with image +Y (the quadrature's orientation).
-        kernel[cy * w2 + cx]! += intensity * wx * wy; inside += intensity * wx * wy;
-        if (cx2 >= 0) { kernel[cy * w2 + cx2]! += intensity * wx2 * wy; inside += intensity * wx2 * wy; }
+        kernel[cy * w2 + cx]! += intensity * wx * wy;
+        if (cx2 >= 0) kernel[cy * w2 + cx2]! += intensity * wx2 * wy;
         if (cy2 >= 0) {
-          kernel[cy2 * w2 + cx]! += intensity * wx * wy2; inside += intensity * wx * wy2;
-          if (cx2 >= 0) { kernel[cy2 * w2 + cx2]! += intensity * wx2 * wy2; inside += intensity * wx2 * wy2; }
+          kernel[cy2 * w2 + cx]! += intensity * wx * wy2;
+          if (cx2 >= 0) kernel[cy2 * w2 + cx2]! += intensity * wx2 * wy2;
         }
       }
     }
-    if (!(total > 0) || !(inside > 0)) throw new InvalidScientificInputError("The catalogue lens PSF has no energy in its window.");
-    return { kernel, total, transform: size, phaseStep };
+    if (!(total > 0) || !kernel.some((v) => v > 0)) throw new InvalidScientificInputError("The catalogue lens PSF has no energy in its window.");
+    // #589: the PSF's first moment is the pupil-mean wavefront tilt 2·N_w·⟨∇W⟩ (the Fourier transform's moment theorem; Goodman,
+    // Introduction to Fourier Optics, ch. 4). Of the Seidel terms only coma has a mean tilt, ⟨∇(W131·H·ρ²·ρcos(θ − φ))⟩ = W131·H
+    // along the field azimuth (⟨ρ²⟩ = 1/2, ⟨x²⟩ = 1/4 on the unit disc); the lateral colour adds its displacement. Sites.
+    const moment = (shift + 2 * workingF * DESIGN_WAVELENGTH_UM * lens.character.aberrations.comaWaves * H) / pitch;
+    return { kernel, total, transform: size, phaseStep, centroid: { x: moment * cosPhi, y: moment * sinPhi } };
   }
-}
-
-function mirror(kernel: Float64Array, radius: number, flipX: boolean, flipY: boolean): Float64Array {
-  const w = 2 * radius + 1, out = new Float64Array(kernel.length);
-  for (let j = 0; j < w; j++) for (let i = 0; i < w; i++) out[(flipY ? w - 1 - j : j) * w + (flipX ? w - 1 - i : i)] = kernel[j * w + i]!;
-  return out;
 }
 
 /** Thin-lens image distance z (mm), pupil diameter D = f/N (mm) and working f-number z/D at a finite focus. */
@@ -270,11 +287,17 @@ export function createGenericLensPsfProfile(input: GenericLensPsfInput): Generic
   let radius = 1;
   while (radius < bound && outside(radius) > GENERIC_LENS_PSF_WINDOW_TRUNCATION) radius++;
   const truncated = Math.max(0, outside(radius));
-  const crop = (node: NodeResult): Float64Array => {
+  /** The node's kernel cropped to the window, unit-sum, mirrored for a field point with x or y < 0. */
+  const crop = (node: NodeResult, flipX: boolean, flipY: boolean): Float64Array => {
     const w0 = 2 * bound + 1, w1 = 2 * radius + 1, out = new Float64Array(w1 * w1);
     let sum = 0;
-    for (let j = 0; j < w1; j++) for (let i = 0; i < w1; i++) { const v = node.kernel[(j + bound - radius) * w0 + i + bound - radius]!; out[j * w1 + i] = v; sum += v; }
+    for (let j = 0; j < w1; j++) for (let i = 0; i < w1; i++) {
+      const v = node.kernel[(j + bound - radius) * w0 + i + bound - radius]!;
+      out[(flipY ? w1 - 1 - j : j) * w1 + (flipX ? w1 - 1 - i : i)] = v; sum += v;
+    }
     for (let k = 0; k < out.length; k++) out[k] = out[k]! / sum;
+    // #589: the kernel's first moment is the PSF's (lateral colour and coma), not the cells' quantised or truncated one.
+    alignKernelCentroid(out, radius, { x: flipX ? -node.centroid.x : node.centroid.x, y: flipY ? -node.centroid.y : node.centroid.y });
     return out;
   };
   const extra = input.extraKernel, kernelRadius = radius + (extra ? extra.radius : 0), w = 2 * kernelRadius + 1;
@@ -284,7 +307,7 @@ export function createGenericLensPsfProfile(input: GenericLensPsfInput): Generic
   const focusDiopters = 1 / input.focusDistanceM;
   for (const x of fieldX) for (const y of fieldY) for (const nm of GENERIC_LENS_PSF_WAVELENGTHS_NM) {
     const base = quadrant.get(Math.abs(x) + ":" + Math.abs(y) + ":" + nm)!;
-    let kernel = mirror(crop(base), radius, x < 0, y < 0);
+    let kernel = crop(base, x < 0, y < 0);
     if (extra) kernel = convolveSiteKernels(kernel, radius, extra.at(x, y), extra.radius);
     nodes.push({ nodeId: "pv-" + x.toFixed(6) + "-" + y.toFixed(6) + "-" + nm,
       coordinate: { focalLengthMm: f, focusDiopters, apertureFNumber: N, fieldXmm: x, fieldYmm: y, wavelengthNm: nm, signedDefocusImagePlaneMicrometers: 0 },

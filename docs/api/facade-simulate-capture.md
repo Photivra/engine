@@ -144,7 +144,7 @@ a capture does. `motion.rotation` is a non-zero angular velocity; `sensor.tempor
 
 ```ts
 SIMULATE_CAPTURE_COST_OPTIONS = Object.freeze(["lens.pupilSampling", "lens.projection", "lens.distortion", "lens.vignetting", "lens.psf",
-  "lens.diffraction", "lens.defocus", "lens.catalogue", "sensor.antiAliasing", "sensor.pixelAperture.box", "sensor.temporalSampleCount", "motion.rotation", "motion.shutter.rolling", "output.borderHandling.mirror", "output.region",
+  "lens.diffraction", "lens.defocus", "lens.catalogue", "sensor.antiAliasing", "sensor.pixelAperture.box", "sensor.temporalSampleCount", "motion.rotation", "motion.subject", "motion.shutter.rolling", "output.borderHandling.mirror", "output.region",
   "output.whiteBalance.auto", "output.demosaic.ahd", "output.highlightMode.reconstruct", "output.colorEncoding.wide-gamut", "output.gamutMapping.perceptual",
   "output.diffractionCorrection", "output.sharpening", "output.lensCorrections", "output.format.jpeg", "output.format.png", "output.format.dng"] as const)
 ```
@@ -175,7 +175,7 @@ the record form with `fast` and is reported in `diagnostics.fast.applied` when i
 whether or not it has a fast method yet; one without runs exact and reports `false`.
 
 ```ts
-SIMULATE_CAPTURE_FAST_OPTIONS = Object.freeze(["lens.diffraction", "lens.catalogue", "sensor.antiAliasing", "sensor.pixelAperture.box", "output.demosaic.ahd"] as const)
+SIMULATE_CAPTURE_FAST_OPTIONS = Object.freeze(["lens.diffraction", "lens.catalogue", "sensor.antiAliasing", "sensor.pixelAperture.box", "output.demosaic.ahd", "motion.subject"] as const)
 ```
 
 ## SIMULATE_CAPTURE_METERING_MODES
@@ -473,8 +473,9 @@ export interface SimulateCaptureFastReport {
 
 `lens.catalogue` as a record (#568): the lens id as `kind` and the `fast` override (see {@link SimulateCaptureOptions.fast}).
 Fast: the tabulated fast method (#568), and with `lens.defocus` the lens's bokeh without its cat's eye (#567; fast wides and
-normals only), whose field-varying PSF needs a finer fast grid (measured 2.2–3.4× slower). Exact: the per-site PSF with the
-cat's eye. Blades and spherical aberration always apply (they cost nothing).
+normals only), whose field-varying PSF needs a finer fast grid (measured 2.2–3.4× slower); with camera rotation under
+`motion.shutter: "rolling"`, the per-tap PSF points instead of the lattice reading (#588). Exact: the per-site PSF with the
+cat's eye, read on the lattice. Blades and spherical aberration always apply (they cost nothing).
 
 ```ts
 export interface SimulateCaptureLensCatalogueRecord { kind: string; fast?: boolean }
@@ -529,6 +530,11 @@ export interface SimulateCaptureMotion {
   shutter?: "global" | "rolling";
   /** Rolling shutter only: time from the first to the last line over the simulated frame, in s. Default: the body's declared readout skew. */
   rollingShutterSkewSeconds?: number;
+  /**
+   * #551: a moving subject: the whole scene, or one rectangle of it over a still background, translating on the scene plane
+   * (and optionally rotating about the optical axis) during the exposure. Off by default (a still scene).
+   */
+  subject?: SimulateCaptureSubjectMotion;
 }
 ```
 
@@ -672,9 +678,10 @@ export interface SimulateCaptureOptions {
   /**
    * Required: an engine chart (for example `{ preset: "uniform" }`, an 18 % grey card), a declared `material-layers` scene (#491:
    * a chart under shape-mask layers, as `resolveChartMaterialLayers` takes it; the capture is that of its `callerScene`, byte for
-   * byte, and the display view can render it on the GPU), or a caller reflectance, radiance or material function.
+   * byte, and the display view can render it on the GPU), a caller reflectance, radiance or material function, or (2.21, #581) an
+   * `image-plane` scene: a photo as a flat print (docs/IMAGE_PLANE.md).
    */
-  scene: ChartScene | ChartMaterialLayerScene | CallerReflectanceScene | CallerRadianceScene | CallerMaterialScene;
+  scene: ChartScene | ChartMaterialLayerScene | CallerReflectanceScene | CallerRadianceScene | CallerMaterialScene | ImagePlaneScene;
   /** Distance from the camera to the scene plane in metres. Default 5. */
   subjectDistanceM?: number;
   /**
@@ -689,6 +696,12 @@ export interface SimulateCaptureOptions {
   illuminant?: CaptureIlluminant;
   /** Illuminance on the scene plane, lux. Default about 21 481 lux (see `SIMULATE_CAPTURE_DEFAULT_ILLUMINANCE_LUX` and the assumptions). */
   illuminanceLux?: number;
+  /**
+   * 2.22 (#550), opt-in mixed lighting: two or more sources blended across the chart (docs/MIXED_ILLUMINATION.md), instead of
+   * `illuminant` and `illuminanceLux`. The frame center's light sets the grey-card meter and the standard-exposure figures, and
+   * its strongest source the "scene-illuminant" white balance; both are reported in `assumptions`.
+   */
+  illumination?: MixedIllumination;
   output?: {
     /** Output pixels; the native sensor raster adds a one-site demosaic border on each side. Defaults 64 × 64. */
     width?: number;
@@ -788,6 +801,13 @@ export interface SimulateCaptureOptions {
   motion?: SimulateCaptureMotion;
   /** #555: plus the sensor characteristics ({@link SimulateCaptureSensorCharacteristics}), each off by default. */
   sensor?: SimulateCaptureSensorCharacteristics & {
+    /**
+     * #554: a sensor profile record (`SENSOR_PROFILES`, or `resolveSensorProfile(id)`), checked strictly. It replaces the body's ISO range, readout regimes
+     * (full well, read noise of each conversion gain, the dual-gain switch, high-gain storage, ADC bit depth), readout time and
+     * fixed-pattern noise, and sets the default pixel pitch and peak QE; explicit fields here still override it one at a time.
+     * Default: none (the body's own sensor). See docs/SENSOR_PROFILES.md.
+     */
+    profile?: SensorProfile;
     /**
      * Pixel pitch in micrometres, 0.5–1000. Default 6. The simulated sensor is output width × pitch wide. 2.5: above 100 µm the
      * capture is a downsized view of a whole frame (for example 36 mm / 48 pixels = 750 µm), recorded in the assumption

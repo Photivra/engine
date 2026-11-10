@@ -17,7 +17,8 @@ import { chartCompositeMaterialWgsl } from "../../src/gpu/display-view-composite
 import { assembleDisplayViewSpeedWgsl } from "../../src/gpu/wgsl-display-view-speed-kernel.js";
 import { assembleDisplayViewQualityLatticeWgsl } from "../../src/gpu/wgsl-display-view-quality-kernel.js";
 import type { ChartCompositeProductPath } from "../../src/gpu/wgsl-chart-composite-kernel.js";
-import { calculateChartRadianceBatchPlan, type ChartCompositeProbeRecord } from "../../src/index.js";
+import { runImagePlaneConformance } from "../../src/gpu/display-view-image-material-module.js";
+import { calculateChartRadianceBatchPlan, prepareImagePlaneScenes, type ChartCompositeProbeRecord } from "../../src/index.js";
 import type { SimulateCaptureOptions, SimulateDisplayViewOptions } from "../../src/index.js";
 
 interface RunRequest<T> { input: T; maximumBandBytes?: number; timeCpu?: boolean; repeat?: number; reference?: boolean }
@@ -180,6 +181,7 @@ async function runtime(): Promise<WebGpuRuntime> {
  * draw, encode) runs on the host in float64 as in the CPU path.
  */
 export async function displayViewSpeed(payload: string): Promise<string> {
+  await prepareImagePlaneScenes(); // #581: the image-plane cases (charts are unaffected)
   const { options, view, maximumBandBytes, recomputeFlagged, repeat } = decodeTransport<{ options: SimulateCaptureOptions; view: SimulateDisplayViewOptions; maximumBandBytes?: number;
     recomputeFlagged?: boolean; repeat?: number }>(payload);
   const fixture = await displayViewGpuFixture(options, view), device = await runtime();
@@ -206,6 +208,14 @@ export async function displayViewConformance(): Promise<string> {
   finally { device.destroy(); }
 }
 
+/** #581: the image-plane module's run-time self-check case on the device. */
+export async function displayViewImagePlaneConformance(): Promise<string> {
+  await prepareImagePlaneScenes();
+  const device = await runtime();
+  try { return encodeTransport({ outcome: await runImagePlaneConformance(device, undefined) }); }
+  finally { device.destroy(); }
+}
+
 /**
  * #479: the display view's Quality kernels on the device (diffraction, the four-spot filter, AHD and the low-signal correction),
  * as `displayViewSpeed`: the page's own CPU reference, the GPU render, the per-stage wall-clock milliseconds of the last run.
@@ -213,6 +223,7 @@ export async function displayViewConformance(): Promise<string> {
 export async function displayViewQuality(payload: string): Promise<string> {
   const { options, view, maximumBandBytes, recomputeFlagged, repeat, timeCpu } = decodeTransport<{ options: SimulateCaptureOptions; view: SimulateDisplayViewOptions; maximumBandBytes?: number;
     recomputeFlagged?: boolean; repeat?: number; timeCpu?: boolean }>(payload);
+  await prepareImagePlaneScenes(); // #581: the image-plane cases (charts are unaffected)
   const fixture = await displayViewGpuFixture(options, view), device = await runtime();
   try {
     // The CPU reference's stages in this realm, on request (#479's AHD placement); then the GPU render with the realm's correction

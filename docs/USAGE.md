@@ -7146,6 +7146,7 @@ console.log(png.length, same);
 See [Print planning](https://github.com/Photivra/photivra/blob/main/docs/PRINT_PLANNING.md) for a complete, strict packed example and the exact-ratio integer policy.
 
 - `calculatePrintPlan()` says whether the native sampling is enough, and gives a compatible minimum file raster.
+- `fit: { kind: "contain", paperOrientation }` (2.22.0) fits the whole image inside paper of another shape and reports the borders ([Contain fit](https://github.com/Photivra/photivra/blob/main/docs/PRINT_PLANNING.md#integer-policy-fit-and-sufficiency)).
 - `calculatePrintSizeLimit()` distinguishes finite, unbounded and unavailable sampling limits.
 - `calculatePrintSizeLimitWithBlurAndNoise()` (2.20.0) gives the largest print at a viewing distance that still looks sharp and clean, counting blur and noise as well as pixels, and names the limiting factor ([Print size limit with blur and noise](https://github.com/Photivra/photivra/blob/main/docs/PRINT_PLANNING.md#print-size-limit-with-blur-and-noise)). An approximation.
 - Print quality and delivery are not assessed.
@@ -7512,6 +7513,26 @@ console.log(calculateGeometricFocusBreathing({
 }).value.deltaDegrees);
 ```
 
+## Sensor profiles (#554)
+
+`SENSOR_PROFILES` lists eight representative sensors (full frame, APS-C, medium format and a large phone sensor; BSI,
+stacked and front-illuminated; 2010s and 2020s) whose values come from published specifications, values derived from them
+or labelled design values, with no maker or product named. `simulateCapture({ sensor: { profile: record } })` simulates one
+(the record is checked strictly; `resolveSensorProfile(id)` finds one by id):
+it replaces the body's ISO range, readout regimes, readout time and fixed-pattern noise, and the #555 characteristics
+override it one at a time. `resolveSensorProfile(id)` returns one profile; `SENSOR_PROFILE_ISO_ANCHOR` is the ISO anchor its base ISO is re-rated from. Values, sources and the ISO
+rating: [SENSOR_PROFILES.md](https://github.com/Photivra/photivra/blob/main/docs/SENSOR_PROFILES.md).
+
+```ts
+import { SENSOR_PROFILES, simulateCapture } from "@photivra/engine";
+
+for (const p of SENSOR_PROFILES) {
+  // fast: false (full quality, as the calculator asks) computes the mid-gray noise figure.
+  const r = await simulateCapture({ scene: { preset: "uniform" }, fast: false, sensor: { profile: p }, exposure: { mode: "manual", iso: 3200, shutterSeconds: 1 / 4000 } });
+  console.log(p.name, r.sensor.dynamicRangeStops.toFixed(1), r.sensor.midGrey?.snr.toFixed(1));
+}
+```
+
 ## Generic lens catalogue (#549)
 
 `GENERIC_LENS_CATALOGUE` lists the engine's 30 generic primes (17 professional, 13 consumer, "PV 50 1.2 Pro", "PV 50 1.8"; Photivra's
@@ -7524,7 +7545,9 @@ correction profile for `resolveLensCorrectionPlan`, which `simulateCapture` appl
 `output.lensCorrections` (#570; never to the RAW or the DNG), and which a DNG can carry for RAW editors as optional DNG opcodes with
 `output.dng.lensCorrectionOpcodes` (#587; the RAW codes unchanged). `simulateCapture` renders a catalogue lens with `lens.catalogue`
 ([quick start](QUICK_START.md#generic-lens-catalogue-549)); `fast: true` (or `lens: { catalogue: { kind, fast: true } }`) takes its
-fast method (#568), a labeled approximation that blends the PSF over a field grid, for interactive captures. Equations, tables and the
+fast method (#568), a labeled approximation that blends the PSF over a field grid, for interactive captures.
+`calculateLateralColorFringe({ lensId, activeImagingArea, pixelPitchMicrometers, fieldPosition? })` gives the lens's lateral color as a
+fringe width: the blue-minus-red image displacement in µm and pixels at a field position (default the corner; #580). Equations, tables and the
 chart measurements: [LENS_CATALOGUE.md](https://github.com/Photivra/photivra/blob/main/docs/LENS_CATALOGUE.md).
 
 ```ts
@@ -7790,6 +7813,13 @@ including the whole-image stages `output.diffractionCorrection` and `output.shar
 bytes as a whole-frame `simulateCapture()` and per-row progress (`diffraction-correction`, `sharpening`). See
 [Quick start, Developing a capture rendered in parts](QUICK_START.md#developing-a-capture-rendered-in-parts-571).
 
+`simulateExposureBuildUp(options, { fractions })` (#534) renders fractions of one exposure as one accumulating process. Each
+fraction's expected signal is its own capture at the elapsed time, so camera rotation, a moving subject and mixed lighting are
+included. Its photo and dark counts are binomial splits of the next fraction's, so they build up in place. Each fraction is
+clipped at the full well, read out once with its own read noise and developed as its own photo. The fraction at 1 is
+`simulateCapture(options)` byte for byte. Only the sRGB sample formats are accepted (on screen). See
+[Quick start, Exposure build-up](QUICK_START.md#exposure-build-up-534).
+
 ### Color charts (2.14)
 
 The engine's own [color patches](https://github.com/Photivra/photivra/blob/main/docs/COLOR_PATCHES.md) are reflectance spectra lit by the capture's illuminant. Draw the
@@ -7809,6 +7839,33 @@ const tungsten = await simulateCapture({
 const sky = getColorPatchSet().patches.find((p) => p.patchId === "sky-blue");
 console.log(tungsten.scene.parameters.patchSet, sky?.code, sky?.name, sky?.reference.cielabD65); // "PV-M1", "Midday Sky"
 ```
+
+### A photo as a print (2.21)
+
+An [image-plane scene](https://github.com/Photivra/photivra/blob/main/docs/IMAGE_PLANE.md) (#581) puts an sRGB (8- or 16-bit) or linear image in front of the camera as a flat matte
+print. Each pixel becomes a smooth reflectance spectrum in [0, 1] that gives back its sRGB under CIE D65. Under other lights the print's colors are an approximation.
+`chartSize` sets the print's size (its height follows the image). Without it the print is fitted inside the frame. `prepareDisplayView` renders it on WebGPU in the Speed path.
+`prepareImagePlaneScenes()` loads the scene's module first, so bundles that never print a photo do not carry it.
+
+```ts
+import { prepareImagePlaneScenes, simulateCapture } from "@photivra/engine";
+
+await prepareImagePlaneScenes(); // loads the scene's module (a lazy chunk) once
+const width = 2, height = 1, data = Uint8Array.of(255, 255, 255, 30, 60, 200);
+const print = await simulateCapture({
+  scene: { kind: "image-plane", sceneId: "snapshot", image: { width, height, channels: 3, encoding: "srgb-8", data }, paper: { whiteReflectance: 0.9 } },
+  chartSize: { widthM: 0.1 },
+  subjectDistanceM: 0.4,
+  output: { width: 32, height: 16 }
+});
+console.log(print.scene.parameters.encoding, print.assumptions.some((a) => a.id === "scene.imagePlane")); // "srgb-8", true
+```
+
+**Representative light sources (2.22).** The engine's own [representative light sources](https://github.com/Photivra/photivra/blob/main/docs/LIGHT_SOURCES.md) are four relative spectra
+designed by Photivra: a tri-phosphor fluorescent tube and white LEDs of low and high color rendering at 4000 K and a warm one at
+2700 K, each "representative, not a named product". `createRepresentativeLightSourceIlluminant({ sourceId })` returns an
+`illuminant` (`{ kind: "spectrum", spectrum, label }`); under the two 4000 K LEDs the color patches differ by up to ΔE00 5.9 while
+the neutrals stay neutral. Use `sensor.spectralStepNanometers: 5`. The page has a runnable example.
 
 In `aperture-priority` mode, the shutter comes from the meter (CIPA DC-004 relations S = 10/H and H = 0.65·L·t/N²) through
 `resolveAperturePriorityExposureMode()`.
@@ -7865,6 +7922,28 @@ The chart presets are also available on their own:
 - `resolveChartScene()` gives the analytic reflectance at any point in the frame.
 - `createPlanarSceneRadianceProvider()` turns a chart into an `evaluateRadiance` callback for the native
   environment RAW contract.
+
+### Mixed lighting (2.22, #550)
+
+`illumination` lights the chart with two or more sources blended across it (a linear gradient, a radial falloff or regions),
+for example window daylight on one side and a lamp on the other. The frame center's light sets the grey-card meter and its
+strongest source the `"scene-illuminant"` white balance; both are reported in `assumptions`. See
+[Mixed lighting](https://github.com/Photivra/photivra/blob/main/docs/MIXED_ILLUMINATION.md) for the model and every field.
+
+```ts
+import { simulateCapture } from "@photivra/engine";
+
+const lampPool = await simulateCapture({
+  scene: { preset: "step-wedge" },
+  exposure: { mode: "aperture-priority", metering: "grey-card" },
+  illumination: {
+    sources: [{ illuminant: "cie-a", illuminanceLux: 500 }, { illuminant: { kind: "planckian", temperatureKelvin: 6500 }, illuminanceLux: 20000 }],
+    blend: { kind: "radial", radius: 0.8, stops: [0.25, 1] }
+  },
+  output: { width: 32, height: 16 }
+});
+console.log(lampPool.assumptions.find((a) => a.id === "output.whiteBalanceSource")?.value); // { source: 0, illuminant: "cie-a" }
+```
 
 ### Display view of a capture
 
@@ -8049,6 +8128,18 @@ import { simulateCapture } from "@photivra/engine";
 
 const rolling = await simulateCapture({ scene: { preset: "checkerboard" }, motion: { angularVelocityRadPerSec: { pitch: 0.02 }, shutter: "rolling" }, output: { width: 6, height: 6 } });
 console.log(rolling.request.siteInput(7 * 8).charge.completenessProfile.startOffsetSecondsFromOpeningReference);
+```
+
+`motion.subject` (2.22.0) moves the subject instead: the whole scene, or one `region` of it over a still background,
+at `velocityMPerSec` on the scene plane, optionally rotating at `angularVelocityRadPerSec` about the optical axis. It
+uses the same temporal midpoints, so a rolling shutter skews the moving subject. The display view renders sideways
+motion under a global shutter and refuses the rest. See [Subject motion](QUICK_START.md#subject-motion).
+
+```ts
+import { simulateCapture } from "@photivra/engine";
+
+const moving = await simulateCapture({ scene: { preset: "slanted-edge" }, motion: { subject: { velocityMPerSec: { x: 0.5 } } }, output: { width: 8, height: 8 } });
+console.log(moving.assumptions.find((a) => a.id === "motion.subject")?.value);
 ```
 
 ## Equivalent f-number, sensor area and blur as a share of the frame

@@ -26,23 +26,22 @@
  * reference, so they are exact. Every stage's wall-clock time is reported (`stageMilliseconds`); on a software adapter it
  * is not GPU performance.
  */
-import { AHD_KEY_LEVELS, EXACT_AREA_MEAN_MAX_PIXELS, axisSums, computeDisplayViewCorrectionStates, createDisplayViewExpectedSignal, displayViewCorrectionKey, displayViewDecidedSaturation, overlaps, renderDisplayView,
+import { AHD_KEY_LEVELS, EXACT_AREA_MEAN_MAX_PIXELS, axisSums, computeDisplayViewCorrectionStates, displayViewCorrectionKey, displayViewDecidedSaturation, overlaps, renderDisplayView,
   ahdCandidateKernels, type AxisSums, type DisplayViewCorrectionSetup, type DisplayViewKernelTap, type DisplayViewRenderResult, type DisplayViewSetup } from "../facade/display-view.js";
 import { displayViewSignalTables, type DisplayViewExpectedSignalInput, type GroupTables } from "../facade/expected-signal.js";
 import type { DisplayViewGpuSetup } from "../facade/display-view.js";
-import { resolvePortableChartScene } from "../facade/chart-scenes.js";
 import { createDisplayViewMaterialModules, type DisplayViewMaterialModules } from "./display-view-composite-material-module.js";
 import { setDisplayViewGpuRendererFactory, type DisplayViewGpuConformanceCase, type DisplayViewGpuPart, type DisplayViewGpuRenderOutput, type DisplayViewGpuRenderer,
   type DisplayViewGpuRendererFactory, type DisplayViewGpuRequest, type DisplayViewGpuRuntimeHandle } from "../facade/display-view-gpu.js";
 import { chartPresetMaterialModule } from "./display-view-chart-material-module.js";
-import { DISPLAY_VIEW_SPEED_CONFORMANCE_CASE, axisRecord, displayViewSpeedGpuSupports, displayViewSpeedGpuUnsupportedReason, finishDisplayViewPixel, gaussLegendre16, queryGeometry,
+import { DISPLAY_VIEW_SPEED_CONFORMANCE_CASE, CONFORMANCE_FRAME, recomputeRuns, sceneToneAndOffsetsReason, conformanceChannelAt, conformanceChart, conformanceResponses, conformanceSetup, conformanceVerdict, withConformanceAbort, axisRecord, displayViewSpeedGpuSupports, displayViewSpeedGpuUnsupportedReason, finishDisplayViewPixel, gaussLegendre16, queryGeometry,
   renderDisplayViewSpeedOnGpu, type DisplayViewGpuMaterialModule } from "./display-view-speed-gpu.js";
 import { createHostYieldGate } from "../capture/host-yield-cadence.js";
 import { createDefocusDiscSiteKernel } from "../optics/defocus-disc-kernel.js";
 import { ImageKernelExecutionError, WEBGPU_F32_UNIT_ROUNDOFF, webGpuExecution, type ImageKernelExecution, type ImageKernelRelativeErrorBound } from "./image-kernel-execution.js";
 import { BUFFER_USAGE, GpuResourceScope, abortedError, createComputePipeline, linearDispatch, runComputePass, type WebGpuRuntime, throwIfAborted as checkAbort } from "./webgpu-runtime.js";
 import { DISPLAY_VIEW_QUALITY_AUX, DISPLAY_VIEW_QUALITY_BITMAP_WORDS, DISPLAY_VIEW_QUALITY_CANDIDATE_ENTRIES, DISPLAY_VIEW_QUALITY_CANDIDATE_FLOATS, DISPLAY_VIEW_QUALITY_FLAG, DISPLAY_VIEW_QUALITY_FLAG_WORDS,
-  DISPLAY_VIEW_QUALITY_GEOMETRY_STRIDE, DISPLAY_VIEW_QUALITY_GROUP_WORDS, DISPLAY_VIEW_QUALITY_MAXIMUM_PIXELS_PER_AXIS, DISPLAY_VIEW_QUALITY_OUTPUT_FLOATS, DISPLAY_VIEW_QUALITY_PARAM_WORDS,
+  DISPLAY_VIEW_QUALITY_GEOMETRY_STRIDE, DISPLAY_VIEW_QUALITY_GROUP_WORDS, DISPLAY_VIEW_QUALITY_MAXIMUM_NODES, DISPLAY_VIEW_QUALITY_MAXIMUM_PIXELS_PER_AXIS, DISPLAY_VIEW_QUALITY_OUTPUT_FLOATS, DISPLAY_VIEW_QUALITY_PARAM_WORDS,
   DISPLAY_VIEW_QUALITY_PIXELS_WGSL, DISPLAY_VIEW_QUALITY_SITES_BLOCKED_WGSL, DISPLAY_VIEW_QUALITY_SITES_WGSL, DISPLAY_VIEW_QUALITY_SITE_FLOATS, DISPLAY_VIEW_QUALITY_TAP_WORDS, DISPLAY_VIEW_QUALITY_WORKGROUP_SIZE,
   assembleDisplayViewQualityLatticeWgsl } from "./wgsl-display-view-quality-kernel.js";
 
@@ -74,7 +73,7 @@ export const DISPLAY_VIEW_QUALITY_MAXIMUM_KERNEL_RADIUS = 96;
  * several invocations per site is needed.
  */
 export const DISPLAY_VIEW_QUALITY_SITE_TAPS_PER_DISPATCH = 2 ** 30;
-/** The smallest positive normal float32: table values below it may be flushed to zero by a device (WGSL allows it). */
+/** The smallest positive normal float32: values below it may be flushed to zero by a device (WGSL allows it). */
 const FLOAT32_MINIMUM_NORMAL = 2 ** -126;
 /** Candidate table entries per phase: the (2·reach + 1)² window. */
 const WINDOW_SLOTS = (2 * MAXIMUM_REACH + 1) ** 2;
@@ -106,6 +105,22 @@ export interface DisplayViewQualityGpuInput {
   blockedSum?: boolean;
   /** Largest taps (sites × taps per site) per site-pass dispatch; default `DISPLAY_VIEW_QUALITY_SITE_TAPS_PER_DISPATCH`. */
   maximumSiteTapsPerDispatch?: number;
+  /** #581: an image-plane print's own passes 1 and 2 (`material` is then unused). */
+  image?: DisplayViewQualityImagePasses;
+}
+/**
+ * #581: an image-plane print's passes 1 and 2 (src/gpu/display-view-image-quality.ts): pass 1 writes `pointFloats` radiance values
+ * per lattice point and a flag word; pass 2 is the blocked sum over them (the flags at binding 6).
+ */
+export interface DisplayViewQualityImagePasses {
+  gather: SignalGather;
+  siteGamma: number;
+  pointFloats: number;
+  lattice: [label: string, wgsl: string];
+  sites: [label: string, wgsl: string];
+  /** Runs pass 1 over a band's lattice windows, and with site kernels resolves its flagged points with the reference (their count). */
+  runLattice(band: GpuResourceScope, pipeline: GPUComputePipeline, params: GPUBuffer, groups: GPUBuffer, groupWords: Uint32Array, latticeTotal: number, signal: AbortSignal):
+    Promise<{ values: GPUBuffer; flags: GPUBuffer; resolved: number }>;
 }
 
 /** Wall-clock milliseconds per stage of one render (upload, dispatch and readback of each pass; host work apart). */
@@ -235,11 +250,12 @@ function exactLatticeConstant(c: number, span: number): boolean {
  */
 export function displayViewQualityGpuUnsupportedReason(setup: DisplayViewSetup, signalInput: DisplayViewExpectedSignalInput): string | null {
   if (signalInput.largeKernel) return LARGE_DEFOCUS_REASON;
-  if (signalInput.scene.kind !== "materials") return "radiance scenes (caller functions) are not on the GPU";
+  if (signalInput.scene.kind !== "materials" && !signalInput.scene.image) return "radiance scenes (caller functions) are not on the GPU";
   if (!signalInput.kernels && !signalInput.queryPoint) return "the expected signal has no query points";
   if (setup.ahdCollect) return "a collect pass of the correction states runs on the CPU";
   if (setup.toneCurve !== "identity" && setup.toneCurve !== "positive-reinhard-per-channel") return "unsupported tone curve " + String(setup.toneCurve);
   if (setup.region.width < 1 || setup.region.height < 1) return "an empty region";
+  if (signalInput.wavelengthsNm.length < 1 || signalInput.wavelengthsNm.length > DISPLAY_VIEW_QUALITY_MAXIMUM_NODES) return "the site passes integrate 1 to " + DISPLAY_VIEW_QUALITY_MAXIMUM_NODES + " spectral nodes per site";
   if (signalInput.kernels && (signalInput.kernels.radius < 0 || signalInput.kernels.radius > DISPLAY_VIEW_QUALITY_MAXIMUM_KERNEL_RADIUS))
     return "a site kernel radius above " + DISPLAY_VIEW_QUALITY_MAXIMUM_KERNEL_RADIUS + " (the diffraction and defocus caps)";
   const shape = footprintShape(setup);
@@ -274,8 +290,8 @@ export function displayViewQualityGpuUnsupportedReason(setup: DisplayViewSetup, 
   return null;
 }
 
-/** The lattice groups, taps and the value table of the expected signal (see the module comment). */
-interface SignalGather {
+/** The lattice groups, taps and the spectral table of the expected signal (see the module comment). */
+export interface SignalGather {
   /**
    * Per group: dpMin, dqMin, dpSpan, dqSpan (lattice extent beyond the site window), cu, cv; its first tap, and (with site
    * kernels) its dense tap rectangle cw × ch (dp = dpMin + dx, dq = dqMin + dy at tap first + dy·cw + dx).
@@ -284,22 +300,31 @@ interface SignalGather {
   /** Per tap: group, dp − dpMin, dq − dqMin. */
   taps: Uint32Array<ArrayBuffer>;
   tapCount: number;
+  /** Spectral nodes N. */
+  nodes: number;
   /**
-   * Per material m, channel c and tap t: the value at (m·3 + c)·T + t, float64 rounded once. Factored (the blocked pass, #492):
-   * per row r (0: the neutral white, 1 + s: spectral material s) the value at (r·3 + c)·T + t, with `materialRows`.
+   * 2.21.0 (signals integrated from the material spectrum per site): per channel c, tap t and node n the channel's response and
+   * kernel C_c(t, n) at (c·T + t)·N + n (`nodeKernels`; without site kernels the member's weight times A_c(λ_n)), then per material
+   * m its spectral radiance L_m(λ_n) at 3·T·N + m·N + n, each float64 rounded once. No per-material channel value is formed: the
+   * site pass integrates Σ_t Σ_n C_c(t, n)·L_{m_t}(λ_n).
    */
   table: Float32Array<ArrayBuffer>;
-  /** Factored table only: per material its row and its reflectance (float32 bits; 1 for a spectral material). */
-  materialRows: Uint32Array<ArrayBuffer> | null;
-  /** Per channel c and tap t: the largest difference between two materials' values at that tap (at c·T + t), rounded up. */
+  /**
+   * Per channel c and tap t (at c·T + t): a bound on the difference between any two materials' signals at that tap,
+   * Σ_n C_c(t, n)·(max_m L_m(λ_n) − min_m L_m(λ_n)), from the spectra's envelope (no per-material value), rounded up.
+   */
   spread: Float32Array<ArrayBuffer>;
   materials: number;
-  /** Σ_t of the largest positive value below the float32 normal range at tap t (over materials and channels), float64. */
+  /**
+   * An absolute bound on what a device that flushes results below the float32 normal range (WGSL allows it) can drop from a site:
+   * per tap the largest product C·max L below that range over the channels, plus one smallest normal per partial addition and
+   * per compensation step ((T + 2)·N of them), float64.
+   */
   tinyMass: number;
 }
-function signalGather(signalInput: DisplayViewExpectedSignalInput, factored: boolean): SignalGather {
-  const tables = displayViewSignalTables(signalInput), scene = signalInput.scene as Extract<DisplayViewExpectedSignalInput["scene"], { kind: "materials" }>;
-  const W = signalInput.nativeWidth, H = signalInput.nativeHeight, R = signalInput.kernels ? signalInput.kernels.radius : 0, materials = scene.materials.length;
+function signalGather(signalInput: DisplayViewExpectedSignalInput): SignalGather {
+  const tables = displayViewSignalTables(signalInput), A = signalInput.electronsPerRadiance, N = signalInput.wavelengthsNm.length, spectra = tables.spectra;
+  const W = signalInput.nativeWidth, H = signalInput.nativeHeight, R = signalInput.kernels ? signalInput.kernels.radius : 0, materials = spectra.length;
   // Taps in order: per group, with site kernels the dense rectangle row-major (tap (dx, dy) reads lattice offset (minIx − R + dx,
   // minIy − R + dy)), without them one tap per member. Plain loops: a radius-96 kernel has up to 150 544 taps.
   const tapGroup: number[] = [], tapDp: number[] = [], tapDq: number[] = [], tapIndex: number[] = [];
@@ -317,82 +342,61 @@ function signalGather(signalInput: DisplayViewExpectedSignalInput, factored: boo
     groups.push({ dpMin, dqMin, dpSpan: dpMax - dpMin, dqSpan: dqMax - dqMin, cu: 0.5 + group.fx - W / 2, cv: 0.5 + group.fy - H / 2, firstTap: first,
       cw: signalInput.kernels ? group.cw : 0, ch: signalInput.kernels ? group.ch : 0 });
   });
-  const direct = (m: number, c: number): number => { const si = tables.spectralIndex[m]!; return si < 0 ? tables.reflectance[m]! * tables.neutralDirect[c]! : tables.spectralDirect[c]![si]!; };
   const T = tapGroup.length, taps = new Uint32Array(T * DISPLAY_VIEW_QUALITY_TAP_WORDS), spread = new Float32Array(3 * T);
   for (let t = 0; t < T; t++) {
     const g = tapGroup[t]!, group = groups[g]!;
     taps[t * DISPLAY_VIEW_QUALITY_TAP_WORDS] = g; taps[t * DISPLAY_VIEW_QUALITY_TAP_WORDS + 1] = tapDp[t]! - group.dpMin; taps[t * DISPLAY_VIEW_QUALITY_TAP_WORDS + 2] = tapDq[t]! - group.dqMin;
   }
-  const check = (value: number): number => {
-    if (!(Math.abs(value) <= FLOAT32_SAFE_MAGNITUDE)) throw new ImageKernelExecutionError("unsupported-float32-domain", "A material's channel signal exceeds the float32 domain.");
-    return value;
-  };
-  const tiny = new Float64Array(T);
-  if (factored && signalInput.kernels) {
-    // #492: one neutral row (the white's combined kernel, which the reference scales by each neutral material's reflectance) and one
-    // row per spectral material; the spread of a tap over the materials from the neutral reflectances' range and the spectral rows.
-    const spectralCount = tables.spectral.length, rows = 1 + spectralCount, table = new Float32Array(rows * 3 * T), materialRows = new Uint32Array(2 * materials);
-    const reflectanceBits = new Float32Array(materialRows.buffer);
-    let neutralLow = Infinity, neutralHigh = -Infinity, neutralSmallest = Infinity;
-    for (let m = 0; m < materials; m++) {
-      const si = tables.spectralIndex[m]!;
-      if (si < 0) {
-        const r = check(tables.reflectance[m]!);
-        materialRows[2 * m] = 0; reflectanceBits[2 * m + 1] = r;
-        neutralLow = Math.min(neutralLow, r); neutralHigh = Math.max(neutralHigh, r);
-        if (r > 0) neutralSmallest = Math.min(neutralSmallest, r);
-      } else { materialRows[2 * m] = 1 + si; reflectanceBits[2 * m + 1] = 1; }
+  // Every value finite and non-negative, every spectrum value normal (a device may flush the others) and every sum in range.
+  const domain = (): never => { throw new ImageKernelExecutionError("unsupported-float32-domain", "A site's spectral terms are outside the float32 domain."); };
+  // The spectra and their envelope per node.
+  const base = 3 * T * N, table = new Float32Array(base + materials * N), low = new Float64Array(N).fill(Infinity), high = new Float64Array(N).fill(-Infinity);
+  let smallestL = Infinity;
+  spectra.forEach((L, m) => {
+    for (let n = 0; n < N; n++) {
+      const l = L[n]!;
+      if (!(l >= 0 && l <= FLOAT32_SAFE_MAGNITUDE)) domain();
+      table[base + m * N + n] = l; low[n] = Math.min(low[n]!, l); high[n] = Math.max(high[n]!, l);
+      if (l > 0) smallestL = Math.min(smallestL, l);
     }
-    for (let t = 0; t < T; t++) {
-      const source = tables.groups[tapGroup[t]!]!, index = tapIndex[t]!;
-      for (let c = 0; c < 3; c++) {
-        let low = Infinity, high = -Infinity;
-        const white = check(source.neutral[c]![index]!);
-        table[c * T + t] = white;
-        if (neutralHigh >= neutralLow) {
-          low = neutralLow * white; high = neutralHigh * white;
-          // A neutral term r·N below the float32 normal range may be flushed: at most min(r_max·N, 2⁻¹²⁶).
-          if (neutralSmallest * white < FLOAT32_MINIMUM_NORMAL && white > 0) tiny[t] = Math.max(tiny[t]!, Math.min(neutralHigh * white, FLOAT32_MINIMUM_NORMAL));
-        }
-        for (let si = 0; si < spectralCount; si++) {
-          const value = check(source.spectral[c]![si]![index]!);
-          table[((1 + si) * 3 + c) * T + t] = value;
-          low = Math.min(low, value); high = Math.max(high, value);
-          if (value > 0 && value < FLOAT32_MINIMUM_NORMAL) tiny[t] = Math.max(tiny[t]!, value);
-        }
-        spread[c * T + t] = Math.fround((high - low) * (1 + 4 * E));
-      }
-    }
-    let tinyMass = 0;
-    for (let t = 0; t < T; t++) tinyMass += tiny[t]!;
-    return { groups, taps, tapCount: T, table, materialRows, spread, materials, tinyMass };
-  }
-  const table = new Float32Array(materials * 3 * T);
+  });
+  if (smallestL < FLOAT32_MINIMUM_NORMAL) domain();
+  let largestSum = 0, tinyMass = (T + 2) * N * FLOAT32_MINIMUM_NORMAL;
   for (let t = 0; t < T; t++) {
     const source = tables.groups[tapGroup[t]!]!, index = tapIndex[t]!;
+    let tiny = 0;
     for (let c = 0; c < 3; c++) {
-      let low = Infinity, high = -Infinity;
-      for (let m = 0; m < materials; m++) {
-        const si = tables.spectralIndex[m]!;
-        const value = check(signalInput.kernels ? (si < 0 ? tables.reflectance[m]! * source.neutral[c]![index]! : source.spectral[c]![si]![index]!) : source.members[index]!.weight * direct(m, c));
-        table[(m * 3 + c) * T + t] = value;
-        low = Math.min(low, value); high = Math.max(high, value);
-        if (value > 0 && value < FLOAT32_MINIMUM_NORMAL) tiny[t] = Math.max(tiny[t]!, value);
+      let range = 0, mass = 0, tinyHere = 0;
+      for (let n = 0; n < N; n++) {
+        const value = signalInput.kernels ? source.nodeKernels[c]![index * N + n]! : source.members[index]!.weight * A[c]![n]!;
+        if (!(value >= 0 && value <= FLOAT32_SAFE_MAGNITUDE)) domain();
+        table[(c * T + t) * N + n] = value;
+        if (materials > 0) {
+          const top = value * high[n]!;
+          range += value * (high[n]! - low[n]!); mass += top;
+          // A kernel value or product below the normal range may be flushed: at most the product with the largest spectrum.
+          if (value > 0 && (value < FLOAT32_MINIMUM_NORMAL || top < 2 * FLOAT32_MINIMUM_NORMAL)) tinyHere += top;
+        }
       }
-      // The spread rounded up (a float32 rounding of the two values and of the difference).
-      spread[c * T + t] = Math.fround((high - low) * (1 + 4 * E));
+      // The spread rounded up (the float32 roundings of the operands, the products and the sum).
+      spread[c * T + t] = Math.fround(range * (1 + (N + 4) * E));
+      largestSum = Math.max(largestSum, mass);
+      tiny = Math.max(tiny, tinyHere);
     }
+    tinyMass += tiny;
   }
-  let tinyMass = 0;
-  for (let t = 0; t < T; t++) tinyMass += tiny[t]!;
-  return { groups, taps, tapCount: T, table, materialRows: null, spread, materials, tinyMass };
+  if (!(largestSum * T <= FLOAT32_SAFE_MAGNITUDE)) domain();
+  return { groups, taps, tapCount: T, nodes: N, table, spread, materials, tinyMass };
 }
 
 /**
  * The relative bound of a site's electrons (`params.site_gamma`): (T + 3)·E for the tap-list sum (#479), and with the blocked sum
- * (#492) (cw_max + ch_max + G + 3)·E: a term carries two host roundings (u = E/2 each: its row value and the reflectance), the
- * product (E), at most cw additions in its row, ch in its group and G in the total, and the dark electrons' addition, all of
- * non-negative terms (docs/WEBGPU.md).
+ * (#492) (cw_max + ch_max + G + 3)·E, both unchanged by 2.21.0. Every term C_c(t, n)·L_m(λ_n) is non-negative and carries two host
+ * roundings (u = E/2 each: the kernel value and the spectrum) and its product (E); the tap-list pass adds it into its node's
+ * partial over the T taps (at most T − 1 inexact additions), the blocked pass into a row, group and total partial per node (at
+ * most cw − 1 + ch − 1 + G − 1). The N node partials and the dark electrons (host-rounded, E/2) are then summed in integer
+ * arithmetic and rounded once (E, `EXACT_SUM_WGSL`). So a site carries at most (T + 2.5)·E, or (cw + ch + G + 0.5)·E, inside the
+ * bounds (docs/WEBGPU.md).
  */
 function siteSumRelativeBound(gather: SignalGather, blocked: boolean): number {
   if (!blocked) return (gather.tapCount + 3) * E;
@@ -450,8 +454,7 @@ function resolveUncertainLattice(lattice: Uint32Array, groupWords: Uint32Array, 
       const raw = lattice[first + local]!;
       if ((raw >>> 31) === 0) continue;
       const p = lx0 + (local % lw), q = ly0 + Math.floor(local / lw);
-      const u = group.fx === 0 ? (p + 0.5 - W / 2) * g : (p + 0.5 + group.fx - W / 2) * g, v = group.fy === 0 ? -(q + 0.5 - H / 2) * g : -(q + 0.5 + group.fy - H / 2) * g;
-      const m = scene.materialAt(u, v);
+      const m = scene.materialAt(latticeCoordinate(p, group.fx, W, g), -latticeCoordinate(q, group.fy, H, g));
       if (!(Number.isInteger(m) && m >= 0 && m < scene.materials.length)) throw new ImageKernelExecutionError("unsupported-on-backend", "webgpu-f32 display view (Quality): a lattice point has no scene material; use cpu-reference.");
       lattice[first + local] = m;
       resolved++;
@@ -460,6 +463,11 @@ function resolveUncertainLattice(lattice: Uint32Array, groupWords: Uint32Array, 
   return resolved;
 }
 
+/**
+ * One axis of the reference's lattice point (createDisplayViewExpectedSignal's latticeU / latticeV, written as it writes them):
+ * (i + 0.5 − size/2)·g with no shift, (i + 0.5 + f − size/2)·g otherwise; v is its negative.
+ */
+export const latticeCoordinate = (i: number, f: number, size: number, g: number): number => (f === 0 ? i + 0.5 - size / 2 : i + 0.5 + f - size / 2) * g;
 /** The uniform parameters shared by the three passes (per-pass words are set per dispatch). */
 function constants(setup: DisplayViewSetup, signalInput: DisplayViewExpectedSignalInput, gather: SignalGather, reach: number, count: number, blocked: boolean): { params: ArrayBuffer; words: Uint32Array; ints: Int32Array; floats: Float32Array } {
   const params = new ArrayBuffer(4 * DISPLAY_VIEW_QUALITY_PARAM_WORDS), words = new Uint32Array(params), ints = new Int32Array(params), floats = new Float32Array(params);
@@ -477,8 +485,10 @@ function constants(setup: DisplayViewSetup, signalInput: DisplayViewExpectedSign
     floats[39] = geometry.scaleU; floats[49] = geometry.scaleV;
   }
   floats[50] = siteSumRelativeBound(gather, blocked);
-  // #492: the table values a device may flush to zero (blocked sum only), rounded up and kept normal so the uniform is not flushed either.
-  if (blocked && gather.tinyMass > 0) floats[52] = Math.max(FLOAT32_MINIMUM_NORMAL, Math.fround(gather.tinyMass * (1 + 4 * E)));
+  // 2.21.0: the spectral nodes the site passes integrate.
+  words[53] = gather.nodes;
+  // What a flushing device can drop (both site passes), rounded up and kept normal so the uniform is not flushed either.
+  floats[52] = Math.max(FLOAT32_MINIMUM_NORMAL, Math.fround(gather.tinyMass * (1 + 4 * E)));
   return { params, words, ints, floats };
 }
 
@@ -497,17 +507,19 @@ function quantizationBound(moments: Float32Array, o: number, meanBound: number, 
 /** Renders one region of a Quality display view on the GPU (see the module comment). */
 export async function renderDisplayViewQualityOnGpu(runtime: WebGpuRuntime, bandBytes: number, input: DisplayViewQualityGpuInput, abort: AbortController,
   yieldControl: YieldControl, pipelines: PipelineSource): Promise<DisplayViewQualityGpuResult> {
-  const { setup, signalInput, material } = input;
+  const { setup, signalInput, material, image } = input;
   const reason = displayViewQualityGpuUnsupportedReason(setup, signalInput);
   if (reason) throw new ImageKernelExecutionError("unsupported-on-backend", "webgpu-f32 display view (Quality): " + reason + "; use cpu-reference.");
   const now = (): number => (typeof performance !== "undefined" ? performance.now() : Date.now());
   const timings: DisplayViewQualityStageTimings = { lattice: 0, sites: 0, pixels: 0, states: 0, finishing: 0, recompute: 0, pixelRedispatches: 0, siteDispatches: 0 };
   const { region, margin } = setup, shape = footprintShape(setup), { reach, count } = candidatesOf(setup);
   // #492: the defocus disc's kernels are summed in blocks (their dense rectangles), in focus the tap list runs as before.
-  const blocked = input.blockedSum ?? (setup.gpu?.defocusRadius ?? 0) > 0;
-  if (blocked && !signalInput.kernels) throw new ImageKernelExecutionError("unsupported-on-backend", "webgpu-f32 display view (Quality): the blocked site sum needs site kernels; use cpu-reference.");
+  const blocked = !!image || (input.blockedSum ?? (setup.gpu?.defocusRadius ?? 0) > 0);
+  if (blocked && !signalInput.kernels && !image) throw new ImageKernelExecutionError("unsupported-on-backend", "webgpu-f32 display view (Quality): the blocked site sum needs site kernels; use cpu-reference.");
   const tapBudget = input.maximumSiteTapsPerDispatch ?? DISPLAY_VIEW_QUALITY_SITE_TAPS_PER_DISPATCH;
-  const gather = signalGather(signalInput, blocked), aux = auxTable(setup), { params, words, ints, floats } = constants(setup, signalInput, gather, reach, count, blocked);
+  const gather = image?.gather ?? signalGather(signalInput), aux = auxTable(setup), { params, words, ints, floats } = constants(setup, signalInput, gather, reach, count, blocked);
+  // #581: the print's site bound and its radiance values per lattice point (the site pass's node count in the last word).
+  if (image) { floats[50] = image.siteGamma; words[55] = image.pointFloats; }
   const stride = DISPLAY_VIEW_QUALITY_GEOMETRY_STRIDE, geometry = new Float32Array((region.width + region.height) * stride);
   const columnSums: AxisSums[] = [], rowSums: AxisSums[] = [];
   for (let i = 0; i < region.width; i++) { axisRecord(geometry, i * stride, (region.x + i) * shape.sx, (region.x + i + 1) * shape.sx, setup.frameWidth, margin, shape.sx); columnSums.push(axisSums((region.x + i) * shape.sx, (region.x + i + 1) * shape.sx, setup.frameWidth, margin)); }
@@ -521,20 +533,19 @@ export async function renderDisplayViewQualityOnGpu(runtime: WebGpuRuntime, band
   const bandBytesOf = (rows: number): number => {
     const { y0, y1 } = siteRows(0, rows), siteH = y1 - y0 + 1;
     let lattice = 0;
-    for (const g of gather.groups) lattice += (siteW + g.dpSpan) * (siteH + g.dqSpan) * 4;
+    for (const g of gather.groups) lattice += (siteW + g.dpSpan) * (siteH + g.dqSpan) * 4 * (image ? image.pointFloats + 1 : 1);
     return lattice + siteW * siteH * SITE_BYTES + rows * region.width * OUTPUT_BYTES_PER_PIXEL;
   };
   let rows = region.height;
   while (rows > 1 && bandBytesOf(rows) > bandBytes) rows = Math.ceil(rows / 2);
   // The value table (materials × 3 channels × taps) is one binding: with a large defocus kernel and many materials it can pass the
   // device's limit, which is then refused by name (never clipped).
-  if (gather.table.byteLength > runtime.maximumStorageBindingBytes) throw new ImageKernelExecutionError("insufficient-limits", "The display view's kernel table (" +
-    (gather.materialRows ? gather.table.length / (3 * gather.tapCount) + " rows (the neutral white and each spectral material)" : gather.materials + " materials") + " × 3 channels × " +
-    gather.tapCount + " taps per site, " + gather.table.byteLength + " bytes) exceeds the device's storage binding limit of " + runtime.maximumStorageBindingBytes + " bytes.");
+  if (gather.table.byteLength > runtime.maximumStorageBindingBytes) throw new ImageKernelExecutionError("insufficient-limits", "The display view's kernel table (" + gather.table.byteLength +
+    " bytes: 3 channels × " + gather.tapCount + " taps × " + gather.nodes + " spectral nodes, and the material spectra) exceeds the device's storage binding limit of " + runtime.maximumStorageBindingBytes + " bytes.");
   const largestBinding = Math.max(bandBytesOf(rows), geometry.byteLength, gather.table.byteLength, 4 * DISPLAY_VIEW_QUALITY_BITMAP_WORDS);
   if (largestBinding > runtime.maximumStorageBindingBytes) throw new ImageKernelExecutionError("insufficient-limits", "One display-view band exceeds the device's storage binding limit.");
-  const latticePipeline = await pipelines("photivra-display-view-quality-lattice:" + material.id, assembleDisplayViewQualityLatticeWgsl(material.wgsl));
-  const sitesPipeline = blocked ? await pipelines("photivra-display-view-quality-sites-blocked", DISPLAY_VIEW_QUALITY_SITES_BLOCKED_WGSL) :
+  const latticePipeline = image ? await pipelines(...image.lattice) : await pipelines("photivra-display-view-quality-lattice:" + material.id, assembleDisplayViewQualityLatticeWgsl(material.wgsl));
+  const sitesPipeline = image ? await pipelines(...image.sites) : blocked ? await pipelines("photivra-display-view-quality-sites-blocked", DISPLAY_VIEW_QUALITY_SITES_BLOCKED_WGSL) :
     await pipelines("photivra-display-view-quality-sites", DISPLAY_VIEW_QUALITY_SITES_WGSL);
   const pixelsPipeline = await pipelines("photivra-display-view-quality-pixels", DISPLAY_VIEW_QUALITY_PIXELS_WGSL);
   const moments = new Float32Array(pixelCount * DISPLAY_VIEW_QUALITY_OUTPUT_FLOATS), pixelFlags = new Uint32Array(pixelCount), masks = new Uint32Array(2 * pixelCount);
@@ -548,11 +559,9 @@ export async function renderDisplayViewQualityOnGpu(runtime: WebGpuRuntime, band
     const tapsBuffer = blocked ? null : scope.upload("photivra-display-view-taps", gather.taps, BUFFER_USAGE.STORAGE);
     const tableBuffer = scope.upload("photivra-display-view-table", gather.table, BUFFER_USAGE.STORAGE);
     const spreadBuffer = scope.upload("photivra-display-view-spread", gather.spread, BUFFER_USAGE.STORAGE);
-    const materialRowsBuffer = gather.materialRows ? scope.upload("photivra-display-view-material-rows", gather.materialRows, BUFFER_USAGE.STORAGE) : null;
     // A module's binding is data uploaded per render or a buffer the module already holds on the device (#491: scene records).
-    const materialEntries = material.bindings.map((b) => ({ binding: b.binding, resource: { buffer: b.buffer ??
-      scope.upload("photivra-display-view-material-" + b.binding, b.data, b.kind === "uniform" ? BUFFER_USAGE.UNIFORM : BUFFER_USAGE.STORAGE) } }));
-    const materialGroup = runtime.device.createBindGroup({ layout: latticePipeline.getBindGroupLayout(1), entries: materialEntries });
+    const materialGroup = image ? null : runtime.device.createBindGroup({ layout: latticePipeline.getBindGroupLayout(1), entries: material.bindings.map((b) => ({ binding: b.binding, resource: { buffer: b.buffer ??
+      scope.upload("photivra-display-view-material-" + b.binding, b.data, b.kind === "uniform" ? BUFFER_USAGE.UNIFORM : BUFFER_USAGE.STORAGE) } })) });
     const gate = createHostYieldGate();
     for (let row0 = 0; row0 < region.height; row0 += rows) {
       checkAbort(abort.signal);
@@ -572,25 +581,31 @@ export async function renderDisplayViewQualityOnGpu(runtime: WebGpuRuntime, band
       const band = new GpuResourceScope(runtime);
       try {
         const groupBuffer = band.upload("photivra-display-view-groups", groupWords, BUFFER_USAGE.STORAGE);
-        let latticeBuffer = band.buffer("photivra-display-view-lattice", latticeTotal * 4, BUFFER_USAGE.STORAGE | (blocked ? BUFFER_USAGE.COPY_SRC : 0));
         const siteBuffer = band.buffer("photivra-display-view-sites", siteW * siteH * SITE_BYTES, BUFFER_USAGE.STORAGE);
-        // Pass 1: lattice materials.
+        // Pass 1: lattice materials (#581: an image-plane print's radiance per node, with its flags, and their host resolution).
         let t0 = now();
         words[0] = latticeTotal;
         const latticeParams = band.upload("photivra-display-view-params-lattice", new Uint8Array(params.slice(0)), BUFFER_USAGE.UNIFORM);
-        const latticeGroup = runtime.device.createBindGroup({ layout: latticePipeline.getBindGroupLayout(0), entries: [
-          { binding: 0, resource: { buffer: latticeParams } }, { binding: 1, resource: { buffer: groupBuffer } }, { binding: 2, resource: { buffer: latticeBuffer } }] });
-        const [latticeData] = await runComputePass(runtime, band, latticePipeline, [latticeGroup, materialGroup], linearDispatch(latticeTotal, DISPLAY_VIEW_QUALITY_WORKGROUP_SIZE, runtime.maximumWorkgroupsPerDimension),
-          blocked ? [{ buffer: latticeBuffer, bytes: latticeTotal * 4 }] : [], abort.signal);
-        await queueIdle(runtime, abort.signal);
-        if (blocked) {
-          // #492: with a wide disc nearly every site reads some uncertain lattice point, and its spread over every material would flag
-          // it. The host resolves each uncertain point with the reference's own material lookup at the reference's lattice point
-          // (createDisplayViewExpectedSignal's latticeU/latticeV), so the sites read exactly the reference's materials.
-          const lattice = new Uint32Array(latticeData!, 0, latticeTotal);
-          const resolved = resolveUncertainLattice(lattice, groupWords, signalInput);
-          if (resolved > 0) latticeBuffer = band.upload("photivra-display-view-lattice-resolved", lattice, BUFFER_USAGE.STORAGE);
-          latticePointsResolved += resolved;
+        let latticeBuffer: GPUBuffer, pointFlags: GPUBuffer | null = null;
+        if (image) {
+          const pass = await image.runLattice(band, latticePipeline, latticeParams, groupBuffer, groupWords, latticeTotal, abort.signal);
+          latticeBuffer = pass.values; pointFlags = pass.flags; latticePointsResolved += pass.resolved;
+        } else {
+          latticeBuffer = band.buffer("photivra-display-view-lattice", latticeTotal * 4, BUFFER_USAGE.STORAGE | (blocked ? BUFFER_USAGE.COPY_SRC : 0));
+          const latticeGroup = runtime.device.createBindGroup({ layout: latticePipeline.getBindGroupLayout(0), entries: [
+            { binding: 0, resource: { buffer: latticeParams } }, { binding: 1, resource: { buffer: groupBuffer } }, { binding: 2, resource: { buffer: latticeBuffer } }] });
+          const [latticeData] = await runComputePass(runtime, band, latticePipeline, [latticeGroup, materialGroup!], linearDispatch(latticeTotal, DISPLAY_VIEW_QUALITY_WORKGROUP_SIZE, runtime.maximumWorkgroupsPerDimension),
+            blocked ? [{ buffer: latticeBuffer, bytes: latticeTotal * 4 }] : [], abort.signal);
+          await queueIdle(runtime, abort.signal);
+          if (blocked) {
+            // #492: with a wide disc nearly every site reads some uncertain lattice point, and its spread over every material would flag
+            // it. The host resolves each uncertain point with the reference's own material lookup at the reference's lattice point
+            // (createDisplayViewExpectedSignal's latticeU/latticeV), so the sites read exactly the reference's materials.
+            const lattice = new Uint32Array(latticeData!, 0, latticeTotal);
+            const resolved = resolveUncertainLattice(lattice, groupWords, signalInput);
+            if (resolved > 0) latticeBuffer = band.upload("photivra-display-view-lattice-resolved", lattice, BUFFER_USAGE.STORAGE);
+            latticePointsResolved += resolved;
+          }
         }
         timings.lattice += now() - t0;
         // Pass 2: site moments, in chunks of whole workgroups of sites whose taps stay within the budget per dispatch (#492).
@@ -605,8 +620,7 @@ export async function renderDisplayViewQualityOnGpu(runtime: WebGpuRuntime, band
             const siteParams = chunk.upload("photivra-display-view-params-sites", new Uint8Array(params.slice(0)), BUFFER_USAGE.UNIFORM);
             const siteGroup = runtime.device.createBindGroup({ layout: sitesPipeline.getBindGroupLayout(0), entries: [
               { binding: 0, resource: { buffer: siteParams } }, { binding: 1, resource: { buffer: groupBuffer } }, ...(tapsBuffer ? [{ binding: 2, resource: { buffer: tapsBuffer } }] : []),
-              { binding: 3, resource: { buffer: tableBuffer } }, { binding: 4, resource: { buffer: latticeBuffer } }, { binding: 5, resource: { buffer: siteBuffer } }, { binding: 6, resource: { buffer: spreadBuffer } },
-              ...(materialRowsBuffer ? [{ binding: 7, resource: { buffer: materialRowsBuffer } }] : [])] });
+              { binding: 3, resource: { buffer: tableBuffer } }, { binding: 4, resource: { buffer: latticeBuffer } }, { binding: 5, resource: { buffer: siteBuffer } }, { binding: 6, resource: { buffer: pointFlags ?? spreadBuffer } },] });
             await runComputePass(runtime, chunk, sitesPipeline, siteGroup, linearDispatch(words[0], DISPLAY_VIEW_QUALITY_WORKGROUP_SIZE, runtime.maximumWorkgroupsPerDimension), [], abort.signal);
             await queueIdle(runtime, abort.signal);
           } finally { chunk.release(); }
@@ -712,18 +726,7 @@ export async function renderDisplayViewQualityOnGpu(runtime: WebGpuRuntime, band
   const undecided: number[] = [], isFlagged = new Uint8Array(pixelCount);
   for (const i of flagged) isFlagged[i] = 1;
   for (let i = 0; i < pixelCount; i++) if (isFlagged[i] === 0 && (pixelFlags[i]! & DISPLAY_VIEW_QUALITY_FLAG.highlightUndecided) !== 0) undecided.push(i);
-  if (undecided.length > 0 && input.recomputeFlagged !== false) {
-    const signal = createDisplayViewExpectedSignal(signalInput);
-    for (let r = 0; r < undecided.length;) {
-      checkAbort(abort.signal);
-      const first = undecided[r]!, rx = first % region.width, ry = (first - rx) / region.width;
-      let run = 1;
-      while (r + run < undecided.length && undecided[r + run] === first + run && rx + run < region.width) run++;
-      const part = await renderDisplayView({ ...setup, signal, region: { x: region.x + rx, y: region.y + ry, width: run, height: 1 } });
-      for (let k = 0; k < run; k++) { saturated[first + k] = part.saturated[k]!; highlights.push(first + k); }
-      r += run;
-    }
-  }
+  if (input.recomputeFlagged !== false) await recomputeRuns(setup, signalInput, undecided, abort, (first, run, part) => { for (let k = 0; k < run; k++) { saturated[first + k] = part.saturated[k]!; highlights.push(first + k); } });
   if (flagged.length > 0) {
     if (input.recomputeFlagged === false) {
       // Without recomputation a flagged pixel keeps the kernel's values where they are finite (its bound then does not hold).
@@ -736,23 +739,12 @@ export async function renderDisplayViewQualityOnGpu(runtime: WebGpuRuntime, band
         finishDisplayViewPixel(moments.subarray(o, o + 9), pixels, setup.seed, (region.y + ry) * setup.viewWidth + region.x + rx, step, maximum, samples, expected, noiseStd, i * 3);
         meanBound[i] = MARGIN * moments[o + 9]!; varianceBound[i] = MARGIN * moments[o + 10]! + quantizationBound(moments, o, meanBound[i]!, pixels, step);
       }
-    } else {
-      const signal = createDisplayViewExpectedSignal(signalInput);
-      // Runs of consecutive flagged pixels along a row are rendered as one region (#457: AHD's choice flags stretches near
-      // edges); a region render is byte-identical to the same pixels of the whole view, so each pixel equals its one-pixel
-      // render, and the run's counts are the sums of its pixels' counts.
-      for (let r = 0; r < flagged.length;) {
-        checkAbort(abort.signal);
-        const first = flagged[r]!, rx = first % region.width, ry = (first - rx) / region.width;
-        let run = 1;
-        while (r + run < flagged.length && flagged[r + run] === first + run && rx + run < region.width) run++;
-        const part = await renderDisplayView({ ...setup, signal, region: { x: region.x + rx, y: region.y + ry, width: run, height: 1 } });
-        samples.set(part.samples, first * 3); expected.set(part.expected, first * 3); noiseStd.set(part.noiseStd, first * 3); saturated.set(part.saturated, first);
-        for (let k = 0; k < run; k++) { meanBound[first + k] = 0; varianceBound[first + k] = 0; recomputed.push(first + k); }
-        corrected += part.ahdCorrectedPixelCount; sampleCount += part.sampleCount; siteCount += part.siteCount;
-        r += run;
-      }
-    }
+    } else await recomputeRuns(setup, signalInput, flagged, abort, (first, run, part) => {
+      // The run's counts are the sums of its pixels' counts.
+      samples.set(part.samples, first * 3); expected.set(part.expected, first * 3); noiseStd.set(part.noiseStd, first * 3); saturated.set(part.saturated, first);
+      for (let k = 0; k < run; k++) { meanBound[first + k] = 0; varianceBound[first + k] = 0; recomputed.push(first + k); }
+      corrected += part.ahdCorrectedPixelCount; sampleCount += part.sampleCount; siteCount += part.siteCount;
+    });
   }
   timings.recompute = now() - t0;
   const relative = MARGIN * CPU_RELATIVE;
@@ -783,8 +775,7 @@ export function qualityMaterialSetup(gpu: DisplayViewGpuSetup): DisplayViewGpuSe
   const offsets = groups.map((group) => ({ x: group.fx, y: group.fy, weight: 1 / groups.length }));
   const queryPoint = (x: number, y: number, o: number, out: Float64Array): void => {
     const group = groups[o]!;
-    out[0] = (group.fx === 0 ? (x + 0.5 - W / 2) : (x + 0.5 + group.fx - W / 2)) * g;
-    out[1] = -(group.fy === 0 ? (y + 0.5 - H / 2) : (y + 0.5 + group.fy - H / 2)) * g;
+    out[0] = latticeCoordinate(x, group.fx, W, g); out[1] = -latticeCoordinate(y, group.fy, H, g);
   };
   const { kernels: _kernels, ...rest } = input;
   void _kernels;
@@ -808,10 +799,7 @@ export function offsetCount(request: DisplayViewGpuRequest): number { return req
  * table fits the device's storage binding limit, is known only per render.
  */
 export function displayViewQualityGpuSupports(request: DisplayViewGpuRequest): true | string {
-  if (request.scene !== "chart" && request.scene !== "material-layers") return "the scene is a caller " + request.scene + "; the GPU material lookup covers engine charts and declared material-layers scenes (describe the scene as material-layers)";
-  if (request.toneCurve !== "identity" && request.toneCurve !== "positive-reinhard-per-channel") return "unsupported tone curve " + String(request.toneCurve);
-  if (offsetCount(request) > MAXIMUM_GROUPS) return "more than " + MAXIMUM_GROUPS + " query offsets per site";
-  return true;
+  return sceneToneAndOffsetsReason(request, MAXIMUM_GROUPS);
 }
 
 /** A normalized, symmetric site kernel of radius R for the self-check (a binned Gaussian of width `sigma` sites). */
@@ -836,47 +824,25 @@ function syntheticKernel(radius: number, sigma: number): Float64Array {
  *   each band's site pass over several dispatches.
  */
 async function runQualityConformance(handle: DisplayViewGpuRuntimeHandle, signal: AbortSignal | undefined, defocus: boolean): Promise<true | string> {
-  const runtime = handle as WebGpuRuntime;
-  const nativeWidth = 40, nativeHeight = 28, margin = 1, frameWidth = 38, frameHeight = 26, nodes = [450, 550, 650];
-  const chart = resolvePortableChartScene({ scene: { preset: "checkerboard", squaresAcross: 6 }, aspect: frameHeight / frameWidth });
+  const runtime = handle as WebGpuRuntime, { nativeWidth, nativeHeight, frameWidth, nodes } = CONFORMANCE_FRAME, { chart, scene } = conformanceChart();
   const offsets: { x: number; y: number; weight: number }[] = [];
   for (const [nx, ny] of [[-0.25, -0.25], [0.25, -0.25], [-0.25, 0.25], [0.25, 0.25]] as const) for (const [ax, ay] of [[-0.5, -0.5], [0.5, -0.5], [-0.5, 0.5], [0.5, 0.5]] as const) offsets.push({ x: nx - ax, y: ny - ay, weight: 1 / 16 });
   const disc = defocus ? createDefocusDiscSiteKernel(6.3)! : null;
   const kernels = disc ? { radius: disc.radius, perNode: nodes.map(() => disc.weights) } : { radius: 1, perNode: [syntheticKernel(1, 0.6), syntheticKernel(1, 0.7), syntheticKernel(1, 0.8)] };
-  const signalInput: DisplayViewExpectedSignalInput = { nativeWidth, nativeHeight, outputWidth: frameWidth, wavelengthsNm: nodes,
-    electronsPerRadiance: defocus ? [Float64Array.of(9000, 30000, 4000), Float64Array.of(6000, 42000, 9000), Float64Array.of(30000, 9000, 3000)] :
-      [Float64Array.of(900, 3000, 400), Float64Array.of(600, 4200, 900), Float64Array.of(3000, 900, 300)], offsets, kernels,
-    scene: { kind: "materials", materialAt: (u, v) => chart.materialAt(u, v), materials: chart.materials.map((m) => ({ neutral: m.kind === "neutral" ? m.reflectance : 0.5 })), whiteRadiance: Float64Array.of(0.5, 0.9, 0.7) },
-    channelAt: (x, y) => ((y & 1) === 0 ? ((x & 1) === 0 ? 0 : 1) : ((x & 1) === 0 ? 1 : 2)) };
-  const readout = { perElectron: defocus ? 1 / 40000 : 1 / 4000, darkElectrons: 0.07, constantVariance: 2.5e-7 };
-  const bilinear = bilinearKernels();
-  const setup: DisplayViewSetup = { frameWidth, frameHeight, margin, nativeWidth, nativeHeight, viewWidth: 13, viewHeight: 9, region: { x: 0, y: 0, width: 13, height: 9 },
-    samplesPerAxis: 16, reachSites: 5 + (disc ? disc.radius : 0), bitDepth: 8, seed: 479, signal: createDisplayViewExpectedSignal(signalInput), readout: [readout, readout, readout], demosaic: bilinear,
-    ...(defocus ? {} : { candidates: [0, 1, 2, 3].map((p) => ahdCandidateKernels(p % 2, Math.floor(p / 2))),
-      ahdCorrection: { labMatrix: [[0.4124, 0.3576, 0.1805], [0.2126, 0.7152, 0.0722], [0.0193, 0.1192, 0.9505]].map((row) => row.map((v, c) => v * [1.1, 1, 1.6][c]!)), drawsPerState: 64, thresholdVariance: 1e-4 } }),
-    gains: [1.1, 1, 1.6], clipLevel: 1, matrix: [[3.08, -1.54, -0.54], [-0.92, 1.88, 0.045], [0.053, -0.2, 1.15]], toneCurve: "identity",
-    yieldControl: async () => undefined, checkAbort: () => { if (signal?.aborted) throw abortedError(); } };
+  const signalInput: DisplayViewExpectedSignalInput = { nativeWidth, nativeHeight, outputWidth: frameWidth, wavelengthsNm: nodes, electronsPerRadiance: conformanceResponses(defocus ? 1 : 0.1),
+    offsets, kernels, scene, channelAt: conformanceChannelAt };
+  const setup = conformanceSetup(signalInput, { perElectron: defocus ? 1 / 40000 : 1 / 4000, darkElectrons: 0.07, constantVariance: 2.5e-7 }, 479, 5 + (disc ? disc.radius : 0), signal,
+    defocus ? {} : { candidates: [0, 1, 2, 3].map((p) => ahdCandidateKernels(p % 2, Math.floor(p / 2))),
+      ahdCorrection: { labMatrix: [[0.4124, 0.3576, 0.1805], [0.2126, 0.7152, 0.0722], [0.0193, 0.1192, 0.9505]].map((row) => row.map((v, c) => v * [1.1, 1, 1.6][c]!)), drawsPerState: 64, thresholdVariance: 1e-4 } });
   const reference = await renderDisplayView(setup);
-  const abort = new AbortController(), onAbort = (): void => abort.abort();
-  signal?.addEventListener("abort", onAbort, { once: true });
-  try {
-    if (signal?.aborted) abort.abort();
+  return await withConformanceAbort(runtime, signal, async (abort, pipelines) => {
     const gather = defocus ? { blockedSum: true, maximumSiteTapsPerDispatch: 64 * 4 * (2 * 3 + 2) ** 2 } : {};
-    const gpu = await renderDisplayViewQualityOnGpu(runtime, 1 << 20, { setup, signalInput, material: chartPresetMaterialModule(chart), ...gather }, abort, undefined,
-      (label, code) => createComputePipeline(runtime, label, code, abort.signal));
+    const gpu = await renderDisplayViewQualityOnGpu(runtime, 1 << 20, { setup, signalInput, material: chartPresetMaterialModule(chart), ...gather }, abort, undefined, pipelines);
     if (!defocus && (gpu.ahdCorrectedPixelCount === 0 || reference.ahdCorrectedPixelCount === 0)) return "the self-check did not exercise the low-signal correction.";
     if (defocus && (!gpu.blockedSum || gpu.stageMilliseconds.siteDispatches < 2)) return "the self-check did not exercise the blocked site sum over several dispatches.";
-    for (let i = 0; i < reference.expected.length; i++) {
-      const p = Math.floor(i / 3), e0 = reference.expected[i]!, e1 = gpu.expected[i]!, v0 = reference.noiseStd[i]! * reference.noiseStd[i]!, v1 = gpu.noiseStd[i]! * gpu.noiseStd[i]!;
-      const expectedLimit = gpu.expectedValueBound.relative * Math.abs(e0) + gpu.expectedValueAbsoluteBound[p]!, varianceLimit = gpu.varianceBound.relative * v0 + gpu.varianceAbsoluteBound[p]!;
-      if (!(Math.abs(e1 - e0) <= expectedLimit)) return "component " + i + ": expected value " + e1 + " differs from the reference " + e0 + " by more than the a-priori bound " + expectedLimit + ".";
-      if (!(Math.abs(v1 - v0) <= varianceLimit)) return "component " + i + ": variance " + v1 + " differs from the reference " + v0 + " by more than the a-priori bound " + varianceLimit + ".";
-      if (Math.abs(gpu.samples[i]! - reference.samples[i]!) > 1) return "component " + i + ": sample " + gpu.samples[i] + " differs from the reference " + reference.samples[i] + " by more than one code.";
-    }
-    // #533: the saturated-pixel count is the reference's, bit for bit (the light squares sit at the white clip).
-    if (gpu.saturatedPixelCount !== reference.saturatedPixelCount) return "the saturated-pixel count " + gpu.saturatedPixelCount + " differs from the reference's " + reference.saturatedPixelCount + ".";
-    return true;
-  } finally { signal?.removeEventListener("abort", onAbort); }
+    // #533: the verdict includes the saturated-pixel count (the light squares sit at the white clip).
+    return conformanceVerdict(reference, gpu);
+  });
 }
 /** #479's self-check (see `runQualityConformance`). */
 export const DISPLAY_VIEW_QUALITY_CONFORMANCE_CASE: DisplayViewGpuConformanceCase = { id: "display-view:quality:checkerboard-13x9-diffraction-ahd",
@@ -941,11 +907,13 @@ export function createDisplayViewGpuRenderer(runtime: WebGpuRuntime, options: { 
           material = await modules.moduleFor(setup.gpu, abort.signal);
           result = await renderDisplayViewSpeedOnGpu(runtime, bandBytes, { setup, signalInput, material }, abort, options.yieldControl, source);
         } else {
-          material = await qualityMaterialModule(modules, setup.gpu, abort.signal);
+          // #581: an image-plane print brings its own passes 1 and 2.
+          const image = (signalInput.scene as { image?: unknown }).image ? await modules.imagePasses(setup.gpu, abort.signal) : undefined;
+          material = image ? { id: "image-plane", wgsl: "", bindings: [] } : await qualityMaterialModule(modules, setup.gpu, abort.signal);
           const key = displayViewCorrectionKey(setup);
           let states = key === null ? undefined : stores.get(key);
           if (key !== null && !states) { states = new CorrectionStateStore(); stores.set(key, states); }
-          result = await renderDisplayViewQualityOnGpu(runtime, bandBytes, { setup, signalInput, material, ...(states ? { states } : {}) }, abort, options.yieldControl, source);
+          result = await renderDisplayViewQualityOnGpu(runtime, bandBytes, { setup, signalInput, material, ...(image ? { image } : {}), ...(states ? { states } : {}) }, abort, options.yieldControl, source);
         }
         return { samples: result.samples, expected: result.expected, noiseStd: result.noiseStd, sampleCount: result.sampleCount, siteCount: result.siteCount, detailPixelCount: result.detailPixelCount,
           uniformPixelCount: result.uniformPixelCount, ahdCorrectedPixelCount: result.ahdCorrectedPixelCount, estimation: result.estimation, saturated: result.saturated,

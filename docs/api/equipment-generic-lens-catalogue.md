@@ -4,11 +4,11 @@ The package and root API versions are recorded once in [Navigation](../API_REFER
 
 ## GENERIC_LENS_CATALOGUE
 
-The 30 lenses: 17 professional, then 13 consumer, each set by focal length.
+The 33 lenses: 17 professional, 13 consumer and (#554) 3 phone lenses, each set by focal length.
 
 ```ts
 GENERIC_LENS_CATALOGUE: readonly GenericLensCatalogueEntry[] = Object.freeze([...PRO.map((row) => entry("professional", row)),
-  ...CONSUMER.map((row) => entry("consumer", row))])
+  ...CONSUMER.map((row) => entry("consumer", row)), ...PHONE.map((row) => entry("phone", row))])
 ```
 
 ## GENERIC_LENS_IDS
@@ -30,7 +30,12 @@ GENERIC_LENS_SET_BASELINES: Readonly<Record<GenericLensSet, Readonly<GenericLens
     breathingFraction: -0.03, focusScatterDepthOfFocusFraction: 0.1, closeFocusFactor: 0.15 }),
   consumer: Object.freeze({ sphericalWaves: 0.5, comaWaves: 1.0, astigmatismWaves: 0.8, fieldCurvatureWaves: 0.45, axialColorWaves: 0.4,
     lateralColorFraction: 0.0003, distortionMagnitude: 0.03, naturalVignettingStops: 0.7, opticalVignettingStops: 1.1, veilingGlareFraction: 0.02, ghostFraction: 0.008,
-    breathingFraction: -0.08, focusScatterDepthOfFocusFraction: 0.3, closeFocusFactor: 0.5 })
+    breathingFraction: -0.08, focusScatterDepthOfFocusFraction: 0.3, closeFocusFactor: 0.5 }),
+  // #554: design values (docs/LENS_CATALOGUE.md, "Phone lenses"): the consumer baseline with the stronger fall-off, flare and distortion
+  // (corrected in software on phones) of small fixed-aperture phone lenses, and no optical-vignetting change (the aperture is fixed).
+  phone: Object.freeze({ sphericalWaves: 0.5, comaWaves: 1.0, astigmatismWaves: 0.8, fieldCurvatureWaves: 0.5, axialColorWaves: 0.3,
+    lateralColorFraction: 0.0004, distortionMagnitude: 0.03, naturalVignettingStops: 1.2, opticalVignettingStops: 0.5, veilingGlareFraction: 0.03, ghostFraction: 0.01,
+    breathingFraction: -0.05, focusScatterDepthOfFocusFraction: 0.3, closeFocusFactor: 0.5 })
 })
 ```
 
@@ -179,10 +184,10 @@ export type GenericLensKind = "standard" | "macro" | "fisheye";
 
 ## GenericLensSet
 
-The exact contract is declared below; use the domain guide for assumptions and staged integration.
+#554: "phone", the three fixed lenses of a phone sensor profile (`sensor.profile` with `fixedLenses: "phone"`).
 
 ```ts
-export type GenericLensSet = "professional" | "consumer";
+export type GenericLensSet = "professional" | "consumer" | "phone";
 ```
 
 ## ResolvedGenericLens

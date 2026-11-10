@@ -9,7 +9,8 @@
  * Every value comes from the chart provider's own `radianceAt` (createPlanarSceneRadianceProvider): a
  * Lambertian reflectance ρ(λ) under the scaled illuminant, L = ρ·k·S(λ)/π. The spectral integral of a
  * query is Σ_j w_cj·L(u, v, λ_j), summed in wavelength order. Charts are uniform-illuminant Lambertian
- * patterns, so a query's integral depends only on its material: the GPU stage uses exactly that.
+ * patterns, so a query's integral depends only on its material: the GPU stage classifies the material and (2.21.0) the host
+ * integrates that material's spectrum against the weights per query.
  *
  * The query shape mirrors a batched provider (one call, queries in, results in the same order). Points
  * are frame units (u right, v up; see chart-scenes.ts); `mapEnvironmentDirectionsToChartPoints` converts

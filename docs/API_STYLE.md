@@ -239,9 +239,11 @@ have a fast method, a measured and bounded approximation of it. One flag style s
   (`fast-and-exact`) or the record takes `fast` with none yet (`exact-only`), where it runs, its resolver call and how it is
   reported (a `diagnostics.fast.applied` key, a `fast.<path>` or other assumption, or a result field). In 2.20.0: `lens.catalogue`'s
   field grid (#568), its cat's eye (#567: fast leaves it out) and the display view's PSF zones (H1); `lens.diffraction`'s per-tap
-  points under rolling-shutter rotation (#565); the display view's AHD low-signal correction (H3: 2048 draws and a 0.01 threshold
+  points under rolling-shutter rotation (#565), and in 2.21.0 `lens.catalogue`'s the same way (#588; the lattice reading is its exact method); the display view's AHD low-signal correction (H3: 2048 draws and a 0.01 threshold
   fast, 8192 draws at the same threshold exact) and its quarter sampling of uniform pixels (H2); `prepareDisplayView`'s `gpu`
-  (`"auto"` fast, `"off"` exact; an explicit value wins); and `result.sensor.midGrey` (#535, computed only on exact requests). The
+  (`"auto"` fast, `"off"` exact; an explicit value wins); and `result.sensor.midGrey` (#535, computed only on exact requests). In 2.22.0: `motion.subject`'s temporal midpoints (#551: with the default count and a still camera, fast takes one
+  midpoint per site of the subject's streak plus one when that is fewer than 8; exact keeps the 8; an explicit
+  `sensor.temporalSampleCount` always wins). The
   records of `lens.diffraction`, `sensor.antiAliasing`, `sensor.pixelAperture` and `output.demosaic` (in captures) take `fast`
   with no fast method yet. `test/fast-methods-registry.test.ts` fails when a record accepts `fast` without an entry, an entry
   lacks its resolver or report, or a format default leaves the rule. **Every new fast method adds its entry.**

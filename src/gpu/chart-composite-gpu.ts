@@ -336,22 +336,54 @@ export function packChartScene(plan: ChartRadianceBatchPlan): PackedChartScene {
   return { af: Float32Array.from(p.af), ai: Uint32Array.from(p.ai), materials: plan.materials.length, elementCount, layerCount: layers.length };
 }
 
-/** Per-material values in float64 (the reference's operations), rounded once; a failing spectrum is NaN and its points are recomputed. */
+/**
+ * The material table the chart kernels read. Radiance mode: each material's radiance at each wavelength in float64 (the reference's
+ * operations), rounded once; a failing spectrum is NaN and its points are recomputed. Spectral-integral mode (2.21.0, signals are
+ * integrated from the material spectrum per query): each material's index in every column (exact in float32), so the kernel
+ * returns the material a query reads and the host integrates that query's spectrum against the channel weights
+ * (`integrateChartQueries`); no per-material channel value is formed.
+ */
 export function chartMaterialTable(plan: ChartRadianceBatchPlan): Float32Array<ArrayBuffer> {
   const nm = plan.wavelengthsNanometers, stride = plan.mode === "radiance" ? nm.length : plan.columns, materials = plan.materials.length;
   const table = new Float32Array(materials * stride);
+  if (plan.mode !== "radiance") {
+    // A query whose integral leaves the float32 range is non-finite and recomputed by the reference (integrateChartQueries).
+    for (let m = 0; m < table.length; m++) table[m] = Math.floor(m / stride);
+    return table;
+  }
   for (let m = 0; m < materials; m++) {
     for (let c = 0; c < stride; c++) {
       let value: number;
-      try {
-        if (plan.mode === "radiance") value = plan.materialRadiance(m, nm[c]!);
-        else { value = 0; const row = plan.channelWeights![c]!; for (let j = 0; j < nm.length; j++) value += row[j]! * plan.materialRadiance(m, nm[j]!); }
-      } catch { value = Number.NaN; }
+      try { value = plan.materialRadiance(m, nm[c]!); } catch { value = Number.NaN; }
       if (Math.abs(value) > FLOAT32_SAFE_MAGNITUDE) throw new ImageKernelExecutionError("unsupported-float32-domain", "Chart values exceed the float32 domain.");
       table[m * stride + c] = value;
     }
   }
   return table;
+}
+
+/**
+ * Spectral-integral mode (2.21.0): replaces each query's material index (the kernel's output, `chartMaterialTable`) by its integral
+ * Σ_j w_cj·L_m(λ_j) per column, formed from the material's spectrum (kept per material) in the reference's order and rounded
+ * once, as the query is read. Queries already in `recomputed` are left to the reference; a query whose spectrum fails joins them.
+ */
+export function integrateChartQueries(plan: ChartRadianceBatchPlan, values: Float32Array, recomputed: number[]): void {
+  if (plan.mode === "radiance") return;
+  const nm = plan.wavelengthsNanometers, C = plan.columns, spectra = new Map<number, number[] | null>(), skip = new Set(recomputed);
+  for (let q = 0; q < plan.queryCount; q++) {
+    if (skip.has(q)) continue;
+    const m = values[q * C]!;
+    if (!spectra.has(m)) { try { spectra.set(m, nm.map((w) => plan.materialRadiance(m, w))); } catch { spectra.set(m, null); } }
+    const L = spectra.get(m);
+    let finite = !!L;
+    for (let c = 0; c < C && L; c++) {
+      let v = 0;
+      plan.channelWeights![c]!.forEach((w, j) => { v += w * L[j]!; });
+      values[q * C + c] = v;
+      finite &&= Number.isFinite(values[q * C + c]!);
+    }
+    if (!finite) recomputed.push(q);
+  }
 }
 
 /** The scene key of a batch input: the scene's data and the aspect (every record derives from them). */
@@ -466,6 +498,7 @@ export async function evaluateChartCompositeOnGpu(runtime: WebGpuRuntime, bandBy
     }
   } finally { scope.release(); }
   checkAbort(abort.signal);
+  integrateChartQueries(plan, values, recomputed);
   for (const q of recomputed) for (let c = 0; c < columns; c++) values[q * columns + c] = plan.queryValue(points, indices, q, c);
   const execution: ImageKernelExecution = webGpuExecution({ kind: "relative-to-reference", relative: 2 ** -24, absolute: 2 ** -126 }, 0);
   return { plan, values, columns, execution, hostRecomputedQueryIndices: Uint32Array.from(recomputed) };

@@ -102,6 +102,15 @@ describe("catalogue lens bokeh values (#567)", () => {
       expect(b.sphericalAberration).toEqual({ w040Micrometers: lens.character.aberrations.sphericalWaves * 0.55, atFNumber: entry.widestFNumber });
       if (!b.catsEye) continue;
       withCatsEye.push(entry.lensId);
+      // #554's phone lenses have one f-number, so they cannot be stopped down to separate the optical vignetting: their cat's eye
+      // is the consumer set's construction at their focal length (checked to narrow the corner's open area only).
+      if (entry.widestFNumber === entry.narrowestFNumber) {
+        const open = calculateDefocusBokehKernel({ focalLengthMm: lens.focalLengthMm, aperture: entry.widestFNumber, focusDistanceM: 2, subjectDistanceM: 3, pixelPitchMicrometers: 6,
+          bokeh: { catsEye: b.catsEye }, fieldTangent: { x: lens.halfDiagonalMm / lens.focalLengthMm, y: 0 } }).value.openAreaRatio;
+        expect(open, entry.lensId).toBeGreaterThan(0);
+        expect(open, entry.lensId).toBeLessThan(1);
+        continue;
+      }
       // Wide open at the frame corner the open pupil is 2^−(optical vignetting stops), the part of the corner fall-off that stopping down
       // removes (resolveGenericLens fades it out by f/(4·N0)).
       const stopped = resolveGenericLens({ lensId: entry.lensId, activeImagingArea: { widthMm: 36, heightMm: 24 }, fNumber: 4 * entry.widestFNumber });
@@ -111,7 +120,7 @@ describe("catalogue lens bokeh values (#567)", () => {
       expect(kernel(entry.widestFNumber), entry.lensId).toBeCloseTo(2 ** -opticalStops, 4);
       expect(kernel(2 * entry.widestFNumber)).toBeGreaterThan(kernel(entry.widestFNumber));
     }
-    expect(withCatsEye).toEqual(["pv-16-1.8-pro", "pv-20-1.4-pro", "pv-24-1.4-pro", "pv-35-1.2-pro", "pv-50-1.2-pro", "pv-20-2", "pv-24-1.8", "pv-35-1.8", "pv-50-1.8"]);
+    expect(withCatsEye).toEqual(["pv-16-1.8-pro", "pv-20-1.4-pro", "pv-24-1.4-pro", "pv-35-1.2-pro", "pv-50-1.2-pro", "pv-20-2", "pv-24-1.8", "pv-35-1.8", "pv-50-1.8", "pv-24-1.8-phone"]);
     // Resolved at a working f-number and close focus, the W040 is the lens's own there (with its close-focus gain).
     const close = resolveGenericLens({ lensId: "pv-50-1.8", activeImagingArea: AREA, fNumber: 4, focusDistanceM: 0.5 });
     expect(close.character.bokeh.sphericalAberration).toEqual({ w040Micrometers: close.character.aberrations.sphericalWaves * 0.55, atFNumber: 4 });

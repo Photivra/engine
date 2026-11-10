@@ -13,14 +13,13 @@ import { ImageKernelExecutionError, webGpuExecution, type ImageKernelExecution }
 import type { ChartRadianceResult } from "./image-kernel-accelerator.js";
 import { BUFFER_USAGE, GpuResourceScope, linearDispatch, runComputePass, type WebGpuRuntime, throwIfAborted as checkAbort } from "./webgpu-runtime.js";
 import { CHART_PRESET_CODE, CHART_RADIANCE_WGSL, CHART_WORKGROUP_SIZE } from "./wgsl-chart-kernel.js";
-import { evaluateChartCompositeOnGpu, type ChartSceneUploads } from "./chart-composite-gpu.js";
+import { chartMaterialTable, evaluateChartCompositeOnGpu, integrateChartQueries, type ChartSceneUploads } from "./chart-composite-gpu.js";
 
 type PipelineSource = (label: string, code: string) => Promise<GPUComputePipeline>;
 type YieldControl = ((signal: AbortSignal) => Promise<void>) | undefined;
 
 /** Frame-unit magnitude limit for GPU points. */
 export const CHART_GPU_MAXIMUM_COORDINATE = 2 ** 20;
-const FLOAT32_SAFE_MAGNITUDE = 2 ** 120;
 
 export async function evaluateChartRadianceOnCpu(input: ChartRadianceBatchInput, abort: AbortController, yieldControl: YieldControl,
   execution: ImageKernelExecution): Promise<ChartRadianceResult> {
@@ -82,30 +81,6 @@ export function chartGpuConstants(plan: ChartRadianceBatchPlan): { ints: [number
   }
 }
 
-/** Per-material values in float64, with the reference's operations; a material whose spectrum fails is NaN (recomputed on the host). */
-function materialTable(plan: ChartRadianceBatchPlan): Float32Array<ArrayBuffer> {
-  const materials = plan.chart.materials.length, nm = plan.wavelengthsNanometers, stride = plan.mode === "radiance" ? nm.length : plan.columns;
-  const table = new Float32Array(materials * stride);
-  for (let m = 0; m < materials; m++) {
-    for (let c = 0; c < stride; c++) {
-      let value: number;
-      try {
-        if (plan.mode === "radiance") value = plan.materialRadiance(m, nm[c]!);
-        else {
-          value = 0;
-          const row = plan.channelWeights![c]!;
-          for (let j = 0; j < nm.length; j++) value += row[j]! * plan.materialRadiance(m, nm[j]!);
-        }
-      } catch {
-        value = Number.NaN;
-      }
-      if (Math.abs(value) > FLOAT32_SAFE_MAGNITUDE) throw new ImageKernelExecutionError("unsupported-float32-domain", "Chart values exceed the float32 domain.");
-      table[m * stride + c] = value;
-    }
-  }
-  return table;
-}
-
 export async function evaluateChartRadianceOnGpu(runtime: WebGpuRuntime, bandBytes: number, input: ChartRadianceBatchInput, abort: AbortController,
   yieldControl: YieldControl, pipelines: PipelineSource, uploads: ChartSceneUploads): Promise<ChartRadianceResult> {
   const plan = calculateChartRadianceBatchPlan(input), points = input.points.slice(), indices = input.wavelengthIndices?.slice();
@@ -114,7 +89,7 @@ export async function evaluateChartRadianceOnGpu(runtime: WebGpuRuntime, bandByt
   for (let i = 0; i < points.length; i++) {
     if (Math.abs(points[i]!) > CHART_GPU_MAXIMUM_COORDINATE) throw new ImageKernelExecutionError("unsupported-float32-domain", "Chart points beyond 2^20 frame units are outside the float32 domain.");
   }
-  const { ints, floats, aux } = chartGpuConstants(plan), table = materialTable(plan), radianceMode = plan.mode === "radiance";
+  const { ints, floats, aux } = chartGpuConstants(plan), table = chartMaterialTable(plan), radianceMode = plan.mode === "radiance";
   const columns = plan.columns, stride = radianceMode ? plan.wavelengthsNanometers.length : columns, count = plan.queryCount;
   const bytesPerQuery = 8 + 4 * columns + 4 + 4;
   const rows = Math.max(1, Math.floor(bandBytes / bytesPerQuery));
@@ -164,6 +139,8 @@ export async function evaluateChartRadianceOnGpu(runtime: WebGpuRuntime, bandByt
     scope.release();
   }
   checkAbort(abort.signal);
+  // Spectral integrals: each query's material spectrum against the channel weights, when it is read (2.21.0).
+  integrateChartQueries(plan, values, recomputed);
   // Flagged points (and any whose material spectrum failed): the reference's own value, rounded once to float32.
   for (const q of recomputed) for (let c = 0; c < columns; c++) values[q * columns + c] = plan.queryValue(points, indices, q, c);
   const execution = webGpuExecution({ kind: "relative-to-reference", relative: 2 ** -24, absolute: 2 ** -126 }, 0);

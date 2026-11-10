@@ -1766,7 +1766,7 @@ export { simulateEnvironmentSensorRawFrame, type SimulateEnvironmentSensorRawFra
 export { calculateProcessedSensorRaw, parseProcessedSensorRawInput, type ProcessedSensorRawInput,
   type ProcessedSensorRawResult } from "./capture/photographic-export.js";
 export { calculatePrintPlan, calculatePrintSizeLimit, parsePrintPlanInput } from "./output/print-plan.js";
-export type { PrintLength, PrintedImageSize, PrintSamplingCriterion, PrintNativeSource, PrintProviderConstraints, PrintPlanInput, PrintRasterSampling, PrintPlan, PrintSizeLimitInput, PrintSizeLimit } from "./output/print-plan.js";
+export type { PrintLength, PrintedImageSize, PrintSamplingCriterion, PrintNativeSource, PrintProviderConstraints, PrintPlanInput, PrintRasterSampling, PrintPlan, PrintSizeLimitInput, PrintSizeLimit, PrintFit, PrintContainLayout } from "./output/print-plan.js";
 export { calculatePrintSizeLimitWithBlurAndNoise } from "./output/print-size-blur-noise.js";
 export type { PrintBlurInput, PrintNoiseInput, PrintSharpCleanCriterion, PrintSizeLimitWithBlurAndNoiseInput, PrintImageMm, PrintSizeLimitWithBlurAndNoise } from "./output/print-size-blur-noise.js";
 export { PRINT_REGION_DETAIL_MODEL_VERSION, MAX_PRINT_DETAIL_REGION_SAMPLES, calculatePrintRegionDetail, parsePrintRegionDetailInput } from "./output/print-detail.js";
@@ -1850,7 +1850,12 @@ export { SIMULATE_CAPTURE_FACADE_VERSION, SIMULATE_CAPTURE_DEFAULT_ILLUMINANCE_L
   simulateIdealReference, type IdealReferenceResult, serializeSimulatedCaptureDngFromParts, type SimulateCaptureDngPart, type SimulateDisplayViewOptions, type DisplayViewResult,
   type DisplayViewHighlightDiagnostics, SIMULATE_DISPLAY_VIEW_DEFAULT_SAMPLES_PER_AXIS } from "./facade/simulate-capture.js";
 export { simulateCaptureFromParts } from "./facade/develop-joined-parts.js";
+export { EXPOSURE_BUILD_UP_MAXIMUM_FRACTIONS, EXPOSURE_BUILD_UP_STREAM_BASE, simulateExposureBuildUp, type SimulateExposureBuildUpFrame, type SimulateExposureBuildUpOptions,
+  type SimulateExposureBuildUpResult } from "./facade/exposure-build-up.js";
 export type { SimulateCaptureSensorCharacteristics, SimulateCaptureSensorReport, SimulateCaptureNoiseComponents } from "./sensor/sensor-characteristics.js";
+export { SENSOR_PROFILES, SENSOR_PROFILE_IDS, resolveSensorProfile } from "./equipment/sensor-profiles.js";
+export { SENSOR_PROFILE_ISO_ANCHOR, type SensorProfile, type SensorProfileValueKind } from "./equipment/sensor-profile-body.js";
+export type { SimulateCaptureSubjectMotion } from "./motion/subject-motion.js";
 export { simulateDisplayView, prepareDisplayView, type PreparedDisplayView, type PreparedDisplayViewRenderOptions, serializeDisplayViewCorrectionStates, bindDisplayViewCorrectionStates,
   type DisplayViewCorrectionStateKeys, type DisplayViewCorrectionStateSet } from "./facade/simulate-display-view.js";
 export type { DisplayViewGpuMode, PrepareDisplayViewOptions, DisplayViewGpuFallbackReason, DisplayViewGpuConformance, DisplayViewExecution,
@@ -1863,7 +1868,9 @@ export { IDEAL_LENS_LIMITS } from "./equipment/ideal-lens.js";
 export { GENERIC_LENS_CATALOGUE, GENERIC_LENS_IDS, GENERIC_LENS_SET_BASELINES, resolveGenericLens, simulateGenericLensFocusError, type GenericLensCatalogueEntry,
   type GenericLensSet, type GenericLensKind, type GenericLensCharacterValues, type GenericLensAdjustments, type GenericLensCharacter, type ResolvedGenericLens,
   type ResolveGenericLensInput, type SimulateGenericLensFocusErrorInput, type GenericLensFocusError } from "./equipment/generic-lens-catalogue.js";
-export { createGenericLensCorrectionProfile, GENERIC_LENS_CORRECTION_CHANNEL_WAVELENGTHS_NM, type CreateGenericLensCorrectionProfileInput } from "./output/generic-lens-corrections.js";
+export { calculateChannelEffectiveDispersion, createGenericLensCorrectionProfile, GENERIC_LENS_CORRECTION_CHANNEL_WAVELENGTHS_NM, type CalculateChannelEffectiveDispersionInput, type ChannelDispersion,
+  type CreateGenericLensCorrectionProfileInput } from "./output/generic-lens-corrections.js";
+export { calculateLateralColorFringe, type CalculateLateralColorFringeInput, type LateralColorFringe, type LateralColorDisplacement } from "./optics/generic-lens-lateral-color.js";
 export { calculateChartFraming, calculateSubjectDistanceForFraming, type CalculateChartFramingInput, type CalculateSubjectDistanceForFramingInput, type ChartFraming,
   type SubjectFraming, type SubjectFramingFit } from "./facade/subject-framing.js";
 export { CHART_SCENE_PRESETS, CHART_SCENE_DEFAULTS, CHART_SPECTRAL_RANGE_NANOMETERS, resolveChartScene, calculateStepWedgeReflectances,
@@ -1875,9 +1882,14 @@ export { CHART_SCENE_PRESETS, CHART_SCENE_DEFAULTS, CHART_SPECTRAL_RANGE_NANOMET
   type ChartRectangle, type ChartBarGroupTarget, type ChartSlantedSquare, type ColorPatchReflectance, type ColorPatchesChartScene } from "./facade/chart-scenes.js";
 export { COLOR_PATCH_SET_ID, COLOR_PATCH_SET_VERSION, COLOR_PATCH_IDS, COLOR_PATCH_WAVELENGTH_RANGE_NANOMETERS, getColorPatchSet, evaluateColorPatchReflectance,
   type ColorPatch, type ColorPatchId, type ColorPatchGroup, type ColorPatchSet, type ColorPatchSpectralTerm, type EvaluateColorPatchReflectanceInput } from "./facade/color-patches.js";
+export { REPRESENTATIVE_LIGHT_SOURCE_SET_ID, REPRESENTATIVE_LIGHT_SOURCE_SET_VERSION, REPRESENTATIVE_LIGHT_SOURCE_IDS, REPRESENTATIVE_LIGHT_SOURCE_WAVELENGTH_RANGE_NANOMETERS,
+  getRepresentativeLightSourceSet, createRepresentativeLightSourceSpectrum, createRepresentativeLightSourceIlluminant, type RepresentativeLightSource,
+  type RepresentativeLightSourceBand, type RepresentativeLightSourceId, type RepresentativeLightSourceSet } from "./facade/representative-light-sources.js";
 export { PHOTOPIC_MAXIMUM_LUMINOUS_EFFICACY_LM_PER_W, resolveCaptureIlluminant, createPlanarSceneRadianceProvider, CHART_SIZE_DEFAULT_SURROUND_REFLECTANCE, CALLER_MATERIAL_SCENE_MAX_MATERIALS, type ChartSizeOption,
   type CaptureIlluminant, type ResolvedCaptureIlluminant, type CallerReflectanceScene, type CallerRadianceScene, type CallerMaterialScene, type ScenePlanePoint, type SceneMaterialPoint,
-  type PlanarSceneRadianceProvider } from "./facade/scene-radiance.js";
+  type PlanarSceneRadianceProvider, type ImagePlaneScene, type ImagePlaneImage } from "./facade/scene-radiance.js";
+export { prepareImagePlaneScenes } from "./facade/image-plane-enable.js";
+export type { MixedIllumination, MixedIlluminationBlend, MixedIlluminationPoint, MixedIlluminationPointSource, MixedIlluminationSource } from "./facade/mixed-illumination.js";
 export { CHART_RADIANCE_BATCH_SCHEMA_VERSION, CHART_RADIANCE_BATCH_LIMITS, calculateChartRadianceBatchPlan, calculateChartRadianceBatch,
   mapEnvironmentDirectionsToChartPoints, type ChartRadianceBatchInput, type ChartRadianceBatchPlan } from "./facade/chart-radiance-batch.js";
 export { resolveChartMaterialLayers, CHART_MASK_INDEX_GRAIN, CHART_MATERIAL_LAYER_LIMITS, type ChartMaterialLayerScene, type ChartMaskLayer, type ChartMaskShape,

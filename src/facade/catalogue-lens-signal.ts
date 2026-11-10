@@ -19,9 +19,11 @@
  * The grid subdivides each interval between the profile's field nodes into at least GRID_MINIMUM_SUBDIVISIONS cells, and into
  * more where the node kernels' intensity centroids move by more than GRID_CENTROID_STEP_SITES sites across the interval (lateral
  * colour moves the PSF across the frame; a blend of two shifted kernels is not the shifted kernel). Since the blend is linear,
- * the channel response and the material radiance fold into the grid kernels once per grid point:
- *   μ̃_c(q) = Σ_k F(s_k)·Σ_g b_g(q)·W_{g,c,m(s_k)}(k),   W_{g,c,m}(k) = Σ_λ A_c(λ)·L_m(λ)·K_{g,λ}(k),
- * so a site costs (2R + 1)² taps instead of (2R + 1)² scene queries per spectral node. Its error against the exact method is
+ * the channel response folds into the grid kernels once per grid point and node, and each tap's signal is integrated from its
+ * material's spectrum when the site is read (2.21.0; no material is folded into a kernel):
+ *   μ̃_c(q) = Σ_k F(s_k)·Σ_λ L_{m(s_k)}(λ)·Σ_g b_g(q)·C_{g,c}(k, λ),   C_{g,c}(k, λ) = A_c(λ)·K_{g,λ}(k),
+ * the blend taken along y once per grid column and native row, so a site costs (2R + 1)² taps of N nodes each instead of
+ * (2R + 1)² scene queries per spectral node. Its error against the exact method is
  * bounded by ‖K̃ − K‖₁ times the brightest tap's signal; tests measure both (test/simulate-capture-lens-catalogue-fast.test.ts).
  *
  * The scene points. The mapping is the environment's (`undistortedImagePoint`, `lensProjectionDirectionValue`, the planar
@@ -34,11 +36,11 @@ import { InvalidConfigurationError } from "../core/configuration-error.js";
 import { insideRadialImageCircle, lensProjectionDirectionValue } from "../camera/lens-projection.js";
 import { resolveProjectionDistanceMm } from "../motion/camera-rotation.js";
 import { prepareIlluminationVignettingThroughput, type IlluminationVignettingProfile } from "../optics/illumination-vignetting.js";
-import { resolveLensSampledPsfKernel, type ResolveLensSampledPsfInput } from "../optics/lens-psf-profile.js";
+import { kernelCentroid, resolveLensSampledPsfKernel, type ResolveLensSampledPsfInput } from "../optics/lens-psf-profile.js";
 import type { DisplayViewScene } from "./expected-signal.js";
 
-/** Fewest grid cells between neighboring profile field nodes. */
-export const CATALOGUE_FAST_GRID_MINIMUM_SUBDIVISIONS = 4;
+/** Fewest grid cells between neighboring profile field nodes (10 since #589: with 4, 0.4 % of quick frames failed the run-time check). */
+export const CATALOGUE_FAST_GRID_MINIMUM_SUBDIVISIONS = 10;
 /** Largest move of a node kernel's intensity centroid across one grid cell, in sites (sets finer grids where lateral color moves the PSF). */
 export const CATALOGUE_FAST_GRID_CENTROID_STEP_SITES = 0.05;
 /**
@@ -90,13 +92,6 @@ export interface CatalogueLensSignal {
   readonly grid: { columns: number; rows: number; resolved: number };
 }
 
-/** A kernel's intensity centroid, in samples. */
-function centroid(values: readonly number[], width: number): { x: number; y: number } {
-  let sum = 0, x = 0, y = 0;
-  for (let i = 0; i < values.length; i++) { const v = values[i]!; sum += v; x += v * (i % width); y += v * Math.floor(i / width); }
-  return { x: x / sum, y: y / sum };
-}
-
 /**
  * The grid axes: each interval between neighboring profile field nodes split into max(GRID_MINIMUM_SUBDIVISIONS,
  * ⌈Δc / GRID_CENTROID_STEP_SITES⌉) equal cells, Δc the largest centroid move between the interval's two nodes over the other
@@ -107,7 +102,7 @@ export function catalogueFastGridAxes(psf: CatalogueLensSignalInput["psf"]): { x
   const centroids = new Map<string, { x: number; y: number }>();
   for (const node of profile.nodes) {
     const c = node.coordinate;
-    centroids.set(c.fieldXmm + ":" + c.fieldYmm + ":" + c.wavelengthNm, centroid(node.kernel.normalizedIntensity, node.kernel.widthSamples));
+    centroids.set(c.fieldXmm + ":" + c.fieldYmm + ":" + c.wavelengthNm, kernelCentroid(node.kernel));
   }
   const at = (x: number, y: number, nm: number): { x: number; y: number } => {
     const c = centroids.get(x + ":" + y + ":" + nm);
@@ -160,13 +155,12 @@ export function createCatalogueLensSignal(given: CatalogueLensSignalInput): Cata
     throw new InvalidConfigurationError("lens.catalogue fast: the PSF profile's kernels differ in size.");
   // Lattice reach of the taps around a site: x from −cx … kw − 1 − cx (as c_x − k_x), y from −cy … kh − 1 − cy.
   const reachLeft = kw - 1 - cx, reachRight = cx, reachUp = cy, reachDown = kh - 1 - cy;
-  // Materials: neutral ones by reflectance (class 0, the white radiance), spectral ones by class 1 + index.
-  const M = scene.materials.length, reflectance = new Float64Array(M), materialClass = new Int32Array(M);
-  const spectral: Float64Array[] = [];
-  scene.materials.forEach((m, index) => { if ("neutral" in m) reflectance[index] = m.neutral; else { materialClass[index] = 1 + spectral.length; spectral.push(m.radiance); } });
-  const classes = 1 + spectral.length, classRadiance = [scene.whiteRadiance, ...spectral];
-  const tableSize = 3 * classes * taps;
-  // W_{c,m}(k) = Σ_λ A_c(λ)·L_m(λ)·K_λ(k) for the kernels of one field point.
+  // Each material's spectral radiance at the nodes (a neutral one: its reflectance times the white radiance). Only the spectra are
+  // kept: a site's signal is integrated from its taps' material spectra when it is read, so no material is folded into a kernel.
+  const M = scene.materials.length;
+  const spectra = scene.materials.map((m) => ("neutral" in m ? Float64Array.from(scene.whiteRadiance, (w) => m.neutral * w) : Float64Array.from(m.radiance)));
+  const tableSize = 3 * taps * nodes;
+  // A_c(λ_n)·K_n(k) for the kernels of one field point, at ((c·taps + k)·nodes + n): the channel response per node, no material.
   const foldKernels = (fieldXmm: number, fieldYmm: number): Float64Array => {
     const table = new Float64Array(tableSize);
     for (let n = 0; n < nodes; n++) {
@@ -174,12 +168,7 @@ export function createCatalogueLensSignal(given: CatalogueLensSignalInput): Cata
       if (kernel.length !== taps) throw new InvalidConfigurationError("lens.catalogue fast: a resolved kernel differs in size.");
       for (let c = 0; c < 3; c++) {
         const a = A[c]![n]!;
-        if (a === 0) continue;
-        for (let cl = 0; cl < classes; cl++) {
-          const weight = a * classRadiance[cl]![n]!, base = (c * classes + cl) * taps;
-          if (weight === 0) continue;
-          for (let k = 0; k < taps; k++) table[base + k] = table[base + k]! + weight * kernel[k]!;
-        }
+        for (let k = 0; k < taps; k++) table[(c * taps + k) * nodes + n] = a * kernel[k]!;
       }
     }
     return table;
@@ -255,24 +244,29 @@ export function createCatalogueLensSignal(given: CatalogueLensSignalInput): Cata
     if (winMaterial.length < w * h) { winMaterial = new Int32Array(w * h); winFactor = new Float64Array(w * h); }
     for (let q = 0; q < h; q++) for (let p = 0; p < w; p++) { lattice(wx0 + p, wy0 + q); winMaterial[q * w + p] = lm; winFactor[q * w + p] = lf; }
   };
-  const kernelOf = new Float64Array(tableSize);
-  let cellI = -1, cellJ = -1, c00: Float64Array = kernelOf, c10: Float64Array = kernelOf, c01: Float64Array = kernelOf, c11: Float64Array = kernelOf;
+  // A site's kernel is the bilinear blend of its cell's four grid kernels. Blended along y first, once per grid column and native
+  // row (every site of a row has the same fy): R_i(y) = (1 − fy)·T(i, j) + fy·T(i, j + 1), kept for the row the sites are on.
+  const rowTables: Float64Array[] = [], rowOf = new Int32Array(GX).fill(-1);
+  const rowTable = (i: number, y: number): Float64Array => {
+    let table = rowTables[i];
+    if (!table) table = rowTables[i] = new Float64Array(tableSize);
+    if (rowOf[i] !== y) {
+      const j = cellY[y]!, fy = weightY[y]!, a = tableAt(i, j), b = tableAt(i, j + 1);
+      for (let e = 0; e < tableSize; e++) table[e] = (1 - fy) * a[e]! + fy * b[e]!;
+      rowOf[i] = y;
+    }
+    return table;
+  };
   const site = (x: number, y: number): number => {
     const c = channelAt(x, y);
-    let t00: Float64Array, t10: Float64Array, t01: Float64Array, t11: Float64Array, b00: number, b10: number, b01: number, b11: number;
-    if (input.exactKernels) {
-      kernelOf.set(foldKernels((x + 0.5 - W / 2) * mmPerSite, -(y + 0.5 - H / 2) * mmPerSite));
-      t00 = t10 = t01 = t11 = kernelOf; b00 = 1; b10 = b01 = b11 = 0;
-    } else {
-      const i = cellX[x]!, j = cellY[y]!, fx = weightX[x]!, fy = weightY[y]!;
-      // Neighboring sites share a cell: its four tables are kept from the last site.
-      if (i !== cellI || j !== cellJ) { cellI = i; cellJ = j; c00 = tableAt(i, j); c10 = tableAt(i + 1, j); c01 = tableAt(i, j + 1); c11 = tableAt(i + 1, j + 1); }
-      t00 = c00; t10 = c10; t01 = c01; t11 = c11;
-      b00 = (1 - fx) * (1 - fy); b10 = fx * (1 - fy); b01 = (1 - fx) * fy; b11 = fx * fy;
-    }
+    let r0: Float64Array, r1: Float64Array, fx: number;
+    if (input.exactKernels) { r0 = r1 = foldKernels((x + 0.5 - W / 2) * mmPerSite, -(y + 0.5 - H / 2) * mmPerSite); fx = 0; }
+    else { const i = cellX[x]!; r0 = rowTable(i, y); r1 = rowTable(i + 1, y); fx = weightX[x]!; }
     const inside = ww > 0 && x - reachLeft >= wx0 && y - reachUp >= wy0 && x + reachRight < wx0 + ww && y + reachDown < wy0 + wh;
-    const channelBase = c * classes * taps;
-    let sum = 0;
+    const channelBase = c * taps * nodes;
+    // Each tap's signal is integrated from its material's spectrum against the two row-blended kernels per node; the blend along x
+    // is linear, so it is applied to the two sums.
+    let s0 = 0, s1 = 0;
     for (let ky = 0, k = 0; ky < kh; ky++) {
       const q = y + ky - cy;
       for (let kx = 0; kx < kw; kx++, k++) {
@@ -280,12 +274,14 @@ export function createCatalogueLensSignal(given: CatalogueLensSignalInput): Cata
         let m: number, f: number;
         if (inside) { const at = (q - wy0) * ww + p - wx0; m = winMaterial[at]!; f = winFactor[at]!; } else { lattice(p, q); m = lm; f = lf; }
         if (f === 0) continue;
-        const cl = materialClass[m]!, at = channelBase + cl * taps + k;
-        const w = b00 * t00[at]! + b10 * t10[at]! + b01 * t01[at]! + b11 * t11[at]!;
-        sum += f * (cl === 0 ? reflectance[m]! * w : w);
+        const L = spectra[m]!, at = channelBase + k * nodes;
+        let w0 = 0, w1 = 0;
+        if (fx === 0) for (let n = 0; n < nodes; n++) w0 += r0[at + n]! * L[n]!;
+        else for (let n = 0; n < nodes; n++) { const l = L[n]!; w0 += r0[at + n]! * l; w1 += r1[at + n]! * l; }
+        s0 += f * w0; s1 += f * w1;
       }
     }
-    return sum;
+    return fx === 0 ? s0 : (1 - fx) * s0 + fx * s1;
   };
   return {
     window, site,
@@ -301,7 +297,7 @@ export function catalogueFastAssumptions(run: { columns: number; rows: number; r
   return [{ id: "raw.expectedSignal", value: { method: "tabulated-expected-electrons-catalogue-psf-field-grid", verificationSites: 4, tolerance,
     verificationRelativeDifference: run.verificationRelativeDifference },
   explanation: "Each native site's expected photo electrons are tabulated: the sum over the PSF taps of the field factor (vignetting × distortion area factor) times the " +
-    "grid-blended kernel folded with the channel response and the material radiance (see fast.lens.catalogue). The sensor stage (dark charge, Poisson draws, read noise, ADC) " +
+    "grid-blended kernel per spectral node times the channel response, integrated with each tap's material spectrum (see fast.lens.catalogue). The sensor stage (dark charge, Poisson draws, read noise, ADC) " +
     "is the native one with each site's own seeds. One site of each CFA phase ran the exact chain (the environment PSF quadrature): its readout was reproduced bit for bit and " +
     "its electrons agreed with the fast ones within the tolerance (verificationRelativeDifference: the largest difference there)." },
   { id: "fast.lens.catalogue", value: { method: "field-grid-bilinear-psf", gridColumns: run.columns, gridRows: run.rows, gridPointsResolved: run.resolved,

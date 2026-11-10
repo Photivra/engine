@@ -7,6 +7,7 @@
  */
 
 import { InvalidConfigurationError } from "../core/configuration-error.js";
+import type { ImagePlaneSignalScene } from "./scene-radiance.js";
 import { createSiteKernelRunsLattice, type SiteKernelRuns, type SiteKernelRunsLattice, type SiteKernelRunsRowPattern } from "../optics/site-kernel-runs.js";
 
 /** A query offset from a site centre in sites (+x right, +y down) and its weight (pixel-aperture node × filter spot). */
@@ -19,7 +20,14 @@ export type DisplayViewScene =
     materials: readonly ({ neutral: number } | { radiance: Float64Array })[];
     /** Illuminant radiance of a perfect white diffuser at each spectral node: irradianceScale·shape(λ)/π. */
     whiteRadiance: Float64Array }
-  | { kind: "radiance"; radianceAt(u: number, v: number, nm: number): number };
+  | { kind: "radiance"; radianceAt(u: number, v: number, nm: number, t?: number): number;
+    /**
+     * #581, an image-plane scene's direct path: the signal of channel c, each pixel's Σ_n A_c(λ_n)·L_n integrated from its
+     * reconstructed spectrum and interpolated between pixels (a site without kernels takes it instead of one radiance lookup per node).
+     */
+    signalAt?(u: number, v: number, c: number): number;
+    /** #581: the image-plane print behind `signalAt` (its scene, spectral nodes and surround), for the GPU's image-plane module. */
+    image?: ImagePlaneSignalScene["image"] };
 
 export interface DisplayViewExpectedSignalInput {
   nativeWidth: number;
@@ -113,18 +121,33 @@ const BAND_LIMIT = 1 << 22;
 const LATTICE_RING_ROWS = 128, LATTICE_RING_MAXIMUM_BAND_ROWS = 64, LATTICE_RING_MARGIN = 64;
 
 /**
- * The tables of `createDisplayViewExpectedSignal` (see there) that are a function of the input's numbers alone: the materials,
- * the lattice groups' geometry and combined kernels, and the per-material sums. Written only while they are built, never after:
- * they are shared by every render of an input and, for chart materials, by every input of the same content (#449). Everything a
- * render changes (each group's window cache and its origin and size, the bands, rings and counts) lives in the render.
+ * The tables of `createDisplayViewExpectedSignal` (see there) that are a function of the input's numbers alone: the materials'
+ * spectra, the lattice groups' geometry and their combined kernels per spectral node, and each channel's kernel sums per node.
+ * Written only while they are built, never after: they are shared by every render of an input and, for chart materials, by every
+ * input of the same content (#449). Everything a render changes (each group's window cache and its origin and size, the bands,
+ * rings and counts) lives in the render.
+ *
+ * Signals are integrated from the material spectrum per site (2.21.0): no table holds a material's value for a channel. A
+ * material is kept as its spectral radiance at the nodes, L_m(λ_n) (a neutral one: its reflectance times the white radiance),
+ * and a site's signal is formed from the spectra of the materials it reads, against its own channel's response, when it is read.
  */
 export interface SignalTables {
-  readonly reflectance: Float64Array; readonly spectralIndex: Int32Array; readonly spectral: readonly Float64Array[]; readonly groups: readonly GroupTables[];
-  readonly neutralDirect: readonly number[]; readonly spectralDirect: readonly (readonly number[])[]; readonly uniformSite: readonly Float64Array[];
+  /** Per chart material, its spectral radiance at each node (empty for radiance scenes). */
+  readonly spectra: readonly Float64Array[];
+  readonly groups: readonly GroupTables[];
+  /**
+   * With kernels, chart materials: per channel c and node n, S_c(n) = Σ_groups Σ_t C_c(t, n), summed in the order a site reads its
+   * taps (groups in order, taps row-major), so a site whose every tap reads one material is the same sum as any other site.
+   */
+  readonly kernelSums: readonly Float64Array[];
 }
-/** A lattice group's fixed part: its fractional shift, members, index bounds, rectangle and combined kernels. */
+/**
+ * A lattice group's fixed part: its fractional shift, members, index bounds, rectangle and combined kernels. Chart materials:
+ * `nodeKernels[c]` holds C_c(t, n) = Σ_members w·A_c(λ_n)·K_n(t) at t·N + n (a channel's response and kernel per node, no
+ * material). Radiance scenes: `perNode[n][c]` the same values per node.
+ */
 export interface GroupTables { fx: number; fy: number; members: { ix: number; iy: number; weight: number }[]; minIx: number; maxIx: number; minIy: number; maxIy: number;
-  cw: number; ch: number; neutral: Float64Array[]; spectral: Float64Array[][]; perNode: Float64Array[][] }
+  cw: number; ch: number; nodeKernels: Float64Array[]; perNode: Float64Array[][] }
 /** A render's lattice group: the fixed part and its own window cache (lattice points [cx0, cx0 + cpw) × [cy0, cy0 + cph)). */
 interface Group extends GroupTables { cache: Int32Array | Float64Array; cx0: number; cy0: number; cpw: number; cph: number }
 /** Per input object: the tables, and the filled path's lattice material rings per group (created on first use), which depend on its `materialAt` and raster. */
@@ -203,21 +226,17 @@ export function buildTables(input: DisplayViewExpectedSignalInput): SignalTables
   const nodes = input.wavelengthsNm.length, R = input.kernels ? input.kernels.radius : 0, size = 2 * R + 1;
   const A = input.electronsPerRadiance, scene = input.scene, offsets = input.offsets;
   const kernelAt = (node: number, t: number): number => (input.kernels ? input.kernels.perNode[node]![t]! : 1);
-  // Materials: neutral ones by reflectance, spectral ones by index.
-  let reflectance = new Float64Array(0), spectralIndex = new Int32Array(0);
-  const spectral: Float64Array[] = [];
-  if (scene.kind === "materials") {
-    reflectance = new Float64Array(scene.materials.length); spectralIndex = new Int32Array(scene.materials.length).fill(-1);
-    // A copy of each spectral radiance: the tables may outlive the input and serve other inputs of the same content.
-    scene.materials.forEach((m, index) => { if ("neutral" in m) reflectance[index] = m.neutral; else { spectralIndex[index] = spectral.length; spectral.push(Float64Array.from(m.radiance)); } });
-  }
+  // Each material's spectral radiance at the nodes (a copy: the tables may outlive the input and serve other inputs of the same
+  // content). A neutral material's spectrum is its reflectance times the white radiance.
+  const spectra = scene.kind === "materials" ?
+    scene.materials.map((m) => ("neutral" in m ? Float64Array.from(scene.whiteRadiance, (w) => m.neutral * w) : Float64Array.from(m.radiance))) : [];
   // Offsets grouped by fractional shift: offsets that differ by whole sites share one lattice.
   const frac = (v: number): number => { const f = v - Math.floor(v); return f > 1 - OFFSET_TOLERANCE || f < OFFSET_TOLERANCE ? 0 : f; };
   const groups: GroupTables[] = [];
   for (const o of offsets) {
     const fx = frac(o.x), fy = frac(o.y), ix = Math.round(o.x - fx), iy = Math.round(o.y - fy);
     let group = groups.find((q) => Math.abs(q.fx - fx) <= OFFSET_TOLERANCE && Math.abs(q.fy - fy) <= OFFSET_TOLERANCE);
-    if (!group) { group = { fx, fy, members: [], minIx: ix, maxIx: ix, minIy: iy, maxIy: iy, cw: 0, ch: 0, neutral: [], spectral: [], perNode: [] }; groups.push(group); }
+    if (!group) { group = { fx, fy, members: [], minIx: ix, maxIx: ix, minIy: iy, maxIy: iy, cw: 0, ch: 0, nodeKernels: [], perNode: [] }; groups.push(group); }
     group.members.push({ ix, iy, weight: o.weight });
     group.minIx = Math.min(group.minIx, ix); group.maxIx = Math.max(group.maxIx, ix); group.minIy = Math.min(group.minIy, iy); group.maxIy = Math.max(group.maxIy, iy);
   }
@@ -236,29 +255,85 @@ export function buildTables(input: DisplayViewExpectedSignalInput): SignalTables
       return out;
     });
     if (scene.kind === "materials") {
-      group.neutral = combine((c, n, t) => A[c]![n]! * kernelAt(n, t) * scene.whiteRadiance[n]!);
-      const perMaterial = spectral.map((radiance) => combine((c, n, t) => A[c]![n]! * kernelAt(n, t) * radiance[n]!));
-      group.spectral = [0, 1, 2].map((c) => perMaterial.map((tables) => tables[c]!));
+      // The channel's response and kernel per node, C_c(t, n) at t·N + n: no material radiance is folded in.
+      group.nodeKernels = [0, 1, 2].map((c) => {
+        const out = new Float64Array(cw * ch * nodes);
+        for (const member of group.members) for (let tv = -R, t = 0; tv <= R; tv++) for (let tu = -R; tu <= R; tu++, t++) {
+          const index = ((member.iy - tv - group.minIy + R) * cw + (member.ix - tu - group.minIx + R)) * nodes;
+          for (let n = 0; n < nodes; n++) out[index + n] = out[index + n]! + member.weight * (A[c]![n]! * kernelAt(n, t));
+        }
+        return out;
+      });
     } else {
       // Radiance scenes: combined kernels per node, applied to the cached radiance at each node.
       group.perNode = Array.from({ length: nodes }, (_, n) => combine((c, node, t) => (node === n ? A[c]![n]! * kernelAt(n, t) : 0)));
     }
   }
-  // Neutral tap-0 signal per channel and spectral per material, for the direct (no-kernel) path.
-  const neutralDirect = scene.kind === "materials" ? [0, 1, 2].map((c) => { let s = 0; for (let n = 0; n < nodes; n++) s += A[c]![n]! * scene.whiteRadiance[n]!; return s; }) : [];
-  const spectralDirect = [0, 1, 2].map((c) => spectral.map((radiance) => { let s = 0; for (let n = 0; n < nodes; n++) s += A[c]![n]! * radiance[n]!; return s; }));
-  const uniformSite = scene.kind === "materials" && input.kernels ? [0, 1, 2].map((c) => Float64Array.from(scene.materials, (_, m) => {
-    const si = spectralIndex[m]!;
-    let sum = 0;
-    for (const group of groups) {
-      const nk = group.neutral[c]!, sk = si < 0 ? nk : group.spectral[c]![si]!;
-      for (let t = 0; t < group.cw * group.ch; t++) sum += si < 0 ? reflectance[m]! * nk[t]! : sk[t]!;
-    }
-    return sum;
-  })) : [];
+  // Per channel the kernel sums per node, in a site's tap order (see SignalTables.kernelSums): response and kernels only.
+  const kernelSums = scene.kind === "materials" && input.kernels ? [0, 1, 2].map((c) => {
+    const out = new Float64Array(nodes);
+    for (const group of groups) { const k = group.nodeKernels[c]!; for (let t = 0; t < group.cw * group.ch; t++) for (let n = 0; n < nodes; n++) out[n] = out[n]! + k[t * nodes + n]!; }
+    return out;
+  }) : [];
   // Frozen records: a render copies each group before it gives it a window (see createDisplayViewExpectedSignal).
   for (const group of groups) Object.freeze(group);
-  return Object.freeze({ reflectance, spectralIndex, spectral, groups, neutralDirect, spectralDirect, uniformSite });
+  return Object.freeze({ spectra, groups, kernelSums });
+}
+
+/**
+ * A site's per-material kernel sums (2.21.0, signals integrated from the material spectrum per site). For each distinct chart
+ * material the site's taps read, P_m(n) = Σ_{taps t that read m} C_c(t, n), added in tap order; the site's signal is then
+ * Σ_m Σ_n L_m(λ_n)·P_m(n), the materials in the order of their first tap. A site whose every tap reads material m has P_m = S_c
+ * (`SignalTables.kernelSums`, summed in the same order), so adding S_c once gives the same value without reading its taps.
+ */
+export interface MaterialSums {
+  reset(): void;
+  /** Adds f·k[at .. at + N) to material m's sums (f: a tap's field factor; 1, an exact product, without one). */
+  add(m: number, k: Float64Array, at: number, f?: number): void;
+  /** Σ_m Σ_n L_m(λ_n)·P_m(n) over the materials added since the last reset. */
+  value(): number;
+}
+export function createMaterialSums(nodes: number, spectra: readonly Float64Array[]): MaterialSums {
+  // A site reads at most every material once: one slot per material, in the order of the site's first taps.
+  let count = 0, last = -1, lastAt = 0;
+  const ids = new Int32Array(spectra.length), sums = new Float64Array(spectra.length * nodes);
+  /** The offset of material m's sums, a new zeroed slot when the site has not read m yet. */
+  const slot = (m: number): number => {
+    if (m === last) return lastAt;
+    let a = 0;
+    while (a < count && ids[a] !== m) a++;
+    if (a === count) {
+      if (spectra[m] === undefined) throw new InvalidConfigurationError("Unknown chart material.");
+      ids[count++] = m; sums.fill(0, a * nodes, (a + 1) * nodes);
+    }
+    last = m; lastAt = a * nodes;
+    return lastAt;
+  };
+  return {
+    reset(): void { count = 0; last = -1; },
+    add(m: number, k: Float64Array, at: number, f = 1): void {
+      const base = slot(m);
+      for (let n = 0; n < nodes; n++) sums[base + n] = sums[base + n]! + f * k[at + n]!;
+    },
+    value(): number {
+      let sum = 0;
+      for (let a = 0; a < count; a++) {
+        const L = spectra[ids[a]!]!, base = a * nodes;
+        let v = 0;
+        for (let n = 0; n < nodes; n++) v += L[n]! * sums[base + n]!;
+        sum += v;
+      }
+      return sum;
+    }
+  };
+}
+
+/** A chart material's signal for channel response a without kernels: Σ_n A_c(λ_n)·L_m(λ_n), integrated from its spectrum. */
+export function materialSpectrumSignal(a: ArrayLike<number>, spectrum: ArrayLike<number> | undefined, nodes: number): number {
+  if (!spectrum) throw new InvalidConfigurationError("Unknown chart material.");
+  let s = 0;
+  for (let n = 0; n < nodes; n++) s += a[n]! * spectrum[n]!;
+  return s;
 }
 
 /**
@@ -285,15 +360,10 @@ export function createDisplayViewExpectedSignal(input: DisplayViewExpectedSignal
   // prepared view, which passes the same input object: computed once per input. Each render gets its own groups' window caches.
   // Chart-material tables are also shared by inputs of the same content (#449): each render gets its own groups' window state.
   const prepared = PREPARED.get(input) ?? prepareSignal(input);
-  const { reflectance, spectralIndex, spectral, neutralDirect, spectralDirect, uniformSite } = prepared.tables;
+  const { spectra, kernelSums } = prepared.tables;
   const groups: Group[] = prepared.tables.groups.map((group) => ({ ...group, cache: new Int32Array(0), cx0: 0, cy0: 0, cpw: 0, cph: 0 }));
   let lookups = 0;
-  const point = new Float64Array(2);
-  const materialSignalDirect = (m: number, c: number): number => {
-    const si = spectralIndex[m];
-    if (si === undefined) throw new InvalidConfigurationError("Unknown chart material.");
-    return si < 0 ? reflectance[m]! * neutralDirect[c]! : spectralDirect[c]![si]!;
-  };
+  const point = new Float64Array(2), acc = createMaterialSums(nodes, spectra);
   /**
    * Without diffraction: one site from the environment's own query points. Also sets lastMaterial: the chart material every
    * query point read, or −1 when they read more than one (or the scene is a radiance scene). A site whose points all read
@@ -301,15 +371,18 @@ export function createDisplayViewExpectedSignal(input: DisplayViewExpectedSignal
    */
   function directSite(x: number, y: number): number {
     const c = channelAt(x, y);
-    let sum = 0, uniform = -1;
+    let sum = 0, uniform = -1, lastM = -1, lastValue = 0;
     for (let o = 0; o < offsets.length; o++) {
       input.queryPoint!(x, y, o, point);
       let value: number;
       if (scene.kind === "materials") {
         const m = scene.materialAt(point[0]!, point[1]!);
         uniform = o === 0 || uniform === m ? m : -2;
-        value = materialSignalDirect(m, c); lookups++;
-      } else { value = 0; for (let n = 0; n < nodes; n++) value += A[c]![n]! * scene.radianceAt(point[0]!, point[1]!, input.wavelengthsNm[n]!); lookups += nodes; }
+        // Integrated from the material's spectrum against the site's channel, once per material change within the site.
+        if (m !== lastM) { lastValue = materialSpectrumSignal(A[c]!, spectra[m], nodes); lastM = m; }
+        value = lastValue; lookups++;
+      } else if (scene.signalAt) { value = scene.signalAt(point[0]!, point[1]!, c); lookups++; }
+      else { value = 0; for (let n = 0; n < nodes; n++) value += A[c]![n]! * scene.radianceAt(point[0]!, point[1]!, input.wavelengthsNm[n]!); lookups += nodes; }
       sum += offsets[o]!.weight * value;
     }
     lastMaterial = uniform < 0 ? -1 : uniform;
@@ -341,15 +414,12 @@ export function createDisplayViewExpectedSignal(input: DisplayViewExpectedSignal
   function kernelSite(x: number, y: number): number {
     const c = channelAt(x, y);
     let sum = 0;
+    acc.reset();
     for (const group of groups) {
       const p0 = x + group.minIx - R, q0 = y + group.minIy - R, cw = group.cw, ch = group.ch;
       if (scene.kind === "materials") {
-        const nk = group.neutral[c]!, sk = group.spectral[c]!;
-        for (let dy = 0; dy < ch; dy++) for (let dx = 0; dx < cw; dx++) {
-          const m = latticeMaterial(group, p0 + dx, q0 + dy), si = spectralIndex[m];
-          if (si === undefined) throw new InvalidConfigurationError("Unknown chart material.");
-          sum += si < 0 ? reflectance[m]! * nk[dy * cw + dx]! : sk[si]![dy * cw + dx]!;
-        }
+        const k = group.nodeKernels[c]!;
+        for (let dy = 0; dy < ch; dy++) for (let dx = 0; dx < cw; dx++) acc.add(latticeMaterial(group, p0 + dx, q0 + dy), k, (dy * cw + dx) * nodes);
       } else {
         for (let dy = 0; dy < ch; dy++) for (let dx = 0; dx < cw; dx++) {
           const radiance = latticeRadiance(group, p0 + dx, q0 + dy);
@@ -357,24 +427,23 @@ export function createDisplayViewExpectedSignal(input: DisplayViewExpectedSignal
         }
       }
     }
-    return sum;
+    return scene.kind === "materials" ? acc.value() : sum;
   }
   // Filled windows (chart materials with diffraction, every lattice point of the window cacheable): each group keeps a band of
   // looked-up lattice materials that covers the window's rows and grows to the right as the windows of a display row move
   // right, with summed-area tables of material changes. A site whose kernel reads one material only (each group's rectangle
-  // uniform, the same material in all) takes the value of the same sum over that material, precomputed below in the same
-  // order; other sites run the same sum from the band. Either way each site's value is the same sequence of operations as
-  // kernelSite, so it is bit-identical. The scene lookup count stays the count kernelSite's lazy window cache makes (each
+  // uniform, the same material in all) integrates that material's spectrum against the channel's kernel sums, which are the
+  // per-material sums any site reading only that material forms (see MaterialSums); other sites run the per-material sums from the
+  // band. Either way each site's value is the same sequence of operations as kernelSite, so it is bit-identical. The scene lookup count stays the count kernelSite's lazy window cache makes (each
   // cache point a computed site reads counts once per window, points outside the cache once per read): the rectangles of
   // the sites computed in a window are counted when the window closes (windowLookups).
-  const allNeutral = spectral.length === 0;
   /**
-   * A group's band: lattice rows [y0, y0 + rows), columns [x0, x0 + filled) looked up, row stride `capacity`. `material`,
-   * `reflectance` (neutral-only charts) and the summed-area tables of left changes (`changeLeft`, 1 where a point's material
+   * A group's band: lattice rows [y0, y0 + rows), columns [x0, x0 + filled) looked up, row stride `capacity`. `material` and the
+   * summed-area tables of left changes (`changeLeft`, 1 where a point's material
    * differs from its left neighbour's) and upper changes (`changeUp`), (rows + 1) × (capacity + 1).
    */
-  interface Band { x0: number; y0: number; rows: number; capacity: number; filled: number; material: Int32Array; reflectance: Float64Array; changeLeft: Int32Array; changeUp: Int32Array; v: Float64Array }
-  const bands: Band[] = groups.map(() => ({ x0: 0, y0: 0, rows: 0, capacity: 0, filled: 0, material: new Int32Array(0), reflectance: new Float64Array(0),
+  interface Band { x0: number; y0: number; rows: number; capacity: number; filled: number; material: Int32Array; changeLeft: Int32Array; changeUp: Int32Array; v: Float64Array }
+  const bands: Band[] = groups.map(() => ({ x0: 0, y0: 0, rows: 0, capacity: 0, filled: 0, material: new Int32Array(0),
     changeLeft: new Int32Array(0), changeUp: new Int32Array(0), v: new Float64Array(0) }));
   // Lattice rows of material indices per group, kept across windows (filled windows only): rows LATTICE_RING_ROWS apart share a
   // slot; columns from −LATTICE_RING_MARGIN. Int16 when every index fits (about 3 MB for four groups of a 6000-site row). A
@@ -400,7 +469,7 @@ export function createDisplayViewExpectedSignal(input: DisplayViewExpectedSignal
       const capacity = Math.max(x1 - x0, Math.min(Math.floor(BAND_LIMIT / rows), W + 2 * (x1 - x0), spanColumns + x1 - x0));
       const size = rows * capacity, tables = (rows + 1) * (capacity + 1);
       band.x0 = x0; band.y0 = y0; band.rows = rows; band.capacity = capacity; band.filled = 0;
-      if (band.material.length < size) { band.material = new Int32Array(size); band.reflectance = new Float64Array(allNeutral ? size : 0); }
+      if (band.material.length < size) band.material = new Int32Array(size);
       if (band.changeLeft.length < tables) { band.changeLeft = new Int32Array(tables); band.changeUp = new Int32Array(tables); }
       band.changeLeft.fill(0, 0, capacity + 1); band.changeUp.fill(0, 0, capacity + 1);
       for (let j = 0; j < rows; j++) { band.changeLeft[(j + 1) * (capacity + 1)] = 0; band.changeUp[(j + 1) * (capacity + 1)] = 0; }
@@ -422,9 +491,8 @@ export function createDisplayViewExpectedSignal(input: DisplayViewExpectedSignal
           m = ring.material[index]!;
           if (m < 0) { m = materials.materialAt(u, band.v[j]!); ring.material[index] = m; }
         } else m = materials.materialAt(u, band.v[j]!);
-        if (spectralIndex[m] === undefined) throw new InvalidConfigurationError("Unknown chart material.");
+        if (!spectra[m]) throw new InvalidConfigurationError("Unknown chart material.");
         material[j * stride + i] = m;
-        if (allNeutral) band.reflectance[j * stride + i] = reflectance[m]!;
         const changedLeft = i > 0 && material[j * stride + i - 1] !== m ? 1 : 0, changedUp = j > 0 && material[(j - 1) * stride + i] !== m ? 1 : 0;
         left[(j + 1) * S1 + i + 1] = left[j * S1 + i + 1]! + left[(j + 1) * S1 + i]! - left[j * S1 + i]! + changedLeft;
         up[(j + 1) * S1 + i + 1] = up[j * S1 + i + 1]! + up[(j + 1) * S1 + i]! - up[j * S1 + i]! + changedUp;
@@ -449,41 +517,21 @@ export function createDisplayViewExpectedSignal(input: DisplayViewExpectedSignal
         const own = band.material[bj * band.capacity + bi]!;
         if (m === -1) m = own; else if (own !== m) { m = -2; break; }
       }
-      if (m >= 0) { lastMaterial = m; return uniformSite[c]![m]!; }
+      if (m >= 0) { lastMaterial = m; acc.reset(); acc.add(m, kernelSums[c]!, 0); return acc.value(); }
     }
     lastMaterial = -1;
-    let sum = 0;
+    acc.reset();
     for (let g = 0; g < groups.length; g++) {
-      const group = groups[g]!, band = bands[g]!, cw = group.cw, ch = group.ch, nk = group.neutral[c]!, sk = group.spectral[c]!, stride = band.capacity;
+      const group = groups[g]!, band = bands[g]!, cw = group.cw, ch = group.ch, k = group.nodeKernels[c]!, stride = band.capacity;
       const p0 = x + group.minIx - R, q0 = y + group.minIy - R, bi = p0 - band.x0, bj = q0 - band.y0;
-      if (inside && allNeutral) {
-        const refl = band.reflectance;
-        for (let dy = 0, t = 0; dy < ch; dy++) {
-          const row = (bj + dy) * stride + bi;
-          for (let dx = 0; dx < cw; dx++, t++) sum += refl[row + dx]! * nk[t]!;
-        }
-      } else if (inside) {
-        const material = band.material;
-        for (let dy = 0, t = 0; dy < ch; dy++) {
-          const row = (bj + dy) * stride + bi;
-          for (let dx = 0; dx < cw; dx++, t++) {
-            const m = material[row + dx]!, si = spectralIndex[m]!;
-            sum += si < 0 ? reflectance[m]! * nk[t]! : sk[si]![t]!;
-          }
-        }
-      } else {
-        for (let dy = 0; dy < ch; dy++) for (let dx = 0; dx < cw; dx++) {
-          const ci = i + dx, cj = j + dy;
-          let m: number;
-          if (ci >= 0 && cj >= 0 && ci < group.cpw && cj < group.cph) m = band.material[(bj + dy) * stride + bi + dx]!;
-          else m = (scene as Extract<DisplayViewScene, { kind: "materials" }>).materialAt(latticeU(group, p0 + dx), latticeV(group, q0 + dy));
-          const si = spectralIndex[m];
-          if (si === undefined) throw new InvalidConfigurationError("Unknown chart material.");
-          sum += si < 0 ? reflectance[m]! * nk[dy * cw + dx]! : sk[si]![dy * cw + dx]!;
-        }
+      // A site inside the window reads every tap from the band; one outside it looks up the taps beyond the window cache.
+      for (let dy = 0, t = 0; dy < ch; dy++) for (let dx = 0; dx < cw; dx++, t++) {
+        const ci = i + dx, cj = j + dy;
+        acc.add(inside || (ci >= 0 && cj >= 0 && ci < group.cpw && cj < group.cph) ? band.material[(bj + dy) * stride + bi + dx]! :
+          (scene as Extract<DisplayViewScene, { kind: "materials" }>).materialAt(latticeU(group, p0 + dx), latticeV(group, q0 + dy)), k, t * nodes);
       }
     }
-    return sum;
+    return acc.value();
   }
   /** Lattice points of an outside site's rectangles that lie outside the window caches (kernelSite looks these up on every read). */
   function outsideLookups(i: number, j: number): number {
@@ -513,7 +561,7 @@ export function createDisplayViewExpectedSignal(input: DisplayViewExpectedSignal
   // depend on the window). A ring hit counts the lookups directSite would have made, so `lookups` is unchanged. The site's
   // material (directSite's lastMaterial) is kept beside its value, so the display view's one-material memo applies (#444).
   let directRows = 0, directOn = false, directRing = new Float64Array(0), directRowId = new Int32Array(0), directRingMaterial = new Int32Array(0);
-  const directLookups = offsets.length * (scene.kind === "materials" ? 1 : nodes);
+  const directLookups = offsets.length * (scene.kind === "materials" || scene.signalAt ? 1 : nodes);
   function directRead(x: number, y: number): number {
     const slot = y & (directRows - 1), q = slot * W + x;
     if (directRowId[slot] === y) { const v = directRing[q]!; if (v === v) { lookups += directLookups; lastMaterial = directRingMaterial[q]!; return v; } }
@@ -772,7 +820,7 @@ function createLargeKernelSignal(input: DisplayViewExpectedSignalInput): Display
 
 function prepareLargeKernel(input: DisplayViewExpectedSignalInput): LargeKernelState {
   const W = input.nativeWidth, H = input.nativeHeight, g = 2 / input.outputWidth, nodes = input.wavelengthsNm.length, R = input.kernels!.radius;
-  const tables = displayViewSignalTables(input), { reflectance, spectralIndex, groups } = tables, scene = input.scene;
+  const tables = displayViewSignalTables(input), { spectra, groups } = tables, scene = input.scene, acc = createMaterialSums(nodes, spectra);
   const state = { lookups: 0 } as LargeKernelState;
   const latticeU = (group: GroupTables, p: number): number => (group.fx === 0 ? (p + 0.5 - W / 2) * g : (p + 0.5 + group.fx - W / 2) * g);
   const latticeV = (group: GroupTables, q: number): number => (group.fy === 0 ? -(q + 0.5 - H / 2) * g : -(q + 0.5 + group.fy - H / 2) * g);
@@ -786,15 +834,12 @@ function prepareLargeKernel(input: DisplayViewExpectedSignalInput): LargeKernelS
         for (let j = 0; j < gh; j++) { const v = latticeV(group, q0 + j); for (let i = 0; i < gw; i++) material[j * gw + i] = scene.materialAt(latticeU(group, p0 + i), v); }
         state.lookups += gw * gh;
         for (let c = 0; c < 3; c++) {
-          const nk = group.neutral[c]!, sk = group.spectral[c]!, e = out[c]!;
+          const k = group.nodeKernels[c]!, e = out[c]!;
           for (let y = 0; y < T; y++) for (let x = 0; x < T; x++) {
-            let sum = 0;
-            for (let dy = 0; dy < ch; dy++) for (let dx = 0; dx < cw; dx++) {
-              const m = material[(y + dy) * gw + x + dx]!, si = spectralIndex[m];
-              if (si === undefined) throw new InvalidConfigurationError("Unknown chart material.");
-              sum += si < 0 ? reflectance[m]! * nk[dy * cw + dx]! : sk[si]![dy * cw + dx]!;
-            }
-            e[y * T + x] = e[y * T + x]! + sum;
+            // Each group's part of the site, integrated from its taps' material spectra (MaterialSums).
+            acc.reset();
+            for (let dy = 0; dy < ch; dy++) for (let dx = 0; dx < cw; dx++) acc.add(material[(y + dy) * gw + x + dx]!, k, (dy * cw + dx) * nodes);
+            e[y * T + x] = e[y * T + x]! + acc.value();
           }
         }
       } else {

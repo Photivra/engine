@@ -1,6 +1,6 @@
 # Public API reference
 
-Generated from the exact root exports for **@photivra/engine 2.20.0 / root contract 2.20.0** by `node scripts/generate-api-reference.mjs`. No module deep import is supported.
+Generated from the exact root exports for **@photivra/engine 2.21.0 / root contract 2.21.0** by `node scripts/generate-api-reference.mjs`. No module deep import is supported.
 
 Use [the developer guide](https://github.com/Photivra/photivra/blob/main/docs/DEVELOPERS.md) for executable paths and scientific boundaries. Types are contracts, not runtime validation: parse untrusted data, preserve units/reference frames, read assessment blockers, and retain evidence/limitations. Optional properties do not imply a universal default. Model/schema IDs remain independent of the distribution.
 
@@ -976,6 +976,26 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 | [`GenericReleaseDriveMode`](api/equipment-release-capabilities.md#genericreleasedrivemode) | Type |
 | [`parseGenericReleaseCapabilityProfile`](api/equipment-release-capabilities.md#parsegenericreleasecapabilityprofile) | Runtime |
 
+## equipment/sensor-profile-body.ts
+
+[Detailed contracts](api/equipment-sensor-profile-body.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/equipment/sensor-profile-body.ts)
+
+| Export | Kind |
+| --- | --- |
+| [`SENSOR_PROFILE_ISO_ANCHOR`](api/equipment-sensor-profile-body.md#sensor_profile_iso_anchor) | Runtime |
+| [`SensorProfile`](api/equipment-sensor-profile-body.md#sensorprofile) | Type |
+| [`SensorProfileValueKind`](api/equipment-sensor-profile-body.md#sensorprofilevaluekind) | Type |
+
+## equipment/sensor-profiles.ts
+
+[Detailed contracts](api/equipment-sensor-profiles.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/equipment/sensor-profiles.ts)
+
+| Export | Kind |
+| --- | --- |
+| [`resolveSensorProfile`](api/equipment-sensor-profiles.md#resolvesensorprofile) | Runtime |
+| [`SENSOR_PROFILE_IDS`](api/equipment-sensor-profiles.md#sensor_profile_ids) | Runtime |
+| [`SENSOR_PROFILES`](api/equipment-sensor-profiles.md#sensor_profiles) | Runtime |
+
 ## exposure/auto-iso-slowest-shutter.ts
 
 [Detailed contracts](api/exposure-auto-iso-slowest-shutter.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/exposure/auto-iso-slowest-shutter.ts)
@@ -1314,6 +1334,19 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 | [`DisplayViewCorrectionStateSet`](api/facade-display-view.md#displayviewcorrectionstateset) | Type |
 | [`serializeDisplayViewCorrectionStates`](api/facade-display-view.md#serializedisplayviewcorrectionstates) | Runtime |
 
+## facade/exposure-build-up.ts
+
+[Detailed contracts](api/facade-exposure-build-up.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/facade/exposure-build-up.ts)
+
+| Export | Kind |
+| --- | --- |
+| [`EXPOSURE_BUILD_UP_MAXIMUM_FRACTIONS`](api/facade-exposure-build-up.md#exposure_build_up_maximum_fractions) | Runtime |
+| [`EXPOSURE_BUILD_UP_STREAM_BASE`](api/facade-exposure-build-up.md#exposure_build_up_stream_base) | Runtime |
+| [`simulateExposureBuildUp`](api/facade-exposure-build-up.md#simulateexposurebuildup) | Runtime |
+| [`SimulateExposureBuildUpFrame`](api/facade-exposure-build-up.md#simulateexposurebuildupframe) | Type |
+| [`SimulateExposureBuildUpOptions`](api/facade-exposure-build-up.md#simulateexposurebuildupoptions) | Type |
+| [`SimulateExposureBuildUpResult`](api/facade-exposure-build-up.md#simulateexposurebuildupresult) | Type |
+
 ## facade/fast-methods.ts
 
 [Detailed contracts](api/facade-fast-methods.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/facade/fast-methods.ts)
@@ -1322,6 +1355,44 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 | --- | --- |
 | [`SIMULATE_CAPTURE_FAST_METHODS`](api/facade-fast-methods.md#simulate_capture_fast_methods) | Runtime |
 | [`SimulateCaptureFastMethod`](api/facade-fast-methods.md#simulatecapturefastmethod) | Type |
+
+## facade/image-plane-enable.ts
+
+[Detailed contracts](api/facade-image-plane-enable.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/facade/image-plane-enable.ts)
+
+| Export | Kind |
+| --- | --- |
+| [`prepareImagePlaneScenes`](api/facade-image-plane-enable.md#prepareimageplanescenes) | Runtime |
+
+## facade/mixed-illumination.ts
+
+[Detailed contracts](api/facade-mixed-illumination.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/facade/mixed-illumination.ts)
+
+| Export | Kind |
+| --- | --- |
+| [`MixedIllumination`](api/facade-mixed-illumination.md#mixedillumination) | Type |
+| [`MixedIlluminationBlend`](api/facade-mixed-illumination.md#mixedilluminationblend) | Type |
+| [`MixedIlluminationPoint`](api/facade-mixed-illumination.md#mixedilluminationpoint) | Type |
+| [`MixedIlluminationPointSource`](api/facade-mixed-illumination.md#mixedilluminationpointsource) | Type |
+| [`MixedIlluminationSource`](api/facade-mixed-illumination.md#mixedilluminationsource) | Type |
+
+## facade/representative-light-sources.ts
+
+[Detailed contracts](api/facade-representative-light-sources.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/facade/representative-light-sources.ts)
+
+| Export | Kind |
+| --- | --- |
+| [`createRepresentativeLightSourceIlluminant`](api/facade-representative-light-sources.md#createrepresentativelightsourceilluminant) | Runtime |
+| [`createRepresentativeLightSourceSpectrum`](api/facade-representative-light-sources.md#createrepresentativelightsourcespectrum) | Runtime |
+| [`getRepresentativeLightSourceSet`](api/facade-representative-light-sources.md#getrepresentativelightsourceset) | Runtime |
+| [`REPRESENTATIVE_LIGHT_SOURCE_IDS`](api/facade-representative-light-sources.md#representative_light_source_ids) | Runtime |
+| [`REPRESENTATIVE_LIGHT_SOURCE_SET_ID`](api/facade-representative-light-sources.md#representative_light_source_set_id) | Runtime |
+| [`REPRESENTATIVE_LIGHT_SOURCE_SET_VERSION`](api/facade-representative-light-sources.md#representative_light_source_set_version) | Runtime |
+| [`REPRESENTATIVE_LIGHT_SOURCE_WAVELENGTH_RANGE_NANOMETERS`](api/facade-representative-light-sources.md#representative_light_source_wavelength_range_nanometers) | Runtime |
+| [`RepresentativeLightSource`](api/facade-representative-light-sources.md#representativelightsource) | Type |
+| [`RepresentativeLightSourceBand`](api/facade-representative-light-sources.md#representativelightsourceband) | Type |
+| [`RepresentativeLightSourceId`](api/facade-representative-light-sources.md#representativelightsourceid) | Type |
+| [`RepresentativeLightSourceSet`](api/facade-representative-light-sources.md#representativelightsourceset) | Type |
 
 ## facade/scene-radiance.ts
 
@@ -1337,6 +1408,8 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 | [`CHART_SIZE_DEFAULT_SURROUND_REFLECTANCE`](api/facade-scene-radiance.md#chart_size_default_surround_reflectance) | Runtime |
 | [`ChartSizeOption`](api/facade-scene-radiance.md#chartsizeoption) | Type |
 | [`createPlanarSceneRadianceProvider`](api/facade-scene-radiance.md#createplanarsceneradianceprovider) | Runtime |
+| [`ImagePlaneImage`](api/facade-scene-radiance.md#imageplaneimage) | Type |
+| [`ImagePlaneScene`](api/facade-scene-radiance.md#imageplanescene) | Type |
 | [`PHOTOPIC_MAXIMUM_LUMINOUS_EFFICACY_LM_PER_W`](api/facade-scene-radiance.md#photopic_maximum_luminous_efficacy_lm_per_w) | Runtime |
 | [`PlanarSceneRadianceProvider`](api/facade-scene-radiance.md#planarsceneradianceprovider) | Type |
 | [`resolveCaptureIlluminant`](api/facade-scene-radiance.md#resolvecaptureilluminant) | Runtime |
@@ -1562,6 +1635,14 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 | [`calculateProjectedMotionBlur`](api/motion-projected-motion.md#calculateprojectedmotionblur) | Runtime |
 | [`CalculateProjectedMotionBlurInput`](api/motion-projected-motion.md#calculateprojectedmotionblurinput) | Type |
 | [`ProjectedMotionBlur`](api/motion-projected-motion.md#projectedmotionblur) | Type |
+
+## motion/subject-motion.ts
+
+[Detailed contracts](api/motion-subject-motion.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/motion/subject-motion.ts)
+
+| Export | Kind |
+| --- | --- |
+| [`SimulateCaptureSubjectMotion`](api/motion-subject-motion.md#simulatecapturesubjectmotion) | Type |
 
 ## motion/temporal-exposure-sum.ts
 
@@ -1800,6 +1881,17 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 | [`ResolvedFrontOfLensFilterTransmission`](api/optics-front-of-lens-filter.md#resolvedfrontoflensfiltertransmission) | Type |
 | [`resolveFrontOfLensFilterTransmission`](api/optics-front-of-lens-filter.md#resolvefrontoflensfiltertransmission) | Runtime |
 | [`ResolveFrontOfLensFilterTransmissionInput`](api/optics-front-of-lens-filter.md#resolvefrontoflensfiltertransmissioninput) | Type |
+
+## optics/generic-lens-lateral-color.ts
+
+[Detailed contracts](api/optics-generic-lens-lateral-color.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/optics/generic-lens-lateral-color.ts)
+
+| Export | Kind |
+| --- | --- |
+| [`calculateLateralColorFringe`](api/optics-generic-lens-lateral-color.md#calculatelateralcolorfringe) | Runtime |
+| [`CalculateLateralColorFringeInput`](api/optics-generic-lens-lateral-color.md#calculatelateralcolorfringeinput) | Type |
+| [`LateralColorDisplacement`](api/optics-generic-lens-lateral-color.md#lateralcolordisplacement) | Type |
+| [`LateralColorFringe`](api/optics-generic-lens-lateral-color.md#lateralcolorfringe) | Type |
 
 ## optics/generic-nd-filter-presets.ts
 
@@ -2183,6 +2275,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 | Export | Kind |
 | --- | --- |
+| [`ChannelDispersion`](api/output-developed-lens-corrections.md#channeldispersion) | Type |
 | [`GENERIC_LENS_CORRECTION_CHANNEL_WAVELENGTHS_NM`](api/output-developed-lens-corrections.md#generic_lens_correction_channel_wavelengths_nm) | Runtime |
 
 ## output/generic-lens-corrections.ts
@@ -2191,6 +2284,8 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 | Export | Kind |
 | --- | --- |
+| [`calculateChannelEffectiveDispersion`](api/output-generic-lens-corrections.md#calculatechanneleffectivedispersion) | Runtime |
+| [`CalculateChannelEffectiveDispersionInput`](api/output-generic-lens-corrections.md#calculatechanneleffectivedispersioninput) | Type |
 | [`createGenericLensCorrectionProfile`](api/output-generic-lens-corrections.md#creategenericlenscorrectionprofile) | Runtime |
 | [`CreateGenericLensCorrectionProfileInput`](api/output-generic-lens-corrections.md#creategenericlenscorrectionprofileinput) | Type |
 
@@ -2336,7 +2431,9 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 | [`calculatePrintPlan`](api/output-print-plan.md#calculateprintplan) | Runtime |
 | [`calculatePrintSizeLimit`](api/output-print-plan.md#calculateprintsizelimit) | Runtime |
 | [`parsePrintPlanInput`](api/output-print-plan.md#parseprintplaninput) | Runtime |
+| [`PrintContainLayout`](api/output-print-plan.md#printcontainlayout) | Type |
 | [`PrintedImageSize`](api/output-print-plan.md#printedimagesize) | Type |
+| [`PrintFit`](api/output-print-plan.md#printfit) | Type |
 | [`PrintLength`](api/output-print-plan.md#printlength) | Type |
 | [`PrintNativeSource`](api/output-print-plan.md#printnativesource) | Type |
 | [`PrintPlan`](api/output-print-plan.md#printplan) | Type |

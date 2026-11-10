@@ -156,8 +156,13 @@ export interface DisplayViewGpuRequest {
    * renders it (display-view-lens-signal.ts) and no GPU renderer is asked or device requested (`unsupported-on-backend`).
    */
   lens?: boolean;
+  /**
+   * #550: true when the request has `illumination` (mixed lighting): the radiance at a point is no longer a function of its
+   * material, so the GPU material lookup cannot render it; the CPU reference does, exactly, and no device is requested.
+   */
+  mixedIllumination?: boolean;
   /** The scene's form: an engine chart, a declared `material-layers` scene (#491), or a caller function. */
-  scene: "chart" | "material-layers" | "material-function" | "reflectance-function" | "radiance-function";
+  scene: "chart" | "material-layers" | "material-function" | "reflectance-function" | "radiance-function" | "image-plane";
 }
 /** One render of a region: the CPU renderer's own setup (tables, readout, demosaic, region, callbacks) and the render's signal. */
 export interface DisplayViewGpuPart { setup: DisplayViewSetup; signal: AbortSignal | undefined }

@@ -217,8 +217,13 @@ function prepareView(context: DisplayViewRunContext): PreparedViewParts {
   // The engine's illuminant formulas (Planckian, CIE A, daylight locus) evaluated with the portable power and e^x − 1, so
   // the view's radiances, irradiance scale and scene-illuminant white balance have the same bits in every JavaScript
   // engine; they differ from the capture's own by at most a few ulps (docs/DISPLAY_VIEW.md, "Same bytes in every engine").
-  const viewIlluminant = resolvePortableCaptureIlluminant(illuminantOption), viewIrradianceScale = calculateIlluminantIrradianceScale(viewIlluminant.shape, illuminanceLux);
-  const viewProvider = buildProvider(viewIlluminant, viewIrradianceScale);
+  // #550: mixed lighting resolved with the same portable formulas; its strongest source at the frame center stands in for the illuminant.
+  const viewMixed = context.mixedIllumination?.(resolvePortableCaptureIlluminant), viewStrongest = viewMixed?.sources[viewMixed.center.strongestSource];
+  const viewIlluminant = viewStrongest ? viewStrongest.illuminant : resolvePortableCaptureIlluminant(illuminantOption);
+  const viewIrradianceScale = viewStrongest ? viewStrongest.irradianceScale : calculateIlluminantIrradianceScale(viewIlluminant.shape, illuminanceLux);
+  const stillViewProvider = buildProvider(viewIlluminant, viewIrradianceScale, viewMixed);
+  // #551: a moving subject is read at each temporal midpoint as radiance (no material tables).
+  const viewProvider = context.movingScene ? context.movingScene(stillViewProvider, viewIrradianceScale, (nm) => viewIlluminant.shape.evaluate(nm), viewMixed) : stillViewProvider;
   const viewWhiteBalanceState = whiteBalanceOption === "scene-illuminant" ? sceneIlluminantWhiteBalance(viewIlluminant) : kelvinInput ? resolvePortableColorTemperatureWhiteBalance(kelvinInput) : whiteBalanceState;
   // The chart's materials likewise (a step wedge's geometric levels use the portable power); same geometry and order.
   const viewChart = chart ? resolvePortableChartScene({ scene: sceneOption as ChartScene, aspect: chartSize ? chartSize.heightM / chartSize.widthM : aspect }) : undefined;
@@ -236,11 +241,12 @@ function prepareView(context: DisplayViewRunContext): PreparedViewParts {
   const diffractionRadius = diffraction ? diffraction.kernelRadiusSamples : 0, combinedRadius = defocusKernel ? diffractionRadius + defocusKernel.radius : diffractionRadius;
   const { offsets, signalInput } = buildExpectedSignalInput({ nativeWidth, nativeHeight, width, wavelengths, perNode, apertureNodes: apertureNodeOffsets(boxSamples), boxSamples,
     antiAliasing, pitch, defocus: defocusKernel, ...(context.lensPsf ? { lensKernels: context.lensPsf.axisKernels(wavelengths) } : {}), diffraction: diffraction ? { radius: diffraction.kernelRadiusSamples, psf: diffractionPsf!.configuration.psf, profileWavelengths: diffraction.profile.axes.wavelengthNm } : undefined,
-    materials: sceneMaterials && provider.chartMaterialAt ? { materialAt: provider.chartMaterialAt,
+    materials: sceneMaterials && provider.chartMaterialAt && !context.movingScene ? { materialAt: provider.chartMaterialAt,
       list: [...sceneMaterials.map((m, index) => (m.kind === "neutral" ? { neutral: m.reflectance } : { radiance: (nm: number): number => viewProvider.materialRadiance!(index, nm) })),
         ...(chartSize ? [{ neutral: chartSize.surroundReflectance }] : [])],
       whiteRadiance: (nm: number): number => viewIrradianceScale * viewIlluminant.shape.evaluate(nm) / Math.PI } : undefined,
-    radianceAt: viewProvider.radianceAt, imagingArea, focalLengthMm, focusDistanceM, subjectDistanceM, metresPerFrameUnit, caller: "simulateDisplayView" });
+    radianceAt: viewProvider.radianceAt, imageSignalScene: viewProvider.imageSignalScene,
+    imagingArea, focalLengthMm, focusDistanceM, subjectDistanceM, metresPerFrameUnit, caller: "simulateDisplayView" });
   const kernels = signalInput.kernels, largeDefocus = signalInput.largeKernel;
   // Readout moments per channel: normalized value k·e with variance k²·(e + σ_read²) plus the ADC quantization (1/12 code², times d² before a digital gain d).
   // #556: a development exposure push G multiplies the normalized value before the per-site clip at white: k → G·k and the constant variance → G²·(…).
@@ -291,7 +297,7 @@ function prepareView(context: DisplayViewRunContext): PreparedViewParts {
     return Int32Array.from(keys).sort();
   };
   // #492: out of focus the view reads the defocus disc (its kernel in signalInput.kernels); the GPU Quality site pass gathers it (step 2c).
-  const gpuRequest: DisplayViewGpuRequest = { ahd, lens: !!context.lens, defocus: defocusKernel !== null, ...(largeDefocus ? { largeDefocus: true } : {}), diffraction: diffraction !== undefined, antiAliasing: antiAliasing !== undefined, boxSamples, toneCurve: viewToneCurve,
+  const gpuRequest: DisplayViewGpuRequest = { ahd, lens: !!context.lens, ...(viewMixed ? { mixedIllumination: true } : {}), defocus: defocusKernel !== null, ...(largeDefocus ? { largeDefocus: true } : {}), diffraction: diffraction !== undefined, antiAliasing: antiAliasing !== undefined, boxSamples, toneCurve: viewToneCurve,
     scene: chart ? "chart" : materialLayers ? "material-layers" : callerScene!.kind };
   const render: RenderPreparedView = async (v, run, viewInternals, gpu) => {
     const { started, viewStarted } = run;
@@ -348,6 +354,8 @@ function prepareView(context: DisplayViewRunContext): PreparedViewParts {
           "an approximation, because the PSF of a defocused wave is not the in-focus Airy pattern convolved with a geometric disc." :
           "The disc is the same at every spectral node (geometric optics)."));
     }
+    if (viewMixed) assume("view.illumination", "model", { method: "radiance-at-every-query-point" },
+      "Mixed lighting (#550): the radiance at every query point, as in the capture (no material tables; exact). Not on the GPU.");
     if (execution.backend === "webgpu-f32") {
       assume("view.execution", "model", { backend: execution.backend, arithmetic: execution.arithmetic, errorBound: execution.errorBound, adapter: execution.adapter },
         "Estimated on the GPU: this view was rendered by the WebGPU float32 display-view renderer, a labelled approximation of the float64 CPU reference within the a-priori " +
@@ -361,7 +369,7 @@ function prepareView(context: DisplayViewRunContext): PreparedViewParts {
       view: { width: v.width, height: v.height, frameWidth: width, frameHeight: height, scaleX, scaleY, samplesPerAxis: v.samplesPerAxis, ...(v.region ? { region: { ...v.region } } : {}) },
       exposure: { mode, settings: { fNumber, shutterSeconds, iso: resolvedIso }, ev100: Math.log2(fNumber ** 2 / shutterSeconds), ...isoReport, standardExposureDeviationStops, standardExposureIlluminanceLux, greyCardDeviationStops, metering },
       sensor: context.sensor,
-      scene: { sceneId: chart ? "chart:" + chart.preset : callerScene!.sceneId, preset: scenePreset, parameters: chart ? chart.parameters : {},
+      scene: { sceneId: chart ? "chart:" + chart.preset : callerScene!.sceneId, preset: scenePreset, parameters: (chart ?? callerScene as { parameters?: Readonly<Record<string, unknown>> }).parameters ?? {},
         illuminant: { id: illuminant.id, description: illuminant.description, illuminanceLux }, distanceM: subjectDistanceM,
         framedWidthM: 2 * metresPerFrameUnit, framedHeightM: 2 * metresPerFrameUnit * aspect, ...(chartReport ? { chart: chartReport } : {}), sourceSha256 },
       diagnostics: { sampleCount: rendered.sampleCount, siteEvaluations: rendered.siteCount, sceneLookups: signal.lookups, detailPixelCount: rendered.detailPixelCount,

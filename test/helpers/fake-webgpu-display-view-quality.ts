@@ -10,6 +10,7 @@ import { DISPLAY_VIEW_QUALITY_AUX, DISPLAY_VIEW_QUALITY_CANDIDATE_FLOATS, DISPLA
 import { DISPLAY_VIEW_CLIP_MEAN_U, DISPLAY_VIEW_CLIP_VARIANCE_U, DISPLAY_VIEW_REINHARD_MEAN_U, DISPLAY_VIEW_REINHARD_VARIANCE_U } from "../../src/gpu/wgsl-display-view-speed-kernel.js";
 import { AHD_KEY_FLOOR, AHD_KEY_LEVELS, AHD_KEY_OCTAVES, AHD_KEY_STEPS } from "../../src/facade/display-view.js";
 import type { ChartMaterialEmulator } from "./fake-webgpu-stages.js";
+import { ExactSum } from "./exact-sum-emulation.js";
 import { clipState } from "./fake-webgpu-display-view.js";
 
 const f = Math.fround;
@@ -135,50 +136,65 @@ function writeSite(P: Record<string, number>, sites: Float32Array, sw: Uint32Arr
 }
 const channelOf = (x: number, y: number): number => ((y & 1) === 0 ? ((x & 1) === 0 ? 0 : 1) : ((x & 1) === 0 ? 1 : 2));
 
+/** 2.21.0: `node_total`, the exact sum of the per-node partials and the dark electrons, rounded once (EXACT_SUM_WGSL). */
+const exact = new ExactSum();
+function nodeTotal(partial: Float32Array, N: number, dark: number): number {
+  let anchor = ExactSum.exponent(dark);
+  for (let k = 0; k < N; k++) if (partial[k]! > 0) anchor = Math.max(anchor, ExactSum.exponent(partial[k]!));
+  exact.reset(anchor);
+  for (let k = 0; k < N; k++) exact.add(partial[k]!);
+  exact.add(dark);
+  return exact.round();
+}
+
 /** Pass 2 (the tap list), over the dispatch's `count` sites from `site_first`. */
 export function emulateDisplayViewQualitySites(pw: Uint32Array, pf: Float32Array, groups: Uint32Array, taps: Uint32Array, table: Float32Array, lattice: Uint32Array, sites: Float32Array, spread: Float32Array): void {
   const P = readParams(pw, pf), sw = new Uint32Array(sites.buffer, sites.byteOffset, sites.length), dark = [P.dark0!, P.dark1!, P.dark2!];
-  const T = P.taps!;
+  const T = P.taps!, N = pw[53]!, spectra = 3 * T * N, partial = new Float32Array(N);
   for (let local = 0; local < P.count!; local++) {
     const i = P.siteFirst! + local, ii = i % P.siteW!, jj = Math.floor(i / P.siteW!), x = P.siteX0! + ii, y = P.siteY0! + jj, c = channelOf(x, y);
-    let sum = 0, uncertainty = 0;
+    let uncertainty = 0;
+    partial.fill(0);
     for (let t = 0; t < T; t++) {
       const tb = t * TAP, g = taps[tb]! * GROUP, index = groups[g + 4]! + (jj + taps[tb + 2]!) * groups[g + 2]! + ii + taps[tb + 1]!, raw = lattice[index]!;
       if ((raw >>> 31) !== 0) uncertainty = f(uncertainty + spread[c * T + t]!);
-      sum = f(sum + table[((raw & 0x7fffffff) * 3 + c) * T + t]!);
+      const kb = (c * T + t) * N, lb = spectra + (raw & 0x7fffffff) * N;
+      for (let n = 0; n < N; n++) partial[n] = f(partial[n]! + f(table[kb + n]! * table[lb + n]!));
     }
-    const e = f(sum + dark[c]!), flag = uncertainty > f(UNCERTAINTY_LIMIT * e) ? 1 : 0, de = f(f(P.siteGamma! * e) + uncertainty);
+    const e = nodeTotal(partial, N, dark[c]!), flag = uncertainty > f(UNCERTAINTY_LIMIT * e) ? 1 : 0, de = f(f(f(P.siteGamma! * e) + uncertainty) + P.siteTiny!);
     writeSite(P, sites, sw, i, c, e, de, flag);
   }
 }
 
-/** Pass 2 with the factored table and the blocked sum (#492): rows, then groups, then the total; no tap records. */
-export function emulateDisplayViewQualitySitesBlocked(pw: Uint32Array, pf: Float32Array, groups: Uint32Array, table: Float32Array, lattice: Uint32Array, sites: Float32Array, spread: Float32Array,
-  materials: Uint32Array): void {
+/** Pass 2 with the blocked sum (#492): per node, rows, then groups, then the total; no tap records. */
+export function emulateDisplayViewQualitySitesBlocked(pw: Uint32Array, pf: Float32Array, groups: Uint32Array, table: Float32Array, lattice: Uint32Array, sites: Float32Array, spread: Float32Array): void {
   const P = readParams(pw, pf), sw = new Uint32Array(sites.buffer, sites.byteOffset, sites.length), dark = [P.dark0!, P.dark1!, P.dark2!];
-  const reflectance = new Float32Array(materials.buffer, materials.byteOffset, materials.length);
-  const T = P.taps!;
+  const T = P.taps!, N = pw[53]!, spectra = 3 * T * N, total = new Float32Array(N), groupSum = new Float32Array(N), rowSum = new Float32Array(N);
   for (let local = 0; local < P.count!; local++) {
     const i = P.siteFirst! + local, ii = i % P.siteW!, jj = Math.floor(i / P.siteW!), x = P.siteX0! + ii, y = P.siteY0! + jj, c = channelOf(x, y);
-    let sum = 0, uncertainty = 0;
+    let uncertainty = 0;
+    total.fill(0);
     for (let k = 0; k < P.groups!; k++) {
       const g = k * GROUP, lw = groups[g + 2]!, cw = lw - P.siteW! + 1, ch = groups[g + 3]! - P.siteH! + 1, lattice0 = groups[g + 4]! + jj * lw + ii, tap0 = groups[g + 5]!;
-      const valueBase = c * T;
-      let groupSum = 0, groupUncertainty = 0;
+      let groupUncertainty = 0;
+      groupSum.fill(0);
       for (let dy = 0; dy < ch; dy++) {
         const row = lattice0 + dy * lw, rowTap = tap0 + dy * cw;
-        let rowSum = 0, rowUncertainty = 0;
+        let rowUncertainty = 0;
+        rowSum.fill(0);
         for (let dx = 0; dx < cw; dx++) {
           const raw = lattice[row + dx]!, t = rowTap + dx;
-          if ((raw >>> 31) !== 0) rowUncertainty = f(rowUncertainty + spread[valueBase + t]!);
-          const m = 2 * (raw & 0x7fffffff);
-          rowSum = f(rowSum + f(reflectance[m + 1]! * table[(materials[m]! * 3 + c) * T + t]!));
+          if ((raw >>> 31) !== 0) rowUncertainty = f(rowUncertainty + spread[c * T + t]!);
+          const kb = (c * T + t) * N, lb = spectra + (raw & 0x7fffffff) * N;
+          for (let n = 0; n < N; n++) rowSum[n] = f(rowSum[n]! + f(table[kb + n]! * table[lb + n]!));
         }
-        groupSum = f(groupSum + rowSum); groupUncertainty = f(groupUncertainty + rowUncertainty);
+        for (let n = 0; n < N; n++) groupSum[n] = f(groupSum[n]! + rowSum[n]!);
+        groupUncertainty = f(groupUncertainty + rowUncertainty);
       }
-      sum = f(sum + groupSum); uncertainty = f(uncertainty + groupUncertainty);
+      for (let n = 0; n < N; n++) total[n] = f(total[n]! + groupSum[n]!);
+      uncertainty = f(uncertainty + groupUncertainty);
     }
-    const e = f(sum + dark[c]!), flag = uncertainty > f(UNCERTAINTY_LIMIT * e) ? 1 : 0;
+    const e = nodeTotal(total, N, dark[c]!), flag = uncertainty > f(UNCERTAINTY_LIMIT * e) ? 1 : 0;
     const de = f(f(f(P.siteGamma! * e) + f(uncertainty * f(1 + P.siteGamma!))) + P.siteTiny!);
     writeSite(P, sites, sw, i, c, e, de, flag);
   }
@@ -387,5 +403,34 @@ export function emulateDisplayViewQualityPixels(pw: Uint32Array, pf: Float32Arra
     out[o + 9] = Math.max(s[0]![1], s[1]![1], s[2]![1]);
     out[o + 10] = Math.max(f(cov[0]![1] + res[0]![1]), f(cov[3]![1] + res[1]![1]), f(cov[5]![1] + res[2]![1]), cov[1]![1], cov[2]![1], cov[4]![1]);
     flags[3 * i] = (pixelFlags | (undecided ? DISPLAY_VIEW_QUALITY_FLAG.highlightUndecided : 0)) >>> 0; flags[3 * i + 1] = mask0; flags[3 * i + 2] = mask1;
+  }
+}
+
+/** #581: the image-plane print's pass 2 (`IMAGE_PLANE_QUALITY_SITES_WGSL`): the blocked sum over the nodes, then the site tail. */
+export function emulateImagePlaneQualitySites(pw: Uint32Array, pf: Float32Array, groups: Uint32Array, table: Float32Array, lattice: Float32Array, sites: Float32Array, flags: Uint32Array): void {
+  const P = readParams(pw, pf), sw = new Uint32Array(sites.buffer, sites.byteOffset, sites.length), dark = [P.dark0!, P.dark1!, P.dark2!];
+  const T = P.taps!, N = pw[55]!;
+  for (let local = 0; local < P.count!; local++) {
+    const i = P.siteFirst! + local, ii = i % P.siteW!, jj = Math.floor(i / P.siteW!), c = channelOf(P.siteX0! + ii, P.siteY0! + jj);
+    let sum = 0, flagged = false;
+    for (let k = 0; k < P.groups!; k++) {
+      const g = k * GROUP, lw = groups[g + 2]!, cw = lw - P.siteW! + 1, ch = groups[g + 3]! - P.siteH! + 1, lattice0 = groups[g + 4]! + jj * lw + ii, tap0 = groups[g + 5]!;
+      let groupSum = 0;
+      for (let dy = 0; dy < ch; dy++) {
+        const row = lattice0 + dy * lw, rowTap = tap0 + dy * cw;
+        let rowSum = 0;
+        for (let dx = 0; dx < cw; dx++) {
+          const point = row + dx, t = rowTap + dx;
+          let cell = 0, weight = 0;
+          for (let n = 0; n < N; n++) { const w = table[(n * 3 + c) * T + t]!; weight = f(weight + w); cell = f(cell + f(lattice[point * N + n]! * w)); }
+          if (flags[point] !== 0 && weight > 0) flagged = true;
+          rowSum = f(rowSum + cell);
+        }
+        groupSum = f(groupSum + rowSum);
+      }
+      sum = f(sum + groupSum);
+    }
+    const e = f(sum + dark[c]!);
+    writeSite(P, sites, sw, i, c, e, f(f(P.siteGamma! * e) + P.siteTiny!), flagged ? 1 : 0);
   }
 }
