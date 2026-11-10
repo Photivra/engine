@@ -12,7 +12,7 @@
 import { afterAll, describe, expect, it } from "vitest";
 import { writeFileSync } from "node:fs";
 import { calculateChartRadianceBatch, calculateChartRadianceBatchPlan, createImageKernelAccelerator, type ChartCompositeProbeRecord, type ChartScene } from "../src/index.js";
-import { ChartCompositeProbeError, chartMaterialTable, classifyChartCompositeProbe, describeChartCompositeProbe, dwCrossTerm, dwMulDekker, dwMulFma, fmaF32, packChartScene, PROBE_INPUTS,
+import { ChartCompositeProbeError, chartMaterialTable, integrateChartQueries, classifyChartCompositeProbe, describeChartCompositeProbe, dwCrossTerm, dwMulDekker, dwMulFma, fmaF32, packChartScene, PROBE_INPUTS,
   probeExpectation, splitPoints, type Dw } from "../src/gpu/chart-composite-gpu.js";
 import { createFakeGpu } from "./helpers/fake-webgpu.js";
 import { emulateCompositeChart, emulateCompositeProbe, exactProbeOutput, type CompositeArithmetic } from "./helpers/fake-webgpu-composite.js";
@@ -178,6 +178,10 @@ describe("composite chart radiance under fused contraction (fake device)", () =>
       for (const path of ["dekker", "fma"] as const) {
         const values = new Float32Array(count * columns), flags = new Uint32Array(count);
         emulateCompositeChart(Uint32Array.from([count, columns, 0, 0]), splitPoints(points), table, packed.af, packed.ai, new Uint32Array(1), values, flags, path, arithmetic);
+        // 2.21.0: the kernel returns each query's material; the host integrates its spectrum against the channel weights.
+        const skipped: number[] = [];
+        for (let q = 0; q < count; q++) if (flags[q]) skipped.push(q);
+        integrateChartQueries(plan, values, skipped);
         let wrong = 0, flagged = 0;
         for (let q = 0; q < count; q++) {
           if (flags[q]) { flagged++; continue; }

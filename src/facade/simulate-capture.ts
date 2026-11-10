@@ -3232,26 +3232,27 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
     if (format !== "srgb-8" && format !== "srgb-16" && format !== "png") fail("simulateIdealReference supports output.format srgb-8, srgb-16 and png: a reference has no RAW (dng) and should not carry JPEG compression artefacts.");
     if (needsAuto) fail("simulateIdealReference cannot reproduce output.whiteBalance \"auto\": the capture measures it from its noisy RAW. Use \"scene-illuminant\" or a fixed white balance.");
     const { electronsPerRadiance, wavelengths, relativePerElectron } = axisChannelResponse("simulateIdealReference");
-    // 3. Scene radiance per sample: chart materials once (and the fixed-size chart's surround), caller functions per sample.
-    const signalOf = (radiance: (nm: number) => number): [number, number, number] => {
-      const values = new Map(wavelengths.map((nm) => [nm, radiance(nm)]));
-      return CHANNELS.map((c) => { let e = 0; for (const [nm, a] of electronsPerRadiance[c]) e += a * values.get(nm)!; return e * relativePerElectron[c]; }) as [number, number, number];
-    };
+    // 3. Each sample's signals, integrated from its spectral radiance at the nodes against each channel's response when it is read
+    //    (2.21.0): chart materials keep their spectra (and the fixed-size chart's surround), caller functions are read per sample.
+    const responses = CHANNELS.map((c) => [[...electronsPerRadiance[c]].map(([nm, a]) => [wavelengths.indexOf(nm), a] as const), relativePerElectron[c]] as const);
+    const signalOf = (spectrum: ArrayLike<number>): number[] => responses.map(([terms, scale]) => { let e = 0; for (const [i, a] of terms) e += a * spectrum[i]!; return e * scale; });
     const materialCount = chart ? chart.materials.length : callerScene?.kind === "material-function" ? callerScene.materials.length : 0;
-    const materialSignals = provider.chartMaterialAt ? Array.from({ length: materialCount + (chartSize ? 1 : 0) }, (_, m) => signalOf((nm) => provider.materialRadiance!(m, nm))) : undefined;
+    const spectra = provider.chartMaterialAt ? Array.from({ length: materialCount + (chartSize ? 1 : 0) }, (_, m) => wavelengths.map((nm) => provider.materialRadiance!(m, nm))) : undefined;
     // 4. Pixels: the native sites of the output (or region) pixels, each centre-sampled or box-integrated like the capture.
     const x0 = (region ? region.x : 0) + margin, y0 = (region ? region.y : 0) + margin, n = boxSamples, unit = 2 / width;
     const referenceIntent = intentOf(whiteBalanceState), referenceGains = referenceIntent ? [referenceIntent.channelGains.red, referenceIntent.channelGains.green, referenceIntent.channelGains.blue] : null;
     const development = prepareSensorColorDevelopment(CAMERA_TO_XYZ as unknown as Parameters<typeof prepareSensorColorDevelopment>[0],
       referenceGains, highlightMode);
     const rgb = new Float64Array(outputWidth * outputHeight * 3), counts = { whiteBalanceClippedSampleCount: 0, reconstructedPixelCount: 0 }, sum = [0, 0, 0];
+    // A sample that reads the previous sample's material reuses that sample's integral (nothing is kept per material).
+    let last = -1, s: number[] = [];
     for (let py = 0; py < outputHeight; py++) {
       for (let px = 0; px < outputWidth; px++) {
         sum[0] = 0; sum[1] = 0; sum[2] = 0;
         for (let l = 0; l < n; l++) for (let k = 0; k < n; k++) {
-          const u = (x0 + px + (k + 0.5) / n - nativeWidth / 2) * unit, v = -(y0 + py + (l + 0.5) / n - nativeHeight / 2) * unit;
-          const s = materialSignals ? materialSignals[provider.chartMaterialAt!(u, v)]! : signalOf((nm) => provider.radianceAt(u, v, nm));
-          sum[0] += s[0]; sum[1] += s[1]; sum[2] += s[2];
+          const u = (x0 + px + (k + 0.5) / n - nativeWidth / 2) * unit, v = -(y0 + py + (l + 0.5) / n - nativeHeight / 2) * unit, m = spectra ? provider.chartMaterialAt!(u, v) : -1;
+          if (m < 0 || m !== last) { s = signalOf(m < 0 ? wavelengths.map((nm) => provider.radianceAt(u, v, nm)) : spectra![m]!); last = m; }
+          sum[0] += s[0]!; sum[1] += s[1]!; sum[2] += s[2]!;
         }
         // Normalized RAW values saturate at the white level, as in development.
         // #556: the development exposure push multiplies the normalized RAW before the white clip.

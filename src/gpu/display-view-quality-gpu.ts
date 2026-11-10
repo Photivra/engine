@@ -42,7 +42,7 @@ import { createDefocusDiscSiteKernel } from "../optics/defocus-disc-kernel.js";
 import { ImageKernelExecutionError, WEBGPU_F32_UNIT_ROUNDOFF, webGpuExecution, type ImageKernelExecution, type ImageKernelRelativeErrorBound } from "./image-kernel-execution.js";
 import { BUFFER_USAGE, GpuResourceScope, abortedError, createComputePipeline, linearDispatch, runComputePass, type WebGpuRuntime, throwIfAborted as checkAbort } from "./webgpu-runtime.js";
 import { DISPLAY_VIEW_QUALITY_AUX, DISPLAY_VIEW_QUALITY_BITMAP_WORDS, DISPLAY_VIEW_QUALITY_CANDIDATE_ENTRIES, DISPLAY_VIEW_QUALITY_CANDIDATE_FLOATS, DISPLAY_VIEW_QUALITY_FLAG, DISPLAY_VIEW_QUALITY_FLAG_WORDS,
-  DISPLAY_VIEW_QUALITY_GEOMETRY_STRIDE, DISPLAY_VIEW_QUALITY_GROUP_WORDS, DISPLAY_VIEW_QUALITY_MAXIMUM_PIXELS_PER_AXIS, DISPLAY_VIEW_QUALITY_OUTPUT_FLOATS, DISPLAY_VIEW_QUALITY_PARAM_WORDS,
+  DISPLAY_VIEW_QUALITY_GEOMETRY_STRIDE, DISPLAY_VIEW_QUALITY_GROUP_WORDS, DISPLAY_VIEW_QUALITY_MAXIMUM_NODES, DISPLAY_VIEW_QUALITY_MAXIMUM_PIXELS_PER_AXIS, DISPLAY_VIEW_QUALITY_OUTPUT_FLOATS, DISPLAY_VIEW_QUALITY_PARAM_WORDS,
   DISPLAY_VIEW_QUALITY_PIXELS_WGSL, DISPLAY_VIEW_QUALITY_SITES_BLOCKED_WGSL, DISPLAY_VIEW_QUALITY_SITES_WGSL, DISPLAY_VIEW_QUALITY_SITE_FLOATS, DISPLAY_VIEW_QUALITY_TAP_WORDS, DISPLAY_VIEW_QUALITY_WORKGROUP_SIZE,
   assembleDisplayViewQualityLatticeWgsl } from "./wgsl-display-view-quality-kernel.js";
 
@@ -74,7 +74,7 @@ export const DISPLAY_VIEW_QUALITY_MAXIMUM_KERNEL_RADIUS = 96;
  * several invocations per site is needed.
  */
 export const DISPLAY_VIEW_QUALITY_SITE_TAPS_PER_DISPATCH = 2 ** 30;
-/** The smallest positive normal float32: table values below it may be flushed to zero by a device (WGSL allows it). */
+/** The smallest positive normal float32: values below it may be flushed to zero by a device (WGSL allows it). */
 const FLOAT32_MINIMUM_NORMAL = 2 ** -126;
 /** Candidate table entries per phase: the (2·reach + 1)² window. */
 const WINDOW_SLOTS = (2 * MAXIMUM_REACH + 1) ** 2;
@@ -240,6 +240,7 @@ export function displayViewQualityGpuUnsupportedReason(setup: DisplayViewSetup, 
   if (setup.ahdCollect) return "a collect pass of the correction states runs on the CPU";
   if (setup.toneCurve !== "identity" && setup.toneCurve !== "positive-reinhard-per-channel") return "unsupported tone curve " + String(setup.toneCurve);
   if (setup.region.width < 1 || setup.region.height < 1) return "an empty region";
+  if (signalInput.wavelengthsNm.length < 1 || signalInput.wavelengthsNm.length > DISPLAY_VIEW_QUALITY_MAXIMUM_NODES) return "the site passes integrate 1 to " + DISPLAY_VIEW_QUALITY_MAXIMUM_NODES + " spectral nodes per site";
   if (signalInput.kernels && (signalInput.kernels.radius < 0 || signalInput.kernels.radius > DISPLAY_VIEW_QUALITY_MAXIMUM_KERNEL_RADIUS))
     return "a site kernel radius above " + DISPLAY_VIEW_QUALITY_MAXIMUM_KERNEL_RADIUS + " (the diffraction and defocus caps)";
   const shape = footprintShape(setup);
@@ -274,7 +275,7 @@ export function displayViewQualityGpuUnsupportedReason(setup: DisplayViewSetup, 
   return null;
 }
 
-/** The lattice groups, taps and the value table of the expected signal (see the module comment). */
+/** The lattice groups, taps and the spectral table of the expected signal (see the module comment). */
 interface SignalGather {
   /**
    * Per group: dpMin, dqMin, dpSpan, dqSpan (lattice extent beyond the site window), cu, cv; its first tap, and (with site
@@ -284,22 +285,31 @@ interface SignalGather {
   /** Per tap: group, dp − dpMin, dq − dqMin. */
   taps: Uint32Array<ArrayBuffer>;
   tapCount: number;
+  /** Spectral nodes N. */
+  nodes: number;
   /**
-   * Per material m, channel c and tap t: the value at (m·3 + c)·T + t, float64 rounded once. Factored (the blocked pass, #492):
-   * per row r (0: the neutral white, 1 + s: spectral material s) the value at (r·3 + c)·T + t, with `materialRows`.
+   * 2.21.0 (signals integrated from the material spectrum per site): per channel c, tap t and node n the channel's response and
+   * kernel C_c(t, n) at (c·T + t)·N + n (`nodeKernels`; without site kernels the member's weight times A_c(λ_n)), then per material
+   * m its spectral radiance L_m(λ_n) at 3·T·N + m·N + n, each float64 rounded once. No per-material channel value is formed: the
+   * site pass integrates Σ_t Σ_n C_c(t, n)·L_{m_t}(λ_n).
    */
   table: Float32Array<ArrayBuffer>;
-  /** Factored table only: per material its row and its reflectance (float32 bits; 1 for a spectral material). */
-  materialRows: Uint32Array<ArrayBuffer> | null;
-  /** Per channel c and tap t: the largest difference between two materials' values at that tap (at c·T + t), rounded up. */
+  /**
+   * Per channel c and tap t (at c·T + t): a bound on the difference between any two materials' signals at that tap,
+   * Σ_n C_c(t, n)·(max_m L_m(λ_n) − min_m L_m(λ_n)), from the spectra's envelope (no per-material value), rounded up.
+   */
   spread: Float32Array<ArrayBuffer>;
   materials: number;
-  /** Σ_t of the largest positive value below the float32 normal range at tap t (over materials and channels), float64. */
+  /**
+   * An absolute bound on what a device that flushes results below the float32 normal range (WGSL allows it) can drop from a site:
+   * per tap the largest product C·max L below that range over the channels, plus one smallest normal per partial addition and
+   * per compensation step ((T + 2)·N of them), float64.
+   */
   tinyMass: number;
 }
-function signalGather(signalInput: DisplayViewExpectedSignalInput, factored: boolean): SignalGather {
-  const tables = displayViewSignalTables(signalInput), scene = signalInput.scene as Extract<DisplayViewExpectedSignalInput["scene"], { kind: "materials" }>;
-  const W = signalInput.nativeWidth, H = signalInput.nativeHeight, R = signalInput.kernels ? signalInput.kernels.radius : 0, materials = scene.materials.length;
+function signalGather(signalInput: DisplayViewExpectedSignalInput): SignalGather {
+  const tables = displayViewSignalTables(signalInput), A = signalInput.electronsPerRadiance, N = signalInput.wavelengthsNm.length, spectra = tables.spectra;
+  const W = signalInput.nativeWidth, H = signalInput.nativeHeight, R = signalInput.kernels ? signalInput.kernels.radius : 0, materials = spectra.length;
   // Taps in order: per group, with site kernels the dense rectangle row-major (tap (dx, dy) reads lattice offset (minIx − R + dx,
   // minIy − R + dy)), without them one tap per member. Plain loops: a radius-96 kernel has up to 150 544 taps.
   const tapGroup: number[] = [], tapDp: number[] = [], tapDq: number[] = [], tapIndex: number[] = [];
@@ -317,82 +327,61 @@ function signalGather(signalInput: DisplayViewExpectedSignalInput, factored: boo
     groups.push({ dpMin, dqMin, dpSpan: dpMax - dpMin, dqSpan: dqMax - dqMin, cu: 0.5 + group.fx - W / 2, cv: 0.5 + group.fy - H / 2, firstTap: first,
       cw: signalInput.kernels ? group.cw : 0, ch: signalInput.kernels ? group.ch : 0 });
   });
-  const direct = (m: number, c: number): number => { const si = tables.spectralIndex[m]!; return si < 0 ? tables.reflectance[m]! * tables.neutralDirect[c]! : tables.spectralDirect[c]![si]!; };
   const T = tapGroup.length, taps = new Uint32Array(T * DISPLAY_VIEW_QUALITY_TAP_WORDS), spread = new Float32Array(3 * T);
   for (let t = 0; t < T; t++) {
     const g = tapGroup[t]!, group = groups[g]!;
     taps[t * DISPLAY_VIEW_QUALITY_TAP_WORDS] = g; taps[t * DISPLAY_VIEW_QUALITY_TAP_WORDS + 1] = tapDp[t]! - group.dpMin; taps[t * DISPLAY_VIEW_QUALITY_TAP_WORDS + 2] = tapDq[t]! - group.dqMin;
   }
-  const check = (value: number): number => {
-    if (!(Math.abs(value) <= FLOAT32_SAFE_MAGNITUDE)) throw new ImageKernelExecutionError("unsupported-float32-domain", "A material's channel signal exceeds the float32 domain.");
-    return value;
-  };
-  const tiny = new Float64Array(T);
-  if (factored && signalInput.kernels) {
-    // #492: one neutral row (the white's combined kernel, which the reference scales by each neutral material's reflectance) and one
-    // row per spectral material; the spread of a tap over the materials from the neutral reflectances' range and the spectral rows.
-    const spectralCount = tables.spectral.length, rows = 1 + spectralCount, table = new Float32Array(rows * 3 * T), materialRows = new Uint32Array(2 * materials);
-    const reflectanceBits = new Float32Array(materialRows.buffer);
-    let neutralLow = Infinity, neutralHigh = -Infinity, neutralSmallest = Infinity;
-    for (let m = 0; m < materials; m++) {
-      const si = tables.spectralIndex[m]!;
-      if (si < 0) {
-        const r = check(tables.reflectance[m]!);
-        materialRows[2 * m] = 0; reflectanceBits[2 * m + 1] = r;
-        neutralLow = Math.min(neutralLow, r); neutralHigh = Math.max(neutralHigh, r);
-        if (r > 0) neutralSmallest = Math.min(neutralSmallest, r);
-      } else { materialRows[2 * m] = 1 + si; reflectanceBits[2 * m + 1] = 1; }
+  // Every value finite and non-negative, every spectrum value normal (a device may flush the others) and every sum in range.
+  const domain = (): never => { throw new ImageKernelExecutionError("unsupported-float32-domain", "A site's spectral terms are outside the float32 domain."); };
+  // The spectra and their envelope per node.
+  const base = 3 * T * N, table = new Float32Array(base + materials * N), low = new Float64Array(N).fill(Infinity), high = new Float64Array(N).fill(-Infinity);
+  let smallestL = Infinity;
+  spectra.forEach((L, m) => {
+    for (let n = 0; n < N; n++) {
+      const l = L[n]!;
+      if (!(l >= 0 && l <= FLOAT32_SAFE_MAGNITUDE)) domain();
+      table[base + m * N + n] = l; low[n] = Math.min(low[n]!, l); high[n] = Math.max(high[n]!, l);
+      if (l > 0) smallestL = Math.min(smallestL, l);
     }
-    for (let t = 0; t < T; t++) {
-      const source = tables.groups[tapGroup[t]!]!, index = tapIndex[t]!;
-      for (let c = 0; c < 3; c++) {
-        let low = Infinity, high = -Infinity;
-        const white = check(source.neutral[c]![index]!);
-        table[c * T + t] = white;
-        if (neutralHigh >= neutralLow) {
-          low = neutralLow * white; high = neutralHigh * white;
-          // A neutral term r·N below the float32 normal range may be flushed: at most min(r_max·N, 2⁻¹²⁶).
-          if (neutralSmallest * white < FLOAT32_MINIMUM_NORMAL && white > 0) tiny[t] = Math.max(tiny[t]!, Math.min(neutralHigh * white, FLOAT32_MINIMUM_NORMAL));
-        }
-        for (let si = 0; si < spectralCount; si++) {
-          const value = check(source.spectral[c]![si]![index]!);
-          table[((1 + si) * 3 + c) * T + t] = value;
-          low = Math.min(low, value); high = Math.max(high, value);
-          if (value > 0 && value < FLOAT32_MINIMUM_NORMAL) tiny[t] = Math.max(tiny[t]!, value);
-        }
-        spread[c * T + t] = Math.fround((high - low) * (1 + 4 * E));
-      }
-    }
-    let tinyMass = 0;
-    for (let t = 0; t < T; t++) tinyMass += tiny[t]!;
-    return { groups, taps, tapCount: T, table, materialRows, spread, materials, tinyMass };
-  }
-  const table = new Float32Array(materials * 3 * T);
+  });
+  if (smallestL < FLOAT32_MINIMUM_NORMAL) domain();
+  let largestSum = 0, tinyMass = (T + 2) * N * FLOAT32_MINIMUM_NORMAL;
   for (let t = 0; t < T; t++) {
     const source = tables.groups[tapGroup[t]!]!, index = tapIndex[t]!;
+    let tiny = 0;
     for (let c = 0; c < 3; c++) {
-      let low = Infinity, high = -Infinity;
-      for (let m = 0; m < materials; m++) {
-        const si = tables.spectralIndex[m]!;
-        const value = check(signalInput.kernels ? (si < 0 ? tables.reflectance[m]! * source.neutral[c]![index]! : source.spectral[c]![si]![index]!) : source.members[index]!.weight * direct(m, c));
-        table[(m * 3 + c) * T + t] = value;
-        low = Math.min(low, value); high = Math.max(high, value);
-        if (value > 0 && value < FLOAT32_MINIMUM_NORMAL) tiny[t] = Math.max(tiny[t]!, value);
+      let range = 0, mass = 0, tinyHere = 0;
+      for (let n = 0; n < N; n++) {
+        const value = signalInput.kernels ? source.nodeKernels[c]![index * N + n]! : source.members[index]!.weight * A[c]![n]!;
+        if (!(value >= 0 && value <= FLOAT32_SAFE_MAGNITUDE)) domain();
+        table[(c * T + t) * N + n] = value;
+        if (materials > 0) {
+          const top = value * high[n]!;
+          range += value * (high[n]! - low[n]!); mass += top;
+          // A kernel value or product below the normal range may be flushed: at most the product with the largest spectrum.
+          if (value > 0 && (value < FLOAT32_MINIMUM_NORMAL || top < 2 * FLOAT32_MINIMUM_NORMAL)) tinyHere += top;
+        }
       }
-      // The spread rounded up (a float32 rounding of the two values and of the difference).
-      spread[c * T + t] = Math.fround((high - low) * (1 + 4 * E));
+      // The spread rounded up (the float32 roundings of the operands, the products and the sum).
+      spread[c * T + t] = Math.fround(range * (1 + (N + 4) * E));
+      largestSum = Math.max(largestSum, mass);
+      tiny = Math.max(tiny, tinyHere);
     }
+    tinyMass += tiny;
   }
-  let tinyMass = 0;
-  for (let t = 0; t < T; t++) tinyMass += tiny[t]!;
-  return { groups, taps, tapCount: T, table, materialRows: null, spread, materials, tinyMass };
+  if (!(largestSum * T <= FLOAT32_SAFE_MAGNITUDE)) domain();
+  return { groups, taps, tapCount: T, nodes: N, table, spread, materials, tinyMass };
 }
 
 /**
  * The relative bound of a site's electrons (`params.site_gamma`): (T + 3)·E for the tap-list sum (#479), and with the blocked sum
- * (#492) (cw_max + ch_max + G + 3)·E: a term carries two host roundings (u = E/2 each: its row value and the reflectance), the
- * product (E), at most cw additions in its row, ch in its group and G in the total, and the dark electrons' addition, all of
- * non-negative terms (docs/WEBGPU.md).
+ * (#492) (cw_max + ch_max + G + 3)·E, both unchanged by 2.21.0. Every term C_c(t, n)·L_m(λ_n) is non-negative and carries two host
+ * roundings (u = E/2 each: the kernel value and the spectrum) and its product (E); the tap-list pass adds it into its node's
+ * partial over the T taps (at most T − 1 inexact additions), the blocked pass into a row, group and total partial per node (at
+ * most cw − 1 + ch − 1 + G − 1). The N node partials and the dark electrons (host-rounded, E/2) are then summed in integer
+ * arithmetic and rounded once (E, `EXACT_SUM_WGSL`). So a site carries at most (T + 2.5)·E, or (cw + ch + G + 0.5)·E, inside the
+ * bounds (docs/WEBGPU.md).
  */
 function siteSumRelativeBound(gather: SignalGather, blocked: boolean): number {
   if (!blocked) return (gather.tapCount + 3) * E;
@@ -477,8 +466,10 @@ function constants(setup: DisplayViewSetup, signalInput: DisplayViewExpectedSign
     floats[39] = geometry.scaleU; floats[49] = geometry.scaleV;
   }
   floats[50] = siteSumRelativeBound(gather, blocked);
-  // #492: the table values a device may flush to zero (blocked sum only), rounded up and kept normal so the uniform is not flushed either.
-  if (blocked && gather.tinyMass > 0) floats[52] = Math.max(FLOAT32_MINIMUM_NORMAL, Math.fround(gather.tinyMass * (1 + 4 * E)));
+  // 2.21.0: the spectral nodes the site passes integrate.
+  words[53] = gather.nodes;
+  // What a flushing device can drop (both site passes), rounded up and kept normal so the uniform is not flushed either.
+  floats[52] = Math.max(FLOAT32_MINIMUM_NORMAL, Math.fround(gather.tinyMass * (1 + 4 * E)));
   return { params, words, ints, floats };
 }
 
@@ -507,7 +498,7 @@ export async function renderDisplayViewQualityOnGpu(runtime: WebGpuRuntime, band
   const blocked = input.blockedSum ?? (setup.gpu?.defocusRadius ?? 0) > 0;
   if (blocked && !signalInput.kernels) throw new ImageKernelExecutionError("unsupported-on-backend", "webgpu-f32 display view (Quality): the blocked site sum needs site kernels; use cpu-reference.");
   const tapBudget = input.maximumSiteTapsPerDispatch ?? DISPLAY_VIEW_QUALITY_SITE_TAPS_PER_DISPATCH;
-  const gather = signalGather(signalInput, blocked), aux = auxTable(setup), { params, words, ints, floats } = constants(setup, signalInput, gather, reach, count, blocked);
+  const gather = signalGather(signalInput), aux = auxTable(setup), { params, words, ints, floats } = constants(setup, signalInput, gather, reach, count, blocked);
   const stride = DISPLAY_VIEW_QUALITY_GEOMETRY_STRIDE, geometry = new Float32Array((region.width + region.height) * stride);
   const columnSums: AxisSums[] = [], rowSums: AxisSums[] = [];
   for (let i = 0; i < region.width; i++) { axisRecord(geometry, i * stride, (region.x + i) * shape.sx, (region.x + i + 1) * shape.sx, setup.frameWidth, margin, shape.sx); columnSums.push(axisSums((region.x + i) * shape.sx, (region.x + i + 1) * shape.sx, setup.frameWidth, margin)); }
@@ -528,9 +519,8 @@ export async function renderDisplayViewQualityOnGpu(runtime: WebGpuRuntime, band
   while (rows > 1 && bandBytesOf(rows) > bandBytes) rows = Math.ceil(rows / 2);
   // The value table (materials × 3 channels × taps) is one binding: with a large defocus kernel and many materials it can pass the
   // device's limit, which is then refused by name (never clipped).
-  if (gather.table.byteLength > runtime.maximumStorageBindingBytes) throw new ImageKernelExecutionError("insufficient-limits", "The display view's kernel table (" +
-    (gather.materialRows ? gather.table.length / (3 * gather.tapCount) + " rows (the neutral white and each spectral material)" : gather.materials + " materials") + " × 3 channels × " +
-    gather.tapCount + " taps per site, " + gather.table.byteLength + " bytes) exceeds the device's storage binding limit of " + runtime.maximumStorageBindingBytes + " bytes.");
+  if (gather.table.byteLength > runtime.maximumStorageBindingBytes) throw new ImageKernelExecutionError("insufficient-limits", "The display view's kernel table (" + gather.table.byteLength +
+    " bytes: 3 channels × " + gather.tapCount + " taps × " + gather.nodes + " spectral nodes, and the material spectra) exceeds the device's storage binding limit of " + runtime.maximumStorageBindingBytes + " bytes.");
   const largestBinding = Math.max(bandBytesOf(rows), geometry.byteLength, gather.table.byteLength, 4 * DISPLAY_VIEW_QUALITY_BITMAP_WORDS);
   if (largestBinding > runtime.maximumStorageBindingBytes) throw new ImageKernelExecutionError("insufficient-limits", "One display-view band exceeds the device's storage binding limit.");
   const latticePipeline = await pipelines("photivra-display-view-quality-lattice:" + material.id, assembleDisplayViewQualityLatticeWgsl(material.wgsl));
@@ -548,7 +538,6 @@ export async function renderDisplayViewQualityOnGpu(runtime: WebGpuRuntime, band
     const tapsBuffer = blocked ? null : scope.upload("photivra-display-view-taps", gather.taps, BUFFER_USAGE.STORAGE);
     const tableBuffer = scope.upload("photivra-display-view-table", gather.table, BUFFER_USAGE.STORAGE);
     const spreadBuffer = scope.upload("photivra-display-view-spread", gather.spread, BUFFER_USAGE.STORAGE);
-    const materialRowsBuffer = gather.materialRows ? scope.upload("photivra-display-view-material-rows", gather.materialRows, BUFFER_USAGE.STORAGE) : null;
     // A module's binding is data uploaded per render or a buffer the module already holds on the device (#491: scene records).
     const materialEntries = material.bindings.map((b) => ({ binding: b.binding, resource: { buffer: b.buffer ??
       scope.upload("photivra-display-view-material-" + b.binding, b.data, b.kind === "uniform" ? BUFFER_USAGE.UNIFORM : BUFFER_USAGE.STORAGE) } }));
@@ -605,8 +594,7 @@ export async function renderDisplayViewQualityOnGpu(runtime: WebGpuRuntime, band
             const siteParams = chunk.upload("photivra-display-view-params-sites", new Uint8Array(params.slice(0)), BUFFER_USAGE.UNIFORM);
             const siteGroup = runtime.device.createBindGroup({ layout: sitesPipeline.getBindGroupLayout(0), entries: [
               { binding: 0, resource: { buffer: siteParams } }, { binding: 1, resource: { buffer: groupBuffer } }, ...(tapsBuffer ? [{ binding: 2, resource: { buffer: tapsBuffer } }] : []),
-              { binding: 3, resource: { buffer: tableBuffer } }, { binding: 4, resource: { buffer: latticeBuffer } }, { binding: 5, resource: { buffer: siteBuffer } }, { binding: 6, resource: { buffer: spreadBuffer } },
-              ...(materialRowsBuffer ? [{ binding: 7, resource: { buffer: materialRowsBuffer } }] : [])] });
+              { binding: 3, resource: { buffer: tableBuffer } }, { binding: 4, resource: { buffer: latticeBuffer } }, { binding: 5, resource: { buffer: siteBuffer } }, { binding: 6, resource: { buffer: spreadBuffer } },] });
             await runComputePass(runtime, chunk, sitesPipeline, siteGroup, linearDispatch(words[0], DISPLAY_VIEW_QUALITY_WORKGROUP_SIZE, runtime.maximumWorkgroupsPerDimension), [], abort.signal);
             await queueIdle(runtime, abort.signal);
           } finally { chunk.release(); }

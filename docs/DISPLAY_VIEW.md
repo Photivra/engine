@@ -99,8 +99,10 @@ illuminant and illuminance changes, #443), o the pixel-aperture nodes times the
 anti-aliasing split spots with weights w_o, and K_λ the diffraction kernel on the site lattice (one
 unit tap without `lens.diffraction`). Dark electrons (1 e⁻/s × exposure) are added.
 
-- Chart materials are tabulated once per channel: neutral materials share one table scaled by their
-  reflectance, spectral materials get their own, so each lattice point costs one material lookup.
+- Signals are integrated from the material spectrum per site (2.21.0). Each chart material is kept as its spectral
+  radiance at the nodes (a neutral one: its reflectance times the white radiance), and a site's signal is formed from the
+  spectra of the materials its taps read, against its own channel's response, when the site is read. No per-material
+  channel value is precomputed. Each lattice point still costs one material lookup.
 - With diffraction, offsets that share a fractional shift (the centred four-spot filter has one
   half-site-shifted lattice) are combined with the kernels in advance, as the capture's object-space
   convolution does, and lattice points are evaluated with the same formula as
@@ -147,9 +149,9 @@ kernel, and every query stays on the lattice:
 with K_λ the diffraction kernel (a unit tap without `lens.diffraction`).
 
 - **Without diffraction** every spectral node takes D itself. The view then reads the scene on the lattice, with the
-  formula the diffraction path uses, instead of the environment's query points. The tables fold the spectral sum
-  into one combined table per lattice group, so a chart or material scene costs one material lookup per lattice point
-  and one multiply-add per tap, as with diffraction.
+  formula the diffraction path uses, instead of the environment's query points. The tables hold each lattice
+  group's kernel per spectral node, so a chart or material scene costs one material lookup per lattice point and one
+  multiply-add per tap and node, as with diffraction.
 - **With diffraction** node λ takes K_λ ∗ D, the full 2-D convolution of its diffraction kernel with the disc, of
   radius R_diff + R_defocus (`convolveSiteKernels`, `expected-signal-setup.ts`). This is a further approximation: the
   PSF of a defocused wave is not the in-focus Airy pattern convolved with a geometric disc. Where it departs from the
@@ -379,7 +381,7 @@ f-number of each lens's range and down to its close focus, with `lens.defocus` a
 - **Fisheyes.** A ray at or beyond 90° from the axis sees no scene (zero radiance), and a sensor point outside the
   equisolid image circle looks straight back, as in the capture, so the 8 mm's view is black outside its 180° circle. The
   lens signal reads such a ray as zero instead of refusing it; the profiles' reach check skips it.
-- **Tables.** Each zone's combined kernels (per lattice group and channel, per material or per spectral node) are the
+- **Tables.** Each zone's combined kernels (per lattice group, channel and spectral node; no material folded in) are the
   expected signal's own tables built with the zone's kernels, when a site of the zone is first read, and kept per prepared
   request in a least-recently-used cache of at most 64 MB (at least four zones). They change time and memory only. A zone
   costs about 0.7 ms at R = 4 with 20 spectral nodes (a 64 × 43 view of a 6 µm full frame, which reads every one of the

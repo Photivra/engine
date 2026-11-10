@@ -81,14 +81,24 @@ export function emulateDisplayViewSpeed(pw: Uint32Array, pf: Float32Array, aux: 
   const channelOf = (x: number, y: number): number => ((y & 1) === 0 ? ((x & 1) === 0 ? 0 : 1) : ((x & 1) === 0 ? 1 : 2));
   const siteMean = new Float32Array(64), siteVar = new Float32Array(64), siteThird = new Float32Array(64), siteBound = new Float32Array(64), siteClip = new Uint8Array(64);
   const SITE_U = f(DISPLAY_VIEW_SITE_RELATIVE_U);
+  const nodes = pw[11]!;
+  const materialSignal = (m: number, c: number): number => {
+    let s = 0, b = 0;
+    for (let k = 0; k < nodes; k++) {
+      b = f(b + f(table[c * nodes + k]! * table[(3 + m) * nodes + k]!));
+      if ((k & 15) === 15) { s = f(s + b); b = 0; }
+    }
+    return f(s + b);
+  };
   const siteElectrons = (x: number, y: number, c: number): number => {
-    let sum = 0;
+    let sum = 0, last = -1, value = 0;
     const fx = f(x), fy = f(y);
     for (let o = 0; o < offsets!; o++) {
       const base = DISPLAY_VIEW_AUX.offsets + 4 * o;
       const u = f(f(fx + aux[base]!) * scaleU), v = f(f(fy + aux[base + 1]!) * scaleV);
       const m = material.material(u, v);
-      sum = f(sum + f(aux[base + 2]! * table[m * 3 + c]!));
+      if (m !== last) { value = materialSignal(m, c); last = m; }
+      sum = f(sum + f(aux[base + 2]! * value));
     }
     return sum;
   };

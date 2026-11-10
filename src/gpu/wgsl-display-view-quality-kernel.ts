@@ -53,10 +53,13 @@
 
 import { DISPLAY_VIEW_CLIP_MEAN_U, DISPLAY_VIEW_CLIP_VARIANCE_U, DISPLAY_VIEW_REINHARD_MEAN_U, DISPLAY_VIEW_REINHARD_VARIANCE_U } from "./wgsl-display-view-speed-kernel.js";
 import { AHD_KEY_FLOOR, AHD_KEY_LEVELS, AHD_KEY_OCTAVES, AHD_KEY_STEPS } from "../facade/display-view.js";
+import { EXACT_SUM_WGSL } from "./wgsl-exact-sum.js";
 
 export const DISPLAY_VIEW_QUALITY_WORKGROUP_SIZE = 64;
 /** Largest footprint per axis (real pixels), as the Speed kernel. */
 export const DISPLAY_VIEW_QUALITY_MAXIMUM_PIXELS_PER_AXIS = 6;
+/** Most spectral nodes the site passes integrate per site (2.21.0: the per-node partials are private arrays of this length). */
+export const DISPLAY_VIEW_QUALITY_MAXIMUM_NODES = 96;
 /** Uniform parameter words (see `Params`): 56 words, 224 bytes. */
 export const DISPLAY_VIEW_QUALITY_PARAM_WORDS = 56;
 /** Words per lattice-group record: lx0, ly0, lw, lh, lbase, first tap (the blocked site pass, #492), cu (f32), cv (f32). */
@@ -166,7 +169,7 @@ struct Params {
   m00: f32, m01: f32, m02: f32, m10: f32,
   m11: f32, m12: f32, m20: f32, m21: f32,
   m22: f32, scale_v: f32, site_gamma: f32, site_first: u32,
-  site_tiny: f32, pad_f: f32, pad_g: f32, pad_h: f32,
+  site_tiny: f32, nodes: u32, pad_g: f32, pad_h: f32,
 };
 @group(0) @binding(0) var<uniform> params: Params;
 
@@ -412,12 +415,34 @@ const siteBindingsWgsl = (tapRecords: boolean): string => /* wgsl */ `
 @group(0) @binding(4) var<storage, read> lattice: array<u32>;
 @group(0) @binding(5) var<storage, read_write> sites: array<f32>;
 @group(0) @binding(6) var<storage, read> spread: array<f32>;
+${EXACT_SUM_WGSL}
+alias Nodes = array<f32, ${DISPLAY_VIEW_QUALITY_MAXIMUM_NODES}>;
+fn add_tap(p: ptr<function, Nodes>, c: u32, t: u32, m: u32) {
+  let N = params.nodes;
+  for (var n = 0u; n < N; n = n + 1u) { (*p)[n] = (*p)[n] + table[(c * params.taps + t) * N + n] * table[(3u * params.taps + m) * N + n]; }
+}
+fn add_nodes(p: ptr<function, Nodes>, q: ptr<function, Nodes>) { for (var n = 0u; n < params.nodes; n = n + 1u) { (*p)[n] = (*p)[n] + (*q)[n]; (*q)[n] = 0.0; } }
+fn node_total(p: ptr<function, Nodes>, dark: f32) -> f32 {
+  var anchor = exact_exponent(dark);
+  for (var k = 0u; k < params.nodes; k = k + 1u) { if ((*p)[k] > 0.0) { anchor = max(anchor, exact_exponent((*p)[k])); } }
+  var sum: ExactSum;
+  sum.anchor = anchor;
+  for (var k = 0u; k < params.nodes; k = k + 1u) { exact_add(&sum, (*p)[k]); }
+  exact_add(&sum, dark);
+  return exact_round(&sum);
+}
 `;
 
 /**
  * Pass 2: the expected electrons, readout moments and white clip of every native site of the band's window, with their bounds.
- * The site's electrons are Σ_t table[(m_t·3 + c)·T + t] + dark_c, every term non-negative and rounded once on the host, so the
- * sum carries (T + 3)·E relative (`params.site_gamma`, the host's value). An uncertain lattice point adds the tap's value spread
+ * 2.21.0 (signals integrated from the material spectrum per site): the site's electrons are Σ_t Σ_n C_c(t, n)·L_{m_t}(λ_n) +
+ * dark_c, from the channel's per-node kernel values and the spectrum of the material each tap reads (`table`: C at
+ * (c·T + t)·N + n, the spectra from 3·T·N), accumulated per node over the taps, then the node partials and the dark electrons
+ * summed in integer arithmetic and rounded once (EXACT_SUM_WGSL). Every term is non-negative and carries two host roundings (E/2
+ * each), its product (E) and at most T − 1 additions, then the final rounding (E), and the dark electrons their host rounding
+ * (E/2), so the sum carries at most (T + 2.5)·E, inside (T + 3)·E
+ * (`params.site_gamma`),
+ * plus `params.site_tiny`, the host's absolute bound on what a device that flushes below the float32 normal range can drop. An uncertain lattice point adds the tap's value spread
  * over the materials (`spread`, host float64) to the site's uncertainty, which enters its bounds, or flags the site when it
  * exceeds UNCERTAINTY_LIMIT of the electrons. One dispatch covers the `params.count` sites from `params.site_first` (#492: the
  * host splits a band's sites over several dispatches so that no dispatch gathers more than its tap budget).
@@ -433,44 +458,42 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_workgroups) 
   let x = params.site_x0 + i32(ii);
   let y = params.site_y0 + i32(jj);
   let c = channel_of(x, y);
-  var sum = 0.0;
   var uncertainty = 0.0;
   let T = params.taps;
+  var partial: Nodes;
   for (var t = 0u; t < T; t = t + 1u) {
     let tb = t * TAP;
     let g = taps[tb] * GROUP;
     let index = groups[g + 4u] + (jj + taps[tb + 2u]) * groups[g + 2u] + ii + taps[tb + 1u];
     let raw = lattice[index];
     if ((raw >> 31u) != 0u) { uncertainty = uncertainty + spread[c * T + t]; }
-    sum = sum + table[((raw & 0x7fffffffu) * 3u + c) * T + t];
+    add_tap(&partial, c, t, raw & 0x7fffffffu);
   }
-  let e = sum + dark_of(c);
+  let e = node_total(&partial, dark_of(c));
   let flag = select(0u, 1u, uncertainty > UNCERTAINTY_LIMIT * e);
-  let de = params.site_gamma * e + uncertainty;
+  let de = params.site_gamma * e + uncertainty + params.site_tiny;
   write_site(i, c, e, de, flag);
 }
 `;
 
 /**
- * Pass 2 with the defocus disc (#492): the same site electrons from a factored table, summed in blocks.
+ * Pass 2 with the defocus disc (#492): the same site electrons, summed in blocks.
  *
- * - **Factored table.** A neutral material's value is its reflectance times the white's combined kernel (the reference forms it
- *   so: reflectance[m]·neutral_c(t)), so the table holds one neutral row per channel and one row per spectral material, and
- *   `materials` holds per material its row (0 for neutral, 1 + s for spectral material s) and its reflectance as float32 bits
- *   (1 for a spectral material, an exact product). A scene of thousands of neutral materials (#491's composite: 4 143) then
- *   needs 3·T values instead of 3·T per material.
+ * - **Spectral table.** The pass reads the tap-list pass's table (2.21.0): the channel's per-node kernel values C_c(t, n) and each
+ *   material's spectrum, so the signal of each tap is integrated from its material's spectrum when the site is read.
  * - **Blocked sum.** Every group's taps form a dense cw × ch rectangle (the combined kernel's window, row-major from the group's
- *   first tap, `groups[g + 5]`), so a site sums each row of a group into a row partial, the rows into a group partial and the
- *   groups into the total. No tap records are read: the tap's lattice offset within its group is its (dx, dy).
+ *   first tap, `groups[g + 5]`), so a site sums each row of a group into a row partial per node, the rows into a group partial
+ *   and the groups into the total, then the nodes in integer arithmetic. No tap records are read: the tap's lattice offset
+ *   within its group is its (dx, dy).
  *
- * Every term is non-negative and carries two host roundings (u each, u = E/2: the row value and the reflectance), one product
- * (E) and at most cw + ch + G additions, plus the dark electrons' addition, so the electrons carry (cw_max + ch_max + G + 3)·E
- * relative (`params.site_gamma`; recursive summation of the up to 4·(2·96 + 2)² = 150 544 taps of a combined radius of 96 would
- * carry (T + 3)·E ≈ 1.8 % instead). The uncertainty, summed the same way, is scaled by 1 + site_gamma, and `params.site_tiny`
- * (host float64, rounded up) bounds the terms below the float32 normal range, which a device may flush to zero.
+ * Every term is non-negative and carries two host roundings (u each, u = E/2: the kernel value and the spectrum), one product
+ * (E) and at most cw − 1 + ch − 1 + G − 1 inexact additions, then the integer sum of the node partials and the dark electrons,
+ * rounded once (E), and the dark electrons' host rounding (E/2), so the electrons carry at most (cw_max + ch_max + G + 0.5)·E, inside (cw_max + ch_max + G + 3)·E (`params.site_gamma`;
+ * recursive summation of the up to 4·(2·96 + 2)² = 150 544 taps of a combined radius of 96 would carry (T + 3)·E ≈ 1.8 %
+ * instead). The uncertainty, summed the same way, is scaled by 1 + site_gamma, and `params.site_tiny` (host float64, rounded up)
+ * bounds what a device that flushes results below the float32 normal range can drop (the tap-list pass adds it too).
  */
 export const DISPLAY_VIEW_QUALITY_SITES_BLOCKED_WGSL = /* wgsl */ `${COMMON_WGSL}${siteBindingsWgsl(false)}
-@group(0) @binding(7) var<storage, read> materials: array<u32>;
 ${SITE_TAIL_WGSL}
 @compute @workgroup_size(${DISPLAY_VIEW_QUALITY_WORKGROUP_SIZE})
 fn main(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_workgroups) wg: vec3<u32>) {
@@ -483,7 +506,9 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_workgroups) 
   let y = params.site_y0 + i32(jj);
   let c = channel_of(x, y);
   let T = params.taps;
-  var sum = 0.0;
+  var total: Nodes;
+  var group_sum: Nodes;
+  var row_sum: Nodes;
   var uncertainty = 0.0;
   for (var k = 0u; k < params.groups; k = k + 1u) {
     let g = k * GROUP;
@@ -492,27 +517,24 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_workgroups) 
     let ch = groups[g + 3u] - params.site_h + 1u;
     let lattice0 = groups[g + 4u] + jj * lw + ii;
     let tap0 = groups[g + 5u];
-    var group_sum = 0.0;
     var group_uncertainty = 0.0;
     for (var dy = 0u; dy < ch; dy = dy + 1u) {
       let row = lattice0 + dy * lw;
       let row_tap = tap0 + dy * cw;
-      var row_sum = 0.0;
       var row_uncertainty = 0.0;
       for (var dx = 0u; dx < cw; dx = dx + 1u) {
         let raw = lattice[row + dx];
         let t = row_tap + dx;
-        let m = 2u * (raw & 0x7fffffffu);
         if ((raw >> 31u) != 0u) { row_uncertainty = row_uncertainty + spread[c * T + t]; }
-        row_sum = row_sum + bitcast<f32>(materials[m + 1u]) * table[(materials[m] * 3u + c) * T + t];
+        add_tap(&row_sum, c, t, raw & 0x7fffffffu);
       }
-      group_sum = group_sum + row_sum;
+      add_nodes(&group_sum, &row_sum);
       group_uncertainty = group_uncertainty + row_uncertainty;
     }
-    sum = sum + group_sum;
+    add_nodes(&total, &group_sum);
     uncertainty = uncertainty + group_uncertainty;
   }
-  let e = sum + dark_of(c);
+  let e = node_total(&total, dark_of(c));
   let flag = select(0u, 1u, uncertainty > UNCERTAINTY_LIMIT * e);
   let de = params.site_gamma * e + uncertainty * (1.0 + params.site_gamma) + params.site_tiny;
   write_site(i, c, e, de, flag);
