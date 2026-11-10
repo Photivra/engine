@@ -66,6 +66,7 @@ import { adcTransfer, resolveSensorReadoutRegime, samplePoisson, type ResolvedSe
 import { createResettableUniformStream, deriveNativeSiteStreamSeedUint32, sampleDeterministicStandardNormal,
   NATIVE_SITE_CHARGE_STREAM_ID, NATIVE_SITE_READ_NOISE_STREAM_ID } from "../sensor/stochastic-seed.js";
 import { evaluateParsedFixedPatternSite, type SensorFixedPatternNoiseProfile } from "../sensor/fixed-pattern-noise.js";
+import { approximatelyEqual } from "../core/shared-helpers.js";
 
 type Site = SimulateEnvironmentSensorRawFrameInput["sites"][number];
 type Env = Site["environment"];
@@ -77,7 +78,6 @@ type FieldThroughput = FullPlan["instants"][number]["groups"][number]["taps"][nu
 /** Most distinct templates kept for one capture event. Any further distinct sites just run the full path. */
 const MAXIMUM_TEMPLATES = 64;
 const SQUARE_MICROMETERS_TO_SQUARE_METERS = 1e-12;
-const REDUCTION_TOLERANCE = 1e-10;
 
 /** Disables the lean executor process-wide (internal; tests compare both paths). */
 let leanDisabled = false;
@@ -928,10 +928,6 @@ export function createNativeEnvironmentLeanExecutor(frame: NativeEnvironmentLean
   };
 }
 
-function approximatelyEqual(actual: number, expected: number): boolean {
-  const scale = Math.max(1, Math.abs(actual), Math.abs(expected));
-  return Math.abs(actual - expected) <= REDUCTION_TOLERANCE * scale;
-}
 
 /** Photo-signal fields that vary per site; every other field is template-level. */
 const PHOTO_SITE_FIELDS: ReadonlySet<string> = new Set(["temporalIntegrationId", "site", "startOffsetSecondsFromOpeningReference",

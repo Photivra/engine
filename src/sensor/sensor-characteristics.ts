@@ -1,0 +1,212 @@
+// SPDX-License-Identifier: Apache-2.0
+
+/**
+ * Adjustable sensor characteristics for `simulateCapture` (#555) and the capture's noise figure (#535): the request
+ * options that replace a camera body's sensor values one at a time, the readout they give, and the calculated dynamic
+ * range and mid-grey signal-to-noise ratio the result reports.
+ *
+ * Everything here works on the body's declared readout regimes, so it applies to a generic tier and to a caller's
+ * preset record alike, and a later sensor profile (#554) can supply the same options as data.
+ * @see docs/QUICK_START.md, "Sensor characteristics (#555)", for the options, the equations and their sources.
+ */
+
+import { InvalidConfigurationError } from "../core/configuration-error.js";
+import { requireInputObject } from "../core/record-validation.js";
+import { calculateSiteEffectiveSaturationCode } from "../capture/raw-white-level.js";
+import { parseSensorReadoutConversionProfile, type SensorReadoutConversionProfile, type SensorReadoutConversionRegime } from "./raw-readout.js";
+import type { SensorFixedPatternNoiseProfile } from "./fixed-pattern-noise.js";
+
+/**
+ * #555: sensor characteristics a capture can set one at a time (`simulateCapture({ sensor })`). Each is off by default: an
+ * omitted field keeps the camera body's value, and a request with none of them is byte-identical to one before 2.20.0.
+ * Every value set is listed in the result's `assumptions`.
+ */
+export interface SimulateCaptureSensorCharacteristics {
+  /**
+   * Peak external quantum efficiency of the green channel (its value at 555 nm), 0.05–0.9. Default 0.5, the facade's
+   * idealized sensor. Every channel's EQE curve is multiplied by `peakQuantumEfficiency / 0.5`, so the curves keep their
+   * shape (and the colour matrix is unchanged) and the collected charge scales in proportion.
+   */
+  peakQuantumEfficiency?: number;
+  /**
+   * Full-well capacity: the charge, e⁻, that reaches the RAW white level at base ISO. Default: the body's base-ISO saturation
+   * at 6 µm, scaled by the pixel area (the `sensor.isoAreaNormalization` approximation). `link` `"pixel-area"` (default)
+   * scales `electrons`, the full well at `referencePixelPitchMicrometers` (default 6), by (pitch / reference)²; `"none"`
+   * uses `electrons` at any pitch. The result is 100 e⁻ to 1e10 e⁻.
+   */
+  fullWell?: { electrons: number; link?: "pixel-area" | "none"; referencePixelPitchMicrometers?: number };
+  /**
+   * Read noise, RMS e⁻ (0–100), of the low and the high conversion gain, and the dual-gain switch: the ISO setting from
+   * which the high conversion gain is used (any ISO from 100; above the body's highest ISO, the low gain is used throughout).
+   * An omitted field keeps the body's value. Needs readout regimes that declare their exposure index (the tiers do).
+   */
+  readNoise?: { lowGainElectrons?: number; highGainElectrons?: number; highGainFromIso?: number };
+  /** Readout time, s (1e-6 to 1): the rolling shutter's top-to-bottom skew. Default: the body's (tiers 8, 15 and 30 ms). */
+  readoutSeconds?: number;
+  /**
+   * ADC bit depth: 12, 14 or 16. Default: the body's (consumer 12, the others 14). The black level scales with the code range
+   * (×2^Δbits), and the conversion gain follows so the same charge reaches the same fraction of the range.
+   */
+  adcBitDepth?: 12 | 14 | 16;
+  /**
+   * Opt-in (advanced): the body's synthetic fixed-pattern noise profile (PRNU, DSNU, hot pixels, row and column offsets; EMVA
+   * 1288 Release 4.0 non-uniformities), the same pattern in every capture. Default false. Not in `simulateDisplayView`.
+   */
+  fixedPatternNoise?: boolean;
+}
+
+/** The option keys of {@link SimulateCaptureSensorCharacteristics}, in `sensor`. */
+export const SENSOR_CHARACTERISTIC_KEYS = ["peakQuantumEfficiency", "fullWell", "readNoise", "readoutSeconds", "adcBitDepth", "fixedPatternNoise"] as const;
+
+/** One RMS noise component of the mid-grey figure, e⁻ (input-referred). */
+export interface SimulateCaptureNoiseComponents {
+  /** Photon shot noise √S (Poisson). */
+  photonShot: number;
+  /** Read noise of the capture's readout regime. */
+  read: number;
+  /** Dark-current shot noise √(D·t), D = 1 e⁻/s at 20 °C. */
+  darkCurrent: number;
+  /** ADC quantization, one code (and one more after a digital gain) as a uniform 1/12 code² variance, in e⁻. */
+  quantization: number;
+  /** With `sensor.fixedPatternNoise`: √((PRNU·S)² + (DSNU·D·t)² + row² + column²), hot pixels excluded; a spatial, not temporal, noise. */
+  fixedPattern?: number;
+  /** √ of the sum of the squares. */
+  total: number;
+}
+
+/**
+ * #555, #535: the capture's sensor characteristics as used, and the figures calculated from them (reported, not settable).
+ * Model figures from the engine's own noise model, not measurements.
+ */
+export interface SimulateCaptureSensorReport {
+  pixelPitchMicrometers: number;
+  /** The green channel's peak EQE (at 555 nm). */
+  peakQuantumEfficiency: number;
+  /** Full-well capacity, e⁻: the base-ISO saturation charge (`sensor.capacityElectrons`). */
+  fullWellElectrons: number;
+  /** Read noise, RMS e⁻, of each conversion gain, and the ISO from which the high gain is used (null: one gain throughout). */
+  readNoise: { lowGainElectrons: number; highGainElectrons: number; highGainFromIso: number | null };
+  /** The body's rolling readout skew, s (null when it declares no rolling readout). */
+  readoutSeconds: number | null;
+  /** ADC bit depth of the capture's readout regime. */
+  adcBitDepth: number;
+  fixedPatternNoise: boolean;
+  /**
+   * Engineering dynamic range at the capture's ISO, stops: log₂(S_sat / σ_floor), with S_sat the charge at the RAW white
+   * level (full well over the analog gain, limited by the charge capacity and the ADC range) and σ_floor the read noise and
+   * ADC quantization added in quadrature (the temporal dark noise of EMVA 1288 Release 4.0 without dark current). An ideal
+   * noiseless readout is limited by the ADC alone: log₂((white − black)·√12) for unit digital gain.
+   */
+  dynamicRangeStops: number;
+  /** The same per ISO setting of the body, in its order. */
+  dynamicRangeByIso: readonly { iso: number; stops: number }[];
+  /**
+   * #535: the expected signal-to-noise ratio of an 18 % Lambertian grey patch under the request's illuminant and illuminance
+   * at the capture's exposure, ISO and sensor, on the green channel next to the optical axis (no vignetting, PSF or motion).
+   * `snr` = S/σ_total and `snrDecibels` = 20·log₁₀(snr). `clipped`: S is at or above the white level, where the RAW clips and
+   * the figure no longer describes the image. Computed only when the request resolves to exact (`fast: false`, the default for
+   * DNG, JPEG and PNG exports; omitted for a fast request).
+   */
+  midGrey?: { reflectance: 0.18; channel: "green"; signalElectrons: number; noiseElectrons: SimulateCaptureNoiseComponents; snr: number; snrDecibels: number; clipped: boolean };
+}
+
+/** The request's characteristics, range-checked, with the EQE scale peakQuantumEfficiency / 0.5. */
+export type ParsedSensorCharacteristics = SimulateCaptureSensorCharacteristics & { qeScale: number };
+
+/** Accepted ranges (design limits) and values of each characteristic, by path below `sensor`. */
+const RANGES: Readonly<Record<string, readonly [number, number] | readonly unknown[] | 0>> = { peakQuantumEfficiency: [0.05, 0.9], fullWell: 0, "fullWell.electrons": [100, 1e10],
+  "fullWell.link": ["pixel-area", "none"], "fullWell.referencePixelPitchMicrometers": [0.5, 1000], readNoise: 0, "readNoise.lowGainElectrons": [0, 100],
+  "readNoise.highGainElectrons": [0, 100], "readNoise.highGainFromIso": [100, 1e7], readoutSeconds: [1e-6, 1], adcBitDepth: [12, 14, 16], fixedPatternNoise: [true, false] };
+function fail(message: string): never { throw new InvalidConfigurationError(message); }
+function check(record: Record<string, unknown>, keys: readonly string[], prefix: string): void {
+  for (const key of keys) {
+    const path = prefix + key, value = record[key], range = RANGES[path];
+    if (value === undefined) continue;
+    if (range === undefined) fail("Unknown sensor." + prefix.slice(0, -1) + " field: " + key + ".");
+    if (range === 0) {
+      requireInputObject(value, "sensor." + path);
+      check(value as Record<string, unknown>, Object.keys(value as object), path + ".");
+    } else {
+      const choice = range.length > 2 || typeof range[0] !== "number", [minimum, maximum] = range as readonly [number, number];
+      if (choice ? !(range as readonly unknown[]).includes(value) : typeof value !== "number" || !(value >= minimum && value <= maximum)) {
+        fail("sensor." + path + " must be " + (choice ? range.join(" or ") : "a number from " + minimum + " to " + maximum) + ".");
+      }
+    }
+  }
+}
+
+/** Checks the characteristics of the request's `sensor` record (its other keys already checked); undefined when it sets none. */
+export function parseSensorCharacteristics(sensor: Record<string, unknown>): ParsedSensorCharacteristics | undefined {
+  if (!SENSOR_CHARACTERISTIC_KEYS.some((key) => sensor[key] !== undefined)) return undefined;
+  check(sensor, SENSOR_CHARACTERISTIC_KEYS, "");
+  const c = sensor as SimulateCaptureSensorCharacteristics, fullWell = c.fullWell;
+  if (fullWell && fullWell.electrons === undefined) fail("sensor.fullWell.electrons is required.");
+  if (fullWell?.link === "none" && fullWell.referencePixelPitchMicrometers !== undefined) fail("sensor.fullWell.referencePixelPitchMicrometers applies only to link \"pixel-area\".");
+  return { ...c, qeScale: (c.peakQuantumEfficiency ?? 0.5) / 0.5 };
+}
+
+const noiseOf = (regime: SensorReadoutConversionRegime): number => Math.hypot(...regime.readNoiseComponents.map((c) => c.rmsElectrons.value));
+/** The body's dual-gain read noise: the base regime's, and the first high-conversion-gain regime's with its ISO (none: the low gain throughout). */
+export function declaredReadNoise(profile: SensorReadoutConversionProfile): SimulateCaptureSensorReport["readNoise"] {
+  const regimes = profile.regimes, high = regimes.find((r) => r.exposureIndexGain?.conversionGainMode === "high-conversion-gain"), low = noiseOf(regimes[0]!);
+  return { lowGainElectrons: low, highGainElectrons: high ? noiseOf(high) : low, highGainFromIso: high ? high.exposureIndexGain!.exposureIndex : null };
+}
+
+/**
+ * The readout profile with the characteristics applied: every regime's charge-domain transfer (system conversion gain,
+ * e⁻ per code, and pre-ADC saturation, e⁻ equivalent) multiplied by `chargeScale`, so a full well `chargeScale` times the
+ * body's reaches the same white code; with `adcBitDepth`, the black level ×2^Δbits (rounded), the saturation code 2^bits − 1
+ * and the conversion gain over the new code span; with `readNoise`, one electronic read-noise component per regime, the high
+ * conversion gain's from `highGainFromIso`. Codes per unit charge of the base regime otherwise, digital gain and the ISO
+ * selection are unchanged. Re-checked by the readout parser. With nothing to change, the profile itself.
+ */
+export function characterizeReadout(profile: SensorReadoutConversionProfile, chargeScale: number, c?: ParsedSensorCharacteristics): SensorReadoutConversionProfile {
+  const bits = c?.adcBitDepth, n = c?.readNoise, declared = n && declaredReadNoise(profile);
+  if (chargeScale === 1 && !bits && !n) return profile;
+  return parseSensorReadoutConversionProfile({ ...profile, regimes: profile.regimes.map((regime) => {
+    const adc = regime.adc, rescale = bits !== undefined && bits !== adc.bitDepth;
+    const black = rescale ? Math.round(adc.blackLevelCode * 2 ** (bits - adc.bitDepth)) : adc.blackLevelCode, saturation = rescale ? 2 ** bits - 1 : adc.digitalSaturationCode;
+    const out = { ...regime, systemConversionGainElectronsPerCode: { ...regime.systemConversionGainElectronsPerCode, value: rescale ?
+        regime.systemConversionGainElectronsPerCode.value * chargeScale * (adc.digitalSaturationCode - adc.blackLevelCode) / (saturation - black) : regime.systemConversionGainElectronsPerCode.value * chargeScale },
+      preAdcSaturationElectronEquivalent: { ...regime.preAdcSaturationElectronEquivalent, value: regime.preAdcSaturationElectronEquivalent.value * chargeScale },
+      ...(rescale ? { adc: { ...adc, bitDepth: bits, blackLevelCode: black, digitalSaturationCode: saturation } } : {}) };
+    if (n) {
+      const gain = regime.exposureIndexGain ?? fail("sensor.readNoise needs readout regimes that declare their exposure index.");
+      const from = n.highGainFromIso ?? declared!.highGainFromIso ?? Infinity, high = gain.exposureIndex >= from;
+      const value = high ? n.highGainElectrons ?? declared!.highGainElectrons : n.lowGainElectrons ?? declared!.lowGainElectrons;
+      out.readNoiseComponents = [{ componentId: "electronic", rmsElectrons: { value, evidence: regime.evidence }, evidence: regime.evidence }];
+      out.exposureIndexGain = { ...gain, conversionGainMode: high ? "high-conversion-gain" : "low-conversion-gain" };
+    }
+    return out;
+  }) });
+}
+
+/** Charge at the RAW white level and the read-plus-quantization floor of one regime, e⁻. */
+function regimeRange(profile: SensorReadoutConversionProfile, regime: SensorReadoutConversionRegime, capacityElectrons: number): { saturation: number; quantization: number; read: number } {
+  const adc = regime.adc, gain = regime.systemConversionGainElectronsPerCode.value, digitalGain = adc.digitalGain ?? 1;
+  const white = calculateSiteEffectiveSaturationCode({ physicalChargeCapacityElectrons: capacityElectrons, preAdcSaturationElectronEquivalent: regime.preAdcSaturationElectronEquivalent.value,
+    systemConversionGainElectronsPerCode: gain, blackLevelCode: adc.blackLevelCode, digitalSaturationCode: adc.digitalSaturationCode, adcMaximumCode: 2 ** adc.bitDepth - 1, digitalGain }, profile, regime.regimeId);
+  // Output codes per electron d/G; quantization 1/12 code² of the ADC times d², plus 1/12 of the rounding after a digital gain.
+  const perCode = gain / digitalGain;
+  return { saturation: (white - adc.blackLevelCode) * perCode, quantization: perCode * Math.sqrt(digitalGain * digitalGain / 12 + (digitalGain === 1 ? 0 : 1 / 12)), read: noiseOf(regime) };
+}
+
+/**
+ * The report: the characteristics used, the dynamic range per ISO, and the mid-grey noise figure for `greyElectrons`, the
+ * green channel's expected charge from an 18 % grey patch, after a `darkElectrons` dark charge.
+ */
+export function sensorReport(profile: SensorReadoutConversionProfile, regimeId: string, capacityElectrons: number, greyElectrons: number | undefined, darkElectrons: number,
+  base: Pick<SimulateCaptureSensorReport, "pixelPitchMicrometers" | "peakQuantumEfficiency" | "readoutSeconds">, pattern?: SensorFixedPatternNoiseProfile): SimulateCaptureSensorReport {
+  const stops = (r: SensorReadoutConversionRegime): number => { const q = regimeRange(profile, r, capacityElectrons); return Math.log2(q.saturation / Math.hypot(q.read, q.quantization)); };
+  const regime = profile.regimes.find((r) => r.regimeId === regimeId)!, range = regimeRange(profile, regime, capacityElectrons);
+  const report: SimulateCaptureSensorReport = { ...base, fullWellElectrons: capacityElectrons, readNoise: declaredReadNoise(profile), adcBitDepth: regime.adc.bitDepth, fixedPatternNoise: !!pattern,
+    dynamicRangeStops: stops(regime), dynamicRangeByIso: profile.regimes.map((r) => ({ iso: r.exposureIndexGain?.exposureIndex ?? NaN, stops: stops(r) })).filter((e) => e.iso > 0) };
+  if (greyElectrons === undefined) return report;
+  const fixedPattern = pattern && Math.hypot(pattern.photoResponseNonUniformity.relativeStandardDeviation.value * greyElectrons,
+    pattern.darkSignalNonUniformity.relativeStandardDeviation.value * darkElectrons, pattern.rowOffset.rmsElectrons.value, pattern.columnOffset.rmsElectrons.value);
+  const noise = { photonShot: Math.sqrt(greyElectrons), read: range.read, darkCurrent: Math.sqrt(darkElectrons), quantization: range.quantization, ...(fixedPattern === undefined ? {} : { fixedPattern }), total: 0 };
+  noise.total = Math.hypot(noise.photonShot, noise.read, noise.darkCurrent, noise.quantization, fixedPattern ?? 0);
+  const snr = greyElectrons / noise.total;
+  report.midGrey = { reflectance: 0.18, channel: "green", signalElectrons: greyElectrons, noiseElectrons: noise, snr, snrDecibels: 20 * Math.log10(snr || Number.MIN_VALUE), clipped: greyElectrons + darkElectrons >= range.saturation };
+  return report;
+}

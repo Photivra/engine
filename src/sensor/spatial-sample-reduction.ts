@@ -24,6 +24,7 @@ import type {
 import { requireInputKeys, requireInputNonNegativeSafeInteger as requireSafeNonNegativeInteger } from "../core/record-validation.js";
 import { InvalidConfigurationError } from "../core/configuration-error.js";
 import { requirePositive as requirePositiveFinite } from "../exposure/flash-ttl.js";
+import { approximatelyEqual } from "../core/shared-helpers.js";
 
 const SQUARE_MICROMETERS_TO_SQUARE_METERS = 1e-12;
 const WEIGHT_TOLERANCE = 1e-10;
@@ -284,21 +285,6 @@ function validateQuadratureNode(
   return identity;
 }
 
-function approximatelyEqual(
-  actual: number,
-  expected: number,
-  tolerance: number
-): boolean {
-  const scale = Math.max(
-    1,
-    Math.abs(actual),
-    Math.abs(expected)
-  );
-  return (
-    Math.abs(actual - expected) <=
-    tolerance * scale
-  );
-}
 
 /**
  * Rechecks node coordinates, weights, geometric measures and coverage before a spatial plan is trusted

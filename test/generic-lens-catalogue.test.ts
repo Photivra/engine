@@ -277,7 +277,11 @@ describe("the catalogue lenses' generic correction profiles (#549)", () => {
     expect(ca.transforms.red.matrix[0]).toBeLessThan(1);
     const gain = (lensId: string, aperture: number): number => calculatePeripheralIlluminationCorrection({ component: profile(lensId, aperture).components[2] as IlluminationLensCorrection,
       imagePointMm: { x: 18, y: 12 }, signal: 0.1, noiseVariance: 0, clippingLevel: 10 }).value.gain;
-    expect(Math.log2(gain("pv-24-1.8", 1.8))).toBeCloseTo(lens.character.vignetting.cornerStops, 6);
+    // #584: at the sensor corner the gain is det J/E, E(1) = 2^−cornerStops and det J = (1 + k1ρ_i²)(1 + 3k1ρ_i²) at ρ_i(1 + k1ρ_i²) = 1.
+    const k1 = lens.character.distortion.corner;
+    let ri = 1;
+    for (let i = 0; i < 30; i++) ri -= (ri * (1 + k1 * ri * ri) - 1) / (1 + 3 * k1 * ri * ri);
+    expect(gain("pv-24-1.8", 1.8)).toBeCloseTo(2 ** lens.character.vignetting.cornerStops * (1 + k1 * ri * ri) * (1 + 3 * k1 * ri * ri), 9);
     // Consumer lenses rely on the profile more: a larger corner gain than the pro lens at the same aperture.
     expect(gain("pv-24-1.8", 2.8)).toBeGreaterThan(gain("pv-24-1.4-pro", 2.8));
   });

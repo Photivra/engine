@@ -93,16 +93,18 @@ export interface PreparedDisplayView {
  * about 0.3–1.3 s per call on a 24 MP request; a region costs only its own pixels. Errors in the request are raised here;
  * errors in the view by `render`.
  *
- * 2.11 (#481): `prepareOptions.gpu` chooses the renderer: `"off"` (default) is the CPU reference, today's bytes; `"auto"` renders
+ * 2.11 (#481): `prepareOptions.gpu` chooses the renderer: `"off"` is the CPU reference, today's bytes; `"auto"` renders
  * on WebGPU when a conforming device is available and the request is supported, else on the CPU, labelled; `"require"` fails
- * instead of falling back (`ImageKernelExecutionError`, acquisition failures here, later ones from `render`). `gpuDevice` is a
+ * instead of falling back (`ImageKernelExecutionError`, acquisition failures here, later ones from `render`). 2.20.0: the default is
+ * `"auto"` when the request resolves to fast (the view's default) and `"off"` with `fast: false`. `gpuDevice` is a
  * WebGPU entry point or an `ImageKernelAccelerator` whose device the view shares; without it the engine acquires one device
  * for the prepared view (the request's `signal` aborts the acquisition) and `dispose()` releases it. The realm's
  * `setWebGpuEnabled(false)` vetoes both GPU modes (`webgpu-disabled`). See docs/DISPLAY_VIEW.md, "Rendering on the GPU".
  * @see docs/QUICK_START.md, "Display view".
  */
 export async function prepareDisplayView(options: SimulateCaptureOptions, prepareOptions?: PrepareDisplayViewOptions): Promise<PreparedDisplayView> {
-  const gpuOptions = parsePrepareDisplayViewOptions(prepareOptions);
+  // 2.20.0: the GPU follows the request's fast (the display view's default is fast): "auto" when fast, "off" when exact.
+  const gpuOptions = parsePrepareDisplayViewOptions(prepareOptions, (options as { fast?: unknown } | null | undefined)?.fast !== false);
   let frameWidth = 0, frameHeight = 0;
   const prepared = await runCapture(options, "display-view", DISPLAY_VIEW_WITHOUT_VIEW, (context) => {
     frameWidth = context.width; frameHeight = context.height;
@@ -172,8 +174,12 @@ export async function simulateDisplayViewWithInternals(options: SimulateCaptureO
   return { result, internals: internals.value!, signal: internals.signal!, setup: internals.setup!, signalInput: internals.signalInput! };
 }
 
-/** AHD low-signal correction (display view): draws per flat-neighbourhood state, and the pixel noise (linear light) above which it applies. */
-const DISPLAY_VIEW_AHD_CORRECTION_DRAWS = 2048, DISPLAY_VIEW_AHD_CORRECTION_THRESHOLD = 0.01;
+/**
+ * AHD low-signal correction (display view): draws per flat-neighbourhood state, and the pixel noise (linear light) above which it
+ * applies. 2.20.0: 2048 draws are its fast method (`output.demosaic.ahd`, the view's default); exact takes 4× the draws (half
+ * the states' common offset) at the same threshold (owner decision 2026-11-09).
+ */
+const DISPLAY_VIEW_AHD_CORRECTION_DRAWS = [8192, 2048], DISPLAY_VIEW_AHD_CORRECTION_THRESHOLD = 0.01;
 
 type ViewInternals = { value?: DisplayViewRenderResult; signal?: DisplayViewExpectedSignal;
   /** #478: the render's setup and the expected signal's input, for the GPU display view's tests. */
@@ -259,8 +265,11 @@ function prepareView(context: DisplayViewRunContext): PreparedViewParts {
   const reachSites = (ahd ? 3 : 1) + Math.ceil(Math.max(0, ...offsets.map((o) => Math.max(Math.abs(o.x), Math.abs(o.y))))) + (kernels ? kernels.radius : 0) + (largeDefocus ? largeDefocus.radius : 0);
   // The inputs of the AHD correction states (fixed here, so the correction key is too; #447).
   const gains = colour.appliedGains as [number, number, number], clipLevel = Math.min(...colour.appliedGains), viewToneCurve = toneCurve as "identity" | "positive-reinhard-per-channel";
-  const ahdCorrection = ahd ? { labMatrix: CAMERA_TO_XYZ.map((row) => row.map((value, c) => value * (viewGains ? viewGains[c]! : 1))), drawsPerState: DISPLAY_VIEW_AHD_CORRECTION_DRAWS,
-    thresholdVariance: DISPLAY_VIEW_AHD_CORRECTION_THRESHOLD * DISPLAY_VIEW_AHD_CORRECTION_THRESHOLD } : undefined;
+  const ahdFast = +context.viewFast.ahd, correctionDraws = DISPLAY_VIEW_AHD_CORRECTION_DRAWS[ahdFast]!, correctionThreshold = DISPLAY_VIEW_AHD_CORRECTION_THRESHOLD;
+  const ahdCorrection = ahd ? { labMatrix: CAMERA_TO_XYZ.map((row) => row.map((value, c) => value * (viewGains ? viewGains[c]! : 1))), drawsPerState: correctionDraws,
+    thresholdVariance: correctionThreshold * correctionThreshold } : undefined;
+  // 2.20.0: a quarter of the samples per axis where the pilot finds no detail is the view's fast sampling; exact samples every pixel fully.
+  const uniformSamplesOf = (k: number): number => context.viewFast.uniformSampling ? Math.max(1, Math.round(k / 4)) : k;
   const ahdCandidates = ahd ? [0, 1, 2, 3].map((p) => ahdCandidateKernels(p % 2, Math.floor(p / 2))) : undefined;
   // #491: a fixed-size chart's placement for the GPU material lookup (the provider's chart-local units cu = u·m/h and the surround beyond the chart).
   const placement = chartSize ? { chartUnitsPerFrameUnit: metresPerFrameUnit / (chartSize.widthM / 2), aspect: chartSize.heightM / chartSize.widthM } : null;
@@ -271,7 +280,7 @@ function prepareView(context: DisplayViewRunContext): PreparedViewParts {
     // #563: through the lens (projection, distortion, vignetting, rotation) when the request has them.
     const signal = (context.lens ?? createDisplayViewExpectedSignal)(signalInput, Math.ceil((viewRegion.width + 2) * nativeWidth / v.width));
     return { signal, setup: { frameWidth: width, frameHeight: height, margin, nativeWidth, nativeHeight, viewWidth: v.width, viewHeight: v.height,
-      region: viewRegion, samplesPerAxis: v.samplesPerAxis, reachSites, bitDepth: v.bitDepth, seed: noiseSeed, signal, readout, demosaic: demosaicTable,
+      region: viewRegion, samplesPerAxis: v.samplesPerAxis, uniformSamplesPerAxis: uniformSamplesOf(v.samplesPerAxis), reachSites, bitDepth: v.bitDepth, seed: noiseSeed, signal, readout, demosaic: demosaicTable,
       ...(ahdCandidates && ahdCorrection ? { candidates: ahdCandidates, ahdCorrection } : {}), ...(ahdCollect ? { ahdCollect } : {}),
       gains, clipLevel, matrix, toneCurve: viewToneCurve, yieldControl, checkAbort, gpu: { signalInput, chart: viewChart ?? null, layers: materialLayers ?? null, placement, ...(defocusKernel && !largeDefocus ? { defocusRadius: defocusKernel.radius } : {}) } } };
   };
@@ -298,7 +307,7 @@ function prepareView(context: DisplayViewRunContext): PreparedViewParts {
     assume("view.definition", "model", { resampling: "area-average-linear-light", width: v.width, height: v.height, frameWidth: width, frameHeight: height, scaleX, scaleY },
       "The image the full-resolution capture of this request would give after resizing to " + v.width + " × " + v.height + ": each display pixel is the area-weighted mean, in linear light (sRGB samples decoded with the sRGB EOTF), " +
       "of the real output pixels its rectangle covers (" + scaleX + " × " + scaleY + " real pixels), then sRGB-encoded and rounded. The real capture's own samples are rounded to the view's bit depth before averaging.");
-    const uniformSamplesPerAxis = Math.max(1, Math.round(v.samplesPerAxis / 4));
+    const uniformSamplesPerAxis = uniformSamplesOf(v.samplesPerAxis);
     const siteSentence = "the expected electrons of the real sites its demosaic reads are exact at the real pitch (the scene sampled at those sites through the pixel aperture, " +
       "anti-aliasing filter and diffraction kernels, with the capture's own query arithmetic, so the colour mosaic and its aliasing are the real sensor's), and the per-site clip at white, the highlight clip, the tone curve " +
       "and the clip to [0, 1] act on the pixel's own noise distribution, approximated as normal.";
@@ -321,10 +330,10 @@ function prepareView(context: DisplayViewRunContext): PreparedViewParts {
       "expected slopes of the clips and the tone curve (Stein's lemma); the variance the linearization misses and the real pixels' output rounding are added per pixel. One correlated normal draw per display pixel, seeded " +
       "by sensor.noiseSeed: the same statistics as the resized capture, not the same realization.");
     assume("view.demosaic", "model", ahd ? { capture: "ahd", view: "ahd-candidates-with-low-signal-correction", correctedPixels: rendered.ahdCorrectedPixelCount,
-      correctionDrawsPerState: DISPLAY_VIEW_AHD_CORRECTION_DRAWS, correctionThresholdLinearStd: DISPLAY_VIEW_AHD_CORRECTION_THRESHOLD } : { capture: "bilinear", view: "bilinear" },
+      correctionDrawsPerState: correctionDraws, correctionThresholdLinearStd: correctionThreshold } : { capture: "bilinear", view: "bilinear" },
       ahd ? "AHD is non-linear only in its choice between two linear candidates (green along the rows or the columns, red and blue from colour differences). The view propagates both candidates' exact linear statistics " +
-        "and averages them. Where a sampled pixel's noise exceeds " + DISPLAY_VIEW_AHD_CORRECTION_THRESHOLD + " (linear light), the choice reacts to the noise and shifts the colour, so the pixel adds the mean " +
-        "difference between the engine's AHD steps and the two candidates on " + DISPLAY_VIEW_AHD_CORRECTION_DRAWS + " drawn noisy flat neighbourhoods (Poisson electrons plus read and ADC noise) with its channel means, " +
+        "and averages them. Where a sampled pixel's noise exceeds " + correctionThreshold + " (linear light), the choice reacts to the noise and shifts the colour, so the pixel adds the mean " +
+        "difference between the engine's AHD steps and the two candidates on " + correctionDraws + " drawn noisy flat neighbourhoods (Poisson electrons plus read and ADC noise) with its channel means, " +
         "computed once per state of a logarithmic grid (8 steps per octave of the channel means) and interpolated trilinearly, a control variate with no per-pixel sampling noise; " +
         "the flat-neighbourhood state is an approximation at edges (docs/DISPLAY_VIEW.md, validation)." :
         "The bilinear demosaic's linear kernels, exactly.");
@@ -351,6 +360,7 @@ function prepareView(context: DisplayViewRunContext): PreparedViewParts {
       image: { width: viewRegion.width, height: viewRegion.height, format: v.format, samples: rendered.samples },
       view: { width: v.width, height: v.height, frameWidth: width, frameHeight: height, scaleX, scaleY, samplesPerAxis: v.samplesPerAxis, ...(v.region ? { region: { ...v.region } } : {}) },
       exposure: { mode, settings: { fNumber, shutterSeconds, iso: resolvedIso }, ev100: Math.log2(fNumber ** 2 / shutterSeconds), ...isoReport, standardExposureDeviationStops, standardExposureIlluminanceLux, greyCardDeviationStops, metering },
+      sensor: context.sensor,
       scene: { sceneId: chart ? "chart:" + chart.preset : callerScene!.sceneId, preset: scenePreset, parameters: chart ? chart.parameters : {},
         illuminant: { id: illuminant.id, description: illuminant.description, illuminanceLux }, distanceM: subjectDistanceM,
         framedWidthM: 2 * metresPerFrameUnit, framedHeightM: 2 * metresPerFrameUnit * aspect, ...(chartReport ? { chart: chartReport } : {}), sourceSha256 },

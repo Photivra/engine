@@ -7147,6 +7147,7 @@ See [Print planning](https://github.com/Photivra/photivra/blob/main/docs/PRINT_P
 
 - `calculatePrintPlan()` says whether the native sampling is enough, and gives a compatible minimum file raster.
 - `calculatePrintSizeLimit()` distinguishes finite, unbounded and unavailable sampling limits.
+- `calculatePrintSizeLimitWithBlurAndNoise()` (2.20.0) gives the largest print at a viewing distance that still looks sharp and clean, counting blur and noise as well as pixels, and names the limiting factor ([Print size limit with blur and noise](https://github.com/Photivra/photivra/blob/main/docs/PRINT_PLANNING.md#print-size-limit-with-blur-and-noise)). An approximation.
 - Print quality and delivery are not assessed.
 
 The [regional Print detail diagnostic](https://github.com/Photivra/photivra/blob/main/docs/PRINT_DETAIL_ASSESSMENT.md) measures one declared, coherent sinusoidal fundamental in a selected linear-luminance ROI, and records the exact pipeline stage it measured. Its [validation protocol](https://github.com/Photivra/photivra/blob/main/docs/PRINT_DETAIL_VALIDATION.md) and [capability ledger](https://github.com/Photivra/photivra/blob/main/docs/validation/print-detail-capabilities.json) separate mathematical conformance from the still-blocked qualification of acquired images, renderers and perceived quality.
@@ -7516,10 +7517,12 @@ console.log(calculateGeometricFocusBreathing({
 `GENERIC_LENS_CATALOGUE` lists the engine's 30 generic primes (17 professional, 13 consumer, "PV 50 1.2 Pro", "PV 50 1.8"; Photivra's
 own designs, not real products). `resolveGenericLens` resolves one for a sensor, an f-number and a focus distance: its focal length
 (scaled by the crop factor), aperture range, close focus, projection and its character, Seidel aberrations, axial and lateral
-colour, distortion and vignetting profiles, flare, breathing and focus scatter, each a labelled approximation.
+colour, distortion and vignetting profiles, flare, breathing, focus scatter and its bokeh (`character.bokeh`, #567: the options of
+`lens.defocus` and `calculateDefocusBokehKernel`), each a labelled approximation.
 `simulateGenericLensFocusError` draws a seeded autofocus error; `createGenericLensCorrectionProfile` builds the lens's generic
 correction profile for `resolveLensCorrectionPlan`, which `simulateCapture` applies to its developed image with
-`output.lensCorrections` (#570; never to the RAW or the DNG). `simulateCapture` renders a catalogue lens with `lens.catalogue`
+`output.lensCorrections` (#570; never to the RAW or the DNG), and which a DNG can carry for RAW editors as optional DNG opcodes with
+`output.dng.lensCorrectionOpcodes` (#587; the RAW codes unchanged). `simulateCapture` renders a catalogue lens with `lens.catalogue`
 ([quick start](QUICK_START.md#generic-lens-catalogue-549)); `fast: true` (or `lens: { catalogue: { kind, fast: true } }`) takes its
 fast method (#568), a labeled approximation that blends the PSF over a field grid, for interactive captures. Equations, tables and the
 chart measurements: [LENS_CATALOGUE.md](https://github.com/Photivra/photivra/blob/main/docs/LENS_CATALOGUE.md).
@@ -8085,3 +8088,63 @@ console.log(share.print?.blurOnPrintMm); // 0.25 mm on the print
 - Equal shares of the frame diagonal look the same when images are shown at the same size. `calculateBlurShareOfFrame()` does not judge whether a blur is visible.
 
 See [Physics Foundation](https://github.com/Photivra/photivra/blob/main/docs/PHYSICS_FOUNDATION.md#sensor-equivalence-f-number-area-and-blur-share).
+
+## Aperture diameter and cropping to match a longer lens
+
+`calculateApertureDiameter()` gives the entrance-pupil diameter in millimetres, focal length ÷ f-number (exact by the definition of the f-number, ideal lens focused at infinity). `calculateCropToMatchFocalLength()` gives the centred crop that makes an image from a shorter lens match a longer lens's framing from the same position, and the pixels it leaves:
+
+```ts
+import { calculateApertureDiameter, calculateCropToMatchFocalLength } from "@photivra/engine";
+
+console.log(calculateApertureDiameter({ focalLengthMm: 50, fNumber: 2 }).value.entrancePupilDiameterMm); // 25
+console.log(calculateApertureDiameter({ focalLengthMm: 50, fNumber: 4 }).value.entrancePupilDiameterMm); // 12.5
+
+const crop = calculateCropToMatchFocalLength({
+  focalLengthMm: 50,
+  targetFocalLengthMm: 100,
+  pixelWidth: 6000,
+  pixelHeight: 4000
+}).value;
+
+console.log(crop.cropFactor); // 2
+console.log(crop.pixelWidth, crop.pixelHeight); // 3000 2000
+console.log(crop.megapixels, crop.sourceMegapixels); // 6 24
+```
+
+- The aperture diameter is the entrance pupil (the aperture stop seen from the front of the lens), not the diaphragm's opening. Close focus (working f-number `N·(1 + m/P)`, pupil magnification `P`) is not modelled.
+- The crop factor `target ÷ focal length` is exact for ideal rectilinear lenses focused at infinity; at close focus the matching factor is larger, `F·(d − f)/(f·(d − F))` at object distance `d` (thin lens), which is not applied. The crop is `calculateCenteredCrop()`'s (aspect ratio kept to whole pixels), and `targetFocalLengthMm` must be at least `focalLengthMm`.
+
+See [Physics Foundation](https://github.com/Photivra/photivra/blob/main/docs/PHYSICS_FOUNDATION.md#aperture-entrance-pupil-diameter).
+
+## Which limits detail: the lens or the sensor
+
+`calculateDetailLimit()` (model `detail-limit` 1.0.0, #575) answers "would a sharper lens or a denser sensor help?" for given settings. It returns the optics' resolution (MTF50 in cycles/mm, from diffraction, the lens's aberrations and any defocus), the sampling's (the Nyquist frequency 1/(2p) and, with a Bayer filter, the red and blue sites' 1/(4p)), the system MTF50, and which one limits:
+
+```ts
+import { calculateDetailLimit } from "@photivra/engine";
+
+const sensor = { widthMm: 36, heightMm: 24, pixelWidth: 6000 }; // 6 µm pixels
+
+const stoppedDown = calculateDetailLimit({ sensor, lens: { kind: "ideal", focalLengthMm: 50 }, fNumber: 22 }).value;
+console.log(stoppedDown.limitedBy, stoppedDown.limitingFactor); // "lens" "diffraction"
+console.log(stoppedDown.optics.mtf50CyclesPerMm); // ≈ 33.4, against a Nyquist frequency of ≈ 83.3
+console.log(stoppedDown.diffractionLimitedFNumber); // ≈ 8.8: from here on diffraction limits on this sensor
+
+const wideOpen = calculateDetailLimit({ sensor, lens: { kind: "catalogue", lensId: "pv-50-1.2-pro" }, fNumber: 4 }).value;
+console.log(wideOpen.limitedBy, wideOpen.limitingFactor); // "sensor" "pixel-pitch"
+
+const outOfFocus = calculateDetailLimit({
+  sensor,
+  lens: { kind: "ideal", focalLengthMm: 50 },
+  fNumber: 2,
+  focus: { focusDistanceM: 3, subjectDistanceM: 2.5 }
+}).value;
+console.log(outOfFocus.limitingFactor); // "defocus"
+```
+
+- The sensor limits when the optics still pass 50 % contrast at the Nyquist frequency (`opticsToNyquistRatio ≥ 1`): a denser sensor would record finer detail. Otherwise the lens limits, through `"diffraction"` when its RMS wavefront error is within λ/14 (the Maréchal criterion), else `"aberrations"` or `"defocus"`, whichever is larger. This rule is an approximation; the MTF values are the exact scalar OTF of the stated wavefront at one wavelength (550 nm unless `wavelengthNm` is given).
+- `lens.catalogue` lenses use their generic Seidel aberrations at `fieldPosition` (0 the center, 1 the corner), so corners are softer; `lens.ideal` has none.
+- Tangential and sagittal MTF50 are both reported; the decision uses the lower one.
+- Demosaicing, sharpening, noise and motion are not included.
+
+See [Physics Foundation](https://github.com/Photivra/photivra/blob/main/docs/PHYSICS_FOUNDATION.md#which-limits-detail-the-lens-or-the-sensor).

@@ -287,13 +287,15 @@ the kernel spreads its light, as for any environment PSF.
   provider with vignetting and distortion (box and filter), and with all four options, diffraction and AHD. Every case
   agrees within 1e-9 relative, the rectilinear view's tolerance.
 - *Ties on chart boundaries.* With a kernel the view rounds as the lattice does (as the rectilinear view and the
-  out-of-focus capture do): an identity vignetting profile gives the rectilinear view's bytes. The in-focus capture with
-  `lens.diffraction` forms each tap's source point from its own site, so a source point exactly on a chart boundary can
-  resolve to the other material. That happens on symmetric charts in symmetric frames (a Siemens star's diagonals
-  through the frame centre); there the capture's PSF quadrature also differs from its own rectilinear object-space path
-  (on a 20 × 14 star at f/11, the site next to the centre: 12 663 against 3 560 electrons with an identity vignetting
-  profile). Elsewhere the two agree to 1e-9 (the dead-leaves case above). Tracked as
-  [#565](https://github.com/Photivra/photivra/issues/565).
+  out-of-focus capture do): an identity vignetting profile gives the rectilinear view's bytes. Since 2.20.0 the in-focus
+  capture with `lens.diffraction` does too: its PSF quadrature reads each tap's source at the lattice point's own plane
+  point (#548's lattice formula), so a source point exactly on a chart boundary (a Siemens star's diagonals through a
+  symmetric frame's centre, its vertical spokes through an odd frame's centre column) resolves to the same material on
+  every path. Before, on a 20 × 14 star at f/11 next to the centre, the capture gave 12 663 against 3 560 electrons with
+  and without an identity vignetting profile; now the two agree within 1e-9 relative at every site and give the same RAW
+  (`test/simulate-capture-boundary-ties.test.ts`, [#565](https://github.com/Photivra/photivra/issues/565)). With camera
+  rotation under `motion.shutter: "rolling"` the lattice reading is `lens.diffraction`'s exact method and each tap's own point its fast
+  one (2.20.0: the format default decides, fast for sRGB samples and exact for DNG, JPEG and PNG; [Quick start, Optics](QUICK_START.md#optics)).
 - *Against the box-downsized capture.* A slanted edge through radial distortion and vignetting, in focus and out of
   focus (3 µm, 192 × 128 shown at 24 × 16): expected-value RMS below 0.6 code and maximum below 3 codes, the thresholds of
   the rectilinear slanted-edge test.
@@ -385,8 +387,8 @@ f-number of each lens's range and down to its close focus, with `lens.defocus` a
   alike; Apple M5 Pro, Node 24.19.0); a 96 × 96 part of the app's view (about 284 native sites a side, plus the kernel's reach) reads at most 5 × 5 zones.
 - **GPU:** these requests stay on the CPU reference, labelled `unsupported-on-backend` with `gpu: "auto"`, as for #563.
   No `src/gpu` code changed.
-- **Limits:** the capture's own. `lens.diffraction`, `lens.psf` and the bokeh options are refused with the lens, a catalogue
-  PSF with a defocus disc above a combined radius of 16 sites is refused, and with the four-spot filter a large PSF can pass
+- **Limits:** the capture's own. `lens.diffraction`, `lens.psf` and the bokeh options are refused with the lens (it sets its own
+  bokeh, #567, which the view reads in the PSF), a catalogue PSF with a defocus kernel above a combined radius of 16 sites is refused, and with the four-spot filter a large PSF can pass
   the environment's 100 000 scene queries per site (*PV 100 2.8 Macro Pro* at f/22 on 6 µm: 210 000), refused by both.
 
 **Two capture fixes this needed** (each changes only requests that failed before):
@@ -410,8 +412,8 @@ capture's own site record, its catalogue PSF quadrature, evaluated with the capt
 
 - *Ties on chart boundaries.* On the Siemens star in a symmetric frame, lattice source points that fall exactly on a spoke
   through the frame centre round as the lattice does, while the capture's quadrature forms each tap's point from its own site
-  and can resolve it to the other material: the same difference as with `lens.diffraction` ([above](#lens-projection-distortion-vignetting-and-rotation),
-  [#565](https://github.com/Photivra/photivra/issues/565)). Dead leaves and radiance scenes have no such ties, so the table uses them.
+  and can resolve it to the other material. (2.20.0 fixed this for `lens.diffraction`, [above](#lens-projection-distortion-vignetting-and-rotation),
+  [#565](https://github.com/Photivra/photivra/issues/565); the catalogue PSF quadrature keeps it.) Dead leaves and radiance scenes have no such ties, so the table uses them.
 - *Against the box-downsized capture:* a slanted edge through *PV 24 1.8* wide open (6 µm, 192 × 128 shown at 24 × 16)
   within the rectilinear test's 0.6-code RMS and 3-code maximum.
 - Regions are byte-identical to the whole view, and prepared renders (also with `gpu: "auto"`) to `simulateDisplayView`.
@@ -633,7 +635,8 @@ h(AHD) − ½(h(H) + h(V)) is the bias. Both terms see the same noise, so the di
 variance than AHD's own output.
 
 The bias is a smooth function of the channel means, so it is computed on a logarithmic grid of
-states (8 steps per octave over 12 octaves below white), 2048 draws per state seeded by the state
+states (8 steps per octave over 12 octaves below white), 2048 draws per state (8192 with `fast: false`, 2.20.0: the
+view's exact method, which halves the common offset below) seeded by the state
 alone, and interpolated trilinearly between the 8 states around the pixel's means. A state depends
 only on its grid indices, the noise seed, the draws and the readout and development inputs (the
 normalized value per electron and the read and ADC variance of each channel, the homogeneity matrix,

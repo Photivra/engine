@@ -46,6 +46,14 @@ jobs:
           node-version: "lts/*"
       - name: Test the CI scope and proof rules
         run: node --test .github/test-ci-tools.mjs
+      - name: Check the Node matrix against the support policy
+        # The matrix, the required checks, publish.yml, NODE_SUPPORT.md and engines.node must
+        # agree with the roles of .github/node-lts-policy.mjs (photivra/photivra#231). Under a
+        # second, in this job only: no job and no install of its own. Findings that need an
+        # owner decision (two legs on one runtime) print as notices and do not fail.
+        run: |
+          node --test .github/test-node-ci-roles.mjs
+          node .github/node-ci-roles.mjs
       - name: Classify the change
         id: scope
         env:
@@ -75,8 +83,11 @@ jobs:
         # engines.node minimum; raise it when its line reaches end of life.
         # The policy guard below runs before install, so an alias that moves to
         # an unreviewed or end-of-life major fails instead of being adopted.
-        # lts/* is the primary leg, the coverage shards and `verify-primary` below.
-        # `node` is resolved to the newest stable release (first step below).
+        # The primary leg (the coverage shards and `verify-primary` below) is pinned to Node
+        # 24, the tooling major (owner decision for 2.20.0, #231). A leg that resolves to the
+        # same release as the primary (lts/-1 while it is Node 24) skips its test work; its
+        # required `verify` check still runs and passes. `node` is resolved to the newest
+        # stable release (first step below).
         node-version:
           - "22.13.0"
           - "lts/-1"
@@ -104,29 +115,34 @@ jobs:
         run: |
           node --test .github/test-node-lts-policy.mjs
           node .github/node-lts-policy.mjs
+      - name: Same release as the primary leg
+        # The primary leg runs the whole suite under coverage and the package gates on this
+        # release already, so this leg would repeat them (#231): it skips its test work.
+        id: same
+        run: node .github/node-lts-lookahead.mjs --same-as-primary
       - name: Proof of this tree
         id: proof
-        if: github.event_name == 'merge_group' && env.RUNS == 'true'
+        if: github.event_name == 'merge_group' && env.RUNS == 'true' && steps.same.outputs.skip != 'true'
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: node .github/ci-proof.mjs find "test-${{ matrix.part }}"
       - name: Install
-        if: env.RUNS == 'true' && steps.proof.outputs.found != 'true'
+        if: env.RUNS == 'true' && steps.proof.outputs.found != 'true' && steps.same.outputs.skip != 'true'
         run: npm ci --ignore-scripts
       - name: Test suite, this part
-        if: matrix.part != 'package' && env.RUNS == 'true' && steps.proof.outputs.found != 'true'
+        if: matrix.part != 'package' && env.RUNS == 'true' && steps.proof.outputs.found != 'true' && steps.same.outputs.skip != 'true'
         run: npx vitest run --shard=${{ matrix.part }}
       - name: Build
-        if: matrix.part == 'package' && steps.proof.outputs.found != 'true'
+        if: matrix.part == 'package' && steps.proof.outputs.found != 'true' && steps.same.outputs.skip != 'true'
         run: npm run build
       - name: Packed consumer acceptance
-        if: matrix.part == 'package' && steps.proof.outputs.found != 'true'
+        if: matrix.part == 'package' && steps.proof.outputs.found != 'true' && steps.same.outputs.skip != 'true'
         run: npm run release:consumer-check
       # Benchmark and native profiling evidence runs in native-performance.yml
       # when its source paths change, nightly, and on manual dispatch.
       - name: Name the proof
         id: proof-name
-        if: env.RUNS == 'true' && steps.proof.outputs.found != 'true'
+        if: env.RUNS == 'true' && steps.proof.outputs.found != 'true' && steps.same.outputs.skip != 'true'
         run: |
           node .github/ci-proof.mjs name "test-${{ matrix.part }}"
           echo "$GITHUB_RUN_ID" > "$RUNNER_TEMP/ci-proof.txt"
@@ -172,6 +188,7 @@ jobs:
     # runs every test of its share under coverage and keeps the raw coverage in a Vitest
     # blob report; no part checks the thresholds on its own (vitest.config.ts).
     # `verify (lts/*)` merges all four and enforces the thresholds once, on the whole suite.
+    # They run on the primary leg, Node 24 (pinned, the tooling major; #231).
     # Each part also keeps its per-file times, for scripts/record-shard-weights.mjs.
     name: coverage shard (${{ matrix.shard }}/4)
     needs: scope
@@ -191,7 +208,7 @@ jobs:
       - name: Use Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
-          node-version: "lts/*"
+          node-version: "24"
       - name: Verify Node.js support policy
         run: |
           node --test .github/test-node-lts-policy.mjs
@@ -233,8 +250,9 @@ jobs:
     # skipped required check would count as passing) and then fails at once; it
     # merges the four coverage parts and enforces the coverage thresholds of
     # vitest.config.ts on the whole suite, and runs the static, documentation and
-    # package gates on lts/*. Its proof is the `coverage` proof the shards and
-    # `main smoke` look up.
+    # package gates on the primary leg, Node 24 (pinned since 2.20.0, #231; the check
+    # keeps its required name `verify (lts/*)`). Its proof is the `coverage` proof the
+    # shards and `main smoke` look up.
     name: verify (lts/*)
     needs: [scope, coverage-shard]
     if: ${{ !cancelled() && github.event_name != 'push' }}
@@ -259,7 +277,7 @@ jobs:
       - name: Use Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
-          node-version: "lts/*"
+          node-version: "24"
       - name: Verify Node.js support policy
         run: |
           node --test .github/test-node-lts-policy.mjs

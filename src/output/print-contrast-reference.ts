@@ -69,7 +69,7 @@ export function parsePrintContrastReferenceInput(value: unknown): PrintContrastR
 }
 
 // Independently written scalar evaluation of the licensed numerical model.
-// Using log1p/expm1 keeps the small hyperbolic saturation term accurate.
+// Using log1p/expm1 keeps the hyperbolic terms accurate where the small quantity k_s4/Y (about 5.6e-10 at 1000 cd/m²) would cancel.
 function luminanceDependency(p: readonly number[], luminance: number): number {
   if (p.length === 2) return p[1]! * luminance ** p[0]!;
   const first = p[0]! * Math.exp(-p[2]! * Math.log1p(p[1]! / luminance));

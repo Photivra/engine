@@ -48,11 +48,10 @@ import type {
   SensorSpatioSpectralWavelengthReduction
 } from "./spatio-spectral-reduction.js";
 import { requireInputObject, requireInputKeys, rejectUnknownVariantFields, requireConfigRecord as requireRecord, requireConfigString as requireNonEmptyString, requireConfigPositiveFinite as requirePositiveFiniteConfiguration, requireInputNonNegativeFinite as requireNonNegativeFiniteInput, requireInputPositiveFinite as requirePositiveFiniteInput, requireInputNonNegativeSafeInteger as requireSafeNonNegativeInteger } from "../core/record-validation.js";
-import { addCompensated } from "../core/shared-helpers.js";
+import { addCompensated, approximatelyEqual } from "../core/shared-helpers.js";
 import { parseReferenceConditionPolicy as parseConditionPolicy } from "./response-application-compatibility.js";
 import { parseUncertainty } from "./response-operating-range.js";
 
-const REDUCTION_TOLERANCE = 1e-10;
 
 export type SensorResponsivityBiasCondition =
   | {
@@ -428,20 +427,6 @@ function canonicalJson(
   });
 }
 
-function approximatelyEqual(
-  actual: number,
-  expected: number
-): boolean {
-  const scale = Math.max(
-    1,
-    Math.abs(actual),
-    Math.abs(expected)
-  );
-  return (
-    Math.abs(actual - expected) <=
-    REDUCTION_TOLERANCE * scale
-  );
-}
 
 function electricalConditionsMatch(
   reference:

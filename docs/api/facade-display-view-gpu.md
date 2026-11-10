@@ -81,13 +81,16 @@ export type DisplayViewGpuMode = "off" | "auto" | "require";
 
 ```ts
 export interface PrepareDisplayViewOptions {
-  /** See {@link DisplayViewGpuMode}. Default `"off"`. */
+  /**
+   * See {@link DisplayViewGpuMode}. 2.20.0: default `"auto"` when the request resolves to fast (`fast` omitted or true: the
+   * display view's default) and `"off"` when it is exact (`fast: false`); an explicit value wins.
+   */
   gpu?: DisplayViewGpuMode;
   /**
    * Where the device comes from, with `gpu: "auto"` or `"require"`: a WebGPU entry point (a worker's `navigator.gpu`), or an
    * `ImageKernelAccelerator` whose device the view shares (the accelerator keeps ownership; `dispose()` of the prepared view
    * leaves it alone). Without it the engine acquires a device from `globalThis.navigator.gpu` and owns it until `dispose()`.
-   * Refused with `gpu: "off"`.
+   * Refused when `gpu` is or defaults to `"off"`.
    */
   gpuDevice?: unknown;
 }

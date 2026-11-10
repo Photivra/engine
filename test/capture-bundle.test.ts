@@ -101,9 +101,13 @@ describe("display-view bundles", () => {
 // ideal lens and its f-number range, #569's fixes).
 // 2.19.0 measured 351,775 B: the five parts merged measured 353,811 B (#570's lens corrections +1,735 B), and sharing the
 // parsers' duplicated private field checks (docs/RELEASE_2_19_0.md, "Sizes") saved 2,036 B. The limit is unchanged.
+// 2.20.0 measured 355,994 B: the eight parts merged measured 355,892 B (#555/#535 sensor characteristics and noise figure +2,157 B,
+// #587 DNG opcodes +1,197 B, #567 catalogue bokeh +595 B, #565 +197 B) and the speed-versus-accuracy scheme +517 B; sharing
+// duplicated helpers and record-literal field lists saved 415 B (docs/RELEASE_2_20_0.md, "Sizes"). Raised 352,000 → 356,000 B
+// (the measured total rounded up to the next 100 B): owner-approved 2026-11-09 for engine 2.20.0 only, for the 2.20.0 features.
 describe("the app's capture-worker shape", () => {
   it("keeps every chunk of the app's engine imports within its measured size", async () => {
     const worker = await bundle(["NATIVE_RAW_LIMITS", "prepareDisplayView", "serializeSimulatedCaptureDngFromParts", "simulateCapture", "simulateIdealReference"]);
-    expect(worker.totalGzip).toBeLessThanOrEqual(352_000);
+    expect(worker.totalGzip).toBeLessThanOrEqual(356_000);
   }, testTimeout(120_000));
 });

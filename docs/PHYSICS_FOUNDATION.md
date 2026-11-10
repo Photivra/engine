@@ -131,6 +131,18 @@ Photivra bases equivalence on the active physical capture area, not on any later
 
 `calculateBlurShareOfFrame()` (model `blur-share-of-frame` 1.0.0) divides a blur-circle diameter by the frame diagonal, width and height. With a print size it enlarges the whole frame to fit inside the print, long side to long side, and reports the blur on the print. These are exact ratios. Equal shares of the diagonal look the same at the same output size, which is the convention behind the diagonal-scaled circle of confusion. Whether a blur is visible depends on viewing distance and acuity, which neither function judges.
 
+### Aperture (entrance-pupil) diameter
+
+`calculateApertureDiameter()` (model `aperture-diameter` 1.0.0, #577) gives the entrance-pupil diameter `D = f/N` in millimetres from the focal length `f` and the f-number `N`; 50 mm at f/2 gives 25 mm. It is exact by the definition of the f-number, `N = f/D` for an object at infinity (Greivenkamp, [OPTI-502 course notes, sec. 12](https://wp.optics.arizona.edu/jgreivenkamp/wp-content/uploads/sites/11/2019/08/502-12-Objectives.pdf), free). `D` is the diameter of the entrance pupil, the aperture stop as seen from the front of the lens, not of the diaphragm's physical opening. One stop (a factor √2 in `N`) halves the pupil's area.
+
+Not modelled: at close focus the f-number that sets exposure and diffraction is the working f-number `N·(1 + m/P)`, with magnification `m` and pupil magnification `P` (exit-pupil over entrance-pupil diameter); the engine's irradiance bridge uses `N·(1 + m)`, unit pupil magnification. A lens that focuses by changing its focal length changes `f`, and so `D` at the same marked `N`.
+
+### Crop to match a longer focal length
+
+`calculateCropToMatchFocalLength()` (model `crop-to-match-focal-length` 1.0.0, #579) gives the centred crop that makes an image taken at focal length `f` match the framing of a longer focal length `F` from the same camera position, and the pixels that crop leaves. An ideal rectilinear lens focused at infinity images a scene point at field angle `θ` at height `f·tan θ` (Greivenkamp, sec. 12), so the image at `F` is the image at `f` scaled by `F/f`: the crop factor is `F/f`, exact at infinity focus, with the same perspective because the camera has not moved. The crop is `calculateCenteredCrop()`'s, which keeps the aspect ratio to whole pixels. A 24 MP (6000 × 4000) image at 50 mm cropped to match 100 mm: factor 2, 3000 × 2000, 6 MP.
+
+Not modelled: at close focus the thin-lens magnification is `m = f/(d − f)` at object distance `d` from the lens, so at the same `d` the matching factor is `F·(d − f)/(f·(d − F))`, larger than `F/f` and tending to it when `d ≫ F` (at `d` = 1 m, 50 → 100 mm needs 2.11 instead of 2). Distortion and focus breathing are not modelled either. The crop has the longer lens's framing but only the pixels of the cropped region, so it records no more detail than that part of the shorter lens's image.
+
 ### Projection, focus extension, object size, and motion
 
 Four calculations support two projection modes: field of view, projected size of a flat object facing the camera, projected subject motion (of one representative point), and projected camera shake.
@@ -515,6 +527,39 @@ where `λ` is the wavelength and `N` is the f-number. The factor is 2·j₁,₁/
 This is a diagnostic for one wavelength and an ideal circular pupil.
 
 It is kept apart from the regular-polygon aperture geometry used for bokeh and sunstars. Supplying a blade count does not turn the circular Airy result into a polygon-aperture diffraction PSF. For the ideal on-axis polygon model, use `calculateIdealPolygonDiffractionPsf()` with an explicit physical equal-area pupil, propagation distance and wavelength. Arbitrary real diaphragms are outside that model.
+
+### Which limits detail: the lens or the sensor
+
+`calculateDetailLimit()` (model `detail-limit` 1.0.0, #575) says whether the lens (diffraction at this f-number, aberrations, defocus) or the sensor's pixel pitch limits detail. It is a pure function; the capture does not use it.
+
+**Optics.** The incoherent optical transfer function of a uniformly lit circular pupil carrying the wavefront `W` (waves) is the normalized autocorrelation of the pupil function `P = exp(i·2π·W)`:
+
+```text
+OTF(s) = (1/π) ∬ P(ρ + s·e) · P*(ρ − s·e) d²ρ   over the overlap of the two unit discs
+s = ν/ν_c,   ν_c = 1/(λ·N_w),   MTF = |OTF|
+```
+
+With `W = 0` this is the diffraction-limited `(2/π)(acos s − s√(1 − s²))`, whose MTF50 is `0.40397·ν_c` ([MIT OpenCourseWare 2.71, lectures 21–22](https://ocw.mit.edu/courses/2-71-optics-spring-2009/resources/mit2_71s09_lec22/), free; also see Goodman, *Introduction to Fourier Optics*, 4th ed., §7.3–7.4). `N_w = v/D` is the working f-number (thin-lens image distance `v` of the focus distance, pupil diameter `D = f/N`). The integral is evaluated by Gauss–Legendre quadrature on a parametrization of the overlap that removes its square-root edge, with node counts that grow with the phase variation (doubling them changes the MTF by under 1e-9; an independent 500 × 500 brute-force grid agrees within 3e-3, its own edge error). The wavefront:
+
+- `lens.ideal`: none.
+- `lens.catalogue`: the lens's resolved Seidel terms (`resolveGenericLens`: spherical with its balancing defocus, coma, astigmatism, field curvature, axial color at the wavelength) at field height `H = fieldPosition`, the expansion its PSF uses (Hopkins 1950; [Wyant & Creath 1992](https://wp.optics.arizona.edu/jcwyant/wp-content/uploads/sites/13/2016/08/03-BasicAberrations_and_Optical_Testing.pdf), free). The terms are approximations of a generic lens.
+- A subject off the focus distance adds `W020 = dz/(8·N_w²)`, `dz` the sensor minus the subject's image distance (thin lens; Wyant & Creath eq. 18, as `calculateDefocusWavefront`). Wavefronts larger than 64 waves (sum of the terms' magnitudes) are refused: such a blur is geometric (`calculateDefocusCircle`).
+
+Tangential (along the radius from the image center) and sagittal MTF are both computed; the lower MTF50 is used.
+
+**Sampling.** Nyquist frequency `1/(2p)` for the pixel pitch `p = width / pixelWidth` (exact for the lattice). A Bayer filter's green sites still sample rows and columns up to `1/(2p)`; its red and blue sites repeat every `2p`, so their Nyquist frequency is `1/(4p)` (`redBlueNyquistCyclesPerMm`). The pixel aperture MTF is `|sinc(ν·p)|` for an ideal square site with fill factor 1 (the Fourier transform of a uniform square aperture; see [Quick start](QUICK_START.md), `sensor.pixelAperture`): `2/π` at Nyquist, 0.5 at `0.60335/p`.
+
+**System.** Optics MTF × pixel aperture MTF; detail above the Nyquist frequency aliases. Demosaicing, sharpening, noise and motion are excluded.
+
+**Which limits (an approximation).**
+
+| Result | Condition |
+| --- | --- |
+| `"sensor"`, `"pixel-pitch"` | Optics MTF50 ≥ `1/(2p)`: the optics still pass half contrast at the finest detail the grid records, so a denser sensor would record more. |
+| `"lens"`, `"diffraction"` | Otherwise, and the RMS wavefront error (piston and tilt removed) is within the Maréchal criterion λ/14, Strehl ≈ 0.8 (Maréchal 1947; Wyant & Creath 1992 eq. 67). |
+| `"lens"`, `"aberrations"` or `"defocus"` | Otherwise, whichever RMS wavefront error is larger. |
+
+`diffractionLimitedFNumber` is the f-number at which an aberration-free lens in focus has its MTF50 at the Nyquist frequency, `2·p·0.40397/λ` at infinity focus (≈ f/8.8 for 6 µm pixels at 550 nm): from it on, diffraction limits on that sensor whatever the lens. Every quantity is for one wavelength (550 nm by default); lateral color, the optical low-pass filter, microlenses and crosstalk are not modeled.
 
 ### Ideal diaphragm geometry and sunstar symmetry
 

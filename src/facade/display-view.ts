@@ -181,8 +181,10 @@ export interface DisplayViewSetup {
   viewWidth: number;
   viewHeight: number;
   region: { x: number; y: number; width: number; height: number };
-  /** Samples per axis in display pixels whose pilot finds detail; uniform ones use a quarter (at least 1). */
+  /** Samples per axis in display pixels whose pilot finds detail. */
   samplesPerAxis: number;
+  /** Samples per axis in uniform ones: a quarter (at least 1), the fast method; `samplesPerAxis` exact (2.20.0). Default a quarter. */
+  uniformSamplesPerAxis?: number;
   /** Sites beyond the footprint that can affect its pixels (demosaic, filter and kernel reach), for the pilot. */
   reachSites: number;
   bitDepth: 8 | 16;
@@ -813,7 +815,7 @@ function createGridCorrection(setup: DisplayViewCorrectionSetup, states: Correct
 export async function renderDisplayView(setup: DisplayViewSetup): Promise<DisplayViewRenderResult> {
   const { frameWidth, frameHeight, margin, nativeWidth, nativeHeight, viewWidth, viewHeight, region, seed, reachSites } = setup;
   const sx = frameWidth / viewWidth, sy = frameHeight / viewHeight, area = sx * sy, g = 2 / frameWidth;
-  const fullK = setup.samplesPerAxis, uniformK = Math.max(1, Math.round(fullK / 4));
+  const fullK = setup.samplesPerAxis, uniformK = setup.uniformSamplesPerAxis ?? Math.max(1, Math.round(fullK / 4));
   // Exact area mean (#393): where a footprint holds at most EXACT_AREA_MEAN_MAX_PIXELS real pixels and at most K², every real
   // pixel it touches is evaluated once with its exact overlap weight a_j = w_j / A, so the expected value is D_P = Σ_j a_j·E[L_j]
   // with no sampling error at no more cost than sampling; coarser views keep the stratified estimator, whose cost does not

@@ -68,12 +68,18 @@ describe("display view GPU option (#481)", () => {
     }
   });
 
-  it("gpu off (the default) is the CPU reference, labelled as such, and equals simulateDisplayView byte for byte", async () => {
-    const prepared = await prepareDisplayView(REQUEST), explicit = await prepareDisplayView(REQUEST, { gpu: "off" });
+  it("gpu off is the CPU reference, labelled as such, and equals simulateDisplayView byte for byte; it is the default only with fast: false (2.20.0)", async () => {
+    const prepared = await prepareDisplayView({ ...REQUEST, fast: false }), explicit = await prepareDisplayView(REQUEST, { gpu: "off" });
     const direct = await simulateDisplayView(REQUEST, VIEW), fromDefault = await prepared.render(VIEW), fromOff = await explicit.render(VIEW);
-    expect(comparable(fromDefault)).toEqual(comparable(direct));
+    expect(comparable(fromDefault)).toEqual({ ...comparable(await simulateDisplayView({ ...REQUEST, fast: false }, VIEW)) as object });
+    expect(fromDefault.diagnostics.fast.execution.gpu).toBe("off");
     expect(comparable(fromOff)).toEqual(comparable(direct));
-    expect(direct.diagnostics.fast).toMatchObject({ requested: false, assurance: "engine-reference",
+    // The display view resolves to fast by default, so gpu defaults to "auto": without a device here, the CPU reference, labelled.
+    const auto = await prepareDisplayView(REQUEST), fromAuto = await auto.render(VIEW);
+    expect(fromAuto.diagnostics.fast.execution).toMatchObject({ gpu: "auto", backend: "cpu-reference" });
+    expect(Array.from(fromAuto.image.samples)).toEqual(Array.from(direct.image.samples));
+    auto.dispose();
+    expect(direct.diagnostics.fast).toMatchObject({ requested: true, defaultedFrom: "format", assurance: "engine-reference",
       execution: { gpu: "off", backend: "cpu-reference", requestedBackend: "cpu-reference", fallbackReason: null, arithmetic: "float64", assurance: "engine-reference", fast: false,
         bitIdenticalToReference: true, errorBound: null, adapter: null, conformance: null } });
     expect(direct.assumptions.some((a) => a.id === "view.execution")).toBe(false);
@@ -111,7 +117,7 @@ describe("display view GPU option (#481)", () => {
     const prepared = await prepareDisplayView(REQUEST, { gpu: "auto", gpuDevice: gpu });
     expect(controls.adapterRequests).toBe(1);
     const reference = await simulateDisplayView(REQUEST, VIEW), result = await prepared.render(VIEW);
-    expect(result.diagnostics.fast).toMatchObject({ requested: false, assurance: "approximation-with-a-priori-bound",
+    expect(result.diagnostics.fast).toMatchObject({ requested: true, assurance: "approximation-with-a-priori-bound",
       execution: { gpu: "auto", backend: "webgpu-f32", requestedBackend: "webgpu-f32", fallbackReason: null, arithmetic: "float32", fast: true, bitIdenticalToReference: false,
         errorBound: BOUND, adapter: FAKE_ADAPTER_INFO, conformance: { cases: BUILT_IN_IDS, passed: true, failedCase: null, detail: null } } });
     expect(result.assumptions.find((a) => a.id === "view.execution")?.value).toMatchObject({ backend: "webgpu-f32", adapter: FAKE_ADAPTER_INFO });

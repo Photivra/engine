@@ -34,7 +34,9 @@
  * across half a zone). A profile kernel's rows run with image +Y (up) and its tap (i, j) reads (x − (i − c)·p, y + (j − c)·p) in
  * native coordinates (`sensorPsfSourcePoint`), so the view's kernel (reading in(x − t)) is the profile kernel flipped vertically.
  * Each zone's combined kernels are the expected signal's own tables (`buildTables`) with the zone's kernels, built when a site of
- * the zone is first read and kept per input in a least-recently-used cache of at most 64 MB (at least four zones).
+ * the zone is first read and kept per input in a least-recently-used cache of at most 64 MB (at least four zones). The zones are the
+ * view's fast method for `lens.catalogue` (2.20.0); its exact method (`fast: false`) passes `zones` = max(W, H), one site per zone,
+ * the capture's own PSF at each site centre (much slower).
  *
  * Large defocus kernels (#564, `input.largeKernel`, radius above 64 sites). The image-space disc D is the same at every lattice
  * group, spectral node and temporal midpoint, so it commutes with those sums as in the rectilinear signal (`expected-signal.ts`):
@@ -68,8 +70,9 @@ export interface DisplayViewLensPsf {
  * #569: the field-dependent PSF of a display view from the sampled PSF the capture resolves (everything but the field point and wavelength),
  * of kernel radius R, on the W × H native raster of `pitch` µm.
  */
-export function createDisplayViewLensPsf(psf: Omit<ResolveLensSampledPsfInput, "fieldPointMm" | "wavelengthNm">, R: number, W: number, H: number, pitch: number): DisplayViewLensPsf {
-  const Z = Math.ceil(Math.max(W, H) / DISPLAY_VIEW_LENS_PSF_ZONES), zonesX = Math.ceil(W / Z), w = 2 * R + 1;
+export function createDisplayViewLensPsf(psf: Omit<ResolveLensSampledPsfInput, "fieldPointMm" | "wavelengthNm">, R: number, W: number, H: number, pitch: number,
+  zones = DISPLAY_VIEW_LENS_PSF_ZONES): DisplayViewLensPsf {
+  const Z = Math.ceil(Math.max(W, H) / zones), zonesX = Math.ceil(W / Z), w = 2 * R + 1;
   const zoneOf = (x: number, y: number): number => Math.floor(y / Z) * zonesX + Math.floor(x / Z);
   const kernelsOf = (zone: number, wavelengthsNm: readonly number[]): Float64Array[] => {
     // The zone's centre in sites from the top-left corner (an edge zone may be narrower), in image millimetres (+Y up).

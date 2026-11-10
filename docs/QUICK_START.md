@@ -48,6 +48,7 @@ the example above is [simulate-capture.mjs](examples/simulate-capture.mjs).
 | `raw` | The packed native RAW: codes, black levels, saturation flags and per-phase white levels |
 | `plan` | The native RAW plan the engine executed |
 | `request` | The complete underlying request: `environmentRaw` (the native environment RAW input), `siteInput(index)` (rebuilds the physical input of any sensor site), `development` (the RAW development input) and `whiteBalanceState` |
+| `sensor` | 2.20 (#555, #535): the sensor characteristics used (pitch, peak QE, full well, read noise of each conversion gain and the dual-gain switch ISO, readout time, ADC bit depth, fixed-pattern noise), the calculated dynamic range (`dynamicRangeStops`, and per ISO setting) and, on exact requests, the mid-gray noise figure (`midGrey`); see [Sensor characteristics](#sensor-characteristics-555) |
 | `exposure` | Mode, resolved settings, EV100, `isoControl` (`"manual"` or `"automatic"`) and, with `iso: "auto"`, `autoIso` (how the ISO was chosen and what limited it), metered scene luminance, the deviation from the standard exposure in stops (`standardExposureDeviationStops`), the illuminance at which the settings give the standard exposure (`standardExposureIlluminanceLux`), from 2.14 the deviation from the standard exposure of an 18 % grey card under the scene's illuminance (`greyCardDeviationStops`, incident metering) and the exposure-mode resolver's full output |
 | `scene` | Chart parameters, illuminant, distance, framed size and the scene's SHA-256 digest (it covers caller illuminant and reflectance spectra; see `sourceSha256`) |
 | `diagnostics` | Radiance query count, highlight and rendering counters, per-stage timings (`timingsMs`) and, from 2.1, the opt-ins that ran (`options`); see [Cost of each option](#cost-of-each-option) |
@@ -206,11 +207,13 @@ and every number is a labelled approximation.
   for the macro); an f-number or distance outside the lens's range is refused.
 - **Its character is rendered:** a field- and wavelength-dependent PSF (diffraction with the lens's Seidel aberrations, axial and
   lateral colour) through the environment PSF quadrature, its radial distortion, its vignetting and, for the fisheyes, the
-  equisolid projection (beyond 90° there is no scene, so the 8 mm's circle is black outside). Flare, focus breathing and the bokeh
-  shape are reported in the assumption `lens.catalogue.character`, not rendered.
+  equisolid projection (beyond 90° there is no scene, so the 8 mm's circle is black outside). Flare and focus breathing are
+  reported in the assumption `lens.catalogue.character`, not rendered.
 - **Professional lenses are better** where the owner's table says so: sharper centres and corners, less coma, lateral colour,
   distortion and vignetting, better close focus and focus consistency. The measurements are in the catalogue page.
-- **Combinations:** `lens.defocus` convolves the disc into the lens's PSF (a combined kernel up to 16 sites in radius);
+- **Combinations:** `lens.defocus` convolves the lens's own bokeh kernel (#567: its blades, its W040 and, on the fast wides
+  and normals, a cat's eye, which is lens.catalogue's exact method: on when the request resolves to exact (`fast: false`, the
+  default for DNG, JPEG and PNG), off on fast requests, since it would slow the fast method 2–3.5×; [Bokeh](https://github.com/Photivra/photivra/blob/main/docs/LENS_CATALOGUE.md#bokeh-567)) into the lens's PSF (a combined kernel up to 16 sites in radius);
   `lens.focusScatter: { seed, shotIndex? }` moves the focus by a seeded autofocus error (`simulateGenericLensFocusError`), off
   by default. `prime`, `focalLengthMm`, `projection`, `distortion`, `vignetting`, `psf`, `diffraction` and `pupilSampling` are
   set by the lens and refused with it. The display view renders `lens.catalogue` since #569, with the PSF taken per field zone
@@ -459,6 +462,73 @@ size but less than in proportion to area across process generations (for example
 large-pixel sensor may therefore saturate earlier, and a real small-pixel sensor would usually be
 given a higher base ISO. When the pitch is not 6 µm, the assumption `sensor.isoAreaNormalization`
 records the area ratio and this approximation.
+
+### Sensor characteristics (#555)
+
+Each characteristic of the body's sensor can be set on its own under `sensor`. All are off by
+default: a request that sets none is byte-identical to 2.19.0, and every value set is listed in the
+assumption `sensor.characteristics`. The figures under the result's `sensor` are calculated from
+them; they are results, not settings.
+
+```ts
+const r = await simulateCapture({ scene: { preset: "uniform" }, sensor: {
+  pixelPitchMicrometers: 4,
+  peakQuantumEfficiency: 0.8,                       // green EQE at 555 nm, 0.05–0.9 (default 0.5)
+  fullWell: { electrons: 50_000, link: "none" },    // or linked to pixel area (the default)
+  readNoise: { lowGainElectrons: 3, highGainElectrons: 1.2, highGainFromIso: 640 },
+  readoutSeconds: 0.012,                            // rolling-shutter skew
+  adcBitDepth: 16,                                  // 12, 14 or 16
+  fixedPatternNoise: true                           // the body's synthetic pattern (advanced)
+}, fast: false });                                  // fast: false computes the mid-gray noise figure
+r.sensor.dynamicRangeStops; r.sensor.midGrey?.snrDecibels;
+```
+
+| Option | Range | Default | Effect |
+| --- | --- | --- | --- |
+| `peakQuantumEfficiency` | 0.05–0.9 | 0.5 | Multiplies every channel's EQE curve by value / 0.5: the curves keep their shape and the colour matrix, and the collected charge scales in proportion. 0.9 keeps the blue channel's peak below 1. |
+| `fullWell` | 100–1e10 e⁻ at the pitch | the body's base-ISO saturation at 6 µm, × pitch²/36 µm² | The charge at the RAW white level at base ISO (the saturation capacity of EMVA 1288 Release 4.0). `link: "pixel-area"` (default) scales `electrons`, the full well at `referencePixelPitchMicrometers` (default 6), by (pitch / reference)²; `link: "none"` uses it at any pitch. |
+| `readNoise` | 0–100 e⁻; switch ISO 100–1e7 | the body's (tiers: 2/1.1, 3/1.4 and 6/2.5 e⁻, switch at ISO 800) | Read noise of the low and the high conversion gain, and `highGainFromIso`, the ISO from which the high gain is used. A switch above the body's top ISO keeps the low gain throughout. |
+| `readoutSeconds` | 1e-6–1 s | the body's (8, 15, 30 ms) | The rolling shutter's top-to-bottom skew (`motion.shutter: "rolling"`; `motion.rollingShutterSkewSeconds` still overrides it). |
+| `adcBitDepth` | 12, 14, 16 | the body's (consumer 12, others 14) | The black level scales by 2^Δbits (1 024 at 14 bits → 4 096 at 16), the saturation code is 2^bits − 1 and the conversion gain follows, so the same charge reaches the same fraction of the code range. A 16-bit RAW writes a 16-bit DNG with white level 65 535. |
+| `fixedPatternNoise` | `true`/`false` | `false` | The body's synthetic fixed-pattern profile (PRNU, DSNU, hot pixels, row and column offsets), the same pattern in every capture. Not available in `simulateDisplayView`, which refuses it. |
+
+How the full well and the ISO rating interact (an approximation, recorded in the assumption): the
+facade keeps each ISO setting's readout regime, so the full well is reached at the white level of
+base ISO and every regime's conversion gain and pre-ADC saturation scale with it (`chargeScale`).
+The output per unit focal-plane exposure H then changes by 2^`sensitivityOffsetStops` =
+QE scale × (pixel area / 36 µm²) × (body full well / full well): the body's rating S = 10/H (CIPA
+DC-004-2020 §3.2) still holds only when that is 1, as it is for a linked full well and the default
+QE. A higher QE makes the same exposure brighter; a larger unlinked full well makes it darker and
+gives more highlight headroom. The high conversion gain's smaller charge storage is not modelled
+when the switch ISO is lowered. The assumption notes a full well outside 200–10 000 e⁻ per µm² of
+pixel area as unusual for the pitch; that is a design range around the tiers' 556–1 667 e⁻/µm² and
+published values such as about 4 000 e⁻/µm² at 2 µm and 1 400 e⁻/µm² at 5.2 µm (Farrell, Xiao &
+Kavusi, *Proc. SPIE* 6069, 2006, Table 1), not a published bound.
+
+**Dynamic range** (`sensor.dynamicRangeStops` at the capture's ISO, `sensor.dynamicRangeByIso` for
+every ISO setting of the body): engineering dynamic range log₂(S_sat / σ_floor). S_sat is the charge
+at the RAW white level (the full well over the analog gain, limited by the charge capacity and the
+ADC range) and σ_floor = √(σ_read² + σ_q²), the temporal dark noise of EMVA 1288 Release 4.0 without
+dark current, with σ_q the ADC quantization (1/12 code², plus 1/12 code² of rounding after a digital
+gain) in electrons. With no read noise the range is limited by the ADC alone: log₂((white − black)·√12).
+The Professional tier gives 14.7 stops at ISO 100, 12.7 at ISO 800 (high gain) and 9.7 at ISO 6400;
+the Consumer tier 11.7, 10.0 and 7.0.
+
+**Noise figure** (#535, `sensor.midGrey`): computed only when the request resolves to exact (`fast:
+false`, the default for DNG, JPEG and PNG exports; about 0.3 ms); a fast request (the sRGB default)
+omits it. The expected signal-to-noise ratio of an 18 % Lambertian
+gray patch under the request's illuminant and illuminance, at the capture's exposure, ISO and
+sensor, from the engine's own noise model (a model figure, not a measurement). It is the green
+channel next to the optical axis (no vignetting, PSF or motion). `signalElectrons` S is the patch's
+expected charge; `noiseElectrons` splits the noise into photon shot √S, read, dark-current shot
+√(D·t) with D = 1 e⁻/s, ADC quantization and, with `fixedPatternNoise`, the fixed pattern
+√((PRNU·S)² + (DSNU·D·t)² + row² + column²) (hot pixels excluded; a spatial noise, the same in every
+capture), added in quadrature as `total`. `snr` = S / total and `snrDecibels` = 20·log₁₀(snr).
+`clipped` is true when the patch reaches the white level, where the figure no longer describes
+the image. With the defaults (Professional, f/8, 1/125 s, ISO 100, 21 481 lux) S ≈ 7 842 e⁻ and the
+SNR is 88.5 (38.9 dB); at ISO 6400 with 1/64 of the light, S ≈ 123 e⁻ and the SNR is 11.0 (20.8 dB):
+the photon shot noise grows as √S, so less light means more noise whatever the ISO. The display view
+reports the same `sensor` record as its capture.
 
 ## Exposure
 
@@ -1093,6 +1163,18 @@ The optics options feed only what the environment site contract accepts:
     scene; a test checks it to 1e-12 per site. With camera rotation, a projection or distortion, or
     vignetting, the per-tap quadrature runs instead (much slower). `request.diffraction` holds the profile,
     the equivalent `sampled-local` PSF and which execution ran.
+  - Ties on chart boundaries (2.20.0, #565): the per-tap quadrature reads each tap's scene point at its site-lattice point, as
+    the object-space convolution, the out-of-focus capture and the display view do, so a tap exactly on a chart boundary (a
+    Siemens star's spokes through lattice points) resolves to the same material on every path. With camera rotation under
+    `motion.shutter: "rolling"` every row has its own instants, so the lattice is read once per instant; there reading the
+    lattice is `lens.diffraction`'s exact method and keeping each tap's own point its fast method; the lattice costs about
+    1.2× the time (dead leaves 48 × 32 at f/8: 4.0–4.1 s against 4.8–5.0 s; a Siemens star 32 × 24 at f/16: 6.8 s against
+    8.1–8.2 s; November 9, 2026, Apple M5 Pro, Node 24.19.0). The format default decides (2.20.0): fast for sRGB samples, exact for
+    DNG, JPEG and PNG; `lens.diffraction: { kind, fast }` or the top-level `fast` wins, and the fast method reports
+    `diagnostics.fast.applied["lens.diffraction"]: true` and the assumption `fast.lens.diffraction`. The two readings differ
+    only at such ties. Region renders joined into one frame (`serializeSimulatedCaptureDngFromParts`,
+    `simulateCaptureFromParts`) match the whole-frame render only if every part resolves `fast` the same way: give the parts
+    and the whole request the same `fast` (a part rendered fast is refused by an exact join).
   - The convolution runs in 32-row bands and computes only each band's own values, not the 2R rows and
     columns of padding around it (#419; the values are bit-identical to the full-grid convolution's). On a
     function scene with the Quality options at 1 µm and f/16 (R 32), 96 × 72, `diagnostics.timingsMs.diffraction`
@@ -1423,9 +1505,9 @@ lens: { focalLengthMm: 50, fNumber: 4, focusDistanceM: 1.4, defocus: { model: "g
   combined with `lens.diffraction` (every zone would need its own combined kernel per node). Above a kernel radius of 64
   sites it is refused: #564's run convolution takes one kernel per request, and extending it to one kernel per zone is left
   for later. `simulateDisplayView` and `prepareDisplayView` refuse it; they render `blades` and `sphericalAberration`.
-- **With `lens.catalogue` (#549)** the three options are refused by name. The catalogue lens folds a plain disc into its
-  own PSF, so they would otherwise be dropped. Feeding a catalogue lens's spherical aberration and character into the
-  bokeh kernel is a follow-up ([#567](https://github.com/Photivra/photivra/issues/567)), not a 2.17.0 feature.
+- **With `lens.catalogue` (#549)** the three options are refused by name: since 2.20.0 (#567) the catalogue lens sets
+  all three itself (its blades, its own W040 and, on the fast wides and normals, a cat's eye) and folds that kernel into
+  its PSF ([Lens catalogue, Bokeh](https://github.com/Photivra/photivra/blob/main/docs/LENS_CATALOGUE.md#bokeh-567)).
 - **Sampling.** Without spherical aberration each site's weight is the exact area of the projected open pupil (a convex
   polygon; circles and blade arcs are 1024-gons scaled to their true area, within 5e-6 of the radius of the true curve)
   inside the site's cell, divided by its area (`"exact-polygon-cell-area"`). With it the pupil is sampled on a square grid

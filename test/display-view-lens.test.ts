@@ -34,7 +34,8 @@ const inFocus: [string, SimulateCaptureOptions][] = [
   ["radial distortion with the box aperture and four-spot filter", { ...base, lens: { ...lens, distortion: barrel }, sensor: { ...base.sensor, ...quality } }],
   ["Brown-Conrady distortion and vignetting", { ...base, scene: { preset: "slanted-edge", angleDegrees: 20 }, lens: { ...lens, distortion: decentred, vignetting } }],
   ["camera rotation", { ...base, lens, ...rotation, sensor: { ...base.sensor, temporalSampleCount: 3 } }],
-  // A scene without boundaries through lattice points: see "rounds ties on chart boundaries as the lattice does" below.
+  // A scene without boundaries through lattice points: the reference below evaluates the plain provider per tap, which reads each tap at its
+  // own site's arithmetic; the capture reads it at the lattice point (#565, test/simulate-capture-boundary-ties.test.ts).
   ["distortion and vignetting with lens.diffraction (PSF quadrature)", { ...base, scene: { preset: "dead-leaves" }, lens: { ...lens, fNumber: 11, distortion: barrel, vignetting,
     diffraction: "circular-aperture" }, sensor: { ...base.sensor, antiAliasing: { kind: "four-spot" } }, output: { width: 14, height: 10, demosaic: "ahd" } }],
   ["a radiance scene through a fisheye and vignetting", { ...base, scene: rings, lens: { ...lens, projection: "fisheye-equidistant", vignetting } } as SimulateCaptureOptions],
@@ -106,10 +107,10 @@ describe("display view with lens projection, distortion, vignetting and camera r
   }
 
   it("rounds ties on chart boundaries as the lattice does: an identity vignetting profile gives the rectilinear view's bytes", async () => {
-    // With a kernel the view reads the site lattice with #548's lattice formula, as the rectilinear view and the out-of-focus capture do. The
-    // in-focus capture with lens.diffraction forms each tap's source point from its own site (the PSF quadrature), so a source point exactly on
-    // a chart boundary (a Siemens star's diagonals through a symmetric frame's centre) can resolve to the other material there; elsewhere the
-    // two agree to 1e-9 (above). docs/DISPLAY_VIEW.md, "Lens projection, distortion, vignetting and rotation".
+    // With a kernel the view reads the site lattice with #548's lattice formula, as the rectilinear view, the out-of-focus capture and (#565)
+    // the in-focus capture's PSF quadrature do, so a source point exactly on a chart boundary (a Siemens star's diagonals through a symmetric
+    // frame's centre) resolves the same way on every path (test/simulate-capture-boundary-ties.test.ts). docs/DISPLAY_VIEW.md, "Lens
+    // projection, distortion, vignetting and rotation".
     const flat = { ...vignetting, coefficients: { r2: 0, r4: 0, r6: 0 } };
     for (const options of [{ ...base, lens: { ...lens, fNumber: 11, diffraction: "circular-aperture" } }, { ...base, lens: { ...lens, focusDistanceM: 1.8, defocus: { model: "geometric-disc" } },
       sensor: { ...base.sensor, ...quality } }] as SimulateCaptureOptions[]) {

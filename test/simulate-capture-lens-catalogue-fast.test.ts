@@ -73,16 +73,16 @@ describe("lens.catalogue fast method (#568)", () => {
     }
   }, scaledTimeout(300_000));
 
-  it("follows the exact-or-fast convention: off by default, the top-level flag, the record's kind and fast, and the report", async () => {
+  it("follows the exact-or-fast convention: the format default (fast for sRGB, 2.20.0), the top-level flag, the record's kind and fast, and the report", async () => {
     const options = (lens: Record<string, unknown>, fast?: boolean): SimulateCaptureOptions => ({ ...fullFrame("pv-50-1.8", 8, 96, star), lens: { ...lens, fNumber: 8 } as never,
       ...(fast === undefined ? {} : { fast }) });
-    const exact = await simulateCapture(options({ catalogue: "pv-50-1.8" }));
-    expect(exact.diagnostics.fast).toEqual({ requested: false, applied: { "lens.catalogue": false }, assurance: "engine-reference" });
+    const exact = await simulateCapture(options({ catalogue: "pv-50-1.8" }, false));
+    expect(exact.diagnostics.fast).toEqual({ requested: false, defaultedFrom: "request", applied: { "lens.catalogue": false }, assurance: "engine-reference" });
     expect(exact.assumptions.some((a) => a.id === "raw.expectedSignal")).toBe(false);
     expect(exact.assumptions.some((a) => a.id === "fast.lens.catalogue")).toBe(false);
     const top = await simulateCapture(options({ catalogue: "pv-50-1.8" }, true)), record = await simulateCapture(options({ catalogue: { kind: "pv-50-1.8", fast: true } }));
     for (const r of [top, record]) {
-      expect(r.diagnostics.fast).toEqual({ requested: true, applied: { "lens.catalogue": true }, assurance: "approximation-with-a-priori-bound" });
+      expect(r.diagnostics.fast).toMatchObject({ requested: true, applied: { "lens.catalogue": true }, assurance: "approximation-with-a-priori-bound" });
       const assumption = r.assumptions.find((a) => a.id === "fast.lens.catalogue")!;
       expect((assumption.value as { method: string }).method).toBe("field-grid-bilinear-psf");
       expect(assumption.explanation).toMatch(/approximation/);
@@ -90,9 +90,12 @@ describe("lens.catalogue fast method (#568)", () => {
     expect(Array.from(record.image.samples)).toEqual(Array.from(top.image.samples));
     // The record's fast: false overrides the top-level flag; the record without fast is the shorthand.
     const overridden = await simulateCapture(options({ catalogue: { kind: "pv-50-1.8", fast: false } }, true));
-    expect(overridden.diagnostics.fast).toEqual({ requested: true, applied: { "lens.catalogue": false }, assurance: "engine-reference" });
+    expect(overridden.diagnostics.fast).toEqual({ requested: true, defaultedFrom: "request", applied: { "lens.catalogue": false }, assurance: "engine-reference" });
     expect(Array.from(overridden.image.samples)).toEqual(Array.from(exact.image.samples));
-    expect(Array.from((await simulateCapture(options({ catalogue: { kind: "pv-50-1.8" } }))).image.samples)).toEqual(Array.from(exact.image.samples));
+    expect(Array.from((await simulateCapture(options({ catalogue: { kind: "pv-50-1.8" } }, false))).image.samples)).toEqual(Array.from(exact.image.samples));
+    const byDefault = await simulateCapture(options({ catalogue: "pv-50-1.8" }));
+    expect(byDefault.diagnostics.fast).toMatchObject({ requested: true, defaultedFrom: "format", applied: { "lens.catalogue": true } });
+    expect(Array.from(byDefault.image.samples)).toEqual(Array.from(top.image.samples));
     // The fast image differs from the exact one only where the blend's tiny error moves a Poisson draw by an electron (most codes are equal).
     let worst = 0, differing = 0;
     top.image.samples.forEach((v, i) => { const d = Math.abs(v - exact.image.samples[i]!); worst = Math.max(worst, d); if (d > 0) differing++; });

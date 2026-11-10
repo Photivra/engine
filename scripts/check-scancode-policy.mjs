@@ -37,7 +37,7 @@ const OWN_ALLOWLIST = "this script's allowlist names this key as data; no licenc
 /** Keys that ScanCode detects in this script's own allowlist strings (scan of this file). */
 const OWN_KEYS = [
   "Apache-2.0 OR MIT", "BSD-2-Clause", "BSD-3-Clause", "BlueOak-1.0.0", "CC-BY-4.0", "CC-BY-ND-3.0",
-  "CC-BY-SA-3.0", "CC-BY-SA-4.0", "CC0-1.0", "CDDL-1.0", "GPL-1.0-or-later", "ISC", "JSON",
+  "CC-BY-SA-3.0", "CC-BY-SA-4.0", "CC0-1.0", "CDDL-1.0", "GFDL-1.1-or-later", "GPL-1.0-or-later", "ISC", "JSON",
   "LGPL-2.1-only", "LicenseRef-scancode-other-copyleft", "LicenseRef-scancode-proprietary-license",
   "LicenseRef-scancode-public-domain", "LicenseRef-scancode-unknown-license-reference", "MIT", "MPL-2.0", "PSF-2.0",
   "LicenseRef-scancode-generic-cla"
@@ -107,6 +107,10 @@ const LICENSE_ALLOWLIST = [
   { path: "docs/RELEASE_2_0_0.md", license: "LicenseRef-scancode-unknown-license-reference", reason: LICENCE_NAMES_IN_DOCS },
   { path: "docs/RELEASE_2_0_0.md", license: "MPL-2.0", reason: LICENCE_NAMES_IN_DOCS },
   { path: "docs/RELEASE_2_0_0.md", license: "PSF-2.0", reason: "false positive: the words \"PSF\" and \"2.0\" (point-spread function, release 2.0)" },
+  { path: "docs/RELEASE_2_20_0.md", license: "BSD-2-Clause", reason: `${LICENCE_NAMES_IN_DOCS} (the check:licenses dependency counts)` },
+  { path: "docs/RELEASE_2_20_0.md", license: "BSD-3-Clause", reason: `${LICENCE_NAMES_IN_DOCS} (the check:licenses dependency counts)` },
+  { path: "docs/RELEASE_2_20_0.md", license: "MPL-2.0", reason: `${LICENCE_NAMES_IN_DOCS} (the check:licenses dependency counts)` },
+  { path: "docs/PRINT_PLANNING.md", license: "GFDL-1.1-or-later", reason: `${LICENCE_NAMES_IN_DOCS} (the free licence of a cited textbook, Grinstead & Snell)` },
   { path: "docs/USAGE.md", license: "CC-BY-SA-4.0", reason: `${LICENCE_NAMES_IN_DOCS} (CIE datasets are caller-supplied)` },
   { path: "docs/PROVENANCE.md", license: "LicenseRef-scancode-unknown-license-reference", reason: "reuse-rights rules name licence categories; no licence text" },
   { path: "docs/PROVENANCE.md", license: "LicenseRef-scancode-public-domain", reason: "reuse-rights rules name licence categories; no licence text" },

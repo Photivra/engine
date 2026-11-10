@@ -65,9 +65,10 @@ responses through the environment chain, the diffraction kernels, readout moment
 about 0.3–1.3 s per call on a 24 MP request; a region costs only its own pixels. Errors in the request are raised here;
 errors in the view by `render`.
 
-2.11 (#481): `prepareOptions.gpu` chooses the renderer: `"off"` (default) is the CPU reference, today's bytes; `"auto"` renders
+2.11 (#481): `prepareOptions.gpu` chooses the renderer: `"off"` is the CPU reference, today's bytes; `"auto"` renders
 on WebGPU when a conforming device is available and the request is supported, else on the CPU, labelled; `"require"` fails
-instead of falling back (`ImageKernelExecutionError`, acquisition failures here, later ones from `render`). `gpuDevice` is a
+instead of falling back (`ImageKernelExecutionError`, acquisition failures here, later ones from `render`). 2.20.0: the default is
+`"auto"` when the request resolves to fast (the view's default) and `"off"` with `fast: false`. `gpuDevice` is a
 WebGPU entry point or an `ImageKernelAccelerator` whose device the view shares; without it the engine acquires one device
 for the prepared view (the request's `signal` aborts the acquisition) and `dispose()` releases it. The realm's
 `setWebGpuEnabled(false)` vetoes both GPU modes (`webgpu-disabled`). See docs/DISPLAY_VIEW.md, "Rendering on the GPU".

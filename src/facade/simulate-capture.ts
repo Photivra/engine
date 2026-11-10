@@ -39,6 +39,8 @@ import type { EvidenceProvenance } from "../core/evidence-provenance.js";
 import { GENERIC_TIER_ASSETS, type GenericEquipmentTier, type GenericEquipmentTierPreset } from "../equipment/generic-tier-assets.js";
 import { parseCallerCameraPreset } from "./camera-preset.js";
 import { createHostYield } from "./host-yield.js";
+import { fastFormatDefault, resolveFast } from "./fast-resolution.js";
+import { SCENE_TO_SENSOR_BRIDGE_SCOPE } from "../optics/scene-to-sensor-irradiance.js";
 import { resolveGenericEquipmentExposureCapabilities, type ResolvedGenericEquipmentExposureCapabilities } from "../equipment/exposure-capabilities.js";
 import { resolveGenericIsoSignalChain } from "../sensor/iso-signal-chain.js";
 import { meterRelativeExposure } from "../exposure/metering.js";
@@ -113,7 +115,8 @@ import { serializeNativeRawDng, type NativeRawDng } from "../capture/native-raw-
 import { correctDiffractionInPlace, defaultDiffractionCorrectionRadiusPixels, designDiffractionCorrectionFilter, parseDiffractionCorrectionSettings,
   parseUnsharpMaskSettings, renderSdrWithUnsharpMaskInPlace, DEVELOPMENT_DETAIL_MODEL_VERSION, type DiffractionCorrectionSettings,
   type UnsharpMaskSettings } from "../processing/development-detail.js";
-import { parseSensorReadoutConversionProfile, resolveSensorReadoutRegime } from "../sensor/raw-readout.js";
+import { resolveSensorReadoutRegime } from "../sensor/raw-readout.js";
+import { characterizeReadout, parseSensorCharacteristics, sensorReport, SENSOR_CHARACTERISTIC_KEYS, type SimulateCaptureSensorCharacteristics, type SimulateCaptureSensorReport } from "../sensor/sensor-characteristics.js";
 import { resolveChartScene, chartMaterialInputs, CHART_SCENE_PRESETS, type ChartScene, type ResolvedChartScene } from "./chart-scenes.js";
 import { resolveChartMaterialLayers, type ChartMaterialLayerScene, type ResolvedChartMaterialLayers } from "./chart-material-layers.js";
 import { resolveCaptureIlluminant, calculateIlluminantIrradianceScale, buildPlanarSceneRadianceProvider, requireCallerScene, FACADE_SPECTRAL_RANGE_NANOMETERS,
@@ -238,7 +241,12 @@ export type SimulateCaptureColorEncoding = "srgb" | "display-p3" | "rec2020";
  * edge-directed method that reduces zipper and false colour on sharp edges.
  */
 export type SimulateCaptureDemosaic = "bilinear" | "ahd";
-/** `lens.catalogue` as a record (#568): the lens id as `kind` and the `fast` override (see {@link SimulateCaptureOptions.fast}). */
+/**
+ * `lens.catalogue` as a record (#568): the lens id as `kind` and the `fast` override (see {@link SimulateCaptureOptions.fast}).
+ * Fast: the tabulated fast method (#568), and with `lens.defocus` the lens's bokeh without its cat's eye (#567; fast wides and
+ * normals only), whose field-varying PSF needs a finer fast grid (measured 2.2–3.4× slower). Exact: the per-site PSF with the
+ * cat's eye. Blades and spherical aberration always apply (they cost nothing).
+ */
 export interface SimulateCaptureLensCatalogueRecord { kind: string; fast?: boolean }
 /** `output.demosaic` as a record (#395): the demosaic and its `fast` override (see {@link SimulateCaptureOptions.fast}). */
 export interface SimulateCaptureDemosaicRecord { kind: SimulateCaptureDemosaic; fast?: boolean }
@@ -258,7 +266,14 @@ export type SimulateCaptureLensDistortion =
  */
 export type SimulateCaptureLensDiffraction =
   | "circular-aperture"
-  | { kind: "circular-aperture"; kernelRadiusSamples?: number; fast?: boolean }
+  | {
+    /**
+     * #565: in focus with camera rotation and `motion.shutter: "rolling"`, exact reads each PSF tap's scene point at its
+     * site-lattice point, as every other path does, so a tap exactly on a chart boundary resolves as on the lattice (about 1.2×
+     * the time); fast keeps each tap's own point, which can resolve such a tie to the other material (docs/QUICK_START.md, "Optics").
+     */
+    kind: "circular-aperture"; kernelRadiusSamples?: number; fast?: boolean;
+  }
   | {
     /** @deprecated Since #395: use `kind`. Accepted until 3.0.0. */
     aperture: "circular-aperture"; kernelRadiusSamples?: number; fast?: boolean;
@@ -387,9 +402,9 @@ export interface SimulateCaptureOptions {
      * factor and it replaces the tier lens's focal length and f-number range (the transmission is kept). The capture renders the
      * lens's character, all labelled approximations: its PSF (diffraction with the lens's Seidel aberrations, axial and lateral
      * colour, at the resolved f-number and focus) through the environment PSF quadrature, its radial distortion, its vignetting
-     * and, for the fisheyes, the equisolid projection. Flare, focus breathing and bokeh shape are not rendered. Not combinable
+     * and, for the fisheyes, the equisolid projection. Flare and focus breathing are not rendered. Not combinable
      * with `prime`, `focalLengthMm`, `projection`, `distortion`, `vignetting`, `psf`, `diffraction` or `pupilSampling` (the
-     * lens sets them); `defocus` convolves the disc into the lens's PSF. The display view renders it with the PSF taken per field zone (#569; docs/DISPLAY_VIEW.md). Default off.
+     * lens sets them); `defocus` convolves the lens's bokeh kernel (#567) into its PSF. The display view renders it with the PSF taken per field zone (#569; docs/DISPLAY_VIEW.md). Default off.
      * #568: the record form `{ kind: <lens id>, fast }` overrides the top-level `fast` flag for this option; the fast method
      * blends the PSF between exactly resolved kernels on a field grid and tabulates each site's expected signal
      * (docs/LENS_CATALOGUE.md, "Fast method").
@@ -530,7 +545,7 @@ export interface SimulateCaptureOptions {
     exposureCompensationStops?: number;
     /** Default "scene-illuminant". */
     whiteBalance?: SimulateCaptureWhiteBalance;
-    /** JPEG constant quantization step 1-255 (not a manufacturer 'quality'). Default 2. */
+    /** JPEG constant quantization step 1-255 (not a manufacturer 'quality'). Default 1 (2.20.0; 2 before), the full-quality export. */
     jpegQuantizationStep?: number;
     /** PNG only. Default "srgb". */
     colorEncoding?: SimulateCaptureColorEncoding;
@@ -545,8 +560,13 @@ export interface SimulateCaptureOptions {
     demosaic?: SimulateCaptureDemosaic | SimulateCaptureDemosaicRecord;
     /** Default "margin". */
     borderHandling?: SimulateCaptureBorderHandling;
-    /** DNG only: optional capture-event time (YYYY-MM-DDTHH:mm:ss.sssZ); without it no date tags are written. */
-    dng?: { capturedAtUtc?: string };
+    /**
+     * DNG only: optional capture-event time (YYYY-MM-DDTHH:mm:ss.sssZ); without it no date tags are written. Opt-in (#587), with
+     * `lens.catalogue`: `lensCorrectionOpcodes` writes the selected corrections of {@link SimulateCaptureLensCorrections} into the DNG as
+     * optional DNG opcodes in OpcodeList3 (FixVignetteRadial, WarpRectilinear with the zoom-to-fill; docs/NATIVE_RAW_AND_PRINT.md), for RAW editors
+     * that apply them; the RAW codes are unchanged. Whole frame only (no `region`). All off (or omitted): the same DNG bytes as without it.
+     */
+    dng?: { capturedAtUtc?: string; lensCorrectionOpcodes?: SimulateCaptureLensCorrections };
     /**
      * Opt-in (2.4) text written into the file for formats "jpeg", "png" and "dng": the caller's description,
      * software, copyright and comment, unchanged (JPEG XMP + COM, PNG tEXt/iTXt, DNG TIFF tags + XMP; see the
@@ -598,7 +618,8 @@ export interface SimulateCaptureOptions {
   };
   /** Camera motion and shutter type. Default: still camera, global electronic shutter. */
   motion?: SimulateCaptureMotion;
-  sensor?: {
+  /** #555: plus the sensor characteristics ({@link SimulateCaptureSensorCharacteristics}), each off by default. */
+  sensor?: SimulateCaptureSensorCharacteristics & {
     /**
      * Pixel pitch in micrometres, 0.5–1000. Default 6. The simulated sensor is output width × pitch wide. 2.5: above 100 µm the
      * capture is a downsized view of a whole frame (for example 36 mm / 48 pixels = 750 µm), recorded in the assumption
@@ -625,10 +646,14 @@ export interface SimulateCaptureOptions {
     pixelAperture?: SimulateCapturePixelAperture;
   };
   /**
-   * Exact or fast (#395). `false` or omitted: every option runs its exact method, the engine reference. `true`: each option
-   * listed in {@link SIMULATE_CAPTURE_FAST_OPTIONS} runs its fast method where it has one, a measured, bounded approximation of
-   * the exact one; an option without a fast method runs exact. An option's own record `fast` overrides this for that option
-   * only. `diagnostics.fast` reports what was requested and what ran. `lens.catalogue` has a fast method (#568); the other options run exact.
+   * Exact or fast (#395). `false`: every option runs its exact method, the engine reference. `true`: each option listed in
+   * {@link SIMULATE_CAPTURE_FAST_OPTIONS} runs its fast method where it has one, a measured, bounded approximation of the exact
+   * one; an option without a fast method runs exact. An option's own record `fast` overrides this for that option only.
+   * Omitted (2.20.0), the format decides: fast for `output.format` "srgb-8" and "srgb-16" and for the display view, exact for
+   * "dng", "jpeg" and "png" (exports) and for `simulateIdealReference`. `diagnostics.fast` reports the resolved value, where it
+   * came from and what ran. Fast methods: `lens.catalogue` (#568, #567) and `lens.diffraction` under rolling-shutter rotation
+   * (#565); in the display view also its catalogue PSF zones, its sampling of uniform pixels and its AHD low-signal correction
+   * (docs/DISPLAY_VIEW.md). The exact result also carries `result.sensor.midGrey` (#535). Calculators should pass `fast: false`.
    */
   fast?: boolean;
   /** Aborting cancels the running task; the promise rejects with a domain error and returns no partial image. */
@@ -657,8 +682,10 @@ export type SimulateCaptureFastOption = typeof SIMULATE_CAPTURE_FAST_OPTIONS[num
 
 /** `diagnostics.fast` of a capture or display view (#395): what was asked for and what ran. */
 export interface SimulateCaptureFastReport {
-  /** True when `fast: true` was given at the top level or in any option's record. */
+  /** 2.20.0: the resolved top-level value (`fast`, else the format default), or true when any option's record sets `fast: true`. */
   requested: boolean;
+  /** 2.20.0: where the top-level value came from: the request's `fast`, or the format default (see {@link SimulateCaptureOptions.fast}). */
+  defaultedFrom: "request" | "format";
   /** Each fast-capable option that ran, in {@link SIMULATE_CAPTURE_FAST_OPTIONS} order: true where its fast method ran. */
   applied: Readonly<Partial<Record<SimulateCaptureFastOption, boolean>>>;
   /** `engine-reference` when every option ran exact; `approximation-with-a-priori-bound` when any fast method ran (the WebGPU execution record's values). */
@@ -836,16 +863,20 @@ export interface SimulateCaptureResult {
     limitations: readonly string[];
   };
   assumptions: readonly SimulateCaptureAssumption[];
+  /** #555, #535: the sensor characteristics used, the calculated dynamic range and (when the request resolves to exact) the mid-grey noise figure. */
+  sensor: SimulateCaptureSensorReport;
 }
 
 export const FACADE_EVIDENCE: readonly EvidenceProvenance[] = /* @__PURE__ */ Object.freeze([/* @__PURE__ */ Object.freeze({ sourceOrigin: "photivra" as const,
   sourceReference: "photivra:simulate-capture-facade", reuseStatus: "photivra-owned" as const })]);
 const DEFAULTS = /* @__PURE__ */ Object.freeze({ camera: "professional" as const, fNumber: 8, shutterSeconds: 1 / 125, iso: 100, compensationStops: 0,
   subjectDistanceM: 5, width: 64, height: 64, format: "srgb-8" as const, toneCurve: "identity" as const, highlightMode: "clip" as const,
-  whiteBalance: "scene-illuminant" as const, jpegQuantizationStep: 2, pixelPitchMicrometers: 6, spectralStepNanometers: 20,
+  whiteBalance: "scene-illuminant" as const, jpegQuantizationStep: 1, pixelPitchMicrometers: 6, spectralStepNanometers: 20,
   temporalSampleCount: 1, noiseSeed: 1, illuminantKelvin: 6500 });
 /** Standard output sensitivity S = 10 / H (CIPA DC-004-2020 §3.2): the reference exposure in lx·s is 10 / S. */
 const SOS_REFERENCE_EXPOSURE_NUMERATOR_LUX_SECONDS = 10;
+/** #565: the one-tap kernel that makes the image-space provider read each query at its lattice point. */
+const UNIT_SITE_KERNEL = /* @__PURE__ */ new Float64Array([1]);
 /** Camera equation H = 0.65·L·t/N² (CIPA DC-004-2020 §5.5 (4); 0.65 = τ·π/4 with τ = 0.828, Explanation 4). */
 const CAMERA_EQUATION_CONSTANT = 0.65;
 /** Neutral reference reflectance: DC-004 ties the SOS reference level to an 18 % grey (Explanation 1 and 2.2). */
@@ -899,15 +930,16 @@ function greyCardDeviationStops(fNumber: number, shutterSeconds: number, iso: nu
  */
 export const SIMULATE_CAPTURE_DEFAULT_ILLUMINANCE_LUX = Math.PI * sosReferenceLuminance(DEFAULTS.fNumber, DEFAULTS.shutterSeconds, DEFAULTS.iso) /
   GREY_CARD_REFLECTANCE;
-/**
- * Sensitive-aperture area (µm²) at which the tier's ISO signal chain applies unchanged: the default 6 µm square
- * aperture with fill factor 1. At other areas the facade scales the electron-domain readout values by
- * area / this reference, so the same focal-plane exposure H gives the same output code (see `isoAreaScaledReadout`).
- */
 /** 2.5: the largest accepted pixel pitch, µm (44 mm ÷ 48 pixels ≈ 917 µm, a whole full-frame or larger sensor at a small output). */
 const SIMULATE_CAPTURE_PIXEL_PITCH_MAXIMUM_MICROMETERS = 1000;
 /** Pitches above this, µm, are larger than any camera photosite: the capture is a downsized whole-frame view (assumption sensor.wholeFrameView). */
 const SIMULATE_CAPTURE_PHOTOSITE_PITCH_MAXIMUM_MICROMETERS = 100;
+/**
+ * Sensitive-aperture area (µm²) at which the tier's ISO signal chain applies unchanged: the default 6 µm square
+ * aperture with fill factor 1. At other areas the facade scales the electron-domain readout values by
+ * area / this reference, so the same focal-plane exposure H gives the same output code (the `chargeScale` of
+ * `characterizeReadout`, src/sensor/sensor-characteristics.ts).
+ */
 const ISO_REFERENCE_APERTURE_AREA_SQUARE_MICROMETERS = DEFAULTS.pixelPitchMicrometers * DEFAULTS.pixelPitchMicrometers;
 /** Demosaic border, native sites per side. */
 const MARGIN = 1;
@@ -1053,17 +1085,6 @@ const TEXT_METADATA_LAYOUT = /* @__PURE__ */ Object.freeze({
   dng: "ImageDescription (statement, then the description) and Copyright when printable ASCII; an XMP packet in tag 700 with every field"
 });
 type ReadoutProfile = GenericEquipmentTierPreset["body"]["readout"][number]["profile"];
-/**
- * The readout profile with every regime's charge-domain transfer scaled by `areaScale`: system conversion gain
- * (e⁻ per code) and pre-ADC saturation (e⁻ equivalent) are multiplied by it, so codes per unit focal-plane exposure
- * stay those of the reference aperture. Read noise stays in electrons per pixel; codes, black level, ADC and digital
- * gain are unchanged. The result is re-checked by the readout parser.
- */
-function isoAreaScaledReadout(profile: ReadoutProfile, areaScale: number): ReadoutProfile {
-  return parseSensorReadoutConversionProfile({ ...profile, regimes: profile.regimes.map((regime) => ({ ...regime,
-    systemConversionGainElectronsPerCode: { ...regime.systemConversionGainElectronsPerCode, value: regime.systemConversionGainElectronsPerCode.value * areaScale },
-    preAdcSaturationElectronEquivalent: { ...regime.preAdcSaturationElectronEquivalent, value: regime.preAdcSaturationElectronEquivalent.value * areaScale } })) });
-}
 /** Diagnostic clock for the 2.1 stage timings: `performance.now()` where the host has it. Never affects output. */
 export function clockMs(): number { return globalThis.performance?.now() ?? Date.now(); }
 function positive(value: unknown, name: string): number {
@@ -1424,6 +1445,12 @@ export async function simulateCapture(options: SimulateCaptureOptions): Promise<
 export interface SimulateCaptureDngPart {
   raw: Pick<NativeRawOutput, "codes" | "blackLevels" | "digitalSaturationCodes" | "saturationFlags" | "effectiveSaturationCodes">;
   region: { nativeRect: { x: number; y: number; width: number; height: number } };
+  /**
+   * 2.20.0: true when a fast method ran for this part (`Object.values(result.diagnostics.fast.applied).includes(true)`). The join
+   * refuses such a part unless its own request resolves to fast too (a DNG, JPEG or PNG is exact by default): render the parts with
+   * the same `fast` as the join, or with `fast: false`.
+   */
+  fast?: boolean;
 }
 
 /**
@@ -1442,7 +1469,7 @@ export async function serializeSimulatedCaptureDngFromParts(options: SimulateCap
 }
 
 /** The whole frame's packed RAW from region parts (see `serializeSimulatedCaptureDngFromParts`). */
-function joinNativeRawParts(value: unknown, plan: NativeRawOutput["plan"], width: number, height: number, caller: string): NativeRawOutput {
+function joinNativeRawParts(value: unknown, plan: NativeRawOutput["plan"], width: number, height: number, caller: string, fast: boolean): NativeRawOutput {
   if (!Array.isArray(value) || value.length === 0) throw new InvalidConfigurationError(caller + " needs at least one part.");
   const parts = value as readonly SimulateCaptureDngPart[], count = width * height;
   const codes = new Uint16Array(count), blackLevels = new Uint16Array(count), digitalSaturationCodes = new Uint16Array(count), saturationFlags = new Uint8Array(count);
@@ -1451,6 +1478,7 @@ function joinNativeRawParts(value: unknown, plan: NativeRawOutput["plan"], width
   parts.forEach((part, k) => {
     const rect = part?.region?.nativeRect, raw = part?.raw;
     if (!rect || !raw) bad(k, "needs raw and region.nativeRect (a region render's result).");
+    if (part.fast === true && !fast) bad(k, "a fast method rendered it, but this request resolves to the exact methods (fast: false, the default for a DNG, JPEG or PNG). Render the parts with fast: false, or pass fast: true here.");
     const { x, y, width: w, height: h } = rect!;
     if (![x, y, w, h].every(Number.isSafeInteger) || x < 0 || y < 0 || w < 1 || h < 1 || x + w > width || y + h > height) bad(k, "its nativeRect is not inside the frame's native raster.");
     const n = w * h;
@@ -1558,6 +1586,8 @@ export interface DisplayViewResult {
     /** #516: as in the capture result. */
     isoControl: "manual" | "automatic"; autoIso?: SimulateCaptureAutoIsoReport };
   scene: SimulateCaptureResult["scene"];
+  /** #555, #535: as in the capture result. */
+  sensor: SimulateCaptureSensorReport;
   /**
    * Work done: real pixels sampled, real-site expectations evaluated, scene queries, display pixels sampled in full (detail) or with
    * a quarter of the samples per axis (uniform), display pixels whose value includes the AHD low-signal correction, and wall-clock
@@ -1651,6 +1681,9 @@ export interface DisplayViewRunContext {
   preset: GenericEquipmentTierPreset;
   provider: PlanarSceneRadianceProvider;
   regimeByChannel: Record<"red" | "green" | "blue", { readoutProfile: ReadoutProfile; regimeId: string; }>;
+  sensor: SimulateCaptureSensorReport;
+  /** 2.20.0: the view's own fast methods, resolved: the AHD low-signal correction's draws and threshold (`output.demosaic.ahd`) and the quarter sampling of uniform pixels (top-level `fast`). */
+  viewFast: { ahd: boolean; uniformSampling: boolean };
   resolvedIso: number;
   /** #516: how the ISO was chosen, reported in the view's `exposure`. */
   isoReport: { isoControl: "manual" | "automatic"; autoIso?: SimulateCaptureAutoIsoReport };
@@ -1976,10 +2009,9 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
     }
     if (pupil) fail("lens.defocus cannot be combined with lens.pupilSampling: the pupil rays already render defocus, so it would be counted twice.");
     if (lensPsf) fail("lens.defocus cannot be combined with lens.psf: a caller PSF declares its own defocus, so it could be counted twice.");
-    // #549: with a catalogue lens the disc is convolved into the lens's PSF (below), not applied by the lens.defocus paths. The bokeh
-    // options (#553) shape the lens.defocus kernel only, so they are refused rather than dropped (a follow-up for a later release).
+    // #549, #567: with a catalogue lens its own bokeh kernel is convolved into its PSF (below); it sets all three bokeh options.
     if (catalogue && defocusBokeh) fail("lens.defocus.blades, sphericalAberration and catsEye cannot be combined with lens.catalogue: the catalogue lens " +
-      "folds a plain disc into its own PSF. Omit the bokeh options, or use lens.focalLengthMm instead of the catalogue lens.");
+      "sets its own (lens.catalogue.character). Omit the bokeh options, or use lens.focalLengthMm instead of the catalogue lens.");
     if (!catalogue) defocusModel = "geometric-disc";
   }
 
@@ -2013,10 +2045,26 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   const height = integerIn(pick(outputOptions, "height", "output.height", DEFAULTS.height, "64 × 64 output pixels."), "output.height", 1, maximumSide);
   const format = pick<SimulateCaptureOutputFormat>(outputOptions, "format", "output.format", DEFAULTS.format, "8-bit sRGB samples.");
   if (!["srgb-8", "srgb-16", "jpeg", "png", "dng"].includes(format)) fail("output.format must be srgb-8, srgb-16, jpeg, png or dng.");
-  let dngCapturedAtUtc: string | undefined;
+  // #570 and #587: which of the catalogue lens's corrections an option selects; none on is no option at all.
+  type Selection = { distortion: boolean; lateralColor: boolean; vignetting: boolean };
+  const correctionSelection = (value: unknown, name: string): Selection | undefined => {
+    if (value === undefined) return undefined;
+    const o = allowKeys(value, name, ["distortion", "lateralColor", "vignetting"]), selection = {} as Record<string, boolean>;
+    for (const key of ["distortion", "lateralColor", "vignetting"]) {
+      if (o[key] !== undefined && typeof o[key] !== "boolean") fail(name + "." + key + " must be true or false.");
+      selection[key] = o[key] === true;
+    }
+    if (!Object.values(selection).includes(true)) return undefined;
+    if (!catalogue) fail(name + " needs lens.catalogue: the corrections are the catalogue lens's own profile.");
+    return selection as Selection;
+  };
+  let dngCapturedAtUtc: string | undefined, dngOpcodeSelection: Selection | undefined;
   if (format === "dng") {
-    const d = allowKeys(outputOptions.dng, "output.dng", ["capturedAtUtc"]);
+    const d = allowKeys(outputOptions.dng, "output.dng", ["capturedAtUtc", "lensCorrectionOpcodes"]);
     dngCapturedAtUtc = d.capturedAtUtc as string | undefined;
+    // #587: the corrections as DNG opcodes, which apply to the whole frame's ActiveArea.
+    dngOpcodeSelection = correctionSelection(d.lensCorrectionOpcodes, "output.dng.lensCorrectionOpcodes");
+    if (dngOpcodeSelection && outputOptions.region !== undefined) fail("output.dng.lensCorrectionOpcodes needs the whole frame (no output.region).");
     if (dngCapturedAtUtc === undefined) assume("output.dng.capturedAtUtc", "default", null, "No capture time: the DNG carries no DateTimeOriginal (the engine never invents a wall clock).");
   } else if (outputOptions.dng !== undefined) fail("output.dng applies only to output.format \"dng\".");
   if (run === "dng-from-parts" && format !== "dng") fail("serializeSimulatedCaptureDngFromParts needs output.format \"dng\".");
@@ -2062,9 +2110,9 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   const whiteBalanceOption = pick<SimulateCaptureWhiteBalance>(outputOptions, "whiteBalance", "output.whiteBalance", DEFAULTS.whiteBalance,
     "White balance measured from a perfect white diffuser under the scene illuminant (a custom/grey-card white balance).");
   const jpegStep = format === "jpeg" ? integerIn(pick(outputOptions, "jpegQuantizationStep", "output.jpegQuantizationStep", DEFAULTS.jpegQuantizationStep,
-    "Constant JPEG quantization step 2 (not a manufacturer quality scale)."), "output.jpegQuantizationStep", 1, 255) : undefined;
+    "Constant JPEG quantization step 1 (not a manufacturer quality scale)."), "output.jpegQuantizationStep", 1, 255) : undefined;
   if (format !== "jpeg" && outputOptions.jpegQuantizationStep !== undefined) fail("output.jpegQuantizationStep applies only to output.format \"jpeg\".");
-  const sensorOptions = allowKeys(top.sensor, "sensor", ["pixelPitchMicrometers", "spectralStepNanometers", "temporalSampleCount", "noiseSeed", "antiAliasing", "pixelAperture"]);
+  const sensorOptions = allowKeys(top.sensor, "sensor", ["pixelPitchMicrometers", "spectralStepNanometers", "temporalSampleCount", "noiseSeed", "antiAliasing", "pixelAperture", ...SENSOR_CHARACTERISTIC_KEYS]);
   const pitch = positive(pick(sensorOptions, "pixelPitchMicrometers", "sensor.pixelPitchMicrometers", DEFAULTS.pixelPitchMicrometers,
     "6 µm pixels (about a 24 MP full-frame sensor). The simulated sensor is width × pitch wide, so small images are a central crop of a large sensor, not a downscaled full frame."), "sensor.pixelPitchMicrometers");
   if (pitch < 0.5 || pitch > SIMULATE_CAPTURE_PIXEL_PITCH_MAXIMUM_MICROMETERS) fail("sensor.pixelPitchMicrometers must be 0.5-" + SIMULATE_CAPTURE_PIXEL_PITCH_MAXIMUM_MICROMETERS + ".");
@@ -2075,6 +2123,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
     "Eight temporal midpoints across each site's exposure window sample the camera rotation (motion blur); raise it for long exposures or fast rotation.") :
     pick(sensorOptions, "temporalSampleCount", "sensor.temporalSampleCount", DEFAULTS.temporalSampleCount,
       "One temporal sample: the static scene and still camera make more samples unnecessary."), "sensor.temporalSampleCount", 1, 256);
+  const characteristics = parseSensorCharacteristics(sensorOptions);
   const noiseSeed = integerIn(pick(sensorOptions, "noiseSeed", "sensor.noiseSeed", DEFAULTS.noiseSeed, "Fixed noise seed 1 (deterministic output)."), "sensor.noiseSeed", 0, 0xffffffff);
   const antiAliasing = sensorOptions.antiAliasing === undefined ? undefined : parseAntiAliasing(sensorOptions.antiAliasing, pitch);
   const antiAliasingFast = antiAliasing ? fastOverride(sensorOptions.antiAliasing as Record<string, unknown>, "sensor.antiAliasing") : undefined;
@@ -2130,19 +2179,24 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   const borderOption = outputOptions.borderHandling as SimulateCaptureBorderHandling | undefined;
   if (demosaicOption !== undefined && demosaicOption !== "bilinear" && demosaicOption !== "ahd") fail("output.demosaic must be bilinear or ahd.");
   const ahd = demosaicOption === "ahd";
-  // #395: exact or fast per option. Only lens.catalogue has a fast method (#568); it reports true below when it ran.
+  // #395: exact or fast per option: the option record's `fast`, else the top-level one, else (2.20.0) the format's default: fast for
+  // sRGB samples and the display view, exact for the exports (DNG, JPEG, PNG) and the ideal reference. Fast methods report true when they run.
   if (top.fast !== undefined && typeof top.fast !== "boolean") fail("fast must be true or false.");
-  const fastTop = top.fast === true;
+  const fastTop = resolveFast(top.fast as boolean | undefined, fastFormatDefault(format, displayView ? "display-view" : idealReference ? "ideal-reference" : "capture"));
   const fastInUse: [SimulateCaptureFastOption, boolean, boolean | undefined][] = [["lens.diffraction", diffractionRadiusOption !== undefined, diffractionFast],
     ["lens.catalogue", catalogue !== undefined, catalogueFast],
     ["sensor.antiAliasing", antiAliasing !== undefined, antiAliasingFast], ["sensor.pixelAperture.box", boxAperture, boxFast], ["output.demosaic.ahd", ahd, demosaicFast]];
   const fastApplied: Partial<Record<SimulateCaptureFastOption, boolean>> = {};
   for (const [option, used] of fastInUse) if (used) fastApplied[option] = false;
   // #568: the catalogue's fast method, when requested (its record's flag, else the top-level one); whether it runs is decided with the RAW path.
-  const catalogueFastRequested = catalogue !== undefined && (catalogueFast ?? fastTop);
+  const catalogueFastRequested = catalogue !== undefined && resolveFast(catalogueFast, fastTop);
   let fastReport: SimulateCaptureFastReport = Object.freeze({
     requested: fastTop || [diffractionFast, catalogueFast, antiAliasingFast, boxFast, demosaicFast].some((value) => value === true),
-    applied: Object.freeze({ ...fastApplied }), assurance: "engine-reference" as const });
+    defaultedFrom: top.fast === undefined ? "format" : "request", applied: Object.freeze({ ...fastApplied }), assurance: "engine-reference" as const });
+  const markFast = (option: SimulateCaptureFastOption): void => {
+    fastApplied[option] = true;
+    fastReport = Object.freeze({ ...fastReport, applied: Object.freeze({ ...fastApplied }), assurance: "approximation-with-a-priori-bound" as const });
+  };
   if (borderOption !== undefined && borderOption !== "margin" && borderOption !== "mirror") fail("output.borderHandling must be margin or mirror.");
   const builtInDemosaic = demosaicOption === undefined ? undefined : createBuiltInBayerDemosaicProfiles({ kernel: "bilinear",
     captureModeId: IDS.mode, colorSamplingProfile, channelRoles: { red: "red", green: "green", blue: "blue" } }).value;
@@ -2154,19 +2208,11 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   // Geometry: the demosaic border (if any) on each side; output crop is the active area.
   const nativeWidth = width + 2 * margin, nativeHeight = height + 2 * margin;
   // Lens corrections (#570): the catalogue lens's corrections on the developed linear colour; all off is no option at all.
-  let lensCorrection: ReturnType<NonNullable<typeof lensKit>["prepareDevelopedLensCorrection"]> | undefined, lensCorrectionSelection: Record<string, boolean> | undefined;
-  if (outputOptions.lensCorrections !== undefined) {
-    const keys = ["distortion", "lateralColor", "vignetting"], o = allowKeys(outputOptions.lensCorrections, "output.lensCorrections", keys), selection: Record<string, boolean> = {};
-    for (const key of keys) {
-      if (o[key] !== undefined && typeof o[key] !== "boolean") fail("output.lensCorrections." + key + " must be true or false.");
-      selection[key] = o[key] === true;
-    }
-    if (keys.some((key) => selection[key])) {
-      if (idealReference) fail("simulateIdealReference does not take output.lensCorrections: a reference has no camera development.");
-      if (!catalogue || !lensKit) fail("output.lensCorrections needs lens.catalogue: the corrections are the catalogue lens's own profile.");
-      lensCorrectionSelection = selection;
-      lensCorrection = lensKit!.prepareDevelopedLensCorrection(catalogue!, selection as { distortion: boolean; lateralColor: boolean; vignetting: boolean }, width, height, pitch / 1000, lensKit!.genericLensDispersion);
-    }
+  let lensCorrection: ReturnType<NonNullable<typeof lensKit>["prepareDevelopedLensCorrection"]> | undefined;
+  const lensCorrectionSelection = correctionSelection(outputOptions.lensCorrections, "output.lensCorrections");
+  if (lensCorrectionSelection) {
+    if (idealReference) fail("simulateIdealReference does not take output.lensCorrections: a reference has no camera development.");
+    lensCorrection = lensKit!.prepareDevelopedLensCorrection(catalogue!, lensCorrectionSelection, width, height, pitch / 1000, lensKit!.genericLensDispersion);
   }
   // Region (2.3): a rectangle of the whole frame. Its native sites are the region plus the demosaic reach on each side
   // (clipped to the raster, where mirror borders apply exactly as in the whole render), with the origin rounded down to
@@ -2504,7 +2550,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   let catalogueTaps: number | undefined, catalogueDefocusApplied = false, catalogueKernelRadius = 0;
   if (catalogue && lensKit) {
     const { GENERIC_LENS_EVIDENCE, genericLensDistortionProfile, genericLensVignettingProfile, resolveGenericLens, simulateGenericLensFocusError, createGenericLensPsfProfile,
-      genericLensPsfKernelRadius, GENERIC_LENS_PSF_MAXIMUM_COMBINED_RADIUS_SITES } = lensKit;
+      genericLensPsfKernelRadius, GENERIC_LENS_PSF_MAXIMUM_COMBINED_RADIUS_SITES, genericLensBokehKernel } = lensKit;
     checkFNumber();
     if (lensOptions.focusScatter !== undefined) {
       const scatterOptions = allowKeys(lensOptions.focusScatter, "lens.focusScatter", ["seed", "shotIndex"]);
@@ -2517,19 +2563,30 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
       focusDistanceM = sample.focusDistanceM;
     }
     const character = resolveGenericLens({ lensId: catalogue.lensId, activeImagingArea: catalogueFrame!, fNumber, focusDistanceM });
-    let extraKernel: { weights: Float64Array; radius: number } | undefined;
+    let extraKernel: ReturnType<typeof genericLensBokehKernel> | undefined;
     if (lensOptions.defocus !== undefined) {
       const disc = resolveDefocusDisc({ focalLengthMm, aperture: fNumber, focusDistanceM, subjectDistanceM, pitchMicrometers: pitch });
       let discRadius: number;
       try { discRadius = requireDefocusDiscKernelRadius(disc.diameterSites); } catch { fail("lens.defocus: " + defocusDiscLimitMessage(disc.diameterSites, disc.diameterMicrometers)); }
-      const kernel = run === "ideal-reference" ? null : createDefocusDiscSiteKernel(disc.diameterSites);
-      if (kernel) { extraKernel = { weights: kernel.weights, radius: kernel.radius }; catalogueDefocusApplied = true; }
+      // #567: the lens's bokeh kernel (blades, its W040, a cat's eye) instead of the plain disc.
+      // The cat's eye (its finer fast grid) is lens.catalogue's exact method; fast leaves it out.
+      const catsEye = !catalogueFastRequested;
+      if (run !== "ideal-reference" && disc.diameterSites > 0) {
+        extraKernel = genericLensBokehKernel(character, disc.diameterSites, subjectDistanceM > focusDistanceM ? 1 : -1, pitch, catsEye); catalogueDefocusApplied = true;
+        if (!catsEye && character.character.bokeh.catsEye) {
+          markFast("lens.catalogue");
+          assume("fast.lens.catalogue.catsEye", "model", { method: "bokeh-without-cats-eye" }, "Fast: the lens's bokeh leaves out its cat's eye (the pupil clipped by field position), " +
+            "so the kernel is the axis kernel everywhere; the exact method (fast: false, the default for DNG, JPEG and PNG) shapes it at each field point.");
+        }
+      }
+      const k = extraKernel?.axis;
       assume("lens.defocus", "model", { model: "geometric-disc", scientificStatus: "approximation", diameterMicrometers: disc.diameterMicrometers, diameterSites: disc.diameterSites,
-        kernelRadiusSites: disc.diameterSites === 0 ? null : discRadius, fNumber, focusDistanceM, subjectDistanceM, samplePitchMicrometers: pitch,
-        defocusCircleModel: { id: "thin-lens-defocus-circle", version: "1.1.0" }, execution: "catalogue-lens-psf" },
+        kernelRadiusSites: disc.diameterSites === 0 ? null : k ? k.radius : discRadius, fNumber, focusDistanceM, subjectDistanceM, samplePitchMicrometers: pitch,
+        defocusCircleModel: { id: "thin-lens-defocus-circle", version: "1.1.0" }, execution: "catalogue-lens-psf",
+        ...(k ? { bokeh: { catsEye: catsEye && !!character.character.bokeh.catsEye, method: k.method, sphericalAberrationSites: k.sphericalAberrationSites, axisOpenAreaRatio: k.openAreaRatio } } : {}) },
       "Geometric defocus of the flat scene plane (an approximation): the thin-lens blur circle c = f²·|s − d| / (N·d·(s − f)) (calculateDefocusCircle 1.1.0) as a uniform disc sampled on the site lattice. " +
         (disc.diameterSites === 0 ? "In focus: no disc is applied." : run === "ideal-reference" ? "Resolved but not applied: the ideal reference has no camera effects." :
-          "With the catalogue lens the disc is convolved into every node of the lens's PSF (a further approximation: the defocused aberrated wave PSF is not exactly the in-focus PSF convolved with the disc) and applied through the environment PSF quadrature."));
+          "With the catalogue lens the disc is shaped by the lens's bokeh (#567, #553's kernel; see lens.catalogue.character) and convolved into every node of the lens's PSF (a further approximation: the defocused aberrated wave PSF is not exactly the in-focus PSF convolved with the disc) and applied through the environment PSF quadrature."));
     }
     // An upper bound of the PSF's radius (the built window may be narrower): the field reach below uses it.
     const kernelRadius = genericLensPsfKernelRadius({ lens: character, focusDistanceM, sitePitchMicrometers: pitch }) + (extraKernel ? extraKernel.radius : 0);
@@ -2567,7 +2624,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
     }
     assume("lens.catalogue.character", "model", { lensId: catalogue.lensId, fNumber, focusDistanceM, magnification: c.magnification, closeFocusGain: c.closeFocusGain, pupilScale: c.pupilScale,
       aberrationsWaves550: { ...c.aberrations }, lateralColor: { ...c.lateralColor }, distortionCorner: c.distortion.corner, vignettingCornerStops: c.vignetting.cornerStops,
-      notRendered: { strayLight: { ...c.strayLight }, breathing: { ...c.breathing }, focusScatterDepthOfFocusFraction: c.focusScatterDepthOfFocusFraction, bokeh: "disc (#553)" },
+      bokeh: c.bokeh, notRendered: { strayLight: { ...c.strayLight }, breathing: { ...c.breathing }, focusScatterDepthOfFocusFraction: c.focusScatterDepthOfFocusFraction },
       psf: psfReport, profiles: { vignetting, distortion: distortion.profile, maximumNormalizedRadius: reachRadius } },
     "The catalogue lens's character, a labelled approximation of a generic lens (docs/LENS_CATALOGUE.md): Seidel wave aberrations at the frame corner (spherical, balanced by defocus; coma; astigmatism; field curvature), " +
       "scaled from the widest aperture by the pupil ratio a = N0/N (a⁴, a³, a², a²) and by the close-focus factor; axial colour as a defocus and lateral colour as a radial shift, both with the normalised Cauchy dispersion. " +
@@ -2575,16 +2632,25 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
         "Rendered as a sampled PSF (scalar Fraunhofer diffraction of the aberrated circular pupil, integrated over each site cell, on a 5 × 5 field grid × 5 wavelengths with centroid-aligned interpolation) " +
         "through the environment PSF quadrature (one scene query per kernel tap), with the lens's radial distortion (r_d = r·(1 + k1ρ²)) and relative illumination (E = (1 − bρ²)²) as lens field mapping and field throughput" +
         (catalogue.kind === "fisheye" ? ", and the equisolid projection; directions at or beyond 90° see no scene (zero radiance), so a circular fisheye's image ends at its 180° circle" : "") + ". ") +
-      "Flare, focus breathing and bokeh shape are reported, not rendered; ρ is normalised to the frame's half-diagonal, so the lens is scaled to the simulated frame like lens.prime.");
+      "Flare and focus breathing are reported, not rendered; the bokeh shapes lens.defocus; ρ is normalised to the frame's half-diagonal, so the lens is scaled to the simulated frame like lens.prime.");
   }
   // #492: the capture applies the disc as an object-space convolution, which needs every disc point a site sees to be another site's scene point.
   // #548: a lens field mapping, vignetting or camera rotation breaks that, so the capture then applies the disc in image space, on the sensor's
   // site lattice (defocus-image-space-provider.ts). #563: the display view reads the same geometry in any focus (display-view-lens-signal.ts).
   const imageSpaceOptions = [...(lensFieldMapping ? [lensOptions.distortion !== undefined ? (lensOptions.projection !== undefined ? "lens.projection, lens.distortion" : "lens.distortion") : "lens.projection"] : []),
     ...(vignetting ? ["lens.vignetting"] : []), ...(rotating ? ["camera rotation"] : [])];
-  const lensGeometry = (defocusModel !== undefined || displayView) && imageSpaceOptions.length > 0 ? prepareDefocusImageSpaceGeometry({ focalLengthMm, focusDistanceM,
+  const lensGeometry = (defocusModel !== undefined || displayView || diffractionRadiusOption !== undefined) && imageSpaceOptions.length > 0 ? prepareDefocusImageSpaceGeometry({ focalLengthMm, focusDistanceM,
     angularVelocityRadPerSec: angular, ...(lensFieldMapping ? { lensMapping: prepareEnvironmentLensFieldMapping(lensFieldMapping) } : {}), ...(vignetting ? { vignetting } : {}) }) : undefined;
   const defocusGeometry = defocusModel !== undefined ? lensGeometry : undefined;
+  // #565: the in-focus PSF quadrature reads each tap's source on this lattice; with rotation under a rolling shutter (each row has its own
+  // instants, so a band per instant, about 1.2× the time) that is lens.diffraction's exact method, and each tap's own point its fast one.
+  const rollingFastTaps = !displayView && rotating && shutterKind === "rolling" && diffractionRadiusOption !== undefined && lensGeometry !== undefined && resolveFast(diffractionFast, fastTop);
+  if (rollingFastTaps) {
+    markFast("lens.diffraction");
+    assume("fast.lens.diffraction", "model", { method: "per-tap-source-points" }, "Fast: under rolling-shutter rotation each PSF tap reads the scene at its own source point, " +
+      "not at its site-lattice point, so a tap exactly on a chart boundary can resolve to the other material (#565); elsewhere the values agree to rounding. The exact method is fast: false.");
+  }
+  const latticeTaps = lensGeometry && !rollingFastTaps;
   // #553: the shaped kernel (on axis) and, with a cat's eye, its field zones; built when the disc is resolved out of focus.
   let bokehAxisKernel: DefocusBokehSiteKernel | undefined, bokehZones: DefocusBokehZonePlan | undefined;
   const bokehSummary = defocusBokeh === undefined ? undefined : (disc: ResolvedDefocusDisc): { value: Record<string, unknown>; explanation: string } => {
@@ -2654,19 +2720,23 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   // (EMVA 1288 Release 4.0, Eq. 3). The tier's signal chain is anchored to the 6 µm aperture; at another area the
   // charge-domain readout scales with the area so the same H gives the same code. At 6 µm nothing is changed.
   const areaScale = pitch * pitch / ISO_REFERENCE_APERTURE_AREA_SQUARE_MICROMETERS;
+  // #555: a full well replaces the area-scaled base-ISO saturation; the charge-domain transfer scales by the same rule.
+  const fullWell = characteristics?.fullWell, fullWellElectrons = fullWell && (fullWell.link === "none" ? fullWell.electrons : fullWell.electrons * (pitch / (fullWell.referencePixelPitchMicrometers ?? 6)) ** 2);
+  if (fullWellElectrons !== undefined && !(fullWellElectrons >= 100 && fullWellElectrons <= 1e10)) fail("sensor.fullWell must give 100 to 1e10 electrons at the pixel pitch (" + fullWellElectrons + ").");
+  const chargeScale = fullWellElectrons === undefined ? areaScale : fullWellElectrons / body.readout[0]!.profile.regimes[0]!.preAdcSaturationElectronEquivalent.value;
   const regimeByChannel = {} as Record<Channel, { readoutProfile: ReadoutProfile; regimeId: string }>;
   for (const channel of CHANNELS) {
     const asset = body.readout.find((a) => a.profile.channelId === channel) ?? fail("Camera readout lacks channel " + channel + ".");
     const chain = resolveGenericIsoSignalChain({ profile: body.signalChain, isoCapability: body.iso, requestedIsoSetting: { kind: "standard", exposureIndex: resolvedIso },
       captureModeId: IDS.mode, readoutProfile: asset.profile });
-    regimeByChannel[channel] = { readoutProfile: areaScale === 1 ? asset.profile : isoAreaScaledReadout(asset.profile, areaScale), regimeId: chain.readout.regime.regimeId };
+    regimeByChannel[channel] = { readoutProfile: characterizeReadout(asset.profile, chargeScale, characteristics), regimeId: chain.readout.regime.regimeId };
   }
-  const capacityRegimes = (areaScale === 1 ? body.readout[0]!.profile : isoAreaScaledReadout(body.readout[0]!.profile, areaScale)).regimes;
+  const capacityRegimes = characterizeReadout(body.readout[0]!.profile, chargeScale, characteristics).regimes;
   const baseRegime = capacityRegimes[0]! as unknown as { preAdcSaturationElectronEquivalent: { value: number } };
   const capacityElectrons = Math.max(...capacityRegimes.map((r) => (r as unknown as { preAdcSaturationElectronEquivalent: { value: number } }).preAdcSaturationElectronEquivalent.value),
     baseRegime.preAdcSaturationElectronEquivalent.value);
   assume("sensor.capacityElectrons", "derived", capacityElectrons, "Physical charge capacity set to the body's largest declared pre-ADC saturation (its base-ISO saturation signal), so storage never clips before the declared readout white.");
-  if (areaScale !== 1) {
+  if (areaScale !== 1 && !fullWell) {
     assume("sensor.isoAreaNormalization", "model", { referenceApertureAreaSquareMicrometers: ISO_REFERENCE_APERTURE_AREA_SQUARE_MICROMETERS,
       apertureAreaSquareMicrometers: pitch * pitch, areaScale },
     "Approximation. The tier's ISO signal chain is declared for a 6 µm square aperture. Standard output sensitivity S = 10/H (CIPA DC-004-2020 §3.2) is defined at the output, " +
@@ -2675,6 +2745,16 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
       "falls with smaller pixels. Read noise and dark current stay per pixel in electrons. The charge capacity follows the scaled base-ISO saturation, so it is proportional to " +
       "the aperture area: a design consequence of holding the tier's ISO rating and highlight headroom fixed, not a measured full-well model (published sensor data grow less than " +
       "proportionally with area across technologies).");
+  }
+  if (characteristics) {
+    const density = capacityElectrons / (pitch * pitch);
+    assume("sensor.characteristics", "model", { ...Object.fromEntries(SENSOR_CHARACTERISTIC_KEYS.filter((k) => sensorOptions[k] !== undefined).map((k) => [k, sensorOptions[k]])),
+      chargeScale, sensitivityOffsetStops: Math.log2(characteristics.qeScale * areaScale / chargeScale) },
+    "Approximation (#555), not a measured sensor: these replace the body's values. The full well is the base-ISO charge at the RAW white level (EMVA 1288 Release 4.0 saturation capacity); " +
+      "every ISO regime's conversion gain and pre-ADC saturation are multiplied by chargeScale. Each ISO keeps its regime, so the output per unit exposure changes by 2^sensitivityOffsetStops: " +
+      "the rating S = 10/H (CIPA DC-004-2020 §3.2) holds only if peak QE × pixel area / full well is the body's. Read noise replaces each regime's; the high gain's smaller storage is not modelled. " +
+      "A bit depth scales the black and saturation codes by 2^Δbits." + (density < 200 || density > 1e4 ? " Unusual for the pitch: " + density +
+      " e⁻/µm², outside 200–10 000 (a design range around the tiers' 556–1 667, not a published bound)." : ""));
   }
   // Whole-frame views (2.5): a pitch above 100 µm is larger than any camera photosite, so the capture is a downsized view of a frame width × pitch wide.
   if (pitch > SIMULATE_CAPTURE_PHOTOSITE_PITCH_MAXIMUM_MICROMETERS) {
@@ -2713,7 +2793,10 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   // Shutter (2.0): the electronic rolling-shutter schedule derived from the body's rolling readout declaration.
   let rollingSchedule: ElectronicRollingShutterExposureSchedule | undefined;
   if (shutterKind === "rolling") {
-    const declared = (body as { rollingReadoutTiming?: { profile: unknown } }).rollingReadoutTiming?.profile as Parameters<typeof resolveElectronicRollingShutterExposureSchedule>[0]["readout"] | undefined;
+    const bodyReadout = (body as { rollingReadoutTiming?: { profile: unknown } }).rollingReadoutTiming?.profile as Parameters<typeof resolveElectronicRollingShutterExposureSchedule>[0]["readout"] | undefined;
+    // #555: sensor.readoutSeconds replaces the body's readout time and skew.
+    const seconds = characteristics?.readoutSeconds, declared = bodyReadout && seconds ? { ...bodyReadout, captureReadoutDurationSeconds: { ...bodyReadout.captureReadoutDurationSeconds, value: seconds },
+      spatialSamplingSkewSeconds: { ...bodyReadout.spatialSamplingSkewSeconds!, value: seconds } } : bodyReadout;
     if (!declared || declared.readoutMode !== "rolling") fail("motion.shutter \"rolling\" needs a camera body with a rolling readout timing declaration.");
     const readout = rollingSkewOption === undefined ? declared : { ...declared, spatialSamplingSkewSeconds: { value: rollingSkewOption, unit: "s" as const, evidence: FACADE_EVIDENCE } };
     rollingSchedule = resolveElectronicRollingShutterExposureSchedule({ readout, linkageEvidence: FACADE_EVIDENCE,
@@ -2812,7 +2895,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   const eqeSpacing = (range.maximum - range.minimum) / Math.ceil((range.maximum - range.minimum) / spectralStep);
   const eqeSamples = (channel: Channel): { nm: number; value: number }[] => {
     const out: { nm: number; value: number }[] = [];
-    for (let nm = range.minimum; nm <= range.maximum + 1e-9; nm += eqeSpacing) out.push({ nm, value: EQE_SCALE[channel] * estimateCie1931ColorMatchingFunctions(nm)[CMF_KEY[channel]] * 555 / nm });
+    for (let nm = range.minimum; nm <= range.maximum + 1e-9; nm += eqeSpacing) out.push({ nm, value: EQE_SCALE[channel] * estimateCie1931ColorMatchingFunctions(nm)[CMF_KEY[channel]] * 555 / nm * (characteristics?.qeScale ?? 1) });
     return out;
   };
   const operatingConditions = { temperatureC: 25, incidenceAngleDegreesFromNormal: 0, polarization: "unpolarized" as const };
@@ -2873,9 +2956,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
       samples: { value: [{ wavelengthNanometers: range.minimum, linearTransmissionFactor: lens.matchedReference.transmission },
         { wavelengthNanometers: range.maximum, linearTransmissionFactor: lens.matchedReference.transmission }], evidence: preset.evidence },
       uncertainty: { kind: "not-quantified" as const, limitation: "Synthetic spectrally flat transmission from the tier preset." } },
-    distortionAreaMappingOwnership: "not-applied-by-bridge" as const, psfRedistributionOwnership: "downstream-normalized-energy-redistribution" as const,
-    sensorOpticalStackIncluded: false, strayLightIncluded: false, polarizationModeled: false, wavelengthChangingBehaviorModeled: false, volumetricScatteringModeled: false,
-    evidence: preset.evidence, limitations: [...lens.limitations, "Flat transmission applied across the lens capability by the capture facade."] };
+    ...SCENE_TO_SENSOR_BRIDGE_SCOPE, evidence: preset.evidence, limitations: [...lens.limitations, "Flat transmission applied across the lens capability by the capture facade."] };
   const optics = { profile: opticsProfile, focalLengthMm, nominalFNumber: fNumber,
     focus: { kind: "ideal-symmetric-thin-lens" as const, objectDistanceM: focusDistanceM, pupilMagnificationAssumption: "unity" as const } };
   const motion = { angularVelocityRadPerSec: angular, timeReference: "first-opening-boundary-phase" as const, environmentDirectionConvention: "outgoing-radiance-toward-camera" as const };
@@ -2922,7 +3003,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
       (diffractionObjectSpace ? "Applied as an object-space convolution: the scene radiance on the site lattice is convolved once per spectral node (calculateIrradianceConvolution) and the provider answers each site query with it, so the site inputs declare no PSF; this equals the per-tap environment PSF quadrature for this still, distortion-free planar scene (request.diffraction.psf). " :
         defocusImageSpace ? "Applied with lens.defocus as one image-space kernel per spectral node (the diffraction kernel convolved with the disc) on the sensor's site lattice (#548; see the lens.defocus assumption), " +
           "the same sum as the environment PSF quadrature with that kernel. " :
-        "Applied through the environment PSF quadrature (one scene query per kernel tap), because camera rotation, a lens field mapping or vignetting moves the taps off the site lattice. ") +
+        "Applied through the environment PSF quadrature (one scene query per kernel tap), because camera rotation, a lens field mapping or vignetting moves the taps off the site lattice" + (latticeTaps ? "; each tap reads the scene at its lattice point (#565). " : ". ")) +
       "No defocus, aberration or pupil clipping; " + (boxAperture ? "the pixel aperture is integrated as declared by sensor.pixelAperture." : "the sensor pixel aperture is still point-sampled at the site centre."));
   }
   // #492: each spectral node's kernel for lens.defocus out of focus: the disc, or with lens.diffraction the node's diffraction kernel convolved
@@ -2988,6 +3069,9 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
     limitation: "Ideal uniform circular pupil; finite ray sampling, no convergence claim." } : undefined;
   const chargeSamplingProfile = { schemaVersion: "0.1.0" as const, profileId: IDS.chargeSampling, completenessProfileId: IDS.completeness, scientificStatus: "approximation" as const,
     photoShotNoiseModel: "poisson" as const, darkShotNoiseModel: "poisson" as const, additionalComponentPolicies: [], evidence, limitations: ["Poisson photo and dark shot noise."] };
+  // #555: the body's fixed-pattern noise profile, opt-in; the display view's expected-value estimate has no fixed pattern.
+  const fixedPattern = characteristics?.fixedPatternNoise ? body.fixedPatternNoise.profile : undefined;
+  if (fixedPattern && displayView) fail("simulateDisplayView does not render sensor.fixedPatternNoise; use simulateCapture.");
   const channelAt = (x: number, y: number): Channel => (["red", "green", "green", "blue"] as const)[(y % 2) * 2 + (x % 2)]!;
   function siteInput(index: number): SimulateEnvironmentSensorRawFrameInput["sites"][number] {
     if (!Number.isSafeInteger(index) || index < 0 || index >= nativeWidth * nativeHeight) fail("Native site index out of range.");
@@ -3014,7 +3098,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
         capacityMeaning: "physical-charge-storage-capacity-electrons", capacityElectrons, scientificStatus: "approximation",
         uncertainty: { kind: "not-quantified", limitation: "Derived from the tier's declared saturation signal." }, evidence, siteApplicability: { kind: "exact-site", site },
         operatingState: { stateId: IDS.operatingState, evidence }, temperatureApplicability: { kind: "exact-reference-temperature", temperatureC: OPERATING_TEMPERATURE_C } },
-        operatingStateId: IDS.operatingState, readoutProfile: r.readoutProfile, regimeId: r.regimeId } } as unknown as SimulateEnvironmentSensorRawFrameInput["sites"][number];
+        operatingStateId: IDS.operatingState, readoutProfile: r.readoutProfile, regimeId: r.regimeId, ...(fixedPattern ? { fixedPatternNoise: fixedPattern } : {}) } } as unknown as SimulateEnvironmentSensorRawFrameInput["sites"][number];
   }
   const readTile = async (request: { captureId: string; frameId: string; x: number; y: number; width: number; height: number }): Promise<NativeEnvironmentRawTile> =>
     ({ ...request, sites: Array.from({ length: request.width }, (_, j) => siteInput(request.y * nativeWidth + request.x + j)) });
@@ -3032,16 +3116,19 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
       wavelengthsNm: defocusSiteKernels.wavelengthsNm, kernelRadius: defocusSiteKernels.radius, nativeWidth, nativeHeight, outputWidth: width,
       sitePitchMicrometers: pitch, distanceM: subjectDistanceM, metresPerFrameUnit, onConvolution: (ms) => { defocusMs += ms; },
       ...(window ? { window } : {}), ...(bokehZones ? { fieldZones: bokehZones.zones } : {}),
-      ...(antiAliasing || boxSamples > 1 ? { queryOffsetsSites: apertureNodeOffsets(boxSamples).flatMap((node) =>
-        (antiAliasing ? antiAliasing.components : [{ offsetMicrometers: { x: 0, y: 0 } }]).map((c) => ({ x: node.x - c.offsetMicrometers.x / pitch, y: node.y - c.offsetMicrometers.y / pitch }))) } : {}) }) :
+      ...(antiAliasing || boxSamples > 1 ? { queryOffsetsSites } : {}) }) :
     diffraction && diffractionObjectSpace ? createDiffractedPlanarProvider({ base: provider, psf: diffractionPsf!.configuration.psf,
       wavelengthsNm: diffraction.profile.axes.wavelengthNm, kernelRadius: diffraction.kernelRadiusSamples, nativeWidth, nativeHeight, outputWidth: width,
       sitePitchMicrometers: pitch, distanceM: subjectDistanceM, metresPerFrameUnit, onConvolution: (ms) => { diffractionMs += ms; },
       // Region (2.6): convolve only the lattice the region's native sites query; the values are the whole render's.
       ...(window ? { window } : {}),
       // The environment queries each site at each aperture node minus each split offset (sites, +x right, +y down).
-      ...(antiAliasing || boxSamples > 1 ? { queryOffsetsSites: apertureNodeOffsets(boxSamples).flatMap((node) =>
-        (antiAliasing ? antiAliasing.components : [{ offsetMicrometers: { x: 0, y: 0 } }]).map((c) => ({ x: node.x - c.offsetMicrometers.x / pitch, y: node.y - c.offsetMicrometers.y / pitch }))) } : {}) }) : provider;
+      ...(antiAliasing || boxSamples > 1 ? { queryOffsetsSites } : {}) }) :
+    // #565: the PSF quadrature reads each tap's source at its lattice point (a unit kernel on #548's lattice), so ties resolve as on the lattice.
+    diffraction && latticeTaps ? createDefocusImageSpaceProvider({ base: provider, geometry: lensGeometry, siteKernels: () => UNIT_SITE_KERNEL,
+      kernelRadius: 0, wavelengthsNm: diffraction.profile.axes.wavelengthNm, nativeWidth, nativeHeight, sitePitchMicrometers: pitch, distanceM: subjectDistanceM, metresPerFrameUnit,
+      queryOffsetsSites: [-1, 0, 1].flatMap((k) => queryOffsetsSites.map((o) => ({ x: o.x + k * diffraction.kernelRadiusSamples, y: o.y + k * diffraction.kernelRadiusSamples }))),
+      timesPerBand: temporalSampleCount, ...(window ? { window } : {}) }) : provider;
   // Built on first use: a capture that takes the tabulated path (#394 step 2) never queries it, and its kernels cost a setup.
   let rawProviderBuilt: PlanarSceneRadianceProvider | undefined;
   const rawProvider = (): PlanarSceneRadianceProvider => (rawProviderBuilt ??= diffractedProvider(regionNative));
@@ -3117,8 +3204,13 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   // site centre plus the kernel radius and the largest query offset.
   // #569: a catalogue lens's field-dependent PSF, read per field zone by the lens signal (display-view-lens-signal.ts, loaded on demand).
   const viewLensKit = displayView && lensGeometry ? await import("./display-view-lens-signal.js") : undefined;
+  // 2.20.0: the field zones are lens.catalogue's fast method in the view; exact resolves the PSF at every site (zones of one site).
   const displayViewLensPsf = viewLensKit && catalogue && lensPsf ?
-    viewLensKit.createDisplayViewLensPsf(lensPsf.configuration.psf as Parameters<typeof viewLensKit.createDisplayViewLensPsf>[0], catalogueKernelRadius, nativeWidth, nativeHeight, pitch) : undefined;
+    viewLensKit.createDisplayViewLensPsf(lensPsf.configuration.psf as Parameters<typeof viewLensKit.createDisplayViewLensPsf>[0], catalogueKernelRadius, nativeWidth, nativeHeight, pitch,
+      catalogueFastRequested ? undefined : Math.max(nativeWidth, nativeHeight)) : undefined;
+  if (displayViewLensPsf && displayViewLensPsf.zoneSites > 1) markFast("lens.catalogue");
+  const viewAhdFast = ahd && resolveFast(demosaicFast, fastTop);
+  if (displayView && viewAhdFast) markFast("output.demosaic.ahd");
   if (displayViewLensPsf) assume("view.lensPsf", "model", { method: "piecewise-constant-field-zones", zoneSites: displayViewLensPsf.zoneSites, kernelRadiusSites: catalogueKernelRadius, scientificStatus: "approximation" },
   "Each site takes the lens PSF at its field zone's centre, where the capture resolves it at each query point (docs/DISPLAY_VIEW.md, \"Catalogue lenses\").");
   const lensSignal = viewLensKit ? viewLensKit.prepareDisplayViewLensSignal({ geometry: lensGeometry!,
@@ -3126,7 +3218,14 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
     pitch, imagingArea, boxSamples, spots: antiAliasing ? antiAliasing.components : [{ offsetMicrometers: { x: 0, y: 0 } }], psf: displayViewLensPsf, zeroBeyondHorizon: catalogue?.kind === "fisheye" }, nativeWidth, nativeHeight,
   (diffraction ? diffraction.kernelRadiusSamples : 0) + (displayViewDefocus ? (bokehAxisKernel?.radius ?? defocusDiscKernelRadius(displayViewDefocus.diameterSites)) : 0) + catalogueKernelRadius +
     Math.max(0, ...queryOffsetsSites.map((o) => Math.max(Math.abs(o.x), Math.abs(o.y)))) - 0.5, catalogue ? "lens.catalogue" : imageSpaceOptions.join(", ")) : undefined;
-  if (displayView) return await renderView!({ lens: lensSignal, lensPsf: displayViewLensPsf, ahd, fastReport, antiAliasing, aspect, assume, assumptions, axisChannelResponse, boxSamples, buildProvider, callerScene, chart, materialLayers, chartReport, chartSize, diffraction, defocus: displayViewDefocus, diffractionPsf, fNumber, focalLengthMm, focusDistanceM, height, highlightMode, exposureGain, illuminanceLux, illuminant, illuminantOption, imagingArea, intentOf, metresPerFrameUnit, noiseSeed, outputOptions, parsedView, pitch, preset, provider, regimeByChannel, resolvedIso, isoReport, standardExposureDeviationStops: exposureDeviationStops, standardExposureIlluminanceLux: exposureIlluminanceLux, greyCardDeviationStops: exposureGreyCardDeviationStops, metering, sceneOption, scenePreset, shutterSeconds, started, subjectDistanceM, toneCurve, whiteBalanceOption, whiteBalanceState, width, checkAbort, margin, mode, nativeHeight, nativeWidth, sourceSha256, yieldControl, kelvinWhiteBalanceInput });
+  // #535: the green channel's expected charge from an 18 % Lambertian grey patch (radiance 0.18·E·S(λ)/π) next to the axis, and the sensor report;
+  // the mid-grey figure only when the request resolves to exact (fast: false, the exports' default): it costs about 0.3 ms.
+  let greyElectrons: number | undefined = fastTop ? undefined : 0;
+  if (!idealReference && greyElectrons !== undefined) for (const [nm, a] of axisChannelResponse(displayView ? "simulateDisplayView" : "simulateCapture").electronsPerRadiance.green) greyElectrons += a * GREY_CARD_REFLECTANCE * irradianceScale * illuminant.shape.evaluate(nm) / Math.PI;
+  const sensor = sensorReport(regimeByChannel.green.readoutProfile, regimeByChannel.green.regimeId, capacityElectrons, greyElectrons, DARK_CURRENT_ELECTRONS_PER_SECOND * shutterSeconds,
+    { pixelPitchMicrometers: pitch, peakQuantumEfficiency: 0.5 * (characteristics?.qeScale ?? 1),
+      readoutSeconds: characteristics?.readoutSeconds ?? (body as { rollingReadoutTiming?: { profile: { spatialSamplingSkewSeconds?: { value: number } } } }).rollingReadoutTiming?.profile.spatialSamplingSkewSeconds?.value ?? null }, fixedPattern);
+  if (displayView) return await renderView!({ sensor, viewFast: { ahd: viewAhdFast, uniformSampling: fastTop }, lens: lensSignal, lensPsf: displayViewLensPsf, ahd, fastReport, antiAliasing, aspect, assume, assumptions, axisChannelResponse, boxSamples, buildProvider, callerScene, chart, materialLayers, chartReport, chartSize, diffraction, defocus: displayViewDefocus, diffractionPsf, fNumber, focalLengthMm, focusDistanceM, height, highlightMode, exposureGain, illuminanceLux, illuminant, illuminantOption, imagingArea, intentOf, metresPerFrameUnit, noiseSeed, outputOptions, parsedView, pitch, preset, provider, regimeByChannel, resolvedIso, isoReport, standardExposureDeviationStops: exposureDeviationStops, standardExposureIlluminanceLux: exposureIlluminanceLux, greyCardDeviationStops: exposureGreyCardDeviationStops, metering, sceneOption, scenePreset, shutterSeconds, started, subjectDistanceM, toneCurve, whiteBalanceOption, whiteBalanceState, width, checkAbort, margin, mode, nativeHeight, nativeWidth, sourceSha256, yieldControl, kelvinWhiteBalanceInput });
   // Ideal reference (2.3): the scene without camera effects, at the capture's own exposure, white balance and encoding.
   if (idealReference) {
     const referenceStarted = clockMs();
@@ -3284,14 +3383,13 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   }
   let rawOutput: { raw: NativeRawOutput; providerEvaluationCount: number };
   if (dngParts !== undefined) {
-    rawOutput = { raw: joinNativeRawParts(dngParts, plan, nativeWidth, nativeHeight, partsCaller), providerEvaluationCount: 0 };
+    rawOutput = { raw: joinNativeRawParts(dngParts, plan, nativeWidth, nativeHeight, partsCaller, fastReport.requested), providerEvaluationCount: 0 };
     if (run === "develop-from-parts") assume("parts", "model", { partCount: (dngParts as readonly unknown[]).length },
       "The whole render's RAW, joined from region renders of this request (#571); how they were rendered is in their results.");
   }
   else if (tabulated && catalogueFastRun) {
     rawOutput = { raw: tabulated.raw, providerEvaluationCount: tabulated.providerEvaluationCount };
-    fastApplied["lens.catalogue"] = true;
-    fastReport = Object.freeze({ ...fastReport, applied: Object.freeze({ ...fastApplied }), assurance: "approximation-with-a-priori-bound" as const });
+    markFast("lens.catalogue");
     for (const a of lensKit!.catalogueFastAssumptions(catalogueFastRun)) assume(a.id, "model", a.value, a.explanation);
   }
   else if (tabulated) {
@@ -3372,9 +3470,12 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
       return [channel, { conversionGainElectronsPerCode: resolved.regime.systemConversionGainElectronsPerCode.value / (resolved.regime.adc.digitalGain ?? 1),
         readNoiseRmsElectrons: resolved.combinedReadNoiseRmsElectrons }];
     }));
-    const dngStarted = clockMs();
+    const dngStarted = clockMs(), opcodes = dngOpcodeSelection && lensKit!.createDngLensCorrectionOpcodes(lensKit!.resolveGenericLens({ lensId: catalogue!.lensId, activeImagingArea: catalogueFrame!, fNumber }),
+      dngOpcodeSelection, width, height, pitch / 1000, lensKit!.genericLensDispersion);
     dng = await serializeNativeRawDng({ raw: rawOutput.raw, colorProfile, noise, ...(dngCapturedAtUtc === undefined ? {} : { capturedAtUtc: dngCapturedAtUtc }),
-      ...(textMetadata ? { textMetadata } : {}) });
+      ...(textMetadata ? { textMetadata } : {}), ...(opcodes ? { opcodeList3: opcodes.opcodeList3 } : {}) });
+    if (opcodes) assume("output.dng.lensCorrectionOpcodes", "model", { tag: 51022, opcodes: opcodes.opcodes },
+      "output.lensCorrections' profile as optional DNG opcodes, in order (docs/NATIVE_RAW_AND_PRINT.md, \"Lens-correction opcodes\"); the RAW is unchanged.");
     encodeMs = clockMs() - dngStarted;
     assumeTextMetadata(TEXT_METADATA_LAYOUT.dng);
     checkAbort();
@@ -3573,6 +3674,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
     request: { environmentRaw: finalRawInput, siteInput, development, whiteBalanceState,
       ...(diffraction ? { diffraction: { profile: diffraction, psf: diffractionPsf!, execution: diffractionObjectSpace ? "object-space-convolution" as const :
         defocusImageSpace ? "image-space-convolution" as const : "environment-psf-quadrature" as const } } : {}) },
+    sensor,
     exposure: { mode, settings: { fNumber, shutterSeconds, iso: resolvedIso }, ev100: Math.log2(fNumber ** 2 / shutterSeconds), ...isoReport,
       metering, meteredSceneLuminanceCdPerSquareMeter: meteredLuminance, standardExposureDeviationStops: exposureDeviationStops,
       standardExposureIlluminanceLux: exposureIlluminanceLux, greyCardDeviationStops: exposureGreyCardDeviationStops, resolution },

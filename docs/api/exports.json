@@ -1,6 +1,6 @@
 {
-  "packageVersion": "2.19.0",
-  "engineApiVersion": "2.19.0",
+  "packageVersion": "2.20.0",
+  "engineApiVersion": "2.20.0",
   "exports": [
     {
       "name": "AbsoluteUncertaintyEstimate",
@@ -75,6 +75,11 @@
     {
       "name": "AntiAliasingPointSplitComponent",
       "source": "src/sensor/optical-stack.ts",
+      "kind": "type"
+    },
+    {
+      "name": "ApertureDiameter",
+      "source": "src/optics/aperture-diameter.ts",
       "kind": "type"
     },
     {
@@ -363,6 +368,16 @@
       "kind": "type"
     },
     {
+      "name": "calculateApertureDiameter",
+      "source": "src/optics/aperture-diameter.ts",
+      "kind": "runtime"
+    },
+    {
+      "name": "CalculateApertureDiameterInput",
+      "source": "src/optics/aperture-diameter.ts",
+      "kind": "type"
+    },
+    {
       "name": "calculateAtmosphericHaze",
       "source": "src/optics/atmospheric-haze.ts",
       "kind": "runtime"
@@ -583,6 +598,16 @@
       "kind": "runtime"
     },
     {
+      "name": "calculateCropToMatchFocalLength",
+      "source": "src/output/crop-to-match-focal-length.ts",
+      "kind": "runtime"
+    },
+    {
+      "name": "CalculateCropToMatchFocalLengthInput",
+      "source": "src/output/crop-to-match-focal-length.ts",
+      "kind": "type"
+    },
+    {
       "name": "calculateDefocusBokehKernel",
       "source": "src/optics/defocus-bokeh-kernel.ts",
       "kind": "runtime"
@@ -630,6 +655,16 @@
     {
       "name": "CalculateDepthOfFieldInput",
       "source": "src/optics/depth-of-field.ts",
+      "kind": "type"
+    },
+    {
+      "name": "calculateDetailLimit",
+      "source": "src/optics/detail-limit.ts",
+      "kind": "runtime"
+    },
+    {
+      "name": "CalculateDetailLimitInput",
+      "source": "src/optics/detail-limit.ts",
       "kind": "type"
     },
     {
@@ -1150,6 +1185,11 @@
     {
       "name": "calculatePrintSizeLimit",
       "source": "src/output/print-plan.ts",
+      "kind": "runtime"
+    },
+    {
+      "name": "calculatePrintSizeLimitWithBlurAndNoise",
+      "source": "src/output/print-size-blur-noise.ts",
       "kind": "runtime"
     },
     {
@@ -2753,6 +2793,11 @@
       "kind": "type"
     },
     {
+      "name": "CropToMatchFocalLength",
+      "source": "src/output/crop-to-match-focal-length.ts",
+      "kind": "type"
+    },
+    {
       "name": "DeadLeavesChartScene",
       "source": "src/facade/chart-scenes.ts",
       "kind": "type"
@@ -2820,6 +2865,56 @@
     {
       "name": "DepthOfField",
       "source": "src/optics/depth-of-field.ts",
+      "kind": "type"
+    },
+    {
+      "name": "DETAIL_LIMIT_LIMITS",
+      "source": "src/optics/detail-limit.ts",
+      "kind": "runtime"
+    },
+    {
+      "name": "DetailLimit",
+      "source": "src/optics/detail-limit.ts",
+      "kind": "type"
+    },
+    {
+      "name": "DetailLimitBasis",
+      "source": "src/optics/detail-limit.ts",
+      "kind": "type"
+    },
+    {
+      "name": "DetailLimitCatalogueLens",
+      "source": "src/optics/detail-limit.ts",
+      "kind": "type"
+    },
+    {
+      "name": "DetailLimitedBy",
+      "source": "src/optics/detail-limit.ts",
+      "kind": "type"
+    },
+    {
+      "name": "DetailLimitIdealLens",
+      "source": "src/optics/detail-limit.ts",
+      "kind": "type"
+    },
+    {
+      "name": "DetailLimitingFactor",
+      "source": "src/optics/detail-limit.ts",
+      "kind": "type"
+    },
+    {
+      "name": "DetailLimitOptics",
+      "source": "src/optics/detail-limit.ts",
+      "kind": "type"
+    },
+    {
+      "name": "DetailLimitSampling",
+      "source": "src/optics/detail-limit.ts",
+      "kind": "type"
+    },
+    {
+      "name": "DetailLimitSystem",
+      "source": "src/optics/detail-limit.ts",
       "kind": "type"
     },
     {
@@ -5968,6 +6063,11 @@
       "kind": "runtime"
     },
     {
+      "name": "PrintBlurInput",
+      "source": "src/output/print-size-blur-noise.ts",
+      "kind": "type"
+    },
+    {
       "name": "PrintContrastReference",
       "source": "src/output/print-contrast-reference.ts",
       "kind": "type"
@@ -5990,6 +6090,11 @@
     {
       "name": "PrintedImageSize",
       "source": "src/output/print-plan.ts",
+      "kind": "type"
+    },
+    {
+      "name": "PrintImageMm",
+      "source": "src/output/print-size-blur-noise.ts",
       "kind": "type"
     },
     {
@@ -6045,6 +6150,11 @@
     {
       "name": "PrintNativeSource",
       "source": "src/output/print-plan.ts",
+      "kind": "type"
+    },
+    {
+      "name": "PrintNoiseInput",
+      "source": "src/output/print-size-blur-noise.ts",
       "kind": "type"
     },
     {
@@ -6113,6 +6223,11 @@
       "kind": "type"
     },
     {
+      "name": "PrintSharpCleanCriterion",
+      "source": "src/output/print-size-blur-noise.ts",
+      "kind": "type"
+    },
+    {
       "name": "PrintSinusoidalMeasurement",
       "source": "src/output/print-detail.ts",
       "kind": "type"
@@ -6130,6 +6245,16 @@
     {
       "name": "PrintSizeLimitInput",
       "source": "src/output/print-plan.ts",
+      "kind": "type"
+    },
+    {
+      "name": "PrintSizeLimitWithBlurAndNoise",
+      "source": "src/output/print-size-blur-noise.ts",
+      "kind": "type"
+    },
+    {
+      "name": "PrintSizeLimitWithBlurAndNoiseInput",
+      "source": "src/output/print-size-blur-noise.ts",
       "kind": "type"
     },
     {
@@ -8513,6 +8638,11 @@
       "kind": "runtime"
     },
     {
+      "name": "SIMULATE_CAPTURE_FAST_METHODS",
+      "source": "src/facade/fast-methods.ts",
+      "kind": "runtime"
+    },
+    {
       "name": "SIMULATE_CAPTURE_FAST_OPTIONS",
       "source": "src/facade/simulate-capture.ts",
       "kind": "runtime"
@@ -8603,6 +8733,11 @@
       "kind": "type"
     },
     {
+      "name": "SimulateCaptureFastMethod",
+      "source": "src/facade/fast-methods.ts",
+      "kind": "type"
+    },
+    {
       "name": "SimulateCaptureFastOption",
       "source": "src/facade/simulate-capture.ts",
       "kind": "type"
@@ -8643,6 +8778,11 @@
       "kind": "type"
     },
     {
+      "name": "SimulateCaptureNoiseComponents",
+      "source": "src/sensor/sensor-characteristics.ts",
+      "kind": "type"
+    },
+    {
       "name": "SimulateCaptureOptions",
       "source": "src/facade/simulate-capture.ts",
       "kind": "type"
@@ -8670,6 +8810,16 @@
     {
       "name": "SimulateCaptureSensorAntiAliasing",
       "source": "src/facade/simulate-capture.ts",
+      "kind": "type"
+    },
+    {
+      "name": "SimulateCaptureSensorCharacteristics",
+      "source": "src/sensor/sensor-characteristics.ts",
+      "kind": "type"
+    },
+    {
+      "name": "SimulateCaptureSensorReport",
+      "source": "src/sensor/sensor-characteristics.ts",
       "kind": "type"
     },
     {

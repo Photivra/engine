@@ -17,7 +17,7 @@ import { parseIsoCapabilityProfile, type IsoCapabilityProfile } from "./iso-capa
 import { parseGenericReleaseCapabilityProfile, type GenericReleaseCapabilityProfile } from "./release-capabilities.js";
 import { parseFocusControlProfile, type FocusControlProfile } from "../capture/focus-control.js";
 import { parseWhiteBalanceProfile, type WhiteBalanceProfile } from "../color/white-balance.js";
-import { parseStabilizationSystemProfile, type StabilizationSystemProfile } from "../stabilization/system.js";
+import { parseStabilizationSystemProfile, STABILIZATION_UNMODELED_SCOPE, type StabilizationSystemProfile } from "../stabilization/system.js";
 import { parseSensorReadoutConversionProfile, type SensorReadoutConversionProfile } from "../sensor/raw-readout.js";
 import { parseGenericIsoSignalChainProfile, type GenericIsoSignalChainProfile } from "../sensor/iso-signal-chain.js";
 import { parseExposureMeteringProfile, type ExposureMeteringProfile } from "../exposure/metering.js";
@@ -160,8 +160,7 @@ function bodyAssets(version: GenericTierPresetVersion, id: string, isoMax: numbe
   const stabilization = parseStabilizationSystemProfile({ schemaVersion: "0.1.0", profileId: id+":stabilization", profileVersion: version,
     profileKind: "generic-synthetic", scientificStatus: "approximation", architecture: "sensor-shift", captureKind: "still",
     axisResponses: ["pitch", "yaw", "roll"].map((axis) => ({ axis, correctionGain: fact(gain), latencySeconds: fact(.001), maximumCorrectionAngleRad: fact(maxAngle) })),
-    panningPolicy: { kind: "none" }, controlTransientModeled: false, spontaneousDriftModeled: false, cameraTranslationCorrectionModeled: false,
-    digitalStabilizationIncluded: false, supportPolicyIncluded: false, stopRatingUsedAsDynamicResponse: false, evidence, limitations });
+    panningPolicy: { kind: "none" }, ...STABILIZATION_UNMODELED_SCOPE, evidence, limitations });
   const whiteBalance = parseWhiteBalanceProfile({ schemaVersion: "0.1.0", profileId: id+":white-balance", profileVersion: version,
     scientificStatus: "approximation", inputDomain: "relative-pre-wb-camera-linear-rgb", presets: [{ presetId: "neutral", label: "Neutral reference",
       channelGains: fact({ red: 1, green: 1, blue: 1 }) }], awbPolicies: [

@@ -69,7 +69,7 @@ export interface GenericLensCatalogueEntry {
   note: string;
   /**
    * A short plain-English summary of the lens's character (at most 40 characters, US spelling), written from its adjustments and
-   * `note`, for lists and pickers. It describes only what the catalogue models (bokeh shape is not modeled: the defocus is a disc).
+   * `note`, for lists and pickers. It describes the lens's sharpness, color, distortion and falloff, not its bokeh (the same rule for every lens of a set).
    */
   summary: string;
 }
@@ -102,6 +102,11 @@ export interface GenericLensCharacter {
   breathing: { fieldOfViewChange: number; atMinimumFocus: number };
   /** Standard deviation of the autofocus error as a fraction of the depth of focus 2·N·c. */
   focusScatterDepthOfFocusFraction: number;
+  /**
+   * Bokeh character (#567) at this f-number, focus and sensor, as the options of `lens.defocus` and `calculateDefocusBokehKernel`
+   * (#553): blades, the resolved W040 as `sphericalAberration` (µm at this f-number) and, for fast wides and normals, `catsEye`.
+   */
+  bokeh: DefocusBokehOptions;
 }
 ```
 
@@ -127,7 +132,7 @@ export interface GenericLensCharacterValues {
   distortionMagnitude: number;
   /** Corner fall-off in stops that stays when stopped down (natural vignetting). */
   naturalVignettingStops: number;
-  /** Extra corner fall-off in stops at the widest aperture (optical vignetting); gone two stops down. */
+  /** Extra corner fall-off in stops at the widest aperture (optical vignetting); gone four stops down (N = 4·N0). */
   opticalVignettingStops: number;
   /** Veiling glare: the fraction of the image's mean irradiance spread as a uniform veil. */
   veilingGlareFraction: number;

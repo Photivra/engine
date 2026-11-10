@@ -1,6 +1,6 @@
 # Public API reference
 
-Generated from the exact root exports for **@photivra/engine 2.19.0 / root contract 2.19.0** by `node scripts/generate-api-reference.mjs`. No module deep import is supported.
+Generated from the exact root exports for **@photivra/engine 2.20.0 / root contract 2.20.0** by `node scripts/generate-api-reference.mjs`. No module deep import is supported.
 
 Use [the developer guide](https://github.com/Photivra/photivra/blob/main/docs/DEVELOPERS.md) for executable paths and scientific boundaries. Types are contracts, not runtime validation: parse untrusted data, preserve units/reference frames, read assessment blockers, and retain evidence/limitations. Optional properties do not imply a universal default. Model/schema IDs remain independent of the distribution.
 
@@ -15,11 +15,13 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 | Exposure value and equivalent settings | [`calculateExposureValue100`](api/exposure-exposure.md#calculateexposurevalue100), [`calculateEquivalentIso`](api/exposure-exposure.md#calculateequivalentiso), [`calculateRelativeRenderedExposure`](api/exposure-exposure.md#calculaterelativerenderedexposure) |
 | Depth of field, hyperfocal distance and defocus blur | [`calculateDepthOfField`](api/optics-depth-of-field.md#calculatedepthoffield), [`calculateDefocusCircle`](api/optics-depth-of-field.md#calculatedefocuscircle) |
 | Field of view | [`calculateFieldOfView`](api/camera-field-of-view.md#calculatefieldofview) |
-| Crop factor, 35 mm-equivalent focal length and crops | [`calculateEquivalentFocalLength35Mm`](api/camera-equivalent-focal-length.md#calculateequivalentfocallength35mm), [`calculateCenteredCrop`](api/output-crop.md#calculatecenteredcrop) |
+| Crop factor, 35 mm-equivalent focal length and crops | [`calculateEquivalentFocalLength35Mm`](api/camera-equivalent-focal-length.md#calculateequivalentfocallength35mm), [`calculateCenteredCrop`](api/output-crop.md#calculatecenteredcrop), [`calculateCropToMatchFocalLength`](api/output-crop-to-match-focal-length.md#calculatecroptomatchfocallength) |
+| Aperture (entrance-pupil) diameter | [`calculateApertureDiameter`](api/optics-aperture-diameter.md#calculateaperturediameter) |
 | Equivalent f-number, sensor area and blur as a share of the frame | [`calculateSensorEquivalence`](api/camera-sensor-equivalence.md#calculatesensorequivalence), [`calculateBlurShareOfFrame`](api/camera-sensor-equivalence.md#calculateblurshareofframe) |
 | Motion blur and shutter speed | [`calculateProjectedMotionBlur`](api/motion-projected-motion.md#calculateprojectedmotionblur), [`calculateShutterAngleExposureSeconds`](api/motion-video-sequence.md#calculateshutterangleexposureseconds) |
 | Shutter time with an ND filter | [`calculateFilteredExposureTime`](api/exposure-filtered-exposure-time.md#calculatefilteredexposuretime) |
 | Diffraction | [`calculateAiryDisk`](api/optics-diffraction.md#calculateairydisk) |
+| Which limits detail: the lens or the sensor | [`calculateDetailLimit`](api/optics-detail-limit.md#calculatedetaillimit) |
 | Sensor signal, noise and SNR | [`calculatePhotoelectrons`](api/sensor-signal-noise.md#calculatephotoelectrons), [`calculateSignalToNoise`](api/sensor-signal-noise.md#calculatesignaltonoise) |
 | Colour temperature | [`calculateChromaticityFromCorrelatedColorTemperature`](api/color-illuminants.md#calculatechromaticityfromcorrelatedcolortemperature), [`calculateCorrelatedColorTemperature`](api/color-illuminants.md#calculatecorrelatedcolortemperature) |
 | White balance from Kelvin and tint | [`createColorTemperatureWhiteBalanceIntent`](api/color-white-balance.md#createcolortemperaturewhitebalanceintent), [`resolveColorTemperatureWhiteBalance`](api/color-white-balance.md#resolvecolortemperaturewhitebalance) |
@@ -1312,6 +1314,15 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 | [`DisplayViewCorrectionStateSet`](api/facade-display-view.md#displayviewcorrectionstateset) | Type |
 | [`serializeDisplayViewCorrectionStates`](api/facade-display-view.md#serializedisplayviewcorrectionstates) | Runtime |
 
+## facade/fast-methods.ts
+
+[Detailed contracts](api/facade-fast-methods.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/facade/fast-methods.ts)
+
+| Export | Kind |
+| --- | --- |
+| [`SIMULATE_CAPTURE_FAST_METHODS`](api/facade-fast-methods.md#simulate_capture_fast_methods) | Runtime |
+| [`SimulateCaptureFastMethod`](api/facade-fast-methods.md#simulatecapturefastmethod) | Type |
+
 ## facade/scene-radiance.ts
 
 [Detailed contracts](api/facade-scene-radiance.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/facade/scene-radiance.ts)
@@ -1583,6 +1594,16 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 | [`VIDEO_FRAME_SEQUENCE_VERSION`](api/motion-video-sequence.md#video_frame_sequence_version) | Runtime |
 | [`VideoFrameSequence`](api/motion-video-sequence.md#videoframesequence) | Type |
 
+## optics/aperture-diameter.ts
+
+[Detailed contracts](api/optics-aperture-diameter.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/optics/aperture-diameter.ts)
+
+| Export | Kind |
+| --- | --- |
+| [`ApertureDiameter`](api/optics-aperture-diameter.md#aperturediameter) | Type |
+| [`calculateApertureDiameter`](api/optics-aperture-diameter.md#calculateaperturediameter) | Runtime |
+| [`CalculateApertureDiameterInput`](api/optics-aperture-diameter.md#calculateaperturediameterinput) | Type |
+
 ## optics/aperture.ts
 
 [Detailed contracts](api/optics-aperture.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/optics/aperture.ts)
@@ -1686,6 +1707,25 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 | [`CalculateDepthOfFieldInput`](api/optics-depth-of-field.md#calculatedepthoffieldinput) | Type |
 | [`DefocusCircle`](api/optics-depth-of-field.md#defocuscircle) | Type |
 | [`DepthOfField`](api/optics-depth-of-field.md#depthoffield) | Type |
+
+## optics/detail-limit.ts
+
+[Detailed contracts](api/optics-detail-limit.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/optics/detail-limit.ts)
+
+| Export | Kind |
+| --- | --- |
+| [`calculateDetailLimit`](api/optics-detail-limit.md#calculatedetaillimit) | Runtime |
+| [`CalculateDetailLimitInput`](api/optics-detail-limit.md#calculatedetaillimitinput) | Type |
+| [`DETAIL_LIMIT_LIMITS`](api/optics-detail-limit.md#detail_limit_limits) | Runtime |
+| [`DetailLimit`](api/optics-detail-limit.md#detaillimit) | Type |
+| [`DetailLimitBasis`](api/optics-detail-limit.md#detaillimitbasis) | Type |
+| [`DetailLimitCatalogueLens`](api/optics-detail-limit.md#detaillimitcataloguelens) | Type |
+| [`DetailLimitedBy`](api/optics-detail-limit.md#detaillimitedby) | Type |
+| [`DetailLimitIdealLens`](api/optics-detail-limit.md#detaillimitideallens) | Type |
+| [`DetailLimitingFactor`](api/optics-detail-limit.md#detaillimitingfactor) | Type |
+| [`DetailLimitOptics`](api/optics-detail-limit.md#detaillimitoptics) | Type |
+| [`DetailLimitSampling`](api/optics-detail-limit.md#detaillimitsampling) | Type |
+| [`DetailLimitSystem`](api/optics-detail-limit.md#detaillimitsystem) | Type |
 
 ## optics/diffraction-psf-profile.ts
 
@@ -2117,6 +2157,16 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 | [`CaptureSdrResult`](api/output-capture-sdr.md#capturesdrresult) | Type |
 | [`parseCaptureSdrInput`](api/output-capture-sdr.md#parsecapturesdrinput) | Runtime |
 
+## output/crop-to-match-focal-length.ts
+
+[Detailed contracts](api/output-crop-to-match-focal-length.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/output/crop-to-match-focal-length.ts)
+
+| Export | Kind |
+| --- | --- |
+| [`calculateCropToMatchFocalLength`](api/output-crop-to-match-focal-length.md#calculatecroptomatchfocallength) | Runtime |
+| [`CalculateCropToMatchFocalLengthInput`](api/output-crop-to-match-focal-length.md#calculatecroptomatchfocallengthinput) | Type |
+| [`CropToMatchFocalLength`](api/output-crop-to-match-focal-length.md#croptomatchfocallength) | Type |
+
 ## output/crop.ts
 
 [Detailed contracts](api/output-crop.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/output/crop.ts)
@@ -2315,6 +2365,20 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 | [`PrintRegionNoiseMeasurement`](api/output-print-region-statistics.md#printregionnoisemeasurement) | Type |
 | [`PrintRegionRaster`](api/output-print-region-statistics.md#printregionraster) | Type |
 | [`PrintRegionStatisticsAssessment`](api/output-print-region-statistics.md#printregionstatisticsassessment) | Type |
+
+## output/print-size-blur-noise.ts
+
+[Detailed contracts](api/output-print-size-blur-noise.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/output/print-size-blur-noise.ts)
+
+| Export | Kind |
+| --- | --- |
+| [`calculatePrintSizeLimitWithBlurAndNoise`](api/output-print-size-blur-noise.md#calculateprintsizelimitwithblurandnoise) | Runtime |
+| [`PrintBlurInput`](api/output-print-size-blur-noise.md#printblurinput) | Type |
+| [`PrintImageMm`](api/output-print-size-blur-noise.md#printimagemm) | Type |
+| [`PrintNoiseInput`](api/output-print-size-blur-noise.md#printnoiseinput) | Type |
+| [`PrintSharpCleanCriterion`](api/output-print-size-blur-noise.md#printsharpcleancriterion) | Type |
+| [`PrintSizeLimitWithBlurAndNoise`](api/output-print-size-blur-noise.md#printsizelimitwithblurandnoise) | Type |
+| [`PrintSizeLimitWithBlurAndNoiseInput`](api/output-print-size-blur-noise.md#printsizelimitwithblurandnoiseinput) | Type |
 
 ## output/sdr-rendering.ts
 
@@ -3123,6 +3187,16 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 | [`calculateSceneSensorEqeTemporalExposure`](api/sensor-scene-eqe-temporal-exposure.md#calculatescenesensoreqetemporalexposure) | Runtime |
 | [`CalculateSceneSensorEqeTemporalExposureInput`](api/sensor-scene-eqe-temporal-exposure.md#calculatescenesensoreqetemporalexposureinput) | Type |
 | [`SceneSensorEqeTemporalExposure`](api/sensor-scene-eqe-temporal-exposure.md#scenesensoreqetemporalexposure) | Type |
+
+## sensor/sensor-characteristics.ts
+
+[Detailed contracts](api/sensor-sensor-characteristics.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/sensor/sensor-characteristics.ts)
+
+| Export | Kind |
+| --- | --- |
+| [`SimulateCaptureNoiseComponents`](api/sensor-sensor-characteristics.md#simulatecapturenoisecomponents) | Type |
+| [`SimulateCaptureSensorCharacteristics`](api/sensor-sensor-characteristics.md#simulatecapturesensorcharacteristics) | Type |
+| [`SimulateCaptureSensorReport`](api/sensor-sensor-characteristics.md#simulatecapturesensorreport) | Type |
 
 ## sensor/sensor-geometry.ts
 

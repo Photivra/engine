@@ -50,9 +50,8 @@ import type {
 } from "./spatio-spectral-reduction.js";
 import { requireInputObject, requireInputKeys, requireInputNonNegativeFinite as requireNonNegativeFinite, requireInputPositiveFinite as requirePositiveFinite, requireInputNonNegativeSafeInteger as requireSafeNonNegativeInteger } from "../core/record-validation.js";
 import { InvalidConfigurationError } from "../core/configuration-error.js";
-import { addCompensated } from "../core/shared-helpers.js";
+import { addCompensated, approximatelyEqual } from "../core/shared-helpers.js";
 
-const REDUCTION_TOLERANCE = 1e-10;
 
 export interface SensorEqeAirRefractiveIndexSample {
   spectralSampleIndex: number;
@@ -172,20 +171,6 @@ interface CompensatedSum {
   correction: number;
 }
 
-function approximatelyEqual(
-  actual: number,
-  expected: number
-): boolean {
-  const scale = Math.max(
-    1,
-    Math.abs(actual),
-    Math.abs(expected)
-  );
-  return (
-    Math.abs(actual - expected) <=
-    REDUCTION_TOLERANCE * scale
-  );
-}
 
 /**
  * Identity string for parsed plain data that ignores key order, so records with

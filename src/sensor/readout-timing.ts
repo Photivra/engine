@@ -21,14 +21,14 @@ import {
   parseEvidenceList,
   type EvidenceBackedFact
 } from "../core/evidence-provenance.js";
-import { InvalidScientificInputError, requirePositiveInteger } from "../core/validation.js";
+import { InvalidScientificInputError } from "../core/validation.js";
 import type { RasterPoint, RasterRect } from "../output/capture-geometry.js";
 import type { NativeImageRaster } from "./sensor-geometry.js";
 import type { SensorReadoutArchitecture } from "./architecture.js";
 import { requireInputKeys, requireConfigRecord as requireRecord } from "../core/record-validation.js";
 import { InvalidConfigurationError } from "../core/configuration-error.js";
 import { fullRect } from "../core/shared-helpers.js";
-import { normalizedScanPosition, validateNativeRaster, scanVector, requirePositiveFinite, requireNonNegativeInteger } from "./exposure-window.js";
+import { normalizedScanPosition, validateNativeRaster, scanVector, requirePositiveFinite, validateActiveCaptureRect, validateShutterMechanism } from "./exposure-window.js";
 
 /**
  * The readout mode chosen for one capture.
@@ -156,11 +156,6 @@ const SCAN_DIRECTIONS = new Set<NativeSensorReadoutScanDirection>([
   "left-to-right",
   "right-to-left"
 ]);
-const SHUTTER_MECHANISMS = new Set<CaptureShutterMechanism>([
-  "mechanical",
-  "electronic-first-curtain",
-  "electronic"
-]);
 
 function requireNonNegativeFinite(name: string, value: unknown): number {
   if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
@@ -262,35 +257,7 @@ function parseReadoutDeclaration(
   };
 }
 
-function validateActiveCaptureRect(
-  rect: RasterRect,
-  raster: NativeImageRaster
-): void {
-  requireNonNegativeInteger("activeCaptureRect.x", rect.x);
-  requireNonNegativeInteger("activeCaptureRect.y", rect.y);
-  requirePositiveInteger("activeCaptureRect.width", rect.width);
-  requirePositiveInteger("activeCaptureRect.height", rect.height);
 
-  if (
-    rect.x + rect.width > raster.pixelWidth ||
-    rect.y + rect.height > raster.pixelHeight
-  ) {
-    throw new InvalidScientificInputError(
-      "activeCaptureRect must fit entirely within nativeRaster."
-    );
-  }
-}
-
-function validateShutterMechanism(
-  value: unknown
-): asserts value is CaptureShutterMechanism {
-  if (
-    typeof value !== "string" ||
-    !SHUTTER_MECHANISMS.has(value as CaptureShutterMechanism)
-  ) {
-    throw new InvalidConfigurationError("shutterMechanism is invalid.");
-  }
-}
 
 function validatePointWithinActiveCapture(
   point: RasterPoint,

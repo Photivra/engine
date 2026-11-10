@@ -12,7 +12,7 @@
 
 import { requireAllowlistedRecord, requirePublicOpaqueId } from "../core/record-validation.js";
 
-import { parseSensorEqeTemporalPhotoSignal } from "../sensor/temporal-photo-signal.js";
+import { parseSensorEqeTemporalPhotoSignal, PHOTO_SIGNAL_DOWNSTREAM_FALSE_FIELDS, PHOTO_SIGNAL_TRUE_FIELDS } from "../sensor/temporal-photo-signal.js";
 import { RAW_REFERENCE_MAX_NATIVE_SITES } from "./raw-frame-limits.js";
 
 import { approximationResult, type CalculationResult } from "../core/calculation-result.js";
@@ -144,10 +144,8 @@ function exposureEvidence(value: unknown, temporalPhoto?: Record<string, unknown
 }
 const common = ["colorSamplingProfileId", "channelId", "site", "bindingId", "stationarityProfileId", "timeReference",
   "startOffsetSecondsFromOpeningReference", "endOffsetSecondsFromOpeningReference", "localExposureDurationSeconds", "componentEvidence"];
-const photoTrue = ["timeStationarityEstablished", "temporalIntegrationApplied", "exposureDurationApplied", "countsAreExpectationValues"];
-const photoFalse = ["timeVaryingSignalIntegrated", "multiFrameSequenceIntegrated", "darkChargeIncluded", "otherChargeIncluded",
-  "physicalFullWellAssessmentAuthorized", "cameraSaturationAssessmentAuthorized", "saturationAssessed", "shotNoiseApplied",
-  "readNoiseApplied", "adcQuantizationApplied", "rawCodeValueProduced", "integerPhotonCountSampled", "integerElectronCountSampled", "chargeCalculated", "currentCalculated"];
+const photoTrue: string[] = ["timeStationarityEstablished", ...PHOTO_SIGNAL_TRUE_FIELDS];
+const photoFalse: string[] = ["timeVaryingSignalIntegrated", ...PHOTO_SIGNAL_DOWNSTREAM_FALSE_FIELDS];
 function chargeInput(value: unknown): ComposeSensorAccumulatedChargeInput {
   const r = fields(value, ["photoSignal", "darkCharge", "additionalChargeComponents", "completenessProfile"]);
   const temporal = r.photoSignal !== null && typeof r.photoSignal === "object" &&

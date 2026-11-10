@@ -66,6 +66,8 @@ export interface DisplayViewResult {
     /** #516: as in the capture result. */
     isoControl: "manual" | "automatic"; autoIso?: SimulateCaptureAutoIsoReport };
   scene: SimulateCaptureResult["scene"];
+  /** #555, #535: as in the capture result. */
+  sensor: SimulateCaptureSensorReport;
   /**
    * Work done: real pixels sampled, real-site expectations evaluated, scene queries, display pixels sampled in full (detail) or with
    * a quarter of the samples per axis (uniform), display pixels whose value includes the AHD low-signal correction, and wall-clock
@@ -425,6 +427,12 @@ One part of a whole-frame DNG (#391): a region render's packed RAW and where its
 export interface SimulateCaptureDngPart {
   raw: Pick<NativeRawOutput, "codes" | "blackLevels" | "digitalSaturationCodes" | "saturationFlags" | "effectiveSaturationCodes">;
   region: { nativeRect: { x: number; y: number; width: number; height: number } };
+  /**
+   * 2.20.0: true when a fast method ran for this part (`Object.values(result.diagnostics.fast.applied).includes(true)`). The join
+   * refuses such a part unless its own request resolves to fast too (a DNG, JPEG or PNG is exact by default): render the parts with
+   * the same `fast` as the join, or with `fast: false`.
+   */
+  fast?: boolean;
 }
 ```
 
@@ -450,8 +458,10 @@ export type SimulateCaptureFastOption = typeof SIMULATE_CAPTURE_FAST_OPTIONS[num
 
 ```ts
 export interface SimulateCaptureFastReport {
-  /** True when `fast: true` was given at the top level or in any option's record. */
+  /** 2.20.0: the resolved top-level value (`fast`, else the format default), or true when any option's record sets `fast: true`. */
   requested: boolean;
+  /** 2.20.0: where the top-level value came from: the request's `fast`, or the format default (see {@link SimulateCaptureOptions.fast}). */
+  defaultedFrom: "request" | "format";
   /** Each fast-capable option that ran, in {@link SIMULATE_CAPTURE_FAST_OPTIONS} order: true where its fast method ran. */
   applied: Readonly<Partial<Record<SimulateCaptureFastOption, boolean>>>;
   /** `engine-reference` when every option ran exact; `approximation-with-a-priori-bound` when any fast method ran (the WebGPU execution record's values). */
@@ -462,6 +472,9 @@ export interface SimulateCaptureFastReport {
 ## SimulateCaptureLensCatalogueRecord
 
 `lens.catalogue` as a record (#568): the lens id as `kind` and the `fast` override (see {@link SimulateCaptureOptions.fast}).
+Fast: the tabulated fast method (#568), and with `lens.defocus` the lens's bokeh without its cat's eye (#567; fast wides and
+normals only), whose field-varying PSF needs a finer fast grid (measured 2.2–3.4× slower). Exact: the per-site PSF with the
+cat's eye. Blades and spherical aberration always apply (they cost nothing).
 
 ```ts
 export interface SimulateCaptureLensCatalogueRecord { kind: string; fast?: boolean }
@@ -557,9 +570,9 @@ export interface SimulateCaptureOptions {
      * factor and it replaces the tier lens's focal length and f-number range (the transmission is kept). The capture renders the
      * lens's character, all labelled approximations: its PSF (diffraction with the lens's Seidel aberrations, axial and lateral
      * colour, at the resolved f-number and focus) through the environment PSF quadrature, its radial distortion, its vignetting
-     * and, for the fisheyes, the equisolid projection. Flare, focus breathing and bokeh shape are not rendered. Not combinable
+     * and, for the fisheyes, the equisolid projection. Flare and focus breathing are not rendered. Not combinable
      * with `prime`, `focalLengthMm`, `projection`, `distortion`, `vignetting`, `psf`, `diffraction` or `pupilSampling` (the
-     * lens sets them); `defocus` convolves the disc into the lens's PSF. The display view renders it with the PSF taken per field zone (#569; docs/DISPLAY_VIEW.md). Default off.
+     * lens sets them); `defocus` convolves the lens's bokeh kernel (#567) into its PSF. The display view renders it with the PSF taken per field zone (#569; docs/DISPLAY_VIEW.md). Default off.
      * #568: the record form `{ kind: <lens id>, fast }` overrides the top-level `fast` flag for this option; the fast method
      * blends the PSF between exactly resolved kernels on a field grid and tabulates each site's expected signal
      * (docs/LENS_CATALOGUE.md, "Fast method").
@@ -700,7 +713,7 @@ export interface SimulateCaptureOptions {
     exposureCompensationStops?: number;
     /** Default "scene-illuminant". */
     whiteBalance?: SimulateCaptureWhiteBalance;
-    /** JPEG constant quantization step 1-255 (not a manufacturer 'quality'). Default 2. */
+    /** JPEG constant quantization step 1-255 (not a manufacturer 'quality'). Default 1 (2.20.0; 2 before), the full-quality export. */
     jpegQuantizationStep?: number;
     /** PNG only. Default "srgb". */
     colorEncoding?: SimulateCaptureColorEncoding;
@@ -715,8 +728,13 @@ export interface SimulateCaptureOptions {
     demosaic?: SimulateCaptureDemosaic | SimulateCaptureDemosaicRecord;
     /** Default "margin". */
     borderHandling?: SimulateCaptureBorderHandling;
-    /** DNG only: optional capture-event time (YYYY-MM-DDTHH:mm:ss.sssZ); without it no date tags are written. */
-    dng?: { capturedAtUtc?: string };
+    /**
+     * DNG only: optional capture-event time (YYYY-MM-DDTHH:mm:ss.sssZ); without it no date tags are written. Opt-in (#587), with
+     * `lens.catalogue`: `lensCorrectionOpcodes` writes the selected corrections of {@link SimulateCaptureLensCorrections} into the DNG as
+     * optional DNG opcodes in OpcodeList3 (FixVignetteRadial, WarpRectilinear with the zoom-to-fill; docs/NATIVE_RAW_AND_PRINT.md), for RAW editors
+     * that apply them; the RAW codes are unchanged. Whole frame only (no `region`). All off (or omitted): the same DNG bytes as without it.
+     */
+    dng?: { capturedAtUtc?: string; lensCorrectionOpcodes?: SimulateCaptureLensCorrections };
     /**
      * Opt-in (2.4) text written into the file for formats "jpeg", "png" and "dng": the caller's description,
      * software, copyright and comment, unchanged (JPEG XMP + COM, PNG tEXt/iTXt, DNG TIFF tags + XMP; see the
@@ -768,7 +786,8 @@ export interface SimulateCaptureOptions {
   };
   /** Camera motion and shutter type. Default: still camera, global electronic shutter. */
   motion?: SimulateCaptureMotion;
-  sensor?: {
+  /** #555: plus the sensor characteristics ({@link SimulateCaptureSensorCharacteristics}), each off by default. */
+  sensor?: SimulateCaptureSensorCharacteristics & {
     /**
      * Pixel pitch in micrometres, 0.5–1000. Default 6. The simulated sensor is output width × pitch wide. 2.5: above 100 µm the
      * capture is a downsized view of a whole frame (for example 36 mm / 48 pixels = 750 µm), recorded in the assumption
@@ -795,10 +814,14 @@ export interface SimulateCaptureOptions {
     pixelAperture?: SimulateCapturePixelAperture;
   };
   /**
-   * Exact or fast (#395). `false` or omitted: every option runs its exact method, the engine reference. `true`: each option
-   * listed in {@link SIMULATE_CAPTURE_FAST_OPTIONS} runs its fast method where it has one, a measured, bounded approximation of
-   * the exact one; an option without a fast method runs exact. An option's own record `fast` overrides this for that option
-   * only. `diagnostics.fast` reports what was requested and what ran. `lens.catalogue` has a fast method (#568); the other options run exact.
+   * Exact or fast (#395). `false`: every option runs its exact method, the engine reference. `true`: each option listed in
+   * {@link SIMULATE_CAPTURE_FAST_OPTIONS} runs its fast method where it has one, a measured, bounded approximation of the exact
+   * one; an option without a fast method runs exact. An option's own record `fast` overrides this for that option only.
+   * Omitted (2.20.0), the format decides: fast for `output.format` "srgb-8" and "srgb-16" and for the display view, exact for
+   * "dng", "jpeg" and "png" (exports) and for `simulateIdealReference`. `diagnostics.fast` reports the resolved value, where it
+   * came from and what ran. Fast methods: `lens.catalogue` (#568, #567) and `lens.diffraction` under rolling-shutter rotation
+   * (#565); in the display view also its catalogue PSF zones, its sampling of uniform pixels and its AHD low-signal correction
+   * (docs/DISPLAY_VIEW.md). The exact result also carries `result.sensor.midGrey` (#535). Calculators should pass `fast: false`.
    */
   fast?: boolean;
   /** Aborting cancels the running task; the promise rejects with a domain error and returns no partial image. */
@@ -994,6 +1017,8 @@ export interface SimulateCaptureResult {
     limitations: readonly string[];
   };
   assumptions: readonly SimulateCaptureAssumption[];
+  /** #555, #535: the sensor characteristics used, the calculated dynamic range and (when the request resolves to exact) the mid-grey noise figure. */
+  sensor: SimulateCaptureSensorReport;
 }
 ```
 

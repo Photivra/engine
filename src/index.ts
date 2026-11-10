@@ -904,6 +904,12 @@ export {
 } from "./output/crop.js";
 
 export {
+  calculateCropToMatchFocalLength,
+  type CalculateCropToMatchFocalLengthInput,
+  type CropToMatchFocalLength
+} from "./output/crop-to-match-focal-length.js";
+
+export {
   calculateSubjectFramingCrop,
   type CalculateSubjectFramingCropInput,
   type SubjectFramingCrop
@@ -947,6 +953,12 @@ export {
   type CalculateIdealApertureInput,
   type IdealApertureGeometry
 } from "./optics/aperture.js";
+
+export {
+  calculateApertureDiameter,
+  type ApertureDiameter,
+  type CalculateApertureDiameterInput
+} from "./optics/aperture-diameter.js";
 
 export {
   calculateAiryDisk,
@@ -1755,6 +1767,8 @@ export { calculateProcessedSensorRaw, parseProcessedSensorRawInput, type Process
   type ProcessedSensorRawResult } from "./capture/photographic-export.js";
 export { calculatePrintPlan, calculatePrintSizeLimit, parsePrintPlanInput } from "./output/print-plan.js";
 export type { PrintLength, PrintedImageSize, PrintSamplingCriterion, PrintNativeSource, PrintProviderConstraints, PrintPlanInput, PrintRasterSampling, PrintPlan, PrintSizeLimitInput, PrintSizeLimit } from "./output/print-plan.js";
+export { calculatePrintSizeLimitWithBlurAndNoise } from "./output/print-size-blur-noise.js";
+export type { PrintBlurInput, PrintNoiseInput, PrintSharpCleanCriterion, PrintSizeLimitWithBlurAndNoiseInput, PrintImageMm, PrintSizeLimitWithBlurAndNoise } from "./output/print-size-blur-noise.js";
 export { PRINT_REGION_DETAIL_MODEL_VERSION, MAX_PRINT_DETAIL_REGION_SAMPLES, calculatePrintRegionDetail, parsePrintRegionDetailInput } from "./output/print-detail.js";
 export type { PrintDetailSource, PrintDetailRegion, PrintSinusoidalTarget, PrintRegionDetailInput, PrintSinusoidalMeasurement, PrintRegionDetailAssessment } from "./output/print-detail.js";
 export { PRINT_REGION_STATISTICS_MODEL_VERSION, MAX_PRINT_REGION_STATISTICS_SAMPLES,
@@ -1836,6 +1850,7 @@ export { SIMULATE_CAPTURE_FACADE_VERSION, SIMULATE_CAPTURE_DEFAULT_ILLUMINANCE_L
   simulateIdealReference, type IdealReferenceResult, serializeSimulatedCaptureDngFromParts, type SimulateCaptureDngPart, type SimulateDisplayViewOptions, type DisplayViewResult,
   type DisplayViewHighlightDiagnostics, SIMULATE_DISPLAY_VIEW_DEFAULT_SAMPLES_PER_AXIS } from "./facade/simulate-capture.js";
 export { simulateCaptureFromParts } from "./facade/develop-joined-parts.js";
+export type { SimulateCaptureSensorCharacteristics, SimulateCaptureSensorReport, SimulateCaptureNoiseComponents } from "./sensor/sensor-characteristics.js";
 export { simulateDisplayView, prepareDisplayView, type PreparedDisplayView, type PreparedDisplayViewRenderOptions, serializeDisplayViewCorrectionStates, bindDisplayViewCorrectionStates,
   type DisplayViewCorrectionStateKeys, type DisplayViewCorrectionStateSet } from "./facade/simulate-display-view.js";
 export type { DisplayViewGpuMode, PrepareDisplayViewOptions, DisplayViewGpuFallbackReason, DisplayViewGpuConformance, DisplayViewExecution,
@@ -1874,6 +1889,22 @@ export type { DngImportInput, ImportedDngRaw, ImportedDngCfa, ImportedDngBlackLe
 export { parseLosslessJpeg, type LosslessJpegImage, type LosslessJpegLimits } from "./capture/lossless-jpeg.js";
 export { PNG_ENCODER_ID, PNG_ENCODER_LIMITS, serializePngImage } from "./output/png-encoder.js";
 export type { PngEncodeInput, PngColourEncoding, PngCicpPrimaries, PngCicpTransfer, PngMasteringDisplay, PngContentLightLevel } from "./output/png-encoder.js";
+
+export { SIMULATE_CAPTURE_FAST_METHODS, type SimulateCaptureFastMethod } from "./facade/fast-methods.js";
+export {
+  DETAIL_LIMIT_LIMITS,
+  calculateDetailLimit,
+  type CalculateDetailLimitInput,
+  type DetailLimit,
+  type DetailLimitBasis,
+  type DetailLimitCatalogueLens,
+  type DetailLimitIdealLens,
+  type DetailLimitOptics,
+  type DetailLimitSampling,
+  type DetailLimitSystem,
+  type DetailLimitedBy,
+  type DetailLimitingFactor
+} from "./optics/detail-limit.js";
 
 declare global {
   /**

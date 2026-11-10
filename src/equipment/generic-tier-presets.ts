@@ -17,7 +17,7 @@ import { resolveGenericEquipmentExposureCapabilities } from "./exposure-capabili
 import { parseGenericLensCorrectionProfile, type GenericLensCorrectionProfile } from "../output/lens-corrections.js";
 import { parseLensStrayLightProfile, type LensStrayLightProfile } from "../optics/stray-light.js";
 import { parseLensComplexPupilProfile, type LensComplexPupilProfile } from "../optics/complex-pupil-psf.js";
-import { parseSceneToSensorIrradianceProfile, type SceneToSensorIrradianceProfile } from "../optics/scene-to-sensor-irradiance.js";
+import { parseSceneToSensorIrradianceProfile, SCENE_TO_SENSOR_BRIDGE_SCOPE, type SceneToSensorIrradianceProfile } from "../optics/scene-to-sensor-irradiance.js";
 import type { RadialDistortionProfile } from "../optics/radial-distortion.js";
 import type { LateralChromaticAberrationProfile } from "../optics/lateral-chromatic-aberration.js";
 import type { IlluminationVignettingProfile } from "../optics/illumination-vignetting.js";
@@ -141,8 +141,7 @@ export function resolveGenericEquipmentTierLensProfiles(input: { selection: Gene
       focus: { kind: "finite-distance-range", objectDistanceM: { minimum: 5, maximum: 5 } } }, transmission: { kind: "spectral-transmission", scientificStatus: "approximation",
       wavelengthBasis: "vacuum", samples: { value: [{ wavelengthNanometers: 380, linearTransmissionFactor: a.transmission },
         { wavelengthNanometers: 780, linearTransmissionFactor: a.transmission }], evidence }, uncertainty: { kind: "not-quantified", limitation: "Synthetic spectrally flat reference over 380-780 nm." } },
-    distortionAreaMappingOwnership: "not-applied-by-bridge", psfRedistributionOwnership: "downstream-normalized-energy-redistribution", sensorOpticalStackIncluded: false,
-    strayLightIncluded: false, polarizationModeled: false, wavelengthChangingBehaviorModeled: false, volumetricScatteringModeled: false, evidence, limitations: l.lens.limitations });
+    ...SCENE_TO_SENSOR_BRIDGE_SCOPE, evidence, limitations: l.lens.limitations });
   const pupils = [0,1,2].flatMap((field) => [-20,0,20].map((defocus, index) => parseLensComplexPupilProfile({ schemaVersion: "0.1.0",
     profileId: id+":pupil:"+field+":"+index, profileVersion: version, scientificStatus: "approximation", opticalDomain: "lens-primary-optical-path-only",
     representation: "complex-pupil-amplitude-plus-opd", pupilCoordinateSystem: "pupil-plane-metric-aligned-to-image-plane", imageFieldAxes: "+X right, +Y up",

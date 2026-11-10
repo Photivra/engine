@@ -28,7 +28,8 @@ const FACADE_1_0_DEFAULT_ILLUMINANCE_LUX = Math.PI * 12.5 * 64 * 125 / (100 * 0.
 const BASELINE_CASES: Record<string, SimulateCaptureOptions> = {
   uniform: { scene: { preset: "uniform" }, output: { width: 4, height: 4 }, illuminanceLux: FACADE_1_0_DEFAULT_ILLUMINANCE_LUX },
   edge16: { scene: { preset: "slanted-edge" }, output: { width: 6, height: 4, format: "srgb-16" }, illuminanceLux: FACADE_1_0_DEFAULT_ILLUMINANCE_LUX },
-  jpegAuto: { scene: { preset: "checkerboard" }, output: { width: 8, height: 8, format: "jpeg", whiteBalance: "auto" },
+  // 2.20.0: the JPEG default step is 1; the 1.0 bytes need the old step 2, given explicitly.
+  jpegAuto: { scene: { preset: "checkerboard" }, output: { width: 8, height: 8, format: "jpeg", whiteBalance: "auto", jpegQuantizationStep: 2 },
     illuminanceLux: FACADE_1_0_DEFAULT_ILLUMINANCE_LUX },
   pupil: { scene: { preset: "siemens-star" }, lens: { pupilSampling: { radialSamples: 1, angularSamples: 4 }, focusDistanceM: 3 }, output: { width: 4, height: 4 },
     illuminanceLux: FACADE_1_0_DEFAULT_ILLUMINANCE_LUX }

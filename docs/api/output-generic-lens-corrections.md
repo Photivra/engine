@@ -6,7 +6,9 @@ The package and root API versions are recorded once in [Navigation](../API_REFER
 
 Builds the catalogue lens's generic correction profile for one camera state: a radial distortion map (the lens's own
 r_d = r(1 + k1ρ²), read at each ideal destination point), per-channel lateral-colour scales 1 + L·D(λ_channel), and the
-relative-illumination gain at the state's aperture (strength 1). The result passes `parseGenericLensCorrectionProfile`.
+relative-illumination gain at the state's aperture (strength 1). From profile version 1.1.0 (#584) the vignetting component
+(version 1.1.0) carries the distortion's area factor (`distortionAreaFactor`): its gain is det J(ρ_i)/E(ρ_s) at the capture's
+sensor point, so it flattens a flat-field capture. The result passes `parseGenericLensCorrectionProfile`.
 
 ```ts
 export function createGenericLensCorrectionProfile(input: CreateGenericLensCorrectionProfileInput): GenericLensCorrectionProfile;
