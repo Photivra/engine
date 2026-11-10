@@ -240,7 +240,7 @@ have a fast method, a measured and bounded approximation of it. One flag style s
   reported (a `diagnostics.fast.applied` key, a `fast.<path>` or other assumption, or a result field). In 2.20.0: `lens.catalogue`'s
   field grid (#568), its cat's eye (#567: fast leaves it out) and the display view's PSF zones (H1); `lens.diffraction`'s per-tap
   points under rolling-shutter rotation (#565); the display view's AHD low-signal correction (H3: 2048 draws and a 0.01 threshold
-  fast, 8192 draws and threshold 0 exact) and its quarter sampling of uniform pixels (H2); `prepareDisplayView`'s `gpu`
+  fast, 8192 draws at the same threshold exact) and its quarter sampling of uniform pixels (H2); `prepareDisplayView`'s `gpu`
   (`"auto"` fast, `"off"` exact; an explicit value wins); and `result.sensor.midGrey` (#535, computed only on exact requests). The
   records of `lens.diffraction`, `sensor.antiAliasing`, `sensor.pixelAperture` and `output.demosaic` (in captures) take `fast`
   with no fast method yet. `test/fast-methods-registry.test.ts` fails when a record accepts `fast` without an entry, an entry

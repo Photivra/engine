@@ -176,10 +176,10 @@ export async function simulateDisplayViewWithInternals(options: SimulateCaptureO
 
 /**
  * AHD low-signal correction (display view): draws per flat-neighbourhood state, and the pixel noise (linear light) above which it
- * applies. 2.20.0: these are its fast method (`output.demosaic.ahd`, the view's default); exact takes 4× the draws (half the
- * states' common offset) and corrects every noisy pixel (threshold 0).
+ * applies. 2.20.0: 2048 draws are its fast method (`output.demosaic.ahd`, the view's default); exact takes 4× the draws (half
+ * the states' common offset) at the same threshold (owner decision 2026-11-09).
  */
-const DISPLAY_VIEW_AHD_CORRECTION_DRAWS = [8192, 2048], DISPLAY_VIEW_AHD_CORRECTION_THRESHOLD = [0, 0.01];
+const DISPLAY_VIEW_AHD_CORRECTION_DRAWS = [8192, 2048], DISPLAY_VIEW_AHD_CORRECTION_THRESHOLD = 0.01;
 
 type ViewInternals = { value?: DisplayViewRenderResult; signal?: DisplayViewExpectedSignal;
   /** #478: the render's setup and the expected signal's input, for the GPU display view's tests. */
@@ -265,7 +265,7 @@ function prepareView(context: DisplayViewRunContext): PreparedViewParts {
   const reachSites = (ahd ? 3 : 1) + Math.ceil(Math.max(0, ...offsets.map((o) => Math.max(Math.abs(o.x), Math.abs(o.y))))) + (kernels ? kernels.radius : 0) + (largeDefocus ? largeDefocus.radius : 0);
   // The inputs of the AHD correction states (fixed here, so the correction key is too; #447).
   const gains = colour.appliedGains as [number, number, number], clipLevel = Math.min(...colour.appliedGains), viewToneCurve = toneCurve as "identity" | "positive-reinhard-per-channel";
-  const ahdFast = +context.viewFast.ahd, correctionDraws = DISPLAY_VIEW_AHD_CORRECTION_DRAWS[ahdFast]!, correctionThreshold = DISPLAY_VIEW_AHD_CORRECTION_THRESHOLD[ahdFast]!;
+  const ahdFast = +context.viewFast.ahd, correctionDraws = DISPLAY_VIEW_AHD_CORRECTION_DRAWS[ahdFast]!, correctionThreshold = DISPLAY_VIEW_AHD_CORRECTION_THRESHOLD;
   const ahdCorrection = ahd ? { labMatrix: CAMERA_TO_XYZ.map((row) => row.map((value, c) => value * (viewGains ? viewGains[c]! : 1))), drawsPerState: correctionDraws,
     thresholdVariance: correctionThreshold * correctionThreshold } : undefined;
   // 2.20.0: a quarter of the samples per axis where the pilot finds no detail is the view's fast sampling; exact samples every pixel fully.

@@ -635,7 +635,8 @@ h(AHD) − ½(h(H) + h(V)) is the bias. Both terms see the same noise, so the di
 variance than AHD's own output.
 
 The bias is a smooth function of the channel means, so it is computed on a logarithmic grid of
-states (8 steps per octave over 12 octaves below white), 2048 draws per state seeded by the state
+states (8 steps per octave over 12 octaves below white), 2048 draws per state (8192 with `fast: false`, 2.20.0: the
+view's exact method, which halves the common offset below) seeded by the state
 alone, and interpolated trilinearly between the 8 states around the pixel's means. A state depends
 only on its grid indices, the noise seed, the draws and the readout and development inputs (the
 normalized value per electron and the read and ADC variance of each channel, the homogeneity matrix,

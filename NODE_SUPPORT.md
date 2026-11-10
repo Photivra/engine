@@ -39,7 +39,7 @@ CI picks the patched lines with setup-node versions; the test legs use aliases t
 
 | Alias | Line | Role |
 | --- | --- | --- |
-| `24` | Node 24, the tooling major (pinned) | Primary leg (owner decision for 2.20.0, #231). Runs the coverage shards and the static, coverage, documentation and package-surface gates; its required check keeps the name `verify (lts/*)`. |
+| `24` | Node 24, the tooling major (pinned) | Primary leg (owner decision for 2.20.0, #231). Runs the coverage shards and the static, coverage, documentation and package-surface gates; its required check keeps the name `verify (lts/*)` (owner decision for 2.20.0: the name is a required status check of the repository's `main` ruleset, so renaming it would mean changing the ruleset). |
 | `lts/-1` | the LTS line before the newest | Test leg. While it resolves to the primary leg's release (Node 24 since Node 26 entered LTS), it skips its test work; its required `verify (lts/-1)` check still runs. |
 | `node` | newest stable release (Current, or the newest LTS while no Current line has a stable build) | Test leg (Node 26 since it entered LTS). |
 

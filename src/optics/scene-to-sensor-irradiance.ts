@@ -46,6 +46,14 @@ import {
 import { requireInputKeys, rejectUnknownVariantFields, UNCERTAINTY_VARIANT_FIELDS, requireConfigRecord as requireRecord, requireTrimmedConfigString as requireNonEmptyString, parseConfigScientificStatus as parseScientificStatus, requireInputPositiveFinite as requirePositiveFiniteScientific, parseConfigLimitations as parseLimitations, requireConfigFiniteAboveZero as requirePositiveFinite } from "../core/record-validation.js";
 import { requireFraction } from "../color/white-balance.js";
 
+/**
+ * The scope fields every engine-built scene-to-sensor profile declares, in this order (shared by the capture facade and the
+ * generic tier presets): the bridge leaves distortion area mapping and PSF redistribution downstream and models none of the rest.
+ */
+export const SCENE_TO_SENSOR_BRIDGE_SCOPE = /* @__PURE__ */ Object.freeze({ distortionAreaMappingOwnership: "not-applied-by-bridge" as const,
+  psfRedistributionOwnership: "downstream-normalized-energy-redistribution" as const, sensorOpticalStackIncluded: false as const, strayLightIncluded: false as const,
+  polarizationModeled: false as const, wavelengthChangingBehaviorModeled: false as const, volumetricScatteringModeled: false as const });
+
 export const SCENE_TO_SENSOR_IRRADIANCE_PROFILE_SCHEMA_VERSION =
   "0.1.0" as const;
 

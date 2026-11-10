@@ -273,7 +273,7 @@ export function validateNativeRaster(raster: NativeImageRaster): void {
   requirePositiveInteger("nativeRaster.pixelHeight", raster.pixelHeight);
 }
 
-function validateActiveCaptureRect(
+export function validateActiveCaptureRect(
   rect: RasterRect,
   raster: NativeImageRaster
 ): void {
@@ -292,7 +292,7 @@ function validateActiveCaptureRect(
   }
 }
 
-function validateShutterMechanism(
+export function validateShutterMechanism(
   value: unknown
 ): asserts value is CaptureShutterMechanism {
   if (

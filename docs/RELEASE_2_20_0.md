@@ -37,10 +37,11 @@ See the CHANGELOG's "Default changes (migration)" table. In short: `fast: false`
 
 - **Conflicts:** only `CHANGELOG.md` (each part's block kept), `docs/USAGE.md` (B and C both appended a last section; both kept, in merge order) and `test/root-export-input-errors.test.ts` (both strict-input lists kept). `src/facade/simulate-capture.ts`, which A, E, F and G all changed, merged without conflict; the merged tree passed every part's tests before the scheme was applied. C's export block stays at the end of `src/index.ts`.
 - **The scheme** (owner decisions, docs/API_STYLE.md "Exact and fast modes"): one resolver (`src/facade/fast-resolution.ts`: record `fast` > top-level `fast` > format default), one registry (`src/facade/fast-methods.ts`, not in any capture bundle) and one enforcing test (`test/fast-methods-registry.test.ts`). G's `rollingShutterLatticeTaps` and F's `catsEye` (both unreleased) became `lens.diffraction`'s and `lens.catalogue`'s fast methods and lost their option names; PNG now counts as an export for both, as the owner ruled.
-- **Display view H1–H3:** the catalogue PSF zones, the AHD low-signal correction (2048 draws, threshold 0.01) and the quarter sampling of uniform pixels stay the view's default and are now reported as its fast methods; `fast: false` selects one PSF zone per site, 8192 draws with threshold 0, and full sampling. Measured (Apple M5 Pro, Node.js 24.19.0, one run, shared machine): a 12 × 8 AHD view of a 96 × 64 Siemens star took 56 ms fast and 235.8 s exact, because the exact correction corrects every pixel (96 against 0) and each state takes four times the draws.
+- **Display view H1–H3:** the catalogue PSF zones, the AHD low-signal correction (2048 draws, threshold 0.01) and the quarter sampling of uniform pixels stay the view's default and are now reported as its fast methods; `fast: false` selects one PSF zone per site, 8192 draws per correction state at the same 0.01 threshold (owner decision 2026-11-09; a first version with threshold 0 took 235.8 s against 56 ms for a 12 × 8 view of a 96 × 64 star, because it corrected every pixel), and full sampling. Measured on a noisy view (12 × 8 view of a 96 × 64 star at 1.4 µm, ISO 6400, 1/64 of the default light, every pixel corrected; Apple M5 Pro, Node.js 24.19.0, one run each, shared machine): the first render, which computes the correction states, took 72.3 s fast and 299.5 s exact (4.1×); a second render with the states cached took 36 ms and 26 ms. By default AHD and catalogue-lens views now report `diagnostics.fast.assurance: "approximation-with-a-priori-bound"` (owner accepted; in the CHANGELOG's Default changes).
 - **A (#535):** the noise figure is computed only on exact requests (`fast: false`, the exports' default); its ADC rounding term is kept. The stale comment about the removed `isoAreaScaledReadout` now points at `characterizeReadout`.
 - **D (#574):** `noise: { kind: "capture-noise-figure", midGrey }` takes a capture's figure through `resolvePixelSnr`.
-- **H (#231):** the primary leg is pinned to Node 24; `lts/-1`, which resolves to the primary's release, skips its test work (its required `verify (lts/-1)` check still runs); the required `verify (lts/*)` check keeps its name (a rename would need a ruleset change).
+- **H (#231):** the primary leg is pinned to Node 24; `lts/-1`, which resolves to the primary's release, skips its test work (its required `verify (lts/-1)` check still runs); the required `verify (lts/*)` check keeps its name (owner decision: it is a required status check of the `main` ruleset, and a rename would mean changing the ruleset).
+- **E (#587), owner-verified 2026-11-09:** the sample DNG renders correctly in a RAW editor against the corrected JPEG, and the spec numbers match DNG 1.7.1.0 (OpcodeList3 is tag 51022, WarpRectilinear is opcode 1, FixVignetteRadial is opcode 3).
 
 ## Sizes
 
@@ -56,10 +57,11 @@ The app's capture-worker shape (`test/capture-bundle.test.ts`: every chunk of `N
 | G (#565) alone | 351,972 B (+197 B) |
 | All eight parts merged | 355,892 B |
 | With the speed-versus-accuracy scheme | 356,409 B (+517 B) |
-| **This pull request** (after sharing `approximatelyEqual`, −64 B) | **356,345 B** (entry 276,527 B; catalogue chunk 12,906 B; GPU session chunk 54,706 B) |
-| Limit | 352,000 B (**not raised: 4,345 B over**; owner decision pending) |
+| After sharing `approximatelyEqual` (−64 B) | 356,345 B |
+| **This pull request**, after the refactor pass (−351 B more) | **355,994 B** (entry 276,176 B; catalogue chunk 12,906 B; GPU session chunk 54,706 B) |
+| Limit | **356,000 B** (2.19.0: 352,000 B; raised by the remaining overage, rounded up to the next 100 B; owner-approved 2026-11-09 for 2.20.0 only, for the 2.20.0 features) |
 
-**Savings tried.** Identical functions in the minified chunks add up to about 1 KB of text (the largest, a raster-rectangle check in two sensor modules, 278 B); textually identical private helpers in the source (one GPU abort check left); and far-apart repeated text (about 23 KB of 64-character runs more than 32 KiB apart, mostly record-literal field lists in the sensor and equipment parsers, which would need deeper refactoring of those parsers). One shared `approximatelyEqual` replaced six private copies (−64 B). Moving code into lazy chunks does not help, because the test counts every chunk. The parts' and the scheme's own code (#555's characteristics and report, #587's opcode writer and fit, the scheme's resolution and report) is new function, not duplication.
+**Savings (415 B, results bit-identical, every hash lock passes).** One shared `approximatelyEqual` replaced six private copies (−64 B). Then one refactor pass on the repeated record-literal field lists, as the owner asked: `readout-timing.ts` imports `exposure-window.ts`'s identical `validateActiveCaptureRect` and `validateShutterMechanism` (−122 B); the photo-signal flag lists of `temporal-photo-signal.ts` and `sensor-raw-producer.ts` share `PHOTO_SIGNAL_TRUE_FIELDS` and `PHOTO_SIGNAL_DOWNSTREAM_FALSE_FIELDS` (−72 B); the scene-to-sensor bridge scope of the capture facade and the tier presets is `SCENE_TO_SENSOR_BRIDGE_SCOPE` (−95 B); the stabilization scope flags of `stabilization/system.ts` and the tier assets are `STABILIZATION_UNMODELED_SCOPE` (−53 B). Each shared constant is spread where the fields were, so every record keeps its key order. Sharing the sampled-PSF frame fields between the diffraction PSF and the catalogue PSF made the bundle 266 B larger (it ties the lazily loaded catalogue chunk to the entry) and was not kept. The remaining far-apart repetition (about 22 KB of 64-character runs more than 32 KiB apart) is spread over many small, slightly different parsers (uncertainty records, evidence and field checks whose messages differ), where each further share saves tens of bytes. Moving code into lazy chunks does not help, because the test counts every chunk. The parts' and the scheme's own code (#555's characteristics and report, #587's opcode writer and fit, the scheme's resolution and report) is new function, not duplication.
 
 The display view's addition to a capture bundle: 46,008 B minified and 18,118 B gzip (2.19.0: 45,823 B and 18,153 B; budgets 46,500 B and 18,550 B, unchanged).
 
@@ -75,15 +77,12 @@ On the integrated tree before the last documentation and registry-export commit,
 
 ## For the owner
 
-- **Capture-worker limit: 4,345 B over** (356,345 B against 352,000 B). Raising the limit is the owner's decision; the alternatives are a deeper refactor of the parsers' repeated record-literal checks (uncertain yield) or moving features out of the app's worker imports.
-- **The display view's exact AHD correction is very slow** (8192 draws and threshold 0: 235.8 s against 56 ms for a 12 × 8 view of a 96 × 64 star). It runs only with `fast: false` on a view. Recommendation: keep the 0.01 threshold in the exact method and take only the extra draws, unless the owner wants the correction on every pixel.
-- **The required check `verify (lts/*)` keeps its name** although the primary leg is now pinned to Node 24; renaming it to `verify (24)` needs a ruleset change by the owner. Recommendation: keep the name.
-- **#587 DNG spec references** (chapter "Opcode List Processing", OpcodeList3 tag 51022, opcode IDs 1 and 3, the DNG 1.3.0.0 version field) could not be re-read against the 1.7.1.0 PDF here (Adobe's server refused automated fetches); the owner's visual check of the sample DNG is still pending.
+Decided on 2026-11-09 and applied here: one refactor pass on the capture worker, then the limit raised by the remaining overage (Sizes); the exact AHD correction keeps the 0.01 threshold with 8192 draws; the required check keeps the name `verify (lts/*)`; the display view's default `approximation-with-a-priori-bound` label is accepted; #587's sample DNG and spec numbers are owner-verified. Nothing else is open.
 
 ## Release gates
 
 1. **GitHub CI** on the exact commit that is tagged: the `main` commit that merges this record. Tag it only when its CI is green.
-2. **The owner's explicit approval** to tag `v2.20.0` (AGENTS.md rule 3), after the owner's visual check of the #587 sample DNG.
+2. **The owner's explicit approval** to tag `v2.20.0` (AGENTS.md rule 3).
 
 ## Remaining release checklist
 
@@ -91,8 +90,8 @@ On the integrated tree before the last documentation and registry-export commit,
 - [x] Version surfaces aligned at 2.20.0 (`npm run release:prepare -- 2.20.0`). Root exports 1,890.
 - [x] 2.19.0 recorded as published ([2.19.0 release record](RELEASE_2_19_0.md#publication)).
 - [x] No `src/gpu` change: no WebGPU hardware gate.
-- [ ] The capture-worker size limit settled (see [Sizes](#sizes)).
-- [ ] The owner's visual check of the #587 sample DNG.
+- [x] The capture-worker size limit settled: one refactor pass (−415 B with the earlier shared helper), then raised to 356,000 B with the owner's approval for 2.20.0 ([Sizes](#sizes)).
+- [x] The owner's visual check of the #587 sample DNG and its spec numbers (2026-11-09).
 - [ ] Green CI on this pull request, then on `main` after merge.
 - [ ] The owner's approval to tag `v2.20.0`.
 - [ ] The `v2.20.0` tag on the `main` commit that merges this record.

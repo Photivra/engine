@@ -42,11 +42,14 @@ export interface SensorEqeTemporalPhotoSignal extends Omit<SensorEqeExposureInte
 
 export type SensorEqePhotoExposure = SensorEqeExposureIntegration | SensorEqeTemporalPhotoSignal;
 
-const trueFields = ["temporalIntegrationApplied", "exposureDurationApplied", "countsAreExpectationValues"] as const;
-const falseFields = ["timeStationarityEstablished", "multiFrameSequenceIntegrated", "darkChargeIncluded", "otherChargeIncluded",
+/** The photo-signal flags that must be true, and (after the first) false, shared with the RAW producer's checks. */
+export const PHOTO_SIGNAL_TRUE_FIELDS = ["temporalIntegrationApplied", "exposureDurationApplied", "countsAreExpectationValues"] as const;
+export const PHOTO_SIGNAL_DOWNSTREAM_FALSE_FIELDS = ["multiFrameSequenceIntegrated", "darkChargeIncluded", "otherChargeIncluded",
   "physicalFullWellAssessmentAuthorized", "cameraSaturationAssessmentAuthorized", "saturationAssessed", "shotNoiseApplied",
   "readNoiseApplied", "adcQuantizationApplied", "rawCodeValueProduced", "integerPhotonCountSampled", "integerElectronCountSampled",
   "chargeCalculated", "currentCalculated"] as const;
+const trueFields = PHOTO_SIGNAL_TRUE_FIELDS;
+const falseFields = ["timeStationarityEstablished", ...PHOTO_SIGNAL_DOWNSTREAM_FALSE_FIELDS] as const;
 function record(value: unknown, keys: readonly string[]): Record<string, unknown> {
   return requireAllowlistedRecord(value, keys, "Invalid temporal photo-signal fields.");
 }

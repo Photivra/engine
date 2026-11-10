@@ -65,7 +65,7 @@ export const SIMULATE_CAPTURE_FAST_METHODS: readonly SimulateCaptureFastMethod[]
     resolver: { file: CAPTURE, call: "resolveFast(diffractionFast, fastTop)" }, report: { applied: "lens.diffraction", assumption: "fast.lens.diffraction" } },
   { id: "output.demosaic.ahd/view-low-signal-correction", override: "output.demosaic", methods: "fast-and-exact", runs: ["simulateDisplayView", "prepareDisplayView"],
     fast: "(H3) 2048 draws per correction state, applied where a pixel's linear noise exceeds 0.01",
-    exact: "8192 draws per state, applied to every noisy pixel", followsFormatDefault: true,
+    exact: "8192 draws per state, at the same 0.01 threshold", followsFormatDefault: true,
     resolver: { file: CAPTURE, call: "resolveFast(demosaicFast, fastTop)" }, report: { applied: "output.demosaic.ahd", assumption: "view.demosaic" } },
   { id: "view.uniform-pixel-sampling", override: "fast", methods: "fast-and-exact", runs: ["simulateDisplayView", "prepareDisplayView"],
     fast: "(H2) a quarter of the samples per axis in display pixels whose pilot finds no detail",

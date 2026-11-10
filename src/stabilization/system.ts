@@ -38,6 +38,11 @@ import type {
 import { requireInputKeys, requireInputObject, rejectUnknownVariantFields, requireConfigRecord as requireRecord, requireTrimmedConfigString as requireNonEmptyString, requireConfigFinite as requireFinite, parseConfigLimitations as parseLimitations, requireConfigFiniteAtLeastZero as requireNonNegativeFinite, requireConfigUnitInterval as requireFraction } from "../core/record-validation.js";
 import { parseNonNegativeFact, parsePositiveFact } from "../sensor/raw-readout.js";
 
+/** The scope flags every stabilization profile declares false, in this order (shared with the generic tier assets). */
+export const STABILIZATION_UNMODELED_SCOPE = /* @__PURE__ */ Object.freeze({ controlTransientModeled: false as const, spontaneousDriftModeled: false as const,
+  cameraTranslationCorrectionModeled: false as const, digitalStabilizationIncluded: false as const, supportPolicyIncluded: false as const,
+  stopRatingUsedAsDynamicResponse: false as const });
+
 export const STABILIZATION_SYSTEM_PROFILE_SCHEMA_VERSION =
   "0.1.0" as const;
 export const STABILIZATION_DISTURBANCE_TRAJECTORY_VERSION =
@@ -691,18 +696,7 @@ export function parseStabilizationSystemProfile(
       : {
           coordinatedAllocation
         }),
-    controlTransientModeled:
-      false,
-    spontaneousDriftModeled:
-      false,
-    cameraTranslationCorrectionModeled:
-      false,
-    digitalStabilizationIncluded:
-      false,
-    supportPolicyIncluded:
-      false,
-    stopRatingUsedAsDynamicResponse:
-      false,
+    ...STABILIZATION_UNMODELED_SCOPE,
     evidence:
       parseEvidenceList(
         record.evidence,

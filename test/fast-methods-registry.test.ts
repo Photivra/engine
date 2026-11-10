@@ -100,7 +100,7 @@ describe("the fast-method registry (2.20.0)", () => {
     const value = (r: { assumptions: readonly { id: string; value: unknown }[] }): unknown => r.assumptions.find((a) => a.id === "view.demosaic")!.value;
     const fast = await simulateDisplayView(options, { width: 4, height: 3 }), exact = await simulateDisplayView({ ...options, fast: false }, { width: 4, height: 3 });
     expect(value(fast)).toMatchObject({ correctionDrawsPerState: 2048, correctionThresholdLinearStd: 0.01 });
-    expect(value(exact)).toMatchObject({ correctionDrawsPerState: 8192, correctionThresholdLinearStd: 0 });
+    expect(value(exact)).toMatchObject({ correctionDrawsPerState: 8192, correctionThresholdLinearStd: 0.01 });
     expect(fast.diagnostics.fast).toMatchObject({ applied: { "output.demosaic.ahd": true }, assurance: "approximation-with-a-priori-bound" });
     expect(exact.diagnostics.fast).toMatchObject({ applied: { "output.demosaic.ahd": false }, assurance: "engine-reference" });
   }, scaledTimeout(60_000));
