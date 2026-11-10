@@ -92,7 +92,8 @@ describe("subject motion (#551)", () => {
       expect(crossing(moving, 0.5) - crossing(still, 0.5), JSON.stringify(lens)).toBeCloseTo(L / 2, 0);
       expect(rampWidth(moving), JSON.stringify(lens)).toBeGreaterThan(L - 1.5);
     }
-  }, scaledTimeout(60_000));
+    // 17.5 s alone on an Apple M5 Pro (68 s in the loaded coverage run); timed out at 60 s on CI's Node 22.13.0 leg (2.21.0 PR).
+  }, scaledTimeout(120_000));
 
   it("rotates the subject about the optical axis", async () => {
     const width = 32, height = 48, omega = 30;
