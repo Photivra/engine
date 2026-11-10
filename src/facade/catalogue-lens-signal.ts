@@ -37,8 +37,8 @@ import { prepareIlluminationVignettingThroughput, type IlluminationVignettingPro
 import { kernelCentroid, resolveLensSampledPsfKernel, type ResolveLensSampledPsfInput } from "../optics/lens-psf-profile.js";
 import type { DisplayViewScene } from "./expected-signal.js";
 
-/** Fewest grid cells between neighboring profile field nodes. */
-export const CATALOGUE_FAST_GRID_MINIMUM_SUBDIVISIONS = 4;
+/** Fewest grid cells between neighboring profile field nodes (10 since #589: with 4, 0.4 % of quick frames failed the run-time check). */
+export const CATALOGUE_FAST_GRID_MINIMUM_SUBDIVISIONS = 10;
 /** Largest move of a node kernel's intensity centroid across one grid cell, in sites (sets finer grids where lateral color moves the PSF). */
 export const CATALOGUE_FAST_GRID_CENTROID_STEP_SITES = 0.05;
 /**
