@@ -7527,8 +7527,9 @@ rating: [SENSOR_PROFILES.md](https://github.com/Photivra/photivra/blob/main/docs
 import { SENSOR_PROFILES, simulateCapture } from "@photivra/engine";
 
 for (const p of SENSOR_PROFILES) {
-  const r = await simulateCapture({ scene: { preset: "uniform" }, sensor: { profile: p }, exposure: { mode: "manual", iso: 3200, shutterSeconds: 1 / 4000 } });
-  console.log(p.name, r.sensor.dynamicRangeStops.toFixed(1), r.sensor.midGrey.snr.toFixed(1));
+  // fast: false (full quality, as the calculator asks) computes the mid-gray noise figure.
+  const r = await simulateCapture({ scene: { preset: "uniform" }, fast: false, sensor: { profile: p }, exposure: { mode: "manual", iso: 3200, shutterSeconds: 1 / 4000 } });
+  console.log(p.name, r.sensor.dynamicRangeStops.toFixed(1), r.sensor.midGrey?.snr.toFixed(1));
 }
 ```
 
@@ -7927,7 +7928,7 @@ The chart presets are also available on their own:
 `illumination` lights the chart with two or more sources blended across it (a linear gradient, a radial falloff or regions),
 for example window daylight on one side and a lamp on the other. The frame center's light sets the grey-card meter and its
 strongest source the `"scene-illuminant"` white balance; both are reported in `assumptions`. See
-[Mixed lighting](MIXED_ILLUMINATION.md) for the model and every field.
+[Mixed lighting](https://github.com/Photivra/photivra/blob/main/docs/MIXED_ILLUMINATION.md) for the model and every field.
 
 ```ts
 import { simulateCapture } from "@photivra/engine";

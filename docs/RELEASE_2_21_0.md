@@ -62,7 +62,13 @@ The display view's addition to a capture bundle: 46,270 B minified and 18,327 B 
 
 ## Local gates
 
-LOCAL_GATES
+On the integrated tree (`a71b7c8`, tree `bf109eb`; Apple M5 Pro, Node.js 24.19.0), one run through the shared lock:
+
+- `npm run check:static` (lint, typecheck, licence, licence-header, identity and browser-surface gates): passed. `npm run check:licenses`: "Dependency license policy passed: Apache-2.0=15, BlueOak-1.0.0=1, BSD-2-Clause=6, BSD-3-Clause=2, ISC=7, MIT=125, MPL-2.0=12" (no new dependency).
+- `npm run coverage`: 382 files passed (1 skipped), 4,392 tests passed (2 skipped); coverage 96.02 % statements, 92.51 % branches, 98.71 % functions, 97.47 % lines (thresholds met); 9.4 min. Every hash lock passes. `test/shard-weights.json` keeps 2.20.0's CI times and takes this run's times scaled by 2.11 (2.20.0's median CI/local ratio) for the 9 new files and the 46 files whose scaled time exceeds 1.5 times the recorded one (mostly the display-view and catalogue files the chart design-around and #581 slowed).
+- `npm run build`: passed (24 WGSL literals minified). `npm run docs:check`: passed (363 Markdown files, 161 importing examples).
+- `npm run pack:check` and `npm run release:consumer-check` first failed on documentation only: three links from packed guides to unpacked pages (#550's and #554's) and three doc examples (#554's, written before 2.20.0 made `result.sensor.midGrey` an exact-request figure, and one missing import). After the fix: pack:check passed (1,065 files), and the consumer check passed (161 strict typed and running doc snippets).
+- **WebGPU on SwiftShader** (`PHOTIVRA_WEBGPU_REQUIRED=1 npm run test:webgpu`, Playwright Chromium 1243 headless, adapter `google` / `swiftshader`, fallback adapter): 4 files, 179 tests passed, 11.5 min, including the chart design-around's Speed and Quality kernels, #581's image-plane module and Quality passes and the defocus cases. Software adapter: no GPU performance claim.
 
 ## Release gates
 
@@ -86,4 +92,4 @@ LOCAL_GATES
 
 ## For the owner
 
-OWNER_NOTES
+Decided by the owner and applied here: the two waves ship as one release; one pass for savings, then the worker limit raised by the remaining overage; #580 takes #589's dispersion and is re-measured against RAW; the chart design-around on every render path. Integration choices that the owner may want to review are listed in the pull request's report: the DNG opcodes' move to the capture's own channel dispersion, the refusal of mixed light over an image-plane print, and the two static imports of the size pass.

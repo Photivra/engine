@@ -15,9 +15,9 @@ including the astronomy-camera manuals (for sensor values only) and the retailer
 ```ts
 import { simulateCapture, SENSOR_PROFILES, resolveSensorProfile } from "@photivra/engine";
 
-const r = await simulateCapture({ scene: { preset: "uniform" }, sensor: { profile: resolveSensorProfile("full-frame-24mp-bsi-2020s") },
+const r = await simulateCapture({ scene: { preset: "uniform" }, fast: false, sensor: { profile: resolveSensorProfile("full-frame-24mp-bsi-2020s") },
   exposure: { mode: "manual", iso: 3200, shutterSeconds: 1 / 4000 } });
-r.sensor.dynamicRangeStops; r.sensor.midGrey.snr;
+r.sensor.dynamicRangeStops; r.sensor.midGrey?.snr; // midGrey: on exact requests (fast: false)
 SENSOR_PROFILES.map((p) => p.name);
 ```
 
