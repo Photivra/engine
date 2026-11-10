@@ -19,7 +19,7 @@ export type DisplayViewScene =
     materials: readonly ({ neutral: number } | { radiance: Float64Array })[];
     /** Illuminant radiance of a perfect white diffuser at each spectral node: irradianceScale·shape(λ)/π. */
     whiteRadiance: Float64Array }
-  | { kind: "radiance"; radianceAt(u: number, v: number, nm: number): number };
+  | { kind: "radiance"; radianceAt(u: number, v: number, nm: number, t?: number): number };
 
 export interface DisplayViewExpectedSignalInput {
   nativeWidth: number;

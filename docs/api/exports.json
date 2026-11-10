@@ -8828,6 +8828,11 @@
       "kind": "type"
     },
     {
+      "name": "SimulateCaptureSubjectMotion",
+      "source": "src/motion/subject-motion.ts",
+      "kind": "type"
+    },
+    {
       "name": "SimulateCaptureWhiteBalance",
       "source": "src/facade/simulate-capture.ts",
       "kind": "type"

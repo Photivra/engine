@@ -118,6 +118,7 @@ modelling choices (such as "no lens PSF") as `kind: "model"`.
 | `motion.angularVelocityRadPerSec` | still | `{ pitch?, yaw?, roll? }` in rad/s (see [Motion](#motion)). |
 | `motion.shutter` | `"global"` | Or `"rolling"`. |
 | `motion.rollingShutterSkewSeconds` | the body's readout skew | Rolling only. |
+| `motion.subject` | still subject | 2.22.0: `{ velocityMPerSec?: { x?, y? }, angularVelocityRadPerSec?, region?, fast? }`, a moving subject (see [Subject motion](#subject-motion)). |
 | `signal`, `onProgress` | none | An `AbortSignal` cancels the running task; `onProgress` reports `raw`, `white-balance`, `development`, `diffraction-correction` and `sharpening` (#571: output rows, with those options) and `jpeg` tiles. The last event of each stage has `completedTileCount === totalTileCount`. The capture yields to the host about every 8 ms with a `MessageChannel` message (else `setImmediate`, else `setTimeout`), so other queued tasks run in between: an abort sent from another task, such as a Web Worker `message` event, takes effect at the next yield. |
 
 Unknown fields are rejected, so a typo never silently falls back to a default.
@@ -1687,6 +1688,47 @@ const pan = await simulateCapture({
   output: { width: 8, height: 8 }
 });
 console.log(pan.assumptions.find((a) => a.id === "sensor.shutter")?.value, pan.exposure.settings.shutterSeconds);
+```
+
+## Subject motion
+
+`motion.subject` (2.22.0, #551) moves the subject on the scene plane during the exposure: the whole scene, or one
+rectangle of it (`region: { centerXM, centerYM, widthM, heightM }` in metres at rest) over a still background.
+
+- `velocityMPerSec: { x, y }` is a translation in m/s on the plane (+x right, +y up as seen from the camera).
+  `angularVelocityRadPerSec` adds a rotation about an axis parallel to the optical axis, counter-clockwise as seen from
+  the camera: the optical axis for the whole scene, the region's center for a region.
+- The model is rigid motion of a planar layer. At time t from the first opening (camera rotation's time reference), a
+  subject point at rest q is at R(ωt)(q − c) + c + v·t. A plane point shows the subject where one is there, else the
+  region's rest rectangle shows a neutral 18 % background (what the subject revealed), else the still scene.
+- Every scene query reads the subject at its own time. The blur is therefore the same temporal midpoint quadrature as
+  camera rotation (`sensor.temporalSampleCount`, default 8 with a moving subject), and an edge streaks over
+  v·T·m on the sensor (m = v′/D, the thin-lens image distance over the subject distance). With few samples a long streak
+  shows separate copies; raise the count. A test checks the length within sampling error.
+- A rolling shutter skews a moving subject: each row's exposure window opens later, so it sees the subject later. A test
+  checks the skew against the site windows' start offsets.
+- Panning: a camera yaw of −v/D rad/s (the engine's rotation convention) follows a subject moving at v m/s in +x. The
+  subject stays sharp and the background streaks.
+- It combines with `lens.diffraction`, `lens.defocus` (global shutter; their site lattices are formed at each midpoint), the
+  lens projection, distortion and vignetting, and camera rotation. `lens.pupilSampling` is refused.
+- Display view: sideways motion under a global shutter only. It refuses a rotating subject and a rolling shutter with a
+  reason; `simulateCapture` renders both.
+- Fast method (2.20.0 convention): with the default count and a still camera, `fast` takes one midpoint per site of the
+  streak plus one when that is fewer than 8 (taps less than one site apart). Exact keeps 8, and an explicit
+  `sensor.temporalSampleCount` always wins. Fast is the default for sRGB samples and the display view, exact for DNG,
+  JPEG and PNG.
+- Off by default: a request without `motion.subject` is byte-identical to 2.20.0.
+
+```ts
+import { simulateCapture } from "@photivra/engine";
+
+// A subject 4 mm wide moving right at 0.2 m/s, with the camera panning to follow it.
+const pan = await simulateCapture({
+  scene: { preset: "bar-groups" }, subjectDistanceM: 2, lens: { focalLengthMm: 50 },
+  motion: { angularVelocityRadPerSec: { yaw: -0.1 }, subject: { velocityMPerSec: { x: 0.2 }, region: { centerXM: 0.002, centerYM: 0, widthM: 0.004, heightM: 0.004 } } },
+  output: { width: 32, height: 16 }
+});
+console.log(pan.assumptions.find((a) => a.id === "motion.subject")?.value);
 ```
 
 ## Performance

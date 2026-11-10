@@ -331,6 +331,7 @@
   "test/simulate-capture-region-diffraction.test.ts": 4158,
   "test/simulate-capture-region.test.ts": 2137,
   "test/simulate-capture-sensor-characteristics.test.ts": 711,
+  "test/simulate-capture-subject-motion.test.ts": 46229,
   "test/simulate-capture-whole-frame.test.ts": 4830,
   "test/simulate-capture.test.ts": 1746,
   "test/simulated-capture.test.ts": 13,
