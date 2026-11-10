@@ -206,11 +206,13 @@ and every number is a labelled approximation.
   for the macro); an f-number or distance outside the lens's range is refused.
 - **Its character is rendered:** a field- and wavelength-dependent PSF (diffraction with the lens's Seidel aberrations, axial and
   lateral colour) through the environment PSF quadrature, its radial distortion, its vignetting and, for the fisheyes, the
-  equisolid projection (beyond 90° there is no scene, so the 8 mm's circle is black outside). Flare, focus breathing and the bokeh
-  shape are reported in the assumption `lens.catalogue.character`, not rendered.
+  equisolid projection (beyond 90° there is no scene, so the 8 mm's circle is black outside). Flare and focus breathing are
+  reported in the assumption `lens.catalogue.character`, not rendered.
 - **Professional lenses are better** where the owner's table says so: sharper centres and corners, less coma, lateral colour,
   distortion and vignetting, better close focus and focus consistency. The measurements are in the catalogue page.
-- **Combinations:** `lens.defocus` convolves the disc into the lens's PSF (a combined kernel up to 16 sites in radius);
+- **Combinations:** `lens.defocus` convolves the lens's own bokeh kernel (#567: its blades, its W040 and, on the fast wides
+  and normals, a cat's eye, which `lens.catalogue: { kind, catsEye }` sets and which is on by default only for DNG and
+  JPEG output: it slows the fast method 2–3.5×; [Bokeh](LENS_CATALOGUE.md#bokeh-567)) into the lens's PSF (a combined kernel up to 16 sites in radius);
   `lens.focusScatter: { seed, shotIndex? }` moves the focus by a seeded autofocus error (`simulateGenericLensFocusError`), off
   by default. `prime`, `focalLengthMm`, `projection`, `distortion`, `vignetting`, `psf`, `diffraction` and `pupilSampling` are
   set by the lens and refused with it. The display view renders `lens.catalogue` since #569, with the PSF taken per field zone
@@ -1423,9 +1425,9 @@ lens: { focalLengthMm: 50, fNumber: 4, focusDistanceM: 1.4, defocus: { model: "g
   combined with `lens.diffraction` (every zone would need its own combined kernel per node). Above a kernel radius of 64
   sites it is refused: #564's run convolution takes one kernel per request, and extending it to one kernel per zone is left
   for later. `simulateDisplayView` and `prepareDisplayView` refuse it; they render `blades` and `sphericalAberration`.
-- **With `lens.catalogue` (#549)** the three options are refused by name. The catalogue lens folds a plain disc into its
-  own PSF, so they would otherwise be dropped. Feeding a catalogue lens's spherical aberration and character into the
-  bokeh kernel is a follow-up ([#567](https://github.com/Photivra/photivra/issues/567)), not a 2.17.0 feature.
+- **With `lens.catalogue` (#549)** the three options are refused by name: since 2.20.0 (#567) the catalogue lens sets
+  all three itself (its blades, its own W040 and, on the fast wides and normals, a cat's eye) and folds that kernel into
+  its PSF ([Lens catalogue, Bokeh](LENS_CATALOGUE.md#bokeh-567)).
 - **Sampling.** Without spherical aberration each site's weight is the exact area of the projected open pupil (a convex
   polygon; circles and blade arcs are 1024-gons scaled to their true area, within 5e-6 of the radius of the true curve)
   inside the site's cell, divided by its area (`"exact-polygon-cell-area"`). With it the pupil is sampled on a square grid

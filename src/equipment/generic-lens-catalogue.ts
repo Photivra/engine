@@ -26,6 +26,12 @@
  * - Distortion: radial r_d = r·(1 + k1·ρ²), ρ normalised to the frame's half-diagonal, so k1 is the corner distortion.
  * - Vignetting: relative illumination E(ρ) = (1 − b·ρ²)² with E(1) = 2^−s, s the corner fall-off in stops: a natural part,
  *   plus an optical part that fades over the first two stops of stopping down.
+ * - Bokeh (#567), the options of `lens.defocus` (#553) that `simulateCapture` folds into the PSF with `lens.defocus`: rounded
+ *   aperture blades (9 at curvature 0.7 for the professional set, 7 at 0.3 for the consumer set, open to a circle at the widest
+ *   aperture), the lens's own W040 as `sphericalAberration`, and, for the fast (f/2 or faster) rectilinear wides and normals
+ *   (at most 50 mm equivalent), a cat's eye: one clipping circle of the widest pupil's radius whose shift leaves the open area
+ *   2^−s_o of the pupil at the frame corner wide open, s_o the lens's optical vignetting in stops (the light it removes is the
+ *   optical part of the relative illumination above; the kernel is a shape only).
  * - Flare, focus breathing and focus consistency are numbers for callers; `simulateCapture` renders none of them.
  * @see docs/LENS_CATALOGUE.md for the tables, the adjustments and why each lens has them.
  */
@@ -39,6 +45,8 @@ import type { LensProjectionModel } from "../camera/lens-projection.js";
 import { FRAUNHOFER_C_LINE_NM, FRAUNHOFER_D_LINE_NM, FRAUNHOFER_F_LINE_NM } from "../optics/longitudinal-chromatic-aberration.js";
 import type { RadialDistortionProfile } from "../optics/radial-distortion.js";
 import type { IlluminationVignettingProfile } from "../optics/illumination-vignetting.js";
+import type { DefocusBokehOptions } from "../optics/defocus-bokeh-kernel.js";
+import { portableAsin } from "../core/portable-math.js";
 import { GENERIC_PRIME_MINIMUM_FOCUS, GENERIC_PRIME_THIRD_STOP_F_NUMBERS } from "./generic-prime-lenses.js";
 import { createDeterministicUniformStream, deriveNativeSiteStreamSeedUint32, sampleDeterministicStandardNormal } from "../sensor/stochastic-seed.js";
 
@@ -102,7 +110,7 @@ export interface GenericLensCatalogueEntry {
   note: string;
   /**
    * A short plain-English summary of the lens's character (at most 40 characters, US spelling), written from its adjustments and
-   * `note`, for lists and pickers. It describes only what the catalogue models (bokeh shape is not modeled: the defocus is a disc).
+   * `note`, for lists and pickers. It describes the lens's sharpness, color, distortion and falloff, not its bokeh (the same rule for every lens of a set).
    */
   summary: string;
 }
@@ -219,6 +227,11 @@ export interface GenericLensCharacter {
   breathing: { fieldOfViewChange: number; atMinimumFocus: number };
   /** Standard deviation of the autofocus error as a fraction of the depth of focus 2·N·c. */
   focusScatterDepthOfFocusFraction: number;
+  /**
+   * Bokeh character (#567) at this f-number, focus and sensor, as the options of `lens.defocus` and `calculateDefocusBokehKernel`
+   * (#553): blades, the resolved W040 as `sphericalAberration` (µm at this f-number) and, for fast wides and normals, `catsEye`.
+   */
+  bokeh: DefocusBokehOptions;
 }
 
 export interface ResolvedGenericLens {
@@ -306,6 +319,19 @@ function resolvedDistortionReach(k1: number): number {
   return k1 < 0 ? r / (1 + k1 * r * r) * 1.01 : r;
 }
 
+/**
+ * The centre shift d (pupil radii) of a clipping circle of the pupil's radius that leaves the open fraction `open` of the pupil:
+ * the lens of two unit circles, (2/π)(acos(d/2) − (d/2)·√(1 − d²/4)) = open, by bisection (acos u = π/2 − asin u, portable).
+ */
+function catsEyeShift(open: number): number {
+  let low = 0, high = 2;
+  for (let k = 0; k < 52; k++) {
+    const d = (low + high) / 2, u = d / 2;
+    if ((Math.PI / 2 - portableAsin(u) - u * Math.sqrt(1 - u * u)) * 2 / Math.PI > open) low = d; else high = d;
+  }
+  return (low + high) / 2;
+}
+
 function positiveFinite(value: unknown, name: string): number {
   if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) throw new InvalidScientificInputError(name + " must be a positive finite number.");
   return value;
@@ -335,6 +361,12 @@ export function resolveGenericLens(input: ResolveGenericLensInput): ResolvedGene
   const magnification = focusDistanceM === null ? 0 : f / (focusDistanceM - f), closeness = Math.min(1, magnification / maximumMagnification);
   const closeFocusGain = 1 + values.closeFocusFactor * closeness, a = lens.widestFNumber / fNumber;
   const cornerStops = values.naturalVignettingStops + values.opticalVignettingStops * Math.min(1, Math.max(0, 1 - Math.log2(fNumber / lens.widestFNumber) / 2));
+  // #567: the cat's eye of the fast (≤ f/2) rectilinear wides and normals (≤ 50 mm), resolved on this sensor (see the module comment).
+  const pro = lens.set === "professional", pupilMm = focalLengthMm / lens.widestFNumber / 2;
+  const bokeh: DefocusBokehOptions = { blades: { count: pro ? 9 : 7, firstBladeEdgeAngleDegrees: 0, curvature: pro ? 0.7 : 0.3, circularAtOrBelowFNumber: lens.widestFNumber },
+    sphericalAberration: { w040Micrometers: values.sphericalWaves * a ** 4 * closeFocusGain * 0.55, atFNumber: fNumber },
+    ...(lens.kind === "standard" && lens.equivalentFocalLengthMm <= 50 && lens.widestFNumber <= 2 ? { catsEye: { apertures: [{ radiusMm: pupilMm,
+      shiftPerTanFieldMm: catsEyeShift(2 ** -values.opticalVignettingStops) * pupilMm * focalLengthMm / halfDiagonalMm }] } } : {}) };
   const character: GenericLensCharacter = { fNumber, focusDistanceM, magnification, closeFocusGain, pupilScale: a,
     aberrations: { sphericalWaves: values.sphericalWaves * a ** 4 * closeFocusGain, balancingDefocusWaves: -values.sphericalWaves * a ** 4 * closeFocusGain,
       comaWaves: values.comaWaves * a ** 3 * closeFocusGain, astigmatismWaves: values.astigmatismWaves * a * a * closeFocusGain,
@@ -344,7 +376,7 @@ export function resolveGenericLens(input: ResolveGenericLensInput): ResolvedGene
     vignetting: { profile: genericLensVignettingProfile(cornerStops, halfDiagonalMm, GENERIC_LENS_RESOLVED_PROFILE_REACH), cornerStops },
     strayLight: { veilingGlareFraction: values.veilingGlareFraction, ghostFraction: values.ghostFraction },
     breathing: { fieldOfViewChange: values.breathingFraction * closeness, atMinimumFocus: values.breathingFraction },
-    focusScatterDepthOfFocusFraction: values.focusScatterDepthOfFocusFraction };
+    focusScatterDepthOfFocusFraction: values.focusScatterDepthOfFocusFraction, bokeh };
   const fisheye = lens.kind === "fisheye";
   return Object.freeze({ lensId: lens.lensId, name: lens.name, set: lens.set, kind: lens.kind, equivalentFocalLengthMm: lens.equivalentFocalLengthMm, focalLengthMm,
     cropFactor35Mm: crop, halfDiagonalMm, widestFNumber: lens.widestFNumber, narrowestFNumber: lens.narrowestFNumber,

@@ -385,8 +385,8 @@ f-number of each lens's range and down to its close focus, with `lens.defocus` a
   alike; Apple M5 Pro, Node 24.19.0); a 96 × 96 part of the app's view (about 284 native sites a side, plus the kernel's reach) reads at most 5 × 5 zones.
 - **GPU:** these requests stay on the CPU reference, labelled `unsupported-on-backend` with `gpu: "auto"`, as for #563.
   No `src/gpu` code changed.
-- **Limits:** the capture's own. `lens.diffraction`, `lens.psf` and the bokeh options are refused with the lens, a catalogue
-  PSF with a defocus disc above a combined radius of 16 sites is refused, and with the four-spot filter a large PSF can pass
+- **Limits:** the capture's own. `lens.diffraction`, `lens.psf` and the bokeh options are refused with the lens (it sets its own
+  bokeh, #567, which the view reads in the PSF), a catalogue PSF with a defocus kernel above a combined radius of 16 sites is refused, and with the four-spot filter a large PSF can pass
   the environment's 100 000 scene queries per site (*PV 100 2.8 Macro Pro* at f/22 on 6 µm: 210 000), refused by both.
 
 **Two capture fixes this needed** (each changes only requests that failed before):
