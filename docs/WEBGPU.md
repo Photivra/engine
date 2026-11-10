@@ -262,6 +262,21 @@ A flagged (recomputed) display pixel takes the reference's count with its sample
 
 **The composite material module (#491).** `src/gpu/display-view-composite-material-module.ts` builds `material_at` from the composite chart kernel of #477 ("Composite charts, chart elements and mask layers" above): its `material()` with the bound arithmetic, double-float32, the cos polynomial, every element kind and the mask layers, renamed (`flagged` → `material_uncertain`) and with the scene's packed records (`packChartScene`) at `@group(1)`. It serves composite charts, every 2.3 element as a plain chart, the sine-profile Siemens star, fixed-size charts (`chartSize`; the eight 2.0 presets too) and declared `material-layers` scenes. `simulateCapture`, `simulateDisplayView`, `prepareDisplayView` and `createPlanarSceneRadianceProvider` now take a `material-layers` scene directly as their `scene`; it is evaluated as its `callerScene`, so every CPU result, digest and byte is that of passing the `callerScene` (tested), and the display view's GPU request names it `material-layers`, which `supports()` accepts.
 
+**The image-plane module (#581).** `src/gpu/display-view-image-material-module.ts` renders an image-plane print ([Image-plane scene](IMAGE_PLANE.md)) in the Speed path. Since #581 the kernel reads a query point's channel signal through `scene_value(p, c)`. A material module gets the adapter `material_signal(material_at(p), c)`, the material's signal integrated from its spectrum in the kernel (2.21.0, above), recomputed when the material or channel changes. The image-plane module defines `scene_value` itself (its surround's three channel signals, integrated from the surround's spectrum like a pixel's, are the kernel's binding 3):
+
+- **The pixel signals.** The host integrates each pixel's three channel signals S_j,c from its reconstructed spectrum (its cell's eight node spectra blended at each spectral node, then the paper, times the white, against each channel's response) in float64 and rounds them to float32, 4 MiB of rows at a time; the host keeps none of them (about 4 MiB of host memory for a 24 MP photo instead of 288 MB per kept scene).
+  - **When they fit one storage binding**, they are uploaded once per scene and kept on the device.
+  - **Otherwise the module bands them** (`DisplayViewGpuMaterialModule.band` and `bandRows`): each band of display rows binds only the pixel rows its native site rows reach, and the renderer caps a band's rows so they fit; each render builds its bands' rows again, copying the rows a band shares with the previous one from that band's buffer on the device (kept until the next band), so each row is built once per render. The shader indexes rows from the band's first (`photo.row0`), so the values, and every byte of the render, are those of the whole upload (tested).
+- **The point.** The module recovers the exact query point as the composite module does (`LATTICE_POINT_WGSL`, now shared). It forms the print-local point and the pixel coordinates in double-float32 and decides the print's edge in the composite kernel's bound arithmetic. Points within their bound of the edge are flagged.
+- **The weights.** Per axis it splits X − ½ exactly into an integer part and a fraction f. It rounds the smaller of f and 1 − f once and forms the other as 1 minus it, so each weight carries at most 2E relative error.
+- **Moved weight.** The point's own error δ moves weight between neighbors. δ is 4·(2⁻⁴⁰·(|X| + 1)) pixels plus four times the reference's 10⁻¹⁴ slack in pixels. A value whose possible move (δx + δy)·2·max S exceeds E times itself is flagged and recomputed on the host. All S are non-negative.
+- **The bound.** An unflagged value carries a relative error only, ten roundings beyond the table lookup's one (S 1, weights 2 + 2, two products and two sums 4, the flag's budget 1). The expected value's bound is γ_74 instead of γ_64, and the variance's γ_100 instead of γ_80, doubled (`extraSiteRoundings`).
+- **Nearest.** `nearest` reads the pixel under the point and flags a point within its bound of a pixel edge (`bfloor`).
+- **Device probe.** The module's double-float32 is the composite kernel's, so its device probe gates the module: a device that fails it renders photos on the CPU, labeled `unsupported-on-backend`.
+- **Self-check.** The module checks itself on a device's first photo (`runImagePlaneConformance`: the Speed kernel, then the Quality passes with the four-spot filter and radius-1 kernels at three nodes), not among the renderer's cases, so a photo check never keeps that device's charts off the GPU. A failure refuses photos on that device (`unsupported-on-backend`).
+- **Loading.** The module is loaded only after `prepareImagePlaneScenes()`, in its own chunk.
+- **The Quality path.** A photo request that needs the Quality passes (diffraction, `lens.defocus`, AHD) takes the print's own passes 1 and 2 ([below](#image-plane-prints-in-the-quality-passes-581)). The measured agreement is in [Image-plane scene, On the GPU](IMAGE_PLANE.md#on-the-gpu).
+
 - *The exact query point.* The Speed kernel hands the module p = fl(fl(x + c)·g) (two float32 roundings), but the composite kernel's chirp decisions (the zone plate's phase, the stars' sector cross products) need the point to about 2⁻⁴⁰; fed p directly, a 64-cycle sine star would flag most of its points. The module therefore recovers the lattice point: p / g_hi lies within 6E·|x + c| of the exact x + c, the offset constant c_o (uploaded hi + lo) whose lattice puts the quotient nearest an integer gives the site x, and the point is re-formed in double-float32 as (x + c_o)·g from the exact integer and the float64 constants (hi + lo). The host admits the lattice only when this is unambiguous: the reference's own query points match the model (x + c)·g at the frame's four corners within 2⁻⁴⁸·(|p| + 1), and the distinct fractional parts of the offsets (mod one site) lie more than four recovery tolerances apart, the tolerance being 8E·max|x + c| + 2⁻¹² (0.0005 sites for the 604-site test frame, 0.006 for 6000 sites, against the 2 × 2 box's quarter-site spacing); a point whose residual exceeds the tolerance on the device is flagged. A fixed-size chart's chart-local point (u·m/h) is a further double-float32 product, and its rectangle |cu| ≤ 1, |cv| ≤ aspect is tested in bound arithmetic (a point within its bound of the edge flags; outside it the material is the surround, the table's last entry).
 - *The point error (the Speed kernel's contract held, no bound re-derived).* The recovered point differs from the exact lattice value by about 2⁻⁴⁶ relative (two double-float32 operations, the split constants' 2⁻⁴⁸), inside the composite kernel's own 2⁻⁴⁰ allowance per point (DW in `bd`). The reference's float64 query point differs from the exact lattice value by its own float64 rounding: measured at most 5.6·10⁻¹⁶ absolute (2⁻⁵⁰·⁷) over every site and offset of the frame-filling and fixed-size fixtures, inside the composite kernel's 10⁻¹⁴ slack for the reference's rounding. So the composite kernel's bounds and SAFETY factor (4) apply unchanged, the module's point error (≤ 2⁻⁴⁶ relative plus 6·10⁻¹⁶) is far inside the Speed kernel's contract (≤ 2E + 10⁻¹⁴), and no Speed bound term changes. Evidence: on the emulation, the module on the kernel's float32 points against the composite kernel on the reference's own points split hi + lo, at 197 544 query points (every site and offset in the label layer, the zone plate and the bar star, and a stride over the frame): every unflagged material equals the float64 reference, the flags are identical at every point (0 differences; 0.69 % flagged), and the unflagged materials of the two agree.
 - *Records and probe.* The scene's records are uploaded once per renderer (one prepared view's device) and reused by every part of the view; the four most recent scenes are kept and released with the prepared view (`DisplayViewGpuRenderer.dispose`, new). The composite kernel's device probe (`CHART_COMPOSITE_PROBE_WGSL`, now `probeChartCompositeDevice`) runs once per renderer before the first composite render; a device that fails it throws `unsupported-on-backend` from `render`, which the session turns into a CPU render labelled `unsupported-on-backend` (or an error under `"require"`), and the probe is retried on the next render. The preset module still serves the eight 2.0 presets on such a device (tested). The module's lookup costs more than the preset module's: the double-float32 recovery per query point and the composite kernel's bound arithmetic.
@@ -275,6 +290,7 @@ A flagged (recomputed) display pixel takes the reference's count with its sample
 | Step | Form | Roundings or bound |
 | --- | --- | --- |
 | Site signal, offset sum, dark | non-negative products and sums | 2.21.0: per signal 2 operand roundings, its products and at most 15 + 16 additions in blocks of 16 nodes (≤ 256 nodes), then 4 products, 3 sums, dark 1: within the unchanged site budget of 64E (`DISPLAY_VIEW_SITE_RELATIVE_U`) |
+| #581 image-plane module: the value at a point | non-negative products and sums | 10 more: S 1, weights 2 + 2, products and sums 4, the moved-weight flag 1 (γ_74 on the mean, γ_100 on the variance, for that module only) |
 | Readout mean k·e; variance k²e + c₀; κ₃ | non-negative | γ_11; γ_13; γ_13 |
 | Demosaic Σ w·mean over ≤ 4 taps (weights exact) | non-negative | γ_15 (variance: squares, γ_17) |
 | White balance g·m, highlight clip, matrix Σ r·m | g, r rounded once | γ_17; γ_21 (variance γ_25) |
@@ -422,6 +438,57 @@ The same numbers come from the float32 JavaScript emulation of the kernels (`tes
 **`lens.defocus` (#492).** Out of focus the renderer gathers the defocus disc, or each node's diffraction kernel convolved with it, in this site pass, for Speed and Quality requests: [Defocus on the GPU](#defocus-on-the-gpu-492).
 
 **What remains.** The app's request given as `material-layers` (Photivra/apps#126); the stratified estimator and footprints above 6 real pixels per axis (`unsupported-on-backend`); the collect pass (`collectCorrectionStates`) stays on the CPU; the host finishing's 1.2 µs per display pixel (Speed, above); a Siemens star's exact-boundary lattice points flag the sites within the kernel radius of its diagonals (2 017 of 27 405 display pixels on the bar star, each recomputed on the CPU: 0.37 s of the render on this host).
+
+### Image-plane prints in the Quality passes (#581)
+
+Owner decision, 2026-11-09: a photo's display view renders on WebGPU in the Quality path too. An image-plane print has no
+materials. Its spectral radiance varies continuously over the print, so it replaces passes 1 and 2 with its own
+(`src/gpu/display-view-image-quality.ts`, behind the `image` hook of `renderDisplayViewQualityOnGpu`). Pass 3, the AHD states and
+the host finishing are unchanged.
+
+- **What the reference computes** (expected-signal.ts, the radiance path).
+  - With site kernels, per site of channel c: Σ_g Σ_d Σ_n C_n,c(d)·L_n(p + d). Here L_n is the print's spectral radiance at node
+    n at the lattice point (the provider's `radianceAt` on the lattice formula), and C_n,c the reference's combined kernel per node
+    (`perNode` of its tables).
+  - Without kernels, per query offset: w·Σ_n A_c(λ_n)·L_n(p_o).
+- **Pass 1 (lattice radiance).**
+  - **The point.** One invocation per lattice point. It forms the exact point (p + c)·g in double-float32: p + c is exact in
+    float32, checked by the host, and the scale's hi + lo come from float64. Then the print-local point and the print's edge (in the
+    composite kernel's bound arithmetic), the pixel coordinates, and the bilinear weights as the Speed module forms them.
+  - **The value.** For every node: L_n = W_n·Σ_j b_j·(ρ_black + (ρ_white − ρ_black)·Σ_corners w_jk·s_k(λ_n)).
+  - **The records.** Each pixel's lattice cell and fractions come from the host (float64, as the reference decodes the pixel), per
+    band for the pixel rows its lattice windows reach. A record is 16 bytes: the cell, and per channel the smaller of f and 1 − f
+    rounded once, with a bit for which. So every corner weight carries at most 2E relative per channel.
+  - **The bound.** All terms are non-negative. L_n carries at most 27 roundings, declared `IMAGE_PLANE_LATTICE_U` = 32:
+    - s 1;
+    - three channel weights 6;
+    - the nested trilinear form 6;
+    - the paper 3;
+    - the bilinear weights 4;
+    - their products and sums 4;
+    - the moved-weight budget 1;
+    - W_n 2.
+  - **Flags.** A point is flagged when it lies on the print's edge or near a nearest-pixel edge, or when a bilinear weight moved by
+    the point's error could change a node's value by more than E of it. That is the Speed module's rule, per node; it acts next to a
+    pixel of reflectance 0.
+- **Flagged points.**
+  - **With site kernels** the reference evaluates the lattice formula itself. The host reads the band's lattice back, replaces a
+    flagged point's values with the reference's own `radianceAt` there and clears its flag, as #492 resolves uncertain chart
+    materials.
+  - **Without kernels** the reference reads the environment's own query points. A site that reads a flagged point with a nonzero
+    weight is flagged (bit 0), and its display pixels are recomputed on the host.
+  - A print edge placed exactly on the lattice is tested both ways: 200 points resolved; 90 display pixels recomputed.
+- **Pass 2 (sites).** The blocked sum of #492's order over each group's dense tap rectangle; without kernels the rectangle is the
+  members' span, zero where no member sits. The cell term is Σ_n L_n·C_n,c(t), then the Quality site tail.
+  - **Per term:** L's bound, the table's rounding and the product, the node sum's N − 1 additions, and the row, group and total
+    additions.
+  - **The site electrons** therefore carry (32 + N + cw + ch + G + 4)·E relative (`params.site_gamma`): 1.2 × 10⁻⁵ at 21 nodes with
+    the 24 MP f/2.8 defocus case (1 764 taps per site).
+  - **The table** is 3·N·T float32 values: 0.44 MB at 21 nodes and 1 764 taps. Above the device's storage binding
+    limit it is refused with `insufficient-limits`, as for charts.
+- **Loading.** The passes are in the image-plane GPU chunk, which only `prepareImagePlaneScenes()` makes reachable. The Quality
+  renderer's hook and the routing cost the capture worker's counted shape nothing net: the GPU chunk is smaller than 2.19.0's after
+  the shared code described in [Image-plane scene, Lazy loading and size](IMAGE_PLANE.md#lazy-loading-and-size).
 
 ### Defocus on the GPU (#492)
 

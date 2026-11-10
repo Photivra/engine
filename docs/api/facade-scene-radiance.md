@@ -91,7 +91,8 @@ provider `providerProfileId`.
 
 ```ts
 export function createPlanarSceneRadianceProvider(input: {
-  scene: ChartScene | ChartMaterialLayerScene | CallerReflectanceScene | CallerRadianceScene | CallerMaterialScene;
+  /** An `image-plane` scene (#581) is refused: it is taken by the facade's capture and display-view functions, which load its module. */
+  scene: ChartScene | ChartMaterialLayerScene | CallerReflectanceScene | CallerRadianceScene | CallerMaterialScene | ImagePlaneScene;
   illuminant: CaptureIlluminant;
   illuminanceLux: number;
   distanceM: number;
@@ -109,6 +110,47 @@ export function createPlanarSceneRadianceProvider(input: {
 ```
 
 This call is synchronous; any supplied provider must follow its explicit synchronous contract.
+
+## ImagePlaneImage
+
+2.21 (#581): an image the caller supplies, for an {@link ImagePlaneScene}. `data` holds `width × height` pixels row by row
+from the top, `channels` (3: RGB, 4: RGBA) samples each, in the encoding's type: `srgb-8` Uint8Array or Uint8ClampedArray
+(canvas `ImageData.data`), `srgb-16` Uint16Array, `linear-srgb` Float32Array. sRGB primaries and white (IEC 61966-2-1) in
+every encoding; `srgb-8` and `srgb-16` are decoded with the sRGB transfer function, `linear-srgb` is already linear and is
+clipped to [0, 1] (the clipped samples are counted). Alpha is linear coverage over the paper. The array is read, never
+changed or kept beyond the call.
+
+```ts
+export interface ImagePlaneImage {
+  width: number;
+  height: number;
+  channels: 3 | 4;
+  encoding: "srgb-8" | "srgb-16" | "linear-srgb";
+  data: Uint8Array | Uint8ClampedArray | Uint16Array | Float32Array;
+}
+```
+
+## ImagePlaneScene
+
+2.21 (#581): a photo as a flat matte print on the scene plane, lit by the request's illuminant like a chart. Each pixel's
+color becomes a reflectance spectrum through the engine's print reflectance lattice (docs/IMAGE_PLANE.md): an
+approximation, a print of an image that was already processed, clipped and blurred by the camera that took it. The print's
+physical size is `chartSize` (its height defaults to the image's aspect); without it the print is fitted inside the frame,
+centered, on the 18 % surround.
+
+```ts
+export interface ImagePlaneScene {
+  kind: "image-plane";
+  sceneId: string;
+  image: ImagePlaneImage;
+  /** The paper and the deepest ink: reflectances of sRGB white and black, 0 ≤ black < white ≤ 1. Defaults 0.90 and 0.01. */
+  paper?: { whiteReflectance?: number; blackReflectance?: number };
+  /** How the print is reconstructed between pixel centers. Default `bilinear` (the pixels' spectra, bilinearly weighted). */
+  interpolation?: "bilinear" | "nearest";
+  /** Opt-in raised pixel limit: an integer up to the full-resolution ceiling. Default 24 000 000 pixels. */
+  maximumPixels?: number;
+}
+```
 
 ## PHOTOPIC_MAXIMUM_LUMINOUS_EFFICACY_LM_PER_W
 
@@ -137,6 +179,12 @@ export interface PlanarSceneRadianceProvider {
    */
   chartMaterialAt?(u: number, v: number): number;
   materialRadiance?(material: number, wavelengthNanometers: number): number;
+  /**
+   * 2.21 (#581), image-plane scenes only: the tabulated expected signal's scene at these spectral nodes and channel responses, its
+   * radiance per node and, for the direct path, Σ_n A_c(λ_n)·L(λ_n) integrated from each pixel's reconstructed spectrum
+   * (`ResolvedImagePlaneScene.pixelSignals`, the surround's reflectance times the neutral signal outside the print).
+   */
+  imageSignalScene?(wavelengths: readonly number[], perNode: readonly Float64Array[]): ImagePlaneSignalScene;
 }
 ```
 

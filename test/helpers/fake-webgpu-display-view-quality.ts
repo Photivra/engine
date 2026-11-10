@@ -405,3 +405,32 @@ export function emulateDisplayViewQualityPixels(pw: Uint32Array, pf: Float32Arra
     flags[3 * i] = (pixelFlags | (undecided ? DISPLAY_VIEW_QUALITY_FLAG.highlightUndecided : 0)) >>> 0; flags[3 * i + 1] = mask0; flags[3 * i + 2] = mask1;
   }
 }
+
+/** #581: the image-plane print's pass 2 (`IMAGE_PLANE_QUALITY_SITES_WGSL`): the blocked sum over the nodes, then the site tail. */
+export function emulateImagePlaneQualitySites(pw: Uint32Array, pf: Float32Array, groups: Uint32Array, table: Float32Array, lattice: Float32Array, sites: Float32Array, flags: Uint32Array): void {
+  const P = readParams(pw, pf), sw = new Uint32Array(sites.buffer, sites.byteOffset, sites.length), dark = [P.dark0!, P.dark1!, P.dark2!];
+  const T = P.taps!, N = pw[55]!;
+  for (let local = 0; local < P.count!; local++) {
+    const i = P.siteFirst! + local, ii = i % P.siteW!, jj = Math.floor(i / P.siteW!), c = channelOf(P.siteX0! + ii, P.siteY0! + jj);
+    let sum = 0, flagged = false;
+    for (let k = 0; k < P.groups!; k++) {
+      const g = k * GROUP, lw = groups[g + 2]!, cw = lw - P.siteW! + 1, ch = groups[g + 3]! - P.siteH! + 1, lattice0 = groups[g + 4]! + jj * lw + ii, tap0 = groups[g + 5]!;
+      let groupSum = 0;
+      for (let dy = 0; dy < ch; dy++) {
+        const row = lattice0 + dy * lw, rowTap = tap0 + dy * cw;
+        let rowSum = 0;
+        for (let dx = 0; dx < cw; dx++) {
+          const point = row + dx, t = rowTap + dx;
+          let cell = 0, weight = 0;
+          for (let n = 0; n < N; n++) { const w = table[(n * 3 + c) * T + t]!; weight = f(weight + w); cell = f(cell + f(lattice[point * N + n]! * w)); }
+          if (flags[point] !== 0 && weight > 0) flagged = true;
+          rowSum = f(rowSum + cell);
+        }
+        groupSum = f(groupSum + rowSum);
+      }
+      sum = f(sum + groupSum);
+    }
+    const e = f(sum + dark[c]!);
+    writeSite(P, sites, sw, i, c, e, f(f(P.siteGamma! * e) + P.siteTiny!), flagged ? 1 : 0);
+  }
+}

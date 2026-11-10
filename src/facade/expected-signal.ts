@@ -7,6 +7,7 @@
  */
 
 import { InvalidConfigurationError } from "../core/configuration-error.js";
+import type { ImagePlaneSignalScene } from "./scene-radiance.js";
 import { createSiteKernelRunsLattice, type SiteKernelRuns, type SiteKernelRunsLattice, type SiteKernelRunsRowPattern } from "../optics/site-kernel-runs.js";
 
 /** A query offset from a site centre in sites (+x right, +y down) and its weight (pixel-aperture node × filter spot). */
@@ -19,7 +20,14 @@ export type DisplayViewScene =
     materials: readonly ({ neutral: number } | { radiance: Float64Array })[];
     /** Illuminant radiance of a perfect white diffuser at each spectral node: irradianceScale·shape(λ)/π. */
     whiteRadiance: Float64Array }
-  | { kind: "radiance"; radianceAt(u: number, v: number, nm: number): number };
+  | { kind: "radiance"; radianceAt(u: number, v: number, nm: number): number;
+    /**
+     * #581, an image-plane scene's direct path: the signal of channel c, each pixel's Σ_n A_c(λ_n)·L_n integrated from its
+     * reconstructed spectrum and interpolated between pixels (a site without kernels takes it instead of one radiance lookup per node).
+     */
+    signalAt?(u: number, v: number, c: number): number;
+    /** #581: the image-plane print behind `signalAt` (its scene, spectral nodes and surround), for the GPU's image-plane module. */
+    image?: ImagePlaneSignalScene["image"] };
 
 export interface DisplayViewExpectedSignalInput {
   nativeWidth: number;
@@ -373,7 +381,8 @@ export function createDisplayViewExpectedSignal(input: DisplayViewExpectedSignal
         // Integrated from the material's spectrum against the site's channel, once per material change within the site.
         if (m !== lastM) { lastValue = materialSpectrumSignal(A[c]!, spectra[m], nodes); lastM = m; }
         value = lastValue; lookups++;
-      } else { value = 0; for (let n = 0; n < nodes; n++) value += A[c]![n]! * scene.radianceAt(point[0]!, point[1]!, input.wavelengthsNm[n]!); lookups += nodes; }
+      } else if (scene.signalAt) { value = scene.signalAt(point[0]!, point[1]!, c); lookups++; }
+      else { value = 0; for (let n = 0; n < nodes; n++) value += A[c]![n]! * scene.radianceAt(point[0]!, point[1]!, input.wavelengthsNm[n]!); lookups += nodes; }
       sum += offsets[o]!.weight * value;
     }
     lastMaterial = uniform < 0 ? -1 : uniform;
@@ -552,7 +561,7 @@ export function createDisplayViewExpectedSignal(input: DisplayViewExpectedSignal
   // depend on the window). A ring hit counts the lookups directSite would have made, so `lookups` is unchanged. The site's
   // material (directSite's lastMaterial) is kept beside its value, so the display view's one-material memo applies (#444).
   let directRows = 0, directOn = false, directRing = new Float64Array(0), directRowId = new Int32Array(0), directRingMaterial = new Int32Array(0);
-  const directLookups = offsets.length * (scene.kind === "materials" ? 1 : nodes);
+  const directLookups = offsets.length * (scene.kind === "materials" || scene.signalAt ? 1 : nodes);
   function directRead(x: number, y: number): number {
     const slot = y & (directRows - 1), q = slot * W + x;
     if (directRowId[slot] === y) { const v = directRing[q]!; if (v === v) { lookups += directLookups; lastMaterial = directRingMaterial[q]!; return v; } }

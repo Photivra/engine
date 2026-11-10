@@ -672,9 +672,10 @@ export interface SimulateCaptureOptions {
   /**
    * Required: an engine chart (for example `{ preset: "uniform" }`, an 18 % grey card), a declared `material-layers` scene (#491:
    * a chart under shape-mask layers, as `resolveChartMaterialLayers` takes it; the capture is that of its `callerScene`, byte for
-   * byte, and the display view can render it on the GPU), or a caller reflectance, radiance or material function.
+   * byte, and the display view can render it on the GPU), a caller reflectance, radiance or material function, or (2.21, #581) an
+   * `image-plane` scene: a photo as a flat print (docs/IMAGE_PLANE.md).
    */
-  scene: ChartScene | ChartMaterialLayerScene | CallerReflectanceScene | CallerRadianceScene | CallerMaterialScene;
+  scene: ChartScene | ChartMaterialLayerScene | CallerReflectanceScene | CallerRadianceScene | CallerMaterialScene | ImagePlaneScene;
   /** Distance from the camera to the scene plane in metres. Default 5. */
   subjectDistanceM?: number;
   /**

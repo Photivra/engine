@@ -140,7 +140,7 @@ const literal = (value: number): string => {
 };
 
 /** The parameter struct and the bound helpers shared by the three passes. */
-const COMMON_WGSL = /* wgsl */ `
+export const DISPLAY_VIEW_QUALITY_COMMON_WGSL = /* wgsl */ `
 const E: f32 = ${E_LITERAL};
 const SLACK: f32 = 1e-14;
 const CLIP_REACH: f32 = 8.5;
@@ -353,7 +353,7 @@ fn reinhard_moments(m: vec2<f32>, v: vec2<f32>) -> Moments {
  * records hold each group's lattice window (lx0, ly0, lw, lh), its first index in the lattice buffer and the point constants
  * c_u = 0.5 + f_x − W/2 and c_v = 0.5 + f_y − H/2 (exact in float32, checked by the host).
  */
-export const DISPLAY_VIEW_QUALITY_LATTICE_WGSL = /* wgsl */ `${COMMON_WGSL}
+export const DISPLAY_VIEW_QUALITY_LATTICE_WGSL = /* wgsl */ `${DISPLAY_VIEW_QUALITY_COMMON_WGSL}
 @group(0) @binding(1) var<storage, read> groups: array<u32>;
 @group(0) @binding(2) var<storage, read_write> lattice_out: array<u32>;
 @compute @workgroup_size(${DISPLAY_VIEW_QUALITY_WORKGROUP_SIZE})
@@ -381,7 +381,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_workgroups) 
  * The end of pass 2, shared by both site passes: from the site's electrons e and their absolute bound de, the readout moments
  * (mean k·e, variance k²e + c₀, third cumulant k³e), the clip at the white level and their bounds, written to site i.
  */
-const SITE_TAIL_WGSL = /* wgsl */ `
+export const DISPLAY_VIEW_QUALITY_SITE_TAIL_WGSL = /* wgsl */ `
 fn write_site(i: u32, c: u32, e: f32, de: f32, flag: u32) {
   let kc = k_of(c);
   let mean = kc * e;
@@ -447,7 +447,7 @@ fn node_total(p: ptr<function, Nodes>, dark: f32) -> f32 {
  * exceeds UNCERTAINTY_LIMIT of the electrons. One dispatch covers the `params.count` sites from `params.site_first` (#492: the
  * host splits a band's sites over several dispatches so that no dispatch gathers more than its tap budget).
  */
-export const DISPLAY_VIEW_QUALITY_SITES_WGSL = /* wgsl */ `${COMMON_WGSL}${siteBindingsWgsl(true)}${SITE_TAIL_WGSL}
+export const DISPLAY_VIEW_QUALITY_SITES_WGSL = /* wgsl */ `${DISPLAY_VIEW_QUALITY_COMMON_WGSL}${siteBindingsWgsl(true)}${DISPLAY_VIEW_QUALITY_SITE_TAIL_WGSL}
 @compute @workgroup_size(${DISPLAY_VIEW_QUALITY_WORKGROUP_SIZE})
 fn main(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_workgroups) wg: vec3<u32>) {
   let local = gid.x + gid.y * wg.x * ${DISPLAY_VIEW_QUALITY_WORKGROUP_SIZE}u;
@@ -493,8 +493,8 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_workgroups) 
  * instead). The uncertainty, summed the same way, is scaled by 1 + site_gamma, and `params.site_tiny` (host float64, rounded up)
  * bounds what a device that flushes results below the float32 normal range can drop (the tap-list pass adds it too).
  */
-export const DISPLAY_VIEW_QUALITY_SITES_BLOCKED_WGSL = /* wgsl */ `${COMMON_WGSL}${siteBindingsWgsl(false)}
-${SITE_TAIL_WGSL}
+export const DISPLAY_VIEW_QUALITY_SITES_BLOCKED_WGSL = /* wgsl */ `${DISPLAY_VIEW_QUALITY_COMMON_WGSL}${siteBindingsWgsl(false)}
+${DISPLAY_VIEW_QUALITY_SITE_TAIL_WGSL}
 @compute @workgroup_size(${DISPLAY_VIEW_QUALITY_WORKGROUP_SIZE})
 fn main(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_workgroups) wg: vec3<u32>) {
   let local = gid.x + gid.y * wg.x * ${DISPLAY_VIEW_QUALITY_WORKGROUP_SIZE}u;
@@ -542,7 +542,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_workgroups) 
 `;
 
 /** Pass 3: the display pixels (see the module comment). */
-export const DISPLAY_VIEW_QUALITY_PIXELS_WGSL = /* wgsl */ `${COMMON_WGSL}
+export const DISPLAY_VIEW_QUALITY_PIXELS_WGSL = /* wgsl */ `${DISPLAY_VIEW_QUALITY_COMMON_WGSL}
 const KEY_LEVELS: u32 = ${AHD_KEY_LEVELS}u;
 const KEY_STEPS: f32 = ${literal(AHD_KEY_STEPS)};
 const KEY_OCTAVES: f32 = ${literal(AHD_KEY_OCTAVES)};

@@ -78,6 +78,18 @@ export interface DisplayViewGpuMaterialModule {
   readonly compositeProbe?: ChartCompositeProbeRecord;
   readonly bindings: readonly ({ binding: number; kind: "uniform" | "storage"; data: ArrayBufferView<ArrayBuffer>; buffer?: undefined } |
     { binding: number; kind: "uniform" | "storage"; buffer: GPUBuffer; data?: undefined })[];
+  /**
+   * #581: a module that defines `scene_value` itself (the image-plane module) states the roundings its value carries beyond the
+   * table lookup's one, added to the mean's and (doubled) the variance's chains; and it gives the data of the kernel's binding 3 in place of the spectral table.
+   */
+  readonly extraSiteRoundings?: number;
+  readonly siteTable?: Float32Array<ArrayBuffer>;
+  /**
+   * #581: a module whose data is too large for one binding (a large photo) gives group 1 per band instead of `bindings`: for the
+   * native site rows [y0, y1] the band reads, and the most display rows a band may hold at `sitesPerDisplayRow`.
+   */
+  band?(scope: GpuResourceScope, layout: GPUBindGroupLayout, y0: number, y1: number): GPUBindGroup;
+  bandRows?(sitesPerDisplayRow: number): number;
 }
 
 /** What a GPU render of a display view needs: the reference's own setup and expected-signal input, plus the material module. */
@@ -117,7 +129,7 @@ export interface DisplayViewSpeedGpuResult extends DisplayViewRenderResult {
 export function displayViewSpeedGpuUnsupportedReason(setup: DisplayViewSetup, signalInput: DisplayViewExpectedSignalInput): string | null {
   if (signalInput.largeKernel) return "a defocus kernel radius above 64 sites (convolved by runs on the CPU, #564) is not on the GPU";
   if (signalInput.kernels) return "diffraction kernels (the Quality path) are not on the GPU";
-  if (signalInput.scene.kind !== "materials") return "radiance scenes (caller functions) are not on the GPU";
+  if (signalInput.scene.kind !== "materials" && !signalInput.scene.signalAt) return "radiance scenes (caller functions) are not on the GPU";
   if (!signalInput.queryPoint) return "the expected signal has no query points";
   if (setup.candidates || setup.ahdCorrection || setup.ahdCollect) return "AHD candidates and the low-signal correction are not on the GPU";
   if (setup.toneCurve !== "identity" && setup.toneCurve !== "positive-reinhard-per-channel") return "unsupported tone curve " + String(setup.toneCurve);
@@ -230,10 +242,10 @@ function constants(setup: DisplayViewSetup, signalInput: DisplayViewExpectedSign
 }
 
 /** The a-priori relative bounds of the expected value and the variance (docs/WEBGPU.md, "Display view (Speed)"), doubled. */
-export function displayViewSpeedGpuRelativeBounds(toneCurve: DisplayViewSetup["toneCurve"]): { mean: number; variance: number } {
+export function displayViewSpeedGpuRelativeBounds(toneCurve: DisplayViewSetup["toneCurve"], extraSiteRoundings = 0): { mean: number; variance: number } {
   const reinhard = toneCurve === "positive-reinhard-per-channel";
-  return { mean: MARGIN * (gammaE(MEAN_ROUNDINGS) + CPU_RELATIVE + (reinhard ? DISPLAY_VIEW_REINHARD_MEAN_U * E : 0)),
-    variance: MARGIN * (gammaE(VARIANCE_ROUNDINGS) + CPU_RELATIVE + (reinhard ? DISPLAY_VIEW_REINHARD_VARIANCE_U * E : 0)) };
+  return { mean: MARGIN * (gammaE(MEAN_ROUNDINGS + extraSiteRoundings) + CPU_RELATIVE + (reinhard ? DISPLAY_VIEW_REINHARD_MEAN_U * E : 0)),
+    variance: MARGIN * (gammaE(VARIANCE_ROUNDINGS + 2 * extraSiteRoundings) + CPU_RELATIVE + (reinhard ? DISPLAY_VIEW_REINHARD_VARIANCE_U * E : 0)) };
 }
 
 /**
@@ -275,19 +287,38 @@ export function displayViewSpeedQuantizationBound(moments: ArrayLike<number>, re
   return MARGIN * pixels * largest * step * step / 12;
 }
 
+/**
+ * Renders the display pixels `indices` (ascending, region row-major) with the reference, a run of consecutive pixels along a row
+ * as one region (#457: AHD's choice flags stretches near edges): a region render is byte-identical to the same pixels of the whole
+ * view, so each pixel equals its one-pixel render, and a run's counts are the sums of its pixels'.
+ */
+export async function recomputeRuns(setup: DisplayViewSetup, signalInput: DisplayViewExpectedSignalInput, indices: readonly number[], abort: AbortController,
+  take: (first: number, run: number, part: DisplayViewRenderResult) => void): Promise<void> {
+  const region = setup.region;
+  let reference: DisplayViewSetup["signal"] | undefined;
+  for (let r = 0; r < indices.length;) {
+    checkAbort(abort.signal);
+    const first = indices[r]!, rx = first % region.width, ry = (first - rx) / region.width;
+    let run = 1;
+    while (r + run < indices.length && indices[r + run] === first + run && rx + run < region.width) run++;
+    take(first, run, await renderDisplayView({ ...setup, signal: reference ??= createDisplayViewExpectedSignal(signalInput), region: { x: region.x + rx, y: region.y + ry, width: run, height: 1 } }));
+    r += run;
+  }
+}
+
 /** Renders one region of a Speed display view on the GPU (see the module comment). */
 export async function renderDisplayViewSpeedOnGpu(runtime: WebGpuRuntime, bandBytes: number, input: DisplayViewSpeedGpuInput, abort: AbortController,
   yieldControl: YieldControl, pipelines: PipelineSource): Promise<DisplayViewSpeedGpuResult> {
   const { setup, signalInput, material } = input;
   const reason = displayViewSpeedGpuUnsupportedReason(setup, signalInput);
   if (reason) throw new ImageKernelExecutionError("unsupported-on-backend", "webgpu-f32 display view (Speed): " + reason + "; use cpu-reference.");
-  const { region, margin } = setup, shape = footprintShape(setup), table = spectralTable(signalInput), { params, aux } = constants(setup, signalInput);
+  const { region, margin } = setup, shape = footprintShape(setup), table = material.siteTable ?? spectralTable(signalInput), { params, aux } = constants(setup, signalInput);
   const stride = DISPLAY_VIEW_GEOMETRY_STRIDE, geometry = new Float32Array((region.width + region.height) * stride);
   const columnSums: AxisSums[] = [], rowSums: AxisSums[] = [];
   for (let i = 0; i < region.width; i++) { axisRecord(geometry, i * stride, (region.x + i) * shape.sx, (region.x + i + 1) * shape.sx, setup.frameWidth, margin, shape.sx); columnSums.push(axisSums((region.x + i) * shape.sx, (region.x + i + 1) * shape.sx, setup.frameWidth, margin)); }
   for (let j = 0; j < region.height; j++) { axisRecord(geometry, (region.width + j) * stride, (region.y + j) * shape.sy, (region.y + j + 1) * shape.sy, setup.frameHeight, margin, shape.sy); rowSums.push(axisSums((region.y + j) * shape.sy, (region.y + j + 1) * shape.sy, setup.frameHeight, margin)); }
   const area = shape.sx * shape.sy, pixelCount = region.width * region.height;
-  const rows = Math.max(1, Math.min(region.height, Math.floor(bandBytes / (region.width * BYTES_PER_PIXEL))));
+  const rows = Math.max(1, Math.min(region.height, Math.floor(bandBytes / (region.width * BYTES_PER_PIXEL)), material.bandRows?.(shape.sy) ?? Infinity));
   if (Math.max(rows * region.width * 4 * DISPLAY_VIEW_OUTPUT_FLOATS, geometry.byteLength, table.byteLength) > runtime.maximumStorageBindingBytes)
     throw new ImageKernelExecutionError("insufficient-limits", "One display-view band exceeds the device's storage binding limit.");
   const pipeline = await pipelines("photivra-display-view-speed:" + material.id, assembleDisplayViewSpeedWgsl(material.wgsl));
@@ -298,8 +329,8 @@ export async function renderDisplayViewSpeedOnGpu(runtime: WebGpuRuntime, bandBy
     const auxBuffer = scope.upload("photivra-display-view-aux", aux, BUFFER_USAGE.STORAGE);
     const geometryBuffer = scope.upload("photivra-display-view-geometry", geometry, BUFFER_USAGE.STORAGE);
     const tableBuffer = scope.upload("photivra-display-view-table", table, BUFFER_USAGE.STORAGE);
-    const materialEntries = material.bindings.map((b) => ({ binding: b.binding, resource: { buffer: b.buffer ?? scope.upload("photivra-display-view-material-" + b.binding, b.data, b.kind === "uniform" ? BUFFER_USAGE.UNIFORM : BUFFER_USAGE.STORAGE) } }));
-    const materialGroup = runtime.device.createBindGroup({ layout: pipeline.getBindGroupLayout(1), entries: materialEntries });
+    const materialGroup = material.band ? null : runtime.device.createBindGroup({ layout: pipeline.getBindGroupLayout(1), entries: material.bindings.map((b) => ({ binding: b.binding,
+      resource: { buffer: b.buffer ?? scope.upload("photivra-display-view-material-" + b.binding, b.data, b.kind === "uniform" ? BUFFER_USAGE.UNIFORM : BUFFER_USAGE.STORAGE) } })) });
     const gate = createHostYieldGate();
     for (let row0 = 0; row0 < region.height; row0 += rows) {
       checkAbort(abort.signal);
@@ -313,7 +344,9 @@ export async function renderDisplayViewSpeedOnGpu(runtime: WebGpuRuntime, bandBy
         const bindGroup = runtime.device.createBindGroup({ layout: pipeline.getBindGroupLayout(0), entries: [
           { binding: 0, resource: { buffer: uniform } }, { binding: 1, resource: { buffer: auxBuffer } }, { binding: 2, resource: { buffer: geometryBuffer } },
           { binding: 3, resource: { buffer: tableBuffer } }, { binding: 4, resource: { buffer: out } }, { binding: 5, resource: { buffer: flagBuffer } }] });
-        const [data, flagData] = await runComputePass(runtime, band, pipeline, [bindGroup, materialGroup], linearDispatch(count, DISPLAY_VIEW_WORKGROUP_SIZE, runtime.maximumWorkgroupsPerDimension),
+        // #581: a module that bands its own data (a large photo) gives group 1 per band, for the native rows the band reads (with margin).
+        const [data, flagData] = await runComputePass(runtime, band, pipeline, [bindGroup, materialGroup ?? material.band!(band, pipeline.getBindGroupLayout(1),
+          Math.floor((region.y + row0) * shape.sy) + margin - 2, Math.ceil((region.y + row1) * shape.sy) + margin + 2)], linearDispatch(count, DISPLAY_VIEW_WORKGROUP_SIZE, runtime.maximumWorkgroupsPerDimension),
           [{ buffer: out, bytes: count * 4 * DISPLAY_VIEW_OUTPUT_FLOATS }, { buffer: flagBuffer, bytes: count * 4 * DISPLAY_VIEW_FLAG_WORDS }], abort.signal);
         moments.set(new Float32Array(data!, 0, count * DISPLAY_VIEW_OUTPUT_FLOATS), first * DISPLAY_VIEW_OUTPUT_FLOATS);
         const bandFlags = new Uint32Array(flagData!, 0, count * DISPLAY_VIEW_FLAG_WORDS);
@@ -338,7 +371,7 @@ export async function renderDisplayViewSpeedOnGpu(runtime: WebGpuRuntime, bandBy
   const expected = new Float64Array(pixelCount * 3), noiseStd = new Float64Array(pixelCount * 3), saturated = new Float64Array(pixelCount);
   const meanBound = new Float32Array(pixelCount), varianceBound = new Float32Array(pixelCount);
   let largestMean = 0, largestVariance = 0, sampleCount = 0, siteCount = 0;
-  const counts = new Int32Array(geometry.buffer), relative = displayViewSpeedGpuRelativeBounds(setup.toneCurve);
+  const counts = new Int32Array(geometry.buffer), relative = displayViewSpeedGpuRelativeBounds(setup.toneCurve, material.extraSiteRoundings ?? 0);
   // #533: each display pixel's saturated-pixel share from the kernel's mask (the reference's arithmetic, exact where it decided).
   const columnOverlaps = Array.from({ length: region.width }, (_, i) => overlaps((region.x + i) * shape.sx, (region.x + i + 1) * shape.sx, setup.frameWidth));
   for (let ry = 0, i = 0; ry < region.height; ry++) {
@@ -362,22 +395,12 @@ export async function renderDisplayViewSpeedOnGpu(runtime: WebGpuRuntime, bandBy
   const undecided: number[] = [], isFlagged = new Uint8Array(pixelCount);
   for (const i of flagged) isFlagged[i] = 1;
   for (let i = 0; i < pixelCount; i++) if (isFlagged[i] === 0 && (flagWords[DISPLAY_VIEW_FLAG_WORDS * i]! & 2) !== 0) undecided.push(i);
-  if (input.recomputeFlagged !== false && flagged.length + undecided.length > 0) {
-    const signal = createDisplayViewExpectedSignal(signalInput);
-    for (const i of flagged) {
-      checkAbort(abort.signal);
-      const rx = i % region.width, ry = (i - rx) / region.width;
-      const pixel = await renderDisplayView({ ...setup, signal, region: { x: region.x + rx, y: region.y + ry, width: 1, height: 1 } });
-      samples.set(pixel.samples, i * 3); expected.set(pixel.expected, i * 3); noiseStd.set(pixel.noiseStd, i * 3); saturated[i] = pixel.saturated[0]!;
-      meanBound[i] = 0; varianceBound[i] = 0;
-      recomputed.push(i);
-    }
-    for (const i of undecided) {
-      checkAbort(abort.signal);
-      const rx = i % region.width, ry = (i - rx) / region.width;
-      saturated[i] = (await renderDisplayView({ ...setup, signal, region: { x: region.x + rx, y: region.y + ry, width: 1, height: 1 } })).saturated[0]!;
-      highlights.push(i);
-    }
+  if (input.recomputeFlagged !== false) {
+    await recomputeRuns(setup, signalInput, flagged, abort, (first, run, part) => {
+      samples.set(part.samples, first * 3); expected.set(part.expected, first * 3); noiseStd.set(part.noiseStd, first * 3); saturated.set(part.saturated, first);
+      for (let k = 0; k < run; k++) { meanBound[first + k] = 0; varianceBound[first + k] = 0; recomputed.push(first + k); }
+    });
+    await recomputeRuns(setup, signalInput, undecided, abort, (first, run, part) => { for (let k = 0; k < run; k++) { saturated[first + k] = part.saturated[k]!; highlights.push(first + k); } });
   }
   let saturatedPixelCount = 0;
   for (let i = 0; i < pixelCount; i++) saturatedPixelCount += saturated[i]!;
@@ -401,9 +424,30 @@ export async function renderDisplayViewSpeedOnGpu(runtime: WebGpuRuntime, bandBy
 export function displayViewSpeedGpuSupports(request: DisplayViewGpuRequest): true | string {
   if (request.ahd) return "AHD (the Quality demosaic) is not on the GPU";
   if (request.diffraction) return "diffraction (the Quality optics) is not on the GPU";
-  if (request.scene !== "chart" && request.scene !== "material-layers") return "the scene is a caller " + request.scene + "; the GPU material lookup covers engine charts and declared material-layers scenes (describe the scene as material-layers)";
+  return sceneToneAndOffsetsReason(request, DISPLAY_VIEW_GPU_MAXIMUM_OFFSETS);
+}
+/** Why the GPU's material lookup, tone curves or query-offset table do not cover a request (shared by the Speed and Quality support checks), or true. */
+export function sceneToneAndOffsetsReason(request: DisplayViewGpuRequest, maximumOffsets: number): true | string {
+  if (request.scene !== "chart" && request.scene !== "material-layers" && request.scene !== "image-plane") return "the scene is a caller " + request.scene + "; the GPU material lookup covers engine charts and declared material-layers scenes (describe the scene as material-layers)";
   if (request.toneCurve !== "identity" && request.toneCurve !== "positive-reinhard-per-channel") return "unsupported tone curve " + String(request.toneCurve);
-  if (offsetCount(request) > DISPLAY_VIEW_GPU_MAXIMUM_OFFSETS) return "more than " + DISPLAY_VIEW_GPU_MAXIMUM_OFFSETS + " query offsets per site";
+  if (offsetCount(request) > maximumOffsets) return "more than " + maximumOffsets + " query offsets per site";
+  return true;
+}
+
+/**
+ * A self-check's verdict: every component of a GPU render inside its a-priori bounds against the reference, every sample within
+ * one code, and (#533) the saturated-pixel count the reference's bit for bit; true, or a sentence saying where it failed.
+ */
+export function conformanceVerdict(reference: DisplayViewRenderResult, gpu: Pick<DisplayViewSpeedGpuResult, "samples" | "expected" | "noiseStd" | "expectedValueBound" | "varianceBound" |
+  "expectedValueAbsoluteBound" | "varianceAbsoluteBound" | "saturatedPixelCount">): true | string {
+  for (let i = 0; i < reference.expected.length; i++) {
+    const p = Math.floor(i / 3), e0 = reference.expected[i]!, e1 = gpu.expected[i]!, v0 = reference.noiseStd[i]! * reference.noiseStd[i]!, v1 = gpu.noiseStd[i]! * gpu.noiseStd[i]!;
+    const expectedLimit = gpu.expectedValueBound.relative * Math.abs(e0) + gpu.expectedValueAbsoluteBound[p]!, varianceLimit = gpu.varianceBound.relative * v0 + gpu.varianceAbsoluteBound[p]!;
+    if (!(Math.abs(e1 - e0) <= expectedLimit)) return "component " + i + ": expected value " + e1 + " differs from the reference " + e0 + " by more than the a-priori bound " + expectedLimit + ".";
+    if (!(Math.abs(v1 - v0) <= varianceLimit)) return "component " + i + ": variance " + v1 + " differs from the reference " + v0 + " by more than the a-priori bound " + varianceLimit + ".";
+    if (Math.abs(gpu.samples[i]! - reference.samples[i]!) > 1) return "component " + i + ": sample " + gpu.samples[i] + " differs from the reference " + reference.samples[i] + " by more than one code.";
+  }
+  if (gpu.saturatedPixelCount !== reference.saturatedPixelCount) return "the saturated-pixel count " + gpu.saturatedPixelCount + " differs from the reference's " + reference.saturatedPixelCount + ".";
   return true;
 }
 
@@ -412,40 +456,50 @@ export function displayViewSpeedGpuSupports(request: DisplayViewGpuRequest): tru
  * shown at 13 × 9 (2.9 real pixels per display pixel) with the 2 × 2 box, light squares at the white clip, the GPU against
  * `renderDisplayView` within the a-priori bounds, every flagged pixel recomputed.
  */
-export const DISPLAY_VIEW_SPEED_CONFORMANCE_CASE: DisplayViewGpuConformanceCase = { id: "display-view:speed:checkerboard-13x9", async run(handle, signal): Promise<true | string> {
-  // The handle is the engine's own runtime (the contract keeps WebGPU types out of the published declarations).
-  const runtime = handle as WebGpuRuntime;
-  const nativeWidth = 40, nativeHeight = 28, margin = 1, frameWidth = 38, frameHeight = 26, g = 2 / frameWidth, nodes = [450, 550, 650];
-  const chart = resolvePortableChartScene({ scene: { preset: "checkerboard", squaresAcross: 6 }, aspect: frameHeight / frameWidth });
-  const offsets = [[-0.25, -0.25], [0.25, -0.25], [-0.25, 0.25], [0.25, 0.25]].map(([x, y]) => ({ x: x!, y: y!, weight: 0.25 }));
-  const signalInput: DisplayViewExpectedSignalInput = { nativeWidth, nativeHeight, outputWidth: frameWidth, wavelengthsNm: nodes,
-    electronsPerRadiance: [Float64Array.of(9000, 30000, 4000), Float64Array.of(6000, 42000, 9000), Float64Array.of(30000, 9000, 3000)], offsets,
-    scene: { kind: "materials", materialAt: (u, v) => chart.materialAt(u, v), materials: chart.materials.map((m) => ({ neutral: m.kind === "neutral" ? m.reflectance : 0.5 })), whiteRadiance: Float64Array.of(0.5, 0.9, 0.7) },
-    channelAt: (x, y) => ((y & 1) === 0 ? ((x & 1) === 0 ? 0 : 1) : ((x & 1) === 0 ? 1 : 2)),
-    queryPoint: (x, y, o, out) => { out[0] = (x + 0.5 + offsets[o]!.x - nativeWidth / 2) * g; out[1] = -(y + 0.5 + offsets[o]!.y - nativeHeight / 2) * g; } };
-  const readout = { perElectron: 1 / 60000, darkElectrons: 0.07, constantVariance: 1.5e-9 };
-  const setup: DisplayViewSetup = { frameWidth, frameHeight, margin, nativeWidth, nativeHeight, viewWidth: 13, viewHeight: 9, region: { x: 0, y: 0, width: 13, height: 9 },
-    samplesPerAxis: 16, reachSites: 2, bitDepth: 8, seed: 478, signal: createDisplayViewExpectedSignal(signalInput), readout: [readout, readout, readout], demosaic: bilinearKernels(),
+/** The self-checks' common frame: 40 × 28 native sites (a 38 × 26 frame and a one-site margin) shown at 13 × 9, at three spectral nodes. */
+export const CONFORMANCE_FRAME = /* @__PURE__ */ Object.freeze({ nativeWidth: 40, nativeHeight: 28, margin: 1, frameWidth: 38, frameHeight: 26, nodes: [450, 550, 650] });
+/** The self-checks' channel responses per node (`scale` 1, or 1/10 for the low-signal correction's few electrons). */
+export function conformanceResponses(scale: number): [Float64Array, Float64Array, Float64Array] {
+  return [Float64Array.of(9000, 30000, 4000).map((v) => v * scale), Float64Array.of(6000, 42000, 9000).map((v) => v * scale), Float64Array.of(30000, 9000, 3000).map((v) => v * scale)];
+}
+/** The RGGB channel of a native site. */
+export const conformanceChannelAt = (x: number, y: number): number => ((y & 1) === 0 ? ((x & 1) === 0 ? 0 : 1) : ((x & 1) === 0 ? 1 : 2));
+/** The self-checks' checkerboard and its expected-signal scene (neutral materials under a white radiance per node). */
+export function conformanceChart(): { chart: ReturnType<typeof resolvePortableChartScene>; scene: DisplayViewExpectedSignalInput["scene"] } {
+  const chart = resolvePortableChartScene({ scene: { preset: "checkerboard", squaresAcross: 6 }, aspect: CONFORMANCE_FRAME.frameHeight / CONFORMANCE_FRAME.frameWidth });
+  return { chart, scene: { kind: "materials", materialAt: (u, v) => chart.materialAt(u, v), materials: chart.materials.map((m) => ({ neutral: m.kind === "neutral" ? m.reflectance : 0.5 })),
+    whiteRadiance: Float64Array.of(0.5, 0.9, 0.7) } };
+}
+/** A self-check's setup around its expected-signal input: the common frame and view, the bilinear demosaic, gains, matrix and tone curve, plus `extra`. */
+export function conformanceSetup(signalInput: DisplayViewExpectedSignalInput, readout: DisplayViewSetup["readout"][0], seed: number, reachSites: number, signal: AbortSignal | undefined,
+  extra: Partial<DisplayViewSetup> = {}): DisplayViewSetup {
+  const { frameWidth, frameHeight, margin, nativeWidth, nativeHeight } = CONFORMANCE_FRAME;
+  return { frameWidth, frameHeight, margin, nativeWidth, nativeHeight, viewWidth: 13, viewHeight: 9, region: { x: 0, y: 0, width: 13, height: 9 },
+    samplesPerAxis: 16, reachSites, bitDepth: 8, seed, signal: createDisplayViewExpectedSignal(signalInput), readout: [readout, readout, readout], demosaic: bilinearKernels(),
     gains: [1.1, 1, 1.6], clipLevel: 1, matrix: [[3.08, -1.54, -0.54], [-0.92, 1.88, 0.045], [0.053, -0.2, 1.15]], toneCurve: "identity",
-    yieldControl: async () => undefined, checkAbort: () => { if (signal?.aborted) throw abortedError(); } };
-  const reference = await renderDisplayView(setup);
+    yieldControl: async (): Promise<void> => undefined, checkAbort: (): void => { if (signal?.aborted) throw abortedError(); }, ...extra };
+}
+/** Runs a self-check's GPU render with an abort controller that follows `signal`, and the device's pipelines under it. */
+export async function withConformanceAbort<T>(runtime: WebGpuRuntime, signal: AbortSignal | undefined, run: (abort: AbortController, pipelines: PipelineSource) => Promise<T>): Promise<T> {
   const abort = new AbortController(), onAbort = (): void => abort.abort();
   signal?.addEventListener("abort", onAbort, { once: true });
   try {
     if (signal?.aborted) abort.abort();
-    const gpu = await renderDisplayViewSpeedOnGpu(runtime, 1 << 20, { setup, signalInput, material: chartPresetMaterialModule(chart) }, abort, undefined,
-      (label, code) => createComputePipeline(runtime, label, code, abort.signal));
-    for (let i = 0; i < reference.expected.length; i++) {
-      const p = Math.floor(i / 3), e0 = reference.expected[i]!, e1 = gpu.expected[i]!, v0 = reference.noiseStd[i]! * reference.noiseStd[i]!, v1 = gpu.noiseStd[i]! * gpu.noiseStd[i]!;
-      const expectedLimit = gpu.expectedValueBound.relative * Math.abs(e0) + gpu.expectedValueAbsoluteBound[p]!, varianceLimit = gpu.varianceBound.relative * v0 + gpu.varianceAbsoluteBound[p]!;
-      if (!(Math.abs(e1 - e0) <= expectedLimit)) return "component " + i + ": expected value " + e1 + " differs from the reference " + e0 + " by more than the a-priori bound " + expectedLimit + ".";
-      if (!(Math.abs(v1 - v0) <= varianceLimit)) return "component " + i + ": variance " + v1 + " differs from the reference " + v0 + " by more than the a-priori bound " + varianceLimit + ".";
-      if (Math.abs(gpu.samples[i]! - reference.samples[i]!) > 1) return "component " + i + ": sample " + gpu.samples[i] + " differs from the reference " + reference.samples[i] + " by more than one code.";
-    }
-    // #533: the saturated-pixel count is the reference's, bit for bit (the light squares sit at the white clip).
-    if (gpu.saturatedPixelCount !== reference.saturatedPixelCount) return "the saturated-pixel count " + gpu.saturatedPixelCount + " differs from the reference's " + reference.saturatedPixelCount + ".";
-    return true;
+    return await run(abort, (label, code) => createComputePipeline(runtime, label, code, abort.signal));
   } finally { signal?.removeEventListener("abort", onAbort); }
+}
+
+export const DISPLAY_VIEW_SPEED_CONFORMANCE_CASE: DisplayViewGpuConformanceCase = { id: "display-view:speed:checkerboard-13x9", async run(handle, signal): Promise<true | string> {
+  // The handle is the engine's own runtime (the contract keeps WebGPU types out of the published declarations).
+  const runtime = handle as WebGpuRuntime, { nativeWidth, nativeHeight, frameWidth, nodes } = CONFORMANCE_FRAME, g = 2 / frameWidth, { chart, scene } = conformanceChart();
+  const offsets = [[-0.25, -0.25], [0.25, -0.25], [-0.25, 0.25], [0.25, 0.25]].map(([x, y]) => ({ x: x!, y: y!, weight: 0.25 }));
+  const signalInput: DisplayViewExpectedSignalInput = { nativeWidth, nativeHeight, outputWidth: frameWidth, wavelengthsNm: nodes, electronsPerRadiance: conformanceResponses(1), offsets, scene,
+    channelAt: conformanceChannelAt, queryPoint: (x, y, o, out) => { out[0] = (x + 0.5 + offsets[o]!.x - nativeWidth / 2) * g; out[1] = -(y + 0.5 + offsets[o]!.y - nativeHeight / 2) * g; } };
+  const setup = conformanceSetup(signalInput, { perElectron: 1 / 60000, darkElectrons: 0.07, constantVariance: 1.5e-9 }, 478, 2, signal);
+  const reference = await renderDisplayView(setup);
+  // #533: the verdict includes the saturated-pixel count (the light squares sit at the white clip).
+  return await withConformanceAbort(runtime, signal, async (abort, pipelines) =>
+    conformanceVerdict(reference, await renderDisplayViewSpeedOnGpu(runtime, 1 << 20, { setup, signalInput, material: chartPresetMaterialModule(chart) }, abort, undefined, pipelines)));
 } };
 
 /**

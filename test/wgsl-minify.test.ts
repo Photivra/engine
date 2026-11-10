@@ -51,8 +51,8 @@ describe("WGSL minification (#536)", () => {
       // The code outside the literals is unchanged.
       expect(minifyWgslTemplates(result.code).code).toBe(result.code);
     }
-    // 2.21.0: + the display view's integer sum (src/gpu/wgsl-exact-sum.ts).
-    expect(literals).toBe(22);
+    // 2.21.0: + the display view's integer sum (src/gpu/wgsl-exact-sum.ts) and #581's two (the image-plane module and the scene-value adapter).
+    expect(literals).toBe(24);
     expect(after).toBeLessThan(0.86 * before);
   });
 

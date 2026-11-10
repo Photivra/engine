@@ -4263,6 +4263,11 @@
       "kind": "type"
     },
     {
+      "name": "ImagePlaneImage",
+      "source": "src/facade/scene-radiance.ts",
+      "kind": "type"
+    },
+    {
       "name": "ImagePlaneMetricPointMm",
       "source": "src/output/capture-geometry.ts",
       "kind": "type"
@@ -4270,6 +4275,11 @@
     {
       "name": "ImagePlanePointMm",
       "source": "src/motion/camera-rotation.ts",
+      "kind": "type"
+    },
+    {
+      "name": "ImagePlaneScene",
+      "source": "src/facade/scene-radiance.ts",
       "kind": "type"
     },
     {
@@ -6026,6 +6036,11 @@
       "name": "PrepareImageFormationContextInput",
       "source": "src/composition/image-formation-plan.ts",
       "kind": "type"
+    },
+    {
+      "name": "prepareImagePlaneScenes",
+      "source": "src/facade/image-plane-enable.ts",
+      "kind": "runtime"
     },
     {
       "name": "prepareRgbGamutMapping",

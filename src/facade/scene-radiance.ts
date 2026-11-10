@@ -183,6 +183,103 @@ export interface CallerMaterialScene {
 }
 /** Most materials a {@link CallerMaterialScene} may list. */
 export const CALLER_MATERIAL_SCENE_MAX_MATERIALS = 65_536;
+
+/**
+ * 2.21 (#581): an image the caller supplies, for an {@link ImagePlaneScene}. `data` holds `width × height` pixels row by row
+ * from the top, `channels` (3: RGB, 4: RGBA) samples each, in the encoding's type: `srgb-8` Uint8Array or Uint8ClampedArray
+ * (canvas `ImageData.data`), `srgb-16` Uint16Array, `linear-srgb` Float32Array. sRGB primaries and white (IEC 61966-2-1) in
+ * every encoding; `srgb-8` and `srgb-16` are decoded with the sRGB transfer function, `linear-srgb` is already linear and is
+ * clipped to [0, 1] (the clipped samples are counted). Alpha is linear coverage over the paper. The array is read, never
+ * changed or kept beyond the call.
+ */
+export interface ImagePlaneImage {
+  width: number;
+  height: number;
+  channels: 3 | 4;
+  encoding: "srgb-8" | "srgb-16" | "linear-srgb";
+  data: Uint8Array | Uint8ClampedArray | Uint16Array | Float32Array;
+}
+/**
+ * 2.21 (#581): a photo as a flat matte print on the scene plane, lit by the request's illuminant like a chart. Each pixel's
+ * color becomes a reflectance spectrum through the engine's print reflectance lattice (docs/IMAGE_PLANE.md): an
+ * approximation, a print of an image that was already processed, clipped and blurred by the camera that took it. The print's
+ * physical size is `chartSize` (its height defaults to the image's aspect); without it the print is fitted inside the frame,
+ * centered, on the 18 % surround.
+ */
+export interface ImagePlaneScene {
+  kind: "image-plane";
+  sceneId: string;
+  image: ImagePlaneImage;
+  /** The paper and the deepest ink: reflectances of sRGB white and black, 0 ≤ black < white ≤ 1. Defaults 0.90 and 0.01. */
+  paper?: { whiteReflectance?: number; blackReflectance?: number };
+  /** How the print is reconstructed between pixel centers. Default `bilinear` (the pixels' spectra, bilinearly weighted). */
+  interpolation?: "bilinear" | "nearest";
+  /** Opt-in raised pixel limit: an integer up to the full-resolution ceiling. Default 24 000 000 pixels. */
+  maximumPixels?: number;
+}
+/**
+ * Internal (#581): what a pixel's signals are integrated from (`ResolvedImagePlaneScene.pixelSignals`): the lattice's node spectra at
+ * the N spectral nodes (node k's reflectance at λ_n at k·N + n), the white radiance and the channel responses per node.
+ */
+export interface ImagePlaneSpectralNodes { count: number; nodeSpectra: Float64Array; whiteRadiance: Float64Array; response: readonly Float64Array[] }
+/**
+ * Internal (#581): an image-plane print as the tabulated expected signal's scene (`ResolvedImagePlaneScene.signalScene`): its radiance
+ * per node, the direct path's signal (each pixel's Σ_n A_c(λ_n)·L_n integrated from its reconstructed spectrum, `pixelSignals`, then
+ * interpolated between pixels), and (for the GPU module) the scene, its spectral nodes and the surround's channel signals.
+ */
+export interface ImagePlaneSignalScene {
+  kind: "radiance";
+  radianceAt(u: number, v: number, nm: number): number;
+  signalAt(u: number, v: number, c: number): number;
+  image: { scene: ResolvedImagePlaneScene; nodes: ImagePlaneSpectralNodes; surround: readonly [number, number, number]; whiteRadiance: Float64Array; surroundReflectance: number };
+}
+/**
+ * Internal (#581): a validated image-plane scene (src/facade/image-plane.ts, a lazily loaded module), placed on a print of
+ * aspect `aspect` (height / width). Print-local coordinates are the chart's: cu = ±1 at the print's left and right edges, cv up
+ * on the same scale, ±aspect at its top and bottom.
+ */
+export interface ResolvedImagePlaneScene {
+  kind: "image-plane";
+  sceneId: string;
+  width: number;
+  height: number;
+  aspect: number;
+  channels: 3 | 4;
+  encoding: ImagePlaneImage["encoding"];
+  interpolation: "bilinear" | "nearest";
+  paperWhiteReflectance: number;
+  paperBlackReflectance: number;
+  maximumPixels: number;
+  /** `linear-srgb` samples (color and alpha) clipped to [0, 1]; 0 for the integer encodings. */
+  clippedSampleCount: number;
+  /** SHA-256 of the image data's bytes, hex. */
+  dataSha256: string;
+  /** The print's reflectance at a print-local point and wavelength (nm, 380–780). */
+  reflectanceAt(cu: number, cv: number, nm: number): number;
+  /**
+   * One pixel's three channel signals Σ_n A_c(λ_n)·ρ_n·W_n, integrated from its reconstructed spectrum ρ_n (its cell's node spectra
+   * blended, then the paper) at the time of use, into `out[at..at + 2]`. No per-channel values of the lattice nodes are formed.
+   */
+  pixelSignals(index: number, nodes: ImagePlaneSpectralNodes, out: Float64Array, at: number): void;
+  /** The print at a print-local point in node values (`nodeValues[k]` of node k, `neutral` of the flat reflectance 1). */
+  sampleAt(cu: number, cv: number, nodeValues: Float64Array, neutral: number): number;
+  /** One pixel (row-major index) in node values. */
+  pixelValue(index: number, nodeValues: Float64Array, neutral: number): number;
+  /** One pixel's lattice cell (its base node r·25 + g·5 + b, returned) and its fractions within the cell per channel (written to `out[0..2]`). */
+  pixelLattice(index: number, out: Float64Array): number;
+  /** Every lattice node's reflectance at one wavelength (nm, 380–780). */
+  nodeReflectances(nm: number): Float64Array;
+  /**
+   * The print placed on the plane (frame point → print-local cu = u·scale/half, cv = v·scale/half; outside |cu| ≤ 1, |cv| ≤ aspect the
+   * surround) as the expected signal's scene at these nodes, responses and white radiance (see `ImagePlaneSignalScene`).
+   */
+  signalScene(wavelengths: readonly number[], perNode: readonly Float64Array[], whiteRadiance: Float64Array, radianceAt: (u: number, v: number, nm: number) => number,
+    scale: number, half: number, surroundReflectance: number): ImagePlaneSignalScene;
+  /** The scene's form in the facade's source digest (the image's SHA-256 and shape, the paper, the interpolation, the lattice version). */
+  digestForm: Readonly<Record<string, unknown>>;
+  /** The result's `scene.parameters`: the image, paper and interpolation, the clipped samples and the image's SHA-256. */
+  parameters: Readonly<Record<string, unknown>>;
+}
 /** Internal: a validated material scene with its materials prepared (and the caller inputs, for the scene digest). */
 export interface ResolvedCallerMaterialScene {
   kind: "material-function";
@@ -192,7 +289,7 @@ export interface ResolvedCallerMaterialScene {
   materialAt(point: Readonly<SceneMaterialPoint>): number;
 }
 /** Internal: a validated caller scene. */
-export type ResolvedCallerScene = CallerReflectanceScene | CallerRadianceScene | ResolvedCallerMaterialScene;
+export type ResolvedCallerScene = CallerReflectanceScene | CallerRadianceScene | ResolvedCallerMaterialScene | ResolvedImagePlaneScene;
 
 export interface PlanarSceneGeometry {
   distanceM: number;
@@ -220,6 +317,12 @@ export interface PlanarSceneRadianceProvider {
    */
   chartMaterialAt?(u: number, v: number): number;
   materialRadiance?(material: number, wavelengthNanometers: number): number;
+  /**
+   * 2.21 (#581), image-plane scenes only: the tabulated expected signal's scene at these spectral nodes and channel responses, its
+   * radiance per node and, for the direct path, Σ_n A_c(λ_n)·L(λ_n) integrated from each pixel's reconstructed spectrum
+   * (`ResolvedImagePlaneScene.pixelSignals`, the surround's reflectance times the neutral signal outside the print).
+   */
+  imageSignalScene?(wavelengths: readonly number[], perNode: readonly Float64Array[]): ImagePlaneSignalScene;
 }
 
 /**
@@ -281,6 +384,7 @@ export function buildPlanarSceneRadianceProvider(input: {
   const evidence = input.evidence, limitations = input.limitations;
   const caller = "kind" in scene ? scene : undefined, chart = caller ? undefined : scene as ResolvedChartScene;
   const materialScene = caller?.kind === "material-function" ? caller : undefined, materials = chart ? chart.materials : materialScene?.materials;
+  const imageScene = caller?.kind === "image-plane" ? caller : undefined;
   const placed = geometry.chart, half = placed ? placed.widthM / 2 : 0, chartAspect = placed ? placed.heightM / placed.widthM : 0;
   const shapeAt = tabulatedSpectrum(illuminant.shape);
   /** A material scene's material at a frame point: the caller's index, or `materials.length` for a fixed-size chart's surround. */
@@ -302,7 +406,9 @@ export function buildPlanarSceneRadianceProvider(input: {
       // Fixed-size chart (2.3): chart-local frame units from the plane point in metres.
       const xM = u * scale, yM = v * scale, cu = xM / half, cv = yM / half;
       if (!(Math.abs(cu) <= 1 && Math.abs(cv) <= chartAspect)) return placed.surroundReflectance * irradianceScale * shapeAt(nm) / Math.PI;
-      if (chart) return chart.reflectanceAt(cu, cv, nm) * irradianceScale * shapeAt(nm) / Math.PI;
+      // #581: an image-plane print, like a chart, in print-local units.
+      const planar = chart ?? imageScene;
+      if (planar) return planar.reflectanceAt(cu, cv, nm) * irradianceScale * shapeAt(nm) / Math.PI;
       return callerValue({ xM, yM, u, v, wavelengthNanometers: nm, chartU: cu, chartV: cv }, nm);
     }
     if (chart) return chart.reflectanceAt(u, v, nm) * irradianceScale * shapeAt(nm) / Math.PI;
@@ -342,6 +448,9 @@ export function buildPlanarSceneRadianceProvider(input: {
   }
   const chartAccess = chart ? { chartMaterialAt, materialRadiance: materialRadianceOf } :
     materialScene ? { chartMaterialAt: callerMaterialAt, materialRadiance: materialRadianceOf } : {};
+  // #581: an image-plane print in node values at a frame point (the surround outside it), for the tabulated expected signal.
+  const imageAccess = imageScene ? { imageSignalScene: (wavelengths: readonly number[], perNode: readonly Float64Array[]): ImagePlaneSignalScene =>
+    imageScene.signalScene(wavelengths, perNode, Float64Array.from(wavelengths, (nm) => irradianceScale * shapeAt(nm) / Math.PI), radianceAt, scale, half, placed!.surroundReflectance) } : {};
   // #394: evaluateRadiance's own plane-point arithmetic; radianceAt is then materialRadianceOf(material, nm) for both scene forms.
   const materialAtPoint = chart ? chartMaterialAt : materialScene ? callerMaterialAt : undefined;
   const materialOfDirection = materialAtPoint === undefined ? undefined : (o: Readonly<{ x: number; y: number; z: number }>): number | undefined => {
@@ -351,7 +460,7 @@ export function buildPlanarSceneRadianceProvider(input: {
     return materialAtPoint(-o.x * t / scale, -o.y * t / scale);
   };
   const provider: PlanarSceneRadianceProvider = {
-    sceneId, providerProfileId, radianceAt, ...chartAccess,
+    sceneId, providerProfileId, radianceAt, ...chartAccess, ...imageAccess,
     evaluateRadiance(request): SceneRadianceEvaluationResult {
       const target = request.target;
       if (target.kind !== "environment-direction") throw new InvalidConfigurationError("Planar scene provider needs environment-direction queries.");
@@ -411,7 +520,8 @@ export function resolveChartSizeOption(value: unknown, frameAspect: number): { w
  * provider `providerProfileId`.
  */
 export function createPlanarSceneRadianceProvider(input: {
-  scene: ChartScene | ChartMaterialLayerScene | CallerReflectanceScene | CallerRadianceScene | CallerMaterialScene;
+  /** An `image-plane` scene (#581) is refused: it is taken by the facade's capture and display-view functions, which load its module. */
+  scene: ChartScene | ChartMaterialLayerScene | CallerReflectanceScene | CallerRadianceScene | CallerMaterialScene | ImagePlaneScene;
   illuminant: CaptureIlluminant;
   illuminanceLux: number;
   distanceM: number;

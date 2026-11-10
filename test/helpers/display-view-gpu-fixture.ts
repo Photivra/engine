@@ -58,8 +58,11 @@ export async function renderOnGpu(runtime: WebGpuRuntime, fixture: DisplayViewGp
 export async function renderOnGpuQuality(runtime: WebGpuRuntime, fixture: DisplayViewGpuFixture, maximumBandBytes = 64 * 1024 * 1024, recomputeFlagged = true,
   states?: CorrectionStateStore): Promise<DisplayViewQualityGpuResult> {
   // The material module as the renderer builds it for a Quality render (the composite module reads the lattice groups with diffraction).
-  const material = await qualityMaterialModule(materialModulesOf(runtime), fixture.input.setup.gpu!, new AbortController().signal);
-  return await renderDisplayViewQualityOnGpu(runtime, maximumBandBytes, { ...fixture.input, material, recomputeFlagged, ...(states ? { states } : {}) }, new AbortController(), undefined,
+  // #581: an image-plane print brings its own passes 1 and 2, as the renderer gives them.
+  const gpu = fixture.input.setup.gpu!, modules = materialModulesOf(runtime), signal = new AbortController().signal;
+  const image = (gpu.signalInput.scene as { image?: unknown }).image ? await modules.imagePasses(gpu, signal) : undefined;
+  const material = image ? { id: "image-plane", wgsl: "", bindings: [] } : await qualityMaterialModule(modules, gpu, signal);
+  return await renderDisplayViewQualityOnGpu(runtime, maximumBandBytes, { ...fixture.input, material, recomputeFlagged, ...(image ? { image } : {}), ...(states ? { states } : {}) }, new AbortController(), undefined,
     (label, code) => createComputePipeline(runtime, label, code, undefined));
 }
 

@@ -157,7 +157,7 @@ export interface DisplayViewGpuRequest {
    */
   lens?: boolean;
   /** The scene's form: an engine chart, a declared `material-layers` scene (#491), or a caller function. */
-  scene: "chart" | "material-layers" | "material-function" | "reflectance-function" | "radiance-function";
+  scene: "chart" | "material-layers" | "material-function" | "reflectance-function" | "radiance-function" | "image-plane";
 }
 /** One render of a region: the CPU renderer's own setup (tables, readout, demosaic, region, callbacks) and the render's signal. */
 export interface DisplayViewGpuPart { setup: DisplayViewSetup; signal: AbortSignal | undefined }
