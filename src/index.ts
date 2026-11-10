@@ -904,6 +904,12 @@ export {
 } from "./output/crop.js";
 
 export {
+  calculateCropToMatchFocalLength,
+  type CalculateCropToMatchFocalLengthInput,
+  type CropToMatchFocalLength
+} from "./output/crop-to-match-focal-length.js";
+
+export {
   calculateSubjectFramingCrop,
   type CalculateSubjectFramingCropInput,
   type SubjectFramingCrop
@@ -947,6 +953,12 @@ export {
   type CalculateIdealApertureInput,
   type IdealApertureGeometry
 } from "./optics/aperture.js";
+
+export {
+  calculateApertureDiameter,
+  type ApertureDiameter,
+  type CalculateApertureDiameterInput
+} from "./optics/aperture-diameter.js";
 
 export {
   calculateAiryDisk,

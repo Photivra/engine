@@ -15,7 +15,8 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 | Exposure value and equivalent settings | [`calculateExposureValue100`](api/exposure-exposure.md#calculateexposurevalue100), [`calculateEquivalentIso`](api/exposure-exposure.md#calculateequivalentiso), [`calculateRelativeRenderedExposure`](api/exposure-exposure.md#calculaterelativerenderedexposure) |
 | Depth of field, hyperfocal distance and defocus blur | [`calculateDepthOfField`](api/optics-depth-of-field.md#calculatedepthoffield), [`calculateDefocusCircle`](api/optics-depth-of-field.md#calculatedefocuscircle) |
 | Field of view | [`calculateFieldOfView`](api/camera-field-of-view.md#calculatefieldofview) |
-| Crop factor, 35 mm-equivalent focal length and crops | [`calculateEquivalentFocalLength35Mm`](api/camera-equivalent-focal-length.md#calculateequivalentfocallength35mm), [`calculateCenteredCrop`](api/output-crop.md#calculatecenteredcrop) |
+| Crop factor, 35 mm-equivalent focal length and crops | [`calculateEquivalentFocalLength35Mm`](api/camera-equivalent-focal-length.md#calculateequivalentfocallength35mm), [`calculateCenteredCrop`](api/output-crop.md#calculatecenteredcrop), [`calculateCropToMatchFocalLength`](api/output-crop-to-match-focal-length.md#calculatecroptomatchfocallength) |
+| Aperture (entrance-pupil) diameter | [`calculateApertureDiameter`](api/optics-aperture-diameter.md#calculateaperturediameter) |
 | Equivalent f-number, sensor area and blur as a share of the frame | [`calculateSensorEquivalence`](api/camera-sensor-equivalence.md#calculatesensorequivalence), [`calculateBlurShareOfFrame`](api/camera-sensor-equivalence.md#calculateblurshareofframe) |
 | Motion blur and shutter speed | [`calculateProjectedMotionBlur`](api/motion-projected-motion.md#calculateprojectedmotionblur), [`calculateShutterAngleExposureSeconds`](api/motion-video-sequence.md#calculateshutterangleexposureseconds) |
 | Shutter time with an ND filter | [`calculateFilteredExposureTime`](api/exposure-filtered-exposure-time.md#calculatefilteredexposuretime) |
@@ -1583,6 +1584,16 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 | [`VIDEO_FRAME_SEQUENCE_VERSION`](api/motion-video-sequence.md#video_frame_sequence_version) | Runtime |
 | [`VideoFrameSequence`](api/motion-video-sequence.md#videoframesequence) | Type |
 
+## optics/aperture-diameter.ts
+
+[Detailed contracts](api/optics-aperture-diameter.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/optics/aperture-diameter.ts)
+
+| Export | Kind |
+| --- | --- |
+| [`ApertureDiameter`](api/optics-aperture-diameter.md#aperturediameter) | Type |
+| [`calculateApertureDiameter`](api/optics-aperture-diameter.md#calculateaperturediameter) | Runtime |
+| [`CalculateApertureDiameterInput`](api/optics-aperture-diameter.md#calculateaperturediameterinput) | Type |
+
 ## optics/aperture.ts
 
 [Detailed contracts](api/optics-aperture.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/optics/aperture.ts)
@@ -2116,6 +2127,16 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 | [`CaptureSdrInput`](api/output-capture-sdr.md#capturesdrinput) | Type |
 | [`CaptureSdrResult`](api/output-capture-sdr.md#capturesdrresult) | Type |
 | [`parseCaptureSdrInput`](api/output-capture-sdr.md#parsecapturesdrinput) | Runtime |
+
+## output/crop-to-match-focal-length.ts
+
+[Detailed contracts](api/output-crop-to-match-focal-length.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/output/crop-to-match-focal-length.ts)
+
+| Export | Kind |
+| --- | --- |
+| [`calculateCropToMatchFocalLength`](api/output-crop-to-match-focal-length.md#calculatecroptomatchfocallength) | Runtime |
+| [`CalculateCropToMatchFocalLengthInput`](api/output-crop-to-match-focal-length.md#calculatecroptomatchfocallengthinput) | Type |
+| [`CropToMatchFocalLength`](api/output-crop-to-match-focal-length.md#croptomatchfocallength) | Type |
 
 ## output/crop.ts
 

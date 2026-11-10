@@ -8085,3 +8085,30 @@ console.log(share.print?.blurOnPrintMm); // 0.25 mm on the print
 - Equal shares of the frame diagonal look the same when images are shown at the same size. `calculateBlurShareOfFrame()` does not judge whether a blur is visible.
 
 See [Physics Foundation](https://github.com/Photivra/photivra/blob/main/docs/PHYSICS_FOUNDATION.md#sensor-equivalence-f-number-area-and-blur-share).
+
+## Aperture diameter and cropping to match a longer lens
+
+`calculateApertureDiameter()` gives the entrance-pupil diameter in millimetres, focal length ÷ f-number (exact by the definition of the f-number, ideal lens focused at infinity). `calculateCropToMatchFocalLength()` gives the centred crop that makes an image from a shorter lens match a longer lens's framing from the same position, and the pixels it leaves:
+
+```ts
+import { calculateApertureDiameter, calculateCropToMatchFocalLength } from "@photivra/engine";
+
+console.log(calculateApertureDiameter({ focalLengthMm: 50, fNumber: 2 }).value.entrancePupilDiameterMm); // 25
+console.log(calculateApertureDiameter({ focalLengthMm: 50, fNumber: 4 }).value.entrancePupilDiameterMm); // 12.5
+
+const crop = calculateCropToMatchFocalLength({
+  focalLengthMm: 50,
+  targetFocalLengthMm: 100,
+  pixelWidth: 6000,
+  pixelHeight: 4000
+}).value;
+
+console.log(crop.cropFactor); // 2
+console.log(crop.pixelWidth, crop.pixelHeight); // 3000 2000
+console.log(crop.megapixels, crop.sourceMegapixels); // 6 24
+```
+
+- The aperture diameter is the entrance pupil (the aperture stop seen from the front of the lens), not the diaphragm's opening. Close focus (working f-number `N·(1 + m/P)`, pupil magnification `P`) is not modelled.
+- The crop factor `target ÷ focal length` is exact for ideal rectilinear lenses focused at infinity; at close focus the matching factor is larger, `F·(d − f)/(f·(d − F))` at object distance `d` (thin lens), which is not applied. The crop is `calculateCenteredCrop()`'s (aspect ratio kept to whole pixels), and `targetFocalLengthMm` must be at least `focalLengthMm`.
+
+See [Physics Foundation](https://github.com/Photivra/photivra/blob/main/docs/PHYSICS_FOUNDATION.md#aperture-entrance-pupil-diameter).

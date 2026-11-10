@@ -78,6 +78,11 @@
       "kind": "type"
     },
     {
+      "name": "ApertureDiameter",
+      "source": "src/optics/aperture-diameter.ts",
+      "kind": "type"
+    },
+    {
       "name": "AperturePriorityAutoIsoExposureModeResolution",
       "source": "src/exposure/exposure-mode-resolver.ts",
       "kind": "type"
@@ -363,6 +368,16 @@
       "kind": "type"
     },
     {
+      "name": "calculateApertureDiameter",
+      "source": "src/optics/aperture-diameter.ts",
+      "kind": "runtime"
+    },
+    {
+      "name": "CalculateApertureDiameterInput",
+      "source": "src/optics/aperture-diameter.ts",
+      "kind": "type"
+    },
+    {
       "name": "calculateAtmosphericHaze",
       "source": "src/optics/atmospheric-haze.ts",
       "kind": "runtime"
@@ -581,6 +596,16 @@
       "name": "calculateCorrelatedColorTemperature",
       "source": "src/color/illuminants.ts",
       "kind": "runtime"
+    },
+    {
+      "name": "calculateCropToMatchFocalLength",
+      "source": "src/output/crop-to-match-focal-length.ts",
+      "kind": "runtime"
+    },
+    {
+      "name": "CalculateCropToMatchFocalLengthInput",
+      "source": "src/output/crop-to-match-focal-length.ts",
+      "kind": "type"
     },
     {
       "name": "calculateDefocusBokehKernel",
@@ -2750,6 +2775,11 @@
     {
       "name": "CreateWavefrontPupilGridInput",
       "source": "src/optics/zernike-wavefront.ts",
+      "kind": "type"
+    },
+    {
+      "name": "CropToMatchFocalLength",
+      "source": "src/output/crop-to-match-focal-length.ts",
       "kind": "type"
     },
     {
