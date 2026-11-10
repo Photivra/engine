@@ -5,8 +5,8 @@ The package and root API versions are recorded once in [Navigation](../API_REFER
 ## calculateLateralColorFringe
 
 The red–blue image displacement of a catalogue lens at a field position on a sensor, in micrometres and pixels, from the
-lens's own lateral-colour model Δr(λ) = L·R·H·D(λ) at the lens corrections' channel wavelengths (610 and 465 nm). An
-approximation of a generic lens, not a measured product.
+lens's own lateral-colour model Δr(λ) = L·R·H·D(λ) at the lens corrections' channel wavelengths (610 and 465 nm), or at the
+given `channelDispersion`. Exact for the model (no fast mode); an approximation of a generic lens, not a measured product.
 
 ```ts
 export function calculateLateralColorFringe(input: CalculateLateralColorFringeInput): CalculationResult<LateralColorFringe>;
@@ -31,6 +31,11 @@ export interface CalculateLateralColorFringeInput {
    * in [−1, 1]. Default `{ x: 1, y: 1 }`: the top-right corner.
    */
   fieldPosition?: { x: number; y: number };
+  /**
+   * 2.21.0: each channel's effective dispersion (`calculateChannelEffectiveDispersion` for the camera's channels and the light;
+   * only `red` and `blue` are read). Default: D at the single wavelengths 610 and 465 nm.
+   */
+  channelDispersion?: ChannelDispersion;
 }
 ```
 
@@ -57,8 +62,10 @@ export interface LateralColorFringe {
   imagePointMm: { x: number; y: number };
   /** Field height H: the point's distance from the axis as a fraction of the half-diagonal (1 at the corner). */
   fieldHeight: number;
-  /** The channel wavelengths the displacement is taken at, nm. */
-  channelWavelengthsNm: { red: number; blue: number };
+  /** The channel wavelengths the displacement is taken at, nm; null with a given `channelDispersion`. */
+  channelWavelengthsNm: { red: number; blue: number } | null;
+  /** The red and blue dispersions D used (normalized: 0 at the d line, F minus C = 1). */
+  channelDispersion: { red: number; blue: number };
   /** Blue-minus-red image displacement, µm. */
   blueMinusRedMicrometers: LateralColorDisplacement;
   /** The same in pixels of the given pitch. */

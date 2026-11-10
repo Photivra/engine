@@ -42,8 +42,8 @@ them (for example its main thread) and passes the chosen record. The capture che
 102 400, base ISO no higher than the maximum, and a dual-gain switch above base ISO with a high-gain storage no larger
 than the full well (without a switch, equal read noises and no storage). The engine's readout and fixed-pattern parsers
 check the built body again. A modified copy keeps the ISO rule's report: its `sensitivityOffsetStops` is the distance
-from its own S0. The parser and body builder are loaded on demand (a lazy chunk), and a request without `sensor.profile`
-is byte-identical to one before #554.
+from its own S0. The parser and body builder are part of `simulateCapture` (the catalogue itself is never imported by it, so a
+capture bundle does not carry it), and a request without `sensor.profile` is byte-identical to one before #554.
 
 Not modelled (owner, 2026-11-06): colour-response differences between sensors (one idealized response, scaled by the
 peak QE, stays for every profile, so the QE curve's shape for BSI versus front-illuminated sensors is described, not

@@ -1,6 +1,6 @@
 # 2.20.0 release
 
-> **Prepared November 9, 2026; not published.** npm publishing runs only from the owner's `v2.20.0` tag ([Release gates](#release-gates)).
+> **Published November 10, 2026 (04:10 UTC).** The `v2.20.0` tag is on `991f8a3` (#592), after `main` CI on that commit had passed; npm publishing ran from the tag ([Publication](#publication)).
 
 ## At a glance
 
@@ -92,10 +92,20 @@ Decided on 2026-11-09 and applied here: one refactor pass on the capture worker,
 - [x] No `src/gpu` change: no WebGPU hardware gate.
 - [x] The capture-worker size limit settled: one refactor pass (−415 B with the earlier shared helper), then raised to 356,000 B with the owner's approval for 2.20.0 ([Sizes](#sizes)).
 - [x] The owner's visual check of the #587 sample DNG and its spec numbers (2026-11-09).
-- [ ] Green CI on this pull request, then on `main` after merge.
-- [ ] The owner's approval to tag `v2.20.0`.
-- [ ] The `v2.20.0` tag on the `main` commit that merges this record.
-- [ ] After publication:
-  - [ ] npm version, dist-tag, integrity and provenance verified;
-  - [ ] GitHub release notes published;
-  - [ ] publication dates updated in `CHANGELOG.md`, `README.md`, `SECURITY.md`, `docs/DEVELOPERS.md` and this record.
+- [x] Green CI on this pull request, then on `main` after merge ([CI run 42753404318](https://github.com/Photivra/photivra/actions/runs/42753404318) on `991f8a3`).
+- [x] The owner's approval to tag `v2.20.0`.
+- [x] The `v2.20.0` tag on the `main` commit that merges this record (`991f8a3`).
+- [x] After publication:
+  - [x] npm version, dist-tag, integrity and provenance verified ([Publication](#publication));
+  - [x] GitHub release notes published (`2.20.0`, 04:10 UTC);
+  - [x] publication dates updated in `CHANGELOG.md`, `SECURITY.md`, `docs/DEVELOPERS.md` and this record (with the 2.21.0 preparation).
+
+## Publication
+
+| Fact | Value |
+| --- | --- |
+| Tag | `v2.20.0` (annotated, `48602c2`) → `991f8a3ce865a3182add26c63b6550591776d584` (#592), after `main` CI on that commit passed ([CI run 42753404318](https://github.com/Photivra/photivra/actions/runs/42753404318)) |
+| Publish workflow | [Publish npm run 42753580234](https://github.com/Photivra/photivra/actions/runs/42753580234): passed 04:05:22–04:08:48 UTC |
+| npm | `@photivra/engine@2.20.0`, dist-tag `latest`, registry time 04:10:55 UTC, November 10, 2026 |
+| Integrity | `sha512-y1SBjVUC3H/siA0hhJAmWE+pHT9f5lOAmMZSdqzSfbBbH2eK34xuMSten+hDfTZhNiR0MOHr24jIyNNYf9spOA==` (shasum `9401a43559b068766da53fedcd87da7d614aafb6`, 1,009 files) |
+| Provenance | The registry lists an attestation for 2.20.0 |

@@ -473,8 +473,9 @@ export interface SimulateCaptureFastReport {
 
 `lens.catalogue` as a record (#568): the lens id as `kind` and the `fast` override (see {@link SimulateCaptureOptions.fast}).
 Fast: the tabulated fast method (#568), and with `lens.defocus` the lens's bokeh without its cat's eye (#567; fast wides and
-normals only), whose field-varying PSF needs a finer fast grid (measured 2.2–3.4× slower). Exact: the per-site PSF with the
-cat's eye. Blades and spherical aberration always apply (they cost nothing).
+normals only), whose field-varying PSF needs a finer fast grid (measured 2.2–3.4× slower); with camera rotation under
+`motion.shutter: "rolling"`, the per-tap PSF points instead of the lattice reading (#588). Exact: the per-site PSF with the
+cat's eye, read on the lattice. Blades and spherical aberration always apply (they cost nothing).
 
 ```ts
 export interface SimulateCaptureLensCatalogueRecord { kind: string; fast?: boolean }

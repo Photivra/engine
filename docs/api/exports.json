@@ -1,6 +1,6 @@
 {
-  "packageVersion": "2.20.0",
-  "engineApiVersion": "2.20.0",
+  "packageVersion": "2.21.0",
+  "engineApiVersion": "2.21.0",
   "exports": [
     {
       "name": "AbsoluteUncertaintyEstimate",
@@ -6168,6 +6168,11 @@
       "kind": "type"
     },
     {
+      "name": "PrintContainLayout",
+      "source": "src/output/print-plan.ts",
+      "kind": "type"
+    },
+    {
       "name": "PrintContrastReference",
       "source": "src/output/print-contrast-reference.ts",
       "kind": "type"
@@ -6189,6 +6194,11 @@
     },
     {
       "name": "PrintedImageSize",
+      "source": "src/output/print-plan.ts",
+      "kind": "type"
+    },
+    {
+      "name": "PrintFit",
       "source": "src/output/print-plan.ts",
       "kind": "type"
     },

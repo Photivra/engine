@@ -1,6 +1,6 @@
 # Public API reference
 
-Generated from the exact root exports for **@photivra/engine 2.20.0 / root contract 2.20.0** by `node scripts/generate-api-reference.mjs`. No module deep import is supported.
+Generated from the exact root exports for **@photivra/engine 2.21.0 / root contract 2.21.0** by `node scripts/generate-api-reference.mjs`. No module deep import is supported.
 
 Use [the developer guide](https://github.com/Photivra/photivra/blob/main/docs/DEVELOPERS.md) for executable paths and scientific boundaries. Types are contracts, not runtime validation: parse untrusted data, preserve units/reference frames, read assessment blockers, and retain evidence/limitations. Optional properties do not imply a universal default. Model/schema IDs remain independent of the distribution.
 
@@ -1356,6 +1356,14 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 | [`SIMULATE_CAPTURE_FAST_METHODS`](api/facade-fast-methods.md#simulate_capture_fast_methods) | Runtime |
 | [`SimulateCaptureFastMethod`](api/facade-fast-methods.md#simulatecapturefastmethod) | Type |
 
+## facade/image-plane-enable.ts
+
+[Detailed contracts](api/facade-image-plane-enable.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/facade/image-plane-enable.ts)
+
+| Export | Kind |
+| --- | --- |
+| [`prepareImagePlaneScenes`](api/facade-image-plane-enable.md#prepareimageplanescenes) | Runtime |
+
 ## facade/mixed-illumination.ts
 
 [Detailed contracts](api/facade-mixed-illumination.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/facade/mixed-illumination.ts)
@@ -1367,6 +1375,24 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 | [`MixedIlluminationPoint`](api/facade-mixed-illumination.md#mixedilluminationpoint) | Type |
 | [`MixedIlluminationPointSource`](api/facade-mixed-illumination.md#mixedilluminationpointsource) | Type |
 | [`MixedIlluminationSource`](api/facade-mixed-illumination.md#mixedilluminationsource) | Type |
+
+## facade/representative-light-sources.ts
+
+[Detailed contracts](api/facade-representative-light-sources.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/facade/representative-light-sources.ts)
+
+| Export | Kind |
+| --- | --- |
+| [`createRepresentativeLightSourceIlluminant`](api/facade-representative-light-sources.md#createrepresentativelightsourceilluminant) | Runtime |
+| [`createRepresentativeLightSourceSpectrum`](api/facade-representative-light-sources.md#createrepresentativelightsourcespectrum) | Runtime |
+| [`getRepresentativeLightSourceSet`](api/facade-representative-light-sources.md#getrepresentativelightsourceset) | Runtime |
+| [`REPRESENTATIVE_LIGHT_SOURCE_IDS`](api/facade-representative-light-sources.md#representative_light_source_ids) | Runtime |
+| [`REPRESENTATIVE_LIGHT_SOURCE_SET_ID`](api/facade-representative-light-sources.md#representative_light_source_set_id) | Runtime |
+| [`REPRESENTATIVE_LIGHT_SOURCE_SET_VERSION`](api/facade-representative-light-sources.md#representative_light_source_set_version) | Runtime |
+| [`REPRESENTATIVE_LIGHT_SOURCE_WAVELENGTH_RANGE_NANOMETERS`](api/facade-representative-light-sources.md#representative_light_source_wavelength_range_nanometers) | Runtime |
+| [`RepresentativeLightSource`](api/facade-representative-light-sources.md#representativelightsource) | Type |
+| [`RepresentativeLightSourceBand`](api/facade-representative-light-sources.md#representativelightsourceband) | Type |
+| [`RepresentativeLightSourceId`](api/facade-representative-light-sources.md#representativelightsourceid) | Type |
+| [`RepresentativeLightSourceSet`](api/facade-representative-light-sources.md#representativelightsourceset) | Type |
 
 ## facade/scene-radiance.ts
 
@@ -1382,6 +1408,8 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 | [`CHART_SIZE_DEFAULT_SURROUND_REFLECTANCE`](api/facade-scene-radiance.md#chart_size_default_surround_reflectance) | Runtime |
 | [`ChartSizeOption`](api/facade-scene-radiance.md#chartsizeoption) | Type |
 | [`createPlanarSceneRadianceProvider`](api/facade-scene-radiance.md#createplanarsceneradianceprovider) | Runtime |
+| [`ImagePlaneImage`](api/facade-scene-radiance.md#imageplaneimage) | Type |
+| [`ImagePlaneScene`](api/facade-scene-radiance.md#imageplanescene) | Type |
 | [`PHOTOPIC_MAXIMUM_LUMINOUS_EFFICACY_LM_PER_W`](api/facade-scene-radiance.md#photopic_maximum_luminous_efficacy_lm_per_w) | Runtime |
 | [`PlanarSceneRadianceProvider`](api/facade-scene-radiance.md#planarsceneradianceprovider) | Type |
 | [`resolveCaptureIlluminant`](api/facade-scene-radiance.md#resolvecaptureilluminant) | Runtime |
