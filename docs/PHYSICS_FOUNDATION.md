@@ -135,7 +135,7 @@ Photivra bases equivalence on the active physical capture area, not on any later
 
 `calculateApertureDiameter()` (model `aperture-diameter` 1.0.0, #577) gives the entrance-pupil diameter `D = f/N` in millimetres from the focal length `f` and the f-number `N`; 50 mm at f/2 gives 25 mm. It is exact by the definition of the f-number, `N = f/D` for an object at infinity (Greivenkamp, [OPTI-502 course notes, sec. 12](https://wp.optics.arizona.edu/jgreivenkamp/wp-content/uploads/sites/11/2019/08/502-12-Objectives.pdf), free). `D` is the diameter of the entrance pupil, the aperture stop as seen from the front of the lens, not of the diaphragm's physical opening. One stop (a factor √2 in `N`) halves the pupil's area.
 
-Not modelled: at close focus the f-number that sets exposure and diffraction is the working f-number `N·(1 + m/P)`, with magnification `m` and pupil magnification `P` (exit-pupil over entrance-pupil diameter; also see Ray, *Applied Photographic Optics*, 3rd ed.); the engine's irradiance bridge uses `N·(1 + m)`, unit pupil magnification. A lens that focuses by changing its focal length changes `f`, and so `D` at the same marked `N`.
+Not modelled: at close focus the f-number that sets exposure and diffraction is the working f-number `N·(1 + m/P)`, with magnification `m` and pupil magnification `P` (exit-pupil over entrance-pupil diameter); the engine's irradiance bridge uses `N·(1 + m)`, unit pupil magnification. A lens that focuses by changing its focal length changes `f`, and so `D` at the same marked `N`.
 
 ### Crop to match a longer focal length
 
@@ -542,10 +542,10 @@ s = ν/ν_c,   ν_c = 1/(λ·N_w),   MTF = |OTF|
 With `W = 0` this is the diffraction-limited `(2/π)(acos s − s√(1 − s²))`, whose MTF50 is `0.40397·ν_c` ([MIT OpenCourseWare 2.71, lectures 21–22](https://ocw.mit.edu/courses/2-71-optics-spring-2009/resources/mit2_71s09_lec22/), free; also see Goodman, *Introduction to Fourier Optics*, 4th ed., §7.3–7.4). `N_w = v/D` is the working f-number (thin-lens image distance `v` of the focus distance, pupil diameter `D = f/N`). The integral is evaluated by Gauss–Legendre quadrature on a parametrization of the overlap that removes its square-root edge, with node counts that grow with the phase variation (doubling them changes the MTF by under 1e-9; an independent 500 × 500 brute-force grid agrees within 3e-3, its own edge error). The wavefront:
 
 - `lens.ideal`: none.
-- `lens.catalogue`: the lens's resolved Seidel terms (`resolveGenericLens`: spherical with its balancing defocus, coma, astigmatism, field curvature, axial colour at the wavelength) at field height `H = fieldPosition`, the expansion its PSF uses (Hopkins 1950; [Wyant & Creath 1992](https://wp.optics.arizona.edu/jcwyant/wp-content/uploads/sites/13/2016/08/03-BasicAberrations_and_Optical_Testing.pdf), free). The terms are approximations of a generic lens.
+- `lens.catalogue`: the lens's resolved Seidel terms (`resolveGenericLens`: spherical with its balancing defocus, coma, astigmatism, field curvature, axial color at the wavelength) at field height `H = fieldPosition`, the expansion its PSF uses (Hopkins 1950; [Wyant & Creath 1992](https://wp.optics.arizona.edu/jcwyant/wp-content/uploads/sites/13/2016/08/03-BasicAberrations_and_Optical_Testing.pdf), free). The terms are approximations of a generic lens.
 - A subject off the focus distance adds `W020 = dz/(8·N_w²)`, `dz` the sensor minus the subject's image distance (thin lens; Wyant & Creath eq. 18, as `calculateDefocusWavefront`). Wavefronts larger than 64 waves (sum of the terms' magnitudes) are refused: such a blur is geometric (`calculateDefocusCircle`).
 
-Tangential (along the radius from the image centre) and sagittal MTF are both computed; the lower MTF50 is used.
+Tangential (along the radius from the image center) and sagittal MTF are both computed; the lower MTF50 is used.
 
 **Sampling.** Nyquist frequency `1/(2p)` for the pixel pitch `p = width / pixelWidth` (exact for the lattice). A Bayer filter's green sites still sample rows and columns up to `1/(2p)`; its red and blue sites repeat every `2p`, so their Nyquist frequency is `1/(4p)` (`redBlueNyquistCyclesPerMm`). The pixel aperture MTF is `|sinc(ν·p)|` for an ideal square site with fill factor 1 (the Fourier transform of a uniform square aperture; see [Quick start](QUICK_START.md), `sensor.pixelAperture`): `2/π` at Nyquist, 0.5 at `0.60335/p`.
 
@@ -559,7 +559,7 @@ Tangential (along the radius from the image centre) and sagittal MTF are both co
 | `"lens"`, `"diffraction"` | Otherwise, and the RMS wavefront error (piston and tilt removed) is within the Maréchal criterion λ/14, Strehl ≈ 0.8 (Maréchal 1947; Wyant & Creath 1992 eq. 67). |
 | `"lens"`, `"aberrations"` or `"defocus"` | Otherwise, whichever RMS wavefront error is larger. |
 
-`diffractionLimitedFNumber` is the f-number at which an aberration-free lens in focus has its MTF50 at the Nyquist frequency, `2·p·0.40397/λ` at infinity focus (≈ f/8.8 for 6 µm pixels at 550 nm): from it on, diffraction limits on that sensor whatever the lens. Every quantity is for one wavelength (550 nm by default); lateral colour, the optical low-pass filter, microlenses and crosstalk are not modelled.
+`diffractionLimitedFNumber` is the f-number at which an aberration-free lens in focus has its MTF50 at the Nyquist frequency, `2·p·0.40397/λ` at infinity focus (≈ f/8.8 for 6 µm pixels at 550 nm): from it on, diffraction limits on that sensor whatever the lens. Every quantity is for one wavelength (550 nm by default); lateral color, the optical low-pass filter, microlenses and crosstalk are not modeled.
 
 ### Ideal diaphragm geometry and sunstar symmetry
 

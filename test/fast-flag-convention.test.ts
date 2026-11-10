@@ -47,7 +47,8 @@ describe("exact-or-fast flag convention (#395)", () => {
   it("reports exact and nothing requested with fast: false, and the format's default without it (2.20.0)", async () => {
     const result = await simulateCapture(request({}));
     expect(result.diagnostics.fast).toEqual({ requested: false, defaultedFrom: "request", applied: {}, assurance: "engine-reference" });
-    const { fast: _omitted, ...withoutFast } = base;
+    const withoutFast: Options = { ...base };
+    delete withoutFast.fast;
     expect((await simulateCapture(withoutFast as unknown as SimulateCaptureOptions)).diagnostics.fast).toEqual({ requested: true, defaultedFrom: "format", applied: {}, assurance: "engine-reference" });
     expect((await simulateCapture({ ...withoutFast, output: { width: 32, height: 24, format: "png" } } as unknown as SimulateCaptureOptions)).diagnostics.fast)
       .toEqual({ requested: false, defaultedFrom: "format", applied: {}, assurance: "engine-reference" });

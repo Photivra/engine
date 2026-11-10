@@ -41,11 +41,11 @@ export interface CalculateDetailLimitInput {
   /** f-number set on the lens. */
   fNumber: number;
   /**
-   * Focus and subject distances from the lens in metres. Omitted: focused at infinity, subject in focus. `subjectDistanceM`
+   * Focus and subject distances from the lens in meters. Omitted: focused at infinity, subject in focus. `subjectDistanceM`
    * omitted: the subject is at the focus distance.
    */
   focus?: { focusDistanceM: number; subjectDistanceM?: number };
-  /** Field height as a fraction of the half-diagonal, 0 (centre, default) to 1 (corner). Only aberrations depend on it. */
+  /** Field height as a fraction of the half-diagonal, 0 (center, default) to 1 (corner). Only aberrations depend on it. */
   fieldPosition?: number;
   /** Wavelength in nanometres, 380–780. Default 550. */
   wavelengthNm?: number;
@@ -125,7 +125,7 @@ A lens with no aberrations (diffraction only).
 ```ts
 export interface DetailLimitIdealLens {
   kind: "ideal";
-  /** Physical focal length in millimetres (for the working f-number and the defocus of a subject off the focus distance). */
+  /** Physical focal length in millimeters (for the working f-number and the defocus of a subject off the focus distance). */
   focalLengthMm: number;
 }
 ```
@@ -150,9 +150,9 @@ export interface DetailLimitOptics {
   cutoffCyclesPerMm: number;
   /** Frequency where the optics' MTF falls to 0.5, the lower of the two directions, cycles/mm. */
   mtf50CyclesPerMm: number;
-  /** MTF50 for detail along the radius from the image centre (tangential), cycles/mm. */
+  /** MTF50 for detail along the radius from the image center (tangential), cycles/mm. */
   tangentialMtf50CyclesPerMm: number;
-  /** MTF50 for detail across the radius (sagittal), cycles/mm. Equal to the tangential value at the centre. */
+  /** MTF50 for detail across the radius (sagittal), cycles/mm. Equal to the tangential value at the center. */
   sagittalMtf50CyclesPerMm: number;
   /** MTF50 of an aberration-free lens in focus at the same working f-number (0.40397·cut-off), cycles/mm. */
   diffractionMtf50CyclesPerMm: number;
@@ -178,7 +178,7 @@ export interface DetailLimitSampling {
   pixelPitchMicrometers: number;
   /** 1/(2p), cycles/mm: the finest detail the pixel grid records without aliasing (Bayer green sites too, along rows and columns). */
   nyquistCyclesPerMm: number;
-  /** Bayer only: 1/(4p), the Nyquist frequency of the red and blue sites. Null without a colour filter array. */
+  /** Bayer only: 1/(4p), the Nyquist frequency of the red and blue sites. Null without a color filter array. */
   redBlueNyquistCyclesPerMm: number | null;
   /** Pixel aperture MTF at the Nyquist frequency: sinc(1/2) = 2/π. */
   pixelApertureMtfAtNyquist: number;

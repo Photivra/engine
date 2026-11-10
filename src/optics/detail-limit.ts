@@ -6,7 +6,7 @@
  *
  * Model (`detail-limit` 1.0.0; the decision rule is an approximation, see below):
  * - **Optics.** The incoherent optical transfer function of a uniformly lit circular pupil carrying the wavefront W (in waves)
- *   is the normalised autocorrelation of the pupil function P = exp(i·2π·W):
+ *   is the normalized autocorrelation of the pupil function P = exp(i·2π·W):
  *   OTF(s) = (1/π)∫∫ P(ρ + s·e)·P*(ρ − s·e) d²ρ over the overlap of the two unit discs, s = ν/ν_c, ν_c = 1/(λ·N_w), N_w the
  *   working f-number (thin-lens image distance / pupil diameter). With W = 0 it is the diffraction-limited
  *   (2/π)(acos s − s√(1 − s²)) (MIT OpenCourseWare 2.71 Optics, Spring 2009, lectures 21–22, free; also see Goodman,
@@ -14,7 +14,7 @@
  *   parametrisation of the overlap (√ edge removed), with node counts that grow with the phase variation; MTF = |OTF|.
  * - **Wavefront.** `lens.ideal`: none. `lens.catalogue`: the lens's resolved Seidel terms (`resolveGenericLens`, the same
  *   expansion as its PSF: Hopkins 1950; Wyant & Creath 1992, Applied Optics and Optical Engineering XI ch. 1, free author copy)
- *   at the field height H, with axial colour at the wavelength. Defocus of a subject away from the focus distance adds
+ *   at the field height H, with axial color at the wavelength. Defocus of a subject away from the focus distance adds
  *   W020 = dz/(8·N_w²), dz = sensor minus image distance (thin lens; `calculateDefocusWavefront`, Wyant & Creath eq. 18).
  * - **Sampling.** Nyquist frequency 1/(2p) for pixel pitch p (exact for the lattice); a Bayer filter's red and blue sites
  *   repeat every 2p, so their Nyquist frequency is 1/(4p), while its green sites still sample rows and columns up to 1/(2p).
@@ -48,7 +48,7 @@ const MARECHAL_RMS_WAVES = 1 / 14;
 /** A lens with no aberrations (diffraction only). */
 export interface DetailLimitIdealLens {
   kind: "ideal";
-  /** Physical focal length in millimetres (for the working f-number and the defocus of a subject off the focus distance). */
+  /** Physical focal length in millimeters (for the working f-number and the defocus of a subject off the focus distance). */
   focalLengthMm: number;
 }
 
@@ -71,11 +71,11 @@ export interface CalculateDetailLimitInput {
   /** f-number set on the lens. */
   fNumber: number;
   /**
-   * Focus and subject distances from the lens in metres. Omitted: focused at infinity, subject in focus. `subjectDistanceM`
+   * Focus and subject distances from the lens in meters. Omitted: focused at infinity, subject in focus. `subjectDistanceM`
    * omitted: the subject is at the focus distance.
    */
   focus?: { focusDistanceM: number; subjectDistanceM?: number };
-  /** Field height as a fraction of the half-diagonal, 0 (centre, default) to 1 (corner). Only aberrations depend on it. */
+  /** Field height as a fraction of the half-diagonal, 0 (center, default) to 1 (corner). Only aberrations depend on it. */
   fieldPosition?: number;
   /** Wavelength in nanometres, 380–780. Default 550. */
   wavelengthNm?: number;
@@ -93,9 +93,9 @@ export interface DetailLimitOptics {
   cutoffCyclesPerMm: number;
   /** Frequency where the optics' MTF falls to 0.5, the lower of the two directions, cycles/mm. */
   mtf50CyclesPerMm: number;
-  /** MTF50 for detail along the radius from the image centre (tangential), cycles/mm. */
+  /** MTF50 for detail along the radius from the image center (tangential), cycles/mm. */
   tangentialMtf50CyclesPerMm: number;
-  /** MTF50 for detail across the radius (sagittal), cycles/mm. Equal to the tangential value at the centre. */
+  /** MTF50 for detail across the radius (sagittal), cycles/mm. Equal to the tangential value at the center. */
   sagittalMtf50CyclesPerMm: number;
   /** MTF50 of an aberration-free lens in focus at the same working f-number (0.40397·cut-off), cycles/mm. */
   diffractionMtf50CyclesPerMm: number;
@@ -115,7 +115,7 @@ export interface DetailLimitSampling {
   pixelPitchMicrometers: number;
   /** 1/(2p), cycles/mm: the finest detail the pixel grid records without aliasing (Bayer green sites too, along rows and columns). */
   nyquistCyclesPerMm: number;
-  /** Bayer only: 1/(4p), the Nyquist frequency of the red and blue sites. Null without a colour filter array. */
+  /** Bayer only: 1/(4p), the Nyquist frequency of the red and blue sites. Null without a color filter array. */
   redBlueNyquistCyclesPerMm: number | null;
   /** Pixel aperture MTF at the Nyquist frequency: sinc(1/2) = 2/π. */
   pixelApertureMtfAtNyquist: number;
@@ -161,7 +161,7 @@ export interface DetailLimit {
 const BASIS: DetailLimit["basis"] = /* @__PURE__ */ Object.freeze({
   optics: Object.freeze({ kind: "exact", statement: "Scalar incoherent OTF of a circular pupil carrying the stated wavefront at one wavelength " +
     "(numerical quadrature, converged to about 1e-9). The wavefront itself is exact for lens.ideal (none) and an approximation for lens.catalogue." }),
-  sampling: Object.freeze({ kind: "exact", statement: "Nyquist frequencies of the pixel lattice and of a Bayer filter's colour lattices; pixel aperture " +
+  sampling: Object.freeze({ kind: "exact", statement: "Nyquist frequencies of the pixel lattice and of a Bayer filter's color lattices; pixel aperture " +
     "MTF of an ideal square site with fill factor 1 (an idealisation: no microlens, crosstalk or optical low-pass filter)." }),
   system: Object.freeze({ kind: "approximation", statement: "Optics MTF × pixel aperture MTF. Demosaicing, sharpening, noise, motion and aliasing are excluded." }),
   limitedBy: Object.freeze({ kind: "approximation", statement: "The sensor limits when the optics MTF50 reaches the Nyquist frequency 1/(2p); otherwise " +
@@ -234,7 +234,7 @@ function diffractionMtf(s: number): number {
 }
 
 /**
- * @internal |OTF| at normalised frequency s (0 ≤ s < 1) along the pupil's x axis (`tangential` false) or y axis (true). The overlap
+ * @internal |OTF| at normalized frequency s (0 ≤ s < 1) along the pupil's x axis (`tangential` false) or y axis (true). The overlap
  * |ρ ± s·e| ≤ 1 is |a| ≤ 1 − s, |b| ≤ √(1 − (|a| + s)²) in coordinates (a along e, b across); |a| = (1 − s)(1 − τ²) removes
  * the square-root edge, so the integrand is smooth in τ and in b/b_max.
  */
@@ -290,7 +290,7 @@ function sinc(x: number): number {
   return x === 0 ? 1 : Math.abs(Math.sin(Math.PI * x) / (Math.PI * x));
 }
 
-/** Thin-lens image distance in mm of an object at d metres, or f at infinity (d = null). */
+/** Thin-lens image distance in mm of an object at d meters, or f at infinity (d = null). */
 function imageDistanceMm(focalLengthMm: number, distanceM: number | null, label: string): number {
   if (distanceM === null) return focalLengthMm;
   const d = distanceM * 1000;
@@ -331,7 +331,7 @@ export function calculateDetailLimit(input: CalculateDetailLimitInput): Calculat
   }
   const fieldPosition = input.fieldPosition ?? 0;
   if (typeof fieldPosition !== "number" || !(fieldPosition >= 0 && fieldPosition <= 1)) {
-    throw new InvalidScientificInputError("fieldPosition must be a number from 0 (centre) through 1 (corner).");
+    throw new InvalidScientificInputError("fieldPosition must be a number from 0 (center) through 1 (corner).");
   }
   let focusDistanceM: number | null = null, subjectDistanceM: number | null = null;
   if (input.focus !== undefined) {
@@ -440,12 +440,12 @@ export function calculateDetailLimit(input: CalculateDetailLimitInput): Calculat
     "detail-limit",
     DETAIL_LIMIT_MODEL_VERSION,
     [
-      "Scalar, incoherent, monochromatic imaging at one wavelength (default 550 nm); lateral colour excluded.",
+      "Scalar, incoherent, monochromatic imaging at one wavelength (default 550 nm); lateral color excluded.",
       "Uniformly lit circular pupil; thin-lens working f-number and defocus.",
       "Pixel aperture: ideal square site with fill factor 1; no optical low-pass filter, microlens or crosstalk.",
-      "A Bayer filter's red and blue sites have half the Nyquist frequency; demosaicing is not modelled.",
+      "A Bayer filter's red and blue sites have half the Nyquist frequency; demosaicing is not modeled.",
       "Decision rule: the sensor limits when the optics MTF50 reaches the Nyquist frequency; diffraction when the RMS wavefront error is within λ/14 (Maréchal).",
-      "Catalogue lenses are generic Photivra designs (labelled approximations), not measured products."
+      "Catalogue lenses are generic Photivra designs (labeled approximations), not measured products."
     ]
   );
 }

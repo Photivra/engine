@@ -8143,7 +8143,7 @@ console.log(outOfFocus.limitingFactor); // "defocus"
 ```
 
 - The sensor limits when the optics still pass 50 % contrast at the Nyquist frequency (`opticsToNyquistRatio ≥ 1`): a denser sensor would record finer detail. Otherwise the lens limits, through `"diffraction"` when its RMS wavefront error is within λ/14 (the Maréchal criterion), else `"aberrations"` or `"defocus"`, whichever is larger. This rule is an approximation; the MTF values are the exact scalar OTF of the stated wavefront at one wavelength (550 nm unless `wavelengthNm` is given).
-- `lens.catalogue` lenses use their generic Seidel aberrations at `fieldPosition` (0 the centre, 1 the corner), so corners are softer; `lens.ideal` has none.
+- `lens.catalogue` lenses use their generic Seidel aberrations at `fieldPosition` (0 the center, 1 the corner), so corners are softer; `lens.ideal` has none.
 - Tangential and sagittal MTF50 are both reported; the decision uses the lower one.
 - Demosaicing, sharpening, noise and motion are not included.
 

@@ -12,8 +12,7 @@
  * At close focus the f-number that sets exposure and diffraction is the working f-number
  * N_w = N·(1 + m/P), with m the magnification and P the pupil magnification (exit-pupil over
  * entrance-pupil diameter); a lens that focuses by changing its focal length changes f, and with
- * it D at the same marked N (the working f-number with pupil magnification, also see: Ray,
- * Applied Photographic Optics, 3rd ed., on close-up exposure). Neither is modelled here; the
+ * it D at the same marked N. Neither is modeled here; the
  * engine's own close-focus light factor, N·(1 + m) with unit pupil magnification, is in
  * `calculateSceneRadianceToSensorIrradiance`.
  * @see docs/PHYSICS_FOUNDATION.md "Aperture (entrance-pupil) diameter".
