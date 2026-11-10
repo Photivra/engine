@@ -217,18 +217,21 @@ export interface ImagePlaneScene {
   /** Opt-in raised pixel limit: an integer up to the full-resolution ceiling. Default 24 000 000 pixels. */
   maximumPixels?: number;
 }
-/** Internal (#581): the per-channel node signals of an image-plane scene (see `ResolvedImagePlaneScene.channelTables`). */
-export interface ImagePlaneChannelTables { nodes: readonly [Float64Array, Float64Array, Float64Array]; neutral: readonly [number, number, number] }
+/**
+ * Internal (#581): what a pixel's signals are integrated from (`ResolvedImagePlaneScene.pixelSignals`): the lattice's node spectra at
+ * the N spectral nodes (node k's reflectance at λ_n at k·N + n), the white radiance and the channel responses per node, and a scratch.
+ */
+export interface ImagePlaneSpectralNodes { count: number; nodeSpectra: Float64Array; whiteRadiance: Float64Array; response: readonly Float64Array[]; scratch: Float64Array }
 /**
  * Internal (#581): an image-plane print as the tabulated expected signal's scene (`ResolvedImagePlaneScene.signalScene`): its radiance
- * per node, the direct path's Σ_n A_c(λ_n)·L(λ_n) from the node tables, and (for the GPU module) the scene, its tables and the
- * surround's channel signals.
+ * per node, the direct path's signal (each pixel's Σ_n A_c(λ_n)·L_n integrated from its reconstructed spectrum, `pixelSignals`, then
+ * interpolated between pixels), and (for the GPU module) the scene, its spectral nodes and the surround's channel signals.
  */
 export interface ImagePlaneSignalScene {
   kind: "radiance";
   radianceAt(u: number, v: number, nm: number): number;
   signalAt(u: number, v: number, c: number): number;
-  image: { scene: ResolvedImagePlaneScene; tables: ImagePlaneChannelTables; surround: readonly [number, number, number]; whiteRadiance: Float64Array; surroundReflectance: number };
+  image: { scene: ResolvedImagePlaneScene; nodes: ImagePlaneSpectralNodes; surround: readonly [number, number, number]; whiteRadiance: Float64Array; surroundReflectance: number };
 }
 /**
  * Internal (#581): a validated image-plane scene (src/facade/image-plane.ts, a lazily loaded module), placed on a print of
@@ -253,8 +256,11 @@ export interface ResolvedImagePlaneScene {
   dataSha256: string;
   /** The print's reflectance at a print-local point and wavelength (nm, 380–780). */
   reflectanceAt(cu: number, cv: number, nm: number): number;
-  /** Per channel c the value Σ_n A_c(λ_n)·s_k(λ_n)·W(λ_n) of every lattice node k, and the neutral Σ_n A_c(λ_n)·W(λ_n). */
-  channelTables(wavelengths: readonly number[], perNode: readonly Float64Array[], whiteRadiance: Float64Array): ImagePlaneChannelTables;
+  /**
+   * One pixel's three channel signals Σ_n A_c(λ_n)·ρ_n·W_n, integrated from its reconstructed spectrum ρ_n (its cell's node spectra
+   * blended, then the paper) at the time of use, into `out[at..at + 2]`. No per-channel values of the lattice nodes are formed.
+   */
+  pixelSignals(index: number, nodes: ImagePlaneSpectralNodes, out: Float64Array, at: number): void;
   /** The print at a print-local point in node values (`nodeValues[k]` of node k, `neutral` of the flat reflectance 1). */
   sampleAt(cu: number, cv: number, nodeValues: Float64Array, neutral: number): number;
   /** One pixel (row-major index) in node values. */
@@ -313,8 +319,8 @@ export interface PlanarSceneRadianceProvider {
   materialRadiance?(material: number, wavelengthNanometers: number): number;
   /**
    * 2.21 (#581), image-plane scenes only: the tabulated expected signal's scene at these spectral nodes and channel responses, its
-   * radiance per node and, for the direct path, Σ_n A_c(λ_n)·L(λ_n) from the print's node tables (`ResolvedImagePlaneScene.sampleAt`,
-   * the surround's reflectance times the neutral signal outside the print): the same sums regrouped.
+   * radiance per node and, for the direct path, Σ_n A_c(λ_n)·L(λ_n) integrated from each pixel's reconstructed spectrum
+   * (`ResolvedImagePlaneScene.pixelSignals`, the surround's reflectance times the neutral signal outside the print).
    */
   imageSignalScene?(wavelengths: readonly number[], perNode: readonly Float64Array[]): ImagePlaneSignalScene;
 }

@@ -22,11 +22,11 @@ export type DisplayViewScene =
     whiteRadiance: Float64Array }
   | { kind: "radiance"; radianceAt(u: number, v: number, nm: number): number;
     /**
-     * #581, an image-plane scene's direct path: Σ_n A_c(λ_n)·radianceAt(u, v, λ_n) for channel c, formed from per-node tables
-     * (the same sum regrouped; a site without kernels takes it instead of one radiance lookup per node).
+     * #581, an image-plane scene's direct path: the signal of channel c, each pixel's Σ_n A_c(λ_n)·L_n integrated from its
+     * reconstructed spectrum and interpolated between pixels (a site without kernels takes it instead of one radiance lookup per node).
      */
     signalAt?(u: number, v: number, c: number): number;
-    /** #581: the image-plane print behind `signalAt` (its scene, node tables and surround), for the GPU's image-plane module. */
+    /** #581: the image-plane print behind `signalAt` (its scene, spectral nodes and surround), for the GPU's image-plane module. */
     image?: ImagePlaneSignalScene["image"] };
 
 export interface DisplayViewExpectedSignalInput {

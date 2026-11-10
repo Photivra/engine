@@ -109,11 +109,35 @@ The fit is `scripts/fit-image-plane-lattice.mjs`.
   10.2312/sr.20191216) is exact and bounded, but its spectra are block-like, about twice the lattice's error under other lights on
   smooth spectra.
 - **Per-pixel methods would need a `fast` flag.** Per-pixel non-linear models (Burns' LHTSS itself; the sigmoid-of-a-quadratic of
-  Jakob & Hanika, Computer Graphics Forum 38(2), 2019, DOI 10.1111/cgf.13626) need a spectral integral per pixel, or an approximating
-  table and so a `fast` flag.
-- **The lattice is exactly tabulatable.** It keeps LHTSS's smooth spectra and stays piecewise linear in RGB. A capture integrates
-  each of the 125 node spectra once per channel, and each pixel is a weighted sum of those integrals, the same quantities summed in
-  another order. So it needs no `fast` option and adds nothing to `SIMULATE_CAPTURE_FAST_OPTIONS`.
+  Jakob & Hanika, Computer Graphics Forum 38(2), 2019, DOI 10.1111/cgf.13626) need a non-linear solve or evaluation per pixel, or an
+  approximating table and so a `fast` flag.
+- **The lattice gives each pixel's spectrum in closed form.** It keeps LHTSS's smooth spectra and stays piecewise linear in RGB: a
+  pixel's spectrum is a blend of eight stored spectra, exact and cheap, so it needs no `fast` option and adds nothing to
+  `SIMULATE_CAPTURE_FAST_OPTIONS`.
+
+**Signals are integrated from the reconstructed spectrum per site** (design choice, 2026-11-09). Wherever a sensor signal is formed
+(the capture, the ideal reference, the display view on the CPU, and on the GPU in Speed and Quality), it comes from the pixel's
+reconstructed spectrum at the spectral nodes (its cell's node spectra blended, then the paper), times the illuminant, integrated
+against the channel response of the site that reads it, when it is read. Between pixel centers the pixels' integrals are weighted
+bilinearly, which is the integral of the interpolated spectrum up to rounding. No per-channel values of the lattice nodes (a node
+spectrum already integrated against a channel response) are formed anywhere:
+
+| Path | What is precomputed | What is integrated at use |
+| --- | --- | --- |
+| Capture and display view without kernels (CPU, direct path) | the node spectra at the spectral nodes | per pixel, its spectrum against each channel; kept for the rows the query points are reaching (32 MiB at most) |
+| Capture, ideal reference and display view with kernels (CPU) | the node spectra at each wavelength | the print's radiance per spectral node at each point, against the channel's per-node kernels |
+| GPU Speed | nothing | per pixel, its spectrum against each channel (12 bytes per pixel, built 4 MiB at a time for each upload or band) |
+| GPU Quality | per-pixel lattice cell and fractions (16 bytes per pixel) | per lattice point, the radiance at every spectral node; then the sum against the per-node kernels |
+
+The cost, measured in Node on one thread (a 6000 × 4000 synthetic photo on a 0.42 m print at 0.63 m, a 6 µm 24 MP frame with the
+2 × 2 box, 20 spectral nodes, against the build that integrated the node spectra once per channel; output bytes identical):
+
+| Request | Before | After |
+| --- | --- | --- |
+| Capture, 24 MP | 13.6 s | 13.1 s |
+| Capture, 48-pixel quick frame | 0.08 s | 0.08 s |
+| Display view, a 384 × 384 region of a 2028 × 1352 view | 0.95 s | 0.97 s |
+| Display view, a 48-pixel view of the 24 MP frame | 1.16 s | 1.50 s |
 - **Sources read.** I read the Burns paper (arXiv v5, CC BY-SA 4.0). I could not open the full PDFs of Mallett & Yuksel (the digital
   library refused the request) or Jakob & Hanika (above the fetch size limit). Their claims here come from the authors' project
   pages and are not used by the method.
@@ -160,16 +184,17 @@ stratified footprint, or a kernel table above the device's storage limit. Its pi
 **Speed** (the exact area mean without diffraction, `lens.defocus` or AHD) uses the image-plane module
 (`src/gpu/display-view-image-material-module.ts`; [WebGPU, Display view (Speed)](WEBGPU.md#display-view-speed-on-the-gpu)):
 
-- **Host side.** The host computes every pixel's three channel signals in float64 and rounds them once to float32 (12 bytes per
-  pixel). It builds and writes them 4 MiB of rows at a time and keeps none of them (owner decision, 2026-11-09), so a 24 MP
+- **Host side.** The host integrates every pixel's three channel signals from its reconstructed spectrum in float64 and rounds
+  them once to float32 (12 bytes per pixel). It builds and writes them 4 MiB of rows at a time and keeps none of them (owner decision, 2026-11-09), so a 24 MP
   photo needs about 4 MiB of host memory for them instead of 288 MB per scene (two scenes were kept, 576 MB).
   - **When they fit one storage binding**, they are uploaded once per scene and kept on the device.
   - **Otherwise each band** of display rows uploads only the pixel rows its native site rows reach. That is the print-local v of
     the band's first and last site rows at every query offset, plus two rows either side. The renderer caps a band's display rows
     so that those rows fit the binding (owner decision, 2026-11-09). A very large photo therefore never meets the device's storage
     binding limit, and a banded render equals the whole upload byte for byte (tested with a 2400 × 1600 photo under a 16 MB limit).
-    Each render builds its bands' rows again. On the emulation a banded 24 MP render took about 1 s longer than the whole upload
-    (about 2.0 s against 1.0 s); the whole upload's one-time build took 0.75 s (1.4 s before).
+    Each render builds its bands' rows again. On the emulation, with 20 spectral nodes, a banded 24 MP render takes about 4.5 s
+    against 1.1 s for the whole upload, whose one-time build takes 2.2 s (0.75 s and 2.0 s when the node spectra were integrated
+    once per channel).
 - **The point.** The module recovers the exact query point in double-float32, as the composite chart module does. It forms the
   pixel coordinates and the bilinear weights with only relative error. It flags the points it cannot decide: the print's edge, a
   weight moved next to a much brighter pixel, a nearest-pixel edge. The host recomputes a flagged display pixel with the reference.
@@ -225,11 +250,11 @@ Timing on a hardware adapter is not measured yet.
 
 The scene's module, its lattice data (9.5 KB gzip as source) and its GPU code are reachable only through
 `prepareImagePlaneScenes()`. That function is in a module of its own and loads them with dynamic imports:
-- a lazy chunk of 13,692 B gzip;
-- the GPU module's own chunk of 7,729 B (Speed and Quality), loaded on a display view's first photo on WebGPU;
+- a lazy chunk of 14,202 B gzip;
+- the GPU module's own chunk of 7,629 B (Speed and Quality), loaded on a display view's first photo on WebGPU;
 - shared code that moves into the entry.
 
-Measured with the worker shape below plus the function, that is about 22.0 KB more in total.
+Measured with the worker shape below plus the function, that is about 22.4 KB more in total.
 - **Without it.** A bundle that never imports the function carries none of these bytes, not even as a lazy chunk. A request with an
   image-plane scene then fails with a message that names the function.
 - **Measured on the app's capture-worker shape** (`test/capture-bundle.test.ts`: `NATIVE_RAW_LIMITS`, `prepareDisplayView`,

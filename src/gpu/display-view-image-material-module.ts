@@ -7,8 +7,9 @@
  * **What the reference computes** at a query point (expected-signal.ts, the direct path's `signalAt`): the print-local point
  * cu = u·m/h, cv = v·m/h (outside |cu| ≤ 1, |cv| ≤ aspect the surround: its reflectance times the neutral signal N_c); the
  * pixel coordinates X = (cu + 1)·W/2, Y = (aspect − cv)·H/(2·aspect); then the bilinear weights of the four nearest pixel
- * centers (clamped to the edge) times each pixel's channel signal S_j,c = ρ_black·N_c + (ρ_white − ρ_black)·Σ_k w_jk·T_k,c (its
- * eight lattice nodes' table values, `ResolvedImagePlaneScene.pixelValue`), or the nearest pixel's.
+ * centers (clamped to the edge) times each pixel's channel signal S_j,c = Σ_n A_c(λ_n)·ρ_j(λ_n)·W_n, integrated from the pixel's
+ * reconstructed spectrum ρ_j (its cell's eight node spectra blended, then the paper; `ResolvedImagePlaneScene.pixelSignals`), or
+ * the nearest pixel's. No per-channel values of the lattice nodes are formed.
  *
  * **On the device.** The host computes every pixel's S_j,c in float64 and rounds it once to float32 (3 values per pixel). When
  * they fit one storage binding they are uploaded once per scene and kept on the device while the renderer lives; otherwise each
@@ -142,18 +143,15 @@ export interface DisplayViewImageModules {
  */
 export function createDisplayViewImageModules(runtime: WebGpuRuntime, probe: (signal: AbortSignal) => Promise<ChartCompositeProbeRecord>): DisplayViewImageModules {
   const uploads: UploadedImage[] = [], wgsl = new Map<ChartCompositeProductPath, string>();
-  // Pixel rows [j0, j1)'s channel signals, built on demand so that the host holds one chunk or band (#581): `pixelValue`'s float64
-  // operations in its order (the same bytes), with the pixel's lattice cell found once for its three channels; rounded once.
-  const fractions = new Float64Array(3);
+  // Pixel rows [j0, j1)'s channel signals, built on demand so that the host holds one chunk or band (#581): each pixel's signals
+  // integrated from its reconstructed spectrum (`pixelSignals`, the reference's own float64 values), rounded once.
+  const pixel = new Float64Array(3);
   const rowsOf = (image: ImagePlaneSignalScene["image"], j0: number, j1: number): Float32Array<ArrayBuffer> => {
-    const { scene, tables } = image, values = new Float32Array((j1 - j0) * scene.width * 3), black = scene.paperBlackReflectance, span = scene.paperWhiteReflectance - black;
+    const { scene, nodes } = image, values = new Float32Array((j1 - j0) * scene.width * 3);
     for (let j = j0 * scene.width, o = 0; j < j1 * scene.width; j++) {
-      const n = scene.pixelLattice(j, fractions), fr = fractions[0]!, fg = fractions[1]!, fb = fractions[2]!;
+      scene.pixelSignals(j, nodes, pixel, 0);
       for (let c = 0; c < 3; c++) {
-        const t = tables.nodes[c as 0 | 1 | 2];
-        const lattice = (1 - fr) * ((1 - fg) * ((1 - fb) * t[n]! + fb * t[n + 1]!) + fg * ((1 - fb) * t[n + 5]! + fb * t[n + 6]!)) +
-          fr * ((1 - fg) * ((1 - fb) * t[n + 25]! + fb * t[n + 26]!) + fg * ((1 - fb) * t[n + 30]! + fb * t[n + 31]!));
-        const value = black * tables.neutral[c as 0 | 1 | 2] + span * lattice;
+        const value = pixel[c]!;
         if (!(value >= 0 && value <= FLOAT32_SAFE_MAGNITUDE)) throw new ImageKernelExecutionError("unsupported-float32-domain", "A pixel's channel signal is outside the float32 domain.");
         values[o++] = value;
       }

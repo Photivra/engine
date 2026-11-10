@@ -99,6 +99,40 @@ describe("image-plane scene", () => {
     expect(custom.reflectanceAt(-2 / 3, 0, 500)).toBe(1);
   });
 
+  it("integrates each pixel's signals from its reconstructed spectrum at the time of use, with no per-channel values of the lattice nodes", async () => {
+    const width = 40, height = 30, data = new Uint8Array(width * height * 3);
+    for (let i = 0; i < data.length; i++) data[i] = (i * 97 + Math.floor(i / 7) * 31) % 256;
+    const scene = await resolveImagePlaneScene({ kind: "image-plane", sceneId: "p", image: { width, height, channels: 3, encoding: "srgb-8", data } }, height / width);
+    const wavelengths = [420, 480, 530, 590, 650], white = Float64Array.of(0.8, 1.1, 1.0, 0.95, 0.7);
+    const A = [Float64Array.of(0, 0.02, 0.1, 0.9, 0.6), Float64Array.of(0.05, 0.4, 1, 0.3, 0.02), Float64Array.of(0.9, 0.6, 0.1, 0.01, 0)];
+    const radianceAt = (u: number, v: number, nm: number): number => scene.reflectanceAt(u, v, nm) * white[wavelengths.indexOf(nm)]!;
+    const signal = scene.signalScene(wavelengths, A, white, radianceAt, 1, 1, 0.18);
+    // What the GPU module and the direct path read: the lattice's spectra at the nodes, the white and the responses, apart.
+    expect(signal.image.nodes.nodeSpectra.length).toBe(125 * wavelengths.length);
+    expect(signal.image.nodes.response).toBe(A);
+    expect(Object.keys(signal.image).sort()).toEqual(["nodes", "scene", "surround", "surroundReflectance", "whiteRadiance"]);
+    const out = new Float64Array(3);
+    for (const index of [0, 17, 433, width * height - 1]) {
+      scene.pixelSignals(index, signal.image.nodes, out, 0);
+      for (let c = 0; c < 3; c++) {
+        // The pixel's spectrum at each node (pixelValue on that node's reflectances), times the white, against the channel's response.
+        let expected = 0;
+        for (let n = 0; n < wavelengths.length; n++) expected += A[c]![n]! * (scene.pixelValue(index, scene.nodeReflectances(wavelengths[n]!), 1) * white[n]!);
+        expect(Math.abs(out[c]! - expected)).toBeLessThanOrEqual(1e-14 * expected);
+      }
+    }
+    // Between pixel centers: the same as integrating the interpolated radiance, to rounding; outside the print the surround.
+    for (const [u, v] of [[-0.93, 0.6], [0.013, -0.2], [0.51, 0.71], [0.99, -0.74]] as const) for (let c = 0; c < 3; c++) {
+      let integrated = 0;
+      for (let n = 0; n < wavelengths.length; n++) integrated += A[c]![n]! * radianceAt(u, v, wavelengths[n]!);
+      expect(Math.abs(signal.signalAt(u, v, c) - integrated)).toBeLessThanOrEqual(1e-13 * integrated);
+      expect(signal.signalAt(u, v, c)).toBe(signal.signalAt(u, v, c));
+    }
+    let neutral = 0;
+    for (let n = 0; n < wavelengths.length; n++) neutral += A[1]![n]! * white[n]!;
+    expect(signal.signalAt(1.2, 0, 1)).toBe(0.18 * neutral);
+  });
+
   it("clips and counts linear samples outside [0, 1]", async () => {
     const data = Float32Array.of(1.5, 0.5, -0.25, 0.2, 0.2, 0.2);
     const scene = await resolveImagePlaneScene({ kind: "image-plane", sceneId: "p", image: { width: 2, height: 1, channels: 3, encoding: "linear-srgb", data } }, 0.5);

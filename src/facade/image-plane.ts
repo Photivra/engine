@@ -31,13 +31,15 @@ import { InvalidConfigurationError } from "../core/configuration-error.js";
 import { portablePow } from "../core/portable-math.js";
 import { FULL_RESOLUTION_CEILING_PIXELS, FULL_RESOLUTION_DEFAULT_PIXELS, resolveRaisedLimit } from "../core/pixel-limits.js";
 import { IMAGE_PLANE_LATTICE_CODES } from "./image-plane-lattice-data.js";
-import { CHART_SIZE_DEFAULT_SURROUND_REFLECTANCE, resolveChartSizeOption, type ImagePlaneChannelTables, type ImagePlaneSignalScene, type ResolvedImagePlaneScene } from "./scene-radiance.js";
+import { CHART_SIZE_DEFAULT_SURROUND_REFLECTANCE, resolveChartSizeOption, type ImagePlaneSignalScene, type ImagePlaneSpectralNodes, type ResolvedImagePlaneScene } from "./scene-radiance.js";
 
 /** Version of the print reflectance lattice and its data; a change to any node spectrum changes it. */
 export const IMAGE_PLANE_LATTICE_VERSION = "1.0.0";
 /** Engine defaults of an image-plane scene. */
 export const IMAGE_PLANE_DEFAULTS = /* @__PURE__ */ Object.freeze({ paperWhiteReflectance: 0.9, paperBlackReflectance: 0.01, interpolation: "bilinear" as const });
 
+/** Host bytes of the per-pixel signal rows a signal scene keeps (the direct path's query points revisit nearby pixels). */
+const SIGNAL_ROW_CACHE_BYTES = 32 << 20;
 const AXIS = 5, NODES = 125, SAMPLES = 41, MINIMUM_NM = 380, STEP_NM = 10, MAXIMUM_NM = MINIMUM_NM + STEP_NM * (SAMPLES - 1);
 
 /** The sRGB EOTF with the portable power. */
@@ -170,18 +172,16 @@ export async function resolveImagePlaneScene(value: unknown, aspect: number,
     return black * neutral + span * lattice;
   }
   const halfW = width / 2, halfH = height / (2 * aspect);
-  function sampleAt(cu: number, cv: number, nodeValues: Float64Array, neutral: number): number {
+  /** The print at a print-local point from a per-pixel value: bilinear between pixel centers (clamped to the edge) or the nearest pixel. */
+  function interpolate(cu: number, cv: number, at: (index: number) => number): number {
     const X = (cu + 1) * halfW, Y = (aspect - cv) * halfH;
-    if (interpolation === "nearest") {
-      const i = Math.min(width - 1, Math.max(0, Math.floor(X))), j = Math.min(height - 1, Math.max(0, Math.floor(Y)));
-      return pixelValue(j * width + i, nodeValues, neutral);
-    }
+    if (interpolation === "nearest") return at(Math.min(height - 1, Math.max(0, Math.floor(Y))) * width + Math.min(width - 1, Math.max(0, Math.floor(X))));
     const sx = X - 0.5, sy = Y - 0.5, i0 = Math.floor(sx), j0 = Math.floor(sy), fx = sx - i0, fy = sy - j0;
     const ia = Math.min(width - 1, Math.max(0, i0)), ib = Math.min(width - 1, Math.max(0, i0 + 1));
     const ja = Math.min(height - 1, Math.max(0, j0)) * width, jb = Math.min(height - 1, Math.max(0, j0 + 1)) * width;
-    return (1 - fy) * ((1 - fx) * pixelValue(ja + ia, nodeValues, neutral) + fx * pixelValue(ja + ib, nodeValues, neutral)) +
-      fy * ((1 - fx) * pixelValue(jb + ia, nodeValues, neutral) + fx * pixelValue(jb + ib, nodeValues, neutral));
+    return (1 - fy) * ((1 - fx) * at(ja + ia) + fx * at(ja + ib)) + fy * ((1 - fx) * at(jb + ia) + fx * at(jb + ib));
   }
+  const sampleAt = (cu: number, cv: number, nodeValues: Float64Array, neutral: number): number => interpolate(cu, cv, (index) => pixelValue(index, nodeValues, neutral));
   // Per wavelength the node reflectances (the facade asks for a few spectral nodes many times).
   const atWavelength = new Map<number, Float64Array>();
   function reflectanceAt(cu: number, cv: number, nm: number): number {
@@ -189,27 +189,63 @@ export async function resolveImagePlaneScene(value: unknown, aspect: number,
     if (!nodes) { nodes = nodeReflectancesAt(nm); if (atWavelength.size < 4096) atWavelength.set(nm, nodes); }
     return sampleAt(cu, cv, nodes, 1);
   }
-  function channelTables(wavelengths: readonly number[], perNode: readonly Float64Array[], whiteRadiance: Float64Array): ImagePlaneChannelTables {
-    const reflectances = wavelengths.map((nm) => nodeReflectancesAt(nm));
-    const nodes = [0, 1, 2].map((c) => {
-      const out = new Float64Array(NODES);
-      for (let k = 0; k < NODES; k++) { let s = 0; for (let n = 0; n < wavelengths.length; n++) s += perNode[c]![n]! * reflectances[n]![k]! * whiteRadiance[n]!; out[k] = s; }
-      return out;
-    }) as [Float64Array, Float64Array, Float64Array];
-    const neutral = [0, 1, 2].map((c) => { let s = 0; for (let n = 0; n < wavelengths.length; n++) s += perNode[c]![n]! * whiteRadiance[n]!; return s; }) as [number, number, number];
-    return { nodes, neutral };
+  /**
+   * One pixel's channel signals, integrated from its reconstructed spectrum (owner decision 2026-11-09): per spectral node n its
+   * reflectance ρ_n (its cell's eight node spectra at λ_n blended with the trilinear weights, then the paper) times the white
+   * radiance W_n, then per channel Σ_n A_c(λ_n)·ρ_n·W_n. Written to out[at..at + 2].
+   */
+  function pixelSignals(index: number, nodes: ImagePlaneSpectralNodes, out: Float64Array, at: number): void {
+    const N = nodes.count, R = nodes.nodeSpectra, W = nodes.whiteRadiance, radiance = nodes.scratch;
+    const base = pixelLattice(index, fractions) * N, fr = fractions[0]!, fg = fractions[1]!, fb = fractions[2]!, gb = 1 - fb;
+    const a00 = (1 - fr) * (1 - fg), a01 = (1 - fr) * fg, a10 = fr * (1 - fg), a11 = fr * fg;
+    const w0 = a00 * gb, w1 = a00 * fb, w5 = a01 * gb, w6 = a01 * fb, w25 = a10 * gb, w26 = a10 * fb, w30 = a11 * gb, w31 = a11 * fb;
+    for (let n = 0, k = base; n < N; n++, k++) {
+      const lattice = w0 * R[k]! + w1 * R[k + N]! + w5 * R[k + 5 * N]! + w6 * R[k + 6 * N]! + w25 * R[k + 25 * N]! + w26 * R[k + 26 * N]! + w30 * R[k + 30 * N]! + w31 * R[k + 31 * N]!;
+      radiance[n] = (black + span * lattice) * W[n]!;
+    }
+    for (let c = 0; c < 3; c++) {
+      const A = nodes.response[c]!;
+      let sum = 0;
+      for (let n = 0; n < N; n++) sum += A[n]! * radiance[n]!;
+      out[at + c] = sum;
+    }
   }
   function signalScene(wavelengths: readonly number[], perNode: readonly Float64Array[], whiteRadiance: Float64Array, radianceAt: (u: number, v: number, nm: number) => number,
     scale: number, half: number, surroundReflectance: number): ImagePlaneSignalScene {
-    const tables = channelTables(wavelengths, perNode, whiteRadiance), { nodes, neutral } = tables;
+    // The lattice's spectra at the nodes (node k's reflectance at λ_n at k·N + n); no channel response is folded in.
+    const N = wavelengths.length, spectraAt = wavelengths.map((nm) => nodeReflectancesAt(nm)), nodeSpectra = new Float64Array(NODES * N);
+    for (let k = 0; k < NODES; k++) for (let n = 0; n < N; n++) nodeSpectra[k * N + n] = spectraAt[n]![k]!;
+    const nodes: ImagePlaneSpectralNodes = { count: N, nodeSpectra, whiteRadiance, response: perNode, scratch: new Float64Array(N) };
+    const neutral = [0, 1, 2].map((c) => { let s = 0; for (let n = 0; n < N; n++) s += perNode[c]![n]! * whiteRadiance[n]!; return s; });
+    // The pixels' signals as the query points reach them: rows of three values per pixel (NaN until computed), the latest rows kept.
+    const rows = new Map<number, Float64Array>(), keptRows = Math.max(8, Math.floor(SIGNAL_ROW_CACHE_BYTES / (width * 24)));
+    let lastJ = -1, lastRow: Float64Array = new Float64Array(0);
+    const rowAt = (j: number): Float64Array => {
+      if (j === lastJ) return lastRow;
+      let row = rows.get(j);
+      if (!row) { row = new Float64Array(width * 3).fill(NaN); rows.set(j, row); if (rows.size > keptRows) rows.delete(rows.keys().next().value!); }
+      lastJ = j; lastRow = row;
+      return row;
+    };
+    const signalOf = (row: Float64Array, j: number, i: number, c: number): number => {
+      if (row[i * 3] !== row[i * 3]) pixelSignals(j * width + i, nodes, row, i * 3);
+      return row[i * 3 + c]!;
+    };
     return { kind: "radiance", radianceAt, signalAt(u: number, v: number, c: number): number {
       const cu = u * scale / half, cv = v * scale / half;
-      return Math.abs(cu) <= 1 && Math.abs(cv) <= aspect ? sampleAt(cu, cv, nodes[c as 0], neutral[c as 0]) : surroundReflectance * neutral[c as 0];
-    }, image: { scene: resolved, tables, surround: [surroundReflectance * neutral[0], surroundReflectance * neutral[1], surroundReflectance * neutral[2]], whiteRadiance, surroundReflectance } };
+      if (!(Math.abs(cu) <= 1 && Math.abs(cv) <= aspect)) return surroundReflectance * neutral[c]!;
+      // As `interpolate`, reading the pixels' signals.
+      const X = (cu + 1) * halfW, Y = (aspect - cv) * halfH;
+      if (interpolation === "nearest") { const j = Math.min(height - 1, Math.max(0, Math.floor(Y))); return signalOf(rowAt(j), j, Math.min(width - 1, Math.max(0, Math.floor(X))), c); }
+      const sx = X - 0.5, sy = Y - 0.5, i0 = Math.floor(sx), j0 = Math.floor(sy), fx = sx - i0, fy = sy - j0;
+      const ia = Math.min(width - 1, Math.max(0, i0)), ib = Math.min(width - 1, Math.max(0, i0 + 1)), ja = Math.min(height - 1, Math.max(0, j0)), jb = Math.min(height - 1, Math.max(0, j0 + 1));
+      const rowA = rowAt(ja), a0 = signalOf(rowA, ja, ia, c), a1 = signalOf(rowA, ja, ib, c), rowB = rowAt(jb);
+      return (1 - fy) * ((1 - fx) * a0 + fx * a1) + fy * ((1 - fx) * signalOf(rowB, jb, ia, c) + fx * signalOf(rowB, jb, ib, c));
+    }, image: { scene: resolved, nodes, surround: [surroundReflectance * neutral[0]!, surroundReflectance * neutral[1]!, surroundReflectance * neutral[2]!], whiteRadiance, surroundReflectance } };
   }
   const resolved: ResolvedImagePlaneScene = Object.freeze({ kind: "image-plane" as const, sceneId: record.sceneId, width, height, aspect, channels, encoding: encoding as ResolvedImagePlaneScene["encoding"],
     interpolation, paperWhiteReflectance: white, paperBlackReflectance: black, maximumPixels, clippedSampleCount: clipped, dataSha256,
-    reflectanceAt, channelTables, sampleAt, pixelValue, pixelLattice, nodeReflectances: nodeReflectancesAt, signalScene, get digestForm() { return imagePlaneDigestForm(resolved); }, parameters: Object.freeze({ width, height, channels, encoding, interpolation, paperWhiteReflectance: white, paperBlackReflectance: black,
+    reflectanceAt, sampleAt, pixelValue, pixelSignals, pixelLattice, nodeReflectances: nodeReflectancesAt, signalScene, get digestForm() { return imagePlaneDigestForm(resolved); }, parameters: Object.freeze({ width, height, channels, encoding, interpolation, paperWhiteReflectance: white, paperBlackReflectance: black,
       clippedSampleCount: clipped, imageSha256: dataSha256 }) });
   if (assume) for (const [id, kind, v, explanation] of imagePlaneAssumptions(resolved, record)) assume(id, kind, v, explanation);
   return resolved;

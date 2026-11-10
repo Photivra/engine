@@ -3244,7 +3244,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   // The tabulated paths' channel response per spectral node and material tables (the fast catalogue path and the expected-signal path).
   const tabulatedTables = (): { wavelengths: number[]; perNode: [Float64Array, Float64Array, Float64Array]; materials: NonNullable<Parameters<typeof buildExpectedSignalInput>[0]["materials"]> } => {
     const { electronsPerRadiance, wavelengths } = axisChannelResponse("simulateCapture");
-    // #581: an image-plane print has no materials (its node tables are the expected signal's, `image`).
+    // #581: an image-plane print has no materials (its spectral nodes are the expected signal's, `image`).
     const sceneMaterials = chart ? chart.materials : (callerScene as ResolvedCallerMaterialScene).materials ?? [], materialRadiance = provider.materialRadiance!;
     return { wavelengths, perNode: CHANNELS.map((c) => Float64Array.from(wavelengths, (nm) => electronsPerRadiance[c].get(nm) ?? 0)) as [Float64Array, Float64Array, Float64Array],
       materials: { materialAt: provider.chartMaterialAt!, whiteRadiance: (nm: number): number => irradianceScale * illuminant.shape.evaluate(nm) / Math.PI,
@@ -3268,7 +3268,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   // #553: a cat's eye varies the kernel over the field, which the expected-signal tables (one kernel per node) do not take.
   else if (dngParts === undefined && tabulatedScene && !pupil && !lensFieldMapping && !vignetting && !lensPsf && !rotating && !bokehZones && (!diffraction || diffractionObjectSpace) &&
     (provider.materialRadiance || provider.imageSignalScene)) {
-    // #581: an image-plane print takes the radiance path with its node tables instead of material tables.
+    // #581: an image-plane print takes the radiance path, its signals integrated per pixel from the reconstructed spectrum, instead of material tables.
     const { wavelengths, perNode, materials } = tabulatedTables(), tabulatedMaterials = provider.imageSignalScene ? undefined : materials;
     // The input both expected signals share (the scene, the responses, the aperture and the geometry).
     const shared = { nativeWidth, nativeHeight, width, wavelengths, perNode, apertureNodes: apertureNodeOffsets(boxSamples), boxSamples, antiAliasing, pitch, materials: tabulatedMaterials,

@@ -59,7 +59,7 @@ export interface ExpectedSignalSetupInput {
   /** Material scenes: the materials (neutral reflectances, or radiance per wavelength), the material lookup and the white radiance. */
   materials?: { list: readonly ({ neutral: number } | { radiance: (nm: number) => number })[]; materialAt(u: number, v: number): number; whiteRadiance(nm: number): number } | undefined;
   radianceAt(u: number, v: number, nm: number): number;
-  /** #581, image-plane scenes: the provider's `imageSignalScene` (the radiance and the direct path's sums from the print's node tables). */
+  /** #581, image-plane scenes: the provider's `imageSignalScene` (the radiance, and the direct path's signals integrated from each pixel's reconstructed spectrum). */
   imageSignalScene?: ((wavelengths: readonly number[], perNode: readonly Float64Array[]) => DisplayViewScene) | undefined;
   imagingArea: { widthMm: number; heightMm: number };
   focalLengthMm: number;
