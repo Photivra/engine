@@ -279,11 +279,11 @@ export function buildPlanarSceneRadianceProvider(input: {
    */
   zeroBeyondHorizon?: true;
   /**
-   * #550, mixed illumination: the plane's spectral irradiance at a chart point (chart-local units with a fixed-size chart, frame
-   * units without), used instead of `irradianceScale`·S(λ). The provider then has no material access (the radiance at a point is
+   * #550, mixed illumination: the plane's spectral irradiance at a plane point, given in chart units (chart-local with a fixed-size
+   * chart, frame units without) and in metres from the optical axis, used instead of `irradianceScale`·S(λ). The provider then has no material access (the radiance at a point is
    * no longer a function of its material alone), so every renderer reads `radianceAt`. A radiance-function scene is refused.
    */
-  irradianceAt?: (u: number, v: number, wavelengthNanometers: number) => number;
+  irradianceAt?: (u: number, v: number, xM: number, yM: number, wavelengthNanometers: number) => number;
 }): PlanarSceneRadianceProvider {
   const { scene, illuminant, irradianceScale, geometry } = input, zeroBeyondHorizon = input.zeroBeyondHorizon === true;
   const scale = geometry.metresPerFrameUnit, distance = geometry.distanceM, sceneId = input.sceneId, providerProfileId = input.providerProfileId;
@@ -315,7 +315,7 @@ export function buildPlanarSceneRadianceProvider(input: {
     else if (placed && !(Math.abs(cu) <= 1 && Math.abs(cv) <= chartAspect)) reflectance = placed.surroundReflectance;
     else if (chart) reflectance = chart.reflectanceAt(cu, cv, nm);
     else reflectance = callerReflectance(placed ? { xM: u * scale, yM: v * scale, u, v, wavelengthNanometers: nm, chartU: cu, chartV: cv } : { xM: u * scale, yM: v * scale, u, v, wavelengthNanometers: nm });
-    return reflectance * light!(cu, cv, nm) / Math.PI;
+    return reflectance * light!(cu, cv, u * scale, v * scale, nm) / Math.PI;
   }
   function radianceAt(u: number, v: number, nm: number): number {
     if (materialScene) return materialRadianceOf(callerMaterialAt(u, v), nm);

@@ -2375,9 +2375,10 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   const illuminanceLux = mixed ? mixed.center.illuminanceLux : positive(pick(top, "illuminanceLux", "illuminanceLux", SIMULATE_CAPTURE_DEFAULT_ILLUMINANCE_LUX,
     "π·10·N²/(0.65·t·S·0.18) lux at f/8, 1/125 s, ISO 100 (CIPA DC-004 standard output sensitivity H = 10/S and camera equation H = 0.65·L·t/N²): an 18 % grey card then gets the reference exposure for the default settings. It does not follow the caller's exposure settings."), "illuminanceLux");
   const irradianceScale = strongest ? strongest.irradianceScale : calculateIlluminantIrradianceScale(illuminant.shape, illuminanceLux);
-  if (mixed) assume("scene.illumination", "model", { sources: mixed.sources.map((s) => ({ illuminant: s.illuminant.id, illuminanceLux: s.illuminanceLux })), blend: mixed.blend,
+  if (mixed) assume("scene.illumination", "model", { lights: mixed.sources.map((s) => s.report), blend: mixed.blend,
     coordinates: chartSize ? "chart-local" : "frame", center: mixed.center },
-  "Mixed lighting (#550): the irradiance at a point is the declared blend Σ w_i·E_i(λ) of the sources (each scaled to its illuminance, weights summing to 1; a crossfade, not a falloff model). " +
+  "Mixed lighting (#550): the irradiance at a point is the declared blend Σ w_i·E_i(λ) of the sources (each scaled to its illuminance, weights summing to 1; a crossfade, not a falloff model) " +
+    "plus each point source's I·cos θ/d² (inverse square and Lambert's cosine law; no occlusion). " +
     "Scene-average metering reads the lit frame; the frame center's light sets the grey card, the standard-exposure illuminance (all sources scaled together) and the grey-card deviation.");
   let chart: ResolvedChartScene | undefined, callerScene: ResolvedCallerScene | undefined, materialLayers: ResolvedChartMaterialLayers | undefined;
   const sceneRecord = sceneOption as Record<string, unknown>;
@@ -2408,7 +2409,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
     { kind: callerScene!.kind, sceneId: callerScene!.sceneId }, illuminant: illuminant.id, illuminanceLux, subjectDistanceM, framedWidthM: 2 * metresPerFrameUnit, aspect,
     ...(chartSize ? { chartSize: { widthM: chartSize.widthM, heightM: chartSize.heightM, surroundReflectance: chartSize.surroundReflectance } } : {}),
     ...(illuminantSpectrum === undefined ? {} : { illuminantSpectrum }), ...(sceneSpectra.length === 0 ? {} : { sceneSpectra }), ...(sceneMaterials ? { sceneMaterials } : {}),
-    ...(mixed ? { illumination: { blend: mixed.blend, sources: mixed.sources.map((s) => [s.illuminanceLux, spectrumDigestForm(s.illuminant.spectrum, s.illuminant.shape)]) } } : {}) };
+    ...(mixed ? { illumination: { blend: mixed.blend, lights: mixed.sources.map((s) => [s.report, spectrumDigestForm(s.illuminant.spectrum, s.illuminant.shape)]) } } : {}) };
   if (callerScene?.kind === "material-function") assume("scene.digest", "model", "caller-function-not-hashed", "The source digest covers the caller's sceneId, its materials and the framing, not the body of the caller's materialAt function.");
   else if (callerScene) assume("scene.digest", "model", "caller-function-not-hashed", "The source digest covers the caller's sceneId and the framing, not the body of the caller's evaluate function.");
   const sourceSha256 = await sha256Hex(JSON.stringify(sceneDescription, (_key, value: unknown) => (typeof value === "object" && value !== null && "evaluate" in value ? "caller-spectrum" : value)));
@@ -2912,7 +2913,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   else if (whiteBalanceOption === "scene-illuminant") {
     whiteBalanceState = sceneIlluminantWhiteBalance(illuminant);
     if (mixed) assume("output.whiteBalanceSource", "model", { source: mixed.center.strongestSource, illuminant: illuminant.id },
-      "Mixed lighting (#550): measured under the source strongest at the frame center (largest w_i·E_i, the first on a tie). An explicit white balance is used as given.");
+      "Mixed lighting (#550): measured under the light strongest at the frame center (the largest illuminance there, w_i·E_i or a point's I·cos θ/d²; the first on a tie). An explicit white balance is used as given.");
   }
   else if (typeof whiteBalanceOption === "object" && whiteBalanceOption !== null && "kelvin" in whiteBalanceOption) {
     const wb = allowKeys(whiteBalanceOption, "output.whiteBalance", ["kelvin", "tint"]);
@@ -3305,7 +3306,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   // #535: the green channel's expected charge from an 18 % Lambertian grey patch (radiance 0.18·E·S(λ)/π) next to the axis, and the sensor report;
   // the mid-grey figure only when the request resolves to exact (fast: false, the exports' default): it costs about 0.3 ms.
   let greyElectrons: number | undefined = fastTop ? undefined : 0;
-  if (!idealReference && greyElectrons !== undefined) for (const [nm, a] of axisChannelResponse(displayView ? "simulateDisplayView" : "simulateCapture").electronsPerRadiance.green) greyElectrons += mixed ? a * GREY_CARD_REFLECTANCE * mixed.irradianceAt(0, 0, nm) / Math.PI :
+  if (!idealReference && greyElectrons !== undefined) for (const [nm, a] of axisChannelResponse(displayView ? "simulateDisplayView" : "simulateCapture").electronsPerRadiance.green) greyElectrons += mixed ? a * GREY_CARD_REFLECTANCE * mixed.irradianceAt(0, 0, 0, 0, nm) / Math.PI :
     a * GREY_CARD_REFLECTANCE * irradianceScale * illuminant.shape.evaluate(nm) / Math.PI;
   const sensor = sensorReport(regimeByChannel.green.readoutProfile, regimeByChannel.green.regimeId, capacityElectrons, greyElectrons, DARK_CURRENT_ELECTRONS_PER_SECOND * shutterSeconds,
     { pixelPitchMicrometers: pitch, peakQuantumEfficiency: 0.5 * (characteristics?.qeScale ?? 1),

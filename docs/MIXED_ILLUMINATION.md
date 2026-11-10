@@ -1,8 +1,9 @@
 # Mixed lighting (2.22, #550)
 
 `simulateCapture`, `simulateIdealReference`, `simulateDisplayView` and `prepareDisplayView` take an opt-in `illumination`:
-two to eight light sources, each an illuminant (as `illuminant` takes it) at an illuminance, blended across the chart by a
-declared function. It replaces `illuminant` and `illuminanceLux` (a request with both is refused). Without it nothing
+up to eight `sources`, each an illuminant (as `illuminant` takes it) at an illuminance, blended across the chart by a declared
+function, and up to eight `points`, point light sources with inverse-square falloff (a step toward flash). A request needs two
+or more sources, or at least one point; one source lights the whole plane and takes no blend. It replaces `illuminant` and `illuminanceLux` (a request with both is refused). Without it nothing
 changes: no code is loaded for it, and every request keeps its bytes.
 
 ```ts
@@ -36,6 +37,27 @@ one illuminant. Where one weight is 1 the light is exactly that source's (its sp
 illuminance). The blend is a declared crossfade of irradiance: exact for what it declares, but not a model of how light falls
 off from a real lamp or window (no inverse-square law, no cosine falloff, no shadows, no inter-reflection).
 
+## Point sources
+
+A point source is `{ illuminant, position: { xM, yM, heightM }, intensity }`: its spectrum, its position in metres (`xM`, `yM`
+on the plane from the optical axis, +x right and +y up as seen from the camera; `heightM` > 0 in front of the plane, toward the
+camera) and its luminous intensity, either `{ candela }` (up to 1e9) or `{ illuminanceLux, distanceM }`, the illuminance it gives
+at normal incidence at that distance (I = E·r²). Its spectral intensity c·S(λ) has 683 lm/W · ∫ c·S(λ)·ȳ(λ) dλ = I. A plane point
+at distance d from it, at angle θ from the plane's normal, receives
+
+E(p, λ) = c·S(λ)·cos θ / d², with cos θ = heightM / d:
+
+the inverse-square law with Lambert's cosine law. Both follow from the definitions of luminous intensity (flux per solid angle)
+and illuminance (flux per area) and the solid angle dΩ = dA·cos θ/d² that a plane element dA subtends at the source (CIE S
+017:2020, *ILV: International Lighting Vocabulary*, 2nd edition, entries "luminous intensity" and "illuminance", free at
+[e-ilv.cie.co.at](https://e-ilv.cie.co.at/); BIPM, *The International System of Units*, 9th edition, 2019, Table 4, the
+steradian). It is exact for an ideal isotropic point source; the source has no size, nothing occludes it (the camera casts no
+shadow), and the light it reflects onto itself is not modelled. Points add to the blend:
+
+E(p, λ) = Σ_i w_i(p)·k_i·S_i(λ) + Σ_j c_j·S_j(λ)·cos θ_j / d_j².
+
+Positions are physical, in metres on the plane, whatever `chartSize` says; the blend's coordinates stay the chart's.
+
 ## Blends
 
 Coordinates are the chart's. With `chartSize` they are chart-local units (u = ±1 at the chart's left and right edges, v up on
@@ -56,15 +78,16 @@ crossfade linearly. Two equal stops make a hard edge; the later source takes the
 
 - **Scene-average metering** keeps its meaning: the meter's 16 × 16 zones read the lit scene over the frame.
 - **Grey-card metering** (`exposure.metering: "grey-card"`): the card sits at the frame center and reads the light there,
-  E(0) = Σ_i w_i(0)·E_i. Reported as the assumption `exposure.meteringCard`.
+  E(0) = Σ_i w_i(0)·E_i + Σ_j I_j·cos θ_j/d_j². Reported as the assumption `exposure.meteringCard`.
 - `exposure.greyCardDeviationStops` and `exposure.standardExposureIlluminanceLux` use the frame center's illuminance E(0); the
   latter is the center illuminance at which the settings give the standard exposure when every source is scaled by the same
   factor. `scene.illuminant.illuminanceLux` reports E(0).
-- **White balance** `"scene-illuminant"` is measured under the source strongest at the frame center: the largest w_i(0)·E_i,
-  the first on a tie. Reported as the assumption `output.whiteBalanceSource`; `scene.illuminant` names that source. An
+- **White balance** `"scene-illuminant"` is measured under the light strongest at the frame center: the largest of the
+  sources' w_i(0)·E_i and the points' I_j·cos θ_j/d_j², the first on a tie (the sources come before the points). Reported as the assumption `output.whiteBalanceSource`; `scene.illuminant` names that source. An
   explicit white balance (`{ kelvin }`, `"none"`, `"auto"`) is used as given.
-- The assumption `scene.illumination` reports the sources, the blend with its defaults, the coordinates (`"frame"` or
-  `"chart-local"`) and the frame center's illuminance, weights and strongest source.
+- The assumption `scene.illumination` reports the lights (`lights`: the sources, then the points with their position and
+  intensity in candela), the blend with its defaults (null without one), the coordinates (`"frame"` or `"chart-local"`) and,
+  at the frame center, the illuminance, the blend's weights, each light's illuminance and the strongest light.
 
 ## Scenes
 

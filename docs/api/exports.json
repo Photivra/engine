@@ -4873,6 +4873,11 @@
       "kind": "type"
     },
     {
+      "name": "MixedIlluminationPointSource",
+      "source": "src/facade/mixed-illumination.ts",
+      "kind": "type"
+    },
+    {
       "name": "MixedIlluminationSource",
       "source": "src/facade/mixed-illumination.ts",
       "kind": "type"

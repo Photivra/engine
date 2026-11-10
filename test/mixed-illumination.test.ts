@@ -10,6 +10,7 @@ import { InvalidConfigurationError, calculateEnvironmentSensorPhotoSignal, prepa
 import { simulateDisplayViewWithInternals } from "../src/facade/simulate-display-view.js";
 import { createDiffractedPlanarProvider } from "../src/facade/diffraction-provider.js";
 import { resolveMixedIllumination } from "../src/facade/mixed-illumination.js";
+import { estimateCie1931ColorMatchingFunctions } from "../src/color/color-matching-functions.js";
 import { buildPlanarSceneRadianceProvider, requireCallerScene, resolveCaptureIlluminant } from "../src/facade/scene-radiance.js";
 import { resolveChartScene, type ChartScene } from "../src/facade/chart-scenes.js";
 import { setDisplayViewGpuRendererFactory } from "../src/facade/display-view-gpu.js";
@@ -22,6 +23,8 @@ const GREY: SimulateCaptureOptions = { scene: { preset: "uniform", reflectance: 
 /** Window daylight on the left, the lamp on the right, crossfading over the middle half of the frame. */
 const GRADIENT: MixedIllumination = { sources: [{ illuminant: DAY, illuminanceLux: 8000 }, { illuminant: LAMP, illuminanceLux: 8000 }],
   blend: { kind: "linear-gradient", from: { u: -0.5, v: 0 }, to: { u: 0.5, v: 0 } } };
+/** A small lamp 0.5 m in front of the chart center, 400 cd: 1600 lux on the axis. */
+const FLASH = { illuminant: { kind: "planckian" as const, temperatureKelvin: 5500 }, position: { xM: 0, yM: 0, heightM: 0.5 }, intensity: { candela: 400 } };
 const decode = (code: number): number => { const e = code / 65535; return e <= 0.04045 ? e / 12.92 : ((e + 0.055) / 1.055) ** 2.4; };
 /** Linear RGB of output pixel (x, y). */
 const pixel = (samples: ArrayLike<number>, width: number, x: number, y: number): number[] => [0, 1, 2].map((c) => decode(samples[(y * width + x) * 3 + c]!));
@@ -29,7 +32,12 @@ const pixel = (samples: ArrayLike<number>, width: number, x: number, y: number):
 describe("mixed illumination (#550)", () => {
   it("validates the option and refuses what it cannot light", async () => {
     const bad: [unknown, RegExp][] = [
-      [{ sources: [{ illuminant: DAY, illuminanceLux: 100 }], blend: { kind: "regions", regions: [], outsideSource: 0 } }, /2 to 8 sources/],
+      [{ sources: [{ illuminant: DAY, illuminanceLux: 100 }] }, /two or more sources, or a point source/],
+      [{ sources: [{ illuminant: DAY, illuminanceLux: 100 }], blend: { kind: "radial", radius: 1 }, points: [FLASH] }, /blend needs two or more sources/],
+      [{ points: [{ ...FLASH, position: { xM: 0, yM: 0, heightM: 0 } }] }, /heightM must be positive/],
+      [{ points: [{ ...FLASH, intensity: { candela: 10, illuminanceLux: 10, distanceM: 1 } }] }, /not both/],
+      [{ points: [{ ...FLASH, intensity: { illuminanceLux: 10 } }] }, /distanceM must be positive/],
+      [{ points: [] }, /1 to 8 point sources/],
       [{ ...GRADIENT, extra: 1 }, /Unknown illumination field/],
       [{ ...GRADIENT, blend: { kind: "linear-gradient", from: { u: 0, v: 0 }, to: { u: 0, v: 0 } } }, /must differ/],
       [{ ...GRADIENT, blend: { ...GRADIENT.blend, stops: [0.6, 0.4] } }, /non-decreasing/],
@@ -38,7 +46,7 @@ describe("mixed illumination (#550)", () => {
       [{ ...GRADIENT, blend: { kind: "regions", regions: [{ source: 2, uMin: -1, uMax: 0, vMin: -1, vMax: 1 }], outsideSource: 0 } }, /source index/],
       [{ ...GRADIENT, blend: { kind: "regions", regions: [{ source: 1, uMin: 1, uMax: 0, vMin: -1, vMax: 1 }], outsideSource: 0 } }, /must not exceed/],
       [{ ...GRADIENT, blend: { kind: "spot" } }, /blend.kind/],
-      [{ ...GRADIENT, sources: [{ illuminant: DAY, illuminanceLux: -1 }, GRADIENT.sources[1]] }, /Illuminance/]
+      [{ ...GRADIENT, sources: [{ illuminant: DAY, illuminanceLux: -1 }, GRADIENT.sources![1]!] }, /Illuminance/]
     ];
     for (const [illumination, message] of bad) await expect(simulateCapture({ ...GREY, illumination: illumination as MixedIllumination })).rejects.toThrow(message);
     await expect(simulateCapture({ ...GREY, illumination: GRADIENT, illuminanceLux: 1000 })).rejects.toThrow(/replaces illuminant/);
@@ -105,6 +113,46 @@ describe("mixed illumination (#550)", () => {
     expect(assumption(await simulateCapture({ ...GREY, illumination: pool }), "output.whiteBalanceSource")).toBeUndefined();
   }, testTimeout(60_000));
 
+  it("a point source falls off as I·cos θ/d² (inverse square and Lambert's cosine law)", async () => {
+    const resolved = resolveMixedIllumination({ points: [FLASH] }, resolveCaptureIlluminant);
+    expect(resolved.center.illuminanceLux).toBeCloseTo(1600, 9);
+    // Its luminous irradiance, 683 ∫ E ȳ dλ (1 nm trapezoid, as the illuminance scale), at plane points 0, 0.5 and 1.2 m off the axis.
+    const lux = (x: number, y: number): number => {
+      let sum = 0;
+      for (let nm = 380; nm <= 780; nm++) sum += (nm === 380 || nm === 780 ? 0.5 : 1) * resolved.irradianceAt(0, 0, x, y, nm) * estimateCie1931ColorMatchingFunctions(nm).y;
+      return 683 * sum;
+    };
+    for (const [x, y] of [[0, 0], [0.5, 0], [0.3, -1.2]] as const) {
+      const d2 = (x - FLASH.position.xM) ** 2 + (y - FLASH.position.yM) ** 2 + FLASH.position.heightM ** 2;
+      expect(lux(x, y) / (400 * FLASH.position.heightM / d2 ** 1.5)).toBeCloseTo(1, 12);
+    }
+    // The same lamp given by its illuminance at a reference distance: 100 lux at 2 m is 400 cd.
+    const reference = resolveMixedIllumination({ points: [{ ...FLASH, intensity: { illuminanceLux: 100, distanceM: 2 } }] }, resolveCaptureIlluminant);
+    expect(reference.irradianceAt(0, 0, 0.7, 0.1, 555)).toBe(resolved.irradianceAt(0, 0, 0.7, 0.1, 555));
+    // In a capture (noise-free reference, fixed white balance), a uniform card's linear pixels follow cos³θ across the frame.
+    const options: SimulateCaptureOptions = { ...GREY, subjectDistanceM: 2, illumination: { points: [FLASH] } };
+    const capture = await simulateIdealReference(options), half = capture.scene.framedWidthM / 2;
+    const center = pixel(capture.image.samples, 32, 15, 8)[1]!, centerX = (-1 + 15.5 / 16) * half, y = (0.5 - 8.5 / 16) * half;
+    for (const x of [0, 7, 28]) {
+      const xM = (-1 + (x + 0.5) / 16) * half, cube = (xyz: number): number => (FLASH.position.heightM / Math.hypot(xyz, y, FLASH.position.heightM)) ** 3;
+      expect(pixel(capture.image.samples, 32, x, 8)[1]! / center).toBeCloseTo(cube(xM) / cube(centerX), 3);
+    }
+  }, testTimeout(60_000));
+
+  it("a point source mixes with the blend; white balance and the grey card follow the frame center", async () => {
+    // Dim daylight (100 lux) and the lamp (1600 lux at the center): the lamp is strongest at the center.
+    const illumination: MixedIllumination = { sources: [{ illuminant: DAY, illuminanceLux: 100 }], points: [FLASH] };
+    const auto: SimulateCaptureOptions = { ...GREY, exposure: { mode: "aperture-priority", metering: "grey-card" }, output: { ...GREY.output, whiteBalance: "scene-illuminant" } };
+    const mixed = await simulateCapture({ ...auto, illumination });
+    const value = (id: string): unknown => mixed.assumptions.find((a) => a.id === id)?.value;
+    expect(value("exposure.meteringCard")).toMatchObject({ illuminanceLux: 1700 });
+    expect(value("output.whiteBalanceSource")).toEqual({ source: 1, illuminant: "planckian-5500K" });
+    expect(value("scene.illumination")).toMatchObject({ blend: null, center: { illuminanceLux: 1700, illuminancesLux: [100, 1600], strongestSource: 1 } });
+    // The grey card's exposure is the one a uniform 1700 lux gives.
+    const flat = await simulateCapture({ ...auto, illuminant: FLASH.illuminant, illuminanceLux: 1700 });
+    expect(mixed.exposure.settings).toEqual(flat.exposure.settings);
+  }, testTimeout(60_000));
+
   it("regions use chart-local coordinates with a fixed-size chart", async () => {
     // Left half of a 2 mm chart under the lamp; the rest (the right half and the surround) in daylight.
     const regions: MixedIllumination = { sources: [{ illuminant: DAY, illuminanceLux: 8000 }, { illuminant: LAMP, illuminanceLux: 8000 }],
@@ -141,7 +189,9 @@ describe("mixed illumination (#550)", () => {
       { scene: { preset: "patches", patches: [{ patchId: "a", reflectance: 0.7 }, { patchId: "b", reflectance: 0.2 }], columns: 2 }, chartSize: { widthM: 0.002, surroundReflectance: 0.3 },
         lens: { diffraction: "circular-aperture" }, illumination: { ...GRADIENT, blend: { kind: "radial", radius: 0.6 } }, output: { width: 20, height: 16 } },
       { scene: { kind: "reflectance-function", sceneId: "rings", evaluate: (p) => 0.4 + 0.3 * Math.cos(40 * Math.hypot(p.u, p.v)) }, sensor: { pixelAperture: { kind: "box", samplesPerAxis: 2 } },
-        illumination: { ...GRADIENT, blend: { kind: "regions", regions: [{ source: 1, uMin: 0, uMax: 1, vMin: -1, vMax: 1 }], outsideSource: 0 } }, output: { width: 16, height: 12 } }
+        illumination: { ...GRADIENT, blend: { kind: "regions", regions: [{ source: 1, uMin: 0, uMax: 1, vMin: -1, vMax: 1 }], outsideSource: 0 } }, output: { width: 16, height: 12 } },
+      { scene: { preset: "slanted-edge", angleDegrees: 20 }, chartSize: { widthM: 1, surroundReflectance: 0.2 }, illumination: { ...GRADIENT, points: [{ ...FLASH, position: { xM: 0.4, yM: -0.2, heightM: 0.6 } }] },
+        output: { width: 20, height: 14 } }
     ];
     for (const options of cases) {
       const capture = await simulateCapture(options), { result, signal } = await simulateDisplayViewWithInternals(options, { width: 4, height: 4, samplesPerAxis: 1 });
