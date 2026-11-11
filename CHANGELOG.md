@@ -1,5 +1,18 @@
 # Changelog
 
+## 2.22.0 (unreleased)
+
+### Group B: sensor and light
+
+#### Default changes (Group B)
+
+| What changed | Before (2.21.0) | Now (2.22.0) | Keep the old behavior |
+| --- | --- | --- | --- |
+| Generic tiers' (and caller presets') read noise above 6 µm (#599) | once per rendered site, whatever the pitch | the 6 µm photosite's ×√N for a site that sums N = pitch²/36 µm² photosites, as for a sensor profile (#554); below 6 µm unchanged | set `sensor.readNoise` (it gives the site's read noise, as before) |
+
+- **#595 New: `result.sensor.native`**, the sensor figures of one native photosite (a tier's declared 6 µm reference, a sensor profile's own pitch) beside the as-rendered ones: full well, read noise, engineering dynamic range (and per ISO), `photositesPerSite`, the mid-gray figure on exact requests, the EMVA 1288 Release 4.0 dynamic range (§2.7, Eq. 26–28: μ_e.min = √(σ_d² + σ_q² + 1/4) + 1/2, in stops and dB, with the saturation capacity per µm²), and `normalized8Megapixel`, a convention (not EMVA): DR + ½·log₂(frame photosites / 8 000 000). New root types `SimulateCaptureNativeSensorReport` and `SimulateCaptureMidGreyFigure`. Model figures, exact arithmetic. Professional tier, ISO 100/800/6400: native 14.67/12.72/9.73 stops engineering, 14.36/12.09/9.10 EMVA, at every pitch.
+- **#599 Changed:** the tiers' as-rendered read noise scales by √N above 6 µm (table above). Rendered dynamic range at 46.9 µm, ISO 100/800/6400: 15.70/15.69/15.18 → 15.66/15.20/12.69 stops (now the binned value N·S₀ / √(N·σ_read² + σ_q,N²)); 187.5 µm: 15.70 → 15.70/15.66/14.54. The mid-gray SNR changes only where read noise matters (46.9 µm, ISO 100: 688.6). Tests: `test/sensor-native-report.test.ts` (new; a dark-frame photon-transfer check at 60 µm).
+
 ## 2.21.0 — unreleased (prepared November 10, 2026)
 
 A minor release that combines the 2.21.0 and 2.22.0 parts (owner decision 2026-11-10): the chart-signal design choice on every render path, sensor profiles and phone lenses (#554), the image-plane scene (#581), catalogue-lens boundary ties (#588) and lateral color (#589), exposure build-up (#534) with subject motion (#551) and mixed lighting (#550), the lateral color fringe width (#580), Photivra's own light-source spectra (#557) and the print planner's contain fit (#365). See the [2.21.0 release record](https://github.com/Photivra/photivra/blob/main/docs/RELEASE_2_21_0.md).

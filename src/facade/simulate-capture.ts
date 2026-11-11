@@ -2876,17 +2876,28 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   const fullWell = characteristics?.fullWell, fullWellElectrons = fullWell && (fullWell.link === "none" ? fullWell.electrons : fullWell.electrons * (pitch / (fullWell.referencePixelPitchMicrometers ?? 6)) ** 2);
   if (fullWellElectrons !== undefined && !(fullWellElectrons >= 100 && fullWellElectrons <= 1e10)) fail("sensor.fullWell must give 100 to 1e10 electrons at the pixel pitch (" + fullWellElectrons + ").");
   const chargeScale = fullWellElectrons === undefined ? areaScale : fullWellElectrons / body.readout[0]!.profile.regimes[0]!.preAdcSaturationElectronEquivalent.value;
+  // #599 (2.22.0): a tier's site that sums N = (pitch / 6 µm)² photosites sums their read noise in quadrature (×√N), as a sensor
+  // profile's does (#554, applied in its body); below one photosite the read noise is kept.
+  const tierReadNoiseScale = profile ? 1 : Math.sqrt(Math.max(1, areaScale));
   const regimeByChannel = {} as Record<Channel, { readoutProfile: ReadoutProfile; regimeId: string }>;
   for (const channel of CHANNELS) {
     const asset = body.readout.find((a) => a.profile.channelId === channel) ?? fail("Camera readout lacks channel " + channel + ".");
     const chain = resolveGenericIsoSignalChain({ profile: body.signalChain, isoCapability: body.iso, requestedIsoSetting: { kind: "standard", exposureIndex: resolvedIso },
       captureModeId: IDS.mode, readoutProfile: asset.profile });
-    regimeByChannel[channel] = { readoutProfile: characterizeReadout(asset.profile, chargeScale, characteristics), regimeId: chain.readout.regime.regimeId };
+    regimeByChannel[channel] = { readoutProfile: characterizeReadout(asset.profile, chargeScale, characteristics, tierReadNoiseScale), regimeId: chain.readout.regime.regimeId };
   }
-  const capacityRegimes = characterizeReadout(body.readout[0]!.profile, chargeScale, characteristics).regimes;
-  const baseRegime = capacityRegimes[0]! as unknown as { preAdcSaturationElectronEquivalent: { value: number } };
-  const capacityElectrons = Math.max(...capacityRegimes.map((r) => (r as unknown as { preAdcSaturationElectronEquivalent: { value: number } }).preAdcSaturationElectronEquivalent.value),
-    baseRegime.preAdcSaturationElectronEquivalent.value);
+  const capacityOf = (scale: number): number => {
+    const regimes = characterizeReadout(body.readout[0]!.profile, scale, characteristics).regimes as unknown as readonly { preAdcSaturationElectronEquivalent: { value: number } }[];
+    return Math.max(...regimes.map((r) => r.preAdcSaturationElectronEquivalent.value), regimes[0]!.preAdcSaturationElectronEquivalent.value);
+  };
+  const capacityElectrons = capacityOf(chargeScale);
+  // #595: the same readout at the native photosite (a tier's 6 µm reference, a profile's own pitch): the area rule (or the full well's link) at
+  // that pitch, and the read noise of one photosite (a profile's body carries the view's √N, removed here).
+  const nativePitch = profile ? profile.pixelPitchMicrometers : DEFAULTS.pixelPitchMicrometers, nativeArea = nativePitch * nativePitch / referenceArea;
+  const nativeChargeScale = fullWell === undefined ? nativeArea : (fullWell.link === "none" ? fullWell.electrons : fullWell.electrons * (nativePitch / (fullWell.referencePixelPitchMicrometers ?? 6)) ** 2) /
+    body.readout[0]!.profile.regimes[0]!.preAdcSaturationElectronEquivalent.value;
+  const nativeSensor = { profile: characterizeReadout(body.readout.find((a) => a.profile.channelId === "green")!.profile, nativeChargeScale, characteristics, 1 / profileReadNoiseScale),
+    capacityElectrons: capacityOf(nativeChargeScale), pixelPitchMicrometers: nativePitch, framePhotosites: width * height * pitch * pitch / (nativePitch * nativePitch) };
   assume("sensor.capacityElectrons", "derived", capacityElectrons, "Physical charge capacity set to the body's largest declared pre-ADC saturation (its base-ISO saturation signal), so storage never clips before the declared readout white.");
   if (areaScale !== 1 && !fullWell) {
     assume("sensor.isoAreaNormalization", "model", { referenceApertureAreaSquareMicrometers: referenceArea,
@@ -2894,7 +2905,8 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
     "Approximation. The tier's ISO signal chain is declared for a 6 µm square aperture. Standard output sensitivity S = 10/H (CIPA DC-004-2020 §3.2) is defined at the output, " +
       "independent of pixel size, and the collected charge is proportional to the aperture area (EMVA 1288 Release 4.0, Eq. 3), so the system conversion gain (e⁻ per code) and the " +
       "pre-ADC saturation of every ISO regime are multiplied by area / 36 µm² = " + areaScale + ". The same exposure gives the same output code at any pitch; per-pixel shot-noise SNR " +
-      "falls with smaller pixels. Read noise and dark current stay per pixel in electrons. The charge capacity follows the scaled base-ISO saturation, so it is proportional to " +
+      "falls with smaller pixels. Above 6 µm a site sums N = area / 36 µm² photosites, so its read noise is the photosite's ×√N = " + tierReadNoiseScale + " (#599, as for a sensor profile); " +
+      "below 6 µm the read noise stays per pixel in electrons. Dark current stays per pixel. The charge capacity follows the scaled base-ISO saturation, so it is proportional to " +
       "the aperture area: a design consequence of holding the tier's ISO rating and highlight headroom fixed, not a measured full-well model (published sensor data grow less than " +
       "proportionally with area across technologies).");
   }
@@ -2914,8 +2926,8 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
       "A pixel pitch above 100 µm is larger than any camera photosite, so each output pixel stands for a " + pitch + " µm square of a " + width * pitch / 1000 + " × " + height * pitch / 1000 +
       " mm frame: a downsized view of the whole frame, with the framing, crop factor, generic prime and minimum focus of that frame. Its signal is the charge of the whole square " +
       "(sensor.isoAreaNormalization), so its shot noise is that of all the real photosites in the square summed or averaged (Poisson counts add), and the image brightness is the " +
-      "same as at any other pitch. Read noise and dark current are applied once per output pixel, not once per real photosite, so in deep shadows the noise is lower than a real " +
-      "sensor's binned output. This is the noise of a binned, downsized view, not the real sensor's per-pixel noise. A point pixel aperture samples one point of each square; " +
+      "same as at any other pitch. Its read noise is the photosites' summed in quadrature (×√N, #599); dark current is applied once per output pixel, not once per real photosite. " +
+      "result.sensor.native reports the real photosite's figures (#595). This is the noise of a binned, downsized view, not the real sensor's per-pixel noise. A point pixel aperture samples one point of each square; " +
       "use sensor.pixelAperture box (or sensor.antiAliasing) to average scene detail finer than the pitch.");
   }
   assume("sensor.darkCurrent", "model", { electronsPerSecond: DARK_CURRENT_ELECTRONS_PER_SECOND, temperatureC: OPERATING_TEMPERATURE_C },
@@ -3387,7 +3399,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
     a * GREY_CARD_REFLECTANCE * irradianceScale * illuminant.shape.evaluate(nm) / Math.PI;
   const sensor = sensorReport(regimeByChannel.green.readoutProfile, regimeByChannel.green.regimeId, capacityElectrons, greyElectrons, DARK_CURRENT_ELECTRONS_PER_SECOND * shutterSeconds,
     { pixelPitchMicrometers: pitch, peakQuantumEfficiency: 0.5 * qeScale,
-      readoutSeconds: characteristics?.readoutSeconds ?? (body as { rollingReadoutTiming?: { profile: { spatialSamplingSkewSeconds?: { value: number } } } }).rollingReadoutTiming?.profile.spatialSamplingSkewSeconds?.value ?? null }, fixedPattern);
+      readoutSeconds: characteristics?.readoutSeconds ?? (body as { rollingReadoutTiming?: { profile: { spatialSamplingSkewSeconds?: { value: number } } } }).rollingReadoutTiming?.profile.spatialSamplingSkewSeconds?.value ?? null }, nativeSensor, fixedPattern);
   if (displayView) return await renderView!({ sensor, viewFast: { ahd: viewAhdFast, uniformSampling: fastTop }, lens: lensSignal, lensPsf: displayViewLensPsf, movingScene, ahd, fastReport, antiAliasing, aspect, assume, assumptions, axisChannelResponse, boxSamples, buildProvider, callerScene, chart, materialLayers, chartReport, chartSize, diffraction, defocus: displayViewDefocus, diffractionPsf, fNumber, focalLengthMm, focusDistanceM, height, highlightMode, exposureGain, illuminanceLux, illuminant, illuminantOption, imagingArea, intentOf, metresPerFrameUnit, noiseSeed, outputOptions, parsedView, pitch, preset, provider, regimeByChannel, resolvedIso, isoReport, standardExposureDeviationStops: exposureDeviationStops, standardExposureIlluminanceLux: exposureIlluminanceLux, greyCardDeviationStops: exposureGreyCardDeviationStops, metering, sceneOption, scenePreset, shutterSeconds, started, subjectDistanceM, toneCurve, whiteBalanceOption, whiteBalanceState, width, checkAbort, margin, mode, nativeHeight, nativeWidth, sourceSha256, yieldControl, kelvinWhiteBalanceInput,
     mixedIllumination: mixedKit && lightKit });
   // Ideal reference (2.3): the scene without camera effects, at the capture's own exposure, white balance and encoding.
