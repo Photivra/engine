@@ -16,7 +16,7 @@
 
 import { InvalidConfigurationError } from "../core/configuration-error.js";
 import type { resolveLensPsfConvolutionKernels } from "../optics/lens-psf-kernels.js";
-import { siteDiffractionKernel } from "../optics/site-diffraction-kernel.js";
+import { loadedKit, qualityKit } from "./on-demand-kits.js";
 import { convolveSiteKernels } from "../optics/defocus-disc-kernel.js";
 import { DEFOCUS_DIRECT_KERNEL_MAXIMUM_RADIUS_SITES, siteKernelRuns, type SiteKernelRuns } from "../optics/site-kernel-runs.js";
 import { resolveProjectionDistanceMm } from "../motion/camera-rotation.js";
@@ -84,7 +84,7 @@ export function buildExpectedSignalInput(input: ExpectedSignalSetupInput): { off
     const radius = diffraction.radius;
     kernels = { radius, perNode: wavelengths.map((wavelengthNm) => {
       if (!diffraction.profileWavelengths.includes(wavelengthNm)) throw new InvalidConfigurationError(input.caller + ": a spectral node has no diffraction kernel.");
-      return siteDiffractionKernel(diffraction.psf, wavelengthNm, pitch, radius, input.caller + ": diffraction kernels must sample the site pitch exactly.");
+      return loadedKit(qualityKit).siteDiffractionKernel(diffraction.psf, wavelengthNm, pitch, radius, input.caller + ": diffraction kernels must sample the site pitch exactly.");
     }) };
   }
   if (input.lensKernels) {

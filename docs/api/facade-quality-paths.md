@@ -4,10 +4,11 @@ The package and root API versions are recorded once in [Navigation](../API_REFER
 
 ## prepareQualityPaths
 
-Loads the engine's on-demand full-quality code now instead of at the first request that needs it (#594). Today that is the
-display view's GPU full-quality code (the Quality passes behind `prepareDisplayView(…, { gpu: "auto" | "require" })`: diffraction,
-AHD, defocus and image-plane prints on the GPU), together with the GPU session it builds on; a later release adds the CPU
-full-quality code here too.
+Loads the engine's on-demand full-quality code now instead of at the first request that needs it (#594): the CPU Quality kit
+(diffraction, the capture's AHD demosaic, `lens.defocus` beyond the geometric disc, the image-space provider of lens projection,
+distortion and vignetting, the display view's coupled tone, reconstruct and desaturation steps, the neighbor highlight
+reconstruction), the opt-in kit (`sensor.profile`, `illumination`, `motion.subject`) and the display view's GPU full-quality code
+(the Quality passes behind `prepareDisplayView(…, { gpu: "auto" | "require" })`), together with the GPU session it builds on.
 
 Optional: without it, the first request that needs the code loads it. Safe to call at any time and from any number of places:
 concurrent calls share one load, and a call after it loaded resolves at once and loads nothing. It changes no result. If the

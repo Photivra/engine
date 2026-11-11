@@ -1392,16 +1392,36 @@ root exports of the built package, minified, gzip level 9; `test/capture-bundle.
   **Two budget rows (owner decision 2026-11-10).** `test/capture-bundle.test.ts` checks the worker shape as two rows in place
   of one all-chunk limit: the *fast worker* (every chunk except the on-demand Quality chunks; the GPU Speed session,
   catalogue and lens-signal chunks included) at most 344,300 B, and *on demand* (the chunks holding the Quality modules,
-  found by module membership, not file name) at most 20,100 B, each its measurement rounded up to the next 100 B. The
+  found by module membership, not file name) at most 20,100 B, each its measurement rounded up to the next 100 B (after the
+  CPU split below: 337,500 B and 47,000 B). The
   Photivra app's bundle budget adopts the same two rows, with the same definitions, at app round 16.
 
   **Preload and load failure.** `prepareQualityPaths()` (root export) loads the on-demand code ahead of time: single flight,
   idempotent, and it changes no result ([USAGE](USAGE.md#loading-the-full-quality-code-ahead-of-time-222-594)). If the
   Quality chunk does not load, that render runs the CPU reference, labelled `quality-code-unavailable` (with `"require"`, it
   fails with that reason); the failure is not remembered, so the next render that needs the code loads it again. A failed
-  self-check, by contrast, keeps the view on the CPU. The CPU Quality code (diffraction, capture AHD, the defocus extras
-  and the opt-in features) is still in the entry; #594 moves it into one on-demand kit once the 2.22.0 parts that edit those
-  modules are merged.
+  self-check, by contrast, keeps the view on the CPU.
+
+  **The CPU kits (2.22.0, #594).** The CPU full-quality code is one on-demand chunk, the *Quality kit*
+  (`src/facade/quality-kit.ts`: diffraction, the capture's AHD demosaic, `lens.defocus` beyond the geometric disc, the
+  image-space provider of lens projection, distortion, vignetting, rotation and moving subjects, the view's coupled rendering
+  steps and the neighbor highlight reconstruction), and the opt-in features another, the *opt-in kit*
+  (`src/facade/opt-in-kit.ts`: `sensor.profile`, `illumination`, `motion.subject`). Each loads once, where `simulateCapture`,
+  the display view or `prepareDisplayView` parses a request that uses it, and is then called synchronously, so results are
+  those of a static import (every hash lock passes). `prepareQualityPaths()` loads both. On the CPU there is no other path:
+  a request whose kit does not load fails with `ImageKernelExecutionError` reason `quality-code-unavailable`, and the next
+  request tries again. The native-photosite report (#595, `result.sensor.native`) stays on the default path, because every
+  capture reports it; the view's AHD candidates stay inline in the display view (a refactor first).
+
+  | Row (worker shape, gzip) | 2.22.0 parts merged | After the CPU split | Limit |
+  | --- | --- | --- | --- |
+  | fast worker | 358,680 B | **337,373 B** | 337,500 B |
+  | on demand | 19,379 B (GPU Quality) | **46,940 B** (GPU Quality 19,364 B, CPU Quality kit 18,249 B, GPU coupled steps 5,159 B, opt-in kit 4,168 B) | 47,000 B |
+  | all chunks | 378,059 B | 384,313 B | — |
+
+  The GPU coupled steps (#593) load on demand too and count in that row. The bundler now gives the entry ten small chunks it
+  shares with the kits (imported statically; 252,367 B of entry plus 27,348 B), so the display view's addition is measured on
+  the entry and those chunks together: 38,370 B minified and 14,123 B gzip (2.21.0: 46,270 B and 18,327 B).
 - **Shipped shaders are minified (2.14, #536).** `npm run build` strips comments and indentation from the WGSL source
   (`scripts/minify-wgsl-dist.mjs`, see [WebGPU, Shipped shader text](WEBGPU.md#shipped-shader-text)). Measured on the app's
   production build (Vite 8, app 0.50.0 at `a82a5eb`, engine `main` at `42ec9d8` packed before and after): the GPU session

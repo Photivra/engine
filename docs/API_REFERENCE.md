@@ -813,6 +813,16 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 | --- | --- |
 | [`InvalidConfigurationError`](api/core-configuration-error.md#invalidconfigurationerror) | Runtime |
 
+## core/execution-error.ts
+
+[Detailed contracts](api/core-execution-error.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/core/execution-error.ts)
+
+| Export | Kind |
+| --- | --- |
+| [`ImageKernelExecutionError`](api/core-execution-error.md#imagekernelexecutionerror) | Runtime |
+| [`ImageKernelFailureReason`](api/core-execution-error.md#imagekernelfailurereason) | Type |
+| [`ImageKernelFallbackReason`](api/core-execution-error.md#imagekernelfallbackreason) | Type |
+
 ## core/image-formation.ts
 
 [Detailed contracts](api/core-image-formation.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/core/image-formation.ts)
@@ -1618,9 +1628,6 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 | [`ImageKernelBackend`](api/gpu-image-kernel-execution.md#imagekernelbackend) | Type |
 | [`ImageKernelCodeErrorBound`](api/gpu-image-kernel-execution.md#imagekernelcodeerrorbound) | Type |
 | [`ImageKernelExecution`](api/gpu-image-kernel-execution.md#imagekernelexecution) | Type |
-| [`ImageKernelExecutionError`](api/gpu-image-kernel-execution.md#imagekernelexecutionerror) | Runtime |
-| [`ImageKernelFailureReason`](api/gpu-image-kernel-execution.md#imagekernelfailurereason) | Type |
-| [`ImageKernelFallbackReason`](api/gpu-image-kernel-execution.md#imagekernelfallbackreason) | Type |
 | [`ImageKernelRelativeErrorBound`](api/gpu-image-kernel-execution.md#imagekernelrelativeerrorbound) | Type |
 | [`ImageKernelSeededRealizationBound`](api/gpu-image-kernel-execution.md#imagekernelseededrealizationbound) | Type |
 | [`WEBGPU_F32_TRANSFER_ABSOLUTE_BOUND`](api/gpu-image-kernel-execution.md#webgpu_f32_transfer_absolute_bound) | Runtime |

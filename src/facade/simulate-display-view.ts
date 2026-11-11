@@ -26,6 +26,7 @@ import { runCapture, apertureNodeOffsets, bilinearPhaseProfiles, clockMs, fail, 
   SIMULATE_CAPTURE_FACADE_VERSION, DISPLAY_VIEW_WITHOUT_VIEW, allowKeys, parseDisplayViewOption, type DisplayViewResult, type DisplayViewRunContext, type ParsedDisplayView,
   type SimulateCaptureAssumption, type SimulateCaptureOptions, type SimulateDisplayViewOptions } from "./simulate-capture.js";
 import { createHostYield } from "./host-yield.js";
+import { qualityKit } from "./on-demand-kits.js";
 import { createDefocusDiscSiteKernel } from "../optics/defocus-disc-kernel.js";
 import { cpuDisplayViewExecution, parsePrepareDisplayViewOptions, type DisplayViewExecution, type DisplayViewGpuRequest, type PrepareDisplayViewOptions } from "./display-view-gpu.js";
 import type { DisplayViewGpuSession } from "./display-view-gpu-session.js";
@@ -273,8 +274,8 @@ async function prepareView(context: DisplayViewRunContext): Promise<PreparedView
   const coupledRendering = toneCurve === "extended-reinhard-luminance" || toneCurve === "naka-rushton-luminance" || highlightMode === "reconstruct" || highlightMode === "reconstruct-neighbors" || context.gamutHandling === "desaturate-to-luminance";
   const rendering: DisplayViewRenderingChoice | undefined = coupledRendering ? { toneCurve, ...(outputOptions.toneCurveParameters === undefined ? {} : { toneCurveParameters: outputOptions.toneCurveParameters as SdrToneCurveParameters }),
     highlightMode, gamutHandling: context.gamutHandling, fast: context.viewFast.rendering } : undefined;
-  // The coupled steps' module is loaded only for a view that asks for them (the default path never imports it).
-  const coupled: DisplayViewCoupledRendering | undefined = rendering ? (await import("./display-view-rendering.js")).createDisplayViewCoupledRendering(rendering, colour.appliedGains, Math.min(...colour.appliedGains), matrix)! : undefined;
+  // The coupled steps' module is loaded only for a view that asks for them (the Quality kit, #594; the default path never imports it).
+  const coupled: DisplayViewCoupledRendering | undefined = rendering ? (await qualityKit.load()).createDisplayViewCoupledRendering(rendering, colour.appliedGains, Math.min(...colour.appliedGains), matrix)! : undefined;
   // #457: AHD's homogeneity metric (the profile's camera → XYZ matrix times the white-balance gains) for its choice on the noise-free mosaic.
   const ahdChoice = ahd ? { labMatrix: CAMERA_TO_XYZ.map((row) => row.map((value, c) => value * (viewGains ? viewGains[c]! : 1))) } : undefined;
   // 2.20.0: a quarter of the samples per axis where the pilot finds no detail is the view's fast sampling; exact samples every pixel fully.

@@ -4439,17 +4439,17 @@
     },
     {
       "name": "ImageKernelExecutionError",
-      "source": "src/gpu/image-kernel-execution.ts",
+      "source": "src/core/execution-error.ts",
       "kind": "runtime"
     },
     {
       "name": "ImageKernelFailureReason",
-      "source": "src/gpu/image-kernel-execution.ts",
+      "source": "src/core/execution-error.ts",
       "kind": "type"
     },
     {
       "name": "ImageKernelFallbackReason",
-      "source": "src/gpu/image-kernel-execution.ts",
+      "source": "src/core/execution-error.ts",
       "kind": "type"
     },
     {
