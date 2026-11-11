@@ -42,6 +42,7 @@ import * as sensorProfileKit from "../equipment/sensor-profile-body.js";
 import type { SensorProfile } from "../equipment/sensor-profile-body.js";
 import { createHostYield } from "./host-yield.js";
 import { fastFormatDefault, resolveFast } from "./fast-resolution.js";
+import { SPECTRAL_SPIKINESS_THRESHOLD, spectralSpikiness } from "../color/spectral-spikiness.js";
 import { SCENE_TO_SENSOR_BRIDGE_SCOPE } from "../optics/scene-to-sensor-irradiance.js";
 import { resolveGenericEquipmentExposureCapabilities, type ResolvedGenericEquipmentExposureCapabilities } from "../equipment/exposure-capabilities.js";
 import { resolveGenericIsoSignalChain } from "../sensor/iso-signal-chain.js";
@@ -2200,8 +2201,24 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
     (profileSensor ? "The profile's sensor across the output (sensor.profileView)" : profile ? "The profile's pitch" : "6 µm pixels (about a 24 MP full-frame sensor)") +
     ". The simulated sensor is width × pitch wide, so small images are a central crop of a large sensor, not a downscaled full frame."), "sensor.pixelPitchMicrometers");
   if (pitch < 0.5 || pitch > SIMULATE_CAPTURE_PIXEL_PITCH_MAXIMUM_MICROMETERS) fail("sensor.pixelPitchMicrometers must be 0.5-" + SIMULATE_CAPTURE_PIXEL_PITCH_MAXIMUM_MICROMETERS + ".");
-  const spectralStep = positive(pick(sensorOptions, "spectralStepNanometers", "sensor.spectralStepNanometers", DEFAULTS.spectralStepNanometers,
-    "Spectral midpoint quadrature over 380-780 nm with subintervals of at most 20 nm."), "sensor.spectralStepNanometers");
+  // #395: exact or fast per option: the option record's `fast`, else the top-level one, else (2.20.0) the format's default: fast for
+  // sRGB samples and the display view, exact for the exports (DNG, JPEG, PNG) and the ideal reference. Fast methods report true when they run.
+  if (top.fast !== undefined && typeof top.fast !== "boolean") fail("fast must be true or false.");
+  const fastTop = resolveFast(top.fast as boolean | undefined, fastFormatDefault(format, displayView ? "display-view" : idealReference ? "ideal-reference" : "capture"));
+  // #590 (2.22.0): the default step follows the light and the request's quality. A light is spiky when R(20) = 20²·κ/24 > 0.01 (the
+  // midpoint rule's relative error indicator, color/spectral-spikiness.ts) for any of its sources; an exact request then takes 5 nm,
+  // a fast one 20 nm. Its light is validated with the scene below (a light that fails here is not spiky here).
+  const illumination = top.illumination as { sources?: unknown; points?: unknown } | undefined, lights = illumination ? [illumination.sources, illumination.points]
+    .flatMap((list) => (Array.isArray(list) ? list.map((s) => (s as { illuminant?: unknown } | null)?.illuminant) : [])) : [top.illuminant];
+  let kappa = 0;
+  for (const light of lights) if (light !== undefined) try { const shape = resolveCaptureIlluminant(light as CaptureIlluminant).shape; kappa = Math.max(kappa, spectralSpikiness((nm) => shape.evaluate(nm))); } catch { /* validated below */ }
+  const r20 = 400 * kappa / 24, spiky = r20 > SPECTRAL_SPIKINESS_THRESHOLD, defaultStep = fastTop || !spiky ? DEFAULTS.spectralStepNanometers : 5;
+  const spectralStep = positive(pick(sensorOptions, "spectralStepNanometers", "sensor.spectralStepNanometers", defaultStep,
+    "Spectral midpoint quadrature over 380-780 nm with subintervals of at most " + defaultStep + " nm" + (spiky ? " (the light is spiky: sensor.spectralSpikiness)." : ".")), "sensor.spectralStepNanometers");
+  if (spiky && sensorOptions.spectralStepNanometers === undefined) assume("sensor.spectralSpikiness", "model", { kappaPerSquareNanometer: kappa, r20, threshold: SPECTRAL_SPIKINESS_THRESHOLD, stepNanometers: defaultStep, fast: fastTop },
+    "#590: the light's spectrum has narrow bands. The midpoint rule's relative error indicator R(h) = h²·κ/24 (DLMF §3.5(i); κ = Σ|Δ²S| / ΣS on a 1 nm grid) is " + r20 +
+    " at 20 nm, above " + SPECTRAL_SPIKINESS_THRESHOLD + " (a design threshold), so an exact request takes 5 nm. " + (fastTop ? "This fast request keeps 20 nm (4× fewer spectral queries): colors may carry a cast (measured up to " +
+    "about 0.1 Δu′v′ on white under the tri-phosphor fluorescent source). Pass fast: false or sensor.spectralStepNanometers: 5 for the exact colors." : "The step costs 4× the spectral queries of 20 nm."));
   if (spectralStep < 1 || spectralStep > 100) fail("sensor.spectralStepNanometers must be 1-100.");
   let temporalSampleCount = integerIn(rotating || subject ? pick(sensorOptions, "temporalSampleCount", "sensor.temporalSampleCount", ROTATING_TEMPORAL_SAMPLE_COUNT,
     rotating ? "Eight temporal midpoints across each site's exposure window sample the camera rotation (motion blur); raise it for long exposures or fast rotation." :
@@ -2272,10 +2289,6 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   const borderOption = outputOptions.borderHandling as SimulateCaptureBorderHandling | undefined;
   if (demosaicOption !== undefined && demosaicOption !== "bilinear" && demosaicOption !== "ahd") fail("output.demosaic must be bilinear or ahd.");
   const ahd = demosaicOption === "ahd";
-  // #395: exact or fast per option: the option record's `fast`, else the top-level one, else (2.20.0) the format's default: fast for
-  // sRGB samples and the display view, exact for the exports (DNG, JPEG, PNG) and the ideal reference. Fast methods report true when they run.
-  if (top.fast !== undefined && typeof top.fast !== "boolean") fail("fast must be true or false.");
-  const fastTop = resolveFast(top.fast as boolean | undefined, fastFormatDefault(format, displayView ? "display-view" : idealReference ? "ideal-reference" : "capture"));
   const fastInUse: [SimulateCaptureFastOption, boolean, boolean | undefined][] = [["lens.diffraction", diffractionRadiusOption !== undefined, diffractionFast],
     ["lens.catalogue", catalogue !== undefined, catalogueFast],
     ["sensor.antiAliasing", antiAliasing !== undefined, antiAliasingFast], ["sensor.pixelAperture.box", boxAperture, boxFast], ["output.demosaic.ahd", ahd, demosaicFast],
