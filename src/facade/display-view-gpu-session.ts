@@ -92,7 +92,8 @@ export async function openDisplayViewGpuSession(options: ParsedPrepareDisplayVie
   // #563: the lens signal (projection, distortion, vignetting, rotation) runs on the CPU reference only; no device is requested for it.
   if (request.lens) return fallBack(options, "unsupported-on-backend", "the GPU display-view renderers do not render lens.projection, lens.distortion, lens.vignetting or " +
     "camera rotation (#563); the CPU reference renders them. No device was requested.");
-  if (request.mixedIllumination) return fallBack(options, "unsupported-on-backend", "the GPU renderers light chart materials with one illuminant; the CPU reference renders mixed illumination (#550). No device was requested.");
+  // #597: an image-plane print under mixed light renders on the device (its Quality passes light each lattice point); charts keep the CPU.
+  if (request.mixedIllumination && request.scene !== "image-plane") return fallBack(options, "unsupported-on-backend", "the GPU renderers light chart materials with one illuminant; the CPU reference renders mixed illumination (#550). No device was requested.");
   let runtime: WebGpuRuntime, owned = false;
   if (isAccelerator(options.gpuDevice)) {
     const shared = acceleratorRuntime(options.gpuDevice) as WebGpuRuntime | null | undefined;

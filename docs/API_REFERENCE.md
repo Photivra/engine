@@ -3365,6 +3365,8 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 | Export | Kind |
 | --- | --- |
+| [`SimulateCaptureMidGreyFigure`](api/sensor-sensor-characteristics.md#simulatecapturemidgreyfigure) | Type |
+| [`SimulateCaptureNativeSensorReport`](api/sensor-sensor-characteristics.md#simulatecapturenativesensorreport) | Type |
 | [`SimulateCaptureNoiseComponents`](api/sensor-sensor-characteristics.md#simulatecapturenoisecomponents) | Type |
 | [`SimulateCaptureSensorCharacteristics`](api/sensor-sensor-characteristics.md#simulatecapturesensorcharacteristics) | Type |
 | [`SimulateCaptureSensorReport`](api/sensor-sensor-characteristics.md#simulatecapturesensorreport) | Type |

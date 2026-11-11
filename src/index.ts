@@ -1852,7 +1852,7 @@ export { SIMULATE_CAPTURE_FACADE_VERSION, SIMULATE_CAPTURE_DEFAULT_ILLUMINANCE_L
 export { simulateCaptureFromParts } from "./facade/develop-joined-parts.js";
 export { EXPOSURE_BUILD_UP_MAXIMUM_FRACTIONS, EXPOSURE_BUILD_UP_STREAM_BASE, simulateExposureBuildUp, type SimulateExposureBuildUpFrame, type SimulateExposureBuildUpOptions,
   type SimulateExposureBuildUpResult } from "./facade/exposure-build-up.js";
-export type { SimulateCaptureSensorCharacteristics, SimulateCaptureSensorReport, SimulateCaptureNoiseComponents } from "./sensor/sensor-characteristics.js";
+export type { SimulateCaptureSensorCharacteristics, SimulateCaptureSensorReport, SimulateCaptureNoiseComponents, SimulateCaptureNativeSensorReport, SimulateCaptureMidGreyFigure } from "./sensor/sensor-characteristics.js";
 export { SENSOR_PROFILES, SENSOR_PROFILE_IDS, resolveSensorProfile } from "./equipment/sensor-profiles.js";
 export { SENSOR_PROFILE_ISO_ANCHOR, type SensorProfile, type SensorProfileValueKind } from "./equipment/sensor-profile-body.js";
 export type { SimulateCaptureSubjectMotion } from "./motion/subject-motion.js";

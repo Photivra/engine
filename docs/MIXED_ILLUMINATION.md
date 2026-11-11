@@ -97,14 +97,26 @@ point's radiance is no longer a function of its material alone, so no renderer t
 scene still takes the capture's tabulated expected signal (#394), which then reads the radiance under the blend at every lattice
 point and is verified per CFA phase against the environment chain (1e-9 relative, as for one illuminant); other scenes take the
 chain itself. Measured once on an arm64 laptop (Node.js 24, 600 × 400 `color-patches`): the capture 139 ms under one
-illuminant, 401 ms under a two-source gradient; a 300 × 200 display view 174 ms and 528 ms. 2.21's `image-plane` print (#581) is lit like a chart (its reflectance at each point times the blended irradiance); its
-tabulated per-pixel signals assume one illuminant, so under a blend it takes the same general path.
+illuminant, 401 ms under a two-source gradient; a 300 × 200 display view 174 ms and 528 ms.
+
+**Prints (#597, 2.22.0).** An `image-plane` print (#581) is lit like a chart: its reflectance spectrum at each point (the four
+nearest pixels' spectra, bilinearly) times the blended irradiance, per spectral node. Its per-pixel channel signals assume one
+illuminant, so under a blend no per-pixel signal is cached: every site integrates the lit radiance at use, and only the pixels'
+reflectance spectra are cached (by row; the same values). Measured on an arm64 laptop (Node.js 24, a 320 × 240 photo on a
+384 × 256 DNG with the 2 × 2 box, best of 4, two runs): the capture 73 ms under one illuminant, 760–780 ms under a two-source
+gradient and 590–625 ms under one point source (about 1,240 and 1,070 ms before the spectra were cached); a 192 × 128 display
+view 92, 840–850 and 660–700 ms.
 
 ## Display view
 
 The display view (CPU) reads the radiance under the blend at every query point, with the capture's own arithmetic and the
 view's portable illuminant formulas (docs/DISPLAY_VIEW.md, "Same bytes in every engine"), so each real site's expected
-electrons are the capture's (tested to 1e-9). It uses no approximation for the light, so there is no fast method for it. The GPU
-renderers light chart materials with one illuminant, so a view with `illumination` is not rendered on the GPU: `gpu: "auto"`
-runs the CPU reference labelled `unsupported-on-backend` with the reason, and `gpu: "require"` fails with it. No device is
-requested.
+electrons are the capture's (tested to 1e-9). It uses no approximation for the light, so there is no fast method for it on the
+CPU. The GPU renderers light chart materials with one illuminant, so a chart view with `illumination` is not rendered on the GPU:
+`gpu: "auto"` runs the CPU reference labelled `unsupported-on-backend` with the reason, and `gpu: "require"` fails with it. No
+device is requested.
+
+An `image-plane` print under a blend renders on the GPU (#597, 2.22.0; registry entry `illumination/image-plane-gpu`): its
+Quality passes (docs/IMAGE_PLANE.md, "On the GPU") take the light's parts and spectra at the nodes, and pass 1 lights each lattice
+point per node, Speed requests (no site kernels) included. That is the fast method (`gpu: "auto"`, float32 within an a-priori bound,
+flagged points resolved on the host); the exact method is the CPU reference (`gpu: "off"`, the default for `fast: false`).

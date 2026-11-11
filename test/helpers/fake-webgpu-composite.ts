@@ -21,6 +21,7 @@ import { dwAdd, dwMul, dwMulFma, dwSub, fmaF32, probeExpectation, quickTwoSum as
   type Dw } from "../../src/gpu/chart-composite-gpu.js";
 import { CHART_RECORD_STRIDE, type ChartCompositeProductPath } from "../../src/gpu/wgsl-chart-composite-kernel.js";
 import { DISPLAY_VIEW_LATTICE } from "../../src/gpu/display-view-composite-material-module.js";
+import { IMAGE_PLANE_LIGHT, IMAGE_PLANE_LIGHT_U } from "../../src/gpu/display-view-image-quality.js";
 
 const f = Math.fround;
 const E = f(2 ** -23), DW = f(2 ** -40), TINY = f(2 ** -120), SAFETY = 4, SLACK = f(1e-14), PI = f(3.14159265358979), HALF_PI = f(1.5707963267948966), QUARTER_PI = f(0.7853981633974483);
@@ -588,7 +589,7 @@ export function createImagePlaneDisplayViewMaterialEmulator(photoWords: Uint32Ar
  * radiance per node from the pixel records and the node table, with the moved-weight flag. Line by line the WGSL.
  */
 export function emulateImagePlaneQualityLattice(pw: Uint32Array, groups: Uint32Array, values: Float32Array, flags: Uint32Array, records: Uint32Array, photoWords: Uint32Array,
-  photoFloats: Float32Array, nodeTable: Float32Array, path: ChartCompositeProductPath = "dekker", model: CompositeArithmetic = NEAREST_COMPOSITE_ARITHMETIC): void {
+  photoFloats: Float32Array, nodeTable: Float32Array, path: ChartCompositeProductPath = "dekker", model: CompositeArithmetic = NEAREST_COMPOSITE_ARITHMETIC, light: Float32Array = new Float32Array(1)): void {
   const GROUP_WORDS = 8, latticeTotal = pw[20]!, groupCount = pw[19]!, gi = new Int32Array(groups.buffer, groups.byteOffset, groups.length), gf = new Float32Array(groups.buffer, groups.byteOffset, groups.length);
   const recordFloats = new Float32Array(records.buffer, records.byteOffset, records.length);
   const [width, height, nearest, N, row0] = [photoWords[0]!, photoWords[1]!, photoWords[2] !== 0, photoWords[3]!, photoWords[4]!];
@@ -598,6 +599,94 @@ export function emulateImagePlaneQualityLattice(pw: Uint32Array, groups: Uint32A
   const K = opsOf(model), D = doubleWord(K, path), { bd, bx, babs, le, bfloor } = boundsOf(model, K, () => { uncertain = true; });
   const white = 125 * N;
   const pixelSlack = (x: Dw, slack: number): number => K.add(f(4 * f(DW * K.add(Math.abs(x[0]), 1))), f(4 * slack));
+  // #597: the mixed light (`light_prepare`, `light_at` of src/gpu/display-view-image-quality.ts), line by line.
+  const lit = photoWords[6] !== 0, LI = IMAGE_PLANE_LIGHT, lw = new Uint32Array(light.buffer, light.byteOffset, light.length);
+  const { bds, badd, bmul, bdiv, ge } = boundsOf(model, K, () => { uncertain = true; });
+  const ld = (i: number): Dw => [light[i]!, light[i + 1]!];
+  const dGt = (a: Dw, b: Dw): boolean => { const d = D.dSub(a, b); return d[0] > 0 || (d[0] === 0 && d[1] > 0); };
+  // The light's own float32 arithmetic rounds to nearest in the written order (no barrier there; the bounds hold either way).
+  const add = (a: number, b: number): number => f(a + b), sub = (a: number, b: number): number => f(a - b), mul = (a: number, b: number): number => f(a * b);
+  const bv = (b: { v: unknown; e: number }): { v: number; e: number } => ({ v: K.v(b.v as V), e: b.e });
+  const bsqrt = (a: { v: number; e: number }): { v: number; e: number } => {
+    const v = f(Math.sqrt(Math.max(a.v, 0))), low = sub(a.v, mul(4, a.e));
+    if (!(low > 0)) { uncertain = true; return { v, e: f(3e38) }; }
+    return { v, e: add(f(a.e / mul(2, f(Math.sqrt(low)))), mul(mul(5, E), v)) };
+  };
+  let blendI = 0, blendW0 = 1, blendW1 = 0, blendE0 = 0, blendE1 = 0, blendAmb = 0;
+  const fallV = new Float32Array(LI.maximumPoints), fallE = new Float32Array(LI.maximumPoints);
+  const lightPrepare = (u: Dw, v: Dw): void => {
+    const kind = lw[LI.kind]!, S = lw[LI.sources]!;
+    blendI = 0; blendW0 = 1; blendW1 = 0; blendE0 = 0; blendE1 = 0; blendAmb = 0;
+    const ce = add(mul(mul(4, DW), add(add(Math.abs(u[0]), Math.abs(v[0])), 1)), light[LI.slack]!);
+    if (kind === 3) {
+      let source = lw[LI.outside]!;
+      const bu = bd(u), bv = bd(v);
+      for (let r = 0; r < lw[LI.regions]!; r++) {
+        const b = lw[LI.regionsAt]! + r * LI.regionWords;
+        if (ge(bu, bd(ld(b + 1))) && le(bu, bd(ld(b + 3))) && ge(bv, bd(ld(b + 5))) && le(bv, bd(ld(b + 7)))) { source = lw[b]!; break; }
+      }
+      blendI = source;
+    } else if (kind !== 0) {
+      let t: Dw, te: number;
+      const aU = D.dSub(u, ld(LI.aU)), aV = D.dSub(v, ld(LI.aV)), inv = ld(LI.inverse);
+      const ceT = add(ce, mul(mul(4, DW), add(Math.abs(light[LI.aU]!), Math.abs(light[LI.aV]!))));
+      if (kind === 1) {
+        const x = D.dMul(aU, ld(LI.dU)), y = D.dMul(aV, ld(LI.dV)), scale = mul(add(Math.abs(x[0]), Math.abs(y[0])), Math.abs(inv[0]));
+        t = D.dMul(D.dAdd(x, y), inv);
+        te = add(mul(mul(8, DW), add(scale, 1)), mul(mul(ceT, add(Math.abs(light[LI.dU]!), Math.abs(light[LI.dV]!))), Math.abs(inv[0])));
+        if (t[0] < 0) t = [0, 0];
+        if (dGt(t, [1, 0])) t = [1, 0];
+      } else {
+        const dd = D.dAdd(D.dMul(aU, aU), D.dMul(aV, aV)), r0 = f(Math.sqrt(Math.max(dd[0], 0)));
+        let r: Dw = [r0, 0];
+        if (r0 > 0) { const res = D.dSub(dd, D.dMul([r0, 0], [r0, 0])); r = D.quickTwoSum(r0, f(add(res[0], res[1]) / mul(2, r0))); }
+        t = D.dMul(r, inv);
+        te = add(mul(mul(8, DW), add(Math.abs(t[0]), 1)), mul(mul(2, ceT), Math.abs(inv[0])));
+        if (dGt(t, [1, 0])) t = [1, 0];
+      }
+      let i = 0;
+      for (;;) { if (i + 1 >= S) break; if (dGt(ld(LI.stops + (i + 1) * 4), t)) break; i++; }
+      for (let k2 = 0; k2 + 1 < S; k2++) if (light[LI.stops + k2 * 4 + 2] === 0 && Math.abs(D.dSub(t, ld(LI.stops + k2 * 4))[0]) <= add(mul(4, te), mul(DW, add(Math.abs(t[0]), 1)))) uncertain = true;
+      const si = ld(LI.stops + i * 4);
+      blendAmb = mul(te, light[LI.maximumInverse]!);
+      if (i + 1 < S && dGt(t, si)) {
+        const invI = ld(LI.stops + i * 4 + 2), fd = D.dMul(D.dSub(t, si), invI), gd = D.dMul(D.dSub(ld(LI.stops + (i + 1) * 4), t), invI);
+        blendW1 = Math.min(1, Math.max(0, add(fd[0], fd[1]))); blendW0 = Math.min(1, Math.max(0, add(gd[0], gd[1])));
+        const common = mul(add(te, mul(mul(4, DW), add(add(Math.abs(t[0]), Math.abs(si[0])), 1))), Math.abs(invI[0]));
+        blendE1 = add(mul(E, blendW1), common); blendE0 = add(mul(E, blendW0), common);
+      }
+      blendI = i;
+    }
+    const half = ld(LI.halfHi), x = D.dMul(u, half), y = D.dMul(v, half), cm = add(mul(ce, Math.abs(half[0])), mul(mul(4, DW), add(Math.abs(x[0]), Math.abs(y[0]))));
+    for (let j = 0; j < lw[LI.points]!; j++) {
+      const b = lw[LI.pointsAt]! + j * LI.pointWords;
+      const dx0 = bv(bds(D.dSub(x, ld(b)), add(Math.abs(x[0]), Math.abs(light[b]!)))), dx = { v: dx0.v, e: add(dx0.e, cm) };
+      const dy0 = bv(bds(D.dSub(y, ld(b + 2)), add(Math.abs(y[0]), Math.abs(light[b + 2]!)))), dy = { v: dy0.v, e: add(dy0.e, cm) };
+      const h = bv(bd(ld(b + 4))), d2 = bv(badd(badd(bmul(dx, dx), bmul(dy, dy)), bmul(h, h))), fall = bdiv(h, bmul(d2, bsqrt(d2)));
+      fallV[j] = K.v(fall.v); fallE[j] = fall.e;
+    }
+  };
+  const lightAt = (n: number): number => {
+    const S = lw[LI.sources]!, P = lw[LI.points]!, tab = lw[LI.tablesAt]!;
+    let value = 0, err = 0;
+    if (S > 0) {
+      const ti = light[tab + blendI * N + n]!;
+      let top = ti;
+      for (let s2 = 0; s2 < S; s2++) top = Math.max(top, light[tab + s2 * N + n]!);
+      const tj = blendW1 === 0 ? 0 : light[tab + (blendI + 1) * N + n]!;
+      value = blendW1 === 0 ? ti : add(mul(blendW0, ti), mul(blendW1, tj));
+      err = add(add(add(mul(mul(3, E), value), mul(blendE0, ti)), mul(blendE1, tj)), mul(blendAmb, top));
+    }
+    for (let j = 0; j < P; j++) {
+      const c = light[tab + (S + j) * N + n]!, term = mul(c, fallV[j]!);
+      value = add(value, term);
+      err = add(add(err, mul(c, fallE[j]!)), mul(mul(2, E), term));
+    }
+    err = add(err, mul(mul(f(P + 1), E), value));
+    if (!(err <= mul(f(IMAGE_PLANE_LIGHT_U - 1), mul(E, value)))) uncertain = true;
+    return value;
+  };
+  const whiteAt = (n: number): number => (lit ? lightAt(n) : nodeTable[white + n]!);
   const axis = (s: Dw, n: number): [number, number, number, number] => {
     let f0 = Math.floor(s[0]);
     if (f0 === s[0] && s[1] < 0) f0 = f(f0 - 1);
@@ -627,8 +716,9 @@ export function emulateImagePlaneQualityLattice(pw: Uint32Array, groups: Uint32A
     uncertain = false;
     const out = i * N;
     const u = D.dMul(D.dMul([f(p + gf[base + 6]!), 0], su), k), v = D.dMul(D.dMul([f(q + gf[base + 7]!), 0], sv), k);
+    if (lit) lightPrepare(u, v);
     if (!(le(babs(bd(u)), bx(1)) && le(babs(bd(v)), bd(aspect)))) {
-      for (let n = 0; n < N; n++) values[out + n] = nodeTable[white + N + n]!;
+      for (let n = 0; n < N; n++) values[out + n] = lit ? f(light[LI.surround]! * lightAt(n)) : nodeTable[white + N + n]!;
       flags[i] = uncertain ? 1 : 0;
       continue;
     }
@@ -636,7 +726,7 @@ export function emulateImagePlaneQualityLattice(pw: Uint32Array, groups: Uint32A
     if (nearest) {
       const lastX = width - 1, lastY = height - 1;
       const px = pixelAt(Math.min(lastX, Math.max(0, bfloor(bd(x), 1, lastX))), Math.min(lastY, Math.max(0, bfloor(bd(y), 1, lastY))));
-      for (let n = 0; n < N; n++) values[out + n] = f(nodeTable[white + n]! * pixelValue(px, n));
+      for (let n = 0; n < N; n++) values[out + n] = f(whiteAt(n) * pixelValue(px, n));
     } else {
       const [i0, i1, x0, x1] = axis(D.dSub(x, [0.5, 0]), width), [j0, j1, y0, y1] = axis(D.dSub(y, [0.5, 0]), height);
       const p00 = pixelAt(i0, j0), p10 = pixelAt(i1, j0), p01 = pixelAt(i0, j1), p11 = pixelAt(i1, j1);
@@ -645,7 +735,7 @@ export function emulateImagePlaneQualityLattice(pw: Uint32Array, groups: Uint32A
         const s00 = pixelValue(p00, n), s10 = pixelValue(p10, n), s01 = pixelValue(p01, n), s11 = pixelValue(p11, n);
         const value = f(f(y0 * f(f(x0 * s00) + f(x1 * s10))) + f(y1 * f(f(x0 * s01) + f(x1 * s11))));
         if (!(f(slack * Math.max(Math.max(s00, s10), Math.max(s01, s11))) <= f(E * value))) uncertain = true;
-        values[out + n] = f(nodeTable[white + n]! * value);
+        values[out + n] = f(whiteAt(n) * value);
       }
     }
     flags[i] = uncertain ? 1 : 0;

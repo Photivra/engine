@@ -42,6 +42,8 @@ import * as sensorProfileKit from "../equipment/sensor-profile-body.js";
 import type { SensorProfile } from "../equipment/sensor-profile-body.js";
 import { createHostYield } from "./host-yield.js";
 import { fastFormatDefault, resolveFast } from "./fast-resolution.js";
+import { SPECTRAL_SPIKINESS_THRESHOLD, spectralSpikiness } from "../color/spectral-spikiness.js";
+import { nativeSensorReport } from "../sensor/native-sensor-report.js";
 import { SCENE_TO_SENSOR_BRIDGE_SCOPE } from "../optics/scene-to-sensor-irradiance.js";
 import { resolveGenericEquipmentExposureCapabilities, type ResolvedGenericEquipmentExposureCapabilities } from "../equipment/exposure-capabilities.js";
 import { resolveGenericIsoSignalChain } from "../sensor/iso-signal-chain.js";
@@ -693,7 +695,7 @@ export interface SimulateCaptureOptions {
  * a capture does. `motion.rotation` is a non-zero angular velocity; `sensor.temporalSampleCount` a count above 1.
  */
 export const SIMULATE_CAPTURE_COST_OPTIONS = /* @__PURE__ */ Object.freeze(["lens.pupilSampling", "lens.projection", "lens.distortion", "lens.vignetting", "lens.psf",
-  "lens.diffraction", "lens.defocus", "lens.catalogue", "sensor.antiAliasing", "sensor.pixelAperture.box", "sensor.temporalSampleCount", "motion.rotation", "motion.subject", "motion.shutter.rolling", "output.borderHandling.mirror", "output.region",
+  "lens.diffraction", "lens.defocus", "lens.catalogue", "sensor.antiAliasing", "sensor.pixelAperture.box", "sensor.temporalSampleCount", "sensor.spectralStepNanometers", "motion.rotation", "motion.subject", "motion.shutter.rolling", "output.borderHandling.mirror", "output.region",
   "output.whiteBalance.auto", "output.demosaic.ahd", "output.highlightMode.reconstruct", "output.colorEncoding.wide-gamut", "output.gamutMapping.perceptual",
   "output.diffractionCorrection", "output.sharpening", "output.lensCorrections", "output.format.jpeg", "output.format.png", "output.format.dng"] as const);
 export type SimulateCaptureCostOption = typeof SIMULATE_CAPTURE_COST_OPTIONS[number];
@@ -703,7 +705,8 @@ export type SimulateCaptureCostOption = typeof SIMULATE_CAPTURE_COST_OPTIONS[num
  * the record form with `fast` and is reported in `diagnostics.fast.applied` when it runs. Every one of them takes the flag,
  * whether or not it has a fast method yet; one without runs exact and reports `false`.
  */
-export const SIMULATE_CAPTURE_FAST_OPTIONS = /* @__PURE__ */ Object.freeze(["lens.diffraction", "lens.catalogue", "sensor.antiAliasing", "sensor.pixelAperture.box", "output.demosaic.ahd", "motion.subject"] as const);
+export const SIMULATE_CAPTURE_FAST_OPTIONS = /* @__PURE__ */ Object.freeze(["lens.diffraction", "lens.catalogue", "sensor.antiAliasing", "sensor.pixelAperture.box", "output.demosaic.ahd", "motion.subject",
+  "sensor.spectralStepNanometers"] as const);
 export type SimulateCaptureFastOption = typeof SIMULATE_CAPTURE_FAST_OPTIONS[number];
 
 /** `diagnostics.fast` of a capture or display view (#395): what was asked for and what ran. */
@@ -2200,8 +2203,24 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
     (profileSensor ? "The profile's sensor across the output (sensor.profileView)" : profile ? "The profile's pitch" : "6 µm pixels (about a 24 MP full-frame sensor)") +
     ". The simulated sensor is width × pitch wide, so small images are a central crop of a large sensor, not a downscaled full frame."), "sensor.pixelPitchMicrometers");
   if (pitch < 0.5 || pitch > SIMULATE_CAPTURE_PIXEL_PITCH_MAXIMUM_MICROMETERS) fail("sensor.pixelPitchMicrometers must be 0.5-" + SIMULATE_CAPTURE_PIXEL_PITCH_MAXIMUM_MICROMETERS + ".");
-  const spectralStep = positive(pick(sensorOptions, "spectralStepNanometers", "sensor.spectralStepNanometers", DEFAULTS.spectralStepNanometers,
-    "Spectral midpoint quadrature over 380-780 nm with subintervals of at most 20 nm."), "sensor.spectralStepNanometers");
+  // #395: exact or fast per option: the option record's `fast`, else the top-level one, else (2.20.0) the format's default: fast for
+  // sRGB samples and the display view, exact for the exports (DNG, JPEG, PNG) and the ideal reference. Fast methods report true when they run.
+  if (top.fast !== undefined && typeof top.fast !== "boolean") fail("fast must be true or false.");
+  const fastTop = resolveFast(top.fast as boolean | undefined, fastFormatDefault(format, displayView ? "display-view" : idealReference ? "ideal-reference" : "capture"));
+  // #590 (2.22.0): the default step follows the light and the request's quality. A light is spiky when R(20) = 20²·κ/24 > 0.01 (the
+  // midpoint rule's relative error indicator, color/spectral-spikiness.ts) for any of its sources; an exact request then takes 5 nm,
+  // a fast one 20 nm. Its light is validated with the scene below (a light that fails here is not spiky here).
+  const illumination = top.illumination as { sources?: unknown; points?: unknown } | undefined, lights = illumination ? [illumination.sources, illumination.points]
+    .flatMap((list) => (Array.isArray(list) ? list.map((s) => (s as { illuminant?: unknown } | null)?.illuminant) : [])) : [top.illuminant];
+  let kappa = 0;
+  for (const light of lights) if (light !== undefined) try { const shape = resolveCaptureIlluminant(light as CaptureIlluminant).shape; kappa = Math.max(kappa, spectralSpikiness((nm) => shape.evaluate(nm))); } catch { /* validated below */ }
+  const r20 = 400 * kappa / 24, spiky = r20 > SPECTRAL_SPIKINESS_THRESHOLD, defaultStep = fastTop || !spiky ? DEFAULTS.spectralStepNanometers : 5;
+  const spectralStep = positive(pick(sensorOptions, "spectralStepNanometers", "sensor.spectralStepNanometers", defaultStep,
+    "Spectral midpoint quadrature over 380-780 nm with subintervals of at most " + defaultStep + " nm" + (spiky ? " (the light is spiky: sensor.spectralSpikiness)." : ".")), "sensor.spectralStepNanometers");
+  if (spiky && sensorOptions.spectralStepNanometers === undefined) assume("sensor.spectralSpikiness", "model", { kappaPerSquareNanometer: kappa, r20, threshold: SPECTRAL_SPIKINESS_THRESHOLD, stepNanometers: defaultStep, fast: fastTop },
+    "#590: the light's spectrum has narrow bands. The midpoint rule's relative error indicator R(h) = h²·κ/24 (DLMF §3.5(i); κ = Σ|Δ²S| / ΣS on a 1 nm grid) is " + r20 +
+    " at 20 nm, above " + SPECTRAL_SPIKINESS_THRESHOLD + " (a design threshold), so an exact request takes 5 nm. " + (fastTop ? "This fast request keeps 20 nm (4× fewer spectral queries): colors may carry a cast (measured up to " +
+    "about 0.1 Δu′v′ on white under the tri-phosphor fluorescent source). Pass fast: false or sensor.spectralStepNanometers: 5 for the exact colors." : "The step costs 4× the spectral queries of 20 nm."));
   if (spectralStep < 1 || spectralStep > 100) fail("sensor.spectralStepNanometers must be 1-100.");
   let temporalSampleCount = integerIn(rotating || subject ? pick(sensorOptions, "temporalSampleCount", "sensor.temporalSampleCount", ROTATING_TEMPORAL_SAMPLE_COUNT,
     rotating ? "Eight temporal midpoints across each site's exposure window sample the camera rotation (motion blur); raise it for long exposures or fast rotation." :
@@ -2272,14 +2291,12 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   const borderOption = outputOptions.borderHandling as SimulateCaptureBorderHandling | undefined;
   if (demosaicOption !== undefined && demosaicOption !== "bilinear" && demosaicOption !== "ahd") fail("output.demosaic must be bilinear or ahd.");
   const ahd = demosaicOption === "ahd";
-  // #395: exact or fast per option: the option record's `fast`, else the top-level one, else (2.20.0) the format's default: fast for
-  // sRGB samples and the display view, exact for the exports (DNG, JPEG, PNG) and the ideal reference. Fast methods report true when they run.
-  if (top.fast !== undefined && typeof top.fast !== "boolean") fail("fast must be true or false.");
-  const fastTop = resolveFast(top.fast as boolean | undefined, fastFormatDefault(format, displayView ? "display-view" : idealReference ? "ideal-reference" : "capture"));
   const fastInUse: [SimulateCaptureFastOption, boolean, boolean | undefined][] = [["lens.diffraction", diffractionRadiusOption !== undefined, diffractionFast],
     ["lens.catalogue", catalogue !== undefined, catalogueFast],
     ["sensor.antiAliasing", antiAliasing !== undefined, antiAliasingFast], ["sensor.pixelAperture.box", boxAperture, boxFast], ["output.demosaic.ahd", ahd, demosaicFast],
-    ["motion.subject", subject !== undefined, subjectFast]];
+    ["motion.subject", subject !== undefined, subjectFast],
+    // #590: the default step under a spiky light (an explicit step, or a smooth light, makes no choice and adds no key).
+    ["sensor.spectralStepNanometers", spiky && sensorOptions.spectralStepNanometers === undefined, undefined]];
   const fastApplied: Partial<Record<SimulateCaptureFastOption, boolean>> = {};
   for (const [option, used] of fastInUse) if (used) fastApplied[option] = false;
   // #568: the catalogue's fast method, when requested (its record's flag, else the top-level one); whether it runs is decided with the RAW path.
@@ -2291,6 +2308,8 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
     fastApplied[option] = true;
     fastReport = Object.freeze({ ...fastReport, applied: Object.freeze({ ...fastApplied }), assurance: "approximation-with-a-priori-bound" as const });
   };
+  // #590: the fast method (20 nm under a spiky light) ran.
+  if (spiky && sensorOptions.spectralStepNanometers === undefined && fastTop) markFast("sensor.spectralStepNanometers");
   if (borderOption !== undefined && borderOption !== "margin" && borderOption !== "mirror") fail("output.borderHandling must be margin or mirror.");
   const builtInDemosaic = demosaicOption === undefined ? undefined : createBuiltInBayerDemosaicProfiles({ kernel: "bilinear",
     captureModeId: IDS.mode, colorSamplingProfile, channelRoles: { red: "red", green: "green", blue: "blue" } }).value;
@@ -2480,7 +2499,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
     sceneId: IDS.scene, providerProfileId: IDS.provider, illuminant: sceneIlluminant, irradianceScale: scale, geometry: { distanceM: subjectDistanceM, metresPerFrameUnit,
       ...(chartSize ? { chart: { widthM: chartSize.widthM, heightM: chartSize.heightM, surroundReflectance: chartSize.surroundReflectance } } : {}) }, evidence: FACADE_EVIDENCE,
     limitations: Object.freeze(["Planar Lambertian scene under " + (light ? "blended" : "uniform") + " illumination; no shadows, inter-reflection, gloss or fluorescence."]),
-    ...(catalogue?.kind === "fisheye" ? { zeroBeyondHorizon: true as const } : {}), ...(light ? { irradianceAt: light.irradianceAt } : {}) });
+    ...(catalogue?.kind === "fisheye" ? { zeroBeyondHorizon: true as const } : {}), ...(light ? { irradianceAt: light.irradianceAt, illumination: light } : {}) });
   const provider = buildProvider(illuminant, irradianceScale, mixed);
   // #551: the moving subject's scene; renderers read it at each query's time. The revealed background is a neutral 18 % reflectance
   // under the plane's irradiance at the revealed point: the illuminant, or (#550) the blend and point sources there, from the spectrum.
@@ -2873,20 +2892,32 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   // #554: a profile's readout is declared at its own photosite area.
   const referenceArea = profile ? profile.pixelPitchMicrometers ** 2 : ISO_REFERENCE_APERTURE_AREA_SQUARE_MICROMETERS, areaScale = pitch * pitch / referenceArea;
   // #555: a full well replaces the area-scaled base-ISO saturation; the charge-domain transfer scales by the same rule.
-  const fullWell = characteristics?.fullWell, fullWellElectrons = fullWell && (fullWell.link === "none" ? fullWell.electrons : fullWell.electrons * (pitch / (fullWell.referencePixelPitchMicrometers ?? 6)) ** 2);
+  // #595: the charge scale at a pitch p (the capture's, and the native photosite's).
+  const fullWell = characteristics?.fullWell, wellAt = (p: number): number | undefined => fullWell && (fullWell.link === "none" ? fullWell.electrons : fullWell.electrons * (p / (fullWell.referencePixelPitchMicrometers ?? 6)) ** 2);
+  const fullWellElectrons = wellAt(pitch), chargeScaleAt = (p: number): number => { const well = wellAt(p); return well === undefined ? p * p / referenceArea : well / body.readout[0]!.profile.regimes[0]!.preAdcSaturationElectronEquivalent.value; };
   if (fullWellElectrons !== undefined && !(fullWellElectrons >= 100 && fullWellElectrons <= 1e10)) fail("sensor.fullWell must give 100 to 1e10 electrons at the pixel pitch (" + fullWellElectrons + ").");
-  const chargeScale = fullWellElectrons === undefined ? areaScale : fullWellElectrons / body.readout[0]!.profile.regimes[0]!.preAdcSaturationElectronEquivalent.value;
+  const chargeScale = chargeScaleAt(pitch);
+  // #599 (2.22.0): a tier's site that sums N = (pitch / 6 µm)² photosites sums their read noise in quadrature (×√N), the body's or
+  // sensor.readNoise's (per photosite), as a sensor profile's does (#554, applied in its body); below one photosite it is kept.
+  const tierReadNoiseScale = profile ? 1 : Math.sqrt(Math.max(1, areaScale));
   const regimeByChannel = {} as Record<Channel, { readoutProfile: ReadoutProfile; regimeId: string }>;
   for (const channel of CHANNELS) {
     const asset = body.readout.find((a) => a.profile.channelId === channel) ?? fail("Camera readout lacks channel " + channel + ".");
     const chain = resolveGenericIsoSignalChain({ profile: body.signalChain, isoCapability: body.iso, requestedIsoSetting: { kind: "standard", exposureIndex: resolvedIso },
       captureModeId: IDS.mode, readoutProfile: asset.profile });
-    regimeByChannel[channel] = { readoutProfile: characterizeReadout(asset.profile, chargeScale, characteristics), regimeId: chain.readout.regime.regimeId };
+    regimeByChannel[channel] = { readoutProfile: characterizeReadout(asset.profile, chargeScale, characteristics, tierReadNoiseScale), regimeId: chain.readout.regime.regimeId };
   }
-  const capacityRegimes = characterizeReadout(body.readout[0]!.profile, chargeScale, characteristics).regimes;
-  const baseRegime = capacityRegimes[0]! as unknown as { preAdcSaturationElectronEquivalent: { value: number } };
-  const capacityElectrons = Math.max(...capacityRegimes.map((r) => (r as unknown as { preAdcSaturationElectronEquivalent: { value: number } }).preAdcSaturationElectronEquivalent.value),
-    baseRegime.preAdcSaturationElectronEquivalent.value);
+  const capacityOf = (scale: number): number => {
+    const regimes = characterizeReadout(body.readout[0]!.profile, scale, characteristics).regimes as unknown as readonly { preAdcSaturationElectronEquivalent: { value: number } }[];
+    return Math.max(...regimes.map((r) => r.preAdcSaturationElectronEquivalent.value), regimes[0]!.preAdcSaturationElectronEquivalent.value);
+  };
+  const capacityElectrons = capacityOf(chargeScale);
+  // #595: the same readout at the native photosite (a tier's 6 µm reference, a profile's own pitch): the area rule (or the full well's link) at
+  // that pitch, and the read noise of one photosite (a profile's body carries the view's √N, removed here).
+  const nativePitch = profile ? profile.pixelPitchMicrometers : DEFAULTS.pixelPitchMicrometers, nativeScale = chargeScaleAt(nativePitch);
+  // sensor.readNoise is per photosite on a tier and a profile alike (owner decision 2026-11-11): the native report takes it as given.
+  const nativeSensor = { profile: characterizeReadout(body.readout.find((a) => a.profile.channelId === "green")!.profile, nativeScale, characteristics, 1 / profileReadNoiseScale),
+    capacityElectrons: capacityOf(nativeScale), pixelPitchMicrometers: nativePitch, framePhotosites: width * height * pitch * pitch / (nativePitch * nativePitch) };
   assume("sensor.capacityElectrons", "derived", capacityElectrons, "Physical charge capacity set to the body's largest declared pre-ADC saturation (its base-ISO saturation signal), so storage never clips before the declared readout white.");
   if (areaScale !== 1 && !fullWell) {
     assume("sensor.isoAreaNormalization", "model", { referenceApertureAreaSquareMicrometers: referenceArea,
@@ -2894,7 +2925,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
     "Approximation. The tier's ISO signal chain is declared for a 6 µm square aperture. Standard output sensitivity S = 10/H (CIPA DC-004-2020 §3.2) is defined at the output, " +
       "independent of pixel size, and the collected charge is proportional to the aperture area (EMVA 1288 Release 4.0, Eq. 3), so the system conversion gain (e⁻ per code) and the " +
       "pre-ADC saturation of every ISO regime are multiplied by area / 36 µm² = " + areaScale + ". The same exposure gives the same output code at any pitch; per-pixel shot-noise SNR " +
-      "falls with smaller pixels. Read noise and dark current stay per pixel in electrons. The charge capacity follows the scaled base-ISO saturation, so it is proportional to " +
+      "falls with smaller pixels. Read noise is the 6 µm photosite's ×√max(1, area / 36 µm²) = " + tierReadNoiseScale + " (#599: the photosites a site sums); dark current stays per pixel. The charge capacity follows the scaled base-ISO saturation, so it is proportional to " +
       "the aperture area: a design consequence of holding the tier's ISO rating and highlight headroom fixed, not a measured full-well model (published sensor data grow less than " +
       "proportionally with area across technologies).");
   }
@@ -2914,8 +2945,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
       "A pixel pitch above 100 µm is larger than any camera photosite, so each output pixel stands for a " + pitch + " µm square of a " + width * pitch / 1000 + " × " + height * pitch / 1000 +
       " mm frame: a downsized view of the whole frame, with the framing, crop factor, generic prime and minimum focus of that frame. Its signal is the charge of the whole square " +
       "(sensor.isoAreaNormalization), so its shot noise is that of all the real photosites in the square summed or averaged (Poisson counts add), and the image brightness is the " +
-      "same as at any other pitch. Read noise and dark current are applied once per output pixel, not once per real photosite, so in deep shadows the noise is lower than a real " +
-      "sensor's binned output. This is the noise of a binned, downsized view, not the real sensor's per-pixel noise. A point pixel aperture samples one point of each square; " +
+      "same as at any other pitch. Its read noise is the photosites' summed (×√N, #599), its dark current once per output pixel; result.sensor.native has a photosite's figures. This is the noise of a binned, downsized view, not the real sensor's per-pixel noise. A point pixel aperture samples one point of each square; " +
       "use sensor.pixelAperture box (or sensor.antiAliasing) to average scene detail finer than the pitch.");
   }
   assume("sensor.darkCurrent", "model", { electronsPerSecond: DARK_CURRENT_ELECTRONS_PER_SECOND, temperatureC: OPERATING_TEMPERATURE_C },
@@ -3388,6 +3418,8 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   const sensor = sensorReport(regimeByChannel.green.readoutProfile, regimeByChannel.green.regimeId, capacityElectrons, greyElectrons, DARK_CURRENT_ELECTRONS_PER_SECOND * shutterSeconds,
     { pixelPitchMicrometers: pitch, peakQuantumEfficiency: 0.5 * qeScale,
       readoutSeconds: characteristics?.readoutSeconds ?? (body as { rollingReadoutTiming?: { profile: { spatialSamplingSkewSeconds?: { value: number } } } }).rollingReadoutTiming?.profile.spatialSamplingSkewSeconds?.value ?? null }, fixedPattern);
+  // #595: the native photosite's figures (their own module, so a bundler can split them off the default path).
+  sensor.native = nativeSensorReport(sensor, regimeByChannel.green.regimeId, greyElectrons, DARK_CURRENT_ELECTRONS_PER_SECOND * shutterSeconds, nativeSensor, fixedPattern);
   if (displayView) return await renderView!({ sensor, viewFast: { ahd: viewAhdFast, uniformSampling: fastTop }, lens: lensSignal, lensPsf: displayViewLensPsf, movingScene, ahd, fastReport, antiAliasing, aspect, assume, assumptions, axisChannelResponse, boxSamples, buildProvider, callerScene, chart, materialLayers, chartReport, chartSize, diffraction, defocus: displayViewDefocus, diffractionPsf, fNumber, focalLengthMm, focusDistanceM, height, highlightMode, exposureGain, illuminanceLux, illuminant, illuminantOption, imagingArea, intentOf, metresPerFrameUnit, noiseSeed, outputOptions, parsedView, pitch, preset, provider, regimeByChannel, resolvedIso, isoReport, standardExposureDeviationStops: exposureDeviationStops, standardExposureIlluminanceLux: exposureIlluminanceLux, greyCardDeviationStops: exposureGreyCardDeviationStops, metering, sceneOption, scenePreset, shutterSeconds, started, subjectDistanceM, toneCurve, whiteBalanceOption, whiteBalanceState, width, checkAbort, margin, mode, nativeHeight, nativeWidth, sourceSha256, yieldControl, kelvinWhiteBalanceInput,
     mixedIllumination: mixedKit && lightKit });
   // Ideal reference (2.3): the scene without camera effects, at the capture's own exposure, white balance and encoding.
@@ -3494,7 +3526,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   let tabulated: Awaited<ReturnType<typeof renderTabulatedNativeRaw>>;
   // #568: lens.catalogue's fast method: tabulated expected electrons with the PSF blended over a field grid (catalogue-lens-signal.ts), for a
   // still camera, site-centre queries and a chart or material scene; verified per CFA phase against the exact chain within its tolerance.
-  let catalogueFastRun: { columns: number; rows: number; resolved: number; verificationRelativeDifference: number } | undefined;
+  let catalogueFastRun: { columns: number; rows: number; resolved: number; verificationRelativeDifference: number; subdivisions: number } | undefined;
   const catalogueFastEligible = catalogueFastRequested && catalogueTaps !== undefined && lensKit !== undefined && lensPsf !== undefined && dngParts === undefined && tabulatedScene &&
     !pupil && !rotating && !subject && boxSamples === 1 && !antiAliasing && distortion?.kind === "radial" && provider.chartMaterialAt !== undefined && provider.materialRadiance !== undefined;
   // The tabulated paths' channel response per spectral node and material tables (the fast catalogue path and the expected-signal path).
@@ -3513,14 +3545,17 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
     const { signalInput } = buildExpectedSignalInput({ nativeWidth, nativeHeight, width, wavelengths, perNode, apertureNodes: apertureNodeOffsets(1), boxSamples: 1, antiAliasing: undefined, pitch,
       materials, radianceAt: provider.radianceAt, imagingArea, focalLengthMm, focusDistanceM, subjectDistanceM, metresPerFrameUnit, caller: "simulateCapture" });
     const radial = (distortion as Extract<SimulateCaptureLensDistortion, { kind: "radial" }>).profile;
-    const signal = lensKit!.createCatalogueLensSignal({ nativeWidth, nativeHeight, pitch, psf: lensPsf!.configuration.psf, wavelengthsNm: wavelengths, electronsPerRadiance: perNode,
+    // #603: the grid follows the request's quality: 2.20.0's faster grid on a fast request (but for the measured lenses that keep the
+    // full one), the full one on an exact request.
+    const gridSubdivisions = lensKit!.catalogueFastGridSubdivisions(catalogue!.lensId, fastTop);
+    const signal = lensKit!.createCatalogueLensSignal({ nativeWidth, nativeHeight, pitch, psf: lensPsf!.configuration.psf, wavelengthsNm: wavelengths, electronsPerRadiance: perNode, gridSubdivisions,
       scene: signalInput.scene as Extract<typeof signalInput.scene, { kind: "materials" }>, channelAt: signalInput.channelAt,
       distortion: { normalizationRadiusMm: radial.normalizationRadiusMm, coefficients: { k1: radial.coefficients.k1, k2: radial.coefficients.k2 ?? 0, k3: radial.coefficients.k3 ?? 0 } },
       ...(vignetting ? { vignetting } : {}), projection: projection === "fisheye-equisolid-angle" ? projection : "rectilinear", outsideImageCircleSeesNothing: catalogue!.kind === "fisheye",
       focalLengthMm, focusDistanceM, distanceM: subjectDistanceM, metresPerFrameUnit });
     tabulated = await renderTabulatedNativeRaw({ input: environmentRaw, region: regionNative, siteInput, evaluateRadiance: rawProvider().evaluateRadiance,
       electrons: signal, relativeTolerance: lensKit!.CATALOGUE_FAST_VERIFICATION_TOLERANCE, onTile: rawTick, tileWidth, yieldControl: () => yieldControl(), checkAbort });
-    if (tabulated) catalogueFastRun = { ...signal.grid, verificationRelativeDifference: tabulated.verificationRelativeDifference };
+    if (tabulated) catalogueFastRun = { ...signal.grid, verificationRelativeDifference: tabulated.verificationRelativeDifference, subdivisions: gridSubdivisions };
   }
   // #553: a cat's eye varies the kernel over the field, which the expected-signal tables (one kernel per node) do not take.
   else if (dngParts === undefined && tabulatedScene && !pupil && !lensFieldMapping && !vignetting && !lensPsf && !rotating && !subject && !bokehZones && (!diffraction || diffractionObjectSpace) &&

@@ -98,7 +98,8 @@ describe("display view without diffraction keeps its bytes (#444)", () => {
     ["caller material scene, stratified estimator", { scene: checker, sensor: speed, output: { width: 240, height: 160 } }, { width: 24, height: 16 }, "6ead9437c338654c9b4fa0df6ba8f07f965d53665e346aa1032cec7bf624aaad"],
     ["chart preset, AHD at ISO 3200, 1.4 µm", { scene: { preset: "patches", patches: [{ patchId: "a", reflectance: 0.18 }, { patchId: "b", reflectance: 0.6 }], columns: 2 }, exposure: { mode: "manual", iso: 3200, shutterSeconds: 1 / 4000 },
       sensor: { pixelPitchMicrometers: 1.4, pixelAperture: { kind: "box", samplesPerAxis: 2 } }, output: { width: 120, height: 90, demosaic: "ahd" } },
-      { width: 40, height: 30, region: { x: 14, y: 10, width: 12, height: 10 } }, "a4063e8879529b02fc2db6ce044ced9ec32b8a2cd7eaebe2241a04752fc0413a"],
+      { width: 40, height: 30, region: { x: 14, y: 10, width: 12, height: 10 } }, "2912e0ca80ac707b2331e96fcea70c4bde36d2168bb4a154c1361db45c6b2d76"],
+    // 2.22.0 (#599): re-recorded for the sensor.isoAreaNormalization explanation's new text only (samples, expected values and noise unchanged at 1.4 µm).
     ["radiance scene (not tracked)", { scene: { kind: "radiance-function", sceneId: "speed-radiance-lock", evaluate: (p: { u: number; v: number }) => 0.02 * (1.25 + 0.5 * Math.floor(4 * p.u) / 4 - 0.25 * Math.floor(3 * p.v) / 3) },
       sensor: speed, output: { width: 120, height: 80 } }, { width: 40, height: 27 }, "724e9bcb5028c54d6d6c29ea085a9a6c790edc92711dead5085132b8cb47321f"]
   ];

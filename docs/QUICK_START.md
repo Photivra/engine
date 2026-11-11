@@ -48,7 +48,7 @@ the example above is [simulate-capture.mjs](examples/simulate-capture.mjs).
 | `raw` | The packed native RAW: codes, black levels, saturation flags and per-phase white levels |
 | `plan` | The native RAW plan the engine executed |
 | `request` | The complete underlying request: `environmentRaw` (the native environment RAW input), `siteInput(index)` (rebuilds the physical input of any sensor site), `development` (the RAW development input) and `whiteBalanceState` |
-| `sensor` | 2.20 (#555, #535): the sensor characteristics used (pitch, peak QE, full well, read noise of each conversion gain and the dual-gain switch ISO, readout time, ADC bit depth, fixed-pattern noise), the calculated dynamic range (`dynamicRangeStops`, and per ISO setting) and, on exact requests, the mid-gray noise figure (`midGrey`); see [Sensor characteristics](#sensor-characteristics-555) |
+| `sensor` | 2.20 (#555, #535): the sensor characteristics used (pitch, peak QE, full well, read noise of each conversion gain and the dual-gain switch ISO, readout time, ADC bit depth, fixed-pattern noise), the calculated dynamic range (`dynamicRangeStops`, and per ISO setting) and, on exact requests, the mid-gray noise figure (`midGrey`); 2.22 (#595): the same for one native photosite with the EMVA 1288 and 8 MP-normalized dynamic range (`native`); see [Sensor characteristics](#sensor-characteristics-555) |
 | `exposure` | Mode, resolved settings, EV100, `isoControl` (`"manual"` or `"automatic"`) and, with `iso: "auto"`, `autoIso` (how the ISO was chosen and what limited it), metered scene luminance, the deviation from the standard exposure in stops (`standardExposureDeviationStops`), the illuminance at which the settings give the standard exposure (`standardExposureIlluminanceLux`), from 2.14 the deviation from the standard exposure of an 18 % grey card under the scene's illuminance (`greyCardDeviationStops`, incident metering) and the exposure-mode resolver's full output |
 | `scene` | Chart parameters, illuminant, distance, framed size and the scene's SHA-256 digest (it covers caller illuminant and reflectance spectra; see `sourceSha256`) |
 | `diagnostics` | Radiance query count, highlight and rendering counters, per-stage timings (`timingsMs`) and, from 2.1, the opt-ins that ran (`options`); see [Cost of each option](#cost-of-each-option) |
@@ -110,7 +110,7 @@ modelling choices (such as "no lens PSF") as `kind: "model"`.
 | `output.whiteBalance` | `"scene-illuminant"` | Also `"auto"`, `"none"`, `{ kelvin, tint? }` and `{ channelGains }`. |
 | `output.jpegQuantizationStep` | 2 | JPEG only: constant step 1–255, not a manufacturer quality scale. |
 | `sensor.pixelPitchMicrometers` | 6 | 0.5–1000 (2.5; 0.5–100 before). The sensor is `width × pitch` wide (see [Geometry](#geometry)); the ISO readout scales with the pixel area (see [ISO and pixel size](#iso-and-pixel-size)). Above 100 µm the capture is a downsized view of a whole frame (see [Whole-frame views](#whole-frame-views-25)). |
-| `sensor.spectralStepNanometers` | 20 | Spectral quadrature over 380–780 nm. |
+| `sensor.spectralStepNanometers` | 20; 5 on exact requests under a spiky light (2.22.0, #590) | Spectral quadrature over 380–780 nm. A light is spiky when R(20) = 20²·κ/24 > 0.01, κ = Σ\|Δ²S\| / ΣS on a 1 nm grid (the midpoint rule's error term, DLMF §3.5(i)): the fluorescent and LED representative sources. Exact requests (DNG, JPEG, PNG, `fast: false`) then take 5 nm; fast ones keep 20 nm, add the assumption `sensor.spectralSpikiness` and report `diagnostics.fast.applied["sensor.spectralStepNanometers"]: true` (exact ones `false`). An explicit step wins and adds no key. |
 | `sensor.temporalSampleCount` | 1, or 8 when the camera rotates | Midpoints across each site's exposure window. |
 | `sensor.noiseSeed` | 1 | Output is deterministic for a given seed. |
 | `sensor.antiAliasing` | off | 2.1: an optical low-pass (anti-aliasing) filter: `{ kind: "four-spot", separationSites? }`, `{ kind: "two-spot", axis, separationSites? }` or `{ kind: "point-splitting", components }` (see [Anti-aliasing filter](#anti-aliasing-filter)). Each record also takes `fast`. |
@@ -444,7 +444,10 @@ independent of pixel size, so the same exposure gives the same image brightness 
 - So the facade multiplies the system conversion gain (e⁻ per code) and the pre-ADC saturation
   signal of every ISO regime by the area ratio pitch²/36 µm². Codes, black level, ADC and digital gain
   are unchanged. At 6 µm the ratio is exactly 1 and nothing is changed (byte-identical to 2.1.0).
-- Read noise (in e⁻) and the synthetic dark current (1 e⁻/s) stay per pixel.
+- Above 6 µm a pixel stands for N = pitch²/36 µm² of the tier's 6 µm photosites, so (from 2.22.0, #599) its
+  read noise is the photosite's summed in quadrature, ×√N, as for a [sensor profile](#sensor-profiles-554)
+  (EMVA 1288 Release 4.0, §6.4: binning multiplies the pixel area). Below 6 µm the read noise (in e⁻) stays
+  per pixel, and the synthetic dark current (1 e⁻/s) stays per pixel at every pitch.
 
 What you see: brightness stays the same, and per-pixel noise rises as pixels shrink, because a
 smaller pixel collects fewer electrons for the same exposure (shot-noise SNR = √N_e). At f/8, 1/125 s,
@@ -489,7 +492,7 @@ r.sensor.dynamicRangeStops; r.sensor.midGrey?.snrDecibels;
 | --- | --- | --- | --- |
 | `peakQuantumEfficiency` | 0.05–0.9 | 0.5 | Multiplies every channel's EQE curve by value / 0.5: the curves keep their shape and the colour matrix, and the collected charge scales in proportion. 0.9 keeps the blue channel's peak below 1. |
 | `fullWell` | 100–1e10 e⁻ at the pitch | the body's base-ISO saturation at 6 µm, × pitch²/36 µm² | The charge at the RAW white level at base ISO (the saturation capacity of EMVA 1288 Release 4.0). `link: "pixel-area"` (default) scales `electrons`, the full well at `referencePixelPitchMicrometers` (default 6), by (pitch / reference)²; `link: "none"` uses it at any pitch. |
-| `readNoise` | 0–100 e⁻; switch ISO 100–1e7 | the body's (tiers: 2/1.1, 3/1.4 and 6/2.5 e⁻, switch at ISO 800) | Read noise of the low and the high conversion gain, and `highGainFromIso`, the ISO from which the high gain is used. A switch above the body's top ISO keeps the low gain throughout. |
+| `readNoise` | 0–100 e⁻; switch ISO 100–1e7 | the body's (tiers: 2/1.1, 3/1.4 and 6/2.5 e⁻ per 6 µm photosite, ×√N above 6 µm; switch at ISO 800) | Read noise of one physical photosite (2.22.0, tiers and profiles alike; a rendered site that sums N photosites takes it ×√N) for the low and the high conversion gain, and `highGainFromIso`, the ISO from which the high gain is used. A switch above the body's top ISO keeps the low gain throughout. |
 | `readoutSeconds` | 1e-6–1 s | the body's (8, 15, 30 ms) | The rolling shutter's top-to-bottom skew (`motion.shutter: "rolling"`; `motion.rollingShutterSkewSeconds` still overrides it). |
 | `adcBitDepth` | 12, 14, 16 | the body's (consumer 12, others 14) | The black level scales by 2^Δbits (1 024 at 14 bits → 4 096 at 16), the saturation code is 2^bits − 1 and the conversion gain follows, so the same charge reaches the same fraction of the code range. A 16-bit RAW writes a 16-bit DNG with white level 65 535. |
 | `fixedPatternNoise` | `true`/`false` | `false` | The body's synthetic fixed-pattern profile (PRNU, DSNU, hot pixels, row and column offsets), the same pattern in every capture. Not available in `simulateDisplayView`, which refuses it. |
@@ -515,6 +518,32 @@ dark current, with σ_q the ADC quantization (1/12 code², plus 1/12 code² of r
 gain) in electrons. With no read noise the range is limited by the ADC alone: log₂((white − black)·√12).
 The Professional tier gives 14.7 stops at ISO 100, 12.7 at ISO 800 (high gain) and 9.7 at ISO 6400;
 the Consumer tier 11.7, 10.0 and 7.0.
+
+**Native-pixel dynamic range (#595)** (`sensor.native`, from 2.22.0): the figures above are those of
+the rendered site, which at a pitch other than the body's own stands for N = (pitch / native pitch)²
+photosites (`native.photositesPerSite`). `sensor.native` gives the same figures for one native
+photosite: a generic tier's declared 6 µm reference, or a sensor profile's own pitch, with the request's
+sensor characteristics applied as at that pitch. It has the photosite's `fullWellElectrons`,
+`readNoiseElectrons`, engineering `dynamicRangeStops` and `dynamicRangeByIso`, and, on exact requests,
+its `midGrey` figure (the site's charge × 1/N). For N independent photosites summed with their read noise,
+S_sat,N = N·S_sat,0 and σ_N = √N·σ_0, so the rendered range is the native range + ½·log₂N, limited by the
+ADC, and the rendered mid-gray SNR is √N times the native one.
+
+- `native.emva1288`: EMVA 1288 Release 4.0 Linear (§2.7, Eq. 26–28, free from emva.org): the absolute
+  sensitivity threshold μ_e.min = √(σ_d² + σ_q² + 1/4) + 1/2 (σ_d the read noise, dark current excluded),
+  `dynamicRangeStops` = log₂(μ_e.sat / μ_e.min) and `dynamicRangeDecibels`, and the saturation capacity
+  per µm² (Table 2). This is the figure to show as "dynamic range (EMVA 1288)". It is slightly lower than
+  the engineering figure: 14.36 against 14.67 stops for the Professional tier at ISO 100.
+- `native.normalized8Megapixel`: **a convention, not part of EMVA 1288**, for comparing bodies of
+  different resolutions: the frame's native photosites (`framePhotosites`, the output frame's area over
+  the native photosite's) resampled to 8 million pixels, each summing framePhotosites / 8 000 000
+  photosites with their read noise (the binning rule above): DR + ½·log₂(framePhotosites / 8 000 000),
+  for the engineering and the EMVA figure. No ADC limit is applied to the sum. A 6000 × 4000 frame of
+  6 µm photosites adds 0.79 stops.
+
+All are model figures from the engine's noise model, not measurements. `sensor.readNoise` is per **physical
+photosite** on a tier and a profile alike (2.22.0): `native.readNoiseElectrons` is the value given, and a rendered site
+that sums N photosites takes it ×√N.
 
 **Noise figure** (#535, `sensor.midGrey`): computed only when the request resolves to exact (`fast:
 false`, the default for DNG, JPEG and PNG exports; about 0.3 ms); a fast request (the sRGB default)

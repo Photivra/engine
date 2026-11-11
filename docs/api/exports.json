@@ -9113,8 +9113,18 @@
       "kind": "type"
     },
     {
+      "name": "SimulateCaptureMidGreyFigure",
+      "source": "src/sensor/sensor-characteristics.ts",
+      "kind": "type"
+    },
+    {
       "name": "SimulateCaptureMotion",
       "source": "src/facade/simulate-capture.ts",
+      "kind": "type"
+    },
+    {
+      "name": "SimulateCaptureNativeSensorReport",
+      "source": "src/sensor/sensor-characteristics.ts",
       "kind": "type"
     },
     {
