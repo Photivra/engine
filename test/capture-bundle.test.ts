@@ -116,7 +116,9 @@ describe("display-view bundles", () => {
 // GPU Speed session, catalogue and lens-signal chunks included); "on demand" is the Quality chunks, found by module membership
 // (QUALITY_ON_DEMAND_MODULES), so a chunk's file name does not matter. Each limit is its row's measurement rounded up to the next
 // 100 B. Measured November 11, 2026 on 2.21.0 with the GPU Quality host split out (group E1 of 2.22.0; rolldown 1.2.9, Node.js
-// zlib level 9): fast worker 344,237 B, on demand 20,025 B (the GPU Quality chunk), all chunks 364,262 B. Before the split
+// zlib level 9): fast worker 344,237 B, on demand 20,025 B (the GPU Quality chunk), all chunks 364,262 B; with the load-failure
+// fallback (owner, 2026-11-10) 344,287 B and 20,026 B (364,313 B). Owner-accepted 2026-11-10: these two rows replace the
+// single all-chunk limit, and the all-chunk growth is accepted. Before the split
 // (2.21.0, limit 363,700 B on all chunks): 363,695 B, all of it fast. The split moves 19,458 B out of the fast worker; the
 // all-chunk total grows 567 B (a second chunk compresses without the first's dictionary, and the chunks name their shared
 // bindings). The CPU Quality kit (#594, after groups A–D) adds its modules to QUALITY_ON_DEMAND_MODULES and re-measures both rows.
@@ -148,6 +150,14 @@ describe("the app's capture-worker shape", () => {
     expect(worker.chunks.filter((c) => c.imports.includes(chunk.fileName))).toEqual([]);
     const loaders = worker.chunks.filter((c) => c.dynamicImports.includes(chunk.fileName));
     expect(loaders.map((c) => c.modules.has("gpu/display-view-gpu-renderer.ts"))).toEqual([true]);
+  }, testTimeout(120_000));
+
+  // #594: importing the optional preload keeps the Quality chunk on demand (it reaches it only through dynamic imports).
+  it("keeps the Quality chunk on demand when prepareQualityPaths is imported", async () => {
+    const worker = await bundle([...WORKER_SHAPE, "prepareQualityPaths"]);
+    const eager = worker.chunks.filter((c) => c.isEntry || worker.chunks.some((e) => e.isEntry && e.imports.includes(c.fileName)));
+    expect(eager.flatMap((c) => [...c.modules]).filter((id) => QUALITY_ON_DEMAND_MODULES.includes(id) || id.startsWith("gpu/display-view"))).toEqual([]);
+    expect(worker.chunks.filter(isOnDemand)).toHaveLength(1);
   }, testTimeout(120_000));
 
   // #554 (owner, 2026-11-09): sensor.profile takes the record, so the worker never bundles the profile catalogue, only its parser.
