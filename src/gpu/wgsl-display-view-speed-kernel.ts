@@ -453,8 +453,8 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_workgroups) 
           // A component reaching 1 within reach is desaturated with the others (the reference's test; undecided: recompute).
           for (var comp = 0u; comp < 3u; comp = comp + 1u) {
             let top = hm[comp] + CLIP_REACH * sqrt(hv[comp]);
-            if (hm[comp] > 0.0 && top >= 1.0) { cp_chain_run = true; }
-            if (hm[comp] > 0.0 && abs(top - 1.0) <= 2.0 * (hbm[comp] + CLIP_REACH * sqrt(hbv[comp] / E)) * E + 64.0 * E) { material_uncertain = true; }
+            if (hm[comp] > 0.0 && top >= 0.999) { cp_chain_run = true; }
+            if (hm[comp] > 0.0 && hm[comp] - 2.0 * hbm[comp] * E < 0.999 && abs(top - 0.999) <= 2.0 * (hbm[comp] * E + CLIP_REACH * min(sqrt(hbv[comp] * E), hbv[comp] * E / (2.0 * sqrt(hv[comp])))) + 64.0 * E) { material_uncertain = true; }
           }
         }
         if (cp_chain_run) {

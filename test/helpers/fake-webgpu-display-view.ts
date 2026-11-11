@@ -207,8 +207,8 @@ export function emulateDisplayViewSpeed(pw: Uint32Array, pf: Float32Array, aux: 
           } else if (!chainRun && cp.desaturate && tone !== 1) {
             for (let comp = 0; comp < 3; comp++) {
               const top = f(hm[comp]! + f(REACH * f(Math.sqrt(hv[comp]!))));
-              if (hm[comp]! > 0 && top >= 1) chainRun = true;
-              if (hm[comp]! > 0 && Math.abs(f(top - 1)) <= f(f(f(2 * f(hbm[comp]! + f(REACH * f(Math.sqrt(f(hbv[comp]! / E)))))) * E) + f(64 * E))) coupledFlag = true;
+              if (hm[comp]! > 0 && top >= f(0.999)) chainRun = true;
+              if (hm[comp]! > 0 && f(hm[comp]! - f(f(2 * hbm[comp]!) * E)) < f(0.999) && Math.abs(f(top - f(0.999))) <= f(f(2 * f(f(hbm[comp]! * E) + f(REACH * Math.min(f(Math.sqrt(f(hbv[comp]! * E))), f(f(hbv[comp]! * E) / f(2 * f(Math.sqrt(hv[comp]!)))))))) + f(64 * E))) coupledFlag = true;
             }
           }
           if (chainRun) {

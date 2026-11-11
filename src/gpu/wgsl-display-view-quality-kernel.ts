@@ -852,8 +852,8 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_workgroups) 
           } else if (!cp_chain_run && cp_desaturate() && !reinhard) {
             for (var comp = 0u; comp < 3u; comp = comp + 1u) {
               let top = hm[comp].x + CLIP_REACH * sqrt(hv[comp].x);
-              if (hm[comp].x > 0.0 && top >= 1.0) { cp_chain_run = true; }
-              if (hm[comp].x > 0.0 && abs(top - 1.0) <= 2.0 * (hm[comp].y + CLIP_REACH * sqrt(hv[comp].y)) + 64.0 * E) { pixel_flags = pixel_flags | FLAG_UNCERTAIN; }
+              if (hm[comp].x > 0.0 && top >= 0.999) { cp_chain_run = true; }
+              if (hm[comp].x > 0.0 && hm[comp].x - 2.0 * hm[comp].y < 0.999 && abs(top - 0.999) <= 2.0 * (hm[comp].y + CLIP_REACH * min(sqrt(hv[comp].y), hv[comp].y / (2.0 * sqrt(hv[comp].x)))) + 64.0 * E) { pixel_flags = pixel_flags | FLAG_UNCERTAIN; }
             }
           }
           if (cp_chain_run) {

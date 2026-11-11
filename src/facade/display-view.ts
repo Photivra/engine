@@ -1206,7 +1206,8 @@ export async function renderDisplayView(setup: DisplayViewSetup): Promise<Displa
             // #601: a component that reaches 1 within reach is desaturated with the others: the chain is integrated.
             if (coupled?.desaturate && !reinhard) for (let comp = 0; comp < 3; comp++) {
               const mean = hm[comp]!;
-              if (mean > 0 && hm[comp]! + CLIP_REACH_SIGMA * Math.sqrt(hv[comp]!) >= 1) chainRun = true;
+              // The test is taken at 0.999 rather than 1, so a component clipped to 1 is decided in float32 too (the GPU kernels).
+              if (mean > 0 && hm[comp]! + CLIP_REACH_SIGMA * Math.sqrt(hv[comp]!) >= 0.999) chainRun = true;
             }
           }
           if (chainRun) { coupled!.at?.(x, y); coupled!.chain(cm, C, hm, hv, coupledA); coupledUsed = true; }

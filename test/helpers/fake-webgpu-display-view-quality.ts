@@ -391,8 +391,8 @@ export function emulateDisplayViewQualityPixels(pw: Uint32Array, pf: Float32Arra
             } else if (!chainRun && cp.desaturate && !reinhard) {
               for (let comp = 0; comp < 3; comp++) {
                 const top = f(hm[comp]![0] + f(REACH * f(Math.sqrt(hv[comp]![0]))));
-                if (hm[comp]![0] > 0 && top >= 1) chainRun = true;
-                if (hm[comp]![0] > 0 && Math.abs(f(top - 1)) <= f(f(2 * f(hm[comp]![1] + f(REACH * f(Math.sqrt(hv[comp]![1]))))) + f(64 * E))) pixelFlags |= UNCERTAIN;
+                if (hm[comp]![0] > 0 && top >= f(0.999)) chainRun = true;
+                if (hm[comp]![0] > 0 && f(hm[comp]![0] - f(2 * hm[comp]![1])) < f(0.999) && Math.abs(f(top - f(0.999))) <= f(f(2 * f(hm[comp]![1] + f(REACH * Math.min(f(Math.sqrt(hv[comp]![1])), f(hv[comp]![1] / f(2 * f(Math.sqrt(hv[comp]![0])))))))) + f(64 * E))) pixelFlags |= UNCERTAIN;
               }
             }
             if (chainRun) {
