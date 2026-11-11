@@ -244,7 +244,9 @@ have a fast method, a measured and bounded approximation of it. One flag style s
   (`"auto"` fast, `"off"` exact; an explicit value wins); and `result.sensor.midGrey` (#535, computed only on exact requests). In 2.22.0: `motion.subject`'s temporal midpoints (#551: with the default count and a still camera, fast takes one
   midpoint per site of the subject's streak plus one when that is fewer than 8; exact keeps the 8; an explicit
   `sensor.temporalSampleCount` always wins); a print under mixed lighting on the GPU (#597, `illumination/image-plane-gpu`: `gpu` `"auto"`
-  lights each lattice point on WebGPU, `"off"` the CPU reference). The
+  lights each lattice point on WebGPU, `"off"` the CPU reference); the default spectral step (#590, `sensor.spectralStepNanometers`: 5 nm on
+  exact requests under a spiky light, 20 nm on fast ones); the catalogue field grid's cells (#603, `lens.catalogue/field-grid-cells`: at
+  least 4 on fast requests, 10 on exact ones). The
   records of `lens.diffraction`, `sensor.antiAliasing`, `sensor.pixelAperture` and `output.demosaic` (in captures) take `fast`
   with no fast method yet. `test/fast-methods-registry.test.ts` fails when a record accepts `fast` without an entry, an entry
   lacks its resolver or report, or a format default leaves the rule. **Every new fast method adds its entry.**
