@@ -5,13 +5,13 @@
  * WebGPU device. It mirrors the WGSL line by line; the material module is an emulator object (`ChartMaterialEmulator`
  * for the chart presets). Real-device conformance lives in test/webgpu.
  */
-import { DISPLAY_VIEW_LUMINANCE_CANCEL_U, DISPLAY_VIEW_AUX, DISPLAY_VIEW_CLIP_MEAN_U, DISPLAY_VIEW_CLIP_VARIANCE_U, DISPLAY_VIEW_GEOMETRY_STRIDE, DISPLAY_VIEW_OUTPUT_FLOATS,
+import { DISPLAY_VIEW_AUX, DISPLAY_VIEW_CLIP_MEAN_U, DISPLAY_VIEW_CLIP_VARIANCE_U, DISPLAY_VIEW_GEOMETRY_STRIDE, DISPLAY_VIEW_OUTPUT_FLOATS,
   DISPLAY_VIEW_SITE_RELATIVE_U } from "../../src/gpu/wgsl-display-view-speed-kernel.js";
 import type { ChartMaterialEmulator } from "./fake-webgpu-stages.js";
+import { coupledEmulator } from "./fake-webgpu-display-view-coupled.js";
 
 const f = Math.fround;
 const E = f(2 ** -23), REACH = 8.5, CM = f(DISPLAY_VIEW_CLIP_MEAN_U), CV = f(DISPLAY_VIEW_CLIP_VARIANCE_U), STRIDE = DISPLAY_VIEW_GEOMETRY_STRIDE;
-const LB = DISPLAY_VIEW_AUX.luminance;
 const PHI_C = f(0.3989422804014327), AS = [f(0.2316419), f(0.319381530), f(-0.356563782), f(1.781477937), f(-1.821255978), f(1.330274429)];
 
 const phi = (z: number): number => f(PHI_C * f(Math.exp(f(f(f(-0.5) * z) * z))));
@@ -71,91 +71,10 @@ function reinhardMoments(m: number, v: number, aux: Float32Array): [number, numb
   return [e1, Math.max(0, f(e2 - f(shifted * shifted))), ed];
 }
 
-/** #593: `lum_ratio` of the kernel: (r, r′, η in units of E). */
-function lumRatio(l: number, tone: number, aux: Float32Array): [number, number, number] {
-  const a = aux[LB]!;
-  if (tone === 2) { const d = f(1 + l); return [f(f(1 + f(l * a)) / d), f(f(a - 1) / f(d * d)), 16]; }
-  const n = aux[LB + 1]!, iw = aux[LB + 2]!, lg = f(Math.log2(f(a / l))), z = f(n * lg);
-  let g: number, ug: number;
-  if (z >= 0) { const p = f(2 ** -z); g = f(p / f(1 + p)); ug = f(1 / f(1 + p)); } else { const u = f(2 ** z); g = f(1 / f(1 + u)); ug = f(u / f(1 + u)); }
-  const dz = f(f(n * f(8.5 + f(3 * Math.abs(lg)))) + Math.abs(z));
-  return [f(f(g * iw) / l), f(f(f(g * f(f(n * ug) - 1)) * iw) / f(l * l)), f(f(2 * f(f(f(0.7 * dz) + 3) + f(2 * Math.abs(z)))) + 24)];
-}
-/** `lum_clip` of the kernel: (mean, variance, P(inside), P(above)). */
-function lumClip(m: number, v: number): [number, number, number, number] {
-  if (!(v > 0)) { const inside = m > 0 && m < 1; return [Math.min(1, Math.max(0, m)), 0, inside ? 1 : 0, m >= 1 ? 1 : 0]; }
-  const s = f(Math.sqrt(v)), a = f(-m / s), b = f(f(1 - m) / s);
-  let pa = 0, da = 0, pb = 1, qb = 0, db = 0;
-  if (a > REACH) pa = 1; else if (!(a < -REACH)) { pa = pq(a)[0]; da = phi(a); }
-  if (b < -REACH) { pb = 0; qb = 1; } else if (!(b > REACH)) { const p = pq(b); pb = p[0]; qb = p[1]; db = phi(b); }
-  const inside = f(pb - pa), eg = f(f(f(a * pa) + f(da - db)) + f(b * qb));
-  const eg2 = f(f(f(f(f(a * a) * pa) + inside) - f(f(b * db) - f(a * da))) + f(f(b * b) * qb));
-  return [f(m + f(s * eg)), Math.max(0, f(v * f(eg2 - f(eg * eg)))), inside, qb];
-}
-const dot3 = (a: ArrayLike<number>, b: ArrayLike<number>): number => f(f(f(a[0]! * b[0]!) + f(a[1]! * b[1]!)) + f(a[2]! * b[2]!));
-/** `lum_tone` of the kernel. */
-function lumTone(mu: number[], S: number[][], tone: number, aux: Float32Array): { hm: number[]; hv: number[]; J: number[][]; bm: number[]; bv: number[]; ju: number } {
-  const w = [aux[LB + 4]!, aux[LB + 5]!, aux[LB + 6]!], mul = dot3(w, mu), sw = [dot3(S[0]!, w), dot3(S[1]!, w), dot3(S[2]!, w)], vl = dot3(w, sw), sl = vl > 0 ? f(Math.sqrt(vl)) : 0;
-  const beta = sl > 0 ? sw.map((x) => f(x / vl)) : [0, 0, 0], skk = [S[0]![0]!, S[1]![1]!, S[2]![2]!], cv = skk.map((x, k) => Math.max(0, f(x - f(beta[k]! * sw[k]!))));
-  const clamp01 = (x: number): number => Math.min(1, Math.max(0, x));
-  const r0c = mul > 0 ? lumRatio(mul, tone, aux)[0] : 1, centre = mul > 0 ? mu.map((x) => clamp01(f(x * r0c))) : mu.map(clamp01);
-  const hm = [0, 0, 0], second = [0, 0, 0], J = [[0, 0, 0], [0, 0, 0], [0, 0, 0]], bm = [0, 0, 0], bv = [0, 0, 0];
-  let ju = 0, count = 0;
-  const dl = f(8 * f(Math.abs(mul) + f(9 * sl))), lo = f(mul - f(REACH * sl)), hi = f(mul + f(REACH * sl));
-  const fast = aux[LB + 7]! !== 0 && (mul > f(f(2 * REACH) * sl) || hi < 0);
-  let pieces = 1, nodes = 1;
-  if (sl > 0) { if (fast) nodes = 8; else { nodes = 64; if (lo < 0 && hi > 0) pieces = 2; } }
-  const CANCEL = f(DISPLAY_VIEW_LUMINANCE_CANCEL_U);
-  for (let piece = 0; piece < pieces; piece++) {
-    let a = -REACH, b = REACH;
-    if (pieces === 2) { if (piece === 0) b = f(-mul / sl); else a = f(-mul / sl); }
-    for (let i = 0; i < nodes; i++) {
-      let l = mul, weight = 1;
-      if (nodes === 8) { l = f(mul + f(sl * aux[LB + 8 + i]!)); weight = aux[LB + 16 + i]!; }
-      else if (nodes === 64) {
-        const width = f(f(b - a) / 4), hw = f(width / 2), z = f(f(a + f(f(Math.floor(i / 16) + 0.5) * width)) + f(hw * aux[DISPLAY_VIEW_AUX.gaussLegendre + (i % 16)]!));
-        l = f(mul + f(sl * z));
-        weight = f(f(hw * aux[DISPLAY_VIEW_AUX.gaussLegendre + 16 + (i % 16)]!) * phi(z));
-      }
-      count = f(count + 1);
-      let r = 1, rp = 0, eta = 0;
-      if (l > 0) [r, rp, eta] = lumRatio(l, tone, aux);
-      ju = Math.max(ju, eta);
-      for (let k = 0; k < 3; k++) {
-        const m = f(mu[k]! + f(beta[k]! * f(l - mul))), c = lumClip(f(r * m), f(f(r * r) * cv[k]!)), d = f(c[0] - centre[k]!);
-        hm[k] = f(hm[k]! + f(weight * c[0]));
-        second[k] = f(second[k]! + f(weight * f(c[1] + f(d * d))));
-        const e1 = f(c[0] - c[3]), rc = f(r * c[2]);
-        for (let j = 0; j < 3; j++) {
-          const jr = f((k === j ? rc : 0) + (rp !== 0 ? f(w[j]! * f(f(rp * e1) / r)) : 0));
-          J[k]![j] = f(J[k]![j]! + f(weight * jr));
-        }
-        const err = f(f(f(f(f(CM * r) * f(Math.sqrt(cv[k]!))) + f(f(0.8 * r) * f(Math.sqrt(f(f(CANCEL * skk[k]!) / E))))) + f(f(c[2] * f(Math.abs(f(rp * m)) + f(r * Math.abs(beta[k]!)))) * dl)) + f(Math.abs(c[0]) * eta));
-        bm[k] = f(bm[k]! + f(weight * err));
-        bv[k] = f(bv[k]! + f(weight * f(f(2 * err) + f(f(f(CV * r) * r) * cv[k]!))));
-      }
-    }
-  }
-  const r0 = aux[LB + 3]!;
-  if (sl > 0 && r0 !== 1 && Math.abs(mul) < f(REACH * sl)) {
-    const density = f(phi(f(mul / sl)) / sl);
-    for (let k = 0; k < 3; k++) {
-      const m = f(mu[k]! - f(beta[k]! * mul)), below = lumClip(m, cv[k]!)[0];
-      let above: number;
-      if (r0 > 1e30) above = cv[k]! > 0 ? pq(f(m / f(Math.sqrt(cv[k]!))))[0] : m > 0 ? 1 : 0;
-      else above = lumClip(f(r0 * m), f(f(r0 * r0) * cv[k]!))[0];
-      const jump = f(density * f(above - below));
-      for (let j = 0; j < 3; j++) J[k]![j] = f(J[k]![j]! + f(w[j]! * jump));
-    }
-  }
-  const shifted = hm.map((x, k) => f(x - centre[k]!)), hv = second.map((x, k) => Math.max(0, f(x - f(shifted[k]! * shifted[k]!))));
-  for (let k = 0; k < 3; k++) { bm[k] = f(bm[k]! + f(count * Math.abs(hm[k]!))); bv[k] = f(f(bv[k]! + f(count * second[k]!)) + f(f(2 * Math.abs(shifted[k]!)) * bm[k]!)); }
-  return { hm, hv, J, bm, bv, ju: f(ju + f(4 * count)) };
-}
-
 /** Mirrors `main` of the display-view Speed kernel for the `count` display pixels of the band. */
 export function emulateDisplayViewSpeed(pw: Uint32Array, pf: Float32Array, aux: Float32Array, geometry: Float32Array, table: Float32Array, out: Float32Array,
-  flags: Uint32Array, material: ChartMaterialEmulator): void {
+  flags: Uint32Array, material: ChartMaterialEmulator, coupledConstants: Float32Array = new Float32Array(1)): void {
+  const cp = coupledEmulator(coupledConstants);
   const [count, row0, regionW, , , margin, nativeW, nativeH, columns, tone, offsets] = Array.from(pw.subarray(0, 11)) as number[];
   const k = [pf[12]!, pf[13]!, pf[14]!], reach2 = pf[15]!, dark = [pf[16]!, pf[17]!, pf[18]!], L = pf[19]!, c0 = [pf[20]!, pf[21]!, pf[22]!], g = [pf[24]!, pf[25]!, pf[26]!];
   const M = Array.from(pf.subarray(28, 37)), scaleU = pf[37]!, scaleV = pf[38]!, geometryInts = new Int32Array(geometry.buffer, geometry.byteOffset, geometry.length);
@@ -213,6 +132,7 @@ export function emulateDisplayViewSpeed(pw: Uint32Array, pf: Float32Array, aux: 
     const green = (xpp: number, xqq: number, xpq: number, ypp: number, yqq: number, ypq: number): number =>
       f(f(f(f(f(f(xpp * ypp) + f(xqq * ypp)) + f(xpp * yqq)) + f(f(2 * xpq) * ypp)) + f(f(2 * xpp) * ypq)) + f(f(2 * xpq) * ypq));
     const b = [f(xbE * ybE), f(green(xppO, xqqO, xpqO, yppE, yqqE, ypqE) + green(xppE, xqqE, xpqE, yppO, yqqO, ypqO)), f(xbO * ybO)];
+    let coupledFlag = false;
     let s0 = 0, s1 = 0, s2 = 0, c00 = 0, c01 = 0, c02 = 0, c11 = 0, c12 = 0, c22 = 0, r0 = 0, r1 = 0, r2 = 0, boundMean = 0, boundVar = 0, mask0 = 0, mask1 = 0, undecided = false;
     for (let j = 0; j < ny; j++) {
       const ay = G(row + 2 + j);
@@ -230,12 +150,16 @@ export function emulateDisplayViewSpeed(pw: Uint32Array, pf: Float32Array, aux: 
           }
           cm[c] = mean; cvv[c] = variance; cth[c] = third; cb[c] = bnd; csv[c] = f(variance * aux[DISPLAY_VIEW_AUX.inverseW2 + phase * 3 + c]!);
         }
+        // #593: reconstruct's reach (the chain), and the unclipped white balance out of it.
+        let chainRun = false;
+        if (cp.on && cp.reconstruct) { const reach = cp.reach([cm[0]!, cm[1]!, cm[2]!], [cvv[0]!, cvv[1]!, cvv[2]!]); if (reach === 2) coupledFlag = true; chainRun = reach >= 1; }
+        const unclipped = cp.on && cp.reconstruct;
         if (clipped) { const bit = j * nx + ii; if (bit < 32) mask0 = (mask0 | (1 << bit)) >>> 0; else mask1 = (mask1 | (1 << (bit - 32))) >>> 0; }
         else if (nearWhite) undecided = true;
         for (let c = 0; c < 3; c++) {
           const gc = g[c]!, um = f(gc * cm[c]!), uv = f(f(gc * gc) * cvv[c]!), gap = f(L - um);
           bbm[c] = f(f(gc * CM) * cb[c]!); bbv[c] = f(f(f(f(gc * gc) * CV) * cb[c]!) * cb[c]!);
-          if (gap > 0 && f(gap * gap) > f(reach2 * uv)) { bm[c] = um; bv[c] = uv; bs[c] = gc; }
+          if (unclipped || (gap > 0 && f(gap * gap) > f(reach2 * uv))) { bm[c] = um; bv[c] = uv; bs[c] = gc; }
           else { const [m1, v1, p1] = upperClip(um, uv, L); bm[c] = m1; bv[c] = v1; bs[c] = f(gc * p1); bbm[c] = f(bbm[c]! + f(CM * f(Math.sqrt(uv)))); bbv[c] = f(bbv[c]! + f(CV * uv)); }
         }
         for (let comp = 0; comp < 3; comp++) {
@@ -257,30 +181,51 @@ export function emulateDisplayViewSpeed(pw: Uint32Array, pf: Float32Array, aux: 
           }
           hbm[comp] = bmC; hbv[comp] = bvC;
         }
-        // #593: the luminance tone step (lum_tone), its slopes and bounds.
+        // #593, #601: the coupled steps (cp_tone, cp_chain) as the kernel takes them.
         let jm: number[][] | null = null, ju = 0;
-        if (tone! >= 2) {
-          const mu = [0, 0, 0], dmu = [0, 0, 0], dsv = [0, 0, 0], srow = [[0, 0, 0], [0, 0, 0], [0, 0, 0]];
-          for (let r = 0; r < 3; r++) {
-            mu[r] = f(f(f(M[r * 3]! * bm[0]!) + f(M[r * 3 + 1]! * bm[1]!)) + f(M[r * 3 + 2]! * bm[2]!));
-            dmu[r] = f(f(f(Math.abs(M[r * 3]!) * bbm[0]!) + f(Math.abs(M[r * 3 + 1]!) * bbm[1]!)) + f(Math.abs(M[r * 3 + 2]!) * bbm[2]!));
-            dsv[r] = f(f(f(f(M[r * 3]! * M[r * 3]!) * bbv[0]!) + f(f(M[r * 3 + 1]! * M[r * 3 + 1]!) * bbv[1]!)) + f(f(M[r * 3 + 2]! * M[r * 3 + 2]!) * bbv[2]!));
-            for (let q = 0; q < 3; q++) srow[r]![q] = f(f(f(f(M[r * 3]! * M[q * 3]!) * bv[0]!) + f(f(M[r * 3 + 1]! * M[q * 3 + 1]!) * bv[1]!)) + f(f(M[r * 3 + 2]! * M[q * 3 + 2]!) * bv[2]!));
+        if (cp.on) {
+          if (!chainRun && cp.luminance) {
+            const mu = [0, 0, 0], dmu = [0, 0, 0], dsv = [0, 0, 0], srow = [[0, 0, 0], [0, 0, 0], [0, 0, 0]];
+            for (let r = 0; r < 3; r++) {
+              mu[r] = f(f(f(M[r * 3]! * bm[0]!) + f(M[r * 3 + 1]! * bm[1]!)) + f(M[r * 3 + 2]! * bm[2]!));
+              dmu[r] = f(f(f(f(Math.abs(M[r * 3]!) * bbm[0]!) + f(Math.abs(M[r * 3 + 1]!) * bbm[1]!)) + f(Math.abs(M[r * 3 + 2]!) * bbm[2]!)) * E);
+              dsv[r] = f(f(f(f(f(M[r * 3]! * M[r * 3]!) * bbv[0]!) + f(f(M[r * 3 + 1]! * M[r * 3 + 1]!) * bbv[1]!)) + f(f(M[r * 3 + 2]! * M[r * 3 + 2]!) * bbv[2]!)) * E);
+              for (let q = 0; q < 3; q++) srow[r]![q] = f(f(f(f(M[r * 3]! * M[q * 3]!) * bv[0]!) + f(f(M[r * 3 + 1]! * M[q * 3 + 1]!) * bv[1]!)) + f(f(M[r * 3 + 2]! * M[q * 3 + 2]!) * bv[2]!));
+            }
+            const t = cp.tone(mu as [number, number, number], srow as [[number, number, number], [number, number, number], [number, number, number]], dmu as [number, number, number], dsv as [number, number, number]);
+            if (t.flag) coupledFlag = true;
+            if (cp.desaturate && t.top) chainRun = true;
+            else {
+              jm = [[0, 0, 0], [0, 0, 0], [0, 0, 0]];
+              for (let comp = 0; comp < 3; comp++) {
+                hm[comp] = t.hm[comp]!; hv[comp] = t.hv[comp]!; hbm[comp] = f(t.bm[comp]! / E); hbv[comp] = f(t.bv[comp]! / E);
+                const row = t.a[comp]!;
+                for (let c = 0; c < 3; c++) jm[comp]![c] = f(f(f(f(row[0] * M[c]!) + f(row[1] * M[3 + c]!)) + f(row[2] * M[6 + c]!)) * bs[c]!);
+              }
+              ju = f(t.ju / E);
+            }
+          } else if (!chainRun && cp.desaturate && tone !== 1) {
+            for (let comp = 0; comp < 3; comp++) {
+              const top = f(hm[comp]! + f(REACH * f(Math.sqrt(hv[comp]!))));
+              if (hm[comp]! > 0 && top >= 1) chainRun = true;
+              if (hm[comp]! > 0 && Math.abs(f(top - 1)) <= f(f(f(2 * f(hbm[comp]! + f(REACH * f(Math.sqrt(f(hbv[comp]! / E)))))) * E) + f(64 * E))) coupledFlag = true;
+            }
           }
-          const t = lumTone(mu, srow, tone!, aux);
-          jm = t.J; ju = t.ju;
-          for (let comp = 0; comp < 3; comp++) {
-            hm[comp] = t.hm[comp]!; hv[comp] = t.hv[comp]!;
-            hbm[comp] = f(dot3(jm[comp]!.map(Math.abs), dmu) + t.bm[comp]!);
-            hbv[comp] = f(dot3(jm[comp]!.map((x) => f(x * x)), dsv) + t.bv[comp]!);
+          if (chainRun) {
+            const dcm = [0, 1, 2].map((c) => f(f(CM * cb[c]!) * E)) as [number, number, number];
+            const dcv = [0, 1, 2].map((c) => f(f(f(CV * cb[c]!) * cb[c]!) * E)) as [number, number, number];
+            const t = cp.chain([cm[0]!, cm[1]!, cm[2]!], cvv[0]!, 0, 0, cvv[1]!, 0, cvv[2]!, dcm, dcv);
+            if (t.flag) coupledFlag = true;
+            jm = t.a.map((r) => [...r]);
+            for (let comp = 0; comp < 3; comp++) { hm[comp] = t.hm[comp]!; hv[comp] = t.hv[comp]!; hbm[comp] = f(t.bm[comp]! / E); hbv[comp] = f(t.bv[comp]! / E); }
+            ju = f(t.ju / E);
           }
         }
         s0 = f(s0 + f(aj * hm[0]!)); s1 = f(s1 + f(aj * hm[1]!)); s2 = f(s2 + f(aj * hm[2]!));
         let l0 = 0, l1 = 0, l2 = 0, lb0 = 0, lb1 = 0, lb2 = 0;
         for (let c = 0; c < 3; c++) {
-          const mc = [M[c]!, M[3 + c]!, M[6 + c]!];
-          const a0 = jm ? f(dot3(jm[0]!, mc) * bs[c]!) : f(f(hs[0]! * M[c]!) * bs[c]!), a1 = jm ? f(dot3(jm[1]!, mc) * bs[c]!) : f(f(hs[1]! * M[3 + c]!) * bs[c]!),
-            a2 = jm ? f(dot3(jm[2]!, mc) * bs[c]!) : f(f(hs[2]! * M[6 + c]!) * bs[c]!), wgt = f(f(aj * b[c]!) * csv[c]!);
+          const a0 = jm ? jm[0]![c]! : f(f(hs[0]! * M[c]!) * bs[c]!), a1 = jm ? jm[1]![c]! : f(f(hs[1]! * M[3 + c]!) * bs[c]!),
+            a2 = jm ? jm[2]![c]! : f(f(hs[2]! * M[6 + c]!) * bs[c]!), wgt = f(f(aj * b[c]!) * csv[c]!);
           const vb = f(bbv[c]! + f(f(2 * ju) * cvv[c]!));
           c00 = f(c00 + f(f(wgt * a0) * a0)); c01 = f(c01 + f(f(wgt * a0) * a1)); c02 = f(c02 + f(f(wgt * a0) * a2));
           c11 = f(c11 + f(f(wgt * a1) * a1)); c12 = f(c12 + f(f(wgt * a1) * a2)); c22 = f(c22 + f(f(wgt * a2) * a2));
@@ -296,7 +241,7 @@ export function emulateDisplayViewSpeed(pw: Uint32Array, pf: Float32Array, aux: 
     const o = i * DISPLAY_VIEW_OUTPUT_FLOATS;
     out[o] = s0; out[o + 1] = s1; out[o + 2] = s2; out[o + 3] = f(c00 + r0); out[o + 4] = f(c11 + r1); out[o + 5] = f(c22 + r2);
     out[o + 6] = c01; out[o + 7] = c02; out[o + 8] = c12; out[o + 9] = f(boundMean * E); out[o + 10] = f(boundVar * E);
-    flags[3 * i] = (material.flagged ? 1 : 0) | (undecided ? 2 : 0); flags[3 * i + 1] = mask0; flags[3 * i + 2] = mask1;
+    flags[3 * i] = (material.flagged || coupledFlag ? 1 : 0) | (undecided ? 2 : 0); flags[3 * i + 1] = mask0; flags[3 * i + 2] = mask1;
   }
 }
 /** Internal test hooks. */

@@ -712,8 +712,12 @@ export interface SimulateCaptureOptions {
     toneCurve?: SdrToneCurve;
     /** Required by the luminance tone curves (see `SdrToneCurveParameters`). The facade does not make one up. */
     toneCurveParameters?: SdrToneCurveParameters;
-    /** Default "clip". */
-    highlightMode?: RawHighlightMode;
+    /**
+     * Default "clip". 2.22.0 (#602, opt-in): "reconstruct-neighbors" rebuilds clipped channels from color ratios of the unclipped
+     * pixels around each clipped region (an estimate; `src/color/neighbor-highlight-reconstruction.ts`): the ring's mean ratios
+     * (fast) or their harmonic interpolation inward (full). Whole-image, so not with `output.region`.
+     */
+    highlightMode?: SimulateCaptureHighlightMode;
     /**
      * Opt-in (#556) development exposure push in stops, −2 to +5 (`NATIVE_RAW_DEVELOPMENT_EXPOSURE_RANGE_STOPS`); default 0.
      * A linear gain 2^stops on the RAW after black subtraction and white normalization, before demosaic, white balance,

@@ -41,6 +41,8 @@
  * the skewness) carry the 2.5 ULP bound.
  */
 
+import { DISPLAY_VIEW_COUPLED_STUB_WGSL } from "./wgsl-display-view-coupled-stub.js";
+
 export const DISPLAY_VIEW_WORKGROUP_SIZE = 64;
 /** Largest footprint per axis (real pixels): the site window is (n + 2)² ≤ 64 entries of private storage. */
 export const DISPLAY_VIEW_GPU_MAXIMUM_PIXELS_PER_AXIS = 6;
@@ -75,20 +77,9 @@ export const DISPLAY_VIEW_AUX = /* @__PURE__ */ Object.freeze({
   inverseW2: 256,
   /** 16 Gauss–Legendre nodes then 16 weights on [−1, 1]. */
   gaussLegendre: 272,
-  /**
-   * #593: a luminance tone curve (params.tone 2 extended Reinhard, 3 Naka–Rushton): a (1/Lw² or σ), n, 1/g(Lw), r(0+) (the ratio's
-   * limit at L = 0; a large finite value for ∞), the luminance weights kr kg kb, the fast flag, then 8 Gauss–Hermite nodes and 8 weights.
-   */
-  luminance: 304,
-  size: 328
+  size: 304
 });
-/**
- * #593: the luminance tone step's running-bound constants, in units of E: the clipped-normal moments per node (`CLIP_MEAN_U`,
- * `CLIP_VARIANCE_U` as for the per-component clip), the conditional variance's cancellation (`LUMINANCE_CANCEL_U`: Σ_kk − β·(Σw)_k
- * carries at most 32 E of Σ_kk, which moves a 1-Lipschitz clip's mean by at most 0.8·r·√(32·E·Σ_kk)), and the node sums (one E per
- * node of the rule). docs/WEBGPU.md, "Display view (Speed)", luminance tone curves.
- */
-export const DISPLAY_VIEW_LUMINANCE_CANCEL_U = 32;
+
 /** Uniform parameter words (see `Params` below): 40 words, 160 bytes. */
 export const DISPLAY_VIEW_PARAM_WORDS = 40;
 /** The `E` of the bounds: one WGSL rounding of + − × in either direction, 2^-23 (W3C WGSL "Floating Point Accuracy"; #471, #487). */
@@ -145,6 +136,8 @@ struct Params {
 @group(0) @binding(3) var<storage, read> spectral_table: array<f32>;
 @group(0) @binding(4) var<storage, read_write> out: array<f32>;
 @group(0) @binding(5) var<storage, read_write> flags: array<u32>;
+// #593, #601: the coupled rendering steps' constants, after the aux table's own entries (one zero word without them).
+fn cp_k(i: u32) -> f32 { return aux[${DISPLAY_VIEW_AUX.size}u + i]; }
 
 var<private> site_mean: array<f32, 64>;
 var<private> site_var: array<f32, 64>;
@@ -260,121 +253,6 @@ fn reinhard_moments(m: f32, v: f32) -> vec3<f32> {
   return vec3<f32>(e1, max(0.0, e2 - shifted * shifted), ed);
 }
 
-// #593: a luminance tone curve's ratio r(L) = f(L)/L, its slope r′(L) and the relative error bound of r in units of E (the
-// image-kernel accelerator's tone_h analysis: log2 2^-21 absolute or 3 ULP, exp2 3 + 2|z| ULP; wgsl-kernels.ts).
-fn lum_ratio(l: f32) -> vec3<f32> {
-  let a = aux[${DISPLAY_VIEW_AUX.luminance}u];
-  if (params.tone == 2u) { let d = 1.0 + l; return vec3<f32>((1.0 + l * a) / d, (a - 1.0) / (d * d), 16.0); }
-  let n = aux[${DISPLAY_VIEW_AUX.luminance + 1}u];
-  let iw = aux[${DISPLAY_VIEW_AUX.luminance + 2}u];
-  let lg = log2(a / l);
-  let z = n * lg;
-  var g = 0.0; var ug = 0.0;
-  if (z >= 0.0) { let p = exp2(-z); g = p / (1.0 + p); ug = 1.0 / (1.0 + p); }
-  else { let u = exp2(z); g = 1.0 / (1.0 + u); ug = u / (1.0 + u); }
-  let dz = n * (8.5 + 3.0 * abs(lg)) + abs(z);
-  return vec3<f32>(g * iw / l, g * (n * ug - 1.0) * iw / (l * l), 2.0 * (0.7 * dz + 3.0 + 2.0 * abs(z)) + 24.0);
-}
-// The clipped normal clip(Z, 0, 1), Z ~ N(m, v), in the cancellation-free standardized form of unit_clip: (mean, variance,
-// P(0 < Z < 1), P(Z ≥ 1)).
-fn lum_clip(m: f32, v: f32) -> vec4<f32> {
-  if (!(v > 0.0)) { let inside = m > 0.0 && m < 1.0; return vec4<f32>(clamp(m, 0.0, 1.0), 0.0, select(0.0, 1.0, inside), select(0.0, 1.0, m >= 1.0)); }
-  let s = sqrt(v);
-  let a = -m / s;
-  let b = (1.0 - m) / s;
-  var pa = 0.0; var da = 0.0;
-  if (a > CLIP_REACH) { pa = 1.0; } else if (!(a < -CLIP_REACH)) { pa = pq(a).x; da = phi(a); }
-  var pb = 1.0; var qb = 0.0; var db = 0.0;
-  if (b < -CLIP_REACH) { pb = 0.0; qb = 1.0; } else if (!(b > CLIP_REACH)) { let p = pq(b); pb = p.x; qb = p.y; db = phi(b); }
-  let inside = pb - pa;
-  let eg = a * pa + (da - db) + b * qb;
-  let eg2 = a * a * pa + inside - (b * db - a * da) + b * b * qb;
-  return vec4<f32>(m + s * eg, max(0.0, v * (eg2 - eg * eg)), inside, qb);
-}
-struct LumTone { hm: vec3<f32>, hv: vec3<f32>, j0: vec3<f32>, j1: vec3<f32>, j2: vec3<f32>, bm: vec3<f32>, bv: vec3<f32>, ju: f32 };
-// The moments of clip(y_k·r(L)) for developed y ~ N(mu, S) (S symmetric: s00 s01 s02 s11 s12 s22) by conditioning on the luminance
-// L = wᵀy (display-view-rendering.ts): mean, variance, the expected slopes E[∂out_k/∂y] (rows j0 j1 j2), and the node errors of the
-// mean and variance in units of E (bm, bv) and the slopes' relative bound in units of E (ju).
-fn lum_tone(mu: vec3<f32>, s0: vec3<f32>, s1: vec3<f32>, s2: vec3<f32>) -> LumTone {
-  let base = ${DISPLAY_VIEW_AUX.luminance}u;
-  let w = vec3<f32>(aux[base + 4u], aux[base + 5u], aux[base + 6u]);
-  let mul = dot(w, mu);
-  let sw = vec3<f32>(dot(s0, w), dot(s1, w), dot(s2, w));
-  let vl = dot(w, sw);
-  let sl = select(0.0, sqrt(vl), vl > 0.0);
-  var beta = vec3<f32>(0.0);
-  if (sl > 0.0) { beta = sw / vl; }
-  let skk = vec3<f32>(s0.x, s1.y, s2.z);
-  let cv = max(vec3<f32>(0.0), skk - beta * sw);
-  // The center of each component's second moment: the deterministic value at the means (no cancellation in hv).
-  var centre = clamp(mu, vec3<f32>(0.0), vec3<f32>(1.0));
-  if (mul > 0.0) { centre = clamp(mu * lum_ratio(mul).x, vec3<f32>(0.0), vec3<f32>(1.0)); }
-  var t: LumTone;
-  t.hm = vec3<f32>(0.0); t.hv = vec3<f32>(0.0); t.j0 = vec3<f32>(0.0); t.j1 = vec3<f32>(0.0); t.j2 = vec3<f32>(0.0); t.bm = vec3<f32>(0.0); t.bv = vec3<f32>(0.0); t.ju = 0.0;
-  var second = vec3<f32>(0.0);
-  let dl = 8.0 * (abs(mul) + 9.0 * sl);
-  let lo = mul - CLIP_REACH * sl;
-  let hi = mul + CLIP_REACH * sl;
-  let fast = aux[base + 7u] != 0.0 && (mul > 2.0 * CLIP_REACH * sl || hi < 0.0);
-  // Node lists: one node (no luminance noise), 8 Gauss–Hermite nodes (fast), or 4 × 16 Gauss–Legendre nodes per piece, split at 0.
-  var pieces = 1u; var nodes = 1u;
-  if (sl > 0.0) { if (fast) { nodes = 8u; } else { nodes = 64u; if (lo < 0.0 && hi > 0.0) { pieces = 2u; } } }
-  var count = 0.0;
-  for (var piece = 0u; piece < pieces; piece = piece + 1u) {
-    // Standardized units z = (L − μ_L)/σ_L (no cancellation in a node's density), split at z = −μ_L/σ_L.
-    var a = -CLIP_REACH; var b = CLIP_REACH;
-    if (pieces == 2u) { if (piece == 0u) { b = -mul / sl; } else { a = -mul / sl; } }
-    for (var i = 0u; i < nodes; i = i + 1u) {
-      var l = mul; var weight = 1.0;
-      if (nodes == 8u) { l = mul + sl * aux[base + 8u + i]; weight = aux[base + 16u + i]; }
-      else if (nodes == 64u) {
-        let width = (b - a) / 4.0;
-        let hw = width / 2.0;
-        let z = a + (f32(i / 16u) + 0.5) * width + hw * aux[${DISPLAY_VIEW_AUX.gaussLegendre}u + (i % 16u)];
-        l = mul + sl * z;
-        weight = hw * aux[${DISPLAY_VIEW_AUX.gaussLegendre + 16}u + (i % 16u)] * phi(z);
-      }
-      count = count + 1.0;
-      var r = 1.0; var rp = 0.0; var eta = 0.0;
-      if (l > 0.0) { let q = lum_ratio(l); r = q.x; rp = q.y; eta = q.z; }
-      t.ju = max(t.ju, eta);
-      for (var k = 0u; k < 3u; k = k + 1u) {
-        let m = mu[k] + beta[k] * (l - mul);
-        let c = lum_clip(r * m, r * r * cv[k]);
-        let d = c.x - centre[k];
-        t.hm[k] = t.hm[k] + weight * c.x;
-        second[k] = second[k] + weight * (c.y + d * d);
-        let e1 = c.x - c.w;
-        let jr = vec3<f32>(select(0.0, r * c.z, k == 0u), select(0.0, r * c.z, k == 1u), select(0.0, r * c.z, k == 2u)) + select(vec3<f32>(0.0), w * (rp * e1 / r), rp != 0.0);
-        if (k == 0u) { t.j0 = t.j0 + weight * jr; } else if (k == 1u) { t.j1 = t.j1 + weight * jr; } else { t.j2 = t.j2 + weight * jr; }
-        let err = CLIP_MEAN_U * r * sqrt(cv[k]) + 0.8 * r * sqrt(${literal(DISPLAY_VIEW_LUMINANCE_CANCEL_U)} * skk[k] / E) + c.z * (abs(rp * m) + r * abs(beta[k])) * dl + abs(c.x) * eta;
-        t.bm[k] = t.bm[k] + weight * err;
-        t.bv[k] = t.bv[k] + weight * (2.0 * err + CLIP_VARIANCE_U * r * r * cv[k]);
-      }
-    }
-  }
-  // The jump of the ratio at L = 0 (Naka–Rushton with n ≠ 1 or 1/(σ·g(Lw)) ≠ 1): its term of Stein's lemma.
-  let r0 = aux[base + 3u];
-  if (sl > 0.0 && r0 != 1.0 && abs(mul) < CLIP_REACH * sl) {
-    let density = phi(mul / sl) / sl;
-    for (var k = 0u; k < 3u; k = k + 1u) {
-      let m = mu[k] - beta[k] * mul;
-      let below = lum_clip(m, cv[k]).x;
-      var above = 0.0;
-      if (r0 > 1e30) { if (cv[k] > 0.0) { above = pq(m / sqrt(cv[k])).x; } else { above = select(0.0, 1.0, m > 0.0); } }
-      else { above = lum_clip(r0 * m, r0 * r0 * cv[k]).x; }
-      let jump = w * (density * (above - below));
-      if (k == 0u) { t.j0 = t.j0 + jump; } else if (k == 1u) { t.j1 = t.j1 + jump; } else { t.j2 = t.j2 + jump; }
-    }
-  }
-  let shifted = t.hm - centre;
-  t.hv = max(vec3<f32>(0.0), second - shifted * shifted);
-  // The node sums: one E per node of the sum, of the summed magnitudes.
-  t.bm = t.bm + count * abs(t.hm);
-  t.bv = t.bv + count * second + 2.0 * abs(shifted) * t.bm;
-  t.ju = t.ju + 4.0 * count;
-  return t;
-}
 fn reflect_x(x: i32) -> i32 { if (x < 0) { return -x; } if (x >= i32(params.native_w)) { return 2 * i32(params.native_w) - 2 - x; } return x; }
 fn reflect_y(y: i32) -> i32 { if (y < 0) { return -y; } if (y >= i32(params.native_h)) { return 2 * i32(params.native_h) - 2 - y; } return y; }
 fn channel_of(x: i32, y: i32) -> u32 {
@@ -493,6 +371,14 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_workgroups) 
         let bit = j * nx + ii;
         if (bit < 32u) { mask0 = mask0 | (1u << bit); } else { mask1 = mask1 | (1u << (bit - 32u)); }
       } else if (near_white) { undecided = true; }
+      // #593: reconstruct within the blend's reach integrates the whole chain below; out of its reach it is the unclipped white balance.
+      var cp_chain_run = false;
+      if (cp_on() && cp_reconstruct()) {
+        let reach = cp_reconstruct_reach(vec3<f32>(cm[0], cm[1], cm[2]), vec3<f32>(cvv[0], cvv[1], cvv[2]));
+        if (reach == 2u) { material_uncertain = true; }
+        cp_chain_run = reach >= 1u;
+      }
+      let cp_unclipped = cp_on() && cp_reconstruct();
       // White balance and the highlight clip at the smallest gain: bm, bv, bs (slope), with the clip's bound terms.
       var bm: array<f32, 3>; var bv: array<f32, 3>; var bs: array<f32, 3>; var bbm: array<f32, 3>; var bbv: array<f32, 3>;
       for (var c = 0u; c < 3u; c = c + 1u) {
@@ -502,7 +388,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_workgroups) 
         let gap = params.clip_level - um;
         bbm[c] = gc * CLIP_MEAN_U * cb[c];
         bbv[c] = gc * gc * CLIP_VARIANCE_U * cb[c] * cb[c];
-        if (gap > 0.0 && gap * gap > params.reach2 * uv) { bm[c] = um; bv[c] = uv; bs[c] = gc; }
+        if (cp_unclipped || (gap > 0.0 && gap * gap > params.reach2 * uv)) { bm[c] = um; bv[c] = uv; bs[c] = gc; }
         else {
           let clipped = upper_clip(um, uv, params.clip_level);
           bm[c] = clipped.x; bv[c] = clipped.y; bs[c] = gc * clipped.z;
@@ -537,25 +423,48 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_workgroups) 
         }
         hbm[comp] = bm_c; hbv[comp] = bv_c;
       }
-      // #593: a luminance tone curve couples the components: their moments by conditioning on luminance (lum_tone), the
-      // expected slopes J replace the per-component ones, and the input bounds carry through |J|.
+      // #593, #601: the coupled steps (wgsl-display-view-coupled.ts): a luminance tone curve by conditioning on luminance, and the
+      // chain's 3-D rule for reconstruct and the desaturation; their slopes ∂out/∂c (camera channels) replace the per-component ones.
       var jm = array<vec3<f32>, 3>(vec3<f32>(0.0), vec3<f32>(0.0), vec3<f32>(0.0));
       var ju = 0.0;
-      if (params.tone >= 2u) {
-        var mu = vec3<f32>(0.0); var dmu = vec3<f32>(0.0); var dsv = vec3<f32>(0.0);
-        var srow = array<vec3<f32>, 3>(vec3<f32>(0.0), vec3<f32>(0.0), vec3<f32>(0.0));
-        for (var r = 0u; r < 3u; r = r + 1u) {
-          mu[r] = m_of(r, 0u) * bm[0] + m_of(r, 1u) * bm[1] + m_of(r, 2u) * bm[2];
-          dmu[r] = abs(m_of(r, 0u)) * bbm[0] + abs(m_of(r, 1u)) * bbm[1] + abs(m_of(r, 2u)) * bbm[2];
-          dsv[r] = m_of(r, 0u) * m_of(r, 0u) * bbv[0] + m_of(r, 1u) * m_of(r, 1u) * bbv[1] + m_of(r, 2u) * m_of(r, 2u) * bbv[2];
-          for (var q = 0u; q < 3u; q = q + 1u) { srow[r][q] = m_of(r, 0u) * m_of(q, 0u) * bv[0] + m_of(r, 1u) * m_of(q, 1u) * bv[1] + m_of(r, 2u) * m_of(q, 2u) * bv[2]; }
+      var cp_used = false;
+      if (cp_on()) {
+        if (!cp_chain_run && cp_luminance()) {
+          var mu = vec3<f32>(0.0); var dmu = vec3<f32>(0.0); var dsv = vec3<f32>(0.0);
+          var srow = array<vec3<f32>, 3>(vec3<f32>(0.0), vec3<f32>(0.0), vec3<f32>(0.0));
+          for (var r = 0u; r < 3u; r = r + 1u) {
+            mu[r] = m_of(r, 0u) * bm[0] + m_of(r, 1u) * bm[1] + m_of(r, 2u) * bm[2];
+            dmu[r] = (abs(m_of(r, 0u)) * bbm[0] + abs(m_of(r, 1u)) * bbm[1] + abs(m_of(r, 2u)) * bbm[2]) * E;
+            dsv[r] = (m_of(r, 0u) * m_of(r, 0u) * bbv[0] + m_of(r, 1u) * m_of(r, 1u) * bbv[1] + m_of(r, 2u) * m_of(r, 2u) * bbv[2]) * E;
+            for (var q = 0u; q < 3u; q = q + 1u) { srow[r][q] = m_of(r, 0u) * m_of(q, 0u) * bv[0] + m_of(r, 1u) * m_of(q, 1u) * bv[1] + m_of(r, 2u) * m_of(q, 2u) * bv[2]; }
+          }
+          let t = cp_tone(mu, srow[0], srow[1], srow[2], dmu, dsv);
+          if (t.flag) { material_uncertain = true; }
+          if (cp_desaturate() && t.top) { cp_chain_run = true; }
+          else {
+            let rows = array<vec3<f32>, 3>(t.a0, t.a1, t.a2);
+            for (var comp = 0u; comp < 3u; comp = comp + 1u) {
+              hm[comp] = t.hm[comp]; hv[comp] = t.hv[comp]; hbm[comp] = t.bm[comp] / E; hbv[comp] = t.bv[comp] / E;
+              for (var c = 0u; c < 3u; c = c + 1u) { jm[comp][c] = (rows[comp].x * m_of(0u, c) + rows[comp].y * m_of(1u, c) + rows[comp].z * m_of(2u, c)) * bs[c]; }
+            }
+            ju = t.ju / E; cp_used = true;
+          }
+        } else if (!cp_chain_run && cp_desaturate() && params.tone != 1u) {
+          // A component reaching 1 within reach is desaturated with the others (the reference's test; undecided: recompute).
+          for (var comp = 0u; comp < 3u; comp = comp + 1u) {
+            let top = hm[comp] + CLIP_REACH * sqrt(hv[comp]);
+            if (hm[comp] > 0.0 && top >= 1.0) { cp_chain_run = true; }
+            if (hm[comp] > 0.0 && abs(top - 1.0) <= 2.0 * (hbm[comp] + CLIP_REACH * sqrt(hbv[comp] / E)) * E + 64.0 * E) { material_uncertain = true; }
+          }
         }
-        let t = lum_tone(mu, srow[0], srow[1], srow[2]);
-        jm[0] = t.j0; jm[1] = t.j1; jm[2] = t.j2; ju = t.ju;
-        for (var comp = 0u; comp < 3u; comp = comp + 1u) {
-          hm[comp] = t.hm[comp]; hv[comp] = t.hv[comp];
-          hbm[comp] = dot(abs(jm[comp]), dmu) + t.bm[comp];
-          hbv[comp] = dot(jm[comp] * jm[comp], dsv) + t.bv[comp];
+        if (cp_chain_run) {
+          let dcm = vec3<f32>(CLIP_MEAN_U * cb[0], CLIP_MEAN_U * cb[1], CLIP_MEAN_U * cb[2]) * E;
+          let dcv = vec3<f32>(CLIP_VARIANCE_U * cb[0] * cb[0], CLIP_VARIANCE_U * cb[1] * cb[1], CLIP_VARIANCE_U * cb[2] * cb[2]) * E;
+          let t = cp_chain(vec3<f32>(cm[0], cm[1], cm[2]), cvv[0], 0.0, 0.0, cvv[1], 0.0, cvv[2], dcm, dcv);
+          if (t.flag) { material_uncertain = true; }
+          jm[0] = t.a0; jm[1] = t.a1; jm[2] = t.a2;
+          for (var comp = 0u; comp < 3u; comp = comp + 1u) { hm[comp] = t.hm[comp]; hv[comp] = t.hv[comp]; hbm[comp] = t.bm[comp] / E; hbv[comp] = t.bv[comp] / E; }
+          ju = t.ju / E; cp_used = true;
         }
       }
       s0 = s0 + aj * hm[0]; s1 = s1 + aj * hm[1]; s2 = s2 + aj * hm[2];
@@ -566,8 +475,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_workgroups) 
         var a0 = hs[0] * m_of(0u, c) * bs[c];
         var a1 = hs[1] * m_of(1u, c) * bs[c];
         var a2 = hs[2] * m_of(2u, c) * bs[c];
-        let mc = vec3<f32>(m_of(0u, c), m_of(1u, c), m_of(2u, c));
-        if (params.tone >= 2u) { a0 = dot(jm[0], mc) * bs[c]; a1 = dot(jm[1], mc) * bs[c]; a2 = dot(jm[2], mc) * bs[c]; }
+        if (cp_used) { a0 = jm[0][c]; a1 = jm[1][c]; a2 = jm[2][c]; }
         var bc = b0; if (c == 1u) { bc = b1; } if (c == 2u) { bc = b2; }
         let wgt = aj * bc * csv[c];
         c00 = c00 + wgt * a0 * a0; c01 = c01 + wgt * a0 * a1; c02 = c02 + wgt * a0 * a2;
@@ -611,7 +519,7 @@ fn scene_value(p: vec2<f32>, c: u32) -> f32 {
 }
 `;
 /** The full shader: the kernel plus a material module (see `DISPLAY_VIEW_SPEED_KERNEL_WGSL`), and the table adapter unless the module defines `scene_value`. */
-export function assembleDisplayViewSpeedWgsl(materialModuleWgsl: string): string {
+export function assembleDisplayViewSpeedWgsl(materialModuleWgsl: string, coupledWgsl: string = DISPLAY_VIEW_COUPLED_STUB_WGSL): string {
   const adapter = /\bfn scene_value\(/u.test(materialModuleWgsl) ? "" : DISPLAY_VIEW_MATERIAL_SCENE_VALUE_WGSL;
-  return DISPLAY_VIEW_SPEED_KERNEL_WGSL + "\n" + materialModuleWgsl + "\n" + adapter;
+  return DISPLAY_VIEW_SPEED_KERNEL_WGSL + "\n" + materialModuleWgsl + "\n" + adapter + "\n" + coupledWgsl;
 }

@@ -267,7 +267,7 @@ async function prepareView(context: DisplayViewRunContext): Promise<PreparedView
   for (const phase of phases) demosaicTable[phase.phaseY * 2 + phase.phaseX] = CHANNELS.map((c) => phase.profile.kernels.find((k) => k.outputChannelId === c)!.contributions
     .map((t) => ({ dx: t.offsetX, dy: t.offsetY, weight: t.weight })));
   const viewIntent = intentOf(viewWhiteBalanceState), viewGains = viewIntent ? [viewIntent.channelGains.red, viewIntent.channelGains.green, viewIntent.channelGains.blue] : null;
-  const colour = prepareSensorColorDevelopment(CAMERA_TO_XYZ as unknown as Parameters<typeof prepareSensorColorDevelopment>[0], viewGains, highlightMode);
+  const colour = prepareSensorColorDevelopment(CAMERA_TO_XYZ as unknown as Parameters<typeof prepareSensorColorDevelopment>[0], viewGains, highlightMode === "reconstruct-neighbors" ? "clip" : highlightMode);
   const toSrgb = resolveCaptureColorModel().xyzToCameraRgb, m = colour.cameraToXyz;
   const matrix = [0, 1, 2].map((r) => [0, 1, 2].map((c) => toSrgb[r]![0]! * m[0]![c]! + toSrgb[r]![1]! * m[1]![c]! + toSrgb[r]![2]! * m[2]![c]!));
   // Reach of a footprint's pixels into the scene, in sites: the demosaic (1), the largest query offset and the kernel radius.
@@ -275,7 +275,7 @@ async function prepareView(context: DisplayViewRunContext): Promise<PreparedView
   // The inputs of the AHD correction states (fixed here, so the correction key is too; #447).
   const gains = colour.appliedGains as [number, number, number], clipLevel = Math.min(...colour.appliedGains), viewToneCurve = toneCurve;
   // #593, #601: the coupled rendering steps (luminance curves, reconstruct, desaturation), with the fast rules when the request is fast.
-  const coupledRendering = toneCurve === "extended-reinhard-luminance" || toneCurve === "naka-rushton-luminance" || highlightMode === "reconstruct" || context.gamutHandling === "desaturate-to-luminance";
+  const coupledRendering = toneCurve === "extended-reinhard-luminance" || toneCurve === "naka-rushton-luminance" || highlightMode === "reconstruct" || highlightMode === "reconstruct-neighbors" || context.gamutHandling === "desaturate-to-luminance";
   const rendering: DisplayViewRenderingChoice | undefined = coupledRendering ? { toneCurve, ...(outputOptions.toneCurveParameters === undefined ? {} : { toneCurveParameters: outputOptions.toneCurveParameters as SdrToneCurveParameters }),
     highlightMode, gamutHandling: context.gamutHandling, fast: context.viewFast.rendering } : undefined;
   // The coupled steps' module is loaded only for a view that asks for them (the default path never imports it).
@@ -306,7 +306,7 @@ async function prepareView(context: DisplayViewRunContext): Promise<PreparedView
     return Int32Array.from(keys).sort();
   };
   // #492: out of focus the view reads the defocus disc (its kernel in signalInput.kernels); the GPU Quality site pass gathers it (step 2c).
-  const gpuRequest: DisplayViewGpuRequest = { ahd, lens: !!context.lens, ...(viewMixed ? { mixedIllumination: true } : {}), defocus: defocusKernel !== null, ...(largeDefocus ? { largeDefocus: true } : {}), diffraction: diffraction !== undefined, antiAliasing: antiAliasing !== undefined, boxSamples, toneCurve: viewToneCurve, ...(highlightMode === "reconstruct" || context.gamutHandling === "desaturate-to-luminance" ? { coupled: true } : {}),
+  const gpuRequest: DisplayViewGpuRequest = { ahd, lens: !!context.lens, ...(viewMixed ? { mixedIllumination: true } : {}), defocus: defocusKernel !== null, ...(largeDefocus ? { largeDefocus: true } : {}), diffraction: diffraction !== undefined, antiAliasing: antiAliasing !== undefined, boxSamples, toneCurve: viewToneCurve, ...(highlightMode === "reconstruct" || highlightMode === "reconstruct-neighbors" || context.gamutHandling === "desaturate-to-luminance" ? { coupled: true } : {}),
     scene: chart ? "chart" : materialLayers ? "material-layers" : callerScene!.kind };
   const render: RenderPreparedView = async (v, run, viewInternals, gpu) => {
     const { started, viewStarted } = run;

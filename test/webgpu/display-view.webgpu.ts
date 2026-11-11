@@ -23,6 +23,7 @@ import { DEFOCUS_GPU_EXTRA, DEFOCUS_GPU_GRID } from "../helpers/display-view-def
 import { adapterSkipReason, findChromium, isSoftwareAdapter, openBrowserPage, type BrowserPage, type WebGpuAdapterProbe } from "./chromium.js";
 import { decodeTransport, encodeTransport } from "./codec.js";
 import { IMAGE_PLANE_GPU_CASES, IMAGE_PLANE_GPU_QUALITY_CASES } from "../helpers/image-plane-fixtures.js";
+import { COUPLED_QUALITY_CASES } from "../helpers/display-view-quality-cases.js";
 import { prepareImagePlaneScenes } from "../../src/index.js";
 
 const root = fileURLToPath(new URL("../..", import.meta.url));
@@ -76,7 +77,14 @@ const cases: [string, SimulateCaptureOptions][] = [
   ["step wedge, Flat look (full rule)", { scene: { preset: "step-wedge", steps: 11 }, lens: { prime: 50, fNumber: 8 }, sensor, fast: false,
     output: { ...output, toneCurve: "naka-rushton-luminance", toneCurveParameters: { exponent: 1, semiSaturation: 0.8465, whiteLuminance: 32 } } }],
   ["step wedge at the white clip, extended Reinhard", { scene: { preset: "step-wedge", steps: 11 }, lens: { prime: 50, fNumber: 8 }, exposure: { mode: "manual", iso: 100, shutterSeconds: 1 / 15 }, sensor,
-    output: { ...output, toneCurve: "extended-reinhard-luminance", toneCurveParameters: { whiteLuminance: 4 } } }]
+    output: { ...output, toneCurve: "extended-reinhard-luminance", toneCurveParameters: { whiteLuminance: 4 } } }],
+  // #593, #601: reconstruct and the desaturation (the chain's 3-D rule), fast and full.
+  ["step wedge at the white clip, reconstruct", { scene: { preset: "step-wedge", steps: 11 }, lens: { prime: 50, fNumber: 8 }, exposure: { mode: "manual", iso: 100, shutterSeconds: 1 / 15 }, sensor,
+    output: { ...output, highlightMode: "reconstruct" } }],
+  ["step wedge over white, reconstruct and desaturation, Flat look (full rule)", { scene: { preset: "step-wedge", steps: 11 }, lens: { prime: 50, fNumber: 8 }, exposure: { mode: "manual", iso: 400, shutterSeconds: 1 / 30 }, sensor, fast: false,
+    output: { ...output, highlightMode: "reconstruct", gamutHandling: "desaturate-to-luminance", toneCurve: "naka-rushton-luminance", toneCurveParameters: { exponent: 1, semiSaturation: 0.8465, whiteLuminance: 32 } } }],
+  ["step wedge over white, desaturation, identity curve", { scene: { preset: "step-wedge", steps: 11 }, lens: { prime: 50, fNumber: 8 }, exposure: { mode: "manual", iso: 800, shutterSeconds: 1 / 60 }, sensor,
+    output: { ...output, gamutHandling: "desaturate-to-luminance" } }]
 ];
 
 describe("webgpu-f32 display view (Speed) vs the float64 reference", () => {
@@ -237,7 +245,12 @@ const qualityCases: [string, SimulateCaptureOptions][] = [
   ["step wedge at ISO 6400 (the low-signal correction)", { scene: { preset: "step-wedge", steps: 11 }, lens: qualityLens, exposure: { mode: "manual", iso: 6400, shutterSeconds: 1 / 8000 }, sensor: qualitySensor, output: qualityOutput }],
   ["step wedge, Reinhard", { scene: { preset: "step-wedge", steps: 11 }, lens: qualityLens, exposure: { mode: "manual", iso: 100, shutterSeconds: 1 / 30 }, sensor: qualitySensor,
     output: { ...qualityOutput, toneCurve: "positive-reinhard-per-channel" } }],
-  ["AHD without diffraction", { scene: { preset: "checkerboard", squaresAcross: 12 }, lens: { prime: 50, fNumber: 8 }, sensor: qualitySensor, output: qualityOutput }]
+  ["AHD without diffraction", { scene: { preset: "checkerboard", squaresAcross: 12 }, lens: { prime: 50, fNumber: 8 }, sensor: qualitySensor, output: qualityOutput }],
+  // #593, #601: the coupled steps in the Quality kernels (the emulation's cases), and the full rules.
+  ...COUPLED_QUALITY_CASES,
+  ["step wedge over white, reconstruct and desaturation, Flat look (full rules)", { scene: { preset: "step-wedge", steps: 11 }, lens: qualityLens, exposure: { mode: "manual", iso: 400, shutterSeconds: 1 / 30 },
+    sensor: qualitySensor, fast: false, output: { ...qualityOutput, highlightMode: "reconstruct", gamutHandling: "desaturate-to-luminance", toneCurve: "naka-rushton-luminance",
+      toneCurveParameters: { exponent: 1, semiSaturation: 0.8465, whiteLuminance: 32 } } }]
 ];
 
 describe("webgpu-f32 display view (Quality) vs the float64 reference", () => {

@@ -43,7 +43,8 @@ import { BUFFER_USAGE, GpuResourceScope, abortedError, createComputePipeline, li
 import { DISPLAY_VIEW_QUALITY_AUX, DISPLAY_VIEW_QUALITY_BITMAP_WORDS, DISPLAY_VIEW_QUALITY_CANDIDATE_ENTRIES, DISPLAY_VIEW_QUALITY_CANDIDATE_FLOATS, DISPLAY_VIEW_QUALITY_FLAG, DISPLAY_VIEW_QUALITY_FLAG_WORDS,
   DISPLAY_VIEW_QUALITY_GEOMETRY_STRIDE, DISPLAY_VIEW_QUALITY_GROUP_WORDS, DISPLAY_VIEW_QUALITY_MAXIMUM_NODES, DISPLAY_VIEW_QUALITY_MAXIMUM_PIXELS_PER_AXIS, DISPLAY_VIEW_QUALITY_OUTPUT_FLOATS, DISPLAY_VIEW_QUALITY_PARAM_WORDS,
   DISPLAY_VIEW_QUALITY_PIXELS_WGSL, DISPLAY_VIEW_QUALITY_SITES_BLOCKED_WGSL, DISPLAY_VIEW_QUALITY_SITES_WGSL, DISPLAY_VIEW_QUALITY_SITE_FLOATS, DISPLAY_VIEW_QUALITY_TAP_WORDS, DISPLAY_VIEW_QUALITY_WORKGROUP_SIZE,
-  assembleDisplayViewQualityLatticeWgsl } from "./wgsl-display-view-quality-kernel.js";
+  assembleDisplayViewQualityLatticeWgsl, assembleDisplayViewQualityPixelsWgsl } from "./wgsl-display-view-quality-kernel.js";
+import { SDR_LUMINANCE_WEIGHTS } from "../output/sdr-rendering.js";
 
 type PipelineSource = (label: string, code: string) => Promise<GPUComputePipeline>;
 type YieldControl = ((signal: AbortSignal) => Promise<void>) | undefined;
@@ -253,8 +254,9 @@ export function displayViewQualityGpuUnsupportedReason(setup: DisplayViewSetup, 
   if (signalInput.scene.kind !== "materials" && !signalInput.scene.image) return "radiance scenes (caller functions) are not on the GPU";
   if (!signalInput.kernels && !signalInput.queryPoint) return "the expected signal has no query points";
   if (setup.ahdCollect) return "a collect pass of the correction states runs on the CPU";
-  if (setup.toneCurve !== "identity" && setup.toneCurve !== "positive-reinhard-per-channel") return "unsupported tone curve " + String(setup.toneCurve);
-  if (setup.rendering) return "the coupled rendering steps (luminance tone curves, highlightMode reconstruct, desaturate-to-luminance) are not in the Quality kernel";
+  if (!["identity", "positive-reinhard-per-channel", "extended-reinhard-luminance", "naka-rushton-luminance"].includes(setup.toneCurve)) return "unsupported tone curve " + String(setup.toneCurve);
+  if (setup.rendering && !setup.coupled) return "the coupled rendering steps were not prepared";
+  if (setup.rendering?.highlightMode === "reconstruct-neighbors") return "highlightMode reconstruct-neighbors (#602; its regions' ratios are found on the host) is not on the GPU in 2.22.0";
   if (setup.region.width < 1 || setup.region.height < 1) return "an empty region";
   if (signalInput.wavelengthsNm.length < 1 || signalInput.wavelengthsNm.length > DISPLAY_VIEW_QUALITY_MAXIMUM_NODES) return "the site passes integrate 1 to " + DISPLAY_VIEW_QUALITY_MAXIMUM_NODES + " spectral nodes per site";
   if (signalInput.kernels && (signalInput.kernels.radius < 0 || signalInput.kernels.radius > DISPLAY_VIEW_QUALITY_MAXIMUM_KERNEL_RADIUS))
@@ -548,13 +550,20 @@ export async function renderDisplayViewQualityOnGpu(runtime: WebGpuRuntime, band
   const latticePipeline = image ? await pipelines(...image.lattice) : await pipelines("photivra-display-view-quality-lattice:" + material.id, assembleDisplayViewQualityLatticeWgsl(material.wgsl));
   const sitesPipeline = image ? await pipelines(...image.sites) : blocked ? await pipelines("photivra-display-view-quality-sites-blocked", DISPLAY_VIEW_QUALITY_SITES_BLOCKED_WGSL) :
     await pipelines("photivra-display-view-quality-sites", DISPLAY_VIEW_QUALITY_SITES_WGSL);
-  const pixelsPipeline = await pipelines("photivra-display-view-quality-pixels", DISPLAY_VIEW_QUALITY_PIXELS_WGSL);
+  // #593, #601: the coupled steps' text and constants, loaded on demand for a view that asks for them.
+  const coupled = setup.rendering ? await import("./wgsl-display-view-coupled.js") : null;
+  const coupledConstants = coupled ? coupled.displayViewCoupledConstants(setup, SDR_LUMINANCE_WEIGHTS, gaussLegendre16()) : new Float32Array(1);
+  const pixelsPipeline = coupled ? await pipelines("photivra-display-view-quality-pixels+coupled", assembleDisplayViewQualityPixelsWgsl(coupled.DISPLAY_VIEW_COUPLED_WGSL))
+    : await pipelines("photivra-display-view-quality-pixels", DISPLAY_VIEW_QUALITY_PIXELS_WGSL);
   const moments = new Float32Array(pixelCount * DISPLAY_VIEW_QUALITY_OUTPUT_FLOATS), pixelFlags = new Uint32Array(pixelCount), masks = new Uint32Array(2 * pixelCount);
   const states = input.states ?? new CorrectionStateStore(), correction = setup.ahdCorrection ? correctionSetup(setup) : null;
   let statesComputed = 0, latticePointsResolved = 0;
   const scope = new GpuResourceScope(runtime);
   try {
-    const auxBuffer = scope.upload("photivra-display-view-aux", aux, BUFFER_USAGE.STORAGE);
+    // #593, #601: the coupled steps' constants follow the aux table's own entries (one zero word without them).
+    const auxWithCoupled = new Float32Array(aux.length + coupledConstants.length);
+    auxWithCoupled.set(aux); auxWithCoupled.set(coupledConstants, aux.length);
+    const auxBuffer = scope.upload("photivra-display-view-aux", auxWithCoupled, BUFFER_USAGE.STORAGE);
     const geometryBuffer = scope.upload("photivra-display-view-geometry", geometry, BUFFER_USAGE.STORAGE);
     // The blocked pass reads no tap records (its layout has no binding 2).
     const tapsBuffer = blocked ? null : scope.upload("photivra-display-view-taps", gather.taps, BUFFER_USAGE.STORAGE);

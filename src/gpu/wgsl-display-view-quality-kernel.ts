@@ -54,6 +54,7 @@
 import { DISPLAY_VIEW_CLIP_MEAN_U, DISPLAY_VIEW_CLIP_VARIANCE_U, DISPLAY_VIEW_REINHARD_MEAN_U, DISPLAY_VIEW_REINHARD_VARIANCE_U } from "./wgsl-display-view-speed-kernel.js";
 import { AHD_KEY_FLOOR, AHD_KEY_LEVELS, AHD_KEY_OCTAVES, AHD_KEY_STEPS } from "../facade/display-view.js";
 import { EXACT_SUM_WGSL } from "./wgsl-exact-sum.js";
+import { DISPLAY_VIEW_COUPLED_STUB_WGSL } from "./wgsl-display-view-coupled-stub.js";
 
 export const DISPLAY_VIEW_QUALITY_WORKGROUP_SIZE = 64;
 /** Largest footprint per axis (real pixels), as the Speed kernel. */
@@ -542,7 +543,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_workgroups) 
 `;
 
 /** Pass 3: the display pixels (see the module comment). */
-export const DISPLAY_VIEW_QUALITY_PIXELS_WGSL = /* wgsl */ `${DISPLAY_VIEW_QUALITY_COMMON_WGSL}
+export const DISPLAY_VIEW_QUALITY_PIXELS_BODY_WGSL = /* wgsl */ `${DISPLAY_VIEW_QUALITY_COMMON_WGSL}
 const KEY_LEVELS: u32 = ${AHD_KEY_LEVELS}u;
 const KEY_STEPS: f32 = ${literal(AHD_KEY_STEPS)};
 const KEY_OCTAVES: f32 = ${literal(AHD_KEY_OCTAVES)};
@@ -566,6 +567,8 @@ const CHOICE_SIGMA: f32 = ${literal(DISPLAY_VIEW_QUALITY_CHOICE_SIGMA)};
 @group(0) @binding(6) var<storage, read_write> bitmap: array<atomic<u32>>;
 @group(0) @binding(7) var<storage, read_write> out: array<f32>;
 @group(0) @binding(8) var<storage, read_write> flags: array<u32>;
+// #593, #601: the coupled rendering steps' constants, after the aux table's own entries (one zero word without them).
+fn cp_k(i: u32) -> f32 { return aux[${DISPLAY_VIEW_QUALITY_AUX.size}u + i]; }
 
 var<private> pixel_flags: u32;
 ${REINHARD_WGSL}
@@ -658,6 +661,9 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_workgroups) 
   let margin = i32(params.margin);
   let reinhard = params.tone == 1u;
   let count = params.candidates;
+  // #593: whether the last candidate took the coupled slopes, and those slopes (for AHD's choice variance).
+  var cp_used = false;
+  var cp_a: array<vec2<f32>, 9>;
   let share = select(1.0, 0.5, count == 2u);
   // B_c of the footprint from the host's axis sums (each over its scale squared): red, green, blue.
   let xb_even = geometry[col + 8u]; let xb_odd = geometry[col + 9u];
@@ -751,16 +757,25 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_workgroups) 
           C[3] = b_add(C[3], b_scale(sv, w1 * w1)); C[4] = b_add(C[4], b_scale(sv, w1 * w2)); C[5] = b_add(C[5], b_scale(sv, w2 * w2));
         }
         for (var c = 0u; c < 3u; c = c + 1u) { if (exact[c]) { cm[c].y = 0.0; } cm_average[c] = b_add(cm_average[c], b_scale(cm[c], share)); }
+        // #593: reconstruct within the blend's reach integrates the whole chain below; out of its reach it is the unclipped white
+        // balance. An undecided reach is recomputed on the host.
+        var cp_chain_run = false;
+        if (cp_on() && cp_reconstruct()) {
+          let reach = cp_reconstruct_reach(vec3<f32>(cm[0].x, cm[1].x, cm[2].x), vec3<f32>(C[0].x, C[3].x, C[5].x));
+          if (reach == 2u) { pixel_flags = pixel_flags | FLAG_UNCERTAIN; }
+          cp_chain_run = reach >= 1u;
+        }
+        let cp_unclipped = cp_on() && cp_reconstruct();
         // White balance and the highlight clip at the smallest gain. A channel exactly at white whose gain is the clip level is
         // exactly at the clip level on both sides.
         var bm: array<vec2<f32>, 3>; var bv: array<vec2<f32>, 3>;
         for (var c = 0u; c < 3u; c = c + 1u) {
           let gc = b_rounded(g_of(c));
           var um = b_mul(gc, cm[c]);
-          if (exact[c] && cm[c].x == 1.0 && gain_at_clip(c)) { um = vec2<f32>(params.clip_level, 0.0); }
+          if (exact[c] && cm[c].x == 1.0 && gain_at_clip(c) && !cp_unclipped) { um = vec2<f32>(params.clip_level, 0.0); }
           let uv = b_mul(b_mul(gc, gc), C[select(select(0u, 3u, c == 1u), 5u, c == 2u)]);
           let gap = params.clip_level - um.x;
-          if (gap > 0.0 && gap * gap > params.reach2 * uv.x) { bm[c] = um; bv[c] = uv; bs[c] = gc; }
+          if (cp_unclipped || (gap > 0.0 && gap * gap > params.reach2 * uv.x)) { bm[c] = um; bv[c] = uv; bs[c] = gc; }
           else { let clipped = upper_clip(um, uv, params.clip_level); bm[c] = clipped.mean; bv[c] = clipped.variance; bs[c] = b_mul(gc, clipped.slope); }
         }
         // Colour matrix with the full channel covariance, then the rendering of each component.
@@ -796,16 +811,75 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_workgroups) 
             moments = unit_clip(mean, variance, skew);
           }
           hm[comp] = moments.mean; hv[comp] = moments.variance; hs[comp] = moments.slope;
-          h_cand[d * 3u + comp] = moments.mean;
-          e_mean[comp] = b_add(e_mean[comp], b_scale(moments.mean, share));
-          pixel_variance = vec2<f32>(max(pixel_variance.x, moments.variance.x), max(pixel_variance.y, moments.variance.y));
+        }
+        // #593, #601: the coupled steps (wgsl-display-view-coupled.ts) replace the moments and give the slopes ∂out/∂c.
+        var an: array<vec2<f32>, 9>;
+        cp_used = false;
+        if (cp_on()) {
+          if (!cp_chain_run && cp_luminance()) {
+            var mu = vec3<f32>(0.0); var dmu = vec3<f32>(0.0); var dsv = vec3<f32>(0.0);
+            var srow = array<vec3<f32>, 3>(vec3<f32>(0.0), vec3<f32>(0.0), vec3<f32>(0.0));
+            var cc = array<f32, 9>(C[0].x, C[1].x, C[2].x, C[1].x, C[3].x, C[4].x, C[2].x, C[4].x, C[5].x);
+            for (var r = 0u; r < 3u; r = r + 1u) {
+              mu[r] = m_of(r, 0u) * bm[0].x + m_of(r, 1u) * bm[1].x + m_of(r, 2u) * bm[2].x;
+              dmu[r] = abs(m_of(r, 0u)) * bm[0].y + abs(m_of(r, 1u)) * bm[1].y + abs(m_of(r, 2u)) * bm[2].y;
+              dsv[r] = m_of(r, 0u) * m_of(r, 0u) * bv[0].y + m_of(r, 1u) * m_of(r, 1u) * bv[1].y + m_of(r, 2u) * m_of(r, 2u) * bv[2].y;
+              for (var q = 0u; q < 3u; q = q + 1u) {
+                var v = 0.0;
+                for (var a = 0u; a < 3u; a = a + 1u) { for (var b = 0u; b < 3u; b = b + 1u) {
+                  var bab = bv[a].x; if (a != b) { bab = bs[a].x * bs[b].x * cc[a * 3u + b]; }
+                  v = v + m_of(r, a) * m_of(q, b) * bab;
+                } }
+                srow[r][q] = v;
+              }
+            }
+            let t = cp_tone(mu, srow[0], srow[1], srow[2], dmu, dsv);
+            if (t.flag) { pixel_flags = pixel_flags | FLAG_UNCERTAIN; }
+            if (cp_desaturate() && t.top) { cp_chain_run = true; }
+            else {
+              let rows = array<vec3<f32>, 3>(t.a0, t.a1, t.a2);
+              for (var comp = 0u; comp < 3u; comp = comp + 1u) {
+                hm[comp] = vec2<f32>(t.hm[comp], t.bm[comp]); hv[comp] = vec2<f32>(t.hv[comp], t.bv[comp]);
+                for (var c = 0u; c < 3u; c = c + 1u) {
+                  let jmc = rows[comp].x * m_of(0u, c) + rows[comp].y * m_of(1u, c) + rows[comp].z * m_of(2u, c);
+                  let ajm = abs(rows[comp].x * m_of(0u, c)) + abs(rows[comp].y * m_of(1u, c)) + abs(rows[comp].z * m_of(2u, c));
+                  let value = jmc * bs[c].x;
+                  an[comp * 3u + c] = vec2<f32>(value, ajm * bs[c].y + abs(value) * (t.ju + 4.0 * E));
+                }
+              }
+              cp_used = true;
+            }
+          } else if (!cp_chain_run && cp_desaturate() && !reinhard) {
+            for (var comp = 0u; comp < 3u; comp = comp + 1u) {
+              let top = hm[comp].x + CLIP_REACH * sqrt(hv[comp].x);
+              if (hm[comp].x > 0.0 && top >= 1.0) { cp_chain_run = true; }
+              if (hm[comp].x > 0.0 && abs(top - 1.0) <= 2.0 * (hm[comp].y + CLIP_REACH * sqrt(hv[comp].y)) + 64.0 * E) { pixel_flags = pixel_flags | FLAG_UNCERTAIN; }
+            }
+          }
+          if (cp_chain_run) {
+            let t = cp_chain(vec3<f32>(cm[0].x, cm[1].x, cm[2].x), C[0].x, C[1].x, C[2].x, C[3].x, C[4].x, C[5].x, vec3<f32>(cm[0].y, cm[1].y, cm[2].y), vec3<f32>(C[0].y, C[3].y, C[5].y));
+            if (t.flag) { pixel_flags = pixel_flags | FLAG_UNCERTAIN; }
+            let rows = array<vec3<f32>, 3>(t.a0, t.a1, t.a2);
+            for (var comp = 0u; comp < 3u; comp = comp + 1u) {
+              hm[comp] = vec2<f32>(t.hm[comp], t.bm[comp]); hv[comp] = vec2<f32>(t.hv[comp], t.bv[comp]);
+              for (var c = 0u; c < 3u; c = c + 1u) { an[comp * 3u + c] = vec2<f32>(rows[comp][c], abs(rows[comp][c]) * t.ju); }
+            }
+            cp_used = true;
+          }
+          if (cp_used) { for (var k = 0u; k < 9u; k = k + 1u) { cp_a[k] = an[k]; } }
+        }
+        for (var comp = 0u; comp < 3u; comp = comp + 1u) {
+          h_cand[d * 3u + comp] = hm[comp];
+          e_mean[comp] = b_add(e_mean[comp], b_scale(hm[comp], share));
+          pixel_variance = vec2<f32>(max(pixel_variance.x, hv[comp].x), max(pixel_variance.y, hv[comp].y));
         }
         // Linear (Stein) part with B_c·σ_c², and the pixel's own linear variance aᵀCa for the residual.
-        var an: array<vec2<f32>, 9>;
         for (var c = 0u; c < 3u; c = c + 1u) {
-          an[c] = b_mul(b_mul(hs[0], b_rounded(m_of(0u, c))), bs[c]);
-          an[3u + c] = b_mul(b_mul(hs[1], b_rounded(m_of(1u, c))), bs[c]);
-          an[6u + c] = b_mul(b_mul(hs[2], b_rounded(m_of(2u, c))), bs[c]);
+          if (!cp_used) {
+            an[c] = b_mul(b_mul(hs[0], b_rounded(m_of(0u, c))), bs[c]);
+            an[3u + c] = b_mul(b_mul(hs[1], b_rounded(m_of(1u, c))), bs[c]);
+            an[6u + c] = b_mul(b_mul(hs[2], b_rounded(m_of(2u, c))), bs[c]);
+          }
           var bc = b0; if (c == 1u) { bc = b1; } if (c == 2u) { bc = b2; }
           let wgt = b_mul(b_mul(b_scale(aj, share), b_rounded(bc)), csv[c]);
           cov[0] = b_add(cov[0], b_mul(b_mul(wgt, an[c]), an[c])); cov[1] = b_add(cov[1], b_mul(b_mul(wgt, an[c]), an[3u + c])); cov[2] = b_add(cov[2], b_mul(b_mul(wgt, an[c]), an[6u + c]));
@@ -846,9 +920,16 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_workgroups) 
           let d1 = b_scale(bs[1], aux[eb + 3u] - aux[eb + 6u]);
           let d2 = b_scale(bs[2], aux[eb + 4u] - aux[eb + 7u]);
           let sv = vec2<f32>(sites[o + 1u], sites[o + 4u]);
-          let a = b_mul(hs[0], b_add(b_add(b_mul(b_rounded(params.m00), d0), b_mul(b_rounded(params.m01), d1)), b_mul(b_rounded(params.m02), d2)));
-          let b = b_mul(hs[1], b_add(b_add(b_mul(b_rounded(params.m10), d0), b_mul(b_rounded(params.m11), d1)), b_mul(b_rounded(params.m12), d2)));
-          let c = b_mul(hs[2], b_add(b_add(b_mul(b_rounded(params.m20), d0), b_mul(b_rounded(params.m21), d1)), b_mul(b_rounded(params.m22), d2)));
+          var a = b_mul(hs[0], b_add(b_add(b_mul(b_rounded(params.m00), d0), b_mul(b_rounded(params.m01), d1)), b_mul(b_rounded(params.m02), d2)));
+          var b = b_mul(hs[1], b_add(b_add(b_mul(b_rounded(params.m10), d0), b_mul(b_rounded(params.m11), d1)), b_mul(b_rounded(params.m12), d2)));
+          var c = b_mul(hs[2], b_add(b_add(b_mul(b_rounded(params.m20), d0), b_mul(b_rounded(params.m21), d1)), b_mul(b_rounded(params.m22), d2)));
+          if (cp_used) {
+            // #593: the coupled slopes ∂out/∂c of the last candidate.
+            let e0 = aux[eb + 2u] - aux[eb + 5u]; let e1 = aux[eb + 3u] - aux[eb + 6u]; let e2 = aux[eb + 4u] - aux[eb + 7u];
+            a = b_add(b_add(b_scale(cp_a[0], e0), b_scale(cp_a[1], e1)), b_scale(cp_a[2], e2));
+            b = b_add(b_add(b_scale(cp_a[3], e0), b_scale(cp_a[4], e1)), b_scale(cp_a[5], e2));
+            c = b_add(b_add(b_scale(cp_a[6], e0), b_scale(cp_a[7], e1)), b_scale(cp_a[8], e2));
+          }
           x0 = b_add(x0, b_mul(b_mul(a, a), sv)); x1 = b_add(x1, b_mul(b_mul(b, b), sv)); x2 = b_add(x2, b_mul(b_mul(c, c), sv));
         }
         let ajaj = b_mul(aj, aj);
@@ -880,6 +961,12 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_workgroups) 
   flags[3u * i + 2u] = mask1;
 }
 `;
+
+/** The pixel pass (`DISPLAY_VIEW_QUALITY_PIXELS_BODY_WGSL`) with the coupled steps' text: the stub by default, the coupled steps on demand (#593). */
+export function assembleDisplayViewQualityPixelsWgsl(coupledWgsl: string = DISPLAY_VIEW_COUPLED_STUB_WGSL): string {
+  return DISPLAY_VIEW_QUALITY_PIXELS_BODY_WGSL + "\n" + coupledWgsl;
+}
+export const DISPLAY_VIEW_QUALITY_PIXELS_WGSL = /* @__PURE__ */ assembleDisplayViewQualityPixelsWgsl();
 
 /** The lattice pass with a material module appended (`fn material_at(p: vec2<f32>) -> u32`, `var<private> material_uncertain: bool`). */
 export function assembleDisplayViewQualityLatticeWgsl(materialModuleWgsl: string): string {

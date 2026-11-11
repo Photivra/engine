@@ -133,10 +133,9 @@ export function displayViewSpeedGpuUnsupportedReason(setup: DisplayViewSetup, si
   if (signalInput.scene.kind !== "materials" && !signalInput.scene.signalAt) return "radiance scenes (caller functions) are not on the GPU";
   if (!signalInput.queryPoint) return "the expected signal has no query points";
   if (setup.candidates || setup.ahdCorrection || setup.ahdCollect) return "AHD candidates and the low-signal correction are not on the GPU";
-  if (setup.rendering && (setup.rendering.highlightMode !== "clip" || setup.rendering.gamutHandling !== "clip-components"))
-    return "highlightMode reconstruct and desaturate-to-luminance (the development chain's 3-D rule) are not in the Speed kernel";
-  const p = setup.rendering?.toneCurveParameters;
-  if (p && "exponent" in p && !(p.exponent >= 1)) return "Naka–Rushton below exponent 1 (its ratio f(L)/L is unbounded at L = 0) is not in the Speed kernel";
+  if (!["identity", "positive-reinhard-per-channel", "extended-reinhard-luminance", "naka-rushton-luminance"].includes(setup.toneCurve)) return "unsupported tone curve " + String(setup.toneCurve);
+  if (setup.rendering && !setup.coupled) return "the coupled rendering steps were not prepared";
+  if (setup.rendering?.highlightMode === "reconstruct-neighbors") return "highlightMode reconstruct-neighbors (#602; its regions' ratios are found on the host) is not on the GPU in 2.22.0";
   if (signalInput.offsets.length < 1 || signalInput.offsets.length > DISPLAY_VIEW_GPU_MAXIMUM_OFFSETS) return "the kernel holds 1 to " + DISPLAY_VIEW_GPU_MAXIMUM_OFFSETS + " query offsets";
   if (signalInput.wavelengthsNm.length < 1 || signalInput.wavelengthsNm.length > DISPLAY_VIEW_SPEED_MAXIMUM_NODES) return "the kernel integrates 1 to " + DISPLAY_VIEW_SPEED_MAXIMUM_NODES + " spectral nodes per site";
   if (setup.region.width < 1 || setup.region.height < 1) return "an empty region";
@@ -244,19 +243,6 @@ function constants(setup: DisplayViewSetup, signalInput: DisplayViewExpectedSign
   }
   const gl = gaussLegendre16();
   aux.set(gl.x, DISPLAY_VIEW_AUX.gaussLegendre); aux.set(gl.w, DISPLAY_VIEW_AUX.gaussLegendre + 16);
-  // #593: a luminance tone curve's constants, the luminance weights, the fast flag and the 8-point Gauss–Hermite rule.
-  const p = setup.rendering?.toneCurveParameters, base = DISPLAY_VIEW_AUX.luminance;
-  if (p && setup.rendering) {
-    if ("exponent" in p) {
-      const q = p as { exponent: number; semiSaturation: number; whiteLuminance: number }, white = 1 / (1 + (q.semiSaturation / q.whiteLuminance) ** q.exponent);
-      aux[base] = q.semiSaturation; aux[base + 1] = q.exponent; aux[base + 2] = 1 / white;
-      aux[base + 3] = q.exponent > 1 ? 0 : (1 + q.semiSaturation / q.whiteLuminance) / q.semiSaturation;
-    } else { aux[base] = 1 / (p.whiteLuminance * p.whiteLuminance); aux[base + 3] = 1; }
-    aux.set(SDR_LUMINANCE_WEIGHTS, base + 4);
-    aux[base + 7] = setup.rendering.fast ? 1 : 0;
-    const gh = setup.coupled!.luminanceRule;
-    aux.set(gh.x, base + 8); aux.set(gh.w, base + 16);
-  }
   return { params, aux };
 }
 
@@ -340,12 +326,18 @@ export async function renderDisplayViewSpeedOnGpu(runtime: WebGpuRuntime, bandBy
   const rows = Math.max(1, Math.min(region.height, Math.floor(bandBytes / (region.width * BYTES_PER_PIXEL)), material.bandRows?.(shape.sy) ?? Infinity));
   if (Math.max(rows * region.width * 4 * DISPLAY_VIEW_OUTPUT_FLOATS, geometry.byteLength, table.byteLength) > runtime.maximumStorageBindingBytes)
     throw new ImageKernelExecutionError("insufficient-limits", "One display-view band exceeds the device's storage binding limit.");
-  const pipeline = await pipelines("photivra-display-view-speed:" + material.id, assembleDisplayViewSpeedWgsl(material.wgsl));
+  // #593, #601: the coupled steps' shader text and constants, loaded on demand for a view that asks for them.
+  const coupled = setup.rendering ? await import("./wgsl-display-view-coupled.js") : null;
+  const coupledConstants = coupled ? coupled.displayViewCoupledConstants(setup, SDR_LUMINANCE_WEIGHTS, gaussLegendre16()) : new Float32Array(1);
+  const pipeline = await pipelines("photivra-display-view-speed:" + material.id + (coupled ? "+coupled" : ""), assembleDisplayViewSpeedWgsl(material.wgsl, coupled?.DISPLAY_VIEW_COUPLED_WGSL));
   const moments = new Float32Array(pixelCount * DISPLAY_VIEW_OUTPUT_FLOATS), flagged: number[] = [], flagWords = new Uint32Array(pixelCount * DISPLAY_VIEW_FLAG_WORDS);
   const words = new Uint32Array(params);
   const scope = new GpuResourceScope(runtime);
   try {
-    const auxBuffer = scope.upload("photivra-display-view-aux", aux, BUFFER_USAGE.STORAGE);
+    // #593, #601: the coupled steps' constants follow the aux table's own entries (one zero word without them).
+    const auxWithCoupled = new Float32Array(aux.length + coupledConstants.length);
+    auxWithCoupled.set(aux); auxWithCoupled.set(coupledConstants, aux.length);
+    const auxBuffer = scope.upload("photivra-display-view-aux", auxWithCoupled, BUFFER_USAGE.STORAGE);
     const geometryBuffer = scope.upload("photivra-display-view-geometry", geometry, BUFFER_USAGE.STORAGE);
     const tableBuffer = scope.upload("photivra-display-view-table", table, BUFFER_USAGE.STORAGE);
     const materialGroup = material.band ? null : runtime.device.createBindGroup({ layout: pipeline.getBindGroupLayout(1), entries: material.bindings.map((b) => ({ binding: b.binding,
@@ -448,7 +440,6 @@ export function displayViewSpeedGpuSupports(request: DisplayViewGpuRequest): tru
 /** Why the GPU's material lookup, tone curves or query-offset table do not cover a request (shared by the Speed and Quality support checks), or true. */
 export function sceneToneAndOffsetsReason(request: DisplayViewGpuRequest, maximumOffsets: number): true | string {
   if (request.scene !== "chart" && request.scene !== "material-layers" && request.scene !== "image-plane") return "the scene is a caller " + request.scene + "; the GPU material lookup covers engine charts and declared material-layers scenes (describe the scene as material-layers)";
-  if (request.coupled) return "the coupled rendering steps (highlightMode reconstruct, desaturate-to-luminance) are not on the GPU";
   if (offsetCount(request) > maximumOffsets) return "more than " + maximumOffsets + " query offsets per site";
   return true;
 }

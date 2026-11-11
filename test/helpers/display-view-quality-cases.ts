@@ -27,6 +27,21 @@ export const QUALITY_CASES: [string, SimulateCaptureOptions][] = [
   ["AHD without diffraction", { scene: { preset: "checkerboard", squaresAcross: 12 }, lens: { prime: 50, fNumber: 8 }, sensor, output }]
 ];
 
+const STANDARD = { exponent: 1.5, semiSaturation: 0.5009, whiteLuminance: 8 }, FLAT = { exponent: 1, semiSaturation: 0.8465, whiteLuminance: 32 };
+/** #593, #601: the coupled rendering steps in the Quality kernels (luminance tone curves, reconstruct, the desaturation). */
+export const COUPLED_QUALITY_CASES: [string, SimulateCaptureOptions][] = [
+  ["step wedge, Standard look", { scene: { preset: "step-wedge", steps: 11 }, lens, exposure: { mode: "manual", iso: 1600, shutterSeconds: 1 / 250 }, sensor,
+    output: { ...output, toneCurve: "naka-rushton-luminance", toneCurveParameters: STANDARD } }],
+  ["checkerboard, Flat look", { scene: { preset: "checkerboard", squaresAcross: 12 }, lens, sensor, output: { ...output, toneCurve: "naka-rushton-luminance", toneCurveParameters: FLAT } }],
+  ["step wedge at the white clip, reconstruct", { scene: { preset: "step-wedge", steps: 11 }, lens, exposure: { mode: "manual", iso: 100, shutterSeconds: 1 / 15 }, sensor,
+    output: { ...output, highlightMode: "reconstruct" } }],
+  ["step wedge over white, desaturation with extended Reinhard", { scene: { preset: "step-wedge", steps: 11 }, lens, exposure: { mode: "manual", iso: 400, shutterSeconds: 1 / 30 }, sensor,
+    output: { ...output, gamutHandling: "desaturate-to-luminance", toneCurve: "extended-reinhard-luminance", toneCurveParameters: { whiteLuminance: 4 } } }],
+  ["step wedge, Naka–Rushton below exponent 1", { scene: { preset: "step-wedge", steps: 11 }, lens, exposure: { mode: "manual", iso: 800, shutterSeconds: 1 / 125 }, sensor,
+    output: { ...output, toneCurve: "naka-rushton-luminance", toneCurveParameters: { exponent: 0.7, semiSaturation: 0.4, whiteLuminance: 8 } } }]
+];
+
+
 /** One case's run and checks; `report` collects the measured agreement. */
 export async function runQualityCase(name: string, options: SimulateCaptureOptions, report: Record<string, unknown>[]): Promise<void> {
   const record = (a: DisplayViewAgreement, extra: Record<string, unknown>): void => {

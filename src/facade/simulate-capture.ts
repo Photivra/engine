@@ -80,6 +80,7 @@ import { createAhdDemosaicTask } from "../processing/demosaic.js";
 import { PROCESSING_MAX_PIXELS } from "../processing/processing-task.js";
 import { renderSdrRunInto, type SdrPixelCounts } from "../output/native-capture-sdr.js";
 import { prepareSdrPixelTone } from "../output/sdr-rendering.js";
+import { NEIGHBOR_HIGHLIGHT_RING, NEIGHBOR_HIGHLIGHT_THRESHOLD, reconstructHighlightsFromNeighbors } from "../color/neighbor-highlight-reconstruction.js";
 import { BUILT_IN_BAYER_DEMOSAIC_MODEL_VERSION as BUILT_IN_DEMOSAIC_VERSION, createBuiltInBayerDemosaicProfiles } from "../sensor/raw-reconstruction.js";
 import { transformOrientedRasterPointToNative } from "../output/capture-geometry.js";
 import { resolveCaptureColorModel } from "../color/capture-color.js";
@@ -550,8 +551,12 @@ export interface SimulateCaptureOptions {
     toneCurve?: SdrToneCurve;
     /** Required by the luminance tone curves (see `SdrToneCurveParameters`). The facade does not make one up. */
     toneCurveParameters?: SdrToneCurveParameters;
-    /** Default "clip". */
-    highlightMode?: RawHighlightMode;
+    /**
+     * Default "clip". 2.22.0 (#602, opt-in): "reconstruct-neighbors" rebuilds clipped channels from color ratios of the unclipped
+     * pixels around each clipped region (an estimate; `src/color/neighbor-highlight-reconstruction.ts`): the ring's mean ratios
+     * (fast) or their harmonic interpolation inward (full). Whole-image, so not with `output.region`.
+     */
+    highlightMode?: SimulateCaptureHighlightMode;
     /**
      * Opt-in (#556) development exposure push in stops, −2 to +5 (`NATIVE_RAW_DEVELOPMENT_EXPOSURE_RANGE_STOPS`); default 0.
      * A linear gain 2^stops on the RAW after black subtraction and white normalization, before demosaic, white balance,
@@ -705,6 +710,8 @@ export const SIMULATE_CAPTURE_COST_OPTIONS = /* @__PURE__ */ Object.freeze(["len
   "output.whiteBalance.auto", "output.demosaic.ahd", "output.highlightMode.reconstruct", "output.colorEncoding.wide-gamut", "output.gamutMapping.perceptual",
   "output.diffractionCorrection", "output.sharpening", "output.lensCorrections", "output.format.jpeg", "output.format.png", "output.format.dng"] as const);
 export type SimulateCaptureCostOption = typeof SIMULATE_CAPTURE_COST_OPTIONS[number];
+/** `output.highlightMode`: the RAW development's modes plus (#602) the whole-image neighbor reconstruction. */
+export type SimulateCaptureHighlightMode = RawHighlightMode | "reconstruct-neighbors";
 
 /**
  * The options that take the exact-or-fast flag (#395), in the path style of {@link SIMULATE_CAPTURE_COST_OPTIONS}: each accepts
@@ -1346,8 +1353,14 @@ function pngColourEncoding(encoding: SimulateCaptureColorEncoding): PngColourEnc
  * stops before tone mapping, gamut clipping and quantization. It reads the RAW without taking ownership.
  */
 async function developLinearSrgb(input: NativeRawDevelopmentInput, afterRow: (completed: number, total: number) => Promise<void>,
+  ahd?: { yieldControl: () => Promise<void>; checkAbort: () => void; onDemosaicMs?: (milliseconds: number) => void }, neighbors?: { fast: boolean }): Promise<{ rgb: Float64Array; highlight: RawHighlightDiagnostics }> {
+  if (neighbors) return developWithNeighborHighlights(input, afterRow, ahd, neighbors.fast);
+  return developLinearSrgbWith(prepareNativeRawDevelopment(input), input, afterRow, ahd);
+}
+/** The body of {@link developLinearSrgb} for a prepared development (its operator may be replaced, #602). */
+async function developLinearSrgbWith(v: ReturnType<typeof prepareNativeRawDevelopment>, input: NativeRawDevelopmentInput, afterRow: (completed: number, total: number) => Promise<void>,
   ahd?: { yieldControl: () => Promise<void>; checkAbort: () => void; onDemosaicMs?: (milliseconds: number) => void }): Promise<{ rgb: Float64Array; highlight: RawHighlightDiagnostics }> {
-  const v = prepareNativeRawDevelopment(input), plan = v.plan, raw = input.raw, layout = plan.frame.colorSamplingProfile.layout;
+  const plan = v.plan, raw = input.raw, layout = plan.frame.colorSamplingProfile.layout;
   if (layout.kind !== "periodic-mosaic") fail("Development requires a periodic CFA.");
   const native = plan.exposure.geometry.nativeRaster, g = plan.exposure.resolvedGeometry, active = g.activeCapture.nativeRect;
   checkNativeRawIntegrity(raw, native.pixelWidth, layout.repeatWidthSites, layout.repeatHeightSites, 0, native.pixelHeight);
@@ -1369,6 +1382,21 @@ async function developLinearSrgb(input: NativeRawDevelopmentInput, afterRow: (co
   const c = developer.counts;
   return { rgb, highlight: { mode: v.highlightMode, saturatedPixelCount: c.saturatedPixelCount, whiteBalanceClippedSampleCount: c.whiteBalanceClippedSampleCount,
     reconstructedPixelCount: c.reconstructedPixelCount } };
+}
+/**
+ * #602: development with the neighbor highlight reconstruction. The development runs with an operator that stops after the white
+ * balance (u = g·c per pixel, unclipped), the whole image is rebuilt (`reconstructHighlightsFromNeighbors`) and the colour step
+ * (`developWhiteBalancedInto`) finishes each pixel to unclipped linear sRGB.
+ */
+async function developWithNeighborHighlights(input: NativeRawDevelopmentInput, afterRow: (completed: number, total: number) => Promise<void>,
+  ahd: { yieldControl: () => Promise<void>; checkAbort: () => void; onDemosaicMs?: (milliseconds: number) => void } | undefined, fast: boolean): Promise<{ rgb: Float64Array; highlight: RawHighlightDiagnostics }> {
+  const v = prepareNativeRawDevelopment(input), real = v.development, [g0, g1, g2] = real.appliedGains as [number, number, number];
+  const whiteBalanceOnly: typeof real = { ...real, developInto(c0: number, c1: number, c2: number, out: Float64Array | number[], offset: number): void { out[offset] = c0 * g0; out[offset + 1] = c1 * g1; out[offset + 2] = c2 * g2; } };
+  const linear = await developLinearSrgbWith({ ...v, development: whiteBalanceOnly }, input, afterRow, ahd);
+  const width = v.raster.pixelWidth, height = v.raster.pixelHeight, rgb = linear.rgb;
+  const report = reconstructHighlightsFromNeighbors(rgb, width, height, real.appliedGains, fast);
+  for (let i = 0; i < width * height; i++) real.developWhiteBalancedInto(rgb[3 * i]!, rgb[3 * i + 1]!, rgb[3 * i + 2]!, rgb, 3 * i);
+  return { rgb, highlight: { ...linear.highlight, mode: "reconstruct-neighbors", whiteBalanceClippedSampleCount: 0, reconstructedPixelCount: report.reconstructedPixelCount } };
 }
 /**
  * AHD development (2.1): the same site normalization as the native development kernel (flagged or white-level sites
@@ -1701,7 +1729,7 @@ export interface DisplayViewRunContext {
   focalLengthMm: number;
   focusDistanceM: number;
   height: number;
-  highlightMode: RawHighlightMode;
+  highlightMode: SimulateCaptureHighlightMode;
   /** #556: the development exposure gain 2^output.exposureCompensationStops (1 without a push). */
   exposureGain: number;
   illuminanceLux: number;
@@ -2186,7 +2214,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   const linearPath = wideGamut || perceptual;
   const toneCurve = pick<SdrToneCurve>(outputOptions, "toneCurve", "output.toneCurve", DEFAULTS.toneCurve, "Identity tone curve: scene-linear values are clipped at display white, then sRGB-encoded.");
   if (linearPath && toneCurve !== "identity") fail("output.toneCurve other than identity is available only for sRGB output; wide-gamut encodings are converted from the linear developed colour.");
-  const highlightMode = pick<RawHighlightMode>(outputOptions, "highlightMode", "output.highlightMode", DEFAULTS.highlightMode, "Saturated RAW highlights are clipped to neutral.");
+  const highlightMode = pick<SimulateCaptureHighlightMode>(outputOptions, "highlightMode", "output.highlightMode", DEFAULTS.highlightMode, "Saturated RAW highlights are clipped to neutral.");
   // #556: development exposure push, a gain on the normalized RAW before white balance. Opt-in: no assumption when omitted.
   let exposureCompensationStops = 0;
   if (outputOptions.exposureCompensationStops !== undefined) {
@@ -3036,7 +3064,16 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
     "The sRGB SDR renderer is not used: the linear development (RAW white level = relative 1.0, " + (exposureGain === 1 ? "no exposure push" : "after the development exposure push on the RAW") + ") is converted to the target encoding; request.development.rendering is validated but only its exposure and tone curve (identity) apply.");
   // Rendering choices are validated before any radiance work, so a bad tone curve fails fast.
   parseSdrRenderingProfile(rendering);
-  if (highlightMode !== "clip" && highlightMode !== "reconstruct") fail("output.highlightMode must be clip or reconstruct.");
+  if (highlightMode !== "clip" && highlightMode !== "reconstruct" && highlightMode !== "reconstruct-neighbors") fail("output.highlightMode must be clip, reconstruct or reconstruct-neighbors.");
+  // #602: the neighbor reconstruction reads whole clipped regions, so a region of the frame cannot render it alone.
+  const neighborHighlights = highlightMode === "reconstruct-neighbors", developmentHighlightMode: RawHighlightMode = neighborHighlights ? "clip" : highlightMode;
+  if (neighborHighlights && outputOptions.region !== undefined) fail("output.highlightMode \"reconstruct-neighbors\" reads whole clipped regions; it is not available with output.region.");
+  const neighborFast = fastTop;
+  if (neighborHighlights && !displayView) assume("output.highlightMode.reconstructNeighbors", "model", { method: neighborFast ? "ring-average" : "harmonic-interpolation", threshold: NEIGHBOR_HIGHLIGHT_THRESHOLD,
+    ringPixels: NEIGHBOR_HIGHLIGHT_RING, fast: neighborFast, scientificStatus: "estimate" },
+  "Clipped highlights (a channel at " + NEIGHBOR_HIGHLIGHT_THRESHOLD + " of white or above) are rebuilt from the color ratios of the unclipped pixels around each clipped region: " +
+    (neighborFast ? "the mean ratios of the unclipped pixels within " + NEIGHBOR_HIGHLIGHT_RING + " pixels of the region (fast)" : "their harmonic (Laplace) interpolation inward from the region's unclipped neighbors (full)") +
+    "; each clipped channel becomes the larger of its recorded value and the ratio times the scale of the pixel's unclipped channels. An estimate of the clipped signal, not a recovery; the values are not clipped at white before the tone curve.");
 
   // Frame profiles
   const evidence = FACADE_EVIDENCE;
@@ -3424,8 +3461,10 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
     // 4. Pixels: the native sites of the output (or region) pixels, each centre-sampled or box-integrated like the capture.
     const x0 = (region ? region.x : 0) + margin, y0 = (region ? region.y : 0) + margin, n = boxSamples, unit = 2 / width;
     const referenceIntent = intentOf(whiteBalanceState), referenceGains = referenceIntent ? [referenceIntent.channelGains.red, referenceIntent.channelGains.green, referenceIntent.channelGains.blue] : null;
-    const development = prepareSensorColorDevelopment(CAMERA_TO_XYZ as unknown as Parameters<typeof prepareSensorColorDevelopment>[0],
-      referenceGains, highlightMode);
+    const realDevelopment = prepareSensorColorDevelopment(CAMERA_TO_XYZ as unknown as Parameters<typeof prepareSensorColorDevelopment>[0],
+      referenceGains, developmentHighlightMode), [rg0, rg1, rg2] = realDevelopment.appliedGains as [number, number, number];
+    // #602: the neighbor reconstruction develops to the white balance first, rebuilds the whole image, then finishes the colour.
+    const development: typeof realDevelopment = neighborHighlights ? { ...realDevelopment, developInto(c0: number, c1: number, c2: number, out: Float64Array | number[], offset: number): void { out[offset] = c0 * rg0; out[offset + 1] = c1 * rg1; out[offset + 2] = c2 * rg2; } } : realDevelopment;
     const rgb = new Float64Array(outputWidth * outputHeight * 3), counts = { whiteBalanceClippedSampleCount: 0, reconstructedPixelCount: 0 }, sum = [0, 0, 0];
     // A sample that reads the previous sample's material reuses that sample's integral (nothing is kept per material).
     let last = -1, s: number[] = [];
@@ -3443,6 +3482,10 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
         development.developInto(c[0]!, c[1]!, c[2]!, rgb, (py * outputWidth + px) * 3, counts);
       }
       if ((py & 15) === 15) { await yieldControl(); checkAbort(); }
+    }
+    if (neighborHighlights) {
+      reconstructHighlightsFromNeighbors(rgb, outputWidth, outputHeight, realDevelopment.appliedGains, neighborFast);
+      for (let i = 0; i < outputWidth * outputHeight; i++) realDevelopment.developWhiteBalancedInto(rgb[3 * i]!, rgb[3 * i + 1]!, rgb[3 * i + 2]!, rgb, 3 * i);
     }
     let samples: Uint8Array | Uint16Array;
     if (!linearPath) {
@@ -3682,7 +3725,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
 
   // Development
   const development: Omit<NativeRawDevelopmentInput, "raw"> = { phaseProfiles, colorProfile,
-    whiteBalance: developmentWhiteBalance, rendering, highlightMode, ...(mirrorBorder ? { borderHandling: "mirror" as const } : {}),
+    whiteBalance: developmentWhiteBalance, rendering, highlightMode: developmentHighlightMode, ...(mirrorBorder ? { borderHandling: "mirror" as const } : {}),
     ...(exposureCompensationStops === 0 ? {} : { exposureCompensationStops }),
     maximumRetainedPayloadBytes: developmentPlan.outputBytes + outputWidth * outputHeight * 3 * (rendering.bitDepth / 8) };
   let developed: { raw: NativeRawOutput; integerSamples: Uint8Array | Uint16Array; highlight: RawHighlightDiagnostics; diagnostics: SdrRenderingResult["diagnostics"] };
@@ -3771,8 +3814,9 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
       adjustedPixelCount: encoded.adjustedPixelCount, lightnessClippedPixelCount: encoded.lightnessClippedPixelCount };
     return { raw: rawOutput.raw, integerSamples: encoded.samples, highlight, diagnostics: encoded.diagnostics };
   };
-  if (ahd || ((detailRequested || lensCorrection) && !linearPath)) {
-    const linear = await developLinearSrgb({ ...development, raw: rawOutput.raw }, rowProgress("development"), ahd ? { yieldControl: (): Promise<void> => yieldControl(), checkAbort, onDemosaicMs: (ms: number): void => { demosaicMs = ms; } } : undefined);
+  if (ahd || neighborHighlights || ((detailRequested || lensCorrection) && !linearPath)) {
+    const linear = await developLinearSrgb({ ...development, raw: rawOutput.raw }, rowProgress("development"), ahd ? { yieldControl: (): Promise<void> => yieldControl(), checkAbort, onDemosaicMs: (ms: number): void => { demosaicMs = ms; } } : undefined,
+      neighborHighlights ? { fast: neighborFast } : undefined);
     const rgb = await correctLinear(linear.rgb);
     if (!linearPath) {
       let codes: Uint8Array | Uint16Array, counts: SdrPixelCounts;
@@ -3798,7 +3842,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
     developed = devTask.takeOutput();
   } else {
     // Wide gamut: the native development operator up to linear sRGB/D65 (unclipped), then XYZ → target primaries.
-    const linear = await developLinearSrgb({ ...development, raw: rawOutput.raw }, rowProgress("development"));
+    const linear = await developLinearSrgb({ ...development, raw: rawOutput.raw }, rowProgress("development"), undefined, neighborHighlights ? { fast: neighborFast } : undefined);
     {
       developed = encodeLinear(await correctLinear(linear.rgb), linear.highlight);
       if (perceptual) {
@@ -3858,7 +3902,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
     ...(temporalSampleCount > 1 ? ["sensor.temporalSampleCount" as const] : []), ...(rotating ? ["motion.rotation" as const] : []), ...(subject ? ["motion.subject" as const] : []),
     ...(rollingSchedule ? ["motion.shutter.rolling" as const] : []), ...(mirrorBorder ? ["output.borderHandling.mirror" as const] : []), ...(region ? ["output.region" as const] : []),
     ...(needsAuto ? ["output.whiteBalance.auto" as const] : []), ...(ahd ? ["output.demosaic.ahd" as const] : []),
-    ...(highlightMode === "reconstruct" ? ["output.highlightMode.reconstruct" as const] : []), ...(wideGamut ? ["output.colorEncoding.wide-gamut" as const] : []),
+    ...(highlightMode === "reconstruct" || neighborHighlights ? ["output.highlightMode.reconstruct" as const] : []), ...(wideGamut ? ["output.colorEncoding.wide-gamut" as const] : []),
     ...(perceptual ? ["output.gamutMapping.perceptual" as const] : []), ...(diffractionFilter ? ["output.diffractionCorrection" as const] : []),
     ...(sharpening ? ["output.sharpening" as const] : []), ...(lensCorrection ? ["output.lensCorrections" as const] : []), ...(format === "jpeg" || format === "png" || format === "dng" ? ["output.format." + format as SimulateCaptureCostOption] : [])]);
   // #552: the detail stages' contracts, in execution order inside the development.

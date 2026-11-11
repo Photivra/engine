@@ -32,6 +32,8 @@ import { portablePow } from "../core/portable-math.js";
 import { CLIP_REACH_SIGMA, GL, bigPhi, phi } from "./display-view-normal.js";
 import { desaturateToLuminance, SDR_LUMINANCE_WEIGHTS, type SdrToneCurve, type SdrToneCurveParameters } from "../output/sdr-rendering.js";
 import { RAW_HIGHLIGHT_RECONSTRUCTION_START } from "../color/sensor-color-development.js";
+import type { DisplayViewSetup } from "./display-view.js";
+import { NEIGHBOR_HIGHLIGHT_MARGIN, NEIGHBOR_HIGHLIGHT_RING, NEIGHBOR_HIGHLIGHT_SOR, NEIGHBOR_HIGHLIGHT_THRESHOLD, rebuildClippedPixel } from "../color/neighbor-highlight-reconstruction.js";
 
 /**
  * Internal (exported for tests). The n-point Gauss–Hermite rule of the standard normal: Σ w_i f(x_i) ≈ E[f(Z)], Z ~ N(0, 1).
@@ -75,7 +77,8 @@ export const DISPLAY_VIEW_LUMINANCE_FAST_POINTS = 8;
 export interface DisplayViewRenderingChoice {
   toneCurve: SdrToneCurve;
   toneCurveParameters?: SdrToneCurveParameters;
-  highlightMode: "clip" | "reconstruct";
+  /** #602: "reconstruct-neighbors" rebuilds clipped channels from the ratios around each clipped region (src/color/neighbor-highlight-reconstruction.ts). */
+  highlightMode: "clip" | "reconstruct" | "reconstruct-neighbors";
   gamutHandling: "clip-components" | "desaturate-to-luminance";
   fast: boolean;
 }
@@ -83,7 +86,19 @@ export interface DisplayViewRenderingChoice {
 /** The coupled steps of one view (see the module notes), or null for a view without them (its arithmetic is unchanged). */
 export interface DisplayViewCoupledRendering {
   readonly luminanceTone: boolean;
+  /** True with either reconstruct mode (the highlight step couples the channels). */
   readonly reconstruct: boolean;
+  /** #602: the neighbor reconstruction (its pixels take their region's ratios, `bindView` and `at`). */
+  readonly neighbors: boolean;
+  /**
+   * #602: binds a render's expected (noise-free) camera channels, from which the clipped regions and their ratios are found on
+   * demand, and returns the counters of the regions it measured.
+   */
+  bindView?(setup: DisplayViewSetup): void;
+  /** #602: the real pixel (native site coordinates) whose moments `chain` computes next. */
+  at?(x: number, y: number): void;
+  /** #602: regions measured, and regions whose search stopped at the size cap (their ratios from the part found). */
+  readonly neighborRegions: { measured: number; capped: number };
   readonly desaturate: boolean;
   readonly choice: DisplayViewRenderingChoice;
   /** Points per axis of the 3-D rule in use; the luminance rule's Gauss–Hermite nodes and weights (8 points), for the GPU kernels. */
@@ -112,6 +127,14 @@ export interface DisplayViewCoupledRendering {
   tone(mu: Float64Array, S: Float64Array, hm: Float64Array, hv: Float64Array, J: Float64Array): boolean;
 }
 
+/** #602: a render's noise-free camera channels at a real pixel (native coordinates), and the output raster's native bounds. */
+export interface NeighborView {
+  channels(x: number, y: number, out: Float64Array): void;
+  x0: number; y0: number; width: number; height: number;
+}
+/** #602: the most pixels a clipped region's search visits (fast and full); a larger region takes its ratios from the part found. */
+export const DISPLAY_VIEW_NEIGHBOR_REGION_LIMIT = /* @__PURE__ */ Object.freeze({ fast: 1 << 16, full: 1 << 18 });
+
 /** The tone ratio r(L) = f(L)/L and its derivative of a luminance curve, for L > 0. */
 /** The limit r(0+) of a luminance curve's ratio (where the curves meet the unchanged pixels at L = 0): 1, 0, 1/(σ·g(Lw)) or ∞. */
 function ratioAtZero(curve: SdrToneCurve, p: SdrToneCurveParameters | undefined): number {
@@ -138,7 +161,7 @@ function luminanceRatio(curve: SdrToneCurve, p: SdrToneCurveParameters | undefin
 export function createDisplayViewCoupledRendering(choice: DisplayViewRenderingChoice, gains: readonly number[], clipLevel: number,
   matrix: readonly (readonly number[])[]): DisplayViewCoupledRendering | null {
   const luminanceTone = choice.toneCurve === "extended-reinhard-luminance" || choice.toneCurve === "naka-rushton-luminance";
-  const reconstruct = choice.highlightMode === "reconstruct", desaturate = choice.gamutHandling === "desaturate-to-luminance";
+  const neighbors = choice.highlightMode === "reconstruct-neighbors", reconstruct = choice.highlightMode === "reconstruct" || neighbors, desaturate = choice.gamutHandling === "desaturate-to-luminance";
   if (!luminanceTone && !reconstruct && !desaturate) return null;
   const reinhard = choice.toneCurve === "positive-reinhard-per-channel", ratio = luminanceTone ? luminanceRatio(choice.toneCurve, choice.toneCurveParameters) : null;
   const ratioZero = ratioAtZero(choice.toneCurve, choice.toneCurveParameters);
@@ -151,6 +174,12 @@ export function createDisplayViewCoupledRendering(choice: DisplayViewRenderingCh
   function highlight(c0: number, c1: number, c2: number): void {
     const u0 = c0 * g[0]!, u1 = c1 * g[1]!, u2 = c2 * g[2]!;
     Jb.fill(0);
+    if (neighbors) {
+      // #602: the pixel's region ratios (its own chromaticity when no region is bound: the rebuild then keeps u).
+      if (rho) rebuildClippedPixel(c0, c1, c2, g, rho, b, Jb);
+      else { b[0] = u0; b[1] = u1; b[2] = u2; Jb[0] = g[0]!; Jb[4] = g[1]!; Jb[8] = g[2]!; }
+      return;
+    }
     if (!reconstruct) {
       b[0] = u0 > L ? L : u0; b[1] = u1 > L ? L : u1; b[2] = u2 > L ? L : u2;
       Jb[0] = u0 > L ? 0 : g[0]!; Jb[4] = u1 > L ? 0 : g[1]!; Jb[8] = u2 > L ? 0 : g[2]!;
@@ -246,8 +275,124 @@ export function createDisplayViewCoupledRendering(choice: DisplayViewRenderingCh
     return n ** ((l00 > 0 ? 1 : 0) + (l11 > 0 || l21 !== 0 || l22 > 0 ? 1 : 0) + (l22 > 0 ? 1 : 0));
   }
   function reconstructInReach(cm: Float64Array, C: Float64Array): boolean {
-    for (let k = 0; k < 3; k++) if (!(cm[k]! + CLIP_REACH_SIGMA * Math.sqrt(Math.max(0, C[k * 4]!)) < start)) return true;
+    const threshold = neighbors ? NEIGHBOR_HIGHLIGHT_THRESHOLD : start;
+    for (let k = 0; k < 3; k++) if (!(cm[k]! + CLIP_REACH_SIGMA * Math.sqrt(Math.max(0, C[k * 4]!)) < threshold)) return true;
     return false;
+  }
+  // #602: the region ratios of the bound view, found on demand (noise-free channels; see the module notes of the capture's method).
+  let rho: Float64Array | null = null, view: NeighborView | null = null;
+  const ratioOf = new Map<number, Float64Array>(), channelMemo = new Map<number, Float64Array>(), neighborRegions = { measured: 0, capped: 0 };
+  const H = NEIGHBOR_HIGHLIGHT_THRESHOLD, limit = choice.fast ? DISPLAY_VIEW_NEIGHBOR_REGION_LIMIT.fast : DISPLAY_VIEW_NEIGHBOR_REGION_LIMIT.full;
+  function channelsAt(x: number, y: number): Float64Array {
+    const key = y * 1048576 + x;
+    let v = channelMemo.get(key);
+    if (!v) { v = new Float64Array(3); view!.channels(x, y, v); channelMemo.set(key, v); }
+    return v;
+  }
+  const inside = (x: number, y: number): boolean => x >= view!.x0 && y >= view!.y0 && x < view!.x0 + view!.width && y < view!.y0 + view!.height;
+  const isClipped = (v: Float64Array): boolean => v[0]! >= H || v[1]! >= H || v[2]! >= H;
+  // A pixel within the margin of a clipped one gives no ratios (the capture's widened regions).
+  const unknownMemo = new Map<number, boolean>(), D = NEIGHBOR_HIGHLIGHT_MARGIN;
+  function isUnknown(x: number, y: number): boolean {
+    const key = y * 1048576 + x;
+    let v = unknownMemo.get(key);
+    if (v === undefined) {
+      v = false;
+      for (let qy = y - D; qy <= y + D && !v; qy++) for (let qx = x - D; qx <= x + D && !v; qx++) if (inside(qx, qy) && isClipped(channelsAt(qx, qy))) v = true;
+      unknownMemo.set(key, v);
+    }
+    return v;
+  }
+  function ownRatio(v: Float64Array, out: Float64Array): void {
+    const u0 = v[0]! * g[0]!, u1 = v[1]! * g[1]!, u2 = v[2]! * g[2]!, sum = u0 + u1 + u2;
+    if (sum > 0) { out[0] = u0 / sum; out[1] = u1 / sum; out[2] = u2 / sum; } else out.fill(1 / 3);
+  }
+  function regionRatio(x: number, y: number): Float64Array {
+    const key = y * 1048576 + x, known = ratioOf.get(key);
+    if (known) return known;
+    // The region (8-connected), breadth first, up to the cap.
+    const members: number[] = [key], index = new Map<number, number>([[key, 0]]);
+    let capped = false;
+    for (let head = 0; head < members.length; head++) {
+      const p = members[head]!, px = p % 1048576, py = (p - px) / 1048576;
+      for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+        const qx = px + dx, qy = py + dy, q = qy * 1048576 + qx;
+        if (!inside(qx, qy) || index.has(q) || !isUnknown(qx, qy)) continue;
+        if (members.length >= limit) { capped = true; continue; }
+        index.set(q, members.length); members.push(q);
+      }
+    }
+    neighborRegions.measured++;
+    if (capped) neighborRegions.capped++;
+    // Fast: the ring's mean ratios (unclipped pixels within the ring width, each once).
+    const R = NEIGHBOR_HIGHLIGHT_RING, seen = new Set<number>(), r = new Float64Array(3), mean = new Float64Array(3);
+    let count = 0;
+    for (const p of members) {
+      const px = p % 1048576, py = (p - px) / 1048576;
+      for (let qy = py - R; qy <= py + R; qy++) for (let qx = px - R; qx <= px + R; qx++) {
+        const q = qy * 1048576 + qx;
+        if (!inside(qx, qy) || seen.has(q) || index.has(q) || isUnknown(qx, qy)) continue;
+        const v = channelsAt(qx, qy);
+        seen.add(q); ownRatio(v, r); mean[0] = mean[0]! + r[0]!; mean[1] = mean[1]! + r[1]!; mean[2] = mean[2]! + r[2]!; count++;
+      }
+    }
+    if (count > 0) { mean[0] = mean[0]! / count; mean[1] = mean[1]! / count; mean[2] = mean[2]! / count; } else mean.fill(1 / 3);
+    const values = new Float64Array(3 * members.length);
+    for (let i = 0; i < members.length; i++) values.set(mean, 3 * i);
+    if (!choice.fast && count > 0) {
+      // Full: successive over-relaxation of the discrete Laplace equation, Dirichlet values from the unclipped 4-neighbors.
+      const { omega, tolerance, maximumIterations } = NEIGHBOR_HIGHLIGHT_SOR, boundary = new Map<number, Float64Array>();
+      let change = Infinity;
+      for (let sweep = 0; sweep < maximumIterations && change > tolerance; sweep++) {
+        change = 0;
+        for (let i = 0; i < members.length; i++) {
+          const p = members[i]!, px = p % 1048576, py = (p - px) / 1048576;
+          let a0 = 0, a1 = 0, a2 = 0, m = 0;
+          for (let d = 0; d < 4; d++) {
+            const qx = px + (d === 0 ? -1 : d === 1 ? 1 : 0), qy = py + (d === 2 ? -1 : d === 3 ? 1 : 0), q = qy * 1048576 + qx;
+            if (!inside(qx, qy)) continue;
+            const j = index.get(q);
+            let src: Float64Array;
+            if (j !== undefined) src = values.subarray(3 * j, 3 * j + 3);
+            else {
+              let bnd = boundary.get(q);
+              if (!bnd) { bnd = new Float64Array(3); if (isUnknown(qx, qy)) bnd.set(mean); else ownRatio(channelsAt(qx, qy), bnd); boundary.set(q, bnd); }
+              src = bnd;
+            }
+            a0 += src[0]!; a1 += src[1]!; a2 += src[2]!; m++;
+          }
+          if (m === 0) continue;
+          for (let k = 0; k < 3; k++) {
+            const old = values[3 * i + k]!, next = old + omega * ((k === 0 ? a0 : k === 1 ? a1 : a2) / m - old);
+            values[3 * i + k] = next;
+            if (Math.abs(next - old) > change) change = Math.abs(next - old);
+          }
+        }
+      }
+    }
+    for (let i = 0; i < members.length; i++) ratioOf.set(members[i]!, values.subarray(3 * i, 3 * i + 3));
+    return ratioOf.get(key)!;
+  }
+  const own = new Float64Array(3);
+  function at(x: number, y: number): void {
+    if (!view || !inside(x, y)) { rho = null; return; }
+    if (isUnknown(x, y)) rho = regionRatio(x, y);
+    else { ownRatio(channelsAt(x, y), own); rho = own; }
+  }
+  function bindView(setup: DisplayViewSetup): void {
+    // The noise-free mosaic (expected normalized site values clipped at white, read reflect-101 at the raster's edges) through the
+    // bilinear kernels: the expected camera channels of each real pixel (the capture's own demosaic for AHD captures is approximated).
+    const W = setup.nativeWidth, Hh = setup.nativeHeight, k = setup.readout.map((r) => r.perElectron), dark = setup.readout.map((r) => r.darkElectrons);
+    const site = (x: number, y: number): number => {
+      const sx = x < 0 ? -x : x >= W ? 2 * W - 2 - x : x, sy = y < 0 ? -y : y >= Hh ? 2 * Hh - 2 - y : y;
+      const ch = (sy & 1) === 0 ? ((sx & 1) === 0 ? 0 : 1) : ((sx & 1) === 0 ? 1 : 2), v = k[ch]! * (setup.signal.site(sx, sy) + dark[ch]!);
+      return v < 1 ? v : 1;
+    };
+    view = { x0: setup.margin, y0: setup.margin, width: setup.frameWidth, height: setup.frameHeight, channels(x: number, y: number, out: Float64Array): void {
+      const taps = setup.demosaic[(y & 1) * 2 + (x & 1)]!;
+      for (let c = 0; c < 3; c++) { let sum = 0; for (const t of taps[c]!) sum += t.weight * site(x + t.dx, y + t.dy); out[c] = sum; }
+    } };
+    ratioOf.clear(); channelMemo.clear(); unknownMemo.clear(); neighborRegions.measured = 0; neighborRegions.capped = 0;
   }
   const m1 = new Float64Array(3), m2 = new Float64Array(3), sw = new Float64Array(3), beta = new Float64Array(3), cv = new Float64Array(3);
   /**
@@ -317,5 +462,5 @@ export function createDisplayViewCoupledRendering(choice: DisplayViewRenderingCh
     for (let k = 0; k < 3; k++) { hm[k] = m1[k]!; hv[k] = Math.max(0, m2[k]! - m1[k]! * m1[k]!); }
     return !(desaturate && reachesTop);
   }
-  return { luminanceTone, reconstruct, desaturate, choice, chainPoints: chainRule.x.length, chainRule, luminanceRule: hermite8, ratioAtZero: ratioZero, pixel, chain, reconstructInReach, tone };
+  return { luminanceTone, reconstruct, neighbors, ...(neighbors ? { bindView, at } : {}), neighborRegions, desaturate, choice, chainPoints: chainRule.x.length, chainRule, luminanceRule: hermite8, ratioAtZero: ratioZero, pixel, chain, reconstructInReach, tone };
 }

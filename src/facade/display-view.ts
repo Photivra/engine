@@ -861,6 +861,8 @@ export async function renderDisplayView(setup: DisplayViewSetup): Promise<Displa
   const coupled = setup.coupled ?? null;
   const coupledA = new Float64Array(9), muY = new Float64Array(3), sY = new Float64Array(9), jY = new Float64Array(9);
   let coupledUsed = false;
+  // #602: the neighbor reconstruction finds its clipped regions from this render's noise-free channels.
+  coupled?.bindView?.(setup);
   const reach2 = CLIP_REACH_SIGMA * CLIP_REACH_SIGMA;
   // Site ring (#441, exact path with filled windows only): a native site's expected electrons, chart material and readout moments depend on the
   // site alone, so they are computed once per render and kept for the region's native columns (plus the reach) in a ring of
@@ -1207,7 +1209,7 @@ export async function renderDisplayView(setup: DisplayViewSetup): Promise<Displa
               if (mean > 0 && hm[comp]! + CLIP_REACH_SIGMA * Math.sqrt(hv[comp]!) >= 1) chainRun = true;
             }
           }
-          if (chainRun) { coupled!.chain(cm, C, hm, hv, coupledA); coupledUsed = true; }
+          if (chainRun) { coupled!.at?.(x, y); coupled!.chain(cm, C, hm, hv, coupledA); coupledUsed = true; }
           e0 += share * hm[0]!; e1 += share * hm[1]!; e2 += share * hm[2]!;
           candidateRendered[3 * d] = hm[0]!; candidateRendered[3 * d + 1] = hm[1]!; candidateRendered[3 * d + 2] = hm[2]!;
           candidateChannels[3 * d] = cm[0]!; candidateChannels[3 * d + 1] = cm[1]!; candidateChannels[3 * d + 2] = cm[2]!;
