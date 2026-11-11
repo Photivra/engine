@@ -3324,6 +3324,14 @@ void develop;
   value by 2^stops before demosaic and white balance. A site pushed to white clips and counts as saturated; the RAW
   codes are not changed. 0 develops byte for byte as before. The WebGPU accelerator rejects a non-zero push.
 - `extended-reinhard-luminance` takes `{ whiteLuminance }`, the luminance mapped to output white.
+- `gamutHandling: "desaturate-to-luminance"` (#601, 2.22.0; opt-in, also `simulateCapture`'s `output.gamutHandling`) moves a
+  pixel whose largest component exceeds 1 after the tone curve toward the gray of its own luminance until that component is 1,
+  keeping its luminance and hue; the default `"clip-components"` clips each component. The WebGPU SDR kernels refuse it.
+- The display view (`simulateDisplayView`, `prepareDisplayView`) renders the luminance tone curves, `highlightMode: "reconstruct"`
+  and the desaturation since 2.22.0 (#593), with fast rules on screen and full ones for `fast: false`
+  ([Display view, Coupled rendering](DISPLAY_VIEW.md#coupled-rendering-593-601)). Photivra's Standard look is
+  `{ exponent: 1.5, semiSaturation: 0.5009, whiteLuminance: 8 }` and its Flat look `{ exponent: 1, semiSaturation: 0.8465, whiteLuminance: 32 }`
+  for `naka-rushton-luminance` (18 % gray stays at 0.18; the engine's own looks, not a camera maker's).
 - `createPhotographicExportPair(input, { signal })` accepts an optional `AbortSignal`.
 
 ## Capture-mode profiles
