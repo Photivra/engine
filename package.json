@@ -105,13 +105,14 @@
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",
-    "eslint": "10.10.0",
-    "typescript": "6.0.3",
-    "typescript-eslint": "8.70.0",
-    "vitest": "5.0.1",
     "@types/node": "24.13.6",
     "@vitest/coverage-v8": "5.0.1",
-    "rolldown": "1.2.9"
+    "eslint": "10.10.0",
+    "jxl-oxide-wasm": "0.12.6",
+    "rolldown": "1.2.9",
+    "typescript": "6.0.3",
+    "typescript-eslint": "8.70.0",
+    "vitest": "5.0.1"
   },
   "keywords": [
     "photography",
