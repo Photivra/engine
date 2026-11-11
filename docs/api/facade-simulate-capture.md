@@ -724,6 +724,14 @@ export interface SimulateCaptureOptions {
      * honour it. Reported in the assumption `output.exposureCompensationStops`. 0 or omitted: byte-identical to before.
      */
     exposureCompensationStops?: number;
+    /**
+     * #601 (2.22.0, opt-in): the sRGB rendering's gamut handling after the tone curve. "clip-components" (the default) clips
+     * each component to [0, 1]; "desaturate-to-luminance" moves a pixel whose largest component exceeds 1 toward the gray of its
+     * own luminance until that component is 1, keeping its luminance and hue (`desaturateToLuminance`, src/output/sdr-rendering.ts),
+     * instead of shifting bright saturated colors toward the secondaries. sRGB output only (not with a wide-gamut `colorEncoding`
+     * or `gamutMapping`). Reported in the assumption `output.gamutHandling`. Omitted: byte-identical to before.
+     */
+    gamutHandling?: SdrRenderingProfile["gamutHandling"] & ("clip-components" | "desaturate-to-luminance");
     /** Default "scene-illuminant". */
     whiteBalance?: SimulateCaptureWhiteBalance;
     /** JPEG constant quantization step 1-255 (not a manufacturer 'quality'). Default 1 (2.20.0; 2 before), the full-quality export. */
