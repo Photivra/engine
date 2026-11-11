@@ -243,7 +243,10 @@ describe("DNG opcodes (#598, #600)", () => {
     chunks: { offsetTag: 273, countTag: 279, data: [strip] } }]);
     const dng = parseDngRawImage({ bytes });
     const stage = developDngStageImage(dng);
-    expect(stage).toMatchObject({ width: 6, height: 4, planes: 1, stage: 2, fast: { requested: false, defaultedFrom: "format" } });
+    // Owner (2026-11-11): fast by default, full quality whenever the format is an export.
+    expect(stage).toMatchObject({ width: 6, height: 4, planes: 1, stage: 2, fast: { requested: true, defaultedFrom: "format" } });
+    for (const format of ["dng", "jpeg", "png"] as const) expect(developDngStageImage(dng, { format }).fast).toEqual({ requested: false, defaultedFrom: "format" });
+    expect(developDngStageImage(dng, { format: "png", fast: true }).fast).toEqual({ requested: true, defaultedFrom: "request" });
     const lin = (v: number): number => Math.min(1, 2 * (v - 500) / 9500);
     expect(stage.data[0]).toBeCloseTo(lin(codes[width + 1]!), 4);
     // The bad site (row 3, column 4 of the stored image) was replaced by its ring mean before linearization.

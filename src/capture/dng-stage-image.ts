@@ -16,7 +16,7 @@ import { applyDngOpcodes, type DngStageImage } from "./dng-opcodes.js";
 import type { ImportedDngRaw } from "./dng-import.js";
 
 export interface DevelopDngStageImageOptions {
-  /** The output the development is for ("srgb-8" or "srgb-16" on screen; "dng", "jpeg" or "png" exports). Default "png" (full quality). */
+  /** The output the development is for ("srgb-8" or "srgb-16" on screen; "dng", "jpeg" or "png" exports). Default "srgb-8" (fast; owner, 2026-11-11). */
   format?: "srgb-8" | "srgb-16" | "dng" | "jpeg" | "png";
   /** The speed-versus-accuracy choice (WarpRectilinear resampling); default from `format` (fast on screen, full for exports). */
   fast?: boolean;
@@ -39,7 +39,7 @@ export function developDngStageImage(raw: ImportedDngRaw, options: DevelopDngSta
   if (raw === null || typeof raw !== "object" || !(raw.codes instanceof Uint16Array)) fail("raw must be an ImportedDngRaw.");
   if (options === null || typeof options !== "object") fail("options must be an object.");
   for (const key of Object.keys(options)) if (!["format", "fast", "opcodes"].includes(key)) fail("unknown option " + JSON.stringify(key) + ".");
-  const format = options.format ?? "png";
+  const format = options.format ?? "srgb-8";
   if (!["srgb-8", "srgb-16", "dng", "jpeg", "png"].includes(format)) fail("format must be srgb-8, srgb-16, dng, jpeg or png.");
   if (options.fast !== undefined && typeof options.fast !== "boolean") fail("fast must be a boolean.");
   const fast = resolveFast(options.fast, fastFormatDefault(format, "capture")), useOpcodes = options.opcodes ?? true;

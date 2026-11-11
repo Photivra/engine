@@ -18,7 +18,7 @@ The exact contract is declared below; use the domain guide for assumptions and s
 
 ```ts
 export interface DevelopDngStageImageOptions {
-  /** The output the development is for ("srgb-8" or "srgb-16" on screen; "dng", "jpeg" or "png" exports). Default "png" (full quality). */
+  /** The output the development is for ("srgb-8" or "srgb-16" on screen; "dng", "jpeg" or "png" exports). Default "srgb-8" (fast; owner, 2026-11-11). */
   format?: "srgb-8" | "srgb-16" | "dng" | "jpeg" | "png";
   /** The speed-versus-accuracy choice (WarpRectilinear resampling); default from `format` (fast on screen, full for exports). */
   fast?: boolean;
