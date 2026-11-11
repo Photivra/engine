@@ -203,12 +203,9 @@ export function resolveMixedIllumination(value: unknown, resolveIlluminant: (val
   let strongest = 0, illuminanceLux = 0;
   illuminancesLux.forEach((e, i) => { illuminanceLux += e; if (e > illuminancesLux[strongest]!) strongest = i; });
   /** The blend's irradiance (k·S(λ) itself where one source has weight 1). */
-  // #597: the latest point's blend (a print's radiance path reads one point at every spectral node in turn).
-  let lastU = NaN, lastV = NaN, lastAt: [number, number] = [0, 0];
   const ambient = (u: number, v: number, nm: number): number => {
     if (n === 0) return 0;
-    if (u !== lastU || v !== lastV) { lastAt = at(u, v); lastU = u; lastV = v; }
-    const [i, f] = lastAt, a = sources[i]!.irradianceScale * shapes[i]!(nm);
+    const [i, f] = at(u, v), a = sources[i]!.irradianceScale * shapes[i]!(nm);
     return f === 0 ? a : (1 - f) * a + f * (sources[i + 1]!.irradianceScale * shapes[i + 1]!(nm));
   };
   return Object.freeze({ sources: Object.freeze(lights), blend: blend && Object.freeze(blend),

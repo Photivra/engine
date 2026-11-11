@@ -248,44 +248,35 @@ function regimeRange(profile: SensorReadoutConversionProfile, regime: SensorRead
   return { saturation: (white - adc.blackLevelCode) * perCode, quantization: perCode * Math.sqrt(digitalGain * digitalGain / 12 + (digitalGain === 1 ? 0 : 1 / 12)), read: noiseOf(regime) };
 }
 
-/** #595: the 8 MP output-size normalization's reference pixel count (a convention). */
-const NORMALIZED_REFERENCE_PIXELS = 8_000_000;
-
-/** The dynamic range per ISO and the mid-grey figure of one readout at one site. */
-function figures(profile: SensorReadoutConversionProfile, regimeId: string, capacityElectrons: number, greyElectrons: number | undefined, darkElectrons: number, pattern?: SensorFixedPatternNoiseProfile):
-  { range: ReturnType<typeof regimeRange>; dynamicRangeStops: number; dynamicRangeByIso: { iso: number; stops: number }[]; midGrey?: SimulateCaptureMidGreyFigure } {
+/**
+ * The report: the characteristics used, the dynamic range per ISO, and the mid-grey noise figure for `greyElectrons`, the
+ * green channel's expected charge from an 18 % grey patch, after a `darkElectrons` dark charge; #595: and with `native`, the same for
+ * one native photosite (its charge scaled by the area ratio), with the EMVA 1288 R4.0 and the 8 MP-normalized dynamic range.
+ */
+export function sensorReport(profile: SensorReadoutConversionProfile, regimeId: string, capacityElectrons: number, greyElectrons: number | undefined, darkElectrons: number,
+  base: Pick<SimulateCaptureSensorReport, "pixelPitchMicrometers" | "peakQuantumEfficiency" | "readoutSeconds">, native: NativeSensorInput | undefined, pattern?: SensorFixedPatternNoiseProfile): SimulateCaptureSensorReport {
   const stops = (r: SensorReadoutConversionRegime): number => { const q = regimeRange(profile, r, capacityElectrons); return Math.log2(q.saturation / Math.hypot(q.read, q.quantization)); };
   const regime = profile.regimes.find((r) => r.regimeId === regimeId)!, range = regimeRange(profile, regime, capacityElectrons);
-  const out = { range, dynamicRangeStops: stops(regime), dynamicRangeByIso: profile.regimes.map((r) => ({ iso: r.exposureIndexGain?.exposureIndex ?? NaN, stops: stops(r) })).filter((e) => e.iso > 0) };
-  if (greyElectrons === undefined) return out;
+  const report = { ...base, fullWellElectrons: capacityElectrons, readNoise: declaredReadNoise(profile), adcBitDepth: regime.adc.bitDepth, fixedPatternNoise: !!pattern,
+    dynamicRangeStops: stops(regime), dynamicRangeByIso: profile.regimes.map((r) => ({ iso: r.exposureIndexGain?.exposureIndex ?? NaN, stops: stops(r) })).filter((e) => e.iso > 0) } as unknown as SimulateCaptureSensorReport;
+  if (native) {
+    // #595: the same report at the native pitch; EMVA 1288 R4.0 Eq. (27) μ_e.min = √(σ_d² + σ_q²/K² + 1/4) + 1/2 and Eq. (28) DR = μ_e.sat / μ_e.min.
+    const p0 = native.pixelPitchMicrometers, area = (p0 / base.pixelPitchMicrometers) ** 2, own = sensorReport(native.profile, regimeId, native.capacityElectrons,
+        greyElectrons && greyElectrons * area, darkElectrons, { ...base, pixelPitchMicrometers: p0 }, undefined, pattern);
+    const q = regimeRange(native.profile, native.profile.regimes.find((r) => r.regimeId === regimeId)!, native.capacityElectrons);
+    const threshold = Math.sqrt(q.read ** 2 + q.quantization ** 2 + 0.25) + 0.5, emva = Math.log2(q.saturation / threshold), normalization = 0.5 * Math.log2(native.framePhotosites / 8e6);
+    report.native = { pixelPitchMicrometers: p0, photositesPerSite: 1 / area, fullWellElectrons: native.capacityElectrons, readNoiseElectrons: q.read, dynamicRangeStops: own.dynamicRangeStops,
+      dynamicRangeByIso: own.dynamicRangeByIso, emva1288: { absoluteSensitivityThresholdElectrons: threshold, dynamicRangeStops: emva, dynamicRangeDecibels: 20 * Math.log10(2) * emva,
+        saturationCapacityElectronsPerSquareMicrometer: q.saturation / (p0 * p0) },
+      normalized8Megapixel: { referencePixels: 8e6, framePhotosites: native.framePhotosites, dynamicRangeStops: own.dynamicRangeStops + normalization, emva1288DynamicRangeStops: emva + normalization },
+      ...(own.midGrey ? { midGrey: own.midGrey } : {}) };
+  }
+  if (greyElectrons === undefined) return report;
   const fixedPattern = pattern && Math.hypot(pattern.photoResponseNonUniformity.relativeStandardDeviation.value * greyElectrons,
     pattern.darkSignalNonUniformity.relativeStandardDeviation.value * darkElectrons, pattern.rowOffset.rmsElectrons.value, pattern.columnOffset.rmsElectrons.value);
   const noise = { photonShot: Math.sqrt(greyElectrons), read: range.read, darkCurrent: Math.sqrt(darkElectrons), quantization: range.quantization, ...(fixedPattern === undefined ? {} : { fixedPattern }), total: 0 };
   noise.total = Math.hypot(noise.photonShot, noise.read, noise.darkCurrent, noise.quantization, fixedPattern ?? 0);
   const snr = greyElectrons / noise.total;
-  return { ...out, midGrey: { reflectance: 0.18, channel: "green", signalElectrons: greyElectrons, noiseElectrons: noise, snr, snrDecibels: 20 * Math.log10(snr || Number.MIN_VALUE), clipped: greyElectrons + darkElectrons >= range.saturation } };
-}
-
-/**
- * The report: the characteristics used, the dynamic range per ISO, and the mid-grey noise figure for `greyElectrons`, the
- * green channel's expected charge from an 18 % grey patch, after a `darkElectrons` dark charge; #595: and the same for one native
- * photosite of `native` (its charge scaled by the area ratio).
- */
-export function sensorReport(profile: SensorReadoutConversionProfile, regimeId: string, capacityElectrons: number, greyElectrons: number | undefined, darkElectrons: number,
-  base: Pick<SimulateCaptureSensorReport, "pixelPitchMicrometers" | "peakQuantumEfficiency" | "readoutSeconds">, native: NativeSensorInput, pattern?: SensorFixedPatternNoiseProfile): SimulateCaptureSensorReport {
-  const rendered = figures(profile, regimeId, capacityElectrons, greyElectrons, darkElectrons, pattern), regime = profile.regimes.find((r) => r.regimeId === regimeId)!;
-  const p0 = native.pixelPitchMicrometers, area = (p0 / base.pixelPitchMicrometers) ** 2;
-  const own = figures(native.profile, regimeId, native.capacityElectrons, greyElectrons === undefined ? undefined : greyElectrons * area, darkElectrons, pattern);
-  // EMVA 1288 R4.0 Eq. (27): μ_e.min = √(σ_d² + σ_q²/K² + 1/4) + 1/2, and Eq. (28): DR = μ_e.sat / μ_e.min.
-  const threshold = Math.sqrt(own.range.read ** 2 + own.range.quantization ** 2 + 0.25) + 0.5, emvaRatio = own.range.saturation / threshold;
-  const normalization = 0.5 * Math.log2(native.framePhotosites / NORMALIZED_REFERENCE_PIXELS);
-  const report: SimulateCaptureSensorReport = { ...base, fullWellElectrons: capacityElectrons, readNoise: declaredReadNoise(profile), adcBitDepth: regime.adc.bitDepth, fixedPatternNoise: !!pattern,
-    dynamicRangeStops: rendered.dynamicRangeStops, dynamicRangeByIso: rendered.dynamicRangeByIso,
-    native: { pixelPitchMicrometers: p0, photositesPerSite: 1 / area, fullWellElectrons: native.capacityElectrons, readNoiseElectrons: own.range.read, dynamicRangeStops: own.dynamicRangeStops,
-      dynamicRangeByIso: own.dynamicRangeByIso, emva1288: { absoluteSensitivityThresholdElectrons: threshold, dynamicRangeStops: Math.log2(emvaRatio), dynamicRangeDecibels: 20 * Math.log10(emvaRatio),
-        saturationCapacityElectronsPerSquareMicrometer: own.range.saturation / (p0 * p0) },
-      normalized8Megapixel: { referencePixels: NORMALIZED_REFERENCE_PIXELS, framePhotosites: native.framePhotosites, dynamicRangeStops: own.dynamicRangeStops + normalization,
-        emva1288DynamicRangeStops: Math.log2(emvaRatio) + normalization } } };
-  if (rendered.midGrey) { report.midGrey = rendered.midGrey; report.native.midGrey = own.midGrey!; }
+  report.midGrey = { reflectance: 0.18, channel: "green", signalElectrons: greyElectrons, noiseElectrons: noise, snr, snrDecibels: 20 * Math.log10(snr || Number.MIN_VALUE), clipped: greyElectrons + darkElectrons >= range.saturation };
   return report;
 }

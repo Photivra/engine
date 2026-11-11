@@ -76,7 +76,7 @@ describe("the tiers' read noise of a site that sums photosites (#599)", () => {
     expect(r.sensor.readNoise).toEqual({ lowGainElectrons: 2 * scale, highGainElectrons: 1.1 * scale, highGainFromIso: 800 });
     const s = r.sensor.midGrey!.noiseElectrons;
     expect(s.read).toBeCloseTo(1.1 * scale, 12);
-    expect(r.assumptions.find((a) => a.id === "sensor.isoAreaNormalization")!.explanation).toContain("×√N = " + scale);
+    expect(r.assumptions.find((a) => a.id === "sensor.isoAreaNormalization")!.explanation).toContain("= " + scale + " (#599");
     // Photon transfer: the green dark variance in e⁻² is read² + dark shot² + quantization² (sample variance within 5 standard errors).
     const regime = r.request.siteInput(1).readout as unknown as { readoutProfile: { regimes: { regimeId: string; systemConversionGainElectronsPerCode: { value: number }; adc: { digitalGain?: number } }[] }; regimeId: string };
     const found = regime.readoutProfile.regimes.find((g) => g.regimeId === regime.regimeId)!, perCode = found.systemConversionGainElectronsPerCode.value / (found.adc.digitalGain ?? 1);

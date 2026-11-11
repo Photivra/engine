@@ -31,7 +31,8 @@ import { InvalidConfigurationError } from "../core/configuration-error.js";
 import { portablePow } from "../core/portable-math.js";
 import { FULL_RESOLUTION_CEILING_PIXELS, FULL_RESOLUTION_DEFAULT_PIXELS, resolveRaisedLimit } from "../core/pixel-limits.js";
 import { IMAGE_PLANE_LATTICE_CODES } from "./image-plane-lattice-data.js";
-import { CHART_SIZE_DEFAULT_SURROUND_REFLECTANCE, resolveChartSizeOption, type ImagePlaneSignalScene, type ImagePlaneSpectralNodes, type ResolvedImagePlaneScene } from "./scene-radiance.js";
+import { CHART_SIZE_DEFAULT_SURROUND_REFLECTANCE, resolveChartSizeOption, type ImagePlaneLitScene, type ImagePlaneSignalScene, type ImagePlaneSpectralNodes, type ResolvedImagePlaneScene } from "./scene-radiance.js";
+import type { ResolvedMixedIllumination } from "./mixed-illumination.js";
 
 /** Version of the print reflectance lattice and its data; a change to any node spectrum changes it. */
 export const IMAGE_PLANE_LATTICE_VERSION = "1.0.0";
@@ -173,21 +174,13 @@ export async function resolveImagePlaneScene(value: unknown, aspect: number,
   }
   const halfW = width / 2, halfH = height / (2 * aspect);
   /** The print at a print-local point from a per-pixel value: bilinear between pixel centers (clamped to the edge) or the nearest pixel. */
-  // #597: the latest point's pixels and weights (the radiance path reads one point at every spectral node in turn).
-  let lastCu = NaN, lastCv = NaN, fx = 0, fy = 0, a00 = 0, a10 = 0, a01 = 0, a11 = 0;
   function interpolate(cu: number, cv: number, at: (index: number) => number): number {
-    if (cu !== lastCu || cv !== lastCv) {
-      const X = (cu + 1) * halfW, Y = (aspect - cv) * halfH;
-      if (interpolation === "nearest") a00 = Math.min(height - 1, Math.max(0, Math.floor(Y))) * width + Math.min(width - 1, Math.max(0, Math.floor(X)));
-      else {
-        const sx = X - 0.5, sy = Y - 0.5, i0 = Math.floor(sx), j0 = Math.floor(sy), ia = Math.min(width - 1, Math.max(0, i0)), ib = Math.min(width - 1, Math.max(0, i0 + 1));
-        const ja = Math.min(height - 1, Math.max(0, j0)) * width, jb = Math.min(height - 1, Math.max(0, j0 + 1)) * width;
-        fx = sx - i0; fy = sy - j0; a00 = ja + ia; a10 = ja + ib; a01 = jb + ia; a11 = jb + ib;
-      }
-      lastCu = cu; lastCv = cv;
-    }
-    if (interpolation === "nearest") return at(a00);
-    return (1 - fy) * ((1 - fx) * at(a00) + fx * at(a10)) + fy * ((1 - fx) * at(a01) + fx * at(a11));
+    const X = (cu + 1) * halfW, Y = (aspect - cv) * halfH;
+    if (interpolation === "nearest") return at(Math.min(height - 1, Math.max(0, Math.floor(Y))) * width + Math.min(width - 1, Math.max(0, Math.floor(X))));
+    const sx = X - 0.5, sy = Y - 0.5, i0 = Math.floor(sx), j0 = Math.floor(sy), fx = sx - i0, fy = sy - j0;
+    const ia = Math.min(width - 1, Math.max(0, i0)), ib = Math.min(width - 1, Math.max(0, i0 + 1));
+    const ja = Math.min(height - 1, Math.max(0, j0)) * width, jb = Math.min(height - 1, Math.max(0, j0 + 1)) * width;
+    return (1 - fy) * ((1 - fx) * at(ja + ia) + fx * at(ja + ib)) + fy * ((1 - fx) * at(jb + ia) + fx * at(jb + ib));
   }
   const sampleAt = (cu: number, cv: number, nodeValues: Float64Array, neutral: number): number => interpolate(cu, cv, (index) => pixelValue(index, nodeValues, neutral));
   // Per wavelength the node reflectances (the facade asks for a few spectral nodes many times), and (#597) each pixel's reflectance
@@ -238,13 +231,15 @@ export async function resolveImagePlaneScene(value: unknown, aspect: number,
     out[at] = s0; out[at + 1] = s1; out[at + 2] = s2;
   }
   function signalScene(wavelengths: readonly number[], perNode: readonly Float64Array[], whiteRadiance: Float64Array, radianceAt: (u: number, v: number, nm: number) => number,
-    scale: number, half: number, surroundReflectance: number): ImagePlaneSignalScene {
+    scale: number, half: number, surroundReflectance: number, light?: ResolvedMixedIllumination | null): ImagePlaneSignalScene | ImagePlaneLitScene {
     // The lattice's spectra at the nodes (node k's reflectance at λ_n at k·N + n); no channel response is folded in.
     const N = wavelengths.length, spectraAt = wavelengths.map((nm) => nodeReflectancesAt(nm)), nodeSpectra = new Float64Array(NODES * N);
     for (let k = 0; k < NODES; k++) for (let n = 0; n < N; n++) nodeSpectra[k * N + n] = spectraAt[n]![k]!;
     const nodes: ImagePlaneSpectralNodes = { count: N, nodeSpectra, whiteRadiance, response: perNode };
     // The surround's channel signals, integrated from its spectrum ρ·W_n like a pixel's (no white-integral shortcut, 2.21.0).
     const surround = [0, 1, 2].map((c) => { let s = 0; for (let n = 0; n < N; n++) s += perNode[c]![n]! * (surroundReflectance * whiteRadiance[n]!); return s; }) as [number, number, number];
+    // #597: under mixed light, the lit radiance alone (each site integrates it at use) and the print with the light's parts for the GPU pass.
+    if (light !== undefined) return { kind: "radiance", radianceAt, image: { scene: resolved, nodes, surround, whiteRadiance, surroundReflectance, light: { layout: light, halfWidthM: half } } };
     // The pixels' signals as the query points reach them: rows of three values per pixel (NaN until computed), the latest rows kept.
     const rows = new Map<number, Float64Array>(), keptRows = Math.max(8, Math.floor(SIGNAL_ROW_CACHE_BYTES / (width * 24)));
     let lastJ = -1, lastRow: Float64Array = new Float64Array(0);
@@ -273,7 +268,7 @@ export async function resolveImagePlaneScene(value: unknown, aspect: number,
   }
   const resolved: ResolvedImagePlaneScene = Object.freeze({ kind: "image-plane" as const, sceneId: record.sceneId, width, height, aspect, channels, encoding: encoding as ResolvedImagePlaneScene["encoding"],
     interpolation, paperWhiteReflectance: white, paperBlackReflectance: black, maximumPixels, clippedSampleCount: clipped, dataSha256,
-    reflectanceAt, sampleAt, pixelValue, pixelSignals, pixelLattice, nodeReflectances: nodeReflectancesAt, signalScene, get digestForm() { return imagePlaneDigestForm(resolved); }, parameters: Object.freeze({ width, height, channels, encoding, interpolation, paperWhiteReflectance: white, paperBlackReflectance: black,
+    reflectanceAt, sampleAt, pixelValue, pixelSignals, pixelLattice, nodeReflectances: nodeReflectancesAt, signalScene: signalScene as ResolvedImagePlaneScene["signalScene"], get digestForm() { return imagePlaneDigestForm(resolved); }, parameters: Object.freeze({ width, height, channels, encoding, interpolation, paperWhiteReflectance: white, paperBlackReflectance: black,
       clippedSampleCount: clipped, imageSha256: dataSha256 }) });
   if (assume) for (const [id, kind, v, explanation] of imagePlaneAssumptions(resolved, record)) assume(id, kind, v, explanation);
   return resolved;

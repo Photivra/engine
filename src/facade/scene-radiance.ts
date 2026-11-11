@@ -30,6 +30,7 @@ import type { EvidenceProvenance } from "../core/evidence-provenance.js";
 import type { SensorApertureRay } from "../optics/sensor-aperture-rays.js";
 import { resolveChartMaterial, resolveChartScene, type ChartReflectance, type ChartScene, type ResolvedChartScene } from "./chart-scenes.js";
 import { resolveChartMaterialLayers, type ChartMaterialLayerScene } from "./chart-material-layers.js";
+import type { ResolvedMixedIllumination } from "./mixed-illumination.js";
 
 /** CIE maximum luminous efficacy for photopic vision, lm/W. */
 export const PHOTOPIC_MAXIMUM_LUMINOUS_EFFICACY_LM_PER_W = 683;
@@ -231,8 +232,12 @@ export interface ImagePlaneSignalScene {
   kind: "radiance";
   radianceAt(u: number, v: number, nm: number): number;
   signalAt(u: number, v: number, c: number): number;
-  image: { scene: ResolvedImagePlaneScene; nodes: ImagePlaneSpectralNodes; surround: readonly [number, number, number]; whiteRadiance: Float64Array; surroundReflectance: number };
+  image: { scene: ResolvedImagePlaneScene; nodes: ImagePlaneSpectralNodes; surround: readonly [number, number, number]; whiteRadiance: Float64Array; surroundReflectance: number;
+    /** #597: under mixed light, its parts and the print's half width in metres (print-local cu = ±1 at ±halfWidthM); no `signalAt` then. */
+    light?: { layout: ResolvedMixedIllumination | null; halfWidthM: number } };
 }
+/** #597: an image-plane print under mixed light: the lit radiance only (every site integrates it), and the print for the GPU pass. */
+export interface ImagePlaneLitScene { kind: "radiance"; radianceAt(u: number, v: number, nm: number): number; image: ImagePlaneSignalScene["image"] }
 /**
  * Internal (#581): a validated image-plane scene (src/facade/image-plane.ts, a lazily loaded module), placed on a print of
  * aspect `aspect` (height / width). Print-local coordinates are the chart's: cu = ±1 at the print's left and right edges, cv up
@@ -271,10 +276,13 @@ export interface ResolvedImagePlaneScene {
   nodeReflectances(nm: number): Float64Array;
   /**
    * The print placed on the plane (frame point → print-local cu = u·scale/half, cv = v·scale/half; outside |cu| ≤ 1, |cv| ≤ aspect the
-   * surround) as the expected signal's scene at these nodes, responses and white radiance (see `ImagePlaneSignalScene`).
+   * surround) as the expected signal's scene at these nodes, responses and white radiance (see `ImagePlaneSignalScene`). #597: with
+   * `light` (mixed lighting; null when its parts are not given), the lit print: `radianceAt` only, no per-pixel signals.
    */
   signalScene(wavelengths: readonly number[], perNode: readonly Float64Array[], whiteRadiance: Float64Array, radianceAt: (u: number, v: number, nm: number) => number,
     scale: number, half: number, surroundReflectance: number): ImagePlaneSignalScene;
+  signalScene(wavelengths: readonly number[], perNode: readonly Float64Array[], whiteRadiance: Float64Array, radianceAt: (u: number, v: number, nm: number) => number,
+    scale: number, half: number, surroundReflectance: number, light: ResolvedMixedIllumination | null | undefined): ImagePlaneSignalScene | ImagePlaneLitScene;
   /** The scene's form in the facade's source digest (the image's SHA-256 and shape, the paper, the interpolation, the lattice version). */
   digestForm: Readonly<Record<string, unknown>>;
   /** The result's `scene.parameters`: the image, paper and interpolation, the clipped samples and the image's SHA-256. */
@@ -325,7 +333,7 @@ export interface PlanarSceneRadianceProvider {
    * radiance per node and, for the direct path, Σ_n A_c(λ_n)·L(λ_n) integrated from each pixel's reconstructed spectrum
    * (`ResolvedImagePlaneScene.pixelSignals`, the surround's reflectance times the neutral signal outside the print).
    */
-  imageSignalScene?(wavelengths: readonly number[], perNode: readonly Float64Array[]): ImagePlaneSignalScene;
+  imageSignalScene?(wavelengths: readonly number[], perNode: readonly Float64Array[]): ImagePlaneSignalScene | ImagePlaneLitScene;
 }
 
 /**
@@ -387,6 +395,8 @@ export function buildPlanarSceneRadianceProvider(input: {
    * no longer a function of its material alone), so every renderer reads `radianceAt`. A radiance-function scene is refused.
    */
   irradianceAt?: (u: number, v: number, xM: number, yM: number, wavelengthNanometers: number) => number;
+  /** #597: the illumination's parts behind `irradianceAt`, which an image-plane print hands to the GPU's image-plane pass. */
+  illumination?: ResolvedMixedIllumination;
 }): PlanarSceneRadianceProvider {
   const { scene, illuminant, irradianceScale, geometry } = input, zeroBeyondHorizon = input.zeroBeyondHorizon === true;
   const scale = geometry.metresPerFrameUnit, distance = geometry.distanceM, sceneId = input.sceneId, providerProfileId = input.providerProfileId;
@@ -478,8 +488,10 @@ export function buildPlanarSceneRadianceProvider(input: {
   const chartAccess = light ? {} : chart ? { chartMaterialAt, materialRadiance: materialRadianceOf } :
     materialScene ? { chartMaterialAt: callerMaterialAt, materialRadiance: materialRadianceOf } : {};
   // #581: an image-plane print in node values at a frame point (the surround outside it), for the tabulated expected signal.
-  const imageAccess = imageScene && !light ? { imageSignalScene: (wavelengths: readonly number[], perNode: readonly Float64Array[]): ImagePlaneSignalScene =>
-    imageScene.signalScene(wavelengths, perNode, Float64Array.from(wavelengths, (nm) => irradianceScale * shapeAt(nm) / Math.PI), radianceAt, scale, half, placed!.surroundReflectance) } : {};
+  // #597: under mixed light the scene has no per-pixel signals: every renderer integrates litRadianceAt, and the GPU pass lights each point.
+  const imageAccess = imageScene ? { imageSignalScene: (wavelengths: readonly number[], perNode: readonly Float64Array[]): ImagePlaneSignalScene | ImagePlaneLitScene =>
+    imageScene.signalScene(wavelengths, perNode, Float64Array.from(wavelengths, (nm) => irradianceScale * shapeAt(nm) / Math.PI), light ? litRadianceAt : radianceAt, scale, half,
+      placed!.surroundReflectance, light ? input.illumination ?? null : undefined) } : {};
   // #394: evaluateRadiance's own plane-point arithmetic; radianceAt is then materialRadianceOf(material, nm) for both scene forms.
   const materialAtPoint = light ? undefined : chart ? chartMaterialAt : materialScene ? callerMaterialAt : undefined;
   const materialOfDirection = materialAtPoint === undefined ? undefined : (o: Readonly<{ x: number; y: number; z: number }>): number | undefined => {

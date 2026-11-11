@@ -9,7 +9,7 @@
  */
 import { beforeAll, describe, expect, it } from "vitest";
 import { prepareImagePlaneScenes, prepareDisplayView, simulateDisplayView } from "../src/index.js";
-import { IMAGE_PLANE_GPU_CASES, IMAGE_PLANE_GPU_LENS, IMAGE_PLANE_GPU_QUALITY_CASES, photo, syntheticPhoto } from "./helpers/image-plane-fixtures.js";
+import { IMAGE_PLANE_GPU_CASES, IMAGE_PLANE_GPU_LENS, IMAGE_PLANE_GPU_LIT_CASES, IMAGE_PLANE_GPU_QUALITY_CASES, photo, syntheticPhoto } from "./helpers/image-plane-fixtures.js";
 import type { SimulateCaptureOptions } from "../src/index.js";
 import { registerDisplayViewGpuRenderer } from "../src/gpu/display-view-quality-gpu.js";
 import { imagePlaneMaterialModuleId } from "../src/gpu/display-view-image-material-module.js";
@@ -112,6 +112,41 @@ describe("display view Speed kernel with the image-plane module (float32 emulati
       let byLattice = 0;
       for (const i of gpu.flaggedPixelIndices) if ((gpu.pixelFlags[i]! & 1) !== 0) byLattice++;
       report.push({ case: "quality: print edge on the lattice, " + (kernels ? "diffraction" : "AHD without kernels"), resolved: gpu.latticePointsResolved, flaggedByLatticePoint: byLattice, flagged: gpu.flaggedPixelIndices.length });
+      if (kernels) { expect(gpu.latticePointsResolved).toBeGreaterThan(0); expect(byLattice).toBe(0); } else expect(byLattice).toBeGreaterThan(0);
+      expect(a.outsideExpectedBound + a.outsideVarianceBound).toBe(0);
+      expect(a.largestCodeDifference).toBeLessThanOrEqual(1);
+      runtime.destroy();
+    }
+  }, scaledTimeout(300_000));
+
+  // #597 (owner decision 2026-11-10): mixed light over the print on the device, through the print's Quality passes (Speed requests too).
+  it.each(IMAGE_PLANE_GPU_LIT_CASES)("mixed light: %s: inside the a-priori bounds, samples within one code", async (name, options, caseView) => {
+    const fixture = await displayViewGpuFixture(options, caseView), runtime = await runtimeOf(createFakeGpu().gpu);
+    expect((fixture.input.signalInput.scene as { signalAt?: unknown }).signalAt).toBeUndefined();
+    const gpu = await renderOnGpuQuality(runtime, fixture), a = compareDisplayViews(fixture.cpu, gpu);
+    report.push({ case: "mixed light: " + name, pixels: a.pixels, flagged: gpu.flaggedPixelIndices.length, resolved: gpu.latticePointsResolved, deltaE2000Maximum: a.deltaEMaximum,
+      largestExpectedBoundRatio: a.largestExpectedRatio, siteSumRelativeBound: gpu.siteSumRelativeBound });
+    expect(gpu.execution).toMatchObject({ backend: "webgpu-f32", arithmetic: "float32" });
+    expect(a.outsideExpectedBound + a.outsideVarianceBound).toBe(0);
+    expect(a.largestCodeDifference).toBeLessThanOrEqual(1);
+    expect(a.deltaEMaximum).toBeLessThan(0.01);
+    expect(gpu.flaggedPixelIndices.length / a.pixels).toBeLessThanOrEqual(0.1);
+    runtime.destroy();
+  }, scaledTimeout(300_000));
+
+  it("mixed light: a hard light edge exactly on the lattice: with kernels the host resolves the flagged points, without kernels their pixels are recomputed", async () => {
+    // A regions edge at the print-local u of lattice points of the 2 × 2 box's 0.75 group (u frame units × k chart units per frame unit).
+    const base = cases[0]![1], outW = base.output!.width!, W = outW + 2, p = W / 2 + 3, u = (p + 0.5 + 0.75 - W / 2) * 2 / outW;
+    const framed = (await simulateDisplayView(base, { width: 4, height: 4 })).scene.framedWidthM, cu = u * (framed / 2) / (base.chartSize!.widthM / 2);
+    const illumination = { sources: [{ illuminant: { kind: "planckian" as const, temperatureKelvin: 6500 }, illuminanceLux: 8000 }, { illuminant: { kind: "cie-a" as const }, illuminanceLux: 3000 }],
+      blend: { kind: "regions" as const, regions: [{ source: 1, uMin: cu, uMax: 2, vMin: -2, vMax: 2 }], outsideSource: 0 } };
+    const edgeView = { ...SMALL_VIEW, region: { x: 90, y: 50, width: 24, height: 20 } };
+    for (const [options, kernels] of [[{ ...base, illumination, lens: { ...lens, diffraction: "circular-aperture" as const } }, true], [{ ...base, illumination }, false]] as const) {
+      const fixture = await displayViewGpuFixture(options, edgeView), runtime = await runtimeOf(createFakeGpu().gpu);
+      const gpu = await renderOnGpuQuality(runtime, fixture), a = compareDisplayViews(fixture.cpu, gpu);
+      let byLattice = 0;
+      for (const i of gpu.flaggedPixelIndices) if ((gpu.pixelFlags[i]! & 1) !== 0) byLattice++;
+      report.push({ case: "mixed light: hard edge on the lattice, " + (kernels ? "diffraction" : "Speed request"), resolved: gpu.latticePointsResolved, flaggedByLatticePoint: byLattice });
       if (kernels) { expect(gpu.latticePointsResolved).toBeGreaterThan(0); expect(byLattice).toBe(0); } else expect(byLattice).toBeGreaterThan(0);
       expect(a.outsideExpectedBound + a.outsideVarianceBound).toBe(0);
       expect(a.largestCodeDifference).toBeLessThanOrEqual(1);

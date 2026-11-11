@@ -262,7 +262,7 @@ function emulate(label: string, buffers: Map<number, FakeBuffer>, arithmetic: Em
     emulateDisplayViewQualitySites(u32(0), f32(0), u32(1), u32(2), f32(3), u32(4), f32(5), f32(6));
   } else if (label === "photivra-display-view-quality-photo-lattice:image-plane" || label === "photivra-display-view-quality-photo-lattice:image-plane-fma") {
     // #581: the print's pass 1 (group 0: params, groups, values, flags; group 1: records 100, photo uniform 101, node table 102).
-    emulateImagePlaneQualityLattice(u32(0), u32(1), f32(2), u32(3), u32(100), u32(101), f32(101), f32(102), label.endsWith("-fma") ? "fma" : "dekker", composite);
+    emulateImagePlaneQualityLattice(u32(0), u32(1), f32(2), u32(3), u32(100), u32(101), f32(101), f32(102), label.endsWith("-fma") ? "fma" : "dekker", composite, f32(103));
   } else if (label === "photivra-display-view-quality-photo-sites") {
     emulateImagePlaneQualitySites(u32(0), f32(0), u32(1), f32(3), f32(4), f32(5), u32(6));
   } else if (label === "photivra-display-view-quality-sites-blocked") {

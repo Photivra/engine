@@ -80,6 +80,12 @@ export const SIMULATE_CAPTURE_FAST_METHODS: readonly SimulateCaptureFastMethod[]
     exact: "gpu \"off\": the CPU reference; an explicit gpu wins", followsFormatDefault: true,
     resolver: { file: VIEW, call: "parsePrepareDisplayViewOptions(prepareOptions, (options as { fast?: unknown } | null | undefined)?.fast !== false)" },
     report: { field: "diagnostics.fast.execution" } },
+  { id: "illumination/image-plane-gpu", override: "fast", methods: "fast-and-exact", runs: ["prepareDisplayView"],
+    fast: "#597: gpu \"auto\": an image-plane print under mixed lighting on WebGPU (float32, a bounded approximation): the print's Quality passes light each lattice " +
+      "point per spectral node from the light's spectra and parts (Speed requests too, without site kernels); flagged points resolved on the host",
+    exact: "gpu \"off\": the CPU reference integrates each site from the lit radiance per spectral node in float64; an explicit gpu wins", followsFormatDefault: true,
+    resolver: { file: VIEW, call: "parsePrepareDisplayViewOptions(prepareOptions, (options as { fast?: unknown } | null | undefined)?.fast !== false)" },
+    report: { field: "diagnostics.fast.execution" } },
   { id: "sensor.midGrey", override: "fast", methods: "fast-and-exact", runs: ["simulateCapture", "simulateDisplayView", "prepareDisplayView"],
     fast: "#535: the mid-gray noise figure is not computed (about 0.3 ms)", exact: "result.sensor.midGrey is computed", followsFormatDefault: true,
     resolver: { file: CAPTURE, call: "fastTop ? undefined : 0" }, report: { field: "sensor.midGrey" } },

@@ -2480,7 +2480,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
     sceneId: IDS.scene, providerProfileId: IDS.provider, illuminant: sceneIlluminant, irradianceScale: scale, geometry: { distanceM: subjectDistanceM, metresPerFrameUnit,
       ...(chartSize ? { chart: { widthM: chartSize.widthM, heightM: chartSize.heightM, surroundReflectance: chartSize.surroundReflectance } } : {}) }, evidence: FACADE_EVIDENCE,
     limitations: Object.freeze(["Planar Lambertian scene under " + (light ? "blended" : "uniform") + " illumination; no shadows, inter-reflection, gloss or fluorescence."]),
-    ...(catalogue?.kind === "fisheye" ? { zeroBeyondHorizon: true as const } : {}), ...(light ? { irradianceAt: light.irradianceAt } : {}) });
+    ...(catalogue?.kind === "fisheye" ? { zeroBeyondHorizon: true as const } : {}), ...(light ? { irradianceAt: light.irradianceAt, illumination: light } : {}) });
   const provider = buildProvider(illuminant, irradianceScale, mixed);
   // #551: the moving subject's scene; renderers read it at each query's time. The revealed background is a neutral 18 % reflectance
   // under the plane's irradiance at the revealed point: the illuminant, or (#550) the blend and point sources there, from the spectrum.
@@ -2873,9 +2873,11 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   // #554: a profile's readout is declared at its own photosite area.
   const referenceArea = profile ? profile.pixelPitchMicrometers ** 2 : ISO_REFERENCE_APERTURE_AREA_SQUARE_MICROMETERS, areaScale = pitch * pitch / referenceArea;
   // #555: a full well replaces the area-scaled base-ISO saturation; the charge-domain transfer scales by the same rule.
-  const fullWell = characteristics?.fullWell, fullWellElectrons = fullWell && (fullWell.link === "none" ? fullWell.electrons : fullWell.electrons * (pitch / (fullWell.referencePixelPitchMicrometers ?? 6)) ** 2);
+  // #595: the charge scale at a pitch p (the capture's, and the native photosite's).
+  const fullWell = characteristics?.fullWell, wellAt = (p: number): number | undefined => fullWell && (fullWell.link === "none" ? fullWell.electrons : fullWell.electrons * (p / (fullWell.referencePixelPitchMicrometers ?? 6)) ** 2);
+  const fullWellElectrons = wellAt(pitch), chargeScaleAt = (p: number): number => { const well = wellAt(p); return well === undefined ? p * p / referenceArea : well / body.readout[0]!.profile.regimes[0]!.preAdcSaturationElectronEquivalent.value; };
   if (fullWellElectrons !== undefined && !(fullWellElectrons >= 100 && fullWellElectrons <= 1e10)) fail("sensor.fullWell must give 100 to 1e10 electrons at the pixel pitch (" + fullWellElectrons + ").");
-  const chargeScale = fullWellElectrons === undefined ? areaScale : fullWellElectrons / body.readout[0]!.profile.regimes[0]!.preAdcSaturationElectronEquivalent.value;
+  const chargeScale = chargeScaleAt(pitch);
   // #599 (2.22.0): a tier's site that sums N = (pitch / 6 µm)² photosites sums their read noise in quadrature (×√N), as a sensor
   // profile's does (#554, applied in its body); below one photosite the read noise is kept.
   const tierReadNoiseScale = profile ? 1 : Math.sqrt(Math.max(1, areaScale));
@@ -2893,11 +2895,9 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   const capacityElectrons = capacityOf(chargeScale);
   // #595: the same readout at the native photosite (a tier's 6 µm reference, a profile's own pitch): the area rule (or the full well's link) at
   // that pitch, and the read noise of one photosite (a profile's body carries the view's √N, removed here).
-  const nativePitch = profile ? profile.pixelPitchMicrometers : DEFAULTS.pixelPitchMicrometers, nativeArea = nativePitch * nativePitch / referenceArea;
-  const nativeChargeScale = fullWell === undefined ? nativeArea : (fullWell.link === "none" ? fullWell.electrons : fullWell.electrons * (nativePitch / (fullWell.referencePixelPitchMicrometers ?? 6)) ** 2) /
-    body.readout[0]!.profile.regimes[0]!.preAdcSaturationElectronEquivalent.value;
-  const nativeSensor = { profile: characterizeReadout(body.readout.find((a) => a.profile.channelId === "green")!.profile, nativeChargeScale, characteristics, 1 / profileReadNoiseScale),
-    capacityElectrons: capacityOf(nativeChargeScale), pixelPitchMicrometers: nativePitch, framePhotosites: width * height * pitch * pitch / (nativePitch * nativePitch) };
+  const nativePitch = profile ? profile.pixelPitchMicrometers : DEFAULTS.pixelPitchMicrometers, nativeScale = chargeScaleAt(nativePitch);
+  const nativeSensor = { profile: characterizeReadout(body.readout.find((a) => a.profile.channelId === "green")!.profile, nativeScale, characteristics, 1 / profileReadNoiseScale),
+    capacityElectrons: capacityOf(nativeScale), pixelPitchMicrometers: nativePitch, framePhotosites: width * height * pitch * pitch / (nativePitch * nativePitch) };
   assume("sensor.capacityElectrons", "derived", capacityElectrons, "Physical charge capacity set to the body's largest declared pre-ADC saturation (its base-ISO saturation signal), so storage never clips before the declared readout white.");
   if (areaScale !== 1 && !fullWell) {
     assume("sensor.isoAreaNormalization", "model", { referenceApertureAreaSquareMicrometers: referenceArea,
@@ -2905,8 +2905,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
     "Approximation. The tier's ISO signal chain is declared for a 6 µm square aperture. Standard output sensitivity S = 10/H (CIPA DC-004-2020 §3.2) is defined at the output, " +
       "independent of pixel size, and the collected charge is proportional to the aperture area (EMVA 1288 Release 4.0, Eq. 3), so the system conversion gain (e⁻ per code) and the " +
       "pre-ADC saturation of every ISO regime are multiplied by area / 36 µm² = " + areaScale + ". The same exposure gives the same output code at any pitch; per-pixel shot-noise SNR " +
-      "falls with smaller pixels. Above 6 µm a site sums N = area / 36 µm² photosites, so its read noise is the photosite's ×√N = " + tierReadNoiseScale + " (#599, as for a sensor profile); " +
-      "below 6 µm the read noise stays per pixel in electrons. Dark current stays per pixel. The charge capacity follows the scaled base-ISO saturation, so it is proportional to " +
+      "falls with smaller pixels. Read noise is the 6 µm photosite's ×√max(1, area / 36 µm²) = " + tierReadNoiseScale + " (#599: the photosites a site sums); dark current stays per pixel. The charge capacity follows the scaled base-ISO saturation, so it is proportional to " +
       "the aperture area: a design consequence of holding the tier's ISO rating and highlight headroom fixed, not a measured full-well model (published sensor data grow less than " +
       "proportionally with area across technologies).");
   }
@@ -2926,8 +2925,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
       "A pixel pitch above 100 µm is larger than any camera photosite, so each output pixel stands for a " + pitch + " µm square of a " + width * pitch / 1000 + " × " + height * pitch / 1000 +
       " mm frame: a downsized view of the whole frame, with the framing, crop factor, generic prime and minimum focus of that frame. Its signal is the charge of the whole square " +
       "(sensor.isoAreaNormalization), so its shot noise is that of all the real photosites in the square summed or averaged (Poisson counts add), and the image brightness is the " +
-      "same as at any other pitch. Its read noise is the photosites' summed in quadrature (×√N, #599); dark current is applied once per output pixel, not once per real photosite. " +
-      "result.sensor.native reports the real photosite's figures (#595). This is the noise of a binned, downsized view, not the real sensor's per-pixel noise. A point pixel aperture samples one point of each square; " +
+      "same as at any other pitch. Its read noise is the photosites' summed (×√N, #599), its dark current once per output pixel; result.sensor.native has a photosite's figures. This is the noise of a binned, downsized view, not the real sensor's per-pixel noise. A point pixel aperture samples one point of each square; " +
       "use sensor.pixelAperture box (or sensor.antiAliasing) to average scene detail finer than the pitch.");
   }
   assume("sensor.darkCurrent", "model", { electronsPerSecond: DARK_CURRENT_ELECTRONS_PER_SECOND, temperatureC: OPERATING_TEMPERATURE_C },

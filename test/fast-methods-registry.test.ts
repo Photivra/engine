@@ -115,6 +115,27 @@ describe("the fast-method registry (2.20.0)", () => {
     expect(exact.diagnostics.sampleCount).toBeGreaterThan(fast.diagnostics.sampleCount);
   }, scaledTimeout(60_000));
 
+  it("gives a print under mixed lighting a GPU (fast) and a CPU (exact) method (#597)", async () => {
+    const { prepareImagePlaneScenes } = await import("../src/index.js"), { createFakeGpu } = await import("./helpers/fake-webgpu.js");
+    const { registerDisplayViewGpuRenderer } = await import("../src/gpu/display-view-quality-gpu.js"), { setDisplayViewGpuRendererFactory } = await import("../src/facade/display-view-gpu.js");
+    await prepareImagePlaneScenes();
+    const data = Uint8Array.from({ length: 8 * 6 * 3 }, (_, i) => (i * 37) % 256);
+    const options: SimulateCaptureOptions = { scene: { kind: "image-plane", sceneId: "p", image: { width: 8, height: 6, channels: 3, encoding: "srgb-8", data } }, output: { width: 24, height: 16 },
+      sensor: { spectralStepNanometers: 100 }, illumination: { sources: [{ illuminant: { kind: "cie-a" }, illuminanceLux: 3000 }, { illuminant: { kind: "planckian", temperatureKelvin: 6500 }, illuminanceLux: 9000 }],
+        blend: { kind: "linear-gradient", from: { u: -0.5, v: 0 }, to: { u: 0.5, v: 0 } } } };
+    const previous = registerDisplayViewGpuRenderer();
+    try {
+      // The fast default is gpu "auto" (checked above); here with a device to run on. Exact (fast: false) is gpu "off".
+      const fast = await prepareDisplayView(options, { gpu: "auto", gpuDevice: createFakeGpu().gpu }), exact = await prepareDisplayView({ ...options, fast: false });
+      try {
+        const a = await fast.render({ width: 12, height: 8 }), b = await exact.render({ width: 12, height: 8 });
+        expect(a.diagnostics.fast.execution).toMatchObject({ gpu: "auto", backend: "webgpu-f32", fallbackReason: null });
+        expect(b.diagnostics.fast.execution).toMatchObject({ gpu: "off", backend: "cpu-reference" });
+        for (let i = 0; i < a.image.samples.length; i++) expect(Math.abs(a.image.samples[i]! - b.image.samples[i]!)).toBeLessThanOrEqual(1);
+      } finally { fast.dispose(); exact.dispose(); }
+    } finally { setDisplayViewGpuRendererFactory(previous); }
+  }, scaledTimeout(120_000));
+
   it("gives the display view's catalogue PSF zones an exact method, one site per zone (H1)", async () => {
     const options: SimulateCaptureOptions = { scene: { preset: "uniform" }, output: { width: 66, height: 44 }, lens: { catalogue: "pv-50-1.8" },
       sensor: { pixelPitchMicrometers: 36000 / 66, spectralStepNanometers: 100 } };
