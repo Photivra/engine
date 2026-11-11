@@ -14,7 +14,6 @@
  * #477); `display-view-chart-material-module.ts` provides one for the eight 2.0 chart presets and
  * `display-view-composite-material-module.ts` (#491) one for composite charts, the 2.3 elements and `material-layers` scenes.
  */
-import { DISPLAY_VIEW_LUMINANCE_FAST_POINTS, gaussHermite } from "../facade/display-view-rendering.js";
 import { SDR_LUMINANCE_WEIGHTS } from "../output/sdr-rendering.js";
 import { DISPLAY_VIEW_NOISE_STREAM_ID, axisSums, clipCentre, createDisplayViewExpectedSignal, displayViewDecidedSaturation, overlaps, quantizationVariance, renderDisplayView, type AxisSums, type DisplayViewRenderResult, type DisplayViewSetup } from "../facade/display-view.js";
 import { displayViewSignalTables, type DisplayViewExpectedSignalInput } from "../facade/expected-signal.js";
@@ -255,7 +254,7 @@ function constants(setup: DisplayViewSetup, signalInput: DisplayViewExpectedSign
     } else { aux[base] = 1 / (p.whiteLuminance * p.whiteLuminance); aux[base + 3] = 1; }
     aux.set(SDR_LUMINANCE_WEIGHTS, base + 4);
     aux[base + 7] = setup.rendering.fast ? 1 : 0;
-    const gh = gaussHermite(DISPLAY_VIEW_LUMINANCE_FAST_POINTS);
+    const gh = setup.coupled!.luminanceRule;
     aux.set(gh.x, base + 8); aux.set(gh.w, base + 16);
   }
   return { params, aux };

@@ -495,7 +495,7 @@ function constants(setup: DisplayViewSetup, signalInput: DisplayViewExpectedSign
 
 /** The reference's correction setup of a display-view setup with the AHD correction. */
 function correctionSetup(setup: DisplayViewSetup): DisplayViewCorrectionSetup {
-  return { seed: setup.seed, readout: setup.readout, gains: setup.gains, clipLevel: setup.clipLevel, matrix: setup.matrix, toneCurve: setup.toneCurve, ahdCorrection: setup.ahdCorrection! };
+  return { seed: setup.seed, readout: setup.readout, gains: setup.gains, clipLevel: setup.clipLevel, matrix: setup.matrix, toneCurve: setup.toneCurve, ...(setup.rendering && setup.coupled ? { rendering: setup.rendering, coupled: setup.coupled } : {}), ahdCorrection: setup.ahdCorrection! };
 }
 
 /** How far the host's quantization term Σ(w/A)²·q(m) can move with a mean bound Δm (see QUANTIZATION_SLOPE), doubled. */

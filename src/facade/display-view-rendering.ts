@@ -28,41 +28,10 @@
  * `output.highlightMode.reconstruct/view-moments` (src/facade/fast-methods.ts); their measured bounds are in docs/DISPLAY_VIEW.md.
  */
 
-import { portableCosTwoPi, portableExp, portablePow } from "../core/portable-math.js";
+import { portablePow } from "../core/portable-math.js";
+import { CLIP_REACH_SIGMA, GL, bigPhi, phi } from "./display-view-normal.js";
 import { desaturateToLuminance, SDR_LUMINANCE_WEIGHTS, type SdrToneCurve, type SdrToneCurveParameters } from "../output/sdr-rendering.js";
 import { RAW_HIGHLIGHT_RECONSTRUCTION_START } from "../color/sensor-color-development.js";
-
-/** Beyond this many standard deviations from a clip level the clip changes the moments by less than 1e-15 of σ². */
-export const CLIP_REACH_SIGMA = 8.5;
-/** Standard normal density. */
-export function phi(z: number): number { return 0.3989422804014327 * portableExp(-0.5 * z * z); }
-/**
- * Standard normal distribution function, Φ(z) = 1 − Q(z), with Q from the rational approximation 26.2.17 of
- * Abramowitz & Stegun, Handbook of Mathematical Functions (NBS AMS 55, 1964; free, US government work):
- * absolute error below 7.5e-8.
- */
-export function bigPhi(z: number): number {
-  const x = Math.abs(z), t = 1 / (1 + 0.2316419 * x);
-  const q = phi(x) * t * (0.319381530 + t * (-0.356563782 + t * (1.781477937 + t * (-1.821255978 + t * 1.330274429))));
-  return z >= 0 ? 1 - q : q;
-}
-/** Gauss–Legendre nodes and weights on [−1, 1], 16 points (computed once by Newton iteration on P_16 from cos(π(i + ¾)/(n + ½))). */
-export const GL = /* @__PURE__ */ ((): { x: Float64Array; w: Float64Array } => {
-  const n = 16, x = new Float64Array(n), w = new Float64Array(n);
-  for (let i = 0; i < n; i++) {
-    let z = portableCosTwoPi((i + 0.75) / (2 * n + 1)), dp = 0;
-    for (let it = 0; it < 100; it++) {
-      let p0 = 1, p1 = z;
-      for (let k = 2; k <= n; k++) { const p2 = ((2 * k - 1) * z * p1 - (k - 1) * p0) / k; p0 = p1; p1 = p2; }
-      dp = n * (z * p1 - p0) / (z * z - 1);
-      const dz = p1 / dp;
-      z -= dz;
-      if (Math.abs(dz) < 1e-16) break;
-    }
-    x[i] = z; w[i] = 2 / ((1 - z * z) * dp * dp);
-  }
-  return { x, w };
-})();
 
 /**
  * Internal (exported for tests). The n-point Gauss–Hermite rule of the standard normal: Σ w_i f(x_i) ≈ E[f(Z)], Z ~ N(0, 1).
@@ -116,6 +85,13 @@ export interface DisplayViewCoupledRendering {
   readonly luminanceTone: boolean;
   readonly reconstruct: boolean;
   readonly desaturate: boolean;
+  readonly choice: DisplayViewRenderingChoice;
+  /** Points per axis of the 3-D rule in use; the luminance rule's Gauss–Hermite nodes and weights (8 points), for the GPU kernels. */
+  readonly chainPoints: number;
+  readonly chainRule: { x: Float64Array; w: Float64Array };
+  readonly luminanceRule: { x: Float64Array; w: Float64Array };
+  /** The luminance curve's ratio limit r(0+) (1, 0, 1/(σ·g(Lw)) or ∞). */
+  readonly ratioAtZero: number;
   /** Renders one deterministic camera pixel (WB, highlight, matrix, tone, gamut, clip) into out (the AHD correction's pixels). */
   pixel(c0: number, c1: number, c2: number, out: Float64Array): void;
   /**
@@ -341,5 +317,5 @@ export function createDisplayViewCoupledRendering(choice: DisplayViewRenderingCh
     for (let k = 0; k < 3; k++) { hm[k] = m1[k]!; hv[k] = Math.max(0, m2[k]! - m1[k]! * m1[k]!); }
     return !(desaturate && reachesTop);
   }
-  return { luminanceTone, reconstruct, desaturate, pixel, chain, reconstructInReach, tone };
+  return { luminanceTone, reconstruct, desaturate, choice, chainPoints: chainRule.x.length, chainRule, luminanceRule: hermite8, ratioAtZero: ratioZero, pixel, chain, reconstructInReach, tone };
 }

@@ -48,7 +48,9 @@ export const DISPLAY_VIEW_AHD_STREAM_ID = 34 as const;
 export { createDisplayViewExpectedSignal, type DisplayViewExpectedSignal, type DisplayViewExpectedSignalInput, type DisplayViewQueryOffset,
   type DisplayViewScene } from "./expected-signal.js";
 import type { DisplayViewExpectedSignal, DisplayViewExpectedSignalInput } from "./expected-signal.js";
-import { CLIP_REACH_SIGMA, GL, bigPhi, createDisplayViewCoupledRendering, phi, type DisplayViewRenderingChoice } from "./display-view-rendering.js";
+import { CLIP_REACH_SIGMA, GL, bigPhi, phi } from "./display-view-normal.js";
+// Type only: the coupled steps are loaded on demand (setup.coupled), never by the default path.
+import type { DisplayViewCoupledRendering, DisplayViewRenderingChoice } from "./display-view-rendering.js";
 import type { SdrToneCurve } from "../output/sdr-rendering.js";
 import type { ResolvedChartScene } from "./chart-scenes.js";
 import type { ResolvedChartMaterialLayers } from "./chart-material-layers.js";
@@ -180,6 +182,11 @@ export interface DisplayViewSetup {
    * (src/facade/display-view-rendering.ts). Absent: the per-channel highlight clip and the component clip.
    */
   rendering?: DisplayViewRenderingChoice;
+  /**
+   * The coupled steps of `rendering` (`createDisplayViewCoupledRendering`, src/facade/display-view-rendering.ts), created by the
+   * caller where it loaded that module on demand; present exactly when `rendering` is.
+   */
+  coupled?: DisplayViewCoupledRendering;
   /**
    * AHD only: the low-signal correction. `labMatrix` is the camera → XYZ matrix AHD measures homogeneity with (the profile's
    * matrix times the white-balance gains); samples whose pixel variance (linear light) exceeds `thresholdVariance` add the
@@ -416,7 +423,7 @@ export interface DisplayViewCorrectionStateSet { key: string; gridKeys: Int32Arr
 /** 2.10 (#447): the grid keys of the states a region needs (`PreparedDisplayView.collectCorrectionStates`), ascending. */
 export interface DisplayViewCorrectionStateKeys { key: string; gridKeys: Int32Array }
 /** The inputs of one setup's correction states: the inputs of its correction key. */
-export type DisplayViewCorrectionSetup = Pick<DisplayViewSetup, "seed" | "readout" | "gains" | "clipLevel" | "matrix" | "toneCurve" | "rendering"> &
+export type DisplayViewCorrectionSetup = Pick<DisplayViewSetup, "seed" | "readout" | "gains" | "clipLevel" | "matrix" | "toneCurve" | "rendering" | "coupled"> &
   { ahdCorrection: NonNullable<DisplayViewSetup["ahdCorrection"]> };
 /** Internal (#447): the correction key of a setup, or null without the AHD correction (the key `renderDisplayView` looks its states up with). */
 export function displayViewCorrectionKey(setup: Pick<DisplayViewSetup, "seed" | "readout" | "gains" | "clipLevel" | "matrix" | "toneCurve" | "ahdCorrection" | "rendering">): string | null {
@@ -737,7 +744,7 @@ function createGridCorrection(setup: DisplayViewCorrectionSetup, states: Correct
   const k = Float64Array.from(setup.readout, (r) => r.perElectron), c0 = Float64Array.from(setup.readout, (r) => r.constantVariance);
   const M = setup.matrix, m00 = M[0]![0]!, m01 = M[0]![1]!, m02 = M[0]![2]!, m10 = M[1]![0]!, m11 = M[1]![1]!, m12 = M[1]![2]!, m20 = M[2]![0]!, m21 = M[2]![1]!, m22 = M[2]![2]!;
   const g0 = setup.gains[0], g1 = setup.gains[1], g2 = setup.gains[2], L = setup.clipLevel, reinhard = setup.toneCurve === "positive-reinhard-per-channel";
-  const coupled = setup.rendering ? createDisplayViewCoupledRendering(setup.rendering, setup.gains, L, M) : null;
+  const coupled = setup.coupled ?? null;
   const correction = new Float64Array(3), patch = new Float64Array(AHD_SIDE * AHD_SIDE);
   const readStd = Float64Array.from(c0, (v) => Math.sqrt(v));
   /** The offset of a grid state's three values in states.values (computed and stored on first use). */
@@ -851,7 +858,7 @@ export async function renderDisplayView(setup: DisplayViewSetup): Promise<Displa
   const cm = new Float64Array(3), cv = new Float64Array(3), csv = new Float64Array(3), bm = new Float64Array(3), bv = new Float64Array(3), bs = new Float64Array(3);
   const hm = new Float64Array(3), hv = new Float64Array(3), hs = new Float64Array(3), an = new Float64Array(9);
   // #593, #601: the coupled rendering steps (display-view-rendering.ts); null keeps the per-component arithmetic below unchanged.
-  const coupled = setup.rendering ? createDisplayViewCoupledRendering(setup.rendering, setup.gains, L, M) : null;
+  const coupled = setup.coupled ?? null;
   const coupledA = new Float64Array(9), muY = new Float64Array(3), sY = new Float64Array(9), jY = new Float64Array(9);
   let coupledUsed = false;
   const reach2 = CLIP_REACH_SIGMA * CLIP_REACH_SIGMA;

@@ -7,7 +7,8 @@
  * The design and its error analysis are in docs/DISPLAY_VIEW.md.
  */
 
-import { DISPLAY_VIEW_CHAIN_POINTS, type DisplayViewRenderingChoice } from "./display-view-rendering.js";
+// Types only: the coupled rendering steps (#593, #601) are loaded on demand, when a view asks for them.
+import type { DisplayViewCoupledRendering, DisplayViewRenderingChoice } from "./display-view-rendering.js";
 import type { SdrToneCurveParameters } from "../output/sdr-rendering.js";
 import { ENGINE_API_VERSION } from "../core/version.js";
 import { resolvePortableColorTemperatureWhiteBalance } from "../color/white-balance.js";
@@ -110,7 +111,7 @@ export async function prepareDisplayView(options: SimulateCaptureOptions, prepar
   let frameWidth = 0, frameHeight = 0;
   const prepared = await runCapture(options, "display-view", DISPLAY_VIEW_WITHOUT_VIEW, (context) => {
     frameWidth = context.width; frameHeight = context.height;
-    return Promise.resolve(prepareView(context));
+    return prepareView(context);
   }) as PreparedViewParts;
   // The GPU code is loaded only when a GPU mode asks for it, so bundles on the default stay without it.
   const session: DisplayViewGpuSession | null = gpuOptions.gpu === "off" ? null :
@@ -204,7 +205,7 @@ interface PreparedViewParts {
 /** Renders the display view of a resolved request (the last step of `runCapture` for "display-view"). */
 async function renderDisplayViewResult(context: DisplayViewRunContext, viewInternals?: ViewInternals): Promise<DisplayViewResult> {
   const viewStarted = clockMs();
-  return await prepareView(context).render(context.parsedView!, { started: context.started, viewStarted, checkAbort: context.checkAbort, yieldControl: context.yieldControl }, viewInternals);
+  return await (await prepareView(context)).render(context.parsedView!, { started: context.started, viewStarted, checkAbort: context.checkAbort, yieldControl: context.yieldControl }, viewInternals);
 }
 
 /**
@@ -213,7 +214,7 @@ async function renderDisplayViewResult(context: DisplayViewRunContext, viewInter
  * matrix). The returned function renders one view from it; it keeps no state between renders (each has its own expected-
  * signal caches, lookup count and assumptions), so its results are those of separate calls.
  */
-function prepareView(context: DisplayViewRunContext): PreparedViewParts {
+async function prepareView(context: DisplayViewRunContext): Promise<PreparedViewParts> {
   const { ahd, antiAliasing, aspect, axisChannelResponse, boxSamples, buildProvider, callerScene, chart, materialLayers, chartReport, chartSize, diffraction, diffractionPsf, fNumber, focalLengthMm, focusDistanceM, height, highlightMode, exposureGain, illuminanceLux, illuminant, illuminantOption, imagingArea, intentOf, metresPerFrameUnit, noiseSeed, outputOptions, pitch, preset, provider, regimeByChannel, resolvedIso, isoReport, standardExposureDeviationStops, standardExposureIlluminanceLux, greyCardDeviationStops, metering, sceneOption, scenePreset, shutterSeconds, subjectDistanceM, toneCurve, whiteBalanceOption, whiteBalanceState, width, margin, mode, nativeHeight, nativeWidth, sourceSha256 } = context;
   const kelvinInput = context.kelvinWhiteBalanceInput;
   // The engine's illuminant formulas (Planckian, CIE A, daylight locus) evaluated with the portable power and e^x − 1, so
@@ -277,6 +278,8 @@ function prepareView(context: DisplayViewRunContext): PreparedViewParts {
   const coupledRendering = toneCurve === "extended-reinhard-luminance" || toneCurve === "naka-rushton-luminance" || highlightMode === "reconstruct" || context.gamutHandling === "desaturate-to-luminance";
   const rendering: DisplayViewRenderingChoice | undefined = coupledRendering ? { toneCurve, ...(outputOptions.toneCurveParameters === undefined ? {} : { toneCurveParameters: outputOptions.toneCurveParameters as SdrToneCurveParameters }),
     highlightMode, gamutHandling: context.gamutHandling, fast: context.viewFast.rendering } : undefined;
+  // The coupled steps' module is loaded only for a view that asks for them (the default path never imports it).
+  const coupled: DisplayViewCoupledRendering | undefined = rendering ? (await import("./display-view-rendering.js")).createDisplayViewCoupledRendering(rendering, colour.appliedGains, Math.min(...colour.appliedGains), matrix)! : undefined;
   const ahdFast = +context.viewFast.ahd, correctionDraws = DISPLAY_VIEW_AHD_CORRECTION_DRAWS[ahdFast]!, correctionThreshold = DISPLAY_VIEW_AHD_CORRECTION_THRESHOLD;
   const ahdCorrection = ahd ? { labMatrix: CAMERA_TO_XYZ.map((row) => row.map((value, c) => value * (viewGains ? viewGains[c]! : 1))), drawsPerState: correctionDraws,
     thresholdVariance: correctionThreshold * correctionThreshold } : undefined;
@@ -294,9 +297,9 @@ function prepareView(context: DisplayViewRunContext): PreparedViewParts {
     return { signal, setup: { frameWidth: width, frameHeight: height, margin, nativeWidth, nativeHeight, viewWidth: v.width, viewHeight: v.height,
       region: viewRegion, samplesPerAxis: v.samplesPerAxis, uniformSamplesPerAxis: uniformSamplesOf(v.samplesPerAxis), reachSites, bitDepth: v.bitDepth, seed: noiseSeed, signal, readout, demosaic: demosaicTable,
       ...(ahdCandidates && ahdCorrection ? { candidates: ahdCandidates, ahdCorrection } : {}), ...(ahdCollect ? { ahdCollect } : {}),
-      gains, clipLevel, matrix, toneCurve: viewToneCurve, ...(rendering ? { rendering } : {}), yieldControl, checkAbort, gpu: { signalInput, chart: viewChart ?? null, layers: materialLayers ?? null, placement, ...(defocusKernel && !largeDefocus ? { defocusRadius: defocusKernel.radius } : {}) } } };
+      gains, clipLevel, matrix, toneCurve: viewToneCurve, ...(rendering ? { rendering, coupled: coupled! } : {}), yieldControl, checkAbort, gpu: { signalInput, chart: viewChart ?? null, layers: materialLayers ?? null, placement, ...(defocusKernel && !largeDefocus ? { defocusRadius: defocusKernel.radius } : {}) } } };
   };
-  const correction: DisplayViewCorrectionSetup | undefined = ahdCorrection ? { seed: noiseSeed, readout, gains, clipLevel, matrix, toneCurve: viewToneCurve, ...(rendering ? { rendering } : {}), ahdCorrection } : undefined;
+  const correction: DisplayViewCorrectionSetup | undefined = ahdCorrection ? { seed: noiseSeed, readout, gains, clipLevel, matrix, toneCurve: viewToneCurve, ...(rendering ? { rendering, coupled: coupled! } : {}), ahdCorrection } : undefined;
   const collect = async (v: ParsedDisplayView, run: ViewRun): Promise<Int32Array> => {
     const keys = new Set<number>();
     await renderDisplayView(setupOf(v, run, keys).setup);
@@ -369,11 +372,11 @@ function prepareView(context: DisplayViewRunContext): PreparedViewParts {
     }
     if (rendering) assume("view.rendering", "model", { toneCurve, highlightMode, gamutHandling: rendering.gamutHandling, method: "coupled-moments",
       luminanceTone: rendering.toneCurve === "extended-reinhard-luminance" || rendering.toneCurve === "naka-rushton-luminance" ? (rendering.fast ? "gauss-hermite-8-in-luminance-else-gauss-legendre-4x16" : "gauss-legendre-4x16-in-luminance") : null,
-      chainPointsPerAxis: rendering.fast ? DISPLAY_VIEW_CHAIN_POINTS.fast : DISPLAY_VIEW_CHAIN_POINTS.full, fast: rendering.fast, scientificStatus: rendering.fast ? "approximation" : "exact-in-the-limit" },
+      chainPointsPerAxis: coupled!.chainPoints, fast: rendering.fast, scientificStatus: rendering.fast ? "approximation" : "exact-in-the-limit" },
       "The rendering steps that couple a pixel's components act on its normal camera-channel distribution: a luminance tone curve by conditioning each developed component on the luminance " +
       "(closed-form clipped-normal moments for each luminance, integrated over it" + (rendering.fast ? " with an 8-point Gauss–Hermite rule where the luminance stays positive" : " with a composite 4 × 16-point Gauss–Legendre rule") + "); " +
       "highlightMode \"reconstruct\" and the desaturation, where a pixel reaches them, by integrating the whole development chain over its camera channels with a " +
-      (rendering.fast ? DISPLAY_VIEW_CHAIN_POINTS.fast : DISPLAY_VIEW_CHAIN_POINTS.full) + "-point-per-axis Gauss–Hermite rule (docs/DISPLAY_VIEW.md, \"Coupled rendering\"). " +
+      coupled!.chainPoints + "-point-per-axis Gauss–Hermite rule (docs/DISPLAY_VIEW.md, \"Coupled rendering\"). " +
       (rendering.fast ? "The fast rules (the request resolves to fast) are a bounded approximation of the full ones." : "The full rules converge to the exact moments of the view's normal model."));
     assume("view.source", "model", { rendering: "srgb", format: v.format, ignoredCaptureOutput: ["format", "colorEncoding", "bitDepth", "gamutMapping", "jpegQuantizationStep", "dng", "metadata", "maximumPixels"].filter((k) => outputOptions[k] !== undefined) },
       "The view shows the capture's sRGB rendering (its tone curve, white balance and highlight mode); the capture's file-format options do not apply to it.");
