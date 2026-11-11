@@ -8264,3 +8264,39 @@ console.log(outOfFocus.limitingFactor); // "defocus"
 - Demosaicing, sharpening, noise and motion are not included.
 
 See [Physics Foundation](https://github.com/Photivra/photivra/blob/main/docs/PHYSICS_FOUNDATION.md#which-limits-detail-the-lens-or-the-sensor).
+
+## Content Credentials in exports (#165)
+
+`bindC2paManifestStore`, `calculateC2paDataHash` and `setC2paManifestStore` embed a C2PA Manifest Store in a JPEG, PNG or
+DNG export, hash the bytes the signature covers and write the signed store in place at the same length (C2PA 2.4 §10.4);
+`parseC2paManifestStore` finds a store already in a file, without verifying it. The application builds, signs and validates
+the manifest; the engine holds no keys and makes no network calls. Here a minimal one-IFD TIFF
+stands in for a DNG export, and the stores are only the C2PA framing around zero or one bytes, not real manifests:
+
+```ts
+import { bindC2paManifestStore, calculateC2paDataHash, parseC2paManifestStore, setC2paManifestStore } from '@photivra/engine';
+
+// A C2PA Manifest Store's outer framing (C2PA 2.4 §11.1.4.2) around `fill` bytes. A real store comes from the app's manifest builder.
+function framedStore(length: number, fill: number): Uint8Array {
+  const store = new Uint8Array(length).fill(fill), view = new DataView(store.buffer);
+  view.setUint32(0, length); store.set([0x6a, 0x75, 0x6d, 0x62], 4); // 'jumb' superbox
+  view.setUint32(8, 30); store.set([0x6a, 0x75, 0x6d, 0x64], 12); // 'jumd' description box
+  store.set([0x63, 0x32, 0x70, 0x61, 0, 0x11, 0, 0x10, 0x80, 0, 0, 0xaa, 0, 0x38, 0x9b, 0x71, 3, 0x63, 0x32, 0x70, 0x61, 0], 16); // C2PA UUID, label "c2pa"
+  view.setUint32(38, length - 38); store.set([0x6a, 0x75, 0x6d, 0x62], 42); // one child box filling the rest
+  return store;
+}
+const tiff = Uint8Array.of(0x49, 0x49, 42, 0, 8, 0, 0, 0, 1, 0, 0, 1, 4, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0);
+
+const bound = bindC2paManifestStore({ file: tiff, manifestStore: framedStore(1024, 0) });
+console.log(bound.binding.exclusions); // [{ start: 26, length: 4 }, { start: 40, length: 1024 }]: the entry's count field and the store
+const { hashHex } = await calculateC2paDataHash({ file: bound.bytes, exclusions: bound.binding.exclusions });
+// The app writes the exclusions and hashHex into its c2pa.hash.data assertion, signs, and builds the final store at 1,024 bytes.
+const signed = setC2paManifestStore({ file: bound.bytes, binding: bound.binding, manifestStore: framedStore(1024, 1) });
+const after = await calculateC2paDataHash({ file: signed, exclusions: bound.binding.exclusions });
+if (signed.length !== bound.bytes.length || after.hashHex !== hashHex) throw new Error('The signed file must keep its length and data hash');
+const found = parseC2paManifestStore({ file: signed }); // the store and the same binding, or null for a file without one
+if (found?.manifestStore[46] !== 1) throw new Error('The signed store must be found');
+```
+
+See [Content Credentials](https://github.com/Photivra/photivra/blob/main/docs/CONTENT_CREDENTIALS.md) for the byte layouts,
+the checks and what is still to be validated externally.

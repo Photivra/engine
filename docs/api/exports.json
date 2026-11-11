@@ -283,6 +283,16 @@
       "kind": "type"
     },
     {
+      "name": "bindC2paManifestStore",
+      "source": "src/capture/c2pa-embed.ts",
+      "kind": "runtime"
+    },
+    {
+      "name": "BindC2paManifestStoreInput",
+      "source": "src/capture/c2pa-embed.ts",
+      "kind": "type"
+    },
+    {
       "name": "bindDisplayViewCorrectionStates",
       "source": "src/facade/display-view.ts",
       "kind": "runtime"
@@ -378,6 +388,41 @@
       "kind": "type"
     },
     {
+      "name": "C2PA_ALGORITHMIC_MEDIA_SOURCE_TYPE",
+      "source": "src/capture/c2pa-embed.ts",
+      "kind": "runtime"
+    },
+    {
+      "name": "C2PA_MANIFEST_STORE_MAXIMUM_BYTES",
+      "source": "src/capture/c2pa-embed.ts",
+      "kind": "runtime"
+    },
+    {
+      "name": "C2paBoundFile",
+      "source": "src/capture/c2pa-embed.ts",
+      "kind": "type"
+    },
+    {
+      "name": "C2paByteRange",
+      "source": "src/capture/c2pa-embed.ts",
+      "kind": "type"
+    },
+    {
+      "name": "C2paDataHash",
+      "source": "src/capture/c2pa-embed.ts",
+      "kind": "type"
+    },
+    {
+      "name": "C2paFoundManifestStore",
+      "source": "src/capture/c2pa-embed.ts",
+      "kind": "type"
+    },
+    {
+      "name": "C2paHardBinding",
+      "source": "src/capture/c2pa-embed.ts",
+      "kind": "type"
+    },
+    {
       "name": "calculateActiveCaptureFieldOfView",
       "source": "src/output/capture-geometry.ts",
       "kind": "runtime"
@@ -440,6 +485,16 @@
     {
       "name": "CalculateBrownConradyDistortionMappingInput",
       "source": "src/optics/brown-conrady-distortion.ts",
+      "kind": "type"
+    },
+    {
+      "name": "calculateC2paDataHash",
+      "source": "src/capture/c2pa-embed.ts",
+      "kind": "runtime"
+    },
+    {
+      "name": "CalculateC2paDataHashInput",
+      "source": "src/capture/c2pa-embed.ts",
       "kind": "type"
     },
     {
@@ -5528,6 +5583,16 @@
       "kind": "type"
     },
     {
+      "name": "parseC2paManifestStore",
+      "source": "src/capture/c2pa-embed.ts",
+      "kind": "runtime"
+    },
+    {
+      "name": "ParseC2paManifestStoreInput",
+      "source": "src/capture/c2pa-embed.ts",
+      "kind": "type"
+    },
+    {
       "name": "parseCameraConfiguration",
       "source": "src/schema/validation.ts",
       "kind": "runtime"
@@ -8896,6 +8961,16 @@
       "name": "serializeSimulatedCaptureDngFromParts",
       "source": "src/facade/simulate-capture.ts",
       "kind": "runtime"
+    },
+    {
+      "name": "setC2paManifestStore",
+      "source": "src/capture/c2pa-embed.ts",
+      "kind": "runtime"
+    },
+    {
+      "name": "SetC2paManifestStoreInput",
+      "source": "src/capture/c2pa-embed.ts",
+      "kind": "type"
     },
     {
       "name": "setExposureCompensationOnMeterTarget",

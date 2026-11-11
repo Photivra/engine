@@ -116,6 +116,8 @@ describe("the app's capture-worker shape", () => {
     expect(worker.totalGzip).toBeLessThanOrEqual(363_700);
     // #581: the image-plane scene's module, lattice data and GPU module are reachable only through prepareImagePlaneScenes().
     expect([...worker.lazyModules, ...worker.modules.keys()].filter((id) => /image-plane(?!-support)/u.test(id))).toEqual([]);
+    // #165: the C2PA export writers load only when an application imports them, never in the capture worker.
+    expect([...worker.lazyModules, ...worker.modules.keys()]).not.toContain("capture/c2pa-embed.ts");
   }, testTimeout(120_000));
 
   // #554 (owner, 2026-11-09): sensor.profile takes the record, so the worker never bundles the profile catalogue, only its parser.

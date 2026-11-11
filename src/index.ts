@@ -1902,6 +1902,9 @@ export { parseDngOpcodeList, applyDngOpcodes, type DngOpcode, type DngOpcodeArea
 export { developDngStageImage, type DevelopDngStageImageOptions, type DngStageImageResult } from "./capture/dng-stage-image.js";
 export { parseDngProfileGainTableMap, parseDngRgbTables, applyDngProfileGainTableMap, applyDngRgbTables, type DngProfileGainTableMap, type DngRgbTable, type DngRgbTables,
   type DngRgbImage, type ApplyDngProfileGainTableMapInput, type ApplyDngRgbTablesInput } from "./capture/dng-profile-maps.js";
+export { C2PA_ALGORITHMIC_MEDIA_SOURCE_TYPE, C2PA_MANIFEST_STORE_MAXIMUM_BYTES, bindC2paManifestStore, setC2paManifestStore, calculateC2paDataHash,
+  parseC2paManifestStore, type C2paFoundManifestStore, type ParseC2paManifestStoreInput, type C2paByteRange, type C2paHardBinding, type C2paBoundFile, type C2paDataHash, type BindC2paManifestStoreInput, type SetC2paManifestStoreInput,
+  type CalculateC2paDataHashInput } from "./capture/c2pa-embed.js";
 export { NATIVE_RAW_DNG_SCHEMA_VERSION, serializeNativeRawDng, type SerializeNativeRawDngInput, type NativeRawDng, type NativeRawDngChannelNoise } from "./capture/native-raw-dng.js";
 export type { DngImportInput, DngImportAsyncInput, ImportedDngRaw, ImportedDngCfa, ImportedDngBlackLevel, ImportedDngRect, ImportedDngSemanticMask } from "./capture/dng-import.js";
 export { parseLosslessJpeg, type LosslessJpegImage, type LosslessJpegLimits } from "./capture/lossless-jpeg.js";
