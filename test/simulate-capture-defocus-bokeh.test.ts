@@ -62,7 +62,7 @@ describe("lens.defocus bokeh character in the capture (#553)", () => {
     const bokeh = bokehOf(bladed);
     expect(bokeh).toMatchObject({ side: "behind-focus", method: "exact-polygon-cell-area", axisOpenAreaRatio: 1 });
     expect(bladed.assumptions.find((a) => a.id === "lens.defocus")!.explanation).toMatch(/shaped by the lens instead \(#553/u);
-    expect(bladed.assumptions.find((a) => a.id === "raw.expectedSignal")!.value).toMatchObject({ method: "tabulated-expected-electrons" });
+    expect(bladed.assumptions.find((a) => a.id === "raw.expectedSignal")!.value).toMatchObject({ method: "per-site-integrated-electrons" });
     // The centre point (cell 2 of 5, row 1 of 3): the disc's blob is round, the pentagon's has five corners.
     const spread = (e: number[]): number => Math.max(...e) / Math.min(...e);
     const a = blob(round, 120, 72, 23), b = blob(bladed, 120, 72, 23);
@@ -104,7 +104,7 @@ describe("lens.defocus bokeh character in the capture (#553)", () => {
     expect(bokeh.catsEye.minimumOpenAreaRatio).toBeLessThan(0.8);
     expect(bokeh.catsEye.largestAdjacentOpenAreaRatioChange).toBeGreaterThan(0);
     // The cat's eye skips the tabulated path (one kernel per node there).
-    expect((clipped.assumptions.find((a) => a.id === "raw.expectedSignal")?.value as { method?: string } | undefined)?.method).not.toBe("tabulated-expected-electrons");
+    expect((clipped.assumptions.find((a) => a.id === "raw.expectedSignal")?.value as { method?: string } | undefined)?.method).not.toBe("per-site-integrated-electrons");
     // The left-middle point (cell 0, row 1) lies along −X: its blob is narrower along X than along Y; the centre point stays round.
     const left = blob(clipped, 24, 72, 23), centre = blob(clipped, 120, 72, 23), roundLeft = blob(round, 24, 72, 23);
     expect(left.xx / left.yy).toBeLessThan(0.8);

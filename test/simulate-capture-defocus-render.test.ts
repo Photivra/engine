@@ -61,7 +61,7 @@ describe("lens.defocus in the capture (#492 step 2a)", () => {
     const explanation = blurred.assumptions.find((a) => a.id === "lens.defocus")!.explanation;
     expect(explanation).toMatch(/approximation/u);
     expect(explanation).toMatch(/Applied as an object-space convolution/u);
-    expect(blurred.assumptions.find((a) => a.id === "raw.expectedSignal")!.value).toMatchObject({ method: "tabulated-expected-electrons" });
+    expect(blurred.assumptions.find((a) => a.id === "raw.expectedSignal")!.value).toMatchObject({ method: "per-site-integrated-electrons" });
     expect(blurred.diagnostics.options).toEqual(["lens.defocus"]);
     expect(blurred.diagnostics.timingsMs.defocus).toBeGreaterThanOrEqual(0);
     expect(blurred.diagnostics.timingsMs.diffraction).toBeUndefined();

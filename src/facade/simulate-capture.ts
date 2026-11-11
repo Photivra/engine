@@ -3566,8 +3566,9 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
     rawOutput = { raw: tabulated.raw, providerEvaluationCount: tabulated.providerEvaluationCount };
     // The verification's relative difference itself is not reported: it is a last-bits quantity, and captures use the JavaScript
     // engine's own Math functions, so it differs between engines while the results are the same.
-    assume("raw.expectedSignal", "model", { method: "tabulated-expected-electrons", verificationSites: 4, tolerance: TABULATED_RELATIVE_TOLERANCE },
-    "Each native site's expected photo electrons are the tabulated sum over the pixel-aperture nodes, anti-aliasing spots, diffraction taps and spectral nodes (the display view's expected signal), " +
+    assume("raw.expectedSignal", "model", { method: "per-site-integrated-electrons", verificationSites: 4, tolerance: TABULATED_RELATIVE_TOLERANCE },
+    "Each native site's expected photo electrons are integrated per site when the site is read: the sum over the pixel-aperture nodes, anti-aliasing spots, diffraction taps and spectral nodes " +
+      "of each tap's material spectrum against the site's channel response (the display view's expected signal), " +
       "the same quantity the environment chain computes for this still, rectilinear, distortion-free planar scene, formed in another order, so it can differ in the last bits. The sensor stage (dark charge, Poisson draws, " +
       "read noise, ADC) is the native one with each site's own seeds. One site of each CFA phase ran the full chain: its readout was reproduced bit for bit and its electrons agreed within the tolerance. " +
       "diagnostics.providerEvaluationCount counts those sites' evaluator calls and the table's scene lookups.");

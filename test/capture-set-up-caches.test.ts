@@ -73,7 +73,7 @@ describe("diffraction profile cache (#449)", () => {
     expect(resolvedFirst).toBeGreaterThan(0);
     expect(resolvedAfterFirst).toBe(0);
     for (let i = 0; i < parts.length; i++) {
-      expect(method(warm[i]!)).toBe("tabulated-expected-electrons");
+      expect(method(warm[i]!)).toBe("per-site-integrated-electrons");
       expectSameCapture(warm[i]!, cold[i]!);
     }
     // Each part has its own copy of the kept record.
@@ -197,8 +197,8 @@ describe("constant exposure duration for simultaneous boundaries (#449)", () => 
     audit.samplerCalls = 0;
     const rolling = await engine.simulateCapture({ ...base, motion: { shutter: "rolling" } });
     const rollingCalls = audit.samplerCalls, sites = rolling.raw.codes.length;
-    expect(method(global)).toBe("tabulated-expected-electrons");
-    expect(method(rolling)).toBe("tabulated-expected-electrons");
+    expect(method(global)).toBe("per-site-integrated-electrons");
+    expect(method(rolling)).toBe("per-site-integrated-electrons");
     expect((rolling.assumptions.find((a) => a.id === "sensor.shutter")?.value as { kind?: string }).kind).toBe("electronic-rolling");
     expect(globalCalls).toBe(2);
     expect(rollingCalls).toBeGreaterThanOrEqual(sites);
