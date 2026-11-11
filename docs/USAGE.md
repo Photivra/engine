@@ -7096,7 +7096,8 @@ See [Local POC Simulation API](https://github.com/Photivra/photivra/blob/main/do
 
 ## DNG import and PNG output
 
-- `parseDngRawImage` reads a DNG or TIFF-EP CFA/LinearRaw file (uncompressed or lossless JPEG, 8–16 bits). It returns the stored raw codes plus the CFA, black/white levels, active area, default crop, colour matrices, as-shot neutral and orientation. Nothing is applied to the codes.
+- `parseDngRawImage` reads a DNG or TIFF-EP CFA/LinearRaw file (uncompressed, lossless JPEG or, from 2.22.0, 8-bit lossy JPEG; 8–16 bits). It returns the stored raw codes plus the CFA, black/white levels, active area, default crop, colour matrices, as-shot neutral and orientation, and (2.22.0) the opcode lists, the profile gain table map, RGBTables, semantic masks and an `assumptions` list naming every rendering tag it does not apply. Nothing is applied to the codes. `importDngRawImage` (2.22.0) does the same asynchronously and also reads JPEG XL raw data through a decoder the application supplies (`createJxlOxideDngDecoder` over the jxl-oxide-wasm package, which the app installs and loads only when a JPEG XL DNG is opened; the engine does not depend on it); `size: "half"` gives a half-size LinearRaw preview and `maximumBytes` bounds the memory.
+- `developDngStageImage` (2.22.0) builds the DNG's linear stage image (linearization, black and white levels, OpcodeList1/2/3); `applyDngProfileGainTableMap` and `applyDngRgbTables` apply the phone rendering tags at their places in a development.
 - `serializePngImage` writes an 8- or 16-bit RGB PNG with an sRGB, ICC or cICP (Display P3, BT.2020; sRGB, BT.709 or linear transfer) colour description, and optional mDCV/cLLI display metadata. PQ and HLG are not part of 2.0 (see the patent review in `THIRD_PARTY.md`).
 
 See [DNG import and PNG output](https://github.com/Photivra/photivra/blob/main/docs/IMPORT_AND_PNG.md) for supported subsets, limits and sources.
@@ -7547,7 +7548,8 @@ correction profile for `resolveLensCorrectionPlan`, which `simulateCapture` appl
 ([quick start](QUICK_START.md#generic-lens-catalogue-549)); `fast: true` (or `lens: { catalogue: { kind, fast: true } }`) takes its
 fast method (#568), a labeled approximation that blends the PSF over a field grid, for interactive captures.
 `calculateLateralColorFringe({ lensId, activeImagingArea, pixelPitchMicrometers, fieldPosition? })` gives the lens's lateral color as a
-fringe width: the blue-minus-red image displacement in µm and pixels at a field position (default the corner; #580). Equations, tables and the
+fringe width: the blue-minus-red image displacement in µm and pixels at a field position (default the corner; #580); its `channelDispersion` for
+the capture's own channels comes from `calculateCameraChannelResponse({ illuminant })` (#591, full quality: a 5 nm grid by default). Equations, tables and the
 chart measurements: [LENS_CATALOGUE.md](https://github.com/Photivra/photivra/blob/main/docs/LENS_CATALOGUE.md).
 
 ```ts

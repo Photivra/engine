@@ -124,12 +124,56 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 | --- | --- |
 | [`DNG_IMPORT_LIMITS`](api/capture-dng-import.md#dng_import_limits) | Runtime |
 | [`DNG_IMPORT_SCHEMA_VERSION`](api/capture-dng-import.md#dng_import_schema_version) | Runtime |
+| [`DngImportAsyncInput`](api/capture-dng-import.md#dngimportasyncinput) | Type |
 | [`DngImportInput`](api/capture-dng-import.md#dngimportinput) | Type |
+| [`importDngRawImage`](api/capture-dng-import.md#importdngrawimage) | Runtime |
 | [`ImportedDngBlackLevel`](api/capture-dng-import.md#importeddngblacklevel) | Type |
 | [`ImportedDngCfa`](api/capture-dng-import.md#importeddngcfa) | Type |
 | [`ImportedDngRaw`](api/capture-dng-import.md#importeddngraw) | Type |
 | [`ImportedDngRect`](api/capture-dng-import.md#importeddngrect) | Type |
+| [`ImportedDngSemanticMask`](api/capture-dng-import.md#importeddngsemanticmask) | Type |
 | [`parseDngRawImage`](api/capture-dng-import.md#parsedngrawimage) | Runtime |
+
+## capture/dng-opcodes.ts
+
+[Detailed contracts](api/capture-dng-opcodes.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/capture/dng-opcodes.ts)
+
+| Export | Kind |
+| --- | --- |
+| [`applyDngOpcodes`](api/capture-dng-opcodes.md#applydngopcodes) | Runtime |
+| [`ApplyDngOpcodesOptions`](api/capture-dng-opcodes.md#applydngopcodesoptions) | Type |
+| [`DngOpcode`](api/capture-dng-opcodes.md#dngopcode) | Type |
+| [`DngOpcodeArea`](api/capture-dng-opcodes.md#dngopcodearea) | Type |
+| [`DngOpcodeParameters`](api/capture-dng-opcodes.md#dngopcodeparameters) | Type |
+| [`DngStageImage`](api/capture-dng-opcodes.md#dngstageimage) | Type |
+| [`parseDngOpcodeList`](api/capture-dng-opcodes.md#parsedngopcodelist) | Runtime |
+
+## capture/dng-profile-maps.ts
+
+[Detailed contracts](api/capture-dng-profile-maps.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/capture/dng-profile-maps.ts)
+
+| Export | Kind |
+| --- | --- |
+| [`applyDngProfileGainTableMap`](api/capture-dng-profile-maps.md#applydngprofilegaintablemap) | Runtime |
+| [`ApplyDngProfileGainTableMapInput`](api/capture-dng-profile-maps.md#applydngprofilegaintablemapinput) | Type |
+| [`applyDngRgbTables`](api/capture-dng-profile-maps.md#applydngrgbtables) | Runtime |
+| [`ApplyDngRgbTablesInput`](api/capture-dng-profile-maps.md#applydngrgbtablesinput) | Type |
+| [`DngProfileGainTableMap`](api/capture-dng-profile-maps.md#dngprofilegaintablemap) | Type |
+| [`DngRgbImage`](api/capture-dng-profile-maps.md#dngrgbimage) | Type |
+| [`DngRgbTable`](api/capture-dng-profile-maps.md#dngrgbtable) | Type |
+| [`DngRgbTables`](api/capture-dng-profile-maps.md#dngrgbtables) | Type |
+| [`parseDngProfileGainTableMap`](api/capture-dng-profile-maps.md#parsedngprofilegaintablemap) | Runtime |
+| [`parseDngRgbTables`](api/capture-dng-profile-maps.md#parsedngrgbtables) | Runtime |
+
+## capture/dng-stage-image.ts
+
+[Detailed contracts](api/capture-dng-stage-image.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/capture/dng-stage-image.ts)
+
+| Export | Kind |
+| --- | --- |
+| [`developDngStageImage`](api/capture-dng-stage-image.md#developdngstageimage) | Runtime |
+| [`DevelopDngStageImageOptions`](api/capture-dng-stage-image.md#developdngstageimageoptions) | Type |
+| [`DngStageImageResult`](api/capture-dng-stage-image.md#dngstageimageresult) | Type |
 
 ## capture/environment-raw-producer.ts
 
@@ -180,6 +224,16 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 | [`setManualFocusState`](api/capture-focus-control.md#setmanualfocusstate) | Runtime |
 | [`SetManualFocusStateInput`](api/capture-focus-control.md#setmanualfocusstateinput) | Type |
 
+## capture/jpeg-xl-tiles.ts
+
+[Detailed contracts](api/capture-jpeg-xl-tiles.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/capture/jpeg-xl-tiles.ts)
+
+| Export | Kind |
+| --- | --- |
+| [`createJxlOxideDngDecoder`](api/capture-jpeg-xl-tiles.md#createjxloxidedngdecoder) | Runtime |
+| [`DngJpegXlDecoder`](api/capture-jpeg-xl-tiles.md#dngjpegxldecoder) | Type |
+| [`JxlOxideModule`](api/capture-jpeg-xl-tiles.md#jxloxidemodule) | Type |
+
 ## capture/linear-encoding.ts
 
 [Detailed contracts](api/capture-linear-encoding.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/capture/linear-encoding.ts)
@@ -203,6 +257,16 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 | [`LosslessJpegImage`](api/capture-lossless-jpeg.md#losslessjpegimage) | Type |
 | [`LosslessJpegLimits`](api/capture-lossless-jpeg.md#losslessjpeglimits) | Type |
 | [`parseLosslessJpeg`](api/capture-lossless-jpeg.md#parselosslessjpeg) | Runtime |
+
+## capture/lossy-jpeg.ts
+
+[Detailed contracts](api/capture-lossy-jpeg.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/capture/lossy-jpeg.ts)
+
+| Export | Kind |
+| --- | --- |
+| [`LossyJpegImage`](api/capture-lossy-jpeg.md#lossyjpegimage) | Type |
+| [`LossyJpegLimits`](api/capture-lossy-jpeg.md#lossyjpeglimits) | Type |
+| [`parseLossyJpeg`](api/capture-lossy-jpeg.md#parselossyjpeg) | Runtime |
 
 ## capture/native-environment-optical-stage.ts
 
@@ -2188,6 +2252,16 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 | [`ZERNIKE_PUPIL_MAXIMUM_SAMPLES_ACROSS`](api/optics-zernike-wavefront.md#zernike_pupil_maximum_samples_across) | Runtime |
 | [`ZernikeCoefficient`](api/optics-zernike-wavefront.md#zernikecoefficient) | Type |
 | [`ZernikeOrder`](api/optics-zernike-wavefront.md#zernikeorder) | Type |
+
+## output/camera-channel-response.ts
+
+[Detailed contracts](api/output-camera-channel-response.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/output/camera-channel-response.ts)
+
+| Export | Kind |
+| --- | --- |
+| [`calculateCameraChannelResponse`](api/output-camera-channel-response.md#calculatecamerachannelresponse) | Runtime |
+| [`CalculateCameraChannelResponseInput`](api/output-camera-channel-response.md#calculatecamerachannelresponseinput) | Type |
+| [`CameraChannelResponse`](api/output-camera-channel-response.md#camerachannelresponse) | Type |
 
 ## output/capture-corrected-sdr.ts
 

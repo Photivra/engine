@@ -44,6 +44,12 @@ for (const [path, metadata] of Object.entries(packages)) {
     continue;
   }
 
+  // An SPDX disjunction ("MIT OR Apache-2.0") lets the project choose one licence: it passes when one choice is allowed.
+  const choices = license.replace(/^\((.*)\)$/u, "$1").split(" OR ");
+  if (choices.length > 1 && choices.some((choice) => ALWAYS_ALLOWED.has(choice.trim()))) {
+    continue;
+  }
+
   if (license === "MPL-2.0" && metadata.dev === true) {
     continue;
   }

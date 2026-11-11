@@ -14,10 +14,19 @@ This file records direct development and CI dependencies intentionally used by t
 | Vitest | 5.0.1 | Unit/integration testing | MIT |
 | @vitest/coverage-v8 | 5.0.1 | V8-backed test coverage | MIT |
 | rolldown | 1.2.9 | Bundling test of capture-only consumers (`test/capture-bundle.test.ts`) | MIT |
+| jxl-oxide-wasm | 0.12.6 | JPEG XL tile decoding in the phone DNG import tests (`test/dng-import-phone.test.ts`); see [JPEG XL](#jpeg-xl-2220) | MIT OR Apache-2.0 |
 | actions/checkout | v7 / `3d3c42e5aac5ba805825da76410c181273ba90b1` | CI checkout | MIT |
 | actions/setup-node | v7 / `820762786026740c76f36085b0efc47a31fe5020` | CI Node setup | MIT |
 | actions/upload-artifact | v7.0.1 / `043fb46d1a93c77aae656e7c1c64a875d1fc6a0a` | Verified release artifact transfer | MIT |
 | actions/download-artifact | v8.0.1 / `3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c` | Verified release artifact retrieval | MIT |
+
+## JPEG XL (2.22.0)
+
+DNG 1.7 phone files may store their raw data as JPEG XL (Compression 52546; #598). The owner chose the jxl-oxide decoder (owner, 2026-11-10), as its prebuilt WebAssembly package from npm, `jxl-oxide-wasm` 0.12.6 (<https://github.com/tirr-c/jxl-oxide>), dual-licensed MIT OR Apache-2.0. **Chosen licence: Apache-2.0** (owner-accepted 2026-11-11, with the licence check's rule that an SPDX `OR` expression passes when one choice is allowed). It is a **devDependency only**: the published package declares no runtime dependency and does not import it. `createJxlOxideDngDecoder` takes the module the application loaded (structurally typed), so an application that opens JPEG XL DNGs installs and lazily loads jxl-oxide-wasm itself, and its licence then applies to that application. No jxl-oxide source is vendored or copied. `scripts/check-license-policy.mjs` accepts an SPDX `OR` expression when one of its choices is on the allowlist (here Apache-2.0 and MIT both are).
+
+Patents (rule 2; not legal advice): JPEG XL is ISO/IEC 18181. At the 2026-11-10 research (#598), royalty-free patent declarations on JPEG XL had been filed by Google and Cloudinary only; Google's patent grant text covers its own implementations (libjxl, jxl-rs), not jxl-oxide. The owner accepted jxl-oxide on that basis (2026-11-10). The engine itself contains no JPEG XL coding: its tests carry a small test-only lossless encoder (`test/helpers/phone-dng-fixtures.ts`, written from ISO/IEC 18181-1:2022, modular mode with the zero predictor and prefix codes) to build fixtures, never shipped.
+
+The 2.22.0 DNG opcode, ProfileGainTableMap and RGBTables readers (`src/capture/dng-opcodes.ts`, `dng-profile-maps.ts`) were written from the DNG specification's tag descriptions; because the 1.7.1.0 PDF could not be downloaded (HTTP 403), their byte layouts and evaluation order were only checked by reading the Adobe DNG SDK 1.7.1 source. No code was copied from the DNG SDK (layouts and behaviour checked only; the engine's code is written independently); the PDF check is pending with the owner; the Adobe DNG notice in `NOTICE` covers the DNG technology.
 
 Node built-in modules are used only by development tooling and the repository-local POC API; that API is excluded from the published package and the built-ins are not third-party dependencies.
 

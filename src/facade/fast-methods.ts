@@ -25,7 +25,7 @@ export interface SimulateCaptureFastMethod {
   /** "fast-and-exact": both methods exist; "exact-only": the record takes `fast`, but there is no fast method yet (reports false). */
   methods: "fast-and-exact" | "exact-only";
   /** Where it applies. */
-  runs: readonly ("simulateCapture" | "simulateDisplayView" | "prepareDisplayView")[];
+  runs: readonly ("simulateCapture" | "simulateDisplayView" | "prepareDisplayView" | "developDngStageImage")[];
   /** The fast method and the exact one, in words (empty for exact-only). */
   fast: string;
   exact: string;
@@ -87,6 +87,9 @@ export const SIMULATE_CAPTURE_FAST_METHODS: readonly SimulateCaptureFastMethod[]
     fast: "#551: with the default count and a still camera, one temporal midpoint per site of the subject's streak plus one, when that is fewer than 8",
     exact: "the default 8 temporal midpoints (an explicit sensor.temporalSampleCount always wins)", followsFormatDefault: true,
     resolver: { file: CAPTURE, call: "resolveFast(subjectFast, fastTop)" }, report: { applied: "motion.subject", assumption: "fast.motion.subject" } },
+  { id: "dngImport.warpRectilinear", override: "fast", methods: "fast-and-exact", runs: ["developDngStageImage"],
+    fast: "#600: an imported DNG's WarpRectilinear opcode resampled bilinearly", exact: "cubic convolution (Keys, a = −0.75, the DNG SDK's kernel); default fast unless format names an export", followsFormatDefault: true,
+    resolver: { file: "src/capture/dng-stage-image.ts", call: "resolveFast(options.fast, fastFormatDefault(format, \"capture\"))" }, report: { field: "fast" } },
   { id: "lens.diffraction", override: "lens.diffraction", methods: "exact-only", runs: ["simulateCapture", "simulateDisplayView", "prepareDisplayView"],
     fast: "", exact: "the diffraction kernels (a fast method only under rolling-shutter rotation, above)", followsFormatDefault: true,
     resolver: { file: CAPTURE, call: "resolveFast(diffractionFast, fastTop)" }, report: { applied: "lens.diffraction" } },

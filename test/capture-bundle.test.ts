@@ -52,6 +52,9 @@ describe("capture-only bundles", () => {
     expect(modules.has("facade/simulate-capture.ts")).toBe(true);
     expect(modules.has("facade/display-view.ts")).toBe(false);
     expect(modules.has("facade/simulate-display-view.ts")).toBe(false);
+    // 2.22.0 (#591, #598): the calculator's channel-response helper and the phone DNG import stay out of captures.
+    for (const id of ["output/camera-channel-response.ts", "capture/dng-import.ts", "capture/lossy-jpeg.ts", "capture/jpeg-xl-tiles.ts", "capture/dng-opcodes.ts",
+      "capture/dng-profile-maps.ts", "capture/dng-stage-image.ts"]) expect(modules.has(id), id).toBe(false);
     // Captures use only these portable-math exports: the two of 2.5.0 and V8's three-argument hypot sequence of the
     // capture's query arithmetic (#452), the arcsine of the defocus disc kernel the capture applies for lens.defocus (#492), and
     // the cosine and sine of the shaped defocus kernel's blade and circle vertices (lens.defocus bokeh options, #553).

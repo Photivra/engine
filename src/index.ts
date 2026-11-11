@@ -1868,6 +1868,7 @@ export { IDEAL_LENS_LIMITS } from "./equipment/ideal-lens.js";
 export { GENERIC_LENS_CATALOGUE, GENERIC_LENS_IDS, GENERIC_LENS_SET_BASELINES, resolveGenericLens, simulateGenericLensFocusError, type GenericLensCatalogueEntry,
   type GenericLensSet, type GenericLensKind, type GenericLensCharacterValues, type GenericLensAdjustments, type GenericLensCharacter, type ResolvedGenericLens,
   type ResolveGenericLensInput, type SimulateGenericLensFocusErrorInput, type GenericLensFocusError } from "./equipment/generic-lens-catalogue.js";
+export { calculateCameraChannelResponse, type CalculateCameraChannelResponseInput, type CameraChannelResponse } from "./output/camera-channel-response.js";
 export { calculateChannelEffectiveDispersion, createGenericLensCorrectionProfile, GENERIC_LENS_CORRECTION_CHANNEL_WAVELENGTHS_NM, type CalculateChannelEffectiveDispersionInput, type ChannelDispersion,
   type CreateGenericLensCorrectionProfileInput } from "./output/generic-lens-corrections.js";
 export { calculateLateralColorFringe, type CalculateLateralColorFringeInput, type LateralColorFringe, type LateralColorDisplacement } from "./optics/generic-lens-lateral-color.js";
@@ -1895,10 +1896,16 @@ export { CHART_RADIANCE_BATCH_SCHEMA_VERSION, CHART_RADIANCE_BATCH_LIMITS, calcu
 export { resolveChartMaterialLayers, CHART_MASK_INDEX_GRAIN, CHART_MATERIAL_LAYER_LIMITS, type ChartMaterialLayerScene, type ChartMaskLayer, type ChartMaskShape,
   type ChartMaskPolygon, type ChartMaskAnnulus, type ResolvedChartMaterialLayers, type ResolvedChartMaskLayer, type ResolvedChartMaskShape } from "./facade/chart-material-layers.js";
 export { EXPORT_JPEG_ENCODER_ID } from "./capture/export-jpeg.js";
-export { DNG_IMPORT_SCHEMA_VERSION, DNG_IMPORT_LIMITS, parseDngRawImage } from "./capture/dng-import.js";
+export { DNG_IMPORT_SCHEMA_VERSION, DNG_IMPORT_LIMITS, parseDngRawImage, importDngRawImage } from "./capture/dng-import.js";
+export { createJxlOxideDngDecoder, type DngJpegXlDecoder, type JxlOxideModule } from "./capture/jpeg-xl-tiles.js";
+export { parseDngOpcodeList, applyDngOpcodes, type DngOpcode, type DngOpcodeArea, type DngOpcodeParameters, type DngStageImage, type ApplyDngOpcodesOptions } from "./capture/dng-opcodes.js";
+export { developDngStageImage, type DevelopDngStageImageOptions, type DngStageImageResult } from "./capture/dng-stage-image.js";
+export { parseDngProfileGainTableMap, parseDngRgbTables, applyDngProfileGainTableMap, applyDngRgbTables, type DngProfileGainTableMap, type DngRgbTable, type DngRgbTables,
+  type DngRgbImage, type ApplyDngProfileGainTableMapInput, type ApplyDngRgbTablesInput } from "./capture/dng-profile-maps.js";
 export { NATIVE_RAW_DNG_SCHEMA_VERSION, serializeNativeRawDng, type SerializeNativeRawDngInput, type NativeRawDng, type NativeRawDngChannelNoise } from "./capture/native-raw-dng.js";
-export type { DngImportInput, ImportedDngRaw, ImportedDngCfa, ImportedDngBlackLevel, ImportedDngRect } from "./capture/dng-import.js";
+export type { DngImportInput, DngImportAsyncInput, ImportedDngRaw, ImportedDngCfa, ImportedDngBlackLevel, ImportedDngRect, ImportedDngSemanticMask } from "./capture/dng-import.js";
 export { parseLosslessJpeg, type LosslessJpegImage, type LosslessJpegLimits } from "./capture/lossless-jpeg.js";
+export { parseLossyJpeg, type LossyJpegImage, type LossyJpegLimits } from "./capture/lossy-jpeg.js";
 export { PNG_ENCODER_ID, PNG_ENCODER_LIMITS, serializePngImage } from "./output/png-encoder.js";
 export type { PngEncodeInput, PngColourEncoding, PngCicpPrimaries, PngCicpTransfer, PngMasteringDisplay, PngContentLightLevel } from "./output/png-encoder.js";
 
