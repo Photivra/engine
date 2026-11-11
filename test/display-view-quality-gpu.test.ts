@@ -9,11 +9,12 @@
  */
 import { describe, expect, it } from "vitest";
 import { renderDisplayView } from "../src/facade/display-view.js";
-import { CorrectionStateStore, DISPLAY_VIEW_QUALITY_CONFORMANCE_CASE, DISPLAY_VIEW_QUALITY_DEFOCUS_CONFORMANCE_CASE, createDisplayViewGpuRenderer, displayViewQualityGpuSupports, displayViewQualityGpuUnsupportedReason,
-  registerDisplayViewGpuRenderer } from "../src/gpu/display-view-quality-gpu.js";
+import { CorrectionStateStore, DISPLAY_VIEW_QUALITY_CONFORMANCE_CASE, DISPLAY_VIEW_QUALITY_CONFORMANCE_CASES, DISPLAY_VIEW_QUALITY_DEFOCUS_CONFORMANCE_CASE, displayViewQualityGpuUnsupportedReason } from "../src/gpu/display-view-quality-gpu.js";
+import { createDisplayViewGpuRenderer, displayViewQualityGpuSupports, registerDisplayViewGpuRenderer } from "../src/gpu/display-view-gpu-renderer.js";
 import { DISPLAY_VIEW_SPEED_CONFORMANCE_CASE } from "../src/gpu/display-view-speed-gpu.js";
 import { DISPLAY_VIEW_QUALITY_CHOICE_SIGMA, DISPLAY_VIEW_QUALITY_FLAG, DISPLAY_VIEW_QUALITY_LATTICE_WGSL, DISPLAY_VIEW_QUALITY_PIXELS_WGSL, DISPLAY_VIEW_QUALITY_SITES_WGSL, assembleDisplayViewQualityLatticeWgsl } from "../src/gpu/wgsl-display-view-quality-kernel.js";
 import { setDisplayViewGpuRendererFactory } from "../src/facade/display-view-gpu.js";
+import { DISPLAY_VIEW_GPU_BUILT_IN_CASES } from "../src/facade/display-view-gpu-session.js";
 import { chartPresetMaterialWgsl } from "../src/gpu/display-view-chart-material-module.js";
 import { prepareDisplayView, type SimulateCaptureOptions } from "../src/index.js";
 import { createFakeGpu } from "./helpers/fake-webgpu.js";
@@ -165,7 +166,9 @@ describe("display view Quality kernels (float32 emulation) vs the CPU reference"
         expect(execution.fallbackReason).toBeNull();
         expect(execution.conformance).toMatchObject({ passed: true, failedCase: null });
         expect(execution.conformance!.cases).toContain(DISPLAY_VIEW_SPEED_CONFORMANCE_CASE.id);
-        expect(execution.conformance!.cases).toContain(DISPLAY_VIEW_QUALITY_CONFORMANCE_CASE.id);
+        // #594: the Quality cases ran before this first Quality render, after the device's own cases.
+        expect(execution.conformance!.cases).toEqual([...DISPLAY_VIEW_GPU_BUILT_IN_CASES.map((c) => c.id), DISPLAY_VIEW_SPEED_CONFORMANCE_CASE.id,
+          DISPLAY_VIEW_QUALITY_CONFORMANCE_CASE.id, DISPLAY_VIEW_QUALITY_DEFOCUS_CONFORMANCE_CASE.id]);
         expect(rendered.assumptions.some((a) => a.id === "view.execution")).toBe(true);
         let differing = 0;
         for (let i = 0; i < reference.image.samples.length; i++) { const d = Math.abs(rendered.image.samples[i]! - reference.image.samples[i]!); expect(d).toBeLessThanOrEqual(1); if (d) differing++; }
@@ -175,7 +178,11 @@ describe("display view Quality kernels (float32 emulation) vs the CPU reference"
       // A Speed request through the same renderer.
       const speed = { scene: { preset: "checkerboard" as const, squaresAcross: 12 }, lens: { prime: 50 as const, fNumber: 8 }, sensor: { pixelPitchMicrometers: 6, pixelAperture: { kind: "box" as const, samplesPerAxis: 2 } }, output: { ...SMALL_FRAME, format: "srgb-8" as const } };
       const speedGpu = await prepareDisplayView(speed, { gpu: "require", gpuDevice: createFakeGpu().gpu });
-      try { expect((await speedGpu.render(view)).diagnostics.fast.execution).toMatchObject({ backend: "webgpu-f32", fallbackReason: null }); } finally { speedGpu.dispose(); }
+      // #594: a Speed-only view never runs the Quality cases (nor loads their code for them).
+      try {
+        expect((await speedGpu.render(view)).diagnostics.fast.execution).toMatchObject({ backend: "webgpu-f32", fallbackReason: null,
+          conformance: { passed: true, cases: [...DISPLAY_VIEW_GPU_BUILT_IN_CASES.map((c) => c.id), DISPLAY_VIEW_SPEED_CONFORMANCE_CASE.id] } });
+      } finally { speedGpu.dispose(); }
       // A caller scene still falls back, and a coarse view is refused at render time.
       const coarse = await prepareDisplayView(options, { gpu: "require", gpuDevice: createFakeGpu().gpu });
       await expect(coarse.render({ width: 60, height: 40 })).rejects.toMatchObject({ reason: "unsupported-on-backend" });
@@ -186,7 +193,9 @@ describe("display view Quality kernels (float32 emulation) vs the CPU reference"
   it("the combined renderer's id, cases and support check", async () => {
     const runtime = await runtimeOf(createFakeGpu().gpu), renderer = createDisplayViewGpuRenderer(runtime);
     expect(renderer.id).toBe("photivra-display-view");
-    expect(renderer.conformanceCases!.map((c) => c.id)).toEqual([DISPLAY_VIEW_SPEED_CONFORMANCE_CASE.id, DISPLAY_VIEW_QUALITY_CONFORMANCE_CASE.id, DISPLAY_VIEW_QUALITY_DEFOCUS_CONFORMANCE_CASE.id]);
+    // #594: the Speed case runs at the device's first render; the Quality cases load with the Quality code (onDemandConformanceCases).
+    expect(renderer.conformanceCases!.map((c) => c.id)).toEqual([DISPLAY_VIEW_SPEED_CONFORMANCE_CASE.id]);
+    expect(DISPLAY_VIEW_QUALITY_CONFORMANCE_CASES.map((c) => c.id)).toEqual([DISPLAY_VIEW_QUALITY_CONFORMANCE_CASE.id, DISPLAY_VIEW_QUALITY_DEFOCUS_CONFORMANCE_CASE.id]);
     expect(renderer.supports({ ahd: false, diffraction: false, antiAliasing: false, boxSamples: 2, toneCurve: "identity", scene: "chart" })).toBe(true);
     expect(renderer.supports({ ahd: true, diffraction: true, antiAliasing: true, boxSamples: 2, toneCurve: "identity", scene: "chart" })).toBe(true);
     expect(renderer.supports({ ahd: true, diffraction: true, antiAliasing: true, boxSamples: 2, toneCurve: "identity", scene: "radiance-function" })).toMatch(/caller/u);

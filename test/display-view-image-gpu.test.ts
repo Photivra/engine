@@ -11,7 +11,7 @@ import { beforeAll, describe, expect, it } from "vitest";
 import { prepareImagePlaneScenes, prepareDisplayView, simulateDisplayView } from "../src/index.js";
 import { IMAGE_PLANE_GPU_CASES, IMAGE_PLANE_GPU_LENS, IMAGE_PLANE_GPU_QUALITY_CASES, photo, syntheticPhoto } from "./helpers/image-plane-fixtures.js";
 import type { SimulateCaptureOptions } from "../src/index.js";
-import { registerDisplayViewGpuRenderer } from "../src/gpu/display-view-quality-gpu.js";
+import { registerDisplayViewGpuRenderer } from "../src/gpu/display-view-gpu-renderer.js";
 import { imagePlaneMaterialModuleId } from "../src/gpu/display-view-image-material-module.js";
 import { createFakeGpu } from "./helpers/fake-webgpu.js";
 import { SMALL_VIEW, compareDisplayViews, displayViewGpuFixture, materialModuleOf, renderOnGpu, renderOnGpuQuality, runtimeOf } from "./helpers/display-view-gpu-fixture.js";
