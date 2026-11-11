@@ -173,21 +173,50 @@ export async function resolveImagePlaneScene(value: unknown, aspect: number,
   }
   const halfW = width / 2, halfH = height / (2 * aspect);
   /** The print at a print-local point from a per-pixel value: bilinear between pixel centers (clamped to the edge) or the nearest pixel. */
+  // #597: the latest point's pixels and weights (the radiance path reads one point at every spectral node in turn).
+  let lastCu = NaN, lastCv = NaN, fx = 0, fy = 0, a00 = 0, a10 = 0, a01 = 0, a11 = 0;
   function interpolate(cu: number, cv: number, at: (index: number) => number): number {
-    const X = (cu + 1) * halfW, Y = (aspect - cv) * halfH;
-    if (interpolation === "nearest") return at(Math.min(height - 1, Math.max(0, Math.floor(Y))) * width + Math.min(width - 1, Math.max(0, Math.floor(X))));
-    const sx = X - 0.5, sy = Y - 0.5, i0 = Math.floor(sx), j0 = Math.floor(sy), fx = sx - i0, fy = sy - j0;
-    const ia = Math.min(width - 1, Math.max(0, i0)), ib = Math.min(width - 1, Math.max(0, i0 + 1));
-    const ja = Math.min(height - 1, Math.max(0, j0)) * width, jb = Math.min(height - 1, Math.max(0, j0 + 1)) * width;
-    return (1 - fy) * ((1 - fx) * at(ja + ia) + fx * at(ja + ib)) + fy * ((1 - fx) * at(jb + ia) + fx * at(jb + ib));
+    if (cu !== lastCu || cv !== lastCv) {
+      const X = (cu + 1) * halfW, Y = (aspect - cv) * halfH;
+      if (interpolation === "nearest") a00 = Math.min(height - 1, Math.max(0, Math.floor(Y))) * width + Math.min(width - 1, Math.max(0, Math.floor(X)));
+      else {
+        const sx = X - 0.5, sy = Y - 0.5, i0 = Math.floor(sx), j0 = Math.floor(sy), ia = Math.min(width - 1, Math.max(0, i0)), ib = Math.min(width - 1, Math.max(0, i0 + 1));
+        const ja = Math.min(height - 1, Math.max(0, j0)) * width, jb = Math.min(height - 1, Math.max(0, j0 + 1)) * width;
+        fx = sx - i0; fy = sy - j0; a00 = ja + ia; a10 = ja + ib; a01 = jb + ia; a11 = jb + ib;
+      }
+      lastCu = cu; lastCv = cv;
+    }
+    if (interpolation === "nearest") return at(a00);
+    return (1 - fy) * ((1 - fx) * at(a00) + fx * at(a10)) + fy * ((1 - fx) * at(a01) + fx * at(a11));
   }
   const sampleAt = (cu: number, cv: number, nodeValues: Float64Array, neutral: number): number => interpolate(cu, cv, (index) => pixelValue(index, nodeValues, neutral));
-  // Per wavelength the node reflectances (the facade asks for a few spectral nodes many times).
-  const atWavelength = new Map<number, Float64Array>();
+  // Per wavelength the node reflectances (the facade asks for a few spectral nodes many times), and (#597) each pixel's reflectance
+  // there, kept by pixel row as the queries reach it: a spectrum cache (no channel value), the same value `pixelValue` gives.
+  const atWavelength = new Map<number, (index: number) => number>(), spectrumRows = new Map<number, Float64Array>();
+  const keptSpectrumRows = Math.max(8, Math.floor(SIGNAL_ROW_CACHE_BYTES / (width * 8)));
   function reflectanceAt(cu: number, cv: number, nm: number): number {
-    let nodes = atWavelength.get(nm);
-    if (!nodes) { nodes = nodeReflectancesAt(nm); if (atWavelength.size < 4096) atWavelength.set(nm, nodes); }
-    return sampleAt(cu, cv, nodes, 1);
+    let reader = atWavelength.get(nm);
+    if (!reader) {
+      const nodes = nodeReflectancesAt(nm), slot = atWavelength.size * height;
+      const kept = atWavelength.size < 4096;
+      // The two latest rows of this wavelength are held apart (a bilinear point reads two rows).
+      let keyA = -1, rowA: Float64Array = new Float64Array(0), keyB = -1, rowB = rowA;
+      reader = !kept ? (index: number): number => pixelValue(index, nodes, 1) : (index: number): number => {
+        const j = Math.floor(index / width), key = slot + j, i = index - j * width;
+        let row: Float64Array;
+        if (key === keyA) row = rowA;
+        else if (key === keyB) row = rowB;
+        else {
+          let found = spectrumRows.get(key);
+          if (!found) { found = new Float64Array(width).fill(NaN); spectrumRows.set(key, found); if (spectrumRows.size > keptSpectrumRows) spectrumRows.delete(spectrumRows.keys().next().value!); }
+          keyB = keyA; rowB = rowA; keyA = key; rowA = row = found;
+        }
+        const value = row[i]!;
+        return value === value ? value : (row[i] = pixelValue(index, nodes, 1));
+      };
+      if (kept) atWavelength.set(nm, reader);
+    }
+    return interpolate(cu, cv, reader);
   }
   /**
    * One pixel's channel signals, integrated from its reconstructed spectrum (owner decision 2026-11-09): per spectral node n its

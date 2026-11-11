@@ -411,8 +411,8 @@ export function buildPlanarSceneRadianceProvider(input: {
   }
   const light = input.irradianceAt;
   if (light && caller?.kind === "radiance-function") throw new InvalidConfigurationError("illumination needs a lit scene; a radiance-function scene ignores the illuminant.");
-  // #581 with #550: a print's signals are integrated per pixel under one light (its spectral nodes); mixed light over a print is not modelled.
-  if (light && imageScene) throw new InvalidConfigurationError("illumination cannot light an image-plane scene yet: the print's signals are integrated under one illuminant.");
+  // #597 (2.22.0): mixed light over a print reads the print's reflectance spectrum (its pixels' spectra, cached per spectral node) times the
+  // blended irradiance at each point; no per-pixel signal is cached (the image access below is left out), so every site integrates at use.
   /** #550: reflectance × the blended irradiance at the point (chart-local units with a fixed-size chart) / π. */
   function litRadianceAt(u: number, v: number, nm: number): number {
     let cu = u, cv = v, reflectance: number;
@@ -420,6 +420,7 @@ export function buildPlanarSceneRadianceProvider(input: {
     if (materialScene) reflectance = materialReflectanceOf(callerMaterialAt(u, v), nm);
     else if (placed && !(Math.abs(cu) <= 1 && Math.abs(cv) <= chartAspect)) reflectance = placed.surroundReflectance;
     else if (chart) reflectance = chart.reflectanceAt(cu, cv, nm);
+    else if (imageScene) reflectance = imageScene.reflectanceAt(cu, cv, nm);
     else reflectance = callerReflectance(placed ? { xM: u * scale, yM: v * scale, u, v, wavelengthNanometers: nm, chartU: cu, chartV: cv } : { xM: u * scale, yM: v * scale, u, v, wavelengthNanometers: nm });
     return reflectance * light!(cu, cv, u * scale, v * scale, nm) / Math.PI;
   }
@@ -477,7 +478,7 @@ export function buildPlanarSceneRadianceProvider(input: {
   const chartAccess = light ? {} : chart ? { chartMaterialAt, materialRadiance: materialRadianceOf } :
     materialScene ? { chartMaterialAt: callerMaterialAt, materialRadiance: materialRadianceOf } : {};
   // #581: an image-plane print in node values at a frame point (the surround outside it), for the tabulated expected signal.
-  const imageAccess = imageScene ? { imageSignalScene: (wavelengths: readonly number[], perNode: readonly Float64Array[]): ImagePlaneSignalScene =>
+  const imageAccess = imageScene && !light ? { imageSignalScene: (wavelengths: readonly number[], perNode: readonly Float64Array[]): ImagePlaneSignalScene =>
     imageScene.signalScene(wavelengths, perNode, Float64Array.from(wavelengths, (nm) => irradianceScale * shapeAt(nm) / Math.PI), radianceAt, scale, half, placed!.surroundReflectance) } : {};
   // #394: evaluateRadiance's own plane-point arithmetic; radianceAt is then materialRadianceOf(material, nm) for both scene forms.
   const materialAtPoint = light ? undefined : chart ? chartMaterialAt : materialScene ? callerMaterialAt : undefined;
