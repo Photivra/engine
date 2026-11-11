@@ -80,7 +80,6 @@ import { createAhdDemosaicTask } from "../processing/demosaic.js";
 import { PROCESSING_MAX_PIXELS } from "../processing/processing-task.js";
 import { renderSdrRunInto, type SdrPixelCounts } from "../output/native-capture-sdr.js";
 import { prepareSdrPixelTone } from "../output/sdr-rendering.js";
-import { NEIGHBOR_HIGHLIGHT_RING, NEIGHBOR_HIGHLIGHT_THRESHOLD, reconstructHighlightsFromNeighbors } from "../color/neighbor-highlight-reconstruction.js";
 import { BUILT_IN_BAYER_DEMOSAIC_MODEL_VERSION as BUILT_IN_DEMOSAIC_VERSION, createBuiltInBayerDemosaicProfiles } from "../sensor/raw-reconstruction.js";
 import { transformOrientedRasterPointToNative } from "../output/capture-geometry.js";
 import { resolveCaptureColorModel } from "../color/capture-color.js";
@@ -1353,8 +1352,9 @@ function pngColourEncoding(encoding: SimulateCaptureColorEncoding): PngColourEnc
  * stops before tone mapping, gamut clipping and quantization. It reads the RAW without taking ownership.
  */
 async function developLinearSrgb(input: NativeRawDevelopmentInput, afterRow: (completed: number, total: number) => Promise<void>,
-  ahd?: { yieldControl: () => Promise<void>; checkAbort: () => void; onDemosaicMs?: (milliseconds: number) => void }, neighbors?: { fast: boolean }): Promise<{ rgb: Float64Array; highlight: RawHighlightDiagnostics }> {
-  if (neighbors) return developWithNeighborHighlights(input, afterRow, ahd, neighbors.fast);
+  ahd?: { yieldControl: () => Promise<void>; checkAbort: () => void; onDemosaicMs?: (milliseconds: number) => void },
+  neighbors?: { fast: boolean; module: typeof import("../color/neighbor-highlight-reconstruction.js") }): Promise<{ rgb: Float64Array; highlight: RawHighlightDiagnostics }> {
+  if (neighbors) return developWithNeighborHighlights(input, afterRow, ahd, neighbors.fast, neighbors.module.reconstructHighlightsFromNeighbors);
   return developLinearSrgbWith(prepareNativeRawDevelopment(input), input, afterRow, ahd);
 }
 /** The body of {@link developLinearSrgb} for a prepared development (its operator may be replaced, #602). */
@@ -1389,7 +1389,8 @@ async function developLinearSrgbWith(v: ReturnType<typeof prepareNativeRawDevelo
  * (`developWhiteBalancedInto`) finishes each pixel to unclipped linear sRGB.
  */
 async function developWithNeighborHighlights(input: NativeRawDevelopmentInput, afterRow: (completed: number, total: number) => Promise<void>,
-  ahd: { yieldControl: () => Promise<void>; checkAbort: () => void; onDemosaicMs?: (milliseconds: number) => void } | undefined, fast: boolean): Promise<{ rgb: Float64Array; highlight: RawHighlightDiagnostics }> {
+  ahd: { yieldControl: () => Promise<void>; checkAbort: () => void; onDemosaicMs?: (milliseconds: number) => void } | undefined, fast: boolean,
+  reconstructHighlightsFromNeighbors: typeof import("../color/neighbor-highlight-reconstruction.js").reconstructHighlightsFromNeighbors): Promise<{ rgb: Float64Array; highlight: RawHighlightDiagnostics }> {
   const v = prepareNativeRawDevelopment(input), real = v.development, [g0, g1, g2] = real.appliedGains as [number, number, number];
   const whiteBalanceOnly: typeof real = { ...real, developInto(c0: number, c1: number, c2: number, out: Float64Array | number[], offset: number): void { out[offset] = c0 * g0; out[offset + 1] = c1 * g1; out[offset + 2] = c2 * g2; } };
   const linear = await developLinearSrgbWith({ ...v, development: whiteBalanceOnly }, input, afterRow, ahd);
@@ -3069,6 +3070,9 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   const neighborHighlights = highlightMode === "reconstruct-neighbors", developmentHighlightMode: RawHighlightMode = neighborHighlights ? "clip" : highlightMode;
   if (neighborHighlights && outputOptions.region !== undefined) fail("output.highlightMode \"reconstruct-neighbors\" reads whole clipped regions; it is not available with output.region.");
   const neighborFast = fastTop;
+  // #602: loaded on demand, only for a request that asks for it.
+  const neighborModule = neighborHighlights ? await import("../color/neighbor-highlight-reconstruction.js") : null;
+  const { NEIGHBOR_HIGHLIGHT_RING, NEIGHBOR_HIGHLIGHT_THRESHOLD } = neighborModule ?? { NEIGHBOR_HIGHLIGHT_RING: 0, NEIGHBOR_HIGHLIGHT_THRESHOLD: 0 };
   if (neighborHighlights && !displayView) assume("output.highlightMode.reconstructNeighbors", "model", { method: neighborFast ? "ring-average" : "harmonic-interpolation", threshold: NEIGHBOR_HIGHLIGHT_THRESHOLD,
     ringPixels: NEIGHBOR_HIGHLIGHT_RING, fast: neighborFast, scientificStatus: "estimate" },
   "Clipped highlights (a channel at " + NEIGHBOR_HIGHLIGHT_THRESHOLD + " of white or above) are rebuilt from the color ratios of the unclipped pixels around each clipped region: " +
@@ -3484,7 +3488,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
       if ((py & 15) === 15) { await yieldControl(); checkAbort(); }
     }
     if (neighborHighlights) {
-      reconstructHighlightsFromNeighbors(rgb, outputWidth, outputHeight, realDevelopment.appliedGains, neighborFast);
+      neighborModule!.reconstructHighlightsFromNeighbors(rgb, outputWidth, outputHeight, realDevelopment.appliedGains, neighborFast);
       for (let i = 0; i < outputWidth * outputHeight; i++) realDevelopment.developWhiteBalancedInto(rgb[3 * i]!, rgb[3 * i + 1]!, rgb[3 * i + 2]!, rgb, 3 * i);
     }
     let samples: Uint8Array | Uint16Array;
@@ -3816,7 +3820,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   };
   if (ahd || neighborHighlights || ((detailRequested || lensCorrection) && !linearPath)) {
     const linear = await developLinearSrgb({ ...development, raw: rawOutput.raw }, rowProgress("development"), ahd ? { yieldControl: (): Promise<void> => yieldControl(), checkAbort, onDemosaicMs: (ms: number): void => { demosaicMs = ms; } } : undefined,
-      neighborHighlights ? { fast: neighborFast } : undefined);
+      neighborModule ? { fast: neighborFast, module: neighborModule } : undefined);
     const rgb = await correctLinear(linear.rgb);
     if (!linearPath) {
       let codes: Uint8Array | Uint16Array, counts: SdrPixelCounts;
@@ -3842,7 +3846,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
     developed = devTask.takeOutput();
   } else {
     // Wide gamut: the native development operator up to linear sRGB/D65 (unclipped), then XYZ → target primaries.
-    const linear = await developLinearSrgb({ ...development, raw: rawOutput.raw }, rowProgress("development"), undefined, neighborHighlights ? { fast: neighborFast } : undefined);
+    const linear = await developLinearSrgb({ ...development, raw: rawOutput.raw }, rowProgress("development"), undefined, neighborModule ? { fast: neighborFast, module: neighborModule } : undefined);
     {
       developed = encodeLinear(await correctLinear(linear.rgb), linear.highlight);
       if (perceptual) {
