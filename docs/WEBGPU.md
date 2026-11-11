@@ -352,17 +352,29 @@ The report line `[test:webgpu display-view]` lists the adapter, per fixture the 
 
 **What remains for the integration.** The app's request (Photivra/apps#126) must give its scene as `material-layers` (its label as a shape-mask layer over its composite chart) rather than as a caller material function, which `supports()` keeps refusing; the engine side is in place (#491). The acceptance script `scripts/accept-display-view-gpu.mjs` renders the app's request as `material-layers` on the GPU with `--gpu` ([Preview acceptance](#preview-acceptance)); for #491 its reduction and thresholds were applied in the tests, on the emulation and SwiftShader and, opt-in, at the app's size. The host recomputation of flagged display pixels costs one CPU pixel each (597 of 27 405 on the bar star's diagonals; 1 158 of 27 405, 4.2 %, in the frame-filling composite with its label, 28 in the fixed-size placement), and it is the largest share of the module's cost where a 1024-level element or an exactly met boundary fills the view; reducing it (recomputing only the flagged sites rather than the pixel, or a CPU worker pool for them) is open. The host finishing's 1.2 µs per display pixel and its two possible reductions above; views coarser than the exact area mean (the stratified estimator) and footprints of more than 6 real pixels per axis refuse with `unsupported-on-backend`; AHD, diffraction and the four-spot filter are the Quality kernels ([below](#display-view-quality-on-the-gpu), #479); hardware timing and the probe on hardware devices are #475.
 
-**Luminance tone curves (#593, 2.22.0).** The Speed kernel renders `extended-reinhard-luminance` and `naka-rushton-luminance`
-(exponent ≥ 1; below 1 the ratio f(L)/L is unbounded at L = 0 and the view runs the CPU reference) by the view's conditioning on
-luminance (`lum_tone`; [DISPLAY_VIEW.md](DISPLAY_VIEW.md#coupled-rendering-593-601)), with the request's rule: the 8-point
-Gauss–Hermite rule fast, the composite 4 × 16-point Gauss–Legendre rule full (`fast: false` with an explicit `gpu`). Its running
-bound adds, per node and component, the clipped-normal terms (`CLIP_MEAN_U`·r·σ, `CLIP_VARIANCE_U`·r²·σ²), the conditional
-variance's cancellation (0.8·r·√(32·E·Σ_kk)), the node position's error through the slope, and the ratio's relative error (the
-image-kernel accelerator's `tone_h` analysis of log2 and exp2), then one E per node of the sums; the input bounds carry through
-|E[∂out/∂y]|, and the slopes' relative error enters the covariance bound. Like the kernel's other bounds it is first order.
-Measured on the float32 emulation (`test/display-view-speed-gpu.test.ts`): largest error 0.3–12 % of the bound, at most one
-code. Not measured on a device: this host had no WebGPU adapter. `reconstruct` and `desaturate-to-luminance` are refused
-(`unsupported-on-backend`) by both kernels, and the Quality kernels refuse the luminance curves as well.
+### Coupled rendering steps (#593, #601)
+
+The luminance tone curves, `highlightMode: "reconstruct"` and `gamutHandling: "desaturate-to-luminance"` run in the Speed kernel
+and the Quality pixel pass from one WGSL module (`src/gpu/wgsl-display-view-coupled.ts`, loaded on demand for a view that asks
+for them; other views take a stub), the float32 form of the CPU's conditioning on luminance and 3-D Gauss–Hermite rule
+([DISPLAY_VIEW.md](DISPLAY_VIEW.md#coupled-rendering-593-601)) with the request's fast or full rule (`fast: false` with an
+explicit `gpu` runs the full rules). Its constants follow each kernel's aux table, so no binding is added.
+
+**Bounds (first order, as the kernels' others).** Per node: the clipped-normal terms (`CLIP_MEAN_U`·r·σ, `CLIP_VARIANCE_U`·r²·σ²),
+the conditional variance's cancellation (0.8·r·√(32·E·Σ_kk)), the node position through the slope, the tone ratio's relative
+error η (log2 and exp2 per the WGSL accuracy table, as the image-kernel accelerator's tone analysis), and for the chain the
+developed pixel's rounding (white balance and blend 8E of the largest channel, matrix 3E per term, η, desaturation 8E) and the
+node point's rounding, both through the node's own slopes (the chain is continuous, so a kink taken on the other side moves the
+output by at most slope × input error); then one E per node of the sums; the inputs' bounds through |slopes| (means) and
+0.8·|slopes|·√δ (variances). A threshold decision the reference takes (the blend's reach, a component reaching 1 with the
+desaturation, the fast rule's range, a node at L = 0 where the ratio jumps) that the float32 values cannot settle flags the
+display pixel, which the host recomputes with the reference.
+
+**Measured.** Float32 emulation (`test/display-view-speed-gpu.test.ts`, `test/display-view-coupled-gpu.test.ts`) and a hardware
+adapter (Apple, Metal 3, Chrome headless, `PHOTIVRA_WEBGPU_ADAPTER=hardware npm run test:webgpu -- test/webgpu/display-view.webgpu.ts`):
+every component inside its bound, at most one code; largest error 0.3–4.6 % of the bound on the device (Speed), 0.6 % (Quality
+emulation). `highlightMode: "reconstruct-neighbors"` (#602) is refused (`unsupported-on-backend`): its regions' ratios are
+found on the host.
 
 ## Display view (Quality) on the GPU
 
