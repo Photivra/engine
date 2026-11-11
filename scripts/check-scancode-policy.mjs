@@ -35,7 +35,7 @@ const COLOR_PATCH_SOURCES = "attribution of the reference colors' sRGB hex value
 const OWN_ALLOWLIST = "this script's allowlist names this key as data; no licence text";
 /**
  * 2.22.0: the dual licence of jxl-oxide-wasm (#598, a devDependency, chosen licence Apache-2.0) and of c2pa-rs (#165, read for
- * interoperability facts only), as ScanCode reports it. Built from its parts so this file names no new key.
+ * interoperability facts only), as ScanCode reports it.
  */
 const DUAL_MIT_APACHE = ["MIT", "Apache-2.0"].join(" OR ");
 const DUAL_IN_DOCS = `${LICENCE_NAMES_IN_DOCS} (2.22.0: jxl-oxide-wasm, chosen licence Apache-2.0, and c2pa-rs; THIRD_PARTY.md)`;
@@ -46,7 +46,9 @@ const OWN_KEYS = [
   "CC-BY-SA-3.0", "CC-BY-SA-4.0", "CC0-1.0", "CDDL-1.0", "GFDL-1.1-or-later", "GPL-1.0-or-later", "ISC", "JSON",
   "LGPL-2.1-only", "LicenseRef-scancode-other-copyleft", "LicenseRef-scancode-proprietary-license",
   "LicenseRef-scancode-public-domain", "LicenseRef-scancode-unknown-license-reference", "MIT", "MPL-2.0", "PSF-2.0",
-  "LicenseRef-scancode-generic-cla"
+  "LicenseRef-scancode-generic-cla",
+  // 2.22.0: found on the dual-licence constant below and on the JPEG XL patent-clue entry.
+  "MIT OR Apache-2.0", "LicenseRef-scancode-unknown"
 ];
 
 /** File plus licence expression (SPDX form as ScanCode reports it). */
