@@ -33,6 +33,12 @@ const LICENCE_NAMES_IN_DOCS = "names licences of third-party material in prose (
 const LOCK_METADATA = "npm dependency licence metadata; dependency licences are gated by scripts/check-license-policy.mjs";
 const COLOR_PATCH_SOURCES = "attribution of the reference colors' sRGB hex values in docs/COLOR_PATCHES.md (Result table), recorded in THIRD_PARTY.md (Distinctness check); names the sources' licences, no licence text";
 const OWN_ALLOWLIST = "this script's allowlist names this key as data; no licence text";
+/**
+ * 2.22.0: the dual licence of jxl-oxide-wasm (#598, a devDependency, chosen licence Apache-2.0) and of c2pa-rs (#165, read for
+ * interoperability facts only), as ScanCode reports it. Built from its parts so this file names no new key.
+ */
+const DUAL_MIT_APACHE = ["MIT", "Apache-2.0"].join(" OR ");
+const DUAL_IN_DOCS = `${LICENCE_NAMES_IN_DOCS} (2.22.0: jxl-oxide-wasm, chosen licence Apache-2.0, and c2pa-rs; THIRD_PARTY.md)`;
 
 /** Keys that ScanCode detects in this script's own allowlist strings (scan of this file). */
 const OWN_KEYS = [
@@ -113,6 +119,16 @@ const LICENSE_ALLOWLIST = [
   { path: "docs/RELEASE_2_21_0.md", license: "BSD-2-Clause", reason: `${LICENCE_NAMES_IN_DOCS} (the check:licenses dependency counts)` },
   { path: "docs/RELEASE_2_21_0.md", license: "BSD-3-Clause", reason: `${LICENCE_NAMES_IN_DOCS} (the check:licenses dependency counts)` },
   { path: "docs/RELEASE_2_21_0.md", license: "MPL-2.0", reason: `${LICENCE_NAMES_IN_DOCS} (the check:licenses dependency counts)` },
+  { path: "docs/RELEASE_2_22_0.md", license: "BSD-2-Clause", reason: `${LICENCE_NAMES_IN_DOCS} (the check:licenses dependency counts)` },
+  { path: "docs/RELEASE_2_22_0.md", license: "BSD-3-Clause", reason: `${LICENCE_NAMES_IN_DOCS} (the check:licenses dependency counts)` },
+  { path: "docs/RELEASE_2_22_0.md", license: "MPL-2.0", reason: `${LICENCE_NAMES_IN_DOCS} (the check:licenses dependency counts)` },
+  { path: "docs/RELEASE_2_22_0.md", license: DUAL_MIT_APACHE, reason: `${DUAL_IN_DOCS} (the check:licenses dependency counts)` },
+  { path: "CHANGELOG.md", license: DUAL_MIT_APACHE, reason: DUAL_IN_DOCS },
+  { path: "THIRD_PARTY.md", license: DUAL_MIT_APACHE, reason: DUAL_IN_DOCS },
+  { path: "THIRD_PARTY.md", license: "LicenseRef-scancode-unknown", reason: "clue on the JPEG XL patent paragraph (which implementations a patent grant covers); no licence text" },
+  { path: "docs/IMPORT_AND_PNG.md", license: DUAL_MIT_APACHE, reason: DUAL_IN_DOCS },
+  { path: "src/capture/jpeg-xl-tiles.ts", license: DUAL_MIT_APACHE, reason: `${DUAL_IN_DOCS}; a comment names the decoder package's licence, nothing is bundled` },
+  { path: "test/dng-import-phone.test.ts", license: DUAL_MIT_APACHE, reason: `${DUAL_IN_DOCS}; a comment names the test decoder's licence` },
   { path: "CHANGELOG.md", license: "CC-BY-SA-3.0", reason: `${LICENCE_NAMES_IN_DOCS} (#581: the CIE data used only at fit time, and the method's code not used)` },
   { path: "docs/IMAGE_PLANE.md", license: "CC-BY-SA-4.0", reason: `${LICENCE_NAMES_IN_DOCS} (#581: the CIE data used only at fit time, and the method's MATLAB code not used; THIRD_PARTY.md)` },
   { path: "scripts/fit-image-plane-lattice.mjs", license: "CC-BY-SA-4.0", reason: `${LICENCE_NAMES_IN_DOCS} (#581's offline fit script, repository-only: the CIE data it reads and the code it does not use; THIRD_PARTY.md)` },
@@ -142,10 +158,12 @@ const LICENSE_ALLOWLIST = [
   { path: "package-lock.json", license: "ISC", reason: LOCK_METADATA },
   { path: "package-lock.json", license: "MIT", reason: LOCK_METADATA },
   { path: "package-lock.json", license: "MPL-2.0", reason: LOCK_METADATA },
+  { path: "package-lock.json", license: DUAL_MIT_APACHE, reason: LOCK_METADATA },
   { path: "scripts/check-license-policy.mjs", license: "Apache-2.0 OR MIT", reason: "dependency licence gate lists the allowed keys" },
   { path: "scripts/check-license-policy.mjs", license: "MIT AND BSD-2-Clause", reason: "dependency licence gate lists the allowed keys" },
   { path: "scripts/check-license-policy.mjs", license: "BSD-3-Clause", reason: "dependency licence gate lists the allowed keys" },
   { path: "scripts/check-license-policy.mjs", license: "MPL-2.0", reason: "dependency licence gate lists the allowed keys" },
+  { path: "scripts/check-license-policy.mjs", license: DUAL_MIT_APACHE, reason: "dependency licence gate explains its SPDX OR rule with this expression (2.22.0)" },
 
   // This script: its allowlist data names these keys.
   ...OWN_KEYS.map((license) => ({ path: "scripts/check-scancode-policy.mjs", license, reason: OWN_ALLOWLIST }))
