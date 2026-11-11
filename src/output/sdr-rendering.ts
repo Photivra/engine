@@ -46,7 +46,12 @@ export interface SdrRenderingProfile {
   toneCurve: SdrToneCurve;
   /** Present exactly for `extended-reinhard-luminance` ({whiteLuminance}) and `naka-rushton-luminance`. */
   toneCurveParameters?: SdrToneCurveParameters;
-  gamutHandling: "clip-components" | "reject-out-of-range";
+  /**
+   * After the tone curve: clip each component to [0, 1], reject an out-of-range pixel, or (#601, 2.22.0) desaturate a pixel whose
+   * largest component exceeds 1 toward the gray of its own luminance until that component is 1 (`desaturateToLuminance`), then
+   * clip what remains below 0.
+   */
+  gamutHandling: "clip-components" | "reject-out-of-range" | "desaturate-to-luminance";
   outputDynamicRange: "sdr";
   transferFunction: "srgb";
   bitDepth: 8 | 16;
@@ -97,6 +102,25 @@ function parseToneCurveParameters(curve: unknown, value: unknown): SdrToneCurveP
 }
 /** Linear-sRGB/D65 relative-luminance weights: the Y row of the engine's sRGB to XYZ matrix (W3C CSS Color 4 sRGB; also IEC 61966-2-1). */
 const LUMINANCE = resolveCaptureColorModel().cameraRgbToXyz[1]! as readonly number[];
+/** Internal: the linear-sRGB/D65 relative-luminance weights the luminance curves and the desaturation use. */
+export const SDR_LUMINANCE_WEIGHTS: readonly number[] = LUMINANCE;
+/**
+ * Internal (#601): the `desaturate-to-luminance` gamut handling of one tone-mapped pixel, in place. Where its largest component t
+ * exceeds 1, the pixel is moved toward the gray of its own luminance Y = wᵀp, p' = Y + a·(p − Y) with a = (1 − Y)/(t − Y), so
+ * the largest component becomes 1. Y is linear in the components and the weights sum to 1, so p' keeps the luminance, and as an
+ * additive mixture with that gray it stays on the line from the white point through p's chromaticity (its dominant wavelength,
+ * the colorimetric hue) instead of the per-component clip's shift toward the secondaries. Where Y ≥ 1 the pixel is white. The
+ * same principle as W3C CSS Color 4 §13 (reduce chroma at constant lightness and hue) and as darktable's sigmoid "RGB ratio"
+ * mode (desaturate bright saturated colors to stay in gamut); this linear form is the engine's own. Other pixels are unchanged.
+ */
+export function desaturateToLuminance(out: Float64Array | number[]): void {
+  const r = out[0]!, g = out[1]!, b = out[2]!, top = r > g ? (r > b ? r : b) : (g > b ? g : b);
+  if (!(top > 1)) return;
+  const l = LUMINANCE[0]!*r+LUMINANCE[1]!*g+LUMINANCE[2]!*b;
+  if (l >= 1) { out[0] = 1; out[1] = 1; out[2] = 1; return; }
+  const a = (1-l)/(top-l);
+  out[0] = l+a*(r-l); out[1] = l+a*(g-l); out[2] = l+a*(b-l);
+}
 /** Writes the three tone-mapped samples of one exposed pixel. Exposed values are finite. */
 export type SdrPixelTone = (red: number, green: number, blue: number, out: Float64Array | number[]) => void;
 /**
@@ -136,7 +160,7 @@ export function parseSdrRenderingProfile(value: unknown): SdrRenderingProfile {
   const toneCurveParameters = parseToneCurveParameters(r.toneCurve, r.toneCurveParameters);
   if (r.schemaVersion !== SDR_RENDERING_SCHEMA_VERSION || typeof r.renderingExposureEv !== "number" ||
       !Number.isFinite(r.renderingExposureEv) || Math.abs(r.renderingExposureEv) > 32 ||
-      (r.gamutHandling !== "clip-components" && r.gamutHandling !== "reject-out-of-range") ||
+      (r.gamutHandling !== "clip-components" && r.gamutHandling !== "reject-out-of-range" && r.gamutHandling !== "desaturate-to-luminance") ||
       r.outputDynamicRange !== "sdr" || r.transferFunction !== "srgb" || (r.bitDepth !== 8 && r.bitDepth !== 16) ||
       r.rounding !== "nearest-ties-up" || r.dither !== "none") throw new InvalidConfigurationError("Unsupported SDR rendering profile.");
   return { schemaVersion: SDR_RENDERING_SCHEMA_VERSION, profileId: publicId(r.profileId), profileVersion: publicId(r.profileVersion),
@@ -227,7 +251,10 @@ export function calculateSdrRendering(input: SdrRenderingInput): CalculationResu
       tone.push(m === 0 ? 0 : m);
     }
   }
-  const linear = tone.map((sample) => {
+  // #601: the desaturation acts on whole pixels before the remaining components are clipped (tone samples are kept as mapped).
+  const gamut = p.gamutHandling === "desaturate-to-luminance" ? tone.slice() : tone;
+  if (gamut !== tone) for (let i = 0; i < gamut.length; i += 3) { const px = gamut.slice(i, i+3); desaturateToLuminance(px); gamut[i] = px[0]!; gamut[i+1] = px[1]!; gamut[i+2] = px[2]!; }
+  const linear = gamut.map((sample) => {
     if (sample < 0 || sample > 1) {
       if (p.gamutHandling === "reject-out-of-range") throw new InvalidConfigurationError("Tone output exceeds the declared SDR gamut range.");
       if (sample < 0) { low++; return 0; }
