@@ -1897,7 +1897,7 @@ export { resolveChartMaterialLayers, CHART_MASK_INDEX_GRAIN, CHART_MATERIAL_LAYE
 export { EXPORT_JPEG_ENCODER_ID } from "./capture/export-jpeg.js";
 export { DNG_IMPORT_SCHEMA_VERSION, DNG_IMPORT_LIMITS, parseDngRawImage } from "./capture/dng-import.js";
 export { C2PA_ALGORITHMIC_MEDIA_SOURCE_TYPE, C2PA_MANIFEST_STORE_MAXIMUM_BYTES, bindC2paManifestStore, setC2paManifestStore, calculateC2paDataHash,
-  type C2paByteRange, type C2paHardBinding, type C2paBoundFile, type C2paDataHash, type BindC2paManifestStoreInput, type SetC2paManifestStoreInput,
+  parseC2paManifestStore, type C2paFoundManifestStore, type ParseC2paManifestStoreInput, type C2paByteRange, type C2paHardBinding, type C2paBoundFile, type C2paDataHash, type BindC2paManifestStoreInput, type SetC2paManifestStoreInput,
   type CalculateC2paDataHashInput } from "./capture/c2pa-embed.js";
 export { NATIVE_RAW_DNG_SCHEMA_VERSION, serializeNativeRawDng, type SerializeNativeRawDngInput, type NativeRawDng, type NativeRawDngChannelNoise } from "./capture/native-raw-dng.js";
 export type { DngImportInput, ImportedDngRaw, ImportedDngCfa, ImportedDngBlackLevel, ImportedDngRect } from "./capture/dng-import.js";

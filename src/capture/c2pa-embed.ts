@@ -2,9 +2,10 @@
 
 /**
  * Content Credentials (C2PA) export writers: the engine half of #165. The engine embeds a finished, caller-built C2PA
- * Manifest Store in a JPEG or DNG export, reports the byte ranges the data hash must exclude, optionally computes that
- * SHA-256, and writes the signed store back in place at the same length. It never builds JUMBF or COSE, holds no keys,
- * signs nothing and makes no network calls: the caller brings its own manifest builder and signer.
+ * Manifest Store in a JPEG, PNG or DNG export, reports the byte ranges the data hash must exclude, optionally computes that
+ * SHA-256, writes the signed store back in place at the same length, and finds an existing store in a file. It never builds
+ * JUMBF or COSE, verifies no signature, holds no keys and makes no network calls: the caller brings its own manifest builder,
+ * signer and validator.
  *
  * Every rule cited is from the C2PA Technical Specification 2.4 (April 2026):
  *
@@ -12,16 +13,19 @@
  *   The engine checks only that outer framing (superbox, description box, UUID, label, child box lengths).
  * - JPEG (§A.3.1): the store is the data of APP11 marker segments (JPEG XT, ISO/IEC 18477-3), split per ISO 19566-5:2023 D.2,
  *   written in order and contiguous. Each segment carries CI = "JP", En (box instance number) and Z (packet sequence number,
- *   from 1); every continuation segment repeats the box's LBox and TBox. The split is the one the C2PA reference SDK
- *   (c2pa-rs, `jpeg_io.rs`) writes: 64,000-byte pieces of the store and En = 0x0211, so the same store gives the same bytes.
- *   The segments go after the leading run of APPn segments (JFIF APP0, Exif and XMP APP1, ICC APP2) and before the
- *   quantization tables; the specification sets no position, only contiguity.
+ *   from 1); every continuation segment repeats the box's LBox and TBox. The engine writes what the C2PA reference SDK
+ *   (c2pa-rs, `jpeg_io.rs`) writes, owner decision on #165: 64,000-byte pieces of the store, En = 0x0211, and the segments
+ *   right after the last APP0 segment, or right after SOI when there is none.
+ * - PNG (§A.3.2): the store is the data of one ancillary, private, not-safe-to-copy chunk 'caBX' (PNG 3rd edition §4.7.2), which
+ *   should precede IDAT. As c2pa-rs (`png_io.rs`) does, the engine puts it right after IHDR.
  * - TIFF and DNG (§A.3.6): the store is the data of tag 52545 (0xCD41), type 7 (UNDEFINED), in the last IFD of the main chain.
  *   For a file with one main IFD the entry may sit in that IFD, which is where the engine puts it, in ascending tag order. The
  *   store goes at the end of the file, as the section recommends. The TIFF byte order does not apply inside the store.
  * - Data hash `c2pa.hash.data` (§18.5): the hash covers every byte except the exclusions, which are ascending and
  *   non-overlapping (§18.5.1). JPEG: one exclusion covering every C2PA APP11 segment, each FFEB marker and length field
- *   included (§18.5.3). TIFF: the store's bytes and, as §18.5.5 recommends, the 4-byte count field of its IFD entry.
+ *   included (§18.5.3). PNG: one exclusion covering the whole caBX chunk: its Length and type (§18.5.4), its data, and its CRC,
+ *   which changes with the data (c2pa-rs excludes the same 12 + n bytes). TIFF: the store's bytes and, as §18.5.5 recommends,
+ *   the 4-byte count field of its IFD entry.
  * - Multiple step processing (§10.4): the caller embeds a placeholder store whose size already allows for the signature, hashes
  *   the bound bytes, fills in the data hash and signature, and writes the final store "without changing the size". The engine
  *   enforces that last step: `setC2paManifestStore` refuses a store of any other length, so no offset in the file ever moves.
@@ -34,10 +38,11 @@
 
 import { InvalidConfigurationError } from "../core/configuration-error.js";
 import { requireAllowlistedRecord, requireInputKeys } from "../core/record-validation.js";
+import { pngCrc32 } from "../output/png-encoder.js";
 
 /** IPTC digital source type for media created purely by an algorithm (https://cv.iptc.org/newscodes/digitalsourcetype/). */
 export const C2PA_ALGORITHMIC_MEDIA_SOURCE_TYPE = "http://cv.iptc.org/newscodes/digitalsourcetype/algorithmicMedia" as const;
-/** Largest manifest store the engine embeds, bytes (an engine limit, not a C2PA one). */
+/** Largest manifest store the engine embeds or reads, bytes (an engine limit, not a C2PA one). */
 export const C2PA_MANIFEST_STORE_MAXIMUM_BYTES = 33_554_432;
 
 /** A byte range of a file: `start` is a zero-based offset, `length` a byte count. */
@@ -47,22 +52,24 @@ export interface C2paByteRange { start: number; length: number }
  * worker or serialized, and must be passed back unchanged to `setC2paManifestStore`.
  */
 export interface C2paHardBinding {
-  /** `image/jpeg`, or for TIFF files `image/dng` when the main IFD has DNGVersion (50706), otherwise `image/tiff`. */
-  mediaType: "image/jpeg" | "image/dng" | "image/tiff";
+  /** `image/jpeg`, `image/png`, or for TIFF files `image/dng` when the main IFD has DNGVersion (50706), otherwise `image/tiff`. */
+  mediaType: "image/jpeg" | "image/png" | "image/dng" | "image/tiff";
   /** Length of the file with the store embedded, bytes. */
   fileLength: number;
   /** The `exclusions` of the `c2pa.hash.data` assertion, ascending and non-overlapping (§18.5). */
   exclusions: readonly C2paByteRange[];
-  /** JPEG: every C2PA APP11 segment, markers and length fields included. TIFF/DNG: the store's own bytes. */
+  /** JPEG: every C2PA APP11 segment, markers and length fields included. PNG: the whole caBX chunk. TIFF/DNG: the store's own bytes. */
   manifestRegion: C2paByteRange;
   /** Length of the JUMBF manifest store itself, bytes. A replacement store must have exactly this length. */
   manifestStoreLength: number;
 }
 /** A file with a manifest store embedded, and its binding. */
 export interface C2paBoundFile { bytes: Uint8Array; binding: C2paHardBinding }
+/** A manifest store found in a file (`parseC2paManifestStore`): its binding and a copy of the store's JUMBF bytes. */
+export interface C2paFoundManifestStore { binding: C2paHardBinding; manifestStore: Uint8Array }
 /** Input of `bindC2paManifestStore`. */
 export interface BindC2paManifestStoreInput {
-  /** A JPEG, or a TIFF-based file such as a DNG, as written by the engine's exporters. It is read, never changed. */
+  /** A JPEG, a PNG, or a TIFF-based file such as a DNG, as written by the engine's exporters. It is read, never changed. */
   file: Uint8Array;
   /**
    * The placeholder store (§10.4): a JUMBF C2PA Manifest Store sized for the final signature. For JPEG it may instead be the
@@ -75,10 +82,15 @@ export interface BindC2paManifestStoreInput {
 export interface SetC2paManifestStoreInput {
   /** The bound file (`C2paBoundFile.bytes`). It is read, never changed. */
   file: Uint8Array;
-  /** The binding `bindC2paManifestStore` returned for it. */
+  /** The binding `bindC2paManifestStore` (or `parseC2paManifestStore`) returned for it. */
   binding: C2paHardBinding;
   /** The final, signed store: exactly `binding.manifestStoreLength` bytes, as JUMBF or (JPEG) in the same APP11 split. */
   manifestStore: Uint8Array;
+}
+/** Input of `parseC2paManifestStore`. */
+export interface ParseC2paManifestStoreInput {
+  /** A JPEG, PNG or TIFF-based file such as a DNG. It is read, never changed. */
+  file: Uint8Array;
 }
 /** Input of `calculateC2paDataHash`. */
 export interface CalculateC2paDataHashInput {
@@ -90,8 +102,9 @@ export interface CalculateC2paDataHashInput {
 /** SHA-256 over every byte of the file outside the exclusions, in file order (§18.5): the `hash` of `c2pa.hash.data`. */
 export interface C2paDataHash { alg: "sha256"; hash: Uint8Array; hashHex: string; hashedByteCount: number }
 
-const JUMB = 0x6a756d62, JUMD = 0x6a756d64;
+const JUMB = 0x6a756d62, JUMD = 0x6a756d64, CABX = 0x63614258, IHDR = 0x49484452, IEND = 0x49454e44;
 const C2PA_UUID = [0x63, 0x32, 0x70, 0x61, 0x00, 0x11, 0x00, 0x10, 0x80, 0x00, 0x00, 0xaa, 0x00, 0x38, 0x9b, 0x71];
+const PNG_SIGNATURE = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
 /** c2pa-rs `MAX_JPEG_MARKER_SIZE` and its En; see the module notes. */
 const JPEG_PIECE = 64_000, JPEG_EN = 0x0211;
 const TIFF_C2PA_TAG = 52545;
@@ -102,6 +115,9 @@ function bytesOf(value: unknown, name: string): Uint8Array {
   return value;
 }
 const u32be = (b: Uint8Array, p: number): number => ((b[p]! << 24) >>> 0) + (b[p + 1]! << 16) + (b[p + 2]! << 8) + b[p + 3]!;
+const putU32be = (b: Uint8Array, p: number, v: number): void => { b.set([v >>> 24, (v >>> 16) & 255, (v >>> 8) & 255, v & 255], p); };
+/** True when `b` at `p` starts a JUMBF superbox whose description box has the C2PA UUID (§11.1.4.2). */
+const isC2paSuperbox = (b: Uint8Array, p: number): boolean => p + 24 <= b.length && u32be(b, p + 4) === JUMB && u32be(b, p + 12) === JUMD && C2PA_UUID.every((v, i) => b[p + 16 + i] === v);
 
 /** Checks the outer framing of a C2PA Manifest Store (§11.1.4.2, ISO 19566-5 boxes); the manifests inside are the caller's. */
 function checkStore(store: Uint8Array): Uint8Array {
@@ -125,6 +141,20 @@ function checkStore(store: Uint8Array): Uint8Array {
   return store;
 }
 
+/**
+ * A store located in a file: its binding, and where its bytes lie, in order (`pieces`; several for a JPEG). For JPEG the
+ * continuation headers (`repeats`) repeat the store's first 8 bytes; for PNG `crc` is where the chunk's CRC goes.
+ */
+interface Located { binding: C2paHardBinding; pieces: C2paByteRange[]; repeats: number[]; crc?: number }
+function gather(file: Uint8Array, at: Located): Uint8Array {
+  const store = new Uint8Array(at.binding.manifestStoreLength);
+  at.pieces.reduce((offset, p) => (store.set(file.subarray(p.start, p.start + p.length), offset), offset + p.length), 0);
+  return checkStore(store);
+}
+function locatedOne(mediaType: C2paHardBinding["mediaType"], file: Uint8Array, region: C2paByteRange, store: C2paByteRange, extra?: Partial<Located>): Located {
+  return { binding: { mediaType, fileLength: file.length, exclusions: [region], manifestRegion: region, manifestStoreLength: store.length }, pieces: [store], repeats: [], ...extra };
+}
+
 // ---- JPEG (§A.3.1, §18.5.3) ----
 
 /** The APP11 segments for a store (ISO 19566-5 D.2), split as the reference SDK splits them. */
@@ -134,45 +164,25 @@ function jpegSegments(store: Uint8Array): Uint8Array {
   let at = 0;
   for (let i = 0; i < pieces; i++) {
     const piece = store.subarray(i * JPEG_PIECE, Math.min(store.length, (i + 1) * JPEG_PIECE)), lp = 2 + 8 + (i ? 8 : 0) + piece.length;
-    out.set([0xff, 0xeb, lp >> 8, lp & 255, 0x4a, 0x50, JPEG_EN >> 8, JPEG_EN & 255, (i + 1) >>> 24, ((i + 1) >> 16) & 255, ((i + 1) >> 8) & 255, (i + 1) & 255], at);
+    out.set([0xff, 0xeb, lp >> 8, lp & 255, 0x4a, 0x50, JPEG_EN >> 8, JPEG_EN & 255], at); putU32be(out, at + 8, i + 1);
     at += 12;
     if (i) { out.set(store.subarray(0, 8), at); at += 8; }
     out.set(piece, at); at += piece.length;
   }
   return out;
 }
-/** The store carried by C2PA APP11 segments at `start` (exactly `length` bytes of segments), checked to be in the canonical split. */
-function jpegStoreAt(bytes: Uint8Array, start: number, length: number): Uint8Array {
-  const parts: Uint8Array[] = [];
-  let at = start, header: Uint8Array | undefined, total = 0;
-  while (at < start + length) {
-    if (at + 12 > start + length || bytes[at] !== 0xff || bytes[at + 1] !== 0xeb) fail("expected a C2PA APP11 segment.");
-    const end = at + 2 + ((bytes[at + 2]! << 8) | bytes[at + 3]!);
-    if (end > start + length || bytes[at + 4] !== 0x4a || bytes[at + 5] !== 0x50 || ((bytes[at + 6]! << 8) | bytes[at + 7]!) !== JPEG_EN || u32be(bytes, at + 8) !== parts.length + 1)
-      fail("APP11 segments are not one contiguous C2PA sequence (CI 'JP', En 0x0211, Z from 1).");
-    let data = at + 12;
-    if (parts.length) {
-      if (end < data + 8 || bytes.subarray(data, data + 8).some((v, i) => v !== header![i])) fail("APP11 continuation does not repeat the box's LBox and TBox.");
-      data += 8;
-    } else header = bytes.slice(data, data + 8);
-    parts.push(bytes.subarray(data, end)); total += end - data; at = end;
-  }
-  const store = new Uint8Array(total);
-  parts.reduce((offset, p) => (store.set(p, offset), offset + p.length), 0);
-  checkStore(store);
-  const canonical = jpegSegments(store);
-  if (canonical.length !== length || canonical.some((v, i) => v !== bytes[start + i])) fail("APP11 segments are not split as 64,000-byte pieces.");
-  return store;
+/** A JUMBF APP11 segment (CI 'JP') at `at`: its En, Z and end, or null for any other segment. */
+function app11(b: Uint8Array, at: number, end: number): { en: number; z: number } | null {
+  return b[at + 1] === 0xeb && end - at >= 12 && b[at + 4] === 0x4a && b[at + 5] === 0x50 ? { en: (b[at + 6]! << 8) | b[at + 7]!, z: u32be(b, at + 8) } : null;
 }
-/** Store bytes as JUMBF, or (`jpeg`) as already-split APP11 segments; returns the JUMBF. */
-function storeFrom(value: Uint8Array, jpeg: boolean): Uint8Array {
-  return jpeg && value[0] === 0xff && value[1] === 0xeb ? jpegStoreAt(value, 0, value.length) : checkStore(value);
-}
-interface JpegLayout { insertAt: number; c2pa: C2paByteRange | null }
-/** Walks a JPEG's marker segments up to SOS (ITU-T T.81 B.1.1): where the leading APPn run ends, and any C2PA APP11 run. */
+interface JpegLayout { app0End: number; located: Located | null }
+/**
+ * Walks a JPEG's marker segments up to SOS (ITU-T T.81 B.1.1): where the last APP0 ends, and the C2PA APP11 run if any. A run
+ * starts at a JUMBF segment with Z = 1 whose box is the C2PA superbox; its continuations follow at once with the same En and
+ * Z + 1 (§A.3.1). Other JUMBF APP11 segments (for example JPEG 360) are left alone.
+ */
 function jpegLayout(bytes: Uint8Array): JpegLayout {
-  if (bytes.length < 4 || bytes[0] !== 0xff || bytes[1] !== 0xd8) fail("file is neither a JPEG nor a TIFF.");
-  let at = 2, insertAt = -1, c2pa: C2paByteRange | null = null;
+  let at = 2, app0End = 2, run: { en: number; z: number; start: number; end: number; pieces: C2paByteRange[]; repeats: number[] } | null = null, done = false;
   for (;;) {
     if (at + 4 > bytes.length || bytes[at] !== 0xff) fail("JPEG marker structure is malformed before the scan.");
     const marker = bytes[at + 1]!;
@@ -180,15 +190,56 @@ function jpegLayout(bytes: Uint8Array): JpegLayout {
     if (marker === 0xd8 || marker === 0xd9 || marker === 0x01 || marker === 0xff || (marker >= 0xd0 && marker <= 0xd7)) fail("JPEG has an unexpected marker before the scan.");
     const end = at + 2 + ((bytes[at + 2]! << 8) | bytes[at + 3]!);
     if (end - at < 4 || end > bytes.length) fail("JPEG segment length runs past the file.");
-    if (insertAt < 0 && (marker < 0xe0 || marker > 0xef)) insertAt = at;
-    if (marker === 0xeb && end - at >= 6 && bytes[at + 4] === 0x4a && bytes[at + 5] === 0x50) {
-      if (c2pa && c2pa.start + c2pa.length !== at) fail("JPEG already has JUMBF APP11 segments that are not one contiguous run.");
-      c2pa = { start: c2pa ? c2pa.start : at, length: end - (c2pa ? c2pa.start : at) };
-    }
+    if (marker === 0xe0) app0End = end;
+    const box = app11(bytes, at, end);
+    if (box && run && !done && box.en === run.en && run.end === at) {
+      if (box.z !== run.z + 1 || end - at < 20 || bytes.subarray(at + 12, at + 20).some((v, i) => v !== bytes[run!.start + 12 + i])) fail("C2PA APP11 continuation is out of sequence or does not repeat LBox and TBox.");
+      run.repeats.push(at + 12); run.pieces.push({ start: at + 20, length: end - at - 20 }); run.z++; run.end = end;
+    } else if (box && box.z === 1 && isC2paSuperbox(bytes, at + 12)) {
+      if (run) fail("JPEG has more than one C2PA manifest store.");
+      run = { en: box.en, z: 1, start: at, end, pieces: [{ start: at + 12, length: end - at - 12 }], repeats: [] };
+    } else if (box && run && box.en === run.en) fail("C2PA APP11 segments are not contiguous (§A.3.1).");
+    else if (run) done = true;
     at = end;
   }
-  return { insertAt: insertAt < 0 ? at : insertAt, c2pa };
+  if (!run) return { app0End, located: null };
+  const region = { start: run.start, length: run.end - run.start }, length = run.pieces.reduce((s, p) => s + p.length, 0);
+  return { app0End, located: { binding: { mediaType: "image/jpeg", fileLength: bytes.length, exclusions: [region], manifestRegion: region, manifestStoreLength: length },
+    pieces: run.pieces, repeats: run.repeats } };
 }
+/** Store bytes as JUMBF, or (`jpeg`) as already-split APP11 segments in the reference split; returns the JUMBF. */
+function storeFrom(value: Uint8Array, jpeg: boolean): Uint8Array {
+  if (!(jpeg && value[0] === 0xff && value[1] === 0xeb)) return checkStore(value);
+  // Read the segments as a JPEG would (behind a stand-in SOI and SOS), then require the reference split exactly.
+  const wrapped = new Uint8Array(value.length + 6);
+  wrapped.set([0xff, 0xd8]); wrapped.set(value, 2); wrapped.set([0xff, 0xda, 0, 2], value.length + 2);
+  const found = jpegLayout(wrapped).located;
+  if (!found || found.binding.manifestRegion.length !== value.length) fail("APP11 segments are not one contiguous C2PA sequence.");
+  const store = gather(wrapped, found), canonical = jpegSegments(store);
+  if (canonical.length !== value.length || canonical.some((v, i) => v !== value[i])) fail("APP11 segments are not split as 64,000-byte pieces with En 0x0211.");
+  return store;
+}
+
+// ---- PNG (§A.3.2, §18.5.4) ----
+
+/** Walks a PNG's chunks (PNG 3rd edition §5.3): where IHDR ends, and the caBX chunk if any. */
+function pngLayout(bytes: Uint8Array): { ihdrEnd: number; located: Located | null } {
+  let at = 8, ihdrEnd = -1, located: Located | null = null;
+  for (;;) {
+    if (at + 12 > bytes.length) fail("PNG ends before IEND.");
+    const length = u32be(bytes, at), type = u32be(bytes, at + 4), end = at + 12 + length;
+    if (length > 0x7fffffff || end > bytes.length) fail("PNG chunk runs past the file.");
+    if (at === 8 && type !== IHDR) fail("PNG must start with IHDR.");
+    if (type === IHDR) ihdrEnd = end;
+    if (type === CABX) {
+      if (located) fail("PNG has more than one caBX chunk.");
+      located = locatedOne("image/png", bytes, { start: at, length: 12 + length }, { start: at + 8, length }, { crc: at + 8 + length });
+    }
+    at = end;
+    if (type === IEND) return { ihdrEnd, located };
+  }
+}
+function pngChunkCrc(file: Uint8Array, chunk: number, length: number): number { return pngCrc32(file.subarray(chunk + 4, chunk + 8 + length)); }
 
 // ---- TIFF and DNG (§A.3.6, §18.5.5) ----
 
@@ -199,8 +250,7 @@ const OFFSET_TAGS = new Set([273, 324, 513]), IFD_TAGS = new Set([330, 34665, 34
 const OPAQUE_OFFSET_TAGS = new Set([37500, 50740]);
 interface TiffReader { le: boolean; u16(p: number): number; u32(p: number): number }
 function tiffReader(bytes: Uint8Array): TiffReader {
-  const le = bytes[0] === 0x49 && bytes[1] === 0x49;
-  if (!le && !(bytes[0] === 0x4d && bytes[1] === 0x4d)) fail("file is neither a JPEG nor a TIFF.");
+  const le = bytes[0] === 0x49;
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   const r: TiffReader = {
     le,
@@ -210,13 +260,17 @@ function tiffReader(bytes: Uint8Array): TiffReader {
   if (bytes.length < 8 || r.u16(2) !== 42) fail("only classic TIFF (not BigTIFF) is supported.");
   return r;
 }
-interface TiffMain { ifd: number; count: number; entries: { tag: number; at: number }[]; dng: boolean }
-function tiffMain(bytes: Uint8Array, r: TiffReader): TiffMain {
-  const ifd = r.u32(4), count = r.u16(ifd);
-  if (count === 0 || r.u32(ifd + 2 + count * 12) !== 0) fail("TIFF must have exactly one main IFD (no IFD chain).");
-  const entries = Array.from({ length: count }, (_, i) => ({ tag: r.u16(ifd + 2 + i * 12), at: ifd + 2 + i * 12 }));
-  if (entries.some((e, i) => i > 0 && e.tag <= entries[i - 1]!.tag)) fail("TIFF main IFD entries are not in ascending tag order.");
-  return { ifd, count, entries, dng: entries.some((e) => e.tag === 50706) };
+interface TiffIfd { ifd: number; count: number; entries: { tag: number; at: number }[] }
+/** The main IFD chain (TIFF 6.0 §2), at most 64 IFDs. */
+function tiffChain(r: TiffReader): TiffIfd[] {
+  const chain: TiffIfd[] = [];
+  for (let ifd = r.u32(4); ifd !== 0; ifd = r.u32(ifd + 2 + chain[chain.length - 1]!.count * 12)) {
+    if (chain.length >= 64 || chain.some((c) => c.ifd === ifd)) fail("TIFF IFDs loop or are too many.");
+    const count = r.u16(ifd);
+    chain.push({ ifd, count, entries: Array.from({ length: count }, (_, i) => ({ tag: r.u16(ifd + 2 + i * 12), at: ifd + 2 + i * 12 })) });
+  }
+  if (chain.length === 0) fail("TIFF has no IFD.");
+  return chain;
 }
 /** Every 2- or 4-byte field holding a file offset, in the main IFD and every sub-IFD it points to (TIFF 6.0 §2; Exif 2.32 §4.6.3). */
 function tiffOffsetFields(bytes: Uint8Array, r: TiffReader, main: number): Map<number, 2 | 4> {
@@ -230,7 +284,6 @@ function tiffOffsetFields(bytes: Uint8Array, r: TiffReader, main: number): Map<n
       if (!unit) fail("TIFF entry has an unknown field type.");
       if (OPAQUE_OFFSET_TAGS.has(tag)) fail("TIFF has a MakerNote or DNGPrivateData, whose inner offsets cannot be moved safely.");
       const size = unit * count;
-      if (!Number.isSafeInteger(size)) fail("TIFF entry is too large.");
       const value = size > 4 ? r.u32(e + 8) : e + 8;
       if (value + size > bytes.length) fail("TIFF entry data runs past the file.");
       if (size > 4) fields.set(e + 8, 4);
@@ -248,9 +301,27 @@ function tiffOffsetFields(bytes: Uint8Array, r: TiffReader, main: number): Map<n
   walk(main, false);
   return fields;
 }
+/** The C2PA entry of a TIFF, if any: it must be in the last IFD of the main chain (§A.3.6). */
+function tiffLayout(file: Uint8Array): { r: TiffReader; chain: TiffIfd[]; located: Located | null } {
+  const r = tiffReader(file), chain = tiffChain(r), dng = chain[0]!.entries.some((e) => e.tag === 50706);
+  const holders = chain.filter((c) => c.entries.some((e) => e.tag === TIFF_C2PA_TAG));
+  if (holders.length === 0) return { r, chain, located: null };
+  const entries = holders.flatMap((c) => c.entries.filter((e) => e.tag === TIFF_C2PA_TAG));
+  if (entries.length > 1 || holders[0] !== chain[chain.length - 1]) fail("TIFF C2PA entry must be one entry in the last IFD of the main chain (§A.3.6).");
+  const at = entries[0]!.at, length = r.u32(at + 4), start = r.u32(at + 8);
+  if (r.u16(at + 2) !== 7 || length <= 4 || start + length > file.length) fail("TIFF C2PA entry is not type 7 data inside the file.");
+  // Another writer may put the store before the IFD; the exclusions are listed in ascending order either way (§18.5.1).
+  const store = { start, length }, count = { start: at + 4, length: 4 };
+  if (start < at + 8 && start + length > at + 4) fail("TIFF C2PA store overlaps its IFD entry.");
+  return { r, chain, located: { binding: { mediaType: dng ? "image/dng" : "image/tiff", fileLength: file.length, exclusions: start < at ? [store, count] : [count, store], manifestRegion: store, manifestStoreLength: length },
+    pieces: [store], repeats: [] } };
+}
 function bindTiff(file: Uint8Array, store: Uint8Array): C2paBoundFile {
-  const r = tiffReader(file), main = tiffMain(file, r);
-  if (main.entries.some((e) => e.tag === TIFF_C2PA_TAG)) fail("TIFF already has a C2PA manifest store (tag 52545); this adds the first one only.");
+  const { r, chain, located } = tiffLayout(file);
+  if (located) fail("file already has a C2PA manifest store; this adds the first one only.");
+  if (chain.length !== 1) fail("TIFF must have exactly one main IFD (no IFD chain).");
+  const main = chain[0]!;
+  if (main.entries.some((e, i) => i > 0 && e.tag <= main.entries[i - 1]!.tag)) fail("TIFF main IFD entries are not in ascending tag order.");
   const fields = tiffOffsetFields(file, r, main.ifd);
   // The new entry goes at its ascending place in the main IFD; every byte from there on moves 12 bytes, and every offset to
   // such a byte moves with it. 12 keeps every 2- and 4-byte alignment, and nothing before the insertion point moves.
@@ -269,24 +340,34 @@ function bindTiff(file: Uint8Array, store: Uint8Array): C2paBoundFile {
     if (size === 2) { if (value + 12 > 65535) fail("a SHORT offset would overflow."); view.setUint16(to, value + 12, le); } else view.setUint32(to, value + 12, le);
   }
   out.set(store, storeStart);
-  const count = { start: insertAt + 4, length: 4 }, region = { start: storeStart, length: store.length };
-  return { bytes: out, binding: { mediaType: main.dng ? "image/dng" : "image/tiff", fileLength: out.length, exclusions: [count, region], manifestRegion: region, manifestStoreLength: store.length } };
+  return { bytes: out, binding: tiffLayout(out).located!.binding };
 }
-/** The C2PA entry of a bound TIFF: where its count field is and where its store is. */
-function tiffStoreEntry(file: Uint8Array): { count: number; region: C2paByteRange } {
-  const r = tiffReader(file), entry = tiffMain(file, r).entries.find((e) => e.tag === TIFF_C2PA_TAG);
-  if (!entry || r.u16(entry.at + 2) !== 7) fail("TIFF has no C2PA manifest store entry (tag 52545, type 7).");
-  const length = r.u32(entry.at + 4), start = r.u32(entry.at + 8);
-  if (length <= 4 || start + length > file.length) fail("TIFF C2PA entry points outside the file.");
-  return { count: entry.at + 4, region: { start, length } };
+
+// ---- Format dispatch ----
+
+type Format = "jpeg" | "png" | "tiff";
+function formatOf(file: Uint8Array): Format {
+  if (file.length >= 4 && file[0] === 0xff && file[1] === 0xd8) return "jpeg";
+  if (file.length >= 8 && PNG_SIGNATURE.every((v, i) => file[i] === v)) return "png";
+  if (file.length >= 8 && ((file[0] === 0x49 && file[1] === 0x49) || (file[0] === 0x4d && file[1] === 0x4d))) return "tiff";
+  return fail("file is not a JPEG, PNG or TIFF.");
+}
+function locate(file: Uint8Array, format: Format): Located | null {
+  return format === "jpeg" ? jpegLayout(file).located : format === "png" ? pngLayout(file).located : tiffLayout(file).located;
+}
+/** Inserts `chunk` at `at`. */
+function spliced(file: Uint8Array, at: number, chunk: Uint8Array): Uint8Array {
+  const out = new Uint8Array(file.length + chunk.length);
+  out.set(file.subarray(0, at)); out.set(chunk, at); out.set(file.subarray(at), at + chunk.length);
+  return out;
 }
 
 // ---- Public functions ----
 
 /**
- * Embeds a placeholder C2PA Manifest Store in a JPEG or TIFF/DNG export and returns the new file with its hard binding:
- * the exclusions for `c2pa.hash.data` and where the store sits (C2PA 2.4 §A.3.1, §A.3.6, §18.5, §10.4; see the module notes).
- * The input file is not changed. Only the first store of a file can be added; a file that already has one is rejected.
+ * Embeds a placeholder C2PA Manifest Store in a JPEG, PNG or TIFF/DNG export and returns the new file with its hard binding:
+ * the exclusions for `c2pa.hash.data` and where the store sits (C2PA 2.4 §A.3.1, §A.3.2, §A.3.6, §18.5, §10.4; see the module
+ * notes). The input file is not changed. Only the first store of a file can be added; a file that already has one is rejected.
  * @param input - The file and the placeholder store.
  * @returns The bound file (a new array) and its binding.
  *
@@ -295,15 +376,41 @@ function tiffStoreEntry(file: Uint8Array): { count: number; region: C2paByteRang
 export function bindC2paManifestStore(input: BindC2paManifestStoreInput): C2paBoundFile {
   requireInputKeys(input, "bindC2paManifestStore", ["file", "manifestStore"]);
   const r = input as unknown as Record<string, unknown>;
-  const file = bytesOf(r.file, "file"), given = bytesOf(r.manifestStore, "manifestStore"), jpeg = file[0] === 0xff;
-  const store = storeFrom(given, jpeg);
-  if (!jpeg) return bindTiff(file, store);
-  const layout = jpegLayout(file);
-  if (layout.c2pa) fail("JPEG already has JUMBF APP11 segments; this adds the first manifest store only.");
-  const segments = jpegSegments(store), out = new Uint8Array(file.length + segments.length);
-  out.set(file.subarray(0, layout.insertAt)); out.set(segments, layout.insertAt); out.set(file.subarray(layout.insertAt), layout.insertAt + segments.length);
-  const region = { start: layout.insertAt, length: segments.length };
-  return { bytes: out, binding: { mediaType: "image/jpeg", fileLength: out.length, exclusions: [region], manifestRegion: region, manifestStoreLength: store.length } };
+  const file = bytesOf(r.file, "file"), given = bytesOf(r.manifestStore, "manifestStore"), format = formatOf(file);
+  const store = storeFrom(given, format === "jpeg");
+  if (format === "tiff") return bindTiff(file, store);
+  let out: Uint8Array;
+  if (format === "jpeg") {
+    const layout = jpegLayout(file);
+    if (layout.located) fail("file already has a C2PA manifest store; this adds the first one only.");
+    out = spliced(file, layout.app0End, jpegSegments(store));
+  } else {
+    const layout = pngLayout(file);
+    if (layout.located) fail("file already has a C2PA manifest store; this adds the first one only.");
+    const chunk = new Uint8Array(12 + store.length);
+    putU32be(chunk, 0, store.length); putU32be(chunk, 4, CABX); chunk.set(store, 8);
+    putU32be(chunk, 8 + store.length, pngCrc32(chunk.subarray(4, 8 + store.length)));
+    out = spliced(file, layout.ihdrEnd, chunk);
+  }
+  return { bytes: out, binding: locate(out, format)!.binding };
+}
+
+/**
+ * Finds the C2PA Manifest Store embedded in a JPEG (APP11), PNG (caBX) or TIFF/DNG (tag 52545) and returns its location as a
+ * binding (the exclusions the engine's own writer uses for that format) and a copy of the store. It checks the file's structure
+ * and the store's outer framing only: it does not read the manifests, check the data hash or verify any signature. The
+ * manifest's own `c2pa.hash.data` assertion is what a validator uses; this binding is what `setC2paManifestStore` needs.
+ * @param input - The file.
+ * @returns The store and its binding, or null when the file has none.
+ *
+ * @see docs/CONTENT_CREDENTIALS.md for the byte layouts.
+ */
+export function parseC2paManifestStore(input: ParseC2paManifestStoreInput): C2paFoundManifestStore | null {
+  requireInputKeys(input, "parseC2paManifestStore", ["file"]);
+  const file = bytesOf((input as unknown as Record<string, unknown>).file, "file"), found = locate(file, formatOf(file));
+  if (!found) return null;
+  if (found.binding.manifestStoreLength > C2PA_MANIFEST_STORE_MAXIMUM_BYTES) fail("manifest store is larger than 32 MiB.");
+  return { binding: found.binding, manifestStore: gather(file, found) };
 }
 
 function parseBinding(value: unknown): C2paHardBinding {
@@ -313,17 +420,17 @@ function parseBinding(value: unknown): C2paHardBinding {
     if (!Number.isSafeInteger(x.start) || !Number.isSafeInteger(x.length) || (x.start as number) < 0 || (x.length as number) < 1) fail("byte ranges need integer start ≥ 0 and length ≥ 1.");
     return { start: x.start as number, length: x.length as number };
   };
-  if (!["image/jpeg", "image/dng", "image/tiff"].includes(b.mediaType as string) || !Number.isSafeInteger(b.fileLength) || !Number.isSafeInteger(b.manifestStoreLength) || !Array.isArray(b.exclusions))
+  if (!["image/jpeg", "image/png", "image/dng", "image/tiff"].includes(b.mediaType as string) || !Number.isSafeInteger(b.fileLength) || !Number.isSafeInteger(b.manifestStoreLength) || !Array.isArray(b.exclusions))
     fail("binding needs mediaType, fileLength, exclusions, manifestRegion and manifestStoreLength.");
   return { mediaType: b.mediaType as C2paHardBinding["mediaType"], fileLength: b.fileLength as number, exclusions: (b.exclusions as unknown[]).map(range),
     manifestRegion: range(b.manifestRegion), manifestStoreLength: b.manifestStoreLength as number };
 }
-const sameRange = (a: C2paByteRange | undefined, b: C2paByteRange): boolean => a !== undefined && a.start === b.start && a.length === b.length;
 
 /**
  * Writes the final, signed manifest store over the placeholder of a bound file (C2PA 2.4 §10.4.4). The store must have
  * exactly the placeholder's length, so the file's length, every offset and every byte outside the exclusions stay the same
- * and the data hash computed before signing still holds. The binding is checked against the file first.
+ * and the data hash computed before signing still holds. The binding is checked against the file first. The new store goes
+ * into the file's existing segments or chunk as they are (for PNG the chunk CRC is recomputed; it is inside the exclusion).
  * @param input - The bound file, its binding and the signed store.
  * @returns A new array: the file with the signed store.
  *
@@ -332,23 +439,17 @@ const sameRange = (a: C2paByteRange | undefined, b: C2paByteRange): boolean => a
 export function setC2paManifestStore(input: SetC2paManifestStoreInput): Uint8Array {
   requireInputKeys(input, "setC2paManifestStore", ["file", "binding", "manifestStore"]);
   const r = input as unknown as Record<string, unknown>;
-  const file = bytesOf(r.file, "file"), binding = parseBinding(r.binding), jpeg = binding.mediaType === "image/jpeg";
-  const store = storeFrom(bytesOf(r.manifestStore, "manifestStore"), jpeg);
-  if (file.length !== binding.fileLength) fail("file length does not match the binding.");
+  const file = bytesOf(r.file, "file"), binding = parseBinding(r.binding), format = formatOf(file);
+  const store = storeFrom(bytesOf(r.manifestStore, "manifestStore"), format === "jpeg");
+  const found = locate(file, format);
+  if (!found) fail("file has no C2PA manifest store to replace.");
+  if (JSON.stringify(found.binding) !== JSON.stringify(binding)) fail("binding does not match the file's manifest store.");
   if (store.length !== binding.manifestStoreLength) fail("signed store is " + store.length + " B but the placeholder reserved " + binding.manifestStoreLength + " B; rebuild with a larger placeholder (§10.4).");
-  const out = file.slice(), region = binding.manifestRegion;
-  if (jpeg) {
-    const found = jpegLayout(file).c2pa;
-    if (!found || !sameRange(found, region) || !sameRange(binding.exclusions[0], region) || binding.exclusions.length !== 1) fail("binding does not match the JPEG's C2PA APP11 segments.");
-    if (jpegStoreAt(file, region.start, region.length).length !== store.length) fail("placeholder in the file does not match the binding.");
-    out.set(jpegSegments(store), region.start);
-  } else {
-    const found = tiffStoreEntry(file);
-    if (!sameRange(found.region, region) || found.region.length !== store.length || binding.exclusions.length !== 2 ||
-      !sameRange(binding.exclusions[0], { start: found.count, length: 4 }) || !sameRange(binding.exclusions[1], region)) fail("binding does not match the TIFF's C2PA entry.");
-    checkStore(file.subarray(region.start, region.start + region.length));
-    out.set(store, region.start);
-  }
+  gather(file, found);
+  const out = file.slice();
+  found.pieces.reduce((offset, p) => (out.set(store.subarray(offset, offset + p.length), p.start), offset + p.length), 0);
+  for (const at of found.repeats) out.set(store.subarray(0, 8), at);
+  if (found.crc !== undefined) putU32be(out, found.crc, pngChunkCrc(out, binding.manifestRegion.start, store.length));
   return out;
 }
 
