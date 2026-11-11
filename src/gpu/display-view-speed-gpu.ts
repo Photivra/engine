@@ -14,6 +14,8 @@
  * #477); `display-view-chart-material-module.ts` provides one for the eight 2.0 chart presets and
  * `display-view-composite-material-module.ts` (#491) one for composite charts, the 2.3 elements and `material-layers` scenes.
  */
+import { DISPLAY_VIEW_LUMINANCE_FAST_POINTS, gaussHermite } from "../facade/display-view-rendering.js";
+import { SDR_LUMINANCE_WEIGHTS } from "../output/sdr-rendering.js";
 import { DISPLAY_VIEW_NOISE_STREAM_ID, axisSums, clipCentre, createDisplayViewExpectedSignal, displayViewDecidedSaturation, overlaps, quantizationVariance, renderDisplayView, type AxisSums, type DisplayViewRenderResult, type DisplayViewSetup } from "../facade/display-view.js";
 import { displayViewSignalTables, type DisplayViewExpectedSignalInput } from "../facade/expected-signal.js";
 import { resolvePortableChartScene } from "../facade/chart-scenes.js";
@@ -132,8 +134,10 @@ export function displayViewSpeedGpuUnsupportedReason(setup: DisplayViewSetup, si
   if (signalInput.scene.kind !== "materials" && !signalInput.scene.signalAt) return "radiance scenes (caller functions) are not on the GPU";
   if (!signalInput.queryPoint) return "the expected signal has no query points";
   if (setup.candidates || setup.ahdCorrection || setup.ahdCollect) return "AHD candidates and the low-signal correction are not on the GPU";
-  if (setup.toneCurve !== "identity" && setup.toneCurve !== "positive-reinhard-per-channel") return "unsupported tone curve " + String(setup.toneCurve);
-  if (setup.rendering) return "the coupled rendering steps (luminance tone curves, highlightMode reconstruct, desaturate-to-luminance) are not in the Speed kernel";
+  if (setup.rendering && (setup.rendering.highlightMode !== "clip" || setup.rendering.gamutHandling !== "clip-components"))
+    return "highlightMode reconstruct and desaturate-to-luminance (the development chain's 3-D rule) are not in the Speed kernel";
+  const p = setup.rendering?.toneCurveParameters;
+  if (p && "exponent" in p && !(p.exponent >= 1)) return "Naka–Rushton below exponent 1 (its ratio f(L)/L is unbounded at L = 0) is not in the Speed kernel";
   if (signalInput.offsets.length < 1 || signalInput.offsets.length > DISPLAY_VIEW_GPU_MAXIMUM_OFFSETS) return "the kernel holds 1 to " + DISPLAY_VIEW_GPU_MAXIMUM_OFFSETS + " query offsets";
   if (signalInput.wavelengthsNm.length < 1 || signalInput.wavelengthsNm.length > DISPLAY_VIEW_SPEED_MAXIMUM_NODES) return "the kernel integrates 1 to " + DISPLAY_VIEW_SPEED_MAXIMUM_NODES + " spectral nodes per site";
   if (setup.region.width < 1 || setup.region.height < 1) return "an empty region";
@@ -219,11 +223,13 @@ export function axisRecord(geometry: Float32Array, at: number, start: number, en
   order.forEach((key, i) => { geometry[at + 8 + i] = sums[key] / scale2; });
 }
 
+/** The kernel's tone code: identity 0, positive Reinhard 1, extended Reinhard (luminance) 2, Naka–Rushton (luminance) 3. */
+const TONE_CODE: Readonly<Record<DisplayViewSetup["toneCurve"], number>> = { "identity": 0, "positive-reinhard-per-channel": 1, "extended-reinhard-luminance": 2, "naka-rushton-luminance": 3 };
 /** The uniform parameters and the aux table of a render. */
 function constants(setup: DisplayViewSetup, signalInput: DisplayViewExpectedSignalInput): { params: ArrayBuffer; aux: Float32Array<ArrayBuffer> } {
   const params = new ArrayBuffer(4 * DISPLAY_VIEW_PARAM_WORDS), words = new Uint32Array(params), floats = new Float32Array(params);
   words[2] = setup.region.width; words[3] = setup.region.x; words[4] = setup.region.y; words[5] = setup.margin; words[6] = setup.nativeWidth; words[7] = setup.nativeHeight;
-  words[8] = setup.region.width; words[9] = setup.toneCurve === "positive-reinhard-per-channel" ? 1 : 0; words[10] = signalInput.offsets.length; words[11] = signalInput.wavelengthsNm.length;
+  words[8] = setup.region.width; words[9] = TONE_CODE[setup.toneCurve]; words[10] = signalInput.offsets.length; words[11] = signalInput.wavelengthsNm.length;
   for (let c = 0; c < 3; c++) { floats[12 + c] = setup.readout[c]!.perElectron; floats[16 + c] = setup.readout[c]!.darkElectrons; floats[20 + c] = setup.readout[c]!.constantVariance; floats[24 + c] = setup.gains[c]!; }
   floats[15] = 8.5 * 8.5; floats[19] = setup.clipLevel;
   for (let r = 0; r < 3; r++) for (let c = 0; c < 3; c++) floats[28 + r * 3 + c] = setup.matrix[r]![c]!;
@@ -239,6 +245,19 @@ function constants(setup: DisplayViewSetup, signalInput: DisplayViewExpectedSign
   }
   const gl = gaussLegendre16();
   aux.set(gl.x, DISPLAY_VIEW_AUX.gaussLegendre); aux.set(gl.w, DISPLAY_VIEW_AUX.gaussLegendre + 16);
+  // #593: a luminance tone curve's constants, the luminance weights, the fast flag and the 8-point Gauss–Hermite rule.
+  const p = setup.rendering?.toneCurveParameters, base = DISPLAY_VIEW_AUX.luminance;
+  if (p && setup.rendering) {
+    if ("exponent" in p) {
+      const q = p as { exponent: number; semiSaturation: number; whiteLuminance: number }, white = 1 / (1 + (q.semiSaturation / q.whiteLuminance) ** q.exponent);
+      aux[base] = q.semiSaturation; aux[base + 1] = q.exponent; aux[base + 2] = 1 / white;
+      aux[base + 3] = q.exponent > 1 ? 0 : (1 + q.semiSaturation / q.whiteLuminance) / q.semiSaturation;
+    } else { aux[base] = 1 / (p.whiteLuminance * p.whiteLuminance); aux[base + 3] = 1; }
+    aux.set(SDR_LUMINANCE_WEIGHTS, base + 4);
+    aux[base + 7] = setup.rendering.fast ? 1 : 0;
+    const gh = gaussHermite(DISPLAY_VIEW_LUMINANCE_FAST_POINTS);
+    aux.set(gh.x, base + 8); aux.set(gh.w, base + 16);
+  }
   return { params, aux };
 }
 
@@ -430,7 +449,6 @@ export function displayViewSpeedGpuSupports(request: DisplayViewGpuRequest): tru
 /** Why the GPU's material lookup, tone curves or query-offset table do not cover a request (shared by the Speed and Quality support checks), or true. */
 export function sceneToneAndOffsetsReason(request: DisplayViewGpuRequest, maximumOffsets: number): true | string {
   if (request.scene !== "chart" && request.scene !== "material-layers" && request.scene !== "image-plane") return "the scene is a caller " + request.scene + "; the GPU material lookup covers engine charts and declared material-layers scenes (describe the scene as material-layers)";
-  if (request.toneCurve !== "identity" && request.toneCurve !== "positive-reinhard-per-channel") return "unsupported tone curve " + String(request.toneCurve);
   if (request.coupled) return "the coupled rendering steps (highlightMode reconstruct, desaturate-to-luminance) are not on the GPU";
   if (offsetCount(request) > maximumOffsets) return "more than " + maximumOffsets + " query offsets per site";
   return true;

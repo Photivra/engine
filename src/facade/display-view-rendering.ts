@@ -22,7 +22,7 @@
  *   white or above) or, with the desaturation, a rendered component reaches 1, the whole chain (white balance, highlight,
  *   matrix, tone curve, desaturation, clip) is integrated over the pixel's normal camera channels with a tensor Gauss–Hermite
  *   rule in Cholesky coordinates (nodes and weights from the Jacobi matrix's eigenvalues, Golub & Welsch 1969; NIST DLMF
- *   §3.5(v)): full 16 points per axis (4,096 nodes), fast 4 per axis (64). Elsewhere `reconstruct` is the unclipped white
+ *   §3.5(v)): full 16 points per axis (4,096 nodes), fast 6 per axis (216). Elsewhere `reconstruct` is the unclipped white
  *   balance (exactly linear) and the desaturation leaves the pixel unchanged.
  * The fast rules are the registered fast methods `output.toneCurve/view-luminance-moments` and
  * `output.highlightMode.reconstruct/view-moments` (src/facade/fast-methods.ts); their measured bounds are in docs/DISPLAY_VIEW.md.
@@ -312,13 +312,14 @@ export function createDisplayViewCoupledRendering(choice: DisplayViewRenderingCh
       const lo = muL - CLIP_REACH_SIGMA * sL, hi = muL + CLIP_REACH_SIGMA * sL;
       if (choice.fast && (muL > 2 * CLIP_REACH_SIGMA * sL || hi < 0)) for (let i = 0; i < hermite8.x.length; i++) node(muL + sL * hermite8.x[i]!, hermite8.w[i]!);
       else {
-        // Composite 16-point Gauss–Legendre in 4 panels over [lo, hi], split at L = 0 where the curves leave the pixel unchanged.
-        const pieces = lo < 0 && hi > 0 ? [lo, 0, hi] : [lo, hi];
+        // Composite 16-point Gauss–Legendre in 4 panels over [lo, hi], split at L = 0 where the curves leave the pixel unchanged; in
+        // standardized units z = (L − μ_L)/σ_L, so a node's density is formed without the cancellation L − μ_L.
+        const pieces = lo < 0 && hi > 0 ? [-CLIP_REACH_SIGMA, -muL / sL, CLIP_REACH_SIGMA] : [-CLIP_REACH_SIGMA, CLIP_REACH_SIGMA];
         for (let piece = 0; piece + 1 < pieces.length; piece++) {
           const a = pieces[piece]!, width = (pieces[piece + 1]! - a) / 4, half = width / 2;
           for (let p = 0; p < 4; p++) {
             const centre = a + (p + 0.5) * width;
-            for (let k = 0; k < 16; k++) { const l = centre + half * GL.x[k]!; node(l, half * GL.w[k]! * phi((l - muL) / sL) / sL); }
+            for (let k = 0; k < 16; k++) { const z = centre + half * GL.x[k]!; node(muL + sL * z, half * GL.w[k]! * phi(z)); }
           }
         }
       }

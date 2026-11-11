@@ -34,7 +34,15 @@ const cases: [string, SimulateCaptureOptions][] = [
   ["step wedge at the white clip", { scene: { preset: "step-wedge", steps: 11 }, lens: { prime: 50, fNumber: 8 }, exposure: { mode: "manual", iso: 100, shutterSeconds: 1 / 15 }, sensor, output }],
   ["step wedge at ISO 6400", { scene: { preset: "step-wedge", steps: 11 }, lens: { prime: 50, fNumber: 8 }, exposure: { mode: "manual", iso: 6400, shutterSeconds: 1 / 8000 }, sensor, output }],
   ["step wedge, Reinhard", { scene: { preset: "step-wedge", steps: 11 }, lens: { prime: 50, fNumber: 8 }, exposure: { mode: "manual", iso: 100, shutterSeconds: 1 / 30 }, sensor,
-    output: { ...output, toneCurve: "positive-reinhard-per-channel" } }]
+    output: { ...output, toneCurve: "positive-reinhard-per-channel" } }],
+  // #593: the luminance tone curves (Photivra's Standard and Flat looks), fast (8-point rule) and full (4 × 16 points), and in the clip.
+  ["step wedge, Standard look", { scene: { preset: "step-wedge", steps: 11 }, lens: { prime: 50, fNumber: 8 }, exposure: { mode: "manual", iso: 1600, shutterSeconds: 1 / 250 }, sensor,
+    output: { ...output, toneCurve: "naka-rushton-luminance", toneCurveParameters: { exponent: 1.5, semiSaturation: 0.5009, whiteLuminance: 8 } } }],
+  ["spectral patches, Flat look (full rule)", { scene: { preset: "patches", columns: 4, patches: Array.from({ length: 8 }, (_, i) => ({ patchId: `p${i}`, reflectance: i % 2 === 0 ?
+    { kind: "tabulated" as const, samples: [380, 480, 580, 680, 780].map((w, j) => ({ wavelengthNanometers: w, value: 0.1 + 0.08 * i + 0.1 * j })) } : 0.05 + 0.1 * i })) },
+    lens: { prime: 50, fNumber: 8 }, sensor, fast: false, output: { ...output, toneCurve: "naka-rushton-luminance", toneCurveParameters: { exponent: 1, semiSaturation: 0.8465, whiteLuminance: 32 } } }],
+  ["step wedge at the white clip, extended Reinhard", { scene: { preset: "step-wedge", steps: 11 }, lens: { prime: 50, fNumber: 8 }, exposure: { mode: "manual", iso: 100, shutterSeconds: 1 / 15 }, sensor,
+    output: { ...output, toneCurve: "extended-reinhard-luminance", toneCurveParameters: { whiteLuminance: 4 } } }]
 ];
 
 const report: Record<string, unknown>[] = [];

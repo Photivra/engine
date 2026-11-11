@@ -146,7 +146,7 @@ describe("the coupled rendering moments", () => {
       }
     }
     console.log("fast vs full, largest gap of the expected value (linear light):", { tone: toneGap, chain: chainGap, chainUpToSigma001: quietGap });
-    // Measured 2026-11-11: tone 1.6e-5; chain 1.5e-2 with channel σ up to 0.076 (ISO 6400 on small sites), 1.5e-3 up to σ = 0.01.
+    // Measured 2026-11-11: tone 6.7e-6; chain 1.5e-2 with channel σ up to 0.076 (ISO 6400 on small sites), 2.4e-4 up to σ = 0.01.
     expect(toneGap).toBeLessThan(2e-5);
     expect(chainGap).toBeLessThan(2e-2);
     expect(quietGap).toBeLessThan(2e-3);

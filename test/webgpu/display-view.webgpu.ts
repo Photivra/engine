@@ -69,7 +69,14 @@ const cases: [string, SimulateCaptureOptions][] = [
   ["step wedge at the white clip", { scene: { preset: "step-wedge", steps: 11 }, lens: { prime: 50, fNumber: 8 }, exposure: { mode: "manual", iso: 100, shutterSeconds: 1 / 15 }, sensor, output }],
   ["step wedge at ISO 6400", { scene: { preset: "step-wedge", steps: 11 }, lens: { prime: 50, fNumber: 8 }, exposure: { mode: "manual", iso: 6400, shutterSeconds: 1 / 8000 }, sensor, output }],
   ["step wedge, Reinhard", { scene: { preset: "step-wedge", steps: 11 }, lens: { prime: 50, fNumber: 8 }, exposure: { mode: "manual", iso: 100, shutterSeconds: 1 / 30 }, sensor,
-    output: { ...output, toneCurve: "positive-reinhard-per-channel" } }]
+    output: { ...output, toneCurve: "positive-reinhard-per-channel" } }],
+  // #593: Photivra's Standard look (fast rule) and Flat look (full rule), and extended Reinhard at the white clip.
+  ["step wedge, Standard look", { scene: { preset: "step-wedge", steps: 11 }, lens: { prime: 50, fNumber: 8 }, exposure: { mode: "manual", iso: 1600, shutterSeconds: 1 / 250 }, sensor,
+    output: { ...output, toneCurve: "naka-rushton-luminance", toneCurveParameters: { exponent: 1.5, semiSaturation: 0.5009, whiteLuminance: 8 } } }],
+  ["step wedge, Flat look (full rule)", { scene: { preset: "step-wedge", steps: 11 }, lens: { prime: 50, fNumber: 8 }, sensor, fast: false,
+    output: { ...output, toneCurve: "naka-rushton-luminance", toneCurveParameters: { exponent: 1, semiSaturation: 0.8465, whiteLuminance: 32 } } }],
+  ["step wedge at the white clip, extended Reinhard", { scene: { preset: "step-wedge", steps: 11 }, lens: { prime: 50, fNumber: 8 }, exposure: { mode: "manual", iso: 100, shutterSeconds: 1 / 15 }, sensor,
+    output: { ...output, toneCurve: "extended-reinhard-luminance", toneCurveParameters: { whiteLuminance: 4 } } }]
 ];
 
 describe("webgpu-f32 display view (Speed) vs the float64 reference", () => {
