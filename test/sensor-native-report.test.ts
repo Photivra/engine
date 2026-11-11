@@ -63,8 +63,13 @@ describe("native-photosite sensor figures (#595)", () => {
     expect(linked.sensor.fullWellElectrons).toBeCloseTo(160000, 6);
     const unlinked = await capture({ pixelPitchMicrometers: 12, fullWell: { electrons: 40000, link: "none" }, readNoise: { lowGainElectrons: 3 } });
     expect(unlinked.sensor.native.fullWellElectrons).toBeCloseTo(40000, 6);
-    expect(unlinked.sensor.native.readNoiseElectrons).toBe(3);
+    // sensor.readNoise is the rendered site's read noise on a tier (owner decision 2026-11-11): the photosite's is that over √N (N = 4 here).
     expect(unlinked.sensor.readNoise.lowGainElectrons).toBe(3);
+    expect(unlinked.sensor.native.readNoiseElectrons).toBeCloseTo(1.5, 12);
+    // On a sensor profile's downsized view it is per photosite (#554): the site's is ×√N.
+    const profile = SENSOR_PROFILES[0]!, binned = await capture({ profile, pixelPitchMicrometers: profile.pixelPitchMicrometers * 2, readNoise: { lowGainElectrons: 3 } }, manual(profile.baseIso));
+    expect(binned.sensor.native.readNoiseElectrons).toBeCloseTo(3, 12);
+    expect(binned.sensor.readNoise.lowGainElectrons).toBeCloseTo(6, 12);
     expect((await capture({}, { fast: true })).sensor.native.midGrey).toBeUndefined();
   }, scaledTimeout(60_000));
 });

@@ -2914,7 +2914,11 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   // #595: the same readout at the native photosite (a tier's 6 µm reference, a profile's own pitch): the area rule (or the full well's link) at
   // that pitch, and the read noise of one photosite (a profile's body carries the view's √N, removed here).
   const nativePitch = profile ? profile.pixelPitchMicrometers : DEFAULTS.pixelPitchMicrometers, nativeScale = chargeScaleAt(nativePitch);
-  const nativeSensor = { profile: characterizeReadout(body.readout.find((a) => a.profile.channelId === "green")!.profile, nativeScale, characteristics, 1 / profileReadNoiseScale),
+  // sensor.readNoise: a tier's value is the rendered site's (its photosite's is that over √N); a profile's is per photosite (#554).
+  const rnSet = characteristics?.readNoise, nativeCharacteristics = profile ? parsedCharacteristics : rnSet && tierReadNoiseScale !== 1 ? { ...characteristics!, readNoise: { ...rnSet,
+    ...(rnSet.lowGainElectrons === undefined ? {} : { lowGainElectrons: rnSet.lowGainElectrons / tierReadNoiseScale }),
+    ...(rnSet.highGainElectrons === undefined ? {} : { highGainElectrons: rnSet.highGainElectrons / tierReadNoiseScale }) } } : characteristics;
+  const nativeSensor = { profile: characterizeReadout(body.readout.find((a) => a.profile.channelId === "green")!.profile, nativeScale, nativeCharacteristics, 1 / profileReadNoiseScale),
     capacityElectrons: capacityOf(nativeScale), pixelPitchMicrometers: nativePitch, framePhotosites: width * height * pitch * pitch / (nativePitch * nativePitch) };
   assume("sensor.capacityElectrons", "derived", capacityElectrons, "Physical charge capacity set to the body's largest declared pre-ADC saturation (its base-ISO saturation signal), so storage never clips before the declared readout white.");
   if (areaScale !== 1 && !fullWell) {

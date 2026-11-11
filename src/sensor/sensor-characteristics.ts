@@ -36,7 +36,9 @@ export interface SimulateCaptureSensorCharacteristics {
    */
   fullWell?: { electrons: number; link?: "pixel-area" | "none"; referencePixelPitchMicrometers?: number };
   /**
-   * Read noise, RMS e⁻ (0–100), of the low and the high conversion gain, and the dual-gain switch: the ISO setting from
+   * Read noise, RMS e⁻ (0–100), of each rendered site (2.22.0: on a tier above its 6 µm photosite a site sums N photosites and this
+   * is the site's value, the photosite's being that over √N; with `sensor.profile` it is per photosite and the site takes it ×√N), of
+   * the low and the high conversion gain, and the dual-gain switch: the ISO setting from
    * which the high conversion gain is used (any ISO from 100; above the body's highest ISO, the low gain is used throughout).
    * An omitted field keeps the body's value. Needs readout regimes that declare their exposure index (the tiers do).
    */

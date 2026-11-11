@@ -7533,6 +7533,24 @@ for (const p of SENSOR_PROFILES) {
 }
 ```
 
+### Read noise and native-pixel figures (2.22.0, #595, #599)
+
+`sensor.readNoise` sets the read noise of each **rendered site** on a generic tier or a caller preset (as before 2.22.0): at a
+pitch above the tier's 6 µm photosite, where a site stands for N = (pitch / 6 µm)² photosites, the read noise you give is the
+site's, and one photosite's is that over √N. Without `sensor.readNoise`, a tier's site takes its photosite's read noise ×√N (#599).
+With `sensor.profile` the value is **per photosite** (#554, unchanged): a downsized view's site takes it ×√N. `result.sensor`
+reports the rendered site; `result.sensor.native` one photosite, with the EMVA 1288 and the 8 MP-normalized dynamic range
+([QUICK_START.md, "Native-pixel dynamic range"](QUICK_START.md#sensor-characteristics-555)).
+
+```ts
+import { simulateCapture } from "@photivra/engine";
+
+const r = await simulateCapture({ scene: { preset: "uniform" }, sensor: { pixelPitchMicrometers: 12, readNoise: { lowGainElectrons: 3 } }, fast: false });
+r.sensor.readNoise.lowGainElectrons;   // 3, the rendered 12 µm site's
+r.sensor.native.readNoiseElectrons;    // 1.5, one 6 µm photosite's (3 / √4)
+r.sensor.native.emva1288.dynamicRangeStops;
+```
+
 ## Generic lens catalogue (#549)
 
 `GENERIC_LENS_CATALOGUE` lists the engine's 30 generic primes (17 professional, 13 consumer, "PV 50 1.2 Pro", "PV 50 1.8"; Photivra's

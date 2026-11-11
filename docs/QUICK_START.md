@@ -492,7 +492,7 @@ r.sensor.dynamicRangeStops; r.sensor.midGrey?.snrDecibels;
 | --- | --- | --- | --- |
 | `peakQuantumEfficiency` | 0.05–0.9 | 0.5 | Multiplies every channel's EQE curve by value / 0.5: the curves keep their shape and the colour matrix, and the collected charge scales in proportion. 0.9 keeps the blue channel's peak below 1. |
 | `fullWell` | 100–1e10 e⁻ at the pitch | the body's base-ISO saturation at 6 µm, × pitch²/36 µm² | The charge at the RAW white level at base ISO (the saturation capacity of EMVA 1288 Release 4.0). `link: "pixel-area"` (default) scales `electrons`, the full well at `referencePixelPitchMicrometers` (default 6), by (pitch / reference)²; `link: "none"` uses it at any pitch. |
-| `readNoise` | 0–100 e⁻; switch ISO 100–1e7 | the body's (tiers: 2/1.1, 3/1.4 and 6/2.5 e⁻, switch at ISO 800) | Read noise of the low and the high conversion gain, and `highGainFromIso`, the ISO from which the high gain is used. A switch above the body's top ISO keeps the low gain throughout. |
+| `readNoise` | 0–100 e⁻; switch ISO 100–1e7 | the body's (tiers: 2/1.1, 3/1.4 and 6/2.5 e⁻ per 6 µm photosite, ×√N above 6 µm; switch at ISO 800) | Read noise of each rendered site (with `sensor.profile`: of each photosite) for the low and the high conversion gain, and `highGainFromIso`, the ISO from which the high gain is used. A switch above the body's top ISO keeps the low gain throughout. |
 | `readoutSeconds` | 1e-6–1 s | the body's (8, 15, 30 ms) | The rolling shutter's top-to-bottom skew (`motion.shutter: "rolling"`; `motion.rollingShutterSkewSeconds` still overrides it). |
 | `adcBitDepth` | 12, 14, 16 | the body's (consumer 12, others 14) | The black level scales by 2^Δbits (1 024 at 14 bits → 4 096 at 16), the saturation code is 2^bits − 1 and the conversion gain follows, so the same charge reaches the same fraction of the code range. A 16-bit RAW writes a 16-bit DNG with white level 65 535. |
 | `fixedPatternNoise` | `true`/`false` | `false` | The body's synthetic fixed-pattern profile (PRNU, DSNU, hot pixels, row and column offsets), the same pattern in every capture. Not available in `simulateDisplayView`, which refuses it. |
@@ -541,8 +541,9 @@ ADC, and the rendered mid-gray SNR is √N times the native one.
   for the engineering and the EMVA figure. No ADC limit is applied to the sum. A 6000 × 4000 frame of
   6 µm photosites adds 0.79 stops.
 
-All are model figures from the engine's noise model, not measurements. `sensor.readNoise`, when set,
-gives the read noise of the rendered site and of the native photosite alike (as before 2.22.0).
+All are model figures from the engine's noise model, not measurements. `sensor.readNoise`, when set on a tier, is
+the read noise of the **rendered site** (as before 2.22.0); the native photosite's is that over √N. With `sensor.profile`
+it is per photosite, and the site's is ×√N (#554).
 
 **Noise figure** (#535, `sensor.midGrey`): computed only when the request resolves to exact (`fast:
 false`, the default for DNG, JPEG and PNG exports; about 0.3 ms); a fast request (the sRGB default)
