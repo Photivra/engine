@@ -1357,6 +1357,27 @@ root exports of the built package, minified, gzip level 9; `test/capture-bundle.
   the worker must then be created with `{ type: "module" }`) to keep it out. Measured on the Photivra app's production build
   (Vite 8.3.2, engine 2.11.1): its capture worker went from 1,093,459 B / 317,120 B gzip to 921,285 B / 258,618 B gzip, with
   the GPU session in a separate chunk, and its page entry was unchanged.
+- **The GPU Quality host is loaded on demand too (2.22.0, #594).** The Quality kernels' host and WGSL
+  (`gpu/display-view-quality-gpu.ts`, `gpu/wgsl-display-view-quality-kernel.ts`, `gpu/wgsl-exact-sum.ts`) are imported
+  dynamically by the renderer (`gpu/display-view-gpu-renderer.ts`) at the first render that takes the Quality passes
+  (diffraction, AHD, a defocused view, an image-plane print), so a page that renders only Speed views on the GPU never loads
+  them. Their self-check cases run then too (see [Rendering on the GPU](#rendering-on-the-gpu), "At render time"). Measured November 11,
+  2026 on the app's capture-worker shape (`test/capture-bundle.test.ts`, rolldown 1.2.9, minified, gzip level 9), 2.21.0
+  before and after the split:
+
+  | Chunk | Before | After |
+  | --- | --- | --- |
+  | entry and its shared chunks (every worker) | 291,577 B | 291,010 B |
+  | GPU session (Speed renderer, composite material module, runtime) | 55,177 B | 36,301 B |
+  | GPU Quality host (on demand) | in the session chunk | 20,025 B |
+  | catalogue (`lens.catalogue`) and view lens signal | 16,941 B | 16,926 B |
+  | **fast worker** (every chunk but the on-demand ones) | **363,695 B** | **344,237 B** (−19,458 B) |
+  | all chunks | 363,695 B | 364,262 B (+567 B) |
+
+  The all-chunk total grows because the Quality chunk compresses without the session chunk's dictionary (their WGSL shares
+  much text) and the two chunks name their shared bindings. The CPU Quality code (diffraction, capture AHD, the defocus extras
+  and the opt-in features) is still in the entry; #594 moves it into one on-demand kit once the 2.22.0 parts that edit those
+  modules are merged.
 - **Shipped shaders are minified (2.14, #536).** `npm run build` strips comments and indentation from the WGSL source
   (`scripts/minify-wgsl-dist.mjs`, see [WebGPU, Shipped shader text](WEBGPU.md#shipped-shader-text)). Measured on the app's
   production build (Vite 8, app 0.50.0 at `a82a5eb`, engine `main` at `42ec9d8` packed before and after): the GPU session
@@ -1487,6 +1508,11 @@ with that reason for `"require"`:
   compare every output with the float64 reference within the kernel's a-priori bound; the renderer's own cases follow (the hook
   for #478's preview-kernel cases). A failed case, or a device error during a case, keeps the whole view on the CPU, labelled
   `conformance-failed`, with the adapter, the case ids and the failing case recorded in `diagnostics.fast.execution.conformance`.
+  Since 2.22.0 (#594) the engine renderer's own case at that point is the Speed case; its two Quality cases run once, before
+  the view's first render that takes the Quality passes, after the Quality code has loaded on demand. Their ids are then
+  appended to `conformance.cases`, and a failure keeps that render and every later one on the CPU, labelled as above. Results
+  do not change: only when the Quality cases run, and so which ids a Speed-only view's record lists (the two built-in cases
+  and the Speed case).
 - *Single flight.* GPU renders of one view run one at a time on its device; concurrent `render` calls queue rather than
   reject with `busy`. CPU renders are unaffected.
 - *Refused at render time.* What only a render can tell (a view coarser than the exact area mean, a footprint above 6 real
@@ -1524,7 +1550,8 @@ is the engine's `WebGpuRuntime` seen through its WebGPU-free members, so no WebG
 a renderer in the engine casts it), where a renderer has an `id`,
 `supports(request)` (true, or a sentence saying why not), `render({ setup, signal })` returning the CPU renderer's result
 shape (samples, expected values, noise, counts, estimation) plus the a-priori `errorBound` of its values, and optional
-`conformanceCases`. A render must throw `ImageKernelExecutionError` with reason `device-lost` or `aborted` for those two
+`conformanceCases` and (2.22.0, #594) `onDemandConformanceCases(setup)`: the cases of code the renderer loads on demand that a
+render needs, or null. A render must throw `ImageKernelExecutionError` with reason `device-lost` or `aborted` for those two
 events, as the accelerator's operations do. The only implementation today is the test fake of
 `test/display-view-gpu-option.test.ts`, which returns the CPU result (or one perturbed sample) with a declared bound.
 
