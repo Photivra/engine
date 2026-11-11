@@ -27,10 +27,13 @@ export type ImageKernelFallbackReason = "webgpu-unavailable" | "webgpu-disabled"
 
 /**
  * Failure classes reported by {@link ImageKernelExecutionError}. `conformance-failed` (#481): a device failed the display view's
- * run-time self-check with `gpu: "require"`.
+ * run-time self-check with `gpu: "require"`. `quality-code-unavailable` (2.22.0, #594): the display view's on-demand GPU
+ * full-quality code could not be loaded (for example a failed chunk download); `prepareQualityPaths()` rejects with it, and a
+ * render with `gpu: "require"` fails with it.
  */
 export type ImageKernelFailureReason = ImageKernelFallbackReason | "device-lost" | "out-of-memory" | "gpu-validation" |
-  "aborted" | "disposed" | "busy" | "unsupported-on-backend" | "unsupported-float32-domain" | "indeterminate-float32-classification" | "conformance-failed";
+  "aborted" | "disposed" | "busy" | "unsupported-on-backend" | "unsupported-float32-domain" | "indeterminate-float32-classification" | "conformance-failed" |
+  "quality-code-unavailable";
 
 /** Domain error for getting and running a backend. Input validation still throws the engine's existing errors. */
 export class ImageKernelExecutionError extends Error {

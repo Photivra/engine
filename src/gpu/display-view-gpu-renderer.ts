@@ -26,18 +26,31 @@ type QualityKit = typeof import("./display-view-quality-gpu.js");
 /** Largest lattice group count the Quality tables hold (`display-view-quality-gpu.ts`). */
 const QUALITY_MAXIMUM_GROUPS = 64;
 
+const importQualityKit = (): Promise<QualityKit> => import("./display-view-quality-gpu.js");
+let loadQualityKit: () => Promise<QualityKit> = importQualityKit;
 let qualityKit: Promise<QualityKit> | null = null;
 /**
- * #594: loads the Quality host once (a dynamic import, its own chunk in a bundler that splits) and returns it. A failed load is
- * not remembered, so a later Quality render tries again. Calling it again after it loaded returns the same module.
+ * #594: loads the Quality host once (a dynamic import, its own chunk in a bundler that splits) and returns it; concurrent calls
+ * share one load. A failed load rejects with `ImageKernelExecutionError` reason `quality-code-unavailable` and is not
+ * remembered, so the next call (a later Quality render, or `prepareQualityPaths()`) tries again.
  */
 export function prepareDisplayViewQualityGpu(): Promise<QualityKit> {
   if (!qualityKit) {
-    const pending = import("./display-view-quality-gpu.js");
+    const pending = Promise.resolve().then(loadQualityKit).catch((error: unknown) => {
+      if (qualityKit === pending) qualityKit = null;
+      throw new ImageKernelExecutionError("quality-code-unavailable", "GPU full-quality code did not load: " + String(error));
+    });
     qualityKit = pending;
-    pending.catch(() => { if (qualityKit === pending) qualityKit = null; });
   }
   return qualityKit;
+}
+/**
+ * Internal, for tests: replaces how the Quality host is loaded (null restores the dynamic import) and forgets a loaded one,
+ * so a test can make the load fail and then succeed. Returns nothing; the engine never calls it.
+ */
+export function setDisplayViewQualityGpuLoader(loader: (() => Promise<QualityKit>) | null): void {
+  loadQualityKit = loader ?? importQualityKit;
+  qualityKit = null;
 }
 
 /**
@@ -50,11 +63,6 @@ export function prepareDisplayViewQualityGpu(): Promise<QualityKit> {
  */
 export function displayViewQualityGpuSupports(request: DisplayViewGpuRequest): true | string {
   return sceneToneAndOffsetsReason(request, QUALITY_MAXIMUM_GROUPS);
-}
-
-/** True when a render of `setup` takes the Quality passes (the routing of `render` below). */
-function takesQualityPasses(setup: DisplayViewSetup): boolean {
-  return !!setup.gpu && displayViewSpeedGpuUnsupportedReason(setup, setup.gpu.signalInput) !== null;
 }
 
 /**
@@ -93,7 +101,8 @@ export function createDisplayViewGpuRenderer(runtime: WebGpuRuntime, options: { 
     // render that takes the Quality passes, after their code has loaded.
     conformanceCases: [DISPLAY_VIEW_SPEED_CONFORMANCE_CASE],
     onDemandConformanceCases(setup: DisplayViewSetup): Promise<readonly DisplayViewGpuConformanceCase[]> | null {
-      return takesQualityPasses(setup) ? prepareDisplayViewQualityGpu().then((kit) => kit.DISPLAY_VIEW_QUALITY_CONFORMANCE_CASES) : null;
+      // The routing of `render` below: a setup the Speed kernel does not cover takes the Quality passes.
+      return setup.gpu && displayViewSpeedGpuUnsupportedReason(setup, setup.gpu.signalInput) !== null ? prepareDisplayViewQualityGpu().then((kit) => kit.DISPLAY_VIEW_QUALITY_CONFORMANCE_CASES) : null;
     },
     async render(part: DisplayViewGpuPart): Promise<DisplayViewGpuRenderOutput> {
       const { setup, signal } = part;

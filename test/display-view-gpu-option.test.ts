@@ -217,6 +217,31 @@ describe("display view GPU option (#481)", () => {
     required.dispose();
   });
 
+  // #594 (owner, 2026-11-10): on-demand code that does not load runs that render on the CPU, labelled; it is not sticky.
+  it("on-demand code that fails to load falls back for that render, labelled quality-code-unavailable, and loads on the next request", async () => {
+    let fail = true, runs = 0;
+    const extra: DisplayViewGpuConformanceCase = { id: "preview:on-demand", run: async () => { runs++; return true; } };
+    const unavailable = (): never => { throw new ImageKernelExecutionError("quality-code-unavailable", "the chunk did not load."); };
+    const fake = fakeRenderer({ onDemand: () => Promise.resolve().then(() => (fail ? unavailable() : [extra])) });
+    setDisplayViewGpuRendererFactory(fake.factory);
+    const prepared = await prepareDisplayView(REQUEST, { gpu: "auto", gpuDevice: createFakeGpu().gpu });
+    const failed = await prepared.render(VIEW);
+    expect(failed.diagnostics.fast.execution).toMatchObject({ backend: "cpu-reference", fallbackReason: "quality-code-unavailable", adapter: FAKE_ADAPTER_INFO,
+      conformance: { cases: BUILT_IN_IDS, passed: true } });
+    expect(failed.image.samples).toEqual((await simulateDisplayView(REQUEST, VIEW)).image.samples);
+    expect(runs).toBe(0);
+    fail = false;
+    const loaded = await prepared.render(VIEW);
+    expect(loaded.diagnostics.fast.execution).toMatchObject({ backend: "webgpu-f32", fallbackReason: null, conformance: { cases: [...BUILT_IN_IDS, "preview:on-demand"], passed: true } });
+    expect(runs).toBe(1);
+    prepared.dispose();
+    // require: the failed load is an error at that render.
+    fail = true;
+    const required = await prepareDisplayView(REQUEST, { gpu: "require", gpuDevice: createFakeGpu().gpu });
+    expect(await reason(required.render(VIEW))).toBe("quality-code-unavailable");
+    required.dispose();
+  });
+
   it("device loss falls back to the CPU for that render and the rest of the view, labelled device-lost; require fails", async () => {
     const { gpu, controls } = createFakeGpu();
     let lose = false;

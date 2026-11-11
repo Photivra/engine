@@ -196,6 +196,11 @@ async function runConformance(runtime: WebGpuRuntime, cases: readonly DisplayVie
 
 // ---------------------------------------------------------------------------------------------------------------
 
+/** #594: the error of on-demand renderer code that could not be loaded. */
+function qualityCodeUnavailable(error: unknown): boolean {
+  return error instanceof ImageKernelExecutionError && error.reason === "quality-code-unavailable";
+}
+
 function createSession(options: ParsedPrepareDisplayViewOptions, runtime: WebGpuRuntime, owned: boolean, renderer: DisplayViewGpuRenderer): DisplayViewGpuSession {
   const adapter = runtime.adapter;
   let disposed = false, lost = false, conformance: DisplayViewGpuConformance | null = null, checking: Promise<DisplayViewGpuConformance> | null = null;
@@ -220,16 +225,13 @@ function createSession(options: ParsedPrepareDisplayViewOptions, runtime: WebGpu
    * after the device's own check passed (single flight); the record then lists both and replaces the session's record, so a
    * failure keeps this render and every later one on the CPU, as a failure at the first render does.
    */
-  let onDemandDone = false, onDemand: Promise<DisplayViewGpuConformance> | null = null;
+  let onDemand: Promise<DisplayViewGpuConformance> | null = null;
   function onDemandCheck(setup: DisplayViewSetup, passed: DisplayViewGpuConformance, signal: AbortSignal | undefined): Promise<DisplayViewGpuConformance> {
-    if (onDemandDone) return Promise.resolve(conformance ?? passed);
-    const cases = renderer.onDemandConformanceCases?.(setup) ?? null;
+    if (onDemand) return onDemand;
+    const cases = renderer.onDemandConformanceCases?.(setup);
     if (!cases) return Promise.resolve(passed);
-    if (!onDemand) {
-      onDemand = cases.then((list) => runConformance(runtime, list, signal, passed)).then((result) => { conformance = result; onDemandDone = true; return result; },
-        (error: unknown) => { onDemand = null; throw error; });
-    }
-    return onDemand;
+    return onDemand = cases.then((list) => runConformance(runtime, list, signal, passed)).then((result) => conformance = result,
+      (error: unknown) => { onDemand = null; throw error; });
   }
   function lostError(error: unknown): boolean { return (error instanceof ImageKernelExecutionError && error.reason === "device-lost") || runtime.isLost(); }
   return {
@@ -243,6 +245,8 @@ function createSession(options: ParsedPrepareDisplayViewOptions, runtime: WebGpu
       }
       catch (error) {
         if (lostError(error)) { lost = true; return fallback("device-lost", "the WebGPU device was lost during its conformance check.", cpu); }
+        // #594: the on-demand code did not load: this render runs the CPU reference; the next one that needs it tries again.
+        if (qualityCodeUnavailable(error)) return fallback("quality-code-unavailable", (error as Error).message, cpu);
         setup.checkAbort();
         throw error;
       }
@@ -258,6 +262,7 @@ function createSession(options: ParsedPrepareDisplayViewOptions, runtime: WebGpu
       catch (error) {
         if (lostError(error)) { lost = true; return fallback("device-lost", "the WebGPU device was lost during a render; the rest of the view runs on the CPU.", cpu); }
         setup.checkAbort();
+        if (qualityCodeUnavailable(error)) return fallback("quality-code-unavailable", (error as Error).message, cpu);
         if (error instanceof ImageKernelExecutionError && error.reason === "unsupported-on-backend")
           return fallback("unsupported-on-backend", "the GPU display-view renderer \"" + renderer.id + "\" does not cover this render: " + error.message, cpu, probeOf(error));
         // #492: a render past the device's limits (a kernel table or band above its storage binding limit) runs the CPU reference too.
