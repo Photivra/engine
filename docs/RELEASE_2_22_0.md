@@ -103,6 +103,7 @@ On the integrated tree (Apple M5 Pro, Node.js 24.19.0), one run each:
 - [x] 2.21.0 recorded as published ([2.21.0 release record](RELEASE_2_21_0.md#publication)).
 - [ ] `src/gpu` changed: the SwiftShader WebGPU suite run locally and on this pull request's CI; the coupled-step cases fail there ([Local gates](#local-gates)); the hardware suite passes.
 - [x] The worker rows settled by the owner's #594 definition ([Sizes](#sizes)); no limit raised.
+- [x] `test/shard-weights.json` re-estimated from this pull request's first CI run (run 43104711989): shards 1, 2, 3 and 5's CI times; shards 4 and 6 reached the 20-minute job limit (the parts' new display-view files had no recorded time, so they weighed the median), and their 133 files take this tree's local coverage time × 1.647, the median CI/local ratio. No test was removed and no job limit was raised.
 - [ ] Green CI on this pull request, then on `main` after merge.
 - [ ] The owner's approval to tag `v2.22.0`.
 - [ ] The `v2.22.0` tag on the `main` commit that merges this record.
