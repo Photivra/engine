@@ -3329,7 +3329,7 @@ void develop;
   keeping its luminance and hue; the default `"clip-components"` clips each component. The WebGPU SDR kernels refuse it.
 - The display view (`simulateDisplayView`, `prepareDisplayView`) renders the luminance tone curves, `highlightMode: "reconstruct"`
   and the desaturation since 2.22.0 (#593), with fast rules on screen and full ones for `fast: false`
-  ([Display view, Coupled rendering](DISPLAY_VIEW.md#coupled-rendering-593-601)). Photivra's Standard look is
+  ([Display view, Coupled rendering](https://github.com/Photivra/photivra/blob/main/docs/DISPLAY_VIEW.md#coupled-rendering-593-601)). Photivra's Standard look is
   `{ exponent: 1.5, semiSaturation: 0.5009, whiteLuminance: 8 }` and its Flat look `{ exponent: 1, semiSaturation: 0.8465, whiteLuminance: 32 }`
   for `naka-rushton-luminance` (18 % gray stays at 0.18; the engine's own looks, not a camera maker's).
 - `simulateCapture`'s `output.highlightMode: "reconstruct-neighbors"` (#602, 2.22.0; opt-in, an estimate) rebuilds clipped

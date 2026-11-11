@@ -161,9 +161,9 @@ fn light_prepare(u: D, v: D) {
       let gd = d_mul(d_sub(ld(${L.stops}u + (i + 1u) * 4u), t), inv_i);
       blend_w1 = clamp(ob(fd.h + fd.l), 0.0, 1.0);
       blend_w0 = clamp(ob(gd.h + gd.l), 0.0, 1.0);
-      let common = (te + 4.0 * DW * (abs(t.h) + abs(si.h) + 1.0)) * abs(inv_i.h);
-      blend_e1 = E * blend_w1 + common;
-      blend_e0 = E * blend_w0 + common;
+      let shared_e = (te + 4.0 * DW * (abs(t.h) + abs(si.h) + 1.0)) * abs(inv_i.h);
+      blend_e1 = E * blend_w1 + shared_e;
+      blend_e0 = E * blend_w0 + shared_e;
     }
     blend_i = i;
   }

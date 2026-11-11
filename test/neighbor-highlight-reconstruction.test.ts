@@ -7,6 +7,7 @@ import { describe, expect, it } from "vitest";
 import { NEIGHBOR_HIGHLIGHT_THRESHOLD, reconstructHighlightsFromNeighbors } from "../src/color/neighbor-highlight-reconstruction.js";
 import { simulateCapture, simulateDisplayView, type SimulateCaptureOptions } from "../src/index.js";
 import { simulateDisplayViewWithInternals } from "../src/facade/simulate-display-view.js";
+import { scaledTimeout } from "./helpers/test-timeout.js";
 
 const GAINS = [2, 1, 1.5];
 /** A synthetic white-balanced image: a bright blob of hue ρ(x, y) over a darker surround; channels clip at their white (c = 1). */
@@ -72,7 +73,7 @@ describe("captures and display views with reconstruct-neighbors (#602)", () => {
     const exact = await simulateCapture({ ...options, fast: false, output: { ...options.output, highlightMode: "reconstruct-neighbors" } });
     expect(exact.assumptions.find((a) => a.id === "output.highlightMode.reconstructNeighbors")?.value).toMatchObject({ method: "harmonic-interpolation", fast: false });
     await expect(simulateCapture({ ...options, output: { ...options.output, highlightMode: "reconstruct-neighbors", region: { x: 0, y: 0, width: 32, height: 32 } } })).rejects.toThrow(/region/u);
-  }, 120_000);
+  }, scaledTimeout(120_000));
 
   it("gives the display view the downsized capture's means, fast and full", async () => {
     const decode = (code: number): number => { const e = code / 65535; return e <= 0.04045 ? e / 12.92 : ((e + 0.055) / 1.055) ** 2.4; };
@@ -101,5 +102,6 @@ describe("captures and display views with reconstruct-neighbors (#602)", () => {
     // Not on the GPU in 2.22.0: a prepared view falls back to the CPU reference, labeled.
     const view = await simulateDisplayView({ ...options, output: { ...options.output, highlightMode: "reconstruct-neighbors" } }, { width: 8, height: 6 });
     expect(view.image.samples.length).toBe(8 * 6 * 3);
-  }, 240_000);
+  // 54 s alone on an Apple M5 Pro without coverage; the coverage run scales the deadline (test/helpers/test-timeout.ts).
+  }, scaledTimeout(240_000));
 });
