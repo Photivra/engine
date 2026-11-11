@@ -38,7 +38,7 @@ import { createDeterministicUniformStream, createPortableStandardNormalPairs, de
 import { encodeSrgbComponentPortable } from "../color/srgb-transfer.js";
 import { createPoissonSampler } from "../sensor/raw-readout.js";
 import { InvalidConfigurationError } from "../core/configuration-error.js";
-import { portableCbrt, portableCosTwoPi, portableExp, portableExp2, portableLog2, portablePow } from "../core/portable-math.js";
+import { portableCbrt, portableExp2, portableLog2, portablePow } from "../core/portable-math.js";
 
 /** Stream IDs of the display view's two seeded streams, distinct from the native charge (0) and read-noise (1) streams. */
 export const DISPLAY_VIEW_JITTER_STREAM_ID = 32 as const;
@@ -48,6 +48,10 @@ export const DISPLAY_VIEW_AHD_STREAM_ID = 34 as const;
 export { createDisplayViewExpectedSignal, type DisplayViewExpectedSignal, type DisplayViewExpectedSignalInput, type DisplayViewQueryOffset,
   type DisplayViewScene } from "./expected-signal.js";
 import type { DisplayViewExpectedSignal, DisplayViewExpectedSignalInput } from "./expected-signal.js";
+import { CLIP_REACH_SIGMA, GL, bigPhi, phi } from "./display-view-normal.js";
+// Type only: the coupled steps are loaded on demand (setup.coupled), never by the default path.
+import type { DisplayViewCoupledRendering, DisplayViewRenderingChoice } from "./display-view-rendering.js";
+import type { SdrToneCurve } from "../output/sdr-rendering.js";
 import type { ResolvedChartScene } from "./chart-scenes.js";
 import type { ResolvedChartMaterialLayers } from "./chart-material-layers.js";
 
@@ -75,21 +79,6 @@ export interface DisplayViewGpuSetup {
 }
 // ---------------------------------------------------------------------------------------------------------------
 // Normal-distribution helpers.
-/** Standard normal density. */
-function phi(z: number): number { return 0.3989422804014327 * portableExp(-0.5 * z * z); }
-/**
- * Standard normal distribution function, Φ(z) = 1 − Q(z), with Q from the rational approximation 26.2.17 of
- * Abramowitz & Stegun, Handbook of Mathematical Functions (NBS AMS 55, 1964; free, US government work):
- * absolute error below 7.5e-8.
- */
-function bigPhi(z: number): number {
-  const x = Math.abs(z), t = 1 / (1 + 0.2316419 * x);
-  const q = phi(x) * t * (0.319381530 + t * (-0.356563782 + t * (1.781477937 + t * (-1.821255978 + t * 1.330274429))));
-  return z >= 0 ? 1 - q : q;
-}
-/** Beyond this many standard deviations from a clip level the clip changes the moments by less than 1e-15 of σ². */
-const CLIP_REACH_SIGMA = 8.5;
-
 /**
  * Internal (exported for tests). Moments of min(Y, top) for Y ~ N(m, v): mean, variance and the slope d E/d m = P(Y < top). Exact for a normal Y:
  * E[min(Y,t)] = m − s·(φ(z) − z·(1 − Φ(z))), z = (t − m)/s.
@@ -123,23 +112,6 @@ export function unitClip(m: number, v: number, out: Float64Array, skewness = 0):
   const second = (m * m + v) * inside + 2 * m * s * (da - db) + v * (aa - bb) + (1 - Pb);
   out[0] = mean; out[1] = Math.max(0, second - mean * mean); out[2] = inside;
 }
-/** Gauss–Legendre nodes and weights on [−1, 1], 16 points (computed once by Newton iteration on P_16 from cos(π(i + ¾)/(n + ½))). */
-const GL = ((): { x: Float64Array; w: Float64Array } => {
-  const n = 16, x = new Float64Array(n), w = new Float64Array(n);
-  for (let i = 0; i < n; i++) {
-    let z = portableCosTwoPi((i + 0.75) / (2 * n + 1)), dp = 0;
-    for (let it = 0; it < 100; it++) {
-      let p0 = 1, p1 = z;
-      for (let k = 2; k <= n; k++) { const p2 = ((2 * k - 1) * z * p1 - (k - 1) * p0) / k; p0 = p1; p1 = p2; }
-      dp = n * (z * p1 - p0) / (z * z - 1);
-      const dz = p1 / dp;
-      z -= dz;
-      if (Math.abs(dz) < 1e-16) break;
-    }
-    x[i] = z; w[i] = 2 / ((1 - z * z) * dp * dp);
-  }
-  return { x, w };
-})();
 /** Internal (exported for tests). Positive Reinhard per channel then the clip to [0, 1]: h(x) = x/(1 + x) for x > 0, else 0 (its slope h' = 1/(1 + x)²). */
 export function reinhardMoments(m: number, v: number, out: Float64Array): void {
   if (!(v > 0)) { out[0] = m > 0 ? m / (1 + m) : 0; out[1] = 0; out[2] = m > 0 ? 1 / ((1 + m) * (1 + m)) : 0; return; }
@@ -203,7 +175,18 @@ export interface DisplayViewSetup {
   clipLevel: number;
   /** Camera channels (after WB and the highlight clip) → linear sRGB: rows are output components. */
   matrix: readonly (readonly number[])[];
-  toneCurve: "identity" | "positive-reinhard-per-channel";
+  toneCurve: SdrToneCurve;
+  /**
+   * #593, #601 (2.22.0): the tone curve's parameters, the highlight mode, the gamut handling and whether the fast rules run, when
+   * the view renders a luminance tone curve, `highlightMode: "reconstruct"` or `desaturate-to-luminance`
+   * (src/facade/display-view-rendering.ts). Absent: the per-channel highlight clip and the component clip.
+   */
+  rendering?: DisplayViewRenderingChoice;
+  /**
+   * The coupled steps of `rendering` (`createDisplayViewCoupledRendering`, src/facade/display-view-rendering.ts), created by the
+   * caller where it loaded that module on demand; present exactly when `rendering` is.
+   */
+  coupled?: DisplayViewCoupledRendering;
   /**
    * AHD only: the low-signal correction. `labMatrix` is the camera → XYZ matrix AHD measures homogeneity with (the profile's
    * matrix times the white-balance gains); samples whose pixel variance (linear light) exceeds `thresholdVariance` add the
@@ -440,13 +423,15 @@ export interface DisplayViewCorrectionStateSet { key: string; gridKeys: Int32Arr
 /** 2.10 (#447): the grid keys of the states a region needs (`PreparedDisplayView.collectCorrectionStates`), ascending. */
 export interface DisplayViewCorrectionStateKeys { key: string; gridKeys: Int32Array }
 /** The inputs of one setup's correction states: the inputs of its correction key. */
-export type DisplayViewCorrectionSetup = Pick<DisplayViewSetup, "seed" | "readout" | "gains" | "clipLevel" | "matrix" | "toneCurve"> &
+export type DisplayViewCorrectionSetup = Pick<DisplayViewSetup, "seed" | "readout" | "gains" | "clipLevel" | "matrix" | "toneCurve" | "rendering" | "coupled"> &
   { ahdCorrection: NonNullable<DisplayViewSetup["ahdCorrection"]> };
 /** Internal (#447): the correction key of a setup, or null without the AHD correction (the key `renderDisplayView` looks its states up with). */
-export function displayViewCorrectionKey(setup: Pick<DisplayViewSetup, "seed" | "readout" | "gains" | "clipLevel" | "matrix" | "toneCurve" | "ahdCorrection">): string | null {
+export function displayViewCorrectionKey(setup: Pick<DisplayViewSetup, "seed" | "readout" | "gains" | "clipLevel" | "matrix" | "toneCurve" | "ahdCorrection" | "rendering">): string | null {
   if (!setup.ahdCorrection) return null;
+  // #593: a coupled rendering adds its parameters, highlight mode and gamut handling (the fast rules do not change a state).
+  const r = setup.rendering, rendering = r ? setup.toneCurve + JSON.stringify([r.toneCurveParameters ?? null, r.highlightMode, r.gamutHandling]) : setup.toneCurve;
   return correctionKey(setup.seed, setup.ahdCorrection, Float64Array.from(setup.readout, (r) => r.perElectron), Float64Array.from(setup.readout, (r) => r.constantVariance),
-    setup.gains, setup.clipLevel, setup.matrix, setup.toneCurve);
+    setup.gains, setup.clipLevel, setup.matrix, rendering);
 }
 /** True for a typed array of the named kind from any realm (a structured clone arrives as one of the receiving realm). */
 function isTypedArray(value: unknown, tag: "Int32Array" | "Float64Array"): boolean {
@@ -759,6 +744,7 @@ function createGridCorrection(setup: DisplayViewCorrectionSetup, states: Correct
   const k = Float64Array.from(setup.readout, (r) => r.perElectron), c0 = Float64Array.from(setup.readout, (r) => r.constantVariance);
   const M = setup.matrix, m00 = M[0]![0]!, m01 = M[0]![1]!, m02 = M[0]![2]!, m10 = M[1]![0]!, m11 = M[1]![1]!, m12 = M[1]![2]!, m20 = M[2]![0]!, m21 = M[2]![1]!, m22 = M[2]![2]!;
   const g0 = setup.gains[0], g1 = setup.gains[1], g2 = setup.gains[2], L = setup.clipLevel, reinhard = setup.toneCurve === "positive-reinhard-per-channel";
+  const coupled = setup.coupled ?? null;
   const correction = new Float64Array(3), patch = new Float64Array(AHD_SIDE * AHD_SIDE);
   const readStd = Float64Array.from(c0, (v) => Math.sqrt(v));
   /** The offset of a grid state's three values in states.values (computed and stored on first use). */
@@ -791,6 +777,7 @@ function createGridCorrection(setup: DisplayViewCorrectionSetup, states: Correct
   const rgb = new Float64Array(3), rendered = new Float64Array(3), linear = new Float64Array(3);
   /** Develops one deterministic camera pixel and renders it: WB, highlight clip, colour matrix, tone curve, clip to [0, 1]. */
   function renderPixel(r: number, gr: number, b: number, out: Float64Array): void {
+    if (coupled) { coupled.pixel(r, gr, b, out); return; }
     const u0 = Math.min(L, g0 * r), u1 = Math.min(L, g1 * gr), u2 = Math.min(L, g2 * b);
     for (let comp = 0; comp < 3; comp++) {
       let v = comp === 0 ? m00 * u0 + m01 * u1 + m02 * u2 : comp === 1 ? m10 * u0 + m11 * u1 + m12 * u2 : m20 * u0 + m21 * u1 + m22 * u2;
@@ -870,6 +857,12 @@ export async function renderDisplayView(setup: DisplayViewSetup): Promise<Displa
   const siteElectrons = new Float64Array(slotsCount), siteClip = new Float64Array(slotsCount), siteMean = new Float64Array(slotsCount), siteVar = new Float64Array(slotsCount), siteThird = new Float64Array(slotsCount), siteChannel = new Int32Array(slotsCount), clip = new Float64Array(3), B = new Float64Array(4), C = new Float64Array(9);
   const cm = new Float64Array(3), cv = new Float64Array(3), csv = new Float64Array(3), bm = new Float64Array(3), bv = new Float64Array(3), bs = new Float64Array(3);
   const hm = new Float64Array(3), hv = new Float64Array(3), hs = new Float64Array(3), an = new Float64Array(9);
+  // #593, #601: the coupled rendering steps (display-view-rendering.ts); null keeps the per-component arithmetic below unchanged.
+  const coupled = setup.coupled ?? null;
+  const coupledA = new Float64Array(9), muY = new Float64Array(3), sY = new Float64Array(9), jY = new Float64Array(9);
+  let coupledUsed = false;
+  // #602: the neighbor reconstruction finds its clipped regions from this render's noise-free channels.
+  coupled?.bindView?.(setup);
   const reach2 = CLIP_REACH_SIGMA * CLIP_REACH_SIGMA;
   // Site ring (#441, exact path with filled windows only): a native site's expected electrons, chart material and readout moments depend on the
   // site alone, so they are computed once per render and kept for the region's native columns (plus the reach) in a ring of
@@ -1163,34 +1156,61 @@ export async function renderDisplayView(setup: DisplayViewSetup): Promise<Displa
             v00 += w0 * w0 * v; v01 += w0 * w1 * v; v02 += w0 * w2 * v; v11 += w1 * w1 * v; v12 += w1 * w2 * v; v22 += w2 * w2 * v;
           }
           C[0] = v00; C[1] = v01; C[2] = v02; C[3] = v01; C[4] = v11; C[5] = v12; C[6] = v02; C[7] = v12; C[8] = v22;
-          // White balance and the highlight clip at the smallest gain (per channel; covariances scaled by the expected slopes).
-          for (let c = 0; c < 3; c++) {
-            const mean = cm[c]!, variance = C[c * 4]!;
-            cv[c] = variance;
-            const gc = c === 0 ? g0 : c === 1 ? g1 : g2, um = gc * mean, uv = gc * gc * variance, gap = L - um;
-            if (gap > 0 && gap * gap > reach2 * uv) { bm[c] = um; bv[c] = uv; bs[c] = gc; }
-            else { upperClip(um, uv, L, clip); bm[c] = clip[0]!; bv[c] = clip[1]!; bs[c] = gc * clip[2]!; }
-          }
-          // Colour matrix, then the rendering of each component (tone curve, clip to [0, 1]).
-          for (let comp = 0; comp < 3; comp++) {
-            const r0m = comp === 0 ? m00 : comp === 1 ? m10 : m20, r1m = comp === 0 ? m01 : comp === 1 ? m11 : m21, r2m = comp === 0 ? m02 : comp === 1 ? m12 : m22;
-            const mean = r0m * bm[0]! + r1m * bm[1]! + r2m * bm[2]!;
-            const variance = r0m * r0m * bv[0]! + r1m * r1m * bv[1]! + r2m * r2m * bv[2]! +
-              2 * (r0m * r1m * bs[0]! * bs[1]! * C[1]! + r0m * r2m * bs[0]! * bs[2]! * C[2]! + r1m * r2m * bs[1]! * bs[2]! * C[5]!);
-            if (!reinhard && mean > 0 && mean < 1 && mean * mean > reach2 * variance && (1 - mean) * (1 - mean) > reach2 * variance) { hm[comp] = mean; hv[comp] = variance; hs[comp] = 1; }
-            else if (reinhard) { reinhardMoments(mean, variance, clip); hm[comp] = clip[0]!; hv[comp] = clip[1]!; hs[comp] = clip[2]!; }
-            else {
-              // The component is a linear combination of the sites: κ₃ = Σ (Σ_c M·Γ_c·w_c,site)³·κ₃(site).
-              const dense = denseAt[phase * 2 + d]!, list = listAt[phase * 2 + d]!;
-              let third = 0;
-              for (let li = 0; li < list.length; li++) {
-                const slot = list[li]!, coefficient = r0m * bs[0]! * dense[slot]! + r1m * bs[1]! * dense[slotsCount + slot]! + r2m * bs[2]! * dense[2 * slotsCount + slot]!;
-                third += coefficient * coefficient * coefficient * siteThird[slot]!;
-              }
-              unitClip(mean, variance, clip, variance > 0 ? third / (variance * Math.sqrt(variance)) : 0);
-              hm[comp] = clip[0]!; hv[comp] = clip[1]!; hs[comp] = clip[2]!;
+          // #593: where the reconstruct blend is within reach the whole chain is integrated (display-view-rendering.ts); out of
+          // its reach reconstruct is the unclipped white balance.
+          let chainRun = coupled !== null && coupled.reconstruct && coupled.reconstructInReach(cm, C);
+          coupledUsed = chainRun;
+          if (!chainRun) {
+            // White balance and the highlight clip at the smallest gain (per channel; covariances scaled by the expected slopes).
+            for (let c = 0; c < 3; c++) {
+              const mean = cm[c]!, variance = C[c * 4]!;
+              cv[c] = variance;
+              const gc = c === 0 ? g0 : c === 1 ? g1 : g2, um = gc * mean, uv = gc * gc * variance, gap = L - um;
+              if (coupled?.reconstruct || gap > 0 && gap * gap > reach2 * uv) { bm[c] = um; bv[c] = uv; bs[c] = gc; }
+              else { upperClip(um, uv, L, clip); bm[c] = clip[0]!; bv[c] = clip[1]!; bs[c] = gc * clip[2]!; }
             }
           }
+          if (!chainRun && coupled?.luminanceTone) {
+            // The developed y = M·b: mean and covariance (diagonal from the clipped variances, off-diagonal through the slopes).
+            for (let r = 0; r < 3; r++) muY[r] = M[r]![0]! * bm[0]! + M[r]![1]! * bm[1]! + M[r]![2]! * bm[2]!;
+            for (let r = 0; r < 3; r++) for (let q = 0; q < 3; q++) {
+              let v = 0;
+              for (let i = 0; i < 3; i++) for (let j = 0; j < 3; j++) v += M[r]![i]! * M[q]![j]! * (i === j ? bv[i]! : bs[i]! * bs[j]! * C[i * 3 + j]!);
+              sY[r * 3 + q] = v;
+            }
+            if (coupled.tone(muY, sY, hm, hv, jY)) {
+              for (let r = 0; r < 3; r++) for (let c = 0; c < 3; c++) coupledA[r * 3 + c] = (jY[r * 3]! * M[0]![c]! + jY[r * 3 + 1]! * M[1]![c]! + jY[r * 3 + 2]! * M[2]![c]!) * bs[c]!;
+              coupledUsed = true;
+            } else chainRun = true;
+          } else if (!chainRun) {
+            // Colour matrix, then the rendering of each component (tone curve, clip to [0, 1]).
+            for (let comp = 0; comp < 3; comp++) {
+              const r0m = comp === 0 ? m00 : comp === 1 ? m10 : m20, r1m = comp === 0 ? m01 : comp === 1 ? m11 : m21, r2m = comp === 0 ? m02 : comp === 1 ? m12 : m22;
+              const mean = r0m * bm[0]! + r1m * bm[1]! + r2m * bm[2]!;
+              const variance = r0m * r0m * bv[0]! + r1m * r1m * bv[1]! + r2m * r2m * bv[2]! +
+                2 * (r0m * r1m * bs[0]! * bs[1]! * C[1]! + r0m * r2m * bs[0]! * bs[2]! * C[2]! + r1m * r2m * bs[1]! * bs[2]! * C[5]!);
+              if (!reinhard && mean > 0 && mean < 1 && mean * mean > reach2 * variance && (1 - mean) * (1 - mean) > reach2 * variance) { hm[comp] = mean; hv[comp] = variance; hs[comp] = 1; }
+              else if (reinhard) { reinhardMoments(mean, variance, clip); hm[comp] = clip[0]!; hv[comp] = clip[1]!; hs[comp] = clip[2]!; }
+              else {
+                // The component is a linear combination of the sites: κ₃ = Σ (Σ_c M·Γ_c·w_c,site)³·κ₃(site).
+                const dense = denseAt[phase * 2 + d]!, list = listAt[phase * 2 + d]!;
+                let third = 0;
+                for (let li = 0; li < list.length; li++) {
+                  const slot = list[li]!, coefficient = r0m * bs[0]! * dense[slot]! + r1m * bs[1]! * dense[slotsCount + slot]! + r2m * bs[2]! * dense[2 * slotsCount + slot]!;
+                  third += coefficient * coefficient * coefficient * siteThird[slot]!;
+                }
+                unitClip(mean, variance, clip, variance > 0 ? third / (variance * Math.sqrt(variance)) : 0);
+                hm[comp] = clip[0]!; hv[comp] = clip[1]!; hs[comp] = clip[2]!;
+              }
+            }
+            // #601: a component that reaches 1 within reach is desaturated with the others: the chain is integrated.
+            if (coupled?.desaturate && !reinhard) for (let comp = 0; comp < 3; comp++) {
+              const mean = hm[comp]!;
+              // The test is taken at 0.999 rather than 1, so a component clipped to 1 is decided in float32 too (the GPU kernels).
+              if (mean > 0 && hm[comp]! + CLIP_REACH_SIGMA * Math.sqrt(hv[comp]!) >= 0.999) chainRun = true;
+            }
+          }
+          if (chainRun) { coupled!.at?.(x, y); coupled!.chain(cm, C, hm, hv, coupledA); coupledUsed = true; }
           e0 += share * hm[0]!; e1 += share * hm[1]!; e2 += share * hm[2]!;
           candidateRendered[3 * d] = hm[0]!; candidateRendered[3 * d + 1] = hm[1]!; candidateRendered[3 * d + 2] = hm[2]!;
           candidateChannels[3 * d] = cm[0]!; candidateChannels[3 * d + 1] = cm[1]!; candidateChannels[3 * d + 2] = cm[2]!;
@@ -1198,7 +1218,8 @@ export async function renderDisplayView(setup: DisplayViewSetup): Promise<Displa
           // linear variance (aᵀ·C·a, full channel covariance) for the residual.
           let l0 = 0, l1 = 0, l2 = 0;
           for (let c = 0; c < 3; c++) {
-            const a0 = hs[0]! * (c === 0 ? m00 : c === 1 ? m01 : m02) * bs[c]!, a1 = hs[1]! * (c === 0 ? m10 : c === 1 ? m11 : m12) * bs[c]!, a2 = hs[2]! * (c === 0 ? m20 : c === 1 ? m21 : m22) * bs[c]!;
+            const a0 = coupledUsed ? coupledA[c]! : hs[0]! * (c === 0 ? m00 : c === 1 ? m01 : m02) * bs[c]!, a1 = coupledUsed ? coupledA[3 + c]! : hs[1]! * (c === 0 ? m10 : c === 1 ? m11 : m12) * bs[c]!,
+              a2 = coupledUsed ? coupledA[6 + c]! : hs[2]! * (c === 0 ? m20 : c === 1 ? m21 : m22) * bs[c]!;
             const wgt = wE * share * B[c]! * csv[c]!;
             c00 += wgt * a0 * a0; c01 += wgt * a0 * a1; c02 += wgt * a0 * a2; c11 += wgt * a1 * a1; c12 += wgt * a1 * a2; c22 += wgt * a2 * a2;
             an[c] = a0; an[3 + c] = a1; an[6 + c] = a2;
@@ -1247,7 +1268,13 @@ export async function renderDisplayView(setup: DisplayViewSetup): Promise<Displa
           let x0 = 0, x1 = 0, x2 = 0;
           for (let li = 0; li < list.length; li++) {
             const slot = list[li]!, d0 = bs[0]! * (dh[slot]! - dv[slot]!), d1 = bs[1]! * (dh[slotsCount + slot]! - dv[slotsCount + slot]!), d2 = bs[2]! * (dh[2 * slotsCount + slot]! - dv[2 * slotsCount + slot]!);
-            const v = siteVar[slot]!, a = hs[0]! * (m00 * d0 + m01 * d1 + m02 * d2), b = hs[1]! * (m10 * d0 + m11 * d1 + m12 * d2), c = hs[2]! * (m20 * d0 + m21 * d1 + m22 * d2);
+            const v = siteVar[slot]!;
+            let a: number, b: number, c: number;
+            if (coupledUsed) {
+              // #593: the coupled slopes ∂out/∂c (camera channels) of the last candidate.
+              const e0 = dh[slot]! - dv[slot]!, e1 = dh[slotsCount + slot]! - dv[slotsCount + slot]!, e2 = dh[2 * slotsCount + slot]! - dv[2 * slotsCount + slot]!;
+              a = coupledA[0]! * e0 + coupledA[1]! * e1 + coupledA[2]! * e2; b = coupledA[3]! * e0 + coupledA[4]! * e1 + coupledA[5]! * e2; c = coupledA[6]! * e0 + coupledA[7]! * e1 + coupledA[8]! * e2;
+            } else { a = hs[0]! * (m00 * d0 + m01 * d1 + m02 * d2); b = hs[1]! * (m10 * d0 + m11 * d1 + m12 * d2); c = hs[2]! * (m20 * d0 + m21 * d1 + m22 * d2); }
             x0 += a * a * v; x1 += b * b * v; x2 += c * c * v;
           }
           r0 += wR * (x0 / 4); r1 += wR * (x1 / 4); r2 += wR * (x2 / 4);

@@ -8,6 +8,7 @@
 import { DISPLAY_VIEW_AUX, DISPLAY_VIEW_CLIP_MEAN_U, DISPLAY_VIEW_CLIP_VARIANCE_U, DISPLAY_VIEW_GEOMETRY_STRIDE, DISPLAY_VIEW_OUTPUT_FLOATS,
   DISPLAY_VIEW_SITE_RELATIVE_U } from "../../src/gpu/wgsl-display-view-speed-kernel.js";
 import type { ChartMaterialEmulator } from "./fake-webgpu-stages.js";
+import { coupledEmulator } from "./fake-webgpu-display-view-coupled.js";
 
 const f = Math.fround;
 const E = f(2 ** -23), REACH = 8.5, CM = f(DISPLAY_VIEW_CLIP_MEAN_U), CV = f(DISPLAY_VIEW_CLIP_VARIANCE_U), STRIDE = DISPLAY_VIEW_GEOMETRY_STRIDE;
@@ -72,7 +73,8 @@ function reinhardMoments(m: number, v: number, aux: Float32Array): [number, numb
 
 /** Mirrors `main` of the display-view Speed kernel for the `count` display pixels of the band. */
 export function emulateDisplayViewSpeed(pw: Uint32Array, pf: Float32Array, aux: Float32Array, geometry: Float32Array, table: Float32Array, out: Float32Array,
-  flags: Uint32Array, material: ChartMaterialEmulator): void {
+  flags: Uint32Array, material: ChartMaterialEmulator, coupledConstants: Float32Array = new Float32Array(1)): void {
+  const cp = coupledEmulator(coupledConstants);
   const [count, row0, regionW, , , margin, nativeW, nativeH, columns, tone, offsets] = Array.from(pw.subarray(0, 11)) as number[];
   const k = [pf[12]!, pf[13]!, pf[14]!], reach2 = pf[15]!, dark = [pf[16]!, pf[17]!, pf[18]!], L = pf[19]!, c0 = [pf[20]!, pf[21]!, pf[22]!], g = [pf[24]!, pf[25]!, pf[26]!];
   const M = Array.from(pf.subarray(28, 37)), scaleU = pf[37]!, scaleV = pf[38]!, geometryInts = new Int32Array(geometry.buffer, geometry.byteOffset, geometry.length);
@@ -130,6 +132,7 @@ export function emulateDisplayViewSpeed(pw: Uint32Array, pf: Float32Array, aux: 
     const green = (xpp: number, xqq: number, xpq: number, ypp: number, yqq: number, ypq: number): number =>
       f(f(f(f(f(f(xpp * ypp) + f(xqq * ypp)) + f(xpp * yqq)) + f(f(2 * xpq) * ypp)) + f(f(2 * xpp) * ypq)) + f(f(2 * xpq) * ypq));
     const b = [f(xbE * ybE), f(green(xppO, xqqO, xpqO, yppE, yqqE, ypqE) + green(xppE, xqqE, xpqE, yppO, yqqO, ypqO)), f(xbO * ybO)];
+    let coupledFlag = false;
     let s0 = 0, s1 = 0, s2 = 0, c00 = 0, c01 = 0, c02 = 0, c11 = 0, c12 = 0, c22 = 0, r0 = 0, r1 = 0, r2 = 0, boundMean = 0, boundVar = 0, mask0 = 0, mask1 = 0, undecided = false;
     for (let j = 0; j < ny; j++) {
       const ay = G(row + 2 + j);
@@ -147,12 +150,16 @@ export function emulateDisplayViewSpeed(pw: Uint32Array, pf: Float32Array, aux: 
           }
           cm[c] = mean; cvv[c] = variance; cth[c] = third; cb[c] = bnd; csv[c] = f(variance * aux[DISPLAY_VIEW_AUX.inverseW2 + phase * 3 + c]!);
         }
+        // #593: reconstruct's reach (the chain), and the unclipped white balance out of it.
+        let chainRun = false;
+        if (cp.on && cp.reconstruct) { const reach = cp.reach([cm[0]!, cm[1]!, cm[2]!], [cvv[0]!, cvv[1]!, cvv[2]!]); if (reach === 2) coupledFlag = true; chainRun = reach >= 1; }
+        const unclipped = cp.on && cp.reconstruct;
         if (clipped) { const bit = j * nx + ii; if (bit < 32) mask0 = (mask0 | (1 << bit)) >>> 0; else mask1 = (mask1 | (1 << (bit - 32))) >>> 0; }
         else if (nearWhite) undecided = true;
         for (let c = 0; c < 3; c++) {
           const gc = g[c]!, um = f(gc * cm[c]!), uv = f(f(gc * gc) * cvv[c]!), gap = f(L - um);
           bbm[c] = f(f(gc * CM) * cb[c]!); bbv[c] = f(f(f(f(gc * gc) * CV) * cb[c]!) * cb[c]!);
-          if (gap > 0 && f(gap * gap) > f(reach2 * uv)) { bm[c] = um; bv[c] = uv; bs[c] = gc; }
+          if (unclipped || (gap > 0 && f(gap * gap) > f(reach2 * uv))) { bm[c] = um; bv[c] = uv; bs[c] = gc; }
           else { const [m1, v1, p1] = upperClip(um, uv, L); bm[c] = m1; bv[c] = v1; bs[c] = f(gc * p1); bbm[c] = f(bbm[c]! + f(CM * f(Math.sqrt(uv)))); bbv[c] = f(bbv[c]! + f(CV * uv)); }
         }
         for (let comp = 0; comp < 3; comp++) {
@@ -174,15 +181,57 @@ export function emulateDisplayViewSpeed(pw: Uint32Array, pf: Float32Array, aux: 
           }
           hbm[comp] = bmC; hbv[comp] = bvC;
         }
+        // #593, #601: the coupled steps (cp_tone, cp_chain) as the kernel takes them.
+        let jm: number[][] | null = null, ju = 0;
+        if (cp.on) {
+          if (!chainRun && cp.luminance) {
+            const mu = [0, 0, 0], dmu = [0, 0, 0], dsv = [0, 0, 0], srow = [[0, 0, 0], [0, 0, 0], [0, 0, 0]];
+            for (let r = 0; r < 3; r++) {
+              mu[r] = f(f(f(M[r * 3]! * bm[0]!) + f(M[r * 3 + 1]! * bm[1]!)) + f(M[r * 3 + 2]! * bm[2]!));
+              dmu[r] = f(f(f(f(Math.abs(M[r * 3]!) * bbm[0]!) + f(Math.abs(M[r * 3 + 1]!) * bbm[1]!)) + f(Math.abs(M[r * 3 + 2]!) * bbm[2]!)) * E);
+              dsv[r] = f(f(f(f(f(M[r * 3]! * M[r * 3]!) * bbv[0]!) + f(f(M[r * 3 + 1]! * M[r * 3 + 1]!) * bbv[1]!)) + f(f(M[r * 3 + 2]! * M[r * 3 + 2]!) * bbv[2]!)) * E);
+              for (let q = 0; q < 3; q++) srow[r]![q] = f(f(f(f(M[r * 3]! * M[q * 3]!) * bv[0]!) + f(f(M[r * 3 + 1]! * M[q * 3 + 1]!) * bv[1]!)) + f(f(M[r * 3 + 2]! * M[q * 3 + 2]!) * bv[2]!));
+            }
+            const t = cp.tone(mu as [number, number, number], srow as [[number, number, number], [number, number, number], [number, number, number]], dmu as [number, number, number], dsv as [number, number, number]);
+            if (t.flag) coupledFlag = true;
+            if (cp.desaturate && t.top) chainRun = true;
+            else {
+              jm = [[0, 0, 0], [0, 0, 0], [0, 0, 0]];
+              for (let comp = 0; comp < 3; comp++) {
+                hm[comp] = t.hm[comp]!; hv[comp] = t.hv[comp]!; hbm[comp] = f(t.bm[comp]! / E); hbv[comp] = f(t.bv[comp]! / E);
+                const row = t.a[comp]!;
+                for (let c = 0; c < 3; c++) jm[comp]![c] = f(f(f(f(row[0] * M[c]!) + f(row[1] * M[3 + c]!)) + f(row[2] * M[6 + c]!)) * bs[c]!);
+              }
+              ju = f(t.ju / E);
+            }
+          } else if (!chainRun && cp.desaturate && tone !== 1) {
+            for (let comp = 0; comp < 3; comp++) {
+              const top = f(hm[comp]! + f(REACH * f(Math.sqrt(hv[comp]!))));
+              if (hm[comp]! > 0 && top >= f(0.999)) chainRun = true;
+              if (hm[comp]! > 0 && f(hm[comp]! - f(f(2 * hbm[comp]!) * E)) < f(0.999) && Math.abs(f(top - f(0.999))) <= f(f(2 * f(f(hbm[comp]! * E) + f(REACH * Math.min(f(Math.sqrt(f(hbv[comp]! * E))), f(f(hbv[comp]! * E) / f(2 * f(Math.sqrt(hv[comp]!)))))))) + f(64 * E))) coupledFlag = true;
+            }
+          }
+          if (chainRun) {
+            const dcm = [0, 1, 2].map((c) => f(f(CM * cb[c]!) * E)) as [number, number, number];
+            const dcv = [0, 1, 2].map((c) => f(f(f(CV * cb[c]!) * cb[c]!) * E)) as [number, number, number];
+            const t = cp.chain([cm[0]!, cm[1]!, cm[2]!], cvv[0]!, 0, 0, cvv[1]!, 0, cvv[2]!, dcm, dcv);
+            if (t.flag) coupledFlag = true;
+            jm = t.a.map((r) => [...r]);
+            for (let comp = 0; comp < 3; comp++) { hm[comp] = t.hm[comp]!; hv[comp] = t.hv[comp]!; hbm[comp] = f(t.bm[comp]! / E); hbv[comp] = f(t.bv[comp]! / E); }
+            ju = f(t.ju / E);
+          }
+        }
         s0 = f(s0 + f(aj * hm[0]!)); s1 = f(s1 + f(aj * hm[1]!)); s2 = f(s2 + f(aj * hm[2]!));
         let l0 = 0, l1 = 0, l2 = 0, lb0 = 0, lb1 = 0, lb2 = 0;
         for (let c = 0; c < 3; c++) {
-          const a0 = f(f(hs[0]! * M[c]!) * bs[c]!), a1 = f(f(hs[1]! * M[3 + c]!) * bs[c]!), a2 = f(f(hs[2]! * M[6 + c]!) * bs[c]!), wgt = f(f(aj * b[c]!) * csv[c]!);
+          const a0 = jm ? jm[0]![c]! : f(f(hs[0]! * M[c]!) * bs[c]!), a1 = jm ? jm[1]![c]! : f(f(hs[1]! * M[3 + c]!) * bs[c]!),
+            a2 = jm ? jm[2]![c]! : f(f(hs[2]! * M[6 + c]!) * bs[c]!), wgt = f(f(aj * b[c]!) * csv[c]!);
+          const vb = f(bbv[c]! + f(f(2 * ju) * cvv[c]!));
           c00 = f(c00 + f(f(wgt * a0) * a0)); c01 = f(c01 + f(f(wgt * a0) * a1)); c02 = f(c02 + f(f(wgt * a0) * a2));
           c11 = f(c11 + f(f(wgt * a1) * a1)); c12 = f(c12 + f(f(wgt * a1) * a2)); c22 = f(c22 + f(f(wgt * a2) * a2));
           l0 = f(l0 + f(f(a0 * a0) * cvv[c]!)); l1 = f(l1 + f(f(a1 * a1) * cvv[c]!)); l2 = f(l2 + f(f(a2 * a2) * cvv[c]!));
-          lb0 = f(lb0 + f(f(a0 * a0) * bbv[c]!)); lb1 = f(lb1 + f(f(a1 * a1) * bbv[c]!)); lb2 = f(lb2 + f(f(a2 * a2) * bbv[c]!));
-          boundVar = f(boundVar + f(f(f(aj * b[c]!) * f(bbv[c]! * aux[DISPLAY_VIEW_AUX.inverseW2 + phase * 3 + c]!)) * Math.max(f(a0 * a0), Math.max(f(a1 * a1), f(a2 * a2)))));
+          lb0 = f(lb0 + f(f(a0 * a0) * vb)); lb1 = f(lb1 + f(f(a1 * a1) * vb)); lb2 = f(lb2 + f(f(a2 * a2) * vb));
+          boundVar = f(boundVar + f(f(f(aj * b[c]!) * f(vb * aux[DISPLAY_VIEW_AUX.inverseW2 + phase * 3 + c]!)) * Math.max(f(a0 * a0), Math.max(f(a1 * a1), f(a2 * a2)))));
         }
         r0 = f(r0 + f(f(aj * aj) * Math.max(0, f(hv[0]! - l0)))); r1 = f(r1 + f(f(aj * aj) * Math.max(0, f(hv[1]! - l1)))); r2 = f(r2 + f(f(aj * aj) * Math.max(0, f(hv[2]! - l2))));
         boundMean = f(boundMean + f(aj * Math.max(hbm[0]!, Math.max(hbm[1]!, hbm[2]!))));
@@ -192,7 +241,7 @@ export function emulateDisplayViewSpeed(pw: Uint32Array, pf: Float32Array, aux: 
     const o = i * DISPLAY_VIEW_OUTPUT_FLOATS;
     out[o] = s0; out[o + 1] = s1; out[o + 2] = s2; out[o + 3] = f(c00 + r0); out[o + 4] = f(c11 + r1); out[o + 5] = f(c22 + r2);
     out[o + 6] = c01; out[o + 7] = c02; out[o + 8] = c12; out[o + 9] = f(boundMean * E); out[o + 10] = f(boundVar * E);
-    flags[3 * i] = (material.flagged ? 1 : 0) | (undecided ? 2 : 0); flags[3 * i + 1] = mask0; flags[3 * i + 2] = mask1;
+    flags[3 * i] = (material.flagged || coupledFlag ? 1 : 0) | (undecided ? 2 : 0); flags[3 * i + 1] = mask0; flags[3 * i + 2] = mask1;
   }
 }
 /** Internal test hooks. */

@@ -87,6 +87,11 @@ export interface SensorColorDevelopment {
   highlightMode: RawHighlightMode;
   /** Develops one normalized camera pixel into out[offset..offset+2] (linear sRGB/D65); updates counts. */
   developInto(c0: number, c1: number, c2: number, out: Float64Array | number[], offset: number, counts: SensorColorDevelopmentCounts): void;
+  /**
+   * #602: the colour step alone, X·M·diag(w)·b, for white-balanced values b that a whole-image highlight step already formed
+   * (`highlightMode: "reconstruct-neighbors"`); the same products and order as the end of developInto.
+   */
+  developWhiteBalancedInto(b0: number, b1: number, b2: number, out: Float64Array | number[], offset: number): void;
   /** Convenience array form of developInto (counts discarded). */
   develop(values: readonly number[]): number[];
 }
@@ -130,8 +135,14 @@ export function prepareSensorColorDevelopment(cameraChannelsToXyz: Matrix, gains
     out[offset+1] = ((0+x1[0]!*X)+x1[1]!*Y)+x1[2]!*Z;
     out[offset+2] = ((0+x2[0]!*X)+x2[1]!*Y)+x2[2]!*Z;
   }
+  function developWhiteBalancedInto(b0: number, b1: number, b2: number, out: Float64Array | number[], offset: number): void {
+    const X = ((0+m0[0]!*b0)+m0[1]!*b1)+m0[2]!*b2, Y = ((0+m1[0]!*b0)+m1[1]!*b1)+m1[2]!*b2, Z = ((0+m2[0]!*b0)+m2[1]!*b1)+m2[2]!*b2;
+    out[offset] = ((0+x0[0]!*X)+x0[1]!*Y)+x0[2]!*Z;
+    out[offset+1] = ((0+x1[0]!*X)+x1[1]!*Y)+x1[2]!*Z;
+    out[offset+2] = ((0+x2[0]!*X)+x2[1]!*Y)+x2[2]!*Z;
+  }
   return {
-    referenceWhiteXyz: model.referenceWhiteXyz, cameraNeutralD65: Object.freeze(neutral), appliedGains: Object.freeze(applied),
+    developWhiteBalancedInto, referenceWhiteXyz: model.referenceWhiteXyz, cameraNeutralD65: Object.freeze(neutral), appliedGains: Object.freeze(applied),
     asShotNeutral: Object.freeze(asShot), cameraToXyz: m, highlightMode, developInto,
     develop(values: readonly number[]): number[] {
       const out = [0, 0, 0]; developInto(values[0]!, values[1]!, values[2]!, out, 0, { whiteBalanceClippedSampleCount: 0, reconstructedPixelCount: 0 }); return out;

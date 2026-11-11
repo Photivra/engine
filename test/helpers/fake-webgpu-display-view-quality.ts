@@ -5,6 +5,7 @@
  * for the in-process fake WebGPU device. It mirrors the WGSL line by line, running-bound pairs included; the material module
  * is an emulator object (`ChartMaterialEmulator`). Real-device conformance lives in test/webgpu.
  */
+import { coupledEmulator } from "./fake-webgpu-display-view-coupled.js";
 import { DISPLAY_VIEW_QUALITY_AUX, DISPLAY_VIEW_QUALITY_CANDIDATE_FLOATS, DISPLAY_VIEW_QUALITY_CHOICE_SIGMA, DISPLAY_VIEW_QUALITY_FLAG, DISPLAY_VIEW_QUALITY_GEOMETRY_STRIDE, DISPLAY_VIEW_QUALITY_GROUP_WORDS,
   DISPLAY_VIEW_QUALITY_OUTPUT_FLOATS, DISPLAY_VIEW_QUALITY_SITE_FLOATS, DISPLAY_VIEW_QUALITY_SLOPE_U, DISPLAY_VIEW_QUALITY_TAP_WORDS, DISPLAY_VIEW_QUALITY_UNCERTAINTY_LIMIT } from "../../src/gpu/wgsl-display-view-quality-kernel.js";
 import { DISPLAY_VIEW_CLIP_MEAN_U, DISPLAY_VIEW_CLIP_VARIANCE_U, DISPLAY_VIEW_REINHARD_MEAN_U, DISPLAY_VIEW_REINHARD_VARIANCE_U } from "../../src/gpu/wgsl-display-view-speed-kernel.js";
@@ -202,7 +203,8 @@ export function emulateDisplayViewQualitySitesBlocked(pw: Uint32Array, pf: Float
 
 /** Pass 3. */
 export function emulateDisplayViewQualityPixels(pw: Uint32Array, pf: Float32Array, aux: Float32Array, geometry: Float32Array, sites: Float32Array, stateKeys: Int32Array, stateValues: Float32Array,
-  bitmap: Uint32Array, out: Float32Array, flags: Uint32Array): void {
+  bitmap: Uint32Array, out: Float32Array, flags: Uint32Array, coupledConstants: Float32Array = new Float32Array(1)): void {
+  const cp = coupledEmulator(coupledConstants), UNCERTAIN = DISPLAY_VIEW_QUALITY_FLAG.materialUncertain;
   const P = readParams(pw, pf), M = Array.from(pf.subarray(40, 49)), g = [P.g0!, P.g1!, P.g2!], gainAtClip = Array.from(pw.subarray(21, 24)), reinhard = P.tone === 1, count = P.candidates!, share = count === 2 ? 0.5 : 1;
   const geometryInts = new Int32Array(geometry.buffer, geometry.byteOffset, geometry.length), auxWords = new Uint32Array(aux.buffer, aux.byteOffset, aux.length), siteWords = new Uint32Array(sites.buffer, sites.byteOffset, sites.length);
   const reflectX = (x: number): number => (x < 0 ? -x : x >= P.nativeW! ? 2 * P.nativeW! - 2 - x : x), reflectY = (y: number): number => (y < 0 ? -y : y >= P.nativeH! ? 2 * P.nativeH! - 2 - y : y);
@@ -301,7 +303,7 @@ export function emulateDisplayViewQualityPixels(pw: Uint32Array, pf: Float32Arra
         else if ((clipAny & 2) !== 0) undecided = true;
         const eMean: B[] = [Z, Z, Z], cmAverage: B[] = [Z, Z, Z];
         let pixelVariance: B = Z;
-        let bs: B[] = [], hs: B[] = [];
+        let bs: B[] = [], hs: B[] = [], cpUsed = false, cpA: B[] = [];
         const hCand: B[] = [Z, Z, Z, Z, Z, Z];
         for (let d = 0; d < count; d++) {
           const cm: B[] = [Z, Z, Z], C: B[] = [Z, Z, Z, Z, Z, Z], exact = [true, true, true];
@@ -316,10 +318,13 @@ export function emulateDisplayViewQualityPixels(pw: Uint32Array, pf: Float32Arra
             C[3] = bAdd(C[3]!, bScale(sv, f(w1 * w1))); C[4] = bAdd(C[4]!, bScale(sv, f(w1 * w2))); C[5] = bAdd(C[5]!, bScale(sv, f(w2 * w2)));
           }
           for (let c = 0; c < 3; c++) { if (exact[c]) cm[c] = [cm[c]![0], 0]; cmAverage[c] = bAdd(cmAverage[c]!, bScale(cm[c]!, share)); }
+          let chainRun = false;
+          if (cp.on && cp.reconstruct) { const reach = cp.reach([cm[0]![0], cm[1]![0], cm[2]![0]], [C[0]![0], C[3]![0], C[5]![0]]); if (reach === 2) pixelFlags |= UNCERTAIN; chainRun = reach >= 1; }
+          const unclipped = cp.on && cp.reconstruct;
           const bm: B[] = [], bv: B[] = []; bs = [];
           for (let c = 0; c < 3; c++) {
-            const gc = bRounded(g[c]!), um: B = exact[c] && cm[c]![0] === 1 && gainAtClip[c] === 1 ? [P.clipLevel!, 0] : bMul(gc, cm[c]!), uv = bMul(bMul(gc, gc), C[c === 0 ? 0 : c === 1 ? 3 : 5]!), gap = f(P.clipLevel! - um[0]);
-            if (gap > 0 && f(gap * gap) > f(P.reach2! * uv[0])) { bm.push(um); bv.push(uv); bs.push(gc); }
+            const gc = bRounded(g[c]!), um: B = exact[c] && cm[c]![0] === 1 && gainAtClip[c] === 1 && !unclipped ? [P.clipLevel!, 0] : bMul(gc, cm[c]!), uv = bMul(bMul(gc, gc), C[c === 0 ? 0 : c === 1 ? 3 : 5]!), gap = f(P.clipLevel! - um[0]);
+            if (unclipped || (gap > 0 && f(gap * gap) > f(P.reach2! * uv[0]))) { bm.push(um); bv.push(uv); bs.push(gc); }
             else { const clipped = upperClip(um, uv, P.clipLevel!); bm.push(clipped.mean); bv.push(clipped.variance); bs.push(bMul(gc, clipped.slope)); }
           }
           const hm: B[] = [], hv: B[] = []; hs = [];
@@ -346,12 +351,67 @@ export function emulateDisplayViewQualityPixels(pw: Uint32Array, pf: Float32Arra
               moments = unitClip(mean, variance, skew);
             }
             hm.push(moments.mean); hv.push(moments.variance); hs.push(moments.slope);
-            hCand[d * 3 + comp] = moments.mean;
-            eMean[comp] = bAdd(eMean[comp]!, bScale(moments.mean, share));
-            pixelVariance = [Math.max(pixelVariance[0], moments.variance[0]), Math.max(pixelVariance[1], moments.variance[1])];
           }
+          // #593, #601: the coupled steps as the kernel takes them.
           const an: B[] = [];
-          for (let c = 0; c < 3; c++) { an[c] = bMul(bMul(hs[0]!, bRounded(M[c]!)), bs[c]!); an[3 + c] = bMul(bMul(hs[1]!, bRounded(M[3 + c]!)), bs[c]!); an[6 + c] = bMul(bMul(hs[2]!, bRounded(M[6 + c]!)), bs[c]!); }
+          cpUsed = false;
+          if (cp.on) {
+            if (!chainRun && cp.luminance) {
+              const mu = [0, 0, 0], dmu = [0, 0, 0], dsv = [0, 0, 0], srow = [[0, 0, 0], [0, 0, 0], [0, 0, 0]];
+              const cc = [C[0]![0], C[1]![0], C[2]![0], C[1]![0], C[3]![0], C[4]![0], C[2]![0], C[4]![0], C[5]![0]];
+              for (let r = 0; r < 3; r++) {
+                mu[r] = f(f(f(M[r * 3]! * bm[0]![0]) + f(M[r * 3 + 1]! * bm[1]![0])) + f(M[r * 3 + 2]! * bm[2]![0]));
+                dmu[r] = f(f(f(Math.abs(M[r * 3]!) * bm[0]![1]) + f(Math.abs(M[r * 3 + 1]!) * bm[1]![1])) + f(Math.abs(M[r * 3 + 2]!) * bm[2]![1]));
+                dsv[r] = f(f(f(f(M[r * 3]! * M[r * 3]!) * bv[0]![1]) + f(f(M[r * 3 + 1]! * M[r * 3 + 1]!) * bv[1]![1])) + f(f(M[r * 3 + 2]! * M[r * 3 + 2]!) * bv[2]![1]));
+                for (let q = 0; q < 3; q++) {
+                  let v = 0;
+                  for (let a = 0; a < 3; a++) for (let b2 = 0; b2 < 3; b2++) {
+                    const bab = a === b2 ? bv[a]![0] : f(f(bs[a]![0] * bs[b2]![0]) * cc[a * 3 + b2]!);
+                    v = f(v + f(f(M[r * 3 + a]! * M[q * 3 + b2]!) * bab));
+                  }
+                  srow[r]![q] = v;
+                }
+              }
+              const t = cp.tone(mu as [number, number, number], srow as [[number, number, number], [number, number, number], [number, number, number]], dmu as [number, number, number], dsv as [number, number, number]);
+              if (t.flag) pixelFlags |= UNCERTAIN;
+              if (cp.desaturate && t.top) chainRun = true;
+              else {
+                for (let comp = 0; comp < 3; comp++) {
+                  hm[comp] = [t.hm[comp]!, t.bm[comp]!]; hv[comp] = [t.hv[comp]!, t.bv[comp]!];
+                  const row = t.a[comp]!;
+                  for (let c = 0; c < 3; c++) {
+                    const jmc = f(f(f(row[0] * M[c]!) + f(row[1] * M[3 + c]!)) + f(row[2] * M[6 + c]!));
+                    const ajm = f(f(Math.abs(f(row[0] * M[c]!)) + Math.abs(f(row[1] * M[3 + c]!))) + Math.abs(f(row[2] * M[6 + c]!)));
+                    const value = f(jmc * bs[c]![0]);
+                    an[comp * 3 + c] = [value, f(f(ajm * bs[c]![1]) + f(Math.abs(value) * f(t.ju + f(4 * E))))];
+                  }
+                }
+                cpUsed = true;
+              }
+            } else if (!chainRun && cp.desaturate && !reinhard) {
+              for (let comp = 0; comp < 3; comp++) {
+                const top = f(hm[comp]![0] + f(REACH * f(Math.sqrt(hv[comp]![0]))));
+                if (hm[comp]![0] > 0 && top >= f(0.999)) chainRun = true;
+                if (hm[comp]![0] > 0 && f(hm[comp]![0] - f(2 * hm[comp]![1])) < f(0.999) && Math.abs(f(top - f(0.999))) <= f(f(2 * f(hm[comp]![1] + f(REACH * Math.min(f(Math.sqrt(hv[comp]![1])), f(hv[comp]![1] / f(2 * f(Math.sqrt(hv[comp]![0])))))))) + f(64 * E))) pixelFlags |= UNCERTAIN;
+              }
+            }
+            if (chainRun) {
+              const t = cp.chain([cm[0]![0], cm[1]![0], cm[2]![0]], C[0]![0], C[1]![0], C[2]![0], C[3]![0], C[4]![0], C[5]![0], [cm[0]![1], cm[1]![1], cm[2]![1]], [C[0]![1], C[3]![1], C[5]![1]]);
+              if (t.flag) pixelFlags |= UNCERTAIN;
+              for (let comp = 0; comp < 3; comp++) {
+                hm[comp] = [t.hm[comp]!, t.bm[comp]!]; hv[comp] = [t.hv[comp]!, t.bv[comp]!];
+                for (let c = 0; c < 3; c++) an[comp * 3 + c] = [t.a[comp]![c]!, f(Math.abs(t.a[comp]![c]!) * t.ju)];
+              }
+              cpUsed = true;
+            }
+            if (cpUsed) cpA = an.slice();
+          }
+          for (let comp = 0; comp < 3; comp++) {
+            hCand[d * 3 + comp] = hm[comp]!;
+            eMean[comp] = bAdd(eMean[comp]!, bScale(hm[comp]!, share));
+            pixelVariance = [Math.max(pixelVariance[0], hv[comp]![0]), Math.max(pixelVariance[1], hv[comp]![1])];
+          }
+          if (!cpUsed) for (let c = 0; c < 3; c++) { an[c] = bMul(bMul(hs[0]!, bRounded(M[c]!)), bs[c]!); an[3 + c] = bMul(bMul(hs[1]!, bRounded(M[3 + c]!)), bs[c]!); an[6 + c] = bMul(bMul(hs[2]!, bRounded(M[6 + c]!)), bs[c]!); }
           for (let c = 0; c < 3; c++) {
             const wgt = bMul(bMul(bScale(aj, share), bRounded(bOf[c]!)), csv[c]!);
             cov[0] = bAdd(cov[0]!, bMul(bMul(wgt, an[c]!), an[c]!)); cov[1] = bAdd(cov[1]!, bMul(bMul(wgt, an[c]!), an[3 + c]!)); cov[2] = bAdd(cov[2]!, bMul(bMul(wgt, an[c]!), an[6 + c]!));
@@ -376,9 +436,15 @@ export function emulateDisplayViewQualityPixels(pw: Uint32Array, pf: Float32Arra
           for (let n = 0; n < entries; n++) {
             const eb = cb + 4 + n * CF, o = siteAt(x + aux[eb]!, y + aux[eb + 1]!);
             const d0 = bScale(bs[0]!, f(aux[eb + 2]! - aux[eb + 5]!)), d1 = bScale(bs[1]!, f(aux[eb + 3]! - aux[eb + 6]!)), d2 = bScale(bs[2]!, f(aux[eb + 4]! - aux[eb + 7]!)), sv: B = [sites[o + 1]!, sites[o + 4]!];
-            const a = bMul(hs[0]!, bAdd(bAdd(bMul(bRounded(M[0]!), d0), bMul(bRounded(M[1]!), d1)), bMul(bRounded(M[2]!), d2)));
-            const b = bMul(hs[1]!, bAdd(bAdd(bMul(bRounded(M[3]!), d0), bMul(bRounded(M[4]!), d1)), bMul(bRounded(M[5]!), d2)));
-            const c = bMul(hs[2]!, bAdd(bAdd(bMul(bRounded(M[6]!), d0), bMul(bRounded(M[7]!), d1)), bMul(bRounded(M[8]!), d2)));
+            let a = bMul(hs[0]!, bAdd(bAdd(bMul(bRounded(M[0]!), d0), bMul(bRounded(M[1]!), d1)), bMul(bRounded(M[2]!), d2)));
+            let b = bMul(hs[1]!, bAdd(bAdd(bMul(bRounded(M[3]!), d0), bMul(bRounded(M[4]!), d1)), bMul(bRounded(M[5]!), d2)));
+            let c = bMul(hs[2]!, bAdd(bAdd(bMul(bRounded(M[6]!), d0), bMul(bRounded(M[7]!), d1)), bMul(bRounded(M[8]!), d2)));
+            if (cpUsed) {
+              const e0 = f(aux[eb + 2]! - aux[eb + 5]!), e1 = f(aux[eb + 3]! - aux[eb + 6]!), e2 = f(aux[eb + 4]! - aux[eb + 7]!);
+              a = bAdd(bAdd(bScale(cpA[0]!, e0), bScale(cpA[1]!, e1)), bScale(cpA[2]!, e2));
+              b = bAdd(bAdd(bScale(cpA[3]!, e0), bScale(cpA[4]!, e1)), bScale(cpA[5]!, e2));
+              c = bAdd(bAdd(bScale(cpA[6]!, e0), bScale(cpA[7]!, e1)), bScale(cpA[8]!, e2));
+            }
             x0 = bAdd(x0, bMul(bMul(a, a), sv)); x1 = bAdd(x1, bMul(bMul(b, b), sv)); x2 = bAdd(x2, bMul(bMul(c, c), sv));
           }
           const ajaj = bMul(aj, aj);

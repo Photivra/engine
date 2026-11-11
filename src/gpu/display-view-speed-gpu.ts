@@ -14,6 +14,7 @@
  * #477); `display-view-chart-material-module.ts` provides one for the eight 2.0 chart presets and
  * `display-view-composite-material-module.ts` (#491) one for composite charts, the 2.3 elements and `material-layers` scenes.
  */
+import { SDR_LUMINANCE_WEIGHTS } from "../output/sdr-rendering.js";
 import { DISPLAY_VIEW_NOISE_STREAM_ID, axisSums, clipCentre, createDisplayViewExpectedSignal, displayViewDecidedSaturation, overlaps, quantizationVariance, renderDisplayView, type AxisSums, type DisplayViewRenderResult, type DisplayViewSetup } from "../facade/display-view.js";
 import { displayViewSignalTables, type DisplayViewExpectedSignalInput } from "../facade/expected-signal.js";
 import { resolvePortableChartScene } from "../facade/chart-scenes.js";
@@ -132,7 +133,9 @@ export function displayViewSpeedGpuUnsupportedReason(setup: DisplayViewSetup, si
   if (signalInput.scene.kind !== "materials" && !signalInput.scene.signalAt) return "radiance scenes (caller functions) are not on the GPU";
   if (!signalInput.queryPoint) return "the expected signal has no query points";
   if (setup.candidates || setup.ahdCorrection || setup.ahdCollect) return "AHD candidates and the low-signal correction are not on the GPU";
-  if (setup.toneCurve !== "identity" && setup.toneCurve !== "positive-reinhard-per-channel") return "unsupported tone curve " + String(setup.toneCurve);
+  if (!["identity", "positive-reinhard-per-channel", "extended-reinhard-luminance", "naka-rushton-luminance"].includes(setup.toneCurve)) return "unsupported tone curve " + String(setup.toneCurve);
+  if (setup.rendering && !setup.coupled) return "the coupled rendering steps were not prepared";
+  if (setup.rendering?.highlightMode === "reconstruct-neighbors") return "highlightMode reconstruct-neighbors (#602; its regions' ratios are found on the host) is not on the GPU in 2.22.0";
   if (signalInput.offsets.length < 1 || signalInput.offsets.length > DISPLAY_VIEW_GPU_MAXIMUM_OFFSETS) return "the kernel holds 1 to " + DISPLAY_VIEW_GPU_MAXIMUM_OFFSETS + " query offsets";
   if (signalInput.wavelengthsNm.length < 1 || signalInput.wavelengthsNm.length > DISPLAY_VIEW_SPEED_MAXIMUM_NODES) return "the kernel integrates 1 to " + DISPLAY_VIEW_SPEED_MAXIMUM_NODES + " spectral nodes per site";
   if (setup.region.width < 1 || setup.region.height < 1) return "an empty region";
@@ -218,11 +221,13 @@ export function axisRecord(geometry: Float32Array, at: number, start: number, en
   order.forEach((key, i) => { geometry[at + 8 + i] = sums[key] / scale2; });
 }
 
+/** The kernel's tone code: identity 0, positive Reinhard 1, extended Reinhard (luminance) 2, Naka–Rushton (luminance) 3. */
+const TONE_CODE: Readonly<Record<DisplayViewSetup["toneCurve"], number>> = { "identity": 0, "positive-reinhard-per-channel": 1, "extended-reinhard-luminance": 2, "naka-rushton-luminance": 3 };
 /** The uniform parameters and the aux table of a render. */
 function constants(setup: DisplayViewSetup, signalInput: DisplayViewExpectedSignalInput): { params: ArrayBuffer; aux: Float32Array<ArrayBuffer> } {
   const params = new ArrayBuffer(4 * DISPLAY_VIEW_PARAM_WORDS), words = new Uint32Array(params), floats = new Float32Array(params);
   words[2] = setup.region.width; words[3] = setup.region.x; words[4] = setup.region.y; words[5] = setup.margin; words[6] = setup.nativeWidth; words[7] = setup.nativeHeight;
-  words[8] = setup.region.width; words[9] = setup.toneCurve === "positive-reinhard-per-channel" ? 1 : 0; words[10] = signalInput.offsets.length; words[11] = signalInput.wavelengthsNm.length;
+  words[8] = setup.region.width; words[9] = TONE_CODE[setup.toneCurve]; words[10] = signalInput.offsets.length; words[11] = signalInput.wavelengthsNm.length;
   for (let c = 0; c < 3; c++) { floats[12 + c] = setup.readout[c]!.perElectron; floats[16 + c] = setup.readout[c]!.darkElectrons; floats[20 + c] = setup.readout[c]!.constantVariance; floats[24 + c] = setup.gains[c]!; }
   floats[15] = 8.5 * 8.5; floats[19] = setup.clipLevel;
   for (let r = 0; r < 3; r++) for (let c = 0; c < 3; c++) floats[28 + r * 3 + c] = setup.matrix[r]![c]!;
@@ -321,12 +326,18 @@ export async function renderDisplayViewSpeedOnGpu(runtime: WebGpuRuntime, bandBy
   const rows = Math.max(1, Math.min(region.height, Math.floor(bandBytes / (region.width * BYTES_PER_PIXEL)), material.bandRows?.(shape.sy) ?? Infinity));
   if (Math.max(rows * region.width * 4 * DISPLAY_VIEW_OUTPUT_FLOATS, geometry.byteLength, table.byteLength) > runtime.maximumStorageBindingBytes)
     throw new ImageKernelExecutionError("insufficient-limits", "One display-view band exceeds the device's storage binding limit.");
-  const pipeline = await pipelines("photivra-display-view-speed:" + material.id, assembleDisplayViewSpeedWgsl(material.wgsl));
+  // #593, #601: the coupled steps' shader text and constants, loaded on demand for a view that asks for them.
+  const coupled = setup.rendering ? await import("./wgsl-display-view-coupled.js") : null;
+  const coupledConstants = coupled ? coupled.displayViewCoupledConstants(setup, SDR_LUMINANCE_WEIGHTS, gaussLegendre16()) : new Float32Array(1);
+  const pipeline = await pipelines("photivra-display-view-speed:" + material.id + (coupled ? "+coupled" : ""), assembleDisplayViewSpeedWgsl(material.wgsl, coupled?.DISPLAY_VIEW_COUPLED_WGSL));
   const moments = new Float32Array(pixelCount * DISPLAY_VIEW_OUTPUT_FLOATS), flagged: number[] = [], flagWords = new Uint32Array(pixelCount * DISPLAY_VIEW_FLAG_WORDS);
   const words = new Uint32Array(params);
   const scope = new GpuResourceScope(runtime);
   try {
-    const auxBuffer = scope.upload("photivra-display-view-aux", aux, BUFFER_USAGE.STORAGE);
+    // #593, #601: the coupled steps' constants follow the aux table's own entries (one zero word without them).
+    const auxWithCoupled = new Float32Array(aux.length + coupledConstants.length);
+    auxWithCoupled.set(aux); auxWithCoupled.set(coupledConstants, aux.length);
+    const auxBuffer = scope.upload("photivra-display-view-aux", auxWithCoupled, BUFFER_USAGE.STORAGE);
     const geometryBuffer = scope.upload("photivra-display-view-geometry", geometry, BUFFER_USAGE.STORAGE);
     const tableBuffer = scope.upload("photivra-display-view-table", table, BUFFER_USAGE.STORAGE);
     const materialGroup = material.band ? null : runtime.device.createBindGroup({ layout: pipeline.getBindGroupLayout(1), entries: material.bindings.map((b) => ({ binding: b.binding,
@@ -429,7 +440,6 @@ export function displayViewSpeedGpuSupports(request: DisplayViewGpuRequest): tru
 /** Why the GPU's material lookup, tone curves or query-offset table do not cover a request (shared by the Speed and Quality support checks), or true. */
 export function sceneToneAndOffsetsReason(request: DisplayViewGpuRequest, maximumOffsets: number): true | string {
   if (request.scene !== "chart" && request.scene !== "material-layers" && request.scene !== "image-plane") return "the scene is a caller " + request.scene + "; the GPU material lookup covers engine charts and declared material-layers scenes (describe the scene as material-layers)";
-  if (request.toneCurve !== "identity" && request.toneCurve !== "positive-reinhard-per-channel") return "unsupported tone curve " + String(request.toneCurve);
   if (offsetCount(request) > maximumOffsets) return "more than " + maximumOffsets + " query offsets per site";
   return true;
 }

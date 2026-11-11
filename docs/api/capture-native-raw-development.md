@@ -136,7 +136,8 @@ RAW saturation handled before white balance. Counts are pixels or samples of the
 
 ```ts
 export interface RawHighlightDiagnostics {
-  mode: RawHighlightMode;
+  /** #602: "reconstruct-neighbors" from `simulateCapture`'s whole-image neighbor reconstruction. */
+  mode: RawHighlightMode | "reconstruct-neighbors";
   /** Output pixels with at least one contributing site at or above its white level, or flagged as saturated. */
   saturatedPixelCount: number;
   /** `clip`: WB-scaled samples clipped at the smallest gain. Always 0 for `reconstruct`. */

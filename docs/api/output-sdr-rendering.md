@@ -83,7 +83,12 @@ export interface SdrRenderingProfile {
   toneCurve: SdrToneCurve;
   /** Present exactly for `extended-reinhard-luminance` ({whiteLuminance}) and `naka-rushton-luminance`. */
   toneCurveParameters?: SdrToneCurveParameters;
-  gamutHandling: "clip-components" | "reject-out-of-range";
+  /**
+   * After the tone curve: clip each component to [0, 1], reject an out-of-range pixel, or (#601, 2.22.0) desaturate a pixel whose
+   * largest component exceeds 1 toward the gray of its own luminance until that component is 1 (`desaturateToLuminance`), then
+   * clip what remains below 0.
+   */
+  gamutHandling: "clip-components" | "reject-out-of-range" | "desaturate-to-luminance";
   outputDynamicRange: "sdr";
   transferFunction: "srgb";
   bitDepth: 8 | 16;

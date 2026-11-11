@@ -19,6 +19,7 @@ import { InvalidConfigurationError } from "../core/configuration-error.js";
 import type { ChartCompositeProbeRecord, ImageKernelAdapterDescription, ImageKernelBackend, ImageKernelExecution, ImageKernelFallbackReason } from "../gpu/image-kernel-execution.js";
 import type { DisplayViewRenderResult, DisplayViewSetup } from "./display-view.js";
 import type { SimulateCaptureFastReport } from "./simulate-capture.js";
+import type { SdrToneCurve } from "../output/sdr-rendering.js";
 
 /**
  * 2.11 (#481): whether a prepared display view may render on the GPU. `"off"` (the default) is the CPU reference, today's
@@ -139,7 +140,9 @@ export interface DisplayViewGpuRequest {
   antiAliasing: boolean;
   /** Pixel-aperture samples per axis (1: centre sampling). */
   boxSamples: number;
-  toneCurve: "identity" | "positive-reinhard-per-channel";
+  toneCurve: SdrToneCurve;
+  /** #593, #601: true with `highlightMode: "reconstruct"` or `gamutHandling: "desaturate-to-luminance"` (coupled rendering steps). */
+  coupled?: boolean;
   /**
    * #492: true when `lens.defocus` needs the defocus disc (out of focus): the expected signal then carries the disc, or each
    * node's diffraction kernel convolved with it, as site kernels (#492 step 2b), which the engine's renderer gathers in its

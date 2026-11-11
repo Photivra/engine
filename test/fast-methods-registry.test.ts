@@ -5,6 +5,8 @@ import { SIMULATE_CAPTURE_FAST_OPTIONS, prepareDisplayView, serializeSimulatedCa
 import { SIMULATE_CAPTURE_FAST_METHODS } from "../src/facade/fast-methods.js";
 import { fastFormatDefault, resolveFast } from "../src/facade/fast-resolution.js";
 import { scaledTimeout } from "./helpers/test-timeout.js";
+import { createFakeGpu } from "./helpers/fake-webgpu.js";
+import { compareDisplayViews, displayViewGpuFixture, renderOnGpu, runtimeOf } from "./helpers/display-view-gpu-fixture.js";
 
 /*
  * 2.20.0 (owner): the speed-versus-accuracy rule is enforced, not only followed. Every choice is in the registry
@@ -148,4 +150,20 @@ describe("the fast-method registry (2.20.0)", () => {
     expect(zones(exact)).toBe(1);
     expect(exact.diagnostics.fast.applied).toMatchObject({ "lens.catalogue": false });
   }, scaledTimeout(60_000));
+
+  it("gives the display view's luminance tone moments a full rule on the CPU and on the GPU (#593)", async () => {
+    const options: SimulateCaptureOptions = { scene: { preset: "step-wedge", steps: 11 }, exposure: { mode: "manual", iso: 1600, shutterSeconds: 1 / 250 }, sensor: { spectralStepNanometers: 100 },
+      output: { width: 48, height: 32, toneCurve: "naka-rushton-luminance", toneCurveParameters: { exponent: 1.5, semiSaturation: 0.5009, whiteLuminance: 8 } } };
+    const runtime = await runtimeOf(createFakeGpu().gpu), expected: Float64Array[] = [];
+    for (const fast of [true, false]) {
+      const fixture = await displayViewGpuFixture({ ...options, fast }, { width: 24, height: 16 });
+      expect(fixture.input.setup.rendering).toMatchObject({ fast });
+      const gpu = await renderOnGpu(runtime, fixture), agreement = compareDisplayViews(fixture.cpu, gpu);
+      expect(gpu.execution.backend).toBe("webgpu-f32");
+      expect({ fast, ratio: agreement.largestExpectedRatio, outside: agreement.outsideExpectedBound, dE: agreement.deltaEMaximum }).toMatchObject({ outside: 0 });
+      expected.push(gpu.expected);
+    }
+    // The two rules give different (bounded) expected values.
+    expect(Array.from(expected[0]!)).not.toEqual(Array.from(expected[1]!));
+  }, scaledTimeout(120_000));
 });

@@ -705,6 +705,54 @@ states of a round between its workers and exchanges them before rendering (Photi
 measures it in the browser). They do not reduce the number of states a view needs, and every exchange
 copies 28 bytes per state. `structuredClone` of an exported set of 764 states (21,392 bytes) took 10–11 µs at the median (Node 24.21.0).
 
+## Coupled rendering (#593, #601)
+
+The luminance tone curves (`extended-reinhard-luminance`, `naka-rushton-luminance`), `highlightMode: "reconstruct"` and the
+hue-preserving `gamutHandling: "desaturate-to-luminance"` (#601) act on all three components of a pixel together, so the
+per-component moments above do not apply. `src/facade/display-view-rendering.ts` gives the view their moments; requests without
+them run the per-component arithmetic unchanged (the hash locks are unchanged).
+
+- **Tone curves, by conditioning on luminance.** The developed linear sRGB is normal, y ~ N(μ, Σ) (Σ from the clipped channel
+  variances and the slopes, as for the per-component path). With L = wᵀy (w the sRGB Y row), y_k given L is normal with mean
+  μ_k + β_k(L − μ_L), β = Σw/(wᵀΣw), and variance Σ_kk − β_k(Σw)_k (standard Gaussian conditioning). For each L the rendered
+  component clip(y_k·r(L), 0, 1), r = f(L)/L (r = 1 for L ≤ 0, as `prepareSdrPixelTone`), has the closed-form clipped-normal
+  moments, so the mean and variance are 1-D integrals over L. **Full:** a composite 16-point Gauss–Legendre rule over
+  μ_L ± 8.5σ_L in 4 panels, split at L = 0, in standardized units. **Fast:** an 8-point Gauss–Hermite rule where μ_L > 17σ_L
+  (the ratio is smooth over the range), else the full rule. Expected slopes for the noise split (Stein's lemma):
+  E[∂out_k/∂y_j] = E[1_in·(δ_kj·r + y_k·r′(L)·w_j)], plus, where the ratio jumps at L = 0 (Naka–Rushton with n ≠ 1), the
+  jump's term p_L(0)·E[out(0+) − out(0−) | L = 0]·w_j.
+- **Reconstruct and desaturation, by a 3-D rule.** Where a pixel's camera channels reach the reconstruct blend (any channel
+  within 8.5σ of 0.8 of white or above) or, with the desaturation, a rendered component reaches 1 within reach, the whole chain
+  (white balance, highlight, matrix, tone curve, desaturation, clip) is integrated over the pixel's normal camera channels with a
+  tensor Gauss–Hermite rule in Cholesky coordinates, with the chain's slopes (a.e.) at each node. **Full:** 16 points per axis
+  (4,096 nodes). **Fast:** 6 per axis (216). Elsewhere `reconstruct` is the unclipped white balance (exactly linear) and the
+  desaturation changes nothing. The Gauss–Hermite nodes are the eigenvalues of the Jacobi matrix (Golub & Welsch 1969), found by
+  Sturm-sequence bisection with correctly rounded operations only (the same bits in every engine).
+
+**Accuracy (measured, `test/display-view-coupled-rendering.test.ts`).** Against seeded Monte Carlo of the same chain (400,000
+draws): tone-curve means within four standard errors and variances within 2 %; the chain's means within 1·10⁻³ plus four
+standard errors (the 16-point rule's own error at kinks, measured ≤ 5.3·10⁻⁴ against a 48-point rule at channel σ up to 0.1)
+and variances within 10 %. Fast against full over a seeded sweep (300 means and covariances, channel σ up to 0.076): tone
+6.7·10⁻⁶; chain 1.5·10⁻² (2.4·10⁻⁴ for σ ≤ 0.01, base-ISO noise), in linear light. Against the downsized capture
+(24 × 16 views of a 192 × 128 frame): the Standard and Flat looks, extended Reinhard, reconstruct and the desaturation agree in
+every channel's mean within 0.5–0.6 codes plus three standard errors, fast and full.
+
+**Scientific status.** Full: exact in the limit of the view's normal model. Fast: an approximation within the bounds above.
+
+**Highlight reconstruction from neighbors (#602).** `highlightMode: "reconstruct-neighbors"` rebuilds clipped channels from the
+color ratios around each clipped region (src/color/neighbor-highlight-reconstruction.ts): pixels within 2 of a clipped pixel
+(whose demosaic reads clipped sites) are widened into the region; the region takes the mean ratios of the unclipped pixels within
+2 more pixels (fast) or their harmonic interpolation inward (full, successive over-relaxation). The view finds each clipped region
+on demand from the render's noise-free channels (the expected sites through the bilinear kernels) and integrates each real
+pixel's rebuild over its normal channels with the 3-D rule above. Measured against the downsized capture of an over-exposed
+color chart (24 × 16 views of 192 × 128): channel means within 0.03 codes; per display pixel within 2.1 codes fast (the clip
+mode's own 2.1, the capture's noise) and 4.4 full (the capture's noisy boundary values against the view's noise-free ones). A
+region larger than 65,536 (fast) or 262,144 (full) pixels takes its ratios from the part searched (counted, not otherwise
+signalled).
+
+**GPU.** The Speed and Quality kernels run the luminance tone curves, `reconstruct` and the desaturation, with the fast and the
+full rules ([WEBGPU.md](WEBGPU.md#coupled-rendering-steps-593-601)). `reconstruct-neighbors` runs on the CPU reference in 2.22.0.
+
 ## Drawing the noise near a bound
 
 The drawn display value is clipped to [0, 1] like any light level. Where its noise reaches 0 or 1
@@ -1597,6 +1645,12 @@ Approximations, recorded in the `view.*` assumptions:
   <https://www.itl.nist.gov/div898/handbook/>.
 - W. R. Bennett, "Spectra of quantized signals", *Bell System Technical Journal* 27(3), 1948, free at
   <https://archive.org/details/bstj27-3-446> (quantization noise Δ²/12).
+- G. H. Golub, J. H. Welsch, "Calculation of Gauss quadrature rules", *Mathematics of Computation* 23(106), 1969, free at
+  <https://www.ams.org/journals/mcom/1969-23-106/> (nodes as the Jacobi matrix's eigenvalues); NIST *Digital Library of
+  Mathematical Functions* §3.5(v), Gauss quadrature, free at <https://dlmf.nist.gov/3.5#v>.
+- E. Reinhard, M. Stark, P. Shirley, J. Ferwerda, "Photographic tone reproduction for digital images", *ACM SIGGRAPH* 2002
+  (eq. 4, extended Reinhard), and K. I. Naka, W. A. H. Rushton (1966), via E. Reinhard, K. Devlin, "Dynamic range reduction
+  inspired by photoreceptor physiology", *IEEE TVCG* 11(1), 2005: the tone curves' forms, as cited in src/output/sdr-rendering.ts.
 - M. Abramowitz, I. A. Stegun, *Handbook of Mathematical Functions*, NBS AMS 55 (1964), free US government
   work (26.2.17 normal distribution function; 25.4.29 Gauss–Legendre quadrature).
 - EMVA Standard 1288 Release 4.0 Linear, free at <https://www.emva.org/standards-technology/emva-1288/>
