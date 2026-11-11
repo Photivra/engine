@@ -63,15 +63,27 @@ describe("native-photosite sensor figures (#595)", () => {
     expect(linked.sensor.fullWellElectrons).toBeCloseTo(160000, 6);
     const unlinked = await capture({ pixelPitchMicrometers: 12, fullWell: { electrons: 40000, link: "none" }, readNoise: { lowGainElectrons: 3 } });
     expect(unlinked.sensor.native.fullWellElectrons).toBeCloseTo(40000, 6);
-    // sensor.readNoise is the rendered site's read noise on a tier (owner decision 2026-11-11): the photosite's is that over √N (N = 4 here).
-    expect(unlinked.sensor.readNoise.lowGainElectrons).toBe(3);
-    expect(unlinked.sensor.native.readNoiseElectrons).toBeCloseTo(1.5, 12);
-    // On a sensor profile's downsized view it is per photosite (#554): the site's is ×√N.
-    const profile = SENSOR_PROFILES[0]!, binned = await capture({ profile, pixelPitchMicrometers: profile.pixelPitchMicrometers * 2, readNoise: { lowGainElectrons: 3 } }, manual(profile.baseIso));
-    expect(binned.sensor.native.readNoiseElectrons).toBeCloseTo(3, 12);
-    expect(binned.sensor.readNoise.lowGainElectrons).toBeCloseTo(6, 12);
+    // sensor.readNoise is per physical photosite (owner decision 2026-11-11): the 12 µm site sums N = 4 photosites, so its read noise is ×2.
+    expect(unlinked.sensor.native.readNoiseElectrons).toBe(3);
+    expect(unlinked.sensor.readNoise.lowGainElectrons).toBeCloseTo(6, 12);
     expect((await capture({}, { fast: true })).sensor.native.midGrey).toBeUndefined();
   }, scaledTimeout(60_000));
+});
+
+describe("sensor.readNoise per physical photosite on tiers and profiles alike (2.22.0)", () => {
+  it("scales a given read noise by √N wherever a site sums N photosites, and reports it as given for the photosite", async () => {
+    const profile = SENSOR_PROFILES[0]!;
+    for (const [sensor, nativePitch] of [[{}, 6], [{ profile }, profile.pixelPitchMicrometers]] as const) {
+      for (const N of [1, 4, 9]) {
+        const r = await capture({ ...sensor, pixelPitchMicrometers: nativePitch * Math.sqrt(N), readNoise: { lowGainElectrons: 2.5, highGainElectrons: 1.2, highGainFromIso: 1e6 } }, manual(100));
+        expect(r.sensor.native.photositesPerSite).toBeCloseTo(N, 9);
+        expect(r.sensor.native.readNoiseElectrons, JSON.stringify([nativePitch, N])).toBeCloseTo(2.5, 12);
+        expect(r.sensor.readNoise.lowGainElectrons, JSON.stringify([nativePitch, N])).toBeCloseTo(2.5 * Math.sqrt(N), 12);
+      }
+    }
+    // Below one photosite the given value is kept.
+    expect((await capture({ pixelPitchMicrometers: 3, readNoise: { lowGainElectrons: 2.5 } })).sensor.readNoise.lowGainElectrons).toBe(2.5);
+  }, scaledTimeout(120_000));
 });
 
 describe("the tiers' read noise of a site that sums photosites (#599)", () => {

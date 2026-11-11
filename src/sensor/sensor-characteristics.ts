@@ -36,9 +36,9 @@ export interface SimulateCaptureSensorCharacteristics {
    */
   fullWell?: { electrons: number; link?: "pixel-area" | "none"; referencePixelPitchMicrometers?: number };
   /**
-   * Read noise, RMS e⁻ (0–100), of each rendered site (2.22.0: on a tier above its 6 µm photosite a site sums N photosites and this
-   * is the site's value, the photosite's being that over √N; with `sensor.profile` it is per photosite and the site takes it ×√N), of
-   * the low and the high conversion gain, and the dual-gain switch: the ISO setting from
+   * Read noise, RMS e⁻ (0–100), of one physical photosite, as a sensor datasheet gives it (2.22.0: on a tier too; a rendered site that
+   * sums N photosites, above the tier's 6 µm or a profile's own pitch, takes it ×√N), of the low and the high conversion gain, and
+   * the dual-gain switch: the ISO setting from
    * which the high conversion gain is used (any ISO from 100; above the body's highest ISO, the low gain is used throughout).
    * An omitted field keeps the body's value. Needs readout regimes that declare their exposure index (the tiers do).
    */
@@ -215,8 +215,8 @@ export function declaredReadNoise(profile: SensorReadoutConversionProfile): Simu
  * e⁻ per code, and pre-ADC saturation, e⁻ equivalent) multiplied by `chargeScale`, so a full well `chargeScale` times the
  * body's reaches the same white code; with `adcBitDepth`, the black level ×2^Δbits (rounded), the saturation code 2^bits − 1
  * and the conversion gain over the new code span; with `readNoise`, one electronic read-noise component per regime, the high
- * conversion gain's from `highGainFromIso`; otherwise every read-noise component times `readNoiseScale` (#599: √N for a site that sums N
- * photosites, as the sensor-profile path does). Codes per unit charge of the base regime otherwise, digital gain and the ISO
+ * conversion gain's from `highGainFromIso`; every read noise (the body's or the request's) times `readNoiseScale` (#599: √N for a site
+ * that sums N photosites, as the sensor-profile path does). Codes per unit charge of the base regime otherwise, digital gain and the ISO
  * selection are unchanged. Re-checked by the readout parser. With nothing to change, the profile itself.
  */
 export function characterizeReadout(profile: SensorReadoutConversionProfile, chargeScale: number, c?: ParsedSensorCharacteristics, readNoiseScale = 1): SensorReadoutConversionProfile {
@@ -232,7 +232,7 @@ export function characterizeReadout(profile: SensorReadoutConversionProfile, cha
     if (n) {
       const gain = regime.exposureIndexGain ?? fail("sensor.readNoise needs readout regimes that declare their exposure index.");
       const from = n.highGainFromIso ?? declared!.highGainFromIso ?? Infinity, high = gain.exposureIndex >= from;
-      const value = high ? n.highGainElectrons ?? declared!.highGainElectrons : n.lowGainElectrons ?? declared!.lowGainElectrons;
+      const value = (high ? n.highGainElectrons ?? declared!.highGainElectrons : n.lowGainElectrons ?? declared!.lowGainElectrons) * readNoiseScale;
       out.readNoiseComponents = [{ componentId: "electronic", rmsElectrons: { value, evidence: regime.evidence }, evidence: regime.evidence }];
       out.exposureIndexGain = { ...gain, conversionGainMode: high ? "high-conversion-gain" : "low-conversion-gain" };
     } else if (readNoiseScale !== 1) out.readNoiseComponents = regime.readNoiseComponents.map((component) => ({ ...component, rmsElectrons: { ...component.rmsElectrons, value: component.rmsElectrons.value * readNoiseScale } }));
