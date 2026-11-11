@@ -1868,6 +1868,7 @@ export { IDEAL_LENS_LIMITS } from "./equipment/ideal-lens.js";
 export { GENERIC_LENS_CATALOGUE, GENERIC_LENS_IDS, GENERIC_LENS_SET_BASELINES, resolveGenericLens, simulateGenericLensFocusError, type GenericLensCatalogueEntry,
   type GenericLensSet, type GenericLensKind, type GenericLensCharacterValues, type GenericLensAdjustments, type GenericLensCharacter, type ResolvedGenericLens,
   type ResolveGenericLensInput, type SimulateGenericLensFocusErrorInput, type GenericLensFocusError } from "./equipment/generic-lens-catalogue.js";
+export { calculateCameraChannelResponse, type CalculateCameraChannelResponseInput, type CameraChannelResponse } from "./output/camera-channel-response.js";
 export { calculateChannelEffectiveDispersion, createGenericLensCorrectionProfile, GENERIC_LENS_CORRECTION_CHANNEL_WAVELENGTHS_NM, type CalculateChannelEffectiveDispersionInput, type ChannelDispersion,
   type CreateGenericLensCorrectionProfileInput } from "./output/generic-lens-corrections.js";
 export { calculateLateralColorFringe, type CalculateLateralColorFringeInput, type LateralColorFringe, type LateralColorDisplacement } from "./optics/generic-lens-lateral-color.js";

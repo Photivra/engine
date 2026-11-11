@@ -7547,7 +7547,8 @@ correction profile for `resolveLensCorrectionPlan`, which `simulateCapture` appl
 ([quick start](QUICK_START.md#generic-lens-catalogue-549)); `fast: true` (or `lens: { catalogue: { kind, fast: true } }`) takes its
 fast method (#568), a labeled approximation that blends the PSF over a field grid, for interactive captures.
 `calculateLateralColorFringe({ lensId, activeImagingArea, pixelPitchMicrometers, fieldPosition? })` gives the lens's lateral color as a
-fringe width: the blue-minus-red image displacement in µm and pixels at a field position (default the corner; #580). Equations, tables and the
+fringe width: the blue-minus-red image displacement in µm and pixels at a field position (default the corner; #580); its `channelDispersion` for
+the capture's own channels comes from `calculateCameraChannelResponse({ illuminant })` (#591, full quality: a 5 nm grid by default). Equations, tables and the
 chart measurements: [LENS_CATALOGUE.md](https://github.com/Photivra/photivra/blob/main/docs/LENS_CATALOGUE.md).
 
 ```ts
