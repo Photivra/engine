@@ -7,6 +7,8 @@
  * The design and its error analysis are in docs/DISPLAY_VIEW.md.
  */
 
+import { DISPLAY_VIEW_CHAIN_POINTS, type DisplayViewRenderingChoice } from "./display-view-rendering.js";
+import type { SdrToneCurveParameters } from "../output/sdr-rendering.js";
 import { ENGINE_API_VERSION } from "../core/version.js";
 import { resolvePortableColorTemperatureWhiteBalance } from "../color/white-balance.js";
 import { resolveCaptureColorModel } from "../color/capture-color.js";
@@ -270,7 +272,11 @@ function prepareView(context: DisplayViewRunContext): PreparedViewParts {
   // Reach of a footprint's pixels into the scene, in sites: the demosaic (1), the largest query offset and the kernel radius.
   const reachSites = (ahd ? 3 : 1) + Math.ceil(Math.max(0, ...offsets.map((o) => Math.max(Math.abs(o.x), Math.abs(o.y))))) + (kernels ? kernels.radius : 0) + (largeDefocus ? largeDefocus.radius : 0);
   // The inputs of the AHD correction states (fixed here, so the correction key is too; #447).
-  const gains = colour.appliedGains as [number, number, number], clipLevel = Math.min(...colour.appliedGains), viewToneCurve = toneCurve as "identity" | "positive-reinhard-per-channel";
+  const gains = colour.appliedGains as [number, number, number], clipLevel = Math.min(...colour.appliedGains), viewToneCurve = toneCurve;
+  // #593, #601: the coupled rendering steps (luminance curves, reconstruct, desaturation), with the fast rules when the request is fast.
+  const coupledRendering = toneCurve === "extended-reinhard-luminance" || toneCurve === "naka-rushton-luminance" || highlightMode === "reconstruct" || context.gamutHandling === "desaturate-to-luminance";
+  const rendering: DisplayViewRenderingChoice | undefined = coupledRendering ? { toneCurve, ...(outputOptions.toneCurveParameters === undefined ? {} : { toneCurveParameters: outputOptions.toneCurveParameters as SdrToneCurveParameters }),
+    highlightMode, gamutHandling: context.gamutHandling, fast: context.viewFast.rendering } : undefined;
   const ahdFast = +context.viewFast.ahd, correctionDraws = DISPLAY_VIEW_AHD_CORRECTION_DRAWS[ahdFast]!, correctionThreshold = DISPLAY_VIEW_AHD_CORRECTION_THRESHOLD;
   const ahdCorrection = ahd ? { labMatrix: CAMERA_TO_XYZ.map((row) => row.map((value, c) => value * (viewGains ? viewGains[c]! : 1))), drawsPerState: correctionDraws,
     thresholdVariance: correctionThreshold * correctionThreshold } : undefined;
@@ -288,16 +294,16 @@ function prepareView(context: DisplayViewRunContext): PreparedViewParts {
     return { signal, setup: { frameWidth: width, frameHeight: height, margin, nativeWidth, nativeHeight, viewWidth: v.width, viewHeight: v.height,
       region: viewRegion, samplesPerAxis: v.samplesPerAxis, uniformSamplesPerAxis: uniformSamplesOf(v.samplesPerAxis), reachSites, bitDepth: v.bitDepth, seed: noiseSeed, signal, readout, demosaic: demosaicTable,
       ...(ahdCandidates && ahdCorrection ? { candidates: ahdCandidates, ahdCorrection } : {}), ...(ahdCollect ? { ahdCollect } : {}),
-      gains, clipLevel, matrix, toneCurve: viewToneCurve, yieldControl, checkAbort, gpu: { signalInput, chart: viewChart ?? null, layers: materialLayers ?? null, placement, ...(defocusKernel && !largeDefocus ? { defocusRadius: defocusKernel.radius } : {}) } } };
+      gains, clipLevel, matrix, toneCurve: viewToneCurve, ...(rendering ? { rendering } : {}), yieldControl, checkAbort, gpu: { signalInput, chart: viewChart ?? null, layers: materialLayers ?? null, placement, ...(defocusKernel && !largeDefocus ? { defocusRadius: defocusKernel.radius } : {}) } } };
   };
-  const correction: DisplayViewCorrectionSetup | undefined = ahdCorrection ? { seed: noiseSeed, readout, gains, clipLevel, matrix, toneCurve: viewToneCurve, ahdCorrection } : undefined;
+  const correction: DisplayViewCorrectionSetup | undefined = ahdCorrection ? { seed: noiseSeed, readout, gains, clipLevel, matrix, toneCurve: viewToneCurve, ...(rendering ? { rendering } : {}), ahdCorrection } : undefined;
   const collect = async (v: ParsedDisplayView, run: ViewRun): Promise<Int32Array> => {
     const keys = new Set<number>();
     await renderDisplayView(setupOf(v, run, keys).setup);
     return Int32Array.from(keys).sort();
   };
   // #492: out of focus the view reads the defocus disc (its kernel in signalInput.kernels); the GPU Quality site pass gathers it (step 2c).
-  const gpuRequest: DisplayViewGpuRequest = { ahd, lens: !!context.lens, ...(viewMixed ? { mixedIllumination: true } : {}), defocus: defocusKernel !== null, ...(largeDefocus ? { largeDefocus: true } : {}), diffraction: diffraction !== undefined, antiAliasing: antiAliasing !== undefined, boxSamples, toneCurve: viewToneCurve,
+  const gpuRequest: DisplayViewGpuRequest = { ahd, lens: !!context.lens, ...(viewMixed ? { mixedIllumination: true } : {}), defocus: defocusKernel !== null, ...(largeDefocus ? { largeDefocus: true } : {}), diffraction: diffraction !== undefined, antiAliasing: antiAliasing !== undefined, boxSamples, toneCurve: viewToneCurve, ...(highlightMode === "reconstruct" || context.gamutHandling === "desaturate-to-luminance" ? { coupled: true } : {}),
     scene: chart ? "chart" : materialLayers ? "material-layers" : callerScene!.kind };
   const render: RenderPreparedView = async (v, run, viewInternals, gpu) => {
     const { started, viewStarted } = run;
@@ -361,6 +367,14 @@ function prepareView(context: DisplayViewRunContext): PreparedViewParts {
         "Estimated on the GPU: this view was rendered by the WebGPU float32 display-view renderer, a labelled approximation of the float64 CPU reference within the a-priori " +
         "error bound reported in diagnostics.fast.execution.errorBound; it is not bit-identical to the reference. The device passed the engine's run-time conformance check first.");
     }
+    if (rendering) assume("view.rendering", "model", { toneCurve, highlightMode, gamutHandling: rendering.gamutHandling, method: "coupled-moments",
+      luminanceTone: rendering.toneCurve === "extended-reinhard-luminance" || rendering.toneCurve === "naka-rushton-luminance" ? (rendering.fast ? "gauss-hermite-8-in-luminance-else-gauss-legendre-4x16" : "gauss-legendre-4x16-in-luminance") : null,
+      chainPointsPerAxis: rendering.fast ? DISPLAY_VIEW_CHAIN_POINTS.fast : DISPLAY_VIEW_CHAIN_POINTS.full, fast: rendering.fast, scientificStatus: rendering.fast ? "approximation" : "exact-in-the-limit" },
+      "The rendering steps that couple a pixel's components act on its normal camera-channel distribution: a luminance tone curve by conditioning each developed component on the luminance " +
+      "(closed-form clipped-normal moments for each luminance, integrated over it" + (rendering.fast ? " with an 8-point Gauss–Hermite rule where the luminance stays positive" : " with a composite 4 × 16-point Gauss–Legendre rule") + "); " +
+      "highlightMode \"reconstruct\" and the desaturation, where a pixel reaches them, by integrating the whole development chain over its camera channels with a " +
+      (rendering.fast ? DISPLAY_VIEW_CHAIN_POINTS.fast : DISPLAY_VIEW_CHAIN_POINTS.full) + "-point-per-axis Gauss–Hermite rule (docs/DISPLAY_VIEW.md, \"Coupled rendering\"). " +
+      (rendering.fast ? "The fast rules (the request resolves to fast) are a bounded approximation of the full ones." : "The full rules converge to the exact moments of the view's normal model."));
     assume("view.source", "model", { rendering: "srgb", format: v.format, ignoredCaptureOutput: ["format", "colorEncoding", "bitDepth", "gamutMapping", "jpegQuantizationStep", "dng", "metadata", "maximumPixels"].filter((k) => outputOptions[k] !== undefined) },
       "The view shows the capture's sRGB rendering (its tone curve, white balance and highlight mode); the capture's file-format options do not apply to it.");
     return Object.freeze({ kind: "display-view" as const, label: "Display view: the full-resolution capture resized to " + v.width + " × " + v.height + " (estimated); not a capture.",

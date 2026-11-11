@@ -254,6 +254,7 @@ export function displayViewQualityGpuUnsupportedReason(setup: DisplayViewSetup, 
   if (!signalInput.kernels && !signalInput.queryPoint) return "the expected signal has no query points";
   if (setup.ahdCollect) return "a collect pass of the correction states runs on the CPU";
   if (setup.toneCurve !== "identity" && setup.toneCurve !== "positive-reinhard-per-channel") return "unsupported tone curve " + String(setup.toneCurve);
+  if (setup.rendering) return "the coupled rendering steps (luminance tone curves, highlightMode reconstruct, desaturate-to-luminance) are not in the Quality kernel";
   if (setup.region.width < 1 || setup.region.height < 1) return "an empty region";
   if (signalInput.wavelengthsNm.length < 1 || signalInput.wavelengthsNm.length > DISPLAY_VIEW_QUALITY_MAXIMUM_NODES) return "the site passes integrate 1 to " + DISPLAY_VIEW_QUALITY_MAXIMUM_NODES + " spectral nodes per site";
   if (signalInput.kernels && (signalInput.kernels.radius < 0 || signalInput.kernels.radius > DISPLAY_VIEW_QUALITY_MAXIMUM_KERNEL_RADIUS))

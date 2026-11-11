@@ -243,7 +243,9 @@ have a fast method, a measured and bounded approximation of it. One flag style s
   fast, 8192 draws at the same threshold exact) and its quarter sampling of uniform pixels (H2); `prepareDisplayView`'s `gpu`
   (`"auto"` fast, `"off"` exact; an explicit value wins); and `result.sensor.midGrey` (#535, computed only on exact requests). In 2.22.0: `motion.subject`'s temporal midpoints (#551: with the default count and a still camera, fast takes one
   midpoint per site of the subject's streak plus one when that is fewer than 8; exact keeps the 8; an explicit
-  `sensor.temporalSampleCount` always wins). The
+  `sensor.temporalSampleCount` always wins); the display view's coupled rendering steps (#593, #601: a luminance tone curve's
+  moments by an 8-point Gauss–Hermite rule in luminance fast, a composite 4 × 16-point Gauss–Legendre rule exact; the reconstruct
+  blend and the desaturation by 6 Gauss–Hermite points per axis fast, 16 exact; docs/DISPLAY_VIEW.md, "Coupled rendering"). The
   records of `lens.diffraction`, `sensor.antiAliasing`, `sensor.pixelAperture` and `output.demosaic` (in captures) take `fast`
   with no fast method yet. `test/fast-methods-registry.test.ts` fails when a record accepts `fast` without an entry, an entry
   lacks its resolver or report, or a format default leaves the rule. **Every new fast method adds its entry.**

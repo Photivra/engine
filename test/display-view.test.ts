@@ -446,8 +446,8 @@ describe("simulateDisplayView", () => {
     // #563: lens.projection, lens.distortion, lens.vignetting and camera rotation render (test/display-view-lens.test.ts), except rotation under a rolling shutter.
     for (const extra of [{ lens: { pupilSampling: { radialSamples: 1, angularSamples: 4 } } }, { motion: { angularVelocityRadPerSec: { yaw: 0.01 }, shutter: "rolling" } },
       { output: { width: 16, height: 16, region: { x: 0, y: 0, width: 4, height: 4 } } },
-      { output: { width: 16, height: 16, whiteBalance: "auto" } }, { output: { width: 16, height: 16, toneCurve: "extended-reinhard-luminance", toneCurveParameters: { whiteLuminance: 2 } } },
-      { output: { width: 16, height: 16, highlightMode: "reconstruct" } }] as Partial<SimulateCaptureOptions>[])
+      // #593 (2.22.0): luminance tone curves and highlightMode "reconstruct" render (test/display-view-coupled-rendering.test.ts).
+      { output: { width: 16, height: 16, whiteBalance: "auto" } }] as Partial<SimulateCaptureOptions>[])
       await expect(simulateDisplayView({ ...base, ...extra } as SimulateCaptureOptions, { width: 4, height: 4 })).rejects.toThrow(InvalidConfigurationError);
   });
 });

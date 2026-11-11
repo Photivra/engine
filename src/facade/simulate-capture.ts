@@ -562,6 +562,14 @@ export interface SimulateCaptureOptions {
      * honour it. Reported in the assumption `output.exposureCompensationStops`. 0 or omitted: byte-identical to before.
      */
     exposureCompensationStops?: number;
+    /**
+     * #601 (2.22.0, opt-in): the sRGB rendering's gamut handling after the tone curve. "clip-components" (the default) clips
+     * each component to [0, 1]; "desaturate-to-luminance" moves a pixel whose largest component exceeds 1 toward the gray of its
+     * own luminance until that component is 1, keeping its luminance and hue (`desaturateToLuminance`, src/output/sdr-rendering.ts),
+     * instead of shifting bright saturated colors toward the secondaries. sRGB output only (not with a wide-gamut `colorEncoding`
+     * or `gamutMapping`). Reported in the assumption `output.gamutHandling`. Omitted: byte-identical to before.
+     */
+    gamutHandling?: SdrRenderingProfile["gamutHandling"] & ("clip-components" | "desaturate-to-luminance");
     /** Default "scene-illuminant". */
     whiteBalance?: SimulateCaptureWhiteBalance;
     /** JPEG constant quantization step 1-255 (not a manufacturer 'quality'). Default 1 (2.20.0; 2 before), the full-quality export. */
@@ -1711,7 +1719,9 @@ export interface DisplayViewRunContext {
   regimeByChannel: Record<"red" | "green" | "blue", { readoutProfile: ReadoutProfile; regimeId: string; }>;
   sensor: SimulateCaptureSensorReport;
   /** 2.20.0: the view's own fast methods, resolved: the AHD low-signal correction's draws and threshold (`output.demosaic.ahd`) and the quarter sampling of uniform pixels (top-level `fast`). */
-  viewFast: { ahd: boolean; uniformSampling: boolean };
+  viewFast: { ahd: boolean; uniformSampling: boolean; rendering: boolean };
+  /** #601: the sRGB rendering's gamut handling. */
+  gamutHandling: "clip-components" | "desaturate-to-luminance";
   resolvedIso: number;
   /** #516: how the ISO was chosen, reported in the view's `exposure`. */
   isoReport: { isoControl: "manual" | "automatic"; autoIso?: SimulateCaptureAutoIsoReport };
@@ -2119,7 +2129,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   const diffractionObjectSpace = diffractionRadiusOption !== undefined && !rotating && !subject && !lensFieldMapping && !vignetting;
 
   // Output and sensor
-  const outputOptions = allowKeys(top.output, "output", ["width", "height", "format", "toneCurve", "toneCurveParameters", "highlightMode", "exposureCompensationStops", "whiteBalance", "jpegQuantizationStep",
+  const outputOptions = allowKeys(top.output, "output", ["width", "height", "format", "toneCurve", "toneCurveParameters", "highlightMode", "gamutHandling", "exposureCompensationStops", "whiteBalance", "jpegQuantizationStep",
     "colorEncoding", "bitDepth", "gamutMapping", "demosaic", "borderHandling", "dng", "maximumPixels", "region", "metadata", "diffractionCorrection", "sharpening", "lensCorrections"]);
   // Opt-in large images: a caller-raised native pixel limit. Without it the 4094-pixel sides are unchanged.
   const raisedPixels = outputOptions.maximumPixels === undefined ? undefined : integerIn(outputOptions.maximumPixels, "output.maximumPixels", 1, NATIVE_RAW_LIMITS.ceilingPixels);
@@ -2190,6 +2200,17 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
       "A site pushed to or past white clips at white and counts as saturated (highlightMode \"reconstruct\" rolls it off). The RAW codes are unchanged" + (format === "dng" ? ", and the DNG holds the unmodified RAW." : "."));
   }
   const exposureGain = exposureCompensationStops === 0 ? 1 : 2 ** exposureCompensationStops;
+  // #601: the hue-preserving gamut handling. Opt-in: no assumption when omitted.
+  const gamutHandling = outputOptions.gamutHandling ?? "clip-components";
+  if (gamutHandling !== "clip-components" && gamutHandling !== "desaturate-to-luminance") fail("output.gamutHandling must be clip-components or desaturate-to-luminance.");
+  if (outputOptions.gamutHandling !== undefined) {
+    if (linearPath) fail("output.gamutHandling applies to the sRGB rendering only, not with a wide-gamut output.colorEncoding or output.gamutMapping \"perceptual\".");
+    assume("output.gamutHandling", "model", { method: gamutHandling, luminance: "linear-srgb-d65-relative-luminance" }, gamutHandling === "clip-components" ?
+      "Out-of-gamut components are clipped to [0, 1] after the tone curve." :
+      "After the tone curve, a pixel whose largest component exceeds 1 is moved toward the gray of its own luminance until that component is 1: its luminance and hue " +
+      "(the line from the white point through its chromaticity) are kept instead of the component clip's shift toward the secondaries; a pixel whose luminance is at or above 1 is white. " +
+      "Negative components are still clipped to 0. An engine rendering choice, not a camera maker's gamut mapping.");
+  }
   const whiteBalanceOption = pick<SimulateCaptureWhiteBalance>(outputOptions, "whiteBalance", "output.whiteBalance", DEFAULTS.whiteBalance,
     "White balance measured from a perfect white diffuser under the scene illuminant (a custom/grey-card white balance).");
   const jpegStep = format === "jpeg" ? integerIn(pick(outputOptions, "jpegQuantizationStep", "output.jpegQuantizationStep", DEFAULTS.jpegQuantizationStep,
@@ -2247,9 +2268,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
       "the view renders sideways motion under a global shutter only; simulateCapture renders both.");
     if (outputOptions.region !== undefined) unsupported("output.region", "pass the rectangle as view.region, in display pixels.");
     if (outputOptions.whiteBalance === "auto") unsupported("output.whiteBalance \"auto\"", "the capture measures it from its noisy full-resolution RAW; use \"scene-illuminant\" or a fixed white balance.");
-    if (outputOptions.toneCurve !== undefined && outputOptions.toneCurve !== "identity" && outputOptions.toneCurve !== "positive-reinhard-per-channel")
-      unsupported("output.toneCurve " + String(outputOptions.toneCurve), "luminance tone curves couple the channels; the view supports identity and positive-reinhard-per-channel.");
-    if (outputOptions.highlightMode === "reconstruct") unsupported("output.highlightMode \"reconstruct\"", "the view supports the per-channel highlight clip.");
+    // #593 (2.22.0): luminance tone curves, highlightMode "reconstruct" and (#601) the desaturation render (display-view-rendering.ts).
     if (outputOptions.diffractionCorrection !== undefined || outputOptions.sharpening !== undefined)
       unsupported("output.diffractionCorrection or output.sharpening", "the development detail stages filter the whole developed capture image.");
     if (outputOptions.lensCorrections !== undefined) unsupported("output.lensCorrections", "the corrections resample the developed capture image.");
@@ -3009,8 +3028,8 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
 
   const rendering: SdrRenderingProfile = { schemaVersion: "0.1.0", profileId: "facade-sdr", profileVersion: "1", renderingExposureEv: 0, toneCurve,
     ...(outputOptions.toneCurveParameters === undefined ? {} : { toneCurveParameters: outputOptions.toneCurveParameters as SdrToneCurveParameters }),
-    gamutHandling: "clip-components", outputDynamicRange: "sdr", transferFunction: "srgb", bitDepth: format === "srgb-16" || (format === "png" && !wideGamut && pngBitDepth === 16) ? 16 : 8, rounding: "nearest-ties-up", dither: "none" };
-  if (!linearPath) assume("output.rendering", "model", { renderingExposureEv: 0, gamutHandling: "clip-components" },
+    gamutHandling, outputDynamicRange: "sdr", transferFunction: "srgb", bitDepth: format === "srgb-16" || (format === "png" && !wideGamut && pngBitDepth === 16) ? 16 : 8, rounding: "nearest-ties-up", dither: "none" };
+  if (!linearPath) assume("output.rendering", "model", { renderingExposureEv: 0, gamutHandling },
     exposureGain === 1 ? "Developed linear sRGB/D65 with the RAW white level mapped to display white, no exposure push, out-of-gamut components clipped." :
       "Developed linear sRGB/D65 with the RAW white level mapped to display white, no further exposure push after development (output.exposureCompensationStops acts on the RAW), out-of-gamut components clipped.");
   else assume("output.rendering", "model", { renderingExposureEv: 0, gamutHandling: "clip-components-in-target-gamut", sdrRendererUsed: false },
@@ -3388,7 +3407,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   const sensor = sensorReport(regimeByChannel.green.readoutProfile, regimeByChannel.green.regimeId, capacityElectrons, greyElectrons, DARK_CURRENT_ELECTRONS_PER_SECOND * shutterSeconds,
     { pixelPitchMicrometers: pitch, peakQuantumEfficiency: 0.5 * qeScale,
       readoutSeconds: characteristics?.readoutSeconds ?? (body as { rollingReadoutTiming?: { profile: { spatialSamplingSkewSeconds?: { value: number } } } }).rollingReadoutTiming?.profile.spatialSamplingSkewSeconds?.value ?? null }, fixedPattern);
-  if (displayView) return await renderView!({ sensor, viewFast: { ahd: viewAhdFast, uniformSampling: fastTop }, lens: lensSignal, lensPsf: displayViewLensPsf, movingScene, ahd, fastReport, antiAliasing, aspect, assume, assumptions, axisChannelResponse, boxSamples, buildProvider, callerScene, chart, materialLayers, chartReport, chartSize, diffraction, defocus: displayViewDefocus, diffractionPsf, fNumber, focalLengthMm, focusDistanceM, height, highlightMode, exposureGain, illuminanceLux, illuminant, illuminantOption, imagingArea, intentOf, metresPerFrameUnit, noiseSeed, outputOptions, parsedView, pitch, preset, provider, regimeByChannel, resolvedIso, isoReport, standardExposureDeviationStops: exposureDeviationStops, standardExposureIlluminanceLux: exposureIlluminanceLux, greyCardDeviationStops: exposureGreyCardDeviationStops, metering, sceneOption, scenePreset, shutterSeconds, started, subjectDistanceM, toneCurve, whiteBalanceOption, whiteBalanceState, width, checkAbort, margin, mode, nativeHeight, nativeWidth, sourceSha256, yieldControl, kelvinWhiteBalanceInput,
+  if (displayView) return await renderView!({ sensor, viewFast: { ahd: viewAhdFast, uniformSampling: fastTop, rendering: fastTop }, gamutHandling, lens: lensSignal, lensPsf: displayViewLensPsf, movingScene, ahd, fastReport, antiAliasing, aspect, assume, assumptions, axisChannelResponse, boxSamples, buildProvider, callerScene, chart, materialLayers, chartReport, chartSize, diffraction, defocus: displayViewDefocus, diffractionPsf, fNumber, focalLengthMm, focusDistanceM, height, highlightMode, exposureGain, illuminanceLux, illuminant, illuminantOption, imagingArea, intentOf, metresPerFrameUnit, noiseSeed, outputOptions, parsedView, pitch, preset, provider, regimeByChannel, resolvedIso, isoReport, standardExposureDeviationStops: exposureDeviationStops, standardExposureIlluminanceLux: exposureIlluminanceLux, greyCardDeviationStops: exposureGreyCardDeviationStops, metering, sceneOption, scenePreset, shutterSeconds, started, subjectDistanceM, toneCurve, whiteBalanceOption, whiteBalanceState, width, checkAbort, margin, mode, nativeHeight, nativeWidth, sourceSha256, yieldControl, kelvinWhiteBalanceInput,
     mixedIllumination: mixedKit && lightKit });
   // Ideal reference (2.3): the scene without camera effects, at the capture's own exposure, white balance and encoding.
   if (idealReference) {

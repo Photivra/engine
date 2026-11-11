@@ -133,6 +133,7 @@ export function displayViewSpeedGpuUnsupportedReason(setup: DisplayViewSetup, si
   if (!signalInput.queryPoint) return "the expected signal has no query points";
   if (setup.candidates || setup.ahdCorrection || setup.ahdCollect) return "AHD candidates and the low-signal correction are not on the GPU";
   if (setup.toneCurve !== "identity" && setup.toneCurve !== "positive-reinhard-per-channel") return "unsupported tone curve " + String(setup.toneCurve);
+  if (setup.rendering) return "the coupled rendering steps (luminance tone curves, highlightMode reconstruct, desaturate-to-luminance) are not in the Speed kernel";
   if (signalInput.offsets.length < 1 || signalInput.offsets.length > DISPLAY_VIEW_GPU_MAXIMUM_OFFSETS) return "the kernel holds 1 to " + DISPLAY_VIEW_GPU_MAXIMUM_OFFSETS + " query offsets";
   if (signalInput.wavelengthsNm.length < 1 || signalInput.wavelengthsNm.length > DISPLAY_VIEW_SPEED_MAXIMUM_NODES) return "the kernel integrates 1 to " + DISPLAY_VIEW_SPEED_MAXIMUM_NODES + " spectral nodes per site";
   if (setup.region.width < 1 || setup.region.height < 1) return "an empty region";
@@ -430,6 +431,7 @@ export function displayViewSpeedGpuSupports(request: DisplayViewGpuRequest): tru
 export function sceneToneAndOffsetsReason(request: DisplayViewGpuRequest, maximumOffsets: number): true | string {
   if (request.scene !== "chart" && request.scene !== "material-layers" && request.scene !== "image-plane") return "the scene is a caller " + request.scene + "; the GPU material lookup covers engine charts and declared material-layers scenes (describe the scene as material-layers)";
   if (request.toneCurve !== "identity" && request.toneCurve !== "positive-reinhard-per-channel") return "unsupported tone curve " + String(request.toneCurve);
+  if (request.coupled) return "the coupled rendering steps (highlightMode reconstruct, desaturate-to-luminance) are not on the GPU";
   if (offsetCount(request) > maximumOffsets) return "more than " + maximumOffsets + " query offsets per site";
   return true;
 }
