@@ -13,7 +13,7 @@ describe("calculateCameraChannelResponse (#591)", () => {
       const illuminant = { kind: "planckian" as const, temperatureKelvin: 4200 };
       const capture = await simulateCapture({ scene: { preset: "uniform" }, illuminant, output: { width: 16, height: 16, lensCorrections: { lateralColor: true } },
         sensor, lens: { catalogue: "pv-24-1.8" }, exposure: { mode: "manual", shutterSeconds: 1 / 125, iso: 100 } } as never);
-      const helper = calculateCameraChannelResponse({ ...(profile ? { sensorProfile: "profile" in sensor ? sensor.profile : profile } : {}), spectralStepNanometers: step, illuminant }).value;
+      const helper = calculateCameraChannelResponse({ ...(profile && "profile" in sensor ? { sensorProfile: sensor.profile } : {}), spectralStepNanometers: step, illuminant }).value;
       const reported = dispersionOf(capture);
       for (const c of ["red", "green", "blue"] as const) expect(helper.channelDispersion![c], c).toBeCloseTo(reported[c], 9);
     }
@@ -47,7 +47,8 @@ describe("calculateCameraChannelResponse (#591)", () => {
   it("refuses bad input", () => {
     for (const bad of [{ spectralStepNanometers: 0 }, { spectralStepNanometers: 101 }, { peakQuantumEfficiency: 0 }, { peakQuantumEfficiency: 1.2 }, { extra: 1 }])
       expect(() => calculateCameraChannelResponse(bad as never)).toThrow();
-    expect(() => calculateCameraChannelResponse({ sensorProfile: "nope" })).toThrow();
+    expect(() => calculateCameraChannelResponse({ sensorProfile: { peakQuantumEfficiency: 2 } })).toThrow(InvalidScientificInputError);
+    expect(() => calculateCameraChannelResponse({ sensorProfile: "nope" as never })).toThrow();
     expect(() => calculateCameraChannelResponse({ spectralStepNanometers: NaN })).toThrow(InvalidScientificInputError);
   });
 });

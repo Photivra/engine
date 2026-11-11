@@ -97,7 +97,9 @@ describe("output.dng.lensCorrectionOpcodes (#587)", { timeout: scaledTimeout(60_
       expect(Array.from(r.raw.codes)).toEqual(Array.from(none.raw.codes));
       const parsed = parseDngRawImage({ bytes: r.image.dng! });
       expect(Buffer.from(parsed.codes.buffer, parsed.codes.byteOffset, parsed.codes.byteLength).equals(Buffer.from(parsedNone.codes.buffer, parsedNone.codes.byteOffset, parsedNone.codes.byteLength))).toBe(true);
-      expect({ ...parsed, codes: null }).toEqual({ ...parsedNone, codes: null });
+      // 2.22.0 (#598): the reader also returns the opcode list it finds (parsed, not applied) and says so.
+      expect({ ...parsed, codes: null, opcodeList3: null, assumptions: [] }).toEqual({ ...parsedNone, codes: null });
+      expect(parsed.opcodeList3!.map((o) => [o.id, o.optional, o.parameters?.opcode])).toEqual(opcodeList(r.image.dng!).map((o) => [o.id, true, o.id === 1 ? "WarpRectilinear" : "FixVignetteRadial"]));
       expect(Buffer.from(ifd0Tag(r.image.dng!, 50707)!.data)).toEqual(Buffer.from([1, 1, 0, 0]));
     }
     // The opcodes apply to the stage-3 image: the ActiveArea, which is the output frame.

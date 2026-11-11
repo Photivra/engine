@@ -1,5 +1,15 @@
 # Changelog
 
+## 2.22.0 (unreleased)
+
+### Group A: phone DNG import
+
+- **Phone RAW files (#598).** `parseDngRawImage` reads 8-bit lossy JPEG raw data (Compression 34892) with the engine's own sequential-DCT decoder (`parseLossyJpeg`, ITU-T T.81), and the new `importDngRawImage` also reads JPEG XL raw data (52546) through a caller-supplied decoder: `createJxlOxideDngDecoder` adapts the prebuilt jxl-oxide WebAssembly package, whose 16-bit PNG output is read with the platform's `DecompressionStream`. Lossless 8–16-bit tiles round-trip bit-exactly (synthetic fixtures). Results carry `lossySource`, the opcode lists, ForwardMatrix1/2, BaselineExposure, the profile gain table map, RGBTables, decoded semantic masks and an `assumptions` list naming every rendering tag that is present and not applied; no phone tag fails an import. Row/ColumnInterleaveFactor are undone (order inferred from the DNG SDK, reported). New `maximumBytes` memory pre-check (default 1 GiB) and `size: "half"` LinearRaw preview; the 64 MP default stays. Schema 1.1.0. Verification against the owner's phone files is pending.
+- **DNG stage image and opcodes (#598, #600).** `developDngStageImage` applies OpcodeList1, linearization, black and white levels and OpcodeList2/3 (LinearRaw); `parseDngOpcodeList` and `applyDngOpcodes` apply MapTable, MapPolynomial, GainMap, the per-row and per-column opcodes, FixVignetteRadial, WarpRectilinear (cubic convolution at full quality, bilinear with `fast`: new registry entry `dngImport.warpRectilinear`, default from `format`) and FixBadPixelsConstant/List; WarpFisheye, TrimBounds and WarpRectilinear2 are reported.
+- **Profile gain table map and RGBTables (#598).** `applyDngProfileGainTableMap` and `applyDngRgbTables` apply ProfileGainTableMap(2) and masked RGBTables (weighted sum or sequential) at their places in a development.
+- **Channel response helper (#591).** `calculateCameraChannelResponse({ sensorProfile?, peakQuantumEfficiency?, spectralStepNanometers?, illuminant? })` returns the capture's own channel response (electrons per joule at its spectral nodes) and, with an illuminant, the `channelDispersion` for `calculateLateralColorFringe`; full quality (5 nm) by default; agrees with a capture's reported dispersion to 1e-9. Not part of the capture worker.
+- Dev dependency jxl-oxide-wasm 0.12.6 (MIT OR Apache-2.0) for tests; the licence check accepts SPDX `OR` expressions with an allowed choice. THIRD_PARTY.md has a JPEG XL note.
+
 ## 2.21.0 — unreleased (prepared November 10, 2026)
 
 A minor release that combines the 2.21.0 and 2.22.0 parts (owner decision 2026-11-10): the chart-signal design choice on every render path, sensor profiles and phone lenses (#554), the image-plane scene (#581), catalogue-lens boundary ties (#588) and lateral color (#589), exposure build-up (#534) with subject motion (#551) and mixed lighting (#550), the lateral color fringe width (#580), Photivra's own light-source spectra (#557) and the print planner's contain fit (#365). See the [2.21.0 release record](https://github.com/Photivra/photivra/blob/main/docs/RELEASE_2_21_0.md).

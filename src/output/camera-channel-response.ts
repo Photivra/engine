@@ -19,14 +19,16 @@ import { approximationResult, type CalculationResult } from "../core/calculation
 import { InvalidScientificInputError } from "../core/validation.js";
 import { requireInputKeys, requireInputObject } from "../core/record-validation.js";
 import { estimateCie1931ColorMatchingFunctions } from "../color/color-matching-functions.js";
-import { resolveSensorProfile } from "../equipment/sensor-profiles.js";
-import { parseSensorProfile, type SensorProfile } from "../equipment/sensor-profile-body.js";
+import type { SensorProfile } from "../equipment/sensor-profile-body.js";
 import { resolveCaptureIlluminant, FACADE_SPECTRAL_RANGE_NANOMETERS, type CaptureIlluminant } from "../facade/scene-radiance.js";
 import { channelEffectiveDispersion, type ChannelDispersion } from "./developed-lens-corrections.js";
 
 export interface CalculateCameraChannelResponseInput {
-  /** The capture's `sensor.profile` record, or a `SENSOR_PROFILE_IDS` id. Omitted: a tier body (peak QE 0.5). */
-  sensorProfile?: SensorProfile | string;
+  /**
+   * The capture's `sensor.profile` record (a `SensorProfile`, for example `resolveSensorProfile(id)`): only its
+   * `peakQuantumEfficiency` is read, the one field that changes the channels. Omitted: a tier body (peak QE 0.5).
+   */
+  sensorProfile?: Pick<SensorProfile, "peakQuantumEfficiency">;
   /** Peak quantum efficiency in (0, 1] (as `sensor.peakQuantumEfficiency`); wins over the profile's. */
   peakQuantumEfficiency?: number;
   /**
@@ -63,7 +65,9 @@ export function calculateCameraChannelResponse(input: CalculateCameraChannelResp
   const step = input.spectralStepNanometers ?? 5;
   if (typeof step !== "number" || !(step >= 1 && step <= 100)) throw new InvalidScientificInputError("spectralStepNanometers must be a number from 1 to 100.");
   const profile = input.sensorProfile;
-  let peak = profile === undefined ? 0.5 : (typeof profile === "string" ? resolveSensorProfile(profile) : parseSensorProfile(profile, "sensorProfile")).peakQuantumEfficiency;
+  if (profile !== undefined) requireInputObject(profile, "sensorProfile");
+  let peak = profile === undefined ? 0.5 : profile.peakQuantumEfficiency;
+  if (typeof peak !== "number" || !(peak > 0 && peak <= 1)) throw new InvalidScientificInputError("sensorProfile.peakQuantumEfficiency must be in (0, 1].");
   if (input.peakQuantumEfficiency !== undefined) {
     if (typeof input.peakQuantumEfficiency !== "number" || !(input.peakQuantumEfficiency > 0 && input.peakQuantumEfficiency <= 1)) throw new InvalidScientificInputError("peakQuantumEfficiency must be in (0, 1].");
     peak = input.peakQuantumEfficiency;

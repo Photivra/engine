@@ -7096,7 +7096,8 @@ See [Local POC Simulation API](https://github.com/Photivra/photivra/blob/main/do
 
 ## DNG import and PNG output
 
-- `parseDngRawImage` reads a DNG or TIFF-EP CFA/LinearRaw file (uncompressed or lossless JPEG, 8–16 bits). It returns the stored raw codes plus the CFA, black/white levels, active area, default crop, colour matrices, as-shot neutral and orientation. Nothing is applied to the codes.
+- `parseDngRawImage` reads a DNG or TIFF-EP CFA/LinearRaw file (uncompressed, lossless JPEG or, from 2.22.0, 8-bit lossy JPEG; 8–16 bits). It returns the stored raw codes plus the CFA, black/white levels, active area, default crop, colour matrices, as-shot neutral and orientation, and (2.22.0) the opcode lists, the profile gain table map, RGBTables, semantic masks and an `assumptions` list naming every rendering tag it does not apply. Nothing is applied to the codes. `importDngRawImage` (2.22.0) does the same asynchronously and also reads JPEG XL raw data through a caller-supplied decoder (`createJxlOxideDngDecoder` over the jxl-oxide-wasm package); `size: "half"` gives a half-size LinearRaw preview and `maximumBytes` bounds the memory.
+- `developDngStageImage` (2.22.0) builds the DNG's linear stage image (linearization, black and white levels, OpcodeList1/2/3); `applyDngProfileGainTableMap` and `applyDngRgbTables` apply the phone rendering tags at their places in a development.
 - `serializePngImage` writes an 8- or 16-bit RGB PNG with an sRGB, ICC or cICP (Display P3, BT.2020; sRGB, BT.709 or linear transfer) colour description, and optional mDCV/cLLI display metadata. PQ and HLG are not part of 2.0 (see the patent review in `THIRD_PARTY.md`).
 
 See [DNG import and PNG output](https://github.com/Photivra/photivra/blob/main/docs/IMPORT_AND_PNG.md) for supported subsets, limits and sources.

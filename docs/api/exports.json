@@ -103,6 +103,36 @@
       "kind": "type"
     },
     {
+      "name": "applyDngOpcodes",
+      "source": "src/capture/dng-opcodes.ts",
+      "kind": "runtime"
+    },
+    {
+      "name": "ApplyDngOpcodesOptions",
+      "source": "src/capture/dng-opcodes.ts",
+      "kind": "type"
+    },
+    {
+      "name": "applyDngProfileGainTableMap",
+      "source": "src/capture/dng-profile-maps.ts",
+      "kind": "runtime"
+    },
+    {
+      "name": "ApplyDngProfileGainTableMapInput",
+      "source": "src/capture/dng-profile-maps.ts",
+      "kind": "type"
+    },
+    {
+      "name": "applyDngRgbTables",
+      "source": "src/capture/dng-profile-maps.ts",
+      "kind": "runtime"
+    },
+    {
+      "name": "ApplyDngRgbTablesInput",
+      "source": "src/capture/dng-profile-maps.ts",
+      "kind": "type"
+    },
+    {
       "name": "approximationResult",
       "source": "src/core/calculation-result.ts",
       "kind": "runtime"
@@ -410,6 +440,16 @@
     {
       "name": "CalculateBrownConradyDistortionMappingInput",
       "source": "src/optics/brown-conrady-distortion.ts",
+      "kind": "type"
+    },
+    {
+      "name": "calculateCameraChannelResponse",
+      "source": "src/output/camera-channel-response.ts",
+      "kind": "runtime"
+    },
+    {
+      "name": "CalculateCameraChannelResponseInput",
+      "source": "src/output/camera-channel-response.ts",
       "kind": "type"
     },
     {
@@ -1603,6 +1643,11 @@
       "kind": "type"
     },
     {
+      "name": "CameraChannelResponse",
+      "source": "src/output/camera-channel-response.ts",
+      "kind": "type"
+    },
+    {
       "name": "CameraColorMatrixFit",
       "source": "src/color/camera-color-matrix.ts",
       "kind": "type"
@@ -2588,6 +2633,11 @@
       "kind": "type"
     },
     {
+      "name": "createJxlOxideDngDecoder",
+      "source": "src/capture/jpeg-xl-tiles.ts",
+      "kind": "runtime"
+    },
+    {
       "name": "createLockedWhiteBalanceState",
       "source": "src/color/white-balance.ts",
       "kind": "runtime"
@@ -2953,6 +3003,16 @@
       "kind": "type"
     },
     {
+      "name": "developDngStageImage",
+      "source": "src/capture/dng-stage-image.ts",
+      "kind": "runtime"
+    },
+    {
+      "name": "DevelopDngStageImageOptions",
+      "source": "src/capture/dng-stage-image.ts",
+      "kind": "type"
+    },
+    {
       "name": "DIFFRACTION_LIMITED_PSF_PROFILE_LIMITS",
       "source": "src/optics/diffraction-psf-profile.ts",
       "kind": "runtime"
@@ -3058,8 +3118,63 @@
       "kind": "runtime"
     },
     {
+      "name": "DngImportAsyncInput",
+      "source": "src/capture/dng-import.ts",
+      "kind": "type"
+    },
+    {
       "name": "DngImportInput",
       "source": "src/capture/dng-import.ts",
+      "kind": "type"
+    },
+    {
+      "name": "DngJpegXlDecoder",
+      "source": "src/capture/jpeg-xl-tiles.ts",
+      "kind": "type"
+    },
+    {
+      "name": "DngOpcode",
+      "source": "src/capture/dng-opcodes.ts",
+      "kind": "type"
+    },
+    {
+      "name": "DngOpcodeArea",
+      "source": "src/capture/dng-opcodes.ts",
+      "kind": "type"
+    },
+    {
+      "name": "DngOpcodeParameters",
+      "source": "src/capture/dng-opcodes.ts",
+      "kind": "type"
+    },
+    {
+      "name": "DngProfileGainTableMap",
+      "source": "src/capture/dng-profile-maps.ts",
+      "kind": "type"
+    },
+    {
+      "name": "DngRgbImage",
+      "source": "src/capture/dng-profile-maps.ts",
+      "kind": "type"
+    },
+    {
+      "name": "DngRgbTable",
+      "source": "src/capture/dng-profile-maps.ts",
+      "kind": "type"
+    },
+    {
+      "name": "DngRgbTables",
+      "source": "src/capture/dng-profile-maps.ts",
+      "kind": "type"
+    },
+    {
+      "name": "DngStageImage",
+      "source": "src/capture/dng-opcodes.ts",
+      "kind": "type"
+    },
+    {
+      "name": "DngStageImageResult",
+      "source": "src/capture/dng-stage-image.ts",
       "kind": "type"
     },
     {
@@ -4323,6 +4438,11 @@
       "kind": "type"
     },
     {
+      "name": "importDngRawImage",
+      "source": "src/capture/dng-import.ts",
+      "kind": "runtime"
+    },
+    {
       "name": "ImportedDngBlackLevel",
       "source": "src/capture/dng-import.ts",
       "kind": "type"
@@ -4339,6 +4459,11 @@
     },
     {
       "name": "ImportedDngRect",
+      "source": "src/capture/dng-import.ts",
+      "kind": "type"
+    },
+    {
+      "name": "ImportedDngSemanticMask",
       "source": "src/capture/dng-import.ts",
       "kind": "type"
     },
@@ -4515,6 +4640,11 @@
     {
       "name": "JpegStripBits",
       "source": "src/capture/export-jpeg.ts",
+      "kind": "type"
+    },
+    {
+      "name": "JxlOxideModule",
+      "source": "src/capture/jpeg-xl-tiles.ts",
       "kind": "type"
     },
     {
@@ -4785,6 +4915,16 @@
     {
       "name": "LosslessJpegLimits",
       "source": "src/capture/lossless-jpeg.ts",
+      "kind": "type"
+    },
+    {
+      "name": "LossyJpegImage",
+      "source": "src/capture/lossy-jpeg.ts",
+      "kind": "type"
+    },
+    {
+      "name": "LossyJpegLimits",
+      "source": "src/capture/lossy-jpeg.ts",
       "kind": "type"
     },
     {
@@ -5433,8 +5573,23 @@
       "kind": "runtime"
     },
     {
+      "name": "parseDngOpcodeList",
+      "source": "src/capture/dng-opcodes.ts",
+      "kind": "runtime"
+    },
+    {
+      "name": "parseDngProfileGainTableMap",
+      "source": "src/capture/dng-profile-maps.ts",
+      "kind": "runtime"
+    },
+    {
       "name": "parseDngRawImage",
       "source": "src/capture/dng-import.ts",
+      "kind": "runtime"
+    },
+    {
+      "name": "parseDngRgbTables",
+      "source": "src/capture/dng-profile-maps.ts",
       "kind": "runtime"
     },
     {
@@ -5555,6 +5710,11 @@
     {
       "name": "parseLosslessJpeg",
       "source": "src/capture/lossless-jpeg.ts",
+      "kind": "runtime"
+    },
+    {
+      "name": "parseLossyJpeg",
+      "source": "src/capture/lossy-jpeg.ts",
       "kind": "runtime"
     },
     {
