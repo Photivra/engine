@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.22.0 (unreleased)
+
+### Group C2: AHD correction computed per site
+
+- **Changed (label only):** `lens.catalogue`'s fast method is described as what it has done since 2.21.0: each site's expected electrons are integrated from its taps' material spectra when the site is read. The `raw.expectedSignal` assumption's `method` of a capture that took this fast method is now `per-site-integrated-electrons-catalogue-psf-field-grid` (before: `tabulated-expected-electrons-catalogue-psf-field-grid`); its explanation and the fast-methods registry entry `lens.catalogue/field-grid` say the same. Samples, RAW codes and every other assumption field are unchanged. Code that matched the old `method` string must match the new one.
+
 ## 2.21.0 — unreleased (prepared November 10, 2026)
 
 A minor release that combines the 2.21.0 and 2.22.0 parts (owner decision 2026-11-10): the chart-signal design choice on every render path, sensor profiles and phone lenses (#554), the image-plane scene (#581), catalogue-lens boundary ties (#588) and lateral color (#589), exposure build-up (#534) with subject motion (#551) and mixed lighting (#550), the lateral color fringe width (#580), Photivra's own light-source spectra (#557) and the print planner's contain fit (#365). See the [2.21.0 release record](https://github.com/Photivra/photivra/blob/main/docs/RELEASE_2_21_0.md).

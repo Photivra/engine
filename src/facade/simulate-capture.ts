@@ -3492,7 +3492,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
     partsCaller = run === "dng-from-parts" ? "serializeSimulatedCaptureDngFromParts" : "simulateCaptureFromParts";
   if (dngParts !== undefined && regionNative) fail(partsCaller + " takes the whole frame: the options take no output.region.");
   let tabulated: Awaited<ReturnType<typeof renderTabulatedNativeRaw>>;
-  // #568: lens.catalogue's fast method: tabulated expected electrons with the PSF blended over a field grid (catalogue-lens-signal.ts), for a
+  // #568: lens.catalogue's fast method: expected electrons integrated per site at use, with the PSF blended over a field grid (catalogue-lens-signal.ts), for a
   // still camera, site-centre queries and a chart or material scene; verified per CFA phase against the exact chain within its tolerance.
   let catalogueFastRun: { columns: number; rows: number; resolved: number; verificationRelativeDifference: number } | undefined;
   const catalogueFastEligible = catalogueFastRequested && catalogueTaps !== undefined && lensKit !== undefined && lensPsf !== undefined && dngParts === undefined && tabulatedScene &&

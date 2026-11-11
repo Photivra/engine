@@ -48,7 +48,7 @@ const CAPTURE = "src/facade/simulate-capture.ts", VIEW = "src/facade/simulate-di
 /** 2.20.0: every speed-versus-accuracy choice of the capture facade and the display view (see the module comment). */
 export const SIMULATE_CAPTURE_FAST_METHODS: readonly SimulateCaptureFastMethod[] = /* @__PURE__ */ Object.freeze([
   { id: "lens.catalogue/field-grid", override: "lens.catalogue", methods: "fast-and-exact", runs: ["simulateCapture"],
-    fast: "#568: the PSF blended over a field grid and tabulated expected electrons, verified per CFA phase against the exact chain",
+    fast: "#568: the PSF blended over a field grid, with each site's expected electrons integrated from its taps' material spectra at use, verified per CFA phase against the exact chain",
     exact: "the environment PSF quadrature with the PSF resolved at each query point", followsFormatDefault: true,
     resolver: { file: CAPTURE, call: "resolveFast(catalogueFast, fastTop)" }, report: { applied: "lens.catalogue", assumption: "fast.lens.catalogue" } },
   { id: "lens.catalogue/cats-eye", override: "lens.catalogue", methods: "fast-and-exact", runs: ["simulateCapture", "simulateDisplayView", "prepareDisplayView"],
