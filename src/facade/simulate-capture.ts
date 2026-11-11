@@ -3536,8 +3536,9 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
     const { signalInput } = buildExpectedSignalInput({ nativeWidth, nativeHeight, width, wavelengths, perNode, apertureNodes: apertureNodeOffsets(1), boxSamples: 1, antiAliasing: undefined, pitch,
       materials, radianceAt: provider.radianceAt, imagingArea, focalLengthMm, focusDistanceM, subjectDistanceM, metresPerFrameUnit, caller: "simulateCapture" });
     const radial = (distortion as Extract<SimulateCaptureLensDistortion, { kind: "radial" }>).profile;
-    // #603: the grid follows the request's quality: 2.20.0's faster grid on a fast request, the full one on an exact request.
-    const gridSubdivisions = fastTop ? lensKit!.CATALOGUE_FAST_GRID_SPEED_SUBDIVISIONS : lensKit!.CATALOGUE_FAST_GRID_MINIMUM_SUBDIVISIONS;
+    // #603: the grid follows the request's quality: 2.20.0's faster grid on a fast request (but for the measured lenses that keep the
+    // full one), the full one on an exact request.
+    const gridSubdivisions = lensKit!.catalogueFastGridSubdivisions(catalogue!.lensId, fastTop);
     const signal = lensKit!.createCatalogueLensSignal({ nativeWidth, nativeHeight, pitch, psf: lensPsf!.configuration.psf, wavelengthsNm: wavelengths, electronsPerRadiance: perNode, gridSubdivisions,
       scene: signalInput.scene as Extract<typeof signalInput.scene, { kind: "materials" }>, channelAt: signalInput.channelAt,
       distortion: { normalizationRadiusMm: radial.normalizationRadiusMm, coefficients: { k1: radial.coefficients.k1, k2: radial.coefficients.k2 ?? 0, k3: radial.coefficients.k3 ?? 0 } },

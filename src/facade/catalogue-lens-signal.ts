@@ -46,6 +46,19 @@ export const CATALOGUE_FAST_GRID_MINIMUM_SUBDIVISIONS = 10;
  * the full grid, {@link CATALOGUE_FAST_GRID_MINIMUM_SUBDIVISIONS}, on an exact one (the exports and the calculator).
  */
 export const CATALOGUE_FAST_GRID_SPEED_SUBDIVISIONS = 4;
+/**
+ * #603 (owner decision 2026-11-11): the lenses that keep the full grid on fast requests too, because the 4-cell grid's run-time
+ * fallbacks to the exact method made their fast frames slower on average. Measured November 11, 2026 (arm64, Node.js 24; every
+ * catalogue lens but the phone lenses, wide open and at max(f/8, widest), Siemens star and color patches, whole frames 192, 384 and
+ * 768 pixels wide, two runs each; docs/LENS_CATALOGUE.md, "Fast method"): only this lens fell back, 4 of its 8 frames at 192 pixels
+ * (f/2.8), 11.6 s each, against 0.17 s for the 10-cell grid.
+ */
+export const CATALOGUE_FAST_GRID_FULL_ON_SCREEN: readonly { lensId: string; fallbacksAtFourCells: { frames: number; fellBack: number; widthPixels: number } }[] =
+  /* @__PURE__ */ Object.freeze([Object.freeze({ lensId: "pv-15-2.8-fisheye-pro", fallbacksAtFourCells: Object.freeze({ frames: 8, fellBack: 4, widthPixels: 192 }) })]);
+/** #603: the fewest grid cells for a lens on a fast or an exact request. */
+export function catalogueFastGridSubdivisions(lensId: string, fast: boolean): number {
+  return fast && !CATALOGUE_FAST_GRID_FULL_ON_SCREEN.some((entry) => entry.lensId === lensId) ? CATALOGUE_FAST_GRID_SPEED_SUBDIVISIONS : CATALOGUE_FAST_GRID_MINIMUM_SUBDIVISIONS;
+}
 /** Largest move of a node kernel's intensity centroid across one grid cell, in sites (sets finer grids where lateral color moves the PSF). */
 export const CATALOGUE_FAST_GRID_CENTROID_STEP_SITES = 0.05;
 /**
@@ -310,7 +323,7 @@ export function catalogueFastAssumptions(run: { columns: number; rows: number; r
   { id: "fast.lens.catalogue", value: { method: "field-grid-bilinear-psf", gridColumns: run.columns, gridRows: run.rows, gridPointsResolved: run.resolved,
     minimumSubdivisions: cells, centroidStepSites: step, verificationTolerance: tolerance },
   explanation: "Fast method (#568), an approximation of the exact one: the catalogue PSF is resolved exactly on a field grid (each interval between the profile's field nodes " +
-    "split into at least " + cells + " cells (#603: " + CATALOGUE_FAST_GRID_SPEED_SUBDIVISIONS + " on a fast request, " + CATALOGUE_FAST_GRID_MINIMUM_SUBDIVISIONS + " on an exact one), more where the node kernels' centroids move by over " + step + " site per cell), and each site takes the bilinear blend of its " +
+    "split into at least " + cells + " cells (#603: " + CATALOGUE_FAST_GRID_SPEED_SUBDIVISIONS + " on a fast request, " + CATALOGUE_FAST_GRID_MINIMUM_SUBDIVISIONS + " on an exact one and for the lenses of CATALOGUE_FAST_GRID_FULL_ON_SCREEN), more where the node kernels' centroids move by over " + step + " site per cell), and each site takes the bilinear blend of its " +
     "four grid points' kernels instead of its own. Its error is at most the kernels' L1 difference times the brightest tap's signal; docs/LENS_CATALOGUE.md (\"Fast method\") " +
     "records it measured against the exact method. Distortion, vignetting and projection are the exact method's (the radial inverse by Newton's method, equal to rounding)." }];
 }

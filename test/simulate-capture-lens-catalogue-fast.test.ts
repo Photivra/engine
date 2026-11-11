@@ -7,7 +7,7 @@
  */
 import { afterEach, describe, expect, it } from "vitest";
 import { simulateCapture, simulateDisplayView, InvalidConfigurationError, type SimulateCaptureOptions, type SimulateCaptureResult } from "../src/index.js";
-import { CATALOGUE_FAST_VERIFICATION_TOLERANCE, createCatalogueLensSignal, setCatalogueLensSignalTestHook, type CatalogueLensSignalInput } from "../src/facade/catalogue-lens-signal.js";
+import { CATALOGUE_FAST_GRID_FULL_ON_SCREEN, CATALOGUE_FAST_VERIFICATION_TOLERANCE, catalogueFastGridSubdivisions, createCatalogueLensSignal, setCatalogueLensSignalTestHook, type CatalogueLensSignalInput } from "../src/facade/catalogue-lens-signal.js";
 import { scaledTimeout } from "./helpers/test-timeout.js";
 
 const exposureAt = (fNumber: number): NonNullable<SimulateCaptureOptions["exposure"]> => ({ mode: "manual", shutterSeconds: (fNumber / 8) ** 2 / 125, iso: 100 });
@@ -121,6 +121,18 @@ describe("lens.catalogue fast method (#568)", () => {
     // #603: with the 4-cell grid 15.5 % differ (each by a Poisson draw's electron or so), within the same largest difference.
     expect(differing / top.image.samples.length).toBeLessThan(0.2);
     expect(worst).toBeLessThan(512);
+  }, scaledTimeout(120_000));
+
+  it("keeps the full grid on screen for the measured lenses whose 4-cell fallbacks were slower (#603), and on every exact request", async () => {
+    // The data: the lenses measured to fall back at 4 cells (docs/LENS_CATALOGUE.md); today the PV 15 2.8 Fisheye Pro (4 of 8 frames at 192 pixels).
+    expect(CATALOGUE_FAST_GRID_FULL_ON_SCREEN.map((e) => e.lensId)).toEqual(["pv-15-2.8-fisheye-pro"]);
+    for (const entry of CATALOGUE_FAST_GRID_FULL_ON_SCREEN) expect(entry.fallbacksAtFourCells.fellBack).toBeGreaterThan(0);
+    expect(catalogueFastGridSubdivisions("pv-15-2.8-fisheye-pro", true)).toBe(10);
+    expect(catalogueFastGridSubdivisions("pv-50-1.8", true)).toBe(4);
+    for (const id of ["pv-15-2.8-fisheye-pro", "pv-50-1.8"]) expect(catalogueFastGridSubdivisions(id, false)).toBe(10);
+    const fisheye = await simulateCapture(fullFrame("pv-15-2.8-fisheye-pro", 2.8, 192, star, { fast: true }));
+    expect(fisheye.diagnostics.fast.applied["lens.catalogue"]).toBe(true);
+    expect(fisheye.assumptions.find((a) => a.id === "fast.lens.catalogue")!.value).toMatchObject({ minimumSubdivisions: 10 });
   }, scaledTimeout(120_000));
 
   it("runs exact where the fast method does not apply, and refuses malformed records", async () => {
