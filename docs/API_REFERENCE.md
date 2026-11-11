@@ -114,9 +114,12 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 | [`C2paBoundFile`](api/capture-c2pa-embed.md#c2paboundfile) | Type |
 | [`C2paByteRange`](api/capture-c2pa-embed.md#c2pabyterange) | Type |
 | [`C2paDataHash`](api/capture-c2pa-embed.md#c2padatahash) | Type |
+| [`C2paFoundManifestStore`](api/capture-c2pa-embed.md#c2pafoundmanifeststore) | Type |
 | [`C2paHardBinding`](api/capture-c2pa-embed.md#c2pahardbinding) | Type |
 | [`calculateC2paDataHash`](api/capture-c2pa-embed.md#calculatec2padatahash) | Runtime |
 | [`CalculateC2paDataHashInput`](api/capture-c2pa-embed.md#calculatec2padatahashinput) | Type |
+| [`parseC2paManifestStore`](api/capture-c2pa-embed.md#parsec2pamanifeststore) | Runtime |
+| [`ParseC2paManifestStoreInput`](api/capture-c2pa-embed.md#parsec2pamanifeststoreinput) | Type |
 | [`setC2paManifestStore`](api/capture-c2pa-embed.md#setc2pamanifeststore) | Runtime |
 | [`SetC2paManifestStoreInput`](api/capture-c2pa-embed.md#setc2pamanifeststoreinput) | Type |
 

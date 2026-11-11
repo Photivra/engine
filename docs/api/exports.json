@@ -383,6 +383,11 @@
       "kind": "type"
     },
     {
+      "name": "C2paFoundManifestStore",
+      "source": "src/capture/c2pa-embed.ts",
+      "kind": "type"
+    },
+    {
       "name": "C2paHardBinding",
       "source": "src/capture/c2pa-embed.ts",
       "kind": "type"
@@ -5435,6 +5440,16 @@
     {
       "name": "ParametricStrayLightResponse",
       "source": "src/optics/stray-light.ts",
+      "kind": "type"
+    },
+    {
+      "name": "parseC2paManifestStore",
+      "source": "src/capture/c2pa-embed.ts",
+      "kind": "runtime"
+    },
+    {
+      "name": "ParseC2paManifestStoreInput",
+      "source": "src/capture/c2pa-embed.ts",
       "kind": "type"
     },
     {

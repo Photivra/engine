@@ -4,9 +4,9 @@ The package and root API versions are recorded once in [Navigation](../API_REFER
 
 ## bindC2paManifestStore
 
-Embeds a placeholder C2PA Manifest Store in a JPEG or TIFF/DNG export and returns the new file with its hard binding:
-the exclusions for `c2pa.hash.data` and where the store sits (C2PA 2.4 §A.3.1, §A.3.6, §18.5, §10.4; see the module notes).
-The input file is not changed. Only the first store of a file can be added; a file that already has one is rejected.
+Embeds a placeholder C2PA Manifest Store in a JPEG, PNG or TIFF/DNG export and returns the new file with its hard binding:
+the exclusions for `c2pa.hash.data` and where the store sits (C2PA 2.4 §A.3.1, §A.3.2, §A.3.6, §18.5, §10.4; see the module
+notes). The input file is not changed. Only the first store of a file can be added; a file that already has one is rejected.
 
 ```ts
 export function bindC2paManifestStore(input: BindC2paManifestStoreInput): C2paBoundFile;
@@ -20,7 +20,7 @@ Input of `bindC2paManifestStore`.
 
 ```ts
 export interface BindC2paManifestStoreInput {
-  /** A JPEG, or a TIFF-based file such as a DNG, as written by the engine's exporters. It is read, never changed. */
+  /** A JPEG, a PNG, or a TIFF-based file such as a DNG, as written by the engine's exporters. It is read, never changed. */
   file: Uint8Array;
   /**
    * The placeholder store (§10.4): a JUMBF C2PA Manifest Store sized for the final signature. For JPEG it may instead be the
@@ -41,7 +41,7 @@ C2PA_ALGORITHMIC_MEDIA_SOURCE_TYPE = "http://cv.iptc.org/newscodes/digitalsource
 
 ## C2PA_MANIFEST_STORE_MAXIMUM_BYTES
 
-Largest manifest store the engine embeds, bytes (an engine limit, not a C2PA one).
+Largest manifest store the engine embeds or reads, bytes (an engine limit, not a C2PA one).
 
 ```ts
 C2PA_MANIFEST_STORE_MAXIMUM_BYTES = 33_554_432
@@ -71,6 +71,14 @@ SHA-256 over every byte of the file outside the exclusions, in file order (§18.
 export interface C2paDataHash { alg: "sha256"; hash: Uint8Array; hashHex: string; hashedByteCount: number }
 ```
 
+## C2paFoundManifestStore
+
+A manifest store found in a file (`parseC2paManifestStore`): its binding and a copy of the store's JUMBF bytes.
+
+```ts
+export interface C2paFoundManifestStore { binding: C2paHardBinding; manifestStore: Uint8Array }
+```
+
 ## C2paHardBinding
 
 Where the manifest store sits in a file and which bytes the data hash excludes. Plain data: it can be kept, sent to a
@@ -78,13 +86,13 @@ worker or serialized, and must be passed back unchanged to `setC2paManifestStore
 
 ```ts
 export interface C2paHardBinding {
-  /** `image/jpeg`, or for TIFF files `image/dng` when the main IFD has DNGVersion (50706), otherwise `image/tiff`. */
-  mediaType: "image/jpeg" | "image/dng" | "image/tiff";
+  /** `image/jpeg`, `image/png`, or for TIFF files `image/dng` when the main IFD has DNGVersion (50706), otherwise `image/tiff`. */
+  mediaType: "image/jpeg" | "image/png" | "image/dng" | "image/tiff";
   /** Length of the file with the store embedded, bytes. */
   fileLength: number;
   /** The `exclusions` of the `c2pa.hash.data` assertion, ascending and non-overlapping (§18.5). */
   exclusions: readonly C2paByteRange[];
-  /** JPEG: every C2PA APP11 segment, markers and length fields included. TIFF/DNG: the store's own bytes. */
+  /** JPEG: every C2PA APP11 segment, markers and length fields included. PNG: the whole caBX chunk. TIFF/DNG: the store's own bytes. */
   manifestRegion: C2paByteRange;
   /** Length of the JUMBF manifest store itself, bytes. A replacement store must have exactly this length. */
   manifestStoreLength: number;
@@ -116,11 +124,36 @@ export interface CalculateC2paDataHashInput {
 }
 ```
 
+## parseC2paManifestStore
+
+Finds the C2PA Manifest Store embedded in a JPEG (APP11), PNG (caBX) or TIFF/DNG (tag 52545) and returns its location as a
+binding (the exclusions the engine's own writer uses for that format) and a copy of the store. It checks the file's structure
+and the store's outer framing only: it does not read the manifests, check the data hash or verify any signature. The
+manifest's own `c2pa.hash.data` assertion is what a validator uses; this binding is what `setC2paManifestStore` needs.
+
+```ts
+export function parseC2paManifestStore(input: ParseC2paManifestStoreInput): C2paFoundManifestStore | null;
+```
+
+This call is synchronous; any supplied provider must follow its explicit synchronous contract.
+
+## ParseC2paManifestStoreInput
+
+Input of `parseC2paManifestStore`.
+
+```ts
+export interface ParseC2paManifestStoreInput {
+  /** A JPEG, PNG or TIFF-based file such as a DNG. It is read, never changed. */
+  file: Uint8Array;
+}
+```
+
 ## setC2paManifestStore
 
 Writes the final, signed manifest store over the placeholder of a bound file (C2PA 2.4 §10.4.4). The store must have
 exactly the placeholder's length, so the file's length, every offset and every byte outside the exclusions stay the same
-and the data hash computed before signing still holds. The binding is checked against the file first.
+and the data hash computed before signing still holds. The binding is checked against the file first. The new store goes
+into the file's existing segments or chunk as they are (for PNG the chunk CRC is recomputed; it is inside the exclusion).
 
 ```ts
 export function setC2paManifestStore(input: SetC2paManifestStoreInput): Uint8Array;
@@ -136,7 +169,7 @@ Input of `setC2paManifestStore`.
 export interface SetC2paManifestStoreInput {
   /** The bound file (`C2paBoundFile.bytes`). It is read, never changed. */
   file: Uint8Array;
-  /** The binding `bindC2paManifestStore` returned for it. */
+  /** The binding `bindC2paManifestStore` (or `parseC2paManifestStore`) returned for it. */
   binding: C2paHardBinding;
   /** The final, signed store: exactly `binding.manifestStoreLength` bytes, as JUMBF or (JPEG) in the same APP11 split. */
   manifestStore: Uint8Array;
