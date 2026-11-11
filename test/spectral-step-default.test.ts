@@ -36,10 +36,17 @@ describe("the spectral step's default (#590)", () => {
     expect(value(exact, "sensor.spectralStepNanometers")).toBe(5);
     expect(value(fast, "sensor.spectralStepNanometers")).toBe(20);
     expect((value(fast, "sensor.spectralSpikiness") as { r20: number }).r20).toBeCloseTo(0.835, 2);
-    expect(value(await simulateDisplayView(options, { width: 4, height: 4 }), "sensor.spectralStepNanometers")).toBe(20);
+    // The fast method reports in diagnostics.fast like the other fast approximations; the exact requests report false; an explicit
+    // step or a smooth light makes no choice and adds no key.
+    expect(fast.diagnostics.fast).toMatchObject({ requested: true, applied: { "sensor.spectralStepNanometers": true }, assurance: "approximation-with-a-priori-bound" });
+    for (const r of [dng, exact]) expect(r.diagnostics.fast).toMatchObject({ requested: false, applied: { "sensor.spectralStepNanometers": false }, assurance: "engine-reference" });
+    const view = await simulateDisplayView(options, { width: 4, height: 4 });
+    expect(value(view, "sensor.spectralStepNanometers")).toBe(20);
+    expect(view.diagnostics.fast.applied).toMatchObject({ "sensor.spectralStepNanometers": true });
     const explicit = await simulateCapture({ ...options, sensor: { spectralStepNanometers: 10 }, fast: false });
     expect(explicit.assumptions.find((a) => a.id === "sensor.spectralStepNanometers")).toBeUndefined();
     expect(value(explicit, "sensor.spectralSpikiness")).toBeUndefined();
+    expect(explicit.diagnostics.fast.applied["sensor.spectralStepNanometers"]).toBeUndefined();
     // Mixed light: spiky when any source is.
     const mixed = await simulateCapture({ scene: options.scene, output: { width: 8, height: 8 }, fast: false,
       illumination: { sources: [{ illuminant: { kind: "cie-a" }, illuminanceLux: 300 }, { illuminant: FLUORESCENT, illuminanceLux: 500 }], blend: { kind: "radial", radius: 1 } } });
@@ -50,6 +57,7 @@ describe("the spectral step's default (#590)", () => {
     const r = await simulateCapture({ scene: { preset: "uniform" }, output: { width: 8, height: 8, format: "dng" } });
     expect(value(r, "sensor.spectralStepNanometers")).toBe(20);
     expect(value(r, "sensor.spectralSpikiness")).toBeUndefined();
+    expect(r.diagnostics.fast.applied["sensor.spectralStepNanometers"]).toBeUndefined();
   }, scaledTimeout(60_000));
 
   it("brings an exact white under the fluorescent source to the fine-step value", async () => {

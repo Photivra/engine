@@ -93,7 +93,7 @@ export const SIMULATE_CAPTURE_FAST_METHODS: readonly SimulateCaptureFastMethod[]
   { id: "sensor.spectralStepNanometers", override: "fast", methods: "fast-and-exact", runs: ["simulateCapture", "simulateDisplayView", "prepareDisplayView"],
     fast: "#590: the default spectral step is 20 nm under any light; under a spiky one (R(20) > 0.01) sensor.spectralSpikiness notes the possible cast",
     exact: "5 nm under a spiky light, else 20 nm (an explicit sensor.spectralStepNanometers always wins)", followsFormatDefault: true,
-    resolver: { file: CAPTURE, call: "fastTop || !spiky" }, report: { assumption: "sensor.spectralSpikiness" } },
+    resolver: { file: CAPTURE, call: "fastTop || !spiky" }, report: { applied: "sensor.spectralStepNanometers", assumption: "sensor.spectralSpikiness" } },
   { id: "sensor.midGrey", override: "fast", methods: "fast-and-exact", runs: ["simulateCapture", "simulateDisplayView", "prepareDisplayView"],
     fast: "#535: the mid-gray noise figure is not computed (about 0.3 ms)", exact: "result.sensor.midGrey is computed", followsFormatDefault: true,
     resolver: { file: CAPTURE, call: "fastTop ? undefined : 0" }, report: { field: "sensor.midGrey" } },
