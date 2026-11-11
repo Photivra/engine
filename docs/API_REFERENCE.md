@@ -101,6 +101,25 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 | [`SensorEquivalenceFieldOfView`](api/camera-sensor-equivalence.md#sensorequivalencefieldofview) | Type |
 | [`SensorEquivalenceQuantity`](api/camera-sensor-equivalence.md#sensorequivalencequantity) | Type |
 
+## capture/c2pa-embed.ts
+
+[Detailed contracts](api/capture-c2pa-embed.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/capture/c2pa-embed.ts)
+
+| Export | Kind |
+| --- | --- |
+| [`bindC2paManifestStore`](api/capture-c2pa-embed.md#bindc2pamanifeststore) | Runtime |
+| [`BindC2paManifestStoreInput`](api/capture-c2pa-embed.md#bindc2pamanifeststoreinput) | Type |
+| [`C2PA_ALGORITHMIC_MEDIA_SOURCE_TYPE`](api/capture-c2pa-embed.md#c2pa_algorithmic_media_source_type) | Runtime |
+| [`C2PA_MANIFEST_STORE_MAXIMUM_BYTES`](api/capture-c2pa-embed.md#c2pa_manifest_store_maximum_bytes) | Runtime |
+| [`C2paBoundFile`](api/capture-c2pa-embed.md#c2paboundfile) | Type |
+| [`C2paByteRange`](api/capture-c2pa-embed.md#c2pabyterange) | Type |
+| [`C2paDataHash`](api/capture-c2pa-embed.md#c2padatahash) | Type |
+| [`C2paHardBinding`](api/capture-c2pa-embed.md#c2pahardbinding) | Type |
+| [`calculateC2paDataHash`](api/capture-c2pa-embed.md#calculatec2padatahash) | Runtime |
+| [`CalculateC2paDataHashInput`](api/capture-c2pa-embed.md#calculatec2padatahashinput) | Type |
+| [`setC2paManifestStore`](api/capture-c2pa-embed.md#setc2pamanifeststore) | Runtime |
+| [`SetC2paManifestStoreInput`](api/capture-c2pa-embed.md#setc2pamanifeststoreinput) | Type |
+
 ## capture/capture-export-metadata.ts
 
 [Detailed contracts](api/capture-capture-export-metadata.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/capture/capture-export-metadata.ts)

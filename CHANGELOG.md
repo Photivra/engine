@@ -1,5 +1,14 @@
 # Changelog
 
+## 2.22.0 (unreleased)
+
+### Group D: Content Credentials writers
+
+- **New (#165, engine half):** `bindC2paManifestStore`, `calculateC2paDataHash` and `setC2paManifestStore` embed a caller-built C2PA Manifest Store in a JPEG (APP11 segments, C2PA 2.4 §A.3.1) or DNG/TIFF (tag 52545 in the main IFD, store at the end of the file, §A.3.6), return the `c2pa.hash.data` exclusions (§18.5.3: every C2PA APP11 segment; §18.5.5: the entry's count field and the store), compute the SHA-256 over the bound bytes, and write the signed store in place at exactly the placeholder's length (§10.4), so no offset moves. `C2PA_ALGORITHMIC_MEDIA_SOURCE_TYPE` (owner decision: IPTC `algorithmicMedia`) and `C2PA_MANIFEST_STORE_MAXIMUM_BYTES` (32 MiB). No keys, signing, manifest building or network calls in the engine. See [Content Credentials](https://github.com/Photivra/photivra/blob/main/docs/CONTENT_CREDENTIALS.md).
+- **Root exports:** 12 new (5 runtime: 3 functions, 2 constants; 7 types). Nothing is removed and no existing output changes.
+- **Sizes:** the app's capture-worker shape is unchanged at 363,695 B gzip (the module is imported by nothing in the capture path; `test/capture-bundle.test.ts` asserts it stays out). An application importing the three functions adds 3,982 B gzip (9,609 B minified; rolldown 1.2.9).
+- **Pending:** validation of signed files with the C2PA reference tooling (no validator offline, and the engine cannot sign).
+
 ## 2.21.0 — unreleased (prepared November 10, 2026)
 
 A minor release that combines the 2.21.0 and 2.22.0 parts (owner decision 2026-11-10): the chart-signal design choice on every render path, sensor profiles and phone lenses (#554), the image-plane scene (#581), catalogue-lens boundary ties (#588) and lateral color (#589), exposure build-up (#534) with subject motion (#551) and mixed lighting (#550), the lateral color fringe width (#580), Photivra's own light-source spectra (#557) and the print planner's contain fit (#365). See the [2.21.0 release record](https://github.com/Photivra/photivra/blob/main/docs/RELEASE_2_21_0.md).
