@@ -1,6 +1,6 @@
 {
-  "packageVersion": "2.21.0",
-  "engineApiVersion": "2.21.0",
+  "packageVersion": "2.22.0",
+  "engineApiVersion": "2.22.0",
   "exports": [
     {
       "name": "AbsoluteUncertaintyEstimate",
