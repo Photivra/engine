@@ -1375,7 +1375,20 @@ root exports of the built package, minified, gzip level 9; `test/capture-bundle.
   | all chunks | 363,695 B | 364,262 B (+567 B) |
 
   The all-chunk total grows because the Quality chunk compresses without the session chunk's dictionary (their WGSL shares
-  much text) and the two chunks name their shared bindings. The CPU Quality code (diffraction, capture AHD, the defocus extras
+  much text) and the two chunks name their shared bindings. With the load-failure fallback below the rows measure 344,287 B
+  (fast) and 20,026 B (on demand), 364,313 B in all.
+
+  **Two budget rows (owner decision 2026-11-10).** `test/capture-bundle.test.ts` checks the worker shape as two rows in place
+  of one all-chunk limit: the *fast worker* (every chunk except the on-demand Quality chunks; the GPU Speed session,
+  catalogue and lens-signal chunks included) at most 344,300 B, and *on demand* (the chunks holding the Quality modules,
+  found by module membership, not file name) at most 20,100 B, each its measurement rounded up to the next 100 B. The
+  Photivra app's bundle budget adopts the same two rows, with the same definitions, at app round 16.
+
+  **Preload and load failure.** `prepareQualityPaths()` (root export) loads the on-demand code ahead of time: single flight,
+  idempotent, and it changes no result ([USAGE](USAGE.md#loading-the-full-quality-code-ahead-of-time-222-594)). If the
+  Quality chunk does not load, that render runs the CPU reference, labelled `quality-code-unavailable` (with `"require"`, it
+  fails with that reason); the failure is not remembered, so the next render that needs the code loads it again. A failed
+  self-check, by contrast, keeps the view on the CPU. The CPU Quality code (diffraction, capture AHD, the defocus extras
   and the opt-in features) is still in the entry; #594 moves it into one on-demand kit once the 2.22.0 parts that edit those
   modules are merged.
 - **Shipped shaders are minified (2.14, #536).** `npm run build` strips comments and indentation from the WGSL source

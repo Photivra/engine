@@ -6113,6 +6113,11 @@
       "kind": "runtime"
     },
     {
+      "name": "prepareQualityPaths",
+      "source": "src/facade/quality-paths.ts",
+      "kind": "runtime"
+    },
+    {
       "name": "prepareRgbGamutMapping",
       "source": "src/color/gamut-mapping.ts",
       "kind": "runtime"

@@ -14,10 +14,20 @@
   first Quality render instead of before its first GPU render. A Speed-only view's `conformance.cases` lists the two built-in
   cases and the Speed case; a view that takes the Quality passes appends the two Quality cases. A failure keeps that render and
   every later one on the CPU, labelled `conformance-failed`. Internal: the renderer contract gains `onDemandConformanceCases`.
-- **Size (app capture-worker shape, rolldown 1.2.9, gzip 9):** fast worker 363,695 → 344,237 B (−19,458 B); GPU Quality
-  chunk 20,025 B on demand; all chunks 363,695 → 364,262 B (+567 B: two chunks compress separately). `test/capture-bundle.test.ts`
-  now checks the owner's two rows, fast worker ≤ 344,300 B and on demand ≤ 20,100 B (each measurement rounded up to the next
-  100 B), in place of the 363,700 B all-chunk limit.
+- **New:** `prepareQualityPaths()` (root export; owner decision 2026-11-10) loads the on-demand full-quality code ahead of time,
+  for example when the user opens Export. Optional, single flight, idempotent, no change to results; a failed load rejects with
+  `ImageKernelExecutionError` reason `quality-code-unavailable` and is retried by the next call or request. It covers the GPU
+  Quality chunk now and the CPU kit once that is split.
+- **New fallback reason:** `quality-code-unavailable` (in `DisplayViewGpuFallbackReason` and `ImageKernelFailureReason`). If the
+  Quality chunk does not load, that render runs the CPU reference (the same full-quality result, slower), labelled; with
+  `gpu: "require"` it fails with that reason. Not sticky: the next render that needs the code loads it again. A failed
+  self-check stays sticky.
+- **Size (app capture-worker shape, rolldown 1.2.9, gzip 9):** fast worker 363,695 → 344,287 B (−19,408 B); GPU Quality
+  chunk 20,026 B on demand; all chunks 363,695 → 364,313 B (+618 B: two chunks compress separately; owner-accepted).
+  `test/capture-bundle.test.ts` now checks the owner's two rows, fast worker ≤ 344,300 B and on demand ≤ 20,100 B (each
+  measurement rounded up to the next 100 B), in place of the 363,700 B all-chunk limit. The app adopts the same two rows at
+  app round 16.
+- **Root exports:** 1 new, 1,931 → 1,932 (runtime 654 → 655): `prepareQualityPaths`.
 
 ## 2.21.0 — unreleased (prepared November 10, 2026)
 

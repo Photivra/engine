@@ -58,10 +58,13 @@ export interface DisplayViewGpuConformance {
 2.11 (#481): why a display view that asked for the GPU (`gpu: "auto"`) ran the CPU reference. The accelerator's acquisition
 reasons, plus: `unsupported-on-backend` (no GPU display-view renderer exists in this version, or it does not support the
 request), `conformance-failed` (the device failed the run-time self-check before the view's first GPU render), `device-lost`
-(the device was lost; the rest of the view runs on the CPU) and `disposed` (the prepared view was disposed).
+(the device was lost; the rest of the view runs on the CPU) and `disposed` (the prepared view was disposed). 2.22.0 (#594):
+`quality-code-unavailable` (the on-demand GPU full-quality code could not be loaded; that render runs the CPU reference, and
+the next render that needs the code tries to load it again).
 
 ```ts
-export type DisplayViewGpuFallbackReason = ImageKernelFallbackReason | "unsupported-on-backend" | "conformance-failed" | "device-lost" | "disposed";
+export type DisplayViewGpuFallbackReason = ImageKernelFallbackReason | "unsupported-on-backend" | "conformance-failed" | "device-lost" | "disposed" |
+  "quality-code-unavailable";
 ```
 
 ## DisplayViewGpuMode
