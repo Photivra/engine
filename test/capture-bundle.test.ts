@@ -17,6 +17,8 @@ interface Bundle {
   gzip: number;
   /** Every chunk's gzip size (level 9) added up, the lazy ones included: what an application's total-JavaScript budget counts. */
   totalGzip: number;
+  /** Every chunk: its modules, gzip size (level 9), whether it is the entry, and the chunks it imports statically and dynamically. */
+  chunks: { fileName: string; modules: Set<string>; gzip: number; isEntry: boolean; imports: readonly string[]; dynamicImports: readonly string[] }[];
 }
 const srcPath = (id: string): string => id.replace(/\\/g, "/").replace(/^.*\/src\//, "");
 /**
@@ -31,9 +33,11 @@ async function bundle(names: string[]): Promise<Bundle> {
     const build = await rolldown({ input: entry, logLevel: "silent", resolve: { extensionAlias: { ".js": [".ts", ".js"] } } });
     const { output } = await build.generate({ format: "esm", minify: true });
     await build.close();
-    const result: Bundle = { modules: new Map(), lazyModules: new Set(), minified: 0, gzip: 0, totalGzip: 0 };
+    const result: Bundle = { modules: new Map(), lazyModules: new Set(), minified: 0, gzip: 0, totalGzip: 0, chunks: [] };
     for (const chunk of output) if (chunk.type === "chunk") {
-      result.totalGzip += gzipSync(chunk.code, { level: 9 }).length;
+      const gzip = gzipSync(chunk.code, { level: 9 }).length;
+      result.totalGzip += gzip;
+      result.chunks.push({ fileName: chunk.fileName, modules: new Set(Object.keys(chunk.modules).map(srcPath)), gzip, isEntry: chunk.isEntry, imports: chunk.imports, dynamicImports: chunk.dynamicImports });
       if (!chunk.isEntry) { for (const id of Object.keys(chunk.modules)) result.lazyModules.add(srcPath(id)); continue; }
       for (const [id, m] of Object.entries(chunk.modules)) result.modules.set(srcPath(id), m.renderedExports);
       result.minified = Buffer.byteLength(chunk.code);
@@ -110,19 +114,60 @@ describe("display-view bundles", () => {
 // #587 DNG opcodes +1,197 B, #567 catalogue bokeh +595 B, #565 +197 B) and the speed-versus-accuracy scheme +517 B; sharing
 // duplicated helpers and record-literal field lists saved 415 B (docs/RELEASE_2_20_0.md, "Sizes"). Raised 352,000 → 356,000 B
 // (the measured total rounded up to the next 100 B): owner-approved 2026-11-09 for engine 2.20.0 only, for the 2.20.0 features.
+//
+// #594 (owner answers 2026-11-10): the shape has two rows. "Fast worker" is every chunk except the on-demand Quality chunks (the
+// GPU Speed session, catalogue and lens-signal chunks included); "on demand" is the Quality chunks, found by module membership
+// (QUALITY_ON_DEMAND_MODULES), so a chunk's file name does not matter. Each limit is its row's measurement rounded up to the next
+// 100 B. Measured November 11, 2026 on 2.21.0 with the GPU Quality host split out (group E1 of 2.22.0; rolldown 1.2.9, Node.js
+// zlib level 9): fast worker 344,237 B, on demand 20,025 B (the GPU Quality chunk), all chunks 364,262 B; with the load-failure
+// fallback (owner, 2026-11-10) 344,287 B and 20,026 B (364,313 B). Owner-accepted 2026-11-10: these two rows replace the
+// single all-chunk limit, and the all-chunk growth is accepted. Before the split
+// (2.21.0, limit 363,700 B on all chunks): 363,695 B, all of it fast. The split moves 19,458 B out of the fast worker; the
+// all-chunk total grows 567 B (a second chunk compresses without the first's dictionary, and the chunks name their shared
+// bindings). The CPU Quality kit (#594, after groups A–D) adds its modules to QUALITY_ON_DEMAND_MODULES and re-measures both rows.
+const WORKER_SHAPE = ["NATIVE_RAW_LIMITS", "prepareDisplayView", "serializeSimulatedCaptureDngFromParts", "simulateCapture", "simulateIdealReference"];
+/** The modules whose chunks load only at the first Quality request (#594). */
+const QUALITY_ON_DEMAND_MODULES = ["gpu/display-view-quality-gpu.ts", "gpu/wgsl-display-view-quality-kernel.ts"];
+const isOnDemand = (chunk: Bundle["chunks"][number]): boolean => QUALITY_ON_DEMAND_MODULES.some((id) => chunk.modules.has(id));
 describe("the app's capture-worker shape", () => {
-  it("keeps every chunk of the app's engine imports within its measured size", async () => {
-    const worker = await bundle(["NATIVE_RAW_LIMITS", "prepareDisplayView", "serializeSimulatedCaptureDngFromParts", "simulateCapture", "simulateIdealReference"]);
-    expect(worker.totalGzip).toBeLessThanOrEqual(363_700);
+  it("keeps the fast worker and the on-demand Quality chunks within their measured sizes", async () => {
+    const worker = await bundle(WORKER_SHAPE);
+    const onDemand = worker.chunks.filter(isOnDemand), fast = worker.chunks.filter((c) => !isOnDemand(c));
+    const sum = (chunks: Bundle["chunks"]): number => chunks.reduce((total, c) => total + c.gzip, 0);
+    expect(sum(fast)).toBeLessThanOrEqual(344_300);
+    expect(sum(onDemand)).toBeLessThanOrEqual(20_100);
+    expect(sum(fast) + sum(onDemand)).toBe(worker.totalGzip);
     // #581: the image-plane scene's module, lattice data and GPU module are reachable only through prepareImagePlaneScenes().
     expect([...worker.lazyModules, ...worker.modules.keys()].filter((id) => /image-plane(?!-support)/u.test(id))).toEqual([]);
     // #165: the C2PA export writers load only when an application imports them, never in the capture worker.
     expect([...worker.lazyModules, ...worker.modules.keys()]).not.toContain("capture/c2pa-embed.ts");
   }, testTimeout(120_000));
 
+  // #594: the GPU Quality host is one chunk that only a dynamic import reaches, from the GPU session chunk; no other chunk imports
+  // it statically, and it holds no module the fast paths need.
+  it("loads the GPU Quality host only on demand, as one chunk", async () => {
+    const worker = await bundle(WORKER_SHAPE);
+    const quality = worker.chunks.filter(isOnDemand);
+    expect(quality).toHaveLength(1);
+    const chunk = quality[0]!;
+    expect(chunk.isEntry).toBe(false);
+    expect([...chunk.modules].sort()).toEqual(["gpu/display-view-quality-gpu.ts", "gpu/wgsl-display-view-quality-kernel.ts", "gpu/wgsl-exact-sum.ts"]);
+    expect(worker.chunks.filter((c) => c.imports.includes(chunk.fileName))).toEqual([]);
+    const loaders = worker.chunks.filter((c) => c.dynamicImports.includes(chunk.fileName));
+    expect(loaders.map((c) => c.modules.has("gpu/display-view-gpu-renderer.ts"))).toEqual([true]);
+  }, testTimeout(120_000));
+
+  // #594: importing the optional preload keeps the Quality chunk on demand (it reaches it only through dynamic imports).
+  it("keeps the Quality chunk on demand when prepareQualityPaths is imported", async () => {
+    const worker = await bundle([...WORKER_SHAPE, "prepareQualityPaths"]);
+    const eager = worker.chunks.filter((c) => c.isEntry || worker.chunks.some((e) => e.isEntry && e.imports.includes(c.fileName)));
+    expect(eager.flatMap((c) => [...c.modules]).filter((id) => QUALITY_ON_DEMAND_MODULES.includes(id) || id.startsWith("gpu/display-view"))).toEqual([]);
+    expect(worker.chunks.filter(isOnDemand)).toHaveLength(1);
+  }, testTimeout(120_000));
+
   // #554 (owner, 2026-11-09): sensor.profile takes the record, so the worker never bundles the profile catalogue, only its parser.
   it("leaves out the sensor profile catalogue", async () => {
-    const worker = await bundle(["NATIVE_RAW_LIMITS", "prepareDisplayView", "serializeSimulatedCaptureDngFromParts", "simulateCapture", "simulateIdealReference"]);
+    const worker = await bundle(WORKER_SHAPE);
     expect(worker.modules.has("equipment/sensor-profiles.ts") || worker.lazyModules.has("equipment/sensor-profiles.ts")).toBe(false);
     // 2.21.0: the parser is a static import (the integration's size pass, docs/RELEASE_2_21_0.md "Sizes").
     expect(worker.modules.has("equipment/sensor-profile-body.ts")).toBe(true);

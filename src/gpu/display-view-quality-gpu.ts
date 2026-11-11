@@ -18,25 +18,27 @@
  * `createDisplayViewExpectedSignal` (facade/expected-signal.ts), chart materials, with or without diffraction kernels,
  * the bilinear or the AHD candidates. Internal: not exported from the package.
  *
+ * #594: this module and its WGSL load on demand (`prepareDisplayViewQualityGpu` in `display-view-gpu-renderer.ts`, a dynamic
+ * import), at the first render that takes the Quality passes; the renderer and the Speed path never import it statically.
+ *
  * Flagged display pixels (an uncertain lattice material among the sites read, AHD's choice on the noise-free mosaic able to move
  * the pixel by more than DISPLAY_VIEW_QUALITY_CHOICE_SIGMA of its noise (#457), a non-finite output) are recomputed with the
  * reference, so they are exact. Every stage's wall-clock time is reported (`stageMilliseconds`); on a software adapter it
  * is not GPU performance.
  */
-import { EXACT_AREA_MEAN_MAX_PIXELS, axisSums, displayViewDecidedSaturation, overlaps, renderDisplayView,
+import { axisSums, displayViewDecidedSaturation, overlaps, renderDisplayView,
   ahdCandidateKernels, type AxisSums, type DisplayViewKernelTap, type DisplayViewRenderResult, type DisplayViewSetup } from "../facade/display-view.js";
 import { displayViewSignalTables, type DisplayViewExpectedSignalInput, type GroupTables } from "../facade/expected-signal.js";
 import type { DisplayViewGpuSetup } from "../facade/display-view.js";
-import { createDisplayViewMaterialModules, type DisplayViewMaterialModules } from "./display-view-composite-material-module.js";
-import { setDisplayViewGpuRendererFactory, type DisplayViewGpuConformanceCase, type DisplayViewGpuPart, type DisplayViewGpuRenderOutput, type DisplayViewGpuRenderer,
-  type DisplayViewGpuRendererFactory, type DisplayViewGpuRequest, type DisplayViewGpuRuntimeHandle } from "../facade/display-view-gpu.js";
+import type { DisplayViewMaterialModules } from "./display-view-composite-material-module.js";
+import type { DisplayViewGpuConformanceCase, DisplayViewGpuRuntimeHandle } from "../facade/display-view-gpu.js";
 import { chartPresetMaterialModule } from "./display-view-chart-material-module.js";
-import { DISPLAY_VIEW_SPEED_CONFORMANCE_CASE, CONFORMANCE_FRAME, recomputeRuns, sceneToneAndOffsetsReason, conformanceChannelAt, conformanceChart, conformanceResponses, conformanceSetup, conformanceVerdict, withConformanceAbort, axisRecord, displayViewSpeedGpuSupports, displayViewSpeedGpuUnsupportedReason, finishDisplayViewPixel, gaussLegendre16, queryGeometry,
-  renderDisplayViewSpeedOnGpu, type DisplayViewGpuMaterialModule } from "./display-view-speed-gpu.js";
+import { CONFORMANCE_FRAME, LARGE_DEFOCUS_REASON, recomputeRuns, footprintShape, conformanceChannelAt, conformanceChart, conformanceResponses, conformanceSetup, conformanceVerdict, withConformanceAbort, axisRecord, finishDisplayViewPixel, gaussLegendre16, queryGeometry,
+  type DisplayViewGpuMaterialModule } from "./display-view-speed-gpu.js";
 import { createHostYieldGate } from "../capture/host-yield-cadence.js";
 import { createDefocusDiscSiteKernel } from "../optics/defocus-disc-kernel.js";
 import { ImageKernelExecutionError, WEBGPU_F32_UNIT_ROUNDOFF, webGpuExecution, type ImageKernelExecution, type ImageKernelRelativeErrorBound } from "./image-kernel-execution.js";
-import { BUFFER_USAGE, GpuResourceScope, abortedError, createComputePipeline, linearDispatch, runComputePass, type WebGpuRuntime, throwIfAborted as checkAbort } from "./webgpu-runtime.js";
+import { BUFFER_USAGE, GpuResourceScope, linearDispatch, runComputePass, type WebGpuRuntime, throwIfAborted as checkAbort } from "./webgpu-runtime.js";
 import { DISPLAY_VIEW_QUALITY_AUX, DISPLAY_VIEW_QUALITY_CANDIDATE_ENTRIES, DISPLAY_VIEW_QUALITY_CANDIDATE_FLOATS, DISPLAY_VIEW_QUALITY_FLAG, DISPLAY_VIEW_QUALITY_FLAG_WORDS,
   DISPLAY_VIEW_QUALITY_GEOMETRY_STRIDE, DISPLAY_VIEW_QUALITY_GROUP_WORDS, DISPLAY_VIEW_QUALITY_MAXIMUM_NODES, DISPLAY_VIEW_QUALITY_MAXIMUM_PIXELS_PER_AXIS, DISPLAY_VIEW_QUALITY_OUTPUT_FLOATS, DISPLAY_VIEW_QUALITY_PARAM_WORDS,
   DISPLAY_VIEW_QUALITY_PIXELS_WGSL, DISPLAY_VIEW_QUALITY_SITES_BLOCKED_WGSL, DISPLAY_VIEW_QUALITY_SITES_WGSL, DISPLAY_VIEW_QUALITY_SITE_FLOATS, DISPLAY_VIEW_QUALITY_TAP_WORDS, DISPLAY_VIEW_QUALITY_WORKGROUP_SIZE,
@@ -172,16 +174,6 @@ export interface DisplayViewQualityGpuResult extends DisplayViewRenderResult {
 async function queueIdle(runtime: WebGpuRuntime, signal: AbortSignal): Promise<void> {
   const queue = runtime.device.queue as { onSubmittedWorkDone?: () => Promise<undefined> };
   if (typeof queue.onSubmittedWorkDone === "function") await runtime.guard(queue.onSubmittedWorkDone(), signal);
-}
-
-/** The footprint shape of a view: real pixels per display pixel along each axis, and whether the exact area mean applies. */
-export function footprintShape(setup: DisplayViewSetup): { sx: number; sy: number; exact: boolean; maximumColumns: number; maximumRows: number } {
-  const sx = setup.frameWidth / setup.viewWidth, sy = setup.frameHeight / setup.viewHeight, area = sx * sy;
-  const exact = area <= Math.min(EXACT_AREA_MEAN_MAX_PIXELS, setup.samplesPerAxis * setup.samplesPerAxis);
-  let maximumColumns = 0, maximumRows = 0;
-  for (let i = 0; i < setup.region.width; i++) maximumColumns = Math.max(maximumColumns, overlaps((setup.region.x + i) * sx, (setup.region.x + i + 1) * sx, setup.frameWidth).w.length);
-  for (let j = 0; j < setup.region.height; j++) maximumRows = Math.max(maximumRows, overlaps((setup.region.y + j) * sy, (setup.region.y + j + 1) * sy, setup.frameHeight).w.length);
-  return { sx, sy, exact, maximumColumns, maximumRows };
 }
 
 /** The demosaic candidates of a setup (the bilinear kernels when it has none) and their reach in sites. */
@@ -721,21 +713,6 @@ export function qualityMaterialModule(modules: DisplayViewMaterialModules, gpu: 
   return modules.moduleFor(qualityMaterialSetup(gpu), signal);
 }
 
-/** The pixel-aperture samples per axis and anti-aliasing spots of a request. */
-export function offsetCount(request: DisplayViewGpuRequest): number { return request.boxSamples * request.boxSamples * (request.antiAliasing ? 4 : 1); }
-
-/**
- * Why the Quality renderer does not support a prepared request (`DisplayViewGpuRenderer.supports`), or true: engine charts and
- * declared `material-layers` scenes (the material modules of `createDisplayViewMaterialModules`, #491), the identity or Reinhard
- * tone curve and at most 64 query offsets (lattice groups). `lens.defocus` out of focus is supported (#492 step 2c: the site pass
- * gathers the disc, or each node's diffraction kernel convolved with it, up to the reference's own caps of radius 64 and 96);
- * whether a view's footprints take the exact area mean, whether the device passes the composite probe, and whether the kernel
- * table fits the device's storage binding limit, is known only per render.
- */
-export function displayViewQualityGpuSupports(request: DisplayViewGpuRequest): true | string {
-  return sceneToneAndOffsetsReason(request, MAXIMUM_GROUPS);
-}
-
 /** A normalized, symmetric site kernel of radius R for the self-check (a binned Gaussian of width `sigma` sites). */
 function syntheticKernel(radius: number, sigma: number): Float64Array {
   const size = 2 * radius + 1, kernel = new Float64Array(size * size);
@@ -782,82 +759,5 @@ export const DISPLAY_VIEW_QUALITY_CONFORMANCE_CASE: DisplayViewGpuConformanceCas
 /** #492's self-check of the defocus disc's blocked site sum (see `runQualityConformance`). */
 export const DISPLAY_VIEW_QUALITY_DEFOCUS_CONFORMANCE_CASE: DisplayViewGpuConformanceCase = { id: "display-view:quality:checkerboard-13x9-defocus-blocked",
   run: (handle, signal) => runQualityConformance(handle, signal, true) };
-
-/** The bilinear RGGB demosaic kernels per phase (phaseY·2 + phaseX) and channel, as `bilinearPhaseProfiles` gives them. */
-export function bilinearKernels(): DisplayViewKernelTap[][][] {
-  const cross = [[1, 0], [-1, 0], [0, 1], [0, -1]], diagonal = [[1, 1], [1, -1], [-1, 1], [-1, -1]], horizontal = [[1, 0], [-1, 0]], vertical = [[0, 1], [0, -1]];
-  const average = (offsets: number[][]): DisplayViewKernelTap[] => offsets.map(([dx, dy]) => ({ dx: dx!, dy: dy!, weight: 1 / offsets.length })), self = [{ dx: 0, dy: 0, weight: 1 }];
-  return [[self, average(cross), average(diagonal)], [average(horizontal), self, average(vertical)], [average(vertical), self, average(horizontal)], [average(diagonal), average(cross), self]];
-}
-
-/**
- * The display view's GPU renderer on one runtime (#481's `DisplayViewGpuRenderer`): the Speed kernel for requests it covers
- * (no diffraction, no AHD, no defocus disc, at most 16 offsets) and the Quality kernels for the rest (#492: a defocused Speed
- * request too, with its bilinear demosaic). One pipeline cache per device, one set of
- * material modules (#491: chart presets, composite charts, the 2.3 elements and material-layers scenes; `dispose` releases their
- * uploaded scene records). `render` renders the part's region (`setup.gpu`
- * carries the expected signal's input and the chart; a setup without it, a coarse view or a frame the kernels do not cover
- * throws `unsupported-on-backend`), and throws `aborted` and `device-lost` as the accelerator's operations do.
- */
-/** #564: the GPU refusal of a defocus kernel above the direct radius (the CPU convolves it by runs). */
-const LARGE_DEFOCUS_REASON = "a defocus kernel radius above 64 sites (convolved by runs on the CPU, #564) is not on the GPU";
-
-export function createDisplayViewGpuRenderer(runtime: WebGpuRuntime, options: { maximumBandBytes?: number; yieldControl?: YieldControl } = {}): DisplayViewGpuRenderer {
-  const pipelines = new Map<string, Promise<GPUComputePipeline>>();
-  const bandBytes = options.maximumBandBytes ?? Math.min(64 * 1024 * 1024, runtime.maximumStorageBindingBytes);
-  const source: PipelineSource = (label, code) => {
-    let pending = pipelines.get(label);
-    if (!pending) { pending = createComputePipeline(runtime, label, code, undefined); pipelines.set(label, pending); pending.catch(() => pipelines.delete(label)); }
-    return pending;
-  };
-  // #491: one set of material modules per device for both kernels (the preset module per chart; the composite module, its probe
-  // and its uploaded scene records), released by `dispose`.
-  const modules = createDisplayViewMaterialModules(runtime, source);
-  return {
-    id: "photivra-display-view",
-    supports(request: DisplayViewGpuRequest): true | string {
-      if (request.largeDefocus) return LARGE_DEFOCUS_REASON;
-      // #492: out of focus the expected signal carries the defocus disc as site kernels, which only the Quality site pass gathers;
-      // a Speed request then runs the Quality passes with its own bilinear demosaic (one candidate) and finishing.
-      if (request.defocus) return displayViewQualityGpuSupports(request);
-      const speed = displayViewSpeedGpuSupports(request);
-      if (speed === true) return true;
-      return displayViewQualityGpuSupports(request);
-    },
-    conformanceCases: [DISPLAY_VIEW_SPEED_CONFORMANCE_CASE, DISPLAY_VIEW_QUALITY_CONFORMANCE_CASE, DISPLAY_VIEW_QUALITY_DEFOCUS_CONFORMANCE_CASE],
-    async render(part: DisplayViewGpuPart): Promise<DisplayViewGpuRenderOutput> {
-      const { setup, signal } = part;
-      if (!setup.gpu) throw new ImageKernelExecutionError("unsupported-on-backend", "The display-view setup carries no GPU inputs (setup.gpu); use cpu-reference.");
-      const abort = new AbortController(), onAbort = (): void => abort.abort();
-      if (signal?.aborted) throw abortedError();
-      signal?.addEventListener("abort", onAbort, { once: true });
-      try {
-        const signalInput = setup.gpu.signalInput;
-        let result: DisplayViewRenderResult & { expectedValueBound: ImageKernelRelativeErrorBound; execution: ImageKernelExecution };
-        let material: DisplayViewGpuMaterialModule;
-        if (displayViewSpeedGpuUnsupportedReason(setup, signalInput) === null) {
-          material = await modules.moduleFor(setup.gpu, abort.signal);
-          result = await renderDisplayViewSpeedOnGpu(runtime, bandBytes, { setup, signalInput, material }, abort, options.yieldControl, source);
-        } else {
-          // #581: an image-plane print brings its own passes 1 and 2.
-          const image = (signalInput.scene as { image?: unknown }).image ? await modules.imagePasses(setup.gpu, abort.signal) : undefined;
-          material = image ? { id: "image-plane", wgsl: "", bindings: [] } : await qualityMaterialModule(modules, setup.gpu, abort.signal);
-          result = await renderDisplayViewQualityOnGpu(runtime, bandBytes, { setup, signalInput, material, ...(image ? { image } : {}) }, abort, options.yieldControl, source);
-        }
-        return { samples: result.samples, expected: result.expected, noiseStd: result.noiseStd, sampleCount: result.sampleCount, siteCount: result.siteCount, detailPixelCount: result.detailPixelCount,
-          uniformPixelCount: result.uniformPixelCount, estimation: result.estimation, saturated: result.saturated,
-          saturatedPixelCount: result.saturatedPixelCount, errorBound: result.expectedValueBound,
-          diagnosticUncertaintySampleCount: result.execution.diagnosticUncertaintySampleCount, ...(material.compositeProbe ? { compositeProbe: material.compositeProbe } : {}) };
-      } finally { signal?.removeEventListener("abort", onAbort); }
-    },
-    dispose(): void { modules.release(); }
-  };
-}
-
-/** The factory `prepareDisplayView` creates the renderer with (one per device): the Speed and Quality kernels behind one renderer. */
-export const displayViewGpuRendererFactory: DisplayViewGpuRendererFactory = (handle: DisplayViewGpuRuntimeHandle) => createDisplayViewGpuRenderer(handle as WebGpuRuntime);
-
-/** Registers the combined renderer as the display view's GPU renderer and returns the factory registered before. */
-export function registerDisplayViewGpuRenderer(): DisplayViewGpuRendererFactory | null {
-  return setDisplayViewGpuRendererFactory(displayViewGpuRendererFactory);
-}
+/** #594: the Quality kernels' self-check cases, run before the first render that takes the Quality passes (`onDemandConformanceCases`). */
+export const DISPLAY_VIEW_QUALITY_CONFORMANCE_CASES: readonly DisplayViewGpuConformanceCase[] = Object.freeze([DISPLAY_VIEW_QUALITY_CONFORMANCE_CASE, DISPLAY_VIEW_QUALITY_DEFOCUS_CONFORMANCE_CASE]);

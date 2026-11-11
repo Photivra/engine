@@ -17,7 +17,9 @@
  *   (`insufficient-limits` thrown by `render`: #492, a large defocus kernel's table on a scene of many materials);
  * - before the first GPU render on the device a short conformance self-check runs once (single-flight): the built-in cases run
  *   the existing `webgpu-f32` convolution kernel against the float64 reference within its a-priori bound, then the renderer's own
- *   cases; a failure keeps the whole view on the CPU, labelled `conformance-failed`, with the adapter recorded;
+ *   cases; a failure keeps the whole view on the CPU, labelled `conformance-failed`, with the adapter recorded; #594: cases of
+ *   code the renderer loads on demand (the Quality kernels) run once, before the first render that needs them, and a failure
+ *   there keeps that render and every later one on the CPU;
  * - GPU renders of one session run one at a time on the device (the accelerator's single flight; later renders wait);
  * - a lost device falls back to the CPU for that render and every later one, labelled `device-lost`; `dispose()` releases an
  *   owned device, and later renders run on the CPU labelled `disposed`.
@@ -30,7 +32,7 @@ import { ImageKernelExecutionError, WEBGPU_F32_LIMITATIONS, type ChartCompositeP
 import { acceleratorRuntime, convolveIrradianceOnRuntime } from "../gpu/image-kernel-accelerator.js";
 import { calculateIrradianceConvolutionPlan, convolveIrradianceRows, type IrradianceConvolutionInput } from "../optics/irradiance-convolution.js";
 import type { DisplayViewRenderResult, DisplayViewSetup } from "./display-view.js";
-import { displayViewGpuRendererFactory as engineDisplayViewGpuRendererFactory } from "../gpu/display-view-quality-gpu.js";
+import { displayViewGpuRendererFactory as engineDisplayViewGpuRendererFactory } from "../gpu/display-view-gpu-renderer.js";
 import { cpuDisplayViewExecution, displayViewGpuRendererFactory, setDisplayViewGpuRendererFactory, type DisplayViewExecution, type DisplayViewGpuConformance, type DisplayViewGpuConformanceCase,
   type DisplayViewGpuFallbackReason, type DisplayViewGpuRenderer, type DisplayViewGpuRequest, type ParsedPrepareDisplayViewOptions } from "./display-view-gpu.js";
 
@@ -173,8 +175,13 @@ export const DISPLAY_VIEW_GPU_BUILT_IN_CASES: readonly DisplayViewGpuConformance
   convolutionCase("image-kernel:convolution:32x24-r3-patches", 32, 24, 3, 16, 12, 4781)
 ]);
 
-async function runConformance(runtime: WebGpuRuntime, renderer: DisplayViewGpuRenderer, signal: AbortSignal | undefined): Promise<DisplayViewGpuConformance> {
-  const cases = [...DISPLAY_VIEW_GPU_BUILT_IN_CASES, ...(renderer.conformanceCases ?? [])], ids = Object.freeze(cases.map((c) => c.id));
+/**
+ * Runs `cases` in order and returns the record. `before` is a record that already passed (#594: the cases run at the device's
+ * first render, when `cases` are a renderer's on-demand cases); its ids come first in the record.
+ */
+async function runConformance(runtime: WebGpuRuntime, cases: readonly DisplayViewGpuConformanceCase[], signal: AbortSignal | undefined,
+  before: DisplayViewGpuConformance | null = null): Promise<DisplayViewGpuConformance> {
+  const ids = Object.freeze([...(before?.cases ?? []), ...cases.map((c) => c.id)]);
   for (const c of cases) {
     let outcome: true | string;
     try { outcome = await c.run(runtime, signal); }
@@ -189,6 +196,11 @@ async function runConformance(runtime: WebGpuRuntime, renderer: DisplayViewGpuRe
 }
 
 // ---------------------------------------------------------------------------------------------------------------
+
+/** #594: the error of on-demand renderer code that could not be loaded. */
+function qualityCodeUnavailable(error: unknown): boolean {
+  return error instanceof ImageKernelExecutionError && error.reason === "quality-code-unavailable";
+}
 
 function createSession(options: ParsedPrepareDisplayViewOptions, runtime: WebGpuRuntime, owned: boolean, renderer: DisplayViewGpuRenderer): DisplayViewGpuSession {
   const adapter = runtime.adapter;
@@ -205,9 +217,22 @@ function createSession(options: ParsedPrepareDisplayViewOptions, runtime: WebGpu
   function selfCheck(signal: AbortSignal | undefined): Promise<DisplayViewGpuConformance> {
     if (conformance) return Promise.resolve(conformance);
     if (!checking) {
-      checking = runConformance(runtime, renderer, signal).then((result) => { conformance = result; return result; }, (error: unknown) => { checking = null; throw error; });
+      checking = runConformance(runtime, [...DISPLAY_VIEW_GPU_BUILT_IN_CASES, ...(renderer.conformanceCases ?? [])], signal).then((result) => { conformance = result; return result; }, (error: unknown) => { checking = null; throw error; });
     }
     return checking;
+  }
+  /**
+   * #594: the renderer's on-demand cases for a render (the Quality kernels' self-check, owner decision 2026-11-10), run once
+   * after the device's own check passed (single flight); the record then lists both and replaces the session's record, so a
+   * failure keeps this render and every later one on the CPU, as a failure at the first render does.
+   */
+  let onDemand: Promise<DisplayViewGpuConformance> | null = null;
+  function onDemandCheck(setup: DisplayViewSetup, passed: DisplayViewGpuConformance, signal: AbortSignal | undefined): Promise<DisplayViewGpuConformance> {
+    if (onDemand) return onDemand;
+    const cases = renderer.onDemandConformanceCases?.(setup);
+    if (!cases) return Promise.resolve(passed);
+    return onDemand = cases.then((list) => runConformance(runtime, list, signal, passed)).then((result) => conformance = result,
+      (error: unknown) => { onDemand = null; throw error; });
   }
   function lostError(error: unknown): boolean { return (error instanceof ImageKernelExecutionError && error.reason === "device-lost") || runtime.isLost(); }
   return {
@@ -215,9 +240,14 @@ function createSession(options: ParsedPrepareDisplayViewOptions, runtime: WebGpu
       if (disposed) return fallback("disposed", "the prepared view was disposed.", cpu);
       if (lost || runtime.isLost()) { lost = true; return fallback("device-lost", "the WebGPU device was lost; the rest of the view runs on the CPU.", cpu); }
       let check: DisplayViewGpuConformance;
-      try { check = await selfCheck(signal); }
+      try {
+        check = await selfCheck(signal);
+        if (check.passed) check = await onDemandCheck(setup, check, signal);
+      }
       catch (error) {
         if (lostError(error)) { lost = true; return fallback("device-lost", "the WebGPU device was lost during its conformance check.", cpu); }
+        // #594: the on-demand code did not load: this render runs the CPU reference; the next one that needs it tries again.
+        if (qualityCodeUnavailable(error)) return fallback("quality-code-unavailable", (error as Error).message, cpu);
         setup.checkAbort();
         throw error;
       }
@@ -233,6 +263,7 @@ function createSession(options: ParsedPrepareDisplayViewOptions, runtime: WebGpu
       catch (error) {
         if (lostError(error)) { lost = true; return fallback("device-lost", "the WebGPU device was lost during a render; the rest of the view runs on the CPU.", cpu); }
         setup.checkAbort();
+        if (qualityCodeUnavailable(error)) return fallback("quality-code-unavailable", (error as Error).message, cpu);
         if (error instanceof ImageKernelExecutionError && error.reason === "unsupported-on-backend")
           return fallback("unsupported-on-backend", "the GPU display-view renderer \"" + renderer.id + "\" does not cover this render: " + error.message, cpu, probeOf(error));
         // #492: a render past the device's limits (a kernel table or band above its storage binding limit) runs the CPU reference too.

@@ -1462,6 +1462,14 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 | [`MixedIlluminationPointSource`](api/facade-mixed-illumination.md#mixedilluminationpointsource) | Type |
 | [`MixedIlluminationSource`](api/facade-mixed-illumination.md#mixedilluminationsource) | Type |
 
+## facade/quality-paths.ts
+
+[Detailed contracts](api/facade-quality-paths.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/facade/quality-paths.ts)
+
+| Export | Kind |
+| --- | --- |
+| [`prepareQualityPaths`](api/facade-quality-paths.md#preparequalitypaths) | Runtime |
+
 ## facade/representative-light-sources.ts
 
 [Detailed contracts](api/facade-representative-light-sources.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/facade/representative-light-sources.ts)

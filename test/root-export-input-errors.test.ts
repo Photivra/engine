@@ -128,6 +128,8 @@ describe("root exports reject malformed input with domain errors (API review #4)
     "resolveSensorProfile",
     // 2.21 (#581): loads the image-plane scene's module; no argument.
     "prepareImagePlaneScenes",
+    // 2.22 (#594): loads the on-demand full-quality code; no argument.
+    "prepareQualityPaths",
     // #557: the built-in representative light-source set, a static contract with no argument.
     "getRepresentativeLightSourceSet"
   ]);

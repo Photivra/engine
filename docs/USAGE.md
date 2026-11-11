@@ -7893,6 +7893,23 @@ const print = await simulateCapture({
 console.log(print.scene.parameters.encoding, print.assumptions.some((a) => a.id === "scene.imagePlane")); // "srgb-8", true
 ```
 
+### Loading the full-quality code ahead of time (2.22, #594)
+
+The full-quality paths load on demand: a bundler that splits dynamic imports keeps their code out of the first load, and the
+first request that needs it fetches it. Today that is the display view's GPU full-quality code (diffraction, AHD, defocus and
+image-plane prints with `prepareDisplayView(…, { gpu: "auto" | "require" })`). `prepareQualityPaths()` fetches it ahead of time,
+so that request does not wait. It is optional, changes no result, and is safe to call at any time: concurrent calls share one
+load, and later calls load nothing. If the code does not load, the promise rejects with `ImageKernelExecutionError` reason
+`quality-code-unavailable` and nothing is remembered; a render in the meantime runs the CPU reference (the same full-quality
+result, slower) with `diagnostics.fast.execution.fallbackReason: "quality-code-unavailable"`, and the next request tries again.
+
+```ts
+import { prepareQualityPaths } from "@photivra/engine";
+
+// For example when the user opens Export, where full-quality renders follow.
+await prepareQualityPaths().catch(() => undefined); // a failed preload is retried by the request that needs the code
+```
+
 **Representative light sources (2.22).** The engine's own [representative light sources](https://github.com/Photivra/photivra/blob/main/docs/LIGHT_SOURCES.md) are four relative spectra
 designed by Photivra: a tri-phosphor fluorescent tube and white LEDs of low and high color rendering at 4000 K and a warm one at
 2700 K, each "representative, not a named product". `createRepresentativeLightSourceIlluminant({ sourceId })` returns an

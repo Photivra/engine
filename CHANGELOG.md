@@ -59,6 +59,33 @@ The owner decided (2026-11-11) to drop the display view's AHD low-signal correct
 - **Sizes:** the app's capture-worker shape is unchanged at 363,695 B gzip (the module is imported by nothing in the capture path; `test/capture-bundle.test.ts` asserts it stays out). An application importing the four functions adds 4,883 B gzip (11,978 B minified; rolldown 1.2.9).
 - **Pending:** validation of signed files with the C2PA reference tooling (no validator offline, and the engine cannot sign).
 
+### Group E: on-demand Quality code (GPU)
+
+- **Changed (bundling, #594):** the display view's GPU Quality host and its WGSL (`display-view-quality-gpu.ts`,
+  `wgsl-display-view-quality-kernel.ts`, `wgsl-exact-sum.ts`) load on demand, at the first GPU render that takes the Quality
+  passes (diffraction, AHD, more query offsets than the Speed kernel holds, a defocused view, an image-plane print). The combined
+  renderer moves to `src/gpu/display-view-gpu-renderer.ts`; the Speed path no longer imports the Quality host. Results are
+  unchanged: GPU renders through `prepareDisplayView` on the float32 emulation (two Quality, two defocus and one Speed request)
+  give the same sample and bound hashes before and after.
+- **Changed (diagnostics timing, owner decision 2026-11-10):** the Quality kernels' two self-check cases run before a view's
+  first Quality render instead of before its first GPU render. A Speed-only view's `conformance.cases` lists the two built-in
+  cases and the Speed case; a view that takes the Quality passes appends the two Quality cases. A failure keeps that render and
+  every later one on the CPU, labelled `conformance-failed`. Internal: the renderer contract gains `onDemandConformanceCases`.
+- **New:** `prepareQualityPaths()` (root export; owner decision 2026-11-10) loads the on-demand full-quality code ahead of time,
+  for example when the user opens Export. Optional, single flight, idempotent, no change to results; a failed load rejects with
+  `ImageKernelExecutionError` reason `quality-code-unavailable` and is retried by the next call or request. It covers the GPU
+  Quality chunk now and the CPU kit once that is split.
+- **New fallback reason:** `quality-code-unavailable` (in `DisplayViewGpuFallbackReason` and `ImageKernelFailureReason`). If the
+  Quality chunk does not load, that render runs the CPU reference (the same full-quality result, slower), labelled; with
+  `gpu: "require"` it fails with that reason. Not sticky: the next render that needs the code loads it again. A failed
+  self-check stays sticky.
+- **Size (app capture-worker shape, rolldown 1.2.9, gzip 9):** fast worker 363,695 → 344,287 B (−19,408 B); GPU Quality
+  chunk 20,026 B on demand; all chunks 363,695 → 364,313 B (+618 B: two chunks compress separately; owner-accepted).
+  `test/capture-bundle.test.ts` now checks the owner's two rows, fast worker ≤ 344,300 B and on demand ≤ 20,100 B (each
+  measurement rounded up to the next 100 B), in place of the 363,700 B all-chunk limit. The app adopts the same two rows at
+  app round 16.
+- **Root exports:** 1 new, 1,931 → 1,932 (runtime 654 → 655): `prepareQualityPaths`.
+
 ## 2.21.0 — unreleased (prepared November 10, 2026)
 
 A minor release that combines the 2.21.0 and 2.22.0 parts (owner decision 2026-11-10): the chart-signal design choice on every render path, sensor profiles and phone lenses (#554), the image-plane scene (#581), catalogue-lens boundary ties (#588) and lateral color (#589), exposure build-up (#534) with subject motion (#551) and mixed lighting (#550), the lateral color fringe width (#580), Photivra's own light-source spectra (#557) and the print planner's contain fit (#365). See the [2.21.0 release record](https://github.com/Photivra/photivra/blob/main/docs/RELEASE_2_21_0.md).

@@ -10,8 +10,8 @@
  * fallback, the bound terms, and the self-check case. Real-device runs: test/webgpu/display-view.webgpu.ts.
  */
 import { describe, expect, it } from "vitest";
-import { DISPLAY_VIEW_QUALITY_CONFORMANCE_CASE, DISPLAY_VIEW_QUALITY_DEFOCUS_CONFORMANCE_CASE, createDisplayViewGpuRenderer, displayViewQualityGpuSupports,
-  registerDisplayViewGpuRenderer } from "../src/gpu/display-view-quality-gpu.js";
+import { DISPLAY_VIEW_QUALITY_CONFORMANCE_CASE, DISPLAY_VIEW_QUALITY_CONFORMANCE_CASES, DISPLAY_VIEW_QUALITY_DEFOCUS_CONFORMANCE_CASE } from "../src/gpu/display-view-quality-gpu.js";
+import { createDisplayViewGpuRenderer, displayViewQualityGpuSupports, registerDisplayViewGpuRenderer } from "../src/gpu/display-view-gpu-renderer.js";
 import { DISPLAY_VIEW_SPEED_CONFORMANCE_CASE } from "../src/gpu/display-view-speed-gpu.js";
 import { DISPLAY_VIEW_QUALITY_FLAG, DISPLAY_VIEW_QUALITY_LATTICE_WGSL, DISPLAY_VIEW_QUALITY_PIXELS_WGSL, DISPLAY_VIEW_QUALITY_SITES_BLOCKED_WGSL, DISPLAY_VIEW_QUALITY_SITES_WGSL,
   assembleDisplayViewQualityLatticeWgsl } from "../src/gpu/wgsl-display-view-quality-kernel.js";
@@ -113,7 +113,9 @@ describe("#492: defocus in the GPU display view (float32 emulation) vs the CPU r
     expect(renderer.supports({ ...speed, scene: "material-function" })).toMatch(/caller/u);
     expect(renderer.supports({ ...quality, boxSamples: 5 })).toMatch(/64 query offsets/u);
     expect(renderer.supports({ ...speed, toneCurve: "other" as never })).toMatch(/tone curve/u);
-    expect(renderer.conformanceCases!.map((x) => x.id)).toEqual([DISPLAY_VIEW_SPEED_CONFORMANCE_CASE.id, DISPLAY_VIEW_QUALITY_CONFORMANCE_CASE.id, DISPLAY_VIEW_QUALITY_DEFOCUS_CONFORMANCE_CASE.id]);
+    // #594: the Speed case runs at the device's first render; the Quality cases load with the Quality code (onDemandConformanceCases).
+    expect(renderer.conformanceCases!.map((x) => x.id)).toEqual([DISPLAY_VIEW_SPEED_CONFORMANCE_CASE.id]);
+    expect(DISPLAY_VIEW_QUALITY_CONFORMANCE_CASES.map((x) => x.id)).toEqual([DISPLAY_VIEW_QUALITY_CONFORMANCE_CASE.id, DISPLAY_VIEW_QUALITY_DEFOCUS_CONFORMANCE_CASE.id]);
     renderer.dispose?.();
     runtime.destroy();
   });

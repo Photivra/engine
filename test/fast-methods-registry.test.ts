@@ -120,7 +120,7 @@ describe("the fast-method registry (2.20.0)", () => {
 
   it("gives a print under mixed lighting a GPU (fast) and a CPU (exact) method (#597)", async () => {
     const { prepareImagePlaneScenes } = await import("../src/index.js"), { createFakeGpu } = await import("./helpers/fake-webgpu.js");
-    const { registerDisplayViewGpuRenderer } = await import("../src/gpu/display-view-quality-gpu.js"), { setDisplayViewGpuRendererFactory } = await import("../src/facade/display-view-gpu.js");
+    const { registerDisplayViewGpuRenderer } = await import("../src/gpu/display-view-gpu-renderer.js"), { setDisplayViewGpuRendererFactory } = await import("../src/facade/display-view-gpu.js");
     await prepareImagePlaneScenes();
     const data = Uint8Array.from({ length: 8 * 6 * 3 }, (_, i) => (i * 37) % 256);
     const options: SimulateCaptureOptions = { scene: { kind: "image-plane", sceneId: "p", image: { width: 8, height: 6, channels: 3, encoding: "srgb-8", data } }, output: { width: 24, height: 16 },
