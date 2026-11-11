@@ -7,7 +7,7 @@
  */
 import { describe, expect, it } from "vitest";
 import { createDisplayViewCoupledRendering, gaussHermite, type DisplayViewRenderingChoice } from "../src/facade/display-view-rendering.js";
-import { desaturateToLuminance, SDR_LUMINANCE_WEIGHTS } from "../src/output/sdr-rendering.js";
+import { calculateSdrRendering, desaturateToLuminance, SDR_LUMINANCE_WEIGHTS } from "../src/output/sdr-rendering.js";
 import { simulateCapture, simulateDisplayView, type SimulateCaptureOptions } from "../src/index.js";
 import { simulateDisplayViewWithInternals } from "../src/facade/simulate-display-view.js";
 
@@ -251,4 +251,20 @@ describe("the capture's desaturate-to-luminance gamut handling (#601)", () => {
     expect(changed).toBeGreaterThan(0);
     await expect(simulateCapture({ ...options, output: { width: 16, height: 16, format: "png", colorEncoding: "display-p3", gamutHandling: "desaturate-to-luminance" } })).rejects.toThrow(/gamutHandling/u);
   }, 60_000);
+});
+
+describe("calculateSdrRendering with desaturate-to-luminance (#601)", () => {
+  it("desaturates out-of-gamut pixels before the clip and keeps the tone samples as mapped", () => {
+    const profile = { schemaVersion: "0.1.0" as const, profileId: "p", profileVersion: "1", renderingExposureEv: 0, toneCurve: "identity" as const,
+      outputDynamicRange: "sdr" as const, transferFunction: "srgb" as const, bitDepth: 16 as const, rounding: "nearest-ties-up" as const, dither: "none" as const };
+    const input = { sourceImageStateId: "s", inputImageState: "color-transformed-linear-rgb" as const, inputColorSpace: "linear-srgb-d65" as const,
+      whiteBalanceHandling: "not-required" as const, pixelWidth: 2, pixelHeight: 1, referenceWhiteValue: 1, samples: [1.6, 0.3, 0.1, 0.2, 0.4, 0.6] };
+    const clip = calculateSdrRendering({ ...input, profile: { ...profile, gamutHandling: "clip-components" } }).value;
+    const desat = calculateSdrRendering({ ...input, profile: { ...profile, gamutHandling: "desaturate-to-luminance" } }).value;
+    expect(desat.toneMappedLinearSamples).toEqual(clip.toneMappedLinearSamples);
+    const expected = [1.6, 0.3, 0.1];
+    desaturateToLuminance(expected);
+    expect(desat.outputLinearSamples.slice(0, 3)).toEqual(expected.map((v) => Math.min(1, Math.max(0, v))));
+    expect(desat.outputLinearSamples.slice(3)).toEqual(clip.outputLinearSamples.slice(3));
+  });
 });
