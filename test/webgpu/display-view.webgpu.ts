@@ -201,7 +201,6 @@ describe("webgpu-f32 display view: the image-plane module (Speed) and passes (Qu
     expect(a.outsideVarianceBound).toBe(0);
     expect(a.largestCodeDifference).toBeLessThanOrEqual(1);
     expect(Array.from(result.hostRecomputedPixelIndices)).toEqual(Array.from(result.flaggedPixelIndices));
-    expect(result.ahdCorrectedPixelCount).toBe(result.cpu.ahdCorrectedPixelCount);
     report.push({ case: "image-plane quality: " + name, pixels: a.pixels, taps: result.tapsPerSite, deltaE2000Maximum: a.deltaEMaximum, sigmaUnitsMaximum: a.sigmaUnitsMaximum,
       flagged: result.flaggedPixelIndices.length, largestExpectedBoundRatio: a.largestExpectedRatio, largestVarianceBoundRatio: a.largestVarianceRatio, softwareAdapterMilliseconds: result.gpuMilliseconds });
   });
@@ -212,7 +211,7 @@ describe("webgpu-f32 display view: the image-plane module (Speed) and passes (Qu
   });
 });
 
-interface QualityPageResult extends PageResult { cpu: PageResult["cpu"] & { ahdCorrectedPixelCount: number }; stageMilliseconds: Record<string, number>; tapsPerSite: number; statesComputed: number; ahdCorrectedPixelCount: number;
+interface QualityPageResult extends PageResult { stageMilliseconds: Record<string, number>; tapsPerSite: number;
   cpuStages: { fullMs: number; restMs: number; signalMs: number; statesMs: number; restBitIdentical: boolean } | null }
 const qualitySensor = { ...sensor, antiAliasing: { kind: "four-spot" as const } };
 const qualityOutput = { ...output, demosaic: "ahd" as const };
@@ -227,7 +226,7 @@ const qualityCases: [string, SimulateCaptureOptions][] = [
     { kind: "tabulated" as const, samples: [380, 480, 580, 680, 780].map((w, j) => ({ wavelengthNanometers: w, value: 0.1 + 0.08 * i + 0.1 * j })) } : 0.05 + 0.1 * i })) },
     lens: qualityLens, sensor: qualitySensor, output: qualityOutput }],
   ["step wedge at the white clip", { scene: { preset: "step-wedge", steps: 11 }, lens: qualityLens, exposure: { mode: "manual", iso: 100, shutterSeconds: 1 / 15 }, sensor: qualitySensor, output: qualityOutput }],
-  ["step wedge at ISO 6400 (the low-signal correction)", { scene: { preset: "step-wedge", steps: 11 }, lens: qualityLens, exposure: { mode: "manual", iso: 6400, shutterSeconds: 1 / 8000 }, sensor: qualitySensor, output: qualityOutput }],
+  ["step wedge at ISO 6400 (low signal)", { scene: { preset: "step-wedge", steps: 11 }, lens: qualityLens, exposure: { mode: "manual", iso: 6400, shutterSeconds: 1 / 8000 }, sensor: qualitySensor, output: qualityOutput }],
   ["step wedge, Reinhard", { scene: { preset: "step-wedge", steps: 11 }, lens: qualityLens, exposure: { mode: "manual", iso: 100, shutterSeconds: 1 / 30 }, sensor: qualitySensor,
     output: { ...qualityOutput, toneCurve: "positive-reinhard-per-channel" } }],
   ["AHD without diffraction", { scene: { preset: "checkerboard", squaresAcross: 12 }, lens: { prime: 50, fNumber: 8 }, sensor: qualitySensor, output: qualityOutput }]
@@ -250,11 +249,10 @@ describe("webgpu-f32 display view (Quality) vs the float64 reference", () => {
     expect(Array.from(result.hostRecomputedPixelIndices)).toEqual(Array.from(result.flaggedPixelIndices));
     // #533: every display pixel's highlight count is the reference's, bit for bit.
     expect(Array.from(result.gpu.saturated)).toEqual(Array.from(result.cpu.saturated));
-    expect(result.ahdCorrectedPixelCount).toBe(result.cpu.ahdCorrectedPixelCount);
     report.push({ case: "quality: " + name, pixels: a.pixels, deltaE2000Maximum: a.deltaEMaximum, deltaE2000Rms: a.deltaERms, sigmaUnitsMaximum: a.sigmaUnitsMaximum, sigmaUnitsRms: a.sigmaUnitsRms,
       sigmaRelativeMaximum: a.sigmaRelativeMaximum, differingSamples: a.differingSamples, flagged: result.flaggedPixelIndices.length, browserCpuVersusNodeCpuSamples: browserVersusNode,
-      largestExpectedBoundRatio: a.largestExpectedRatio, largestVarianceBoundRatio: a.largestVarianceRatio, tapsPerSite: result.tapsPerSite, correctedPixels: result.ahdCorrectedPixelCount,
-      statesComputed: result.statesComputed, softwareAdapterMilliseconds: result.gpuMilliseconds, softwareAdapterStageMilliseconds: result.stageMilliseconds, browserCpuStageMilliseconds: result.cpuStages });
+      largestExpectedBoundRatio: a.largestExpectedRatio, largestVarianceBoundRatio: a.largestVarianceRatio, tapsPerSite: result.tapsPerSite,
+      softwareAdapterMilliseconds: result.gpuMilliseconds, softwareAdapterStageMilliseconds: result.stageMilliseconds, browserCpuStageMilliseconds: result.cpuStages });
   });
   it("banding never changes a byte, and a region equals the same pixels of the whole view", async () => {
     if (guard()) return;
@@ -311,7 +309,6 @@ describe("webgpu-f32 display view with lens.defocus vs the float64 reference", (
     expect(a.largestCodeDifference).toBeLessThanOrEqual(1);
     expect(verdict.pass, JSON.stringify(verdict.checks)).toBe(true);
     expect(Array.from(result.hostRecomputedPixelIndices)).toEqual(Array.from(result.flaggedPixelIndices));
-    expect(result.ahdCorrectedPixelCount).toBe(result.cpu.ahdCorrectedPixelCount);
     report.push({ case: "defocus: " + name, kernelRadius: c.kernelRadius, tapsPerSite: result.tapsPerSite, siteSumRelativeBound: result.siteSumRelativeBound, pixels: a.pixels,
       deltaE2000Maximum: a.deltaEMaximum, deltaE2000Rms: a.deltaERms, sigmaUnitsMaximum: a.sigmaUnitsMaximum, sigmaRelativeMaximum: a.sigmaRelativeMaximum, differingSamples: a.differingSamples,
       largestExpectedBoundRatio: a.largestExpectedRatio, largestVarianceBoundRatio: a.largestVarianceRatio, flagged: result.flaggedPixelIndices.length,

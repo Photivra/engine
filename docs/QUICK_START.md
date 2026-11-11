@@ -2289,10 +2289,10 @@ the exact speed-ups, in [DISPLAY_VIEW.md](https://github.com/Photivra/photivra/b
 | 12 MP phone | Quality | 49.7 s (20×) | 106 s (3.8×) | 272 s (2.2×) |
 | 100 MP medium format | Quality | 18.2 s (3.7×) | 49.7 s (1.8×) | 126 s (1.0×) |
 
-Quality costs more on small pixels. The diffraction kernel spans several real sites, and at 1.4 µm even ISO 100 is
-noisy enough for the AHD correction to run on every sampled pixel; its correction states are kept for later views of
-the same sensor, exposure and development in the same JavaScript realm (2.6.0: a second 384-wide phone view of the same
-request took 73 s instead of 103 s). In 2.6.0 the results were byte-identical to those of the display view as first
+Quality costs more on small pixels. The diffraction kernel spans several real sites, and (2.6.0 to 2.21.0) at 1.4 µm even
+ISO 100 was noisy enough for the AHD low-signal correction to run on every sampled pixel (2.6.0: a second 384-wide phone view
+of the same request took 73 s instead of 103 s, reusing its states). 2.22.0 removed that correction, so these timings
+include work the view no longer does. In 2.6.0 the results were byte-identical to those of the display view as first
 merged, which took 222 s, 450 s and 837 s on the phone; later releases changed some views' values (for example the
 exact area mean, 2.8.0; AHD's choice, 2.13.0).
 

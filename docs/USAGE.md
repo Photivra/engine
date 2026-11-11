@@ -8009,14 +8009,13 @@ it: Vite builds workers as `iife` by default, so a worker that calls `prepareDis
 modules (`worker: { format: "es" }`, with `new Worker(url, { type: "module" })`) to keep it out. Measured sizes:
 [Bundle size](https://github.com/Photivra/photivra/blob/main/docs/DISPLAY_VIEW.md#bundle-size).
 
-#### Sharing AHD correction states between workers
+#### AHD correction states (deprecated in 2.22.0)
 
-With `output.demosaic: "ahd"`, low-signal display pixels read correction states that each realm (a page, a Web Worker)
-computes and keeps for itself. Two workers can split a part's states and exchange them instead of both computing all
-of them; the renders have the same bytes either way (see "AHD at low signal" in
-[DISPLAY_VIEW.md](https://github.com/Photivra/photivra/blob/main/docs/DISPLAY_VIEW.md#ahd-at-low-signal)). Import only
-states whose key a prepared view reported. The two handles below run in one script for the example; in an app each
-runs in its own worker, and the arrays travel with `postMessage(set, [set.gridKeys.buffer, set.values.buffer])`.
+From 2.10 to 2.21, low-signal AHD display pixels read correction states that workers could exchange. 2.22.0 removes the
+correction (a labelled approximation remains; see "AHD at low signal" in
+[DISPLAY_VIEW.md](https://github.com/Photivra/photivra/blob/main/docs/DISPLAY_VIEW.md#ahd-at-low-signal)), so there is nothing
+to exchange: workers render AHD views with no shared state. The exchange functions stay until 3.0.0 as checked no-ops;
+remove the calls.
 
 ```ts
 import { serializeDisplayViewCorrectionStates, bindDisplayViewCorrectionStates, prepareDisplayView, type SimulateCaptureOptions } from "@photivra/engine";
@@ -8024,19 +8023,13 @@ import { serializeDisplayViewCorrectionStates, bindDisplayViewCorrectionStates, 
 const request: SimulateCaptureOptions = { scene: { preset: "uniform", reflectance: 0.18 }, exposure: { iso: 1600, shutterSeconds: 1 / 2000 },
   sensor: { pixelPitchMicrometers: 1.4 }, output: { width: 200, height: 150, demosaic: "ahd" } };
 const part = { width: 20, height: 15, region: { x: 0, y: 0, width: 10, height: 8 } };
-// Each worker prepares the same request; the key says which states it reads.
-const workerA = await prepareDisplayView(request), workerB = await prepareDisplayView(request);
-console.log(workerA.correctionKey() === workerB.correctionKey());
-// Worker A finds the states the part needs (no image, no state computed) and gives half to each worker.
-const { gridKeys } = await workerA.collectCorrectionStates(part);
-const half = Math.ceil(gridKeys.length / 2);
-const fromA = await workerA.computeCorrectionStates(gridKeys.slice(0, half));
-const fromB = await workerB.computeCorrectionStates(gridKeys.slice(half));
-// Each worker imports the other's share (in one realm, as here, the second import adds nothing new).
-console.log(bindDisplayViewCorrectionStates([fromB]), bindDisplayViewCorrectionStates([fromA]));
-// Either worker now renders the part without computing a state; a new worker can start from an export.
-const view = await workerA.render(part);
-console.log(view.diagnostics.ahdCorrectedPixelCount, serializeDisplayViewCorrectionStates().map((set) => set.gridKeys.length));
+const prepared = await prepareDisplayView(request);
+// Deprecated: null, no grid keys, no states, nothing stored.
+console.log(prepared.correctionKey(), (await prepared.collectCorrectionStates(part)).gridKeys.length);
+console.log(serializeDisplayViewCorrectionStates().length, bindDisplayViewCorrectionStates([]));
+// The view itself needs none of them.
+const view = await prepared.render(part);
+console.log(view.diagnostics.ahdCorrectedPixelCount); // always 0 since 2.22.0
 ```
 
 ### Facade 2.0 options: output, demosaic, optics and motion

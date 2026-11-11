@@ -42,7 +42,6 @@ async function checkCase(c: DefocusGpuCase): Promise<Record<string, unknown>> {
     expect(gpu.blockedSum).toBe(true);
     expect(gpu.estimation).toBe("exact-area-mean");
     expect(gpu.execution).toMatchObject({ backend: "webgpu-f32", arithmetic: "float32", bitIdenticalToReference: false });
-    expect(gpu.ahdCorrectedPixelCount).toBe(fixture.cpu.ahdCorrectedPixelCount);
     expect(a.outsideExpectedBound).toBe(0);
     expect(a.outsideVarianceBound).toBe(0);
     expect(a.largestCodeDifference).toBeLessThanOrEqual(1);

@@ -95,14 +95,15 @@ describe("the fast-method registry (2.20.0)", () => {
     expect((await serializeSimulatedCaptureDngFromParts({ ...options, fast: true }, flagged)).bytes).toEqual(exactBytes);
   }, scaledTimeout(60_000));
 
-  it("gives the display view's AHD low-signal correction an exact method (H3)", async () => {
+  it("gives the display view's AHD no fast method (2.22.0: the low-signal correction, H3's fast method, was removed)", async () => {
     const options: SimulateCaptureOptions = { scene: { preset: "uniform" }, output: { width: 16, height: 12, demosaic: "ahd" }, sensor: { spectralStepNanometers: 100 } };
     const value = (r: { assumptions: readonly { id: string; value: unknown }[] }): unknown => r.assumptions.find((a) => a.id === "view.demosaic")!.value;
     const fast = await simulateDisplayView(options, { width: 4, height: 3 }), exact = await simulateDisplayView({ ...options, fast: false }, { width: 4, height: 3 });
-    expect(value(fast)).toMatchObject({ correctionDrawsPerState: 2048, correctionThresholdLinearStd: 0.01 });
-    expect(value(exact)).toMatchObject({ correctionDrawsPerState: 8192, correctionThresholdLinearStd: 0.01 });
-    expect(fast.diagnostics.fast).toMatchObject({ applied: { "output.demosaic.ahd": true }, assurance: "approximation-with-a-priori-bound" });
+    expect(value(fast)).toMatchObject({ view: "ahd-candidates-with-noise-free-choice", scientificStatus: "approximation" });
+    expect(value(exact)).toEqual(value(fast));
+    expect(fast.diagnostics.fast).toMatchObject({ applied: { "output.demosaic.ahd": false }, assurance: "engine-reference" });
     expect(exact.diagnostics.fast).toMatchObject({ applied: { "output.demosaic.ahd": false }, assurance: "engine-reference" });
+    expect(SIMULATE_CAPTURE_FAST_METHODS.some((e) => e.id === "output.demosaic.ahd/view-low-signal-correction")).toBe(false);
   }, scaledTimeout(60_000));
 
   it("gives the display view's sampling of uniform pixels an exact method (H2)", async () => {

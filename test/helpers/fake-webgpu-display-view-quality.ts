@@ -8,7 +8,6 @@
 import { DISPLAY_VIEW_QUALITY_AUX, DISPLAY_VIEW_QUALITY_CANDIDATE_FLOATS, DISPLAY_VIEW_QUALITY_CHOICE_SIGMA, DISPLAY_VIEW_QUALITY_FLAG, DISPLAY_VIEW_QUALITY_GEOMETRY_STRIDE, DISPLAY_VIEW_QUALITY_GROUP_WORDS,
   DISPLAY_VIEW_QUALITY_OUTPUT_FLOATS, DISPLAY_VIEW_QUALITY_SITE_FLOATS, DISPLAY_VIEW_QUALITY_SLOPE_U, DISPLAY_VIEW_QUALITY_TAP_WORDS, DISPLAY_VIEW_QUALITY_UNCERTAINTY_LIMIT } from "../../src/gpu/wgsl-display-view-quality-kernel.js";
 import { DISPLAY_VIEW_CLIP_MEAN_U, DISPLAY_VIEW_CLIP_VARIANCE_U, DISPLAY_VIEW_REINHARD_MEAN_U, DISPLAY_VIEW_REINHARD_VARIANCE_U } from "../../src/gpu/wgsl-display-view-speed-kernel.js";
-import { AHD_KEY_FLOOR, AHD_KEY_LEVELS, AHD_KEY_OCTAVES, AHD_KEY_STEPS } from "../../src/facade/display-view.js";
 import type { ChartMaterialEmulator } from "./fake-webgpu-stages.js";
 import { ExactSum } from "./exact-sum-emulation.js";
 import { clipState } from "./fake-webgpu-display-view.js";
@@ -19,7 +18,6 @@ const RM = f(DISPLAY_VIEW_REINHARD_MEAN_U), RV = f(DISPLAY_VIEW_REINHARD_VARIANC
 const STRIDE = DISPLAY_VIEW_QUALITY_GEOMETRY_STRIDE, SITE = DISPLAY_VIEW_QUALITY_SITE_FLOATS, GROUP = DISPLAY_VIEW_QUALITY_GROUP_WORDS, TAP = DISPLAY_VIEW_QUALITY_TAP_WORDS, CF = DISPLAY_VIEW_QUALITY_CANDIDATE_FLOATS;
 const PHI_C = f(0.3989422804014327), AS = [f(0.2316419), f(0.319381530), f(-0.356563782), f(1.781477937), f(-1.821255978), f(1.330274429)];
 const UNCERTAINTY_LIMIT = f(DISPLAY_VIEW_QUALITY_UNCERTAINTY_LIMIT), CHOICE_SIGMA = f(DISPLAY_VIEW_QUALITY_CHOICE_SIGMA);
-const KEY_TOP = AHD_KEY_OCTAVES * AHD_KEY_STEPS - 1, KEY_FLOOR = f(AHD_KEY_FLOOR), LOG2E = f(1.4426950408889634), LOG_ABS = f(4.76837158203125e-7);
 
 /** A value with its absolute bound. */
 type B = [number, number];
@@ -103,8 +101,8 @@ function reinhardMoments(m: B, v: B, aux: Float32Array): Moments {
 function readParams(pw: Uint32Array, pf: Float32Array): Record<string, number> {
   const pi = new Int32Array(pw.buffer, pw.byteOffset, pw.length);
   return { count: pw[0]!, row0: pw[1]!, regionW: pw[2]!, margin: pw[5]!, nativeW: pw[6]!, nativeH: pw[7]!, columns: pw[8]!, tone: pw[9]!, reach: pw[10]!, candidates: pw[11]!,
-    siteX0: pi[12]!, siteY0: pi[13]!, siteW: pw[14]!, siteH: pw[15]!, correction: pw[16]!, stateCount: pw[17]!, taps: pw[18]!, groups: pw[19]!, latticeTotal: pw[20]!,
-    k0: pf[24]!, k1: pf[25]!, k2: pf[26]!, reach2: pf[27]!, dark0: pf[28]!, dark1: pf[29]!, dark2: pf[30]!, clipLevel: pf[31]!, c00: pf[32]!, c01: pf[33]!, c02: pf[34]!, threshold: pf[35]!,
+    siteX0: pi[12]!, siteY0: pi[13]!, siteW: pw[14]!, siteH: pw[15]!, taps: pw[18]!, groups: pw[19]!, latticeTotal: pw[20]!,
+    k0: pf[24]!, k1: pf[25]!, k2: pf[26]!, reach2: pf[27]!, dark0: pf[28]!, dark1: pf[29]!, dark2: pf[30]!, clipLevel: pf[31]!, c00: pf[32]!, c01: pf[33]!, c02: pf[34]!,
     g0: pf[36]!, g1: pf[37]!, g2: pf[38]!, scaleU: pf[39]!, scaleV: pf[49]!, siteGamma: pf[50]!, siteFirst: pw[51]!, siteTiny: pf[52]! };
 }
 
@@ -201,8 +199,8 @@ export function emulateDisplayViewQualitySitesBlocked(pw: Uint32Array, pf: Float
 }
 
 /** Pass 3. */
-export function emulateDisplayViewQualityPixels(pw: Uint32Array, pf: Float32Array, aux: Float32Array, geometry: Float32Array, sites: Float32Array, stateKeys: Int32Array, stateValues: Float32Array,
-  bitmap: Uint32Array, out: Float32Array, flags: Uint32Array): void {
+export function emulateDisplayViewQualityPixels(pw: Uint32Array, pf: Float32Array, aux: Float32Array, geometry: Float32Array, sites: Float32Array,
+  out: Float32Array, flags: Uint32Array): void {
   const P = readParams(pw, pf), M = Array.from(pf.subarray(40, 49)), g = [P.g0!, P.g1!, P.g2!], gainAtClip = Array.from(pw.subarray(21, 24)), reinhard = P.tone === 1, count = P.candidates!, share = count === 2 ? 0.5 : 1;
   const geometryInts = new Int32Array(geometry.buffer, geometry.byteOffset, geometry.length), auxWords = new Uint32Array(aux.buffer, aux.byteOffset, aux.length), siteWords = new Uint32Array(sites.buffer, sites.byteOffset, sites.length);
   const reflectX = (x: number): number => (x < 0 ? -x : x >= P.nativeW! ? 2 * P.nativeW! - 2 - x : x), reflectY = (y: number): number => (y < 0 ? -y : y >= P.nativeH! ? 2 * P.nativeH! - 2 - y : y);
@@ -213,46 +211,6 @@ export function emulateDisplayViewQualityPixels(pw: Uint32Array, pf: Float32Arra
     const o = (ry * P.siteW! + rx) * SITE;
     pixelFlags |= siteWords[o + 6]! & 1;
     return o;
-  };
-  const findState = (key: number): number => {
-    let lo = 0, hi = P.stateCount!;
-    while (lo < hi) { const mid = (lo + hi) >>> 1; if (stateKeys[mid]! < key) lo = mid + 1; else hi = mid; }
-    return lo < P.stateCount! && stateKeys[lo] === key ? lo : P.stateCount!;
-  };
-  const flatCorrection = (m: B[]): B[] => {
-    const base: number[] = [], frac: number[] = [], dg: number[] = [];
-    for (let i = 0; i < 3; i++) {
-      const clamped = Math.min(1, Math.max(KEY_FLOOR, m[i]![0])), gg = f(f(f(Math.log2(clamped)) + AHD_KEY_OCTAVES) * AHD_KEY_STEPS);
-      const b = Math.min(Math.max(Math.floor(gg), 0), KEY_TOP);
-      base.push(b); frac.push(f(gg - b));
-      const slope = m[i]![0] > KEY_FLOOR && m[i]![0] < 1 ? f(f(LOG2E * m[i]![1]) / clamped) : 0;
-      dg.push(f(f(AHD_KEY_STEPS * f(f(slope + LOG_ABS) + f(36 * E))) + f(f(2 * E) * f(gg + 1))));
-    }
-    const values = new Float32Array(24);
-    let missing = false;
-    const weightOf = (corner: number): number => { let w = 1; for (let i = 0; i < 3; i++) w = f(w * (((corner >> i) & 1) === 1 ? frac[i]! : f(1 - frac[i]!))); return w; };
-    for (let corner = 0; corner < 8; corner++) {
-      const i0 = base[0]! + (corner & 1), i1 = base[1]! + ((corner >> 1) & 1), i2 = base[2]! + ((corner >> 2) & 1), key = (i0 * AHD_KEY_LEVELS + i1) * AHD_KEY_LEVELS + i2;
-      if (weightOf(corner) === 0) continue;
-      bitmap[key >>> 5] = (bitmap[key >>> 5]! | (1 << (key & 31))) >>> 0;
-      const at = findState(key);
-      if (at >= P.stateCount!) { missing = true; continue; }
-      for (let c = 0; c < 3; c++) values[corner * 3 + c] = stateValues[at * 3 + c]!;
-    }
-    if (missing) { pixelFlags |= DISPLAY_VIEW_QUALITY_FLAG.stateMissing; return [Z, Z, Z]; }
-    const corr: B[] = [];
-    for (let c = 0; c < 3; c++) {
-      let sum = 0, mag = 0;
-      for (let corner = 0; corner < 8; corner++) { const w = weightOf(corner); sum = f(sum + f(w * values[corner * 3 + c]!)); mag = f(mag + Math.abs(f(w * values[corner * 3 + c]!))); }
-      let slopeTerm = 0;
-      for (let i = 0; i < 3; i++) {
-        let largest = 0;
-        for (let corner = 0; corner < 8; corner++) { if (((corner >> i) & 1) === 1) continue; largest = Math.max(largest, Math.abs(f(values[(corner | (1 << i)) * 3 + c]! - values[corner * 3 + c]!))); }
-        slopeTerm = f(slopeTerm + f(dg[i]! * largest));
-      }
-      corr.push([sum, f(slopeTerm + f(f(12 * E) * mag))]);
-    }
-    return corr;
   };
   const CB = DISPLAY_VIEW_QUALITY_AUX.candidates, CSTRIDE = DISPLAY_VIEW_QUALITY_AUX.candidatePhaseStride;
   for (let i = 0; i < P.count!; i++) {
@@ -299,8 +257,7 @@ export function emulateDisplayViewQualityPixels(pw: Uint32Array, pf: Float32Arra
         }
         if ((clipAny & 1) !== 0) { const bit = j * nx + ii; if (bit < 32) mask0 = (mask0 | (1 << bit)) >>> 0; else mask1 = (mask1 | (1 << (bit - 32))) >>> 0; }
         else if ((clipAny & 2) !== 0) undecided = true;
-        const eMean: B[] = [Z, Z, Z], cmAverage: B[] = [Z, Z, Z];
-        let pixelVariance: B = Z;
+        const eMean: B[] = [Z, Z, Z];
         let bs: B[] = [], hs: B[] = [];
         const hCand: B[] = [Z, Z, Z, Z, Z, Z];
         for (let d = 0; d < count; d++) {
@@ -315,7 +272,7 @@ export function emulateDisplayViewQualityPixels(pw: Uint32Array, pf: Float32Arra
             C[0] = bAdd(C[0]!, bScale(sv, f(w0 * w0))); C[1] = bAdd(C[1]!, bScale(sv, f(w0 * w1))); C[2] = bAdd(C[2]!, bScale(sv, f(w0 * w2)));
             C[3] = bAdd(C[3]!, bScale(sv, f(w1 * w1))); C[4] = bAdd(C[4]!, bScale(sv, f(w1 * w2))); C[5] = bAdd(C[5]!, bScale(sv, f(w2 * w2)));
           }
-          for (let c = 0; c < 3; c++) { if (exact[c]) cm[c] = [cm[c]![0], 0]; cmAverage[c] = bAdd(cmAverage[c]!, bScale(cm[c]!, share)); }
+          for (let c = 0; c < 3; c++) { if (exact[c]) cm[c] = [cm[c]![0], 0]; }
           const bm: B[] = [], bv: B[] = []; bs = [];
           for (let c = 0; c < 3; c++) {
             const gc = bRounded(g[c]!), um: B = exact[c] && cm[c]![0] === 1 && gainAtClip[c] === 1 ? [P.clipLevel!, 0] : bMul(gc, cm[c]!), uv = bMul(bMul(gc, gc), C[c === 0 ? 0 : c === 1 ? 3 : 5]!), gap = f(P.clipLevel! - um[0]);
@@ -348,7 +305,6 @@ export function emulateDisplayViewQualityPixels(pw: Uint32Array, pf: Float32Arra
             hm.push(moments.mean); hv.push(moments.variance); hs.push(moments.slope);
             hCand[d * 3 + comp] = moments.mean;
             eMean[comp] = bAdd(eMean[comp]!, bScale(moments.mean, share));
-            pixelVariance = [Math.max(pixelVariance[0], moments.variance[0]), Math.max(pixelVariance[1], moments.variance[1])];
           }
           const an: B[] = [];
           for (let c = 0; c < 3; c++) { an[c] = bMul(bMul(hs[0]!, bRounded(M[c]!)), bs[c]!); an[3 + c] = bMul(bMul(hs[1]!, bRounded(M[3 + c]!)), bs[c]!); an[6 + c] = bMul(bMul(hs[2]!, bRounded(M[6 + c]!)), bs[c]!); }
@@ -383,14 +339,6 @@ export function emulateDisplayViewQualityPixels(pw: Uint32Array, pf: Float32Arra
           }
           const ajaj = bMul(aj, aj);
           res[0] = bAdd(res[0]!, bMul(ajaj, bScale(x0, 0.25))); res[1] = bAdd(res[1]!, bMul(ajaj, bScale(x1, 0.25))); res[2] = bAdd(res[2]!, bMul(ajaj, bScale(x2, 0.25)));
-        }
-        if (P.correction === 1) {
-          if (Math.abs(f(pixelVariance[0] - P.threshold!)) <= pixelVariance[1]) pixelFlags |= DISPLAY_VIEW_QUALITY_FLAG.thresholdTie;
-          if (pixelVariance[0] > P.threshold!) {
-            const corr = flatCorrection(cmAverage);
-            for (let comp = 0; comp < 3; comp++) s[comp] = bAdd(s[comp]!, bMul(aj, corr[comp]!));
-            pixelFlags |= DISPLAY_VIEW_QUALITY_FLAG.corrected;
-          }
         }
       }
     }

@@ -11,9 +11,9 @@ import { simulateDisplayViewWithInternals } from "../../src/facade/simulate-disp
 import type { SimulateCaptureOptions, SimulateDisplayViewOptions } from "../../src/index.js";
 import { createDisplayViewMaterialModules, type DisplayViewMaterialModules } from "../../src/gpu/display-view-composite-material-module.js";
 import { renderDisplayViewSpeedOnGpu, type DisplayViewSpeedGpuInput, type DisplayViewSpeedGpuResult } from "../../src/gpu/display-view-speed-gpu.js";
-import { qualityMaterialModule, renderDisplayViewQualityOnGpu, type CorrectionStateStore, type DisplayViewQualityGpuResult } from "../../src/gpu/display-view-quality-gpu.js";
+import { qualityMaterialModule, renderDisplayViewQualityOnGpu, type DisplayViewQualityGpuResult } from "../../src/gpu/display-view-quality-gpu.js";
 import { acquireWebGpuRuntime, createComputePipeline, type WebGpuRuntime } from "../../src/gpu/webgpu-runtime.js";
-import { clearDisplayViewCorrectionStates, createDisplayViewExpectedSignal, renderDisplayView, type DisplayViewExpectedSignal, type DisplayViewRenderResult, type DisplayViewSetup } from "../../src/facade/display-view.js";
+import { createDisplayViewExpectedSignal, renderDisplayView, type DisplayViewExpectedSignal, type DisplayViewRenderResult, type DisplayViewSetup } from "../../src/facade/display-view.js";
 
 /** A CPU display view of a request and the inputs of its GPU render (the material module is built per runtime in `renderOnGpu`). */
 export interface DisplayViewGpuFixture { cpu: DisplayViewRenderResult; input: Omit<DisplayViewSpeedGpuInput, "material">; viewWidth: number; viewHeight: number }
@@ -54,30 +54,28 @@ export async function renderOnGpu(runtime: WebGpuRuntime, fixture: DisplayViewGp
     (label, code) => createComputePipeline(runtime, label, code, undefined));
 }
 
-/** Renders the fixture's input with the Quality kernels (#479); `states` keeps the correction states across renders as the renderer does. */
-export async function renderOnGpuQuality(runtime: WebGpuRuntime, fixture: DisplayViewGpuFixture, maximumBandBytes = 64 * 1024 * 1024, recomputeFlagged = true,
-  states?: CorrectionStateStore): Promise<DisplayViewQualityGpuResult> {
+/** Renders the fixture's input with the Quality kernels (#479). */
+export async function renderOnGpuQuality(runtime: WebGpuRuntime, fixture: DisplayViewGpuFixture, maximumBandBytes = 64 * 1024 * 1024, recomputeFlagged = true): Promise<DisplayViewQualityGpuResult> {
   // The material module as the renderer builds it for a Quality render (the composite module reads the lattice groups with diffraction).
   // #581: an image-plane print brings its own passes 1 and 2, as the renderer gives them.
   const gpu = fixture.input.setup.gpu!, modules = materialModulesOf(runtime), signal = new AbortController().signal;
   const image = (gpu.signalInput.scene as { image?: unknown }).image ? await modules.imagePasses(gpu, signal) : undefined;
   const material = image ? { id: "image-plane", wgsl: "", bindings: [] } : await qualityMaterialModule(modules, gpu, signal);
-  return await renderDisplayViewQualityOnGpu(runtime, maximumBandBytes, { ...fixture.input, material, recomputeFlagged, ...(image ? { image } : {}), ...(states ? { states } : {}) }, new AbortController(), undefined,
+  return await renderDisplayViewQualityOnGpu(runtime, maximumBandBytes, { ...fixture.input, material, recomputeFlagged, ...(image ? { image } : {}) }, new AbortController(), undefined,
     (label, code) => createComputePipeline(runtime, label, code, undefined));
 }
 
 /**
  * #479: the CPU reference's stages on a fixture, timed in this realm (one thread): `fullMs` a warm render (tables, kernels and
- * correction states held); `signalMs` the expected signal of every native site the region reads, through one window of the
+ * first-render costs paid); `signalMs` the expected signal of every native site the region reads, through one window of the
  * reference's own signal (its rings, filled bands and one-material sums); `restMs` the render with the signal answered from those
  * precomputed values and their one-material flags (everything after the expected signal: the demosaic candidates, development,
- * covariance, residual, choice variance and correction interpolation, with the reference's one-material replay); and `statesMs`
- * the correction states of the view from an empty cache (cold render − warm render). `restBitIdentical` checks that the split
+ * covariance, residual and choice variance, with the reference's one-material replay); and `statesMs` the cold render's
+ * extra time over the warm one (2.22.0: there are no correction states, so this is first-render cost only). `restBitIdentical` checks that the split
  * render equals the warm render. Wall-clock milliseconds on this host.
  */
 export async function timeCpuStages(fixture: DisplayViewGpuFixture): Promise<{ fullMs: number; restMs: number; signalMs: number; statesMs: number; restBitIdentical: boolean }> {
   const setup = fixture.input.setup, input = fixture.input.signalInput, now = (): number => performance.now();
-  clearDisplayViewCorrectionStates();
   let t = now();
   await renderDisplayView({ ...setup, signal: createDisplayViewExpectedSignal(input) });
   const coldMs = now() - t;

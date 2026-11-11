@@ -67,10 +67,6 @@ export const SIMULATE_CAPTURE_FAST_METHODS: readonly SimulateCaptureFastMethod[]
     fast: "#588: under rolling-shutter rotation, each catalogue PSF tap reads the scene at its own source point",
     exact: "each tap reads the scene at its site-lattice point (ties on chart boundaries resolve as on the lattice)", followsFormatDefault: true,
     resolver: { file: CAPTURE, call: "resolveFast(catalogueFast, fastTop)" }, report: { applied: "lens.catalogue", assumption: "fast.lens.catalogue" } },
-  { id: "output.demosaic.ahd/view-low-signal-correction", override: "output.demosaic", methods: "fast-and-exact", runs: ["simulateDisplayView", "prepareDisplayView"],
-    fast: "(H3) 2048 draws per correction state, applied where a pixel's linear noise exceeds 0.01",
-    exact: "8192 draws per state, at the same 0.01 threshold", followsFormatDefault: true,
-    resolver: { file: CAPTURE, call: "resolveFast(demosaicFast, fastTop)" }, report: { applied: "output.demosaic.ahd", assumption: "view.demosaic" } },
   { id: "view.uniform-pixel-sampling", override: "fast", methods: "fast-and-exact", runs: ["simulateDisplayView", "prepareDisplayView"],
     fast: "(H2) a quarter of the samples per axis in display pixels whose pilot finds no detail",
     exact: "the full samples per axis in every display pixel", followsFormatDefault: true,
@@ -96,7 +92,7 @@ export const SIMULATE_CAPTURE_FAST_METHODS: readonly SimulateCaptureFastMethod[]
   { id: "sensor.pixelAperture.box", override: "sensor.pixelAperture", methods: "exact-only", runs: ["simulateCapture", "simulateDisplayView", "prepareDisplayView"],
     fast: "", exact: "the N × N midpoint rule", followsFormatDefault: true,
     resolver: { file: CAPTURE, call: "fastInUse" }, report: { applied: "sensor.pixelAperture.box" } },
-  { id: "output.demosaic.ahd", override: "output.demosaic", methods: "exact-only", runs: ["simulateCapture"],
-    fast: "", exact: "the AHD demosaic of the capture (a fast method only in the display view's correction, above)", followsFormatDefault: true,
-    resolver: { file: CAPTURE, call: "resolveFast(demosaicFast, fastTop)" }, report: { applied: "output.demosaic.ahd" } }
+  { id: "output.demosaic.ahd", override: "output.demosaic", methods: "exact-only", runs: ["simulateCapture", "simulateDisplayView", "prepareDisplayView"],
+    fast: "", exact: "the AHD demosaic of the capture; in the display view, AHD's two linear candidates and its choice on the noise-free mosaic (2.22.0: no low-signal correction, so no fast method)", followsFormatDefault: true,
+    resolver: { file: CAPTURE, call: "[\"output.demosaic.ahd\", ahd, demosaicFast]" }, report: { applied: "output.demosaic.ahd" } }
 ] as const satisfies readonly SimulateCaptureFastMethod[]);

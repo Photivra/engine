@@ -70,10 +70,14 @@ export interface DisplayViewResult {
   sensor: SimulateCaptureSensorReport;
   /**
    * Work done: real pixels sampled, real-site expectations evaluated, scene queries, display pixels sampled in full (detail) or with
-   * a quarter of the samples per axis (uniform), display pixels whose value includes the AHD low-signal correction, and wall-clock
-   * milliseconds (diagnostic only; never affects the samples).
+   * a quarter of the samples per axis (uniform), and wall-clock milliseconds (diagnostic only; never affects the samples).
    */
-  diagnostics: { sampleCount: number; siteEvaluations: number; sceneLookups: number; detailPixelCount: number; uniformPixelCount: number; ahdCorrectedPixelCount: number;
+  diagnostics: { sampleCount: number; siteEvaluations: number; sceneLookups: number; detailPixelCount: number; uniformPixelCount: number;
+    /**
+     * Display pixels whose value included the AHD low-signal correction (2.10–2.21).
+     * @deprecated Since 2.22.0 the view has no such correction, and this is always 0. Removed in 3.0.0.
+     */
+    ahdCorrectedPixelCount: number;
     timingsMs: { view: number; total: number };
     /** #395: exact or fast, as requested and as run; 2.11 (#481): plus `execution`, where the render ran (see {@link DisplayViewFastReport}). */
     fast: DisplayViewFastReport;

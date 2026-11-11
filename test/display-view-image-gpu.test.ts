@@ -94,7 +94,6 @@ describe("display view Speed kernel with the image-plane module (float32 emulati
     expect(a.largestCodeDifference).toBeLessThanOrEqual(1);
     expect(a.deltaEMaximum).toBeLessThan(0.01);
     expect(Array.from(gpu.hostRecomputedPixelIndices)).toEqual(Array.from(gpu.flaggedPixelIndices));
-    expect(gpu.ahdCorrectedPixelCount).toBe(fixture.cpu.ahdCorrectedPixelCount);
     if (name.startsWith("defocus")) expect(gpu.tapsPerSite).toBeGreaterThan(100);
 
     runtime.destroy();
