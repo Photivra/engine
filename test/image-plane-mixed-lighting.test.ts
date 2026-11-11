@@ -37,7 +37,7 @@ describe("mixed lighting over an image-plane print (#597)", () => {
     const same: MixedIllumination = { sources: [{ illuminant: DAY, illuminanceLux: 8000 }, { illuminant: DAY, illuminanceLux: 8000 }], blend: { kind: "linear-gradient", from: { u: -1, v: 0 }, to: { u: 1, v: 0 } } };
     const [mixed, single] = await Promise.all([simulateCapture({ ...PRINT, illumination: same, output: { ...PRINT.output, format: "dng" } }),
       simulateCapture({ ...PRINT, illuminant: DAY, illuminanceLux: 8000, output: { ...PRINT.output, format: "dng" } })]);
-    expect(mixed.assumptions.find((a) => a.id === "raw.expectedSignal")?.value).toMatchObject({ method: "tabulated-expected-electrons" });
+    expect(mixed.assumptions.find((a) => a.id === "raw.expectedSignal")?.value).toMatchObject({ method: "per-site-integrated-electrons" });
     // The same expected electrons summed in another order and the same seeded noise: equal codes but for rare ties.
     let differing = 0;
     for (let i = 0; i < single.raw.codes.length; i++) if (mixed.raw.codes[i] !== single.raw.codes[i]) differing++;

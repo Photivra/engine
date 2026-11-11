@@ -8,6 +8,15 @@ import { loadPhotographicExportInput } from "./helpers/photographic-export-fixtu
 import { writeTiff, packBits, rationalPairs } from "./helpers/dng-test-writer.js";
 
 /**
+ * 2.22.0 integration (#598 with #165): the DNG import names every rendering tag that is present and not applied, so a bound
+ * file reads the same as the original apart from that one added assumption about the store tag (checked here, then removed).
+ */
+function withoutStoreAssumption<T extends { assumptions: readonly string[] }>(parsed: T): T {
+  expect(parsed.assumptions.filter((a) => /52545/u.test(a))).toEqual(["dngImport.notApplied: JUMBF (C2PA) (52545) is present and not applied."]);
+  return { ...parsed, assumptions: parsed.assumptions.filter((a) => !/52545/u.test(a)) };
+}
+
+/**
  * Test-only C2PA Manifest Store framing (C2PA 2.4 §11.1.4.2, ISO 19566-5 boxes): a 'jumb' superbox with a 'jumd' description
  * box (C2PA UUID, toggles 0x03, label "c2pa") and one child superbox of `fill` bytes. The content is not a real manifest: the
  * engine checks only the framing, and signing is out of scope. `fill` makes placeholder and signed stores of the same size.
@@ -135,7 +144,7 @@ describe("C2PA in DNG exports (C2PA 2.4 §A.3.6, §18.5.5)", () => {
     expect(bound.binding).toEqual({ mediaType: "image/dng", fileLength: bound.bytes.length,
       exclusions: [{ start: c2pa.at + 4, length: 4 }, { start: c2pa.value, length: 30_001 }], manifestRegion: { start: c2pa.value, length: 30_001 }, manifestStoreLength: 30_001 });
     // Every tag, offset and pixel still reads the same; the store tag is the only addition.
-    expect(parseDngRawImage({ bytes: bound.bytes })).toEqual(parseDngRawImage({ bytes: dng }));
+    expect(withoutStoreAssumption(parseDngRawImage({ bytes: bound.bytes }))).toEqual(parseDngRawImage({ bytes: dng }));
   });
 
   it("writes the signed store in place at the same length; the hash over the bound bytes is unchanged", async () => {
@@ -147,7 +156,7 @@ describe("C2PA in DNG exports (C2PA 2.4 §A.3.6, §18.5.5)", () => {
     expect(signed.length).toBe(bound.bytes.length);
     expect(signed.subarray(0, bound.binding.manifestRegion.start)).toEqual(bound.bytes.subarray(0, bound.binding.manifestRegion.start));
     expect(await calculateC2paDataHash({ file: signed, exclusions: bound.binding.exclusions })).toEqual(hash);
-    expect(parseDngRawImage({ bytes: signed })).toEqual(parseDngRawImage({ bytes: pair.dng.bytes }));
+    expect(withoutStoreAssumption(parseDngRawImage({ bytes: signed }))).toEqual(parseDngRawImage({ bytes: pair.dng.bytes }));
     rejects(() => setC2paManifestStore({ file: bound.bytes, binding: bound.binding, manifestStore: store(3_999) }), /placeholder reserved 4000 B/);
     rejects(() => setC2paManifestStore({ file: bound.bytes, binding: { ...bound.binding, exclusions: [bound.binding.manifestRegion] }, manifestStore: store(4_000) }), /does not match the file's manifest store/);
   });
@@ -164,7 +173,7 @@ describe("C2PA in DNG exports (C2PA 2.4 §A.3.6, §18.5.5)", () => {
     const dng = writeTiff(false, [main]), bound = bindC2paManifestStore({ file: dng, manifestStore: store(200) });
     expect(bound.binding.mediaType).toBe("image/dng");
     const before = parseDngRawImage({ bytes: dng }), after = parseDngRawImage({ bytes: bound.bytes });
-    expect(after).toEqual(before);
+    expect(withoutStoreAssumption(after)).toEqual(before);
     expect(Array.from(after.codes)).toEqual(Array.from(codes));
     const entry = ifd0(bound.bytes).find((e) => e.tag === 52545)!;
     expect(new DataView(bound.bytes.buffer).getUint32(entry.at + 4, false)).toBe(200);

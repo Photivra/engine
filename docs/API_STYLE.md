@@ -132,6 +132,9 @@ Use the existing verb family that matches what the operation does. Do not invent
 - `set*` — return an updated immutable value for a narrowly defined state-setting operation.
 - `get*` — return a descriptive or static contract owned by the engine.
 - `simulate*` — deliberately composed simulation or orchestration API.
+- `import*` (2.22.0, #598) — read a file format whose data may need a caller-supplied decoder, asynchronously, into the same normalized record a `parse*` function returns (`importDngRawImage`: `parseDngRawImage` plus JPEG XL tiles through an application's decoder). It differs from `parse*` only in taking asynchronous decoders.
+- `apply*` (2.22.0, #598, #600) — apply processing that a file format defines and the file carries (opcode lists, gain table maps, RGB tables) to image data, as the format's specification orders it (`applyDngOpcodes`, `applyDngProfileGainTableMap`, `applyDngRgbTables`). It differs from `transform*`, whose source and destination domains are the engine's own.
+- `develop*` (2.22.0, #598) — run a documented, bounded stage of a RAW development from an imported file (`developDngStageImage`: the DNG stage image after OpcodeList1–3, linearization and the black and white levels).
 
 The existing result factories `calculatedResult`, `estimatedResult`, `approximationResult` and `calibratedResult` are documented core helpers, not new verb families.
 

@@ -100,8 +100,10 @@ describe("display view without diffraction keeps its bytes (#444)", () => {
     ["caller material scene, stratified estimator", { scene: checker, sensor: speed, output: { width: 240, height: 160 } }, { width: 24, height: 16 }, "6ead9437c338654c9b4fa0df6ba8f07f965d53665e346aa1032cec7bf624aaad"],
     ["chart preset, AHD at ISO 3200, 1.4 µm", { scene: { preset: "patches", patches: [{ patchId: "a", reflectance: 0.18 }, { patchId: "b", reflectance: 0.6 }], columns: 2 }, exposure: { mode: "manual", iso: 3200, shutterSeconds: 1 / 4000 },
       sensor: { pixelPitchMicrometers: 1.4, pixelAperture: { kind: "box", samplesPerAxis: 2 } }, output: { width: 120, height: 90, demosaic: "ahd" } },
-      { width: 40, height: 30, region: { x: 14, y: 10, width: 12, height: 10 } }, "81b81365e7a96f62b3e08e989d8a8060aef4c3d9f32a15f949f4c334b2690ce7"],
-    // 2.22.0 (#599): re-recorded for the sensor.isoAreaNormalization explanation's new text only (samples, expected values and noise unchanged at 1.4 µm).
+      { width: 40, height: 30, region: { x: 14, y: 10, width: 12, height: 10 } }, "50aa382d1f5d8d7c69e45569f3c93262545c7f5d1a7378f55dc8d89d93399295"],
+    // 2.22.0 integration: the AHD case carries both parts' changes, checked separately: its samples are those of the AHD correction's
+    // removal (above; the same sample digest as that part alone), and its assumptions differ from that part only by #599's new
+    // sensor.isoAreaNormalization explanation text (samples, expected values and noise unchanged by #599 at 1.4 µm).
     ["radiance scene (not tracked)", { scene: { kind: "radiance-function", sceneId: "speed-radiance-lock", evaluate: (p: { u: number; v: number }) => 0.02 * (1.25 + 0.5 * Math.floor(4 * p.u) / 4 - 0.25 * Math.floor(3 * p.v) / 3) },
       sensor: speed, output: { width: 120, height: 80 } }, { width: 40, height: 27 }, "724e9bcb5028c54d6d6c29ea085a9a6c790edc92711dead5085132b8cb47321f"]
   ];

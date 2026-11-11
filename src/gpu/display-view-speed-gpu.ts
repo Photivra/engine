@@ -132,7 +132,7 @@ export function displayViewSpeedGpuUnsupportedReason(setup: DisplayViewSetup, si
   if (signalInput.scene.kind !== "materials" && !signalInput.scene.signalAt) return "radiance scenes (caller functions) are not on the GPU";
   if (!signalInput.queryPoint) return "the expected signal has no query points";
   if (setup.candidates || setup.ahdChoice) return "AHD candidates are not on the GPU";
-  if (!["identity", "positive-reinhard-per-channel", "extended-reinhard-luminance", "naka-rushton-luminance"].includes(setup.toneCurve)) return "unsupported tone curve " + String(setup.toneCurve);
+  if (!GPU_TONE_CURVES.includes(setup.toneCurve)) return "unsupported tone curve " + String(setup.toneCurve);
   if (setup.rendering && !setup.coupled) return "the coupled rendering steps were not prepared";
   if (setup.rendering?.highlightMode === "reconstruct-neighbors") return "highlightMode reconstruct-neighbors (#602; its regions' ratios are found on the host) is not on the GPU in 2.22.0";
   if (signalInput.offsets.length < 1 || signalInput.offsets.length > DISPLAY_VIEW_GPU_MAXIMUM_OFFSETS) return "the kernel holds 1 to " + DISPLAY_VIEW_GPU_MAXIMUM_OFFSETS + " query offsets";
@@ -439,9 +439,13 @@ export function displayViewSpeedGpuSupports(request: DisplayViewGpuRequest): tru
 /** Why the GPU's material lookup, tone curves or query-offset table do not cover a request (shared by the Speed and Quality support checks), or true. */
 export function sceneToneAndOffsetsReason(request: DisplayViewGpuRequest, maximumOffsets: number): true | string {
   if (request.scene !== "chart" && request.scene !== "material-layers" && request.scene !== "image-plane") return "the scene is a caller " + request.scene + "; the GPU material lookup covers engine charts and declared material-layers scenes (describe the scene as material-layers)";
+  // #593: the identity, Reinhard and the two luminance tone curves (the luminance curves through the coupled steps).
+  if (!GPU_TONE_CURVES.includes(request.toneCurve)) return "unsupported tone curve " + String(request.toneCurve);
   if (offsetCount(request) > maximumOffsets) return "more than " + maximumOffsets + " query offsets per site";
   return true;
 }
+/** The tone curves the GPU kernels render (#593 adds the luminance curves). */
+const GPU_TONE_CURVES: readonly string[] = ["identity", "positive-reinhard-per-channel", "extended-reinhard-luminance", "naka-rushton-luminance"];
 
 /**
  * A self-check's verdict: every component of a GPU render inside its a-priori bounds against the reference, every sample within

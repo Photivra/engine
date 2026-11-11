@@ -48,6 +48,23 @@ export interface DngRgbTables { compositeMethod: "weighted-sum" | "sequential"; 
 export interface DngRgbImage { width: number; height: number; data: Float32Array }
 
 function fail(message: string): never { throw new InvalidConfigurationError("DNG profile maps: " + message); }
+/** The tag's bytes (a Uint8Array), or a domain error. */
+function requireBytes(bytes: unknown, name: string): Uint8Array {
+  if (!(bytes instanceof Uint8Array)) fail(name + " takes the tag's bytes as a Uint8Array.");
+  return bytes;
+}
+/** An interleaved RGB image record of its size, or a domain error. */
+function requireRgbImage(image: unknown): DngRgbImage {
+  const i = image as Partial<DngRgbImage> | null;
+  if (i === null || typeof i !== "object" || !Number.isSafeInteger(i.width) || !Number.isSafeInteger(i.height) || i.width! < 1 || i.height! < 1 || !(i.data instanceof Float32Array) ||
+    i.data.length !== i.width! * i.height! * 3) fail("the image must be interleaved RGB of its size.");
+  return i as DngRgbImage;
+}
+/** The input record of an apply function: an object with only the named fields. */
+function requireApplyInput(input: unknown, name: string, keys: readonly string[]): void {
+  if (input === null || typeof input !== "object" || Array.isArray(input)) fail(name + " takes an input object.");
+  for (const key of Object.keys(input)) if (!keys.includes(key)) fail(name + " input has unknown field " + JSON.stringify(key) + ".");
+}
 class Reader {
   p = 0; private v: DataView;
   constructor(private b: Uint8Array, private little: boolean) { this.v = new DataView(b.buffer, b.byteOffset, b.byteLength); }
@@ -73,7 +90,7 @@ function half(h: number): number {
  * GainMin). A single map point on an axis has spacing 1 and origin 0 (SDK).
  */
 export function parseDngProfileGainTableMap(bytes: Uint8Array, littleEndian: boolean, version: 1 | 2): DngProfileGainTableMap {
-  const r = new Reader(bytes, littleEndian);
+  const r = new Reader(requireBytes(bytes, "parseDngProfileGainTableMap"), littleEndian);
   const pointsV = r.u32(), pointsH = r.u32();
   let spacingV = r.f64(), spacingH = r.f64(), originV = r.f64(), originH = r.f64();
   const tablePoints = r.u32(), inputWeights = [r.f32(), r.f32(), r.f32(), r.f32(), r.f32()] as [number, number, number, number, number];
@@ -106,7 +123,7 @@ const PRIMARIES = ["srgb", "adobe-rgb", "display-p3", "rec2020", "prophoto"] as 
  * GamutExtension (0 clip, 1 extend), each a BYTE, then Divisions³ RGB samples (uint8 scaled by 256, float scaled by 65535).
  */
 export function parseDngRgbTables(bytes: Uint8Array, littleEndian: boolean): DngRgbTables | null {
-  const r = new Reader(bytes, littleEndian), count = r.u32();
+  const r = new Reader(requireBytes(bytes, "parseDngRgbTables"), littleEndian), count = r.u32();
   if (count === 0) return null;
   if (count > 20) fail("RGBTables holds more than 20 tables.");
   const method = r.u32();
@@ -143,8 +160,9 @@ export interface ApplyDngProfileGainTableMapInput {
  * relative position (held at the map's edges); R, G and B are multiplied by it.
  */
 export function applyDngProfileGainTableMap(input: ApplyDngProfileGainTableMapInput): void {
-  const { image, map } = input, { width, height, data } = image;
-  if (data.length !== width * height * 3) fail("the image must be interleaved RGB of its size.");
+  requireApplyInput(input, "applyDngProfileGainTableMap", ["image", "map", "baselineExposureStops", "region", "overrange"]);
+  const { map } = input, { width, height, data } = requireRgbImage(input.image);
+  if (map === null || typeof map !== "object" || !Array.isArray(map.inputWeights)) fail("map must be a parsed ProfileGainTableMap (parseDngProfileGainTableMap).");
   const region = input.region ?? { x: 0, y: 0, stageWidth: width, stageHeight: height }, gainWeight = 2 ** (input.baselineExposureStops ?? 0);
   if (!Number.isFinite(gainWeight)) fail("baselineExposureStops must be finite.");
   const [w0, w1, w2, w3, w4] = map.inputWeights, n = map.tablePoints, last = n - 1;
@@ -221,8 +239,9 @@ export interface ApplyDngRgbTablesInput {
  * A table whose mask is not supplied is skipped (as the SDK skips a name with no SemanticMask); the returned notes say so.
  */
 export function applyDngRgbTables(input: ApplyDngRgbTablesInput): string[] {
-  const { image, tables } = input, { width, height, data } = image, notes: string[] = [];
-  if (data.length !== width * height * 3) fail("the image must be interleaved RGB of its size.");
+  requireApplyInput(input, "applyDngRgbTables", ["image", "tables", "masks"]);
+  const { tables } = input, { width, height, data } = requireRgbImage(input.image), notes: string[] = [];
+  if (tables === null || typeof tables !== "object" || !Array.isArray(tables.tables)) fail("tables must be parsed RGBTables (parseDngRgbTables).");
   const pixels = width * height, maskOf = (name: string): Float32Array | null => {
     const m = input.masks?.find((x) => x.name === name);
     if (!m) return null;

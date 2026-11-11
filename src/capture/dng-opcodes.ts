@@ -188,6 +188,10 @@ function cubic(x: number): number {
  * per opcode: what was applied, or why it was not.
  */
 export function applyDngOpcodes(image: DngStageImage, opcodes: readonly DngOpcode[], options: ApplyDngOpcodesOptions): string[] {
+  if (image === null || typeof image !== "object" || !Number.isSafeInteger(image.width) || !Number.isSafeInteger(image.height) || !Number.isSafeInteger(image.planes))
+    fail("applyDngOpcodes takes a stage image { width, height, planes, data }.");
+  if (!Array.isArray(opcodes)) fail("applyDngOpcodes takes a parsed opcode list (parseDngOpcodeList).");
+  if (options === null || typeof options !== "object") fail("applyDngOpcodes takes options with the list's stage.");
   const { width, height, planes } = image, scale = options.scale ?? 1, notes: string[] = [];
   if (!(image.data instanceof Float32Array) || image.data.length !== width * height * planes) fail("the stage image's data does not match its size.");
   const label = (op: DngOpcode): string => "OpcodeList" + options.stage + " " + op.name + " (" + op.id + ")";

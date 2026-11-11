@@ -6,15 +6,18 @@ import * as engine from "../src/index.js";
 
 const APPROVED_PUBLIC_VERB_PREFIXES = [
   "add",
+  "apply",
   "assess",
   "bind",
   "calculate",
   "compose",
   "create",
+  "develop",
   "distribute",
   "estimate",
   "evaluate",
   "get",
+  "import",
   "integrate",
   "map",
   "meter",
