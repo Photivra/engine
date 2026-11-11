@@ -39,7 +39,7 @@ describe("lens.catalogue fast method (#568)", () => {
     for (const [name, options] of cases) {
       const r = await simulateCapture(options);
       expect(r.diagnostics.fast.applied["lens.catalogue"], name).toBe(true);
-      expect(expected(r).method, name).toBe("tabulated-expected-electrons-catalogue-psf-field-grid");
+      expect(expected(r).method, name).toBe("per-site-integrated-electrons-catalogue-psf-field-grid");
       expect(expected(r).verificationRelativeDifference!, name).toBeLessThanOrEqual(1e-9);
     }
   }, scaledTimeout(120_000));

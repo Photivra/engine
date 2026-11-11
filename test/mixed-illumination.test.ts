@@ -172,7 +172,7 @@ describe("mixed illumination (#550)", () => {
   it("a chart under a blend takes the tabulated RAW path, verified against the chain, with the chain's image", async () => {
     const options: SimulateCaptureOptions = { scene: { preset: "color-patches" }, illumination: GRADIENT, output: { width: 48, height: 32, format: "srgb-16" } };
     const tabulated = await simulateCapture(options);
-    expect(tabulated.assumptions.find((a) => a.id === "raw.expectedSignal")?.value).toMatchObject({ method: "tabulated-expected-electrons" });
+    expect(tabulated.assumptions.find((a) => a.id === "raw.expectedSignal")?.value).toMatchObject({ method: "per-site-integrated-electrons" });
     setTabulatedNativeRawEnabled(false);
     let chain: Awaited<ReturnType<typeof simulateCapture>>;
     try { chain = await simulateCapture(options); } finally { setTabulatedNativeRawEnabled(true); }

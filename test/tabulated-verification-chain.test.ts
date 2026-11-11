@@ -55,7 +55,7 @@ describe("tabulated RAW verification sites (#453)", () => {
       setTabulatedVerificationTestHook({ fullPhoto: (engineOwned, full) => pairs.push([engineOwned, full]) });
       const before = tabulatedVerificationStatistics.chainExecutions;
       const result = await simulateCapture(options);
-      expect(method(result), name).toBe("tabulated-expected-electrons");
+      expect(method(result), name).toBe("per-site-integrated-electrons");
       expect(tabulatedVerificationStatistics.chainExecutions - before, name).toBe(4);
       expect(pairs.length, name).toBe(4);
       for (const [engineOwned, full] of pairs) expect(firstDifference(engineOwned, full), name).toBeUndefined();
@@ -83,7 +83,7 @@ describe("tabulated RAW verification sites (#453)", () => {
     expect(Array.from(rejected.image.samples)).toEqual(Array.from(chain.image.samples));
     // A change inside the rounding tolerance still passes.
     setTabulatedVerificationTestHook({ tabulatedElectrons: (value) => value * (1 + 1e-12) });
-    expect(method(await simulateCapture(options))).toBe("tabulated-expected-electrons");
+    expect(method(await simulateCapture(options))).toBe("per-site-integrated-electrons");
   }, scaledTimeout(300_000));
 });
 

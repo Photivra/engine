@@ -30,10 +30,9 @@ describe("display view Quality kernels at 2028 × 1352 on the 24 MP frame (" + (
     const emulationMs = performance.now() - t;
     const a = compareDisplayViews(fixture.cpu, gpu);
     process.stdout.write("[display-view quality gpu emulation " + view.region.width + "x" + view.region.height + " of 2028x1352] " + JSON.stringify({ ...a, flagged: gpu.flaggedPixelIndices.length, recomputed: gpu.hostRecomputedPixelIndices.length,
-      tapsPerSite: gpu.tapsPerSite, correctedPixels: gpu.ahdCorrectedPixelCount, cpuReferenceMs: Math.round(cpuMs), float32EmulationMs: Math.round(emulationMs), stageMilliseconds: gpu.stageMilliseconds,
+      tapsPerSite: gpu.tapsPerSite, cpuReferenceMs: Math.round(cpuMs), float32EmulationMs: Math.round(emulationMs), stageMilliseconds: gpu.stageMilliseconds,
       expectedValueBound: gpu.expectedValueBound, varianceBound: gpu.varianceBound }, null, 1) + "\n");
     expect(a.pixels).toBe(view.region.width * view.region.height);
-    expect(gpu.ahdCorrectedPixelCount).toBe(fixture.cpu.ahdCorrectedPixelCount);
     expect(a.outsideExpectedBound).toBe(0);
     expect(a.outsideVarianceBound).toBe(0);
     expect(a.largestCodeDifference).toBeLessThanOrEqual(1);

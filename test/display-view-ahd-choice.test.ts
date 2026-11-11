@@ -4,8 +4,7 @@
  * expected value takes the candidate AHD chooses on the noise-free mosaic instead of the candidates' average.
  *
  * 1. The direction the view computes (`createAhdDirectionPlane`) is the engine's AHD task's own direction map
- *    (`createAhdDemosaicTask`, after Hirakawa & Parks 2005), borders included, and the centre steps of the low-signal
- *    correction (`createAhdCentreSteps`) give the same direction in the interior.
+ *    (`createAhdDemosaicTask`, after Hirakawa & Parks 2005), borders included.
  * 2. The case that found the miss (validation set F, #454): the 24 MP 6 µm full frame shown 2028 wide (2.96 real pixels per
  *    display pixel, the exact area mean), a 32 × 32 block at the 36-cycle Siemens star's centre, f/8, ISO 100, against seven
  *    reference captures area-averaged in linear light (the method of scripts/validate-display-view.mjs). Before this change:
@@ -14,7 +13,7 @@
  */
 import { describe, expect, it } from "vitest";
 import { createAhdDemosaicTask, NATIVE_RAW_LIMITS, simulateCapture, type SimulateCaptureOptions } from "../src/index.js";
-import { createAhdCentreSteps, createAhdDirectionPlane } from "../src/facade/display-view.js";
+import { createAhdDirectionPlane } from "../src/facade/display-view.js";
 import { simulateDisplayViewWithInternals } from "../src/facade/simulate-display-view.js";
 import { bayerProfile, ROLES, runTask } from "./helpers/processing-fixture.js";
 import { scaledTimeout as testTimeout } from "./helpers/test-timeout.js";
@@ -23,7 +22,7 @@ import { scaledTimeout as testTimeout } from "./helpers/test-timeout.js";
 const LAB = [[0.4124, 0.3576, 0.1805], [0.2126, 0.7152, 0.0722], [0.0193, 0.1192, 0.9505]].map((row) => row.map((v, c) => v * [2, 1, 1.6][c]!));
 
 describe("display view: AHD's choice on the noise-free mosaic (#457)", () => {
-  it("is the AHD task's own direction at every pixel, borders included, and the centre steps' in the interior", async () => {
+  it("is the AHD task's own direction at every pixel, borders included", async () => {
     const W = 64, H = 48;
     let seed = 7;
     const random = (): number => { seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0; return seed / 2 ** 32; };
@@ -38,15 +37,11 @@ describe("display view: AHD's choice on the noise-free mosaic (#457)", () => {
         channelRoles: ROLES, cameraToXyz: LAB as never }, p));
       const plane = createAhdDirectionPlane(LAB, W, H, W, 64, (x, y) => samples[y * W + x]!);
       plane.origin(0);
-      const patch = new Float64Array(121), steps = createAhdCentreSteps(LAB, patch);
       const counts = [0, 0, 0];
       for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
         const direction = plane.direction(x, y);
         counts[direction]!++;
         expect(direction, `${name} (${x}, ${y})`).toBe(task.direction[y * W + x]);
-        if (x < 5 || y < 5 || x >= W - 5 || y >= H - 5) continue;
-        for (let dy = -5; dy <= 5; dy++) for (let dx = -5; dx <= 5; dx++) patch[(dy + 5) * 11 + dx + 5] = samples[(y + dy) * W + x + dx]!;
-        expect(steps.choose((y & 1) * 2 + (x & 1)), `${name} centre steps (${x}, ${y})`).toBe(direction);
       }
       // Both directions are taken on each mosaic, so the comparison exercises the choice.
       expect(counts[0]).toBeGreaterThan(0);

@@ -12,7 +12,7 @@ const sensor = { pixelPitchMicrometers: 6, pixelAperture: { kind: "box" as const
 const output = { ...SMALL_FRAME, format: "srgb-8" as const, demosaic: "ahd" as const };
 const lens = { prime: 50 as const, fNumber: 8, diffraction: "circular-aperture" as const };
 
-/** The small Quality fixtures: the Speed fixtures' charts with diffraction, the four-spot filter and AHD, plus the clips, the correction and the Reinhard curve. */
+/** The small Quality fixtures: the Speed fixtures' charts with diffraction, the four-spot filter and AHD, plus the clips, low signal and the Reinhard curve. */
 export const QUALITY_CASES: [string, SimulateCaptureOptions][] = [
   ["slanted edge", { scene: { preset: "slanted-edge", angleDegrees: 5 }, lens, sensor, output }],
   ["Siemens star (bar)", { scene: { preset: "siemens-star", cycles: 36 }, lens, sensor, output }],
@@ -22,7 +22,7 @@ export const QUALITY_CASES: [string, SimulateCaptureOptions][] = [
     { kind: "tabulated" as const, samples: [380, 480, 580, 680, 780].map((w, j) => ({ wavelengthNanometers: w, value: 0.1 + 0.08 * i + 0.1 * j })) } : 0.05 + 0.1 * i })) },
     lens, sensor, output }],
   ["step wedge at the white clip", { scene: { preset: "step-wedge", steps: 11 }, lens, exposure: { mode: "manual", iso: 100, shutterSeconds: 1 / 15 }, sensor, output }],
-  ["step wedge at ISO 6400 (the low-signal correction)", { scene: { preset: "step-wedge", steps: 11 }, lens, exposure: { mode: "manual", iso: 6400, shutterSeconds: 1 / 8000 }, sensor, output }],
+  ["step wedge at ISO 6400 (low signal)", { scene: { preset: "step-wedge", steps: 11 }, lens, exposure: { mode: "manual", iso: 6400, shutterSeconds: 1 / 8000 }, sensor, output }],
   ["step wedge, Reinhard", { scene: { preset: "step-wedge", steps: 11 }, lens, exposure: { mode: "manual", iso: 100, shutterSeconds: 1 / 30 }, sensor, output: { ...output, toneCurve: "positive-reinhard-per-channel" } }],
   ["AHD without diffraction", { scene: { preset: "checkerboard", squaresAcross: 12 }, lens: { prime: 50, fNumber: 8 }, sensor, output }]
 ];
@@ -52,12 +52,11 @@ export async function runQualityCase(name: string, options: SimulateCaptureOptio
     const fixture = await displayViewGpuFixture(options, SMALL_VIEW), runtime = await runtimeOf(createFakeGpu().gpu);
   const t = performance.now();
   const gpu = await renderOnGpuQuality(runtime, fixture), emulationMs = Math.round(performance.now() - t), a = compareDisplayViews(fixture.cpu, gpu);
-  record(a, { flagged: gpu.flaggedPixelIndices.length, recomputed: gpu.hostRecomputedPixelIndices.length, tapsPerSite: gpu.tapsPerSite, correctedPixels: gpu.ahdCorrectedPixelCount,
-    statesComputed: gpu.statesComputed, emulationMs, stageMilliseconds: gpu.stageMilliseconds, expectedValueBound: gpu.expectedValueBound, varianceBound: gpu.varianceBound });
+  record(a, { flagged: gpu.flaggedPixelIndices.length, recomputed: gpu.hostRecomputedPixelIndices.length, tapsPerSite: gpu.tapsPerSite, 
+    emulationMs, stageMilliseconds: gpu.stageMilliseconds, expectedValueBound: gpu.expectedValueBound, varianceBound: gpu.varianceBound });
   expect(gpu.estimation).toBe("exact-area-mean");
   expect(gpu.execution).toMatchObject({ backend: "webgpu-f32", arithmetic: "float32", bitIdenticalToReference: false, fast: true, diagnosticsExact: true });
   expect(gpu.execution.errorBound).toEqual(gpu.expectedValueBound);
-  expect(gpu.ahdCorrectedPixelCount).toBe(fixture.cpu.ahdCorrectedPixelCount);
   expect(a.outsideExpectedBound).toBe(0);
   expect(a.outsideVarianceBound).toBe(0);
   expect(a.largestCodeDifference).toBeLessThanOrEqual(1);

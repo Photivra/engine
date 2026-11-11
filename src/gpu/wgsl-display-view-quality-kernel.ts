@@ -2,7 +2,7 @@
 
 /**
  * WGSL kernels of the display view's Quality path on the GPU (#479): the exact area mean with diffraction kernels, the
- * anti-aliasing filter's spots, the AHD candidates and the low-signal correction, in three passes over one band of display
+ * anti-aliasing filter's spots and the AHD candidates, in three passes over one band of display
  * rows (docs/WEBGPU.md, "Display view (Quality) on the GPU"; the float64 reference is `renderDisplayView` with
  * `createDisplayViewExpectedSignal`, facade/display-view.ts and facade/expected-signal.ts):
  *
@@ -22,9 +22,7 @@
  *    camera-channel covariance), white balance and the highlight clip, the colour matrix, the tone curve and the clip to
  *    [0, 1] with the skewness term, the candidates' average, the Stein covariance with the closed-form B_c, the independent
  *    residual, AHD's choice variance ¼·Var(H − V), the flag for AHD's choice on the noise-free mosaic, which the reference takes and
- *    the kernel does not (#457), and the low-signal correction interpolated trilinearly between the grid
- *    states of a table the host uploaded (the states themselves are computed on the host, #447; the kernel records every
- *    grid key it needs in a bitmap and flags a display pixel whose state the table lacks).
+ *    the kernel does not (#457). 2.22.0: there is no low-signal correction (docs/DISPLAY_VIEW.md, "AHD at low signal").
  *
  * **Highlights (#533).** The site pass records whether each site is certainly below white, certainly at or above it, or
  * undecided (`clip_state`, from the site's mean and variance and their running bounds: certain only beyond twice the reference's
@@ -52,7 +50,6 @@
  */
 
 import { DISPLAY_VIEW_CLIP_MEAN_U, DISPLAY_VIEW_CLIP_VARIANCE_U, DISPLAY_VIEW_REINHARD_MEAN_U, DISPLAY_VIEW_REINHARD_VARIANCE_U } from "./wgsl-display-view-speed-kernel.js";
-import { AHD_KEY_FLOOR, AHD_KEY_LEVELS, AHD_KEY_OCTAVES, AHD_KEY_STEPS } from "../facade/display-view.js";
 import { EXACT_SUM_WGSL } from "./wgsl-exact-sum.js";
 import { DISPLAY_VIEW_COUPLED_STUB_WGSL } from "./wgsl-display-view-coupled-stub.js";
 
@@ -96,12 +93,7 @@ export const DISPLAY_VIEW_QUALITY_FLAG = /* @__PURE__ */ Object.freeze({
   materialUncertain: 1,
   /** A site the pixel read lies outside the band's site window (a host geometry error; recompute). */
   siteOutsideWindow: 2,
-  /** The correction needed a grid state the table does not hold (recompute, or compute the state and dispatch again). */
-  stateMissing: 4,
-  /** A sample's pixel variance lies within its bound of the correction threshold (recompute). */
-  thresholdTie: 8,
-  /** Informational: the pixel's expected value includes the low-signal correction. */
-  corrected: 16,
+  // Bits 4, 8 and 16 (the low-signal correction's state, threshold and applied flags) are unused since 2.22.0.
   /**
    * #457: the reference takes AHD's choice on the noise-free mosaic (one candidate, or their average on a tie), which the kernel
    * does not compute; it renders the average. The pixel is flagged (recompute) when Σ_j a_j·½|h(H) − h(V)| of some component
@@ -111,7 +103,7 @@ export const DISPLAY_VIEW_QUALITY_FLAG = /* @__PURE__ */ Object.freeze({
   /** #533: a real pixel's saturation is undecided (the host computes the display pixel's count with the reference; its samples stay). */
   highlightUndecided: 64,
   /** The bits that require the host's recomputation. */
-  recompute: 47
+  recompute: 35
 });
 /** #533: flag words per display pixel: the flags, then the 36-bit mask of saturated real pixels. */
 export const DISPLAY_VIEW_QUALITY_FLAG_WORDS = 3;
@@ -121,8 +113,6 @@ export const DISPLAY_VIEW_QUALITY_FLAG_WORDS = 3;
  * design tolerance, not a measurement: 2^-10 σ is a tenth of the 0.01 σ to which the float32 tests hold the GPU to the reference.
  */
 export const DISPLAY_VIEW_QUALITY_CHOICE_SIGMA = 2 ** -10;
-/** Words of the grid-key bitmap: one bit per grid key (AHD_KEY_LEVELS³ keys). */
-export const DISPLAY_VIEW_QUALITY_BITMAP_WORDS = Math.ceil(AHD_KEY_LEVELS ** 3 / 32);
 /**
  * A site whose uncertain lattice points (the material module's flag) could move its electrons by more than this fraction of
  * their value is flagged for host recomputation; a smaller uncertainty enters the site's bound instead (the tap weights times
@@ -161,11 +151,11 @@ struct Params {
   region_y: u32, margin: u32, native_w: u32, native_h: u32,
   columns: u32, tone: u32, reach: u32, candidates: u32,
   site_x0: i32, site_y0: i32, site_w: u32, site_h: u32,
-  correction: u32, state_count: u32, taps: u32, groups: u32,
+  unused_16: u32, unused_17: u32, taps: u32, groups: u32,
   lattice_total: u32, gain_at_clip0: u32, gain_at_clip1: u32, gain_at_clip2: u32,
   k0: f32, k1: f32, k2: f32, reach2: f32,
   dark0: f32, dark1: f32, dark2: f32, clip_level: f32,
-  c0_0: f32, c0_1: f32, c0_2: f32, threshold: f32,
+  c0_0: f32, c0_1: f32, c0_2: f32, unused_35: f32,
   g0: f32, g1: f32, g2: f32, scale_u: f32,
   m00: f32, m01: f32, m02: f32, m10: f32,
   m11: f32, m12: f32, m20: f32, m21: f32,
@@ -544,29 +534,18 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_workgroups) 
 
 /** Pass 3: the display pixels (see the module comment). */
 export const DISPLAY_VIEW_QUALITY_PIXELS_BODY_WGSL = /* wgsl */ `${DISPLAY_VIEW_QUALITY_COMMON_WGSL}
-const KEY_LEVELS: u32 = ${AHD_KEY_LEVELS}u;
-const KEY_STEPS: f32 = ${literal(AHD_KEY_STEPS)};
-const KEY_OCTAVES: f32 = ${literal(AHD_KEY_OCTAVES)};
-const KEY_FLOOR: f32 = ${literal(AHD_KEY_FLOOR)};
-const KEY_TOP: u32 = ${AHD_KEY_OCTAVES * AHD_KEY_STEPS - 1}u;
 const CAND_BASE: u32 = ${DISPLAY_VIEW_QUALITY_AUX.candidates}u;
 const CAND_STRIDE: u32 = ${CANDIDATE_PHASE_STRIDE}u;
 const FLAG_UNCERTAIN: u32 = ${DISPLAY_VIEW_QUALITY_FLAG.materialUncertain}u;
 const FLAG_OUTSIDE: u32 = ${DISPLAY_VIEW_QUALITY_FLAG.siteOutsideWindow}u;
-const FLAG_STATE: u32 = ${DISPLAY_VIEW_QUALITY_FLAG.stateMissing}u;
-const FLAG_TIE: u32 = ${DISPLAY_VIEW_QUALITY_FLAG.thresholdTie}u;
-const FLAG_CORRECTED: u32 = ${DISPLAY_VIEW_QUALITY_FLAG.corrected}u;
 const FLAG_CHOICE: u32 = ${DISPLAY_VIEW_QUALITY_FLAG.ahdChoice}u;
 const FLAG_HIGHLIGHT: u32 = ${DISPLAY_VIEW_QUALITY_FLAG.highlightUndecided}u;
 const CHOICE_SIGMA: f32 = ${literal(DISPLAY_VIEW_QUALITY_CHOICE_SIGMA)};
 @group(0) @binding(1) var<storage, read> aux: array<f32>;
 @group(0) @binding(2) var<storage, read> geometry: array<f32>;
 @group(0) @binding(3) var<storage, read> sites: array<f32>;
-@group(0) @binding(4) var<storage, read> state_keys: array<i32>;
-@group(0) @binding(5) var<storage, read> state_values: array<f32>;
-@group(0) @binding(6) var<storage, read_write> bitmap: array<atomic<u32>>;
-@group(0) @binding(7) var<storage, read_write> out: array<f32>;
-@group(0) @binding(8) var<storage, read_write> flags: array<u32>;
+@group(0) @binding(4) var<storage, read_write> out: array<f32>;
+@group(0) @binding(5) var<storage, read_write> flags: array<u32>;
 // #593, #601: the coupled rendering steps' constants, after the aux table's own entries (one zero word without them).
 fn cp_k(i: u32) -> f32 { return aux[${DISPLAY_VIEW_QUALITY_AUX.size}u + i]; }
 
@@ -585,66 +564,6 @@ fn site_at(x: i32, y: i32) -> u32 {
 }
 // #533: the clip state bits (1 certainly clipped, 2 undecided) of the site at offset o.
 fn clip_bits(o: u32) -> u32 { return (bitcast<u32>(sites[o + 6u]) >> 1u) & 3u; }
-// The offset of a grid key in the sorted state table, or state_count when absent.
-fn find_state(key: i32) -> u32 {
-  var lo = 0u; var hi = params.state_count;
-  while (lo < hi) {
-    let mid = (lo + hi) / 2u;
-    if (state_keys[mid] < key) { lo = mid + 1u; } else { hi = mid; }
-  }
-  if (lo < params.state_count && state_keys[lo] == key) { return lo; }
-  return params.state_count;
-}
-// The flat-neighbourhood correction at channel means (m0, m1, m2) with its bound: trilinear between the eight grid states
-// around (log2(clamp(m, 2^-12, 1)) + 12)·8; a missing state flags the pixel. The bound of each axis's coordinate times the
-// largest state difference along that axis bounds the interpolation's dependence on the coordinates' error.
-fn flat_correction(m0: vec2<f32>, m1: vec2<f32>, m2: vec2<f32>, corr: ptr<function, array<vec2<f32>, 3>>) {
-  var base: array<u32, 3>; var frac: array<f32, 3>; var dg: array<f32, 3>;
-  for (var i = 0u; i < 3u; i = i + 1u) {
-    var mi = m0; if (i == 1u) { mi = m1; } if (i == 2u) { mi = m2; }
-    let clamped = clamp(mi.x, KEY_FLOOR, 1.0);
-    let g = (log2(clamped) + KEY_OCTAVES) * KEY_STEPS;
-    let b = min(u32(max(floor(g), 0.0)), KEY_TOP);
-    base[i] = b; frac[i] = g - f32(b);
-    // log2: 1/ln 2 per relative input error, 2^-21 absolute or 3 ULP (≤ 36E on [2^-12, 1]), the sum and the product.
-    var slope = 0.0; if (mi.x > KEY_FLOOR && mi.x < 1.0) { slope = 1.4426950408889634 * mi.y / clamped; }
-    dg[i] = KEY_STEPS * (slope + 4.76837158203125e-7 + 36.0 * E) + 2.0 * E * (g + 1.0);
-  }
-  var values: array<f32, 24>;
-  var missing = false;
-  for (var corner = 0u; corner < 8u; corner = corner + 1u) {
-    let i0 = base[0] + (corner & 1u); let i1 = base[1] + ((corner >> 1u) & 1u); let i2 = base[2] + ((corner >> 2u) & 1u);
-    let key = i32((i0 * KEY_LEVELS + i1) * KEY_LEVELS + i2);
-    var weight = 1.0;
-    for (var i = 0u; i < 3u; i = i + 1u) { weight = weight * select(1.0 - frac[i], frac[i], ((corner >> i) & 1u) == 1u); }
-    if (weight == 0.0) { for (var c = 0u; c < 3u; c = c + 1u) { values[corner * 3u + c] = 0.0; } continue; }
-    atomicOr(&bitmap[u32(key) / 32u], 1u << (u32(key) % 32u));
-    let at = find_state(key);
-    if (at >= params.state_count) { missing = true; continue; }
-    for (var c = 0u; c < 3u; c = c + 1u) { values[corner * 3u + c] = state_values[at * 3u + c]; }
-  }
-  if (missing) { pixel_flags = pixel_flags | FLAG_STATE; for (var c = 0u; c < 3u; c = c + 1u) { (*corr)[c] = vec2<f32>(0.0, 0.0); } return; }
-  for (var c = 0u; c < 3u; c = c + 1u) {
-    var sum = 0.0; var mag = 0.0;
-    for (var corner = 0u; corner < 8u; corner = corner + 1u) {
-      var weight = 1.0;
-      for (var i = 0u; i < 3u; i = i + 1u) { weight = weight * select(1.0 - frac[i], frac[i], ((corner >> i) & 1u) == 1u); }
-      sum = sum + weight * values[corner * 3u + c];
-      mag = mag + abs(weight * values[corner * 3u + c]);
-    }
-    // The largest state difference along each axis (over the four edges), times that axis's coordinate bound.
-    var slope_term = 0.0;
-    for (var i = 0u; i < 3u; i = i + 1u) {
-      var largest = 0.0;
-      for (var corner = 0u; corner < 8u; corner = corner + 1u) {
-        if (((corner >> i) & 1u) == 1u) { continue; }
-        largest = max(largest, abs(values[(corner | (1u << i)) * 3u + c] - values[corner * 3u + c]));
-      }
-      slope_term = slope_term + dg[i] * largest;
-    }
-    (*corr)[c] = vec2<f32>(sum, slope_term + 12.0 * E * mag);
-  }
-}
 @compute @workgroup_size(${DISPLAY_VIEW_QUALITY_WORKGROUP_SIZE})
 fn main(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_workgroups) wg: vec3<u32>) {
   let i = gid.x + gid.y * wg.x * ${DISPLAY_VIEW_QUALITY_WORKGROUP_SIZE}u;
@@ -728,8 +647,6 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_workgroups) 
         if (bit < 32u) { mask0 = mask0 | (1u << bit); } else { mask1 = mask1 | (1u << (bit - 32u)); }
       } else if ((clip_any & 2u) != 0u) { undecided = true; }
       var e_mean = array<vec2<f32>, 3>(vec2<f32>(0.0), vec2<f32>(0.0), vec2<f32>(0.0));
-      var cm_average = array<vec2<f32>, 3>(vec2<f32>(0.0), vec2<f32>(0.0), vec2<f32>(0.0));
-      var pixel_variance = vec2<f32>(0.0, 0.0);
       var bs: array<vec2<f32>, 3>; var hs: array<vec2<f32>, 3>;
       var hv: array<vec2<f32>, 3>;
       // #457: each candidate's rendered mean, for the reference's choice between them.
@@ -756,7 +673,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_workgroups) 
           C[0] = b_add(C[0], b_scale(sv, w0 * w0)); C[1] = b_add(C[1], b_scale(sv, w0 * w1)); C[2] = b_add(C[2], b_scale(sv, w0 * w2));
           C[3] = b_add(C[3], b_scale(sv, w1 * w1)); C[4] = b_add(C[4], b_scale(sv, w1 * w2)); C[5] = b_add(C[5], b_scale(sv, w2 * w2));
         }
-        for (var c = 0u; c < 3u; c = c + 1u) { if (exact[c]) { cm[c].y = 0.0; } cm_average[c] = b_add(cm_average[c], b_scale(cm[c], share)); }
+        for (var c = 0u; c < 3u; c = c + 1u) { if (exact[c]) { cm[c].y = 0.0; } }
         // #593: reconstruct within the blend's reach integrates the whole chain below; out of its reach it is the unclipped white
         // balance. An undecided reach is recomputed on the host.
         var cp_chain_run = false;
@@ -871,7 +788,6 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_workgroups) 
         for (var comp = 0u; comp < 3u; comp = comp + 1u) {
           h_cand[d * 3u + comp] = hm[comp];
           e_mean[comp] = b_add(e_mean[comp], b_scale(hm[comp], share));
-          pixel_variance = vec2<f32>(max(pixel_variance.x, hv[comp].x), max(pixel_variance.y, hv[comp].y));
         }
         // Linear (Stein) part with B_c·σ_c², and the pixel's own linear variance aᵀCa for the residual.
         for (var c = 0u; c < 3u; c = c + 1u) {
@@ -934,16 +850,6 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_workgroups) 
         }
         let ajaj = b_mul(aj, aj);
         res[0] = b_add(res[0], b_mul(ajaj, b_scale(x0, 0.25))); res[1] = b_add(res[1], b_mul(ajaj, b_scale(x1, 0.25))); res[2] = b_add(res[2], b_mul(ajaj, b_scale(x2, 0.25)));
-      }
-      if (params.correction == 1u) {
-        // The low-signal correction where the pixel noise exceeds the threshold; a decision within its bound is flagged.
-        if (abs(pixel_variance.x - params.threshold) <= pixel_variance.y) { pixel_flags = pixel_flags | FLAG_TIE; }
-        if (pixel_variance.x > params.threshold) {
-          var corr: array<vec2<f32>, 3>;
-          flat_correction(cm_average[0], cm_average[1], cm_average[2], &corr);
-          for (var comp = 0u; comp < 3u; comp = comp + 1u) { s[comp] = b_add(s[comp], b_mul(aj, corr[comp])); }
-          pixel_flags = pixel_flags | FLAG_CORRECTED;
-        }
       }
     }
   }

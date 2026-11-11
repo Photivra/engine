@@ -314,9 +314,9 @@ export function createCatalogueLensSignal(given: CatalogueLensSignalInput): Cata
 export function catalogueFastAssumptions(run: { columns: number; rows: number; resolved: number; verificationRelativeDifference: number; subdivisions: number }):
   { id: string; value: Record<string, unknown>; explanation: string }[] {
   const tolerance = CATALOGUE_FAST_VERIFICATION_TOLERANCE, cells = run.subdivisions, step = CATALOGUE_FAST_GRID_CENTROID_STEP_SITES;
-  return [{ id: "raw.expectedSignal", value: { method: "tabulated-expected-electrons-catalogue-psf-field-grid", verificationSites: 4, tolerance,
+  return [{ id: "raw.expectedSignal", value: { method: "per-site-integrated-electrons-catalogue-psf-field-grid", verificationSites: 4, tolerance,
     verificationRelativeDifference: run.verificationRelativeDifference },
-  explanation: "Each native site's expected photo electrons are tabulated: the sum over the PSF taps of the field factor (vignetting × distortion area factor) times the " +
+  explanation: "Each native site's expected photo electrons are integrated per site when the site is read: the sum over the PSF taps of the field factor (vignetting × distortion area factor) times the " +
     "grid-blended kernel per spectral node times the channel response, integrated with each tap's material spectrum (see fast.lens.catalogue). The sensor stage (dark charge, Poisson draws, read noise, ADC) " +
     "is the native one with each site's own seeds. One site of each CFA phase ran the exact chain (the environment PSF quadrature): its readout was reproduced bit for bit and " +
     "its electrons agreed with the fast ones within the tolerance (verificationRelativeDifference: the largest difference there)." },

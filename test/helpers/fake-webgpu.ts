@@ -272,7 +272,7 @@ function emulate(fullLabel: string, buffers: Map<number, FakeBuffer>, arithmetic
   } else if (label === "photivra-display-view-quality-sites-blocked") {
     emulateDisplayViewQualitySitesBlocked(u32(0), f32(0), u32(1), f32(3), u32(4), f32(5), f32(6));
   } else if (label === "photivra-display-view-quality-pixels") {
-    emulateDisplayViewQualityPixels(u32(0), f32(0), f32(1), f32(2), f32(3), i32(4), f32(5), u32(6), f32(7), u32(8), f32(1).subarray(DISPLAY_VIEW_QUALITY_AUX.size));
+    emulateDisplayViewQualityPixels(u32(0), f32(0), f32(1), f32(2), f32(3), f32(4), u32(5), f32(1).subarray(DISPLAY_VIEW_QUALITY_AUX.size));
   } else if (!emulateComposite(label, (b) => buffers.get(b)!.data, composite)) {
     throw new Error(`No emulator for ${label}`);
   }

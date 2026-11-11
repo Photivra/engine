@@ -34,16 +34,14 @@
  *    One correlated normal draw per display pixel (the sum of hundreds of independent site noises) gives the noise.
  */
 
-import { createDeterministicUniformStream, createPortableStandardNormalPairs, deriveNativeSiteStreamSeedUint32, fmix32, samplePortableStandardNormal } from "../sensor/stochastic-seed.js";
+import { createDeterministicUniformStream, deriveNativeSiteStreamSeedUint32, samplePortableStandardNormal } from "../sensor/stochastic-seed.js";
 import { encodeSrgbComponentPortable } from "../color/srgb-transfer.js";
-import { createPoissonSampler } from "../sensor/raw-readout.js";
 import { InvalidConfigurationError } from "../core/configuration-error.js";
-import { portableCbrt, portableExp2, portableLog2, portablePow } from "../core/portable-math.js";
+import { portableCbrt, portablePow } from "../core/portable-math.js";
 
 /** Stream IDs of the display view's two seeded streams, distinct from the native charge (0) and read-noise (1) streams. */
 export const DISPLAY_VIEW_JITTER_STREAM_ID = 32 as const;
 export const DISPLAY_VIEW_NOISE_STREAM_ID = 33 as const;
-export const DISPLAY_VIEW_AHD_STREAM_ID = 34 as const;
 
 export { createDisplayViewExpectedSignal, type DisplayViewExpectedSignal, type DisplayViewExpectedSignalInput, type DisplayViewQueryOffset,
   type DisplayViewScene } from "./expected-signal.js";
@@ -188,17 +186,11 @@ export interface DisplayViewSetup {
    */
   coupled?: DisplayViewCoupledRendering;
   /**
-   * AHD only: the low-signal correction. `labMatrix` is the camera → XYZ matrix AHD measures homogeneity with (the profile's
-   * matrix times the white-balance gains); samples whose pixel variance (linear light) exceeds `thresholdVariance` add the
-   * correction of a flat neighbourhood with their channel means, estimated once per quantized state with `drawsPerState` draws.
+   * AHD only: `labMatrix` is the camera → XYZ matrix AHD measures homogeneity with (the profile's matrix times the
+   * white-balance gains), for AHD's choice on the noise-free mosaic (#457). 2.22.0: the view no longer adds a low-signal
+   * correction for the noise's effect on the choice (docs/DISPLAY_VIEW.md, "AHD at low signal").
    */
-  ahdCorrection?: { labMatrix: readonly (readonly number[])[]; drawsPerState: number; thresholdVariance: number };
-  /**
-   * #447: a collect pass. The render adds to this set the grid key of every state its corrected samples interpolate between
-   * (the corners `gridCorrection` would compute or read), computes and reads no state and leaves the cache untouched; its
-   * corrections are zero, so its image is not a display view and is discarded by the caller.
-   */
-  ahdCollect?: Set<number>;
+  ahdChoice?: { labMatrix: readonly (readonly number[])[] };
   yieldControl(): Promise<void>;
   checkAbort(): void;
   /** #478: the inputs a GPU renderer builds its scene lookup from (see {@link DisplayViewGpuSetup}); not read by `renderDisplayView`. */
@@ -216,8 +208,6 @@ export interface DisplayViewRenderResult {
   /** Display pixels whose pilot found detail (full samples) and uniform ones (a quarter per axis). */
   detailPixelCount: number;
   uniformPixelCount: number;
-  /** Display pixels whose expected value includes the AHD low-signal correction. */
-  ahdCorrectedPixelCount: number;
   /**
    * 2.8 (#393): "exact-area-mean" when each display pixel averaged every real pixel of its footprint once, with its exact
    * overlap weight (views where a footprint holds at most K² real pixels); "stratified-monte-carlo" otherwise.
@@ -329,46 +319,11 @@ export function footprintWeights(x: AxisSums, y: AxisSums, area: number, out: Fl
   out[3] = x.ww * y.ww / a2;
 }
 /** AHD's dependence reach in sites (directional green ±2, colour differences ±1, homogeneity 4-neighbours and 3 × 3 sum). */
-const AHD_REACH = 5, AHD_SIDE = 2 * AHD_REACH + 1;
-/** Grid of flat-neighbourhood states for the AHD correction: steps per octave of the normalized channel mean, octaves below white (exported for the GPU display view, #479). */
-export const AHD_KEY_STEPS = 8, AHD_KEY_OCTAVES = 12;
-/** CFA role (0 red, 1 green, 2 blue) of each patch site (dy + 5)·11 + dx + 5, per phase (phaseY·2 + phaseX) of the centre. */
-const AHD_ROLES = [0, 1, 2, 3].map((phase) => {
-  const roles = new Uint8Array(AHD_SIDE * AHD_SIDE), px = phase & 1, py = phase >> 1;
-  for (let dy = -AHD_REACH; dy <= AHD_REACH; dy++) for (let dx = -AHD_REACH; dx <= AHD_REACH; dx++) {
-    const xx = (px + dx) & 1, yy = (py + dy) & 1;
-    roles[(dy + AHD_REACH) * AHD_SIDE + dx + AHD_REACH] = yy === 0 ? (xx === 0 ? 0 : 1) : (xx === 0 ? 1 : 2);
-  }
-  return roles;
-});
-/**
- * 1 for the patch sites the AHD steps read (directional greens within 3 sites read 2 further along their axis, the candidates
- * within 2 read 1 further): |dy| ≤ 3 or |dx| ≤ 3. The 16 sites with |dx| ≥ 4 and |dy| ≥ 4 are never read.
- */
-const AHD_READ = Uint8Array.from({ length: AHD_SIDE * AHD_SIDE }, (_, p) => {
-  const dx = (p % AHD_SIDE) - AHD_REACH, dy = Math.floor(p / AHD_SIDE) - AHD_REACH;
-  return Math.abs(dx) <= 3 || Math.abs(dy) <= 3 ? 1 : 0;
-});
+const AHD_REACH = 5;
 /** x², as one correctly rounded product (`**` is implementation-approximated in ECMA-262). */
 function square(x: number): number { return x * x; }
 /** CIELAB's f(t) constants (CIE 15:2004): linear below (6/29)³ with slope (29/3)³/116. */
 const LAB_EPSILON = 216 / 24389, LAB_KAPPA = 24389 / 27;
-/** A 32-bit hash of a correction key (MurmurHash3 finalizer of the three quantized means). */
-function fmixKey(a: number, b: number, c: number): number { return fmix32((Math.imul(a + 1, 0x9e3779b1) ^ Math.imul(b + 1, 0x85ebca77) ^ Math.imul(c + 1, 0xc2b2ae3d)) >>> 0); }
-/** Lowest grid level, 2^-AHD_KEY_OCTAVES of white (exact). */
-export const AHD_KEY_FLOOR = 1 / 4096;
-/** Grid levels per channel (indices 0 to AHD_KEY_OCTAVES·AHD_KEY_STEPS). */
-export const AHD_KEY_LEVELS = AHD_KEY_OCTAVES * AHD_KEY_STEPS + 1;
-/** Correction states kept per setup, and setups kept (least recently used first out); about 50 bytes per state. */
-const AHD_STATE_LIMIT = 1 << 16, AHD_SETUP_LIMIT = 4;
-/** The correction states of one setup: the three values of state n at values[3·n …], found by its grid key. */
-interface CorrectionStates { index: Map<number, number>; values: Float64Array }
-const ahdStateCache = new Map<string, CorrectionStates>();
-/** Every input a correction state depends on besides its indices, as exact decimal text (JavaScript numbers round-trip). */
-function correctionKey(seed: number, correction: NonNullable<DisplayViewSetup["ahdCorrection"]>, perElectron: ArrayLike<number> & Iterable<number>, constantVariance: ArrayLike<number> & Iterable<number>,
-  gains: readonly number[], clipLevel: number, matrix: readonly (readonly number[])[], toneCurve: string): string {
-  return [seed, correction.drawsPerState, ...perElectron, ...constantVariance, ...correction.labMatrix.flat(), ...gains, clipLevel, ...matrix.flat(), toneCurve].join(",");
-}
 /**
  * Internal (exported for tests, #442): the window offset of each slot, slot (dy + reach)·(2·reach + 1) + dx + reach, as
  * two integer tables: dx[slot] = (slot mod side) − reach and dy[slot] = ⌊slot / side⌋ − reach. The render loop reads them
@@ -409,143 +364,69 @@ export function flatDisplayViewCandidateTables(slots: readonly (readonly (readon
   }
   return { count, denseAt, listAt, slotsAt, weightsAt };
 }
-/** Internal (exported for tests): the correction states kept across calls, and clearing them. */
-export function displayViewCorrectionStateCount(): number { let n = 0; for (const states of ahdStateCache.values()) n += states.index.size; return n; }
-export function clearDisplayViewCorrectionStates(): void { ahdStateCache.clear(); }
-/** Number of grid keys: AHD_KEY_LEVELS³ (a grid key is (i0·AHD_KEY_LEVELS + i1)·AHD_KEY_LEVELS + i2). */
-const AHD_GRID_KEY_COUNT = AHD_KEY_LEVELS * AHD_KEY_LEVELS * AHD_KEY_LEVELS;
 /**
- * 2.10 (#447): the AHD low-signal correction states of one setup, as a realm sends them to another. `key` is the setup's
- * correction key (`PreparedDisplayView.correctionKey()`), `gridKeys[i]` a state's grid key and `values[3·i …]` its three
- * values (28 bytes per state). Both arrays are transferable.
+ * 2.10 (#447), deprecated in 2.22.0: the AHD low-signal correction states of one setup, as a realm sent them to another. The
+ * display view keeps no correction states since 2.22.0, so {@link serializeDisplayViewCorrectionStates} returns none.
+ * Kept until 3.0.0.
+ * @deprecated Since 2.22.0: the display view has no AHD correction states. Removed in 3.0.0.
  */
 export interface DisplayViewCorrectionStateSet { key: string; gridKeys: Int32Array; values: Float64Array }
-/** 2.10 (#447): the grid keys of the states a region needs (`PreparedDisplayView.collectCorrectionStates`), ascending. */
+/**
+ * 2.10 (#447), deprecated in 2.22.0: the grid keys of the states a region needs (`PreparedDisplayView.collectCorrectionStates`).
+ * @deprecated Since 2.22.0: the display view has no AHD correction states. Removed in 3.0.0.
+ */
 export interface DisplayViewCorrectionStateKeys { key: string; gridKeys: Int32Array }
-/** The inputs of one setup's correction states: the inputs of its correction key. */
-export type DisplayViewCorrectionSetup = Pick<DisplayViewSetup, "seed" | "readout" | "gains" | "clipLevel" | "matrix" | "toneCurve" | "rendering" | "coupled"> &
-  { ahdCorrection: NonNullable<DisplayViewSetup["ahdCorrection"]> };
-/** Internal (#447): the correction key of a setup, or null without the AHD correction (the key `renderDisplayView` looks its states up with). */
-export function displayViewCorrectionKey(setup: Pick<DisplayViewSetup, "seed" | "readout" | "gains" | "clipLevel" | "matrix" | "toneCurve" | "ahdCorrection" | "rendering">): string | null {
-  if (!setup.ahdCorrection) return null;
-  // #593: a coupled rendering adds its parameters, highlight mode and gamut handling (the fast rules do not change a state).
-  const r = setup.rendering, rendering = r ? setup.toneCurve + JSON.stringify([r.toneCurveParameters ?? null, r.highlightMode, r.gamutHandling]) : setup.toneCurve;
-  return correctionKey(setup.seed, setup.ahdCorrection, Float64Array.from(setup.readout, (r) => r.perElectron), Float64Array.from(setup.readout, (r) => r.constantVariance),
-    setup.gains, setup.clipLevel, setup.matrix, rendering);
-}
 /** True for a typed array of the named kind from any realm (a structured clone arrives as one of the receiving realm). */
 function isTypedArray(value: unknown, tag: "Int32Array" | "Float64Array"): boolean {
   return ArrayBuffer.isView(value) && Object.prototype.toString.call(value) === "[object " + tag + "]";
 }
-/** A grid-key list, checked: an Int32Array of keys in [0, AHD_KEY_LEVELS³). */
-function checkGridKeys(gridKeys: unknown, caller: string): Int32Array {
+/** Internal (deprecated API): checks that `gridKeys` is an Int32Array of grid keys, as 2.10 to 2.21 required. */
+export function checkDeprecatedGridKeys(gridKeys: unknown, caller: string): Int32Array {
   if (!isTypedArray(gridKeys, "Int32Array")) throw new InvalidConfigurationError(caller + ": gridKeys must be an Int32Array.");
   const keys = gridKeys as Int32Array;
-  for (let i = 0; i < keys.length; i++) if (!(keys[i]! >= 0 && keys[i]! < AHD_GRID_KEY_COUNT))
-    throw new InvalidConfigurationError(caller + ": gridKeys[" + i + "] (" + keys[i] + ") is not a grid key, an integer in [0, " + AHD_GRID_KEY_COUNT + ").");
+  // 97³ grid keys, as 2.10 to 2.21 counted them (12 octaves of 8 steps, 97 levels per channel).
+  for (let i = 0; i < keys.length; i++) if (!(keys[i]! >= 0 && keys[i]! < 97 * 97 * 97))
+    throw new InvalidConfigurationError(caller + ": gridKeys[" + i + "] (" + keys[i] + ") is not a grid key, an integer in [0, " + 97 * 97 * 97 + ").");
   return keys;
 }
 /**
- * 2.10 (#447): the AHD low-signal correction states this JavaScript realm holds (a Web Worker, a page), one entry per cached
- * setup, least recently used first, each state's grid key and three values copied out. Another realm adds them with
- * {@link bindDisplayViewCorrectionStates}; a render there then reads them instead of computing them, with the same bytes.
+ * 2.10 (#447), deprecated in 2.22.0: returned the AHD low-signal correction states this realm held. The display view keeps no
+ * correction states since 2.22.0 (the correction was removed; docs/DISPLAY_VIEW.md, "AHD at low signal"), so this returns an
+ * empty array. Kept until 3.0.0.
+ * @deprecated Since 2.22.0: returns `[]`; there is nothing to move between realms. Removed in 3.0.0.
  */
-export function serializeDisplayViewCorrectionStates(): DisplayViewCorrectionStateSet[] {
-  const out: DisplayViewCorrectionStateSet[] = [];
-  for (const [key, states] of ahdStateCache) {
-    const gridKeys = new Int32Array(states.index.size), values = new Float64Array(3 * states.index.size);
-    let i = 0;
-    for (const [gridKey, n] of states.index) {
-      gridKeys[i] = gridKey;
-      values[3 * i] = states.values[3 * n]!; values[3 * i + 1] = states.values[3 * n + 1]!; values[3 * i + 2] = states.values[3 * n + 2]!;
-      i++;
-    }
-    out.push({ key, gridKeys, values });
-  }
-  return out;
-}
+export function serializeDisplayViewCorrectionStates(): DisplayViewCorrectionStateSet[] { return []; }
 /**
- * 2.10 (#447): adds states another realm computed (an export, or `computeCorrectionStates` results) to this realm's cache and
- * returns the number of states added. For each entry, the grid keys its setup does not hold yet are appended; known ones are
- * left as they are (a state's values follow from its key, so they are equal). Every entry is checked before the cache is
- * touched: `key` a non-empty string, `gridKeys` an Int32Array of grid keys, `values` a Float64Array of 3 × `gridKeys.length`
- * finite numbers; otherwise it fails with an InvalidConfigurationError and the cache is unchanged. The cache's bounds apply as
- * in a render: an unknown key creates a setup and can evict the least recently used of the four kept, and a setup that
- * reaches 65 536 states is cleared before the next one is added. Import only keys a prepared view reported
- * (`correctionKey()`), so states a render here will read.
+ * 2.10 (#447), deprecated in 2.22.0: added states another realm computed to this realm's cache. The display view keeps no
+ * correction states since 2.22.0, so this checks `entries` as before (an array of `{ key, gridKeys, values }` with a non-empty
+ * string key, an Int32Array of grid keys and a Float64Array of 3 finite values per key; otherwise an
+ * InvalidConfigurationError) and returns 0: nothing is stored and no render reads them. Kept until 3.0.0.
+ * @deprecated Since 2.22.0: a checked no-op that returns 0. Removed in 3.0.0.
  */
 export function bindDisplayViewCorrectionStates(entries: readonly DisplayViewCorrectionStateSet[]): number {
   const caller = "bindDisplayViewCorrectionStates";
   if (!Array.isArray(entries)) throw new InvalidConfigurationError(caller + ": entries must be an array of { key, gridKeys, values }.");
-  const checked: DisplayViewCorrectionStateSet[] = [];
   for (let e = 0; e < entries.length; e++) {
     const entry: unknown = entries[e], at = caller + ": entries[" + e + "]";
     if (typeof entry !== "object" || entry === null || Array.isArray(entry)) throw new InvalidConfigurationError(at + " must be an object { key, gridKeys, values }.");
     for (const field of Object.keys(entry)) if (field !== "key" && field !== "gridKeys" && field !== "values") throw new InvalidConfigurationError(at + " has unknown field " + JSON.stringify(field) + ".");
     const { key, gridKeys, values } = entry as Record<string, unknown>;
-    if (typeof key !== "string" || key.length === 0) throw new InvalidConfigurationError(at + ".key must be a non-empty string (a prepared view's correctionKey()).");
-    const keys = checkGridKeys(gridKeys, at);
+    if (typeof key !== "string" || key.length === 0) throw new InvalidConfigurationError(at + ".key must be a non-empty string.");
+    const keys = checkDeprecatedGridKeys(gridKeys, at);
     if (!isTypedArray(values, "Float64Array")) throw new InvalidConfigurationError(at + ".values must be a Float64Array.");
     const v = values as Float64Array;
     if (v.length !== 3 * keys.length) throw new InvalidConfigurationError(at + ".values must hold 3 values per grid key (" + 3 * keys.length + "), not " + v.length + ".");
     for (let i = 0; i < v.length; i++) if (!Number.isFinite(v[i])) throw new InvalidConfigurationError(at + ".values[" + i + "] (" + v[i] + ") is not finite.");
-    checked.push({ key, gridKeys: keys, values: v });
   }
-  let appended = 0;
-  for (const entry of checked) {
-    const states = correctionStates(entry.key);
-    for (let i = 0; i < entry.gridKeys.length; i++) {
-      const gridKey = entry.gridKeys[i]!;
-      if (states.index.has(gridKey)) continue;
-      // As gridCorrection stores a state.
-      if (states.index.size >= AHD_STATE_LIMIT) states.index.clear();
-      const n = states.index.size;
-      if (states.values.length < 3 * (n + 1)) { const grown = new Float64Array(2 * states.values.length); grown.set(states.values); states.values = grown; }
-      states.values[3 * n] = entry.values[3 * i]!; states.values[3 * n + 1] = entry.values[3 * i + 1]!; states.values[3 * n + 2] = entry.values[3 * i + 2]!;
-      states.index.set(gridKey, n);
-      appended++;
-    }
-  }
-  return appended;
-}
-/**
- * Internal (#447, `PreparedDisplayView.computeCorrectionStates`): computes the states of the given grid keys for a setup (each
- * as a render computes it, read from the cache where it is held) and stores them in this realm's cache; returns each key's
- * three values in the order given. Yields to the host and checks for abort between states, as a render does.
- */
-export async function computeDisplayViewCorrectionStates(setup: DisplayViewCorrectionSetup & Pick<DisplayViewSetup, "yieldControl" | "checkAbort">,
-  gridKeys: Int32Array): Promise<DisplayViewCorrectionStateSet> {
-  const keys = checkGridKeys(gridKeys, "computeCorrectionStates");
-  setup.checkAbort();
-  const key = displayViewCorrectionKey(setup)!, states = correctionStates(key), gridCorrection = createGridCorrection(setup, states);
-  const outKeys = Int32Array.from(keys), values = new Float64Array(3 * keys.length);
-  let lastYield = Date.now();
-  for (let i = 0; i < keys.length; i++) {
-    const gridKey = keys[i]!, i2 = gridKey % AHD_KEY_LEVELS, i1 = ((gridKey - i2) / AHD_KEY_LEVELS) % AHD_KEY_LEVELS, i0 = (gridKey - i1 * AHD_KEY_LEVELS - i2) / (AHD_KEY_LEVELS * AHD_KEY_LEVELS);
-    const at = gridCorrection(i0, i1, i2);
-    values[3 * i] = states.values[at]!; values[3 * i + 1] = states.values[at + 1]!; values[3 * i + 2] = states.values[at + 2]!;
-    if (Date.now() - lastYield >= 8) { await setup.yieldControl(); setup.checkAbort(); lastYield = Date.now(); }
-  }
-  return { key, gridKeys: outKeys, values };
-}
-/** The state map of one setup (moved to the most recently used end). */
-function correctionStates(key: string): CorrectionStates {
-  let states = ahdStateCache.get(key);
-  if (states) ahdStateCache.delete(key);
-  else {
-    states = { index: new Map(), values: new Float64Array(3 * 256) };
-    if (ahdStateCache.size >= AHD_SETUP_LIMIT) ahdStateCache.delete(ahdStateCache.keys().next().value!);
-  }
-  ahdStateCache.set(key, states);
-  return states;
+  return 0;
 }
 /**
  * Recorded terms of a one-material sample: [0, 3) the channel site variances csv; [3, 21) per candidate d and channel c the
  * linear slopes a (3 + (3d + c)·3); [21, 27) per candidate the residual terms; [27, 30) the expected-value sums; [30, 33) the
- * AHD choice terms; 33 a 1 when the AHD correction applies and [34, 37) its values; 37 the real pixel's saturation probability
- * (#533: the probability that at least one site its demosaic reads is clipped at the white level).
+ * AHD choice terms; 33 the real pixel's saturation probability (#533: the probability that at least one site its demosaic
+ * reads is clipped at the white level).
  */
-const MEMO_SIZE = 38;
+const MEMO_SIZE = 34;
 /** Most real pixels a display pixel's footprint may have for the per-real-pixel memo (#392); larger footprints rarely repeat a real pixel. */
 const PIXEL_MEMO_LIMIT = 1 << 16;
 /**
@@ -559,73 +440,6 @@ export const EXACT_AREA_MEAN_MAX_PIXELS = 25;
 const SITE_RING_LIMIT = 1 << 18;
 /** Pilot points per axis: about one per two sites of the footprint plus its reach, 4 to 16. */
 function pilotCount(span: number): number { return Math.max(4, Math.min(16, Math.ceil(span / 2))); }
-
-/**
- * createAhdDemosaicTask's steps at the centre pixel of an 11 × 11 patch (patch (dy + 5)·11 + dx + 5, normalized site values):
- * `choose(phase)` fills the two candidates within 2 sites (`horizontal`, `vertical`: (dy + 2)·5 + dx + 2, three channels) and
- * returns the centre's direction, 0 horizontal, 1 vertical, 2 equal homogeneity (both averaged). Greens are read by flat
- * index (dy + 3)·7 + dx + 3; every value is formed with the same operations in the same order as the steps themselves,
- * except that CIELAB's cube root is `portableCbrt` (within 1 ulp of Math.cbrt) and squares are products, so the result has
- * the same bits in every JavaScript engine. (The task keeps its intermediate planes in float32; these are binary64.)
- */
-export function createAhdCentreSteps(labMatrix: readonly (readonly number[])[], patch: Float64Array): { horizontal: Float64Array; vertical: Float64Array; choose(phase: number): number } {
-  const lab = labMatrix, labWhite = Float64Array.from(lab, (row) => row[0]! + row[1]! + row[2]!);
-  const l00 = lab[0]![0]!, l01 = lab[0]![1]!, l02 = lab[0]![2]!, l10 = lab[1]![0]!, l11 = lab[1]![1]!, l12 = lab[1]![2]!, l20 = lab[2]![0]!, l21 = lab[2]![1]!, l22 = lab[2]![2]!;
-  const lw0 = labWhite[0]!, lw1 = labWhite[1]!, lw2 = labWhite[2]!;
-  const gh = new Float64Array(49), gv = new Float64Array(49), cand = [new Float64Array(75), new Float64Array(75)], labs = [new Float64Array(75), new Float64Array(75)];
-  function choose(phase: number): number {
-    const roles = AHD_ROLES[phase]!;
-    // 1. Directional greens within 3 sites.
-    for (let dy = -3; dy <= 3; dy++) for (let dx = -3; dx <= 3; dx++) {
-      const i = (dy + 3) * 7 + dx + 3, p = (dy + AHD_REACH) * AHD_SIDE + dx + AHD_REACH, c = patch[p]!;
-      if (roles[p] === 1) { gh[i] = c; gv[i] = c; continue; }
-      gh[i] = (patch[p - 1]! + patch[p + 1]!) / 2 + (2 * c - patch[p - 2]! - patch[p + 2]!) / 4;
-      gv[i] = (patch[p - AHD_SIDE]! + patch[p + AHD_SIDE]!) / 2 + (2 * c - patch[p - 2 * AHD_SIDE]! - patch[p + 2 * AHD_SIDE]!) / 4;
-    }
-    // 2. Candidates within 2 sites; 3. their CIELAB. The four corners (±2, ±2) are not read by step 4 and are skipped.
-    for (let d = 0; d < 2; d++) {
-      const g = d === 0 ? gh : gv, o = cand[d]!, ol = labs[d]!;
-      for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) {
-        if ((dx === -2 || dx === 2) && (dy === -2 || dy === 2)) continue;
-        const i = (dy + 2) * 5 + dx + 2, p = (dy + AHD_REACH) * AHD_SIDE + dx + AHD_REACH, q = (dy + 3) * 7 + dx + 3, own = roles[p]!, gc = g[q]!;
-        o[3 * i + 1] = gc;
-        if (own === 1) {
-          const hRole = roles[p + 1]!, vRole = 2 - hRole;
-          o[3 * i + hRole] = gc + ((patch[p - 1]! - g[q - 1]!) + (patch[p + 1]! - g[q + 1]!)) / 2;
-          o[3 * i + vRole] = gc + ((patch[p - AHD_SIDE]! - g[q - 7]!) + (patch[p + AHD_SIDE]! - g[q + 7]!)) / 2;
-        } else {
-          o[3 * i + own] = patch[p]!;
-          o[3 * i + 2 - own] = gc + ((patch[p - AHD_SIDE - 1]! - g[q - 8]!) + (patch[p - AHD_SIDE + 1]! - g[q - 6]!) + (patch[p + AHD_SIDE - 1]! - g[q + 6]!) +
-            (patch[p + AHD_SIDE + 1]! - g[q + 8]!)) / 4;
-        }
-        const R = o[3 * i]!, G = o[3 * i + 1]!, Bc = o[3 * i + 2]!;
-        let tx = (l00 * R + l01 * G + l02 * Bc) / lw0, ty = (l10 * R + l11 * G + l12 * Bc) / lw1, tz = (l20 * R + l21 * G + l22 * Bc) / lw2;
-        tx = tx > LAB_EPSILON ? portableCbrt(tx) : (LAB_KAPPA * tx + 16) / 116;
-        ty = ty > LAB_EPSILON ? portableCbrt(ty) : (LAB_KAPPA * ty + 16) / 116;
-        tz = tz > LAB_EPSILON ? portableCbrt(tz) : (LAB_KAPPA * tz + 16) / 116;
-        ol[3 * i] = 116 * ty - 16; ol[3 * i + 1] = 500 * (tx - ty); ol[3 * i + 2] = 200 * (ty - tz);
-      }
-    }
-    // 4. Homogeneity within 1 site, with the adaptive tolerances (neighbours left, right, up, down); 5. the 3 × 3 sum selects
-    // the candidate.
-    const h = labs[0]!, v = labs[1]!;
-    let sh = 0, sv = 0;
-    for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
-      const i = 3 * ((dy + 2) * 5 + dx + 2), j0 = i - 3, j1 = i + 3, j2 = i - 15, j3 = i + 15;
-      const hL0 = Math.abs(h[i]! - h[j0]!), hL1 = Math.abs(h[i]! - h[j1]!), hL2 = Math.abs(h[i]! - h[j2]!), hL3 = Math.abs(h[i]! - h[j3]!);
-      const vL0 = Math.abs(v[i]! - v[j0]!), vL1 = Math.abs(v[i]! - v[j1]!), vL2 = Math.abs(v[i]! - v[j2]!), vL3 = Math.abs(v[i]! - v[j3]!);
-      const hC0 = square(h[i + 1]! - h[j0 + 1]!) + square(h[i + 2]! - h[j0 + 2]!), hC1 = square(h[i + 1]! - h[j1 + 1]!) + square(h[i + 2]! - h[j1 + 2]!);
-      const hC2 = square(h[i + 1]! - h[j2 + 1]!) + square(h[i + 2]! - h[j2 + 2]!), hC3 = square(h[i + 1]! - h[j3 + 1]!) + square(h[i + 2]! - h[j3 + 2]!);
-      const vC0 = square(v[i + 1]! - v[j0 + 1]!) + square(v[i + 2]! - v[j0 + 2]!), vC1 = square(v[i + 1]! - v[j1 + 1]!) + square(v[i + 2]! - v[j1 + 2]!);
-      const vC2 = square(v[i + 1]! - v[j2 + 1]!) + square(v[i + 2]! - v[j2 + 2]!), vC3 = square(v[i + 1]! - v[j3 + 1]!) + square(v[i + 2]! - v[j3 + 2]!);
-      const epsL = Math.min(Math.max(hL0, hL1), Math.max(vL2, vL3)), epsC = Math.min(Math.max(hC0, hC1), Math.max(vC2, vC3));
-      sh += (hL0 <= epsL && hC0 <= epsC ? 1 : 0) + (hL1 <= epsL && hC1 <= epsC ? 1 : 0) + (hL2 <= epsL && hC2 <= epsC ? 1 : 0) + (hL3 <= epsL && hC3 <= epsC ? 1 : 0);
-      sv += (vL0 <= epsL && vC0 <= epsC ? 1 : 0) + (vL1 <= epsL && vC1 <= epsC ? 1 : 0) + (vL2 <= epsL && vC2 <= epsC ? 1 : 0) + (vL3 <= epsL && vC3 <= epsC ? 1 : 0);
-    }
-    return sh > sv ? 0 : sv > sh ? 1 : 2;
-  }
-  return { horizontal: cand[0]!, vertical: cand[1]!, choose };
-}
 
 /**
  * #457: AHD's direction at real pixels of the noise-free mosaic, as `createAhdDemosaicTask` computes it on the whole raster
@@ -734,70 +548,6 @@ export function createAhdDirectionPlane(labMatrix: readonly (readonly number[])[
   };
 }
 
-/**
- * The state computer of one setup's AHD correction (#447: shared by the render and `computeDisplayViewCorrectionStates`):
- * gridCorrection(i0, i1, i2) returns the offset of the grid state's three values in `states.values`, computing and storing
- * the state on first use. The code and its operations are those the render ran in place before.
- */
-function createGridCorrection(setup: DisplayViewCorrectionSetup, states: CorrectionStates): (i0: number, i1: number, i2: number) => number {
-  const { seed, ahdCorrection } = setup;
-  const k = Float64Array.from(setup.readout, (r) => r.perElectron), c0 = Float64Array.from(setup.readout, (r) => r.constantVariance);
-  const M = setup.matrix, m00 = M[0]![0]!, m01 = M[0]![1]!, m02 = M[0]![2]!, m10 = M[1]![0]!, m11 = M[1]![1]!, m12 = M[1]![2]!, m20 = M[2]![0]!, m21 = M[2]![1]!, m22 = M[2]![2]!;
-  const g0 = setup.gains[0], g1 = setup.gains[1], g2 = setup.gains[2], L = setup.clipLevel, reinhard = setup.toneCurve === "positive-reinhard-per-channel";
-  const coupled = setup.coupled ?? null;
-  const correction = new Float64Array(3), patch = new Float64Array(AHD_SIDE * AHD_SIDE);
-  const readStd = Float64Array.from(c0, (v) => Math.sqrt(v));
-  /** The offset of a grid state's three values in states.values (computed and stored on first use). */
-  function gridCorrection(i0: number, i1: number, i2: number): number {
-    const key = (i0 * AHD_KEY_LEVELS + i1) * AHD_KEY_LEVELS + i2, cached = states.index.get(key);
-    if (cached !== undefined) return 3 * cached;
-    const electrons = [i0, i1, i2].map((i, c) => portableExp2(i / AHD_KEY_STEPS - AHD_KEY_OCTAVES) / k[c]!);
-    const random = createDeterministicUniformStream(deriveNativeSiteStreamSeedUint32(seed, fmixKey(i0, i1, i2), DISPLAY_VIEW_AHD_STREAM_ID));
-    const sum = new Float64Array(3), draws = ahdCorrection.drawsPerState, poisson = electrons.map((e) => createPoissonSampler(e, true));
-    const normal = createPortableStandardNormalPairs(random);
-    for (let draw = 0; draw < draws; draw++) {
-      const phase = draw & 3, roles = AHD_ROLES[phase]!;
-      for (let p = 0; p < AHD_SIDE * AHD_SIDE; p++) {
-        // The 16 sites the AHD steps never read are not drawn.
-        if (AHD_READ[p] === 0) continue;
-        const c = roles[p]!, value = k[c]! * poisson[c]!(random) + readStd[c]! * normal();
-        patch[p] = value < 1 ? value : 1;
-      }
-      ahdDifference(phase, correction);
-      for (let comp = 0; comp < 3; comp++) sum[comp] = sum[comp]! + correction[comp]! / draws;
-    }
-    if (states.index.size >= AHD_STATE_LIMIT) states.index.clear();
-    const n = states.index.size;
-    if (states.values.length < 3 * (n + 1)) { const grown = new Float64Array(2 * states.values.length); grown.set(states.values); states.values = grown; }
-    states.values.set(sum, 3 * n);
-    states.index.set(key, n);
-    return 3 * n;
-  }
-  const steps = createAhdCentreSteps(ahdCorrection.labMatrix, patch);
-  const rgb = new Float64Array(3), rendered = new Float64Array(3), linear = new Float64Array(3);
-  /** Develops one deterministic camera pixel and renders it: WB, highlight clip, colour matrix, tone curve, clip to [0, 1]. */
-  function renderPixel(r: number, gr: number, b: number, out: Float64Array): void {
-    if (coupled) { coupled.pixel(r, gr, b, out); return; }
-    const u0 = Math.min(L, g0 * r), u1 = Math.min(L, g1 * gr), u2 = Math.min(L, g2 * b);
-    for (let comp = 0; comp < 3; comp++) {
-      let v = comp === 0 ? m00 * u0 + m01 * u1 + m02 * u2 : comp === 1 ? m10 * u0 + m11 * u1 + m12 * u2 : m20 * u0 + m21 * u1 + m22 * u2;
-      if (reinhard) v = v > 0 ? v / (1 + v) : v;
-      out[comp] = v < 0 ? 0 : v > 1 ? 1 : v;
-    }
-  }
-  /** h(AHD) − ½(h(H) + h(V)) at the centre of the drawn neighbourhood (`createAhdCentreSteps`). */
-  function ahdDifference(phase: number, out: Float64Array): void {
-    const dir = steps.choose(phase), a = steps.horizontal, b = steps.vertical, centre = 12;
-    for (let c = 0; c < 3; c++) rgb[c] = dir === 0 ? a[3 * centre + c]! : dir === 1 ? b[3 * centre + c]! : (a[3 * centre + c]! + b[3 * centre + c]!) / 2;
-    renderPixel(rgb[0]!, rgb[1]!, rgb[2]!, rendered);
-    renderPixel(a[3 * centre]!, a[3 * centre + 1]!, a[3 * centre + 2]!, linear);
-    for (let c = 0; c < 3; c++) out[c] = rendered[c]! - linear[c]! / 2;
-    renderPixel(b[3 * centre]!, b[3 * centre + 1]!, b[3 * centre + 2]!, linear);
-    for (let c = 0; c < 3; c++) out[c] = out[c]! - linear[c]! / 2;
-  }
-  return gridCorrection;
-}
-
 /** Renders the display view (docs/DISPLAY_VIEW.md). */
 export async function renderDisplayView(setup: DisplayViewSetup): Promise<DisplayViewRenderResult> {
   const { frameWidth, frameHeight, margin, nativeWidth, nativeHeight, viewWidth, viewHeight, region, seed, reachSites } = setup;
@@ -882,9 +632,8 @@ export async function renderDisplayView(setup: DisplayViewSetup): Promise<Displa
   let ringStamp = new Int32Array(0), ringStatStamp = ringStamp, ringMat = ringStamp, siteSlotQ = ringStamp, siteSlotStamp = ringStamp, markX = ringStamp, markY = ringStamp, markM = ringStamp;
   let ringV = new Float64Array(0), ringMean = ringV, ringVar = ringV, ringThird = ringV, ringClip = ringV, markV = ringV;
   // (No closure assigns them, so they stay locals of the render loop.)
-  // AHD low-signal correction: an 11 × 11 noisy neighbourhood (AHD reads up to 5 sites away) and the local AHD steps.
-  const ahdCorrection = setup.ahdCorrection, windowReach = ahdCorrection ? Math.max(reach, AHD_REACH) : reach;
-  const cmAverage = new Float64Array(3);
+  // With AHD the windows reach 5 sites around a footprint, the sites #457's choice on the noise-free mosaic reads.
+  const ahdChoice = setup.ahdChoice, windowReach = ahdChoice ? Math.max(reach, AHD_REACH) : reach;
   // #457: AHD's choice on the noise-free mosaic. Per candidate the rendered mean and the camera-channel means of the sample.
   const candidateRendered = new Float64Array(6), candidateChannels = new Float64Array(6);
   /** The normalized expected value of an in-raster site, clipped at white (the noise-free mosaic AHD's choice reads). */
@@ -894,41 +643,8 @@ export async function renderDisplayView(setup: DisplayViewSetup): Promise<Displa
   let choiceRows = 1;
   while (choiceRows < Math.ceil(sy) + 2 + 2 * AHD_REACH) choiceRows *= 2;
   const choiceX0 = Math.max(0, exactX0 - AHD_REACH), choiceColumns = exactView ? Math.min(nativeWidth - 1, exactX0 + exactWidth - 1 + AHD_REACH) - choiceX0 + 1 : Math.ceil(sx) + 2 + 2 * AHD_REACH;
-  const choicePlane = ahdCorrection ? createAhdDirectionPlane(ahdCorrection.labMatrix, nativeWidth, nativeHeight, choiceColumns, exactView ? 2 * choiceRows : choiceRows, noiseFreeSite) : undefined;
+  const choicePlane = ahdChoice ? createAhdDirectionPlane(ahdChoice.labMatrix, nativeWidth, nativeHeight, choiceColumns, exactView ? 2 * choiceRows : choiceRows, noiseFreeSite) : undefined;
   if (choicePlane && exactView) choicePlane.origin(choiceX0);
-  let correctedPixels = 0;
-  // The correction of a flat neighbourhood whose sites of channel c have normalized mean μ_c, on a logarithmic grid of states
-  // (AHD_KEY_STEPS per octave from 2^-AHD_KEY_OCTAVES of white); each grid state is computed once with draws seeded by the state
-  // alone, so it is the same in every display pixel and region, and a pixel interpolates trilinearly between the 8 states
-  // around its own channel means.
-  // Grid states are shared across display pixels and across calls: a state depends only on its indices and on the inputs in
-  // `correctionKey` (the seed, the draws, the readout scale and noise, the homogeneity matrix and the development), so a cached
-  // state is the same value the draws would give again.
-  // A collect pass (#447) records the grid keys its corrected samples read instead of computing or reading states, and
-  // leaves the cache untouched; its image is discarded.
-  const collect = setup.ahdCollect;
-  const states = ahdCorrection && !collect ? correctionStates(displayViewCorrectionKey(setup)!) : { index: new Map<number, number>(), values: new Float64Array(0) };
-  const gridCorrection = ahdCorrection && !collect ? createGridCorrection(setup as DisplayViewCorrectionSetup, states) : (): number => 0;
-  const interpolated = new Float64Array(3);
-  const gridBase = new Float64Array(3), gridFrac = new Float64Array(3);
-  function flatCorrection(m0: number, m1: number, m2: number): Float64Array {
-    for (let i = 0; i < 3; i++) {
-      const m = i === 0 ? m0 : i === 1 ? m1 : m2, g = (portableLog2(Math.min(1, Math.max(AHD_KEY_FLOOR, m))) + AHD_KEY_OCTAVES) * AHD_KEY_STEPS;
-      const base = Math.min(Math.floor(g), AHD_KEY_OCTAVES * AHD_KEY_STEPS - 1);
-      gridBase[i] = base; gridFrac[i] = g - base;
-    }
-    interpolated.fill(0);
-    for (let corner = 0; corner < 8; corner++) {
-      let weight = 1;
-      for (let i = 0; i < 3; i++) weight *= (corner >> i) & 1 ? gridFrac[i]! : 1 - gridFrac[i]!;
-      if (weight === 0) continue;
-      const i0 = gridBase[0]! + (corner & 1), i1 = gridBase[1]! + ((corner >> 1) & 1), i2 = gridBase[2]! + ((corner >> 2) & 1);
-      if (collect) { collect.add((i0 * AHD_KEY_LEVELS + i1) * AHD_KEY_LEVELS + i2); continue; }
-      const at = gridCorrection(i0, i1, i2), value = states.values;
-      for (let comp = 0; comp < 3; comp++) interpolated[comp] = interpolated[comp]! + weight * value[at + comp]!;
-    }
-    return interpolated;
-  }
   /** Normalized site value of a slot: normal with mean k·e and variance k²·e + constant, clipped at the white level (1). */
   function siteStatistics(slot: number): void {
     // The channel and electrons are read from the slot arrays: a double passed to a call that is not inlined is boxed.
@@ -1007,7 +723,7 @@ export async function renderDisplayView(setup: DisplayViewSetup): Promise<Displa
         if (pixelStamp.length < mw * mh) { pixelStamp = new Int32Array(mw * mh); pixelRecords = new Float64Array(mw * mh * MEMO_SIZE); pixelGeneration = 0; }
         pixelGeneration++;
       }
-      let s0 = 0, s1 = 0, s2 = 0, c00 = 0, c01 = 0, c02 = 0, c11 = 0, c12 = 0, c22 = 0, r0 = 0, r1 = 0, r2 = 0, pixelVariance = 0, corrected = false, sat = 0;
+      let s0 = 0, s1 = 0, s2 = 0, c00 = 0, c01 = 0, c02 = 0, c11 = 0, c12 = 0, c22 = 0, r0 = 0, r1 = 0, r2 = 0, sat = 0;
       for (let n = 0; n < sampleTotal; n++) {
         // A sample's weights: 1 for the stratified estimator (its sums are divided by Q below); a_j for the expected value and
         // linear covariance and a_j² for the independent residual on the exact path. Multiplying by 1 leaves every value's bits.
@@ -1106,20 +822,15 @@ export async function renderDisplayView(setup: DisplayViewSetup): Promise<Displa
           }
           s0 += wE * memo[mo + 27]!; s1 += wE * memo[mo + 28]!; s2 += wE * memo[mo + 29]!;
           if (count === 2) { r0 += wR * memo[mo + 30]!; r1 += wR * memo[mo + 31]!; r2 += wR * memo[mo + 32]!; }
-          if (memo[mo + 33] === 1) { s0 += wE * memo[mo + 34]!; s1 += wE * memo[mo + 35]!; s2 += wE * memo[mo + 36]!; corrected = true; }
-          sat += wE * memo[mo + 37]!;
+          sat += wE * memo[mo + 33]!;
           continue;
         }
         // The terms are written where they are kept: the real pixel's memo slot; no typed-array view per sample.
         const rt = pk >= 0 ? records : undefined, ro = pk >= 0 ? pk * MEMO_SIZE : 0;
         // Every field of the record (MEMO_SIZE layout) that the propagation below does not write for this sample is zeroed, as a
         // fill of the whole record would leave it. Always written: [0, 3), [27, 30) and candidate 0's [3, 12) and [21, 24); with
-        // two candidates also candidate 1's [12, 21) and [24, 27) and the choice terms [30, 33); [33, 37) only with the AHD
-        // correction.
-        if (rt) {
-          if (count === 1) { for (let o = 12; o < 21; o++) rt[ro + o] = 0; rt[ro + 24] = 0; rt[ro + 25] = 0; rt[ro + 26] = 0; rt[ro + 30] = 0; rt[ro + 31] = 0; rt[ro + 32] = 0; }
-          rt[ro + 33] = 0; rt[ro + 34] = 0; rt[ro + 35] = 0; rt[ro + 36] = 0;
-        }
+        // two candidates also candidate 1's [12, 21) and [24, 27) and the choice terms [30, 33).
+        if (rt && count === 1) { for (let o = 12; o < 21; o++) rt[ro + o] = 0; rt[ro + 24] = 0; rt[ro + 25] = 0; rt[ro + 26] = 0; rt[ro + 30] = 0; rt[ro + 31] = 0; rt[ro + 32] = 0; }
         if (tracking && !ringOn) { if (!statistics) for (let li = 0; li < list.length; li++) siteStatistics(list[li]!); }
         else if (tracking) for (let li = 0; li < list.length; li++) {
           const slot = list[li]!, q = siteSlotQ[slot]!, rowStamp = siteSlotStamp[slot]!;
@@ -1146,7 +857,6 @@ export async function renderDisplayView(setup: DisplayViewSetup): Promise<Displa
             let mean = 0;
             for (let t = 0; t < sl.length; t++) mean += wt[t]! * siteMean[sl[t]!]!;
             cm[c] = mean;
-            cmAverage[c] = (d === 0 ? 0 : cmAverage[c]!) + mean * share;
           }
           // Covariance of channels i, j: Σ over the sites of w_i·w_j·Var(site), with the kernels as dense weights over the window.
           const dense = denseAt[phase * 2 + d]!, list = listAt[phase * 2 + d]!;
@@ -1229,8 +939,6 @@ export async function renderDisplayView(setup: DisplayViewSetup): Promise<Displa
           const t0 = share * Math.max(0, hv[0]! - l0), t1 = share * Math.max(0, hv[1]! - l1), t2 = share * Math.max(0, hv[2]! - l2);
           r0 += wR * t0; r1 += wR * t1; r2 += wR * t2;
           if (rt) { rt[ro + 21 + d * 3] = t0; rt[ro + 22 + d * 3] = t1; rt[ro + 23 + d * 3] = t2; }
-          // Two-argument maxima (inlined; the same value as one four-argument Math.max, which V8 calls with boxed arguments).
-          pixelVariance = Math.max(Math.max(pixelVariance, hv[0]!), Math.max(hv[1]!, hv[2]!));
         }
         // #457: AHD chooses one candidate per pixel by homogeneity. Where the scene decides that choice (structure finer than a
         // few sites, such as a Siemens star's centre), the expected value is the chosen candidate's, not the candidates' average:
@@ -1259,7 +967,7 @@ export async function renderDisplayView(setup: DisplayViewSetup): Promise<Displa
         }
         const saturation = 1 - unclipped;
         sat += wE * saturation;
-        if (rt) rt[ro + 37] = saturation;
+        if (rt) rt[ro + 33] = saturation;
         if (count === 2) {
           // AHD's per-pixel choice between the candidates adds independent variance: with a noise-driven choice each pixel
           // deviates from the candidates' average by ±½(H − V), variance ¼·Var(H − V) (linear in the sites, at the last
@@ -1280,21 +988,9 @@ export async function renderDisplayView(setup: DisplayViewSetup): Promise<Displa
           r0 += wR * (x0 / 4); r1 += wR * (x1 / 4); r2 += wR * (x2 / 4);
           if (rt) { rt[ro + 30] = x0 / 4; rt[ro + 31] = x1 / 4; rt[ro + 32] = x2 / 4; }
         }
-        // AHD at low signal: its homogeneity choice reacts to the noise, which the linear candidates cannot express. A sample
-        // whose pixel noise exceeds the threshold adds the correction of a flat neighbourhood with its channel means, from the
-        // shared grid of states (flatCorrection): there AHD and the two linear candidates run on the same drawn neighbourhoods
-        // and the difference of the rendered results is averaged, a control variate whose expectation is the AHD bias
-        // (docs/DISPLAY_VIEW.md).
-        if (ahdCorrection && pixelVariance > ahdCorrection.thresholdVariance) {
-          const fix = flatCorrection(cmAverage[0]!, cmAverage[1]!, cmAverage[2]!);
-          s0 += wE * fix[0]!; s1 += wE * fix[1]!; s2 += wE * fix[2]!; corrected = true;
-          if (rt) { rt[ro + 33] = 1; rt[ro + 34] = fix[0]!; rt[ro + 35] = fix[1]!; rt[ro + 36] = fix[2]!; }
-        }
         if (pk >= 0) stamps[pk] = stamp;
-        pixelVariance = 0;
       }
       sampleCount += sampleTotal;
-      if (corrected) correctedPixels++;
       // Stratified: means over Q samples. Exact: the weights already sum to 1 (Σ a_j = 1) and the residual carries Σ a_j²·r_j.
       const Qd = exactView ? 1 : Q, mean0 = s0 / Qd, mean1 = s1 / Qd, mean2 = s2 / Qd, pixels = B[3]!;
       // #533: the expected saturated real pixels of the rectangle (A real pixels): A·Σ_j a_j·P_j, or A times the samples' mean.
@@ -1324,7 +1020,7 @@ export async function renderDisplayView(setup: DisplayViewSetup): Promise<Displa
       if (((rx & 15) === 15 || rx === region.width - 1) && Date.now() - lastYield >= 8) { await setup.yieldControl(); setup.checkAbort(); lastYield = Date.now(); }
     }
   }
-  return { samples, expected, noiseStd, sampleCount, siteCount, detailPixelCount: detail, uniformPixelCount: uniform, ahdCorrectedPixelCount: correctedPixels,
+  return { samples, expected, noiseStd, sampleCount, siteCount, detailPixelCount: detail, uniformPixelCount: uniform,
     estimation: exactView ? "exact-area-mean" : "stratified-monte-carlo", saturated, saturatedPixelCount: saturatedTotal };
 }
 

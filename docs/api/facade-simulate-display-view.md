@@ -12,8 +12,7 @@ setup: use it to render one view in many regions, for example on each worker of 
 ```ts
 export interface PreparedDisplayView {
   /**
-   * Renders a view of the prepared request. Renders may run concurrently; they share no state except read-only setup and the
-   * realm's AHD correction states, which never change a byte (docs/DISPLAY_VIEW.md, "AHD at low signal"). With `gpu: "auto"`
+   * Renders a view of the prepared request. Renders may run concurrently; they share no state except read-only setup. With `gpu: "auto"`
    * or `"require"` (#481) GPU renders of one prepared view run one at a time on its device, and `diagnostics.fast.execution`
    * says whether the GPU or the CPU reference rendered the view, and why.
    */
@@ -25,22 +24,21 @@ export interface PreparedDisplayView {
    */
   dispose(): void;
   /**
-   * 2.10 (#447): the key of this request's AHD low-signal correction states, or null when the request has no AHD
-   * (`output.demosaic` other than "ahd"). Every input of the key is fixed when the request is prepared; two prepared views
-   * with the same key read the same states.
+   * 2.10 (#447), deprecated in 2.22.0: was the key of this request's AHD low-signal correction states. The view has no such
+   * states since 2.22.0 (docs/DISPLAY_VIEW.md, "AHD at low signal"), so this returns null for every request.
+   * @deprecated Since 2.22.0: always null. Removed in 3.0.0.
    */
   correctionKey(): string | null;
   /**
-   * 2.10 (#447): the grid keys of every correction state a render of `view` reads (ascending, whether or not this realm holds
-   * them), found by a render of the view's region that records the states instead of computing them. No image is returned;
-   * it costs about one render whose states are all held. Fails with an InvalidConfigurationError when the request has no AHD.
+   * 2.10 (#447), deprecated in 2.22.0: was the grid keys of the correction states a render of `view` read. Since 2.22.0 it checks
+   * `view` as `render` does and returns `{ key: "", gridKeys }` with no grid keys, for every request; it renders nothing.
+   * @deprecated Since 2.22.0: returns no grid keys. Removed in 3.0.0.
    */
   collectCorrectionStates(view: SimulateDisplayViewOptions, renderOptions?: PreparedDisplayViewRenderOptions): Promise<DisplayViewCorrectionStateKeys>;
   /**
-   * 2.10 (#447): computes the correction states of `gridKeys` (from `collectCorrectionStates`, or a share of them) as a render
-   * would, stores them in this realm's cache and returns their values, for {@link bindDisplayViewCorrectionStates} in
-   * another realm. States this realm holds are read, not computed. Yields and honours `signal` like `render`. Fails with an
-   * InvalidConfigurationError when the request has no AHD or a grid key is out of range.
+   * 2.10 (#447), deprecated in 2.22.0: computed correction states. Since 2.22.0 it checks that `gridKeys` is an Int32Array of
+   * grid keys (integers in [0, 97³)) and returns `{ key: "", gridKeys, values }` with no states, for every request; it computes nothing.
+   * @deprecated Since 2.22.0: returns no states. Removed in 3.0.0.
    */
   computeCorrectionStates(gridKeys: Int32Array, renderOptions?: PreparedDisplayViewRenderOptions): Promise<DisplayViewCorrectionStateSet>;
 }

@@ -4,14 +4,10 @@ The package and root API versions are recorded once in [Navigation](../API_REFER
 
 ## bindDisplayViewCorrectionStates
 
-2.10 (#447): adds states another realm computed (an export, or `computeCorrectionStates` results) to this realm's cache and
-returns the number of states added. For each entry, the grid keys its setup does not hold yet are appended; known ones are
-left as they are (a state's values follow from its key, so they are equal). Every entry is checked before the cache is
-touched: `key` a non-empty string, `gridKeys` an Int32Array of grid keys, `values` a Float64Array of 3 × `gridKeys.length`
-finite numbers; otherwise it fails with an InvalidConfigurationError and the cache is unchanged. The cache's bounds apply as
-in a render: an unknown key creates a setup and can evict the least recently used of the four kept, and a setup that
-reaches 65 536 states is cleared before the next one is added. Import only keys a prepared view reported
-(`correctionKey()`), so states a render here will read.
+2.10 (#447), deprecated in 2.22.0: added states another realm computed to this realm's cache. The display view keeps no
+correction states since 2.22.0, so this checks `entries` as before (an array of `{ key, gridKeys, values }` with a non-empty
+string key, an Int32Array of grid keys and a Float64Array of 3 finite values per key; otherwise an
+InvalidConfigurationError) and returns 0: nothing is stored and no render reads them. Kept until 3.0.0.
 
 ```ts
 export function bindDisplayViewCorrectionStates(entries: readonly DisplayViewCorrectionStateSet[]): number;
@@ -21,7 +17,7 @@ This call is synchronous; any supplied provider must follow its explicit synchro
 
 ## DisplayViewCorrectionStateKeys
 
-2.10 (#447): the grid keys of the states a region needs (`PreparedDisplayView.collectCorrectionStates`), ascending.
+2.10 (#447), deprecated in 2.22.0: the grid keys of the states a region needs (`PreparedDisplayView.collectCorrectionStates`).
 
 ```ts
 export interface DisplayViewCorrectionStateKeys { key: string; gridKeys: Int32Array }
@@ -29,9 +25,9 @@ export interface DisplayViewCorrectionStateKeys { key: string; gridKeys: Int32Ar
 
 ## DisplayViewCorrectionStateSet
 
-2.10 (#447): the AHD low-signal correction states of one setup, as a realm sends them to another. `key` is the setup's
-correction key (`PreparedDisplayView.correctionKey()`), `gridKeys[i]` a state's grid key and `values[3·i …]` its three
-values (28 bytes per state). Both arrays are transferable.
+2.10 (#447), deprecated in 2.22.0: the AHD low-signal correction states of one setup, as a realm sent them to another. The
+display view keeps no correction states since 2.22.0, so {@link serializeDisplayViewCorrectionStates} returns none.
+Kept until 3.0.0.
 
 ```ts
 export interface DisplayViewCorrectionStateSet { key: string; gridKeys: Int32Array; values: Float64Array }
@@ -39,9 +35,9 @@ export interface DisplayViewCorrectionStateSet { key: string; gridKeys: Int32Arr
 
 ## serializeDisplayViewCorrectionStates
 
-2.10 (#447): the AHD low-signal correction states this JavaScript realm holds (a Web Worker, a page), one entry per cached
-setup, least recently used first, each state's grid key and three values copied out. Another realm adds them with
-{@link bindDisplayViewCorrectionStates}; a render there then reads them instead of computing them, with the same bytes.
+2.10 (#447), deprecated in 2.22.0: returned the AHD low-signal correction states this realm held. The display view keeps no
+correction states since 2.22.0 (the correction was removed; docs/DISPLAY_VIEW.md, "AHD at low signal"), so this returns an
+empty array. Kept until 3.0.0.
 
 ```ts
 export function serializeDisplayViewCorrectionStates(): DisplayViewCorrectionStateSet[];

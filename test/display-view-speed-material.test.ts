@@ -89,7 +89,9 @@ describe("display view without diffraction keeps its bytes (#444)", () => {
   // (signals integrated from the material spectrum per site; the same on x64 and arm64): samples unchanged, expected values within
   // 1.5·10⁻¹⁴ relative; in the AHD case 30 of the 360 expected components at the patch edge move by at most 0.025 8-bit codes, where
   // the two AHD candidates' channel means, equal to the last bit before, now differ by rounding and AHD's choice is taken
-  // (sceneLookups 28252 → 29148).
+  // (sceneLookups 28252 → 29148). The AHD case was re-recorded for 2.22.0 (the AHD low-signal correction removed; the same on x64
+  // and arm64): all 120 display pixels had it; red rises by 2.47 8-bit codes and green and blue fall by 0.36 and 0.59 on average
+  // (6.10 at most), 240 of 360 samples change, and view.demosaic reports the approximation.
   const cases: [string, SimulateCaptureOptions, SimulateDisplayViewOptions, string][] = [
     ["caller material scene, mirror borders, exact area mean", { scene: checker, sensor: speed, output: { width: 240, height: 160, borderHandling: "mirror" } },
       { width: 80, height: 54 }, "88614416ef0fcbbff7d695eeaeec793b0951c64eeda0695c77cb7122f5b3a900"],
@@ -98,7 +100,7 @@ describe("display view without diffraction keeps its bytes (#444)", () => {
     ["caller material scene, stratified estimator", { scene: checker, sensor: speed, output: { width: 240, height: 160 } }, { width: 24, height: 16 }, "6ead9437c338654c9b4fa0df6ba8f07f965d53665e346aa1032cec7bf624aaad"],
     ["chart preset, AHD at ISO 3200, 1.4 µm", { scene: { preset: "patches", patches: [{ patchId: "a", reflectance: 0.18 }, { patchId: "b", reflectance: 0.6 }], columns: 2 }, exposure: { mode: "manual", iso: 3200, shutterSeconds: 1 / 4000 },
       sensor: { pixelPitchMicrometers: 1.4, pixelAperture: { kind: "box", samplesPerAxis: 2 } }, output: { width: 120, height: 90, demosaic: "ahd" } },
-      { width: 40, height: 30, region: { x: 14, y: 10, width: 12, height: 10 } }, "2912e0ca80ac707b2331e96fcea70c4bde36d2168bb4a154c1361db45c6b2d76"],
+      { width: 40, height: 30, region: { x: 14, y: 10, width: 12, height: 10 } }, "81b81365e7a96f62b3e08e989d8a8060aef4c3d9f32a15f949f4c334b2690ce7"],
     // 2.22.0 (#599): re-recorded for the sensor.isoAreaNormalization explanation's new text only (samples, expected values and noise unchanged at 1.4 µm).
     ["radiance scene (not tracked)", { scene: { kind: "radiance-function", sceneId: "speed-radiance-lock", evaluate: (p: { u: number; v: number }) => 0.02 * (1.25 + 0.5 * Math.floor(4 * p.u) / 4 - 0.25 * Math.floor(3 * p.v) / 3) },
       sensor: speed, output: { width: 120, height: 80 } }, { width: 40, height: 27 }, "724e9bcb5028c54d6d6c29ea085a9a6c790edc92711dead5085132b8cb47321f"]
@@ -107,7 +109,6 @@ describe("display view without diffraction keeps its bytes (#444)", () => {
     const { result, internals } = await simulateDisplayViewWithInternals(options, view);
     const method = (result.assumptions.find((a) => a.id === "view.estimation")?.value as { method?: string } | undefined)?.method;
     expect(method === "exact-area-mean-over-real-pixels").toBe(!name.includes("stratified"));
-    if (name.includes("AHD")) expect(result.diagnostics.ahdCorrectedPixelCount).toBeGreaterThan(0);
     const diagnostics: Partial<typeof result.diagnostics> = { ...result.diagnostics }, hash = createHash("sha256");
     delete diagnostics.timingsMs; delete diagnostics.fast;
     // #533: diagnostics.highlight is additive (it changes no sample); it is checked on its own and left out of the digests.

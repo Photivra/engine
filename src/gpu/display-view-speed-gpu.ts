@@ -124,7 +124,7 @@ export interface DisplayViewSpeedGpuResult extends DisplayViewRenderResult {
 /**
  * Why the kernel does not cover a request, or null when it does. The kernel is the Speed path: the exact area mean
  * (views where a footprint holds at most 25 real pixels and at most K², and here at most 6 per axis), no diffraction
- * kernels, chart materials, the bilinear demosaic (no AHD candidates or correction), the identity or positive Reinhard
+ * kernels, chart materials, the bilinear demosaic (no AHD candidates), the identity or positive Reinhard
  * tone curve, and at most 16 query offsets.
  */
 export function displayViewSpeedGpuUnsupportedReason(setup: DisplayViewSetup, signalInput: DisplayViewExpectedSignalInput): string | null {
@@ -132,7 +132,7 @@ export function displayViewSpeedGpuUnsupportedReason(setup: DisplayViewSetup, si
   if (signalInput.kernels) return "diffraction kernels (the Quality path) are not on the GPU";
   if (signalInput.scene.kind !== "materials" && !signalInput.scene.signalAt) return "radiance scenes (caller functions) are not on the GPU";
   if (!signalInput.queryPoint) return "the expected signal has no query points";
-  if (setup.candidates || setup.ahdCorrection || setup.ahdCollect) return "AHD candidates and the low-signal correction are not on the GPU";
+  if (setup.candidates || setup.ahdChoice) return "AHD candidates are not on the GPU";
   if (!["identity", "positive-reinhard-per-channel", "extended-reinhard-luminance", "naka-rushton-luminance"].includes(setup.toneCurve)) return "unsupported tone curve " + String(setup.toneCurve);
   if (setup.rendering && !setup.coupled) return "the coupled rendering steps were not prepared";
   if (setup.rendering?.highlightMode === "reconstruct-neighbors") return "highlightMode reconstruct-neighbors (#602; its regions' ratios are found on the host) is not on the GPU in 2.22.0";
@@ -417,7 +417,7 @@ export async function renderDisplayViewSpeedOnGpu(runtime: WebGpuRuntime, bandBy
   for (let i = 0; i < pixelCount; i++) saturatedPixelCount += saturated[i]!;
   const expectedValueBound: ImageKernelRelativeErrorBound = { kind: "relative-to-reference", relative: relative.mean, absolute: largestMean };
   const uncertain = flagged.length - recomputed.length + undecided.length - highlights.length;
-  return { samples, expected, noiseStd, sampleCount, siteCount, detailPixelCount: pixelCount, uniformPixelCount: 0, ahdCorrectedPixelCount: 0, estimation: "exact-area-mean", saturated, saturatedPixelCount,
+  return { samples, expected, noiseStd, sampleCount, siteCount, detailPixelCount: pixelCount, uniformPixelCount: 0, estimation: "exact-area-mean", saturated, saturatedPixelCount,
     execution: webGpuExecution(expectedValueBound, uncertain), expectedValueBound,
     varianceBound: { kind: "relative-to-reference", relative: relative.variance, absolute: largestVariance },
     expectedValueAbsoluteBound: meanBound, varianceAbsoluteBound: varianceBound,
@@ -543,7 +543,7 @@ export function createDisplayViewSpeedGpuRenderer(runtime: WebGpuRuntime, option
         const material = await modules.moduleFor(setup.gpu, abort.signal);
         const result = await renderDisplayViewSpeedOnGpu(runtime, bandBytes, { setup, signalInput: setup.gpu.signalInput, material }, abort, options.yieldControl, source);
         return { samples: result.samples, expected: result.expected, noiseStd: result.noiseStd, sampleCount: result.sampleCount, siteCount: result.siteCount, detailPixelCount: result.detailPixelCount,
-          uniformPixelCount: result.uniformPixelCount, ahdCorrectedPixelCount: result.ahdCorrectedPixelCount, estimation: result.estimation, saturated: result.saturated,
+          uniformPixelCount: result.uniformPixelCount, estimation: result.estimation, saturated: result.saturated,
           saturatedPixelCount: result.saturatedPixelCount, errorBound: result.expectedValueBound,
           diagnosticUncertaintySampleCount: result.execution.diagnosticUncertaintySampleCount, ...(material.compositeProbe ? { compositeProbe: material.compositeProbe } : {}) };
       } finally { signal?.removeEventListener("abort", onAbort); }

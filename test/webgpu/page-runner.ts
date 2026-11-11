@@ -8,7 +8,6 @@ import { calculateChartRadianceBatch, createImageKernelAccelerator, ImageKernelE
   type NativeRawDevelopmentInput, type PackedSensorRawInput, type TemporalExposureSumInput, type ChartRadianceBatchInput } from "../../src/index.js";
 import { decodeTransport, encodeTransport } from "./codec.js";
 import { displayViewGpuFixture, renderOnGpu, renderOnGpuQuality, timeCpuStages } from "../helpers/display-view-gpu-fixture.js";
-import { clearDisplayViewCorrectionStates } from "../../src/facade/display-view.js";
 import { DISPLAY_VIEW_SPEED_CONFORMANCE_CASE } from "../../src/gpu/display-view-speed-gpu.js";
 import { DISPLAY_VIEW_QUALITY_CONFORMANCE_CASE, DISPLAY_VIEW_QUALITY_DEFOCUS_CONFORMANCE_CASE } from "../../src/gpu/display-view-quality-gpu.js";
 import { acquireWebGpuRuntime, createComputePipeline, type WebGpuRuntime } from "../../src/gpu/webgpu-runtime.js";
@@ -217,7 +216,7 @@ export async function displayViewImagePlaneConformance(): Promise<string> {
 }
 
 /**
- * #479: the display view's Quality kernels on the device (diffraction, the four-spot filter, AHD and the low-signal correction),
+ * #479: the display view's Quality kernels on the device (diffraction, the four-spot filter and AHD),
  * as `displayViewSpeed`: the page's own CPU reference, the GPU render, the per-stage wall-clock milliseconds of the last run.
  */
 export async function displayViewQuality(payload: string): Promise<string> {
@@ -226,10 +225,8 @@ export async function displayViewQuality(payload: string): Promise<string> {
   await prepareImagePlaneScenes(); // #581: the image-plane cases (charts are unaffected)
   const fixture = await displayViewGpuFixture(options, view), device = await runtime();
   try {
-    // The CPU reference's stages in this realm, on request (#479's AHD placement); then the GPU render with the realm's correction
-    // states cleared, so its states stage computes the states it needs as a fresh worker would.
+    // The CPU reference's stages in this realm, on request (#479's AHD placement); then the GPU render.
     const cpuStages = timeCpu ? await timeCpuStages(fixture) : null;
-    clearDisplayViewCorrectionStates();
     let result: Awaited<ReturnType<typeof renderOnGpuQuality>> | undefined, milliseconds = 0;
     for (let i = 0; i < (repeat ?? 1); i++) {
       const start = performance.now();
@@ -237,13 +234,13 @@ export async function displayViewQuality(payload: string): Promise<string> {
       milliseconds = performance.now() - start;
     }
     const gpu = result!;
-    return encodeTransport({ cpu: { samples: fixture.cpu.samples, expected: fixture.cpu.expected, noiseStd: fixture.cpu.noiseStd, ahdCorrectedPixelCount: fixture.cpu.ahdCorrectedPixelCount,
+    return encodeTransport({ cpu: { samples: fixture.cpu.samples, expected: fixture.cpu.expected, noiseStd: fixture.cpu.noiseStd,
       saturated: fixture.cpu.saturated },
       gpu: { samples: gpu.samples, expected: gpu.expected, noiseStd: gpu.noiseStd, expectedValueBound: gpu.expectedValueBound, varianceBound: gpu.varianceBound,
         expectedValueAbsoluteBound: gpu.expectedValueAbsoluteBound, varianceAbsoluteBound: gpu.varianceAbsoluteBound, saturated: gpu.saturated },
       flaggedPixelIndices: gpu.flaggedPixelIndices, hostRecomputedPixelIndices: gpu.hostRecomputedPixelIndices, highlightRecomputedPixelIndices: gpu.highlightRecomputedPixelIndices,
       execution: gpu.execution, gpuMilliseconds: milliseconds,
-      stageMilliseconds: gpu.stageMilliseconds, tapsPerSite: gpu.tapsPerSite, statesComputed: gpu.statesComputed, ahdCorrectedPixelCount: gpu.ahdCorrectedPixelCount, cpuStages,
+      stageMilliseconds: gpu.stageMilliseconds, tapsPerSite: gpu.tapsPerSite, cpuStages,
       blockedSum: gpu.blockedSum, siteSumRelativeBound: gpu.siteSumRelativeBound, latticePointsResolved: gpu.latticePointsResolved, pixelFlags: gpu.pixelFlags });
   } finally { device.destroy(); }
 }
