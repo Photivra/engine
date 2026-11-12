@@ -10,6 +10,7 @@ import { createDisplayViewCoupledRendering, gaussHermite, type DisplayViewRender
 import { calculateSdrRendering, desaturateToLuminance, SDR_LUMINANCE_WEIGHTS } from "../src/output/sdr-rendering.js";
 import { simulateCapture, simulateDisplayView, type SimulateCaptureOptions } from "../src/index.js";
 import { simulateDisplayViewWithInternals } from "../src/facade/simulate-display-view.js";
+import { scaledTimeout } from "./helpers/test-timeout.js";
 
 /** Seeded normal pairs (a 32-bit linear congruential generator and Box–Muller); test-only. */
 function normals(seed: number): () => number {
@@ -89,7 +90,7 @@ describe("the coupled rendering moments", () => {
       }
       for (let i = 0; i < 9; i++) expect(Math.abs(J[i]! - mc.slopes[i]!)).toBeLessThan(0.03 * Math.max(1, Math.abs(mc.slopes[i]!)));
     }
-  }, 60_000);
+  }, scaledTimeout(60_000));
 
   it("matches Monte Carlo through the whole chain for reconstruct and the desaturation", () => {
     const cases: [DisplayViewRenderingChoice, number[], number[]][] = [
@@ -111,7 +112,7 @@ describe("the coupled rendering moments", () => {
       }
       for (let i = 0; i < 9; i++) expect(Math.abs(A[i]! - mc.slopes[i]!)).toBeLessThan(0.15 * Math.max(0.5, Math.abs(mc.slopes[i]!)));
     }
-  }, 120_000);
+  }, scaledTimeout(120_000));
 
   it("is the deterministic chain when the channels have no noise", () => {
     const coupled = createDisplayViewCoupledRendering(choice({ highlightMode: "reconstruct", toneCurve: "extended-reinhard-luminance", toneCurveParameters: { whiteLuminance: 4 } }), GAINS, 1, MATRIX)!;
@@ -150,7 +151,7 @@ describe("the coupled rendering moments", () => {
     expect(toneGap).toBeLessThan(2e-5);
     expect(chainGap).toBeLessThan(2e-2);
     expect(quietGap).toBeLessThan(2e-3);
-  }, 60_000);
+  }, scaledTimeout(60_000));
 });
 
 describe("desaturateToLuminance (#601)", () => {
@@ -220,7 +221,7 @@ describe("the display view with coupled rendering steps against the capture (#59
       // At ISO 3200 a 64-pixel mean of the capture is itself noisy (±8 codes in the shadows, as with the identity curve); elsewhere per pixel.
       if (options.exposure?.iso !== 3200) expect(worst).toBeLessThan(4);
     }
-  }, 240_000);
+  }, scaledTimeout(240_000));
 
   it("leaves requests without the coupled steps unchanged and reports the steps", async () => {
     const options: SimulateCaptureOptions = { scene: { preset: "uniform", reflectance: 0.6 }, exposure: { shutterSeconds: 1 / 30 }, output: { width: 32, height: 32 } };
@@ -230,7 +231,7 @@ describe("the display view with coupled rendering steps against the capture (#59
     expect(Array.from(explicit.image.samples)).toEqual(Array.from(plain.image.samples));
     const coupled = await simulateDisplayView({ ...options, output: { ...options.output, highlightMode: "reconstruct" } }, { width: 8, height: 8 });
     expect(coupled.assumptions.find((a) => a.id === "view.rendering")?.value).toMatchObject({ highlightMode: "reconstruct", chainPointsPerAxis: 6, fast: true });
-  }, 60_000);
+  }, scaledTimeout(60_000));
 });
 
 describe("the capture's desaturate-to-luminance gamut handling (#601)", () => {
@@ -250,7 +251,7 @@ describe("the capture's desaturate-to-luminance gamut handling (#601)", () => {
     }
     expect(changed).toBeGreaterThan(0);
     await expect(simulateCapture({ ...options, output: { width: 16, height: 16, format: "png", colorEncoding: "display-p3", gamutHandling: "desaturate-to-luminance" } })).rejects.toThrow(/gamutHandling/u);
-  }, 60_000);
+  }, scaledTimeout(60_000));
 });
 
 describe("calculateSdrRendering with desaturate-to-luminance (#601)", () => {

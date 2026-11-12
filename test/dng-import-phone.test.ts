@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { scaledTimeout } from "./helpers/test-timeout.js";
 import { initSync, JxlImage } from "jxl-oxide-wasm";
 import {
   parseDngRawImage, importDngRawImage, createJxlOxideDngDecoder, developDngStageImage, applyDngOpcodes, parseDngOpcodeList, InvalidConfigurationError, DNG_IMPORT_LIMITS,
@@ -57,7 +58,7 @@ describe("phone DNG import: JPEG XL raw data (#598)", () => {
       expect(() => parseDngRawImage({ bytes })).toThrow(/importDngRawImage/u);
       await expect(importDngRawImage({ bytes })).rejects.toThrow(/jpegXlDecoder/u);
     }
-  }, 60_000);
+  }, scaledTimeout(60_000));
 
   it("labels JPEG XL data lossy unless JXLDistance is 0, and refuses a decoder that loses bit depth or size", async () => {
     const width = 16, height = 16, codes = Uint16Array.from({ length: width * height }, (_, i) => i * 97 % 4096);
