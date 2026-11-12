@@ -189,8 +189,8 @@ The authoritative result is GitHub CI on the exact commit that is tagged: the `m
 | Fact | Value |
 | --- | --- |
 | Tag | `v2.7.0` → `fabad7e36bedc0c2f3466069efec88711511fdaf` (#406), after `main` CI on that commit passed |
-| GitHub release | [@photivra/engine 2.7.0](https://github.com/Photivra/photivra/releases/tag/v2.7.0), published 20:32:42 UTC |
-| Publish workflow | [Publish npm run 24](https://github.com/Photivra/photivra/actions/runs/40130257138): its verify and publish jobs passed (completed 20:47:28 UTC) |
+| GitHub release | [@photivra/engine 2.7.0](https://github.com/Photivra/engine/releases/tag/v2.7.0), published 20:32:42 UTC |
+| Publish workflow | [Publish npm run 24](https://github.com/Photivra/engine/actions/runs/40130257138): its verify and publish jobs passed (completed 20:47:28 UTC) |
 | npm | `@photivra/engine@2.7.0`, dist-tag `latest`, registry time 20:49:34 UTC |
 | Integrity | `sha512-BwN4fbDQLB5ccYfQukkwN4d2MiqNJHMPuhjDGoIeYEN2EaFng3PsGgWfKIcEOHor3w1L58hF26dZx5lR8nASBw==` (shasum `cf966e76fd9650d5437879528402671562477e3b`, 846 files), the same as the publish log |
 | Provenance | Signed provenance statement from GitHub Actions for the tag, published to the Sigstore transparency log ([log index 3443308606](https://search.sigstore.dev/?logIndex=3443308606)); the registry lists an attestation for 2.7.0 |

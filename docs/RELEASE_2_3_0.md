@@ -82,7 +82,7 @@ The authoritative result is GitHub CI on the exact commit that is tagged: the `m
 - [x] All 2.3.0 work on one branch with changelog entries.
 - [x] Version surfaces aligned at 2.3.0 (`npm run release:prepare -- 2.3.0`); API reference regenerated (1,713 root symbols; none removed).
 - [x] Owner's review of this record.
-- [x] Green CI on this pull request (#342), then on `main` after merge ([CI run 863](https://github.com/Photivra/photivra/actions/runs/39092639495) on `0e7a046`).
+- [x] Green CI on this pull request (#342), then on `main` after merge ([CI run 863](https://github.com/Photivra/engine/actions/runs/39092639495) on `0e7a046`).
 - [x] **The owner's explicit approval to tag `v2.3.0`.** The owner tagged `v2.3.0` on `0e7a046`; `v2.2.1` is unchanged.
 - [x] After publication: npm version, dist-tag, integrity and provenance verified; GitHub release notes published; publication dates updated in `CHANGELOG.md`, `README.md`, `SECURITY.md` and this record.
 
@@ -91,9 +91,9 @@ The authoritative result is GitHub CI on the exact commit that is tagged: the `m
 | Fact | Value |
 | --- | --- |
 | Tag | `v2.3.0` → `0e7a0462220bc224f7beb88f4533714117b36800` (#342) |
-| Publish workflow | [Publish npm run 19](https://github.com/Photivra/photivra/actions/runs/39093409802), passed (completed 03:32:44 UTC); the provenance was signed at 03:32 UTC and the registry records publication at 03:34 UTC |
+| Publish workflow | [Publish npm run 19](https://github.com/Photivra/engine/actions/runs/39093409802), passed (completed 03:32:44 UTC); the provenance was signed at 03:32 UTC and the registry records publication at 03:34 UTC |
 | npm | `@photivra/engine@2.3.0`, dist-tag `latest` |
 | Integrity | `sha512-riFMD84pA70w2nGovnvoXaAw6KT51qA4zxebZlVMHFNQlBC4gcXlzEX3jssqcPKeoUNB+VDVjlL7fp3Wevs/Zg==` (shasum `f2caddace1f6fa7a0472b4f72a112002e3e4b4fa`) |
 | Provenance | Signed SLSA provenance for `0e7a046` from `.github/workflows/publish.yml` at `refs/tags/v2.3.0` (Publish npm run 19), published to the Sigstore transparency log (log index 3305539678); `npm audit signatures` verifies the registry signature and the attestation |
 | Tarball contents | Byte-identical (same shasum and integrity, 832 files) to `npm pack` of a clean local build of `v2.3.0` (checked October 18, 2026) |
-| GitHub release | [@photivra/engine 2.3.0](https://github.com/Photivra/photivra/releases/tag/v2.3.0) |
+| GitHub release | [@photivra/engine 2.3.0](https://github.com/Photivra/engine/releases/tag/v2.3.0) |

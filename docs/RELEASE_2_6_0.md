@@ -233,7 +233,7 @@ Recorded on October 24, 2026, from GitHub and the npm registry. The provenance a
 | Fact | Value |
 | --- | --- |
 | Tag | `v2.6.0` → `26296efead527a5f6c71058d15a3e49b0bb9aa96` (#382) |
-| GitHub release | [@photivra/engine 2.6.0](https://github.com/Photivra/photivra/releases/tag/v2.6.0), published 02:31:35 UTC |
-| Publish workflow | [Publish npm run 23](https://github.com/Photivra/photivra/actions/runs/39359393612), passed (last updated 02:39:59 UTC) |
+| GitHub release | [@photivra/engine 2.6.0](https://github.com/Photivra/engine/releases/tag/v2.6.0), published 02:31:35 UTC |
+| Publish workflow | [Publish npm run 23](https://github.com/Photivra/engine/actions/runs/39359393612), passed (last updated 02:39:59 UTC) |
 | npm | `@photivra/engine@2.6.0`, dist-tag `latest`, registry time 02:42:35 UTC |
 | Integrity | `sha512-UeD6orBQGVYfIe+JgTDFcHkkszPgPYyqS8ZvEso2fAzcpzq2RzzSFOlGwzsGU5cFLFNGI0zx12ckWqkPGgaT3A==` (shasum `cfb921b2277946332be262095c61e4c55be15e89`, 846 files) |

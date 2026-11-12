@@ -31,7 +31,7 @@ for (const exported of exports) {
   rows.push({ name: exported.name, symbol, declaration, runtime: Boolean(symbol.flags & ts.SymbolFlags.Value) });
   grouped.set(file, rows);
 }
-const header = `# Public API reference\n\nGenerated from the exact root exports for **@photivra/engine ${packageVersion} / root contract ${version}** by \`node scripts/generate-api-reference.mjs\`. No module deep import is supported.\n\nUse [the developer guide](https://github.com/Photivra/photivra/blob/main/docs/DEVELOPERS.md) for executable paths and scientific boundaries. Types are contracts, not runtime validation: parse untrusted data, preserve units/reference frames, read assessment blockers, and retain evidence/limitations. Optional properties do not imply a universal default. Model/schema IDs remain independent of the distribution.\n\n`;
+const header = `# Public API reference\n\nGenerated from the exact root exports for **@photivra/engine ${packageVersion} / root contract ${version}** by \`node scripts/generate-api-reference.mjs\`. No module deep import is supported.\n\nUse [the developer guide](https://github.com/Photivra/engine/blob/main/docs/DEVELOPERS.md) for executable paths and scientific boundaries. Types are contracts, not runtime validation: parse untrusted data, preserve units/reference frames, read assessment blockers, and retain evidence/limitations. Optional properties do not imply a universal default. Model/schema IDs remain independent of the distribution.\n\n`;
 // A short fixed task index for people and agents. Every name must be a runtime root export, and its
 // link is derived from the export's resolved source file, so the index cannot go stale silently.
 const TASK_INDEX = [
@@ -69,8 +69,8 @@ mkdirSync("docs/api", { recursive: true });
 for (const [file, rows] of [...grouped].sort(([a], [b]) => a.localeCompare(b))) {
   const id = file.slice(4).replace(/\.ts$/u, "").replaceAll("/", "-");
   const name = `api/${id}.md`;
-  reference += `## ${file.slice(4)}\n\n[Detailed contracts](${name}) · [Source](https://github.com/Photivra/photivra/blob/main/${file})\n\n| Export | Kind |\n| --- | --- |\n`;
-  let detail = `# ${file.slice(4)} public contracts\n\nThe package and root API versions are recorded once in [Navigation](../API_REFERENCE.md) · [Developer guide](https://github.com/Photivra/photivra/blob/main/docs/DEVELOPERS.md). Generated signatures retain independent schema/model versions. Only the exports listed here are root-package contracts; module-local helpers are not supported deep imports.\n\n`;
+  reference += `## ${file.slice(4)}\n\n[Detailed contracts](${name}) · [Source](https://github.com/Photivra/engine/blob/main/${file})\n\n| Export | Kind |\n| --- | --- |\n`;
+  let detail = `# ${file.slice(4)} public contracts\n\nThe package and root API versions are recorded once in [Navigation](../API_REFERENCE.md) · [Developer guide](https://github.com/Photivra/engine/blob/main/docs/DEVELOPERS.md). Generated signatures retain independent schema/model versions. Only the exports listed here are root-package contracts; module-local helpers are not supported deep imports.\n\n`;
   for (const row of rows.sort((a,b) => a.name.localeCompare(b.name))) {
     reference += `| [\`${row.name}\`](${name}#${row.name.toLowerCase()}) | ${row.runtime ? "Runtime" : "Type"} |\n`;
     const comment = ts.displayPartsToString(row.symbol.getDocumentationComment(checker));

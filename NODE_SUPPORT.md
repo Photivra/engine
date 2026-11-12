@@ -43,7 +43,7 @@ CI picks the patched lines with setup-node versions; the test legs use aliases t
 | `lts/-1` | the LTS line before the newest | Test leg. While it resolves to the primary leg's release (Node 24 since Node 26 entered LTS), it skips its test work; its required `verify (lts/-1)` check still runs. |
 | `node` | newest stable release (Current, or the newest LTS while no Current line has a stable build) | Test leg (Node 26 since it entered LTS). |
 
-CI resolves `node` itself to the newest stable version in `https://nodejs.org/dist/index.json` (`.github/node-lts-lookahead.mjs --newest-stable`), because setup-node's alias takes the index's first entry, which can be a prerelease: `v27.0.0-alpha.0.0.0` was listed first on 2026-10-29 and every `node` job failed the guard with "Use a stable, exact Node/typings version" ([#511](https://github.com/photivra/photivra/pull/511)).
+CI resolves `node` itself to the newest stable version in `https://nodejs.org/dist/index.json` (`.github/node-lts-lookahead.mjs --newest-stable`), because setup-node's alias takes the index's first entry, which can be a prerelease: `v27.0.0-alpha.0.0.0` was listed first on 2026-10-29 and every `node` job failed the guard with "Use a stable, exact Node/typings version" ([#511](https://github.com/Photivra/engine/pull/511)).
 
 Every leg runs the test suite and the packed-consumer acceptance check, except a leg that resolves to exactly the primary leg's release (`node .github/node-lts-lookahead.mjs --same-as-primary`): the primary leg already runs the whole suite (under coverage) and the packed-consumer acceptance on it, so that leg skips them and its required check passes.
 

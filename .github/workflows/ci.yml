@@ -18,7 +18,7 @@ concurrency:
   group: ci-${{ github.event.pull_request.number || github.sha }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
-# Test once per tree and runtime (photivra/photivra#510). Pull requests and merge-queue
+# Test once per tree and runtime (Photivra/engine#510). Pull requests and merge-queue
 # entries run the required set below. A job that passes every step uploads a proof named by
 # the tree it tested, the job and its Node.js version (.github/ci-proof.mjs). A merge-queue
 # entry or push to main whose tree already has that job's proof skips the job's work and
@@ -48,7 +48,7 @@ jobs:
         run: node --test .github/test-ci-tools.mjs
       - name: Check the Node matrix against the support policy
         # The matrix, the required checks, publish.yml, NODE_SUPPORT.md and engines.node must
-        # agree with the roles of .github/node-lts-policy.mjs (photivra/photivra#231). Under a
+        # agree with the roles of .github/node-lts-policy.mjs (Photivra/engine#231). Under a
         # second, in this job only: no job and no install of its own. Findings that need an
         # owner decision (two legs on one runtime) print as notices and do not fail.
         run: |
@@ -458,7 +458,7 @@ jobs:
           test/canonical-json-identity.test.ts
           test/jpeg-reference-byte-parity.test.ts
           test/poc-projection-reuse.test.ts
-      - name: x64 hash locks, checked against their arm64 hashes (photivra/photivra#508)
+      - name: x64 hash locks, checked against their arm64 hashes (Photivra/engine#508)
         # These three files lock bytes that differ between arm64 and x64 by one-ulp Math
         # results (#508); on arm64 they assert their own recorded arm64 hashes, so a
         # failure here is a real failure of this step (docs/NUMERICAL_CORRECTNESS.md,

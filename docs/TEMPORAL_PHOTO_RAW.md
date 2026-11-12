@@ -87,7 +87,7 @@ Source transport, projection, PSF, production-stage activation, high-resolution 
 - Capture noise model **0.2.0**, RAW readout model **2.0.0**, the package, POC, production and RAW-frame schemas, and the random seed schedule did not change.
 - New capture provenance includes the new root API stamp. Replaying historical captures, and pinned paired-file hashes, keep their stored stamp.
 
-**Test.** [`test/temporal-photo-raw.test.ts`](https://github.com/Photivra/photivra/blob/main/test/temporal-photo-raw.test.ts) independently calculates SI photoelectron counts from two different irradiance instants. It checks:
+**Test.** [`test/temporal-photo-raw.test.ts`](https://github.com/Photivra/engine/blob/main/test/temporal-photo-raw.test.ts) independently calculates SI photoelectron counts from two different irradiance instants. It checks:
 
 - dark and total counts;
 - global and rolling events;

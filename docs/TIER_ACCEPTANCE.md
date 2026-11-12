@@ -17,7 +17,7 @@ TypeScript build, removes it afterwards, and has no published package surface.
 It does not change runtime profiles or dependency/version contracts.
 
 Run `npx vitest run test/generic-tier-report-acceptance.test.ts` for the report gates.
-The normative [versioned envelopes](https://github.com/Photivra/photivra/blob/main/test/fixtures/tier-acceptance-envelopes-v1.json)
+The normative [versioned envelopes](https://github.com/Photivra/engine/blob/main/test/fixtures/tier-acceptance-envelopes-v1.json)
 are finite regression limits, not physical error bars. Report JSON rounds displayed
 numbers to twelve significant digits; CI uses full-precision calculations and
 numeric tolerances. The report is a review artifact rather than a brittle exact

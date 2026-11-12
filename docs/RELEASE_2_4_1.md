@@ -21,16 +21,16 @@ The feature, its specifications and its tests are described in the [2.4.0 releas
 
 ## Why 2.4.0 never reached npm
 
-The owner tagged `v2.4.0` on `d5221f7` and published the GitHub release. [Publish npm run 39124378595](https://github.com/Photivra/photivra/actions/runs/39124378595) was cancelled on attempt 1 and on the owner's re-run (attempt 2): in both, the `verify` job reached `timeout-minutes: 10` during the coverage gate, so the `publish` job was skipped and nothing was uploaded. npm still serves 2.3.0 as `latest`.
+The owner tagged `v2.4.0` on `d5221f7` and published the GitHub release. [Publish npm run 39124378595](https://github.com/Photivra/engine/actions/runs/39124378595) was cancelled on attempt 1 and on the owner's re-run (attempt 2): in both, the `verify` job reached `timeout-minutes: 10` during the coverage gate, so the `publish` job was skipped and nothing was uploaded. npm still serves 2.3.0 as `latest`.
 
 | Publish npm run | Release | Coverage gate | Whole verify job | Result |
 | --- | --- | --- | --- | --- |
-| [39087857249](https://github.com/Photivra/photivra/actions/runs/39087857249) | 2.2.1 | 8m09s | 9m20s | passed |
-| [39093409802](https://github.com/Photivra/photivra/actions/runs/39093409802) | 2.3.0 | 8m18s | 9m33s | passed |
-| [39124378595](https://github.com/Photivra/photivra/actions/runs/39124378595), attempt 1 | 2.4.0 | still running at 9m38s | cancelled at 10m16s | timed out |
-| [39124378595](https://github.com/Photivra/photivra/actions/runs/39124378595), attempt 2 | 2.4.0 | still running at 9m41s | cancelled at 10m16s | timed out |
+| [39087857249](https://github.com/Photivra/engine/actions/runs/39087857249) | 2.2.1 | 8m09s | 9m20s | passed |
+| [39093409802](https://github.com/Photivra/engine/actions/runs/39093409802) | 2.3.0 | 8m18s | 9m33s | passed |
+| [39124378595](https://github.com/Photivra/engine/actions/runs/39124378595), attempt 1 | 2.4.0 | still running at 9m38s | cancelled at 10m16s | timed out |
+| [39124378595](https://github.com/Photivra/engine/actions/runs/39124378595), attempt 2 | 2.4.0 | still running at 9m41s | cancelled at 10m16s | timed out |
 
-The same coverage gate took 11m36s in CI on `d5221f7` ([CI run 39102186373](https://github.com/Photivra/photivra/actions/runs/39102186373), `verify (lts/*)`), so the job needed about 13 minutes. #346 raised the limit to 25 minutes and changed nothing else in the release workflow: admission (protected refs, tag equal to the package version and to current `main`), static gates, coverage, build, documentation, packed-consumer acceptance, package dry run, tarball hashing and the publish job are as before.
+The same coverage gate took 11m36s in CI on `d5221f7` ([CI run 39102186373](https://github.com/Photivra/engine/actions/runs/39102186373), `verify (lts/*)`), so the job needed about 13 minutes. #346 raised the limit to 25 minutes and changed nothing else in the release workflow: admission (protected refs, tag equal to the package version and to current `main`), static gates, coverage, build, documentation, packed-consumer acceptance, package dry run, tarball hashing and the publish job are as before.
 
 `v2.4.0` stays a tag and a GitHub release that never reached npm. It is not moved or deleted.
 
@@ -64,7 +64,7 @@ The authoritative result is GitHub CI on the exact commit that is tagged: the `m
 - [x] Publish workflow time limit raised (#346).
 - [x] Version surfaces aligned at 2.4.1 (`npm run release:prepare -- 2.4.1`); API reference regenerated (1,714 root symbols; none added or removed).
 - [x] Owner's review of this record.
-- [x] Green CI on this pull request (#347), then on `main` after merge ([CI run 875](https://github.com/Photivra/photivra/actions/runs/39130356165) on `c729958`).
+- [x] Green CI on this pull request (#347), then on `main` after merge ([CI run 875](https://github.com/Photivra/engine/actions/runs/39130356165) on `c729958`).
 - [x] **The owner's explicit approval to tag `v2.4.1`.** The owner tagged `v2.4.1` on `c729958`; `v2.4.0` is unchanged (tagged and released on GitHub, never published to npm).
 - [x] After publication: npm version, dist-tag, integrity and provenance verified; GitHub release notes published; publication dates updated in `CHANGELOG.md`, `README.md`, `SECURITY.md` and this record. The owner chose not to edit the `v2.4.0` GitHub release note; the `CHANGELOG.md` entry for 2.4.0 points to 2.4.1.
 
@@ -73,9 +73,9 @@ The authoritative result is GitHub CI on the exact commit that is tagged: the `m
 | Fact | Value |
 | --- | --- |
 | Tag | `v2.4.1` → `c72995883872b9c7cd5784a3f1a681a9581c50cd` (#347) |
-| Publish workflow | [Publish npm run 21](https://github.com/Photivra/photivra/actions/runs/39132344634), passed (completed 13:47:13 UTC); the provenance was signed at 13:47 UTC and the registry records publication at 13:48 UTC |
+| Publish workflow | [Publish npm run 21](https://github.com/Photivra/engine/actions/runs/39132344634), passed (completed 13:47:13 UTC); the provenance was signed at 13:47 UTC and the registry records publication at 13:48 UTC |
 | npm | `@photivra/engine@2.4.1`, dist-tag `latest`; 2.4.0 is not on npm |
 | Integrity | `sha512-kcp/3z/UdKq8WkybrVkmSdBYQc2wqKz+qOgPE/XuKuNyHOb51paQhmPsQmgx8d9t6kBrVyUdMCx2AoKpQgOLUA==` (shasum `61537bd4a9d07d6248f05b6d6e42614dcd3f554a`) |
 | Provenance | Signed SLSA provenance for `c729958` from `.github/workflows/publish.yml` at `refs/tags/v2.4.1` (Publish npm run 21), published to the Sigstore transparency log (log index 3312050251); `npm audit signatures` verifies the registry signature and the attestation |
 | Tarball contents | Byte-identical (same shasum and integrity, 836 files) to `npm pack` of a clean local build of `v2.4.1` (checked October 18, 2026) |
-| GitHub release | [@photivra/engine 2.4.1](https://github.com/Photivra/photivra/releases/tag/v2.4.1) |
+| GitHub release | [@photivra/engine 2.4.1](https://github.com/Photivra/engine/releases/tag/v2.4.1) |

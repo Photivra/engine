@@ -60,12 +60,12 @@
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/Photivra/photivra.git"
+    "url": "git+https://github.com/Photivra/engine.git"
   },
   "bugs": {
-    "url": "https://github.com/photivra/photivra/issues"
+    "url": "https://github.com/Photivra/engine/issues"
   },
-  "homepage": "https://github.com/photivra/photivra#readme",
+  "homepage": "https://github.com/Photivra/engine#readme",
   "publishConfig": {
     "access": "public"
   },

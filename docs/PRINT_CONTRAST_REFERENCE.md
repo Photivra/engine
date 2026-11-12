@@ -21,7 +21,7 @@ Whether a real stimulus matches this reference stays unassessed.
 
 **Paper.** The [primary paper, Ashraf et al. (2024)](https://pmc.ncbi.nlm.nih.gov/articles/PMC10996938/), describes sensitivity as a function of stimulus conditions, and reports how the population model was validated. Its fixed-size static achromatic Gabor reference is relevant to this restricted stimulus.
 
-The adapter's coefficients are the same fitted values that the paper prints in its Appendix Tables 5–7 (rounded there to about four significant figures); they are taken at full precision from the MIT-licensed code, not copied from the tables. We do not reproduce the paper's text, figures or observational datasets. No CSV from the combined historical datasets is included; their reuse and collection history is not inferred from the code licence. The owner signed off the scientific, source and licence review of this numerical material on 2026-11-09 ([#544](https://github.com/Photivra/photivra/issues/544)).
+The adapter's coefficients are the same fitted values that the paper prints in its Appendix Tables 5–7 (rounded there to about four significant figures); they are taken at full precision from the MIT-licensed code, not copied from the tables. We do not reproduce the paper's text, figures or observational datasets. No CSV from the combined historical datasets is included; their reuse and collection history is not inferred from the code licence. The owner signed off the scientific, source and licence review of this numerical material on 2026-11-09 ([#544](https://github.com/Photivra/engine/issues/544)).
 
 ## Explicit conditions and quantities
 

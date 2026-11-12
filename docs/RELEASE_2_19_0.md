@@ -130,7 +130,7 @@ On the integrated tree, Apple M5 Pro:
 - [x] Version surfaces aligned at 2.19.0 (`npm run release:prepare -- 2.19.0`). Root exports 1,860.
 - [x] 2.18.0 recorded as published ([2.18.0 release record](RELEASE_2_18_0.md#publication)).
 - [ ] Packed tarball compared file by file with the published 2.18.0 (not done here: it needs the published tarball downloaded).
-- [x] Green CI on this pull request, then on `main` after merge ([CI run 42678094852](https://github.com/Photivra/photivra/actions/runs/42678094852) on `9c81348`).
+- [x] Green CI on this pull request, then on `main` after merge ([CI run 42678094852](https://github.com/Photivra/engine/actions/runs/42678094852) on `9c81348`).
 - [x] The owner's approval to tag `v2.19.0`.
 - [x] The `v2.19.0` tag on the `main` commit that merges this record (`9c81348`).
 - [x] After publication:
@@ -142,8 +142,8 @@ On the integrated tree, Apple M5 Pro:
 
 | Fact | Value |
 | --- | --- |
-| Tag | `v2.19.0` (annotated, `3e451a5`) → `9c813489dff9fe2e134f3737664a5232607cb91f` (#586), after `main` CI on that commit passed ([CI run 42678094852](https://github.com/Photivra/photivra/actions/runs/42678094852)) |
-| Publish workflow | [Publish npm run 42681163986](https://github.com/Photivra/photivra/actions/runs/42681163986): `verify` passed 19:12:45–19:14:52 UTC, coverage shards 10.5–19.8 min and gate 1.0 min passed, `publish` passed 19:33:41–19:33:57 UTC |
+| Tag | `v2.19.0` (annotated, `3e451a5`) → `9c813489dff9fe2e134f3737664a5232607cb91f` (#586), after `main` CI on that commit passed ([CI run 42678094852](https://github.com/Photivra/engine/actions/runs/42678094852)) |
+| Publish workflow | [Publish npm run 42681163986](https://github.com/Photivra/engine/actions/runs/42681163986): `verify` passed 19:12:45–19:14:52 UTC, coverage shards 10.5–19.8 min and gate 1.0 min passed, `publish` passed 19:33:41–19:33:57 UTC |
 | npm | `@photivra/engine@2.19.0`, dist-tag `latest`, registry time 19:36:35 UTC, November 9, 2026 |
 | Integrity | `sha512-Az7esuXk6H0V7Y6DndsFLngGKguBofLFeVOAlBFFwEprXFH9JOX/KKYTFSkrXfHLLIodiBqfi9ZVDUuB0HsUxQ==` (shasum `ba2e85402ca2f2352944c0bb5f913d0173879e43`, 979 files) |
 | Provenance | The registry lists an attestation for 2.19.0 |

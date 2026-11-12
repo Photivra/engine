@@ -1,6 +1,6 @@
 # 1.0.1 release preparation and migration
 
-**Candidate distribution and root API:** `@photivra/engine@1.0.1` and `ENGINE_API_VERSION = "1.0.1"`. The published predecessor is [1.0.0](https://github.com/Photivra/photivra/releases/tag/v1.0.0), whose root API identity was 0.116.0. This change prepares the next release; 1.0.1 installation becomes available only after owner publication.
+**Candidate distribution and root API:** `@photivra/engine@1.0.1` and `ENGINE_API_VERSION = "1.0.1"`. The published predecessor is [1.0.0](https://github.com/Photivra/engine/releases/tag/v1.0.0), whose root API identity was 0.116.0. This change prepares the next release; 1.0.1 installation becomes available only after owner publication.
 
 ## Changes
 

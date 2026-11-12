@@ -63,7 +63,7 @@ The candidate's packed tarball (`npm pack`, 913 files) was compared file by file
 - [x] #559 and #560 merged.
 - [x] Version surfaces aligned at 2.15.0 (`npm run release:prepare -- 2.15.0`). Root exports 1,805.
 - [x] Packed tarball compared with the published 2.14.1 (above).
-- [x] Green CI on this pull request, then on `main` after merge ([CI run 42380988962](https://github.com/Photivra/photivra/actions/runs/42380988962) on `0e2232f`: `main smoke` passed).
+- [x] Green CI on this pull request, then on `main` after merge ([CI run 42380988962](https://github.com/Photivra/engine/actions/runs/42380988962) on `0e2232f`: `main smoke` passed).
 - [x] The owner's approval to tag `v2.15.0`: the tag push that ran the publish workflow is the owner's (`bshack`); no separate written approval is recorded in the repository.
 - [x] The `v2.15.0` tag on the `main` commit that merges this record (`0e2232f`).
 - [ ] After publication:
@@ -75,8 +75,8 @@ The candidate's packed tarball (`npm pack`, 913 files) was compared file by file
 
 | Fact | Value |
 | --- | --- |
-| Tag | `v2.15.0` → `0e2232f3a7b30da75a100edb51101da70e039c0d` (#561), after `main` CI on that commit passed ([CI run 42380988962](https://github.com/Photivra/photivra/actions/runs/42380988962)) |
-| Publish workflow | [Publish npm run 35](https://github.com/Photivra/photivra/actions/runs/42383090746): coverage shards 5.1–11.8 min and gate 1.0 min passed, `verify` passed 14:45:35–14:47:21 UTC, `publish` passed 14:58:23–14:58:41 UTC |
+| Tag | `v2.15.0` → `0e2232f3a7b30da75a100edb51101da70e039c0d` (#561), after `main` CI on that commit passed ([CI run 42380988962](https://github.com/Photivra/engine/actions/runs/42380988962)) |
+| Publish workflow | [Publish npm run 35](https://github.com/Photivra/engine/actions/runs/42383090746): coverage shards 5.1–11.8 min and gate 1.0 min passed, `verify` passed 14:45:35–14:47:21 UTC, `publish` passed 14:58:23–14:58:41 UTC |
 | npm | `@photivra/engine@2.15.0`, dist-tag `latest`, registry time 15:01:17 UTC |
 | Integrity | `sha512-j4tYpKtw4w+Y8yB3cwNmyR7/IAa+GjMzqrbC3Ug0a/zEQjOEQvicVNcnTsgu86AvNkxINoHxIjwHmN0WlifRcQ==` (shasum `ac1cc9d9a956579809a1bf60eda7a9bc2d58ba66`, 913 files), the same as a local `npm pack` of `0e2232f` (Node 24.19.0, November 7, 2026) |
 | Provenance | The registry lists an SLSA v1 provenance attestation for 2.15.0 |
