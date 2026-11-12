@@ -1,15 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
 /**
  * #605 (2.23.0): `highlightMode: "reconstruct-neighbors"` (#602) in the display view's GPU kernels on the float32 emulation
- * (test/helpers/fake-webgpu-display-view*.ts) against the CPU reference. This file holds the region-order and banding checks;
+ * (test/helpers/fake-webgpu-display-view*.ts) against the CPU reference. This file holds the region-order checks; the
+ * banding check is in test/display-view-neighbors-gpu-banding-{1,2}.test.ts and
  * the four kernel cases (Speed and Quality, fast and full) are in test/display-view-neighbors-gpu-speed.test.ts and, each
  * Quality case in bands, test/display-view-neighbors-gpu-quality-{1,2} and -quality-full-{1..4}.test.ts, split so that the CI jobs
  * fit their limit (test/helpers/display-view-neighbor-gpu-check.ts holds the check). The ratios come from the host in a
  * second dispatch per band (src/gpu/wgsl-display-view-neighbors.ts). Real-device runs: test/webgpu/display-view-neighbors.webgpu.ts.
  */
 import { describe, expect, it } from "vitest";
-import { createFakeGpu } from "./helpers/fake-webgpu.js";
-import { SMALL_VIEW, displayViewGpuFixture, renderOnGpu, runtimeOf } from "./helpers/display-view-gpu-fixture.js";
+import { SMALL_VIEW, displayViewGpuFixture } from "./helpers/display-view-gpu-fixture.js";
 import { NEIGHBOR_GPU_CASES } from "./helpers/display-view-neighbor-cases.js";
 import { NEIGHBOR_PART } from "./helpers/display-view-neighbor-gpu-check.js";
 import { scaledTimeout } from "./helpers/test-timeout.js";
@@ -35,14 +35,5 @@ describe("display view GPU kernels with reconstruct-neighbors (float32 emulation
     for (let y = 0; y < region.height; y++) for (let x = 0; x < region.width; x++) for (let c = 0; c < 3; c++) {
       expect(part.cpu.expected[(y * region.width + x) * 3 + c]).toBe(whole.cpu.expected[((region.y + y) * SMALL_VIEW.width + region.x + x) * 3 + c]);
     }
-  }, scaledTimeout(300_000));
-
-  it("banding never changes a byte (the second dispatch per band)", async () => {
-    const [, options] = NEIGHBOR_GPU_CASES[0]!;
-    const fixture = await displayViewGpuFixture(options, SMALL_VIEW), runtime = await runtimeOf(createFakeGpu().gpu);
-    const whole = await renderOnGpu(runtime, fixture), banded = await renderOnGpu(runtime, fixture, 8192);
-    expect(banded.samples).toEqual(whole.samples);
-    expect(banded.expected).toEqual(whole.expected);
-    runtime.destroy();
   }, scaledTimeout(300_000));
 });
