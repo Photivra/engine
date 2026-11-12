@@ -144,7 +144,7 @@ function normalCdf(x) {
   return x >= 0 ? (1 + erf) / 2 : (1 - erf) / 2;
 }
 
-/** sfc32 (Doty-Humphrey, public domain) pseudo-random uniforms in (0, 1). */
+/** sfc32 (Doty-Humphrey, PractRand; written from its description) pseudo-random uniforms in (0, 1). */
 export function sfc32(seed) {
   // Each state word from the MurmurHash3 finalizer of the seed and its index (independent streams for nearby seeds).
   let a = fmix32(seed ^ 0x9e3779b9), b = fmix32(a ^ 0x243f6a88), c = fmix32(b ^ 0xb7e15162), d = fmix32(c ^ seed);
@@ -153,7 +153,7 @@ export function sfc32(seed) {
   return next;
 }
 
-/** MurmurHash3's 32-bit finalizer (Appleby, public domain). */
+/** MurmurHash3's 32-bit finalizer (Appleby; written from its description). */
 function fmix32(h) { h ^= h >>> 16; h = Math.imul(h, 0x85ebca6b); h ^= h >>> 13; h = Math.imul(h, 0xc2b2ae35); h ^= h >>> 16; return h >>> 0; }
 /** The first `n` primes. */
 function primes(n) { const out = []; for (let k = 2; out.length < n; k++) if (out.every((p) => k % p !== 0)) out.push(k); return out; }

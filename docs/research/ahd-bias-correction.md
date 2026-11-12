@@ -162,7 +162,7 @@ The run behind this report is `scripts/research/ahd-bias/results-2026-11-11.json
 
 ## Sources
 
-Open access or public domain, except Hirakawa and Parks, which the engine already cites for AHD itself.
+Freely available, except Hirakawa and Parks, which the engine already cites for AHD itself.
 
 - K. Hirakawa and T. W. Parks, "Adaptive homogeneity-directed demosaicing algorithm", IEEE Trans. Image Processing 14(3),
   2005: the AHD steps, as the engine already cites them.
@@ -174,5 +174,5 @@ Open access or public domain, except Hirakawa and Parks, which the engine alread
 - G. E. P. Box and M. E. Muller, "A note on the generation of random normal deviates", Ann. Math. Statist. 29(2), 1958
   (Project Euclid, open).
 - M. Abramowitz and I. A. Stegun, *Handbook of Mathematical Functions*, NBS 1964 (US government work), 7.1.26 and 26.2.23.
-- sfc32 (C. Doty-Humphrey, PractRand, public domain) and the MurmurHash3 finalizer (A. Appleby, public domain): the
+- sfc32 (C. Doty-Humphrey, PractRand) and the MurmurHash3 finalizer (A. Appleby), each written from its description: the
   prototype's random streams.

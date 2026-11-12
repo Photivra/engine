@@ -35,7 +35,7 @@ Requests that do not use `highlightMode: "reconstruct-neighbors"` keep their 2.2
 
 - **How #605 was brought in.** `e223-605` was built on the `release-2.22.0` branch, which was squash-merged as `4cb24a6`, so its commits are not ancestors of `main`. Its changes since the `release-2.22.0` commit it last merged (`f7d38bd`) were applied to `4cb24a6` as one commit. `main`'s tree equals the final `release-2.22.0` tree (`21e5ee1`), so the three later 2.22.0 commits are kept unchanged.
 - **Conflict:** `test/shard-weights.json` only. `main`'s weights (from #606's eight-shard run) are kept, with #605's two new test files added at their recorded weights.
-- **#604 report:** taken as committed on `e223-604`, with the report's outcome line added and US spelling in its prose and the prototype's comments (recorded data and API values unchanged). The prototype lives in `scripts/research/ahd-bias/` and is not in the package.
+- **#604 report:** taken as committed on `e223-604`, with the report's outcome line added and US spelling in its prose and the prototype's comments (recorded data and API values unchanged). Its source notes no longer state the random generators' licence status (the ScanCode policy flags that wording; the allowlist is unchanged). The prototype lives in `scripts/research/ahd-bias/` and is not in the package.
 - **Design-around check:** the GPU path uploads per-pixel ratios that the host computes from the request's own channels; no table keyed by channel signal levels is added. The #604 report recommends no correction, and none is built.
 
 ## Sizes
@@ -57,7 +57,7 @@ On this tree (Apple M5 Pro, Node.js 24.19.0), one run each:
 
 - `npm run check:static` (lint, typecheck, license, license-header, identity and browser-surface gates): passed.
 - `npm run build`: passed (32 WGSL literals minified).
-- The #605 tests and the size test (`test/capture-bundle.test.ts`, `test/wgsl-minify.test.ts`, `test/neighbor-highlight-sor.test.ts`, `test/display-view-neighbors-gpu.test.ts`, `test/on-demand-kits.test.ts`): see the pull request.
+- The #605 tests and the size test (`test/capture-bundle.test.ts`, `test/wgsl-minify.test.ts`, `test/neighbor-highlight-sor.test.ts`, `test/display-view-neighbors-gpu.test.ts`, `test/on-demand-kits.test.ts`): 5 files, 24 tests passed, 6.7 min. The emulation cases reproduce the recorded bounds (Speed fast 3.6 % / 3.2 %, Quality fast 0.50 % / 0.35 %; Speed full flagged 14, Quality full 530 in the part). `npm run docs:check` and `npm run pack:check` (1,137 files): passed, after one fix (the changelog links the unpacked #604 report by its repository URL).
 - The full suite, coverage and the SwiftShader WebGPU suite run on this pull request's CI. The WebGPU cases of #605 were run on `e223-605` on SwiftShader and on hardware ([WEBGPU.md](WEBGPU.md#neighbor-highlight-reconstruction-605), "Measured").
 
 ## Pending (after release)
