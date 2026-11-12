@@ -149,6 +149,16 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 | [`DevelopDngImageWhiteBalance`](api/capture-dng-development.md#developdngimagewhitebalance) | Type |
 | [`DevelopedDngImage`](api/capture-dng-development.md#developeddngimage) | Type |
 
+## capture/dng-gain-switch.ts
+
+[Detailed contracts](api/capture-dng-gain-switch.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/capture/dng-gain-switch.ts)
+
+| Export | Kind |
+| --- | --- |
+| [`DNG_GAIN_SWITCH_CATALOG`](api/capture-dng-gain-switch.md#dng_gain_switch_catalog) | Runtime |
+| [`DngGainSwitchEntry`](api/capture-dng-gain-switch.md#dnggainswitchentry) | Type |
+| [`resolveDngGainSwitch`](api/capture-dng-gain-switch.md#resolvednggainswitch) | Runtime |
+
 ## capture/dng-import.ts
 
 [Detailed contracts](api/capture-dng-import.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/capture/dng-import.ts)

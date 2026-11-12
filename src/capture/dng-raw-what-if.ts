@@ -25,11 +25,16 @@ import { InvalidConfigurationError } from "../core/configuration-error.js";
 import { createResettableUniformStream, deriveNativeSiteStreamSeedUint32, samplePortableStandardNormal } from "../sensor/stochastic-seed.js";
 import type { ImportedDngNoiseProfilePlane, ImportedDngRaw } from "./dng-import.js";
 import { estimateDngRawNoise, prepareDngSiteAccess } from "./dng-raw-measurements.js";
+import { DNG_GAIN_SWITCH_CATALOG, findDngGainSwitch, type DngGainSwitchEntry } from "./dng-gain-switch.js";
 
 /** The stream id of the what-if's per-site Gaussian draws ("WHIF"), distinct from the capture's charge and read-noise streams. */
 const WHAT_IF_STREAM_ID = 0x57484946;
-/** A measured σ below this fraction of the NoiseProfile's means the file's noise was reduced after capture (design threshold; #607 phone RAW: 0.084). */
-export const DNG_WHAT_IF_MINIMUM_MEASURED_TO_PROFILE = 0.75;
+/**
+ * A measured σ below this fraction of the NoiseProfile's means the file's noise was reduced after capture (design threshold, owner
+ * decision 2026-11-11; #607 phone RAW: 0.084). 32 engine RAWs of smooth and textured scenes at ISO 100–12800 measure 0.95 or more on
+ * the green plane (test/dng-raw-analysis.test.ts), so none is refused.
+ */
+export const DNG_WHAT_IF_MINIMUM_MEASURED_TO_PROFILE = 0.85;
 
 export interface DngRawWhatIfRequest {
   /**
@@ -44,7 +49,9 @@ export interface DngRawWhatIfRequest {
   sourceIso?: number;
   /**
    * The camera's dual-gain switch: the ISO setting from which it uses its high conversion gain, or null when it has one conversion
-   * gain at every ISO. Needed for an ISO change (the file does not state it); an ISO change that crosses the switch is refused.
+   * gain at every ISO. Needed for an ISO change (the file does not state it): when omitted, the camera's entry in
+   * `DNG_GAIN_SWITCH_CATALOG` (by Make and Model) is used; without one the ISO change is refused (`gain-mode-unknown`). An ISO change
+   * that crosses the switch is refused.
    */
   highGainFromIso?: number | null;
   /** uint32 seed of the added noise (deterministic: the same seed gives the same codes on every engine). */
@@ -87,6 +94,8 @@ export interface DngRawWhatIfResult {
   targetIso: number | null;
   /** Sites that reached the white level in the simulation and were below it in the photo. */
   newlyClippedSites: number;
+  /** The gain switch the ISO check used and where it came from ("not-needed" without an ISO change). */
+  gainSwitch: { highGainFromIso: number | null; from: "request" | "catalog" | "not-needed"; entry: DngGainSwitchEntry | null };
   /** The measured ÷ stated σ of the check (green plane where there is one), or null when the check was off. */
   measuredToProfile: number | null;
   assumptions: string[];
@@ -115,7 +124,7 @@ function parseRequest(request: DngRawWhatIfRequest, name: string): Parsed {
 /** Refusals of the request, not of the file: the file's own noise can still be checked. */
 const REQUEST_REASONS: ReadonlySet<DngRawWhatIfRefusalReason> = new Set(["iso-unknown", "iso-below-photo", "gain-mode-unknown", "crosses-gain-switch"]);
 /** Internal: the check, with the measured ratio. */
-function check(raw: ImportedDngRaw, p: Parsed, name: string): { refusals: DngRawWhatIfRefusal[]; measured: number | null } {
+function check(raw: ImportedDngRaw, p: Parsed, name: string): { refusals: DngRawWhatIfRefusal[]; measured: number | null; gainSwitch: DngRawWhatIfResult["gainSwitch"] } {
   const refusals: DngRawWhatIfRefusal[] = [], refuse = (reason: DngRawWhatIfRefusalReason, message: string): void => { refusals.push({ reason, message }); };
   prepareDngSiteAccess(raw, name);
   if (raw.photometricInterpretation !== "cfa" || !raw.cfa)
@@ -125,13 +134,17 @@ function check(raw: ImportedDngRaw, p: Parsed, name: string): { refusals: DngRaw
   if (raw.scale !== 1) refuse("half-size-preview", "A half-size preview has averaged codes; import the full image.");
   if (raw.linearizationTable) refuse("linearization-table", "The file stores codes through a LinearizationTable; this what-if needs linear codes (not supported in 2.24.0).");
   const changesIso = p.iso !== undefined, source = p.sourceIso ?? raw.exif?.iso ?? undefined;
+  const entry = p.switchIso === undefined && changesIso ? findDngGainSwitch(raw.make, raw.model, DNG_GAIN_SWITCH_CATALOG) : null;
+  const switchIso = p.switchIso !== undefined ? p.switchIso : entry ? entry.highGainFromIso : undefined;
+  const gainSwitch: DngRawWhatIfResult["gainSwitch"] = !changesIso ? { highGainFromIso: null, from: "not-needed", entry: null }
+    : { highGainFromIso: switchIso ?? null, from: p.switchIso !== undefined ? "request" : "catalog", entry };
   if (changesIso) {
     if (source === undefined) refuse("iso-unknown", "The photo's ISO is not stated in the file; pass sourceIso.");
     else if (p.iso! < source) refuse("iso-below-photo", "A lower ISO than the photo's would need less noise than the photo has (noise removal).");
     else if (p.iso! > source) {
-      if (p.switchIso === undefined) refuse("gain-mode-unknown", "The file does not state the camera's dual-gain switch; pass highGainFromIso (or null for a single conversion gain) so the ISO change stays within the photo's gain mode.");
-      else if (p.switchIso !== null && source < p.switchIso && p.iso! >= p.switchIso)
-        refuse("crosses-gain-switch", "ISO " + p.iso + " uses the camera's high conversion gain (from ISO " + p.switchIso + ") and the photo (ISO " + source + ") the low one; its read noise is not in this file, so it cannot be shown accurately.");
+      if (switchIso === undefined) refuse("gain-mode-unknown", "The file does not state the camera's dual-gain switch and the camera (" + (raw.make ?? "unknown make") + " " + (raw.model ?? "unknown model") + ") is not in DNG_GAIN_SWITCH_CATALOG; pass highGainFromIso (or null for a single conversion gain) so the ISO change stays within the photo's gain mode.");
+      else if (switchIso !== null && source < switchIso && p.iso! >= switchIso)
+        refuse("crosses-gain-switch", "ISO " + p.iso + " uses the camera's high conversion gain (from ISO " + switchIso + ") and the photo (ISO " + source + ") the low one; its read noise is not in this file, so it cannot be shown accurately.");
     }
   }
   let measured: number | null = null;
@@ -141,7 +154,7 @@ function check(raw: ImportedDngRaw, p: Parsed, name: string): { refusals: DngRaw
     if (measured !== null && measured < DNG_WHAT_IF_MINIMUM_MEASURED_TO_PROFILE)
       refuse("noise-profile-mismatch", "The measured noise is " + Math.round(measured * 100) + " % of the NoiseProfile's: the data was denoised or merged after capture, so the profile does not describe these pixels.");
   }
-  return { refusals, measured };
+  return { refusals, measured, gainSwitch };
 }
 
 /** Whether a what-if is possible on this file, and every reason it is not (the same checks {@link simulateDngRawWhatIf} makes). */
@@ -156,7 +169,7 @@ export function assessDngRawWhatIf(raw: ImportedDngRaw, request: DngRawWhatIfReq
  * file or the request cannot be shown accurately.
  */
 export function simulateDngRawWhatIf(raw: ImportedDngRaw, request: DngRawWhatIfRequest): DngRawWhatIfResult {
-  const p = parseRequest(request, "simulateDngRawWhatIf"), { refusals, measured } = check(raw, p, "simulateDngRawWhatIf");
+  const p = parseRequest(request, "simulateDngRawWhatIf"), { refusals, measured, gainSwitch } = check(raw, p, "simulateDngRawWhatIf");
   if (refusals.length) throw new DngRawWhatIfRefusedError(refusals);
   const source = p.sourceIso ?? raw.exif.iso, target = p.iso ?? source;
   const f = 2 ** Math.min(p.stops, 0), g = p.iso !== undefined && source !== null ? p.iso / source : 1, push = Math.max(p.stops, 0);
@@ -194,9 +207,10 @@ export function simulateDngRawWhatIf(raw: ImportedDngRaw, request: DngRawWhatIfR
     "Gaussian approximation of Poisson–Gaussian noise from the file's NoiseProfile, var(x) = S·x + O (Foi et al. 2008), evaluated at each site's own value.",
     "NoiseProfile leaves out fixed-pattern noise (PRNU, DSNU, row and column noise); the simulation keeps the photo's own pattern and does not scale it."];
   if (g > 1) assumptions.push("ISO " + fmt(target!) + " in the photo's conversion-gain mode: the input-referred read noise is the photo's; analog and digital gain are treated alike.");
+  if (gainSwitch.entry) assumptions.push("Dual-gain switch from DNG_GAIN_SWITCH_CATALOG (" + gainSwitch.entry.make + " " + gainSwitch.entry.model + ": " + gainSwitch.entry.source.title + ").");
   if (raw.opcodeList1?.length) assumptions.push("OpcodeList1 acts on the stored codes and is kept as it is.");
   return { raw: { ...raw, codes, noiseProfile: target2, assumptions: [...raw.assumptions, "whatIf: " + label] }, kind, label, lightFactor: f, isoFactor: g,
-    developmentPushStops: push, sourceIso: source ?? null, targetIso: target ?? null, newlyClippedSites: newlyClipped, measuredToProfile: measured, assumptions };
+    developmentPushStops: push, sourceIso: source ?? null, targetIso: target ?? null, newlyClippedSites: newlyClipped, gainSwitch, measuredToProfile: measured, assumptions };
 }
 
 function fmt(v: number): string { return String(Math.round(v * 100) / 100); }

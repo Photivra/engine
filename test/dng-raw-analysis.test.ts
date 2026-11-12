@@ -354,3 +354,37 @@ describe("Full color development of an imported DNG (2.24.0)", () => {
     expect(Math.abs(g.samples[2]! - g.samples[1]!)).toBeLessThanOrEqual(1);
   });
 });
+
+describe("dual-gain switch catalog and the denoised-file check (2.24.0)", () => {
+  it("ships only cited entries and finds none for an unknown camera", async () => {
+    const { DNG_GAIN_SWITCH_CATALOG, resolveDngGainSwitch } = await import("../src/index.js");
+    for (const e of DNG_GAIN_SWITCH_CATALOG) {
+      expect(e.make.trim().length * e.model.trim().length).toBeGreaterThan(0);
+      expect(e.highGainFromIso === null || (Number.isFinite(e.highGainFromIso) && e.highGainFromIso >= 50)).toBe(true);
+      expect(e.source.url).toMatch(/^https:\/\//u);
+      expect(e.source.terms.length * e.source.title.length).toBeGreaterThan(0);
+    }
+    expect(new Set(DNG_GAIN_SWITCH_CATALOG.map((e) => e.make.toLowerCase() + "\u0000" + e.model)).size).toBe(DNG_GAIN_SWITCH_CATALOG.length);
+    expect(resolveDngGainSwitch({ make: "Photivra", model: "Photivra Virtual Camera" })).toBeNull();
+    expect(resolveDngGainSwitch({ make: null, model: null })).toBeNull();
+    expect(() => resolveDngGainSwitch({} as never)).toThrow(InvalidConfigurationError);
+  });
+
+  it("passes engine RAWs of smooth and textured scenes at every ISO (no false denoised-file refusal at 0.85)", async () => {
+    const scenes = [{ preset: "uniform", reflectance: 0.18 }, { preset: "uniform", reflectance: 0.02 }, { preset: "step-wedge" }, { preset: "slanted-edge" },
+      { preset: "siemens-star" }, { preset: "dead-leaves", seed: 1 }, { preset: "color-patches" }, { preset: "zone-plate" }] as const;
+    let lowest = Infinity, refused = 0, checked = 0;
+    for (const iso of [100, 800, 3200, 12800]) for (const scene of scenes) {
+      const c = await simulateCapture({ scene, illuminanceLux: 21481 * 15 / 125, exposure: { mode: "manual", iso, shutterSeconds: (1 / 15) * (100 / iso) },
+        sensor: { noiseSeed: 2 }, output: { width: 192, height: 192, format: "dng" } });
+      const raw = parseDngRawImage({ bytes: c.image.dng! }), result = assessDngRawWhatIf(raw, { exposureStops: -1, seed: 1 });
+      const ratio = estimateDngRawNoise(raw).planes.find((p) => p.color === "green")!.measuredToProfile;
+      if (ratio !== null) { checked++; lowest = Math.min(lowest, ratio); }
+      if (!result.allowed) refused++;
+    }
+    // Measured on this tree: 32 of 32 cases checked, none refused; the lowest green ratio 0.95 (dark uniform patches read lowest).
+    expect(refused).toBe(0);
+    expect(checked).toBe(32);
+    expect(lowest).toBeGreaterThan(0.9);
+  }, scaledTimeout(240_000));
+});

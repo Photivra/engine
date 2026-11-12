@@ -3198,6 +3198,11 @@
       "kind": "runtime"
     },
     {
+      "name": "DNG_GAIN_SWITCH_CATALOG",
+      "source": "src/capture/dng-gain-switch.ts",
+      "kind": "runtime"
+    },
+    {
       "name": "DNG_IMPORT_LIMITS",
       "source": "src/capture/dng-import.ts",
       "kind": "runtime"
@@ -3211,6 +3216,11 @@
       "name": "DNG_WHAT_IF_MINIMUM_MEASURED_TO_PROFILE",
       "source": "src/capture/dng-raw-what-if.ts",
       "kind": "runtime"
+    },
+    {
+      "name": "DngGainSwitchEntry",
+      "source": "src/capture/dng-gain-switch.ts",
+      "kind": "type"
     },
     {
       "name": "DngImportAsyncInput",
@@ -7481,6 +7491,11 @@
       "name": "ResolvedNativeEffectiveRasterColorSamplingBinding",
       "source": "src/sensor/capture-color-sampling-binding.ts",
       "kind": "type"
+    },
+    {
+      "name": "resolveDngGainSwitch",
+      "source": "src/capture/dng-gain-switch.ts",
+      "kind": "runtime"
     },
     {
       "name": "ResolvedNumericSettingGrid",

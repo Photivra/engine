@@ -14,10 +14,12 @@ This call is synchronous; any supplied provider must follow its explicit synchro
 
 ## DNG_WHAT_IF_MINIMUM_MEASURED_TO_PROFILE
 
-A measured σ below this fraction of the NoiseProfile's means the file's noise was reduced after capture (design threshold; #607 phone RAW: 0.084).
+A measured σ below this fraction of the NoiseProfile's means the file's noise was reduced after capture (design threshold, owner
+decision 2026-11-11; #607 phone RAW: 0.084). 32 engine RAWs of smooth and textured scenes at ISO 100–12800 measure 0.95 or more on
+the green plane (test/dng-raw-analysis.test.ts), so none is refused.
 
 ```ts
-DNG_WHAT_IF_MINIMUM_MEASURED_TO_PROFILE = 0.75
+DNG_WHAT_IF_MINIMUM_MEASURED_TO_PROFILE = 0.85
 ```
 
 ## DngRawWhatIfAssessment
@@ -79,7 +81,9 @@ export interface DngRawWhatIfRequest {
   sourceIso?: number;
   /**
    * The camera's dual-gain switch: the ISO setting from which it uses its high conversion gain, or null when it has one conversion
-   * gain at every ISO. Needed for an ISO change (the file does not state it); an ISO change that crosses the switch is refused.
+   * gain at every ISO. Needed for an ISO change (the file does not state it): when omitted, the camera's entry in
+   * `DNG_GAIN_SWITCH_CATALOG` (by Make and Model) is used; without one the ISO change is refused (`gain-mode-unknown`). An ISO change
+   * that crosses the switch is refused.
    */
   highGainFromIso?: number | null;
   /** uint32 seed of the added noise (deterministic: the same seed gives the same codes on every engine). */
@@ -111,6 +115,8 @@ export interface DngRawWhatIfResult {
   targetIso: number | null;
   /** Sites that reached the white level in the simulation and were below it in the photo. */
   newlyClippedSites: number;
+  /** The gain switch the ISO check used and where it came from ("not-needed" without an ISO change). */
+  gainSwitch: { highGainFromIso: number | null; from: "request" | "catalog" | "not-needed"; entry: DngGainSwitchEntry | null };
   /** The measured ÷ stated σ of the check (green plane where there is one), or null when the check was off. */
   measuredToProfile: number | null;
   assumptions: string[];
