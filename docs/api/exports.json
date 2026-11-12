@@ -138,6 +138,11 @@
       "kind": "runtime"
     },
     {
+      "name": "assessDngRawWhatIf",
+      "source": "src/capture/dng-raw-what-if.ts",
+      "kind": "runtime"
+    },
+    {
       "name": "assessExposureMeteringProfileCompatibility",
       "source": "src/equipment/metering-capabilities.ts",
       "kind": "runtime"
@@ -770,6 +775,16 @@
     {
       "name": "CalculateDetailLimitInput",
       "source": "src/optics/detail-limit.ts",
+      "kind": "type"
+    },
+    {
+      "name": "calculateDngRawClipping",
+      "source": "src/capture/dng-raw-measurements.ts",
+      "kind": "runtime"
+    },
+    {
+      "name": "CalculateDngRawClippingOptions",
+      "source": "src/capture/dng-raw-measurements.ts",
       "kind": "type"
     },
     {
@@ -3058,6 +3073,21 @@
       "kind": "type"
     },
     {
+      "name": "developDngImage",
+      "source": "src/capture/dng-development.ts",
+      "kind": "runtime"
+    },
+    {
+      "name": "DevelopDngImageOptions",
+      "source": "src/capture/dng-development.ts",
+      "kind": "type"
+    },
+    {
+      "name": "DevelopDngImageWhiteBalance",
+      "source": "src/capture/dng-development.ts",
+      "kind": "type"
+    },
+    {
       "name": "developDngStageImage",
       "source": "src/capture/dng-stage-image.ts",
       "kind": "runtime"
@@ -3065,6 +3095,11 @@
     {
       "name": "DevelopDngStageImageOptions",
       "source": "src/capture/dng-stage-image.ts",
+      "kind": "type"
+    },
+    {
+      "name": "DevelopedDngImage",
+      "source": "src/capture/dng-development.ts",
       "kind": "type"
     },
     {
@@ -3173,6 +3208,11 @@
       "kind": "runtime"
     },
     {
+      "name": "DNG_WHAT_IF_MINIMUM_MEASURED_TO_PROFILE",
+      "source": "src/capture/dng-raw-what-if.ts",
+      "kind": "runtime"
+    },
+    {
       "name": "DngImportAsyncInput",
       "source": "src/capture/dng-import.ts",
       "kind": "type"
@@ -3205,6 +3245,61 @@
     {
       "name": "DngProfileGainTableMap",
       "source": "src/capture/dng-profile-maps.ts",
+      "kind": "type"
+    },
+    {
+      "name": "DngRawClipping",
+      "source": "src/capture/dng-raw-measurements.ts",
+      "kind": "type"
+    },
+    {
+      "name": "DngRawClippingPlane",
+      "source": "src/capture/dng-raw-measurements.ts",
+      "kind": "type"
+    },
+    {
+      "name": "DngRawNoise",
+      "source": "src/capture/dng-raw-measurements.ts",
+      "kind": "type"
+    },
+    {
+      "name": "DngRawNoiseBin",
+      "source": "src/capture/dng-raw-measurements.ts",
+      "kind": "type"
+    },
+    {
+      "name": "DngRawNoisePlane",
+      "source": "src/capture/dng-raw-measurements.ts",
+      "kind": "type"
+    },
+    {
+      "name": "DngRawWhatIfAssessment",
+      "source": "src/capture/dng-raw-what-if.ts",
+      "kind": "type"
+    },
+    {
+      "name": "DngRawWhatIfRefusal",
+      "source": "src/capture/dng-raw-what-if.ts",
+      "kind": "type"
+    },
+    {
+      "name": "DngRawWhatIfRefusalReason",
+      "source": "src/capture/dng-raw-what-if.ts",
+      "kind": "type"
+    },
+    {
+      "name": "DngRawWhatIfRefusedError",
+      "source": "src/capture/dng-raw-what-if.ts",
+      "kind": "runtime"
+    },
+    {
+      "name": "DngRawWhatIfRequest",
+      "source": "src/capture/dng-raw-what-if.ts",
+      "kind": "type"
+    },
+    {
+      "name": "DngRawWhatIfResult",
+      "source": "src/capture/dng-raw-what-if.ts",
       "kind": "type"
     },
     {
@@ -3366,6 +3461,16 @@
       "name": "estimateCorrelatedColorTemperatureMcCamy",
       "source": "src/color/illuminants.ts",
       "kind": "runtime"
+    },
+    {
+      "name": "estimateDngRawNoise",
+      "source": "src/capture/dng-raw-measurements.ts",
+      "kind": "runtime"
+    },
+    {
+      "name": "EstimateDngRawNoiseOptions",
+      "source": "src/capture/dng-raw-measurements.ts",
+      "kind": "type"
     },
     {
       "name": "estimatedResult",
@@ -4508,6 +4613,16 @@
       "kind": "type"
     },
     {
+      "name": "ImportedDngExif",
+      "source": "src/capture/dng-import.ts",
+      "kind": "type"
+    },
+    {
+      "name": "ImportedDngNoiseProfilePlane",
+      "source": "src/capture/dng-import.ts",
+      "kind": "type"
+    },
+    {
       "name": "ImportedDngRaw",
       "source": "src/capture/dng-import.ts",
       "kind": "type"
@@ -4519,6 +4634,11 @@
     },
     {
       "name": "ImportedDngSemanticMask",
+      "source": "src/capture/dng-import.ts",
+      "kind": "type"
+    },
+    {
+      "name": "ImportedDngSubjectArea",
       "source": "src/capture/dng-import.ts",
       "kind": "type"
     },
@@ -9291,6 +9411,11 @@
       "name": "SimulateDisplayViewOptions",
       "source": "src/facade/simulate-capture.ts",
       "kind": "type"
+    },
+    {
+      "name": "simulateDngRawWhatIf",
+      "source": "src/capture/dng-raw-what-if.ts",
+      "kind": "runtime"
     },
     {
       "name": "simulateEnvironmentSensorRawFrame",

@@ -11,6 +11,8 @@ export interface IfdSpec {
   /** Strip or tile payloads; offsets/counts are written to `offsetTag`/`countTag` (273/279 or 324/325). */
   chunks?: { offsetTag: number; countTag: number; data: Uint8Array[] };
   subIfds?: IfdSpec[];
+  /** 2.24.0: an Exif IFD, written as its own directory and pointed to by tag 34665. */
+  exifIfd?: IfdSpec;
 }
 const SIZES: Record<number, number> = { 1: 1, 2: 1, 3: 2, 4: 4, 5: 8, 6: 1, 7: 1, 8: 2, 9: 4, 10: 8, 11: 4, 12: 8, 13: 4 };
 
@@ -30,15 +32,26 @@ export function writeTiff(little: boolean, chain: IfdSpec[]): Uint8Array {
     const bytes: number[] = [];
     const push = (v: number, size: number): void => { for (let i = 0; i < size; i++) bytes.push(little ? (v >>> (8 * i)) & 255 : (v >>> (8 * (size - 1 - i))) & 255); };
     const size = SIZES[type]!, n = type === 5 || type === 10 ? 4 : size;
+    if (type === 11 || type === 12) {
+      // FLOAT and DOUBLE: IEEE 754 in the file byte order.
+      for (const v of values) {
+        const view = new DataView(new ArrayBuffer(size));
+        if (type === 11) view.setFloat32(0, v, little); else view.setFloat64(0, v, little);
+        for (let i = 0; i < size; i++) bytes.push(view.getUint8(i));
+      }
+      return bytes;
+    }
     for (const v of values) push(v | 0, n);
     return bytes;
   };
   const writeIfd = (spec: IfdSpec): number => {
     const subOffsets = (spec.subIfds ?? []).map((s) => writeIfd(s));
+    const exifOffset = spec.exifIfd ? writeIfd(spec.exifIfd) : -1;
     const chunkOffsets = (spec.chunks?.data ?? []).map((d) => { align(); const at = out.length; out.push(...d); return at; });
     const tags = [...spec.tags];
     if (spec.chunks) tags.push({ id: spec.chunks.offsetTag, type: 4, values: chunkOffsets }, { id: spec.chunks.countTag, type: 4, values: spec.chunks.data.map((d) => d.length) });
     if (subOffsets.length) tags.push({ id: 330, type: 4, values: subOffsets });
+    if (exifOffset >= 0) tags.push({ id: 34665, type: 4, values: [exifOffset] });
     tags.sort((a, b) => a.id - b.id);
     const payloads = tags.map((t) => value(t.type, t.values));
     const external = payloads.map((p) => { if (p.length <= 4) return -1; align(); const at = out.length; out.push(...p); return at; });

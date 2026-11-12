@@ -134,6 +134,8 @@ describe("root exports reject malformed input with domain errors (API review #4)
     // 2.22 (#598, #600): positional DNG-import helpers (a stage image with an opcode list and options, tag or file bytes, an
     // imported raw, the decoder module).
     "applyDngOpcodes", "parseDngOpcodeList", "parseDngProfileGainTableMap", "parseDngRgbTables", "parseLossyJpeg", "developDngStageImage", "createJxlOxideDngDecoder",
+    // 2.24 (#607): positional helpers of an imported raw (the raw, then an options or request record that rejects unknown fields).
+    "calculateDngRawClipping", "estimateDngRawNoise", "assessDngRawWhatIf", "simulateDngRawWhatIf", "developDngImage",
     // #557: the built-in representative light-source set, a static contract with no argument.
     "getRepresentativeLightSourceSet"
   ]);

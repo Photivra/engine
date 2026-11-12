@@ -138,6 +138,17 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 | [`createCaptureExportMetadataPair`](api/capture-capture-export-metadata.md#createcaptureexportmetadatapair) | Runtime |
 | [`parseCaptureExportMetadataInput`](api/capture-capture-export-metadata.md#parsecaptureexportmetadatainput) | Runtime |
 
+## capture/dng-development.ts
+
+[Detailed contracts](api/capture-dng-development.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/capture/dng-development.ts)
+
+| Export | Kind |
+| --- | --- |
+| [`developDngImage`](api/capture-dng-development.md#developdngimage) | Runtime |
+| [`DevelopDngImageOptions`](api/capture-dng-development.md#developdngimageoptions) | Type |
+| [`DevelopDngImageWhiteBalance`](api/capture-dng-development.md#developdngimagewhitebalance) | Type |
+| [`DevelopedDngImage`](api/capture-dng-development.md#developeddngimage) | Type |
+
 ## capture/dng-import.ts
 
 [Detailed contracts](api/capture-dng-import.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/capture/dng-import.ts)
@@ -151,9 +162,12 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 | [`importDngRawImage`](api/capture-dng-import.md#importdngrawimage) | Runtime |
 | [`ImportedDngBlackLevel`](api/capture-dng-import.md#importeddngblacklevel) | Type |
 | [`ImportedDngCfa`](api/capture-dng-import.md#importeddngcfa) | Type |
+| [`ImportedDngExif`](api/capture-dng-import.md#importeddngexif) | Type |
+| [`ImportedDngNoiseProfilePlane`](api/capture-dng-import.md#importeddngnoiseprofileplane) | Type |
 | [`ImportedDngRaw`](api/capture-dng-import.md#importeddngraw) | Type |
 | [`ImportedDngRect`](api/capture-dng-import.md#importeddngrect) | Type |
 | [`ImportedDngSemanticMask`](api/capture-dng-import.md#importeddngsemanticmask) | Type |
+| [`ImportedDngSubjectArea`](api/capture-dng-import.md#importeddngsubjectarea) | Type |
 | [`parseDngRawImage`](api/capture-dng-import.md#parsedngrawimage) | Runtime |
 
 ## capture/dng-opcodes.ts
@@ -186,6 +200,38 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 | [`DngRgbTables`](api/capture-dng-profile-maps.md#dngrgbtables) | Type |
 | [`parseDngProfileGainTableMap`](api/capture-dng-profile-maps.md#parsedngprofilegaintablemap) | Runtime |
 | [`parseDngRgbTables`](api/capture-dng-profile-maps.md#parsedngrgbtables) | Runtime |
+
+## capture/dng-raw-measurements.ts
+
+[Detailed contracts](api/capture-dng-raw-measurements.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/capture/dng-raw-measurements.ts)
+
+| Export | Kind |
+| --- | --- |
+| [`calculateDngRawClipping`](api/capture-dng-raw-measurements.md#calculatedngrawclipping) | Runtime |
+| [`CalculateDngRawClippingOptions`](api/capture-dng-raw-measurements.md#calculatedngrawclippingoptions) | Type |
+| [`DngRawClipping`](api/capture-dng-raw-measurements.md#dngrawclipping) | Type |
+| [`DngRawClippingPlane`](api/capture-dng-raw-measurements.md#dngrawclippingplane) | Type |
+| [`DngRawNoise`](api/capture-dng-raw-measurements.md#dngrawnoise) | Type |
+| [`DngRawNoiseBin`](api/capture-dng-raw-measurements.md#dngrawnoisebin) | Type |
+| [`DngRawNoisePlane`](api/capture-dng-raw-measurements.md#dngrawnoiseplane) | Type |
+| [`estimateDngRawNoise`](api/capture-dng-raw-measurements.md#estimatedngrawnoise) | Runtime |
+| [`EstimateDngRawNoiseOptions`](api/capture-dng-raw-measurements.md#estimatedngrawnoiseoptions) | Type |
+
+## capture/dng-raw-what-if.ts
+
+[Detailed contracts](api/capture-dng-raw-what-if.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/capture/dng-raw-what-if.ts)
+
+| Export | Kind |
+| --- | --- |
+| [`assessDngRawWhatIf`](api/capture-dng-raw-what-if.md#assessdngrawwhatif) | Runtime |
+| [`DNG_WHAT_IF_MINIMUM_MEASURED_TO_PROFILE`](api/capture-dng-raw-what-if.md#dng_what_if_minimum_measured_to_profile) | Runtime |
+| [`DngRawWhatIfAssessment`](api/capture-dng-raw-what-if.md#dngrawwhatifassessment) | Type |
+| [`DngRawWhatIfRefusal`](api/capture-dng-raw-what-if.md#dngrawwhatifrefusal) | Type |
+| [`DngRawWhatIfRefusalReason`](api/capture-dng-raw-what-if.md#dngrawwhatifrefusalreason) | Type |
+| [`DngRawWhatIfRefusedError`](api/capture-dng-raw-what-if.md#dngrawwhatifrefusederror) | Runtime |
+| [`DngRawWhatIfRequest`](api/capture-dng-raw-what-if.md#dngrawwhatifrequest) | Type |
+| [`DngRawWhatIfResult`](api/capture-dng-raw-what-if.md#dngrawwhatifresult) | Type |
+| [`simulateDngRawWhatIf`](api/capture-dng-raw-what-if.md#simulatedngrawwhatif) | Runtime |
 
 ## capture/dng-stage-image.ts
 

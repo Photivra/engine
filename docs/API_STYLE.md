@@ -134,7 +134,7 @@ Use the existing verb family that matches what the operation does. Do not invent
 - `simulate*` — deliberately composed simulation or orchestration API.
 - `import*` (2.22.0, #598) — read a file format whose data may need a caller-supplied decoder, asynchronously, into the same normalized record a `parse*` function returns (`importDngRawImage`: `parseDngRawImage` plus JPEG XL tiles through an application's decoder). It differs from `parse*` only in taking asynchronous decoders.
 - `apply*` (2.22.0, #598, #600) — apply processing that a file format defines and the file carries (opcode lists, gain table maps, RGB tables) to image data, as the format's specification orders it (`applyDngOpcodes`, `applyDngProfileGainTableMap`, `applyDngRgbTables`). It differs from `transform*`, whose source and destination domains are the engine's own.
-- `develop*` (2.22.0, #598) — run a documented, bounded stage of a RAW development from an imported file (`developDngStageImage`: the DNG stage image after OpcodeList1–3, linearization and the black and white levels).
+- `develop*` (2.22.0, #598) — run a documented, bounded stage of a RAW development from an imported file (`developDngStageImage`: the DNG stage image after OpcodeList1–3, linearization and the black and white levels), or (2.24.0, #607) the whole documented development of one (`developDngImage`: stage image, demosaic, DNG color mapping, tone curve and sRGB encoding).
 
 The existing result factories `calculatedResult`, `estimatedResult`, `approximationResult` and `calibratedResult` are documented core helpers, not new verb families.
 
@@ -248,6 +248,8 @@ have a fast method, a measured and bounded approximation of it. One flag style s
   midpoint per site of the subject's streak plus one when that is fewer than 8; exact keeps the 8; an explicit
   `sensor.temporalSampleCount` always wins); `developDngStageImage`'s WarpRectilinear resampling of an imported DNG (#600:
   bilinear fast, cubic convolution with a = −0.75 exact; the default follows its `format`: fast when omitted, full quality for "dng", "jpeg" and "png");
+  in 2.24.0, `developDngImage`'s demosaic (#607, `developDngImage/demosaic`: the built-in bilinear kernels fast, AHD exact, with the
+  stage image's WarpRectilinear following the same flag; fast by default for its "srgb-8" and "srgb-16" outputs);
   a print under mixed lighting on the GPU (#597, `illumination/image-plane-gpu`: `gpu` `"auto"`
   lights each lattice point on WebGPU, `"off"` the CPU reference); the default spectral step (#590, `sensor.spectralStepNanometers`: 5 nm on
   exact requests under a spiky light, 20 nm on fast ones); the catalogue field grid's cells (#603, `lens.catalogue/field-grid-cells`: at

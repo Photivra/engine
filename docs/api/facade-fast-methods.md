@@ -61,6 +61,10 @@ SIMULATE_CAPTURE_FAST_METHODS: readonly SimulateCaptureFastMethod[] = Object.fre
   { id: "dngImport.warpRectilinear", override: "fast", methods: "fast-and-exact", runs: ["developDngStageImage"],
     fast: "#600: an imported DNG's WarpRectilinear opcode resampled bilinearly", exact: "cubic convolution (Keys, a = −0.75, the DNG SDK's kernel); default fast unless format names an export", followsFormatDefault: true,
     resolver: { file: "src/capture/dng-stage-image.ts", call: "resolveFast(options.fast, fastFormatDefault(format, \"capture\"))" }, report: { field: "fast" } },
+  { id: "developDngImage/demosaic", override: "fast", methods: "fast-and-exact", runs: ["developDngImage"],
+    fast: "#607 (2.24.0): an imported DNG's mosaic demosaiced with the built-in bilinear kernels, and WarpRectilinear resampled bilinearly",
+    exact: "adaptive homogeneity-directed demosaicing (AHD, Hirakawa & Parks 2005) and cubic-convolution WarpRectilinear; default fast for srgb-8 and srgb-16", followsFormatDefault: true,
+    resolver: { file: "src/capture/dng-development.ts", call: "resolveFast(options.fast, fastFormatDefault(format, \"capture\"))" }, report: { field: "fast" } },
   { id: "output.toneCurve/view-luminance-moments", override: "fast", methods: "fast-and-exact", runs: ["simulateDisplayView", "prepareDisplayView"],
     fast: "#593: a luminance tone curve's moments by an 8-point Gauss–Hermite rule in luminance where its range stays clear of L = 0 (else the full rule)",
     exact: "a composite 4 × 16-point Gauss–Legendre rule over the luminance's ±8.5σ, split at L = 0", followsFormatDefault: true,
@@ -108,7 +112,7 @@ export interface SimulateCaptureFastMethod {
   /** "fast-and-exact": both methods exist; "exact-only": the record takes `fast`, but there is no fast method yet (reports false). */
   methods: "fast-and-exact" | "exact-only";
   /** Where it applies. */
-  runs: readonly ("simulateCapture" | "simulateDisplayView" | "prepareDisplayView" | "developDngStageImage")[];
+  runs: readonly ("simulateCapture" | "simulateDisplayView" | "prepareDisplayView" | "developDngStageImage" | "developDngImage")[];
   /** The fast method and the exact one, in words (empty for exact-only). */
   fast: string;
   exact: string;

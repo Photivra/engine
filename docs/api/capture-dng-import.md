@@ -15,9 +15,11 @@ DNG_IMPORT_LIMITS = Object.freeze({ defaultMaximumPixels: 64_000_000, maximumPix
 ## DNG_IMPORT_SCHEMA_VERSION
 
 1.1.0 (2.22.0): lossy JPEG and JPEG XL raw data, opcode lists, profile maps, semantic masks, `scale`, `assumptions`.
+1.2.0 (2.24.0): `noiseProfile`, `exif` (ISO, exposure time, f-number, focal length, CompositeImage, SubjectArea), `analogBalance`,
+`cameraCalibration1/2` with their signatures, `asShotWhiteXy`.
 
 ```ts
-DNG_IMPORT_SCHEMA_VERSION = "1.1.0" as const
+DNG_IMPORT_SCHEMA_VERSION = "1.2.0" as const
 ```
 
 ## DngImportAsyncInput
@@ -99,6 +101,53 @@ export interface ImportedDngCfa {
 }
 ```
 
+## ImportedDngExif
+
+2.24.0: the capture settings the file states, from the Exif IFD (34665; Exif 2.32, CIPA DC-008-2019), else the same tags in IFD 0
+or the raw IFD (TIFF/EP). Every field is null when the tag is absent or malformed (a malformed one is named in `assumptions`).
+
+```ts
+export interface ImportedDngExif {
+  /** ExposureTime (0x829A), seconds. */
+  exposureTimeSeconds: number | null;
+  /** FNumber (0x829D). */
+  fNumber: number | null;
+  /** FocalLength (0x920A), mm (the lens's actual focal length, not the 35 mm equivalent). */
+  focalLengthMillimeters: number | null;
+  /** PhotographicSensitivity (0x8827, formerly ISOSpeedRatings): the first value; 65535 means "65535 or more" (Exif 2.32). */
+  photographicSensitivity: number | null;
+  /** SensitivityType (0x8830): which sensitivity PhotographicSensitivity holds (0 unknown, 1 SOS, 2 REI, 3 ISO speed, 4–7 combinations). */
+  sensitivityType: number | null;
+  /** StandardOutputSensitivity (0x8831). */
+  standardOutputSensitivity: number | null;
+  /** RecommendedExposureIndex (0x8832). */
+  recommendedExposureIndex: number | null;
+  /** ISOSpeed (0x8833). */
+  isoSpeed: number | null;
+  /**
+   * The ISO setting: RecommendedExposureIndex, else ISOSpeed, else StandardOutputSensitivity, else PhotographicSensitivity below
+   * 65535 (CIPA DC-004 names the REI as the camera's exposure-index setting); null when none is stated.
+   */
+  iso: number | null;
+  isoSource: "recommended-exposure-index" | "iso-speed" | "standard-output-sensitivity" | "photographic-sensitivity" | null;
+  /** CompositeImage (0xA460): 0 unknown, 1 not a composite, 2 a general composite, 3 a composite captured while shooting. */
+  compositeImage: 0 | 1 | 2 | 3 | null;
+  /** SourceImageNumberOfCompositeImage (0xA461): the source images in all and those used. */
+  compositeSourceImages: { total: number; used: number } | null;
+  subjectArea: ImportedDngSubjectArea | null;
+}
+```
+
+## ImportedDngNoiseProfilePlane
+
+2.24.0: one NoiseProfile (51041) pair per color plane (CFAPlaneColor order for a mosaic, sample order for LinearRaw). The DNG
+specification 1.7.1.0 models the noise of the linear, black-subtracted signal x = (value − black)/(white − black), x in 0..1, as
+white and spatially independent with variance S·x + O; it leaves out fixed-pattern noise. A two-value tag applies to every plane.
+
+```ts
+export interface ImportedDngNoiseProfilePlane { scale: number; offset: number }
+```
+
 ## ImportedDngRaw
 
 The exact contract is declared below; use the domain guide for assumptions and staged integration.
@@ -164,6 +213,20 @@ export interface ImportedDngRaw {
   rgbTables: DngRgbTables | null;
   /** Decoded semantic masks, for `applyDngRgbTables`. */
   semanticMasks: ImportedDngSemanticMask[];
+  /** 2.24.0: NoiseProfile per color plane, or null when absent or malformed. */
+  noiseProfile: ImportedDngNoiseProfilePlane[] | null;
+  /** 2.24.0: the capture settings the file states. */
+  exif: ImportedDngExif;
+  /** 2.24.0: AnalogBalance (50727), one per color plane, or null. */
+  analogBalance: number[] | null;
+  /** 2.24.0: CameraCalibration1/2 (50723/50724), row-major colorPlanes × colorPlanes, or null. */
+  cameraCalibration1: number[] | null;
+  cameraCalibration2: number[] | null;
+  /** 2.24.0: CameraCalibrationSignature (50931) and ProfileCalibrationSignature (50932), or null. */
+  cameraCalibrationSignature: string | null;
+  profileCalibrationSignature: string | null;
+  /** 2.24.0: AsShotWhiteXY (50729), or null. */
+  asShotWhiteXy: { x: number; y: number } | null;
   /** What the import did not do: tags present but not returned or applied, masks not decoded, lossy sources, inferred layouts. */
   assumptions: string[];
 }
@@ -191,6 +254,17 @@ export interface ImportedDngSemanticMask {
   /** Mask values 0..1 (code / (2^bits − 1)), row-major. */
   data: Float32Array;
 }
+```
+
+## ImportedDngSubjectArea
+
+Exif SubjectArea (0x9214, Exif 2.32 §4.6.6): a point, a circle (centre and diameter) or a rectangle (centre, width and height), in stored-image pixels.
+
+```ts
+export type ImportedDngSubjectArea =
+  | { kind: "point"; x: number; y: number }
+  | { kind: "circle"; x: number; y: number; diameter: number }
+  | { kind: "rectangle"; x: number; y: number; width: number; height: number };
 ```
 
 ## parseDngRawImage
