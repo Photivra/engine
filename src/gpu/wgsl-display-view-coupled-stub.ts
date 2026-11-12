@@ -11,8 +11,17 @@ struct CpOut { hm: vec3<f32>, hv: vec3<f32>, a0: vec3<f32>, a1: vec3<f32>, a2: v
 fn cp_on() -> bool { return cp_k(0u) != 0.0; }
 `;
 
+/**
+ * #605: the kernels' default form of the GPU neighbor highlight reconstruction (`wgsl-display-view-neighbors.ts`): no ratios,
+ * every pixel computed in one dispatch.
+ */
+export const DISPLAY_VIEW_NEIGHBORS_STUB_WGSL = /* wgsl */ `
+fn nb_skip(i: u32) -> bool { return false; }
+fn nb_ratio(i: u32, j: u32) -> bool { return true; }
+fn nb_flag() -> u32 { return 0u; }`;
+
 /** The default form: no coupled step (the buffer holds one zero word). */
-export const DISPLAY_VIEW_COUPLED_STUB_WGSL = /* wgsl */ `${DISPLAY_VIEW_COUPLED_DECLARATIONS_WGSL}
+export const DISPLAY_VIEW_COUPLED_STUB_WGSL = DISPLAY_VIEW_NEIGHBORS_STUB_WGSL + /* wgsl */ `${DISPLAY_VIEW_COUPLED_DECLARATIONS_WGSL}
 fn cp_zero() -> CpOut { var t: CpOut; return t; }
 fn cp_luminance() -> bool { return false; }
 fn cp_reconstruct() -> bool { return false; }

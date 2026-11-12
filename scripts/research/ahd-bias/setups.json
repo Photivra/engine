@@ -1,0 +1,452 @@
+[
+ {
+  "id": "phone-18-6400",
+  "label": "1.4 µm, 18 % grey, ISO 6400, f/8",
+  "options": {
+   "scene": {
+    "preset": "uniform",
+    "reflectance": 0.18
+   },
+   "lens": {
+    "fNumber": 8
+   },
+   "exposure": {
+    "iso": 6400,
+    "shutterSeconds": 0.000125
+   },
+   "sensor": {
+    "pixelPitchMicrometers": 1.4
+   },
+   "output": {
+    "width": 400,
+    "height": 300,
+    "demosaic": "ahd"
+   }
+  },
+  "mean": [
+   0.12689093521378156,
+   0.1306994075434016,
+   0.07282338312229833
+  ],
+  "readout": [
+   {
+    "perElectron": 0.01959183673469388,
+    "darkElectrons": 0.000125,
+    "constantVariance": 0.0004644468338917752
+   },
+   {
+    "perElectron": 0.01959183673469388,
+    "darkElectrons": 0.000125,
+    "constantVariance": 0.0004644468338917752
+   },
+   {
+    "perElectron": 0.01959183673469388,
+    "darkElectrons": 0.000125,
+    "constantVariance": 0.0004644468338917752
+   }
+  ],
+  "gains": [
+   1.031087645105505,
+   1,
+   1.7847614204147018
+  ],
+  "clipLevel": 1,
+  "matrix": [
+   [
+    3.080399090679465,
+    -1.537383177570094,
+    -0.5430159131093713
+   ],
+   [
+    -0.9212233588602766,
+    1.8759675015077204,
+    0.04525585735255628
+   ],
+   [
+    0.05287393897036445,
+    -0.2039769588889765,
+    1.1511030199186119
+   ]
+  ],
+  "toneCurve": "identity",
+  "labMatrix": [
+   [
+    1.031087645105505,
+    0,
+    0
+   ],
+   [
+    0,
+    1,
+    0
+   ],
+   [
+    0,
+    0,
+    3.5695228408294035
+   ]
+  ],
+  "nativeWidth": 410,
+  "nativeHeight": 310
+ },
+ {
+  "id": "phone-03-6400",
+  "label": "1.4 µm, 3 % grey, ISO 6400, f/8",
+  "options": {
+   "scene": {
+    "preset": "uniform",
+    "reflectance": 0.03
+   },
+   "lens": {
+    "fNumber": 8
+   },
+   "exposure": {
+    "iso": 6400,
+    "shutterSeconds": 0.000125
+   },
+   "sensor": {
+    "pixelPitchMicrometers": 1.4
+   },
+   "output": {
+    "width": 400,
+    "height": 300,
+    "demosaic": "ahd"
+   }
+  },
+  "mean": [
+   0.02115053001862346,
+   0.021785275406893467,
+   0.012139271336709589
+  ],
+  "readout": [
+   {
+    "perElectron": 0.01959183673469388,
+    "darkElectrons": 0.000125,
+    "constantVariance": 0.0004644468338917752
+   },
+   {
+    "perElectron": 0.01959183673469388,
+    "darkElectrons": 0.000125,
+    "constantVariance": 0.0004644468338917752
+   },
+   {
+    "perElectron": 0.01959183673469388,
+    "darkElectrons": 0.000125,
+    "constantVariance": 0.0004644468338917752
+   }
+  ],
+  "gains": [
+   1.031087645105505,
+   1,
+   1.7847614204147018
+  ],
+  "clipLevel": 1,
+  "matrix": [
+   [
+    3.080399090679465,
+    -1.537383177570094,
+    -0.5430159131093713
+   ],
+   [
+    -0.9212233588602766,
+    1.8759675015077204,
+    0.04525585735255628
+   ],
+   [
+    0.05287393897036445,
+    -0.2039769588889765,
+    1.1511030199186119
+   ]
+  ],
+  "toneCurve": "identity",
+  "labMatrix": [
+   [
+    1.031087645105505,
+    0,
+    0
+   ],
+   [
+    0,
+    1,
+    0
+   ],
+   [
+    0,
+    0,
+    3.5695228408294035
+   ]
+  ],
+  "nativeWidth": 410,
+  "nativeHeight": 310
+ },
+ {
+  "id": "ff-18-6400",
+  "label": "6 µm, 18 % grey, ISO 6400, f/8",
+  "options": {
+   "scene": {
+    "preset": "uniform",
+    "reflectance": 0.18
+   },
+   "lens": {
+    "fNumber": 8
+   },
+   "exposure": {
+    "iso": 6400,
+    "shutterSeconds": 0.000125
+   },
+   "sensor": {
+    "pixelPitchMicrometers": 6
+   },
+   "output": {
+    "width": 600,
+    "height": 400,
+    "demosaic": "ahd"
+   }
+  },
+  "mean": [
+   0.12688861956752304,
+   0.1306970918971431,
+   0.07282106747603984
+  ],
+  "readout": [
+   {
+    "perElectron": 0.0010666666666666667,
+    "darkElectrons": 0.000125,
+    "constantVariance": 0.0000013770643698166216
+   },
+   {
+    "perElectron": 0.0010666666666666667,
+    "darkElectrons": 0.000125,
+    "constantVariance": 0.0000013770643698166216
+   },
+   {
+    "perElectron": 0.0010666666666666667,
+    "darkElectrons": 0.000125,
+    "constantVariance": 0.0000013770643698166216
+   }
+  ],
+  "gains": [
+   1.031087645105505,
+   1,
+   1.7847614204147018
+  ],
+  "clipLevel": 1,
+  "matrix": [
+   [
+    3.080399090679465,
+    -1.537383177570094,
+    -0.5430159131093713
+   ],
+   [
+    -0.9212233588602766,
+    1.8759675015077204,
+    0.04525585735255628
+   ],
+   [
+    0.05287393897036445,
+    -0.2039769588889765,
+    1.1511030199186119
+   ]
+  ],
+  "toneCurve": "identity",
+  "labMatrix": [
+   [
+    1.031087645105505,
+    0,
+    0
+   ],
+   [
+    0,
+    1,
+    0
+   ],
+   [
+    0,
+    0,
+    3.5695228408294035
+   ]
+  ],
+  "nativeWidth": 610,
+  "nativeHeight": 410
+ },
+ {
+  "id": "ff-03-6400",
+  "label": "6 µm, 3 % grey, ISO 6400, f/8",
+  "options": {
+   "scene": {
+    "preset": "uniform",
+    "reflectance": 0.03
+   },
+   "lens": {
+    "fNumber": 8
+   },
+   "exposure": {
+    "iso": 6400,
+    "shutterSeconds": 0.000125
+   },
+   "sensor": {
+    "pixelPitchMicrometers": 6
+   },
+   "output": {
+    "width": 600,
+    "height": 400,
+    "demosaic": "ahd"
+   }
+  },
+  "mean": [
+   0.021148214372364953,
+   0.021782959760634955,
+   0.012136955690451087
+  ],
+  "readout": [
+   {
+    "perElectron": 0.0010666666666666667,
+    "darkElectrons": 0.000125,
+    "constantVariance": 0.0000013770643698166216
+   },
+   {
+    "perElectron": 0.0010666666666666667,
+    "darkElectrons": 0.000125,
+    "constantVariance": 0.0000013770643698166216
+   },
+   {
+    "perElectron": 0.0010666666666666667,
+    "darkElectrons": 0.000125,
+    "constantVariance": 0.0000013770643698166216
+   }
+  ],
+  "gains": [
+   1.031087645105505,
+   1,
+   1.7847614204147018
+  ],
+  "clipLevel": 1,
+  "matrix": [
+   [
+    3.080399090679465,
+    -1.537383177570094,
+    -0.5430159131093713
+   ],
+   [
+    -0.9212233588602766,
+    1.8759675015077204,
+    0.04525585735255628
+   ],
+   [
+    0.05287393897036445,
+    -0.2039769588889765,
+    1.1511030199186119
+   ]
+  ],
+  "toneCurve": "identity",
+  "labMatrix": [
+   [
+    1.031087645105505,
+    0,
+    0
+   ],
+   [
+    0,
+    1,
+    0
+   ],
+   [
+    0,
+    0,
+    3.5695228408294035
+   ]
+  ],
+  "nativeWidth": 610,
+  "nativeHeight": 410
+ },
+ {
+  "id": "ff-18-400",
+  "label": "6 µm, 18 % grey, ISO 400, f/8",
+  "options": {
+   "scene": {
+    "preset": "uniform",
+    "reflectance": 0.18
+   },
+   "lens": {
+    "fNumber": 8
+   },
+   "exposure": {
+    "iso": 400,
+    "shutterSeconds": 0.002
+   },
+   "sensor": {
+    "pixelPitchMicrometers": 6
+   },
+   "output": {
+    "width": 600,
+    "height": 400,
+    "demosaic": "ahd"
+   }
+  },
+  "mean": [
+   0.12688861956752304,
+   0.1306970918971431,
+   0.07282106747603984
+  ],
+  "readout": [
+   {
+    "perElectron": 0.00006666666666666667,
+    "darkElectrons": 0.002,
+    "constantVariance": 1.8131036483287847e-8
+   },
+   {
+    "perElectron": 0.00006666666666666667,
+    "darkElectrons": 0.002,
+    "constantVariance": 1.8131036483287847e-8
+   },
+   {
+    "perElectron": 0.00006666666666666667,
+    "darkElectrons": 0.002,
+    "constantVariance": 1.8131036483287847e-8
+   }
+  ],
+  "gains": [
+   1.031087645105505,
+   1,
+   1.7847614204147018
+  ],
+  "clipLevel": 1,
+  "matrix": [
+   [
+    3.080399090679465,
+    -1.537383177570094,
+    -0.5430159131093713
+   ],
+   [
+    -0.9212233588602766,
+    1.8759675015077204,
+    0.04525585735255628
+   ],
+   [
+    0.05287393897036445,
+    -0.2039769588889765,
+    1.1511030199186119
+   ]
+  ],
+  "toneCurve": "identity",
+  "labMatrix": [
+   [
+    1.031087645105505,
+    0,
+    0
+   ],
+   [
+    0,
+    1,
+    0
+   ],
+   [
+    0,
+    0,
+    3.5695228408294035
+   ]
+  ],
+  "nativeWidth": 610,
+  "nativeHeight": 410
+ }
+]

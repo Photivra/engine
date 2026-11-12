@@ -291,7 +291,7 @@ fn site_electrons(x: i32, y: i32, c: u32) -> f32 {
 @compute @workgroup_size(${DISPLAY_VIEW_WORKGROUP_SIZE})
 fn main(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_workgroups) groups: vec3<u32>) {
   let i = gid.x + gid.y * groups.x * ${DISPLAY_VIEW_WORKGROUP_SIZE}u;
-  if (i >= params.count) { return; }
+  if (i >= params.count || nb_skip(i)) { return; }
   material_uncertain = false;
   let rx = i % params.region_w;
   let ry = params.row0 + i / params.region_w;
@@ -463,7 +463,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_workgroups) 
             if (hm[comp] > 0.0 && hm[comp] - 2.0 * hbm[comp] * E < 0.999 && abs(top - 0.999) <= 2.0 * (hbm[comp] * E + CLIP_REACH * min(sqrt(hbv[comp] * E), hbv[comp] * E / (2.0 * sqrt(hv[comp])))) + 64.0 * E) { material_uncertain = true; }
           }
         }
-        if (cp_chain_run) {
+        if (cp_chain_run && nb_ratio(i, j * nx + ii)) {
           let dcm = vec3<f32>(CLIP_MEAN_U * cb[0], CLIP_MEAN_U * cb[1], CLIP_MEAN_U * cb[2]) * E;
           let dcv = vec3<f32>(CLIP_VARIANCE_U * cb[0] * cb[0], CLIP_VARIANCE_U * cb[1] * cb[1], CLIP_VARIANCE_U * cb[2] * cb[2]) * E;
           let t = cp_chain(vec3<f32>(cm[0], cm[1], cm[2]), cvv[0], 0.0, 0.0, cvv[1], 0.0, cvv[2], dcm, dcv);
@@ -504,7 +504,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_workgroups) 
   out[o + 3u] = c00 + r0; out[o + 4u] = c11 + r1; out[o + 5u] = c22 + r2;
   out[o + 6u] = c01; out[o + 7u] = c02; out[o + 8u] = c12;
   out[o + 9u] = bound_mean * E; out[o + 10u] = bound_var * E;
-  flags[3u * i] = select(0u, 1u, material_uncertain) | select(0u, 2u, undecided);
+  flags[3u * i] = select(0u, 1u, material_uncertain) | select(0u, 2u, undecided) | nb_flag();
   flags[3u * i + 1u] = mask0;
   flags[3u * i + 2u] = mask1;
 }

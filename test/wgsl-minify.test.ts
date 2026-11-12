@@ -75,7 +75,8 @@ describe("WGSL minification (#536)", () => {
     // 2.21.0: + the display view's integer sum (src/gpu/wgsl-exact-sum.ts) and #581's two (the image-plane module and the scene-value adapter).
     // 2.22.0: + #597's mixed light in the image-plane Quality pass, and #593/#601's coupled steps (their shared declarations, the
     // stub and the on-demand module; the Quality pixel pass is now its body plus one of them, so it stays one literal).
-    expect(literals).toBe(28);
+    // 2.23.0: + #605's neighbor reconstruction (the kernels' stub, and the on-demand module's shared, off and full forms).
+    expect(literals).toBe(32);
     expect(after).toBeLessThan(0.86 * before);
   });
 

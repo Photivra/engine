@@ -206,7 +206,6 @@ export function displayViewQualityGpuUnsupportedReason(setup: DisplayViewSetup, 
   if (!signalInput.kernels && !signalInput.queryPoint) return "the expected signal has no query points";
   if (!["identity", "positive-reinhard-per-channel", "extended-reinhard-luminance", "naka-rushton-luminance"].includes(setup.toneCurve)) return "unsupported tone curve " + String(setup.toneCurve);
   if (setup.rendering && !setup.coupled) return "the coupled rendering steps were not prepared";
-  if (setup.rendering?.highlightMode === "reconstruct-neighbors") return "highlightMode reconstruct-neighbors (#602; its regions' ratios are found on the host) is not on the GPU in 2.22.0";
   if (setup.region.width < 1 || setup.region.height < 1) return "an empty region";
   if (signalInput.wavelengthsNm.length < 1 || signalInput.wavelengthsNm.length > DISPLAY_VIEW_QUALITY_MAXIMUM_NODES) return "the site passes integrate 1 to " + DISPLAY_VIEW_QUALITY_MAXIMUM_NODES + " spectral nodes per site";
   if (signalInput.kernels && (signalInput.kernels.radius < 0 || signalInput.kernels.radius > DISPLAY_VIEW_QUALITY_MAXIMUM_KERNEL_RADIUS))
@@ -498,7 +497,9 @@ export async function renderDisplayViewQualityOnGpu(runtime: WebGpuRuntime, band
   // #593, #601: the coupled steps' text and constants, loaded on demand for a view that asks for them.
   const coupled = setup.rendering ? await import("./wgsl-display-view-coupled.js") : null;
   const coupledConstants = coupled ? coupled.displayViewCoupledConstants(setup, SDR_LUMINANCE_WEIGHTS, gaussLegendre16()) : new Float32Array(1);
-  const pixelsPipeline = coupled ? await pipelines("photivra-display-view-quality-pixels+coupled", assembleDisplayViewQualityPixelsWgsl(coupled.DISPLAY_VIEW_COUPLED_WGSL))
+  // #605: the neighbor reconstruction's ratios from the host, in a second dispatch per band (wgsl-display-view-neighbors.ts).
+  const neighbors = setup.coupled?.neighbors && coupled;
+  const pixelsPipeline = coupled ? await pipelines("photivra-display-view-quality-pixels+coupled" + (neighbors ? "+neighbors" : ""), assembleDisplayViewQualityPixelsWgsl(coupled.displayViewCoupledWgsl(!!neighbors)))
     : await pipelines("photivra-display-view-quality-pixels", DISPLAY_VIEW_QUALITY_PIXELS_WGSL);
   const moments = new Float32Array(pixelCount * DISPLAY_VIEW_QUALITY_OUTPUT_FLOATS), pixelFlags = new Uint32Array(pixelCount), masks = new Uint32Array(2 * pixelCount);
   let latticePointsResolved = 0;
@@ -585,22 +586,26 @@ export async function renderDisplayViewQualityOnGpu(runtime: WebGpuRuntime, band
         // Pass 3: display pixels.
         words[0] = count;
         const out = band.buffer("photivra-display-view-moments", count * 4 * DISPLAY_VIEW_QUALITY_OUTPUT_FLOATS, BUFFER_USAGE.STORAGE | BUFFER_USAGE.COPY_SRC);
-        const flagBuffer = band.buffer("photivra-display-view-flags", count * 4 * DISPLAY_VIEW_QUALITY_FLAG_WORDS, BUFFER_USAGE.STORAGE | BUFFER_USAGE.COPY_SRC);
         checkAbort(abort.signal);
         t0 = now();
-        const pass = new GpuResourceScope(runtime);
-        let data: ArrayBuffer, flagData: ArrayBuffer;
-        try {
-          const pixelParams = pass.upload("photivra-display-view-params-pixels", new Uint8Array(params.slice(0)), BUFFER_USAGE.UNIFORM);
-          const pixelGroup = runtime.device.createBindGroup({ layout: pixelsPipeline.getBindGroupLayout(0), entries: [
-            { binding: 0, resource: { buffer: pixelParams } }, { binding: 1, resource: { buffer: auxBuffer } }, { binding: 2, resource: { buffer: geometryBuffer } },
-            { binding: 3, resource: { buffer: siteBuffer } }, { binding: 4, resource: { buffer: out } }, { binding: 5, resource: { buffer: flagBuffer } }] });
-          [data, flagData] = await runComputePass(runtime, pass, pixelsPipeline, pixelGroup, linearDispatch(count, DISPLAY_VIEW_QUALITY_WORKGROUP_SIZE, runtime.maximumWorkgroupsPerDimension),
-            [{ buffer: out, bytes: count * 4 * DISPLAY_VIEW_QUALITY_OUTPUT_FLOATS }, { buffer: flagBuffer, bytes: count * 4 * DISPLAY_VIEW_QUALITY_FLAG_WORDS }], abort.signal) as [ArrayBuffer, ArrayBuffer];
-        } finally { pass.release(); }
+        let data: ArrayBuffer | undefined;
+        const run = async (contents = new Uint32Array(count * DISPLAY_VIEW_QUALITY_FLAG_WORDS)): Promise<Uint32Array> => {
+          const pass = new GpuResourceScope(runtime);
+          try {
+            const flagBuffer = pass.upload("photivra-display-view-flags", contents, BUFFER_USAGE.STORAGE | BUFFER_USAGE.COPY_SRC);
+            const pixelParams = pass.upload("photivra-display-view-params-pixels", new Uint8Array(params.slice(0)), BUFFER_USAGE.UNIFORM);
+            const pixelGroup = runtime.device.createBindGroup({ layout: pixelsPipeline.getBindGroupLayout(0), entries: [
+              { binding: 0, resource: { buffer: pixelParams } }, { binding: 1, resource: { buffer: auxBuffer } }, { binding: 2, resource: { buffer: geometryBuffer } },
+              { binding: 3, resource: { buffer: siteBuffer } }, { binding: 4, resource: { buffer: out } }, { binding: 5, resource: { buffer: flagBuffer } }] });
+            const [moment, flagData] = await runComputePass(runtime, pass, pixelsPipeline, pixelGroup, linearDispatch(count, DISPLAY_VIEW_QUALITY_WORKGROUP_SIZE, runtime.maximumWorkgroupsPerDimension),
+              [{ buffer: out, bytes: count * 4 * DISPLAY_VIEW_QUALITY_OUTPUT_FLOATS }, { buffer: flagBuffer, bytes: count * 4 * DISPLAY_VIEW_QUALITY_FLAG_WORDS }], abort.signal) as [ArrayBuffer, ArrayBuffer];
+            data = moment;
+            return new Uint32Array(flagData, 0, count * DISPLAY_VIEW_QUALITY_FLAG_WORDS);
+          } finally { pass.release(); }
+        };
+        const flagWords = neighbors ? await neighbors.dispatchWithNeighborRatios(setup, geometry, first, count, runtime.maximumStorageBindingBytes, run) : await run();
         timings.pixels += now() - t0;
-        const flagWords = new Uint32Array(flagData, 0, count * DISPLAY_VIEW_QUALITY_FLAG_WORDS);
-        moments.set(new Float32Array(data, 0, count * DISPLAY_VIEW_QUALITY_OUTPUT_FLOATS), first * DISPLAY_VIEW_QUALITY_OUTPUT_FLOATS);
+        moments.set(new Float32Array(data!, 0, count * DISPLAY_VIEW_QUALITY_OUTPUT_FLOATS), first * DISPLAY_VIEW_QUALITY_OUTPUT_FLOATS);
         for (let i = 0; i < count; i++) {
           pixelFlags[first + i] = flagWords[DISPLAY_VIEW_QUALITY_FLAG_WORDS * i]!;
           masks[2 * (first + i)] = flagWords[DISPLAY_VIEW_QUALITY_FLAG_WORDS * i + 1]!; masks[2 * (first + i) + 1] = flagWords[DISPLAY_VIEW_QUALITY_FLAG_WORDS * i + 2]!;

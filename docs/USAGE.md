@@ -3334,7 +3334,8 @@ void develop;
   for `naka-rushton-luminance` (18 % gray stays at 0.18; the engine's own looks, not a camera maker's).
 - `simulateCapture`'s `output.highlightMode: "reconstruct-neighbors"` (#602, 2.22.0; opt-in, an estimate) rebuilds clipped
   channels from the color ratios around each clipped region: the ring's mean ratios with `fast` (the sRGB default), their harmonic
-  interpolation inward for exports and `fast: false`. Whole-image, so not with `output.region`; the display view renders it on the CPU.
+  interpolation inward for exports and `fast: false`. Whole-image, so not with `output.region`; the display view renders it on the CPU and (since 2.23.0, #605) in its
+  WebGPU Speed and Quality kernels, fast and full.
 - `createPhotographicExportPair(input, { signal })` accepts an optional `AbortSignal`.
 
 ## Capture-mode profiles

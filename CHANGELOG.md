@@ -1,6 +1,38 @@
 # Changelog
 
-## 2.22.0 — unreleased (prepared November 11, 2026)
+## 2.23.0 — unreleased (prepared November 12, 2026)
+
+A minor release: neighbor highlight reconstruction on the WebGPU display view (#605), with the CPU region order and the full method's relaxation factor it needed, and the #604 research report. See the [2.23.0 release record](https://github.com/Photivra/photivra/blob/main/docs/RELEASE_2_23_0.md).
+
+- **GPU:** `output.highlightMode: "reconstruct-neighbors"` (#602) runs in the WebGPU display view's Speed and Quality kernels, fast
+  (ring average) and full (harmonic fill), instead of falling back to the CPU (#605). The host finds each clipped region's ratios with
+  the reference's own code and uploads them in the band's flag buffer (no binding is added); the kernels rebuild each clipped
+  channel inside the coupled chain in float32, within documented first-order bounds (docs/WEBGPU.md, "Neighbor highlight
+  reconstruction (#605)"). Registered in the fast-methods registry (`output.highlightMode.reconstruct-neighbors/region-ratios`).
+- **Display view (CPU):** a clipped region's members are taken in raster order, so its ratios no longer depend on which pixel
+  reached the region first; a region render, the GPU host and the whole view agree bit for bit (#605). A region above the search
+  cap (65,536 pixels fast, 262,144 full) is solved per tile of 256 × 256 or 512 × 512 pixels (2.22.0 took the part found from the
+  first pixel that reached it, which depended on the render's order).
+- **Full method's SOR (captures and the display view):** the relaxation factor is the optimal ω of each region's bounding
+  rectangle (`neighborHighlightOmega`) instead of 1.8, at the same 10⁻⁹ tolerance: 3.2–4.9× faster on 68–132 px regions and
+  35–76× closer to the converged fill (`test/neighbor-highlight-sor.test.ts`). Full-method results change below the old
+  tolerance's error (at most 2 × 10⁻⁷ in a ratio on the measured regions).
+- **Size measurement:** `test/capture-bundle.test.ts` bundles the shader literals minified, as the published package ships them
+  (`npm run build` strips WGSL comments and indentation; owner decision 2026-11-11), for every row. On 2.22.0's tree that reads
+  fast worker 333,241 B and on demand 43,456 B (the source text: 337,413 B and 46,977 B); with #605, 333,322 B (+81) and
+  45,110 B (+1,654: the GPU coupled and neighbor chunk +1,288, the CPU Quality kit +314, the GPU Quality chunk +52). No limit changed.
+- **Research (#604, not shipped):** [docs/research/ahd-bias-correction.md](https://github.com/Photivra/photivra/blob/main/docs/research/ahd-bias-correction.md) measures per-site
+  estimators of the display view's AHD low-signal bias, computed at use with no table keyed by channel signal levels. None
+  is fast enough for the CPU view (10–20 ms per site); #604 is closed and 2.22.0's labeled approximation stays. The prototype is
+  in `scripts/research/ahd-bias/`, outside the package.
+- **Root exports:** none added or removed (1,981; runtime exports 672).
+- **CI capacity (owner decision 2026-11-12):** the Node test legs run in three parts (two before) and coverage in ten shards
+  (eight before) in `ci.yml` and `publish.yml`, and the SwiftShader WebGPU suite in three jobs (two before; the
+  real-GPU Quality full case in four bands of the view); #605's emulation tests are split into ten files by case, the Quality cases and the banding
+  check into bands of rows that check the same pixels, with a 900 s per-test deadline for the Quality bands. No test was removed and no job
+  time limit was raised (docs/RELEASE_2_23_0.md, "Local gates").
+
+## 2.22.0 — published November 12, 2026
 
 A minor release: phone DNG import with JPEG XL and lossy JPEG raw data, the DNG stage image and opcodes (#598, #600) and the channel-response helper (#591); native-photosite sensor figures (#595), read noise per photosite on the tiers (#599), mixed lighting over an image-plane print (#597), sample counts that follow the light and the output (#590) and the catalogue's fast grid (#603); the display view's luminance tone curves, highlight reconstruction and desaturation on the CPU and GPU (#593, #601, #602); the removal of the display view's AHD low-signal correction; Content Credentials writers (#165, engine half); and the full-quality and opt-in code loaded on demand (#594). See the [2.22.0 release record](https://github.com/Photivra/photivra/blob/main/docs/RELEASE_2_22_0.md).
 

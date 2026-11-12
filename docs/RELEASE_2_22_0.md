@@ -1,6 +1,6 @@
 # 2.22.0 release
 
-> **Prepared November 11, 2026; not published.** npm publishing runs only from the owner's `v2.22.0` tag ([Release gates](#release-gates)).
+> **Published November 12, 2026 (03:58 UTC).** The `v2.22.0` tag is on `4cb24a6` (#606), after `main` CI on that commit had passed; npm publishing ran from the tag ([Publication](#publication)).
 
 ## At a glance
 
@@ -87,8 +87,8 @@ On the integrated tree (Apple M5 Pro, Node.js 24.19.0), one run each:
 
 - **Phone sample DNGs (#598):** the import is verified on synthetic fixtures (lossless 8–16-bit tiles round-trip bit-exactly; the lossy JPEG decoder is within one code of synthetic baseline streams at quantization step 1). The owner's iPhone ProRAW samples (lossless JPEG, JPEG XL lossless and lossy) have not been provided yet; per the owner's decision (2026-11-11) the release ships and the import is verified against them when they arrive, with a patch release if needed.
 - **External C2PA validation (#165):** signed files have not been checked with the C2PA reference validator (the engine signs nothing; no validator was available offline). The writers follow C2PA 2.4 and match the reference SDK's segment and chunk placement.
-- **#602 on the GPU (#605):** `highlightMode: "reconstruct-neighbors"` is refused on the GPU (`unsupported-on-backend`) and runs on the CPU.
-- **A table-free AHD low-signal correction (#604):** research for a correction that integrates per site without a precomputed table.
+- **#602 on the GPU (#605):** `highlightMode: "reconstruct-neighbors"` is refused on the GPU (`unsupported-on-backend`) and runs on the CPU. Prepared for 2.23.0 ([2.23.0 release record](RELEASE_2_23_0.md)).
+- **A table-free AHD low-signal correction (#604):** research for a correction that integrates per site without a precomputed table. Researched ([report](https://github.com/Photivra/photivra/blob/main/docs/research/ahd-bias-correction.md)); #604 is closed and the labeled approximation stays.
 
 ## Release gates
 
@@ -104,14 +104,25 @@ On the integrated tree (Apple M5 Pro, Node.js 24.19.0), one run each:
 - [x] CI capacity (owner decisions, 2026-11-12): coverage as eight shards in `ci.yml` and `publish.yml` (six in 2.21.0; the coverage gate merges every shard and enforces the thresholds on the whole suite), the SwiftShader WebGPU suite as two parallel jobs (`webgpu conformance (SwiftShader, 1/2)` and `(2/2)`; `test/webgpu/display-view-quality.webgpu.ts`, split from `display-view.webgpu.ts`, is part 2), and the slowest test files split with the same tests (`display-view-quality-gpu-cases`, `display-view-coupled-gpu-reconstruct`, `display-view-defocus-gpu-extra`). With six shards one or two reached the 20-minute limit on each run, and the single WebGPU job reached its 45-minute limit. The SwiftShader full-rules Quality case (reconstruct and desaturation with the 16-point rule) renders a band of 27 whole rows of its view, every step of the wedge, instead of the whole view: its CPU reference took 433 s locally and passed the suite's 600-second test limit on CI; every check of the case is kept. No job time limit was raised and no test was removed.
 - [x] The worker rows settled by the owner's #594 definition ([Sizes](#sizes)); no limit raised.
 - [x] `test/shard-weights.json` re-estimated from this pull request's first CI run (run 43104711989): shards 1, 2, 3 and 5's CI times; shards 4 and 6 reached the 20-minute job limit (the parts' new display-view files had no recorded time, so they weighed the median), and their 133 files take this tree's local coverage time × 1.647, the median CI/local ratio. The second run (43111049236) still had one shard at the limit, so the weights were re-recorded from its five finished shards (330 files), the first run (40) and the scaled local time (26). The longest single file, `test/display-view-quality-gpu.test.ts`, measured 1,114 s on CI, close to the 20-minute job limit on its own. No test was removed and no job limit was raised.
-- [ ] Green CI on this pull request, then on `main` after merge.
-- [ ] The owner's approval to tag `v2.22.0`.
-- [ ] The `v2.22.0` tag on the `main` commit that merges this record.
-- [ ] After publication:
-  - [ ] npm version, dist-tag, integrity and provenance verified;
-  - [ ] GitHub release notes published;
-  - [ ] publication dates updated in `CHANGELOG.md`, `README.md`, `SECURITY.md`, `docs/DEVELOPERS.md` and this record.
+- [x] Green CI on this pull request ([CI run 43145556783](https://github.com/Photivra/photivra/actions/runs/43145556783) on `21e5ee1`), then on `main` after merge ([CI run 43150590642](https://github.com/Photivra/photivra/actions/runs/43150590642) on `4cb24a6`).
+- [x] The owner's approval to tag `v2.22.0`.
+- [x] The `v2.22.0` tag on the `main` commit that merges this record (`4cb24a6`).
+- [x] After publication:
+  - [x] npm version, dist-tag, integrity and provenance verified ([Publication](#publication));
+  - [x] GitHub release notes published ([`v2.22.0`](https://github.com/Photivra/photivra/releases/tag/v2.22.0), 03:56 UTC);
+  - [x] publication dates updated in `CHANGELOG.md`, `README.md`, `SECURITY.md`, `docs/DEVELOPERS.md` and this record (with the 2.23.0 preparation).
 - [ ] After the samples arrive: #598 verified against the owner's phone DNGs.
+
+## Publication
+
+| Fact | Value |
+| --- | --- |
+| Tag | `v2.22.0` (annotated, `423b64f`) → `4cb24a6be29d6b7b715600f3d5e2be881338fbfd` (#606, squash merge), after `main` CI on that commit passed ([CI run 43150590642](https://github.com/Photivra/photivra/actions/runs/43150590642); WebGPU [43150590632](https://github.com/Photivra/photivra/actions/runs/43150590632), native performance [43150590605](https://github.com/Photivra/photivra/actions/runs/43150590605)) |
+| Publish workflow | [Publish npm run 43151007553](https://github.com/Photivra/photivra/actions/runs/43151007553): passed 03:51:56–03:54:14 UTC |
+| npm | `@photivra/engine@2.22.0`, dist-tag `latest`, registry time 03:58:21 UTC, November 12, 2026 |
+| Integrity | `sha512-hWP56WwfdR5FyxmxakGENC4SS/LubriKCv6Ku8sQg6b7faFRbK4GRzGwCQu7vlY6lWxicNND7NX9PGQfb0Ny6g==` (shasum `b285b95abe7cc11c5fe4abfff97fec2e10a29ece`, 1,134 files) |
+| Provenance | The registry lists an attestation (SLSA v1) for 2.22.0 |
+| GitHub release | [`v2.22.0`](https://github.com/Photivra/photivra/releases/tag/v2.22.0), published 03:56:24 UTC |
 
 ## For the owner
 

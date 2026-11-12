@@ -6,6 +6,14 @@ import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { rolldown } from "rolldown";
 import { scaledTimeout as testTimeout } from "./helpers/test-timeout.js";
+import { wgslMinifyPlugin } from "../scripts/lib/wgsl-minify.mjs";
+
+/**
+ * 2.23.0 (#605, owner decision 2026-11-11): every row measures what ships. The published package carries its WGSL without
+ * comments or indentation (`npm run build`, scripts/minify-wgsl-dist.mjs), so the bundles here run the same minifier over the
+ * `/* wgsl *\/` literals (the plugin the Vitest configs use). PHOTIVRA_WGSL_MINIFY=0 measures the source text instead.
+ */
+const MINIFY = process.env.PHOTIVRA_WGSL_MINIFY !== "0";
 
 /*
  * 2.22.0 (#594): with the on-demand kits the bundler moves modules that the entry shares with a kit into small chunks the entry
@@ -36,7 +44,7 @@ async function bundle(names: string[]): Promise<Bundle> {
   try {
     const entry = join(dir, "entry.mjs");
     writeFileSync(entry, `import { ${names.join(", ")} } from ${JSON.stringify(resolve("src/index.ts"))};\nglobalThis.keep = [${names.join(", ")}];\n`);
-    const build = await rolldown({ input: entry, logLevel: "silent", resolve: { extensionAlias: { ".js": [".ts", ".js"] } } });
+    const build = await rolldown({ input: entry, logLevel: "silent", resolve: { extensionAlias: { ".js": [".ts", ".js"] } }, plugins: [MINIFY ? wgslMinifyPlugin() : null] });
     const { output } = await build.generate({ format: "esm", minify: true });
     await build.close();
     const result: Bundle = { modules: new Map(), lazyModules: new Set(), minified: 0, gzip: 0, totalGzip: 0, chunks: [] };
@@ -154,6 +162,12 @@ describe("display-view bundles", () => {
 // 19,401 B, CPU Quality kit 18,249 B, GPU coupled steps 5,159 B, opt-in kit 4,168 B), 384,390 B in all. The fast worker's
 // first load is now the entry chunk (252,371 B) and ten small chunks it imports statically, which it shares with the kits. Each limit is its row's
 // measurement rounded up to the next 100 B (owner answer 2, 2026-11-10).
+// 2.23.0 (#605, owner decision 2026-11-11): every row is measured on the shader literals minified as they ship (MINIFY, above).
+// On 2.22.0's tree (origin/release-2.22.0 at 49625146) that reads fast worker 333,241 B and on demand 43,456 B (GPU Quality
+// 16,462 B, CPU Quality kit 18,249 B, GPU coupled steps 4,577 B, opt-in kit 4,168 B), against 337,413 B and 46,977 B on the source
+// text. With #605's GPU neighbor reconstruction: fast worker 333,322 B (+81), on demand 45,110 B (+1,654: GPU Quality 16,514 B,
+// CPU Quality kit 18,563 B, GPU coupled steps with the neighbor code 5,865 B, opt-in kit 4,168 B). Both are within their limits,
+// which are unchanged (the owner's rule: an on-demand row over its limit takes its measurement rounded up to the next 100 B).
 const WORKER_SHAPE = ["NATIVE_RAW_LIMITS", "prepareDisplayView", "serializeSimulatedCaptureDngFromParts", "simulateCapture", "simulateIdealReference"];
 /** The modules whose chunks load only at the first request that needs them (#594): the GPU Quality host, the GPU coupled steps and the two CPU kits. */
 const QUALITY_ON_DEMAND_MODULES = ["gpu/display-view-quality-gpu.ts", "gpu/wgsl-display-view-quality-kernel.ts", "gpu/wgsl-display-view-coupled.ts",

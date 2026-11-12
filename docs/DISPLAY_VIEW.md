@@ -705,16 +705,19 @@ every channel's mean within 0.5–0.6 codes plus three standard errors, fast and
 **Highlight reconstruction from neighbors (#602).** `highlightMode: "reconstruct-neighbors"` rebuilds clipped channels from the
 color ratios around each clipped region (src/color/neighbor-highlight-reconstruction.ts): pixels within 2 of a clipped pixel
 (whose demosaic reads clipped sites) are widened into the region; the region takes the mean ratios of the unclipped pixels within
-2 more pixels (fast) or their harmonic interpolation inward (full, successive over-relaxation). The view finds each clipped region
+2 more pixels (fast) or their harmonic interpolation inward (full, successive over-relaxation; since 2.23.0 with the optimal
+relaxation factor of the region's bounding rectangle, `neighborHighlightOmega`). The view finds each clipped region
 on demand from the render's noise-free channels (the expected sites through the bilinear kernels) and integrates each real
 pixel's rebuild over its normal channels with the 3-D rule above. Measured against the downsized capture of an over-exposed
 color chart (24 × 16 views of 192 × 128): channel means within 0.03 codes; per display pixel within 2.1 codes fast (the clip
 mode's own 2.1, the capture's noise) and 4.4 full (the capture's noisy boundary values against the view's noise-free ones). A
-region larger than 65,536 (fast) or 262,144 (full) pixels takes its ratios from the part searched (counted, not otherwise
-signalled).
+region larger than 65,536 (fast) or 262,144 (full) pixels is solved per tile of 256 × 256 or 512 × 512 pixels (since 2.23.0,
+#605: its part in each tile, with the members in raster order, so the result does not depend on where a render first reaches
+the region; 2.22.0 took the part its search from that pixel found).
 
 **GPU.** The Speed and Quality kernels run the luminance tone curves, `reconstruct` and the desaturation, with the fast and the
-full rules ([WEBGPU.md](WEBGPU.md#coupled-rendering-steps-593-601)). `reconstruct-neighbors` runs on the CPU reference in 2.22.0.
+full rules ([WEBGPU.md](WEBGPU.md#coupled-rendering-steps-593-601)). Since 2.23.0 (#605) they run `reconstruct-neighbors` too, fast
+and full, with the regions' ratios found on the host by the reference's own code ([WEBGPU.md](WEBGPU.md#neighbor-highlight-reconstruction-605)).
 
 ## Drawing the noise near a bound
 

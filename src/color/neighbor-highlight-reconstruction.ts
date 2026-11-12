@@ -30,8 +30,23 @@ export const NEIGHBOR_HIGHLIGHT_THRESHOLD = 0.98;
 export const NEIGHBOR_HIGHLIGHT_MARGIN = 2;
 /** The fast method's ring width in pixels around a (widened) clipped region. */
 export const NEIGHBOR_HIGHLIGHT_RING = 2;
-/** The full method's relaxation factor, tolerance and iteration cap. */
-export const NEIGHBOR_HIGHLIGHT_SOR = /* @__PURE__ */ Object.freeze({ omega: 1.8, tolerance: 1e-9, maximumIterations: 20000 });
+/** The full method's tolerance (the largest change of a sweep) and iteration cap; the relaxation factor is `neighborHighlightOmega`. */
+export const NEIGHBOR_HIGHLIGHT_SOR = /* @__PURE__ */ Object.freeze({ tolerance: 1e-9, maximumIterations: 20000 });
+
+/**
+ * #605 (2.23.0): the relaxation factor for a region whose members span a × b pixels: the optimal ω = 2/(1 + √(1 − ρ²)) of SOR
+ * for the discrete Laplace equation on the a × b rectangle, whose Jacobi iteration has spectral radius
+ * ρ = (cos(π/(a + 1)) + cos(π/(b + 1)))/2 (Young's theory of successive over-relaxation; e.g. G. Strang, MIT OpenCourseWare
+ * 18.086, and R. J. LeVeque, "Finite Difference Methods for Ordinary and Partial Differential Equations", SIAM 2007, §4.2).
+ * A region inside the rectangle has a Jacobi radius at most that of the rectangle, so this ω is at or above its optimum (where
+ * SOR converges at the rate ω − 1). The system (each member's neighbor count times its ratio minus its neighbors') is
+ * symmetric positive definite, so SOR converges for every ω in (0, 2) (Ostrowski–Reich). 2.22.0 used ω = 1.8 for every region:
+ * 5,728 sweeps on a 260 × 260 region against about 400 (docs/DISPLAY_VIEW.md).
+ */
+export function neighborHighlightOmega(a: number, b: number): number {
+  const rho = (Math.cos(Math.PI / (a + 1)) + Math.cos(Math.PI / (b + 1))) / 2;
+  return 2 / (1 + Math.sqrt(Math.max(0, 1 - rho * rho)));
+}
 
 export interface NeighborHighlightReport {
   method: "ring-average" | "harmonic-interpolation";
@@ -95,7 +110,10 @@ export function neighborHighlightRatios(width: number, height: number, clippedAt
     for (let k = 0; k < tail; k++) { const p = queue[k]!; ratios[3 * p] = m0; ratios[3 * p + 1] = m1; ratios[3 * p + 2] = m2; }
     if (fast || count === 0) continue;
     // Full: successive over-relaxation of the discrete Laplace equation over the region, in the region's breadth-first order.
-    const { omega, tolerance, maximumIterations } = NEIGHBOR_HIGHLIGHT_SOR;
+    const { tolerance, maximumIterations } = NEIGHBOR_HIGHLIGHT_SOR;
+    let x0 = width, x1 = -1, y0 = height, y1 = -1;
+    for (let k = 0; k < tail; k++) { const p = queue[k]!, px = p % width, py = (p - px) / width; x0 = Math.min(x0, px); x1 = Math.max(x1, px); y0 = Math.min(y0, py); y1 = Math.max(y1, py); }
+    const omega = neighborHighlightOmega(x1 - x0 + 1, y1 - y0 + 1);
     let sweep = 0, change = Infinity;
     while (sweep < maximumIterations && change > tolerance) {
       change = 0; sweep++;

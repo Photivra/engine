@@ -6,7 +6,7 @@
 import { DISPLAY_VIEW_COUPLED as K } from "../../src/gpu/wgsl-display-view-coupled.js";
 
 const f = Math.fround;
-const E = f(2 ** -23), REACH = 8.5, START = f(0.8), CMU = 1400, CVU = 36000;
+const E = f(2 ** -23), REACH = 8.5, START = f(0.8), NB_H = f(0.98), CMU = 1400, CVU = 36000;
 const PHI_C = f(0.3989422804014327), AS = [f(0.2316419), f(0.319381530), f(-0.356563782), f(1.781477937), f(-1.821255978), f(1.330274429)];
 const phi = (z: number): number => f(PHI_C * f(Math.exp(f(f(f(-0.5) * z) * z))));
 function pq(z: number): [number, number] {
@@ -26,8 +26,8 @@ export interface CpOut { hm: V; hv: V; a: [V, V, V]; bm: V; bv: V; ju: number; f
 const zero = (): CpOut => ({ hm: [0, 0, 0], hv: [0, 0, 0], a: [[0, 0, 0], [0, 0, 0], [0, 0, 0]], bm: [0, 0, 0], bv: [0, 0, 0], ju: 0, flag: false, top: false });
 
 /** The coupled steps over the constants buffer `k` (`DISPLAY_VIEW_COUPLED` layout). */
-export function coupledEmulator(k: Float32Array): {
-  on: boolean; luminance: boolean; reconstruct: boolean; desaturate: boolean;
+export function coupledEmulator(k: Float32Array, neighbors = false): {
+  on: boolean; luminance: boolean; reconstruct: boolean; desaturate: boolean; neighbors: boolean; rho: V;
   reach(cm: V, cv: V): number; tone(mu: V, s: [V, V, V], dmu: V, dsv: V): CpOut; chain(cm: V, c00: number, c01: number, c02: number, c11: number, c12: number, c22: number, dcm: V, dcv: V): CpOut;
 } {
   const on = k[0] !== 0, luminance = on && k[K.luminance] !== 0, reconstruct = on && k[K.reconstruct] !== 0, desaturate = on && k[K.desaturate] !== 0;
@@ -54,9 +54,10 @@ export function coupledEmulator(k: Float32Array): {
   }
   function reach(cm: V, cv: V): number {
     let state = 0;
+    const start = neighbors ? NB_H : START;
     for (let i = 0; i < 3; i++) {
       const top = f(cm[i]! + f(REACH * f(Math.sqrt(Math.max(0, cv[i]!))))), margin = f(f(16 * E) * f(Math.abs(cm[i]!) + Math.abs(top)));
-      if (!(top < f(START - margin))) { if (top >= f(START + margin)) return 1; state = 2; }
+      if (!(top < f(start - margin))) { if (top >= f(start + margin)) return 1; state = 2; }
     }
     return state;
   }
@@ -138,7 +139,29 @@ export function coupledEmulator(k: Float32Array): {
     let b: V = [...u];
     const jb: [V, V, V] = [[g[0], 0, 0], [0, g[1], 0], [0, 0, g[2]]];
     const node: Node = { out: [0, 0, 0], t: [[0, 0, 0], [0, 0, 0], [0, 0, 0]], err: [0, 0, 0], flag: false };
-    if (!reconstruct) { for (let i = 0; i < 3; i++) if (u[i]! > lc) { b[i] = lc; jb[i]![i] = 0; } }
+    let eb = f(f(8 * E) * Math.max(Math.abs(u[0]), Math.max(Math.abs(u[1]), Math.abs(u[2]))));
+    if (neighbors) {
+      // #605: nb_rebuild (src/gpu/wgsl-display-view-neighbors.ts).
+      const r = api.rho, kept = [c[0] < NB_H, c[1] < NB_H, c[2] < NB_H];
+      let e = 1;
+      if (!(kept[0] && kept[1] && kept[2]) && !(r[0] < 0)) {
+        if (!kept[0] && !kept[1] && !kept[2]) {
+          const q = [0, 1, 2].map((i) => (r[i]! > 0 ? f(u[i]! / r[i]!) : 0)), m = sel3(q[0]!, q[1]!, q[2]!);
+          b = [f(q[m]! * r[0]), f(q[m]! * r[1]), f(q[m]! * r[2])];
+          for (let i = 0; i < 3; i++) jb[i] = r[m]! > 0 ? scale(unit(m), f(f(r[i]! * g[m]!) / r[m]!)) : [0, 0, 0];
+          e = 6;
+        } else {
+          const ku = [0, 1, 2].map((i) => (kept[i] ? u[i]! : 0)), kr = [0, 1, 2].map((i) => (kept[i] ? r[i]! : 0));
+          const su = f(f(ku[0]! + ku[1]!) + ku[2]!), sr = f(f(kr[0]! + kr[1]!) + kr[2]!), sc = sr > 0 ? f(su / sr) : 0;
+          for (let i = 0; i < 3; i++) {
+            const t = f(sc * r[i]!);
+            if (!kept[i] && t > u[i]!) { b[i] = t; jb[i] = sr > 0 ? ([0, 1, 2].map((j) => (kept[j] ? f(f(r[i]! * g[j]!) / sr) : 0)) as V) : [0, 0, 0]; }
+          }
+          e = 10;
+        }
+      }
+      eb = f(f(e * E) * Math.max(Math.abs(b[0]), Math.max(Math.abs(b[1]), Math.abs(b[2]))));
+    } else if (!reconstruct) { for (let i = 0; i < 3; i++) if (u[i]! > lc) { b[i] = lc; jb[i]![i] = 0; } }
     else {
       const si = sel3(c[0], c[1], c[2]), s = c[si]!;
       if (s > START) {
@@ -148,7 +171,6 @@ export function coupledEmulator(k: Float32Array): {
         for (let i = 0; i < 3; i++) jb[i] = add(add(scale(unit(i), f(f(1 - t) * g[i]!)), scale(unit(ni), f(t * ns))), scale(unit(si), f(f(n - u[i]!) * ts)));
       }
     }
-    const eb = f(f(8 * E) * Math.max(Math.abs(u[0]), Math.max(Math.abs(u[1]), Math.abs(u[2]))));
     const y: V = [0, 0, 0], ey: V = [0, 0, 0], mj: [V, V, V] = [[0, 0, 0], [0, 0, 0], [0, 0, 0]];
     for (let r = 0; r < 3; r++) {
       const m = mrow(r);
@@ -206,6 +228,10 @@ export function coupledEmulator(k: Float32Array): {
           const dc = scale(add(vabs(cm), spread), f(3 * E));
           const node = develop(c);
           if (node.flag) t.flag = true;
+          if (neighbors) {
+            const roots = f(f(f(Math.sqrt(dcv[0])) + f(Math.sqrt(dcv[1]))) + f(Math.sqrt(dcv[2]))), tol = [0, 1, 2].map((i2) => f(f(f(dc[i2]! + dcm[i2]!) + f(5 * roots)) + f(16 * E)));
+            if ([0, 1, 2].some((i2) => Math.abs(f(c[i2]! - NB_H)) <= tol[i2]!)) t.flag = true;
+          }
           count = f(count + 1);
           const d = [0, 1, 2].map((i2) => f(node.out[i2]! - centre[i2]!));
           e = add(e, scale(node.out, weight));
@@ -228,5 +254,23 @@ export function coupledEmulator(k: Float32Array): {
     t.ju = f(f(f(4 * count) + 64) * E);
     return t;
   }
-  return { on, luminance, reconstruct, desaturate, reach, tone, chain };
+  const api = { on, luminance, reconstruct, desaturate, neighbors, rho: [0, 0, 0] as V, reach, tone, chain };
+  return api;
+}
+
+/** #605: the kernels' `nb_skip`, `nb_ratio` and `nb_flag` (src/gpu/wgsl-display-view-neighbors.ts) over the band's flag buffer. */
+export function neighborRatioEmulator(flags: Uint32Array, count: number, cp: ReturnType<typeof coupledEmulator>): { skip(i: number): boolean; ratio(i: number, r: number): boolean; flag(): number } {
+  const floats = new Float32Array(flags.buffer, flags.byteOffset, flags.length);
+  let need = false;
+  return {
+    skip(i): boolean { need = false; return cp.neighbors && flags[3 * count + i] === 0xfffffffe; },
+    ratio(i, r): boolean {
+      if (!cp.neighbors) return true;
+      const o = flags[3 * count + i]!;
+      if (o >= 0xfffffffe) { need = true; return false; }
+      cp.rho = [floats[o + 3 * r]!, floats[o + 3 * r + 1]!, floats[o + 3 * r + 2]!];
+      return true;
+    },
+    flag(): number { return need ? 128 : 0; }
+  };
 }

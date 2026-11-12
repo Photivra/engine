@@ -8,7 +8,7 @@
 import { DISPLAY_VIEW_AUX, DISPLAY_VIEW_CLIP_MEAN_U, DISPLAY_VIEW_CLIP_VARIANCE_U, DISPLAY_VIEW_GEOMETRY_STRIDE, DISPLAY_VIEW_OUTPUT_FLOATS,
   DISPLAY_VIEW_SITE_RELATIVE_U } from "../../src/gpu/wgsl-display-view-speed-kernel.js";
 import type { ChartMaterialEmulator } from "./fake-webgpu-stages.js";
-import { coupledEmulator } from "./fake-webgpu-display-view-coupled.js";
+import { coupledEmulator, neighborRatioEmulator } from "./fake-webgpu-display-view-coupled.js";
 
 const f = Math.fround;
 const E = f(2 ** -23), REACH = 8.5, CM = f(DISPLAY_VIEW_CLIP_MEAN_U), CV = f(DISPLAY_VIEW_CLIP_VARIANCE_U), STRIDE = DISPLAY_VIEW_GEOMETRY_STRIDE;
@@ -73,8 +73,9 @@ function reinhardMoments(m: number, v: number, aux: Float32Array): [number, numb
 
 /** Mirrors `main` of the display-view Speed kernel for the `count` display pixels of the band. */
 export function emulateDisplayViewSpeed(pw: Uint32Array, pf: Float32Array, aux: Float32Array, geometry: Float32Array, table: Float32Array, out: Float32Array,
-  flags: Uint32Array, material: ChartMaterialEmulator, coupledConstants: Float32Array = new Float32Array(1)): void {
-  const cp = coupledEmulator(coupledConstants);
+  flags: Uint32Array, material: ChartMaterialEmulator, coupledConstants: Float32Array = new Float32Array(1), neighbors = false): void {
+  const cp = coupledEmulator(coupledConstants, neighbors);
+  const nb = neighborRatioEmulator(flags, pw[0]!, cp);
   const [count, row0, regionW, , , margin, nativeW, nativeH, columns, tone, offsets] = Array.from(pw.subarray(0, 11)) as number[];
   const k = [pf[12]!, pf[13]!, pf[14]!], reach2 = pf[15]!, dark = [pf[16]!, pf[17]!, pf[18]!], L = pf[19]!, c0 = [pf[20]!, pf[21]!, pf[22]!], g = [pf[24]!, pf[25]!, pf[26]!];
   const M = Array.from(pf.subarray(28, 37)), scaleU = pf[37]!, scaleV = pf[38]!, geometryInts = new Int32Array(geometry.buffer, geometry.byteOffset, geometry.length);
@@ -111,6 +112,7 @@ export function emulateDisplayViewSpeed(pw: Uint32Array, pf: Float32Array, aux: 
   const bm = new Float32Array(3), bv = new Float32Array(3), bs = new Float32Array(3), bbm = new Float32Array(3), bbv = new Float32Array(3);
   const hm = new Float32Array(3), hv = new Float32Array(3), hs = new Float32Array(3), hbm = new Float32Array(3), hbv = new Float32Array(3);
   for (let i = 0; i < count!; i++) {
+    if (nb.skip(i)) continue;
     material.reset();
     const rx = i % regionW!, ry = row0! + Math.floor(i / regionW!), col = rx * STRIDE, row = (columns! + ry) * STRIDE;
     const colFirst = geometryInts[col]!, nx = geometryInts[col + 1]!, rowFirst = geometryInts[row]!, ny = geometryInts[row + 1]!;
@@ -211,7 +213,7 @@ export function emulateDisplayViewSpeed(pw: Uint32Array, pf: Float32Array, aux: 
               if (hm[comp]! > 0 && f(hm[comp]! - f(f(2 * hbm[comp]!) * E)) < f(0.999) && Math.abs(f(top - f(0.999))) <= f(f(2 * f(f(hbm[comp]! * E) + f(REACH * Math.min(f(Math.sqrt(f(hbv[comp]! * E))), f(f(hbv[comp]! * E) / f(2 * f(Math.sqrt(hv[comp]!)))))))) + f(64 * E))) coupledFlag = true;
             }
           }
-          if (chainRun) {
+          if (chainRun && nb.ratio(i, j * nx + ii)) {
             const dcm = [0, 1, 2].map((c) => f(f(CM * cb[c]!) * E)) as [number, number, number];
             const dcv = [0, 1, 2].map((c) => f(f(f(CV * cb[c]!) * cb[c]!) * E)) as [number, number, number];
             const t = cp.chain([cm[0]!, cm[1]!, cm[2]!], cvv[0]!, 0, 0, cvv[1]!, 0, cvv[2]!, dcm, dcv);
@@ -241,7 +243,7 @@ export function emulateDisplayViewSpeed(pw: Uint32Array, pf: Float32Array, aux: 
     const o = i * DISPLAY_VIEW_OUTPUT_FLOATS;
     out[o] = s0; out[o + 1] = s1; out[o + 2] = s2; out[o + 3] = f(c00 + r0); out[o + 4] = f(c11 + r1); out[o + 5] = f(c22 + r2);
     out[o + 6] = c01; out[o + 7] = c02; out[o + 8] = c12; out[o + 9] = f(boundMean * E); out[o + 10] = f(boundVar * E);
-    flags[3 * i] = (material.flagged || coupledFlag ? 1 : 0) | (undecided ? 2 : 0); flags[3 * i + 1] = mask0; flags[3 * i + 2] = mask1;
+    flags[3 * i] = (material.flagged || coupledFlag ? 1 : 0) | (undecided ? 2 : 0) | nb.flag(); flags[3 * i + 1] = mask0; flags[3 * i + 2] = mask1;
   }
 }
 /** Internal test hooks. */

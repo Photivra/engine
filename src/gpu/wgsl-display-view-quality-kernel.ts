@@ -102,6 +102,8 @@ export const DISPLAY_VIEW_QUALITY_FLAG = /* @__PURE__ */ Object.freeze({
   ahdChoice: 32,
   /** #533: a real pixel's saturation is undecided (the host computes the display pixel's count with the reference; its samples stay). */
   highlightUndecided: 64,
+  /** #605: a chain needed neighbor ratios the host had not given (redone with them; the host sets bit 0 if any is left). */
+  neighborRatios: 128,
   /** The bits that require the host's recomputation. */
   recompute: 35
 });
@@ -572,7 +574,7 @@ fn clip_bits(o: u32) -> u32 { return (bitcast<u32>(sites[o + 6u]) >> 1u) & 3u; }
 @compute @workgroup_size(${DISPLAY_VIEW_QUALITY_WORKGROUP_SIZE})
 fn main(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_workgroups) wg: vec3<u32>) {
   let i = gid.x + gid.y * wg.x * ${DISPLAY_VIEW_QUALITY_WORKGROUP_SIZE}u;
-  if (i >= params.count) { return; }
+  if (i >= params.count || nb_skip(i)) { return; }
   pixel_flags = 0u;
   let rx = i % params.region_w;
   let ry = params.row0 + i / params.region_w;
@@ -779,7 +781,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_workgroups) 
               if (hm[comp].x > 0.0 && hm[comp].x - 2.0 * hm[comp].y < 0.999 && abs(top - 0.999) <= 2.0 * (hm[comp].y + CLIP_REACH * min(sqrt(hv[comp].y), hv[comp].y / (2.0 * sqrt(hv[comp].x)))) + 64.0 * E) { pixel_flags = pixel_flags | FLAG_UNCERTAIN; }
             }
           }
-          if (cp_chain_run) {
+          if (cp_chain_run && nb_ratio(i, j * nx + ii)) {
             let t = cp_chain(vec3<f32>(cm[0].x, cm[1].x, cm[2].x), C[0].x, C[1].x, C[2].x, C[3].x, C[4].x, C[5].x, vec3<f32>(cm[0].y, cm[1].y, cm[2].y), vec3<f32>(C[0].y, C[3].y, C[5].y));
             if (t.flag) { pixel_flags = pixel_flags | FLAG_UNCERTAIN; }
             let rows = array<vec3<f32>, 3>(t.a0, t.a1, t.a2);
@@ -868,7 +870,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_workgroups) 
   out[o + 6u] = cov[1].x; out[o + 7u] = cov[2].x; out[o + 8u] = cov[4].x;
   out[o + 9u] = max(s[0].y, max(s[1].y, s[2].y));
   out[o + 10u] = max(max(cov[0].y + res[0].y, cov[3].y + res[1].y), max(cov[5].y + res[2].y, max(cov[1].y, max(cov[2].y, cov[4].y))));
-  flags[3u * i] = pixel_flags | select(0u, FLAG_HIGHLIGHT, undecided);
+  flags[3u * i] = pixel_flags | select(0u, FLAG_HIGHLIGHT, undecided) | nb_flag();
   flags[3u * i + 1u] = mask0;
   flags[3u * i + 2u] = mask1;
 }
