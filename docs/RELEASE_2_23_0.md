@@ -35,7 +35,7 @@ Requests that do not use `highlightMode: "reconstruct-neighbors"` keep their 2.2
 
 - **How #605 was brought in.** `e223-605` was built on the `release-2.22.0` branch, which was squash-merged as `4cb24a6`, so its commits are not ancestors of `main`. Its changes since the `release-2.22.0` commit it last merged (`f7d38bd`) were applied to `4cb24a6` as one commit. `main`'s tree equals the final `release-2.22.0` tree (`21e5ee1`), so the three later 2.22.0 commits are kept unchanged.
 - **Conflict:** `test/shard-weights.json` only. `main`'s weights (from #606's eight-shard run) are kept, with #605's two new test files added at their recorded weights.
-- **#604 report:** taken as committed on `e223-604`, with the report's outcome line added and US spelling in its prose and the prototype's comments (recorded data and API values unchanged). Its source notes no longer state the random generators' licence status (the ScanCode policy flags that wording; the allowlist is unchanged). The prototype lives in `scripts/research/ahd-bias/` and is not in the package.
+- **#604 report:** taken as committed on `e223-604`, with the report's outcome line added and US spelling in its prose and the prototype's comments (recorded data and API values unchanged). Its source notes no longer state the random generators' license status (the ScanCode policy flags that wording; the allowlist is unchanged). The prototype lives in `scripts/research/ahd-bias/` and is not in the package.
 - **Design-around check:** the GPU path uploads per-pixel ratios that the host computes from the request's own channels; no table keyed by channel signal levels is added. The #604 report recommends no correction, and none is built.
 
 ## Sizes
