@@ -227,7 +227,8 @@ have a fast method, a measured and bounded approximation of it. One flag style s
 - **Every listed option takes the flag**, whether or not it has a fast method. Without one it runs exact and reports `false`,
   so callers never need to know which options have a fast method.
 - **One list:** `SIMULATE_CAPTURE_FAST_OPTIONS`, in the path style of `SIMULATE_CAPTURE_COST_OPTIONS`:
-  `lens.diffraction`, `lens.catalogue`, `sensor.antiAliasing`, `sensor.pixelAperture.box` and `output.demosaic.ahd`.
+  `lens.diffraction`, `lens.catalogue`, `sensor.antiAliasing`, `sensor.pixelAperture.box`, `output.demosaic.ahd`, `motion.subject`,
+  `sensor.spectralStepNanometers` and (2.24.0) `sensor.temporalSampleCount`; the last two have no record and follow the top-level flag.
 - **The first fast method** (#568, 2.18.0): `lens.catalogue` (shorthand: the lens id; record `{ kind: <lens id>, fast }`) blends
   the lens's PSF over a field grid and tabulates each site's expected signal (docs/LENS_CATALOGUE.md, "Fast method"). It runs for
   a still camera with site-center queries and a chart or material scene; otherwise the exact method runs and `applied` says
@@ -259,8 +260,11 @@ have a fast method, a measured and bounded approximation of it. One flag style s
   least 4 on fast requests, 10 on exact ones); the display view's coupled rendering steps (#593, #601: a luminance tone curve's
   moments by an 8-point Gauss–Hermite rule in luminance fast, a composite 4 × 16-point Gauss–Legendre rule exact; the reconstruct
   blend and the desaturation by 6 Gauss–Hermite points per axis fast, 16 exact; the same rules in the GPU kernels; docs/DISPLAY_VIEW.md,
-  "Coupled rendering"), and `highlightMode: "reconstruct-neighbors"` (#602: the ring's mean ratios fast, their harmonic fill exact). The
-  records of `lens.diffraction`, `sensor.antiAliasing`, `sensor.pixelAperture` and `output.demosaic` (in captures) take `fast`
+  "Coupled rendering"), and `highlightMode: "reconstruct-neighbors"` (#602: the ring's mean ratios fast, their harmonic fill exact). In
+  2.24.0 (owner decision 2026-11-12): the box pixel aperture's default samples per axis (`sensor.pixelAperture.box`: 4 fast, 8 exact;
+  the box record's `fast` overrides the request's) and the default temporal midpoints under camera rotation or subject motion
+  (`sensor.temporalSampleCount`: 8 fast, 16 exact); an explicit `samplesPerAxis` or `temporalSampleCount` always wins and makes no
+  choice. The records of `lens.diffraction`, `sensor.antiAliasing` and `output.demosaic` (in captures) take `fast`
   with no fast method yet. `test/fast-methods-registry.test.ts` fails when a record accepts `fast` without an entry, an entry
   lacks its resolver or report, or a format default leaves the rule. **Every new fast method adds its entry.**
 - **The same words on WebGPU.** The image-kernel execution record carries `fast` (`false` for `cpu-reference`, `true` for
@@ -270,7 +274,8 @@ have a fast method, a measured and bounded approximation of it. One flag style s
   implementation. A faster method that is more accurate than the reference replaces it too, and the reference moves. Only a
   less accurate method becomes the fast method behind the flag.
 - **Parameters are not the flag.** Sample counts and windows (`samplesPerAxis`, `kernelRadiusSamples`, `separationSites`) are
-  model parameters and keep their names.
+  model parameters and keep their names. Where a parameter's default follows the flag (the spectral step, the box aperture's samples,
+  the temporal midpoints), an explicit value always wins.
 - **Names:** `lens.diffraction` names its model by `kind` like the other records; `aperture`, its name before #395, stays a
   deprecated alias until 3.0.0, and giving both is an error.
 

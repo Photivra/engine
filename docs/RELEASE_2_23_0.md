@@ -1,6 +1,6 @@
 # 2.23.0 release
 
-> **Prepared November 12, 2026; not published.** npm publishing runs only from the owner's `v2.23.0` tag ([Release gates](#release-gates)).
+> **Published November 12, 2026 (14:16 UTC).** The `v2.23.0` tag is on `14203b7` (#608), after `main` CI on that commit had passed; npm publishing ran from the tag ([Publication](#publication)).
 
 ## At a glance
 
@@ -70,7 +70,7 @@ On this tree (Apple M5 Pro, Node.js 24.19.0), one run each:
 ## Pending (after release)
 
 - **Phone sample DNGs (#598):** unchanged from 2.22.0; verified against the owner's samples when they arrive.
-- **External C2PA validation (#165):** unchanged from 2.22.0.
+- **External C2PA validation (#165):** unchanged from 2.22.0. Done for 2.24.0 (validated with c2patool 0.28.6; [2.24.0 release record](RELEASE_2_24_0.md)).
 - **A device-side harmonic fill (#605):** not built (owner decision, 2026-11-11: no a-priori float32 bound); the measurements are kept in docs/WEBGPU.md.
 
 ## Release gates
@@ -84,13 +84,24 @@ On this tree (Apple M5 Pro, Node.js 24.19.0), one run each:
 - [x] Version surfaces aligned at 2.23.0 (`npm run release:prepare -- 2.23.0`). Root exports 1,981.
 - [x] 2.22.0 recorded as published ([2.22.0 release record](RELEASE_2_22_0.md#publication)).
 - [x] The worker rows measured ([Sizes](#sizes)); no limit raised.
-- [ ] Green CI on this pull request, then on `main` after merge.
-- [ ] The owner's approval to tag `v2.23.0`.
-- [ ] The `v2.23.0` tag on the `main` commit that merges this record.
-- [ ] After publication:
-  - [ ] npm version, dist-tag, integrity and provenance verified;
-  - [ ] GitHub release notes published;
-  - [ ] publication dates updated in `CHANGELOG.md`, `README.md`, `SECURITY.md`, `docs/DEVELOPERS.md` and this record.
+- [x] Green CI on this pull request ([CI run 43174074697](https://github.com/Photivra/photivra/actions/runs/43174074697) on `45e3d5a`), then on `main` after merge ([CI run 43233589356](https://github.com/Photivra/photivra/actions/runs/43233589356) on `14203b7`).
+- [x] The owner's approval to tag `v2.23.0`.
+- [x] The `v2.23.0` tag on the `main` commit that merges this record (`14203b7`).
+- [x] After publication:
+  - [x] npm version, dist-tag, integrity and provenance verified ([Publication](#publication));
+  - [x] GitHub release notes published ([`v2.23.0`](https://github.com/Photivra/photivra/releases/tag/v2.23.0), 14:17 UTC);
+  - [x] publication dates updated in `CHANGELOG.md`, `README.md`, `SECURITY.md`, `docs/DEVELOPERS.md` and this record (with the 2.24.0 preparation).
+
+## Publication
+
+| Fact | Value |
+| --- | --- |
+| Tag | `v2.23.0` (annotated, `2afc8bd`) → `14203b734fa581289cf3835d3a389effd9db1a17` (#608, squash merge), after `main` CI on that commit passed ([CI run 43233589356](https://github.com/Photivra/photivra/actions/runs/43233589356); WebGPU [43233589477](https://github.com/Photivra/photivra/actions/runs/43233589477), native performance [43233589390](https://github.com/Photivra/photivra/actions/runs/43233589390)) |
+| Publish workflow | [Publish npm run 43234231747](https://github.com/Photivra/photivra/actions/runs/43234231747): passed 14:09:10–14:12:16 UTC |
+| npm | `@photivra/engine@2.23.0`, dist-tag `latest`, registry time 14:16:23 UTC, November 12, 2026 |
+| Integrity | `sha512-e/vo1UtXQ8IuVaQonWnBwAxiH/Sl5q3R+8C88L9SUGbEqiD9o4DwCb6Kf9JdPZRJX73QxZuVS4svRnMcHJ2N0g==` (shasum `d325b26d5914d52f2fb169647a0a004650b779ad`, 1,137 files) |
+| Provenance | The registry lists an attestation (SLSA v1) for 2.23.0 |
+| GitHub release | [`v2.23.0`](https://github.com/Photivra/photivra/releases/tag/v2.23.0), published 14:17:10 UTC |
 
 ## For the owner
 

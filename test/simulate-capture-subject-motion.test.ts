@@ -146,17 +146,17 @@ describe("subject motion (#551)", () => {
     expect(out[1]).toBeCloseTo(0, 12);
   });
 
-  it("takes fewer temporal midpoints for a short streak on screen, and the default 8 when exact", async () => {
+  it("takes fewer temporal midpoints for a short streak on screen, and the default 16 when exact (2.24.0)", async () => {
     const opts = request(32, 8, { motion: { subject: { velocityMPerSec: { x: 2.5 / (T * SITES_PER_M) } } } });
     const fast = await simulateCapture(opts), exact = await simulateCapture({ ...opts, fast: false });
     expect(fast.diagnostics.fast).toMatchObject({ applied: { "motion.subject": true }, assurance: "approximation-with-a-priori-bound" });
     expect(fast.assumptions.find((a) => a.id === "fast.motion.subject")!.value).toMatchObject({ temporalSampleCount: 4 });
     expect(exact.diagnostics.fast.applied["motion.subject"]).toBe(false);
-    expect(exact.assumptions.find((a) => a.id === "sensor.temporalSampleCount")!.value).toBe(8);
-    // An explicit count always wins.
+    expect(exact.assumptions.find((a) => a.id === "sensor.temporalSampleCount")!.value).toBe(16);
+    // An explicit count always wins, on fast and exact requests alike.
     const explicit = await simulateCapture({ ...opts, sensor: { temporalSampleCount: 8 } });
     expect(explicit.diagnostics.fast.applied["motion.subject"]).toBe(false);
-    expect(samples(explicit)).toEqual(samples(await simulateCapture({ ...opts, fast: false, output: { ...opts.output!, format: "srgb-16" } })));
+    expect(samples(explicit)).toEqual(samples(await simulateCapture({ ...opts, fast: false, sensor: { temporalSampleCount: 8 }, output: { ...opts.output!, format: "srgb-16" } })));
   }, scaledTimeout(60_000));
 
   it("renders sideways motion in the display view and refuses what it cannot render", async () => {
