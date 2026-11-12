@@ -139,42 +139,6 @@ export interface ImageKernelExecution {
 }
 ```
 
-## ImageKernelExecutionError
-
-Domain error for getting and running a backend. Input validation still throws the engine's existing errors.
-
-```ts
-export class ImageKernelExecutionError extends Error {
-  readonly code = "IMAGE_KERNEL_EXECUTION";
-  readonly reason: ImageKernelFailureReason;
-
-  constructor(reason: ImageKernelFailureReason, message: string) {
-    super(message);
-    this.name = "ImageKernelExecutionError";
-    this.reason = reason;
-  }
-}
-```
-
-## ImageKernelFailureReason
-
-Failure classes reported by {@link ImageKernelExecutionError}. `conformance-failed` (#481): a device failed the display view's
-run-time self-check with `gpu: "require"`.
-
-```ts
-export type ImageKernelFailureReason = ImageKernelFallbackReason | "device-lost" | "out-of-memory" | "gpu-validation" |
-  "aborted" | "disposed" | "busy" | "unsupported-on-backend" | "unsupported-float32-domain" | "indeterminate-float32-classification" | "conformance-failed";
-```
-
-## ImageKernelFallbackReason
-
-Why a requested `webgpu-f32` backend ran the CPU reference instead. `webgpu-disabled`: `setWebGpuEnabled(false)` in this realm.
-
-```ts
-export type ImageKernelFallbackReason = "webgpu-unavailable" | "webgpu-disabled" | "adapter-unavailable" | "device-request-failed" |
-  "insufficient-limits" | "unsupported-platform-endianness";
-```
-
 ## ImageKernelRelativeErrorBound
 
 Non-negative linear sums: |v_webgpu − v_reference| ≤ relative·v_reference + absolute for every sample.

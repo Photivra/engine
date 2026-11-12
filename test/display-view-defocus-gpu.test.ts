@@ -7,13 +7,15 @@
  * same view: every component inside the result's a-priori bounds, the bound fraction used, ΔE2000, |Δ|/σ, samples within one
  * code, the flagged fraction, and the #480 thresholds (scripts/lib/display-view-acceptance.mjs). Also: the support check, the
  * route through `prepareDisplayView`, the split of the site pass over dispatches, the device-limit refusal and its CPU
- * fallback, the bound terms, and the self-check case. Real-device runs: test/webgpu/display-view.webgpu.ts.
+ * fallback, the bound terms, and the self-check case. Real-device runs: test/webgpu/display-view.webgpu.ts. The extra cases (2.22.0:
+ * split so that the coverage shards balance) run from test/display-view-defocus-gpu-extra.test.ts with the same checks
+ * (test/helpers/display-view-defocus-gpu-check.ts).
  */
 import { describe, expect, it } from "vitest";
-import { DISPLAY_VIEW_QUALITY_CONFORMANCE_CASE, DISPLAY_VIEW_QUALITY_DEFOCUS_CONFORMANCE_CASE, createDisplayViewGpuRenderer, displayViewQualityGpuSupports,
-  registerDisplayViewGpuRenderer } from "../src/gpu/display-view-quality-gpu.js";
+import { DISPLAY_VIEW_QUALITY_CONFORMANCE_CASE, DISPLAY_VIEW_QUALITY_CONFORMANCE_CASES, DISPLAY_VIEW_QUALITY_DEFOCUS_CONFORMANCE_CASE } from "../src/gpu/display-view-quality-gpu.js";
+import { createDisplayViewGpuRenderer, displayViewQualityGpuSupports, registerDisplayViewGpuRenderer } from "../src/gpu/display-view-gpu-renderer.js";
 import { DISPLAY_VIEW_SPEED_CONFORMANCE_CASE } from "../src/gpu/display-view-speed-gpu.js";
-import { DISPLAY_VIEW_QUALITY_FLAG, DISPLAY_VIEW_QUALITY_LATTICE_WGSL, DISPLAY_VIEW_QUALITY_PIXELS_WGSL, DISPLAY_VIEW_QUALITY_SITES_BLOCKED_WGSL, DISPLAY_VIEW_QUALITY_SITES_WGSL,
+import { DISPLAY_VIEW_QUALITY_LATTICE_WGSL, DISPLAY_VIEW_QUALITY_PIXELS_WGSL, DISPLAY_VIEW_QUALITY_SITES_BLOCKED_WGSL, DISPLAY_VIEW_QUALITY_SITES_WGSL,
   assembleDisplayViewQualityLatticeWgsl } from "../src/gpu/wgsl-display-view-quality-kernel.js";
 import { DISPLAY_VIEW_SPEED_KERNEL_WGSL, assembleDisplayViewSpeedWgsl } from "../src/gpu/wgsl-display-view-speed-kernel.js";
 import { chartPresetMaterialWgsl } from "../src/gpu/display-view-chart-material-module.js";
@@ -22,57 +24,18 @@ import { setDisplayViewGpuRendererFactory } from "../src/facade/display-view-gpu
 import { prepareDisplayView } from "../src/index.js";
 import { WEBGPU_F32_UNIT_ROUNDOFF } from "../src/gpu/image-kernel-execution.js";
 import { createFakeGpu } from "./helpers/fake-webgpu.js";
-import { compareDisplayViews, displayViewGpuFixture, renderOnGpuQuality, runtimeOf } from "./helpers/display-view-gpu-fixture.js";
-import { acceptanceOf } from "./helpers/display-view-acceptance-metrics.js";
-import { DEFOCUS_GPU_EXTRA, DEFOCUS_GPU_GRID, type DefocusGpuCase } from "./helpers/display-view-defocus-gpu-fixtures.js";
+import { displayViewGpuFixture, renderOnGpuQuality, runtimeOf } from "./helpers/display-view-gpu-fixture.js";
+import { DEFOCUS_GPU_EXTRA, DEFOCUS_GPU_GRID } from "./helpers/display-view-defocus-gpu-fixtures.js";
 import { scaledTimeout } from "./helpers/test-timeout.js";
+import { checkDefocusGpuCase as checkCase } from "./helpers/display-view-defocus-gpu-check.js";
 
 const E = 2 * WEBGPU_F32_UNIT_ROUNDOFF;
 const report: Record<string, unknown>[] = [];
-
-/** Renders a case on the emulation, compares it with the CPU reference and checks every requirement; returns the record. */
-async function checkCase(c: DefocusGpuCase): Promise<Record<string, unknown>> {
-  const fixture = await displayViewGpuFixture(c.options, c.view), runtime = await runtimeOf(createFakeGpu().gpu);
-  try {
-    expect(fixture.input.signalInput.kernels?.radius).toBe(c.kernelRadius);
-    expect(fixture.input.setup.gpu?.defocusRadius).toBeGreaterThan(0);
-    const t = performance.now();
-    const gpu = await renderOnGpuQuality(runtime, fixture), emulationMs = Math.round(performance.now() - t);
-    const a = compareDisplayViews(fixture.cpu, gpu), region = c.view.region!, { metrics, verdict } = acceptanceOf(region.width, region.height, fixture.cpu, gpu);
-    expect(gpu.blockedSum).toBe(true);
-    expect(gpu.estimation).toBe("exact-area-mean");
-    expect(gpu.execution).toMatchObject({ backend: "webgpu-f32", arithmetic: "float32", bitIdenticalToReference: false });
-    expect(gpu.ahdCorrectedPixelCount).toBe(fixture.cpu.ahdCorrectedPixelCount);
-    expect(a.outsideExpectedBound).toBe(0);
-    expect(a.outsideVarianceBound).toBe(0);
-    expect(a.largestCodeDifference).toBeLessThanOrEqual(1);
-    expect(a.deltaEMaximum).toBeLessThan(0.01);
-    expect(a.sigmaUnitsMaximum).toBeLessThan(0.01);
-    expect(verdict.pass, JSON.stringify(verdict.checks)).toBe(true);
-    expect(Array.from(gpu.hostRecomputedPixelIndices)).toEqual(Array.from(gpu.flaggedPixelIndices));
-    // The host resolved every uncertain lattice point, so no site carries material uncertainty and no pixel is flagged for it.
-    expect(gpu.pixelFlags.some((flag) => (flag & DISPLAY_VIEW_QUALITY_FLAG.materialUncertain) !== 0)).toBe(false);
-    for (const i of gpu.flaggedPixelIndices) for (let k = 0; k < 3; k++) expect(gpu.expected[3 * i + k]).toBe(fixture.cpu.expected[3 * i + k]);
-    return { case: c.name, kernelRadius: c.kernelRadius, tapsPerSite: gpu.tapsPerSite, siteSumRelativeBound: gpu.siteSumRelativeBound, pixels: a.pixels,
-      deltaE2000Maximum: a.deltaEMaximum, deltaE2000Rms: a.deltaERms, sigmaUnitsMaximum: a.sigmaUnitsMaximum, sigmaRelativeMaximum: a.sigmaRelativeMaximum,
-      differingSamples: a.differingSamples, largestCodeDifference: a.largestCodeDifference, largestExpectedBoundRatio: a.largestExpectedRatio, largestVarianceBoundRatio: a.largestVarianceRatio,
-      expectedValueBoundAbsolute: gpu.expectedValueBound.absolute, flagged: gpu.flaggedPixelIndices.length, flaggedFraction: gpu.flaggedPixelIndices.length / a.pixels,
-      acceptance: { withinFraction: metrics.withinFraction, maxDeltaE: metrics.maxDeltaE, maxSigma: metrics.maxSigma, maxCode8: metrics.maxCode8, pass: verdict.pass },
-      latticePointsResolved: gpu.latticePointsResolved, siteDispatches: gpu.stageMilliseconds.siteDispatches, emulationMs };
-  } finally { runtime.destroy(); }
-}
 
 describe("#492: defocus in the GPU display view (float32 emulation) vs the CPU reference", () => {
   it.each(DEFOCUS_GPU_GRID.map((c) => [c.name, c] as const))("%s: inside the a-priori bounds; samples within one code; the #480 thresholds met", async (_name, c) => {
     report.push(await checkCase(c));
   }, scaledTimeout(900_000));
-
-  it.each(DEFOCUS_GPU_EXTRA.map((c) => [c.name, c] as const))("%s: inside the a-priori bounds; samples within one code; the #480 thresholds met", async (_name, c) => {
-    const row = await checkCase(c);
-    // The composite's label glyphs and 1024-level elements and the star's diagonals put lattice points exactly on boundaries.
-    if (!/cap, 1\.4 µm f\/|disc at its cap/u.test(c.name)) expect(row.latticePointsResolved).toBeGreaterThan(0);
-    report.push(row);
-  }, scaledTimeout(1_800_000));
 
   it("the blocked sum's bound grows with the kernel's width, not its tap count: (cw + ch + G + 3)·E", async () => {
     const c = DEFOCUS_GPU_EXTRA[4]!, fixture = await displayViewGpuFixture(c.options, { ...c.view, region: { ...c.view.region!, width: 1, height: 1 } });
@@ -114,7 +77,9 @@ describe("#492: defocus in the GPU display view (float32 emulation) vs the CPU r
     expect(renderer.supports({ ...speed, scene: "material-function" })).toMatch(/caller/u);
     expect(renderer.supports({ ...quality, boxSamples: 5 })).toMatch(/64 query offsets/u);
     expect(renderer.supports({ ...speed, toneCurve: "other" as never })).toMatch(/tone curve/u);
-    expect(renderer.conformanceCases!.map((x) => x.id)).toEqual([DISPLAY_VIEW_SPEED_CONFORMANCE_CASE.id, DISPLAY_VIEW_QUALITY_CONFORMANCE_CASE.id, DISPLAY_VIEW_QUALITY_DEFOCUS_CONFORMANCE_CASE.id]);
+    // #594: the Speed case runs at the device's first render; the Quality cases load with the Quality code (onDemandConformanceCases).
+    expect(renderer.conformanceCases!.map((x) => x.id)).toEqual([DISPLAY_VIEW_SPEED_CONFORMANCE_CASE.id]);
+    expect(DISPLAY_VIEW_QUALITY_CONFORMANCE_CASES.map((x) => x.id)).toEqual([DISPLAY_VIEW_QUALITY_CONFORMANCE_CASE.id, DISPLAY_VIEW_QUALITY_DEFOCUS_CONFORMANCE_CASE.id]);
     renderer.dispose?.();
     runtime.destroy();
   });

@@ -3324,6 +3324,17 @@ void develop;
   value by 2^stops before demosaic and white balance. A site pushed to white clips and counts as saturated; the RAW
   codes are not changed. 0 develops byte for byte as before. The WebGPU accelerator rejects a non-zero push.
 - `extended-reinhard-luminance` takes `{ whiteLuminance }`, the luminance mapped to output white.
+- `gamutHandling: "desaturate-to-luminance"` (#601, 2.22.0; opt-in, also `simulateCapture`'s `output.gamutHandling`) moves a
+  pixel whose largest component exceeds 1 after the tone curve toward the gray of its own luminance until that component is 1,
+  keeping its luminance and hue; the default `"clip-components"` clips each component. The WebGPU SDR kernels refuse it.
+- The display view (`simulateDisplayView`, `prepareDisplayView`) renders the luminance tone curves, `highlightMode: "reconstruct"`
+  and the desaturation since 2.22.0 (#593), with fast rules on screen and full ones for `fast: false`
+  ([Display view, Coupled rendering](https://github.com/Photivra/photivra/blob/main/docs/DISPLAY_VIEW.md#coupled-rendering-593-601)). Photivra's Standard look is
+  `{ exponent: 1.5, semiSaturation: 0.5009, whiteLuminance: 8 }` and its Flat look `{ exponent: 1, semiSaturation: 0.8465, whiteLuminance: 32 }`
+  for `naka-rushton-luminance` (18 % gray stays at 0.18; the engine's own looks, not a camera maker's).
+- `simulateCapture`'s `output.highlightMode: "reconstruct-neighbors"` (#602, 2.22.0; opt-in, an estimate) rebuilds clipped
+  channels from the color ratios around each clipped region: the ring's mean ratios with `fast` (the sRGB default), their harmonic
+  interpolation inward for exports and `fast: false`. Whole-image, so not with `output.region`; the display view renders it on the CPU.
 - `createPhotographicExportPair(input, { signal })` accepts an optional `AbortSignal`.
 
 ## Capture-mode profiles
@@ -7096,7 +7107,8 @@ See [Local POC Simulation API](https://github.com/Photivra/photivra/blob/main/do
 
 ## DNG import and PNG output
 
-- `parseDngRawImage` reads a DNG or TIFF-EP CFA/LinearRaw file (uncompressed or lossless JPEG, 8–16 bits). It returns the stored raw codes plus the CFA, black/white levels, active area, default crop, colour matrices, as-shot neutral and orientation. Nothing is applied to the codes.
+- `parseDngRawImage` reads a DNG or TIFF-EP CFA/LinearRaw file (uncompressed, lossless JPEG or, from 2.22.0, 8-bit lossy JPEG; 8–16 bits). It returns the stored raw codes plus the CFA, black/white levels, active area, default crop, colour matrices, as-shot neutral and orientation, and (2.22.0) the opcode lists, the profile gain table map, RGBTables, semantic masks and an `assumptions` list naming every rendering tag it does not apply. Nothing is applied to the codes. `importDngRawImage` (2.22.0) does the same asynchronously and also reads JPEG XL raw data through a decoder the application supplies (`createJxlOxideDngDecoder` over the jxl-oxide-wasm package, which the app installs and loads only when a JPEG XL DNG is opened; the engine does not depend on it); `size: "half"` gives a half-size LinearRaw preview and `maximumBytes` bounds the memory.
+- `developDngStageImage` (2.22.0) builds the DNG's linear stage image (linearization, black and white levels, OpcodeList1/2/3); `applyDngProfileGainTableMap` and `applyDngRgbTables` apply the phone rendering tags at their places in a development.
 - `serializePngImage` writes an 8- or 16-bit RGB PNG with an sRGB, ICC or cICP (Display P3, BT.2020; sRGB, BT.709 or linear transfer) colour description, and optional mDCV/cLLI display metadata. PQ and HLG are not part of 2.0 (see the patent review in `THIRD_PARTY.md`).
 
 See [DNG import and PNG output](https://github.com/Photivra/photivra/blob/main/docs/IMPORT_AND_PNG.md) for supported subsets, limits and sources.
@@ -7533,6 +7545,25 @@ for (const p of SENSOR_PROFILES) {
 }
 ```
 
+### Read noise and native-pixel figures (2.22.0, #595, #599)
+
+`sensor.readNoise` is the read noise of one **physical photosite**, as a sensor datasheet gives it, on a generic tier, a caller
+preset and a sensor profile alike (2.22.0; before, a tier took it as the rendered site's). A rendered site that stands for N
+photosites (pitch above the tier's 6 µm, or above a profile's own pitch) sums their read noise: it takes the value ×√N. Without
+`sensor.readNoise` a tier's site takes its 6 µm photosite's read noise ×√N in the same way (#599). Below one photosite the value is
+kept. `result.sensor` reports the rendered site; `result.sensor.native` one photosite (its `readNoiseElectrons` is the value you
+gave), with the EMVA 1288 and the 8 MP-normalized dynamic range
+([QUICK_START.md, "Native-pixel dynamic range"](QUICK_START.md#sensor-characteristics-555)).
+
+```ts
+import { simulateCapture } from "@photivra/engine";
+
+const r = await simulateCapture({ scene: { preset: "uniform" }, sensor: { pixelPitchMicrometers: 12, readNoise: { lowGainElectrons: 3 } }, fast: false });
+r.sensor.native.readNoiseElectrons;    // 3, one 6 µm photosite's (the value given)
+r.sensor.readNoise.lowGainElectrons;   // 6, the rendered 12 µm site's: 3 × √4
+r.sensor.native.emva1288.dynamicRangeStops;
+```
+
 ## Generic lens catalogue (#549)
 
 `GENERIC_LENS_CATALOGUE` lists the engine's 30 generic primes (17 professional, 13 consumer, "PV 50 1.2 Pro", "PV 50 1.8"; Photivra's
@@ -7547,7 +7578,8 @@ correction profile for `resolveLensCorrectionPlan`, which `simulateCapture` appl
 ([quick start](QUICK_START.md#generic-lens-catalogue-549)); `fast: true` (or `lens: { catalogue: { kind, fast: true } }`) takes its
 fast method (#568), a labeled approximation that blends the PSF over a field grid, for interactive captures.
 `calculateLateralColorFringe({ lensId, activeImagingArea, pixelPitchMicrometers, fieldPosition? })` gives the lens's lateral color as a
-fringe width: the blue-minus-red image displacement in µm and pixels at a field position (default the corner; #580). Equations, tables and the
+fringe width: the blue-minus-red image displacement in µm and pixels at a field position (default the corner; #580); its `channelDispersion` for
+the capture's own channels comes from `calculateCameraChannelResponse({ illuminant })` (#591, full quality: a 5 nm grid by default). Equations, tables and the
 chart measurements: [LENS_CATALOGUE.md](https://github.com/Photivra/photivra/blob/main/docs/LENS_CATALOGUE.md).
 
 ```ts
@@ -7861,6 +7893,27 @@ const print = await simulateCapture({
 console.log(print.scene.parameters.encoding, print.assumptions.some((a) => a.id === "scene.imagePlane")); // "srgb-8", true
 ```
 
+### Loading the full-quality code ahead of time (2.22, #594)
+
+The full-quality paths load on demand: a bundler that splits dynamic imports keeps their code out of the first load, and the
+first request that needs it fetches it: the CPU full-quality code (diffraction, the capture's AHD demosaic, `lens.defocus`
+bokeh shapes, cat's eye and large discs, lens projection and distortion, the display view's luminance tone curves,
+reconstruct and desaturation, `highlightMode: "reconstruct-neighbors"`), the opt-in features (`sensor.profile`,
+`illumination`, `motion.subject`) and the display view's GPU full-quality code (diffraction, AHD, defocus and image-plane
+prints with `prepareDisplayView(…, { gpu: "auto" | "require" })`). `prepareQualityPaths()` fetches all of it ahead of time,
+so that request does not wait. It is optional, changes no result, and is safe to call at any time: concurrent calls share one
+load, and later calls load nothing. If the code does not load, the promise rejects with `ImageKernelExecutionError` reason
+`quality-code-unavailable` and nothing is remembered; a GPU render in the meantime runs the CPU reference (the same full-quality
+result, slower) with `diagnostics.fast.execution.fallbackReason: "quality-code-unavailable"`, a CPU request whose code does not
+load fails with that error, and the next request tries again.
+
+```ts
+import { prepareQualityPaths } from "@photivra/engine";
+
+// For example when the user opens Export, where full-quality renders follow.
+await prepareQualityPaths().catch(() => undefined); // a failed preload is retried by the request that needs the code
+```
+
 **Representative light sources (2.22).** The engine's own [representative light sources](https://github.com/Photivra/photivra/blob/main/docs/LIGHT_SOURCES.md) are four relative spectra
 designed by Photivra: a tri-phosphor fluorescent tube and white LEDs of low and high color rendering at 4000 K and a warm one at
 2700 K, each "representative, not a named product". `createRepresentativeLightSourceIlluminant({ sourceId })` returns an
@@ -8009,14 +8062,13 @@ it: Vite builds workers as `iife` by default, so a worker that calls `prepareDis
 modules (`worker: { format: "es" }`, with `new Worker(url, { type: "module" })`) to keep it out. Measured sizes:
 [Bundle size](https://github.com/Photivra/photivra/blob/main/docs/DISPLAY_VIEW.md#bundle-size).
 
-#### Sharing AHD correction states between workers
+#### AHD correction states (deprecated in 2.22.0)
 
-With `output.demosaic: "ahd"`, low-signal display pixels read correction states that each realm (a page, a Web Worker)
-computes and keeps for itself. Two workers can split a part's states and exchange them instead of both computing all
-of them; the renders have the same bytes either way (see "AHD at low signal" in
-[DISPLAY_VIEW.md](https://github.com/Photivra/photivra/blob/main/docs/DISPLAY_VIEW.md#ahd-at-low-signal)). Import only
-states whose key a prepared view reported. The two handles below run in one script for the example; in an app each
-runs in its own worker, and the arrays travel with `postMessage(set, [set.gridKeys.buffer, set.values.buffer])`.
+From 2.10 to 2.21, low-signal AHD display pixels read correction states that workers could exchange. 2.22.0 removes the
+correction (a labelled approximation remains; see "AHD at low signal" in
+[DISPLAY_VIEW.md](https://github.com/Photivra/photivra/blob/main/docs/DISPLAY_VIEW.md#ahd-at-low-signal)), so there is nothing
+to exchange: workers render AHD views with no shared state. The exchange functions stay until 3.0.0 as checked no-ops;
+remove the calls.
 
 ```ts
 import { serializeDisplayViewCorrectionStates, bindDisplayViewCorrectionStates, prepareDisplayView, type SimulateCaptureOptions } from "@photivra/engine";
@@ -8024,19 +8076,13 @@ import { serializeDisplayViewCorrectionStates, bindDisplayViewCorrectionStates, 
 const request: SimulateCaptureOptions = { scene: { preset: "uniform", reflectance: 0.18 }, exposure: { iso: 1600, shutterSeconds: 1 / 2000 },
   sensor: { pixelPitchMicrometers: 1.4 }, output: { width: 200, height: 150, demosaic: "ahd" } };
 const part = { width: 20, height: 15, region: { x: 0, y: 0, width: 10, height: 8 } };
-// Each worker prepares the same request; the key says which states it reads.
-const workerA = await prepareDisplayView(request), workerB = await prepareDisplayView(request);
-console.log(workerA.correctionKey() === workerB.correctionKey());
-// Worker A finds the states the part needs (no image, no state computed) and gives half to each worker.
-const { gridKeys } = await workerA.collectCorrectionStates(part);
-const half = Math.ceil(gridKeys.length / 2);
-const fromA = await workerA.computeCorrectionStates(gridKeys.slice(0, half));
-const fromB = await workerB.computeCorrectionStates(gridKeys.slice(half));
-// Each worker imports the other's share (in one realm, as here, the second import adds nothing new).
-console.log(bindDisplayViewCorrectionStates([fromB]), bindDisplayViewCorrectionStates([fromA]));
-// Either worker now renders the part without computing a state; a new worker can start from an export.
-const view = await workerA.render(part);
-console.log(view.diagnostics.ahdCorrectedPixelCount, serializeDisplayViewCorrectionStates().map((set) => set.gridKeys.length));
+const prepared = await prepareDisplayView(request);
+// Deprecated: null, no grid keys, no states, nothing stored.
+console.log(prepared.correctionKey(), (await prepared.collectCorrectionStates(part)).gridKeys.length);
+console.log(serializeDisplayViewCorrectionStates().length, bindDisplayViewCorrectionStates([]));
+// The view itself needs none of them.
+const view = await prepared.render(part);
+console.log(view.diagnostics.ahdCorrectedPixelCount); // always 0 since 2.22.0
 ```
 
 ### Facade 2.0 options: output, demosaic, optics and motion
@@ -8239,3 +8285,39 @@ console.log(outOfFocus.limitingFactor); // "defocus"
 - Demosaicing, sharpening, noise and motion are not included.
 
 See [Physics Foundation](https://github.com/Photivra/photivra/blob/main/docs/PHYSICS_FOUNDATION.md#which-limits-detail-the-lens-or-the-sensor).
+
+## Content Credentials in exports (#165)
+
+`bindC2paManifestStore`, `calculateC2paDataHash` and `setC2paManifestStore` embed a C2PA Manifest Store in a JPEG, PNG or
+DNG export, hash the bytes the signature covers and write the signed store in place at the same length (C2PA 2.4 §10.4);
+`parseC2paManifestStore` finds a store already in a file, without verifying it. The application builds, signs and validates
+the manifest; the engine holds no keys and makes no network calls. Here a minimal one-IFD TIFF
+stands in for a DNG export, and the stores are only the C2PA framing around zero or one bytes, not real manifests:
+
+```ts
+import { bindC2paManifestStore, calculateC2paDataHash, parseC2paManifestStore, setC2paManifestStore } from '@photivra/engine';
+
+// A C2PA Manifest Store's outer framing (C2PA 2.4 §11.1.4.2) around `fill` bytes. A real store comes from the app's manifest builder.
+function framedStore(length: number, fill: number): Uint8Array {
+  const store = new Uint8Array(length).fill(fill), view = new DataView(store.buffer);
+  view.setUint32(0, length); store.set([0x6a, 0x75, 0x6d, 0x62], 4); // 'jumb' superbox
+  view.setUint32(8, 30); store.set([0x6a, 0x75, 0x6d, 0x64], 12); // 'jumd' description box
+  store.set([0x63, 0x32, 0x70, 0x61, 0, 0x11, 0, 0x10, 0x80, 0, 0, 0xaa, 0, 0x38, 0x9b, 0x71, 3, 0x63, 0x32, 0x70, 0x61, 0], 16); // C2PA UUID, label "c2pa"
+  view.setUint32(38, length - 38); store.set([0x6a, 0x75, 0x6d, 0x62], 42); // one child box filling the rest
+  return store;
+}
+const tiff = Uint8Array.of(0x49, 0x49, 42, 0, 8, 0, 0, 0, 1, 0, 0, 1, 4, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0);
+
+const bound = bindC2paManifestStore({ file: tiff, manifestStore: framedStore(1024, 0) });
+console.log(bound.binding.exclusions); // [{ start: 26, length: 4 }, { start: 40, length: 1024 }]: the entry's count field and the store
+const { hashHex } = await calculateC2paDataHash({ file: bound.bytes, exclusions: bound.binding.exclusions });
+// The app writes the exclusions and hashHex into its c2pa.hash.data assertion, signs, and builds the final store at 1,024 bytes.
+const signed = setC2paManifestStore({ file: bound.bytes, binding: bound.binding, manifestStore: framedStore(1024, 1) });
+const after = await calculateC2paDataHash({ file: signed, exclusions: bound.binding.exclusions });
+if (signed.length !== bound.bytes.length || after.hashHex !== hashHex) throw new Error('The signed file must keep its length and data hash');
+const found = parseC2paManifestStore({ file: signed }); // the store and the same binding, or null for a file without one
+if (found?.manifestStore[46] !== 1) throw new Error('The signed store must be found');
+```
+
+See [Content Credentials](https://github.com/Photivra/photivra/blob/main/docs/CONTENT_CREDENTIALS.md) for the byte layouts,
+the checks and what is still to be validated externally.

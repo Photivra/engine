@@ -70,10 +70,14 @@ export interface DisplayViewResult {
   sensor: SimulateCaptureSensorReport;
   /**
    * Work done: real pixels sampled, real-site expectations evaluated, scene queries, display pixels sampled in full (detail) or with
-   * a quarter of the samples per axis (uniform), display pixels whose value includes the AHD low-signal correction, and wall-clock
-   * milliseconds (diagnostic only; never affects the samples).
+   * a quarter of the samples per axis (uniform), and wall-clock milliseconds (diagnostic only; never affects the samples).
    */
-  diagnostics: { sampleCount: number; siteEvaluations: number; sceneLookups: number; detailPixelCount: number; uniformPixelCount: number; ahdCorrectedPixelCount: number;
+  diagnostics: { sampleCount: number; siteEvaluations: number; sceneLookups: number; detailPixelCount: number; uniformPixelCount: number;
+    /**
+     * Display pixels whose value included the AHD low-signal correction (2.10–2.21).
+     * @deprecated Since 2.22.0 the view has no such correction, and this is always 0. Removed in 3.0.0.
+     */
+    ahdCorrectedPixelCount: number;
     timingsMs: { view: number; total: number };
     /** #395: exact or fast, as requested and as run; 2.11 (#481): plus `execution`, where the render ran (see {@link DisplayViewFastReport}). */
     fast: DisplayViewFastReport;
@@ -144,7 +148,7 @@ a capture does. `motion.rotation` is a non-zero angular velocity; `sensor.tempor
 
 ```ts
 SIMULATE_CAPTURE_COST_OPTIONS = Object.freeze(["lens.pupilSampling", "lens.projection", "lens.distortion", "lens.vignetting", "lens.psf",
-  "lens.diffraction", "lens.defocus", "lens.catalogue", "sensor.antiAliasing", "sensor.pixelAperture.box", "sensor.temporalSampleCount", "motion.rotation", "motion.subject", "motion.shutter.rolling", "output.borderHandling.mirror", "output.region",
+  "lens.diffraction", "lens.defocus", "lens.catalogue", "sensor.antiAliasing", "sensor.pixelAperture.box", "sensor.temporalSampleCount", "sensor.spectralStepNanometers", "motion.rotation", "motion.subject", "motion.shutter.rolling", "output.borderHandling.mirror", "output.region",
   "output.whiteBalance.auto", "output.demosaic.ahd", "output.highlightMode.reconstruct", "output.colorEncoding.wide-gamut", "output.gamutMapping.perceptual",
   "output.diffractionCorrection", "output.sharpening", "output.lensCorrections", "output.format.jpeg", "output.format.png", "output.format.dng"] as const)
 ```
@@ -175,7 +179,8 @@ the record form with `fast` and is reported in `diagnostics.fast.applied` when i
 whether or not it has a fast method yet; one without runs exact and reports `false`.
 
 ```ts
-SIMULATE_CAPTURE_FAST_OPTIONS = Object.freeze(["lens.diffraction", "lens.catalogue", "sensor.antiAliasing", "sensor.pixelAperture.box", "output.demosaic.ahd", "motion.subject"] as const)
+SIMULATE_CAPTURE_FAST_OPTIONS = Object.freeze(["lens.diffraction", "lens.catalogue", "sensor.antiAliasing", "sensor.pixelAperture.box", "output.demosaic.ahd", "motion.subject",
+  "sensor.spectralStepNanometers"] as const)
 ```
 
 ## SIMULATE_CAPTURE_METERING_MODES
@@ -712,8 +717,12 @@ export interface SimulateCaptureOptions {
     toneCurve?: SdrToneCurve;
     /** Required by the luminance tone curves (see `SdrToneCurveParameters`). The facade does not make one up. */
     toneCurveParameters?: SdrToneCurveParameters;
-    /** Default "clip". */
-    highlightMode?: RawHighlightMode;
+    /**
+     * Default "clip". 2.22.0 (#602, opt-in): "reconstruct-neighbors" rebuilds clipped channels from color ratios of the unclipped
+     * pixels around each clipped region (an estimate; `src/color/neighbor-highlight-reconstruction.ts`): the ring's mean ratios
+     * (fast) or their harmonic interpolation inward (full). Whole-image, so not with `output.region`.
+     */
+    highlightMode?: SimulateCaptureHighlightMode;
     /**
      * Opt-in (#556) development exposure push in stops, −2 to +5 (`NATIVE_RAW_DEVELOPMENT_EXPOSURE_RANGE_STOPS`); default 0.
      * A linear gain 2^stops on the RAW after black subtraction and white normalization, before demosaic, white balance,
@@ -724,6 +733,14 @@ export interface SimulateCaptureOptions {
      * honour it. Reported in the assumption `output.exposureCompensationStops`. 0 or omitted: byte-identical to before.
      */
     exposureCompensationStops?: number;
+    /**
+     * #601 (2.22.0, opt-in): the sRGB rendering's gamut handling after the tone curve. "clip-components" (the default) clips
+     * each component to [0, 1]; "desaturate-to-luminance" moves a pixel whose largest component exceeds 1 toward the gray of its
+     * own luminance until that component is 1, keeping its luminance and hue (`desaturateToLuminance`, src/output/sdr-rendering.ts),
+     * instead of shifting bright saturated colors toward the secondaries. sRGB output only (not with a wide-gamut `colorEncoding`
+     * or `gamutMapping`). Reported in the assumption `output.gamutHandling`. Omitted: byte-identical to before.
+     */
+    gamutHandling?: SdrRenderingProfile["gamutHandling"] & ("clip-components" | "desaturate-to-luminance");
     /** Default "scene-illuminant". */
     whiteBalance?: SimulateCaptureWhiteBalance;
     /** JPEG constant quantization step 1-255 (not a manufacturer 'quality'). Default 1 (2.20.0; 2 before), the full-quality export. */

@@ -7,6 +7,9 @@
  * The design and its error analysis are in docs/DISPLAY_VIEW.md.
  */
 
+// Types only: the coupled rendering steps (#593, #601) are loaded on demand, when a view asks for them.
+import type { DisplayViewCoupledRendering, DisplayViewRenderingChoice } from "./display-view-rendering.js";
+import type { SdrToneCurveParameters } from "../output/sdr-rendering.js";
 import { ENGINE_API_VERSION } from "../core/version.js";
 import { resolvePortableColorTemperatureWhiteBalance } from "../color/white-balance.js";
 import { resolveCaptureColorModel } from "../color/capture-color.js";
@@ -16,13 +19,14 @@ import type { DisplayViewExpectedSignalInput } from "./expected-signal.js";
 import { resolveSensorReadoutRegime } from "../sensor/raw-readout.js";
 import { resolvePortableChartScene, type ChartScene } from "./chart-scenes.js";
 import { resolvePortableCaptureIlluminant, calculateIlluminantIrradianceScale } from "./scene-radiance.js";
-import { ahdCandidateKernels, computeDisplayViewCorrectionStates, createDisplayViewExpectedSignal, displayViewCorrectionKey, renderDisplayView, type DisplayViewChannelReadout,
-  type DisplayViewCorrectionSetup, type DisplayViewCorrectionStateKeys, type DisplayViewCorrectionStateSet, type DisplayViewExpectedSignal, type DisplayViewRenderResult, type DisplayViewSetup,
+import { ahdCandidateKernels, checkDeprecatedGridKeys, createDisplayViewExpectedSignal, renderDisplayView, type DisplayViewChannelReadout,
+  type DisplayViewCorrectionStateKeys, type DisplayViewCorrectionStateSet, type DisplayViewExpectedSignal, type DisplayViewRenderResult, type DisplayViewSetup,
   EXACT_AREA_MEAN_MAX_PIXELS } from "./display-view.js";
 import { runCapture, apertureNodeOffsets, bilinearPhaseProfiles, clockMs, fail, sceneIlluminantWhiteBalance, CAMERA_TO_XYZ, CHANNELS, DARK_CURRENT_ELECTRONS_PER_SECOND, FACADE_EVIDENCE,
   SIMULATE_CAPTURE_FACADE_VERSION, DISPLAY_VIEW_WITHOUT_VIEW, allowKeys, parseDisplayViewOption, type DisplayViewResult, type DisplayViewRunContext, type ParsedDisplayView,
   type SimulateCaptureAssumption, type SimulateCaptureOptions, type SimulateDisplayViewOptions } from "./simulate-capture.js";
 import { createHostYield } from "./host-yield.js";
+import { qualityKit } from "./on-demand-kits.js";
 import { createDefocusDiscSiteKernel } from "../optics/defocus-disc-kernel.js";
 import { cpuDisplayViewExecution, parsePrepareDisplayViewOptions, type DisplayViewExecution, type DisplayViewGpuRequest, type PrepareDisplayViewOptions } from "./display-view-gpu.js";
 import type { DisplayViewGpuSession } from "./display-view-gpu-session.js";
@@ -54,8 +58,7 @@ export interface PreparedDisplayViewRenderOptions {
  */
 export interface PreparedDisplayView {
   /**
-   * Renders a view of the prepared request. Renders may run concurrently; they share no state except read-only setup and the
-   * realm's AHD correction states, which never change a byte (docs/DISPLAY_VIEW.md, "AHD at low signal"). With `gpu: "auto"`
+   * Renders a view of the prepared request. Renders may run concurrently; they share no state except read-only setup. With `gpu: "auto"`
    * or `"require"` (#481) GPU renders of one prepared view run one at a time on its device, and `diagnostics.fast.execution`
    * says whether the GPU or the CPU reference rendered the view, and why.
    */
@@ -67,22 +70,21 @@ export interface PreparedDisplayView {
    */
   dispose(): void;
   /**
-   * 2.10 (#447): the key of this request's AHD low-signal correction states, or null when the request has no AHD
-   * (`output.demosaic` other than "ahd"). Every input of the key is fixed when the request is prepared; two prepared views
-   * with the same key read the same states.
+   * 2.10 (#447), deprecated in 2.22.0: was the key of this request's AHD low-signal correction states. The view has no such
+   * states since 2.22.0 (docs/DISPLAY_VIEW.md, "AHD at low signal"), so this returns null for every request.
+   * @deprecated Since 2.22.0: always null. Removed in 3.0.0.
    */
   correctionKey(): string | null;
   /**
-   * 2.10 (#447): the grid keys of every correction state a render of `view` reads (ascending, whether or not this realm holds
-   * them), found by a render of the view's region that records the states instead of computing them. No image is returned;
-   * it costs about one render whose states are all held. Fails with an InvalidConfigurationError when the request has no AHD.
+   * 2.10 (#447), deprecated in 2.22.0: was the grid keys of the correction states a render of `view` read. Since 2.22.0 it checks
+   * `view` as `render` does and returns `{ key: "", gridKeys }` with no grid keys, for every request; it renders nothing.
+   * @deprecated Since 2.22.0: returns no grid keys. Removed in 3.0.0.
    */
   collectCorrectionStates(view: SimulateDisplayViewOptions, renderOptions?: PreparedDisplayViewRenderOptions): Promise<DisplayViewCorrectionStateKeys>;
   /**
-   * 2.10 (#447): computes the correction states of `gridKeys` (from `collectCorrectionStates`, or a share of them) as a render
-   * would, stores them in this realm's cache and returns their values, for {@link bindDisplayViewCorrectionStates} in
-   * another realm. States this realm holds are read, not computed. Yields and honours `signal` like `render`. Fails with an
-   * InvalidConfigurationError when the request has no AHD or a grid key is out of range.
+   * 2.10 (#447), deprecated in 2.22.0: computed correction states. Since 2.22.0 it checks that `gridKeys` is an Int32Array of
+   * grid keys (integers in [0, 97³)) and returns `{ key: "", gridKeys, values }` with no states, for every request; it computes nothing.
+   * @deprecated Since 2.22.0: returns no states. Removed in 3.0.0.
    */
   computeCorrectionStates(gridKeys: Int32Array, renderOptions?: PreparedDisplayViewRenderOptions): Promise<DisplayViewCorrectionStateSet>;
 }
@@ -108,7 +110,7 @@ export async function prepareDisplayView(options: SimulateCaptureOptions, prepar
   let frameWidth = 0, frameHeight = 0;
   const prepared = await runCapture(options, "display-view", DISPLAY_VIEW_WITHOUT_VIEW, (context) => {
     frameWidth = context.width; frameHeight = context.height;
-    return Promise.resolve(prepareView(context));
+    return prepareView(context);
   }) as PreparedViewParts;
   // The GPU code is loaded only when a GPU mode asks for it, so bundles on the default stay without it.
   const session: DisplayViewGpuSession | null = gpuOptions.gpu === "off" ? null :
@@ -122,8 +124,6 @@ export async function prepareDisplayView(options: SimulateCaptureOptions, prepar
     checkAbort();
     return { started, viewStarted, checkAbort, yieldControl: createHostYield().yieldControl, signal };
   };
-  const correctionOf = (caller: string): DisplayViewCorrectionSetup => prepared.correction ??
-    fail(caller + ": the prepared request has no AHD low-signal correction (it applies with output.demosaic \"ahd\").");
   const handle: PreparedDisplayView = Object.freeze({
     async render(view: SimulateDisplayViewOptions, renderOptions?: PreparedDisplayViewRenderOptions): Promise<DisplayViewResult> {
       const run = runOf(renderOptions);
@@ -131,15 +131,21 @@ export async function prepareDisplayView(options: SimulateCaptureOptions, prepar
       return await prepared.render(parsed, run, undefined, session);
     },
     dispose(): void { session?.dispose(); },
-    correctionKey(): string | null { return prepared.correction ? displayViewCorrectionKey(prepared.correction) : null; },
-    async collectCorrectionStates(view: SimulateDisplayViewOptions, renderOptions?: PreparedDisplayViewRenderOptions): Promise<DisplayViewCorrectionStateKeys> {
-      const run = runOf(renderOptions), correction = correctionOf("collectCorrectionStates");
-      const parsed = parseDisplayViewOption(view, frameWidth, frameHeight);
-      return { key: displayViewCorrectionKey(correction)!, gridKeys: await prepared.collect(parsed, run) };
+    // Deprecated since 2.22.0 (no correction states); kept until 3.0.0.
+    correctionKey(): string | null { return null; },
+    collectCorrectionStates(view: SimulateDisplayViewOptions, renderOptions?: PreparedDisplayViewRenderOptions): Promise<DisplayViewCorrectionStateKeys> {
+      try {
+        runOf(renderOptions);
+        parseDisplayViewOption(view, frameWidth, frameHeight);
+        return Promise.resolve({ key: "", gridKeys: new Int32Array(0) });
+      } catch (error) { return Promise.reject(error as Error); }
     },
-    async computeCorrectionStates(gridKeys: Int32Array, renderOptions?: PreparedDisplayViewRenderOptions): Promise<DisplayViewCorrectionStateSet> {
-      const run = runOf(renderOptions), correction = correctionOf("computeCorrectionStates");
-      return await computeDisplayViewCorrectionStates({ ...correction, yieldControl: run.yieldControl, checkAbort: run.checkAbort }, gridKeys);
+    computeCorrectionStates(gridKeys: Int32Array, renderOptions?: PreparedDisplayViewRenderOptions): Promise<DisplayViewCorrectionStateSet> {
+      try {
+        runOf(renderOptions);
+        checkDeprecatedGridKeys(gridKeys, "computeCorrectionStates");
+        return Promise.resolve({ key: "", gridKeys: new Int32Array(0), values: new Float64Array(0) });
+      } catch (error) { return Promise.reject(error as Error); }
     }
   });
   PREPARED_INTERNALS.set(handle, async (view, renderOptions) => {
@@ -175,11 +181,10 @@ export async function simulateDisplayViewWithInternals(options: SimulateCaptureO
 }
 
 /**
- * AHD low-signal correction (display view): draws per flat-neighbourhood state, and the pixel noise (linear light) above which it
- * applies. 2.20.0: 2048 draws are its fast method (`output.demosaic.ahd`, the view's default); exact takes 4× the draws (half
- * the states' common offset) at the same threshold (owner decision 2026-11-09).
+ * 2.22.0: the measured shift of the AHD view's expected colour that the removed low-signal correction used to cancel, in 8-bit
+ * codes (mean over a centred 32 × 32 block, f/8; see docs/DISPLAY_VIEW.md, "AHD at low signal"), reported in `view.demosaic`.
  */
-const DISPLAY_VIEW_AHD_CORRECTION_DRAWS = [8192, 2048], DISPLAY_VIEW_AHD_CORRECTION_THRESHOLD = 0.01;
+const AHD_LOW_SIGNAL_BIAS_CODES = { phone1p4umIso6400Red: -4, fullFrame6umIso6400MaxAbs: 0.3, appRequest6umIso400MaxAbs: 0.01 } as const;
 
 type ViewInternals = { value?: DisplayViewRenderResult; signal?: DisplayViewExpectedSignal;
   /** #478: the render's setup and the expected signal's input, for the GPU display view's tests. */
@@ -187,14 +192,9 @@ type ViewInternals = { value?: DisplayViewRenderResult; signal?: DisplayViewExpe
 /** What one render of a prepared view needs from its call: its start times, cancellation and yielding. */
 interface ViewRun { started: number; viewStarted: number; checkAbort: () => void; yieldControl: () => Promise<void>; signal?: AbortSignal | undefined }
 type RenderPreparedView = (view: ParsedDisplayView, run: ViewRun, viewInternals?: ViewInternals, gpu?: DisplayViewGpuSession | null) => Promise<DisplayViewResult>;
-/**
- * A prepared request: its render, its collect pass (#447: the grid keys of the correction states a view's region reads) and
- * the inputs of its correction states (undefined without AHD).
- */
+/** A prepared request: its render. */
 interface PreparedViewParts {
   render: RenderPreparedView;
-  collect(view: ParsedDisplayView, run: ViewRun): Promise<Int32Array>;
-  correction: DisplayViewCorrectionSetup | undefined;
   /** #481: what a GPU renderer is asked to support. */
   gpuRequest: DisplayViewGpuRequest;
 }
@@ -202,7 +202,7 @@ interface PreparedViewParts {
 /** Renders the display view of a resolved request (the last step of `runCapture` for "display-view"). */
 async function renderDisplayViewResult(context: DisplayViewRunContext, viewInternals?: ViewInternals): Promise<DisplayViewResult> {
   const viewStarted = clockMs();
-  return await prepareView(context).render(context.parsedView!, { started: context.started, viewStarted, checkAbort: context.checkAbort, yieldControl: context.yieldControl }, viewInternals);
+  return await (await prepareView(context)).render(context.parsedView!, { started: context.started, viewStarted, checkAbort: context.checkAbort, yieldControl: context.yieldControl }, viewInternals);
 }
 
 /**
@@ -211,7 +211,7 @@ async function renderDisplayViewResult(context: DisplayViewRunContext, viewInter
  * matrix). The returned function renders one view from it; it keeps no state between renders (each has its own expected-
  * signal caches, lookup count and assumptions), so its results are those of separate calls.
  */
-function prepareView(context: DisplayViewRunContext): PreparedViewParts {
+async function prepareView(context: DisplayViewRunContext): Promise<PreparedViewParts> {
   const { ahd, antiAliasing, aspect, axisChannelResponse, boxSamples, buildProvider, callerScene, chart, materialLayers, chartReport, chartSize, diffraction, diffractionPsf, fNumber, focalLengthMm, focusDistanceM, height, highlightMode, exposureGain, illuminanceLux, illuminant, illuminantOption, imagingArea, intentOf, metresPerFrameUnit, noiseSeed, outputOptions, pitch, preset, provider, regimeByChannel, resolvedIso, isoReport, standardExposureDeviationStops, standardExposureIlluminanceLux, greyCardDeviationStops, metering, sceneOption, scenePreset, shutterSeconds, subjectDistanceM, toneCurve, whiteBalanceOption, whiteBalanceState, width, margin, mode, nativeHeight, nativeWidth, sourceSha256 } = context;
   const kelvinInput = context.kelvinWhiteBalanceInput;
   // The engine's illuminant formulas (Planckian, CIE A, daylight locus) evaluated with the portable power and e^x − 1, so
@@ -264,40 +264,38 @@ function prepareView(context: DisplayViewRunContext): PreparedViewParts {
   for (const phase of phases) demosaicTable[phase.phaseY * 2 + phase.phaseX] = CHANNELS.map((c) => phase.profile.kernels.find((k) => k.outputChannelId === c)!.contributions
     .map((t) => ({ dx: t.offsetX, dy: t.offsetY, weight: t.weight })));
   const viewIntent = intentOf(viewWhiteBalanceState), viewGains = viewIntent ? [viewIntent.channelGains.red, viewIntent.channelGains.green, viewIntent.channelGains.blue] : null;
-  const colour = prepareSensorColorDevelopment(CAMERA_TO_XYZ as unknown as Parameters<typeof prepareSensorColorDevelopment>[0], viewGains, highlightMode);
+  const colour = prepareSensorColorDevelopment(CAMERA_TO_XYZ as unknown as Parameters<typeof prepareSensorColorDevelopment>[0], viewGains, highlightMode === "reconstruct-neighbors" ? "clip" : highlightMode);
   const toSrgb = resolveCaptureColorModel().xyzToCameraRgb, m = colour.cameraToXyz;
   const matrix = [0, 1, 2].map((r) => [0, 1, 2].map((c) => toSrgb[r]![0]! * m[0]![c]! + toSrgb[r]![1]! * m[1]![c]! + toSrgb[r]![2]! * m[2]![c]!));
   // Reach of a footprint's pixels into the scene, in sites: the demosaic (1), the largest query offset and the kernel radius.
   const reachSites = (ahd ? 3 : 1) + Math.ceil(Math.max(0, ...offsets.map((o) => Math.max(Math.abs(o.x), Math.abs(o.y))))) + (kernels ? kernels.radius : 0) + (largeDefocus ? largeDefocus.radius : 0);
-  // The inputs of the AHD correction states (fixed here, so the correction key is too; #447).
-  const gains = colour.appliedGains as [number, number, number], clipLevel = Math.min(...colour.appliedGains), viewToneCurve = toneCurve as "identity" | "positive-reinhard-per-channel";
-  const ahdFast = +context.viewFast.ahd, correctionDraws = DISPLAY_VIEW_AHD_CORRECTION_DRAWS[ahdFast]!, correctionThreshold = DISPLAY_VIEW_AHD_CORRECTION_THRESHOLD;
-  const ahdCorrection = ahd ? { labMatrix: CAMERA_TO_XYZ.map((row) => row.map((value, c) => value * (viewGains ? viewGains[c]! : 1))), drawsPerState: correctionDraws,
-    thresholdVariance: correctionThreshold * correctionThreshold } : undefined;
+  const gains = colour.appliedGains as [number, number, number], clipLevel = Math.min(...colour.appliedGains), viewToneCurve = toneCurve;
+  // #593, #601: the coupled rendering steps (luminance curves, reconstruct, desaturation), with the fast rules when the request is fast.
+  const coupledRendering = toneCurve === "extended-reinhard-luminance" || toneCurve === "naka-rushton-luminance" || highlightMode === "reconstruct" || highlightMode === "reconstruct-neighbors" || context.gamutHandling === "desaturate-to-luminance";
+  const rendering: DisplayViewRenderingChoice | undefined = coupledRendering ? { toneCurve, ...(outputOptions.toneCurveParameters === undefined ? {} : { toneCurveParameters: outputOptions.toneCurveParameters as SdrToneCurveParameters }),
+    highlightMode, gamutHandling: context.gamutHandling, fast: context.viewFast.rendering } : undefined;
+  // The coupled steps' module is loaded only for a view that asks for them (the Quality kit, #594; the default path never imports it).
+  const coupled: DisplayViewCoupledRendering | undefined = rendering ? (await qualityKit.load()).createDisplayViewCoupledRendering(rendering, colour.appliedGains, Math.min(...colour.appliedGains), matrix)! : undefined;
+  // #457: AHD's homogeneity metric (the profile's camera → XYZ matrix times the white-balance gains) for its choice on the noise-free mosaic.
+  const ahdChoice = ahd ? { labMatrix: CAMERA_TO_XYZ.map((row) => row.map((value, c) => value * (viewGains ? viewGains[c]! : 1))) } : undefined;
   // 2.20.0: a quarter of the samples per axis where the pilot finds no detail is the view's fast sampling; exact samples every pixel fully.
   const uniformSamplesOf = (k: number): number => context.viewFast.uniformSampling ? Math.max(1, Math.round(k / 4)) : k;
   const ahdCandidates = ahd ? [0, 1, 2, 3].map((p) => ahdCandidateKernels(p % 2, Math.floor(p / 2))) : undefined;
   // #491: a fixed-size chart's placement for the GPU material lookup (the provider's chart-local units cu = u·m/h and the surround beyond the chart).
   const placement = chartSize ? { chartUnitsPerFrameUnit: metresPerFrameUnit / (chartSize.widthM / 2), aspect: chartSize.heightM / chartSize.widthM } : null;
-  /** The renderer's setup of one view (with `ahdCollect`, a collect pass), and its expected signal. */
-  const setupOf = (v: ParsedDisplayView, { checkAbort, yieldControl }: ViewRun, ahdCollect?: Set<number>): { setup: DisplayViewSetup; signal: DisplayViewExpectedSignal } => {
+  /** The renderer's setup of one view, and its expected signal. */
+  const setupOf = (v: ParsedDisplayView, { checkAbort, yieldControl }: ViewRun): { setup: DisplayViewSetup; signal: DisplayViewExpectedSignal } => {
     const viewRegion = v.region ?? { x: 0, y: 0, width: v.width, height: v.height };
     // The native columns the region's windows span, beyond one window's width: a filled band need not be wider (a speed hint).
     // #563: through the lens (projection, distortion, vignetting, rotation) when the request has them.
     const signal = (context.lens ?? createDisplayViewExpectedSignal)(signalInput, Math.ceil((viewRegion.width + 2) * nativeWidth / v.width));
     return { signal, setup: { frameWidth: width, frameHeight: height, margin, nativeWidth, nativeHeight, viewWidth: v.width, viewHeight: v.height,
       region: viewRegion, samplesPerAxis: v.samplesPerAxis, uniformSamplesPerAxis: uniformSamplesOf(v.samplesPerAxis), reachSites, bitDepth: v.bitDepth, seed: noiseSeed, signal, readout, demosaic: demosaicTable,
-      ...(ahdCandidates && ahdCorrection ? { candidates: ahdCandidates, ahdCorrection } : {}), ...(ahdCollect ? { ahdCollect } : {}),
-      gains, clipLevel, matrix, toneCurve: viewToneCurve, yieldControl, checkAbort, gpu: { signalInput, chart: viewChart ?? null, layers: materialLayers ?? null, placement, ...(defocusKernel && !largeDefocus ? { defocusRadius: defocusKernel.radius } : {}) } } };
-  };
-  const correction: DisplayViewCorrectionSetup | undefined = ahdCorrection ? { seed: noiseSeed, readout, gains, clipLevel, matrix, toneCurve: viewToneCurve, ahdCorrection } : undefined;
-  const collect = async (v: ParsedDisplayView, run: ViewRun): Promise<Int32Array> => {
-    const keys = new Set<number>();
-    await renderDisplayView(setupOf(v, run, keys).setup);
-    return Int32Array.from(keys).sort();
+      ...(ahdCandidates && ahdChoice ? { candidates: ahdCandidates, ahdChoice } : {}),
+      gains, clipLevel, matrix, toneCurve: viewToneCurve, ...(rendering ? { rendering, coupled: coupled! } : {}), yieldControl, checkAbort, gpu: { signalInput, chart: viewChart ?? null, layers: materialLayers ?? null, placement, ...(defocusKernel && !largeDefocus ? { defocusRadius: defocusKernel.radius } : {}) } } };
   };
   // #492: out of focus the view reads the defocus disc (its kernel in signalInput.kernels); the GPU Quality site pass gathers it (step 2c).
-  const gpuRequest: DisplayViewGpuRequest = { ahd, lens: !!context.lens, ...(viewMixed ? { mixedIllumination: true } : {}), defocus: defocusKernel !== null, ...(largeDefocus ? { largeDefocus: true } : {}), diffraction: diffraction !== undefined, antiAliasing: antiAliasing !== undefined, boxSamples, toneCurve: viewToneCurve,
+  const gpuRequest: DisplayViewGpuRequest = { ahd, lens: !!context.lens, ...(viewMixed ? { mixedIllumination: true } : {}), defocus: defocusKernel !== null, ...(largeDefocus ? { largeDefocus: true } : {}), diffraction: diffraction !== undefined, antiAliasing: antiAliasing !== undefined, boxSamples, toneCurve: viewToneCurve, ...(highlightMode === "reconstruct" || highlightMode === "reconstruct-neighbors" || context.gamutHandling === "desaturate-to-luminance" ? { coupled: true } : {}),
     scene: chart ? "chart" : materialLayers ? "material-layers" : callerScene!.kind };
   const render: RenderPreparedView = async (v, run, viewInternals, gpu) => {
     const { started, viewStarted } = run;
@@ -335,13 +333,12 @@ function prepareView(context: DisplayViewRunContext): PreparedViewParts {
       "Noise of the mean of the real pixels: the covariance of the weighted sum of independent site noises (shot, dark, read and ADC), with the demosaic correlation (B_c = Σ β², in closed form from the rectangle) and the " +
       "expected slopes of the clips and the tone curve (Stein's lemma); the variance the linearization misses and the real pixels' output rounding are added per pixel. One correlated normal draw per display pixel, seeded " +
       "by sensor.noiseSeed: the same statistics as the resized capture, not the same realization.");
-    assume("view.demosaic", "model", ahd ? { capture: "ahd", view: "ahd-candidates-with-low-signal-correction", correctedPixels: rendered.ahdCorrectedPixelCount,
-      correctionDrawsPerState: correctionDraws, correctionThresholdLinearStd: correctionThreshold } : { capture: "bilinear", view: "bilinear" },
+    assume("view.demosaic", "model", ahd ? { capture: "ahd", view: "ahd-candidates-with-noise-free-choice", lowSignalNoiseChoice: "not-modelled", scientificStatus: "approximation",
+      measuredBias8BitCodes: AHD_LOW_SIGNAL_BIAS_CODES } : { capture: "bilinear", view: "bilinear" },
       ahd ? "AHD is non-linear only in its choice between two linear candidates (green along the rows or the columns, red and blue from colour differences). The view propagates both candidates' exact linear statistics " +
-        "and averages them. Where a sampled pixel's noise exceeds " + correctionThreshold + " (linear light), the choice reacts to the noise and shifts the colour, so the pixel adds the mean " +
-        "difference between the engine's AHD steps and the two candidates on " + correctionDraws + " drawn noisy flat neighbourhoods (Poisson electrons plus read and ADC noise) with its channel means, " +
-        "computed once per state of a logarithmic grid (8 steps per octave of the channel means) and interpolated trilinearly, a control variate with no per-pixel sampling noise; " +
-        "the flat-neighbourhood state is an approximation at edges (docs/DISPLAY_VIEW.md, validation)." :
+        "and averages them, or takes the candidate AHD chooses on the noise-free mosaic where the scene decides the choice. An approximation: at a few electrons per site the capture's choice also reacts to the noise " +
+        "and shifts its colour, which the view does not model (2.22.0). Measured on a centred 32 × 32 block at f/8: a 1.4 µm sensor at ISO 6400 has its red about 4 8-bit codes above the capture's on average " +
+        "(up to about 7 codes in a pixel), a 6 µm sensor at ISO 6400 at most 0.3 code, and the app's 6 µm ISO 400 request at most 0.01 code (docs/DISPLAY_VIEW.md, \"AHD at low signal\")." :
         "The bilinear demosaic's linear kernels, exactly.");
     if (defocusKernel) {
       assume("view.defocus", "model", { kernel: shaped ? (diffraction ? "diffraction-convolved-with-shaped-kernel" : "shaped-kernel") : diffraction ? "diffraction-convolved-with-disc" : "disc", defocusKernelRadiusSites: defocusKernel.radius,
@@ -361,6 +358,14 @@ function prepareView(context: DisplayViewRunContext): PreparedViewParts {
         "Estimated on the GPU: this view was rendered by the WebGPU float32 display-view renderer, a labelled approximation of the float64 CPU reference within the a-priori " +
         "error bound reported in diagnostics.fast.execution.errorBound; it is not bit-identical to the reference. The device passed the engine's run-time conformance check first.");
     }
+    if (rendering) assume("view.rendering", "model", { toneCurve, highlightMode, gamutHandling: rendering.gamutHandling, method: "coupled-moments",
+      luminanceTone: rendering.toneCurve === "extended-reinhard-luminance" || rendering.toneCurve === "naka-rushton-luminance" ? (rendering.fast ? "gauss-hermite-8-in-luminance-else-gauss-legendre-4x16" : "gauss-legendre-4x16-in-luminance") : null,
+      chainPointsPerAxis: coupled!.chainPoints, fast: rendering.fast, scientificStatus: rendering.fast ? "approximation" : "exact-in-the-limit" },
+      "The rendering steps that couple a pixel's components act on its normal camera-channel distribution: a luminance tone curve by conditioning each developed component on the luminance " +
+      "(closed-form clipped-normal moments for each luminance, integrated over it" + (rendering.fast ? " with an 8-point Gauss–Hermite rule where the luminance stays positive" : " with a composite 4 × 16-point Gauss–Legendre rule") + "); " +
+      "highlightMode \"reconstruct\" and the desaturation, where a pixel reaches them, by integrating the whole development chain over its camera channels with a " +
+      coupled!.chainPoints + "-point-per-axis Gauss–Hermite rule (docs/DISPLAY_VIEW.md, \"Coupled rendering\"). " +
+      (rendering.fast ? "The fast rules (the request resolves to fast) are a bounded approximation of the full ones." : "The full rules converge to the exact moments of the view's normal model."));
     assume("view.source", "model", { rendering: "srgb", format: v.format, ignoredCaptureOutput: ["format", "colorEncoding", "bitDepth", "gamutMapping", "jpegQuantizationStep", "dng", "metadata", "maximumPixels"].filter((k) => outputOptions[k] !== undefined) },
       "The view shows the capture's sRGB rendering (its tone curve, white balance and highlight mode); the capture's file-format options do not apply to it.");
     return Object.freeze({ kind: "display-view" as const, label: "Display view: the full-resolution capture resized to " + v.width + " × " + v.height + " (estimated); not a capture.",
@@ -373,7 +378,7 @@ function prepareView(context: DisplayViewRunContext): PreparedViewParts {
         illuminant: { id: illuminant.id, description: illuminant.description, illuminanceLux }, distanceM: subjectDistanceM,
         framedWidthM: 2 * metresPerFrameUnit, framedHeightM: 2 * metresPerFrameUnit * aspect, ...(chartReport ? { chart: chartReport } : {}), sourceSha256 },
       diagnostics: { sampleCount: rendered.sampleCount, siteEvaluations: rendered.siteCount, sceneLookups: signal.lookups, detailPixelCount: rendered.detailPixelCount,
-        uniformPixelCount: rendered.uniformPixelCount, ahdCorrectedPixelCount: rendered.ahdCorrectedPixelCount, timingsMs: { view: viewMs, total: Date.now() - started },
+        uniformPixelCount: rendered.uniformPixelCount, ahdCorrectedPixelCount: 0, timingsMs: { view: viewMs, total: Date.now() - started },
         fast: Object.freeze({ ...context.fastReport, assurance: execution.backend === "webgpu-f32" ? "approximation-with-a-priori-bound" as const : context.fastReport.assurance, execution }),
         highlight: Object.freeze({ saturatedPixelCount: rendered.saturatedPixelCount, statistic: "expected-value" as const }) },
       provenance: { scientificStatus: "approximation" as const, cameraPresetId: preset.presetId, cameraPresetVersion: preset.presetVersion, evidence: [...FACADE_EVIDENCE, ...preset.evidence],
@@ -382,5 +387,5 @@ function prepareView(context: DisplayViewRunContext): PreparedViewParts {
         limitations: ["Estimated display view of the full-resolution capture: its expected value is a stratified Monte Carlo estimate and its noise is drawn from the variance of the area mean, so it has the resized capture's statistics, not its exact pixels; not a capture and not a measurement."] },
       assumptions: Object.freeze(assumptions.map((a) => Object.freeze(a))) });
   };
-  return { render, collect, correction, gpuRequest };
+  return { render, gpuRequest };
 }

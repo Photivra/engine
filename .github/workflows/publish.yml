@@ -16,7 +16,7 @@ permissions:
 
 # The whole suite under coverage no longer fits one job: 2.11.0's single-job coverage gate
 # was still running when the 25-minute limit cancelled it (run 40636849817, 2026-10-28), so
-# 2.11.0 never reached npm. Coverage now runs as six parallel shards, balanced as in ci.yml
+# 2.11.0 never reached npm. Coverage now runs as eight parallel shards (six in 2.21.0), balanced as in ci.yml
 # (test/helpers/weighted-shard-sequencer.ts), beside `verify`; `coverage gate` merges them and
 # enforces the thresholds of vitest.config.ts on the whole suite. `publish` needs both: the
 # package is published only from a tree that passed every gate, as before (#510).
@@ -153,16 +153,17 @@ jobs:
     # blob report; no shard checks thresholds on its own (vitest.config.ts). When ci.yml's
     # `verify (lts/*)` passed the whole suite under coverage on this exact tree and this exact
     # Node.js release (#510), the shard skips that repeat; any other case runs it.
-    name: coverage shard (${{ matrix.shard }}/6)
+    name: coverage shard (${{ matrix.shard }}/8)
     runs-on: ubuntu-latest
     # CI's shards took 7 to 13.5 minutes each before they were balanced by time.
     timeout-minutes: 25
     strategy:
       fail-fast: false
       matrix:
-        # Six since 2.21.0 (four before): the suite grew about 28 % (CI test legs 2,612 -> 3,350 s), and three of four
-        # coverage shards reached the 20-minute limit on that release's pull request (#596).
-        shard: [1, 2, 3, 4, 5, 6]
+        # Eight since 2.22.0 (owner decision; six since 2.21.0, four before): on 2.22.0's pull request (#606) single files
+        # took 9-15 minutes under coverage and one or two of six shards reached the 20-minute limit on every run. Six since
+        # 2.21.0: the suite grew about 28 % (CI test legs 2,612 -> 3,350 s) and three of four shards reached the limit (#596).
+        shard: [1, 2, 3, 4, 5, 6, 7, 8]
     outputs:
       proven: ${{ steps.proof.outputs.found }}
     steps:
@@ -189,18 +190,18 @@ jobs:
         run: npm ci --ignore-scripts
       - name: Tests with coverage, this quarter
         if: steps.proof.outputs.found != 'true'
-        run: npx vitest run --coverage --shard=${{ matrix.shard }}/6 --reporter=blob --outputFile=.vitest-reports/blob-${{ matrix.shard }}-6.json
+        run: npx vitest run --coverage --shard=${{ matrix.shard }}/8 --reporter=blob --outputFile=.vitest-reports/blob-${{ matrix.shard }}-8.json
       - name: Keep the blob report for the merge
         if: steps.proof.outputs.found != 'true'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: coverage-blob-${{ matrix.shard }}
-          path: .vitest-reports/blob-${{ matrix.shard }}-6.json
+          path: .vitest-reports/blob-${{ matrix.shard }}-8.json
           if-no-files-found: error
           retention-days: 1
 
   coverage:
-    # The coverage gate: all six shards merged, thresholds enforced on the whole suite. A
+    # The coverage gate: all eight shards merged, thresholds enforced on the whole suite. A
     # skipped or failed shard fails it.
     name: coverage gate
     needs: coverage-shard
@@ -219,17 +220,17 @@ jobs:
       - name: Install
         if: needs.coverage-shard.outputs.proven != 'true'
         run: npm ci --ignore-scripts
-      - name: Download the six coverage parts
+      - name: Download the eight coverage parts
         if: needs.coverage-shard.outputs.proven != 'true'
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           pattern: coverage-blob-*
           merge-multiple: true
           path: .vitest-reports
-      - name: Coverage gate (all six parts merged, thresholds enforced)
+      - name: Coverage gate (all eight parts merged, thresholds enforced)
         if: needs.coverage-shard.outputs.proven != 'true'
         run: |
-          test "$(find .vitest-reports -maxdepth 1 -name 'blob-*-6.json' | wc -l)" = "6"
+          test "$(find .vitest-reports -maxdepth 1 -name 'blob-*-8.json' | wc -l)" = "8"
           npx vitest --merge-reports .vitest-reports --coverage
 
   publish:

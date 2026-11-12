@@ -55,3 +55,17 @@ export const IMAGE_PLANE_GPU_QUALITY_CASES: [string, SimulateCaptureOptions, Sim
   defocused("defocus of the plane, 24 MP 6 µm f/2.8 focus 0.8×, Speed route (bilinear)", 2.8, 0.8, false),
   defocused("defocus with diffraction, four-spot filter and AHD, 24 MP 6 µm f/8 focus 0.8×, nearest pixel", 8, 0.8, true, { interpolation: "nearest" })
 ];
+
+const DAY = { kind: "planckian" as const, temperatureKelvin: 6500 }, LAMP = { kind: "cie-a" as const };
+/** #597: mixed lighting over the print: Speed requests (no site kernels) and diffraction (kernels), each against the CPU reference. */
+const LIGHTS: [string, NonNullable<SimulateCaptureOptions["illumination"]>][] = [
+  ["a daylight-to-lamp gradient", { sources: [{ illuminant: DAY, illuminanceLux: 8000 }, { illuminant: LAMP, illuminanceLux: 3000 }], blend: { kind: "linear-gradient", from: { u: -0.5, v: 0 }, to: { u: 0.5, v: 0.2 } } }],
+  ["a radial blend of three sources with a hard edge", { sources: [{ illuminant: DAY, illuminanceLux: 8000 }, { illuminant: LAMP, illuminanceLux: 3000 }, { illuminant: DAY, illuminanceLux: 500 }],
+    blend: { kind: "radial", radius: 0.7, stops: [0, 0.5, 0.5] } }],
+  ["regions and a point source 10 mm above the print", { sources: [{ illuminant: DAY, illuminanceLux: 8000 }, { illuminant: LAMP, illuminanceLux: 3000 }],
+    blend: { kind: "regions", regions: [{ source: 1, uMin: -0.3, uMax: 0.4, vMin: -0.2, vMax: 0.3 }], outsideSource: 0 },
+    points: [{ illuminant: LAMP, position: { xM: 0.005, yM: -0.003, heightM: 0.01 }, intensity: { illuminanceLux: 20000, distanceM: 0.01 } }] }]
+];
+export const IMAGE_PLANE_GPU_LIT_CASES: [string, SimulateCaptureOptions, SimulateDisplayViewOptions][] = LIGHTS.flatMap(([name, illumination]) => [
+  [name + ", Speed request", { ...IMAGE_PLANE_GPU_CASES[0]![1], illumination }, view] as [string, SimulateCaptureOptions, SimulateDisplayViewOptions],
+  [name + ", diffraction", { ...IMAGE_PLANE_GPU_CASES[0]![1], lens: { ...lens, diffraction: "circular-aperture" }, illumination }, view] as [string, SimulateCaptureOptions, SimulateDisplayViewOptions]]);

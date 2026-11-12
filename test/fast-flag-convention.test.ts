@@ -26,8 +26,12 @@ const request = (extra: Options): SimulateCaptureOptions => {
   }
   return out as unknown as SimulateCaptureOptions;
 };
-/** Each fast-capable option: the shorthand that turns it on, and its record form with `fast`. */
-const FORMS: Record<SimulateCaptureFastOption, { shorthand: Options; record: (fast: boolean) => Options }> = {
+/** #590: options the top-level `fast` alone sets (no option record), tested on their own below. */
+const TOP_LEVEL_ONLY: readonly SimulateCaptureFastOption[] = ["sensor.spectralStepNanometers"];
+type RecordOption = Exclude<SimulateCaptureFastOption, "sensor.spectralStepNanometers">;
+const RECORD_OPTIONS = SIMULATE_CAPTURE_FAST_OPTIONS.filter((option): option is RecordOption => !TOP_LEVEL_ONLY.includes(option));
+/** Each fast-capable option with a record: the shorthand that turns it on, and its record form with `fast`. */
+const FORMS: Record<RecordOption, { shorthand: Options; record: (fast: boolean) => Options }> = {
   "lens.diffraction": { shorthand: { lens: { diffraction: "circular-aperture" } }, record: (fast) => ({ lens: { diffraction: { kind: "circular-aperture", fast } } }) },
   "lens.catalogue": { shorthand: { lens: { catalogue: "pv-50-1.8", fNumber: 8 } }, record: (fast) => ({ lens: { catalogue: { kind: "pv-50-1.8", fast }, fNumber: 8 } }) },
   "sensor.antiAliasing": { shorthand: { sensor: { antiAliasing: { kind: "four-spot" } } }, record: (fast) => ({ sensor: { antiAliasing: { kind: "four-spot", fast } } }) },
@@ -43,7 +47,7 @@ describe("exact-or-fast flag convention (#395)", () => {
     expect(new Set(SIMULATE_CAPTURE_FAST_OPTIONS).size).toBe(SIMULATE_CAPTURE_FAST_OPTIONS.length);
     for (const option of SIMULATE_CAPTURE_FAST_OPTIONS) expect(SIMULATE_CAPTURE_COST_OPTIONS as readonly string[]).toContain(option);
     // A new fast-capable option must add its forms above, so the checks below cover it.
-    expect(Object.keys(FORMS).sort()).toEqual([...SIMULATE_CAPTURE_FAST_OPTIONS].sort());
+    expect(Object.keys(FORMS).sort()).toEqual([...RECORD_OPTIONS].sort());
   });
 
   it("reports exact and nothing requested with fast: false, and the format's default without it (2.20.0)", async () => {
@@ -57,7 +61,7 @@ describe("exact-or-fast flag convention (#395)", () => {
   });
 
   it("accepts the top-level flag and each option's record flag, runs exact unless the option has a fast method, and reports what ran", async () => {
-    for (const option of SIMULATE_CAPTURE_FAST_OPTIONS) {
+    for (const option of RECORD_OPTIONS) {
       const form = FORMS[option], hasFast = WITH_FAST_METHOD.includes(option);
       const exact = await simulateCapture(request(form.shorthand));
       expect(exact.diagnostics.fast).toEqual({ requested: false, defaultedFrom: "request", applied: { [option]: false }, assurance: "engine-reference" });
@@ -77,13 +81,13 @@ describe("exact-or-fast flag convention (#395)", () => {
       output: { demosaic: { kind: "ahd" } }, fast: true });
     const result = await simulateCapture(all);
     // motion.subject (#551) has its own cases above; it would multiply this request's scene queries by its temporal midpoints.
-    expect(Object.keys(result.diagnostics.fast.applied)).toEqual(SIMULATE_CAPTURE_FAST_OPTIONS.filter((option) => option !== "lens.catalogue" && option !== "motion.subject"));
+    expect(Object.keys(result.diagnostics.fast.applied)).toEqual(RECORD_OPTIONS.filter((option) => option !== "lens.catalogue" && option !== "motion.subject"));
     expect(Object.values(result.diagnostics.fast.applied).every((value) => value === false)).toBe(true);
     // With anti-aliasing (off the site centres) the catalogue's fast method does not apply, so it reports false.
     // An 8 × 8 region at an 80 nm spectral step keeps the exact catalogue quadrature (every tap a scene query) affordable on CI runners.
     const catalogue = await simulateCapture(request({ lens: { catalogue: "pv-50-1.8", fNumber: 8 }, sensor: { pixelPitchMicrometers: 750, spectralStepNanometers: 80, antiAliasing: { kind: "four-spot" }, pixelAperture: "box" },
       output: { demosaic: { kind: "ahd" }, region: { x: 0, y: 0, width: 8, height: 8 } }, fast: true }));
-    expect(Object.keys(catalogue.diagnostics.fast.applied)).toEqual(SIMULATE_CAPTURE_FAST_OPTIONS.filter((option) => option !== "lens.diffraction" && option !== "motion.subject"));
+    expect(Object.keys(catalogue.diagnostics.fast.applied)).toEqual(RECORD_OPTIONS.filter((option) => option !== "lens.diffraction" && option !== "motion.subject"));
     expect(Object.values(catalogue.diagnostics.fast.applied).every((value) => value === false)).toBe(true);
   }, scaledTimeout(120_000));
 
@@ -96,7 +100,7 @@ describe("exact-or-fast flag convention (#395)", () => {
 
   it("refuses a fast value that is not a Boolean", async () => {
     await expect(simulateCapture(request({ fast: "yes" }))).rejects.toThrow("fast must be true or false");
-    for (const option of SIMULATE_CAPTURE_FAST_OPTIONS) {
+    for (const option of RECORD_OPTIONS) {
       const record = FORMS[option].record(true);
       const [group, values] = Object.entries(record)[0] as [string, Record<string, Record<string, unknown>>];
       const [key, value] = Object.entries(values)[0]!;

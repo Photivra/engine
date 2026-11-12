@@ -440,6 +440,8 @@ interface ToneUniform { mode: number; tone: [number, number, number, number]; lu
  * @internal
  */
 export function toneUniform(profile: Pick<SdrRenderingProfile, "toneCurve" | "toneCurveParameters">): ToneUniform {
+  // #601: the hue-preserving desaturation has no float32 kernel; the accelerator's fallback policy runs the CPU reference.
+  if ((profile as Partial<SdrRenderingProfile>).gamutHandling === "desaturate-to-luminance") throw new ImageKernelExecutionError("unsupported-on-backend", "webgpu-f32 does not implement gamutHandling desaturate-to-luminance; use cpu-reference.");
   const [kr, kg, kb] = resolveCaptureColorModel().cameraRgbToXyz[1]! as readonly number[];
   const p = profile.toneCurveParameters;
   if (profile.toneCurve === "identity" || profile.toneCurve === "positive-reinhard-per-channel") {

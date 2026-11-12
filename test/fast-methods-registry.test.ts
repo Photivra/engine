@@ -5,6 +5,8 @@ import { SIMULATE_CAPTURE_FAST_OPTIONS, prepareDisplayView, serializeSimulatedCa
 import { SIMULATE_CAPTURE_FAST_METHODS } from "../src/facade/fast-methods.js";
 import { fastFormatDefault, resolveFast } from "../src/facade/fast-resolution.js";
 import { scaledTimeout } from "./helpers/test-timeout.js";
+import { createFakeGpu } from "./helpers/fake-webgpu.js";
+import { compareDisplayViews, displayViewGpuFixture, renderOnGpu, runtimeOf } from "./helpers/display-view-gpu-fixture.js";
 
 /*
  * 2.20.0 (owner): the speed-versus-accuracy rule is enforced, not only followed. Every choice is in the registry
@@ -95,14 +97,15 @@ describe("the fast-method registry (2.20.0)", () => {
     expect((await serializeSimulatedCaptureDngFromParts({ ...options, fast: true }, flagged)).bytes).toEqual(exactBytes);
   }, scaledTimeout(60_000));
 
-  it("gives the display view's AHD low-signal correction an exact method (H3)", async () => {
+  it("gives the display view's AHD no fast method (2.22.0: the low-signal correction, H3's fast method, was removed)", async () => {
     const options: SimulateCaptureOptions = { scene: { preset: "uniform" }, output: { width: 16, height: 12, demosaic: "ahd" }, sensor: { spectralStepNanometers: 100 } };
     const value = (r: { assumptions: readonly { id: string; value: unknown }[] }): unknown => r.assumptions.find((a) => a.id === "view.demosaic")!.value;
     const fast = await simulateDisplayView(options, { width: 4, height: 3 }), exact = await simulateDisplayView({ ...options, fast: false }, { width: 4, height: 3 });
-    expect(value(fast)).toMatchObject({ correctionDrawsPerState: 2048, correctionThresholdLinearStd: 0.01 });
-    expect(value(exact)).toMatchObject({ correctionDrawsPerState: 8192, correctionThresholdLinearStd: 0.01 });
-    expect(fast.diagnostics.fast).toMatchObject({ applied: { "output.demosaic.ahd": true }, assurance: "approximation-with-a-priori-bound" });
+    expect(value(fast)).toMatchObject({ view: "ahd-candidates-with-noise-free-choice", scientificStatus: "approximation" });
+    expect(value(exact)).toEqual(value(fast));
+    expect(fast.diagnostics.fast).toMatchObject({ applied: { "output.demosaic.ahd": false }, assurance: "engine-reference" });
     expect(exact.diagnostics.fast).toMatchObject({ applied: { "output.demosaic.ahd": false }, assurance: "engine-reference" });
+    expect(SIMULATE_CAPTURE_FAST_METHODS.some((e) => e.id === "output.demosaic.ahd/view-low-signal-correction")).toBe(false);
   }, scaledTimeout(60_000));
 
   it("gives the display view's sampling of uniform pixels an exact method (H2)", async () => {
@@ -114,6 +117,27 @@ describe("the fast-method registry (2.20.0)", () => {
     expect(value(exact)).toMatchObject({ samplesPerAxis: 8, uniformSamplesPerAxis: 8 });
     expect(exact.diagnostics.sampleCount).toBeGreaterThan(fast.diagnostics.sampleCount);
   }, scaledTimeout(60_000));
+
+  it("gives a print under mixed lighting a GPU (fast) and a CPU (exact) method (#597)", async () => {
+    const { prepareImagePlaneScenes } = await import("../src/index.js"), { createFakeGpu } = await import("./helpers/fake-webgpu.js");
+    const { registerDisplayViewGpuRenderer } = await import("../src/gpu/display-view-gpu-renderer.js"), { setDisplayViewGpuRendererFactory } = await import("../src/facade/display-view-gpu.js");
+    await prepareImagePlaneScenes();
+    const data = Uint8Array.from({ length: 8 * 6 * 3 }, (_, i) => (i * 37) % 256);
+    const options: SimulateCaptureOptions = { scene: { kind: "image-plane", sceneId: "p", image: { width: 8, height: 6, channels: 3, encoding: "srgb-8", data } }, output: { width: 24, height: 16 },
+      sensor: { spectralStepNanometers: 100 }, illumination: { sources: [{ illuminant: { kind: "cie-a" }, illuminanceLux: 3000 }, { illuminant: { kind: "planckian", temperatureKelvin: 6500 }, illuminanceLux: 9000 }],
+        blend: { kind: "linear-gradient", from: { u: -0.5, v: 0 }, to: { u: 0.5, v: 0 } } } };
+    const previous = registerDisplayViewGpuRenderer();
+    try {
+      // The fast default is gpu "auto" (checked above); here with a device to run on. Exact (fast: false) is gpu "off".
+      const fast = await prepareDisplayView(options, { gpu: "auto", gpuDevice: createFakeGpu().gpu }), exact = await prepareDisplayView({ ...options, fast: false });
+      try {
+        const a = await fast.render({ width: 12, height: 8 }), b = await exact.render({ width: 12, height: 8 });
+        expect(a.diagnostics.fast.execution).toMatchObject({ gpu: "auto", backend: "webgpu-f32", fallbackReason: null });
+        expect(b.diagnostics.fast.execution).toMatchObject({ gpu: "off", backend: "cpu-reference" });
+        for (let i = 0; i < a.image.samples.length; i++) expect(Math.abs(a.image.samples[i]! - b.image.samples[i]!)).toBeLessThanOrEqual(1);
+      } finally { fast.dispose(); exact.dispose(); }
+    } finally { setDisplayViewGpuRendererFactory(previous); }
+  }, scaledTimeout(120_000));
 
   it("gives the display view's catalogue PSF zones an exact method, one site per zone (H1)", async () => {
     const options: SimulateCaptureOptions = { scene: { preset: "uniform" }, output: { width: 66, height: 44 }, lens: { catalogue: "pv-50-1.8" },
@@ -127,4 +151,20 @@ describe("the fast-method registry (2.20.0)", () => {
     expect(zones(exact)).toBe(1);
     expect(exact.diagnostics.fast.applied).toMatchObject({ "lens.catalogue": false });
   }, scaledTimeout(60_000));
+
+  it("gives the display view's luminance tone moments a full rule on the CPU and on the GPU (#593)", async () => {
+    const options: SimulateCaptureOptions = { scene: { preset: "step-wedge", steps: 11 }, exposure: { mode: "manual", iso: 1600, shutterSeconds: 1 / 250 }, sensor: { spectralStepNanometers: 100 },
+      output: { width: 48, height: 32, toneCurve: "naka-rushton-luminance", toneCurveParameters: { exponent: 1.5, semiSaturation: 0.5009, whiteLuminance: 8 } } };
+    const runtime = await runtimeOf(createFakeGpu().gpu), expected: Float64Array[] = [];
+    for (const fast of [true, false]) {
+      const fixture = await displayViewGpuFixture({ ...options, fast }, { width: 24, height: 16 });
+      expect(fixture.input.setup.rendering).toMatchObject({ fast });
+      const gpu = await renderOnGpu(runtime, fixture), agreement = compareDisplayViews(fixture.cpu, gpu);
+      expect(gpu.execution.backend).toBe("webgpu-f32");
+      expect({ fast, ratio: agreement.largestExpectedRatio, outside: agreement.outsideExpectedBound, dE: agreement.deltaEMaximum }).toMatchObject({ outside: 0 });
+      expected.push(gpu.expected);
+    }
+    // The two rules give different (bounded) expected values.
+    expect(Array.from(expected[0]!)).not.toEqual(Array.from(expected[1]!));
+  }, scaledTimeout(120_000));
 });

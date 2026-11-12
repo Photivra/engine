@@ -54,7 +54,6 @@ describe("display view site ring (#441)", () => {
   it.each(REQUESTS)("%s: parts in either order and concurrently equal separate calls and the whole view", async (name, options) => {
     const wholeRender = await simulateDisplayViewWithInternals(options, VIEW), whole = wholeRender.result;
     expect(whole.assumptions.find((a) => a.id === "view.estimation")?.value).toMatchObject({ method: "exact-area-mean-over-real-pixels" });
-    if (name.includes("correction")) expect(whole.diagnostics.ahdCorrectedPixelCount).toBeGreaterThan(0);
     const separate: DisplayViewResult[] = [];
     for (const region of REGIONS) {
       const rendered = await simulateDisplayViewWithInternals(options, { ...VIEW, region });

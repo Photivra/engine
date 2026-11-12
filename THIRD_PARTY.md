@@ -14,10 +14,19 @@ This file records direct development and CI dependencies intentionally used by t
 | Vitest | 5.0.1 | Unit/integration testing | MIT |
 | @vitest/coverage-v8 | 5.0.1 | V8-backed test coverage | MIT |
 | rolldown | 1.2.9 | Bundling test of capture-only consumers (`test/capture-bundle.test.ts`) | MIT |
+| jxl-oxide-wasm | 0.12.6 | JPEG XL tile decoding in the phone DNG import tests (`test/dng-import-phone.test.ts`); see [JPEG XL](#jpeg-xl-2220) | MIT OR Apache-2.0 |
 | actions/checkout | v7 / `3d3c42e5aac5ba805825da76410c181273ba90b1` | CI checkout | MIT |
 | actions/setup-node | v7 / `820762786026740c76f36085b0efc47a31fe5020` | CI Node setup | MIT |
 | actions/upload-artifact | v7.0.1 / `043fb46d1a93c77aae656e7c1c64a875d1fc6a0a` | Verified release artifact transfer | MIT |
 | actions/download-artifact | v8.0.1 / `3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c` | Verified release artifact retrieval | MIT |
+
+## JPEG XL (2.22.0)
+
+DNG 1.7 phone files may store their raw data as JPEG XL (Compression 52546; #598). The owner chose the jxl-oxide decoder (owner, 2026-11-10), as its prebuilt WebAssembly package from npm, `jxl-oxide-wasm` 0.12.6 (<https://github.com/tirr-c/jxl-oxide>), dual-licensed MIT OR Apache-2.0. **Chosen licence: Apache-2.0** (owner-accepted 2026-11-11, with the licence check's rule that an SPDX `OR` expression passes when one choice is allowed). It is a **devDependency only**: the published package declares no runtime dependency and does not import it. `createJxlOxideDngDecoder` takes the module the application loaded (structurally typed), so an application that opens JPEG XL DNGs installs and lazily loads jxl-oxide-wasm itself, and its licence then applies to that application. No jxl-oxide source is vendored or copied. `scripts/check-license-policy.mjs` accepts an SPDX `OR` expression when one of its choices is on the allowlist (here Apache-2.0 and MIT both are).
+
+Patents (rule 2; not legal advice): JPEG XL is ISO/IEC 18181. At the 2026-11-10 research (#598), royalty-free patent declarations on JPEG XL had been filed by Google and Cloudinary only; Google's patent grant text covers its own implementations (libjxl, jxl-rs), not jxl-oxide. The owner accepted jxl-oxide on that basis (2026-11-10). The engine itself contains no JPEG XL coding: its tests carry a small test-only lossless encoder (`test/helpers/phone-dng-fixtures.ts`, written from ISO/IEC 18181-1:2022, modular mode with the zero predictor and prefix codes) to build fixtures, never shipped.
+
+The 2.22.0 DNG opcode, ProfileGainTableMap and RGBTables readers (`src/capture/dng-opcodes.ts`, `dng-profile-maps.ts`) were written from the DNG specification's tag descriptions; because the 1.7.1.0 PDF could not be downloaded (HTTP 403), their byte layouts and evaluation order were only checked by reading the Adobe DNG SDK 1.7.1 source. No code was copied from the DNG SDK (layouts and behaviour checked only; the engine's code is written independently); the PDF check is pending with the owner; the Adobe DNG notice in `NOTICE` covers the DNG technology.
 
 Node built-in modules are used only by development tooling and the repository-local POC API; that API is excluded from the published package and the built-ins are not third-party dependencies.
 
@@ -26,6 +35,8 @@ Node built-in modules are used only by development tooling and the repository-lo
 `hypot3` in `src/core/portable-math.ts` independently implements the operation sequence of V8's three-argument `Math.hypot` (`MathHypot` and `FastMathHypot` in V8's `src/builtins/math.tq`; V8 is distributed under a BSD-style licence): a maximum, a normalisation and a Kahan-compensated sum, written as plain JavaScript arithmetic so the bits match V8's. No V8 source file is vendored or copied; the sequence is a method, and its equality with `Math.hypot` is checked by `test/portable-hypot3.test.ts`.
 
 `src/optics/longitudinal-chromatic-aberration.ts` uses three physical constants: the Fraunhofer d (helium, 587.5618 nm), F (hydrogen, 486.1327 nm) and C (hydrogen, 656.2725 nm) spectral-line wavelengths used to define the Abbe number (as tabulated in SCHOTT Technical Information TIE-29, *Refractive Index and Dispersion*, 2023, free; also the reference wavelengths of ISO 7944). They are factual measured constants of nature, not a copied dataset or table; no glass catalogue data is included and refractive index and Abbe number are caller inputs. The 2.0 projection, distortion, Zernike/Seidel, vignetting, polarizer and haze models are independent implementations of published equations cited in `docs/PHYSICS_FOUNDATION.md` and `docs/PSF_FOUNDATION.md`; they contain no third-party code or numeric tables.
+
+`src/capture/c2pa-embed.ts` (#165) is written from the C2PA Technical Specification 2.4 (free, published by the C2PA) and ISO 19566-5 box framing as that specification describes it. To produce the same JPEG and PNG bytes as the C2PA reference SDK, it uses interoperability facts read from c2pa-rs `sdk/src/asset_handlers/jpeg_io.rs` and `png_io.rs` (MIT OR Apache-2.0): the 64,000-byte split of the store across APP11 segments, the box instance number `En` = 0x0211 and the segments' place right after the last APP0 (or SOI); and the PNG `caBX` chunk's place right after IHDR with the whole chunk excluded. No c2pa-rs source is vendored or copied, and nothing is a runtime dependency. Checking a signed file with the C2PA reference validator is pending (docs/RELEASE_2_22_0.md, "Pending"); the engine signs nothing and makes no network request.
 
 This inventory does not replace a transitive dependency/SBOM review before a release. New runtime dependencies, scientific datasets, model weights, or calibration material require explicit provenance and license review.
 

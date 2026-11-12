@@ -2,11 +2,11 @@
 import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { InvalidConfigurationError, calculateEnvironmentSensorPhotoSignal, createPlanarSceneRadianceProvider, serializeDisplayViewCorrectionStates, bindDisplayViewCorrectionStates,
-  prepareDisplayView, simulateCapture, simulateDisplayView, SIMULATE_DISPLAY_VIEW_DEFAULT_SAMPLES_PER_AXIS, type CalculateEnvironmentSensorPhotoSignalInput, type DisplayViewCorrectionStateSet,
+  prepareDisplayView, simulateCapture, simulateDisplayView, SIMULATE_DISPLAY_VIEW_DEFAULT_SAMPLES_PER_AXIS, type CalculateEnvironmentSensorPhotoSignalInput,
   type SimulateCaptureOptions, type SimulateDisplayViewOptions } from "../src/index.js";
 import { simulateDisplayViewWithInternals } from "../src/facade/simulate-display-view.js";
 import { createDiffractedPlanarProvider } from "../src/facade/diffraction-provider.js";
-import { axisSums, clearDisplayViewCorrectionStates, displayViewCorrectionStateCount, footprintWeights, reinhardMoments, unitClip, upperClip } from "../src/facade/display-view.js";
+import { axisSums, footprintWeights, reinhardMoments, unitClip, upperClip } from "../src/facade/display-view.js";
 import { scaledTimeout as testTimeout } from "./helpers/test-timeout.js";
 import { hashLockOnThisArchitecture } from "./helpers/architecture-hash-locks.js";
 
@@ -14,7 +14,7 @@ import { hashLockOnThisArchitecture } from "./helpers/architecture-hash-locks.js
 // Node 24.19.0 and 24.22.1, macOS arm64 and Linux arm64). The Speed case without diffraction is the same on both.
 const ARM64_DISPLAY_VIEW_HASHES: Readonly<Record<string, string>> = {
   "fdb4a0cc334ab6a05658e3b94ee165131d724ec695f34273b070ff591d66cd87": "c93e6ffc9bcb0eadc463966a7832e4a5b11b9480d99e4d77ba5b020c7bace048",
-  "3773f078245079b1077e3fa6c326ee48f42770c232cf78a5a52f8161d01c2806": "30cec9b799d1f6769e773ce6749caee3bb0628188aaa2450a137d325e54449c9",
+  "d3158da77a683e55aa2a8a6d332f9ed1118e8338489e76570e1bfc2896bb990c": "c0658e117cb4f8b92497969bba538a94417f069f3ae46254d40cfc3bb176fd4b",
   "de8b8d2dec86f8f250caefe465ca4089e0f742b6dc91758ebd9ff99a9cc899eb": "74f1ae184a78231faf7c2c755710f862af976fe4201241b83f780264ac0ccda9",
   "992eec6e7a1d8d3ec4817baf703156c46f9dda4a8dd340624dac8d1b8f439b77": "c92d880f0fff487be141eba45bc103f28e404c3ca2282c9ee9e3bf93ce5d69c8",
   "8f0dac20f3c0272bbc18107d8d8fc328b33d96418e89e227e6c86f2b4e8894c5": "cc65fbe992dbbfdd521ecd9a77c6a64335eb4c75f2c4fa622778200911e8911c"
@@ -165,8 +165,10 @@ describe("simulateDisplayView", () => {
 
   it("matches the box-downsized capture at low signal with AHD, in clipped highlights and with a tone curve", async () => {
     const cases: [SimulateCaptureOptions, number][] = [
-      // About six electrons per site: AHD's noise-driven choice and the Poisson skew both matter here.
-      [{ scene: { preset: "uniform", reflectance: 0.18 }, exposure: { iso: 6400, shutterSeconds: 1 / 8000 }, sensor: { pixelPitchMicrometers: 1.4 }, output: { width: 192, height: 128, demosaic: "ahd" } }, 1],
+      // About six electrons per site: AHD's noise-driven choice and the Poisson skew both matter here. 2.22.0: the view no longer
+      // models the noise-driven choice (the low-signal correction was removed), so the red is about 4 codes off here (4.25
+      // measured; docs/DISPLAY_VIEW.md, "AHD at low signal"); the limit covers that labelled approximation.
+      [{ scene: { preset: "uniform", reflectance: 0.18 }, exposure: { iso: 6400, shutterSeconds: 1 / 8000 }, sensor: { pixelPitchMicrometers: 1.4 }, output: { width: 192, height: 128, demosaic: "ahd" } }, 5],
       // Two stops over on a light grey: the per-site clip at white and the highlight clip.
       [{ scene: { preset: "uniform", reflectance: 0.6 }, exposure: { shutterSeconds: 1 / 30 }, sensor: { pixelPitchMicrometers: 3 }, output: { width: 192, height: 128 } }, 0.3],
       [{ scene: { preset: "step-wedge" }, exposure: { iso: 3200, shutterSeconds: 1 / 4000 }, sensor: { pixelPitchMicrometers: 3 },
@@ -229,7 +231,10 @@ describe("simulateDisplayView", () => {
     // its hash). The samples are unchanged; the float64 expected values move by at most 9.5·10⁻¹⁵ relative and the noise standard
     // deviations by at most 2.1·10⁻¹³ (a neutral material's spectrum is integrated per site, and with kernels the taps are summed
     // per material and node). The x64 locks were taken with x64 Node 24.1.0 (under Rosetta 2), which reproduces every earlier x64 lock.
-    // Each case exercises one path: non-uniform and uniform diffraction sites, the AHD correction, spectral materials with
+    // Re-recorded for 2.22.0 (the AHD low-signal correction removed): the uniform AHD case (second) only, the one case where the
+    // correction applied (80 of 80 display pixels): its red expected value rises by 1.19 8-bit codes and green and blue fall by 0.18
+    // and 0.42 on average, and 133 of its 240 samples change. The other five keep their hashes (x64 Node 24.1.0 under Rosetta 2 and arm64).
+    // Each case exercises one path: non-uniform and uniform diffraction sites, AHD at low signal, spectral materials with
     // mirror borders, a radiance scene, AHD with a tone curve, and Speed. The display view's own arithmetic and its
     // illuminant use only correctly rounded operations and the engine's portable functions (src/core/portable-math.ts), so
     // these hashes are the same on Node 22.13, 22 LTS, 24 and 26 (V8 12, 13 and 14), which differ in the last bit of
@@ -244,7 +249,7 @@ describe("simulateDisplayView", () => {
       [{ scene: { preset: "siemens-star" }, lens: { fNumber: 8, diffraction: "circular-aperture" }, sensor: { pixelPitchMicrometers: 1.4, antiAliasing: { kind: "four-spot" } },
         output: { width: 400, height: 300 } }, { width: 20, height: 15 }, "fdb4a0cc334ab6a05658e3b94ee165131d724ec695f34273b070ff591d66cd87"],
       [{ scene: { preset: "uniform", reflectance: 0.18 }, lens: { fNumber: 8, diffraction: "circular-aperture" }, exposure: { iso: 1600, shutterSeconds: 1 / 2000 },
-        sensor: { pixelPitchMicrometers: 1.4 }, output: { width: 200, height: 150, demosaic: "ahd" } }, { width: 10, height: 8 }, "3773f078245079b1077e3fa6c326ee48f42770c232cf78a5a52f8161d01c2806"],
+        sensor: { pixelPitchMicrometers: 1.4 }, output: { width: 200, height: 150, demosaic: "ahd" } }, { width: 10, height: 8 }, "d3158da77a683e55aa2a8a6d332f9ed1118e8338489e76570e1bfc2896bb990c"],
       [{ scene: { preset: "patches", patches: [{ patchId: "a", reflectance: red }, { patchId: "b", reflectance: 0.5 }], columns: 2 }, chartSize: { widthM: 0.002, surroundReflectance: 0.3 },
         lens: { diffraction: "circular-aperture" }, sensor: { pixelPitchMicrometers: 2 }, output: { width: 60, height: 40, borderHandling: "mirror" } }, { width: 12, height: 8 },
       "de8b8d2dec86f8f250caefe465ca4089e0f742b6dc91758ebd9ff99a9cc899eb"],
@@ -272,171 +277,45 @@ describe("simulateDisplayView", () => {
     }
   }, testTimeout(120_000));
 
-  it("shares AHD correction states across calls without changing a byte", async () => {
-    const options: SimulateCaptureOptions = { scene: { preset: "uniform", reflectance: 0.18 }, exposure: { iso: 1600, shutterSeconds: 1 / 2000 }, sensor: { pixelPitchMicrometers: 1.4 },
-      output: { width: 200, height: 150, demosaic: "ahd" } };
-    clearDisplayViewCorrectionStates();
-    const cold = await simulateDisplayView(options, { width: 10, height: 8 }), states = displayViewCorrectionStateCount();
-    expect(cold.diagnostics.ahdCorrectedPixelCount).toBe(80);
-    expect(states).toBeGreaterThan(0);
-    const warm = await simulateDisplayView(options, { width: 10, height: 8 });
-    expect(displayViewCorrectionStateCount()).toBe(states);
-    expect(Array.from(warm.image.samples)).toEqual(Array.from(cold.image.samples));
-    const region = await simulateDisplayView(options, { width: 10, height: 8, region: { x: 3, y: 2, width: 4, height: 3 } });
-    for (let y = 0; y < 3; y++) for (let x = 0; x < 12; x++) expect(region.image.samples[y * 12 + x]).toBe(cold.image.samples[((y + 2) * 10 + 3) * 3 + x]);
-    // Another seed is another set of states.
-    await simulateDisplayView({ ...options, sensor: { ...options.sensor, noiseSeed: 9 } }, { width: 10, height: 8 });
-    expect(displayViewCorrectionStateCount()).toBeGreaterThan(states);
-    clearDisplayViewCorrectionStates();
-    expect(Array.from((await simulateDisplayView(options, { width: 10, height: 8 })).image.samples)).toEqual(Array.from(cold.image.samples));
-  }, testTimeout(60_000));
-
-  describe("AHD correction state exchange between realms (#447)", () => {
-    // Steps at low signal: the two neighbouring regions need 74 and 75 states, 32 of them common. A "realm" here is the
-    // module's cache between two clears, as a fresh Web Worker sees it.
+  it("keeps the deprecated correction-state API as checked no-ops (2.22.0: the AHD low-signal correction was removed)", async () => {
     const options: SimulateCaptureOptions = { scene: { preset: "step-wedge", steps: 6 }, exposure: { iso: 1600, shutterSeconds: 1 / 2000 }, sensor: { pixelPitchMicrometers: 1.4 },
       output: { width: 120, height: 80, demosaic: "ahd" } };
     const T: SimulateDisplayViewOptions = { width: 30, height: 20, region: { x: 6, y: 5, width: 6, height: 5 } };
-    const S: SimulateDisplayViewOptions = { width: 30, height: 20, region: { x: 10, y: 7, width: 6, height: 5 } };
-    /** SHA-256 of the samples, expected values, noise σ and the diagnostics without timings (the issue's comparison set). */
-    const digest = async (view: SimulateDisplayViewOptions): Promise<string> => {
-      const { result, internals } = await simulateDisplayViewWithInternals(options, view), hash = createHash("sha256");
-      const diagnostics: Partial<typeof result.diagnostics> = { ...result.diagnostics };
-      delete diagnostics.timingsMs;
-      for (const a of [result.image.samples, internals.expected, internals.noiseStd]) hash.update(new Uint8Array(a.buffer, a.byteOffset, a.byteLength));
-      hash.update(JSON.stringify(diagnostics));
-      hash.update(JSON.stringify(result.assumptions));
-      return hash.digest("hex");
-    };
-    /** One setup's states in reversed order (each state keeps its three values). */
-    const reversed = (set: DisplayViewCorrectionStateSet): DisplayViewCorrectionStateSet => {
-      const n = set.gridKeys.length, gridKeys = new Int32Array(n), values = new Float64Array(3 * n);
-      for (let i = 0; i < n; i++) { gridKeys[i] = set.gridKeys[n - 1 - i]!; values.set(set.values.subarray(3 * (n - 1 - i), 3 * (n - i)), 3 * i); }
-      return { key: set.key, gridKeys, values };
-    };
-    /** The values of each grid key, as their 64-bit patterns. */
-    const bitsByKey = (set: DisplayViewCorrectionStateSet): Map<number, string> => {
-      const bits = new BigUint64Array(set.values.buffer, set.values.byteOffset, set.values.length), out = new Map<number, string>();
-      for (let i = 0; i < set.gridKeys.length; i++) out.set(set.gridKeys[i]!, bits[3 * i] + "," + bits[3 * i + 1] + "," + bits[3 * i + 2]);
-      return out;
-    };
-    let coldT = "", exportT: DisplayViewCorrectionStateSet[] = [], exportS: DisplayViewCorrectionStateSet[] = [];
-
-    it("(1) a region rendered with a neighbour's states imported in reversed order has the cold bytes", async () => {
-      clearDisplayViewCorrectionStates();
-      coldT = await digest(T);
-      exportT = serializeDisplayViewCorrectionStates();
-      expect(exportT).toHaveLength(1);
-      expect(exportT[0]!.gridKeys.length).toBeGreaterThan(0);
-      expect(exportT[0]!.values.length).toBe(3 * exportT[0]!.gridKeys.length);
-      expect(exportT[0]!.key).toBe((await prepareDisplayView(options)).correctionKey());
-      clearDisplayViewCorrectionStates();
-      await digest(S);
-      exportS = serializeDisplayViewCorrectionStates();
-      clearDisplayViewCorrectionStates();
-      expect(bindDisplayViewCorrectionStates(exportS.map(reversed))).toBe(exportS[0]!.gridKeys.length);
-      expect(displayViewCorrectionStateCount()).toBe(exportS[0]!.gridKeys.length);
-      expect(await digest(T)).toBe(coldT);
-    }, testTimeout(120_000));
-
-    it("(2) the merged sets of two realms (overlaps skipped) give the cold bytes", async () => {
-      clearDisplayViewCorrectionStates();
-      const tKeys = new Set(exportT[0]!.gridKeys), onlyS = Array.from(exportS[0]!.gridKeys).filter((key) => !tKeys.has(key)).length;
-      expect(onlyS).toBeGreaterThan(0);
-      expect(bindDisplayViewCorrectionStates(exportT)).toBe(tKeys.size);
-      expect(bindDisplayViewCorrectionStates(exportS)).toBe(onlyS);
-      expect(bindDisplayViewCorrectionStates(exportS)).toBe(0);
-      expect(displayViewCorrectionStateCount()).toBe(tKeys.size + onlyS);
-      expect(await digest(T)).toBe(coldT);
-      // T read only imported states.
-      expect(displayViewCorrectionStateCount()).toBe(tKeys.size + onlyS);
-    }, testTimeout(60_000));
-
-    it("(3) collectCorrectionStates returns exactly the states a cold render computes", async () => {
-      const prepared = await prepareDisplayView(options);
-      clearDisplayViewCorrectionStates();
-      const collected = await prepared.collectCorrectionStates(T);
-      // The collect pass computes no state and leaves the cache untouched.
-      expect(displayViewCorrectionStateCount()).toBe(0);
-      expect(serializeDisplayViewCorrectionStates()).toEqual([]);
-      expect(collected.key).toBe(exportT[0]!.key);
-      expect(Array.from(collected.gridKeys)).toEqual(Array.from(exportT[0]!.gridKeys).sort((a, b) => a - b));
-      const computed = await prepared.computeCorrectionStates(collected.gridKeys);
-      expect(displayViewCorrectionStateCount()).toBe(exportT[0]!.gridKeys.length);
-      expect(computed.key).toBe(collected.key);
-      expect(Array.from(computed.gridKeys)).toEqual(Array.from(collected.gridKeys));
-      expect(bitsByKey(computed)).toEqual(bitsByKey(exportT[0]!));
-      // A second compute reads the held states.
-      expect(bitsByKey(await prepared.computeCorrectionStates(collected.gridKeys.subarray(0, 3)))).toEqual(new Map([...bitsByKey(computed)].slice(0, 3)));
-      expect(displayViewCorrectionStateCount()).toBe(exportT[0]!.gridKeys.length);
-      expect(await digest(T)).toBe(coldT);
-      expect(displayViewCorrectionStateCount()).toBe(exportT[0]!.gridKeys.length);
-      // A split: two halves computed in two "realms" and exchanged give the same bytes.
-      const half = collected.gridKeys.length >> 1;
-      clearDisplayViewCorrectionStates();
-      const first = await prepared.computeCorrectionStates(collected.gridKeys.slice(0, half));
-      clearDisplayViewCorrectionStates();
-      const second = await prepared.computeCorrectionStates(collected.gridKeys.slice(half));
-      expect(bindDisplayViewCorrectionStates([structuredClone(first)])).toBe(half);
-      expect(await digest(T)).toBe(coldT);
-      expect(displayViewCorrectionStateCount()).toBe(collected.gridKeys.length);
-      expect(second.gridKeys.length).toBe(collected.gridKeys.length - half);
-    }, testTimeout(120_000));
-
-    it("(4) states common to two realms are bitwise equal", () => {
-      const a = bitsByKey(exportT[0]!), b = bitsByKey(exportS[0]!);
-      let common = 0;
-      for (const [key, bits] of a) if (b.has(key)) { common++; expect(b.get(key), String(key)).toBe(bits); }
-      expect(common).toBeGreaterThan(0);
-    });
-
-    it("(5) import rejects malformed states with a domain error and leaves the cache unchanged", async () => {
-      clearDisplayViewCorrectionStates();
-      bindDisplayViewCorrectionStates(exportT);
-      const before = serializeDisplayViewCorrectionStates(), count = displayViewCorrectionStateCount(), key = exportT[0]!.key;
-      const good = { key: key + "x", gridKeys: Int32Array.of(5), values: Float64Array.of(0.1, 0.2, 0.3) };
-      const bad: unknown[] = [
-        { key, gridKeys: Int32Array.of(1, 2), values: Float64Array.of(0, 0, 0, 0, Number.NaN, 0) },
-        { key, gridKeys: Int32Array.of(1), values: Float64Array.of(0, Number.POSITIVE_INFINITY, 0) },
-        { key, gridKeys: Int32Array.of(1), values: Float64Array.of(0, 0, Number.NEGATIVE_INFINITY) },
-        { key, gridKeys: Int32Array.of(1, 2), values: Float64Array.of(0, 0, 0) },
-        { key, gridKeys: Int32Array.of(1), values: Float64Array.of(0, 0, 0, 0) },
-        { key, gridKeys: Int32Array.of(-1), values: Float64Array.of(0, 0, 0) },
-        { key, gridKeys: Int32Array.of(97 ** 3), values: Float64Array.of(0, 0, 0) },
-        { key, gridKeys: [1], values: Float64Array.of(0, 0, 0) },
-        { key, gridKeys: Int32Array.of(1), values: [0, 0, 0] },
-        { key, gridKeys: Float64Array.of(1), values: Float64Array.of(0, 0, 0) },
-        { key: "", gridKeys: Int32Array.of(1), values: Float64Array.of(0, 0, 0) },
-        { gridKeys: Int32Array.of(1), values: Float64Array.of(0, 0, 0) },
-        { key, gridKeys: Int32Array.of(1), values: Float64Array.of(0, 0, 0), extra: 1 },
-        null, 42
-      ];
-      for (const entry of bad) {
-        // The valid entry before the malformed one is not applied either.
-        expect(() => bindDisplayViewCorrectionStates([good, entry] as never), JSON.stringify(entry)).toThrow(InvalidConfigurationError);
-        expect(displayViewCorrectionStateCount()).toBe(count);
-      }
-      for (const entries of [undefined, null, {}, "x", 42]) expect(() => bindDisplayViewCorrectionStates(entries as never)).toThrow(InvalidConfigurationError);
-      expect(serializeDisplayViewCorrectionStates()).toEqual(before);
-      expect(bindDisplayViewCorrectionStates([])).toBe(0);
-      // The prepared view checks its grid keys and its request too.
-      const prepared = await prepareDisplayView(options);
-      for (const keys of [Int32Array.of(-1), Int32Array.of(97 ** 3), [1], Float64Array.of(1)])
-        await expect(prepared.computeCorrectionStates(keys as never)).rejects.toThrow(InvalidConfigurationError);
-      const aborted = new AbortController();
-      aborted.abort();
-      await expect(prepared.computeCorrectionStates(Int32Array.of(1), { signal: aborted.signal })).rejects.toThrow(InvalidConfigurationError);
-      await expect(prepared.collectCorrectionStates(T, { signal: aborted.signal })).rejects.toThrow(InvalidConfigurationError);
-      await expect(prepared.collectCorrectionStates({ width: 0, height: 4 })).rejects.toThrow(InvalidConfigurationError);
-      expect(serializeDisplayViewCorrectionStates()).toEqual(before);
-      const bilinear = await prepareDisplayView({ ...options, output: { width: 120, height: 80 } });
-      expect(bilinear.correctionKey()).toBeNull();
-      await expect(bilinear.collectCorrectionStates(T)).rejects.toThrow(InvalidConfigurationError);
-      await expect(bilinear.computeCorrectionStates(Int32Array.of(1))).rejects.toThrow(InvalidConfigurationError);
-      clearDisplayViewCorrectionStates();
-    }, testTimeout(60_000));
-    // (6): the hash locks above ("keeps its bytes") are unchanged by #447.
-  });
+    const prepared = await prepareDisplayView(options), before = await prepared.render(T);
+    expect(before.diagnostics.ahdCorrectedPixelCount).toBe(0);
+    expect(prepared.correctionKey()).toBeNull();
+    expect(await prepared.collectCorrectionStates(T)).toEqual({ key: "", gridKeys: new Int32Array(0) });
+    expect(await prepared.computeCorrectionStates(Int32Array.of(1, 2, 3))).toEqual({ key: "", gridKeys: new Int32Array(0), values: new Float64Array(0) });
+    expect(serializeDisplayViewCorrectionStates()).toEqual([]);
+    // Binding stores nothing and changes no byte.
+    const good = { key: "k", gridKeys: Int32Array.of(5), values: Float64Array.of(0.1, 0.2, 0.3) };
+    expect(bindDisplayViewCorrectionStates([good])).toBe(0);
+    expect(bindDisplayViewCorrectionStates([])).toBe(0);
+    expect(serializeDisplayViewCorrectionStates()).toEqual([]);
+    expect(Array.from((await prepared.render(T)).image.samples)).toEqual(Array.from(before.image.samples));
+    // The checks of 2.10 still apply.
+    const bad: unknown[] = [
+      { key: "k", gridKeys: Int32Array.of(1, 2), values: Float64Array.of(0, 0, 0, 0, Number.NaN, 0) },
+      { key: "k", gridKeys: Int32Array.of(1, 2), values: Float64Array.of(0, 0, 0) },
+      { key: "k", gridKeys: Int32Array.of(-1), values: Float64Array.of(0, 0, 0) },
+      { key: "k", gridKeys: Int32Array.of(97 ** 3), values: Float64Array.of(0, 0, 0) },
+      { key: "k", gridKeys: [1], values: Float64Array.of(0, 0, 0) },
+      { key: "k", gridKeys: Int32Array.of(1), values: [0, 0, 0] },
+      { key: "", gridKeys: Int32Array.of(1), values: Float64Array.of(0, 0, 0) },
+      { key: "k", gridKeys: Int32Array.of(1), values: Float64Array.of(0, 0, 0), extra: 1 },
+      null, 42
+    ];
+    for (const entry of bad) expect(() => bindDisplayViewCorrectionStates([good, entry] as never), JSON.stringify(entry)).toThrow(InvalidConfigurationError);
+    for (const entries of [undefined, null, {}, "x", 42]) expect(() => bindDisplayViewCorrectionStates(entries as never)).toThrow(InvalidConfigurationError);
+    for (const keys of [Int32Array.of(-1), Int32Array.of(97 ** 3), [1], Float64Array.of(1)])
+      await expect(prepared.computeCorrectionStates(keys as never)).rejects.toThrow(InvalidConfigurationError);
+    const aborted = new AbortController();
+    aborted.abort();
+    await expect(prepared.computeCorrectionStates(Int32Array.of(1), { signal: aborted.signal })).rejects.toThrow(InvalidConfigurationError);
+    await expect(prepared.collectCorrectionStates(T, { signal: aborted.signal })).rejects.toThrow(InvalidConfigurationError);
+    await expect(prepared.collectCorrectionStates({ width: 0, height: 4 })).rejects.toThrow(InvalidConfigurationError);
+    expect((await prepareDisplayView({ ...options, output: { width: 120, height: 80 } })).correctionKey()).toBeNull();
+  }, testTimeout(60_000));
 
   it("refuses views and capture options it cannot reproduce", async () => {
     const base: SimulateCaptureOptions = { scene: { preset: "uniform" }, output: { width: 16, height: 16 } };
@@ -446,8 +325,8 @@ describe("simulateDisplayView", () => {
     // #563: lens.projection, lens.distortion, lens.vignetting and camera rotation render (test/display-view-lens.test.ts), except rotation under a rolling shutter.
     for (const extra of [{ lens: { pupilSampling: { radialSamples: 1, angularSamples: 4 } } }, { motion: { angularVelocityRadPerSec: { yaw: 0.01 }, shutter: "rolling" } },
       { output: { width: 16, height: 16, region: { x: 0, y: 0, width: 4, height: 4 } } },
-      { output: { width: 16, height: 16, whiteBalance: "auto" } }, { output: { width: 16, height: 16, toneCurve: "extended-reinhard-luminance", toneCurveParameters: { whiteLuminance: 2 } } },
-      { output: { width: 16, height: 16, highlightMode: "reconstruct" } }] as Partial<SimulateCaptureOptions>[])
+      // #593 (2.22.0): luminance tone curves and highlightMode "reconstruct" render (test/display-view-coupled-rendering.test.ts).
+      { output: { width: 16, height: 16, whiteBalance: "auto" } }] as Partial<SimulateCaptureOptions>[])
       await expect(simulateDisplayView({ ...base, ...extra } as SimulateCaptureOptions, { width: 4, height: 4 })).rejects.toThrow(InvalidConfigurationError);
   });
 });

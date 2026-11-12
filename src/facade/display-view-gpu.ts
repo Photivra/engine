@@ -19,6 +19,7 @@ import { InvalidConfigurationError } from "../core/configuration-error.js";
 import type { ChartCompositeProbeRecord, ImageKernelAdapterDescription, ImageKernelBackend, ImageKernelExecution, ImageKernelFallbackReason } from "../gpu/image-kernel-execution.js";
 import type { DisplayViewRenderResult, DisplayViewSetup } from "./display-view.js";
 import type { SimulateCaptureFastReport } from "./simulate-capture.js";
+import type { SdrToneCurve } from "../output/sdr-rendering.js";
 
 /**
  * 2.11 (#481): whether a prepared display view may render on the GPU. `"off"` (the default) is the CPU reference, today's
@@ -64,9 +65,12 @@ export function parsePrepareDisplayViewOptions(value: unknown, fast = false): Pa
  * 2.11 (#481): why a display view that asked for the GPU (`gpu: "auto"`) ran the CPU reference. The accelerator's acquisition
  * reasons, plus: `unsupported-on-backend` (no GPU display-view renderer exists in this version, or it does not support the
  * request), `conformance-failed` (the device failed the run-time self-check before the view's first GPU render), `device-lost`
- * (the device was lost; the rest of the view runs on the CPU) and `disposed` (the prepared view was disposed).
+ * (the device was lost; the rest of the view runs on the CPU) and `disposed` (the prepared view was disposed). 2.22.0 (#594):
+ * `quality-code-unavailable` (the on-demand GPU full-quality code could not be loaded; that render runs the CPU reference, and
+ * the next render that needs the code tries to load it again).
  */
-export type DisplayViewGpuFallbackReason = ImageKernelFallbackReason | "unsupported-on-backend" | "conformance-failed" | "device-lost" | "disposed";
+export type DisplayViewGpuFallbackReason = ImageKernelFallbackReason | "unsupported-on-backend" | "conformance-failed" | "device-lost" | "disposed" |
+  "quality-code-unavailable";
 
 /** 2.11 (#481): the run-time conformance self-check of a device, run once before the view's first GPU render. */
 export interface DisplayViewGpuConformance {
@@ -139,7 +143,9 @@ export interface DisplayViewGpuRequest {
   antiAliasing: boolean;
   /** Pixel-aperture samples per axis (1: centre sampling). */
   boxSamples: number;
-  toneCurve: "identity" | "positive-reinhard-per-channel";
+  toneCurve: SdrToneCurve;
+  /** #593, #601: true with `highlightMode: "reconstruct"` or `gamutHandling: "desaturate-to-luminance"` (coupled rendering steps). */
+  coupled?: boolean;
   /**
    * #492: true when `lens.defocus` needs the defocus disc (out of focus): the expected signal then carries the disc, or each
    * node's diffraction kernel convolved with it, as site kernels (#492 step 2b), which the engine's renderer gathers in its
@@ -184,14 +190,17 @@ export interface DisplayViewGpuConformanceCase { id: string; run(runtime: Displa
  * for those two events, as the accelerator's operations do; a render that throws `unsupported-on-backend` (a request the
  * renderer finds it does not cover only when rendering) runs the CPU reference labelled with that reason, or fails with it under
  * `"require"`. `conformanceCases` are run after the built-in image-kernel cases before the device's first render; a failure keeps
- * the whole view on the CPU. `dispose` releases what the renderer holds on the device (#491: uploaded scene records); the session
- * calls it when the prepared view is disposed.
+ * the whole view on the CPU. #594: `onDemandConformanceCases` returns the cases a render needs beyond those (code the renderer
+ * loads on demand, such as the Quality kernels), or null; they run once, before the first render that returns them, and their
+ * ids are appended to the conformance record; a failure keeps that render and every later one on the CPU. `dispose` releases
+ * what the renderer holds on the device (#491: uploaded scene records); the session calls it when the prepared view is disposed.
  */
 export interface DisplayViewGpuRenderer {
   readonly id: string;
   supports(request: DisplayViewGpuRequest): true | string;
   render(part: DisplayViewGpuPart): Promise<DisplayViewGpuRenderOutput>;
   readonly conformanceCases?: readonly DisplayViewGpuConformanceCase[];
+  onDemandConformanceCases?(setup: DisplayViewSetup): Promise<readonly DisplayViewGpuConformanceCase[]> | null;
   dispose?(): void;
 }
 export type DisplayViewGpuRendererFactory = (runtime: DisplayViewGpuRuntimeHandle) => DisplayViewGpuRenderer;

@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 
-import { calculateEnvironmentSensorPhotoSignal, createPlanarSceneRadianceProvider, prepareDisplayView, serializeSimulatedCaptureDngFromParts, simulateCapture,
+import { calculateEnvironmentSensorPhotoSignal, createPlanarSceneRadianceProvider, prepareDisplayView, prepareQualityPaths, serializeSimulatedCaptureDngFromParts, simulateCapture,
   type SimulateCaptureDngPart, type SimulateCaptureOptions, type SimulateCaptureResult } from "../src/index.js";
 import { createDiffractedPlanarProvider } from "../src/facade/diffraction-provider.js";
 import { createDefocusImageSpaceProvider, prepareDefocusImageSpaceGeometry } from "../src/facade/defocus-image-space-provider.js";
@@ -46,6 +46,8 @@ function worstRelative(a: (i: number, j: number) => number, b: (i: number, j: nu
 }
 
 describe("the run convolution equals the direct gather of the same disc on each path (#564)", () => {
+  // #594: the providers below are called directly; a capture loads their on-demand code where it parses the request.
+  beforeAll(() => prepareQualityPaths());
   const disc = createDefocusDiscSiteKernel(141.3)!, R = disc.radius, runs = siteKernelRuns(disc.weights, R), W = 40, H = 30, wavelengthsNm = [500, 600];
   const points = Array.from({ length: 60 }, (_, k) => [(k * 7) % W, (k * 11) % H] as const);
 

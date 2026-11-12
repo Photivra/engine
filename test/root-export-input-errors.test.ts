@@ -91,6 +91,7 @@ describe("root exports reject malformed input with domain errors (API review #4)
    */
   const STRICT_WITH_DOMAIN_MESSAGE = new Set([
     // Reject unknown fields through their own allowlist parser, with a domain message.
+    "importDngRawImage", "applyDngProfileGainTableMap", "applyDngRgbTables",
     "calculateCaptureColorTransform", "calculateCaptureCorrectedSdr", "calculateCaptureSdr", "calculateIdealPolygonDiffractionPsf",
     "calculateChartRadianceBatch", "calculateChartRadianceBatchPlan", "calculateIrradianceConvolution", "calculateIrradianceConvolutionPlan", "calculatePackedSensorRawPlan", "calculateTemporalExposureSum",
     "calculateTemporalExposureSumPlan", "calculateLinearCaptureEncoding", "calculateNativeCaptureSdrPlan",
@@ -128,6 +129,11 @@ describe("root exports reject malformed input with domain errors (API review #4)
     "resolveSensorProfile",
     // 2.21 (#581): loads the image-plane scene's module; no argument.
     "prepareImagePlaneScenes",
+    // 2.22 (#594): loads the on-demand full-quality code; no argument.
+    "prepareQualityPaths",
+    // 2.22 (#598, #600): positional DNG-import helpers (a stage image with an opcode list and options, tag or file bytes, an
+    // imported raw, the decoder module).
+    "applyDngOpcodes", "parseDngOpcodeList", "parseDngProfileGainTableMap", "parseDngRgbTables", "parseLossyJpeg", "developDngStageImage", "createJxlOxideDngDecoder",
     // #557: the built-in representative light-source set, a static contract with no argument.
     "getRepresentativeLightSourceSet"
   ]);

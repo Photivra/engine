@@ -132,6 +132,9 @@ Use the existing verb family that matches what the operation does. Do not invent
 - `set*` — return an updated immutable value for a narrowly defined state-setting operation.
 - `get*` — return a descriptive or static contract owned by the engine.
 - `simulate*` — deliberately composed simulation or orchestration API.
+- `import*` (2.22.0, #598) — read a file format whose data may need a caller-supplied decoder, asynchronously, into the same normalized record a `parse*` function returns (`importDngRawImage`: `parseDngRawImage` plus JPEG XL tiles through an application's decoder). It differs from `parse*` only in taking asynchronous decoders.
+- `apply*` (2.22.0, #598, #600) — apply processing that a file format defines and the file carries (opcode lists, gain table maps, RGB tables) to image data, as the format's specification orders it (`applyDngOpcodes`, `applyDngProfileGainTableMap`, `applyDngRgbTables`). It differs from `transform*`, whose source and destination domains are the engine's own.
+- `develop*` (2.22.0, #598) — run a documented, bounded stage of a RAW development from an imported file (`developDngStageImage`: the DNG stage image after OpcodeList1–3, linearization and the black and white levels).
 
 The existing result factories `calculatedResult`, `estimatedResult`, `approximationResult` and `calibratedResult` are documented core helpers, not new verb families.
 
@@ -243,7 +246,15 @@ have a fast method, a measured and bounded approximation of it. One flag style s
   fast, 8192 draws at the same threshold exact) and its quarter sampling of uniform pixels (H2); `prepareDisplayView`'s `gpu`
   (`"auto"` fast, `"off"` exact; an explicit value wins); and `result.sensor.midGrey` (#535, computed only on exact requests). In 2.22.0: `motion.subject`'s temporal midpoints (#551: with the default count and a still camera, fast takes one
   midpoint per site of the subject's streak plus one when that is fewer than 8; exact keeps the 8; an explicit
-  `sensor.temporalSampleCount` always wins). The
+  `sensor.temporalSampleCount` always wins); `developDngStageImage`'s WarpRectilinear resampling of an imported DNG (#600:
+  bilinear fast, cubic convolution with a = −0.75 exact; the default follows its `format`: fast when omitted, full quality for "dng", "jpeg" and "png");
+  a print under mixed lighting on the GPU (#597, `illumination/image-plane-gpu`: `gpu` `"auto"`
+  lights each lattice point on WebGPU, `"off"` the CPU reference); the default spectral step (#590, `sensor.spectralStepNanometers`: 5 nm on
+  exact requests under a spiky light, 20 nm on fast ones); the catalogue field grid's cells (#603, `lens.catalogue/field-grid-cells`: at
+  least 4 on fast requests, 10 on exact ones); the display view's coupled rendering steps (#593, #601: a luminance tone curve's
+  moments by an 8-point Gauss–Hermite rule in luminance fast, a composite 4 × 16-point Gauss–Legendre rule exact; the reconstruct
+  blend and the desaturation by 6 Gauss–Hermite points per axis fast, 16 exact; the same rules in the GPU kernels; docs/DISPLAY_VIEW.md,
+  "Coupled rendering"), and `highlightMode: "reconstruct-neighbors"` (#602: the ring's mean ratios fast, their harmonic fill exact). The
   records of `lens.diffraction`, `sensor.antiAliasing`, `sensor.pixelAperture` and `output.demosaic` (in captures) take `fast`
   with no fast method yet. `test/fast-methods-registry.test.ts` fails when a record accepts `fast` without an entry, an entry
   lacks its resolver or report, or a format default leaves the rule. **Every new fast method adds its entry.**

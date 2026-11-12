@@ -534,16 +534,15 @@ kept in rings of native rows (the exact path keeps the region's columns, the str
 display pixel's footprint at a time). One-material samples, whose candidates are equal up to rounding,
 skip it. This is a first-order model of the expectation: it takes the noise-free choice as the capture's
 choice. Where the noise can flip the choice (a near-tie at a structure, or low signal) the capture's mean
-lies between the chosen candidate and the average; the low-signal correction below stays the bias of a
-flat neighbourhood, added as before. **The noise terms are unchanged** (the candidates' averaged
+lies between the chosen candidate and the average (2.22.0: see [AHD at low signal](#ahd-at-low-signal), a
+labelled approximation). **The noise terms are unchanged** (the candidates' averaged
 covariance and the independent choice variance; see the [known limit](#known-limit-quality-noise-at-small-footprints)).
 
 **Evidence.**
 
 - *The direction is the task's.* On a 64 × 48 random mosaic and a 64 × 48 star mosaic the view's direction
   equals `createAhdDemosaicTask`'s direction map at all 3 072 pixels of each, borders included (the task
-  keeps its planes in float32, the view in binary64; no decision differed), and equals the centre steps of
-  the low-signal correction at every interior pixel (`test/display-view-ahd-choice.test.ts`).
+  keeps its planes in float32, the view in binary64; no decision differed; `test/display-view-ahd-choice.test.ts`).
 - *Against the capture* (`node scripts/validate-display-view.mjs --options quality` and `--set F`, seven
   reference seeds, limits unchanged; October 31, 2026, Node 24.19.0, macOS arm64; `main` at `50dfe3e`
   against this change):
@@ -629,81 +628,93 @@ resized capture, not the same realization.
 ## AHD at low signal
 
 AHD's choice between its candidates depends on the noise: with a few electrons per site it prefers
-neighbourhoods that look homogeneous, and that shifts the colour. On a phone-size 1.4 µm sensor at
-ISO 6400 (about six electrons per site on an 18 % grey) the resized AHD capture's red was 5–7 codes
-below what the averaged candidates predict; on a 6 µm sensor at ISO 6400 the effect stayed under
-0.3 code.
+neighbourhoods that look homogeneous, and that shifts the colour. The view follows AHD's choice on the
+noise-free mosaic (see above) but does not model how the noise moves that choice. **This is a labelled
+approximation** (`view.demosaic` reports `lowSignalNoiseChoice: "not-modelled"`, `scientificStatus:
+"approximation"` and the measured bias below).
 
-Where a sampled pixel's noise exceeds 0.01 in linear light, the pixel adds AHD's bias for a flat
-neighbourhood with its own channel means, measured as a control variate (Owen, §8.9): noisy flat
-neighbourhoods are drawn (Poisson electrons plus read and ADC noise, clipped at white, all four CFA
-phases), the engine's AHD steps and the two linear candidates run on the same draw, and the mean of
-h(AHD) − ½(h(H) + h(V)) is the bias. Both terms see the same noise, so the difference has far less
-variance than AHD's own output.
+**Measured bias (2.22.0).** The difference the noise-driven choice makes, in 8-bit codes, mean over a
+centred 32 × 32 block, f/8, 2.21.0's correction as the reference (Node 24.19.0, macOS arm64):
 
-The bias is a smooth function of the channel means, so it is computed on a logarithmic grid of
-states (8 steps per octave over 12 octaves below white), 2048 draws per state (8192 with `fast: false`, 2.20.0: the
-view's exact method, which halves the common offset below) seeded by the state
-alone, and interpolated trilinearly between the 8 states around the pixel's means. A state depends
-only on its grid indices, the noise seed, the draws and the readout and development inputs (the
-normalized value per electron and the read and ADC variance of each channel, the homogeneity matrix,
-the white-balance gains, the highlight clip, the colour matrix and the tone curve), so each one is
-computed once per view and kept for later calls with the same inputs (see "Cost"). A first version
-drew 64 neighbourhoods per display pixel instead: unbiased, but its sampling noise exceeded the display
-pixel's own noise wherever many real pixels are averaged (up to 4× the reference's noise at 96 pixels
-wide), because the display noise falls with the number of averaged pixels and the correction's did not.
-The shared grid has no per-pixel sampling noise; its remaining error is a common offset of about
-1/√(8 × 2048) of the difference's spread, and the flat-neighbourhood state, which is an approximation
-at edges. On the 1.4 µm sensor at ISO 6400 it took the red error from +6.6 to within ±0.4 code.
+| Request | Mean shift of the view (red, green, blue) | Largest per pixel |
+| --- | --- | --- |
+| 1.4 µm, 12 MP, 18 % grey, ISO 6400, 96–800 wide | red +3.8 to +4.2, green and blue within 0.15 | 6.7 (one 23-code outlier at 800 wide, at a clip) |
+| 1.4 µm, 12 MP, 3 % grey, ISO 6400, 384 wide | −0.9, −1.6, −2.2 (the correction raised them) | 5.7 |
+| 1.4 µm, step wedge and dead leaves, ISO 6400, 384 wide | red +4.0 and +4.6 | 6.0 and 6.5 |
+| 6 µm, 24 MP, 18 % and 3 % grey, ISO 6400, 384 wide | within 0.26 | 0.28 |
+| The app's Quality request, 6 µm, ISO 400, one centre part | within 0.001 | 0.01 |
 
-**The states live in one JavaScript realm** (a page, a Web Worker, a Node process): each realm keeps
-its own cache, so N workers rendering parts of one view compute the same states N times, and each
-worker's first part waits for all of its states. On the app's Quality request at 6 µm ISO 400, one
-48 × 48 part at the centre needs 897 states at 27–30 ms each (#447, Node, one thread). 2.10 adds four
-operations that move states between realms without changing a byte:
+A positive red shift means the view's red is above the resized capture's: on a phone-size sensor at ISO
+6400 the capture's red is about 4 codes below what the averaged candidates predict. On full-frame pixels
+the shift stays under 0.3 code.
 
-- `prepared.correctionKey()` is the key of the request's states (the exact decimal text of the inputs
-  listed above), or null without AHD. Every input of the key is fixed when the request is prepared.
-- `prepared.collectCorrectionStates(view)` returns `{ key, gridKeys }`: the grid key of every state a
-  render of `view` reads (the eight corners around each corrected sample's channel means, ascending,
-  whether or not this realm holds them). It is a render of the region that records the keys instead of
-  computing or reading the states. It returns no image and leaves the cache untouched. It runs the
-  whole expected-signal and statistics path, so it should cost about one render whose states are all
-  held. Measured on the app's Quality request (one 48 × 48 centre part, Node 24.21.0, one thread): 209–217, 126–132 and 76–77 ms in three successive calls, against 129–139, 100–105 and 94–98 ms for a warm render of the same part.
-- `prepared.computeCorrectionStates(gridKeys, { signal })` computes the states of the given keys exactly
-  as a render does (the same seeding and draws), stores them in this realm's cache and returns
-  `{ key, gridKeys, values }`, three values per state. It reads states the realm already holds instead of
-  computing them, and it yields and honours `signal` like `render`.
-- `serializeDisplayViewCorrectionStates()` (the export) returns one `{ key, gridKeys, values }` entry per cached setup,
-  least recently used first. `bindDisplayViewCorrectionStates(entries)` (the import) adds the states a setup does
-  not hold yet, leaves known ones as they are and returns the count added. A state takes 28 bytes
-  (an `Int32Array` key and three doubles in a `Float64Array`); both arrays can be transferred with
-  `postMessage`.
+**History.** From 2.6 to 2.21 the view added a low-signal correction: where a sampled pixel's noise
+exceeded 0.01 in linear light, it added AHD's bias for a flat neighbourhood with its channel means,
+estimated by Monte Carlo draws (2048 per state, 8192 with `fast: false`) and kept per setup on a
+logarithmic grid of the three channel means, interpolated trilinearly. 2.22.0 removes it (owner
+decision, 2026-11-11): the view keeps no precomputed values indexed by channel signal levels, and its
+signals are integrated per site at use. Computing the correction per site at use instead was measured and
+rejected: one evaluation costs about 18 ms (2048 draws, about 10 µs each) or 74 ms (8192), so the 16 384
+samples of the 1.4 µm 32 × 32 block above would take about 290 s (fast) and 5.4 h (`fast: false`), against
+0.2 s and 0.9 s with the grid, and the app's centre part about 970 s against 4 s. Fewer draws per site
+leave the per-pixel sampling noise the grid avoided (the spread of one draw is about 0.1 linear against a
+bias of about 0.01), and antithetic draws reduced the variance only 1.0–2.9×.
 
-The import checks every entry before it touches the cache. `key` must be a non-empty string,
-`gridKeys` an `Int32Array` of grid keys in [0, 97³), and `values` a `Float64Array` of 3 ×
-`gridKeys.length` finite numbers. Otherwise the import fails with an `InvalidConfigurationError` and
-leaves the cache unchanged. The cache's bounds apply as in a render. A key the realm does not hold
-creates a setup, which can evict the least recently used of the four kept. A setup that reaches 65 536
-states is cleared before the next state is added. **Import only keys a prepared view reported**
-(`correctionKey()`), so the states are ones a render in this realm will read.
+**Deprecated API (2.10, kept until 3.0.0).** The operations that moved correction states between realms
+remain as checked no-ops: `prepared.correctionKey()` returns null; `prepared.collectCorrectionStates(view)`
+checks the view and returns `{ key: "", gridKeys }` with no keys; `prepared.computeCorrectionStates(gridKeys)`
+checks the keys (an `Int32Array` of integers in [0, 97³)) and returns no states;
+`serializeDisplayViewCorrectionStates()` returns `[]`; `bindDisplayViewCorrectionStates(entries)` checks the
+entries as before (an `InvalidConfigurationError` for a malformed one) and returns 0. `diagnostics.ahdCorrectedPixelCount`
+is always 0. They change no byte of a render.
 
-Same bytes: a state's three values follow from its grid indices and its key alone. Its stream is
-seeded by the noise seed and its indices, and the draws use only the portable functions and correctly
-rounded operations (see [Same bytes in every engine](#same-bytes-in-every-engine)), so every realm
-computes the same bits. A render reads a state only through its own grid key, so neither the order of
-the states, a state computed twice in two realms, nor an imported state in place of a computed one can
-change a byte. A last-bit difference in an input between two realms changes the key, so it causes a
-cache miss, never a wrong state. The tests in `test/display-view.test.ts` (#447) render a region after
-importing a neighbouring region's states in reversed order, and after merging two realms' sets, and
-compare SHA-256 hashes of the samples, expected values, noise and diagnostics with a cold render. They
-also check that a collect pass returns exactly the states a cold render computes and that two realms
-hold the same bits for common states.
+## Coupled rendering (#593, #601)
 
-The operations make nothing faster by themselves: a pool of workers gains only if it splits the
-states of a round between its workers and exchanges them before rendering (Photivra/apps#113, which
-measures it in the browser). They do not reduce the number of states a view needs, and every exchange
-copies 28 bytes per state. `structuredClone` of an exported set of 764 states (21,392 bytes) took 10–11 µs at the median (Node 24.21.0).
+The luminance tone curves (`extended-reinhard-luminance`, `naka-rushton-luminance`), `highlightMode: "reconstruct"` and the
+hue-preserving `gamutHandling: "desaturate-to-luminance"` (#601) act on all three components of a pixel together, so the
+per-component moments above do not apply. `src/facade/display-view-rendering.ts` gives the view their moments; requests without
+them run the per-component arithmetic unchanged (the hash locks are unchanged).
+
+- **Tone curves, by conditioning on luminance.** The developed linear sRGB is normal, y ~ N(μ, Σ) (Σ from the clipped channel
+  variances and the slopes, as for the per-component path). With L = wᵀy (w the sRGB Y row), y_k given L is normal with mean
+  μ_k + β_k(L − μ_L), β = Σw/(wᵀΣw), and variance Σ_kk − β_k(Σw)_k (standard Gaussian conditioning). For each L the rendered
+  component clip(y_k·r(L), 0, 1), r = f(L)/L (r = 1 for L ≤ 0, as `prepareSdrPixelTone`), has the closed-form clipped-normal
+  moments, so the mean and variance are 1-D integrals over L. **Full:** a composite 16-point Gauss–Legendre rule over
+  μ_L ± 8.5σ_L in 4 panels, split at L = 0, in standardized units. **Fast:** an 8-point Gauss–Hermite rule where μ_L > 17σ_L
+  (the ratio is smooth over the range), else the full rule. Expected slopes for the noise split (Stein's lemma):
+  E[∂out_k/∂y_j] = E[1_in·(δ_kj·r + y_k·r′(L)·w_j)], plus, where the ratio jumps at L = 0 (Naka–Rushton with n ≠ 1), the
+  jump's term p_L(0)·E[out(0+) − out(0−) | L = 0]·w_j.
+- **Reconstruct and desaturation, by a 3-D rule.** Where a pixel's camera channels reach the reconstruct blend (any channel
+  within 8.5σ of 0.8 of white or above) or, with the desaturation, a rendered component reaches 1 within reach, the whole chain
+  (white balance, highlight, matrix, tone curve, desaturation, clip) is integrated over the pixel's normal camera channels with a
+  tensor Gauss–Hermite rule in Cholesky coordinates, with the chain's slopes (a.e.) at each node. **Full:** 16 points per axis
+  (4,096 nodes). **Fast:** 6 per axis (216). Elsewhere `reconstruct` is the unclipped white balance (exactly linear) and the
+  desaturation changes nothing. The Gauss–Hermite nodes are the eigenvalues of the Jacobi matrix (Golub & Welsch 1969), found by
+  Sturm-sequence bisection with correctly rounded operations only (the same bits in every engine).
+
+**Accuracy (measured, `test/display-view-coupled-rendering.test.ts`).** Against seeded Monte Carlo of the same chain (400,000
+draws): tone-curve means within four standard errors and variances within 2 %; the chain's means within 1·10⁻³ plus four
+standard errors (the 16-point rule's own error at kinks, measured ≤ 5.3·10⁻⁴ against a 48-point rule at channel σ up to 0.1)
+and variances within 10 %. Fast against full over a seeded sweep (300 means and covariances, channel σ up to 0.076): tone
+6.7·10⁻⁶; chain 1.5·10⁻² (2.4·10⁻⁴ for σ ≤ 0.01, base-ISO noise), in linear light. Against the downsized capture
+(24 × 16 views of a 192 × 128 frame): the Standard and Flat looks, extended Reinhard, reconstruct and the desaturation agree in
+every channel's mean within 0.5–0.6 codes plus three standard errors, fast and full.
+
+**Scientific status.** Full: exact in the limit of the view's normal model. Fast: an approximation within the bounds above.
+
+**Highlight reconstruction from neighbors (#602).** `highlightMode: "reconstruct-neighbors"` rebuilds clipped channels from the
+color ratios around each clipped region (src/color/neighbor-highlight-reconstruction.ts): pixels within 2 of a clipped pixel
+(whose demosaic reads clipped sites) are widened into the region; the region takes the mean ratios of the unclipped pixels within
+2 more pixels (fast) or their harmonic interpolation inward (full, successive over-relaxation). The view finds each clipped region
+on demand from the render's noise-free channels (the expected sites through the bilinear kernels) and integrates each real
+pixel's rebuild over its normal channels with the 3-D rule above. Measured against the downsized capture of an over-exposed
+color chart (24 × 16 views of 192 × 128): channel means within 0.03 codes; per display pixel within 2.1 codes fast (the clip
+mode's own 2.1, the capture's noise) and 4.4 full (the capture's noisy boundary values against the view's noise-free ones). A
+region larger than 65,536 (fast) or 262,144 (full) pixels takes its ratios from the part searched (counted, not otherwise
+signalled).
+
+**GPU.** The Speed and Quality kernels run the luminance tone curves, `reconstruct` and the desaturation, with the fast and the
+full rules ([WEBGPU.md](WEBGPU.md#coupled-rendering-steps-593-601)). `reconstruct-neighbors` runs on the CPU reference in 2.22.0.
 
 ## Drawing the noise near a bound
 
@@ -1219,7 +1230,7 @@ Quality was made cheaper without changing a byte of any display view: the sample
 every diagnostic, including `sceneLookups`, are the same as before for every request and seed. Each change computes the
 same values with the same operations in the same order; none reassociates a floating-point sum.
 
-- **AHD correction states are shared.** A grid state depends only on its indices and the inputs listed in
+- **AHD correction states are shared** (2.10–2.21; 2.22.0 removed the correction, see [AHD at low signal](#ahd-at-low-signal)). A grid state depends only on its indices and the inputs listed in
   [AHD at low signal](#ahd-at-low-signal), so it is computed once and kept, for the rest of the view and for later
   calls with the same inputs (another view size, region or scene of the same sensor, exposure and development): up to
   65 536 states for each of the 4 most recently used input sets, about 50 bytes per state (13 MB at most). A state is also cheaper to
@@ -1357,6 +1368,60 @@ root exports of the built package, minified, gzip level 9; `test/capture-bundle.
   the worker must then be created with `{ type: "module" }`) to keep it out. Measured on the Photivra app's production build
   (Vite 8.3.2, engine 2.11.1): its capture worker went from 1,093,459 B / 317,120 B gzip to 921,285 B / 258,618 B gzip, with
   the GPU session in a separate chunk, and its page entry was unchanged.
+- **The GPU Quality host is loaded on demand too (2.22.0, #594).** The Quality kernels' host and WGSL
+  (`gpu/display-view-quality-gpu.ts`, `gpu/wgsl-display-view-quality-kernel.ts`, `gpu/wgsl-exact-sum.ts`) are imported
+  dynamically by the renderer (`gpu/display-view-gpu-renderer.ts`) at the first render that takes the Quality passes
+  (diffraction, AHD, a defocused view, an image-plane print), so a page that renders only Speed views on the GPU never loads
+  them. Their self-check cases run then too (see [Rendering on the GPU](#rendering-on-the-gpu), "At render time"). Measured November 11,
+  2026 on the app's capture-worker shape (`test/capture-bundle.test.ts`, rolldown 1.2.9, minified, gzip level 9), 2.21.0
+  before and after the split:
+
+  | Chunk | Before | After |
+  | --- | --- | --- |
+  | entry and its shared chunks (every worker) | 291,577 B | 291,010 B |
+  | GPU session (Speed renderer, composite material module, runtime) | 55,177 B | 36,301 B |
+  | GPU Quality host (on demand) | in the session chunk | 20,025 B |
+  | catalogue (`lens.catalogue`) and view lens signal | 16,941 B | 16,926 B |
+  | **fast worker** (every chunk but the on-demand ones) | **363,695 B** | **344,237 B** (−19,458 B) |
+  | all chunks | 363,695 B | 364,262 B (+567 B) |
+
+  The all-chunk total grows because the Quality chunk compresses without the session chunk's dictionary (their WGSL shares
+  much text) and the two chunks name their shared bindings. With the load-failure fallback below the rows measure 344,287 B
+  (fast) and 20,026 B (on demand), 364,313 B in all.
+
+  **Two budget rows (owner decision 2026-11-10).** `test/capture-bundle.test.ts` checks the worker shape as two rows in place
+  of one all-chunk limit: the *fast worker* (every chunk except the on-demand Quality chunks; the GPU Speed session,
+  catalogue and lens-signal chunks included) at most 344,300 B, and *on demand* (the chunks holding the Quality modules,
+  found by module membership, not file name) at most 20,100 B, each its measurement rounded up to the next 100 B (after the
+  CPU split below: 337,500 B and 47,000 B). The
+  Photivra app's bundle budget adopts the same two rows, with the same definitions, at app round 16.
+
+  **Preload and load failure.** `prepareQualityPaths()` (root export) loads the on-demand code ahead of time: single flight,
+  idempotent, and it changes no result ([USAGE](USAGE.md#loading-the-full-quality-code-ahead-of-time-222-594)). If the
+  Quality chunk does not load, that render runs the CPU reference, labelled `quality-code-unavailable` (with `"require"`, it
+  fails with that reason); the failure is not remembered, so the next render that needs the code loads it again. A failed
+  self-check, by contrast, keeps the view on the CPU.
+
+  **The CPU kits (2.22.0, #594).** The CPU full-quality code is one on-demand chunk, the *Quality kit*
+  (`src/facade/quality-kit.ts`: diffraction, the capture's AHD demosaic, `lens.defocus` beyond the geometric disc, the
+  image-space provider of lens projection, distortion, vignetting, rotation and moving subjects, the view's coupled rendering
+  steps and the neighbor highlight reconstruction), and the opt-in features another, the *opt-in kit*
+  (`src/facade/opt-in-kit.ts`: `sensor.profile`, `illumination`, `motion.subject`). Each loads once, where `simulateCapture`,
+  the display view or `prepareDisplayView` parses a request that uses it, and is then called synchronously, so results are
+  those of a static import (every hash lock passes). `prepareQualityPaths()` loads both. On the CPU there is no other path:
+  a request whose kit does not load fails with `ImageKernelExecutionError` reason `quality-code-unavailable`, and the next
+  request tries again. The native-photosite report (#595, `result.sensor.native`) stays on the default path, because every
+  capture reports it; the view's AHD candidates stay inline in the display view (a refactor first).
+
+  | Row (worker shape, gzip) | 2.22.0 parts merged | After the CPU split | Limit |
+  | --- | --- | --- | --- |
+  | fast worker | 358,680 B | **337,413 B** | 337,500 B |
+  | on demand | 19,379 B (GPU Quality) | **46,977 B** (GPU Quality 19,401 B, CPU Quality kit 18,249 B, GPU coupled steps 5,159 B, opt-in kit 4,168 B) | 47,000 B |
+  | all chunks | 378,059 B | 384,390 B | — |
+
+  The GPU coupled steps (#593) load on demand too and count in that row. The bundler now gives the entry ten small chunks it
+  shares with the kits (imported statically; 252,371 B of entry plus 27,348 B), so the display view's addition is measured on
+  the entry and those chunks together: 38,370 B minified and 14,126 B gzip (2.21.0: 46,270 B and 18,327 B).
 - **Shipped shaders are minified (2.14, #536).** `npm run build` strips comments and indentation from the WGSL source
   (`scripts/minify-wgsl-dist.mjs`, see [WebGPU, Shipped shader text](WEBGPU.md#shipped-shader-text)). Measured on the app's
   production build (Vite 8, app 0.50.0 at `a82a5eb`, engine `main` at `42ec9d8` packed before and after): the GPU session
@@ -1421,8 +1486,8 @@ them to their own arm64 hashes ([numerical correctness](NUMERICAL_CORRECTNESS.md
 reference and labels which ran. The engine's renderer (registered when the GPU session module loads) runs the Speed kernel of
 #478 for requests without diffraction and AHD (the exact area mean, bilinear; `docs/WEBGPU.md`, "Display view (Speed) on the
 GPU") and the Quality kernels of #479 for the rest of what it covers: diffraction kernels, the anti-aliasing filter's spots, the
-AHD candidates and the low-signal correction, whose states are still computed on the CPU and uploaded as a table
-(`docs/WEBGPU.md`, "Display view (Quality) on the GPU": the three passes, the running bounds, the measured agreement and the
+AHD candidates (2.22.0: with no low-signal correction, on the CPU or the GPU;
+`docs/WEBGPU.md`, "Display view (Quality) on the GPU": the three passes, the running bounds, the measured agreement and the
 AHD placement decision). Both render every engine chart (the 2.0 presets, composite charts, the 2.3 elements, fixed-size charts)
 and, since #491, declared `material-layers` scenes: a chart under shape-mask layers, the form in which an application gives a
 printed label (`resolveChartMaterialLayers`; `scene: { kind: "material-layers", sceneId, chart, layers }` is accepted by
@@ -1487,6 +1552,11 @@ with that reason for `"require"`:
   compare every output with the float64 reference within the kernel's a-priori bound; the renderer's own cases follow (the hook
   for #478's preview-kernel cases). A failed case, or a device error during a case, keeps the whole view on the CPU, labelled
   `conformance-failed`, with the adapter, the case ids and the failing case recorded in `diagnostics.fast.execution.conformance`.
+  Since 2.22.0 (#594) the engine renderer's own case at that point is the Speed case; its two Quality cases run once, before
+  the view's first render that takes the Quality passes, after the Quality code has loaded on demand. Their ids are then
+  appended to `conformance.cases`, and a failure keeps that render and every later one on the CPU, labelled as above. Results
+  do not change: only when the Quality cases run, and so which ids a Speed-only view's record lists (the two built-in cases
+  and the Speed case).
 - *Single flight.* GPU renders of one view run one at a time on its device; concurrent `render` calls queue rather than
   reject with `busy`. CPU renders are unaffected.
 - *Refused at render time.* What only a render can tell (a view coarser than the exact area mean, a footprint above 6 real
@@ -1524,7 +1594,8 @@ is the engine's `WebGpuRuntime` seen through its WebGPU-free members, so no WebG
 a renderer in the engine casts it), where a renderer has an `id`,
 `supports(request)` (true, or a sentence saying why not), `render({ setup, signal })` returning the CPU renderer's result
 shape (samples, expected values, noise, counts, estimation) plus the a-priori `errorBound` of its values, and optional
-`conformanceCases`. A render must throw `ImageKernelExecutionError` with reason `device-lost` or `aborted` for those two
+`conformanceCases` and (2.22.0, #594) `onDemandConformanceCases(setup)`: the cases of code the renderer loads on demand that a
+render needs, or null. A render must throw `ImageKernelExecutionError` with reason `device-lost` or `aborted` for those two
 events, as the accelerator's operations do. The only implementation today is the test fake of
 `test/display-view-gpu-option.test.ts`, which returns the CPU result (or one perturbed sample) with a declared bound.
 
@@ -1597,6 +1668,12 @@ Approximations, recorded in the `view.*` assumptions:
   <https://www.itl.nist.gov/div898/handbook/>.
 - W. R. Bennett, "Spectra of quantized signals", *Bell System Technical Journal* 27(3), 1948, free at
   <https://archive.org/details/bstj27-3-446> (quantization noise Δ²/12).
+- G. H. Golub, J. H. Welsch, "Calculation of Gauss quadrature rules", *Mathematics of Computation* 23(106), 1969, free at
+  <https://www.ams.org/journals/mcom/1969-23-106/> (nodes as the Jacobi matrix's eigenvalues); NIST *Digital Library of
+  Mathematical Functions* §3.5(v), Gauss quadrature, free at <https://dlmf.nist.gov/3.5#v>.
+- E. Reinhard, M. Stark, P. Shirley, J. Ferwerda, "Photographic tone reproduction for digital images", *ACM SIGGRAPH* 2002
+  (eq. 4, extended Reinhard), and K. I. Naka, W. A. H. Rushton (1966), via E. Reinhard, K. Devlin, "Dynamic range reduction
+  inspired by photoreceptor physiology", *IEEE TVCG* 11(1), 2005: the tone curves' forms, as cited in src/output/sdr-rendering.ts.
 - M. Abramowitz, I. A. Stegun, *Handbook of Mathematical Functions*, NBS AMS 55 (1964), free US government
   work (26.2.17 normal distribution function; 25.4.29 Gauss–Legendre quadrature).
 - EMVA Standard 1288 Release 4.0 Linear, free at <https://www.emva.org/standards-technology/emva-1288/>

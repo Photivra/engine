@@ -41,6 +41,8 @@
  * the skewness) carry the 2.5 ULP bound.
  */
 
+import { DISPLAY_VIEW_COUPLED_STUB_WGSL } from "./wgsl-display-view-coupled-stub.js";
+
 export const DISPLAY_VIEW_WORKGROUP_SIZE = 64;
 /** Largest footprint per axis (real pixels): the site window is (n + 2)² ≤ 64 entries of private storage. */
 export const DISPLAY_VIEW_GPU_MAXIMUM_PIXELS_PER_AXIS = 6;
@@ -77,6 +79,7 @@ export const DISPLAY_VIEW_AUX = /* @__PURE__ */ Object.freeze({
   gaussLegendre: 272,
   size: 304
 });
+
 /** Uniform parameter words (see `Params` below): 40 words, 160 bytes. */
 export const DISPLAY_VIEW_PARAM_WORDS = 40;
 /** The `E` of the bounds: one WGSL rounding of + − × in either direction, 2^-23 (W3C WGSL "Floating Point Accuracy"; #471, #487). */
@@ -106,6 +109,11 @@ const literal = (value: number): string => {
  * declares how many roundings it adds (`DisplayViewGpuMaterialModule.extraSiteRoundings`). The module may declare bindings
  * in @group(1) and use the constants E and SLACK declared here.
  */
+/*
+ * 2.22.0: in the luminance branch the nested loops read the colour matrix rows from one local array (`mm`) instead of calling
+ * `m_of` (a `switch`): SwiftShader's compiler ended the GPU process on the `switch` inside those loops (after about 44 s). The
+ * values are the same (docs/WEBGPU.md, "Coupled rendering steps").
+ */
 export const DISPLAY_VIEW_SPEED_KERNEL_WGSL = /* wgsl */ `
 const E: f32 = ${E_LITERAL};
 const SLACK: f32 = 1e-14;
@@ -133,6 +141,8 @@ struct Params {
 @group(0) @binding(3) var<storage, read> spectral_table: array<f32>;
 @group(0) @binding(4) var<storage, read_write> out: array<f32>;
 @group(0) @binding(5) var<storage, read_write> flags: array<u32>;
+// #593, #601: the coupled rendering steps' constants, after the aux table's own entries (one zero word without them).
+fn cp_k(i: u32) -> f32 { return aux[${DISPLAY_VIEW_AUX.size}u + i]; }
 
 var<private> site_mean: array<f32, 64>;
 var<private> site_var: array<f32, 64>;
@@ -247,6 +257,7 @@ fn reinhard_moments(m: f32, v: f32) -> vec3<f32> {
   let shifted = e1 - hm;
   return vec3<f32>(e1, max(0.0, e2 - shifted * shifted), ed);
 }
+
 fn reflect_x(x: i32) -> i32 { if (x < 0) { return -x; } if (x >= i32(params.native_w)) { return 2 * i32(params.native_w) - 2 - x; } return x; }
 fn reflect_y(y: i32) -> i32 { if (y < 0) { return -y; } if (y >= i32(params.native_h)) { return 2 * i32(params.native_h) - 2 - y; } return y; }
 fn channel_of(x: i32, y: i32) -> u32 {
@@ -365,6 +376,14 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_workgroups) 
         let bit = j * nx + ii;
         if (bit < 32u) { mask0 = mask0 | (1u << bit); } else { mask1 = mask1 | (1u << (bit - 32u)); }
       } else if (near_white) { undecided = true; }
+      // #593: reconstruct within the blend's reach integrates the whole chain below; out of its reach it is the unclipped white balance.
+      var cp_chain_run = false;
+      if (cp_on() && cp_reconstruct()) {
+        let reach = cp_reconstruct_reach(vec3<f32>(cm[0], cm[1], cm[2]), vec3<f32>(cvv[0], cvv[1], cvv[2]));
+        if (reach == 2u) { material_uncertain = true; }
+        cp_chain_run = reach >= 1u;
+      }
+      let cp_unclipped = cp_on() && cp_reconstruct();
       // White balance and the highlight clip at the smallest gain: bm, bv, bs (slope), with the clip's bound terms.
       var bm: array<f32, 3>; var bv: array<f32, 3>; var bs: array<f32, 3>; var bbm: array<f32, 3>; var bbv: array<f32, 3>;
       for (var c = 0u; c < 3u; c = c + 1u) {
@@ -374,7 +393,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_workgroups) 
         let gap = params.clip_level - um;
         bbm[c] = gc * CLIP_MEAN_U * cb[c];
         bbv[c] = gc * gc * CLIP_VARIANCE_U * cb[c] * cb[c];
-        if (gap > 0.0 && gap * gap > params.reach2 * uv) { bm[c] = um; bv[c] = uv; bs[c] = gc; }
+        if (cp_unclipped || (gap > 0.0 && gap * gap > params.reach2 * uv)) { bm[c] = um; bv[c] = uv; bs[c] = gc; }
         else {
           let clipped = upper_clip(um, uv, params.clip_level);
           bm[c] = clipped.x; bv[c] = clipped.y; bs[c] = gc * clipped.z;
@@ -409,14 +428,60 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_workgroups) 
         }
         hbm[comp] = bm_c; hbv[comp] = bv_c;
       }
+      // #593, #601: the coupled steps (wgsl-display-view-coupled.ts): a luminance tone curve by conditioning on luminance, and the
+      // chain's 3-D rule for reconstruct and the desaturation; their slopes ∂out/∂c (camera channels) replace the per-component ones.
+      var jm = array<vec3<f32>, 3>(vec3<f32>(0.0), vec3<f32>(0.0), vec3<f32>(0.0));
+      var ju = 0.0;
+      var cp_used = false;
+      if (cp_on()) {
+        if (!cp_chain_run && cp_luminance()) {
+          var mu = vec3<f32>(0.0); var dmu = vec3<f32>(0.0); var dsv = vec3<f32>(0.0);
+          var srow = array<vec3<f32>, 3>(vec3<f32>(0.0), vec3<f32>(0.0), vec3<f32>(0.0));
+          var mm = array<vec3<f32>, 3>(vec3<f32>(params.m00, params.m01, params.m02), vec3<f32>(params.m10, params.m11, params.m12), vec3<f32>(params.m20, params.m21, params.m22));
+          for (var r = 0u; r < 3u; r = r + 1u) {
+            mu[r] = mm[r][0] * bm[0] + mm[r][1] * bm[1] + mm[r][2] * bm[2];
+            dmu[r] = (abs(mm[r][0]) * bbm[0] + abs(mm[r][1]) * bbm[1] + abs(mm[r][2]) * bbm[2]) * E;
+            dsv[r] = (mm[r][0] * mm[r][0] * bbv[0] + mm[r][1] * mm[r][1] * bbv[1] + mm[r][2] * mm[r][2] * bbv[2]) * E;
+            for (var q = 0u; q < 3u; q = q + 1u) { srow[r][q] = mm[r][0] * mm[q][0] * bv[0] + mm[r][1] * mm[q][1] * bv[1] + mm[r][2] * mm[q][2] * bv[2]; }
+          }
+          let t = cp_tone(mu, srow[0], srow[1], srow[2], dmu, dsv);
+          if (t.flag) { material_uncertain = true; }
+          if (cp_desaturate() && t.top) { cp_chain_run = true; }
+          else {
+            let rows = array<vec3<f32>, 3>(t.a0, t.a1, t.a2);
+            for (var comp = 0u; comp < 3u; comp = comp + 1u) {
+              hm[comp] = t.hm[comp]; hv[comp] = t.hv[comp]; hbm[comp] = t.bm[comp] / E; hbv[comp] = t.bv[comp] / E;
+              for (var c = 0u; c < 3u; c = c + 1u) { jm[comp][c] = (rows[comp].x * m_of(0u, c) + rows[comp].y * m_of(1u, c) + rows[comp].z * m_of(2u, c)) * bs[c]; }
+            }
+            ju = t.ju / E; cp_used = true;
+          }
+        } else if (!cp_chain_run && cp_desaturate() && params.tone != 1u) {
+          // A component reaching 1 within reach is desaturated with the others (the reference's test; undecided: recompute).
+          for (var comp = 0u; comp < 3u; comp = comp + 1u) {
+            let top = hm[comp] + CLIP_REACH * sqrt(hv[comp]);
+            if (hm[comp] > 0.0 && top >= 0.999) { cp_chain_run = true; }
+            if (hm[comp] > 0.0 && hm[comp] - 2.0 * hbm[comp] * E < 0.999 && abs(top - 0.999) <= 2.0 * (hbm[comp] * E + CLIP_REACH * min(sqrt(hbv[comp] * E), hbv[comp] * E / (2.0 * sqrt(hv[comp])))) + 64.0 * E) { material_uncertain = true; }
+          }
+        }
+        if (cp_chain_run) {
+          let dcm = vec3<f32>(CLIP_MEAN_U * cb[0], CLIP_MEAN_U * cb[1], CLIP_MEAN_U * cb[2]) * E;
+          let dcv = vec3<f32>(CLIP_VARIANCE_U * cb[0] * cb[0], CLIP_VARIANCE_U * cb[1] * cb[1], CLIP_VARIANCE_U * cb[2] * cb[2]) * E;
+          let t = cp_chain(vec3<f32>(cm[0], cm[1], cm[2]), cvv[0], 0.0, 0.0, cvv[1], 0.0, cvv[2], dcm, dcv);
+          if (t.flag) { material_uncertain = true; }
+          jm[0] = t.a0; jm[1] = t.a1; jm[2] = t.a2;
+          for (var comp = 0u; comp < 3u; comp = comp + 1u) { hm[comp] = t.hm[comp]; hv[comp] = t.hv[comp]; hbm[comp] = t.bm[comp] / E; hbv[comp] = t.bv[comp] / E; }
+          ju = t.ju / E; cp_used = true;
+        }
+      }
       s0 = s0 + aj * hm[0]; s1 = s1 + aj * hm[1]; s2 = s2 + aj * hm[2];
       // Linear (Stein) part with B_c·σ_c², and the pixel's own linear variance for the residual.
       var l0 = 0.0; var l1 = 0.0; var l2 = 0.0;
       var lb0 = 0.0; var lb1 = 0.0; var lb2 = 0.0;
       for (var c = 0u; c < 3u; c = c + 1u) {
-        let a0 = hs[0] * m_of(0u, c) * bs[c];
-        let a1 = hs[1] * m_of(1u, c) * bs[c];
-        let a2 = hs[2] * m_of(2u, c) * bs[c];
+        var a0 = hs[0] * m_of(0u, c) * bs[c];
+        var a1 = hs[1] * m_of(1u, c) * bs[c];
+        var a2 = hs[2] * m_of(2u, c) * bs[c];
+        if (cp_used) { a0 = jm[0][c]; a1 = jm[1][c]; a2 = jm[2][c]; }
         var bc = b0; if (c == 1u) { bc = b1; } if (c == 2u) { bc = b2; }
         let wgt = aj * bc * csv[c];
         c00 = c00 + wgt * a0 * a0; c01 = c01 + wgt * a0 * a1; c02 = c02 + wgt * a0 * a2;
@@ -424,8 +489,8 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_workgroups) 
         l0 = l0 + a0 * a0 * cvv[c]; l1 = l1 + a1 * a1 * cvv[c]; l2 = l2 + a2 * a2 * cvv[c];
         // The clip bound of each channel's variance enters the covariance through a_j·B_c·(Δσ_c²/Σw²)·a_i·a_j and the
         // residual's linear prediction through a²·Δσ_c².
-        lb0 = lb0 + (a0 * a0) * bbv[c]; lb1 = lb1 + (a1 * a1) * bbv[c]; lb2 = lb2 + (a2 * a2) * bbv[c];
-        bound_var = bound_var + aj * bc * (bbv[c] * aux[${DISPLAY_VIEW_AUX.inverseW2}u + phase * 3u + c]) * max(a0 * a0, max(a1 * a1, a2 * a2));
+        lb0 = lb0 + (a0 * a0) * (bbv[c] + 2.0 * ju * cvv[c]); lb1 = lb1 + (a1 * a1) * (bbv[c] + 2.0 * ju * cvv[c]); lb2 = lb2 + (a2 * a2) * (bbv[c] + 2.0 * ju * cvv[c]);
+        bound_var = bound_var + aj * bc * ((bbv[c] + 2.0 * ju * cvv[c]) * aux[${DISPLAY_VIEW_AUX.inverseW2}u + phase * 3u + c]) * max(a0 * a0, max(a1 * a1, a2 * a2));
       }
       r0 = r0 + aj * aj * max(0.0, hv[0] - l0);
       r1 = r1 + aj * aj * max(0.0, hv[1] - l1);
@@ -460,7 +525,7 @@ fn scene_value(p: vec2<f32>, c: u32) -> f32 {
 }
 `;
 /** The full shader: the kernel plus a material module (see `DISPLAY_VIEW_SPEED_KERNEL_WGSL`), and the table adapter unless the module defines `scene_value`. */
-export function assembleDisplayViewSpeedWgsl(materialModuleWgsl: string): string {
+export function assembleDisplayViewSpeedWgsl(materialModuleWgsl: string, coupledWgsl: string = DISPLAY_VIEW_COUPLED_STUB_WGSL): string {
   const adapter = /\bfn scene_value\(/u.test(materialModuleWgsl) ? "" : DISPLAY_VIEW_MATERIAL_SCENE_VALUE_WGSL;
-  return DISPLAY_VIEW_SPEED_KERNEL_WGSL + "\n" + materialModuleWgsl + "\n" + adapter;
+  return DISPLAY_VIEW_SPEED_KERNEL_WGSL + "\n" + materialModuleWgsl + "\n" + adapter + "\n" + coupledWgsl;
 }

@@ -40,7 +40,8 @@ import { displayViewModuleCommonWgsl, displayViewLatticeConstants, LATTICE_BINDI
 import type { DisplayViewGpuMaterialModule } from "./display-view-speed-gpu.js";
 import { renderDisplayView, type DisplayViewGpuSetup } from "../facade/display-view.js";
 import type { DisplayViewExpectedSignalInput } from "../facade/expected-signal.js";
-import type { ImagePlaneSignalScene } from "../facade/scene-radiance.js";
+import { resolveCaptureIlluminant, type ImagePlaneSignalScene } from "../facade/scene-radiance.js";
+import { resolveMixedIllumination } from "../facade/mixed-illumination.js";
 import { imagePlaneSupport } from "../facade/image-plane-support.js";
 import { CONFORMANCE_FRAME, conformanceChannelAt, conformanceResponses, conformanceSetup, conformanceVerdict, renderDisplayViewSpeedOnGpu, withConformanceAbort } from "./display-view-speed-gpu.js";
 import { renderDisplayViewQualityOnGpu, type DisplayViewQualityImagePasses } from "./display-view-quality-gpu.js";
@@ -257,7 +258,8 @@ export function createDisplayViewImageModules(runtime: WebGpuRuntime, probe: (si
  * #581's run-time self-check of the module, run on a device's first photo: a 12 × 8 photo (a color ramp with hard edges, every
  * lattice cell's corner colors among its pixels) printed at 0.8 of the frame's width on the 18 % surround of a 38 × 26 frame shown
  * at 13 × 9, the GPU against `renderDisplayView` within the a-priori bounds, every flagged pixel recomputed: the Speed kernel with
- * the 2 × 2 box, then the Quality passes with the four-spot filter's 16 offsets and synthetic radius-1 kernels at three nodes.
+ * the 2 × 2 box, then the Quality passes with the four-spot filter's 16 offsets and synthetic radius-1 kernels at three nodes, and
+ * (#597) the same passes under mixed light (a three-source gradient with a hard edge and a point source).
  * A device that fails the double-float32 probe refuses photos (unsupported-on-backend, as composite charts), so the check passes
  * there without keeping the device's charts off the GPU.
  */
@@ -286,7 +288,21 @@ export async function runImagePlaneConformance(handle: unknown, signal: AbortSig
   const qualityInput: DisplayViewExpectedSignalInput = { nativeWidth, nativeHeight, outputWidth: frameWidth, wavelengthsNm: nodes, electronsPerRadiance: A, offsets: qualityOffsets,
     kernels: { radius: 1, perNode: [kernel(0.6), kernel(0.7), kernel(0.8)] }, scene: printScene, channelAt: conformanceChannelAt };
   const quality = conformanceSetup(qualityInput, readout, 582, 5, signal, { gpu: { signalInput: qualityInput, chart: null, placement } });
-  const [speedReference, qualityReference] = [await renderDisplayView(speed), await renderDisplayView(quality)];
+  // #597: the same Quality case under mixed light: a gradient of three sources with a hard edge (equal stops) across the print, and a
+  // point source over its upper left, the reference's irradiance from the same parts in float64.
+  const day = { kind: "planckian" as const, temperatureKelvin: 6500 }, lamp = { kind: "cie-a" as const };
+  const light = resolveMixedIllumination({ sources: [{ illuminant: day, illuminanceLux: 1.2e5 }, { illuminant: lamp, illuminanceLux: 8e4 }, { illuminant: day, illuminanceLux: 3e4 }],
+    blend: { kind: "linear-gradient", from: { u: -0.9, v: 0.1 }, to: { u: 0.8, v: -0.2 }, stops: [0, 0.45, 0.45] },
+    points: [{ illuminant: lamp, position: { xM: -0.3, yM: 0.2, heightM: 0.35 }, intensity: { illuminanceLux: 6e4, distanceM: 0.35 } }] }, resolveCaptureIlluminant);
+  // The print's half width is 1 m here (print-local units are metres), so the point sources read the print-local point.
+  const litIrradiance = (cu: number, cv: number, nm: number): number => light.irradianceAt(cu, cv, cu, cv, nm);
+  const litRadianceAt = (u: number, v: number, nm: number): number => {
+    const cu = u * k, cv = v * k;
+    return (Math.abs(cu) <= 1 && Math.abs(cv) <= aspect ? scene.reflectanceAt(cu, cv, nm) : surround) * litIrradiance(cu, cv, nm) / Math.PI;
+  };
+  const litInput: DisplayViewExpectedSignalInput = { ...qualityInput, scene: scene.signalScene(nodes, A, white, litRadianceAt, k, 1, surround, light) };
+  const lit = conformanceSetup(litInput, readout, 597, 5, signal, { gpu: { signalInput: litInput, chart: null, placement } });
+  const [speedReference, qualityReference, litReference] = [await renderDisplayView(speed), await renderDisplayView(quality), await renderDisplayView(lit)];
   const images = createDisplayViewImageModules(runtime, (s) => probeChartCompositeDevice(runtime, (label, code) => createComputePipeline(runtime, label, code, s), s));
   try {
     return await withConformanceAbort(runtime, signal, async (abort, pipelines) => {
@@ -300,7 +316,11 @@ export async function runImagePlaneConformance(handle: unknown, signal: AbortSig
       const gpu = await renderDisplayViewQualityOnGpu(runtime, 1 << 20, { setup: quality, signalInput: qualityInput, material: { id: "image-plane", wgsl: "", bindings: [] },
         image: imagePlaneQualityPasses(runtime, quality.gpu!, path) }, abort, undefined, pipelines);
       const qualityVerdict = conformanceVerdict(qualityReference, gpu);
-      return qualityVerdict === true ? true : "Quality: " + qualityVerdict;
+      if (qualityVerdict !== true) return "Quality: " + qualityVerdict;
+      const litGpu = await renderDisplayViewQualityOnGpu(runtime, 1 << 20, { setup: lit, signalInput: litInput, material: { id: "image-plane", wgsl: "", bindings: [] },
+        image: imagePlaneQualityPasses(runtime, lit.gpu!, path) }, abort, undefined, pipelines);
+      const litVerdict = conformanceVerdict(litReference, litGpu);
+      return litVerdict === true ? true : "Quality under mixed light: " + litVerdict;
     });
   } finally { images.release(); }
 }

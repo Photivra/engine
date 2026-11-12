@@ -14,7 +14,8 @@
  * #477); `display-view-chart-material-module.ts` provides one for the eight 2.0 chart presets and
  * `display-view-composite-material-module.ts` (#491) one for composite charts, the 2.3 elements and `material-layers` scenes.
  */
-import { DISPLAY_VIEW_NOISE_STREAM_ID, axisSums, clipCentre, createDisplayViewExpectedSignal, displayViewDecidedSaturation, overlaps, quantizationVariance, renderDisplayView, type AxisSums, type DisplayViewRenderResult, type DisplayViewSetup } from "../facade/display-view.js";
+import { SDR_LUMINANCE_WEIGHTS } from "../output/sdr-rendering.js";
+import { DISPLAY_VIEW_NOISE_STREAM_ID, EXACT_AREA_MEAN_MAX_PIXELS, axisSums, clipCentre, createDisplayViewExpectedSignal, displayViewDecidedSaturation, overlaps, quantizationVariance, renderDisplayView, type AxisSums, type DisplayViewKernelTap, type DisplayViewRenderResult, type DisplayViewSetup } from "../facade/display-view.js";
 import { displayViewSignalTables, type DisplayViewExpectedSignalInput } from "../facade/expected-signal.js";
 import { resolvePortableChartScene } from "../facade/chart-scenes.js";
 import { setDisplayViewGpuRendererFactory, type DisplayViewGpuConformanceCase, type DisplayViewGpuPart, type DisplayViewGpuRenderOutput, type DisplayViewGpuRenderer,
@@ -29,7 +30,6 @@ import { BUFFER_USAGE, GpuResourceScope, abortedError, createComputePipeline, li
 import { DISPLAY_VIEW_AUX, DISPLAY_VIEW_FLAG_WORDS, DISPLAY_VIEW_SPEED_MAXIMUM_NODES, DISPLAY_VIEW_GEOMETRY_STRIDE, DISPLAY_VIEW_GPU_MAXIMUM_OFFSETS, DISPLAY_VIEW_GPU_MAXIMUM_PIXELS_PER_AXIS,
   DISPLAY_VIEW_OUTPUT_FLOATS, DISPLAY_VIEW_PARAM_WORDS, DISPLAY_VIEW_REINHARD_MEAN_U, DISPLAY_VIEW_REINHARD_VARIANCE_U, DISPLAY_VIEW_WORKGROUP_SIZE,
   assembleDisplayViewSpeedWgsl } from "./wgsl-display-view-speed-kernel.js";
-import { footprintShape, bilinearKernels, offsetCount } from "./display-view-quality-gpu.js";
 
 type PipelineSource = (label: string, code: string) => Promise<GPUComputePipeline>;
 type YieldControl = ((signal: AbortSignal) => Promise<void>) | undefined;
@@ -123,7 +123,7 @@ export interface DisplayViewSpeedGpuResult extends DisplayViewRenderResult {
 /**
  * Why the kernel does not cover a request, or null when it does. The kernel is the Speed path: the exact area mean
  * (views where a footprint holds at most 25 real pixels and at most K², and here at most 6 per axis), no diffraction
- * kernels, chart materials, the bilinear demosaic (no AHD candidates or correction), the identity or positive Reinhard
+ * kernels, chart materials, the bilinear demosaic (no AHD candidates), the identity or positive Reinhard
  * tone curve, and at most 16 query offsets.
  */
 export function displayViewSpeedGpuUnsupportedReason(setup: DisplayViewSetup, signalInput: DisplayViewExpectedSignalInput): string | null {
@@ -131,8 +131,10 @@ export function displayViewSpeedGpuUnsupportedReason(setup: DisplayViewSetup, si
   if (signalInput.kernels) return "diffraction kernels (the Quality path) are not on the GPU";
   if (signalInput.scene.kind !== "materials" && !signalInput.scene.signalAt) return "radiance scenes (caller functions) are not on the GPU";
   if (!signalInput.queryPoint) return "the expected signal has no query points";
-  if (setup.candidates || setup.ahdCorrection || setup.ahdCollect) return "AHD candidates and the low-signal correction are not on the GPU";
-  if (setup.toneCurve !== "identity" && setup.toneCurve !== "positive-reinhard-per-channel") return "unsupported tone curve " + String(setup.toneCurve);
+  if (setup.candidates || setup.ahdChoice) return "AHD candidates are not on the GPU";
+  if (!GPU_TONE_CURVES.includes(setup.toneCurve)) return "unsupported tone curve " + String(setup.toneCurve);
+  if (setup.rendering && !setup.coupled) return "the coupled rendering steps were not prepared";
+  if (setup.rendering?.highlightMode === "reconstruct-neighbors") return "highlightMode reconstruct-neighbors (#602; its regions' ratios are found on the host) is not on the GPU in 2.22.0";
   if (signalInput.offsets.length < 1 || signalInput.offsets.length > DISPLAY_VIEW_GPU_MAXIMUM_OFFSETS) return "the kernel holds 1 to " + DISPLAY_VIEW_GPU_MAXIMUM_OFFSETS + " query offsets";
   if (signalInput.wavelengthsNm.length < 1 || signalInput.wavelengthsNm.length > DISPLAY_VIEW_SPEED_MAXIMUM_NODES) return "the kernel integrates 1 to " + DISPLAY_VIEW_SPEED_MAXIMUM_NODES + " spectral nodes per site";
   if (setup.region.width < 1 || setup.region.height < 1) return "an empty region";
@@ -218,11 +220,13 @@ export function axisRecord(geometry: Float32Array, at: number, start: number, en
   order.forEach((key, i) => { geometry[at + 8 + i] = sums[key] / scale2; });
 }
 
+/** The kernel's tone code: identity 0, positive Reinhard 1, extended Reinhard (luminance) 2, Naka–Rushton (luminance) 3. */
+const TONE_CODE: Readonly<Record<DisplayViewSetup["toneCurve"], number>> = { "identity": 0, "positive-reinhard-per-channel": 1, "extended-reinhard-luminance": 2, "naka-rushton-luminance": 3 };
 /** The uniform parameters and the aux table of a render. */
 function constants(setup: DisplayViewSetup, signalInput: DisplayViewExpectedSignalInput): { params: ArrayBuffer; aux: Float32Array<ArrayBuffer> } {
   const params = new ArrayBuffer(4 * DISPLAY_VIEW_PARAM_WORDS), words = new Uint32Array(params), floats = new Float32Array(params);
   words[2] = setup.region.width; words[3] = setup.region.x; words[4] = setup.region.y; words[5] = setup.margin; words[6] = setup.nativeWidth; words[7] = setup.nativeHeight;
-  words[8] = setup.region.width; words[9] = setup.toneCurve === "positive-reinhard-per-channel" ? 1 : 0; words[10] = signalInput.offsets.length; words[11] = signalInput.wavelengthsNm.length;
+  words[8] = setup.region.width; words[9] = TONE_CODE[setup.toneCurve]; words[10] = signalInput.offsets.length; words[11] = signalInput.wavelengthsNm.length;
   for (let c = 0; c < 3; c++) { floats[12 + c] = setup.readout[c]!.perElectron; floats[16 + c] = setup.readout[c]!.darkElectrons; floats[20 + c] = setup.readout[c]!.constantVariance; floats[24 + c] = setup.gains[c]!; }
   floats[15] = 8.5 * 8.5; floats[19] = setup.clipLevel;
   for (let r = 0; r < 3; r++) for (let c = 0; c < 3; c++) floats[28 + r * 3 + c] = setup.matrix[r]![c]!;
@@ -321,12 +325,18 @@ export async function renderDisplayViewSpeedOnGpu(runtime: WebGpuRuntime, bandBy
   const rows = Math.max(1, Math.min(region.height, Math.floor(bandBytes / (region.width * BYTES_PER_PIXEL)), material.bandRows?.(shape.sy) ?? Infinity));
   if (Math.max(rows * region.width * 4 * DISPLAY_VIEW_OUTPUT_FLOATS, geometry.byteLength, table.byteLength) > runtime.maximumStorageBindingBytes)
     throw new ImageKernelExecutionError("insufficient-limits", "One display-view band exceeds the device's storage binding limit.");
-  const pipeline = await pipelines("photivra-display-view-speed:" + material.id, assembleDisplayViewSpeedWgsl(material.wgsl));
+  // #593, #601: the coupled steps' shader text and constants, loaded on demand for a view that asks for them.
+  const coupled = setup.rendering ? await import("./wgsl-display-view-coupled.js") : null;
+  const coupledConstants = coupled ? coupled.displayViewCoupledConstants(setup, SDR_LUMINANCE_WEIGHTS, gaussLegendre16()) : new Float32Array(1);
+  const pipeline = await pipelines("photivra-display-view-speed:" + material.id + (coupled ? "+coupled" : ""), assembleDisplayViewSpeedWgsl(material.wgsl, coupled?.DISPLAY_VIEW_COUPLED_WGSL));
   const moments = new Float32Array(pixelCount * DISPLAY_VIEW_OUTPUT_FLOATS), flagged: number[] = [], flagWords = new Uint32Array(pixelCount * DISPLAY_VIEW_FLAG_WORDS);
   const words = new Uint32Array(params);
   const scope = new GpuResourceScope(runtime);
   try {
-    const auxBuffer = scope.upload("photivra-display-view-aux", aux, BUFFER_USAGE.STORAGE);
+    // #593, #601: the coupled steps' constants follow the aux table's own entries (one zero word without them).
+    const auxWithCoupled = new Float32Array(aux.length + coupledConstants.length);
+    auxWithCoupled.set(aux); auxWithCoupled.set(coupledConstants, aux.length);
+    const auxBuffer = scope.upload("photivra-display-view-aux", auxWithCoupled, BUFFER_USAGE.STORAGE);
     const geometryBuffer = scope.upload("photivra-display-view-geometry", geometry, BUFFER_USAGE.STORAGE);
     const tableBuffer = scope.upload("photivra-display-view-table", table, BUFFER_USAGE.STORAGE);
     const materialGroup = material.band ? null : runtime.device.createBindGroup({ layout: pipeline.getBindGroupLayout(1), entries: material.bindings.map((b) => ({ binding: b.binding,
@@ -406,7 +416,7 @@ export async function renderDisplayViewSpeedOnGpu(runtime: WebGpuRuntime, bandBy
   for (let i = 0; i < pixelCount; i++) saturatedPixelCount += saturated[i]!;
   const expectedValueBound: ImageKernelRelativeErrorBound = { kind: "relative-to-reference", relative: relative.mean, absolute: largestMean };
   const uncertain = flagged.length - recomputed.length + undecided.length - highlights.length;
-  return { samples, expected, noiseStd, sampleCount, siteCount, detailPixelCount: pixelCount, uniformPixelCount: 0, ahdCorrectedPixelCount: 0, estimation: "exact-area-mean", saturated, saturatedPixelCount,
+  return { samples, expected, noiseStd, sampleCount, siteCount, detailPixelCount: pixelCount, uniformPixelCount: 0, estimation: "exact-area-mean", saturated, saturatedPixelCount,
     execution: webGpuExecution(expectedValueBound, uncertain), expectedValueBound,
     varianceBound: { kind: "relative-to-reference", relative: relative.variance, absolute: largestVariance },
     expectedValueAbsoluteBound: meanBound, varianceAbsoluteBound: varianceBound,
@@ -429,10 +439,13 @@ export function displayViewSpeedGpuSupports(request: DisplayViewGpuRequest): tru
 /** Why the GPU's material lookup, tone curves or query-offset table do not cover a request (shared by the Speed and Quality support checks), or true. */
 export function sceneToneAndOffsetsReason(request: DisplayViewGpuRequest, maximumOffsets: number): true | string {
   if (request.scene !== "chart" && request.scene !== "material-layers" && request.scene !== "image-plane") return "the scene is a caller " + request.scene + "; the GPU material lookup covers engine charts and declared material-layers scenes (describe the scene as material-layers)";
-  if (request.toneCurve !== "identity" && request.toneCurve !== "positive-reinhard-per-channel") return "unsupported tone curve " + String(request.toneCurve);
+  // #593: the identity, Reinhard and the two luminance tone curves (the luminance curves through the coupled steps).
+  if (!GPU_TONE_CURVES.includes(request.toneCurve)) return "unsupported tone curve " + String(request.toneCurve);
   if (offsetCount(request) > maximumOffsets) return "more than " + maximumOffsets + " query offsets per site";
   return true;
 }
+/** The tone curves the GPU kernels render (#593 adds the luminance curves). */
+const GPU_TONE_CURVES: readonly string[] = ["identity", "positive-reinhard-per-channel", "extended-reinhard-luminance", "naka-rushton-luminance"];
 
 /**
  * A self-check's verdict: every component of a GPU render inside its a-priori bounds against the reference, every sample within
@@ -533,7 +546,7 @@ export function createDisplayViewSpeedGpuRenderer(runtime: WebGpuRuntime, option
         const material = await modules.moduleFor(setup.gpu, abort.signal);
         const result = await renderDisplayViewSpeedOnGpu(runtime, bandBytes, { setup, signalInput: setup.gpu.signalInput, material }, abort, options.yieldControl, source);
         return { samples: result.samples, expected: result.expected, noiseStd: result.noiseStd, sampleCount: result.sampleCount, siteCount: result.siteCount, detailPixelCount: result.detailPixelCount,
-          uniformPixelCount: result.uniformPixelCount, ahdCorrectedPixelCount: result.ahdCorrectedPixelCount, estimation: result.estimation, saturated: result.saturated,
+          uniformPixelCount: result.uniformPixelCount, estimation: result.estimation, saturated: result.saturated,
           saturatedPixelCount: result.saturatedPixelCount, errorBound: result.expectedValueBound,
           diagnosticUncertaintySampleCount: result.execution.diagnosticUncertaintySampleCount, ...(material.compositeProbe ? { compositeProbe: material.compositeProbe } : {}) };
       } finally { signal?.removeEventListener("abort", onAbort); }
@@ -551,4 +564,29 @@ export const displayViewSpeedGpuRendererFactory: DisplayViewGpuRendererFactory =
  */
 export function registerDisplayViewSpeedGpuRenderer(): DisplayViewGpuRendererFactory | null {
   return setDisplayViewGpuRendererFactory(displayViewSpeedGpuRendererFactory);
+}
+
+// #594: shared with the on-demand Quality host (display-view-quality-gpu.ts), so the Speed path does not import it.
+
+/** #564: the GPU refusal of a defocus kernel above the direct radius (the CPU convolves it by runs). */
+export const LARGE_DEFOCUS_REASON = "a defocus kernel radius above 64 sites (convolved by runs on the CPU, #564) is not on the GPU";
+
+/** The footprint shape of a view: real pixels per display pixel along each axis, and whether the exact area mean applies. */
+export function footprintShape(setup: DisplayViewSetup): { sx: number; sy: number; exact: boolean; maximumColumns: number; maximumRows: number } {
+  const sx = setup.frameWidth / setup.viewWidth, sy = setup.frameHeight / setup.viewHeight, area = sx * sy;
+  const exact = area <= Math.min(EXACT_AREA_MEAN_MAX_PIXELS, setup.samplesPerAxis * setup.samplesPerAxis);
+  let maximumColumns = 0, maximumRows = 0;
+  for (let i = 0; i < setup.region.width; i++) maximumColumns = Math.max(maximumColumns, overlaps((setup.region.x + i) * sx, (setup.region.x + i + 1) * sx, setup.frameWidth).w.length);
+  for (let j = 0; j < setup.region.height; j++) maximumRows = Math.max(maximumRows, overlaps((setup.region.y + j) * sy, (setup.region.y + j + 1) * sy, setup.frameHeight).w.length);
+  return { sx, sy, exact, maximumColumns, maximumRows };
+}
+
+/** The pixel-aperture samples per axis and anti-aliasing spots of a request. */
+export function offsetCount(request: DisplayViewGpuRequest): number { return request.boxSamples * request.boxSamples * (request.antiAliasing ? 4 : 1); }
+
+/** The bilinear RGGB demosaic kernels per phase (phaseY·2 + phaseX) and channel, as `bilinearPhaseProfiles` gives them. */
+export function bilinearKernels(): DisplayViewKernelTap[][][] {
+  const cross = [[1, 0], [-1, 0], [0, 1], [0, -1]], diagonal = [[1, 1], [1, -1], [-1, 1], [-1, -1]], horizontal = [[1, 0], [-1, 0]], vertical = [[0, 1], [0, -1]];
+  const average = (offsets: number[][]): DisplayViewKernelTap[] => offsets.map(([dx, dy]) => ({ dx: dx!, dy: dy!, weight: 1 / offsets.length })), self = [{ dx: 0, dy: 0, weight: 1 }];
+  return [[self, average(cross), average(diagonal)], [average(horizontal), self, average(vertical)], [average(vertical), self, average(horizontal)], [average(diagonal), average(cross), self]];
 }

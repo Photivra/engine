@@ -39,7 +39,7 @@ describe("tabulated native RAW for engine-built planar scenes (#394 step 2)", ()
       { scene: { preset: "siemens-star" }, lens: { diffraction: "circular-aperture" }, output: { width: 64, height: 48, region: { x: 20, y: 12, width: 16, height: 12 } } }
     ] as SimulateCaptureOptions[]) {
       const { tabulated, chain, differing } = await both(options);
-      expect(method(tabulated)).toBe("tabulated-expected-electrons");
+      expect(method(tabulated)).toBe("per-site-integrated-electrons");
       expect(method(chain)).toBeUndefined();
       // Last-bit differences rarely change a draw; on these frames none did.
       expect(differing).toBe(0);
@@ -58,7 +58,7 @@ describe("tabulated native RAW for engine-built planar scenes (#394 step 2)", ()
     const engine = await import("../src/index.js");
     await engine.simulateCapture(other);
     const warm = await engine.simulateCapture(quality);
-    expect(method(warm)).toBe("tabulated-expected-electrons");
+    expect(method(warm)).toBe("per-site-integrated-electrons");
     expect(Array.from(warm.raw.codes)).toEqual(Array.from(fresh.raw.codes));
     expect(Array.from(warm.image.samples)).toEqual(Array.from(fresh.image.samples));
   }, scaledTimeout(300_000));

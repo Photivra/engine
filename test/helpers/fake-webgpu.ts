@@ -8,6 +8,8 @@
 import { SDR_COUNTER, SDR_TONE_MODE } from "../../src/gpu/wgsl-kernels.js";
 import { createChartMaterialEmulator, emulateChart, emulateSensor, emulateTemporalSum, nearestArithmetic, type EmulationArithmetic } from "./fake-webgpu-stages.js";
 import { emulateDisplayViewSpeed } from "./fake-webgpu-display-view.js";
+import { DISPLAY_VIEW_AUX } from "../../src/gpu/wgsl-display-view-speed-kernel.js";
+import { DISPLAY_VIEW_QUALITY_AUX } from "../../src/gpu/wgsl-display-view-quality-kernel.js";
 import { emulateDisplayViewQualityLattice, emulateDisplayViewQualityPixels, emulateDisplayViewQualitySites, emulateDisplayViewQualitySitesBlocked, emulateImagePlaneQualitySites } from "./fake-webgpu-display-view-quality.js";
 
 const f = Math.fround;
@@ -153,7 +155,9 @@ function renderToned(e: number, sourceNonzero: boolean, band0: number, band1: nu
   return Math.min(maximum, Math.max(0, Math.floor(f(f(encode(linear) * maximum) + .5))));
 }
 
-function emulate(label: string, buffers: Map<number, FakeBuffer>, arithmetic: EmulationArithmetic, composite: CompositeArithmetic): void {
+function emulate(fullLabel: string, buffers: Map<number, FakeBuffer>, arithmetic: EmulationArithmetic, composite: CompositeArithmetic): void {
+  // #593, #601: a display-view pipeline with the coupled steps ends in "+coupled"; its constants are binding 9 (one zero word otherwise).
+  const label = fullLabel.endsWith("+coupled") ? fullLabel.slice(0, -"+coupled".length) : fullLabel;
   const u32 = (b: number): Uint32Array => new Uint32Array(buffers.get(b)!.data);
   const i32 = (b: number): Int32Array => new Int32Array(buffers.get(b)!.data);
   const f32 = (b: number): Float32Array => new Float32Array(buffers.get(b)!.data);
@@ -242,15 +246,15 @@ function emulate(label: string, buffers: Map<number, FakeBuffer>, arithmetic: Em
   } else if (label === "photivra-display-view-speed:image-plane" || label === "photivra-display-view-speed:image-plane-fma") {
     // #581: the image-plane module (group 1): the pixel signals at 100, the photo uniform at 101, the lattice uniform at 102, the offsets at 103; the surround is the site table (3).
     const material = createImagePlaneDisplayViewMaterialEmulator(u32(101), f32(101), f32(100), f32(3), u32(102), f32(102), f32(103), label.endsWith("-fma") ? "fma" : "dekker", composite);
-    emulateDisplayViewSpeed(u32(0), f32(0), f32(1), f32(2), f32(3), f32(4), u32(5), material);
+    emulateDisplayViewSpeed(u32(0), f32(0), f32(1), f32(2), f32(3), f32(4), u32(5), material, f32(1).subarray(DISPLAY_VIEW_AUX.size));
   } else if (compositeModulePath(label, "photivra-display-view-speed")) {
     // #491: the composite material module (group 1): the scene's float records at 100, integer records at 101, the lattice uniform at 102, the offsets at 103.
     const material = createCompositeDisplayViewMaterialEmulator(u32(102), f32(102), f32(103), f32(100), u32(101), compositeModulePath(label, "photivra-display-view-speed")!, composite);
-    emulateDisplayViewSpeed(u32(0), f32(0), f32(1), f32(2), f32(3), f32(4), u32(5), material);
+    emulateDisplayViewSpeed(u32(0), f32(0), f32(1), f32(2), f32(3), f32(4), u32(5), material, f32(1).subarray(DISPLAY_VIEW_AUX.size));
   } else if (label.startsWith("photivra-display-view-speed:")) {
     // The chart-preset material module (group 1): its uniform at 100, its aux table at 101.
     const material = createChartMaterialEmulator(u32(100), f32(100), f32(101), 8, arithmetic);
-    emulateDisplayViewSpeed(u32(0), f32(0), f32(1), f32(2), f32(3), f32(4), u32(5), material);
+    emulateDisplayViewSpeed(u32(0), f32(0), f32(1), f32(2), f32(3), f32(4), u32(5), material, f32(1).subarray(DISPLAY_VIEW_AUX.size));
   } else if (compositeModulePath(label, "photivra-display-view-quality-lattice")) {
     // #491's composite module in the Quality lattice pass (group 1 as in Speed: float records 100, integer records 101, lattice uniform 102, offsets 103).
     const material = createCompositeDisplayViewMaterialEmulator(u32(102), f32(102), f32(103), f32(100), u32(101), compositeModulePath(label, "photivra-display-view-quality-lattice")!, composite);
@@ -262,13 +266,13 @@ function emulate(label: string, buffers: Map<number, FakeBuffer>, arithmetic: Em
     emulateDisplayViewQualitySites(u32(0), f32(0), u32(1), u32(2), f32(3), u32(4), f32(5), f32(6));
   } else if (label === "photivra-display-view-quality-photo-lattice:image-plane" || label === "photivra-display-view-quality-photo-lattice:image-plane-fma") {
     // #581: the print's pass 1 (group 0: params, groups, values, flags; group 1: records 100, photo uniform 101, node table 102).
-    emulateImagePlaneQualityLattice(u32(0), u32(1), f32(2), u32(3), u32(100), u32(101), f32(101), f32(102), label.endsWith("-fma") ? "fma" : "dekker", composite);
+    emulateImagePlaneQualityLattice(u32(0), u32(1), f32(2), u32(3), u32(100), u32(101), f32(101), f32(102), label.endsWith("-fma") ? "fma" : "dekker", composite, f32(103));
   } else if (label === "photivra-display-view-quality-photo-sites") {
     emulateImagePlaneQualitySites(u32(0), f32(0), u32(1), f32(3), f32(4), f32(5), u32(6));
   } else if (label === "photivra-display-view-quality-sites-blocked") {
     emulateDisplayViewQualitySitesBlocked(u32(0), f32(0), u32(1), f32(3), u32(4), f32(5), f32(6));
   } else if (label === "photivra-display-view-quality-pixels") {
-    emulateDisplayViewQualityPixels(u32(0), f32(0), f32(1), f32(2), f32(3), i32(4), f32(5), u32(6), f32(7), u32(8));
+    emulateDisplayViewQualityPixels(u32(0), f32(0), f32(1), f32(2), f32(3), f32(4), u32(5), f32(1).subarray(DISPLAY_VIEW_QUALITY_AUX.size));
   } else if (!emulateComposite(label, (b) => buffers.get(b)!.data, composite)) {
     throw new Error(`No emulator for ${label}`);
   }

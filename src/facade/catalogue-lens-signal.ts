@@ -41,6 +41,24 @@ import type { DisplayViewScene } from "./expected-signal.js";
 
 /** Fewest grid cells between neighboring profile field nodes (10 since #589: with 4, 0.4 % of quick frames failed the run-time check). */
 export const CATALOGUE_FAST_GRID_MINIMUM_SUBDIVISIONS = 10;
+/**
+ * #603 (2.22.0): the fewest cells on a fast request (on screen: 2.20.0's grid, its run-time fallbacks to the exact method included);
+ * the full grid, {@link CATALOGUE_FAST_GRID_MINIMUM_SUBDIVISIONS}, on an exact one (the exports and the calculator).
+ */
+export const CATALOGUE_FAST_GRID_SPEED_SUBDIVISIONS = 4;
+/**
+ * #603 (owner decision 2026-11-11): the lenses that keep the full grid on fast requests too, because the 4-cell grid's run-time
+ * fallbacks to the exact method made their fast frames slower on average. Measured November 11, 2026 (arm64, Node.js 24; every
+ * catalogue lens but the phone lenses, wide open and at max(f/8, widest), Siemens star and color patches, whole frames 192, 384 and
+ * 768 pixels wide, two runs each; docs/LENS_CATALOGUE.md, "Fast method"): only this lens fell back, 4 of its 8 frames at 192 pixels
+ * (f/2.8), 11.6 s each, against 0.17 s for the 10-cell grid.
+ */
+export const CATALOGUE_FAST_GRID_FULL_ON_SCREEN: readonly { lensId: string; fallbacksAtFourCells: { frames: number; fellBack: number; widthPixels: number } }[] =
+  /* @__PURE__ */ Object.freeze([Object.freeze({ lensId: "pv-15-2.8-fisheye-pro", fallbacksAtFourCells: Object.freeze({ frames: 8, fellBack: 4, widthPixels: 192 }) })]);
+/** #603: the fewest grid cells for a lens on a fast or an exact request. */
+export function catalogueFastGridSubdivisions(lensId: string, fast: boolean): number {
+  return fast && !CATALOGUE_FAST_GRID_FULL_ON_SCREEN.some((entry) => entry.lensId === lensId) ? CATALOGUE_FAST_GRID_SPEED_SUBDIVISIONS : CATALOGUE_FAST_GRID_MINIMUM_SUBDIVISIONS;
+}
 /** Largest move of a node kernel's intensity centroid across one grid cell, in sites (sets finer grids where lateral color moves the PSF). */
 export const CATALOGUE_FAST_GRID_CENTROID_STEP_SITES = 0.05;
 /**
@@ -77,6 +95,8 @@ export interface CatalogueLensSignalInput {
   /** The planar provider's plane distance and frame-unit scale. */
   distanceM: number;
   metresPerFrameUnit: number;
+  /** #603: the fewest grid cells between neighbouring field nodes (default {@link CATALOGUE_FAST_GRID_MINIMUM_SUBDIVISIONS}). */
+  gridSubdivisions?: number;
   /** Internal test hook: resolve every site's kernels exactly (the exact method's sum, slowly) instead of blending the grid. */
   exactKernels?: boolean;
 }
@@ -97,7 +117,7 @@ export interface CatalogueLensSignal {
  * ⌈Δc / GRID_CENTROID_STEP_SITES⌉) equal cells, Δc the largest centroid move between the interval's two nodes over the other
  * axis's nodes and the wavelength nodes.
  */
-export function catalogueFastGridAxes(psf: CatalogueLensSignalInput["psf"]): { x: number[]; y: number[] } {
+export function catalogueFastGridAxes(psf: CatalogueLensSignalInput["psf"], minimum = CATALOGUE_FAST_GRID_MINIMUM_SUBDIVISIONS): { x: number[]; y: number[] } {
   const profile = psf.profile, axes = profile.axes, fx = axes.fieldXmm, fy = axes.fieldYmm, wl = axes.wavelengthNm;
   const centroids = new Map<string, { x: number; y: number }>();
   for (const node of profile.nodes) {
@@ -117,7 +137,7 @@ export function catalogueFastGridAxes(psf: CatalogueLensSignalInput["psf"]): { x
         const a = along ? at(own[i]!, o, nm) : at(o, own[i]!, nm), b = along ? at(own[i + 1]!, o, nm) : at(o, own[i + 1]!, nm);
         move = Math.max(move, Math.hypot(a.x - b.x, a.y - b.y));
       }
-      const cells = Math.max(CATALOGUE_FAST_GRID_MINIMUM_SUBDIVISIONS, Math.ceil(move / CATALOGUE_FAST_GRID_CENTROID_STEP_SITES - 1e-9));
+      const cells = Math.max(minimum, Math.ceil(move / CATALOGUE_FAST_GRID_CENTROID_STEP_SITES - 1e-9));
       for (let k = 0; k < cells; k++) out.push(own[i]! + (own[i + 1]! - own[i]!) * k / cells);
     }
     out.push(own[own.length - 1]!);
@@ -174,7 +194,7 @@ export function createCatalogueLensSignal(given: CatalogueLensSignalInput): Cata
     return table;
   };
   // The field grid, resolved lazily (a region render resolves only the grid points around it).
-  const axes = catalogueFastGridAxes(psf), gx = axes.x, gy = axes.y, GX = gx.length;
+  const axes = catalogueFastGridAxes(psf, input.gridSubdivisions), gx = axes.x, gy = axes.y, GX = gx.length;
   const tables: (Float64Array | undefined)[] = new Array(GX * gy.length);
   let resolved = 0;
   const tableAt = (i: number, j: number): Float64Array => {
@@ -291,19 +311,19 @@ export function createCatalogueLensSignal(given: CatalogueLensSignalInput): Cata
 }
 
 /** The `raw.expectedSignal` and `fast.lens.catalogue` assumptions of a capture the fast method rendered (kept here, out of the capture bundle's entry). */
-export function catalogueFastAssumptions(run: { columns: number; rows: number; resolved: number; verificationRelativeDifference: number }):
+export function catalogueFastAssumptions(run: { columns: number; rows: number; resolved: number; verificationRelativeDifference: number; subdivisions: number }):
   { id: string; value: Record<string, unknown>; explanation: string }[] {
-  const tolerance = CATALOGUE_FAST_VERIFICATION_TOLERANCE, cells = CATALOGUE_FAST_GRID_MINIMUM_SUBDIVISIONS, step = CATALOGUE_FAST_GRID_CENTROID_STEP_SITES;
-  return [{ id: "raw.expectedSignal", value: { method: "tabulated-expected-electrons-catalogue-psf-field-grid", verificationSites: 4, tolerance,
+  const tolerance = CATALOGUE_FAST_VERIFICATION_TOLERANCE, cells = run.subdivisions, step = CATALOGUE_FAST_GRID_CENTROID_STEP_SITES;
+  return [{ id: "raw.expectedSignal", value: { method: "per-site-integrated-electrons-catalogue-psf-field-grid", verificationSites: 4, tolerance,
     verificationRelativeDifference: run.verificationRelativeDifference },
-  explanation: "Each native site's expected photo electrons are tabulated: the sum over the PSF taps of the field factor (vignetting × distortion area factor) times the " +
+  explanation: "Each native site's expected photo electrons are integrated per site when the site is read: the sum over the PSF taps of the field factor (vignetting × distortion area factor) times the " +
     "grid-blended kernel per spectral node times the channel response, integrated with each tap's material spectrum (see fast.lens.catalogue). The sensor stage (dark charge, Poisson draws, read noise, ADC) " +
     "is the native one with each site's own seeds. One site of each CFA phase ran the exact chain (the environment PSF quadrature): its readout was reproduced bit for bit and " +
     "its electrons agreed with the fast ones within the tolerance (verificationRelativeDifference: the largest difference there)." },
   { id: "fast.lens.catalogue", value: { method: "field-grid-bilinear-psf", gridColumns: run.columns, gridRows: run.rows, gridPointsResolved: run.resolved,
     minimumSubdivisions: cells, centroidStepSites: step, verificationTolerance: tolerance },
   explanation: "Fast method (#568), an approximation of the exact one: the catalogue PSF is resolved exactly on a field grid (each interval between the profile's field nodes " +
-    "split into at least " + cells + " cells, more where the node kernels' centroids move by over " + step + " site per cell), and each site takes the bilinear blend of its " +
+    "split into at least " + cells + " cells (#603: " + CATALOGUE_FAST_GRID_SPEED_SUBDIVISIONS + " on a fast request, " + CATALOGUE_FAST_GRID_MINIMUM_SUBDIVISIONS + " on an exact one and for the lenses of CATALOGUE_FAST_GRID_FULL_ON_SCREEN), more where the node kernels' centroids move by over " + step + " site per cell), and each site takes the bilinear blend of its " +
     "four grid points' kernels instead of its own. Its error is at most the kernels' L1 difference times the brightest tap's signal; docs/LENS_CATALOGUE.md (\"Fast method\") " +
     "records it measured against the exact method. Distortion, vignetting and projection are the exact method's (the radial inverse by Newton's method, equal to rounding)." }];
 }

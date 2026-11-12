@@ -1,6 +1,6 @@
 {
-  "packageVersion": "2.21.0",
-  "engineApiVersion": "2.21.0",
+  "packageVersion": "2.22.0",
+  "engineApiVersion": "2.22.0",
   "exports": [
     {
       "name": "AbsoluteUncertaintyEstimate",
@@ -100,6 +100,36 @@
     {
       "name": "ApertureVertex",
       "source": "src/optics/aperture.ts",
+      "kind": "type"
+    },
+    {
+      "name": "applyDngOpcodes",
+      "source": "src/capture/dng-opcodes.ts",
+      "kind": "runtime"
+    },
+    {
+      "name": "ApplyDngOpcodesOptions",
+      "source": "src/capture/dng-opcodes.ts",
+      "kind": "type"
+    },
+    {
+      "name": "applyDngProfileGainTableMap",
+      "source": "src/capture/dng-profile-maps.ts",
+      "kind": "runtime"
+    },
+    {
+      "name": "ApplyDngProfileGainTableMapInput",
+      "source": "src/capture/dng-profile-maps.ts",
+      "kind": "type"
+    },
+    {
+      "name": "applyDngRgbTables",
+      "source": "src/capture/dng-profile-maps.ts",
+      "kind": "runtime"
+    },
+    {
+      "name": "ApplyDngRgbTablesInput",
+      "source": "src/capture/dng-profile-maps.ts",
       "kind": "type"
     },
     {
@@ -253,6 +283,16 @@
       "kind": "type"
     },
     {
+      "name": "bindC2paManifestStore",
+      "source": "src/capture/c2pa-embed.ts",
+      "kind": "runtime"
+    },
+    {
+      "name": "BindC2paManifestStoreInput",
+      "source": "src/capture/c2pa-embed.ts",
+      "kind": "type"
+    },
+    {
       "name": "bindDisplayViewCorrectionStates",
       "source": "src/facade/display-view.ts",
       "kind": "runtime"
@@ -348,6 +388,41 @@
       "kind": "type"
     },
     {
+      "name": "C2PA_ALGORITHMIC_MEDIA_SOURCE_TYPE",
+      "source": "src/capture/c2pa-embed.ts",
+      "kind": "runtime"
+    },
+    {
+      "name": "C2PA_MANIFEST_STORE_MAXIMUM_BYTES",
+      "source": "src/capture/c2pa-embed.ts",
+      "kind": "runtime"
+    },
+    {
+      "name": "C2paBoundFile",
+      "source": "src/capture/c2pa-embed.ts",
+      "kind": "type"
+    },
+    {
+      "name": "C2paByteRange",
+      "source": "src/capture/c2pa-embed.ts",
+      "kind": "type"
+    },
+    {
+      "name": "C2paDataHash",
+      "source": "src/capture/c2pa-embed.ts",
+      "kind": "type"
+    },
+    {
+      "name": "C2paFoundManifestStore",
+      "source": "src/capture/c2pa-embed.ts",
+      "kind": "type"
+    },
+    {
+      "name": "C2paHardBinding",
+      "source": "src/capture/c2pa-embed.ts",
+      "kind": "type"
+    },
+    {
       "name": "calculateActiveCaptureFieldOfView",
       "source": "src/output/capture-geometry.ts",
       "kind": "runtime"
@@ -410,6 +485,26 @@
     {
       "name": "CalculateBrownConradyDistortionMappingInput",
       "source": "src/optics/brown-conrady-distortion.ts",
+      "kind": "type"
+    },
+    {
+      "name": "calculateC2paDataHash",
+      "source": "src/capture/c2pa-embed.ts",
+      "kind": "runtime"
+    },
+    {
+      "name": "CalculateC2paDataHashInput",
+      "source": "src/capture/c2pa-embed.ts",
+      "kind": "type"
+    },
+    {
+      "name": "calculateCameraChannelResponse",
+      "source": "src/output/camera-channel-response.ts",
+      "kind": "runtime"
+    },
+    {
+      "name": "CalculateCameraChannelResponseInput",
+      "source": "src/output/camera-channel-response.ts",
       "kind": "type"
     },
     {
@@ -1603,6 +1698,11 @@
       "kind": "type"
     },
     {
+      "name": "CameraChannelResponse",
+      "source": "src/output/camera-channel-response.ts",
+      "kind": "type"
+    },
+    {
       "name": "CameraColorMatrixFit",
       "source": "src/color/camera-color-matrix.ts",
       "kind": "type"
@@ -2588,6 +2688,11 @@
       "kind": "type"
     },
     {
+      "name": "createJxlOxideDngDecoder",
+      "source": "src/capture/jpeg-xl-tiles.ts",
+      "kind": "runtime"
+    },
+    {
       "name": "createLockedWhiteBalanceState",
       "source": "src/color/white-balance.ts",
       "kind": "runtime"
@@ -2953,6 +3058,16 @@
       "kind": "type"
     },
     {
+      "name": "developDngStageImage",
+      "source": "src/capture/dng-stage-image.ts",
+      "kind": "runtime"
+    },
+    {
+      "name": "DevelopDngStageImageOptions",
+      "source": "src/capture/dng-stage-image.ts",
+      "kind": "type"
+    },
+    {
       "name": "DIFFRACTION_LIMITED_PSF_PROFILE_LIMITS",
       "source": "src/optics/diffraction-psf-profile.ts",
       "kind": "runtime"
@@ -3058,8 +3173,63 @@
       "kind": "runtime"
     },
     {
+      "name": "DngImportAsyncInput",
+      "source": "src/capture/dng-import.ts",
+      "kind": "type"
+    },
+    {
       "name": "DngImportInput",
       "source": "src/capture/dng-import.ts",
+      "kind": "type"
+    },
+    {
+      "name": "DngJpegXlDecoder",
+      "source": "src/capture/jpeg-xl-tiles.ts",
+      "kind": "type"
+    },
+    {
+      "name": "DngOpcode",
+      "source": "src/capture/dng-opcodes.ts",
+      "kind": "type"
+    },
+    {
+      "name": "DngOpcodeArea",
+      "source": "src/capture/dng-opcodes.ts",
+      "kind": "type"
+    },
+    {
+      "name": "DngOpcodeParameters",
+      "source": "src/capture/dng-opcodes.ts",
+      "kind": "type"
+    },
+    {
+      "name": "DngProfileGainTableMap",
+      "source": "src/capture/dng-profile-maps.ts",
+      "kind": "type"
+    },
+    {
+      "name": "DngRgbImage",
+      "source": "src/capture/dng-profile-maps.ts",
+      "kind": "type"
+    },
+    {
+      "name": "DngRgbTable",
+      "source": "src/capture/dng-profile-maps.ts",
+      "kind": "type"
+    },
+    {
+      "name": "DngRgbTables",
+      "source": "src/capture/dng-profile-maps.ts",
+      "kind": "type"
+    },
+    {
+      "name": "DngStageImage",
+      "source": "src/capture/dng-opcodes.ts",
+      "kind": "type"
+    },
+    {
+      "name": "DngStageImageResult",
+      "source": "src/capture/dng-stage-image.ts",
       "kind": "type"
     },
     {
@@ -4269,17 +4439,17 @@
     },
     {
       "name": "ImageKernelExecutionError",
-      "source": "src/gpu/image-kernel-execution.ts",
+      "source": "src/core/execution-error.ts",
       "kind": "runtime"
     },
     {
       "name": "ImageKernelFailureReason",
-      "source": "src/gpu/image-kernel-execution.ts",
+      "source": "src/core/execution-error.ts",
       "kind": "type"
     },
     {
       "name": "ImageKernelFallbackReason",
-      "source": "src/gpu/image-kernel-execution.ts",
+      "source": "src/core/execution-error.ts",
       "kind": "type"
     },
     {
@@ -4323,6 +4493,11 @@
       "kind": "type"
     },
     {
+      "name": "importDngRawImage",
+      "source": "src/capture/dng-import.ts",
+      "kind": "runtime"
+    },
+    {
       "name": "ImportedDngBlackLevel",
       "source": "src/capture/dng-import.ts",
       "kind": "type"
@@ -4339,6 +4514,11 @@
     },
     {
       "name": "ImportedDngRect",
+      "source": "src/capture/dng-import.ts",
+      "kind": "type"
+    },
+    {
+      "name": "ImportedDngSemanticMask",
       "source": "src/capture/dng-import.ts",
       "kind": "type"
     },
@@ -4515,6 +4695,11 @@
     {
       "name": "JpegStripBits",
       "source": "src/capture/export-jpeg.ts",
+      "kind": "type"
+    },
+    {
+      "name": "JxlOxideModule",
+      "source": "src/capture/jpeg-xl-tiles.ts",
       "kind": "type"
     },
     {
@@ -4785,6 +4970,16 @@
     {
       "name": "LosslessJpegLimits",
       "source": "src/capture/lossless-jpeg.ts",
+      "kind": "type"
+    },
+    {
+      "name": "LossyJpegImage",
+      "source": "src/capture/lossy-jpeg.ts",
+      "kind": "type"
+    },
+    {
+      "name": "LossyJpegLimits",
+      "source": "src/capture/lossy-jpeg.ts",
       "kind": "type"
     },
     {
@@ -5388,6 +5583,16 @@
       "kind": "type"
     },
     {
+      "name": "parseC2paManifestStore",
+      "source": "src/capture/c2pa-embed.ts",
+      "kind": "runtime"
+    },
+    {
+      "name": "ParseC2paManifestStoreInput",
+      "source": "src/capture/c2pa-embed.ts",
+      "kind": "type"
+    },
+    {
       "name": "parseCameraConfiguration",
       "source": "src/schema/validation.ts",
       "kind": "runtime"
@@ -5433,8 +5638,23 @@
       "kind": "runtime"
     },
     {
+      "name": "parseDngOpcodeList",
+      "source": "src/capture/dng-opcodes.ts",
+      "kind": "runtime"
+    },
+    {
+      "name": "parseDngProfileGainTableMap",
+      "source": "src/capture/dng-profile-maps.ts",
+      "kind": "runtime"
+    },
+    {
       "name": "parseDngRawImage",
       "source": "src/capture/dng-import.ts",
+      "kind": "runtime"
+    },
+    {
+      "name": "parseDngRgbTables",
+      "source": "src/capture/dng-profile-maps.ts",
       "kind": "runtime"
     },
     {
@@ -5555,6 +5775,11 @@
     {
       "name": "parseLosslessJpeg",
       "source": "src/capture/lossless-jpeg.ts",
+      "kind": "runtime"
+    },
+    {
+      "name": "parseLossyJpeg",
+      "source": "src/capture/lossy-jpeg.ts",
       "kind": "runtime"
     },
     {
@@ -6110,6 +6335,11 @@
     {
       "name": "prepareImagePlaneScenes",
       "source": "src/facade/image-plane-enable.ts",
+      "kind": "runtime"
+    },
+    {
+      "name": "prepareQualityPaths",
+      "source": "src/facade/quality-paths.ts",
       "kind": "runtime"
     },
     {
@@ -8738,6 +8968,16 @@
       "kind": "runtime"
     },
     {
+      "name": "setC2paManifestStore",
+      "source": "src/capture/c2pa-embed.ts",
+      "kind": "runtime"
+    },
+    {
+      "name": "SetC2paManifestStoreInput",
+      "source": "src/capture/c2pa-embed.ts",
+      "kind": "type"
+    },
+    {
       "name": "setExposureCompensationOnMeterTarget",
       "source": "src/exposure/metering-target.ts",
       "kind": "runtime"
@@ -8953,8 +9193,18 @@
       "kind": "type"
     },
     {
+      "name": "SimulateCaptureMidGreyFigure",
+      "source": "src/sensor/sensor-characteristics.ts",
+      "kind": "type"
+    },
+    {
       "name": "SimulateCaptureMotion",
       "source": "src/facade/simulate-capture.ts",
+      "kind": "type"
+    },
+    {
+      "name": "SimulateCaptureNativeSensorReport",
+      "source": "src/sensor/sensor-characteristics.ts",
       "kind": "type"
     },
     {

@@ -38,10 +38,11 @@ import { ENGINE_API_VERSION } from "../core/version.js";
 import type { EvidenceProvenance } from "../core/evidence-provenance.js";
 import { GENERIC_TIER_ASSETS, type GenericEquipmentTier, type GenericEquipmentTierPreset } from "../equipment/generic-tier-assets.js";
 import { parseCallerCameraPreset } from "./camera-preset.js";
-import * as sensorProfileKit from "../equipment/sensor-profile-body.js";
 import type { SensorProfile } from "../equipment/sensor-profile-body.js";
 import { createHostYield } from "./host-yield.js";
 import { fastFormatDefault, resolveFast } from "./fast-resolution.js";
+import { SPECTRAL_SPIKINESS_THRESHOLD, spectralSpikiness } from "../color/spectral-spikiness.js";
+import { nativeSensorReport } from "../sensor/native-sensor-report.js";
 import { SCENE_TO_SENSOR_BRIDGE_SCOPE } from "../optics/scene-to-sensor-irradiance.js";
 import { resolveGenericEquipmentExposureCapabilities, type ResolvedGenericEquipmentExposureCapabilities } from "../equipment/exposure-capabilities.js";
 import { resolveGenericIsoSignalChain } from "../sensor/iso-signal-chain.js";
@@ -61,7 +62,6 @@ import { calculateNativeRawPlan, nativeRawMaximumProviderEvaluations, NATIVE_RAW
 import { renderTabulatedNativeRaw, TABULATED_RELATIVE_TOLERANCE } from "../capture/native-environment-tabulated.js";
 import { createDisplayViewExpectedSignal, type DisplayViewExpectedSignal, type DisplayViewExpectedSignalInput } from "./expected-signal.js";
 import type { DisplayViewFastReport } from "./display-view-gpu.js";
-import * as mixedIlluminationKit from "./mixed-illumination.js";
 import type { MixedIllumination, ResolvedMixedIllumination } from "./mixed-illumination.js";
 import type { DisplayViewLensPsf } from "./display-view-lens-signal.js";
 import { buildExpectedSignalInput } from "./expected-signal-setup.js";
@@ -76,7 +76,6 @@ import { createPrintJpegTask, PRINT_JPEG_LIMITS } from "../output/print-jpeg.js"
 import type { SimulateEnvironmentSensorRawFrameInput } from "../capture/environment-raw-producer.js";
 import { checkNativeRawIntegrity, prepareNativeRawDevelopment } from "../capture/native-raw-development.js";
 import { createRawPixelDeveloper, normalizedRawSite, rawSiteSaturated, type RawDevelopmentSource } from "../capture/raw-development-kernel.js";
-import { createAhdDemosaicTask } from "../processing/demosaic.js";
 import { PROCESSING_MAX_PIXELS } from "../processing/processing-task.js";
 import { renderSdrRunInto, type SdrPixelCounts } from "../output/native-capture-sdr.js";
 import { prepareSdrPixelTone } from "../output/sdr-rendering.js";
@@ -97,15 +96,14 @@ import { createRollingShutterCaptureExposureSchedule, resolveElectronicRollingSh
   type ElectronicRollingShutterExposureSchedule } from "../sensor/readout-exposure-linkage.js";
 import { calculateCaptureExposureWindows } from "../sensor/exposure-window.js";
 import { calculateSensorSpectralQuadrature } from "../sensor/spectral-quadrature.js";
-import { createDiffractionLimitedPsfProfile, type DiffractionLimitedPsfProfile } from "../optics/diffraction-psf-profile.js";
-import { registerDiffractionPsfKey, siteDiffractionKernel } from "../optics/site-diffraction-kernel.js";
+import type { createDiffractionLimitedPsfProfile, DiffractionLimitedPsfProfile } from "../optics/diffraction-psf-profile.js";
 import { convolveSiteKernels, createDefocusDiscSiteKernel, defocusDiscKernelRadius, defocusDiscLimitMessage, requireDefocusDiscKernelRadius, resolveDefocusDisc, type DefocusDiscSiteKernel, type ResolvedDefocusDisc } from "../optics/defocus-disc-kernel.js";
-import { calculateDefocusFieldVariation, createDefocusImageSpaceProvider, prepareDefocusImageSpaceGeometry, type DefocusFieldVariation } from "./defocus-image-space-provider.js";
+import type { DefocusFieldVariation } from "./defocus-image-space-provider.js";
 import { createDiffractedPlanarProvider } from "./diffraction-provider.js";
 import type { LargeDefocusKernel } from "./large-defocus-lattice.js";
 import { DEFOCUS_DIRECT_KERNEL_MAXIMUM_RADIUS_SITES, siteKernelRuns } from "../optics/site-kernel-runs.js";
-import { createDefocusBokehSiteKernel, resolveDefocusBokehOptions, type DefocusBokehOptions, type DefocusBokehSiteKernel, type ResolvedDefocusBokehOptions } from "../optics/defocus-bokeh-kernel.js";
-import { planDefocusBokehZones, type DefocusBokehZonePlan } from "./defocus-bokeh-zones.js";
+import type { DefocusBokehOptions, DefocusBokehSiteKernel, ResolvedDefocusBokehOptions } from "../optics/defocus-bokeh-kernel.js";
+import type { DefocusBokehZonePlan } from "./defocus-bokeh-zones.js";
 import { resolveGenericPrimeLens, type GenericPrimeLens } from "../equipment/generic-prime-lenses.js";
 import { IDEAL_LENS_LIMITS } from "../equipment/ideal-lens.js";
 import type { ResolvedGenericLens } from "../equipment/generic-lens-catalogue.js";
@@ -120,7 +118,8 @@ import { correctDiffractionInPlace, defaultDiffractionCorrectionRadiusPixels, de
   parseUnsharpMaskSettings, renderSdrWithUnsharpMaskInPlace, DEVELOPMENT_DETAIL_MODEL_VERSION, type DiffractionCorrectionSettings,
   type UnsharpMaskSettings } from "../processing/development-detail.js";
 import { resolveSensorReadoutRegime } from "../sensor/raw-readout.js";
-import { createSubjectMotionProvider, subjectTravelM, type SimulateCaptureSubjectMotion, type SubjectMotion } from "../motion/subject-motion.js";
+import type { SimulateCaptureSubjectMotion, SubjectMotion } from "../motion/subject-motion.js";
+import { loadedKit, optInKit, qualityKit } from "./on-demand-kits.js";
 import { characterizeReadout, parseSensorCharacteristics, sensorReport, SENSOR_CHARACTERISTIC_KEYS, type SimulateCaptureSensorCharacteristics, type SimulateCaptureSensorReport } from "../sensor/sensor-characteristics.js";
 import { resolveChartScene, chartMaterialInputs, CHART_SCENE_PRESETS, type ChartScene, type ResolvedChartScene } from "./chart-scenes.js";
 import { resolveChartMaterialLayers, type ChartMaterialLayerScene, type ResolvedChartMaterialLayers } from "./chart-material-layers.js";
@@ -550,8 +549,12 @@ export interface SimulateCaptureOptions {
     toneCurve?: SdrToneCurve;
     /** Required by the luminance tone curves (see `SdrToneCurveParameters`). The facade does not make one up. */
     toneCurveParameters?: SdrToneCurveParameters;
-    /** Default "clip". */
-    highlightMode?: RawHighlightMode;
+    /**
+     * Default "clip". 2.22.0 (#602, opt-in): "reconstruct-neighbors" rebuilds clipped channels from color ratios of the unclipped
+     * pixels around each clipped region (an estimate; `src/color/neighbor-highlight-reconstruction.ts`): the ring's mean ratios
+     * (fast) or their harmonic interpolation inward (full). Whole-image, so not with `output.region`.
+     */
+    highlightMode?: SimulateCaptureHighlightMode;
     /**
      * Opt-in (#556) development exposure push in stops, −2 to +5 (`NATIVE_RAW_DEVELOPMENT_EXPOSURE_RANGE_STOPS`); default 0.
      * A linear gain 2^stops on the RAW after black subtraction and white normalization, before demosaic, white balance,
@@ -562,6 +565,14 @@ export interface SimulateCaptureOptions {
      * honour it. Reported in the assumption `output.exposureCompensationStops`. 0 or omitted: byte-identical to before.
      */
     exposureCompensationStops?: number;
+    /**
+     * #601 (2.22.0, opt-in): the sRGB rendering's gamut handling after the tone curve. "clip-components" (the default) clips
+     * each component to [0, 1]; "desaturate-to-luminance" moves a pixel whose largest component exceeds 1 toward the gray of its
+     * own luminance until that component is 1, keeping its luminance and hue (`desaturateToLuminance`, src/output/sdr-rendering.ts),
+     * instead of shifting bright saturated colors toward the secondaries. sRGB output only (not with a wide-gamut `colorEncoding`
+     * or `gamutMapping`). Reported in the assumption `output.gamutHandling`. Omitted: byte-identical to before.
+     */
+    gamutHandling?: SdrRenderingProfile["gamutHandling"] & ("clip-components" | "desaturate-to-luminance");
     /** Default "scene-illuminant". */
     whiteBalance?: SimulateCaptureWhiteBalance;
     /** JPEG constant quantization step 1-255 (not a manufacturer 'quality'). Default 1 (2.20.0; 2 before), the full-quality export. */
@@ -693,17 +704,20 @@ export interface SimulateCaptureOptions {
  * a capture does. `motion.rotation` is a non-zero angular velocity; `sensor.temporalSampleCount` a count above 1.
  */
 export const SIMULATE_CAPTURE_COST_OPTIONS = /* @__PURE__ */ Object.freeze(["lens.pupilSampling", "lens.projection", "lens.distortion", "lens.vignetting", "lens.psf",
-  "lens.diffraction", "lens.defocus", "lens.catalogue", "sensor.antiAliasing", "sensor.pixelAperture.box", "sensor.temporalSampleCount", "motion.rotation", "motion.subject", "motion.shutter.rolling", "output.borderHandling.mirror", "output.region",
+  "lens.diffraction", "lens.defocus", "lens.catalogue", "sensor.antiAliasing", "sensor.pixelAperture.box", "sensor.temporalSampleCount", "sensor.spectralStepNanometers", "motion.rotation", "motion.subject", "motion.shutter.rolling", "output.borderHandling.mirror", "output.region",
   "output.whiteBalance.auto", "output.demosaic.ahd", "output.highlightMode.reconstruct", "output.colorEncoding.wide-gamut", "output.gamutMapping.perceptual",
   "output.diffractionCorrection", "output.sharpening", "output.lensCorrections", "output.format.jpeg", "output.format.png", "output.format.dng"] as const);
 export type SimulateCaptureCostOption = typeof SIMULATE_CAPTURE_COST_OPTIONS[number];
+/** `output.highlightMode`: the RAW development's modes plus (#602) the whole-image neighbor reconstruction. */
+export type SimulateCaptureHighlightMode = RawHighlightMode | "reconstruct-neighbors";
 
 /**
  * The options that take the exact-or-fast flag (#395), in the path style of {@link SIMULATE_CAPTURE_COST_OPTIONS}: each accepts
  * the record form with `fast` and is reported in `diagnostics.fast.applied` when it runs. Every one of them takes the flag,
  * whether or not it has a fast method yet; one without runs exact and reports `false`.
  */
-export const SIMULATE_CAPTURE_FAST_OPTIONS = /* @__PURE__ */ Object.freeze(["lens.diffraction", "lens.catalogue", "sensor.antiAliasing", "sensor.pixelAperture.box", "output.demosaic.ahd", "motion.subject"] as const);
+export const SIMULATE_CAPTURE_FAST_OPTIONS = /* @__PURE__ */ Object.freeze(["lens.diffraction", "lens.catalogue", "sensor.antiAliasing", "sensor.pixelAperture.box", "output.demosaic.ahd", "motion.subject",
+  "sensor.spectralStepNanometers"] as const);
 export type SimulateCaptureFastOption = typeof SIMULATE_CAPTURE_FAST_OPTIONS[number];
 
 /** `diagnostics.fast` of a capture or display view (#395): what was asked for and what ran. */
@@ -1013,7 +1027,7 @@ function cachedDiffractionProfile(input: Parameters<typeof createDiffractionLimi
   const key = JSON.stringify(input);
   let kept = diffractionProfileCache.get(key);
   if (kept) diffractionProfileCache.delete(key);
-  else kept = createDiffractionLimitedPsfProfile(input).value;
+  else kept = loadedKit(qualityKit).createDiffractionLimitedPsfProfile(input).value;
   diffractionProfileCache.set(key, kept);
   let kernelValues = 0;
   for (const profile of diffractionProfileCache.values()) kernelValues += kernelValuesOf(profile);
@@ -1338,8 +1352,15 @@ function pngColourEncoding(encoding: SimulateCaptureColorEncoding): PngColourEnc
  * stops before tone mapping, gamut clipping and quantization. It reads the RAW without taking ownership.
  */
 async function developLinearSrgb(input: NativeRawDevelopmentInput, afterRow: (completed: number, total: number) => Promise<void>,
+  ahd?: { yieldControl: () => Promise<void>; checkAbort: () => void; onDemosaicMs?: (milliseconds: number) => void },
+  neighbors?: { fast: boolean; module: typeof import("../color/neighbor-highlight-reconstruction.js") }): Promise<{ rgb: Float64Array; highlight: RawHighlightDiagnostics }> {
+  if (neighbors) return developWithNeighborHighlights(input, afterRow, ahd, neighbors.fast, neighbors.module.reconstructHighlightsFromNeighbors);
+  return developLinearSrgbWith(prepareNativeRawDevelopment(input), input, afterRow, ahd);
+}
+/** The body of {@link developLinearSrgb} for a prepared development (its operator may be replaced, #602). */
+async function developLinearSrgbWith(v: ReturnType<typeof prepareNativeRawDevelopment>, input: NativeRawDevelopmentInput, afterRow: (completed: number, total: number) => Promise<void>,
   ahd?: { yieldControl: () => Promise<void>; checkAbort: () => void; onDemosaicMs?: (milliseconds: number) => void }): Promise<{ rgb: Float64Array; highlight: RawHighlightDiagnostics }> {
-  const v = prepareNativeRawDevelopment(input), plan = v.plan, raw = input.raw, layout = plan.frame.colorSamplingProfile.layout;
+  const plan = v.plan, raw = input.raw, layout = plan.frame.colorSamplingProfile.layout;
   if (layout.kind !== "periodic-mosaic") fail("Development requires a periodic CFA.");
   const native = plan.exposure.geometry.nativeRaster, g = plan.exposure.resolvedGeometry, active = g.activeCapture.nativeRect;
   checkNativeRawIntegrity(raw, native.pixelWidth, layout.repeatWidthSites, layout.repeatHeightSites, 0, native.pixelHeight);
@@ -1361,6 +1382,22 @@ async function developLinearSrgb(input: NativeRawDevelopmentInput, afterRow: (co
   const c = developer.counts;
   return { rgb, highlight: { mode: v.highlightMode, saturatedPixelCount: c.saturatedPixelCount, whiteBalanceClippedSampleCount: c.whiteBalanceClippedSampleCount,
     reconstructedPixelCount: c.reconstructedPixelCount } };
+}
+/**
+ * #602: development with the neighbor highlight reconstruction. The development runs with an operator that stops after the white
+ * balance (u = g·c per pixel, unclipped), the whole image is rebuilt (`reconstructHighlightsFromNeighbors`) and the colour step
+ * (`developWhiteBalancedInto`) finishes each pixel to unclipped linear sRGB.
+ */
+async function developWithNeighborHighlights(input: NativeRawDevelopmentInput, afterRow: (completed: number, total: number) => Promise<void>,
+  ahd: { yieldControl: () => Promise<void>; checkAbort: () => void; onDemosaicMs?: (milliseconds: number) => void } | undefined, fast: boolean,
+  reconstructHighlightsFromNeighbors: typeof import("../color/neighbor-highlight-reconstruction.js").reconstructHighlightsFromNeighbors): Promise<{ rgb: Float64Array; highlight: RawHighlightDiagnostics }> {
+  const v = prepareNativeRawDevelopment(input), real = v.development, [g0, g1, g2] = real.appliedGains as [number, number, number];
+  const whiteBalanceOnly: typeof real = { ...real, developInto(c0: number, c1: number, c2: number, out: Float64Array | number[], offset: number): void { out[offset] = c0 * g0; out[offset + 1] = c1 * g1; out[offset + 2] = c2 * g2; } };
+  const linear = await developLinearSrgbWith({ ...v, development: whiteBalanceOnly }, input, afterRow, ahd);
+  const width = v.raster.pixelWidth, height = v.raster.pixelHeight, rgb = linear.rgb;
+  const report = reconstructHighlightsFromNeighbors(rgb, width, height, real.appliedGains, fast);
+  for (let i = 0; i < width * height; i++) real.developWhiteBalancedInto(rgb[3 * i]!, rgb[3 * i + 1]!, rgb[3 * i + 2]!, rgb, 3 * i);
+  return { rgb, highlight: { ...linear.highlight, mode: "reconstruct-neighbors", whiteBalanceClippedSampleCount: 0, reconstructedPixelCount: report.reconstructedPixelCount } };
 }
 /**
  * AHD development (2.1): the same site normalization as the native development kernel (flagged or white-level sites
@@ -1385,7 +1422,7 @@ async function developAhd(v: ReturnType<typeof prepareNativeRawDevelopment>, raw
   const m = v.color.normalizedCameraChannelsToXyz;
   const cameraToXyz = [0, 1, 2].map((r) => [0, 1, 2].map((c) => m[r]![c]! * gains[c]!)) as unknown as ColorMatrix3x3;
   // A caller-raised pixel limit already bounds the raster, so its working memory is not capped again at the 1 GiB default.
-  const task = createAhdDemosaicTask({ plane: { width: W, height: H, captureModeId: v.plan.frame.modeId, colorSamplingProfile: v.plan.frame.colorSamplingProfile, samples },
+  const task = (await qualityKit.load()).createAhdDemosaicTask({ plane: { width: W, height: H, captureModeId: v.plan.frame.modeId, colorSamplingProfile: v.plan.frame.colorSamplingProfile, samples },
     channelRoles: { red: "red", green: "green", blue: "blue" }, cameraToXyz, ...(v.plan.maximumPixels === undefined ? {} : { maximumWorkingBytes: Number.MAX_SAFE_INTEGER }) }, { yieldControl: async () => { await host.yieldControl(); host.checkAbort(); } });
   const demosaicStarted = clockMs();
   await task.run();
@@ -1616,10 +1653,14 @@ export interface DisplayViewResult {
   sensor: SimulateCaptureSensorReport;
   /**
    * Work done: real pixels sampled, real-site expectations evaluated, scene queries, display pixels sampled in full (detail) or with
-   * a quarter of the samples per axis (uniform), display pixels whose value includes the AHD low-signal correction, and wall-clock
-   * milliseconds (diagnostic only; never affects the samples).
+   * a quarter of the samples per axis (uniform), and wall-clock milliseconds (diagnostic only; never affects the samples).
    */
-  diagnostics: { sampleCount: number; siteEvaluations: number; sceneLookups: number; detailPixelCount: number; uniformPixelCount: number; ahdCorrectedPixelCount: number;
+  diagnostics: { sampleCount: number; siteEvaluations: number; sceneLookups: number; detailPixelCount: number; uniformPixelCount: number;
+    /**
+     * Display pixels whose value included the AHD low-signal correction (2.10–2.21).
+     * @deprecated Since 2.22.0 the view has no such correction, and this is always 0. Removed in 3.0.0.
+     */
+    ahdCorrectedPixelCount: number;
     timingsMs: { view: number; total: number };
     /** #395: exact or fast, as requested and as run; 2.11 (#481): plus `execution`, where the render ran (see {@link DisplayViewFastReport}). */
     fast: DisplayViewFastReport;
@@ -1693,7 +1734,7 @@ export interface DisplayViewRunContext {
   focalLengthMm: number;
   focusDistanceM: number;
   height: number;
-  highlightMode: RawHighlightMode;
+  highlightMode: SimulateCaptureHighlightMode;
   /** #556: the development exposure gain 2^output.exposureCompensationStops (1 without a push). */
   exposureGain: number;
   illuminanceLux: number;
@@ -1710,8 +1751,10 @@ export interface DisplayViewRunContext {
   provider: PlanarSceneRadianceProvider;
   regimeByChannel: Record<"red" | "green" | "blue", { readoutProfile: ReadoutProfile; regimeId: string; }>;
   sensor: SimulateCaptureSensorReport;
-  /** 2.20.0: the view's own fast methods, resolved: the AHD low-signal correction's draws and threshold (`output.demosaic.ahd`) and the quarter sampling of uniform pixels (top-level `fast`). */
-  viewFast: { ahd: boolean; uniformSampling: boolean };
+  /** 2.20.0: the view's own fast methods, resolved: the quarter sampling of uniform pixels (top-level `fast`); 2.22.0: the coupled rendering steps' rules (#593, #601). */
+  viewFast: { uniformSampling: boolean; rendering: boolean };
+  /** #601: the sRGB rendering's gamut handling. */
+  gamutHandling: "clip-components" | "desaturate-to-luminance";
   resolvedIso: number;
   /** #516: how the ISO was chosen, reported in the view's `exposure`. */
   isoReport: { isoControl: "manual" | "automatic"; autoIso?: SimulateCaptureAutoIsoReport };
@@ -1896,7 +1939,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   const profileRecord = (typeof top.sensor === "object" && top.sensor !== null ? top.sensor as Record<string, unknown> : {}).profile;
   let profile: SensorProfile | undefined, profileSensor: { widthMm: number; heightMm: number } | undefined, profilePitch: number = DEFAULTS.pixelPitchMicrometers, profileReadNoiseScale = 1;
   if (profileRecord !== undefined) {
-    const kit = sensorProfileKit;
+    const kit = await optInKit.load();
     profile = kit.parseSensorProfile(profileRecord);
     profilePitch = profile.pixelPitchMicrometers;
     // #554: with a catalogue lens the capture frames on the profile's sensor: by default the largest centred region of the output's
@@ -2056,6 +2099,8 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
       diffractionRadiusOption = record.kernelRadiusSamples === undefined ? null : integerIn(record.kernelRadiusSamples, "lens.diffraction.kernelRadiusSamples", 0, 32);
       diffractionFast = fastOverride(record, "lens.diffraction");
     }
+    // #594: diffraction's code is in the Quality kit, loaded on demand.
+    await qualityKit.load();
     if (lensPsf) fail("lens.diffraction cannot be combined with lens.psf: diffraction would be counted twice.");
     if (pupil) fail("lens.diffraction cannot be combined with lens.pupilSampling: the environment contract does not mix a sampled PSF with pupil rays.");
   }
@@ -2068,7 +2113,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
     if (record.blades !== undefined || record.sphericalAberration !== undefined || record.catsEye !== undefined) {
       const bokeh: Record<string, unknown> = { ...record };
       delete bokeh.model;
-      try { defocusBokeh = resolveDefocusBokehOptions(bokeh, "lens.defocus"); } catch (error) { fail((error as Error).message); }
+      try { defocusBokeh = (await qualityKit.load()).resolveDefocusBokehOptions(bokeh, "lens.defocus"); } catch (error) { fail((error as Error).message); }
       if (defocusBokeh.catsEye && diffractionRadiusOption !== undefined) fail("lens.defocus.catsEye cannot be combined with lens.diffraction: the cat's eye varies over the field, " +
         "so each field zone would need its own diffraction kernel convolved with its clipped pupil at every spectral node. Omit one of the options.");
     }
@@ -2098,6 +2143,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
       region: r && { cx: finite(r.centerXM, "region.centerXM"), cy: finite(r.centerYM, "region.centerYM"), hw: positive(r.widthM, "motion.subject.region.widthM") / 2,
         hh: positive(r.heightM, "motion.subject.region.heightM") / 2 } };
     subjectFast = fastOverride(record, "motion.subject");
+    await optInKit.load();
   }
   if (subject && pupil) fail("motion.subject cannot be combined with lens.pupilSampling.");
   const angular = { pitch: 0, yaw: 0, roll: 0 };
@@ -2119,7 +2165,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   const diffractionObjectSpace = diffractionRadiusOption !== undefined && !rotating && !subject && !lensFieldMapping && !vignetting;
 
   // Output and sensor
-  const outputOptions = allowKeys(top.output, "output", ["width", "height", "format", "toneCurve", "toneCurveParameters", "highlightMode", "exposureCompensationStops", "whiteBalance", "jpegQuantizationStep",
+  const outputOptions = allowKeys(top.output, "output", ["width", "height", "format", "toneCurve", "toneCurveParameters", "highlightMode", "gamutHandling", "exposureCompensationStops", "whiteBalance", "jpegQuantizationStep",
     "colorEncoding", "bitDepth", "gamutMapping", "demosaic", "borderHandling", "dng", "maximumPixels", "region", "metadata", "diffractionCorrection", "sharpening", "lensCorrections"]);
   // Opt-in large images: a caller-raised native pixel limit. Without it the 4094-pixel sides are unchanged.
   const raisedPixels = outputOptions.maximumPixels === undefined ? undefined : integerIn(outputOptions.maximumPixels, "output.maximumPixels", 1, NATIVE_RAW_LIMITS.ceilingPixels);
@@ -2176,7 +2222,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   const linearPath = wideGamut || perceptual;
   const toneCurve = pick<SdrToneCurve>(outputOptions, "toneCurve", "output.toneCurve", DEFAULTS.toneCurve, "Identity tone curve: scene-linear values are clipped at display white, then sRGB-encoded.");
   if (linearPath && toneCurve !== "identity") fail("output.toneCurve other than identity is available only for sRGB output; wide-gamut encodings are converted from the linear developed colour.");
-  const highlightMode = pick<RawHighlightMode>(outputOptions, "highlightMode", "output.highlightMode", DEFAULTS.highlightMode, "Saturated RAW highlights are clipped to neutral.");
+  const highlightMode = pick<SimulateCaptureHighlightMode>(outputOptions, "highlightMode", "output.highlightMode", DEFAULTS.highlightMode, "Saturated RAW highlights are clipped to neutral.");
   // #556: development exposure push, a gain on the normalized RAW before white balance. Opt-in: no assumption when omitted.
   let exposureCompensationStops = 0;
   if (outputOptions.exposureCompensationStops !== undefined) {
@@ -2190,6 +2236,17 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
       "A site pushed to or past white clips at white and counts as saturated (highlightMode \"reconstruct\" rolls it off). The RAW codes are unchanged" + (format === "dng" ? ", and the DNG holds the unmodified RAW." : "."));
   }
   const exposureGain = exposureCompensationStops === 0 ? 1 : 2 ** exposureCompensationStops;
+  // #601: the hue-preserving gamut handling. Opt-in: no assumption when omitted.
+  const gamutHandling = outputOptions.gamutHandling ?? "clip-components";
+  if (gamutHandling !== "clip-components" && gamutHandling !== "desaturate-to-luminance") fail("output.gamutHandling must be clip-components or desaturate-to-luminance.");
+  if (outputOptions.gamutHandling !== undefined) {
+    if (linearPath) fail("output.gamutHandling applies to the sRGB rendering only, not with a wide-gamut output.colorEncoding or output.gamutMapping \"perceptual\".");
+    assume("output.gamutHandling", "model", { method: gamutHandling, luminance: "linear-srgb-d65-relative-luminance" }, gamutHandling === "clip-components" ?
+      "Out-of-gamut components are clipped to [0, 1] after the tone curve." :
+      "After the tone curve, a pixel whose largest component exceeds 1 is moved toward the gray of its own luminance until that component is 1: its luminance and hue " +
+      "(the line from the white point through its chromaticity) are kept instead of the component clip's shift toward the secondaries; a pixel whose luminance is at or above 1 is white. " +
+      "Negative components are still clipped to 0. An engine rendering choice, not a camera maker's gamut mapping.");
+  }
   const whiteBalanceOption = pick<SimulateCaptureWhiteBalance>(outputOptions, "whiteBalance", "output.whiteBalance", DEFAULTS.whiteBalance,
     "White balance measured from a perfect white diffuser under the scene illuminant (a custom/grey-card white balance).");
   const jpegStep = format === "jpeg" ? integerIn(pick(outputOptions, "jpegQuantizationStep", "output.jpegQuantizationStep", DEFAULTS.jpegQuantizationStep,
@@ -2200,8 +2257,24 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
     (profileSensor ? "The profile's sensor across the output (sensor.profileView)" : profile ? "The profile's pitch" : "6 µm pixels (about a 24 MP full-frame sensor)") +
     ". The simulated sensor is width × pitch wide, so small images are a central crop of a large sensor, not a downscaled full frame."), "sensor.pixelPitchMicrometers");
   if (pitch < 0.5 || pitch > SIMULATE_CAPTURE_PIXEL_PITCH_MAXIMUM_MICROMETERS) fail("sensor.pixelPitchMicrometers must be 0.5-" + SIMULATE_CAPTURE_PIXEL_PITCH_MAXIMUM_MICROMETERS + ".");
-  const spectralStep = positive(pick(sensorOptions, "spectralStepNanometers", "sensor.spectralStepNanometers", DEFAULTS.spectralStepNanometers,
-    "Spectral midpoint quadrature over 380-780 nm with subintervals of at most 20 nm."), "sensor.spectralStepNanometers");
+  // #395: exact or fast per option: the option record's `fast`, else the top-level one, else (2.20.0) the format's default: fast for
+  // sRGB samples and the display view, exact for the exports (DNG, JPEG, PNG) and the ideal reference. Fast methods report true when they run.
+  if (top.fast !== undefined && typeof top.fast !== "boolean") fail("fast must be true or false.");
+  const fastTop = resolveFast(top.fast as boolean | undefined, fastFormatDefault(format, displayView ? "display-view" : idealReference ? "ideal-reference" : "capture"));
+  // #590 (2.22.0): the default step follows the light and the request's quality. A light is spiky when R(20) = 20²·κ/24 > 0.01 (the
+  // midpoint rule's relative error indicator, color/spectral-spikiness.ts) for any of its sources; an exact request then takes 5 nm,
+  // a fast one 20 nm. Its light is validated with the scene below (a light that fails here is not spiky here).
+  const illumination = top.illumination as { sources?: unknown; points?: unknown } | undefined, lights = illumination ? [illumination.sources, illumination.points]
+    .flatMap((list) => (Array.isArray(list) ? list.map((s) => (s as { illuminant?: unknown } | null)?.illuminant) : [])) : [top.illuminant];
+  let kappa = 0;
+  for (const light of lights) if (light !== undefined) try { const shape = resolveCaptureIlluminant(light as CaptureIlluminant).shape; kappa = Math.max(kappa, spectralSpikiness((nm) => shape.evaluate(nm))); } catch { /* validated below */ }
+  const r20 = 400 * kappa / 24, spiky = r20 > SPECTRAL_SPIKINESS_THRESHOLD, defaultStep = fastTop || !spiky ? DEFAULTS.spectralStepNanometers : 5;
+  const spectralStep = positive(pick(sensorOptions, "spectralStepNanometers", "sensor.spectralStepNanometers", defaultStep,
+    "Spectral midpoint quadrature over 380-780 nm with subintervals of at most " + defaultStep + " nm" + (spiky ? " (the light is spiky: sensor.spectralSpikiness)." : ".")), "sensor.spectralStepNanometers");
+  if (spiky && sensorOptions.spectralStepNanometers === undefined) assume("sensor.spectralSpikiness", "model", { kappaPerSquareNanometer: kappa, r20, threshold: SPECTRAL_SPIKINESS_THRESHOLD, stepNanometers: defaultStep, fast: fastTop },
+    "#590: the light's spectrum has narrow bands. The midpoint rule's relative error indicator R(h) = h²·κ/24 (DLMF §3.5(i); κ = Σ|Δ²S| / ΣS on a 1 nm grid) is " + r20 +
+    " at 20 nm, above " + SPECTRAL_SPIKINESS_THRESHOLD + " (a design threshold), so an exact request takes 5 nm. " + (fastTop ? "This fast request keeps 20 nm (4× fewer spectral queries): colors may carry a cast (measured up to " +
+    "about 0.1 Δu′v′ on white under the tri-phosphor fluorescent source). Pass fast: false or sensor.spectralStepNanometers: 5 for the exact colors." : "The step costs 4× the spectral queries of 20 nm."));
   if (spectralStep < 1 || spectralStep > 100) fail("sensor.spectralStepNanometers must be 1-100.");
   let temporalSampleCount = integerIn(rotating || subject ? pick(sensorOptions, "temporalSampleCount", "sensor.temporalSampleCount", ROTATING_TEMPORAL_SAMPLE_COUNT,
     rotating ? "Eight temporal midpoints across each site's exposure window sample the camera rotation (motion blur); raise it for long exposures or fast rotation." :
@@ -2247,9 +2320,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
       "the view renders sideways motion under a global shutter only; simulateCapture renders both.");
     if (outputOptions.region !== undefined) unsupported("output.region", "pass the rectangle as view.region, in display pixels.");
     if (outputOptions.whiteBalance === "auto") unsupported("output.whiteBalance \"auto\"", "the capture measures it from its noisy full-resolution RAW; use \"scene-illuminant\" or a fixed white balance.");
-    if (outputOptions.toneCurve !== undefined && outputOptions.toneCurve !== "identity" && outputOptions.toneCurve !== "positive-reinhard-per-channel")
-      unsupported("output.toneCurve " + String(outputOptions.toneCurve), "luminance tone curves couple the channels; the view supports identity and positive-reinhard-per-channel.");
-    if (outputOptions.highlightMode === "reconstruct") unsupported("output.highlightMode \"reconstruct\"", "the view supports the per-channel highlight clip.");
+    // #593 (2.22.0): luminance tone curves, highlightMode "reconstruct" and (#601) the desaturation render (display-view-rendering.ts).
     if (outputOptions.diffractionCorrection !== undefined || outputOptions.sharpening !== undefined)
       unsupported("output.diffractionCorrection or output.sharpening", "the development detail stages filter the whole developed capture image.");
     if (outputOptions.lensCorrections !== undefined) unsupported("output.lensCorrections", "the corrections resample the developed capture image.");
@@ -2272,14 +2343,12 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   const borderOption = outputOptions.borderHandling as SimulateCaptureBorderHandling | undefined;
   if (demosaicOption !== undefined && demosaicOption !== "bilinear" && demosaicOption !== "ahd") fail("output.demosaic must be bilinear or ahd.");
   const ahd = demosaicOption === "ahd";
-  // #395: exact or fast per option: the option record's `fast`, else the top-level one, else (2.20.0) the format's default: fast for
-  // sRGB samples and the display view, exact for the exports (DNG, JPEG, PNG) and the ideal reference. Fast methods report true when they run.
-  if (top.fast !== undefined && typeof top.fast !== "boolean") fail("fast must be true or false.");
-  const fastTop = resolveFast(top.fast as boolean | undefined, fastFormatDefault(format, displayView ? "display-view" : idealReference ? "ideal-reference" : "capture"));
   const fastInUse: [SimulateCaptureFastOption, boolean, boolean | undefined][] = [["lens.diffraction", diffractionRadiusOption !== undefined, diffractionFast],
     ["lens.catalogue", catalogue !== undefined, catalogueFast],
     ["sensor.antiAliasing", antiAliasing !== undefined, antiAliasingFast], ["sensor.pixelAperture.box", boxAperture, boxFast], ["output.demosaic.ahd", ahd, demosaicFast],
-    ["motion.subject", subject !== undefined, subjectFast]];
+    ["motion.subject", subject !== undefined, subjectFast],
+    // #590: the default step under a spiky light (an explicit step, or a smooth light, makes no choice and adds no key).
+    ["sensor.spectralStepNanometers", spiky && sensorOptions.spectralStepNanometers === undefined, undefined]];
   const fastApplied: Partial<Record<SimulateCaptureFastOption, boolean>> = {};
   for (const [option, used] of fastInUse) if (used) fastApplied[option] = false;
   // #568: the catalogue's fast method, when requested (its record's flag, else the top-level one); whether it runs is decided with the RAW path.
@@ -2291,6 +2360,8 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
     fastApplied[option] = true;
     fastReport = Object.freeze({ ...fastReport, applied: Object.freeze({ ...fastApplied }), assurance: "approximation-with-a-priori-bound" as const });
   };
+  // #590: the fast method (20 nm under a spiky light) ran.
+  if (spiky && sensorOptions.spectralStepNanometers === undefined && fastTop) markFast("sensor.spectralStepNanometers");
   if (borderOption !== undefined && borderOption !== "margin" && borderOption !== "mirror") fail("output.borderHandling must be margin or mirror.");
   const builtInDemosaic = demosaicOption === undefined ? undefined : createBuiltInBayerDemosaicProfiles({ kernel: "bilinear",
     captureModeId: IDS.mode, colorSamplingProfile, channelRoles: { red: "red", green: "green", blue: "blue" } }).value;
@@ -2423,7 +2494,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   // #550: mixed lighting (loaded only when asked for). Its frame-center light stands in for the single illuminant below: the strongest
   // source at the center (white balance, the illumination profile) and the center's illuminance (grey card, standard exposure).
   // A static import (2.21.0 size pass): as a lazy chunk it made the bundler split the core modules into a shared chunk of their own.
-  const mixedKit = top.illumination === undefined ? undefined : mixedIlluminationKit;
+  const mixedKit = top.illumination === undefined ? undefined : await optInKit.load();
   if (mixedKit && (top.illuminant !== undefined || top.illuminanceLux !== undefined)) fail("illumination replaces illuminant and illuminanceLux; omit them.");
   const lightKit = (resolveIlluminant: (value: CaptureIlluminant) => ResolvedCaptureIlluminant): ResolvedMixedIllumination =>
     mixedKit!.resolveMixedIllumination(top.illumination, resolveIlluminant);
@@ -2480,13 +2551,13 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
     sceneId: IDS.scene, providerProfileId: IDS.provider, illuminant: sceneIlluminant, irradianceScale: scale, geometry: { distanceM: subjectDistanceM, metresPerFrameUnit,
       ...(chartSize ? { chart: { widthM: chartSize.widthM, heightM: chartSize.heightM, surroundReflectance: chartSize.surroundReflectance } } : {}) }, evidence: FACADE_EVIDENCE,
     limitations: Object.freeze(["Planar Lambertian scene under " + (light ? "blended" : "uniform") + " illumination; no shadows, inter-reflection, gloss or fluorescence."]),
-    ...(catalogue?.kind === "fisheye" ? { zeroBeyondHorizon: true as const } : {}), ...(light ? { irradianceAt: light.irradianceAt } : {}) });
+    ...(catalogue?.kind === "fisheye" ? { zeroBeyondHorizon: true as const } : {}), ...(light ? { irradianceAt: light.irradianceAt, illumination: light } : {}) });
   const provider = buildProvider(illuminant, irradianceScale, mixed);
   // #551: the moving subject's scene; renderers read it at each query's time. The revealed background is a neutral 18 % reflectance
   // under the plane's irradiance at the revealed point: the illuminant, or (#550) the blend and point sources there, from the spectrum.
   const half = chartSize ? chartSize.widthM / 2 / metresPerFrameUnit : 1;
   const movingScene = subject ? (base: PlanarSceneRadianceProvider, scale: number, shape: (nm: number) => number, light?: ResolvedMixedIllumination): PlanarSceneRadianceProvider =>
-    createSubjectMotionProvider(base, subject, subjectDistanceM, metresPerFrameUnit,
+    loadedKit(optInKit).createSubjectMotionProvider(base, subject, subjectDistanceM, metresPerFrameUnit,
       (u, v, nm): number => 0.18 * (light ? light.irradianceAt(u / half, v / half, u * metresPerFrameUnit, v * metresPerFrameUnit, nm) : scale * shape(nm)) / Math.PI) : undefined;
   const sceneProvider = movingScene ? movingScene(provider, irradianceScale, (nm) => illuminant.shape.evaluate(nm), mixed) : provider;
   // 2.6: a chart preset's evaluator is engine-built end to end (its results: the schema's exact keys, constant fields,
@@ -2671,7 +2742,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   const resolvedIso = resolution.resolvedSettings.iso ?? iso;
   // #551: motion.subject's fast method: with the default count and a still camera, one midpoint per site of the streak, plus one.
   if (subject) {
-    const streakSites = subjectTravelM(subject, shutterSeconds, metresPerFrameUnit * Math.hypot(1, aspect)) * width / (2 * metresPerFrameUnit), fewer = Math.ceil(streakSites) + 1;
+    const streakSites = loadedKit(optInKit).subjectTravelM(subject, shutterSeconds, metresPerFrameUnit * Math.hypot(1, aspect)) * width / (2 * metresPerFrameUnit), fewer = Math.ceil(streakSites) + 1;
     if (sensorOptions.temporalSampleCount === undefined && !rotating && resolveFast(subjectFast, fastTop) && fewer < temporalSampleCount) {
       queriesPerSite = queriesPerSite / temporalSampleCount * fewer;
       temporalSampleCount = fewer;
@@ -2792,7 +2863,10 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   // lens.catalogue).
   const rollingTaps = !displayView && (rotating || subject !== undefined) && shutterKind === "rolling";
   const rollingFastTaps = rollingTaps && (diffractionRadiusOption !== undefined && resolveFast(diffractionFast, fastTop) || catalogueTaps !== undefined && catalogueFastRequested);
-  const lensGeometry = (defocusModel !== undefined || displayView || diffractionRadiusOption !== undefined || catalogueTaps !== undefined && !rollingFastTaps) && imageSpaceOptions.length > 0 ? prepareDefocusImageSpaceGeometry({ focalLengthMm, focusDistanceM,
+  // #594: the image-space provider (lens projection, distortion, vignetting, rotation, a moving subject) is in the Quality kit.
+  const lensGeometryNeeded = (defocusModel !== undefined || displayView || diffractionRadiusOption !== undefined || catalogueTaps !== undefined && !rollingFastTaps) && imageSpaceOptions.length > 0;
+  if (lensGeometryNeeded) await qualityKit.load();
+  const lensGeometry = lensGeometryNeeded ? loadedKit(qualityKit).prepareDefocusImageSpaceGeometry({ focalLengthMm, focusDistanceM,
     angularVelocityRadPerSec: angular, ...(lensFieldMapping ? { lensMapping: prepareEnvironmentLensFieldMapping(lensFieldMapping) } : {}), ...(vignetting ? { vignetting } : {}) }) : undefined;
   const defocusGeometry = defocusModel !== undefined ? lensGeometry : undefined;
   if (rollingFastTaps) {
@@ -2808,7 +2882,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
     const options = defocusBokeh!, side = subjectDistanceM > focusDistanceM ? 1 : -1;
     const build = (field?: { x: number; y: number }): DefocusBokehSiteKernel => {
       try {
-        return createDefocusBokehSiteKernel({ diameterSites: disc.diameterSites, side, fNumber, focalLengthMm, pitchMicrometers: pitch, options, ...(field ? { field } : {}) });
+        return loadedKit(qualityKit).createDefocusBokehSiteKernel({ diameterSites: disc.diameterSites, side, fNumber, focalLengthMm, pitchMicrometers: pitch, options, ...(field ? { field } : {}) });
       } catch (error) { const message = (error as Error).message; fail(message.startsWith("lens.defocus") ? message : "lens.defocus: " + message); }
     };
     const axis = build();
@@ -2825,7 +2899,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
         const look = defocusGeometry.lookOf((x - nativeWidth / 2) * mmPerSite, (y - nativeHeight / 2) * mmPerSite, 0);
         return { x: look.x / look.z, y: look.y / look.z };
       } : (x: number, y: number): { x: number; y: number } => ({ x: (x - nativeWidth / 2) * g * metresPerFrameUnit / subjectDistanceM, y: -(y - nativeHeight / 2) * g * metresPerFrameUnit / subjectDistanceM });
-      bokehZones = planDefocusBokehZones({ options, nativeWidth, nativeHeight, radius: axis.radius, fNumber, focalLengthMm, fieldOf, kernelAt: build });
+      bokehZones = loadedKit(qualityKit).planDefocusBokehZones({ options, nativeWidth, nativeHeight, radius: axis.radius, fNumber, focalLengthMm, fieldOf, kernelAt: build });
       if (!(bokehZones.minimumOpenAreaRatio > 0)) fail("lens.defocus.catsEye: the clipping apertures close the pupil in part of the frame; reduce shiftPerTanFieldMm or enlarge radiusMm.");
     }
     const zones = bokehZones;
@@ -2855,7 +2929,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
           "to each temporal midpoint's image on the sensor lattice, and under a rolling shutter every row has its own instants, so each row would need its own image of the rows the disc " +
           "reaches (about 2R + 1 rows per row, R the kernel radius). Use motion.shutter \"global\", set lens.focusDistanceM equal to subjectDistanceM, or omit one of the options.");
         const temporalMidpointsSeconds = rotating ? Array.from({ length: temporalSampleCount }, (_, i) => (i + 0.5) * (shutterSeconds / temporalSampleCount)) : [];
-        return { options: imageSpaceOptions, fieldVariation: calculateDefocusFieldVariation({ geometry: defocusGeometry, ...(lensFieldMapping ? { lensMapping: prepareEnvironmentLensFieldMapping(lensFieldMapping) } : {}),
+        return { options: imageSpaceOptions, fieldVariation: loadedKit(qualityKit).calculateDefocusFieldVariation({ geometry: defocusGeometry, ...(lensFieldMapping ? { lensMapping: prepareEnvironmentLensFieldMapping(lensFieldMapping) } : {}),
           focalLengthMm, fNumber, focusDistanceM, subjectDistanceM, pitchMicrometers: pitch, nativeWidth, nativeHeight, angularVelocityRadPerSec: angular, temporalMidpointsSeconds,
           diameterSites: disc.diameterSites, discAt: (distanceM) => resolveDefocusDisc({ focalLengthMm, aperture: fNumber, focusDistanceM, subjectDistanceM: distanceM, pitchMicrometers: pitch }).diameterSites }) };
       } } : {}) });
@@ -2873,20 +2947,32 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   // #554: a profile's readout is declared at its own photosite area.
   const referenceArea = profile ? profile.pixelPitchMicrometers ** 2 : ISO_REFERENCE_APERTURE_AREA_SQUARE_MICROMETERS, areaScale = pitch * pitch / referenceArea;
   // #555: a full well replaces the area-scaled base-ISO saturation; the charge-domain transfer scales by the same rule.
-  const fullWell = characteristics?.fullWell, fullWellElectrons = fullWell && (fullWell.link === "none" ? fullWell.electrons : fullWell.electrons * (pitch / (fullWell.referencePixelPitchMicrometers ?? 6)) ** 2);
+  // #595: the charge scale at a pitch p (the capture's, and the native photosite's).
+  const fullWell = characteristics?.fullWell, wellAt = (p: number): number | undefined => fullWell && (fullWell.link === "none" ? fullWell.electrons : fullWell.electrons * (p / (fullWell.referencePixelPitchMicrometers ?? 6)) ** 2);
+  const fullWellElectrons = wellAt(pitch), chargeScaleAt = (p: number): number => { const well = wellAt(p); return well === undefined ? p * p / referenceArea : well / body.readout[0]!.profile.regimes[0]!.preAdcSaturationElectronEquivalent.value; };
   if (fullWellElectrons !== undefined && !(fullWellElectrons >= 100 && fullWellElectrons <= 1e10)) fail("sensor.fullWell must give 100 to 1e10 electrons at the pixel pitch (" + fullWellElectrons + ").");
-  const chargeScale = fullWellElectrons === undefined ? areaScale : fullWellElectrons / body.readout[0]!.profile.regimes[0]!.preAdcSaturationElectronEquivalent.value;
+  const chargeScale = chargeScaleAt(pitch);
+  // #599 (2.22.0): a tier's site that sums N = (pitch / 6 µm)² photosites sums their read noise in quadrature (×√N), the body's or
+  // sensor.readNoise's (per photosite), as a sensor profile's does (#554, applied in its body); below one photosite it is kept.
+  const tierReadNoiseScale = profile ? 1 : Math.sqrt(Math.max(1, areaScale));
   const regimeByChannel = {} as Record<Channel, { readoutProfile: ReadoutProfile; regimeId: string }>;
   for (const channel of CHANNELS) {
     const asset = body.readout.find((a) => a.profile.channelId === channel) ?? fail("Camera readout lacks channel " + channel + ".");
     const chain = resolveGenericIsoSignalChain({ profile: body.signalChain, isoCapability: body.iso, requestedIsoSetting: { kind: "standard", exposureIndex: resolvedIso },
       captureModeId: IDS.mode, readoutProfile: asset.profile });
-    regimeByChannel[channel] = { readoutProfile: characterizeReadout(asset.profile, chargeScale, characteristics), regimeId: chain.readout.regime.regimeId };
+    regimeByChannel[channel] = { readoutProfile: characterizeReadout(asset.profile, chargeScale, characteristics, tierReadNoiseScale), regimeId: chain.readout.regime.regimeId };
   }
-  const capacityRegimes = characterizeReadout(body.readout[0]!.profile, chargeScale, characteristics).regimes;
-  const baseRegime = capacityRegimes[0]! as unknown as { preAdcSaturationElectronEquivalent: { value: number } };
-  const capacityElectrons = Math.max(...capacityRegimes.map((r) => (r as unknown as { preAdcSaturationElectronEquivalent: { value: number } }).preAdcSaturationElectronEquivalent.value),
-    baseRegime.preAdcSaturationElectronEquivalent.value);
+  const capacityOf = (scale: number): number => {
+    const regimes = characterizeReadout(body.readout[0]!.profile, scale, characteristics).regimes as unknown as readonly { preAdcSaturationElectronEquivalent: { value: number } }[];
+    return Math.max(...regimes.map((r) => r.preAdcSaturationElectronEquivalent.value), regimes[0]!.preAdcSaturationElectronEquivalent.value);
+  };
+  const capacityElectrons = capacityOf(chargeScale);
+  // #595: the same readout at the native photosite (a tier's 6 µm reference, a profile's own pitch): the area rule (or the full well's link) at
+  // that pitch, and the read noise of one photosite (a profile's body carries the view's √N, removed here).
+  const nativePitch = profile ? profile.pixelPitchMicrometers : DEFAULTS.pixelPitchMicrometers, nativeScale = chargeScaleAt(nativePitch);
+  // sensor.readNoise is per photosite on a tier and a profile alike (owner decision 2026-11-11): the native report takes it as given.
+  const nativeSensor = { profile: characterizeReadout(body.readout.find((a) => a.profile.channelId === "green")!.profile, nativeScale, characteristics, 1 / profileReadNoiseScale),
+    capacityElectrons: capacityOf(nativeScale), pixelPitchMicrometers: nativePitch, framePhotosites: width * height * pitch * pitch / (nativePitch * nativePitch) };
   assume("sensor.capacityElectrons", "derived", capacityElectrons, "Physical charge capacity set to the body's largest declared pre-ADC saturation (its base-ISO saturation signal), so storage never clips before the declared readout white.");
   if (areaScale !== 1 && !fullWell) {
     assume("sensor.isoAreaNormalization", "model", { referenceApertureAreaSquareMicrometers: referenceArea,
@@ -2894,7 +2980,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
     "Approximation. The tier's ISO signal chain is declared for a 6 µm square aperture. Standard output sensitivity S = 10/H (CIPA DC-004-2020 §3.2) is defined at the output, " +
       "independent of pixel size, and the collected charge is proportional to the aperture area (EMVA 1288 Release 4.0, Eq. 3), so the system conversion gain (e⁻ per code) and the " +
       "pre-ADC saturation of every ISO regime are multiplied by area / 36 µm² = " + areaScale + ". The same exposure gives the same output code at any pitch; per-pixel shot-noise SNR " +
-      "falls with smaller pixels. Read noise and dark current stay per pixel in electrons. The charge capacity follows the scaled base-ISO saturation, so it is proportional to " +
+      "falls with smaller pixels. Read noise is the 6 µm photosite's ×√max(1, area / 36 µm²) = " + tierReadNoiseScale + " (#599: the photosites a site sums); dark current stays per pixel. The charge capacity follows the scaled base-ISO saturation, so it is proportional to " +
       "the aperture area: a design consequence of holding the tier's ISO rating and highlight headroom fixed, not a measured full-well model (published sensor data grow less than " +
       "proportionally with area across technologies).");
   }
@@ -2914,8 +3000,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
       "A pixel pitch above 100 µm is larger than any camera photosite, so each output pixel stands for a " + pitch + " µm square of a " + width * pitch / 1000 + " × " + height * pitch / 1000 +
       " mm frame: a downsized view of the whole frame, with the framing, crop factor, generic prime and minimum focus of that frame. Its signal is the charge of the whole square " +
       "(sensor.isoAreaNormalization), so its shot noise is that of all the real photosites in the square summed or averaged (Poisson counts add), and the image brightness is the " +
-      "same as at any other pitch. Read noise and dark current are applied once per output pixel, not once per real photosite, so in deep shadows the noise is lower than a real " +
-      "sensor's binned output. This is the noise of a binned, downsized view, not the real sensor's per-pixel noise. A point pixel aperture samples one point of each square; " +
+      "same as at any other pitch. Its read noise is the photosites' summed (×√N, #599), its dark current once per output pixel; result.sensor.native has a photosite's figures. This is the noise of a binned, downsized view, not the real sensor's per-pixel noise. A point pixel aperture samples one point of each square; " +
       "use sensor.pixelAperture box (or sensor.antiAliasing) to average scene detail finer than the pitch.");
   }
   assume("sensor.darkCurrent", "model", { electronsPerSecond: DARK_CURRENT_ELECTRONS_PER_SECOND, temperatureC: OPERATING_TEMPERATURE_C },
@@ -3009,15 +3094,27 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
 
   const rendering: SdrRenderingProfile = { schemaVersion: "0.1.0", profileId: "facade-sdr", profileVersion: "1", renderingExposureEv: 0, toneCurve,
     ...(outputOptions.toneCurveParameters === undefined ? {} : { toneCurveParameters: outputOptions.toneCurveParameters as SdrToneCurveParameters }),
-    gamutHandling: "clip-components", outputDynamicRange: "sdr", transferFunction: "srgb", bitDepth: format === "srgb-16" || (format === "png" && !wideGamut && pngBitDepth === 16) ? 16 : 8, rounding: "nearest-ties-up", dither: "none" };
-  if (!linearPath) assume("output.rendering", "model", { renderingExposureEv: 0, gamutHandling: "clip-components" },
+    gamutHandling, outputDynamicRange: "sdr", transferFunction: "srgb", bitDepth: format === "srgb-16" || (format === "png" && !wideGamut && pngBitDepth === 16) ? 16 : 8, rounding: "nearest-ties-up", dither: "none" };
+  if (!linearPath) assume("output.rendering", "model", { renderingExposureEv: 0, gamutHandling },
     exposureGain === 1 ? "Developed linear sRGB/D65 with the RAW white level mapped to display white, no exposure push, out-of-gamut components clipped." :
       "Developed linear sRGB/D65 with the RAW white level mapped to display white, no further exposure push after development (output.exposureCompensationStops acts on the RAW), out-of-gamut components clipped.");
   else assume("output.rendering", "model", { renderingExposureEv: 0, gamutHandling: "clip-components-in-target-gamut", sdrRendererUsed: false },
     "The sRGB SDR renderer is not used: the linear development (RAW white level = relative 1.0, " + (exposureGain === 1 ? "no exposure push" : "after the development exposure push on the RAW") + ") is converted to the target encoding; request.development.rendering is validated but only its exposure and tone curve (identity) apply.");
   // Rendering choices are validated before any radiance work, so a bad tone curve fails fast.
   parseSdrRenderingProfile(rendering);
-  if (highlightMode !== "clip" && highlightMode !== "reconstruct") fail("output.highlightMode must be clip or reconstruct.");
+  if (highlightMode !== "clip" && highlightMode !== "reconstruct" && highlightMode !== "reconstruct-neighbors") fail("output.highlightMode must be clip, reconstruct or reconstruct-neighbors.");
+  // #602: the neighbor reconstruction reads whole clipped regions, so a region of the frame cannot render it alone.
+  const neighborHighlights = highlightMode === "reconstruct-neighbors", developmentHighlightMode: RawHighlightMode = neighborHighlights ? "clip" : highlightMode;
+  if (neighborHighlights && outputOptions.region !== undefined) fail("output.highlightMode \"reconstruct-neighbors\" reads whole clipped regions; it is not available with output.region.");
+  const neighborFast = fastTop;
+  // #602: loaded on demand (the Quality kit, #594), only for a request that asks for it.
+  const neighborModule = neighborHighlights ? (await qualityKit.load()).neighborHighlights : null;
+  const { NEIGHBOR_HIGHLIGHT_RING, NEIGHBOR_HIGHLIGHT_THRESHOLD } = neighborModule ?? { NEIGHBOR_HIGHLIGHT_RING: 0, NEIGHBOR_HIGHLIGHT_THRESHOLD: 0 };
+  if (neighborHighlights && !displayView) assume("output.highlightMode.reconstructNeighbors", "model", { method: neighborFast ? "ring-average" : "harmonic-interpolation", threshold: NEIGHBOR_HIGHLIGHT_THRESHOLD,
+    ringPixels: NEIGHBOR_HIGHLIGHT_RING, fast: neighborFast, scientificStatus: "estimate" },
+  "Clipped highlights (a channel at " + NEIGHBOR_HIGHLIGHT_THRESHOLD + " of white or above) are rebuilt from the color ratios of the unclipped pixels around each clipped region: " +
+    (neighborFast ? "the mean ratios of the unclipped pixels within " + NEIGHBOR_HIGHLIGHT_RING + " pixels of the region (fast)" : "their harmonic (Laplace) interpolation inward from the region's unclipped neighbors (full)") +
+    "; each clipped channel becomes the larger of its recorded value and the ratio times the scale of the pixel's unclipped channels. An estimate of the clipped signal, not a recovery; the values are not clipped at white before the tone curve.");
 
   // Frame profiles
   const evidence = FACADE_EVIDENCE;
@@ -3152,7 +3249,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
       apertureFNumber: fNumber, signedDefocusImagePlaneMicrometers: 0 }, psfWavelengthBasis: { value: "vacuum", evidence },
     spatialModel: { kind: "destination-local-shift-invariant-approximation", evidence, limitation: "Diffraction-limited Airy PSF, the same at every field point." } } };
     // Requests with the same profile input and PSF fields share their site diffraction kernels (optics/site-diffraction-kernel.ts).
-    registerDiffractionPsfKey(diffractionPsf.configuration.psf, profileInput);
+    loadedKit(qualityKit).registerDiffractionPsfKey(diffractionPsf.configuration.psf, profileInput);
     assume("lens.diffraction", "model", { model: diffraction.model, aperture: "circular-aperture", fNumber, workingFNumber: diffraction.workingFNumber,
       kernelRadiusSamples, samplePitchMicrometers: pitch, maximumTruncatedEnergyFraction: diffraction.maximumTruncatedEnergyFraction,
       truncatedEnergyByWavelength: diffraction.wavelengths.map((w) => ({ wavelengthNm: w.wavelengthNm, truncatedEnergyFraction: w.truncatedEnergyFraction })),
@@ -3171,6 +3268,8 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   // with the disc, radius R_diffraction + R_defocus (built on first use, kept for the request). Object space, or image space (#548).
   let defocusSiteKernels: { radius: number; wavelengthsNm: readonly number[]; at(wavelengthNm: number): Float64Array; large?: LargeDefocusKernel } | undefined;
   if (defocusKernel && defocusKernel.radius > DEFOCUS_DIRECT_KERNEL_MAXIMUM_RADIUS_SITES) {
+    // #594: the run lattice of a disc above the direct radius is in the Quality kit.
+    await qualityKit.load();
     // #564: above the direct radius the disc is convolved by runs (site-kernel-runs.ts) and each node's diffraction kernel applied
     // after it, instead of one combined kernel per node: the same sums regrouped. `at` is never read on this path.
     const runs = siteKernelRuns(defocusKernel.weights, defocusKernel.radius), diffractionRadius = diffraction ? diffraction.kernelRadiusSamples : 0;
@@ -3181,7 +3280,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
         let kernel = diffractionKernels.get(wavelengthNm);
         if (!kernel) {
           if (!profileWavelengths.includes(wavelengthNm)) fail("simulateCapture: a spectral node has no diffraction kernel.");
-          kernel = siteDiffractionKernel(psfConfiguration!, wavelengthNm, pitch, diffractionRadius, "simulateCapture: diffraction kernels must sample the site pitch exactly.");
+          kernel = loadedKit(qualityKit).siteDiffractionKernel(psfConfiguration!, wavelengthNm, pitch, diffractionRadius, "simulateCapture: diffraction kernels must sample the site pitch exactly.");
           diffractionKernels.set(wavelengthNm, kernel);
         }
         return kernel;
@@ -3198,7 +3297,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
         let kernel = combined.get(wavelengthNm);
         if (!kernel) {
           if (!profileWavelengths.includes(wavelengthNm)) fail("simulateCapture: a spectral node has no diffraction kernel.");
-          kernel = convolveSiteKernels(siteDiffractionKernel(psfConfiguration, wavelengthNm, pitch, diffractionRadius, "simulateCapture: diffraction kernels must sample the site pitch exactly."),
+          kernel = convolveSiteKernels(loadedKit(qualityKit).siteDiffractionKernel(psfConfiguration, wavelengthNm, pitch, diffractionRadius, "simulateCapture: diffraction kernels must sample the site pitch exactly."),
             diffractionRadius, defocusKernel.weights, defocusKernel.radius);
           combined.set(wavelengthNm, kernel);
         }
@@ -3268,7 +3367,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   let diffractionMs = 0, defocusMs = 0, demosaicMs: number | undefined, encodeMs: number | undefined;
   const diffractedProvider = (window: { x: number; y: number; width: number; height: number } | undefined): PlanarSceneRadianceProvider =>
     // #548: the disc (or diffraction ⊛ disc) in image space, on the sensor's site lattice, through the mapping, field throughput and rotation.
-    defocusSiteKernels && defocusGeometry && defocusImageSpace ? createDefocusImageSpaceProvider({ base: sceneProvider, geometry: defocusGeometry, siteKernels: defocusSiteKernels.at,
+    defocusSiteKernels && defocusGeometry && defocusImageSpace ? loadedKit(qualityKit).createDefocusImageSpaceProvider({ base: sceneProvider, geometry: defocusGeometry, siteKernels: defocusSiteKernels.at,
       ...(defocusSiteKernels.large ? { largeKernel: defocusSiteKernels.large } : {}),
       wavelengthsNm: defocusSiteKernels.wavelengthsNm, kernelRadius: defocusSiteKernels.radius, nativeWidth, nativeHeight, sitePitchMicrometers: pitch, distanceM: subjectDistanceM,
       metresPerFrameUnit, queryOffsetsSites, timesPerBand: temporalSampleCount, onConvolution: (ms) => { defocusMs += ms; }, ...(window ? { window } : {}), ...(subject ? { timeDependentScene: true } : {}),
@@ -3286,7 +3385,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
       // The environment queries each site at each aperture node minus each split offset (sites, +x right, +y down).
       ...(antiAliasing || boxSamples > 1 ? { queryOffsetsSites } : {}) }) :
     // #565, #588: the PSF quadrature reads each tap's source at its lattice point (a unit kernel on #548's lattice), so ties resolve as on the lattice.
-    (diffraction || catalogueTaps !== undefined) && latticeTaps ? createDefocusImageSpaceProvider({ base: sceneProvider, geometry: lensGeometry, siteKernels: () => UNIT_SITE_KERNEL,
+    (diffraction || catalogueTaps !== undefined) && latticeTaps ? loadedKit(qualityKit).createDefocusImageSpaceProvider({ base: sceneProvider, geometry: lensGeometry, siteKernels: () => UNIT_SITE_KERNEL,
       kernelRadius: 0, wavelengthsNm: diffraction ? diffraction.profile.axes.wavelengthNm : quadratureWavelengths(), nativeWidth, nativeHeight, sitePitchMicrometers: pitch, distanceM: subjectDistanceM, metresPerFrameUnit,
       queryOffsetsSites: [-1, 0, 1].flatMap((k) => { const r = k * (diffraction ? diffraction.kernelRadiusSamples : catalogueKernelRadius); return queryOffsetsSites.map((o) => ({ x: o.x + r, y: o.y + r })); }),
       timesPerBand: temporalSampleCount, zeroBeyondHorizon: catalogue?.kind === "fisheye", ...(window ? { window } : {}),
@@ -3371,8 +3470,6 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
     viewLensKit.createDisplayViewLensPsf(lensPsf.configuration.psf as Parameters<typeof viewLensKit.createDisplayViewLensPsf>[0], catalogueKernelRadius, nativeWidth, nativeHeight, pitch,
       catalogueFastRequested ? undefined : Math.max(nativeWidth, nativeHeight)) : undefined;
   if (displayViewLensPsf && displayViewLensPsf.zoneSites > 1) markFast("lens.catalogue");
-  const viewAhdFast = ahd && resolveFast(demosaicFast, fastTop);
-  if (displayView && viewAhdFast) markFast("output.demosaic.ahd");
   if (displayViewLensPsf) assume("view.lensPsf", "model", { method: "piecewise-constant-field-zones", zoneSites: displayViewLensPsf.zoneSites, kernelRadiusSites: catalogueKernelRadius, scientificStatus: "approximation" },
   "Each site takes the lens PSF at its field zone's centre, where the capture resolves it at each query point (docs/DISPLAY_VIEW.md, \"Catalogue lenses\").");
   const lensSignal = viewLensKit ? viewLensKit.prepareDisplayViewLensSignal({ geometry: lensGeometry!,
@@ -3388,7 +3485,9 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   const sensor = sensorReport(regimeByChannel.green.readoutProfile, regimeByChannel.green.regimeId, capacityElectrons, greyElectrons, DARK_CURRENT_ELECTRONS_PER_SECOND * shutterSeconds,
     { pixelPitchMicrometers: pitch, peakQuantumEfficiency: 0.5 * qeScale,
       readoutSeconds: characteristics?.readoutSeconds ?? (body as { rollingReadoutTiming?: { profile: { spatialSamplingSkewSeconds?: { value: number } } } }).rollingReadoutTiming?.profile.spatialSamplingSkewSeconds?.value ?? null }, fixedPattern);
-  if (displayView) return await renderView!({ sensor, viewFast: { ahd: viewAhdFast, uniformSampling: fastTop }, lens: lensSignal, lensPsf: displayViewLensPsf, movingScene, ahd, fastReport, antiAliasing, aspect, assume, assumptions, axisChannelResponse, boxSamples, buildProvider, callerScene, chart, materialLayers, chartReport, chartSize, diffraction, defocus: displayViewDefocus, diffractionPsf, fNumber, focalLengthMm, focusDistanceM, height, highlightMode, exposureGain, illuminanceLux, illuminant, illuminantOption, imagingArea, intentOf, metresPerFrameUnit, noiseSeed, outputOptions, parsedView, pitch, preset, provider, regimeByChannel, resolvedIso, isoReport, standardExposureDeviationStops: exposureDeviationStops, standardExposureIlluminanceLux: exposureIlluminanceLux, greyCardDeviationStops: exposureGreyCardDeviationStops, metering, sceneOption, scenePreset, shutterSeconds, started, subjectDistanceM, toneCurve, whiteBalanceOption, whiteBalanceState, width, checkAbort, margin, mode, nativeHeight, nativeWidth, sourceSha256, yieldControl, kelvinWhiteBalanceInput,
+  // #595: the native photosite's figures (their own module, so a bundler can split them off the default path).
+  sensor.native = nativeSensorReport(sensor, regimeByChannel.green.regimeId, greyElectrons, DARK_CURRENT_ELECTRONS_PER_SECOND * shutterSeconds, nativeSensor, fixedPattern);
+  if (displayView) return await renderView!({ sensor, viewFast: { uniformSampling: fastTop, rendering: fastTop }, gamutHandling, lens: lensSignal, lensPsf: displayViewLensPsf, movingScene, ahd, fastReport, antiAliasing, aspect, assume, assumptions, axisChannelResponse, boxSamples, buildProvider, callerScene, chart, materialLayers, chartReport, chartSize, diffraction, defocus: displayViewDefocus, diffractionPsf, fNumber, focalLengthMm, focusDistanceM, height, highlightMode, exposureGain, illuminanceLux, illuminant, illuminantOption, imagingArea, intentOf, metresPerFrameUnit, noiseSeed, outputOptions, parsedView, pitch, preset, provider, regimeByChannel, resolvedIso, isoReport, standardExposureDeviationStops: exposureDeviationStops, standardExposureIlluminanceLux: exposureIlluminanceLux, greyCardDeviationStops: exposureGreyCardDeviationStops, metering, sceneOption, scenePreset, shutterSeconds, started, subjectDistanceM, toneCurve, whiteBalanceOption, whiteBalanceState, width, checkAbort, margin, mode, nativeHeight, nativeWidth, sourceSha256, yieldControl, kelvinWhiteBalanceInput,
     mixedIllumination: mixedKit && lightKit });
   // Ideal reference (2.3): the scene without camera effects, at the capture's own exposure, white balance and encoding.
   if (idealReference) {
@@ -3405,8 +3504,10 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
     // 4. Pixels: the native sites of the output (or region) pixels, each centre-sampled or box-integrated like the capture.
     const x0 = (region ? region.x : 0) + margin, y0 = (region ? region.y : 0) + margin, n = boxSamples, unit = 2 / width;
     const referenceIntent = intentOf(whiteBalanceState), referenceGains = referenceIntent ? [referenceIntent.channelGains.red, referenceIntent.channelGains.green, referenceIntent.channelGains.blue] : null;
-    const development = prepareSensorColorDevelopment(CAMERA_TO_XYZ as unknown as Parameters<typeof prepareSensorColorDevelopment>[0],
-      referenceGains, highlightMode);
+    const realDevelopment = prepareSensorColorDevelopment(CAMERA_TO_XYZ as unknown as Parameters<typeof prepareSensorColorDevelopment>[0],
+      referenceGains, developmentHighlightMode), [rg0, rg1, rg2] = realDevelopment.appliedGains as [number, number, number];
+    // #602: the neighbor reconstruction develops to the white balance first, rebuilds the whole image, then finishes the colour.
+    const development: typeof realDevelopment = neighborHighlights ? { ...realDevelopment, developInto(c0: number, c1: number, c2: number, out: Float64Array | number[], offset: number): void { out[offset] = c0 * rg0; out[offset + 1] = c1 * rg1; out[offset + 2] = c2 * rg2; } } : realDevelopment;
     const rgb = new Float64Array(outputWidth * outputHeight * 3), counts = { whiteBalanceClippedSampleCount: 0, reconstructedPixelCount: 0 }, sum = [0, 0, 0];
     // A sample that reads the previous sample's material reuses that sample's integral (nothing is kept per material).
     let last = -1, s: number[] = [];
@@ -3424,6 +3525,10 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
         development.developInto(c[0]!, c[1]!, c[2]!, rgb, (py * outputWidth + px) * 3, counts);
       }
       if ((py & 15) === 15) { await yieldControl(); checkAbort(); }
+    }
+    if (neighborHighlights) {
+      neighborModule!.reconstructHighlightsFromNeighbors(rgb, outputWidth, outputHeight, realDevelopment.appliedGains, neighborFast);
+      for (let i = 0; i < outputWidth * outputHeight; i++) realDevelopment.developWhiteBalancedInto(rgb[3 * i]!, rgb[3 * i + 1]!, rgb[3 * i + 2]!, rgb, 3 * i);
     }
     let samples: Uint8Array | Uint16Array;
     if (!linearPath) {
@@ -3492,9 +3597,9 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
     partsCaller = run === "dng-from-parts" ? "serializeSimulatedCaptureDngFromParts" : "simulateCaptureFromParts";
   if (dngParts !== undefined && regionNative) fail(partsCaller + " takes the whole frame: the options take no output.region.");
   let tabulated: Awaited<ReturnType<typeof renderTabulatedNativeRaw>>;
-  // #568: lens.catalogue's fast method: tabulated expected electrons with the PSF blended over a field grid (catalogue-lens-signal.ts), for a
+  // #568: lens.catalogue's fast method: expected electrons integrated per site at use, with the PSF blended over a field grid (catalogue-lens-signal.ts), for a
   // still camera, site-centre queries and a chart or material scene; verified per CFA phase against the exact chain within its tolerance.
-  let catalogueFastRun: { columns: number; rows: number; resolved: number; verificationRelativeDifference: number } | undefined;
+  let catalogueFastRun: { columns: number; rows: number; resolved: number; verificationRelativeDifference: number; subdivisions: number } | undefined;
   const catalogueFastEligible = catalogueFastRequested && catalogueTaps !== undefined && lensKit !== undefined && lensPsf !== undefined && dngParts === undefined && tabulatedScene &&
     !pupil && !rotating && !subject && boxSamples === 1 && !antiAliasing && distortion?.kind === "radial" && provider.chartMaterialAt !== undefined && provider.materialRadiance !== undefined;
   // The tabulated paths' channel response per spectral node and material tables (the fast catalogue path and the expected-signal path).
@@ -3513,14 +3618,17 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
     const { signalInput } = buildExpectedSignalInput({ nativeWidth, nativeHeight, width, wavelengths, perNode, apertureNodes: apertureNodeOffsets(1), boxSamples: 1, antiAliasing: undefined, pitch,
       materials, radianceAt: provider.radianceAt, imagingArea, focalLengthMm, focusDistanceM, subjectDistanceM, metresPerFrameUnit, caller: "simulateCapture" });
     const radial = (distortion as Extract<SimulateCaptureLensDistortion, { kind: "radial" }>).profile;
-    const signal = lensKit!.createCatalogueLensSignal({ nativeWidth, nativeHeight, pitch, psf: lensPsf!.configuration.psf, wavelengthsNm: wavelengths, electronsPerRadiance: perNode,
+    // #603: the grid follows the request's quality: 2.20.0's faster grid on a fast request (but for the measured lenses that keep the
+    // full one), the full one on an exact request.
+    const gridSubdivisions = lensKit!.catalogueFastGridSubdivisions(catalogue!.lensId, fastTop);
+    const signal = lensKit!.createCatalogueLensSignal({ nativeWidth, nativeHeight, pitch, psf: lensPsf!.configuration.psf, wavelengthsNm: wavelengths, electronsPerRadiance: perNode, gridSubdivisions,
       scene: signalInput.scene as Extract<typeof signalInput.scene, { kind: "materials" }>, channelAt: signalInput.channelAt,
       distortion: { normalizationRadiusMm: radial.normalizationRadiusMm, coefficients: { k1: radial.coefficients.k1, k2: radial.coefficients.k2 ?? 0, k3: radial.coefficients.k3 ?? 0 } },
       ...(vignetting ? { vignetting } : {}), projection: projection === "fisheye-equisolid-angle" ? projection : "rectilinear", outsideImageCircleSeesNothing: catalogue!.kind === "fisheye",
       focalLengthMm, focusDistanceM, distanceM: subjectDistanceM, metresPerFrameUnit });
     tabulated = await renderTabulatedNativeRaw({ input: environmentRaw, region: regionNative, siteInput, evaluateRadiance: rawProvider().evaluateRadiance,
       electrons: signal, relativeTolerance: lensKit!.CATALOGUE_FAST_VERIFICATION_TOLERANCE, onTile: rawTick, tileWidth, yieldControl: () => yieldControl(), checkAbort });
-    if (tabulated) catalogueFastRun = { ...signal.grid, verificationRelativeDifference: tabulated.verificationRelativeDifference };
+    if (tabulated) catalogueFastRun = { ...signal.grid, verificationRelativeDifference: tabulated.verificationRelativeDifference, subdivisions: gridSubdivisions };
   }
   // #553: a cat's eye varies the kernel over the field, which the expected-signal tables (one kernel per node) do not take.
   else if (dngParts === undefined && tabulatedScene && !pupil && !lensFieldMapping && !vignetting && !lensPsf && !rotating && !subject && !bokehZones && (!diffraction || diffractionObjectSpace) &&
@@ -3564,8 +3672,9 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
     rawOutput = { raw: tabulated.raw, providerEvaluationCount: tabulated.providerEvaluationCount };
     // The verification's relative difference itself is not reported: it is a last-bits quantity, and captures use the JavaScript
     // engine's own Math functions, so it differs between engines while the results are the same.
-    assume("raw.expectedSignal", "model", { method: "tabulated-expected-electrons", verificationSites: 4, tolerance: TABULATED_RELATIVE_TOLERANCE },
-    "Each native site's expected photo electrons are the tabulated sum over the pixel-aperture nodes, anti-aliasing spots, diffraction taps and spectral nodes (the display view's expected signal), " +
+    assume("raw.expectedSignal", "model", { method: "per-site-integrated-electrons", verificationSites: 4, tolerance: TABULATED_RELATIVE_TOLERANCE },
+    "Each native site's expected photo electrons are integrated per site when the site is read: the sum over the pixel-aperture nodes, anti-aliasing spots, diffraction taps and spectral nodes " +
+      "of each tap's material spectrum against the site's channel response (the display view's expected signal), " +
       "the same quantity the environment chain computes for this still, rectilinear, distortion-free planar scene, formed in another order, so it can differ in the last bits. The sensor stage (dark charge, Poisson draws, " +
       "read noise, ADC) is the native one with each site's own seeds. One site of each CFA phase ran the full chain: its readout was reproduced bit for bit and its electrons agreed within the tolerance. " +
       "diagnostics.providerEvaluationCount counts those sites' evaluator calls and the table's scene lookups.");
@@ -3663,7 +3772,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
 
   // Development
   const development: Omit<NativeRawDevelopmentInput, "raw"> = { phaseProfiles, colorProfile,
-    whiteBalance: developmentWhiteBalance, rendering, highlightMode, ...(mirrorBorder ? { borderHandling: "mirror" as const } : {}),
+    whiteBalance: developmentWhiteBalance, rendering, highlightMode: developmentHighlightMode, ...(mirrorBorder ? { borderHandling: "mirror" as const } : {}),
     ...(exposureCompensationStops === 0 ? {} : { exposureCompensationStops }),
     maximumRetainedPayloadBytes: developmentPlan.outputBytes + outputWidth * outputHeight * 3 * (rendering.bitDepth / 8) };
   let developed: { raw: NativeRawOutput; integerSamples: Uint8Array | Uint16Array; highlight: RawHighlightDiagnostics; diagnostics: SdrRenderingResult["diagnostics"] };
@@ -3752,8 +3861,9 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
       adjustedPixelCount: encoded.adjustedPixelCount, lightnessClippedPixelCount: encoded.lightnessClippedPixelCount };
     return { raw: rawOutput.raw, integerSamples: encoded.samples, highlight, diagnostics: encoded.diagnostics };
   };
-  if (ahd || ((detailRequested || lensCorrection) && !linearPath)) {
-    const linear = await developLinearSrgb({ ...development, raw: rawOutput.raw }, rowProgress("development"), ahd ? { yieldControl: (): Promise<void> => yieldControl(), checkAbort, onDemosaicMs: (ms: number): void => { demosaicMs = ms; } } : undefined);
+  if (ahd || neighborHighlights || ((detailRequested || lensCorrection) && !linearPath)) {
+    const linear = await developLinearSrgb({ ...development, raw: rawOutput.raw }, rowProgress("development"), ahd ? { yieldControl: (): Promise<void> => yieldControl(), checkAbort, onDemosaicMs: (ms: number): void => { demosaicMs = ms; } } : undefined,
+      neighborModule ? { fast: neighborFast, module: neighborModule } : undefined);
     const rgb = await correctLinear(linear.rgb);
     if (!linearPath) {
       let codes: Uint8Array | Uint16Array, counts: SdrPixelCounts;
@@ -3779,7 +3889,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
     developed = devTask.takeOutput();
   } else {
     // Wide gamut: the native development operator up to linear sRGB/D65 (unclipped), then XYZ → target primaries.
-    const linear = await developLinearSrgb({ ...development, raw: rawOutput.raw }, rowProgress("development"));
+    const linear = await developLinearSrgb({ ...development, raw: rawOutput.raw }, rowProgress("development"), undefined, neighborModule ? { fast: neighborFast, module: neighborModule } : undefined);
     {
       developed = encodeLinear(await correctLinear(linear.rgb), linear.highlight);
       if (perceptual) {
@@ -3839,7 +3949,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
     ...(temporalSampleCount > 1 ? ["sensor.temporalSampleCount" as const] : []), ...(rotating ? ["motion.rotation" as const] : []), ...(subject ? ["motion.subject" as const] : []),
     ...(rollingSchedule ? ["motion.shutter.rolling" as const] : []), ...(mirrorBorder ? ["output.borderHandling.mirror" as const] : []), ...(region ? ["output.region" as const] : []),
     ...(needsAuto ? ["output.whiteBalance.auto" as const] : []), ...(ahd ? ["output.demosaic.ahd" as const] : []),
-    ...(highlightMode === "reconstruct" ? ["output.highlightMode.reconstruct" as const] : []), ...(wideGamut ? ["output.colorEncoding.wide-gamut" as const] : []),
+    ...(highlightMode === "reconstruct" || neighborHighlights ? ["output.highlightMode.reconstruct" as const] : []), ...(wideGamut ? ["output.colorEncoding.wide-gamut" as const] : []),
     ...(perceptual ? ["output.gamutMapping.perceptual" as const] : []), ...(diffractionFilter ? ["output.diffractionCorrection" as const] : []),
     ...(sharpening ? ["output.sharpening" as const] : []), ...(lensCorrection ? ["output.lensCorrections" as const] : []), ...(format === "jpeg" || format === "png" || format === "dng" ? ["output.format." + format as SimulateCaptureCostOption] : [])]);
   // #552: the detail stages' contracts, in execution order inside the development.

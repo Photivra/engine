@@ -12,7 +12,7 @@ import { freezeOwnedData } from "../core/owned-data.js";
 import { FULL_RESOLUTION_CEILING_PIXELS, resolveRaisedLimit } from "../core/pixel-limits.js";
 import { encodeSrgbComponent } from "../color/srgb-transfer.js";
 import { InvalidScientificResultError } from "../core/validation.js";
-import { parseSdrRenderingProfile, prepareSdrPixelTone, type SdrPixelTone, type SdrRenderingProfile, type SdrRenderingResult } from "./sdr-rendering.js";
+import { desaturateToLuminance, parseSdrRenderingProfile, prepareSdrPixelTone, type SdrPixelTone, type SdrRenderingProfile, type SdrRenderingResult } from "./sdr-rendering.js";
 
 export const NATIVE_CAPTURE_SDR_SCHEMA_VERSION = "0.1.0" as const;
 /** `maximumPixels` is the default pixel limit; a request may raise it with its own `maximumPixels`, up to `ceilingPixels`. */
@@ -247,7 +247,7 @@ export interface SdrPixelCounts { negative: number; above: number; changed: numb
  */
 export function renderSdrRunInto(source: Float32Array | Float64Array, start: number, pixelCount: number, profile: SdrRenderingProfile,
   tone: SdrPixelTone, scale: number, maximum: number, codes: Uint8Array | Uint16Array | Float64Array, outOffset: number, scratch: Float64Array, counts: SdrPixelCounts): void {
-  const reject = profile.gamutHandling === "reject-out-of-range", quantizer = maximum === 255 ? srgb8Quantizer() : null;
+  const reject = profile.gamutHandling === "reject-out-of-range", desaturate = profile.gamutHandling === "desaturate-to-luminance", quantizer = maximum === 255 ? srgb8Quantizer() : null;
   let negative = 0, above = 0, changed = 0, low = 0, high = 0, outOfGamut = false;
   for (let p = 0, i = start, o = outOffset; p < pixelCount; p++, i += 3) {
     // The reference parser normalizes -0 to +0 before exposure.
@@ -255,6 +255,8 @@ export function renderSdrRunInto(source: Float32Array | Float64Array, start: num
     const er = (red === 0 ? 0 : red) * scale, eg = (green === 0 ? 0 : green) * scale, eb = (blue === 0 ? 0 : blue) * scale;
     if (!Number.isFinite(er) || !Number.isFinite(eg) || !Number.isFinite(eb)) throw new InvalidScientificResultError("Rendering exposure produced a non-finite sample.");
     tone(er, eg, eb, scratch);
+    // #601: the hue-preserving desaturation, before the components are counted and clipped.
+    if (desaturate) desaturateToLuminance(scratch);
     for (let c = 0; c < 3; c++, o++) {
       const exposed = c === 0 ? er : c === 1 ? eg : eb;
       if (exposed < 0) negative++;

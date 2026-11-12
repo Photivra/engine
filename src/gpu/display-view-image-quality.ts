@@ -26,6 +26,15 @@
  * point is flagged: on the print's edge, near a nearest-pixel edge, or where a bilinear weight moved by the point's error could
  * change the value by more than E of it (the Speed module's rule, per node).
  *
+ * **Mixed light (#597).** Under `illumination` W_n is replaced by the irradiance / π at the point, E_n(p) = Σ_i w_i(p)·T_i,n +
+ * Σ_j c_j,n·h_j/d_j³ (src/facade/mixed-illumination.ts), from the light table (`imagePlaneLightTable`: the parts and the spectra at
+ * the nodes, no channel value). The blend's position t is formed in double-float32 with te, its error beyond its own low part; each
+ * weight comes from its own distance to the segment's ends (rounded once: E relative, plus te times the segment's slope); a regions
+ * edge, or a hard edge of equal stops, within the point's bound flags it; a choice of the neighbouring segment moves the weights by
+ * at most te times the steepest slope; each point source's h/d³ is a bounded value (B arithmetic). The node value's computed bound
+ * (the tables' rounding, the weights, the products and the sums) must stay within (IMAGE_PLANE_LIGHT_U − 1)·E of it, else the point
+ * is flagged, so a lit point carries (IMAGE_PLANE_LATTICE_U + IMAGE_PLANE_LIGHT_U)·E relative.
+ *
  * **Flagged points.** With site kernels the reference evaluates the lattice formula itself, so the host replaces a flagged
  * point's values with the reference's own `radianceAt` there and clears its flag (as #492 resolves uncertain chart materials).
  * Without kernels the reference reads the environment's own query points, so a site that reads a flagged point (with a nonzero
@@ -47,19 +56,218 @@ import { latticeCoordinate, type DisplayViewQualityImagePasses, type SignalGathe
 import { queryGeometry } from "./display-view-speed-gpu.js";
 import { displayViewSignalTables, type DisplayViewExpectedSignalInput } from "../facade/expected-signal.js";
 import type { DisplayViewGpuSetup } from "../facade/display-view.js";
-import type { ImagePlaneSignalScene } from "../facade/scene-radiance.js";
+import { calculateIlluminantIrradianceScale, type ImagePlaneSignalScene } from "../facade/scene-radiance.js";
 
 const E = 2 * WEBGPU_F32_UNIT_ROUNDOFF;
 /** Relative roundings of a lattice point's radiance (see the module comment). */
 export const IMAGE_PLANE_LATTICE_U = 32;
+/**
+ * #597: relative roundings of the mixed light at a lattice point (a point whose computed bound exceeds IMAGE_PLANE_LIGHT_U − 1 is
+ * flagged; see the module comment), added to IMAGE_PLANE_LATTICE_U for a lit print.
+ */
+export const IMAGE_PLANE_LIGHT_U = 40;
+/** #597: layout of the light table (float32 / u32 words; see `imagePlaneLightTable`). */
+export const IMAGE_PLANE_LIGHT = /* @__PURE__ */ Object.freeze({ kind: 0, sources: 1, points: 2, regions: 3, outside: 4, regionsAt: 6, pointsAt: 7, tablesAt: 8, slack: 9,
+  surround: 10, maximumInverse: 11, halfHi: 12, halfLo: 13, aU: 16, aV: 18, dU: 20, dV: 22, inverse: 24, stops: 26, regionWords: 9, pointWords: 6, maximumPoints: 8 });
 /** Lattice nodes of the print (5 × 5 × 5). */
 const NODES = 125;
 /** Words per pixel record. */
 const RECORD_WORDS = 4;
 /** Layout of the photo uniform (u32 / float32 words, 96 bytes). */
-export const IMAGE_PLANE_QUALITY_PARAMS = /* @__PURE__ */ Object.freeze({ width: 0, height: 1, nearest: 2, nodes: 3, row0: 4, zero: 5, suHi: 8, suLo: 9, svHi: 10, svLo: 11,
+export const IMAGE_PLANE_QUALITY_PARAMS = /* @__PURE__ */ Object.freeze({ width: 0, height: 1, nearest: 2, nodes: 3, row0: 4, zero: 5, lit: 6, suHi: 8, suLo: 9, svHi: 10, svLo: 11,
   kHi: 12, kLo: 13, halfWHi: 14, halfWLo: 15, halfHHi: 16, halfHLo: 17, aspectHi: 18, aspectLo: 19, slackX: 20, slackY: 21, black: 22, span: 23, words: 24 });
 const FLOAT32_SAFE_MAGNITUDE = 2 ** 120, FLOAT32_MINIMUM_NORMAL = 2 ** -126;
+
+const L = IMAGE_PLANE_LIGHT;
+/**
+ * #597: the mixed light at a lattice point (see the module comment): `light_prepare` once per point (the blend's source and weights
+ * with their error bound, and each point source's h/d³ as a bounded value), then `light_at(n)` per node, flagging the point when the
+ * computed bound exceeds (IMAGE_PLANE_LIGHT_U − 1)·E of the value.
+ */
+const LIGHT_WGSL = /* wgsl */ `
+var<private> blend_i: u32;
+var<private> blend_w0: f32;
+var<private> blend_w1: f32;
+var<private> blend_e0: f32;
+var<private> blend_e1: f32;
+var<private> blend_amb: f32;
+var<private> fall_v: array<f32, ${L.maximumPoints}>;
+var<private> fall_e: array<f32, ${L.maximumPoints}>;
+fn lw(i: u32) -> u32 { return bitcast<u32>(light[i]); }
+fn ld(i: u32) -> D { return D(light[i], light[i + 1u]); }
+// a > b for double-float32 values.
+fn d_gt(a: D, b: D) -> bool { let d = d_sub(a, b); return d.h > 0.0 || (d.h == 0.0 && d.l > 0.0); }
+// sqrt of a bounded value: |√x − √x̃| ≤ e / (2√(v − e)), and WGSL's sqrt within 5E (inherited from 1 / inverseSqrt).
+fn bsqrt(a: B) -> B {
+  let v = sqrt(max(a.v, 0.0));
+  let low = a.v - SAFETY * a.e;
+  if (!(low > 0.0)) { material_uncertain = true; return B(v, 3.0e38); }
+  return B(v, a.e / (2.0 * sqrt(low)) + 5.0 * E * v);
+}
+fn light_prepare(u: D, v: D) {
+  let kind = lw(${L.kind}u);
+  let S = lw(${L.sources}u);
+  blend_i = 0u; blend_w0 = 1.0; blend_w1 = 0.0; blend_e0 = 0.0; blend_e1 = 0.0; blend_amb = 0.0;
+  // A point's error beyond its double-float32 arithmetic: the recovery and the reference's own rounding (the host's slack).
+  let ce = 4.0 * DW * (abs(u.h) + abs(v.h) + 1.0) + light[${L.slack}u];
+  if (kind == 3u) {
+    var source = lw(${L.outside}u);
+    let bu = bd(u);
+    let bv = bd(v);
+    for (var r = 0u; r < lw(${L.regions}u); r = r + 1u) {
+      let b = lw(${L.regionsAt}u) + r * ${L.regionWords}u;
+      if (ge(bu, bd(ld(b + 1u))) && le(bu, bd(ld(b + 3u))) && ge(bv, bd(ld(b + 5u))) && le(bv, bd(ld(b + 7u)))) { source = lw(b); break; }
+    }
+    blend_i = source;
+  } else if (kind != 0u) {
+    // t in double-float32 and te, its error bound beyond its own low part (the arithmetic and the point's error).
+    var t: D;
+    var te: f32;
+    let a_u = d_sub(u, ld(${L.aU}u));
+    let a_v = d_sub(v, ld(${L.aV}u));
+    let inv = ld(${L.inverse}u);
+    let ce_t = ce + 4.0 * DW * (abs(light[${L.aU}u]) + abs(light[${L.aV}u]));
+    if (kind == 1u) {
+      let x = d_mul(a_u, ld(${L.dU}u));
+      let y = d_mul(a_v, ld(${L.dV}u));
+      let scale = (abs(x.h) + abs(y.h)) * abs(inv.h);
+      t = d_mul(d_add(x, y), inv);
+      te = 8.0 * DW * (scale + 1.0) + ce_t * (abs(light[${L.dU}u]) + abs(light[${L.dV}u])) * abs(inv.h);
+      if (t.h < 0.0) { t = D(0.0, 0.0); }
+      if (d_gt(t, D(1.0, 0.0))) { t = D(1.0, 0.0); }
+    } else {
+      // The distance in double-float32: the float32 root and one Newton step.
+      let dd = d_add(d_mul(a_u, a_u), d_mul(a_v, a_v));
+      let r0 = sqrt(max(dd.h, 0.0));
+      var r = D(r0, 0.0);
+      if (r0 > 0.0) { let res = d_sub(dd, d_mul(D(r0, 0.0), D(r0, 0.0))); r = quick_two_sum(r0, ob(ob(res.h + res.l) / ob(2.0 * r0))); }
+      t = d_mul(r, inv);
+      te = 8.0 * DW * (abs(t.h) + 1.0) + 2.0 * ce_t * abs(inv.h);
+      if (d_gt(t, D(1.0, 0.0))) { t = D(1.0, 0.0); }
+    }
+    // The segment [s_i, s_i+1) that holds t (the reference's order); a hard edge (equal stops) within the bound of t flags the point.
+    var i = 0u;
+    loop { if (i + 1u >= S) { break; } if (d_gt(ld(${L.stops}u + (i + 1u) * 4u), t)) { break; } i = i + 1u; }
+    for (var k = 0u; k + 1u < S; k = k + 1u) {
+      if (light[${L.stops}u + k * 4u + 2u] == 0.0 && abs(d_sub(t, ld(${L.stops}u + k * 4u)).h) <= SAFETY * te + DW * (abs(t.h) + 1.0)) { material_uncertain = true; }
+    }
+    let si = ld(${L.stops}u + i * 4u);
+    // A neighbouring segment's choice moves the weights by at most t's bound times the steepest segment's slope.
+    blend_amb = te * light[${L.maximumInverse}u];
+    if (i + 1u < S && d_gt(t, si)) {
+      // Each weight from its own distance to the segment's ends (double-float32, rounded once), so a small weight keeps a small relative error.
+      let inv_i = ld(${L.stops}u + i * 4u + 2u);
+      let fd = d_mul(d_sub(t, si), inv_i);
+      let gd = d_mul(d_sub(ld(${L.stops}u + (i + 1u) * 4u), t), inv_i);
+      blend_w1 = clamp(ob(fd.h + fd.l), 0.0, 1.0);
+      blend_w0 = clamp(ob(gd.h + gd.l), 0.0, 1.0);
+      let shared_e = (te + 4.0 * DW * (abs(t.h) + abs(si.h) + 1.0)) * abs(inv_i.h);
+      blend_e1 = E * blend_w1 + shared_e;
+      blend_e0 = E * blend_w0 + shared_e;
+    }
+    blend_i = i;
+  }
+  // Point sources: h/d³ at the point in metres (print-local × the print's half width), as bounded values.
+  let half = ld(${L.halfHi}u);
+  let x = d_mul(u, half);
+  let y = d_mul(v, half);
+  let cm = ce * abs(half.h) + 4.0 * DW * (abs(x.h) + abs(y.h));
+  for (var j = 0u; j < lw(${L.points}u); j = j + 1u) {
+    let b = lw(${L.pointsAt}u) + j * ${L.pointWords}u;
+    var dx = bds(d_sub(x, ld(b)), abs(x.h) + abs(light[b]));
+    dx.e = dx.e + cm;
+    var dy = bds(d_sub(y, ld(b + 2u)), abs(y.h) + abs(light[b + 2u]));
+    dy.e = dy.e + cm;
+    let h = bd(ld(b + 4u));
+    let d2 = badd(badd(bmul(dx, dx), bmul(dy, dy)), bmul(h, h));
+    let fall = bdiv(h, bmul(d2, bsqrt(d2)));
+    fall_v[j] = fall.v;
+    fall_e[j] = fall.e;
+  }
+}
+// The irradiance / π at node n of the prepared point: the blend's sources and the point sources from their spectra at the nodes.
+fn light_at(n: u32) -> f32 {
+  let N = photo.nodes;
+  let S = lw(${L.sources}u);
+  let P = lw(${L.points}u);
+  let tab = lw(${L.tablesAt}u);
+  var value = 0.0;
+  var err = 0.0;
+  if (S > 0u) {
+    let ti = light[tab + blend_i * N + n];
+    var top = ti;
+    for (var s = 0u; s < S; s = s + 1u) { top = max(top, light[tab + s * N + n]); }
+    var tj = 0.0;
+    if (blend_w1 == 0.0) { value = ti; } else { tj = light[tab + (blend_i + 1u) * N + n]; value = blend_w0 * ti + blend_w1 * tj; }
+    err = 3.0 * E * value + blend_e0 * ti + blend_e1 * tj + blend_amb * top;
+  }
+  for (var j = 0u; j < P; j = j + 1u) {
+    let c = light[tab + (S + j) * N + n];
+    let term = c * fall_v[j];
+    value = value + term;
+    err = err + c * fall_e[j] + 2.0 * E * term;
+  }
+  err = err + f32(P + 1u) * E * value;
+  if (!(err <= ${IMAGE_PLANE_LIGHT_U - 1}.0 * E * value)) { material_uncertain = true; }
+  return value;
+}
+`;
+
+/**
+ * #597: the light table of a lit print at the spectral nodes (the layout `IMAGE_PLANE_LIGHT`): the blend (kind, sources, its geometry
+ * and stops with each segment's inverse width, 0 at a hard edge), the regions, the point sources (x, y, h in metres), then per node
+ * T_i,n = k_i·S_i(λ_n)/π for each blend source and c_j·S_j(λ_n)/π for each point source: spectra only, no channel value. `slack` is the
+ * reference's own rounding of a query point in print-local units.
+ */
+export function imagePlaneLightTable(light: NonNullable<ImagePlaneSignalScene["image"]["light"]>, wavelengths: readonly number[], surroundReflectance: number, slack: number):
+  { table: Float32Array<ArrayBuffer>; largestIrradiance: number } {
+  const resolved = light.layout;
+  if (!resolved) throw new ImageKernelExecutionError("unsupported-on-backend", "The print's mixed light carries no parts for the GPU; use cpu-reference.");
+  // The blend's sources come first, then the point sources (their report carries the position and the intensity, c = I·k(1 lux)).
+  const blend = resolved.blend as { kind: string; from?: { u: number; v: number }; to?: { u: number; v: number }; center?: { u: number; v: number }; radius?: number;
+    regions?: readonly { source: number; uMin: number; uMax: number; vMin: number; vMax: number }[]; outsideSource?: number; stops?: readonly number[] } | null;
+  const sources = resolved.sources.filter((s) => s.report.position === undefined), points = resolved.sources.filter((s) => s.report.position !== undefined).map((s) => {
+    const position = s.report.position as { xM: number; yM: number; heightM: number };
+    return { ...position, scale: calculateIlluminantIrradianceScale(s.illuminant.shape, 1) * (s.report.intensityCandela as number), shape: s.illuminant.shape };
+  });
+  const S = sources.length, P = points.length, N = wavelengths.length, regions = blend?.regions ?? [];
+  if (P > L.maximumPoints) throw new ImageKernelExecutionError("unsupported-on-backend", "More point sources than the GPU pass holds.");
+  const regionsAt = L.stops + 4 * S, pointsAt = regionsAt + L.regionWords * regions.length, tablesAt = pointsAt + L.pointWords * P;
+  const table = new Float32Array(tablesAt + (S + P) * N), words = new Uint32Array(table.buffer);
+  const pair = (at: number, x: number): void => { [table[at], table[at + 1]] = dwSplit(x); };
+  words[L.kind] = blend === null ? 0 : blend.kind === "linear-gradient" ? 1 : blend.kind === "radial" ? 2 : 3;
+  words[L.sources] = S; words[L.points] = P; words[L.regions] = regions.length; words[L.outside] = blend?.outsideSource ?? 0;
+  words[L.regionsAt] = regionsAt; words[L.pointsAt] = pointsAt; words[L.tablesAt] = tablesAt;
+  table[L.slack] = slack; table[L.surround] = surroundReflectance;
+  pair(L.halfHi, light.halfWidthM);
+  if (blend?.kind === "linear-gradient") {
+    const from = blend.from!, du = blend.to!.u - from.u, dv = blend.to!.v - from.v;
+    pair(L.aU, from.u); pair(L.aV, from.v); pair(L.dU, du); pair(L.dV, dv); pair(L.inverse, 1 / (du * du + dv * dv));
+  } else if (blend?.kind === "radial") { pair(L.aU, blend.center!.u); pair(L.aV, blend.center!.v); pair(L.inverse, 1 / blend.radius!); }
+  let maximumInverse = 0;
+  const stops = blend?.stops ?? [];
+  stops.forEach((stop, i) => {
+    const next = stops[i + 1], inverse = next !== undefined && next > stop ? 1 / (next - stop) : 0;
+    pair(L.stops + 4 * i, stop); pair(L.stops + 4 * i + 2, inverse);
+    maximumInverse = Math.max(maximumInverse, inverse);
+  });
+  table[L.maximumInverse] = maximumInverse;
+  regions.forEach((r, i) => {
+    const at = regionsAt + L.regionWords * i;
+    words[at] = r.source; pair(at + 1, r.uMin); pair(at + 3, r.uMax); pair(at + 5, r.vMin); pair(at + 7, r.vMax);
+  });
+  points.forEach((p, j) => { const at = pointsAt + L.pointWords * j; pair(at, p.xM); pair(at + 2, p.yM); pair(at + 4, p.heightM); });
+  // The largest irradiance / π anywhere (the blend's largest source and every point at normal incidence, 1/h²), for the tiny-value bound.
+  let largestIrradiance = 0;
+  wavelengths.forEach((nm, n) => {
+    let top = 0, atNormal = 0;
+    sources.forEach((source, i) => { const value = source.irradianceScale * source.illuminant.shape.evaluate(nm) / Math.PI; table[tablesAt + i * N + n] = value; top = Math.max(top, value); });
+    points.forEach((p, j) => { const value = p.scale * p.shape.evaluate(nm) / Math.PI; table[tablesAt + (S + j) * N + n] = value; atNormal += value / (p.heightM * p.heightM); });
+    largestIrradiance = Math.max(largestIrradiance, top + atNormal);
+  });
+  for (let i = tablesAt; i < table.length; i++) if (!(table[i]! >= 0 && table[i]! <= FLOAT32_SAFE_MAGNITUDE)) throw new ImageKernelExecutionError("unsupported-float32-domain", "A light's spectrum is outside the float32 domain.");
+  return { table, largestIrradiance };
+}
 
 /** The display-view helpers of the composite kernel's common part, with the barrier word read from the photo uniform. */
 const photoCommon = (path: ChartCompositeProductPath): string => displayViewModuleCommonWgsl(path).replace(/\blattice\.zero\b/gu, "photo.zero");
@@ -71,14 +279,16 @@ export function imagePlaneQualityLatticeWgsl(path: ChartCompositeProductPath): s
 @group(0) @binding(2) var<storage, read_write> lattice_values: array<f32>;
 @group(0) @binding(3) var<storage, read_write> lattice_flags: array<u32>;
 struct PhotoParams {
-  width: u32, height: u32, nearest: u32, nodes: u32, row0: u32, zero: u32, pad0: u32, pad1: u32,
+  width: u32, height: u32, nearest: u32, nodes: u32, row0: u32, zero: u32, lit: u32, pad1: u32,
   su_hi: f32, su_lo: f32, sv_hi: f32, sv_lo: f32, k_hi: f32, k_lo: f32, hw_hi: f32, hw_lo: f32,
   hh_hi: f32, hh_lo: f32, aspect_hi: f32, aspect_lo: f32, slack_x: f32, slack_y: f32, black: f32, span: f32,
 };
 @group(1) @binding(0) var<storage, read> records: array<u32>;
 @group(1) @binding(1) var<uniform> photo: PhotoParams;
 @group(1) @binding(2) var<storage, read> node_table: array<f32>;
+@group(1) @binding(3) var<storage, read> light: array<f32>;
 ${photoCommon(path)}
+${LIGHT_WGSL}
 fn pixel_slack(x: D, slack: f32) -> f32 { return 4.0 * (DW * (abs(x.h) + 1.0)) + 4.0 * slack; }
 struct Axis { i0: u32, i1: u32, w0: f32, w1: f32 }
 fn bilinear_axis(s: D, n: u32) -> Axis {
@@ -104,6 +314,8 @@ fn pixel_at(i: u32, j: u32) -> Pixel {
     channel_weights(w, 7u, bitcast<f32>(records[o + 2u])), channel_weights(w, 8u, bitcast<f32>(records[o + 3u])));
 }
 fn node(k: u32, n: u32) -> f32 { return node_table[k * photo.nodes + n]; }
+// The white radiance at node n, or (#597) under mixed light the irradiance / π at the point.
+fn white_at(white: u32, n: u32) -> f32 { if (photo.lit != 0u) { return light_at(n); } return node_table[white + n]; }
 // One pixel's reflectance at node n: the reference's nested trilinear form, then the paper.
 fn pixel_value(px: Pixel, n: u32) -> f32 {
   let b = px.base;
@@ -130,8 +342,12 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_workgroups) 
   let u = d_mul(d_mul(D(f32(p) + bitcast<f32>(groups[base + 6u]), 0.0), D(photo.su_hi, photo.su_lo)), k);
   let v = d_mul(d_mul(D(f32(q) + bitcast<f32>(groups[base + 7u]), 0.0), D(photo.sv_hi, photo.sv_lo)), k);
   let aspect = D(photo.aspect_hi, photo.aspect_lo);
+  // #597: under mixed light the irradiance at the point (its blend and point sources) replaces the white radiance per node.
+  if (photo.lit != 0u) { light_prepare(u, v); }
   if (!(le(babs(bd(u)), bx(1.0)) && le(babs(bd(v)), bd(aspect)))) {
-    for (var n = 0u; n < N; n = n + 1u) { lattice_values[out + n] = node_table[white + N + n]; }
+    for (var n = 0u; n < N; n = n + 1u) {
+      if (photo.lit != 0u) { lattice_values[out + n] = light[${L.surround}u] * light_at(n); } else { lattice_values[out + n] = node_table[white + N + n]; }
+    }
     lattice_flags[i] = select(0u, 1u, material_uncertain);
     return;
   }
@@ -141,7 +357,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_workgroups) 
     let last_x = f32(photo.width - 1u);
     let last_y = f32(photo.height - 1u);
     let px = pixel_at(u32(clamp(bfloor(bd(x), 1.0, last_x), 0.0, last_x)), u32(clamp(bfloor(bd(y), 1.0, last_y), 0.0, last_y)));
-    for (var n = 0u; n < N; n = n + 1u) { lattice_values[out + n] = node_table[white + n] * pixel_value(px, n); }
+    for (var n = 0u; n < N; n = n + 1u) { lattice_values[out + n] = white_at(white, n) * pixel_value(px, n); }
   } else {
     let ax = bilinear_axis(d_sub(x, D(0.5, 0.0)), photo.width);
     let ay = bilinear_axis(d_sub(y, D(0.5, 0.0)), photo.height);
@@ -157,7 +373,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_workgroups) 
       let s11 = pixel_value(p11, n);
       let value = ay.w0 * (ax.w0 * s00 + ax.w1 * s10) + ay.w1 * (ax.w0 * s01 + ax.w1 * s11);
       if (!(slack * max(max(s00, s10), max(s01, s11)) <= E * value)) { material_uncertain = true; }
-      lattice_values[out + n] = node_table[white + n] * value;
+      lattice_values[out + n] = white_at(white, n) * value;
     }
   }
   lattice_flags[i] = select(0u, 1u, material_uncertain);
@@ -224,7 +440,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_workgroups) 
  * members' span), the lattice extent beyond the site window and the point constants, and the table C_n,c(t) at (n·3 + c)·T + t,
  * the reference's float64 values rounded once.
  */
-export function imagePlaneQualityGather(signalInput: DisplayViewExpectedSignalInput): SignalGather {
+export function imagePlaneQualityGather(signalInput: DisplayViewExpectedSignalInput, largestLitRadiance?: number): SignalGather {
   const tables = displayViewSignalTables(signalInput), W = signalInput.nativeWidth, H = signalInput.nativeHeight, R = signalInput.kernels ? signalInput.kernels.radius : 0;
   const N = signalInput.wavelengthsNm.length, A = signalInput.electronsPerRadiance, groups: SignalGather["groups"] = [];
   const rects = tables.groups.map((group) => {
@@ -253,7 +469,8 @@ export function imagePlaneQualityGather(signalInput: DisplayViewExpectedSignalIn
     }
   });
   const image = (signalInput.scene as { image?: ImagePlaneSignalScene["image"] }).image!;
-  for (const w of image.whiteRadiance) largestRadiance = Math.max(largestRadiance, w);
+  if (largestLitRadiance !== undefined) largestRadiance = largestLitRadiance;
+  else for (const w of image.whiteRadiance) largestRadiance = Math.max(largestRadiance, w);
   let tinyMass = 0;
   for (let t = 0; t < T; t++) tinyMass += tiny[t]! * largestRadiance * N;
   return { groups, taps: new Uint32Array(0), tapCount: T, nodes: N, table, spread: new Float32Array(3 * Math.max(1, T)), materials: 0, tinyMass };
@@ -263,7 +480,9 @@ export function imagePlaneQualityGather(signalInput: DisplayViewExpectedSignalIn
 export function imagePlaneQualityPasses(runtime: WebGpuRuntime, gpu: DisplayViewGpuSetup, path: ChartCompositeProductPath): DisplayViewQualityImagePasses {
   const signalInput = gpu.signalInput, image = (signalInput.scene as { image?: ImagePlaneSignalScene["image"] }).image;
   if (!image || !gpu.placement) throw new ImageKernelExecutionError("unsupported-on-backend", "The setup carries no image-plane print and placement; use cpu-reference.");
-  const scene = image.scene, N = signalInput.wavelengthsNm.length, gather = imagePlaneQualityGather(signalInput);
+  // #597: under mixed light, the light's table (its parts and spectra at the nodes), which replaces the white radiance in pass 1.
+  const k0 = gpu.placement.chartUnitsPerFrameUnit, lit = image.light ? imagePlaneLightTable(image.light, signalInput.wavelengthsNm, image.surroundReflectance, 1e-14 * k0) : undefined;
+  const scene = image.scene, N = signalInput.wavelengthsNm.length, gather = imagePlaneQualityGather(signalInput, lit?.largestIrradiance);
   let cw = 0, ch = 0;
   for (const g of gather.groups) { cw = Math.max(cw, g.cw); ch = Math.max(ch, g.ch); }
   // The lattice scale: the lattice formula's g with site kernels, else the environment's query lattice (checked within 2⁻⁴⁰ by queryGeometry).
@@ -278,14 +497,15 @@ export function imagePlaneQualityPasses(runtime: WebGpuRuntime, gpu: DisplayView
     nodeTable[(NODES + 1) * N + n] = image.surroundReflectance * image.whiteRadiance[n]!;
   });
   const P = IMAGE_PLANE_QUALITY_PARAMS, params = new ArrayBuffer(4 * P.words), words = new Uint32Array(params), floats = new Float32Array(params);
-  words[P.width] = scene.width; words[P.height] = scene.height; words[P.nearest] = scene.interpolation === "nearest" ? 1 : 0; words[P.nodes] = N; words[P.zero] = 0;
+  words[P.width] = scene.width; words[P.height] = scene.height; words[P.nearest] = scene.interpolation === "nearest" ? 1 : 0; words[P.nodes] = N; words[P.zero] = 0; words[P.lit] = lit ? 1 : 0;
+  const lightTable = lit ? lit.table : new Float32Array(1);
   [floats[P.suHi], floats[P.suLo]] = dwSplit(geometry.scaleU); [floats[P.svHi], floats[P.svLo]] = dwSplit(geometry.scaleV); [floats[P.kHi], floats[P.kLo]] = dwSplit(k);
   [floats[P.halfWHi], floats[P.halfWLo]] = dwSplit(halfW); [floats[P.halfHHi], floats[P.halfHLo]] = dwSplit(halfH); [floats[P.aspectHi], floats[P.aspectLo]] = dwSplit(scene.aspect);
   floats[P.slackX] = 1e-14 * k * halfW; floats[P.slackY] = 1e-14 * k * halfH; floats[P.black] = scene.paperBlackReflectance; floats[P.span] = scene.paperWhiteReflectance - scene.paperBlackReflectance;
   const label = path === "dekker" ? "image-plane" : "image-plane-fma";
   const fractions = new Float64Array(3);
   const passes: DisplayViewQualityImagePasses = {
-    gather, siteGamma: (IMAGE_PLANE_LATTICE_U + N + cw + ch + gather.groups.length + 4) * E, pointFloats: N,
+    gather, siteGamma: (IMAGE_PLANE_LATTICE_U + (lit ? IMAGE_PLANE_LIGHT_U : 0) + N + cw + ch + gather.groups.length + 4) * E, pointFloats: N,
     lattice: ["photivra-display-view-quality-photo-lattice:" + label, imagePlaneQualityLatticeWgsl(path)],
     sites: ["photivra-display-view-quality-photo-sites", IMAGE_PLANE_QUALITY_SITES_WGSL],
     async runLattice(band, pipeline, latticeParams, groupBuffer, groupWords, latticeTotal, signal): Promise<{ values: GPUBuffer; flags: GPUBuffer; resolved: number }> {
@@ -330,7 +550,8 @@ export function imagePlaneQualityPasses(runtime: WebGpuRuntime, gpu: DisplayView
       return runtime.device.createBindGroup({ layout, entries: [
         { binding: 0, resource: { buffer: scope.upload("photivra-display-view-photo-records", records, BUFFER_USAGE.STORAGE) } },
         { binding: 1, resource: { buffer: scope.upload("photivra-display-view-photo-params", new Uint8Array(bandParams), BUFFER_USAGE.UNIFORM) } },
-        { binding: 2, resource: { buffer: scope.upload("photivra-display-view-photo-nodes", nodeTable, BUFFER_USAGE.STORAGE) } }] });
+        { binding: 2, resource: { buffer: scope.upload("photivra-display-view-photo-nodes", nodeTable, BUFFER_USAGE.STORAGE) } },
+        { binding: 3, resource: { buffer: scope.upload("photivra-display-view-photo-light", lightTable, BUFFER_USAGE.STORAGE) } }] });
   }
   function resolve(values: Float32Array, flags: Uint32Array, groupWords: Uint32Array): number {
       if (!signalInput.kernels) return 0;

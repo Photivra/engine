@@ -42,7 +42,8 @@ describe("simulateCapture lens.diffraction (2.1)", () => {
  * to 2.0.0. Digests of the RAW codes and every output byte, and of the assumptions, composed contracts and
  * diagnostics (timings zeroed), recorded from the 2.0.0 source (commit 0e4c63e). Since #394 these chart captures take the
  * tabulated RAW path: the byte digests are still 2.0.0's; the second digests were re-recorded for its `raw.expectedSignal`
- * assumption and its `providerEvaluationCount` (verification calls plus scene lookups).
+ * assumption and its `providerEvaluationCount` (verification calls plus scene lookups). 2.22.0: the second digests were re-recorded
+ * for the `raw.expectedSignal` method's new name (`per-site-integrated-electrons`) and explanation only; the byte digests are unchanged.
  */
 describe("simulateCapture without the 2.1 options is byte-identical to 2.0.0", () => {
   // The DNG Software tag names the engine version ("Photivra <version>"). A version of another length (2.10.0 against
@@ -63,17 +64,17 @@ describe("simulateCapture without the 2.1 options is byte-identical to 2.0.0", (
   // metadata digest, then lacks the default-step entry).
   const cases: Record<string, [SimulateCaptureOptions, string, string]> = {
     edge: [{ scene: { preset: "slanted-edge" }, output: { width: 24, height: 16 } },
-      "0cce9455f8a541eed2ebe6f652556d7ea0d10601f2a35f8529768311e8ec0acf", "7b1a17b64caf4b4f6cfcccabcee01bbc2224402681debb68626f17e61e13339a"],
+      "0cce9455f8a541eed2ebe6f652556d7ea0d10601f2a35f8529768311e8ec0acf", "091640a48006caac93cbd56114f45631ba14c9fb0670fe1f99b1c0ab7ae87784"],
     star: [{ scene: { preset: "siemens-star" }, output: { width: 20, height: 20, format: "png" }, lens: { fNumber: 4 } },
-      "775575f46b684c0eb44196270893632995c8ae7ca9400e878efcf2e29c9a7f1b", "4d64c6fd94fd2cb58e7f2fbc255db8442f091cd73624aa95f8aa97375232e12a"],
+      "775575f46b684c0eb44196270893632995c8ae7ca9400e878efcf2e29c9a7f1b", "5689e2574124165e5ef30a5e5e0d6c4f22899b1c805b0155777597c71090517c"],
     jpeg: [{ scene: { preset: "checkerboard" }, output: { width: 16, height: 16, format: "jpeg", whiteBalance: "auto", jpegQuantizationStep: 2 } },
-      "afeb03932b61751778c2ac285ce8245cd6feec4d0c18ffe7732f0a2d0588b70c", "d01609ea9cef802e41b0566fb813176d5be7cbc82d60cf5346dde66499b226ec"],
+      "afeb03932b61751778c2ac285ce8245cd6feec4d0c18ffe7732f0a2d0588b70c", "0bf8d20f3b6872a05a8c8e0eab41d44f4de8c4ea873e2a94e9917062c563d095"],
     mirror: [{ scene: { preset: "grey-ramp" }, output: { width: 16, height: 12, demosaic: "bilinear", borderHandling: "mirror", format: "srgb-16" } },
-      "f8f7c5dc63ba0ad1ee0390d03ac08f3ee202bf57a560f9a834942303e3924c39", "49d1e73d74ad084d405dd6b770016ac346e1af0222a0e27215e40cdbe137e7d3"],
+      "f8f7c5dc63ba0ad1ee0390d03ac08f3ee202bf57a560f9a834942303e3924c39", "f921aaad24c40ec5060982e2ed783e4d40d44495a94cd3b9a065dd7fe131cafa"],
     p3: [{ scene: { preset: "step-wedge" }, output: { width: 16, height: 8, format: "png", colorEncoding: "display-p3" } },
-      "ffd78b35089083915e69cccbf16476a79690ce31095c1e428d6edc8672ecca0c", "be7d21f4832e25d918335ddefa2c8891b8f5c586b35e7748ab349ac839a321a5"],
+      "ffd78b35089083915e69cccbf16476a79690ce31095c1e428d6edc8672ecca0c", "33c16609602743dd796abc08270090f69ddfecb20bbb9413fa85483cd5a1d98a"],
     dng: [{ scene: { preset: "point-grid" }, output: { width: 12, height: 12, format: "dng" }, exposure: { mode: "program" } },
-      "faaf9e2bf9ae86261adb153f4aea04a29476b4e38c3e3acc616d4aee3fe3a106", "f9005828a1109b86316fc4dcf2c8c238e1090a3052be5652fc699b0d969c834d"]
+      "faaf9e2bf9ae86261adb153f4aea04a29476b4e38c3e3acc616d4aee3fe3a106", "28c18a4c36cb3958cdfa6afd29e4b43d6ef914cbc69ca0d229389391a1127bc4"]
   };
   const expectedOptions: Record<string, readonly string[]> = { edge: [], star: ["output.format.png"], jpeg: ["output.whiteBalance.auto", "output.format.jpeg"],
     mirror: ["output.borderHandling.mirror"], p3: ["output.colorEncoding.wide-gamut", "output.format.png"], dng: ["output.format.dng"] };

@@ -57,7 +57,7 @@ describe("simulateCapture facade", { timeout: 60_000 }, () => {
     expect(r.request.siteInput(7).environment.temporalIntegrationId).toBe("facade-frame:native:7");
     // #394: the tabulated RAW path ran 4 verification sites through the chain (20 spectral subintervals each); the rest of the
     // count is its table's scene lookups, far fewer than the chain's 6 × 6 native sites × 20 subintervals.
-    expect(r.assumptions.find((a) => a.id === "raw.expectedSignal")!.value).toMatchObject({ method: "tabulated-expected-electrons", verificationSites: 4 });
+    expect(r.assumptions.find((a) => a.id === "raw.expectedSignal")!.value).toMatchObject({ method: "per-site-integrated-electrons", verificationSites: 4 });
     expect(r.diagnostics.providerEvaluationCount).toBeGreaterThan(4 * 20);
     expect(r.diagnostics.providerEvaluationCount).toBeLessThan(36 * 20);
   });

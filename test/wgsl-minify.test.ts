@@ -34,6 +34,27 @@ const countOf = (text: string, anchor: string | RegExp): number =>
   typeof anchor === "string" ? text.split(anchor).length - 1 : (text.match(new RegExp(anchor.source, anchor.flags.includes("g") ? anchor.flags : anchor.flags + "g")) ?? []).length;
 
 describe("WGSL minification (#536)", () => {
+  // 2.22.0: WGSL reserves many words (WGSL §15.3, "Reserved Words"); Chrome 153 rejects a module that declares one (#597's
+  // image-plane light shader named a local `common`, which only the hardware run caught). Declarations in every literal are checked.
+  it("declares no WGSL reserved word", () => {
+    const reserved = new Set(("NULL Self abstract active alignas alignof as asm asm_fragment async attribute auto await become cast catch class co_await co_return co_yield " +
+      "coherent column_major common compile compile_fragment concept const_cast consteval constexpr constinit crate debugger decltype delete demote demote_to_helper do " +
+      "dynamic_cast enum explicit export extends extern external fallthrough filter final finally friend from fxgroup get goto groupshared highp impl implements import " +
+      "inline instanceof interface layout lowp macro macro_rules match mediump meta mod module move mut mutable namespace new nil noexcept noinline nointerpolation " +
+      "non_coherent noncoherent noperspective null nullptr of operator package packoffset partition pass patch pixelfragment precise precision premerge priv protected " +
+      "pub public readonly ref regardless register reinterpret_cast require resource restrict self set shared signed sizeof smooth snorm static static_assert static_cast " +
+      "std subroutine super target template this thread_local throw trait try type typedef typeid typename typeof union unless unorm unsafe unsized use using varying " +
+      "virtual volatile wgsl where with writeonly yield").split(" "));
+    const declared: string[] = [];
+    for (const { path, source } of files) for (const literal of minifyWgslTemplates(source).literals) {
+      for (const m of literal.original.matchAll(/\b(?:let|var|const|fn|struct|alias)\s+([A-Za-z_]\w*)|[(,]\s*([A-Za-z_]\w*)\s*:/gu)) {
+        const name = m[1] ?? m[2]!;
+        if (reserved.has(name)) declared.push(path + ": " + name);
+      }
+    }
+    expect(declared).toEqual([]);
+  });
+
   it("minifies every tagged literal of src/, keeping its lines and its WGSL tokens", () => {
     let literals = 0, before = 0, after = 0;
     for (const { path, source } of files) {
@@ -52,7 +73,9 @@ describe("WGSL minification (#536)", () => {
       expect(minifyWgslTemplates(result.code).code).toBe(result.code);
     }
     // 2.21.0: + the display view's integer sum (src/gpu/wgsl-exact-sum.ts) and #581's two (the image-plane module and the scene-value adapter).
-    expect(literals).toBe(24);
+    // 2.22.0: + #597's mixed light in the image-plane Quality pass, and #593/#601's coupled steps (their shared declarations, the
+    // stub and the on-demand module; the Quality pixel pass is now its body plus one of them, so it stays one literal).
+    expect(literals).toBe(28);
     expect(after).toBeLessThan(0.86 * before);
   });
 

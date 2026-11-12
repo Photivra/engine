@@ -1,6 +1,6 @@
 # Public API reference
 
-Generated from the exact root exports for **@photivra/engine 2.21.0 / root contract 2.21.0** by `node scripts/generate-api-reference.mjs`. No module deep import is supported.
+Generated from the exact root exports for **@photivra/engine 2.22.0 / root contract 2.22.0** by `node scripts/generate-api-reference.mjs`. No module deep import is supported.
 
 Use [the developer guide](https://github.com/Photivra/photivra/blob/main/docs/DEVELOPERS.md) for executable paths and scientific boundaries. Types are contracts, not runtime validation: parse untrusted data, preserve units/reference frames, read assessment blockers, and retain evidence/limitations. Optional properties do not imply a universal default. Model/schema IDs remain independent of the distribution.
 
@@ -101,6 +101,28 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 | [`SensorEquivalenceFieldOfView`](api/camera-sensor-equivalence.md#sensorequivalencefieldofview) | Type |
 | [`SensorEquivalenceQuantity`](api/camera-sensor-equivalence.md#sensorequivalencequantity) | Type |
 
+## capture/c2pa-embed.ts
+
+[Detailed contracts](api/capture-c2pa-embed.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/capture/c2pa-embed.ts)
+
+| Export | Kind |
+| --- | --- |
+| [`bindC2paManifestStore`](api/capture-c2pa-embed.md#bindc2pamanifeststore) | Runtime |
+| [`BindC2paManifestStoreInput`](api/capture-c2pa-embed.md#bindc2pamanifeststoreinput) | Type |
+| [`C2PA_ALGORITHMIC_MEDIA_SOURCE_TYPE`](api/capture-c2pa-embed.md#c2pa_algorithmic_media_source_type) | Runtime |
+| [`C2PA_MANIFEST_STORE_MAXIMUM_BYTES`](api/capture-c2pa-embed.md#c2pa_manifest_store_maximum_bytes) | Runtime |
+| [`C2paBoundFile`](api/capture-c2pa-embed.md#c2paboundfile) | Type |
+| [`C2paByteRange`](api/capture-c2pa-embed.md#c2pabyterange) | Type |
+| [`C2paDataHash`](api/capture-c2pa-embed.md#c2padatahash) | Type |
+| [`C2paFoundManifestStore`](api/capture-c2pa-embed.md#c2pafoundmanifeststore) | Type |
+| [`C2paHardBinding`](api/capture-c2pa-embed.md#c2pahardbinding) | Type |
+| [`calculateC2paDataHash`](api/capture-c2pa-embed.md#calculatec2padatahash) | Runtime |
+| [`CalculateC2paDataHashInput`](api/capture-c2pa-embed.md#calculatec2padatahashinput) | Type |
+| [`parseC2paManifestStore`](api/capture-c2pa-embed.md#parsec2pamanifeststore) | Runtime |
+| [`ParseC2paManifestStoreInput`](api/capture-c2pa-embed.md#parsec2pamanifeststoreinput) | Type |
+| [`setC2paManifestStore`](api/capture-c2pa-embed.md#setc2pamanifeststore) | Runtime |
+| [`SetC2paManifestStoreInput`](api/capture-c2pa-embed.md#setc2pamanifeststoreinput) | Type |
+
 ## capture/capture-export-metadata.ts
 
 [Detailed contracts](api/capture-capture-export-metadata.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/capture/capture-export-metadata.ts)
@@ -124,12 +146,56 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 | --- | --- |
 | [`DNG_IMPORT_LIMITS`](api/capture-dng-import.md#dng_import_limits) | Runtime |
 | [`DNG_IMPORT_SCHEMA_VERSION`](api/capture-dng-import.md#dng_import_schema_version) | Runtime |
+| [`DngImportAsyncInput`](api/capture-dng-import.md#dngimportasyncinput) | Type |
 | [`DngImportInput`](api/capture-dng-import.md#dngimportinput) | Type |
+| [`importDngRawImage`](api/capture-dng-import.md#importdngrawimage) | Runtime |
 | [`ImportedDngBlackLevel`](api/capture-dng-import.md#importeddngblacklevel) | Type |
 | [`ImportedDngCfa`](api/capture-dng-import.md#importeddngcfa) | Type |
 | [`ImportedDngRaw`](api/capture-dng-import.md#importeddngraw) | Type |
 | [`ImportedDngRect`](api/capture-dng-import.md#importeddngrect) | Type |
+| [`ImportedDngSemanticMask`](api/capture-dng-import.md#importeddngsemanticmask) | Type |
 | [`parseDngRawImage`](api/capture-dng-import.md#parsedngrawimage) | Runtime |
+
+## capture/dng-opcodes.ts
+
+[Detailed contracts](api/capture-dng-opcodes.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/capture/dng-opcodes.ts)
+
+| Export | Kind |
+| --- | --- |
+| [`applyDngOpcodes`](api/capture-dng-opcodes.md#applydngopcodes) | Runtime |
+| [`ApplyDngOpcodesOptions`](api/capture-dng-opcodes.md#applydngopcodesoptions) | Type |
+| [`DngOpcode`](api/capture-dng-opcodes.md#dngopcode) | Type |
+| [`DngOpcodeArea`](api/capture-dng-opcodes.md#dngopcodearea) | Type |
+| [`DngOpcodeParameters`](api/capture-dng-opcodes.md#dngopcodeparameters) | Type |
+| [`DngStageImage`](api/capture-dng-opcodes.md#dngstageimage) | Type |
+| [`parseDngOpcodeList`](api/capture-dng-opcodes.md#parsedngopcodelist) | Runtime |
+
+## capture/dng-profile-maps.ts
+
+[Detailed contracts](api/capture-dng-profile-maps.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/capture/dng-profile-maps.ts)
+
+| Export | Kind |
+| --- | --- |
+| [`applyDngProfileGainTableMap`](api/capture-dng-profile-maps.md#applydngprofilegaintablemap) | Runtime |
+| [`ApplyDngProfileGainTableMapInput`](api/capture-dng-profile-maps.md#applydngprofilegaintablemapinput) | Type |
+| [`applyDngRgbTables`](api/capture-dng-profile-maps.md#applydngrgbtables) | Runtime |
+| [`ApplyDngRgbTablesInput`](api/capture-dng-profile-maps.md#applydngrgbtablesinput) | Type |
+| [`DngProfileGainTableMap`](api/capture-dng-profile-maps.md#dngprofilegaintablemap) | Type |
+| [`DngRgbImage`](api/capture-dng-profile-maps.md#dngrgbimage) | Type |
+| [`DngRgbTable`](api/capture-dng-profile-maps.md#dngrgbtable) | Type |
+| [`DngRgbTables`](api/capture-dng-profile-maps.md#dngrgbtables) | Type |
+| [`parseDngProfileGainTableMap`](api/capture-dng-profile-maps.md#parsedngprofilegaintablemap) | Runtime |
+| [`parseDngRgbTables`](api/capture-dng-profile-maps.md#parsedngrgbtables) | Runtime |
+
+## capture/dng-stage-image.ts
+
+[Detailed contracts](api/capture-dng-stage-image.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/capture/dng-stage-image.ts)
+
+| Export | Kind |
+| --- | --- |
+| [`developDngStageImage`](api/capture-dng-stage-image.md#developdngstageimage) | Runtime |
+| [`DevelopDngStageImageOptions`](api/capture-dng-stage-image.md#developdngstageimageoptions) | Type |
+| [`DngStageImageResult`](api/capture-dng-stage-image.md#dngstageimageresult) | Type |
 
 ## capture/environment-raw-producer.ts
 
@@ -180,6 +246,16 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 | [`setManualFocusState`](api/capture-focus-control.md#setmanualfocusstate) | Runtime |
 | [`SetManualFocusStateInput`](api/capture-focus-control.md#setmanualfocusstateinput) | Type |
 
+## capture/jpeg-xl-tiles.ts
+
+[Detailed contracts](api/capture-jpeg-xl-tiles.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/capture/jpeg-xl-tiles.ts)
+
+| Export | Kind |
+| --- | --- |
+| [`createJxlOxideDngDecoder`](api/capture-jpeg-xl-tiles.md#createjxloxidedngdecoder) | Runtime |
+| [`DngJpegXlDecoder`](api/capture-jpeg-xl-tiles.md#dngjpegxldecoder) | Type |
+| [`JxlOxideModule`](api/capture-jpeg-xl-tiles.md#jxloxidemodule) | Type |
+
 ## capture/linear-encoding.ts
 
 [Detailed contracts](api/capture-linear-encoding.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/capture/linear-encoding.ts)
@@ -203,6 +279,16 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 | [`LosslessJpegImage`](api/capture-lossless-jpeg.md#losslessjpegimage) | Type |
 | [`LosslessJpegLimits`](api/capture-lossless-jpeg.md#losslessjpeglimits) | Type |
 | [`parseLosslessJpeg`](api/capture-lossless-jpeg.md#parselosslessjpeg) | Runtime |
+
+## capture/lossy-jpeg.ts
+
+[Detailed contracts](api/capture-lossy-jpeg.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/capture/lossy-jpeg.ts)
+
+| Export | Kind |
+| --- | --- |
+| [`LossyJpegImage`](api/capture-lossy-jpeg.md#lossyjpegimage) | Type |
+| [`LossyJpegLimits`](api/capture-lossy-jpeg.md#lossyjpeglimits) | Type |
+| [`parseLossyJpeg`](api/capture-lossy-jpeg.md#parselossyjpeg) | Runtime |
 
 ## capture/native-environment-optical-stage.ts
 
@@ -726,6 +812,16 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 | Export | Kind |
 | --- | --- |
 | [`InvalidConfigurationError`](api/core-configuration-error.md#invalidconfigurationerror) | Runtime |
+
+## core/execution-error.ts
+
+[Detailed contracts](api/core-execution-error.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/core/execution-error.ts)
+
+| Export | Kind |
+| --- | --- |
+| [`ImageKernelExecutionError`](api/core-execution-error.md#imagekernelexecutionerror) | Runtime |
+| [`ImageKernelFailureReason`](api/core-execution-error.md#imagekernelfailurereason) | Type |
+| [`ImageKernelFallbackReason`](api/core-execution-error.md#imagekernelfallbackreason) | Type |
 
 ## core/image-formation.ts
 
@@ -1376,6 +1472,14 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 | [`MixedIlluminationPointSource`](api/facade-mixed-illumination.md#mixedilluminationpointsource) | Type |
 | [`MixedIlluminationSource`](api/facade-mixed-illumination.md#mixedilluminationsource) | Type |
 
+## facade/quality-paths.ts
+
+[Detailed contracts](api/facade-quality-paths.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/facade/quality-paths.ts)
+
+| Export | Kind |
+| --- | --- |
+| [`prepareQualityPaths`](api/facade-quality-paths.md#preparequalitypaths) | Runtime |
+
 ## facade/representative-light-sources.ts
 
 [Detailed contracts](api/facade-representative-light-sources.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/facade/representative-light-sources.ts)
@@ -1524,9 +1628,6 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 | [`ImageKernelBackend`](api/gpu-image-kernel-execution.md#imagekernelbackend) | Type |
 | [`ImageKernelCodeErrorBound`](api/gpu-image-kernel-execution.md#imagekernelcodeerrorbound) | Type |
 | [`ImageKernelExecution`](api/gpu-image-kernel-execution.md#imagekernelexecution) | Type |
-| [`ImageKernelExecutionError`](api/gpu-image-kernel-execution.md#imagekernelexecutionerror) | Runtime |
-| [`ImageKernelFailureReason`](api/gpu-image-kernel-execution.md#imagekernelfailurereason) | Type |
-| [`ImageKernelFallbackReason`](api/gpu-image-kernel-execution.md#imagekernelfallbackreason) | Type |
 | [`ImageKernelRelativeErrorBound`](api/gpu-image-kernel-execution.md#imagekernelrelativeerrorbound) | Type |
 | [`ImageKernelSeededRealizationBound`](api/gpu-image-kernel-execution.md#imagekernelseededrealizationbound) | Type |
 | [`WEBGPU_F32_TRANSFER_ABSOLUTE_BOUND`](api/gpu-image-kernel-execution.md#webgpu_f32_transfer_absolute_bound) | Runtime |
@@ -2188,6 +2289,16 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 | [`ZERNIKE_PUPIL_MAXIMUM_SAMPLES_ACROSS`](api/optics-zernike-wavefront.md#zernike_pupil_maximum_samples_across) | Runtime |
 | [`ZernikeCoefficient`](api/optics-zernike-wavefront.md#zernikecoefficient) | Type |
 | [`ZernikeOrder`](api/optics-zernike-wavefront.md#zernikeorder) | Type |
+
+## output/camera-channel-response.ts
+
+[Detailed contracts](api/output-camera-channel-response.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/output/camera-channel-response.ts)
+
+| Export | Kind |
+| --- | --- |
+| [`calculateCameraChannelResponse`](api/output-camera-channel-response.md#calculatecamerachannelresponse) | Runtime |
+| [`CalculateCameraChannelResponseInput`](api/output-camera-channel-response.md#calculatecamerachannelresponseinput) | Type |
+| [`CameraChannelResponse`](api/output-camera-channel-response.md#camerachannelresponse) | Type |
 
 ## output/capture-corrected-sdr.ts
 
@@ -3291,6 +3402,8 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 | Export | Kind |
 | --- | --- |
+| [`SimulateCaptureMidGreyFigure`](api/sensor-sensor-characteristics.md#simulatecapturemidgreyfigure) | Type |
+| [`SimulateCaptureNativeSensorReport`](api/sensor-sensor-characteristics.md#simulatecapturenativesensorreport) | Type |
 | [`SimulateCaptureNoiseComponents`](api/sensor-sensor-characteristics.md#simulatecapturenoisecomponents) | Type |
 | [`SimulateCaptureSensorCharacteristics`](api/sensor-sensor-characteristics.md#simulatecapturesensorcharacteristics) | Type |
 | [`SimulateCaptureSensorReport`](api/sensor-sensor-characteristics.md#simulatecapturesensorreport) | Type |

@@ -247,6 +247,22 @@ Measured agreement with the CPU reference, per display pixel, on a 600 × 400 fr
 
 Timing on a hardware adapter is not measured yet.
 
+**Mixed light (#597, 2.22.0).** Under `illumination` (docs/MIXED_ILLUMINATION.md) a print has no per-pixel signals, so every
+request, Speed ones included, takes the Quality passes. The host uploads the light's parts and its spectra at the nodes (each
+blend source's k·S(λ)/π and each point source's c·S(λ)/π; no channel value), and pass 1 multiplies each point's reflectance by the
+irradiance there instead of the white radiance: the blend's position t and weights in double-float32 (each weight from its own
+distance to the segment's ends, rounded once), the regions' edges and the hard edges of equal stops in bound arithmetic (a point
+within its bound of one is flagged), and each point source's h/d³ as a bounded value. A point whose computed bound exceeds 39·E of
+the irradiance is flagged; the site sum's bound grows by 40·E. The self-check adds the same Quality case under a three-source
+gradient with a hard edge and a point source. Measured on the float32 emulation, 48 × 36 regions as above:
+
+| Case (Speed request / diffraction) | ΔE2000 max | Bound used (mean) | Flagged |
+| --- | --- | --- | --- |
+| Daylight-to-lamp gradient | 1.8e-5 / 1.4e-5 | 0.6 % / 0.4 % | 0 / 0 |
+| Radial blend of three sources with a hard edge | 6.5e-6 / 9.2e-6 | 0.4 % / 0.3 % | 0 / 0 |
+| Regions and a point source 10 mm above the print | 1.3e-5 / 1.9e-5 | 0.9 % / 1.0 % | 0 / 0 |
+| A regions edge exactly on the lattice | inside the bounds | — | 40 lattice-point flags (Speed); 140 points resolved on the host (diffraction) |
+
 ## Lazy loading and size
 
 The scene's module, its lattice data (9.5 KB gzip as source) and its GPU code are reachable only through

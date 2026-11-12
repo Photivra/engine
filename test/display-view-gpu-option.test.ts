@@ -24,6 +24,8 @@ interface FakeRendererOptions {
   perturb?: boolean;
   supports?: true | string;
   cases?: DisplayViewGpuConformanceCase[];
+  /** #594: the renderer's on-demand cases per render (null: none for this render). */
+  onDemand?: (part: { setup: DisplayViewGpuPart["setup"] }) => Promise<readonly DisplayViewGpuConformanceCase[]> | null;
   /** Runs at the start of each render (to lose the device, abort, or count concurrency). */
   onRender?: (part: DisplayViewGpuPart, active: number) => Promise<void> | void;
 }
@@ -35,6 +37,7 @@ function fakeRenderer(options: FakeRendererOptions = {}): { factory: DisplayView
     id: "test-fake",
     supports: () => options.supports ?? true,
     ...(options.cases ? { conformanceCases: options.cases } : {}),
+    ...(options.onDemand ? { onDemandConformanceCases: (setup: DisplayViewGpuPart["setup"]) => options.onDemand!({ setup }) } : {}),
     async render(part): Promise<ReturnType<DisplayViewGpuRenderer["render"]> extends Promise<infer T> ? T : never> {
       state.renders++; active++; state.peakActive = Math.max(state.peakActive, active);
       try {
@@ -173,6 +176,70 @@ describe("display view GPU option (#481)", () => {
     prepared = await prepareDisplayView(REQUEST, { gpu: "require", gpuDevice: createFakeGpu().gpu });
     expect(await reason(prepared.render(VIEW))).toBe("conformance-failed");
     prepared.dispose();
+  });
+
+  // #594 (owner, 2026-11-10): cases of code a renderer loads on demand (the Quality kernels) run before the first render that
+  // needs them, not at the device's first render; a failure there keeps that render and every later one on the CPU.
+  it("on-demand cases run once, before the first render that needs them; their failure keeps the rest of the view on the CPU", async () => {
+    const base: DisplayViewGpuConformanceCase = { id: "preview:base", run: async () => true };
+    for (const outcome of [true, "the on-demand kernel disagreed by 2 codes."] as const) {
+      let needed = false, loads = 0, runs = 0;
+      const extra: DisplayViewGpuConformanceCase = { id: "preview:on-demand", run: async () => { runs++; return outcome; } };
+      const fake = fakeRenderer({ cases: [base], onDemand: () => (needed ? Promise.resolve().then(() => { loads++; return [extra]; }) : null) });
+      setDisplayViewGpuRendererFactory(fake.factory);
+      const prepared = await prepareDisplayView(REQUEST, { gpu: "auto", gpuDevice: createFakeGpu().gpu });
+      const first = await prepared.render(VIEW);
+      expect(first.diagnostics.fast.execution).toMatchObject({ backend: "webgpu-f32", conformance: { cases: [...BUILT_IN_IDS, "preview:base"], passed: true } });
+      expect(runs).toBe(0);
+      needed = true;
+      const [a, b] = await Promise.all([prepared.render(VIEW), prepared.render(VIEW)]);
+      expect(runs).toBe(1);
+      expect(loads).toBeLessThanOrEqual(2);
+      const ids = [...BUILT_IN_IDS, "preview:base", "preview:on-demand"];
+      if (outcome === true) {
+        for (const r of [a, b]) expect(r.diagnostics.fast.execution).toMatchObject({ backend: "webgpu-f32", conformance: { cases: ids, passed: true } });
+        expect(Array.from(a.image.samples)).toEqual(Array.from(first.image.samples));
+      } else {
+        for (const r of [a, b]) expect(r.diagnostics.fast.execution).toMatchObject({ backend: "cpu-reference", fallbackReason: "conformance-failed",
+          conformance: { cases: ids, passed: false, failedCase: "preview:on-demand", detail: outcome } });
+        // A later render that needs no on-demand case stays on the CPU too, and nothing runs again.
+        needed = false;
+        expect((await prepared.render(VIEW)).diagnostics.fast.execution.fallbackReason).toBe("conformance-failed");
+        expect(runs).toBe(1);
+      }
+      prepared.dispose();
+    }
+    // require: the on-demand failure is an error at the render that needs it.
+    const failing: DisplayViewGpuConformanceCase = { id: "preview:on-demand", run: async () => "no." };
+    setDisplayViewGpuRendererFactory(fakeRenderer({ onDemand: () => Promise.resolve([failing]) }).factory);
+    const required = await prepareDisplayView(REQUEST, { gpu: "require", gpuDevice: createFakeGpu().gpu });
+    expect(await reason(required.render(VIEW))).toBe("conformance-failed");
+    required.dispose();
+  });
+
+  // #594 (owner, 2026-11-10): on-demand code that does not load runs that render on the CPU, labelled; it is not sticky.
+  it("on-demand code that fails to load falls back for that render, labelled quality-code-unavailable, and loads on the next request", async () => {
+    let fail = true, runs = 0;
+    const extra: DisplayViewGpuConformanceCase = { id: "preview:on-demand", run: async () => { runs++; return true; } };
+    const unavailable = (): never => { throw new ImageKernelExecutionError("quality-code-unavailable", "the chunk did not load."); };
+    const fake = fakeRenderer({ onDemand: () => Promise.resolve().then(() => (fail ? unavailable() : [extra])) });
+    setDisplayViewGpuRendererFactory(fake.factory);
+    const prepared = await prepareDisplayView(REQUEST, { gpu: "auto", gpuDevice: createFakeGpu().gpu });
+    const failed = await prepared.render(VIEW);
+    expect(failed.diagnostics.fast.execution).toMatchObject({ backend: "cpu-reference", fallbackReason: "quality-code-unavailable", adapter: FAKE_ADAPTER_INFO,
+      conformance: { cases: BUILT_IN_IDS, passed: true } });
+    expect(failed.image.samples).toEqual((await simulateDisplayView(REQUEST, VIEW)).image.samples);
+    expect(runs).toBe(0);
+    fail = false;
+    const loaded = await prepared.render(VIEW);
+    expect(loaded.diagnostics.fast.execution).toMatchObject({ backend: "webgpu-f32", fallbackReason: null, conformance: { cases: [...BUILT_IN_IDS, "preview:on-demand"], passed: true } });
+    expect(runs).toBe(1);
+    prepared.dispose();
+    // require: the failed load is an error at that render.
+    fail = true;
+    const required = await prepareDisplayView(REQUEST, { gpu: "require", gpuDevice: createFakeGpu().gpu });
+    expect(await reason(required.render(VIEW))).toBe("quality-code-unavailable");
+    required.dispose();
   });
 
   it("device loss falls back to the CPU for that render and the rest of the view, labelled device-lost; require fails", async () => {
