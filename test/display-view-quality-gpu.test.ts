@@ -19,7 +19,7 @@ import { prepareDisplayView, type SimulateCaptureOptions } from "../src/index.js
 import { createFakeGpu } from "./helpers/fake-webgpu.js";
 import { SMALL_FRAME, SMALL_VIEW, compareDisplayViews, displayViewGpuFixture, renderOnGpuQuality, runtimeOf, type DisplayViewAgreement } from "./helpers/display-view-gpu-fixture.js";
 import { scaledTimeout } from "./helpers/test-timeout.js";
-import { QUALITY_CASES, runQualityCase } from "./helpers/display-view-quality-cases.js";
+import { QUALITY_CASES } from "./helpers/display-view-quality-cases.js";
 import { CHART_COMPOSITE_MATERIAL_MODULE_ID } from "../src/gpu/display-view-composite-material-module.js";
 import { FIXTURE_ASPECT, layeredScene } from "./helpers/chart-composite-fixtures.js";
 import { materialModulesOf } from "./helpers/display-view-gpu-fixture.js";
@@ -28,8 +28,8 @@ import { qualityMaterialModule, qualityMaterialSetup } from "../src/gpu/display-
 const sensor = { pixelPitchMicrometers: 6, pixelAperture: { kind: "box" as const, samplesPerAxis: 2 }, antiAliasing: { kind: "four-spot" as const } };
 const output = { ...SMALL_FRAME, format: "srgb-8" as const, demosaic: "ahd" as const };
 const lens = { prime: 50 as const, fNumber: 8, diffraction: "circular-aperture" as const };
-// The first QUALITY_CHART_CASES chart cases run in test/display-view-quality-gpu-charts.test.ts (2.21.0: split for the coverage shards).
-const QUALITY_CHART_CASES = 5;
+// The QUALITY_CASES run in test/display-view-quality-gpu-charts.test.ts (the first five, split in 2.21.0) and
+// test/display-view-quality-gpu-cases.test.ts (the rest, split in 2.22.0), so that the coverage shards balance.
 const report: Record<string, unknown>[] = [];
 function record(name: string, a: DisplayViewAgreement, extra: Record<string, unknown> = {}): void {
   report.push({ case: name, ...extra, pixels: a.pixels, deltaE2000Maximum: a.deltaEMaximum, deltaE2000Rms: a.deltaERms, sigmaUnitsMaximum: a.sigmaUnitsMaximum, sigmaUnitsRms: a.sigmaUnitsRms,
@@ -37,10 +37,6 @@ function record(name: string, a: DisplayViewAgreement, extra: Record<string, unk
     largestExpectedBoundRatio: a.largestExpectedRatio, largestVarianceBoundRatio: a.largestVarianceRatio });
 }
 describe("display view Quality kernels (float32 emulation) vs the CPU reference", () => {
-  it.each(QUALITY_CASES.slice(QUALITY_CHART_CASES))("%s: every component is inside the a-priori bounds; samples differ by at most one code", async (name, options) => {
-    await runQualityCase(name, options, report);
-  }, scaledTimeout(900_000));
-
   it("a Siemens star's diagonals flag pixels (lattice points exactly on a sector boundary); without recomputation they keep the kernel's values", async () => {
     const fixture = await displayViewGpuFixture(QUALITY_CASES[1]![1], { ...SMALL_VIEW, region: { x: 80, y: 50, width: 40, height: 30 } }), runtime = await runtimeOf(createFakeGpu().gpu);
     const raw = await renderOnGpuQuality(runtime, fixture, undefined, false);

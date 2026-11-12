@@ -1,5 +1,5 @@
 {
- "about": "Per-file wall time in ms of the Vitest coverage run on CI, from #606's coverage shards: run 43111049236 (shards 1, 3, 4, 5 and 6; 330 files), else run 43104711989 (40 files); the 26 files of neither take this tree's local coverage time (Apple M5 Pro) times 2.081, the median CI/local ratio of run 43111049236 (2026-11-11). Used only to balance --shard parts (test/helpers/weighted-shard-sequencer.ts). Re-record with scripts/record-shard-weights.mjs when the shard times drift.",
+ "about": "Per-file wall time in ms of the Vitest coverage run on CI, from #606's coverage shards: run 43111049236 (shards 1, 3, 4, 5 and 6; 330 files), else run 43104711989 (40 files); the 26 files of neither take this tree's local coverage time (Apple M5 Pro) times 2.081, the median CI/local ratio of run 43111049236 (2026-11-11). Used only to balance --shard parts (test/helpers/weighted-shard-sequencer.ts). Re-record with scripts/record-shard-weights.mjs when the shard times drift. 2.22.0 split: display-view-quality-gpu.test.ts and display-view-coupled-gpu.test.ts are divided between their old and new files by the per-test durations of the same run.",
  "files": {
   "test/accumulated-charge.test.ts": 9,
   "test/ahd-saturated-pixel-count.test.ts": 877,
@@ -80,7 +80,8 @@
   "test/display-view-ahd-choice.test.ts": 9340,
   "test/display-view-composite-contraction.test.ts": 956329,
   "test/display-view-composite-gpu.test.ts": 449528,
-  "test/display-view-coupled-gpu.test.ts": 989060,
+  "test/display-view-coupled-gpu-reconstruct.test.ts": 418000,
+  "test/display-view-coupled-gpu.test.ts": 571000,
   "test/display-view-coupled-rendering.test.ts": 422900,
   "test/display-view-defocus-gpu.test.ts": 946570,
   "test/display-view-defocus.test.mjs": 411701,
@@ -95,9 +96,10 @@
   "test/display-view-pixel-memo.test.ts": 2057,
   "test/display-view-prepared-internals.test.ts": 15267,
   "test/display-view-prepared.test.ts": 58247,
+  "test/display-view-quality-gpu-cases.test.ts": 609000,
   "test/display-view-quality-gpu-charts.test.ts": 812688,
   "test/display-view-quality-gpu-full.test.ts": 287625,
-  "test/display-view-quality-gpu.test.ts": 1114034,
+  "test/display-view-quality-gpu.test.ts": 505000,
   "test/display-view-render-tables.test.ts": 24,
   "test/display-view-site-ring.test.ts": 100709,
   "test/display-view-speed-gpu-full.test.ts": 424647,

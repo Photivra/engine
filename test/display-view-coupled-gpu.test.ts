@@ -4,6 +4,8 @@
  * desaturation, src/gpu/wgsl-display-view-coupled.ts) on the float32 emulation against the CPU reference, with the checks of
  * the other Quality cases (every component inside the a-priori bounds, at most one code, flagged pixels recomputed). The Speed
  * kernel's coupled cases are in test/display-view-speed-gpu.test.ts; real-device runs in test/webgpu/display-view.webgpu.ts.
+ * The `highlightMode: "reconstruct"` case runs from test/display-view-coupled-gpu-reconstruct.test.ts (2.22.0: split so that the
+ * coverage shards balance; this file measured about 16 minutes under coverage on CI).
  */
 import { afterAll, describe, it } from "vitest";
 import { COUPLED_QUALITY_CASES, runQualityCase } from "./helpers/display-view-quality-cases.js";
@@ -14,7 +16,7 @@ afterAll(() => { if (report.length) process.stdout.write("[display-view coupled 
   largestExpectedBoundRatio: r.largestExpectedBoundRatio, largestVarianceBoundRatio: r.largestVarianceBoundRatio, deltaE2000Maximum: r.deltaE2000Maximum }))) + "\n"); });
 
 describe("display view Quality kernels with the coupled steps (float32 emulation) vs the CPU reference (#593, #601)", () => {
-  it.each(COUPLED_QUALITY_CASES)("%s: inside the a-priori bounds; samples differ by at most one code", async (name, options) => {
+  it.each(COUPLED_QUALITY_CASES.filter(([, options]) => options.output?.highlightMode !== "reconstruct"))("%s: inside the a-priori bounds; samples differ by at most one code", async (name, options) => {
     await runQualityCase(name, options, report);
   }, scaledTimeout(300_000));
 });
