@@ -2,7 +2,7 @@
 /**
  * #605: real-GPU conformance of `highlightMode: "reconstruct-neighbors"` in the display view's Speed and Quality kernels, fast
  * and full, against the float64 CPU reference of the same realm (`npm run test:webgpu`; on hardware with
- * `PHOTIVRA_WEBGPU_ADAPTER=hardware`): the emulation's cases (test/display-view-neighbors-gpu.test.ts), every component inside
+ * `PHOTIVRA_WEBGPU_ADAPTER=hardware`): the emulation's cases (test/display-view-neighbors-gpu-*.test.ts), every component inside
  * the a-priori bounds, at most one code. Skips with a message when no browser or adapter is available, unless
  * PHOTIVRA_WEBGPU_REQUIRED=1. Software-adapter (SwiftShader) times are not GPU performance; none are asserted.
  */

@@ -435,7 +435,7 @@ and the node's slopes carry the node point's rounding as before. The rebuild is 
 threshold (kept or rebuilt): a node within its rounding bound, the channel mean's bound and 5·Σ√δ (the variance bounds, beyond
 the largest Gauss–Hermite node) of 0.98 flags the display pixel, which the host recomputes with the reference.
 
-**Measured.** The emulation's and the devices' cases (`test/display-view-neighbors-gpu.test.ts` on the float32 emulation,
+**Measured.** The emulation's and the devices' cases (`test/display-view-neighbors-gpu*.test.ts` on the float32 emulation,
 `test/webgpu/display-view-neighbors.webgpu.ts` on SwiftShader and on hardware with `PHOTIVRA_WEBGPU_ADAPTER=hardware`): the
 spectral patches over the white clip (1/30 s at ISO 100: six clipped regions, none above the cap), 600 × 400 real pixels of 6 µm
 at 203 × 135; the Speed fixtures' sensor, and for Quality the circular-aperture diffraction, the four-spot filter and AHD. The
