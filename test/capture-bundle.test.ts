@@ -102,7 +102,7 @@ describe("display-view bundles", () => {
     expect(lazyModules.has("gpu/display-view-quality-gpu.ts")).toBe(true);
   }, testTimeout(60_000));
 
-  // 2.22.0: measured on the eager chunks (see Bundle): 38,370 B minified and 14,123 B gzip (2.21.0: 46,270 B and 18,327 B); the
+  // 2.22.0: measured on the eager chunks (see Bundle): 38,370 B minified and 14,126 B gzip (2.21.0: 46,270 B and 18,327 B); the
   // coupled rendering steps (#593, #601) and the view's diffraction kernels load with the Quality kit (#594).
   // Issue #383: the size simulateDisplayView adds to a capture bundle, measured October 31, 2026 on 2.11.1's display view
   // (rolldown 1.2.9, Node.js zlib level 9) at 42,239 B minified and 16,888 B gzip. The budgets allow about 2 % for compressor
@@ -150,9 +150,9 @@ describe("display-view bundles", () => {
 // neighbor highlight reconstruction) and the opt-in features another (src/facade/opt-in-kit.ts: sensor.profile, illumination,
 // motion.subject); #593's GPU coupled steps were already their own on-demand chunk. Measured November 11, 2026 on the integrated
 // 2.22.0 tree (rolldown 1.2.9, Node.js zlib level 9): with the parts merged and before this split, fast worker 358,680 B (the
-// coupled-step chunks counted as fast) and on demand 19,379 B; after it, fast worker 337,373 B and on demand 46,940 B (GPU Quality
-// 19,364 B, CPU Quality kit 18,249 B, GPU coupled steps 5,159 B, opt-in kit 4,168 B), 384,313 B in all. The fast worker's
-// first load is now the entry chunk (252,367 B) and ten small chunks it imports statically, which it shares with the kits. Each limit is its row's
+// coupled-step chunks counted as fast) and on demand 19,379 B; after it, fast worker 337,413 B and on demand 46,977 B (GPU Quality
+// 19,401 B, CPU Quality kit 18,249 B, GPU coupled steps 5,159 B, opt-in kit 4,168 B), 384,390 B in all. The fast worker's
+// first load is now the entry chunk (252,371 B) and ten small chunks it imports statically, which it shares with the kits. Each limit is its row's
 // measurement rounded up to the next 100 B (owner answer 2, 2026-11-10).
 const WORKER_SHAPE = ["NATIVE_RAW_LIMITS", "prepareDisplayView", "serializeSimulatedCaptureDngFromParts", "simulateCapture", "simulateIdealReference"];
 /** The modules whose chunks load only at the first request that needs them (#594): the GPU Quality host, the GPU coupled steps and the two CPU kits. */

@@ -26,7 +26,8 @@ A minor release: phone DNG import with JPEG XL and lossy JPEG raw data, the DNG 
 
 - **Parts:** six part branches merged `--no-ff` (docs/RELEASE_2_22_0.md, "Scope"); every part's behavior is kept. The AHD correction's removal and #593's coupled rendering met in the display view's CPU and GPU code: the coupled steps keep their constants after the aux table, and the pixel pass's bindings are the five without the correction's state table, bitmap and threshold.
 - **Cross-part fixes (tests and inputs, no result change):** the DNG import helpers reject malformed input with domain errors (no raw `TypeError`); `import`, `apply` and `develop` are documented verb families (docs/API_STYLE.md); a bound DNG's import names the C2PA store tag as present and not applied, now checked; the GPU renderer's `supports()` keeps refusing unknown tone curves and accepts the two luminance curves; hash locks re-recorded only where two parts changed the same output, each checked against the part that changed its bytes. #597's image-plane light shader declared a local named `common`, a WGSL reserved word that Chrome 153 refuses on hardware adapters; renamed (results unchanged), and a test now rejects reserved words in shipped WGSL.
-- **Known issue (pending):** the GPU coupled steps (#593, #601) do not compile on SwiftShader (the GPU process ends after about 44 s); they pass on a hardware adapter (Apple, Metal 3) and on the float32 emulation. docs/RELEASE_2_22_0.md, "Pending".
+- **The GPU coupled steps on SwiftShader (#593, #601):** the Speed kernel and the Quality pixel pass with the coupled steps did not compile on SwiftShader (the GPU process ended after about 44 s; the same on the part alone). Bisected to the colour-matrix lookups (`m_of`, a `switch`) inside the luminance curve's nested loops; those loops now read the matrix rows from one local array (the same values), and the kernels compile in about 2 s. Every coupled case passes on SwiftShader, the hardware adapter and the float32 emulation.
+- **Test files split for the coverage shards (owner decision):** the cases of `test/display-view-quality-gpu.test.ts` after the charts run from `test/display-view-quality-gpu-cases.test.ts`, and the coupled `reconstruct` case from `test/display-view-coupled-gpu-reconstruct.test.ts`; the same tests, nothing removed.
 - **#594 CPU split:** see "#594 On-demand Quality code" below.
 
 ### #598, #600, #591 Phone DNG import and the channel-response helper
@@ -107,12 +108,12 @@ The owner decided (2026-11-11) to drop the display view's AHD low-signal correct
   (re-exported unchanged) so the loader adds no GPU code to the first load.
 - **Size (app capture-worker shape, rolldown 1.2.9, gzip 9):** after the GPU split, fast worker 363,695 → 344,287 B and GPU
   Quality chunk 20,026 B on demand (all chunks +618 B: two chunks compress separately; owner-accepted). With every part merged
-  the fast worker measured 358,680 B; after the CPU split it is **337,373 B** and on demand **46,940 B** (GPU Quality 19,364 B,
-  CPU Quality kit 18,249 B, GPU coupled steps 5,159 B, opt-in kit 4,168 B); all chunks 384,313 B. `test/capture-bundle.test.ts`
+  the fast worker measured 358,680 B; after the CPU split it is **337,413 B** and on demand **46,977 B** (GPU Quality 19,401 B,
+  CPU Quality kit 18,249 B, GPU coupled steps 5,159 B, opt-in kit 4,168 B); all chunks 384,390 B. `test/capture-bundle.test.ts`
   checks the owner's two rows, each its measurement rounded up to the next 100 B (owner answer, 2026-11-10): fast worker
   ≤ 337,500 B, on demand ≤ 47,000 B, in place of 2.21.0's 363,700 B all-chunk limit. The bundler now gives the entry ten small
   chunks it shares with the kits, so the display view's added size is measured on the entry and those chunks: 38,370 B minified
-  and 14,123 B gzip (budgets 46,500 B and 18,550 B, unchanged; 2.21.0: 46,270 B and 18,327 B). The app adopts the two rows
+  and 14,126 B gzip (budgets 46,500 B and 18,550 B, unchanged; 2.21.0: 46,270 B and 18,327 B). The app adopts the two rows
   at app round 16.
 - **Root exports:** 1 new (runtime): `prepareQualityPaths`.
 

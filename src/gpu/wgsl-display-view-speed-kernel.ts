@@ -109,6 +109,11 @@ const literal = (value: number): string => {
  * declares how many roundings it adds (`DisplayViewGpuMaterialModule.extraSiteRoundings`). The module may declare bindings
  * in @group(1) and use the constants E and SLACK declared here.
  */
+/*
+ * 2.22.0: in the luminance branch the nested loops read the colour matrix rows from one local array (`mm`) instead of calling
+ * `m_of` (a `switch`): SwiftShader's compiler ended the GPU process on the `switch` inside those loops (after about 44 s). The
+ * values are the same (docs/WEBGPU.md, "Coupled rendering steps").
+ */
 export const DISPLAY_VIEW_SPEED_KERNEL_WGSL = /* wgsl */ `
 const E: f32 = ${E_LITERAL};
 const SLACK: f32 = 1e-14;
@@ -432,11 +437,12 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_workgroups) 
         if (!cp_chain_run && cp_luminance()) {
           var mu = vec3<f32>(0.0); var dmu = vec3<f32>(0.0); var dsv = vec3<f32>(0.0);
           var srow = array<vec3<f32>, 3>(vec3<f32>(0.0), vec3<f32>(0.0), vec3<f32>(0.0));
+          var mm = array<vec3<f32>, 3>(vec3<f32>(params.m00, params.m01, params.m02), vec3<f32>(params.m10, params.m11, params.m12), vec3<f32>(params.m20, params.m21, params.m22));
           for (var r = 0u; r < 3u; r = r + 1u) {
-            mu[r] = m_of(r, 0u) * bm[0] + m_of(r, 1u) * bm[1] + m_of(r, 2u) * bm[2];
-            dmu[r] = (abs(m_of(r, 0u)) * bbm[0] + abs(m_of(r, 1u)) * bbm[1] + abs(m_of(r, 2u)) * bbm[2]) * E;
-            dsv[r] = (m_of(r, 0u) * m_of(r, 0u) * bbv[0] + m_of(r, 1u) * m_of(r, 1u) * bbv[1] + m_of(r, 2u) * m_of(r, 2u) * bbv[2]) * E;
-            for (var q = 0u; q < 3u; q = q + 1u) { srow[r][q] = m_of(r, 0u) * m_of(q, 0u) * bv[0] + m_of(r, 1u) * m_of(q, 1u) * bv[1] + m_of(r, 2u) * m_of(q, 2u) * bv[2]; }
+            mu[r] = mm[r][0] * bm[0] + mm[r][1] * bm[1] + mm[r][2] * bm[2];
+            dmu[r] = (abs(mm[r][0]) * bbm[0] + abs(mm[r][1]) * bbm[1] + abs(mm[r][2]) * bbm[2]) * E;
+            dsv[r] = (mm[r][0] * mm[r][0] * bbv[0] + mm[r][1] * mm[r][1] * bbv[1] + mm[r][2] * mm[r][2] * bbv[2]) * E;
+            for (var q = 0u; q < 3u; q = q + 1u) { srow[r][q] = mm[r][0] * mm[q][0] * bv[0] + mm[r][1] * mm[q][1] * bv[1] + mm[r][2] * mm[q][2] * bv[2]; }
           }
           let t = cp_tone(mu, srow[0], srow[1], srow[2], dmu, dsv);
           if (t.flag) { material_uncertain = true; }

@@ -533,6 +533,11 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_workgroups) 
 `;
 
 /** Pass 3: the display pixels (see the module comment). */
+/*
+ * 2.22.0: in the luminance branch the nested loops read the colour matrix rows from one local array (`mm`) instead of calling
+ * `m_of` (a `switch`): SwiftShader's compiler ended the GPU process on the `switch` inside those loops (after about 44 s). The
+ * values are the same (docs/WEBGPU.md, "Coupled rendering steps").
+ */
 export const DISPLAY_VIEW_QUALITY_PIXELS_BODY_WGSL = /* wgsl */ `${DISPLAY_VIEW_QUALITY_COMMON_WGSL}
 const CAND_BASE: u32 = ${DISPLAY_VIEW_QUALITY_AUX.candidates}u;
 const CAND_STRIDE: u32 = ${CANDIDATE_PHASE_STRIDE}u;
@@ -737,15 +742,16 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_workgroups) 
             var mu = vec3<f32>(0.0); var dmu = vec3<f32>(0.0); var dsv = vec3<f32>(0.0);
             var srow = array<vec3<f32>, 3>(vec3<f32>(0.0), vec3<f32>(0.0), vec3<f32>(0.0));
             var cc = array<f32, 9>(C[0].x, C[1].x, C[2].x, C[1].x, C[3].x, C[4].x, C[2].x, C[4].x, C[5].x);
+            var mm = array<vec3<f32>, 3>(vec3<f32>(params.m00, params.m01, params.m02), vec3<f32>(params.m10, params.m11, params.m12), vec3<f32>(params.m20, params.m21, params.m22));
             for (var r = 0u; r < 3u; r = r + 1u) {
-              mu[r] = m_of(r, 0u) * bm[0].x + m_of(r, 1u) * bm[1].x + m_of(r, 2u) * bm[2].x;
-              dmu[r] = abs(m_of(r, 0u)) * bm[0].y + abs(m_of(r, 1u)) * bm[1].y + abs(m_of(r, 2u)) * bm[2].y;
-              dsv[r] = m_of(r, 0u) * m_of(r, 0u) * bv[0].y + m_of(r, 1u) * m_of(r, 1u) * bv[1].y + m_of(r, 2u) * m_of(r, 2u) * bv[2].y;
+              mu[r] = mm[r][0] * bm[0].x + mm[r][1] * bm[1].x + mm[r][2] * bm[2].x;
+              dmu[r] = abs(mm[r][0]) * bm[0].y + abs(mm[r][1]) * bm[1].y + abs(mm[r][2]) * bm[2].y;
+              dsv[r] = mm[r][0] * mm[r][0] * bv[0].y + mm[r][1] * mm[r][1] * bv[1].y + mm[r][2] * mm[r][2] * bv[2].y;
               for (var q = 0u; q < 3u; q = q + 1u) {
                 var v = 0.0;
                 for (var a = 0u; a < 3u; a = a + 1u) { for (var b = 0u; b < 3u; b = b + 1u) {
                   var bab = bv[a].x; if (a != b) { bab = bs[a].x * bs[b].x * cc[a * 3u + b]; }
-                  v = v + m_of(r, a) * m_of(q, b) * bab;
+                  v = v + mm[r][a] * mm[q][b] * bab;
                 } }
                 srow[r][q] = v;
               }

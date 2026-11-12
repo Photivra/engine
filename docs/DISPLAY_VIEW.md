@@ -1415,13 +1415,13 @@ root exports of the built package, minified, gzip level 9; `test/capture-bundle.
 
   | Row (worker shape, gzip) | 2.22.0 parts merged | After the CPU split | Limit |
   | --- | --- | --- | --- |
-  | fast worker | 358,680 B | **337,373 B** | 337,500 B |
-  | on demand | 19,379 B (GPU Quality) | **46,940 B** (GPU Quality 19,364 B, CPU Quality kit 18,249 B, GPU coupled steps 5,159 B, opt-in kit 4,168 B) | 47,000 B |
-  | all chunks | 378,059 B | 384,313 B | — |
+  | fast worker | 358,680 B | **337,413 B** | 337,500 B |
+  | on demand | 19,379 B (GPU Quality) | **46,977 B** (GPU Quality 19,401 B, CPU Quality kit 18,249 B, GPU coupled steps 5,159 B, opt-in kit 4,168 B) | 47,000 B |
+  | all chunks | 378,059 B | 384,390 B | — |
 
   The GPU coupled steps (#593) load on demand too and count in that row. The bundler now gives the entry ten small chunks it
-  shares with the kits (imported statically; 252,367 B of entry plus 27,348 B), so the display view's addition is measured on
-  the entry and those chunks together: 38,370 B minified and 14,123 B gzip (2.21.0: 46,270 B and 18,327 B).
+  shares with the kits (imported statically; 252,371 B of entry plus 27,348 B), so the display view's addition is measured on
+  the entry and those chunks together: 38,370 B minified and 14,126 B gzip (2.21.0: 46,270 B and 18,327 B).
 - **Shipped shaders are minified (2.14, #536).** `npm run build` strips comments and indentation from the WGSL source
   (`scripts/minify-wgsl-dist.mjs`, see [WebGPU, Shipped shader text](WEBGPU.md#shipped-shader-text)). Measured on the app's
   production build (Vite 8, app 0.50.0 at `a82a5eb`, engine `main` at `42ec9d8` packed before and after): the GPU session
