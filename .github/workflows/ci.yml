@@ -183,23 +183,24 @@ jobs:
           fi
 
   coverage-shard:
-    # The coverage run (the whole test suite under V8 coverage) split into six parallel
+    # The coverage run (the whole test suite under V8 coverage) split into eight parallel
     # parts balanced by measured time (test/helpers/weighted-shard-sequencer.ts). Each part
     # runs every test of its share under coverage and keeps the raw coverage in a Vitest
     # blob report; no part checks the thresholds on its own (vitest.config.ts).
-    # `verify (lts/*)` merges all six and enforces the thresholds once, on the whole suite.
+    # `verify (lts/*)` merges all eight and enforces the thresholds once, on the whole suite.
     # They run on the primary leg, Node 24 (pinned, the tooling major; #231).
     # Each part also keeps its per-file times, for scripts/record-shard-weights.mjs.
-    name: coverage shard (${{ matrix.shard }}/6)
+    name: coverage shard (${{ matrix.shard }}/8)
     needs: scope
     runs-on: ubuntu-latest
     timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
-        # Six since 2.21.0 (four before): the suite grew about 28 % (CI test legs 2,612 -> 3,350 s), and three of four
-        # coverage shards reached the 20-minute limit on that release's pull request (#596).
-        shard: [1, 2, 3, 4, 5, 6]
+        # Eight since 2.22.0 (owner decision; six since 2.21.0, four before): on 2.22.0's pull request (#606) single files
+        # took 9-15 minutes under coverage and one or two of six shards reached the 20-minute limit on every run. Six since
+        # 2.21.0: the suite grew about 28 % (CI test legs 2,612 -> 3,350 s) and three of four shards reached the limit (#596).
+        shard: [1, 2, 3, 4, 5, 6, 7, 8]
     env:
       RUNS: ${{ needs.scope.outputs.tests == 'true' }}
     steps:
@@ -227,15 +228,15 @@ jobs:
       - name: Tests with coverage, this quarter
         if: env.RUNS == 'true' && steps.proof.outputs.found != 'true'
         run: >-
-          npx vitest run --coverage --shard=${{ matrix.shard }}/6
-          --reporter=blob --outputFile.blob=.vitest-reports/blob-${{ matrix.shard }}-6.json
-          --reporter=json --outputFile.json=.vitest-timings/coverage-${{ matrix.shard }}-6.json
+          npx vitest run --coverage --shard=${{ matrix.shard }}/8
+          --reporter=blob --outputFile.blob=.vitest-reports/blob-${{ matrix.shard }}-8.json
+          --reporter=json --outputFile.json=.vitest-timings/coverage-${{ matrix.shard }}-8.json
       - name: Keep the blob report for the merge
         if: env.RUNS == 'true' && steps.proof.outputs.found != 'true'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: coverage-blob-${{ matrix.shard }}
-          path: .vitest-reports/blob-${{ matrix.shard }}-6.json
+          path: .vitest-reports/blob-${{ matrix.shard }}-8.json
           if-no-files-found: error
           retention-days: 1
       - name: Keep the per-file times
@@ -243,14 +244,14 @@ jobs:
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: coverage-timings-${{ matrix.shard }}
-          path: .vitest-timings/coverage-${{ matrix.shard }}-6.json
+          path: .vitest-timings/coverage-${{ matrix.shard }}-8.json
           if-no-files-found: error
           retention-days: 7
 
   verify-primary:
     # The required `verify (lts/*)` check. It runs even when a shard failed (a
     # skipped required check would count as passing) and then fails at once; it
-    # merges the six coverage parts and enforces the coverage thresholds of
+    # merges the eight coverage parts and enforces the coverage thresholds of
     # vitest.config.ts on the whole suite, and runs the static, documentation and
     # package gates on the primary leg, Node 24 (pinned since 2.20.0, #231; the check
     # keeps its required name `verify (lts/*)`). Its proof is the `coverage` proof the
@@ -296,17 +297,17 @@ jobs:
       - name: Verify static and policy gates
         if: steps.proof.outputs.found != 'true'
         run: npm run check:static
-      - name: Download the six coverage parts
+      - name: Download the eight coverage parts
         if: env.TESTS == 'true' && steps.proof.outputs.found != 'true'
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           pattern: coverage-blob-*
           merge-multiple: true
           path: .vitest-reports
-      - name: Coverage gate (all six parts merged, thresholds enforced)
+      - name: Coverage gate (all eight parts merged, thresholds enforced)
         if: env.TESTS == 'true' && steps.proof.outputs.found != 'true'
         run: |
-          test "$(find .vitest-reports -maxdepth 1 -name 'blob-*-6.json' | wc -l)" = "6"
+          test "$(find .vitest-reports -maxdepth 1 -name 'blob-*-8.json' | wc -l)" = "8"
           npx vitest --merge-reports .vitest-reports --coverage
       - name: Build
         if: steps.proof.outputs.found != 'true'

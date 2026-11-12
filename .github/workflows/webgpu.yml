@@ -7,7 +7,10 @@ name: WebGPU conformance
 # the suite or its configuration change; every push to main runs it once, unless a pull request
 # already passed it on the same tree (the test-once proof of .github/ci-proof.mjs, #510); manual
 # dispatch for the rest.
-# About 4 minutes a run (3 minutes of tests on a 4-core host plus the Chromium download).
+# Two parallel jobs since 2.22.0 (owner decision): the suite took more than the 45-minute job limit on 2.22.0's pull request
+# (#606: 2.21.0's run took about 35 minutes, and 2.22.0 adds the coupled-step cases). Part 2 runs
+# test/webgpu/display-view-quality.webgpu.ts (the display view's Quality and defocus cases); part 1 runs every other file, so a
+# new suite file runs in part 1 unless it is moved. The parts were balanced by the measured times of that pull request's run.
 on:
   pull_request:
     paths:
@@ -30,9 +33,17 @@ concurrency:
 
 jobs:
   webgpu-conformance:
-    name: webgpu conformance (SwiftShader)
+    name: webgpu conformance (SwiftShader, ${{ matrix.part }}/2)
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - part: 1
+            files: "--exclude test/webgpu/display-view-quality.webgpu.ts"
+          - part: 2
+            files: "test/webgpu/display-view-quality.webgpu.ts"
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -51,7 +62,7 @@ jobs:
         if: github.event_name == 'push'
         env:
           GITHUB_TOKEN: ${{ github.token }}
-        run: node .github/ci-proof.mjs find webgpu-swiftshader
+        run: node .github/ci-proof.mjs find "webgpu-swiftshader-${{ matrix.part }}"
       - name: Install
         if: steps.proof.outputs.found != 'true'
         run: npm ci --ignore-scripts
@@ -68,12 +79,12 @@ jobs:
         # PHOTIVRA_WEBGPU_REQUIRED=1 fails instead of skipping when no browser or adapter is found.
         env:
           PHOTIVRA_WEBGPU_REQUIRED: "1"
-        run: npm run test:webgpu
+        run: npm run test:webgpu -- ${{ matrix.files }}
       - name: Name the proof
         id: proof-name
         if: steps.proof.outputs.found != 'true'
         run: |
-          node .github/ci-proof.mjs name webgpu-swiftshader
+          node .github/ci-proof.mjs name "webgpu-swiftshader-${{ matrix.part }}"
           echo "$GITHUB_RUN_ID" > "$RUNNER_TEMP/ci-proof.txt"
       - name: Keep the proof
         if: steps.proof-name.outcome == 'success'
