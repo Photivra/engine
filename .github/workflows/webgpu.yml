@@ -11,6 +11,8 @@ name: WebGPU conformance
 # (#606: 2.21.0's run took about 35 minutes, and 2.22.0 adds the coupled-step cases). Part 2 runs
 # test/webgpu/display-view-quality.webgpu.ts (the display view's Quality and defocus cases); part 1 runs every other file, so a
 # new suite file runs in part 1 unless it is moved. The parts were balanced by the measured times of that pull request's run.
+# Three since 2.23.0 (owner decision 2026-11-12): #605's files (test/webgpu/display-view-neighbors*.webgpu.ts) took part 1 to
+# 41 of its 45 minutes on 2.23.0's pull request (#608), with the Quality full case past the 600 s test limit; they run as part 3.
 on:
   pull_request:
     paths:
@@ -33,7 +35,7 @@ concurrency:
 
 jobs:
   webgpu-conformance:
-    name: webgpu conformance (SwiftShader, ${{ matrix.part }}/2)
+    name: webgpu conformance (SwiftShader, ${{ matrix.part }}/3)
     runs-on: ubuntu-latest
     timeout-minutes: 45
     strategy:
@@ -41,9 +43,11 @@ jobs:
       matrix:
         include:
           - part: 1
-            files: "--exclude test/webgpu/display-view-quality.webgpu.ts"
+            files: "--exclude test/webgpu/display-view-quality.webgpu.ts --exclude 'test/webgpu/display-view-neighbors*.webgpu.ts'"
           - part: 2
             files: "test/webgpu/display-view-quality.webgpu.ts"
+          - part: 3
+            files: "test/webgpu/display-view-neighbors"
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7

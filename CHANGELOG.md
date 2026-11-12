@@ -27,7 +27,8 @@ A minor release: neighbor highlight reconstruction on the WebGPU display view (#
   in `scripts/research/ahd-bias/`, outside the package.
 - **Root exports:** none added or removed (1,981; runtime exports 672).
 - **CI capacity (owner decision 2026-11-12):** the Node test legs run in three parts (two before) and coverage in ten shards
-  (eight before) in `ci.yml` and `publish.yml`; #605's emulation tests are split into ten files by case, the Quality cases and the banding
+  (eight before) in `ci.yml` and `publish.yml`, and the SwiftShader WebGPU suite in three jobs (two before; the
+  real-GPU Quality full case in four bands of the view); #605's emulation tests are split into ten files by case, the Quality cases and the banding
   check into bands of rows that check the same pixels, with a 900 s per-test deadline for the Quality bands. No test was removed and no job
   time limit was raised (docs/RELEASE_2_23_0.md, "Local gates").
 
