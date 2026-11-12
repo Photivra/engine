@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 /**
  * #605 (2.23.0): the Speed kernel, fast and full, with `highlightMode: "reconstruct-neighbors"` on the float32 emulation against the CPU reference, in a
- * file of its own so that the CI parts balance (the checks: test/helpers/display-view-neighbor-gpu-check.ts; the other cases
+ * file of its own so that the CI parts balance (the checks: test/helpers/display-view-neighbor-gpu-check.ts; the Quality cases
  * and the region-order checks: test/display-view-neighbors-gpu*.test.ts).
  */
 import { describe, it } from "vitest";

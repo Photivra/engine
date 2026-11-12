@@ -26,6 +26,10 @@ A minor release: neighbor highlight reconstruction on the WebGPU display view (#
   is fast enough for the CPU view (10–20 ms per site); #604 is closed and 2.22.0's labeled approximation stays. The prototype is
   in `scripts/research/ahd-bias/`, outside the package.
 - **Root exports:** none added or removed (1,981; runtime exports 672).
+- **CI capacity (owner decision 2026-11-12):** the Node test legs run in three parts (two before) and coverage in ten shards
+  (eight before) in `ci.yml` and `publish.yml`; #605's emulation tests are split into eight files by case, the Quality cases into
+  bands of rows that check the same pixels, with a 900 s per-test deadline for the Quality bands. No test was removed and no job
+  time limit was raised (docs/RELEASE_2_23_0.md, "Local gates").
 
 ## 2.22.0 — published November 12, 2026
 

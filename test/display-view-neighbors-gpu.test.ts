@@ -2,9 +2,9 @@
 /**
  * #605 (2.23.0): `highlightMode: "reconstruct-neighbors"` (#602) in the display view's GPU kernels on the float32 emulation
  * (test/helpers/fake-webgpu-display-view*.ts) against the CPU reference. This file holds the region-order and banding checks;
- * the four kernel cases (Speed and Quality, fast and full) are in test/display-view-neighbors-gpu-speed.test.ts,
- * test/display-view-neighbors-gpu-quality.test.ts and test/display-view-neighbors-gpu-quality-full.test.ts, split so that the
- * CI parts balance (test/helpers/display-view-neighbor-gpu-check.ts holds their check). The ratios come from the host in a
+ * the four kernel cases (Speed and Quality, fast and full) are in test/display-view-neighbors-gpu-speed.test.ts and, each
+ * Quality case in bands, test/display-view-neighbors-gpu-quality-{1,2} and -quality-full-{1..4}.test.ts, split so that the CI jobs
+ * fit their limit (test/helpers/display-view-neighbor-gpu-check.ts holds the check). The ratios come from the host in a
  * second dispatch per band (src/gpu/wgsl-display-view-neighbors.ts). Real-device runs: test/webgpu/display-view-neighbors.webgpu.ts.
  */
 import { describe, expect, it } from "vitest";

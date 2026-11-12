@@ -21,15 +21,41 @@ export function neighborCaseReport(): Record<string, unknown>[] {
   return report;
 }
 
-export async function runNeighborCase(report: Record<string, unknown>[], name: string, options: SimulateCaptureOptions, quality: boolean): Promise<void> {
-  // The full rule's 4,096 nodes per real pixel are slow to emulate: the full cases take a 40 × 30 part holding four clipped regions.
-  const view = options.fast === false ? { ...SMALL_VIEW, region: NEIGHBOR_PART } : SMALL_VIEW;
+/** A display-view region: a part of SMALL_VIEW. */
+export interface NeighborRegion { x: number; y: number; width: number; height: number }
+
+/**
+ * `region` cut into `count` bands of whole rows (top first; the first bands take the extra rows). The CPU reference's ratios do
+ * not depend on where a render reaches a region (test/display-view-neighbors-gpu.test.ts checks a region render against the whole
+ * view), so checking every band checks the same pixels as checking `region` once (2.23.0: the Quality cases are split this way so
+ * that each CI job fits its limit).
+ */
+export function neighborBands(region: NeighborRegion, count: number): NeighborRegion[] {
+  const bands: NeighborRegion[] = [];
+  for (let i = 0, y = region.y; i < count; i++) {
+    const height = Math.floor(region.height / count) + (i < region.height % count ? 1 : 0);
+    bands.push({ ...region, y, height });
+    y += height;
+  }
+  return bands;
+}
+
+/** The whole view as a region. */
+export const NEIGHBOR_WHOLE_VIEW: NeighborRegion = { x: 0, y: 0, ...SMALL_VIEW };
+
+/**
+ * Checks one case (`flagLimit`: see the Quality full halves). The full rule's 4,096 nodes per real pixel are slow to emulate: by default the full cases take a 40 × 30 part
+ * holding four clipped regions and the fast cases the whole view; `region` renders a part instead.
+ */
+export async function runNeighborCase(report: Record<string, unknown>[], name: string, options: SimulateCaptureOptions, quality: boolean, region?: NeighborRegion, flagLimit?: number): Promise<void> {
+  const part = region ?? (options.fast === false ? NEIGHBOR_PART : undefined);
+  const view = part ? { ...SMALL_VIEW, region: part } : SMALL_VIEW;
   const fixture = await displayViewGpuFixture(options, view), runtime = await runtimeOf(createFakeGpu().gpu);
   Object.assign(displayViewNeighborStats, { dispatches: 0, pixels: 0, realPixels: 0, hostMilliseconds: 0 });
   const t = performance.now();
   const gpu = quality ? await renderOnGpuQuality(runtime, fixture) : await renderOnGpu(runtime, fixture);
   const ms = Math.round(performance.now() - t), a = compareDisplayViews(fixture.cpu, gpu);
-  report.push({ case: name, ms, ...displayViewNeighborStats, hostMilliseconds: Math.round(displayViewNeighborStats.hostMilliseconds), flagged: gpu.flaggedPixelIndices.length,
+  report.push({ case: name, ...(region ? { region } : {}), ms, ...displayViewNeighborStats, hostMilliseconds: Math.round(displayViewNeighborStats.hostMilliseconds), flagged: gpu.flaggedPixelIndices.length,
     deltaE2000Maximum: a.deltaEMaximum, sigmaUnitsMaximum: a.sigmaUnitsMaximum, differingSamples: a.differingSamples, largestCodeDifference: a.largestCodeDifference,
     largestExpectedBoundRatio: a.largestExpectedRatio, largestVarianceBoundRatio: a.largestVarianceRatio, expectedAbsolute: gpu.expectedValueBound.absolute });
   expect(gpu.execution).toMatchObject({ backend: "webgpu-f32", arithmetic: "float32" });
@@ -41,8 +67,8 @@ export async function runNeighborCase(report: Record<string, unknown>[], name: s
   expect(a.differingSamples).toBeLessThanOrEqual(0.01 * a.pixels * 3);
   expect(Array.from(gpu.hostRecomputedPixelIndices)).toEqual(Array.from(gpu.flaggedPixelIndices));
   // The coupled steps' recompute flag (bit 0; the Quality kernels also flag AHD's choice, bit 5) is set on a small share: the
-  // rebuild itself ran on the GPU.
+  // rebuild itself ran on the GPU. Under 5 % of the rendered pixels, or below `flagLimit` (a half's share of a whole region's limit).
   const pixelFlags = (gpu as { pixelFlags?: Uint32Array }).pixelFlags, flags = pixelFlags ? pixelFlags.filter((v) => (v & 1) !== 0).length : gpu.flaggedPixelIndices.length;
-  expect(flags).toBeLessThan(0.05 * a.pixels);
+  expect(flags).toBeLessThan(flagLimit ?? 0.05 * a.pixels);
   runtime.destroy();
 }
