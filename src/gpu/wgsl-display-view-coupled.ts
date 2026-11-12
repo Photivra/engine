@@ -35,6 +35,9 @@ export const DISPLAY_VIEW_COUPLED = /* @__PURE__ */ Object.freeze({
 export const DISPLAY_VIEW_COUPLED_INFINITE_RATIO = 3.4028234663852886e38;
 
 import { DISPLAY_VIEW_COUPLED_DECLARATIONS_WGSL } from "./wgsl-display-view-coupled-stub.js";
+// #605: the neighbor reconstruction's GPU code loads with the coupled steps (one on-demand chunk).
+import { displayViewNeighborsWgsl } from "./wgsl-display-view-neighbors.js";
+export { dispatchWithNeighborRatios } from "./wgsl-display-view-neighbors.js";
 
 const E_LITERAL = "1.1920928955078125e-7";
 const C = DISPLAY_VIEW_COUPLED;
@@ -87,7 +90,8 @@ fn cp_reconstruct_reach(cm: vec3<f32>, cv: vec3<f32>) -> u32 {
   for (var k = 0u; k < 3u; k = k + 1u) {
     let top = cm[k] + CLIP_REACH * sqrt(max(0.0, cv[k]));
     let margin = 16.0 * CP_E * (abs(cm[k]) + abs(top));
-    if (!(top < CP_START - margin)) { if (top >= CP_START + margin) { return 1u; } state = 2u; }
+    let start = select(CP_START, NB_H, nb_on());
+    if (!(top < start - margin)) { if (top >= start + margin) { return 1u; } state = 2u; }
   }
   return state;
 }
@@ -189,7 +193,12 @@ fn cp_develop(c: vec3<f32>) -> CpNode {
   var b = u;
   var jb = array<vec3<f32>, 3>(vec3<f32>(g.x, 0.0, 0.0), vec3<f32>(0.0, g.y, 0.0), vec3<f32>(0.0, 0.0, g.z));
   var node: CpNode;
-  if (!cp_reconstruct()) {
+  // #605: the neighbor rebuild (wgsl-display-view-neighbors.ts) with its own rounding bound.
+  var eb = 8.0 * CP_E * max(abs(u.x), max(abs(u.y), abs(u.z)));
+  if (nb_on()) {
+    let nb = nb_rebuild(c, g);
+    b = nb.b; jb = array<vec3<f32>, 3>(nb.j0, nb.j1, nb.j2); eb = nb.err;
+  } else if (!cp_reconstruct()) {
     for (var k = 0u; k < 3u; k = k + 1u) { if (u[k] > lc) { b[k] = lc; jb[k][k] = 0.0; } }
   } else {
     let s = select(select(c.z, c.y, c.y > c.z), select(c.z, c.x, c.x > c.z), c.x > c.y);
@@ -209,7 +218,6 @@ fn cp_develop(c: vec3<f32>) -> CpNode {
       }
     }
   }
-  let eb = 8.0 * CP_E * max(abs(u.x), max(abs(u.y), abs(u.z)));
   var y = vec3<f32>(0.0); var ey = vec3<f32>(0.0);
   var mj = array<vec3<f32>, 3>(vec3<f32>(0.0), vec3<f32>(0.0), vec3<f32>(0.0));
   for (var r = 0u; r < 3u; r = r + 1u) {
@@ -299,6 +307,8 @@ fn cp_chain(cm: vec3<f32>, c00: f32, c01: f32, c02: f32, c11: f32, c12: f32, c22
         let dc = 3.0 * CP_E * (abs(cm) + vec3<f32>(abs(l00 * x0), abs(l10 * x0) + abs(l11 * x1), abs(l20 * x0) + abs(l21 * x1) + abs(l22 * x2)));
         let node = cp_develop(c);
         if (node.flag) { t.flag = true; }
+        // #605: a node within its bound of the neighbor rebuild's threshold (where a channel is kept or rebuilt).
+        if (nb_on() && any(abs(c - vec3<f32>(NB_H)) <= dc + dcm + 5.0 * (sqrt(dcv.x) + sqrt(dcv.y) + sqrt(dcv.z)) + 16.0 * CP_E)) { t.flag = true; }
         count = count + 1.0;
         let d = node.out - centre;
         e = e + weight * node.out;
@@ -323,6 +333,9 @@ fn cp_chain(cm: vec3<f32>, c00: f32, c01: f32, c02: f32, c11: f32, c12: f32, c22
 }
 `;
 
+/** The coupled steps' text with the neighbor reconstruction's functions (#605): the full form with it, else the off form. */
+export const displayViewCoupledWgsl = (neighbors: boolean): string => DISPLAY_VIEW_COUPLED_WGSL + displayViewNeighborsWgsl(neighbors);
+
 /** The host's coupled-constants buffer of a view (`DISPLAY_VIEW_COUPLED` layout), or the one-word stub buffer. */
 export function displayViewCoupledConstants(setup: {
   gains: readonly number[]; clipLevel: number; matrix: readonly (readonly number[])[];
@@ -339,7 +352,7 @@ export function displayViewCoupledConstants(setup: {
   } else if (p) out[C.a] = 1 / (p.whiteLuminance * p.whiteLuminance);
   out[C.ratioAtZero] = k.ratioAtZero === Infinity ? DISPLAY_VIEW_COUPLED_INFINITE_RATIO : k.ratioAtZero;
   out.set(weights, C.weights);
-  out[C.reconstruct] = r.highlightMode === "reconstruct" ? 1 : 0; out[C.desaturate] = r.gamutHandling === "desaturate-to-luminance" ? 1 : 0; out[C.fast] = r.fast ? 1 : 0;
+  out[C.reconstruct] = r.highlightMode.startsWith("reconstruct") ? 1 : 0; out[C.desaturate] = r.gamutHandling === "desaturate-to-luminance" ? 1 : 0; out[C.fast] = r.fast ? 1 : 0;
   out.set(setup.gains, C.gains); out[C.clipLevel] = setup.clipLevel; out.set(setup.matrix.flat(), C.matrix);
   out[C.chainPoints] = k.chainRule.x.length; out.set(k.chainRule.x, C.chainX); out.set(k.chainRule.w, C.chainW);
   out.set(k.luminanceRule.x, C.hermiteX); out.set(k.luminanceRule.w, C.hermiteW);

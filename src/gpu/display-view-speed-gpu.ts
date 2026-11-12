@@ -134,7 +134,6 @@ export function displayViewSpeedGpuUnsupportedReason(setup: DisplayViewSetup, si
   if (setup.candidates || setup.ahdChoice) return "AHD candidates are not on the GPU";
   if (!GPU_TONE_CURVES.includes(setup.toneCurve)) return "unsupported tone curve " + String(setup.toneCurve);
   if (setup.rendering && !setup.coupled) return "the coupled rendering steps were not prepared";
-  if (setup.rendering?.highlightMode === "reconstruct-neighbors") return "highlightMode reconstruct-neighbors (#602; its regions' ratios are found on the host) is not on the GPU in 2.22.0";
   if (signalInput.offsets.length < 1 || signalInput.offsets.length > DISPLAY_VIEW_GPU_MAXIMUM_OFFSETS) return "the kernel holds 1 to " + DISPLAY_VIEW_GPU_MAXIMUM_OFFSETS + " query offsets";
   if (signalInput.wavelengthsNm.length < 1 || signalInput.wavelengthsNm.length > DISPLAY_VIEW_SPEED_MAXIMUM_NODES) return "the kernel integrates 1 to " + DISPLAY_VIEW_SPEED_MAXIMUM_NODES + " spectral nodes per site";
   if (setup.region.width < 1 || setup.region.height < 1) return "an empty region";
@@ -328,7 +327,10 @@ export async function renderDisplayViewSpeedOnGpu(runtime: WebGpuRuntime, bandBy
   // #593, #601: the coupled steps' shader text and constants, loaded on demand for a view that asks for them.
   const coupled = setup.rendering ? await import("./wgsl-display-view-coupled.js") : null;
   const coupledConstants = coupled ? coupled.displayViewCoupledConstants(setup, SDR_LUMINANCE_WEIGHTS, gaussLegendre16()) : new Float32Array(1);
-  const pipeline = await pipelines("photivra-display-view-speed:" + material.id + (coupled ? "+coupled" : ""), assembleDisplayViewSpeedWgsl(material.wgsl, coupled?.DISPLAY_VIEW_COUPLED_WGSL));
+  // #605: the neighbor reconstruction's ratios from the host, in a second dispatch per band (wgsl-display-view-neighbors.ts).
+  const neighbors = setup.coupled?.neighbors && coupled;
+  const pipeline = await pipelines("photivra-display-view-speed:" + material.id + (coupled ? "+coupled" : "") + (neighbors ? "+neighbors" : ""),
+    assembleDisplayViewSpeedWgsl(material.wgsl, coupled?.displayViewCoupledWgsl(!!neighbors)));
   const moments = new Float32Array(pixelCount * DISPLAY_VIEW_OUTPUT_FLOATS), flagged: number[] = [], flagWords = new Uint32Array(pixelCount * DISPLAY_VIEW_FLAG_WORDS);
   const words = new Uint32Array(params);
   const scope = new GpuResourceScope(runtime);
@@ -349,17 +351,21 @@ export async function renderDisplayViewSpeedOnGpu(runtime: WebGpuRuntime, bandBy
       const band = new GpuResourceScope(runtime);
       try {
         const out = band.buffer("photivra-display-view-moments", count * 4 * DISPLAY_VIEW_OUTPUT_FLOATS, BUFFER_USAGE.STORAGE | BUFFER_USAGE.COPY_SRC);
-        const flagBuffer = band.buffer("photivra-display-view-flags", count * 4 * DISPLAY_VIEW_FLAG_WORDS, BUFFER_USAGE.STORAGE | BUFFER_USAGE.COPY_SRC);
         const uniform = band.upload("photivra-display-view-params", new Uint8Array(params), BUFFER_USAGE.UNIFORM);
-        const bindGroup = runtime.device.createBindGroup({ layout: pipeline.getBindGroupLayout(0), entries: [
-          { binding: 0, resource: { buffer: uniform } }, { binding: 1, resource: { buffer: auxBuffer } }, { binding: 2, resource: { buffer: geometryBuffer } },
-          { binding: 3, resource: { buffer: tableBuffer } }, { binding: 4, resource: { buffer: out } }, { binding: 5, resource: { buffer: flagBuffer } }] });
         // #581: a module that bands its own data (a large photo) gives group 1 per band, for the native rows the band reads (with margin).
-        const [data, flagData] = await runComputePass(runtime, band, pipeline, [bindGroup, materialGroup ?? material.band!(band, pipeline.getBindGroupLayout(1),
-          Math.floor((region.y + row0) * shape.sy) + margin - 2, Math.ceil((region.y + row1) * shape.sy) + margin + 2)], linearDispatch(count, DISPLAY_VIEW_WORKGROUP_SIZE, runtime.maximumWorkgroupsPerDimension),
-          [{ buffer: out, bytes: count * 4 * DISPLAY_VIEW_OUTPUT_FLOATS }, { buffer: flagBuffer, bytes: count * 4 * DISPLAY_VIEW_FLAG_WORDS }], abort.signal);
+        const group1 = materialGroup ?? material.band!(band, pipeline.getBindGroupLayout(1), Math.floor((region.y + row0) * shape.sy) + margin - 2, Math.ceil((region.y + row1) * shape.sy) + margin + 2);
+        let data: ArrayBuffer | undefined, flagData: ArrayBuffer | undefined;
+        const run = async (contents = new Uint32Array(count * DISPLAY_VIEW_FLAG_WORDS)): Promise<Uint32Array> => {
+          const flagBuffer = band.upload("photivra-display-view-flags", contents, BUFFER_USAGE.STORAGE | BUFFER_USAGE.COPY_SRC);
+          const bindGroup = runtime.device.createBindGroup({ layout: pipeline.getBindGroupLayout(0), entries: [
+            { binding: 0, resource: { buffer: uniform } }, { binding: 1, resource: { buffer: auxBuffer } }, { binding: 2, resource: { buffer: geometryBuffer } },
+            { binding: 3, resource: { buffer: tableBuffer } }, { binding: 4, resource: { buffer: out } }, { binding: 5, resource: { buffer: flagBuffer } }] });
+          [data, flagData] = await runComputePass(runtime, band, pipeline, [bindGroup, group1], linearDispatch(count, DISPLAY_VIEW_WORKGROUP_SIZE, runtime.maximumWorkgroupsPerDimension),
+            [{ buffer: out, bytes: count * 4 * DISPLAY_VIEW_OUTPUT_FLOATS }, { buffer: flagBuffer, bytes: count * 4 * DISPLAY_VIEW_FLAG_WORDS }], abort.signal);
+          return new Uint32Array(flagData!, 0, count * DISPLAY_VIEW_FLAG_WORDS);
+        };
+        const bandFlags = neighbors ? await neighbors.dispatchWithNeighborRatios(setup, geometry, first, count, runtime.maximumStorageBindingBytes, run) : await run();
         moments.set(new Float32Array(data!, 0, count * DISPLAY_VIEW_OUTPUT_FLOATS), first * DISPLAY_VIEW_OUTPUT_FLOATS);
-        const bandFlags = new Uint32Array(flagData!, 0, count * DISPLAY_VIEW_FLAG_WORDS);
         flagWords.set(bandFlags, first * DISPLAY_VIEW_FLAG_WORDS);
         for (let i = 0; i < count; i++) {
           let flag = (bandFlags[DISPLAY_VIEW_FLAG_WORDS * i]! & 1) !== 0;

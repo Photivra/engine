@@ -373,10 +373,88 @@ display pixel, which the host recomputes with the reference.
 **Measured.** Float32 emulation (`test/display-view-speed-gpu.test.ts`, `test/display-view-coupled-gpu.test.ts`) and a hardware
 adapter (Apple, Metal 3, Chrome headless, `PHOTIVRA_WEBGPU_ADAPTER=hardware npm run test:webgpu -- test/webgpu/display-view.webgpu.ts`):
 every component inside its bound, at most one code; largest error 0.3–4.6 % of the bound on the device (Speed), 0.6 % (Quality
-emulation). `highlightMode: "reconstruct-neighbors"` (#602) is refused (`unsupported-on-backend`): its regions' ratios are
-found on the host.
+emulation). `highlightMode: "reconstruct-neighbors"` (#602) runs in both kernels since 2.23.0 ([below](#neighbor-highlight-reconstruction-605)).
 
 **SwiftShader (2.22.0).** The kernels compile on SwiftShader too since the luminance branches read the colour matrix rows from one local array (`mm`) instead of calling `m_of` (a `switch`) inside their nested loops, which made SwiftShader's compiler end the GPU process after about 44 s; the values are the same. The SwiftShader suite runs every coupled case.
+
+### Neighbor highlight reconstruction (#605)
+
+`highlightMode: "reconstruct-neighbors"` runs in the Speed kernel and the Quality pixel pass, fast (the ring's mean ratios) and full
+(their harmonic fill), as part of the coupled chain: the chain's highlight step becomes the rebuild of
+`src/color/neighbor-highlight-reconstruction.ts` (`rebuildClippedPixel`; WGSL `nb_rebuild` in `src/gpu/wgsl-display-view-neighbors.ts`,
+loaded on demand with the coupled steps), and the blend's reach threshold becomes the rebuild's 0.98 of white.
+
+**Where the ratios are found: on the host, uploaded.** Each real pixel's ratios ρ come from the reference's own float64 code
+(`DisplayViewCoupledRendering.ratioAt`: the noise-free channels, the 8-connected clipped regions widened by the margin, the ring
+mean or its SOR fill), for exactly the real pixels whose chain needs them, so every region decision is the reference's and ρ
+carries one float32 rounding. They travel in the band's flag buffer after its three flag words per pixel (an offset word per
+display pixel and 3 floats per real pixel of its footprint): no binding is added, so the kernels keep within the 8 storage
+buffers per stage (the Speed kernel with the composite module already uses all 8). Each band runs twice: the first dispatch skips
+the chain where a ratio is missing and flags the pixel (bit 7); the host computes those pixels' ratios and dispatches the band
+again with every other pixel marked to return at once (their first results stay in the output buffer). Since 2.23.0 a region's
+members are taken in raster order (`display-view-rendering.ts`), so its ratios do not depend on which pixel reached it first: the
+host's band order, a region render and the whole view give the same bits. A region above the search cap (65,536 pixels fast,
+262,144 full) is solved per tile of 256 × 256 (fast) or 512 × 512 (full) pixels, its part in each tile on its own, which does
+not depend on that order either.
+
+**The alternative, measured: the harmonic fill on the device.** The issue asked whether to upload the ratios or compute them on the
+GPU (for example the full method's Laplace fill by Jacobi or red-black iterations). `test/webgpu/neighbor-fill.timing.ts` solves
+the same Dirichlet problem for a clipped square region in a smoothly colored field: the reference's full method on the host
+(float64 SOR, ω = 1.8, to a change below 10⁻⁹) against red-black SOR in float32 on the device (one dispatch per color, the
+optimal ω = 2/(1 + sin(π/(m + 1))) for the m × m unknown square, from the fast method's ring mean), reading back the largest
+difference from the reference at checkpoints (Apple M5 Pro, Chromium 153 headless, November 11, 2026; host times in the same page):
+
+| Region (unknown pixels) | Host: fast / full with 2.22.0's ω = 1.8 (sweeps) | Device, hardware (Apple, Metal 3): sweeps and ms to < 10⁻⁵, floor | Device, SwiftShader: ms to < 10⁻⁵, floor |
+| --- | --- | --- | --- |
+| 20 × 20 (400) | 0.3 / 2.8 ms (91) | 50 sweeps, 2.4 ms; 1.4–1.7 × 10⁻⁷ | 8 ms; 1.3–1.7 × 10⁻⁷ |
+| 68 × 68 (4,624) | 0.7 / 70 ms (673) | 200 sweeps, 5.7 ms; 4.9–7.7 × 10⁻⁷ | 37 ms; 5.1–8.1 × 10⁻⁷ |
+| 260 × 260 (67,600) | 5.1 / 4,860 ms (5,728) | 400 sweeps, 20.5 ms; 2.6–2.8 × 10⁻⁶ | 722 ms; 2.3–2.6 × 10⁻⁶ |
+
+What the numbers decide:
+
+- **The device fill is far faster for large regions** (20 ms against 4.9 s at 67,600 pixels; most of the host's time was its
+  fixed ω = 1.8, which needs 5,728 sweeps where the optimal ω needs about 400), and about even for small ones once a dispatch's
+  fixed cost is counted. Since 2.23.0 the host uses the optimal ω of each region's bounding rectangle
+  (`neighborHighlightOmega`; `test/neighbor-highlight-sor.test.ts`: 250 sweeps instead of 673 at 68 × 68 and 458 instead of
+  1,893 at 132 × 132, 3.2–4.9× faster, and 35–76× closer to the converged fill at the same 10⁻⁹ tolerance).
+- **It does not reach the reference's values in float32**: its error stops at a floor that grows with the region (1.5 × 10⁻⁷ at
+  400 pixels, 2.7 × 10⁻⁶ at 67,600: the Laplacian's condition number grows with the region's size squared), and that floor is a
+  measurement, not an a-priori bound; a bound would need the solver's residual and the discrete Laplacian's inverse norm per region.
+- **The rest of the method is not local**: the 8-connected regions (a labeling pass), the ring mean per region (a reduction per
+  label) and the regions' sizes against the cap would need further passes, none of them built or measured here.
+- **So the ratios are uploaded**: every region decision and every ratio is the reference's, with one rounding, which keeps the
+  bound a priori and the region cap's behavior identical. The host's own time is the reference's (the CPU path pays the same), and
+  in the measured views below it is small: 35–47 ms for 270,000 real pixels' ratios, fast or full, against 0.4–73 s for the GPU
+  render. A device fill is not built (owner decision, 2026-11-11: no a-priori float32 bound); these measurements are kept for a
+  later look at large regions in full mode.
+
+**Bounds (first order, as the coupled steps').** The rebuild's own roundings are at most 10E of the largest rebuilt channel (the
+products u = c·g, the two sums over the kept channels, the quotient's 2.5E, the product s·ρ, and ρ's upload rounding through
+∂b/∂ρ, at most E·|b|; 6E where every channel is clipped); they enter the chain where the blend's 8E of the largest channel did,
+and the node's slopes carry the node point's rounding as before. The rebuild is continuous except where a channel crosses the
+threshold (kept or rebuilt): a node within its rounding bound, the channel mean's bound and 5·Σ√δ (the variance bounds, beyond
+the largest Gauss–Hermite node) of 0.98 flags the display pixel, which the host recomputes with the reference.
+
+**Measured.** The emulation's and the devices' cases (`test/display-view-neighbors-gpu.test.ts` on the float32 emulation,
+`test/webgpu/display-view-neighbors.webgpu.ts` on SwiftShader and on hardware with `PHOTIVRA_WEBGPU_ADAPTER=hardware`): the
+spectral patches over the white clip (1/30 s at ISO 100: six clipped regions, none above the cap), 600 × 400 real pixels of 6 µm
+at 203 × 135; the Speed fixtures' sensor, and for Quality the circular-aperture diffraction, the four-spot filter and AHD. The
+emulation takes a 40 × 30 part (four clipped regions) for the full rule (its 4,096 nodes per real pixel are slow to emulate).
+Every component inside its bound in every run; November 11, 2026, Apple M5 Pro, Chromium 153 headless:
+
+| Case | Bound used (expected / variance): emulation, SwiftShader, hardware | Samples differing (≤ 1 code) | Flagged (recomputed) | Pixels given ratios; host ms |
+| --- | --- | --- | --- | --- |
+| Speed, fast | 3.6 % / 3.2 %; 3.6 % / 3.2 %; 3.6 % / 3.0 % | 0 | 0 | 17,482 (272,272 real pixels); 28–35 ms |
+| Speed, full | 2.8 % / 2.6 % (part); 3.6 % / 3.2 %; 3.6 % / 3.0 % | 0 | 123 (14 in the part) | 17,482; 28–42 ms |
+| Quality, fast | 0.50 % / 0.35 %; 0.50 % / 0.35 %; 0.50 % / 0.32 % | 2 | 7,704–7,747, nearly all AHD's choice (bit 5; 96 of 2,252 coupled flags in a 203 × 30 band) | 17,436; 29–47 ms |
+| Quality, full | 0.49 % / 0.18 % (part); 0.49 % / 0.35 %; 0.49 % / 0.32 % | 0–2 | 8,082–8,125 (530 in the part) | 17,436; 30–36 ms |
+
+ΔE2000 at most 5.3 × 10⁻⁵ (Speed) and 6.4 × 10⁻⁴ (Quality) against the reference. GPU render times on the hardware adapter:
+Speed 0.37 s fast, 1.9 s full; Quality 8.5 s fast and 73 s full, of which the pixel pass is 84 ms and 275 ms and nearly all the
+rest is the host's recomputation of AHD's flagged pixels (8.2 s and 72.8 s). That recomputation is the Quality kernels' existing
+behavior with AHD, not the neighbor reconstruction's: on this scene about 28 % of the display pixels carry AHD's choice flag
+(bit 5; [above](#display-view-quality-on-the-gpu)), and the coupled steps' own flags are 1–4 % of them. Each band runs two
+dispatches (both passes once here: one band).
 
 ## Display view (Quality) on the GPU
 

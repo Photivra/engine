@@ -157,7 +157,9 @@ function renderToned(e: number, sourceNonzero: boolean, band0: number, band1: nu
 
 function emulate(fullLabel: string, buffers: Map<number, FakeBuffer>, arithmetic: EmulationArithmetic, composite: CompositeArithmetic): void {
   // #593, #601: a display-view pipeline with the coupled steps ends in "+coupled"; its constants are binding 9 (one zero word otherwise).
-  const label = fullLabel.endsWith("+coupled") ? fullLabel.slice(0, -"+coupled".length) : fullLabel;
+  // #605: "+coupled+neighbors" with the neighbor reconstruction (its ratios in the flag buffer).
+  const neighbors = fullLabel.endsWith("+neighbors"), coupledLabel = neighbors ? fullLabel.slice(0, -"+neighbors".length) : fullLabel;
+  const label = coupledLabel.endsWith("+coupled") ? coupledLabel.slice(0, -"+coupled".length) : coupledLabel;
   const u32 = (b: number): Uint32Array => new Uint32Array(buffers.get(b)!.data);
   const i32 = (b: number): Int32Array => new Int32Array(buffers.get(b)!.data);
   const f32 = (b: number): Float32Array => new Float32Array(buffers.get(b)!.data);
@@ -246,15 +248,15 @@ function emulate(fullLabel: string, buffers: Map<number, FakeBuffer>, arithmetic
   } else if (label === "photivra-display-view-speed:image-plane" || label === "photivra-display-view-speed:image-plane-fma") {
     // #581: the image-plane module (group 1): the pixel signals at 100, the photo uniform at 101, the lattice uniform at 102, the offsets at 103; the surround is the site table (3).
     const material = createImagePlaneDisplayViewMaterialEmulator(u32(101), f32(101), f32(100), f32(3), u32(102), f32(102), f32(103), label.endsWith("-fma") ? "fma" : "dekker", composite);
-    emulateDisplayViewSpeed(u32(0), f32(0), f32(1), f32(2), f32(3), f32(4), u32(5), material, f32(1).subarray(DISPLAY_VIEW_AUX.size));
+    emulateDisplayViewSpeed(u32(0), f32(0), f32(1), f32(2), f32(3), f32(4), u32(5), material, f32(1).subarray(DISPLAY_VIEW_AUX.size), neighbors);
   } else if (compositeModulePath(label, "photivra-display-view-speed")) {
     // #491: the composite material module (group 1): the scene's float records at 100, integer records at 101, the lattice uniform at 102, the offsets at 103.
     const material = createCompositeDisplayViewMaterialEmulator(u32(102), f32(102), f32(103), f32(100), u32(101), compositeModulePath(label, "photivra-display-view-speed")!, composite);
-    emulateDisplayViewSpeed(u32(0), f32(0), f32(1), f32(2), f32(3), f32(4), u32(5), material, f32(1).subarray(DISPLAY_VIEW_AUX.size));
+    emulateDisplayViewSpeed(u32(0), f32(0), f32(1), f32(2), f32(3), f32(4), u32(5), material, f32(1).subarray(DISPLAY_VIEW_AUX.size), neighbors);
   } else if (label.startsWith("photivra-display-view-speed:")) {
     // The chart-preset material module (group 1): its uniform at 100, its aux table at 101.
     const material = createChartMaterialEmulator(u32(100), f32(100), f32(101), 8, arithmetic);
-    emulateDisplayViewSpeed(u32(0), f32(0), f32(1), f32(2), f32(3), f32(4), u32(5), material, f32(1).subarray(DISPLAY_VIEW_AUX.size));
+    emulateDisplayViewSpeed(u32(0), f32(0), f32(1), f32(2), f32(3), f32(4), u32(5), material, f32(1).subarray(DISPLAY_VIEW_AUX.size), neighbors);
   } else if (compositeModulePath(label, "photivra-display-view-quality-lattice")) {
     // #491's composite module in the Quality lattice pass (group 1 as in Speed: float records 100, integer records 101, lattice uniform 102, offsets 103).
     const material = createCompositeDisplayViewMaterialEmulator(u32(102), f32(102), f32(103), f32(100), u32(101), compositeModulePath(label, "photivra-display-view-quality-lattice")!, composite);
@@ -272,7 +274,7 @@ function emulate(fullLabel: string, buffers: Map<number, FakeBuffer>, arithmetic
   } else if (label === "photivra-display-view-quality-sites-blocked") {
     emulateDisplayViewQualitySitesBlocked(u32(0), f32(0), u32(1), f32(3), u32(4), f32(5), f32(6));
   } else if (label === "photivra-display-view-quality-pixels") {
-    emulateDisplayViewQualityPixels(u32(0), f32(0), f32(1), f32(2), f32(3), f32(4), u32(5), f32(1).subarray(DISPLAY_VIEW_QUALITY_AUX.size));
+    emulateDisplayViewQualityPixels(u32(0), f32(0), f32(1), f32(2), f32(3), f32(4), u32(5), f32(1).subarray(DISPLAY_VIEW_QUALITY_AUX.size), neighbors);
   } else if (!emulateComposite(label, (b) => buffers.get(b)!.data, composite)) {
     throw new Error(`No emulator for ${label}`);
   }

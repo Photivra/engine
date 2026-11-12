@@ -5,7 +5,7 @@
  * for the in-process fake WebGPU device. It mirrors the WGSL line by line, running-bound pairs included; the material module
  * is an emulator object (`ChartMaterialEmulator`). Real-device conformance lives in test/webgpu.
  */
-import { coupledEmulator } from "./fake-webgpu-display-view-coupled.js";
+import { coupledEmulator, neighborRatioEmulator } from "./fake-webgpu-display-view-coupled.js";
 import { DISPLAY_VIEW_QUALITY_AUX, DISPLAY_VIEW_QUALITY_CANDIDATE_FLOATS, DISPLAY_VIEW_QUALITY_CHOICE_SIGMA, DISPLAY_VIEW_QUALITY_FLAG, DISPLAY_VIEW_QUALITY_GEOMETRY_STRIDE, DISPLAY_VIEW_QUALITY_GROUP_WORDS,
   DISPLAY_VIEW_QUALITY_OUTPUT_FLOATS, DISPLAY_VIEW_QUALITY_SITE_FLOATS, DISPLAY_VIEW_QUALITY_SLOPE_U, DISPLAY_VIEW_QUALITY_TAP_WORDS, DISPLAY_VIEW_QUALITY_UNCERTAINTY_LIMIT } from "../../src/gpu/wgsl-display-view-quality-kernel.js";
 import { DISPLAY_VIEW_CLIP_MEAN_U, DISPLAY_VIEW_CLIP_VARIANCE_U, DISPLAY_VIEW_REINHARD_MEAN_U, DISPLAY_VIEW_REINHARD_VARIANCE_U } from "../../src/gpu/wgsl-display-view-speed-kernel.js";
@@ -201,8 +201,8 @@ export function emulateDisplayViewQualitySitesBlocked(pw: Uint32Array, pf: Float
 
 /** Pass 3. */
 export function emulateDisplayViewQualityPixels(pw: Uint32Array, pf: Float32Array, aux: Float32Array, geometry: Float32Array, sites: Float32Array,
-  out: Float32Array, flags: Uint32Array, coupledConstants: Float32Array = new Float32Array(1)): void {
-  const cp = coupledEmulator(coupledConstants), UNCERTAIN = DISPLAY_VIEW_QUALITY_FLAG.materialUncertain;
+  out: Float32Array, flags: Uint32Array, coupledConstants: Float32Array = new Float32Array(1), neighbors = false): void {
+  const cp = coupledEmulator(coupledConstants, neighbors), nb = neighborRatioEmulator(flags, pw[0]!, cp), UNCERTAIN = DISPLAY_VIEW_QUALITY_FLAG.materialUncertain;
   const P = readParams(pw, pf), M = Array.from(pf.subarray(40, 49)), g = [P.g0!, P.g1!, P.g2!], gainAtClip = Array.from(pw.subarray(21, 24)), reinhard = P.tone === 1, count = P.candidates!, share = count === 2 ? 0.5 : 1;
   const geometryInts = new Int32Array(geometry.buffer, geometry.byteOffset, geometry.length), auxWords = new Uint32Array(aux.buffer, aux.byteOffset, aux.length), siteWords = new Uint32Array(sites.buffer, sites.byteOffset, sites.length);
   const reflectX = (x: number): number => (x < 0 ? -x : x >= P.nativeW! ? 2 * P.nativeW! - 2 - x : x), reflectY = (y: number): number => (y < 0 ? -y : y >= P.nativeH! ? 2 * P.nativeH! - 2 - y : y);
@@ -216,6 +216,7 @@ export function emulateDisplayViewQualityPixels(pw: Uint32Array, pf: Float32Arra
   };
   const CB = DISPLAY_VIEW_QUALITY_AUX.candidates, CSTRIDE = DISPLAY_VIEW_QUALITY_AUX.candidatePhaseStride;
   for (let i = 0; i < P.count!; i++) {
+    if (nb.skip(i)) continue;
     pixelFlags = 0;
     const rx = i % P.regionW!, ry = P.row0! + Math.floor(i / P.regionW!), col = rx * STRIDE, row = (P.columns! + ry) * STRIDE;
     const colFirst = geometryInts[col]!, nx = geometryInts[col + 1]!, rowFirst = geometryInts[row]!, ny = geometryInts[row + 1]!, margin = P.margin!;
@@ -352,7 +353,7 @@ export function emulateDisplayViewQualityPixels(pw: Uint32Array, pf: Float32Arra
                 if (hm[comp]![0] > 0 && f(hm[comp]![0] - f(2 * hm[comp]![1])) < f(0.999) && Math.abs(f(top - f(0.999))) <= f(f(2 * f(hm[comp]![1] + f(REACH * Math.min(f(Math.sqrt(hv[comp]![1])), f(hv[comp]![1] / f(2 * f(Math.sqrt(hv[comp]![0])))))))) + f(64 * E))) pixelFlags |= UNCERTAIN;
               }
             }
-            if (chainRun) {
+            if (chainRun && nb.ratio(i, j * nx + ii)) {
               const t = cp.chain([cm[0]![0], cm[1]![0], cm[2]![0]], C[0]![0], C[1]![0], C[2]![0], C[3]![0], C[4]![0], C[5]![0], [cm[0]![1], cm[1]![1], cm[2]![1]], [C[0]![1], C[3]![1], C[5]![1]]);
               if (t.flag) pixelFlags |= UNCERTAIN;
               for (let comp = 0; comp < 3; comp++) {
@@ -416,7 +417,7 @@ export function emulateDisplayViewQualityPixels(pw: Uint32Array, pf: Float32Arra
     out[o + 6] = cov[1]![0]; out[o + 7] = cov[2]![0]; out[o + 8] = cov[4]![0];
     out[o + 9] = Math.max(s[0]![1], s[1]![1], s[2]![1]);
     out[o + 10] = Math.max(f(cov[0]![1] + res[0]![1]), f(cov[3]![1] + res[1]![1]), f(cov[5]![1] + res[2]![1]), cov[1]![1], cov[2]![1], cov[4]![1]);
-    flags[3 * i] = (pixelFlags | (undecided ? DISPLAY_VIEW_QUALITY_FLAG.highlightUndecided : 0)) >>> 0; flags[3 * i + 1] = mask0; flags[3 * i + 2] = mask1;
+    flags[3 * i] = (pixelFlags | (undecided ? DISPLAY_VIEW_QUALITY_FLAG.highlightUndecided : 0) | nb.flag()) >>> 0; flags[3 * i + 1] = mask0; flags[3 * i + 2] = mask1;
   }
 }
 
