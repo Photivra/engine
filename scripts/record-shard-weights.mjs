@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Re-records test/shard-weights.json from Vitest JSON reports (photivra/photivra#510).
+// Re-records test/shard-weights.json from Vitest JSON reports (Photivra/engine#510).
 //
 //   node scripts/record-shard-weights.mjs <report.json>... [--source "<where they ran>"]
 //

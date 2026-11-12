@@ -1,6 +1,6 @@
 # Content Credentials (C2PA) in exports
 
-Engine 2.22.0 adds the engine half of [#165](https://github.com/Photivra/photivra/issues/165): functions that put a C2PA
+Engine 2.22.0 adds the engine half of [#165](https://github.com/Photivra/engine/issues/165): functions that put a C2PA
 Manifest Store into a JPEG, PNG or DNG export, keep the data hash valid while the store is signed, and find a store already
 in a file. The application builds the manifest, signs it, validates it and decides what to do when signing is not possible;
 the engine only handles the file bytes.

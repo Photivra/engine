@@ -4,45 +4,45 @@
 
 ## Start here
 
-- [Agent guide](https://github.com/Photivra/photivra/blob/main/docs/AGENT_GUIDE.md): which function to call, units, reading results, errors and limits
-- [Quick start](https://github.com/Photivra/photivra/blob/main/docs/QUICK_START.md): `simulateCapture()` inputs, defaults, chart presets and output formats
-- [Color patches](https://github.com/Photivra/photivra/blob/main/docs/COLOR_PATCHES.md): the built-in color chart patches (`color-patches` preset, `{ kind: "color-patch", patchId }`), their spectra and CIELAB
-- [Image-plane scene](https://github.com/Photivra/photivra/blob/main/docs/IMAGE_PLANE.md): a photo as a flat print in front of the camera (`{ kind: "image-plane" }`), its input, placement, print reflectance lattice and accuracy
-- [Light sources](https://github.com/Photivra/photivra/blob/main/docs/LIGHT_SOURCES.md): representative fluorescent and LED spectra designed by Photivra (`createRepresentativeLightSourceIlluminant`), their CCT and color rendering
-- [Content Credentials](https://github.com/Photivra/photivra/blob/main/docs/CONTENT_CREDENTIALS.md): embed a caller-built C2PA manifest store in a JPEG, PNG or DNG export (`bindC2paManifestStore`), hash the bound bytes (`calculateC2paDataHash`), write the signed store at the same length (`setC2paManifestStore`) and find an existing store (`parseC2paManifestStore`); no keys, signature checks or network
-- [Usage guide](https://github.com/Photivra/photivra/blob/main/docs/USAGE.md): worked examples for every public area
-- [API reference](https://github.com/Photivra/photivra/blob/main/docs/API_REFERENCE.md): every root export, with a task-to-function index
+- [Agent guide](https://github.com/Photivra/engine/blob/main/docs/AGENT_GUIDE.md): which function to call, units, reading results, errors and limits
+- [Quick start](https://github.com/Photivra/engine/blob/main/docs/QUICK_START.md): `simulateCapture()` inputs, defaults, chart presets and output formats
+- [Color patches](https://github.com/Photivra/engine/blob/main/docs/COLOR_PATCHES.md): the built-in color chart patches (`color-patches` preset, `{ kind: "color-patch", patchId }`), their spectra and CIELAB
+- [Image-plane scene](https://github.com/Photivra/engine/blob/main/docs/IMAGE_PLANE.md): a photo as a flat print in front of the camera (`{ kind: "image-plane" }`), its input, placement, print reflectance lattice and accuracy
+- [Light sources](https://github.com/Photivra/engine/blob/main/docs/LIGHT_SOURCES.md): representative fluorescent and LED spectra designed by Photivra (`createRepresentativeLightSourceIlluminant`), their CCT and color rendering
+- [Content Credentials](https://github.com/Photivra/engine/blob/main/docs/CONTENT_CREDENTIALS.md): embed a caller-built C2PA manifest store in a JPEG, PNG or DNG export (`bindC2paManifestStore`), hash the bound bytes (`calculateC2paDataHash`), write the signed store at the same length (`setC2paManifestStore`) and find an existing store (`parseC2paManifestStore`); no keys, signature checks or network
+- [Usage guide](https://github.com/Photivra/engine/blob/main/docs/USAGE.md): worked examples for every public area
+- [API reference](https://github.com/Photivra/engine/blob/main/docs/API_REFERENCE.md): every root export, with a task-to-function index
 
 ## One call: a full simulated photo
 
-- [simulateCapture()](https://github.com/Photivra/photivra/blob/main/docs/api/facade-simulate-capture.md#simulatecapture): async; camera tier, lens, exposure and chart scene in, developed image plus `assumptions` and `provenance` out
+- [simulateCapture()](https://github.com/Photivra/engine/blob/main/docs/api/facade-simulate-capture.md#simulatecapture): async; camera tier, lens, exposure and chart scene in, developed image plus `assumptions` and `provenance` out
 
 ## Single calculations by task
 
-- [calculateExposureValue100()](https://github.com/Photivra/photivra/blob/main/docs/api/exposure-exposure.md#calculateexposurevalue100): EV at ISO 100 from f-number and shutter seconds
-- [calculateEquivalentIso()](https://github.com/Photivra/photivra/blob/main/docs/api/exposure-exposure.md#calculateequivalentiso): ISO that keeps the same brightness after an aperture or shutter change
-- [calculateDepthOfField()](https://github.com/Photivra/photivra/blob/main/docs/api/optics-depth-of-field.md#calculatedepthoffield): near and far limits and hyperfocal distance (thin lens)
-- [calculateDefocusCircle()](https://github.com/Photivra/photivra/blob/main/docs/api/optics-depth-of-field.md#calculatedefocuscircle): blur-circle size for an out-of-focus subject
-- [calculateDefocusDiscKernelRadius()](https://github.com/Photivra/photivra/blob/main/docs/api/optics-defocus-disc-kernel.md#calculatedefocusdisckernelradius): whether `lens.defocus` can render a blur before you render it (the 64-site limit)
-- [resolveGenericLens()](https://github.com/Photivra/photivra/blob/main/docs/api/equipment-generic-lens-catalogue.md#resolvegenericlens): one of the 30 generic catalogue lenses ("PV 50 1.2 Pro") on a sensor, with its approximated optical character; `simulateCapture` renders it with `lens.catalogue`
-- [calculateFieldOfView()](https://github.com/Photivra/photivra/blob/main/docs/api/camera-field-of-view.md#calculatefieldofview): angle of view from focal length and sensor size
-- [calculateEquivalentFocalLength35Mm()](https://github.com/Photivra/photivra/blob/main/docs/api/camera-equivalent-focal-length.md#calculateequivalentfocallength35mm): crop factor and 35 mm-equivalent focal length
-- [calculateSensorEquivalence()](https://github.com/Photivra/photivra/blob/main/docs/api/camera-sensor-equivalence.md#calculatesensorequivalence): equivalent focal length and f-number, sensor area ratio and angles of view of a lens on one sensor, each marked exact or approximated
-- [calculateBlurShareOfFrame()](https://github.com/Photivra/photivra/blob/main/docs/api/camera-sensor-equivalence.md#calculateblurshareofframe): a blur circle as a share of the frame diagonal, or its size on a print
-- [calculatePrintSizeLimitWithBlurAndNoise()](https://github.com/Photivra/photivra/blob/main/docs/api/output-print-size-blur-noise.md#calculateprintsizelimitwithblurandnoise): the largest print at a viewing distance that still looks sharp and clean, counting blur and noise as well as pixels (an approximation)
-- [calculateCenteredCrop()](https://github.com/Photivra/photivra/blob/main/docs/api/output-crop.md#calculatecenteredcrop): pixels left after a centred crop
-- [calculateCropToMatchFocalLength()](https://github.com/Photivra/photivra/blob/main/docs/api/output-crop-to-match-focal-length.md#calculatecroptomatchfocallength): crop factor and pixels left when cropping a shorter lens's image to match a longer focal length
-- [calculateApertureDiameter()](https://github.com/Photivra/photivra/blob/main/docs/api/optics-aperture-diameter.md#calculateaperturediameter): entrance-pupil (aperture) diameter in mm, focal length ÷ f-number
-- [calculateProjectedMotionBlur()](https://github.com/Photivra/photivra/blob/main/docs/api/motion-projected-motion.md#calculateprojectedmotionblur): how far a moving subject smears on the sensor during the shutter time
-- [calculateFilteredExposureTime()](https://github.com/Photivra/photivra/blob/main/docs/api/exposure-filtered-exposure-time.md#calculatefilteredexposuretime): shutter time that keeps the same exposure with an ND (or any front-of-lens) filter, and the nearest shutter-dial value; `GENERIC_ND_FILTER_PROFILES` gives idealized 3-, 6- and 10-stop filters (exactly 2^-N)
-- [calculateDetailLimit()](https://github.com/Photivra/photivra/blob/main/docs/api/optics-detail-limit.md#calculatedetaillimit): which limits detail for given settings, the lens (diffraction, aberrations, defocus) or the sensor's pixel pitch, with the optics MTF50, the Nyquist frequency and the system MTF50
-- [calculateAiryDisk()](https://github.com/Photivra/photivra/blob/main/docs/api/optics-diffraction.md#calculateairydisk): diffraction spot size from f-number and wavelength
-- [calculateSignalToNoise()](https://github.com/Photivra/photivra/blob/main/docs/api/sensor-signal-noise.md#calculatesignaltonoise): expected SNR from signal and read noise in electrons
-- [calculateChromaticityFromCorrelatedColorTemperature()](https://github.com/Photivra/photivra/blob/main/docs/api/color-illuminants.md#calculatechromaticityfromcorrelatedcolortemperature): white point for a colour temperature in kelvin
-- [resolveColorTemperatureWhiteBalance()](https://github.com/Photivra/photivra/blob/main/docs/api/color-white-balance.md#resolvecolortemperaturewhitebalance): Kelvin + tint white balance to camera channel gains
+- [calculateExposureValue100()](https://github.com/Photivra/engine/blob/main/docs/api/exposure-exposure.md#calculateexposurevalue100): EV at ISO 100 from f-number and shutter seconds
+- [calculateEquivalentIso()](https://github.com/Photivra/engine/blob/main/docs/api/exposure-exposure.md#calculateequivalentiso): ISO that keeps the same brightness after an aperture or shutter change
+- [calculateDepthOfField()](https://github.com/Photivra/engine/blob/main/docs/api/optics-depth-of-field.md#calculatedepthoffield): near and far limits and hyperfocal distance (thin lens)
+- [calculateDefocusCircle()](https://github.com/Photivra/engine/blob/main/docs/api/optics-depth-of-field.md#calculatedefocuscircle): blur-circle size for an out-of-focus subject
+- [calculateDefocusDiscKernelRadius()](https://github.com/Photivra/engine/blob/main/docs/api/optics-defocus-disc-kernel.md#calculatedefocusdisckernelradius): whether `lens.defocus` can render a blur before you render it (the 64-site limit)
+- [resolveGenericLens()](https://github.com/Photivra/engine/blob/main/docs/api/equipment-generic-lens-catalogue.md#resolvegenericlens): one of the 30 generic catalogue lenses ("PV 50 1.2 Pro") on a sensor, with its approximated optical character; `simulateCapture` renders it with `lens.catalogue`
+- [calculateFieldOfView()](https://github.com/Photivra/engine/blob/main/docs/api/camera-field-of-view.md#calculatefieldofview): angle of view from focal length and sensor size
+- [calculateEquivalentFocalLength35Mm()](https://github.com/Photivra/engine/blob/main/docs/api/camera-equivalent-focal-length.md#calculateequivalentfocallength35mm): crop factor and 35 mm-equivalent focal length
+- [calculateSensorEquivalence()](https://github.com/Photivra/engine/blob/main/docs/api/camera-sensor-equivalence.md#calculatesensorequivalence): equivalent focal length and f-number, sensor area ratio and angles of view of a lens on one sensor, each marked exact or approximated
+- [calculateBlurShareOfFrame()](https://github.com/Photivra/engine/blob/main/docs/api/camera-sensor-equivalence.md#calculateblurshareofframe): a blur circle as a share of the frame diagonal, or its size on a print
+- [calculatePrintSizeLimitWithBlurAndNoise()](https://github.com/Photivra/engine/blob/main/docs/api/output-print-size-blur-noise.md#calculateprintsizelimitwithblurandnoise): the largest print at a viewing distance that still looks sharp and clean, counting blur and noise as well as pixels (an approximation)
+- [calculateCenteredCrop()](https://github.com/Photivra/engine/blob/main/docs/api/output-crop.md#calculatecenteredcrop): pixels left after a centred crop
+- [calculateCropToMatchFocalLength()](https://github.com/Photivra/engine/blob/main/docs/api/output-crop-to-match-focal-length.md#calculatecroptomatchfocallength): crop factor and pixels left when cropping a shorter lens's image to match a longer focal length
+- [calculateApertureDiameter()](https://github.com/Photivra/engine/blob/main/docs/api/optics-aperture-diameter.md#calculateaperturediameter): entrance-pupil (aperture) diameter in mm, focal length ÷ f-number
+- [calculateProjectedMotionBlur()](https://github.com/Photivra/engine/blob/main/docs/api/motion-projected-motion.md#calculateprojectedmotionblur): how far a moving subject smears on the sensor during the shutter time
+- [calculateFilteredExposureTime()](https://github.com/Photivra/engine/blob/main/docs/api/exposure-filtered-exposure-time.md#calculatefilteredexposuretime): shutter time that keeps the same exposure with an ND (or any front-of-lens) filter, and the nearest shutter-dial value; `GENERIC_ND_FILTER_PROFILES` gives idealized 3-, 6- and 10-stop filters (exactly 2^-N)
+- [calculateDetailLimit()](https://github.com/Photivra/engine/blob/main/docs/api/optics-detail-limit.md#calculatedetaillimit): which limits detail for given settings, the lens (diffraction, aberrations, defocus) or the sensor's pixel pitch, with the optics MTF50, the Nyquist frequency and the system MTF50
+- [calculateAiryDisk()](https://github.com/Photivra/engine/blob/main/docs/api/optics-diffraction.md#calculateairydisk): diffraction spot size from f-number and wavelength
+- [calculateSignalToNoise()](https://github.com/Photivra/engine/blob/main/docs/api/sensor-signal-noise.md#calculatesignaltonoise): expected SNR from signal and read noise in electrons
+- [calculateChromaticityFromCorrelatedColorTemperature()](https://github.com/Photivra/engine/blob/main/docs/api/color-illuminants.md#calculatechromaticityfromcorrelatedcolortemperature): white point for a colour temperature in kelvin
+- [resolveColorTemperatureWhiteBalance()](https://github.com/Photivra/engine/blob/main/docs/api/color-white-balance.md#resolvecolortemperaturewhitebalance): Kelvin + tint white balance to camera channel gains
 
 ## Reference
 
-- [Per-module API pages](https://github.com/Photivra/photivra/tree/main/docs/api): generated signatures and doc comments for each source module
-- [Error types](https://github.com/Photivra/photivra/blob/main/docs/api/core-validation.md#invalidscientificinputerror): `InvalidScientificInputError` (RangeError) and `InvalidConfigurationError` (TypeError)
-- [README](https://github.com/Photivra/photivra/blob/main/README.md): overview and "Important scientific limits"
+- [Per-module API pages](https://github.com/Photivra/engine/tree/main/docs/api): generated signatures and doc comments for each source module
+- [Error types](https://github.com/Photivra/engine/blob/main/docs/api/core-validation.md#invalidscientificinputerror): `InvalidScientificInputError` (RangeError) and `InvalidConfigurationError` (TypeError)
+- [README](https://github.com/Photivra/engine/blob/main/README.md): overview and "Important scientific limits"

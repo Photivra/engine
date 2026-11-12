@@ -2,7 +2,7 @@
 
 Generated from the exact root exports for **@photivra/engine 2.24.0 / root contract 2.24.0** by `node scripts/generate-api-reference.mjs`. No module deep import is supported.
 
-Use [the developer guide](https://github.com/Photivra/photivra/blob/main/docs/DEVELOPERS.md) for executable paths and scientific boundaries. Types are contracts, not runtime validation: parse untrusted data, preserve units/reference frames, read assessment blockers, and retain evidence/limitations. Optional properties do not imply a universal default. Model/schema IDs remain independent of the distribution.
+Use [the developer guide](https://github.com/Photivra/engine/blob/main/docs/DEVELOPERS.md) for executable paths and scientific boundaries. Types are contracts, not runtime validation: parse untrusted data, preserve units/reference frames, read assessment blockers, and retain evidence/limitations. Optional properties do not imply a universal default. Model/schema IDs remain independent of the distribution.
 
 ## Task index
 
@@ -28,7 +28,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## camera/equivalent-focal-length.ts
 
-[Detailed contracts](api/camera-equivalent-focal-length.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/camera/equivalent-focal-length.ts)
+[Detailed contracts](api/camera-equivalent-focal-length.md) · [Source](https://github.com/Photivra/engine/blob/main/src/camera/equivalent-focal-length.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -38,7 +38,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## camera/field-of-view.ts
 
-[Detailed contracts](api/camera-field-of-view.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/camera/field-of-view.ts)
+[Detailed contracts](api/camera-field-of-view.md) · [Source](https://github.com/Photivra/engine/blob/main/src/camera/field-of-view.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -51,7 +51,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## camera/lens-projection.ts
 
-[Detailed contracts](api/camera-lens-projection.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/camera/lens-projection.ts)
+[Detailed contracts](api/camera-lens-projection.md) · [Source](https://github.com/Photivra/engine/blob/main/src/camera/lens-projection.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -75,7 +75,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## camera/projected-object-size.ts
 
-[Detailed contracts](api/camera-projected-object-size.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/camera/projected-object-size.ts)
+[Detailed contracts](api/camera-projected-object-size.md) · [Source](https://github.com/Photivra/engine/blob/main/src/camera/projected-object-size.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -85,7 +85,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## camera/sensor-equivalence.ts
 
-[Detailed contracts](api/camera-sensor-equivalence.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/camera/sensor-equivalence.ts)
+[Detailed contracts](api/camera-sensor-equivalence.md) · [Source](https://github.com/Photivra/engine/blob/main/src/camera/sensor-equivalence.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -103,7 +103,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## capture/c2pa-embed.ts
 
-[Detailed contracts](api/capture-c2pa-embed.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/capture/c2pa-embed.ts)
+[Detailed contracts](api/capture-c2pa-embed.md) · [Source](https://github.com/Photivra/engine/blob/main/src/capture/c2pa-embed.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -125,7 +125,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## capture/capture-export-metadata.ts
 
-[Detailed contracts](api/capture-capture-export-metadata.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/capture/capture-export-metadata.ts)
+[Detailed contracts](api/capture-capture-export-metadata.md) · [Source](https://github.com/Photivra/engine/blob/main/src/capture/capture-export-metadata.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -140,7 +140,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## capture/dng-development.ts
 
-[Detailed contracts](api/capture-dng-development.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/capture/dng-development.ts)
+[Detailed contracts](api/capture-dng-development.md) · [Source](https://github.com/Photivra/engine/blob/main/src/capture/dng-development.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -151,7 +151,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## capture/dng-gain-switch.ts
 
-[Detailed contracts](api/capture-dng-gain-switch.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/capture/dng-gain-switch.ts)
+[Detailed contracts](api/capture-dng-gain-switch.md) · [Source](https://github.com/Photivra/engine/blob/main/src/capture/dng-gain-switch.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -161,7 +161,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## capture/dng-import.ts
 
-[Detailed contracts](api/capture-dng-import.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/capture/dng-import.ts)
+[Detailed contracts](api/capture-dng-import.md) · [Source](https://github.com/Photivra/engine/blob/main/src/capture/dng-import.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -182,7 +182,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## capture/dng-opcodes.ts
 
-[Detailed contracts](api/capture-dng-opcodes.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/capture/dng-opcodes.ts)
+[Detailed contracts](api/capture-dng-opcodes.md) · [Source](https://github.com/Photivra/engine/blob/main/src/capture/dng-opcodes.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -196,7 +196,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## capture/dng-profile-maps.ts
 
-[Detailed contracts](api/capture-dng-profile-maps.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/capture/dng-profile-maps.ts)
+[Detailed contracts](api/capture-dng-profile-maps.md) · [Source](https://github.com/Photivra/engine/blob/main/src/capture/dng-profile-maps.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -213,7 +213,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## capture/dng-raw-measurements.ts
 
-[Detailed contracts](api/capture-dng-raw-measurements.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/capture/dng-raw-measurements.ts)
+[Detailed contracts](api/capture-dng-raw-measurements.md) · [Source](https://github.com/Photivra/engine/blob/main/src/capture/dng-raw-measurements.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -229,7 +229,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## capture/dng-raw-what-if.ts
 
-[Detailed contracts](api/capture-dng-raw-what-if.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/capture/dng-raw-what-if.ts)
+[Detailed contracts](api/capture-dng-raw-what-if.md) · [Source](https://github.com/Photivra/engine/blob/main/src/capture/dng-raw-what-if.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -245,7 +245,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## capture/dng-stage-image.ts
 
-[Detailed contracts](api/capture-dng-stage-image.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/capture/dng-stage-image.ts)
+[Detailed contracts](api/capture-dng-stage-image.md) · [Source](https://github.com/Photivra/engine/blob/main/src/capture/dng-stage-image.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -255,7 +255,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## capture/environment-raw-producer.ts
 
-[Detailed contracts](api/capture-environment-raw-producer.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/capture/environment-raw-producer.ts)
+[Detailed contracts](api/capture-environment-raw-producer.md) · [Source](https://github.com/Photivra/engine/blob/main/src/capture/environment-raw-producer.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -265,7 +265,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## capture/export-jpeg.ts
 
-[Detailed contracts](api/capture-export-jpeg.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/capture/export-jpeg.ts)
+[Detailed contracts](api/capture-export-jpeg.md) · [Source](https://github.com/Photivra/engine/blob/main/src/capture/export-jpeg.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -274,7 +274,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## capture/focus-control.ts
 
-[Detailed contracts](api/capture-focus-control.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/capture/focus-control.ts)
+[Detailed contracts](api/capture-focus-control.md) · [Source](https://github.com/Photivra/engine/blob/main/src/capture/focus-control.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -304,7 +304,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## capture/jpeg-xl-tiles.ts
 
-[Detailed contracts](api/capture-jpeg-xl-tiles.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/capture/jpeg-xl-tiles.ts)
+[Detailed contracts](api/capture-jpeg-xl-tiles.md) · [Source](https://github.com/Photivra/engine/blob/main/src/capture/jpeg-xl-tiles.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -314,7 +314,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## capture/linear-encoding.ts
 
-[Detailed contracts](api/capture-linear-encoding.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/capture/linear-encoding.ts)
+[Detailed contracts](api/capture-linear-encoding.md) · [Source](https://github.com/Photivra/engine/blob/main/src/capture/linear-encoding.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -328,7 +328,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## capture/lossless-jpeg.ts
 
-[Detailed contracts](api/capture-lossless-jpeg.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/capture/lossless-jpeg.ts)
+[Detailed contracts](api/capture-lossless-jpeg.md) · [Source](https://github.com/Photivra/engine/blob/main/src/capture/lossless-jpeg.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -338,7 +338,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## capture/lossy-jpeg.ts
 
-[Detailed contracts](api/capture-lossy-jpeg.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/capture/lossy-jpeg.ts)
+[Detailed contracts](api/capture-lossy-jpeg.md) · [Source](https://github.com/Photivra/engine/blob/main/src/capture/lossy-jpeg.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -348,7 +348,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## capture/native-environment-optical-stage.ts
 
-[Detailed contracts](api/capture-native-environment-optical-stage.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/capture/native-environment-optical-stage.ts)
+[Detailed contracts](api/capture-native-environment-optical-stage.md) · [Source](https://github.com/Photivra/engine/blob/main/src/capture/native-environment-optical-stage.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -360,7 +360,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## capture/native-environment-raw.ts
 
-[Detailed contracts](api/capture-native-environment-raw.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/capture/native-environment-raw.ts)
+[Detailed contracts](api/capture-native-environment-raw.md) · [Source](https://github.com/Photivra/engine/blob/main/src/capture/native-environment-raw.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -382,7 +382,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## capture/native-raw-development.ts
 
-[Detailed contracts](api/capture-native-raw-development.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/capture/native-raw-development.ts)
+[Detailed contracts](api/capture-native-raw-development.md) · [Source](https://github.com/Photivra/engine/blob/main/src/capture/native-raw-development.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -396,7 +396,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## capture/native-raw-dng.ts
 
-[Detailed contracts](api/capture-native-raw-dng.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/capture/native-raw-dng.ts)
+[Detailed contracts](api/capture-native-raw-dng.md) · [Source](https://github.com/Photivra/engine/blob/main/src/capture/native-raw-dng.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -408,7 +408,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## capture/native-raw.ts
 
-[Detailed contracts](api/capture-native-raw.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/capture/native-raw.ts)
+[Detailed contracts](api/capture-native-raw.md) · [Source](https://github.com/Photivra/engine/blob/main/src/capture/native-raw.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -429,7 +429,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## capture/packed-sensor-raw.ts
 
-[Detailed contracts](api/capture-packed-sensor-raw.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/capture/packed-sensor-raw.ts)
+[Detailed contracts](api/capture-packed-sensor-raw.md) · [Source](https://github.com/Photivra/engine/blob/main/src/capture/packed-sensor-raw.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -446,7 +446,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## capture/photographic-export.ts
 
-[Detailed contracts](api/capture-photographic-export.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/capture/photographic-export.ts)
+[Detailed contracts](api/capture-photographic-export.md) · [Source](https://github.com/Photivra/engine/blob/main/src/capture/photographic-export.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -467,7 +467,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## capture/raw-frame-reconstruction.ts
 
-[Detailed contracts](api/capture-raw-frame-reconstruction.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/capture/raw-frame-reconstruction.ts)
+[Detailed contracts](api/capture-raw-frame-reconstruction.md) · [Source](https://github.com/Photivra/engine/blob/main/src/capture/raw-frame-reconstruction.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -480,7 +480,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## capture/raw-white-level.ts
 
-[Detailed contracts](api/capture-raw-white-level.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/capture/raw-white-level.ts)
+[Detailed contracts](api/capture-raw-white-level.md) · [Source](https://github.com/Photivra/engine/blob/main/src/capture/raw-white-level.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -489,7 +489,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## capture/release-sequence.ts
 
-[Detailed contracts](api/capture-release-sequence.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/capture/release-sequence.ts)
+[Detailed contracts](api/capture-release-sequence.md) · [Source](https://github.com/Photivra/engine/blob/main/src/capture/release-sequence.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -509,7 +509,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## capture/sensor-raw-frame.ts
 
-[Detailed contracts](api/capture-sensor-raw-frame.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/capture/sensor-raw-frame.ts)
+[Detailed contracts](api/capture-sensor-raw-frame.md) · [Source](https://github.com/Photivra/engine/blob/main/src/capture/sensor-raw-frame.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -521,7 +521,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## capture/sensor-raw-producer.ts
 
-[Detailed contracts](api/capture-sensor-raw-producer.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/capture/sensor-raw-producer.ts)
+[Detailed contracts](api/capture-sensor-raw-producer.md) · [Source](https://github.com/Photivra/engine/blob/main/src/capture/sensor-raw-producer.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -536,7 +536,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## capture/simulated-capture.ts
 
-[Detailed contracts](api/capture-simulated-capture.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/capture/simulated-capture.ts)
+[Detailed contracts](api/capture-simulated-capture.md) · [Source](https://github.com/Photivra/engine/blob/main/src/capture/simulated-capture.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -558,7 +558,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## color/camera-color-matrix.ts
 
-[Detailed contracts](api/color-camera-color-matrix.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/color/camera-color-matrix.ts)
+[Detailed contracts](api/color-camera-color-matrix.md) · [Source](https://github.com/Photivra/engine/blob/main/src/color/camera-color-matrix.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -573,7 +573,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## color/capture-color.ts
 
-[Detailed contracts](api/color-capture-color.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/color/capture-color.ts)
+[Detailed contracts](api/color-capture-color.md) · [Source](https://github.com/Photivra/engine/blob/main/src/color/capture-color.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -591,7 +591,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## color/chromatic-adaptation.ts
 
-[Detailed contracts](api/color-chromatic-adaptation.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/color/chromatic-adaptation.ts)
+[Detailed contracts](api/color-chromatic-adaptation.md) · [Source](https://github.com/Photivra/engine/blob/main/src/color/chromatic-adaptation.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -605,7 +605,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## color/color-difference.ts
 
-[Detailed contracts](api/color-color-difference.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/color/color-difference.ts)
+[Detailed contracts](api/color-color-difference.md) · [Source](https://github.com/Photivra/engine/blob/main/src/color/color-difference.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -623,7 +623,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## color/color-matching-functions.ts
 
-[Detailed contracts](api/color-color-matching-functions.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/color/color-matching-functions.ts)
+[Detailed contracts](api/color-color-matching-functions.md) · [Source](https://github.com/Photivra/engine/blob/main/src/color/color-matching-functions.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -652,7 +652,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## color/colorimetry-math.ts
 
-[Detailed contracts](api/color-colorimetry-math.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/color/colorimetry-math.ts)
+[Detailed contracts](api/color-colorimetry-math.md) · [Source](https://github.com/Photivra/engine/blob/main/src/color/colorimetry-math.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -664,7 +664,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## color/gamut-mapping.ts
 
-[Detailed contracts](api/color-gamut-mapping.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/color/gamut-mapping.ts)
+[Detailed contracts](api/color-gamut-mapping.md) · [Source](https://github.com/Photivra/engine/blob/main/src/color/gamut-mapping.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -677,7 +677,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## color/illuminants.ts
 
-[Detailed contracts](api/color-illuminants.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/color/illuminants.ts)
+[Detailed contracts](api/color-illuminants.md) · [Source](https://github.com/Photivra/engine/blob/main/src/color/illuminants.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -708,7 +708,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## color/rgb-color-spaces.ts
 
-[Detailed contracts](api/color-rgb-color-spaces.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/color/rgb-color-spaces.ts)
+[Detailed contracts](api/color-rgb-color-spaces.md) · [Source](https://github.com/Photivra/engine/blob/main/src/color/rgb-color-spaces.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -728,7 +728,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## color/sensor-color-development.ts
 
-[Detailed contracts](api/color-sensor-color-development.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/color/sensor-color-development.ts)
+[Detailed contracts](api/color-sensor-color-development.md) · [Source](https://github.com/Photivra/engine/blob/main/src/color/sensor-color-development.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -738,7 +738,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## color/srgb-icc.ts
 
-[Detailed contracts](api/color-srgb-icc.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/color/srgb-icc.ts)
+[Detailed contracts](api/color-srgb-icc.md) · [Source](https://github.com/Photivra/engine/blob/main/src/color/srgb-icc.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -747,7 +747,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## color/white-balance.ts
 
-[Detailed contracts](api/color-white-balance.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/color/white-balance.ts)
+[Detailed contracts](api/color-white-balance.md) · [Source](https://github.com/Photivra/engine/blob/main/src/color/white-balance.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -785,7 +785,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## composition/image-formation-plan.ts
 
-[Detailed contracts](api/composition-image-formation-plan.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/composition/image-formation-plan.ts)
+[Detailed contracts](api/composition-image-formation-plan.md) · [Source](https://github.com/Photivra/engine/blob/main/src/composition/image-formation-plan.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -830,7 +830,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## composition/plan-consumer.ts
 
-[Detailed contracts](api/composition-plan-consumer.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/composition/plan-consumer.ts)
+[Detailed contracts](api/composition-plan-consumer.md) · [Source](https://github.com/Photivra/engine/blob/main/src/composition/plan-consumer.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -841,7 +841,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## core/calculation-result.ts
 
-[Detailed contracts](api/core-calculation-result.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/core/calculation-result.ts)
+[Detailed contracts](api/core-calculation-result.md) · [Source](https://github.com/Photivra/engine/blob/main/src/core/calculation-result.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -863,7 +863,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## core/configuration-error.ts
 
-[Detailed contracts](api/core-configuration-error.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/core/configuration-error.ts)
+[Detailed contracts](api/core-configuration-error.md) · [Source](https://github.com/Photivra/engine/blob/main/src/core/configuration-error.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -871,7 +871,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## core/execution-error.ts
 
-[Detailed contracts](api/core-execution-error.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/core/execution-error.ts)
+[Detailed contracts](api/core-execution-error.md) · [Source](https://github.com/Photivra/engine/blob/main/src/core/execution-error.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -881,7 +881,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## core/image-formation.ts
 
-[Detailed contracts](api/core-image-formation.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/core/image-formation.ts)
+[Detailed contracts](api/core-image-formation.md) · [Source](https://github.com/Photivra/engine/blob/main/src/core/image-formation.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -901,7 +901,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## core/pixel-limits.ts
 
-[Detailed contracts](api/core-pixel-limits.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/core/pixel-limits.ts)
+[Detailed contracts](api/core-pixel-limits.md) · [Source](https://github.com/Photivra/engine/blob/main/src/core/pixel-limits.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -910,7 +910,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## core/scientific-assurance.ts
 
-[Detailed contracts](api/core-scientific-assurance.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/core/scientific-assurance.ts)
+[Detailed contracts](api/core-scientific-assurance.md) · [Source](https://github.com/Photivra/engine/blob/main/src/core/scientific-assurance.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -928,7 +928,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## core/spectral-composition.ts
 
-[Detailed contracts](api/core-spectral-composition.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/core/spectral-composition.ts)
+[Detailed contracts](api/core-spectral-composition.md) · [Source](https://github.com/Photivra/engine/blob/main/src/core/spectral-composition.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -952,7 +952,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## core/spectral.ts
 
-[Detailed contracts](api/core-spectral.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/core/spectral.ts)
+[Detailed contracts](api/core-spectral.md) · [Source](https://github.com/Photivra/engine/blob/main/src/core/spectral.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -965,7 +965,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## core/validation.ts
 
-[Detailed contracts](api/core-validation.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/core/validation.ts)
+[Detailed contracts](api/core-validation.md) · [Source](https://github.com/Photivra/engine/blob/main/src/core/validation.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -974,7 +974,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## core/version.ts
 
-[Detailed contracts](api/core-version.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/core/version.ts)
+[Detailed contracts](api/core-version.md) · [Source](https://github.com/Photivra/engine/blob/main/src/core/version.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -982,7 +982,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## equipment/exposure-capabilities.ts
 
-[Detailed contracts](api/equipment-exposure-capabilities.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/equipment/exposure-capabilities.ts)
+[Detailed contracts](api/equipment-exposure-capabilities.md) · [Source](https://github.com/Photivra/engine/blob/main/src/equipment/exposure-capabilities.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -1003,7 +1003,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## equipment/generic-lens-catalogue.ts
 
-[Detailed contracts](api/equipment-generic-lens-catalogue.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/equipment/generic-lens-catalogue.ts)
+[Detailed contracts](api/equipment-generic-lens-catalogue.md) · [Source](https://github.com/Photivra/engine/blob/main/src/equipment/generic-lens-catalogue.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -1025,7 +1025,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## equipment/generic-prime-lenses.ts
 
-[Detailed contracts](api/equipment-generic-prime-lenses.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/equipment/generic-prime-lenses.ts)
+[Detailed contracts](api/equipment-generic-prime-lenses.md) · [Source](https://github.com/Photivra/engine/blob/main/src/equipment/generic-prime-lenses.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -1039,7 +1039,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## equipment/generic-tier-assets.ts
 
-[Detailed contracts](api/equipment-generic-tier-assets.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/equipment/generic-tier-assets.ts)
+[Detailed contracts](api/equipment-generic-tier-assets.md) · [Source](https://github.com/Photivra/engine/blob/main/src/equipment/generic-tier-assets.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -1055,7 +1055,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## equipment/generic-tier-presets.ts
 
-[Detailed contracts](api/equipment-generic-tier-presets.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/equipment/generic-tier-presets.ts)
+[Detailed contracts](api/equipment-generic-tier-presets.md) · [Source](https://github.com/Photivra/engine/blob/main/src/equipment/generic-tier-presets.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -1072,7 +1072,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## equipment/ideal-lens.ts
 
-[Detailed contracts](api/equipment-ideal-lens.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/equipment/ideal-lens.ts)
+[Detailed contracts](api/equipment-ideal-lens.md) · [Source](https://github.com/Photivra/engine/blob/main/src/equipment/ideal-lens.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -1080,7 +1080,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## equipment/iso-capabilities.ts
 
-[Detailed contracts](api/equipment-iso-capabilities.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/equipment/iso-capabilities.ts)
+[Detailed contracts](api/equipment-iso-capabilities.md) · [Source](https://github.com/Photivra/engine/blob/main/src/equipment/iso-capabilities.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -1103,7 +1103,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## equipment/metering-capabilities.ts
 
-[Detailed contracts](api/equipment-metering-capabilities.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/equipment/metering-capabilities.ts)
+[Detailed contracts](api/equipment-metering-capabilities.md) · [Source](https://github.com/Photivra/engine/blob/main/src/equipment/metering-capabilities.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -1118,7 +1118,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## equipment/release-capabilities.ts
 
-[Detailed contracts](api/equipment-release-capabilities.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/equipment/release-capabilities.ts)
+[Detailed contracts](api/equipment-release-capabilities.md) · [Source](https://github.com/Photivra/engine/blob/main/src/equipment/release-capabilities.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -1130,7 +1130,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## equipment/sensor-profile-body.ts
 
-[Detailed contracts](api/equipment-sensor-profile-body.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/equipment/sensor-profile-body.ts)
+[Detailed contracts](api/equipment-sensor-profile-body.md) · [Source](https://github.com/Photivra/engine/blob/main/src/equipment/sensor-profile-body.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -1140,7 +1140,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## equipment/sensor-profiles.ts
 
-[Detailed contracts](api/equipment-sensor-profiles.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/equipment/sensor-profiles.ts)
+[Detailed contracts](api/equipment-sensor-profiles.md) · [Source](https://github.com/Photivra/engine/blob/main/src/equipment/sensor-profiles.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -1150,7 +1150,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## exposure/auto-iso-slowest-shutter.ts
 
-[Detailed contracts](api/exposure-auto-iso-slowest-shutter.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/exposure/auto-iso-slowest-shutter.ts)
+[Detailed contracts](api/exposure-auto-iso-slowest-shutter.md) · [Source](https://github.com/Photivra/engine/blob/main/src/exposure/auto-iso-slowest-shutter.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -1164,7 +1164,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## exposure/exposure-duration-control.ts
 
-[Detailed contracts](api/exposure-exposure-duration-control.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/exposure/exposure-duration-control.ts)
+[Detailed contracts](api/exposure-exposure-duration-control.md) · [Source](https://github.com/Photivra/engine/blob/main/src/exposure/exposure-duration-control.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -1177,7 +1177,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## exposure/exposure-mode-resolver.ts
 
-[Detailed contracts](api/exposure-exposure-mode-resolver.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/exposure/exposure-mode-resolver.ts)
+[Detailed contracts](api/exposure-exposure-mode-resolver.md) · [Source](https://github.com/Photivra/engine/blob/main/src/exposure/exposure-mode-resolver.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -1216,7 +1216,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## exposure/exposure.ts
 
-[Detailed contracts](api/exposure-exposure.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/exposure/exposure.ts)
+[Detailed contracts](api/exposure-exposure.md) · [Source](https://github.com/Photivra/engine/blob/main/src/exposure/exposure.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -1233,7 +1233,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## exposure/filtered-exposure-time.ts
 
-[Detailed contracts](api/exposure-filtered-exposure-time.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/exposure/filtered-exposure-time.ts)
+[Detailed contracts](api/exposure-filtered-exposure-time.md) · [Source](https://github.com/Photivra/engine/blob/main/src/exposure/filtered-exposure-time.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -1245,7 +1245,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## exposure/flash-ttl.ts
 
-[Detailed contracts](api/exposure-flash-ttl.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/exposure/flash-ttl.ts)
+[Detailed contracts](api/exposure-flash-ttl.md) · [Source](https://github.com/Photivra/engine/blob/main/src/exposure/flash-ttl.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -1262,7 +1262,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## exposure/flash.ts
 
-[Detailed contracts](api/exposure-flash.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/exposure/flash.ts)
+[Detailed contracts](api/exposure-flash.md) · [Source](https://github.com/Photivra/engine/blob/main/src/exposure/flash.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -1291,7 +1291,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## exposure/metering-scene-radiance.ts
 
-[Detailed contracts](api/exposure-metering-scene-radiance.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/exposure/metering-scene-radiance.ts)
+[Detailed contracts](api/exposure-metering-scene-radiance.md) · [Source](https://github.com/Photivra/engine/blob/main/src/exposure/metering-scene-radiance.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -1306,7 +1306,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## exposure/metering-target.ts
 
-[Detailed contracts](api/exposure-metering-target.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/exposure/metering-target.ts)
+[Detailed contracts](api/exposure-metering-target.md) · [Source](https://github.com/Photivra/engine/blob/main/src/exposure/metering-target.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -1322,7 +1322,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## exposure/metering-temporal.ts
 
-[Detailed contracts](api/exposure-metering-temporal.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/exposure/metering-temporal.ts)
+[Detailed contracts](api/exposure-metering-temporal.md) · [Source](https://github.com/Photivra/engine/blob/main/src/exposure/metering-temporal.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -1333,7 +1333,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## exposure/metering.ts
 
-[Detailed contracts](api/exposure-metering.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/exposure/metering.ts)
+[Detailed contracts](api/exposure-metering.md) · [Source](https://github.com/Photivra/engine/blob/main/src/exposure/metering.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -1351,7 +1351,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## exposure/program-line.ts
 
-[Detailed contracts](api/exposure-program-line.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/exposure/program-line.ts)
+[Detailed contracts](api/exposure-program-line.md) · [Source](https://github.com/Photivra/engine/blob/main/src/exposure/program-line.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -1362,7 +1362,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## facade/chart-material-layers.ts
 
-[Detailed contracts](api/facade-chart-material-layers.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/facade/chart-material-layers.ts)
+[Detailed contracts](api/facade-chart-material-layers.md) · [Source](https://github.com/Photivra/engine/blob/main/src/facade/chart-material-layers.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -1380,7 +1380,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## facade/chart-radiance-batch.ts
 
-[Detailed contracts](api/facade-chart-radiance-batch.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/facade/chart-radiance-batch.ts)
+[Detailed contracts](api/facade-chart-radiance-batch.md) · [Source](https://github.com/Photivra/engine/blob/main/src/facade/chart-radiance-batch.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -1394,7 +1394,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## facade/chart-scenes.ts
 
-[Detailed contracts](api/facade-chart-scenes.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/facade/chart-scenes.ts)
+[Detailed contracts](api/facade-chart-scenes.md) · [Source](https://github.com/Photivra/engine/blob/main/src/facade/chart-scenes.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -1437,7 +1437,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## facade/color-patches.ts
 
-[Detailed contracts](api/facade-color-patches.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/facade/color-patches.ts)
+[Detailed contracts](api/facade-color-patches.md) · [Source](https://github.com/Photivra/engine/blob/main/src/facade/color-patches.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -1456,7 +1456,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## facade/develop-joined-parts.ts
 
-[Detailed contracts](api/facade-develop-joined-parts.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/facade/develop-joined-parts.ts)
+[Detailed contracts](api/facade-develop-joined-parts.md) · [Source](https://github.com/Photivra/engine/blob/main/src/facade/develop-joined-parts.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -1464,7 +1464,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## facade/display-view-gpu.ts
 
-[Detailed contracts](api/facade-display-view-gpu.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/facade/display-view-gpu.ts)
+[Detailed contracts](api/facade-display-view-gpu.md) · [Source](https://github.com/Photivra/engine/blob/main/src/facade/display-view-gpu.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -1477,7 +1477,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## facade/display-view.ts
 
-[Detailed contracts](api/facade-display-view.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/facade/display-view.ts)
+[Detailed contracts](api/facade-display-view.md) · [Source](https://github.com/Photivra/engine/blob/main/src/facade/display-view.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -1488,7 +1488,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## facade/exposure-build-up.ts
 
-[Detailed contracts](api/facade-exposure-build-up.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/facade/exposure-build-up.ts)
+[Detailed contracts](api/facade-exposure-build-up.md) · [Source](https://github.com/Photivra/engine/blob/main/src/facade/exposure-build-up.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -1501,7 +1501,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## facade/fast-methods.ts
 
-[Detailed contracts](api/facade-fast-methods.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/facade/fast-methods.ts)
+[Detailed contracts](api/facade-fast-methods.md) · [Source](https://github.com/Photivra/engine/blob/main/src/facade/fast-methods.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -1510,7 +1510,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## facade/image-plane-enable.ts
 
-[Detailed contracts](api/facade-image-plane-enable.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/facade/image-plane-enable.ts)
+[Detailed contracts](api/facade-image-plane-enable.md) · [Source](https://github.com/Photivra/engine/blob/main/src/facade/image-plane-enable.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -1518,7 +1518,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## facade/mixed-illumination.ts
 
-[Detailed contracts](api/facade-mixed-illumination.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/facade/mixed-illumination.ts)
+[Detailed contracts](api/facade-mixed-illumination.md) · [Source](https://github.com/Photivra/engine/blob/main/src/facade/mixed-illumination.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -1530,7 +1530,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## facade/quality-paths.ts
 
-[Detailed contracts](api/facade-quality-paths.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/facade/quality-paths.ts)
+[Detailed contracts](api/facade-quality-paths.md) · [Source](https://github.com/Photivra/engine/blob/main/src/facade/quality-paths.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -1538,7 +1538,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## facade/representative-light-sources.ts
 
-[Detailed contracts](api/facade-representative-light-sources.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/facade/representative-light-sources.ts)
+[Detailed contracts](api/facade-representative-light-sources.md) · [Source](https://github.com/Photivra/engine/blob/main/src/facade/representative-light-sources.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -1556,7 +1556,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## facade/scene-radiance.ts
 
-[Detailed contracts](api/facade-scene-radiance.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/facade/scene-radiance.ts)
+[Detailed contracts](api/facade-scene-radiance.md) · [Source](https://github.com/Photivra/engine/blob/main/src/facade/scene-radiance.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -1579,7 +1579,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## facade/simulate-capture.ts
 
-[Detailed contracts](api/facade-simulate-capture.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/facade/simulate-capture.ts)
+[Detailed contracts](api/facade-simulate-capture.md) · [Source](https://github.com/Photivra/engine/blob/main/src/facade/simulate-capture.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -1629,7 +1629,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## facade/simulate-display-view.ts
 
-[Detailed contracts](api/facade-simulate-display-view.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/facade/simulate-display-view.ts)
+[Detailed contracts](api/facade-simulate-display-view.md) · [Source](https://github.com/Photivra/engine/blob/main/src/facade/simulate-display-view.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -1640,7 +1640,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## facade/subject-framing.ts
 
-[Detailed contracts](api/facade-subject-framing.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/facade/subject-framing.ts)
+[Detailed contracts](api/facade-subject-framing.md) · [Source](https://github.com/Photivra/engine/blob/main/src/facade/subject-framing.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -1654,7 +1654,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## gpu/image-kernel-accelerator.ts
 
-[Detailed contracts](api/gpu-image-kernel-accelerator.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/gpu/image-kernel-accelerator.ts)
+[Detailed contracts](api/gpu-image-kernel-accelerator.md) · [Source](https://github.com/Photivra/engine/blob/main/src/gpu/image-kernel-accelerator.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -1672,7 +1672,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## gpu/image-kernel-execution.ts
 
-[Detailed contracts](api/gpu-image-kernel-execution.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/gpu/image-kernel-execution.ts)
+[Detailed contracts](api/gpu-image-kernel-execution.md) · [Source](https://github.com/Photivra/engine/blob/main/src/gpu/image-kernel-execution.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -1691,7 +1691,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## gpu/webgpu-switch.ts
 
-[Detailed contracts](api/gpu-webgpu-switch.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/gpu/webgpu-switch.ts)
+[Detailed contracts](api/gpu-webgpu-switch.md) · [Source](https://github.com/Photivra/engine/blob/main/src/gpu/webgpu-switch.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -1700,7 +1700,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## motion/camera-rotation.ts
 
-[Detailed contracts](api/motion-camera-rotation.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/motion/camera-rotation.ts)
+[Detailed contracts](api/motion-camera-rotation.md) · [Source](https://github.com/Photivra/engine/blob/main/src/motion/camera-rotation.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -1716,7 +1716,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## motion/capture-rotation-inverse-mapping.ts
 
-[Detailed contracts](api/motion-capture-rotation-inverse-mapping.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/motion/capture-rotation-inverse-mapping.ts)
+[Detailed contracts](api/motion-capture-rotation-inverse-mapping.md) · [Source](https://github.com/Photivra/engine/blob/main/src/motion/capture-rotation-inverse-mapping.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -1727,7 +1727,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## motion/capture-rotation-temporal-quadrature.ts
 
-[Detailed contracts](api/motion-capture-rotation-temporal-quadrature.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/motion/capture-rotation-temporal-quadrature.ts)
+[Detailed contracts](api/motion-capture-rotation-temporal-quadrature.md) · [Source](https://github.com/Photivra/engine/blob/main/src/motion/capture-rotation-temporal-quadrature.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -1739,7 +1739,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## motion/capture-rotation-trajectory.ts
 
-[Detailed contracts](api/motion-capture-rotation-trajectory.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/motion/capture-rotation-trajectory.ts)
+[Detailed contracts](api/motion-capture-rotation-trajectory.md) · [Source](https://github.com/Photivra/engine/blob/main/src/motion/capture-rotation-trajectory.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -1751,7 +1751,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## motion/capture-translation-parallax-temporal-quadrature.ts
 
-[Detailed contracts](api/motion-capture-translation-parallax-temporal-quadrature.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/motion/capture-translation-parallax-temporal-quadrature.ts)
+[Detailed contracts](api/motion-capture-translation-parallax-temporal-quadrature.md) · [Source](https://github.com/Photivra/engine/blob/main/src/motion/capture-translation-parallax-temporal-quadrature.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -1764,7 +1764,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## motion/extended-object-projection.ts
 
-[Detailed contracts](api/motion-extended-object-projection.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/motion/extended-object-projection.ts)
+[Detailed contracts](api/motion-extended-object-projection.md) · [Source](https://github.com/Photivra/engine/blob/main/src/motion/extended-object-projection.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -1785,7 +1785,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## motion/projected-motion.ts
 
-[Detailed contracts](api/motion-projected-motion.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/motion/projected-motion.ts)
+[Detailed contracts](api/motion-projected-motion.md) · [Source](https://github.com/Photivra/engine/blob/main/src/motion/projected-motion.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -1795,7 +1795,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## motion/subject-motion.ts
 
-[Detailed contracts](api/motion-subject-motion.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/motion/subject-motion.ts)
+[Detailed contracts](api/motion-subject-motion.md) · [Source](https://github.com/Photivra/engine/blob/main/src/motion/subject-motion.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -1803,7 +1803,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## motion/temporal-exposure-sum.ts
 
-[Detailed contracts](api/motion-temporal-exposure-sum.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/motion/temporal-exposure-sum.ts)
+[Detailed contracts](api/motion-temporal-exposure-sum.md) · [Source](https://github.com/Photivra/engine/blob/main/src/motion/temporal-exposure-sum.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -1817,7 +1817,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## motion/video-sequence.ts
 
-[Detailed contracts](api/motion-video-sequence.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/motion/video-sequence.ts)
+[Detailed contracts](api/motion-video-sequence.md) · [Source](https://github.com/Photivra/engine/blob/main/src/motion/video-sequence.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -1834,7 +1834,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## optics/aperture-diameter.ts
 
-[Detailed contracts](api/optics-aperture-diameter.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/optics/aperture-diameter.ts)
+[Detailed contracts](api/optics-aperture-diameter.md) · [Source](https://github.com/Photivra/engine/blob/main/src/optics/aperture-diameter.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -1844,7 +1844,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## optics/aperture.ts
 
-[Detailed contracts](api/optics-aperture.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/optics/aperture.ts)
+[Detailed contracts](api/optics-aperture.md) · [Source](https://github.com/Photivra/engine/blob/main/src/optics/aperture.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -1855,7 +1855,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## optics/atmospheric-haze.ts
 
-[Detailed contracts](api/optics-atmospheric-haze.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/optics/atmospheric-haze.ts)
+[Detailed contracts](api/optics-atmospheric-haze.md) · [Source](https://github.com/Photivra/engine/blob/main/src/optics/atmospheric-haze.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -1868,7 +1868,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## optics/brown-conrady-distortion.ts
 
-[Detailed contracts](api/optics-brown-conrady-distortion.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/optics/brown-conrady-distortion.ts)
+[Detailed contracts](api/optics-brown-conrady-distortion.md) · [Source](https://github.com/Photivra/engine/blob/main/src/optics/brown-conrady-distortion.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -1883,7 +1883,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## optics/circle-of-confusion.ts
 
-[Detailed contracts](api/optics-circle-of-confusion.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/optics/circle-of-confusion.ts)
+[Detailed contracts](api/optics-circle-of-confusion.md) · [Source](https://github.com/Photivra/engine/blob/main/src/optics/circle-of-confusion.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -1893,7 +1893,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## optics/complex-pupil-psf.ts
 
-[Detailed contracts](api/optics-complex-pupil-psf.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/optics/complex-pupil-psf.ts)
+[Detailed contracts](api/optics-complex-pupil-psf.md) · [Source](https://github.com/Photivra/engine/blob/main/src/optics/complex-pupil-psf.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -1908,7 +1908,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## optics/defocus-bokeh-kernel.ts
 
-[Detailed contracts](api/optics-defocus-bokeh-kernel.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/optics/defocus-bokeh-kernel.ts)
+[Detailed contracts](api/optics-defocus-bokeh-kernel.md) · [Source](https://github.com/Photivra/engine/blob/main/src/optics/defocus-bokeh-kernel.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -1924,7 +1924,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## optics/defocus-disc-kernel.ts
 
-[Detailed contracts](api/optics-defocus-disc-kernel.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/optics/defocus-disc-kernel.ts)
+[Detailed contracts](api/optics-defocus-disc-kernel.md) · [Source](https://github.com/Photivra/engine/blob/main/src/optics/defocus-disc-kernel.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -1935,7 +1935,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## optics/depth-of-field.ts
 
-[Detailed contracts](api/optics-depth-of-field.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/optics/depth-of-field.ts)
+[Detailed contracts](api/optics-depth-of-field.md) · [Source](https://github.com/Photivra/engine/blob/main/src/optics/depth-of-field.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -1948,7 +1948,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## optics/detail-limit.ts
 
-[Detailed contracts](api/optics-detail-limit.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/optics/detail-limit.ts)
+[Detailed contracts](api/optics-detail-limit.md) · [Source](https://github.com/Photivra/engine/blob/main/src/optics/detail-limit.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -1967,7 +1967,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## optics/diffraction-psf-profile.ts
 
-[Detailed contracts](api/optics-diffraction-psf-profile.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/optics/diffraction-psf-profile.ts)
+[Detailed contracts](api/optics-diffraction-psf-profile.md) · [Source](https://github.com/Photivra/engine/blob/main/src/optics/diffraction-psf-profile.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -1980,7 +1980,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## optics/diffraction.ts
 
-[Detailed contracts](api/optics-diffraction.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/optics/diffraction.ts)
+[Detailed contracts](api/optics-diffraction.md) · [Source](https://github.com/Photivra/engine/blob/main/src/optics/diffraction.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -1990,7 +1990,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## optics/focus-breathing.ts
 
-[Detailed contracts](api/optics-focus-breathing.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/optics/focus-breathing.ts)
+[Detailed contracts](api/optics-focus-breathing.md) · [Source](https://github.com/Photivra/engine/blob/main/src/optics/focus-breathing.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -2007,7 +2007,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## optics/focus-state.ts
 
-[Detailed contracts](api/optics-focus-state.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/optics/focus-state.ts)
+[Detailed contracts](api/optics-focus-state.md) · [Source](https://github.com/Photivra/engine/blob/main/src/optics/focus-state.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -2018,7 +2018,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## optics/front-of-lens-filter.ts
 
-[Detailed contracts](api/optics-front-of-lens-filter.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/optics/front-of-lens-filter.ts)
+[Detailed contracts](api/optics-front-of-lens-filter.md) · [Source](https://github.com/Photivra/engine/blob/main/src/optics/front-of-lens-filter.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -2041,7 +2041,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## optics/generic-lens-lateral-color.ts
 
-[Detailed contracts](api/optics-generic-lens-lateral-color.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/optics/generic-lens-lateral-color.ts)
+[Detailed contracts](api/optics-generic-lens-lateral-color.md) · [Source](https://github.com/Photivra/engine/blob/main/src/optics/generic-lens-lateral-color.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -2052,7 +2052,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## optics/generic-nd-filter-presets.ts
 
-[Detailed contracts](api/optics-generic-nd-filter-presets.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/optics/generic-nd-filter-presets.ts)
+[Detailed contracts](api/optics-generic-nd-filter-presets.md) · [Source](https://github.com/Photivra/engine/blob/main/src/optics/generic-nd-filter-presets.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -2062,7 +2062,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## optics/illumination-vignetting.ts
 
-[Detailed contracts](api/optics-illumination-vignetting.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/optics/illumination-vignetting.ts)
+[Detailed contracts](api/optics-illumination-vignetting.md) · [Source](https://github.com/Photivra/engine/blob/main/src/optics/illumination-vignetting.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -2074,7 +2074,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## optics/irradiance-convolution.ts
 
-[Detailed contracts](api/optics-irradiance-convolution.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/optics/irradiance-convolution.ts)
+[Detailed contracts](api/optics-irradiance-convolution.md) · [Source](https://github.com/Photivra/engine/blob/main/src/optics/irradiance-convolution.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -2087,7 +2087,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## optics/lateral-chromatic-aberration.ts
 
-[Detailed contracts](api/optics-lateral-chromatic-aberration.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/optics/lateral-chromatic-aberration.ts)
+[Detailed contracts](api/optics-lateral-chromatic-aberration.md) · [Source](https://github.com/Photivra/engine/blob/main/src/optics/lateral-chromatic-aberration.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -2109,7 +2109,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## optics/lens-psf-kernels.ts
 
-[Detailed contracts](api/optics-lens-psf-kernels.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/optics/lens-psf-kernels.ts)
+[Detailed contracts](api/optics-lens-psf-kernels.md) · [Source](https://github.com/Photivra/engine/blob/main/src/optics/lens-psf-kernels.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -2121,7 +2121,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## optics/lens-psf-profile.ts
 
-[Detailed contracts](api/optics-lens-psf-profile.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/optics/lens-psf-profile.ts)
+[Detailed contracts](api/optics-lens-psf-profile.md) · [Source](https://github.com/Photivra/engine/blob/main/src/optics/lens-psf-profile.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -2147,7 +2147,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## optics/longitudinal-chromatic-aberration.ts
 
-[Detailed contracts](api/optics-longitudinal-chromatic-aberration.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/optics/longitudinal-chromatic-aberration.ts)
+[Detailed contracts](api/optics-longitudinal-chromatic-aberration.md) · [Source](https://github.com/Photivra/engine/blob/main/src/optics/longitudinal-chromatic-aberration.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -2162,7 +2162,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## optics/polygon-diffraction.ts
 
-[Detailed contracts](api/optics-polygon-diffraction.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/optics/polygon-diffraction.ts)
+[Detailed contracts](api/optics-polygon-diffraction.md) · [Source](https://github.com/Photivra/engine/blob/main/src/optics/polygon-diffraction.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -2175,7 +2175,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## optics/profile-contract.ts
 
-[Detailed contracts](api/optics-profile-contract.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/optics/profile-contract.ts)
+[Detailed contracts](api/optics-profile-contract.md) · [Source](https://github.com/Photivra/engine/blob/main/src/optics/profile-contract.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -2185,7 +2185,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## optics/psf-foundation.ts
 
-[Detailed contracts](api/optics-psf-foundation.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/optics/psf-foundation.ts)
+[Detailed contracts](api/optics-psf-foundation.md) · [Source](https://github.com/Photivra/engine/blob/main/src/optics/psf-foundation.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -2201,7 +2201,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## optics/pupil-vignetting.ts
 
-[Detailed contracts](api/optics-pupil-vignetting.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/optics/pupil-vignetting.ts)
+[Detailed contracts](api/optics-pupil-vignetting.md) · [Source](https://github.com/Photivra/engine/blob/main/src/optics/pupil-vignetting.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -2216,7 +2216,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## optics/radial-distortion.ts
 
-[Detailed contracts](api/optics-radial-distortion.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/optics/radial-distortion.ts)
+[Detailed contracts](api/optics-radial-distortion.md) · [Source](https://github.com/Photivra/engine/blob/main/src/optics/radial-distortion.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -2235,7 +2235,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## optics/scene-to-sensor-irradiance.ts
 
-[Detailed contracts](api/optics-scene-to-sensor-irradiance.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/optics/scene-to-sensor-irradiance.ts)
+[Detailed contracts](api/optics-scene-to-sensor-irradiance.md) · [Source](https://github.com/Photivra/engine/blob/main/src/optics/scene-to-sensor-irradiance.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -2256,7 +2256,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## optics/scene-to-sensor-quadrature.ts
 
-[Detailed contracts](api/optics-scene-to-sensor-quadrature.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/optics/scene-to-sensor-quadrature.ts)
+[Detailed contracts](api/optics-scene-to-sensor-quadrature.md) · [Source](https://github.com/Photivra/engine/blob/main/src/optics/scene-to-sensor-quadrature.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -2267,7 +2267,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## optics/sensor-aperture-rays.ts
 
-[Detailed contracts](api/optics-sensor-aperture-rays.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/optics/sensor-aperture-rays.ts)
+[Detailed contracts](api/optics-sensor-aperture-rays.md) · [Source](https://github.com/Photivra/engine/blob/main/src/optics/sensor-aperture-rays.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -2279,7 +2279,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## optics/sensor-environment-query.ts
 
-[Detailed contracts](api/optics-sensor-environment-query.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/optics/sensor-environment-query.ts)
+[Detailed contracts](api/optics-sensor-environment-query.md) · [Source](https://github.com/Photivra/engine/blob/main/src/optics/sensor-environment-query.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -2291,7 +2291,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## optics/sensor-psf-quadrature.ts
 
-[Detailed contracts](api/optics-sensor-psf-quadrature.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/optics/sensor-psf-quadrature.ts)
+[Detailed contracts](api/optics-sensor-psf-quadrature.md) · [Source](https://github.com/Photivra/engine/blob/main/src/optics/sensor-psf-quadrature.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -2302,7 +2302,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## optics/stray-light.ts
 
-[Detailed contracts](api/optics-stray-light.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/optics/stray-light.ts)
+[Detailed contracts](api/optics-stray-light.md) · [Source](https://github.com/Photivra/engine/blob/main/src/optics/stray-light.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -2315,7 +2315,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## optics/thin-lens.ts
 
-[Detailed contracts](api/optics-thin-lens.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/optics/thin-lens.ts)
+[Detailed contracts](api/optics-thin-lens.md) · [Source](https://github.com/Photivra/engine/blob/main/src/optics/thin-lens.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -2325,7 +2325,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## optics/zernike-wavefront.ts
 
-[Detailed contracts](api/optics-zernike-wavefront.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/optics/zernike-wavefront.ts)
+[Detailed contracts](api/optics-zernike-wavefront.md) · [Source](https://github.com/Photivra/engine/blob/main/src/optics/zernike-wavefront.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -2348,7 +2348,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## output/camera-channel-response.ts
 
-[Detailed contracts](api/output-camera-channel-response.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/output/camera-channel-response.ts)
+[Detailed contracts](api/output-camera-channel-response.md) · [Source](https://github.com/Photivra/engine/blob/main/src/output/camera-channel-response.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -2358,7 +2358,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## output/capture-corrected-sdr.ts
 
-[Detailed contracts](api/output-capture-corrected-sdr.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/output/capture-corrected-sdr.ts)
+[Detailed contracts](api/output-capture-corrected-sdr.md) · [Source](https://github.com/Photivra/engine/blob/main/src/output/capture-corrected-sdr.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -2370,7 +2370,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## output/capture-geometry.ts
 
-[Detailed contracts](api/output-capture-geometry.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/output/capture-geometry.ts)
+[Detailed contracts](api/output-capture-geometry.md) · [Source](https://github.com/Photivra/engine/blob/main/src/output/capture-geometry.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -2406,7 +2406,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## output/capture-sdr.ts
 
-[Detailed contracts](api/output-capture-sdr.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/output/capture-sdr.ts)
+[Detailed contracts](api/output-capture-sdr.md) · [Source](https://github.com/Photivra/engine/blob/main/src/output/capture-sdr.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -2418,7 +2418,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## output/crop-to-match-focal-length.ts
 
-[Detailed contracts](api/output-crop-to-match-focal-length.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/output/crop-to-match-focal-length.ts)
+[Detailed contracts](api/output-crop-to-match-focal-length.md) · [Source](https://github.com/Photivra/engine/blob/main/src/output/crop-to-match-focal-length.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -2428,7 +2428,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## output/crop.ts
 
-[Detailed contracts](api/output-crop.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/output/crop.ts)
+[Detailed contracts](api/output-crop.md) · [Source](https://github.com/Photivra/engine/blob/main/src/output/crop.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -2438,7 +2438,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## output/developed-lens-corrections.ts
 
-[Detailed contracts](api/output-developed-lens-corrections.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/output/developed-lens-corrections.ts)
+[Detailed contracts](api/output-developed-lens-corrections.md) · [Source](https://github.com/Photivra/engine/blob/main/src/output/developed-lens-corrections.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -2447,7 +2447,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## output/generic-lens-corrections.ts
 
-[Detailed contracts](api/output-generic-lens-corrections.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/output/generic-lens-corrections.ts)
+[Detailed contracts](api/output-generic-lens-corrections.md) · [Source](https://github.com/Photivra/engine/blob/main/src/output/generic-lens-corrections.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -2458,7 +2458,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## output/geometric-transforms.ts
 
-[Detailed contracts](api/output-geometric-transforms.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/output/geometric-transforms.ts)
+[Detailed contracts](api/output-geometric-transforms.md) · [Source](https://github.com/Photivra/engine/blob/main/src/output/geometric-transforms.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -2484,7 +2484,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## output/lens-corrections.ts
 
-[Detailed contracts](api/output-lens-corrections.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/output/lens-corrections.ts)
+[Detailed contracts](api/output-lens-corrections.md) · [Source](https://github.com/Photivra/engine/blob/main/src/output/lens-corrections.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -2503,7 +2503,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## output/native-capture-sdr.ts
 
-[Detailed contracts](api/output-native-capture-sdr.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/output/native-capture-sdr.ts)
+[Detailed contracts](api/output-native-capture-sdr.md) · [Source](https://github.com/Photivra/engine/blob/main/src/output/native-capture-sdr.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -2523,7 +2523,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## output/png-encoder.ts
 
-[Detailed contracts](api/output-png-encoder.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/output/png-encoder.ts)
+[Detailed contracts](api/output-png-encoder.md) · [Source](https://github.com/Photivra/engine/blob/main/src/output/png-encoder.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -2539,7 +2539,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## output/print-contrast-reference.ts
 
-[Detailed contracts](api/output-print-contrast-reference.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/output/print-contrast-reference.ts)
+[Detailed contracts](api/output-print-contrast-reference.md) · [Source](https://github.com/Photivra/engine/blob/main/src/output/print-contrast-reference.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -2552,7 +2552,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## output/print-detail.ts
 
-[Detailed contracts](api/output-print-detail.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/output/print-detail.ts)
+[Detailed contracts](api/output-print-detail.md) · [Source](https://github.com/Photivra/engine/blob/main/src/output/print-detail.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -2569,7 +2569,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## output/print-jpeg.ts
 
-[Detailed contracts](api/output-print-jpeg.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/output/print-jpeg.ts)
+[Detailed contracts](api/output-print-jpeg.md) · [Source](https://github.com/Photivra/engine/blob/main/src/output/print-jpeg.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -2591,7 +2591,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## output/print-plan.ts
 
-[Detailed contracts](api/output-print-plan.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/output/print-plan.ts)
+[Detailed contracts](api/output-print-plan.md) · [Source](https://github.com/Photivra/engine/blob/main/src/output/print-plan.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -2613,7 +2613,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## output/print-region-statistics.ts
 
-[Detailed contracts](api/output-print-region-statistics.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/output/print-region-statistics.ts)
+[Detailed contracts](api/output-print-region-statistics.md) · [Source](https://github.com/Photivra/engine/blob/main/src/output/print-region-statistics.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -2632,7 +2632,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## output/print-size-blur-noise.ts
 
-[Detailed contracts](api/output-print-size-blur-noise.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/output/print-size-blur-noise.ts)
+[Detailed contracts](api/output-print-size-blur-noise.md) · [Source](https://github.com/Photivra/engine/blob/main/src/output/print-size-blur-noise.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -2646,7 +2646,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## output/sdr-rendering.ts
 
-[Detailed contracts](api/output-sdr-rendering.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/output/sdr-rendering.ts)
+[Detailed contracts](api/output-sdr-rendering.md) · [Source](https://github.com/Photivra/engine/blob/main/src/output/sdr-rendering.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -2663,7 +2663,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## output/subject-framing-crop.ts
 
-[Detailed contracts](api/output-subject-framing-crop.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/output/subject-framing-crop.ts)
+[Detailed contracts](api/output-subject-framing-crop.md) · [Source](https://github.com/Photivra/engine/blob/main/src/output/subject-framing-crop.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -2673,7 +2673,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## output/text-metadata.ts
 
-[Detailed contracts](api/output-text-metadata.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/output/text-metadata.ts)
+[Detailed contracts](api/output-text-metadata.md) · [Source](https://github.com/Photivra/engine/blob/main/src/output/text-metadata.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -2683,7 +2683,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## processing/demosaic.ts
 
-[Detailed contracts](api/processing-demosaic.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/processing/demosaic.ts)
+[Detailed contracts](api/processing-demosaic.md) · [Source](https://github.com/Photivra/engine/blob/main/src/processing/demosaic.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -2697,7 +2697,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## processing/denoise.ts
 
-[Detailed contracts](api/processing-denoise.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/processing/denoise.ts)
+[Detailed contracts](api/processing-denoise.md) · [Source](https://github.com/Photivra/engine/blob/main/src/processing/denoise.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -2715,7 +2715,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## processing/focus-stacking.ts
 
-[Detailed contracts](api/processing-focus-stacking.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/processing/focus-stacking.ts)
+[Detailed contracts](api/processing-focus-stacking.md) · [Source](https://github.com/Photivra/engine/blob/main/src/processing/focus-stacking.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -2725,7 +2725,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## processing/hdr.ts
 
-[Detailed contracts](api/processing-hdr.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/processing/hdr.ts)
+[Detailed contracts](api/processing-hdr.md) · [Source](https://github.com/Photivra/engine/blob/main/src/processing/hdr.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -2740,7 +2740,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## processing/panorama.ts
 
-[Detailed contracts](api/processing-panorama.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/processing/panorama.ts)
+[Detailed contracts](api/processing-panorama.md) · [Source](https://github.com/Photivra/engine/blob/main/src/processing/panorama.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -2752,7 +2752,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## processing/processing-task.ts
 
-[Detailed contracts](api/processing-processing-task.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/processing/processing-task.ts)
+[Detailed contracts](api/processing-processing-task.md) · [Source](https://github.com/Photivra/engine/blob/main/src/processing/processing-task.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -2769,7 +2769,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## processing/tone-mapping.ts
 
-[Detailed contracts](api/processing-tone-mapping.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/processing/tone-mapping.ts)
+[Detailed contracts](api/processing-tone-mapping.md) · [Source](https://github.com/Photivra/engine/blob/main/src/processing/tone-mapping.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -2786,7 +2786,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## schema/camera.ts
 
-[Detailed contracts](api/schema-camera.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/schema/camera.ts)
+[Detailed contracts](api/schema-camera.md) · [Source](https://github.com/Photivra/engine/blob/main/src/schema/camera.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -2800,7 +2800,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## schema/illumination-spectral.ts
 
-[Detailed contracts](api/schema-illumination-spectral.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/schema/illumination-spectral.ts)
+[Detailed contracts](api/schema-illumination-spectral.md) · [Source](https://github.com/Photivra/engine/blob/main/src/schema/illumination-spectral.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -2811,7 +2811,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## schema/illumination-temporal.ts
 
-[Detailed contracts](api/schema-illumination-temporal.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/schema/illumination-temporal.ts)
+[Detailed contracts](api/schema-illumination-temporal.md) · [Source](https://github.com/Photivra/engine/blob/main/src/schema/illumination-temporal.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -2833,7 +2833,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## schema/illumination.ts
 
-[Detailed contracts](api/schema-illumination.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/schema/illumination.ts)
+[Detailed contracts](api/schema-illumination.md) · [Source](https://github.com/Photivra/engine/blob/main/src/schema/illumination.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -2851,7 +2851,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## schema/scene-radiance-temporal.ts
 
-[Detailed contracts](api/schema-scene-radiance-temporal.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/schema/scene-radiance-temporal.ts)
+[Detailed contracts](api/schema-scene-radiance-temporal.md) · [Source](https://github.com/Photivra/engine/blob/main/src/schema/scene-radiance-temporal.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -2868,7 +2868,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## schema/scene-radiance.ts
 
-[Detailed contracts](api/schema-scene-radiance.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/schema/scene-radiance.ts)
+[Detailed contracts](api/schema-scene-radiance.md) · [Source](https://github.com/Photivra/engine/blob/main/src/schema/scene-radiance.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -2900,7 +2900,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## schema/scene.ts
 
-[Detailed contracts](api/schema-scene.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/schema/scene.ts)
+[Detailed contracts](api/schema-scene.md) · [Source](https://github.com/Photivra/engine/blob/main/src/schema/scene.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -2913,7 +2913,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## schema/validation.ts
 
-[Detailed contracts](api/schema-validation.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/schema/validation.ts)
+[Detailed contracts](api/schema-validation.md) · [Source](https://github.com/Photivra/engine/blob/main/src/schema/validation.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -2922,7 +2922,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## sensor/accumulated-charge.ts
 
-[Detailed contracts](api/sensor-accumulated-charge.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/sensor/accumulated-charge.ts)
+[Detailed contracts](api/sensor-accumulated-charge.md) · [Source](https://github.com/Photivra/engine/blob/main/src/sensor/accumulated-charge.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -2939,7 +2939,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## sensor/architecture.ts
 
-[Detailed contracts](api/sensor-architecture.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/sensor/architecture.ts)
+[Detailed contracts](api/sensor-architecture.md) · [Source](https://github.com/Photivra/engine/blob/main/src/sensor/architecture.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -2960,7 +2960,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## sensor/camera-saturation-capacity.ts
 
-[Detailed contracts](api/sensor-camera-saturation-capacity.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/sensor/camera-saturation-capacity.ts)
+[Detailed contracts](api/sensor-camera-saturation-capacity.md) · [Source](https://github.com/Photivra/engine/blob/main/src/sensor/camera-saturation-capacity.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -2974,7 +2974,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## sensor/capture-color-sampling-binding.ts
 
-[Detailed contracts](api/sensor-capture-color-sampling-binding.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/sensor/capture-color-sampling-binding.ts)
+[Detailed contracts](api/sensor-capture-color-sampling-binding.md) · [Source](https://github.com/Photivra/engine/blob/main/src/sensor/capture-color-sampling-binding.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -2995,7 +2995,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## sensor/capture-mode-timing.ts
 
-[Detailed contracts](api/sensor-capture-mode-timing.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/sensor/capture-mode-timing.ts)
+[Detailed contracts](api/sensor-capture-mode-timing.md) · [Source](https://github.com/Photivra/engine/blob/main/src/sensor/capture-mode-timing.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -3008,7 +3008,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## sensor/capture-mode.ts
 
-[Detailed contracts](api/sensor-capture-mode.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/sensor/capture-mode.ts)
+[Detailed contracts](api/sensor-capture-mode.md) · [Source](https://github.com/Photivra/engine/blob/main/src/sensor/capture-mode.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -3034,7 +3034,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## sensor/color-sampling.ts
 
-[Detailed contracts](api/sensor-color-sampling.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/sensor/color-sampling.ts)
+[Detailed contracts](api/sensor-color-sampling.md) · [Source](https://github.com/Photivra/engine/blob/main/src/sensor/color-sampling.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -3053,7 +3053,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## sensor/constant-rate-temporal-integration.ts
 
-[Detailed contracts](api/sensor-constant-rate-temporal-integration.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/sensor/constant-rate-temporal-integration.ts)
+[Detailed contracts](api/sensor-constant-rate-temporal-integration.md) · [Source](https://github.com/Photivra/engine/blob/main/src/sensor/constant-rate-temporal-integration.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -3068,7 +3068,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## sensor/dark-current.ts
 
-[Detailed contracts](api/sensor-dark-current.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/sensor/dark-current.ts)
+[Detailed contracts](api/sensor-dark-current.md) · [Source](https://github.com/Photivra/engine/blob/main/src/sensor/dark-current.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -3084,7 +3084,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## sensor/environment-photo-signal.ts
 
-[Detailed contracts](api/sensor-environment-photo-signal.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/sensor/environment-photo-signal.ts)
+[Detailed contracts](api/sensor-environment-photo-signal.md) · [Source](https://github.com/Photivra/engine/blob/main/src/sensor/environment-photo-signal.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -3096,7 +3096,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## sensor/eqe-electron-rate.ts
 
-[Detailed contracts](api/sensor-eqe-electron-rate.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/sensor/eqe-electron-rate.ts)
+[Detailed contracts](api/sensor-eqe-electron-rate.md) · [Source](https://github.com/Photivra/engine/blob/main/src/sensor/eqe-electron-rate.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -3109,7 +3109,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## sensor/eqe-local-exposure.ts
 
-[Detailed contracts](api/sensor-eqe-local-exposure.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/sensor/eqe-local-exposure.ts)
+[Detailed contracts](api/sensor-eqe-local-exposure.md) · [Source](https://github.com/Photivra/engine/blob/main/src/sensor/eqe-local-exposure.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -3119,7 +3119,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## sensor/eqe-temporal-exposure.ts
 
-[Detailed contracts](api/sensor-eqe-temporal-exposure.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/sensor/eqe-temporal-exposure.ts)
+[Detailed contracts](api/sensor-eqe-temporal-exposure.md) · [Source](https://github.com/Photivra/engine/blob/main/src/sensor/eqe-temporal-exposure.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -3129,7 +3129,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## sensor/exposure-window.ts
 
-[Detailed contracts](api/sensor-exposure-window.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/sensor/exposure-window.ts)
+[Detailed contracts](api/sensor-exposure-window.md) · [Source](https://github.com/Photivra/engine/blob/main/src/sensor/exposure-window.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -3147,7 +3147,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## sensor/fixed-pattern-noise.ts
 
-[Detailed contracts](api/sensor-fixed-pattern-noise.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/sensor/fixed-pattern-noise.ts)
+[Detailed contracts](api/sensor-fixed-pattern-noise.md) · [Source](https://github.com/Photivra/engine/blob/main/src/sensor/fixed-pattern-noise.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -3160,7 +3160,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## sensor/iso-gain.ts
 
-[Detailed contracts](api/sensor-iso-gain.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/sensor/iso-gain.ts)
+[Detailed contracts](api/sensor-iso-gain.md) · [Source](https://github.com/Photivra/engine/blob/main/src/sensor/iso-gain.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -3171,7 +3171,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## sensor/iso-signal-chain.ts
 
-[Detailed contracts](api/sensor-iso-signal-chain.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/sensor/iso-signal-chain.ts)
+[Detailed contracts](api/sensor-iso-signal-chain.md) · [Source](https://github.com/Photivra/engine/blob/main/src/sensor/iso-signal-chain.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -3192,7 +3192,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## sensor/local-exposure-binding.ts
 
-[Detailed contracts](api/sensor-local-exposure-binding.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/sensor/local-exposure-binding.ts)
+[Detailed contracts](api/sensor-local-exposure-binding.md) · [Source](https://github.com/Photivra/engine/blob/main/src/sensor/local-exposure-binding.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -3203,7 +3203,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## sensor/optical-stack.ts
 
-[Detailed contracts](api/sensor-optical-stack.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/sensor/optical-stack.ts)
+[Detailed contracts](api/sensor-optical-stack.md) · [Source](https://github.com/Photivra/engine/blob/main/src/sensor/optical-stack.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -3219,7 +3219,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## sensor/photon-energy.ts
 
-[Detailed contracts](api/sensor-photon-energy.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/sensor/photon-energy.ts)
+[Detailed contracts](api/sensor-photon-energy.md) · [Source](https://github.com/Photivra/engine/blob/main/src/sensor/photon-energy.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -3233,7 +3233,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## sensor/physical-charge-capacity.ts
 
-[Detailed contracts](api/sensor-physical-charge-capacity.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/sensor/physical-charge-capacity.ts)
+[Detailed contracts](api/sensor-physical-charge-capacity.md) · [Source](https://github.com/Photivra/engine/blob/main/src/sensor/physical-charge-capacity.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -3247,7 +3247,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## sensor/pixel-pitch.ts
 
-[Detailed contracts](api/sensor-pixel-pitch.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/sensor/pixel-pitch.ts)
+[Detailed contracts](api/sensor-pixel-pitch.md) · [Source](https://github.com/Photivra/engine/blob/main/src/sensor/pixel-pitch.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -3257,7 +3257,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## sensor/radiometry-readiness.ts
 
-[Detailed contracts](api/sensor-radiometry-readiness.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/sensor/radiometry-readiness.ts)
+[Detailed contracts](api/sensor-radiometry-readiness.md) · [Source](https://github.com/Photivra/engine/blob/main/src/sensor/radiometry-readiness.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -3279,7 +3279,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## sensor/raw-readout.ts
 
-[Detailed contracts](api/sensor-raw-readout.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/sensor/raw-readout.ts)
+[Detailed contracts](api/sensor-raw-readout.md) · [Source](https://github.com/Photivra/engine/blob/main/src/sensor/raw-readout.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -3310,7 +3310,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## sensor/raw-reconstruction.ts
 
-[Detailed contracts](api/sensor-raw-reconstruction.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/sensor/raw-reconstruction.ts)
+[Detailed contracts](api/sensor-raw-reconstruction.md) · [Source](https://github.com/Photivra/engine/blob/main/src/sensor/raw-reconstruction.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -3335,7 +3335,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## sensor/readout-exposure-linkage.ts
 
-[Detailed contracts](api/sensor-readout-exposure-linkage.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/sensor/readout-exposure-linkage.ts)
+[Detailed contracts](api/sensor-readout-exposure-linkage.md) · [Source](https://github.com/Photivra/engine/blob/main/src/sensor/readout-exposure-linkage.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -3355,7 +3355,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## sensor/readout-timing.ts
 
-[Detailed contracts](api/sensor-readout-timing.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/sensor/readout-timing.ts)
+[Detailed contracts](api/sensor-readout-timing.md) · [Source](https://github.com/Photivra/engine/blob/main/src/sensor/readout-timing.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -3374,7 +3374,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## sensor/response-application-compatibility.ts
 
-[Detailed contracts](api/sensor-response-application-compatibility.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/sensor/response-application-compatibility.ts)
+[Detailed contracts](api/sensor-response-application-compatibility.md) · [Source](https://github.com/Photivra/engine/blob/main/src/sensor/response-application-compatibility.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -3393,7 +3393,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## sensor/response-operating-range.ts
 
-[Detailed contracts](api/sensor-response-operating-range.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/sensor/response-operating-range.ts)
+[Detailed contracts](api/sensor-response-operating-range.md) · [Source](https://github.com/Photivra/engine/blob/main/src/sensor/response-operating-range.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -3411,7 +3411,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## sensor/responsivity-photocurrent.ts
 
-[Detailed contracts](api/sensor-responsivity-photocurrent.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/sensor/responsivity-photocurrent.ts)
+[Detailed contracts](api/sensor-responsivity-photocurrent.md) · [Source](https://github.com/Photivra/engine/blob/main/src/sensor/responsivity-photocurrent.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -3428,7 +3428,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## sensor/sampling-aperture.ts
 
-[Detailed contracts](api/sensor-sampling-aperture.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/sensor/sampling-aperture.ts)
+[Detailed contracts](api/sensor-sampling-aperture.md) · [Source](https://github.com/Photivra/engine/blob/main/src/sensor/sampling-aperture.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -3444,7 +3444,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## sensor/scene-eqe-temporal-exposure.ts
 
-[Detailed contracts](api/sensor-scene-eqe-temporal-exposure.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/sensor/scene-eqe-temporal-exposure.ts)
+[Detailed contracts](api/sensor-scene-eqe-temporal-exposure.md) · [Source](https://github.com/Photivra/engine/blob/main/src/sensor/scene-eqe-temporal-exposure.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -3454,7 +3454,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## sensor/sensor-characteristics.ts
 
-[Detailed contracts](api/sensor-sensor-characteristics.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/sensor/sensor-characteristics.ts)
+[Detailed contracts](api/sensor-sensor-characteristics.md) · [Source](https://github.com/Photivra/engine/blob/main/src/sensor/sensor-characteristics.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -3466,7 +3466,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## sensor/sensor-geometry.ts
 
-[Detailed contracts](api/sensor-sensor-geometry.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/sensor/sensor-geometry.ts)
+[Detailed contracts](api/sensor-sensor-geometry.md) · [Source](https://github.com/Photivra/engine/blob/main/src/sensor/sensor-geometry.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -3481,7 +3481,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## sensor/signal-noise.ts
 
-[Detailed contracts](api/sensor-signal-noise.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/sensor/signal-noise.ts)
+[Detailed contracts](api/sensor-signal-noise.md) · [Source](https://github.com/Photivra/engine/blob/main/src/sensor/signal-noise.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -3493,7 +3493,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## sensor/spatial-sample-reduction.ts
 
-[Detailed contracts](api/sensor-spatial-sample-reduction.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/sensor/spatial-sample-reduction.ts)
+[Detailed contracts](api/sensor-spatial-sample-reduction.md) · [Source](https://github.com/Photivra/engine/blob/main/src/sensor/spatial-sample-reduction.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -3507,7 +3507,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## sensor/spatial-sampling-quadrature.ts
 
-[Detailed contracts](api/sensor-spatial-sampling-quadrature.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/sensor/spatial-sampling-quadrature.ts)
+[Detailed contracts](api/sensor-spatial-sampling-quadrature.md) · [Source](https://github.com/Photivra/engine/blob/main/src/sensor/spatial-sampling-quadrature.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -3518,7 +3518,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## sensor/spatio-spectral-reduction.ts
 
-[Detailed contracts](api/sensor-spatio-spectral-reduction.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/sensor/spatio-spectral-reduction.ts)
+[Detailed contracts](api/sensor-spatio-spectral-reduction.md) · [Source](https://github.com/Photivra/engine/blob/main/src/sensor/spatio-spectral-reduction.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -3531,7 +3531,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## sensor/spectral-coverage.ts
 
-[Detailed contracts](api/sensor-spectral-coverage.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/sensor/spectral-coverage.ts)
+[Detailed contracts](api/sensor-spectral-coverage.md) · [Source](https://github.com/Photivra/engine/blob/main/src/sensor/spectral-coverage.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -3540,7 +3540,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## sensor/spectral-quadrature.ts
 
-[Detailed contracts](api/sensor-spectral-quadrature.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/sensor/spectral-quadrature.ts)
+[Detailed contracts](api/sensor-spectral-quadrature.md) · [Source](https://github.com/Photivra/engine/blob/main/src/sensor/spectral-quadrature.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -3552,7 +3552,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## sensor/spectral-response.ts
 
-[Detailed contracts](api/sensor-spectral-response.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/sensor/spectral-response.ts)
+[Detailed contracts](api/sensor-spectral-response.md) · [Source](https://github.com/Photivra/engine/blob/main/src/sensor/spectral-response.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -3576,7 +3576,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## sensor/temporal-photo-signal.ts
 
-[Detailed contracts](api/sensor-temporal-photo-signal.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/sensor/temporal-photo-signal.ts)
+[Detailed contracts](api/sensor-temporal-photo-signal.md) · [Source](https://github.com/Photivra/engine/blob/main/src/sensor/temporal-photo-signal.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -3587,7 +3587,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## simulation/poc-simulation.ts
 
-[Detailed contracts](api/simulation-poc-simulation.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/simulation/poc-simulation.ts)
+[Detailed contracts](api/simulation-poc-simulation.md) · [Source](https://github.com/Photivra/engine/blob/main/src/simulation/poc-simulation.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -3598,7 +3598,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## stabilization/camera-shake.ts
 
-[Detailed contracts](api/stabilization-camera-shake.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/stabilization/camera-shake.ts)
+[Detailed contracts](api/stabilization-camera-shake.md) · [Source](https://github.com/Photivra/engine/blob/main/src/stabilization/camera-shake.ts)
 
 | Export | Kind |
 | --- | --- |
@@ -3609,7 +3609,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 ## stabilization/system.ts
 
-[Detailed contracts](api/stabilization-system.md) · [Source](https://github.com/Photivra/photivra/blob/main/src/stabilization/system.ts)
+[Detailed contracts](api/stabilization-system.md) · [Source](https://github.com/Photivra/engine/blob/main/src/stabilization/system.ts)
 
 | Export | Kind |
 | --- | --- |

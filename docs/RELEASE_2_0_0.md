@@ -18,7 +18,7 @@
 - After the merge, the API reference was regenerated.
 - No citation release date is stated before publication.
 
-**All streams merged:** the lean per-site executor (#305), the `simulateCapture()` integration of the 2.0 features (#306) and the native RAW DNG writer (#307) are merged, as are the AGENTS.md reset (#308), the plain-language pass (#309–#312), the agent docs (#313), the free-source citations (#314), the WebGPU completion (#316, #323), strict inputs (#317, #322), the licence cleanup (#318, #320), further native RAW speed-ups (#319), the faster CCT/Duv (#321), the licence guard (#324) and the final review fixes (#325–#328). All are listed in the [changelog](https://github.com/Photivra/photivra/blob/main/CHANGELOG.md).
+**All streams merged:** the lean per-site executor (#305), the `simulateCapture()` integration of the 2.0 features (#306) and the native RAW DNG writer (#307) are merged, as are the AGENTS.md reset (#308), the plain-language pass (#309–#312), the agent docs (#313), the free-source citations (#314), the WebGPU completion (#316, #323), strict inputs (#317, #322), the licence cleanup (#318, #320), further native RAW speed-ups (#319), the faster CCT/Duv (#321), the licence guard (#324) and the final review fixes (#325–#328). All are listed in the [changelog](https://github.com/Photivra/engine/blob/main/CHANGELOG.md).
 
 ## Scope
 
@@ -26,48 +26,48 @@ Changes since `v1.5.0`, all merged to `main`. In the "Kind" column, *Breaking* m
 
 | PR | Issue | Change | Kind |
 | --- | --- | --- | --- |
-| [#278](https://github.com/Photivra/photivra/pull/278) | #274 | Print JPEG pixels-per-inch and mandatory ExifVersion | Fix, additive API |
-| [#279](https://github.com/Photivra/photivra/pull/279) | #271 | Exact thin-lens depth-of-field limits | Breaking (values) |
-| [#280](https://github.com/Photivra/photivra/pull/280) | #273 | Capacity assessments bound to their charge; `>=` digital saturation flag | Fix (stricter validation) |
-| [#281](https://github.com/Photivra/photivra/pull/281) | #272 | Auto-ISO priority modes match exact grid values | Fix |
-| [#282](https://github.com/Photivra/photivra/pull/282) | #276 | Crop rounding, canonical JSON, result contract, POC server status codes | Breaking (values, strictness) |
-| [#283](https://github.com/Photivra/photivra/pull/283) | #270 | Independent per-site RAW noise seeding | Breaking (values, identities) |
-| [#284](https://github.com/Photivra/photivra/pull/284) | #276 | Camera rotation sign; complex-pupil PSF padding and sampling guard | Breaking (values, geometry) |
-| [#285](https://github.com/Photivra/photivra/pull/285)–[#288](https://github.com/Photivra/photivra/pull/288) | #275, #276 | Native path, SDR, JPEG and stabilization speedups; optical-stage reuse | Performance (bit-identical), additive API |
-| [#290](https://github.com/Photivra/photivra/pull/290) | 2.0 review | ISO-to-gain mapping, fixed-pattern noise, generic presets 2.0.0, noise model 0.4.0 | Breaking (values, schemas) |
-| [#291](https://github.com/Photivra/photivra/pull/291) | 2.0 review | Colorimetry, chromatic adaptation, Kelvin white balance, wide-gamut transfers (PQ/HLG later removed) | Additive, union widening |
-| [#292](https://github.com/Photivra/photivra/pull/292) | #275 | Faster native environment RAW, yields between sites | Performance (bit-identical) |
-| [#293](https://github.com/Photivra/photivra/pull/293) | 2.0 review | Cross-engine determinism, review fixes, POC API 1.0.0, leaner package, input validation | Breaking (values, strictness, package) |
-| [#294](https://github.com/Photivra/photivra/pull/294) | #275 | Native environment site-plan retention | Performance (bit-identical) |
-| [#295](https://github.com/Photivra/photivra/pull/295) | 2.0 review | RAW development corrections, tone curves, DNG tags, typed kernel | Breaking (values, contract) |
-| [#296](https://github.com/Photivra/photivra/pull/296) | 2.0 review | Projections, distortion, axial CA, vignetting, Zernike, PSF interpolation, polarizer, haze | Additive, type widening |
-| [#297](https://github.com/Photivra/photivra/pull/297), [#301](https://github.com/Photivra/photivra/pull/301) | 2.0 review | Rolling-shutter image formation, video, TTL/HSS flash, highlight-priority metering | Additive, union widening |
-| [#298](https://github.com/Photivra/photivra/pull/298) | 2.0 review | Exif 2.32 tags, JPEG encoder v2, Print JPEG 0.2.0, DNG import, PNG | Breaking (bytes, schema), additive |
-| [#299](https://github.com/Photivra/photivra/pull/299) | 2.0 review | Coverage, independent oracles, rejection tables | Tests only |
-| [#300](https://github.com/Photivra/photivra/pull/300) | 2.0 review | `simulateCapture()` facade and chart scenes | Additive |
-| [#302](https://github.com/Photivra/photivra/pull/302) | 2.0 review | Demosaic, HDR merge, tone mapping, fusion, stacking, panorama, denoise (Malvar–He–Cutler and PQ/HLG later removed) | Additive |
-| [#303](https://github.com/Photivra/photivra/pull/303) | 2.0 review | Brown–Conrady and projections wired into mapping and environment capture | Additive, type widening |
-| [#304](https://github.com/Photivra/photivra/pull/304) | #277 | Opt-in WebGPU float32 backend | Additive |
-| [#305](https://github.com/Photivra/photivra/pull/305) | #275 | Lean per-site executor for native environment RAW | Performance (identical output) |
-| [#306](https://github.com/Photivra/photivra/pull/306) | — | `simulateCapture()` uses the 2.0 features | Additive |
-| [#307](https://github.com/Photivra/photivra/pull/307) | — | Native RAW DNG writer, perceptual gamut mapping, PSF throughput rounding fix | Additive, fix |
-| [#308](https://github.com/Photivra/photivra/pull/308) | — | `AGENTS.md` reset to a short standard file; retired agent rule files | Repository only |
-| [#309](https://github.com/Photivra/photivra/pull/309)–[#312](https://github.com/Photivra/photivra/pull/312) | — | Plain-language source comments and docs | Docs only (comment-stripped build identical) |
-| [#313](https://github.com/Photivra/photivra/pull/313) | — | `llms.txt`, agent guide and task index for AI agents | Docs, package contents |
-| [#314](https://github.com/Photivra/photivra/pull/314) | — | Free-source citations, runtime source strings, DC-004 facade exposure anchor, inventory fixes | Breaking (facade default illuminance), text |
-| [#315](https://github.com/Photivra/photivra/pull/315) | — | Release record: CI on `28f8b61`, owner decisions, DNG licence check | Docs only |
-| [#316](https://github.com/Photivra/photivra/pull/316) | #277 | WebGPU accuracy contract, sensor stage and temporal exposure sum | Additive |
-| [#317](https://github.com/Photivra/photivra/pull/317) | #276 | Strict inputs everywhere, read-only results, one rule for error classes | Breaking (strictness, error classes) |
-| [#318](https://github.com/Photivra/photivra/pull/318), [#320](https://github.com/Photivra/photivra/pull/320) | — | Licence cleanup: own CMF fit, Planck-law locus, Malvar–He–Cutler, PQ and HLG removed; caller CIE94 factors; SPDX headers | Breaking (values, removals) |
-| [#319](https://github.com/Photivra/photivra/pull/319) | #275 | Lean PSF, lens-mapped and pupil sites; worker row-band partitions; batched light sampling | Performance (identical output), additive API |
-| [#321](https://github.com/Photivra/photivra/pull/321) | — | CCT/Duv by Newton root-find on the analytic derivative | Values (≤ 0.089 K), performance |
-| [#322](https://github.com/Photivra/photivra/pull/322) | #276 | Strict versioned records: every `parse*()` parser and record-taking function rejects unknown fields | Breaking (strictness) |
-| [#323](https://github.com/Photivra/photivra/pull/323) | #277 | WebGPU: FPN on the GPU sensor stage, luminance tone curves, PSF-profile kernels, chart radiance, per-fixture rollout | Additive |
-| [#324](https://github.com/Photivra/photivra/pull/324) | — | Licence guard: ScanCode CI job with a reviewed allowlist; PR-template rights line; free CAT16 citation | CI, docs |
-| [#325](https://github.com/Photivra/photivra/pull/325) | #277 | WebGPU fixes: tiny-weight error bounds, per-band memory, late-device destroy | Fix (GPU values unchanged) |
-| [#326](https://github.com/Photivra/photivra/pull/326) | — | Durand–Dorsey zero-luminance pixels; PSF kernel memory and corner lookup | Fix (values), performance (bit-identical) |
-| [#327](https://github.com/Photivra/photivra/pull/327) | — | CAT02 removed; CCT+Duv domain; strict nested colour and optics records; PNG enums and speed; HDR and chart-point finiteness | Breaking (removal, strictness), performance (byte-identical) |
-| [#328](https://github.com/Photivra/photivra/pull/328) | — | Sub-object errors; strict nested facade records; scene digest covers spectra; JPEG progress; faster auto white balance; unclamped host yields | Breaking (strictness, digests with caller spectra, JPEG XMP bytes), performance |
+| [#278](https://github.com/Photivra/engine/pull/278) | #274 | Print JPEG pixels-per-inch and mandatory ExifVersion | Fix, additive API |
+| [#279](https://github.com/Photivra/engine/pull/279) | #271 | Exact thin-lens depth-of-field limits | Breaking (values) |
+| [#280](https://github.com/Photivra/engine/pull/280) | #273 | Capacity assessments bound to their charge; `>=` digital saturation flag | Fix (stricter validation) |
+| [#281](https://github.com/Photivra/engine/pull/281) | #272 | Auto-ISO priority modes match exact grid values | Fix |
+| [#282](https://github.com/Photivra/engine/pull/282) | #276 | Crop rounding, canonical JSON, result contract, POC server status codes | Breaking (values, strictness) |
+| [#283](https://github.com/Photivra/engine/pull/283) | #270 | Independent per-site RAW noise seeding | Breaking (values, identities) |
+| [#284](https://github.com/Photivra/engine/pull/284) | #276 | Camera rotation sign; complex-pupil PSF padding and sampling guard | Breaking (values, geometry) |
+| [#285](https://github.com/Photivra/engine/pull/285)–[#288](https://github.com/Photivra/engine/pull/288) | #275, #276 | Native path, SDR, JPEG and stabilization speedups; optical-stage reuse | Performance (bit-identical), additive API |
+| [#290](https://github.com/Photivra/engine/pull/290) | 2.0 review | ISO-to-gain mapping, fixed-pattern noise, generic presets 2.0.0, noise model 0.4.0 | Breaking (values, schemas) |
+| [#291](https://github.com/Photivra/engine/pull/291) | 2.0 review | Colorimetry, chromatic adaptation, Kelvin white balance, wide-gamut transfers (PQ/HLG later removed) | Additive, union widening |
+| [#292](https://github.com/Photivra/engine/pull/292) | #275 | Faster native environment RAW, yields between sites | Performance (bit-identical) |
+| [#293](https://github.com/Photivra/engine/pull/293) | 2.0 review | Cross-engine determinism, review fixes, POC API 1.0.0, leaner package, input validation | Breaking (values, strictness, package) |
+| [#294](https://github.com/Photivra/engine/pull/294) | #275 | Native environment site-plan retention | Performance (bit-identical) |
+| [#295](https://github.com/Photivra/engine/pull/295) | 2.0 review | RAW development corrections, tone curves, DNG tags, typed kernel | Breaking (values, contract) |
+| [#296](https://github.com/Photivra/engine/pull/296) | 2.0 review | Projections, distortion, axial CA, vignetting, Zernike, PSF interpolation, polarizer, haze | Additive, type widening |
+| [#297](https://github.com/Photivra/engine/pull/297), [#301](https://github.com/Photivra/engine/pull/301) | 2.0 review | Rolling-shutter image formation, video, TTL/HSS flash, highlight-priority metering | Additive, union widening |
+| [#298](https://github.com/Photivra/engine/pull/298) | 2.0 review | Exif 2.32 tags, JPEG encoder v2, Print JPEG 0.2.0, DNG import, PNG | Breaking (bytes, schema), additive |
+| [#299](https://github.com/Photivra/engine/pull/299) | 2.0 review | Coverage, independent oracles, rejection tables | Tests only |
+| [#300](https://github.com/Photivra/engine/pull/300) | 2.0 review | `simulateCapture()` facade and chart scenes | Additive |
+| [#302](https://github.com/Photivra/engine/pull/302) | 2.0 review | Demosaic, HDR merge, tone mapping, fusion, stacking, panorama, denoise (Malvar–He–Cutler and PQ/HLG later removed) | Additive |
+| [#303](https://github.com/Photivra/engine/pull/303) | 2.0 review | Brown–Conrady and projections wired into mapping and environment capture | Additive, type widening |
+| [#304](https://github.com/Photivra/engine/pull/304) | #277 | Opt-in WebGPU float32 backend | Additive |
+| [#305](https://github.com/Photivra/engine/pull/305) | #275 | Lean per-site executor for native environment RAW | Performance (identical output) |
+| [#306](https://github.com/Photivra/engine/pull/306) | — | `simulateCapture()` uses the 2.0 features | Additive |
+| [#307](https://github.com/Photivra/engine/pull/307) | — | Native RAW DNG writer, perceptual gamut mapping, PSF throughput rounding fix | Additive, fix |
+| [#308](https://github.com/Photivra/engine/pull/308) | — | `AGENTS.md` reset to a short standard file; retired agent rule files | Repository only |
+| [#309](https://github.com/Photivra/engine/pull/309)–[#312](https://github.com/Photivra/engine/pull/312) | — | Plain-language source comments and docs | Docs only (comment-stripped build identical) |
+| [#313](https://github.com/Photivra/engine/pull/313) | — | `llms.txt`, agent guide and task index for AI agents | Docs, package contents |
+| [#314](https://github.com/Photivra/engine/pull/314) | — | Free-source citations, runtime source strings, DC-004 facade exposure anchor, inventory fixes | Breaking (facade default illuminance), text |
+| [#315](https://github.com/Photivra/engine/pull/315) | — | Release record: CI on `28f8b61`, owner decisions, DNG licence check | Docs only |
+| [#316](https://github.com/Photivra/engine/pull/316) | #277 | WebGPU accuracy contract, sensor stage and temporal exposure sum | Additive |
+| [#317](https://github.com/Photivra/engine/pull/317) | #276 | Strict inputs everywhere, read-only results, one rule for error classes | Breaking (strictness, error classes) |
+| [#318](https://github.com/Photivra/engine/pull/318), [#320](https://github.com/Photivra/engine/pull/320) | — | Licence cleanup: own CMF fit, Planck-law locus, Malvar–He–Cutler, PQ and HLG removed; caller CIE94 factors; SPDX headers | Breaking (values, removals) |
+| [#319](https://github.com/Photivra/engine/pull/319) | #275 | Lean PSF, lens-mapped and pupil sites; worker row-band partitions; batched light sampling | Performance (identical output), additive API |
+| [#321](https://github.com/Photivra/engine/pull/321) | — | CCT/Duv by Newton root-find on the analytic derivative | Values (≤ 0.089 K), performance |
+| [#322](https://github.com/Photivra/engine/pull/322) | #276 | Strict versioned records: every `parse*()` parser and record-taking function rejects unknown fields | Breaking (strictness) |
+| [#323](https://github.com/Photivra/engine/pull/323) | #277 | WebGPU: FPN on the GPU sensor stage, luminance tone curves, PSF-profile kernels, chart radiance, per-fixture rollout | Additive |
+| [#324](https://github.com/Photivra/engine/pull/324) | — | Licence guard: ScanCode CI job with a reviewed allowlist; PR-template rights line; free CAT16 citation | CI, docs |
+| [#325](https://github.com/Photivra/engine/pull/325) | #277 | WebGPU fixes: tiny-weight error bounds, per-band memory, late-device destroy | Fix (GPU values unchanged) |
+| [#326](https://github.com/Photivra/engine/pull/326) | — | Durand–Dorsey zero-luminance pixels; PSF kernel memory and corner lookup | Fix (values), performance (bit-identical) |
+| [#327](https://github.com/Photivra/engine/pull/327) | — | CAT02 removed; CCT+Duv domain; strict nested colour and optics records; PNG enums and speed; HDR and chart-point finiteness | Breaking (removal, strictness), performance (byte-identical) |
+| [#328](https://github.com/Photivra/engine/pull/328) | — | Sub-object errors; strict nested facade records; scene digest covers spectra; JPEG progress; faster auto white balance; unclamped host yields | Breaking (strictness, digests with caller spectra, JPEG XMP bytes), performance |
 | This update | — | Von Kries HPE transform and CIECAM02 degree-of-adaptation helper removed (owner decision); `calculateSensorGeometryMetrics` input check; record refresh | Removal, fix, docs |
 
 Commits #243–#267, between `v1.5.0` and the first review, are guidance, CI, documentation, hooks, `release:prepare` and repository-internal browser-native reference work. They change no public root contract. The full release notes, with a migration for each breaking change, are in the [changelog](../CHANGELOG.md).
@@ -472,7 +472,7 @@ The authoritative result is GitHub CI on the exact commit that is tagged: the `m
 
 | Gate | Result |
 | --- | --- |
-| Base before this update | `34f687da64e177a194fde8be0f25f681f282f1f1` (#328). Its pull-request CI passed on every job, including the licence scan; push CI on `main` passed: [CI run 832](https://github.com/Photivra/photivra/actions/runs/39042289305) (all `verify` jobs on Node 22.13.0, lts/-1, lts/* and current, coverage, licence scan, macOS hash locks) and [Native performance run 90](https://github.com/Photivra/photivra/actions/runs/39042289319). |
+| Base before this update | `34f687da64e177a194fde8be0f25f681f282f1f1` (#328). Its pull-request CI passed on every job, including the licence scan; push CI on `main` passed: [CI run 832](https://github.com/Photivra/engine/actions/runs/39042289305) (all `verify` jobs on Node 22.13.0, lts/-1, lts/* and current, coverage, licence scan, macOS hash locks) and [Native performance run 90](https://github.com/Photivra/engine/actions/runs/39042289319). |
 | GitHub CI on this update's PR (all jobs, all Node versions, licence scan, macOS hash locks) | Recorded on the PR. |
 | GitHub CI on `main` after merge | To check before tagging. |
 
@@ -498,7 +498,7 @@ The authoritative result is GitHub CI on the exact commit that is tagged: the `m
 - [x] Licence guard in CI (#324); local ScanCode run on this candidate recorded above.
 - [x] Owner decisions on citations (decision 1).
 - [x] Owner's substantive human review of the AI-assisted changes and of this record.
-- [x] Green exact-head CI on the release PR (#329); then green CI on `main` after merge ([CI run 835](https://github.com/Photivra/photivra/actions/runs/39044033656) on `a9833ad`).
+- [x] Green exact-head CI on the release PR (#329); then green CI on `main` after merge ([CI run 835](https://github.com/Photivra/engine/actions/runs/39044033656) on `a9833ad`).
 - [x] **The owner's explicit approval to tag `v2.0.0`.** The owner tagged `v2.0.0` on `a9833ad`; `v1.5.0` is unchanged.
 - [x] After publication: npm version, dist-tag, tarball integrity and provenance verified; GitHub release notes published; publication dates updated in `CHANGELOG.md`, `README.md`, `SECURITY.md` and this record (`docs/DEVELOPERS.md` states no release date).
 
@@ -507,9 +507,9 @@ The authoritative result is GitHub CI on the exact commit that is tagged: the `m
 | Fact | Value |
 | --- | --- |
 | Tag | `v2.0.0` → `a9833adf3d4b107801c9bad4b04f3456e148ee99` (#329) |
-| Publish workflow | [Publish npm run 15](https://github.com/Photivra/photivra/actions/runs/39047383323), passed |
+| Publish workflow | [Publish npm run 15](https://github.com/Photivra/engine/actions/runs/39047383323), passed |
 | npm | `@photivra/engine@2.0.0`, dist-tag `latest` |
 | Integrity | `sha512-1snxRE7vNZjvXAg/ZwMMo+lq4SHEicWlHgORf4me4e+2fiBO7rJYyUx7CgcMhbWL61bDeT97E/GZHXdY5N1xyg==` |
 | Provenance | SLSA provenance v1 attestation present on npm |
 | Tarball contents | Identical, file for file, to `npm pack` of a local clean build of `a9833ad` (checked October 17, 2026) |
-| GitHub release | [@photivra/engine 2.0.0](https://github.com/Photivra/photivra/releases/tag/v2.0.0) |
+| GitHub release | [@photivra/engine 2.0.0](https://github.com/Photivra/engine/releases/tag/v2.0.0) |

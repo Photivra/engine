@@ -299,7 +299,7 @@ the kernel spreads its light, as for any environment PSF.
   symmetric frame's centre, its vertical spokes through an odd frame's centre column) resolves to the same material on
   every path. Before, on a 20 × 14 star at f/11 next to the centre, the capture gave 12 663 against 3 560 electrons with
   and without an identity vignetting profile; now the two agree within 1e-9 relative at every site and give the same RAW
-  (`test/simulate-capture-boundary-ties.test.ts`, [#565](https://github.com/Photivra/photivra/issues/565)). With camera
+  (`test/simulate-capture-boundary-ties.test.ts`, [#565](https://github.com/Photivra/engine/issues/565)). With camera
   rotation under `motion.shutter: "rolling"` the lattice reading is `lens.diffraction`'s exact method and each tap's own point its fast
   one (2.20.0: the format default decides, fast for sRGB samples and exact for DNG, JPEG and PNG; [Quick start, Optics](QUICK_START.md#optics)).
 - *Against the box-downsized capture.* A slanted edge through radial distortion and vignetting, in focus and out of
@@ -418,7 +418,7 @@ capture's own site record, its catalogue PSF quadrature, evaluated with the capt
 
 - *Ties on chart boundaries.* Lattice source points that fall exactly on a chart boundary (a Siemens star's spokes through the
   frame centre) round as the lattice does in the view and, since 2.21.0, in the capture's quadrature too, which reads each tap at
-  its lattice point ([#588](https://github.com/Photivra/photivra/issues/588), as [#565](https://github.com/Photivra/photivra/issues/565)
+  its lattice point ([#588](https://github.com/Photivra/engine/issues/588), as [#565](https://github.com/Photivra/engine/issues/565)
   does for `lens.diffraction`; [Generic lens catalogue](LENS_CATALOGUE.md)), so both resolve a tie to the same material. The table
   uses dead leaves and radiance scenes, which have no such ties.
 - *Against the box-downsized capture:* a slanted edge through *PV 24 1.8* wide open (6 µm, 192 × 128 shown at 24 × 16)

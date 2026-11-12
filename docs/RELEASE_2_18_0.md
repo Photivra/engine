@@ -100,7 +100,7 @@ Apple M5 Pro, Node.js 24.19.0, load average about 2.5, on the integrated tree:
 - [x] Version surfaces aligned at 2.18.0 (`npm run release:prepare -- 2.18.0`). Root exports 1,850.
 - [x] No `src/gpu` change: no WebGPU hardware gate.
 - [ ] Packed tarball compared file by file with the published 2.17.0 (not done here: it needs the published tarball downloaded).
-- [x] Green CI on this pull request, then on `main` after merge ([CI run 42653357913](https://github.com/Photivra/photivra/actions/runs/42653357913) on `3f9d65b`).
+- [x] Green CI on this pull request, then on `main` after merge ([CI run 42653357913](https://github.com/Photivra/engine/actions/runs/42653357913) on `3f9d65b`).
 - [x] The owner's approval to tag `v2.18.0`.
 - [x] The `v2.18.0` tag on the `main` commit that merges this record (`3f9d65b`).
 - [ ] After publication:
@@ -112,8 +112,8 @@ Apple M5 Pro, Node.js 24.19.0, load average about 2.5, on the integrated tree:
 
 | Fact | Value |
 | --- | --- |
-| Tag | `v2.18.0` (annotated, `83a4d89`) → `3f9d65b1b1c1f73c4ca49032caab9785c8e0f6e3` (#582), after `main` CI on that commit passed ([CI run 42653357913](https://github.com/Photivra/photivra/actions/runs/42653357913)) |
-| Publish workflow | [Publish npm run 42657550405](https://github.com/Photivra/photivra/actions/runs/42657550405): `verify` passed 16:42:57–16:45:44 UTC, coverage shards 10.4–19.9 min and gate 0.7 min passed, `publish` passed 17:03:37–17:03:52 UTC |
+| Tag | `v2.18.0` (annotated, `83a4d89`) → `3f9d65b1b1c1f73c4ca49032caab9785c8e0f6e3` (#582), after `main` CI on that commit passed ([CI run 42653357913](https://github.com/Photivra/engine/actions/runs/42653357913)) |
+| Publish workflow | [Publish npm run 42657550405](https://github.com/Photivra/engine/actions/runs/42657550405): `verify` passed 16:42:57–16:45:44 UTC, coverage shards 10.4–19.9 min and gate 0.7 min passed, `publish` passed 17:03:37–17:03:52 UTC |
 | npm | `@photivra/engine@2.18.0`, dist-tag `latest`, registry time 17:05:58 UTC, November 9, 2026 |
 | Integrity | `sha512-r0/p3Xy/YJZ49W11v/NTa/bFsUvoGG5l9Ga5rqwHwgD1r6Jo0IiOpjKelQqyCPMU+Kw9dQhKGN7l1S68Z4bEDw==` (shasum `7d923869297ae0bcba1b84f7863a1b3edef601fa`, 960 files) |
 | Provenance | The registry lists an SLSA v1 provenance attestation for 2.18.0 |

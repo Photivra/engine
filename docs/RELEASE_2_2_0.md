@@ -13,8 +13,8 @@
 
 | PR | Change | Kind |
 | --- | --- | --- |
-| [#336](https://github.com/Photivra/photivra/pull/336) | `simulateCapture` accepts pixel pitches that failed the aperture fit by one unit in the last place; ISO calibration no longer depends on pixel size (new assumption `sensor.isoAreaNormalization`) | Fix (byte-identical at 6 µm) |
-| [#337](https://github.com/Photivra/photivra/pull/337) | Opt-in pixel limits up to 2^27 on every full-resolution stage and `simulateCapture` `output.maximumPixels`; `FULL_RESOLUTION_DEFAULT_PIXELS`, `FULL_RESOLUTION_CEILING_PIXELS`, `PRINT_JPEG_LIMITS`; measured cost of large images | Additive, opt-in |
+| [#336](https://github.com/Photivra/engine/pull/336) | `simulateCapture` accepts pixel pitches that failed the aperture fit by one unit in the last place; ISO calibration no longer depends on pixel size (new assumption `sensor.isoAreaNormalization`) | Fix (byte-identical at 6 µm) |
+| [#337](https://github.com/Photivra/engine/pull/337) | Opt-in pixel limits up to 2^27 on every full-resolution stage and `simulateCapture` `output.maximumPixels`; `FULL_RESOLUTION_DEFAULT_PIXELS`, `FULL_RESOLUTION_CEILING_PIXELS`, `PRINT_JPEG_LIMITS`; measured cost of large images | Additive, opt-in |
 | This update | Version 2.2.0, changelog and this record | Release preparation |
 
 Root exports grow from 1,677 to 1,680 symbols (the three constants above). Comparing the generated `docs/api/exports.json` with `v2.1.0` shows none removed.
@@ -113,7 +113,7 @@ No network, persistence or telemetry is added. The raised limits are opt-in, str
 
 The authoritative result is GitHub CI on the exact commit that is tagged: the `main` commit that merges this record update. Tag it only when its CI is green.
 
-- #336 and #337 each passed every CI job on their pull requests: `verify` on Node 22.13.0, lts/-1, lts/* and current (with coverage, docs and package gates on the primary leg); the licence scan; and the macOS hash locks ([CI run 849](https://github.com/Photivra/photivra/actions/runs/39065881580), [CI run 851](https://github.com/Photivra/photivra/actions/runs/39068891519)). Both passed CI on `main` after merge ([CI run 850](https://github.com/Photivra/photivra/actions/runs/39066490000) on `c0f67e2`, [CI run 852](https://github.com/Photivra/photivra/actions/runs/39069478972) on `85a08e5`, the base of this update).
+- #336 and #337 each passed every CI job on their pull requests: `verify` on Node 22.13.0, lts/-1, lts/* and current (with coverage, docs and package gates on the primary leg); the licence scan; and the macOS hash locks ([CI run 849](https://github.com/Photivra/engine/actions/runs/39065881580), [CI run 851](https://github.com/Photivra/engine/actions/runs/39068891519)). Both passed CI on `main` after merge ([CI run 850](https://github.com/Photivra/engine/actions/runs/39066490000) on `c0f67e2`, [CI run 852](https://github.com/Photivra/engine/actions/runs/39069478972) on `85a08e5`, the base of this update).
 - Local results on this candidate are recorded in its pull request.
 
 ## Remaining release checklist
@@ -121,7 +121,7 @@ The authoritative result is GitHub CI on the exact commit that is tagged: the `m
 - [x] All 2.2 work merged (#336, #337) with changelog entries.
 - [x] Version surfaces aligned at 2.2.0 (`npm run release:prepare -- 2.2.0`); API reference regenerated.
 - [x] Owner's review of this record.
-- [x] Green CI on this update's pull request (#338), then on `main` after merge ([CI run 854](https://github.com/Photivra/photivra/actions/runs/39070650369) on `bf20458`).
+- [x] Green CI on this update's pull request (#338), then on `main` after merge ([CI run 854](https://github.com/Photivra/engine/actions/runs/39070650369) on `bf20458`).
 - [x] **The owner's explicit approval to tag `v2.2.0`.** The owner tagged `v2.2.0` on `bf20458`; `v2.1.0` is unchanged.
 - [x] After publication: npm version, dist-tag, integrity and provenance verified; GitHub release notes published; publication dates updated in `CHANGELOG.md`, `README.md`, `SECURITY.md` and this record.
 
@@ -130,9 +130,9 @@ The authoritative result is GitHub CI on the exact commit that is tagged: the `m
 | Fact | Value |
 | --- | --- |
 | Tag | `v2.2.0` → `bf20458d6a8b71c6a78ea765eaddcd3e5e0fe047` (#338) |
-| Publish workflow | [Publish npm run 17](https://github.com/Photivra/photivra/actions/runs/39076546190), passed; the provenance was signed at 22:52 UTC and the registry records publication at 22:55 UTC |
+| Publish workflow | [Publish npm run 17](https://github.com/Photivra/engine/actions/runs/39076546190), passed; the provenance was signed at 22:52 UTC and the registry records publication at 22:55 UTC |
 | npm | `@photivra/engine@2.2.0`, dist-tag `latest` |
 | Integrity | `sha512-HsmWekS3mgwe6xQ3LQxgk9DB8nUpZqL7F2YE6jpUOK1WDmFk/ayWkdnD/Eh1lulj78nf7KtgN3zWP3tvF6dD4Q==` |
 | Provenance | Signed SLSA provenance, published to the Sigstore transparency log (log index 3301918949) |
 | Tarball contents | Identical, file for file, to `npm pack` of a clean local build of `v2.2.0` (checked October 17, 2026) |
-| GitHub release | [@photivra/engine 2.2.0](https://github.com/Photivra/photivra/releases/tag/v2.2.0) |
+| GitHub release | [@photivra/engine 2.2.0](https://github.com/Photivra/engine/releases/tag/v2.2.0) |

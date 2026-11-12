@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Test-once proofs for CI (photivra/photivra#510).
+// Test-once proofs for CI (Photivra/engine#510).
 //
 // A CI job that passes every step uploads an empty artifact named by `proofName`: the tree
 // it tested, the job and its runtime. A later run on the same tree and runtime (the merge

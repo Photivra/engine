@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // The Node.js roles of the CI matrix, derived from the reviewed lifecycle snapshot in
 // node-lts-policy.mjs, and a check that `.github/workflows/ci.yml`, `publish.yml`,
-// `NODE_SUPPORT.md` and `package.json` agree with them (photivra/photivra#231).
+// `NODE_SUPPORT.md` and `package.json` agree with them (Photivra/engine#231).
 //
 // Roles: the exact public minimum (`engines.node`), the maintained LTS majors, the Current
 // major, the primary leg (Node 24, pinned to the tooling major since 2.20.0: coverage, static,

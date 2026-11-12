@@ -103,7 +103,7 @@ The authoritative result is GitHub CI on the exact commit that is tagged: the `m
 - [x] The 2.5.0 features merged with their changelog entries (#350, #351), and the CI limit (#348).
 - [x] Version surfaces aligned at 2.5.0 (`npm run release:prepare -- 2.5.0`); API reference regenerated (1,717 root symbols; none removed).
 - [x] Owner's review of this record.
-- [x] Green CI on this pull request (#352), then on `main` after merge ([CI run 888](https://github.com/Photivra/photivra/actions/runs/39140433729) on `c5a2a78`, passed at 15:39:47 UTC).
+- [x] Green CI on this pull request (#352), then on `main` after merge ([CI run 888](https://github.com/Photivra/engine/actions/runs/39140433729) on `c5a2a78`, passed at 15:39:47 UTC).
 - [x] **The owner's explicit approval to tag `v2.5.0`.** The owner tagged `v2.5.0` on `c5a2a78` at about 15:31 UTC, while `main` CI run 888 on that commit was still running, not after it was green as [Release gates](#release-gates) asks. The Publish npm workflow's verify job ran its own full verification of the tag commit (static and policy gates, coverage gate, build, documentation and packed consumer acceptance, package dry run) and passed; CI run 888 passed at 15:39:47 UTC, before the publish job started at 15:44:48 UTC.
 - [x] After publication: npm version, dist-tag, integrity and provenance verified; GitHub release notes published; publication dates updated in `CHANGELOG.md`, `README.md`, `SECURITY.md` and this record. `docs/DEVELOPERS.md` was made publication-neutral in #352 and points to this record, so it needs no date.
 
@@ -111,10 +111,10 @@ The authoritative result is GitHub CI on the exact commit that is tagged: the `m
 
 | Fact | Value |
 | --- | --- |
-| Tag | `v2.5.0` → `c5a2a7836037cad6fb58dd3cd0ef18e5cb51e84f` (#352), pushed at about 15:31 UTC, before `main` [CI run 888](https://github.com/Photivra/photivra/actions/runs/39140433729) on that commit passed at 15:39:47 UTC |
-| Publish workflow | [Publish npm run 22](https://github.com/Photivra/photivra/actions/runs/39140845985), passed (completed 15:45:07 UTC); its verify job ran the full verification of the tag commit and passed at 15:44:45 UTC; the provenance was signed at 15:45 UTC and the registry records publication at 15:47 UTC |
+| Tag | `v2.5.0` → `c5a2a7836037cad6fb58dd3cd0ef18e5cb51e84f` (#352), pushed at about 15:31 UTC, before `main` [CI run 888](https://github.com/Photivra/engine/actions/runs/39140433729) on that commit passed at 15:39:47 UTC |
+| Publish workflow | [Publish npm run 22](https://github.com/Photivra/engine/actions/runs/39140845985), passed (completed 15:45:07 UTC); its verify job ran the full verification of the tag commit and passed at 15:44:45 UTC; the provenance was signed at 15:45 UTC and the registry records publication at 15:47 UTC |
 | npm | `@photivra/engine@2.5.0`, dist-tag `latest` |
 | Integrity | `sha512-6GD4AqcZOOqWqIaDjHdRakw2CaSOILMJF68BiiZVmevJe4BZyPCjnsXlAUaesz2TvY+0E3nhv6+ldQSIU8aGVQ==` (shasum `994ea89ca76c7d9fdde2cfebb952084e9b596d52`) |
 | Provenance | Signed SLSA provenance for `c5a2a78` from `.github/workflows/publish.yml` at `refs/tags/v2.5.0` (Publish npm run 22), published to the Sigstore transparency log (log index 3313347488); `npm audit signatures` verifies the registry signature and the attestation |
 | Tarball contents | Byte-identical (same shasum and integrity, 836 files) to `npm pack` of a clean local build of `v2.5.0` (checked October 18, 2026) |
-| GitHub release | [@photivra/engine 2.5.0](https://github.com/Photivra/photivra/releases/tag/v2.5.0) |
+| GitHub release | [@photivra/engine 2.5.0](https://github.com/Photivra/engine/releases/tag/v2.5.0) |

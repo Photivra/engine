@@ -82,9 +82,9 @@ The authoritative result is GitHub CI on the exact commit that is tagged: the `m
 
 | Fact | Value |
 | --- | --- |
-| Tag | `v2.8.1` → `93b5ca1223b4e9c3df7ac6a38c3dd2b03c5a711e` (#421), after `main` CI on that commit passed ([CI run 973](https://github.com/Photivra/photivra/actions/runs/40209424181)) |
-| GitHub release | [@photivra/engine 2.8.1](https://github.com/Photivra/photivra/releases/tag/v2.8.1), published 16:22:17 UTC |
-| Publish workflow | [Publish npm run 26](https://github.com/Photivra/photivra/actions/runs/40211350182): its verify and publish jobs passed (completed 16:29:31 UTC) |
+| Tag | `v2.8.1` → `93b5ca1223b4e9c3df7ac6a38c3dd2b03c5a711e` (#421), after `main` CI on that commit passed ([CI run 973](https://github.com/Photivra/engine/actions/runs/40209424181)) |
+| GitHub release | [@photivra/engine 2.8.1](https://github.com/Photivra/engine/releases/tag/v2.8.1), published 16:22:17 UTC |
+| Publish workflow | [Publish npm run 26](https://github.com/Photivra/engine/actions/runs/40211350182): its verify and publish jobs passed (completed 16:29:31 UTC) |
 | npm | `@photivra/engine@2.8.1`, dist-tag `latest`, registry time 16:31:36 UTC |
 | Integrity | `sha512-m5Kw8Y49sDRW45nfycfQjV/qOxIhEByt8sZZFv1Ql+WtgfnvDniWQ8wcoGfVqGnd6le4DvLsbUMeRgg46AKilA==` (shasum `3548f01418079a9f7fea67b4701efe8dfe72faf3`, 858 files), the same as the publish log and as a local pack of `93b5ca1` |
 | Provenance | Signed provenance statement from GitHub Actions for the tag, published to the Sigstore transparency log ([log index 3463185553](https://search.sigstore.dev/?logIndex=3463185553)); the registry lists an attestation for 2.8.1 |

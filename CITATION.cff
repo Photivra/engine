@@ -6,7 +6,7 @@ authors:
   - family-names: "Shackelford"
     given-names: "William"
 abstract: "An open TypeScript engine for the science and mathematics of photography and digital imaging."
-repository-code: "https://github.com/photivra/photivra"
+repository-code: "https://github.com/Photivra/engine"
 url: "https://photivra.com"
 license: "Apache-2.0"
 version: "2.24.0"

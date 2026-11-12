@@ -21,7 +21,7 @@ This pull request is cut from `4cb24a6` (`v2.22.0`) and carries:
 | Research report: per-site estimators of the display view's AHD low-signal bias without a lookup table | #604 | `e223-604` (`2993b7d`) |
 | 2.23.0 preparation: version surfaces, the 2.23.0 changelog entry, the 2.22.0 publication record | — | this pull request |
 
-The entry is in [CHANGELOG.md](../CHANGELOG.md) under 2.23.0. The design and its measurements are in [WEBGPU.md, "Neighbor highlight reconstruction (#605)"](WEBGPU.md#neighbor-highlight-reconstruction-605) and the report in [research/ahd-bias-correction.md](https://github.com/Photivra/photivra/blob/main/docs/research/ahd-bias-correction.md).
+The entry is in [CHANGELOG.md](../CHANGELOG.md) under 2.23.0. The design and its measurements are in [WEBGPU.md, "Neighbor highlight reconstruction (#605)"](WEBGPU.md#neighbor-highlight-reconstruction-605) and the report in [research/ahd-bias-correction.md](https://github.com/Photivra/engine/blob/main/docs/research/ahd-bias-correction.md).
 
 ## Default changes
 
@@ -84,24 +84,24 @@ On this tree (Apple M5 Pro, Node.js 24.19.0), one run each:
 - [x] Version surfaces aligned at 2.23.0 (`npm run release:prepare -- 2.23.0`). Root exports 1,981.
 - [x] 2.22.0 recorded as published ([2.22.0 release record](RELEASE_2_22_0.md#publication)).
 - [x] The worker rows measured ([Sizes](#sizes)); no limit raised.
-- [x] Green CI on this pull request ([CI run 43174074697](https://github.com/Photivra/photivra/actions/runs/43174074697) on `45e3d5a`), then on `main` after merge ([CI run 43233589356](https://github.com/Photivra/photivra/actions/runs/43233589356) on `14203b7`).
+- [x] Green CI on this pull request ([CI run 43174074697](https://github.com/Photivra/engine/actions/runs/43174074697) on `45e3d5a`), then on `main` after merge ([CI run 43233589356](https://github.com/Photivra/engine/actions/runs/43233589356) on `14203b7`).
 - [x] The owner's approval to tag `v2.23.0`.
 - [x] The `v2.23.0` tag on the `main` commit that merges this record (`14203b7`).
 - [x] After publication:
   - [x] npm version, dist-tag, integrity and provenance verified ([Publication](#publication));
-  - [x] GitHub release notes published ([`v2.23.0`](https://github.com/Photivra/photivra/releases/tag/v2.23.0), 14:17 UTC);
+  - [x] GitHub release notes published ([`v2.23.0`](https://github.com/Photivra/engine/releases/tag/v2.23.0), 14:17 UTC);
   - [x] publication dates updated in `CHANGELOG.md`, `README.md`, `SECURITY.md`, `docs/DEVELOPERS.md` and this record (with the 2.24.0 preparation).
 
 ## Publication
 
 | Fact | Value |
 | --- | --- |
-| Tag | `v2.23.0` (annotated, `2afc8bd`) → `14203b734fa581289cf3835d3a389effd9db1a17` (#608, squash merge), after `main` CI on that commit passed ([CI run 43233589356](https://github.com/Photivra/photivra/actions/runs/43233589356); WebGPU [43233589477](https://github.com/Photivra/photivra/actions/runs/43233589477), native performance [43233589390](https://github.com/Photivra/photivra/actions/runs/43233589390)) |
-| Publish workflow | [Publish npm run 43234231747](https://github.com/Photivra/photivra/actions/runs/43234231747): passed 14:09:10–14:12:16 UTC |
+| Tag | `v2.23.0` (annotated, `2afc8bd`) → `14203b734fa581289cf3835d3a389effd9db1a17` (#608, squash merge), after `main` CI on that commit passed ([CI run 43233589356](https://github.com/Photivra/engine/actions/runs/43233589356); WebGPU [43233589477](https://github.com/Photivra/engine/actions/runs/43233589477), native performance [43233589390](https://github.com/Photivra/engine/actions/runs/43233589390)) |
+| Publish workflow | [Publish npm run 43234231747](https://github.com/Photivra/engine/actions/runs/43234231747): passed 14:09:10–14:12:16 UTC |
 | npm | `@photivra/engine@2.23.0`, dist-tag `latest`, registry time 14:16:23 UTC, November 12, 2026 |
 | Integrity | `sha512-e/vo1UtXQ8IuVaQonWnBwAxiH/Sl5q3R+8C88L9SUGbEqiD9o4DwCb6Kf9JdPZRJX73QxZuVS4svRnMcHJ2N0g==` (shasum `d325b26d5914d52f2fb169647a0a004650b779ad`, 1,137 files) |
 | Provenance | The registry lists an attestation (SLSA v1) for 2.23.0 |
-| GitHub release | [`v2.23.0`](https://github.com/Photivra/photivra/releases/tag/v2.23.0), published 14:17:10 UTC |
+| GitHub release | [`v2.23.0`](https://github.com/Photivra/engine/releases/tag/v2.23.0), published 14:17:10 UTC |
 
 ## For the owner
 

@@ -2,7 +2,7 @@
 
 ## 2.24.0 — unreleased (prepared November 12, 2026)
 
-A minor release: the #607 research's "go" items for imported DNGs (owner-approved, 2026-11-11); two sample counts that follow the speed/accuracy flag (owner decision 2026-11-12); CI headroom; and the external Content Credentials validation. See the [2.24.0 release record](https://github.com/Photivra/photivra/blob/main/docs/RELEASE_2_24_0.md).
+A minor release: the #607 research's "go" items for imported DNGs (owner-approved, 2026-11-11); two sample counts that follow the speed/accuracy flag (owner decision 2026-11-12); CI headroom; and the external Content Credentials validation. See the [2.24.0 release record](https://github.com/Photivra/engine/blob/main/docs/RELEASE_2_24_0.md).
 
 - **New:** `calculateDngRawClipping`, `estimateDngRawNoise`, `assessDngRawWhatIf`, `simulateDngRawWhatIf`, `DngRawWhatIfRefusedError`, `DNG_WHAT_IF_MINIMUM_MEASURED_TO_PROFILE`, `DNG_GAIN_SWITCH_CATALOG`, `resolveDngGainSwitch` and `developDngImage`; the import's `noiseProfile`, `exif`, `analogBalance`, `cameraCalibration1/2` with their signatures and `asShotWhiteXy` (DNG import schema 1.2.0).
 - **Root exports:** 28 new, 1,981 → 2,009 (runtime exports 672 → 681). Nothing is removed or changed.
@@ -50,7 +50,7 @@ An explicit `samplesPerAxis` or `temporalSampleCount` always wins and makes no c
 
 ## 2.23.0 — published November 12, 2026
 
-A minor release: neighbor highlight reconstruction on the WebGPU display view (#605), with the CPU region order and the full method's relaxation factor it needed, and the #604 research report. See the [2.23.0 release record](https://github.com/Photivra/photivra/blob/main/docs/RELEASE_2_23_0.md).
+A minor release: neighbor highlight reconstruction on the WebGPU display view (#605), with the CPU region order and the full method's relaxation factor it needed, and the #604 research report. See the [2.23.0 release record](https://github.com/Photivra/engine/blob/main/docs/RELEASE_2_23_0.md).
 
 - **GPU:** `output.highlightMode: "reconstruct-neighbors"` (#602) runs in the WebGPU display view's Speed and Quality kernels, fast
   (ring average) and full (harmonic fill), instead of falling back to the CPU (#605). The host finds each clipped region's ratios with
@@ -69,7 +69,7 @@ A minor release: neighbor highlight reconstruction on the WebGPU display view (#
   (`npm run build` strips WGSL comments and indentation; owner decision 2026-11-11), for every row. On 2.22.0's tree that reads
   fast worker 333,241 B and on demand 43,456 B (the source text: 337,413 B and 46,977 B); with #605, 333,322 B (+81) and
   45,110 B (+1,654: the GPU coupled and neighbor chunk +1,288, the CPU Quality kit +314, the GPU Quality chunk +52). No limit changed.
-- **Research (#604, not shipped):** [docs/research/ahd-bias-correction.md](https://github.com/Photivra/photivra/blob/main/docs/research/ahd-bias-correction.md) measures per-site
+- **Research (#604, not shipped):** [docs/research/ahd-bias-correction.md](https://github.com/Photivra/engine/blob/main/docs/research/ahd-bias-correction.md) measures per-site
   estimators of the display view's AHD low-signal bias, computed at use with no table keyed by channel signal levels. None
   is fast enough for the CPU view (10–20 ms per site); #604 is closed and 2.22.0's labeled approximation stays. The prototype is
   in `scripts/research/ahd-bias/`, outside the package.
@@ -82,7 +82,7 @@ A minor release: neighbor highlight reconstruction on the WebGPU display view (#
 
 ## 2.22.0 — published November 12, 2026
 
-A minor release: phone DNG import with JPEG XL and lossy JPEG raw data, the DNG stage image and opcodes (#598, #600) and the channel-response helper (#591); native-photosite sensor figures (#595), read noise per photosite on the tiers (#599), mixed lighting over an image-plane print (#597), sample counts that follow the light and the output (#590) and the catalogue's fast grid (#603); the display view's luminance tone curves, highlight reconstruction and desaturation on the CPU and GPU (#593, #601, #602); the removal of the display view's AHD low-signal correction; Content Credentials writers (#165, engine half); and the full-quality and opt-in code loaded on demand (#594). See the [2.22.0 release record](https://github.com/Photivra/photivra/blob/main/docs/RELEASE_2_22_0.md).
+A minor release: phone DNG import with JPEG XL and lossy JPEG raw data, the DNG stage image and opcodes (#598, #600) and the channel-response helper (#591); native-photosite sensor figures (#595), read noise per photosite on the tiers (#599), mixed lighting over an image-plane print (#597), sample counts that follow the light and the output (#590) and the catalogue's fast grid (#603); the display view's luminance tone curves, highlight reconstruction and desaturation on the CPU and GPU (#593, #601, #602); the removal of the display view's AHD low-signal correction; Content Credentials writers (#165, engine half); and the full-quality and opt-in code loaded on demand (#594). See the [2.22.0 release record](https://github.com/Photivra/engine/blob/main/docs/RELEASE_2_22_0.md).
 
 - **New:** `importDngRawImage`, `parseLossyJpeg`, `createJxlOxideDngDecoder`, `parseDngOpcodeList`, `applyDngOpcodes`, `developDngStageImage`, `parseDngProfileGainTableMap`, `parseDngRgbTables`, `applyDngProfileGainTableMap`, `applyDngRgbTables` (#598, #600); `calculateCameraChannelResponse` (#591); `result.sensor.native` (#595); `output.gamutHandling: "desaturate-to-luminance"` (#601) and `output.highlightMode: "reconstruct-neighbors"` (#602); the luminance tone curves and `highlightMode: "reconstruct"` in the display view (#593); `bindC2paManifestStore`, `calculateC2paDataHash`, `setC2paManifestStore`, `parseC2paManifestStore` (#165); `prepareQualityPaths()` (#594).
 - **Changed (see "Default changes"):** the tiers' read noise is per photosite (#599); the default spectral step under a spiky light on exact requests (#590); the catalogue's fast grid (#603); mixed lighting over a print is rendered (#597); the display view's AHD has no low-signal correction; two `raw.expectedSignal` method names; the GPU Quality self-check runs at the first Quality render; the full-quality and opt-in code loads on demand (#594).
@@ -152,7 +152,7 @@ The owner decided (2026-11-11) to drop the display view's AHD low-signal correct
 
 ### #165 Content Credentials writers (engine half)
 
-- **New (#165, engine half):** `bindC2paManifestStore`, `calculateC2paDataHash`, `setC2paManifestStore` and `parseC2paManifestStore` embed a caller-built C2PA Manifest Store in a JPEG (APP11 segments right after APP0, as the reference SDK writes them, C2PA 2.4 §A.3.1), PNG (a `caBX` chunk right after IHDR, §A.3.2) or DNG/TIFF (tag 52545 in the main IFD, store at the end of the file, §A.3.6); return the `c2pa.hash.data` exclusions (§18.5.3: every C2PA APP11 segment; §18.5.4: the whole caBX chunk; §18.5.5: the entry's count field and the store); compute the SHA-256 over the bound bytes; write the signed store in place at exactly the placeholder's length (§10.4), so no offset moves; and find an existing store and its binding without verifying signatures. `C2PA_ALGORITHMIC_MEDIA_SOURCE_TYPE` (owner decision: IPTC `algorithmicMedia`) and `C2PA_MANIFEST_STORE_MAXIMUM_BYTES` (32 MiB). No keys, signing, manifest building or network calls in the engine. See [Content Credentials](https://github.com/Photivra/photivra/blob/main/docs/CONTENT_CREDENTIALS.md).
+- **New (#165, engine half):** `bindC2paManifestStore`, `calculateC2paDataHash`, `setC2paManifestStore` and `parseC2paManifestStore` embed a caller-built C2PA Manifest Store in a JPEG (APP11 segments right after APP0, as the reference SDK writes them, C2PA 2.4 §A.3.1), PNG (a `caBX` chunk right after IHDR, §A.3.2) or DNG/TIFF (tag 52545 in the main IFD, store at the end of the file, §A.3.6); return the `c2pa.hash.data` exclusions (§18.5.3: every C2PA APP11 segment; §18.5.4: the whole caBX chunk; §18.5.5: the entry's count field and the store); compute the SHA-256 over the bound bytes; write the signed store in place at exactly the placeholder's length (§10.4), so no offset moves; and find an existing store and its binding without verifying signatures. `C2PA_ALGORITHMIC_MEDIA_SOURCE_TYPE` (owner decision: IPTC `algorithmicMedia`) and `C2PA_MANIFEST_STORE_MAXIMUM_BYTES` (32 MiB). No keys, signing, manifest building or network calls in the engine. See [Content Credentials](https://github.com/Photivra/engine/blob/main/docs/CONTENT_CREDENTIALS.md).
 - **Root exports:** 15 new (6 runtime: 4 functions, 2 constants; 9 types). Nothing is removed and no existing output changes.
 - **Sizes:** the app's capture-worker shape is unchanged by this part (the module is imported by nothing in the capture path; `test/capture-bundle.test.ts` asserts it stays out). An application importing the four functions adds 4,883 B gzip (11,978 B minified; rolldown 1.2.9).
 - **Pending:** validation of signed files with the C2PA reference tooling (no validator offline, and the engine cannot sign).
@@ -199,7 +199,7 @@ The owner decided (2026-11-11) to drop the display view's AHD low-signal correct
 
 ## 2.21.0 — published November 10, 2026
 
-A minor release that combines the 2.21.0 and 2.22.0 parts (owner decision 2026-11-10): the chart-signal design choice on every render path, sensor profiles and phone lenses (#554), the image-plane scene (#581), catalogue-lens boundary ties (#588) and lateral color (#589), exposure build-up (#534) with subject motion (#551) and mixed lighting (#550), the lateral color fringe width (#580), Photivra's own light-source spectra (#557) and the print planner's contain fit (#365). See the [2.21.0 release record](https://github.com/Photivra/photivra/blob/main/docs/RELEASE_2_21_0.md).
+A minor release that combines the 2.21.0 and 2.22.0 parts (owner decision 2026-11-10): the chart-signal design choice on every render path, sensor profiles and phone lenses (#554), the image-plane scene (#581), catalogue-lens boundary ties (#588) and lateral color (#589), exposure build-up (#534) with subject motion (#551) and mixed lighting (#550), the lateral color fringe width (#580), Photivra's own light-source spectra (#557) and the print planner's contain fit (#365). See the [2.21.0 release record](https://github.com/Photivra/engine/blob/main/docs/RELEASE_2_21_0.md).
 
 - **New:** `sensor.profile` and the profile catalogue `SENSOR_PROFILES` / `resolveSensorProfile`, with three phone lenses (#554); the `image-plane` scene and `prepareImagePlaneScenes` (#581); `simulateExposureBuildUp` (#534); `motion.subject` (#551); `illumination` (#550); `calculateChannelEffectiveDispersion` (#589); `calculateLateralColorFringe` (#580, with an optional `channelDispersion`); the representative light sources and `createRepresentativeLightSourceIlluminant` (#557); `fit: { kind: "contain" }` in the print planner (#365).
 - **Changed (shipped images and files; see "Default changes"):** chart signals are integrated from the material spectrum per site on every render path (a design choice; samples unchanged but for rounding, Quality paths slower); catalogue PSF kernels carry the PSF's own centroid (#589); catalogue-lens ties resolve as on the lattice (#588); `output.lensCorrections` and DNG lens-correction opcodes use the capture's own channel dispersion (#589); `PrintPlanInput.fit` is a union (#365).
@@ -376,7 +376,7 @@ A minor release that combines the 2.21.0 and 2.22.0 parts (owner decision 2026-1
 
 ## 2.20.0 — published November 10, 2026
 
-A minor release of ten issues and one speed-versus-accuracy scheme: adjustable sensor characteristics and the mid-gray noise figure (#555, #535), the aperture diameter (#577), the crop that matches a longer lens (#579), which limits detail, the lens or the sensor (#575), the print size limit with blur and noise (#574), the lens profile's vignetting area factor (#584), lens corrections as optional DNG opcodes (#587), each catalogue lens's own bokeh (#567), chart-boundary ties in the diffraction PSF quadrature (#565) and the CI Node drift check (#231). See the [2.20.0 release record](https://github.com/Photivra/photivra/blob/main/docs/RELEASE_2_20_0.md).
+A minor release of ten issues and one speed-versus-accuracy scheme: adjustable sensor characteristics and the mid-gray noise figure (#555, #535), the aperture diameter (#577), the crop that matches a longer lens (#579), which limits detail, the lens or the sensor (#575), the print size limit with blur and noise (#574), the lens profile's vignetting area factor (#584), lens corrections as optional DNG opcodes (#587), each catalogue lens's own bokeh (#567), chart-boundary ties in the diffraction PSF quadrature (#565) and the CI Node drift check (#231). See the [2.20.0 release record](https://github.com/Photivra/engine/blob/main/docs/RELEASE_2_20_0.md).
 
 - **New:** `calculateApertureDiameter` (#577), `calculateCropToMatchFocalLength` (#579), `calculateDetailLimit` (#575), `calculatePrintSizeLimitWithBlurAndNoise` (#574, with a `capture-noise-figure` input for #535's figure), the `sensor` characteristics and `result.sensor` (#555, #535), `output.dng.lensCorrectionOpcodes` (#587), `diagnostics.fast.defaultedFrom`, `SimulateCaptureDngPart.fast`.
 - **Changed (shipped images and files; see "Default changes"):** `fast` follows the output format; `prepareDisplayView`'s `gpu` follows `fast`; JPEG is saved at quantization step 1; catalogue lenses with `lens.defocus` render their own bokeh (#567); `createGenericLensCorrectionProfile` profiles are version 1.1.0 (#584); in-focus diffraction quadrature ties resolve as on the lattice (#565).
@@ -487,7 +487,7 @@ A minor release of ten issues and one speed-versus-accuracy scheme: adjustable s
 
 ## 2.19.0 — published November 9, 2026
 
-A minor release of six issues: exposure time with an ND filter and generic ND presets (#578), the program line within the lens's f-number range (#583), very fast `lens.ideal` ranges (#585), developing a capture rendered in parts (#571), lens corrections in the development (#570) and the sampled-PSF orientation fix (#566). See the [2.19.0 release record](https://github.com/Photivra/photivra/blob/main/docs/RELEASE_2_19_0.md).
+A minor release of six issues: exposure time with an ND filter and generic ND presets (#578), the program line within the lens's f-number range (#583), very fast `lens.ideal` ranges (#585), developing a capture rendered in parts (#571), lens corrections in the development (#570) and the sampled-PSF orientation fix (#566). See the [2.19.0 release record](https://github.com/Photivra/engine/blob/main/docs/RELEASE_2_19_0.md).
 
 - **New:** `calculateFilteredExposureTime` and the generic ND presets `GENERIC_ND_FILTER_PROFILES` / `GENERIC_ND_FILTER_STOPS` (#578); `simulateCaptureFromParts` (#571); `output.lensCorrections` (#570); the progress stages `"diffraction-correction"` and `"sharpening"` (#571).
 - **Changed:** program mode limits the generic program line to a lens range that does not hold f/4–f/16 instead of refusing it (#583); a `lens.ideal` range narrower than about f/1 now resolves in every exposure mode (#585).
@@ -1278,7 +1278,7 @@ Measured on one thread (24 MP frame, 6 µm, 50 mm f/8, 2 × 2 pixel averaging), 
 
     Samples fell 3–9× and site evaluations 3–10×. The time fell less, because the 2.7 memos had already made repeated samples cheap: at device-pixel sizes the view now does about one real pixel's work per real pixel.
   - **Why 25:** measured on 8-row strips of a 24 MP view (Siemens star and dead leaves, f/2.8, one thread, one run each), the exact path took the stratified estimator's time within run-to-run spread up to 25 real pixels per display pixel and longer above: 1.1–1.2× at 36, 1.4–1.5× at 64, 1.5–2.4× at 144, because it evaluates every real pixel while the estimator takes a quarter of its samples per axis where the pilot finds no detail.
-  - **Validation:** the 155-case validation was re-run on October 25 (`de77074`, [record](https://github.com/Photivra/photivra/blob/main/docs/validation/display-view-2026-10-25/README.md)): 145 cases are identical to the 2.6.0 record, and the 10 cases on the exact area mean (the phone at 800 wide) are the same or better (Siemens star: expected-value RMS 1.78 → 1.35 codes, SSIM 0.9931 → 0.9966). The known Quality noise miss of case 138 (#379) remains: 1.165 against the 1.15 limit.
+  - **Validation:** the 155-case validation was re-run on October 25 (`de77074`, [record](https://github.com/Photivra/engine/blob/main/docs/validation/display-view-2026-10-25/README.md)): 145 cases are identical to the 2.6.0 record, and the 10 cases on the exact area mean (the phone at 800 wide) are the same or better (Siemens star: expected-value RMS 1.78 → 1.35 codes, SSIM 0.9931 → 0.9966). The known Quality noise miss of case 138 (#379) remains: 1.165 against the 1.15 limit.
 
 ### Known limit
 
@@ -1524,7 +1524,7 @@ What it contains:
 - the completion work (#305–#323): the lean native RAW executor and further native RAW speed-ups, the `simulateCapture()` integration, the native RAW DNG writer, the agent guide, free-source citations, strict inputs everywhere, the licence cleanup, and the finished WebGPU backend;
 - the licence guard (#324) and the final pre-release review fixes (#325–#328 and this record's update).
 
-See [the 2.0.0 release record](https://github.com/Photivra/photivra/blob/main/docs/RELEASE_2_0_0.md) for the science evidence and the compatibility table.
+See [the 2.0.0 release record](https://github.com/Photivra/engine/blob/main/docs/RELEASE_2_0_0.md) for the science evidence and the compatibility table.
 
 ### Breaking changes
 
@@ -1895,7 +1895,7 @@ Unless marked otherwise, output is bit-identical to the code before the change, 
 
 ## 1.5.0 — published October 7, 2026
 
-See [the 1.5.0 release record](https://github.com/Photivra/photivra/blob/main/docs/RELEASE_1_5_0.md) for the candidate review.
+See [the 1.5.0 release record](https://github.com/Photivra/engine/blob/main/docs/RELEASE_1_5_0.md) for the candidate review.
 
 - Add optional `NativeRawInput.tileWidth` (1–256 native sites) so bounded native RAW acquisition can use smaller execution chunks while preserving the existing 256-site default, physical sampling, absolute CFA coordinates, deterministic noise seeds, shutter timing, output payload and existing whole-event/resource caps.
 - Preserve the exact acquisition tile width through same-RAW validation and development. Reject invalid widths, inconsistent tile counts and stale plans instead of silently rebuilding a default-width plan.
@@ -1905,13 +1905,13 @@ See [the 1.5.0 release record](https://github.com/Photivra/photivra/blob/main/do
 
 ## 1.4.0 — published October 4, 2026
 
-See [the 1.4.0 release record](https://github.com/Photivra/photivra/blob/main/docs/RELEASE_1_4_0.md) for the candidate review.
+See [the 1.4.0 release record](https://github.com/Photivra/engine/blob/main/docs/RELEASE_1_4_0.md) for the candidate review.
 
 - Add standalone evidence-bound ideal circular pupil rays and optional origin-aware bounded photo/RAW evaluation. Reuse shared focus and camera rotation, average normalized pupil irradiances before the existing sensor pipeline, and retain exact-once working-f-number throughput. Reject simultaneous sampled PSF, missing callbacks, invalid geometry and excessive budgets before provider work. Production depth/visibility composition remains unsupported. See `docs/SENSOR_APERTURE_RAYS.md`.
 
 - Add separate metadata-only packed native RAW, physical source-to-RAW and same-RAW reconstruction/SDR tasks with explicit 24 MP admission, bounded tiles, absolute CFA/seed identities, cancellation and single-transfer ownership. Preserve the reference RAW caps and scalar mathematics.
 - Add bounded post-SDR Print crop/area downsampling and original baseline JPEG encoding with an original sRGB ICC profile. Explicit source hashes remain caller declarations; platform save/share, printer appearance and physical device acceptance are separate.
-- Record complete one-megapixel constructed RAW → SDR → downsampled JPEG execution and independently decoded JPEG/ICC/area-filter controls. See [native RAW and Print contracts](https://github.com/Photivra/photivra/blob/main/docs/NATIVE_RAW_AND_PRINT.md).
+- Record complete one-megapixel constructed RAW → SDR → downsampled JPEG execution and independently decoded JPEG/ICC/area-filter controls. See [native RAW and Print contracts](https://github.com/Photivra/engine/blob/main/docs/NATIVE_RAW_AND_PRINT.md).
 
 ## 1.3.0 — published October 4, 2026
 
@@ -1941,7 +1941,7 @@ See [the 1.4.0 release record](https://github.com/Photivra/photivra/blob/main/do
 - Prepare the stable public distribution after all 32 V1 feature/science items and defect #178 are reviewed and merged. Package/lock/citation become 1.0.0; root contract 0.116.0 and every independent model/schema/POC/plan identity remain unchanged. No scientific arithmetic, seed, fixture hash, exported signature or accepted execution envelope changes.
 - Reconcile human/agent/source guidance, actual bounded production integration and closed tier/performance/export/conformance acceptance. Add developer capability navigation, exact root-export reference, packed executable examples, strict documentation/consumer checks and exact owner tag/publish procedure.
 - Preserve synthetic/calibration/visibility/PSF/resolution limits and the recorded external-editor/hash/build limitations. Review compatibility/migration and owner handoff in `docs/RELEASE_1_0.md`; this entry does not certify npm publication.
-- The preparation evidence is in [the final 1.0.0 preparation audit](https://github.com/Photivra/photivra/blob/main/docs/RELEASE_AUDIT.md).
+- The preparation evidence is in [the final 1.0.0 preparation audit](https://github.com/Photivra/engine/blob/main/docs/RELEASE_AUDIT.md).
 
 ## Historical development — engine API 0.116.0
 

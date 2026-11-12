@@ -172,7 +172,7 @@ async function runCase(c) {
   const image = differenceImage8(ref.expected, cand.expected, gain), file = join(outDir, fileOf(c));
   const png = addPngTextMetadata(engine.serializePngImage({ width: w, height: h, bitDepth: 8, samples: image, colourEncoding: { kind: "srgb", renderingIntent: "perceptual" } }),
     { description: `Difference image, not a capture: |${candidate.name} - ${reference.name}| of the noise-free expected display values of a display view, in 8-bit sRGB codes times ${gain}, clamped. Chart ${c.chart}, ${c.options}, f/${c.fNumber}, view ${c.width} x ${c.height}${c.region ? `, region ${c.region.x},${c.region.y} ${w} x ${h}` : ""}. Black is no difference.`,
-      software: "Photivra engine, scripts/accept-display-view-gpu.mjs", comment: "Diagnostic image for visual review (Photivra/photivra#480). Not a capture, not a display view, not a RAW file." });
+      software: "Photivra engine, scripts/accept-display-view-gpu.mjs", comment: "Diagnostic image for visual review (Photivra/engine#480). Not a capture, not a display view, not a RAW file." });
   mkdirSync(outDir, { recursive: true }); writeFileSync(file, png);
   const out = { ...c, reference: ref.name ?? reference.name, referenceRealm, realm, candidate: candidate.name, candidateModule: relative(ROOT, candidatePath), gain, thresholds, metrics: reduced,
     samplesIdentical: identicalArrays(ref.samples, cand.samples), noiseStdIdentical: identicalArrays(ref.noiseStd, cand.noiseStd), expectedIdentical: metrics.identicalPixels === metrics.pixels,

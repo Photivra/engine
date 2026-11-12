@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Decides whether a change needs the test suite (photivra/photivra#510).
+// Decides whether a change needs the test suite (Photivra/engine#510).
 //
 //   node .github/ci-scope.mjs <base-commit> [<head-commit>]
 //

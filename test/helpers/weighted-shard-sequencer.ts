@@ -4,7 +4,7 @@ import { BaseSequencer, type TestSpecification } from "vitest/node";
 import weights from "../shard-weights.json" with { type: "json" };
 
 /*
- * `--shard=k/n` by measured time instead of Vitest's hash order (photivra/photivra#510).
+ * `--shard=k/n` by measured time instead of Vitest's hash order (Photivra/engine#510).
  * Vitest's default cuts the hash-sorted file list into n runs of equal file count, so one
  * part can draw several of the slow numerical files: on the October 2026 CI runs coverage
  * shard 2 took 13.5 of its 15 minutes while shard 1 took 7. This assigns files longest

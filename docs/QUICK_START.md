@@ -10,9 +10,9 @@ adds no physics of its own. It only builds the request for the existing contract
 tells you every choice it made for you.
 
 This page covers the inputs, the defaults, the chart presets and the limits. The detailed contracts
-it composes are in [ENVIRONMENT_RAW_CAPTURE.md](https://github.com/Photivra/photivra/blob/main/docs/ENVIRONMENT_RAW_CAPTURE.md),
-[NATIVE_RAW_AND_PRINT.md](https://github.com/Photivra/photivra/blob/main/docs/NATIVE_RAW_AND_PRINT.md), [GENERIC_TIER_PRESETS.md](https://github.com/Photivra/photivra/blob/main/docs/GENERIC_TIER_PRESETS.md),
-[COLORIMETRY.md](https://github.com/Photivra/photivra/blob/main/docs/COLORIMETRY.md) and the [Usage Guide](USAGE.md).
+it composes are in [ENVIRONMENT_RAW_CAPTURE.md](https://github.com/Photivra/engine/blob/main/docs/ENVIRONMENT_RAW_CAPTURE.md),
+[NATIVE_RAW_AND_PRINT.md](https://github.com/Photivra/engine/blob/main/docs/NATIVE_RAW_AND_PRINT.md), [GENERIC_TIER_PRESETS.md](https://github.com/Photivra/engine/blob/main/docs/GENERIC_TIER_PRESETS.md),
+[COLORIMETRY.md](https://github.com/Photivra/engine/blob/main/docs/COLORIMETRY.md) and the [Usage Guide](USAGE.md).
 
 Calling the engine from an AI agent? [Using Photivra from an agent](AGENT_GUIDE.md) says which
 function fits each task, which units to pass and how to report results honestly.
@@ -88,7 +88,7 @@ modelling choices (such as "no lens PSF") as `kind: "model"`.
 | `chartSize` | fill the frame | 2.3: `{ widthM, heightM?, surroundReflectance? }` places the chart at its physical size (see [Fixed-size chart](#fixed-size-chart-23)). |
 | `illuminant` | Planckian 6500 K | Also `"cie-a"`, `{ kind: "planckian", temperatureKelvin }`, `{ kind: "daylight", correlatedColorTemperatureKelvin, basis }` or `{ kind: "spectrum", spectrum }`. |
 | `illuminanceLux` | 21 481 (π·80 000/11.7) | See [Exposure](#exposure). |
-| `illumination` | off | 2.22 (#550): mixed lighting, two to eight sources (`{ illuminant, illuminanceLux }`) blended across the chart by a linear gradient, a radial falloff or regions, and point sources (`points`) with inverse-square falloff, instead of `illuminant` and `illuminanceLux`. The frame center's light sets the grey card and its strongest source the `"scene-illuminant"` white balance (see [Mixed lighting](https://github.com/Photivra/photivra/blob/main/docs/MIXED_ILLUMINATION.md)). |
+| `illumination` | off | 2.22 (#550): mixed lighting, two to eight sources (`{ illuminant, illuminanceLux }`) blended across the chart by a linear gradient, a radial falloff or regions, and point sources (`points`) with inverse-square falloff, instead of `illuminant` and `illuminanceLux`. The frame center's light sets the grey card and its strongest source the `"scene-illuminant"` white balance (see [Mixed lighting](https://github.com/Photivra/engine/blob/main/docs/MIXED_ILLUMINATION.md)). |
 | `output.width`, `output.height` | 64 × 64 | Output pixels, 1–4094 each. The sensor has one extra site on each side for demosaicing (see `output.borderHandling`). |
 | `output.maximumPixels` | off | Opt-in large images (2.2): the most native sensor sites the capture may allocate, up to `NATIVE_RAW_LIMITS.ceilingPixels` (2^27). Sides may then reach 16 384 sites including the margin (see [Large images](#large-images)). |
 | `output.region` | whole frame | 2.3: `{ x, y, width, height }` renders that rectangle of the frame, byte-identical to the whole render (see [Region rendering](#region-rendering-23)). |
@@ -115,7 +115,7 @@ modelling choices (such as "no lens PSF") as `kind: "model"`.
 | `sensor.noiseSeed` | 1 | Output is deterministic for a given seed. |
 | `sensor.antiAliasing` | off | 2.1: an optical low-pass (anti-aliasing) filter: `{ kind: "four-spot", separationSites? }`, `{ kind: "two-spot", axis, separationSites? }` or `{ kind: "point-splitting", components }` (see [Anti-aliasing filter](#anti-aliasing-filter)). Each record also takes `fast`. |
 | `sensor.pixelAperture` | `"point"` | 2.3: `"box"` or `{ kind: "box", samplesPerAxis, fast }` integrates each square photosite (see [Pixel aperture](#pixel-aperture-23)). |
-| `fast` | `false` | Exact or fast for every option in `SIMULATE_CAPTURE_FAST_OPTIONS`; an option's record `fast` overrides it. No option has a fast method yet, so results are exact; `diagnostics.fast` reports what was requested and what ran (see [Exact and fast modes](https://github.com/Photivra/photivra/blob/main/docs/API_STYLE.md#exact-and-fast-modes)). |
+| `fast` | `false` | Exact or fast for every option in `SIMULATE_CAPTURE_FAST_OPTIONS`; an option's record `fast` overrides it. No option has a fast method yet, so results are exact; `diagnostics.fast` reports what was requested and what ran (see [Exact and fast modes](https://github.com/Photivra/engine/blob/main/docs/API_STYLE.md#exact-and-fast-modes)). |
 | `motion.angularVelocityRadPerSec` | still | `{ pitch?, yaw?, roll? }` in rad/s (see [Motion](#motion)). |
 | `motion.shutter` | `"global"` | Or `"rolling"`. |
 | `motion.rollingShutterSkewSeconds` | the body's readout skew | Rolling only. |
@@ -201,7 +201,7 @@ same lens for any sensor size. `lens.focalLengthMm` keeps working as before and 
 
 `lens.catalogue` picks one of the engine's 30 generic lenses by id: two sets of primes, Professional ("PV 50 1.2 Pro",
 `pv-50-1.2-pro`) and Consumer ("PV 50 1.8", `pv-50-1.8`), from the 8 mm circular fisheye to 1200 mm, listed in
-`GENERIC_LENS_CATALOGUE` and [docs/LENS_CATALOGUE.md](https://github.com/Photivra/photivra/blob/main/docs/LENS_CATALOGUE.md). They are Photivra's own designs, not real products,
+`GENERIC_LENS_CATALOGUE` and [docs/LENS_CATALOGUE.md](https://github.com/Photivra/engine/blob/main/docs/LENS_CATALOGUE.md). They are Photivra's own designs, not real products,
 and every number is a labelled approximation.
 
 - **Like `lens.prime`:** the focal length is the full-frame equivalent ÷ the simulated frame's diagonal crop factor, and the lens
@@ -215,11 +215,11 @@ and every number is a labelled approximation.
   distortion and vignetting, better close focus and focus consistency. The measurements are in the catalogue page.
 - **Combinations:** `lens.defocus` convolves the lens's own bokeh kernel (#567: its blades, its W040 and, on the fast wides
   and normals, a cat's eye, which is lens.catalogue's exact method: on when the request resolves to exact (`fast: false`, the
-  default for DNG, JPEG and PNG), off on fast requests, since it would slow the fast method 2–3.5×; [Bokeh](https://github.com/Photivra/photivra/blob/main/docs/LENS_CATALOGUE.md#bokeh-567)) into the lens's PSF (a combined kernel up to 16 sites in radius);
+  default for DNG, JPEG and PNG), off on fast requests, since it would slow the fast method 2–3.5×; [Bokeh](https://github.com/Photivra/engine/blob/main/docs/LENS_CATALOGUE.md#bokeh-567)) into the lens's PSF (a combined kernel up to 16 sites in radius);
   `lens.focusScatter: { seed, shotIndex? }` moves the focus by a seeded autofocus error (`simulateGenericLensFocusError`), off
   by default. `prime`, `focalLengthMm`, `projection`, `distortion`, `vignetting`, `psf`, `diffraction` and `pupilSampling` are
   set by the lens and refused with it. The display view renders `lens.catalogue` since #569, with the PSF taken per field zone
-  ([Display view, Catalogue lenses](https://github.com/Photivra/photivra/blob/main/docs/DISPLAY_VIEW.md#catalogue-lenses-569)).
+  ([Display view, Catalogue lenses](https://github.com/Photivra/engine/blob/main/docs/DISPLAY_VIEW.md#catalogue-lenses-569)).
 - **Cost:** one scene query per kernel tap through the lens field mapping, like `lens.distortion`: a 48 × 48 region of a full frame
   at 6 µm takes about 1 s with *PV 50 1.2 Pro* and 6 s with *PV 50 1.8* (Apple M5 Pro), against 0.01 s with `lens.prime`. Render
   regions, or use a coarser `sensor.spectralStepNanometers`.
@@ -229,7 +229,7 @@ and every number is a labelled approximation.
   magnified just enough to have no missing pixels (`magnification` in the `output.lensCorrections` assumption, 1 for the barrel
   wide angles); vignetting is corrected to a flat field. Regions and parts are byte-identical to the whole frame. The costs are
   real: stretched corners lose resolution and brightened corners are noisier
-  ([DIGITAL_OPTICS_FOUNDATION.md](https://github.com/Photivra/photivra/blob/main/docs/DIGITAL_OPTICS_FOUNDATION.md#lens-corrections-in-the-development-570)).
+  ([DIGITAL_OPTICS_FOUNDATION.md](https://github.com/Photivra/engine/blob/main/docs/DIGITAL_OPTICS_FOUNDATION.md#lens-corrections-in-the-development-570)).
 - **Fast method (#568):** `fast: true` (or `lens: { catalogue: { kind: "pv-50-1.8", fast: true } }`) blends the PSF over a field
   grid and tabulates each site's signal, a labeled approximation within 2.3e-4 of the frame's peak signal of the exact method
   (measured): a 768 × 512 whole full frame renders within 2× of the same `lens.prime` capture. It needs a still camera, site-center
@@ -410,7 +410,7 @@ What changes and what does not:
   average over the square, or the four-spot filter, whose separation scales with the pitch.
 - **Diffraction.** The Airy pattern (a few µm) is far smaller than a pixel. The default kernel is 3 × 3 sites and
   the centre site keeps 1 − 8√2/(π³β) of the energy, β = pitch/(λ·N_w): 99.96 % at 780 nm, f/1.4 and 917 µm.
-  Cells larger than 192 cut-off periods are integrated in real space (see [PSF foundation](https://github.com/Photivra/photivra/blob/main/docs/PSF_FOUNDATION.md#diffraction-limited-sampled-profile-21)),
+  Cells larger than 192 cut-off periods are integrated in real space (see [PSF foundation](https://github.com/Photivra/engine/blob/main/docs/PSF_FOUNDATION.md#diffraction-limited-sampled-profile-21)),
   so a 48 × 32 view of a 44 mm frame with `lens.diffraction` at f/1.4 took 1.0 s (the frequency-domain cells took
   296 s there; both measured on the same machine in Node).
 - **Motion, rolling shutter, anti-aliasing filter, AHD and the box aperture** follow the same angles at any pitch:
@@ -421,7 +421,7 @@ What changes and what does not:
   aperture, AHD, rotation and a rolling shutter at 640 and 917 µm).
 - **WebGPU.** `simulateCapture` runs on the CPU. The optional `webgpu-f32` sensor stage of
   `createImageKernelAccelerator` handles capacities up to 2^24 e⁻, which the tier's 60 000 e⁻ reach at 100 µm; above
-  that it fails closed with `unsupported-float32-domain` (see [WebGPU backend](https://github.com/Photivra/photivra/blob/main/docs/WEBGPU.md)). The `cpu-reference`
+  that it fails closed with `unsupported-float32-domain` (see [WebGPU backend](https://github.com/Photivra/engine/blob/main/docs/WEBGPU.md)). The `cpu-reference`
   backend runs it. The convolution, temporal-sum and chart stages work in sites and frame units, so the pitch does
   not enter them.
 
@@ -582,7 +582,7 @@ values and the rounding). The phone profile takes the catalogue's three phone le
 (`lens: { catalogue: "pv-24-1.8-phone" }`), and they need it. With a profile, a catalogue lens is framed on
 the profile's real sensor (the largest centred region of the output's aspect; assumption `sensor.profileView`), so it
 shows its real field of view. Values, sources, the framing and the ISO rating:
-[SENSOR_PROFILES.md](https://github.com/Photivra/photivra/blob/main/docs/SENSOR_PROFILES.md).
+[SENSOR_PROFILES.md](https://github.com/Photivra/engine/blob/main/docs/SENSOR_PROFILES.md).
 
 ## Exposure
 
@@ -752,7 +752,7 @@ is a flat Lambertian reflector (it looks equally bright from every direction). N
 are spectrally flat. Where a preset takes a reflectance spectrum (`uniform`, `patches`), it accepts a
 neutral number, a caller spectrum (`{ kind: "tabulated" }` or `{ kind: "function" }`, 380–780 nm at
 least) or, from 2.14, a built-in color patch `{ kind: "color-patch", patchId }` (see
-[Color patches](https://github.com/Photivra/photivra/blob/main/docs/COLOR_PATCHES.md)).
+[Color patches](https://github.com/Photivra/engine/blob/main/docs/COLOR_PATCHES.md)).
 
 | Preset | Parameters (defaults) | Definition |
 | --- | --- | --- |
@@ -764,7 +764,7 @@ least) or, from 2.14, a built-in color patch `{ kind: "color-patch", patchId }` 
 | `checkerboard` | `squaresAcross` (8), `darkReflectance` (0.05), `lightReflectance` (0.8) | Square cells, light at the top-left. |
 | `point-grid` | `columns` (5), `rows` (3), `radius` (0.01), `pointReflectance` (0.9), `backgroundReflectance` (0.02) | Small disks centred in equal cells, for PSF and defocus inspection. |
 | `patches` | `patches` (required), `columns`, `gapFraction` (0.1), `backgroundReflectance` (0.18) | Caller reflectance per patch, row-major. Use it for a chart with reflectance data you are entitled to use; the engine does not ship third-party chart data because its licence is unclear. |
-| `color-patches` | `patchIds` (all 30), `columns` (min(6, count)), `gapFraction` (0.1), `backgroundReflectance` (0.18) | 2.14: Photivra's own 30 color patches (neutral ramp, strong and soft primaries and secondaries, skin tones, memory colors, two near the sRGB gamut edge) drawn like `patches`. Each is an analytic reflectance spectrum; see [Color patches](https://github.com/Photivra/photivra/blob/main/docs/COLOR_PATCHES.md) for the formula, the parameters and the code, name, CIELAB (D65) and sRGB of every patch. |
+| `color-patches` | `patchIds` (all 30), `columns` (min(6, count)), `gapFraction` (0.1), `backgroundReflectance` (0.18) | 2.14: Photivra's own 30 color patches (neutral ramp, strong and soft primaries and secondaries, skin tones, memory colors, two near the sRGB gamut edge) drawn like `patches`. Each is an analytic reflectance spectrum; see [Color patches](https://github.com/Photivra/engine/blob/main/docs/COLOR_PATCHES.md) for the formula, the parameters and the code, name, CIELAB (D65) and sRGB of every patch. |
 
 ### Chart elements and composite charts (2.3)
 
@@ -956,14 +956,14 @@ What is converted, and where:
 - The wide-gamut encodings use the same development operator but stop before that clip. So
   colours outside sRGB survive, as negative or above-one sRGB components.
 - They convert that linear colour back to CIE XYZ and on to the target primaries (matrices from the
-  primaries and the D65 white, as in W3C CSS Color 4; see [Colorimetry](https://github.com/Photivra/photivra/blob/main/docs/COLORIMETRY.md)).
+  primaries and the D65 white, as in W3C CSS Color 4; see [Colorimetry](https://github.com/Photivra/engine/blob/main/docs/COLORIMETRY.md)).
 - Gamut mapping then happens only once, in the target space. Components are clipped to [0, 1] for
   Display P3 and Rec. 2020.
 - No perceptual gamut compression is applied by default (see `output.gamutMapping` below).
 - Tone curves other than `identity` are sRGB-only, and are refused with a wide-gamut encoding.
 
 - RAW white maps to display white. For extended range, merge a bracket with
-  `createHdrBracketMergeTask` (see [PROCESSING.md](https://github.com/Photivra/photivra/blob/main/docs/PROCESSING.md)).
+  `createHdrBracketMergeTask` (see [PROCESSING.md](https://github.com/Photivra/engine/blob/main/docs/PROCESSING.md)).
 - No mDCV or cLLI metadata is written.
 - With the facade's colorimetric sensor, the wide-gamut colours are exact up to the spectral
   quadrature (numerical integration over wavelength). With 5 nm spectral steps, a test reproduces an
@@ -1125,7 +1125,7 @@ console.log(result.diagnostics.detail); // { diffractionCorrection: {...}, sharp
 
 The trade-offs of these and the lens corrections (corner resolution after distortion correction, corner noise after
 vignetting correction, residual longitudinal CA, halo overshoot, nothing beyond the cut-off) are measured in
-[Digital optics foundation](https://github.com/Photivra/photivra/blob/main/docs/DIGITAL_OPTICS_FOUNDATION.md#sharpening-diffraction-correction-and-their-trade-offs-552).
+[Digital optics foundation](https://github.com/Photivra/engine/blob/main/docs/DIGITAL_OPTICS_FOUNDATION.md#sharpening-diffraction-correction-and-their-trade-offs-552).
 
 ## Demosaic
 
@@ -1146,7 +1146,7 @@ vignetting correction, residual longitudinal CA, halo overshoot, nothing beyond 
   not produce the pixels.
 
 The Malvar–He–Cutler kernels are not offered (a patent is still in force; see
-[PROCESSING.md](https://github.com/Photivra/photivra/blob/main/docs/PROCESSING.md)).
+[PROCESSING.md](https://github.com/Photivra/engine/blob/main/docs/PROCESSING.md)).
 
 `output.borderHandling` decides how edge pixels get their neighbours:
 
@@ -1194,7 +1194,7 @@ The optics options feed only what the environment site contract accepts:
   - Every spectral step works (2.15.0): the 1–100 nm range of `sensor.spectralStepNanometers` gives 4–400 nodes,
     and each node gets its own exact kernel. Before 2.15.0 a step under 6.25 nm (more than 64 nodes, for example
     the 5 nm step recommended for color work) failed with "wavelengthsNm must list 1 to 64 wavelengths." Time and
-    memory are linear in the node count; measurements are in [PSF foundation](https://github.com/Photivra/photivra/blob/main/docs/PSF_FOUNDATION.md#spectral-nodes-2150).
+    memory are linear in the node count; measurements are in [PSF foundation](https://github.com/Photivra/engine/blob/main/docs/PSF_FOUNDATION.md#spectral-nodes-2150).
   - Sources: the Airy pattern is the textbook Fraunhofer diffraction pattern of a circular aperture
     (Born & Wolf, *Principles of Optics*, 7th ed., §8.5.2; Goodman, *Introduction to Fourier Optics*,
     4th ed., §4.4). The kernels come from the pupil's incoherent optical transfer function (Goodman,
@@ -1288,7 +1288,7 @@ The optics options feed only what the environment site contract accepts:
     convolved with the disc), so the view's estimators run unchanged on the blurred signal. The `view.defocus`
     assumption records the kernel and its radii. The GPU display-view renderer does not take the kernel yet:
     `gpu: "auto"` renders such a view on the CPU, labelled `unsupported-on-backend`. Validation and cost per radius:
-    [Display view, Defocus](https://github.com/Photivra/photivra/blob/main/docs/DISPLAY_VIEW.md#defocus).
+    [Display view, Defocus](https://github.com/Photivra/engine/blob/main/docs/DISPLAY_VIEW.md#defocus).
   - In focus (c = 0) no kernel is applied, and the image is byte-identical to the same request without the option.
     `simulateIdealReference`, which has no camera effects, only records the disc.
   - **With camera rotation, `lens.projection`, `lens.distortion` or `lens.vignetting` (#548)** the capture applies the
@@ -1561,7 +1561,7 @@ lens: { focalLengthMm: 50, fNumber: 4, focusDistanceM: 1.4, defocus: { model: "g
   for later. `simulateDisplayView` and `prepareDisplayView` refuse it; they render `blades` and `sphericalAberration`.
 - **With `lens.catalogue` (#549)** the three options are refused by name: since 2.20.0 (#567) the catalogue lens sets
   all three itself (its blades, its own W040 and, on the fast wides and normals, a cat's eye) and folds that kernel into
-  its PSF ([Lens catalogue, Bokeh](https://github.com/Photivra/photivra/blob/main/docs/LENS_CATALOGUE.md#bokeh-567)).
+  its PSF ([Lens catalogue, Bokeh](https://github.com/Photivra/engine/blob/main/docs/LENS_CATALOGUE.md#bokeh-567)).
 - **Sampling.** Without spherical aberration each site's weight is the exact area of the projected open pupil (a convex
   polygon; circles and blade arcs are 1024-gons scaled to their true area, within 5e-6 of the radius of the true curve)
   inside the site's cell, divided by its area (`"exact-polygon-cell-area"`). With it the pupil is sampled on a square grid
@@ -1635,7 +1635,7 @@ Atmospheric haze and polarizers are not offered, for two reasons:
   sky effects.
 
 Use `calculateAtmosphericHaze` and the front-of-lens filter contracts directly (see
-[PHYSICS_FOUNDATION.md](https://github.com/Photivra/photivra/blob/main/docs/PHYSICS_FOUNDATION.md)).
+[PHYSICS_FOUNDATION.md](https://github.com/Photivra/engine/blob/main/docs/PHYSICS_FOUNDATION.md)).
 
 ```ts
 import { simulateCapture } from "@photivra/engine";
@@ -1715,7 +1715,7 @@ console.log(filtered.assumptions.find((a) => a.id === "sensor.antiAliasing")?.va
 ## Motion
 
 `motion.angularVelocityRadPerSec` rotates the camera at a constant rate during the exposure, in the
-engine's pitch/yaw/roll convention ([SENSOR_ENVIRONMENT_QUERY.md](https://github.com/Photivra/photivra/blob/main/docs/SENSOR_ENVIRONMENT_QUERY.md)).
+engine's pitch/yaw/roll convention ([SENSOR_ENVIRONMENT_QUERY.md](https://github.com/Photivra/engine/blob/main/docs/SENSOR_ENVIRONMENT_QUERY.md)).
 
 - Every scene ray is rotated at each temporal midpoint of the site's exposure window. Motion blur is
   therefore a midpoint quadrature (an average over sample times).
@@ -2282,7 +2282,7 @@ colour mosaic, demosaic and development are those of the real pixels; the noise 
 pixels, demosaic correlation included; exposure, white balance, tone curve and framing are the capture's (the same code
 resolves them).
 
-**How it is computed** (details and error analysis in [DISPLAY_VIEW.md](https://github.com/Photivra/photivra/blob/main/docs/DISPLAY_VIEW.md)):
+**How it is computed** (details and error analysis in [DISPLAY_VIEW.md](https://github.com/Photivra/engine/blob/main/docs/DISPLAY_VIEW.md)):
 
 - Where a display pixel's rectangle holds at most 25 real pixels (and at most `view.samplesPerAxis`²), so views at least
   1/5 of the frame's width, its expected value is the exact area mean (2.8.0, #393): every real pixel it touches is
@@ -2299,7 +2299,7 @@ resolves them).
 
 Validated against real full-resolution captures resized in linear light: three sensors (12 MP phone, 24 MP full frame,
 100 MP medium format), five charts, f/2.8–f/16, ISO 100–6400, 96–800 display pixels wide, Speed and Quality options (see
-[Validation results](https://github.com/Photivra/photivra/blob/main/docs/DISPLAY_VIEW.md#validation-results)).
+[Validation results](https://github.com/Photivra/engine/blob/main/docs/DISPLAY_VIEW.md#validation-results)).
 
 **Cost.** Where a display pixel covers more than 25 real pixels, the cost follows the detailed display pixels ×
 `samplesPerAxis`², not the real pixel count; at 25 or fewer (the exact area mean) it follows the real pixels the region
@@ -2307,10 +2307,10 @@ touches. A device-pixel view of a 24 MP frame, 2028 × 1352 in 96 × 96 parts fr
 per part with the engine defaults and about 0.08 s with the Quality options. Those are the medians on 2.15.0: Node 24.19.0,
 one thread on an Apple M5 Pro under a load average of about 6, two repeats. On 2.9.0 the same parts took about 0.09 s and
 0.18 s on a 4-vCPU 2.80 GHz Xeon (Node 24.21.0). Both measurements are in
-[the tables](https://github.com/Photivra/photivra/blob/main/docs/DISPLAY_VIEW.md#a-device-pixel-view-rendered-in-parts), from
+[the tables](https://github.com/Photivra/engine/blob/main/docs/DISPLAY_VIEW.md#a-device-pixel-view-rendered-in-parts), from
 `node scripts/benchmark-display-view.mjs --app`. The table below is the 2.6.0 record of whole views against the
 whole-frame view of the same request (Siemens star, f/8, ISO 100, one run, same host; every row, and the times before
-the exact speed-ups, in [DISPLAY_VIEW.md](https://github.com/Photivra/photivra/blob/main/docs/DISPLAY_VIEW.md#cost)):
+the exact speed-ups, in [DISPLAY_VIEW.md](https://github.com/Photivra/engine/blob/main/docs/DISPLAY_VIEW.md#cost)):
 
 | Sensor | Options | 96 wide | 384 wide | 800 wide |
 | --- | --- | --- | --- | --- |
@@ -2333,7 +2333,7 @@ render in the view, in focus and with `lens.defocus` out of focus: each real sit
 through the same mapping, field factor and rotation (within 1e-9 relative per site). They run on the CPU: with
 `gpu: "auto"` the view falls back labelled `unsupported-on-backend`. They cost more than the rectilinear view, most for
 distortion (the inverse distortion is solved per point) and rotation (one scene point per temporal midpoint)
-([DISPLAY_VIEW.md](https://github.com/Photivra/photivra/blob/main/docs/DISPLAY_VIEW.md#lens-projection-distortion-vignetting-and-rotation)).
+([DISPLAY_VIEW.md](https://github.com/Photivra/engine/blob/main/docs/DISPLAY_VIEW.md#lens-projection-distortion-vignetting-and-rotation)).
 Rotation with a rolling shutter stays refused.
 
 **Options.** `view.width` and `view.height` (1 to the capture's output size), `view.samplesPerAxis` (1–32),
@@ -2365,7 +2365,7 @@ console.log(tile.image.width, tile.diagnostics.timingsMs.view);
 `render(view)` returns what `simulateDisplayView(request, view)` returns, byte for byte (only `diagnostics.timingsMs`
 differ, and they cover the render only). A second argument `{ gpu: "auto" | "require", gpuDevice }` (2.11, #481) asks for
 the WebGPU renderer, with the CPU reference as the labelled fallback or as a failure; `diagnostics.fast.execution` names
-what ran (see [Rendering on the GPU](https://github.com/Photivra/photivra/blob/main/docs/DISPLAY_VIEW.md#rendering-on-the-gpu)). Renders may run concurrently and share only read-only setup. The request's own
+what ran (see [Rendering on the GPU](https://github.com/Photivra/engine/blob/main/docs/DISPLAY_VIEW.md#rendering-on-the-gpu)). Renders may run concurrently and share only read-only setup. The request's own
 `signal` applies to preparing; give each render its own. Keep one prepared view per request in each worker: measured on
 a 24 MP request, an 8 × 8 region took 6–40 ms through a prepared view instead of 0.24–0.41 s as its own call (Speed).
 
@@ -2380,7 +2380,7 @@ expected value over the noise (`statistic: "expected-value"`), because the captu
 - with AHD it counts the sites the view's AHD candidates read, so near a clipped corner it can be lower than the capture's
   count.
 
-See [Highlight count](https://github.com/Photivra/photivra/blob/main/docs/DISPLAY_VIEW.md#highlight-count-533).
+See [Highlight count](https://github.com/Photivra/engine/blob/main/docs/DISPLAY_VIEW.md#highlight-count-533).
 
 **Not supported** (refused with an `InvalidConfigurationError`): `lens.pupilSampling`, `lens.projection`,
 `lens.distortion`, `lens.vignetting`, `lens.psf`, camera rotation, `output.whiteBalance: "auto"`, the luminance tone
@@ -2420,7 +2420,7 @@ provided, for rights reasons.
   bound, used for cells much larger than the pattern) and eq. 10.9.2 (Bessel's integral, used as an
   independent test). The original analysis is G. B. Airy, "On the Diffraction of an Object-glass with
   Circular Aperture", *Transactions of the Cambridge Philosophical Society* 5, 1835, pp. 283–291. The
-  engine's implementation and its tests are its own (see [PSF foundation](https://github.com/Photivra/photivra/blob/main/docs/PSF_FOUNDATION.md#diffraction-limited-sampled-profile-21)).
+  engine's implementation and its tests are its own (see [PSF foundation](https://github.com/Photivra/engine/blob/main/docs/PSF_FOUNDATION.md#diffraction-limited-sampled-profile-21)).
 - Bokeh character (`lens.defocus` blades, spherical aberration and cat's eye, `calculateDefocusBokehKernel`, #553): the
   transverse ray aberration ε = −(R/r_p)·∂W/∂ρ of primary spherical aberration from Wyant & Creath 1992 (above), §II.A; the
   mechanical-vignetting model from J. E. Greivenkamp, OPTI-502 Optical Design and Instrumentation I course notes, University
@@ -2463,7 +2463,7 @@ provided, for rights reasons.
   Eq. (1), free at <https://www.bipm.org/utils/en/pdf/si-mep/MeP-K-2018_Absolute_Primary_Radiometry.pdf>
   (Planck's law, used for the Planckian and illuminant A spectra). Illuminant A's defining constants
   and the daylight polynomial come from CIE 015:2018 (paid); computed values are checked against the
-  free CIE datasets at <https://cie.co.at/data-tables> (see [Colorimetry](https://github.com/Photivra/photivra/blob/main/docs/COLORIMETRY.md)).
+  free CIE datasets at <https://cie.co.at/data-tables> (see [Colorimetry](https://github.com/Photivra/engine/blob/main/docs/COLORIMETRY.md)).
 - C. Wyman, P.-P. Sloan, P. Shirley, "Simple analytic approximations to the CIE XYZ color matching
   functions", *Journal of Computer Graphics Techniques* 2(2), 2013 (the piecewise-Gaussian model form;
   the engine fits its own coefficients to the CIE 1931 data, see Colorimetry).

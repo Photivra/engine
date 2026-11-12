@@ -83,24 +83,24 @@ On the integrated tree (`a71b7c8`, tree `bf109eb`; Apple M5 Pro, Node.js 24.19.0
 - [x] 2.20.0 recorded as published ([2.20.0 release record](RELEASE_2_20_0.md#publication)).
 - [x] `src/gpu` changed: the SwiftShader WebGPU suite run locally ([Local gates](#local-gates)) and on this pull request's CI.
 - [x] The capture-worker size limit settled: one pass for savings, then raised to 363,700 B under the owner's rule for this release ([Sizes](#sizes)).
-- [x] Green CI on this pull request, then on `main` after merge ([CI run 42913412647](https://github.com/Photivra/photivra/actions/runs/42913412647) on `e3aa535`).
+- [x] Green CI on this pull request, then on `main` after merge ([CI run 42913412647](https://github.com/Photivra/engine/actions/runs/42913412647) on `e3aa535`).
 - [x] The owner's approval to tag `v2.21.0`.
 - [x] The `v2.21.0` tag on the `main` commit that merges this record (`e3aa535`).
 - [x] After publication:
   - [x] npm version, dist-tag, integrity and provenance verified ([Publication](#publication));
-  - [x] GitHub release notes published ([`v2.21.0`](https://github.com/Photivra/photivra/releases/tag/v2.21.0), 22:29 UTC);
+  - [x] GitHub release notes published ([`v2.21.0`](https://github.com/Photivra/engine/releases/tag/v2.21.0), 22:29 UTC);
   - [x] publication dates updated in `CHANGELOG.md`, `README.md`, `SECURITY.md`, `docs/DEVELOPERS.md` and this record (with the 2.22.0 preparation).
 
 ## Publication
 
 | Fact | Value |
 | --- | --- |
-| Tag | `v2.21.0` (annotated, `3b23258`) → `e3aa535ddfb17ba6270fa0c80e6550aec9a6fd88` (#596, squash merge), after `main` CI on that commit passed ([CI run 42913412647](https://github.com/Photivra/photivra/actions/runs/42913412647); WebGPU [42913412595](https://github.com/Photivra/photivra/actions/runs/42913412595), native performance [42913412676](https://github.com/Photivra/photivra/actions/runs/42913412676)) |
-| Publish workflow | [Publish npm run 42913963674](https://github.com/Photivra/photivra/actions/runs/42913963674): passed 22:22:31–22:24:53 UTC (the coverage shards reused the tree's passed run) |
+| Tag | `v2.21.0` (annotated, `3b23258`) → `e3aa535ddfb17ba6270fa0c80e6550aec9a6fd88` (#596, squash merge), after `main` CI on that commit passed ([CI run 42913412647](https://github.com/Photivra/engine/actions/runs/42913412647); WebGPU [42913412595](https://github.com/Photivra/engine/actions/runs/42913412595), native performance [42913412676](https://github.com/Photivra/engine/actions/runs/42913412676)) |
+| Publish workflow | [Publish npm run 42913963674](https://github.com/Photivra/engine/actions/runs/42913963674): passed 22:22:31–22:24:53 UTC (the coverage shards reused the tree's passed run) |
 | npm | `@photivra/engine@2.21.0`, dist-tag `latest`, registry time 22:27:59 UTC, November 10, 2026 |
 | Integrity | `sha512-ev59j4Ck0sDeF0aEqJtg/HZGjPfX/s7Yqq3Zg7KR0iCkIO3Mp7x1zVX2A5PqGhrMQr7LiYyaZNHnQep1RBy7qQ==` (shasum `90459155ec2090b5d22f32e47a3a1d3d764aa2ab`, 1,065 files) |
 | Provenance | The registry lists an attestation (SLSA v1) for 2.21.0 |
-| GitHub release | [`v2.21.0`](https://github.com/Photivra/photivra/releases/tag/v2.21.0), published 22:29:04 UTC |
+| GitHub release | [`v2.21.0`](https://github.com/Photivra/engine/releases/tag/v2.21.0), published 22:29:04 UTC |
 
 ## For the owner
 

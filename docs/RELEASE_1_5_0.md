@@ -16,10 +16,10 @@ The checkpoint adds independent SI photon/electron tests and complete 2×2 resou
 
 ## Published baseline and exact candidate inputs
 
-- Published GitHub release: [v1.4.0](https://github.com/Photivra/photivra/releases/tag/v1.4.0), published on 2026-10-04.
+- Published GitHub release: [v1.4.0](https://github.com/Photivra/engine/releases/tag/v1.4.0), published on 2026-10-04.
 - At this review, `main` and `v1.4.0` both identify commit `240340ec9e23ef79b6a0d729f494b2a531dd6df4`; their comparison contains no new commits or changed files.
-- [PR #223](https://github.com/Photivra/photivra/pull/223), head `04baece1a8d1a133db3e7a2f0c9daa0d662bb826`: optional native RAW execution chunks and preservation of the exact acquisition plan during same-RAW development.
-- [PR #225](https://github.com/Photivra/photivra/pull/225), head `70f55f5e27795d2fa51d112fbee1b14ee097b6ce`: experimental separable ideal-emission work, stacked on #223.
+- [PR #223](https://github.com/Photivra/engine/pull/223), head `04baece1a8d1a133db3e7a2f0c9daa0d662bb826`: optional native RAW execution chunks and preservation of the exact acquisition plan during same-RAW development.
+- [PR #225](https://github.com/Photivra/engine/pull/225), head `70f55f5e27795d2fa51d112fbee1b14ee097b6ce`: experimental separable ideal-emission work, stacked on #223.
 - This preparation branch starts at the #225 snapshot so neither draft is silently omitted from the review. That ancestry is not approval to ship either change. Reconcile this document whenever a source PR changes, is excluded, or is rebased.
 
 The v1.4.0 GitHub release is verified here. A fresh direct npm-registry check was unavailable in this review; do not infer current registry dist-tags or integrity values from the GitHub release alone.
@@ -50,7 +50,7 @@ This boundary must remain verified on the final candidate. Moving the prototype 
 
 ### 1. Scientific/source and resource qualification remain unresolved
 
-[Issue #224](https://github.com/Photivra/photivra/issues/224) requires bounded full-event evidence and no hidden source assumption or raised safety ceiling. #225 proposes a distinct, four-billion scalar spectral-composition ceiling while preserving the two-billion legacy provider ceiling. Review whether this new source/work domain satisfies the approved scope; do not treat preserving the old ceiling as automatic approval of the new one.
+[Issue #224](https://github.com/Photivra/engine/issues/224) requires bounded full-event evidence and no hidden source assumption or raised safety ceiling. #225 proposes a distinct, four-billion scalar spectral-composition ceiling while preserving the two-billion legacy provider ceiling. Review whether this new source/work domain satisfies the approved scope; do not treat preserving the old ceiling as automatic approval of the new one.
 
 Full-native depth/visibility/refinement results, independently checked output and measured resource evidence remain prerequisites for any newly claimed full-native capability. Keep source separability and transport unverified until evidence establishes them. Excluding the prototype from this release is valid; silently presenting partial-tile or synthetic controls as full-event qualification is not.
 
@@ -60,8 +60,8 @@ The input PRs #223/#225/#226 received substantive human review and DCO approval 
 
 ## Validation already available for the code snapshots
 
-- #223 records 2,151 passing tests and one existing skip at `04baece`, with CI [37216829043](https://github.com/Photivra/photivra/actions/runs/37216829043).
-- #225's corrected package-isolated head `70f55f5` passed CI [37384286949](https://github.com/Photivra/photivra/actions/runs/37384286949). The prior Node 24 timeout was addressed by an explicit correctness-test budget rather than changing scientific assertions or resource limits.
+- #223 records 2,151 passing tests and one existing skip at `04baece`, with CI [37216829043](https://github.com/Photivra/engine/actions/runs/37216829043).
+- #225's corrected package-isolated head `70f55f5` passed CI [37384286949](https://github.com/Photivra/engine/actions/runs/37384286949). The prior Node 24 timeout was addressed by an explicit correctness-test budget rather than changing scientific assertions or resource limits.
 - The test counts above are taken from the source PR records, not a new local test execution. The inspected CI job outcomes establish those jobs' success, not review approval or scientific qualification.
 - Neither snapshot is the final version-bumped release candidate. These results must not be reported as final 1.5.0 release verification. This preparation branch must rerun the matrix after every stacked-base or release-document change.
 

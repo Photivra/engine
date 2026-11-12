@@ -67,7 +67,7 @@ The tests use synthetic fields owned by Photivra, and independent SI arithmetic 
 - A quadratic field shows the expected midpoint convergence.
 - Rolling offsets, and an operating-range failure at a single instant, are verified.
 
-This is mathematical regression evidence, not photographic calibration. Separate [handoff acceptance](https://github.com/Photivra/photivra/blob/main/test/temporal-photo-raw.test.ts) covers nonstationary RAW and export from owned synthetic inputs.
+This is mathematical regression evidence, not photographic calibration. Separate [handoff acceptance](https://github.com/Photivra/engine/blob/main/test/temporal-photo-raw.test.ts) covers nonstationary RAW and export from owned synthetic inputs.
 
 **Versions.** This API moved the root API from 0.108.0 to **0.109.0**, with model 0.1.0. Package, POC, production, capture and RAW schemas, and noise identities, did not change. Historical replay keeps its stored root stamp and pinned paired-file hashes; new capture identities may include the new API stamp. No dependency or cost is added.
 

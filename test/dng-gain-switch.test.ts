@@ -9,7 +9,7 @@ import { scaledTimeout } from "./helpers/test-timeout.js";
  * test-only entry for the engine's own virtual camera, whose switch the capture reports (ISO 800, professional tier).
  */
 const TEST_ENTRY: DngGainSwitchEntry = { make: "Photivra", model: "Photivra Virtual Camera", highGainFromIso: 800,
-  source: { title: "test entry: the engine capture's result.sensor.readNoise.highGainFromIso", url: "https://github.com/Photivra/photivra", terms: "test only", accessed: "2026-11-11" } };
+  source: { title: "test entry: the engine capture's result.sensor.readNoise.highGainFromIso", url: "https://github.com/Photivra/engine", terms: "test only", accessed: "2026-11-11" } };
 vi.mock("../src/capture/dng-gain-switch.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../src/capture/dng-gain-switch.js")>();
   return { ...actual, DNG_GAIN_SWITCH_CATALOG: Object.freeze([TEST_ENTRY]) };

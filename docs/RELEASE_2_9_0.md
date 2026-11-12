@@ -172,9 +172,9 @@ The authoritative result is GitHub CI on the exact commit that is tagged: the `m
 
 | Fact | Value |
 | --- | --- |
-| Tag | `v2.9.0` → `02df4034224c984cf63b63a8754b2bbfd119598e` (#437), after `main` CI on that commit passed ([CI run 1008](https://github.com/Photivra/photivra/actions/runs/40257985714)) |
-| GitHub release | [@photivra/engine 2.9.0](https://github.com/Photivra/photivra/releases/tag/v2.9.0), published 02:41:08 UTC |
-| Publish workflow | [Publish npm run 27](https://github.com/Photivra/photivra/actions/runs/40260315982): passed (completed 02:48:24 UTC) |
+| Tag | `v2.9.0` → `02df4034224c984cf63b63a8754b2bbfd119598e` (#437), after `main` CI on that commit passed ([CI run 1008](https://github.com/Photivra/engine/actions/runs/40257985714)) |
+| GitHub release | [@photivra/engine 2.9.0](https://github.com/Photivra/engine/releases/tag/v2.9.0), published 02:41:08 UTC |
+| Publish workflow | [Publish npm run 27](https://github.com/Photivra/engine/actions/runs/40260315982): passed (completed 02:48:24 UTC) |
 | npm | `@photivra/engine@2.9.0`, dist-tag `latest`, registry time 02:50:36 UTC |
 | Integrity | `sha512-a7kqsk6QBDo+hwqJQfjZwUNh4HgKCOxy85A5ZDhsvNSRyjSTX+H8DFxhJUh6wCO/VfXFtSxdUAQvaeqvsxOfnQ==` (shasum `e2ad5b76a148f9dffeb01c763f4c430bc449baa4`, 858 files), the same as a local pack of `02df403` |
 | Provenance | SLSA provenance from GitHub Actions for the tag, in the Sigstore transparency log ([log index 3476629465](https://search.sigstore.dev/?logIndex=3476629465)); the registry lists the provenance and publish attestations for 2.9.0 |

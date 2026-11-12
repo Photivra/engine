@@ -174,7 +174,7 @@ No network, persistence or telemetry is added to the package. The two repository
 - [x] 2.13.0 recorded as published (`CHANGELOG.md`, `SECURITY.md`, [its record](RELEASE_2_13_0.md)); the 2.12.0 record's release-notes item ticked.
 - [x] The owner's approval to tag and release 2.14.0 (chat, November 1, 2026).
 - [ ] The owner's decision on the hardware gate (above): the tag was made without a recorded `accept:gpu:hardware` / `test:webgpu:hardware` run on `f4b09a7`; no decision is recorded in the repository.
-- [x] Green CI on this pull request, then on `main` after merge ([CI run 41350521752](https://github.com/Photivra/photivra/actions/runs/41350521752) on `f4b09a7`).
+- [x] Green CI on this pull request, then on `main` after merge ([CI run 41350521752](https://github.com/Photivra/engine/actions/runs/41350521752) on `f4b09a7`).
 - [x] The `v2.14.0` tag on the `main` commit that merges this record (`f4b09a7`).
 - [x] After publication: npm version, dist-tag, integrity and provenance verified ([Publication](#publication)); GitHub release notes published (`@photivra/engine 2.14.0`, November 3, 2026, 16:42:46 UTC); publication dates updated in `CHANGELOG.md`, `README.md`, `SECURITY.md`, `docs/DEVELOPERS.md` and this record by the 2.14.1 release preparation.
 
@@ -182,8 +182,8 @@ No network, persistence or telemetry is added to the package. The two repository
 
 | Fact | Value |
 | --- | --- |
-| Tag | `v2.14.0` → `f4b09a77a2c84b802543860cf5d411d3d49510c8` (#539), after `main` CI on that commit passed ([CI run 41350521752](https://github.com/Photivra/photivra/actions/runs/41350521752)) |
-| Publish workflow | [Publish npm run 33](https://github.com/Photivra/photivra/actions/runs/41350544040): coverage shards (6–9 s each) and gate passed on the coverage proof, `verify` passed 21:09:37–21:11:52 UTC, `publish` passed 21:11:54–21:12:08 UTC |
+| Tag | `v2.14.0` → `f4b09a77a2c84b802543860cf5d411d3d49510c8` (#539), after `main` CI on that commit passed ([CI run 41350521752](https://github.com/Photivra/engine/actions/runs/41350521752)) |
+| Publish workflow | [Publish npm run 33](https://github.com/Photivra/engine/actions/runs/41350544040): coverage shards (6–9 s each) and gate passed on the coverage proof, `verify` passed 21:09:37–21:11:52 UTC, `publish` passed 21:11:54–21:12:08 UTC |
 | npm | `@photivra/engine@2.14.0`, dist-tag `latest`, registry time 21:14:13 UTC |
 | Integrity | `sha512-J2uy/pkpOUtTqA8TDY6VhcUuqx7e/hJD3aomSx/7SAPhPr33JE0/4jnzjiXJUcrCEPjES1STs2TYNOxEgKu8ag==` (shasum `5ce429d4c9babac9cfa241377b349c60878dbe55`, 912 files) |
 | Provenance | The registry lists an SLSA v1 provenance attestation for 2.14.0 |

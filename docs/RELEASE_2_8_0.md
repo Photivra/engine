@@ -97,7 +97,7 @@ Whole 24 MP frame, one thread: 28.2 s as sRGB (RAW 24.2 s, development 3.9 s), 3
 
 ### Known limit: Quality noise at small footprints (#379)
 
-Unchanged from 2.6.0. With `output.demosaic: "ahd"` the display view's noise has too much colour where a display pixel covers few sensor pixels; case 138 is 1.165 against the 1.15 limit. The exact covariance through AHD's two linear candidates was measured on October 25 and is worse (1.351), because AHD's direction choice reacts to the noise ([measurement](https://github.com/Photivra/photivra/issues/379#issuecomment-6394140950)). The remaining fix, a Monte Carlo model of the real AHD output's noise covariance, moves to 2.9.0 by the owner's decision of October 25, 2026. Speed (bilinear) is exact; the Photivra site offers Speed only.
+Unchanged from 2.6.0. With `output.demosaic: "ahd"` the display view's noise has too much colour where a display pixel covers few sensor pixels; case 138 is 1.165 against the 1.15 limit. The exact covariance through AHD's two linear candidates was measured on October 25 and is worse (1.351), because AHD's direction choice reacts to the noise ([measurement](https://github.com/Photivra/engine/issues/379#issuecomment-6394140950)). The remaining fix, a Monte Carlo model of the real AHD output's noise covariance, moves to 2.9.0 by the owner's decision of October 25, 2026. Speed (bilinear) is exact; the Photivra site offers Speed only.
 
 ## Compatibility
 
@@ -142,9 +142,9 @@ The authoritative result is GitHub CI on the exact commit that is tagged: the `m
 
 | Fact | Value |
 | --- | --- |
-| Tag | `v2.8.0` → `9089cab5cb2e9205ef3bc3dea55e5113e2b6a7bb` (#413), after `main` CI on that commit passed ([CI run 965](https://github.com/Photivra/photivra/actions/runs/40171081256)) |
-| GitHub release | [@photivra/engine 2.8.0](https://github.com/Photivra/photivra/releases/tag/v2.8.0), published 11:57:52 UTC |
-| Publish workflow | [Publish npm run 25](https://github.com/Photivra/photivra/actions/runs/40191055098): its verify and publish jobs passed (completed 12:13:18 UTC) |
+| Tag | `v2.8.0` → `9089cab5cb2e9205ef3bc3dea55e5113e2b6a7bb` (#413), after `main` CI on that commit passed ([CI run 965](https://github.com/Photivra/engine/actions/runs/40171081256)) |
+| GitHub release | [@photivra/engine 2.8.0](https://github.com/Photivra/engine/releases/tag/v2.8.0), published 11:57:52 UTC |
+| Publish workflow | [Publish npm run 25](https://github.com/Photivra/engine/actions/runs/40191055098): its verify and publish jobs passed (completed 12:13:18 UTC) |
 | npm | `@photivra/engine@2.8.0`, dist-tag `latest`, registry time 12:14:54 UTC |
 | Integrity | `sha512-7+Wqp1pBv5NMkSaS27x15phE9LcOGY57EcYywtlxxf+XHlwBTlR9mJVLVTigfTxQ5cJYZ39yaW8be4oZeckVXw==` (shasum `b81bdd56620d2194dea4fc5429c03c26019370b0`, 855 files), the same as the publish log |
 | Provenance | Signed provenance statement from GitHub Actions for the tag, published to the Sigstore transparency log ([log index 3460764630](https://search.sigstore.dev/?logIndex=3460764630)); the registry lists an attestation for 2.8.0 |
