@@ -300,8 +300,14 @@ export type SimulateCaptureSensorAntiAliasing =
   | { kind: "point-splitting"; components: readonly AntiAliasingPointSplitComponent[]; fast?: boolean };
 /** Pixel aperture (2.3): centre sampling, or the square photosite integrated with an N × N midpoint rule; `fast` (#395) overrides the top-level flag. */
 export type SimulateCapturePixelAperture = "point" | "box" | { kind: "box"; samplesPerAxis?: number; fast?: boolean };
-/** Default midpoint samples per axis of `sensor.pixelAperture: "box"`. */
+/**
+ * Default midpoint samples per axis of `sensor.pixelAperture: "box"` on a fast request. 2.24.0: an exact request (the exports, the
+ * ideal reference, `fast: false`, or the box's own `fast: false`) defaults to 8. An explicit `samplesPerAxis` always wins.
+ */
 export const SIMULATE_CAPTURE_BOX_APERTURE_DEFAULT_SAMPLES = 4;
+/** 2.24.0: default midpoint samples per axis of `sensor.pixelAperture: "box"` on an exact request. */
+const SIMULATE_CAPTURE_BOX_APERTURE_EXACT_SAMPLES = 8;
+const boxDefaultSamples = (fast: boolean): number => (fast ? SIMULATE_CAPTURE_BOX_APERTURE_DEFAULT_SAMPLES : SIMULATE_CAPTURE_BOX_APERTURE_EXACT_SAMPLES);
 /**
  * `output.sharpening` (#552): unsharp mask y = x + amount·(x − G_σ∗x) where |x − G_σ∗x| ≥ threshold (GIMP and ImageMagick
  * unsharp mask), per channel on sRGB-encoded values in [0, 1], then clipped to [0, 1]. Every field is optional.
@@ -665,7 +671,7 @@ export interface SimulateCaptureOptions {
     pixelPitchMicrometers?: number;
     /** Maximum spectral quadrature subinterval in nm. Default 20. */
     spectralStepNanometers?: number;
-    /** Temporal midpoint samples across the exposure. Default 1. */
+    /** Temporal midpoint samples across the exposure, 1–256. Default 1; with camera rotation or subject motion (2.24.0) 8 on a fast request and 16 on an exact one. */
     temporalSampleCount?: number;
     /** Noise seed (uint32). Default 1. */
     noiseSeed?: number;
@@ -677,7 +683,7 @@ export interface SimulateCaptureOptions {
     /**
      * Opt-in (2.3) pixel aperture. `"point"` (default): each site samples the irradiance at its centre.
      * `"box"`: each site integrates the irradiance over its whole square photosite (fill factor 1) with an
-     * N × N midpoint rule, N = `samplesPerAxis` (1–16, default 4), so detail finer than a pixel averages out as
+     * N × N midpoint rule, N = `samplesPerAxis` (1–16; default 4 on a fast request, 8 on an exact one, 2.24.0), so detail finer than a pixel averages out as
      * on a real sensor (pixel MTF |sinc(f·p)|) instead of aliasing. Multiplies the scene queries by N².
      */
     pixelAperture?: SimulateCapturePixelAperture;
@@ -717,7 +723,7 @@ export type SimulateCaptureHighlightMode = RawHighlightMode | "reconstruct-neigh
  * whether or not it has a fast method yet; one without runs exact and reports `false`.
  */
 export const SIMULATE_CAPTURE_FAST_OPTIONS = /* @__PURE__ */ Object.freeze(["lens.diffraction", "lens.catalogue", "sensor.antiAliasing", "sensor.pixelAperture.box", "output.demosaic.ahd", "motion.subject",
-  "sensor.spectralStepNanometers"] as const);
+  "sensor.spectralStepNanometers", "sensor.temporalSampleCount"] as const);
 export type SimulateCaptureFastOption = typeof SIMULATE_CAPTURE_FAST_OPTIONS[number];
 
 /** `diagnostics.fast` of a capture or display view (#395): what was asked for and what ran. */
@@ -1094,8 +1100,10 @@ export function apertureNodeOffsets(n: number): { x: number; y: number }[] {
 }
 /** Third dark ring of the Airy pattern in units of λ·N_w (j₁,₃/π, j₁,₃ = 10.1734681351): the default diffraction kernel reach. */
 const AIRY_THIRD_ZERO_PER_LAMBDA_N = 10.173468135062722 / Math.PI;
-/** Default temporal midpoints when the camera rotates (2.0 motion option). */
+/** Default temporal midpoints when the camera rotates or the subject moves (2.0 motion option), on a fast request. */
 const ROTATING_TEMPORAL_SAMPLE_COUNT = 8;
+/** 2.24.0: the same default on an exact request. */
+const EXACT_MOTION_TEMPORAL_SAMPLE_COUNT = 16;
 const IDS = /* @__PURE__ */ Object.freeze({ frame: "facade-frame", mode: "native-still", cfa: "photivra-generic-bayer", binding: "facade-native-cfa",
   sceneState: "facade-scene-state", scene: "facade-scene", provider: "facade-provider", lights: "facade-lights", materials: "facade-materials",
   capture: "facade-capture", spectral: "facade-colorimetric-eqe", sampling: "facade-sampling", stack: "facade-no-aa", stackAa: "facade-aa",
@@ -2276,9 +2284,11 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
     " at 20 nm, above " + SPECTRAL_SPIKINESS_THRESHOLD + " (a design threshold), so an exact request takes 5 nm. " + (fastTop ? "This fast request keeps 20 nm (4× fewer spectral queries): colors may carry a cast (measured up to " +
     "about 0.1 Δu′v′ on white under the tri-phosphor fluorescent source). Pass fast: false or sensor.spectralStepNanometers: 5 for the exact colors." : "The step costs 4× the spectral queries of 20 nm."));
   if (spectralStep < 1 || spectralStep > 100) fail("sensor.spectralStepNanometers must be 1-100.");
-  let temporalSampleCount = integerIn(rotating || subject ? pick(sensorOptions, "temporalSampleCount", "sensor.temporalSampleCount", ROTATING_TEMPORAL_SAMPLE_COUNT,
-    rotating ? "Eight temporal midpoints across each site's exposure window sample the camera rotation (motion blur); raise it for long exposures or fast rotation." :
-      "Eight temporal midpoints sample the subject's motion; raise it for long streaks.") :
+  // 2.24.0 (owner decision 2026-11-12): the default count under motion follows the request's quality: 8 fast, 16 exact.
+  const motionTemporalDefault = fastTop ? ROTATING_TEMPORAL_SAMPLE_COUNT : EXACT_MOTION_TEMPORAL_SAMPLE_COUNT, motionWord = fastTop ? "Eight" : "Sixteen";
+  let temporalSampleCount = integerIn(rotating || subject ? pick(sensorOptions, "temporalSampleCount", "sensor.temporalSampleCount", motionTemporalDefault,
+    rotating ? motionWord + " temporal midpoints across each site's exposure window sample the camera rotation (motion blur; 8 on a fast request, 16 on an exact one); raise it for long exposures or fast rotation." :
+      motionWord + " temporal midpoints sample the subject's motion (8 on a fast request, 16 on an exact one); raise it for long streaks.") :
     pick(sensorOptions, "temporalSampleCount", "sensor.temporalSampleCount", DEFAULTS.temporalSampleCount,
       "One temporal sample: the static scene and still camera make more samples unnecessary."), "sensor.temporalSampleCount", 1, 256);
   const parsedCharacteristics = parseSensorCharacteristics(sensorOptions), rn = parsedCharacteristics?.readNoise, rs = profileReadNoiseScale;
@@ -2292,15 +2302,17 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   const antiAliasing = sensorOptions.antiAliasing === undefined ? undefined : parseAntiAliasing(sensorOptions.antiAliasing, pitch);
   const antiAliasingFast = antiAliasing ? fastOverride(sensorOptions.antiAliasing as Record<string, unknown>, "sensor.antiAliasing") : undefined;
   // Pixel aperture (2.3): N × N midpoint nodes over the square photosite; 1 = the default centre sample.
-  let boxSamples = 1, boxFast: boolean | undefined;
+  // 2.24.0 (owner decision 2026-11-12): the default N follows the box's flag (its record's fast, else the request's): 4 fast, 8 exact.
+  let boxSamples = 1, boxFast: boolean | undefined, boxSamplesDefaulted = false;
   if (sensorOptions.pixelAperture !== undefined && sensorOptions.pixelAperture !== "point") {
     const a = sensorOptions.pixelAperture;
-    if (a === "box") boxSamples = SIMULATE_CAPTURE_BOX_APERTURE_DEFAULT_SAMPLES;
+    if (a === "box") { boxSamplesDefaulted = true; boxSamples = boxDefaultSamples(fastTop); }
     else {
       const record = allowKeys(a, "sensor.pixelAperture", ["kind", "samplesPerAxis", "fast"]);
       if (record.kind !== "box") fail("sensor.pixelAperture must be \"point\", \"box\" or { kind: \"box\", samplesPerAxis, fast }.");
       boxFast = fastOverride(record, "sensor.pixelAperture");
-      boxSamples = record.samplesPerAxis === undefined ? SIMULATE_CAPTURE_BOX_APERTURE_DEFAULT_SAMPLES : integerIn(record.samplesPerAxis, "sensor.pixelAperture.samplesPerAxis", 1, 16);
+      boxSamplesDefaulted = record.samplesPerAxis === undefined;
+      boxSamples = boxSamplesDefaulted ? boxDefaultSamples(resolveFast(boxFast, fastTop)) : integerIn(record.samplesPerAxis, "sensor.pixelAperture.samplesPerAxis", 1, 16);
     }
   }
   const boxAperture = sensorOptions.pixelAperture !== undefined && sensorOptions.pixelAperture !== "point";
@@ -2348,7 +2360,9 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
     ["sensor.antiAliasing", antiAliasing !== undefined, antiAliasingFast], ["sensor.pixelAperture.box", boxAperture, boxFast], ["output.demosaic.ahd", ahd, demosaicFast],
     ["motion.subject", subject !== undefined, subjectFast],
     // #590: the default step under a spiky light (an explicit step, or a smooth light, makes no choice and adds no key).
-    ["sensor.spectralStepNanometers", spiky && sensorOptions.spectralStepNanometers === undefined, undefined]];
+    ["sensor.spectralStepNanometers", spiky && sensorOptions.spectralStepNanometers === undefined, undefined],
+    // 2.24.0: the default temporal count under motion (an explicit count makes no choice and adds no key).
+    ["sensor.temporalSampleCount", (rotating || subject !== undefined) && sensorOptions.temporalSampleCount === undefined, undefined]];
   const fastApplied: Partial<Record<SimulateCaptureFastOption, boolean>> = {};
   for (const [option, used] of fastInUse) if (used) fastApplied[option] = false;
   // #568: the catalogue's fast method, when requested (its record's flag, else the top-level one); whether it runs is decided with the RAW path.
@@ -2362,6 +2376,9 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   };
   // #590: the fast method (20 nm under a spiky light) ran.
   if (spiky && sensorOptions.spectralStepNanometers === undefined && fastTop) markFast("sensor.spectralStepNanometers");
+  // 2.24.0: the fast defaults (4 box samples per axis, 8 temporal midpoints under motion) ran.
+  if (boxAperture && boxSamplesDefaulted && resolveFast(boxFast, fastTop)) markFast("sensor.pixelAperture.box");
+  if ((rotating || subject !== undefined) && sensorOptions.temporalSampleCount === undefined && fastTop) markFast("sensor.temporalSampleCount");
   if (borderOption !== undefined && borderOption !== "margin" && borderOption !== "mirror") fail("output.borderHandling must be margin or mirror.");
   const builtInDemosaic = demosaicOption === undefined ? undefined : createBuiltInBayerDemosaicProfiles({ kernel: "bilinear",
     captureModeId: IDS.mode, colorSamplingProfile, channelRoles: { red: "red", green: "green", blue: "blue" } }).value;
@@ -2747,7 +2764,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
       queriesPerSite = queriesPerSite / temporalSampleCount * fewer;
       temporalSampleCount = fewer;
       markFast("motion.subject");
-      assume("fast.motion.subject", "model", { temporalSampleCount: fewer, streakSites }, "Fast: temporal midpoints less than one site apart along the subject's streak replace the default 8; exact is fast: false.");
+      assume("fast.motion.subject", "model", { temporalSampleCount: fewer, streakSites }, "Fast: temporal midpoints less than one site apart along the subject's streak replace the default " + motionTemporalDefault + "; exact is fast: false.");
     }
     assume("motion.subject", "model", { velocityMPerSec: { x: subject.vx, y: subject.vy }, angularVelocityRadPerSec: subject.omega,
       region: subject.region ? { centerXM: subject.region.cx, centerYM: subject.region.cy, widthM: 2 * subject.region.hw, heightM: 2 * subject.region.hh } : null,

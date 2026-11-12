@@ -8,12 +8,12 @@ import { scaledTimeout } from "./helpers/test-timeout.js";
 
 /*
  * #395: one exact-or-fast convention across the engine. The top-level `fast` sets every listed option; an option's record
- * `fast` overrides it for that option; `diagnostics.fast` reports what was requested and what ran. Only `lens.catalogue` has a
- * fast method (#568, tested in simulate-capture-lens-catalogue-fast.test.ts): every other option must give the exact result, byte
- * for byte, and report `false`; `lens.catalogue` reports `true` exactly when its effective flag is true.
+ * `fast` overrides it for that option; `diagnostics.fast` reports what was requested and what ran. The options in WITH_FAST_METHOD
+ * have a fast method (#568, #551; 2.24.0: the box aperture's default samples): every other option must give the exact result, byte
+ * for byte, and report `false`; an option with a fast method reports `true` exactly when its effective flag is true.
  */
 /** Options with a fast method. */
-const WITH_FAST_METHOD: readonly SimulateCaptureFastOption[] = ["lens.catalogue", "motion.subject"];
+const WITH_FAST_METHOD: readonly SimulateCaptureFastOption[] = ["lens.catalogue", "motion.subject", "sensor.pixelAperture.box"];
 type Options = Record<string, Record<string, unknown> | unknown>;
 // 2.20.0: fast: false here, so a test's own fast overrides an exact request (the format default, fast for sRGB, is tested at the end
 // and in fast-methods-registry.test.ts).
@@ -26,9 +26,12 @@ const request = (extra: Options): SimulateCaptureOptions => {
   }
   return out as unknown as SimulateCaptureOptions;
 };
-/** #590: options the top-level `fast` alone sets (no option record), tested on their own below. */
-const TOP_LEVEL_ONLY: readonly SimulateCaptureFastOption[] = ["sensor.spectralStepNanometers"];
-type RecordOption = Exclude<SimulateCaptureFastOption, "sensor.spectralStepNanometers">;
+/**
+ * #590, 2.24.0: options the top-level `fast` alone sets (no option record), tested on their own (spectral-step-default.test.ts,
+ * sample-count-defaults.test.ts).
+ */
+const TOP_LEVEL_ONLY: readonly SimulateCaptureFastOption[] = ["sensor.spectralStepNanometers", "sensor.temporalSampleCount"];
+type RecordOption = Exclude<SimulateCaptureFastOption, "sensor.spectralStepNanometers" | "sensor.temporalSampleCount">;
 const RECORD_OPTIONS = SIMULATE_CAPTURE_FAST_OPTIONS.filter((option): option is RecordOption => !TOP_LEVEL_ONLY.includes(option));
 /** Each fast-capable option with a record: the shorthand that turns it on, and its record form with `fast`. */
 const FORMS: Record<RecordOption, { shorthand: Options; record: (fast: boolean) => Options }> = {
@@ -63,14 +66,17 @@ describe("exact-or-fast flag convention (#395)", () => {
   it("accepts the top-level flag and each option's record flag, runs exact unless the option has a fast method, and reports what ran", async () => {
     for (const option of RECORD_OPTIONS) {
       const form = FORMS[option], hasFast = WITH_FAST_METHOD.includes(option);
+      // 2.24.0: under subject motion the default temporal count is a choice of its own (8 fast, 16 exact), set by the top-level flag.
+      const moving = option === "motion.subject", temporal = (top: boolean): Record<string, boolean> => (moving ? { "sensor.temporalSampleCount": top } : {});
       const exact = await simulateCapture(request(form.shorthand));
-      expect(exact.diagnostics.fast).toEqual({ requested: false, defaultedFrom: "request", applied: { [option]: false }, assurance: "engine-reference" });
+      expect(exact.diagnostics.fast).toEqual({ requested: false, defaultedFrom: "request", applied: { [option]: false, ...temporal(false) }, assurance: "engine-reference" });
       // [request, requested, effective flag of the option]
       for (const [extra, requested, effective] of [[{ ...form.shorthand, fast: true }, true, true], [form.record(true), true, true], [form.record(false), false, false],
         [{ ...form.record(false), fast: true }, true, false], [{ ...form.record(true), fast: false }, true, true]] as [Options, boolean, boolean][]) {
-        const result = await simulateCapture(request(extra)), ran = hasFast && effective;
-        if (!ran) expect(samples(result), option).toEqual(samples(exact));
-        expect(result.diagnostics.fast, option).toEqual({ requested, defaultedFrom: "request", applied: { [option]: ran }, assurance: ran ? "approximation-with-a-priori-bound" : "engine-reference" });
+        const result = await simulateCapture(request(extra)), ran = hasFast && effective, top = extra.fast === true, temporalFast = moving && top;
+        if (!ran && !temporalFast) expect(samples(result), option).toEqual(samples(exact));
+        expect(result.diagnostics.fast, option).toEqual({ requested, defaultedFrom: "request", applied: { [option]: ran, ...temporal(top) },
+          assurance: ran || temporalFast ? "approximation-with-a-priori-bound" : "engine-reference" });
       }
     }
   }, scaledTimeout(300_000));
@@ -82,13 +88,15 @@ describe("exact-or-fast flag convention (#395)", () => {
     const result = await simulateCapture(all);
     // motion.subject (#551) has its own cases above; it would multiply this request's scene queries by its temporal midpoints.
     expect(Object.keys(result.diagnostics.fast.applied)).toEqual(RECORD_OPTIONS.filter((option) => option !== "lens.catalogue" && option !== "motion.subject"));
-    expect(Object.values(result.diagnostics.fast.applied).every((value) => value === false)).toBe(true);
+    // 2.24.0: the box's default 4 samples per axis is its fast method; the others run exact.
+    const onlyBox = (applied: Readonly<Record<string, boolean | undefined>>): void => { for (const [option, value] of Object.entries(applied)) expect(value, option).toBe(option === "sensor.pixelAperture.box"); };
+    onlyBox(result.diagnostics.fast.applied);
     // With anti-aliasing (off the site centres) the catalogue's fast method does not apply, so it reports false.
     // An 8 × 8 region at an 80 nm spectral step keeps the exact catalogue quadrature (every tap a scene query) affordable on CI runners.
     const catalogue = await simulateCapture(request({ lens: { catalogue: "pv-50-1.8", fNumber: 8 }, sensor: { pixelPitchMicrometers: 750, spectralStepNanometers: 80, antiAliasing: { kind: "four-spot" }, pixelAperture: "box" },
       output: { demosaic: { kind: "ahd" }, region: { x: 0, y: 0, width: 8, height: 8 } }, fast: true }));
     expect(Object.keys(catalogue.diagnostics.fast.applied)).toEqual(RECORD_OPTIONS.filter((option) => option !== "lens.diffraction" && option !== "motion.subject"));
-    expect(Object.values(catalogue.diagnostics.fast.applied).every((value) => value === false)).toBe(true);
+    onlyBox(catalogue.diagnostics.fast.applied);
   }, scaledTimeout(120_000));
 
   it("keeps lens.diffraction's aperture key as a deprecated alias of kind, and refuses both", async () => {

@@ -15,5 +15,6 @@ afterAll(() => { if (report.length) process.stdout.write("[display-view coupled 
 describe("display view Quality kernels with the coupled steps (float32 emulation) vs the CPU reference: reconstruct (#593)", () => {
   it.each(COUPLED_QUALITY_CASES.filter(([, options]) => options.output?.highlightMode === "reconstruct"))("%s: inside the a-priori bounds; samples differ by at most one code", async (name, options) => {
     await runQualityCase(name, options, report);
-  }, scaledTimeout(300_000));
+    // 2.24.0: 900 s with margin (561 s under coverage on #608's run; the 300 s deadline ran out once in a Node 22.13.0 test part).
+  }, scaledTimeout(900_000));
 });
