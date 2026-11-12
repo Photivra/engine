@@ -191,6 +191,9 @@ jobs:
     # `verify (lts/*)` merges all ten and enforces the thresholds once, on the whole suite.
     # They run on the primary leg, Node 24 (pinned, the tooling major; #231).
     # Each part also keeps its per-file times, for scripts/record-shard-weights.mjs.
+    # 2.24.0 (owner decision 2026-11-12): the files listed under "alone" in test/shard-weights.json
+    # (test/display-view-neighbors-gpu.test.ts, one test of 863-1,041 s under coverage) get a part
+    # of their own, so no other file shares that runner; the other files fill the other nine parts.
     name: coverage shard (${{ matrix.shard }}/10)
     needs: scope
     runs-on: ubuntu-latest

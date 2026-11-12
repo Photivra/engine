@@ -25,7 +25,7 @@ export interface SimulateCaptureFastMethod {
   /** "fast-and-exact": both methods exist; "exact-only": the record takes `fast`, but there is no fast method yet (reports false). */
   methods: "fast-and-exact" | "exact-only";
   /** Where it applies. */
-  runs: readonly ("simulateCapture" | "simulateDisplayView" | "prepareDisplayView" | "developDngStageImage")[];
+  runs: readonly ("simulateCapture" | "simulateDisplayView" | "prepareDisplayView" | "developDngStageImage" | "developDngImage")[];
   /** The fast method and the exact one, in words (empty for exact-only). */
   fast: string;
   exact: string;
@@ -94,12 +94,16 @@ export const SIMULATE_CAPTURE_FAST_METHODS: readonly SimulateCaptureFastMethod[]
     fast: "#535: the mid-gray noise figure is not computed (about 0.3 ms)", exact: "result.sensor.midGrey is computed", followsFormatDefault: true,
     resolver: { file: CAPTURE, call: "fastTop ? undefined : 0" }, report: { field: "sensor.midGrey" } },
   { id: "motion.subject/temporal-midpoints", override: "motion.subject", methods: "fast-and-exact", runs: ["simulateCapture", "simulateDisplayView", "prepareDisplayView"],
-    fast: "#551: with the default count and a still camera, one temporal midpoint per site of the subject's streak plus one, when that is fewer than 8",
-    exact: "the default 8 temporal midpoints (an explicit sensor.temporalSampleCount always wins)", followsFormatDefault: true,
+    fast: "#551: with the default count and a still camera, one temporal midpoint per site of the subject's streak plus one, when that is fewer than the default (8 fast, 16 exact)",
+    exact: "the default temporal midpoints: 8 on a fast request, 16 on an exact one (sensor.temporalSampleCount; an explicit count always wins)", followsFormatDefault: true,
     resolver: { file: CAPTURE, call: "resolveFast(subjectFast, fastTop)" }, report: { applied: "motion.subject", assumption: "fast.motion.subject" } },
   { id: "dngImport.warpRectilinear", override: "fast", methods: "fast-and-exact", runs: ["developDngStageImage"],
     fast: "#600: an imported DNG's WarpRectilinear opcode resampled bilinearly", exact: "cubic convolution (Keys, a = −0.75, the DNG SDK's kernel); default fast unless format names an export", followsFormatDefault: true,
     resolver: { file: "src/capture/dng-stage-image.ts", call: "resolveFast(options.fast, fastFormatDefault(format, \"capture\"))" }, report: { field: "fast" } },
+  { id: "developDngImage/demosaic", override: "fast", methods: "fast-and-exact", runs: ["developDngImage"],
+    fast: "#607 (2.24.0): an imported DNG's mosaic demosaiced with the built-in bilinear kernels, and WarpRectilinear resampled bilinearly",
+    exact: "adaptive homogeneity-directed demosaicing (AHD, Hirakawa & Parks 2005) and cubic-convolution WarpRectilinear; default fast for srgb-8 and srgb-16", followsFormatDefault: true,
+    resolver: { file: "src/capture/dng-development.ts", call: "resolveFast(options.fast, fastFormatDefault(format, \"capture\"))" }, report: { field: "fast" } },
   { id: "output.toneCurve/view-luminance-moments", override: "fast", methods: "fast-and-exact", runs: ["simulateDisplayView", "prepareDisplayView"],
     fast: "#593: a luminance tone curve's moments by an 8-point Gauss–Hermite rule in luminance where its range stays clear of L = 0 (else the full rule)",
     exact: "a composite 4 × 16-point Gauss–Legendre rule over the luminance's ±8.5σ, split at L = 0", followsFormatDefault: true,
@@ -122,9 +126,13 @@ export const SIMULATE_CAPTURE_FAST_METHODS: readonly SimulateCaptureFastMethod[]
   { id: "sensor.antiAliasing", override: "sensor.antiAliasing", methods: "exact-only", runs: ["simulateCapture", "simulateDisplayView", "prepareDisplayView"],
     fast: "", exact: "the point-splitting filter", followsFormatDefault: true,
     resolver: { file: CAPTURE, call: "fastInUse" }, report: { applied: "sensor.antiAliasing" } },
-  { id: "sensor.pixelAperture.box", override: "sensor.pixelAperture", methods: "exact-only", runs: ["simulateCapture", "simulateDisplayView", "prepareDisplayView"],
-    fast: "", exact: "the N × N midpoint rule", followsFormatDefault: true,
-    resolver: { file: CAPTURE, call: "fastInUse" }, report: { applied: "sensor.pixelAperture.box" } },
+  { id: "sensor.pixelAperture.box", override: "sensor.pixelAperture", methods: "fast-and-exact", runs: ["simulateCapture", "simulateDisplayView", "prepareDisplayView"],
+    fast: "2.24.0: the default N × N midpoint rule takes N = 4 samples per axis", exact: "N = 8 samples per axis (an explicit sensor.pixelAperture.samplesPerAxis always wins)", followsFormatDefault: true,
+    resolver: { file: CAPTURE, call: "boxDefaultSamples(resolveFast(boxFast, fastTop))" }, report: { applied: "sensor.pixelAperture.box", assumption: "sensor.pixelAperture" } },
+  { id: "sensor.temporalSampleCount", override: "fast", methods: "fast-and-exact", runs: ["simulateCapture", "simulateDisplayView", "prepareDisplayView"],
+    fast: "2.24.0: with camera rotation or subject motion, the default count is 8 temporal midpoints",
+    exact: "16 temporal midpoints (an explicit sensor.temporalSampleCount always wins)", followsFormatDefault: true,
+    resolver: { file: CAPTURE, call: "fastTop ? ROTATING_TEMPORAL_SAMPLE_COUNT : EXACT_MOTION_TEMPORAL_SAMPLE_COUNT" }, report: { applied: "sensor.temporalSampleCount", assumption: "sensor.temporalSampleCount" } },
   { id: "output.demosaic.ahd", override: "output.demosaic", methods: "exact-only", runs: ["simulateCapture", "simulateDisplayView", "prepareDisplayView"],
     fast: "", exact: "the AHD demosaic of the capture; in the display view, AHD's two linear candidates and its choice on the noise-free mosaic (2.22.0: no low-signal correction, so no fast method)", followsFormatDefault: true,
     resolver: { file: CAPTURE, call: "[\"output.demosaic.ahd\", ahd, demosaicFast]" }, report: { applied: "output.demosaic.ahd" } }

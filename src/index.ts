@@ -1901,13 +1901,21 @@ export { DNG_IMPORT_SCHEMA_VERSION, DNG_IMPORT_LIMITS, parseDngRawImage, importD
 export { createJxlOxideDngDecoder, type DngJpegXlDecoder, type JxlOxideModule } from "./capture/jpeg-xl-tiles.js";
 export { parseDngOpcodeList, applyDngOpcodes, type DngOpcode, type DngOpcodeArea, type DngOpcodeParameters, type DngStageImage, type ApplyDngOpcodesOptions } from "./capture/dng-opcodes.js";
 export { developDngStageImage, type DevelopDngStageImageOptions, type DngStageImageResult } from "./capture/dng-stage-image.js";
+// 2.24.0 (#607 go items): RAW measurements, the RAW-to-RAW what-if and the full color development of an imported DNG.
+export { calculateDngRawClipping, estimateDngRawNoise, type CalculateDngRawClippingOptions, type DngRawClipping, type DngRawClippingPlane,
+  type EstimateDngRawNoiseOptions, type DngRawNoise, type DngRawNoisePlane, type DngRawNoiseBin } from "./capture/dng-raw-measurements.js";
+export { assessDngRawWhatIf, simulateDngRawWhatIf, DngRawWhatIfRefusedError, DNG_WHAT_IF_MINIMUM_MEASURED_TO_PROFILE, type DngRawWhatIfRequest,
+  type DngRawWhatIfResult, type DngRawWhatIfRefusal, type DngRawWhatIfRefusalReason, type DngRawWhatIfAssessment } from "./capture/dng-raw-what-if.js";
+export { DNG_GAIN_SWITCH_CATALOG, resolveDngGainSwitch, type DngGainSwitchEntry } from "./capture/dng-gain-switch.js";
+export { developDngImage, type DevelopDngImageOptions, type DevelopDngImageWhiteBalance, type DevelopedDngImage } from "./capture/dng-development.js";
 export { parseDngProfileGainTableMap, parseDngRgbTables, applyDngProfileGainTableMap, applyDngRgbTables, type DngProfileGainTableMap, type DngRgbTable, type DngRgbTables,
   type DngRgbImage, type ApplyDngProfileGainTableMapInput, type ApplyDngRgbTablesInput } from "./capture/dng-profile-maps.js";
 export { C2PA_ALGORITHMIC_MEDIA_SOURCE_TYPE, C2PA_MANIFEST_STORE_MAXIMUM_BYTES, bindC2paManifestStore, setC2paManifestStore, calculateC2paDataHash,
   parseC2paManifestStore, type C2paFoundManifestStore, type ParseC2paManifestStoreInput, type C2paByteRange, type C2paHardBinding, type C2paBoundFile, type C2paDataHash, type BindC2paManifestStoreInput, type SetC2paManifestStoreInput,
   type CalculateC2paDataHashInput } from "./capture/c2pa-embed.js";
 export { NATIVE_RAW_DNG_SCHEMA_VERSION, serializeNativeRawDng, type SerializeNativeRawDngInput, type NativeRawDng, type NativeRawDngChannelNoise } from "./capture/native-raw-dng.js";
-export type { DngImportInput, DngImportAsyncInput, ImportedDngRaw, ImportedDngCfa, ImportedDngBlackLevel, ImportedDngRect, ImportedDngSemanticMask } from "./capture/dng-import.js";
+export type { DngImportInput, DngImportAsyncInput, ImportedDngRaw, ImportedDngCfa, ImportedDngBlackLevel, ImportedDngRect, ImportedDngSemanticMask,
+  ImportedDngNoiseProfilePlane, ImportedDngExif, ImportedDngSubjectArea } from "./capture/dng-import.js";
 export { parseLosslessJpeg, type LosslessJpegImage, type LosslessJpegLimits } from "./capture/lossless-jpeg.js";
 export { parseLossyJpeg, type LossyJpegImage, type LossyJpegLimits } from "./capture/lossy-jpeg.js";
 export { PNG_ENCODER_ID, PNG_ENCODER_LIMITS, serializePngImage } from "./output/png-encoder.js";

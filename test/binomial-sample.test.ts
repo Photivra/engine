@@ -2,6 +2,7 @@
 import { describe, expect, it } from "vitest";
 import { sampleBinomial } from "../src/sensor/binomial-sample.js";
 import { createDeterministicUniformStream } from "../src/sensor/stochastic-seed.js";
+import { scaledTimeout } from "./helpers/test-timeout.js";
 
 /** The binomial probability mass function over the mode ± 12 standard deviations (the rest is below 1e-30), normalized there. */
 function pmf(n: number, p: number): { from: number; values: Float64Array } {
@@ -46,7 +47,9 @@ describe("sampleBinomial (#534)", () => {
       const expectedVariance = n * p * (1 - p);
       expect(Math.abs(mean - n * p)).toBeLessThan(5 * Math.sqrt(expectedVariance / count) + 1e-12);
       if (expectedVariance > 0.1) expect(Math.abs(variance / expectedVariance - 1)).toBeLessThan(5 * Math.sqrt(2 / count) * 1.5);
-    });
+      // 2.24.0: an explicit deadline with margin (the 10,000,000-trial case took up to 7 s under coverage and timed out once at the
+      // 5 s default on a slow runner).
+    }, scaledTimeout(60_000));
   }
 
   it("returns the edges exactly, reproduces its draws and refuses bad input", () => {
@@ -58,5 +61,5 @@ describe("sampleBinomial (#534)", () => {
     for (let i = 0; i < 100; i++) expect(sampleBinomial(5000, 0.3, a)).toBe(sampleBinomial(5000, 0.3, b));
     for (const [n, p] of [[-1, 0.5], [2.5, 0.5], [10, -0.1], [10, 1.5], [10, Number.NaN], [Number.POSITIVE_INFINITY, 0.5]])
       expect(() => sampleBinomial(n!, p!, random)).toThrow("Binomial draws need");
-  });
+  }, scaledTimeout(60_000));
 });

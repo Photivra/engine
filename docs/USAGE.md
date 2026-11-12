@@ -7110,9 +7110,29 @@ See [Local POC Simulation API](https://github.com/Photivra/photivra/blob/main/do
 
 - `parseDngRawImage` reads a DNG or TIFF-EP CFA/LinearRaw file (uncompressed, lossless JPEG or, from 2.22.0, 8-bit lossy JPEG; 8–16 bits). It returns the stored raw codes plus the CFA, black/white levels, active area, default crop, colour matrices, as-shot neutral and orientation, and (2.22.0) the opcode lists, the profile gain table map, RGBTables, semantic masks and an `assumptions` list naming every rendering tag it does not apply. Nothing is applied to the codes. `importDngRawImage` (2.22.0) does the same asynchronously and also reads JPEG XL raw data through a decoder the application supplies (`createJxlOxideDngDecoder` over the jxl-oxide-wasm package, which the app installs and loads only when a JPEG XL DNG is opened; the engine does not depend on it); `size: "half"` gives a half-size LinearRaw preview and `maximumBytes` bounds the memory.
 - `developDngStageImage` (2.22.0) builds the DNG's linear stage image (linearization, black and white levels, OpcodeList1/2/3); `applyDngProfileGainTableMap` and `applyDngRgbTables` apply the phone rendering tags at their places in a development.
+- 2.24.0 (#607): the import also returns `noiseProfile` (NoiseProfile per color plane) and `exif` (ISO with its source tag, exposure time, f-number, focal length, CompositeImage and SubjectArea). `calculateDngRawClipping` counts clipped sites per color plane; `estimateDngRawNoise` measures the RAW noise (σ at a brightness; it may read high on fine texture); `simulateDngRawWhatIf` makes the RAW of the same scene with less light or a higher ISO within the photo's own conversion-gain mode, seeded, and refuses with reasons (`assessDngRawWhatIf` lists them first) any file or request it cannot show accurately; `developDngImage` develops an imported DNG to sRGB with a chosen white balance and push. A brighter version is only ever "brightened in editing" (the same noise).
 - `serializePngImage` writes an 8- or 16-bit RGB PNG with an sRGB, ICC or cICP (Display P3, BT.2020; sRGB, BT.709 or linear transfer) colour description, and optional mDCV/cLLI display metadata. PQ and HLG are not part of 2.0 (see the patent review in `THIRD_PARTY.md`).
 
 See [DNG import and PNG output](https://github.com/Photivra/photivra/blob/main/docs/IMPORT_AND_PNG.md) for supported subsets, limits and sources.
+
+```ts
+import { parseDngRawImage, assessDngRawWhatIf, simulateDngRawWhatIf, developDngImage, calculateDngRawClipping, estimateDngRawNoise } from '@photivra/engine';
+
+// A RAW what-if on an unprocessed mosaic DNG: two stops less light at four times the ISO (the same brightness, more noise).
+async function whatIf(bytes: Uint8Array): Promise<Uint8Array | Uint16Array | null> {
+  const raw = parseDngRawImage({ bytes });
+  console.log(calculateDngRawClipping(raw).planes.map((p) => p.color + ' ' + (100 * p.fractionAtWhiteLevel).toFixed(1) + ' %'));
+  if (raw.photometricInterpretation === 'cfa' && !raw.lossySource) console.log(estimateDngRawNoise(raw).label);
+  const request = { exposureStops: -2, iso: 4 * (raw.exif.iso ?? 100), highGainFromIso: 800, seed: 1 };
+  const check = assessDngRawWhatIf(raw, request);
+  if (!check.allowed) { console.log(check.refusals.map((r) => r.reason + ': ' + r.message)); return null; }
+  const result = simulateDngRawWhatIf(raw, request);
+  console.log(result.label);
+  const developed = await developDngImage(result.raw, { whiteBalance: { kelvin: 5500 }, exposurePushStops: result.developmentPushStops });
+  return developed.samples;
+}
+void whatIf;
+```
 
 ```ts
 import { serializePngImage, parseDngRawImage } from '@photivra/engine';

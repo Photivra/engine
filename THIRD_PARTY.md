@@ -61,6 +61,17 @@ These human reviews were **pending** until the owner signed all five off on 2026
 
 `src/equipment/sensor-profiles.ts` holds eight sensor profiles whose values are facts taken from manufacturer-published specifications (sensor dimensions, pixel counts, pixel pitch, full well, read noise, peak QE, ADC bit depth, frame rate) and one openly published paper (International Image Sensor Workshop 2017, paper R03, Table 1), or Photivra design values labelled as such. They are factual references (`reuseStatus: "factual-reference-only"`); no table, curve, image or text is copied, and no maker or product is named in the code, data or docs. Commercial or terms-restricted measurement databases and test websites were excluded and not used (owner decision, 2026-11-06). ISO 12232:2019 is named for a cross-check only; no value depends on it. Sources, with links, and derivations: `docs/SENSOR_PROFILES.md`. The owner signed off the source review on 2026-11-09 (table above).
 
+## Dual-gain switch points (2.24.0, #607)
+
+`DNG_GAIN_SWITCH_CATALOG` (`src/capture/dng-gain-switch.ts`) maps a camera's Make and Model tags to the ISO setting from which it uses its high conversion gain for photos. An entry needs a free-to-use source that clearly states that switch point (manufacturer documentation, or openly published measurements whose terms allow reuse of the facts); each entry's source, terms and access date are recorded in the entry and listed here. Only the fact (one ISO number) is used; no text, table or image is copied.
+
+**Entries: none in 2.24.0.** Sources reviewed on 2026-11-11 and not used:
+
+- Panasonic's online operating instructions (eww.pavc.panasonic.co.jp) for the DC-S5M2, DC-S5M2X, DC-S9 and DC-S1M2 give the ISO ranges of the [Dual Native ISO Setting]'s fixed settings (for example LOW 100–800, HIGH 640–51200, Extended ISO 50–800 and 320–204800) and say that [AUTO], and in these manuals also [HIGH], switch the base sensitivity "automatically ... according to the brightness". They do not state the ISO at which a photo switches, and the ranges overlap, so no switch point can be cited. No terms notice was found on the pages.
+- Openly published read-noise measurements whose reuse terms could not be found were not used.
+
+Each new entry adds a line here: model, switch ISO, source URL, its terms and the access date.
+
 ## Licence summaries (prepared for owner sign-off)
 
 Prepared on 2026-10-11 from local files only (repository files, `package-lock.json` and locally installed package metadata). These are factual summaries for the owner to sign off; they are **not** completed reviews, and each item above stayed pending until the owner signed it off (2.14.0 was released with them open; all five were signed off on 2026-11-09). "Not verified" means the fact could not be checked locally.

@@ -111,7 +111,7 @@ modelling choices (such as "no lens PSF") as `kind: "model"`.
 | `output.jpegQuantizationStep` | 2 | JPEG only: constant step 1–255, not a manufacturer quality scale. |
 | `sensor.pixelPitchMicrometers` | 6 | 0.5–1000 (2.5; 0.5–100 before). The sensor is `width × pitch` wide (see [Geometry](#geometry)); the ISO readout scales with the pixel area (see [ISO and pixel size](#iso-and-pixel-size)). Above 100 µm the capture is a downsized view of a whole frame (see [Whole-frame views](#whole-frame-views-25)). |
 | `sensor.spectralStepNanometers` | 20; 5 on exact requests under a spiky light (2.22.0, #590) | Spectral quadrature over 380–780 nm. A light is spiky when R(20) = 20²·κ/24 > 0.01, κ = Σ\|Δ²S\| / ΣS on a 1 nm grid (the midpoint rule's error term, DLMF §3.5(i)): the fluorescent and LED representative sources. Exact requests (DNG, JPEG, PNG, `fast: false`) then take 5 nm; fast ones keep 20 nm, add the assumption `sensor.spectralSpikiness` and report `diagnostics.fast.applied["sensor.spectralStepNanometers"]: true` (exact ones `false`). An explicit step wins and adds no key. |
-| `sensor.temporalSampleCount` | 1, or 8 when the camera rotates | Midpoints across each site's exposure window. |
+| `sensor.temporalSampleCount` | 1; with camera rotation or subject motion 8 on fast requests, 16 on exact ones (2.24.0) | Midpoints across each site's exposure window. |
 | `sensor.noiseSeed` | 1 | Output is deterministic for a given seed. |
 | `sensor.antiAliasing` | off | 2.1: an optical low-pass (anti-aliasing) filter: `{ kind: "four-spot", separationSites? }`, `{ kind: "two-spot", axis, separationSites? }` or `{ kind: "point-splitting", components }` (see [Anti-aliasing filter](#anti-aliasing-filter)). Each record also takes `fast`. |
 | `sensor.pixelAperture` | `"point"` | 2.3: `"box"` or `{ kind: "box", samplesPerAxis, fast }` integrates each square photosite (see [Pixel aperture](#pixel-aperture-23)). |
@@ -1604,7 +1604,9 @@ detail finer than a pixel then aliases at full contrast: a whole-frame render of
 features are below the effective pitch shows false patterns that a real sensor would average away.
 `sensor.pixelAperture: "box"` integrates the irradiance over the whole square photosite (fill factor 1,
 the environment's uniform geometric-aperture response) with an N × N midpoint rule, N =
-`samplesPerAxis` (1–16, default 4; `{ kind: "box", samplesPerAxis }`).
+`samplesPerAxis` (1–16; `{ kind: "box", samplesPerAxis }`). The default follows the speed/accuracy flag (2.24.0): 4 on fast
+requests (sRGB samples, the display view) and 8 on exact ones (DNG, JPEG, PNG, the ideal reference, `fast: false`, or the
+box record's own `fast: false`). An explicit `samplesPerAxis` always wins; pass `samplesPerAxis: 4` to keep 2.23.0's exact renders.
 
 - An ideal square aperture of width p has the pixel MTF |sinc(f·p)| = |sin(πfp)/(πfp)| (the detector
   footprint MTF; G. D. Boreman, *Modulation Transfer Function in Optical and Electro-Optical Systems*,
@@ -1717,7 +1719,8 @@ engine's pitch/yaw/roll convention ([SENSOR_ENVIRONMENT_QUERY.md](https://github
 
 - Every scene ray is rotated at each temporal midpoint of the site's exposure window. Motion blur is
   therefore a midpoint quadrature (an average over sample times).
-- `sensor.temporalSampleCount` defaults to 8 when the camera rotates.
+- `sensor.temporalSampleCount` defaults to 8 when the camera rotates on a fast request and to 16 on an exact one (2.24.0;
+  8 before). An explicit count always wins.
 - A yaw of ω rad/s moves the image by ω·f/pitch pixels per second (f = focal length).
 
 `motion.shutter: "rolling"` derives the exposure schedule from the body's rolling readout declaration,
@@ -1756,7 +1759,7 @@ rectangle of it (`region: { centerXM, centerYM, widthM, heightM }` in metres at 
   region's rest rectangle shows a neutral 18 % background (what the subject revealed), else the still scene. The background
   is lit by the plane's irradiance at that point: the illuminant, or with `illumination` (#550) the blend and point sources there.
 - Every scene query reads the subject at its own time. The blur is therefore the same temporal midpoint quadrature as
-  camera rotation (`sensor.temporalSampleCount`, default 8 with a moving subject), and an edge streaks over
+  camera rotation (`sensor.temporalSampleCount`, default with a moving subject 8 fast and 16 exact, 2.24.0), and an edge streaks over
   v·T·m on the sensor (m = v′/D, the thin-lens image distance over the subject distance). With few samples a long streak
   shows separate copies; raise the count. A test checks the length within sampling error.
 - A rolling shutter skews a moving subject: each row's exposure window opens later, so it sees the subject later. A test
@@ -1768,7 +1771,7 @@ rectangle of it (`region: { centerXM, centerYM, widthM, heightM }` in metres at 
 - Display view: sideways motion under a global shutter only. It refuses a rotating subject and a rolling shutter with a
   reason; `simulateCapture` renders both.
 - Fast method (2.20.0 convention): with the default count and a still camera, `fast` takes one midpoint per site of the
-  streak plus one when that is fewer than 8 (taps less than one site apart). Exact keeps 8, and an explicit
+  streak plus one when that is fewer than the default (taps less than one site apart). Exact keeps the default (16 since 2.24.0), and an explicit
   `sensor.temporalSampleCount` always wins. Fast is the default for sRGB samples and the display view, exact for DNG,
   JPEG and PNG.
 - Off by default: a request without `motion.subject` is byte-identical to 2.20.0.

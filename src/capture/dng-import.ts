@@ -32,8 +32,12 @@ import { readJpegXlTilePng, type DngJpegXlDecoder } from "./jpeg-xl-tiles.js";
 import { parseDngOpcodeList, type DngOpcode } from "./dng-opcodes.js";
 import { parseDngProfileGainTableMap, parseDngRgbTables, type DngProfileGainTableMap, type DngRgbTables } from "./dng-profile-maps.js";
 
-/** 1.1.0 (2.22.0): lossy JPEG and JPEG XL raw data, opcode lists, profile maps, semantic masks, `scale`, `assumptions`. */
-export const DNG_IMPORT_SCHEMA_VERSION = "1.1.0" as const;
+/**
+ * 1.1.0 (2.22.0): lossy JPEG and JPEG XL raw data, opcode lists, profile maps, semantic masks, `scale`, `assumptions`.
+ * 1.2.0 (2.24.0): `noiseProfile`, `exif` (ISO, exposure time, f-number, focal length, CompositeImage, SubjectArea), `analogBalance`,
+ * `cameraCalibration1/2` with their signatures, `asShotWhiteXy`.
+ */
+export const DNG_IMPORT_SCHEMA_VERSION = "1.2.0" as const;
 /**
  * Upper bound for `maximumPixels`: 200 MP (megapixels) of 16-bit codes is 400 MB. `maximumBytes` bounds the estimated peak memory
  * of the import (default 1 GiB, at most 4 GiB).
@@ -92,6 +96,50 @@ export interface ImportedDngBlackLevel {
   deltaH: number[] | null;
   /** Per active-area row offset, or null when absent (all zeros). */
   deltaV: number[] | null;
+}
+/**
+ * 2.24.0: one NoiseProfile (51041) pair per color plane (CFAPlaneColor order for a mosaic, sample order for LinearRaw). The DNG
+ * specification 1.7.1.0 models the noise of the linear, black-subtracted signal x = (value − black)/(white − black), x in 0..1, as
+ * white and spatially independent with variance S·x + O; it leaves out fixed-pattern noise. A two-value tag applies to every plane.
+ */
+export interface ImportedDngNoiseProfilePlane { scale: number; offset: number }
+/** Exif SubjectArea (0x9214, Exif 2.32 §4.6.6): a point, a circle (centre and diameter) or a rectangle (centre, width and height), in stored-image pixels. */
+export type ImportedDngSubjectArea =
+  | { kind: "point"; x: number; y: number }
+  | { kind: "circle"; x: number; y: number; diameter: number }
+  | { kind: "rectangle"; x: number; y: number; width: number; height: number };
+/**
+ * 2.24.0: the capture settings the file states, from the Exif IFD (34665; Exif 2.32, CIPA DC-008-2019), else the same tags in IFD 0
+ * or the raw IFD (TIFF/EP). Every field is null when the tag is absent or malformed (a malformed one is named in `assumptions`).
+ */
+export interface ImportedDngExif {
+  /** ExposureTime (0x829A), seconds. */
+  exposureTimeSeconds: number | null;
+  /** FNumber (0x829D). */
+  fNumber: number | null;
+  /** FocalLength (0x920A), mm (the lens's actual focal length, not the 35 mm equivalent). */
+  focalLengthMillimeters: number | null;
+  /** PhotographicSensitivity (0x8827, formerly ISOSpeedRatings): the first value; 65535 means "65535 or more" (Exif 2.32). */
+  photographicSensitivity: number | null;
+  /** SensitivityType (0x8830): which sensitivity PhotographicSensitivity holds (0 unknown, 1 SOS, 2 REI, 3 ISO speed, 4–7 combinations). */
+  sensitivityType: number | null;
+  /** StandardOutputSensitivity (0x8831). */
+  standardOutputSensitivity: number | null;
+  /** RecommendedExposureIndex (0x8832). */
+  recommendedExposureIndex: number | null;
+  /** ISOSpeed (0x8833). */
+  isoSpeed: number | null;
+  /**
+   * The ISO setting: RecommendedExposureIndex, else ISOSpeed, else StandardOutputSensitivity, else PhotographicSensitivity below
+   * 65535 (CIPA DC-004 names the REI as the camera's exposure-index setting); null when none is stated.
+   */
+  iso: number | null;
+  isoSource: "recommended-exposure-index" | "iso-speed" | "standard-output-sensitivity" | "photographic-sensitivity" | null;
+  /** CompositeImage (0xA460): 0 unknown, 1 not a composite, 2 a general composite, 3 a composite captured while shooting. */
+  compositeImage: 0 | 1 | 2 | 3 | null;
+  /** SourceImageNumberOfCompositeImage (0xA461): the source images in all and those used. */
+  compositeSourceImages: { total: number; used: number } | null;
+  subjectArea: ImportedDngSubjectArea | null;
 }
 /** Half-open raster rectangle in stored-image pixel coordinates (+X right, +Y down). */
 export interface ImportedDngRect { x: number; y: number; width: number; height: number }
@@ -155,6 +203,20 @@ export interface ImportedDngRaw {
   rgbTables: DngRgbTables | null;
   /** Decoded semantic masks, for `applyDngRgbTables`. */
   semanticMasks: ImportedDngSemanticMask[];
+  /** 2.24.0: NoiseProfile per color plane, or null when absent or malformed. */
+  noiseProfile: ImportedDngNoiseProfilePlane[] | null;
+  /** 2.24.0: the capture settings the file states. */
+  exif: ImportedDngExif;
+  /** 2.24.0: AnalogBalance (50727), one per color plane, or null. */
+  analogBalance: number[] | null;
+  /** 2.24.0: CameraCalibration1/2 (50723/50724), row-major colorPlanes × colorPlanes, or null. */
+  cameraCalibration1: number[] | null;
+  cameraCalibration2: number[] | null;
+  /** 2.24.0: CameraCalibrationSignature (50931) and ProfileCalibrationSignature (50932), or null. */
+  cameraCalibrationSignature: string | null;
+  profileCalibrationSignature: string | null;
+  /** 2.24.0: AsShotWhiteXY (50729), or null. */
+  asShotWhiteXy: { x: number; y: number } | null;
   /** What the import did not do: tags present but not returned or applied, masks not decoded, lossy sources, inferred layouts. */
   assumptions: string[];
 }
@@ -437,6 +499,71 @@ function prepare(input: DngImportInput, keys: readonly string[]): Prepared {
   if (profileGainTableMap) assumptions.push("dngImport.profileGainTableMap: returned (version " + profileGainTableMap.version + "); applyDngProfileGainTableMap applies it in a development.");
   if (rgbTables) assumptions.push("dngImport.rgbTables: returned (" + rgbTables.tables.length + " tables); applyDngRgbTables applies them in a development.");
 
+  // 2.24.0: NoiseProfile (raw IFD, else IFD 0) and the Exif capture settings; a malformed tag is reported, never a failure.
+  const noiseProfile = optional("NoiseProfile", () => {
+    const v = integers(raw.get(51041) ?? ifd0.get(51041), 2 * colorPlanes, [12]);
+    if (!v) return null;
+    if (v.length !== 2 && v.length !== 2 * colorPlanes) fail("NoiseProfile must have 2 or 2 × ColorPlanes values.");
+    const planes = Array.from({ length: colorPlanes }, (_, p) => ({ scale: v.length === 2 ? v[0]! : v[2 * p]!, offset: v.length === 2 ? v[1]! : v[2 * p + 1]! }));
+    if (planes.some((q) => !(q.scale > 0) || !(q.offset >= 0))) fail("NoiseProfile needs S > 0 and O >= 0.");
+    return planes;
+  });
+  const exifIfd = ifd0.has(34665) ? optional("Exif IFD", () => {
+    const at = integers(ifd0.get(34665), 1, [4, 13]);
+    return at ? readIfd(at[0]!).ifd : null;
+  }) : null;
+  const exifEntry = (id: number): Entry | undefined => exifIfd?.get(id) ?? ifd0.get(id) ?? raw.get(id);
+  const exifNumber = (id: number, name: string, types: readonly number[], count = 1): number[] | null => optional(name, () => {
+    const v = integers(exifEntry(id), Math.max(count, 64), types);
+    if (!v || v.length === 0) return null;
+    if (v.some((x) => !(x >= 0))) fail(name + " must not be negative.");
+    return v;
+  });
+  const positive = (id: number, name: string, types: readonly number[]): number | null => {
+    const v = exifNumber(id, name, types)?.[0];
+    if (v === undefined) return null;
+    if (!(v > 0)) { assumptions.push("dngImport.ignored: " + name + " is " + v + " (not positive) and was ignored."); return null; }
+    return v;
+  };
+  const photographicSensitivity = positive(34855, "PhotographicSensitivity", [3, 4]), recommendedExposureIndex = positive(34866, "RecommendedExposureIndex", [4]);
+  const isoSpeed = positive(34867, "ISOSpeed", [4]), standardOutputSensitivity = positive(34865, "StandardOutputSensitivity", [4]);
+  const isoChoice: [number | null, ImportedDngExif["isoSource"]][] = [[recommendedExposureIndex, "recommended-exposure-index"], [isoSpeed, "iso-speed"],
+    [standardOutputSensitivity, "standard-output-sensitivity"], [photographicSensitivity !== null && photographicSensitivity < 65535 ? photographicSensitivity : null, "photographic-sensitivity"]];
+  const isoPick = isoChoice.find(([v]) => v !== null);
+  if (!isoPick && photographicSensitivity === 65535) assumptions.push("dngImport.exif: PhotographicSensitivity is 65535 (65535 or more) and no other sensitivity tag is present; iso is null.");
+  const composite = exifNumber(42080, "CompositeImage", [3])?.[0] ?? null, sources = exifNumber(42081, "SourceImageNumberOfCompositeImage", [3], 2);
+  const subject = exifNumber(37396, "SubjectArea", [3], 4);
+  const subjectArea: ImportedDngSubjectArea | null = !subject ? null : subject.length === 2 ? { kind: "point", x: subject[0]!, y: subject[1]! }
+    : subject.length === 3 ? { kind: "circle", x: subject[0]!, y: subject[1]!, diameter: subject[2]! }
+      : subject.length === 4 ? { kind: "rectangle", x: subject[0]!, y: subject[1]!, width: subject[2]!, height: subject[3]! } : null;
+  if (subject && !subjectArea) assumptions.push("dngImport.ignored: SubjectArea has " + subject.length + " values (2, 3 or 4 expected) and was ignored.");
+  if (composite !== null && composite > 3) assumptions.push("dngImport.ignored: CompositeImage " + composite + " is not defined by Exif 2.32 and was ignored.");
+  const exif: ImportedDngExif = {
+    exposureTimeSeconds: positive(33434, "ExposureTime", [5]), fNumber: positive(33437, "FNumber", [5]), focalLengthMillimeters: positive(37386, "FocalLength", [5]),
+    photographicSensitivity, sensitivityType: exifNumber(34864, "SensitivityType", [3])?.[0] ?? null, standardOutputSensitivity, recommendedExposureIndex, isoSpeed,
+    iso: isoPick ? isoPick[0] : null, isoSource: isoPick ? isoPick[1] : null,
+    compositeImage: composite !== null && composite <= 3 ? composite as 0 | 1 | 2 | 3 : null,
+    compositeSourceImages: sources && sources.length === 2 ? { total: sources[0]!, used: sources[1]! } : null, subjectArea
+  };
+  const analogBalance = optional("AnalogBalance", () => {
+    const v = integers(pick(50727), colorPlanes, [5]);
+    if (v && (v.length !== colorPlanes || v.some((x) => !(x > 0)))) fail("AnalogBalance needs one positive value per color plane.");
+    return v;
+  });
+  const calibration = (id: number, name: string): number[] | null => optional(name, () => {
+    const v = integers(pick(id), colorPlanes * colorPlanes, [10]);
+    if (v && v.length !== colorPlanes * colorPlanes) fail(name + " needs ColorPlanes × ColorPlanes values.");
+    return v;
+  });
+  const whiteXy = optional("AsShotWhiteXY", () => {
+    const v = integers(pick(50729), 2, [5]);
+    if (v && (v.length !== 2 || !(v[0]! > 0) || !(v[1]! > 0) || v[0]! + v[1]! >= 1)) fail("AsShotWhiteXY must be a chromaticity.");
+    return v ? { x: v[0]!, y: v[1]! } : null;
+  });
+  const calibrationExtras = { analogBalance, cameraCalibration1: calibration(50723, "CameraCalibration1"), cameraCalibration2: calibration(50724, "CameraCalibration2"),
+    cameraCalibrationSignature: optional("CameraCalibrationSignature", () => ascii(pick(50931))), profileCalibrationSignature: optional("ProfileCalibrationSignature", () => ascii(pick(50932))),
+    asShotWhiteXy: whiteXy };
+
   // Semantic masks (DNG 1.6): planned here, decoded with the image.
   const masks = ifds.filter((ifd) => one(ifd, 254, 0) === 0x10004 && one(ifd, 262, 0) === 52527).map((ifd) => {
     if (ifd.has(52536)) assumptions.push("dngImport.semanticMask: MaskSubArea is present; the mask is returned as stored and spans the whole image in applyDngRgbTables.");
@@ -453,6 +580,7 @@ function prepare(input: DngImportInput, keys: readonly string[]): Prepared {
     blackLevel = { repeatRows: 1, repeatColumns: 1, values: mean, deltaH: pairMean(deltaH), deltaV: pairMean(deltaV) };
     if (repeat[0]! * repeat[1]! > 1) assumptions.push("dngImport.halfSize: the BlackLevel repeat pattern was averaged to one value per sample.");
     assumptions.push("dngImport.halfSize: a half-size preview; each code is the rounded mean of a 2 x 2 block of stored codes.");
+    if (noiseProfile) assumptions.push("dngImport.halfSize: noiseProfile describes the stored codes, not the half-size means (whose noise variance is about a quarter, before rounding).");
   }
 
   const finish = (semanticMasks: ImportedDngSemanticMask[]): ImportedDngRaw => {
@@ -474,7 +602,7 @@ function prepare(input: DngImportInput, keys: readonly string[]): Prepared {
       calibrationIlluminant1: illuminant(50778), calibrationIlluminant2: illuminant(50779), asShotNeutral: neutral,
       rawDataUniqueId: uniqueId ? uniqueId.map((b) => b.toString(16).padStart(2, "0")).join("") : null,
       forwardMatrix1: matrix(50964, true), forwardMatrix2: matrix(50965, true), baselineExposure,
-      opcodeList1, opcodeList2, opcodeList3, profileGainTableMap, rgbTables, semanticMasks, assumptions
+      opcodeList1, opcodeList2, opcodeList3, profileGainTableMap, rgbTables, semanticMasks, noiseProfile, exif, ...calibrationExtras, assumptions
     };
   };
   return { image, write, finish, masks, plan, assumptions, little };

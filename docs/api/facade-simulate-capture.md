@@ -135,7 +135,8 @@ This call is asynchronous; byte hashing uses the caller runtime's Web Crypto.
 
 ## SIMULATE_CAPTURE_BOX_APERTURE_DEFAULT_SAMPLES
 
-Default midpoint samples per axis of `sensor.pixelAperture: "box"`.
+Default midpoint samples per axis of `sensor.pixelAperture: "box"` on a fast request. 2.24.0: an exact request (the exports, the
+ideal reference, `fast: false`, or the box's own `fast: false`) defaults to 8. An explicit `samplesPerAxis` always wins.
 
 ```ts
 SIMULATE_CAPTURE_BOX_APERTURE_DEFAULT_SAMPLES = 4
@@ -180,7 +181,7 @@ whether or not it has a fast method yet; one without runs exact and reports `fal
 
 ```ts
 SIMULATE_CAPTURE_FAST_OPTIONS = Object.freeze(["lens.diffraction", "lens.catalogue", "sensor.antiAliasing", "sensor.pixelAperture.box", "output.demosaic.ahd", "motion.subject",
-  "sensor.spectralStepNanometers"] as const)
+  "sensor.spectralStepNanometers", "sensor.temporalSampleCount"] as const)
 ```
 
 ## SIMULATE_CAPTURE_METERING_MODES
@@ -833,7 +834,7 @@ export interface SimulateCaptureOptions {
     pixelPitchMicrometers?: number;
     /** Maximum spectral quadrature subinterval in nm. Default 20. */
     spectralStepNanometers?: number;
-    /** Temporal midpoint samples across the exposure. Default 1. */
+    /** Temporal midpoint samples across the exposure, 1–256. Default 1; with camera rotation or subject motion (2.24.0) 8 on a fast request and 16 on an exact one. */
     temporalSampleCount?: number;
     /** Noise seed (uint32). Default 1. */
     noiseSeed?: number;
@@ -845,7 +846,7 @@ export interface SimulateCaptureOptions {
     /**
      * Opt-in (2.3) pixel aperture. `"point"` (default): each site samples the irradiance at its centre.
      * `"box"`: each site integrates the irradiance over its whole square photosite (fill factor 1) with an
-     * N × N midpoint rule, N = `samplesPerAxis` (1–16, default 4), so detail finer than a pixel averages out as
+     * N × N midpoint rule, N = `samplesPerAxis` (1–16; default 4 on a fast request, 8 on an exact one, 2.24.0), so detail finer than a pixel averages out as
      * on a real sensor (pixel MTF |sinc(f·p)|) instead of aliasing. Multiplies the scene queries by N².
      */
     pixelAperture?: SimulateCapturePixelAperture;

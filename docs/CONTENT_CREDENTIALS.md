@@ -41,8 +41,12 @@ bytes inside the exclusions, so the hash from step 4 is the hash of the final fi
 
 ## Byte layouts
 
-The engine writes what the C2PA reference SDK (c2pa-rs) writes for each format (owner decision on #165, 2026-11-11), so the
-same store gives the same file bytes.
+For JPEG and PNG the engine writes what the C2PA reference SDK (c2pa-rs) writes (owner decision on #165, 2026-11-11), so the
+same store gives the same file bytes. For DNG and TIFF the layouts differ: c2pa-rs keeps the original bytes and appends a
+rewritten IFD 0 and the store at the end of the file, while the engine inserts the entry in the main IFD (moving later data by
+12 bytes) and appends the store. Both layouts validate, but the exclusions differ, so a store signed by c2pa-rs for a DNG cannot
+be reused in the engine's DNG (the validator reports that the data hash exclusion does not match the manifest location). Sign
+the store after binding it with the engine, using the engine's exclusions and data hash, as in the multiple-step workflow above.
 
 ### JPEG (§A.3.1, §18.5.3)
 
@@ -126,9 +130,9 @@ segment split. A validator uses the manifest's own `c2pa.hash.data` assertion in
 
 Locally (macOS ImageIO through `sips`, 2026-11-11, not in CI) the bound JPEG and PNG decode to the same pixels as the originals.
 
-**Pending external validation:** no C2PA validator (the reference SDK or its command-line tool) was run on these files,
-because none is available offline here and the engine cannot sign. Validating signed JPEG, PNG and DNG files with the reference
-tooling belongs to the application's signing work; the DNG should also be opened in a DNG reader with the store present.
+**External validation:** validated with c2patool 0.28.6 on engine-written JPEG, PNG and DNG files: the data hash matches and
+the claim signature validates, with only the warning that the test signing certificate is not trusted. Changing one bit of a
+signed file gives `assertion.dataHash.mismatch`.
 
 ## Example
 

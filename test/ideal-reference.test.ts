@@ -30,7 +30,8 @@ describe("simulateIdealReference (2.3)", () => {
     expect(new Set(Array.from({ length: 32 * 24 }, (_, i) => a.image.samples[3 * i + 1])).size).toBe(2);
     const box = await simulateIdealReference({ ...options, sensor: { pixelAperture: "box" } });
     expect(new Set(Array.from({ length: 32 * 24 }, (_, i) => box.image.samples[3 * i + 1])).size).toBeGreaterThan(4);
-    expect(box.assumptions.find((x) => x.id === "reference.sampling")!.value).toEqual({ kind: "box", samplesPerAxis: 4 });
+    // 2.24.0: the ideal reference is an exact request, so the box takes 8 samples per axis by default.
+    expect(box.assumptions.find((x) => x.id === "reference.sampling")!.value).toEqual({ kind: "box", samplesPerAxis: 8 });
   }, 60_000);
 
   it("uses the capture's framing, chart size and region, and caller functions", async () => {

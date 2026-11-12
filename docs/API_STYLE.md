@@ -134,7 +134,7 @@ Use the existing verb family that matches what the operation does. Do not invent
 - `simulate*` — deliberately composed simulation or orchestration API.
 - `import*` (2.22.0, #598) — read a file format whose data may need a caller-supplied decoder, asynchronously, into the same normalized record a `parse*` function returns (`importDngRawImage`: `parseDngRawImage` plus JPEG XL tiles through an application's decoder). It differs from `parse*` only in taking asynchronous decoders.
 - `apply*` (2.22.0, #598, #600) — apply processing that a file format defines and the file carries (opcode lists, gain table maps, RGB tables) to image data, as the format's specification orders it (`applyDngOpcodes`, `applyDngProfileGainTableMap`, `applyDngRgbTables`). It differs from `transform*`, whose source and destination domains are the engine's own.
-- `develop*` (2.22.0, #598) — run a documented, bounded stage of a RAW development from an imported file (`developDngStageImage`: the DNG stage image after OpcodeList1–3, linearization and the black and white levels).
+- `develop*` (2.22.0, #598) — run a documented, bounded stage of a RAW development from an imported file (`developDngStageImage`: the DNG stage image after OpcodeList1–3, linearization and the black and white levels), or (2.24.0, #607) the whole documented development of one (`developDngImage`: stage image, demosaic, DNG color mapping, tone curve and sRGB encoding).
 
 The existing result factories `calculatedResult`, `estimatedResult`, `approximationResult` and `calibratedResult` are documented core helpers, not new verb families.
 
@@ -227,7 +227,8 @@ have a fast method, a measured and bounded approximation of it. One flag style s
 - **Every listed option takes the flag**, whether or not it has a fast method. Without one it runs exact and reports `false`,
   so callers never need to know which options have a fast method.
 - **One list:** `SIMULATE_CAPTURE_FAST_OPTIONS`, in the path style of `SIMULATE_CAPTURE_COST_OPTIONS`:
-  `lens.diffraction`, `lens.catalogue`, `sensor.antiAliasing`, `sensor.pixelAperture.box` and `output.demosaic.ahd`.
+  `lens.diffraction`, `lens.catalogue`, `sensor.antiAliasing`, `sensor.pixelAperture.box`, `output.demosaic.ahd`, `motion.subject`,
+  `sensor.spectralStepNanometers` and (2.24.0) `sensor.temporalSampleCount`; the last two have no record and follow the top-level flag.
 - **The first fast method** (#568, 2.18.0): `lens.catalogue` (shorthand: the lens id; record `{ kind: <lens id>, fast }`) blends
   the lens's PSF over a field grid and tabulates each site's expected signal (docs/LENS_CATALOGUE.md, "Fast method"). It runs for
   a still camera with site-center queries and a chart or material scene; otherwise the exact method runs and `applied` says
@@ -248,14 +249,22 @@ have a fast method, a measured and bounded approximation of it. One flag style s
   midpoint per site of the subject's streak plus one when that is fewer than 8; exact keeps the 8; an explicit
   `sensor.temporalSampleCount` always wins); `developDngStageImage`'s WarpRectilinear resampling of an imported DNG (#600:
   bilinear fast, cubic convolution with a = −0.75 exact; the default follows its `format`: fast when omitted, full quality for "dng", "jpeg" and "png");
+  in 2.24.0, `developDngImage`'s demosaic (#607, `developDngImage/demosaic`: the built-in bilinear kernels fast, AHD exact, with the
+  stage image's WarpRectilinear following the same flag; fast by default for its "srgb-8" and "srgb-16" outputs); `calculateDngRawClipping`, `estimateDngRawNoise`
+  and `simulateDngRawWhatIf` are full quality only, with no `fast` (owner decision 2026-11-11): the clipping count is exact, the
+  noise fit already runs in linear time (quickselect medians; 1.8 s on 24 MP) and a subsample would only add error to a number
+  shown to the user, and the what-if's per-site seeded draws are what make it deterministic, so no faster method keeps its result;
   a print under mixed lighting on the GPU (#597, `illumination/image-plane-gpu`: `gpu` `"auto"`
   lights each lattice point on WebGPU, `"off"` the CPU reference); the default spectral step (#590, `sensor.spectralStepNanometers`: 5 nm on
   exact requests under a spiky light, 20 nm on fast ones); the catalogue field grid's cells (#603, `lens.catalogue/field-grid-cells`: at
   least 4 on fast requests, 10 on exact ones); the display view's coupled rendering steps (#593, #601: a luminance tone curve's
   moments by an 8-point Gauss–Hermite rule in luminance fast, a composite 4 × 16-point Gauss–Legendre rule exact; the reconstruct
   blend and the desaturation by 6 Gauss–Hermite points per axis fast, 16 exact; the same rules in the GPU kernels; docs/DISPLAY_VIEW.md,
-  "Coupled rendering"), and `highlightMode: "reconstruct-neighbors"` (#602: the ring's mean ratios fast, their harmonic fill exact). The
-  records of `lens.diffraction`, `sensor.antiAliasing`, `sensor.pixelAperture` and `output.demosaic` (in captures) take `fast`
+  "Coupled rendering"), and `highlightMode: "reconstruct-neighbors"` (#602: the ring's mean ratios fast, their harmonic fill exact). In
+  2.24.0 (owner decision 2026-11-12): the box pixel aperture's default samples per axis (`sensor.pixelAperture.box`: 4 fast, 8 exact;
+  the box record's `fast` overrides the request's) and the default temporal midpoints under camera rotation or subject motion
+  (`sensor.temporalSampleCount`: 8 fast, 16 exact); an explicit `samplesPerAxis` or `temporalSampleCount` always wins and makes no
+  choice. The records of `lens.diffraction`, `sensor.antiAliasing` and `output.demosaic` (in captures) take `fast`
   with no fast method yet. `test/fast-methods-registry.test.ts` fails when a record accepts `fast` without an entry, an entry
   lacks its resolver or report, or a format default leaves the rule. **Every new fast method adds its entry.**
 - **The same words on WebGPU.** The image-kernel execution record carries `fast` (`false` for `cpu-reference`, `true` for
@@ -265,7 +274,8 @@ have a fast method, a measured and bounded approximation of it. One flag style s
   implementation. A faster method that is more accurate than the reference replaces it too, and the reference moves. Only a
   less accurate method becomes the fast method behind the flag.
 - **Parameters are not the flag.** Sample counts and windows (`samplesPerAxis`, `kernelRadiusSamples`, `separationSites`) are
-  model parameters and keep their names.
+  model parameters and keep their names. Where a parameter's default follows the flag (the spectral step, the box aperture's samples,
+  the temporal midpoints), an explicit value always wins.
 - **Names:** `lens.diffraction` names its model by `kind` like the other records; `aperture`, its name before #395, stays a
   deprecated alias until 3.0.0, and giving both is an error.
 
