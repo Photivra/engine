@@ -45,12 +45,21 @@ const qualityCases: [string, SimulateCaptureOptions][] = [
       toneCurveParameters: { exponent: 1, semiSaturation: 0.8465, whiteLuminance: 32 } } }]
 ];
 
+/**
+ * 2.22.0: the full-rules case renders a band of 27 whole rows of the view (every step of the wedge, whose material varies only
+ * across the frame) instead of the whole view. Its CPU reference (16 Gauss–Hermite points per axis, and 40 % of the pixels
+ * recomputed on the host) took 433 s on an Apple M5 Pro and more than the suite's 600-second test limit on CI's SwiftShader
+ * runner; the band keeps every check and every tone level of the case.
+ */
+const FULL_RULES_VIEW = { ...SMALL_VIEW, region: { x: 0, y: 54, width: SMALL_VIEW.width, height: 27 } };
+
 describe("webgpu-f32 display view (Quality) vs the float64 reference", () => {
   it.each(qualityCases)("%s: every component inside the a-priori bounds; samples within one code", async (name, options) => {
     if (guard()) return;
     // The CPU reference's stages are timed in the page too (the same realm and host), for the AHD placement (docs/WEBGPU.md).
-    const result = await call<QualityPageResult>("displayViewQuality", { options, view: SMALL_VIEW, timeCpu: true });
-    const node = await simulateDisplayViewWithInternals(options, SMALL_VIEW);
+    const view = name.endsWith("(full rules)") ? FULL_RULES_VIEW : SMALL_VIEW;
+    const result = await call<QualityPageResult>("displayViewQuality", { options, view, timeCpu: true });
+    const node = await simulateDisplayViewWithInternals(options, view);
     let browserVersusNode = 0;
     for (let i = 0; i < node.internals.samples.length; i++) if (result.cpu.samples[i] !== node.internals.samples[i]) browserVersusNode++;
     const a = compareDisplayViews(result.cpu, result.gpu);
