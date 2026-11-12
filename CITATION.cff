@@ -9,7 +9,7 @@ abstract: "An open TypeScript engine for the science and mathematics of photogra
 repository-code: "https://github.com/photivra/photivra"
 url: "https://photivra.com"
 license: "Apache-2.0"
-version: "2.22.0"
+version: "2.23.0"
 keywords:
   - photography
   - camera optics
