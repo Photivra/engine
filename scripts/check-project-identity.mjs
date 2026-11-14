@@ -6,6 +6,7 @@ import { stdout } from "node:process";
 
 const ROOT_FILES = [
   "AGENTS.md",
+  "CHANGELOG.md",
   "CITATION.cff",
   "README.md",
   "SECURITY.md",
@@ -24,6 +25,14 @@ const LEGACY_TOKENS = [
   "EXPOSURE" + "_FORGE"
 ];
 
+// Private test deployments must never be named in this public repository: any host name
+// that contains "staging" (for example a staging subdomain) fails the check. The word on its
+// own is fine (WebGPU "staging buffers" use it).
+const PRIVATE_HOST = new RegExp(
+  "\\b[a-z0-9-]*" + "staging" + "[a-z0-9-]*(?:\\.[a-z0-9-]+)*\\.(?:com|dev|app|net|org|io|pages\\.dev|workers\\.dev)\\b",
+  "i"
+);
+
 const violations = [];
 
 async function checkFile(file) {
@@ -32,6 +41,10 @@ async function checkFile(file) {
     if (content.includes(token)) {
       violations.push(`${file}: contains legacy project identifier ${JSON.stringify(token)}`);
     }
+  }
+  const host = content.match(PRIVATE_HOST);
+  if (host) {
+    violations.push(`${file}: names a private test deployment host ${JSON.stringify(host[0])}`);
   }
 }
 
@@ -62,4 +75,4 @@ if (violations.length > 0) {
   );
 }
 
-stdout.write("Photivra identity check passed; no legacy project identifiers found.\n");
+stdout.write("Photivra identity check passed; no legacy project identifiers or private hosts found.\n");

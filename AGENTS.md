@@ -21,6 +21,11 @@ optics, exposure, sensor, RAW and image-formation science. It runs in browsers a
    before any action that reaches production: a release, a release tag (a tag publishes to npm),
    package publication, or production data, infrastructure or DNS. Ask for each such action
    separately; an earlier approval does not carry over. Everything else needs no approval.
+4. **No private deployments in this public repository.** Never name, link or describe the
+   private pre-release or test deployments of any Photivra app (their host names, URLs or
+   measurements "on" them) in files, commits, issues, pull requests or release notes. Say
+   "a pre-release build of the app" when a measurement needs that context.
+   `npm run check:identity` fails on any host name containing "staging".
 
 ## Setup and commands
 
