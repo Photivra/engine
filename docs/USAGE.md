@@ -1090,6 +1090,28 @@ const { value } = calculateFilteredExposureTime({
 console.log(value.filteredShutterSeconds.toFixed(2), value.dial?.shutterSeconds); // 8.19 8
 ```
 
+### A filter in front of the capture's lens
+
+`simulateCapture`, `simulateIdealReference`, `simulateDisplayView` and `prepareDisplayView` take `lens.filter` (#624, 2.25.0): one front-of-lens filter profile, such as `GENERIC_ND_FILTER_PROFILES[10]`, or an array in light-path order (scene side first). Every filter must cover 380–780 nm.
+
+- **Rendering.** The stack's transmission T(λ) multiplies the lens transmission at every wavelength, so each site integrates its light through the filter on every path: sRGB, DNG, JPEG and PNG exports, the ideal reference and the display view. A spectrally flat stack (ND, optical density, polarizers with the facade's unpolarized scenes) is one factor, resolved at 550 nm as `calculateFilteredExposureTime` resolves it. A `spectral-transmission` filter must state vacuum wavelengths (the capture's basis); the stack is sampled at its filters' sample wavelengths and interpolated linearly between them (exact for one spectral filter, an approximation for two or more).
+- **Exposure.** The meter reads through the filter, as a through-the-lens meter does: each zone reads the photopic luminance of L(λ)·T(λ), which is exactly T times the scene luminance for a flat stack. The automatic modes and Auto ISO therefore compensate, and for a flat stack the resolved shutter is `calculateFilteredExposureTime`'s t / T at the same f-number and ISO, before the resolvers' steps and limits. Grey-card metering reads the card through the filter too (the illuminant-weighted photopic transmission for a spectral stack). Manual mode only darkens the capture.
+- **Report.** `exposure.filter` gives the filter ids, the stack's transmittance at 550 nm, its attenuation in stops and whether it is spectrally flat; the `lens.filter` assumption records the same with the filters' limitations. With a filter, `standardExposureDeviationStops`, `standardExposureIlluminanceLux` and `greyCardDeviationStops` are those of the light through it; `meteredSceneLuminanceCdPerSquareMeter` stays the scene's.
+- Not modelled: reflections between stacked filters, flare, light leaking around the filter, and a polarizer's effect on polarized scene light (the facade's scenes are unpolarized).
+
+```ts
+import { GENERIC_ND_FILTER_PROFILES, simulateCapture } from "@photivra/engine";
+
+// Aperture priority at f/8 and ISO 100 with a 6-stop ND filter: the meter reads through it.
+const filtered = await simulateCapture({
+  scene: { preset: "uniform" }, output: { width: 32, height: 24 },
+  lens: { fNumber: 8, filter: GENERIC_ND_FILTER_PROFILES[6] },
+  exposure: { mode: "aperture-priority", iso: 100, metering: "grey-card" }
+});
+// Without the filter this request resolves 1/125 s (the generic tiers' shutter is continuous); with it, 64/125 s.
+console.log(filtered.exposure.settings.shutterSeconds.toFixed(3), filtered.exposure.filter?.attenuationStops); // 0.512 6
+```
+
 ### Spectral boundary
 
 Spectral filter data stays wavelength-resolved all the way through the [scene-radiance-to-sensor bridge](#scene-radiance-to-sensor-irradiance). Photivra does not turn a spectral filter into an undocumented RGB tint.
@@ -3297,8 +3319,8 @@ Development ("developing" a RAW into a viewable image):
 See [photographic export](https://github.com/Photivra/engine/blob/main/docs/PHOTOGRAPHIC_EXPORT.md) for the equations.
 
 ```ts
-import { calculateEffectiveSaturationCode, createNativeRawDevelopmentTask, type NativeRawDevelopmentInput,
-  type SdrRenderingProfile } from "@photivra/engine";
+import { calculateEffectiveSaturationCode, createNativeRawDevelopmentTask, pinLookMidGray, STANDARD_LOOK,
+  type NativeRawDevelopmentInput, type SdrRenderingProfile } from "@photivra/engine";
 
 // A 20,000 e⁻ well at 1 e⁻/DN over a 512 pedestal saturates at code 20512, not at 65535.
 const white = calculateEffectiveSaturationCode({ physicalChargeCapacityElectrons: 20000,
@@ -3312,6 +3334,11 @@ const filmic: SdrRenderingProfile = { schemaVersion: "0.1.0", profileId: "filmic
   toneCurveParameters: { exponent: 1.2, semiSaturation: 0.5, whiteLuminance: 4 },
   gamutHandling: "clip-components", outputDynamicRange: "sdr", transferFunction: "srgb",
   bitDepth: 8, rounding: "nearest-ties-up", dither: "none" };
+
+// Photivra's Standard look, with its mid-gray pinned where this application's exposure develops an 18 % chart (13 %).
+const standard: SdrRenderingProfile = { ...filmic, profileId: "standard",
+  ...pinLookMidGray(STANDARD_LOOK, { linearMidGray: 0.13 }) };
+void standard;
 
 async function develop(input: NativeRawDevelopmentInput) {
   // The task takes ownership of input.raw (its arrays are detached); output.raw returns it.
@@ -3338,8 +3365,16 @@ void develop;
 - The display view (`simulateDisplayView`, `prepareDisplayView`) renders the luminance tone curves, `highlightMode: "reconstruct"`
   and the desaturation since 2.22.0 (#593), with fast rules on screen and full ones for `fast: false`
   ([Display view, Coupled rendering](https://github.com/Photivra/engine/blob/main/docs/DISPLAY_VIEW.md#coupled-rendering-593-601)). Photivra's Standard look is
-  `{ exponent: 1.5, semiSaturation: 0.5009, whiteLuminance: 8 }` and its Flat look `{ exponent: 1, semiSaturation: 0.8465, whiteLuminance: 32 }`
-  for `naka-rushton-luminance` (18 % gray stays at 0.18; the engine's own looks, not a camera maker's).
+  `STANDARD_LOOK` (`naka-rushton-luminance` with `{ exponent: 1.5, semiSaturation: 0.5009, whiteLuminance: 8 }`) and its Flat look
+  `FLAT_LOOK` (`{ exponent: 1, semiSaturation: 0.8465, whiteLuminance: 32 }`); each is `{ toneCurve, toneCurveParameters }`, to spread
+  into a rendering profile or `simulateCapture`'s `output` (2.25.0, #625). Both keep 18 % linear gray at 0.18 (the engine's own looks,
+  not a camera maker's).
+- `pinLookMidGray(look, { linearMidGray, outputLevel? })` (2.25.0, #626) derives a look that maps `linearMidGray` to `outputLevel`
+  (default: to itself), for an application whose exposure develops a mid-gray chart at another linear level than 18 %. At 13 %, the
+  Standard look alone renders mid-gray darker than a linear look (0.119) and the Flat look brighter (0.137); pinned, both leave it at
+  0.13. The contrast and white luminance are kept and the semi-saturation is solved in closed form, σⁿ = (1 − t)/(t·m⁻ⁿ − Lw⁻ⁿ);
+  the slope at mid-gray changes with σ, so a pinned look is not the published look shifted in exposure. A level that no σ in (0, 64]
+  reaches is refused.
 - `simulateCapture`'s `output.highlightMode: "reconstruct-neighbors"` (#602, 2.22.0; opt-in, an estimate) rebuilds clipped
   channels from the color ratios around each clipped region: the ring's mean ratios with `fast` (the sRGB default), their harmonic
   interpolation inward for exports and `fast: false`. Whole-image, so not with `output.region`; the display view renders it on the CPU and (since 2.23.0, #605) in its
@@ -7118,11 +7153,28 @@ See [Local POC Simulation API](https://github.com/Photivra/engine/blob/main/docs
 
 - `parseDngRawImage` reads a DNG or TIFF-EP CFA/LinearRaw file (uncompressed, lossless JPEG or, from 2.22.0, 8-bit lossy JPEG; 8–16 bits). It returns the stored raw codes plus the CFA, black/white levels, active area, default crop, colour matrices, as-shot neutral and orientation, and (2.22.0) the opcode lists, the profile gain table map, RGBTables, semantic masks and an `assumptions` list naming every rendering tag it does not apply. Nothing is applied to the codes. `importDngRawImage` (2.22.0) does the same asynchronously and also reads JPEG XL raw data through a decoder the application supplies (`createJxlOxideDngDecoder` over the jxl-oxide-wasm package, which the app installs and loads only when a JPEG XL DNG is opened; the engine does not depend on it); `size: "half"` gives a half-size LinearRaw preview and `maximumBytes` bounds the memory.
 - `developDngStageImage` (2.22.0) builds the DNG's linear stage image (linearization, black and white levels, OpcodeList1/2/3); `applyDngProfileGainTableMap` and `applyDngRgbTables` apply the phone rendering tags at their places in a development.
-- 2.24.0 (#607): the import also returns `noiseProfile` (NoiseProfile per color plane) and `exif` (ISO with its source tag, exposure time, f-number, focal length, CompositeImage and SubjectArea). `calculateDngRawClipping` counts clipped sites per color plane; `estimateDngRawNoise` measures the RAW noise (σ at a brightness; it may read high on fine texture); `simulateDngRawWhatIf` makes the RAW of the same scene with less light or a higher ISO within the photo's own conversion-gain mode, seeded, and refuses with reasons (`assessDngRawWhatIf` lists them first) any file or request it cannot show accurately; `developDngImage` develops an imported DNG to sRGB with a chosen white balance and push. A brighter version is only ever "brightened in editing" (the same noise).
+- 2.24.0 (#607): the import also returns `noiseProfile` (NoiseProfile per color plane) and `exif` (ISO with its source tag, exposure time, f-number, focal length, CompositeImage and SubjectArea). `calculateDngRawClipping` counts clipped sites per color plane; `estimateDngRawNoise` measures the RAW noise (σ at a brightness; it may read high on fine texture); `simulateDngRawWhatIf` makes the RAW of the same scene with less light or a higher ISO within the photo's own conversion-gain mode, seeded, and refuses with reasons (`assessDngRawWhatIf` lists them first) any file or request it cannot show accurately; `developDngImage` develops an imported DNG to sRGB with a chosen white balance and push. A brighter version is only ever "brightened in editing" (the same noise). From 2.25.0 (#622), `developDngImage(raw, { size: "half" })` develops a half-size on-screen preview: fast bins each 2 × 2 CFA repeat into one pixel, `fast: false` averages the exact full-size development; save at full size.
 - `serializePngImage` writes an 8- or 16-bit RGB PNG with an sRGB, ICC or cICP (Display P3, BT.2020; sRGB, BT.709 or linear transfer) colour description, and optional mDCV/cLLI display metadata. PQ and HLG are not part of 2.0 (see the patent review in `THIRD_PARTY.md`).
+- `setJpegExifCaptureSettings(jpeg, settings)` (2.25.0, #621) replaces a JPEG's Exif block with one holding only the allowlisted capture settings (exposure time, f-number, ISO, focal length, 35 mm focal length, exposure bias, white balance, date taken, Software, Orientation); nothing from an earlier Exif block is carried over and the image data are unchanged ([JPEG Exif writer](https://github.com/Photivra/engine/blob/main/docs/IMPORT_AND_PNG.md#writing-capture-settings-into-a-jpegs-exif-block-2250)).
 - `parsePhotoMetadata` (2.25.0) reads a JPEG or HEIC/HEIF file's headers: the Exif capture settings (the DNG import's `exif` fields, resolved by the same code), make, model, Software, Orientation and the image size, and the extra images and annotations it declares (thumbnail, MPF entries, HEIF auxiliary images such as depth, alpha, mattes and gain maps, tone maps, XMP gain-map and depth markers) by type and size. No pixels are decoded; maker notes and GPS data are never read. The DNG import (schema 1.3.0) also returns `software`, `enhancedImages` and, in `exif`, FocalLengthIn35mmFilm, DigitalZoomRatio, the focal-plane resolution and the pixel dimensions.
 
+- `rewriteDng` (2.25.0, #620) writes a DNG from a DNG, optionally with an edited white balance, baseline exposure, default crop or orientation. Only allowlisted tags are written (`DNG_REWRITE_ALLOWED_TAGS`): the raw data (copied byte for byte), the development tags and the Exif capture settings; GPS data, serial numbers, the owner's name, maker notes, XMP and the other personal fields are left out.
+
 See [DNG import and PNG output](https://github.com/Photivra/engine/blob/main/docs/IMPORT_AND_PNG.md) for supported subsets, limits and sources.
+
+```ts
+import { rewriteDng, parseDngRawImage } from '@photivra/engine';
+
+// Share a DNG without its personal data, with a warmer white balance.
+function shareable(bytes: Uint8Array): Uint8Array {
+  const neutral = parseDngRawImage({ bytes }).asShotNeutral;
+  const edits = neutral ? { asShotNeutral: neutral.map((v, i) => i === 2 ? v * 1.1 : v) } : {};
+  const out = rewriteDng({ bytes, edits });
+  console.log(out.omittedTags.length + ' tags left out');
+  return out.bytes;
+}
+void shareable;
+```
 
 ```ts
 import { parseDngRawImage, assessDngRawWhatIf, simulateDngRawWhatIf, developDngImage, calculateDngRawClipping, estimateDngRawNoise } from '@photivra/engine';

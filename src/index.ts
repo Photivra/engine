@@ -136,6 +136,8 @@ export {
   type SdrRenderingInput,
   type SdrRenderingResult
 } from "./output/sdr-rendering.js";
+// 2.25.0 (#625, #626): Photivra's Standard and Flat looks as constants, and a look pinned at an application's linear mid-gray.
+export { STANDARD_LOOK, FLAT_LOOK, pinLookMidGray, type NakaRushtonLook, type PinLookMidGrayOptions } from "./output/look-curves.js";
 
 export {
   approximationResult,
@@ -1879,7 +1881,7 @@ export { calculateSensorApertureRays, type CalculateSensorApertureRaysInput, typ
 
 export { SIMULATE_CAPTURE_FACADE_VERSION, SIMULATE_CAPTURE_DEFAULT_ILLUMINANCE_LUX, SIMULATE_CAPTURE_COST_OPTIONS, SIMULATE_CAPTURE_METERING_MODES, simulateCapture,
   type SimulateCaptureOptions, type SimulateCaptureResult, type SimulateCaptureAssumption, type SimulateCaptureProgress,
-  type SimulateCaptureExposureMode, type SimulateCaptureMetering, type SimulateCaptureAutoIsoAfterMaximum, type SimulateCaptureAutoIsoReport, type SimulateCaptureAutomaticSlowestShutterOptions,
+  type SimulateCaptureExposureMode, type SimulateCaptureMetering, type SimulateCaptureAutoIsoAfterMaximum, type SimulateCaptureAutoIsoReport, type SimulateCaptureLensFilterReport, type SimulateCaptureAutomaticSlowestShutterOptions,
   type SimulateCaptureAutomaticSlowestShutterReport, type SimulateCaptureOutputFormat, type SimulateCaptureWhiteBalance, type SimulateCaptureColorEncoding,
   type SimulateCaptureDemosaic, type SimulateCaptureBorderHandling, type SimulateCaptureLensDistortion, type SimulateCaptureMotion,
   type SimulateCaptureSensorAntiAliasing, type SimulateCaptureCostOption, type SimulateCapturePixelAperture, SIMULATE_CAPTURE_BOX_APERTURE_DEFAULT_SAMPLES,
@@ -1945,6 +1947,8 @@ export { calculateDngRawClipping, estimateDngRawNoise, type CalculateDngRawClipp
 export { assessDngRawWhatIf, simulateDngRawWhatIf, DngRawWhatIfRefusedError, DNG_WHAT_IF_MINIMUM_MEASURED_TO_PROFILE, type DngRawWhatIfRequest,
   type DngRawWhatIfResult, type DngRawWhatIfRefusal, type DngRawWhatIfRefusalReason, type DngRawWhatIfAssessment } from "./capture/dng-raw-what-if.js";
 export { DNG_GAIN_SWITCH_CATALOG, resolveDngGainSwitch, type DngGainSwitchEntry } from "./capture/dng-gain-switch.js";
+// 2.25.0 (#620): rewrites a DNG with only allowlisted tags (no personal data) and optional edited development settings.
+export { DNG_REWRITE_SCHEMA_VERSION, DNG_REWRITE_LIMITS, DNG_REWRITE_ALLOWED_TAGS, rewriteDng, type DngRewriteInput, type DngRewriteEdits, type RewrittenDng } from "./capture/dng-writer.js";
 export { developDngImage, type DevelopDngImageOptions, type DevelopDngImageWhiteBalance, type DevelopedDngImage } from "./capture/dng-development.js";
 export { parseDngProfileGainTableMap, parseDngRgbTables, applyDngProfileGainTableMap, applyDngRgbTables, type DngProfileGainTableMap, type DngRgbTable, type DngRgbTables,
   type DngRgbImage, type ApplyDngProfileGainTableMapInput, type ApplyDngRgbTablesInput } from "./capture/dng-profile-maps.js";
@@ -1958,6 +1962,9 @@ export type { DngImportInput, DngImportAsyncInput, ImportedDngRaw, ImportedDngCf
 export { PHOTO_METADATA_SCHEMA_VERSION, PHOTO_METADATA_LIMITS, PHOTO_METADATA_XMP_NAMESPACES, parsePhotoMetadata, type PhotoMetadataInput, type PhotoMetadata,
   type PhotoExif, type PhotoExtraImage, type PhotoExtraImageKind, type PhotoAnnotation } from "./capture/photo-metadata.js";
 export type { ExifCaptureFields, ExifSubjectArea, ExifFocalPlaneResolution } from "./capture/exif-capture-fields.js";
+// 2.25.0 (#621): a JPEG's Exif block written from an allowlist of capture settings.
+export { setJpegExifCaptureSettings, jpegExifCaptureSettingsFromFields, JPEG_EXIF_CAPTURE_SETTING_KEYS, type JpegExifCaptureSettings,
+  type JpegExifDateTaken } from "./capture/jpeg-exif-writer.js";
 export { parseLosslessJpeg, type LosslessJpegImage, type LosslessJpegLimits } from "./capture/lossless-jpeg.js";
 export { parseLossyJpeg, type LossyJpegImage, type LossyJpegLimits } from "./capture/lossy-jpeg.js";
 export { PNG_ENCODER_ID, PNG_ENCODER_LIMITS, serializePngImage } from "./output/png-encoder.js";

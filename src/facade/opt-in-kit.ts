@@ -10,3 +10,4 @@
 export { parseSensorProfile, sensorProfileBody, sensorProfileSaturationIso } from "../equipment/sensor-profile-body.js";
 export { resolveMixedIllumination } from "./mixed-illumination.js";
 export { createSubjectMotionProvider, subjectTravelM } from "../motion/subject-motion.js";
+export { resolveLensFilter } from "./lens-filter.js";

@@ -15,6 +15,10 @@
  *    tone curve in linear sRGB (D65, Bradford from D50), RGBTables (ProPhoto, after the tone curve), gamut handling and the sRGB
  *    encoding (the capture's own `renderSdrRunInto`);
  * 5. the default crop and the Orientation.
+ * 2.25.0 (#622): `size: "half"` develops a half-size image for on-screen previews. Fast: each 2 × 2 CFA repeat is binned into one
+ * RGB pixel (the mean of its sites of each color, integrated per site; no demosaic), and OpcodeList3 runs at scale 0.5. Exact
+ * (`fast: false`): the full-size exact development, each 2 × 2 block of linear output averaged before the tone curve. The full-size
+ * path (`size` omitted or "full") is unchanged.
  * A push is "brightened in editing": it scales the developed signal and its noise alike (#607).
  */
 
@@ -69,6 +73,13 @@ export interface DevelopDngImageOptions {
   crop?: "default" | "active-area";
   /** Apply the Orientation tag (default true). */
   orientation?: boolean;
+  /**
+   * 2.25.0 (#622): "full" (default) or "half", a half-size image for on-screen previews (registry entry `developDngImage/size.half`).
+   * With `fast` (the default for "srgb-8" and "srgb-16") each 2 × 2 CFA repeat is binned into one RGB pixel; with `fast: false` the
+   * exact full-size development is averaged over each 2 × 2 block in linear light. The stage grid is halved (an odd last row or
+   * column is dropped) and the crop rectangle maps to [⌊x/2⌋, ⌈(x + w)/2⌉) on each axis. Refused for a file imported at half size.
+   */
+  size?: "full" | "half";
 }
 
 export interface DevelopedDngImage {
@@ -87,7 +98,10 @@ export interface DevelopedDngImage {
   /** White-balanced reference-camera RGB → XYZ D50 (row-major 3 × 3); the white maps to Y = 1. */
   cameraToXyzD50: number[];
   exposure: { baselineExposureStops: number; pushStops: number; label: string | null };
-  demosaic: "bilinear" | "ahd" | "none";
+  /** "bin-2x2" (2.25.0): the fast half-size path binned each CFA repeat (or LinearRaw 2 × 2 block) instead of demosaicing. */
+  demosaic: "bilinear" | "ahd" | "none" | "bin-2x2";
+  /** 2.25.0 (#622): the requested size; "half" halves the stage grid. */
+  size: "full" | "half";
   fast: { requested: boolean; defaultedFrom: "request" | "format" };
   /** Pixels with a white-balanced channel clipped at 1, and output components clipped by the gamut handling. */
   clippedPixelCount: number;
@@ -95,7 +109,7 @@ export interface DevelopedDngImage {
 }
 
 function fail(message: string): never { throw new InvalidConfigurationError("developDngImage: " + message); }
-const KEYS = ["whiteBalance", "exposurePushStops", "baselineExposure", "toneCurve", "toneCurveParameters", "gamutHandling", "format", "fast", "opcodes", "crop", "orientation"];
+const KEYS = ["whiteBalance", "exposurePushStops", "baselineExposure", "toneCurve", "toneCurveParameters", "gamutHandling", "format", "fast", "opcodes", "crop", "orientation", "size"];
 
 /**
  * CCT of the CIE standard illuminants among the Exif LightSource codes a DNG names (CIE 15:2018 Table 3 nominal values with the
@@ -176,6 +190,32 @@ function orient(o: number, x: number, y: number, w: number, h: number): [number,
   }
 }
 
+/**
+ * The fast half-size grid (#622): pixel (u, v) is the mean, per color, of the stage values of the sites (2u..2u + 1, 2v..2v + 1);
+ * for a CFA mosaic each site adds to its own color (the pattern, relative to the stage origin), so a Bayer repeat gives red and blue
+ * from one site and green from two. Per-site sums; nothing is tabulated.
+ */
+function binHalf(data: Float32Array, W: number, GW: number, GH: number, pattern: readonly number[] | null, cols: number, rows: number): Float32Array {
+  const out = new Float32Array(GW * GH * 3), sum = new Float64Array(3), count = new Uint8Array(3);
+  for (let v = 0; v < GH; v++) for (let u = 0; u < GW; u++) {
+    const o = 3 * (v * GW + u);
+    if (!pattern) {
+      for (let k = 0; k < 3; k++) {
+        const a = 3 * (2 * v * W + 2 * u) + k, b = a + 3 * W;
+        out[o + k] = (data[a]! + data[a + 3]! + data[b]! + data[b + 3]!) / 4;
+      }
+      continue;
+    }
+    sum.fill(0); count.fill(0);
+    for (let j = 0; j < 2; j++) for (let i = 0; i < 2; i++) {
+      const x = 2 * u + i, y = 2 * v + j, c = pattern[(y % rows) * cols + x % cols]!;
+      sum[c] = sum[c]! + data[y * W + x]!; count[c] = count[c]! + 1;
+    }
+    for (let k = 0; k < 3; k++) out[o + k] = sum[k]! / count[k]!;
+  }
+  return out;
+}
+
 /** Full color development of an imported DNG (see the module comment). */
 export async function developDngImage(raw: ImportedDngRaw, options: DevelopDngImageOptions = {}): Promise<DevelopedDngImage> {
   if (raw === null || typeof raw !== "object" || !(raw.codes instanceof Uint16Array)) fail("raw must be an ImportedDngRaw.");
@@ -192,6 +232,10 @@ export async function developDngImage(raw: ImportedDngRaw, options: DevelopDngIm
   if (crop !== "default" && crop !== "active-area") fail('crop must be "default" or "active-area".');
   const gamutHandling = options.gamutHandling ?? "clip-components";
   if (!["clip-components", "reject-out-of-range", "desaturate-to-luminance"].includes(gamutHandling)) fail("gamutHandling is not supported.");
+  const size = options.size ?? "full";
+  if (size !== "full" && size !== "half") fail('size must be "full" or "half".');
+  if (size === "half" && raw.scale !== 1) fail('size "half" needs a full-size file (this one was imported at half size).');
+  const half = size === "half", binned = half && fast;
   const toneCurve = options.toneCurve ?? "identity";
   const tone = prepareSdrPixelTone({ toneCurve, ...(options.toneCurveParameters === undefined ? {} : { toneCurveParameters: options.toneCurveParameters }) });
   if (raw.samplesPerPixel !== 1 && raw.samplesPerPixel !== 3) throw new InvalidScientificInputError("developDngImage: only CFA mosaics and three-sample LinearRaw images are developed.");
@@ -242,11 +286,28 @@ export async function developDngImage(raw: ImportedDngRaw, options: DevelopDngIm
   }
   // 2. Demosaic.
   let rgb: Float32Array, demosaic: DevelopedDngImage["demosaic"] = "none";
+  // Grid of the image the color pipeline sees: the stage image, or (fast half size) the binned one.
+  let GW = W, GH = H;
+  if (half && (W < 2 || H < 2)) throw new InvalidScientificInputError("developDngImage: a half-size image needs at least 2 × 2 stage pixels.");
   if (raw.cfa) {
-    const { repeatRows, repeatColumns, pattern } = raw.cfa, names = ["red", "green", "blue"];
+    const { repeatRows, repeatColumns, pattern } = raw.cfa;
     const bayer = repeatRows === 2 && repeatColumns === 2 && pattern.filter((c) => c === 1).length === 2 && pattern.includes(0) && pattern.includes(2) &&
       ((pattern[0] === 1 && pattern[3] === 1) || (pattern[1] === 1 && pattern[2] === 1));
     if (!bayer) throw new InvalidScientificInputError("developDngImage: only 2 × 2 Bayer mosaics (one red, one blue, two diagonal greens) are demosaiced.");
+  }
+  if (binned) {
+    GW = Math.floor(W / 2); GH = Math.floor(H / 2);
+    rgb = binHalf(stage.data, W, GW, GH, raw.cfa ? raw.cfa.pattern : null, raw.cfa ? raw.cfa.repeatColumns : 0, raw.cfa ? raw.cfa.repeatRows : 0);
+    demosaic = "bin-2x2";
+    if (raw.cfa && (options.opcodes ?? true) && raw.opcodeList3?.length) {
+      const image: DngStageImage = { width: GW, height: GH, planes: 3, data: rgb };
+      notes.push(...applyDngOpcodes(image, raw.opcodeList3, { stage: 3, fast, scale: 0.5 }));
+      rgb = image.data;
+    }
+    for (let k = notes.length - 1; k >= 0; k--) if (notes[k]!.startsWith("OpcodeList3 not applied")) notes.splice(k, 1);
+    notes.push("fast.developDngImage.size.half: each 2 × 2 " + (raw.cfa ? "CFA repeat binned into one RGB pixel (the mean of its sites of each color; red and blue sit half a site from the pixel center)" : "block of LinearRaw pixels averaged") + "; the exact half size averages the full exact development in linear light.");
+  } else if (raw.cfa) {
+    const { pattern } = raw.cfa, names = ["red", "green", "blue"];
     const profile: SensorColorSamplingProfile = { schemaVersion: "0.1.0", profileId: "imported-dng-cfa", coordinateSystem: "native-sensor-color-sampling-site-index",
       evidence: [{ sourceOrigin: "photivra", sourceReference: "imported-dng-cfa-pattern", reuseStatus: "photivra-owned" }],
       layout: { kind: "periodic-mosaic", repeatWidthSites: 2, repeatHeightSites: 2, siteChannelIds: pattern.map((c) => names[c]!), anchor: "native-sensor-top-left-site" } };
@@ -285,29 +346,51 @@ export async function developDngImage(raw: ImportedDngRaw, options: DevelopDngIm
   const baseline = options.baselineExposure === false ? 0 : raw.baselineExposure ?? 0, scale = 2 ** (baseline + push);
 
   // Output region (stage coordinates) and orientation.
-  const dc = raw.defaultCrop, rx0 = crop === "default" ? Math.max(0, Math.round(dc.x)) : 0, ry0 = crop === "default" ? Math.max(0, Math.round(dc.y)) : 0;
-  const rw = crop === "default" ? Math.min(W - rx0, Math.round(dc.width)) : W, rh = crop === "default" ? Math.min(H - ry0, Math.round(dc.height)) : H;
+  const dc = raw.defaultCrop;
+  let rx0 = crop === "default" ? Math.max(0, Math.round(dc.x)) : 0, ry0 = crop === "default" ? Math.max(0, Math.round(dc.y)) : 0;
+  let rw = crop === "default" ? Math.min(W - rx0, Math.round(dc.width)) : W, rh = crop === "default" ? Math.min(H - ry0, Math.round(dc.height)) : H;
   if (!(rw > 0 && rh > 0)) throw new InvalidScientificInputError("developDngImage: the default crop lies outside the image.");
-  const linear = new Float32Array(rw * rh * 3);
+  // Half size: the crop on the halved grid, [⌊x/2⌋, ⌈(x + w)/2⌉) on each axis (within the halved stage). The exact path develops
+  // the full-size pixels under it (twice its size) and averages them; the fast path works on the binned grid directly.
+  let hw = 0, hh = 0;
+  if (half) {
+    const HW = Math.floor(W / 2), HH = Math.floor(H / 2), hx0 = Math.min(HW - 1, Math.floor(rx0 / 2)), hy0 = Math.min(HH - 1, Math.floor(ry0 / 2));
+    hw = Math.min(HW, Math.ceil((rx0 + rw) / 2)) - hx0; hh = Math.min(HH, Math.ceil((ry0 + rh) / 2)) - hy0;
+    if (binned) { rx0 = hx0; ry0 = hy0; rw = hw; rh = hh; } else { rx0 = 2 * hx0; ry0 = 2 * hy0; rw = 2 * hw; rh = 2 * hh; }
+  }
+  let linear = new Float32Array(rw * rh * 3);
   let clipped = 0;
+  const clippedAt = half && !binned ? new Uint8Array(rw * rh) : null;
   const usePgtm = raw.profileGainTableMap !== null && (options.opcodes ?? true), useTables = raw.rgbTables !== null && (options.opcodes ?? true);
   const work = usePgtm ? toProphoto : toSrgb;
   for (let y = 0; y < rh; y++) for (let x = 0; x < rw; x++) {
-    const i = 3 * ((ry0 + y) * W + rx0 + x), c: ColorVector3 = [rgb[i]!, rgb[i + 1]!, rgb[i + 2]!];
+    const i = 3 * ((ry0 + y) * GW + rx0 + x), c: ColorVector3 = [rgb[i]!, rgb[i + 1]!, rgb[i + 2]!];
     let any = false;
     const b = [0, 1, 2].map((k) => { const v = P[k]![0] * c[0] + P[k]![1] * c[1] + P[k]![2] * c[2]; if (v > 1) { any = true; return 1; } return v; });
-    if (any) clipped++;
+    if (any) { clipped++; if (clippedAt) clippedAt[y * rw + x] = 1; }
     const o = 3 * (y * rw + x);
     for (let k = 0; k < 3; k++) linear[o + k] = work[k]![0] * b[0]! + work[k]![1] * b[1]! + work[k]![2] * b[2]!;
   }
   if (usePgtm) {
     applyDngProfileGainTableMap({ image: { width: rw, height: rh, data: linear }, map: raw.profileGainTableMap!, baselineExposureStops: baseline,
-      region: { x: rx0, y: ry0, stageWidth: W, stageHeight: H }, overrange: true });
+      region: { x: rx0, y: ry0, stageWidth: GW, stageHeight: GH }, overrange: true });
     for (let p = 0; p < rw * rh; p++) {
       const r = linear[3 * p]!, g = linear[3 * p + 1]!, bl = linear[3 * p + 2]!;
       for (let k = 0; k < 3; k++) linear[3 * p + k] = prophotoToSrgb[k]![0] * r + prophotoToSrgb[k]![1] * g + prophotoToSrgb[k]![2] * bl;
     }
     notes.push("developDngImage.profileGainTableMap: applied in linear ProPhoto (D50) before BaselineExposure.");
+  }
+  if (clippedAt) {
+    // Exact half size: each output pixel is the mean of its 2 × 2 full-size pixels in linear light, before the tone curve.
+    const out = new Float32Array(hw * hh * 3);
+    clipped = 0;
+    for (let y = 0; y < hh; y++) for (let x = 0; x < hw; x++) {
+      const a = (2 * y) * rw + 2 * x, b = a + rw, o = 3 * (y * hw + x);
+      for (let k = 0; k < 3; k++) out[o + k] = (linear[3 * a + k]! + linear[3 * a + 3 + k]! + linear[3 * b + k]! + linear[3 * b + 3 + k]!) / 4;
+      if (clippedAt[a]! | clippedAt[a + 1]! | clippedAt[b]! | clippedAt[b + 1]!) clipped++;
+    }
+    linear = out; rw = hw; rh = hh;
+    notes.push("developDngImage.size.half: the exact full-size development averaged over each 2 × 2 block in linear light, before the tone curve.");
   }
   const profile = { gamutHandling } as SdrRenderingProfile, maximum = format === "srgb-8" ? 255 : 65535;
   const codes = format === "srgb-8" ? new Uint8Array(rw * rh * 3) : new Uint16Array(rw * rh * 3), scratch = new Float64Array(3);
@@ -346,6 +429,6 @@ export async function developDngImage(raw: ImportedDngRaw, options: DevelopDngIm
     width: ow, height: oh, format, samples,
     whiteBalance: { source, cameraNeutral: [neutral[0], neutral[1], neutral[2]], chromaticity: { x: xy.x, y: xy.y }, correlatedColorTemperatureKelvin: cctOf(xy) },
     cameraToXyzD50: flat(M), exposure: { baselineExposureStops: baseline, pushStops: push, label: push > 0 ? "Brightened in editing by " + push + " stops (same noise, not a longer exposure)." : push < 0 ? "Darkened in editing by " + -push + " stops." : null },
-    demosaic, fast: { requested: fast, defaultedFrom: options.fast === undefined ? "format" : "request" }, clippedPixelCount: clipped, assumptions: notes
+    demosaic, size, fast: { requested: fast, defaultedFrom: options.fast === undefined ? "format" : "request" }, clippedPixelCount: clipped, assumptions: notes
   };
 }

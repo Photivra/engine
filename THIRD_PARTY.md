@@ -70,6 +70,13 @@ These human reviews were **pending** until the owner signed all five off on 2026
 - Panasonic's online operating instructions (eww.pavc.panasonic.co.jp) for the DC-S5M2, DC-S5M2X, DC-S9 and DC-S1M2 give the ISO ranges of the [Dual Native ISO Setting]'s fixed settings (for example LOW 100–800, HIGH 640–51200, Extended ISO 50–800 and 320–204800) and say that [AUTO], and in these manuals also [HIGH], switch the base sensitivity "automatically ... according to the brightness". They do not state the ISO at which a photo switches, and the ranges overlap, so no switch point can be cited. No terms notice was found on the pages.
 - Openly published read-noise measurements whose reuse terms could not be found were not used.
 
+Reviewed again on 2026-11-15 (#623); still **no entries**:
+
+- Blackmagic Pocket Cinema Camera Installation and Operation Manual (March 2025, documents.blackmagicdesign.com, "Dual Native ISO"): states that ISO settings from 1,250 to 25,600 use the second native ISO (3,200), which is a stated switch point, and that the still button records a CinemaDNG frame when the codec is ProRes. Not added: the manual covers the Pocket 4K, 6K G2 and 6K Pro together, and the Make and Model tags these cameras write could not be checked on a public file, so an entry could not match a file reliably. It can be added once a file from the camera confirms the tag strings (the manual carries Blackmagic's copyright notice; only the fact would be used).
+- Panasonic specification pages and press material for the DC-GH5S, DC-S1H, DC-BGH1 and DC-GH6 (help.na.panasonic.com, news.panasonic.com.au, eww.pavc.panasonic.co.jp): they give base ("native") sensitivities and overlapping LOW/HIGH ranges, or (DC-GH6) base sensitivities for video only. A base sensitivity is not the ISO at which a photo switches, so none was used.
+- Sony (Help Guide, Sony Cinematography articles) and Nikon (ZR pages) state dual base ISO values for log video only; Canon's dual-gain output is a video feature of its cinema models. No stills switch point was found for Leica, Fujifilm, Google or Apple cameras.
+- A third-party review stating a stills switch point (DPReview, DC-GH6) and openly published read-noise measurements (photonstophotos.net) were not used: their terms reserve all rights and grant no reuse.
+
 Each new entry adds a line here: model, switch ISO, source URL, its terms and the access date.
 
 ## Licence summaries (prepared for owner sign-off)
