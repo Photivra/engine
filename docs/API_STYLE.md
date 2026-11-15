@@ -250,7 +250,7 @@ have a fast method, a measured and bounded approximation of it. One flag style s
   `sensor.temporalSampleCount` always wins); `developDngStageImage`'s WarpRectilinear resampling of an imported DNG (#600:
   bilinear fast, cubic convolution with a = −0.75 exact; the default follows its `format`: fast when omitted, full quality for "dng", "jpeg" and "png");
   in 2.24.0, `developDngImage`'s demosaic (#607, `developDngImage/demosaic`: the built-in bilinear kernels fast, AHD exact, with the
-  stage image's WarpRectilinear following the same flag; fast by default for its "srgb-8" and "srgb-16" outputs); `calculateDngRawClipping`, `estimateDngRawNoise`
+  stage image's WarpRectilinear following the same flag; fast by default for its "srgb-8" and "srgb-16" outputs); in 2.25.0, its half-size preview (#622, `developDngImage/size.half`: with `size: "half"`, each 2 × 2 CFA repeat binned fast, the exact full-size development averaged in linear light exact); `calculateDngRawClipping`, `estimateDngRawNoise`
   and `simulateDngRawWhatIf` are full quality only, with no `fast` (owner decision 2026-11-11): the clipping count is exact, the
   noise fit already runs in linear time (quickselect medians; 1.8 s on 24 MP) and a subsample would only add error to a number
   shown to the user, and the what-if's per-site seeded draws are what make it deterministic, so no faster method keeps its result;
