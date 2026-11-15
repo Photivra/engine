@@ -7659,13 +7659,18 @@ correction profile for `resolveLensCorrectionPlan`, which `simulateCapture` appl
 `output.dng.lensCorrectionOpcodes` (#587; the RAW codes unchanged). `simulateCapture` renders a catalogue lens with `lens.catalogue`
 ([quick start](QUICK_START.md#generic-lens-catalogue-549)); `fast: true` (or `lens: { catalogue: { kind, fast: true } }`) takes its
 fast method (#568), a labeled approximation that blends the PSF over a field grid, for interactive captures.
+Two of the lens's reported characteristics render on request (#632): `lens: { catalogue: { kind, flare: true } }` adds its veiling
+glare (a uniform veil of its glare fraction of the frame's mean irradiance, each site keeping 1 − g of its own; its ghosts are not
+rendered) and `breathing: true` its focus breathing (the field of view times 1 + Δ at the focus distance). Without them a capture is
+unchanged. `calculateSubjectDistanceForFraming` and `calculateChartFraming` take `catalogue` (an id or `{ kind, breathing? }`) instead of a
+focal length (#631): a fisheye frames the chart through its equisolid projection and distortion, as the capture renders it.
 `calculateLateralColorFringe({ lensId, activeImagingArea, pixelPitchMicrometers, fieldPosition? })` gives the lens's lateral color as a
 fringe width: the blue-minus-red image displacement in µm and pixels at a field position (default the corner; #580); its `channelDispersion` for
 the capture's own channels comes from `calculateCameraChannelResponse({ illuminant })` (#591, full quality: a 5 nm grid by default). Equations, tables and the
 chart measurements: [LENS_CATALOGUE.md](https://github.com/Photivra/engine/blob/main/docs/LENS_CATALOGUE.md).
 
 ```ts
-import { GENERIC_LENS_CATALOGUE, resolveGenericLens, simulateGenericLensFocusError } from "@photivra/engine";
+import { calculateChartFraming, GENERIC_LENS_CATALOGUE, resolveGenericLens, simulateGenericLensFocusError } from "@photivra/engine";
 
 const frame = { widthMm: 36, heightMm: 24 };
 const pro = resolveGenericLens({ lensId: "pv-50-1.2-pro", activeImagingArea: frame, fNumber: 2 });
@@ -7673,6 +7678,8 @@ const consumer = resolveGenericLens({ lensId: "pv-50-1.8", activeImagingArea: fr
 console.log(GENERIC_LENS_CATALOGUE.length, pro.character.aberrations.comaWaves < consumer.character.aberrations.comaWaves); // 30 true
 const shot = simulateGenericLensFocusError({ lensId: "pv-50-1.8", activeImagingArea: frame, fNumber: 1.8, focusDistanceM: 2, seed: 1, shotIndex: 0 });
 console.log(shot.focusDistanceM, shot.imageSideErrorMicrometers);
+const fisheye = calculateChartFraming({ sensor: frame, catalogue: "pv-15-2.8-fisheye-pro", chart: { widthM: 1, heightM: 1 }, subjectDistanceM: 1 });
+console.log(fisheye.coverage.frameWidthFraction, fisheye.lens?.fieldOfViewDegrees.width); // about 0.41 and 144
 ```
 
 ## Parallel native environment RAW (row-band partitions, 2.0)

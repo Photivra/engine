@@ -32,6 +32,8 @@ export interface CalculateChartFramingInput {
   subjectDistanceM: number;
   /** Focus distance, metres (as `lens.focusDistanceM`); default the subject distance. More than the focal length. */
   focusDistanceM?: number;
+  /** #631: a catalogue lens instead of a focal length, as `simulateCapture`'s `lens.catalogue`. */
+  catalogue?: SubjectFramingCatalogueLens;
 }
 ```
 
@@ -60,6 +62,8 @@ export interface CalculateSubjectDistanceForFramingInput {
   /** Chart size as for `simulateCapture` `chartSize`: heightM defaults to widthM × the sensor aspect (height / width). */
   chart: { widthM: number; heightM?: number };
   fit?: SubjectFramingFit;
+  /** #631: a catalogue lens instead of a focal length, as `simulateCapture`'s `lens.catalogue` (see {@link SubjectFramingCatalogueLens}). */
+  catalogue?: SubjectFramingCatalogueLens;
 }
 ```
 
@@ -100,6 +104,8 @@ export interface ChartFraming {
   minimumFocusDistanceM: number;
   /** True when the subject or focus distance is closer than the minimum focus distance (`simulateCapture` with `lens.prime` rejects it). */
   belowMinimumFocus: boolean;
+  /** #631: with `catalogue`, how the lens frames the plane (for a fisheye, `framedWidthM` above is the paraxial value, sensor side ÷ magnification). */
+  lens?: SubjectFramingLens;
   scientificStatus: "approximation";
   assumptions: readonly SimulateCaptureAssumption[];
 }
@@ -141,9 +147,21 @@ export interface SubjectFraming {
   minimumFocusDistanceM: number;
   /** True when the fit distance is closer than the minimum focus distance: the chart cannot be framed this way. */
   belowMinimumFocus: boolean;
+  /** #631: with `catalogue`, how the lens frames the plane (for a fisheye, `framedWidthM` above is the paraxial value, sensor side ÷ magnification). */
+  lens?: SubjectFramingLens;
   scientificStatus: "approximation";
   assumptions: readonly SimulateCaptureAssumption[];
 }
+```
+
+## SubjectFramingCatalogueLens
+
+#631: a catalogue lens id (`GENERIC_LENS_IDS`), or `{ kind, breathing? }` as `simulateCapture`'s `lens.catalogue`. The lens is resolved
+on `sensor`; a fisheye frames through its equisolid projection and distortion, and `breathing: true` (#632) includes its focus
+breathing, as a capture with `lens.catalogue.breathing` renders it.
+
+```ts
+export type SubjectFramingCatalogueLens = string | { kind: string; breathing?: boolean };
 ```
 
 ## SubjectFramingFit
@@ -152,4 +170,22 @@ How the chart fits the frame: `contain` (default; the whole chart is visible and
 
 ```ts
 export type SubjectFramingFit = "contain" | "width" | "height" | "cover";
+```
+
+## SubjectFramingLens
+
+#631: how a catalogue lens frames the chart plane (present only with `catalogue`).
+
+```ts
+export interface SubjectFramingLens {
+  lensId: string;
+  projection: "rectilinear" | "fisheye-equisolid-angle";
+  /** The breathing scale 1 + Δ of the field of view at the focus distance (1 without `breathing`). */
+  breathingScale: number;
+  /** The plane width and height the frame sees, metres; null where the frame edge sees no plane (a fisheye's edge at or beyond 90°, or outside its image circle). */
+  framedWidthM: number | null;
+  framedHeightM: number | null;
+  /** The full field of view across the frame width and height, degrees (null as above). */
+  fieldOfViewDegrees: { width: number | null; height: number | null };
+}
 ```

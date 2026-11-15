@@ -135,6 +135,11 @@ export interface DisplayViewLensSetup {
    * with `zeroBeyondHorizon` gives it, instead of failing.
    */
   zeroBeyondHorizon?: boolean | undefined;
+  /**
+   * #632 (`lens.catalogue.flare`): the veiling glare, as the capture renders it: each site's electrons become (1 − g)·μ + g·Σ_λ A_c(λ)·Ē(λ),
+   * Ē the frame's mean of the field factor times the scene radiance on the site lattice (every `step`-th site per axis, from step/2).
+   */
+  veil?: { fraction: number; step: number } | undefined;
 }
 
 /** Largest lattice cache, in entries over all lattice groups and temporal midpoints (times the spectral nodes for radiance scenes). */
@@ -268,7 +273,27 @@ function createLensSignal(lens: DisplayViewLensSetup, input: DisplayViewExpected
     return total / T;
   }
   const pilotNode = input.wavelengthsNm[Math.floor(nodes / 2)]!;
-  if (input.largeKernel) return createLargeLensSignal(input, inFocusLensTile, () => lookups, pilot);
+  // #632: the veil's mean radiance per node over the frame's site lattice, and each site's veil integrated with its own channel response.
+  const veil = lens.veil, mean = new Float64Array(nodes);
+  if (veil) {
+    if (!materials) throw new InvalidConfigurationError("lens.catalogue.flare needs a chart or material scene.");
+    let count = 0;
+    for (let q = veil.step >> 1; q < H; q += veil.step) for (let p = veil.step >> 1; p < W; p += veil.step, count++) {
+      map((p + 0.5 - W / 2) * mmPerSite, (q + 0.5 - H / 2) * mmPerSite, times[0]!);
+      if (pf === 0) continue;
+      const L = spectra[materialOf(materials.materialAt(pu, pv))]!;
+      lookups++;
+      for (let n = 0; n < nodes; n++) mean[n] = mean[n]! + pf * L[n]!;
+    }
+    for (let n = 0; n < nodes; n++) mean[n] = mean[n]! / count;
+  }
+  const veiled = <S extends DisplayViewExpectedSignal>(signal: S): S => {
+    if (!veil) return signal;
+    const inner = signal.site.bind(signal), g = veil.fraction;
+    signal.site = (x: number, y: number): number => { const a = A[channelAt(x, y)]!; let v = 0; for (let n = 0; n < nodes; n++) v += a[n]! * mean[n]!; return (1 - g) * inner(x, y) + g * v; };
+    return signal;
+  };
+  if (input.largeKernel) return veiled(createLargeLensSignal(input, inFocusLensTile, () => lookups, pilot));
   /** E_c (#564) of the native site positions [x0, x0 + T) × [y0, y0 + T) for the three channels: kernelSite's sum for each channel. */
   function inFocusLensTile(x0: number, y0: number, TS: number): Float64Array[] {
     const out = [0, 1, 2].map(() => new Float64Array(TS * TS));
@@ -323,7 +348,7 @@ function createLensSignal(lens: DisplayViewLensSetup, input: DisplayViewExpected
   // Site values persist across windows in a ring of native rows (a site's value does not depend on the window).
   let ringRows = 0, ring = new Float64Array(0), ringRowId = new Int32Array(0), ringOn = false;
   const compute = kernels ? kernelSite : directSite;
-  return {
+  return veiled({
     get lookups(): number { return lookups; },
     uniformMaterial: -1,
     tracksMaterial: false,
@@ -365,7 +390,7 @@ function createLensSignal(lens: DisplayViewLensSetup, input: DisplayViewExpected
       return v;
     },
     pilot
-  };
+  });
   /**
    * The renderer's pilot point is a rectilinear plane point of the native raster: back to the sensor point, then through the lens at
    * every temporal midpoint. A point whose scene value differs between the instants (motion) counts as detail (NaN equals nothing).

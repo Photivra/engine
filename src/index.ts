@@ -1913,7 +1913,7 @@ export { calculateChannelEffectiveDispersion, createGenericLensCorrectionProfile
   type CreateGenericLensCorrectionProfileInput } from "./output/generic-lens-corrections.js";
 export { calculateLateralColorFringe, type CalculateLateralColorFringeInput, type LateralColorFringe, type LateralColorDisplacement } from "./optics/generic-lens-lateral-color.js";
 export { calculateChartFraming, calculateSubjectDistanceForFraming, type CalculateChartFramingInput, type CalculateSubjectDistanceForFramingInput, type ChartFraming,
-  type SubjectFraming, type SubjectFramingFit } from "./facade/subject-framing.js";
+  type SubjectFraming, type SubjectFramingCatalogueLens, type SubjectFramingFit, type SubjectFramingLens } from "./facade/subject-framing.js";
 export { CHART_SCENE_PRESETS, CHART_SCENE_DEFAULTS, CHART_SPECTRAL_RANGE_NANOMETERS, resolveChartScene, calculateStepWedgeReflectances,
   calculatePointGridCenters, type ChartScene, type ChartScenePresetId, type ChartReflectance, type ResolvedChartScene, type UniformChartScene,
   type SlantedEdgeChartScene, type SiemensStarChartScene, type StepWedgeChartScene, type GreyRampChartScene, type CheckerboardChartScene,

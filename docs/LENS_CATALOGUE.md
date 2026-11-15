@@ -61,9 +61,9 @@ Each set has a **baseline** (the owner's table below), and each lens multiplies 
 | Distortion | 1 % at the corner (× the lens's signed adjustment) | 3 % | radial r_d = r·(1 + k1ρ²) |
 | Vignetting | 0.4 stops natural + 0.6 optical at the corner | 0.7 + 1.1 stops | E(ρ) = (1 − bρ²)², E(1) = 2^−stops |
 | Coma (night photography) | W131 = 0.35 waves | 1.0 waves | Seidel coma |
-| Flare and ghosting | veiling glare 0.5 %, ghosts 0.2 % | 2 %, 0.8 % | reported, not rendered |
+| Flare and ghosting | veiling glare 0.5 %, ghosts 0.2 % | 2 %, 0.8 % | veiling glare rendered with `lens.catalogue.flare` (#632); ghosts reported, not rendered |
 | Bokeh quality | 9 rounded blades (curvature 0.7), its own W040; a cat's eye on the fast wides and normals | 7 blades (curvature 0.3), the same rules | #553's shaped defocus kernel with `lens.defocus` ([Bokeh](#bokeh-567)) |
-| Focus breathing | −3 % field of view at minimum focus | −8 % | reported, not rendered |
+| Focus breathing | −3 % field of view at minimum focus | −8 % | rendered with `lens.catalogue.breathing` (#632) |
 | Focus consistency | σ = 0.1 of the depth of focus | 0.3 | seeded sampler, off by default |
 | Close-focus performance | aberrations × (1 + 0.15·m/m_max) | × (1 + 0.5·m/m_max) | per-lens close-focus factor |
 
@@ -154,7 +154,7 @@ The assumptions `lens.catalogue` (the lens) and `lens.catalogue.character` (the 
 
 **`lens.defocus`** convolves the lens's own bokeh kernel ([Bokeh](#bokeh-567), since 2.20.0; a plain disc in 2.17.0–2.19.0) into every PSF node (a further approximation: the defocused aberrated wave PSF is not exactly the in-focus PSF convolved with a geometric kernel) and runs through the same quadrature; the `lens.defocus` assumption says `execution: "catalogue-lens-psf"` and reports the kernel's `bokeh: { method, sphericalAberrationSites, axisOpenAreaRatio }`. The combined kernel is limited to a radius of 16 sites (33² scene queries per site and spectral node); larger is refused with the reason (#564's run convolution above it is not used with a catalogue lens). #553's bokeh options (`blades`, `sphericalAberration`, `catsEye`) stay refused with `lens.catalogue`: the lens sets all three itself.
 
-**Not combinable** with `lens.prime`, `focalLengthMm`, `projection`, `distortion`, `vignetting`, `psf`, `diffraction` or `pupilSampling` (the lens sets them). The display view (`simulateDisplayView`, `prepareDisplayView`) renders `lens.catalogue` since #569: the same distortion, projection and vignetting at every kernel tap, and the PSF the capture resolves, taken at the centre of each of up to 64 × 43 field zones (an approximation within 1 % per site of the capture; [Display view, Catalogue lenses](DISPLAY_VIEW.md#catalogue-lenses-569)). Flare and focus breathing are reported, not rendered; the display view reads the same PSF, so it shows the lens's bokeh too.
+**Not combinable** with `lens.prime`, `focalLengthMm`, `projection`, `distortion`, `vignetting`, `psf`, `diffraction` or `pupilSampling` (the lens sets them). The display view (`simulateDisplayView`, `prepareDisplayView`) renders `lens.catalogue` since #569: the same distortion, projection and vignetting at every kernel tap, and the PSF the capture resolves, taken at the centre of each of up to 64 × 43 field zones (an approximation within 1 % per site of the capture; [Display view, Catalogue lenses](DISPLAY_VIEW.md#catalogue-lenses-569)). Flare and focus breathing render only on request ([Flare and breathing](#flare-and-breathing-632)); the display view reads the same PSF, so it shows the lens's bokeh too.
 
 **Cost.** The quadrature runs one scene query per kernel tap and spectral node through the lens field mapping, so, like `lens.distortion`, a catalogue capture with the exact method is far slower than one without lens options. A 48 × 48 region of a full frame at 6 µm (Apple M5 Pro, Node.js 24.19.0, at each lens's widest aperture; the same region with `lens.prime` 24 takes 0.01 s):
 
@@ -166,6 +166,56 @@ The assumptions `lens.catalogue` (the lens) and `lens.catalogue.character` (the 
 | PV 24 1.8 | 9 × 9 | 9.7 s | 3.9 s |
 
 The time grows with the site count and the kernel: the kernel grows with the aberrations, with the f-number (the Airy pattern) and with smaller pixels. The catalogue's data and PSF builder are loaded on demand (`src/facade/generic-lens-capture.ts`), so a capture bundle that never asks for a catalogue lens does not carry them. For interactive captures use the fast method below.
+
+### Chart framing through the fisheyes (#631)
+
+The capture renders a fisheye through its equisolid projection, so a chart's image is smaller than the thin-lens framing
+(m = v/d) says, and the more so the wider it is. `calculateSubjectDistanceForFraming` and `calculateChartFraming` take
+`catalogue` (a lens id, or `{ kind, breathing? }`) instead of `focalLengthMm` or `equivalentFocalLengthMm`, resolve the lens on
+`sensor`, and frame through the mapping the capture uses: a plane point at radius R and distance d is seen at θ = atan(R/d),
+imaged at r_i = 2v·sin(θ/2) (v the thin-lens image distance at the focus distance, the scale the environment query uses) and
+displaced by the lens's distortion r = r_i·(1 + k1·(r_i/ρ_n)²). Coverage is the chart's image along the frame's axes through the
+centre (for this compressive mapping a rectangle's image is widest there). The fit distance is found by bisection (the fitted
+side's coverage falls monotonically with distance). The result's `lens` block gives the plane the frame sees and the field of view
+(null where the frame edge is outside the circular fisheye's image circle or at or beyond 90°); `magnification` and `framedWidthM`
+stay the paraxial values (v/d). A rectilinear catalogue lens keeps the thin-lens framing (its distortion, at most 4.5 % at the
+corner, is not included, as before), and its minimum focus is the lens's own. `simulateCapture` reports the same coverage in
+`result.scene.chart` for a fisheye with `chartSize` (before #631 it reported the thin-lens fractions; the image is unchanged).
+
+On a full frame, a 1 m chart at 1 m through *PV 15 2.8 Fisheye Pro* covers 41 % of the frame width (the thin lens says 42.3 %),
+and the frame's width spans 144° of field. Tests: `test/lens-catalogue-framing.test.ts` (the worked example, every fit for both
+fisheyes on full frame and APS-C, and the rendered chart's width on the image's centre row within a pixel of the reported one).
+
+### Flare and breathing (#632)
+
+Both are opt-in parts of the record form, `lens: { catalogue: { kind, flare: true, breathing: true } }`, in `simulateCapture`, the
+display view and `simulateIdealReference` (which renders neither: it has no camera effects). Without them a capture is
+byte-identical to 2.25.0 before #632 (`test/lens-catalogue-optics-pins.test.ts`).
+
+- **Veiling glare** (`flare`). The catalogue's veiling-glare fraction g is "the fraction of the image's mean irradiance spread as a
+  uniform veil"; it is rendered as that definition says, conserving the light: E′ = (1 − g)·E + g·Ē, Ē the frame's mean image
+  irradiance. Per site q of channel c the expected electrons become (1 − g)·μ_c(q) + g·Σ_λ A_c(λ)·Ē(λ), with Ē(λ) the mean over the
+  native site lattice of the field factor (vignetting × distortion area factor) times the scene radiance at each site's lattice
+  point, and A_c the channel response; every site integrates the veil spectrum with its own channel response (no per-channel
+  table). The PSF is energy-conserving, so the mean is taken without it; light the PSF spreads across the frame's edge is the
+  difference. Light from outside the frame is not modeled (the definition is the image's mean), and the veil is the same over the
+  whole frame, including outside a circular fisheye's image circle. On an exact request the mean reads every site; on a fast one
+  every n-th site per axis, n = ⌈√(W·H / 65,536)⌉ (registry entry `lens.catalogue/flare-veil-mean`; on a 96 × 64 test frame a
+  step of 3 changes the mean by under 1 %). A capture with flare renders through the per-site signal: the field-grid method on a
+  fast request (#568), and each site's exact kernels on an exact one (the exact method's sum, checked against the chain at one site
+  per CFA phase), so it needs a still camera and a chart or material scene under uniform light, without `sensor.antiAliasing` or
+  `sensor.pixelAperture` (else it is refused). Region renders and joined parts take the whole frame's mean, so they match the whole
+  render. Measured (*PV 16 2.8*, g = 2.4 %, checkerboard 1 % / 90 %): the frame's mean RAW is kept within 0.3 % and the dark squares
+  rise by g·(Ē − E) within 10 % on both paths; the display view's lift agrees within 15 %. **Ghosts are not rendered**: the catalogue
+  gives a ghost's peak power, but not its position, size, shape or color, and those would have to be invented.
+- **Focus breathing** (`breathing`). The catalogue's breathing is a field-of-view change Δ between infinity and minimum focus
+  beyond thin-lens unit focusing; at a focus distance it is Δ·min(1, m/m_max) (`resolveGenericLens`'s `breathing.fieldOfViewChange`).
+  It is rendered as a change of the image scale: every renderer reads the scene plane at d·(1 + Δ), so a ray at field angle θ meets
+  the plane where a thin-lens ray at tan θ′ = (1 + Δ)·tan θ would and the frame spans 1 + Δ times the plane (`result.scene.framedWidthM`
+  and the chart report follow). The irradiance is unchanged (the working f-number stays the thin lens's), metering reads the scene
+  without it, and with `lens.focusScatter` it is taken at the requested focus. Not combinable with `motion.subject`. Measured
+  (*PV 100 2.8 Macro Pro* at 0.3 m, Δ = −2.25 %): the rendered chart's width on the centre row matches the predicted site count within
+  one site on each side, with and without breathing; the framing helpers with `breathing: true` agree with the capture's report.
 
 ### Bokeh (#567)
 
@@ -284,7 +334,7 @@ It is an approximation: a generic lens, single effective channel wavelengths whe
 - Generic lenses: no product is modelled, no measured or branded data is used, and no paid dataset (`THIRD_PARTY.md` policy). The sources above are cited for their models and qualitative descriptions; no data is reproduced from them.
 - Primary aberrations only, scalar diffraction, a thin-lens pupil at the image distance; no higher orders, no pupil aberrations or mechanical vignetting of the pupil shape (cat's eye), no polarisation.
 - Between field and wavelength nodes the PSF is a centroid-aligned blend of the nodes, not a recomputed PSF.
-- Flare, ghosting and focus breathing are not rendered. The bokeh is geometric (no onion rings, no wave defocus), one cat's-eye circle stands for every barrel and element rim, and the blades are the same for every lens of a set ([Bokeh](#bokeh-567)). The three fixed phone lenses that the owner added to this catalogue for the phone sensor profile are part of #554.
+- Ghosts are not rendered; the veiling glare is a uniform veil and the breathing a pure change of scale (#632). The bokeh is geometric (no onion rings, no wave defocus), one cat's-eye circle stands for every barrel and element rim, and the blades are the same for every lens of a set ([Bokeh](#bokeh-567)). The three fixed phone lenses that the owner added to this catalogue for the phone sensor profile are part of #554.
 
 ## Sources
 
@@ -293,3 +343,4 @@ It is an approximation: a generic lens, single effective channel wavelengths whe
 - J. W. Goodman, *Introduction to Fourier Optics*, 3rd ed., ch. 4–6 (scalar Fraunhofer imaging).
 - J. W. Cooley and J. W. Tukey, "An algorithm for the machine calculation of complex Fourier series", *Mathematics of Computation* 19, 1965.
 - Wikipedia: Vignetting; Distortion (optics); Chromatic aberration; Coma (optics); Lens flare; Focus breathing (qualitative descriptions of how each effect varies with lens class and aperture).
+- Wikipedia: Fisheye lens (the equisolid-angle mapping r = 2f·sin(θ/2)), used with the catalogue's own design values for #631; the veiling glare and breathing of #632 follow the catalogue's definitions of its own numbers above (Photivra design values, not measurements).

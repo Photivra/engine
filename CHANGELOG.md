@@ -2,6 +2,20 @@
 
 ## 2.25.0 — unreleased
 
+### #631 Chart fit and coverage through the catalogue fisheyes
+
+- **New:** `calculateSubjectDistanceForFraming` and `calculateChartFraming` take `catalogue` (a lens id, or `{ kind, breathing? }`) instead of a focal length. A fisheye frames the chart through its equisolid projection r_i = 2v·sin(θ/2) and its distortion, as the capture renders it; coverage is the chart's image along the frame's axes. The result's new `lens` block gives the plane the frame sees and the field of view (null outside a circular fisheye's image circle or at 90°). Rectilinear catalogue lenses keep the thin-lens framing. New types `SubjectFramingCatalogueLens` and `SubjectFramingLens`.
+- **Fixed:** `result.scene.chart` of a fisheye capture with `chartSize` reported the thin-lens coverage; it now reports the projected one (1 m chart at 1 m on full frame through *PV 15 2.8 Fisheye Pro*: 41.1 % of the width, not 42.3 %). The image is unchanged.
+- Tests: `test/lens-catalogue-framing.test.ts` (worked example, every fit for both fisheyes, the rendered chart's width within a pixel of the report). docs/LENS_CATALOGUE.md, "Chart framing through the fisheyes".
+
+### #632 Veiling glare and focus breathing for catalogue lenses
+
+- **New, opt-in:** `lens: { catalogue: { kind, flare: true } }` renders the lens's veiling glare as the catalogue defines it: per site (1 − g)·μ + g·Σ_λ A_c(λ)·Ē(λ), Ē the frame's mean image irradiance, integrated with each site's own channel response (no per-channel table), on the fast and exact capture paths, region renders and the display view. Needs a still camera and a chart or material scene under uniform light. Fast: the mean on every n-th site, n = ⌈√(W·H / 65,536)⌉ (registry `lens.catalogue/flare-veil-mean`); exact: every site, and the per-site signal with each site's exact kernels.
+- **New, opt-in:** `breathing: true` renders the lens's focus breathing: the field of view × (1 + Δ) at the focus distance, as the image scale (the renderers read the plane at d·(1 + Δ)); the irradiance is unchanged. `result.scene.framedWidthM` and the chart report follow. Not with `motion.subject`.
+- **Not rendered:** ghosts. The catalogue gives a ghost's power but not its position, size, shape or color, so rendering one would mean inventing them; the `lens.catalogue.flare` assumption says so.
+- **Unchanged:** every capture without `flare` or `breathing` (`test/lens-catalogue-optics-pins.test.ts`, SHA-256 pins recorded on this release branch before #631/#632). Tests: `test/lens-catalogue-flare.test.ts`, `test/lens-catalogue-framing.test.ts`. docs/LENS_CATALOGUE.md, "Flare and breathing".
+- **Sizes** (the app's capture-worker shape, rolldown 1.2.9, zlib level 9, against this branch's base): fast worker 334,399 → 335,754 B, on demand 45,894 → 46,301 B (the reports in the opt-in kit). Limits 337,500 and 47,000 B, not raised.
+
 ### #612 Defocused display views: faster, same pixels
 
 - **Fixed:** defocused Quality display views became far slower in 2.21.0 because each site looked up its per-material kernel sums with a linear search. The lookup is now indexed; output is bit-identical.

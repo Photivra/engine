@@ -484,7 +484,18 @@ normals only), whose field-varying PSF needs a finer fast grid (measured 2.2–3
 cat's eye, read on the lattice. Blades and spherical aberration always apply (they cost nothing).
 
 ```ts
-export interface SimulateCaptureLensCatalogueRecord { kind: string; fast?: boolean }
+export interface SimulateCaptureLensCatalogueRecord {
+  kind: string;
+  fast?: boolean;
+  /**
+   * #632, opt-in: render the lens's veiling glare: E′ = (1 − g)·E + g·Ē, g its veiling-glare fraction and Ē the frame's mean image
+   * irradiance (per spectral node), integrated per site. Its ghosts are not rendered (the catalogue gives their power, not their
+   * position, size or shape). Still camera, chart or material scene, uniform light (docs/LENS_CATALOGUE.md, "Flare and breathing").
+   */
+  flare?: boolean;
+  /** #632, opt-in: render the lens's focus breathing: the field of view scaled by 1 + Δ, Δ its breathing at the focus distance. Not with `motion.subject`. */
+  breathing?: boolean;
+}
 ```
 
 ## SimulateCaptureLensCorrections
@@ -596,7 +607,8 @@ export interface SimulateCaptureOptions {
      * factor and it replaces the tier lens's focal length and f-number range (the transmission is kept). The capture renders the
      * lens's character, all labelled approximations: its PSF (diffraction with the lens's Seidel aberrations, axial and lateral
      * colour, at the resolved f-number and focus) through the environment PSF quadrature, its radial distortion, its vignetting
-     * and, for the fisheyes, the equisolid projection. Flare and focus breathing are not rendered. Not combinable
+     * and, for the fisheyes, the equisolid projection. Flare (veiling glare) and focus breathing are opt-in (#632, the record's `flare`
+     * and `breathing`); ghosts are not rendered. Not combinable
      * with `prime`, `focalLengthMm`, `projection`, `distortion`, `vignetting`, `psf`, `diffraction` or `pupilSampling` (the
      * lens sets them); `defocus` convolves the lens's bokeh kernel (#567) into its PSF. The display view renders it with the PSF taken per field zone (#569; docs/DISPLAY_VIEW.md). Default off.
      * #568: the record form `{ kind: <lens id>, fast }` overrides the top-level `fast` flag for this option; the fast method

@@ -393,7 +393,10 @@ for bit, as the unfiltered request at 2^-k times the illuminance (test/simulate-
 From #569 the view accepts `lens.catalogue` (the 30 generic lenses of [the lens catalogue](LENS_CATALOGUE.md)), at every
 f-number of each lens's range and down to its close focus, with `lens.defocus` and `lens.focusScatter`, the combinations
 `simulateCapture` renders. The lens's distortion, vignetting and (for the fisheyes) projection go through the
-[lens signal](#lens-projection-distortion-vignetting-and-rotation) as above; its PSF is the new part.
+[lens signal](#lens-projection-distortion-vignetting-and-rotation) as above; its PSF is the new part. With
+`lens.catalogue: { kind, flare: true }` (#632) each site's expected electrons take the capture's veiling glare, (1 − g)·μ + g·Σ_λ A_c(λ)·Ē(λ),
+with the frame's mean Ē read on the site lattice by the same rule; with `breathing: true` the view reads the plane at d·(1 + Δ)
+as the capture does ([Flare and breathing](LENS_CATALOGUE.md#flare-and-breathing-632)).
 
 - **What the capture does.** The catalogue lens's sampled PSF (5 × 5 field nodes × 5 wavelengths, centroid-aligned
   interpolation, diffraction and the lens's aberrations included) is resolved by the environment PSF quadrature at each

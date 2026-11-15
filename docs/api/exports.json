@@ -10053,12 +10053,22 @@
       "kind": "type"
     },
     {
+      "name": "SubjectFramingCatalogueLens",
+      "source": "src/facade/subject-framing.ts",
+      "kind": "type"
+    },
+    {
       "name": "SubjectFramingCrop",
       "source": "src/output/subject-framing-crop.ts",
       "kind": "type"
     },
     {
       "name": "SubjectFramingFit",
+      "source": "src/facade/subject-framing.ts",
+      "kind": "type"
+    },
+    {
+      "name": "SubjectFramingLens",
       "source": "src/facade/subject-framing.ts",
       "kind": "type"
     },

@@ -318,7 +318,10 @@ cropped on its other side). The result reports the magnification, image distance
 equivalent focal length if there is one, the prime family's minimum focus distance at that focal length
 and `belowMinimumFocus`, plus assumptions in the same form as `simulateCapture`. It is the same framing
 `simulateCapture` uses, so `chartSize` at the returned distance gives `frameWidthFraction` 1 (tested). For the coverage at any other distance, see
-[Chart coverage at any distance](#chart-coverage-at-any-distance-25).
+[Chart coverage at any distance](#chart-coverage-at-any-distance-25). With a catalogue lens, pass `catalogue` (its id, or
+`{ kind, breathing? }`) instead of the focal length (#631): a fisheye then frames through its equisolid projection and distortion, as
+`simulateCapture` renders it, and the result's `lens` block gives its field of view
+([Chart framing through the fisheyes](LENS_CATALOGUE.md#chart-framing-through-the-fisheyes-631)).
 
 An A3 chart (0.42 × 0.28 m) on a full-frame sensor: 0.127 m at 10 mm, 0.633 m at 50 mm, 2.53 m at
 200 mm and 15.2 m at 1200 mm (magnification 0.0857, minimum focus 0.10, 0.38, 1.53 and 9.2 m). On a

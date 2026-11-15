@@ -1766,7 +1766,9 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 | [`CalculateSubjectDistanceForFramingInput`](api/facade-subject-framing.md#calculatesubjectdistanceforframinginput) | Type |
 | [`ChartFraming`](api/facade-subject-framing.md#chartframing) | Type |
 | [`SubjectFraming`](api/facade-subject-framing.md#subjectframing) | Type |
+| [`SubjectFramingCatalogueLens`](api/facade-subject-framing.md#subjectframingcataloguelens) | Type |
 | [`SubjectFramingFit`](api/facade-subject-framing.md#subjectframingfit) | Type |
+| [`SubjectFramingLens`](api/facade-subject-framing.md#subjectframinglens) | Type |
 
 ## gpu/image-kernel-accelerator.ts
 
