@@ -294,23 +294,30 @@ export interface MaterialSums {
   value(): number;
 }
 export function createMaterialSums(nodes: number, spectra: readonly Float64Array[]): MaterialSums {
-  // A site reads at most every material once: one slot per material, in the order of the site's first taps.
-  let count = 0, last = -1, lastAt = 0;
+  // A site reads at most every material once: one slot per material, in the order of the site's first taps. Material m's slot
+  // is slotOf[m] while stampOf[m] holds the current site's stamp (reset() starts a new stamp), so it is found in constant time.
+  // #612: 2.21.0–2.24.0 searched the site's slots for it, which made a kernel window over fine chart detail (hundreds of
+  // distinct materials) cost about the square of its distinct materials. The slots, their order and every sum are unchanged.
+  let count = 0, last = -1, lastAt = 0, stamp = 1;
   const ids = new Int32Array(spectra.length), sums = new Float64Array(spectra.length * nodes);
+  const slotOf = new Int32Array(spectra.length), stampOf = new Uint32Array(spectra.length);
   /** The offset of material m's sums, a new zeroed slot when the site has not read m yet. */
   const slot = (m: number): number => {
     if (m === last) return lastAt;
-    let a = 0;
-    while (a < count && ids[a] !== m) a++;
-    if (a === count) {
+    let a: number;
+    if (m >= 0 && m < spectra.length && stampOf[m] === stamp) a = slotOf[m]!;
+    else {
       if (spectra[m] === undefined) throw new InvalidConfigurationError("Unknown chart material.");
-      ids[count++] = m; sums.fill(0, a * nodes, (a + 1) * nodes);
+      a = count++; ids[a] = m; slotOf[m] = a; stampOf[m] = stamp; sums.fill(0, a * nodes, (a + 1) * nodes);
     }
     last = m; lastAt = a * nodes;
     return lastAt;
   };
   return {
-    reset(): void { count = 0; last = -1; },
+    reset(): void {
+      count = 0; last = -1; stamp++;
+      if (stamp === 0xffffffff) { stampOf.fill(0); stamp = 1; }
+    },
     add(m: number, k: Float64Array, at: number, f = 1): void {
       const base = slot(m);
       for (let n = 0; n < nodes; n++) sums[base + n] = sums[base + n]! + f * k[at + n]!;

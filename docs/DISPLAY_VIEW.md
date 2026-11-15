@@ -103,6 +103,11 @@ unit tap without `lens.diffraction`). Dark electrons (1 e⁻/s × exposure) are 
   radiance at the nodes (a neutral one: its reflectance times the white radiance), and a site's signal is formed from the
   spectra of the materials its taps read, against its own channel's response, when the site is read. No per-material
   channel value is precomputed. Each lattice point still costs one material lookup.
+- With kernels (diffraction or defocus), a site keeps one set of per-node kernel sums per distinct material its taps read.
+  Since #612 a material's set is found in constant time; 2.21.0–2.24.0 searched the site's materials for it, so a kernel
+  window over fine chart detail cost about the square of its distinct materials. The sets, their order and every sum are
+  unchanged, so the result is bit-identical to 2.24.0. What remains of 2.21.0's cost is the per-node sum itself: one
+  addition per tap and spectral node, against one per tap before 2.21.0 ([Cost, defocus](#defocus-1)).
 - With diffraction, offsets that share a fractional shift (the centred four-spot filter has one
   half-site-shifted lattice) are combined with the kernels in advance, as the capture's object-space
   convolution does, and lattice points are evaluated with the same formula as
