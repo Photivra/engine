@@ -2,6 +2,8 @@
 
 ## 2.25.0 — unreleased
 
+- **Root exports (#620–#626):** 18 new, 2,030 → 2,048 (generated API reference). Nothing is removed.
+
 ### #621 JPEG Exif writer
 
 - **New:** `setJpegExifCaptureSettings(jpeg, settings)`, `jpegExifCaptureSettingsFromFields(fields)`, `JPEG_EXIF_CAPTURE_SETTING_KEYS` and the types `JpegExifCaptureSettings` and `JpegExifDateTaken`. The JPEG's Exif block is replaced by one written from an allowlist: exposure time, f-number, ISO (as SensitivityType 2 with RecommendedExposureIndex, as the engine's exports write it), focal length, 35 mm focal length, exposure bias, white balance, date taken (DateTimeOriginal, SubSecTimeOriginal, OffsetTimeOriginal), Software and Orientation, plus Exif 2.32's mandatory tags for a compressed image. Every earlier Exif segment is removed; other segments and the image data are kept byte for byte. The setting names are those of the shared Exif capture fields, so `parsePhotoMetadata` reads them back.
