@@ -369,6 +369,15 @@ projection; `rotation` yaw 0.05 and pitch 0.03 rad/s at 1/125 s, the default eig
 - The capture's own cost with these options (#548's table in [Quick start, Optics](QUICK_START.md#optics)) is far higher;
   the view's follows the display pixels as before.
 
+### Front-of-lens filter (#624)
+
+`lens.filter` (docs/USAGE.md, "A filter in front of the capture's lens") multiplies the lens transmission by the filter stack's
+transmission T(λ) at each sample wavelength. The view's expected signal takes its electrons per unit radiance at each spectral
+node from the capture's own environment chain, so each node's value carries T(λ) and every site of the view integrates through the
+filter, on the CPU and in the WebGPU kernels alike (they read the same per-node tables; no per-channel factor is formed). The
+exposure the view shows is the capture's, metered through the filter. A flat filter of transmittance 2^-k gives the same view, bit
+for bit, as the unfiltered request at 2^-k times the illuminance (test/simulate-capture-lens-filter.test.ts).
+
 ### Catalogue lenses (#569)
 
 From #569 the view accepts `lens.catalogue` (the 30 generic lenses of [the lens catalogue](LENS_CATALOGUE.md)), at every

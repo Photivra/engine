@@ -1090,6 +1090,28 @@ const { value } = calculateFilteredExposureTime({
 console.log(value.filteredShutterSeconds.toFixed(2), value.dial?.shutterSeconds); // 8.19 8
 ```
 
+### A filter in front of the capture's lens
+
+`simulateCapture`, `simulateIdealReference`, `simulateDisplayView` and `prepareDisplayView` take `lens.filter` (#624, 2.25.0): one front-of-lens filter profile, such as `GENERIC_ND_FILTER_PROFILES[10]`, or an array in light-path order (scene side first). Every filter must cover 380–780 nm.
+
+- **Rendering.** The stack's transmission T(λ) multiplies the lens transmission at every wavelength, so each site integrates its light through the filter on every path: sRGB, DNG, JPEG and PNG exports, the ideal reference and the display view. A spectrally flat stack (ND, optical density, polarizers with the facade's unpolarized scenes) is one factor, resolved at 550 nm as `calculateFilteredExposureTime` resolves it. A `spectral-transmission` filter must state vacuum wavelengths (the capture's basis); the stack is sampled at its filters' sample wavelengths and interpolated linearly between them (exact for one spectral filter, an approximation for two or more).
+- **Exposure.** The meter reads through the filter, as a through-the-lens meter does: each zone reads the photopic luminance of L(λ)·T(λ), which is exactly T times the scene luminance for a flat stack. The automatic modes and Auto ISO therefore compensate, and for a flat stack the resolved shutter is `calculateFilteredExposureTime`'s t / T at the same f-number and ISO, before the resolvers' steps and limits. Grey-card metering reads the card through the filter too (the illuminant-weighted photopic transmission for a spectral stack). Manual mode only darkens the capture.
+- **Report.** `exposure.filter` gives the filter ids, the stack's transmittance at 550 nm, its attenuation in stops and whether it is spectrally flat; the `lens.filter` assumption records the same with the filters' limitations. With a filter, `standardExposureDeviationStops`, `standardExposureIlluminanceLux` and `greyCardDeviationStops` are those of the light through it; `meteredSceneLuminanceCdPerSquareMeter` stays the scene's.
+- Not modelled: reflections between stacked filters, flare, light leaking around the filter, and a polarizer's effect on polarized scene light (the facade's scenes are unpolarized).
+
+```ts
+import { GENERIC_ND_FILTER_PROFILES, simulateCapture } from "@photivra/engine";
+
+// Aperture priority at f/8 and ISO 100 with a 6-stop ND filter: the meter reads through it.
+const filtered = await simulateCapture({
+  scene: { preset: "uniform" }, output: { width: 32, height: 24 },
+  lens: { fNumber: 8, filter: GENERIC_ND_FILTER_PROFILES[6] },
+  exposure: { mode: "aperture-priority", iso: 100, metering: "grey-card" }
+});
+// Without the filter this request resolves 1/125 s (the generic tiers' shutter is continuous); with it, 64/125 s.
+console.log(filtered.exposure.settings.shutterSeconds.toFixed(3), filtered.exposure.filter?.attenuationStops); // 0.512 6
+```
+
 ### Spectral boundary
 
 Spectral filter data stays wavelength-resolved all the way through the [scene-radiance-to-sensor bridge](#scene-radiance-to-sensor-irradiance). Photivra does not turn a spectral filter into an undocumented RGB tint.

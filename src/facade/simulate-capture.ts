@@ -39,6 +39,7 @@ import type { EvidenceProvenance } from "../core/evidence-provenance.js";
 import { GENERIC_TIER_ASSETS, type GenericEquipmentTier, type GenericEquipmentTierPreset } from "../equipment/generic-tier-assets.js";
 import { parseCallerCameraPreset } from "./camera-preset.js";
 import type { SensorProfile } from "../equipment/sensor-profile-body.js";
+import type { FrontOfLensFilterProfile } from "../optics/front-of-lens-filter.js";
 import { createHostYield } from "./host-yield.js";
 import { fastFormatDefault, resolveFast } from "./fast-resolution.js";
 import { SPECTRAL_SPIKINESS_THRESHOLD, spectralSpikiness } from "../color/spectral-spikiness.js";
@@ -147,6 +148,16 @@ export const SIMULATE_CAPTURE_METERING_MODES: readonly SimulateCaptureMetering[]
  * the target; `"hold-preferred-shutter"` keeps the preferred shutter and leaves the exposure under target.
  */
 export type SimulateCaptureAutoIsoAfterMaximum = "allow-slower-shutter" | "hold-preferred-shutter";
+/**
+ * #624: `lens.filter` as the result's `exposure.filter` reports it: the filters' ids, the stack's transmittance at 550 nm and its
+ * attenuation in stops (−log2 T), and whether it is spectrally flat (one factor at every wavelength).
+ */
+export interface SimulateCaptureLensFilterReport {
+  filterIds: readonly string[];
+  linearTransmissionFactor: number;
+  attenuationStops: number;
+  spectrallyFlat: boolean;
+}
 /**
  * #516: how Auto ISO chose the ISO (`exposure.iso: "auto"`), reported in the result's `exposure.autoIso`. The full
  * resolver output stays in the capture's `exposure.resolution`.
@@ -427,6 +438,16 @@ export interface SimulateCaptureOptions {
      * (docs/LENS_CATALOGUE.md, "Fast method").
      */
     catalogue?: string | SimulateCaptureLensCatalogueRecord;
+    /**
+     * Opt-in (#624, 2.25.0): a front-of-lens filter, such as `GENERIC_ND_FILTER_PROFILES[10]`, or several in light-path order
+     * (scene side first), as `parseFrontOfLensFilterProfile` accepts them; each must cover 380–780 nm. Its transmission T(λ)
+     * multiplies the lens transmission at every wavelength, so every render path (sRGB, DNG, JPEG, PNG, the ideal reference and the
+     * display view) integrates each site's light through it. The meter reads through it, so the automatic modes and Auto ISO
+     * compensate: for a spectrally flat filter the resolved shutter is `calculateFilteredExposureTime`'s t / T at the same f-number
+     * and ISO, before the resolvers' steps and limits; manual mode only darkens. A `spectral-transmission` filter must state vacuum
+     * wavelengths. Reported in `exposure.filter` and the `lens.filter` assumption. Default: no filter.
+     */
+    filter?: FrontOfLensFilterProfile | readonly FrontOfLensFilterProfile[];
     /**
      * Opt-in (#549), with `catalogue` only: a seeded autofocus error (`simulateGenericLensFocusError`). The focus distance becomes
      * the sampled one for (seed, shotIndex), reported in the `lens.focusScatter` assumption; it is visible with `defocus`. Default off.
@@ -816,6 +837,12 @@ export interface SimulateCaptureResult {
     isoControl: "manual" | "automatic";
     /** #516: present with `iso: "auto"`: how Auto ISO chose `settings.iso` and what limited it. */
     autoIso?: SimulateCaptureAutoIsoReport;
+    /**
+     * #624: present with `lens.filter`. The meter read through it, and `standardExposureDeviationStops`,
+     * `standardExposureIlluminanceLux` and `greyCardDeviationStops` are those of the light through it;
+     * `meteredSceneLuminanceCdPerSquareMeter` stays the scene's.
+     */
+    filter?: SimulateCaptureLensFilterReport;
     /** 2.14: the metering the exposure used (`exposure.metering`; `"scene-average"` when omitted). */
     metering: SimulateCaptureMetering;
     /** The scene's average luminance on the meter's zones, cd/m², with either metering. */
@@ -1604,7 +1631,7 @@ export interface IdealReferenceResult {
   /** The resolved exposure of the capture this reference matches. */
   exposure: { mode: SimulateCaptureExposureMode; settings: { fNumber: number; shutterSeconds: number; iso: number }; ev100: number;
     /** #516: as in the capture result. */
-    isoControl: "manual" | "automatic"; autoIso?: SimulateCaptureAutoIsoReport };
+    isoControl: "manual" | "automatic"; autoIso?: SimulateCaptureAutoIsoReport; filter?: SimulateCaptureLensFilterReport };
   scene: SimulateCaptureResult["scene"];
   region?: { x: number; y: number; width: number; height: number; frameWidth: number; frameHeight: number };
   diagnostics: { sampleCount: number; timingsMs: { reference: number; total: number } };
@@ -1655,7 +1682,7 @@ export interface DisplayViewResult {
     /** 2.14: as in the capture result. */
     metering: SimulateCaptureMetering;
     /** #516: as in the capture result. */
-    isoControl: "manual" | "automatic"; autoIso?: SimulateCaptureAutoIsoReport };
+    isoControl: "manual" | "automatic"; autoIso?: SimulateCaptureAutoIsoReport; filter?: SimulateCaptureLensFilterReport };
   scene: SimulateCaptureResult["scene"];
   /** #555, #535: as in the capture result. */
   sensor: SimulateCaptureSensorReport;
@@ -1765,7 +1792,7 @@ export interface DisplayViewRunContext {
   gamutHandling: "clip-components" | "desaturate-to-luminance";
   resolvedIso: number;
   /** #516: how the ISO was chosen, reported in the view's `exposure`. */
-  isoReport: { isoControl: "manual" | "automatic"; autoIso?: SimulateCaptureAutoIsoReport };
+  isoReport: { isoControl: "manual" | "automatic"; autoIso?: SimulateCaptureAutoIsoReport; filter?: SimulateCaptureLensFilterReport };
   /** #515: the capture's `exposure.standardExposureDeviationStops`. */
   standardExposureDeviationStops: number | null;
   /** The capture's `exposure.standardExposureIlluminanceLux`. */
@@ -1975,7 +2002,9 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
 
   // Lens
   const lensOptions = allowKeys(top.lens, "lens", ["focalLengthMm", "fNumber", "focusDistanceM", "pupilSampling", "projection", "distortion", "vignetting", "psf", "diffraction", "prime", "defocus",
-    "catalogue", "focusScatter", "ideal"]);
+    "catalogue", "focusScatter", "ideal", "filter"]);
+  // #624: a front-of-lens filter stack (ND, optical density, polarizer or spectral), loaded with the opt-in kit.
+  const lensFilter = lensOptions.filter === undefined ? undefined : (await optInKit.load()).resolveLensFilter(lensOptions.filter, FACADE_SPECTRAL_RANGE_NANOMETERS);
   // Generic prime (2.3): resolved on the simulated frame's size, which the output and sensor sections validate again below.
   let prime: GenericPrimeLens | undefined;
   // The simulated frame in mm (output width × height × pixel pitch), validated again below.
@@ -2624,22 +2653,35 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
     "Exposure anchor: f/8, 1/125 s, ISO 100 gives the CIPA DC-004 standard output sensitivity reference exposure H = 10/S = 0.1 lx·s for an average scene luminance of 10·N²/(0.65·t·S) ≈ 1230.77 cd/m² (camera equation H = 0.65·L·t/N²)" +
     (referenceAperture === DEFAULTS.fNumber ? "." : "; the lens excludes f/8: " + (reference.shutterSeconds > sameShutter ? "the shortest shutter" : "the same N²/t") + " at f/" + referenceAperture + "."));
   const meterProfile = body.metering[0]!.profile, zones = 16, zoneSamples = [];
-  let luminanceSum = 0;
+  // #624: the meter reads through lens.filter: L·T for a spectrally flat stack, the photopic integral of L(λ)·T(λ) otherwise.
+  const filterT = lensFilter?.transmissionAt;
+  let luminanceSum = 0, filteredLuminanceSum = 0;
   for (let j = 0; j < zones; j++) for (let i = 0; i < zones; i++) {
     const u = -1 + (i + 0.5) * 2 / zones, v = aspect - (j + 0.5) * 2 * aspect / zones;
     const luminance = luminanceOf((nm) => provider.radianceAt(u, v, nm));
+    const filtered = !lensFilter ? luminance : lensFilter.spectrallyFlat ? luminance * lensFilter.linearTransmissionFactor : luminanceOf((nm) => provider.radianceAt(u, v, nm) * filterT!(nm));
     luminanceSum += luminance;
+    filteredLuminanceSum += filtered;
     zoneSamples.push({ sampleId: "zone-" + i + "-" + j, positionOrientedCaptureUv: { u: (i + 0.5) / zones, v: (j + 0.5) / zones },
-      relativeLinearSignal: meterProfile.target.targetRelativeSignal * luminance / referenceLuminance, areaWeight: 1 });
+      relativeLinearSignal: meterProfile.target.targetRelativeSignal * filtered / referenceLuminance, areaWeight: 1 });
   }
   const meteredLuminance = luminanceSum / (zones * zones);
+  // For the grey card through lens.filter: the illuminant-weighted photopic transmission.
+  const cardTransmission = !lensFilter ? 1 : lensFilter.spectrallyFlat ? lensFilter.linearTransmissionFactor :
+    luminanceOf((nm) => illuminant.shape.evaluate(nm) * filterT!(nm)) / luminanceOf((nm) => illuminant.shape.evaluate(nm));
+  if (lensFilter) assume("lens.filter", "model", { filterIds: [...lensFilter.filterIds], linearTransmissionFactor: lensFilter.linearTransmissionFactor,
+    attenuationStops: lensFilter.attenuationStops, spectrallyFlat: lensFilter.spectrallyFlat, scientificStatus: lensFilter.scientificStatus, limitations: [...lensFilter.limitations] },
+  "Front-of-lens filter stack (#624): its transmission multiplies the lens transmission at every wavelength, so every site integrates the light through it; " +
+    "the meter reads through it (TTL), so the automatic modes give t / T at the same f-number and ISO (calculateFilteredExposureTime) before their steps and limits. " +
+    (lensFilter.spectrallyFlat ? "Spectrally flat: one factor, resolved at 550 nm." : "Spectral: sampled at the filters' wavelengths (vacuum) and interpolated linearly; the meter integrates the photopic luminance through it.") +
+    " Inter-filter reflections, flare and light leaks are not modelled; the filter's evidence and limitations are the caller's.");
   assume("exposure.metering", "model", { policy: meterProfile.policy.kind, zones: zones * zones },
     "The body's " + meterProfile.policy.kind + " meter reads scene luminance on a 16 × 16 zone grid, before the lens (no lens transmission, vignetting or flare).");
   if (metering === "grey-card") {
     // 2.14: incident metering. Every zone reads the 18 % Lambertian grey card under the request's illuminance, L = 0.18·E/π.
     if (callerScene?.kind === "radiance-function") fail('exposure.metering "grey-card" needs a scene lit by the illuminance; a radiance-function scene ignores illuminanceLux.');
     const cardLuminance = GREY_CARD_REFLECTANCE * illuminanceLux / Math.PI;
-    for (const sample of zoneSamples) sample.relativeLinearSignal = meterProfile.target.targetRelativeSignal * cardLuminance / referenceLuminance;
+    for (const sample of zoneSamples) sample.relativeLinearSignal = meterProfile.target.targetRelativeSignal * cardLuminance * cardTransmission / referenceLuminance;
     if (mixed) assume("exposure.meteringCard", "model", { position: { u: 0, v: 0 }, illuminanceLux },
       "Mixed lighting (#550): the grey card sits at the frame center and reads the light there.");
     assume("exposure.meteringSource", "model", { metering, greyCardReflectance: GREY_CARD_REFLECTANCE, luminanceCdPerSquareMeter: cardLuminance },
@@ -2774,10 +2816,14 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   if (!Number.isFinite(resolvedIso) || resolvedIso <= 0) fail("Exposure could not be resolved: the resolved ISO is not a positive finite number.");
   const isoReport = automaticIso ? { isoControl: "automatic" as const, autoIso: autoIsoReport(resolution, resolverCapabilities.iso, autoIsoShutterPolicy, autoIsoLimits, automaticSlowestShutter,
     autoIsoOptions.isoSteps === undefined ? undefined : autoIsoIsoSteps) } : { isoControl: "manual" as const };
-  const exposureDeviationStops = standardExposureDeviationStops(fNumber, shutterSeconds, resolvedIso, meteredLuminance);
-  const exposureIlluminanceLux = standardExposureIlluminanceLux(fNumber, shutterSeconds, resolvedIso, meteredLuminance, illuminanceLux,
+  if (lensFilter) Object.assign(isoReport, { filter: Object.freeze({ filterIds: [...lensFilter.filterIds], linearTransmissionFactor: lensFilter.linearTransmissionFactor,
+    attenuationStops: lensFilter.attenuationStops, spectrallyFlat: lensFilter.spectrallyFlat }) });
+  // #624: with lens.filter the deviations are those of the light through the filter (the scene average, or the grey card, times T).
+  const sceneAverageThrough = lensFilter ? filteredLuminanceSum / (zones * zones) : meteredLuminance;
+  const exposureDeviationStops = standardExposureDeviationStops(fNumber, shutterSeconds, resolvedIso, sceneAverageThrough);
+  const exposureIlluminanceLux = standardExposureIlluminanceLux(fNumber, shutterSeconds, resolvedIso, sceneAverageThrough, illuminanceLux,
     callerScene?.kind !== "radiance-function");
-  const exposureGreyCardDeviationStops = callerScene?.kind === "radiance-function" ? null : greyCardDeviationStops(fNumber, shutterSeconds, resolvedIso, illuminanceLux);
+  const exposureGreyCardDeviationStops = callerScene?.kind === "radiance-function" ? null : greyCardDeviationStops(fNumber, shutterSeconds, resolvedIso, illuminanceLux * cardTransmission);
   // #549: the catalogue lens's character at the resolved f-number and focus: focus scatter, the defocus disc folded into its PSF, then
   // its distortion and vignetting profiles over the field the PSF and the queries reach, and its PSF profile.
   let catalogueTaps: number | undefined, catalogueDefocusApplied = false, catalogueKernelRadius = 0, catalogueCornerStops = 0;
@@ -3228,8 +3274,10 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
     scientificStatus: "approximation" as const, applicability: { focalLengthMm: { minimum: capabilities.selectedFocalLengthMm, maximum: capabilities.selectedFocalLengthMm },
       nominalFNumber: { minimum: capabilities.aperture.widestAvailableFNumber, maximum: capabilities.aperture.narrowestAvailableFNumber }, focus: { kind: "any" as const } },
     transmission: { kind: "spectral-transmission" as const, scientificStatus: "approximation" as const, wavelengthBasis: "vacuum" as const,
-      samples: { value: [{ wavelengthNanometers: range.minimum, linearTransmissionFactor: lens.matchedReference.transmission },
-        { wavelengthNanometers: range.maximum, linearTransmissionFactor: lens.matchedReference.transmission }], evidence: preset.evidence },
+      // #624: lens.filter multiplies the lens transmission at each sample wavelength (the filter's own samples for a spectral one).
+      samples: { value: lensFilter ? lensFilter.sampleWavelengths.map((nm) => ({ wavelengthNanometers: nm, linearTransmissionFactor: lens.matchedReference.transmission * lensFilter.transmissionAt(nm) })) :
+        [{ wavelengthNanometers: range.minimum, linearTransmissionFactor: lens.matchedReference.transmission },
+          { wavelengthNanometers: range.maximum, linearTransmissionFactor: lens.matchedReference.transmission }], evidence: lensFilter ? [...preset.evidence, ...lensFilter.evidence] : preset.evidence },
       uncertainty: { kind: "not-quantified" as const, limitation: "Synthetic spectrally flat transmission from the tier preset." } },
     ...SCENE_TO_SENSOR_BRIDGE_SCOPE, evidence: preset.evidence, limitations: [...lens.limitations, "Flat transmission applied across the lens capability by the capture facade."] };
   const optics = { profile: opticsProfile, focalLengthMm, nominalFNumber: fNumber,
