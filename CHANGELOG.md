@@ -2,6 +2,11 @@
 
 ## 2.25.0 — unreleased
 
+### #612 Defocused display views: faster, same pixels
+
+- **Fixed:** defocused Quality display views became far slower in 2.21.0 because each site looked up its per-material kernel sums with a linear search. The lookup is now indexed; output is bit-identical.
+- **Default change:** on the CPU, a plain defocus disc much wider than the diffraction kernel now applies the disc after the in-focus signal (the regrouping already used above 64 sites), at any radius. It is the fast default for display views (`lens.defocus/view-regrouped`); `fast: false`, the GPU, shaped bokeh kernels and the lens path keep the previous method. On the measured Guide cases the output is identical to the previous method.
+
 ### #613–#616 Standalone helpers: equivalent ISO, program line, sensor figures, exposure helpers
 
 - **New (25 root exports, 8 of them runtime; nothing removed or changed):**
