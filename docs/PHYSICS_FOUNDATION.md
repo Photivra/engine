@@ -131,6 +131,36 @@ Photivra bases equivalence on the active physical capture area, not on any later
 
 `calculateBlurShareOfFrame()` (model `blur-share-of-frame` 1.0.0) divides a blur-circle diameter by the frame diagonal, width and height. With a print size it enlarges the whole frame to fit inside the print, long side to long side, and reports the blur on the print. These are exact ratios. Equal shares of the diagonal look the same at the same output size, which is the convention behind the diagonal-scaled circle of confusion. Whether a blur is visible depends on viewing distance and acuity, which neither function judges.
 
+### Sensor equivalence from a file's 35 mm-equivalent focal length
+
+`calculateImagingAreaFromFocalLength35Mm()` (model `imaging-area-from-35mm-focal-length` 1.0.0, #619) inverts the diagonal 35 mm equivalence for a file that states FocalLength `f` and FocalLengthIn35mmFilm `F35` (Exif 2.32, CIPA DC-008-2019, free): the crop factor is `k = F35/f`, the imaging area's diagonal is `43.27 mm · f / F35` (43.27 mm is the 36 × 24 mm diagonal), and the width and height split it in the image's pixel aspect ratio `W:H` (square pixels): `width = diagonal · W/√(W² + H²)`, `height = diagonal · H/√(W² + H²)`. Feeding the area back into `calculateEquivalentFocalLength35Mm()` returns `F35`.
+
+Exif stores `F35` as a whole number of millimeters, so the true value is taken to lie in `[F35 − 0.5, F35 + 0.5]` (`focalLength35MmResolutionMm`, default 1; 0 for an exact value). The crop factor's interval is `[(F35 − 0.5)/f, (F35 + 0.5)/f]`, a relative half-width of `0.5/F35` (±1.9 % at 27 mm, ±1 % at 50 mm), and the area's interval follows. The result's `exactness` is "exact" only for resolution 0; otherwise "approximation", with the interval, so a caller can label each number. Its `basis` states the convention and assumptions:
+
+- the writer computed `F35` on the diagonal (the engine's convention) and rounded it to the nearest millimeter; Exif states neither;
+- the area is that of the recorded image: it is the sensor's active area only when the image is not cropped. A writer that includes a digital zoom (DigitalZoomRatio above 1) or an aspect-ratio crop in `F35` gives the cropped area.
+
+`calculateSensorEquivalenceFromFocalLength35Mm()` (model `sensor-equivalence-from-35mm-focal-length` 1.0.0) passes that area, the file's `f` and its f-number to `calculateSensorEquivalence()` and also returns the crop factor, equivalent focal length, equivalent f-number, area ratio and total-light difference over the interval. Example: 6.2 mm at f/1.8 stated as 27 mm on a 4:3 image gives crop factor 4.35 (4.27–4.44), an area of about 7.95 × 5.96 mm, an equivalent f-number of f/7.84 (f/7.69–f/7.98; an approximation, as above) and −4.19 stops of total light against full frame (−4.24 to −4.14).
+
+```ts
+import { calculateSensorEquivalenceFromFocalLength35Mm } from "@photivra/engine";
+
+const fromFile = calculateSensorEquivalenceFromFocalLength35Mm({
+  focalLengthMm: 6.2,
+  focalLength35MmEquivalentMm: 27,
+  imageWidthPixels: 4032,
+  imageHeightPixels: 3024,
+  fNumber: 1.8
+});
+
+console.log(fromFile.value.derivedImagingArea.cropFactorInterval); // { minimum: 4.27..., maximum: 4.43... }
+console.log(fromFile.value.derivedImagingArea.exactness); // "approximation" (the tag is rounded to 1 mm)
+console.log(fromFile.value.equivalence.equivalentFNumber); // about 7.84
+console.log(fromFile.value.intervals.totalLightDifferenceStops); // about −4.24 to −4.14
+```
+
+Prefer this route to the focal-plane resolution when a file states both: a converted file can keep the camera's focal-plane resolution while storing a different image size, which on a private test set of converted DNGs gave areas 2× too large or about half as large (docs/IMPORT_AND_PNG.md, "35 mm-equivalent focal length and focal-plane resolution").
+
 ### Aperture (entrance-pupil) diameter
 
 `calculateApertureDiameter()` (model `aperture-diameter` 1.0.0, #577) gives the entrance-pupil diameter `D = f/N` in millimetres from the focal length `f` and the f-number `N`; 50 mm at f/2 gives 25 mm. It is exact by the definition of the f-number, `N = f/D` for an object at infinity (Greivenkamp, [OPTI-502 course notes, sec. 12](https://wp.optics.arizona.edu/jgreivenkamp/wp-content/uploads/sites/11/2019/08/502-12-Objectives.pdf), free). `D` is the diameter of the entrance pupil, the aperture stop as seen from the front of the lens, not of the diaphragm's physical opening. One stop (a factor √2 in `N`) halves the pupil's area.

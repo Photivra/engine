@@ -105,6 +105,20 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 | [`SensorEquivalenceFieldOfView`](api/camera-sensor-equivalence.md#sensorequivalencefieldofview) | Type |
 | [`SensorEquivalenceQuantity`](api/camera-sensor-equivalence.md#sensorequivalencequantity) | Type |
 
+## camera/stated-focal-length-equivalence.ts
+
+[Detailed contracts](api/camera-stated-focal-length-equivalence.md) · [Source](https://github.com/Photivra/engine/blob/main/src/camera/stated-focal-length-equivalence.ts)
+
+| Export | Kind |
+| --- | --- |
+| [`calculateImagingAreaFromFocalLength35Mm`](api/camera-stated-focal-length-equivalence.md#calculateimagingareafromfocallength35mm) | Runtime |
+| [`CalculateImagingAreaFromFocalLength35MmInput`](api/camera-stated-focal-length-equivalence.md#calculateimagingareafromfocallength35mminput) | Type |
+| [`calculateSensorEquivalenceFromFocalLength35Mm`](api/camera-stated-focal-length-equivalence.md#calculatesensorequivalencefromfocallength35mm) | Runtime |
+| [`CalculateSensorEquivalenceFromFocalLength35MmInput`](api/camera-stated-focal-length-equivalence.md#calculatesensorequivalencefromfocallength35mminput) | Type |
+| [`ImagingAreaFromFocalLength35Mm`](api/camera-stated-focal-length-equivalence.md#imagingareafromfocallength35mm) | Type |
+| [`SensorEquivalenceFromFocalLength35Mm`](api/camera-stated-focal-length-equivalence.md#sensorequivalencefromfocallength35mm) | Type |
+| [`StatedValueInterval`](api/camera-stated-focal-length-equivalence.md#statedvalueinterval) | Type |
+
 ## capture/c2pa-embed.ts
 
 [Detailed contracts](api/capture-c2pa-embed.md) · [Source](https://github.com/Photivra/engine/blob/main/src/capture/c2pa-embed.ts)
@@ -176,6 +190,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 | [`importDngRawImage`](api/capture-dng-import.md#importdngrawimage) | Runtime |
 | [`ImportedDngBlackLevel`](api/capture-dng-import.md#importeddngblacklevel) | Type |
 | [`ImportedDngCfa`](api/capture-dng-import.md#importeddngcfa) | Type |
+| [`ImportedDngEnhancedImage`](api/capture-dng-import.md#importeddngenhancedimage) | Type |
 | [`ImportedDngExif`](api/capture-dng-import.md#importeddngexif) | Type |
 | [`ImportedDngNoiseProfilePlane`](api/capture-dng-import.md#importeddngnoiseprofileplane) | Type |
 | [`ImportedDngRaw`](api/capture-dng-import.md#importeddngraw) | Type |
@@ -266,6 +281,16 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 | [`EnvironmentSensorRawFrame`](api/capture-environment-raw-producer.md#environmentsensorrawframe) | Type |
 | [`simulateEnvironmentSensorRawFrame`](api/capture-environment-raw-producer.md#simulateenvironmentsensorrawframe) | Runtime |
 | [`SimulateEnvironmentSensorRawFrameInput`](api/capture-environment-raw-producer.md#simulateenvironmentsensorrawframeinput) | Type |
+
+## capture/exif-capture-fields.ts
+
+[Detailed contracts](api/capture-exif-capture-fields.md) · [Source](https://github.com/Photivra/engine/blob/main/src/capture/exif-capture-fields.ts)
+
+| Export | Kind |
+| --- | --- |
+| [`ExifCaptureFields`](api/capture-exif-capture-fields.md#exifcapturefields) | Type |
+| [`ExifFocalPlaneResolution`](api/capture-exif-capture-fields.md#exiffocalplaneresolution) | Type |
+| [`ExifSubjectArea`](api/capture-exif-capture-fields.md#exifsubjectarea) | Type |
 
 ## capture/export-jpeg.ts
 
@@ -447,6 +472,23 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 | [`PackedSensorRawPlan`](api/capture-packed-sensor-raw.md#packedsensorrawplan) | Type |
 | [`PackedSensorRawResult`](api/capture-packed-sensor-raw.md#packedsensorrawresult) | Type |
 | [`simulatePackedSensorRaw`](api/capture-packed-sensor-raw.md#simulatepackedsensorraw) | Runtime |
+
+## capture/photo-metadata.ts
+
+[Detailed contracts](api/capture-photo-metadata.md) · [Source](https://github.com/Photivra/engine/blob/main/src/capture/photo-metadata.ts)
+
+| Export | Kind |
+| --- | --- |
+| [`parsePhotoMetadata`](api/capture-photo-metadata.md#parsephotometadata) | Runtime |
+| [`PHOTO_METADATA_LIMITS`](api/capture-photo-metadata.md#photo_metadata_limits) | Runtime |
+| [`PHOTO_METADATA_SCHEMA_VERSION`](api/capture-photo-metadata.md#photo_metadata_schema_version) | Runtime |
+| [`PHOTO_METADATA_XMP_NAMESPACES`](api/capture-photo-metadata.md#photo_metadata_xmp_namespaces) | Runtime |
+| [`PhotoAnnotation`](api/capture-photo-metadata.md#photoannotation) | Type |
+| [`PhotoExif`](api/capture-photo-metadata.md#photoexif) | Type |
+| [`PhotoExtraImage`](api/capture-photo-metadata.md#photoextraimage) | Type |
+| [`PhotoExtraImageKind`](api/capture-photo-metadata.md#photoextraimagekind) | Type |
+| [`PhotoMetadata`](api/capture-photo-metadata.md#photometadata) | Type |
+| [`PhotoMetadataInput`](api/capture-photo-metadata.md#photometadatainput) | Type |
 
 ## capture/photographic-export.ts
 
