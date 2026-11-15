@@ -135,6 +135,21 @@ From the [#607 feasibility research](https://github.com/Photivra/engine/issues/6
 2. Add `{ make, model, highGainFromIso, source: { title, url, terms, accessed } }`, with `make` and `model` exactly as the file's Make (271) and Model (272) tags state them (check them on a file from that camera; the make is compared without case).
 3. Add the line to THIRD_PARTY.md, "Dual-gain switch points", and a CHANGELOG entry. `test/dng-raw-analysis.test.ts` checks every entry for a source, terms and no duplicates.
 
+### Rewriting a DNG without personal data (2.25.0)
+
+`rewriteDng({ bytes, edits?, maximumIfds? })` (#620) writes a DNG from a DNG file, optionally with edited development settings, and leaves out personal data. It writes **only** the tags on `DNG_REWRITE_ALLOWED_TAGS` (an allowlist, so a tag a camera adds later is dropped too):
+
+- `raw`: the raw image's layout and data tags (size, compression, CFA pattern and plane colors, linearization, black and white levels, active and masked areas, default crop and scale, the opcode lists, NoiseProfile, the profile gain table map, the interleave factors and the JPEG XL tags), read from the raw IFD;
+- `camera`: DNGVersion and DNGBackwardVersion, Make, Model, UniqueCameraModel, Software, Orientation and the color profile (color, forward, reduction and calibration matrices with their illuminants and signatures, AnalogBalance, AsShotNeutral or AsShotWhiteXY, BaselineExposure and its offset, BaselineNoise and BaselineSharpness, LinearResponseLimit, the profile name, embed policy, hue/saturation and look tables, tone curve, ProfileGainTableMap2, RGBTables and the DNG 1.6 third-illuminant tags), read from IFD 0, else the raw IFD;
+- `exif`: the capture settings that the DNG import's `exif` reads (`ExifCaptureFields`: exposure time, f-number, focal length and its 35 mm value, the sensitivity tags, digital zoom, the focal-plane resolution, the pixel dimensions, CompositeImage and SubjectArea), ExposureBiasValue and the lens's specification, make and model, written to an Exif IFD;
+- `mask`: each semantic mask's layout, data, name, instance id and MaskSubArea.
+
+Everything else is left out, among it: GPS data, BodySerialNumber, CameraSerialNumber and LensSerialNumber, CameraOwnerName, Artist, Copyright, ImageDescription and UserComment, MakerNote and DNGPrivateData, XMP and IPTC, ImageUniqueID and RawDataUniqueID, OriginalRawFileName and OriginalRawFileData, the dates, the digests, previews and thumbnails, depth and gain-map images, enhanced images and Content Credentials (JUMBF). The result lists the tag ids it wrote (`writtenTags`), the ids it left out (`omittedTags`; values are never returned) and the images it did not write (`omittedImages`).
+
+- **Raw data.** Each strip or tile is copied byte for byte: uncompressed, lossless JPEG, lossy JPEG and JPEG XL data are not decoded or re-encoded, and the file keeps the source's byte order, so every copied value keeps its meaning. The written file has one IFD 0 holding the raw image (NewSubFileType 0), an Exif IFD and the semantic masks as SubIFDs. It reads back through `parseDngRawImage` / `importDngRawImage` with the same codes and the same development fields, so `developDngImage` gives the same pixels (tested on synthetic DNGs in both byte orders and on the engine's own DNG export). Opening in other RAW editors is not tested in the repository.
+- **Edits** (`edits`): `asShotNeutral` (one positive value per color plane; AsShotWhiteXY is then left out) or `asShotWhiteXy` (AsShotNeutral is then left out), `baselineExposure` (stops, written as the total, BaselineExposureOffset left out, so the import reads back the value), `defaultCrop` (inside the active area; whole numbers as LONG, others as RATIONAL with a power-of-ten denominator) and `orientation` (1–8). Other settings are kept as the source states them.
+- **Refused:** a file without DNGVersion (TIFF/EP files are not rewritten), BigTIFF, and the import's structural errors (IFD loops, out-of-range offsets, too many IFDs). The input is untrusted: every offset and count is checked against the buffer before it is read.
+
 ### Untrusted input
 
 The reader treats every file as hostile:
