@@ -17,9 +17,11 @@ DNG_IMPORT_LIMITS = Object.freeze({ defaultMaximumPixels: 64_000_000, maximumPix
 1.1.0 (2.22.0): lossy JPEG and JPEG XL raw data, opcode lists, profile maps, semantic masks, `scale`, `assumptions`.
 1.2.0 (2.24.0): `noiseProfile`, `exif` (ISO, exposure time, f-number, focal length, CompositeImage, SubjectArea), `analogBalance`,
 `cameraCalibration1/2` with their signatures, `asShotWhiteXy`.
+1.3.0 (2.25.0): `software`, `enhancedImages`, and in `exif` FocalLengthIn35mmFilm, DigitalZoomRatio, the focal-plane resolution
+and the pixel dimensions.
 
 ```ts
-DNG_IMPORT_SCHEMA_VERSION = "1.2.0" as const
+DNG_IMPORT_SCHEMA_VERSION = "1.3.0" as const
 ```
 
 ## DngImportAsyncInput
@@ -101,41 +103,36 @@ export interface ImportedDngCfa {
 }
 ```
 
+## ImportedDngEnhancedImage
+
+2.25.0: an enhanced-image IFD (NewSubFileType 16, DNG 1.6): a rendition the writer made from the raw image (for example
+denoised or enlarged). Its layout and EnhanceParams are returned; its pixels are not decoded.
+
+```ts
+export interface ImportedDngEnhancedImage {
+  width: number;
+  height: number;
+  samplesPerPixel: number;
+  /** BitsPerSample, the first value. */
+  bitsPerSample: number;
+  /** PhotometricInterpretation code (34892 LinearRaw, 32803 CFA). */
+  photometricInterpretation: number;
+  /** Compression code (1 uncompressed, 7 JPEG, 52546 JPEG XL, ...). */
+  compression: number;
+  /** EnhanceParams (51182): the writer's description of the enhancement, as stored, or null when absent or malformed. */
+  enhanceParams: string | null;
+}
+```
+
 ## ImportedDngExif
 
 2.24.0: the capture settings the file states, from the Exif IFD (34665; Exif 2.32, CIPA DC-008-2019), else the same tags in IFD 0
 or the raw IFD (TIFF/EP). Every field is null when the tag is absent or malformed (a malformed one is named in `assumptions`).
+2.25.0: also FocalLengthIn35mmFilm, DigitalZoomRatio, the focal-plane resolution and the pixel dimensions (the fields
+`parsePhotoMetadata` returns for JPEG and HEIF files).
 
 ```ts
-export interface ImportedDngExif {
-  /** ExposureTime (0x829A), seconds. */
-  exposureTimeSeconds: number | null;
-  /** FNumber (0x829D). */
-  fNumber: number | null;
-  /** FocalLength (0x920A), mm (the lens's actual focal length, not the 35 mm equivalent). */
-  focalLengthMillimeters: number | null;
-  /** PhotographicSensitivity (0x8827, formerly ISOSpeedRatings): the first value; 65535 means "65535 or more" (Exif 2.32). */
-  photographicSensitivity: number | null;
-  /** SensitivityType (0x8830): which sensitivity PhotographicSensitivity holds (0 unknown, 1 SOS, 2 REI, 3 ISO speed, 4–7 combinations). */
-  sensitivityType: number | null;
-  /** StandardOutputSensitivity (0x8831). */
-  standardOutputSensitivity: number | null;
-  /** RecommendedExposureIndex (0x8832). */
-  recommendedExposureIndex: number | null;
-  /** ISOSpeed (0x8833). */
-  isoSpeed: number | null;
-  /**
-   * The ISO setting: RecommendedExposureIndex, else ISOSpeed, else StandardOutputSensitivity, else PhotographicSensitivity below
-   * 65535 (CIPA DC-004 names the REI as the camera's exposure-index setting); null when none is stated.
-   */
-  iso: number | null;
-  isoSource: "recommended-exposure-index" | "iso-speed" | "standard-output-sensitivity" | "photographic-sensitivity" | null;
-  /** CompositeImage (0xA460): 0 unknown, 1 not a composite, 2 a general composite, 3 a composite captured while shooting. */
-  compositeImage: 0 | 1 | 2 | 3 | null;
-  /** SourceImageNumberOfCompositeImage (0xA461): the source images in all and those used. */
-  compositeSourceImages: { total: number; used: number } | null;
-  subjectArea: ImportedDngSubjectArea | null;
-}
+export type ImportedDngExif = ExifCaptureFields;
 ```
 
 ## ImportedDngNoiseProfilePlane
@@ -160,6 +157,8 @@ export interface ImportedDngRaw {
   dngVersion: [number, number, number, number] | null;
   make: string | null;
   model: string | null;
+  /** 2.25.0: Software (305), IFD 0 else the raw IFD, or null. */
+  software: string | null;
   uniqueCameraModel: string | null;
   /** TIFF/Exif Orientation 1..8 (default 1). Codes are returned in stored, not oriented, order. */
   orientation: number;
@@ -227,6 +226,8 @@ export interface ImportedDngRaw {
   profileCalibrationSignature: string | null;
   /** 2.24.0: AsShotWhiteXY (50729), or null. */
   asShotWhiteXy: { x: number; y: number } | null;
+  /** 2.25.0: the enhanced-image IFDs (NewSubFileType 16), in file order; empty when there are none. */
+  enhancedImages: ImportedDngEnhancedImage[];
   /** What the import did not do: tags present but not returned or applied, masks not decoded, lossy sources, inferred layouts. */
   assumptions: string[];
 }
@@ -261,10 +262,7 @@ export interface ImportedDngSemanticMask {
 Exif SubjectArea (0x9214, Exif 2.32 §4.6.6): a point, a circle (centre and diameter) or a rectangle (centre, width and height), in stored-image pixels.
 
 ```ts
-export type ImportedDngSubjectArea =
-  | { kind: "point"; x: number; y: number }
-  | { kind: "circle"; x: number; y: number; diameter: number }
-  | { kind: "rectangle"; x: number; y: number; width: number; height: number };
+export type ImportedDngSubjectArea = ExifSubjectArea;
 ```
 
 ## parseDngRawImage

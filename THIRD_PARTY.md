@@ -217,6 +217,23 @@ Format references:
 - zlib (RFC 1950) and DEFLATE (RFC 1951): https://www.rfc-editor.org/rfc/rfc1950, https://www.rfc-editor.org/rfc/rfc1951
 - ITU-T H.273 code points: https://www.itu.int/rec/T-REC-H.273
 
+JPEG and HEIF metadata reader (2.25.0, `src/capture/photo-metadata.ts`; independently authored, headers only, factual
+identifiers only: tag and box codes, field layouts, type codes, namespace URIs and URNs; no reader source or sample file used):
+
+- CIPA DC-007-2009 Multi-Picture Format (MP header, MP Index IFD, MPEntry type codes): https://www.cipa.jp/e/std/std-sec.html
+- Adobe XMP Part 3 (APP1 and extended XMP in JPEG): the Adobe XMP link above.
+- ISO/IEC 14496-12 (ISO base media file format box structure), in ISO's freely available standards:
+  https://standards.iso.org/ittf/PubliclyAvailableStandards/
+- AV1 Image File Format (AVIF) v1.2.0, Alliance for Open Media (the HEIF item properties ispe, auxC, irot, imir as AVIF uses
+  them, and the tmap tone-map derived item for gain maps): https://aomediacodec.github.io/av1-avif/
+- Android Ultra HDR image format v1.1 (the ISO 21496-1 APP2 identifier, the hdrgm and container XMP namespaces) and the Google
+  depth map, Dynamic Depth and image XMP namespaces, Android developer documentation: https://developer.android.com/media/platform/hdr-image-format
+- The CICP alpha and depth auxiliary URNs are those the AVIF specification above uses. The HEVC auxiliary-type URNs
+  (`urn:mpeg:hevc:2015:auxid:1` alpha, `:2` depth) are identifiers assigned in ISO/IEC 23008-12, used as factual identifiers
+  only; the text of ISO/IEC 23008-12 and of ISO 21496-1 was not used.
+- Test fixtures: every JPEG and HEIF file in `test/photo-metadata.test.ts` is synthetic, written by
+  `test/helpers/photo-test-writer.ts` (project Apache-2.0); vendor-style auxiliary URNs use an "example" namespace.
+
 RAW development and tone-mapping references (2.0; published equations and
 factual constants only, independently implemented; no code or data copied):
 

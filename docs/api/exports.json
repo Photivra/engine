@@ -1008,6 +1008,16 @@
       "kind": "type"
     },
     {
+      "name": "calculateImagingAreaFromFocalLength35Mm",
+      "source": "src/camera/stated-focal-length-equivalence.ts",
+      "kind": "runtime"
+    },
+    {
+      "name": "CalculateImagingAreaFromFocalLength35MmInput",
+      "source": "src/camera/stated-focal-length-equivalence.ts",
+      "kind": "type"
+    },
+    {
       "name": "calculateImagingAreaMetrics",
       "source": "src/sensor/sensor-geometry.ts",
       "kind": "runtime"
@@ -1491,6 +1501,16 @@
       "name": "calculateSensorEquivalence",
       "source": "src/camera/sensor-equivalence.ts",
       "kind": "runtime"
+    },
+    {
+      "name": "calculateSensorEquivalenceFromFocalLength35Mm",
+      "source": "src/camera/stated-focal-length-equivalence.ts",
+      "kind": "runtime"
+    },
+    {
+      "name": "CalculateSensorEquivalenceFromFocalLength35MmInput",
+      "source": "src/camera/stated-focal-length-equivalence.ts",
+      "kind": "type"
     },
     {
       "name": "CalculateSensorEquivalenceInput",
@@ -3558,6 +3578,21 @@
       "kind": "runtime"
     },
     {
+      "name": "ExifCaptureFields",
+      "source": "src/capture/exif-capture-fields.ts",
+      "kind": "type"
+    },
+    {
+      "name": "ExifFocalPlaneResolution",
+      "source": "src/capture/exif-capture-fields.ts",
+      "kind": "type"
+    },
+    {
+      "name": "ExifSubjectArea",
+      "source": "src/capture/exif-capture-fields.ts",
+      "kind": "type"
+    },
+    {
       "name": "EXPORT_JPEG_ENCODER_ID",
       "source": "src/capture/export-jpeg.ts",
       "kind": "runtime"
@@ -4603,6 +4638,11 @@
       "kind": "type"
     },
     {
+      "name": "ImagingAreaFromFocalLength35Mm",
+      "source": "src/camera/stated-focal-length-equivalence.ts",
+      "kind": "type"
+    },
+    {
       "name": "ImagingAreaMetrics",
       "source": "src/sensor/sensor-geometry.ts",
       "kind": "type"
@@ -4619,6 +4659,11 @@
     },
     {
       "name": "ImportedDngCfa",
+      "source": "src/capture/dng-import.ts",
+      "kind": "type"
+    },
+    {
+      "name": "ImportedDngEnhancedImage",
       "source": "src/capture/dng-import.ts",
       "kind": "type"
     },
@@ -5938,6 +5983,11 @@
       "kind": "runtime"
     },
     {
+      "name": "parsePhotoMetadata",
+      "source": "src/capture/photo-metadata.ts",
+      "kind": "runtime"
+    },
+    {
       "name": "parsePreparedImageFormationContext",
       "source": "src/composition/image-formation-plan.ts",
       "kind": "runtime"
@@ -6218,6 +6268,41 @@
       "kind": "type"
     },
     {
+      "name": "PHOTO_METADATA_LIMITS",
+      "source": "src/capture/photo-metadata.ts",
+      "kind": "runtime"
+    },
+    {
+      "name": "PHOTO_METADATA_SCHEMA_VERSION",
+      "source": "src/capture/photo-metadata.ts",
+      "kind": "runtime"
+    },
+    {
+      "name": "PHOTO_METADATA_XMP_NAMESPACES",
+      "source": "src/capture/photo-metadata.ts",
+      "kind": "runtime"
+    },
+    {
+      "name": "PhotoAnnotation",
+      "source": "src/capture/photo-metadata.ts",
+      "kind": "type"
+    },
+    {
+      "name": "PhotoExif",
+      "source": "src/capture/photo-metadata.ts",
+      "kind": "type"
+    },
+    {
+      "name": "PhotoExtraImage",
+      "source": "src/capture/photo-metadata.ts",
+      "kind": "type"
+    },
+    {
+      "name": "PhotoExtraImageKind",
+      "source": "src/capture/photo-metadata.ts",
+      "kind": "type"
+    },
+    {
       "name": "PHOTOGRAPHIC_EXPORT_PIPELINE_VERSION",
       "source": "src/capture/photographic-export.ts",
       "kind": "runtime"
@@ -6240,6 +6325,16 @@
     {
       "name": "PhotographicExportPair",
       "source": "src/capture/photographic-export.ts",
+      "kind": "type"
+    },
+    {
+      "name": "PhotoMetadata",
+      "source": "src/capture/photo-metadata.ts",
+      "kind": "type"
+    },
+    {
+      "name": "PhotoMetadataInput",
+      "source": "src/capture/photo-metadata.ts",
       "kind": "type"
     },
     {
@@ -8583,6 +8678,11 @@
       "kind": "type"
     },
     {
+      "name": "SensorEquivalenceFromFocalLength35Mm",
+      "source": "src/camera/stated-focal-length-equivalence.ts",
+      "kind": "type"
+    },
+    {
       "name": "SensorEquivalenceQuantity",
       "source": "src/camera/sensor-equivalence.ts",
       "kind": "type"
@@ -9725,6 +9825,11 @@
     {
       "name": "StabilizedRotationTrajectory",
       "source": "src/stabilization/system.ts",
+      "kind": "type"
+    },
+    {
+      "name": "StatedValueInterval",
+      "source": "src/camera/stated-focal-length-equivalence.ts",
       "kind": "type"
     },
     {

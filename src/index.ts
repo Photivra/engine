@@ -321,6 +321,17 @@ export {
   type SensorEquivalenceQuantity
 } from "./camera/sensor-equivalence.js";
 
+// 2.25.0 (#619): sensor equivalence from a file's stated 35 mm-equivalent focal length.
+export {
+  calculateImagingAreaFromFocalLength35Mm,
+  calculateSensorEquivalenceFromFocalLength35Mm,
+  type CalculateImagingAreaFromFocalLength35MmInput,
+  type CalculateSensorEquivalenceFromFocalLength35MmInput,
+  type ImagingAreaFromFocalLength35Mm,
+  type SensorEquivalenceFromFocalLength35Mm,
+  type StatedValueInterval
+} from "./camera/stated-focal-length-equivalence.js";
+
 export {
   COLOR_TEMPERATURE_WHITE_BALANCE_INTENT_VERSION,
   WHITE_BALANCE_PROFILE_SCHEMA_VERSION,
@@ -1915,7 +1926,11 @@ export { C2PA_ALGORITHMIC_MEDIA_SOURCE_TYPE, C2PA_MANIFEST_STORE_MAXIMUM_BYTES, 
   type CalculateC2paDataHashInput } from "./capture/c2pa-embed.js";
 export { NATIVE_RAW_DNG_SCHEMA_VERSION, serializeNativeRawDng, type SerializeNativeRawDngInput, type NativeRawDng, type NativeRawDngChannelNoise } from "./capture/native-raw-dng.js";
 export type { DngImportInput, DngImportAsyncInput, ImportedDngRaw, ImportedDngCfa, ImportedDngBlackLevel, ImportedDngRect, ImportedDngSemanticMask,
-  ImportedDngNoiseProfilePlane, ImportedDngExif, ImportedDngSubjectArea } from "./capture/dng-import.js";
+  ImportedDngNoiseProfilePlane, ImportedDngExif, ImportedDngSubjectArea, ImportedDngEnhancedImage } from "./capture/dng-import.js";
+// 2.25.0 (#617, #618): the JPEG and HEIF metadata reader and the Exif capture fields it shares with the DNG import.
+export { PHOTO_METADATA_SCHEMA_VERSION, PHOTO_METADATA_LIMITS, PHOTO_METADATA_XMP_NAMESPACES, parsePhotoMetadata, type PhotoMetadataInput, type PhotoMetadata,
+  type PhotoExif, type PhotoExtraImage, type PhotoExtraImageKind, type PhotoAnnotation } from "./capture/photo-metadata.js";
+export type { ExifCaptureFields, ExifSubjectArea, ExifFocalPlaneResolution } from "./capture/exif-capture-fields.js";
 export { parseLosslessJpeg, type LosslessJpegImage, type LosslessJpegLimits } from "./capture/lossless-jpeg.js";
 export { parseLossyJpeg, type LossyJpegImage, type LossyJpegLimits } from "./capture/lossy-jpeg.js";
 export { PNG_ENCODER_ID, PNG_ENCODER_LIMITS, serializePngImage } from "./output/png-encoder.js";

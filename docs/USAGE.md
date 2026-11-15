@@ -378,6 +378,14 @@ To render a lens by its physical focal length on any sensor, give `simulateCaptu
 
 `calculateImagingAreaMetrics()` provides the same canonical diagonal crop-factor calculation, independent of raster density, so other engine modules do not need to repeat that formula.
 
+### From a file's stated 35 mm-equivalent focal length (2.25.0)
+
+A JPEG, HEIF or DNG file that states FocalLength and FocalLengthIn35mmFilm gives the imaging area, and so the equivalence, without a sensor table. `parsePhotoMetadata()` and `parseDngRawImage()` return both tags in `exif`; the 35 mm value is a whole number of millimeters, so every derived number comes with an interval:
+
+`calculateSensorEquivalenceFromFocalLength35Mm()` takes `focalLengthMm`, `focalLength35MmEquivalentMm`, `imageWidthPixels`, `imageHeightPixels` and `fNumber` (and an optional `reference` and `focalLength35MmResolutionMm`) and returns `derivedImagingArea` (the area, crop factor, their intervals, `exactness` and `basis`), `equivalence` (`calculateSensorEquivalence()` on that area) and `intervals`; docs/PHYSICS_FOUNDATION.md has a worked example.
+
+`calculateImagingAreaFromFocalLength35Mm()` returns the area alone. See docs/PHYSICS_FOUNDATION.md, "Sensor equivalence from a file's 35 mm-equivalent focal length", for the assumptions (diagonal convention, rounding, cropped images) and why the 35 mm route is preferred to the focal-plane resolution.
+
 ## Focus-breathing projection
 
 Focus breathing is the change in framing that some lenses show when focus changes. Use `calculateFocusBreathingProjection()` when you have an explicit projection-scale value for the selected focus state.
@@ -7112,6 +7120,7 @@ See [Local POC Simulation API](https://github.com/Photivra/engine/blob/main/docs
 - `developDngStageImage` (2.22.0) builds the DNG's linear stage image (linearization, black and white levels, OpcodeList1/2/3); `applyDngProfileGainTableMap` and `applyDngRgbTables` apply the phone rendering tags at their places in a development.
 - 2.24.0 (#607): the import also returns `noiseProfile` (NoiseProfile per color plane) and `exif` (ISO with its source tag, exposure time, f-number, focal length, CompositeImage and SubjectArea). `calculateDngRawClipping` counts clipped sites per color plane; `estimateDngRawNoise` measures the RAW noise (σ at a brightness; it may read high on fine texture); `simulateDngRawWhatIf` makes the RAW of the same scene with less light or a higher ISO within the photo's own conversion-gain mode, seeded, and refuses with reasons (`assessDngRawWhatIf` lists them first) any file or request it cannot show accurately; `developDngImage` develops an imported DNG to sRGB with a chosen white balance and push. A brighter version is only ever "brightened in editing" (the same noise).
 - `serializePngImage` writes an 8- or 16-bit RGB PNG with an sRGB, ICC or cICP (Display P3, BT.2020; sRGB, BT.709 or linear transfer) colour description, and optional mDCV/cLLI display metadata. PQ and HLG are not part of 2.0 (see the patent review in `THIRD_PARTY.md`).
+- `parsePhotoMetadata` (2.25.0) reads a JPEG or HEIC/HEIF file's headers: the Exif capture settings (the DNG import's `exif` fields, resolved by the same code), make, model, Software, Orientation and the image size, and the extra images and annotations it declares (thumbnail, MPF entries, HEIF auxiliary images such as depth, alpha, mattes and gain maps, tone maps, XMP gain-map and depth markers) by type and size. No pixels are decoded; maker notes and GPS data are never read. The DNG import (schema 1.3.0) also returns `software`, `enhancedImages` and, in `exif`, FocalLengthIn35mmFilm, DigitalZoomRatio, the focal-plane resolution and the pixel dimensions.
 
 See [DNG import and PNG output](https://github.com/Photivra/engine/blob/main/docs/IMPORT_AND_PNG.md) for supported subsets, limits and sources.
 

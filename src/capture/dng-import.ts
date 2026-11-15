@@ -31,13 +31,16 @@ import { parseLossyJpeg } from "./lossy-jpeg.js";
 import { readJpegXlTilePng, type DngJpegXlDecoder } from "./jpeg-xl-tiles.js";
 import { parseDngOpcodeList, type DngOpcode } from "./dng-opcodes.js";
 import { parseDngProfileGainTableMap, parseDngRgbTables, type DngProfileGainTableMap, type DngRgbTables } from "./dng-profile-maps.js";
+import { resolveExifCaptureFields, type ExifCaptureFields, type ExifSubjectArea } from "./exif-capture-fields.js";
 
 /**
  * 1.1.0 (2.22.0): lossy JPEG and JPEG XL raw data, opcode lists, profile maps, semantic masks, `scale`, `assumptions`.
  * 1.2.0 (2.24.0): `noiseProfile`, `exif` (ISO, exposure time, f-number, focal length, CompositeImage, SubjectArea), `analogBalance`,
  * `cameraCalibration1/2` with their signatures, `asShotWhiteXy`.
+ * 1.3.0 (2.25.0): `software`, `enhancedImages`, and in `exif` FocalLengthIn35mmFilm, DigitalZoomRatio, the focal-plane resolution
+ * and the pixel dimensions.
  */
-export const DNG_IMPORT_SCHEMA_VERSION = "1.2.0" as const;
+export const DNG_IMPORT_SCHEMA_VERSION = "1.3.0" as const;
 /**
  * Upper bound for `maximumPixels`: 200 MP (megapixels) of 16-bit codes is 400 MB. `maximumBytes` bounds the estimated peak memory
  * of the import (default 1 GiB, at most 4 GiB).
@@ -104,42 +107,30 @@ export interface ImportedDngBlackLevel {
  */
 export interface ImportedDngNoiseProfilePlane { scale: number; offset: number }
 /** Exif SubjectArea (0x9214, Exif 2.32 §4.6.6): a point, a circle (centre and diameter) or a rectangle (centre, width and height), in stored-image pixels. */
-export type ImportedDngSubjectArea =
-  | { kind: "point"; x: number; y: number }
-  | { kind: "circle"; x: number; y: number; diameter: number }
-  | { kind: "rectangle"; x: number; y: number; width: number; height: number };
+export type ImportedDngSubjectArea = ExifSubjectArea;
 /**
  * 2.24.0: the capture settings the file states, from the Exif IFD (34665; Exif 2.32, CIPA DC-008-2019), else the same tags in IFD 0
  * or the raw IFD (TIFF/EP). Every field is null when the tag is absent or malformed (a malformed one is named in `assumptions`).
+ * 2.25.0: also FocalLengthIn35mmFilm, DigitalZoomRatio, the focal-plane resolution and the pixel dimensions (the fields
+ * `parsePhotoMetadata` returns for JPEG and HEIF files).
  */
-export interface ImportedDngExif {
-  /** ExposureTime (0x829A), seconds. */
-  exposureTimeSeconds: number | null;
-  /** FNumber (0x829D). */
-  fNumber: number | null;
-  /** FocalLength (0x920A), mm (the lens's actual focal length, not the 35 mm equivalent). */
-  focalLengthMillimeters: number | null;
-  /** PhotographicSensitivity (0x8827, formerly ISOSpeedRatings): the first value; 65535 means "65535 or more" (Exif 2.32). */
-  photographicSensitivity: number | null;
-  /** SensitivityType (0x8830): which sensitivity PhotographicSensitivity holds (0 unknown, 1 SOS, 2 REI, 3 ISO speed, 4–7 combinations). */
-  sensitivityType: number | null;
-  /** StandardOutputSensitivity (0x8831). */
-  standardOutputSensitivity: number | null;
-  /** RecommendedExposureIndex (0x8832). */
-  recommendedExposureIndex: number | null;
-  /** ISOSpeed (0x8833). */
-  isoSpeed: number | null;
-  /**
-   * The ISO setting: RecommendedExposureIndex, else ISOSpeed, else StandardOutputSensitivity, else PhotographicSensitivity below
-   * 65535 (CIPA DC-004 names the REI as the camera's exposure-index setting); null when none is stated.
-   */
-  iso: number | null;
-  isoSource: "recommended-exposure-index" | "iso-speed" | "standard-output-sensitivity" | "photographic-sensitivity" | null;
-  /** CompositeImage (0xA460): 0 unknown, 1 not a composite, 2 a general composite, 3 a composite captured while shooting. */
-  compositeImage: 0 | 1 | 2 | 3 | null;
-  /** SourceImageNumberOfCompositeImage (0xA461): the source images in all and those used. */
-  compositeSourceImages: { total: number; used: number } | null;
-  subjectArea: ImportedDngSubjectArea | null;
+export type ImportedDngExif = ExifCaptureFields;
+/**
+ * 2.25.0: an enhanced-image IFD (NewSubFileType 16, DNG 1.6): a rendition the writer made from the raw image (for example
+ * denoised or enlarged). Its layout and EnhanceParams are returned; its pixels are not decoded.
+ */
+export interface ImportedDngEnhancedImage {
+  width: number;
+  height: number;
+  samplesPerPixel: number;
+  /** BitsPerSample, the first value. */
+  bitsPerSample: number;
+  /** PhotometricInterpretation code (34892 LinearRaw, 32803 CFA). */
+  photometricInterpretation: number;
+  /** Compression code (1 uncompressed, 7 JPEG, 52546 JPEG XL, ...). */
+  compression: number;
+  /** EnhanceParams (51182): the writer's description of the enhancement, as stored, or null when absent or malformed. */
+  enhanceParams: string | null;
 }
 /** Half-open raster rectangle in stored-image pixel coordinates (+X right, +Y down). */
 export interface ImportedDngRect { x: number; y: number; width: number; height: number }
@@ -150,6 +141,8 @@ export interface ImportedDngRaw {
   dngVersion: [number, number, number, number] | null;
   make: string | null;
   model: string | null;
+  /** 2.25.0: Software (305), IFD 0 else the raw IFD, or null. */
+  software: string | null;
   uniqueCameraModel: string | null;
   /** TIFF/Exif Orientation 1..8 (default 1). Codes are returned in stored, not oriented, order. */
   orientation: number;
@@ -217,6 +210,8 @@ export interface ImportedDngRaw {
   profileCalibrationSignature: string | null;
   /** 2.24.0: AsShotWhiteXY (50729), or null. */
   asShotWhiteXy: { x: number; y: number } | null;
+  /** 2.25.0: the enhanced-image IFDs (NewSubFileType 16), in file order; empty when there are none. */
+  enhancedImages: ImportedDngEnhancedImage[];
   /** What the import did not do: tags present but not returned or applied, masks not decoded, lossy sources, inferred layouts. */
   assumptions: string[];
 }
@@ -238,7 +233,7 @@ interface ImagePlan { width: number; height: number; spp: number; bits: number; 
 /** Rendering-relevant tags that are not returned or applied, by tag id (DNG 1.4–1.7 tag names). */
 const UNAPPLIED_TAGS: readonly [number, string][] = [[50938, "ProfileHueSatMapData1"], [50939, "ProfileHueSatMapData2"], [50940, "ProfileToneCurve"], [50982, "ProfileLookTableData"],
   [51110, "DefaultBlackRender"], [52529, "CalibrationIlluminant3"], [52531, "ColorMatrix3"], [52532, "ForwardMatrix3"], [52533, "IlluminantData1"], [52534, "IlluminantData2"],
-  [52535, "IlluminantData3"], [52551, "ProfileDynamicRange"], [51182, "EnhanceParams"], [52545, "JUMBF (C2PA)"], [52539, "RGBTables (draft)"]];
+  [52535, "IlluminantData3"], [52551, "ProfileDynamicRange"], [52545, "JUMBF (C2PA)"], [52539, "RGBTables (draft)"]];
 /** Estimated JPEG XL decoder working memory per sample, bytes (an estimate, not measured: 32-bit channels, a float render and the PNG). */
 const JXL_WORKING_BYTES_PER_SAMPLE = 16;
 
@@ -487,7 +482,7 @@ function prepare(input: DngImportInput, keys: readonly string[]): Prepared {
   for (const ifd of ifds) {
     const type = one(ifd, 254, 0);
     if (type === 8 || type === 9) assumptions.push("dngImport.notApplied: a depth map IFD is present and not decoded.");
-    if (type === 16) assumptions.push("dngImport.notApplied: an enhanced-image IFD (NewSubFileType 16) is present and not decoded; the raw image is used.");
+    if (type === 16) assumptions.push("dngImport.notApplied: an enhanced-image IFD (NewSubFileType 16) is present and not decoded (enhancedImages); the raw image is used.");
     if (type === 32 || one(ifd, 262, 0) === 52553) assumptions.push("dngImport.notApplied: a gain-map image IFD (NewSubFileType 32) is present and not applied.");
   }
   if (compressionCode === 34892) assumptions.push("dngImport.lossySource: the raw data is lossy JPEG (Compression 34892), 8-bit and gamma-coded; OpcodeList2 or the LinearizationTable makes it linear.");
@@ -519,32 +514,11 @@ function prepare(input: DngImportInput, keys: readonly string[]): Prepared {
     if (v.some((x) => !(x >= 0))) fail(name + " must not be negative.");
     return v;
   });
-  const positive = (id: number, name: string, types: readonly number[]): number | null => {
-    const v = exifNumber(id, name, types)?.[0];
-    if (v === undefined) return null;
-    if (!(v > 0)) { assumptions.push("dngImport.ignored: " + name + " is " + v + " (not positive) and was ignored."); return null; }
-    return v;
-  };
-  const photographicSensitivity = positive(34855, "PhotographicSensitivity", [3, 4]), recommendedExposureIndex = positive(34866, "RecommendedExposureIndex", [4]);
-  const isoSpeed = positive(34867, "ISOSpeed", [4]), standardOutputSensitivity = positive(34865, "StandardOutputSensitivity", [4]);
-  const isoChoice: [number | null, ImportedDngExif["isoSource"]][] = [[recommendedExposureIndex, "recommended-exposure-index"], [isoSpeed, "iso-speed"],
-    [standardOutputSensitivity, "standard-output-sensitivity"], [photographicSensitivity !== null && photographicSensitivity < 65535 ? photographicSensitivity : null, "photographic-sensitivity"]];
-  const isoPick = isoChoice.find(([v]) => v !== null);
-  if (!isoPick && photographicSensitivity === 65535) assumptions.push("dngImport.exif: PhotographicSensitivity is 65535 (65535 or more) and no other sensitivity tag is present; iso is null.");
-  const composite = exifNumber(42080, "CompositeImage", [3])?.[0] ?? null, sources = exifNumber(42081, "SourceImageNumberOfCompositeImage", [3], 2);
-  const subject = exifNumber(37396, "SubjectArea", [3], 4);
-  const subjectArea: ImportedDngSubjectArea | null = !subject ? null : subject.length === 2 ? { kind: "point", x: subject[0]!, y: subject[1]! }
-    : subject.length === 3 ? { kind: "circle", x: subject[0]!, y: subject[1]!, diameter: subject[2]! }
-      : subject.length === 4 ? { kind: "rectangle", x: subject[0]!, y: subject[1]!, width: subject[2]!, height: subject[3]! } : null;
-  if (subject && !subjectArea) assumptions.push("dngImport.ignored: SubjectArea has " + subject.length + " values (2, 3 or 4 expected) and was ignored.");
-  if (composite !== null && composite > 3) assumptions.push("dngImport.ignored: CompositeImage " + composite + " is not defined by Exif 2.32 and was ignored.");
-  const exif: ImportedDngExif = {
-    exposureTimeSeconds: positive(33434, "ExposureTime", [5]), fNumber: positive(33437, "FNumber", [5]), focalLengthMillimeters: positive(37386, "FocalLength", [5]),
-    photographicSensitivity, sensitivityType: exifNumber(34864, "SensitivityType", [3])?.[0] ?? null, standardOutputSensitivity, recommendedExposureIndex, isoSpeed,
-    iso: isoPick ? isoPick[0] : null, isoSource: isoPick ? isoPick[1] : null,
-    compositeImage: composite !== null && composite <= 3 ? composite as 0 | 1 | 2 | 3 : null,
-    compositeSourceImages: sources && sources.length === 2 ? { total: sources[0]!, used: sources[1]! } : null, subjectArea
-  };
+  const exif: ImportedDngExif = resolveExifCaptureFields({
+    numbers: exifNumber,
+    ignored: (message) => { assumptions.push("dngImport.ignored: " + message); },
+    note: (message) => { assumptions.push("dngImport.exif: " + message); }
+  });
   const analogBalance = optional("AnalogBalance", () => {
     const v = integers(pick(50727), colorPlanes, [5]);
     if (v && (v.length !== colorPlanes || v.some((x) => !(x > 0)))) fail("AnalogBalance needs one positive value per color plane.");
@@ -563,6 +537,15 @@ function prepare(input: DngImportInput, keys: readonly string[]): Prepared {
   const calibrationExtras = { analogBalance, cameraCalibration1: calibration(50723, "CameraCalibration1"), cameraCalibration2: calibration(50724, "CameraCalibration2"),
     cameraCalibrationSignature: optional("CameraCalibrationSignature", () => ascii(pick(50931))), profileCalibrationSignature: optional("ProfileCalibrationSignature", () => ascii(pick(50932))),
     asShotWhiteXy: whiteXy };
+  // 2.25.0: Software and the enhanced-image IFDs (layout and EnhanceParams; the pixels are not decoded).
+  const software = optional("Software", () => ascii(pick(305)));
+  const enhancedImages: ImportedDngEnhancedImage[] = [];
+  for (const ifd of ifds) {
+    if (one(ifd, 254, 0) !== 16) continue;
+    const layout = optional("enhanced-image IFD", () => ({ width: one(ifd, 256, 0), height: one(ifd, 257, 0), samplesPerPixel: one(ifd, 277, 1),
+      bitsPerSample: integers(ifd.get(258), 16, [3])?.[0] ?? 1, photometricInterpretation: one(ifd, 262, 0), compression: one(ifd, 259, 1) }));
+    if (layout) enhancedImages.push({ ...layout, enhanceParams: optional("EnhanceParams", () => ascii(ifd.get(51182) ?? ifd0.get(51182))) });
+  }
 
   // Semantic masks (DNG 1.6): planned here, decoded with the image.
   const masks = ifds.filter((ifd) => one(ifd, 254, 0) === 0x10004 && one(ifd, 262, 0) === 52527).map((ifd) => {
@@ -591,7 +574,7 @@ function prepare(input: DngImportInput, keys: readonly string[]): Prepared {
     const out = interleaved ? deinterleave(codes, width, height, spp, rowInterleave, columnInterleave) : codes;
     return {
       schemaVersion: DNG_IMPORT_SCHEMA_VERSION, byteOrder: little ? "little-endian" : "big-endian", dngVersion,
-      make: ascii(pick(271)), model: ascii(pick(272)), uniqueCameraModel: ascii(pick(50708)), orientation,
+      make: ascii(pick(271)), model: ascii(pick(272)), software, uniqueCameraModel: ascii(pick(50708)), orientation,
       width: outWidth, height: outHeight, samplesPerPixel: spp, bitsPerSample,
       compression: compressionCode === 1 ? "uncompressed" : compressionCode === 7 ? "lossless-jpeg" : compressionCode === 34892 ? "lossy-jpeg" : "jpeg-xl",
       lossySource: compressionCode === 34892 || lossyJxl, scale: half ? 0.5 : 1,
@@ -602,7 +585,7 @@ function prepare(input: DngImportInput, keys: readonly string[]): Prepared {
       calibrationIlluminant1: illuminant(50778), calibrationIlluminant2: illuminant(50779), asShotNeutral: neutral,
       rawDataUniqueId: uniqueId ? uniqueId.map((b) => b.toString(16).padStart(2, "0")).join("") : null,
       forwardMatrix1: matrix(50964, true), forwardMatrix2: matrix(50965, true), baselineExposure,
-      opcodeList1, opcodeList2, opcodeList3, profileGainTableMap, rgbTables, semanticMasks, noiseProfile, exif, ...calibrationExtras, assumptions
+      opcodeList1, opcodeList2, opcodeList3, profileGainTableMap, rgbTables, semanticMasks, noiseProfile, exif, ...calibrationExtras, enhancedImages, assumptions
     };
   };
   return { image, write, finish, masks, plan, assumptions, little };
