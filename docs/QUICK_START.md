@@ -104,7 +104,7 @@ modelling choices (such as "no lens PSF") as `kind: "model"`.
 | `output.toneCurveParameters` | none | Required by the luminance curves (`extended-reinhard-luminance`, `naka-rushton-luminance`); the facade invents no curve parameters. |
 | `output.highlightMode` | `"clip"` | Or `"reconstruct"`. |
 | `output.exposureCompensationStops` | 0 | #556: a development exposure push, −2 to +5 stops, on the RAW before white balance (see [Development exposure push](#development-exposure-push-556)). |
-| `output.diffractionCorrection` | off | #552: `{ wavelengthNm?, regularization?, maximumGain?, kernelRadiusPixels? }`, a bounded deconvolution of the diffraction blur; needs `lens.diffraction`. It never restores detail beyond the diffraction cut-off (see [Sharpening and diffraction correction](#sharpening-and-diffraction-correction-552)). |
+| `output.diffractionCorrection` | off | #552: `{ wavelengthNm?, regularization?, maximumGain?, kernelRadiusPixels? }`, a bounded deconvolution of the diffraction blur; needs `lens.diffraction` or `lens.catalogue` (#630, the lens's own pupil). It never restores detail beyond the diffraction cut-off (see [Sharpening and diffraction correction](#sharpening-and-diffraction-correction-552)). |
 | `output.sharpening` | off | #552: `{ radiusPixels?, amount?, threshold? }`, an unsharp mask after the tone curve; sRGB output only (see [Sharpening and diffraction correction](#sharpening-and-diffraction-correction-552)). |
 | `output.lensCorrections` | off | #570, with `lens.catalogue`: `{ distortion?, lateralColor?, vignetting? }`, the lens's own corrections on the developed JPEG, PNG and samples; the DNG is never corrected. Works with `output.region` (see [Generic lens catalogue](#generic-lens-catalogue-549)). |
 | `output.whiteBalance` | `"scene-illuminant"` | Also `"auto"`, `"none"`, `{ kelvin, tint? }` and `{ channelGains }`. |
@@ -1104,7 +1104,8 @@ console.log(result.diagnostics.detail); // { diffractionCorrection: {...}, sharp
   white balance → **diffraction correction** (linear) → rendering exposure and tone curve → gamut handling and sRGB transfer →
   **unsharp mask** → quantization. The `output.developmentOrder` assumption lists it. A push clips at white before the
   correction, on this path as on the default one.
-- **`output.diffractionCorrection`** needs `lens.diffraction`. It deconvolves the developed linear colour with the
+- **`output.diffractionCorrection`** needs `lens.diffraction` or `lens.catalogue` (#630: the catalogue lens's own pupil, D = f/N, at
+  its working f-number z/D; its aberrations are not inverted). It deconvolves the developed linear colour with the
   diffraction OTF of the ideal circular pupil at the capture's working f-number, through a bounded Wiener gain
   min(maximumGain, H(1 + α)/(H² + α)) built as a (2R + 1)² filter. Defaults: 550 nm, α = 0.01, gain bound 4, R = the Airy
   third dark ring in pixels (1–16). The OTF is zero beyond the cut-off 1/(λ·N_w): that detail never reached the sensor and

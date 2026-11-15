@@ -2434,7 +2434,8 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
     if (region) fail("output.diffractionCorrection and output.sharpening are not combinable with output.region: they filter across the whole developed image, so a region's edge pixels would differ from the whole render.");
   }
   if (outputOptions.diffractionCorrection !== undefined) {
-    if (diffractionRadiusOption === undefined) fail("output.diffractionCorrection needs lens.diffraction: it inverts the diffraction blur that option simulates.");
+    // #630: a catalogue lens's PSF includes the diffraction of its own pupil, which the correction then inverts.
+    if (diffractionRadiusOption === undefined && !catalogue) fail("output.diffractionCorrection needs lens.diffraction or lens.catalogue: it inverts the diffraction blur those options simulate.");
     const o = allowKeys(outputOptions.diffractionCorrection, "output.diffractionCorrection", ["wavelengthNm", "regularization", "maximumGain", "kernelRadiusPixels"]);
     const parsed = parseDiffractionCorrectionSettings({
       wavelengthNm: pick(o, "wavelengthNm", "output.diffractionCorrection.wavelengthNm", 550, "Design wavelength 550 nm, near the photopic peak, for all three channels: the real blur is polychromatic, and longer wavelengths have a lower cut-off than the one used here."),
@@ -2799,7 +2800,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   const exposureGreyCardDeviationStops = callerScene?.kind === "radiance-function" ? null : greyCardDeviationStops(fNumber, shutterSeconds, resolvedIso, illuminanceLux * cardTransmission);
   // #549: the catalogue lens's character at the resolved f-number and focus: focus scatter, the defocus disc folded into its PSF, then
   // its distortion and vignetting profiles over the field the PSF and the queries reach, and its PSF profile.
-  let catalogueTaps: number | undefined, catalogueDefocusApplied = false, catalogueKernelRadius = 0, catalogueCornerStops = 0;
+  let catalogueTaps: number | undefined, catalogueDefocusApplied = false, catalogueKernelRadius = 0, catalogueCornerStops = 0, catalogueWorkingFNumber: number | undefined;
   if (catalogue && lensKit) {
     const { GENERIC_LENS_EVIDENCE, genericLensDistortionProfile, genericLensVignettingProfile, resolveGenericLens, simulateGenericLensFocusError, createGenericLensPsfProfile,
       genericLensPsfKernelRadius, GENERIC_LENS_PSF_MAXIMUM_COMBINED_RADIUS_SITES, genericLensBokehKernel } = lensKit;
@@ -2815,6 +2816,8 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
       focusDistanceM = sample.focusDistanceM;
     }
     const character = resolveGenericLens({ lensId: catalogue.lensId, activeImagingArea: catalogueFrame!, fNumber, focusDistanceM });
+    // #630: the working f-number z/D of the lens's own uniform circular pupil (D = f/N), the one its PSF diffracts through.
+    catalogueWorkingFNumber = lensKit.pupilGeometry(character, focusDistanceM).workingF;
     // The vignetting depends on the f-number only (output.lensCorrections reads it).
     catalogueCornerStops = character.character.vignetting.cornerStops;
     let extraKernel: ReturnType<typeof genericLensBokehKernel> | undefined;
@@ -3822,14 +3825,14 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   const detailDiagnostics: SimulateCaptureDetailDiagnostics = {};
   let diffractionFilter: ReturnType<typeof designDiffractionCorrectionFilter> | undefined;
   if (diffractionCorrectionOption) {
-    const workingFNumber = fNumber * imageDistanceMm / focalLengthMm;
+    const workingFNumber = catalogueWorkingFNumber ?? fNumber * imageDistanceMm / focalLengthMm;
     const settings: DiffractionCorrectionSettings = { ...diffractionCorrectionOption, kernelRadiusPixels: diffractionCorrectionOption.kernelRadiusPixels ??
       defaultDiffractionCorrectionRadiusPixels(workingFNumber, diffractionCorrectionOption.wavelengthNm, pitch) };
     if (diffractionCorrectionOption.kernelRadiusPixels === undefined) assume("output.diffractionCorrection.kernelRadiusPixels", "default", settings.kernelRadiusPixels,
       "FIR radius: the Airy pattern's third dark ring (3.2383·λ·N_w) at the design wavelength, in pixels, rounded up, within 1–16.");
     diffractionFilter = designDiffractionCorrectionFilter({ workingFNumber, pixelPitchMicrometers: pitch, settings });
     assume("output.diffractionCorrection", "model", { model: "development-detail", modelVersion: DEVELOPMENT_DETAIL_MODEL_VERSION, method: "bounded-wiener-tikhonov-fir",
-      stage: "linear colour after demosaic, colour and white balance; before the tone curve", fNumber, workingFNumber, ...settings, pixelPitchMicrometers: pitch,
+      stage: "linear colour after demosaic, colour and white balance; before the tone curve", fNumber, workingFNumber, ...settings, ...(catalogue ? { pupil: "lens.catalogue" } : {}), pixelPitchMicrometers: pitch,
       cutoffCyclesPerPixel: diffractionFilter.cutoffCyclesPerPixel, nyquistCyclesPerPixel: 0.5, nyquistAreaBeyondCutoffFraction: diffractionFilter.nyquistAreaBeyondCutoffFraction,
       designPeakGain: diffractionFilter.designPeakGain, responsePeakGain: diffractionFilter.responsePeakGain, responseMaximumBeyondCutoff: diffractionFilter.responseMaximumBeyondCutoff,
       edgeHandling: "clamp", recoversBeyondCutoff: false },
@@ -3838,7 +3841,8 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
       "sampled, inverse transformed and truncated to a raised-cosine (2R + 1)² FIR with unit DC gain, applied to each linear channel with clamped edges. " +
       "The OTF is exactly zero beyond f_c: that detail never reached the sensor, and no correction restores it. The design gain there is 0; responseMaximumBeyondCutoff is the truncated FIR's leakage, which passes only noise and aliasing. " +
       "Below f_c the gain is bounded, so attenuated detail is only partly restored and noise is amplified by up to the measured responsePeakGain. " +
-      "Not inverted: the pixel aperture, optical anti-aliasing filter, demosaic blur, defocus and aberrations. One design wavelength for all channels (the simulated blur is polychromatic).");
+      "Not inverted: the pixel aperture, optical anti-aliasing filter, demosaic blur, defocus and aberrations. One design wavelength for all channels (the simulated blur is polychromatic)." +
+      (catalogue ? " With lens.catalogue (#630) N_w is the lens's own: the working f-number z/D of the uniform circular pupil D = f/N its PSF diffracts through (z the thin-lens image distance at the focus); the lens's aberrations, which its PSF also carries, are not inverted." : ""));
   }
   // #570: the lens corrections after the diffraction correction (which acts on the sensor's own lattice), before the tone curve.
   let cornerStops: number | null = null;

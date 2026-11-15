@@ -229,8 +229,11 @@ function nodeKernel(lens: ResolvedGenericLens, xMm: number, yMm: number, lambdaN
   }
 }
 
-/** Thin-lens image distance z (mm), pupil diameter D = f/N (mm) and working f-number z/D at a finite focus. */
-function pupilGeometry(lens: ResolvedGenericLens, focusDistanceM: number): { z: number; D: number; workingF: number } {
+/**
+ * Thin-lens image distance z (mm), pupil diameter D = f/N (mm) and working f-number z/D at a finite focus. #630: exported (through the
+ * lens kit) so `output.diffractionCorrection` inverts the diffraction of this lens's own uniform circular pupil.
+ */
+export function pupilGeometry(lens: ResolvedGenericLens, focusDistanceM: number): { z: number; D: number; workingF: number } {
   const f = lens.focalLengthMm, d = focusDistanceM * 1000;
   if (!(d > f)) throw new InvalidScientificInputError("The focus distance must exceed the focal length.");
   const z = 1 / (1 / f - 1 / d), D = f / lens.character.fNumber;
