@@ -189,6 +189,16 @@ with K_λ the diffraction kernel (a unit tap without `lens.diffraction`).
   more than 64 columns beyond the raster edges, which a combined radius above 64 reaches, are looked up directly
   instead of from the lattice rings: the same values, at a higher cost. The cost grows with the square of the radius
   ([Cost, defocus](#defocus-1)).
+- **Regrouped on the CPU (#612, fast method `lens.defocus/view-regrouped`).** On a fast request (the display view's default), a
+  plain disc much wider than the diffraction kernel, (2R_c + 1)² > 4·(2R_f + 1)² with R_c = R_f + R_d, takes the path above
+  64 sites at any radius: the in-focus signal of each channel at every site, then the disc by runs. This is the same sum
+  regrouped, so it differs from the combined kernels only by rounding; `view.defocus` records `convolution: "runs"` and
+  `fast: "defocus-after-in-focus-signal"`. `fast: false` keeps the combined kernels, and so does the GPU. Shaped bokeh kernels and
+  the lens path keep their own routes. Measured on one test chart's Guide views (768 × 512, Quality, one CPU thread, the
+  machine heavily loaded, CPU time of the same region back to back): f/2 focused in front, a 16 × 8 region, 5.8–5.9 s with the
+  combined kernels, 0.74–0.82 s regrouped (2.20.0: 2.0–2.1 s); f/2 focused behind 3.6–3.7 s, 0.72–0.83 s (2.20.0: 1.2 s). f/16
+  focused behind keeps the combined kernels (a 9-site disc beside a 17-site diffraction kernel). The rendered samples of those
+  regions are identical under both methods.
 - **In focus** (c = 0), or without the option, nothing changes: the view is byte-identical to the request without it,
   and every display-view hash lock holds.
 - **The GPU** renders defocus too (#492 step 2c; `docs/WEBGPU.md`, "Defocus on the GPU"). The engine's renderer gathers

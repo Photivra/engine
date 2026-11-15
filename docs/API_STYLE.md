@@ -254,6 +254,8 @@ have a fast method, a measured and bounded approximation of it. One flag style s
   and `simulateDngRawWhatIf` are full quality only, with no `fast` (owner decision 2026-11-11): the clipping count is exact, the
   noise fit already runs in linear time (quickselect medians; 1.8 s on 24 MP) and a subsample would only add error to a number
   shown to the user, and the what-if's per-site seeded draws are what make it deterministic, so no faster method keeps its result;
+  in 2.25.0, the display view's regrouped defocus (#612, `lens.defocus/view-regrouped`: on the CPU, a disc much wider than the
+  diffraction kernel applied after the in-focus signal, by runs, the same sum regrouped; exact keeps each node's combined kernel);
   a print under mixed lighting on the GPU (#597, `illumination/image-plane-gpu`: `gpu` `"auto"`
   lights each lattice point on WebGPU, `"off"` the CPU reference); the default spectral step (#590, `sensor.spectralStepNanometers`: 5 nm on
   exact requests under a spiky light, 20 nm on fast ones); the catalogue field grid's cells (#603, `lens.catalogue/field-grid-cells`: at

@@ -28,6 +28,7 @@ import { runCapture, apertureNodeOffsets, bilinearPhaseProfiles, clockMs, fail, 
 import { createHostYield } from "./host-yield.js";
 import { qualityKit } from "./on-demand-kits.js";
 import { createDefocusDiscSiteKernel } from "../optics/defocus-disc-kernel.js";
+import { siteKernelRuns } from "../optics/site-kernel-runs.js";
 import { cpuDisplayViewExecution, parsePrepareDisplayViewOptions, type DisplayViewExecution, type DisplayViewGpuRequest, type PrepareDisplayViewOptions } from "./display-view-gpu.js";
 import type { DisplayViewGpuSession } from "./display-view-gpu-session.js";
 
@@ -239,15 +240,26 @@ async function prepareView(context: DisplayViewRunContext): Promise<PreparedView
   // The combined radius is at most 32 + 512 sites (the diffraction and disc caps), as in the capture. #564: above 64 sites the kernel is
   // convolved by runs after the in-focus signal (expected-signal.ts), the same sums regrouped.
   const diffractionRadius = diffraction ? diffraction.kernelRadiusSamples : 0, combinedRadius = defocusKernel ? diffractionRadius + defocusKernel.radius : diffractionRadius;
-  const { offsets, signalInput } = buildExpectedSignalInput({ nativeWidth, nativeHeight, width, wavelengths, perNode, apertureNodes: apertureNodeOffsets(boxSamples), boxSamples,
+  const setupInput: Parameters<typeof buildExpectedSignalInput>[0] = { nativeWidth, nativeHeight, width, wavelengths, perNode, apertureNodes: apertureNodeOffsets(boxSamples), boxSamples,
     antiAliasing, pitch, defocus: defocusKernel, ...(context.lensPsf ? { lensKernels: context.lensPsf.axisKernels(wavelengths) } : {}), diffraction: diffraction ? { radius: diffraction.kernelRadiusSamples, psf: diffractionPsf!.configuration.psf, profileWavelengths: diffraction.profile.axes.wavelengthNm } : undefined,
     materials: sceneMaterials && provider.chartMaterialAt && !context.movingScene ? { materialAt: provider.chartMaterialAt,
       list: [...sceneMaterials.map((m, index) => (m.kind === "neutral" ? { neutral: m.reflectance } : { radiance: (nm: number): number => viewProvider.materialRadiance!(index, nm) })),
         ...(chartSize ? [{ neutral: chartSize.surroundReflectance }] : [])],
       whiteRadiance: (nm: number): number => viewIrradianceScale * viewIlluminant.shape.evaluate(nm) / Math.PI } : undefined,
     radianceAt: viewProvider.radianceAt, imageSignalScene: viewProvider.imageSignalScene,
-    imagingArea, focalLengthMm, focusDistanceM, subjectDistanceM, metresPerFrameUnit, caller: "simulateDisplayView" });
+    imagingArea, focalLengthMm, focusDistanceM, subjectDistanceM, metresPerFrameUnit, caller: "simulateDisplayView" };
+  const { offsets, signalInput } = buildExpectedSignalInput(setupInput);
   const kernels = signalInput.kernels, largeDefocus = signalInput.largeKernel;
+  // #612, the fast method (`viewFast.defocusRegrouped`; the format default of the display view, exact with fast: false): on the CPU, a
+  // geometric disc much wider than the diffraction kernel is applied after each channel's in-focus signal, by runs (#564's path above
+  // 64 sites), instead of as each node's diffraction kernel convolved with it. Defocus of a plane is space-invariant and the same at
+  // every node, so this is the same sum regrouped; only the rounding differs. The regrouped path computes the in-focus signal of
+  // all three channels at every site (3·(2R_f + 1)² taps) and the disc by runs (about 2·(2R_d + 1) scalar additions); the direct
+  // one reads (2R_c + 1)² combined taps, each per spectral node. It is chosen where (2R_c + 1)² > 4·(2R_f + 1)². The GPU keeps the
+  // combined kernels (`signalInput`), and so does the exact method.
+  const regroupDefocus = context.viewFast.defocusRegrouped && defocusKernel !== null && !shaped && !largeDefocus && !context.lens && !context.lensPsf &&
+    (2 * combinedRadius + 1) ** 2 > 4 * (2 * diffractionRadius + 1) ** 2;
+  const cpuSignalInput = regroupDefocus ? { ...buildExpectedSignalInput({ ...setupInput, largeDefocus: siteKernelRuns(defocusKernel!.weights, defocusKernel!.radius) }).signalInput, inFocusPerTap: true } : signalInput;
   // Readout moments per channel: normalized value k·e with variance k²·(e + σ_read²) plus the ADC quantization (1/12 code², times d² before a digital gain d).
   // #556: a development exposure push G multiplies the normalized value before the per-site clip at white: k → G·k and the constant variance → G²·(…).
   // Without a push G = 1, and x·1 = x exactly in IEEE 754 arithmetic, so the moments are bit-identical to those without the push.
@@ -288,7 +300,7 @@ async function prepareView(context: DisplayViewRunContext): Promise<PreparedView
     const viewRegion = v.region ?? { x: 0, y: 0, width: v.width, height: v.height };
     // The native columns the region's windows span, beyond one window's width: a filled band need not be wider (a speed hint).
     // #563: through the lens (projection, distortion, vignetting, rotation) when the request has them.
-    const signal = (context.lens ?? createDisplayViewExpectedSignal)(signalInput, Math.ceil((viewRegion.width + 2) * nativeWidth / v.width));
+    const signal = (context.lens ?? createDisplayViewExpectedSignal)(cpuSignalInput, Math.ceil((viewRegion.width + 2) * nativeWidth / v.width));
     return { signal, setup: { frameWidth: width, frameHeight: height, margin, nativeWidth, nativeHeight, viewWidth: v.width, viewHeight: v.height,
       region: viewRegion, samplesPerAxis: v.samplesPerAxis, uniformSamplesPerAxis: uniformSamplesOf(v.samplesPerAxis), reachSites, bitDepth: v.bitDepth, seed: noiseSeed, signal, readout, demosaic: demosaicTable,
       ...(ahdCandidates && ahdChoice ? { candidates: ahdCandidates, ahdChoice } : {}),
@@ -342,14 +354,16 @@ async function prepareView(context: DisplayViewRunContext): Promise<PreparedView
         "The bilinear demosaic's linear kernels, exactly.");
     if (defocusKernel) {
       assume("view.defocus", "model", { kernel: shaped ? (diffraction ? "diffraction-convolved-with-shaped-kernel" : "shaped-kernel") : diffraction ? "diffraction-convolved-with-disc" : "disc", defocusKernelRadiusSites: defocusKernel.radius,
-        diffractionKernelRadiusSites: diffraction ? diffractionRadius : null, kernelRadiusSites: combinedRadius, scientificStatus: "approximation", ...(largeDefocus ? { convolution: "runs" } : {}) },
+        diffractionKernelRadiusSites: diffraction ? diffractionRadius : null, kernelRadiusSites: combinedRadius, scientificStatus: "approximation", ...(largeDefocus ? { convolution: "runs" } : {}),
+        ...(regroupDefocus && execution.backend !== "webgpu-f32" ? { convolution: "runs", fast: "defocus-after-in-focus-signal" } : {}) },
         // #564: the lens.defocus assumption explains the run convolution above 64 sites (convolution: "runs").
         "The expected electrons of each real site read the scene on the site lattice through the defocus " + (shaped ? "kernel shaped by the lens (#553; see the lens.defocus assumption; " : "disc (") +
         defocusKernel.diameterSites + " sites across, a " + defocusKernel.width + " × " +
         defocusKernel.width + " window), as the capture's convolution does; the estimators then run unchanged on the blurred signal. " + (diffraction ?
           "With lens.diffraction each spectral node's kernel is its diffraction kernel convolved with the disc (" + (2 * combinedRadius + 1) + " × " + (2 * combinedRadius + 1) + " taps): " +
           "an approximation, because the PSF of a defocused wave is not the in-focus Airy pattern convolved with a geometric disc." :
-          "The disc is the same at every spectral node (geometric optics)."));
+          "The disc is the same at every spectral node (geometric optics).") + (regroupDefocus && execution.backend !== "webgpu-f32" ?
+          " Fast method (#612): the disc is applied after each channel's in-focus signal, by runs, the same sum regrouped (equal to rounding); fast: false keeps the combined kernels." : ""));
     }
     if (viewMixed) assume("view.illumination", "model", { method: "radiance-at-every-query-point" },
       "Mixed lighting (#550): the radiance at every query point, as in the capture (no material tables; exact). Not on the GPU.");

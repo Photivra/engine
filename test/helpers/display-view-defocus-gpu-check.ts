@@ -12,7 +12,10 @@ import type { DefocusGpuCase } from "./display-view-defocus-gpu-fixtures.js";
 
 /** Renders a case on the emulation, compares it with the CPU reference and checks every requirement; returns the record. */
 export async function checkDefocusGpuCase(c: DefocusGpuCase): Promise<Record<string, unknown>> {
-  const fixture = await displayViewGpuFixture(c.options, c.view), runtime = await runtimeOf(createFakeGpu().gpu);
+  // #612: the GPU renders each node's diffraction kernel convolved with the disc, the exact method, and its a-priori bounds and host
+  // recomputation are those of that float64 sum; on the CPU a fast request may regroup a wide disc after the in-focus signal (equal
+  // to rounding). So the reference here is the exact method (fast: false), which changes nothing else in these cases.
+  const fixture = await displayViewGpuFixture({ ...c.options, fast: false }, c.view), runtime = await runtimeOf(createFakeGpu().gpu);
   try {
     expect(fixture.input.signalInput.kernels?.radius).toBe(c.kernelRadius);
     expect(fixture.input.setup.gpu?.defocusRadius).toBeGreaterThan(0);
