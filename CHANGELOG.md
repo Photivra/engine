@@ -2,6 +2,10 @@
 
 ## 2.25.0 — unreleased
 
+### #627 repository links
+
+- The package's `repository`, `bugs` and `homepage` fields and the docs already point to github.com/Photivra/engine (updated in #610). `npm run check:identity` now fails on any link to the repository's former name in the checked files (now including `llms.txt`), and when those three `package.json` fields are not exactly the Photivra/engine URLs.
+
 ### #617–#619 photo metadata and sensor equivalence from a file's statements
 
 - **New (#617):** `parsePhotoMetadata`, `PHOTO_METADATA_SCHEMA_VERSION` (1.0.0), `PHOTO_METADATA_LIMITS` and `PHOTO_METADATA_XMP_NAMESPACES`: a reader of JPEG and HEIC/HEIF headers (no pixels decoded). It returns the Exif capture settings (exposure time, f-number, the ISO fields and the resolved ISO, focal length, FocalLengthIn35mmFilm, DigitalZoomRatio, CompositeImage and its source counts, SubjectArea, the focal-plane resolution, the pixel dimensions), make, model, Software, Orientation, the primary image's size (and HEIF irot/imir), and the extra images and annotations the file declares, by type and size: the Exif thumbnail, Multi-Picture Format entries, HEIF auxiliary images (auxC: depth, disparity, alpha, mattes, HDR gain maps), thumbnails, tmap tone-map items and their gain-map inputs, Google container items, the Adobe gain-map, Google depth-map and embedded-image XMP namespaces and ISO 21496-1 gain-map metadata. Maker notes, GPS data and image data are never read. The input is untrusted: bounded reads and loops (`PHOTO_METADATA_LIMITS`), no recursion, at most 4 MiB copied per item; a malformed or truncated part is named in `assumptions`, and only input that is not a JPEG or HEIF file fails. A prefix of the file is accepted.
