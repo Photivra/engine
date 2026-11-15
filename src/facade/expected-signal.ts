@@ -61,6 +61,13 @@ export interface DisplayViewExpectedSignalInput {
    * lattice by runs in fixed tiles (see {@link createDisplayViewExpectedSignal}). Requires `kernels`.
    */
   largeKernel?: SiteKernelRuns;
+  /**
+   * #612, the display view's regrouped defocus (a disc of any radius applied after the in-focus signal on a fast request): each
+   * in-focus tap is integrated from its material's spectrum against its kernel per node (Σ_n L_m(λ_n)·C_c(t, n)) and the taps
+   * are added in order, instead of per-material sums. The same sum, grouped by tap; only the rounding differs. Absent: per-material
+   * sums, as #564's path above 64 sites has always formed them.
+   */
+  inFocusPerTap?: boolean;
 }
 
 /** Expected photo electrons of real native sites. */
@@ -840,7 +847,26 @@ function prepareLargeKernel(input: DisplayViewExpectedSignalInput): LargeKernelS
         const material = new Int32Array(gw * gh);
         for (let j = 0; j < gh; j++) { const v = latticeV(group, q0 + j); for (let i = 0; i < gw; i++) material[j * gw + i] = scene.materialAt(latticeU(group, p0 + i), v); }
         state.lookups += gw * gh;
-        for (let c = 0; c < 3; c++) {
+        if (input.inFocusPerTap) {
+          // #612: per tap, the material's spectrum against the tap's kernel per node, for all three channels from one lookup.
+          for (let c = 0; c < 3; c++) {
+            const k = group.nodeKernels[c]!, e = out[c]!;
+            for (let y = 0; y < T; y++) for (let x = 0; x < T; x++) {
+              let sum = 0;
+              for (let dy = 0, t = 0; dy < ch; dy++) {
+                const row = (y + dy) * gw + x;
+                for (let dx = 0; dx < cw; dx++, t++) {
+                  const L = spectra[material[row + dx]!];
+                  if (L === undefined) throw new InvalidConfigurationError("Unknown chart material.");
+                  let v = 0;
+                  for (let n = 0, at = t * nodes; n < nodes; n++) v += L[n]! * k[at + n]!;
+                  sum += v;
+                }
+              }
+              e[y * T + x] = e[y * T + x]! + sum;
+            }
+          }
+        } else for (let c = 0; c < 3; c++) {
           const k = group.nodeKernels[c]!, e = out[c]!;
           for (let y = 0; y < T; y++) for (let x = 0; x < T; x++) {
             // Each group's part of the site, integrated from its taps' material spectra (MaterialSums).

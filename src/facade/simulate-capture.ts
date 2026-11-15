@@ -1763,7 +1763,11 @@ export interface DisplayViewRunContext {
   regimeByChannel: Record<"red" | "green" | "blue", { readoutProfile: ReadoutProfile; regimeId: string; }>;
   sensor: SimulateCaptureSensorReport;
   /** 2.20.0: the view's own fast methods, resolved: the quarter sampling of uniform pixels (top-level `fast`); 2.22.0: the coupled rendering steps' rules (#593, #601). */
-  viewFast: { uniformSampling: boolean; rendering: boolean };
+  /**
+   * The display view's fast methods: H2's uniform sampling, the coupled rendering's rules and (#612) a defocus disc applied after
+   * the in-focus signal where that is cheaper (`defocusRegrouped`).
+   */
+  viewFast: { uniformSampling: boolean; rendering: boolean; defocusRegrouped: boolean };
   /** #601: the sRGB rendering's gamut handling. */
   gamutHandling: "clip-components" | "desaturate-to-luminance";
   resolvedIso: number;
@@ -3521,7 +3525,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
       readoutSeconds: characteristics?.readoutSeconds ?? (body as { rollingReadoutTiming?: { profile: { spatialSamplingSkewSeconds?: { value: number } } } }).rollingReadoutTiming?.profile.spatialSamplingSkewSeconds?.value ?? null }, fixedPattern);
   // #595: the native photosite's figures (their own module, so a bundler can split them off the default path).
   sensor.native = nativeSensorReport(sensor, regimeByChannel.green.regimeId, greyElectrons, DARK_CURRENT_ELECTRONS_PER_SECOND * shutterSeconds, nativeSensor, fixedPattern);
-  if (displayView) return await renderView!({ sensor, viewFast: { uniformSampling: fastTop, rendering: fastTop }, gamutHandling, lens: lensSignal, lensPsf: displayViewLensPsf, movingScene, ahd, fastReport, antiAliasing, aspect, assume, assumptions, axisChannelResponse, boxSamples, buildProvider, callerScene, chart, materialLayers, chartReport, chartSize, diffraction, defocus: displayViewDefocus, diffractionPsf, fNumber, focalLengthMm, focusDistanceM, height, highlightMode, exposureGain, illuminanceLux, illuminant, illuminantOption, imagingArea, intentOf, metresPerFrameUnit, noiseSeed, outputOptions, parsedView, pitch, preset, provider, regimeByChannel, resolvedIso, isoReport, standardExposureDeviationStops: exposureDeviationStops, standardExposureIlluminanceLux: exposureIlluminanceLux, greyCardDeviationStops: exposureGreyCardDeviationStops, metering, sceneOption, scenePreset, shutterSeconds, started, subjectDistanceM, toneCurve, whiteBalanceOption, whiteBalanceState, width, checkAbort, margin, mode, nativeHeight, nativeWidth, sourceSha256, yieldControl, kelvinWhiteBalanceInput,
+  if (displayView) return await renderView!({ sensor, viewFast: { uniformSampling: fastTop, rendering: fastTop, defocusRegrouped: fastTop }, gamutHandling, lens: lensSignal, lensPsf: displayViewLensPsf, movingScene, ahd, fastReport, antiAliasing, aspect, assume, assumptions, axisChannelResponse, boxSamples, buildProvider, callerScene, chart, materialLayers, chartReport, chartSize, diffraction, defocus: displayViewDefocus, diffractionPsf, fNumber, focalLengthMm, focusDistanceM, height, highlightMode, exposureGain, illuminanceLux, illuminant, illuminantOption, imagingArea, intentOf, metresPerFrameUnit, noiseSeed, outputOptions, parsedView, pitch, preset, provider, regimeByChannel, resolvedIso, isoReport, standardExposureDeviationStops: exposureDeviationStops, standardExposureIlluminanceLux: exposureIlluminanceLux, greyCardDeviationStops: exposureGreyCardDeviationStops, metering, sceneOption, scenePreset, shutterSeconds, started, subjectDistanceM, toneCurve, whiteBalanceOption, whiteBalanceState, width, checkAbort, margin, mode, nativeHeight, nativeWidth, sourceSha256, yieldControl, kelvinWhiteBalanceInput,
     mixedIllumination: mixedKit && lightKit });
   // Ideal reference (2.3): the scene without camera effects, at the capture's own exposure, white balance and encoding.
   if (idealReference) {
