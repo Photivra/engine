@@ -136,6 +136,8 @@ export {
   type SdrRenderingInput,
   type SdrRenderingResult
 } from "./output/sdr-rendering.js";
+// 2.25.0 (#625, #626): Photivra's Standard and Flat looks as constants, and a look pinned at an application's linear mid-gray.
+export { STANDARD_LOOK, FLAT_LOOK, pinLookMidGray, type NakaRushtonLook, type PinLookMidGrayOptions } from "./output/look-curves.js";
 
 export {
   approximationResult,
@@ -1931,6 +1933,9 @@ export type { DngImportInput, DngImportAsyncInput, ImportedDngRaw, ImportedDngCf
 export { PHOTO_METADATA_SCHEMA_VERSION, PHOTO_METADATA_LIMITS, PHOTO_METADATA_XMP_NAMESPACES, parsePhotoMetadata, type PhotoMetadataInput, type PhotoMetadata,
   type PhotoExif, type PhotoExtraImage, type PhotoExtraImageKind, type PhotoAnnotation } from "./capture/photo-metadata.js";
 export type { ExifCaptureFields, ExifSubjectArea, ExifFocalPlaneResolution } from "./capture/exif-capture-fields.js";
+// 2.25.0 (#621): a JPEG's Exif block written from an allowlist of capture settings.
+export { setJpegExifCaptureSettings, jpegExifCaptureSettingsFromFields, JPEG_EXIF_CAPTURE_SETTING_KEYS, type JpegExifCaptureSettings,
+  type JpegExifDateTaken } from "./capture/jpeg-exif-writer.js";
 export { parseLosslessJpeg, type LosslessJpegImage, type LosslessJpegLimits } from "./capture/lossless-jpeg.js";
 export { parseLossyJpeg, type LossyJpegImage, type LossyJpegLimits } from "./capture/lossy-jpeg.js";
 export { PNG_ENCODER_ID, PNG_ENCODER_LIMITS, serializePngImage } from "./output/png-encoder.js";

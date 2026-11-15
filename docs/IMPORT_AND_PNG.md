@@ -129,7 +129,7 @@ From the [#607 feasibility research](https://github.com/Photivra/engine/issues/6
 
 ### Adding a gain-switch entry (2.24.0)
 
-`DNG_GAIN_SWITCH_CATALOG` (`src/capture/dng-gain-switch.ts`; `resolveDngGainSwitch(raw)` looks a file up) lists cameras' dual-gain switch points. It is empty in 2.24.0: no reviewed source states a photo-mode switch point clearly (THIRD_PARTY.md, "Dual-gain switch points"). To add a camera:
+`DNG_GAIN_SWITCH_CATALOG` (`src/capture/dng-gain-switch.ts`; `resolveDngGainSwitch(raw)` looks a file up) lists cameras' dual-gain switch points. It is empty in 2.24.0 and still empty in 2.25.0 after a second review (#623): the one stated switch point found (a cinema camera manual that also covers CinemaDNG stills) could not be tied to Make and Model tags checked on a file, and the other sources give base sensitivities, video-only values or have no reuse terms (THIRD_PARTY.md, "Dual-gain switch points"). Without an entry, pass the camera's `highGainFromIso` (or `null`) to `simulateDngRawWhatIf`. To add a camera:
 
 1. Find a free-to-use source that **states** the ISO setting from which the camera uses its high conversion gain for photos (manufacturer documentation, or openly published measurements whose terms allow reuse of the facts). A value derived from overlapping menu ranges, read off a chart or measured by us is not enough.
 2. Add `{ make, model, highGainFromIso, source: { title, url, terms, accessed } }`, with `make` and `model` exactly as the file's Make (271) and Model (272) tags state them (check them on a file from that camera; the make is compared without case).
@@ -198,6 +198,16 @@ Not read: maker notes, the GPS and Interoperability IFDs, XMP values other than 
 - A prefix of the file is accepted: what lies beyond it is reported as truncated.
 
 `test/photo-metadata.test.ts` builds JPEG (both Exif byte orders, MPF, extended XMP, ISO 21496-1 APP2) and HEIF (grid primary with tiles, auxiliary images, thumbnail, tone map, Exif and XMP items in mdat and idat, iloc versions 0–2, ipma versions 0 and 1) files from the specifications with `test/helpers/photo-test-writer.ts`; no photo is used. It checks every field, the shared Exif rules against the DNG import, every prefix of a file, named hostile structures (loops, huge counts and sizes, box and item floods) and a fixed-seed mutation fuzz (10,000 mutated or truncated files), in which every outcome is well-formed metadata (finite numbers, valid indices) or an `InvalidConfigurationError`. Interoperability with specific cameras' files is not claimed.
+
+## Writing capture settings into a JPEG's Exif block (2.25.0)
+
+`setJpegExifCaptureSettings(jpeg, settings)` returns the JPEG with its Exif block replaced by one written from an allowlist of capture settings (`JPEG_EXIF_CAPTURE_SETTING_KEYS`; any other key is refused): `exposureTimeSeconds`, `fNumber`, `iso`, `focalLengthMillimeters`, `focalLengthIn35mmFilmMillimeters` (the names of the shared Exif capture fields, so `parsePhotoMetadata` reads the same values back), `exposureBiasEv`, `whiteBalance` (`"auto"` or `"manual"`), `dateTaken` (`{ local: "YYYY-MM-DDTHH:MM:SS[.fff]", offset?: "+HH:MM" }`, written as DateTimeOriginal, SubSecTimeOriginal and OffsetTimeOriginal), `software` and `orientation` (default 1). An omitted or null setting writes no tag.
+
+- Tags written (Exif 2.32): IFD 0 Orientation and Software; Exif ExposureTime (a whole-number reciprocal such as 1/250 exactly as 1/N), FNumber, PhotographicSensitivity, SensitivityType 2 with RecommendedExposureIndex (as the engine's exports write ISO), DateTimeOriginal, OffsetTimeOriginal, SubSecTimeOriginal, ExposureBiasValue, FocalLength, WhiteBalance, FocalLengthIn35mmFilm; and the mandatory tags of a compressed primary image (resolution 72 dpi meaning "unknown", YCbCrPositioning, ExifVersion, FlashpixVersion, ComponentsConfiguration, ColorSpace sRGB, PixelX/YDimension from the frame header).
+- Every Exif APP1 segment already in the file is removed, so nothing from an earlier Exif block (make, model, serial numbers, owner, GPS, maker notes, thumbnails) is carried over. The new block goes after SOI (after a leading JFIF segment). Other segments (JFIF, XMP, the ICC profile) and the scan data are kept byte for byte, so the decoded pixels are unchanged; an XMP packet from elsewhere is not filtered.
+- `jpegExifCaptureSettingsFromFields(fields)` turns read Exif fields (`parsePhotoMetadata(...).exif` or a DNG import's `exif`) into settings: exposure time, f-number, ISO, focal length and 35 mm focal length only.
+- It works on any baseline or progressive JPEG with a frame header before its first scan, including the engine's own (`simulateCapture` with `output.format: "jpeg"`, `createPrintJpegTask`). It is a separate step, not an option of those encoders, so the capture and display-view bundles do not grow.
+- Tests: `test/jpeg-exif-writer.test.ts` (read back with `parsePhotoMetadata` and a separate TIFF reader, identical decoded pixels, idempotence, an earlier Exif block with marker strings that are all absent afterwards, refused settings and every header prefix).
 
 ## PNG output
 

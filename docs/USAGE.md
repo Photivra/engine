@@ -3297,8 +3297,8 @@ Development ("developing" a RAW into a viewable image):
 See [photographic export](https://github.com/Photivra/engine/blob/main/docs/PHOTOGRAPHIC_EXPORT.md) for the equations.
 
 ```ts
-import { calculateEffectiveSaturationCode, createNativeRawDevelopmentTask, type NativeRawDevelopmentInput,
-  type SdrRenderingProfile } from "@photivra/engine";
+import { calculateEffectiveSaturationCode, createNativeRawDevelopmentTask, pinLookMidGray, STANDARD_LOOK,
+  type NativeRawDevelopmentInput, type SdrRenderingProfile } from "@photivra/engine";
 
 // A 20,000 e⁻ well at 1 e⁻/DN over a 512 pedestal saturates at code 20512, not at 65535.
 const white = calculateEffectiveSaturationCode({ physicalChargeCapacityElectrons: 20000,
@@ -3312,6 +3312,11 @@ const filmic: SdrRenderingProfile = { schemaVersion: "0.1.0", profileId: "filmic
   toneCurveParameters: { exponent: 1.2, semiSaturation: 0.5, whiteLuminance: 4 },
   gamutHandling: "clip-components", outputDynamicRange: "sdr", transferFunction: "srgb",
   bitDepth: 8, rounding: "nearest-ties-up", dither: "none" };
+
+// Photivra's Standard look, with its mid-gray pinned where this application's exposure develops an 18 % chart (13 %).
+const standard: SdrRenderingProfile = { ...filmic, profileId: "standard",
+  ...pinLookMidGray(STANDARD_LOOK, { linearMidGray: 0.13 }) };
+void standard;
 
 async function develop(input: NativeRawDevelopmentInput) {
   // The task takes ownership of input.raw (its arrays are detached); output.raw returns it.
@@ -3338,8 +3343,16 @@ void develop;
 - The display view (`simulateDisplayView`, `prepareDisplayView`) renders the luminance tone curves, `highlightMode: "reconstruct"`
   and the desaturation since 2.22.0 (#593), with fast rules on screen and full ones for `fast: false`
   ([Display view, Coupled rendering](https://github.com/Photivra/engine/blob/main/docs/DISPLAY_VIEW.md#coupled-rendering-593-601)). Photivra's Standard look is
-  `{ exponent: 1.5, semiSaturation: 0.5009, whiteLuminance: 8 }` and its Flat look `{ exponent: 1, semiSaturation: 0.8465, whiteLuminance: 32 }`
-  for `naka-rushton-luminance` (18 % gray stays at 0.18; the engine's own looks, not a camera maker's).
+  `STANDARD_LOOK` (`naka-rushton-luminance` with `{ exponent: 1.5, semiSaturation: 0.5009, whiteLuminance: 8 }`) and its Flat look
+  `FLAT_LOOK` (`{ exponent: 1, semiSaturation: 0.8465, whiteLuminance: 32 }`); each is `{ toneCurve, toneCurveParameters }`, to spread
+  into a rendering profile or `simulateCapture`'s `output` (2.25.0, #625). Both keep 18 % linear gray at 0.18 (the engine's own looks,
+  not a camera maker's).
+- `pinLookMidGray(look, { linearMidGray, outputLevel? })` (2.25.0, #626) derives a look that maps `linearMidGray` to `outputLevel`
+  (default: to itself), for an application whose exposure develops a mid-gray chart at another linear level than 18 %. At 13 %, the
+  Standard look alone renders mid-gray darker than a linear look (0.119) and the Flat look brighter (0.137); pinned, both leave it at
+  0.13. The contrast and white luminance are kept and the semi-saturation is solved in closed form, σⁿ = (1 − t)/(t·m⁻ⁿ − Lw⁻ⁿ);
+  the slope at mid-gray changes with σ, so a pinned look is not the published look shifted in exposure. A level that no σ in (0, 64]
+  reaches is refused.
 - `simulateCapture`'s `output.highlightMode: "reconstruct-neighbors"` (#602, 2.22.0; opt-in, an estimate) rebuilds clipped
   channels from the color ratios around each clipped region: the ring's mean ratios with `fast` (the sRGB default), their harmonic
   interpolation inward for exports and `fast: false`. Whole-image, so not with `output.region`; the display view renders it on the CPU and (since 2.23.0, #605) in its
@@ -7120,6 +7133,7 @@ See [Local POC Simulation API](https://github.com/Photivra/engine/blob/main/docs
 - `developDngStageImage` (2.22.0) builds the DNG's linear stage image (linearization, black and white levels, OpcodeList1/2/3); `applyDngProfileGainTableMap` and `applyDngRgbTables` apply the phone rendering tags at their places in a development.
 - 2.24.0 (#607): the import also returns `noiseProfile` (NoiseProfile per color plane) and `exif` (ISO with its source tag, exposure time, f-number, focal length, CompositeImage and SubjectArea). `calculateDngRawClipping` counts clipped sites per color plane; `estimateDngRawNoise` measures the RAW noise (σ at a brightness; it may read high on fine texture); `simulateDngRawWhatIf` makes the RAW of the same scene with less light or a higher ISO within the photo's own conversion-gain mode, seeded, and refuses with reasons (`assessDngRawWhatIf` lists them first) any file or request it cannot show accurately; `developDngImage` develops an imported DNG to sRGB with a chosen white balance and push. A brighter version is only ever "brightened in editing" (the same noise).
 - `serializePngImage` writes an 8- or 16-bit RGB PNG with an sRGB, ICC or cICP (Display P3, BT.2020; sRGB, BT.709 or linear transfer) colour description, and optional mDCV/cLLI display metadata. PQ and HLG are not part of 2.0 (see the patent review in `THIRD_PARTY.md`).
+- `setJpegExifCaptureSettings(jpeg, settings)` (2.25.0, #621) replaces a JPEG's Exif block with one holding only the allowlisted capture settings (exposure time, f-number, ISO, focal length, 35 mm focal length, exposure bias, white balance, date taken, Software, Orientation); nothing from an earlier Exif block is carried over and the image data are unchanged ([JPEG Exif writer](https://github.com/Photivra/engine/blob/main/docs/IMPORT_AND_PNG.md#writing-capture-settings-into-a-jpegs-exif-block-2250)).
 - `parsePhotoMetadata` (2.25.0) reads a JPEG or HEIC/HEIF file's headers: the Exif capture settings (the DNG import's `exif` fields, resolved by the same code), make, model, Software, Orientation and the image size, and the extra images and annotations it declares (thumbnail, MPF entries, HEIF auxiliary images such as depth, alpha, mattes and gain maps, tone maps, XMP gain-map and depth markers) by type and size. No pixels are decoded; maker notes and GPS data are never read. The DNG import (schema 1.3.0) also returns `software`, `enhancedImages` and, in `exif`, FocalLengthIn35mmFilm, DigitalZoomRatio, the focal-plane resolution and the pixel dimensions.
 
 See [DNG import and PNG output](https://github.com/Photivra/engine/blob/main/docs/IMPORT_AND_PNG.md) for supported subsets, limits and sources.

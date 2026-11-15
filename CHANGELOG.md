@@ -2,6 +2,23 @@
 
 ## 2.25.0 — unreleased
 
+### #621 JPEG Exif writer
+
+- **New:** `setJpegExifCaptureSettings(jpeg, settings)`, `jpegExifCaptureSettingsFromFields(fields)`, `JPEG_EXIF_CAPTURE_SETTING_KEYS` and the types `JpegExifCaptureSettings` and `JpegExifDateTaken`. The JPEG's Exif block is replaced by one written from an allowlist: exposure time, f-number, ISO (as SensitivityType 2 with RecommendedExposureIndex, as the engine's exports write it), focal length, 35 mm focal length, exposure bias, white balance, date taken (DateTimeOriginal, SubSecTimeOriginal, OffsetTimeOriginal), Software and Orientation, plus Exif 2.32's mandatory tags for a compressed image. Every earlier Exif segment is removed; other segments and the image data are kept byte for byte. The setting names are those of the shared Exif capture fields, so `parsePhotoMetadata` reads them back.
+- A separate step rather than an encoder option, so `simulateCapture`'s and the display view's bundles are unchanged.
+- Tests: `test/jpeg-exif-writer.test.ts` (engine JPEGs only; no photo is used).
+
+### #623 dual-gain switch points
+
+- `DNG_GAIN_SWITCH_CATALOG` stays empty. A second review (2026-11-15; THIRD_PARTY.md, "Dual-gain switch points") found one manufacturer statement of a switch point (the Blackmagic Pocket Cinema Camera manual: ISO 1,250 and above use the second native ISO), but the Make and Model tags of those cameras could not be checked on a public file, so it was not added. Panasonic, Sony, Nikon and Canon sources give base sensitivities with overlapping ranges or video-only values, and measurement sites grant no reuse. No value was derived or estimated. docs/IMPORT_AND_PNG.md ("Adding a gain-switch entry") says how an entry is added and that a caller-supplied `highGainFromIso` is needed meanwhile.
+
+### #625, #626 look constants and a pinned mid-gray
+
+- **New (#625):** `STANDARD_LOOK` and `FLAT_LOOK`, frozen `{ toneCurve: "naka-rushton-luminance", toneCurveParameters }` records with the documented parameters (Standard `{ exponent: 1.5, semiSaturation: 0.5009, whiteLuminance: 8 }`, Flat `{ exponent: 1, semiSaturation: 0.8465, whiteLuminance: 32 }`), and the type `NakaRushtonLook`. docs/USAGE.md uses them.
+- **New (#626):** `pinLookMidGray(look, { linearMidGray, outputLevel? })` and `PinLookMidGrayOptions`: the look with its semi-saturation solved so that the curve maps `linearMidGray` to `outputLevel` (default: to itself), keeping the contrast and white luminance. With s = σⁿ the curve at m is (1 + s·Lw⁻ⁿ)/(1 + s·m⁻ⁿ), strictly falling in s, so the solution s = (1 − t)/(t·m⁻ⁿ − Lw⁻ⁿ) is unique; at m = 0.18 it gives the published σ values to their four decimals. Levels no σ in (0, 64] reaches are refused.
+- Tests: `test/look-curves.test.ts` (the curve at the pinned level to 1 × 10⁻¹²; the median of a noisy 13 % patch through `calculateSdrRendering` at 16 bits equals the linear look's code; a `simulateCapture` uniform 18 % patch's luminance median matches the linear look's within 2 × 10⁻⁴ relative when pinned at its developed level, while the unpinned Standard look differs by more than 1 %).
+- The new module is not imported by any existing module, so the capture and display-view bundles are unchanged.
+
 ### #627 repository links
 
 - The package's `repository`, `bugs` and `homepage` fields and the docs already point to github.com/Photivra/engine (updated in #610). `npm run check:identity` now fails on any link to the repository's former name in the checked files (now including `llms.txt`), and when those three `package.json` fields are not exactly the Photivra/engine URLs.
