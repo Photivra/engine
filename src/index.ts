@@ -318,7 +318,10 @@ export {
   type EquivalenceValueBasis,
   type SensorEquivalence,
   type SensorEquivalenceFieldOfView,
-  type SensorEquivalenceQuantity
+  type SensorEquivalenceQuantity,
+  calculateFormatEquivalentIso,
+  type CalculateFormatEquivalentIsoInput,
+  type FormatEquivalentIso
 } from "./camera/sensor-equivalence.js";
 
 export {
@@ -1161,6 +1164,30 @@ export {
   type FilteredExposureDialSetting,
   type FilteredExposureTime
 } from "./exposure/filtered-exposure-time.js";
+export {
+  calculateFreezeShutterSpeed,
+  calculateStandardExposure,
+  calculateSunnySixteenExposure,
+  NAMED_LIGHT_LEVELS,
+  SUNNY_SIXTEEN_CONDITIONS,
+  type CalculateFreezeShutterSpeedInput,
+  type CalculateStandardExposureInput,
+  type CalculateSunnySixteenExposureInput,
+  type FreezeShutterSpeed,
+  type NamedLightLevel,
+  type NamedLightLevelRecord,
+  type StandardExposure,
+  type SunnySixteenCondition,
+  type SunnySixteenExposure
+} from "./exposure/exposure-helpers.js";
+export {
+  calculateProgramLine,
+  type CalculateProgramLineInput,
+  type ProgramLine,
+  type ProgramLineNode,
+  type ProgramLineSelection
+} from "./facade/program-line-for-lens.js";
+export { calculateSensorFigures, type CalculateSensorFiguresInput, type SensorFigures } from "./facade/sensor-figures.js";
 
 export {
   calculateIlluminationVignetting,

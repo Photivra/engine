@@ -1,5 +1,18 @@
 # Changelog
 
+## 2.25.0 — unreleased
+
+### #613–#616 Standalone helpers: equivalent ISO, program line, sensor figures, exposure helpers
+
+- **New (root exports 2,009 → 2,034, runtime 681 → 689; nothing removed or changed):**
+  - `calculateFormatEquivalentIso` (#613): the ISO on a target format with the same total light and output brightness, S′ = k²·S with the diagonal crop factor of `calculateSensorEquivalence` (shared code). Derivation from image illuminance ∝ 1/N² (Greivenkamp, OPTI-502) and S = 10/H (CIPA DC-004-2020 §3.2); labeled an approximation for noise (equal photon shot noise only for equally efficient sensors).
+  - `calculateProgramLine` (#614): the capture's program line for a lens's f-number range and the pair it chooses for an EV100 or luminance at a fixed ISO. The exposure anchor, the lens-range exposure profile and the generic line move from `simulate-capture.ts` into `src/facade/program-exposure.ts`, which both use; the pair comes from `resolveProgramAutoExposureMode` on the same tier capabilities and the capture's 16 × 16 zone mean.
+  - `calculateSensorFigures` (#615, async): engineering and EMVA 1288 dynamic range (and per ISO), the per-photosite read noise and the mid-grey charge, noise components and SNR at the standard exposure, for a sensor profile or a tier with optional sensor characteristics. The figures are the capture's own `result.sensor.native`, computed by `simulateCapture` on a 2 × 2 grey card at the standard exposure (a few milliseconds).
+  - `calculateSunnySixteenExposure`, `calculateStandardExposure`, `calculateFreezeShutterSpeed`, `SUNNY_SIXTEEN_CONDITIONS`, `NAMED_LIGHT_LEVELS` (#616). Sunny 16 from Kodak publication F-4017's daylight table; light levels from P. Schlyter's illuminance table and Wikipedia, "Lux" (THIRD_PARTY.md); the standard exposure is the capture's (N²/t = 0.065·L·S, now in `src/exposure/standard-exposure.ts`, which the capture imports); the freeze shutter uses `calculateProjectedMotionBlur`.
+- **Unchanged:** every capture's bytes. The moved code is the same arithmetic; `test/program-line-lens-range.test.ts` (its SHA-256 pins) and `test/capture-bundle.test.ts` pass. The app's capture-worker shape (rolldown 1.2.9, zlib level 9, this tree): fast worker 333,444 → 333,454 B gzip, on demand 45,110 → 45,117 B (limits 337,500 B and 47,000 B, not raised); the new exports are not in the worker.
+- **Agreement tests:** `test/program-line-standalone.test.ts` (eight lens ranges and light levels: the same f-number, shutter and ISO as `simulateCapture`'s program mode), `test/sensor-figures.test.ts` (dynamic range, EMVA figures, read noise and mid-grey components equal to a capture of the same profile and ISO at another scene, size, f-number and shutter), `test/exposure-helpers.test.ts` (the standard exposure against the capture's grey-card metering), `test/format-equivalent-iso.test.ts`.
+- **Docs:** docs/USAGE.md (four sections with runnable examples), docs/AGENT_GUIDE.md, llms.txt, the API reference task index.
+
 ## 2.24.0 — unreleased (prepared November 12, 2026)
 
 A minor release: the #607 research's "go" items for imported DNGs (owner-approved, 2026-11-11); two sample counts that follow the speed/accuracy flag (owner decision 2026-11-12); CI headroom; and the external Content Credentials validation. See the [2.24.0 release record](https://github.com/Photivra/engine/blob/main/docs/RELEASE_2_24_0.md).

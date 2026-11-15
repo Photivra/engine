@@ -8342,3 +8342,98 @@ if (found?.manifestStore[46] !== 1) throw new Error('The signed store must be fo
 
 See [Content Credentials](https://github.com/Photivra/engine/blob/main/docs/CONTENT_CREDENTIALS.md) for the byte layouts,
 the checks and what is still to be validated externally.
+
+## Equivalent ISO for a format change (#613)
+
+`calculateFormatEquivalentIso` gives the ISO on a target format (36 × 24 mm by default) that, with the equivalent focal
+length k·f and f-number k·N at the same shutter time, gives the same total light and the same output brightness as an ISO
+on the source format: S′ = k²·S, with k the diagonal crop factor that `calculateSensorEquivalence` uses (target diagonal /
+source diagonal). Derivation: image illuminance is proportional to 1/N², so k·N gives 1/k² of the illuminance over an area
+k² as large (the same total light when the aspect ratios match), and S = 10/H (CIPA DC-004-2020 §3.2) needs k² times the
+ISO for the same output from 1/k² of the exposure. For equally efficient sensors the photon shot noise of the whole image
+is then the same; read noise and sensor design are not modelled, so the result is labeled an approximation.
+
+```ts
+import { calculateFormatEquivalentIso } from '@photivra/engine';
+
+const apsc = calculateFormatEquivalentIso({ iso: 100, sensor: { widthMm: 23.5, heightMm: 15.6 } }).value;
+console.log(apsc.cropFactor.toFixed(2), apsc.equivalentIso.toFixed(0)); // 1.53 235: ISO 100 on APS-C ↔ ISO 235 on full frame
+const fourThirds = calculateFormatEquivalentIso({ iso: 200, cropFactor: 2 }).value;
+if (fourThirds.equivalentIso !== 800 || fourThirds.stops !== 2) throw new Error('k = 2 gives four times the ISO');
+```
+
+`calculateEquivalentIso` (unchanged) is a different relation: the ISO that keeps the brightness on one format after the
+aperture or shutter changes.
+
+## Program line for a lens range (#614)
+
+`calculateProgramLine` returns the program line `simulateCapture` follows in `exposure.mode: "program"` for a lens's
+f-number range, and, for a scene brightness (`ev100` or `luminanceCdPerSquareMeter`) at a fixed ISO, the pair it chooses,
+without running a capture. It is built by the capture's own code (`src/facade/program-exposure.ts`: the exposure anchor,
+the lens range, the generic line limited to the range, #569, #583, #585) and resolved by the same
+`resolveProgramAutoExposureMode` on the tier's capabilities, so a capture of a uniform scene metered at the same luminance
+chooses the same settings (`test/program-line-standalone.test.ts`, eight cases including the f/0.5–f/0.9 and fixed f/5.6
+ranges). EV100 is the engine's standard exposure: luminance L = 10·2^EV100/(0.65·100) cd/m². Each node also gives its
+EV, log2(N²/t), and the scene EV100 it suits at the request's ISO. Beyond the line's ends the end's settings are held, and
+`standardExposureDeviationStops` reports the over- or underexposure (positive is under). Auto ISO is not offered here.
+
+```ts
+import { calculateProgramLine } from '@photivra/engine';
+
+const line = calculateProgramLine({ lens: { widestFNumber: 8, narrowestFNumber: 32 }, iso: 100, ev100: 10 }).value;
+console.log(line.profileId); // "facade-generic-program-line-lens-range": the range does not hold f/4–f/16
+console.log(line.nodes.map((n) => 'f/' + n.aperture + ' ' + n.shutterSeconds.toPrecision(3) + ' s')); // f/16 1/2000 s … f/8 1.024 s
+const pick = line.selection!;
+console.log(pick.aperture, pick.shutterSeconds, pick.position); // the pair the capture's program mode chooses at EV100 10
+```
+
+## Sensor figures (#615)
+
+`calculateSensorFigures` gives a sensor's figures at an ISO: engineering dynamic range log₂(S_sat / σ_floor) (and per ISO
+setting), the EMVA 1288 Release 4.0 absolute sensitivity threshold and dynamic range (§2.7, Eq. 26–28), the read noise of
+one photosite, and the mid-grey figure: the charge, noise components (photon shot √S, read noise, dark current at 1/125 s,
+ADC quantization) and their total, the SNR and SNR in dB, of an 18 % grey card at the standard exposure H = 10/S. It takes a
+sensor profile (`SENSOR_PROFILES`, `resolveSensorProfile` or a modified copy) or a tier, with optional sensor
+characteristics (peak QE, full well, read noise, ADC bit depth). The figures are `simulateCapture`'s own
+`result.sensor.native`: the function runs the capture on a 2 × 2 uniform grey card at f/8, 1/125 s and the illuminance
+that gives the standard exposure (exact, `fast: false`), so a capture of the same profile and ISO reports the same values
+(`test/sensor-figures.test.ts`). They are model figures, not measurements of a camera.
+
+```ts
+import { calculateSensorFigures, resolveSensorProfile } from '@photivra/engine';
+
+const figures = (await calculateSensorFigures({ profile: resolveSensorProfile('full-frame-24mp-bsi-2020s'), iso: 800 })).value;
+console.log(figures.dynamicRangeStops.toFixed(1), figures.midGrey.snr.toFixed(1), figures.midGrey.noiseElectrons.total.toFixed(1));
+console.log(figures.dynamicRangeByIso.map((d) => d.iso + ': ' + d.stops.toFixed(1))); // every ISO setting in one call
+```
+
+## Exposure helpers (#616)
+
+Three helpers that reuse the engine's exposure value (`calculateExposureValue100`), standard exposure (the arithmetic
+`simulateCapture` meters to, `src/exposure/standard-exposure.ts`) and motion blur (`calculateProjectedMotionBlur`):
+
+- **`calculateSunnySixteenExposure`:** f/16 at 1/ISO in bright sun, one stop wider for each condition: f/11 slight
+  overcast, f/8 overcast, f/5.6 heavy overcast, f/4 open shade (Kodak publication F-4017's daylight table; Wikipedia,
+  "Sunny 16 rule"). A rule of thumb, with its EV (sunny: EV100 log2(100·16²) ≈ 14.64) and the luminance it exposes at the
+  standard exposure, 10·N²/(0.65·t·S).
+- **`calculateStandardExposure`:** the metered EV and a settings pair (an aperture, default f/8, or a shutter) for a named
+  light level (`NAMED_LIGHT_LEVELS`: representative illuminances from P. Schlyter's illuminance table and Wikipedia,
+  "Lux"; a range is used at its geometric mean), an illuminance or a luminance. An illuminance is metered as an 18 % grey
+  card, L = 0.18·E/π; the standard exposure is N²/t = 0.065·L·S (S = 10/H, CIPA DC-004-2020 §3.2; H = 0.65·L·t/N², §5.5).
+  It agrees with `simulateCapture`'s grey-card metering (tested).
+- **`calculateFreezeShutterSpeed`:** the slowest shutter that keeps a subject crossing the field under a blur limit, in
+  pixels (with the pitch) or as a fraction of the frame's diagonal, width or height: t = b·d/(v·s′), with s′ the thin-lens
+  image distance at the focus distance (ideal rectilinear projection, constant velocity across the line of sight; camera
+  shake is `estimateCameraShakeBlur`'s). With a dial, the slowest dial value within the limit.
+
+```ts
+import { calculateFreezeShutterSpeed, calculateStandardExposure, calculateSunnySixteenExposure, GENERIC_THIRD_STOP_SHUTTER_SECONDS } from '@photivra/engine';
+
+const sunny = calculateSunnySixteenExposure({ condition: 'sunny', iso: 100 }).value;
+console.log(sunny.aperture, sunny.shutterSeconds, sunny.ev100.toFixed(2)); // 16 0.01 14.64
+const overcast = calculateStandardExposure({ light: 'overcast-day', aperture: 2.8, shutterDialSeconds: GENERIC_THIRD_STOP_SHUTTER_SECONDS }).value;
+console.log(overcast.ev100.toFixed(2), overcast.dialShutterSeconds); // 8.54 0.02 (1/50 s)
+const freeze = calculateFreezeShutterSpeed({ subjectSpeedMps: 1, subjectDistanceM: 5, focalLengthMm: 50,
+  blurLimit: { fractionOfFrame: 1 / 1500, sensor: { widthMm: 36, heightMm: 24 } }, shutterDialSeconds: GENERIC_THIRD_STOP_SHUTTER_SECONDS }).value;
+console.log(freeze.shutterSeconds.toFixed(5), freeze.dialShutterSeconds); // 0.00286, 0.0025 (1/400 s)
+```

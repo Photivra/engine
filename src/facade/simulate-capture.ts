@@ -51,7 +51,8 @@ import { createExposureMeterTargetFromMeteringResult, setExposureCompensationOnM
 import { resolveManualExposureMode, resolveAperturePriorityExposureMode, resolveAperturePriorityAutoIsoExposureMode, resolveShutterPriorityExposureMode,
   resolveProgramAutoExposureMode, type AutoIsoBaselinePolicy, type AutoIsoLimits, type ExposureResolutionConstraint } from "../exposure/exposure-mode-resolver.js";
 import { estimateAutoIsoSlowestShutter, GENERIC_HANDHELD_ANGULAR_VELOCITY_RAD_PER_SEC } from "../exposure/auto-iso-slowest-shutter.js";
-import { parseExposureProgramLineProfile, type ExposureProgramLineProfile } from "../exposure/program-line.js";
+import { GREY_CARD_REFLECTANCE, sosReferenceLuminance } from "../exposure/standard-exposure.js";
+import { FACADE_EXPOSURE_ANCHOR, facadeExposureAnchor, facadeLensRangeExposure, facadeProgramLine } from "./program-exposure.js";
 import { resolveCaptureGeometry } from "../output/capture-geometry.js";
 import { estimateCie1931ColorMatchingFunctions, type PreparedColorimetricSpectrum } from "../color/color-matching-functions.js";
 import { createColorTemperatureWhiteBalanceIntent, resolveColorTemperatureWhiteBalance, resolveCustomWhiteBalance,
@@ -915,22 +916,13 @@ export interface SimulateCaptureResult {
 
 export const FACADE_EVIDENCE: readonly EvidenceProvenance[] = /* @__PURE__ */ Object.freeze([/* @__PURE__ */ Object.freeze({ sourceOrigin: "photivra" as const,
   sourceReference: "photivra:simulate-capture-facade", reuseStatus: "photivra-owned" as const })]);
-const DEFAULTS = /* @__PURE__ */ Object.freeze({ camera: "professional" as const, fNumber: 8, shutterSeconds: 1 / 125, iso: 100, compensationStops: 0,
+const DEFAULTS = /* @__PURE__ */ Object.freeze({ camera: "professional" as const, fNumber: FACADE_EXPOSURE_ANCHOR.fNumber, shutterSeconds: FACADE_EXPOSURE_ANCHOR.shutterSeconds,
+  iso: FACADE_EXPOSURE_ANCHOR.iso, compensationStops: 0,
   subjectDistanceM: 5, width: 64, height: 64, format: "srgb-8" as const, toneCurve: "identity" as const, highlightMode: "clip" as const,
   whiteBalance: "scene-illuminant" as const, jpegQuantizationStep: 1, pixelPitchMicrometers: 6, spectralStepNanometers: 20,
   temporalSampleCount: 1, noiseSeed: 1, illuminantKelvin: 6500 });
-/** Standard output sensitivity S = 10 / H (CIPA DC-004-2020 §3.2): the reference exposure in lx·s is 10 / S. */
-const SOS_REFERENCE_EXPOSURE_NUMERATOR_LUX_SECONDS = 10;
 /** #565: the one-tap kernel that makes the image-space provider read each query at its lattice point. */
 const UNIT_SITE_KERNEL = /* @__PURE__ */ new Float64Array([1]);
-/** Camera equation H = 0.65·L·t/N² (CIPA DC-004-2020 §5.5 (4); 0.65 = τ·π/4 with τ = 0.828, Explanation 4). */
-const CAMERA_EQUATION_CONSTANT = 0.65;
-/** Neutral reference reflectance: DC-004 ties the SOS reference level to an 18 % grey (Explanation 1 and 2.2). */
-const GREY_CARD_REFLECTANCE = 0.18;
-/** Scene luminance (cd/m²) whose focal-plane exposure 0.65·L·t/N² equals the SOS reference exposure 10/S. */
-function sosReferenceLuminance(fNumber: number, shutterSeconds: number, iso: number): number {
-  return SOS_REFERENCE_EXPOSURE_NUMERATOR_LUX_SECONDS * fNumber ** 2 / (CAMERA_EQUATION_CONSTANT * shutterSeconds * iso);
-}
 /**
  * #515: deviation, in stops, of the exposure the settings give from the CIPA DC-004-2020 standard exposure for the metered
  * luminance L: Δ = log2(N²/t) − log2(0.65·L·S/10) = log2(L_ref(N, t, S) / L), with L_ref the luminance that the settings
@@ -1331,22 +1323,6 @@ function resolveAutomaticSlowestShutterOption(value: unknown, context: { focalLe
     "reciprocal rule is a rule of thumb and is not used.");
   return report;
 }
-function defaultProgramLine(wide: number, narrow: number, anchor: { aperture: number; shutterSeconds: number }): ExposureProgramLineProfile {
-  // Generic educational program line written for the engine, relative to the f/8, 1/125 s reference. For less light
-  // it first opens the aperture toward f/4, then lengthens the shutter. For more light it first closes toward
-  // f/16, then shortens the shutter. #583: a lens range without f/4–f/16 moves those ends to the range (wide/narrow, the line's
-  // f/4 and f/16 clamped to it): the same shape, the aperture held at the range's end and the shutter taking up the stops
-  // (stops = log2 of t/N² over the anchor's t/N²; #585 may move the anchor), still from 1/2000 s to 1.024 s.
-  const own = wide === 4 && narrow === 16;
-  return parseExposureProgramLineProfile({ schemaVersion: "0.1.0", profileId: "facade-generic-program-line" + (own ? "" : "-lens-range"), profileVersion: "1.0.0",
-    scientificStatus: "approximation", policyKind: "generic-program-line", interpolation: "log2-aperture-shutter", evidence: FACADE_EVIDENCE,
-    limitations: ["Generic educational program line authored for the capture facade; not any manufacturer's program."],
-    nodes: (own ? [["minus-6", -6, 16, 1 / 2000], ["minus-2", -2, 16, 1 / 125], ["zero", 0, 8, 1 / 125], ["plus-2", 2, 4, 1 / 125], ["plus-9", 9, 4, 128 / 125]] as const :
-      [[narrow, 1 / 2000], [narrow, 1 / 125], [wide, 1 / 125], [wide, 128 / 125]].filter((_, i) => i !== 2 || wide < narrow)
-        .map(([aperture, shutterSeconds], i) => ["n" + i, Math.log2(shutterSeconds! * anchor.aperture ** 2 / anchor.shutterSeconds / aperture! ** 2), aperture!, shutterSeconds!] as const))
-      .map(([nodeId, opticalExposureStopsFromReference, aperture, shutterSeconds]) => ({ nodeId, opticalExposureStopsFromReference, aperture, shutterSeconds })) });
-}
-
 /** PNG colour signalling: the sRGB chunk for sRGB, ITU-T H.273 code points through cICP otherwise. */
 function pngColourEncoding(encoding: SimulateCaptureColorEncoding): PngColourEncoding {
   if (encoding === "srgb") return { kind: "srgb", renderingIntent: "perceptual" };
@@ -2037,10 +2013,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   } else if (lensOptions.focusScatter !== undefined) fail("lens.focusScatter needs lens.catalogue: the focus scatter is a catalogue lens's own.");
   const listed = prime ?? catalogue, lensRange = listed ? { id: listed.lensId, name: catalogue ? catalogue.name : listed.lensId, focalLengthMm: listed.focalLengthMm,
     widestFNumber: listed.widestFNumber, narrowestFNumber: listed.narrowestFNumber } : ideal;
-  const lensExposure = lensRange ? { ...lens.exposure, profileId: "photivra-" + lensRange.id + ":exposure",
-    focalLengthMmRange: { ...lens.exposure.focalLengthMmRange, value: { minimum: lensRange.focalLengthMm, maximum: lensRange.focalLengthMm } },
-    aperture: { ...lens.exposure.aperture, widestAvailableFNumber: { kind: "constant" as const, fNumber: { value: lensRange.widestFNumber, evidence: FACADE_EVIDENCE } },
-      narrowestAvailableFNumber: { value: lensRange.narrowestFNumber, evidence: FACADE_EVIDENCE } } } as typeof lens.exposure : lens.exposure;
+  const lensExposure = facadeLensRangeExposure(lens.exposure, lensRange, FACADE_EVIDENCE);
   const focalDefault = lensExposure.focalLengthMmRange.value.minimum;
   const focalLengthMm = lensRange ? lensRange.focalLengthMm :
     positive(pick(lensOptions, "focalLengthMm", "lens.focalLengthMm", focalDefault, "The preset lens's focal length (the generic primes are 50 mm)."), "lens.focalLengthMm");
@@ -2613,12 +2586,8 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   // luminance; every other request keeps f/8, 1/125 s. #585: when that t is shorter than the body's shortest shutter (N0 below about f/1),
   // the anchor takes the shortest shutter instead, a lower N²/t; the meter, the resolvers and the program line all measure from the anchor.
   // An f-number clamped to the lens's range (#583 limits the program line's f/4 and f/16 with it).
-  const clamp = (n: number): number => lensRange ? Math.min(lensRange.narrowestFNumber, Math.max(lensRange.widestFNumber, n)) : n, referenceAperture = clamp(DEFAULTS.fNumber);
-  // (N0/8)² is exactly 1 at f/8, so f/8 keeps 1/125 s exactly.
-  const sameShutter = DEFAULTS.shutterSeconds * (referenceAperture / DEFAULTS.fNumber) ** 2;
-  // #554: a profile whose range starts above ISO 100 takes the same N²/(t·S) at its base ISO (a shorter t).
-  const referenceIso = profile && profile.baseIso > DEFAULTS.iso ? profile.baseIso : DEFAULTS.iso;
-  const reference = { aperture: referenceAperture, shutterSeconds: Math.max(sameShutter * DEFAULTS.iso / referenceIso, capabilities.shutter.minimumSeconds), iso: referenceIso };
+  // #554: a profile whose range starts above ISO 100 takes the same N²/(t·S) at its base ISO (a shorter t). #614 shares the code (program-exposure.ts).
+  const { clamp, sameShutter, reference } = facadeExposureAnchor(lensRange, capabilities.shutter.minimumSeconds, profile?.baseIso), referenceAperture = reference.aperture;
   const referenceLuminance = sosReferenceLuminance(reference.aperture, reference.shutterSeconds, reference.iso);
   assume("exposure.referenceExposure", "model", { ...reference, meteredLuminanceCdPerSquareMeter: referenceLuminance },
     "Exposure anchor: f/8, 1/125 s, ISO 100 gives the CIPA DC-004 standard output sensitivity reference exposure H = 10/S = 0.1 lx·s for an average scene luminance of 10·N²/(0.65·t·S) ≈ 1230.77 cd/m² (camera equation H = 0.65·L·t/N²)" +
@@ -2745,7 +2714,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
         { kind: "manual", iso, apertureQuantizationPolicy: "nearest-log2-narrower-on-tie" } });
   } else {
     // #583: a lens range without f/4–f/16 limits the line to it; every other request keeps the line and its assumption.
-    const programLine = defaultProgramLine(clamp(4), clamp(16), reference);
+    const programLine = facadeProgramLine(clamp(4), clamp(16), reference, FACADE_EVIDENCE);
     // A limited line (#583) records its nodes under the profile id "facade-generic-program-line-lens-range".
     assume("exposure.programLine", "model", programLine.nodes.length > 4 ? programLine.profileId : programLine,
       "Engine-authored generic program line (f/16 1/2000 s … f/8 1/125 s … f/4 1.024 s); not a manufacturer program.");

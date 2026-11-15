@@ -938,9 +938,29 @@
       "kind": "type"
     },
     {
+      "name": "calculateFormatEquivalentIso",
+      "source": "src/camera/sensor-equivalence.ts",
+      "kind": "runtime"
+    },
+    {
+      "name": "CalculateFormatEquivalentIsoInput",
+      "source": "src/camera/sensor-equivalence.ts",
+      "kind": "type"
+    },
+    {
       "name": "calculateForwardGeometricMapping",
       "source": "src/output/geometric-transforms.ts",
       "kind": "runtime"
+    },
+    {
+      "name": "calculateFreezeShutterSpeed",
+      "source": "src/exposure/exposure-helpers.ts",
+      "kind": "runtime"
+    },
+    {
+      "name": "CalculateFreezeShutterSpeedInput",
+      "source": "src/exposure/exposure-helpers.ts",
+      "kind": "type"
     },
     {
       "name": "calculateGamutMappedColor",
@@ -1328,6 +1348,16 @@
       "kind": "runtime"
     },
     {
+      "name": "calculateProgramLine",
+      "source": "src/facade/program-line-for-lens.ts",
+      "kind": "runtime"
+    },
+    {
+      "name": "CalculateProgramLineInput",
+      "source": "src/facade/program-line-for-lens.ts",
+      "kind": "type"
+    },
+    {
       "name": "calculateProjectedMotionBlur",
       "source": "src/motion/projected-motion.ts",
       "kind": "runtime"
@@ -1498,6 +1528,16 @@
       "kind": "type"
     },
     {
+      "name": "calculateSensorFigures",
+      "source": "src/facade/sensor-figures.ts",
+      "kind": "runtime"
+    },
+    {
+      "name": "CalculateSensorFiguresInput",
+      "source": "src/facade/sensor-figures.ts",
+      "kind": "type"
+    },
+    {
       "name": "calculateSensorFixedPatternSite",
       "source": "src/sensor/fixed-pattern-noise.ts",
       "kind": "runtime"
@@ -1608,6 +1648,16 @@
       "kind": "type"
     },
     {
+      "name": "calculateStandardExposure",
+      "source": "src/exposure/exposure-helpers.ts",
+      "kind": "runtime"
+    },
+    {
+      "name": "CalculateStandardExposureInput",
+      "source": "src/exposure/exposure-helpers.ts",
+      "kind": "type"
+    },
+    {
       "name": "calculateStepWedgeReflectances",
       "source": "src/facade/chart-scenes.ts",
       "kind": "runtime"
@@ -1630,6 +1680,16 @@
     {
       "name": "CalculateSubjectFramingCropInput",
       "source": "src/output/subject-framing-crop.ts",
+      "kind": "type"
+    },
+    {
+      "name": "calculateSunnySixteenExposure",
+      "source": "src/exposure/exposure-helpers.ts",
+      "kind": "runtime"
+    },
+    {
+      "name": "CalculateSunnySixteenExposureInput",
+      "source": "src/exposure/exposure-helpers.ts",
       "kind": "type"
     },
     {
@@ -3903,6 +3963,11 @@
       "kind": "type"
     },
     {
+      "name": "FormatEquivalentIso",
+      "source": "src/camera/sensor-equivalence.ts",
+      "kind": "type"
+    },
+    {
       "name": "FRAUNHOFER_C_LINE_NM",
       "source": "src/optics/longitudinal-chromatic-aberration.ts",
       "kind": "runtime"
@@ -3916,6 +3981,11 @@
       "name": "FRAUNHOFER_F_LINE_NM",
       "source": "src/optics/longitudinal-chromatic-aberration.ts",
       "kind": "runtime"
+    },
+    {
+      "name": "FreezeShutterSpeed",
+      "source": "src/exposure/exposure-helpers.ts",
+      "kind": "type"
     },
     {
       "name": "FRONT_OF_LENS_FILTER_PROFILE_SCHEMA_VERSION",
@@ -5275,6 +5345,21 @@
     {
       "name": "MtfOnlyPsfRenderabilityAssessment",
       "source": "src/optics/lens-psf-profile.ts",
+      "kind": "type"
+    },
+    {
+      "name": "NAMED_LIGHT_LEVELS",
+      "source": "src/exposure/exposure-helpers.ts",
+      "kind": "runtime"
+    },
+    {
+      "name": "NamedLightLevel",
+      "source": "src/exposure/exposure-helpers.ts",
+      "kind": "type"
+    },
+    {
+      "name": "NamedLightLevelRecord",
+      "source": "src/exposure/exposure-helpers.ts",
       "kind": "type"
     },
     {
@@ -6875,6 +6960,21 @@
     {
       "name": "ProgramAutoIsoControl",
       "source": "src/exposure/exposure-mode-resolver.ts",
+      "kind": "type"
+    },
+    {
+      "name": "ProgramLine",
+      "source": "src/facade/program-line-for-lens.ts",
+      "kind": "type"
+    },
+    {
+      "name": "ProgramLineNode",
+      "source": "src/facade/program-line-for-lens.ts",
+      "kind": "type"
+    },
+    {
+      "name": "ProgramLineSelection",
+      "source": "src/facade/program-line-for-lens.ts",
       "kind": "type"
     },
     {
@@ -8593,6 +8693,11 @@
       "kind": "type"
     },
     {
+      "name": "SensorFigures",
+      "source": "src/facade/sensor-figures.ts",
+      "kind": "type"
+    },
+    {
       "name": "SensorFixedPatternNoiseProfile",
       "source": "src/sensor/fixed-pattern-noise.ts",
       "kind": "type"
@@ -9728,6 +9833,11 @@
       "kind": "type"
     },
     {
+      "name": "StandardExposure",
+      "source": "src/exposure/exposure-helpers.ts",
+      "kind": "type"
+    },
+    {
       "name": "StepWedgeChartScene",
       "source": "src/facade/chart-scenes.ts",
       "kind": "type"
@@ -9755,6 +9865,21 @@
     {
       "name": "SubjectFramingFit",
       "source": "src/facade/subject-framing.ts",
+      "kind": "type"
+    },
+    {
+      "name": "SUNNY_SIXTEEN_CONDITIONS",
+      "source": "src/exposure/exposure-helpers.ts",
+      "kind": "runtime"
+    },
+    {
+      "name": "SunnySixteenCondition",
+      "source": "src/exposure/exposure-helpers.ts",
+      "kind": "type"
+    },
+    {
+      "name": "SunnySixteenExposure",
+      "source": "src/exposure/exposure-helpers.ts",
       "kind": "type"
     },
     {
