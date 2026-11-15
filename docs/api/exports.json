@@ -3233,6 +3233,21 @@
       "kind": "runtime"
     },
     {
+      "name": "DNG_REWRITE_ALLOWED_TAGS",
+      "source": "src/capture/dng-writer.ts",
+      "kind": "runtime"
+    },
+    {
+      "name": "DNG_REWRITE_LIMITS",
+      "source": "src/capture/dng-writer.ts",
+      "kind": "runtime"
+    },
+    {
+      "name": "DNG_REWRITE_SCHEMA_VERSION",
+      "source": "src/capture/dng-writer.ts",
+      "kind": "runtime"
+    },
+    {
       "name": "DNG_WHAT_IF_MINIMUM_MEASURED_TO_PROFILE",
       "source": "src/capture/dng-raw-what-if.ts",
       "kind": "runtime"
@@ -3330,6 +3345,16 @@
     {
       "name": "DngRawWhatIfResult",
       "source": "src/capture/dng-raw-what-if.ts",
+      "kind": "type"
+    },
+    {
+      "name": "DngRewriteEdits",
+      "source": "src/capture/dng-writer.ts",
+      "kind": "type"
+    },
+    {
+      "name": "DngRewriteInput",
+      "source": "src/capture/dng-writer.ts",
       "kind": "type"
     },
     {
@@ -3841,6 +3866,11 @@
       "name": "FlashSyncCapabilityProfile",
       "source": "src/exposure/flash.ts",
       "kind": "type"
+    },
+    {
+      "name": "FLAT_LOOK",
+      "source": "src/output/look-curves.ts",
+      "kind": "runtime"
     },
     {
       "name": "FocalLengthFNumberSample",
@@ -4868,6 +4898,26 @@
       "kind": "type"
     },
     {
+      "name": "JPEG_EXIF_CAPTURE_SETTING_KEYS",
+      "source": "src/capture/jpeg-exif-writer.ts",
+      "kind": "runtime"
+    },
+    {
+      "name": "JpegExifCaptureSettings",
+      "source": "src/capture/jpeg-exif-writer.ts",
+      "kind": "type"
+    },
+    {
+      "name": "jpegExifCaptureSettingsFromFields",
+      "source": "src/capture/jpeg-exif-writer.ts",
+      "kind": "runtime"
+    },
+    {
+      "name": "JpegExifDateTaken",
+      "source": "src/capture/jpeg-exif-writer.ts",
+      "kind": "type"
+    },
+    {
       "name": "JpegStripBits",
       "source": "src/capture/export-jpeg.ts",
       "kind": "type"
@@ -5320,6 +5370,11 @@
     {
       "name": "MtfOnlyPsfRenderabilityAssessment",
       "source": "src/optics/lens-psf-profile.ts",
+      "kind": "type"
+    },
+    {
+      "name": "NakaRushtonLook",
+      "source": "src/output/look-curves.ts",
       "kind": "type"
     },
     {
@@ -6360,6 +6415,16 @@
     {
       "name": "PhysicalStabilizationArchitecture",
       "source": "src/stabilization/system.ts",
+      "kind": "type"
+    },
+    {
+      "name": "pinLookMidGray",
+      "source": "src/output/look-curves.ts",
+      "kind": "runtime"
+    },
+    {
+      "name": "PinLookMidGrayOptions",
+      "source": "src/output/look-curves.ts",
       "kind": "type"
     },
     {
@@ -7938,6 +8003,16 @@
       "kind": "runtime"
     },
     {
+      "name": "rewriteDng",
+      "source": "src/capture/dng-writer.ts",
+      "kind": "runtime"
+    },
+    {
+      "name": "RewrittenDng",
+      "source": "src/capture/dng-writer.ts",
+      "kind": "type"
+    },
+    {
       "name": "RgbColorSpaceDefinition",
       "source": "src/color/rgb-color-spaces.ts",
       "kind": "type"
@@ -9233,6 +9308,11 @@
       "kind": "type"
     },
     {
+      "name": "setJpegExifCaptureSettings",
+      "source": "src/capture/jpeg-exif-writer.ts",
+      "kind": "runtime"
+    },
+    {
       "name": "setManualFocusState",
       "source": "src/capture/focus-control.ts",
       "kind": "runtime"
@@ -9419,6 +9499,11 @@
     },
     {
       "name": "SimulateCaptureLensDistortion",
+      "source": "src/facade/simulate-capture.ts",
+      "kind": "type"
+    },
+    {
+      "name": "SimulateCaptureLensFilterReport",
       "source": "src/facade/simulate-capture.ts",
       "kind": "type"
     },
@@ -9826,6 +9911,11 @@
       "name": "StabilizedRotationTrajectory",
       "source": "src/stabilization/system.ts",
       "kind": "type"
+    },
+    {
+      "name": "STANDARD_LOOK",
+      "source": "src/output/look-curves.ts",
+      "kind": "runtime"
     },
     {
       "name": "StatedValueInterval",

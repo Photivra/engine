@@ -268,6 +268,20 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 | [`DevelopDngStageImageOptions`](api/capture-dng-stage-image.md#developdngstageimageoptions) | Type |
 | [`DngStageImageResult`](api/capture-dng-stage-image.md#dngstageimageresult) | Type |
 
+## capture/dng-writer.ts
+
+[Detailed contracts](api/capture-dng-writer.md) · [Source](https://github.com/Photivra/engine/blob/main/src/capture/dng-writer.ts)
+
+| Export | Kind |
+| --- | --- |
+| [`DNG_REWRITE_ALLOWED_TAGS`](api/capture-dng-writer.md#dng_rewrite_allowed_tags) | Runtime |
+| [`DNG_REWRITE_LIMITS`](api/capture-dng-writer.md#dng_rewrite_limits) | Runtime |
+| [`DNG_REWRITE_SCHEMA_VERSION`](api/capture-dng-writer.md#dng_rewrite_schema_version) | Runtime |
+| [`DngRewriteEdits`](api/capture-dng-writer.md#dngrewriteedits) | Type |
+| [`DngRewriteInput`](api/capture-dng-writer.md#dngrewriteinput) | Type |
+| [`rewriteDng`](api/capture-dng-writer.md#rewritedng) | Runtime |
+| [`RewrittenDng`](api/capture-dng-writer.md#rewrittendng) | Type |
+
 ## capture/environment-raw-producer.ts
 
 [Detailed contracts](api/capture-environment-raw-producer.md) · [Source](https://github.com/Photivra/engine/blob/main/src/capture/environment-raw-producer.ts)
@@ -326,6 +340,18 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 | [`SetFocusLockInput`](api/capture-focus-control.md#setfocuslockinput) | Type |
 | [`setManualFocusState`](api/capture-focus-control.md#setmanualfocusstate) | Runtime |
 | [`SetManualFocusStateInput`](api/capture-focus-control.md#setmanualfocusstateinput) | Type |
+
+## capture/jpeg-exif-writer.ts
+
+[Detailed contracts](api/capture-jpeg-exif-writer.md) · [Source](https://github.com/Photivra/engine/blob/main/src/capture/jpeg-exif-writer.ts)
+
+| Export | Kind |
+| --- | --- |
+| [`JPEG_EXIF_CAPTURE_SETTING_KEYS`](api/capture-jpeg-exif-writer.md#jpeg_exif_capture_setting_keys) | Runtime |
+| [`JpegExifCaptureSettings`](api/capture-jpeg-exif-writer.md#jpegexifcapturesettings) | Type |
+| [`jpegExifCaptureSettingsFromFields`](api/capture-jpeg-exif-writer.md#jpegexifcapturesettingsfromfields) | Runtime |
+| [`JpegExifDateTaken`](api/capture-jpeg-exif-writer.md#jpegexifdatetaken) | Type |
+| [`setJpegExifCaptureSettings`](api/capture-jpeg-exif-writer.md#setjpegexifcapturesettings) | Runtime |
 
 ## capture/jpeg-xl-tiles.ts
 
@@ -1656,6 +1682,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 | [`SimulateCaptureLensCatalogueRecord`](api/facade-simulate-capture.md#simulatecapturelenscataloguerecord) | Type |
 | [`SimulateCaptureLensCorrections`](api/facade-simulate-capture.md#simulatecapturelenscorrections) | Type |
 | [`SimulateCaptureLensDistortion`](api/facade-simulate-capture.md#simulatecapturelensdistortion) | Type |
+| [`SimulateCaptureLensFilterReport`](api/facade-simulate-capture.md#simulatecapturelensfilterreport) | Type |
 | [`SimulateCaptureMetering`](api/facade-simulate-capture.md#simulatecapturemetering) | Type |
 | [`SimulateCaptureMotion`](api/facade-simulate-capture.md#simulatecapturemotion) | Type |
 | [`SimulateCaptureOptions`](api/facade-simulate-capture.md#simulatecaptureoptions) | Type |
@@ -2542,6 +2569,18 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 | [`parseGenericLensCorrectionProfile`](api/output-lens-corrections.md#parsegenericlenscorrectionprofile) | Runtime |
 | [`ResolvedLensCorrectionPlan`](api/output-lens-corrections.md#resolvedlenscorrectionplan) | Type |
 | [`resolveLensCorrectionPlan`](api/output-lens-corrections.md#resolvelenscorrectionplan) | Runtime |
+
+## output/look-curves.ts
+
+[Detailed contracts](api/output-look-curves.md) · [Source](https://github.com/Photivra/engine/blob/main/src/output/look-curves.ts)
+
+| Export | Kind |
+| --- | --- |
+| [`FLAT_LOOK`](api/output-look-curves.md#flat_look) | Runtime |
+| [`NakaRushtonLook`](api/output-look-curves.md#nakarushtonlook) | Type |
+| [`pinLookMidGray`](api/output-look-curves.md#pinlookmidgray) | Runtime |
+| [`PinLookMidGrayOptions`](api/output-look-curves.md#pinlookmidgrayoptions) | Type |
+| [`STANDARD_LOOK`](api/output-look-curves.md#standard_look) | Runtime |
 
 ## output/native-capture-sdr.ts
 

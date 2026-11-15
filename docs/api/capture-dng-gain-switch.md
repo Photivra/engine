@@ -4,7 +4,7 @@ The package and root API versions are recorded once in [Navigation](../API_REFER
 
 ## DNG_GAIN_SWITCH_CATALOG
 
-The curated list (empty in 2.24.0; see the module comment for how to add an entry).
+The curated list (empty in 2.24.0 and 2.25.0; see the module comment for how to add an entry).
 
 ```ts
 DNG_GAIN_SWITCH_CATALOG: readonly DngGainSwitchEntry[] = Object.freeze([])

@@ -108,7 +108,7 @@ function dateTags(value: unknown): ExportTiffTag[] {
   if (d.offset !== undefined) {
     const offset = typeof d.offset === "string" ? /^[+-](\d{2}):(\d{2})$/.exec(d.offset) : null;
     if (!offset || Number(offset[1]) > 14 || Number(offset[2]) > 59) fail("dateTaken.offset must be \"+HH:MM\" or \"-HH:MM\" (at most 14 hours).");
-    tags.push(exportTiffAscii(36881, d.offset));
+    tags.push(exportTiffAscii(36881, d.offset as string));
   }
   return tags;
 }

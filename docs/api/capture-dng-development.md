@@ -42,6 +42,13 @@ export interface DevelopDngImageOptions {
   crop?: "default" | "active-area";
   /** Apply the Orientation tag (default true). */
   orientation?: boolean;
+  /**
+   * 2.25.0 (#622): "full" (default) or "half", a half-size image for on-screen previews (registry entry `developDngImage/size.half`).
+   * With `fast` (the default for "srgb-8" and "srgb-16") each 2 × 2 CFA repeat is binned into one RGB pixel; with `fast: false` the
+   * exact full-size development is averaged over each 2 × 2 block in linear light. The stage grid is halved (an odd last row or
+   * column is dropped) and the crop rectangle maps to [⌊x/2⌋, ⌈(x + w)/2⌉) on each axis. Refused for a file imported at half size.
+   */
+  size?: "full" | "half";
 }
 ```
 
@@ -78,7 +85,10 @@ export interface DevelopedDngImage {
   /** White-balanced reference-camera RGB → XYZ D50 (row-major 3 × 3); the white maps to Y = 1. */
   cameraToXyzD50: number[];
   exposure: { baselineExposureStops: number; pushStops: number; label: string | null };
-  demosaic: "bilinear" | "ahd" | "none";
+  /** "bin-2x2" (2.25.0): the fast half-size path binned each CFA repeat (or LinearRaw 2 × 2 block) instead of demosaicing. */
+  demosaic: "bilinear" | "ahd" | "none" | "bin-2x2";
+  /** 2.25.0 (#622): the requested size; "half" halves the stage grid. */
+  size: "full" | "half";
   fast: { requested: boolean; defaultedFrom: "request" | "format" };
   /** Pixels with a white-balanced channel clipped at 1, and output components clipped by the gamut handling. */
   clippedPixelCount: number;
