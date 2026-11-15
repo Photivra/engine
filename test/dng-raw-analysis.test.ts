@@ -68,7 +68,8 @@ describe("DNG import: NoiseProfile and Exif (2.24.0)", () => {
     expect(raw.noiseProfile).toEqual([{ scale: 2e-5, offset: 3e-8 }, { scale: 2e-5, offset: 3e-8 }, { scale: 2e-5, offset: 3e-8 }]);
     expect(raw.exif).toEqual({ exposureTimeSeconds: 1 / 250, fNumber: 2.8, focalLengthMillimeters: 24, photographicSensitivity: 65535, sensitivityType: 6,
       standardOutputSensitivity: null, recommendedExposureIndex: 102400, isoSpeed: 100000, iso: 102400, isoSource: "recommended-exposure-index",
-      compositeImage: 2, compositeSourceImages: { total: 9, used: 8 }, subjectArea: { kind: "rectangle", x: 800, y: 600, width: 200, height: 100 } });
+      compositeImage: 2, compositeSourceImages: { total: 9, used: 8 }, subjectArea: { kind: "rectangle", x: 800, y: 600, width: 200, height: 100 },
+      focalLengthIn35mmFilmMillimeters: null, digitalZoomRatio: null, focalPlaneResolution: null, pixelDimensions: null });
     expect(raw.cameraCalibration1).toEqual([1.1, 0, 0, 0, 1, 0, 0, 0, .9]);
     expect(raw.cameraCalibrationSignature).toBe("sig");
     expect(raw.profileCalibrationSignature).toBe("sig");
