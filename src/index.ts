@@ -1920,6 +1920,8 @@ export { calculateDngRawClipping, estimateDngRawNoise, type CalculateDngRawClipp
 export { assessDngRawWhatIf, simulateDngRawWhatIf, DngRawWhatIfRefusedError, DNG_WHAT_IF_MINIMUM_MEASURED_TO_PROFILE, type DngRawWhatIfRequest,
   type DngRawWhatIfResult, type DngRawWhatIfRefusal, type DngRawWhatIfRefusalReason, type DngRawWhatIfAssessment } from "./capture/dng-raw-what-if.js";
 export { DNG_GAIN_SWITCH_CATALOG, resolveDngGainSwitch, type DngGainSwitchEntry } from "./capture/dng-gain-switch.js";
+// 2.25.0 (#620): rewrites a DNG with only allowlisted tags (no personal data) and optional edited development settings.
+export { DNG_REWRITE_SCHEMA_VERSION, DNG_REWRITE_LIMITS, DNG_REWRITE_ALLOWED_TAGS, rewriteDng, type DngRewriteInput, type DngRewriteEdits, type RewrittenDng } from "./capture/dng-writer.js";
 export { developDngImage, type DevelopDngImageOptions, type DevelopDngImageWhiteBalance, type DevelopedDngImage } from "./capture/dng-development.js";
 export { parseDngProfileGainTableMap, parseDngRgbTables, applyDngProfileGainTableMap, applyDngRgbTables, type DngProfileGainTableMap, type DngRgbTable, type DngRgbTables,
   type DngRgbImage, type ApplyDngProfileGainTableMapInput, type ApplyDngRgbTablesInput } from "./capture/dng-profile-maps.js";

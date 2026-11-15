@@ -7136,7 +7136,23 @@ See [Local POC Simulation API](https://github.com/Photivra/engine/blob/main/docs
 - `setJpegExifCaptureSettings(jpeg, settings)` (2.25.0, #621) replaces a JPEG's Exif block with one holding only the allowlisted capture settings (exposure time, f-number, ISO, focal length, 35 mm focal length, exposure bias, white balance, date taken, Software, Orientation); nothing from an earlier Exif block is carried over and the image data are unchanged ([JPEG Exif writer](https://github.com/Photivra/engine/blob/main/docs/IMPORT_AND_PNG.md#writing-capture-settings-into-a-jpegs-exif-block-2250)).
 - `parsePhotoMetadata` (2.25.0) reads a JPEG or HEIC/HEIF file's headers: the Exif capture settings (the DNG import's `exif` fields, resolved by the same code), make, model, Software, Orientation and the image size, and the extra images and annotations it declares (thumbnail, MPF entries, HEIF auxiliary images such as depth, alpha, mattes and gain maps, tone maps, XMP gain-map and depth markers) by type and size. No pixels are decoded; maker notes and GPS data are never read. The DNG import (schema 1.3.0) also returns `software`, `enhancedImages` and, in `exif`, FocalLengthIn35mmFilm, DigitalZoomRatio, the focal-plane resolution and the pixel dimensions.
 
+- `rewriteDng` (2.25.0, #620) writes a DNG from a DNG, optionally with an edited white balance, baseline exposure, default crop or orientation. Only allowlisted tags are written (`DNG_REWRITE_ALLOWED_TAGS`): the raw data (copied byte for byte), the development tags and the Exif capture settings; GPS data, serial numbers, the owner's name, maker notes, XMP and the other personal fields are left out.
+
 See [DNG import and PNG output](https://github.com/Photivra/engine/blob/main/docs/IMPORT_AND_PNG.md) for supported subsets, limits and sources.
+
+```ts
+import { rewriteDng, parseDngRawImage } from '@photivra/engine';
+
+// Share a DNG without its personal data, with a warmer white balance.
+function shareable(bytes: Uint8Array): Uint8Array {
+  const neutral = parseDngRawImage({ bytes }).asShotNeutral;
+  const edits = neutral ? { asShotNeutral: neutral.map((v, i) => i === 2 ? v * 1.1 : v) } : {};
+  const out = rewriteDng({ bytes, edits });
+  console.log(out.omittedTags.length + ' tags left out');
+  return out.bytes;
+}
+void shareable;
+```
 
 ```ts
 import { parseDngRawImage, assessDngRawWhatIf, simulateDngRawWhatIf, developDngImage, calculateDngRawClipping, estimateDngRawNoise } from '@photivra/engine';
