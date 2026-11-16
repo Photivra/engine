@@ -3319,7 +3319,7 @@ Development ("developing" a RAW into a viewable image):
 See [photographic export](https://github.com/Photivra/engine/blob/main/docs/PHOTOGRAPHIC_EXPORT.md) for the equations.
 
 ```ts
-import { calculateEffectiveSaturationCode, createNativeRawDevelopmentTask, pinLookMidGray, STANDARD_LOOK,
+import { calculateEffectiveSaturationCode, createNativeRawDevelopmentTask, resolveMidGrayPinnedLook, STANDARD_LOOK,
   type NativeRawDevelopmentInput, type SdrRenderingProfile } from "@photivra/engine";
 
 // A 20,000 e⁻ well at 1 e⁻/DN over a 512 pedestal saturates at code 20512, not at 65535.
@@ -3337,7 +3337,7 @@ const filmic: SdrRenderingProfile = { schemaVersion: "0.1.0", profileId: "filmic
 
 // Photivra's Standard look, with its mid-gray pinned where this application's exposure develops an 18 % chart (13 %).
 const standard: SdrRenderingProfile = { ...filmic, profileId: "standard",
-  ...pinLookMidGray(STANDARD_LOOK, { linearMidGray: 0.13 }) };
+  ...resolveMidGrayPinnedLook(STANDARD_LOOK, { linearMidGray: 0.13 }) };
 void standard;
 
 async function develop(input: NativeRawDevelopmentInput) {
@@ -3369,7 +3369,7 @@ void develop;
   `FLAT_LOOK` (`{ exponent: 1, semiSaturation: 0.8465, whiteLuminance: 32 }`); each is `{ toneCurve, toneCurveParameters }`, to spread
   into a rendering profile or `simulateCapture`'s `output` (2.25.0, #625). Both keep 18 % linear gray at 0.18 (the engine's own looks,
   not a camera maker's).
-- `pinLookMidGray(look, { linearMidGray, outputLevel? })` (2.25.0, #626) derives a look that maps `linearMidGray` to `outputLevel`
+- `resolveMidGrayPinnedLook(look, { linearMidGray, outputLevel? })` (2.25.0, #626) derives a look that maps `linearMidGray` to `outputLevel`
   (default: to itself), for an application whose exposure develops a mid-gray chart at another linear level than 18 %. At 13 %, the
   Standard look alone renders mid-gray darker than a linear look (0.119) and the Flat look brighter (0.137); pinned, both leave it at
   0.13. The contrast and white luminance are kept and the semi-saturation is solved in closed form, σⁿ = (1 − t)/(t·m⁻ⁿ − Lw⁻ⁿ);
@@ -7158,18 +7158,18 @@ See [Local POC Simulation API](https://github.com/Photivra/engine/blob/main/docs
 - `setJpegExifCaptureSettings(jpeg, settings)` (2.25.0, #621) replaces a JPEG's Exif block with one holding only the allowlisted capture settings (exposure time, f-number, ISO, focal length, 35 mm focal length, exposure bias, white balance, date taken, Software, Orientation); nothing from an earlier Exif block is carried over and the image data are unchanged ([JPEG Exif writer](https://github.com/Photivra/engine/blob/main/docs/IMPORT_AND_PNG.md#writing-capture-settings-into-a-jpegs-exif-block-2250)).
 - `parsePhotoMetadata` (2.25.0) reads a JPEG or HEIC/HEIF file's headers: the Exif capture settings (the DNG import's `exif` fields, resolved by the same code), make, model, Software, Orientation and the image size, and the extra images and annotations it declares (thumbnail, MPF entries, HEIF auxiliary images such as depth, alpha, mattes and gain maps, tone maps, XMP gain-map and depth markers) by type and size. No pixels are decoded; maker notes and GPS data are never read. The DNG import (schema 1.3.0) also returns `software`, `enhancedImages` and, in `exif`, FocalLengthIn35mmFilm, DigitalZoomRatio, the focal-plane resolution and the pixel dimensions.
 
-- `rewriteDng` (2.25.0, #620) writes a DNG from a DNG, optionally with an edited white balance, baseline exposure, default crop or orientation. Only allowlisted tags are written (`DNG_REWRITE_ALLOWED_TAGS`): the raw data (copied byte for byte), the development tags and the Exif capture settings; GPS data, serial numbers, the owner's name, maker notes, XMP and the other personal fields are left out.
+- `serializeRewrittenDng` (2.25.0, #620) writes a DNG from a DNG, optionally with an edited white balance, baseline exposure, default crop or orientation. Only allowlisted tags are written (`DNG_REWRITE_ALLOWED_TAGS`): the raw data (copied byte for byte), the development tags and the Exif capture settings; GPS data, serial numbers, the owner's name, maker notes, XMP and the other personal fields are left out.
 
 See [DNG import and PNG output](https://github.com/Photivra/engine/blob/main/docs/IMPORT_AND_PNG.md) for supported subsets, limits and sources.
 
 ```ts
-import { rewriteDng, parseDngRawImage } from '@photivra/engine';
+import { serializeRewrittenDng, parseDngRawImage } from '@photivra/engine';
 
 // Share a DNG without its personal data, with a warmer white balance.
 function shareable(bytes: Uint8Array): Uint8Array {
   const neutral = parseDngRawImage({ bytes }).asShotNeutral;
   const edits = neutral ? { asShotNeutral: neutral.map((v, i) => i === 2 ? v * 1.1 : v) } : {};
-  const out = rewriteDng({ bytes, edits });
+  const out = serializeRewrittenDng({ bytes, edits });
   console.log(out.omittedTags.length + ' tags left out');
   return out.bytes;
 }

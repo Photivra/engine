@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it } from "vitest";
-import { InvalidConfigurationError, JPEG_EXIF_CAPTURE_SETTING_KEYS, jpegExifCaptureSettingsFromFields, parseLossyJpeg, parsePhotoMetadata, setJpegExifCaptureSettings,
+import { InvalidConfigurationError, JPEG_EXIF_CAPTURE_SETTING_KEYS, resolveJpegExifCaptureSettings, parseLossyJpeg, parsePhotoMetadata, setJpegExifCaptureSettings,
   simulateCapture, type JpegExifCaptureSettings } from "../src/index.js";
 import { exportTiffAscii, exportTiffBytes, exportTiffNumbers, packExportJpegExif } from "../src/capture/export-tiff.js";
 import { scaledTimeout } from "./helpers/test-timeout.js";
@@ -90,10 +90,10 @@ describe("setJpegExifCaptureSettings (#621)", () => {
     const doubled = Uint8Array.from([...jpeg.subarray(0, jfifEnd), ...app1, ...jpeg.subarray(jfifEnd, jfifEnd+4+seg[1]!.payload.length), ...app1, ...jpeg.subarray(jfifEnd+4+seg[1]!.payload.length)]);
     const read = parsePhotoMetadata({ bytes: doubled }).exif!;
     expect(read.make).toBe("MAKE-MARKER");
-    const out = setJpegExifCaptureSettings(doubled, jpegExifCaptureSettingsFromFields(read));
+    const out = setJpegExifCaptureSettings(doubled, resolveJpegExifCaptureSettings(read));
     for (const marker of ["MAKE-MARKER", "MODEL-MARKER", "ARTIST-MARKER", "SERIAL-MARKER", "OWNER-MARKER", "MAKERNOTE-MARKER", "Photivra Print JPEG"]) expect(has(out, marker)).toBe(false);
     expect(parsePhotoMetadata({ bytes: out }).exif).toMatchObject({ photographicSensitivity: 800, iso: 800, make: null, exposureTimeSeconds: null });
-    expect(jpegExifCaptureSettingsFromFields({ exposureTimeSeconds: 2.5, fNumber: null, iso: 100.5, focalLengthMillimeters: 50, focalLengthIn35mmFilmMillimeters: 0 }))
+    expect(resolveJpegExifCaptureSettings({ exposureTimeSeconds: 2.5, fNumber: null, iso: 100.5, focalLengthMillimeters: 50, focalLengthIn35mmFilmMillimeters: 0 }))
       .toEqual({ exposureTimeSeconds: 2.5, fNumber: null, iso: null, focalLengthMillimeters: 50, focalLengthIn35mmFilmMillimeters: null });
     const other = exifTags(setJpegExifCaptureSettings(jpeg, { exposureTimeSeconds: 2.5, exposureBiasEv: 0.7, orientation: 6 }));
     expect([other.get(33434), other.get(37380), other.get(274)]).toEqual([[2.5], [0.7], [6]]);
@@ -114,6 +114,6 @@ describe("setJpegExifCaptureSettings (#621)", () => {
     // Every prefix of the headers fails cleanly.
     const scan = jpeg.findIndex((b, i) => b === 0xff && jpeg[i+1] === 0xda);
     for (let n = 0; n < scan; n++) expect(() => setJpegExifCaptureSettings(jpeg.subarray(0, n), {})).toThrow(InvalidConfigurationError);
-    expect(() => jpegExifCaptureSettingsFromFields(null as never)).toThrow(InvalidConfigurationError);
+    expect(() => resolveJpegExifCaptureSettings(null as never)).toThrow(InvalidConfigurationError);
   }, scaledTimeout(120_000));
 });

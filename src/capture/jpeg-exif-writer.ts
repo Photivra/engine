@@ -198,8 +198,8 @@ export function setJpegExifCaptureSettings(jpeg: Uint8Array, settings: JpegExifC
  * `parseDngRawImage`'s `exif`), as settings for `setJpegExifCaptureSettings`: exposure time, f-number, ISO, focal length and 35 mm
  * focal length only. Nothing else is read.
  */
-export function jpegExifCaptureSettingsFromFields(fields: Pick<ExifCaptureFields, "exposureTimeSeconds" | "fNumber" | "iso" | "focalLengthMillimeters" | "focalLengthIn35mmFilmMillimeters">): JpegExifCaptureSettings {
-  if (fields === null || typeof fields !== "object") throw new InvalidConfigurationError("jpegExifCaptureSettingsFromFields: fields must be ExifCaptureFields.");
+export function resolveJpegExifCaptureSettings(fields: Pick<ExifCaptureFields, "exposureTimeSeconds" | "fNumber" | "iso" | "focalLengthMillimeters" | "focalLengthIn35mmFilmMillimeters">): JpegExifCaptureSettings {
+  if (fields === null || typeof fields !== "object") throw new InvalidConfigurationError("resolveJpegExifCaptureSettings: fields must be ExifCaptureFields.");
   const iso = fields.iso, focal35 = fields.focalLengthIn35mmFilmMillimeters;
   return { exposureTimeSeconds: fields.exposureTimeSeconds ?? null, fNumber: fields.fNumber ?? null, focalLengthMillimeters: fields.focalLengthMillimeters ?? null,
     iso: typeof iso === "number" && Number.isSafeInteger(iso) && iso > 0 ? iso : null,

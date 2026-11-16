@@ -24,11 +24,11 @@ import { InvalidConfigurationError } from "../core/configuration-error.js";
 
 /** Schema version of {@link RewrittenDng}. */
 export const DNG_REWRITE_SCHEMA_VERSION = "1.0.0" as const;
-/** Limits of {@link rewriteDng}: the IFDs visited and the source size (a TIFF offset is 32-bit). */
+/** Limits of {@link serializeRewrittenDng}: the IFDs visited and the source size (a TIFF offset is 32-bit). */
 export const DNG_REWRITE_LIMITS = /* @__PURE__ */ Object.freeze({ defaultMaximumIfds: 64, maximumIfds: 1024, maximumBytes: 4_294_967_295 });
 
 /**
- * The tags {@link rewriteDng} may write, by tag id, with where each is read from:
+ * The tags {@link serializeRewrittenDng} may write, by tag id, with where each is read from:
  * - `raw`: the raw image IFD (NoiseProfile and the JPEG XL tags also IFD 0, as the DNG import reads them);
  * - `camera`: IFD 0, else the raw IFD (camera-level DNG tags, as the DNG import reads them);
  * - `exif`: the Exif IFD, else IFD 0, else the raw IFD (written to the Exif IFD);
@@ -96,7 +96,7 @@ interface Entry { type: number; count: number; at: number; size: number }
 type Ifd = Map<number, Entry>;
 /** A tag to write: its type, count and value bytes in the output byte order. */
 interface OutTag { id: number; type: number; count: number; data: Uint8Array }
-function fail(message: string): never { throw new InvalidConfigurationError("rewriteDng: " + message); }
+function fail(message: string): never { throw new InvalidConfigurationError("serializeRewrittenDng: " + message); }
 
 /**
  * Rewrites a DNG with only the allowlisted tags ({@link DNG_REWRITE_ALLOWED_TAGS}) and optional edited development settings.
@@ -104,7 +104,7 @@ function fail(message: string): never { throw new InvalidConfigurationError("rew
  * buffer and the IFD limit, and an unsupported layout fails with `InvalidConfigurationError`. The result reads back through
  * `parseDngRawImage` / `importDngRawImage` with the same codes and development settings (apart from the edits).
  */
-export function rewriteDng(input: DngRewriteInput): RewrittenDng {
+export function serializeRewrittenDng(input: DngRewriteInput): RewrittenDng {
   if (input === null || typeof input !== "object") fail("input must be an object.");
   for (const key of Object.keys(input)) if (!["bytes", "edits", "maximumIfds"].includes(key)) fail("unknown input field " + JSON.stringify(key) + ".");
   const bytes = input.bytes;

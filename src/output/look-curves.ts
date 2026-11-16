@@ -40,12 +40,12 @@ export interface PinLookMidGrayOptions {
 
 /**
  * Derives a look whose tone curve maps `linearMidGray` to `outputLevel` (default: to itself), keeping its contrast and white
- * luminance and solving its semi-saturation in closed form (module comment). `pinLookMidGray(STANDARD_LOOK, { linearMidGray: 0.18 })`
+ * luminance and solving its semi-saturation in closed form (module comment). `resolveMidGrayPinnedLook(STANDARD_LOOK, { linearMidGray: 0.18 })`
  * gives the Standard look's own σ to within its four published decimals.
  * @throws InvalidConfigurationError when the look or a level is invalid, or no semi-saturation in (0, 64] (the renderer's range) gives the level.
  */
-export function pinLookMidGray(look: NakaRushtonLook, options: PinLookMidGrayOptions): NakaRushtonLook {
-  const fail = (message: string): never => { throw new InvalidConfigurationError("pinLookMidGray: " + message); };
+export function resolveMidGrayPinnedLook(look: NakaRushtonLook, options: PinLookMidGrayOptions): NakaRushtonLook {
+  const fail = (message: string): never => { throw new InvalidConfigurationError("resolveMidGrayPinnedLook: " + message); };
   if (look === null || typeof look !== "object" || look.toneCurve !== "naka-rushton-luminance" || look.toneCurveParameters === null || typeof look.toneCurveParameters !== "object") {
     fail("look must be a naka-rushton-luminance look (for example STANDARD_LOOK).");
   }
