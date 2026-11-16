@@ -108,6 +108,16 @@ unit tap without `lens.diffraction`). Dark electrons (1 e⁻/s × exposure) are 
   window over fine chart detail cost about the square of its distinct materials. The sets, their order and every sum are
   unchanged, so the result is bit-identical to 2.24.0. What remains of 2.21.0's cost is the per-node sum itself: one
   addition per tap and spectral node, against one per tap before 2.21.0 ([Cost, defocus](#defocus-1)).
+- **Per-tap sum on the CPU (#643, 2.26.0, fast method `chart.signal/view-per-tap`).** On a fast request (the display view's
+  default), a site whose taps read more than one material adds its taps in order, each integrated from its material's spectrum
+  against the tap's kernel at every node (Σ_t Σ_n L_m(t)(λ_n)·C_c(t, n)), instead of first forming the per-material sums; a site
+  whose taps read one material takes Σ_n L_m(λ_n)·S_c(n) as before. The same sum regrouped, still integrated per site when the site
+  is read; `view.signal` records `{ sum: "per-tap", fast: true }`, and `fast: false` keeps the per-material sums. Measured on the
+  in-focus Quality frames from 2.20.0 to 2.25.0 (a 768 × 128 band of a 200 mm wall-chart frame, one CPU thread, the same machine):
+  2.20.0 8.6 s, 2.21.0–2.24.0 91–95 s, 2.25.0 57.8 s, the same samples throughout. Every site of that band reads about 130
+  distinct materials through 400 taps of 20 nodes, so the per-node work, not the material search, is what 2.21.0 added; the
+  per-tap sum does that work with one multiply-add per tap and node and no per-material bookkeeping, about 1.6–1.7 times faster
+  (see the [2.26.0 measurements](#in-focus-quality-2260)). The rest is the per-site integration itself (2.21.0's design).
 - With diffraction, offsets that share a fractional shift (the centred four-spot filter has one
   half-site-shifted lattice) are combined with the kernels in advance, as the capture's object-space
   convolution does, and lattice points are evaluated with the same formula as
@@ -201,6 +211,17 @@ with K_λ the diffraction kernel (a unit tap without `lens.diffraction`).
   regions are identical under both methods.
   On the GPU (`gpu: "auto"`) the pixels a renderer flags are recomputed on the host with this same regrouped signal
   (`DisplayViewGpuSetup.reference`), so they equal the CPU reference; the GPU's own pass keeps the combined kernels.
+  #642 (2.26.0): the regrouped path computes the in-focus signal in fixed tiles (128-site output tiles, 64-site in-focus tiles,
+  widened by the disc radius), so a region of a few pixels paid for whole tiles: 8–15 times the combined kernels' time for a
+  4 × 2 region. Each render now takes it only where its own count of operations is lower (`regroupedDefocusCheaper`, internal):
+  the combined kernels' (2R_c + 1)² taps for each site it reads (its native footprint widened by the reach, and at most 25 sites
+  per sampled real pixel with AHD, 9 with the bilinear demosaic, measured) against the in-focus tiles' 3·(2R_f + 1)² taps and the
+  runs. A whole view or a large region still takes the regrouped path; a small one keeps the combined kernels. Two renders that
+  take different paths agree to rounding (the regrouped test: within 1e-9 relative and one 8-bit code); renders that take the same
+  path are bit-identical where they overlap, as before. Measured on a fine-detail chart at f/2.8 focused at 1.4 m (R_c 19, R_f 2;
+  one CPU thread, the machine heavily loaded): the model's ratio and the measured one fall on the same side of 1 for regions of
+  4 × 2 to 100 × 50 pixels at 1 and 2 samples per axis with both demosaics, and the samples of every measured region were
+  identical under both paths.
 - **In focus** (c = 0), or without the option, nothing changes: the view is byte-identical to the request without it,
   and every display-view hash lock holds.
 - **The GPU** renders defocus too (#492 step 2c; `docs/WEBGPU.md`, "Defocus on the GPU"). The engine's renderer gathers
@@ -1229,6 +1250,27 @@ app's request with an 85 mm-equivalent f/1.4 prime (Speed, subject 3 m; Apple M5
 round, load average about 5): part medians of 274 ms at R = 64 (direct), 327 ms at R = 179 and 1.10 s at R = 512, and
 extrapolated whole views of 431 s, 98 s and 296 s
 ([Quick start, Large defocus discs](QUICK_START.md#large-defocus-discs-564)).
+
+### In-focus Quality (2.26.0)
+
+#643. In-focus Quality views of charts became slower in 2.21.0, when chart signals came to be integrated from the material
+spectrum per site. Measured on one band of a Guide frame (the 2 m wall chart at 200 mm, f/8, the 6 µm full-frame raster,
+diffraction, four-spot filter, 2 × 2 box, AHD; a 768 × 128 band of the 768 × 512 view at 4 × 4 samples; `gpu: "off"`), CPU
+time of one Node.js process on the same machine:
+
+| Engine | CPU time | Samples |
+| --- | --- | --- |
+| 2.20.0 | 8.6 s | reference |
+| 2.21.0, 2.22.0, 2.23.0, 2.24.0 | 91.4 s, 95.1 s, 91.9 s, 91.9 s | identical |
+| 2.25.0 | 57.8 s | identical |
+
+Profiled on 2.25.0 (a 768 × 16 band): 65 % of the time is in the per-material sums (`createMaterialSums`: the slot lookup,
+the per-node additions and the final integration); every one of the band's 803,139 sites reads 4 lattice groups of 10 × 10
+taps at 20 spectral nodes, about 130 distinct materials per site, and none reads only one material. So the time 2.21.0 added
+is the per-node work of every tap (about 8,000 multiply-adds per site against 400 table reads before), and 2.25.0's
+constant-time slot lookup (#612) removed the rest. The per-tap sum (above, "Signals are integrated…") does the same work
+with one multiply-add per tap and node and no per-material bookkeeping: that band 7.8 s → 4.5–4.8 s, the same samples. What
+remains over 2.20.0 is the per-site integration itself.
 
 ### Whole views against the 2.5 whole-frame view (2.6.0)
 
