@@ -63,7 +63,9 @@ export const XMP_IDENTIFIER = "http://ns.adobe.com/xap/1.0/\0";
 /** @internal */
 export const JPEG_XMP_MAXIMUM_PACKET_BYTES = 65502;
 /** @internal */
-export const encoder = new TextEncoder();
+// Typed structurally so the published declarations don't name TextEncoder, which consumers compiling
+// with only the ES library (no DOM types) can't resolve.
+export const encoder: { encode(input: string): Uint8Array } = new TextEncoder();
 
 /**
  * Checks caller text metadata. Returns undefined when `value` is undefined, otherwise a frozen copy with only
