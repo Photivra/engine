@@ -5,7 +5,7 @@
 ### Capture worker: the export kit (owner decision 2026-11-16, "Move export code out")
 
 - The JPEG and PNG writers load on demand: `src/facade/export-kit.ts` (print JPEG encoder, export JPEG coder, PNG encoder, and the JPEG and PNG text-metadata writers, now in `output/text-metadata-writers.ts`) is one chunk that `simulateCapture` loads where it parses `output.format` "jpeg" or "png". Results are unchanged byte for byte; root exports are unchanged (`addJpegTextMetadata` and `addPngTextMetadata` are re-exported from the new module).
-- `test/capture-bundle.test.ts` measures the kit as a third row, *export*, with its own limit (10,500 B: 10,403 B measured, rounded up to the next 100 B). The fast-worker and on-demand limits are unchanged. Measured: fast 331,482 B (limit 338,900 B; 340,300 B before the move), on demand 49,382 B (limit 47,400 B, still over), export 10,403 B. docs/DISPLAY_VIEW.md, "Bundle size".
+- `test/capture-bundle.test.ts` measures the kit as a third row, *export*, with its own limit (10,500 B: 10,403 B measured, rounded up to the next 100 B). The fast-worker limit is unchanged. Measured: fast 331,482 B (limit 338,900 B; 340,300 B before the move), on demand 49,382 B, export 10,403 B. The on-demand limit is raised from 47,400 B to 49,400 B (owner decision 2026-11-16, "Raise to 49,400 B": the measurement rounded up to the next 100 B; the growth is the flash and hand-shake code in the opt-in kit). docs/DISPLAY_VIEW.md, "Bundle size".
 - Tests: `test/export-kit-cold-load.test.ts` (a JPEG and a PNG export from a fresh module graph load the kit once and match a warm export byte for byte).
 
 ### #639 Flash: an impulse light with power, falloff and ambient mix

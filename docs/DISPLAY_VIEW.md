@@ -1582,7 +1582,7 @@ root exports of the built package, minified, gzip level 9; `test/capture-bundle.
   | Row (worker shape, gzip) | release-2.26.0 before the move | After it | Limit |
   | --- | --- | --- | --- |
   | fast worker | 340,300 B | **331,482 B** | 338,900 B |
-  | on demand | 49,357 B | **49,382 B** | 47,400 B (over: an open owner decision) |
+  | on demand | 49,357 B | **49,382 B** | 49,400 B (owner decision 2026-11-16; was 47,400 B) |
   | export | in the fast worker | **10,403 B** | 10,500 B |
 
   The GPU coupled steps (#593) load on demand too and count in that row. The bundler now gives the entry ten small chunks it
