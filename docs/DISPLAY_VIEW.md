@@ -1269,8 +1269,11 @@ the per-node additions and the final integration); every one of the band's 803,1
 taps at 20 spectral nodes, about 130 distinct materials per site, and none reads only one material. So the time 2.21.0 added
 is the per-node work of every tap (about 8,000 multiply-adds per site against 400 table reads before), and 2.25.0's
 constant-time slot lookup (#612) removed the rest. The per-tap sum (above, "Signals are integrated…") does the same work
-with one multiply-add per tap and node and no per-material bookkeeping: that band 7.8 s → 4.5–4.8 s, the same samples. What
-remains over 2.20.0 is the per-site integration itself.
+with one multiply-add per tap and node and no per-material bookkeeping: that band 7.8 s → 4.5–4.8 s, the same samples. The
+whole frame in its twelve bands (768 × 512 and 1536 × 1024, both runs side by side on a machine under heavy load, so the
+figures are indicative): 887 CPU-seconds on 2.25.0, 489 on 2.26.0, byte-identical. The f/16 frame focused behind the chart
+(combined kernels, no regrouping): one band 237 s → 113 s, byte-identical. What remains over 2.20.0 is the per-site
+integration itself.
 
 ### Whole views against the 2.5 whole-frame view (2.6.0)
 
