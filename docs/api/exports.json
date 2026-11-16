@@ -629,7 +629,7 @@
     },
     {
       "name": "CalculateChartFramingInput",
-      "source": "src/facade/subject-framing.ts",
+      "source": "src/facade/subject-framing-thin-lens.ts",
       "kind": "type"
     },
     {
@@ -1699,7 +1699,7 @@
     },
     {
       "name": "CalculateSubjectDistanceForFramingInput",
-      "source": "src/facade/subject-framing.ts",
+      "source": "src/facade/subject-framing-thin-lens.ts",
       "kind": "type"
     },
     {
@@ -1733,6 +1733,11 @@
       "kind": "runtime"
     },
     {
+      "name": "calculateThinLensChartFraming",
+      "source": "src/facade/subject-framing-thin-lens.ts",
+      "kind": "runtime"
+    },
+    {
       "name": "calculateThinLensImageDistance",
       "source": "src/optics/thin-lens.ts",
       "kind": "runtime"
@@ -1741,6 +1746,11 @@
       "name": "CalculateThinLensImageDistanceInput",
       "source": "src/optics/thin-lens.ts",
       "kind": "type"
+    },
+    {
+      "name": "calculateThinLensSubjectDistanceForFraming",
+      "source": "src/facade/subject-framing-thin-lens.ts",
+      "kind": "runtime"
     },
     {
       "name": "calculateXyzFromCielab",
@@ -2259,7 +2269,7 @@
     },
     {
       "name": "ChartFraming",
-      "source": "src/facade/subject-framing.ts",
+      "source": "src/facade/subject-framing-thin-lens.ts",
       "kind": "type"
     },
     {
@@ -4224,7 +4234,7 @@
     },
     {
       "name": "GENERIC_THIRD_STOP_ISO_SETTINGS",
-      "source": "src/equipment/generic-tier-assets.ts",
+      "source": "src/equipment/generic-iso-settings.ts",
       "kind": "runtime"
     },
     {
@@ -4234,7 +4244,7 @@
     },
     {
       "name": "GENERIC_WHOLE_STOP_ISO_SETTINGS",
-      "source": "src/equipment/generic-tier-assets.ts",
+      "source": "src/equipment/generic-iso-settings.ts",
       "kind": "runtime"
     },
     {
@@ -8599,7 +8609,7 @@
     },
     {
       "name": "SENSOR_PROFILE_ISO_MARKINGS",
-      "source": "src/equipment/sensor-profile-body.ts",
+      "source": "src/equipment/sensor-profile-record.ts",
       "kind": "runtime"
     },
     {
@@ -8979,7 +8989,7 @@
     },
     {
       "name": "SensorProfile",
-      "source": "src/equipment/sensor-profile-body.ts",
+      "source": "src/equipment/sensor-profile-record.ts",
       "kind": "type"
     },
     {
@@ -8989,7 +8999,7 @@
     },
     {
       "name": "SensorProfileValueKind",
-      "source": "src/equipment/sensor-profile-body.ts",
+      "source": "src/equipment/sensor-profile-record.ts",
       "kind": "type"
     },
     {
@@ -10074,12 +10084,12 @@
     },
     {
       "name": "SubjectFraming",
-      "source": "src/facade/subject-framing.ts",
+      "source": "src/facade/subject-framing-thin-lens.ts",
       "kind": "type"
     },
     {
       "name": "SubjectFramingCatalogueLens",
-      "source": "src/facade/subject-framing.ts",
+      "source": "src/facade/subject-framing-thin-lens.ts",
       "kind": "type"
     },
     {
@@ -10089,17 +10099,17 @@
     },
     {
       "name": "SubjectFramingFit",
-      "source": "src/facade/subject-framing.ts",
+      "source": "src/facade/subject-framing-thin-lens.ts",
       "kind": "type"
     },
     {
       "name": "SubjectFramingLens",
-      "source": "src/facade/subject-framing.ts",
+      "source": "src/facade/subject-framing-thin-lens.ts",
       "kind": "type"
     },
     {
       "name": "SubjectFramingSensorProfile",
-      "source": "src/facade/subject-framing.ts",
+      "source": "src/facade/subject-framing-thin-lens.ts",
       "kind": "type"
     },
     {
@@ -10168,8 +10178,18 @@
       "kind": "type"
     },
     {
+      "name": "ThinLensChartFramingInput",
+      "source": "src/facade/subject-framing-thin-lens.ts",
+      "kind": "type"
+    },
+    {
       "name": "ThinLensImageDistance",
       "source": "src/optics/thin-lens.ts",
+      "kind": "type"
+    },
+    {
+      "name": "ThinLensSubjectDistanceForFramingInput",
+      "source": "src/facade/subject-framing-thin-lens.ts",
       "kind": "type"
     },
     {

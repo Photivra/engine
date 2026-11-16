@@ -339,6 +339,11 @@ const capture = await simulateCapture({ scene: { preset: "siemens-star" }, lens:
 console.log(capture.scene.chart?.frameWidthFraction);
 ```
 
+**Thin lens only, smaller bundle (2.26.0, #646).** `calculateThinLensSubjectDistanceForFraming` and
+`calculateThinLensChartFraming` take the same input without `catalogue` and `sensorProfile` and return the same
+result (tested equal). Their module imports neither the lens catalogue nor the sensor profiles, so an application
+that only frames with a thin lens bundles about 5.8 KB gzip instead of the full functions' 12.5 KB (25.7 KB in 2.25.0).
+
 ### Chart coverage at any distance (2.5)
 
 `calculateChartFraming({ sensor, focalLengthMm | equivalentFocalLengthMm, chart, subjectDistanceM, focusDistanceM? })`

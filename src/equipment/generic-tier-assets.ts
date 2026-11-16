@@ -26,6 +26,7 @@ import { parseFlashSyncCapabilityProfile, type FlashSyncCapabilityProfile } from
 import type { SensorReadoutTimingDeclaration } from "../sensor/readout-timing.js";
 import { createIsoGainReadoutRegimes } from "../sensor/iso-gain.js";
 import { parseSensorFixedPatternNoiseProfile, type SensorFixedPatternNoiseProfile } from "../sensor/fixed-pattern-noise.js";
+import { GENERIC_THIRD_STOP_ISO_SETTINGS, GENERIC_WHOLE_STOP_ISO_SETTINGS } from "./generic-iso-settings.js";
 
 export type GenericEquipmentTier = "consumer" | "prosumer" | "professional";
 export interface GenericVersionedAsset<T> { assetId: string; assetVersion: string; profile: T }
@@ -87,12 +88,9 @@ const fact = <T>(value: T): EvidenceBackedFact<T> => ({ value, evidence });
  * settings; 2.0.0 is kept, whole-stop, so saved selections and records of it still resolve to exactly what they named.
  */
 export type GenericTierPresetVersion = "2.0.0" | "2.1.0";
-/** Whole-stop ISO settings of the 2.0.0 bodies (each body's list stops at its maximum). */
-export const GENERIC_WHOLE_STOP_ISO_SETTINGS = /* @__PURE__ */ Object.freeze([100, 200, 400, 800, 1600, 3200, 6400, 12800, 25600] as const);
-/**
- * Third-stop ISO settings of the 2.1.0 bodies: the conventional rounded markings of S = 100·2^(k/3), k = 0 … 24 (125 for
- * 126.0, 160 for 158.7 …; each within 2 % of the exact value). The engine takes the setting as the exact ISO speed.
- */
+// #646: the ISO setting lists are defined in generic-iso-settings.ts (no imports), so the sensor-profile record need not import the
+// tier assets; re-exported unchanged.
+export { GENERIC_THIRD_STOP_ISO_SETTINGS, GENERIC_WHOLE_STOP_ISO_SETTINGS } from "./generic-iso-settings.js";
 /**
  * The standard third-stop shutter times, seconds, from 1/8000 s to 30 s: the conventional markings of t = 2^(k/3) s
  * (1/8000 for 2^−13, 1/6 for 2^−8/3, 0.3 for 2^−5/3, 30 for 2^5; each within 7 % of the exact value). The generic bodies'
@@ -103,8 +101,6 @@ export const GENERIC_THIRD_STOP_SHUTTER_SECONDS = /* @__PURE__ */ Object.freeze(
   1 / 1600, 1 / 1250, 1 / 1000, 1 / 800, 1 / 640, 1 / 500, 1 / 400, 1 / 320, 1 / 250, 1 / 200, 1 / 160, 1 / 125, 1 / 100, 1 / 80, 1 / 60, 1 / 50, 1 / 40,
   1 / 30, 1 / 25, 1 / 20, 1 / 15, 1 / 13, 1 / 10, 1 / 8, 1 / 6, 1 / 5, 1 / 4, 0.3, 0.4, 0.5, 0.6, 0.8, 1, 1.3, 1.6, 2, 2.5, 3.2, 4, 5, 6, 8, 10, 13,
   15, 20, 25, 30] as const);
-export const GENERIC_THIRD_STOP_ISO_SETTINGS = /* @__PURE__ */ Object.freeze([100, 125, 160, 200, 250, 320, 400, 500, 640, 800, 1000, 1250, 1600,
-  2000, 2500, 3200, 4000, 5000, 6400, 8000, 10000, 12800, 16000, 20000, 25600] as const);
 const disk = [0,0,1,0,0, 0,1,1,1,0, 1,1,1,1,1, 0,1,1,1,0, 0,0,1,0,0];
 const clipped = [0,0,1,0,0, 0,1,1,1,0, 0,1,1,1,1, 0,1,1,1,0, 0,0,1,0,0];
 const clippedMore = [0,0,0,0,0, 0,0,1,1,0, 0,0,1,1,1, 0,0,1,1,0, 0,0,0,0,0];
