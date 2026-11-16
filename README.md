@@ -32,7 +32,7 @@ The source is licensed under Apache-2.0.
 
 ## Quick start
 
-Install the published ESM package below. The [2.24.0 release record](https://github.com/Photivra/engine/blob/main/docs/RELEASE_2_24_0.md) and [changelog](https://github.com/Photivra/engine/blob/main/CHANGELOG.md) describe the current release:
+Install the published ESM package below. The [2.25.0 release record](https://github.com/Photivra/engine/blob/main/docs/RELEASE_2_25_0.md) and [changelog](https://github.com/Photivra/engine/blob/main/CHANGELOG.md) describe the current release:
 
 ```sh
 npm install @photivra/engine@2.25.0
@@ -363,7 +363,7 @@ The application can then use those results, while the photography calculations t
 
 ## Status
 
-- Repository package version: `2.25.0` (release candidate prepared November 12, 2026; publication is separate)
+- Repository package version: `2.25.0` (release candidate prepared November 16, 2026; publication is separate)
 - Engine API contract: `2.25.0`
 - Versioned generic tier reference assets: [GENERIC_TIER_PRESETS.md](https://github.com/Photivra/engine/blob/main/docs/GENERIC_TIER_PRESETS.md).
 - Sensor profiles from published specifications (#554, unnamed): [SENSOR_PROFILES.md](https://github.com/Photivra/engine/blob/main/docs/SENSOR_PROFILES.md).

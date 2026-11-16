@@ -1,6 +1,26 @@
 # Changelog
 
-## 2.25.0 — unreleased
+## 2.25.0 — unreleased (prepared November 16, 2026)
+
+A minor release: the 22 issues of milestone 2.25.0 (#612–#633). Standalone helpers, a photo metadata reader, DNG and JPEG Exif writers, a half-size DNG preview, front-of-lens filters, look constants, catalogue-lens framing, glare, breathing and corrections, and faster defocused display views and exact catalogue PSFs. See the [2.25.0 release record](https://github.com/Photivra/engine/blob/main/docs/RELEASE_2_25_0.md).
+
+- **Root exports:** 66 new, 2,009 → 2,075 (runtime exports 681 → 705): 21 from #617–#619, 25 from #613–#616, 18 from #620–#626 and 2 from #631. Nothing is removed or changed in kind. DNG import schema 1.2.0 → 1.3.0 (new fields).
+- **Renamed before release** (never published under the old names): `pinLookMidGray` → `resolveMidGrayPinnedLook`, `rewriteDng` → `serializeRewrittenDng`, `jpegExifCaptureSettingsFromFields` → `resolveJpegExifCaptureSettings`.
+- **Changed (see "Default changes"):** two fast defaults (#612, #629) and one corrected report (#631); the new half-size preview's default method (#622).
+- **Capture-worker size limits** raised by owner decision (2026-11-16): fast worker 337,500 → 338,900 B, on demand 47,000 → 47,400 B (measured 338,815 B and 47,358 B).
+- **Not done:** `DNG_GAIN_SWITCH_CATALOG` stays empty (#623); lens ghosts are not rendered (#632).
+- **Why minor:** new root exports, new options and import fields, and fast-default changes.
+
+### Default changes (migration)
+
+| What changed | Before (2.24.0) | Now (2.25.0) | Keep the old behavior |
+| --- | --- | --- | --- |
+| Display view defocus on the CPU (#612, `lens.defocus/view-regrouped`) | the disc regrouped after the in-focus signal only at a combined radius above 64 sites | on fast requests, any plain disc much wider than the diffraction kernel ((2R_c + 1)² > 4·(2R_f + 1)²); the same sum, only rounding differs | `fast: false` |
+| `lens.catalogue` with `sensor.pixelAperture: "box"` on fast requests (#629) | the exact method | the field-grid fast method, the box folded into each lattice point | `lens: { catalogue: { kind, fast: false } }` |
+| `result.scene.chart` through a catalogue fisheye (#631) | thin-lens coverage | the projected coverage (the image is unchanged) | none (a correction) |
+| `developDngImage(raw, { size: "half" })` (#622, new option) | — | binned 2 × 2 on "srgb-8"/"srgb-16" by default; `size` defaults to "full", unchanged | `fast: false` for the exact half size |
+
+Requests without these options or combinations keep their 2.24.0 bytes.
 
 ### #631 Chart fit and coverage through the catalogue fisheyes
 
@@ -55,7 +75,6 @@
 - **Unchanged:** every capture's bytes. The moved code is the same arithmetic; `test/program-line-lens-range.test.ts` (its SHA-256 pins) and `test/capture-bundle.test.ts` pass. The app's capture-worker shape (rolldown 1.2.9, zlib level 9, this tree): fast worker 333,444 → 333,454 B gzip, on demand 45,110 → 45,117 B (limits 337,500 B and 47,000 B, not raised); the new exports are not in the worker.
 - **Agreement tests:** `test/program-line-standalone.test.ts` (eight lens ranges and light levels: the same f-number, shutter and ISO as `simulateCapture`'s program mode), `test/sensor-figures.test.ts` (dynamic range, EMVA figures, read noise and mid-grey components equal to a capture of the same profile and ISO at another scene, size, f-number and shutter), `test/exposure-helpers.test.ts` (the standard exposure against the capture's grey-card metering), `test/format-equivalent-iso.test.ts`.
 - **Docs:** docs/USAGE.md (four sections with runnable examples), docs/AGENT_GUIDE.md, llms.txt, the API reference task index.
-- **Root exports (#620–#626):** 18 new, 2,030 → 2,048 (generated API reference). Nothing is removed.
 
 ### #621 JPEG Exif writer
 
@@ -113,7 +132,7 @@
 - **Sources:** Exif 2.32/3.0 (CIPA DC-008), CIPA DC-007-2009 (MPF), ITU-T T.81, Adobe XMP Part 3, ISO/IEC 14496-12, the AVIF specification v1.2.0 and the Android Ultra HDR format v1.1 (all free; THIRD_PARTY.md, "JPEG and HEIF metadata reader"). No runtime dependency is added. The capture-only and display-view bundles are unchanged (the new modules are not imported by them).
 - Tests: `test/photo-metadata.test.ts` (synthetic JPEG and HEIF files from `test/helpers/photo-test-writer.ts`: every field, the shared Exif rules against the DNG import, every prefix of a file, named hostile structures and a fixed-seed mutation fuzz of 10,000 files), `test/dng-import-metadata.test.ts` and `test/stated-focal-length-equivalence.test.ts` (analytical: the forward equivalence returns the stated value, and the true area of four formats at seven focal lengths lies inside the interval of its rounded 35 mm value). No photo is used.
 
-## 2.24.0 — unreleased (prepared November 12, 2026)
+## 2.24.0 — published November 12, 2026
 
 A minor release: the #607 research's "go" items for imported DNGs (owner-approved, 2026-11-11); two sample counts that follow the speed/accuracy flag (owner decision 2026-11-12); CI headroom; and the external Content Credentials validation. See the [2.24.0 release record](https://github.com/Photivra/engine/blob/main/docs/RELEASE_2_24_0.md).
 
