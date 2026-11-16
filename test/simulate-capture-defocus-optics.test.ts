@@ -94,7 +94,15 @@ const cases: [string, SimulateCaptureOptions, string[]][] = [
   ["Brown-Conrady distortion", { ...base, lens: { ...lens, distortion: decentred } } as SimulateCaptureOptions, ["lens.distortion"]],
   ["camera rotation", { ...base, lens, ...rotation } as SimulateCaptureOptions, ["camera rotation"]],
   ["all of them", { ...base, lens: { ...lens, projection: "fisheye-equidistant", distortion: decentred, vignetting }, ...rotation } as SimulateCaptureOptions,
-    ["lens.projection, lens.distortion", "lens.vignetting", "camera rotation"]]
+    ["lens.projection, lens.distortion", "lens.vignetting", "camera rotation"]],
+  // #640: under a rolling shutter (a 4 ms skew) every row has its own instants; the provider keeps bands of one row.
+  ["camera rotation and a rolling shutter", { ...base, lens, ...rotation, motion: { ...rotation.motion, shutter: "rolling", rollingShutterSkewSeconds: 0.004 } } as SimulateCaptureOptions,
+    ["camera rotation"]],
+  ["distortion, vignetting, rotation and a rolling shutter", { ...base, lens: { ...lens, distortion: barrel, vignetting }, ...rotation,
+    motion: { ...rotation.motion, shutter: "rolling" } } as SimulateCaptureOptions, ["lens.distortion", "lens.vignetting", "camera rotation"]],
+  // #641: hand shake under a rolling shutter.
+  ["hand shake and a rolling shutter", { ...base, lens, exposure: { mode: "manual", shutterSeconds: 1 / 15, iso: 100 }, illuminanceLux: 400, sensor: { spectralStepNanometers: 80, temporalSampleCount: 3 },
+    motion: { handheld: { seed: 4 }, shutter: "rolling", rollingShutterSkewSeconds: 0.01 } } as SimulateCaptureOptions, ["camera rotation"]]
 ];
 
 describe("lens.defocus out of focus with projection, distortion, vignetting and camera rotation (#548)", () => {
@@ -118,7 +126,7 @@ describe("lens.defocus out of focus with projection, distortion, vignetting and 
   }
 
   it("agrees with the environment PSF quadrature to 1e-12 per site in expected electrons (all combinations at once)", async () => {
-    const options = cases[cases.length - 1]![1], r = await simulateCapture(options), value = defocusOf(r), psf = await discPsf(options, value.diameterSites);
+    const options = cases.find(([name]) => name === "all of them")![1], r = await simulateCapture(options), value = defocusOf(r), psf = await discPsf(options, value.diameterSites);
     const sharp = createPlanarSceneRadianceProvider({ scene: scene as never, illuminant: { kind: "planckian", temperatureKelvin: 6500 }, illuminanceLux: r.scene.illuminant.illuminanceLux,
       distanceM: r.scene.distanceM, framedWidthM: r.scene.framedWidthM, aspect: 12 / 16, sceneId: "facade-scene", providerProfileId: "facade-provider" });
     const native = r.raw.plan.exposure.geometry.nativeRaster, kernel = createDefocusDiscSiteKernel(value.diameterSites)!;
@@ -221,11 +229,14 @@ describe("lens.defocus out of focus with projection, distortion, vignetting and 
     expect(defocusOf(roll).fieldVariation!.rotationMaximumDiameterChangeSites).toBeLessThan(1e-9);
   }, scaledTimeout(120_000));
 
-  it("refuses rotation with a rolling shutter and a vignetting profile that does not cover the disc's reach; the display view renders these options (#563)", async () => {
-    await expect(simulateCapture({ ...base, lens, motion: { angularVelocityRadPerSec: { yaw: 0.5 }, shutter: "rolling" } }))
-      .rejects.toThrow(/does not support lens\.defocus out of focus with camera rotation and motion\.shutter "rolling"/u);
-    // In focus the same request renders.
-    await expect(simulateCapture({ ...base, lens: { ...lens, focusDistanceM: 2 }, motion: { angularVelocityRadPerSec: { yaw: 0.5 }, shutter: "rolling" } })).resolves.toBeDefined();
+  it("refuses a vignetting profile that does not cover the disc's reach, a moving subject or a kernel above 64 sites with a rolling shutter; the display view renders these options (#563)", async () => {
+    await expect(simulateCapture({ ...base, lens, motion: { subject: { velocityMPerSec: { x: 0.1 } }, shutter: "rolling" } }))
+      .rejects.toThrow(/does not support lens\.defocus out of focus with motion\.subject and motion\.shutter "rolling"/u);
+    // #640: a disc over 129 sites across is convolved on whole-frame lattices of one instant each; under a rolling shutter with rotation that is refused.
+    const wide = { ...base, lens: { ...lens, focusDistanceM: 0.5 }, motion: { angularVelocityRadPerSec: { yaw: 0.5 }, shutter: "rolling" } } as SimulateCaptureOptions;
+    await expect(simulateCapture(wide)).rejects.toThrow(/supports kernels of up to 64 sites radius/u);
+    await expect(simulateDisplayView(wide, { width: 8, height: 6 })).rejects.toThrow(/supports kernels of up to 64 sites radius/u);
+    await expect(simulateCapture({ ...wide, motion: { angularVelocityRadPerSec: { yaw: 0.5 } } })).resolves.toBeDefined();
     // The frame corner is 0.068 mm from the axis; the profile reaches 0.07 mm, the disc's reach (3 sites) does not fit.
     const short = { ...vignetting, normalizationRadiusMm: 0.07 };
     await simulateCapture({ ...base, lens: { ...lens, focusDistanceM: 2, vignetting: short } });
@@ -235,7 +246,7 @@ describe("lens.defocus out of focus with projection, distortion, vignetting and 
   }, scaledTimeout(60_000));
 
   it("output regions are the whole frame's pixels (Quality filters, all combinations)", async () => {
-    const all = cases[cases.length - 1]![1];
+    const all = cases.find(([name]) => name === "all of them")![1];
     const options = { ...all, lens: { ...all.lens, vignetting: { ...vignetting, normalizationRadiusMm: 0.2 } }, output: { width: 16, height: 12, demosaic: "ahd" },
       sensor: { spectralStepNanometers: 80, temporalSampleCount: 2, antiAliasing: { kind: "four-spot" }, pixelAperture: { kind: "box", samplesPerAxis: 2 } } } as SimulateCaptureOptions;
     const whole = await simulateCapture(options), nativeWidth = whole.plan.exposure.geometry.nativeRaster.pixelWidth;

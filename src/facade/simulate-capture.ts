@@ -124,6 +124,7 @@ import { resolveSensorReadoutRegime } from "../sensor/raw-readout.js";
 import { sumFixedPatternSites } from "../sensor/fixed-pattern-noise.js";
 import { sensorProfileFrame } from "../equipment/sensor-profile-frame.js";
 import type { SimulateCaptureSubjectMotion, SubjectMotion } from "../motion/subject-motion.js";
+import type { HandShakeOptions } from "../motion/hand-shake.js";
 import { loadedKit, optInKit, qualityKit } from "./on-demand-kits.js";
 import { characterizeReadout, parseSensorCharacteristics, sensorReport, SENSOR_CHARACTERISTIC_KEYS, type SimulateCaptureSensorCharacteristics, type SimulateCaptureSensorReport } from "../sensor/sensor-characteristics.js";
 import { resolveChartScene, chartMaterialInputs, CHART_SCENE_PRESETS, type ChartScene, type ResolvedChartScene } from "./chart-scenes.js";
@@ -410,6 +411,13 @@ export interface SimulateCaptureMotion {
    * (and optionally rotating about the optical axis) during the exposure. Off by default (a still scene).
    */
   subject?: SimulateCaptureSubjectMotion;
+  /**
+   * #641: hand shake, a bounded, seeded camera-rotation trajectory (`createHandShakeTrajectory`, docs/USAGE.md, "Hand shake"): on pitch
+   * and yaw, sway near 0.7–5.6 Hz and tremor at 8–12 Hz, 4.39 °/s RMS, levelling off near one degree instead of turning without
+   * bound as a constant rotation does. Added to `angularVelocityRadPerSec` (a pan) when both are given. `seed` (integer, default 0)
+   * picks the trajectory; `stabilizationStops` (0–10, default 0) scales it by 2^−stops. Off by default (a still camera).
+   */
+  handheld?: HandShakeOptions;
 }
 
 export interface SimulateCaptureOptions {
@@ -2162,7 +2170,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   }
 
   // Motion (2.0): constant camera rotation and the shutter type.
-  const motionOptions = allowKeys(top.motion, "motion", ["angularVelocityRadPerSec", "shutter", "rollingShutterSkewSeconds", "subject"]);
+  const motionOptions = allowKeys(top.motion, "motion", ["angularVelocityRadPerSec", "shutter", "rollingShutterSkewSeconds", "subject", "handheld"]);
   // #551: the moving subject (subject-motion.ts); its plane points depend on time, as camera rotation's rays do.
   let subject: SubjectMotion | undefined, subjectFast: boolean | undefined;
   if (motionOptions.subject !== undefined) {
@@ -2191,11 +2199,15 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
       angular[axis] = value as number;
     }
   }
-  const rotating = angular.pitch !== 0 || angular.yaw !== 0 || angular.roll !== 0;
+  // #641: the hand-shake trajectory (motion/hand-shake.ts), added to the constant rotation on every render path.
+  const handheld = motionOptions.handheld === undefined ? undefined : (await optInKit.load()).resolveHandShake(motionOptions.handheld);
+  const handShake = handheld && loadedKit(optInKit).handShakeQuadruples(handheld);
+  const rotating = angular.pitch !== 0 || angular.yaw !== 0 || angular.roll !== 0 || handheld !== undefined;
   const shutterKind = motionOptions.shutter === undefined ? "global" : motionOptions.shutter;
   if (shutterKind !== "global" && shutterKind !== "rolling") fail("motion.shutter must be global or rolling.");
   if (motionOptions.rollingShutterSkewSeconds !== undefined && shutterKind !== "rolling") fail("motion.rollingShutterSkewSeconds needs motion.shutter \"rolling\".");
   const rollingSkewOption = motionOptions.rollingShutterSkewSeconds === undefined ? undefined : positive(motionOptions.rollingShutterSkewSeconds, "motion.rollingShutterSkewSeconds");
+  const rollingRotation = rotating && shutterKind === "rolling";
   // Diffraction runs as an object-space convolution when every PSF tap's source is another site centre seen
   // through one linear map (still camera, rectilinear, no distortion or field throughput); otherwise per tap.
   const diffractionObjectSpace = diffractionRadiusOption !== undefined && !rotating && !subject && !lensFieldMapping && !vignetting;
@@ -2323,6 +2335,14 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   // #554: on a profile's downsized view a site sums photosites: explicit read noises (per photosite) scale as the profile's do (#637: the fixed pattern is summed below).
   const characteristics = rn && rs !== 1 ? { ...parsedCharacteristics!, readNoise: { ...rn, ...(rn.lowGainElectrons === undefined ? {} : { lowGainElectrons: rn.lowGainElectrons * rs }),
     ...(rn.highGainElectrons === undefined ? {} : { highGainElectrons: rn.highGainElectrons * rs }) } } : parsedCharacteristics;
+  /** The rolling readout declaration of `motion.shutter: "rolling"`: the body's, #555's `sensor.readoutSeconds` replacing its time and skew, then the caller's skew. */
+  const rollingReadout = (): Parameters<typeof resolveElectronicRollingShutterExposureSchedule>[0]["readout"] => {
+    const bodyReadout = (body as { rollingReadoutTiming?: { profile: unknown } }).rollingReadoutTiming?.profile as Parameters<typeof resolveElectronicRollingShutterExposureSchedule>[0]["readout"] | undefined;
+    const seconds = characteristics?.readoutSeconds, declared = bodyReadout && seconds ? { ...bodyReadout, captureReadoutDurationSeconds: { ...bodyReadout.captureReadoutDurationSeconds, value: seconds },
+      spatialSamplingSkewSeconds: { ...bodyReadout.spatialSamplingSkewSeconds!, value: seconds } } : bodyReadout;
+    if (!declared || declared.readoutMode !== "rolling") fail("motion.shutter \"rolling\" needs a camera body with a rolling readout timing declaration.");
+    return rollingSkewOption === undefined ? declared : { ...declared, spatialSamplingSkewSeconds: { value: rollingSkewOption, unit: "s" as const, evidence: FACADE_EVIDENCE } };
+  };
   // #637: a site that sums photosites takes the summed pattern (sumFixedPatternSites); a site smaller than a photosite is refused.
   if (characteristics?.fixedPatternNoise && profile && pitch < profile.pixelPitchMicrometers) fail("sensor.fixedPatternNoise needs a pitch of at least the profile's photosite.");
   // The EQE scale over the facade's QE 0.5 curve: an explicit peak QE, else the profile's (#554), else 1.
@@ -2354,9 +2374,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
     const unsupported = (option: string, reason: string): never => fail("simulateDisplayView does not support " + option + ": " + reason);
     if (pupil) unsupported("lens.pupilSampling", "pupil rays move each query off the site lattice the expected-signal tables use; lens.defocus renders the defocus of the scene plane on the lattice.");
     if (lensPsf) unsupported("lens.psf", "only the engine-built diffraction kernels (lens.diffraction) are tabulated.");
-    // #563: projection, distortion, vignetting and rotation are supported (display-view-lens-signal.ts), except rotation under a rolling shutter.
-    if (rotating && shutterKind === "rolling") unsupported("camera rotation with motion.shutter \"rolling\"", "every row has its own instants, so the view's " +
-      "scene points of one instant would mix rows exposed at other times; use motion.shutter \"global\" for the view.");
+    // #563: projection, distortion, vignetting and rotation are supported (display-view-lens-signal.ts); #640: under a rolling shutter each site reads its own instants.
     if (subject && (shutterKind === "rolling" || subject.omega !== 0)) unsupported("motion.subject with a rolling shutter or angularVelocityRadPerSec",
       "the view renders sideways motion under a global shutter only; simulateCapture renders both.");
     if (outputOptions.region !== undefined) unsupported("output.region", "pass the rectangle as view.region, in display pixels.");
@@ -2989,7 +3007,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   const lensGeometryNeeded = (defocusModel !== undefined || displayView || diffractionRadiusOption !== undefined || catalogueTaps !== undefined && !rollingFastTaps) && imageSpaceOptions.length > 0;
   if (lensGeometryNeeded) await qualityKit.load();
   const lensGeometry = lensGeometryNeeded ? loadedKit(qualityKit).prepareDefocusImageSpaceGeometry({ focalLengthMm, focusDistanceM,
-    angularVelocityRadPerSec: angular, ...(lensFieldMapping ? { lensMapping: prepareEnvironmentLensFieldMapping(lensFieldMapping) } : {}), ...(vignetting ? { vignetting } : {}) }) : undefined;
+    angularVelocityRadPerSec: angular, ...(handShake ? { handShake } : {}), ...(lensFieldMapping ? { lensMapping: prepareEnvironmentLensFieldMapping(lensFieldMapping) } : {}), ...(vignetting ? { vignetting } : {}) }) : undefined;
   const defocusGeometry = defocusModel !== undefined ? lensGeometry : undefined;
   if (rollingFastTaps) {
     const catalogueTapsFast = catalogueTaps !== undefined;
@@ -3046,12 +3064,18 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
     resolveDefocusOption({ run, assume, focalLengthMm, fNumber, focusDistanceM, subjectDistanceM, pitch, diffraction: diffractionRadiusOption !== undefined,
       ...(defocusBokeh ? { bokehOptions: defocusBokeh, bokeh: bokehSummary! } : {}),
       ...(defocusGeometry ? { imageSpace: (disc: ResolvedDefocusDisc): { options: readonly string[]; fieldVariation: DefocusFieldVariation } => {
-        // Rotation with a rolling shutter: each row's instants differ, so one instant's image on the lattice would mix rows exposed at other times.
-        if ((rotating || subject) && shutterKind === "rolling") fail("simulateCapture does not support lens.defocus out of focus with camera rotation and motion.shutter \"rolling\" (or motion.subject with it): " +
+        // #640: with rotation under a rolling shutter each row has its own instants, and the provider keeps one row's image per instant (a band of
+        // one row). A moving subject with a rolling shutter is not supported out of focus; a kernel above the direct radius is convolved on
+        // whole-frame lattices, one per instant, so neither is it.
+        if (subject && shutterKind === "rolling") fail("simulateCapture does not support lens.defocus out of focus with motion.subject and motion.shutter \"rolling\": " +
           "each row has its own instants (docs/QUICK_START.md). Use motion.shutter \"global\", set lens.focusDistanceM equal to subjectDistanceM, or omit one of the options.");
-        const temporalMidpointsSeconds = rotating ? Array.from({ length: temporalSampleCount }, (_, i) => (i + 0.5) * (shutterSeconds / temporalSampleCount)) : [];
+        if (rollingRotation && Math.max(bokehAxisKernel?.radius ?? 0, defocusDiscKernelRadius(disc.diameterSites)) > DEFOCUS_DIRECT_KERNEL_MAXIMUM_RADIUS_SITES)
+          fail("lens.defocus with camera rotation and motion.shutter \"rolling\" supports kernels of up to 64 sites radius; reduce the defocus or use motion.shutter \"global\".");
+        // The midpoints of the first row's window and (#640) of the last row's, a rolling readout's skew later.
+        const midpoints = rotating ? Array.from({ length: temporalSampleCount }, (_, i) => (i + 0.5) * (shutterSeconds / temporalSampleCount)) : [];
+        const temporalMidpointsSeconds = rollingRotation ? [...midpoints, ...midpoints.map((t) => t + rollingReadout().spatialSamplingSkewSeconds!.value)] : midpoints;
         return { options: imageSpaceOptions, fieldVariation: loadedKit(qualityKit).calculateDefocusFieldVariation({ geometry: defocusGeometry, ...(lensFieldMapping ? { lensMapping: prepareEnvironmentLensFieldMapping(lensFieldMapping) } : {}),
-          focalLengthMm, fNumber, focusDistanceM, subjectDistanceM, pitchMicrometers: pitch, nativeWidth, nativeHeight, angularVelocityRadPerSec: angular, temporalMidpointsSeconds,
+          focalLengthMm, fNumber, focusDistanceM, subjectDistanceM, pitchMicrometers: pitch, nativeWidth, nativeHeight, angularVelocityRadPerSec: angular, handShake, temporalMidpointsSeconds,
           diameterSites: disc.diameterSites, discAt: (distanceM) => resolveDefocusDisc({ focalLengthMm, aperture: fNumber, focusDistanceM, subjectDistanceM: distanceM, pitchMicrometers: pitch }).diameterSites }) };
       } } : {}) });
   const defocusImageSpace = defocusDisc !== undefined && defocusGeometry !== undefined;
@@ -3154,12 +3178,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   // Shutter (2.0): the electronic rolling-shutter schedule derived from the body's rolling readout declaration.
   let rollingSchedule: ElectronicRollingShutterExposureSchedule | undefined;
   if (shutterKind === "rolling") {
-    const bodyReadout = (body as { rollingReadoutTiming?: { profile: unknown } }).rollingReadoutTiming?.profile as Parameters<typeof resolveElectronicRollingShutterExposureSchedule>[0]["readout"] | undefined;
-    // #555: sensor.readoutSeconds replaces the body's readout time and skew.
-    const seconds = characteristics?.readoutSeconds, declared = bodyReadout && seconds ? { ...bodyReadout, captureReadoutDurationSeconds: { ...bodyReadout.captureReadoutDurationSeconds, value: seconds },
-      spatialSamplingSkewSeconds: { ...bodyReadout.spatialSamplingSkewSeconds!, value: seconds } } : bodyReadout;
-    if (!declared || declared.readoutMode !== "rolling") fail("motion.shutter \"rolling\" needs a camera body with a rolling readout timing declaration.");
-    const readout = rollingSkewOption === undefined ? declared : { ...declared, spatialSamplingSkewSeconds: { value: rollingSkewOption, unit: "s" as const, evidence: FACADE_EVIDENCE } };
+    const readout = rollingReadout();
     rollingSchedule = resolveElectronicRollingShutterExposureSchedule({ readout, linkageEvidence: FACADE_EVIDENCE,
       nominalExposureDurationSeconds: { value: shutterSeconds, unit: "s", evidence: FACADE_EVIDENCE } });
     assume("sensor.shutter", "model", { kind: "electronic-rolling", modelId: rollingSchedule.modelId, modelVersion: rollingSchedule.modelVersion,
@@ -3169,6 +3188,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
         "τ is the caller-declared skew across the simulated frame."));
     if (flash) loadedKit(optInKit).requireFlashRows(shutterSeconds, rollingSchedule.lineScanSkewSeconds);
   } else assume("sensor.shutter", "model", "global-electronic", "Global electronic shutter: every site integrates the same exposure window.");
+  if (handheld) loadedKit(optInKit).handShakeAssumption(assume, handheld, shutterSeconds);
   if (rotating) assume("motion.angularVelocityRadPerSec", "model", { ...angular },
     "Constant camera angular velocity applied to every scene ray at each temporal midpoint of each site's exposure window (engine rotation convention, docs/SENSOR_ENVIRONMENT_QUERY.md); motion blur is the midpoint quadrature over sensor.temporalSampleCount samples.");
   if (catalogue) assume("lens.psf", "model", lensPsf ? { kind: "sampled-local", source: "lens.catalogue" } : "not-applied", lensPsf ?
@@ -3254,6 +3274,20 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
     opening: { kind: "simultaneous" }; closing: { kind: "simultaneous" } } :
     { shutterMechanism: "electronic" as const, nominalExposureDurationSeconds: { value: shutterSeconds, unit: "s" as const, evidence },
       opening: { kind: "simultaneous" as const }, closing: { kind: "simultaneous" as const } };
+  /**
+   * #640: each native site's temporal midpoints under a rolling shutter, as the environment forms them from the site's window (start + (i + ½)·d/T),
+   * kept per scan line: per row for a vertical scan, per column for a horizontal one.
+   */
+  const rollingSiteTimes = (): (x: number, y: number) => readonly number[] => {
+    const windows = (points: { x: number; y: number }[]): readonly { startOffsetSecondsFromOpeningReference: number; localExposureDurationSeconds: number }[] =>
+      calculateCaptureExposureWindows({ ...exposureWindow, nativeRaster, samplePointsNative: points }).value.samples;
+    const rows = windows(Array.from({ length: nativeHeight }, (_, y) => ({ x: 0.5, y: y + 0.5 }))), byRow = rows.some((w) => w.startOffsetSecondsFromOpeningReference !== rows[0]!.startOffsetSecondsFromOpeningReference);
+    const lines = (byRow ? rows : windows(Array.from({ length: nativeWidth }, (_, x) => ({ x: x + 0.5, y: 0.5 })))).map((w) => {
+      const measure = w.localExposureDurationSeconds / temporalSampleCount;
+      return Array.from({ length: temporalSampleCount }, (_, i) => w.startOffsetSecondsFromOpeningReference + (i + 0.5) * measure);
+    });
+    return (x, y) => lines[byRow ? y : x]!;
+  };
   // #534: an exposure build-up render sees each native RAW input it renders (to attach its sensor stage).
   const buildRawInput = (intent: CaptureWhiteBalanceIntent | null): NativeRawInput => {
     const input = buildRawInputFor(intent, geometry, captureModeProfile, bindingProfile, nativeWidth * nativeHeight);
@@ -3344,7 +3378,8 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
     ...SCENE_TO_SENSOR_BRIDGE_SCOPE, evidence: preset.evidence, limitations: [...lens.limitations, "Flat transmission applied across the lens capability by the capture facade."] };
   const optics = { profile: opticsProfile, focalLengthMm, nominalFNumber: fNumber,
     focus: { kind: "ideal-symmetric-thin-lens" as const, objectDistanceM: focusDistanceM, pupilMagnificationAssumption: "unity" as const } };
-  const motion = { angularVelocityRadPerSec: angular, timeReference: "first-opening-boundary-phase" as const, environmentDirectionConvention: "outgoing-radiance-toward-camera" as const };
+  const motion = { angularVelocityRadPerSec: angular, timeReference: "first-opening-boundary-phase" as const, environmentDirectionConvention: "outgoing-radiance-toward-camera" as const,
+    ...(handShake ? { handShake } : {}) };
   const fieldThroughput = vignetting ? { kind: "radial-illumination-vignetting" as const, profile: vignetting, evidence,
     limitation: "Caller-declared radial relative illumination applied by the capture facade; not a measured lens." } :
     { kind: "unity" as const, evidence, limitation: "No vignetting or field throughput loss applied by the facade." };
@@ -3499,6 +3534,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
       ...(defocusSiteKernels.large ? { largeKernel: defocusSiteKernels.large } : {}),
       wavelengthsNm: defocusSiteKernels.wavelengthsNm, kernelRadius: defocusSiteKernels.radius, nativeWidth, nativeHeight, sitePitchMicrometers: pitch, distanceM: planeDistanceM,
       metresPerFrameUnit, queryOffsetsSites, timesPerBand: temporalSampleCount, onConvolution: (ms) => { defocusMs += ms; }, ...(window ? { window } : {}), ...(subject ? { timeDependentScene: true } : {}),
+      ...(rollingRotation ? { bandRows: 1 } : {}),
       ...(bokehZones ? { fieldZones: bokehZones.zones } : {}) }) :
     defocusSiteKernels ? createDiffractedPlanarProvider({ base: provider, siteKernels: defocusSiteKernels.at, ...(defocusSiteKernels.large ? { largeKernel: defocusSiteKernels.large } : {}),
       wavelengthsNm: defocusSiteKernels.wavelengthsNm, kernelRadius: defocusSiteKernels.radius, nativeWidth, nativeHeight, outputWidth: width,
@@ -3543,7 +3579,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
       const environment = { ...(siteInput(channelSites[channel]).environment as unknown as Record<string, unknown>) };
       environment.psf = { kind: "not-applied", evidence, limitation: "Ideal reference: no lens PSF." };
       environment.fieldThroughput = { kind: "unity", evidence, limitation: "Ideal reference: no vignetting." };
-      environment.motion = { ...motion, angularVelocityRadPerSec: { pitch: 0, yaw: 0, roll: 0 } };
+      environment.motion = { angularVelocityRadPerSec: { pitch: 0, yaw: 0, roll: 0 }, timeReference: motion.timeReference, environmentDirectionConvention: motion.environmentDirectionConvention };
       environment.temporalSampleCount = 1;
       delete environment.pupil;
       delete environment.lensFieldMapping;
@@ -3608,7 +3644,8 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   if (displayViewLensPsf) assume("view.lensPsf", "model", { method: "piecewise-constant-field-zones", zoneSites: displayViewLensPsf.zoneSites, kernelRadiusSites: catalogueKernelRadius, scientificStatus: "approximation" },
   "Each site takes the lens PSF at its field zone's centre, where the capture resolves it at each query point (docs/DISPLAY_VIEW.md, \"Catalogue lenses\").");
   const lensSignal = viewLensKit ? viewLensKit.prepareDisplayViewLensSignal({ geometry: lensGeometry!,
-    times: rotating || subject ? Array.from({ length: temporalSampleCount }, (_, i) => (i + 0.5) * (shutterSeconds / temporalSampleCount)) : [0], distanceM: planeDistanceM, metresPerFrameUnit,
+    times: rotating || subject ? Array.from({ length: temporalSampleCount }, (_, i) => (i + 0.5) * (shutterSeconds / temporalSampleCount)) : [0], timesAt: rollingRotation ? rollingSiteTimes() : undefined,
+    distanceM: planeDistanceM, metresPerFrameUnit,
     pitch, imagingArea, boxSamples, spots: antiAliasing ? antiAliasing.components : [{ offsetMicrometers: { x: 0, y: 0 } }], psf: displayViewLensPsf, zeroBeyondHorizon: catalogue?.kind === "fisheye", ...(veil ? { veil } : {}) }, nativeWidth, nativeHeight,
   (diffraction ? diffraction.kernelRadiusSamples : 0) + (displayViewDefocus ? (bokehAxisKernel?.radius ?? defocusDiscKernelRadius(displayViewDefocus.diameterSites)) : 0) + catalogueKernelRadius +
     Math.max(0, ...queryOffsetsSites.map((o) => Math.max(Math.abs(o.x), Math.abs(o.y)))) - 0.5, catalogue ? "lens.catalogue" : imageSpaceOptions.join(", ")) : undefined;

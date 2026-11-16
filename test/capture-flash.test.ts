@@ -7,7 +7,7 @@
  */
 import { describe, expect, it } from "vitest";
 import { InvalidConfigurationError, InvalidScientificInputError, SIMULATE_CAPTURE_DEFAULT_ILLUMINANCE_LUX, calculateEnvironmentSensorPhotoSignal, simulateCapture,
-  simulateIdealReference, type CalculateEnvironmentSensorPhotoSignalInput, type MixedIllumination, type SimulateCaptureOptions } from "../src/index.js";
+  simulateDisplayView, simulateIdealReference, type CalculateEnvironmentSensorPhotoSignalInput, type MixedIllumination, type SimulateCaptureOptions } from "../src/index.js";
 import { simulateDisplayViewWithInternals } from "../src/facade/simulate-display-view.js";
 import { flashAloneShutter, resolveMixedIllumination } from "../src/facade/mixed-illumination.js";
 import { buildPlanarSceneRadianceProvider, resolveCaptureIlluminant } from "../src/facade/scene-radiance.js";
@@ -43,7 +43,12 @@ describe("flash (#639)", () => {
       await expect(attempt).rejects.toThrow(InvalidConfigurationError);
       await expect(simulateCapture({ ...CARD, illumination: { flash: flash! } })).rejects.toThrow(message);
     }
-    await expect(simulateCapture(flashCard({ output: { guideNumberM: 16 } }, { motion: { angularVelocityRadPerSec: { yaw: 0.1 } } }))).rejects.toThrow(/does not support motion/);
+    // The pulse freezes motion at one instant: camera rotation, a moving subject and (#641) hand shake are refused, in the capture and the view.
+    for (const motion of [{ angularVelocityRadPerSec: { yaw: 0.1 } }, { subject: { velocityMPerSec: { x: 0.1 } } }, { handheld: { seed: 1 } },
+      { handheld: { stabilizationStops: 5 }, shutter: "rolling" as const, rollingShutterSkewSeconds: 1 / 120 }]) {
+      await expect(simulateCapture(flashCard({ output: { guideNumberM: 16 } }, { motion }))).rejects.toThrow(/does not support motion/);
+      await expect(simulateDisplayView(flashCard({ output: { guideNumberM: 16 } }, { motion }), { width: 4, height: 4 })).rejects.toThrow(/does not support motion/);
+    }
     // A rolling shutter must be open on every row at once: refused below the readout skew, accepted above it.
     const rolling = flashCard({ output: { guideNumberM: 16 } }, { motion: { shutter: "rolling", rollingShutterSkewSeconds: 1 / 60 } });
     await expect(simulateCapture(rolling)).rejects.toThrow(InvalidScientificInputError);

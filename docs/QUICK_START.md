@@ -1331,8 +1331,10 @@ The optics options feed only what the environment site contract accepts:
         along each scene point's ray instead of its axial depth. The engine has no pupil model for these projections
         (`lens.pupilSampling` refuses them; a traced reference waits for the 3D ray provider, #358), so a real lens may lie
         anywhere between the two.
-    - **Refused:** camera rotation with `motion.shutter: "rolling"` (each row has its own instants, so each row would
-      need its own image of the 2R + 1 rows the disc reaches), and a vignetting or distortion profile that does not
+    - **Rolling shutter (#640):** with camera rotation each row has its own instants, so the provider keeps one row's image
+      per instant (bands of one row; the RAW equals the environment PSF quadrature's with the same disc). A kernel above 64
+      sites radius (whole-frame run lattices, one per instant) and `motion.subject` with a rolling shutter stay refused.
+    - **Refused:** a vignetting or distortion profile that does not
       reach the frame's corners plus the kernel radius (the message names the reach). `lens.pupilSampling` stays refused
       with projection and distortion. `simulateDisplayView` and `prepareDisplayView` render these combinations too (#563),
       with the same image-space disc and the same refusals ([Display view](#display-view)).
@@ -2338,7 +2340,7 @@ through the same mapping, field factor and rotation (within 1e-9 relative per si
 `gpu: "auto"` the view falls back labelled `unsupported-on-backend`. They cost more than the rectilinear view, most for
 distortion (the inverse distortion is solved per point) and rotation (one scene point per temporal midpoint)
 ([DISPLAY_VIEW.md](https://github.com/Photivra/engine/blob/main/docs/DISPLAY_VIEW.md#lens-projection-distortion-vignetting-and-rotation)).
-Rotation with a rolling shutter stays refused.
+From #640 rotation with a rolling shutter renders too: each site reads the scene at its own window's instants.
 
 **Options.** `view.width` and `view.height` (1 to the capture's output size), `view.samplesPerAxis` (1–32),
 `view.format` (`"srgb-8"` default or `"srgb-16"`) and `view.region` (a rectangle in display pixels, byte-identical to
