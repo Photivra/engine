@@ -3,10 +3,9 @@
  * #631, #632: catalogue-lens captures and display views without `flare` or `breathing` are unchanged. The digests were recorded
  * on 2.25.0 before #631 and #632 (origin/release-2.25.0 at a3a53b80) with this file; a fisheye's `result.scene.chart` (its
  * coverage, #631) is the one intended change, so the fisheye cases pin the image and RAW only. 2.25.0 CI: the two `assumptions` digests
- * included the fast method's `verificationRelativeDifference`, whose last bits differ between JavaScript engines and platforms (CI's Node 22
- * and Node 24/26 on Linux x64 each gave another digest than macOS arm64), so they are taken with that value masked (`portable`). With the
- * mask the digests are the same on a3a53b80 (before #629, #631, #632, #633), on e225-lens-render before the optics merge (2b8fcae0) and on
- * release-2.25.0 at 8b9ff24: no pinned output changed.
+ * included two engine-dependent diagnostics (see `portable` below; CI's Linux x64 legs and macOS arm64 gave different digests), so those
+ * are masked. With the masks the digests are the same on a3a53b80 (before #629, #631, #632, #633), on e225-lens-render before the optics
+ * merge (2b8fcae0) and on release-2.25.0 at 8b9ff24, and on arm64 and x86-64: no pinned output changed.
  */
 import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
@@ -28,11 +27,18 @@ const CASES: Record<string, { options: SimulateCaptureOptions; assumptions: bool
 };
 
 /**
- * The fast method's run-time check reports `verificationRelativeDifference`, the largest relative difference between the fast and the exact
- * electrons at its four sites: a last-bits quantity of the JavaScript engine's Math functions (measured on the same tree: 1.34e-7 on macOS
- * arm64 with Node 26; different digests on Linux x64 with Node 22 and with Node 24/26 in CI). It is pinned as present, not by value.
+ * The digests must not depend on the JavaScript engine or the platform, so two diagnostics that carry no capture value are taken out of
+ * the exact comparison (`portable`); every other field, every sample and every RAW code stays exact.
+ * - `verificationRelativeDifference` (`raw.expectedSignal`): the largest relative difference between the fast and the exact electrons at the
+ *   fast method's four check sites, a difference of two computations whose last bits follow the engine's Math functions (1.34e-7 on macOS
+ *   arm64, Node 24 and 26). Pinned as present, not by value.
+ * - `maximumTruncatedEnergyFraction` (`lens.catalogue.character.psf`): 1 − the PSF window's energy, a rounding residue of the FFT sum when
+ *   the window holds all the energy: 3.9968e-15 on arm64 (macOS and Linux, Node 24 and 26) and 4.1078e-15 on x86-64 (Node 24.1.0 under
+ *   Rosetta; CI's Linux x64 legs gave the same digest, b8e6451a4c260130). Below 1e-12 it is pinned as "below 1e-12"; a real truncation
+ *   (above it) stays exact.
  */
-const portable = (key: string, value: unknown): unknown => (key === "verificationRelativeDifference" ? "engine-dependent" : value);
+const portable = (key: string, value: unknown): unknown => (key === "verificationRelativeDifference" ? "engine-dependent"
+  : key === "maximumTruncatedEnergyFraction" && typeof value === "number" && Math.abs(value) < 1e-12 ? "below 1e-12" : value);
 
 describe("catalogue captures without flare or breathing (#631, #632)", () => {
   it("are byte-identical to 2.25.0 before #631 and #632", async () => {
@@ -49,8 +55,8 @@ describe("catalogue captures without flare or breathing (#631, #632)", () => {
 });
 
 const PINS: Record<string, Record<string, string>> = {
-  "PV 24 1.8 fast": { samples: "5e02b2f4be51b560", codes: "f97541696387f501", assumptions: "c5da167c60f858e4" },
-  "PV 100 2.8 Macro Pro close, chart size": { samples: "b77ba45604470c0a", codes: "dc24930e926963f6", assumptions: "4f063740b752b364" },
+  "PV 24 1.8 fast": { samples: "5e02b2f4be51b560", codes: "f97541696387f501", assumptions: "cd6e455e7219d527" },
+  "PV 100 2.8 Macro Pro close, chart size": { samples: "b77ba45604470c0a", codes: "dc24930e926963f6", assumptions: "1c30ef34dd3dcbfe" },
   "PV 15 2.8 Fisheye Pro exact, chart size": { samples: "f2fa557623a3be59", codes: "72979384de3ef81e" },
   "PV 8 3.5 Fisheye Pro fast, chart size": { samples: "1333add135ce336f", codes: "3f33f092ac4dd8c8" },
   "PV 50 1.8 display view": { samples: "51b018180f574ca8" }
