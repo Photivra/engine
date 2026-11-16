@@ -1914,6 +1914,23 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 | [`ExtendedObjectProjectionNode`](api/motion-extended-object-projection.md#extendedobjectprojectionnode) | Type |
 | [`ExtendedObjectProjectionTrajectory`](api/motion-extended-object-projection.md#extendedobjectprojectiontrajectory) | Type |
 
+## motion/hand-shake.ts
+
+[Detailed contracts](api/motion-hand-shake.md) · [Source](https://github.com/Photivra/engine/blob/main/src/motion/hand-shake.ts)
+
+| Export | Kind |
+| --- | --- |
+| [`calculateHandShakeAngularDisplacement`](api/motion-hand-shake.md#calculatehandshakeangulardisplacement) | Runtime |
+| [`CalculateHandShakeInput`](api/motion-hand-shake.md#calculatehandshakeinput) | Type |
+| [`calculateHandShakeRmsDisplacement`](api/motion-hand-shake.md#calculatehandshakermsdisplacement) | Runtime |
+| [`createHandShakeTrajectory`](api/motion-hand-shake.md#createhandshaketrajectory) | Runtime |
+| [`HAND_SHAKE_MAXIMUM_STABILIZATION_STOPS`](api/motion-hand-shake.md#hand_shake_maximum_stabilization_stops) | Runtime |
+| [`HAND_SHAKE_MODEL_VERSION`](api/motion-hand-shake.md#hand_shake_model_version) | Runtime |
+| [`HAND_SHAKE_RMS_ANGULAR_SPEED_RAD_PER_SEC`](api/motion-hand-shake.md#hand_shake_rms_angular_speed_rad_per_sec) | Runtime |
+| [`HandShakeComponent`](api/motion-hand-shake.md#handshakecomponent) | Type |
+| [`HandShakeOptions`](api/motion-hand-shake.md#handshakeoptions) | Type |
+| [`HandShakeTrajectory`](api/motion-hand-shake.md#handshaketrajectory) | Type |
+
 ## motion/projected-motion.ts
 
 [Detailed contracts](api/motion-projected-motion.md) · [Source](https://github.com/Photivra/engine/blob/main/src/motion/projected-motion.ts)

@@ -1,5 +1,22 @@
 # Changelog
 
+## Unreleased
+
+### #640 Rolling shutter with camera rotation: the display view and defocus
+
+- **Display view:** `simulateDisplayView` and `prepareDisplayView` render camera rotation with `motion.shutter: "rolling"`, in focus and with `lens.defocus` out of focus. Each site reads the scene at its own exposure window's temporal midpoints (start + (i + ½)·d/T, as the environment forms them), and every kernel tap of a site at the site's instants; the lattice cache is tagged with the instant. Each site's expected electrons equal the capture environment chain's within 1e-9 relative (`test/display-view-lens.test.ts`).
+- **Captures:** `lens.defocus` out of focus with camera rotation and a rolling shutter renders. The image-space disc (#548) keeps one row's image per instant (bands of one row under a rolling shutter; banding changes memory only, never values). The RAW equals the environment PSF quadrature's with the same disc as `lens.psf` (`test/simulate-capture-defocus-optics.test.ts`). The field-variation bounds cover the first and last rows' midpoints.
+- **Still refused:** a defocus kernel above 64 sites radius with rotation and a rolling shutter (its whole-frame run lattices are one per instant), and `motion.subject` with a rolling shutter out of focus or in the view.
+
+### #641 Hand shake: a bounded, seeded trajectory and `motion.handheld`
+
+- **New:** `motion.handheld: { seed?, stabilizationStops? }` for `simulateCapture`, `simulateIdealReference` (no effect: no camera effects), `simulateDisplayView` and `prepareDisplayView`. The camera rotation gains a hand-shake trajectory: on pitch and yaw, four sway sinusoids near 0.7, 1.4, 2.8 and 5.6 Hz and one tremor sinusoid at 8–12 Hz, 4.39 °/s RMS in magnitude. θ(0) = 0 and |θ(t)| ≤ 2·Σa on each axis. The RMS displacement grows as v·t at first (within about 10 % up to 100 ms) and levels off near 1°, where a constant 4.39 °/s turns 132° in 30 s. `stabilizationStops` (0–10) scales the trajectory by 2^−stops. It adds to `angularVelocityRadPerSec` (a pan) when both are given.
+- **Evidence:** the short-exposure rate and the 100 ms linear range (Xiao et al., Proc. SPIE 7250, 2009, and 6502, 2007); yaw and pitch dominant, the rest negligible at about 20 focal lengths, and stops as a 2^N exposure-time ratio (CIPA DC-X011-2014 §3-3-4, §4-5, §6-3); tremor at 8–12 Hz (McAuley and Marsden, Brain 123, 2000); sub-degree rotations of 1/3 s handheld exposures (Köhler et al., ECCV 2012). The split over the components and the level the displacement settles at are modelling choices, labelled in `src/motion/hand-shake.ts`.
+- **Every path per site:** the trajectory is folded into each instant's angular velocity (`ω + θ(t)/t`) on the environment's full and lean paths, the image-space defocus provider and the display view, so they rotate by the same numbers. Deterministic for a seed on every platform (xorshift32 phases, `portableSinTwoPi`).
+- **API:** `createHandShakeTrajectory`, `calculateHandShakeAngularDisplacement`, `calculateHandShakeRmsDisplacement`, `HAND_SHAKE_MODEL_VERSION`, `HAND_SHAKE_RMS_ANGULAR_SPEED_RAD_PER_SEC`, `HAND_SHAKE_MAXIMUM_STABILIZATION_STOPS`; types `HandShakeOptions`, `HandShakeComponent`, `HandShakeTrajectory`, `CalculateHandShakeInput`. The capture records a `motion.handheld` assumption (seed, stops, bounds, the RMS displacement over the exposure, the components).
+- Requests without `motion.handheld` keep their bytes.
+- Tests: `test/hand-shake.test.ts` (determinism, the bound over 30 s, the cited RMS rate, the growth with time, 2^−stops scaling, and a capture's edge spread against the trajectory's image shifts: 6.95 sites measured for 7.44 predicted, and 0.249 for the 2-stop ratio of 0.25). docs/USAGE.md, "Hand shake".
+
 ## 2.25.0 — unreleased (prepared November 16, 2026)
 
 A minor release: the 26 issues of milestone 2.25.0 (#612–#633, #635–#638). Standalone helpers, a photo metadata reader, DNG and JPEG Exif writers, a half-size DNG preview, front-of-lens filters, look constants, catalogue-lens framing, glare, breathing and corrections, and faster defocused display views and exact catalogue PSFs. See the [2.25.0 release record](https://github.com/Photivra/engine/blob/main/docs/RELEASE_2_25_0.md).

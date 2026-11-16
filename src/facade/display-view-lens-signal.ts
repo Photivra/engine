@@ -117,6 +117,11 @@ export interface DisplayViewLensSetup {
   geometry: PreparedDefocusImageSpaceGeometry;
   /** Temporal midpoints, seconds from exposure start: (i + 0.5)·shutter/T with camera rotation, [0] without. */
   times: readonly number[];
+  /**
+   * #640: camera rotation under a rolling shutter: native site (x, y)'s own midpoints (its exposure window's, as the environment forms
+   * them), used instead of `times`. Every kernel tap of a site reads the scene at the site's instants.
+   */
+  timesAt?: ((x: number, y: number) => readonly number[]) | undefined;
   /** The planar provider's plane distance and frame-unit scale. */
   distanceM: number;
   metresPerFrameUnit: number;
@@ -155,7 +160,7 @@ const pow2 = (n: number): number => { let p = 1; while (p < n) p *= 2; return p;
 export function prepareDisplayViewLensSignal(lens: DisplayViewLensSetup, nativeWidth: number, nativeHeight: number, reachSites: number, options: string):
   (input: DisplayViewExpectedSignalInput, spanColumns?: number) => DisplayViewExpectedSignal {
   const xMm = (nativeWidth / 2 + reachSites) * lens.pitch / 1000, yMm = (nativeHeight / 2 + reachSites) * lens.pitch / 1000;
-  for (const t of lens.times) for (const [x, y] of [[-xMm, -yMm], [xMm, -yMm], [-xMm, yMm], [xMm, yMm]] as const) {
+  for (const [x, y] of [[-xMm, -yMm], [xMm, -yMm], [-xMm, yMm], [xMm, yMm]] as const) for (const t of lens.timesAt?.(x < 0 ? 0 : nativeWidth - 1, y < 0 ? 0 : nativeHeight - 1) ?? lens.times) {
     try { if (!(lens.geometry.lookOf(x, y, t).z > 0) && !lens.zeroBeyondHorizon) throw new InvalidConfigurationError("its ray does not point toward the scene plane."); } catch (error) {
       throw new InvalidConfigurationError("simulateDisplayView with " + options + " reads the scene through the lens up to " + (reachSites + 0.5) + " sites beyond the native " +
         "raster's outer site centres (the kernel radius and the query offsets), and there (" + Math.hypot(x, y).toFixed(3) + " mm from the axis) " + (error as Error).message);
@@ -165,7 +170,9 @@ export function prepareDisplayViewLensSignal(lens: DisplayViewLensSetup, nativeW
 }
 
 function createLensSignal(lens: DisplayViewLensSetup, input: DisplayViewExpectedSignalInput, spanColumns: number): DisplayViewExpectedSignal {
-  const W = input.nativeWidth, H = input.nativeHeight, nodes = input.wavelengthsNm.length, T = lens.times.length, times = lens.times;
+  const W = input.nativeWidth, H = input.nativeHeight, nodes = input.wavelengthsNm.length, T = lens.times.length, timesAt = lens.timesAt ?? ((): readonly number[] => lens.times), rolling = lens.timesAt !== undefined;
+  // #640: the instants of the site being computed (its own under a rolling shutter); lattice points are read, and cached, at them.
+  let times = lens.times;
   const { geometry, distanceM: distance, metresPerFrameUnit: scale, pitch, imagingArea } = lens;
   const mmPerSite = pitch / 1000, scene = input.scene, offsets = input.offsets, A = input.electronsPerRadiance, channelAt = input.channelAt;
   const materials = scene.kind === "materials" ? scene : undefined, radianceAt = scene.kind === "radiance" ? scene.radianceAt : undefined;
@@ -200,6 +207,7 @@ function createLensSignal(lens: DisplayViewLensSetup, input: DisplayViewExpected
   function directSite(x: number, y: number): number {
     const c = channelAt(x, y), centerX = -imagingArea.widthMm / 2 + (pitch / 2 + x * pitch + 0) / 1000, centerY = -imagingArea.heightMm / 2 + (pitch / 2 + y * pitch + 0) / 1000;
     let total = 0;
+    times = timesAt(x, y);
     for (let ti = 0; ti < T; ti++) {
       let sum = 0;
       for (let o = 0; o < offsets.length; o++) {
@@ -218,14 +226,14 @@ function createLensSignal(lens: DisplayViewLensSetup, input: DisplayViewExpected
   }
   // With a kernel: lattice point (p, q) of group g at time t, #548's lattice formula, cached in a ring tagged with (p, q).
   const G = groups.length, slots = G * T, per = materials ? 1 : nodes;
-  let cacheRows = 0, cacheCols = 0, tagQ = new Int32Array(0), tagP = new Int32Array(0), cacheMaterial = new Int32Array(0), cacheFactor = new Float64Array(0), cacheRadiance = new Float64Array(0);
+  let cacheRows = 0, cacheCols = 0, tagQ = new Int32Array(0), tagP = new Int32Array(0), tagT = new Float64Array(0), cacheMaterial = new Int32Array(0), cacheFactor = new Float64Array(0), cacheRadiance = new Float64Array(0);
   const radiance = new Float64Array(nodes);
   let lm = 0, lf = 0;
   function lattice(g: number, ti: number, p: number, q: number): void {
     let k = -1;
     if (cacheRows > 0) {
       k = ((g * T + ti) * cacheRows + (q & (cacheRows - 1))) * cacheCols + (p & (cacheCols - 1));
-      if (tagQ[k] === q && tagP[k] === p) {
+      if (tagQ[k] === q && tagP[k] === p && (!rolling || tagT[k] === times[ti])) {
         lf = cacheFactor[k]!;
         if (materials) lm = cacheMaterial[k]!; else for (let n = 0; n < nodes; n++) radiance[n] = cacheRadiance[k * nodes + n]!;
         return;
@@ -237,15 +245,17 @@ function createLensSignal(lens: DisplayViewLensSetup, input: DisplayViewExpected
     if (materials) { lm = materialOf(materials.materialAt(pu, pv)); lookups++; }
     else { for (let n = 0; n < nodes; n++) radiance[n] = radianceAt!(pu, pv, input.wavelengthsNm[n]!, times[ti]!); lookups += nodes; }
     if (k >= 0) {
-      tagQ[k] = q; tagP[k] = p; cacheFactor[k] = lf;
+      tagQ[k] = q; tagP[k] = p; tagT[k] = times[ti]!; cacheFactor[k] = lf;
       if (materials) cacheMaterial[k] = lm; else for (let n = 0; n < nodes; n++) cacheRadiance[k * nodes + n] = radiance[n]!;
     }
   }
   function kernelSite(x: number, y: number): number {
     const c = channelAt(x, y), rowMask = cacheRows - 1, colMask = cacheCols - 1, zone = zoneTables(x, y);
     let total = 0;
+    times = timesAt(x, y);
     for (let ti = 0; ti < T; ti++) {
       let sum = 0;
+      const time = times[ti];
       acc.reset();
       for (let g = 0; g < G; g++) {
         const group = groups[g]!, p0 = x + group.minIx - R, q0 = y + group.minIy - R, cw = group.cw, ch = group.ch, weights = zone[g]!;
@@ -257,7 +267,7 @@ function createLensSignal(lens: DisplayViewLensSetup, input: DisplayViewExpected
             for (let dx = 0; dx < cw; dx++, t++) {
               const p = p0 + dx;
               const at = row + (p & colMask);
-              if (row >= 0 && tagQ[at] === q && tagP[at] === p) { lm = cacheMaterial[at]!; lf = cacheFactor[at]!; } else lattice(g, ti, p, q);
+              if (row >= 0 && tagQ[at] === q && tagP[at] === p && (!rolling || tagT[at] === time)) { lm = cacheMaterial[at]!; lf = cacheFactor[at]!; } else lattice(g, ti, p, q);
               acc.add(lm, k, t * nodes, lf);
             }
           }
@@ -376,7 +386,7 @@ function createLensSignal(lens: DisplayViewLensSetup, input: DisplayViewExpected
         if (slots * per * rows * cols > LATTICE_CACHE_LIMIT) { rows = pow2(height); cols = pow2(width); }
         cacheRows = rows; cacheCols = cols;
         const size = slots * rows * cols;
-        tagQ = new Int32Array(size).fill(-2147483648); tagP = new Int32Array(size); cacheFactor = new Float64Array(size);
+        tagQ = new Int32Array(size).fill(-2147483648); tagP = new Int32Array(size); tagT = new Float64Array(size); cacheFactor = new Float64Array(size);
         if (materials) cacheMaterial = new Int32Array(size); else cacheRadiance = new Float64Array(size * nodes);
       }
     },
@@ -398,6 +408,8 @@ function createLensSignal(lens: DisplayViewLensSetup, input: DisplayViewExpected
   function pilot(u: number, v: number): number {
     const g = 2 / input.outputWidth, xMm = u / g * mmPerSite, yMm = -v / g * mmPerSite;
     let first = NaN;
+    // #640: the instants of the nearest site.
+    times = timesAt(Math.min(W - 1, Math.max(0, Math.floor(xMm / mmPerSite + W / 2))), Math.min(H - 1, Math.max(0, Math.floor(yMm / mmPerSite + H / 2))));
     try {
       for (let ti = 0; ti < T; ti++) {
         map(xMm, yMm, times[ti]!);

@@ -32,6 +32,7 @@ import { isDeeplyFrozen } from "../core/internal-radiance-evaluator.js";
 import { calculateSensorPsfIrradianceQuadrature, type CalculateSensorPsfIrradianceQuadratureInput } from "../optics/sensor-psf-quadrature.js";
 import { calculateIlluminationVignetting, type IlluminationVignettingProfile } from "../optics/illumination-vignetting.js";
 import { calculateSensorApertureRays, type IdealCircularPupil, type SensorApertureRay } from "../optics/sensor-aperture-rays.js";
+import { shakenAngularVelocity } from "../motion/camera-rotation.js";
 import { sensorPsfSourcePoint } from "../optics/sensor-psf-support.js";
 import { markEngineOwnedLensSampledPsfProfile, resolveLensSampledPsf } from "../optics/lens-psf-profile.js";
 import { calculateSensorSpatialSamplingQuadrature } from "./spatial-sampling-quadrature.js";
@@ -53,7 +54,10 @@ export interface CalculateEnvironmentSensorPhotoSignalInput {
   optics: Omit<CalculateSceneRadianceToSensorIrradianceInput,
     "sceneRadianceRequest" | "sceneRadianceResult" | "imagePointMm" | "fieldThroughput">;
   motion: Pick<CalculateSensorEnvironmentRadianceQueryInput,
-    "angularVelocityRadPerSec" | "timeReference" | "environmentDirectionConvention">;
+    "angularVelocityRadPerSec" | "timeReference" | "environmentDirectionConvention"> & {
+    /** @internal #641: a hand-shake trajectory added to the rotation (`shakenAngularVelocity`); set by `simulateCapture`'s `motion.handheld`. */
+    handShake?: readonly number[];
+  };
   temporalSampleCount: number;
   /** Optional ideal circular pupil, for geometric depth of field (DOF) and visibility. Cannot be combined with a sampled PSF. */
   pupil?: IdealCircularPupil;
@@ -208,7 +212,7 @@ export function planEnvironmentSensorPhotoSignal(input: Omit<CalculateEnvironmen
   }
   const pupilCount = owned.pupil === undefined ? 1 : calculateSensorApertureRays({sourcePointNativeSensorMm:{x:0,y:0},
     focalLengthMm:owned.optics.focalLengthMm,nominalFNumber:owned.optics.nominalFNumber,focus,pupil:owned.pupil,
-    angularVelocityRadPerSec:owned.motion.angularVelocityRadPerSec,timeSecondsFromOpeningReference:window.startOffsetSecondsFromOpeningReference}).value.rays.length;
+    angularVelocityRadPerSec:shakenAngularVelocity(owned.motion.angularVelocityRadPerSec,owned.motion.handShake,window.startOffsetSecondsFromOpeningReference),timeSecondsFromOpeningReference:window.startOffsetSecondsFromOpeningReference}).value.rays.length;
   let count = 0;
   const nodes = spectralQuadrature.nodes.flatMap(spectral => spatialQuadrature.nodes.map(spatial => {
     const node = { spatialNode: { antiAliasingComponentIndex: spatial.antiAliasingComponentIndex,
@@ -235,11 +239,13 @@ export function planEnvironmentSensorPhotoSignal(input: Omit<CalculateEnvironmen
     const time = window.startOffsetSecondsFromOpeningReference+(temporalSampleIndex+.5)*measure;
     if (!(time > window.startOffsetSecondsFromOpeningReference && time > previous && time < window.endOffsetSecondsFromOpeningReference)) throw new InvalidScientificInputError("Local midpoints must be representable and strictly ordered.");
     previous = time;
+    // #641: the rotation at this instant, with the hand-shake trajectory (if any) folded into the velocity.
+    const { handShake, ...motion } = owned.motion, angularVelocityRadPerSec = shakenAngularVelocity(motion.angularVelocityRadPerSec, handShake, time);
     const groups = nodes.map((n, ni) => ({ node: n.node, taps: n.points.map((p, pi) => {
       const apertureRays = owned.pupil === undefined ? undefined : calculateSensorApertureRays({sourcePointNativeSensorMm:p.point,
         focalLengthMm:owned.optics.focalLengthMm,nominalFNumber:owned.optics.nominalFNumber,focus,pupil:owned.pupil,
-        angularVelocityRadPerSec:owned.motion.angularVelocityRadPerSec,timeSecondsFromOpeningReference:time}).value.rays;
-      const queryInput: CalculateSensorEnvironmentRadianceQueryInput = { ...owned.motion, sourcePointNativeSensorMm: p.point,
+        angularVelocityRadPerSec,timeSecondsFromOpeningReference:time}).value.rays;
+      const queryInput: CalculateSensorEnvironmentRadianceQueryInput = { ...motion, angularVelocityRadPerSec, sourcePointNativeSensorMm: p.point,
         focalLengthMm: owned.optics.focalLengthMm, focus, timeSecondsFromOpeningReference: time,
         request: { schemaVersion: "0.1.0", sampleId: `${owned.temporalIntegrationId}-t${temporalSampleIndex}-n${ni}-p${pi}`,
           providerProfileId: sceneBindings.providerProfile.profileId, sceneId: sceneBindings.providerProfile.sceneId,

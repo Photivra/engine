@@ -8124,10 +8124,11 @@ region that have a clipped contributing site. `simulateCapture` counts the same 
 are equal where every site is far from white. Counts of regions that tile a view add up to the whole view's count. See
 [Highlight count](https://github.com/Photivra/engine/blob/main/docs/DISPLAY_VIEW.md#highlight-count-533).
 
-From #563 the view renders `lens.projection`, `lens.distortion`, `lens.vignetting` and camera rotation (global
-shutter), in focus and with `lens.defocus` out of focus, with each real site's expected electrons as the capture's. These
-requests run on the CPU (`gpu: "auto"` falls back labelled `unsupported-on-backend`); rotation with a rolling shutter is
-refused. See [Lens projection, distortion, vignetting and rotation](https://github.com/Photivra/engine/blob/main/docs/DISPLAY_VIEW.md#lens-projection-distortion-vignetting-and-rotation).
+From #563 the view renders `lens.projection`, `lens.distortion`, `lens.vignetting` and camera rotation, in focus and with
+`lens.defocus` out of focus, with each real site's expected electrons as the capture's. These requests run on the CPU
+(`gpu: "auto"` falls back labelled `unsupported-on-backend`). From #640 rotation also renders under `motion.shutter: "rolling"`:
+each site reads the scene at its own exposure window's instants, as the capture does (a defocus kernel above 64 sites radius
+is refused there, in the view and the capture). See [Lens projection, distortion, vignetting and rotation](https://github.com/Photivra/engine/blob/main/docs/DISPLAY_VIEW.md#lens-projection-distortion-vignetting-and-rotation).
 
 ```ts
 import { simulateDisplayView } from "@photivra/engine";
@@ -8290,6 +8291,46 @@ import { simulateCapture } from "@photivra/engine";
 
 const moving = await simulateCapture({ scene: { preset: "slanted-edge" }, motion: { subject: { velocityMPerSec: { x: 0.5 } } }, output: { width: 8, height: 8 } });
 console.log(moving.assumptions.find((a) => a.id === "motion.subject")?.value);
+```
+
+#### Hand shake
+
+`motion.handheld` (#641) turns the camera along a bounded, seeded hand-shake trajectory instead of at a constant rate. On
+pitch and yaw the angular displacement from the exposure start is a sum of sinusoids,
+θ(t) = Σ a·(sin 2π(f·t + φ) − sin 2πφ): four sway components near 0.7, 1.4, 2.8 and 5.6 Hz (each jittered by up to a quarter
+octave) and one tremor component at 8–12 Hz. Roll is zero. The amplitudes give 4.39 °/s RMS in magnitude, the engine's
+generic handheld rate (`GENERIC_HANDHELD_ANGULAR_VELOCITY_RAD_PER_SEC`). The trajectory:
+
+- starts at 0 and never exceeds 2·Σa on either axis (`boundRad`, under 3° for any seed);
+- grows as the RMS rate times t for short exposures (within about 10 % up to 100 ms), then levels off near 1° (RMS over the
+  phases, `calculateHandShakeRmsDisplacement`); a constant 4.39 °/s would turn the camera 132° in 30 s;
+- is the same for the same `seed` (an integer 0–4294967295, default 0) on every platform;
+- is scaled by 2^−`stabilizationStops` (0–10, default 0), so applications pass the stabilization rating instead of scaling the
+  engine's factor themselves.
+
+It adds to `motion.angularVelocityRadPerSec` when both are given (a pan with shake). Every render path applies it per site at
+each temporal midpoint, under a global or a rolling shutter, in the capture, its exports and the display view. Raise
+`sensor.temporalSampleCount` for long exposures: the tremor component needs several midpoints per cycle.
+
+What it rests on (all free to read): the 4.39 °/s rate and its linear range below about 100 ms (F. Xiao, J. Farrell,
+P. Catrysse, B. Wandell, Proc. SPIE 7250, 2009, from their gyroscope measurements in Proc. SPIE 6502, 2007); yaw and pitch
+dominant, the other axes negligible at about 20 focal lengths, and a stabilization rating in stops as a 2^N longer shutter at
+the same blur (CIPA DC-X011-2014, the public translation of CIPA's image-stabilization standard, §3-3-4, §4-5 and §6-3);
+physiological tremor at 8–12 Hz (J. H. McAuley, C. D. Marsden, Brain 123, 1545–1567, 2000); and rotations of a few tenths
+of a degree in recorded 1/3 s handheld exposures (R. Köhler et al., "Recording and playback of camera shake", ECCV 2012).
+The split of the motion over the components and the level it settles at are modelling choices that meet these points, not
+measurements: a heavier camera, another grip or another person moves differently. The trajectory keeps Xiao's phone rate,
+so its 1/3 s displacement (about 1° RMS) is larger than Köhler's compact-camera example. Scaling by 2^−stops matches CIPA's
+definition while the motion is linear and approximates it beyond.
+
+```ts
+import { calculateHandShakeAngularDisplacement, createHandShakeTrajectory, simulateCapture } from "@photivra/engine";
+
+const shaken = await simulateCapture({ scene: { preset: "siemens-star" }, exposure: { mode: "manual", shutterSeconds: 1 / 4, iso: 100 },
+  motion: { handheld: { seed: 3, stabilizationStops: 2 } }, sensor: { temporalSampleCount: 32 }, output: { width: 16, height: 12 } });
+console.log(shaken.assumptions.find((a) => a.id === "motion.handheld")?.value);
+const trajectory = createHandShakeTrajectory({ seed: 3, stabilizationStops: 2 });
+console.log(trajectory.boundRad, calculateHandShakeAngularDisplacement({ trajectory, timeSeconds: 0.125 }).value);
 ```
 
 ## Equivalent f-number, sensor area and blur as a share of the frame

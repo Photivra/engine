@@ -33,7 +33,8 @@
  *
  * Time. With camera rotation each environment temporal midpoint is a still camera, so the disc is applied to that
  * instant's image in that instant's frame: one G_t per distinct request time, cached per band. Without rotation the image
- * does not depend on time and one G is kept. The facade refuses rotation with a rolling shutter (each row's instants differ).
+ * does not depend on time and one G is kept. #640: under a rolling shutter each row's instants differ, so the facade asks for bands
+ * of one row (each row's G_t at its own instants).
  *
  * What is approximate is the disc itself (`lens.defocus` labels it; the facade records the field-variation bounds of
  * each combination), not this evaluation of it.
@@ -46,7 +47,7 @@ import { hypot3 } from "../core/portable-math.js";
 import { isInternalSceneRadianceEvaluator, markInternalSceneRadianceEvaluator, registerInternalRadianceAccess } from "../core/internal-radiance-evaluator.js";
 import type { SceneRadianceEvaluationRequest, SceneRadianceEvaluationResult } from "../schema/scene-radiance.js";
 import { insideRadialImageCircle, lensProjectionDirectionValue, lensProjectionImagePointValue, type LensProjectionModel } from "../camera/lens-projection.js";
-import { applyPhysicalCameraRotation, resolveProjectionDistanceMm, type CameraAngularVelocityRadPerSec } from "../motion/camera-rotation.js";
+import { applyPhysicalCameraRotation, resolveProjectionDistanceMm, shakenAngularVelocity, type CameraAngularVelocityRadPerSec } from "../motion/camera-rotation.js";
 import { prepareIlluminationVignettingThroughput, type IlluminationVignettingProfile } from "../optics/illumination-vignetting.js";
 import { distortedImagePoint, undistortedImagePoint, type PreparedEnvironmentLensFieldMapping } from "../optics/sensor-environment-query.js";
 import { checkedSiteKernel, createZonedGather, gatherInterior, kernelTaps, type SiteKernelFieldZones } from "./diffraction-provider.js";
@@ -63,6 +64,8 @@ export interface DefocusImageSpaceGeometry {
   focalLengthMm: number;
   focusDistanceM: number;
   angularVelocityRadPerSec: CameraAngularVelocityRadPerSec;
+  /** #641: the site inputs' hand-shake trajectory (`motion.handShake`), added to the rotation. */
+  handShake?: readonly number[];
   /** The site inputs' `lensFieldMapping`, prepared; omitted for the ideal rectilinear, distortion-free mapping. */
   lensMapping?: PreparedEnvironmentLensFieldMapping;
   /** The site inputs' radial-illumination-vignetting profile; omitted for unity field throughput. */
@@ -84,17 +87,20 @@ export interface PreparedDefocusImageSpaceGeometry {
 
 /** Internal: prepares {@link PreparedDefocusImageSpaceGeometry} with the environment's own conventions and arithmetic. */
 export function prepareDefocusImageSpaceGeometry(geometry: DefocusImageSpaceGeometry): PreparedDefocusImageSpaceGeometry {
-  const { focalLengthMm, focusDistanceM, angularVelocityRadPerSec: omega, lensMapping, vignetting } = geometry;
+  const { focalLengthMm, focusDistanceM, angularVelocityRadPerSec: omega, handShake, lensMapping, vignetting } = geometry;
   // The projection scale: the thin-lens image distance at the finite focus, for every projection model (the environment's).
   const pd = resolveProjectionDistanceMm(focalLengthMm, focusDistanceM).projectionDistanceMm;
   const model: LensProjectionModel = lensMapping?.mapping.projectionModel ?? "rectilinear";
   // #569: with "backward-ray" (catalogue fisheyes), a point outside the image circle looks straight back, as the environment's mapped query does.
   const backward = lensMapping?.mapping.outsideImageCircle === "backward-ray";
-  const timeDependent = omega.pitch !== 0 || omega.yaw !== 0 || omega.roll !== 0;
+  const timeDependent = omega.pitch !== 0 || omega.yaw !== 0 || omega.roll !== 0 || handShake !== undefined;
   // calculateIlluminationVignetting's throughput with the profile validated once (#563: the same numbers, without a result envelope per point).
   const throughputAt = vignetting ? prepareIlluminationVignettingThroughput(vignetting) : undefined;
-  const displacement = (t: number): { pitch: number; yaw: number; roll: number } =>
-    timeDependent ? { pitch: omega.pitch * t, yaw: omega.yaw * t, roll: omega.roll * t } : { pitch: 0, yaw: 0, roll: 0 };
+  // #641: the environment's displacement, the (shaken) velocity at t times t.
+  const displacement = (t: number): { pitch: number; yaw: number; roll: number } => {
+    const w = shakenAngularVelocity(omega, handShake, t);
+    return timeDependent ? { pitch: w.pitch * t, yaw: w.yaw * t, roll: w.roll * t } : { pitch: 0, yaw: 0, roll: 0 };
+  };
   // The reference-to-camera rotation at the last time asked, as a matrix (its columns: the rotated basis vectors), so a lattice
   // lookup costs no trigonometry; the rotation is linear, so this equals rotating the vector, up to rounding.
   let matrixTime = NaN, m: number[] = [];
@@ -163,6 +169,11 @@ export interface DefocusImageSpaceProviderInput {
   window?: { x: number; y: number; width: number; height: number };
   /** #551: the scene itself depends on time (a moving subject): each request time keeps its own image even without rotation. */
   timeDependentScene?: boolean;
+  /**
+   * Rows of native sites per band. Default 32. #640: 1 under a rolling shutter with rotation, where each row has its own instants and a
+   * band of one instant serves one row only (the values are the same for any height).
+   */
+  bandRows?: number;
   /** Most distinct request times kept per band (the temporal sample count). Default 1. */
   timesPerBand?: number;
   /** Called with the duration in ms of each band convolution (diagnostics only). */
@@ -207,7 +218,7 @@ export function createDefocusImageSpaceProvider(input: DefocusImageSpaceProvider
   const sharedKernel = !large && (zonedGather !== undefined || kernels.every((kernel) => kernel === kernels[0]));
   const scale = input.metresPerFrameUnit, distance = input.distanceM;
   const materialAt = base.chartMaterialAt?.bind(base), materialRadiance = base.materialRadiance?.bind(base), zeroBeyond = input.zeroBeyondHorizon === true;
-  const timeDependent = geometry.timeDependent || input.timeDependentScene === true;
+  const timeDependent = geometry.timeDependent || input.timeDependentScene === true, BAND = input.bandRows ?? BAND_ROWS;
   const now = (): number => globalThis.performance?.now() ?? Date.now();
   // Lattice point (li, lj) of shift s, as a native sensor point in mm (+Y down): site centre plus the shift.
   const xMmOf = (li: number, s: { x: number }): number => (li - M + 0.5 + s.x - W / 2) * mmPerSite;
@@ -238,7 +249,8 @@ export function createDefocusImageSpaceProvider(input: DefocusImageSpaceProvider
   }
   // Bands per time (LRU over (time, band)): values[shift][node] holds G_t / F at the band's own lattice points.
   const cache = new Map<string, Float64Array[][]>();
-  const capacity = CACHED_BANDS * Math.max(1, input.timesPerBand ?? 1);
+  // The bands one site row's queries span (its query offsets reach M lattice rows either way), at each of its instants.
+  const capacity = Math.max(CACHED_BANDS, Math.ceil((2 * M + 2) / BAND)) * Math.max(1, input.timesPerBand ?? 1);
   // The last band read, so consecutive queries of one band skip the cache key (most queries).
   let lastBand = -1, lastTime = NaN, lastValues: Float64Array[][] | undefined;
   function band(b: number, time: number): Float64Array[][] {
@@ -252,7 +264,7 @@ export function createDefocusImageSpaceProvider(input: DefocusImageSpaceProvider
     const key = time + ":" + b, cached = cache.get(key);
     if (cached) { cache.delete(key); cache.set(key, cached); return cached; }
     const started = input.onConvolution ? now() : 0;
-    const y0 = ly0 + b * BAND_ROWS, rows = Math.min(BAND_ROWS, ly1 - y0), gridHeight = rows + 2 * R, size = gridWidth * gridHeight;
+    const y0 = ly0 + b * BAND, rows = Math.min(BAND, ly1 - y0), gridHeight = rows + 2 * R, size = gridWidth * gridHeight;
     const values = shifts.map((shift) => {
       // Each grid point's field factor and plane point (or material), shared by the spectral nodes.
       const factor = new Float64Array(size), u = new Float64Array(size), v = new Float64Array(size);
@@ -317,7 +329,7 @@ export function createDefocusImageSpaceProvider(input: DefocusImageSpaceProvider
     if (w === undefined || key === undefined) throw new InvalidConfigurationError("Defocus query is off the sensor site lattice; the image-space convolution does not apply.");
     const li = key % LW, rest = (key - li) / LW, lj = rest % LH, s = (rest - lj) / LH;
     if (large) return largeValue(s, t, w, li, lj);
-    return band(Math.floor((lj - ly0) / BAND_ROWS), t)[s]![w]![((lj - ly0) % BAND_ROWS) * NW + li - lx0]!;
+    return band(Math.floor((lj - ly0) / BAND), t)[s]![w]![((lj - ly0) % BAND) * NW + li - lx0]!;
   }
   // #564: one run lattice per (time, shift) of the samples F·L at the lattice points, and the own field factors F by tile, so a
   // query is answered with (K ⊛ D ⊛ F·L) / F as on the band path.
@@ -433,7 +445,7 @@ export interface DefocusFieldVariation {
 /** Internal: {@link DefocusFieldVariation} on a 9 × 9 grid of sensor points (the extremes of these smooth maps lie on the frame's edges). */
 export function calculateDefocusFieldVariation(input: { geometry: PreparedDefocusImageSpaceGeometry; lensMapping?: PreparedEnvironmentLensFieldMapping;
   focalLengthMm: number; fNumber: number; focusDistanceM: number; subjectDistanceM: number; pitchMicrometers: number; nativeWidth: number; nativeHeight: number;
-  angularVelocityRadPerSec: CameraAngularVelocityRadPerSec; temporalMidpointsSeconds: readonly number[]; diameterSites: number;
+  angularVelocityRadPerSec: CameraAngularVelocityRadPerSec; handShake?: readonly number[] | undefined; temporalMidpointsSeconds: readonly number[]; diameterSites: number;
   discAt: (subjectDistanceM: number) => number }): DefocusFieldVariation {
   const { geometry, lensMapping, pitchMicrometers: pitch, nativeWidth: W, nativeHeight: H, subjectDistanceM: d, diameterSites, discAt } = input;
   const G = 9, points: { x: number; y: number }[] = [];
@@ -441,9 +453,9 @@ export function calculateDefocusFieldVariation(input: { geometry: PreparedDefocu
   let rotation: number | null = null;
   if (geometry.timeDependent) {
     rotation = 0;
-    const omega = input.angularVelocityRadPerSec;
     for (const t of input.temporalMidpointsSeconds) {
       // The camera's optical axis at t in the reference axes; a scene point's axial depth in the rotated camera is P·axis.
+      const omega = shakenAngularVelocity(input.angularVelocityRadPerSec, input.handShake, t);
       const axis = applyPhysicalCameraRotation({ x: 0, y: 0, z: 1 }, { pitch: omega.pitch * t, yaw: omega.yaw * t, roll: omega.roll * t }, "camera-to-reference");
       for (const p of points) {
         const look = geometry.lookOf(p.x, p.y, t), reach = d / look.z;

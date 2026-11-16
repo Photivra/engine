@@ -85,8 +85,8 @@ describe("capture-only bundles", () => {
     // the cosine and sine of the shaped defocus kernel's blade and circle vertices (lens.defocus bokeh options, #553).
     // 2.22.0 (#594): portableExp and portablePow (about 1 KB of source) are in the first load too, but only because the on-demand
     // Quality kit (diffraction, defocus extras) imports them from the chunk that portable-math shares with the capture; the
-    // capture's own code does not call them.
-    expect([...(modules.get("core/portable-math.ts") ?? [])].sort()).toEqual(["equalWithinUlps", "hypot3", "portableAsin", "portableCosTwoPi", "portableExp", "portableHypot",
+    // capture's own code does not call them. 2.26.0 (#641): portableExp2 likewise, for the opt-in kit's hand-shake trajectory.
+    expect([...(modules.get("core/portable-math.ts") ?? [])].sort()).toEqual(["equalWithinUlps", "hypot3", "portableAsin", "portableCosTwoPi", "portableExp", "portableExp2", "portableHypot",
       "portablePow", "portableSinTwoPi"]);
   }, testTimeout(60_000));
 
@@ -175,9 +175,9 @@ const QUALITY_ON_DEMAND_MODULES = ["gpu/display-view-quality-gpu.ts", "gpu/wgsl-
 /** The modules each CPU kit holds (#594): none may reach the fast worker's chunks. */
 const CPU_QUALITY_KIT_MODULES = ["facade/quality-kit.ts", "optics/diffraction-psf-profile.ts", "optics/site-diffraction-kernel.ts", "optics/lens-psf-kernels.ts", "processing/demosaic.ts",
   "facade/defocus-bokeh-zones.ts", "facade/large-defocus-lattice.ts", "facade/defocus-image-space-provider.ts", "facade/display-view-rendering.ts", "color/neighbor-highlight-reconstruction.ts"];
-// #628: the display view's lens corrections and sharpening (display-view-detail.ts) are opt-in features too.
+// #628: the display view's lens corrections and sharpening (display-view-detail.ts) are opt-in features too; #641: motion.handheld (hand-shake.ts).
 const OPT_IN_KIT_MODULES = ["facade/opt-in-kit.ts", "facade/catalogue-lens-optics.ts", "equipment/sensor-profile-body.ts", "facade/lens-filter.ts", "facade/mixed-illumination.ts", "motion/subject-motion.ts",
-  "facade/display-view-detail.ts"];
+  "facade/display-view-detail.ts", "motion/hand-shake.ts"];
 const isOnDemand = (chunk: Bundle["chunks"][number]): boolean => QUALITY_ON_DEMAND_MODULES.some((id) => chunk.modules.has(id));
 describe("the app's capture-worker shape", () => {
   it("keeps the fast worker and the on-demand Quality chunks within their measured sizes", async () => {

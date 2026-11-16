@@ -285,9 +285,12 @@ the kernel spreads its light, as for any environment PSF.
   on top of the lens mapping's own cost (below).
 - **Rectilinear requests keep their bytes.** The code is a separate module (`src/facade/display-view-lens-signal.ts`)
   that `runCapture` loads on demand only for these options; every hash lock holds.
-- **Refused:** camera rotation with `motion.shutter: "rolling"` (each row has its own instants, so the scene points
-  of one instant would mix rows exposed at other times; the capture refuses it out of focus for the same reason), and
-  a mapping or vignetting profile that does not reach the farthest source point the view reads: the outer site centres
+- **Rolling shutter (#640):** with camera rotation under `motion.shutter: "rolling"` each site reads the scene at its own
+  exposure window's temporal midpoints (start + (i + ½)·d/T, as the environment forms them, kept per scan line), and every
+  kernel tap of a site at the site's instants; the lattice cache is tagged with the instant, so it is reused along a row and
+  not across rows. Each site's expected electrons equal the capture's within 1e-9 relative. A defocus kernel above 64 sites
+  radius is refused with a rolling shutter and rotation, as in the capture.
+- **Refused:** a mapping or vignetting profile that does not reach the farthest source point the view reads: the outer site centres
   plus the kernel radius and the largest query offset (the message names the reach and the point). `lens.pupilSampling`
   and `lens.psf` stay refused. The capture's own request limits apply first: rotation with the four-spot filter and
   `lens.diffraction` in focus (the PSF quadrature) can exceed the environment's 100 000 scene queries per site, and
@@ -1723,8 +1726,8 @@ model:
 
 - `lens.pupilSampling` and `lens.psf`: pupil rays and caller PSFs are not tabulated (for defocus use `lens.defocus`:
   [Defocus](#defocus));
-- camera rotation with `motion.shutter: "rolling"`, and a lens mapping or vignetting profile that does not reach the
-  view's farthest source point ([Lens projection, distortion, vignetting and rotation](#lens-projection-distortion-vignetting-and-rotation));
+- a defocus kernel above 64 sites radius with camera rotation and `motion.shutter: "rolling"` (#640: rotation with a
+  rolling shutter itself renders), and a lens mapping or vignetting profile that does not reach the view's farthest source point ([Lens projection, distortion, vignetting and rotation](#lens-projection-distortion-vignetting-and-rotation));
   projection, distortion, vignetting and rotation themselves render since #563, and `lens.catalogue` since #569
   ([Catalogue lenses](#catalogue-lenses-569));
 - `lens.defocus` with a disc radius above 512 sites (as the capture refuses it; 64 before 2.17.0);

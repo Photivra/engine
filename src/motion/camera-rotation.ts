@@ -29,6 +29,7 @@ import {
   requirePositiveFinite
 } from "../core/validation.js";
 import { calculateThinLensImageDistance } from "../optics/thin-lens.js";
+import { portableSinTwoPi } from "../core/portable-math.js";
 import { rejectUnknownFields, requireInputKeys, requireInputObject, assertNamedFinite as requireFinite } from "../core/record-validation.js";
 
 /** Checks the nested objects of a rotation-mapping input before any of their fields are read. */
@@ -68,6 +69,20 @@ export interface CameraAngularVelocityRadPerSec {
   yaw: number;
   /** Right-hand rotation rate about camera +Z (forward): positive rolls the camera clockwise as seen from behind it. */
   roll: number;
+}
+
+/**
+ * @internal #641: the angular velocity that, multiplied by t, gives the camera's angular displacement at t with a hand-shake
+ * trajectory added: ω + θ(t)/t, θ(t) = Σ a·(sin 2π(f·t + φ) − sin 2πφ) on each component's axis. `shake` holds the components as
+ * flat quadruples (axis 0 pitch, 1 yaw, 2 roll; amplitude rad; frequency Hz; phase in turns; `motion/hand-shake.ts`). Every render
+ * path forms its displacement as this velocity times t, so all of them rotate by the same numbers. At t ≤ 0, or without a
+ * trajectory, ω itself.
+ */
+export function shakenAngularVelocity(omega: CameraAngularVelocityRadPerSec, shake: readonly number[] | undefined, t: number): CameraAngularVelocityRadPerSec {
+  if (!shake || !(t > 0)) return omega;
+  const d = [omega.pitch, omega.yaw, omega.roll];
+  for (let i = 0; i < shake.length; i += 4) d[shake[i]!]! += shake[i + 1]! * (portableSinTwoPi(shake[i + 2]! * t + shake[i + 3]!) - portableSinTwoPi(shake[i + 3]!)) / t;
+  return { pitch: d[0]!, yaw: d[1]!, roll: d[2]! };
 }
 
 export interface ImagePlanePointMm {

@@ -993,6 +993,21 @@
       "kind": "runtime"
     },
     {
+      "name": "calculateHandShakeAngularDisplacement",
+      "source": "src/motion/hand-shake.ts",
+      "kind": "runtime"
+    },
+    {
+      "name": "CalculateHandShakeInput",
+      "source": "src/motion/hand-shake.ts",
+      "kind": "type"
+    },
+    {
+      "name": "calculateHandShakeRmsDisplacement",
+      "source": "src/motion/hand-shake.ts",
+      "kind": "runtime"
+    },
+    {
       "name": "calculateHighlightPriorityPlacementSignal",
       "source": "src/exposure/metering.ts",
       "kind": "runtime"
@@ -2763,6 +2778,11 @@
       "kind": "type"
     },
     {
+      "name": "createHandShakeTrajectory",
+      "source": "src/motion/hand-shake.ts",
+      "kind": "runtime"
+    },
+    {
       "name": "createHdrBracketMergeTask",
       "source": "src/processing/hdr.ts",
       "kind": "runtime"
@@ -4500,6 +4520,36 @@
     {
       "name": "GroupedNativeCaptureSampling",
       "source": "src/sensor/capture-mode.ts",
+      "kind": "type"
+    },
+    {
+      "name": "HAND_SHAKE_MAXIMUM_STABILIZATION_STOPS",
+      "source": "src/motion/hand-shake.ts",
+      "kind": "runtime"
+    },
+    {
+      "name": "HAND_SHAKE_MODEL_VERSION",
+      "source": "src/motion/hand-shake.ts",
+      "kind": "runtime"
+    },
+    {
+      "name": "HAND_SHAKE_RMS_ANGULAR_SPEED_RAD_PER_SEC",
+      "source": "src/motion/hand-shake.ts",
+      "kind": "runtime"
+    },
+    {
+      "name": "HandShakeComponent",
+      "source": "src/motion/hand-shake.ts",
+      "kind": "type"
+    },
+    {
+      "name": "HandShakeOptions",
+      "source": "src/motion/hand-shake.ts",
+      "kind": "type"
+    },
+    {
+      "name": "HandShakeTrajectory",
+      "source": "src/motion/hand-shake.ts",
       "kind": "type"
     },
     {

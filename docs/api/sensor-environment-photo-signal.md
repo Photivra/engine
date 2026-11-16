@@ -24,7 +24,10 @@ export interface CalculateEnvironmentSensorPhotoSignalInput {
   optics: Omit<CalculateSceneRadianceToSensorIrradianceInput,
     "sceneRadianceRequest" | "sceneRadianceResult" | "imagePointMm" | "fieldThroughput">;
   motion: Pick<CalculateSensorEnvironmentRadianceQueryInput,
-    "angularVelocityRadPerSec" | "timeReference" | "environmentDirectionConvention">;
+    "angularVelocityRadPerSec" | "timeReference" | "environmentDirectionConvention"> & {
+    /** @internal #641: a hand-shake trajectory added to the rotation (`shakenAngularVelocity`); set by `simulateCapture`'s `motion.handheld`. */
+    handShake?: readonly number[];
+  };
   temporalSampleCount: number;
   /** Optional ideal circular pupil, for geometric depth of field (DOF) and visibility. Cannot be combined with a sampled PSF. */
   pupil?: IdealCircularPupil;

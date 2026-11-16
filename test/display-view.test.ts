@@ -322,8 +322,8 @@ describe("simulateDisplayView", () => {
     for (const view of [undefined, { width: 0, height: 4 }, { width: 17, height: 4 }, { width: 4, height: 4, samplesPerAxis: 33 }, { width: 4, height: 4, format: "png" },
       { width: 4, height: 4, region: { x: 3, y: 0, width: 2, height: 1 } }, { width: 4, height: 4, extra: 1 }])
       await expect(simulateDisplayView(base, view as never)).rejects.toThrow(InvalidConfigurationError);
-    // #563: lens.projection, lens.distortion, lens.vignetting and camera rotation render (test/display-view-lens.test.ts), except rotation under a rolling shutter.
-    for (const extra of [{ lens: { pupilSampling: { radialSamples: 1, angularSamples: 4 } } }, { motion: { angularVelocityRadPerSec: { yaw: 0.01 }, shutter: "rolling" } },
+    // #563: lens.projection, lens.distortion, lens.vignetting and camera rotation render (test/display-view-lens.test.ts); #640: under a rolling shutter too.
+    for (const extra of [{ lens: { pupilSampling: { radialSamples: 1, angularSamples: 4 } } },
       { output: { width: 16, height: 16, region: { x: 0, y: 0, width: 4, height: 4 } } },
       // #593 (2.22.0): luminance tone curves and highlightMode "reconstruct" render (test/display-view-coupled-rendering.test.ts).
       { output: { width: 16, height: 16, whiteBalance: "auto" } }] as Partial<SimulateCaptureOptions>[])

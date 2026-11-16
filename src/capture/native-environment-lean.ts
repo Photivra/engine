@@ -55,7 +55,7 @@ import { resolveLensSampledPsf, resolveLensSampledPsfKernel, type ResolveLensSam
 import { sensorApertureRayValues, type IdealCircularPupil, type SensorApertureRay } from "../optics/sensor-aperture-rays.js";
 import { parseFocusPlane } from "../optics/focus-state.js";
 import { calculateIlluminationVignetting } from "../optics/illumination-vignetting.js";
-import { applyPhysicalCameraRotation, resolveProjectionDistanceMm } from "../motion/camera-rotation.js";
+import { applyPhysicalCameraRotation, resolveProjectionDistanceMm, shakenAngularVelocity } from "../motion/camera-rotation.js";
 import { prepareCaptureExposureWindowSampler } from "../sensor/exposure-window.js";
 import { apertureFitAllowanceMicrometers } from "../sensor/sampling-aperture.js";
 import { isPublicOpaqueId } from "../core/record-validation.js";
@@ -325,11 +325,13 @@ function geometry(t: Template, k: PlanConstants, frame: NativeEnvironmentLeanFra
     const e = environment as unknown as Rec, optics = e.optics as Rec, motion = e.motion as Rec;
     const focalLengthMm = optics.focalLengthMm as number, nominalFNumber = optics.nominalFNumber as number;
     const omega = motion.angularVelocityRadPerSec as { pitch: number; yaw: number; roll: number };
+    // #641: a hand-shake trajectory, folded into each instant's velocity as the full planner does (shakenAngularVelocity).
+    const shake = motion.handShake as readonly number[] | undefined;
     // The pupil, f-number and focus were validated by the template's full planning (they are site-independent); the ray
     // arithmetic and its rotation and forward-hemisphere checks run per site through calculateSensorApertureRays' own code.
     const pupil = e.pupil as IdealCircularPupil | undefined;
     if (pupil !== undefined && sensorApertureRayValues({ sourcePointNativeSensorMm: { x: 0, y: 0 }, focalLengthMm, nominalFNumber,
-      angularVelocityRadPerSec: omega, timeSecondsFromOpeningReference: start }, pupil, k.parsedFocus).rays.length !== k.pupilCount) return undefined;
+      angularVelocityRadPerSec: shakenAngularVelocity(omega, shake, start), timeSecondsFromOpeningReference: start }, pupil, k.parsedFocus).rays.length !== k.pupilCount) return undefined;
     // Field throughput at a planned point, as the full planner computes it.
     const field = e.fieldThroughput as Rec;
     const fieldAt = (point: { x: number; y: number }): { value: FieldThroughput; factor: number; valid: boolean } => {
@@ -387,7 +389,7 @@ function geometry(t: Template, k: PlanConstants, frame: NativeEnvironmentLeanFra
       if (!(time > start && time > previous && time < end)) return undefined;
       previous = time;
       if (!Number.isFinite(time) || time < 0) return undefined;
-      const displacement = { pitch: omega.pitch * time, yaw: omega.yaw * time, roll: omega.roll * time };
+      const w = shakenAngularVelocity(omega, shake, time), displacement = { pitch: w.pitch * time, yaw: w.yaw * time, roll: w.roll * time };
       const taps: LeanTap[] = [];
       // #633: a lens-mapped tap's point, direction (or key) and area factor do not depend on the wavelength, so they are computed once
       // per spatial node, tap and instant and shared by the spectral nodes (checked: the same point, bit for bit).
@@ -401,7 +403,7 @@ function geometry(t: Template, k: PlanConstants, frame: NativeEnvironmentLeanFra
         for (let pi = 0; pi < tapCount; pi++) {
           const point = points === undefined ? sources[gi % P]! : points[pi]!, sampleId = access === undefined ? `${id}-t${ti}-n${gi}-p${pi}` : "";
           const apertureRays = pupil === undefined ? undefined : sensorApertureRayValues({ sourcePointNativeSensorMm: point, focalLengthMm,
-            nominalFNumber, angularVelocityRadPerSec: omega, timeSecondsFromOpeningReference: time }, pupil, k.parsedFocus).rays;
+            nominalFNumber, angularVelocityRadPerSec: w, timeSecondsFromOpeningReference: time }, pupil, k.parsedFocus).rays;
           let request: SceneRadianceEvaluationRequest | undefined, key: number | undefined, imagePointMm: { x: number; y: number }, distortionAreaFactor: number | undefined;
           if (k.lensMapping !== undefined) {
             // #633: calculateMappedSensorEnvironmentRadianceQuery's arithmetic without its result envelope (the template's own plan, built

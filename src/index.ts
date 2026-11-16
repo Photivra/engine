@@ -1897,6 +1897,10 @@ export { SENSOR_PROFILES, SENSOR_PROFILE_IDS, resolveSensorProfile } from "./equ
 export { SENSOR_PROFILE_ISO_ANCHOR, SENSOR_PROFILE_ISO_MARKINGS, resolveSensorProfileIsoSettings, type SensorProfile, type SensorProfileValueKind } from "./equipment/sensor-profile-body.js";
 export { calculateSensorProfileFrame, type CalculateSensorProfileFrameInput, type SensorProfileFrame } from "./equipment/sensor-profile-frame.js";
 export type { SimulateCaptureSubjectMotion } from "./motion/subject-motion.js";
+// #641: the hand-shake trajectory of `motion.handheld`.
+export { calculateHandShakeAngularDisplacement, calculateHandShakeRmsDisplacement, createHandShakeTrajectory, HAND_SHAKE_MAXIMUM_STABILIZATION_STOPS, HAND_SHAKE_MODEL_VERSION,
+  HAND_SHAKE_RMS_ANGULAR_SPEED_RAD_PER_SEC } from "./motion/hand-shake.js";
+export type { CalculateHandShakeInput, HandShakeComponent, HandShakeOptions, HandShakeTrajectory } from "./motion/hand-shake.js";
 export { simulateDisplayView, prepareDisplayView, type PreparedDisplayView, type PreparedDisplayViewRenderOptions, serializeDisplayViewCorrectionStates, bindDisplayViewCorrectionStates,
   type DisplayViewCorrectionStateKeys, type DisplayViewCorrectionStateSet } from "./facade/simulate-display-view.js";
 export type { DisplayViewGpuMode, PrepareDisplayViewOptions, DisplayViewGpuFallbackReason, DisplayViewGpuConformance, DisplayViewExecution,
