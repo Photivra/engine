@@ -74,6 +74,11 @@ export interface DisplayViewGpuSetup {
    * focus. The GPU Quality site pass then sums each site's taps in blocks (src/gpu/display-view-quality-gpu.ts).
    */
   defocusRadius?: number;
+  /**
+   * #612: the CPU reference's own expected-signal input (it differs from `signalInput` where a defocus disc is regrouped after the
+   * in-focus signal on the CPU): the renderers recompute their flagged pixels with it, so those pixels are the reference's values.
+   */
+  reference?: DisplayViewExpectedSignalInput;
 }
 // ---------------------------------------------------------------------------------------------------------------
 // Normal-distribution helpers.

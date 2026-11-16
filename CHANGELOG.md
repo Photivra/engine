@@ -74,6 +74,7 @@ Requests without these options or combinations keep their 2.24.0 bytes.
 
 - **Fixed:** defocused Quality display views became far slower in 2.21.0 because each site looked up its per-material kernel sums with a linear search. The lookup is now indexed; output is bit-identical.
 - **Default change:** on the CPU, a plain defocus disc much wider than the diffraction kernel now applies the disc after the in-focus signal (the regrouping already used above 64 sites), at any radius. It is the fast default for display views (`lens.defocus/view-regrouped`); `fast: false`, the GPU, shaped bokeh kernels and the lens path keep the previous method. On the measured Guide cases the output is identical to the previous method.
+- **Fixed (WebGPU):** the GPU renderers recompute the pixels they flag on the host; with the regrouped disc they used the GPU's combined kernels there, while the CPU reference regroups, so a recomputed pixel could differ from the reference by the regrouping's rounding (1e-10 in linear light, against the 2e-12 relative bound a recomputed pixel is held to; 3 components of the Siemens star (bar) case at f/2.8 on SwiftShader). They now recompute with the reference's own signal (`DisplayViewGpuSetup.reference`), so recomputed pixels are the reference's values again. CPU output is unchanged.
 
 ### #613–#616 Standalone helpers: equivalent ISO, program line, sensor figures, exposure helpers
 
