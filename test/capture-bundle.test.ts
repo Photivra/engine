@@ -175,7 +175,9 @@ const QUALITY_ON_DEMAND_MODULES = ["gpu/display-view-quality-gpu.ts", "gpu/wgsl-
 /** The modules each CPU kit holds (#594): none may reach the fast worker's chunks. */
 const CPU_QUALITY_KIT_MODULES = ["facade/quality-kit.ts", "optics/diffraction-psf-profile.ts", "optics/site-diffraction-kernel.ts", "optics/lens-psf-kernels.ts", "processing/demosaic.ts",
   "facade/defocus-bokeh-zones.ts", "facade/large-defocus-lattice.ts", "facade/defocus-image-space-provider.ts", "facade/display-view-rendering.ts", "color/neighbor-highlight-reconstruction.ts"];
-const OPT_IN_KIT_MODULES = ["facade/opt-in-kit.ts", "equipment/sensor-profile-body.ts", "facade/lens-filter.ts", "facade/mixed-illumination.ts", "motion/subject-motion.ts"];
+// #628: the display view's lens corrections and sharpening (display-view-detail.ts) are opt-in features too.
+const OPT_IN_KIT_MODULES = ["facade/opt-in-kit.ts", "equipment/sensor-profile-body.ts", "facade/lens-filter.ts", "facade/mixed-illumination.ts", "motion/subject-motion.ts",
+  "facade/display-view-detail.ts"];
 const isOnDemand = (chunk: Bundle["chunks"][number]): boolean => QUALITY_ON_DEMAND_MODULES.some((id) => chunk.modules.has(id));
 describe("the app's capture-worker shape", () => {
   it("keeps the fast worker and the on-demand Quality chunks within their measured sizes", async () => {

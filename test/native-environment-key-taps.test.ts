@@ -66,8 +66,10 @@ describe("lean key taps for engine chart scenes (#394)", () => {
     }
   }, scaledTimeout(240_000));
 
-  it("keeps lens field mappings and caller function scenes on request taps", async () => {
-    expect(await same({ scene: { preset: "siemens-star" }, lens: { projection: "fisheye-equidistant" }, output: small })).toBe(0);
+  it("keeps caller function scenes on request taps; #633: lens field mappings take key taps, with the same bytes", async () => {
+    expect(await same({ scene: { preset: "siemens-star" }, lens: { projection: "fisheye-equidistant" }, output: small })).toBeGreaterThan(0);
+    expect(await same({ scene: { preset: "dead-leaves" }, lens: { distortion: { kind: "radial", profile: { normalizationRadiusMm: 0.1, maximumNormalizedRadius: 2,
+      coefficients: { k1: -0.05, k2: 0, k3: 0 } } } }, output: small } as SimulateCaptureOptions)).toBeGreaterThan(0);
     expect(await same({ scene: { kind: "reflectance-function", sceneId: "test-key-taps", evaluate: ({ u }) => (u > 0 ? 0.6 : 0.2) }, output: small })).toBe(0);
   }, scaledTimeout(240_000));
 });

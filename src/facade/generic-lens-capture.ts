@@ -8,5 +8,5 @@
 export { GENERIC_LENS_EVIDENCE, genericLensDistortionProfile, genericLensVignettingProfile, resolveGenericLens, simulateGenericLensFocusError } from "../equipment/generic-lens-catalogue.js";
 export { createGenericLensPsfProfile, genericLensBokehKernel, genericLensPsfKernelRadius, GENERIC_LENS_PSF_MAXIMUM_COMBINED_RADIUS_SITES, pupilGeometry } from "../optics/generic-lens-psf.js";
 export { catalogueFastGridSubdivisions, CATALOGUE_FAST_VERIFICATION_TOLERANCE, catalogueFastAssumptions, createCatalogueLensSignal } from "./catalogue-lens-signal.js";
-export { applyDevelopedLensCorrection, channelEffectiveDispersion, developedLensCorrectionSourceRect, prepareDevelopedLensCorrection } from "../output/developed-lens-corrections.js";
+export { applyDevelopedLensCorrection, channelEffectiveDispersion, createDisplayViewLensCorrection, developedLensCorrectionSourceRect, prepareDevelopedLensCorrection } from "../output/developed-lens-corrections.js";
 export { createDngLensCorrectionOpcodes } from "../capture/dng-lens-correction-opcodes.js";

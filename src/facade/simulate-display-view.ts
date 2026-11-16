@@ -19,14 +19,14 @@ import type { DisplayViewExpectedSignalInput } from "./expected-signal.js";
 import { resolveSensorReadoutRegime } from "../sensor/raw-readout.js";
 import { resolvePortableChartScene, type ChartScene } from "./chart-scenes.js";
 import { resolvePortableCaptureIlluminant, calculateIlluminantIrradianceScale } from "./scene-radiance.js";
-import { ahdCandidateKernels, checkDeprecatedGridKeys, createDisplayViewExpectedSignal, renderDisplayView, type DisplayViewChannelReadout,
+import { ahdCandidateKernels, checkDeprecatedGridKeys, createDisplayViewExpectedSignal, drawDisplayPixel, overlaps, renderDisplayView, unsharpNoiseGain, type DisplayViewChannelReadout, type DisplayViewCorrection,
   type DisplayViewCorrectionStateKeys, type DisplayViewCorrectionStateSet, type DisplayViewExpectedSignal, type DisplayViewRenderResult, type DisplayViewSetup,
   EXACT_AREA_MEAN_MAX_PIXELS } from "./display-view.js";
 import { runCapture, apertureNodeOffsets, bilinearPhaseProfiles, clockMs, fail, sceneIlluminantWhiteBalance, CAMERA_TO_XYZ, CHANNELS, DARK_CURRENT_ELECTRONS_PER_SECOND, FACADE_EVIDENCE,
   SIMULATE_CAPTURE_FACADE_VERSION, DISPLAY_VIEW_WITHOUT_VIEW, allowKeys, parseDisplayViewOption, type DisplayViewResult, type DisplayViewRunContext, type ParsedDisplayView,
   type SimulateCaptureAssumption, type SimulateCaptureOptions, type SimulateDisplayViewOptions } from "./simulate-capture.js";
 import { createHostYield } from "./host-yield.js";
-import { qualityKit } from "./on-demand-kits.js";
+import { optInKit, qualityKit } from "./on-demand-kits.js";
 import { createDefocusDiscSiteKernel } from "../optics/defocus-disc-kernel.js";
 import { siteKernelRuns } from "../optics/site-kernel-runs.js";
 import { cpuDisplayViewExecution, parsePrepareDisplayViewOptions, type DisplayViewExecution, type DisplayViewGpuRequest, type PrepareDisplayViewOptions } from "./display-view-gpu.js";
@@ -288,6 +288,11 @@ async function prepareView(context: DisplayViewRunContext): Promise<PreparedView
     highlightMode, gamutHandling: context.gamutHandling, fast: context.viewFast.rendering } : undefined;
   // The coupled steps' module is loaded only for a view that asks for them (the Quality kit, #594; the default path never imports it).
   const coupled: DisplayViewCoupledRendering | undefined = rendering ? (await qualityKit.load()).createDisplayViewCoupledRendering(rendering, colour.appliedGains, Math.min(...colour.appliedGains), matrix)! : undefined;
+  // #628: lens corrections and sharpening (their module loaded only for a view that asks for them; the CPU renders them).
+  const detailOption = context.viewDetail, detailKit = detailOption ? await optInKit.load() : undefined, lensDetail = detailOption?.lens;
+  const detail = detailOption ? { view: { render: renderDisplayView, draw: drawDisplayPixel, overlaps, noiseGain: unsharpNoiseGain }, ...(lensDetail ? { lens: { hook: (channel: number, vw: number, vh: number): DisplayViewCorrection => lensDetail.create(lensDetail.correction, lensDetail.cornerStops, channel, vw, vh, !detailOption.fast),
+    channels: lensDetail.correction.scales.every((a) => a === lensDetail.correction.scales[1]) ? [1] : [1, 0, 2] } } : {}),
+    ...(detailOption.sharpening ? { sharpening: detailOption.sharpening } : {}) } : undefined;
   // #457: AHD's homogeneity metric (the profile's camera → XYZ matrix times the white-balance gains) for its choice on the noise-free mosaic.
   const ahdChoice = ahd ? { labMatrix: CAMERA_TO_XYZ.map((row) => row.map((value, c) => value * (viewGains ? viewGains[c]! : 1))) } : undefined;
   // 2.20.0: a quarter of the samples per axis where the pilot finds no detail is the view's fast sampling; exact samples every pixel fully.
@@ -308,14 +313,14 @@ async function prepareView(context: DisplayViewRunContext): Promise<PreparedView
   };
   // #492: out of focus the view reads the defocus disc (its kernel in signalInput.kernels); the GPU Quality site pass gathers it (step 2c).
   const gpuRequest: DisplayViewGpuRequest = { ahd, lens: !!context.lens, ...(viewMixed ? { mixedIllumination: true } : {}), defocus: defocusKernel !== null, ...(largeDefocus ? { largeDefocus: true } : {}), diffraction: diffraction !== undefined, antiAliasing: antiAliasing !== undefined, boxSamples, toneCurve: viewToneCurve, ...(highlightMode === "reconstruct" || highlightMode === "reconstruct-neighbors" || context.gamutHandling === "desaturate-to-luminance" ? { coupled: true } : {}),
-    scene: chart ? "chart" : materialLayers ? "material-layers" : callerScene!.kind };
+    scene: chart ? "chart" : materialLayers ? "material-layers" : callerScene!.kind, ...(detail ? { detail: true } : {}) };
   const render: RenderPreparedView = async (v, run, viewInternals, gpu) => {
     const { started, viewStarted } = run;
     const assumptions: SimulateCaptureAssumption[] = [...context.assumptions];
     const assume = (id: string, kind: SimulateCaptureAssumption["kind"], value: unknown, explanation: string): void => { assumptions.push({ id, kind, value, explanation }); };
     const { setup, signal } = setupOf(v, run), viewRegion = setup.region;
     // #481: the GPU session renders on the device when it can, else through the CPU reference, and labels which ran.
-    const cpu = (): Promise<DisplayViewRenderResult> => renderDisplayView(setup);
+    const cpu = (): Promise<DisplayViewRenderResult> => detail ? detailKit!.renderDisplayViewDetail(setup, detail) : renderDisplayView(setup);
     const { rendered, execution }: { rendered: DisplayViewRenderResult; execution: DisplayViewExecution } = gpu ? await gpu.render(setup, run.signal, cpu)
       : { rendered: await cpu(), execution: cpuDisplayViewExecution("off", null, null, null) };
     if (viewInternals) { viewInternals.value = rendered; viewInternals.signal = signal; viewInternals.setup = setup; viewInternals.signalInput = signalInput; }
@@ -365,6 +370,7 @@ async function prepareView(context: DisplayViewRunContext): Promise<PreparedView
           "The disc is the same at every spectral node (geometric optics).") + (regroupDefocus && execution.backend !== "webgpu-f32" ?
           " Fast method (#612): the disc is applied after each channel's in-focus signal, by runs, the same sum regrouped (equal to rounding); fast: false keeps the combined kernels." : ""));
     }
+    if (detail) for (const a of displayViewDetailAssumptions(detailOption!, detail.lens?.channels.length ?? 0)) assume(a.id, "model", a.value, a.explanation);
     if (viewMixed) assume("view.illumination", "model", { method: "radiance-at-every-query-point" },
       "Mixed lighting (#550): the radiance at every query point, as in the capture (no material tables; exact). Not on the GPU.");
     if (execution.backend === "webgpu-f32") {
@@ -402,4 +408,15 @@ async function prepareView(context: DisplayViewRunContext): Promise<PreparedView
       assumptions: Object.freeze(assumptions.map((a) => Object.freeze(a))) });
   };
   return { render, gpuRequest };
+}
+
+/** #628: the view's `view.lensCorrections` and `view.sharpening` assumptions . */
+function displayViewDetailAssumptions(detail: { fast: boolean; sharpening?: object; lens?: { selection: object } }, passes: number):
+  { id: string; value: Record<string, unknown>; explanation: string }[] {
+  const see = " An approximation: docs/DISPLAY_VIEW.md, \"Lens corrections and sharpening\".", out = [];
+  if (detail.lens) out.push({ id: "view.lensCorrections", value: { ...detail.lens.selection, method: detail.fast ? "developed-footprint" : "bilinear-sources", passes },
+    explanation: "The capture's output.lensCorrections, read where its corrected pixels read the developed image, with the vignetting gain before the tone curve." + see });
+  if (detail.sharpening) out.push({ id: "view.sharpening", value: { ...detail.sharpening, method: "real-pixel-mask" },
+    explanation: "The capture's output.sharpening on the region's real pixels (a 1:1 render), area-averaged; the noise scaled by the mask's gain." + see });
+  return out;
 }

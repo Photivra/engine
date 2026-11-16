@@ -9,6 +9,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { simulateCapture, simulateDisplayView, InvalidConfigurationError, type SimulateCaptureOptions, type SimulateCaptureResult } from "../src/index.js";
 import { CATALOGUE_FAST_GRID_FULL_ON_SCREEN, CATALOGUE_FAST_VERIFICATION_TOLERANCE, catalogueFastGridSubdivisions, createCatalogueLensSignal, setCatalogueLensSignalTestHook, type CatalogueLensSignalInput } from "../src/facade/catalogue-lens-signal.js";
 import { scaledTimeout } from "./helpers/test-timeout.js";
+import { electrons, sceneEvaluator } from "./helpers/display-view-lens-catalogue.js";
 
 const exposureAt = (fNumber: number): NonNullable<SimulateCaptureOptions["exposure"]> => ({ mode: "manual", shutterSeconds: (fNumber / 8) ** 2 / 125, iso: 100 });
 /** A whole full frame (36 × 24 mm) W pixels wide, optionally a region of it. */
@@ -83,6 +84,35 @@ describe("lens.catalogue fast method (#568)", () => {
     }
   }, scaledTimeout(300_000));
 
+  it("#629: takes the box pixel aperture, within its stated bound of the exact chain site by site", async () => {
+    // The grid blend with one kernel per site and the box folded into each lattice point, against the environment PSF quadrature itself
+    // (each aperture node with its own kernel and tap points) on the capture's own site records. Measured November 15, 2026 (fast request,
+    // 4-cell grid): see docs/LENS_CATALOGUE.md, "Fast method".
+    for (const [lens, fNumber, n] of [["pv-24-1.8", 1.8, 2], ["pv-50-1.8", 8, 4]] as const) {
+      const o = fullFrame(lens, fNumber, 192, star, { fast: true });
+      const options: SimulateCaptureOptions = { ...o, sensor: { pixelPitchMicrometers: 36000 / 192, spectralStepNanometers: 80, pixelAperture: { kind: "box", samplesPerAxis: n } } };
+      let captured: CatalogueLensSignalInput | undefined;
+      setCatalogueLensSignalTestHook({ onInput: (input) => { captured ??= input; } });
+      const r = await simulateCapture(options);
+      setCatalogueLensSignalTestHook(undefined);
+      expect(r.diagnostics.fast.applied["lens.catalogue"], lens).toBe(true);
+      expect(expected(r).method, lens).toBe("per-site-integrated-electrons-catalogue-psf-field-grid");
+      expect(expected(r).verificationRelativeDifference!, lens).toBeLessThan(CATALOGUE_FAST_VERIFICATION_TOLERANCE);
+      expect(r.assumptions.find((a) => a.id === "fast.lens.catalogue")!.value, lens).toMatchObject({ boxSamplesPerAxis: n });
+      expect(captured!.queryOffsets, lens).toHaveLength(n * n);
+      const fast = createCatalogueLensSignal(captured!), evaluate = sceneEvaluator(options, r), W = captured!.nativeWidth;
+      let peak = 0, worst = 0, relative = 0;
+      const pairs: [number, number][] = [];
+      for (let k = 0; k < 40; k++) {
+        const x = k === 0 ? 0 : (k * 7919 + 13) % W, y = k === 0 ? 0 : (k * 3571 + 7) % captured!.nativeHeight, e = electrons(r.request.siteInput(y * W + x).environment, evaluate);
+        peak = Math.max(peak, e); pairs.push([e, fast.site(x, y)]);
+      }
+      for (const [e, f] of pairs) { worst = Math.max(worst, Math.abs(f - e)); if (e > 0) relative = Math.max(relative, Math.abs(f - e) / e); }
+      expect(worst / peak, lens).toBeLessThan(2e-3);
+      expect(relative, lens).toBeLessThan(0.03);
+    }
+  }, scaledTimeout(900_000));
+
   it("follows the exact-or-fast convention: the format default (fast for sRGB, 2.20.0), the top-level flag, the record's kind and fast, and the report", async () => {
     const options = (lens: Record<string, unknown>, fast?: boolean): SimulateCaptureOptions => ({ ...fullFrame("pv-50-1.8", 8, 96, star), lens: { ...lens, fNumber: 8 } as never,
       ...(fast === undefined ? {} : { fast }) });
@@ -136,9 +166,9 @@ describe("lens.catalogue fast method (#568)", () => {
   }, scaledTimeout(120_000));
 
   it("runs exact where the fast method does not apply, and refuses malformed records", async () => {
-    // A box pixel aperture queries off the site centers: the exact method runs and the report says so.
-    const box = await simulateCapture({ ...fullFrame("pv-50-1.8", 8, 48, star, { fast: true }), sensor: { pixelPitchMicrometers: 750, spectralStepNanometers: 80, pixelAperture: { kind: "box", samplesPerAxis: 2 } } });
-    expect(box.diagnostics.fast.applied).toEqual({ "lens.catalogue": false, "sensor.pixelAperture.box": false });
+    // The four-spot anti-aliasing filter queries off the site centers: the exact method runs and the report says so (#629: the box aperture takes the fast method).
+    const spots = await simulateCapture({ ...fullFrame("pv-50-1.8", 8, 48, star, { fast: true }), sensor: { pixelPitchMicrometers: 750, spectralStepNanometers: 80, antiAliasing: { kind: "four-spot" } } });
+    expect(spots.diagnostics.fast.applied).toEqual({ "lens.catalogue": false, "sensor.antiAliasing": false });
     for (const catalogue of [{ kind: 50 }, { kind: "pv-50-1.8", fast: "yes" }, { kind: "pv-50-1.8", extra: 1 }, { fast: true }])
       await expect(simulateCapture({ ...fullFrame("pv-50-1.8", 8, 48, star), lens: { catalogue, fNumber: 8 } as never })).rejects.toThrow(InvalidConfigurationError);
     // The display view renders the record form with #569's per-zone PSF; the fast method is the capture's only, so it reports false.

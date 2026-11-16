@@ -385,6 +385,8 @@ export function createDefocusImageSpaceProvider(input: DefocusImageSpaceProvider
     registerInternalRadianceAccess(evaluateRadiance, {
       tabulated: false,
       keyOfDirection(o, time): number | undefined {
+        // #633: at or beyond the horizon evaluateRadiance returns the base provider's own zero, not a lattice value: no key.
+        if (zeroBeyond && !(o.z < 0)) return undefined;
         const t = timeDependent ? time : 0, key = keyOf({ x: -o.x, y: -o.y, z: -o.z }, t);
         if (key === undefined) return undefined;
         let index = timeIndex.get(t);

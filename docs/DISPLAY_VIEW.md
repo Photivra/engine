@@ -388,6 +388,76 @@ filter, on the CPU and in the WebGPU kernels alike (they read the same per-node 
 exposure the view shows is the capture's, metered through the filter. A flat filter of transmittance 2^-k gives the same view, bit
 for bit, as the unfiltered request at 2^-k times the illuminance (test/simulate-capture-lens-filter.test.ts).
 
+### Lens corrections and sharpening (#628)
+
+From 2.25.0 the view accepts `output.lensCorrections` (a catalogue lens's distortion, lateral colour and vignetting corrections) and
+`output.sharpening` (the unsharp mask), so a corrected or sharpened capture can be shown on screen as it is saved
+(`src/facade/display-view-detail.ts`, loaded on demand with the opt-in kit). `output.diffractionCorrection` stays refused.
+
+**Lens corrections.** The capture corrects its developed linear colour before the tone curve: output channel c of pixel q reads the
+developed image bilinearly at its source point s_c(q) = q′(1 + k1|q′|²/R²), q′ = m·a_c·q (frame centre at the origin), times the
+vignetting gain det J/E at that point ([Lens corrections in the development](DIGITAL_OPTICS_FOUNDATION.md#lens-corrections-in-the-development-570)). The view's renderer takes a correction hook
+(`DisplayViewSetup.correction`) and reads, for each display pixel, the developed image where the capture's corrected pixels read it,
+with the gain applied to each developed pixel's linear colour before the tone curve (its moments scaled by G and G², its slopes by G).
+With lateral colour each channel has its own map, so the view renders three passes and takes each component's mean from its own pass
+and the noise covariance from the green pass (the channels' footprints differ by a fraction of a display pixel there).
+
+- **Fast (the default; registry `output.lensCorrections/view-footprint`).** A display pixel reads the developed rectangle between the
+  maps of its edges' midpoints (neighbouring display pixels share those points, so the rectangles tile the frame along rows and
+  columns), area-averaged with the exact overlap weights or the stratified samples, each developed pixel with the gain at its own centre.
+  Approximations: the rectangle for the mapped quadrilateral, the gain at the developed pixel's centre for the one at each source point,
+  and the area mean of rendered pixels for the capture's bilinear reading of developed ones.
+- **Exact (`fast: false`).** Each output pixel of the display pixel reads its source point's four developed pixels with the capture's
+  bilinear weights and gain. With the bilinear demosaic and a per-component tone curve the output pixel's expected value is rendered from
+  the weighted sum of its sources' developed moments (independent sources: the means add with b, the variances with b², the third
+  cumulants with b³), as the capture interpolates before its tone curve; with AHD or the coupled rendering steps each source is rendered
+  first (an approximation). The noise terms keep each source's slopes. The real pixels' memos are off on this path (each sample carries
+  its own gain), so it costs several times the fast one.
+- The vignetting correction is refused with `highlightMode` `"reconstruct"` or `"reconstruct-neighbors"` and with
+  `gamutHandling: "desaturate-to-luminance"` (the view integrates those steps over the camera channels, before the gain);
+  `simulateCapture` renders them.
+- The `view.lensCorrections` assumption records the selection, the method and the number of passes.
+
+**Sharpening.** The capture's mask acts on the encoded rendered values before quantization: y = x + a·(x − G_σ∗x) where
+|x − G_σ∗x| ≥ threshold, clipped to [0, 1]. The view renders the real output pixels of the region and the mask's reach ⌈3σ⌉ (a 1:1 render,
+with the lens corrections when the request has them), applies the capture's own mask (`applyUnsharpMask`) to their encoded expected values
+and area-averages the result in linear light. The noise is the unsharpened view's covariance times the mask's noise gain at display
+scale, Σh² with h = (1 + a)·δ − a·(W ⊗ W) and W_n = Σ_j Σ_k ω₀(j)·ω_n(k)·g(j − k)/s, the capture's Gaussian g averaged over display
+pixels of s real pixels: the capture's own gain at 1:1, tending to 1 as display pixels grow. Approximations: the mask acts on expected
+values (the noise's interaction with the threshold and the clip is not modelled), and the gain treats display pixels as independent.
+There is one method. A display-scale mask (the encoded expected display pixels with W) was measured and left out: at 8 and 2 real
+pixels per display pixel it was 1.6 and 2.1 codes RMS (12 and 37 at most) from the sharpened capture, against 1.5 and 2.4 (12.5 and
+40) for no mask at all, because the mask's effect on a downsized image is the non-linear residue of its halos within each display pixel.
+The cost of the 1:1 render follows the real pixels of the region: about the view's own cost where a display pixel holds no more real
+pixels than its samples (K² = 256 by default), more on coarser views. The `view.sharpening` assumption records the settings.
+
+**GPU.** Both run on the CPU reference: `gpu: "auto"` renders them on the CPU, labelled `unsupported-on-backend`.
+
+**Validation** (`test/display-view-lens-corrections.test.ts`; November 15, 2026, Node 26, the machine heavily loaded). The reference is
+the definition of the view: the capture with the same options (16-bit sRGB), decoded and area-averaged over each display pixel. A slanted
+edge (20°) on a 192 × 128 frame at 187.5 µm, 8-bit codes of each component's expected value:
+
+| Request | View | Fast: RMS, largest | Exact: RMS, largest |
+| --- | --- | --- | --- |
+| PV 24 1.8 wide open, distortion + lateral colour + vignetting (the uncorrected view is 25.8 codes RMS from it) | 24 × 16 (8×) | 0.16, 2.2 | 0.011, 0.057 |
+| the same | 96 × 64 (2×) | 0.26, 12.1 | 0.031, 0.18 |
+| the same | 192 × 128 (1:1) | 1.15, 85 | |
+| 50 mm prime at f/8, `sharpening: { radiusPixels: 1, amount: 1 }` (the unsharpened view: 1.47, 12.5 at 8×; 2.35, 39.9 at 2×) | 8×, 2×, 1:1 | 0.010, 0.054; 0.039, 0.24; 0.054, 0.40 (one method) | |
+
+- The fast method's largest differences are at the edge's demosaic overshoot: the capture interpolates developed values beyond [0, 1]
+  before its tone curve clips them, and the fast method averages rendered (clipped) pixels. They fall as display pixels grow; the exact
+  method removes them. The uncorrected view against the uncorrected capture on the same frame: 0.03 code RMS, 0.17 at most (2×).
+- Distortion alone at 2×: fast 0.24 code RMS, 11.8 at most; exact 0.026, 0.16. Lateral colour alone: fast 0.04, 1.5. Vignetting alone:
+  fast 0.03, 0.19.
+- Regions are byte-identical to the whole view (three passes and sharpening), and prepared renders equal `simulateDisplayView`.
+- *Noise with sharpening* (a uniform 18 % patch, 4 µm pitch, ISO 3200, σ = 1, amount 1; standard deviation of the green channel in linear
+  light over the patch): at 1:1 the view 0.0549 against the capture's 0.0488 (12 % high: the gain treats pixels as independent, while
+  the capture's demosaic correlates neighbours, so its mask amplifies less); at 4 real pixels per display pixel 0.0170 against 0.0161.
+  Without the mask: 0.0296 against 0.0298 and 0.0127 against 0.0130.
+- *Cost.* The fast corrections cost about one view per channel map (three with lateral colour); the exact method several times more
+  (memos off; on the 192 × 128 frame at 8× about 18 s against 2 s for the fast one, the machine heavily loaded). Sharpening adds a 1:1
+  render of the region and the mask's reach.
+
 ### Catalogue lenses (#569)
 
 From #569 the view accepts `lens.catalogue` (the 30 generic lenses of [the lens catalogue](LENS_CATALOGUE.md)), at every
@@ -1656,7 +1726,10 @@ model:
   `"scene-illuminant"` or a fixed white balance, as for region tiles);
 - luminance tone curves (`extended-reinhard-luminance`, `naka-rushton-luminance`) and
   `output.highlightMode: "reconstruct"`, which couple the channels non-linearly;
-- `output.region` (pass `view.region` in display pixels instead).
+- `output.region` (pass `view.region` in display pixels instead);
+- `output.diffractionCorrection`, and `output.lensCorrections.vignetting` with `highlightMode` `"reconstruct"` or
+  `"reconstruct-neighbors"` or `gamutHandling: "desaturate-to-luminance"` (2.25.0: the lens corrections and sharpening render otherwise;
+  [Lens corrections and sharpening](#lens-corrections-and-sharpening-628)).
 
 A still camera with a rolling shutter is accepted (each site's window has the same length, so the
 expected signal is unchanged). The capture's file-format options (`format`, `colorEncoding`,

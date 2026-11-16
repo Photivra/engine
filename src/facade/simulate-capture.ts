@@ -66,6 +66,7 @@ import { createDisplayViewExpectedSignal, type DisplayViewExpectedSignal, type D
 import type { DisplayViewFastReport } from "./display-view-gpu.js";
 import type { MixedIllumination, ResolvedMixedIllumination } from "./mixed-illumination.js";
 import type { DisplayViewLensPsf } from "./display-view-lens-signal.js";
+import type { DevelopedLensCorrection, DevelopedLensCorrectionSelection, createDisplayViewLensCorrection } from "../output/developed-lens-corrections.js";
 import { buildExpectedSignalInput } from "./expected-signal-setup.js";
 import { createNativeEnvironmentRawTask, createNativeEnvironmentRawRegionTask, type NativeEnvironmentRawInput,
   type NativeEnvironmentRawTask, type NativeEnvironmentRawTile } from "../capture/native-environment-raw.js";
@@ -1768,6 +1769,9 @@ export interface DisplayViewRunContext {
    * the in-focus signal where that is cheaper (`defocusRegrouped`).
    */
   viewFast: { uniformSampling: boolean; rendering: boolean; defocusRegrouped: boolean };
+  /** #628: `output.lensCorrections` and `output.sharpening` in the view (display-view-detail.ts); `fast` their method. */
+  viewDetail?: { fast: boolean; sharpening?: UnsharpMaskSettings; lens?: { correction: DevelopedLensCorrection; cornerStops: number | null;
+    selection: DevelopedLensCorrectionSelection; create: typeof createDisplayViewLensCorrection } } | undefined;
   /** #601: the sRGB rendering's gamut handling. */
   gamutHandling: "clip-components" | "desaturate-to-luminance";
   resolvedIso: number;
@@ -2339,9 +2343,11 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
     if (outputOptions.region !== undefined) unsupported("output.region", "pass the rectangle as view.region, in display pixels.");
     if (outputOptions.whiteBalance === "auto") unsupported("output.whiteBalance \"auto\"", "the capture measures it from its noisy full-resolution RAW; use \"scene-illuminant\" or a fixed white balance.");
     // #593 (2.22.0): luminance tone curves, highlightMode "reconstruct" and (#601) the desaturation render (display-view-rendering.ts).
-    if (outputOptions.diffractionCorrection !== undefined || outputOptions.sharpening !== undefined)
-      unsupported("output.diffractionCorrection or output.sharpening", "the development detail stages filter the whole developed capture image.");
-    if (outputOptions.lensCorrections !== undefined) unsupported("output.lensCorrections", "the corrections resample the developed capture image.");
+    // #628: output.lensCorrections and output.sharpening render (display-view-detail.ts); the deconvolution does not.
+    if (outputOptions.diffractionCorrection !== undefined) unsupported("output.diffractionCorrection", "the deconvolution filters the whole developed capture image.");
+    if ((outputOptions.lensCorrections as { vignetting?: unknown } | undefined)?.vignetting === true && (outputOptions.highlightMode === "reconstruct" || outputOptions.highlightMode === "reconstruct-neighbors" ||
+      outputOptions.gamutHandling === "desaturate-to-luminance")) unsupported("output.lensCorrections.vignetting with highlightMode reconstruct or gamutHandling desaturate-to-luminance",
+      "they act before the gain.");
     if (defocusBokeh?.catsEye) unsupported("lens.defocus.catsEye", "the expected-signal tables hold one kernel per spectral node, and the cat's eye varies over the field; " +
       "simulateCapture renders it. lens.defocus.blades and lens.defocus.sphericalAberration are supported.");
   }
@@ -3526,9 +3532,21 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   const sensor = sensorReport(regimeByChannel.green.readoutProfile, regimeByChannel.green.regimeId, capacityElectrons, greyElectrons, DARK_CURRENT_ELECTRONS_PER_SECOND * shutterSeconds,
     { pixelPitchMicrometers: pitch, peakQuantumEfficiency: 0.5 * qeScale,
       readoutSeconds: characteristics?.readoutSeconds ?? (body as { rollingReadoutTiming?: { profile: { spatialSamplingSkewSeconds?: { value: number } } } }).rollingReadoutTiming?.profile.spatialSamplingSkewSeconds?.value ?? null }, fixedPattern);
+  // #589: each channel's effective dispersion (its own response × the illuminant at the capture's spectral nodes) for the catalogue
+  // lens's lateral-colour corrections: the developed ones, in a DNG the opcodes (#587), and (#628) the display view's, so all use the same channel scales.
+  let channelDispersion: ReturnType<NonNullable<typeof lensKit>["channelEffectiveDispersion"]> | undefined;
+  const captureChannelDispersion = (): NonNullable<typeof channelDispersion> => {
+    if (channelDispersion) return channelDispersion;
+    const { electronsPerRadiance, wavelengths } = axisChannelResponse("simulateCapture");
+    return channelDispersion = lensKit!.channelEffectiveDispersion(wavelengths, CHANNELS.map((c) => wavelengths.map((nm) => electronsPerRadiance[c].get(nm) ?? 0)), wavelengths.map((nm) => illuminant.shape.evaluate(nm)));
+  };
+  // #628: the display view's lens corrections and sharpening (display-view-detail.ts), with the capture's own correction and mask.
+  const viewDetail = displayView && (lensCorrectionSelection || sharpening) ? { fast: fastTop, ...(sharpening ? { sharpening } : {}),
+    ...(lensCorrectionSelection ? { lens: { correction: lensKit!.prepareDevelopedLensCorrection(catalogue!, lensCorrectionSelection, width, height, pitch / 1000, captureChannelDispersion()),
+      cornerStops: lensCorrectionSelection.vignetting ? catalogueCornerStops : null, selection: lensCorrectionSelection, create: lensKit!.createDisplayViewLensCorrection } } : {}) } : undefined;
   // #595: the native photosite's figures (their own module, so a bundler can split them off the default path).
   sensor.native = nativeSensorReport(sensor, regimeByChannel.green.regimeId, greyElectrons, DARK_CURRENT_ELECTRONS_PER_SECOND * shutterSeconds, nativeSensor, fixedPattern);
-  if (displayView) return await renderView!({ sensor, viewFast: { uniformSampling: fastTop, rendering: fastTop, defocusRegrouped: fastTop }, gamutHandling, lens: lensSignal, lensPsf: displayViewLensPsf, movingScene, ahd, fastReport, antiAliasing, aspect, assume, assumptions, axisChannelResponse, boxSamples, buildProvider, callerScene, chart, materialLayers, chartReport, chartSize, diffraction, defocus: displayViewDefocus, diffractionPsf, fNumber, focalLengthMm, focusDistanceM, height, highlightMode, exposureGain, illuminanceLux, illuminant, illuminantOption, imagingArea, intentOf, metresPerFrameUnit, noiseSeed, outputOptions, parsedView, pitch, preset, provider, regimeByChannel, resolvedIso, isoReport, standardExposureDeviationStops: exposureDeviationStops, standardExposureIlluminanceLux: exposureIlluminanceLux, greyCardDeviationStops: exposureGreyCardDeviationStops, metering, sceneOption, scenePreset, shutterSeconds, started, subjectDistanceM, toneCurve, whiteBalanceOption, whiteBalanceState, width, checkAbort, margin, mode, nativeHeight, nativeWidth, sourceSha256, yieldControl, kelvinWhiteBalanceInput,
+  if (displayView) return await renderView!({ sensor, viewFast: { uniformSampling: fastTop, rendering: fastTop, defocusRegrouped: fastTop }, viewDetail, gamutHandling, lens: lensSignal, lensPsf: displayViewLensPsf, movingScene, ahd, fastReport, antiAliasing, aspect, assume, assumptions, axisChannelResponse, boxSamples, buildProvider, callerScene, chart, materialLayers, chartReport, chartSize, diffraction, defocus: displayViewDefocus, diffractionPsf, fNumber, focalLengthMm, focusDistanceM, height, highlightMode, exposureGain, illuminanceLux, illuminant, illuminantOption, imagingArea, intentOf, metresPerFrameUnit, noiseSeed, outputOptions, parsedView, pitch, preset, provider, regimeByChannel, resolvedIso, isoReport, standardExposureDeviationStops: exposureDeviationStops, standardExposureIlluminanceLux: exposureIlluminanceLux, greyCardDeviationStops: exposureGreyCardDeviationStops, metering, sceneOption, scenePreset, shutterSeconds, started, subjectDistanceM, toneCurve, whiteBalanceOption, whiteBalanceState, width, checkAbort, margin, mode, nativeHeight, nativeWidth, sourceSha256, yieldControl, kelvinWhiteBalanceInput,
     mixedIllumination: mixedKit && lightKit });
   // Ideal reference (2.3): the scene without camera effects, at the capture's own exposure, white balance and encoding.
   if (idealReference) {
@@ -3640,9 +3658,9 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   let tabulated: Awaited<ReturnType<typeof renderTabulatedNativeRaw>>;
   // #568: lens.catalogue's fast method: expected electrons integrated per site at use, with the PSF blended over a field grid (catalogue-lens-signal.ts), for a
   // still camera, site-centre queries and a chart or material scene; verified per CFA phase against the exact chain within its tolerance.
-  let catalogueFastRun: { columns: number; rows: number; resolved: number; verificationRelativeDifference: number; subdivisions: number } | undefined;
+  let catalogueFastRun: { columns: number; rows: number; resolved: number; verificationRelativeDifference: number; subdivisions: number; boxSamples: number } | undefined;
   const catalogueFastEligible = catalogueFastRequested && catalogueTaps !== undefined && lensKit !== undefined && lensPsf !== undefined && dngParts === undefined && tabulatedScene &&
-    !pupil && !rotating && !subject && boxSamples === 1 && !antiAliasing && distortion?.kind === "radial" && provider.chartMaterialAt !== undefined && provider.materialRadiance !== undefined;
+    !pupil && !rotating && !subject && !antiAliasing && distortion?.kind === "radial" && provider.chartMaterialAt !== undefined && provider.materialRadiance !== undefined;
   // The tabulated paths' channel response per spectral node and material tables (the fast catalogue path and the expected-signal path).
   // #550: under mixed lighting a point's radiance is not its material's, so the tables read the provider's radiance instead (materials undefined).
   const tabulatedTables = (): { wavelengths: number[]; perNode: [Float64Array, Float64Array, Float64Array]; materials: Parameters<typeof buildExpectedSignalInput>[0]["materials"] } => {
@@ -3666,10 +3684,12 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
       scene: signalInput.scene as Extract<typeof signalInput.scene, { kind: "materials" }>, channelAt: signalInput.channelAt,
       distortion: { normalizationRadiusMm: radial.normalizationRadiusMm, coefficients: { k1: radial.coefficients.k1, k2: radial.coefficients.k2 ?? 0, k3: radial.coefficients.k3 ?? 0 } },
       ...(vignetting ? { vignetting } : {}), projection: projection === "fisheye-equisolid-angle" ? projection : "rectilinear", outsideImageCircleSeesNothing: catalogue!.kind === "fisheye",
-      focalLengthMm, focusDistanceM, distanceM: subjectDistanceM, metresPerFrameUnit });
+      focalLengthMm, focusDistanceM, distanceM: subjectDistanceM, metresPerFrameUnit,
+      // #629: the box pixel aperture's N × N nodes (midpoint rule, equal weights), folded into each lattice point's scene value.
+      ...(boxSamples > 1 ? { queryOffsets: apertureNodeOffsets(boxSamples).map((o) => ({ ...o, weight: 1 / (boxSamples * boxSamples) })) } : {}) });
     tabulated = await renderTabulatedNativeRaw({ input: environmentRaw, region: regionNative, siteInput, evaluateRadiance: rawProvider().evaluateRadiance,
       electrons: signal, relativeTolerance: lensKit!.CATALOGUE_FAST_VERIFICATION_TOLERANCE, onTile: rawTick, tileWidth, yieldControl: () => yieldControl(), checkAbort });
-    if (tabulated) catalogueFastRun = { ...signal.grid, verificationRelativeDifference: tabulated.verificationRelativeDifference, subdivisions: gridSubdivisions };
+    if (tabulated) catalogueFastRun = { ...signal.grid, verificationRelativeDifference: tabulated.verificationRelativeDifference, subdivisions: gridSubdivisions, boxSamples };
   }
   // #553: a cat's eye varies the kernel over the field, which the expected-signal tables (one kernel per node) do not take.
   else if (dngParts === undefined && tabulatedScene && !pupil && !lensFieldMapping && !vignetting && !lensPsf && !rotating && !subject && !bokehZones && (!diffraction || diffractionObjectSpace) &&
@@ -3780,14 +3800,6 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   const developmentWhiteBalance = whiteBalanceState ? "apply-resolved-sensor-gains" as const : "not-required" as const;
 
 
-  // #589: each channel's effective dispersion (its own response × the illuminant at the capture's spectral nodes) for the catalogue
-  // lens's lateral-colour corrections: the developed ones and, in a DNG, the opcodes (#587), so both use the same channel scales.
-  let channelDispersion: ReturnType<NonNullable<typeof lensKit>["channelEffectiveDispersion"]> | undefined;
-  const captureChannelDispersion = (): NonNullable<typeof channelDispersion> => {
-    if (channelDispersion) return channelDispersion;
-    const { electronsPerRadiance, wavelengths } = axisChannelResponse("simulateCapture");
-    return channelDispersion = lensKit!.channelEffectiveDispersion(wavelengths, CHANNELS.map((c) => wavelengths.map((nm) => electronsPerRadiance[c].get(nm) ?? 0)), wavelengths.map((nm) => illuminant.shape.evaluate(nm)));
-  };
   // DNG (2.0): the packed native RAW itself, before development takes ownership of it.
   let dng: NativeRawDng | undefined;
   if (format === "dng") {
@@ -3842,7 +3854,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
       "The OTF is exactly zero beyond f_c: that detail never reached the sensor, and no correction restores it. The design gain there is 0; responseMaximumBeyondCutoff is the truncated FIR's leakage, which passes only noise and aliasing. " +
       "Below f_c the gain is bounded, so attenuated detail is only partly restored and noise is amplified by up to the measured responsePeakGain. " +
       "Not inverted: the pixel aperture, optical anti-aliasing filter, demosaic blur, defocus and aberrations. One design wavelength for all channels (the simulated blur is polychromatic)." +
-      (catalogue ? " With lens.catalogue (#630) N_w is the lens's own: the working f-number z/D of the uniform circular pupil D = f/N its PSF diffracts through (z the thin-lens image distance at the focus); the lens's aberrations, which its PSF also carries, are not inverted." : ""));
+      (catalogue ? " With lens.catalogue (#630), N_w = z/D of the lens's own pupil D = f/N; the lens's aberrations, which its PSF also carries, are not inverted." : ""));
   }
   // #570: the lens corrections after the diffraction correction (which acts on the sensor's own lattice), before the tone curve.
   let cornerStops: number | null = null;

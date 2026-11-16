@@ -158,3 +158,61 @@ export function applyDevelopedLensCorrection(c: DevelopedLensCorrection, rgb: Fl
   }
   return out;
 }
+
+/**
+ * @internal #628: the gain det J(ρ_i) / E(ρ_s) at source point (su, sv) (pixel-centre coordinates of the whole frame), b = 1 − 2^(−stops/2):
+ * {@link applyDevelopedLensCorrection}'s vignetting arithmetic, the same expressions in the same order.
+ */
+export function developedLensCorrectionGain(c: DevelopedLensCorrection, b: number, su: number, sv: number): number {
+  const cx = c.width / 2 - 0.5, cy = c.height / 2 - 0.5, lensK1 = c.lensK1;
+  const s2 = ((su - cx) * (su - cx) + (sv - cy) * (sv - cy)) / (c.radius * c.radius), rs = Math.sqrt(s2), e = 1 - b * s2;
+  let ri = rs;
+  for (let n = 0; n < 4; n++) ri -= (ri * (1 + lensK1 * ri * ri) - rs) / (1 + 3 * lensK1 * ri * ri);
+  return (1 + lensK1 * ri * ri) * (1 + 3 * lensK1 * ri * ri) / (e * e);
+}
+
+/**
+ * @internal #628: how a display view reads the corrected image of channel `channel` (0 red, 1 green, 2 blue) at view size viewWidth ×
+ * viewHeight (the renderer's `DisplayViewCorrection`, frame pixels, +y down). The corrected frame's point (X, Y) reads the developed image
+ * at S = q·(1 + k1|q|²/R²) + centre, q = m·a_c·((X, Y) − centre) (+y up), the continuous form of {@link applyDevelopedLensCorrection}'s
+ * pixel-centre map.
+ * - Fast: display pixel P reads the developed rectangle between the maps of its edges' midpoints (neighbours share them, so the
+ *   rectangles tile the frame along rows and columns), each developed pixel with the gain at its own centre. Approximations: the
+ *   rectangle for the mapped quadrilateral, the gain at the developed pixel's centre for the one at each output pixel's source point,
+ *   and the area mean for the capture's bilinear reading.
+ * - Exact: each output pixel of P reads its source point's four developed pixels with the capture's bilinear weights, with the gain at
+ *   the source point; only the tone curve, applied per developed pixel, comes before the interpolation instead of after it.
+ */
+export function createDisplayViewLensCorrection(c: DevelopedLensCorrection, cornerStops: number | null, channel: number, viewWidth: number, viewHeight: number, exact: boolean):
+  { footprint(vx: number, vy: number, out: Float64Array): void; reach: number; gain?: (x: number, y: number) => number;
+    sources?: (x: number, y: number, out: Float64Array) => number } {
+  const W = c.width, H = c.height, sx = W / viewWidth, sy = H / viewHeight, a = c.fill * c.scales[channel]!, r2 = c.radius * c.radius, k1 = c.k1;
+  const b = cornerStops === null ? 0 : 1 - 2 ** (-cornerStops / 2);
+  const along = (X: number, Y: number, xAxis: boolean): number => {
+    const px = (X - W / 2) * a, py = (H / 2 - Y) * a, f = 1 + k1 * (px * px + py * py) / r2;
+    return xAxis ? px * f + W / 2 : H / 2 - py * f;
+  };
+  const clamp = (v: number, limit: number): number => (v < 0 ? 0 : v > limit ? limit : v);
+  const footprint = (vx: number, vy: number, out: Float64Array): void => {
+    const xc = (vx + 0.5) * sx, yc = (vy + 0.5) * sy;
+    out[0] = clamp(along(vx * sx, yc, true), W); out[1] = clamp(along((vx + 1) * sx, yc, true), W);
+    out[2] = clamp(along(xc, vy * sy, false), H); out[3] = clamp(along(xc, (vy + 1) * sy, false), H);
+    // A rectangle squeezed to nothing at a clamped edge keeps a sliver of its last pixel.
+    if (!(out[1]! > out[0]!)) out[0] = Math.max(0, out[1]! - 1e-9 * W);
+    if (!(out[3]! > out[2]!)) out[2] = Math.max(0, out[3]! - 1e-9 * H);
+  };
+  // The local scale of the map is at most a·(1 + 3|k1|·(a·R)²/R²) over the frame.
+  const reach = Math.ceil(Math.max(sx, sy) * a * (1 + 3 * Math.abs(k1) * a * a)) + 2;
+  if (!exact) return { footprint, reach, ...(b === 0 ? {} : { gain: (x: number, y: number): number => developedLensCorrectionGain(c, b, x, y) }) };
+  return { footprint, reach, sources(x, y, out): number {
+    // applyDevelopedLensCorrection's source point and bilinear weights (zero weights left out).
+    const px = (x + 0.5 - W / 2) * a, py = (H / 2 - y - 0.5) * a, f = 1 + k1 * (px * px + py * py) / r2;
+    const su = px * f + W / 2 - 0.5, sv = H / 2 - 0.5 - py * f;
+    const u = Math.min(W - 1, Math.max(0, su)), v = Math.min(H - 1, Math.max(0, sv)), i = Math.floor(u), j = Math.floor(v), dx = u - i, dy = v - j;
+    out[12] = b === 0 ? 1 : developedLensCorrectionGain(c, b, su, sv);
+    let n = 0;
+    const add = (p: number, q: number, w: number): void => { if (w > 0) { out[3 * n] = p; out[3 * n + 1] = q; out[3 * n + 2] = w; n++; } };
+    add(i, j, (1 - dx) * (1 - dy)); add(i + 1, j, dx * (1 - dy)); add(i, j + 1, (1 - dx) * dy); add(i + 1, j + 1, dx * dy);
+    return n;
+  } };
+}

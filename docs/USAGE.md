@@ -7658,7 +7658,9 @@ correction profile for `resolveLensCorrectionPlan`, which `simulateCapture` appl
 `output.lensCorrections` (#570; never to the RAW or the DNG), and which a DNG can carry for RAW editors as optional DNG opcodes with
 `output.dng.lensCorrectionOpcodes` (#587; the RAW codes unchanged). `simulateCapture` renders a catalogue lens with `lens.catalogue`
 ([quick start](QUICK_START.md#generic-lens-catalogue-549)); `fast: true` (or `lens: { catalogue: { kind, fast: true } }`) takes its
-fast method (#568), a labeled approximation that blends the PSF over a field grid, for interactive captures.
+fast method (#568), a labeled approximation that blends the PSF over a field grid, for interactive captures; from 2.25.0 it takes the
+box pixel aperture too (#629), and the exact method's cost per tap is lower, with the same results (#633). `output.diffractionCorrection`
+works with a catalogue lens (#630: it inverts the diffraction of the lens's own pupil at its working f-number).
 `calculateLateralColorFringe({ lensId, activeImagingArea, pixelPitchMicrometers, fieldPosition? })` gives the lens's lateral color as a
 fringe width: the blue-minus-red image displacement in µm and pixels at a field position (default the corner; #580); its `channelDispersion` for
 the capture's own channels comes from `calculateCameraChannelResponse({ illuminant })` (#591, full quality: a 5 nm grid by default). Equations, tables and the
@@ -8095,6 +8097,19 @@ const view = await simulateDisplayView({ scene: { preset: "slanted-edge" }, sens
 console.log(view.kind, view.view.scaleX, view.assumptions.find((a) => a.id === "view.definition")?.value);
 // #533: the real capture's clipped-highlight pixels in the rendered region, as the expected value of simulateCapture's count.
 console.log(view.diagnostics.highlight.saturatedPixelCount, view.diagnostics.highlight.statistic); // a real number, "expected-value"
+```
+
+From 2.25.0 (#628) the view also shows a catalogue lens's `output.lensCorrections` and `output.sharpening`, as the capture with the
+same options saves them (fast by default; `fast: false` reads each output pixel's bilinear sources); see
+[DISPLAY_VIEW.md](https://github.com/Photivra/engine/blob/main/docs/DISPLAY_VIEW.md#lens-corrections-and-sharpening-628).
+
+```ts
+import { simulateDisplayView } from "@photivra/engine";
+
+const corrected = await simulateDisplayView({ scene: { preset: "slanted-edge" }, lens: { catalogue: "pv-24-1.8", fNumber: 1.8 }, subjectDistanceM: 2,
+  output: { width: 192, height: 128, lensCorrections: { distortion: true, lateralColor: true, vignetting: true }, sharpening: { radiusPixels: 1, amount: 0.5 } } },
+  { width: 48, height: 32 });
+console.log(corrected.assumptions.find((a) => a.id === "view.lensCorrections")?.value); // { distortion: true, ..., method: "developed-footprint", passes: 3 }
 ```
 
 `diagnostics.highlight.saturatedPixelCount` is the expected number of the real capture's output pixels in the rendered

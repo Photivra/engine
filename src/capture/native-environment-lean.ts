@@ -27,8 +27,10 @@
  * resolves its kernels with the full resolver's own code (resolveLensSampledPsfKernel), places the taps with the
  * shared sensorPsfSourcePoint and sums each node's taps in kernel order, as calculateSensorPsfIrradianceQuadrature
  * does. Its per-instant checks run after that instant's callbacks; when one fails, the full quadrature runs on the
- * site's full plan and decides. A lens-mapped site builds each query with calculateMappedSensorEnvironmentRadianceQuery
- * itself and applies the distortion area factor once, after the tap's pupil sum.
+ * site's full plan and decides. A lens-mapped site builds each query with calculateMappedSensorEnvironmentRadianceQuery's arithmetic
+ * (#633: without its result envelope, once per tap point and instant for all spectral nodes; the template's own site checks it against
+ * the full planner bit for bit) and applies the distortion area factor once, after the tap's pupil sum; with an engine-built
+ * evaluator's key lookup (#394) its taps are key taps too.
  * @see docs/NATIVE_RAW_AND_PRINT.md for the invariance argument and limits.
  */
 
@@ -44,8 +46,9 @@ import { isDeeplyFrozen, type InternalRadianceAccess } from "../core/internal-ra
 import { parseSceneRadianceEvaluationResult, parseSceneRadianceEvaluationResultWithValidatedRecords, validateSceneRadianceEvaluationBindings, type ValidatedSceneRadianceRecords,
   type SceneRadianceEvaluationRequest, type SceneRadianceEvaluationResult } from "../schema/scene-radiance.js";
 import { calculateSceneRadianceToSensorIrradiance } from "../optics/scene-to-sensor-irradiance.js";
-import { calculateMappedSensorEnvironmentRadianceQuery, prepareEnvironmentLensFieldMapping,
-  type PreparedEnvironmentLensFieldMapping } from "../optics/sensor-environment-query.js";
+import { prepareEnvironmentLensFieldMapping, undistortedImagePoint, type PreparedEnvironmentLensFieldMapping } from "../optics/sensor-environment-query.js";
+import { insideRadialImageCircle, lensProjectionDirectionValue } from "../camera/lens-projection.js";
+import { calculateThinLensImageDistance } from "../optics/thin-lens.js";
 import { calculateSensorPsfIrradianceQuadrature } from "../optics/sensor-psf-quadrature.js";
 import { sensorPsfSourcePoint } from "../optics/sensor-psf-support.js";
 import { resolveLensSampledPsf, resolveLensSampledPsfKernel, type ResolveLensSampledPsfInput } from "../optics/lens-psf-profile.js";
@@ -196,6 +199,8 @@ interface PlanConstants {
   psf?: Omit<ResolveLensSampledPsfInput, "wavelengthNm" | "fieldPointMm">;
   /** The template's validated lens field mapping. */
   lensMapping?: PreparedEnvironmentLensFieldMapping;
+  /** #633: a non-rectilinear mapping's projection scale (the thin-lens image distance at a finite focus, else the focal length). */
+  mappedScaleMm?: number;
   wavelengths: Float64Array;
   nodes: readonly FullPlan["instants"][number]["groups"][number]["node"][];
   spatial: SpatialNode[];
@@ -346,6 +351,9 @@ function geometry(t: Template, k: PlanConstants, frame: NativeEnvironmentLeanFra
     const kernels: (readonly number[])[] = [];
     // Without a PSF, the single tap of group gi is the destination sources[gi % P] (no per-group arrays are built).
     const destinationFields = k.psf === undefined ? sources.map(fieldAt) : undefined;
+    // #633: a tap point's field throughput does not depend on the wavelength: computed once per spatial node and tap, shared by the
+    // spectral nodes whose kernels place that tap at the same point (bit for bit).
+    const fields: (ReturnType<typeof fieldAt> & { x: number; y: number })[] = [];
     if (k.psf !== undefined) for (let s = 0; s < S; s++) for (let p = 0; p < P; p++) {
       const destination = sources[p]!, gi = s * P + p;
       const kernel = resolveLensSampledPsfKernel({ ...k.psf, wavelengthNm: k.wavelengths[s]!, fieldPointMm: { x: destination.x, y: -destination.y } });
@@ -359,10 +367,18 @@ function geometry(t: Template, k: PlanConstants, frame: NativeEnvironmentLeanFra
         points.push(point);
       }
       tapPoints.push(points);
-      tapFields.push(points.map(fieldAt));
+      tapFields.push(points.map((point, i) => {
+        const slot = p * n + i, known = fields[slot];
+        if (known !== undefined && Object.is(known.x, point.x) && Object.is(known.y, point.y)) return known;
+        const field = { ...fieldAt(point), x: point.x, y: point.y };
+        fields[slot] = field;
+        return field;
+      }));
       kernels.push(weights);
     }
     const measure = duration / k.temporalCount;
+    const mappedPoints: ({ x: number; y: number; image: { x: number; y: number }; area: number; key: number | undefined;
+      target: SceneRadianceEvaluationRequest["target"] } | undefined)[] = [];
     let previous = -Infinity;
     const instants: { time: number; taps: LeanTap[] }[] = [];
     const pd = k.projectionDistanceMm, base = k.requestBase, id = environment.temporalIntegrationId;
@@ -373,6 +389,9 @@ function geometry(t: Template, k: PlanConstants, frame: NativeEnvironmentLeanFra
       if (!Number.isFinite(time) || time < 0) return undefined;
       const displacement = { pitch: omega.pitch * time, yaw: omega.yaw * time, roll: omega.roll * time };
       const taps: LeanTap[] = [];
+      // #633: a lens-mapped tap's point, direction (or key) and area factor do not depend on the wavelength, so they are computed once
+      // per spatial node, tap and instant and shared by the spectral nodes (checked: the same point, bit for bit).
+      mappedPoints.length = 0;
       for (let gi = 0; gi < S * P; gi++) {
         // #394: without a PSF a key tap depends only on its spatial node (same point, direction, field and key at
         // every spectral node), so groups after the first spectral node share the first one's tap.
@@ -385,17 +404,42 @@ function geometry(t: Template, k: PlanConstants, frame: NativeEnvironmentLeanFra
             nominalFNumber, angularVelocityRadPerSec: omega, timeSecondsFromOpeningReference: time }, pupil, k.parsedFocus).rays;
           let request: SceneRadianceEvaluationRequest | undefined, key: number | undefined, imagePointMm: { x: number; y: number }, distortionAreaFactor: number | undefined;
           if (k.lensMapping !== undefined) {
-            if (access !== undefined) return undefined;
-            // The full planner's own mapped query, with the same input; only its result envelope is not kept.
-            const query = calculateMappedSensorEnvironmentRadianceQuery({ ...(motion as unknown as Pick<Parameters<typeof calculateMappedSensorEnvironmentRadianceQuery>[0],
-              "angularVelocityRadPerSec" | "timeReference" | "environmentDirectionConvention">), sourcePointNativeSensorMm: point, focalLengthMm, focus: k.focus,
-            timeSecondsFromOpeningReference: time, request: { schemaVersion: "0.1.0", sampleId, providerProfileId: base.providerProfileId, sceneId: base.sceneId,
-              illuminationProfileId: base.illuminationProfileId, materialResponseProfileId: base.materialResponseProfileId, wavelengthNanometers: k.wavelengths[s]!,
-              wavelengthBasis: base.wavelengthBasis as SceneRadianceEvaluationRequest["wavelengthBasis"] } }, k.lensMapping).value;
-            request = freezeOwnedData(query.request);
-            imagePointMm = query.sourcePointImagePlaneMm;
-            distortionAreaFactor = query.lensFieldMapping?.distortionAreaFactor;
-            if (distortionAreaFactor === undefined) return undefined;
+            // #633: calculateMappedSensorEnvironmentRadianceQuery's arithmetic without its result envelope (the template's own plan, built
+            // by the full planner, must equal this one bit for bit, planReproduced), and its request as parseSceneRadianceEvaluationRequest builds it.
+            const slot = (gi % P) * tapCount + pi;
+            let m = mappedPoints[slot];
+            if (m === undefined || !Object.is(m.x, point.x) || !Object.is(m.y, point.y)) {
+              const image = { x: point.x, y: -point.y };
+              if (!Number.isFinite(image.x) || !Number.isFinite(image.y)) return undefined;
+              const { ideal, distortionAreaFactor: area } = undistortedImagePoint(k.lensMapping, image), model = k.lensMapping.mapping.projectionModel;
+              let lx: number, ly: number, lz: number;
+              if (model === "rectilinear") {
+                // calculateInverseCameraRotationImageMapping at the ideal point, as the rectilinear branch below.
+                const reference = applyPhysicalCameraRotation({ x: ideal.x / pd, y: ideal.y / pd, z: 1 }, displacement, "camera-to-reference");
+                if (!Number.isFinite(reference.z) || reference.z <= 0) return undefined;
+                lx = pd * (reference.x / reference.z); ly = pd * (reference.y / reference.z); lz = pd;
+              } else {
+                const scale = k.mappedScaleMm!, reference = applyPhysicalCameraRotation(k.lensMapping.mapping.outsideImageCircle === "backward-ray" &&
+                  !insideRadialImageCircle(model, scale, Math.hypot(ideal.x, ideal.y)) ? { x: 0, y: 0, z: -1 } : lensProjectionDirectionValue(model, scale, ideal.x, ideal.y), displacement, "camera-to-reference");
+                lx = reference.x; ly = reference.y; lz = reference.z;
+              }
+              const length = hypot3(lx, ly, lz);
+              if (!(length > 0) || !Number.isFinite(length)) return undefined;
+              const direction = { x: -(lx / length), y: -(ly / length), z: -(lz / length) };
+              if (!Number.isFinite(direction.x) || !Number.isFinite(direction.y) || !Number.isFinite(direction.z)) return undefined;
+              const norm = hypot3(direction.x, direction.y, direction.z);
+              if (!Number.isFinite(norm) || Math.abs(norm - 1) > 1e-9) return undefined;
+              const mappedKey = access === undefined ? undefined : access.keyOfDirection(direction, time);
+              if (access !== undefined && mappedKey === undefined) return undefined;
+              m = { x: point.x, y: point.y, image, area, key: mappedKey,
+                target: Object.freeze({ kind: "environment-direction" as const, outgoingDirectionUnitVector: Object.freeze(direction) }) };
+              mappedPoints[slot] = m;
+            }
+            imagePointMm = m.image; distortionAreaFactor = m.area;
+            if (access !== undefined) key = m.key;
+            else request = Object.freeze({ schemaVersion: "0.1.0" as const, sampleId, providerProfileId: base.providerProfileId, sceneId: base.sceneId,
+              illuminationProfileId: base.illuminationProfileId, materialResponseProfileId: base.materialResponseProfileId, target: m.target,
+              timeSecondsFromExposureStart: time, wavelengthNanometers: k.wavelengths[s]!, wavelengthBasis: base.wavelengthBasis as SceneRadianceEvaluationRequest["wavelengthBasis"] });
           } else {
             // calculateSensorEnvironmentRadianceQuery with calculateInverseCameraRotationImageMapping.
             imagePointMm = { x: point.x, y: -point.y };
@@ -549,6 +593,8 @@ function planConstants(environment: Env, plan: FullPlan): PlanConstants {
     ...(configuration === undefined ? {} : { psf: { profile: configuration.profile, focalLengthMm: configuration.focalLengthMm, focus: configuration.focus,
       apertureFNumber: configuration.apertureFNumber, signedDefocusImagePlaneMicrometers: configuration.signedDefocusImagePlaneMicrometers } }),
     ...("lensFieldMapping" in e ? { lensMapping: prepareEnvironmentLensFieldMapping(e.lensFieldMapping) } : {}),
+    ...("lensFieldMapping" in e && (e.lensFieldMapping as Rec).projectionModel !== "rectilinear" ? { mappedScaleMm: plan.focus.kind === "finite" ?
+      calculateThinLensImageDistance({ focalLengthMm: (e.optics as Rec).focalLengthMm as number, objectDistanceM: plan.focus.distanceM }).value.imageDistanceMm : (e.optics as Rec).focalLengthMm as number } : {}),
     wavelengths: Float64Array.from(spectralNodes, n => n.wavelengthNanometers),
     nodes: groups.map(group => freezeOwnedData(structuredClone(group.node))),
     spatial: spatialNodes.map(n => ({ xPhase: (n.apertureSampleXIndex + 0.5) / countX, yPhase: (n.apertureSampleYIndex + 0.5) / countY,
@@ -809,8 +855,9 @@ export function createNativeEnvironmentLeanExecutor(frame: NativeEnvironmentLean
         if (!c) return;
         t.execution = c;
         t.executionVerified = true;
-        // #394: key taps need no pupil and no lens mapping (the evaluator then reads one plane point per tap).
-        if (access !== undefined && t.consts.lensMapping === undefined && (t.environment as unknown as Rec).pupil === undefined) {
+        // #394: key taps need no pupil (the evaluator then reads one plane point per tap). #633: a lens-mapped tap's key is that of its
+        // mapped direction, and its area factor is applied after the lookup, as tapIrradiance does.
+        if (access !== undefined && (t.environment as unknown as Rec).pupil === undefined) {
           t.radiance = [];
           t.keyMode = keyModeReproduced(t, t.consts, access, geometry(t, t.consts, frame, t.environment, index, access), result);
           if (!t.keyMode) delete t.radiance;
@@ -839,6 +886,7 @@ export function createNativeEnvironmentLeanExecutor(frame: NativeEnvironmentLean
               if (!tap.fieldValid || !Number.isFinite(irradiance) || irradiance < 0) return undefined;
               let integrated = 0;
               integrated += irradiance * 1;
+              if (tap.distortionAreaFactor !== undefined) integrated *= tap.distortionAreaFactor;
               v[gi] = integrated;
             }
             values.push(v);
@@ -853,6 +901,8 @@ export function createNativeEnvironmentLeanExecutor(frame: NativeEnvironmentLean
               if (!tap.fieldValid || !Number.isFinite(irradiance) || irradiance < 0) return undefined;
               let integrated = 0;
               integrated += irradiance * 1;
+              // #633: a lens-mapped tap's distortion area factor, once, as tapIrradiance applies it.
+              if (tap.distortionAreaFactor !== undefined) integrated *= tap.distortionAreaFactor;
               groupValues[pi] = integrated;
             }
             tapValues.push(groupValues);

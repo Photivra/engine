@@ -9,7 +9,7 @@ The package and root API versions are recorded once in [Navigation](../API_REFER
 ```ts
 SIMULATE_CAPTURE_FAST_METHODS: readonly SimulateCaptureFastMethod[] = Object.freeze([
   { id: "lens.catalogue/field-grid", override: "lens.catalogue", methods: "fast-and-exact", runs: ["simulateCapture"],
-    fast: "#568: the PSF blended over a field grid, with each site's expected electrons integrated from its taps' material spectra at use, verified per CFA phase against the exact chain",
+    fast: "#568: the PSF blended over a field grid, with each site's expected electrons integrated from its taps' material spectra at use, verified per CFA phase against the exact chain; #629: with the box pixel aperture, each lattice point's box-integrated spectral radiance and one kernel per site",
     exact: "the environment PSF quadrature with the PSF resolved at each query point", followsFormatDefault: true,
     resolver: { file: CAPTURE, call: "resolveFast(catalogueFast, fastTop)" }, report: { applied: "lens.catalogue", assumption: "fast.lens.catalogue" } },
   { id: "lens.catalogue/field-grid-cells", override: "fast", methods: "fast-and-exact", runs: ["simulateCapture"],
@@ -32,6 +32,10 @@ SIMULATE_CAPTURE_FAST_METHODS: readonly SimulateCaptureFastMethod[] = Object.fre
     fast: "#588: under rolling-shutter rotation, each catalogue PSF tap reads the scene at its own source point",
     exact: "each tap reads the scene at its site-lattice point (ties on chart boundaries resolve as on the lattice)", followsFormatDefault: true,
     resolver: { file: CAPTURE, call: "resolveFast(catalogueFast, fastTop)" }, report: { applied: "lens.catalogue", assumption: "fast.lens.catalogue" } },
+  { id: "output.lensCorrections/view-footprint", override: "fast", methods: "fast-and-exact", runs: ["simulateDisplayView", "prepareDisplayView"],
+    fast: "#628: each display pixel reads the developed rectangle its corrected rectangle maps to, each developed pixel with the vignetting gain at its centre, area-averaged",
+    exact: "each output pixel reads its source point's four developed pixels with the capture's bilinear weights and gain, rendered from their combined moments (bilinear demosaic, per-component tone curves)", followsFormatDefault: true,
+    resolver: { file: CAPTURE, call: "{ fast: fastTop, ...(sharpening ? { sharpening } : {})" }, report: { assumption: "view.lensCorrections" } },
   { id: "view.uniform-pixel-sampling", override: "fast", methods: "fast-and-exact", runs: ["simulateDisplayView", "prepareDisplayView"],
     fast: "(H2) a quarter of the samples per axis in display pixels whose pilot finds no detail",
     exact: "the full samples per axis in every display pixel", followsFormatDefault: true,
