@@ -248,7 +248,17 @@ export function createDisplayViewCoupledRendering(choice: DisplayViewRenderingCh
     develop(c0, c1, c2);
     result[0] = out[0]!; result[1] = out[1]!; result[2] = out[2]!;
   }
+  // #645: the chain is a function of the pixel's channel moments (cm, C) and its region ratios alone, and many pixels share them
+  // exactly (a patch's interior), so its results are kept by the exact bits of those inputs (at most 65,536 at a time): the same values.
+  const memo = new Map<string, Float64Array>();
   function chain(cm: Float64Array, C: Float64Array, hm: Float64Array, hv: Float64Array, A: Float64Array): number {
+    const key = new Uint32Array(Float64Array.of(...cm, ...C, ...(rho ?? [])).buffer).join();
+    let kept = memo.get(key);
+    if (!kept) { const nodes = integrate(cm, C, hm, hv, A); if (memo.size > 65535) memo.clear(); memo.set(key, kept = Float64Array.of(...hm, ...hv, ...A, nodes)); }
+    hm.set(kept.subarray(0, 3)); hv.set(kept.subarray(3, 6)); A.set(kept.subarray(6, 15));
+    return kept[15]!;
+  }
+  function integrate(cm: Float64Array, C: Float64Array, hm: Float64Array, hv: Float64Array, A: Float64Array): number {
     // Cholesky factor of C (positive semidefinite; tiny negative pivots are treated as 0).
     chol.fill(0);
     const l00 = Math.sqrt(Math.max(0, C[0]!)), l10 = l00 > 0 ? C[3]! / l00 : 0, l20 = l00 > 0 ? C[6]! / l00 : 0;

@@ -198,10 +198,13 @@ jobs:
     # the alone files the first parts) and gets 25 minutes; every other shard keeps 20. Its one test, test/display-view-neighbors-gpu.test.ts's
     # region-order check, took 1,025 s under coverage on CI (run 43880167416; 540 s on 2.24.0's run 43246671355) against
     # about 40 s without coverage on a local run, and its job 19 min 5 s with setup; run 43895689099 cancelled it at 20 minutes.
+    # 2.26.0 (#645): back to 20 minutes for every shard. The time was V8's block counters in the full reconstruct chain (16³ nodes
+    # for each of 152,875 pixel evaluations, 626 million calls into the highlight rebuild); the chain's results are now kept by
+    # their exact inputs (332 distinct ones in that view), so the file took 35 s under coverage locally (415 s before, same machine).
     name: coverage shard (${{ matrix.shard }}/10)
     needs: scope
     runs-on: ubuntu-latest
-    timeout-minutes: ${{ matrix.shard == 1 && 25 || 20 }}
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:

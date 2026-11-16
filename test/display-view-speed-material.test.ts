@@ -91,7 +91,8 @@ describe("display view without diffraction keeps its bytes (#444)", () => {
   // the two AHD candidates' channel means, equal to the last bit before, now differ by rounding and AHD's choice is taken
   // (sceneLookups 28252 → 29148). The AHD case was re-recorded for 2.22.0 (the AHD low-signal correction removed; the same on x64
   // and arm64): all 120 display pixels had it; red rises by 2.47 8-bit codes and green and blue fall by 0.36 and 0.59 on average
-  // (6.10 at most), 240 of 360 samples change, and view.demosaic reports the approximation.
+  // (6.10 at most), 240 of 360 samples change, and view.demosaic reports the approximation. Re-recorded for 2.26.0: view.demosaic's
+  // explanation shortened (its measured AHD figures now point to docs/DISPLAY_VIEW.md); samples, expected values and noise unchanged.
   const cases: [string, SimulateCaptureOptions, SimulateDisplayViewOptions, string][] = [
     ["caller material scene, mirror borders, exact area mean", { scene: checker, sensor: speed, output: { width: 240, height: 160, borderHandling: "mirror" } },
       { width: 80, height: 54 }, "88614416ef0fcbbff7d695eeaeec793b0951c64eeda0695c77cb7122f5b3a900"],
@@ -100,7 +101,7 @@ describe("display view without diffraction keeps its bytes (#444)", () => {
     ["caller material scene, stratified estimator", { scene: checker, sensor: speed, output: { width: 240, height: 160 } }, { width: 24, height: 16 }, "6ead9437c338654c9b4fa0df6ba8f07f965d53665e346aa1032cec7bf624aaad"],
     ["chart preset, AHD at ISO 3200, 1.4 µm", { scene: { preset: "patches", patches: [{ patchId: "a", reflectance: 0.18 }, { patchId: "b", reflectance: 0.6 }], columns: 2 }, exposure: { mode: "manual", iso: 3200, shutterSeconds: 1 / 4000 },
       sensor: { pixelPitchMicrometers: 1.4, pixelAperture: { kind: "box", samplesPerAxis: 2 } }, output: { width: 120, height: 90, demosaic: "ahd" } },
-      { width: 40, height: 30, region: { x: 14, y: 10, width: 12, height: 10 } }, "50aa382d1f5d8d7c69e45569f3c93262545c7f5d1a7378f55dc8d89d93399295"],
+      { width: 40, height: 30, region: { x: 14, y: 10, width: 12, height: 10 } }, "037b28bbf837e1b3d6ae727442baf68996659456de8a6b6c9bbeb3c68cf976d1"],
     // 2.22.0 integration: the AHD case carries both parts' changes, checked separately: its samples are those of the AHD correction's
     // removal (above; the same sample digest as that part alone), and its assumptions differ from that part only by #599's new
     // sensor.isoAreaNormalization explanation text (samples, expected values and noise unchanged by #599 at 1.4 µm).

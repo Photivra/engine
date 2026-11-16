@@ -68,6 +68,14 @@ export interface DisplayViewExpectedSignalInput {
    * sums, as #564's path above 64 sites has always formed them.
    */
   inFocusPerTap?: boolean;
+  /**
+   * #643, the display view's per-tap chart signal (a fast request): with chart materials and kernels, a site whose taps read more than
+   * one material adds its taps in order, each integrated from its material's spectrum against its kernel per node
+   * (Σ_t Σ_n L_m(t)(λ_n)·C_c(t, n)), instead of forming per-material sums first; a site whose taps all read one material takes
+   * Σ_n L_m(λ_n)·S_c(n) (the channel's kernel sums), as before. The same sum, grouped by tap; only the rounding differs. Every site's
+   * value still depends only on the site, so regions stay bit-identical to the whole frame. Absent: per-material sums.
+   */
+  perTapSum?: boolean;
 }
 
 /** Expected photo electrons of real native sites. */
@@ -377,7 +385,34 @@ export function createDisplayViewExpectedSignal(input: DisplayViewExpectedSignal
   const { spectra, kernelSums } = prepared.tables;
   const groups: Group[] = prepared.tables.groups.map((group) => ({ ...group, cache: new Int32Array(0), cx0: 0, cy0: 0, cpw: 0, cph: 0 }));
   let lookups = 0;
-  const point = new Float64Array(2), acc = createMaterialSums(nodes, spectra);
+  const point = new Float64Array(2), acc = createMaterialSums(nodes, spectra), perTap = input.perTapSum === true;
+  // The chart material each kernel tap of one site reads, in tap order (groups, then rows and columns).
+  const tapMaterials = new Int32Array(scene.kind === "materials" ? groups.reduce((n, group) => n + group.cw * group.ch, 0) : 0);
+  /**
+   * The signal of a site of channel c whose taps read tapMaterials: a site that reads one material integrates its spectrum against
+   * the channel's kernel sums (the per-material sums of such a site, bit for bit); otherwise the per-material sums (MaterialSums) or,
+   * with `perTapSum` (#643), each tap integrated from its material's spectrum, added in tap order.
+   */
+  function tapsValue(c: number): number {
+    const first = tapMaterials[0]!, taps = tapMaterials.length;
+    let t = 1, sum = 0;
+    while (t < taps && tapMaterials[t] === first) t++;
+    acc.reset();
+    if (t === taps) { acc.add(first, kernelSums[c]!, 0); return acc.value(); }
+    t = 0;
+    for (const group of groups) {
+      const k = group.nodeKernels[c]!, end = group.cw * group.ch * nodes;
+      for (let at = 0; at < end; at += nodes, t++) {
+        if (!perTap) { acc.add(tapMaterials[t]!, k, at); continue; }
+        const L = spectra[tapMaterials[t]!];
+        if (L === undefined) throw new InvalidConfigurationError("Unknown chart material.");
+        let v = 0;
+        for (let n = 0; n < nodes; n++) v += L[n]! * k[at + n]!;
+        sum += v;
+      }
+    }
+    return perTap ? sum : acc.value();
+  }
   /**
    * Without diffraction: one site from the environment's own query points. Also sets lastMaterial: the chart material every
    * query point read, or −1 when they read more than one (or the scene is a radiance scene). A site whose points all read
@@ -427,13 +462,11 @@ export function createDisplayViewExpectedSignal(input: DisplayViewExpectedSignal
   /** With diffraction: one site through the combined kernels on each group's lattice. */
   function kernelSite(x: number, y: number): number {
     const c = channelAt(x, y);
-    let sum = 0;
-    acc.reset();
+    let sum = 0, t = 0;
     for (const group of groups) {
       const p0 = x + group.minIx - R, q0 = y + group.minIy - R, cw = group.cw, ch = group.ch;
       if (scene.kind === "materials") {
-        const k = group.nodeKernels[c]!;
-        for (let dy = 0; dy < ch; dy++) for (let dx = 0; dx < cw; dx++) acc.add(latticeMaterial(group, p0 + dx, q0 + dy), k, (dy * cw + dx) * nodes);
+        for (let dy = 0; dy < ch; dy++) for (let dx = 0; dx < cw; dx++) tapMaterials[t++] = latticeMaterial(group, p0 + dx, q0 + dy);
       } else {
         for (let dy = 0; dy < ch; dy++) for (let dx = 0; dx < cw; dx++) {
           const radiance = latticeRadiance(group, p0 + dx, q0 + dy);
@@ -441,7 +474,7 @@ export function createDisplayViewExpectedSignal(input: DisplayViewExpectedSignal
         }
       }
     }
-    return scene.kind === "materials" ? acc.value() : sum;
+    return scene.kind === "materials" ? tapsValue(c) : sum;
   }
   // Filled windows (chart materials with diffraction, every lattice point of the window cacheable): each group keeps a band of
   // looked-up lattice materials that covers the window's rows and grows to the right as the windows of a display row move
@@ -534,18 +567,17 @@ export function createDisplayViewExpectedSignal(input: DisplayViewExpectedSignal
       if (m >= 0) { lastMaterial = m; acc.reset(); acc.add(m, kernelSums[c]!, 0); return acc.value(); }
     }
     lastMaterial = -1;
-    acc.reset();
-    for (let g = 0; g < groups.length; g++) {
-      const group = groups[g]!, band = bands[g]!, cw = group.cw, ch = group.ch, k = group.nodeKernels[c]!, stride = band.capacity;
+    for (let g = 0, t = 0; g < groups.length; g++) {
+      const group = groups[g]!, band = bands[g]!, cw = group.cw, ch = group.ch, stride = band.capacity;
       const p0 = x + group.minIx - R, q0 = y + group.minIy - R, bi = p0 - band.x0, bj = q0 - band.y0;
       // A site inside the window reads every tap from the band; one outside it looks up the taps beyond the window cache.
-      for (let dy = 0, t = 0; dy < ch; dy++) for (let dx = 0; dx < cw; dx++, t++) {
+      for (let dy = 0; dy < ch; dy++) for (let dx = 0; dx < cw; dx++, t++) {
         const ci = i + dx, cj = j + dy;
-        acc.add(inside || (ci >= 0 && cj >= 0 && ci < group.cpw && cj < group.cph) ? band.material[(bj + dy) * stride + bi + dx]! :
-          (scene as Extract<DisplayViewScene, { kind: "materials" }>).materialAt(latticeU(group, p0 + dx), latticeV(group, q0 + dy)), k, t * nodes);
+        tapMaterials[t] = inside || (ci >= 0 && cj >= 0 && ci < group.cpw && cj < group.cph) ? band.material[(bj + dy) * stride + bi + dx]! :
+          (scene as Extract<DisplayViewScene, { kind: "materials" }>).materialAt(latticeU(group, p0 + dx), latticeV(group, q0 + dy));
       }
     }
-    return acc.value();
+    return tapsValue(c);
   }
   /** Lattice points of an outside site's rectangles that lie outside the window caches (kernelSite looks these up on every read). */
   function outsideLookups(i: number, j: number): number {
@@ -789,6 +821,21 @@ export function createDisplayViewExpectedSignal(input: DisplayViewExpectedSignal
 
 /** #564: tile sides of the large-kernel expected signal: the in-focus signal E (3 channels) and the convolved sites. */
 const LARGE_E_TILE = 64, LARGE_OUTPUT_TILE = 128;
+
+/**
+ * #642: whether the regrouped defocus (#612) costs less than the combined kernels for one render whose sites lie in a native
+ * rectangle of w × h sites, `sites` of them read at most, counted in tap reads per spectral node. The combined kernels read
+ * (2R_c + 1)² taps per site. The regrouped path computes the in-focus signal of all three channels ((2R_f + 1)² taps) at every site
+ * of the fixed in-focus tiles under the 128-site output tiles the rectangle touches, widened by the disc radius R_c − R_f: taken as
+ * the rectangle widened by the disc radius and by 192 sites per axis (the tiles' rounding, at most 128 + 64, on average about
+ * that), then the disc of radius R by runs, about 12R + 2 reads per output per channel without the nodes (2R + 1 runs of two reads
+ * and the 8R taps the circle crosses). Both counts are per lattice group, so the groups cancel. A render is counted on its own (tiles
+ * an earlier render computed count again), so the choice depends only on the request and the render, never on what came before.
+ */
+export function regroupedDefocusCheaper(w: number, h: number, sites: number, combinedRadius: number, inFocusRadius: number, nodes: number): boolean {
+  const R = combinedRadius - inFocusRadius, widen = 2 * R + 192;
+  return (w + widen) * (h + widen) * 3 * ((2 * inFocusRadius + 1) ** 2 + (12 * R + 2) / nodes) < Math.min(sites, w * h) * (2 * combinedRadius + 1) ** 2;
+}
 /** Bytes kept per input for each of the two tile caches (least recently used first; a dropped tile is recomputed with the same bits). */
 const LARGE_CACHE_BYTES = 32 * 1048576;
 
