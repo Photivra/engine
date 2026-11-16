@@ -1,6 +1,14 @@
 # Changelog
 
-## Unreleased
+## 2.26.0 — unreleased (prepared November 16, 2026)
+
+A minor release: the issues of milestone 2.26.0 (#639–#643, #645–#648) and the export kit. A flash light, rolling shutter with camera rotation in the display view and with defocus, a hand-shake trajectory, PNG Exif and subject distance in the metadata readers, thin-lens framing without the catalogues, and lower display-view render cost. See the [2.26.0 release record](https://github.com/Photivra/engine/blob/main/docs/RELEASE_2_26_0.md).
+
+- **Root exports:** 15 new, 2,081 → 2,096 (runtime exports 708 → 716): 10 from #641, 4 from #646 and 1 from #639. Nothing is removed or changed in kind.
+- **Changed (fast defaults):** the display view's per-tap chart signal (#643) and its per-render defocus choice (#642); see those entries. Requests that were refused now render: camera rotation with a rolling shutter in the display view, and `lens.defocus` out of focus with rotation and a rolling shutter in captures (#640); PNG files in `parsePhotoMetadata` (#647).
+- **New fields:** `subjectDistanceMeters` and `subjectDistanceRange` in `ExifCaptureFields` (#648); `format: "png"` in `PhotoMetadata` (#647).
+- **Capture worker:** the JPEG and PNG writers are an on-demand export kit, measured as a third row; the on-demand limit is raised to 49,400 B (two owner decisions, 2026-11-16; below).
+- **Why minor:** new root exports, new options and fields, and fast-default changes.
 
 ### Capture worker: the export kit (owner decision 2026-11-16, "Move export code out")
 
@@ -57,10 +65,10 @@
 - **Changed (#642, `lens.defocus/view-regrouped`):** the regrouped defocus of #612 is chosen per render from its operation count, including the region's size (the combined kernels' (2R_c + 1)² taps for each site the render reads against the regrouped path's fixed in-focus tiles and runs), so a region of a few pixels keeps the combined kernels: a 4 × 2 region took 8–15 times the combined kernels' time on the regrouped path. Whole views and large regions are unchanged. Two renders that take different paths agree to rounding (within 1e-9 relative and one 8-bit code; identical samples in every measured region).
 - **Faster (#645, no output change):** the display view's full reconstruct chain (16³ Gauss–Hermite nodes per pixel, `highlightMode: "reconstruct"`/`"reconstruct-neighbors"` and the desaturation) keeps its results by the exact bits of its inputs (the pixel's channel moments and region ratios), so pixels with the same inputs reuse them: the same values. test/display-view-neighbors-gpu.test.ts took 415 s under coverage locally before and 35 s after (65 s and under 10 s without coverage); coverage shard 1 is back to the 20-minute limit.
 - **Shortened:** `view.demosaic`'s AHD explanation (its measured figures now point to docs/DISPLAY_VIEW.md); values unchanged.
-- **Capture-worker sizes (over the limits, owner decision pending):** fast worker 338,894 → 339,222 B (limit 338,900 B; #642's cost model and #643's per-tap sum, after shortening `view.demosaic`'s explanation), on demand 47,366 → 47,482 B (limit 47,400 B; #645's kept chain results). test/capture-bundle.test.ts fails until the owner decides.
+- **Capture-worker sizes (measured on the part; the release rows and the owner's decisions are under "Capture worker: the export kit"):** fast worker 338,894 → 339,222 B (limit 338,900 B; #642's cost model and #643's per-tap sum, after shortening `view.demosaic`'s explanation), on demand 47,366 → 47,482 B (limit 47,400 B; #645's kept chain results). test/capture-bundle.test.ts fails until the owner decides.
 - Tests: test/display-view-per-tap-signal.test.ts (new), test/display-view-defocus-regrouped.test.ts (per-render choice, timing guard). docs/DISPLAY_VIEW.md, docs/API_STYLE.md, docs/DEVELOPERS.md.
 
-## 2.25.0 — unreleased (prepared November 16, 2026)
+## 2.25.0 — published November 16, 2026
 
 A minor release: the 26 issues of milestone 2.25.0 (#612–#633, #635–#638). Standalone helpers, a photo metadata reader, DNG and JPEG Exif writers, a half-size DNG preview, front-of-lens filters, look constants, catalogue-lens framing, glare, breathing and corrections, and faster defocused display views and exact catalogue PSFs. See the [2.25.0 release record](https://github.com/Photivra/engine/blob/main/docs/RELEASE_2_25_0.md).
 
