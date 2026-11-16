@@ -5,7 +5,7 @@
  * coverage, #631) is the one intended change, so the fisheye cases pin the image and RAW only. 2.25.0 CI: the two `assumptions` digests
  * included two engine-dependent diagnostics (see `portable` below; CI's Linux x64 legs and macOS arm64 gave different digests), so those
  * are masked. With the masks the digests are the same on a3a53b80 (before #629, #631, #632, #633), on e225-lens-render before the optics
- * merge (2b8fcae0) and on release-2.25.0 at 8b9ff24, and on arm64 and x86-64: no pinned output changed.
+ * merge (2b8fcae0) and on release-2.25.0 at 8b9ff24, on arm64 and x86-64, and on Node 22.13.0, 24 and 26: no pinned output changed.
  */
 import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
@@ -27,7 +27,7 @@ const CASES: Record<string, { options: SimulateCaptureOptions; assumptions: bool
 };
 
 /**
- * The digests must not depend on the JavaScript engine or the platform, so two diagnostics that carry no capture value are taken out of
+ * The digests must not depend on the JavaScript engine or the platform, so the values below whose last bits follow the engine are taken out of
  * the exact comparison (`portable`); every other field, every sample and every RAW code stays exact.
  * - `verificationRelativeDifference` (`raw.expectedSignal`): the largest relative difference between the fast and the exact electrons at the
  *   fast method's four check sites, a difference of two computations whose last bits follow the engine's Math functions (1.34e-7 on macOS
@@ -36,9 +36,18 @@ const CASES: Record<string, { options: SimulateCaptureOptions; assumptions: bool
  *   the window holds all the energy: 3.9968e-15 on arm64 (macOS and Linux, Node 24 and 26) and 4.1078e-15 on x86-64 (Node 24.1.0 under
  *   Rosetta; CI's Linux x64 legs gave the same digest, b8e6451a4c260130). Below 1e-12 it is pinned as "below 1e-12"; a real truncation
  *   (above it) stays exact.
+ * - Four values computed with `**` (non-integer powers: the pupil-ratio scaling a⁴ of the spherical aberration, the PSF's pupil phase step):
+ *   `sphericalWaves` and `balancingDefocusWaves` (`lens.catalogue.character.aberrationsWaves550`), `w040Micrometers`
+ *   (`…bokeh.sphericalAberration`) and `maximumPhaseStepWaves` (`…psf`). Node 22's V8 rounds `x ** y` differently in the last bit
+ *   (docs/DISPLAY_VIEW.md, "Same bytes in every engine"): on the PV 100 2.8 Macro Pro case 0.04874029999999998 against
+ *   0.048740299999999986 (Node 24 and 26), 0.02680716499999999 against 0.026807164999999994, 0.03713128373541503 against
+ *   0.037131283735415105 (CI's Node 22.13.0 digest 6c35e9e41d85cc28; arm64 Node 22.13.0 here gives the same dump). These are pinned to 12
+ *   significant digits, so a change of the lens character beyond 1e-12 relative still fails; nothing else in the dumps differs.
  */
+const ROUNDED = new Set(["sphericalWaves", "balancingDefocusWaves", "w040Micrometers", "maximumPhaseStepWaves"]);
 const portable = (key: string, value: unknown): unknown => (key === "verificationRelativeDifference" ? "engine-dependent"
-  : key === "maximumTruncatedEnergyFraction" && typeof value === "number" && Math.abs(value) < 1e-12 ? "below 1e-12" : value);
+  : key === "maximumTruncatedEnergyFraction" && typeof value === "number" && Math.abs(value) < 1e-12 ? "below 1e-12"
+  : ROUNDED.has(key) && typeof value === "number" ? Number(value.toPrecision(12)) : value);
 
 describe("catalogue captures without flare or breathing (#631, #632)", () => {
   it("are byte-identical to 2.25.0 before #631 and #632", async () => {
@@ -55,8 +64,8 @@ describe("catalogue captures without flare or breathing (#631, #632)", () => {
 });
 
 const PINS: Record<string, Record<string, string>> = {
-  "PV 24 1.8 fast": { samples: "5e02b2f4be51b560", codes: "f97541696387f501", assumptions: "cd6e455e7219d527" },
-  "PV 100 2.8 Macro Pro close, chart size": { samples: "b77ba45604470c0a", codes: "dc24930e926963f6", assumptions: "1c30ef34dd3dcbfe" },
+  "PV 24 1.8 fast": { samples: "5e02b2f4be51b560", codes: "f97541696387f501", assumptions: "a7a44d0f12b38b7b" },
+  "PV 100 2.8 Macro Pro close, chart size": { samples: "b77ba45604470c0a", codes: "dc24930e926963f6", assumptions: "cb47f4a338aa9e07" },
   "PV 15 2.8 Fisheye Pro exact, chart size": { samples: "f2fa557623a3be59", codes: "72979384de3ef81e" },
   "PV 8 3.5 Fisheye Pro fast, chart size": { samples: "1333add135ce336f", codes: "3f33f092ac4dd8c8" },
   "PV 50 1.8 display view": { samples: "51b018180f574ca8" }
