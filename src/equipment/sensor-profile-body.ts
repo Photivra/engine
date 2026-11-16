@@ -104,6 +104,16 @@ export function sensorProfileSaturationIso(p: Pick<SensorProfile, "peakQuantumEf
   return a.iso * p.peakQuantumEfficiency / a.peakQuantumEfficiency * p.pixelPitchMicrometers ** 2 / a.pixelAreaSquareMicrometers * a.fullWellElectrons / p.fullWellElectrons;
 }
 
+/**
+ * #635: the profile's ISO settings, the third-stop markings from its base ISO to its maximum ({@link SENSOR_PROFILE_ISO_MARKINGS}): the
+ * values `exposure.iso` takes with this profile, in ascending order. The record is checked as a capture checks it.
+ */
+export function resolveSensorProfileIsoSettings(profile: SensorProfile): readonly number[] {
+  const p = parseSensorProfile(profile, "profile");
+  return Object.freeze(isoSettings(p));
+}
+const isoSettings = (p: SensorProfile): number[] => ISO_MARKINGS.filter((iso) => iso >= p.baseIso && iso <= p.maximumIso);
+
 
 /**
  * The profile's sensor assets on a camera body: the body's other capabilities are kept. `readNoiseScale` (≥ 1) multiplies both
@@ -118,7 +128,7 @@ export function sensorProfileBody(p: SensorProfile, body: GenericTierBodyAssets,
     highGainFromIso: n.highGainFromIso ?? Infinity, highGainMaximumCharge: (p.highGainFullWellElectrons ?? p.fullWellElectrons) * (1 + 1e-12),
     prnu: p.fixedPattern.prnu, dsnu: p.fixedPattern.dsnu, hotFraction: p.fixedPattern.hotPixelFraction, hotMultiplier: p.fixedPattern.hotPixelMultiplier,
     rowRms: p.fixedPattern.rowElectrons, columnRms: p.fixedPattern.columnElectrons, instanceSeed: (0x9e3779b9 ^ (p.pixelsWide * 8191 + p.pixelsHigh)) >>> 0 },
-  p.readoutSeconds, .5, .01, false, false, { isoValues: ISO_MARKINGS.filter((iso) => iso >= p.baseIso && iso <= p.maximumIso), evidence,
+  p.readoutSeconds, .5, .01, false, false, { isoValues: isoSettings(p), evidence,
     limitations: ["Sensor profile " + p.name + " (#554): published, derived and design values (docs/SENSOR_PROFILES.md); not a calibration of any camera."] });
   // Only the sensor assets are taken; the placeholders above (release, stabilization …) are the body's own.
   return { ...body, exposure: built.exposure, iso: built.iso, signalChain: built.signalChain, readout: built.readout, readoutTiming: built.readoutTiming,

@@ -13,10 +13,12 @@
 
 import { thinLensWorkingFNumberFactor } from "../optics/scene-to-sensor-irradiance.js";
 import { InvalidConfigurationError } from "../core/configuration-error.js";
-import { requireInputObject } from "../core/record-validation.js";
+import { requireInputKeys, requireInputObject } from "../core/record-validation.js";
 import { calculateEquivalentFocalLength35Mm } from "../camera/equivalent-focal-length.js";
 import { calculateGenericPrimeMinimumFocusDistanceM, resolveGenericPrimeLens, GENERIC_PRIME_EQUIVALENT_FOCAL_LENGTHS_MM, type GenericPrimeLens } from "../equipment/generic-prime-lenses.js";
 import { resolveGenericLens, type ResolvedGenericLens } from "../equipment/generic-lens-catalogue.js";
+import type { SensorProfile } from "../equipment/sensor-profile-body.js";
+import { resolveProfileFrame } from "../equipment/sensor-profile-frame.js";
 import { genericLensBreathingScale, genericLensFramingMapping, genericLensImageRadiusMm, genericLensPlaneRadiusM } from "../equipment/generic-lens-framing.js";
 import type { SimulateCaptureAssumption } from "./simulate-capture.js";
 
@@ -24,8 +26,10 @@ import type { SimulateCaptureAssumption } from "./simulate-capture.js";
 export type SubjectFramingFit = "contain" | "width" | "height" | "cover";
 
 export interface CalculateSubjectDistanceForFramingInput {
-  /** Active sensor (or simulated frame) size, mm. */
-  sensor: { widthMm: number; heightMm: number };
+  /** Active sensor (or simulated frame) size, mm. Give exactly one of this and `sensorProfile`. */
+  sensor?: { widthMm: number; heightMm: number };
+  /** #636: a capture's sensor profile and output instead of `sensor` (see {@link SubjectFramingSensorProfile}). */
+  sensorProfile?: SubjectFramingSensorProfile;
   /** Physical focal length, mm. Give exactly one of this and `equivalentFocalLengthMm`. */
   focalLengthMm?: number;
   /** Full-frame-equivalent focal length (diagonal crop factor); a generic prime's value also reports that lens. */
@@ -43,6 +47,14 @@ export interface CalculateSubjectDistanceForFramingInput {
  * breathing, as a capture with `lens.catalogue.breathing` renders it.
  */
 export type SubjectFramingCatalogueLens = string | { kind: string; breathing?: boolean };
+
+/**
+ * #636: a capture's `sensor.profile`, its output size and `sensor.pixelPitchMicrometers`. The frame is the capture's
+ * (`calculateSensorProfileFrame`, the `sensor.profileView` assumption): with `catalogue` the lens is resolved on the profile's whole sensor
+ * and the frame is its centred region of the output's aspect, so the phone profile's three lenses frame as they render; otherwise the
+ * frame is output × pitch. A phone lens needs a profile whose `fixedLenses` is "phone", and that profile takes only them, as in a capture.
+ */
+export interface SubjectFramingSensorProfile { profile: SensorProfile; width: number; height: number; pixelPitchMicrometers?: number }
 
 /** #631: how a catalogue lens frames the chart plane (present only with `catalogue`). */
 export interface SubjectFramingLens {
@@ -105,24 +117,44 @@ function resolveFramingInput(input: unknown, name: string, extraKeys: readonly s
   catalogue: { lens: ResolvedGenericLens; breathing: boolean } | null } {
   requireInputObject(input, name + " input");
   const record = input as Record<string, unknown>;
-  for (const key of Object.keys(record)) if (!["sensor", "focalLengthMm", "equivalentFocalLengthMm", "chart", "catalogue", ...extraKeys].includes(key))
+  for (const key of Object.keys(record)) if (!["sensor", "sensorProfile", "focalLengthMm", "equivalentFocalLengthMm", "chart", "catalogue", ...extraKeys].includes(key))
     throw new InvalidConfigurationError(name + " input has unknown field \"" + key + "\".");
-  requireInputObject(record.sensor, "sensor");
+  if (record.sensor !== undefined && record.sensorProfile !== undefined) throw new InvalidConfigurationError("Give exactly one of sensor and sensorProfile.");
+  // #636: a sensor profile frames as the capture does (sensor.profileView): the lens on the whole sensor with a catalogue lens.
+  let sensorW: number, sensorH: number, lensSensor: { widthMm: number; heightMm: number } | undefined, profile: SensorProfile | undefined;
+  const assumptions: SimulateCaptureAssumption[] = [];
+  if (record.sensorProfile !== undefined) {
+    requireInputObject(record.sensorProfile, "sensorProfile");
+    requireInputKeys(record.sensorProfile, "sensorProfile", ["profile", "width", "height", "pixelPitchMicrometers"]);
+    const view = resolveProfileFrame(record.sensorProfile as SubjectFramingSensorProfile, record.catalogue !== undefined);
+    profile = (record.sensorProfile as SubjectFramingSensorProfile).profile;
+    sensorW = view.frameWidthMm; sensorH = view.frameHeightMm;
+    if (view.lensFramedOnSensor) lensSensor = { widthMm: view.sensorWidthMm, heightMm: view.sensorHeightMm };
+    assumptions.push({ id: "sensor.profileView", kind: "model", value: view, explanation: "The capture's frame on the sensor profile (calculateSensorProfileFrame, simulateCapture's sensor.profileView): " +
+      (lensSensor ? "the catalogue lens is resolved on the whole sensor and the frame is its centred region of the output's aspect." : "output × pixel pitch.") });
+  } else {
+    requireInputObject(record.sensor, "sensor");
+    const sensor = record.sensor as Record<string, unknown>;
+    for (const key of Object.keys(sensor)) if (key !== "widthMm" && key !== "heightMm") throw new InvalidConfigurationError("Unknown sensor field: " + key + ".");
+    sensorW = positive(sensor.widthMm, "sensor.widthMm"); sensorH = positive(sensor.heightMm, "sensor.heightMm");
+  }
   requireInputObject(record.chart, "chart");
-  const sensor = record.sensor as Record<string, unknown>, chart = record.chart as Record<string, unknown>;
-  for (const key of Object.keys(sensor)) if (key !== "widthMm" && key !== "heightMm") throw new InvalidConfigurationError("Unknown sensor field: " + key + ".");
+  const chart = record.chart as Record<string, unknown>;
   for (const key of Object.keys(chart)) if (key !== "widthM" && key !== "heightM") throw new InvalidConfigurationError("Unknown chart field: " + key + ".");
-  const sensorW = positive(sensor.widthMm, "sensor.widthMm"), sensorH = positive(sensor.heightMm, "sensor.heightMm");
   const lenses = [record.focalLengthMm, record.equivalentFocalLengthMm, record.catalogue].filter((v) => v !== undefined).length;
   if (lenses !== 1) throw new InvalidConfigurationError("Give exactly one of focalLengthMm, equivalentFocalLengthMm and catalogue.");
-  const crop = calculateEquivalentFocalLength35Mm({ focalLengthMm: 1, activeImagingArea: { widthMm: sensorW, heightMm: sensorH } }).value.cropFactor35Mm;
-  const assumptions: SimulateCaptureAssumption[] = [];
+  let crop = calculateEquivalentFocalLength35Mm({ focalLengthMm: 1, activeImagingArea: { widthMm: sensorW, heightMm: sensorH } }).value.cropFactor35Mm;
   let catalogue: { lens: ResolvedGenericLens; breathing: boolean } | null = null;
   if (record.catalogue !== undefined) {
     const given = record.catalogue, entry = typeof given === "object" && given !== null ? given as Record<string, unknown> : { kind: given };
     for (const key of Object.keys(entry)) if (key !== "kind" && key !== "breathing") throw new InvalidConfigurationError("Unknown catalogue field: " + key + ".");
     if (entry.breathing !== undefined && typeof entry.breathing !== "boolean") throw new InvalidConfigurationError("catalogue.breathing must be a boolean.");
-    catalogue = { lens: resolveGenericLens({ lensId: entry.kind as string, activeImagingArea: { widthMm: sensorW, heightMm: sensorH } }), breathing: entry.breathing === true };
+    catalogue = { lens: resolveGenericLens({ lensId: entry.kind as string, activeImagingArea: lensSensor ?? { widthMm: sensorW, heightMm: sensorH } }), breathing: entry.breathing === true };
+    // #554: as in a capture, the phone lenses go only with a phone profile, which takes only them (checked when a profile is given).
+    if (profile && (catalogue.lens.set === "phone") !== (profile.fixedLenses === "phone"))
+      throw new InvalidConfigurationError("catalogue: the phone lenses go only with a phone sensorProfile (fixedLenses \"phone\"), which takes only them.");
+    // The lens's crop factor is the whole sensor's when it is resolved there (equivalent = focal length × crop factor).
+    if (lensSensor) crop = catalogue.lens.cropFactor35Mm;
   }
   const equivalent = catalogue ? catalogue.lens.equivalentFocalLengthMm : record.equivalentFocalLengthMm === undefined ? positive(record.focalLengthMm, "focalLengthMm") * crop :
     positive(record.equivalentFocalLengthMm, "equivalentFocalLengthMm");
@@ -215,8 +247,10 @@ function closeUpLight(focalLengthMm: number, focusDistanceM: number): { closeUpT
 }
 
 export interface CalculateChartFramingInput {
-  /** Active sensor (or simulated frame) size, mm: for `simulateCapture`, output width × height × pixel pitch. */
-  sensor: { widthMm: number; heightMm: number };
+  /** Active sensor (or simulated frame) size, mm: for `simulateCapture`, output width × height × pixel pitch. Give exactly one of this and `sensorProfile`. */
+  sensor?: { widthMm: number; heightMm: number };
+  /** #636: a capture's sensor profile and output instead of `sensor` (see {@link SubjectFramingSensorProfile}). */
+  sensorProfile?: SubjectFramingSensorProfile;
   /** Physical focal length, mm. Give exactly one of this and `equivalentFocalLengthMm`. */
   focalLengthMm?: number;
   /** Full-frame-equivalent focal length (diagonal crop factor); a generic prime's value also reports that lens (as `lens.prime`). */

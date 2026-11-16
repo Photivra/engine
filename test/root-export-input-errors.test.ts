@@ -107,7 +107,9 @@ describe("root exports reject malformed input with domain errors (API review #4)
     "resolveGenericEquipmentTierLensProfiles", "resolveRawFrameReconstruction", "serializeNativeRawDng", "serializePngImage",
     "prepareDisplayView", "serializeSimulatedCaptureDngFromParts", "simulateCapture", "simulateCaptureFromParts", "simulateDisplayView", "simulateExposureBuildUp", "simulateIdealReference", "simulatePackedSensorRaw", "simulateSensorRawFrame",
     // 2.25 (#620): serializeRewrittenDng's own allowlist ("serializeRewrittenDng: unknown input field ...").
-    "serializeRewrittenDng"
+    "serializeRewrittenDng",
+    // 2.25 (#635): a whole sensor profile record, checked by parseSensorProfile as a capture checks it ("Unknown profile field: ...").
+    "resolveSensorProfileIsoSettings"
   ]);
   const NO_INPUT_OBJECT = new Set([
     // Positional scalars or bound objects, a string id, raw bytes, result factories or no argument at all.

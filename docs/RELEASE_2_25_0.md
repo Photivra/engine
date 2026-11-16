@@ -5,10 +5,10 @@
 ## At a glance
 
 - **What is proposed:** publish `@photivra/engine@2.25.0`, with `ENGINE_API_VERSION = "2.25.0"`. `POC_SIMULATION_API_VERSION` stays `1.0.0`.
-- **22 engine issues (#612–#633, milestone 2.25.0):** standalone helpers (equivalent ISO, program line, sensor figures, exposure helpers); a JPEG and HEIC/HEIF metadata reader, more DNG import fields and sensor equivalence from a stated 35 mm focal length; a DNG writer, a JPEG Exif writer and a half-size DNG preview; a front-of-lens filter in captures and the display view; look constants and a pinned mid-gray; catalogue-lens work (fisheye chart framing, veiling glare and focus breathing, diffraction correction, the box aperture's fast method, a faster exact PSF, lens corrections and sharpening in the display view); faster defocused display views; a second review of the dual-gain switch points; and the repository-link check.
+- **26 engine issues (#612–#633 and #635–#638, milestone 2.25.0):** standalone helpers (equivalent ISO, program line, sensor figures, exposure helpers); a JPEG and HEIC/HEIF metadata reader, more DNG import fields and sensor equivalence from a stated 35 mm focal length; a DNG writer, a JPEG Exif writer and a half-size DNG preview; a front-of-lens filter in captures and the display view; look constants and a pinned mid-gray; catalogue-lens work (fisheye chart framing, veiling glare and focus breathing, diffraction correction, the box aperture's fast method, a faster exact PSF, lens corrections and sharpening in the display view); faster defocused display views; a second review of the dual-gain switch points; the repository-link check; and sensor-profile work (each profile's ISO list, framing the phone lenses before a capture, the fixed pattern on downsized views, and the full well's reference with a profile).
 - **Why a minor version:**
-  - 66 new root exports, 2,009 → 2,075 (runtime exports 681 → 705), new options and new fields on the DNG import result (schema 1.2.0 → 1.3.0). Nothing is removed or changed in type.
-  - Some fast requests take a new method by default ([Default changes](#default-changes)).
+  - 72 new root exports, 2,009 → 2,081 (runtime exports 681 → 708), new options and new fields on the DNG import result (schema 1.2.0 → 1.3.0). Nothing is removed or changed in type.
+  - Some fast requests take a new method by default, and a linked full well with a sensor profile is read at the profile's photosite ([Default changes](#default-changes)).
 - **Size limits raised (owner decision 2026-11-16):** the capture worker's fast row to 338,900 B and its on-demand row to 47,400 B ([Sizes](#sizes)).
 
 ## Scope
@@ -30,13 +30,14 @@ This pull request is cut from `fa15176` (`main` after `v2.24.0`, #610 and #611) 
 | Catalogue fisheye chart framing; opt-in veiling glare and focus breathing | #631, #632 | `e445b6b`, `13d57a3` |
 | Renames before release (no published name changes); root-export test classification | — | `fe9e7dc`, `39833c2` |
 | Capture-worker size limits raised | — (owner decision 2026-11-16) | `8939cfa` |
+| `SENSOR_PROFILE_ISO_MARKINGS`, `resolveSensorProfileIsoSettings`; `calculateSensorProfileFrame` and `sensorProfile` in the framing helpers; the fixed pattern on downsized views; the full well's reference and density note with a profile | #635–#638 | `e225-sensors` |
 | 2.25.0 preparation: version surfaces (`26ac438`), the 2.25.0 changelog heading, this record, the 2.24.0 publication record | — | this pull request |
 
 The entry is in [CHANGELOG.md](../CHANGELOG.md) under 2.25.0, one section per issue. The new functions are documented in [USAGE.md](USAGE.md), [IMPORT_AND_PNG.md](IMPORT_AND_PNG.md), [LENS_CATALOGUE.md](LENS_CATALOGUE.md), [DISPLAY_VIEW.md](DISPLAY_VIEW.md) and the generated [API reference](API_REFERENCE.md).
 
 ## New exports
 
-66 root exports (24 runtime, 42 types); nothing is removed and no existing export changes kind.
+72 root exports (27 runtime, 45 types); nothing is removed and no existing export changes kind.
 
 | Issues | Runtime exports | Types |
 | --- | --- | --- |
@@ -47,8 +48,9 @@ The entry is in [CHANGELOG.md](../CHANGELOG.md) under 2.25.0, one section per is
 | #624 | — | `SimulateCaptureLensFilterReport` |
 | #625, #626 | `STANDARD_LOOK`, `FLAT_LOOK`, `resolveMidGrayPinnedLook` | `NakaRushtonLook`, `PinLookMidGrayOptions` |
 | #631 | — | `SubjectFramingCatalogueLens`, `SubjectFramingLens` |
+| #635, #636 | `SENSOR_PROFILE_ISO_MARKINGS`, `resolveSensorProfileIsoSettings`, `calculateSensorProfileFrame` | `CalculateSensorProfileFrameInput`, `SensorProfileFrame`, `SubjectFramingSensorProfile` |
 
-`ImportedDngExif` and `ImportedDngSubjectArea` are now aliases of `ExifCaptureFields` and `ExifSubjectArea` (the same shape, with four new fields). New options on existing functions: `lens.filter` (#624), `lens.catalogue.flare` and `breathing` (#632), `catalogue` in the framing helpers (#631), `size` in `developDngImage` (#622), and `output.lensCorrections`, `output.sharpening` in the display view (#628) and `output.diffractionCorrection` with `lens.catalogue` (#630), which were refused before.
+`ImportedDngExif` and `ImportedDngSubjectArea` are now aliases of `ExifCaptureFields` and `ExifSubjectArea` (the same shape, with four new fields). New options on existing functions: `lens.filter` (#624), `lens.catalogue.flare` and `breathing` (#632), `catalogue` in the framing helpers (#631), `size` in `developDngImage` (#622), and `output.lensCorrections`, `output.sharpening` in the display view (#628) and `output.diffractionCorrection` with `lens.catalogue` (#630), which were refused before; `sensorProfile` in `calculateSubjectDistanceForFraming` and `calculateChartFraming` (#636); `sensor.fixedPatternNoise` on a sensor profile's downsized view (#637), refused before.
 
 ### Renames before release
 
@@ -61,14 +63,17 @@ Three functions added in this release were renamed into the documented verb fami
 3. **A fisheye capture's chart report is the projected coverage (#631, a correction).** `result.scene.chart` with `chartSize` reported the thin-lens coverage through a catalogue fisheye; it now reports the coverage through the equisolid projection and distortion (1 m chart at 1 m on full frame through *PV 15 2.8 Fisheye Pro*: 41.1 % of the width, not 42.3 %). The image is unchanged. No way back (the old figure was wrong).
 4. **The new half-size DNG preview defaults to the fast method (#622, `developDngImage/size.half`).** `size` itself defaults to `"full"`, which is byte for byte 2.24.0's development. With `size: "half"`, `"srgb-8"` and `"srgb-16"` bin each 2 × 2 CFA repeat into one pixel by default; `fast: false` averages the full-size exact development over 2 × 2 blocks in linear light. The binned preview is an approximation for viewing (Siemens star 99th percentile 0.72 in linear light against the exact half size, at its aliased center); save at full size.
 
-Every request without these options or combinations keeps its 2.24.0 bytes; `test/lens-catalogue-optics-pins.test.ts` and `test/program-line-lens-range.test.ts` check SHA-256 pins recorded before the changes, and `test/dng-development-half.test.ts` checks the full-size development against 2.24.0-era digests.
+5. **A linked full well with a sensor profile is the profile's photosite's (#638, a correction).** `sensor.fullWell` with `sensor.profile` and the default `link: "pixel-area"` was read at a 6 µm reference photosite: the medium-format profile's own 50,300 e⁻ gave a 19,753 e⁻ photosite and a RAW signal 1.79 times higher (`sensitivityOffsetStops` 1.35; the phone profile's own 8,600 e⁻: 342 e⁻, +4.65 stops). `referencePixelPitchMicrometers` now defaults to the profile's own pitch, so the profile's own full well changes nothing. The "unusual for the pitch" note uses the photosite's charge per µm². Tiers are unchanged. Way back: `referencePixelPitchMicrometers: 6`.
+
+Every request without these options or combinations keeps its 2.24.0 bytes; `test/lens-catalogue-optics-pins.test.ts` and `test/program-line-lens-range.test.ts` check SHA-256 pins recorded before the changes, and `test/dng-development-half.test.ts` checks the full-size development against 2.24.0-era digests; `test/sensor-profile-pins.test.ts` pins profile and tier captures without #637 and #638's options (digests recorded on `087dc6f3`).
 
 ## Integration
 
 - **How the issues were brought in.** Each group was built on its own branch from `release-2.25.0` and merged back into it; the branch's base is `fa15176` (`main`), so no cherry-pick was needed and `main`'s 2.24.0 content is unchanged. The writers group (`e225-writers`) merged `e225-w620`, `e225-w622` and `e225-w624` first; the lens-render group (`e225-lens-render`) merged the release branch before it was merged.
 - **Root export counts.** The changelog's per-group counts add up: 21 (#617–#619), 25 (#613–#616), 18 (#620–#626) and 2 (#631), 66 in all.
 - **An accidental file.** A worktree's `node_modules` symlink had been committed on the lens-render branch; `a0c7b39` removes it and ignores `node_modules` links.
-- **Design-around check:** the filter (#624) multiplies the lens transmission per wavelength and each site integrates through it; the veiling glare (#632) and the regrouped defocus (#612) integrate each site with its own channel response; the half-size preview (#622) bins per-site sums. No table keyed by channel signal levels is added.
+- **Sensor profiles (#635–#638).** Built on `e225-sensors` from `release-2.25.0` at `087dc6f3`.
+- **Design-around check:** the filter (#624) multiplies the lens transmission per wavelength and each site integrates through it; the veiling glare (#632) and the regrouped defocus (#612) integrate each site with its own channel response; the half-size preview (#622) bins per-site sums; the summed fixed pattern (#637) draws each site's values once from the summed statistics. No table keyed by channel signal levels is added.
 
 ## Sizes
 
@@ -78,10 +83,12 @@ The app's capture-worker shape (`test/capture-bundle.test.ts`: `NATIVE_RAW_LIMIT
 | --- | --- | --- | --- |
 | 2.24.0 (the 2.24.0 record) | 333,444 B | 45,110 B | 378,554 B |
 | **This pull request** (measured on `8939cfa`) | **338,815 B** (+5,371) | **47,358 B** (+2,248) | 386,173 B |
+| With #635–#638 (`e225-sensors`) | **338,890 B** (+75) | **47,366 B** (+8) | 386,256 B |
 | Limits | 338,900 B (337,500 B before) | 47,400 B (47,000 B before) | — |
 
 - **Where the growth is.** #624's `parseFrontOfLensFilterProfile` in the first load (+618 B fast; the rest of the filter is in the opt-in kit); #628's display-view correction and sharpening hook and #631/#632's framing, glare and breathing code. The display view's correction and sharpening code is in the opt-in kit and takes the renderer's functions as arguments, so the kit never imports the renderer. The new standalone helpers, readers and writers are not in the worker.
 - **The limits (owner decision 2026-11-16).** With #628–#633 alone the worker measured 337,486 B and 46,952 B (14 B and 48 B under the old limits); merged with #631/#632 it measured 338,815 B and 47,358 B. The owner approved raising both limits to those measurements rounded up to the next 100 B: 338,900 B and 47,400 B (`test/capture-bundle.test.ts`, docs/DISPLAY_VIEW.md). Headroom left: 85 B and 42 B.
+- **#635–#638 within the limits.** The ISO list (#635) adds 8 B on demand (the body builder uses the same list function); the frame function (#636) replaces the capture's inline frame code; the framing helpers and `calculateSensorProfileFrame` are not in the worker. The summed fixed pattern (#637) and the full well's reference and density note (#638) are in the first load (+159 B and +9 B); four refusal messages were shortened to make room (`lens.defocus` with a rolling shutter, `simulateIdealReference`'s output formats, `output.region` with diffraction correction or sharpening, `lens.catalogue` with lens options), each keeping the request it names and its remedy. Headroom left: 10 B and 34 B; the limits are unchanged.
 
 ## Local gates
 

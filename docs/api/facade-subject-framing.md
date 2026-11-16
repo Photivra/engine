@@ -20,8 +20,10 @@ The exact contract is declared below; use the domain guide for assumptions and s
 
 ```ts
 export interface CalculateChartFramingInput {
-  /** Active sensor (or simulated frame) size, mm: for `simulateCapture`, output width × height × pixel pitch. */
-  sensor: { widthMm: number; heightMm: number };
+  /** Active sensor (or simulated frame) size, mm: for `simulateCapture`, output width × height × pixel pitch. Give exactly one of this and `sensorProfile`. */
+  sensor?: { widthMm: number; heightMm: number };
+  /** #636: a capture's sensor profile and output instead of `sensor` (see {@link SubjectFramingSensorProfile}). */
+  sensorProfile?: SubjectFramingSensorProfile;
   /** Physical focal length, mm. Give exactly one of this and `equivalentFocalLengthMm`. */
   focalLengthMm?: number;
   /** Full-frame-equivalent focal length (diagonal crop factor); a generic prime's value also reports that lens (as `lens.prime`). */
@@ -53,8 +55,10 @@ The exact contract is declared below; use the domain guide for assumptions and s
 
 ```ts
 export interface CalculateSubjectDistanceForFramingInput {
-  /** Active sensor (or simulated frame) size, mm. */
-  sensor: { widthMm: number; heightMm: number };
+  /** Active sensor (or simulated frame) size, mm. Give exactly one of this and `sensorProfile`. */
+  sensor?: { widthMm: number; heightMm: number };
+  /** #636: a capture's sensor profile and output instead of `sensor` (see {@link SubjectFramingSensorProfile}). */
+  sensorProfile?: SubjectFramingSensorProfile;
   /** Physical focal length, mm. Give exactly one of this and `equivalentFocalLengthMm`. */
   focalLengthMm?: number;
   /** Full-frame-equivalent focal length (diagonal crop factor); a generic prime's value also reports that lens. */
@@ -188,4 +192,15 @@ export interface SubjectFramingLens {
   /** The full field of view across the frame width and height, degrees (null as above). */
   fieldOfViewDegrees: { width: number | null; height: number | null };
 }
+```
+
+## SubjectFramingSensorProfile
+
+#636: a capture's `sensor.profile`, its output size and `sensor.pixelPitchMicrometers`. The frame is the capture's
+(`calculateSensorProfileFrame`, the `sensor.profileView` assumption): with `catalogue` the lens is resolved on the profile's whole sensor
+and the frame is its centred region of the output's aspect, so the phone profile's three lenses frame as they render; otherwise the
+frame is output × pitch. A phone lens needs a profile whose `fixedLenses` is "phone", and that profile takes only them, as in a capture.
+
+```ts
+export interface SubjectFramingSensorProfile { profile: SensorProfile; width: number; height: number; pixelPitchMicrometers?: number }
 ```

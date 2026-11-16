@@ -157,6 +157,29 @@ export function parseSensorFixedPatternNoiseProfile(value: unknown): SensorFixed
   };
 }
 
+/**
+ * #637: the pattern of a rendered site that sums n ≥ 1 photosites of a k × k block (k = √n, any real k), from the photosite's own
+ * statistics, so the site's values are drawn once per site from the summed distribution:
+ *
+ * - PRNU and DSNU: the mean of n independent factors, σ/√n;
+ * - hot pixels: a site holds at least one hot photosite with probability P = 1 − (1 − f)ⁿ; such a site's dark factor is
+ *   1 + (m − 1)·f/P, its mean over the n photosites with the expected hot count given that there is one (f·n/P), so the mean dark charge is kept
+ *   (an approximation: one hot state per site, with the dark factor of the expected count);
+ * - row and column offsets: a site row sums k photosites in each of its k photosite rows, k·Σ rⱼ, σ_row·k^(3/2) = σ_row·n^(3/4)
+ *   (columns alike), still shared along the site row (column).
+ *
+ * n = 1 returns the profile itself.
+ */
+export function sumFixedPatternSites(p: SensorFixedPatternNoiseProfile, n: number): SensorFixedPatternNoiseProfile {
+  if (n === 1) return p;
+  const at = (fact: EvidenceBackedFact<number>, value: number): EvidenceBackedFact<number> => ({ ...fact, value }), s = Math.sqrt(n), k = n ** 0.75;
+  const f = p.hotPixels.siteFraction.value, hot = -Math.expm1(n * Math.log1p(-f)), m = p.hotPixels.darkCurrentMultiplier;
+  return { ...p, photoResponseNonUniformity: { relativeStandardDeviation: at(p.photoResponseNonUniformity.relativeStandardDeviation, p.photoResponseNonUniformity.relativeStandardDeviation.value / s) },
+    darkSignalNonUniformity: { relativeStandardDeviation: at(p.darkSignalNonUniformity.relativeStandardDeviation, p.darkSignalNonUniformity.relativeStandardDeviation.value / s) },
+    hotPixels: { siteFraction: at(p.hotPixels.siteFraction, hot), darkCurrentMultiplier: at(m, hot > 0 ? 1 + (m.value - 1) * f / hot : m.value) },
+    rowOffset: { rmsElectrons: at(p.rowOffset.rmsElectrons, p.rowOffset.rmsElectrons.value * k) }, columnOffset: { rmsElectrons: at(p.columnOffset.rmsElectrons, p.columnOffset.rmsElectrons.value * k) } };
+}
+
 function normal(seed: number, x: number, y: number, stream: number): number {
   return sampleDeterministicStandardNormal(createDeterministicUniformStream(deriveSensorFixedPatternSeedUint32(seed, x, y, stream)));
 }

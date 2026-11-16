@@ -1573,6 +1573,16 @@
       "kind": "type"
     },
     {
+      "name": "calculateSensorProfileFrame",
+      "source": "src/equipment/sensor-profile-frame.ts",
+      "kind": "runtime"
+    },
+    {
+      "name": "CalculateSensorProfileFrameInput",
+      "source": "src/equipment/sensor-profile-frame.ts",
+      "kind": "type"
+    },
+    {
       "name": "calculateSensorPsfIrradianceQuadrature",
       "source": "src/optics/sensor-psf-quadrature.ts",
       "kind": "runtime"
@@ -8023,6 +8033,11 @@
       "kind": "runtime"
     },
     {
+      "name": "resolveSensorProfileIsoSettings",
+      "source": "src/equipment/sensor-profile-body.ts",
+      "kind": "runtime"
+    },
+    {
       "name": "resolveSensorRawReconstruction",
       "source": "src/sensor/raw-reconstruction.ts",
       "kind": "runtime"
@@ -8583,6 +8598,11 @@
       "kind": "runtime"
     },
     {
+      "name": "SENSOR_PROFILE_ISO_MARKINGS",
+      "source": "src/equipment/sensor-profile-body.ts",
+      "kind": "runtime"
+    },
+    {
       "name": "SENSOR_PROFILES",
       "source": "src/equipment/sensor-profiles.ts",
       "kind": "runtime"
@@ -8960,6 +8980,11 @@
     {
       "name": "SensorProfile",
       "source": "src/equipment/sensor-profile-body.ts",
+      "kind": "type"
+    },
+    {
+      "name": "SensorProfileFrame",
+      "source": "src/equipment/sensor-profile-frame.ts",
       "kind": "type"
     },
     {
@@ -10069,6 +10094,11 @@
     },
     {
       "name": "SubjectFramingLens",
+      "source": "src/facade/subject-framing.ts",
+      "kind": "type"
+    },
+    {
+      "name": "SubjectFramingSensorProfile",
       "source": "src/facade/subject-framing.ts",
       "kind": "type"
     },
