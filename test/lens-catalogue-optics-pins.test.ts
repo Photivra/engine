@@ -2,7 +2,11 @@
 /**
  * #631, #632: catalogue-lens captures and display views without `flare` or `breathing` are unchanged. The digests were recorded
  * on 2.25.0 before #631 and #632 (origin/release-2.25.0 at a3a53b80) with this file; a fisheye's `result.scene.chart` (its
- * coverage, #631) is the one intended change, so the fisheye cases pin the image and RAW only.
+ * coverage, #631) is the one intended change, so the fisheye cases pin the image and RAW only. 2.25.0 CI: the two `assumptions` digests
+ * included the fast method's `verificationRelativeDifference`, whose last bits differ between JavaScript engines and platforms (CI's Node 22
+ * and Node 24/26 on Linux x64 each gave another digest than macOS arm64), so they are taken with that value masked (`portable`). With the
+ * mask the digests are the same on a3a53b80 (before #629, #631, #632, #633), on e225-lens-render before the optics merge (2b8fcae0) and on
+ * release-2.25.0 at 8b9ff24: no pinned output changed.
  */
 import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
@@ -23,12 +27,19 @@ const CASES: Record<string, { options: SimulateCaptureOptions; assumptions: bool
   "PV 8 3.5 Fisheye Pro fast, chart size": { options: frame({ catalogue: { kind: "pv-8-3.5-fisheye-pro", fast: true } }, { chartSize: { widthM: 3 } }), assumptions: false }
 };
 
+/**
+ * The fast method's run-time check reports `verificationRelativeDifference`, the largest relative difference between the fast and the exact
+ * electrons at its four sites: a last-bits quantity of the JavaScript engine's Math functions (measured on the same tree: 1.34e-7 on macOS
+ * arm64 with Node 26; different digests on Linux x64 with Node 22 and with Node 24/26 in CI). It is pinned as present, not by value.
+ */
+const portable = (key: string, value: unknown): unknown => (key === "verificationRelativeDifference" ? "engine-dependent" : value);
+
 describe("catalogue captures without flare or breathing (#631, #632)", () => {
   it("are byte-identical to 2.25.0 before #631 and #632", async () => {
     const out: Record<string, Record<string, string>> = {};
     for (const [name, { options, assumptions }] of Object.entries(CASES)) {
       const r = await simulateCapture(options);
-      out[name] = { samples: sha(r.image.samples as ArrayBufferView), codes: sha(r.raw.codes), ...(assumptions ? { assumptions: sha(JSON.stringify(r.assumptions)) } : {}) };
+      out[name] = { samples: sha(r.image.samples as ArrayBufferView), codes: sha(r.raw.codes), ...(assumptions ? { assumptions: sha(JSON.stringify(r.assumptions, portable)) } : {}) };
     }
     const view = await simulateDisplayView(frame({ catalogue: "pv-50-1.8", fNumber: 2.8 }), { width: 24, height: 16 });
     out["PV 50 1.8 display view"] = { samples: sha(view.image.samples as ArrayBufferView) };
@@ -38,8 +49,8 @@ describe("catalogue captures without flare or breathing (#631, #632)", () => {
 });
 
 const PINS: Record<string, Record<string, string>> = {
-  "PV 24 1.8 fast": { samples: "5e02b2f4be51b560", codes: "f97541696387f501", assumptions: "6a1000e56b706ff0" },
-  "PV 100 2.8 Macro Pro close, chart size": { samples: "b77ba45604470c0a", codes: "dc24930e926963f6", assumptions: "c0329abf114fc628" },
+  "PV 24 1.8 fast": { samples: "5e02b2f4be51b560", codes: "f97541696387f501", assumptions: "c5da167c60f858e4" },
+  "PV 100 2.8 Macro Pro close, chart size": { samples: "b77ba45604470c0a", codes: "dc24930e926963f6", assumptions: "4f063740b752b364" },
   "PV 15 2.8 Fisheye Pro exact, chart size": { samples: "f2fa557623a3be59", codes: "72979384de3ef81e" },
   "PV 8 3.5 Fisheye Pro fast, chart size": { samples: "1333add135ce336f", codes: "3f33f092ac4dd8c8" },
   "PV 50 1.8 display view": { samples: "51b018180f574ca8" }
