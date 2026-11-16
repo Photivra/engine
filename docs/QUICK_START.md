@@ -2407,7 +2407,7 @@ options were ignored. The whole-frame views of [Whole-frame views](#whole-frame-
 
 The facade offers no atmospheric haze or polarizer (see [Optics](#optics)), video, HDR brackets
 or processing operators. Those APIs are available directly. A flash is `illumination.flash` (2.26.0,
-[Mixed lighting](MIXED_ILLUMINATION.md#flash)); TTL flash, high-speed sync and a flash under camera or
+[Mixed lighting](https://github.com/Photivra/engine/blob/main/docs/MIXED_ILLUMINATION.md#flash)); TTL flash, high-speed sync and a flash under camera or
 subject motion are not in the facade. Real camera and lens presets are not
 provided, for rights reasons.
 

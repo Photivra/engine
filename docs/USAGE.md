@@ -4016,7 +4016,7 @@ Generic pre-flash TTL (through-the-lens) power, with flash exposure compensation
 `simulateCapture`, `simulateIdealReference`, `simulateDisplayView` and `prepareDisplayView` take `illumination.flash` (2.26.0, #639):
 an impulse light from a point whose energy does not depend on the shutter time, set by a guide number or by its energy, with
 inverse-square falloff, alone or mixed with ambient `sources` and `points`. The full model, its sources and its limits are in
-[Mixed lighting, Flash](MIXED_ILLUMINATION.md#flash).
+[Mixed lighting, Flash](https://github.com/Photivra/engine/blob/main/docs/MIXED_ILLUMINATION.md#flash).
 
 - **Output.** `output: { guideNumberM }` (at ISO 100, metres), `{ candelaSeconds }` (time-integrated luminous intensity Q) or
   `{ luxSeconds, distanceM }` (luminous exposure at a distance, Q = H·r²); `powerFraction` (0, 1] is the manual power (Q·p, guide
