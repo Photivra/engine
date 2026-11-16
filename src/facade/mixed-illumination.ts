@@ -21,12 +21,23 @@
  * Brochure, 9th edition 2019, Table 4, the steradian). Exact for an ideal isotropic point; no occlusion (the camera casts no shadow),
  * no source size and no inter-reflection. The point sources add to the blend: E(p, λ) = Σ_i w_i(p)·k_i·S_i(λ) + Σ_j E_j(p, λ).
  *
+ * Flash (2.26.0, #639): an impulse of time-integrated luminous intensity Q cd·s (luminous energy per solid angle, lm·s/sr) from a point,
+ * set as Q, as the luminous exposure H = Q/r² lx·s at normal incidence at a distance r, or as the guide number G at ISO 100. Its energy
+ * does not depend on the shutter time T: it fires while every site integrates (a global shutter, or a rolling one held open at least
+ * its skew), so each site collects Q·cos θ/d² of it, and the capture, whose signal is irradiance × T, takes it as a point of
+ * intensity Q/T over the window (exact for a static scene; motion is refused, because the pulse would freeze it at one instant).
+ * Guide number (docs/SCENE_SENSOR_TEMPORAL_EXPOSURE.md, "Guide number"): G = d·N is the distance × f-number at which an 18 % grey card
+ * on the axis gets the CIPA DC-004-2020 standard exposure H = 10/S at S = 100 through the camera equation H = 0.65·L·t/N², so
+ * 0.65·0.18·Q/(π·d²·N²) = 10/100 and Q = 10π·G²/(0.65·0.18·100) cd·s; the facade's grey-card standard exposure uses the same constants.
+ * `powerFraction` p scales Q (G by √p).
+ *
  * Coordinates are the chart's: a fixed-size chart's chart-local units (±1 at its left and right edges, v up on the same scale,
  * extended linearly over the surround), or, without `chartSize`, frame units (±1 at the frame's left and right edges), which are
  * the chart-local units of a chart that fills the frame. Both put (0, 0) at the frame center.
  */
 
 import { InvalidConfigurationError } from "../core/configuration-error.js";
+import { InvalidScientificInputError } from "../core/validation.js";
 import { requireInputObject } from "../core/record-validation.js";
 import { calculateIlluminantIrradianceScale, tabulatedSpectrum, type CaptureIlluminant, type ResolvedCaptureIlluminant } from "./scene-radiance.js";
 
@@ -51,6 +62,20 @@ export interface MixedIlluminationPointSource {
   position: { xM: number; yM: number; heightM: number };
   intensity: { candela: number } | { illuminanceLux: number; distanceM: number };
 }
+/**
+ * 2.26.0 (#639): an electronic flash, an impulse light with inverse-square falloff that adds to the sources and points: its spectrum
+ * (default a Planckian 5500 K stand-in, not a measured flash tube), its position (default at the camera: on the optical axis, `heightM`
+ * the subject distance) and its output at full power, as a guide number at ISO 100 in metres, a time-integrated intensity in cd·s, or a
+ * luminous exposure in lx·s at normal incidence at a distance; `powerFraction` in (0, 1] (default 1) is the manual power setting.
+ */
+export interface MixedIlluminationFlash {
+  illuminant?: CaptureIlluminant;
+  position?: { xM: number; yM: number; heightM: number };
+  output: { guideNumberM: number } | { candelaSeconds: number } | { luxSeconds: number; distanceM: number };
+  powerFraction?: number;
+}
+/** Q per G² at ISO 100, cd·s/m²: 10π/(0.65·0.18·100) (CIPA DC-004-2020 H = 10/S and H = 0.65·L·t/N², an 18 % grey card). */
+export const FLASH_CANDELA_SECONDS_PER_SQUARE_GUIDE_METER = 10 * Math.PI / 11.7;
 /** A point in chart coordinates (see {@link MixedIllumination}). */
 export interface MixedIlluminationPoint { u: number; v: number }
 /**
@@ -74,6 +99,8 @@ export interface MixedIllumination {
   sources?: readonly MixedIlluminationSource[];
   blend?: MixedIlluminationBlend;
   points?: readonly MixedIlluminationPointSource[];
+  /** 2.26.0 (#639): an electronic flash ({@link MixedIlluminationFlash}); alone, or with sources or points (the ambient light). */
+  flash?: MixedIlluminationFlash;
 }
 
 /** Internal: a validated mixed illumination with its lights resolved and scaled. */
@@ -93,6 +120,8 @@ export interface ResolvedMixedIllumination {
    * I·cos θ/d²) and the strongest light (the largest, the first on a tie; an index into `sources`).
    */
   center: { illuminanceLux: number; weights: number[]; illuminancesLux: number[]; strongestSource: number };
+  /** #639: true with a flash (the last light, its intensity Q/T over the exposure window T). */
+  flash: boolean;
 }
 
 type Fields = Record<string, unknown>;
@@ -107,6 +136,10 @@ const finite = (x: unknown, name: string): number => (typeof x === "number" && N
 const positive = (x: unknown, name: string, maximum: number): number => (typeof x === "number" && x > 0 && x <= maximum ? x : fail("illumination" + name + " must be positive, up to " + maximum + "."));
 const list = (value: unknown, name: string, what: string): unknown[] => (value === undefined ? [] : Array.isArray(value) && value.length >= 1 && value.length <= MIXED_ILLUMINATION_MAX_SOURCES ? value :
   fail("illumination." + name + " must list 1 to " + MIXED_ILLUMINATION_MAX_SOURCES + " " + what + "."));
+const place = (value: unknown, at: string): { xM: number; yM: number; heightM: number } => {
+  const q = fields(value, at, ["xM", "yM", "heightM"]);
+  return { xM: finite(q.xM, at + ".xM"), yM: finite(q.yM, at + ".yM"), heightM: positive(q.heightM, at + ".heightM", 1e4) };
+};
 const point = (value: unknown, name: string): MixedIlluminationPoint => {
   const r = fields(value, ".blend." + name, ["u", "v"]);
   return { u: finite(r.u, ".blend." + name + ".u"), v: finite(r.v, ".blend." + name + ".v") };
@@ -114,11 +147,13 @@ const point = (value: unknown, name: string): MixedIlluminationPoint => {
 
 /**
  * Internal: validates `illumination` and resolves its sources with `resolveIlluminant` (the capture's `resolveCaptureIlluminant`, or
- * the display view's portable one).
+ * the display view's portable one). A flash is resolved for the exposure window `windowSeconds` (its intensity Q/T) and, by default, at
+ * `cameraDistanceM` on the axis.
  */
-export function resolveMixedIllumination(value: unknown, resolveIlluminant: (value: CaptureIlluminant) => ResolvedCaptureIlluminant): ResolvedMixedIllumination {
-  const record = fields(value, "", ["sources", "blend", "points"]), given = list(record.sources, "sources", "sources"), pointList = list(record.points, "points", "point sources");
-  if (pointList.length === 0 && given.length < 2) fail("illumination needs two or more sources, or a point source; one source alone is illuminant and illuminanceLux.");
+export function resolveMixedIllumination(value: unknown, resolveIlluminant: (value: CaptureIlluminant) => ResolvedCaptureIlluminant, windowSeconds = 1, cameraDistanceM = 1,
+  moving = false): ResolvedMixedIllumination {
+  const record = fields(value, "", ["sources", "blend", "points", "flash"]), given = list(record.sources, "sources", "sources"), pointList = list(record.points, "points", "point sources");
+  if (pointList.length === 0 && given.length < 2 && !record.flash) fail("illumination needs two or more sources, a point source or a flash; one source alone is illuminant and illuminanceLux.");
   const sources = given.map((entry, i) => {
     const s = fields(entry, ".sources[" + i + "]", ["illuminant", "illuminanceLux"]), option = s.illuminant as CaptureIlluminant, illuminant = resolveIlluminant(option);
     return Object.freeze({ illuminant, option, illuminanceLux: s.illuminanceLux as number, irradianceScale: calculateIlluminantIrradianceScale(illuminant.shape, s.illuminanceLux as number),
@@ -127,13 +162,28 @@ export function resolveMixedIllumination(value: unknown, resolveIlluminant: (val
   // Point sources: c_j with 683 ∫ c_j S_j ȳ dλ = I_j (the irradiance scale of 1 lux, times I_j), and E_j = c_j S_j(λ)·h/d³.
   const points = pointList.map((entry, j) => {
     const at = ".points[" + j + "]", p = fields(entry, at, ["illuminant", "position", "intensity"]), option = p.illuminant as CaptureIlluminant, illuminant = resolveIlluminant(option);
-    const q = fields(p.position, at + ".position", ["xM", "yM", "heightM"]), i = fields(p.intensity, at + ".intensity", ["candela", "illuminanceLux", "distanceM"]);
-    const position = { xM: finite(q.xM, at + ".position.xM"), yM: finite(q.yM, at + ".position.yM"), heightM: positive(q.heightM, at + ".position.heightM", 1e4) };
+    const i = fields(p.intensity, at + ".intensity", ["candela", "illuminanceLux", "distanceM"]);
     const candela = i.candela !== undefined ? (i.illuminanceLux === undefined && i.distanceM === undefined ? positive(i.candela, at + ".intensity.candela", 1e9) :
       fail("illumination" + at + ".intensity takes candela or illuminanceLux and distanceM, not both.")) :
       positive(i.illuminanceLux, at + ".intensity.illuminanceLux", 1e7) * positive(i.distanceM, at + ".intensity.distanceM", 1e4) ** 2;
-    return { illuminant, option, position, candela, scale: calculateIlluminantIrradianceScale(illuminant.shape, 1) * candela, shape: tabulatedSpectrum(illuminant.shape) };
+    return { illuminant, option, position: place(p.position, at + ".position"), candela, scale: calculateIlluminantIrradianceScale(illuminant.shape, 1) * candela,
+      shape: tabulatedSpectrum(illuminant.shape), flash: undefined as Readonly<Record<string, number>> | undefined };
   });
+  // #639: the flash, the last point: Q = p·Q_full cd·s, the intensity Q/T over the window T.
+  if (record.flash !== undefined) {
+    if (moving) fail("illumination.flash does not support motion: the pulse freezes the scene at one instant, which the temporal quadrature does not place.");
+    const f = fields(record.flash, ".flash", ["illuminant", "position", "output", "powerFraction"]), o = fields(f.output, ".flash.output", ["guideNumberM", "candelaSeconds", "luxSeconds", "distanceM"]);
+    const option = (f.illuminant ?? { kind: "planckian", temperatureKelvin: 5500 }) as CaptureIlluminant, illuminant = resolveIlluminant(option);
+    const power = f.powerFraction === undefined ? 1 : positive(f.powerFraction, ".flash.powerFraction", 1), forms = Object.keys(o).sort().join();
+    const full = forms === "guideNumberM" ? positive(o.guideNumberM, ".flash.output.guideNumberM", 1e4) ** 2 * FLASH_CANDELA_SECONDS_PER_SQUARE_GUIDE_METER :
+      forms === "candelaSeconds" ? positive(o.candelaSeconds, ".flash.output.candelaSeconds", 1e9) :
+        forms === "distanceM,luxSeconds" ? positive(o.luxSeconds, ".flash.output.luxSeconds", 1e7) * positive(o.distanceM, ".flash.output.distanceM", 1e4) ** 2 :
+          fail("illumination.flash.output takes guideNumberM, candelaSeconds, or luxSeconds and distanceM.");
+    const q = full * power, candela = q / windowSeconds;
+    points.push({ illuminant, option, position: f.position === undefined ? { xM: 0, yM: 0, heightM: cameraDistanceM } : place(f.position, ".flash.position"), candela,
+      scale: calculateIlluminantIrradianceScale(illuminant.shape, 1) * candela, shape: tabulatedSpectrum(illuminant.shape),
+      flash: Object.freeze({ candelaSeconds: q, powerFraction: power, guideNumberM: Math.sqrt(q / FLASH_CANDELA_SECONDS_PER_SQUARE_GUIDE_METER), exposureWindowSeconds: windowSeconds }) });
+  }
   /** cos θ/d² of point source j at plane point (x, y) m. */
   const falloff = (p: typeof points[number], x: number, y: number): number => {
     const dx = x - p.position.xM, dy = y - p.position.yM, h = p.position.heightM, d2 = dx * dx + dy * dy + h * h;
@@ -197,7 +247,7 @@ export function resolveMixedIllumination(value: unknown, resolveIlluminant: (val
   const lights = [...sources, ...points.map((p) => {
     const atCenter = falloff(p, 0, 0);
     return Object.freeze({ illuminant: p.illuminant, option: p.option, illuminanceLux: p.candela * atCenter, irradianceScale: p.scale * atCenter,
-      report: Object.freeze({ illuminant: p.illuminant.id, position: p.position, intensityCandela: p.candela }) });
+      report: Object.freeze({ illuminant: p.illuminant.id, position: p.position, intensityCandela: p.candela, ...(p.flash ? { flash: p.flash } : {}) }) });
   })];
   const illuminancesLux = lights.map((l, i) => (i < n ? weights[i]! * l.illuminanceLux : l.illuminanceLux));
   let strongest = 0, illuminanceLux = 0;
@@ -214,5 +264,59 @@ export function resolveMixedIllumination(value: unknown, resolveIlluminant: (val
       for (const p of points) e += p.scale * p.shape(nm) * falloff(p, x, y);
       return e;
     },
-    center: Object.freeze({ illuminanceLux, weights, illuminancesLux, strongestSource: strongest }) });
+    center: Object.freeze({ illuminanceLux, weights, illuminancesLux, strongestSource: strongest }), flash: record.flash !== undefined });
+}
+
+/**
+ * Internal (#639): sets the meter's zone signals for a shutter t, scale·(A_z + F_z/t) with F_z = total_z − A_z the flash's luminance
+ * at a 1 s window (the zones' luminances through lens.filter), or with `card` [ambient E, total E at 1 s, factor] the grey card's
+ * scale·factor·(E_a + (E − E_a)/t).
+ */
+export function meterFlash(samples: { relativeLinearSignal: number }[], total: readonly number[], ambient: readonly number[], scale: number,
+  card: readonly [number, number, number] | undefined): ((t: number) => void) & { alone: boolean } {
+  return Object.assign((t: number) => samples.forEach((sample, z) => {
+    sample.relativeLinearSignal = scale * (card ? card[2] * (card[0] + (card[1] - card[0]) / t) : ambient[z]! + (total[z]! - ambient[z]!) / t);
+  }), { alone: card ? card[0] === 0 : ambient.every((a) => a === 0) });
+}
+
+/**
+ * Internal (#639, owner decision 2026-11-16): the shutter of an automatic mode when the flash alone lights the scene (the meter's
+ * ambient reading is zero in every zone, or on the grey card), so that every shutter gives the same exposure: 1/125 s, held within the
+ * body's shutter range. Records the assumption `exposure.flashShutter`.
+ */
+export function flashAloneShutter(minimumSeconds: number, maximumSeconds: number, assume: (id: string, kind: "model", value: unknown, explanation: string) => void): number {
+  const t = Math.min(maximumSeconds, Math.max(minimumSeconds, 1 / 125));
+  assume("exposure.flashShutter", "model", t, "The flash alone lights the scene (no ambient reading), so every shutter gives the same exposure: the automatic mode takes 1/125 s within the body's range and resolves the rest at it.");
+  return t;
+}
+
+/**
+ * Internal (#639): in an automatic mode the shutter t is unknown, and the settings are those whose shutter R(t), resolved from the
+ * reading at t, is t. f(x) = ln R(eˣ) − x is ≥ 0 at the shortest shutter and ≤ 0 at the longest (R stays within them), so a root is
+ * bracketed. At the longest shutter when f is 0 there, else bisection in x to 1e-12 keeping f ≥ 0 at the lower end; a few direct
+ * steps t ← R(t) then settle a body whose shutters are discrete. `resolveAt` leaves its last resolution in place.
+ */
+export function solveFlashShutter(resolveAt: (t: number) => number, minimumSeconds: number, maximumSeconds: number): void {
+  const f = (x: number): number => Math.log(resolveAt(Math.exp(x))) - x;
+  let a = Math.log(minimumSeconds), b = Math.log(maximumSeconds);
+  if (f(b) >= 0) a = b;
+  else while (b - a > 1e-12) { const m = (a + b) / 2; if (f(m) >= 0) a = m; else b = m; }
+  for (let k = 0, t = Math.exp(a), next; k < 8 && (next = resolveAt(t)) !== t; k++) t = next;
+}
+
+/** Internal (#639): the assumptions recorded before the shutter was known, with the light at the resolved shutter. */
+export function rebindFlashAssumptions(assumptions: { id: string; value: unknown }[], light: ResolvedMixedIllumination): void {
+  const lux = light.center.illuminanceLux;
+  for (const a of assumptions) {
+    const value = a.value as Record<string, unknown>;
+    if (a.id === "scene.illumination") a.value = { ...value, lights: light.sources.map((l) => l.report), center: light.center };
+    if (a.id === "exposure.meteringCard") a.value = { ...value, illuminanceLux: lux };
+    if (a.id === "exposure.meteringSource") a.value = { ...value, luminanceCdPerSquareMeter: 0.18 * lux / Math.PI };
+  }
+}
+
+/** Internal (#639): under a rolling shutter the flash needs one instant at which every row is open, t ≥ the readout skew τ. */
+export function requireFlashRows(shutterSeconds: number, skewSeconds: number): void {
+  if (shutterSeconds < skewSeconds) throw new InvalidScientificInputError("illumination.flash with motion.shutter \"rolling\" needs a shutter time of at least the readout skew, " +
+    skewSeconds + " s, so that every row is open when the flash fires.");
 }

@@ -1,6 +1,6 @@
 # Developer guide
 
-This is the entry point for **@photivra/engine 2.25.0**, root API contract **2.25.0**. 2.25.0 was prepared on November 16, 2026; npm publishing runs only from the owner's `v2.25.0` tag, and the [2.25.0 release record](RELEASE_2_25_0.md) states whether that has happened. The latest published release is 2.24.0 (November 12, 2026, [record](RELEASE_2_24_0.md)).
+This is the entry point for **@photivra/engine 2.26.0**, root API contract **2.26.0**. 2.26.0 was prepared on November 16, 2026; npm publishing runs only from the owner's `v2.26.0` tag, and the [2.26.0 release record](RELEASE_2_26_0.md) states whether that has happened. The latest published release is 2.25.0 (November 16, 2026, [record](RELEASE_2_25_0.md)).
 
 Repository `main` may later describe newer development. For the stable contract, use a published release's packaged docs or its exact tag. [Release notes and migration](RELEASE_1_3_0.md) explain why the package version and the root API version are now the same number.
 
@@ -10,13 +10,13 @@ The package does **not** supply a hosted API, a renderer, a UI, commercial camer
 
 ## Install and calculate
 
-Install with `npm install @photivra/engine@2.25.0`. The [2.25.0 release record](RELEASE_2_25_0.md) and the [changelog](../CHANGELOG.md) describe the current release.
+Install with `npm install @photivra/engine@2.26.0`. The [2.26.0 release record](RELEASE_2_26_0.md) and the [changelog](../CHANGELOG.md) describe the current release.
 
 ```ts
 import { calculateFieldOfView, ENGINE_API_VERSION } from "@photivra/engine";
 
 const horizontal = calculateFieldOfView({ focalLengthMm: 50, sensorDimensionMm: 36 });
-console.log(ENGINE_API_VERSION); // 2.25.0: matches the package version
+console.log(ENGINE_API_VERSION); // 2.26.0: matches the package version
 console.log(horizontal.value.degrees); // approximately 39.60, ideal infinity-focus geometry
 console.log(horizontal.provenance); // read assumptions/status with the value
 ```
@@ -150,7 +150,7 @@ python3.13 -m venv /tmp/scancode-venv
 node scripts/check-scancode-policy.mjs /tmp/scancode.json
 ```
 
-The scan and the other required checks run on pull requests and on merge-queue entries; a push to `main` runs only the `main smoke` job (build, hash-lock tests and the packed-consumer acceptance). Each Node.js line's `verify (<line>)` check passes when its `test (<line>, 1/3)`, `test (<line>, 2/3)`, `test (<line>, 3/3)` and `test (<line>, package)` parts pass (two test parts before 2.23.0). The coverage gate runs as ten parallel `coverage shard (k/10)` jobs (eight in 2.22.0, six in 2.21.0, four before), balanced by the per-file times in `test/shard-weights.json`; a file listed there under `alone` gets a shard of its own (2.24.0). Each coverage shard has a 20-minute job limit, except the `alone` shard (shard 1), which has 25 minutes (owner decision 2026-11-16: its one test took 1,025 s under coverage on CI against about 40 s without). The required `verify (lts/*)` job merges their reports (`vitest --merge-reports --coverage`) and enforces the thresholds in `vitest.config.ts` on the whole suite. Locally, `npm run coverage` runs the whole suite and enforces them directly.
+The scan and the other required checks run on pull requests and on merge-queue entries; a push to `main` runs only the `main smoke` job (build, hash-lock tests and the packed-consumer acceptance). Each Node.js line's `verify (<line>)` check passes when its `test (<line>, 1/3)`, `test (<line>, 2/3)`, `test (<line>, 3/3)` and `test (<line>, package)` parts pass (two test parts before 2.23.0). The coverage gate runs as ten parallel `coverage shard (k/10)` jobs (eight in 2.22.0, six in 2.21.0, four before), balanced by the per-file times in `test/shard-weights.json`; a file listed there under `alone` gets a shard of its own (2.24.0). Each coverage shard has a 20-minute job limit. In 2.25.0 the `alone` shard (shard 1) had 25 minutes (owner decision 2026-11-16: its one test took 1,025 s under coverage on CI against about 40 s without); 2.26.0 restores 20 minutes for it ([#645](https://github.com/Photivra/engine/issues/645): the display view's reconstruct chain keeps its results by their exact inputs, and that file took 35 s under coverage on a local run, against 415 s before on the same machine). The required `verify (lts/*)` job merges their reports (`vitest --merge-reports --coverage`) and enforces the thresholds in `vitest.config.ts` on the whole suite. Locally, `npm run coverage` runs the whole suite and enforces them directly.
 
 CI tests a tree once per runtime ([#510](https://github.com/Photivra/engine/issues/510)). A job that passes uploads a proof artifact named by the tree, the job and the Node.js release (`.github/ci-proof.mjs`). A merge-queue entry, a push to `main` or the publish workflow's coverage gate skips a job's work when that proof exists for its exact tree and runtime from a run of this repository; a pull request never skips on a proof. A change that touches only Markdown no test reads (`.github/ci-scope.mjs`) skips the test suite and coverage and keeps the static, documentation, packed-consumer, package and licence gates. `--shard=k/n` splits files by the measured times in `test/shard-weights.json`; re-record them from the `coverage-timings-k` artifacts of a CI run with `node scripts/record-shard-weights.mjs <reports> --source "<run>"`.
 

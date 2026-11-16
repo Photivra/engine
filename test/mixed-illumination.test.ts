@@ -32,7 +32,7 @@ const pixel = (samples: ArrayLike<number>, width: number, x: number, y: number):
 describe("mixed illumination (#550)", () => {
   it("validates the option and refuses what it cannot light", async () => {
     const bad: [unknown, RegExp][] = [
-      [{ sources: [{ illuminant: DAY, illuminanceLux: 100 }] }, /two or more sources, or a point source/],
+      [{ sources: [{ illuminant: DAY, illuminanceLux: 100 }] }, /two or more sources, a point source or a flash/],
       [{ sources: [{ illuminant: DAY, illuminanceLux: 100 }], blend: { kind: "radial", radius: 1 }, points: [FLASH] }, /blend needs two or more sources/],
       [{ points: [{ ...FLASH, position: { xM: 0, yM: 0, heightM: 0 } }] }, /heightM must be positive/],
       [{ points: [{ ...FLASH, intensity: { candela: 10, illuminanceLux: 10, distanceM: 1 } }] }, /not both/],

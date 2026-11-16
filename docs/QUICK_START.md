@@ -339,6 +339,11 @@ const capture = await simulateCapture({ scene: { preset: "siemens-star" }, lens:
 console.log(capture.scene.chart?.frameWidthFraction);
 ```
 
+**Thin lens only, smaller bundle (2.26.0, #646).** `calculateThinLensSubjectDistanceForFraming` and
+`calculateThinLensChartFraming` take the same input without `catalogue` and `sensorProfile` and return the same
+result (tested equal). Their module imports neither the lens catalogue nor the sensor profiles, so an application
+that only frames with a thin lens bundles about 5.8 KB gzip instead of the full functions' 12.5 KB (25.7 KB in 2.25.0).
+
 ### Chart coverage at any distance (2.5)
 
 `calculateChartFraming({ sensor, focalLengthMm | equivalentFocalLengthMm, chart, subjectDistanceM, focusDistanceM? })`
@@ -1331,8 +1336,10 @@ The optics options feed only what the environment site contract accepts:
         along each scene point's ray instead of its axial depth. The engine has no pupil model for these projections
         (`lens.pupilSampling` refuses them; a traced reference waits for the 3D ray provider, #358), so a real lens may lie
         anywhere between the two.
-    - **Refused:** camera rotation with `motion.shutter: "rolling"` (each row has its own instants, so each row would
-      need its own image of the 2R + 1 rows the disc reaches), and a vignetting or distortion profile that does not
+    - **Rolling shutter (#640):** with camera rotation each row has its own instants, so the provider keeps one row's image
+      per instant (bands of one row; the RAW equals the environment PSF quadrature's with the same disc). A kernel above 64
+      sites radius (whole-frame run lattices, one per instant) and `motion.subject` with a rolling shutter stay refused.
+    - **Refused:** a vignetting or distortion profile that does not
       reach the frame's corners plus the kernel radius (the message names the reach). `lens.pupilSampling` stays refused
       with projection and distortion. `simulateDisplayView` and `prepareDisplayView` render these combinations too (#563),
       with the same image-space disc and the same refusals ([Display view](#display-view)).
@@ -2338,7 +2345,7 @@ through the same mapping, field factor and rotation (within 1e-9 relative per si
 `gpu: "auto"` the view falls back labelled `unsupported-on-backend`. They cost more than the rectilinear view, most for
 distortion (the inverse distortion is solved per point) and rotation (one scene point per temporal midpoint)
 ([DISPLAY_VIEW.md](https://github.com/Photivra/engine/blob/main/docs/DISPLAY_VIEW.md#lens-projection-distortion-vignetting-and-rotation)).
-Rotation with a rolling shutter stays refused.
+From #640 rotation with a rolling shutter renders too: each site reads the scene at its own window's instants.
 
 **Options.** `view.width` and `view.height` (1 to the capture's output size), `view.samplesPerAxis` (1–32),
 `view.format` (`"srgb-8"` default or `"srgb-16"`) and `view.region` (a rectangle in display pixels, byte-identical to
@@ -2398,8 +2405,10 @@ options were ignored. The whole-frame views of [Whole-frame views](#whole-frame-
 
 ## Not available
 
-The facade offers no atmospheric haze or polarizer (see [Optics](#optics)), flash, video, HDR brackets
-or processing operators. Those APIs are available directly. Real camera and lens presets are not
+The facade offers no atmospheric haze or polarizer (see [Optics](#optics)), video, HDR brackets
+or processing operators. Those APIs are available directly. A flash is `illumination.flash` (2.26.0,
+[Mixed lighting](https://github.com/Photivra/engine/blob/main/docs/MIXED_ILLUMINATION.md#flash)); TTL flash, high-speed sync and a flash under camera or
+subject motion are not in the facade. Real camera and lens presets are not
 provided, for rights reasons.
 
 ## Sources

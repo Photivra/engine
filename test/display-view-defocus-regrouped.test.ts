@@ -10,6 +10,8 @@
  * - A region of a prepared view equals the same pixels of the whole view, bit for bit.
  * - A small disc beside a wide diffraction kernel keeps the combined kernels (the regrouped path would cost more).
  * - Cost: on fine material detail a 40 × 20-pixel region takes under half the exact method's time (relative, one process).
+ * - #642: the choice is made per render from its cost, including the region's size: a region of a few pixels keeps the combined
+ *   kernels (equal to a regrouped render's same pixels to rounding), and costs about what the exact method costs.
  */
 import { describe, expect, it } from "vitest";
 import { simulateDisplayViewWithInternals } from "../src/facade/simulate-display-view.js";
@@ -29,7 +31,9 @@ const request = (fNumber: number, focusDistanceM: number, fast?: boolean): Simul
   output: { width: W, height: H, maximumPixels: W * H * 2, demosaic: "ahd" },
   lens: { prime: 50, fNumber, focusDistanceM, diffraction: "circular-aperture", defocus: { model: "geometric-disc" } },
   ...(fast === undefined ? {} : { fast }) });
-const VIEW = { width: 750, height: 500, samplesPerAxis: 1, region: { x: 369, y: 247, width: 12, height: 6 } };
+// #642: a region that takes the regrouped path (a few pixels keep the combined kernels; see below).
+const VIEW = { width: 750, height: 500, samplesPerAxis: 2, region: { x: 355, y: 240, width: 40, height: 20 } };
+const TINY = { width: 750, height: 500, samplesPerAxis: 1, region: { x: 371, y: 248, width: 4, height: 2 } };
 const defocusOf = (result: { assumptions: readonly { id: string; value: unknown }[] }): Record<string, unknown> =>
   result.assumptions.find((a) => a.id === "view.defocus")!.value as Record<string, unknown>;
 
@@ -54,24 +58,52 @@ describe("display view: regrouped defocus (#612)", () => {
   }, scaledTimeout(600_000));
 
   it("renders a region of a prepared view bit for bit as the same pixels of the whole view", async () => {
+    // #642: both renders take the regrouped path (each region costs less that way), so they share every site's value.
     const view = await prepareDisplayView(request(2.8, 1.4), { gpu: "off" });
-    const whole = await view.render({ width: 750, height: 500, samplesPerAxis: 1, region: { x: 369, y: 247, width: 8, height: 4 } });
-    const part = await view.render({ width: 750, height: 500, samplesPerAxis: 1, region: { x: 371, y: 248, width: 4, height: 2 } });
-    for (let y = 0; y < 2; y++) for (let x = 0; x < 4; x++) for (let c = 0; c < 3; c++)
-      expect(part.image.samples[(y * 4 + x) * 3 + c]).toBe(whole.image.samples[((y + 1) * 8 + x + 2) * 3 + c]);
+    const whole = await view.render({ width: 750, height: 500, samplesPerAxis: 2, region: { x: 350, y: 236, width: 60, height: 30 } });
+    const part = await view.render({ width: 750, height: 500, samplesPerAxis: 2, region: { x: 360, y: 242, width: 40, height: 20 } });
+    expect(defocusOf(whole).convolution).toBe("runs");
+    expect(defocusOf(part).convolution).toBe("runs");
+    for (let y = 0; y < 20; y++) for (let x = 0; x < 40; x++) for (let c = 0; c < 3; c++)
+      expect(part.image.samples[(y * 40 + x) * 3 + c]).toBe(whole.image.samples[((y + 6) * 60 + x + 10) * 3 + c]);
   }, scaledTimeout(600_000));
 
   it("keeps the combined kernels for a small disc beside a wide diffraction kernel", async () => {
-    const small = await simulateDisplayViewWithInternals(request(16, 2.5), { ...VIEW, region: { x: 370, y: 248, width: 4, height: 2 } });
+    const small = await simulateDisplayViewWithInternals(request(16, 2.5), VIEW);
     const value = defocusOf(small.result);
     expect(value.convolution).toBeUndefined();
     expect((2 * (value.kernelRadiusSites as number) + 1) ** 2).toBeLessThanOrEqual(4 * (2 * (value.diffractionKernelRadiusSites as number) + 1) ** 2);
   }, scaledTimeout(600_000));
 
+  it("keeps the combined kernels for a region of a few pixels, equal to the regrouped render's pixels to rounding (#642)", async () => {
+    const view = await prepareDisplayView(request(2.8, 1.4), { gpu: "off" });
+    const tiny = await view.render(TINY);
+    const around = await view.render({ ...TINY, region: { x: 355, y: 240, width: 40, height: 20 } });
+    expect(defocusOf(tiny).convolution).toBeUndefined();
+    expect(defocusOf(around).convolution).toBe("runs");
+    // Same seed and sample positions: the samples agree within one code (the same sums regrouped).
+    let codes = 0;
+    for (let y = 0; y < 2; y++) for (let x = 0; x < 4; x++) for (let c = 0; c < 3; c++)
+      codes = Math.max(codes, Math.abs(tiny.image.samples[(y * 4 + x) * 3 + c]! - around.image.samples[((y + 8) * 40 + x + 16) * 3 + c]!));
+    expect(codes).toBeLessThanOrEqual(1);
+  }, scaledTimeout(600_000));
+
+  it("renders a region of a few pixels in about the exact method's time (#642)", async () => {
+    // 2.25.0 took the regrouped path for any region: its in-focus tiles around a 4 × 2 region cost 8–15 times the exact method's
+    // combined taps (measured, two demosaics, one process, machine loaded). The bound sits between that and the fixed code's ~1.
+    const time = async (r: SimulateCaptureOptions): Promise<number> => {
+      let best = Infinity;
+      for (let i = 0; i < 3; i++) { const t0 = performance.now(); await simulateDisplayViewWithInternals(r, TINY); best = Math.min(best, performance.now() - t0); }
+      return best;
+    };
+    await time(request(2.8, 1.4));
+    const fastMs = await time(request(2.8, 1.4)), exactMs = await time(request(2.8, 1.4, false));
+    expect(fastMs / exactMs).toBeLessThan(3);
+  }, scaledTimeout(600_000));
+
   it("costs under half the exact method on fine detail", async () => {
     // A region of 40 × 20 display pixels, 2 × 2 samples: the regrouped path's in-focus tiles (all sites around the region) cost less
-    // than the combined taps of the sampled sites. A tiny cold region can cost more (the tiles are fixed 128-site squares, kept per
-    // prepared view); the choice is made per prepared view, so that regions stay bit-identical to the whole view.
+    // than the combined taps of the sampled sites. #642: a region of a few pixels keeps the combined kernels (test above).
     const region = { width: 750, height: 500, samplesPerAxis: 2, region: { x: 355, y: 240, width: 40, height: 20 } };
     const time = async (r: SimulateCaptureOptions): Promise<number> => { const t0 = performance.now(); await simulateDisplayViewWithInternals(r, region); return performance.now() - t0; };
     const fastMs = await time(request(2.8, 1.4)), exactMs = await time(request(2.8, 1.4, false));

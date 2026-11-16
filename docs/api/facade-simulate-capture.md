@@ -566,6 +566,13 @@ export interface SimulateCaptureMotion {
    * (and optionally rotating about the optical axis) during the exposure. Off by default (a still scene).
    */
   subject?: SimulateCaptureSubjectMotion;
+  /**
+   * #641: hand shake, a bounded, seeded camera-rotation trajectory (`createHandShakeTrajectory`, docs/USAGE.md, "Hand shake"): on pitch
+   * and yaw, sway near 0.7–5.6 Hz and tremor at 8–12 Hz, 4.39 °/s RMS, levelling off near one degree instead of turning without
+   * bound as a constant rotation does. Added to `angularVelocityRadPerSec` (a pan) when both are given. `seed` (integer, default 0)
+   * picks the trajectory; `stabilizationStops` (0–10, default 0) scales it by 2^−stops. Off by default (a still camera).
+   */
+  handheld?: HandShakeOptions;
 }
 ```
 

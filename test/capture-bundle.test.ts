@@ -85,8 +85,8 @@ describe("capture-only bundles", () => {
     // the cosine and sine of the shaped defocus kernel's blade and circle vertices (lens.defocus bokeh options, #553).
     // 2.22.0 (#594): portableExp and portablePow (about 1 KB of source) are in the first load too, but only because the on-demand
     // Quality kit (diffraction, defocus extras) imports them from the chunk that portable-math shares with the capture; the
-    // capture's own code does not call them.
-    expect([...(modules.get("core/portable-math.ts") ?? [])].sort()).toEqual(["equalWithinUlps", "hypot3", "portableAsin", "portableCosTwoPi", "portableExp", "portableHypot",
+    // capture's own code does not call them. 2.26.0 (#641): portableExp2 likewise, for the opt-in kit's hand-shake trajectory.
+    expect([...(modules.get("core/portable-math.ts") ?? [])].sort()).toEqual(["equalWithinUlps", "hypot3", "portableAsin", "portableCosTwoPi", "portableExp", "portableExp2", "portableHypot",
       "portablePow", "portableSinTwoPi"]);
   }, testTimeout(60_000));
 
@@ -175,20 +175,37 @@ const QUALITY_ON_DEMAND_MODULES = ["gpu/display-view-quality-gpu.ts", "gpu/wgsl-
 /** The modules each CPU kit holds (#594): none may reach the fast worker's chunks. */
 const CPU_QUALITY_KIT_MODULES = ["facade/quality-kit.ts", "optics/diffraction-psf-profile.ts", "optics/site-diffraction-kernel.ts", "optics/lens-psf-kernels.ts", "processing/demosaic.ts",
   "facade/defocus-bokeh-zones.ts", "facade/large-defocus-lattice.ts", "facade/defocus-image-space-provider.ts", "facade/display-view-rendering.ts", "color/neighbor-highlight-reconstruction.ts"];
-// #628: the display view's lens corrections and sharpening (display-view-detail.ts) are opt-in features too.
-const OPT_IN_KIT_MODULES = ["facade/opt-in-kit.ts", "facade/catalogue-lens-optics.ts", "equipment/sensor-profile-body.ts", "facade/lens-filter.ts", "facade/mixed-illumination.ts", "motion/subject-motion.ts",
-  "facade/display-view-detail.ts"];
+// #628: the display view's lens corrections and sharpening (display-view-detail.ts) are opt-in features too; #641: motion.handheld (hand-shake.ts);
+// #646: the sensor-profile record and parser (sensor-profile-record.ts).
+const OPT_IN_KIT_MODULES = ["facade/opt-in-kit.ts", "facade/catalogue-lens-optics.ts", "equipment/sensor-profile-body.ts", "equipment/sensor-profile-record.ts", "facade/lens-filter.ts", "facade/mixed-illumination.ts", "motion/subject-motion.ts",
+  "facade/display-view-detail.ts", "motion/hand-shake.ts"];
+/**
+ * 2.26.0 (owner decision 2026-11-16, "Move export code out"): the JPEG and PNG writers and their text metadata are the export kit
+ * (src/facade/export-kit.ts), one chunk that loads only for output.format "jpeg" or "png". It is its own measured row ("export"),
+ * not part of the on-demand Quality row, with its own limit: its measurement rounded up to the next 100 B.
+ */
+const EXPORT_KIT_MODULES = ["facade/export-kit.ts", "output/print-jpeg.ts", "capture/export-jpeg.ts", "output/png-encoder.ts", "output/text-metadata-writers.ts"];
+const isExport = (chunk: Bundle["chunks"][number]): boolean => chunk.modules.has("facade/export-kit.ts");
 const isOnDemand = (chunk: Bundle["chunks"][number]): boolean => QUALITY_ON_DEMAND_MODULES.some((id) => chunk.modules.has(id));
 describe("the app's capture-worker shape", () => {
-  it("keeps the fast worker and the on-demand Quality chunks within their measured sizes", async () => {
+  it("keeps the fast worker, the on-demand Quality chunks and the export kit within their measured sizes", async () => {
     const worker = await bundle(WORKER_SHAPE);
-    const onDemand = worker.chunks.filter(isOnDemand), fast = worker.chunks.filter((c) => !isOnDemand(c));
+    const onDemand = worker.chunks.filter(isOnDemand), exportKit = worker.chunks.filter(isExport), fast = worker.chunks.filter((c) => !isOnDemand(c) && !isExport(c));
     const sum = (chunks: Bundle["chunks"]): number => chunks.reduce((total, c) => total + c.gzip, 0);
     // Owner decision 2026-11-16 ("Raise limits slightly"), for 2.25.0's named-lens work (#628-#633): measured
     // 338,815 B fast and 47,358 B on demand, limits set to those rounded up to the next 100 B.
     expect(sum(fast)).toBeLessThanOrEqual(338_900);
-    expect(sum(onDemand)).toBeLessThanOrEqual(47_400);
-    expect(sum(fast) + sum(onDemand)).toBe(worker.totalGzip);
+    // 2.26.0 (owner decision 2026-11-16, "Raise to 49,400 B"): the on-demand row measured 49,382 B on release-2.26.0 after the
+    // export kit moved out (flash #639 and hand-shake #641 in the opt-in kit, the record module from #646), limit rounded up to the
+    // next 100 B. The fast limit stays 338,900 B.
+    expect(sum(onDemand)).toBeLessThanOrEqual(49_400);
+    // 2.26.0 (owner decision 2026-11-16, "Move export code out"): the export kit's row, measured at 10,403 B on release-2.26.0 (the JPEG
+    // and PNG encoders, the export JPEG coder and the text-metadata writers), limit rounded up to the next 100 B. With it the fast row
+    // measured 331,482 B (340,300 B before the move: the split costs 1,585 B in all, the kit compressing without the entry's dictionary
+    // and the shared bindings it imports), and the on-demand row 49,382 B, over its limit; that overage is an open owner decision.
+    expect(exportKit).toHaveLength(1);
+    expect(sum(exportKit)).toBeLessThanOrEqual(10_500);
+    expect(sum(fast) + sum(onDemand) + sum(exportKit)).toBe(worker.totalGzip);
     // #581: the image-plane scene's module, lattice data and GPU module are reachable only through prepareImagePlaneScenes().
     expect([...worker.lazyModules, ...worker.modules.keys()].filter((id) => /image-plane(?!-support)/u.test(id))).toEqual([]);
     // #165: the C2PA export writers load only when an application imports them, never in the capture worker.
@@ -211,9 +228,9 @@ describe("the app's capture-worker shape", () => {
 
   // #594 (owner, 2026-11-10): one Quality kit and one opt-in kit, each one chunk that only the entry's dynamic import reaches; the
   // fast worker never imports their modules statically.
-  it("loads the CPU Quality kit and the opt-in kit only on demand, each as one chunk", async () => {
+  it("loads the CPU Quality kit, the opt-in kit and (2.26.0) the export kit only on demand, each as one chunk", async () => {
     const worker = await bundle(WORKER_SHAPE);
-    for (const modules of [CPU_QUALITY_KIT_MODULES, OPT_IN_KIT_MODULES]) {
+    for (const modules of [CPU_QUALITY_KIT_MODULES, OPT_IN_KIT_MODULES, EXPORT_KIT_MODULES]) {
       const holders = worker.chunks.filter((c) => modules.some((id) => c.modules.has(id)));
       expect(holders).toHaveLength(1);
       const chunk = holders[0]!;

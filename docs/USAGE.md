@@ -4011,6 +4011,41 @@ You may supply an optional committed `ResolvedReleaseFrame` from [release sequen
 
 Generic pre-flash TTL (through-the-lens) power, with flash exposure compensation, is solved separately by `resolveTtlFlashExposure()`, and applied to the manual profile with `createTtlScaledFlashProfile()`. Outside the manual-flash contract: FE/FV lock, recycle/burst/thermal limits, red-eye pre-flashes, modelling lamps, AF-assist and simulation of wireless protocols.
 
+## A flash in a capture
+
+`simulateCapture`, `simulateIdealReference`, `simulateDisplayView` and `prepareDisplayView` take `illumination.flash` (2.26.0, #639):
+an impulse light from a point whose energy does not depend on the shutter time, set by a guide number or by its energy, with
+inverse-square falloff, alone or mixed with ambient `sources` and `points`. The full model, its sources and its limits are in
+[Mixed lighting, Flash](https://github.com/Photivra/engine/blob/main/docs/MIXED_ILLUMINATION.md#flash).
+
+- **Output.** `output: { guideNumberM }` (at ISO 100, metres), `{ candelaSeconds }` (time-integrated luminous intensity Q) or
+  `{ luxSeconds, distanceM }` (luminous exposure at a distance, Q = H·r²); `powerFraction` (0, 1] is the manual power (Q·p, guide
+  number G·√p). The guide number is distance × f-number at ISO 100: Q = 10π·G²/(0.65·0.18·100) cd·s (CIPA DC-004-2020 standard
+  exposure of the facade's 18 % grey card), so `exposure.greyCardDeviationStops` is 0 at d·N = G.
+- **Light.** Each plane point receives H = Q·cos θ/d² lx·s whatever the shutter time; every path integrates it per site as a point
+  source of intensity Q/T over the exposure window T. Twice the distance gives a quarter of the exposure; with the flash alone the
+  shutter time changes nothing; with ambient light a longer shutter adds only the ambient part (slow sync).
+- **Exposure.** The meter reads ambient plus flash. Manual and shutter priority know the shutter; aperture priority and program find
+  the shutter whose own reading resolves to it (bisection on ln t over the body's shutter range). With the flash alone (no ambient
+  reading) every shutter gives the same exposure, so they take 1/125 s within the body's range and resolve the rest at it
+  (`exposure.flashShutter`).
+- **Default position and spectrum.** On the optical axis at the camera; a Planckian 5500 K stand-in (not a measured flash tube).
+- **Refused.** Camera rotation or `motion.subject` with a flash, and a rolling shutter shorter than its readout skew.
+
+```ts
+import { simulateCapture } from "@photivra/engine";
+
+// Guide number 16 at ISO 100: a grey card at 2 m is correctly exposed at f/8 (16 = 2 × 8), at any shutter.
+for (const shutterSeconds of [1 / 250, 1 / 30]) {
+  const capture = await simulateCapture({ scene: { preset: "uniform" }, subjectDistanceM: 2, lens: { fNumber: 8 }, output: { width: 16, height: 16 },
+    illumination: { flash: { output: { guideNumberM: 16 } } }, exposure: { mode: "manual", iso: 100, shutterSeconds } });
+  console.log(capture.exposure.greyCardDeviationStops); // 0 (up to rounding)
+}
+```
+
+The lower-level manual-flash, sync, TTL and high-speed-sync contracts below ([Manual flash and ordinary sync](#manual-flash-and-ordinary-sync))
+remain separate building blocks; the capture's flash does not run them.
+
 ## Capture orientation, active area, and output geometry
 
 Use `resolveCaptureGeometry()` to keep four things separate: the physical sensor, the active capture area, how the camera is physically held (orientation), and the final digital output geometry:
@@ -7156,7 +7191,7 @@ See [Local POC Simulation API](https://github.com/Photivra/engine/blob/main/docs
 - 2.24.0 (#607): the import also returns `noiseProfile` (NoiseProfile per color plane) and `exif` (ISO with its source tag, exposure time, f-number, focal length, CompositeImage and SubjectArea). `calculateDngRawClipping` counts clipped sites per color plane; `estimateDngRawNoise` measures the RAW noise (σ at a brightness; it may read high on fine texture); `simulateDngRawWhatIf` makes the RAW of the same scene with less light or a higher ISO within the photo's own conversion-gain mode, seeded, and refuses with reasons (`assessDngRawWhatIf` lists them first) any file or request it cannot show accurately; `developDngImage` develops an imported DNG to sRGB with a chosen white balance and push. A brighter version is only ever "brightened in editing" (the same noise). From 2.25.0 (#622), `developDngImage(raw, { size: "half" })` develops a half-size on-screen preview: fast bins each 2 × 2 CFA repeat into one pixel, `fast: false` averages the exact full-size development; save at full size.
 - `serializePngImage` writes an 8- or 16-bit RGB PNG with an sRGB, ICC or cICP (Display P3, BT.2020; sRGB, BT.709 or linear transfer) colour description, and optional mDCV/cLLI display metadata. PQ and HLG are not part of 2.0 (see the patent review in `THIRD_PARTY.md`).
 - `setJpegExifCaptureSettings(jpeg, settings)` (2.25.0, #621) replaces a JPEG's Exif block with one holding only the allowlisted capture settings (exposure time, f-number, ISO, focal length, 35 mm focal length, exposure bias, white balance, date taken, Software, Orientation); nothing from an earlier Exif block is carried over and the image data are unchanged ([JPEG Exif writer](https://github.com/Photivra/engine/blob/main/docs/IMPORT_AND_PNG.md#writing-capture-settings-into-a-jpegs-exif-block-2250)).
-- `parsePhotoMetadata` (2.25.0) reads a JPEG or HEIC/HEIF file's headers: the Exif capture settings (the DNG import's `exif` fields, resolved by the same code), make, model, Software, Orientation and the image size, and the extra images and annotations it declares (thumbnail, MPF entries, HEIF auxiliary images such as depth, alpha, mattes and gain maps, tone maps, XMP gain-map and depth markers) by type and size. No pixels are decoded; maker notes and GPS data are never read. The DNG import (schema 1.3.0) also returns `software`, `enhancedImages` and, in `exif`, FocalLengthIn35mmFilm, DigitalZoomRatio, the focal-plane resolution and the pixel dimensions.
+- `parsePhotoMetadata` (2.25.0) reads a JPEG, HEIC/HEIF or (2.26.0, #647) PNG file's headers (a PNG's IHDR and eXIf chunk; no chunk data is decompressed): the Exif capture settings (the DNG import's `exif` fields, resolved by the same code), make, model, Software, Orientation and the image size, and the extra images and annotations it declares (thumbnail, MPF entries, HEIF auxiliary images such as depth, alpha, mattes and gain maps, tone maps, XMP gain-map and depth markers) by type and size. No pixels are decoded; maker notes and GPS data are never read. The DNG import (schema 1.3.0) also returns `software`, `enhancedImages` and, in `exif`, FocalLengthIn35mmFilm, DigitalZoomRatio, the focal-plane resolution and the pixel dimensions.
 
 - `serializeRewrittenDng` (2.25.0, #620) writes a DNG from a DNG, optionally with an edited white balance, baseline exposure, default crop or orientation. Only allowlisted tags are written (`DNG_REWRITE_ALLOWED_TAGS`): the raw data (copied byte for byte), the development tags and the Exif capture settings; GPS data, serial numbers, the owner's name, maker notes, XMP and the other personal fields are left out.
 
@@ -8124,10 +8159,11 @@ region that have a clipped contributing site. `simulateCapture` counts the same 
 are equal where every site is far from white. Counts of regions that tile a view add up to the whole view's count. See
 [Highlight count](https://github.com/Photivra/engine/blob/main/docs/DISPLAY_VIEW.md#highlight-count-533).
 
-From #563 the view renders `lens.projection`, `lens.distortion`, `lens.vignetting` and camera rotation (global
-shutter), in focus and with `lens.defocus` out of focus, with each real site's expected electrons as the capture's. These
-requests run on the CPU (`gpu: "auto"` falls back labelled `unsupported-on-backend`); rotation with a rolling shutter is
-refused. See [Lens projection, distortion, vignetting and rotation](https://github.com/Photivra/engine/blob/main/docs/DISPLAY_VIEW.md#lens-projection-distortion-vignetting-and-rotation).
+From #563 the view renders `lens.projection`, `lens.distortion`, `lens.vignetting` and camera rotation, in focus and with
+`lens.defocus` out of focus, with each real site's expected electrons as the capture's. These requests run on the CPU
+(`gpu: "auto"` falls back labelled `unsupported-on-backend`). From #640 rotation also renders under `motion.shutter: "rolling"`:
+each site reads the scene at its own exposure window's instants, as the capture does (a defocus kernel above 64 sites radius
+is refused there, in the view and the capture). See [Lens projection, distortion, vignetting and rotation](https://github.com/Photivra/engine/blob/main/docs/DISPLAY_VIEW.md#lens-projection-distortion-vignetting-and-rotation).
 
 ```ts
 import { simulateDisplayView } from "@photivra/engine";
@@ -8290,6 +8326,46 @@ import { simulateCapture } from "@photivra/engine";
 
 const moving = await simulateCapture({ scene: { preset: "slanted-edge" }, motion: { subject: { velocityMPerSec: { x: 0.5 } } }, output: { width: 8, height: 8 } });
 console.log(moving.assumptions.find((a) => a.id === "motion.subject")?.value);
+```
+
+#### Hand shake
+
+`motion.handheld` (#641) turns the camera along a bounded, seeded hand-shake trajectory instead of at a constant rate. On
+pitch and yaw the angular displacement from the exposure start is a sum of sinusoids,
+θ(t) = Σ a·(sin 2π(f·t + φ) − sin 2πφ): four sway components near 0.7, 1.4, 2.8 and 5.6 Hz (each jittered by up to a quarter
+octave) and one tremor component at 8–12 Hz. Roll is zero. The amplitudes give 4.39 °/s RMS in magnitude, the engine's
+generic handheld rate (`GENERIC_HANDHELD_ANGULAR_VELOCITY_RAD_PER_SEC`). The trajectory:
+
+- starts at 0 and never exceeds 2·Σa on either axis (`boundRad`, under 3° for any seed);
+- grows as the RMS rate times t for short exposures (within about 10 % up to 100 ms), then levels off near 1° (RMS over the
+  phases, `calculateHandShakeRmsDisplacement`); a constant 4.39 °/s would turn the camera 132° in 30 s;
+- is the same for the same `seed` (an integer 0–4294967295, default 0) on every platform;
+- is scaled by 2^−`stabilizationStops` (0–10, default 0), so applications pass the stabilization rating instead of scaling the
+  engine's factor themselves.
+
+It adds to `motion.angularVelocityRadPerSec` when both are given (a pan with shake). Every render path applies it per site at
+each temporal midpoint, under a global or a rolling shutter, in the capture, its exports and the display view. Raise
+`sensor.temporalSampleCount` for long exposures: the tremor component needs several midpoints per cycle.
+
+What it rests on (all free to read): the 4.39 °/s rate and its linear range below about 100 ms (F. Xiao, J. Farrell,
+P. Catrysse, B. Wandell, Proc. SPIE 7250, 2009, from their gyroscope measurements in Proc. SPIE 6502, 2007); yaw and pitch
+dominant, the other axes negligible at about 20 focal lengths, and a stabilization rating in stops as a 2^N longer shutter at
+the same blur (CIPA DC-X011-2014, the public translation of CIPA's image-stabilization standard, §3-3-4, §4-5 and §6-3);
+physiological tremor at 8–12 Hz (J. H. McAuley, C. D. Marsden, Brain 123, 1545–1567, 2000); and rotations of a few tenths
+of a degree in recorded 1/3 s handheld exposures (R. Köhler et al., "Recording and playback of camera shake", ECCV 2012).
+The split of the motion over the components and the level it settles at are modelling choices that meet these points, not
+measurements: a heavier camera, another grip or another person moves differently. The trajectory keeps Xiao's phone rate,
+so its 1/3 s displacement (about 1° RMS) is larger than Köhler's compact-camera example. Scaling by 2^−stops matches CIPA's
+definition while the motion is linear and approximates it beyond.
+
+```ts
+import { calculateHandShakeAngularDisplacement, createHandShakeTrajectory, simulateCapture } from "@photivra/engine";
+
+const shaken = await simulateCapture({ scene: { preset: "siemens-star" }, exposure: { mode: "manual", shutterSeconds: 1 / 4, iso: 100 },
+  motion: { handheld: { seed: 3, stabilizationStops: 2 } }, sensor: { temporalSampleCount: 32 }, output: { width: 16, height: 12 } });
+console.log(shaken.assumptions.find((a) => a.id === "motion.handheld")?.value);
+const trajectory = createHandShakeTrajectory({ seed: 3, stabilizationStops: 2 });
+console.log(trajectory.boundRad, calculateHandShakeAngularDisplacement({ trajectory, timeSeconds: 0.125 }).value);
 ```
 
 ## Equivalent f-number, sensor area and blur as a share of the frame

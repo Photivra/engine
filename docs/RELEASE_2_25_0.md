@@ -1,6 +1,6 @@
 # 2.25.0 release
 
-> **Prepared November 16, 2026; not published.** npm publishing runs only from the owner's `v2.25.0` tag ([Release gates](#release-gates)).
+> **Published November 16, 2026 (17:47 UTC).** The `v2.25.0` tag is on `f323ebb` (`main` after #634 and #644), after `main` CI on that commit had passed; npm publishing ran from the tag ([Publication](#publication)).
 
 ## At a glance
 
@@ -125,13 +125,28 @@ On this tree (Apple M5 Pro, Node.js 26.13.1, a heavily loaded machine, load aver
 - [x] Version surfaces aligned at 2.25.0 (`npm run release:prepare -- 2.25.0`). Root exports 2,075.
 - [x] 2.24.0 recorded as published ([2.24.0 release record](RELEASE_2_24_0.md#publication)).
 - [x] The worker rows measured ([Sizes](#sizes)); limits raised by owner decision (2026-11-16).
-- [ ] Green CI on this pull request (the full suite and coverage run there), then on `main` after merge.
-- [ ] The owner's approval to tag `v2.25.0`.
-- [ ] The `v2.25.0` tag on the `main` commit that merges this record.
+- [x] Green CI on this pull request, then on `main` ([CI run 43916774347](https://github.com/Photivra/engine/actions/runs/43916774347) on `f323ebb`).
+- [x] The owner's approval to tag `v2.25.0`.
+- [x] The `v2.25.0` tag on `f323ebb` ([Publication](#publication)).
+- [x] After publication:
+  - [x] npm version, dist-tag, integrity and provenance verified;
+  - [x] GitHub release notes published;
+  - [x] publication dates updated in `CHANGELOG.md`, `SECURITY.md`, `docs/DEVELOPERS.md` and this record (in the 2.26.0 preparation).
 - [ ] After publication:
   - [ ] npm version, dist-tag, integrity and provenance verified;
   - [ ] GitHub release notes published;
   - [ ] publication dates updated in `CHANGELOG.md`, `README.md`, `SECURITY.md`, `docs/DEVELOPERS.md` and this record.
+
+## Publication
+
+| Fact | Value |
+| --- | --- |
+| Tag | `v2.25.0` (annotated, `3430151`) → `f323ebb3684fa8c5ccdb152a0236c6b96cb61847` (#644 on `main` after #634), after `main` CI on that commit passed ([CI run 43916774347](https://github.com/Photivra/engine/actions/runs/43916774347); WebGPU [43916775631](https://github.com/Photivra/engine/actions/runs/43916775631)) |
+| Publish workflow | [Publish npm run 43917325798](https://github.com/Photivra/engine/actions/runs/43917325798): passed, started 17:42:15 UTC |
+| npm | `@photivra/engine@2.25.0`, dist-tag `latest`, registry time 17:47:42 UTC, November 16, 2026 |
+| Integrity | `sha512-sfc94fz9FMCViZqAsBiV3ZU7XEUm0egLsb1G7jjZ4ImyI8BXvlRH6MbOQW9nkcXjv6OS1bXOCoJRAMLILzMVGQ==` (shasum `50177dae8fad2b0035625af55abb88e028c4ca37`, 1,211 files) |
+| Provenance | The registry lists an attestation (SLSA v1) for 2.25.0 |
+| GitHub release | [`v2.25.0`](https://github.com/Photivra/engine/releases/tag/v2.25.0), published 17:45:33 UTC |
 
 ## For the owner
 

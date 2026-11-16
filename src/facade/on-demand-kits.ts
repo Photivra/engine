@@ -2,7 +2,7 @@
 
 /**
  * 2.22.0 (#594): loads the CPU on-demand code, once per realm: the Quality kit (src/facade/quality-kit.ts) and the opt-in kit
- * (src/facade/opt-in-kit.ts). A request loads a kit where it is parsed, before it uses any of its code, and then calls it
+ * (src/facade/opt-in-kit.ts), and (2.26.0) the export kit (src/facade/export-kit.ts). A request loads a kit where it is parsed, before it uses any of its code, and then calls it
  * synchronously, so results are those of a static import. Concurrent loads share one import; a failed load is not remembered,
  * so the next request (or `prepareQualityPaths()`) tries again. A failed load rejects with `ImageKernelExecutionError` reason
  * `quality-code-unavailable`, as the GPU Quality code's does; the CPU has no other path, so the request fails with it.
@@ -12,6 +12,7 @@ import { ImageKernelExecutionError } from "../core/execution-error.js";
 
 export type QualityKit = typeof import("./quality-kit.js");
 export type OptInKit = typeof import("./opt-in-kit.js");
+export type ExportKit = typeof import("./export-kit.js");
 
 /** One kit's loader: `load()` imports it once (single flight, retried after a failure); `loaded` is the module once imported. */
 interface KitLoader<T> { loaded: T | undefined; load(): Promise<T> }
@@ -35,6 +36,8 @@ function kitLoader<T>(name: string, importer: () => Promise<T>): KitLoader<T> {
 export const qualityKit: KitLoader<QualityKit> = kitLoader("full-quality", () => import("./quality-kit.js"));
 /** The opt-in features' code (#594). */
 export const optInKit: KitLoader<OptInKit> = kitLoader("opt-in feature", () => import("./opt-in-kit.js"));
+/** 2.26.0 (owner decision 2026-11-16): the JPEG and PNG writers (src/facade/export-kit.ts). */
+export const exportKit: KitLoader<ExportKit> = kitLoader("JPEG and PNG export", () => import("./export-kit.js"));
 
 /** A kit the request loaded where it was parsed (an engine error if a code path uses it without loading it first). */
 export function loadedKit<T>(kit: KitLoader<T>): T {

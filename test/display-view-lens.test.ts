@@ -39,7 +39,14 @@ const inFocus: [string, SimulateCaptureOptions][] = [
   ["distortion and vignetting with lens.diffraction (PSF quadrature)", { ...base, scene: { preset: "dead-leaves" }, lens: { ...lens, fNumber: 11, distortion: barrel, vignetting,
     diffraction: "circular-aperture" }, sensor: { ...base.sensor, antiAliasing: { kind: "four-spot" } }, output: { width: 14, height: 10, demosaic: "ahd" } }],
   ["a radiance scene through a fisheye and vignetting", { ...base, scene: rings, lens: { ...lens, projection: "fisheye-equidistant", vignetting } } as SimulateCaptureOptions],
-  ["all of them", { ...base, lens: { ...lens, projection: "fisheye-equidistant", distortion: decentred, vignetting }, ...rotation, sensor: { ...base.sensor, ...quality, temporalSampleCount: 2 } }]
+  ["all of them", { ...base, lens: { ...lens, projection: "fisheye-equidistant", distortion: decentred, vignetting }, ...rotation, sensor: { ...base.sensor, ...quality, temporalSampleCount: 2 } }],
+  // #640: under a rolling shutter each site reads the scene at its own window's instants (a 4 ms skew over the frame).
+  ["camera rotation and a rolling shutter", { ...base, lens, motion: { ...rotation.motion, shutter: "rolling", rollingShutterSkewSeconds: 0.004 }, sensor: { ...base.sensor, temporalSampleCount: 3 } }],
+  ["rotation, a rolling shutter and lens.diffraction (PSF quadrature)", { ...base, scene: { preset: "dead-leaves" }, lens: { ...lens, fNumber: 11, vignetting, diffraction: "circular-aperture" },
+    motion: { ...rotation.motion, shutter: "rolling", rollingShutterSkewSeconds: 0.004 }, sensor: { ...base.sensor, temporalSampleCount: 2 }, output: { width: 14, height: 10 } }],
+  // #641: hand shake (a seeded trajectory) through the same rotation chain, under a rolling shutter.
+  ["hand shake and a rolling shutter", { ...base, lens: { ...lens, distortion: barrel }, exposure: { mode: "manual", shutterSeconds: 1 / 8, iso: 100 },
+    motion: { handheld: { seed: 7 }, shutter: "rolling", rollingShutterSkewSeconds: 0.02 }, sensor: { ...base.sensor, temporalSampleCount: 4 } }]
 ];
 
 type Signal = Awaited<ReturnType<typeof simulateDisplayViewWithInternals>>["signal"];
@@ -79,7 +86,10 @@ describe("display view with lens projection, distortion, vignetting and camera r
   const outOfFocus: [string, SimulateCaptureOptions][] = [
     ["vignetting and radial distortion", { ...base, lens: { ...lens, focusDistanceM: 1.8, defocus: { model: "geometric-disc" }, vignetting, distortion: barrel }, sensor: { ...base.sensor, ...quality } }],
     ["all of them and lens.diffraction", { ...base, lens: { ...lens, fNumber: 8, focusDistanceM: 1.8, defocus: { model: "geometric-disc" }, projection: "fisheye-equidistant", distortion: decentred,
-      vignetting, diffraction: "circular-aperture" }, ...rotation, sensor: { ...base.sensor, temporalSampleCount: 2 }, output: { width: 20, height: 14, demosaic: "ahd" } }]
+      vignetting, diffraction: "circular-aperture" }, ...rotation, sensor: { ...base.sensor, temporalSampleCount: 2 }, output: { width: 20, height: 14, demosaic: "ahd" } }],
+    // #640: rotation, a rolling shutter and the disc (the capture's image-space disc in bands of one row, each row at its own instants).
+    ["rotation, a rolling shutter and vignetting", { ...base, lens: { ...lens, focusDistanceM: 1.8, defocus: { model: "geometric-disc" }, vignetting },
+      motion: { ...rotation.motion, shutter: "rolling", rollingShutterSkewSeconds: 0.004 }, sensor: { ...base.sensor, ...quality, temporalSampleCount: 2 } }]
   ];
   for (const [name, options] of outOfFocus) {
     it("out of focus, with " + name + ": every site's expected electrons are those of the capture's image-space disc (#548)", async () => {
@@ -92,6 +102,7 @@ describe("display view with lens projection, distortion, vignetting and camera r
       const environment0 = capture.request.siteInput(0).environment as unknown as { lensFieldMapping?: unknown; motion: { angularVelocityRadPerSec: { pitch: number; yaw: number; roll: number } } };
       const l = options.lens as { focalLengthMm: number; focusDistanceM: number; diffraction?: string };
       const geometry = prepareDefocusImageSpaceGeometry({ focalLengthMm: l.focalLengthMm, focusDistanceM: l.focusDistanceM, angularVelocityRadPerSec: environment0.motion.angularVelocityRadPerSec,
+       
         ...(environment0.lensFieldMapping ? { lensMapping: prepareEnvironmentLensFieldMapping(environment0.lensFieldMapping) } : {}), vignetting });
       const disc = createDefocusDiscSiteKernel(defocus.diameterSites)!, d = capture.request.diffraction;
       const radius = d ? d.profile.kernelRadiusSamples + disc.radius : disc.radius;
@@ -100,7 +111,7 @@ describe("display view with lens projection, distortion, vignetting and camera r
       const offsets = options.sensor?.antiAliasing ? [-0.5, 0.5] : [0], nodes = typeof options.sensor?.pixelAperture === "object" ? [-0.25, 0.25] : [0];
       const blurred = createDefocusImageSpaceProvider({ base: sharp, geometry, siteKernels: kernelOf, wavelengthsNm: d ? d.profile.profile.axes.wavelengthNm : Array.from({ length: 401 }, (_, i) => 380 + i),
         kernelRadius: radius, nativeWidth: native.pixelWidth, nativeHeight: native.pixelHeight, sitePitchMicrometers: 6, distanceM: capture.scene.distanceM,
-        metresPerFrameUnit: capture.scene.framedWidthM / 2, timesPerBand: 2,
+        metresPerFrameUnit: capture.scene.framedWidthM / 2, timesPerBand: 2, ...(options.motion?.shutter === "rolling" ? { bandRows: 1 } : {}),
         queryOffsetsSites: nodes.flatMap((ny) => nodes.flatMap((nx) => offsets.flatMap((ay) => offsets.map((ax) => ({ x: nx - ax, y: ny - ay }))))) });
       expect(largestDifference(capture, signal, blurred.evaluateRadiance.bind(blurred))).toBeLessThan(1e-9);
     }, scaledTimeout(180_000));
@@ -167,9 +178,7 @@ describe("display view with lens projection, distortion, vignetting and camera r
     await expect(prepareDisplayView(options, { gpu: "require" })).rejects.toThrow(ImageKernelExecutionError);
   }, scaledTimeout(60_000));
 
-  it("refuses rotation with a rolling shutter and a vignetting profile that does not cover the kernel's reach beyond the frame", async () => {
-    await expect(simulateDisplayView({ ...base, lens, motion: { angularVelocityRadPerSec: { yaw: 0.5 }, shutter: "rolling" } }, { width: 4, height: 4 }))
-      .rejects.toThrow(/simulateDisplayView does not support camera rotation with motion\.shutter "rolling"/u);
+  it("refuses a vignetting profile that does not cover the kernel's reach beyond the frame", async () => {
     // The outer site centres are 0.091 mm from the axis (26 × 18 native sites of 6 µm); the profile reaches 0.095 mm, the 5-site diffraction kernel does not fit.
     const short = { ...vignetting, normalizationRadiusMm: 0.095 };
     await simulateDisplayView({ ...base, lens: { ...lens, vignetting: short } }, { width: 4, height: 4 });

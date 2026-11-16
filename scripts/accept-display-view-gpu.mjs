@@ -168,7 +168,7 @@ async function runCase(c) {
   const { deltaE, sigma, ...reduced } = metrics;
   void deltaE; void sigma;
   // The difference image: |candidate − reference| in codes × gain; a diagnostic picture, labelled so in its text chunks.
-  const { addPngTextMetadata } = await import(new URL("output/text-metadata.js", DIST_URL).href);
+  const { addPngTextMetadata } = await import(new URL("output/text-metadata-writers.js", DIST_URL).href);
   const image = differenceImage8(ref.expected, cand.expected, gain), file = join(outDir, fileOf(c));
   const png = addPngTextMetadata(engine.serializePngImage({ width: w, height: h, bitDepth: 8, samples: image, colourEncoding: { kind: "srgb", renderingIntent: "perceptual" } }),
     { description: `Difference image, not a capture: |${candidate.name} - ${reference.name}| of the noise-free expected display values of a display view, in 8-bit sRGB codes times ${gain}, clamped. Chart ${c.chart}, ${c.options}, f/${c.fNumber}, view ${c.width} x ${c.height}${c.region ? `, region ${c.region.x},${c.region.y} ${w} x ${h}` : ""}. Black is no difference.`,

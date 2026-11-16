@@ -2,8 +2,8 @@
 
 `simulateCapture`, `simulateIdealReference`, `simulateDisplayView` and `prepareDisplayView` take an opt-in `illumination`:
 up to eight `sources`, each an illuminant (as `illuminant` takes it) at an illuminance, blended across the chart by a declared
-function, and up to eight `points`, point light sources with inverse-square falloff (a step toward flash). A request needs two
-or more sources, or at least one point; one source lights the whole plane and takes no blend. It replaces `illuminant` and `illuminanceLux` (a request with both is refused). Without it nothing
+function, up to eight `points`, point light sources with inverse-square falloff, and (2.26.0) a `flash` ([Flash](#flash)). A request
+needs two or more sources, at least one point or a flash; one source lights the whole plane and takes no blend. It replaces `illuminant` and `illuminanceLux` (a request with both is refused). Without it nothing
 changes: no code is loaded for it, and every request keeps its bytes.
 
 ```ts
@@ -57,6 +57,73 @@ shadow), and the light it reflects onto itself is not modelled. Points add to th
 E(p, λ) = Σ_i w_i(p)·k_i·S_i(λ) + Σ_j c_j·S_j(λ)·cos θ_j / d_j².
 
 Positions are physical, in metres on the plane, whatever `chartSize` says; the blend's coordinates stay the chart's.
+
+## Flash
+
+`illumination.flash` (2.26.0, #639) is an electronic flash: an impulse of light from a point, with inverse-square falloff, whose
+energy does not depend on the shutter time. It can be the only light (`illumination: { flash }`) or add to `sources` and `points`,
+the ambient light.
+
+```ts
+import { simulateCapture } from "@photivra/engine";
+
+// Slow sync: dim tungsten ambient light and a guide-number-32 flash on the camera, subject at 4 m, f/8, ISO 100.
+const base = { scene: { preset: "uniform" as const }, subjectDistanceM: 4, lens: { fNumber: 8 }, output: { width: 32, height: 24 } };
+const illumination = { sources: [{ illuminant: "cie-a" as const, illuminanceLux: 100 }], flash: { output: { guideNumberM: 32 } } };
+for (const shutterSeconds of [1 / 250, 1 / 2]) {
+  const capture = await simulateCapture({ ...base, illumination, exposure: { mode: "manual", iso: 100, shutterSeconds } });
+  console.log(shutterSeconds, capture.exposure.greyCardDeviationStops); // about 0 at 1/250 s (the flash), about -0.37 at 1/2 s (ambient added)
+}
+```
+
+| Field | Meaning |
+| --- | --- |
+| `output` | Full-power output, one of `{ guideNumberM }` (the guide number at ISO 100, metres, up to 1e4), `{ candelaSeconds }` (time-integrated luminous intensity Q, cd·s = lm·s/sr, up to 1e9) or `{ luxSeconds, distanceM }` (the luminous exposure H at normal incidence at that distance, Q = H·r²). |
+| `powerFraction` | The manual power setting p in (0, 1], default 1 (full power); the flash gives p·Q, its guide number G·√p. |
+| `position` | `{ xM, yM, heightM }` as for a point source; default on the optical axis at the camera, `heightM` the subject distance. |
+| `illuminant` | Its spectrum, any `illuminant`; default a Planckian 5500 K stand-in. That is not a measured flash tube; pass a spectrum for one. |
+
+**Model.** The flash emits Q = p·Q_full cd·s: luminous intensity integrated over the pulse, the photometric quantity behind luminous
+exposure (CIE S 017:2020 ILV, entries "luminous intensity", "illuminance" and "luminous exposure", free at
+[e-ilv.cie.co.at](https://e-ilv.cie.co.at/)). A plane point at distance d and angle θ from the normal receives the luminous exposure
+H = Q·cos θ/d² lx·s, the inverse-square and cosine laws of [Point sources](#point-sources) applied to the time integral. The pulse
+fires while every site integrates, so every site collects all of it whatever the shutter time T: a capture's signal is irradiance × T,
+so the flash enters every render path (captures and their exports, `simulateIdealReference`, the display view with fast and exact
+rendering, and a print's GPU light table) as a point source of intensity Q/T over the exposure window, with spectrum c·S(λ) scaled as a
+point source's is. Its share of each site is then exactly Q·cos θ/d² times the site's response, independent of T; the ambient light's
+share grows with T. That is slow sync (dragging the shutter): a longer shutter brightens the ambient-lit parts and leaves the flash's
+part unchanged.
+
+**Guide number.** G = d·N: the distance d at which the flash exposes a subject correctly at f-number N, at ISO 100. With the derivation
+in [Guide number](SCENE_SENSOR_TEMPORAL_EXPOSURE.md#guide-number) (CIPA DC-004-2020: S = 10/H and the camera equation H = 0.65·L·t/N²,
+free at <https://www.cipa.jp/e/std/std-sec.html>; the inverse-square law, NIST SP 250-37) and the facade's 18 % grey card as the
+subject (the card behind `exposure.greyCardDeviationStops`), 0.65·0.18·Q/(π·d²·N²) = 10/100, so
+
+Q = 10π·G² / (0.65 · 0.18 · 100) ≈ 2.685·G² cd·s.
+
+So a flash of guide number G gives `greyCardDeviationStops` 0 at d·N = G at ISO 100, at any shutter time, and G·√(S/100) at ISO S. A
+maker's quoted guide number rests on its own measurement conventions (reflectance, beam, calibration), which may differ from this one.
+
+**Exposure.** The meter reads the flash as a pre-flash reading would: each zone the ambient luminance plus the flash's
+time-integrated luminance over the shutter t (grey-card metering: the card at the frame center under E_ambient + H/t). Manual and
+shutter priority know t. In aperture priority and program, t is unknown: the settings are those whose resolved shutter R(t), from the
+reading at t, is t. ln R(eˣ) − x is ≥ 0 at the body's shortest shutter and ≤ 0 at its longest, so the facade takes the longest shutter
+if it is such a point and otherwise bisects in x to 1e-12, then steps t ← R(t) a few times (for a body with discrete shutters). With
+ambient light the result is the shutter at which ambient plus flash meet the target (for example ambient needing 4/125 s alone and a
+flash giving half the target: t = 2/125 s); a flash that alone overexposes holds the shortest shutter. **Flash alone** (owner decision
+2026-11-16): when the meter's ambient reading is zero (every zone, or the grey card's ambient illuminance), every shutter gives the
+same exposure, so aperture priority and program take 1/125 s, held within the body's shutter range (every built-in body has
+1/8000–30 s), and resolve the rest at it: aperture priority as manual (Auto ISO chooses the ISO), program as shutter priority (the
+aperture, and with Auto ISO the ISO). Reported as the assumption `exposure.flashShutter`. Reports (`scene.illumination`, the deviations,
+`exposure.meteringCard`) are those at the resolved shutter; the flash's light reports `intensityCandela` Q/t and
+`flash: { candelaSeconds, powerFraction, guideNumberM, exposureWindowSeconds }`.
+
+**Limits.** Refused: a flash with camera rotation or `motion.subject` (the pulse would freeze the motion at its instant, which the
+temporal quadrature does not place), and with `motion.shutter: "rolling"` a shutter shorter than the readout skew (no instant at which
+every row is open; `InvalidScientificInputError`). An isotropic point: no reflector beam pattern, no source size, no occlusion or
+red-eye; no TTL, high-speed sync, pulse shape, recycle time or color shift with power (the lower-level flash contracts in
+docs/USAGE.md, "Manual flash and ordinary sync", model some of these). In `simulateExposureBuildUp` every fraction holds the whole
+pulse, as with front-curtain sync.
 
 ## Blends
 

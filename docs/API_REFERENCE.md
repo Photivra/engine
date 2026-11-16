@@ -1,6 +1,6 @@
 # Public API reference
 
-Generated from the exact root exports for **@photivra/engine 2.25.0 / root contract 2.25.0** by `node scripts/generate-api-reference.mjs`. No module deep import is supported.
+Generated from the exact root exports for **@photivra/engine 2.26.0 / root contract 2.26.0** by `node scripts/generate-api-reference.mjs`. No module deep import is supported.
 
 Use [the developer guide](https://github.com/Photivra/engine/blob/main/docs/DEVELOPERS.md) for executable paths and scientific boundaries. Types are contracts, not runtime validation: parse untrusted data, preserve units/reference frames, read assessment blockers, and retain evidence/limitations. Optional properties do not imply a universal default. Model/schema IDs remain independent of the distribution.
 
@@ -1073,6 +1073,15 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 | [`ResolveGenericEquipmentExposureCapabilitiesInput`](api/equipment-exposure-capabilities.md#resolvegenericequipmentexposurecapabilitiesinput) | Type |
 | [`WidestAvailableFNumberCapability`](api/equipment-exposure-capabilities.md#widestavailablefnumbercapability) | Type |
 
+## equipment/generic-iso-settings.ts
+
+[Detailed contracts](api/equipment-generic-iso-settings.md) · [Source](https://github.com/Photivra/engine/blob/main/src/equipment/generic-iso-settings.ts)
+
+| Export | Kind |
+| --- | --- |
+| [`GENERIC_THIRD_STOP_ISO_SETTINGS`](api/equipment-generic-iso-settings.md#generic_third_stop_iso_settings) | Runtime |
+| [`GENERIC_WHOLE_STOP_ISO_SETTINGS`](api/equipment-generic-iso-settings.md#generic_whole_stop_iso_settings) | Runtime |
+
 ## equipment/generic-lens-catalogue.ts
 
 [Detailed contracts](api/equipment-generic-lens-catalogue.md) · [Source](https://github.com/Photivra/engine/blob/main/src/equipment/generic-lens-catalogue.ts)
@@ -1115,9 +1124,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 | Export | Kind |
 | --- | --- |
-| [`GENERIC_THIRD_STOP_ISO_SETTINGS`](api/equipment-generic-tier-assets.md#generic_third_stop_iso_settings) | Runtime |
 | [`GENERIC_THIRD_STOP_SHUTTER_SECONDS`](api/equipment-generic-tier-assets.md#generic_third_stop_shutter_seconds) | Runtime |
-| [`GENERIC_WHOLE_STOP_ISO_SETTINGS`](api/equipment-generic-tier-assets.md#generic_whole_stop_iso_settings) | Runtime |
 | [`GenericEquipmentTier`](api/equipment-generic-tier-assets.md#genericequipmenttier) | Type |
 | [`GenericEquipmentTierPreset`](api/equipment-generic-tier-assets.md#genericequipmenttierpreset) | Type |
 | [`GenericTierBodyAssets`](api/equipment-generic-tier-assets.md#generictierbodyassets) | Type |
@@ -1208,9 +1215,6 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 | --- | --- |
 | [`resolveSensorProfileIsoSettings`](api/equipment-sensor-profile-body.md#resolvesensorprofileisosettings) | Runtime |
 | [`SENSOR_PROFILE_ISO_ANCHOR`](api/equipment-sensor-profile-body.md#sensor_profile_iso_anchor) | Runtime |
-| [`SENSOR_PROFILE_ISO_MARKINGS`](api/equipment-sensor-profile-body.md#sensor_profile_iso_markings) | Runtime |
-| [`SensorProfile`](api/equipment-sensor-profile-body.md#sensorprofile) | Type |
-| [`SensorProfileValueKind`](api/equipment-sensor-profile-body.md#sensorprofilevaluekind) | Type |
 
 ## equipment/sensor-profile-frame.ts
 
@@ -1221,6 +1225,16 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 | [`calculateSensorProfileFrame`](api/equipment-sensor-profile-frame.md#calculatesensorprofileframe) | Runtime |
 | [`CalculateSensorProfileFrameInput`](api/equipment-sensor-profile-frame.md#calculatesensorprofileframeinput) | Type |
 | [`SensorProfileFrame`](api/equipment-sensor-profile-frame.md#sensorprofileframe) | Type |
+
+## equipment/sensor-profile-record.ts
+
+[Detailed contracts](api/equipment-sensor-profile-record.md) · [Source](https://github.com/Photivra/engine/blob/main/src/equipment/sensor-profile-record.ts)
+
+| Export | Kind |
+| --- | --- |
+| [`SENSOR_PROFILE_ISO_MARKINGS`](api/equipment-sensor-profile-record.md#sensor_profile_iso_markings) | Runtime |
+| [`SensorProfile`](api/equipment-sensor-profile-record.md#sensorprofile) | Type |
+| [`SensorProfileValueKind`](api/equipment-sensor-profile-record.md#sensorprofilevaluekind) | Type |
 
 ## equipment/sensor-profiles.ts
 
@@ -1629,6 +1643,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 | --- | --- |
 | [`MixedIllumination`](api/facade-mixed-illumination.md#mixedillumination) | Type |
 | [`MixedIlluminationBlend`](api/facade-mixed-illumination.md#mixedilluminationblend) | Type |
+| [`MixedIlluminationFlash`](api/facade-mixed-illumination.md#mixedilluminationflash) | Type |
 | [`MixedIlluminationPoint`](api/facade-mixed-illumination.md#mixedilluminationpoint) | Type |
 | [`MixedIlluminationPointSource`](api/facade-mixed-illumination.md#mixedilluminationpointsource) | Type |
 | [`MixedIlluminationSource`](api/facade-mixed-illumination.md#mixedilluminationsource) | Type |
@@ -1766,6 +1781,25 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 | [`prepareDisplayView`](api/facade-simulate-display-view.md#preparedisplayview) | Runtime |
 | [`simulateDisplayView`](api/facade-simulate-display-view.md#simulatedisplayview) | Runtime |
 
+## facade/subject-framing-thin-lens.ts
+
+[Detailed contracts](api/facade-subject-framing-thin-lens.md) · [Source](https://github.com/Photivra/engine/blob/main/src/facade/subject-framing-thin-lens.ts)
+
+| Export | Kind |
+| --- | --- |
+| [`CalculateChartFramingInput`](api/facade-subject-framing-thin-lens.md#calculatechartframinginput) | Type |
+| [`CalculateSubjectDistanceForFramingInput`](api/facade-subject-framing-thin-lens.md#calculatesubjectdistanceforframinginput) | Type |
+| [`calculateThinLensChartFraming`](api/facade-subject-framing-thin-lens.md#calculatethinlenschartframing) | Runtime |
+| [`calculateThinLensSubjectDistanceForFraming`](api/facade-subject-framing-thin-lens.md#calculatethinlenssubjectdistanceforframing) | Runtime |
+| [`ChartFraming`](api/facade-subject-framing-thin-lens.md#chartframing) | Type |
+| [`SubjectFraming`](api/facade-subject-framing-thin-lens.md#subjectframing) | Type |
+| [`SubjectFramingCatalogueLens`](api/facade-subject-framing-thin-lens.md#subjectframingcataloguelens) | Type |
+| [`SubjectFramingFit`](api/facade-subject-framing-thin-lens.md#subjectframingfit) | Type |
+| [`SubjectFramingLens`](api/facade-subject-framing-thin-lens.md#subjectframinglens) | Type |
+| [`SubjectFramingSensorProfile`](api/facade-subject-framing-thin-lens.md#subjectframingsensorprofile) | Type |
+| [`ThinLensChartFramingInput`](api/facade-subject-framing-thin-lens.md#thinlenschartframinginput) | Type |
+| [`ThinLensSubjectDistanceForFramingInput`](api/facade-subject-framing-thin-lens.md#thinlenssubjectdistanceforframinginput) | Type |
+
 ## facade/subject-framing.ts
 
 [Detailed contracts](api/facade-subject-framing.md) · [Source](https://github.com/Photivra/engine/blob/main/src/facade/subject-framing.ts)
@@ -1773,15 +1807,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 | Export | Kind |
 | --- | --- |
 | [`calculateChartFraming`](api/facade-subject-framing.md#calculatechartframing) | Runtime |
-| [`CalculateChartFramingInput`](api/facade-subject-framing.md#calculatechartframinginput) | Type |
 | [`calculateSubjectDistanceForFraming`](api/facade-subject-framing.md#calculatesubjectdistanceforframing) | Runtime |
-| [`CalculateSubjectDistanceForFramingInput`](api/facade-subject-framing.md#calculatesubjectdistanceforframinginput) | Type |
-| [`ChartFraming`](api/facade-subject-framing.md#chartframing) | Type |
-| [`SubjectFraming`](api/facade-subject-framing.md#subjectframing) | Type |
-| [`SubjectFramingCatalogueLens`](api/facade-subject-framing.md#subjectframingcataloguelens) | Type |
-| [`SubjectFramingFit`](api/facade-subject-framing.md#subjectframingfit) | Type |
-| [`SubjectFramingLens`](api/facade-subject-framing.md#subjectframinglens) | Type |
-| [`SubjectFramingSensorProfile`](api/facade-subject-framing.md#subjectframingsensorprofile) | Type |
 
 ## gpu/image-kernel-accelerator.ts
 
@@ -1913,6 +1939,23 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 | [`ExtendedObjectPointProjectionTrajectory`](api/motion-extended-object-projection.md#extendedobjectpointprojectiontrajectory) | Type |
 | [`ExtendedObjectProjectionNode`](api/motion-extended-object-projection.md#extendedobjectprojectionnode) | Type |
 | [`ExtendedObjectProjectionTrajectory`](api/motion-extended-object-projection.md#extendedobjectprojectiontrajectory) | Type |
+
+## motion/hand-shake.ts
+
+[Detailed contracts](api/motion-hand-shake.md) · [Source](https://github.com/Photivra/engine/blob/main/src/motion/hand-shake.ts)
+
+| Export | Kind |
+| --- | --- |
+| [`calculateHandShakeAngularDisplacement`](api/motion-hand-shake.md#calculatehandshakeangulardisplacement) | Runtime |
+| [`CalculateHandShakeInput`](api/motion-hand-shake.md#calculatehandshakeinput) | Type |
+| [`calculateHandShakeRmsDisplacement`](api/motion-hand-shake.md#calculatehandshakermsdisplacement) | Runtime |
+| [`createHandShakeTrajectory`](api/motion-hand-shake.md#createhandshaketrajectory) | Runtime |
+| [`HAND_SHAKE_MAXIMUM_STABILIZATION_STOPS`](api/motion-hand-shake.md#hand_shake_maximum_stabilization_stops) | Runtime |
+| [`HAND_SHAKE_MODEL_VERSION`](api/motion-hand-shake.md#hand_shake_model_version) | Runtime |
+| [`HAND_SHAKE_RMS_ANGULAR_SPEED_RAD_PER_SEC`](api/motion-hand-shake.md#hand_shake_rms_angular_speed_rad_per_sec) | Runtime |
+| [`HandShakeComponent`](api/motion-hand-shake.md#handshakecomponent) | Type |
+| [`HandShakeOptions`](api/motion-hand-shake.md#handshakeoptions) | Type |
+| [`HandShakeTrajectory`](api/motion-hand-shake.md#handshaketrajectory) | Type |
 
 ## motion/projected-motion.ts
 
@@ -2814,14 +2857,21 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 | [`CalculateSubjectFramingCropInput`](api/output-subject-framing-crop.md#calculatesubjectframingcropinput) | Type |
 | [`SubjectFramingCrop`](api/output-subject-framing-crop.md#subjectframingcrop) | Type |
 
+## output/text-metadata-writers.ts
+
+[Detailed contracts](api/output-text-metadata-writers.md) · [Source](https://github.com/Photivra/engine/blob/main/src/output/text-metadata-writers.ts)
+
+| Export | Kind |
+| --- | --- |
+| [`addJpegTextMetadata`](api/output-text-metadata-writers.md#addjpegtextmetadata) | Runtime |
+| [`addPngTextMetadata`](api/output-text-metadata-writers.md#addpngtextmetadata) | Runtime |
+
 ## output/text-metadata.ts
 
 [Detailed contracts](api/output-text-metadata.md) · [Source](https://github.com/Photivra/engine/blob/main/src/output/text-metadata.ts)
 
 | Export | Kind |
 | --- | --- |
-| [`addJpegTextMetadata`](api/output-text-metadata.md#addjpegtextmetadata) | Runtime |
-| [`addPngTextMetadata`](api/output-text-metadata.md#addpngtextmetadata) | Runtime |
 | [`OutputTextMetadata`](api/output-text-metadata.md#outputtextmetadata) | Type |
 
 ## processing/demosaic.ts

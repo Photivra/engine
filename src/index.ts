@@ -1897,11 +1897,16 @@ export { SENSOR_PROFILES, SENSOR_PROFILE_IDS, resolveSensorProfile } from "./equ
 export { SENSOR_PROFILE_ISO_ANCHOR, SENSOR_PROFILE_ISO_MARKINGS, resolveSensorProfileIsoSettings, type SensorProfile, type SensorProfileValueKind } from "./equipment/sensor-profile-body.js";
 export { calculateSensorProfileFrame, type CalculateSensorProfileFrameInput, type SensorProfileFrame } from "./equipment/sensor-profile-frame.js";
 export type { SimulateCaptureSubjectMotion } from "./motion/subject-motion.js";
+// #641: the hand-shake trajectory of `motion.handheld`.
+export { calculateHandShakeAngularDisplacement, calculateHandShakeRmsDisplacement, createHandShakeTrajectory, HAND_SHAKE_MAXIMUM_STABILIZATION_STOPS, HAND_SHAKE_MODEL_VERSION,
+  HAND_SHAKE_RMS_ANGULAR_SPEED_RAD_PER_SEC } from "./motion/hand-shake.js";
+export type { CalculateHandShakeInput, HandShakeComponent, HandShakeOptions, HandShakeTrajectory } from "./motion/hand-shake.js";
 export { simulateDisplayView, prepareDisplayView, type PreparedDisplayView, type PreparedDisplayViewRenderOptions, serializeDisplayViewCorrectionStates, bindDisplayViewCorrectionStates,
   type DisplayViewCorrectionStateKeys, type DisplayViewCorrectionStateSet } from "./facade/simulate-display-view.js";
 export type { DisplayViewGpuMode, PrepareDisplayViewOptions, DisplayViewGpuFallbackReason, DisplayViewGpuConformance, DisplayViewExecution,
   DisplayViewFastReport } from "./facade/display-view-gpu.js";
-export { type OutputTextMetadata, addJpegTextMetadata, addPngTextMetadata } from "./output/text-metadata.js";
+export type { OutputTextMetadata } from "./output/text-metadata.js";
+export { addJpegTextMetadata, addPngTextMetadata } from "./output/text-metadata-writers.js";
 export { GENERIC_THIRD_STOP_ISO_SETTINGS, GENERIC_THIRD_STOP_SHUTTER_SECONDS, GENERIC_WHOLE_STOP_ISO_SETTINGS, type GenericTierPresetVersion } from "./equipment/generic-tier-assets.js";
 export { GENERIC_PRIME_EQUIVALENT_FOCAL_LENGTHS_MM, GENERIC_PRIME_THIRD_STOP_F_NUMBERS, GENERIC_PRIME_MINIMUM_FOCUS, resolveGenericPrimeLens,
   calculateGenericPrimeMinimumFocusDistanceM, type GenericPrimeLens, type GenericPrimeEquivalentFocalLengthMm } from "./equipment/generic-prime-lenses.js";
@@ -1915,6 +1920,7 @@ export { calculateChannelEffectiveDispersion, createGenericLensCorrectionProfile
 export { calculateLateralColorFringe, type CalculateLateralColorFringeInput, type LateralColorFringe, type LateralColorDisplacement } from "./optics/generic-lens-lateral-color.js";
 export { calculateChartFraming, calculateSubjectDistanceForFraming, type CalculateChartFramingInput, type CalculateSubjectDistanceForFramingInput, type ChartFraming,
   type SubjectFraming, type SubjectFramingCatalogueLens, type SubjectFramingFit, type SubjectFramingLens, type SubjectFramingSensorProfile } from "./facade/subject-framing.js";
+export { calculateThinLensChartFraming, calculateThinLensSubjectDistanceForFraming, type ThinLensChartFramingInput, type ThinLensSubjectDistanceForFramingInput } from "./facade/subject-framing-thin-lens.js";
 export { CHART_SCENE_PRESETS, CHART_SCENE_DEFAULTS, CHART_SPECTRAL_RANGE_NANOMETERS, resolveChartScene, calculateStepWedgeReflectances,
   calculatePointGridCenters, type ChartScene, type ChartScenePresetId, type ChartReflectance, type ResolvedChartScene, type UniformChartScene,
   type SlantedEdgeChartScene, type SiemensStarChartScene, type StepWedgeChartScene, type GreyRampChartScene, type CheckerboardChartScene,
@@ -1932,7 +1938,7 @@ export { PHOTOPIC_MAXIMUM_LUMINOUS_EFFICACY_LM_PER_W, resolveCaptureIlluminant, 
   type PlanarSceneRadianceProvider, type ImagePlaneScene, type ImagePlaneImage } from "./facade/scene-radiance.js";
 export { prepareImagePlaneScenes } from "./facade/image-plane-enable.js";
 export { prepareQualityPaths } from "./facade/quality-paths.js";
-export type { MixedIllumination, MixedIlluminationBlend, MixedIlluminationPoint, MixedIlluminationPointSource, MixedIlluminationSource } from "./facade/mixed-illumination.js";
+export type { MixedIllumination, MixedIlluminationBlend, MixedIlluminationFlash, MixedIlluminationPoint, MixedIlluminationPointSource, MixedIlluminationSource } from "./facade/mixed-illumination.js";
 export { CHART_RADIANCE_BATCH_SCHEMA_VERSION, CHART_RADIANCE_BATCH_LIMITS, calculateChartRadianceBatchPlan, calculateChartRadianceBatch,
   mapEnvironmentDirectionsToChartPoints, type ChartRadianceBatchInput, type ChartRadianceBatchPlan } from "./facade/chart-radiance-batch.js";
 export { resolveChartMaterialLayers, CHART_MASK_INDEX_GRAIN, CHART_MATERIAL_LAYER_LIMITS, type ChartMaterialLayerScene, type ChartMaskLayer, type ChartMaskShape,

@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 import { describe, expect, it } from "vitest";
 import {
-  parsePhotoMetadata, parseDngRawImage, InvalidConfigurationError, PHOTO_METADATA_LIMITS, PHOTO_METADATA_SCHEMA_VERSION, type PhotoMetadata
+  parsePhotoMetadata, parseDngRawImage, InvalidConfigurationError, PHOTO_METADATA_LIMITS, PHOTO_METADATA_SCHEMA_VERSION, serializePngImage, type PhotoMetadata
 } from "../src/index.js";
+import { pngCrc32 } from "../src/output/png-encoder.js";
 import { writeTiff, packBits, type TagSpec } from "./helpers/dng-test-writer.js";
 import {
   ascii, auxC, box, exifBlock, exifSegment, extendedXmpSegments, fullBox, heif, imir, irot, ispe, jpeg, mpfPayload, multiPicture, segment, xmpSegment, type HeifSpec
@@ -20,14 +21,16 @@ const EXIF: TagSpec[] = [{ id: 33434, type: RATIONAL, values: [1, 120] }, { id: 
   { id: 34864, type: 3, values: [2] }, { id: 34866, type: 4, values: [64] }, { id: 37386, type: RATIONAL, values: [62, 10] }, { id: 41989, type: 3, values: [27] },
   { id: 41988, type: RATIONAL, values: [200, 100] }, { id: 42080, type: 3, values: [2] }, { id: 42081, type: 3, values: [6, 4] },
   { id: 41486, type: RATIONAL, values: [4000, 1] }, { id: 41487, type: RATIONAL, values: [4000, 1] }, { id: 41488, type: 3, values: [3] },
-  { id: 40962, type: 4, values: [4032] }, { id: 40963, type: 4, values: [3024] }, { id: 37396, type: 3, values: [2016, 1512, 400, 300] }];
+  { id: 40962, type: 4, values: [4032] }, { id: 40963, type: 4, values: [3024] }, { id: 37396, type: 3, values: [2016, 1512, 400, 300] },
+  // #648: SubjectDistance 3.5 m and SubjectDistanceRange "close view".
+  { id: 37382, type: RATIONAL, values: [350, 100] }, { id: 41996, type: 3, values: [2] }];
 const EXPECTED_EXIF = {
   make: "Example Make", model: "Example Model", software: "1.2.3", orientation: 6,
   exposureTimeSeconds: 1 / 120, fNumber: 1.8, focalLengthMillimeters: 6.2, focalLengthIn35mmFilmMillimeters: 27, digitalZoomRatio: 2,
   focalPlaneResolution: { x: 4000, y: 4000, unit: "centimeter", unitStated: true, pixelsPerMillimeterX: 400, pixelsPerMillimeterY: 400 },
   pixelDimensions: { width: 4032, height: 3024 }, photographicSensitivity: 64, sensitivityType: 2, standardOutputSensitivity: null, recommendedExposureIndex: 64,
   isoSpeed: null, iso: 64, isoSource: "recommended-exposure-index", compositeImage: 2, compositeSourceImages: { total: 6, used: 4 },
-  subjectArea: { kind: "rectangle", x: 2016, y: 1512, width: 400, height: 300 }
+  subjectArea: { kind: "rectangle", x: 2016, y: 1512, width: 400, height: 300 }, subjectDistanceMeters: 3.5, subjectDistanceRange: "close-view"
 };
 const GAIN_MAP_XMP = '<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><rdf:Description xmlns:hdrgm="http://ns.adobe.com/hdr-gain-map/1.0/" hdrgm:Version="1.0"/></rdf:RDF></x:xmpmeta>';
 const CONTAINER_XMP = '<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><rdf:Description ' +
@@ -38,6 +41,16 @@ const CONTAINER_XMP = '<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="h
   '</rdf:Seq></Container:Directory></rdf:Description></rdf:RDF></x:xmpmeta>';
 const DEPTH_XMP = '<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:Description xmlns:GDepth="http://ns.google.com/photos/1.0/depthmap/" xmlns:GImage="http://ns.google.com/photos/1.0/image/" GDepth:Format="RangeInverse"/></x:xmpmeta>';
 
+/** A 16 × 12 CFA DNG with these Exif IFD tags (and IFD 0 tags). */
+function minimalDng(exif: TagSpec[], ifd0: TagSpec[] = []): Uint8Array {
+  const width = 16, height = 12, codes = new Uint16Array(width * height);
+  return writeTiff(true, [{
+    tags: [{ id: 254, type: 4, values: [0] }, { id: 256, type: 4, values: [width] }, { id: 257, type: 4, values: [height] }, { id: 258, type: 3, values: [16] },
+      { id: 259, type: 3, values: [1] }, { id: 262, type: 3, values: [32803] }, { id: 277, type: 3, values: [1] }, { id: 278, type: 4, values: [height] },
+      { id: 33421, type: 3, values: [2, 2] }, { id: 33422, type: 1, values: [0, 1, 1, 2] }, { id: 50706, type: 1, values: [1, 6, 0, 0] }, ...ifd0],
+    chunks: { offsetTag: 273, countTag: 279, data: [packBits(codes, width, 16, true)] }, exifIfd: { tags: exif }
+  }]);
+}
 const thumbnailJpeg = jpeg(160, 120, []);
 function phoneJpeg(little = true): Uint8Array {
   const gainMap = jpeg(1008, 756, [xmpSegment(GAIN_MAP_XMP)]), disparity = jpeg(640, 480, []);
@@ -78,13 +91,7 @@ describe("parsePhotoMetadata: JPEG (2.25.0, #617)", () => {
   it("returns the Exif fields the DNG import returns for the same tags", () => {
     const tags = EXIF.filter((t) => t.id !== 37396);
     const fromJpeg = parsePhotoMetadata({ bytes: jpeg(16, 12, [exifSegment(exifBlock(true, IFD0, tags))]) }).exif!;
-    const width = 16, height = 12, codes = new Uint16Array(width * height);
-    const dng = parseDngRawImage({ bytes: writeTiff(true, [{
-      tags: [{ id: 254, type: 4, values: [0] }, { id: 256, type: 4, values: [width] }, { id: 257, type: 4, values: [height] }, { id: 258, type: 3, values: [16] },
-        { id: 259, type: 3, values: [1] }, { id: 262, type: 3, values: [32803] }, { id: 277, type: 3, values: [1] }, { id: 278, type: 4, values: [height] },
-        { id: 33421, type: 3, values: [2, 2] }, { id: 33422, type: 1, values: [0, 1, 1, 2] }, { id: 50706, type: 1, values: [1, 6, 0, 0] }, ...IFD0.filter((t) => t.id !== 274)],
-      chunks: { offsetTag: 273, countTag: 279, data: [packBits(codes, width, 16, true)] }, exifIfd: { tags }
-    }]) });
+    const dng = parseDngRawImage({ bytes: minimalDng(tags, IFD0.filter((t) => t.id !== 274)) });
     const { make, model, software, orientation, ...capture } = fromJpeg;
     expect(dng.exif).toEqual(capture);
     expect({ make: dng.make, model: dng.model, software: dng.software }).toEqual({ make, model, software });
@@ -372,5 +379,111 @@ describe("parsePhotoMetadata: item data methods", () => {
     while (view.getUint16(q) !== 20) q += 16;
     withoutIdat[q + 3] = 1;
     expect(parsePhotoMetadata({ bytes: withoutIdat }).assumptions.join("\n")).toMatch(/idat box that is absent/u);
+  });
+});
+
+// ---------------------------------------------------------------- 2.26.0
+
+/** A PNG chunk: length, type, data and the CRC-32 of the type and data (PNG specification, third edition, §5.3). */
+function pngChunk(type: string, data: ArrayLike<number>, crc?: number): number[] {
+  const typeBytes = Uint8Array.from(type, (c) => c.charCodeAt(0)), body = Uint8Array.from(data), out = new Uint8Array(12 + body.length), view = new DataView(out.buffer);
+  view.setUint32(0, body.length); out.set(typeBytes, 4); out.set(body, 8); view.setUint32(8 + body.length, crc ?? pngCrc32(body, pngCrc32(typeBytes)));
+  return [...out];
+}
+const PNG_SIGNATURE = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
+const ihdr = (width: number, height: number): number[] => pngChunk("IHDR", [...[width, height].flatMap((v) => [v >>> 24, (v >>> 16) & 255, (v >>> 8) & 255, v & 255]), 8, 2, 0, 0, 0]);
+/** A PNG whose IDAT holds bytes that are not a valid zlib stream: the reader must never decode them. */
+const idat = pngChunk("IDAT", [0xde, 0xad, 0xbe, 0xef, 1, 2, 3]);
+const png = (...chunks: number[][]): Uint8Array => Uint8Array.from([...PNG_SIGNATURE, ...chunks.flat()]);
+const iend = pngChunk("IEND", []);
+
+describe("parsePhotoMetadata: PNG eXIf (2.26.0, #647)", () => {
+  it("reads the eXIf chunk before or after IDAT, in either byte order, and the IHDR size, without decoding IDAT", () => {
+    for (const little of [true, false]) {
+      const exif = pngChunk("eXIf", exifBlock(little, IFD0, EXIF));
+      for (const bytes of [png(ihdr(4032, 3024), exif, idat, iend), png(ihdr(4032, 3024), idat, exif, iend)]) {
+        const meta = parsePhotoMetadata({ bytes });
+        expect(meta).toMatchObject({ format: "png", brands: [], width: 4032, height: 3024, heifRotationDegrees: null, xmpNamespaces: [], extraImages: [], assumptions: [] });
+        expect(meta.exif).toEqual(EXPECTED_EXIF);
+      }
+    }
+    // The Exif thumbnail is listed as for a JPEG.
+    const withThumbnail = parsePhotoMetadata({ bytes: png(ihdr(8, 8), pngChunk("eXIf", exifBlock(true, IFD0, EXIF, { jpeg: thumbnailJpeg })), idat, iend) });
+    expect(withThumbnail.extraImages).toEqual([{ source: "exif-thumbnail", kind: "thumbnail", kindBasis: "specification", type: "jpeg", width: 160, height: 120, bytes: thumbnailJpeg.length }]);
+  });
+
+  it("reads a PNG without eXIf (and the engine's own encoder's PNG) as size only", () => {
+    expect(parsePhotoMetadata({ bytes: png(ihdr(3, 2), idat, iend) })).toMatchObject({ format: "png", width: 3, height: 2, exif: null, assumptions: [] });
+    const encoded = serializePngImage({ width: 5, height: 4, bitDepth: 8, samples: new Uint8Array(60), colourEncoding: { kind: "srgb", renderingIntent: "perceptual" } });
+    expect(parsePhotoMetadata({ bytes: encoded })).toMatchObject({ format: "png", width: 5, height: 4, exif: null, assumptions: [] });
+  });
+
+  it("names malformed and truncated chunks in assumptions and keeps what it could read", () => {
+    const block = exifBlock(true, IFD0, EXIF), notes = (bytes: Uint8Array): string => parsePhotoMetadata({ bytes }).assumptions.join("\n");
+    // A CRC mismatch skips the chunk.
+    const badCrc = parsePhotoMetadata({ bytes: png(ihdr(8, 8), pngChunk("eXIf", block, 0x12345678), idat, iend) });
+    expect(badCrc.exif).toBeNull();
+    expect(badCrc.width).toBe(8);
+    expect(badCrc.assumptions.join("\n")).toMatch(/PNG eXIf chunk is malformed and was not read \(CRC mismatch\)/u);
+    // The JPEG identifier before the TIFF header is stepped over and reported.
+    const identified = parsePhotoMetadata({ bytes: png(ihdr(8, 8), pngChunk("eXIf", [0x45, 0x78, 0x69, 0x66, 0, 0, ...block]), idat, iend) });
+    expect(identified.exif).toEqual(EXPECTED_EXIF);
+    expect(identified.assumptions.join("\n")).toMatch(/was stepped over/u);
+    // A second eXIf is not read.
+    const second = parsePhotoMetadata({ bytes: png(ihdr(8, 8), pngChunk("eXIf", block), pngChunk("eXIf", exifBlock(true, [], [{ id: 33437, type: RATIONAL, values: [4, 1] }])), idat, iend) });
+    expect(second.exif).toEqual(EXPECTED_EXIF);
+    expect(second.assumptions.join("\n")).toMatch(/a second PNG eXIf chunk/u);
+    // A chunk past the supplied bytes, and bytes that end before IEND.
+    const full = png(ihdr(8, 8), idat, pngChunk("eXIf", block), iend);
+    expect(parsePhotoMetadata({ bytes: full.subarray(0, full.length - 30) }).exif).toBeNull();
+    expect(notes(full.subarray(0, full.length - 30))).toMatch(/PNG eXIf chunk lies beyond the supplied bytes/u);
+    expect(notes(png(ihdr(8, 8), idat))).toMatch(/end before the PNG IEND chunk/u);
+    expect(notes(png(ihdr(8, 8), idat).subarray(0, 8 + 25 + 10))).toMatch(/chunks beyond byte 33 lie beyond the supplied bytes; an eXIf chunk there would not be read/u);
+    expect(notes(png(ihdr(8, 8), idat).subarray(0, 8 + 25 + 4))).toMatch(/a PNG chunk header lies beyond the supplied bytes/u);
+    // A length above 2^31 − 1, a type that is not four letters, a short eXIf, a bad IHDR and a first chunk that is not IHDR.
+    const huge = png(ihdr(8, 8), [0x80, 0, 0, 0, 0x65, 0x58, 0x49, 0x66]);
+    expect(notes(huge)).toMatch(/is malformed \(length above 2\^31 − 1\)/u);
+    expect(notes(png(ihdr(8, 8), pngChunk("e1If", block), iend))).toMatch(/type is not four letters/u);
+    expect(notes(png(ihdr(8, 8), pngChunk("eXIf", [0x49, 0x49]), iend))).toMatch(/shorter than a TIFF header/u);
+    expect(parsePhotoMetadata({ bytes: png(pngChunk("IHDR", [0, 0, 0, 0, 0, 0, 0, 1, 8, 2, 0, 0, 0]), iend) }).width).toBeNull();
+    expect(notes(png(pngChunk("eXIf", block), iend))).toMatch(/first PNG chunk is eXIf, not IHDR/u);
+    // An eXIf whose IFD offsets point outside it is read as far as it goes, as a JPEG's Exif is.
+    const broken = Uint8Array.from(block); broken[4] = 0xff; broken[5] = 0xff;
+    expect(parsePhotoMetadata({ bytes: png(ihdr(8, 8), pngChunk("eXIf", broken), iend) }).exif).toBeNull();
+    // The chunk count is bounded.
+    const many = png(ihdr(1, 1), ...Array.from({ length: PHOTO_METADATA_LIMITS.maximumPngChunks + 1 }, () => pngChunk("tEXt", [])), iend);
+    expect(notes(many)).toMatch(/more than 4096 chunks/u);
+    expect(() => parsePhotoMetadata({ bytes: Uint8Array.from(PNG_SIGNATURE.slice(0, 7)) })).toThrow(InvalidConfigurationError);
+  });
+});
+
+describe("Exif SubjectDistance and SubjectDistanceRange (2.26.0, #648)", () => {
+  const read = (tags: TagSpec[]): PhotoMetadata => parsePhotoMetadata({ bytes: jpeg(8, 8, [exifSegment(exifBlock(true, [], tags))]) });
+  it("reports a stated distance in meters, 0 as \"unknown\" and 0xFFFFFFFF as \"infinity\"", () => {
+    expect(read([{ id: 37382, type: RATIONAL, values: [125, 100] }]).exif!.subjectDistanceMeters).toBe(1.25);
+    expect(read([{ id: 37382, type: RATIONAL, values: [0, 1] }]).exif!.subjectDistanceMeters).toBe("unknown");
+    expect(read([{ id: 37382, type: RATIONAL, values: [0, 0] }]).exif!.subjectDistanceMeters).toBe("unknown");
+    expect(read([{ id: 37382, type: RATIONAL, values: [0xffffffff, 1] }]).exif!.subjectDistanceMeters).toBe("infinity");
+    expect(read([{ id: 37382, type: RATIONAL, values: [0xffffffff, 0] }]).exif!.subjectDistanceMeters).toBe("infinity");
+    expect(read([]).exif!).toMatchObject({ subjectDistanceMeters: null, subjectDistanceRange: null });
+    const zero = read([{ id: 37382, type: RATIONAL, values: [5, 0] }]);
+    expect(zero.exif!.subjectDistanceMeters).toBeNull();
+    expect(zero.assumptions.join("\n")).toMatch(/SubjectDistance 5\/0 has a zero denominator and was ignored/u);
+    const wrongType = read([{ id: 37382, type: 4, values: [3] }]);
+    expect(wrongType.exif!.subjectDistanceMeters).toBeNull();
+    expect(wrongType.assumptions.join("\n")).toMatch(/SubjectDistance is malformed/u);
+  });
+  it("names the four SubjectDistanceRange codes and ignores the others", () => {
+    for (const [code, name] of [[0, "unknown"], [1, "macro"], [2, "close-view"], [3, "distant-view"]] as const)
+      expect(read([{ id: 41996, type: 3, values: [code] }]).exif!.subjectDistanceRange).toBe(name);
+    const other = read([{ id: 41996, type: 3, values: [4] }]);
+    expect(other.exif!.subjectDistanceRange).toBeNull();
+    expect(other.assumptions.join("\n")).toMatch(/SubjectDistanceRange 4 is not defined by Exif 2.32/u);
+  });
+  it("reads both in the DNG import", () => {
+    const dng = (tags: TagSpec[]): ReturnType<typeof parseDngRawImage>["exif"] => parseDngRawImage({ bytes: minimalDng(tags) }).exif;
+    expect(dng([{ id: 37382, type: RATIONAL, values: [7, 2] }, { id: 41996, type: 3, values: [3] }])).toMatchObject({ subjectDistanceMeters: 3.5, subjectDistanceRange: "distant-view" });
+    expect(dng([{ id: 37382, type: RATIONAL, values: [0, 1] }, { id: 41996, type: 3, values: [1] }])).toMatchObject({ subjectDistanceMeters: "unknown", subjectDistanceRange: "macro" });
+    expect(dng([{ id: 37382, type: RATIONAL, values: [0xffffffff, 1] }])).toMatchObject({ subjectDistanceMeters: "infinity", subjectDistanceRange: null });
   });
 });

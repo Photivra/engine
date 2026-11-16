@@ -12,7 +12,7 @@
 import { calculatedResult, type CalculationResult } from "../core/calculation-result.js";
 import { InvalidConfigurationError } from "../core/configuration-error.js";
 import { requireConfigPositiveSafeInteger, requireInputKeys, requireInputObject, requireInputPositiveFinite } from "../core/record-validation.js";
-import { parseSensorProfile, type SensorProfile } from "./sensor-profile-body.js";
+import { parseSensorProfile, type SensorProfile } from "./sensor-profile-record.js";
 
 /** The frame of an output on a sensor profile (`sensor.profileView`). */
 export interface SensorProfileFrame {
