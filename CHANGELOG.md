@@ -2,11 +2,11 @@
 
 ## 2.25.0 — unreleased (prepared November 16, 2026)
 
-A minor release: the 22 issues of milestone 2.25.0 (#612–#633). Standalone helpers, a photo metadata reader, DNG and JPEG Exif writers, a half-size DNG preview, front-of-lens filters, look constants, catalogue-lens framing, glare, breathing and corrections, and faster defocused display views and exact catalogue PSFs. See the [2.25.0 release record](https://github.com/Photivra/engine/blob/main/docs/RELEASE_2_25_0.md).
+A minor release: the 26 issues of milestone 2.25.0 (#612–#633, #635–#638). Standalone helpers, a photo metadata reader, DNG and JPEG Exif writers, a half-size DNG preview, front-of-lens filters, look constants, catalogue-lens framing, glare, breathing and corrections, and faster defocused display views and exact catalogue PSFs. See the [2.25.0 release record](https://github.com/Photivra/engine/blob/main/docs/RELEASE_2_25_0.md).
 
-- **Root exports:** 66 new, 2,009 → 2,075 (runtime exports 681 → 705): 21 from #617–#619, 25 from #613–#616, 18 from #620–#626 and 2 from #631. Nothing is removed or changed in kind. DNG import schema 1.2.0 → 1.3.0 (new fields).
+- **Root exports:** 72 new, 2,009 → 2,081 (runtime exports 681 → 708): 21 from #617–#619, 25 from #613–#616, 18 from #620–#626, 2 from #631 and 6 from #635–#638. Nothing is removed or changed in kind. DNG import schema 1.2.0 → 1.3.0 (new fields).
 - **Renamed before release** (never published under the old names): `pinLookMidGray` → `resolveMidGrayPinnedLook`, `rewriteDng` → `serializeRewrittenDng`, `jpegExifCaptureSettingsFromFields` → `resolveJpegExifCaptureSettings`.
-- **Changed (see "Default changes"):** two fast defaults (#612, #629) and one corrected report (#631); the new half-size preview's default method (#622).
+- **Changed (see "Default changes"):** two fast defaults (#612, #629), one corrected report (#631) and one corrected default with sensor profiles (#638); the new half-size preview's default method (#622).
 - **Capture-worker size limits** raised by owner decision (2026-11-16): fast worker 337,500 → 338,900 B, on demand 47,000 → 47,400 B (measured 338,815 B and 47,358 B).
 - **Not done:** `DNG_GAIN_SWITCH_CATALOG` stays empty (#623); lens ghosts are not rendered (#632).
 - **Why minor:** new root exports, new options and import fields, and fast-default changes.
@@ -19,8 +19,18 @@ A minor release: the 22 issues of milestone 2.25.0 (#612–#633). Standalone hel
 | `lens.catalogue` with `sensor.pixelAperture: "box"` on fast requests (#629) | the exact method | the field-grid fast method, the box folded into each lattice point | `lens: { catalogue: { kind, fast: false } }` |
 | `result.scene.chart` through a catalogue fisheye (#631) | thin-lens coverage | the projected coverage (the image is unchanged) | none (a correction) |
 | `developDngImage(raw, { size: "half" })` (#622, new option) | — | binned 2 × 2 on "srgb-8"/"srgb-16" by default; `size` defaults to "full", unchanged | `fast: false` for the exact half size |
+| `sensor.fullWell` (linked) with `sensor.profile` (#638) | given at a 6 µm photosite, so a profile's own full well made its photosite smaller and its output brighter (medium format: 19,753 e⁻, +1.35 stops) | given at the profile's own photosite (`fullWell: { electrons: profile.fullWellElectrons }` changes nothing) | `referencePixelPitchMicrometers: 6` |
 
 Requests without these options or combinations keep their 2.24.0 bytes.
+
+### #635–#638 Sensor profiles: ISO lists, phone-lens framing, fixed pattern on downsized views, full well
+
+- **New (#635):** `SENSOR_PROFILE_ISO_MARKINGS` (the third-stop markings ISO 32–102 400) and `resolveSensorProfileIsoSettings(profile)`, a profile's ISO settings from its base ISO to its maximum (the values `exposure.iso` takes with it; the phone profile's are ISO 40–6 400).
+- **New (#636):** `calculateSensorProfileFrame({ profile, width, height, pixelPitchMicrometers?, catalogueLens? })`, the frame a capture renders on a profile (the `sensor.profileView` record, now built by the same function in the capture), and `sensorProfile: { profile, width, height, pixelPitchMicrometers? }` in place of `sensor` in `calculateSubjectDistanceForFraming` and `calculateChartFraming`: with `catalogue` the lens is resolved on the whole sensor and the frame is the capture's, so the phone profile's three lenses frame as they render (their coverage and magnification match the capture's `result.scene.chart`). `resolveGenericLens` already accepted the three phone lens ids; a test now pins it. Types `CalculateSensorProfileFrameInput`, `SensorProfileFrame`, `SubjectFramingSensorProfile`.
+- **New (#637):** `sensor.fixedPatternNoise` on a profile's downsized view (a site that sums N photosites), which was refused: the site takes the summed pattern, PRNU and DSNU σ/√N, row and column offsets σ·N^(3/4), hot sites with probability 1 − (1 − f)^N and a dark factor that keeps the mean dark charge; at the profile's own pitch the pattern is unchanged, below one photosite it is still refused. Checked against 4 × 4 sums of the native pattern (9,216 sites: standard deviations within 5 %, mean dark factor within 1.5 %).
+- **Fixed (#638):** with `sensor.profile`, a linked `sensor.fullWell` was read at a 6 µm reference photosite, so the profile's own full well gave the medium-format profile a 19,753 e⁻ photosite, `sensitivityOffsetStops` 1.35 and a RAW signal 1.79 times higher (the phone profile: 342 e⁻, +4.65 stops). The reference is now the profile's own pitch, so that request is byte-identical to one without `fullWell` (offset 0). The "unusual for the pitch" note now uses the photosite's charge per µm²: 50,300 e⁻ unlinked on a 360 µm view of the 3.76 µm profile was noted as 0.39 e⁻/µm² and is now 3,558 (not unusual); 900,000 e⁻ reads 63,660 e⁻/µm² (it read 6.7). Tiers are unchanged.
+- **Sizes:** the fast worker 338,890 B and on demand 47,366 B, within the limits (the summed pattern in the fast worker; four refusal messages shortened to make room).
+- Tests: `test/sensor-profiles-2-25.test.ts`, `test/sensor-profile-pins.test.ts` (captures without the new behaviour, digests recorded on `087dc6f3`). docs/SENSOR_PROFILES.md, docs/LENS_CATALOGUE.md, docs/QUICK_START.md.
 
 ### #631 Chart fit and coverage through the catalogue fisheyes
 

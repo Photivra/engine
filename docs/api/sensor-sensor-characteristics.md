@@ -83,7 +83,7 @@ export interface SimulateCaptureSensorCharacteristics {
   /**
    * Full-well capacity: the charge, e⁻, that reaches the RAW white level at base ISO. Default: the body's base-ISO saturation
    * at 6 µm, scaled by the pixel area (the `sensor.isoAreaNormalization` approximation). `link` `"pixel-area"` (default)
-   * scales `electrons`, the full well at `referencePixelPitchMicrometers` (default 6), by (pitch / reference)²; `"none"`
+   * scales `electrons`, the full well at `referencePixelPitchMicrometers` (default 6; with `sensor.profile` its own pitch, #638), by (pitch / reference)²; `"none"`
    * uses `electrons` at any pitch. The result is 100 e⁻ to 1e10 e⁻.
    */
   fullWell?: { electrons: number; link?: "pixel-area" | "none"; referencePixelPitchMicrometers?: number };

@@ -177,13 +177,13 @@ describe("catalogue lenses framed on a profile's sensor (#554)", () => {
     expect(display.sensor).toEqual(exact.sensor);
   }, scaledTimeout(60_000));
 
-  it("take an explicit pitch as a centred crop, refuse a frame beyond the sensor and the fixed pattern on a downsized view", async () => {
+  it("take an explicit pitch as a centred crop, refuse a frame beyond the sensor and the fixed pattern below one photosite", async () => {
     const ff = sensorProfile("full-frame-24mp-bsi-2020s");
     const crop = await simulateCapture({ scene: { preset: "uniform" }, sensor: { profile: ff, pixelPitchMicrometers: 5.94, spectralStepNanometers: 100 }, output: { width: 48, height: 32 }, lens: { catalogue: "pv-50-1.8", fNumber: 4 }, fast: true });
     expect(view(crop)).toMatchObject({ croppedSensorAxis: "width", photositesPerSite: 1, readNoiseScale: 1 });
     expect(lensOf(crop).focalLengthMm).toBeCloseTo(50 / (Math.hypot(36, 24) / Math.hypot(ff.sensorWidthMm, ff.sensorHeightMm)), 9);
     await expect(simulateCapture({ scene: { preset: "uniform" }, sensor: { profile: ff, pixelPitchMicrometers: 900 }, output: { width: 48, height: 32 }, lens: { catalogue: "pv-50-1.8" } }))
       .rejects.toThrow("makes the frame larger than the profile's");
-    await expect(capture({ profile: ff, fixedPatternNoise: true, pixelPitchMicrometers: 12 })).rejects.toThrow("sensor.fixedPatternNoise needs the profile's own pixel pitch");
+    await expect(capture({ profile: ff, fixedPatternNoise: true, pixelPitchMicrometers: 3 })).rejects.toThrow("sensor.fixedPatternNoise needs a pitch of at least the profile's photosite");
   }, scaledTimeout(60_000));
 });

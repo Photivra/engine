@@ -1206,9 +1206,21 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 | Export | Kind |
 | --- | --- |
+| [`resolveSensorProfileIsoSettings`](api/equipment-sensor-profile-body.md#resolvesensorprofileisosettings) | Runtime |
 | [`SENSOR_PROFILE_ISO_ANCHOR`](api/equipment-sensor-profile-body.md#sensor_profile_iso_anchor) | Runtime |
+| [`SENSOR_PROFILE_ISO_MARKINGS`](api/equipment-sensor-profile-body.md#sensor_profile_iso_markings) | Runtime |
 | [`SensorProfile`](api/equipment-sensor-profile-body.md#sensorprofile) | Type |
 | [`SensorProfileValueKind`](api/equipment-sensor-profile-body.md#sensorprofilevaluekind) | Type |
+
+## equipment/sensor-profile-frame.ts
+
+[Detailed contracts](api/equipment-sensor-profile-frame.md) · [Source](https://github.com/Photivra/engine/blob/main/src/equipment/sensor-profile-frame.ts)
+
+| Export | Kind |
+| --- | --- |
+| [`calculateSensorProfileFrame`](api/equipment-sensor-profile-frame.md#calculatesensorprofileframe) | Runtime |
+| [`CalculateSensorProfileFrameInput`](api/equipment-sensor-profile-frame.md#calculatesensorprofileframeinput) | Type |
+| [`SensorProfileFrame`](api/equipment-sensor-profile-frame.md#sensorprofileframe) | Type |
 
 ## equipment/sensor-profiles.ts
 
@@ -1769,6 +1781,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 | [`SubjectFramingCatalogueLens`](api/facade-subject-framing.md#subjectframingcataloguelens) | Type |
 | [`SubjectFramingFit`](api/facade-subject-framing.md#subjectframingfit) | Type |
 | [`SubjectFramingLens`](api/facade-subject-framing.md#subjectframinglens) | Type |
+| [`SubjectFramingSensorProfile`](api/facade-subject-framing.md#subjectframingsensorprofile) | Type |
 
 ## gpu/image-kernel-accelerator.ts
 

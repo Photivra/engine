@@ -114,7 +114,10 @@ value. They render only with a sensor profile whose `fixedLenses` is `"phone"`, 
 `lens.fNumber` defaults to the fixed f-number. With a sensor profile, every catalogue lens, these included, is resolved on
 the profile's whole sensor and the capture is its centred frame of the output's aspect
 ([SENSOR_PROFILES.md](SENSOR_PROFILES.md#catalogue-lenses-on-a-profiles-sensor)), so a phone lens shows its real field of
-view.
+view. To frame a chart before a capture, pass the profile to the framing helpers (2.25.0, #636):
+`calculateSubjectDistanceForFraming({ sensorProfile: { profile, width, height }, catalogue: "pv-24-1.8-phone", chart })` and
+`calculateChartFraming` resolve the lens on the same sensor and frame as the capture; `calculateSensorProfileFrame` gives the
+frame and pitch.
 
 | Lens | id | Summary (`summary`) | Aperture | Close focus (full frame) | Projection | Adjustments of the phone baseline | Why |
 | --- | --- | --- | --- | --- | --- | --- | --- |
