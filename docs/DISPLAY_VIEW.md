@@ -199,6 +199,8 @@ with K_λ the diffraction kernel (a unit tap without `lens.diffraction`).
   combined kernels, 0.74–0.82 s regrouped (2.20.0: 2.0–2.1 s); f/2 focused behind 3.6–3.7 s, 0.72–0.83 s (2.20.0: 1.2 s). f/16
   focused behind keeps the combined kernels (a 9-site disc beside a 17-site diffraction kernel). The rendered samples of those
   regions are identical under both methods.
+  On the GPU (`gpu: "auto"`) the pixels a renderer flags are recomputed on the host with this same regrouped signal
+  (`DisplayViewGpuSetup.reference`), so they equal the CPU reference; the GPU's own pass keeps the combined kernels.
 - **In focus** (c = 0), or without the option, nothing changes: the view is byte-identical to the request without it,
   and every display-view hash lock holds.
 - **The GPU** renders defocus too (#492 step 2c; `docs/WEBGPU.md`, "Defocus on the GPU"). The engine's renderer gathers

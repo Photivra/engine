@@ -309,7 +309,7 @@ async function prepareView(context: DisplayViewRunContext): Promise<PreparedView
     return { signal, setup: { frameWidth: width, frameHeight: height, margin, nativeWidth, nativeHeight, viewWidth: v.width, viewHeight: v.height,
       region: viewRegion, samplesPerAxis: v.samplesPerAxis, uniformSamplesPerAxis: uniformSamplesOf(v.samplesPerAxis), reachSites, bitDepth: v.bitDepth, seed: noiseSeed, signal, readout, demosaic: demosaicTable,
       ...(ahdCandidates && ahdChoice ? { candidates: ahdCandidates, ahdChoice } : {}),
-      gains, clipLevel, matrix, toneCurve: viewToneCurve, ...(rendering ? { rendering, coupled: coupled! } : {}), yieldControl, checkAbort, gpu: { signalInput, chart: viewChart ?? null, layers: materialLayers ?? null, placement, ...(defocusKernel && !largeDefocus ? { defocusRadius: defocusKernel.radius } : {}) } } };
+      gains, clipLevel, matrix, toneCurve: viewToneCurve, ...(rendering ? { rendering, coupled: coupled! } : {}), yieldControl, checkAbort, gpu: { signalInput, chart: viewChart ?? null, layers: materialLayers ?? null, placement, ...(defocusKernel && !largeDefocus ? { defocusRadius: defocusKernel.radius } : {}), reference: cpuSignalInput } } };
   };
   // #492: out of focus the view reads the defocus disc (its kernel in signalInput.kernels); the GPU Quality site pass gathers it (step 2c).
   const gpuRequest: DisplayViewGpuRequest = { ahd, lens: !!context.lens, ...(viewMixed ? { mixedIllumination: true } : {}), defocus: defocusKernel !== null, ...(largeDefocus ? { largeDefocus: true } : {}), diffraction: diffraction !== undefined, antiAliasing: antiAliasing !== undefined, boxSamples, toneCurve: viewToneCurve, ...(highlightMode === "reconstruct" || highlightMode === "reconstruct-neighbors" || context.gamutHandling === "desaturate-to-luminance" ? { coupled: true } : {}),
@@ -413,7 +413,7 @@ async function prepareView(context: DisplayViewRunContext): Promise<PreparedView
 /** #628: the view's `view.lensCorrections` and `view.sharpening` assumptions . */
 function displayViewDetailAssumptions(detail: { fast: boolean; sharpening?: object; lens?: { selection: object } }, passes: number):
   { id: string; value: Record<string, unknown>; explanation: string }[] {
-  const see = " An approximation: docs/DISPLAY_VIEW.md, \"Lens corrections and sharpening\".", out = [];
+  const see = " An approximation (docs/DISPLAY_VIEW.md).", out = [];
   if (detail.lens) out.push({ id: "view.lensCorrections", value: { ...detail.lens.selection, method: detail.fast ? "developed-footprint" : "bilinear-sources", passes },
     explanation: "The capture's output.lensCorrections, read where its corrected pixels read the developed image, with the vignetting gain before the tone curve." + see });
   if (detail.sharpening) out.push({ id: "view.sharpening", value: { ...detail.sharpening, method: "real-pixel-mask" },

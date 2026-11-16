@@ -293,7 +293,8 @@ export function displayViewSpeedQuantizationBound(moments: ArrayLike<number>, re
 /**
  * Renders the display pixels `indices` (ascending, region row-major) with the reference, a run of consecutive pixels along a row
  * as one region (#457: AHD's choice flags stretches near edges): a region render is byte-identical to the same pixels of the whole
- * view, so each pixel equals its one-pixel render, and a run's counts are the sums of its pixels'.
+ * view, so each pixel equals its one-pixel render, and a run's counts are the sums of its pixels'. #612: the reference's own signal
+ * (`setup.gpu.reference`, a disc regrouped on the CPU) when it differs from the GPU's, so the pixels are the reference's values.
  */
 export async function recomputeRuns(setup: DisplayViewSetup, signalInput: DisplayViewExpectedSignalInput, indices: readonly number[], abort: AbortController,
   take: (first: number, run: number, part: DisplayViewRenderResult) => void): Promise<void> {
@@ -304,7 +305,7 @@ export async function recomputeRuns(setup: DisplayViewSetup, signalInput: Displa
     const first = indices[r]!, rx = first % region.width, ry = (first - rx) / region.width;
     let run = 1;
     while (r + run < indices.length && indices[r + run] === first + run && rx + run < region.width) run++;
-    take(first, run, await renderDisplayView({ ...setup, signal: reference ??= createDisplayViewExpectedSignal(signalInput), region: { x: region.x + rx, y: region.y + ry, width: run, height: 1 } }));
+    take(first, run, await renderDisplayView({ ...setup, signal: reference ??= createDisplayViewExpectedSignal(setup.gpu?.reference ?? signalInput), region: { x: region.x + rx, y: region.y + ry, width: run, height: 1 } }));
     r += run;
   }
 }
