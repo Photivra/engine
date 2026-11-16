@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Browser-safe reader of the capture metadata in JPEG and HEIC/HEIF files, from their headers only: no pixel data is decoded.
+ * Browser-safe reader of the capture metadata in JPEG, HEIC/HEIF and (2.26.0, #647) PNG files, from their headers only: no pixel data is decoded.
  *
  * It returns the Exif capture settings (the same fields and rules as the DNG import's `exif`), make, model, Software,
  * Orientation and the image size, and a list of the extra images and annotations the file declares, by type and size: the
@@ -19,7 +19,7 @@
  * Input is untrusted. Every offset, length, count and box size is checked against the bytes before it is read; there is no
  * recursion (the box and IFD levels read are fixed), every loop is bounded by {@link PHOTO_METADATA_LIMITS}, and nothing larger
  * than {@link PHOTO_METADATA_LIMITS}.maximumItemDataBytes is copied. A malformed or truncated part is named in `assumptions`
- * and skipped; only input that is not a JPEG or HEIF file fails, with `InvalidConfigurationError`. The bytes may be a prefix of
+ * and skipped; only input that is not a JPEG, HEIF or PNG file fails, with `InvalidConfigurationError`. The bytes may be a prefix of
  * the file (the first few hundred kilobytes usually hold every header); what lies beyond them is reported as truncated.
  *
  * Never read: maker notes, the GPS IFD, the Interoperability IFD, and XMP property values other than the container item
@@ -30,6 +30,7 @@
 import { InvalidConfigurationError } from "../core/configuration-error.js";
 import { requireInputKeys } from "../core/record-validation.js";
 import { resolveExifCaptureFields, type ExifCaptureFields } from "./exif-capture-fields.js";
+import { pngCrc32 } from "../output/png-encoder.js";
 
 export const PHOTO_METADATA_SCHEMA_VERSION = "1.0.0" as const;
 /** The bounds every read is checked against. */
@@ -47,7 +48,9 @@ export const PHOTO_METADATA_LIMITS = /* @__PURE__ */ Object.freeze({
   /** Bytes copied for one HEIF Exif or XMP item, or an assembled extended XMP packet. */
   maximumItemDataBytes: 4_194_304,
   /** XMP namespaces returned per packet. */
-  maximumXmpNamespaces: 256
+  maximumXmpNamespaces: 256,
+  /** 2.26.0 (#647): PNG chunks walked (their data is skipped by its length, never decoded). */
+  maximumPngChunks: 4096
 });
 
 /**
@@ -134,10 +137,11 @@ export interface PhotoAnnotation {
 
 export interface PhotoMetadata {
   schemaVersion: typeof PHOTO_METADATA_SCHEMA_VERSION;
-  format: "jpeg" | "heif";
+  /** 2.26.0 (#647): "png" for a PNG file (its eXIf chunk and IHDR size). */
+  format: "jpeg" | "heif" | "png";
   /** HEIF: the ftyp major brand then the compatible brands; empty for a JPEG. */
   brands: string[];
-  /** The primary image's stored size (JPEG frame header; HEIF ispe of the primary item), before any rotation, or null. */
+  /** The primary image's stored size (JPEG frame header; HEIF ispe of the primary item; PNG IHDR), before any rotation, or null. */
   width: number | null;
   height: number | null;
   /**
@@ -267,7 +271,13 @@ function readExif(block: Uint8Array, notes: string[]): { exif: PhotoExif; thumbn
     return utf8(block.subarray(e.at, end));
   });
   const capture = resolveExifCaptureFields({
-    numbers, ignored: (message) => { notes.push("photoMetadata.ignored: " + message); }, note: (message) => { notes.push("photoMetadata.exif: " + message); }
+    numbers, rational: (id, name) => part(name, () => {
+      const e = entry(id);
+      if (!e || e.count === 0) return null;
+      if (e.type !== 5) skip("unsupported field type " + e.type);
+      if (e.at < 0) skip("value exceeds the block");
+      return [t.u32(e.at), t.u32(e.at + 4)];
+    }), ignored: (message) => { notes.push("photoMetadata.ignored: " + message); }, note: (message) => { notes.push("photoMetadata.exif: " + message); }
   });
   let orientation = numbers(274, "Orientation", [3])?.[0] ?? null;
   if (orientation !== null && !(orientation >= 1 && orientation <= 8)) { notes.push("photoMetadata.ignored: Orientation " + orientation + " is not 1 to 8 and was ignored."); orientation = null; }
@@ -709,10 +719,70 @@ function readHeifMeta(bytes: Uint8Array, meta: Box, out: PhotoMetadata): void {
   }
 }
 
+// ---------------------------------------------------------------- PNG
+
+/** The PNG signature (PNG specification, third edition, §5.2). */
+const PNG_SIGNATURE = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
+/**
+ * 2.26.0 (#647): a PNG's IHDR size and its eXIf chunk (PNG specification, third edition, W3C 2025: §5.3 chunk layout, §11.2.1
+ * IHDR, §11.3.3.6 eXIf). The chunks are walked by their stated lengths, so IDAT and every other chunk's data are skipped, never
+ * decompressed. A chunk is length (4 bytes, at most 2^31 − 1), type (4 ASCII letters), data and a CRC-32 of the type and data; the
+ * IHDR's and eXIf's CRCs are checked, and a mismatch skips that chunk. eXIf holds an Exif block that starts with its TIFF header
+ * (the "Exif\0\0" identifier of a JPEG APP1 segment is not part of it; one found there is stepped over and reported). It is read
+ * with the JPEG and HEIF readers' Exif rules. The specification allows one eXIf; a further one is reported and not read.
+ */
+function readPng(bytes: Uint8Array, out: PhotoMetadata): void {
+  const notes = out.assumptions;
+  let p = 8, chunks = 0, exifSeen = false;
+  const crcOk = (start: number, length: number): boolean =>
+    (pngCrc32(bytes.subarray(start + 8, start + 8 + length), pngCrc32(bytes.subarray(start + 4, start + 8))) >>> 0) === u32be(bytes, start + 8 + length);
+  while (p < bytes.length) {
+    if (++chunks > L.maximumPngChunks) { notes.push("photoMetadata.ignored: the PNG has more than " + L.maximumPngChunks + " chunks; the rest were not read."); return; }
+    if (p + 8 > bytes.length) { notes.push("photoMetadata.truncated: a PNG chunk header lies beyond the supplied bytes."); return; }
+    const length = u32be(bytes, p), type = text(bytes, p + 4, p + 8), end = p + 12 + length;
+    if (length > 0x7fffffff || !/^[A-Za-z]{4}$/u.test(type)) { notes.push("photoMetadata.ignored: the PNG chunk at byte " + p + " is malformed (" +
+      (length > 0x7fffffff ? "length above 2^31 − 1" : "type is not four letters") + "); the rest of the file was not read."); return; }
+    if (chunks === 1 && type !== "IHDR") notes.push("photoMetadata.ignored: the first PNG chunk is " + type + ", not IHDR; the image size is not read.");
+    if (type === "IEND") return;
+    if (end > bytes.length) {
+      if (type === "eXIf" || type === "IHDR") notes.push("photoMetadata.truncated: the PNG " + type + " chunk lies beyond the supplied bytes and was not read.");
+      else notes.push("photoMetadata.truncated: the PNG chunks beyond byte " + p + " lie beyond the supplied bytes" + (exifSeen ? "." : "; an eXIf chunk there would not be read."));
+      return;
+    }
+    if (type === "IHDR" && chunks === 1) attempt(notes, "the PNG IHDR chunk", () => {
+      if (length !== 13) skip("length " + length + ", not 13");
+      if (!crcOk(p, length)) skip("CRC mismatch");
+      const width = u32be(bytes, p + 8), height = u32be(bytes, p + 12);
+      if (width === 0 || height === 0 || width > 0x7fffffff || height > 0x7fffffff) skip("width and height must be 1 to 2^31 − 1");
+      out.width = width; out.height = height;
+    });
+    else if (type === "eXIf" && exifSeen) notes.push("photoMetadata.ignored: a second PNG eXIf chunk (the specification allows one) was not read.");
+    else if (type === "eXIf") {
+      exifSeen = true;
+      const at = p;
+      attempt(notes, "the PNG eXIf chunk", () => {
+        if (length > L.maximumItemDataBytes) skip(length + " bytes (at most " + L.maximumItemDataBytes + ")");
+        if (!crcOk(at, length)) skip("CRC mismatch");
+        let block = bytes.subarray(at + 8, at + 8 + length);
+        if (block.length >= 6 && text(block, 0, 6) === "Exif\0\0") {
+          notes.push("photoMetadata.ignored: the PNG eXIf chunk starts with the JPEG \"Exif\\0\\0\" identifier, which PNG does not use; it was stepped over.");
+          block = block.subarray(6);
+        }
+        if (block.length < 8) skip("shorter than a TIFF header");
+        const read = readExif(block, notes);
+        out.exif = read.exif;
+        if (read.thumbnail) out.extraImages.push(read.thumbnail);
+      });
+    }
+    p = end;
+  }
+  notes.push("photoMetadata.truncated: the supplied bytes end before the PNG IEND chunk.");
+}
+
 function fail(message: string): never { throw new InvalidConfigurationError("parsePhotoMetadata: " + message); }
 
 /**
- * Reads the capture metadata of a JPEG or HEIC/HEIF file from its headers: the Exif capture settings (exposure time,
+ * Reads the capture metadata of a JPEG, HEIC/HEIF or (2.26.0) PNG file from its headers: the Exif capture settings (exposure time,
  * f-number, the ISO fields, focal length, FocalLengthIn35mmFilm, DigitalZoomRatio, CompositeImage, the focal-plane
  * resolution), make, model, Software, Orientation and the image size, and the extra images and annotations the file declares
  * (by type and size only). No pixel data is decoded, and maker notes and GPS data are never read.
@@ -722,7 +792,7 @@ function fail(message: string): never { throw new InvalidConfigurationError("par
  *
  * @param input The file's bytes, or a prefix of them that holds the headers.
  * @returns The metadata the file states; fields the file does not state are null.
- * @throws InvalidConfigurationError when the bytes are neither a JPEG nor a HEIF file, or the input has an unknown field.
+ * @throws InvalidConfigurationError when the bytes are not a JPEG, HEIF or PNG file, or the input has an unknown field.
  */
 export function parsePhotoMetadata(input: PhotoMetadataInput): PhotoMetadata {
   requireInputKeys(input, "parsePhotoMetadata", ["bytes"]);
@@ -732,6 +802,7 @@ export function parsePhotoMetadata(input: PhotoMetadataInput): PhotoMetadata {
     heifMirrorAxis: null, exif: null, xmpNamespaces: [], extraImages: [], annotations: [], assumptions: [] };
   if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) readJpeg(bytes, out);
   else if (bytes.length >= 16 && text(bytes, 4, 8) === "ftyp") { out.format = "heif"; readHeif(bytes, out); }
-  else fail("the bytes are neither a JPEG (FF D8 FF) nor a HEIF file (an ftyp box first).");
+  else if (bytes.length >= 8 && PNG_SIGNATURE.every((b, i) => bytes[i] === b)) { out.format = "png"; readPng(bytes, out); }
+  else fail("the bytes are neither a JPEG (FF D8 FF), a HEIF file (an ftyp box first) nor a PNG (its 8-byte signature).");
   return out;
 }

@@ -516,6 +516,12 @@ function prepare(input: DngImportInput, keys: readonly string[]): Prepared {
   });
   const exif: ImportedDngExif = resolveExifCaptureFields({
     numbers: exifNumber,
+    rational: (id, name) => optional(name, () => {
+      const e = exifEntry(id);
+      if (!e || e.count === 0) return null;
+      if (e.type !== 5) fail("tag has an unsupported field type.");
+      return [u32(e.at), u32(e.at + 4)];
+    }),
     ignored: (message) => { assumptions.push("dngImport.ignored: " + message); },
     note: (message) => { assumptions.push("dngImport.exif: " + message); }
   });
