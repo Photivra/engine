@@ -184,8 +184,10 @@ describe("the app's capture-worker shape", () => {
     const worker = await bundle(WORKER_SHAPE);
     const onDemand = worker.chunks.filter(isOnDemand), fast = worker.chunks.filter((c) => !isOnDemand(c));
     const sum = (chunks: Bundle["chunks"]): number => chunks.reduce((total, c) => total + c.gzip, 0);
-    expect(sum(fast)).toBeLessThanOrEqual(337_500);
-    expect(sum(onDemand)).toBeLessThanOrEqual(47_000);
+    // Owner decision 2026-11-16 ("Raise limits slightly"), for 2.25.0's named-lens work (#628-#633): measured
+    // 338,815 B fast and 47,358 B on demand, limits set to those rounded up to the next 100 B.
+    expect(sum(fast)).toBeLessThanOrEqual(338_900);
+    expect(sum(onDemand)).toBeLessThanOrEqual(47_400);
     expect(sum(fast) + sum(onDemand)).toBe(worker.totalGzip);
     // #581: the image-plane scene's module, lattice data and GPU module are reachable only through prepareImagePlaneScenes().
     expect([...worker.lazyModules, ...worker.modules.keys()].filter((id) => /image-plane(?!-support)/u.test(id))).toEqual([]);
