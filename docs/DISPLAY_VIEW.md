@@ -1570,6 +1570,21 @@ root exports of the built package, minified, gzip level 9; `test/capture-bundle.
   | on demand | 19,379 B (GPU Quality) | **46,977 B** (GPU Quality 19,401 B, CPU Quality kit 18,249 B, GPU coupled steps 5,159 B, opt-in kit 4,168 B) | 47,000 B (2.25.0: 47,400 B) |
   | all chunks | 378,059 B | 384,390 B | — |
 
+  **The export kit: a third row (owner decision 2026-11-16, "Move export code out", for 2.26.0).** The JPEG and PNG writers
+  (`src/facade/export-kit.ts`: the print JPEG encoder and the export JPEG coder it uses, the PNG encoder, and the JPEG and PNG
+  text-metadata writers, split from `output/text-metadata.ts` into `output/text-metadata-writers.ts`) are one chunk that
+  `simulateCapture` loads where it parses `output.format` "jpeg" or "png". Its bytes are those of a static import (every export
+  hash passes). `test/capture-bundle.test.ts` measures it as its own row, *export*, not in the on-demand Quality row, with its own
+  limit, its measurement rounded up to the next 100 B; the fast worker is every chunk outside both. The other two limits are
+  unchanged. A failed load fails that request with `ImageKernelExecutionError` reason `quality-code-unavailable`, and the next
+  request tries again.
+
+  | Row (worker shape, gzip) | release-2.26.0 before the move | After it | Limit |
+  | --- | --- | --- | --- |
+  | fast worker | 340,300 B | **331,482 B** | 338,900 B |
+  | on demand | 49,357 B | **49,382 B** | 47,400 B (over: an open owner decision) |
+  | export | in the fast worker | **10,403 B** | 10,500 B |
+
   The GPU coupled steps (#593) load on demand too and count in that row. The bundler now gives the entry ten small chunks it
   shares with the kits (imported statically; 252,371 B of entry plus 27,348 B), so the display view's addition is measured on
   the entry and those chunks together: 38,370 B minified and 14,126 B gzip (2.21.0: 46,270 B and 18,327 B).

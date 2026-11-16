@@ -2857,14 +2857,21 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 | [`CalculateSubjectFramingCropInput`](api/output-subject-framing-crop.md#calculatesubjectframingcropinput) | Type |
 | [`SubjectFramingCrop`](api/output-subject-framing-crop.md#subjectframingcrop) | Type |
 
+## output/text-metadata-writers.ts
+
+[Detailed contracts](api/output-text-metadata-writers.md) · [Source](https://github.com/Photivra/engine/blob/main/src/output/text-metadata-writers.ts)
+
+| Export | Kind |
+| --- | --- |
+| [`addJpegTextMetadata`](api/output-text-metadata-writers.md#addjpegtextmetadata) | Runtime |
+| [`addPngTextMetadata`](api/output-text-metadata-writers.md#addpngtextmetadata) | Runtime |
+
 ## output/text-metadata.ts
 
 [Detailed contracts](api/output-text-metadata.md) · [Source](https://github.com/Photivra/engine/blob/main/src/output/text-metadata.ts)
 
 | Export | Kind |
 | --- | --- |
-| [`addJpegTextMetadata`](api/output-text-metadata.md#addjpegtextmetadata) | Runtime |
-| [`addPngTextMetadata`](api/output-text-metadata.md#addpngtextmetadata) | Runtime |
 | [`OutputTextMetadata`](api/output-text-metadata.md#outputtextmetadata) | Type |
 
 ## processing/demosaic.ts

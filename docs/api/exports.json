@@ -29,12 +29,12 @@
     },
     {
       "name": "addJpegTextMetadata",
-      "source": "src/output/text-metadata.ts",
+      "source": "src/output/text-metadata-writers.ts",
       "kind": "runtime"
     },
     {
       "name": "addPngTextMetadata",
-      "source": "src/output/text-metadata.ts",
+      "source": "src/output/text-metadata-writers.ts",
       "kind": "runtime"
     },
     {

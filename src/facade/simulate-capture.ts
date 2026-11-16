@@ -75,7 +75,6 @@ import type { RawFrameReconstructionPhaseProfile } from "../capture/raw-frame-re
 import type { ExportSensorColorProfile } from "../capture/photographic-export.js";
 import { parseSdrRenderingProfile, type SdrRenderingProfile, type SdrToneCurve, type SdrToneCurveParameters, type SdrRenderingResult } from "../output/sdr-rendering.js";
 import type { RawHighlightMode } from "../color/sensor-color-development.js";
-import { createPrintJpegTask, PRINT_JPEG_LIMITS } from "../output/print-jpeg.js";
 import type { SimulateEnvironmentSensorRawFrameInput } from "../capture/environment-raw-producer.js";
 import { checkNativeRawIntegrity, prepareNativeRawDevelopment } from "../capture/native-raw-development.js";
 import { createRawPixelDeveloper, normalizedRawSite, rawSiteSaturated, type RawDevelopmentSource } from "../capture/raw-development-kernel.js";
@@ -86,8 +85,8 @@ import { BUILT_IN_BAYER_DEMOSAIC_MODEL_VERSION as BUILT_IN_DEMOSAIC_VERSION, cre
 import { transformOrientedRasterPointToNative } from "../output/capture-geometry.js";
 import { resolveCaptureColorModel } from "../color/capture-color.js";
 import { evaluateBt709Oetf, evaluateSrgbEncoding, resolveRgbColorSpace } from "../color/rgb-color-spaces.js";
-import { serializePngImage, PNG_ENCODER_LIMITS, type PngColourEncoding } from "../output/png-encoder.js";
-import { addJpegTextMetadata, addPngTextMetadata, parseOutputTextMetadata, type OutputTextMetadata } from "../output/text-metadata.js";
+import type { PngColourEncoding } from "../output/png-encoder.js";
+import { parseOutputTextMetadata, type OutputTextMetadata } from "../output/text-metadata.js";
 import { parseLensProjectionModel, type LensProjectionModel } from "../camera/lens-projection.js";
 import { prepareEnvironmentLensFieldMapping, type EnvironmentLensFieldMapping } from "../optics/sensor-environment-query.js";
 import type { RadialDistortionProfile } from "../optics/radial-distortion.js";
@@ -125,7 +124,7 @@ import { sumFixedPatternSites } from "../sensor/fixed-pattern-noise.js";
 import { sensorProfileFrame } from "../equipment/sensor-profile-frame.js";
 import type { SimulateCaptureSubjectMotion, SubjectMotion } from "../motion/subject-motion.js";
 import type { HandShakeOptions } from "../motion/hand-shake.js";
-import { loadedKit, optInKit, qualityKit } from "./on-demand-kits.js";
+import { exportKit, loadedKit, optInKit, qualityKit } from "./on-demand-kits.js";
 import { characterizeReadout, parseSensorCharacteristics, sensorReport, SENSOR_CHARACTERISTIC_KEYS, type SimulateCaptureSensorCharacteristics, type SimulateCaptureSensorReport } from "../sensor/sensor-characteristics.js";
 import { resolveChartScene, chartMaterialInputs, CHART_SCENE_PRESETS, type ChartScene, type ResolvedChartScene } from "./chart-scenes.js";
 import { resolveChartMaterialLayers, type ChartMaterialLayerScene, type ResolvedChartMaterialLayers } from "./chart-material-layers.js";
@@ -2222,6 +2221,8 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   const height = integerIn(pick(outputOptions, "height", "output.height", DEFAULTS.height, "64 × 64 output pixels."), "output.height", 1, maximumSide);
   const format = pick<SimulateCaptureOutputFormat>(outputOptions, "format", "output.format", DEFAULTS.format, "8-bit sRGB samples.");
   if (!["srgb-8", "srgb-16", "jpeg", "png", "dng"].includes(format)) fail("output.format must be srgb-8, srgb-16, jpeg, png or dng.");
+  // 2.26.0 (owner decision 2026-11-16): the JPEG and PNG writers (and their text metadata) are the export kit, loaded on demand.
+  if (format === "jpeg" || format === "png") await exportKit.load();
   // #570 and #587: which of the catalogue lens's corrections an option selects; none on is no option at all.
   type Selection = { distortion: boolean; lateralColor: boolean; vignetting: boolean };
   const correctionSelection = (value: unknown, name: string): Selection | undefined => {
@@ -3724,9 +3725,9 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
       const mapping = perceptual ? prepareRgbGamutMapping({ colorSpace: colorEncoding!, method: "cielab-hue-preserving-chroma-compression", kneeFraction: PERCEPTUAL_GAMUT_KNEE_FRACTION }) : undefined;
       samples = encodeSdrFromLinear(rgb, colorEncoding!, pngBitDepth!, mapping).samples;
     }
-    const encodedPng = format === "png" ? serializePngImage({ width: outputWidth, height: outputHeight, bitDepth: pngBitDepth!, samples, colourEncoding: pngColourEncoding(colorEncoding!),
-      ...(raisedPixels === undefined || outputWidth * outputHeight <= PNG_ENCODER_LIMITS.maximumPixels ? {} : { maximumPixels: raisedPixels }) }) : undefined;
-    const png = encodedPng && textMetadata ? addPngTextMetadata(encodedPng, textMetadata) : encodedPng;
+    const encodedPng = format === "png" ? loadedKit(exportKit).serializePngImage({ width: outputWidth, height: outputHeight, bitDepth: pngBitDepth!, samples, colourEncoding: pngColourEncoding(colorEncoding!),
+      ...(raisedPixels === undefined || outputWidth * outputHeight <= loadedKit(exportKit).PNG_ENCODER_LIMITS.maximumPixels ? {} : { maximumPixels: raisedPixels }) }) : undefined;
+    const png = encodedPng && textMetadata ? loadedKit(exportKit).addPngTextMetadata(encodedPng, textMetadata) : encodedPng;
     if (png) assumeTextMetadata(TEXT_METADATA_LAYOUT.png);
     const referenceMs = clockMs() - referenceStarted;
     assume("reference.kind", "model", "ideal-reference",
@@ -4104,10 +4105,10 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
     const source = { captureId: IDS.capture, imageStateId: "facade-developed", artifactId: "facade-developed-srgb8", sha256: jpegSha, width: outputWidth, height: outputHeight, encoding: "encoded-srgb-8-rgb" as const };
     // The encoder reads every pixel once, in source tiles of at most 256 × 32 aligned to the crop origin.
     const reads = Math.ceil(outputHeight / 32) * Math.ceil(outputWidth / 256), jpegTick = progress("jpeg", reads);
-    const jpegTask = createPrintJpegTask({ source, crop: { x: 0, y: 0, width: outputWidth, height: outputHeight }, outputWidth, outputHeight, quantizationStep: jpegStep!,
+    const kit = loadedKit(exportKit), jpegTask = kit.createPrintJpegTask({ source, crop: { x: 0, y: 0, width: outputWidth, height: outputHeight }, outputWidth, outputHeight, quantizationStep: jpegStep!,
       maximumEncodedBytes: Math.max(65536, outputWidth * outputHeight * 6), maximumProviderReads: reads,
       // The JPEG records its admission plan, so the raised limit is passed (and recorded) only when the image needs it.
-      ...(raisedPixels === undefined || outputWidth * outputHeight <= PRINT_JPEG_LIMITS.maximumPixels ? {} : { maximumPixels: raisedPixels }) }, {
+      ...(raisedPixels === undefined || outputWidth * outputHeight <= kit.PRINT_JPEG_LIMITS.maximumPixels ? {} : { maximumPixels: raisedPixels }) }, {
       readTile: async (request) => {
         jpegTick();
         const out = new Uint8Array(request.width * request.height * 3);
@@ -4117,7 +4118,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
     const jpegEncodeStarted = clockMs();
     await runTask(jpegTask);
     jpeg = jpegTask.takeOutput().bytes;
-    if (textMetadata) jpeg = addJpegTextMetadata(jpeg, textMetadata);
+    if (textMetadata) jpeg = kit.addJpegTextMetadata(jpeg, textMetadata);
     assumeTextMetadata(TEXT_METADATA_LAYOUT.jpeg);
     encodeMs = clockMs() - jpegEncodeStarted;
     assume("output.jpeg", "model", { encoder: "photivra-print-jpeg", iccProfile: "photivra-srgb" }, "Baseline JPEG from the existing print JPEG encoder with an embedded sRGB ICC profile; the source digest covers a sample prefix, length and scene digest.");
@@ -4126,9 +4127,10 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   let png: Uint8Array | undefined;
   if (format === "png") {
     const pngStarted = clockMs();
-    png = serializePngImage({ width: outputWidth, height: outputHeight, bitDepth: pngBitDepth!, samples: developed.integerSamples, colourEncoding: pngColourEncoding(colorEncoding!),
-      ...(raisedPixels === undefined || outputWidth * outputHeight <= PNG_ENCODER_LIMITS.maximumPixels ? {} : { maximumPixels: raisedPixels }) });
-    if (textMetadata) png = addPngTextMetadata(png, textMetadata);
+    const kit = loadedKit(exportKit);
+    png = kit.serializePngImage({ width: outputWidth, height: outputHeight, bitDepth: pngBitDepth!, samples: developed.integerSamples, colourEncoding: pngColourEncoding(colorEncoding!),
+      ...(raisedPixels === undefined || outputWidth * outputHeight <= kit.PNG_ENCODER_LIMITS.maximumPixels ? {} : { maximumPixels: raisedPixels }) });
+    if (textMetadata) png = kit.addPngTextMetadata(png, textMetadata);
     assumeTextMetadata(TEXT_METADATA_LAYOUT.png);
     encodeMs = clockMs() - pngStarted;
     assume("output.png", "model", { encoder: "serializePngImage", bitDepth: pngBitDepth, colourEncoding: pngColourEncoding(colorEncoding!) },
