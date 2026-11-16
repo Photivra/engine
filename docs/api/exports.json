@@ -1,6 +1,6 @@
 {
-  "packageVersion": "2.24.0",
-  "engineApiVersion": "2.24.0",
+  "packageVersion": "2.25.0",
+  "engineApiVersion": "2.25.0",
   "exports": [
     {
       "name": "AbsoluteUncertaintyEstimate",
@@ -938,9 +938,29 @@
       "kind": "type"
     },
     {
+      "name": "calculateFormatEquivalentIso",
+      "source": "src/camera/sensor-equivalence.ts",
+      "kind": "runtime"
+    },
+    {
+      "name": "CalculateFormatEquivalentIsoInput",
+      "source": "src/camera/sensor-equivalence.ts",
+      "kind": "type"
+    },
+    {
       "name": "calculateForwardGeometricMapping",
       "source": "src/output/geometric-transforms.ts",
       "kind": "runtime"
+    },
+    {
+      "name": "calculateFreezeShutterSpeed",
+      "source": "src/exposure/exposure-helpers.ts",
+      "kind": "runtime"
+    },
+    {
+      "name": "CalculateFreezeShutterSpeedInput",
+      "source": "src/exposure/exposure-helpers.ts",
+      "kind": "type"
     },
     {
       "name": "calculateGamutMappedColor",
@@ -1005,6 +1025,16 @@
     {
       "name": "CalculateIlluminationVignettingInput",
       "source": "src/optics/illumination-vignetting.ts",
+      "kind": "type"
+    },
+    {
+      "name": "calculateImagingAreaFromFocalLength35Mm",
+      "source": "src/camera/stated-focal-length-equivalence.ts",
+      "kind": "runtime"
+    },
+    {
+      "name": "CalculateImagingAreaFromFocalLength35MmInput",
+      "source": "src/camera/stated-focal-length-equivalence.ts",
       "kind": "type"
     },
     {
@@ -1328,6 +1358,16 @@
       "kind": "runtime"
     },
     {
+      "name": "calculateProgramLine",
+      "source": "src/facade/program-line-for-lens.ts",
+      "kind": "runtime"
+    },
+    {
+      "name": "CalculateProgramLineInput",
+      "source": "src/facade/program-line-for-lens.ts",
+      "kind": "type"
+    },
+    {
       "name": "calculateProjectedMotionBlur",
       "source": "src/motion/projected-motion.ts",
       "kind": "runtime"
@@ -1493,8 +1533,28 @@
       "kind": "runtime"
     },
     {
+      "name": "calculateSensorEquivalenceFromFocalLength35Mm",
+      "source": "src/camera/stated-focal-length-equivalence.ts",
+      "kind": "runtime"
+    },
+    {
+      "name": "CalculateSensorEquivalenceFromFocalLength35MmInput",
+      "source": "src/camera/stated-focal-length-equivalence.ts",
+      "kind": "type"
+    },
+    {
       "name": "CalculateSensorEquivalenceInput",
       "source": "src/camera/sensor-equivalence.ts",
+      "kind": "type"
+    },
+    {
+      "name": "calculateSensorFigures",
+      "source": "src/facade/sensor-figures.ts",
+      "kind": "runtime"
+    },
+    {
+      "name": "CalculateSensorFiguresInput",
+      "source": "src/facade/sensor-figures.ts",
       "kind": "type"
     },
     {
@@ -1510,6 +1570,16 @@
     {
       "name": "CalculateSensorGeometryMetricsInput",
       "source": "src/sensor/sensor-geometry.ts",
+      "kind": "type"
+    },
+    {
+      "name": "calculateSensorProfileFrame",
+      "source": "src/equipment/sensor-profile-frame.ts",
+      "kind": "runtime"
+    },
+    {
+      "name": "CalculateSensorProfileFrameInput",
+      "source": "src/equipment/sensor-profile-frame.ts",
       "kind": "type"
     },
     {
@@ -1608,6 +1678,16 @@
       "kind": "type"
     },
     {
+      "name": "calculateStandardExposure",
+      "source": "src/exposure/exposure-helpers.ts",
+      "kind": "runtime"
+    },
+    {
+      "name": "CalculateStandardExposureInput",
+      "source": "src/exposure/exposure-helpers.ts",
+      "kind": "type"
+    },
+    {
       "name": "calculateStepWedgeReflectances",
       "source": "src/facade/chart-scenes.ts",
       "kind": "runtime"
@@ -1630,6 +1710,16 @@
     {
       "name": "CalculateSubjectFramingCropInput",
       "source": "src/output/subject-framing-crop.ts",
+      "kind": "type"
+    },
+    {
+      "name": "calculateSunnySixteenExposure",
+      "source": "src/exposure/exposure-helpers.ts",
+      "kind": "runtime"
+    },
+    {
+      "name": "CalculateSunnySixteenExposureInput",
+      "source": "src/exposure/exposure-helpers.ts",
       "kind": "type"
     },
     {
@@ -3213,6 +3303,21 @@
       "kind": "runtime"
     },
     {
+      "name": "DNG_REWRITE_ALLOWED_TAGS",
+      "source": "src/capture/dng-writer.ts",
+      "kind": "runtime"
+    },
+    {
+      "name": "DNG_REWRITE_LIMITS",
+      "source": "src/capture/dng-writer.ts",
+      "kind": "runtime"
+    },
+    {
+      "name": "DNG_REWRITE_SCHEMA_VERSION",
+      "source": "src/capture/dng-writer.ts",
+      "kind": "runtime"
+    },
+    {
       "name": "DNG_WHAT_IF_MINIMUM_MEASURED_TO_PROFILE",
       "source": "src/capture/dng-raw-what-if.ts",
       "kind": "runtime"
@@ -3310,6 +3415,16 @@
     {
       "name": "DngRawWhatIfResult",
       "source": "src/capture/dng-raw-what-if.ts",
+      "kind": "type"
+    },
+    {
+      "name": "DngRewriteEdits",
+      "source": "src/capture/dng-writer.ts",
+      "kind": "type"
+    },
+    {
+      "name": "DngRewriteInput",
+      "source": "src/capture/dng-writer.ts",
       "kind": "type"
     },
     {
@@ -3556,6 +3671,21 @@
       "name": "evaluateZernikePolynomial",
       "source": "src/optics/zernike-wavefront.ts",
       "kind": "runtime"
+    },
+    {
+      "name": "ExifCaptureFields",
+      "source": "src/capture/exif-capture-fields.ts",
+      "kind": "type"
+    },
+    {
+      "name": "ExifFocalPlaneResolution",
+      "source": "src/capture/exif-capture-fields.ts",
+      "kind": "type"
+    },
+    {
+      "name": "ExifSubjectArea",
+      "source": "src/capture/exif-capture-fields.ts",
+      "kind": "type"
     },
     {
       "name": "EXPORT_JPEG_ENCODER_ID",
@@ -3808,6 +3938,11 @@
       "kind": "type"
     },
     {
+      "name": "FLAT_LOOK",
+      "source": "src/output/look-curves.ts",
+      "kind": "runtime"
+    },
+    {
       "name": "FocalLengthFNumberSample",
       "source": "src/equipment/exposure-capabilities.ts",
       "kind": "type"
@@ -3903,6 +4038,11 @@
       "kind": "type"
     },
     {
+      "name": "FormatEquivalentIso",
+      "source": "src/camera/sensor-equivalence.ts",
+      "kind": "type"
+    },
+    {
       "name": "FRAUNHOFER_C_LINE_NM",
       "source": "src/optics/longitudinal-chromatic-aberration.ts",
       "kind": "runtime"
@@ -3916,6 +4056,11 @@
       "name": "FRAUNHOFER_F_LINE_NM",
       "source": "src/optics/longitudinal-chromatic-aberration.ts",
       "kind": "runtime"
+    },
+    {
+      "name": "FreezeShutterSpeed",
+      "source": "src/exposure/exposure-helpers.ts",
+      "kind": "type"
     },
     {
       "name": "FRONT_OF_LENS_FILTER_PROFILE_SCHEMA_VERSION",
@@ -4603,6 +4748,11 @@
       "kind": "type"
     },
     {
+      "name": "ImagingAreaFromFocalLength35Mm",
+      "source": "src/camera/stated-focal-length-equivalence.ts",
+      "kind": "type"
+    },
+    {
       "name": "ImagingAreaMetrics",
       "source": "src/sensor/sensor-geometry.ts",
       "kind": "type"
@@ -4619,6 +4769,11 @@
     },
     {
       "name": "ImportedDngCfa",
+      "source": "src/capture/dng-import.ts",
+      "kind": "type"
+    },
+    {
+      "name": "ImportedDngEnhancedImage",
       "source": "src/capture/dng-import.ts",
       "kind": "type"
     },
@@ -4820,6 +4975,21 @@
     {
       "name": "IsoStandardSettingGrid",
       "source": "src/equipment/iso-capabilities.ts",
+      "kind": "type"
+    },
+    {
+      "name": "JPEG_EXIF_CAPTURE_SETTING_KEYS",
+      "source": "src/capture/jpeg-exif-writer.ts",
+      "kind": "runtime"
+    },
+    {
+      "name": "JpegExifCaptureSettings",
+      "source": "src/capture/jpeg-exif-writer.ts",
+      "kind": "type"
+    },
+    {
+      "name": "JpegExifDateTaken",
+      "source": "src/capture/jpeg-exif-writer.ts",
       "kind": "type"
     },
     {
@@ -5275,6 +5445,26 @@
     {
       "name": "MtfOnlyPsfRenderabilityAssessment",
       "source": "src/optics/lens-psf-profile.ts",
+      "kind": "type"
+    },
+    {
+      "name": "NakaRushtonLook",
+      "source": "src/output/look-curves.ts",
+      "kind": "type"
+    },
+    {
+      "name": "NAMED_LIGHT_LEVELS",
+      "source": "src/exposure/exposure-helpers.ts",
+      "kind": "runtime"
+    },
+    {
+      "name": "NamedLightLevel",
+      "source": "src/exposure/exposure-helpers.ts",
+      "kind": "type"
+    },
+    {
+      "name": "NamedLightLevelRecord",
+      "source": "src/exposure/exposure-helpers.ts",
       "kind": "type"
     },
     {
@@ -5938,6 +6128,11 @@
       "kind": "runtime"
     },
     {
+      "name": "parsePhotoMetadata",
+      "source": "src/capture/photo-metadata.ts",
+      "kind": "runtime"
+    },
+    {
       "name": "parsePreparedImageFormationContext",
       "source": "src/composition/image-formation-plan.ts",
       "kind": "runtime"
@@ -6218,6 +6413,41 @@
       "kind": "type"
     },
     {
+      "name": "PHOTO_METADATA_LIMITS",
+      "source": "src/capture/photo-metadata.ts",
+      "kind": "runtime"
+    },
+    {
+      "name": "PHOTO_METADATA_SCHEMA_VERSION",
+      "source": "src/capture/photo-metadata.ts",
+      "kind": "runtime"
+    },
+    {
+      "name": "PHOTO_METADATA_XMP_NAMESPACES",
+      "source": "src/capture/photo-metadata.ts",
+      "kind": "runtime"
+    },
+    {
+      "name": "PhotoAnnotation",
+      "source": "src/capture/photo-metadata.ts",
+      "kind": "type"
+    },
+    {
+      "name": "PhotoExif",
+      "source": "src/capture/photo-metadata.ts",
+      "kind": "type"
+    },
+    {
+      "name": "PhotoExtraImage",
+      "source": "src/capture/photo-metadata.ts",
+      "kind": "type"
+    },
+    {
+      "name": "PhotoExtraImageKind",
+      "source": "src/capture/photo-metadata.ts",
+      "kind": "type"
+    },
+    {
       "name": "PHOTOGRAPHIC_EXPORT_PIPELINE_VERSION",
       "source": "src/capture/photographic-export.ts",
       "kind": "runtime"
@@ -6243,6 +6473,16 @@
       "kind": "type"
     },
     {
+      "name": "PhotoMetadata",
+      "source": "src/capture/photo-metadata.ts",
+      "kind": "type"
+    },
+    {
+      "name": "PhotoMetadataInput",
+      "source": "src/capture/photo-metadata.ts",
+      "kind": "type"
+    },
+    {
       "name": "PhotonEnergyFromWavelength",
       "source": "src/sensor/photon-energy.ts",
       "kind": "type"
@@ -6265,6 +6505,11 @@
     {
       "name": "PhysicalStabilizationArchitecture",
       "source": "src/stabilization/system.ts",
+      "kind": "type"
+    },
+    {
+      "name": "PinLookMidGrayOptions",
+      "source": "src/output/look-curves.ts",
       "kind": "type"
     },
     {
@@ -6875,6 +7120,21 @@
     {
       "name": "ProgramAutoIsoControl",
       "source": "src/exposure/exposure-mode-resolver.ts",
+      "kind": "type"
+    },
+    {
+      "name": "ProgramLine",
+      "source": "src/facade/program-line-for-lens.ts",
+      "kind": "type"
+    },
+    {
+      "name": "ProgramLineNode",
+      "source": "src/facade/program-line-for-lens.ts",
+      "kind": "type"
+    },
+    {
+      "name": "ProgramLineSelection",
+      "source": "src/facade/program-line-for-lens.ts",
       "kind": "type"
     },
     {
@@ -7658,6 +7918,11 @@
       "kind": "type"
     },
     {
+      "name": "resolveJpegExifCaptureSettings",
+      "source": "src/capture/jpeg-exif-writer.ts",
+      "kind": "runtime"
+    },
+    {
       "name": "resolveLensCorrectionPlan",
       "source": "src/output/lens-corrections.ts",
       "kind": "runtime"
@@ -7706,6 +7971,11 @@
       "name": "ResolveManualWhiteBalanceInput",
       "source": "src/color/white-balance.ts",
       "kind": "type"
+    },
+    {
+      "name": "resolveMidGrayPinnedLook",
+      "source": "src/output/look-curves.ts",
+      "kind": "runtime"
     },
     {
       "name": "resolveNativeEffectiveRasterColorSamplingBinding",
@@ -7760,6 +8030,11 @@
     {
       "name": "resolveSensorProfile",
       "source": "src/equipment/sensor-profiles.ts",
+      "kind": "runtime"
+    },
+    {
+      "name": "resolveSensorProfileIsoSettings",
+      "source": "src/equipment/sensor-profile-body.ts",
       "kind": "runtime"
     },
     {
@@ -7841,6 +8116,11 @@
       "name": "resolveZernikeNollOrder",
       "source": "src/optics/zernike-wavefront.ts",
       "kind": "runtime"
+    },
+    {
+      "name": "RewrittenDng",
+      "source": "src/capture/dng-writer.ts",
+      "kind": "type"
     },
     {
       "name": "RgbColorSpaceDefinition",
@@ -8318,6 +8598,11 @@
       "kind": "runtime"
     },
     {
+      "name": "SENSOR_PROFILE_ISO_MARKINGS",
+      "source": "src/equipment/sensor-profile-body.ts",
+      "kind": "runtime"
+    },
+    {
       "name": "SENSOR_PROFILES",
       "source": "src/equipment/sensor-profiles.ts",
       "kind": "runtime"
@@ -8583,6 +8868,11 @@
       "kind": "type"
     },
     {
+      "name": "SensorEquivalenceFromFocalLength35Mm",
+      "source": "src/camera/stated-focal-length-equivalence.ts",
+      "kind": "type"
+    },
+    {
       "name": "SensorEquivalenceQuantity",
       "source": "src/camera/sensor-equivalence.ts",
       "kind": "type"
@@ -8590,6 +8880,11 @@
     {
       "name": "SensorExpectedReadoutSignal",
       "source": "src/sensor/raw-readout.ts",
+      "kind": "type"
+    },
+    {
+      "name": "SensorFigures",
+      "source": "src/facade/sensor-figures.ts",
       "kind": "type"
     },
     {
@@ -8685,6 +8980,11 @@
     {
       "name": "SensorProfile",
       "source": "src/equipment/sensor-profile-body.ts",
+      "kind": "type"
+    },
+    {
+      "name": "SensorProfileFrame",
+      "source": "src/equipment/sensor-profile-frame.ts",
       "kind": "type"
     },
     {
@@ -9093,6 +9393,11 @@
       "kind": "runtime"
     },
     {
+      "name": "serializeRewrittenDng",
+      "source": "src/capture/dng-writer.ts",
+      "kind": "runtime"
+    },
+    {
       "name": "serializeSimulatedCapture",
       "source": "src/capture/simulated-capture.ts",
       "kind": "runtime"
@@ -9131,6 +9436,11 @@
       "name": "SetFocusLockInput",
       "source": "src/capture/focus-control.ts",
       "kind": "type"
+    },
+    {
+      "name": "setJpegExifCaptureSettings",
+      "source": "src/capture/jpeg-exif-writer.ts",
+      "kind": "runtime"
     },
     {
       "name": "setManualFocusState",
@@ -9319,6 +9629,11 @@
     },
     {
       "name": "SimulateCaptureLensDistortion",
+      "source": "src/facade/simulate-capture.ts",
+      "kind": "type"
+    },
+    {
+      "name": "SimulateCaptureLensFilterReport",
       "source": "src/facade/simulate-capture.ts",
       "kind": "type"
     },
@@ -9728,6 +10043,21 @@
       "kind": "type"
     },
     {
+      "name": "STANDARD_LOOK",
+      "source": "src/output/look-curves.ts",
+      "kind": "runtime"
+    },
+    {
+      "name": "StandardExposure",
+      "source": "src/exposure/exposure-helpers.ts",
+      "kind": "type"
+    },
+    {
+      "name": "StatedValueInterval",
+      "source": "src/camera/stated-focal-length-equivalence.ts",
+      "kind": "type"
+    },
+    {
       "name": "StepWedgeChartScene",
       "source": "src/facade/chart-scenes.ts",
       "kind": "type"
@@ -9748,6 +10078,11 @@
       "kind": "type"
     },
     {
+      "name": "SubjectFramingCatalogueLens",
+      "source": "src/facade/subject-framing.ts",
+      "kind": "type"
+    },
+    {
       "name": "SubjectFramingCrop",
       "source": "src/output/subject-framing-crop.ts",
       "kind": "type"
@@ -9755,6 +10090,31 @@
     {
       "name": "SubjectFramingFit",
       "source": "src/facade/subject-framing.ts",
+      "kind": "type"
+    },
+    {
+      "name": "SubjectFramingLens",
+      "source": "src/facade/subject-framing.ts",
+      "kind": "type"
+    },
+    {
+      "name": "SubjectFramingSensorProfile",
+      "source": "src/facade/subject-framing.ts",
+      "kind": "type"
+    },
+    {
+      "name": "SUNNY_SIXTEEN_CONDITIONS",
+      "source": "src/exposure/exposure-helpers.ts",
+      "kind": "runtime"
+    },
+    {
+      "name": "SunnySixteenCondition",
+      "source": "src/exposure/exposure-helpers.ts",
+      "kind": "type"
+    },
+    {
+      "name": "SunnySixteenExposure",
+      "source": "src/exposure/exposure-helpers.ts",
       "kind": "type"
     },
     {

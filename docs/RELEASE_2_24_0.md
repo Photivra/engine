@@ -1,6 +1,6 @@
 # 2.24.0 release
 
-> **Prepared November 12, 2026; not published.** npm publishing runs only from the owner's `v2.24.0` tag ([Release gates](#release-gates)).
+> **Published November 12, 2026 (16:21 UTC).** The `v2.24.0` tag is on `2e2d1c0` (#609), after `main` CI on that commit had passed; npm publishing ran from the tag ([Publication](#publication)).
 
 ## At a glance
 
@@ -91,7 +91,7 @@ On this tree (Apple M5 Pro, Node.js 24.19.0), one run each:
 ## Pending (after release)
 
 - **Phone sample DNGs (#598):** unchanged from 2.22.0.
-- **Dual-gain switch points (#607):** `DNG_GAIN_SWITCH_CATALOG` ships empty (owner decision); a higher-ISO what-if needs the caller's `highGainFromIso` until a cited entry is added.
+- **Dual-gain switch points (#607):** `DNG_GAIN_SWITCH_CATALOG` ships empty (owner decision); a higher-ISO what-if needs the caller's `highGainFromIso` until a cited entry is added. Reviewed again for 2.25.0 (#623); still empty ([2.25.0 release record](RELEASE_2_25_0.md)).
 - **A device-side harmonic fill (#605):** unchanged from 2.23.0.
 
 ## Release gates
@@ -105,13 +105,24 @@ On this tree (Apple M5 Pro, Node.js 24.19.0), one run each:
 - [x] Version surfaces aligned at 2.24.0 (`npm run release:prepare -- 2.24.0`). Root exports 2,009.
 - [x] 2.23.0 recorded as published ([2.23.0 release record](RELEASE_2_23_0.md#publication)).
 - [x] The worker rows measured ([Sizes](#sizes)); no limit raised.
-- [ ] Green CI on this pull request, then on `main` after merge.
-- [ ] The owner's approval to tag `v2.24.0`.
-- [ ] The `v2.24.0` tag on the `main` commit that merges this record.
-- [ ] After publication:
-  - [ ] npm version, dist-tag, integrity and provenance verified;
-  - [ ] GitHub release notes published;
-  - [ ] publication dates updated in `CHANGELOG.md`, `README.md`, `SECURITY.md`, `docs/DEVELOPERS.md` and this record.
+- [x] Green CI on this pull request ([CI run 43246671355](https://github.com/Photivra/engine/actions/runs/43246671355) on `7dfbf65`), then on `main` after merge ([CI run 43250651742](https://github.com/Photivra/engine/actions/runs/43250651742) on `2e2d1c0`).
+- [x] The owner's approval to tag `v2.24.0`.
+- [x] The `v2.24.0` tag on the `main` commit that merges this record (`2e2d1c0`).
+- [x] After publication:
+  - [x] npm version, dist-tag, integrity and provenance verified ([Publication](#publication));
+  - [x] GitHub release notes published ([`v2.24.0`](https://github.com/Photivra/engine/releases/tag/v2.24.0), 17:18 UTC);
+  - [x] publication dates updated in `CHANGELOG.md`, `README.md`, `SECURITY.md`, `docs/DEVELOPERS.md` and this record (with the 2.25.0 preparation).
+
+## Publication
+
+| Fact | Value |
+| --- | --- |
+| Tag | `v2.24.0` (annotated, `5853d36`) → `2e2d1c01e1311e82835d7996cfbb152212ecc2e4` (#609, squash merge), after `main` CI on that commit passed ([CI run 43250651742](https://github.com/Photivra/engine/actions/runs/43250651742); WebGPU [43250652416](https://github.com/Photivra/engine/actions/runs/43250652416), native performance [43250651766](https://github.com/Photivra/engine/actions/runs/43250651766)) |
+| Publish workflow | [Publish npm run 43256403900](https://github.com/Photivra/engine/actions/runs/43256403900): passed 16:14:04–16:17:22 UTC |
+| npm | `@photivra/engine@2.24.0`, dist-tag `latest`, registry time 16:21:30 UTC, November 12, 2026 |
+| Integrity | `sha512-CkCtpsP1cQFBaW/cr27wWG+uQOdzEmfWsiP7QPJ6PB628M/yZFjxyD9fgAV+GUm3kK6A1dU7h871zR0Pn5J7sw==` (shasum `a077df2c8b448af38d5354313d63626d2feeac37`, 1,153 files) |
+| Provenance | The registry lists an attestation (SLSA v1) for 2.24.0 |
+| GitHub release | [`v2.24.0`](https://github.com/Photivra/engine/releases/tag/v2.24.0), published 17:18:32 UTC |
 
 ## For the owner
 

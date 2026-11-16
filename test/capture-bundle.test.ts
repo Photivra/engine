@@ -175,15 +175,19 @@ const QUALITY_ON_DEMAND_MODULES = ["gpu/display-view-quality-gpu.ts", "gpu/wgsl-
 /** The modules each CPU kit holds (#594): none may reach the fast worker's chunks. */
 const CPU_QUALITY_KIT_MODULES = ["facade/quality-kit.ts", "optics/diffraction-psf-profile.ts", "optics/site-diffraction-kernel.ts", "optics/lens-psf-kernels.ts", "processing/demosaic.ts",
   "facade/defocus-bokeh-zones.ts", "facade/large-defocus-lattice.ts", "facade/defocus-image-space-provider.ts", "facade/display-view-rendering.ts", "color/neighbor-highlight-reconstruction.ts"];
-const OPT_IN_KIT_MODULES = ["facade/opt-in-kit.ts", "equipment/sensor-profile-body.ts", "facade/mixed-illumination.ts", "motion/subject-motion.ts"];
+// #628: the display view's lens corrections and sharpening (display-view-detail.ts) are opt-in features too.
+const OPT_IN_KIT_MODULES = ["facade/opt-in-kit.ts", "facade/catalogue-lens-optics.ts", "equipment/sensor-profile-body.ts", "facade/lens-filter.ts", "facade/mixed-illumination.ts", "motion/subject-motion.ts",
+  "facade/display-view-detail.ts"];
 const isOnDemand = (chunk: Bundle["chunks"][number]): boolean => QUALITY_ON_DEMAND_MODULES.some((id) => chunk.modules.has(id));
 describe("the app's capture-worker shape", () => {
   it("keeps the fast worker and the on-demand Quality chunks within their measured sizes", async () => {
     const worker = await bundle(WORKER_SHAPE);
     const onDemand = worker.chunks.filter(isOnDemand), fast = worker.chunks.filter((c) => !isOnDemand(c));
     const sum = (chunks: Bundle["chunks"]): number => chunks.reduce((total, c) => total + c.gzip, 0);
-    expect(sum(fast)).toBeLessThanOrEqual(337_500);
-    expect(sum(onDemand)).toBeLessThanOrEqual(47_000);
+    // Owner decision 2026-11-16 ("Raise limits slightly"), for 2.25.0's named-lens work (#628-#633): measured
+    // 338,815 B fast and 47,358 B on demand, limits set to those rounded up to the next 100 B.
+    expect(sum(fast)).toBeLessThanOrEqual(338_900);
+    expect(sum(onDemand)).toBeLessThanOrEqual(47_400);
     expect(sum(fast) + sum(onDemand)).toBe(worker.totalGzip);
     // #581: the image-plane scene's module, lattice data and GPU module are reachable only through prepareImagePlaneScenes().
     expect([...worker.lazyModules, ...worker.modules.keys()].filter((id) => /image-plane(?!-support)/u.test(id))).toEqual([]);

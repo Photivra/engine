@@ -70,6 +70,13 @@ These human reviews were **pending** until the owner signed all five off on 2026
 - Panasonic's online operating instructions (eww.pavc.panasonic.co.jp) for the DC-S5M2, DC-S5M2X, DC-S9 and DC-S1M2 give the ISO ranges of the [Dual Native ISO Setting]'s fixed settings (for example LOW 100–800, HIGH 640–51200, Extended ISO 50–800 and 320–204800) and say that [AUTO], and in these manuals also [HIGH], switch the base sensitivity "automatically ... according to the brightness". They do not state the ISO at which a photo switches, and the ranges overlap, so no switch point can be cited. No terms notice was found on the pages.
 - Openly published read-noise measurements whose reuse terms could not be found were not used.
 
+Reviewed again on 2026-11-15 (#623); still **no entries**:
+
+- Blackmagic Pocket Cinema Camera Installation and Operation Manual (March 2025, documents.blackmagicdesign.com, "Dual Native ISO"): states that ISO settings from 1,250 to 25,600 use the second native ISO (3,200), which is a stated switch point, and that the still button records a CinemaDNG frame when the codec is ProRes. Not added: the manual covers the Pocket 4K, 6K G2 and 6K Pro together, and the Make and Model tags these cameras write could not be checked on a public file, so an entry could not match a file reliably. It can be added once a file from the camera confirms the tag strings (the manual carries Blackmagic's copyright notice; only the fact would be used).
+- Panasonic specification pages and press material for the DC-GH5S, DC-S1H, DC-BGH1 and DC-GH6 (help.na.panasonic.com, news.panasonic.com.au, eww.pavc.panasonic.co.jp): they give base ("native") sensitivities and overlapping LOW/HIGH ranges, or (DC-GH6) base sensitivities for video only. A base sensitivity is not the ISO at which a photo switches, so none was used.
+- Sony (Help Guide, Sony Cinematography articles) and Nikon (ZR pages) state dual base ISO values for log video only; Canon's dual-gain output is a video feature of its cinema models. No stills switch point was found for Leica, Fujifilm, Google or Apple cameras.
+- A third-party review stating a stills switch point (DPReview, DC-GH6) and openly published read-noise measurements (photonstophotos.net) were not used: their terms reserve all rights and grant no reuse.
+
 Each new entry adds a line here: model, switch ISO, source URL, its terms and the access date.
 
 ## Licence summaries (prepared for owner sign-off)
@@ -138,6 +145,8 @@ The colorimetry modules in `src/color/` (see [docs/COLORIMETRY.md](https://githu
 | h, c, k | BIPM SI Brochure (2019) | Exact SI defining constants (facts). |
 | Generic handheld angular velocity 4.39 °/s (`GENERIC_HANDHELD_ANGULAR_VELOCITY_RAD_PER_SEC`, `src/exposure/auto-iso-slowest-shutter.ts`, #504) | F. Xiao, J. Farrell, P. Catrysse, B. Wandell, "Mobile imaging: the big challenge of the small pixel", Proc. SPIE 7250 (2009), §2 (free author copy: https://web.stanford.edu/~wandell/data/papers/2009-CameraShake-Xiao.pdf, read 2026-10-31); from the gyroscope measurements of F. Xiao et al., Proc. SPIE 6502 (2007) | One published measured value used as a fact, labelled as a generic default for a 100 g handset held in two hands, not a measurement of any camera or photographer. No text, figure, table or dataset is copied. |
 | Standard output sensitivity S = 10/H, camera-equation constant 0.65 and the 18 % grey reference, K_m = 683 lm/W (`src/facade/`) | CIPA DC-004-2020 (free); BIPM SI Brochure, definition of the candela | Standardized scalar constants used as facts. The capture facade's charts (slanted edge, Siemens star, step wedge, grey ramp, checkerboard, point grid) are engine-authored analytic patterns; the slanted edge only follows the ISO 12233 geometry (a few degrees of slant, 4:1 contrast) and reproduces no chart artwork or data. |
+| Sunny-16 apertures by daylight condition (`SUNNY_SIXTEEN_CONDITIONS`, `src/exposure/exposure-helpers.ts`, #616) | Kodak Alaris, "Kodak Professional Tri-X 320 and 400 Films", publication F-4017 (2021, free), daylight exposure table; the condition names as summarized in Wikipedia, "Sunny 16 rule" | A photographic rule of thumb (f/16 at 1/ISO, one stop per condition) used as a fact; five f-numbers and short condition descriptions written for the engine. No table, text or figure is copied. |
+| Representative illuminances of named light levels (`NAMED_LIGHT_LEVELS`, `src/exposure/exposure-helpers.ts`, #616) | P. Schlyter, "Radiometry and photometry in astronomy" (free web page), illuminance table: sun overhead, full daylight, overcast and very dark overcast day, twilight, full Moon, starlight; Wikipedia, "Lux", example illuminances (CC BY-SA 4.0 page; values only): office 320–500 lx, living room 50 lx | Eleven scalar measurements used as facts, each attributed in the record's `source` field; the descriptions are written for the engine. No table layout or prose is copied. |
 
 The following datasets are deliberately **excluded**:
 
@@ -216,6 +225,23 @@ Format references:
 - PNG Third Edition (W3C Recommendation 24 June 2025): https://www.w3.org/TR/png-3/
 - zlib (RFC 1950) and DEFLATE (RFC 1951): https://www.rfc-editor.org/rfc/rfc1950, https://www.rfc-editor.org/rfc/rfc1951
 - ITU-T H.273 code points: https://www.itu.int/rec/T-REC-H.273
+
+JPEG and HEIF metadata reader (2.25.0, `src/capture/photo-metadata.ts`; independently authored, headers only, factual
+identifiers only: tag and box codes, field layouts, type codes, namespace URIs and URNs; no reader source or sample file used):
+
+- CIPA DC-007-2009 Multi-Picture Format (MP header, MP Index IFD, MPEntry type codes): https://www.cipa.jp/e/std/std-sec.html
+- Adobe XMP Part 3 (APP1 and extended XMP in JPEG): the Adobe XMP link above.
+- ISO/IEC 14496-12 (ISO base media file format box structure), in ISO's freely available standards:
+  https://standards.iso.org/ittf/PubliclyAvailableStandards/
+- AV1 Image File Format (AVIF) v1.2.0, Alliance for Open Media (the HEIF item properties ispe, auxC, irot, imir as AVIF uses
+  them, and the tmap tone-map derived item for gain maps): https://aomediacodec.github.io/av1-avif/
+- Android Ultra HDR image format v1.1 (the ISO 21496-1 APP2 identifier, the hdrgm and container XMP namespaces) and the Google
+  depth map, Dynamic Depth and image XMP namespaces, Android developer documentation: https://developer.android.com/media/platform/hdr-image-format
+- The CICP alpha and depth auxiliary URNs are those the AVIF specification above uses. The HEVC auxiliary-type URNs
+  (`urn:mpeg:hevc:2015:auxid:1` alpha, `:2` depth) are identifiers assigned in ISO/IEC 23008-12, used as factual identifiers
+  only; the text of ISO/IEC 23008-12 and of ISO 21496-1 was not used.
+- Test fixtures: every JPEG and HEIF file in `test/photo-metadata.test.ts` is synthetic, written by
+  `test/helpers/photo-test-writer.ts` (project Apache-2.0); vendor-style auxiliary URNs use an "example" namespace.
 
 RAW development and tone-mapping references (2.0; published equations and
 factual constants only, independently implemented; no code or data copied):

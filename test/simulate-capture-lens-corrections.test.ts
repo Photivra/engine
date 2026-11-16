@@ -148,7 +148,8 @@ describe("output.lensCorrections (#570)", { timeout: scaledTimeout(60_000) }, ()
     await expect(simulateCapture({ ...base, output: { ...base.output, lensCorrections: { distortion: "yes" as never } } })).rejects.toThrow(InvalidConfigurationError);
     await expect(simulateCapture({ ...base, output: { ...base.output, lensCorrections: { sharpen: true } as never } })).rejects.toThrow(InvalidConfigurationError);
     await expect(simulateIdealReference({ ...base, output: { ...base.output, lensCorrections: ALL } })).rejects.toThrow(/simulateIdealReference does not take output.lensCorrections/);
-    await expect(simulateDisplayView({ ...base, output: { ...base.output, lensCorrections: ALL } }, { width: 16, height: 16 })).rejects.toThrow(/does not support output.lensCorrections/);
+    // #628: the display view renders them (test/display-view-lens-corrections.test.ts), except the vignetting gain before the coupled chain.
+    await expect(simulateDisplayView({ ...base, output: { ...base.output, lensCorrections: ALL, highlightMode: "reconstruct" } }, { width: 16, height: 16 })).rejects.toThrow(/does not support output.lensCorrections.vignetting/);
   });
 });
 

@@ -249,11 +249,17 @@ have a fast method, a measured and bounded approximation of it. One flag style s
   midpoint per site of the subject's streak plus one when that is fewer than 8; exact keeps the 8; an explicit
   `sensor.temporalSampleCount` always wins); `developDngStageImage`'s WarpRectilinear resampling of an imported DNG (#600:
   bilinear fast, cubic convolution with a = −0.75 exact; the default follows its `format`: fast when omitted, full quality for "dng", "jpeg" and "png");
+  in 2.25.0, `lens.catalogue.flare`'s frame mean (#632, `lens.catalogue/flare-veil-mean`: every n-th site per axis fast, every site exact);
   in 2.24.0, `developDngImage`'s demosaic (#607, `developDngImage/demosaic`: the built-in bilinear kernels fast, AHD exact, with the
-  stage image's WarpRectilinear following the same flag; fast by default for its "srgb-8" and "srgb-16" outputs); `calculateDngRawClipping`, `estimateDngRawNoise`
+  stage image's WarpRectilinear following the same flag; fast by default for its "srgb-8" and "srgb-16" outputs); in 2.25.0, its half-size preview (#622, `developDngImage/size.half`: with `size: "half"`, each 2 × 2 CFA repeat binned fast, the exact full-size development averaged in linear light exact); `calculateDngRawClipping`, `estimateDngRawNoise`
   and `simulateDngRawWhatIf` are full quality only, with no `fast` (owner decision 2026-11-11): the clipping count is exact, the
   noise fit already runs in linear time (quickselect medians; 1.8 s on 24 MP) and a subsample would only add error to a number
   shown to the user, and the what-if's per-site seeded draws are what make it deterministic, so no faster method keeps its result;
+  in 2.25.0, the display view's regrouped defocus (#612, `lens.defocus/view-regrouped`: on the CPU, a disc much wider than the
+  diffraction kernel applied after the in-focus signal, by runs, the same sum regrouped; exact keeps each node's combined kernel);
+  the display view's lens corrections (#628, `output.lensCorrections/view-footprint`: each display pixel's developed rectangle
+  area-averaged fast, each output pixel's four bilinear sources rendered from their combined moments exact); the catalogue fast method's
+  box pixel aperture (#629, part of `lens.catalogue/field-grid`: each lattice point's box-integrated spectral radiance, one kernel per site);
   a print under mixed lighting on the GPU (#597, `illumination/image-plane-gpu`: `gpu` `"auto"`
   lights each lattice point on WebGPU, `"off"` the CPU reference); the default spectral step (#590, `sensor.spectralStepNanometers`: 5 nm on
   exact requests under a spiky light, 20 nm on fast ones); the catalogue field grid's cells (#603, `lens.catalogue/field-grid-cells`: at

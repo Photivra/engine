@@ -104,7 +104,7 @@ modelling choices (such as "no lens PSF") as `kind: "model"`.
 | `output.toneCurveParameters` | none | Required by the luminance curves (`extended-reinhard-luminance`, `naka-rushton-luminance`); the facade invents no curve parameters. |
 | `output.highlightMode` | `"clip"` | Or `"reconstruct"`. |
 | `output.exposureCompensationStops` | 0 | #556: a development exposure push, −2 to +5 stops, on the RAW before white balance (see [Development exposure push](#development-exposure-push-556)). |
-| `output.diffractionCorrection` | off | #552: `{ wavelengthNm?, regularization?, maximumGain?, kernelRadiusPixels? }`, a bounded deconvolution of the diffraction blur; needs `lens.diffraction`. It never restores detail beyond the diffraction cut-off (see [Sharpening and diffraction correction](#sharpening-and-diffraction-correction-552)). |
+| `output.diffractionCorrection` | off | #552: `{ wavelengthNm?, regularization?, maximumGain?, kernelRadiusPixels? }`, a bounded deconvolution of the diffraction blur; needs `lens.diffraction` or `lens.catalogue` (#630, the lens's own pupil). It never restores detail beyond the diffraction cut-off (see [Sharpening and diffraction correction](#sharpening-and-diffraction-correction-552)). |
 | `output.sharpening` | off | #552: `{ radiusPixels?, amount?, threshold? }`, an unsharp mask after the tone curve; sRGB output only (see [Sharpening and diffraction correction](#sharpening-and-diffraction-correction-552)). |
 | `output.lensCorrections` | off | #570, with `lens.catalogue`: `{ distortion?, lateralColor?, vignetting? }`, the lens's own corrections on the developed JPEG, PNG and samples; the DNG is never corrected. Works with `output.region` (see [Generic lens catalogue](#generic-lens-catalogue-549)). |
 | `output.whiteBalance` | `"scene-illuminant"` | Also `"auto"`, `"none"`, `{ kelvin, tint? }` and `{ channelGains }`. |
@@ -318,7 +318,10 @@ cropped on its other side). The result reports the magnification, image distance
 equivalent focal length if there is one, the prime family's minimum focus distance at that focal length
 and `belowMinimumFocus`, plus assumptions in the same form as `simulateCapture`. It is the same framing
 `simulateCapture` uses, so `chartSize` at the returned distance gives `frameWidthFraction` 1 (tested). For the coverage at any other distance, see
-[Chart coverage at any distance](#chart-coverage-at-any-distance-25).
+[Chart coverage at any distance](#chart-coverage-at-any-distance-25). With a catalogue lens, pass `catalogue` (its id, or
+`{ kind, breathing? }`) instead of the focal length (#631): a fisheye then frames through its equisolid projection and distortion, as
+`simulateCapture` renders it, and the result's `lens` block gives its field of view
+([Chart framing through the fisheyes](https://github.com/Photivra/engine/blob/main/docs/LENS_CATALOGUE.md#chart-framing-through-the-fisheyes-631)).
 
 An A3 chart (0.42 × 0.28 m) on a full-frame sensor: 0.127 m at 10 mm, 0.633 m at 50 mm, 2.53 m at
 200 mm and 15.2 m at 1200 mm (magnification 0.0857, minimum focus 0.10, 0.38, 1.53 and 9.2 m). On a
@@ -491,7 +494,7 @@ r.sensor.dynamicRangeStops; r.sensor.midGrey?.snrDecibels;
 | Option | Range | Default | Effect |
 | --- | --- | --- | --- |
 | `peakQuantumEfficiency` | 0.05–0.9 | 0.5 | Multiplies every channel's EQE curve by value / 0.5: the curves keep their shape and the colour matrix, and the collected charge scales in proportion. 0.9 keeps the blue channel's peak below 1. |
-| `fullWell` | 100–1e10 e⁻ at the pitch | the body's base-ISO saturation at 6 µm, × pitch²/36 µm² | The charge at the RAW white level at base ISO (the saturation capacity of EMVA 1288 Release 4.0). `link: "pixel-area"` (default) scales `electrons`, the full well at `referencePixelPitchMicrometers` (default 6), by (pitch / reference)²; `link: "none"` uses it at any pitch. |
+| `fullWell` | 100–1e10 e⁻ at the pitch | the body's base-ISO saturation at 6 µm, × pitch²/36 µm² | The charge at the RAW white level at base ISO (the saturation capacity of EMVA 1288 Release 4.0). `link: "pixel-area"` (default) scales `electrons`, the full well at `referencePixelPitchMicrometers` (default 6, or with `sensor.profile` the profile's own pitch, 2.25.0), by (pitch / reference)²; `link: "none"` uses it at any pitch. |
 | `readNoise` | 0–100 e⁻; switch ISO 100–1e7 | the body's (tiers: 2/1.1, 3/1.4 and 6/2.5 e⁻ per 6 µm photosite, ×√N above 6 µm; switch at ISO 800) | Read noise of one physical photosite (2.22.0, tiers and profiles alike; a rendered site that sums N photosites takes it ×√N) for the low and the high conversion gain, and `highGainFromIso`, the ISO from which the high gain is used. A switch above the body's top ISO keeps the low gain throughout. |
 | `readoutSeconds` | 1e-6–1 s | the body's (8, 15, 30 ms) | The rolling shutter's top-to-bottom skew (`motion.shutter: "rolling"`; `motion.rollingShutterSkewSeconds` still overrides it). |
 | `adcBitDepth` | 12, 14, 16 | the body's (consumer 12, others 14) | The black level scales by 2^Δbits (1 024 at 14 bits → 4 096 at 16), the saturation code is 2^bits − 1 and the conversion gain follows, so the same charge reaches the same fraction of the code range. A 16-bit RAW writes a 16-bit DNG with white level 65 535. |
@@ -1104,7 +1107,8 @@ console.log(result.diagnostics.detail); // { diffractionCorrection: {...}, sharp
   white balance → **diffraction correction** (linear) → rendering exposure and tone curve → gamut handling and sRGB transfer →
   **unsharp mask** → quantization. The `output.developmentOrder` assumption lists it. A push clips at white before the
   correction, on this path as on the default one.
-- **`output.diffractionCorrection`** needs `lens.diffraction`. It deconvolves the developed linear colour with the
+- **`output.diffractionCorrection`** needs `lens.diffraction` or `lens.catalogue` (#630: the catalogue lens's own pupil, D = f/N, at
+  its working f-number z/D; its aberrations are not inverted). It deconvolves the developed linear colour with the
   diffraction OTF of the ideal circular pupil at the capture's working f-number, through a bounded Wiener gain
   min(maximumGain, H(1 + α)/(H² + α)) built as a (2R + 1)² filter. Defaults: 550 nm, α = 0.01, gain bound 4, R = the Airy
   third dark ring in pixels (1–16). The OTF is zero beyond the cut-off 1/(λ·N_w): that detail never reached the sensor and

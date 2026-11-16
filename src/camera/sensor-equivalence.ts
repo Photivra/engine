@@ -175,6 +175,14 @@ function diagonalRatio(reference: SensorImagingArea, sensor: SensorImagingArea):
     : portableHypot(reference.widthMm, reference.heightMm) / portableHypot(sensor.widthMm, sensor.heightMm);
 }
 
+/**
+ * Diagonal crop factor of `sensor` against `reference` (36 × 24 mm when undefined). The default reference reuses the canonical
+ * 35 mm crop factor, so it is bit-identical to calculateEquivalentFocalLength35Mm and calculateImagingAreaMetrics.
+ */
+function equivalenceCropFactor(sensor: SensorImagingArea, reference: SensorImagingArea | undefined): number {
+  return reference === undefined ? calculateImagingAreaMetrics(sensor).value.cropFactor35Mm : diagonalRatio(reference, sensor);
+}
+
 function rectilinearAngleDegrees(dimensionMm: number, focalLengthMm: number): number {
   return (2 * Math.atan(dimensionMm / (2 * focalLengthMm)) * 180) / Math.PI;
 }
@@ -208,11 +216,7 @@ export function calculateSensorEquivalence(
   const reference: SensorImagingArea = input.reference === undefined
     ? { ...REFERENCE_FULL_FRAME }
     : { widthMm: input.reference.widthMm, heightMm: input.reference.heightMm };
-  // The default reference reuses the canonical 35 mm crop factor, so it is bit-identical to
-  // calculateEquivalentFocalLength35Mm and calculateImagingAreaMetrics.
-  const cropFactor = input.reference === undefined
-    ? calculateImagingAreaMetrics(sensor).value.cropFactor35Mm
-    : diagonalRatio(reference, sensor);
+  const cropFactor = equivalenceCropFactor(sensor, input.reference === undefined ? undefined : reference);
   const areaRatio = (sensor.widthMm / reference.widthMm) * (sensor.heightMm / reference.heightMm);
   const sensorDiagonalMm = portableHypot(sensor.widthMm, sensor.heightMm);
   if (!(areaRatio > 0) || !Number.isFinite(areaRatio)) {
@@ -347,6 +351,95 @@ export function calculateBlurShareOfFrame(
       "Shares are exact ratios of the blur diameter to the active frame's diagonal, width and height.",
       "A print shows the whole frame enlarged to fit inside it without cropping, long side to long side.",
       "Visibility of the blur depends on viewing distance and acuity; no acceptability criterion is applied."
+    ]
+  );
+}
+
+export interface CalculateFormatEquivalentIsoInput {
+  /** ISO setting on the source format. */
+  iso: number;
+  /** Physical active imaging area of the source format (the format the ISO is set on). Give this or `cropFactor`. */
+  sensor?: SensorImagingArea;
+  /** Target format. Defaults to the 36 × 24 mm frame. Only with `sensor`. */
+  reference?: SensorImagingArea;
+  /**
+   * Diagonal crop factor of the source against the target, k = target diagonal / source diagonal (greater than 1 when the
+   * source is the smaller format), instead of `sensor` and `reference`.
+   */
+  cropFactor?: number;
+}
+
+export interface FormatEquivalentIso {
+  /** ISO on the source format, as given. */
+  iso: number;
+  /** Diagonal crop factor k = target diagonal / source diagonal. */
+  cropFactor: number;
+  /** ISO on the target format with the same total light and the same output brightness: k² × iso. */
+  equivalentIso: number;
+  /** The ISO ratio k². */
+  isoRatio: number;
+  /** log2(k²): how many stops higher the equivalent ISO is (negative when the target is the smaller format). */
+  stops: number;
+  /** Exact or approximated, with the conditions. */
+  basis: EquivalenceValueBasis;
+}
+
+const FORMAT_EQUIVALENT_ISO_BASIS: EquivalenceValueBasis = Object.freeze({
+  kind: "approximation",
+  statement: "Same angle of view (focal length × k), same entrance-pupil diameter (f-number × k), same shutter time, and ISO × k² on the target: " +
+    "the image illuminance falls by 1/k² (illuminance ∝ 1/N²) over an area k² larger, so the total light is the same, and S ∝ 1/H (S = 10/H) keeps " +
+    "the output brightness. With the same photon-collection efficiency, the photon shot noise of the whole image is then the same. Exact for total " +
+    "light when the aspect ratios match; read noise, quantum efficiency and sensor design differ between real sensors and are not modelled."
+});
+
+/**
+ * The equivalent ISO for a format change (#613): the ISO on a target format that, with the equivalent focal length (k·f) and
+ * f-number (k·N) at the same shutter time, gives the same total light and the same output brightness as `iso` on the source
+ * format: S' = k²·S, with k the diagonal crop factor of the source against the target (target diagonal / source diagonal).
+ *
+ * The ISO counterpart of `calculateSensorEquivalence`'s focal length and f-number, from the same crop factor. Derivation:
+ * the image illuminance is proportional to 1/N² (Greivenkamp, OPTI-502, sec. 11), so k·N gives 1/k² of the illuminance
+ * over an area k² as large (same aspect ratio): the same total light. Standard output sensitivity S = 10/H (CIPA
+ * DC-004-2020 §3.2) needs k² times the ISO for the same output from 1/k² of the exposure H. Equal total light gives equal
+ * photon shot noise in the whole image for equally efficient sensors; read noise and sensor design are not modelled, so the
+ * result is an approximation for noise. An exposure-compensation ISO for changed settings on one format is
+ * `calculateEquivalentIso`.
+ *
+ * Example: ISO 100 on a 23.5 × 15.6 mm sensor (k ≈ 1.53) ↔ ISO ≈ 235 on 36 × 24 mm.
+ *
+ * @param input ISO and the source format (with an optional target), or a crop factor.
+ * @returns The equivalent ISO, the crop factor and the ratio in stops.
+ */
+export function calculateFormatEquivalentIso(
+  input: CalculateFormatEquivalentIsoInput
+): CalculationResult<FormatEquivalentIso> {
+  requireInputKeys(input, "calculateFormatEquivalentIso", ["iso", "sensor", "reference", "cropFactor"]);
+  requirePositiveFinite("iso", input.iso);
+  if ((input.sensor === undefined) === (input.cropFactor === undefined)) {
+    throw new InvalidScientificInputError("calculateFormatEquivalentIso needs exactly one of sensor or cropFactor.");
+  }
+  let cropFactor: number;
+  if (input.cropFactor !== undefined) {
+    if (input.reference !== undefined) throw new InvalidScientificInputError("reference applies only with sensor; omit it with cropFactor.");
+    requirePositiveFinite("cropFactor", input.cropFactor);
+    cropFactor = input.cropFactor;
+  } else {
+    requireImagingArea(input.sensor, "sensor");
+    if (input.reference !== undefined) requireImagingArea(input.reference, "reference");
+    cropFactor = equivalenceCropFactor(input.sensor, input.reference);
+  }
+  const isoRatio = cropFactor * cropFactor, equivalentIso = input.iso * isoRatio;
+  if (!(equivalentIso > 0) || !Number.isFinite(equivalentIso)) {
+    throw new InvalidScientificInputError("The equivalent ISO must be a finite number greater than zero.");
+  }
+  return approximationResult(
+    { iso: input.iso, cropFactor, equivalentIso, isoRatio, stops: portableLog2(isoRatio), basis: FORMAT_EQUIVALENT_ISO_BASIS },
+    "format-equivalent-iso",
+    "1.0.0",
+    [
+      "Crop factor is diagonal-based (36 × 24 mm target unless given).",
+      "Same total light and output brightness with focal length × k, f-number × k and the same shutter time; total light is exact only when the aspect ratios match.",
+      "Equal photon shot noise assumes equally efficient sensors; read noise, quantum efficiency and processing are not modelled."
     ]
   );
 }

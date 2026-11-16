@@ -195,6 +195,27 @@ export interface DisplayViewSetup {
   checkAbort(): void;
   /** #478: the inputs a GPU renderer builds its scene lookup from (see {@link DisplayViewGpuSetup}); not read by `renderDisplayView`. */
   gpu?: DisplayViewGpuSetup;
+  /** #628: `output.lensCorrections` (display-view-detail.ts): where each display pixel reads the developed image, and the gain. */
+  correction?: DisplayViewCorrection;
+  /** #628: when present, filled with each display pixel's covariance in linear light (v00, v01, v02, v11, v12, v22). */
+  covariance?: Float64Array;
+}
+
+/**
+ * #628: the developed pixels a corrected display view reads (`output.lensCorrections`; display-view-detail.ts). Frame pixels, +y down.
+ */
+export interface DisplayViewCorrection {
+  /** The developed rectangle [out[0], out[1]) × [out[2], out[3]) display pixel (vx, vy) reads (its corrected rectangle mapped to the source). */
+  footprint(vx: number, vy: number, out: Float64Array): void;
+  /** At least the widest footprint, in frame pixels. */
+  reach: number;
+  /** The fast method: the gain of developed pixel (x, y) at its centre. */
+  gain?: (x: number, y: number) => number;
+  /**
+   * The exact method: the developed pixels and bilinear weights that output pixel (x, y) reads, at most 4 triples (x, y, w) in `out`, and
+   * their gain (the gain at the source point) in out[12]; returns the count. The display pixel then samples its own output pixels.
+   */
+  sources?: (x: number, y: number, out: Float64Array) => number;
 }
 
 export interface DisplayViewRenderResult {
@@ -565,7 +586,9 @@ export async function renderDisplayView(setup: DisplayViewSetup): Promise<Displa
   const exactX0 = Math.floor(region.x * sx) + margin, exactWidth = Math.min(frameWidth - 1, Math.ceil((region.x + region.width) * sx) - 1) + margin - exactX0 + 1;
   let exactRows = 1;
   while (exactRows < 2 * (Math.ceil(sy) + 1)) exactRows *= 2;
-  const exactMemo = exactView && exactRows * exactWidth <= PIXEL_MEMO_LIMIT * 4;
+  // #628: a corrected sample's terms carry the gain of its output pixel (the exact method), so its real pixels' records are not shared.
+  const corr = setup.correction, bilinear = corr?.sources !== undefined, fp = new Float64Array(4);
+  const exactMemo = exactView && !bilinear && exactRows * exactWidth <= PIXEL_MEMO_LIMIT * 4;
   const exactStamp = new Int32Array(exactMemo ? exactRows * exactWidth : 0), exactRecords = new Float64Array(exactMemo ? exactRows * exactWidth * MEMO_SIZE : 0);
   const maximum = setup.bitDepth === 8 ? 255 : 65535, step = 1 / maximum;
   const pixelCount = region.width * region.height;
@@ -633,7 +656,7 @@ export async function renderDisplayView(setup: DisplayViewSetup): Promise<Displa
   let ringV = new Float64Array(0), ringMean = ringV, ringVar = ringV, ringThird = ringV, ringClip = ringV, markV = ringV;
   // (No closure assigns them, so they stay locals of the render loop.)
   // With AHD the windows reach 5 sites around a footprint, the sites #457's choice on the noise-free mosaic reads.
-  const ahdChoice = setup.ahdChoice, windowReach = ahdChoice ? Math.max(reach, AHD_REACH) : reach;
+  const ahdChoice = setup.ahdChoice, windowReach = (ahdChoice ? Math.max(reach, AHD_REACH) : reach) + (bilinear ? 2 : 0);
   // #457: AHD's choice on the noise-free mosaic. Per candidate the rendered mean and the camera-channel means of the sample.
   const candidateRendered = new Float64Array(6), candidateChannels = new Float64Array(6);
   /** The normalized expected value of an in-raster site, clipped at white (the noise-free mosaic AHD's choice reads). */
@@ -642,9 +665,11 @@ export async function renderDisplayView(setup: DisplayViewSetup): Promise<Displa
   // footprint at a time (its samples are scattered over it), so its plane is set to each display pixel's columns.
   let choiceRows = 1;
   while (choiceRows < Math.ceil(sy) + 2 + 2 * AHD_REACH) choiceRows *= 2;
-  const choiceX0 = Math.max(0, exactX0 - AHD_REACH), choiceColumns = exactView ? Math.min(nativeWidth - 1, exactX0 + exactWidth - 1 + AHD_REACH) - choiceX0 + 1 : Math.ceil(sx) + 2 + 2 * AHD_REACH;
+  // #628: with corrections the plane keeps one display pixel's developed footprint at a time, on either path.
+  const choiceX0 = Math.max(0, exactX0 - AHD_REACH), choiceColumns = corr ? Math.ceil(corr.reach) + 6 + 2 * AHD_REACH :
+    exactView ? Math.min(nativeWidth - 1, exactX0 + exactWidth - 1 + AHD_REACH) - choiceX0 + 1 : Math.ceil(sx) + 2 + 2 * AHD_REACH;
   const choicePlane = ahdChoice ? createAhdDirectionPlane(ahdChoice.labMatrix, nativeWidth, nativeHeight, choiceColumns, exactView ? 2 * choiceRows : choiceRows, noiseFreeSite) : undefined;
-  if (choicePlane && exactView) choicePlane.origin(choiceX0);
+  if (choicePlane && exactView && !corr) choicePlane.origin(choiceX0);
   /** Normalized site value of a slot: normal with mean k·e and variance k²·e + constant, clipped at the white level (1). */
   function siteStatistics(slot: number): void {
     // The channel and electrons are read from the slot arrays: a double passed to a call that is not inlined is boxed.
@@ -663,12 +688,29 @@ export async function renderDisplayView(setup: DisplayViewSetup): Promise<Displa
   // counts its sites; it is used only where every site lies in the window's site cache, where reading it again would have
   // cost no work and no scene lookup.
   let pixelStamp = new Int32Array(0), pixelRecords = new Float64Array(0), pixelGeneration = 0;
+  // #628, the exact correction: per developed pixel of one display pixel's samples (stride 7): its native site, its bilinear weight b, its
+  // output pixel's weights (wE, wR), the gain and whether it is the output pixel's last. With the bilinear demosaic and the per-component
+  // rendering the output pixel's expected value is rendered from its sources' combined developed moments (gm, gv, gt).
+  let entries = new Float64Array(0);
+  const source = new Float64Array(13);
+  const gm = new Float64Array(3), gv = new Float64Array(3), gt = new Float64Array(3);
+  const renderedMean = (mean: number, variance: number, third: number): number => {
+    if (!reinhard && mean > 0 && mean < 1 && mean * mean > reach2 * variance && (1 - mean) * (1 - mean) > reach2 * variance) return mean;
+    if (reinhard) reinhardMoments(mean, variance, clip); else unitClip(mean, variance, clip, variance > 0 ? third / (variance * Math.sqrt(variance)) : 0);
+    return clip[0]!;
+  };
   // Pilot: the scene at a deterministic grid over each display pixel's footprint widened by the reach; a pixel is uniform when
   // every point returns the same value. Pixels next to a detailed pixel count as detailed too, so an edge that only clips a
   // footprint's corner (too thin for the grid) still gets the full samples. The grid is fixed, so the sample count is not
   // random and the estimate stays unbiased either way.
+  /** The frame-pixel rectangle display pixel (vx, vy) reads: its own, or (#628) its developed footprint. */
+  const footprintOf = (vx: number, vy: number, out: Float64Array): void => {
+    if (corr) corr.footprint(vx, vy, out); else { out[0] = vx * sx; out[1] = (vx + 1) * sx; out[2] = vy * sy; out[3] = (vy + 1) * sy; }
+  };
+  const pf = new Float64Array(4), extra = reachSites + (bilinear ? 2 : 0);
   const pilotUniform = (vx: number, vy: number): boolean => {
-    const ax0 = vx * sx + margin - reachSites, ax1 = (vx + 1) * sx + margin + reachSites, ay0 = vy * sy + margin - reachSites, ay1 = (vy + 1) * sy + margin + reachSites;
+    footprintOf(vx, vy, pf);
+    const ax0 = pf[0]! + margin - extra, ax1 = pf[1]! + margin + extra, ay0 = pf[2]! + margin - extra, ay1 = pf[3]! + margin + extra;
     const px = pilotCount(ax1 - ax0), py = pilotCount(ay1 - ay0);
     let first = NaN;
     for (let j = 0; j < py; j++) {
@@ -696,15 +738,24 @@ export async function renderDisplayView(setup: DisplayViewSetup): Promise<Displa
     if (flagRows.length > 3) flagRows.shift();
     for (let rx = 0; rx < region.width; rx++) {
       const vx = region.x + rx, index = vy * viewWidth + vx;
-      footprintWeights(columns[rx]!, rows, area, B);
+      // #628: a corrected pixel reads its developed footprint fp (frame pixels); its noise weights are that rectangle's.
+      footprintOf(vx, vy, fp);
+      if (corr) footprintWeights(axisSums(fp[0]!, fp[1]!, frameWidth, margin), axisSums(fp[2]!, fp[3]!, frameHeight, margin), (fp[1]! - fp[0]!) * (fp[3]! - fp[2]!), B);
+      else footprintWeights(columns[rx]!, rows, area, B);
       let same = true;
       for (let j = 0; j < 3 && same; j++) for (let i = rx; i <= rx + 2; i++) if (flagRows[j]![i] === 0) { same = false; break; }
       const K = same ? uniformK : fullK, Q = K * K;
       // On the exact path every pixel counts as detailed (its whole footprint is evaluated).
       if (exactView) detail++; else if (same) uniform++; else detail++;
-      const cols = exactView ? columnOverlaps[rx]! : undefined, nx = cols ? cols.w.length : 0, sampleTotal = exactView ? nx * rowOverlaps!.w.length : Q;
-      const wx0 = Math.floor(vx * sx) + margin - windowReach, wy0 = Math.floor(vy * sy) + margin - windowReach;
-      const wx1 = Math.ceil((vx + 1) * sx) + margin + windowReach, wy1 = Math.ceil((vy + 1) * sy) + margin + windowReach;
+      // The fast correction samples the developed footprint itself; the exact one the display pixel's own output pixels (then their sources).
+      const ownCols = corr && !bilinear ? overlaps(fp[0]!, fp[1]!, frameWidth) : exactView ? columnOverlaps[rx]! : undefined;
+      const ownRows = corr && !bilinear ? overlaps(fp[2]!, fp[3]!, frameHeight) : rowOverlaps;
+      const fArea = corr && !bilinear ? (fp[1]! - fp[0]!) * (fp[3]! - fp[2]!) : area;
+      const cols = exactView ? ownCols : undefined, nx = cols ? cols.w.length : 0;
+      let sampleTotal = exactView ? nx * ownRows!.w.length : Q;
+      const f0 = fp[0]!, f1 = fp[1]!, f2 = fp[2]!, f3 = fp[3]!;
+      const wx0 = Math.floor(f0) + margin - windowReach, wy0 = Math.floor(f2) + margin - windowReach;
+      const wx1 = Math.ceil(f1) + margin + windowReach, wy1 = Math.ceil(f3) + margin + windowReach;
       setup.signal.window(wx0, wy0, wx1, wy1);
       // The jitter stream is only drawn from by the stratified estimator; the exact path reads no jitter.
       const jitter = exactView ? undefined : createDeterministicUniformStream(deriveNativeSiteStreamSeedUint32(seed, index, DISPLAY_VIEW_JITTER_STREAM_ID)), tracking = setup.signal.tracksMaterial;
@@ -715,10 +766,30 @@ export async function renderDisplayView(setup: DisplayViewSetup): Promise<Displa
         siteSlotQ = new Int32Array(slotsCount); siteSlotStamp = new Int32Array(slotsCount);
         markX = new Int32Array(slotsCount); markY = new Int32Array(slotsCount); markV = new Float64Array(slotsCount); markM = new Int32Array(slotsCount);
       }
-      const mx0 = Math.floor(vx * sx) + margin, my0 = Math.floor(vy * sy) + margin;
-      if (choicePlane && !exactView) choicePlane.origin(Math.max(0, mx0 - AHD_REACH));
-      const mw = Math.min(frameWidth - 1, Math.ceil((vx + 1) * sx)) + margin - mx0 + 1, mh = Math.min(frameHeight - 1, Math.ceil((vy + 1) * sy)) + margin - my0 + 1;
-      const pixelMemo = !exactView && setup.signal.cachesSites && mw * mh <= PIXEL_MEMO_LIMIT;
+      const mx0 = Math.floor(f0) + margin, my0 = Math.floor(f2) + margin;
+      if (choicePlane && (!exactView || corr)) choicePlane.origin(Math.max(0, mx0 - AHD_REACH - (bilinear ? 2 : 0)));
+      const mw = Math.min(frameWidth - 1, Math.ceil(f1)) + margin - mx0 + 1, mh = Math.min(frameHeight - 1, Math.ceil(f3)) + margin - my0 + 1;
+      const pixelMemo = !exactView && !bilinear && setup.signal.cachesSites && mw * mh <= PIXEL_MEMO_LIMIT;
+      // #628, the exact correction: each sample (an output pixel) becomes the developed pixels it reads, with their bilinear weights and gain.
+      if (bilinear) {
+        let count = 0;
+        if (entries.length < 28 * sampleTotal) entries = new Float64Array(28 * sampleTotal);
+        for (let n = 0; n < sampleTotal; n++) {
+          let x: number, y: number, wE = 1, wR = 1;
+          if (cols) { const i = n % nx, j = (n - i) / nx, aj = cols.w[i]! * ownRows!.w[j]! / area; x = cols.first + i; y = ownRows!.first + j; wE = aj; wR = aj * aj; }
+          else {
+            const a = n % K, b = (n - a) / K;
+            x = Math.min(frameWidth - 1, Math.floor((vx + (a + jitter!.next()) / K) * sx)); y = Math.min(frameHeight - 1, Math.floor((vy + (b + jitter!.next()) / K) * sy));
+          }
+          const m = corr!.sources!(x, y, source);
+          for (let e = 0; e < m; e++, count++) {
+            const o = 7 * count;
+            entries[o] = source[3 * e]! + margin; entries[o + 1] = source[3 * e + 1]! + margin; entries[o + 2] = source[3 * e + 2]!; entries[o + 3] = wE; entries[o + 4] = wR;
+            entries[o + 5] = source[12]!; entries[o + 6] = e === m - 1 ? 1 : 0;
+          }
+        }
+        sampleTotal = count;
+      }
       if (pixelMemo) {
         if (pixelStamp.length < mw * mh) { pixelStamp = new Int32Array(mw * mh); pixelRecords = new Float64Array(mw * mh * MEMO_SIZE); pixelGeneration = 0; }
         pixelGeneration++;
@@ -727,15 +798,18 @@ export async function renderDisplayView(setup: DisplayViewSetup): Promise<Displa
       for (let n = 0; n < sampleTotal; n++) {
         // A sample's weights: 1 for the stratified estimator (its sums are divided by Q below); a_j for the expected value and
         // linear covariance and a_j² for the independent residual on the exact path. Multiplying by 1 leaves every value's bits.
-        let x: number, y: number, wE = 1, wR = 1;
-        if (cols) {
-          const i = n % nx, j = (n - i) / nx, aj = cols.w[i]! * rowOverlaps!.w[j]! / area;
-          x = cols.first + i + margin; y = rowOverlaps!.first + j + margin; wE = aj; wR = aj * aj;
+        let x: number, y: number, wE = 1, wR = 1, G = 1;
+        if (bilinear) { const o = 7 * n, b = entries[o + 2]!; x = entries[o]!; y = entries[o + 1]!; wE = entries[o + 3]! * b; wR = entries[o + 4]! * b * b; G = entries[o + 5]!; }
+        else if (cols) {
+          const i = n % nx, j = (n - i) / nx, aj = cols.w[i]! * ownRows!.w[j]! / fArea;
+          x = cols.first + i + margin; y = ownRows!.first + j + margin; wE = aj; wR = aj * aj;
         } else {
           const a = n % K, b = (n - a) / K;
-          const fx = (vx + (a + jitter!.next()) / K) * sx, fy = (vy + (b + jitter!.next()) / K) * sy;
+          const fx = corr ? f0 + (a + jitter!.next()) / K * (f1 - f0) : (vx + (a + jitter!.next()) / K) * sx, fy = corr ? f2 + (b + jitter!.next()) / K * (f3 - f2) : (vy + (b + jitter!.next()) / K) * sy;
           x = Math.min(frameWidth - 1, Math.floor(fx)) + margin; y = Math.min(frameHeight - 1, Math.floor(fy)) + margin;
         }
+        // #628: the vignetting gain on the developed linear colour, before the tone curve (1 without it: x·1 = x exactly).
+        if (corr?.gain) G = corr.gain(x - margin, y - margin);
         const phase = (y & 1) * 2 + (x & 1), list = phaseList[phase]!;
         let material = -2, statistics = false;
         const px = x - mx0, py = y - my0;
@@ -811,7 +885,7 @@ export async function renderDisplayView(setup: DisplayViewSetup): Promise<Displa
           else { upperClip(mean, variance, 1, clip); siteMean[slot] = clip[0]!; siteVar[slot] = clip[1]!; siteClip[slot] = 1 - clip[2]!; }
         }
         if (!tracking) material = -1;
-        const count = candidateCount, share = 1 / count;
+        const count = candidateCount, share = 1 / count, grouped = bilinear && count === 1 && coupled === null, bw = grouped ? entries[7 * n + 2]! : 0;
         if (memo) {
           for (let d = 0; d < count; d++) {
             for (let c = 0; c < 3; c++) {
@@ -882,36 +956,44 @@ export async function renderDisplayView(setup: DisplayViewSetup): Promise<Displa
           }
           if (!chainRun && coupled?.luminanceTone) {
             // The developed y = M·b: mean and covariance (diagonal from the clipped variances, off-diagonal through the slopes).
-            for (let r = 0; r < 3; r++) muY[r] = M[r]![0]! * bm[0]! + M[r]![1]! * bm[1]! + M[r]![2]! * bm[2]!;
+            for (let r = 0; r < 3; r++) muY[r] = G * (M[r]![0]! * bm[0]! + M[r]![1]! * bm[1]! + M[r]![2]! * bm[2]!);
             for (let r = 0; r < 3; r++) for (let q = 0; q < 3; q++) {
               let v = 0;
               for (let i = 0; i < 3; i++) for (let j = 0; j < 3; j++) v += M[r]![i]! * M[q]![j]! * (i === j ? bv[i]! : bs[i]! * bs[j]! * C[i * 3 + j]!);
-              sY[r * 3 + q] = v;
+              sY[r * 3 + q] = G * G * v;
             }
             if (coupled.tone(muY, sY, hm, hv, jY)) {
-              for (let r = 0; r < 3; r++) for (let c = 0; c < 3; c++) coupledA[r * 3 + c] = (jY[r * 3]! * M[0]![c]! + jY[r * 3 + 1]! * M[1]![c]! + jY[r * 3 + 2]! * M[2]![c]!) * bs[c]!;
+              for (let r = 0; r < 3; r++) for (let c = 0; c < 3; c++) coupledA[r * 3 + c] = G * ((jY[r * 3]! * M[0]![c]! + jY[r * 3 + 1]! * M[1]![c]! + jY[r * 3 + 2]! * M[2]![c]!) * bs[c]!);
               coupledUsed = true;
             } else chainRun = true;
           } else if (!chainRun) {
             // Colour matrix, then the rendering of each component (tone curve, clip to [0, 1]).
             for (let comp = 0; comp < 3; comp++) {
               const r0m = comp === 0 ? m00 : comp === 1 ? m10 : m20, r1m = comp === 0 ? m01 : comp === 1 ? m11 : m21, r2m = comp === 0 ? m02 : comp === 1 ? m12 : m22;
-              const mean = r0m * bm[0]! + r1m * bm[1]! + r2m * bm[2]!;
-              const variance = r0m * r0m * bv[0]! + r1m * r1m * bv[1]! + r2m * r2m * bv[2]! +
-                2 * (r0m * r1m * bs[0]! * bs[1]! * C[1]! + r0m * r2m * bs[0]! * bs[2]! * C[2]! + r1m * r2m * bs[1]! * bs[2]! * C[5]!);
-              if (!reinhard && mean > 0 && mean < 1 && mean * mean > reach2 * variance && (1 - mean) * (1 - mean) > reach2 * variance) { hm[comp] = mean; hv[comp] = variance; hs[comp] = 1; }
-              else if (reinhard) { reinhardMoments(mean, variance, clip); hm[comp] = clip[0]!; hv[comp] = clip[1]!; hs[comp] = clip[2]!; }
-              else {
-                // The component is a linear combination of the sites: κ₃ = Σ (Σ_c M·Γ_c·w_c,site)³·κ₃(site).
+              const mean = G * (r0m * bm[0]! + r1m * bm[1]! + r2m * bm[2]!);
+              const variance = G * G * (r0m * r0m * bv[0]! + r1m * r1m * bv[1]! + r2m * r2m * bv[2]! +
+                2 * (r0m * r1m * bs[0]! * bs[1]! * C[1]! + r0m * r2m * bs[0]! * bs[2]! * C[2]! + r1m * r2m * bs[1]! * bs[2]! * C[5]!));
+              const inside = !reinhard && mean > 0 && mean < 1 && mean * mean > reach2 * variance && (1 - mean) * (1 - mean) > reach2 * variance;
+              // The component is a linear combination of the sites: κ₃ = Σ (Σ_c M·Γ_c·w_c,site)³·κ₃(site).
+              let third = 0;
+              if (grouped || !inside && !reinhard) {
                 const dense = denseAt[phase * 2 + d]!, list = listAt[phase * 2 + d]!;
-                let third = 0;
                 for (let li = 0; li < list.length; li++) {
-                  const slot = list[li]!, coefficient = r0m * bs[0]! * dense[slot]! + r1m * bs[1]! * dense[slotsCount + slot]! + r2m * bs[2]! * dense[2 * slotsCount + slot]!;
+                  const slot = list[li]!, coefficient = G * (r0m * bs[0]! * dense[slot]! + r1m * bs[1]! * dense[slotsCount + slot]! + r2m * bs[2]! * dense[2 * slotsCount + slot]!);
                   third += coefficient * coefficient * coefficient * siteThird[slot]!;
                 }
+              }
+              // #628, the exact correction: the capture interpolates the developed values before the tone curve, so the output pixel's
+              // component is the weighted sum of its sources' (independent; κ₃ = Σ b³κ₃) before it is rendered.
+              if (grouped) { gm[comp] = gm[comp]! + bw * mean; gv[comp] = gv[comp]! + bw * bw * variance; gt[comp] = gt[comp]! + bw * bw * bw * third; }
+              if (inside) { hm[comp] = mean; hv[comp] = variance; hs[comp] = 1; }
+              else if (reinhard) { reinhardMoments(mean, variance, clip); hm[comp] = clip[0]!; hv[comp] = clip[1]!; hs[comp] = clip[2]!; }
+              else {
                 unitClip(mean, variance, clip, variance > 0 ? third / (variance * Math.sqrt(variance)) : 0);
                 hm[comp] = clip[0]!; hv[comp] = clip[1]!; hs[comp] = clip[2]!;
               }
+              // The slope with respect to the white-balanced channels carries the gain.
+              hs[comp] = G * hs[comp]!;
             }
             // #601: a component that reaches 1 within reach is desaturated with the others: the chain is integrated.
             if (coupled?.desaturate && !reinhard) for (let comp = 0; comp < 3; comp++) {
@@ -920,6 +1002,7 @@ export async function renderDisplayView(setup: DisplayViewSetup): Promise<Displa
               if (mean > 0 && hm[comp]! + CLIP_REACH_SIGMA * Math.sqrt(hv[comp]!) >= 0.999) chainRun = true;
             }
           }
+          // (#628: the facade refuses the vignetting correction with the chain's steps, so G is 1 here.)
           if (chainRun) { coupled!.at?.(x, y); coupled!.chain(cm, C, hm, hv, coupledA); coupledUsed = true; }
           e0 += share * hm[0]!; e1 += share * hm[1]!; e2 += share * hm[2]!;
           candidateRendered[3 * d] = hm[0]!; candidateRendered[3 * d + 1] = hm[1]!; candidateRendered[3 * d + 2] = hm[2]!;
@@ -952,7 +1035,12 @@ export async function renderDisplayView(setup: DisplayViewSetup): Promise<Displa
           const direction = choicePlane.direction(x, y);
           if (direction !== 2) { e0 = candidateRendered[3 * direction]!; e1 = candidateRendered[3 * direction + 1]!; e2 = candidateRendered[3 * direction + 2]!; }
         }
-        s0 += wE * e0; s1 += wE * e1; s2 += wE * e2;
+        if (!grouped) { s0 += wE * e0; s1 += wE * e1; s2 += wE * e2; }
+        else if (entries[7 * n + 6] === 1) {
+          const a = entries[7 * n + 3]!;
+          s0 += a * renderedMean(gm[0]!, gv[0]!, gt[0]!); s1 += a * renderedMean(gm[1]!, gv[1]!, gt[1]!); s2 += a * renderedMean(gm[2]!, gv[2]!, gt[2]!);
+          gm.fill(0); gv.fill(0); gt.fill(0);
+        }
         if (rt) { rt[ro + 0] = csv[0]!; rt[ro + 1] = csv[1]!; rt[ro + 2] = csv[2]!; rt[ro + 27] = e0; rt[ro + 28] = e1; rt[ro + 29] = e2; }
         // #533: the real pixel's saturation probability, 1 − Π_k (1 − p_k) over the distinct sites its demosaic reads (the
         // capture counts a pixel with at least one clipped contributing site; the sites' noises are independent). A site read
@@ -1001,19 +1089,9 @@ export async function renderDisplayView(setup: DisplayViewSetup): Promise<Displa
       // Covariance in linear light: the linear part plus the independent per-pixel residuals and rounding.
       const v00 = exactView ? c00 + r0 + pixels * q0 : c00 / Q + pixels * (r0 / Q + q0), v01 = c01 / Qd, v02 = c02 / Qd,
         v11 = exactView ? c11 + r1 + pixels * q1 : c11 / Q + pixels * (r1 / Q + q1), v12 = c12 / Qd, v22 = exactView ? c22 + r2 + pixels * q2 : c22 / Q + pixels * (r2 / Q + q2);
-      const noise = createDeterministicUniformStream(deriveNativeSiteStreamSeedUint32(seed, index, DISPLAY_VIEW_NOISE_STREAM_ID));
-      const z0 = samplePortableStandardNormal(noise), z1 = samplePortableStandardNormal(noise), z2 = samplePortableStandardNormal(noise);
-      // Cholesky factor of the 3 × 3 covariance (positive semidefinite; tiny negative pivots are treated as 0).
-      const l00 = Math.sqrt(Math.max(0, v00)), l10 = l00 > 0 ? v01 / l00 : 0, l20 = l00 > 0 ? v02 / l00 : 0;
-      const l11 = Math.sqrt(Math.max(0, v11 - l10 * l10)), l21 = l11 > 0 ? (v12 - l20 * l10) / l11 : 0;
-      const l22 = Math.sqrt(Math.max(0, v22 - l20 * l20 - l21 * l21));
       const o = (ry * region.width + rx) * 3;
-      // The drawn value is clipped to [0, 1] like any light level; where the noise reaches a bound, the normal's centre is
-      // moved so that the clipped draw keeps the expected value (the mean of real pixels in [0, 1] is in [0, 1] already).
-      const n0 = clipCentre(mean0, v00) + l00 * z0, n1 = clipCentre(mean1, v11) + l10 * z0 + l11 * z1, n2 = clipCentre(mean2, v22) + l20 * z0 + l21 * z1 + l22 * z2;
-      samples[o] = Math.round(encodeSrgbComponentPortable(n0 < 0 ? 0 : n0 > 1 ? 1 : n0) * maximum);
-      samples[o + 1] = Math.round(encodeSrgbComponentPortable(n1 < 0 ? 0 : n1 > 1 ? 1 : n1) * maximum);
-      samples[o + 2] = Math.round(encodeSrgbComponentPortable(n2 < 0 ? 0 : n2 > 1 ? 1 : n2) * maximum);
+      drawDisplayPixel(seed, index, mean0, mean1, mean2, v00, v01, v02, v11, v12, v22, samples, o, maximum);
+      if (setup.covariance) { const c = setup.covariance, k6 = 2 * o; c[k6] = v00; c[k6 + 1] = v01; c[k6 + 2] = v02; c[k6 + 3] = v11; c[k6 + 4] = v12; c[k6 + 5] = v22; }
       expected[o] = mean0; expected[o + 1] = mean1; expected[o + 2] = mean2;
       noiseStd[o] = Math.sqrt(Math.max(0, v00)); noiseStd[o + 1] = Math.sqrt(Math.max(0, v11)); noiseStd[o + 2] = Math.sqrt(Math.max(0, v22));
       // The clock is read every 16 display pixels and at the end of each row (yield timing never changes the output).
@@ -1022,6 +1100,26 @@ export async function renderDisplayView(setup: DisplayViewSetup): Promise<Displa
   }
   return { samples, expected, noiseStd, sampleCount, siteCount, detailPixelCount: detail, uniformPixelCount: uniform,
     estimation: exactView ? "exact-area-mean" : "stratified-monte-carlo", saturated, saturatedPixelCount: saturatedTotal };
+}
+
+/**
+ * One display pixel's drawn samples (at `o` in `samples`): one correlated normal draw from its covariance (seeded by the noise seed and the
+ * pixel's index), clipped to [0, 1], sRGB-encoded and rounded. #628: shared with the corrected view's composition (display-view-detail.ts).
+ */
+export function drawDisplayPixel(seed: number, index: number, mean0: number, mean1: number, mean2: number, v00: number, v01: number, v02: number, v11: number, v12: number, v22: number,
+  samples: Uint8Array | Uint16Array, o: number, maximum: number): void {
+  const noise = createDeterministicUniformStream(deriveNativeSiteStreamSeedUint32(seed, index, DISPLAY_VIEW_NOISE_STREAM_ID));
+  const z0 = samplePortableStandardNormal(noise), z1 = samplePortableStandardNormal(noise), z2 = samplePortableStandardNormal(noise);
+  // Cholesky factor of the 3 × 3 covariance (positive semidefinite; tiny negative pivots are treated as 0).
+  const l00 = Math.sqrt(Math.max(0, v00)), l10 = l00 > 0 ? v01 / l00 : 0, l20 = l00 > 0 ? v02 / l00 : 0;
+  const l11 = Math.sqrt(Math.max(0, v11 - l10 * l10)), l21 = l11 > 0 ? (v12 - l20 * l10) / l11 : 0;
+  const l22 = Math.sqrt(Math.max(0, v22 - l20 * l20 - l21 * l21));
+  // The drawn value is clipped to [0, 1] like any light level; where the noise reaches a bound, the normal's centre is
+  // moved so that the clipped draw keeps the expected value (the mean of real pixels in [0, 1] is in [0, 1] already).
+  const n0 = clipCentre(mean0, v00) + l00 * z0, n1 = clipCentre(mean1, v11) + l10 * z0 + l11 * z1, n2 = clipCentre(mean2, v22) + l20 * z0 + l21 * z1 + l22 * z2;
+  samples[o] = Math.round(encodeSrgbComponentPortable(n0 < 0 ? 0 : n0 > 1 ? 1 : n0) * maximum);
+  samples[o + 1] = Math.round(encodeSrgbComponentPortable(n1 < 0 ? 0 : n1 > 1 ? 1 : n1) * maximum);
+  samples[o + 2] = Math.round(encodeSrgbComponentPortable(n2 < 0 ? 0 : n2 > 1 ? 1 : n2) * maximum);
 }
 
 /**
@@ -1041,4 +1139,29 @@ export function clipCentre(target: number, v: number): number {
 export function quantizationVariance(linear: number, step: number): number {
   const e = encodeSrgbComponentPortable(linear < 0 ? 0 : linear > 1 ? 1 : linear), slope = e <= 0.04045 ? 1 / 12.92 : 2.4 / 1.055 * portablePow((e + 0.055) / 1.055, 1.4);
   return slope * slope * step * step / 12;
+}
+
+/** Per-axis display-scale mask kernel: the capture's Gaussian g box-averaged over display pixels of s real pixels (index n + reach). */
+function displayKernel(g: Float64Array, s: number): Float64Array {
+  const r = (g.length - 1) / 2, reach = Math.ceil(r / s) + 1, own = overlaps(0, s, Math.ceil(s) + 1), out = new Float64Array(2 * reach + 1);
+  for (let n = -reach; n <= reach; n++) {
+    const other = overlaps(n * s, (n + 1) * s, Number.MAX_SAFE_INTEGER), first = Math.floor(n * s);
+    let sum = 0;
+    for (let j = 0; j < own.w.length; j++) for (let k = 0; k < other.w.length; k++) {
+      const d = own.first + j - (first + k);
+      if (d >= -r && d <= r) sum += own.w[j]! * other.w[k]! * g[d + r]!;
+    }
+    out[n + reach] = sum / s;
+  }
+  return out;
+}
+/**
+ * #628: the unsharp mask's noise gain Σh² at display scale, h = (1 + a)·δ − a·(W_x ⊗ W_y), W the capture's Gaussian `g` averaged over display
+ * pixels of sx × sy real pixels (display-view-detail.ts): the capture's own gain at 1:1, tending to 1 as the display pixels grow.
+ */
+export function unsharpNoiseGain(g: Float64Array, sx: number, sy: number, amount: number): number {
+  const kx = displayKernel(g, sx), ky = displayKernel(g, sy);
+  let w2 = 0;
+  for (const a of kx) for (const b of ky) w2 += a * a * b * b;
+  return (1 + amount) * (1 + amount) - 2 * amount * (1 + amount) * kx[(kx.length - 1) / 2]! * ky[(ky.length - 1) / 2]! + amount * amount * w2;
 }

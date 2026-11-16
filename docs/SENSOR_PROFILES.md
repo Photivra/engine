@@ -32,7 +32,17 @@ capabilities (shutter range, release, focus, stabilization, metering, white bala
 The sensor characteristics of #555 still override a profile one at a time ([quick start](QUICK_START.md#sensor-characteristics-555)):
 for example `{ profile: resolveSensorProfile("aps-c-26mp-bsi-2020s"), readNoise: { lowGainElectrons: 2 } }`. A pitch other than the
 profile's scales its full well with the pixel area, the rule the tiers use from 6 µm. The capture records the
-profile's values in the assumption `sensor.profile`.
+profile's values in the assumption `sensor.profile`. With a profile, `sensor.fullWell` with the default `link: "pixel-area"`
+is the full well of one of the profile's photosites (2.25.0, #638): `referencePixelPitchMicrometers` defaults to the profile's own
+pitch, as `sensor.readNoise` is per photosite, so `fullWell: { electrons: profile.fullWellElectrons }` changes nothing
+(`sensitivityOffsetStops` 0). Before 2.25.0 it defaulted to 6 µm, which made the medium-format profile's own 50 300 e⁻ a
+19 753 e⁻ photosite and its output 1.35 stops brighter; pass `referencePixelPitchMicrometers: 6` for that reading. The
+assumption's note on a full well unusual for the pitch uses the photosite's charge per µm² (its native capacity over its
+area), not the rendered site's.
+
+**ISO settings (#635).** `resolveSensorProfileIsoSettings(profile)` returns the ISO values a capture takes with the profile: the
+markings of `SENSOR_PROFILE_ISO_MARKINGS` (third stops from ISO 32 to 102 400) from its base ISO to its maximum, for example
+ISO 40–6 400 for the phone profile. It checks the record as a capture does, so a caller's copy gets its own list.
 
 **The record, not an id** (owner, 2026-11-09). The capture takes the record itself and never imports the catalogue, so an
 application's capture worker does not bundle the profile data: the application imports `SENSOR_PROFILES` where it needs
@@ -70,9 +80,26 @@ half-diagonal its distortion, vignetting and lateral colour are normalised to. T
 - **A downsized view.** At a pitch above the profile's, each site stands for N = (pitch / photosite pitch)² photosites: their
   charge adds (the full well scales with the area, as before) and their read noise adds in quadrature (×√N, also for explicit
   `readNoise` values, which are per photosite). Below one photosite the read noise is kept. Dark current and ADC
-  quantization stay per site, an approximation, and `sensor.fixedPatternNoise` (a per-photosite pattern) is refused at a pitch
-  other than the profile's. The same √N rule applies to a profile with an explicit pitch and no catalogue lens, reported in
+  quantization stay per site, an approximation. `sensor.fixedPatternNoise` (2.25.0, #637) takes the pattern of the N photosites a
+  site sums, drawn once per site: PRNU and DSNU σ/√N (the mean of N factors), row and column offsets σ·N^(3/4) (a site row sums
+  √N photosites in each of its √N rows) and hot pixels with probability P = 1 − (1 − f)^N per site and a dark factor of
+  1 + (m − 1)·f/P, which keeps the mean dark charge (an approximation: one hot state per site). At the profile's own pitch the
+  pattern is unchanged; a pitch below one photosite is still refused. `result.sensor.native` keeps the photosite's pattern. The same √N rule applies to a profile with an explicit pitch and no catalogue lens, reported in
   the same assumption.
+- **Before a capture (#636).** `calculateSensorProfileFrame({ profile, width, height, pixelPitchMicrometers?, catalogueLens? })`
+  returns this frame (the same record as `sensor.profileView`), and `calculateSubjectDistanceForFraming` and
+  `calculateChartFraming` take `sensorProfile: { profile, width, height, pixelPitchMicrometers? }` in place of `sensor`: with
+  `catalogue` the lens is resolved on the whole sensor and the frame is the capture's, so the phone profile's three lenses frame as
+  they render (a phone lens needs the phone profile there too).
+
+  ```ts
+  import { calculateChartFraming, calculateSensorProfileFrame, resolveSensorProfile } from "@photivra/engine";
+
+  const phone = resolveSensorProfile("phone-50mp-stacked");
+  calculateSensorProfileFrame({ profile: phone, width: 960, height: 640, catalogueLens: true }).value.pixelPitchMicrometers; // about 10.25 µm
+  calculateChartFraming({ sensorProfile: { profile: phone, width: 960, height: 640 }, catalogue: "pv-24-1.8-phone", chart: { widthM: 1 }, subjectDistanceM: 2 })
+    .coverage.frameWidthFraction;
+  ```
 - **The same in every path.** The exact and fast catalogue methods and the display view read the same frame, lens and
   readout. `lens.prime` and `lens.ideal` keep the simulated-frame rule (output × pitch); a capture without a profile is
   byte-identical.

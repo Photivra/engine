@@ -188,7 +188,9 @@ Both stages filter the whole developed image, so a request with either develops 
 
 ### Diffraction correction (`output.diffractionCorrection`)
 
-It needs `lens.diffraction`: it inverts the blur that option simulates, with the same known PSF.
+It needs `lens.diffraction` or (2.25.0, #630) `lens.catalogue`: it inverts the diffraction blur those options simulate, with the same known pupil.
+
+- **With a catalogue lens (#630).** The lens's PSF is the scalar Fraunhofer diffraction of its uniform circular pupil, D = f/N, carrying its Seidel wavefront ([Lens catalogue](LENS_CATALOGUE.md)). The correction takes that pupil's own working f-number N_w = z/D (z the thin-lens image distance at the focus, as the PSF uses; the same quantity as N·v/f below, computed as the lens computes it) and inverts its diffraction OTF. The lens's aberrations, which its PSF also carries, are not inverted. The assumption adds `pupil: "lens.catalogue"`.
 
 - **OTF.** An ideal, aberration-free circular pupil at the capture's working f-number N_w = N·v/f (thin-lens image distance v, as `lens.diffraction` uses) has the incoherent OTF H(s) = (2/π)(acos s − s√(1 − s²)) for s = f/f_c < 1 and **H = 0 for s ≥ 1**, with cut-off f_c = 1/(λ·N_w). In output pixels f_c·p = p/(λ·N_w), against the sampling Nyquist frequency 0.5 cycles per pixel.
 - **Gain.** G(s) = min(maximumGain, H(s)·(1 + α)/(H(s)² + α)): the Wiener deconvolution filter H*/(|H|² + K) with a constant noise-to-signal power ratio K = α, scaled so that G(0) = 1, and bounded. G(s) = 0 wherever H(s) = 0.

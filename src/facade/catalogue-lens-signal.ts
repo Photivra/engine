@@ -26,6 +26,15 @@
  * (2R + 1)² scene queries per spectral node. Its error against the exact method is
  * bounded by ‖K̃ − K‖₁ times the brightest tap's signal; tests measure both (test/simulate-capture-lens-catalogue-fast.test.ts).
  *
+ * The pixel aperture (#629). With `sensor.pixelAperture` "box" the exact method queries each site at N × N aperture nodes o (weights 1/N²),
+ * each with the PSF resolved at q + o and its taps at q + o + (c_x − k_x, k_y − c_y)·p. For a fixed tap k those tap points are the box nodes
+ * around one lattice point, so with one kernel per site the box folds into the scene before the taps:
+ *   μ̃_c(q) = Σ_k Σ_λ B(q + c − k, λ)·Σ_g b_g(q)·C_{g,c}(k, λ),   B(P, λ) = Σ_o w_o·F(P + o)·L_{m(P + o)}(λ),
+ * B the box-integrated spectral radiance of lattice point P (its N² nodes' materials and field factors; one material and the summed factor
+ * where every node reads the same material, else the mixed spectrum, kept per window). A site then costs the point method's taps; the
+ * further approximation is the one kernel per site instead of one per aperture node (the PSF's change across half a site). Also checked
+ * at run time against the exact chain.
+ *
  * The scene points. The mapping is the environment's (`undistortedImagePoint`, `lensProjectionDirectionValue`, the planar
  * provider's plane point), with the radial inverse solved by Newton's method instead of bisection: both converge to the same
  * root to rounding. Outside a circular fisheye's image circle (`outsideImageCircle: "backward-ray"`) and beyond the horizon the
@@ -97,8 +106,18 @@ export interface CatalogueLensSignalInput {
   metresPerFrameUnit: number;
   /** #603: the fewest grid cells between neighbouring field nodes (default {@link CATALOGUE_FAST_GRID_MINIMUM_SUBDIVISIONS}). */
   gridSubdivisions?: number;
-  /** Internal test hook: resolve every site's kernels exactly (the exact method's sum, slowly) instead of blending the grid. */
+  /**
+   * #629: the query points' offsets from the site centre, in sites (+x right, +y down), with their weights (summing to 1): the box pixel
+   * aperture's N × N nodes. Default: the site centre alone.
+   */
+  queryOffsets?: readonly { x: number; y: number; weight: number }[];
+  /**
+   * Resolve every site's kernels exactly instead of blending the grid: the exact method's sum, in another order (within 1e-9 of the
+   * chain without the box pixel aperture; with it, each site's centre kernel on the box-folded scene). #632: `lens.catalogue.flare` on an exact request renders this way; otherwise a test hook.
+   */
   exactKernels?: boolean;
+  /** #632: the veiling glare (see {@link CatalogueLensSignal.veiled}): its fraction g and the lattice step of the frame mean. */
+  veil?: { fraction: number; step: number };
 }
 
 export interface CatalogueLensSignal {
@@ -110,6 +129,13 @@ export interface CatalogueLensSignal {
   readonly lookups: number;
   /** Grid points per axis (columns, rows) and how many were resolved so far. */
   readonly grid: { columns: number; rows: number; resolved: number };
+  /**
+   * #632, with `veil`: a site's electrons μ with the veiling glare, (1 − g)·μ + g·Σ_λ A_c(λ)·Ē(λ), Ē(λ) the mean over the frame's site
+   * lattice (every step-th site per axis) of the field factor times the material radiance, integrated with the site's own channel response.
+   */
+  veiled?(electrons: number, x: number, y: number): number;
+  /** #632: the frame mean Ē per spectral node and the lattice points it averaged (with `veil`). */
+  readonly veilMean?: { radiance: Float64Array; samples: number };
 }
 
 /**
@@ -246,14 +272,46 @@ export function createCatalogueLensSignal(given: CatalogueLensSignalInput): Cata
   };
   let lookups = 0;
   let lm = 0, lf = 0;
-  /** The material and field factor of lattice point (p, q) (sites from the top-left site, the lattice formula). */
-  const lattice = (p: number, q: number): void => {
-    map((p + 0.5 - W / 2) * mmPerSite, (q + 0.5 - H / 2) * mmPerSite);
-    lf = mf;
-    if (mf === 0) { lm = 0; return; }
+  const materialOf = (): number => {
     const m = scene.materialAt(mu, mv);
     if (!(m >= 0 && m < M) || !Number.isInteger(m)) throw new InvalidConfigurationError("Unknown chart material.");
-    lm = m; lookups++;
+    lookups++;
+    return m;
+  };
+  // #629: the aperture nodes. With more than one, a lattice point's value is its box-integrated spectrum B: one material and the summed
+  // field factor where all nodes read the same material, else a mixed spectrum (index M and up: `mixed`, kept for the window; the last one
+  // read outside the window in `scratch`).
+  const offsets = input.queryOffsets ?? [{ x: 0, y: 0, weight: 1 }], box = offsets.length > 1;
+  const all: Float64Array[] = [...spectra], scratch = new Float64Array(nodes), nodeMaterial = new Int32Array(offsets.length), nodeFactor = new Float64Array(offsets.length);
+  let windowFilling = false;
+  /** The material and field factor of lattice point (p, q) (sites from the top-left site, the lattice formula). */
+  const lattice = (p: number, q: number): void => {
+    if (!box) {
+      map((p + 0.5 - W / 2) * mmPerSite, (q + 0.5 - H / 2) * mmPerSite);
+      lf = mf;
+      if (mf === 0) { lm = 0; return; }
+      lm = materialOf();
+      return;
+    }
+    let first = -1, same = true, factor = 0;
+    for (let o = 0; o < offsets.length; o++) {
+      const node = offsets[o]!;
+      map((p + 0.5 + node.x - W / 2) * mmPerSite, (q + 0.5 + node.y - H / 2) * mmPerSite);
+      const f = mf === 0 ? 0 : node.weight * mf, m = f === 0 ? -1 : materialOf();
+      nodeMaterial[o] = m; nodeFactor[o] = f; factor += f;
+      if (m >= 0) { if (first < 0) first = m; else if (m !== first) same = false; }
+    }
+    if (first < 0) { lm = 0; lf = 0; return; }
+    if (same) { lm = first; lf = factor; return; }
+    const spectrum = windowFilling ? new Float64Array(nodes) : scratch.fill(0);
+    for (let o = 0; o < offsets.length; o++) {
+      const m = nodeMaterial[o]!;
+      if (m < 0) continue;
+      const L = spectra[m]!, f = nodeFactor[o]!;
+      for (let n = 0; n < nodes; n++) spectrum[n] = spectrum[n]! + f * L[n]!;
+    }
+    if (windowFilling) { all.push(spectrum); lm = all.length - 1; } else { all[M] = spectrum; lm = M; }
+    lf = 1;
   };
   // The window's lattice: points [wx0, wx0 + ww) × [wy0, wy0 + wh).
   let wx0 = 0, wy0 = 0, ww = 0, wh = 0, winMaterial = new Int32Array(0), winFactor = new Float64Array(0);
@@ -262,7 +320,10 @@ export function createCatalogueLensSignal(given: CatalogueLensSignalInput): Cata
     if (!(w > 0 && h > 0) || w * h > WINDOW_LIMIT) { ww = 0; wh = 0; return; }
     wx0 = x0 - reachLeft; wy0 = y0 - reachUp; ww = w; wh = h;
     if (winMaterial.length < w * h) { winMaterial = new Int32Array(w * h); winFactor = new Float64Array(w * h); }
+    // #629: the window's mixed spectra start after the materials' and the scratch entry (index M).
+    all.length = M + 1; all[M] = scratch; windowFilling = true;
     for (let q = 0; q < h; q++) for (let p = 0; p < w; p++) { lattice(wx0 + p, wy0 + q); winMaterial[q * w + p] = lm; winFactor[q * w + p] = lf; }
+    windowFilling = false;
   };
   // A site's kernel is the bilinear blend of its cell's four grid kernels. Blended along y first, once per grid column and native
   // row (every site of a row has the same fy): R_i(y) = (1 − fy)·T(i, j) + fy·T(i, j + 1), kept for the row the sites are on.
@@ -294,7 +355,7 @@ export function createCatalogueLensSignal(given: CatalogueLensSignalInput): Cata
         let m: number, f: number;
         if (inside) { const at = (q - wy0) * ww + p - wx0; m = winMaterial[at]!; f = winFactor[at]!; } else { lattice(p, q); m = lm; f = lf; }
         if (f === 0) continue;
-        const L = spectra[m]!, at = channelBase + k * nodes;
+        const L = all[m]!, at = channelBase + k * nodes;
         let w0 = 0, w1 = 0;
         if (fx === 0) for (let n = 0; n < nodes; n++) w0 += r0[at + n]! * L[n]!;
         else for (let n = 0; n < nodes; n++) { const l = L[n]!; w0 += r0[at + n]! * l; w1 += r1[at + n]! * l; }
@@ -303,15 +364,36 @@ export function createCatalogueLensSignal(given: CatalogueLensSignalInput): Cata
     }
     return fx === 0 ? s0 : (1 - fx) * s0 + fx * s1;
   };
+  // #632: the veil's frame mean, from the lattice (no PSF: the kernels keep the energy, so only light spread across the frame's edge differs).
+  let veilMean: { radiance: Float64Array; samples: number } | undefined;
+  if (input.veil) {
+    const radiance = new Float64Array(nodes), step = input.veil.step;
+    let samples = 0;
+    for (let q = step >> 1; q < H; q += step) for (let p = step >> 1; p < W; p += step, samples++) {
+      lattice(p, q);
+      if (lf === 0) continue;
+      const L = spectra[lm]!;
+      for (let n = 0; n < nodes; n++) radiance[n] = radiance[n]! + lf * L[n]!;
+    }
+    for (let n = 0; n < nodes; n++) radiance[n] = radiance[n]! / samples;
+    veilMean = { radiance, samples };
+  }
+  const g = input.veil?.fraction ?? 0;
   return {
     window, site,
+    ...(veilMean ? { veilMean, veiled(electrons: number, x: number, y: number): number {
+      const a = A[channelAt(x, y)]!, mean = veilMean!.radiance;
+      let v = 0;
+      for (let n = 0; n < nodes; n++) v += a[n]! * mean[n]!;
+      return (1 - g) * electrons + g * v;
+    } } : {}),
     get lookups(): number { return lookups; },
     get grid(): { columns: number; rows: number; resolved: number } { return { columns: GX, rows: gy.length, resolved }; }
   };
 }
 
 /** The `raw.expectedSignal` and `fast.lens.catalogue` assumptions of a capture the fast method rendered (kept here, out of the capture bundle's entry). */
-export function catalogueFastAssumptions(run: { columns: number; rows: number; resolved: number; verificationRelativeDifference: number; subdivisions: number }):
+export function catalogueFastAssumptions(run: { columns: number; rows: number; resolved: number; verificationRelativeDifference: number; subdivisions: number; boxSamples?: number }):
   { id: string; value: Record<string, unknown>; explanation: string }[] {
   const tolerance = CATALOGUE_FAST_VERIFICATION_TOLERANCE, cells = run.subdivisions, step = CATALOGUE_FAST_GRID_CENTROID_STEP_SITES;
   return [{ id: "raw.expectedSignal", value: { method: "per-site-integrated-electrons-catalogue-psf-field-grid", verificationSites: 4, tolerance,
@@ -321,9 +403,11 @@ export function catalogueFastAssumptions(run: { columns: number; rows: number; r
     "is the native one with each site's own seeds. One site of each CFA phase ran the exact chain (the environment PSF quadrature): its readout was reproduced bit for bit and " +
     "its electrons agreed with the fast ones within the tolerance (verificationRelativeDifference: the largest difference there)." },
   { id: "fast.lens.catalogue", value: { method: "field-grid-bilinear-psf", gridColumns: run.columns, gridRows: run.rows, gridPointsResolved: run.resolved,
-    minimumSubdivisions: cells, centroidStepSites: step, verificationTolerance: tolerance },
+    minimumSubdivisions: cells, centroidStepSites: step, verificationTolerance: tolerance, ...(run.boxSamples !== undefined && run.boxSamples > 1 ? { boxSamplesPerAxis: run.boxSamples } : {}) },
   explanation: "Fast method (#568), an approximation of the exact one: the catalogue PSF is resolved exactly on a field grid (each interval between the profile's field nodes " +
     "split into at least " + cells + " cells (#603: " + CATALOGUE_FAST_GRID_SPEED_SUBDIVISIONS + " on a fast request, " + CATALOGUE_FAST_GRID_MINIMUM_SUBDIVISIONS + " on an exact one and for the lenses of CATALOGUE_FAST_GRID_FULL_ON_SCREEN), more where the node kernels' centroids move by over " + step + " site per cell), and each site takes the bilinear blend of its " +
     "four grid points' kernels instead of its own. Its error is at most the kernels' L1 difference times the brightest tap's signal; docs/LENS_CATALOGUE.md (\"Fast method\") " +
-    "records it measured against the exact method. Distortion, vignetting and projection are the exact method's (the radial inverse by Newton's method, equal to rounding)." }];
+    "records it measured against the exact method. Distortion, vignetting and projection are the exact method's (the radial inverse by Newton's method, equal to rounding)." +
+    (run.boxSamples !== undefined && run.boxSamples > 1 ? " With the box pixel aperture (#629, " + run.boxSamples + " × " + run.boxSamples + " nodes) each lattice point carries its box-integrated spectral radiance " +
+      "(the nodes' materials and field factors), and each site's one kernel serves all its nodes instead of one resolved at each node (the PSF's change across half a site)." : "") }];
 }

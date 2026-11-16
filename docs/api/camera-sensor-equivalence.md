@@ -75,6 +75,50 @@ export interface CalculateBlurShareOfFrameInput {
 }
 ```
 
+## calculateFormatEquivalentIso
+
+The equivalent ISO for a format change (#613): the ISO on a target format that, with the equivalent focal length (k·f) and
+f-number (k·N) at the same shutter time, gives the same total light and the same output brightness as `iso` on the source
+format: S' = k²·S, with k the diagonal crop factor of the source against the target (target diagonal / source diagonal).
+
+The ISO counterpart of `calculateSensorEquivalence`'s focal length and f-number, from the same crop factor. Derivation:
+the image illuminance is proportional to 1/N² (Greivenkamp, OPTI-502, sec. 11), so k·N gives 1/k² of the illuminance
+over an area k² as large (same aspect ratio): the same total light. Standard output sensitivity S = 10/H (CIPA
+DC-004-2020 §3.2) needs k² times the ISO for the same output from 1/k² of the exposure H. Equal total light gives equal
+photon shot noise in the whole image for equally efficient sensors; read noise and sensor design are not modelled, so the
+result is an approximation for noise. An exposure-compensation ISO for changed settings on one format is
+`calculateEquivalentIso`.
+
+Example: ISO 100 on a 23.5 × 15.6 mm sensor (k ≈ 1.53) ↔ ISO ≈ 235 on 36 × 24 mm.
+
+```ts
+export function calculateFormatEquivalentIso(
+  input: CalculateFormatEquivalentIsoInput
+): CalculationResult<FormatEquivalentIso>;
+```
+
+This call is synchronous; any supplied provider must follow its explicit synchronous contract.
+
+## CalculateFormatEquivalentIsoInput
+
+The exact contract is declared below; use the domain guide for assumptions and staged integration.
+
+```ts
+export interface CalculateFormatEquivalentIsoInput {
+  /** ISO setting on the source format. */
+  iso: number;
+  /** Physical active imaging area of the source format (the format the ISO is set on). Give this or `cropFactor`. */
+  sensor?: SensorImagingArea;
+  /** Target format. Defaults to the 36 × 24 mm frame. Only with `sensor`. */
+  reference?: SensorImagingArea;
+  /**
+   * Diagonal crop factor of the source against the target, k = target diagonal / source diagonal (greater than 1 when the
+   * source is the smaller format), instead of `sensor` and `reference`.
+   */
+  cropFactor?: number;
+}
+```
+
 ## calculateSensorEquivalence
 
 Equivalence of a lens (focal length, f-number) on one sensor against a reference format,
@@ -132,6 +176,27 @@ export interface EquivalenceValueBasis {
   kind: EquivalenceExactness;
   /** Plain statement of the definition and its conditions. */
   statement: string;
+}
+```
+
+## FormatEquivalentIso
+
+The exact contract is declared below; use the domain guide for assumptions and staged integration.
+
+```ts
+export interface FormatEquivalentIso {
+  /** ISO on the source format, as given. */
+  iso: number;
+  /** Diagonal crop factor k = target diagonal / source diagonal. */
+  cropFactor: number;
+  /** ISO on the target format with the same total light and the same output brightness: k² × iso. */
+  equivalentIso: number;
+  /** The ISO ratio k². */
+  isoRatio: number;
+  /** log2(k²): how many stops higher the equivalent ISO is (negative when the target is the smaller format). */
+  stops: number;
+  /** Exact or approximated, with the conditions. */
+  basis: EquivalenceValueBasis;
 }
 ```
 

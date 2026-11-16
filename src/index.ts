@@ -136,6 +136,8 @@ export {
   type SdrRenderingInput,
   type SdrRenderingResult
 } from "./output/sdr-rendering.js";
+// 2.25.0 (#625, #626): Photivra's Standard and Flat looks as constants, and a look pinned at an application's linear mid-gray.
+export { STANDARD_LOOK, FLAT_LOOK, resolveMidGrayPinnedLook, type NakaRushtonLook, type PinLookMidGrayOptions } from "./output/look-curves.js";
 
 export {
   approximationResult,
@@ -318,8 +320,22 @@ export {
   type EquivalenceValueBasis,
   type SensorEquivalence,
   type SensorEquivalenceFieldOfView,
-  type SensorEquivalenceQuantity
+  type SensorEquivalenceQuantity,
+  calculateFormatEquivalentIso,
+  type CalculateFormatEquivalentIsoInput,
+  type FormatEquivalentIso
 } from "./camera/sensor-equivalence.js";
+
+// 2.25.0 (#619): sensor equivalence from a file's stated 35 mm-equivalent focal length.
+export {
+  calculateImagingAreaFromFocalLength35Mm,
+  calculateSensorEquivalenceFromFocalLength35Mm,
+  type CalculateImagingAreaFromFocalLength35MmInput,
+  type CalculateSensorEquivalenceFromFocalLength35MmInput,
+  type ImagingAreaFromFocalLength35Mm,
+  type SensorEquivalenceFromFocalLength35Mm,
+  type StatedValueInterval
+} from "./camera/stated-focal-length-equivalence.js";
 
 export {
   COLOR_TEMPERATURE_WHITE_BALANCE_INTENT_VERSION,
@@ -1161,6 +1177,30 @@ export {
   type FilteredExposureDialSetting,
   type FilteredExposureTime
 } from "./exposure/filtered-exposure-time.js";
+export {
+  calculateFreezeShutterSpeed,
+  calculateStandardExposure,
+  calculateSunnySixteenExposure,
+  NAMED_LIGHT_LEVELS,
+  SUNNY_SIXTEEN_CONDITIONS,
+  type CalculateFreezeShutterSpeedInput,
+  type CalculateStandardExposureInput,
+  type CalculateSunnySixteenExposureInput,
+  type FreezeShutterSpeed,
+  type NamedLightLevel,
+  type NamedLightLevelRecord,
+  type StandardExposure,
+  type SunnySixteenCondition,
+  type SunnySixteenExposure
+} from "./exposure/exposure-helpers.js";
+export {
+  calculateProgramLine,
+  type CalculateProgramLineInput,
+  type ProgramLine,
+  type ProgramLineNode,
+  type ProgramLineSelection
+} from "./facade/program-line-for-lens.js";
+export { calculateSensorFigures, type CalculateSensorFiguresInput, type SensorFigures } from "./facade/sensor-figures.js";
 
 export {
   calculateIlluminationVignetting,
@@ -1841,7 +1881,7 @@ export { calculateSensorApertureRays, type CalculateSensorApertureRaysInput, typ
 
 export { SIMULATE_CAPTURE_FACADE_VERSION, SIMULATE_CAPTURE_DEFAULT_ILLUMINANCE_LUX, SIMULATE_CAPTURE_COST_OPTIONS, SIMULATE_CAPTURE_METERING_MODES, simulateCapture,
   type SimulateCaptureOptions, type SimulateCaptureResult, type SimulateCaptureAssumption, type SimulateCaptureProgress,
-  type SimulateCaptureExposureMode, type SimulateCaptureMetering, type SimulateCaptureAutoIsoAfterMaximum, type SimulateCaptureAutoIsoReport, type SimulateCaptureAutomaticSlowestShutterOptions,
+  type SimulateCaptureExposureMode, type SimulateCaptureMetering, type SimulateCaptureAutoIsoAfterMaximum, type SimulateCaptureAutoIsoReport, type SimulateCaptureLensFilterReport, type SimulateCaptureAutomaticSlowestShutterOptions,
   type SimulateCaptureAutomaticSlowestShutterReport, type SimulateCaptureOutputFormat, type SimulateCaptureWhiteBalance, type SimulateCaptureColorEncoding,
   type SimulateCaptureDemosaic, type SimulateCaptureBorderHandling, type SimulateCaptureLensDistortion, type SimulateCaptureMotion,
   type SimulateCaptureSensorAntiAliasing, type SimulateCaptureCostOption, type SimulateCapturePixelAperture, SIMULATE_CAPTURE_BOX_APERTURE_DEFAULT_SAMPLES,
@@ -1854,7 +1894,8 @@ export { EXPOSURE_BUILD_UP_MAXIMUM_FRACTIONS, EXPOSURE_BUILD_UP_STREAM_BASE, sim
   type SimulateExposureBuildUpResult } from "./facade/exposure-build-up.js";
 export type { SimulateCaptureSensorCharacteristics, SimulateCaptureSensorReport, SimulateCaptureNoiseComponents, SimulateCaptureNativeSensorReport, SimulateCaptureMidGreyFigure } from "./sensor/sensor-characteristics.js";
 export { SENSOR_PROFILES, SENSOR_PROFILE_IDS, resolveSensorProfile } from "./equipment/sensor-profiles.js";
-export { SENSOR_PROFILE_ISO_ANCHOR, type SensorProfile, type SensorProfileValueKind } from "./equipment/sensor-profile-body.js";
+export { SENSOR_PROFILE_ISO_ANCHOR, SENSOR_PROFILE_ISO_MARKINGS, resolveSensorProfileIsoSettings, type SensorProfile, type SensorProfileValueKind } from "./equipment/sensor-profile-body.js";
+export { calculateSensorProfileFrame, type CalculateSensorProfileFrameInput, type SensorProfileFrame } from "./equipment/sensor-profile-frame.js";
 export type { SimulateCaptureSubjectMotion } from "./motion/subject-motion.js";
 export { simulateDisplayView, prepareDisplayView, type PreparedDisplayView, type PreparedDisplayViewRenderOptions, serializeDisplayViewCorrectionStates, bindDisplayViewCorrectionStates,
   type DisplayViewCorrectionStateKeys, type DisplayViewCorrectionStateSet } from "./facade/simulate-display-view.js";
@@ -1873,7 +1914,7 @@ export { calculateChannelEffectiveDispersion, createGenericLensCorrectionProfile
   type CreateGenericLensCorrectionProfileInput } from "./output/generic-lens-corrections.js";
 export { calculateLateralColorFringe, type CalculateLateralColorFringeInput, type LateralColorFringe, type LateralColorDisplacement } from "./optics/generic-lens-lateral-color.js";
 export { calculateChartFraming, calculateSubjectDistanceForFraming, type CalculateChartFramingInput, type CalculateSubjectDistanceForFramingInput, type ChartFraming,
-  type SubjectFraming, type SubjectFramingFit } from "./facade/subject-framing.js";
+  type SubjectFraming, type SubjectFramingCatalogueLens, type SubjectFramingFit, type SubjectFramingLens, type SubjectFramingSensorProfile } from "./facade/subject-framing.js";
 export { CHART_SCENE_PRESETS, CHART_SCENE_DEFAULTS, CHART_SPECTRAL_RANGE_NANOMETERS, resolveChartScene, calculateStepWedgeReflectances,
   calculatePointGridCenters, type ChartScene, type ChartScenePresetId, type ChartReflectance, type ResolvedChartScene, type UniformChartScene,
   type SlantedEdgeChartScene, type SiemensStarChartScene, type StepWedgeChartScene, type GreyRampChartScene, type CheckerboardChartScene,
@@ -1907,6 +1948,8 @@ export { calculateDngRawClipping, estimateDngRawNoise, type CalculateDngRawClipp
 export { assessDngRawWhatIf, simulateDngRawWhatIf, DngRawWhatIfRefusedError, DNG_WHAT_IF_MINIMUM_MEASURED_TO_PROFILE, type DngRawWhatIfRequest,
   type DngRawWhatIfResult, type DngRawWhatIfRefusal, type DngRawWhatIfRefusalReason, type DngRawWhatIfAssessment } from "./capture/dng-raw-what-if.js";
 export { DNG_GAIN_SWITCH_CATALOG, resolveDngGainSwitch, type DngGainSwitchEntry } from "./capture/dng-gain-switch.js";
+// 2.25.0 (#620): rewrites a DNG with only allowlisted tags (no personal data) and optional edited development settings.
+export { DNG_REWRITE_SCHEMA_VERSION, DNG_REWRITE_LIMITS, DNG_REWRITE_ALLOWED_TAGS, serializeRewrittenDng, type DngRewriteInput, type DngRewriteEdits, type RewrittenDng } from "./capture/dng-writer.js";
 export { developDngImage, type DevelopDngImageOptions, type DevelopDngImageWhiteBalance, type DevelopedDngImage } from "./capture/dng-development.js";
 export { parseDngProfileGainTableMap, parseDngRgbTables, applyDngProfileGainTableMap, applyDngRgbTables, type DngProfileGainTableMap, type DngRgbTable, type DngRgbTables,
   type DngRgbImage, type ApplyDngProfileGainTableMapInput, type ApplyDngRgbTablesInput } from "./capture/dng-profile-maps.js";
@@ -1915,7 +1958,14 @@ export { C2PA_ALGORITHMIC_MEDIA_SOURCE_TYPE, C2PA_MANIFEST_STORE_MAXIMUM_BYTES, 
   type CalculateC2paDataHashInput } from "./capture/c2pa-embed.js";
 export { NATIVE_RAW_DNG_SCHEMA_VERSION, serializeNativeRawDng, type SerializeNativeRawDngInput, type NativeRawDng, type NativeRawDngChannelNoise } from "./capture/native-raw-dng.js";
 export type { DngImportInput, DngImportAsyncInput, ImportedDngRaw, ImportedDngCfa, ImportedDngBlackLevel, ImportedDngRect, ImportedDngSemanticMask,
-  ImportedDngNoiseProfilePlane, ImportedDngExif, ImportedDngSubjectArea } from "./capture/dng-import.js";
+  ImportedDngNoiseProfilePlane, ImportedDngExif, ImportedDngSubjectArea, ImportedDngEnhancedImage } from "./capture/dng-import.js";
+// 2.25.0 (#617, #618): the JPEG and HEIF metadata reader and the Exif capture fields it shares with the DNG import.
+export { PHOTO_METADATA_SCHEMA_VERSION, PHOTO_METADATA_LIMITS, PHOTO_METADATA_XMP_NAMESPACES, parsePhotoMetadata, type PhotoMetadataInput, type PhotoMetadata,
+  type PhotoExif, type PhotoExtraImage, type PhotoExtraImageKind, type PhotoAnnotation } from "./capture/photo-metadata.js";
+export type { ExifCaptureFields, ExifSubjectArea, ExifFocalPlaneResolution } from "./capture/exif-capture-fields.js";
+// 2.25.0 (#621): a JPEG's Exif block written from an allowlist of capture settings.
+export { setJpegExifCaptureSettings, resolveJpegExifCaptureSettings, JPEG_EXIF_CAPTURE_SETTING_KEYS, type JpegExifCaptureSettings,
+  type JpegExifDateTaken } from "./capture/jpeg-exif-writer.js";
 export { parseLosslessJpeg, type LosslessJpegImage, type LosslessJpegLimits } from "./capture/lossless-jpeg.js";
 export { parseLossyJpeg, type LossyJpegImage, type LossyJpegLimits } from "./capture/lossy-jpeg.js";
 export { PNG_ENCODER_ID, PNG_ENCODER_LIMITS, serializePngImage } from "./output/png-encoder.js";

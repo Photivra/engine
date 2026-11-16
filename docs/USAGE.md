@@ -378,6 +378,14 @@ To render a lens by its physical focal length on any sensor, give `simulateCaptu
 
 `calculateImagingAreaMetrics()` provides the same canonical diagonal crop-factor calculation, independent of raster density, so other engine modules do not need to repeat that formula.
 
+### From a file's stated 35 mm-equivalent focal length (2.25.0)
+
+A JPEG, HEIF or DNG file that states FocalLength and FocalLengthIn35mmFilm gives the imaging area, and so the equivalence, without a sensor table. `parsePhotoMetadata()` and `parseDngRawImage()` return both tags in `exif`; the 35 mm value is a whole number of millimeters, so every derived number comes with an interval:
+
+`calculateSensorEquivalenceFromFocalLength35Mm()` takes `focalLengthMm`, `focalLength35MmEquivalentMm`, `imageWidthPixels`, `imageHeightPixels` and `fNumber` (and an optional `reference` and `focalLength35MmResolutionMm`) and returns `derivedImagingArea` (the area, crop factor, their intervals, `exactness` and `basis`), `equivalence` (`calculateSensorEquivalence()` on that area) and `intervals`; docs/PHYSICS_FOUNDATION.md has a worked example.
+
+`calculateImagingAreaFromFocalLength35Mm()` returns the area alone. See docs/PHYSICS_FOUNDATION.md, "Sensor equivalence from a file's 35 mm-equivalent focal length", for the assumptions (diagonal convention, rounding, cropped images) and why the 35 mm route is preferred to the focal-plane resolution.
+
 ## Focus-breathing projection
 
 Focus breathing is the change in framing that some lenses show when focus changes. Use `calculateFocusBreathingProjection()` when you have an explicit projection-scale value for the selected focus state.
@@ -1080,6 +1088,28 @@ const { value } = calculateFilteredExposureTime({
   shutterDialSeconds: GENERIC_THIRD_STOP_SHUTTER_SECONDS
 });
 console.log(value.filteredShutterSeconds.toFixed(2), value.dial?.shutterSeconds); // 8.19 8
+```
+
+### A filter in front of the capture's lens
+
+`simulateCapture`, `simulateIdealReference`, `simulateDisplayView` and `prepareDisplayView` take `lens.filter` (#624, 2.25.0): one front-of-lens filter profile, such as `GENERIC_ND_FILTER_PROFILES[10]`, or an array in light-path order (scene side first). Every filter must cover 380–780 nm.
+
+- **Rendering.** The stack's transmission T(λ) multiplies the lens transmission at every wavelength, so each site integrates its light through the filter on every path: sRGB, DNG, JPEG and PNG exports, the ideal reference and the display view. A spectrally flat stack (ND, optical density, polarizers with the facade's unpolarized scenes) is one factor, resolved at 550 nm as `calculateFilteredExposureTime` resolves it. A `spectral-transmission` filter must state vacuum wavelengths (the capture's basis); the stack is sampled at its filters' sample wavelengths and interpolated linearly between them (exact for one spectral filter, an approximation for two or more).
+- **Exposure.** The meter reads through the filter, as a through-the-lens meter does: each zone reads the photopic luminance of L(λ)·T(λ), which is exactly T times the scene luminance for a flat stack. The automatic modes and Auto ISO therefore compensate, and for a flat stack the resolved shutter is `calculateFilteredExposureTime`'s t / T at the same f-number and ISO, before the resolvers' steps and limits. Grey-card metering reads the card through the filter too (the illuminant-weighted photopic transmission for a spectral stack). Manual mode only darkens the capture.
+- **Report.** `exposure.filter` gives the filter ids, the stack's transmittance at 550 nm, its attenuation in stops and whether it is spectrally flat; the `lens.filter` assumption records the same with the filters' limitations. With a filter, `standardExposureDeviationStops`, `standardExposureIlluminanceLux` and `greyCardDeviationStops` are those of the light through it; `meteredSceneLuminanceCdPerSquareMeter` stays the scene's.
+- Not modelled: reflections between stacked filters, flare, light leaking around the filter, and a polarizer's effect on polarized scene light (the facade's scenes are unpolarized).
+
+```ts
+import { GENERIC_ND_FILTER_PROFILES, simulateCapture } from "@photivra/engine";
+
+// Aperture priority at f/8 and ISO 100 with a 6-stop ND filter: the meter reads through it.
+const filtered = await simulateCapture({
+  scene: { preset: "uniform" }, output: { width: 32, height: 24 },
+  lens: { fNumber: 8, filter: GENERIC_ND_FILTER_PROFILES[6] },
+  exposure: { mode: "aperture-priority", iso: 100, metering: "grey-card" }
+});
+// Without the filter this request resolves 1/125 s (the generic tiers' shutter is continuous); with it, 64/125 s.
+console.log(filtered.exposure.settings.shutterSeconds.toFixed(3), filtered.exposure.filter?.attenuationStops); // 0.512 6
 ```
 
 ### Spectral boundary
@@ -3289,8 +3319,8 @@ Development ("developing" a RAW into a viewable image):
 See [photographic export](https://github.com/Photivra/engine/blob/main/docs/PHOTOGRAPHIC_EXPORT.md) for the equations.
 
 ```ts
-import { calculateEffectiveSaturationCode, createNativeRawDevelopmentTask, type NativeRawDevelopmentInput,
-  type SdrRenderingProfile } from "@photivra/engine";
+import { calculateEffectiveSaturationCode, createNativeRawDevelopmentTask, resolveMidGrayPinnedLook, STANDARD_LOOK,
+  type NativeRawDevelopmentInput, type SdrRenderingProfile } from "@photivra/engine";
 
 // A 20,000 e⁻ well at 1 e⁻/DN over a 512 pedestal saturates at code 20512, not at 65535.
 const white = calculateEffectiveSaturationCode({ physicalChargeCapacityElectrons: 20000,
@@ -3304,6 +3334,11 @@ const filmic: SdrRenderingProfile = { schemaVersion: "0.1.0", profileId: "filmic
   toneCurveParameters: { exponent: 1.2, semiSaturation: 0.5, whiteLuminance: 4 },
   gamutHandling: "clip-components", outputDynamicRange: "sdr", transferFunction: "srgb",
   bitDepth: 8, rounding: "nearest-ties-up", dither: "none" };
+
+// Photivra's Standard look, with its mid-gray pinned where this application's exposure develops an 18 % chart (13 %).
+const standard: SdrRenderingProfile = { ...filmic, profileId: "standard",
+  ...resolveMidGrayPinnedLook(STANDARD_LOOK, { linearMidGray: 0.13 }) };
+void standard;
 
 async function develop(input: NativeRawDevelopmentInput) {
   // The task takes ownership of input.raw (its arrays are detached); output.raw returns it.
@@ -3330,8 +3365,16 @@ void develop;
 - The display view (`simulateDisplayView`, `prepareDisplayView`) renders the luminance tone curves, `highlightMode: "reconstruct"`
   and the desaturation since 2.22.0 (#593), with fast rules on screen and full ones for `fast: false`
   ([Display view, Coupled rendering](https://github.com/Photivra/engine/blob/main/docs/DISPLAY_VIEW.md#coupled-rendering-593-601)). Photivra's Standard look is
-  `{ exponent: 1.5, semiSaturation: 0.5009, whiteLuminance: 8 }` and its Flat look `{ exponent: 1, semiSaturation: 0.8465, whiteLuminance: 32 }`
-  for `naka-rushton-luminance` (18 % gray stays at 0.18; the engine's own looks, not a camera maker's).
+  `STANDARD_LOOK` (`naka-rushton-luminance` with `{ exponent: 1.5, semiSaturation: 0.5009, whiteLuminance: 8 }`) and its Flat look
+  `FLAT_LOOK` (`{ exponent: 1, semiSaturation: 0.8465, whiteLuminance: 32 }`); each is `{ toneCurve, toneCurveParameters }`, to spread
+  into a rendering profile or `simulateCapture`'s `output` (2.25.0, #625). Both keep 18 % linear gray at 0.18 (the engine's own looks,
+  not a camera maker's).
+- `resolveMidGrayPinnedLook(look, { linearMidGray, outputLevel? })` (2.25.0, #626) derives a look that maps `linearMidGray` to `outputLevel`
+  (default: to itself), for an application whose exposure develops a mid-gray chart at another linear level than 18 %. At 13 %, the
+  Standard look alone renders mid-gray darker than a linear look (0.119) and the Flat look brighter (0.137); pinned, both leave it at
+  0.13. The contrast and white luminance are kept and the semi-saturation is solved in closed form, σⁿ = (1 − t)/(t·m⁻ⁿ − Lw⁻ⁿ);
+  the slope at mid-gray changes with σ, so a pinned look is not the published look shifted in exposure. A level that no σ in (0, 64]
+  reaches is refused.
 - `simulateCapture`'s `output.highlightMode: "reconstruct-neighbors"` (#602, 2.22.0; opt-in, an estimate) rebuilds clipped
   channels from the color ratios around each clipped region: the ring's mean ratios with `fast` (the sRGB default), their harmonic
   interpolation inward for exports and `fast: false`. Whole-image, so not with `output.region`; the display view renders it on the CPU and (since 2.23.0, #605) in its
@@ -7110,10 +7153,28 @@ See [Local POC Simulation API](https://github.com/Photivra/engine/blob/main/docs
 
 - `parseDngRawImage` reads a DNG or TIFF-EP CFA/LinearRaw file (uncompressed, lossless JPEG or, from 2.22.0, 8-bit lossy JPEG; 8–16 bits). It returns the stored raw codes plus the CFA, black/white levels, active area, default crop, colour matrices, as-shot neutral and orientation, and (2.22.0) the opcode lists, the profile gain table map, RGBTables, semantic masks and an `assumptions` list naming every rendering tag it does not apply. Nothing is applied to the codes. `importDngRawImage` (2.22.0) does the same asynchronously and also reads JPEG XL raw data through a decoder the application supplies (`createJxlOxideDngDecoder` over the jxl-oxide-wasm package, which the app installs and loads only when a JPEG XL DNG is opened; the engine does not depend on it); `size: "half"` gives a half-size LinearRaw preview and `maximumBytes` bounds the memory.
 - `developDngStageImage` (2.22.0) builds the DNG's linear stage image (linearization, black and white levels, OpcodeList1/2/3); `applyDngProfileGainTableMap` and `applyDngRgbTables` apply the phone rendering tags at their places in a development.
-- 2.24.0 (#607): the import also returns `noiseProfile` (NoiseProfile per color plane) and `exif` (ISO with its source tag, exposure time, f-number, focal length, CompositeImage and SubjectArea). `calculateDngRawClipping` counts clipped sites per color plane; `estimateDngRawNoise` measures the RAW noise (σ at a brightness; it may read high on fine texture); `simulateDngRawWhatIf` makes the RAW of the same scene with less light or a higher ISO within the photo's own conversion-gain mode, seeded, and refuses with reasons (`assessDngRawWhatIf` lists them first) any file or request it cannot show accurately; `developDngImage` develops an imported DNG to sRGB with a chosen white balance and push. A brighter version is only ever "brightened in editing" (the same noise).
+- 2.24.0 (#607): the import also returns `noiseProfile` (NoiseProfile per color plane) and `exif` (ISO with its source tag, exposure time, f-number, focal length, CompositeImage and SubjectArea). `calculateDngRawClipping` counts clipped sites per color plane; `estimateDngRawNoise` measures the RAW noise (σ at a brightness; it may read high on fine texture); `simulateDngRawWhatIf` makes the RAW of the same scene with less light or a higher ISO within the photo's own conversion-gain mode, seeded, and refuses with reasons (`assessDngRawWhatIf` lists them first) any file or request it cannot show accurately; `developDngImage` develops an imported DNG to sRGB with a chosen white balance and push. A brighter version is only ever "brightened in editing" (the same noise). From 2.25.0 (#622), `developDngImage(raw, { size: "half" })` develops a half-size on-screen preview: fast bins each 2 × 2 CFA repeat into one pixel, `fast: false` averages the exact full-size development; save at full size.
 - `serializePngImage` writes an 8- or 16-bit RGB PNG with an sRGB, ICC or cICP (Display P3, BT.2020; sRGB, BT.709 or linear transfer) colour description, and optional mDCV/cLLI display metadata. PQ and HLG are not part of 2.0 (see the patent review in `THIRD_PARTY.md`).
+- `setJpegExifCaptureSettings(jpeg, settings)` (2.25.0, #621) replaces a JPEG's Exif block with one holding only the allowlisted capture settings (exposure time, f-number, ISO, focal length, 35 mm focal length, exposure bias, white balance, date taken, Software, Orientation); nothing from an earlier Exif block is carried over and the image data are unchanged ([JPEG Exif writer](https://github.com/Photivra/engine/blob/main/docs/IMPORT_AND_PNG.md#writing-capture-settings-into-a-jpegs-exif-block-2250)).
+- `parsePhotoMetadata` (2.25.0) reads a JPEG or HEIC/HEIF file's headers: the Exif capture settings (the DNG import's `exif` fields, resolved by the same code), make, model, Software, Orientation and the image size, and the extra images and annotations it declares (thumbnail, MPF entries, HEIF auxiliary images such as depth, alpha, mattes and gain maps, tone maps, XMP gain-map and depth markers) by type and size. No pixels are decoded; maker notes and GPS data are never read. The DNG import (schema 1.3.0) also returns `software`, `enhancedImages` and, in `exif`, FocalLengthIn35mmFilm, DigitalZoomRatio, the focal-plane resolution and the pixel dimensions.
+
+- `serializeRewrittenDng` (2.25.0, #620) writes a DNG from a DNG, optionally with an edited white balance, baseline exposure, default crop or orientation. Only allowlisted tags are written (`DNG_REWRITE_ALLOWED_TAGS`): the raw data (copied byte for byte), the development tags and the Exif capture settings; GPS data, serial numbers, the owner's name, maker notes, XMP and the other personal fields are left out.
 
 See [DNG import and PNG output](https://github.com/Photivra/engine/blob/main/docs/IMPORT_AND_PNG.md) for supported subsets, limits and sources.
+
+```ts
+import { serializeRewrittenDng, parseDngRawImage } from '@photivra/engine';
+
+// Share a DNG without its personal data, with a warmer white balance.
+function shareable(bytes: Uint8Array): Uint8Array {
+  const neutral = parseDngRawImage({ bytes }).asShotNeutral;
+  const edits = neutral ? { asShotNeutral: neutral.map((v, i) => i === 2 ? v * 1.1 : v) } : {};
+  const out = serializeRewrittenDng({ bytes, edits });
+  console.log(out.omittedTags.length + ' tags left out');
+  return out.bytes;
+}
+void shareable;
+```
 
 ```ts
 import { parseDngRawImage, assessDngRawWhatIf, simulateDngRawWhatIf, developDngImage, calculateDngRawClipping, estimateDngRawNoise } from '@photivra/engine';
@@ -7597,14 +7658,21 @@ correction profile for `resolveLensCorrectionPlan`, which `simulateCapture` appl
 `output.lensCorrections` (#570; never to the RAW or the DNG), and which a DNG can carry for RAW editors as optional DNG opcodes with
 `output.dng.lensCorrectionOpcodes` (#587; the RAW codes unchanged). `simulateCapture` renders a catalogue lens with `lens.catalogue`
 ([quick start](QUICK_START.md#generic-lens-catalogue-549)); `fast: true` (or `lens: { catalogue: { kind, fast: true } }`) takes its
-fast method (#568), a labeled approximation that blends the PSF over a field grid, for interactive captures.
+fast method (#568), a labeled approximation that blends the PSF over a field grid, for interactive captures; from 2.25.0 it takes the
+box pixel aperture too (#629), and the exact method's cost per tap is lower, with the same results (#633). `output.diffractionCorrection`
+works with a catalogue lens (#630: it inverts the diffraction of the lens's own pupil at its working f-number).
+Two of the lens's reported characteristics render on request (#632): `lens: { catalogue: { kind, flare: true } }` adds its veiling
+glare (a uniform veil of its glare fraction of the frame's mean irradiance, each site keeping 1 − g of its own; its ghosts are not
+rendered) and `breathing: true` its focus breathing (the field of view times 1 + Δ at the focus distance). Without them a capture is
+unchanged. `calculateSubjectDistanceForFraming` and `calculateChartFraming` take `catalogue` (an id or `{ kind, breathing? }`) instead of a
+focal length (#631): a fisheye frames the chart through its equisolid projection and distortion, as the capture renders it.
 `calculateLateralColorFringe({ lensId, activeImagingArea, pixelPitchMicrometers, fieldPosition? })` gives the lens's lateral color as a
 fringe width: the blue-minus-red image displacement in µm and pixels at a field position (default the corner; #580); its `channelDispersion` for
 the capture's own channels comes from `calculateCameraChannelResponse({ illuminant })` (#591, full quality: a 5 nm grid by default). Equations, tables and the
 chart measurements: [LENS_CATALOGUE.md](https://github.com/Photivra/engine/blob/main/docs/LENS_CATALOGUE.md).
 
 ```ts
-import { GENERIC_LENS_CATALOGUE, resolveGenericLens, simulateGenericLensFocusError } from "@photivra/engine";
+import { calculateChartFraming, GENERIC_LENS_CATALOGUE, resolveGenericLens, simulateGenericLensFocusError } from "@photivra/engine";
 
 const frame = { widthMm: 36, heightMm: 24 };
 const pro = resolveGenericLens({ lensId: "pv-50-1.2-pro", activeImagingArea: frame, fNumber: 2 });
@@ -7612,6 +7680,8 @@ const consumer = resolveGenericLens({ lensId: "pv-50-1.8", activeImagingArea: fr
 console.log(GENERIC_LENS_CATALOGUE.length, pro.character.aberrations.comaWaves < consumer.character.aberrations.comaWaves); // 30 true
 const shot = simulateGenericLensFocusError({ lensId: "pv-50-1.8", activeImagingArea: frame, fNumber: 1.8, focusDistanceM: 2, seed: 1, shotIndex: 0 });
 console.log(shot.focusDistanceM, shot.imageSideErrorMicrometers);
+const fisheye = calculateChartFraming({ sensor: frame, catalogue: "pv-15-2.8-fisheye-pro", chart: { widthM: 1, heightM: 1 }, subjectDistanceM: 1 });
+console.log(fisheye.coverage.frameWidthFraction, fisheye.lens?.fieldOfViewDegrees.width); // about 0.41 and 144
 ```
 
 ## Parallel native environment RAW (row-band partitions, 2.0)
@@ -8036,6 +8106,19 @@ console.log(view.kind, view.view.scaleX, view.assumptions.find((a) => a.id === "
 console.log(view.diagnostics.highlight.saturatedPixelCount, view.diagnostics.highlight.statistic); // a real number, "expected-value"
 ```
 
+From 2.25.0 (#628) the view also shows a catalogue lens's `output.lensCorrections` and `output.sharpening`, as the capture with the
+same options saves them (fast by default; `fast: false` reads each output pixel's bilinear sources); see
+[DISPLAY_VIEW.md](https://github.com/Photivra/engine/blob/main/docs/DISPLAY_VIEW.md#lens-corrections-and-sharpening-628).
+
+```ts
+import { simulateDisplayView } from "@photivra/engine";
+
+const corrected = await simulateDisplayView({ scene: { preset: "slanted-edge" }, lens: { catalogue: "pv-24-1.8", fNumber: 1.8 }, subjectDistanceM: 2,
+  output: { width: 192, height: 128, lensCorrections: { distortion: true, lateralColor: true, vignetting: true }, sharpening: { radiusPixels: 1, amount: 0.5 } } },
+  { width: 48, height: 32 });
+console.log(corrected.assumptions.find((a) => a.id === "view.lensCorrections")?.value); // { distortion: true, ..., method: "developed-footprint", passes: 3 }
+```
+
 `diagnostics.highlight.saturatedPixelCount` is the expected number of the real capture's output pixels in the rendered
 region that have a clipped contributing site. `simulateCapture` counts the same pixels on its one noise sample, so the two
 are equal where every site is far from white. Counts of regions that tile a view add up to the whole view's count. See
@@ -8342,3 +8425,98 @@ if (found?.manifestStore[46] !== 1) throw new Error('The signed store must be fo
 
 See [Content Credentials](https://github.com/Photivra/engine/blob/main/docs/CONTENT_CREDENTIALS.md) for the byte layouts,
 the checks and what is still to be validated externally.
+
+## Equivalent ISO for a format change (#613)
+
+`calculateFormatEquivalentIso` gives the ISO on a target format (36 × 24 mm by default) that, with the equivalent focal
+length k·f and f-number k·N at the same shutter time, gives the same total light and the same output brightness as an ISO
+on the source format: S′ = k²·S, with k the diagonal crop factor that `calculateSensorEquivalence` uses (target diagonal /
+source diagonal). Derivation: image illuminance is proportional to 1/N², so k·N gives 1/k² of the illuminance over an area
+k² as large (the same total light when the aspect ratios match), and S = 10/H (CIPA DC-004-2020 §3.2) needs k² times the
+ISO for the same output from 1/k² of the exposure. For equally efficient sensors the photon shot noise of the whole image
+is then the same; read noise and sensor design are not modelled, so the result is labeled an approximation.
+
+```ts
+import { calculateFormatEquivalentIso } from '@photivra/engine';
+
+const apsc = calculateFormatEquivalentIso({ iso: 100, sensor: { widthMm: 23.5, heightMm: 15.6 } }).value;
+console.log(apsc.cropFactor.toFixed(2), apsc.equivalentIso.toFixed(0)); // 1.53 235: ISO 100 on APS-C ↔ ISO 235 on full frame
+const fourThirds = calculateFormatEquivalentIso({ iso: 200, cropFactor: 2 }).value;
+if (fourThirds.equivalentIso !== 800 || fourThirds.stops !== 2) throw new Error('k = 2 gives four times the ISO');
+```
+
+`calculateEquivalentIso` (unchanged) is a different relation: the ISO that keeps the brightness on one format after the
+aperture or shutter changes.
+
+## Program line for a lens range (#614)
+
+`calculateProgramLine` returns the program line `simulateCapture` follows in `exposure.mode: "program"` for a lens's
+f-number range, and, for a scene brightness (`ev100` or `luminanceCdPerSquareMeter`) at a fixed ISO, the pair it chooses,
+without running a capture. It is built by the capture's own code (`src/facade/program-exposure.ts`: the exposure anchor,
+the lens range, the generic line limited to the range, #569, #583, #585) and resolved by the same
+`resolveProgramAutoExposureMode` on the tier's capabilities, so a capture of a uniform scene metered at the same luminance
+chooses the same settings (`test/program-line-standalone.test.ts`, eight cases including the f/0.5–f/0.9 and fixed f/5.6
+ranges). EV100 is the engine's standard exposure: luminance L = 10·2^EV100/(0.65·100) cd/m². Each node also gives its
+EV, log2(N²/t), and the scene EV100 it suits at the request's ISO. Beyond the line's ends the end's settings are held, and
+`standardExposureDeviationStops` reports the over- or underexposure (positive is under). Auto ISO is not offered here.
+
+```ts
+import { calculateProgramLine } from '@photivra/engine';
+
+const line = calculateProgramLine({ lens: { widestFNumber: 8, narrowestFNumber: 32 }, iso: 100, ev100: 10 }).value;
+console.log(line.profileId); // "facade-generic-program-line-lens-range": the range does not hold f/4–f/16
+console.log(line.nodes.map((n) => 'f/' + n.aperture + ' ' + n.shutterSeconds.toPrecision(3) + ' s')); // f/16 1/2000 s … f/8 1.024 s
+const pick = line.selection!;
+console.log(pick.aperture, pick.shutterSeconds, pick.position); // the pair the capture's program mode chooses at EV100 10
+```
+
+## Sensor figures (#615)
+
+`calculateSensorFigures` gives a sensor's figures at an ISO: engineering dynamic range log₂(S_sat / σ_floor) (and per ISO
+setting), the EMVA 1288 Release 4.0 absolute sensitivity threshold and dynamic range (§2.7, Eq. 26–28), the read noise of
+one photosite, and the mid-grey figure: the charge, noise components (photon shot √S, read noise, dark current at 1/125 s,
+ADC quantization) and their total, the SNR and SNR in dB, of an 18 % grey card at the standard exposure H = 10/S. It takes a
+sensor profile (`SENSOR_PROFILES`, `resolveSensorProfile` or a modified copy) or a tier, with optional sensor
+characteristics (peak QE, full well, read noise, ADC bit depth). The figures are `simulateCapture`'s own
+`result.sensor.native`: the function runs the capture on a 2 × 2 uniform grey card at f/8, 1/125 s and the illuminance
+that gives the standard exposure (exact, `fast: false`), so a capture of the same profile and ISO reports the same values
+(`test/sensor-figures.test.ts`). They are model figures, not measurements of a camera.
+
+```ts
+import { calculateSensorFigures, resolveSensorProfile } from '@photivra/engine';
+
+const figures = (await calculateSensorFigures({ profile: resolveSensorProfile('full-frame-24mp-bsi-2020s'), iso: 800 })).value;
+console.log(figures.dynamicRangeStops.toFixed(1), figures.midGrey.snr.toFixed(1), figures.midGrey.noiseElectrons.total.toFixed(1));
+console.log(figures.dynamicRangeByIso.map((d) => d.iso + ': ' + d.stops.toFixed(1))); // every ISO setting in one call
+```
+
+## Exposure helpers (#616)
+
+Three helpers that reuse the engine's exposure value (`calculateExposureValue100`), standard exposure (the arithmetic
+`simulateCapture` meters to, `src/exposure/standard-exposure.ts`) and motion blur (`calculateProjectedMotionBlur`):
+
+- **`calculateSunnySixteenExposure`:** f/16 at 1/ISO in bright sun, one stop wider for each condition: f/11 slight
+  overcast, f/8 overcast, f/5.6 heavy overcast, f/4 open shade (Kodak publication F-4017's daylight table; Wikipedia,
+  "Sunny 16 rule"). A rule of thumb, with its EV (sunny: EV100 log2(100·16²) ≈ 14.64) and the luminance it exposes at the
+  standard exposure, 10·N²/(0.65·t·S).
+- **`calculateStandardExposure`:** the metered EV and a settings pair (an aperture, default f/8, or a shutter) for a named
+  light level (`NAMED_LIGHT_LEVELS`: representative illuminances from P. Schlyter's illuminance table and Wikipedia,
+  "Lux"; a range is used at its geometric mean), an illuminance or a luminance. An illuminance is metered as an 18 % grey
+  card, L = 0.18·E/π; the standard exposure is N²/t = 0.065·L·S (S = 10/H, CIPA DC-004-2020 §3.2; H = 0.65·L·t/N², §5.5).
+  It agrees with `simulateCapture`'s grey-card metering (tested).
+- **`calculateFreezeShutterSpeed`:** the slowest shutter that keeps a subject crossing the field under a blur limit, in
+  pixels (with the pitch) or as a fraction of the frame's diagonal, width or height: t = b·d/(v·s′), with s′ the thin-lens
+  image distance at the focus distance (ideal rectilinear projection, constant velocity across the line of sight; camera
+  shake is `estimateCameraShakeBlur`'s). With a dial, the slowest dial value within the limit.
+
+```ts
+import { calculateFreezeShutterSpeed, calculateStandardExposure, calculateSunnySixteenExposure, GENERIC_THIRD_STOP_SHUTTER_SECONDS } from '@photivra/engine';
+
+const sunny = calculateSunnySixteenExposure({ condition: 'sunny', iso: 100 }).value;
+console.log(sunny.aperture, sunny.shutterSeconds, sunny.ev100.toFixed(2)); // 16 0.01 14.64
+const overcast = calculateStandardExposure({ light: 'overcast-day', aperture: 2.8, shutterDialSeconds: GENERIC_THIRD_STOP_SHUTTER_SECONDS }).value;
+console.log(overcast.ev100.toFixed(2), overcast.dialShutterSeconds); // 8.54 0.02 (1/50 s)
+const freeze = calculateFreezeShutterSpeed({ subjectSpeedMps: 1, subjectDistanceM: 5, focalLengthMm: 50,
+  blurLimit: { fractionOfFrame: 1 / 1500, sensor: { widthMm: 36, heightMm: 24 } }, shutterDialSeconds: GENERIC_THIRD_STOP_SHUTTER_SECONDS }).value;
+console.log(freeze.shutterSeconds.toFixed(5), freeze.dialShutterSeconds); // 0.00286, 0.0025 (1/400 s)
+```

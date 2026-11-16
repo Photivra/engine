@@ -15,8 +15,9 @@
  * - `source`: a free-to-use source that clearly states that switch point (manufacturer documentation, or openly published
  *   measurements whose terms allow reuse of the facts), with its terms, recorded in THIRD_PARTY.md as well.
  *
- * The list is empty in 2.24.0: no source reviewed for it states a photo-mode switch point clearly (THIRD_PARTY.md, "Dual-gain switch
- * points"). Data only; nothing here is indexed by signal level.
+ * The list is empty in 2.24.0 and, after a second review for #623, in 2.25.0: no source reviewed states a photo-mode switch point
+ * for a camera whose Make and Model tags could be checked (THIRD_PARTY.md, "Dual-gain switch points"). Data only; nothing here is
+ * indexed by signal level.
  */
 
 import { InvalidConfigurationError } from "../core/configuration-error.js";
@@ -33,7 +34,7 @@ export interface DngGainSwitchEntry {
   source: { title: string; url: string; terms: string; accessed: string };
 }
 
-/** The curated list (empty in 2.24.0; see the module comment for how to add an entry). */
+/** The curated list (empty in 2.24.0 and 2.25.0; see the module comment for how to add an entry). */
 export const DNG_GAIN_SWITCH_CATALOG: readonly DngGainSwitchEntry[] = /* @__PURE__ */ Object.freeze([]);
 
 /** Internal: the entry for a file's Make and Model in `entries`, or null. */

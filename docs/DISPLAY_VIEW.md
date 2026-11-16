@@ -103,6 +103,11 @@ unit tap without `lens.diffraction`). Dark electrons (1 e⁻/s × exposure) are 
   radiance at the nodes (a neutral one: its reflectance times the white radiance), and a site's signal is formed from the
   spectra of the materials its taps read, against its own channel's response, when the site is read. No per-material
   channel value is precomputed. Each lattice point still costs one material lookup.
+- With kernels (diffraction or defocus), a site keeps one set of per-node kernel sums per distinct material its taps read.
+  Since #612 a material's set is found in constant time; 2.21.0–2.24.0 searched the site's materials for it, so a kernel
+  window over fine chart detail cost about the square of its distinct materials. The sets, their order and every sum are
+  unchanged, so the result is bit-identical to 2.24.0. What remains of 2.21.0's cost is the per-node sum itself: one
+  addition per tap and spectral node, against one per tap before 2.21.0 ([Cost, defocus](#defocus-1)).
 - With diffraction, offsets that share a fractional shift (the centred four-spot filter has one
   half-site-shifted lattice) are combined with the kernels in advance, as the capture's object-space
   convolution does, and lattice points are evaluated with the same formula as
@@ -184,6 +189,16 @@ with K_λ the diffraction kernel (a unit tap without `lens.diffraction`).
   more than 64 columns beyond the raster edges, which a combined radius above 64 reaches, are looked up directly
   instead of from the lattice rings: the same values, at a higher cost. The cost grows with the square of the radius
   ([Cost, defocus](#defocus-1)).
+- **Regrouped on the CPU (#612, fast method `lens.defocus/view-regrouped`).** On a fast request (the display view's default), a
+  plain disc much wider than the diffraction kernel, (2R_c + 1)² > 4·(2R_f + 1)² with R_c = R_f + R_d, takes the path above
+  64 sites at any radius: the in-focus signal of each channel at every site, then the disc by runs. This is the same sum
+  regrouped, so it differs from the combined kernels only by rounding; `view.defocus` records `convolution: "runs"` and
+  `fast: "defocus-after-in-focus-signal"`. `fast: false` keeps the combined kernels, and so does the GPU. Shaped bokeh kernels and
+  the lens path keep their own routes. Measured on one test chart's Guide views (768 × 512, Quality, one CPU thread, the
+  machine heavily loaded, CPU time of the same region back to back): f/2 focused in front, a 16 × 8 region, 5.8–5.9 s with the
+  combined kernels, 0.74–0.82 s regrouped (2.20.0: 2.0–2.1 s); f/2 focused behind 3.6–3.7 s, 0.72–0.83 s (2.20.0: 1.2 s). f/16
+  focused behind keeps the combined kernels (a 9-site disc beside a 17-site diffraction kernel). The rendered samples of those
+  regions are identical under both methods.
 - **In focus** (c = 0), or without the option, nothing changes: the view is byte-identical to the request without it,
   and every display-view hash lock holds.
 - **The GPU** renders defocus too (#492 step 2c; `docs/WEBGPU.md`, "Defocus on the GPU"). The engine's renderer gathers
@@ -364,12 +379,94 @@ projection; `rotation` yaw 0.05 and pitch 0.03 rad/s at 1/125 s, the default eig
 - The capture's own cost with these options (#548's table in [Quick start, Optics](QUICK_START.md#optics)) is far higher;
   the view's follows the display pixels as before.
 
+### Front-of-lens filter (#624)
+
+`lens.filter` (docs/USAGE.md, "A filter in front of the capture's lens") multiplies the lens transmission by the filter stack's
+transmission T(λ) at each sample wavelength. The view's expected signal takes its electrons per unit radiance at each spectral
+node from the capture's own environment chain, so each node's value carries T(λ) and every site of the view integrates through the
+filter, on the CPU and in the WebGPU kernels alike (they read the same per-node tables; no per-channel factor is formed). The
+exposure the view shows is the capture's, metered through the filter. A flat filter of transmittance 2^-k gives the same view, bit
+for bit, as the unfiltered request at 2^-k times the illuminance (test/simulate-capture-lens-filter.test.ts).
+
+### Lens corrections and sharpening (#628)
+
+From 2.25.0 the view accepts `output.lensCorrections` (a catalogue lens's distortion, lateral colour and vignetting corrections) and
+`output.sharpening` (the unsharp mask), so a corrected or sharpened capture can be shown on screen as it is saved
+(`src/facade/display-view-detail.ts`, loaded on demand with the opt-in kit). `output.diffractionCorrection` stays refused.
+
+**Lens corrections.** The capture corrects its developed linear colour before the tone curve: output channel c of pixel q reads the
+developed image bilinearly at its source point s_c(q) = q′(1 + k1|q′|²/R²), q′ = m·a_c·q (frame centre at the origin), times the
+vignetting gain det J/E at that point ([Lens corrections in the development](DIGITAL_OPTICS_FOUNDATION.md#lens-corrections-in-the-development-570)). The view's renderer takes a correction hook
+(`DisplayViewSetup.correction`) and reads, for each display pixel, the developed image where the capture's corrected pixels read it,
+with the gain applied to each developed pixel's linear colour before the tone curve (its moments scaled by G and G², its slopes by G).
+With lateral colour each channel has its own map, so the view renders three passes and takes each component's mean from its own pass
+and the noise covariance from the green pass (the channels' footprints differ by a fraction of a display pixel there).
+
+- **Fast (the default; registry `output.lensCorrections/view-footprint`).** A display pixel reads the developed rectangle between the
+  maps of its edges' midpoints (neighbouring display pixels share those points, so the rectangles tile the frame along rows and
+  columns), area-averaged with the exact overlap weights or the stratified samples, each developed pixel with the gain at its own centre.
+  Approximations: the rectangle for the mapped quadrilateral, the gain at the developed pixel's centre for the one at each source point,
+  and the area mean of rendered pixels for the capture's bilinear reading of developed ones.
+- **Exact (`fast: false`).** Each output pixel of the display pixel reads its source point's four developed pixels with the capture's
+  bilinear weights and gain. With the bilinear demosaic and a per-component tone curve the output pixel's expected value is rendered from
+  the weighted sum of its sources' developed moments (independent sources: the means add with b, the variances with b², the third
+  cumulants with b³), as the capture interpolates before its tone curve; with AHD or the coupled rendering steps each source is rendered
+  first (an approximation). The noise terms keep each source's slopes. The real pixels' memos are off on this path (each sample carries
+  its own gain), so it costs several times the fast one.
+- The vignetting correction is refused with `highlightMode` `"reconstruct"` or `"reconstruct-neighbors"` and with
+  `gamutHandling: "desaturate-to-luminance"` (the view integrates those steps over the camera channels, before the gain);
+  `simulateCapture` renders them.
+- The `view.lensCorrections` assumption records the selection, the method and the number of passes.
+
+**Sharpening.** The capture's mask acts on the encoded rendered values before quantization: y = x + a·(x − G_σ∗x) where
+|x − G_σ∗x| ≥ threshold, clipped to [0, 1]. The view renders the real output pixels of the region and the mask's reach ⌈3σ⌉ (a 1:1 render,
+with the lens corrections when the request has them), applies the capture's own mask (`applyUnsharpMask`) to their encoded expected values
+and area-averages the result in linear light. The noise is the unsharpened view's covariance times the mask's noise gain at display
+scale, Σh² with h = (1 + a)·δ − a·(W ⊗ W) and W_n = Σ_j Σ_k ω₀(j)·ω_n(k)·g(j − k)/s, the capture's Gaussian g averaged over display
+pixels of s real pixels: the capture's own gain at 1:1, tending to 1 as display pixels grow. Approximations: the mask acts on expected
+values (the noise's interaction with the threshold and the clip is not modelled), and the gain treats display pixels as independent.
+There is one method. A display-scale mask (the encoded expected display pixels with W) was measured and left out: at 8 and 2 real
+pixels per display pixel it was 1.6 and 2.1 codes RMS (12 and 37 at most) from the sharpened capture, against 1.5 and 2.4 (12.5 and
+40) for no mask at all, because the mask's effect on a downsized image is the non-linear residue of its halos within each display pixel.
+The cost of the 1:1 render follows the real pixels of the region: about the view's own cost where a display pixel holds no more real
+pixels than its samples (K² = 256 by default), more on coarser views. The `view.sharpening` assumption records the settings.
+
+**GPU.** Both run on the CPU reference: `gpu: "auto"` renders them on the CPU, labelled `unsupported-on-backend`.
+
+**Validation** (`test/display-view-lens-corrections.test.ts`; November 15, 2026, Node 26, the machine heavily loaded). The reference is
+the definition of the view: the capture with the same options (16-bit sRGB), decoded and area-averaged over each display pixel. A slanted
+edge (20°) on a 192 × 128 frame at 187.5 µm, 8-bit codes of each component's expected value:
+
+| Request | View | Fast: RMS, largest | Exact: RMS, largest |
+| --- | --- | --- | --- |
+| PV 24 1.8 wide open, distortion + lateral colour + vignetting (the uncorrected view is 25.8 codes RMS from it) | 24 × 16 (8×) | 0.16, 2.2 | 0.011, 0.057 |
+| the same | 96 × 64 (2×) | 0.26, 12.1 | 0.031, 0.18 |
+| the same | 192 × 128 (1:1) | 1.15, 85 | |
+| 50 mm prime at f/8, `sharpening: { radiusPixels: 1, amount: 1 }` (the unsharpened view: 1.47, 12.5 at 8×; 2.35, 39.9 at 2×) | 8×, 2×, 1:1 | 0.010, 0.054; 0.039, 0.24; 0.054, 0.40 (one method) | |
+
+- The fast method's largest differences are at the edge's demosaic overshoot: the capture interpolates developed values beyond [0, 1]
+  before its tone curve clips them, and the fast method averages rendered (clipped) pixels. They fall as display pixels grow; the exact
+  method removes them. The uncorrected view against the uncorrected capture on the same frame: 0.03 code RMS, 0.17 at most (2×).
+- Distortion alone at 2×: fast 0.24 code RMS, 11.8 at most; exact 0.026, 0.16. Lateral colour alone: fast 0.04, 1.5. Vignetting alone:
+  fast 0.03, 0.19.
+- Regions are byte-identical to the whole view (three passes and sharpening), and prepared renders equal `simulateDisplayView`.
+- *Noise with sharpening* (a uniform 18 % patch, 4 µm pitch, ISO 3200, σ = 1, amount 1; standard deviation of the green channel in linear
+  light over the patch): at 1:1 the view 0.0549 against the capture's 0.0488 (12 % high: the gain treats pixels as independent, while
+  the capture's demosaic correlates neighbours, so its mask amplifies less); at 4 real pixels per display pixel 0.0170 against 0.0161.
+  Without the mask: 0.0296 against 0.0298 and 0.0127 against 0.0130.
+- *Cost.* The fast corrections cost about one view per channel map (three with lateral colour); the exact method several times more
+  (memos off; on the 192 × 128 frame at 8× about 18 s against 2 s for the fast one, the machine heavily loaded). Sharpening adds a 1:1
+  render of the region and the mask's reach.
+
 ### Catalogue lenses (#569)
 
 From #569 the view accepts `lens.catalogue` (the 30 generic lenses of [the lens catalogue](LENS_CATALOGUE.md)), at every
 f-number of each lens's range and down to its close focus, with `lens.defocus` and `lens.focusScatter`, the combinations
 `simulateCapture` renders. The lens's distortion, vignetting and (for the fisheyes) projection go through the
-[lens signal](#lens-projection-distortion-vignetting-and-rotation) as above; its PSF is the new part.
+[lens signal](#lens-projection-distortion-vignetting-and-rotation) as above; its PSF is the new part. With
+`lens.catalogue: { kind, flare: true }` (#632) each site's expected electrons take the capture's veiling glare, (1 − g)·μ + g·Σ_λ A_c(λ)·Ē(λ),
+with the frame's mean Ē read on the site lattice by the same rule; with `breathing: true` the view reads the plane at d·(1 + Δ)
+as the capture does ([Flare and breathing](LENS_CATALOGUE.md#flare-and-breathing-632)).
 
 - **What the capture does.** The catalogue lens's sampled PSF (5 × 5 field nodes × 5 wavelengths, centroid-aligned
   interpolation, diffraction and the lens's aberrations included) is resolved by the environment PSF quadrature at each
@@ -1396,7 +1493,8 @@ root exports of the built package, minified, gzip level 9; `test/capture-bundle.
   of one all-chunk limit: the *fast worker* (every chunk except the on-demand Quality chunks; the GPU Speed session,
   catalogue and lens-signal chunks included) at most 344,300 B, and *on demand* (the chunks holding the Quality modules,
   found by module membership, not file name) at most 20,100 B, each its measurement rounded up to the next 100 B (after the
-  CPU split below: 337,500 B and 47,000 B). The
+  CPU split below: 337,500 B and 47,000 B; raised by owner decision 2026-11-16 for 2.25.0's named-lens work to
+  338,900 B and 47,400 B, the measured 338,815 B and 47,358 B rounded up to the next 100 B). The
   Photivra app's bundle budget adopts the same two rows, with the same definitions, at app round 16.
 
   **Preload and load failure.** `prepareQualityPaths()` (root export) loads the on-demand code ahead of time: single flight,
@@ -1418,8 +1516,8 @@ root exports of the built package, minified, gzip level 9; `test/capture-bundle.
 
   | Row (worker shape, gzip) | 2.22.0 parts merged | After the CPU split | Limit |
   | --- | --- | --- | --- |
-  | fast worker | 358,680 B | **337,413 B** | 337,500 B |
-  | on demand | 19,379 B (GPU Quality) | **46,977 B** (GPU Quality 19,401 B, CPU Quality kit 18,249 B, GPU coupled steps 5,159 B, opt-in kit 4,168 B) | 47,000 B |
+  | fast worker | 358,680 B | **337,413 B** | 337,500 B (2.25.0: 338,900 B) |
+  | on demand | 19,379 B (GPU Quality) | **46,977 B** (GPU Quality 19,401 B, CPU Quality kit 18,249 B, GPU coupled steps 5,159 B, opt-in kit 4,168 B) | 47,000 B (2.25.0: 47,400 B) |
   | all chunks | 378,059 B | 384,390 B | — |
 
   The GPU coupled steps (#593) load on demand too and count in that row. The bundler now gives the entry ten small chunks it
@@ -1632,7 +1730,10 @@ model:
   `"scene-illuminant"` or a fixed white balance, as for region tiles);
 - luminance tone curves (`extended-reinhard-luminance`, `naka-rushton-luminance`) and
   `output.highlightMode: "reconstruct"`, which couple the channels non-linearly;
-- `output.region` (pass `view.region` in display pixels instead).
+- `output.region` (pass `view.region` in display pixels instead);
+- `output.diffractionCorrection`, and `output.lensCorrections.vignetting` with `highlightMode` `"reconstruct"` or
+  `"reconstruct-neighbors"` or `gamutHandling: "desaturate-to-luminance"` (2.25.0: the lens corrections and sharpening render otherwise;
+  [Lens corrections and sharpening](#lens-corrections-and-sharpening-628)).
 
 A still camera with a rolling shutter is accepted (each site's window has the same length, so the
 expected signal is unchanged). The capture's file-format options (`format`, `colorEncoding`,

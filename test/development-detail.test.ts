@@ -256,6 +256,7 @@ describe("simulateCapture output.diffractionCorrection and output.sharpening (#5
     await reject({ ...base, output: { ...base.output, sharpening: { radius: 1 } as never } });
     await reject({ ...base, lens: { diffraction: "circular-aperture" }, output: { ...base.output, diffractionCorrection: { kernelRadiusPixels: 40 } } });
     await expect(simulateIdealReference({ ...base, output: { ...base.output, sharpening: {} } })).rejects.toThrow(InvalidConfigurationError);
-    await expect(simulateDisplayView({ ...base, output: { ...base.output, sharpening: {} } }, { width: 12, height: 4 } as never)).rejects.toThrow(InvalidConfigurationError);
+    // #628: the display view renders output.sharpening (test/display-view-lens-corrections.test.ts); it still refuses the deconvolution.
+    await expect(simulateDisplayView({ ...base, lens: { diffraction: "circular-aperture" }, output: { ...base.output, diffractionCorrection: {} } }, { width: 12, height: 4 } as never)).rejects.toThrow(InvalidConfigurationError);
   }, scaledTimeout(60_000));
 });

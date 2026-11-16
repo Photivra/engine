@@ -38,7 +38,10 @@ describe("#492: defocus in the GPU display view (float32 emulation) vs the CPU r
   }, scaledTimeout(900_000));
 
   it("the blocked sum's bound grows with the kernel's width, not its tap count: (cw + ch + G + 3)·E", async () => {
-    const c = DEFOCUS_GPU_EXTRA[4]!, fixture = await displayViewGpuFixture(c.options, { ...c.view, region: { ...c.view.region!, width: 1, height: 1 } });
+    // The fixture also renders the CPU reference, which these assertions do not read. 2.25.0 (#612): on a fast request a disc this much
+    // wider than the diffraction kernel is regrouped there, which costs its fixed 128-site tiles for a 1-pixel region (1.6 s -> 40 s, and
+    // about 310 s under coverage); fast: false keeps the combined kernels this test ran with before #612. The GPU input is the same either way.
+    const c = DEFOCUS_GPU_EXTRA[4]!, fixture = await displayViewGpuFixture({ ...c.options, fast: false }, { ...c.view, region: { ...c.view.region!, width: 1, height: 1 } });
     const runtime = await runtimeOf(createFakeGpu().gpu), gpu = await renderOnGpuQuality(runtime, fixture);
     // Radius 94 with the four-spot filter: four groups of 2 × 2 members, each a dense (2·94 + 2)² rectangle.
     expect(gpu.tapsPerSite).toBe(4 * 190 * 190);
@@ -103,7 +106,8 @@ describe("#492: defocus in the GPU display view (float32 emulation) vs the CPU r
 
   it("a kernel table past the device's storage binding limit is refused by name (insufficient-limits): \"auto\" renders the CPU reference with that label, \"require\" fails", async () => {
     // Radius 94, the patches chart: 3 channels × 144 400 taps × 21 spectral nodes × 4 bytes ≈ 36 MB of per-node kernel values (2.21.0).
-    const c = DEFOCUS_GPU_EXTRA[4]!, options = { ...c.options, scene: { preset: "patches" as const, columns: 2, patches: Array.from({ length: 4 }, (_, i) => ({ patchId: `p${i}`, reflectance: i % 2 === 0 ?
+    // fast: false, as in the test above: the CPU reference keeps the combined kernels (1.4 s -> 44 s regrouped for a 2 × 2 region).
+    const c = DEFOCUS_GPU_EXTRA[4]!, options = { ...c.options, fast: false, scene: { preset: "patches" as const, columns: 2, patches: Array.from({ length: 4 }, (_, i) => ({ patchId: `p${i}`, reflectance: i % 2 === 0 ?
       { kind: "tabulated" as const, samples: [380, 580, 780].map((w, j) => ({ wavelengthNanometers: w, value: 0.1 + 0.1 * i + 0.1 * j })) } : 0.2 + 0.1 * i })) } };
     const view = { ...c.view, region: { ...c.view.region!, width: 2, height: 2 } };
     const fixture = await displayViewGpuFixture(options, view), small = await runtimeOf(createFakeGpu({ maxStorageBufferBindingSize: 16 * 1024 * 1024 }).gpu);

@@ -14,7 +14,8 @@ const ROOT_FILES = [
   "THIRD_PARTY.md",
   "NOTICE",
   "package.json",
-  "package-lock.json"
+  "package-lock.json",
+  "llms.txt"
 ];
 
 const ROOT_DIRS = [".github", "docs", "src", "test", "scripts"];
@@ -33,6 +34,11 @@ const PRIVATE_HOST = new RegExp(
   "i"
 );
 
+// #627: the repository was renamed to Photivra/engine (2026-11-12). Links to the former name
+// (the organization followed by the old repository name) must not come back.
+const FORMER_REPOSITORY = new RegExp("\\bPhotivra/" + "photivra\\b", "i");
+const REPOSITORY_URL = "https://github.com/Photivra/engine";
+
 const violations = [];
 
 async function checkFile(file) {
@@ -41,6 +47,10 @@ async function checkFile(file) {
     if (content.includes(token)) {
       violations.push(`${file}: contains legacy project identifier ${JSON.stringify(token)}`);
     }
+  }
+  const former = content.match(FORMER_REPOSITORY);
+  if (former) {
+    violations.push(`${file}: links to the former repository name ${JSON.stringify(former[0])}; use Photivra/engine`);
   }
   const host = content.match(PRIVATE_HOST);
   if (host) {
@@ -69,10 +79,23 @@ for (const directory of ROOT_DIRS) {
   await walk(directory);
 }
 
+// The published package's links must name the repository exactly.
+const manifest = JSON.parse(await readFile("package.json", "utf8"));
+const expectedLinks = [
+  ["repository.url", manifest.repository?.url, `git+${REPOSITORY_URL}.git`],
+  ["bugs.url", manifest.bugs?.url, `${REPOSITORY_URL}/issues`],
+  ["homepage", manifest.homepage, `${REPOSITORY_URL}#readme`]
+];
+for (const [field, actual, expected] of expectedLinks) {
+  if (actual !== expected) {
+    violations.push(`package.json: ${field} is ${JSON.stringify(actual)}; expected ${JSON.stringify(expected)}`);
+  }
+}
+
 if (violations.length > 0) {
   throw new Error(
     ["Photivra identity check failed:", ...violations.map((v) => `- ${v}`)].join("\n")
   );
 }
 
-stdout.write("Photivra identity check passed; no legacy project identifiers or private hosts found.\n");
+stdout.write("Photivra identity check passed; no legacy project identifiers, former repository links or private hosts found.\n");

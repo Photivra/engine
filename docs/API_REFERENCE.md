@@ -1,6 +1,6 @@
 # Public API reference
 
-Generated from the exact root exports for **@photivra/engine 2.24.0 / root contract 2.24.0** by `node scripts/generate-api-reference.mjs`. No module deep import is supported.
+Generated from the exact root exports for **@photivra/engine 2.25.0 / root contract 2.25.0** by `node scripts/generate-api-reference.mjs`. No module deep import is supported.
 
 Use [the developer guide](https://github.com/Photivra/engine/blob/main/docs/DEVELOPERS.md) for executable paths and scientific boundaries. Types are contracts, not runtime validation: parse untrusted data, preserve units/reference frames, read assessment blockers, and retain evidence/limitations. Optional properties do not imply a universal default. Model/schema IDs remain independent of the distribution.
 
@@ -13,16 +13,17 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 | Simulate a full photo (async) | [`simulateCapture`](api/facade-simulate-capture.md#simulatecapture) |
 | Preview a whole frame as the real capture resized (async) | [`simulateDisplayView`](api/facade-simulate-display-view.md#simulatedisplayview) |
 | Exposure value and equivalent settings | [`calculateExposureValue100`](api/exposure-exposure.md#calculateexposurevalue100), [`calculateEquivalentIso`](api/exposure-exposure.md#calculateequivalentiso), [`calculateRelativeRenderedExposure`](api/exposure-exposure.md#calculaterelativerenderedexposure) |
+| Sunny 16, standard exposure for a light, program line | [`calculateSunnySixteenExposure`](api/exposure-exposure-helpers.md#calculatesunnysixteenexposure), [`calculateStandardExposure`](api/exposure-exposure-helpers.md#calculatestandardexposure), [`calculateProgramLine`](api/facade-program-line-for-lens.md#calculateprogramline) |
 | Depth of field, hyperfocal distance and defocus blur | [`calculateDepthOfField`](api/optics-depth-of-field.md#calculatedepthoffield), [`calculateDefocusCircle`](api/optics-depth-of-field.md#calculatedefocuscircle) |
 | Field of view | [`calculateFieldOfView`](api/camera-field-of-view.md#calculatefieldofview) |
 | Crop factor, 35 mm-equivalent focal length and crops | [`calculateEquivalentFocalLength35Mm`](api/camera-equivalent-focal-length.md#calculateequivalentfocallength35mm), [`calculateCenteredCrop`](api/output-crop.md#calculatecenteredcrop), [`calculateCropToMatchFocalLength`](api/output-crop-to-match-focal-length.md#calculatecroptomatchfocallength) |
 | Aperture (entrance-pupil) diameter | [`calculateApertureDiameter`](api/optics-aperture-diameter.md#calculateaperturediameter) |
-| Equivalent f-number, sensor area and blur as a share of the frame | [`calculateSensorEquivalence`](api/camera-sensor-equivalence.md#calculatesensorequivalence), [`calculateBlurShareOfFrame`](api/camera-sensor-equivalence.md#calculateblurshareofframe) |
-| Motion blur and shutter speed | [`calculateProjectedMotionBlur`](api/motion-projected-motion.md#calculateprojectedmotionblur), [`calculateShutterAngleExposureSeconds`](api/motion-video-sequence.md#calculateshutterangleexposureseconds) |
+| Equivalent f-number, ISO, sensor area and blur as a share of the frame | [`calculateSensorEquivalence`](api/camera-sensor-equivalence.md#calculatesensorequivalence), [`calculateFormatEquivalentIso`](api/camera-sensor-equivalence.md#calculateformatequivalentiso), [`calculateBlurShareOfFrame`](api/camera-sensor-equivalence.md#calculateblurshareofframe) |
+| Motion blur and shutter speed | [`calculateProjectedMotionBlur`](api/motion-projected-motion.md#calculateprojectedmotionblur), [`calculateFreezeShutterSpeed`](api/exposure-exposure-helpers.md#calculatefreezeshutterspeed), [`calculateShutterAngleExposureSeconds`](api/motion-video-sequence.md#calculateshutterangleexposureseconds) |
 | Shutter time with an ND filter | [`calculateFilteredExposureTime`](api/exposure-filtered-exposure-time.md#calculatefilteredexposuretime) |
 | Diffraction | [`calculateAiryDisk`](api/optics-diffraction.md#calculateairydisk) |
 | Which limits detail: the lens or the sensor | [`calculateDetailLimit`](api/optics-detail-limit.md#calculatedetaillimit) |
-| Sensor signal, noise and SNR | [`calculatePhotoelectrons`](api/sensor-signal-noise.md#calculatephotoelectrons), [`calculateSignalToNoise`](api/sensor-signal-noise.md#calculatesignaltonoise) |
+| Sensor signal, noise and SNR | [`calculatePhotoelectrons`](api/sensor-signal-noise.md#calculatephotoelectrons), [`calculateSignalToNoise`](api/sensor-signal-noise.md#calculatesignaltonoise), [`calculateSensorFigures`](api/facade-sensor-figures.md#calculatesensorfigures) |
 | Colour temperature | [`calculateChromaticityFromCorrelatedColorTemperature`](api/color-illuminants.md#calculatechromaticityfromcorrelatedcolortemperature), [`calculateCorrelatedColorTemperature`](api/color-illuminants.md#calculatecorrelatedcolortemperature) |
 | White balance from Kelvin and tint | [`createColorTemperatureWhiteBalanceIntent`](api/color-white-balance.md#createcolortemperaturewhitebalanceintent), [`resolveColorTemperatureWhiteBalance`](api/color-white-balance.md#resolvecolortemperaturewhitebalance) |
 
@@ -93,13 +94,30 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 | [`BlurShareOfPrint`](api/camera-sensor-equivalence.md#blurshareofprint) | Type |
 | [`calculateBlurShareOfFrame`](api/camera-sensor-equivalence.md#calculateblurshareofframe) | Runtime |
 | [`CalculateBlurShareOfFrameInput`](api/camera-sensor-equivalence.md#calculateblurshareofframeinput) | Type |
+| [`calculateFormatEquivalentIso`](api/camera-sensor-equivalence.md#calculateformatequivalentiso) | Runtime |
+| [`CalculateFormatEquivalentIsoInput`](api/camera-sensor-equivalence.md#calculateformatequivalentisoinput) | Type |
 | [`calculateSensorEquivalence`](api/camera-sensor-equivalence.md#calculatesensorequivalence) | Runtime |
 | [`CalculateSensorEquivalenceInput`](api/camera-sensor-equivalence.md#calculatesensorequivalenceinput) | Type |
 | [`EquivalenceExactness`](api/camera-sensor-equivalence.md#equivalenceexactness) | Type |
 | [`EquivalenceValueBasis`](api/camera-sensor-equivalence.md#equivalencevaluebasis) | Type |
+| [`FormatEquivalentIso`](api/camera-sensor-equivalence.md#formatequivalentiso) | Type |
 | [`SensorEquivalence`](api/camera-sensor-equivalence.md#sensorequivalence) | Type |
 | [`SensorEquivalenceFieldOfView`](api/camera-sensor-equivalence.md#sensorequivalencefieldofview) | Type |
 | [`SensorEquivalenceQuantity`](api/camera-sensor-equivalence.md#sensorequivalencequantity) | Type |
+
+## camera/stated-focal-length-equivalence.ts
+
+[Detailed contracts](api/camera-stated-focal-length-equivalence.md) · [Source](https://github.com/Photivra/engine/blob/main/src/camera/stated-focal-length-equivalence.ts)
+
+| Export | Kind |
+| --- | --- |
+| [`calculateImagingAreaFromFocalLength35Mm`](api/camera-stated-focal-length-equivalence.md#calculateimagingareafromfocallength35mm) | Runtime |
+| [`CalculateImagingAreaFromFocalLength35MmInput`](api/camera-stated-focal-length-equivalence.md#calculateimagingareafromfocallength35mminput) | Type |
+| [`calculateSensorEquivalenceFromFocalLength35Mm`](api/camera-stated-focal-length-equivalence.md#calculatesensorequivalencefromfocallength35mm) | Runtime |
+| [`CalculateSensorEquivalenceFromFocalLength35MmInput`](api/camera-stated-focal-length-equivalence.md#calculatesensorequivalencefromfocallength35mminput) | Type |
+| [`ImagingAreaFromFocalLength35Mm`](api/camera-stated-focal-length-equivalence.md#imagingareafromfocallength35mm) | Type |
+| [`SensorEquivalenceFromFocalLength35Mm`](api/camera-stated-focal-length-equivalence.md#sensorequivalencefromfocallength35mm) | Type |
+| [`StatedValueInterval`](api/camera-stated-focal-length-equivalence.md#statedvalueinterval) | Type |
 
 ## capture/c2pa-embed.ts
 
@@ -172,6 +190,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 | [`importDngRawImage`](api/capture-dng-import.md#importdngrawimage) | Runtime |
 | [`ImportedDngBlackLevel`](api/capture-dng-import.md#importeddngblacklevel) | Type |
 | [`ImportedDngCfa`](api/capture-dng-import.md#importeddngcfa) | Type |
+| [`ImportedDngEnhancedImage`](api/capture-dng-import.md#importeddngenhancedimage) | Type |
 | [`ImportedDngExif`](api/capture-dng-import.md#importeddngexif) | Type |
 | [`ImportedDngNoiseProfilePlane`](api/capture-dng-import.md#importeddngnoiseprofileplane) | Type |
 | [`ImportedDngRaw`](api/capture-dng-import.md#importeddngraw) | Type |
@@ -253,6 +272,20 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 | [`DevelopDngStageImageOptions`](api/capture-dng-stage-image.md#developdngstageimageoptions) | Type |
 | [`DngStageImageResult`](api/capture-dng-stage-image.md#dngstageimageresult) | Type |
 
+## capture/dng-writer.ts
+
+[Detailed contracts](api/capture-dng-writer.md) · [Source](https://github.com/Photivra/engine/blob/main/src/capture/dng-writer.ts)
+
+| Export | Kind |
+| --- | --- |
+| [`DNG_REWRITE_ALLOWED_TAGS`](api/capture-dng-writer.md#dng_rewrite_allowed_tags) | Runtime |
+| [`DNG_REWRITE_LIMITS`](api/capture-dng-writer.md#dng_rewrite_limits) | Runtime |
+| [`DNG_REWRITE_SCHEMA_VERSION`](api/capture-dng-writer.md#dng_rewrite_schema_version) | Runtime |
+| [`DngRewriteEdits`](api/capture-dng-writer.md#dngrewriteedits) | Type |
+| [`DngRewriteInput`](api/capture-dng-writer.md#dngrewriteinput) | Type |
+| [`RewrittenDng`](api/capture-dng-writer.md#rewrittendng) | Type |
+| [`serializeRewrittenDng`](api/capture-dng-writer.md#serializerewrittendng) | Runtime |
+
 ## capture/environment-raw-producer.ts
 
 [Detailed contracts](api/capture-environment-raw-producer.md) · [Source](https://github.com/Photivra/engine/blob/main/src/capture/environment-raw-producer.ts)
@@ -262,6 +295,16 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 | [`EnvironmentSensorRawFrame`](api/capture-environment-raw-producer.md#environmentsensorrawframe) | Type |
 | [`simulateEnvironmentSensorRawFrame`](api/capture-environment-raw-producer.md#simulateenvironmentsensorrawframe) | Runtime |
 | [`SimulateEnvironmentSensorRawFrameInput`](api/capture-environment-raw-producer.md#simulateenvironmentsensorrawframeinput) | Type |
+
+## capture/exif-capture-fields.ts
+
+[Detailed contracts](api/capture-exif-capture-fields.md) · [Source](https://github.com/Photivra/engine/blob/main/src/capture/exif-capture-fields.ts)
+
+| Export | Kind |
+| --- | --- |
+| [`ExifCaptureFields`](api/capture-exif-capture-fields.md#exifcapturefields) | Type |
+| [`ExifFocalPlaneResolution`](api/capture-exif-capture-fields.md#exiffocalplaneresolution) | Type |
+| [`ExifSubjectArea`](api/capture-exif-capture-fields.md#exifsubjectarea) | Type |
 
 ## capture/export-jpeg.ts
 
@@ -301,6 +344,18 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 | [`SetFocusLockInput`](api/capture-focus-control.md#setfocuslockinput) | Type |
 | [`setManualFocusState`](api/capture-focus-control.md#setmanualfocusstate) | Runtime |
 | [`SetManualFocusStateInput`](api/capture-focus-control.md#setmanualfocusstateinput) | Type |
+
+## capture/jpeg-exif-writer.ts
+
+[Detailed contracts](api/capture-jpeg-exif-writer.md) · [Source](https://github.com/Photivra/engine/blob/main/src/capture/jpeg-exif-writer.ts)
+
+| Export | Kind |
+| --- | --- |
+| [`JPEG_EXIF_CAPTURE_SETTING_KEYS`](api/capture-jpeg-exif-writer.md#jpeg_exif_capture_setting_keys) | Runtime |
+| [`JpegExifCaptureSettings`](api/capture-jpeg-exif-writer.md#jpegexifcapturesettings) | Type |
+| [`JpegExifDateTaken`](api/capture-jpeg-exif-writer.md#jpegexifdatetaken) | Type |
+| [`resolveJpegExifCaptureSettings`](api/capture-jpeg-exif-writer.md#resolvejpegexifcapturesettings) | Runtime |
+| [`setJpegExifCaptureSettings`](api/capture-jpeg-exif-writer.md#setjpegexifcapturesettings) | Runtime |
 
 ## capture/jpeg-xl-tiles.ts
 
@@ -443,6 +498,23 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 | [`PackedSensorRawPlan`](api/capture-packed-sensor-raw.md#packedsensorrawplan) | Type |
 | [`PackedSensorRawResult`](api/capture-packed-sensor-raw.md#packedsensorrawresult) | Type |
 | [`simulatePackedSensorRaw`](api/capture-packed-sensor-raw.md#simulatepackedsensorraw) | Runtime |
+
+## capture/photo-metadata.ts
+
+[Detailed contracts](api/capture-photo-metadata.md) · [Source](https://github.com/Photivra/engine/blob/main/src/capture/photo-metadata.ts)
+
+| Export | Kind |
+| --- | --- |
+| [`parsePhotoMetadata`](api/capture-photo-metadata.md#parsephotometadata) | Runtime |
+| [`PHOTO_METADATA_LIMITS`](api/capture-photo-metadata.md#photo_metadata_limits) | Runtime |
+| [`PHOTO_METADATA_SCHEMA_VERSION`](api/capture-photo-metadata.md#photo_metadata_schema_version) | Runtime |
+| [`PHOTO_METADATA_XMP_NAMESPACES`](api/capture-photo-metadata.md#photo_metadata_xmp_namespaces) | Runtime |
+| [`PhotoAnnotation`](api/capture-photo-metadata.md#photoannotation) | Type |
+| [`PhotoExif`](api/capture-photo-metadata.md#photoexif) | Type |
+| [`PhotoExtraImage`](api/capture-photo-metadata.md#photoextraimage) | Type |
+| [`PhotoExtraImageKind`](api/capture-photo-metadata.md#photoextraimagekind) | Type |
+| [`PhotoMetadata`](api/capture-photo-metadata.md#photometadata) | Type |
+| [`PhotoMetadataInput`](api/capture-photo-metadata.md#photometadatainput) | Type |
 
 ## capture/photographic-export.ts
 
@@ -1134,9 +1206,21 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 | Export | Kind |
 | --- | --- |
+| [`resolveSensorProfileIsoSettings`](api/equipment-sensor-profile-body.md#resolvesensorprofileisosettings) | Runtime |
 | [`SENSOR_PROFILE_ISO_ANCHOR`](api/equipment-sensor-profile-body.md#sensor_profile_iso_anchor) | Runtime |
+| [`SENSOR_PROFILE_ISO_MARKINGS`](api/equipment-sensor-profile-body.md#sensor_profile_iso_markings) | Runtime |
 | [`SensorProfile`](api/equipment-sensor-profile-body.md#sensorprofile) | Type |
 | [`SensorProfileValueKind`](api/equipment-sensor-profile-body.md#sensorprofilevaluekind) | Type |
+
+## equipment/sensor-profile-frame.ts
+
+[Detailed contracts](api/equipment-sensor-profile-frame.md) · [Source](https://github.com/Photivra/engine/blob/main/src/equipment/sensor-profile-frame.ts)
+
+| Export | Kind |
+| --- | --- |
+| [`calculateSensorProfileFrame`](api/equipment-sensor-profile-frame.md#calculatesensorprofileframe) | Runtime |
+| [`CalculateSensorProfileFrameInput`](api/equipment-sensor-profile-frame.md#calculatesensorprofileframeinput) | Type |
+| [`SensorProfileFrame`](api/equipment-sensor-profile-frame.md#sensorprofileframe) | Type |
 
 ## equipment/sensor-profiles.ts
 
@@ -1174,6 +1258,27 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 | [`ExposureDurationControl`](api/exposure-exposure-duration-control.md#exposuredurationcontrol) | Type |
 | [`ExposureDurationControlResolution`](api/exposure-exposure-duration-control.md#exposuredurationcontrolresolution) | Type |
 | [`resolveExposureDurationControl`](api/exposure-exposure-duration-control.md#resolveexposuredurationcontrol) | Runtime |
+
+## exposure/exposure-helpers.ts
+
+[Detailed contracts](api/exposure-exposure-helpers.md) · [Source](https://github.com/Photivra/engine/blob/main/src/exposure/exposure-helpers.ts)
+
+| Export | Kind |
+| --- | --- |
+| [`calculateFreezeShutterSpeed`](api/exposure-exposure-helpers.md#calculatefreezeshutterspeed) | Runtime |
+| [`CalculateFreezeShutterSpeedInput`](api/exposure-exposure-helpers.md#calculatefreezeshutterspeedinput) | Type |
+| [`calculateStandardExposure`](api/exposure-exposure-helpers.md#calculatestandardexposure) | Runtime |
+| [`CalculateStandardExposureInput`](api/exposure-exposure-helpers.md#calculatestandardexposureinput) | Type |
+| [`calculateSunnySixteenExposure`](api/exposure-exposure-helpers.md#calculatesunnysixteenexposure) | Runtime |
+| [`CalculateSunnySixteenExposureInput`](api/exposure-exposure-helpers.md#calculatesunnysixteenexposureinput) | Type |
+| [`FreezeShutterSpeed`](api/exposure-exposure-helpers.md#freezeshutterspeed) | Type |
+| [`NAMED_LIGHT_LEVELS`](api/exposure-exposure-helpers.md#named_light_levels) | Runtime |
+| [`NamedLightLevel`](api/exposure-exposure-helpers.md#namedlightlevel) | Type |
+| [`NamedLightLevelRecord`](api/exposure-exposure-helpers.md#namedlightlevelrecord) | Type |
+| [`StandardExposure`](api/exposure-exposure-helpers.md#standardexposure) | Type |
+| [`SUNNY_SIXTEEN_CONDITIONS`](api/exposure-exposure-helpers.md#sunny_sixteen_conditions) | Runtime |
+| [`SunnySixteenCondition`](api/exposure-exposure-helpers.md#sunnysixteencondition) | Type |
+| [`SunnySixteenExposure`](api/exposure-exposure-helpers.md#sunnysixteenexposure) | Type |
 
 ## exposure/exposure-mode-resolver.ts
 
@@ -1528,6 +1633,18 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 | [`MixedIlluminationPointSource`](api/facade-mixed-illumination.md#mixedilluminationpointsource) | Type |
 | [`MixedIlluminationSource`](api/facade-mixed-illumination.md#mixedilluminationsource) | Type |
 
+## facade/program-line-for-lens.ts
+
+[Detailed contracts](api/facade-program-line-for-lens.md) · [Source](https://github.com/Photivra/engine/blob/main/src/facade/program-line-for-lens.ts)
+
+| Export | Kind |
+| --- | --- |
+| [`calculateProgramLine`](api/facade-program-line-for-lens.md#calculateprogramline) | Runtime |
+| [`CalculateProgramLineInput`](api/facade-program-line-for-lens.md#calculateprogramlineinput) | Type |
+| [`ProgramLine`](api/facade-program-line-for-lens.md#programline) | Type |
+| [`ProgramLineNode`](api/facade-program-line-for-lens.md#programlinenode) | Type |
+| [`ProgramLineSelection`](api/facade-program-line-for-lens.md#programlineselection) | Type |
+
 ## facade/quality-paths.ts
 
 [Detailed contracts](api/facade-quality-paths.md) · [Source](https://github.com/Photivra/engine/blob/main/src/facade/quality-paths.ts)
@@ -1577,6 +1694,16 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 | [`SceneMaterialPoint`](api/facade-scene-radiance.md#scenematerialpoint) | Type |
 | [`ScenePlanePoint`](api/facade-scene-radiance.md#sceneplanepoint) | Type |
 
+## facade/sensor-figures.ts
+
+[Detailed contracts](api/facade-sensor-figures.md) · [Source](https://github.com/Photivra/engine/blob/main/src/facade/sensor-figures.ts)
+
+| Export | Kind |
+| --- | --- |
+| [`calculateSensorFigures`](api/facade-sensor-figures.md#calculatesensorfigures) | Runtime |
+| [`CalculateSensorFiguresInput`](api/facade-sensor-figures.md#calculatesensorfiguresinput) | Type |
+| [`SensorFigures`](api/facade-sensor-figures.md#sensorfigures) | Type |
+
 ## facade/simulate-capture.ts
 
 [Detailed contracts](api/facade-simulate-capture.md) · [Source](https://github.com/Photivra/engine/blob/main/src/facade/simulate-capture.ts)
@@ -1614,6 +1741,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 | [`SimulateCaptureLensCatalogueRecord`](api/facade-simulate-capture.md#simulatecapturelenscataloguerecord) | Type |
 | [`SimulateCaptureLensCorrections`](api/facade-simulate-capture.md#simulatecapturelenscorrections) | Type |
 | [`SimulateCaptureLensDistortion`](api/facade-simulate-capture.md#simulatecapturelensdistortion) | Type |
+| [`SimulateCaptureLensFilterReport`](api/facade-simulate-capture.md#simulatecapturelensfilterreport) | Type |
 | [`SimulateCaptureMetering`](api/facade-simulate-capture.md#simulatecapturemetering) | Type |
 | [`SimulateCaptureMotion`](api/facade-simulate-capture.md#simulatecapturemotion) | Type |
 | [`SimulateCaptureOptions`](api/facade-simulate-capture.md#simulatecaptureoptions) | Type |
@@ -1650,7 +1778,10 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 | [`CalculateSubjectDistanceForFramingInput`](api/facade-subject-framing.md#calculatesubjectdistanceforframinginput) | Type |
 | [`ChartFraming`](api/facade-subject-framing.md#chartframing) | Type |
 | [`SubjectFraming`](api/facade-subject-framing.md#subjectframing) | Type |
+| [`SubjectFramingCatalogueLens`](api/facade-subject-framing.md#subjectframingcataloguelens) | Type |
 | [`SubjectFramingFit`](api/facade-subject-framing.md#subjectframingfit) | Type |
+| [`SubjectFramingLens`](api/facade-subject-framing.md#subjectframinglens) | Type |
+| [`SubjectFramingSensorProfile`](api/facade-subject-framing.md#subjectframingsensorprofile) | Type |
 
 ## gpu/image-kernel-accelerator.ts
 
@@ -2500,6 +2631,18 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 | [`parseGenericLensCorrectionProfile`](api/output-lens-corrections.md#parsegenericlenscorrectionprofile) | Runtime |
 | [`ResolvedLensCorrectionPlan`](api/output-lens-corrections.md#resolvedlenscorrectionplan) | Type |
 | [`resolveLensCorrectionPlan`](api/output-lens-corrections.md#resolvelenscorrectionplan) | Runtime |
+
+## output/look-curves.ts
+
+[Detailed contracts](api/output-look-curves.md) · [Source](https://github.com/Photivra/engine/blob/main/src/output/look-curves.ts)
+
+| Export | Kind |
+| --- | --- |
+| [`FLAT_LOOK`](api/output-look-curves.md#flat_look) | Runtime |
+| [`NakaRushtonLook`](api/output-look-curves.md#nakarushtonlook) | Type |
+| [`PinLookMidGrayOptions`](api/output-look-curves.md#pinlookmidgrayoptions) | Type |
+| [`resolveMidGrayPinnedLook`](api/output-look-curves.md#resolvemidgraypinnedlook) | Runtime |
+| [`STANDARD_LOOK`](api/output-look-curves.md#standard_look) | Runtime |
 
 ## output/native-capture-sdr.ts
 
