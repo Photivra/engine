@@ -4026,7 +4026,9 @@ inverse-square falloff, alone or mixed with ambient `sources` and `points`. The 
   source of intensity Q/T over the exposure window T. Twice the distance gives a quarter of the exposure; with the flash alone the
   shutter time changes nothing; with ambient light a longer shutter adds only the ambient part (slow sync).
 - **Exposure.** The meter reads ambient plus flash. Manual and shutter priority know the shutter; aperture priority and program find
-  the shutter whose own reading resolves to it (bisection on ln t over the body's shutter range).
+  the shutter whose own reading resolves to it (bisection on ln t over the body's shutter range). With the flash alone (no ambient
+  reading) every shutter gives the same exposure, so they take 1/125 s within the body's range and resolve the rest at it
+  (`exposure.flashShutter`).
 - **Default position and spectrum.** On the optical axis at the camera; a Planckian 5500 K stand-in (not a measured flash tube).
 - **Refused.** Camera rotation or `motion.subject` with a flash, and a rolling shutter shorter than its readout skew.
 

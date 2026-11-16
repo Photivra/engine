@@ -110,8 +110,11 @@ shutter priority know t. In aperture priority and program, t is unknown: the set
 reading at t, is t. ln R(eˣ) − x is ≥ 0 at the body's shortest shutter and ≤ 0 at its longest, so the facade takes the longest shutter
 if it is such a point and otherwise bisects in x to 1e-12, then steps t ← R(t) a few times (for a body with discrete shutters). With
 ambient light the result is the shutter at which ambient plus flash meet the target (for example ambient needing 4/125 s alone and a
-flash giving half the target: t = 2/125 s); a flash that alone overexposes holds the shortest shutter; with the flash alone every
-shutter gives the same exposure, so the automatic modes keep the longest. Reports (`scene.illumination`, the deviations,
+flash giving half the target: t = 2/125 s); a flash that alone overexposes holds the shortest shutter. **Flash alone** (owner decision
+2026-11-16): when the meter's ambient reading is zero (every zone, or the grey card's ambient illuminance), every shutter gives the
+same exposure, so aperture priority and program take 1/125 s, held within the body's shutter range (every built-in body has
+1/8000–30 s), and resolve the rest at it: aperture priority as manual (Auto ISO chooses the ISO), program as shutter priority (the
+aperture, and with Auto ISO the ISO). Reported as the assumption `exposure.flashShutter`. Reports (`scene.illumination`, the deviations,
 `exposure.meteringCard`) are those at the resolved shutter; the flash's light reports `intensityCandela` Q/t and
 `flash: { candelaSeconds, powerFraction, guideNumberM, exposureWindowSeconds }`.
 

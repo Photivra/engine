@@ -2795,7 +2795,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   const limitsPolicy = autoIsoLimits ? { autoIsoLimits: { ...autoIsoLimits } } : {};
   // #639: the meter reads the flash too (as a pre-flash would): each zone's ambient luminance plus the flash's luminance over the
   // shutter t (src/facade/mixed-illumination.ts, meterFlash and solveFlashShutter).
-  let flashAt: ((t: number) => void) | undefined;
+  let flashAt: ((t: number) => void) & { alone?: boolean } | undefined, as = mode;
   if (flash) {
     flashWindow = Infinity;
     const ambient = lightKit(resolveCaptureIlluminant);
@@ -2806,16 +2806,16 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   /** Resolves the settings from the reading at shutter t; returns their shutter. */
   const resolveAt = (t: number): number => {
   if (flashAt) { flashAt(t); target = meterTarget(); }
-  if (mode === "manual") {
+  if (as === "manual") {
     resolution = resolveManualExposureMode({ target, capabilities: resolverCapabilities, referenceExposure: reference, manualAperture: fNumber, manualShutterSeconds: shutterSeconds,
       isoControl: automaticIso ? { kind: "automatic", quantizationPolicy: autoIsoBaseline.isoQuantizationPolicy, ...limitsPolicy } : { kind: "manual", iso } });
   } else if (autoIsoAperturePriority) {
     resolution = resolveAperturePriorityAutoIsoExposureMode({ target, capabilities: resolverCapabilities, referenceExposure: reference, manualAperture: fNumber,
       policy: { kind: "minimum-iso-until-slowest-preferred-shutter", ...autoIsoBaseline, shutterSelectionPolicy: "not-longer-than-target", ...autoIsoAperturePriority, ...limitsPolicy } });
-  } else if (mode === "aperture-priority") {
+  } else if (as === "aperture-priority") {
     resolution = resolveAperturePriorityExposureMode({ target, capabilities: resolverCapabilities, referenceExposure: reference, manualAperture: fNumber, manualIso: iso,
       shutterQuantizationPolicy: "nearest-log2-shorter-on-tie" });
-  } else if (mode === "shutter-priority") {
+  } else if (as === "shutter-priority") {
     resolution = resolveShutterPriorityExposureMode({ target, capabilities: resolverCapabilities, referenceExposure: reference, manualShutterSeconds: shutterSeconds,
       isoControl: automaticIso ? { kind: "automatic", policy: { kind: "minimum-iso-aperture-first", apertureSelectionPolicy: "not-wider-than-target", ...autoIsoBaseline, ...limitsPolicy } } :
         { kind: "manual", iso, apertureQuantizationPolicy: "nearest-log2-narrower-on-tie" } });
@@ -2832,7 +2832,12 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   calls++;
   return resolution.resolvedSettings?.shutterSeconds ?? t;
   };
-  if (!flashAt || mode === "manual" || mode === "shutter-priority") resolveAt(shutterSeconds);
+  // #639 (owner decision 2026-11-16): with no ambient reading every shutter gives the same exposure, so an automatic mode takes 1/125 s
+  // (within the body's range) and resolves the rest at it: aperture priority as manual (Auto ISO from the reading), program as shutter priority.
+  if (flashAt && (mode === "aperture-priority" || mode === "program") && flashAt.alone) {
+    as = mode === "program" ? "shutter-priority" : "manual";
+    resolveAt(shutterSeconds = loadedKit(optInKit).flashAloneShutter(capabilities.shutter.minimumSeconds, capabilities.shutter.maximumSeconds, assume));
+  } else if (!flashAt || mode === "manual" || mode === "shutter-priority") resolveAt(shutterSeconds);
   else loadedKit(optInKit).solveFlashShutter(resolveAt, capabilities.shutter.minimumSeconds, capabilities.shutter.maximumSeconds);
   if (resolution.status !== "resolved" || !resolution.resolvedSettings) fail("Exposure could not be resolved (" + resolution.status + "); the scene may have no signal.");
   fNumber = resolution.resolvedSettings.aperture ?? fNumber;

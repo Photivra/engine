@@ -273,10 +273,21 @@ export function resolveMixedIllumination(value: unknown, resolveIlluminant: (val
  * scale·factor·(E_a + (E − E_a)/t).
  */
 export function meterFlash(samples: { relativeLinearSignal: number }[], total: readonly number[], ambient: readonly number[], scale: number,
-  card: readonly [number, number, number] | undefined): (t: number) => void {
-  return (t) => samples.forEach((sample, z) => {
+  card: readonly [number, number, number] | undefined): ((t: number) => void) & { alone: boolean } {
+  return Object.assign((t: number) => samples.forEach((sample, z) => {
     sample.relativeLinearSignal = scale * (card ? card[2] * (card[0] + (card[1] - card[0]) / t) : ambient[z]! + (total[z]! - ambient[z]!) / t);
-  });
+  }), { alone: card ? card[0] === 0 : ambient.every((a) => a === 0) });
+}
+
+/**
+ * Internal (#639, owner decision 2026-11-16): the shutter of an automatic mode when the flash alone lights the scene (the meter's
+ * ambient reading is zero in every zone, or on the grey card), so that every shutter gives the same exposure: 1/125 s, held within the
+ * body's shutter range. Records the assumption `exposure.flashShutter`.
+ */
+export function flashAloneShutter(minimumSeconds: number, maximumSeconds: number, assume: (id: string, kind: "model", value: unknown, explanation: string) => void): number {
+  const t = Math.min(maximumSeconds, Math.max(minimumSeconds, 1 / 125));
+  assume("exposure.flashShutter", "model", t, "The flash alone lights the scene (no ambient reading), so every shutter gives the same exposure: the automatic mode takes 1/125 s within the body's range and resolves the rest at it.");
+  return t;
 }
 
 /**

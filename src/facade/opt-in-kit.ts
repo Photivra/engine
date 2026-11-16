@@ -9,7 +9,7 @@
  */
 
 export { parseSensorProfile, sensorProfileBody, sensorProfileSaturationIso } from "../equipment/sensor-profile-body.js";
-export { meterFlash, rebindFlashAssumptions, requireFlashRows, resolveMixedIllumination, solveFlashShutter } from "./mixed-illumination.js";
+export { flashAloneShutter, meterFlash, rebindFlashAssumptions, requireFlashRows, resolveMixedIllumination, solveFlashShutter } from "./mixed-illumination.js";
 export { createSubjectMotionProvider, subjectTravelM } from "../motion/subject-motion.js";
 export { resolveLensFilter } from "./lens-filter.js";
 export { catalogueOpticsAssumptions } from "./catalogue-lens-optics.js";

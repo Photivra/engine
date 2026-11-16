@@ -8,6 +8,7 @@
 - **Guide number:** Q = 10π·G²/(0.65·0.18·100) cd·s (CIPA DC-004-2020 standard exposure of the facade's 18 % grey card), so `exposure.greyCardDeviationStops` is 0 at distance × f-number = G at ISO 100.
 - **Every path per site:** captures and exports, the ideal reference, the display view (fast and exact) and a print's GPU light table take the flash as a point of intensity Q/T over the exposure window T.
 - **Exposure:** the meter reads ambient plus flash; aperture priority and program find the shutter whose own reading resolves to it (bisection on ln t). Reports are those at the resolved shutter.
+- **Flash alone (owner decision 2026-11-16):** with no ambient reading (every zone, or the grey card), every shutter gives the same exposure, so aperture priority and program take 1/125 s within the body's shutter range and resolve the rest at it (assumption `exposure.flashShutter`).
 - **Refused:** a flash with camera rotation or `motion.subject`, and a rolling shutter shorter than its readout skew. `illumination` without two sources or a point may now hold just a flash; its message names the flash.
 - Requests without `illumination.flash` keep their bytes, except the facade limitation that listed flash as not offered.
 - Tests: `test/capture-flash.test.ts` (hand-computed exposures: guide number = d·N, inverse square, shutter independence, ambient + flash, the automatic modes, display view per site, GPU table). docs/MIXED_ILLUMINATION.md, "Flash"; docs/USAGE.md, "A flash in a capture".

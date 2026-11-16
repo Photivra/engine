@@ -9,7 +9,7 @@ import { describe, expect, it } from "vitest";
 import { InvalidConfigurationError, InvalidScientificInputError, SIMULATE_CAPTURE_DEFAULT_ILLUMINANCE_LUX, calculateEnvironmentSensorPhotoSignal, simulateCapture,
   simulateIdealReference, type CalculateEnvironmentSensorPhotoSignalInput, type MixedIllumination, type SimulateCaptureOptions } from "../src/index.js";
 import { simulateDisplayViewWithInternals } from "../src/facade/simulate-display-view.js";
-import { resolveMixedIllumination } from "../src/facade/mixed-illumination.js";
+import { flashAloneShutter, resolveMixedIllumination } from "../src/facade/mixed-illumination.js";
 import { buildPlanarSceneRadianceProvider, resolveCaptureIlluminant } from "../src/facade/scene-radiance.js";
 import { resolveChartScene, type ChartScene } from "../src/facade/chart-scenes.js";
 import { imagePlaneLightTable } from "../src/gpu/display-view-image-quality.js";
@@ -138,6 +138,39 @@ describe("flash (#639)", () => {
     const strong = await simulateCapture({ ...options({ mode: "aperture-priority", iso: 100, metering: "grey-card" }, { fNumber: 8 }),
       illumination: { ...ambient, flash: { illuminant: DAY, output: { guideNumberM: 32 } } } });
     expect(strong.exposure.settings.shutterSeconds).toBeLessThan(1 / 1000);
+  }, testTimeout(90_000));
+
+  it("with the flash alone the automatic modes take 1/125 s (owner decision 2026-11-16)", async () => {
+    const alone = flashCard({ output: { guideNumberM: 11 } });
+    const run = (exposure: NonNullable<SimulateCaptureOptions["exposure"]>, lens: NonNullable<SimulateCaptureOptions["lens"]> = {}): Promise<Awaited<ReturnType<typeof simulateCapture>>> =>
+      simulateCapture({ ...alone, exposure, lens });
+    const cases = await Promise.all([
+      run({ mode: "aperture-priority", iso: 100, metering: "grey-card" }, { fNumber: 8 }),
+      run({ mode: "aperture-priority", iso: "auto", autoIso: { slowestPreferredShutterSeconds: 1 / 30 }, metering: "grey-card" }, { fNumber: 8 }),
+      run({ mode: "program", iso: 100, metering: "grey-card" }),
+      run({ mode: "program", iso: "auto", metering: "grey-card" })]);
+    for (const capture of cases) {
+      expect(capture.exposure.settings.shutterSeconds).toBe(1 / 125);
+      expect(capture.assumptions.find((a) => a.id === "exposure.flashShutter")?.value).toBe(1 / 125);
+    }
+    // Aperture priority at a fixed ISO keeps the flash's own exposure, log2((16/11)²) under; Auto ISO and program resolve the rest at
+    // 1/125 s: program picks f/5.5 (11 = 2 × 5.5) at ISO 100, Auto ISO the whole-stop ISO nearest the target.
+    expect(cases[0]!.exposure.greyCardDeviationStops).toBeCloseTo(Math.log2(256 / 121), 12);
+    expect(Math.abs(cases[1]!.exposure.greyCardDeviationStops!)).toBeLessThanOrEqual(0.5);
+    expect(cases[2]!.exposure.settings.fNumber).toBeCloseTo(5.5, 9);
+    expect(Math.abs(cases[2]!.exposure.greyCardDeviationStops!)).toBeLessThan(1e-9);
+    expect(Math.abs(cases[3]!.exposure.greyCardDeviationStops!)).toBeLessThan(1e-9);
+    // Scene-average metering reads no ambient light either.
+    expect((await run({ mode: "aperture-priority", iso: 100 }, { fNumber: 8 })).exposure.settings.shutterSeconds).toBe(1 / 125);
+    // With any ambient light the reading depends on the shutter, and the solved shutter is used instead.
+    const dim = await simulateCapture({ ...alone, illumination: { sources: [{ illuminant: DAY, illuminanceLux: 1 }], flash: alone.illumination!.flash! },
+      exposure: { mode: "aperture-priority", iso: 100, metering: "grey-card" } });
+    expect(dim.exposure.settings.shutterSeconds).not.toBe(1 / 125);
+    // Every built-in body's range is 1/8000–30 s; a range without 1/125 s holds the nearest end.
+    const none = (): void => undefined;
+    expect(flashAloneShutter(1 / 60, 30, none)).toBe(1 / 60);
+    expect(flashAloneShutter(1 / 8000, 1 / 250, none)).toBe(1 / 250);
+    expect(flashAloneShutter(1 / 8000, 30, none)).toBe(1 / 125);
   }, testTimeout(90_000));
 
   it("the display view takes each site's light as the capture does, fast and exact", async () => {
