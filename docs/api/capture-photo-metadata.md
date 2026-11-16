@@ -4,7 +4,7 @@ The package and root API versions are recorded once in [Navigation](../API_REFER
 
 ## parsePhotoMetadata
 
-Reads the capture metadata of a JPEG or HEIC/HEIF file from its headers: the Exif capture settings (exposure time,
+Reads the capture metadata of a JPEG, HEIC/HEIF or (2.26.0) PNG file from its headers: the Exif capture settings (exposure time,
 f-number, the ISO fields, focal length, FocalLengthIn35mmFilm, DigitalZoomRatio, CompositeImage, the focal-plane
 resolution), make, model, Software, Orientation and the image size, and the extra images and annotations the file declares
 (by type and size only). No pixel data is decoded, and maker notes and GPS data are never read.
@@ -37,7 +37,9 @@ PHOTO_METADATA_LIMITS = Object.freeze({
   /** Bytes copied for one HEIF Exif or XMP item, or an assembled extended XMP packet. */
   maximumItemDataBytes: 4_194_304,
   /** XMP namespaces returned per packet. */
-  maximumXmpNamespaces: 256
+  maximumXmpNamespaces: 256,
+  /** 2.26.0 (#647): PNG chunks walked (their data is skipped by its length, never decoded). */
+  maximumPngChunks: 4096
 })
 ```
 
@@ -153,10 +155,11 @@ The exact contract is declared below; use the domain guide for assumptions and s
 ```ts
 export interface PhotoMetadata {
   schemaVersion: typeof PHOTO_METADATA_SCHEMA_VERSION;
-  format: "jpeg" | "heif";
+  /** 2.26.0 (#647): "png" for a PNG file (its eXIf chunk and IHDR size). */
+  format: "jpeg" | "heif" | "png";
   /** HEIF: the ftyp major brand then the compatible brands; empty for a JPEG. */
   brands: string[];
-  /** The primary image's stored size (JPEG frame header; HEIF ispe of the primary item), before any rotation, or null. */
+  /** The primary image's stored size (JPEG frame header; HEIF ispe of the primary item; PNG IHDR), before any rotation, or null. */
   width: number | null;
   height: number | null;
   /**

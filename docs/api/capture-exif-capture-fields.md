@@ -53,6 +53,13 @@ export interface ExifCaptureFields {
   /** SourceImageNumberOfCompositeImage (0xA461): the source images in all and those used. */
   compositeSourceImages: { total: number; used: number } | null;
   subjectArea: ExifSubjectArea | null;
+  /**
+   * 2.26.0 (#648): SubjectDistance (0x9206, RATIONAL), meters. Exif 2.32 §4.6.5 gives two numerators a meaning of their own, returned
+   * as words rather than numbers: 0 is "unknown" (also 0/0) and 0xFFFFFFFF is "infinity" (any denominator).
+   */
+  subjectDistanceMeters: number | "unknown" | "infinity" | null;
+  /** 2.26.0 (#648): SubjectDistanceRange (0xA40C, SHORT): 0 "unknown", 1 "macro", 2 "close-view", 3 "distant-view" (Exif 2.32 §4.6.5). */
+  subjectDistanceRange: "unknown" | "macro" | "close-view" | "distant-view" | null;
 }
 ```
 

@@ -230,6 +230,7 @@ JPEG and HEIF metadata reader (2.25.0, `src/capture/photo-metadata.ts`; independ
 identifiers only: tag and box codes, field layouts, type codes, namespace URIs and URNs; no reader source or sample file used):
 
 - CIPA DC-007-2009 Multi-Picture Format (MP header, MP Index IFD, MPEntry type codes): https://www.cipa.jp/e/std/std-sec.html
+- (2.26.0, #647) PNG Third Edition (above): the chunk layout (§5.3), IHDR (§11.2.1) and the eXIf chunk (§11.3.3.6).
 - Adobe XMP Part 3 (APP1 and extended XMP in JPEG): the Adobe XMP link above.
 - ISO/IEC 14496-12 (ISO base media file format box structure), in ISO's freely available standards:
   https://standards.iso.org/ittf/PubliclyAvailableStandards/

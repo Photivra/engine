@@ -37,7 +37,7 @@ export function readDng(fileBytes: Uint8Array) {
 | `linearizationTable` | Returned when present, never applied to `codes`. |
 | `orientation`, `make`, `model`, `uniqueCameraModel`, `dngVersion`, `rawDataUniqueId` | As stored. `dngVersion` is `null` for a TIFF-EP file. |
 | `noiseProfile` (2.24.0) | NoiseProfile (51041) as one `{ scale, offset }` pair per color plane: var(x) = S·x + O for x = (code − black)/(white − black), white and spatially independent noise (fixed-pattern noise is left out). A two-value tag applies to every plane. `null` when absent; a malformed tag (S ≤ 0, O < 0, a wrong count) is reported in `assumptions` and returned as `null`. |
-| `exif` (2.24.0) | The capture settings the file states, from the Exif IFD (34665), else the same tags in IFD 0 or the raw IFD (TIFF/EP): `exposureTimeSeconds`, `fNumber`, `focalLengthMillimeters` (actual, not 35 mm equivalent), `photographicSensitivity` (65535 means "65535 or more"), `sensitivityType`, `standardOutputSensitivity`, `recommendedExposureIndex`, `isoSpeed`, the resolved `iso` and its `isoSource` (RecommendedExposureIndex, else ISOSpeed, else StandardOutputSensitivity, else PhotographicSensitivity below 65535), `compositeImage` (0xA460: 0 unknown, 1 not a composite, 2 composite, 3 composite captured while shooting), `compositeSourceImages` (0xA461) and `subjectArea` (0x9214: a point, circle or rectangle). Each is `null` when absent; a malformed one is reported in `assumptions`. |
+| `exif` (2.24.0) | The capture settings the file states, from the Exif IFD (34665), else the same tags in IFD 0 or the raw IFD (TIFF/EP): `exposureTimeSeconds`, `fNumber`, `focalLengthMillimeters` (actual, not 35 mm equivalent), `photographicSensitivity` (65535 means "65535 or more"), `sensitivityType`, `standardOutputSensitivity`, `recommendedExposureIndex`, `isoSpeed`, the resolved `iso` and its `isoSource` (RecommendedExposureIndex, else ISOSpeed, else StandardOutputSensitivity, else PhotographicSensitivity below 65535), `compositeImage` (0xA460: 0 unknown, 1 not a composite, 2 composite, 3 composite captured while shooting), `compositeSourceImages` (0xA461), `subjectArea` (0x9214: a point, circle or rectangle), and (2.26.0, #648) `subjectDistanceMeters` (0x9206, RATIONAL: meters, or the words `"unknown"` for a numerator of 0 and `"infinity"` for 0xFFFFFFFF, as Exif 2.32 §4.6.5 defines them; another zero denominator is reported and ignored) and `subjectDistanceRange` (0xA40C: `"unknown"`, `"macro"`, `"close-view"` or `"distant-view"` for codes 0–3; other codes are reported and ignored). Each is `null` when absent; a malformed one is reported in `assumptions`. |
 | `analogBalance`, `cameraCalibration1/2`, `cameraCalibrationSignature`, `profileCalibrationSignature`, `asShotWhiteXy` (2.24.0) | As stored, or `null`; used by `developDngImage`. |
 | `exif` additions (2.25.0, schema 1.3.0) | `focalLengthIn35mmFilmMillimeters` (FocalLengthIn35mmFilm, 0xA405, a whole number of mm; 0, "unknown" in Exif, is `null`), `digitalZoomRatio` (0xA404; a stated 0, "not used", is 1; a value between 0 and 1 is reported and `null`), `focalPlaneResolution` (FocalPlaneX/YResolution 0xA20E/0xA20F with FocalPlaneResolutionUnit 0xA210: `x`, `y`, `unit` "inch" (2, the default), "centimeter" (3) or "none" (1), `unitStated`, and pixels per millimeter) and `pixelDimensions` (PixelX/YDimension 0xA002/0xA003). The fields and rules are shared with `parsePhotoMetadata`. |
 | `software` (2.25.0) | Software (305), IFD 0 else the raw IFD, as stored, or `null`. |
@@ -174,6 +174,8 @@ A file can state its imaging area two ways: through FocalLengthIn35mmFilm with F
 
 ## JPEG and HEIF metadata (2.25.0)
 
+From 2.26.0 (#647) `parsePhotoMetadata` also reads PNG files: their IHDR size and their `eXIf` chunk ([PNG eXIf](#png-exif-2260)).
+
 ```ts
 import { parsePhotoMetadata } from '@photivra/engine';
 
@@ -193,10 +195,10 @@ export function describePhoto(head: Uint8Array) {
 
 | Field | Meaning |
 | --- | --- |
-| `format`, `brands` | "jpeg" or "heif"; for HEIF the ftyp major brand and compatible brands (a file must name one of mif1, mif2, msf1, heic, heix, heim, heis, hevc, hevx, avif or avis). |
-| `width`, `height` | The primary image's stored size: the JPEG frame header (SOFn), or the primary HEIF item's ispe property (for a grid, the whole image). Before rotation. |
+| `format`, `brands` | "jpeg", "heif" or (2.26.0) "png"; for HEIF the ftyp major brand and compatible brands (a file must name one of mif1, mif2, msf1, heic, heix, heim, heis, hevc, hevx, avif or avis). |
+| `width`, `height` | The primary image's stored size: the JPEG frame header (SOFn), the primary HEIF item's ispe property (for a grid, the whole image), or the PNG IHDR. Before rotation. |
 | `heifRotationDegrees`, `heifMirrorAxis` | The primary HEIF item's irot (anticlockwise, degrees) and imir (0: a vertical axis, 1: a horizontal axis), which a HEIF reader applies for display; `null` when absent and for JPEG. |
-| `exif` | The Exif block (JPEG APP1; the HEIF Exif item that describes the primary image): `make`, `model`, `software`, `orientation` (1–8) and the capture fields the DNG import returns as `exif` (above), resolved by the same code. `null` when the file has no Exif block. |
+| `exif` | The Exif block (JPEG APP1; the HEIF Exif item that describes the primary image; the PNG eXIf chunk): `make`, `model`, `software`, `orientation` (1–8) and the capture fields the DNG import returns as `exif` (above), resolved by the same code. `null` when the file has no Exif block. |
 | `xmpNamespaces` | The namespaces the primary image's XMP declares (JPEG APP1 and extended XMP; HEIF XMP items that describe the primary image), sorted. |
 | `extraImages` | Each declared extra image: `source`, `kind`, `kindBasis`, the declared `type`, `width`, `height` and stored `bytes`. Sources: the Exif IFD 1 thumbnail; Multi-Picture Format entries after the first (CIPA DC-007 type codes: large thumbnails, panorama, disparity and multi-angle frames; an undefined type whose own XMP declares a gain map is a gain map, `kindBasis` "xmp"); HEIF auxiliary images (auxC), thumbnails (thmb), tone-map items (tmap, ISO 21496-1) and their gain-map inputs, and other image items that are not the primary image or one of its tiles. |
 | `annotations` | Markers that declare a rendition or a map: the namespaces in `PHOTO_METADATA_XMP_NAMESPACES` (Adobe gain map, Google depth map and Dynamic Depth depth map, Google embedded image), each item of a Google container directory (its Semantic and Length; "GainMap" is a gain map), and ISO 21496-1 gain-map metadata in a JPEG APP2 segment. `image` is the index of the extra image whose metadata holds the marker, or `null` for the primary image. |
@@ -206,9 +208,31 @@ How `kind` is decided (`kindBasis`): "specification" for a code or URN the forma
 
 Not read: maker notes, the GPS and Interoperability IFDs, XMP values other than the container items' Semantic and Length, ICC profiles, and the image data. Text tags (Make, Model, Software) are returned as stored (ASCII or Exif 3.0's UTF-8 type), at most 4096 bytes.
 
+### PNG eXIf (2.26.0)
+
+A PNG (PNG specification, third edition, W3C 2025) stores Exif in an `eXIf` chunk (§11.3.3.6): the Exif block from its TIFF
+header on, without the `Exif\0\0` identifier of a JPEG APP1 segment. `parsePhotoMetadata` walks the chunks by their stated
+lengths (§5.3) from the signature to IEND, so IDAT and every other chunk's data are skipped and nothing is decompressed. It
+reads:
+
+- the IHDR (§11.2.1, the first chunk): `width` and `height`;
+- the first `eXIf`, wherever it lies (before or after IDAT), with the same Exif rules, fields and thumbnail as a JPEG's.
+
+The IHDR's and eXIf's CRC-32s are checked; a mismatch skips that chunk. Reported in `assumptions`, and otherwise skipped:
+
+- a second eXIf (the specification allows one);
+- an eXIf that starts with `Exif\0\0` (stepped over, then read);
+- an eXIf above 4 MiB (`maximumItemDataBytes`);
+- a first chunk that is not IHDR;
+- a chunk whose length is above 2^31 − 1 or whose type is not four letters (the walk stops there);
+- more than `PHOTO_METADATA_LIMITS.maximumPngChunks` (4096) chunks;
+- bytes that end inside a chunk or before IEND (a prefix of the file is accepted).
+
+XMP in a PNG (an iTXt chunk) is not read.
+
 ### Untrusted input (photo metadata)
 
-- Every offset, length, count and box size is checked against the bytes before it is read; a part that fails a check is named in `assumptions` and skipped. Only input that is neither a JPEG (FF D8 FF) nor a HEIF file (an ftyp box with a HEIF brand), or a malformed ftyp box, fails with `InvalidConfigurationError`.
+- Every offset, length, count and box size is checked against the bytes before it is read; a part that fails a check is named in `assumptions` and skipped. Only input that is not a JPEG (FF D8 FF), a HEIF file (an ftyp box with a HEIF brand) or a PNG (its 8-byte signature), or a malformed ftyp box, fails with `InvalidConfigurationError`.
 - There is no recursion: the box levels (file, meta, iinf, iref, iprp/ipco/ipma, iloc) and the IFDs (IFD 0, the Exif IFD, IFD 1) are fixed, and the IFDs are walked with a visited set.
 - `PHOTO_METADATA_LIMITS` bounds every loop: 4096 marker segments per JPEG image, 4096 boxes per level, 4096 HEIF items (and references), 16,384 property associations and 16,384 iloc extents, 1024 entries per IFD, 64 MPF entries and 256 XMP namespaces. At most 4 MiB is copied for one HEIF Exif or XMP item or an extended XMP packet; everything else is read in place.
 - XMP is not parsed as XML: namespace declarations and the container items' two properties are matched with bounded patterns.
@@ -296,7 +320,7 @@ AVIF and HEIC still images are AV1 and HEVC intra frames inside an ISO-BMFF (HEI
 - ISO/IEC 18181-1:2022 (JPEG XL codestream) — only for the test-only lossless encoder in `test/helpers/phone-dng-fixtures.ts`; decoding is the caller's jxl-oxide.
 - ITU-T Recommendation T.871 (JFIF; YCbCr conversion and chroma siting) and T.872 (the APP14 colour-transform convention), both free.
 - Adobe, *TIFF Revision 6.0*, 1992 — file structure, IFDs, field types, strips and tiles.
-- CIPA DC-008 (Exif 2.32 / 3.0), free at <https://www.cipa.jp/e/std/std-sec.html> — CFAPattern; (2.24.0) ExposureTime, FNumber, FocalLength, PhotographicSensitivity, SensitivityType, StandardOutputSensitivity, RecommendedExposureIndex, ISOSpeed, CompositeImage, SourceImageNumberOfCompositeImage, SubjectArea; (2.25.0) FocalLengthIn35mmFilm, DigitalZoomRatio, FocalPlaneX/YResolution and FocalPlaneResolutionUnit, PixelX/YDimension, the APP1 Exif layout, IFD 1 thumbnails and (Exif 3.0) the UTF-8 type; the DNG specification above defines CFARepeatPatternDim/CFAPattern use and origin. The TIFF/EP tags are also specified in ISO 12234-2.
+- CIPA DC-008 (Exif 2.32 / 3.0), free at <https://www.cipa.jp/e/std/std-sec.html> — CFAPattern; (2.24.0) ExposureTime, FNumber, FocalLength, PhotographicSensitivity, SensitivityType, StandardOutputSensitivity, RecommendedExposureIndex, ISOSpeed, CompositeImage, SourceImageNumberOfCompositeImage, SubjectArea; (2.25.0) FocalLengthIn35mmFilm, DigitalZoomRatio, FocalPlaneX/YResolution and FocalPlaneResolutionUnit, PixelX/YDimension, the APP1 Exif layout, IFD 1 thumbnails and (Exif 3.0) the UTF-8 type; (2.26.0) SubjectDistance and SubjectDistanceRange; the DNG specification above defines CFARepeatPatternDim/CFAPattern use and origin. The TIFF/EP tags are also specified in ISO 12234-2.
 - ITU-T Recommendation T.81 (1992), free at <https://www.w3.org/Graphics/JPEG/itu-t81.pdf> (identical text: ISO/IEC 10918-1), Annex H (lossless processes), Annex C and F.2.2.3 (Huffman tables and decoding), F.1.2.3 (restart), A.3.3 and Annex F (sequential DCT decoding, 2.22.0).
 - W3C, *Portable Network Graphics (PNG) Specification (Third Edition)*, W3C Recommendation 24 June 2025 — chunks, filters, cICP, mDCV, cLLI, sRGB gAMA/cHRM values.
 - IETF RFC 1950 (zlib) and RFC 1951 (DEFLATE).

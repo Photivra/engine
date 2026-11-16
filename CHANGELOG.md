@@ -28,6 +28,17 @@
 - Requests without `motion.handheld` keep their bytes.
 - Tests: `test/hand-shake.test.ts` (determinism, the bound over 30 s, the cited RMS rate, the growth with time, 2^−stops scaling, and a capture's edge spread against the trajectory's image shifts: 6.95 sites measured for 7.44 predicted, and 0.249 for the 2-stop ratio of 0.25). docs/USAGE.md, "Hand shake".
 
+### #647 Photo metadata: the PNG eXIf chunk
+
+- **New:** `parsePhotoMetadata` reads PNG files (`format: "png"`): the IHDR size and the `eXIf` chunk (PNG specification, third edition, §11.3.3.6), with the same Exif fields, rules and thumbnail as a JPEG's. The chunks are walked by their stated lengths, so IDAT and every other chunk's data are skipped and never decompressed; an eXIf before or after IDAT is read.
+- **Untrusted input:** the IHDR's and eXIf's CRC-32s are checked (a mismatch skips the chunk). Reported in `assumptions` and skipped: a second eXIf, a leading `Exif\0\0` identifier (stepped over), an eXIf above `maximumItemDataBytes`, a first chunk that is not IHDR, a length above 2^31 − 1 or a type that is not four letters (the walk stops), more than the new `PHOTO_METADATA_LIMITS.maximumPngChunks` (4096) chunks, and bytes that end inside a chunk or before IEND.
+- JPEG and HEIF results are unchanged apart from #648's two fields. Tests: `test/photo-metadata.test.ts` (a PNG with Exif in both byte orders and both positions, one without, the engine's own encoder's PNG, and each malformed case). docs/IMPORT_AND_PNG.md, "PNG eXIf".
+
+### #648 Exif capture fields: SubjectDistance and SubjectDistanceRange
+
+- **New fields** in `ExifCaptureFields`, so in `parsePhotoMetadata`'s `exif` and the DNG import's `exif`: `subjectDistanceMeters` (0x9206, RATIONAL, meters) and `subjectDistanceRange` (0xA40C). A numerator of 0 is returned as `"unknown"` (also 0/0) and 0xFFFFFFFF as `"infinity"` (Exif 2.32 §4.6.5), not as numbers; another zero denominator is reported and ignored. The range codes 0–3 are `"unknown"`, `"macro"`, `"close-view"` and `"distant-view"`; other codes are reported and ignored. `ExifTagLookup` gains `rational(id, name)`, the stored numerator and denominator.
+- Tests: a stated distance, unknown (0/1 and 0/0), infinity (0xFFFFFFFF/1 and /0), a zero denominator, a wrong type and each range code, in both readers.
+
 ## 2.25.0 — unreleased (prepared November 16, 2026)
 
 A minor release: the 26 issues of milestone 2.25.0 (#612–#633, #635–#638). Standalone helpers, a photo metadata reader, DNG and JPEG Exif writers, a half-size DNG preview, front-of-lens filters, look constants, catalogue-lens framing, glare, breathing and corrections, and faster defocused display views and exact catalogue PSFs. See the [2.25.0 release record](https://github.com/Photivra/engine/blob/main/docs/RELEASE_2_25_0.md).

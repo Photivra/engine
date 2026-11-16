@@ -85,6 +85,13 @@ export interface ExifCaptureFields {
   /** SourceImageNumberOfCompositeImage (0xA461): the source images in all and those used. */
   compositeSourceImages: { total: number; used: number } | null;
   subjectArea: ExifSubjectArea | null;
+  /**
+   * 2.26.0 (#648): SubjectDistance (0x9206, RATIONAL), meters. Exif 2.32 §4.6.5 gives two numerators a meaning of their own, returned
+   * as words rather than numbers: 0 is "unknown" (also 0/0) and 0xFFFFFFFF is "infinity" (any denominator).
+   */
+  subjectDistanceMeters: number | "unknown" | "infinity" | null;
+  /** 2.26.0 (#648): SubjectDistanceRange (0xA40C, SHORT): 0 "unknown", 1 "macro", 2 "close-view", 3 "distant-view" (Exif 2.32 §4.6.5). */
+  subjectDistanceRange: "unknown" | "macro" | "close-view" | "distant-view" | null;
 }
 
 /** How a reader gives the resolver its tags. */
@@ -95,6 +102,11 @@ export interface ExifTagLookup {
    * returns null.
    */
   numbers(id: number, name: string, types: readonly number[], count?: number): number[] | null;
+  /**
+   * 2.26.0 (#648): the first RATIONAL's numerator and denominator as stored (a zero denominator included), else null; a tag of
+   * another type is reported and returns null.
+   */
+  rational(id: number, name: string): [numerator: number, denominator: number] | null;
   /** Reports a tag that was read but ignored, with the reason: "<name> ... and was ignored.". */
   ignored(message: string): void;
   /** Reports a statement about the values that is not an error. */
@@ -144,6 +156,19 @@ export function resolveExifCaptureFields(tags: ExifTagLookup): ExifCaptureFields
     } else tags.ignored("FocalPlaneResolutionUnit " + code + " is not defined by Exif 2.32; the focal-plane resolution was ignored.");
   }
   const pixelX = positive(40962, "PixelXDimension", [SHORT, LONG]), pixelY = positive(40963, "PixelYDimension", [SHORT, LONG]);
+  // #648: SubjectDistance's two reserved numerators, then an ordinary rational; SubjectDistanceRange's four codes.
+  const distance = tags.rational(37382, "SubjectDistance");
+  let subjectDistanceMeters: ExifCaptureFields["subjectDistanceMeters"] = null;
+  if (distance) {
+    const [numerator, denominator] = distance;
+    if (numerator === 0xffffffff) subjectDistanceMeters = "infinity";
+    else if (numerator === 0) subjectDistanceMeters = "unknown";
+    else if (denominator === 0) tags.ignored("SubjectDistance " + numerator + "/0 has a zero denominator and was ignored.");
+    else subjectDistanceMeters = numerator / denominator;
+  }
+  const rangeCode = tags.numbers(41996, "SubjectDistanceRange", [SHORT])?.[0];
+  const subjectDistanceRange = rangeCode === undefined ? null : (["unknown", "macro", "close-view", "distant-view"] as const)[rangeCode] ?? null;
+  if (rangeCode !== undefined && subjectDistanceRange === null) tags.ignored("SubjectDistanceRange " + rangeCode + " is not defined by Exif 2.32 and was ignored.");
 
   return {
     exposureTimeSeconds: positive(33434, "ExposureTime", [RATIONAL]), fNumber: positive(33437, "FNumber", [RATIONAL]), focalLengthMillimeters: positive(37386, "FocalLength", [RATIONAL]),
@@ -152,6 +177,6 @@ export function resolveExifCaptureFields(tags: ExifTagLookup): ExifCaptureFields
     photographicSensitivity, sensitivityType: tags.numbers(34864, "SensitivityType", [SHORT])?.[0] ?? null, standardOutputSensitivity, recommendedExposureIndex, isoSpeed,
     iso: isoPick ? isoPick[0] : null, isoSource: isoPick ? isoPick[1] : null,
     compositeImage: composite !== null && composite <= 3 ? composite as 0 | 1 | 2 | 3 : null,
-    compositeSourceImages: sources && sources.length === 2 ? { total: sources[0]!, used: sources[1]! } : null, subjectArea
+    compositeSourceImages: sources && sources.length === 2 ? { total: sources[0]!, used: sources[1]! } : null, subjectArea, subjectDistanceMeters, subjectDistanceRange
   };
 }
