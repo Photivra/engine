@@ -105,7 +105,9 @@ describe("root exports reject malformed input with domain errors (API review #4)
     "createPrintJpegStrip", "createPrintJpegTask", "composePrintJpegStrips", "createReinhardGlobalToneMappingTask", "createSensorRawFrame", "createSimulatedCapture",
     "createSyntheticFilmGrainTask", "mapEnvironmentDirectionsToChartPoints", "createUnsharpMaskTask", "resolveCaptureIlluminant", "resolveLensPsfConvolutionKernels", "resolveGenericEquipmentTierCatalog",
     "resolveGenericEquipmentTierLensProfiles", "resolveRawFrameReconstruction", "serializeNativeRawDng", "serializePngImage",
-    "prepareDisplayView", "serializeSimulatedCaptureDngFromParts", "simulateCapture", "simulateCaptureFromParts", "simulateDisplayView", "simulateExposureBuildUp", "simulateIdealReference", "simulatePackedSensorRaw", "simulateSensorRawFrame"
+    "prepareDisplayView", "serializeSimulatedCaptureDngFromParts", "simulateCapture", "simulateCaptureFromParts", "simulateDisplayView", "simulateExposureBuildUp", "simulateIdealReference", "simulatePackedSensorRaw", "simulateSensorRawFrame",
+    // 2.25 (#620): serializeRewrittenDng's own allowlist ("serializeRewrittenDng: unknown input field ...").
+    "serializeRewrittenDng"
   ]);
   const NO_INPUT_OBJECT = new Set([
     // Positional scalars or bound objects, a string id, raw bytes, result factories or no argument at all.
@@ -137,7 +139,13 @@ describe("root exports reject malformed input with domain errors (API review #4)
     // 2.24 (#607): positional helpers of an imported raw (the raw, then an options or request record that rejects unknown fields).
     "calculateDngRawClipping", "estimateDngRawNoise", "assessDngRawWhatIf", "simulateDngRawWhatIf", "developDngImage", "resolveDngGainSwitch",
     // #557: the built-in representative light-source set, a static contract with no argument.
-    "getRepresentativeLightSourceSet"
+    "getRepresentativeLightSourceSet",
+    // 2.25 (#621): JPEG bytes first, then a settings record that rejects keys outside JPEG_EXIF_CAPTURE_SETTING_KEYS (checked below);
+    // and a reader of an engine-produced ExifCaptureFields record (parsePhotoMetadata, parseDngRawImage's exif) that takes five of its
+    // fields and by design ignores the record's others.
+    "setJpegExifCaptureSettings", "resolveJpegExifCaptureSettings",
+    // 2.25 (#626): a look first, then an options record that rejects unknown options (checked below).
+    "resolveMidGrayPinnedLook"
   ]);
   /*
    * 2.0.0: the parse*() record parsers and the functions that take a whole engine or versioned record
@@ -177,6 +185,23 @@ describe("root exports reject malformed input with domain errors (API review #4)
     expect(unclassified).toEqual([]);
     expect(misclassified).toEqual([]);
     expect(lenientRecords).toEqual([]);
+  });
+
+  it("checks the records of the positional 2.25 functions (#620, #621, #626): unknown fields are domain errors, extra record fields are ignored where documented", async () => {
+    expect(() => engine.serializeRewrittenDng({ bytes: new Uint8Array(8), unexpectedField: 1 } as never)).toThrow(new InvalidConfigurationError("serializeRewrittenDng: unknown input field \"unexpectedField\"."));
+    expect(() => engine.resolveMidGrayPinnedLook(engine.STANDARD_LOOK, { linearMidGray: 0.18, unexpectedField: 1 } as never))
+      .toThrow(new InvalidConfigurationError("resolveMidGrayPinnedLook: unknown option \"unexpectedField\"."));
+    expect(() => engine.resolveMidGrayPinnedLook({ unexpectedField: 1 } as never, { linearMidGray: 0.18 })).toThrow(InvalidConfigurationError);
+    const capture = await engine.simulateCapture({ scene: { preset: "uniform" }, output: { width: 8, height: 8, format: "jpeg" } });
+    const jpeg = (capture.image as { jpeg?: Uint8Array }).jpeg!;
+    expect(jpeg[0]).toBe(0xff);
+    expect(() => engine.setJpegExifCaptureSettings(jpeg, { iso: 100, unexpectedField: 1 } as never))
+      .toThrow(new InvalidConfigurationError("setJpegExifCaptureSettings: settings must be an object with only the documented keys. Unknown field \"unexpectedField\"."));
+    expect(engine.setJpegExifCaptureSettings(jpeg, { iso: 100 })).toBeInstanceOf(Uint8Array);
+    expect(() => engine.setJpegExifCaptureSettings({ unexpectedField: 1 } as never, {})).toThrow(new InvalidConfigurationError("setJpegExifCaptureSettings: jpeg must be a Uint8Array."));
+    expect(engine.resolveJpegExifCaptureSettings({ exposureTimeSeconds: 0.01, fNumber: 2.8, iso: 200, focalLengthMillimeters: 50, focalLengthIn35mmFilmMillimeters: 50,
+      make: "x", unexpectedField: 1 } as never)).toEqual({ exposureTimeSeconds: 0.01, fNumber: 2.8, iso: 200, focalLengthMillimeters: 50, focalLengthIn35mmFilmMillimeters: 50 });
+    expect(() => engine.resolveJpegExifCaptureSettings(null as never)).toThrow(InvalidConfigurationError);
   });
 });
 

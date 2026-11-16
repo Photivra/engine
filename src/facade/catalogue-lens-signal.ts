@@ -111,8 +111,13 @@ export interface CatalogueLensSignalInput {
    * aperture's N × N nodes. Default: the site centre alone.
    */
   queryOffsets?: readonly { x: number; y: number; weight: number }[];
-  /** Internal test hook: resolve every site's kernels exactly at its centre (the exact method's sum without the box, slowly) instead of blending the grid. */
+  /**
+   * Resolve every site's kernels exactly instead of blending the grid: the exact method's sum, in another order (within 1e-9 of the
+   * chain without the box pixel aperture; with it, each site's centre kernel on the box-folded scene). #632: `lens.catalogue.flare` on an exact request renders this way; otherwise a test hook.
+   */
   exactKernels?: boolean;
+  /** #632: the veiling glare (see {@link CatalogueLensSignal.veiled}): its fraction g and the lattice step of the frame mean. */
+  veil?: { fraction: number; step: number };
 }
 
 export interface CatalogueLensSignal {
@@ -124,6 +129,13 @@ export interface CatalogueLensSignal {
   readonly lookups: number;
   /** Grid points per axis (columns, rows) and how many were resolved so far. */
   readonly grid: { columns: number; rows: number; resolved: number };
+  /**
+   * #632, with `veil`: a site's electrons μ with the veiling glare, (1 − g)·μ + g·Σ_λ A_c(λ)·Ē(λ), Ē(λ) the mean over the frame's site
+   * lattice (every step-th site per axis) of the field factor times the material radiance, integrated with the site's own channel response.
+   */
+  veiled?(electrons: number, x: number, y: number): number;
+  /** #632: the frame mean Ē per spectral node and the lattice points it averaged (with `veil`). */
+  readonly veilMean?: { radiance: Float64Array; samples: number };
 }
 
 /**
@@ -352,8 +364,29 @@ export function createCatalogueLensSignal(given: CatalogueLensSignalInput): Cata
     }
     return fx === 0 ? s0 : (1 - fx) * s0 + fx * s1;
   };
+  // #632: the veil's frame mean, from the lattice (no PSF: the kernels keep the energy, so only light spread across the frame's edge differs).
+  let veilMean: { radiance: Float64Array; samples: number } | undefined;
+  if (input.veil) {
+    const radiance = new Float64Array(nodes), step = input.veil.step;
+    let samples = 0;
+    for (let q = step >> 1; q < H; q += step) for (let p = step >> 1; p < W; p += step, samples++) {
+      lattice(p, q);
+      if (lf === 0) continue;
+      const L = spectra[lm]!;
+      for (let n = 0; n < nodes; n++) radiance[n] = radiance[n]! + lf * L[n]!;
+    }
+    for (let n = 0; n < nodes; n++) radiance[n] = radiance[n]! / samples;
+    veilMean = { radiance, samples };
+  }
+  const g = input.veil?.fraction ?? 0;
   return {
     window, site,
+    ...(veilMean ? { veilMean, veiled(electrons: number, x: number, y: number): number {
+      const a = A[channelAt(x, y)]!, mean = veilMean!.radiance;
+      let v = 0;
+      for (let n = 0; n < nodes; n++) v += a[n]! * mean[n]!;
+      return (1 - g) * electrons + g * v;
+    } } : {}),
     get lookups(): number { return lookups; },
     get grid(): { columns: number; rows: number; resolved: number } { return { columns: GX, rows: gy.length, resolved }; }
   };

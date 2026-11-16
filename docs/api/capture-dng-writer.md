@@ -4,7 +4,7 @@ The package and root API versions are recorded once in [Navigation](../API_REFER
 
 ## DNG_REWRITE_ALLOWED_TAGS
 
-The tags {@link rewriteDng} may write, by tag id, with where each is read from:
+The tags {@link serializeRewrittenDng} may write, by tag id, with where each is read from:
 - `raw`: the raw image IFD (NoiseProfile and the JPEG XL tags also IFD 0, as the DNG import reads them);
 - `camera`: IFD 0, else the raw IFD (camera-level DNG tags, as the DNG import reads them);
 - `exif`: the Exif IFD, else IFD 0, else the raw IFD (written to the Exif IFD);
@@ -30,7 +30,7 @@ DNG_REWRITE_ALLOWED_TAGS: Readonly<Record<"raw" | "camera" | "exif" | "mask", re
 
 ## DNG_REWRITE_LIMITS
 
-Limits of {@link rewriteDng}: the IFDs visited and the source size (a TIFF offset is 32-bit).
+Limits of {@link serializeRewrittenDng}: the IFDs visited and the source size (a TIFF offset is 32-bit).
 
 ```ts
 DNG_REWRITE_LIMITS = Object.freeze({ defaultMaximumIfds: 64, maximumIfds: 1024, maximumBytes: 4_294_967_295 })
@@ -80,19 +80,6 @@ export interface DngRewriteInput {
 }
 ```
 
-## rewriteDng
-
-Rewrites a DNG with only the allowlisted tags ({@link DNG_REWRITE_ALLOWED_TAGS}) and optional edited development settings.
-The raw image data are copied unchanged. The source is untrusted: every offset, count and IFD chain is checked against the
-buffer and the IFD limit, and an unsupported layout fails with `InvalidConfigurationError`. The result reads back through
-`parseDngRawImage` / `importDngRawImage` with the same codes and development settings (apart from the edits).
-
-```ts
-export function rewriteDng(input: DngRewriteInput): RewrittenDng;
-```
-
-This call is synchronous; any supplied provider must follow its explicit synchronous contract.
-
 ## RewrittenDng
 
 The exact contract is declared below; use the domain guide for assumptions and staged integration.
@@ -114,3 +101,16 @@ export interface RewrittenDng {
   maskCount: number;
 }
 ```
+
+## serializeRewrittenDng
+
+Rewrites a DNG with only the allowlisted tags ({@link DNG_REWRITE_ALLOWED_TAGS}) and optional edited development settings.
+The raw image data are copied unchanged. The source is untrusted: every offset, count and IFD chain is checked against the
+buffer and the IFD limit, and an unsupported layout fails with `InvalidConfigurationError`. The result reads back through
+`parseDngRawImage` / `importDngRawImage` with the same codes and development settings (apart from the edits).
+
+```ts
+export function serializeRewrittenDng(input: DngRewriteInput): RewrittenDng;
+```
+
+This call is synchronous; any supplied provider must follow its explicit synchronous contract.

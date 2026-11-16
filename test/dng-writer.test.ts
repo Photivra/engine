@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 import { describe, expect, it } from "vitest";
-import { parseDngRawImage, simulateCapture, developDngImage, rewriteDng, DNG_REWRITE_ALLOWED_TAGS, DNG_REWRITE_SCHEMA_VERSION, InvalidConfigurationError,
+import { parseDngRawImage, simulateCapture, developDngImage, serializeRewrittenDng, DNG_REWRITE_ALLOWED_TAGS, DNG_REWRITE_SCHEMA_VERSION, InvalidConfigurationError,
   type ImportedDngRaw } from "../src/index.js";
 import { writeTiff, packBits, encodeLosslessJpeg, type IfdSpec, type TagSpec } from "./helpers/dng-test-writer.js";
 import { scaledTimeout } from "./helpers/test-timeout.js";
 
 /*
- * 2.25.0 (#620): rewriteDng keeps the raw data and the development tags and writes nothing outside its allowlist. Synthetic DNGs
+ * 2.25.0 (#620): serializeRewrittenDng keeps the raw data and the development tags and writes nothing outside its allowlist. Synthetic DNGs
  * built here and the engine's own DNG export; no photo is used.
  */
 
@@ -93,12 +93,12 @@ function development(raw: ImportedDngRaw): Record<string, unknown> {
   return { ...rest, codes: Array.from(raw.codes), masks: raw.semanticMasks.map((m) => ({ ...m, data: Array.from(m.data) })) };
 }
 
-describe("rewriteDng (2.25.0, #620)", () => {
+describe("serializeRewrittenDng (2.25.0, #620)", () => {
   it("keeps the raw codes and development tags and drops everything outside the allowlist", () => {
     for (const little of [true, false]) for (const compression of [1, 7] as const) {
       const source = sourceDng(little, compression), before = parseDngRawImage({ bytes: source });
       for (const marker of MARKERS) expect(text(source)).toContain(marker);
-      const out = rewriteDng({ bytes: source });
+      const out = serializeRewrittenDng({ bytes: source });
       expect(out).toMatchObject({ schemaVersion: DNG_REWRITE_SCHEMA_VERSION, mediaType: "image/dng", byteOrder: little ? "little-endian" : "big-endian", maskCount: 1 });
       for (const marker of MARKERS) expect(text(out.bytes)).not.toContain(marker);
       const after = parseDngRawImage({ bytes: out.bytes });
@@ -115,17 +115,17 @@ describe("rewriteDng (2.25.0, #620)", () => {
       for (const id of out.writtenTags.ifd0) expect(allowed.has(id)).toBe(true);
       for (const id of out.writtenTags.masks) expect([...DNG_REWRITE_ALLOWED_TAGS.mask, 254, 273, 279, 324, 325].includes(id)).toBe(true);
       // Rewriting the rewrite changes nothing.
-      expect(rewriteDng({ bytes: out.bytes }).bytes).toEqual(out.bytes);
+      expect(serializeRewrittenDng({ bytes: out.bytes }).bytes).toEqual(out.bytes);
     }
   });
 
   it("writes edited development settings", () => {
     const source = sourceDng();
-    const edited = parseDngRawImage({ bytes: rewriteDng({ bytes: source, edits: { asShotNeutral: [0.4, 1, 0.7], baselineExposure: -0.5,
+    const edited = parseDngRawImage({ bytes: serializeRewrittenDng({ bytes: source, edits: { asShotNeutral: [0.4, 1, 0.7], baselineExposure: -0.5,
       defaultCrop: { x: 2, y: 2, width: 12, height: 8 }, orientation: 1 } }).bytes });
     expect(edited.asShotNeutral).toEqual([0.4, 1, 0.7]);
     expect(edited).toMatchObject({ baselineExposure: -0.5, orientation: 1, defaultCrop: { x: 2, y: 2, width: 12, height: 8 } });
-    const xy = parseDngRawImage({ bytes: rewriteDng({ bytes: source, edits: { asShotWhiteXy: { x: 0.3457, y: 0.3585 }, defaultCrop: { x: 0.5, y: 1.25, width: 12.5, height: 8 } } }).bytes });
+    const xy = parseDngRawImage({ bytes: serializeRewrittenDng({ bytes: source, edits: { asShotWhiteXy: { x: 0.3457, y: 0.3585 }, defaultCrop: { x: 0.5, y: 1.25, width: 12.5, height: 8 } } }).bytes });
     expect(xy.asShotNeutral).toBeNull();
     expect(xy.asShotWhiteXy).toEqual({ x: 0.3457, y: 0.3585 });
     expect(xy.defaultCrop).toEqual({ x: 0.5, y: 1.25, width: 12.5, height: 8 });
@@ -145,29 +145,29 @@ describe("rewriteDng (2.25.0, #620)", () => {
       [{ bytes: source, edits: { orientation: 9 } }, /1 to 8/u], [{ bytes: source, edits: { gps: true } }, /unknown edits field/u]
     ];
     for (const [input, message] of bad) {
-      expect(() => rewriteDng(input as never)).toThrow(InvalidConfigurationError);
-      expect(() => rewriteDng(input as never)).toThrow(message);
+      expect(() => serializeRewrittenDng(input as never)).toThrow(InvalidConfigurationError);
+      expect(() => serializeRewrittenDng(input as never)).toThrow(message);
     }
     // A TIFF without DNGVersion is not rewritten.
     const tiff = writeTiff(true, [rawIfd(true, 1)]);
-    expect(() => rewriteDng({ bytes: tiff })).toThrow(/no DNGVersion/u);
+    expect(() => serializeRewrittenDng({ bytes: tiff })).toThrow(/no DNGVersion/u);
     // A truncated file fails cleanly at every length.
     for (let n = 8; n < source.length; n += 97) {
-      try { rewriteDng({ bytes: source.subarray(0, n) }); } catch (error) { expect(error).toBeInstanceOf(InvalidConfigurationError); }
+      try { serializeRewrittenDng({ bytes: source.subarray(0, n) }); } catch (error) { expect(error).toBeInstanceOf(InvalidConfigurationError); }
     }
   });
 
   it("rewrites the engine's own DNG export: same codes, same development", async () => {
     const capture = await simulateCapture({ scene: { preset: "color-patches" }, illuminanceLux: 500, exposure: { mode: "manual", iso: 200, shutterSeconds: 1 / 30 },
       output: { width: 32, height: 32, format: "dng" } });
-    const before = parseDngRawImage({ bytes: capture.image.dng! }), out = rewriteDng({ bytes: capture.image.dng! });
+    const before = parseDngRawImage({ bytes: capture.image.dng! }), out = serializeRewrittenDng({ bytes: capture.image.dng! });
     expect(text(out.bytes)).not.toContain("xmpmeta");
     const after = parseDngRawImage({ bytes: out.bytes });
     expect(development(after)).toEqual(development(before));
     const a = await developDngImage(before), b = await developDngImage(after);
     expect(Array.from(b.samples)).toEqual(Array.from(a.samples));
     // An edited white balance develops differently, and as the edit says.
-    const warm = parseDngRawImage({ bytes: rewriteDng({ bytes: capture.image.dng!, edits: { asShotNeutral: [0.5, 1, 0.8] } }).bytes });
+    const warm = parseDngRawImage({ bytes: serializeRewrittenDng({ bytes: capture.image.dng!, edits: { asShotNeutral: [0.5, 1, 0.8] } }).bytes });
     expect((await developDngImage(warm)).whiteBalance.source).toBe("as-shot-neutral");
     expect((await developDngImage(warm)).whiteBalance.cameraNeutral).toEqual([0.5, 1, 0.8]);
   }, scaledTimeout(60_000));

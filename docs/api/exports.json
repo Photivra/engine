@@ -4978,11 +4978,6 @@
       "kind": "type"
     },
     {
-      "name": "jpegExifCaptureSettingsFromFields",
-      "source": "src/capture/jpeg-exif-writer.ts",
-      "kind": "runtime"
-    },
-    {
       "name": "JpegExifDateTaken",
       "source": "src/capture/jpeg-exif-writer.ts",
       "kind": "type"
@@ -6503,11 +6498,6 @@
       "kind": "type"
     },
     {
-      "name": "pinLookMidGray",
-      "source": "src/output/look-curves.ts",
-      "kind": "runtime"
-    },
-    {
       "name": "PinLookMidGrayOptions",
       "source": "src/output/look-curves.ts",
       "kind": "type"
@@ -7918,6 +7908,11 @@
       "kind": "type"
     },
     {
+      "name": "resolveJpegExifCaptureSettings",
+      "source": "src/capture/jpeg-exif-writer.ts",
+      "kind": "runtime"
+    },
+    {
       "name": "resolveLensCorrectionPlan",
       "source": "src/output/lens-corrections.ts",
       "kind": "runtime"
@@ -7966,6 +7961,11 @@
       "name": "ResolveManualWhiteBalanceInput",
       "source": "src/color/white-balance.ts",
       "kind": "type"
+    },
+    {
+      "name": "resolveMidGrayPinnedLook",
+      "source": "src/output/look-curves.ts",
+      "kind": "runtime"
     },
     {
       "name": "resolveNativeEffectiveRasterColorSamplingBinding",
@@ -8100,11 +8100,6 @@
     {
       "name": "resolveZernikeNollOrder",
       "source": "src/optics/zernike-wavefront.ts",
-      "kind": "runtime"
-    },
-    {
-      "name": "rewriteDng",
-      "source": "src/capture/dng-writer.ts",
       "kind": "runtime"
     },
     {
@@ -9373,6 +9368,11 @@
       "kind": "runtime"
     },
     {
+      "name": "serializeRewrittenDng",
+      "source": "src/capture/dng-writer.ts",
+      "kind": "runtime"
+    },
+    {
       "name": "serializeSimulatedCapture",
       "source": "src/capture/simulated-capture.ts",
       "kind": "runtime"
@@ -10053,12 +10053,22 @@
       "kind": "type"
     },
     {
+      "name": "SubjectFramingCatalogueLens",
+      "source": "src/facade/subject-framing.ts",
+      "kind": "type"
+    },
+    {
       "name": "SubjectFramingCrop",
       "source": "src/output/subject-framing-crop.ts",
       "kind": "type"
     },
     {
       "name": "SubjectFramingFit",
+      "source": "src/facade/subject-framing.ts",
+      "kind": "type"
+    },
+    {
+      "name": "SubjectFramingLens",
       "source": "src/facade/subject-framing.ts",
       "kind": "type"
     },

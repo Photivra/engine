@@ -22,18 +22,6 @@ export interface NakaRushtonLook {
 }
 ```
 
-## pinLookMidGray
-
-Derives a look whose tone curve maps `linearMidGray` to `outputLevel` (default: to itself), keeping its contrast and white
-luminance and solving its semi-saturation in closed form (module comment). `pinLookMidGray(STANDARD_LOOK, { linearMidGray: 0.18 })`
-gives the Standard look's own σ to within its four published decimals.
-
-```ts
-export function pinLookMidGray(look: NakaRushtonLook, options: PinLookMidGrayOptions): NakaRushtonLook;
-```
-
-This call is synchronous; any supplied provider must follow its explicit synchronous contract.
-
 ## PinLookMidGrayOptions
 
 Where to pin the look's mid-gray.
@@ -46,6 +34,18 @@ export interface PinLookMidGrayOptions {
   outputLevel?: number;
 }
 ```
+
+## resolveMidGrayPinnedLook
+
+Derives a look whose tone curve maps `linearMidGray` to `outputLevel` (default: to itself), keeping its contrast and white
+luminance and solving its semi-saturation in closed form (module comment). `resolveMidGrayPinnedLook(STANDARD_LOOK, { linearMidGray: 0.18 })`
+gives the Standard look's own σ to within its four published decimals.
+
+```ts
+export function resolveMidGrayPinnedLook(look: NakaRushtonLook, options: PinLookMidGrayOptions): NakaRushtonLook;
+```
+
+This call is synchronous; any supplied provider must follow its explicit synchronous contract.
 
 ## STANDARD_LOOK
 

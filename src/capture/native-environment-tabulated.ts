@@ -68,6 +68,11 @@ export interface TabulatedNativeRawInput {
   evaluateRadiance: EnvironmentRadianceEvaluator;
   /** Expected photo electrons of native sites (`createDisplayViewExpectedSignal`). */
   electrons: { window(x0: number, y0: number, x1: number, y1: number): void; site(x: number, y: number): number; readonly lookups: number };
+  /**
+   * #632: a per-site change of the expected electrons after the verification (the catalogue lens's veiling glare): the verification
+   * compares the chain with `electrons.site`, and every site's readout takes `adjust(electrons.site(x, y), x, y)`.
+   */
+  adjust?: ((electrons: number, x: number, y: number) => number) | undefined;
   /** Called once per native tile-equivalent (progress), as the environment task reads its tiles. */
   onTile?: () => void;
   tileWidth: number;
@@ -159,7 +164,7 @@ export async function renderTabulatedNativeRaw(t: TabulatedNativeRawInput): Prom
         const index = y * W + x, at = (y - region.y) * region.width + x - region.x;
         let duration = constantDuration;
         if (duration === undefined) { point.x = x + 0.5; point.y = y + 0.5; duration = sampler(point).localExposureDurationSeconds; }
-        const o = readouts[(y & 1) * 2 + (x & 1)]!.compute(t.electrons.site(x, y), duration, x, y, index, seed);
+        const e = t.electrons.site(x, y), o = readouts[(y & 1) * 2 + (x & 1)]!.compute(t.adjust ? t.adjust(e, x, y) : e, duration, x, y, index, seed);
         // A check of the full path failed for this site: let the environment task decide (it throws its own error).
         if (!o) return undefined;
         raw.codes[at] = o.rawCode; raw.blackLevels[at] = o.blackLevelCode; raw.digitalSaturationCodes[at] = o.digitalSaturationCode; raw.saturationFlags[at] = o.flags;

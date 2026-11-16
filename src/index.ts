@@ -137,7 +137,7 @@ export {
   type SdrRenderingResult
 } from "./output/sdr-rendering.js";
 // 2.25.0 (#625, #626): Photivra's Standard and Flat looks as constants, and a look pinned at an application's linear mid-gray.
-export { STANDARD_LOOK, FLAT_LOOK, pinLookMidGray, type NakaRushtonLook, type PinLookMidGrayOptions } from "./output/look-curves.js";
+export { STANDARD_LOOK, FLAT_LOOK, resolveMidGrayPinnedLook, type NakaRushtonLook, type PinLookMidGrayOptions } from "./output/look-curves.js";
 
 export {
   approximationResult,
@@ -1913,7 +1913,7 @@ export { calculateChannelEffectiveDispersion, createGenericLensCorrectionProfile
   type CreateGenericLensCorrectionProfileInput } from "./output/generic-lens-corrections.js";
 export { calculateLateralColorFringe, type CalculateLateralColorFringeInput, type LateralColorFringe, type LateralColorDisplacement } from "./optics/generic-lens-lateral-color.js";
 export { calculateChartFraming, calculateSubjectDistanceForFraming, type CalculateChartFramingInput, type CalculateSubjectDistanceForFramingInput, type ChartFraming,
-  type SubjectFraming, type SubjectFramingFit } from "./facade/subject-framing.js";
+  type SubjectFraming, type SubjectFramingCatalogueLens, type SubjectFramingFit, type SubjectFramingLens } from "./facade/subject-framing.js";
 export { CHART_SCENE_PRESETS, CHART_SCENE_DEFAULTS, CHART_SPECTRAL_RANGE_NANOMETERS, resolveChartScene, calculateStepWedgeReflectances,
   calculatePointGridCenters, type ChartScene, type ChartScenePresetId, type ChartReflectance, type ResolvedChartScene, type UniformChartScene,
   type SlantedEdgeChartScene, type SiemensStarChartScene, type StepWedgeChartScene, type GreyRampChartScene, type CheckerboardChartScene,
@@ -1948,7 +1948,7 @@ export { assessDngRawWhatIf, simulateDngRawWhatIf, DngRawWhatIfRefusedError, DNG
   type DngRawWhatIfResult, type DngRawWhatIfRefusal, type DngRawWhatIfRefusalReason, type DngRawWhatIfAssessment } from "./capture/dng-raw-what-if.js";
 export { DNG_GAIN_SWITCH_CATALOG, resolveDngGainSwitch, type DngGainSwitchEntry } from "./capture/dng-gain-switch.js";
 // 2.25.0 (#620): rewrites a DNG with only allowlisted tags (no personal data) and optional edited development settings.
-export { DNG_REWRITE_SCHEMA_VERSION, DNG_REWRITE_LIMITS, DNG_REWRITE_ALLOWED_TAGS, rewriteDng, type DngRewriteInput, type DngRewriteEdits, type RewrittenDng } from "./capture/dng-writer.js";
+export { DNG_REWRITE_SCHEMA_VERSION, DNG_REWRITE_LIMITS, DNG_REWRITE_ALLOWED_TAGS, serializeRewrittenDng, type DngRewriteInput, type DngRewriteEdits, type RewrittenDng } from "./capture/dng-writer.js";
 export { developDngImage, type DevelopDngImageOptions, type DevelopDngImageWhiteBalance, type DevelopedDngImage } from "./capture/dng-development.js";
 export { parseDngProfileGainTableMap, parseDngRgbTables, applyDngProfileGainTableMap, applyDngRgbTables, type DngProfileGainTableMap, type DngRgbTable, type DngRgbTables,
   type DngRgbImage, type ApplyDngProfileGainTableMapInput, type ApplyDngRgbTablesInput } from "./capture/dng-profile-maps.js";
@@ -1963,7 +1963,7 @@ export { PHOTO_METADATA_SCHEMA_VERSION, PHOTO_METADATA_LIMITS, PHOTO_METADATA_XM
   type PhotoExif, type PhotoExtraImage, type PhotoExtraImageKind, type PhotoAnnotation } from "./capture/photo-metadata.js";
 export type { ExifCaptureFields, ExifSubjectArea, ExifFocalPlaneResolution } from "./capture/exif-capture-fields.js";
 // 2.25.0 (#621): a JPEG's Exif block written from an allowlist of capture settings.
-export { setJpegExifCaptureSettings, jpegExifCaptureSettingsFromFields, JPEG_EXIF_CAPTURE_SETTING_KEYS, type JpegExifCaptureSettings,
+export { setJpegExifCaptureSettings, resolveJpegExifCaptureSettings, JPEG_EXIF_CAPTURE_SETTING_KEYS, type JpegExifCaptureSettings,
   type JpegExifDateTaken } from "./capture/jpeg-exif-writer.js";
 export { parseLosslessJpeg, type LosslessJpegImage, type LosslessJpegLimits } from "./capture/lossless-jpeg.js";
 export { parseLossyJpeg, type LossyJpegImage, type LossyJpegLimits } from "./capture/lossy-jpeg.js";

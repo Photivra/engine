@@ -266,7 +266,18 @@ export type SimulateCaptureDemosaic = "bilinear" | "ahd";
  * `motion.shutter: "rolling"`, the per-tap PSF points instead of the lattice reading (#588). Exact: the per-site PSF with the
  * cat's eye, read on the lattice. Blades and spherical aberration always apply (they cost nothing).
  */
-export interface SimulateCaptureLensCatalogueRecord { kind: string; fast?: boolean }
+export interface SimulateCaptureLensCatalogueRecord {
+  kind: string;
+  fast?: boolean;
+  /**
+   * #632, opt-in: render the lens's veiling glare: E′ = (1 − g)·E + g·Ē, g its veiling-glare fraction and Ē the frame's mean image
+   * irradiance (per spectral node), integrated per site. Its ghosts are not rendered (the catalogue gives their power, not their
+   * position, size or shape). Still camera, chart or material scene, uniform light (docs/LENS_CATALOGUE.md, "Flare and breathing").
+   */
+  flare?: boolean;
+  /** #632, opt-in: render the lens's focus breathing: the field of view scaled by 1 + Δ, Δ its breathing at the focus distance. Not with `motion.subject`. */
+  breathing?: boolean;
+}
 /** `output.demosaic` as a record (#395): the demosaic and its `fast` override (see {@link SimulateCaptureOptions.fast}). */
 export interface SimulateCaptureDemosaicRecord { kind: SimulateCaptureDemosaic; fast?: boolean }
 /**
@@ -432,7 +443,8 @@ export interface SimulateCaptureOptions {
      * factor and it replaces the tier lens's focal length and f-number range (the transmission is kept). The capture renders the
      * lens's character, all labelled approximations: its PSF (diffraction with the lens's Seidel aberrations, axial and lateral
      * colour, at the resolved f-number and focus) through the environment PSF quadrature, its radial distortion, its vignetting
-     * and, for the fisheyes, the equisolid projection. Flare and focus breathing are not rendered. Not combinable
+     * and, for the fisheyes, the equisolid projection. Flare (veiling glare) and focus breathing are opt-in (#632, the record's `flare`
+     * and `breathing`); ghosts are not rendered. Not combinable
      * with `prime`, `focalLengthMm`, `projection`, `distortion`, `vignetting`, `psf`, `diffraction` or `pupilSampling` (the
      * lens sets them); `defocus` convolves the lens's bokeh kernel (#567) into its PSF. The display view renders it with the PSF taken per field zone (#569; docs/DISPLAY_VIEW.md). Default off.
      * #568: the record form `{ kind: <lens id>, fast }` overrides the top-level `fast` flag for this option; the fast method
@@ -1755,6 +1767,8 @@ export interface DisplayViewRunContext {
   imagingArea: { widthMm: number; heightMm: number; };
   intentOf: (state: ResolvedWhiteBalanceState | null) => CaptureWhiteBalanceIntent | null;
   metresPerFrameUnit: number;
+  /** #632: the plane width the frame spans (2 × metresPerFrameUnit, times the breathing scale with lens.catalogue.breathing). */
+  framedWidthM: number;
   noiseSeed: number;
   outputOptions: Record<string, unknown>;
   parsedView: ParsedDisplayView | undefined;
@@ -2026,11 +2040,13 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   let catalogue: ResolvedGenericLens | undefined, catalogueFrame: { widthMm: number; heightMm: number } | undefined;
   let lensKit: typeof import("./generic-lens-capture.js") | undefined;
   // #568: the shorthand id or the record { kind: <id>, fast }.
-  let catalogueId: string | undefined, catalogueFast: boolean | undefined;
+  let catalogueId: string | undefined, catalogueFast: boolean | undefined, catalogueFlare = false, catalogueBreathing = false;
   if (lensOptions.catalogue !== undefined && typeof lensOptions.catalogue === "object" && lensOptions.catalogue !== null) {
-    const record = allowKeys(lensOptions.catalogue, "lens.catalogue", ["kind", "fast"]);
+    const record = allowKeys(lensOptions.catalogue, "lens.catalogue", ["kind", "fast", "flare", "breathing"]);
     if (typeof record.kind !== "string") fail("lens.catalogue.kind must be a catalogue lens id (GENERIC_LENS_IDS).");
     catalogueId = record.kind; catalogueFast = fastOverride(record, "lens.catalogue");
+    for (const key of ["flare", "breathing"]) if (record[key] !== undefined && typeof record[key] !== "boolean") fail("lens.catalogue." + key + " must be a boolean.");
+    catalogueFlare = record.flare === true; catalogueBreathing = record.breathing === true;
   } else if (lensOptions.catalogue !== undefined) catalogueId = lensOptions.catalogue as string;
   if (lensOptions.catalogue !== undefined) {
     for (const key of ["prime", "focalLengthMm", "projection", "distortion", "vignetting", "psf", "diffraction", "pupilSampling"])
@@ -2062,6 +2078,12 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   if (focusDistanceM * 1000 <= focalLengthMm) fail("lens.focusDistanceM must exceed the focal length.");
   if (prime && (subjectDistanceM < prime.minimumFocusDistanceM || focusDistanceM < prime.minimumFocusDistanceM))
     fail("The " + prime.lensId + " focuses no closer than " + prime.minimumFocusDistanceM + " m (max(0.10 m, f·(1 + 1/0.15))); subjectDistanceM and lens.focusDistanceM must be at least that.");
+  // #632: focus breathing at the requested focus as the plane distance the renderers read: a ray at tan θ meets the plane where a thin-lens ray at
+  // (1 + Δ)·tan θ would, so the frame spans 1 + Δ times the plane (scene coordinates and every other use of the subject distance unchanged).
+  // #632: the opt-in kit holds the opt-in optics' reports.
+  if (catalogueFlare || catalogueBreathing) await optInKit.load();
+  const breathing = catalogueBreathing && !idealReference, breathingScale = breathing ? lensKit!.genericLensBreathingScale(catalogue!, focusDistanceM) : 1;
+  const planeDistanceM = breathing ? subjectDistanceM * breathingScale : subjectDistanceM;
   if (catalogue && (subjectDistanceM < catalogue.minimumFocusDistanceM || focusDistanceM < catalogue.minimumFocusDistanceM))
     fail("The " + catalogue.name + " focuses no closer than " + catalogue.minimumFocusDistanceM + " m (max(0.10 m, f·(1 + 1/" + catalogue.maximumMagnification +
       "))); subjectDistanceM and lens.focusDistanceM must be at least that.");
@@ -2479,22 +2501,31 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   // Fixed-size chart (2.3): validated here, before any scene work.
   const chartSize = imagePlaneModule ? imagePlaneModule.imagePlanePrint(top.scene, top.chartSize, 2 * metresPerFrameUnit, aspect, assume) :
     top.chartSize === undefined ? undefined : resolveChartSizeOption(top.chartSize, aspect);
-  assume("scene.framing", "derived", { framedWidthM: 2 * metresPerFrameUnit, framedHeightM: 2 * metresPerFrameUnit * aspect },
+  // #632: with breathing the frame spans breathingScale times the plane (1 otherwise, so these are the thin-lens values exactly).
+  const framedWidthM = 2 * metresPerFrameUnit * breathingScale;
+  assume("scene.framing", "derived", { framedWidthM, framedHeightM: framedWidthM * aspect },
     chartSize ? "The scene plane is perpendicular to the optical axis; the frame covers this much of it (thin lens, focused distance), and the chart has the physical size in scene.chartSize." :
       "The scene plane is perpendicular to the optical axis and the chart is sized to fill the active frame exactly.");
   let chartReport: NonNullable<SimulateCaptureResult["scene"]["chart"]> | undefined;
   if (chartSize) {
     for (const key of chartSize.defaulted) assume("chartSize." + key, "default", chartSize[key], key === "heightM" ?
       "The chart has the frame's shape: height = width × output height / output width." : "An 18 % neutral grey plane surrounds the chart.");
-    const magnification = imageDistanceMm / (subjectDistanceM * 1000), framedWidthM = 2 * metresPerFrameUnit, framedHeightM = framedWidthM * aspect;
+    const magnification = imageDistanceMm / (subjectDistanceM * 1000 * breathingScale), framedHeightM = framedWidthM * aspect;
     chartReport = { widthM: chartSize.widthM, heightM: chartSize.heightM, surroundReflectance: chartSize.surroundReflectance,
       frameWidthFraction: chartSize.widthM / framedWidthM, frameHeightFraction: chartSize.heightM / framedHeightM, magnification,
       imageWidthMm: chartSize.widthM * 1000 * magnification, imageHeightMm: chartSize.heightM * 1000 * magnification,
       imageWidthPixels: chartSize.widthM * 1e6 * magnification / pitch, imageHeightPixels: chartSize.heightM * 1e6 * magnification / pitch };
+    // #631: a fisheye's chart image through its equisolid projection and distortion, along the frame's axes (calculateChartFraming's).
+    if (catalogue?.kind === "fisheye") {
+      const { width: w, height: h } = lensKit!.fisheyeChartImageMm(catalogue, imageDistanceMm, subjectDistanceM, breathingScale, chartSize.widthM, chartSize.heightM);
+      Object.assign(chartReport, { frameWidthFraction: w / (width * pitch / 1000), frameHeightFraction: h / (height * pitch / 1000), imageWidthMm: w, imageHeightMm: h,
+        imageWidthPixels: w * 1000 / pitch, imageHeightPixels: h * 1000 / pitch });
+    }
     assume("scene.chartSize", "model", chartReport,
       "Fixed-size chart: the chart is widthM × heightM metres on the scene plane, centred on the optical axis, and the rest of the plane is a neutral Lambertian surround under the same light. " +
       "Its image size follows the facade's thin-lens framing: magnification m = v/d with the image distance v = f·s/(s − f) at the focus distance s and the subject distance d, so the frame spans " +
-      "sensor width / m on the plane. frameWidthFraction and frameHeightFraction above 1 mean the chart is larger than the frame and cropped.");
+      "sensor width / m on the plane. frameWidthFraction and frameHeightFraction above 1 mean the chart is larger than the frame and cropped." +
+      (catalogue?.kind === "fisheye" ? " #631: fisheye: the image along the frame's axes; m paraxial." : ""));
   }
   if (demosaicOption === undefined && borderOption === undefined) {
     assume("output.demosaic", "model", "bilinear-rggb", "Bilinear RGGB demosaic through explicit linear kernels; the native raster has a one-site border on each side so every output pixel has full support.");
@@ -2578,7 +2609,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   const sourceSha256 = await sha256Hex(JSON.stringify(sceneDescription, (_key, value: unknown) => (typeof value === "object" && value !== null && "evaluate" in value ? "caller-spectrum" : value)));
   checkAbort();
   const buildProvider = (sceneIlluminant: ResolvedCaptureIlluminant, scale: number, light?: ResolvedMixedIllumination): PlanarSceneRadianceProvider => buildPlanarSceneRadianceProvider({ scene: chart ?? callerScene!,
-    sceneId: IDS.scene, providerProfileId: IDS.provider, illuminant: sceneIlluminant, irradianceScale: scale, geometry: { distanceM: subjectDistanceM, metresPerFrameUnit,
+    sceneId: IDS.scene, providerProfileId: IDS.provider, illuminant: sceneIlluminant, irradianceScale: scale, geometry: { distanceM: planeDistanceM, metresPerFrameUnit,
       ...(chartSize ? { chart: { widthM: chartSize.widthM, heightM: chartSize.heightM, surroundReflectance: chartSize.surroundReflectance } } : {}) }, evidence: FACADE_EVIDENCE,
     limitations: Object.freeze(["Planar Lambertian scene under " + (light ? "blended" : "uniform") + " illumination; no shadows, inter-reflection, gloss or fluorescence."]),
     ...(catalogue?.kind === "fisheye" ? { zeroBeyondHorizon: true as const } : {}), ...(light ? { irradianceAt: light.irradianceAt, illumination: light } : {}) });
@@ -2887,7 +2918,8 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
     }
     assume("lens.catalogue.character", "model", { lensId: catalogue.lensId, fNumber, focusDistanceM, magnification: c.magnification, closeFocusGain: c.closeFocusGain, pupilScale: c.pupilScale,
       aberrationsWaves550: { ...c.aberrations }, lateralColor: { ...c.lateralColor }, distortionCorner: c.distortion.corner, vignettingCornerStops: c.vignetting.cornerStops,
-      bokeh: c.bokeh, notRendered: { strayLight: { ...c.strayLight }, breathing: { ...c.breathing }, focusScatterDepthOfFocusFraction: c.focusScatterDepthOfFocusFraction },
+      bokeh: c.bokeh, notRendered: { ...(catalogueFlare && run !== "ideal-reference" ? { ghostFraction: c.strayLight.ghostFraction } : { strayLight: { ...c.strayLight } }),
+        ...(catalogueBreathing ? {} : { breathing: { ...c.breathing } }), focusScatterDepthOfFocusFraction: c.focusScatterDepthOfFocusFraction },
       psf: psfReport, profiles: { vignetting, distortion: distortion.profile, maximumNormalizedRadius: reachRadius } },
     "The catalogue lens's character, a labelled approximation of a generic lens (docs/LENS_CATALOGUE.md): Seidel wave aberrations at the frame corner (spherical, balanced by defocus; coma; astigmatism; field curvature), " +
       "scaled from the widest aperture by the pupil ratio a = N0/N (a⁴, a³, a², a²) and by the close-focus factor; axial colour as a defocus and lateral colour as a radial shift, both with the normalised Cauchy dispersion. " +
@@ -2895,7 +2927,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
         "Rendered as a sampled PSF (scalar Fraunhofer diffraction of the aberrated circular pupil, integrated over each site cell, on a 5 × 5 field grid × 5 wavelengths with centroid-aligned interpolation) " +
         "through the environment PSF quadrature (one scene query per kernel tap), with the lens's radial distortion (r_d = r·(1 + k1ρ²)) and relative illumination (E = (1 − bρ²)²) as lens field mapping and field throughput" +
         (catalogue.kind === "fisheye" ? ", and the equisolid projection; directions at or beyond 90° see no scene (zero radiance), so a circular fisheye's image ends at its 180° circle" : "") + ". ") +
-      "Flare and focus breathing are reported, not rendered; the bokeh shapes lens.defocus; ρ is normalised to the frame's half-diagonal, so the lens is scaled to the simulated frame like lens.prime.");
+      (catalogueFlare || catalogueBreathing ? "Flare and breathing: see lens.catalogue.flare and lens.catalogue.breathing" : "Flare and focus breathing are reported, not rendered") + "; the bokeh shapes lens.defocus; ρ is normalised to the frame's half-diagonal, so the lens is scaled to the simulated frame like lens.prime.");
   }
   // #492: the capture applies the disc as an object-space convolution, which needs every disc point a site sees to be another site's scene point.
   // #548: a lens field mapping, vignetting or camera rotation breaks that, so the capture then applies the disc in image space, on the sensor's
@@ -3416,7 +3448,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
     // #548: the disc (or diffraction ⊛ disc) in image space, on the sensor's site lattice, through the mapping, field throughput and rotation.
     defocusSiteKernels && defocusGeometry && defocusImageSpace ? loadedKit(qualityKit).createDefocusImageSpaceProvider({ base: sceneProvider, geometry: defocusGeometry, siteKernels: defocusSiteKernels.at,
       ...(defocusSiteKernels.large ? { largeKernel: defocusSiteKernels.large } : {}),
-      wavelengthsNm: defocusSiteKernels.wavelengthsNm, kernelRadius: defocusSiteKernels.radius, nativeWidth, nativeHeight, sitePitchMicrometers: pitch, distanceM: subjectDistanceM,
+      wavelengthsNm: defocusSiteKernels.wavelengthsNm, kernelRadius: defocusSiteKernels.radius, nativeWidth, nativeHeight, sitePitchMicrometers: pitch, distanceM: planeDistanceM,
       metresPerFrameUnit, queryOffsetsSites, timesPerBand: temporalSampleCount, onConvolution: (ms) => { defocusMs += ms; }, ...(window ? { window } : {}), ...(subject ? { timeDependentScene: true } : {}),
       ...(bokehZones ? { fieldZones: bokehZones.zones } : {}) }) :
     defocusSiteKernels ? createDiffractedPlanarProvider({ base: provider, siteKernels: defocusSiteKernels.at, ...(defocusSiteKernels.large ? { largeKernel: defocusSiteKernels.large } : {}),
@@ -3433,7 +3465,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
       ...(antiAliasing || boxSamples > 1 ? { queryOffsetsSites } : {}) }) :
     // #565, #588: the PSF quadrature reads each tap's source at its lattice point (a unit kernel on #548's lattice), so ties resolve as on the lattice.
     (diffraction || catalogueTaps !== undefined) && latticeTaps ? loadedKit(qualityKit).createDefocusImageSpaceProvider({ base: sceneProvider, geometry: lensGeometry, siteKernels: () => UNIT_SITE_KERNEL,
-      kernelRadius: 0, wavelengthsNm: diffraction ? diffraction.profile.axes.wavelengthNm : quadratureWavelengths(), nativeWidth, nativeHeight, sitePitchMicrometers: pitch, distanceM: subjectDistanceM, metresPerFrameUnit,
+      kernelRadius: 0, wavelengthsNm: diffraction ? diffraction.profile.axes.wavelengthNm : quadratureWavelengths(), nativeWidth, nativeHeight, sitePitchMicrometers: pitch, distanceM: planeDistanceM, metresPerFrameUnit,
       queryOffsetsSites: [-1, 0, 1].flatMap((k) => { const r = k * (diffraction ? diffraction.kernelRadiusSamples : catalogueKernelRadius); return queryOffsetsSites.map((o) => ({ x: o.x + r, y: o.y + r })); }),
       timesPerBand: temporalSampleCount, zeroBeyondHorizon: catalogue?.kind === "fisheye", ...(window ? { window } : {}),
       ...(subject ? { timeDependentScene: true } : {}) }) : sceneProvider;
@@ -3511,6 +3543,13 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   // #563: the view's expected signal through the lens, from the capture's own geometry (#548), checked to cover its farthest source point: the outer
   // site centre plus the kernel radius and the largest query offset.
   // #569: a catalogue lens's field-dependent PSF, read per field zone by the lens signal (display-view-lens-signal.ts, loaded on demand).
+  // #632: lens.catalogue's veiling glare (flare; not in the ideal reference) and breathing, opt-in; the ghosts are reported, not rendered.
+  if (catalogueBreathing && subject) fail("lens.catalogue.breathing cannot be combined with motion.subject.");
+  const veil = catalogueFlare && catalogueTaps !== undefined ? { fraction: catalogue!.character.strayLight.veilingGlareFraction,
+    step: lensKit!.genericLensVeilStep(nativeWidth, nativeHeight, catalogueFastRequested) } : undefined;
+  if (veil && (rotating || subject || boxSamples !== 1 || antiAliasing || mixed || provider.chartMaterialAt === undefined || provider.materialRadiance === undefined))
+    fail("lens.catalogue.flare needs a still camera and a chart or material scene under uniform light, without sensor.antiAliasing or sensor.pixelAperture.");
+  if (catalogueFlare || breathing) loadedKit(optInKit).catalogueOpticsAssumptions(assume, catalogue!, breathing ? { scale: breathingScale, planeDistanceM } : undefined, catalogueFlare, veil);
   const viewLensKit = displayView && lensGeometry ? await import("./display-view-lens-signal.js") : undefined;
   // 2.20.0: the field zones are lens.catalogue's fast method in the view; exact resolves the PSF at every site (zones of one site).
   const displayViewLensPsf = viewLensKit && catalogue && lensPsf ?
@@ -3520,8 +3559,8 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   if (displayViewLensPsf) assume("view.lensPsf", "model", { method: "piecewise-constant-field-zones", zoneSites: displayViewLensPsf.zoneSites, kernelRadiusSites: catalogueKernelRadius, scientificStatus: "approximation" },
   "Each site takes the lens PSF at its field zone's centre, where the capture resolves it at each query point (docs/DISPLAY_VIEW.md, \"Catalogue lenses\").");
   const lensSignal = viewLensKit ? viewLensKit.prepareDisplayViewLensSignal({ geometry: lensGeometry!,
-    times: rotating || subject ? Array.from({ length: temporalSampleCount }, (_, i) => (i + 0.5) * (shutterSeconds / temporalSampleCount)) : [0], distanceM: subjectDistanceM, metresPerFrameUnit,
-    pitch, imagingArea, boxSamples, spots: antiAliasing ? antiAliasing.components : [{ offsetMicrometers: { x: 0, y: 0 } }], psf: displayViewLensPsf, zeroBeyondHorizon: catalogue?.kind === "fisheye" }, nativeWidth, nativeHeight,
+    times: rotating || subject ? Array.from({ length: temporalSampleCount }, (_, i) => (i + 0.5) * (shutterSeconds / temporalSampleCount)) : [0], distanceM: planeDistanceM, metresPerFrameUnit,
+    pitch, imagingArea, boxSamples, spots: antiAliasing ? antiAliasing.components : [{ offsetMicrometers: { x: 0, y: 0 } }], psf: displayViewLensPsf, zeroBeyondHorizon: catalogue?.kind === "fisheye", ...(veil ? { veil } : {}) }, nativeWidth, nativeHeight,
   (diffraction ? diffraction.kernelRadiusSamples : 0) + (displayViewDefocus ? (bokehAxisKernel?.radius ?? defocusDiscKernelRadius(displayViewDefocus.diameterSites)) : 0) + catalogueKernelRadius +
     Math.max(0, ...queryOffsetsSites.map((o) => Math.max(Math.abs(o.x), Math.abs(o.y)))) - 0.5, catalogue ? "lens.catalogue" : imageSpaceOptions.join(", ")) : undefined;
   // #535: the green channel's expected charge from an 18 % Lambertian grey patch (radiance 0.18·E·S(λ)/π) next to the axis, and the sensor report;
@@ -3546,7 +3585,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
       cornerStops: lensCorrectionSelection.vignetting ? catalogueCornerStops : null, selection: lensCorrectionSelection, create: lensKit!.createDisplayViewLensCorrection } } : {}) } : undefined;
   // #595: the native photosite's figures (their own module, so a bundler can split them off the default path).
   sensor.native = nativeSensorReport(sensor, regimeByChannel.green.regimeId, greyElectrons, DARK_CURRENT_ELECTRONS_PER_SECOND * shutterSeconds, nativeSensor, fixedPattern);
-  if (displayView) return await renderView!({ sensor, viewFast: { uniformSampling: fastTop, rendering: fastTop, defocusRegrouped: fastTop }, viewDetail, gamutHandling, lens: lensSignal, lensPsf: displayViewLensPsf, movingScene, ahd, fastReport, antiAliasing, aspect, assume, assumptions, axisChannelResponse, boxSamples, buildProvider, callerScene, chart, materialLayers, chartReport, chartSize, diffraction, defocus: displayViewDefocus, diffractionPsf, fNumber, focalLengthMm, focusDistanceM, height, highlightMode, exposureGain, illuminanceLux, illuminant, illuminantOption, imagingArea, intentOf, metresPerFrameUnit, noiseSeed, outputOptions, parsedView, pitch, preset, provider, regimeByChannel, resolvedIso, isoReport, standardExposureDeviationStops: exposureDeviationStops, standardExposureIlluminanceLux: exposureIlluminanceLux, greyCardDeviationStops: exposureGreyCardDeviationStops, metering, sceneOption, scenePreset, shutterSeconds, started, subjectDistanceM, toneCurve, whiteBalanceOption, whiteBalanceState, width, checkAbort, margin, mode, nativeHeight, nativeWidth, sourceSha256, yieldControl, kelvinWhiteBalanceInput,
+  if (displayView) return await renderView!({ sensor, viewFast: { uniformSampling: fastTop, rendering: fastTop, defocusRegrouped: fastTop }, viewDetail, gamutHandling, lens: lensSignal, lensPsf: displayViewLensPsf, movingScene, ahd, fastReport, antiAliasing, aspect, assume, assumptions, axisChannelResponse, boxSamples, buildProvider, callerScene, chart, materialLayers, chartReport, chartSize, diffraction, defocus: displayViewDefocus, diffractionPsf, fNumber, focalLengthMm, focusDistanceM, height, highlightMode, exposureGain, illuminanceLux, illuminant, illuminantOption, imagingArea, intentOf, metresPerFrameUnit, framedWidthM, noiseSeed, outputOptions, parsedView, pitch, preset, provider, regimeByChannel, resolvedIso, isoReport, standardExposureDeviationStops: exposureDeviationStops, standardExposureIlluminanceLux: exposureIlluminanceLux, greyCardDeviationStops: exposureGreyCardDeviationStops, metering, sceneOption, scenePreset, shutterSeconds, started, subjectDistanceM, toneCurve, whiteBalanceOption, whiteBalanceState, width, checkAbort, margin, mode, nativeHeight, nativeWidth, sourceSha256, yieldControl, kelvinWhiteBalanceInput,
     mixedIllumination: mixedKit && lightKit });
   // Ideal reference (2.3): the scene without camera effects, at the capture's own exposure, white balance and encoding.
   if (idealReference) {
@@ -3622,7 +3661,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
       exposure: { mode, settings: { fNumber, shutterSeconds, iso: resolvedIso }, ev100: Math.log2(fNumber ** 2 / shutterSeconds), ...isoReport },
       scene: { sceneId: chart ? "chart:" + chart.preset : callerScene!.sceneId, preset: scenePreset, parameters: (chart ?? callerScene as { parameters?: Readonly<Record<string, unknown>> }).parameters ?? {},
         illuminant: { id: illuminant.id, description: illuminant.description, illuminanceLux }, distanceM: subjectDistanceM,
-        framedWidthM: 2 * metresPerFrameUnit, framedHeightM: 2 * metresPerFrameUnit * aspect, ...(chartReport ? { chart: chartReport } : {}), sourceSha256 },
+        framedWidthM, framedHeightM: framedWidthM * aspect, ...(chartReport ? { chart: chartReport } : {}), sourceSha256 },
       ...(region && regionNative ? { region: { ...region, frameWidth: width, frameHeight: height } } : {}),
       diagnostics: { sampleCount: outputWidth * outputHeight * n * n, timingsMs: { reference: referenceMs, total: Date.now() - started } },
       provenance: { scientificStatus: "approximation" as const, cameraPresetId: preset.presetId, cameraPresetVersion: preset.presetVersion, evidence: [...FACADE_EVIDENCE, ...preset.evidence],
@@ -3659,8 +3698,9 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   // #568: lens.catalogue's fast method: expected electrons integrated per site at use, with the PSF blended over a field grid (catalogue-lens-signal.ts), for a
   // still camera, site-centre queries and a chart or material scene; verified per CFA phase against the exact chain within its tolerance.
   let catalogueFastRun: { columns: number; rows: number; resolved: number; verificationRelativeDifference: number; subdivisions: number; boxSamples: number } | undefined;
-  const catalogueFastEligible = catalogueFastRequested && catalogueTaps !== undefined && lensKit !== undefined && lensPsf !== undefined && dngParts === undefined && tabulatedScene &&
-    !pupil && !rotating && !subject && !antiAliasing && distortion?.kind === "radial" && provider.chartMaterialAt !== undefined && provider.materialRadiance !== undefined;
+  const catalogueFastEligible = (catalogueFastRequested || veil !== undefined) && catalogueTaps !== undefined && lensKit !== undefined && lensPsf !== undefined && dngParts === undefined && tabulatedScene &&
+    // #629: the box pixel aperture takes the fast method; flare (#632) keeps its exact kernels on the point aperture.
+    !pupil && !rotating && !subject && (boxSamples === 1 || veil === undefined) && !antiAliasing && distortion?.kind === "radial" && provider.chartMaterialAt !== undefined && provider.materialRadiance !== undefined;
   // The tabulated paths' channel response per spectral node and material tables (the fast catalogue path and the expected-signal path).
   // #550: under mixed lighting a point's radiance is not its material's, so the tables read the provider's radiance instead (materials undefined).
   const tabulatedTables = (): { wavelengths: number[]; perNode: [Float64Array, Float64Array, Float64Array]; materials: Parameters<typeof buildExpectedSignalInput>[0]["materials"] } => {
@@ -3675,21 +3715,29 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   if (catalogueFastEligible) {
     const { wavelengths, perNode, materials } = tabulatedTables();
     const { signalInput } = buildExpectedSignalInput({ nativeWidth, nativeHeight, width, wavelengths, perNode, apertureNodes: apertureNodeOffsets(1), boxSamples: 1, antiAliasing: undefined, pitch,
-      materials, radianceAt: provider.radianceAt, imagingArea, focalLengthMm, focusDistanceM, subjectDistanceM, metresPerFrameUnit, caller: "simulateCapture" });
+      materials, radianceAt: provider.radianceAt, imagingArea, focalLengthMm, focusDistanceM, subjectDistanceM: planeDistanceM, metresPerFrameUnit, caller: "simulateCapture" });
     const radial = (distortion as Extract<SimulateCaptureLensDistortion, { kind: "radial" }>).profile;
     // #603: the grid follows the request's quality: 2.20.0's faster grid on a fast request (but for the measured lenses that keep the
-    // full one), the full one on an exact request.
+    // full one), the full one on an exact one.
     const gridSubdivisions = lensKit!.catalogueFastGridSubdivisions(catalogue!.lensId, fastTop);
-    const signal = lensKit!.createCatalogueLensSignal({ nativeWidth, nativeHeight, pitch, psf: lensPsf!.configuration.psf, wavelengthsNm: wavelengths, electronsPerRadiance: perNode, gridSubdivisions,
-      scene: signalInput.scene as Extract<typeof signalInput.scene, { kind: "materials" }>, channelAt: signalInput.channelAt,
-      distortion: { normalizationRadiusMm: radial.normalizationRadiusMm, coefficients: { k1: radial.coefficients.k1, k2: radial.coefficients.k2 ?? 0, k3: radial.coefficients.k3 ?? 0 } },
-      ...(vignetting ? { vignetting } : {}), projection: projection === "fisheye-equisolid-angle" ? projection : "rectilinear", outsideImageCircleSeesNothing: catalogue!.kind === "fisheye",
-      focalLengthMm, focusDistanceM, distanceM: subjectDistanceM, metresPerFrameUnit,
-      // #629: the box pixel aperture's N × N nodes (midpoint rule, equal weights), folded into each lattice point's scene value.
-      ...(boxSamples > 1 ? { queryOffsets: apertureNodeOffsets(boxSamples).map((o) => ({ ...o, weight: 1 / (boxSamples * boxSamples) })) } : {}) });
-    tabulated = await renderTabulatedNativeRaw({ input: environmentRaw, region: regionNative, siteInput, evaluateRadiance: rawProvider().evaluateRadiance,
-      electrons: signal, relativeTolerance: lensKit!.CATALOGUE_FAST_VERIFICATION_TOLERANCE, onTile: rawTick, tileWidth, yieldControl: () => yieldControl(), checkAbort });
-    if (tabulated) catalogueFastRun = { ...signal.grid, verificationRelativeDifference: tabulated.verificationRelativeDifference, subdivisions: gridSubdivisions, boxSamples };
+    // #632: with flare, an exact request takes each site's exact kernels (the exact method's sum), and a fast one whose check fails does too.
+    const render = async (exactKernels: boolean): Promise<typeof tabulated> => {
+      const signal = lensKit!.createCatalogueLensSignal({ nativeWidth, nativeHeight, pitch, psf: lensPsf!.configuration.psf, wavelengthsNm: wavelengths, electronsPerRadiance: perNode, gridSubdivisions,
+        scene: signalInput.scene as Extract<typeof signalInput.scene, { kind: "materials" }>, channelAt: signalInput.channelAt,
+        distortion: { normalizationRadiusMm: radial.normalizationRadiusMm, coefficients: { k1: radial.coefficients.k1, k2: radial.coefficients.k2 ?? 0, k3: radial.coefficients.k3 ?? 0 } },
+        ...(vignetting ? { vignetting } : {}), projection: projection === "fisheye-equisolid-angle" ? projection : "rectilinear", outsideImageCircleSeesNothing: catalogue!.kind === "fisheye",
+        focalLengthMm, focusDistanceM, distanceM: planeDistanceM, metresPerFrameUnit, ...(exactKernels ? { exactKernels } : {}), ...(veil ? { veil } : {}),
+        // #629: the box pixel aperture's N × N nodes (midpoint rule, equal weights), folded into each lattice point's scene value.
+        ...(boxSamples > 1 ? { queryOffsets: apertureNodeOffsets(boxSamples).map((o) => ({ ...o, weight: 1 / (boxSamples * boxSamples) })) } : {}) });
+      const out = await renderTabulatedNativeRaw({ input: environmentRaw, region: regionNative, siteInput, evaluateRadiance: rawProvider().evaluateRadiance,
+        electrons: signal, relativeTolerance: lensKit!.CATALOGUE_FAST_VERIFICATION_TOLERANCE, onTile: rawTick, tileWidth, yieldControl: () => yieldControl(), checkAbort,
+        ...(signal.veiled ? { adjust: signal.veiled } : {}) });
+      if (out && !exactKernels) catalogueFastRun = { ...signal.grid, verificationRelativeDifference: out.verificationRelativeDifference, subdivisions: gridSubdivisions, boxSamples };
+      return out;
+    };
+    tabulated = await render(!catalogueFastRequested);
+    if (!tabulated && veil && catalogueFastRequested) tabulated = await render(true);
+    if (!tabulated && veil) fail("lens.catalogue.flare: the per-site check failed.");
   }
   // #553: a cat's eye varies the kernel over the field, which the expected-signal tables (one kernel per node) do not take.
   else if (dngParts === undefined && tabulatedScene && !pupil && !lensFieldMapping && !vignetting && !lensPsf && !rotating && !subject && !bokehZones && (!diffraction || diffractionObjectSpace) &&
@@ -3723,6 +3771,11 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
     rawOutput = { raw: joinNativeRawParts(dngParts, plan, nativeWidth, nativeHeight, partsCaller, fastReport.requested), providerEvaluationCount: 0 };
     if (run === "develop-from-parts") assume("parts", "model", { partCount: (dngParts as readonly unknown[]).length },
       "The whole render's RAW, joined from region renders of this request (#571); how they were rendered is in their results.");
+  }
+  else if (tabulated && veil && !catalogueFastRun) {
+    rawOutput = { raw: tabulated.raw, providerEvaluationCount: tabulated.providerEvaluationCount };
+    assume("raw.expectedSignal", "model", { method: "per-site-integrated-electrons-catalogue-psf-exact-kernels", verificationSites: 4, tolerance: lensKit!.CATALOGUE_FAST_VERIFICATION_TOLERANCE },
+      "#632: the exact method's sum per site (each site's own PSF), checked against the exact chain at one site per CFA phase.");
   }
   else if (tabulated && catalogueFastRun) {
     rawOutput = { raw: tabulated.raw, providerEvaluationCount: tabulated.providerEvaluationCount };
@@ -4022,7 +4075,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
       standardExposureIlluminanceLux: exposureIlluminanceLux, greyCardDeviationStops: exposureGreyCardDeviationStops, resolution },
     scene: { sceneId: chart ? "chart:" + chart.preset : callerScene!.sceneId, preset: scenePreset, parameters: (chart ?? callerScene as { parameters?: Readonly<Record<string, unknown>> }).parameters ?? {},
       illuminant: { id: illuminant.id, description: illuminant.description, illuminanceLux }, distanceM: subjectDistanceM,
-      framedWidthM: 2 * metresPerFrameUnit, framedHeightM: 2 * metresPerFrameUnit * aspect, ...(chartReport ? { chart: chartReport } : {}), sourceSha256 },
+      framedWidthM, framedHeightM: framedWidthM * aspect, ...(chartReport ? { chart: chartReport } : {}), sourceSha256 },
     diagnostics: { providerEvaluationCount, highlight: developed.highlight, rendering: developed.diagnostics, ...(gamutMappingDiagnostics ? { gamutMapping: gamutMappingDiagnostics } : {}),
       ...(detailRequested ? { detail: Object.freeze(detailDiagnostics) } : {}),
       timingsMs: { raw: rawMs, whiteBalance: wbMs, development: devMs, jpeg: jpegMs, total: Date.now() - started,

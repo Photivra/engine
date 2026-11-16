@@ -396,7 +396,7 @@ async function prepareView(context: DisplayViewRunContext): Promise<PreparedView
       sensor: context.sensor,
       scene: { sceneId: chart ? "chart:" + chart.preset : callerScene!.sceneId, preset: scenePreset, parameters: (chart ?? callerScene as { parameters?: Readonly<Record<string, unknown>> }).parameters ?? {},
         illuminant: { id: illuminant.id, description: illuminant.description, illuminanceLux }, distanceM: subjectDistanceM,
-        framedWidthM: 2 * metresPerFrameUnit, framedHeightM: 2 * metresPerFrameUnit * aspect, ...(chartReport ? { chart: chartReport } : {}), sourceSha256 },
+        framedWidthM: context.framedWidthM, framedHeightM: context.framedWidthM * aspect, ...(chartReport ? { chart: chartReport } : {}), sourceSha256 },
       diagnostics: { sampleCount: rendered.sampleCount, siteEvaluations: rendered.siteCount, sceneLookups: signal.lookups, detailPixelCount: rendered.detailPixelCount,
         uniformPixelCount: rendered.uniformPixelCount, ahdCorrectedPixelCount: 0, timingsMs: { view: viewMs, total: Date.now() - started },
         fast: Object.freeze({ ...context.fastReport, assurance: execution.backend === "webgpu-f32" ? "approximation-with-a-priori-bound" as const : context.fastReport.assurance, execution }),

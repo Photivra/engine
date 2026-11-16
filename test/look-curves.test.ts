@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it } from "vitest";
-import { FLAT_LOOK, InvalidConfigurationError, STANDARD_LOOK, calculateSdrRendering, pinLookMidGray, simulateCapture,
+import { FLAT_LOOK, InvalidConfigurationError, STANDARD_LOOK, calculateSdrRendering, resolveMidGrayPinnedLook, simulateCapture,
   type NakaRushtonLook, type SdrRenderingProfile } from "../src/index.js";
 import { scaledTimeout } from "./helpers/test-timeout.js";
 
@@ -37,20 +37,20 @@ describe("look constants (#625)", () => {
       expect(Object.isFrozen(look) && Object.isFrozen(look.toneCurveParameters)).toBe(true);
       expect(Math.abs(curve(look, .18)-.18)).toBeLessThan(5e-5);
       // The published σ is the closed-form solution at 0.18, rounded to four decimals.
-      expect(pinLookMidGray(look, { linearMidGray: .18 }).toneCurveParameters.semiSaturation).toBeCloseTo(look.toneCurveParameters.semiSaturation, 4);
+      expect(resolveMidGrayPinnedLook(look, { linearMidGray: .18 }).toneCurveParameters.semiSaturation).toBeCloseTo(look.toneCurveParameters.semiSaturation, 4);
     }
   });
 });
 
-describe("pinLookMidGray (#626)", () => {
+describe("resolveMidGrayPinnedLook (#626)", () => {
   it("maps the given linear mid-gray to itself (or to outputLevel), keeping contrast and white", () => {
     for (const look of [STANDARD_LOOK, FLAT_LOOK]) for (const m of [.05, .1, .13, .18, .25, .4]) {
-      const pinned = pinLookMidGray(look, { linearMidGray: m });
+      const pinned = resolveMidGrayPinnedLook(look, { linearMidGray: m });
       expect(pinned.toneCurveParameters.exponent).toBe(look.toneCurveParameters.exponent);
       expect(pinned.toneCurveParameters.whiteLuminance).toBe(look.toneCurveParameters.whiteLuminance);
       expect(Math.abs(curve(pinned, m)-m)).toBeLessThan(1e-12);
       expect(curve(pinned, look.toneCurveParameters.whiteLuminance)).toBe(1);
-      const lifted = pinLookMidGray(look, { linearMidGray: m, outputLevel: .18 });
+      const lifted = resolveMidGrayPinnedLook(look, { linearMidGray: m, outputLevel: .18 });
       expect(Math.abs(curve(lifted, m)-.18)).toBeLessThan(1e-12);
     }
     // Unpinned, the Standard look renders a 13 % gray darker than a linear look and the Flat look brighter; pinned, neither does.
@@ -70,7 +70,7 @@ describe("pinLookMidGray (#626)", () => {
     const linear = render(null);
     for (const look of [STANDARD_LOOK, FLAT_LOOK]) {
       expect(Math.abs(render(look)-linear)).toBeGreaterThan(300);
-      expect(render(pinLookMidGray(look, { linearMidGray: m }))).toBe(linear);
+      expect(render(resolveMidGrayPinnedLook(look, { linearMidGray: m }))).toBe(linear);
     }
   });
 
@@ -86,7 +86,7 @@ describe("pinLookMidGray (#626)", () => {
     const level = await luminance(null);
     expect(level).toBeGreaterThan(.02);
     expect(level).toBeLessThan(.6);
-    const standard = await luminance(STANDARD_LOOK), pinned = await luminance(pinLookMidGray(STANDARD_LOOK, { linearMidGray: level }));
+    const standard = await luminance(STANDARD_LOOK), pinned = await luminance(resolveMidGrayPinnedLook(STANDARD_LOOK, { linearMidGray: level }));
     expect(Math.abs(standard-level)/level).toBeGreaterThan(.01);
     expect(Math.abs(pinned-level)/level).toBeLessThan(2e-4);
   }, scaledTimeout(120_000));
@@ -101,6 +101,6 @@ describe("pinLookMidGray (#626)", () => {
       [{ toneCurve: "naka-rushton-luminance", toneCurveParameters: { exponent: .25, semiSaturation: 1, whiteLuminance: 8 } }, { linearMidGray: .13, outputLevel: .01 }],
       // A target so close to 0 that σ would exceed the renderer's range.
       [FLAT_LOOK, { linearMidGray: .5, outputLevel: .0157 }]];
-    for (const [look, options] of bad) expect(() => pinLookMidGray(look as NakaRushtonLook, options as { linearMidGray: number })).toThrow(InvalidConfigurationError);
+    for (const [look, options] of bad) expect(() => resolveMidGrayPinnedLook(look as NakaRushtonLook, options as { linearMidGray: number })).toThrow(InvalidConfigurationError);
   });
 });

@@ -40,18 +40,6 @@ export interface JpegExifCaptureSettings {
 }
 ```
 
-## jpegExifCaptureSettingsFromFields
-
-The capture settings an Exif block or a DNG import states ({@link ExifCaptureFields}, from `parsePhotoMetadata` or
-`parseDngRawImage`'s `exif`), as settings for `setJpegExifCaptureSettings`: exposure time, f-number, ISO, focal length and 35 mm
-focal length only. Nothing else is read.
-
-```ts
-export function jpegExifCaptureSettingsFromFields(fields: Pick<ExifCaptureFields, "exposureTimeSeconds" | "fNumber" | "iso" | "focalLengthMillimeters" | "focalLengthIn35mmFilmMillimeters">): JpegExifCaptureSettings;
-```
-
-This call is synchronous; any supplied provider must follow its explicit synchronous contract.
-
 ## JpegExifDateTaken
 
 The date and time a photo was taken, as the camera's local clock states it.
@@ -64,6 +52,18 @@ export interface JpegExifDateTaken {
   offset?: string;
 }
 ```
+
+## resolveJpegExifCaptureSettings
+
+The capture settings an Exif block or a DNG import states ({@link ExifCaptureFields}, from `parsePhotoMetadata` or
+`parseDngRawImage`'s `exif`), as settings for `setJpegExifCaptureSettings`: exposure time, f-number, ISO, focal length and 35 mm
+focal length only. Nothing else is read.
+
+```ts
+export function resolveJpegExifCaptureSettings(fields: Pick<ExifCaptureFields, "exposureTimeSeconds" | "fNumber" | "iso" | "focalLengthMillimeters" | "focalLengthIn35mmFilmMillimeters">): JpegExifCaptureSettings;
+```
+
+This call is synchronous; any supplied provider must follow its explicit synchronous contract.
 
 ## setJpegExifCaptureSettings
 
