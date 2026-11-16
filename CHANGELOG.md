@@ -39,6 +39,12 @@
 - **New fields** in `ExifCaptureFields`, so in `parsePhotoMetadata`'s `exif` and the DNG import's `exif`: `subjectDistanceMeters` (0x9206, RATIONAL, meters) and `subjectDistanceRange` (0xA40C). A numerator of 0 is returned as `"unknown"` (also 0/0) and 0xFFFFFFFF as `"infinity"` (Exif 2.32 §4.6.5), not as numbers; another zero denominator is reported and ignored. The range codes 0–3 are `"unknown"`, `"macro"`, `"close-view"` and `"distant-view"`; other codes are reported and ignored. `ExifTagLookup` gains `rational(id, name)`, the stored numerator and denominator.
 - Tests: a stated distance, unknown (0/1 and 0/0), infinity (0xFFFFFFFF/1 and /0), a zero denominator, a wrong type and each range code, in both readers.
 
+### #646 Thin-lens framing without the lens catalogue and the sensor profiles
+
+- **New:** `calculateThinLensSubjectDistanceForFraming` and `calculateThinLensChartFraming` (types `ThinLensSubjectDistanceForFramingInput`, `ThinLensChartFramingInput`): `calculateSubjectDistanceForFraming` and `calculateChartFraming` for a thin lens on a sensor, with the same code and results, from a module (`facade/subject-framing-thin-lens.ts`) that imports neither the catalogue nor the profiles. A `catalogue` or `sensorProfile` field is refused as unknown.
+- **Smaller bundles:** the sensor-profile parser no longer imports the generic tier assets (the record and parser are in `equipment/sensor-profile-record.ts`, the tiers' ISO setting lists in `equipment/generic-iso-settings.ts`; the old import paths re-export them unchanged). A bundle of the two framing functions: 25,720 B gzip in 2.25.0, 12,537 B now; of the two thin-lens functions, 5,752 B. The capture worker: fast 338,893 B (−1), on demand 47,378 B (+12, the record's module in the opt-in kit).
+- Results are unchanged; `test/framing-bundle.test.ts` fails if a catalogue or profile module enters the thin-lens bundle, or the tier assets the full one.
+
 ## 2.25.0 — unreleased (prepared November 16, 2026)
 
 A minor release: the 26 issues of milestone 2.25.0 (#612–#633, #635–#638). Standalone helpers, a photo metadata reader, DNG and JPEG Exif writers, a half-size DNG preview, front-of-lens filters, look constants, catalogue-lens framing, glare, breathing and corrections, and faster defocused display views and exact catalogue PSFs. See the [2.25.0 release record](https://github.com/Photivra/engine/blob/main/docs/RELEASE_2_25_0.md).

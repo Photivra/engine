@@ -2,15 +2,6 @@
 
 The package and root API versions are recorded once in [Navigation](../API_REFERENCE.md) · [Developer guide](https://github.com/Photivra/engine/blob/main/docs/DEVELOPERS.md). Generated signatures retain independent schema/model versions. Only the exports listed here are root-package contracts; module-local helpers are not supported deep imports.
 
-## GENERIC_THIRD_STOP_ISO_SETTINGS
-
-The exact contract is declared below; use the domain guide for assumptions and staged integration.
-
-```ts
-GENERIC_THIRD_STOP_ISO_SETTINGS = Object.freeze([100, 125, 160, 200, 250, 320, 400, 500, 640, 800, 1000, 1250, 1600,
-  2000, 2500, 3200, 4000, 5000, 6400, 8000, 10000, 12800, 16000, 20000, 25600] as const)
-```
-
 ## GENERIC_THIRD_STOP_SHUTTER_SECONDS
 
 The standard third-stop shutter times, seconds, from 1/8000 s to 30 s: the conventional markings of t = 2^(k/3) s
@@ -23,14 +14,6 @@ GENERIC_THIRD_STOP_SHUTTER_SECONDS = Object.freeze([1 / 8000, 1 / 6400, 1 / 5000
   1 / 1600, 1 / 1250, 1 / 1000, 1 / 800, 1 / 640, 1 / 500, 1 / 400, 1 / 320, 1 / 250, 1 / 200, 1 / 160, 1 / 125, 1 / 100, 1 / 80, 1 / 60, 1 / 50, 1 / 40,
   1 / 30, 1 / 25, 1 / 20, 1 / 15, 1 / 13, 1 / 10, 1 / 8, 1 / 6, 1 / 5, 1 / 4, 0.3, 0.4, 0.5, 0.6, 0.8, 1, 1.3, 1.6, 2, 2.5, 3.2, 4, 5, 6, 8, 10, 13,
   15, 20, 25, 30] as const)
-```
-
-## GENERIC_WHOLE_STOP_ISO_SETTINGS
-
-Whole-stop ISO settings of the 2.0.0 bodies (each body's list stops at its maximum).
-
-```ts
-GENERIC_WHOLE_STOP_ISO_SETTINGS = Object.freeze([100, 200, 400, 800, 1600, 3200, 6400, 12800, 25600] as const)
 ```
 
 ## GenericEquipmentTier
