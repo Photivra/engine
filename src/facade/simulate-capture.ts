@@ -2300,7 +2300,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   // #590 (2.22.0): the default step follows the light and the request's quality. A light is spiky when R(20) = 20²·κ/24 > 0.01 (the
   // midpoint rule's relative error indicator, color/spectral-spikiness.ts) for any of its sources; an exact request then takes 5 nm,
   // a fast one 20 nm. Its light is validated with the scene below (a light that fails here is not spiky here).
-  const illumination = top.illumination as { sources?: unknown; points?: unknown } | undefined, lights = illumination ? [illumination.sources, illumination.points]
+  const illumination = top.illumination as { sources?: unknown; points?: unknown; flash?: unknown } | undefined, lights = illumination ? [illumination.sources, illumination.points, [illumination.flash]]
     .flatMap((list) => (Array.isArray(list) ? list.map((s) => (s as { illuminant?: unknown } | null)?.illuminant) : [])) : [top.illuminant];
   let kappa = 0;
   for (const light of lights) if (light !== undefined) try { const shape = resolveCaptureIlluminant(light as CaptureIlluminant).shape; kappa = Math.max(kappa, spectralSpikiness((nm) => shape.evaluate(nm))); } catch { /* validated below */ }
@@ -2554,15 +2554,18 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   // A static import (2.21.0 size pass): as a lazy chunk it made the bundler split the core modules into a shared chunk of their own.
   const mixedKit = top.illumination === undefined ? undefined : await optInKit.load();
   if (mixedKit && (top.illuminant !== undefined || top.illuminanceLux !== undefined)) fail("illumination replaces illuminant and illuminanceLux; omit them.");
+  // #639: a flash is resolved for the exposure window flashWindow (1 s until the exposure is resolved, ∞ for the ambient light alone).
+  let flashWindow = 1;
   const lightKit = (resolveIlluminant: (value: CaptureIlluminant) => ResolvedCaptureIlluminant): ResolvedMixedIllumination =>
-    mixedKit!.resolveMixedIllumination(top.illumination, resolveIlluminant);
-  const mixed = mixedKit && lightKit(resolveCaptureIlluminant), strongest = mixed?.sources[mixed.center.strongestSource];
-  const illuminantOption = strongest ? strongest.option : pick<CaptureIlluminant>(top, "illuminant", "illuminant", { kind: "planckian", temperatureKelvin: DEFAULTS.illuminantKelvin },
+    mixedKit!.resolveMixedIllumination(top.illumination, resolveIlluminant, flashWindow, planeDistanceM, rotating || !!subject);
+  let mixed = mixedKit && lightKit(resolveCaptureIlluminant), strongest = mixed?.sources[mixed.center.strongestSource];
+  const flash = mixed?.flash;
+  let illuminantOption = strongest ? strongest.option : pick<CaptureIlluminant>(top, "illuminant", "illuminant", { kind: "planckian", temperatureKelvin: DEFAULTS.illuminantKelvin },
     "Planckian (blackbody) 6500 K as a stand-in for daylight. CIE D65 is not bundled; pass its S0/S1/S2 basis as a daylight illuminant to use it.");
-  const illuminant = strongest ? strongest.illuminant : resolveCaptureIlluminant(illuminantOption);
-  const illuminanceLux = mixed ? mixed.center.illuminanceLux : positive(pick(top, "illuminanceLux", "illuminanceLux", SIMULATE_CAPTURE_DEFAULT_ILLUMINANCE_LUX,
+  let illuminant = strongest ? strongest.illuminant : resolveCaptureIlluminant(illuminantOption);
+  let illuminanceLux = mixed ? mixed.center.illuminanceLux : positive(pick(top, "illuminanceLux", "illuminanceLux", SIMULATE_CAPTURE_DEFAULT_ILLUMINANCE_LUX,
     "π·10·N²/(0.65·t·S·0.18) lux at f/8, 1/125 s, ISO 100 (CIPA DC-004 standard output sensitivity H = 10/S and camera equation H = 0.65·L·t/N²): an 18 % grey card then gets the reference exposure for the default settings. It does not follow the caller's exposure settings."), "illuminanceLux");
-  const irradianceScale = strongest ? strongest.irradianceScale : calculateIlluminantIrradianceScale(illuminant.shape, illuminanceLux);
+  let irradianceScale = strongest ? strongest.irradianceScale : calculateIlluminantIrradianceScale(illuminant.shape, illuminanceLux);
   if (mixed) assume("scene.illumination", "model", { lights: mixed.sources.map((s) => s.report), blend: mixed.blend,
     coordinates: chartSize ? "chart-local" : "frame", center: mixed.center },
   "Mixed lighting (#550): the irradiance at a point is the declared blend Σ w_i·E_i(λ) of the sources (each scaled to its illuminance, weights summing to 1; a crossfade, not a falloff model) " +
@@ -2610,14 +2613,14 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
       ...(chartSize ? { chart: { widthM: chartSize.widthM, heightM: chartSize.heightM, surroundReflectance: chartSize.surroundReflectance } } : {}) }, evidence: FACADE_EVIDENCE,
     limitations: Object.freeze(["Planar Lambertian scene under " + (light ? "blended" : "uniform") + " illumination; no shadows, inter-reflection, gloss or fluorescence."]),
     ...(catalogue?.kind === "fisheye" ? { zeroBeyondHorizon: true as const } : {}), ...(light ? { irradianceAt: light.irradianceAt, illumination: light } : {}) });
-  const provider = buildProvider(illuminant, irradianceScale, mixed);
+  let provider = buildProvider(illuminant, irradianceScale, mixed);
   // #551: the moving subject's scene; renderers read it at each query's time. The revealed background is a neutral 18 % reflectance
   // under the plane's irradiance at the revealed point: the illuminant, or (#550) the blend and point sources there, from the spectrum.
   const half = chartSize ? chartSize.widthM / 2 / metresPerFrameUnit : 1;
   const movingScene = subject ? (base: PlanarSceneRadianceProvider, scale: number, shape: (nm: number) => number, light?: ResolvedMixedIllumination): PlanarSceneRadianceProvider =>
     loadedKit(optInKit).createSubjectMotionProvider(base, subject, subjectDistanceM, metresPerFrameUnit,
       (u, v, nm): number => 0.18 * (light ? light.irradianceAt(u / half, v / half, u * metresPerFrameUnit, v * metresPerFrameUnit, nm) : scale * shape(nm)) / Math.PI) : undefined;
-  const sceneProvider = movingScene ? movingScene(provider, irradianceScale, (nm) => illuminant.shape.evaluate(nm), mixed) : provider;
+  let sceneProvider = movingScene ? movingScene(provider, irradianceScale, (nm) => illuminant.shape.evaluate(nm), mixed) : provider;
   // 2.6: a chart preset's evaluator is engine-built end to end (its results: the schema's exact keys, constant fields,
   // the request's identifiers, deep-frozen FACADE_EVIDENCE, UNCERTAINTY and limitations, and an engine-computed
   // radiance), so the native task may skip re-parsing the fixed parts. Caller scenes keep the full validation.
@@ -2660,22 +2663,29 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   assume("exposure.referenceExposure", "model", { ...reference, meteredLuminanceCdPerSquareMeter: referenceLuminance },
     "Exposure anchor: f/8, 1/125 s, ISO 100 gives the CIPA DC-004 standard output sensitivity reference exposure H = 10/S = 0.1 lx·s for an average scene luminance of 10·N²/(0.65·t·S) ≈ 1230.77 cd/m² (camera equation H = 0.65·L·t/N²)" +
     (referenceAperture === DEFAULTS.fNumber ? "." : "; the lens excludes f/8: " + (reference.shutterSeconds > sameShutter ? "the shortest shutter" : "the same N²/t") + " at f/" + referenceAperture + "."));
-  const meterProfile = body.metering[0]!.profile, zones = 16, zoneSamples = [];
+  const meterProfile = body.metering[0]!.profile, zones = 16, zoneSamples: { sampleId: string; positionOrientedCaptureUv: { u: number; v: number }; relativeLinearSignal: number; areaWeight: number }[] = [];
   // #624: the meter reads through lens.filter: L·T for a spectrally flat stack, the photopic integral of L(λ)·T(λ) otherwise.
   const filterT = lensFilter?.transmissionAt;
-  let luminanceSum = 0, filteredLuminanceSum = 0;
-  for (let j = 0; j < zones; j++) for (let i = 0; i < zones; i++) {
-    const u = -1 + (i + 0.5) * 2 / zones, v = aspect - (j + 0.5) * 2 * aspect / zones;
-    const luminance = luminanceOf((nm) => provider.radianceAt(u, v, nm));
-    const filtered = !lensFilter ? luminance : lensFilter.spectrallyFlat ? luminance * lensFilter.linearTransmissionFactor : luminanceOf((nm) => provider.radianceAt(u, v, nm) * filterT!(nm));
-    luminanceSum += luminance;
-    filteredLuminanceSum += filtered;
-    zoneSamples.push({ sampleId: "zone-" + i + "-" + j, positionOrientedCaptureUv: { u: (i + 0.5) / zones, v: (j + 0.5) / zones },
-      relativeLinearSignal: meterProfile.target.targetRelativeSignal * filtered / referenceLuminance, areaWeight: 1 });
-  }
-  const meteredLuminance = luminanceSum / (zones * zones);
+  /** The meter's zones under the light of `p`: the mean luminance, the mean through lens.filter and each zone's through it. */
+  const meterZones = (p: PlanarSceneRadianceProvider): [number, number, number[]] => {
+    let luminanceSum = 0, filteredLuminanceSum = 0;
+    const through: number[] = [];
+    for (let j = 0; j < zones; j++) for (let i = 0; i < zones; i++) {
+      const u = -1 + (i + 0.5) * 2 / zones, v = aspect - (j + 0.5) * 2 * aspect / zones;
+      const luminance = luminanceOf((nm) => p.radianceAt(u, v, nm));
+      const filtered = !lensFilter ? luminance : lensFilter.spectrallyFlat ? luminance * lensFilter.linearTransmissionFactor : luminanceOf((nm) => p.radianceAt(u, v, nm) * filterT!(nm));
+      luminanceSum += luminance;
+      filteredLuminanceSum += filtered;
+      through.push(filtered);
+    }
+    return [luminanceSum / (zones * zones), filteredLuminanceSum / (zones * zones), through];
+  };
+  const meter = meterZones(provider), through = meter[2];
+  let [meteredLuminance, filteredMean] = meter;
+  for (let j = 0; j < zones; j++) for (let i = 0; i < zones; i++) zoneSamples.push({ sampleId: "zone-" + i + "-" + j, positionOrientedCaptureUv: { u: (i + 0.5) / zones, v: (j + 0.5) / zones },
+    relativeLinearSignal: meterProfile.target.targetRelativeSignal * through[j * zones + i]! / referenceLuminance, areaWeight: 1 });
   // For the grey card through lens.filter: the illuminant-weighted photopic transmission.
-  const cardTransmission = !lensFilter ? 1 : lensFilter.spectrallyFlat ? lensFilter.linearTransmissionFactor :
+  const cardTransmission = (): number => !lensFilter ? 1 : lensFilter.spectrallyFlat ? lensFilter.linearTransmissionFactor :
     luminanceOf((nm) => illuminant.shape.evaluate(nm) * filterT!(nm)) / luminanceOf((nm) => illuminant.shape.evaluate(nm));
   if (lensFilter) assume("lens.filter", "model", { filterIds: [...lensFilter.filterIds], linearTransmissionFactor: lensFilter.linearTransmissionFactor,
     attenuationStops: lensFilter.attenuationStops, spectrallyFlat: lensFilter.spectrallyFlat, scientificStatus: lensFilter.scientificStatus, limitations: [...lensFilter.limitations] },
@@ -2689,19 +2699,22 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
     // 2.14: incident metering. Every zone reads the 18 % Lambertian grey card under the request's illuminance, L = 0.18·E/π.
     if (callerScene?.kind === "radiance-function") fail('exposure.metering "grey-card" needs a scene lit by the illuminance; a radiance-function scene ignores illuminanceLux.');
     const cardLuminance = GREY_CARD_REFLECTANCE * illuminanceLux / Math.PI;
-    for (const sample of zoneSamples) sample.relativeLinearSignal = meterProfile.target.targetRelativeSignal * cardLuminance * cardTransmission / referenceLuminance;
+    for (const sample of zoneSamples) sample.relativeLinearSignal = meterProfile.target.targetRelativeSignal * cardLuminance * cardTransmission() / referenceLuminance;
     if (mixed) assume("exposure.meteringCard", "model", { position: { u: 0, v: 0 }, illuminanceLux },
       "Mixed lighting (#550): the grey card sits at the frame center and reads the light there.");
     assume("exposure.meteringSource", "model", { metering, greyCardReflectance: GREY_CARD_REFLECTANCE, luminanceCdPerSquareMeter: cardLuminance },
       "Grey-card (incident) metering: every meter zone reads an 18 % Lambertian grey card under the scene illuminance, L = 0.18·E/π, instead of the scene.");
   }
-  const meterResult = meterRelativeExposure({ profile: meterProfile, sampleSet: { measurementId: "facade-meter", sceneStateId: IDS.sceneState,
-    inputDomain: "relative-pre-exposure-linear-signal", captureRegion: "oriented-active-capture", captureGeometry: resolvedGeometry,
-    processingState: { exposureSettingsApplied: false, whiteBalanceApplied: false, toneMappingApplied: false, displayGammaApplied: false, sharpeningApplied: false },
-    samples: zoneSamples } });
-  let target = createExposureMeterTargetFromMeteringResult({ targetId: "facade-target", meterResult: meterResult.value });
-  if (compensation !== 0) target = setExposureCompensationOnMeterTarget({ targetId: "facade-target-ec", baseTarget: target, exposureCompensationStops: compensation });
-  let resolution: { status: string; resolvedSettings?: { aperture?: number; shutterSeconds?: number; iso?: number } };
+  const meterTarget = (): ReturnType<typeof createExposureMeterTargetFromMeteringResult> => {
+    const meterResult = meterRelativeExposure({ profile: meterProfile, sampleSet: { measurementId: "facade-meter", sceneStateId: IDS.sceneState,
+      inputDomain: "relative-pre-exposure-linear-signal", captureRegion: "oriented-active-capture", captureGeometry: resolvedGeometry,
+      processingState: { exposureSettingsApplied: false, whiteBalanceApplied: false, toneMappingApplied: false, displayGammaApplied: false, sharpeningApplied: false },
+      samples: zoneSamples } });
+    const base = createExposureMeterTargetFromMeteringResult({ targetId: "facade-target", meterResult: meterResult.value });
+    return compensation !== 0 ? setExposureCompensationOnMeterTarget({ targetId: "facade-target-ec", baseTarget: base, exposureCompensationStops: compensation }) : base;
+  };
+  let target = meterTarget();
+  let resolution!: { status: string; resolvedSettings?: { aperture?: number; shutterSeconds?: number; iso?: number } };
   let fNumber: number, shutterSeconds: number;
   const checkFNumber = (): void => {
     if (clamp(fNumber) !== fNumber)
@@ -2780,6 +2793,19 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
     if (mode === "aperture-priority") autoIsoAperturePriority = autoIsoShutterPolicy;
   }
   const limitsPolicy = autoIsoLimits ? { autoIsoLimits: { ...autoIsoLimits } } : {};
+  // #639: the meter reads the flash too (as a pre-flash would): each zone's ambient luminance plus the flash's luminance over the
+  // shutter t (src/facade/mixed-illumination.ts, meterFlash and solveFlashShutter).
+  let flashAt: ((t: number) => void) | undefined;
+  if (flash) {
+    flashWindow = Infinity;
+    const ambient = lightKit(resolveCaptureIlluminant);
+    flashAt = loadedKit(optInKit).meterFlash(zoneSamples, through, meterZones(buildProvider(illuminant, irradianceScale, ambient))[2], meterProfile.target.targetRelativeSignal / referenceLuminance,
+      metering === "grey-card" ? [ambient.center.illuminanceLux, illuminanceLux, GREY_CARD_REFLECTANCE / Math.PI * cardTransmission()] : undefined);
+  }
+  let calls = 0;
+  /** Resolves the settings from the reading at shutter t; returns their shutter. */
+  const resolveAt = (t: number): number => {
+  if (flashAt) { flashAt(t); target = meterTarget(); }
   if (mode === "manual") {
     resolution = resolveManualExposureMode({ target, capabilities: resolverCapabilities, referenceExposure: reference, manualAperture: fNumber, manualShutterSeconds: shutterSeconds,
       isoControl: automaticIso ? { kind: "automatic", quantizationPolicy: autoIsoBaseline.isoQuantizationPolicy, ...limitsPolicy } : { kind: "manual", iso } });
@@ -2797,16 +2823,33 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
     // #583: a lens range without f/4–f/16 limits the line to it; every other request keeps the line and its assumption.
     const programLine = facadeProgramLine(clamp(4), clamp(16), reference, FACADE_EVIDENCE);
     // A limited line (#583) records its nodes under the profile id "facade-generic-program-line-lens-range".
-    assume("exposure.programLine", "model", programLine.nodes.length > 4 ? programLine.profileId : programLine,
+    if (!calls) assume("exposure.programLine", "model", programLine.nodes.length > 4 ? programLine.profileId : programLine,
       "Engine-authored generic program line (f/16 1/2000 s … f/8 1/125 s … f/4 1.024 s); not a manufacturer program.");
     resolution = resolveProgramAutoExposureMode({ target, capabilities: resolverCapabilities, referenceExposure: reference, programLine,
       isoControl: automaticIso ? { kind: "automatic", ...autoIsoBaseline, ...limitsPolicy, ...(autoIsoShutterPolicy ? { slowestPreferredShutter: { ...autoIsoShutterPolicy } } : {}) } :
         { kind: "manual", iso } });
   }
+  calls++;
+  return resolution.resolvedSettings?.shutterSeconds ?? t;
+  };
+  if (!flashAt || mode === "manual" || mode === "shutter-priority") resolveAt(shutterSeconds);
+  else loadedKit(optInKit).solveFlashShutter(resolveAt, capabilities.shutter.minimumSeconds, capabilities.shutter.maximumSeconds);
   if (resolution.status !== "resolved" || !resolution.resolvedSettings) fail("Exposure could not be resolved (" + resolution.status + "); the scene may have no signal.");
   fNumber = resolution.resolvedSettings.aperture ?? fNumber;
   shutterSeconds = resolution.resolvedSettings.shutterSeconds ?? shutterSeconds;
   const resolvedIso = resolution.resolvedSettings.iso ?? iso;
+  // #639: the light for the resolved shutter: the flash's intensity Q/t over the window, every report and the meter's luminances with it.
+  if (flash) {
+    flashWindow = shutterSeconds;
+    mixed = lightKit(resolveCaptureIlluminant);
+    strongest = mixed.sources[mixed.center.strongestSource]!;
+    ({ option: illuminantOption, illuminant, irradianceScale } = strongest);
+    illuminanceLux = mixed.center.illuminanceLux;
+    sceneProvider = provider = buildProvider(illuminant, irradianceScale, mixed);
+    if (materialEvaluator) markInternalSceneRadianceEvaluator(provider.evaluateRadiance);
+    [meteredLuminance, filteredMean] = meterZones(provider);
+    loadedKit(optInKit).rebindFlashAssumptions(assumptions, mixed);
+  }
   // #551: motion.subject's fast method: with the default count and a still camera, one midpoint per site of the streak, plus one.
   if (subject) {
     const streakSites = loadedKit(optInKit).subjectTravelM(subject, shutterSeconds, metresPerFrameUnit * Math.hypot(1, aspect)) * width / (2 * metresPerFrameUnit), fewer = Math.ceil(streakSites) + 1;
@@ -2827,11 +2870,11 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   if (lensFilter) Object.assign(isoReport, { filter: Object.freeze({ filterIds: [...lensFilter.filterIds], linearTransmissionFactor: lensFilter.linearTransmissionFactor,
     attenuationStops: lensFilter.attenuationStops, spectrallyFlat: lensFilter.spectrallyFlat }) });
   // #624: with lens.filter the deviations are those of the light through the filter (the scene average, or the grey card, times T).
-  const sceneAverageThrough = lensFilter ? filteredLuminanceSum / (zones * zones) : meteredLuminance;
+  const sceneAverageThrough = lensFilter ? filteredMean : meteredLuminance;
   const exposureDeviationStops = standardExposureDeviationStops(fNumber, shutterSeconds, resolvedIso, sceneAverageThrough);
   const exposureIlluminanceLux = standardExposureIlluminanceLux(fNumber, shutterSeconds, resolvedIso, sceneAverageThrough, illuminanceLux,
     callerScene?.kind !== "radiance-function");
-  const exposureGreyCardDeviationStops = callerScene?.kind === "radiance-function" ? null : greyCardDeviationStops(fNumber, shutterSeconds, resolvedIso, illuminanceLux * cardTransmission);
+  const exposureGreyCardDeviationStops = callerScene?.kind === "radiance-function" ? null : greyCardDeviationStops(fNumber, shutterSeconds, resolvedIso, illuminanceLux * cardTransmission());
   // #549: the catalogue lens's character at the resolved f-number and focus: focus scatter, the defocus disc folded into its PSF, then
   // its distortion and vignetting profiles over the field the PSF and the queries reach, and its PSF profile.
   let catalogueTaps: number | undefined, catalogueDefocusApplied = false, catalogueKernelRadius = 0, catalogueCornerStops = 0, catalogueWorkingFNumber: number | undefined;
@@ -3119,6 +3162,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
       "Electronic rolling shutter (line reset/read linkage): a site at normalized scan position s integrates over [s·τ, s·τ + T]. " +
       (rollingSkewOption === undefined ? "τ is the body's declared full-frame data-readout skew, applied unchanged across the simulated frame (it is not scaled to the cropped sensor), so a small frame shows the skew of a full-sensor readout." :
         "τ is the caller-declared skew across the simulated frame."));
+    if (flash) loadedKit(optInKit).requireFlashRows(shutterSeconds, rollingSchedule.lineScanSkewSeconds);
   } else assume("sensor.shutter", "model", "global-electronic", "Global electronic shutter: every site integrates the same exposure window.");
   if (rotating) assume("motion.angularVelocityRadPerSec", "model", { ...angular },
     "Constant camera angular velocity applied to every scene ray at each temporal midpoint of each site's exposure window (engine rotation convention, docs/SENSOR_ENVIRONMENT_QUERY.md); motion blur is the midpoint quadrature over sensor.temporalSampleCount samples.");
@@ -4096,7 +4140,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
           detailRequested || lensCorrection ? ["native RAW development operator (linear, pre-clip)", ...detailContracts, sdrContract] : ["createNativeRawDevelopmentTask"]),
         ...(jpeg ? ["createPrintJpegTask"] : []), ...(png ? ["serializePngImage"] : []), ...(dng ? ["resolveSensorReadoutRegime", "serializeNativeRawDng"] : [])],
       limitations: ["Educational approximation: synthetic tier sensor values, idealized colorimetric sensor, planar Lambertian scene and point optics; not a calibrated camera emulation.",
-        "Not offered by the facade: atmospheric haze and polarizers (the scene-radiance provider contract declares no volumetric transport or polarization), flash, video, HDR brackets and processing operators; compose those APIs directly."] },
+        "Not offered by the facade: atmospheric haze and polarizers (the scene-radiance provider contract declares no volumetric transport or polarization), video, HDR brackets and processing operators; compose those APIs directly."] },
     assumptions: Object.freeze(assumptions.map((a) => Object.freeze(a)))
   });
 }

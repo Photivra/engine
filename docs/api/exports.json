@@ -5423,6 +5423,11 @@
       "kind": "type"
     },
     {
+      "name": "MixedIlluminationFlash",
+      "source": "src/facade/mixed-illumination.ts",
+      "kind": "type"
+    },
+    {
       "name": "MixedIlluminationPoint",
       "source": "src/facade/mixed-illumination.ts",
       "kind": "type"

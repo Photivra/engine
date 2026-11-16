@@ -1629,6 +1629,7 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 | --- | --- |
 | [`MixedIllumination`](api/facade-mixed-illumination.md#mixedillumination) | Type |
 | [`MixedIlluminationBlend`](api/facade-mixed-illumination.md#mixedilluminationblend) | Type |
+| [`MixedIlluminationFlash`](api/facade-mixed-illumination.md#mixedilluminationflash) | Type |
 | [`MixedIlluminationPoint`](api/facade-mixed-illumination.md#mixedilluminationpoint) | Type |
 | [`MixedIlluminationPointSource`](api/facade-mixed-illumination.md#mixedilluminationpointsource) | Type |
 | [`MixedIlluminationSource`](api/facade-mixed-illumination.md#mixedilluminationsource) | Type |

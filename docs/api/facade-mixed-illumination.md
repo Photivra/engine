@@ -14,6 +14,8 @@ export interface MixedIllumination {
   sources?: readonly MixedIlluminationSource[];
   blend?: MixedIlluminationBlend;
   points?: readonly MixedIlluminationPointSource[];
+  /** 2.26.0 (#639): an electronic flash ({@link MixedIlluminationFlash}); alone, or with sources or points (the ambient light). */
+  flash?: MixedIlluminationFlash;
 }
 ```
 
@@ -30,6 +32,22 @@ export type MixedIlluminationBlend =
   | { kind: "linear-gradient"; from: MixedIlluminationPoint; to: MixedIlluminationPoint; stops?: readonly number[] }
   | { kind: "radial"; center?: MixedIlluminationPoint; radius: number; stops?: readonly number[] }
   | { kind: "regions"; regions: readonly { source: number; uMin: number; uMax: number; vMin: number; vMax: number }[]; outsideSource: number };
+```
+
+## MixedIlluminationFlash
+
+2.26.0 (#639): an electronic flash, an impulse light with inverse-square falloff that adds to the sources and points: its spectrum
+(default a Planckian 5500 K stand-in, not a measured flash tube), its position (default at the camera: on the optical axis, `heightM`
+the subject distance) and its output at full power, as a guide number at ISO 100 in metres, a time-integrated intensity in cd·s, or a
+luminous exposure in lx·s at normal incidence at a distance; `powerFraction` in (0, 1] (default 1) is the manual power setting.
+
+```ts
+export interface MixedIlluminationFlash {
+  illuminant?: CaptureIlluminant;
+  position?: { xM: number; yM: number; heightM: number };
+  output: { guideNumberM: number } | { candelaSeconds: number } | { luxSeconds: number; distanceM: number };
+  powerFraction?: number;
+}
 ```
 
 ## MixedIlluminationPoint

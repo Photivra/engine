@@ -4011,6 +4011,39 @@ You may supply an optional committed `ResolvedReleaseFrame` from [release sequen
 
 Generic pre-flash TTL (through-the-lens) power, with flash exposure compensation, is solved separately by `resolveTtlFlashExposure()`, and applied to the manual profile with `createTtlScaledFlashProfile()`. Outside the manual-flash contract: FE/FV lock, recycle/burst/thermal limits, red-eye pre-flashes, modelling lamps, AF-assist and simulation of wireless protocols.
 
+## A flash in a capture
+
+`simulateCapture`, `simulateIdealReference`, `simulateDisplayView` and `prepareDisplayView` take `illumination.flash` (2.26.0, #639):
+an impulse light from a point whose energy does not depend on the shutter time, set by a guide number or by its energy, with
+inverse-square falloff, alone or mixed with ambient `sources` and `points`. The full model, its sources and its limits are in
+[Mixed lighting, Flash](MIXED_ILLUMINATION.md#flash).
+
+- **Output.** `output: { guideNumberM }` (at ISO 100, metres), `{ candelaSeconds }` (time-integrated luminous intensity Q) or
+  `{ luxSeconds, distanceM }` (luminous exposure at a distance, Q = H·r²); `powerFraction` (0, 1] is the manual power (Q·p, guide
+  number G·√p). The guide number is distance × f-number at ISO 100: Q = 10π·G²/(0.65·0.18·100) cd·s (CIPA DC-004-2020 standard
+  exposure of the facade's 18 % grey card), so `exposure.greyCardDeviationStops` is 0 at d·N = G.
+- **Light.** Each plane point receives H = Q·cos θ/d² lx·s whatever the shutter time; every path integrates it per site as a point
+  source of intensity Q/T over the exposure window T. Twice the distance gives a quarter of the exposure; with the flash alone the
+  shutter time changes nothing; with ambient light a longer shutter adds only the ambient part (slow sync).
+- **Exposure.** The meter reads ambient plus flash. Manual and shutter priority know the shutter; aperture priority and program find
+  the shutter whose own reading resolves to it (bisection on ln t over the body's shutter range).
+- **Default position and spectrum.** On the optical axis at the camera; a Planckian 5500 K stand-in (not a measured flash tube).
+- **Refused.** Camera rotation or `motion.subject` with a flash, and a rolling shutter shorter than its readout skew.
+
+```ts
+import { simulateCapture } from "@photivra/engine";
+
+// Guide number 16 at ISO 100: a grey card at 2 m is correctly exposed at f/8 (16 = 2 × 8), at any shutter.
+for (const shutterSeconds of [1 / 250, 1 / 30]) {
+  const capture = await simulateCapture({ scene: { preset: "uniform" }, subjectDistanceM: 2, lens: { fNumber: 8 }, output: { width: 16, height: 16 },
+    illumination: { flash: { output: { guideNumberM: 16 } } }, exposure: { mode: "manual", iso: 100, shutterSeconds } });
+  console.log(capture.exposure.greyCardDeviationStops); // 0 (up to rounding)
+}
+```
+
+The lower-level manual-flash, sync, TTL and high-speed-sync contracts below ([Manual flash and ordinary sync](#manual-flash-and-ordinary-sync))
+remain separate building blocks; the capture's flash does not run them.
+
 ## Capture orientation, active area, and output geometry
 
 Use `resolveCaptureGeometry()` to keep four things separate: the physical sensor, the active capture area, how the camera is physically held (orientation), and the final digital output geometry:

@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+### #639 Flash: an impulse light with power, falloff and ambient mix
+
+- **New:** `illumination.flash` for `simulateCapture`, `simulateIdealReference`, `simulateDisplayView` and `prepareDisplayView`: a point light whose energy does not depend on the shutter time, set by `output: { guideNumberM }` (at ISO 100), `{ candelaSeconds }` or `{ luxSeconds, distanceM }`, with `powerFraction`, `position` (default at the camera on the axis) and `illuminant` (default a Planckian 5500 K stand-in). It lights the plane with H = Q·cos θ/d² lx·s and adds to ambient `sources` and `points` (slow sync). Type `MixedIlluminationFlash`.
+- **Guide number:** Q = 10π·G²/(0.65·0.18·100) cd·s (CIPA DC-004-2020 standard exposure of the facade's 18 % grey card), so `exposure.greyCardDeviationStops` is 0 at distance × f-number = G at ISO 100.
+- **Every path per site:** captures and exports, the ideal reference, the display view (fast and exact) and a print's GPU light table take the flash as a point of intensity Q/T over the exposure window T.
+- **Exposure:** the meter reads ambient plus flash; aperture priority and program find the shutter whose own reading resolves to it (bisection on ln t). Reports are those at the resolved shutter.
+- **Refused:** a flash with camera rotation or `motion.subject`, and a rolling shutter shorter than its readout skew. `illumination` without two sources or a point may now hold just a flash; its message names the flash.
+- Requests without `illumination.flash` keep their bytes, except the facade limitation that listed flash as not offered.
+- Tests: `test/capture-flash.test.ts` (hand-computed exposures: guide number = d·N, inverse square, shutter independence, ambient + flash, the automatic modes, display view per site, GPU table). docs/MIXED_ILLUMINATION.md, "Flash"; docs/USAGE.md, "A flash in a capture".
+
 ## 2.25.0 — unreleased (prepared November 16, 2026)
 
 A minor release: the 26 issues of milestone 2.25.0 (#612–#633, #635–#638). Standalone helpers, a photo metadata reader, DNG and JPEG Exif writers, a half-size DNG preview, front-of-lens filters, look constants, catalogue-lens framing, glare, breathing and corrections, and faster defocused display views and exact catalogue PSFs. See the [2.25.0 release record](https://github.com/Photivra/engine/blob/main/docs/RELEASE_2_25_0.md).
