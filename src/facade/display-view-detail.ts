@@ -19,9 +19,16 @@
  * Approximations: the mask acts on expected values (the noise's interaction with the threshold and the clip is not modelled), and the noise
  * gain treats display pixels as independent. A coarser method at display scale was measured and left out (no better than no mask; see
  * docs/DISPLAY_VIEW.md).
+ *
+ * Cost (#649). The passes of one call share a site store (each native site's expected electrons, as the signal integrated them for that
+ * site, keyed by its coordinates) and a store of real pixels' recorded terms (the renderer's per-real-pixel memo, which under the fast
+ * method does not depend on the channel map: the gain is taken at the developed pixel's centre), both bounded and dropped when the call
+ * returns. The passes run band by band of whole rows so that a band's records are still held when its next pass reads them; with the mask
+ * the view-size render runs for the first channel map only, and passes whose samples are not used draw no noise. Each step forms the same
+ * values from the same operands, so the result is unchanged. The exact correction keeps its memos off, as before.
  */
 
-import type { DisplayViewCorrection, DisplayViewRenderResult, DisplayViewSetup, drawDisplayPixel, overlaps, renderDisplayView, unsharpNoiseGain } from "./display-view.js";
+import type { DisplayViewCorrection, DisplayViewExpectedSignal, DisplayViewPixelStore, DisplayViewRenderResult, DisplayViewSetup, drawDisplayPixel, overlaps, renderDisplayView, unsharpNoiseGain } from "./display-view.js";
 import { encodeSrgbComponentPortable } from "../color/srgb-transfer.js";
 import { portablePow } from "../core/portable-math.js";
 import { applyUnsharpMask, unsharpMaskKernel, type UnsharpMaskSettings } from "../processing/development-detail.js";
@@ -37,41 +44,120 @@ export interface DisplayViewDetail {
 type Rect = { x: number; y: number; width: number; height: number };
 const decode = (e: number): number => (e <= 0.04045 ? e / 12.92 : portablePow((e + 0.055) / 1.055, 2.4));
 const clip01 = (v: number): number => (v < 0 ? 0 : v > 1 ? 1 : v);
-/** Renders `rect` of a view with each channel's lens map: the green pass's result, and the composed expected values and covariances. */
-async function passes(setup: DisplayViewSetup, rect: Rect, detail: DisplayViewDetail): Promise<{ base: DisplayViewRenderResult; expected: Float64Array; covariance: Float64Array; sampleCount: number; siteCount: number }> {
-  const n = rect.width * rect.height, channels = detail.lens ? detail.lens.channels : [-1];
+/** #649: each per-call store's byte budget (32 MiB). */
+const STORE_BYTES = 1 << 25;
+/** #649 (internal; tests make it smaller): the most real pixels of one band of a call's renders; their terms fill about 80 % of the store. */
+export const displayViewDetailBand = { pixels: 3 << 15 };
+
+/**
+ * #649: a per-call store of `size` values per native site (x, y) (`DisplayViewPixelStore`): fixed tiles of 2^shift × 2^shift sites at
+ * absolute positions, at most `budgetBytes` in all, the least recently used tile dropped first. Each record is followed by its flag (1 when
+ * filled). It lives for one render call.
+ */
+export function createDisplayViewCallStore(shift: number, budgetBytes: number): DisplayViewPixelStore {
+  const side = 1 << shift, area = side * side, tiles = new Map<number, Float64Array>();
+  let size = 0, capacity = 0, key = -1, flag = 0;
+  const store = { records: new Float64Array(0) as Float64Array, offset: 0,
+    find(x: number, y: number, n: number): boolean {
+      if (n !== size) { tiles.clear(); size = n; key = -1; capacity = Math.max(1, Math.floor(budgetBytes / (8 * area * (n + 1)))); }
+      const k = (y >> shift) * 67108864 + (x >> shift);
+      if (k !== key) {
+        let t = tiles.get(k);
+        if (t) tiles.delete(k);
+        else if (tiles.size < capacity) t = new Float64Array(area * (n + 1));
+        else { const [oldest, reused] = tiles.entries().next().value!; tiles.delete(oldest); t = reused.fill(0); }
+        tiles.set(k, t); key = k; store.records = t;
+      }
+      store.offset = ((y & (side - 1)) * side + (x & (side - 1))) * (n + 1); flag = store.offset + n;
+      return store.records[flag] === 1;
+    },
+    filled(): void { store.records[flag] = 1; } };
+  return store;
+}
+
+/**
+ * #649: `signal` with a per-call site store in front: each native site's expected electrons, the value `signal.site` returned when the site
+ * was first read (and, where the window tracks it, its uniform material), keyed by the site's coordinates only. Every pass of the call reads
+ * it; it holds no value for a material, a channel or a signal level. Everything else is the signal's own.
+ */
+export function createDisplayViewSiteStore(signal: DisplayViewExpectedSignal, budgetBytes = STORE_BYTES): DisplayViewExpectedSignal {
+  const s = createDisplayViewCallStore(6, budgetBytes);
+  let material = -1;
+  return Object.create(signal, { uniformMaterial: { get: () => material }, site: { value(x: number, y: number): number {
+    const tracked = signal.tracksMaterial, hit = s.find(x, y, 2), r = s.records, o = s.offset;
+    // A site stored where materials were not tracked (−2) is read again in a window that tracks them.
+    if (hit && (!tracked || r[o + 1] !== -2)) { material = tracked ? r[o + 1]! : -1; return r[o]!; }
+    const v = signal.site(x, y);
+    material = signal.uniformMaterial; r[o] = v; r[o + 1] = tracked ? material : -2; s.filled();
+    return v;
+  } } }) as DisplayViewExpectedSignal;
+}
+
+/**
+ * Renders `rect` with each channel's lens map (`hooks`, green first): the first pass's result, and the composed expected values and the first
+ * pass's covariances. Only the first pass draws its noise, and none with `means` (#649: the other passes' samples are not used).
+ */
+async function passes(setup: DisplayViewSetup, rect: Rect, hooks: readonly (DisplayViewCorrection | undefined)[], channels: readonly number[], render: typeof renderDisplayView, means: boolean):
+  Promise<{ base: DisplayViewRenderResult; expected: Float64Array; covariance: Float64Array; sampleCount: number; siteCount: number }> {
+  const n = rect.width * rect.height;
   let base: DisplayViewRenderResult | undefined, expected = new Float64Array(0), covariance = new Float64Array(0), sampleCount = 0, siteCount = 0;
-  for (const channel of channels) {
-    const own = new Float64Array(base ? 0 : 6 * n);
-    const result = await detail.view.render({ ...setup, region: rect, ...(base ? {} : { covariance: own }),
-      ...(channel >= 0 ? { correction: detail.lens!.hook(channel, setup.viewWidth, setup.viewHeight) } : {}) });
+  for (let i = 0; i < hooks.length; i++) {
+    const own = new Float64Array(base ? 0 : 6 * n), hook = hooks[i], channel = channels[i]!;
+    // One object shape for every render of the call (an absent field is undefined), so the renderer's compiled code serves them all.
+    const result = await render({ ...setup, region: rect, covariance: base ? undefined : own, correction: hook, meansOnly: means || base !== undefined });
     sampleCount += result.sampleCount; siteCount += result.siteCount;
     if (!base) { base = result; expected = Float64Array.from(result.expected); covariance = own; continue; }
-    // This pass's component's mean; the noise is the green pass's.
+    // This pass's component's mean; the noise is the first pass's.
     for (let p = 0; p < n; p++) expected[3 * p + channel] = result.expected[3 * p + channel]!;
   }
   return { base: base!, expected, covariance, sampleCount, siteCount };
 }
+/** Copies `stride` values per pixel of `rect` (row-major) into `out`, the row-major values of `into`. */
+function place(values: Float64Array, rect: Rect, out: Float64Array, into: Rect, stride: number): void {
+  for (let y = 0; y < rect.height; y++) out.set(values.subarray(y * rect.width * stride, (y + 1) * rect.width * stride), ((rect.y - into.y + y) * into.width + rect.x - into.x) * stride);
+}
 
 /** The display view with lens corrections and sharpening (see the module comment). */
 export async function renderDisplayViewDetail(setup: DisplayViewSetup, detail: DisplayViewDetail): Promise<DisplayViewRenderResult> {
-  const { viewWidth: VW, viewHeight: VH, frameWidth: W, frameHeight: H, region } = setup, sx = W / VW, sy = H / VH, sh = detail.sharpening;
+  const { viewWidth: VW, viewHeight: VH, frameWidth: W, frameHeight: H, region } = setup, sx = W / VW, sy = H / VH, sh = detail.sharpening, lens = detail.lens;
   // One channel map and no mask: the corrected pass is the view.
   const { render, draw, overlaps, noiseGain: unsharpNoiseGain } = detail.view;
-  if (!sh && detail.lens && detail.lens.channels.length === 1) return render({ ...setup, correction: detail.lens.hook(detail.lens.channels[0]!, VW, VH) });
+  if (!sh && lens && lens.channels.length === 1) return render({ ...setup, correction: lens.hook(lens.channels[0]!, VW, VH) });
   const g = sh ? unsharpMaskKernel(sh.radiusPixels) : undefined, r = g ? (g.length - 1) / 2 : 0;
-  const rendered = await passes(setup, region, detail);
-  let { sampleCount, siteCount } = rendered;
-  const N = region.width * region.height, expected = rendered.expected, covariance = rendered.covariance;
+  // #649: the passes share the call's site store and store of real pixels' terms, and run band by band of whole rows (regions equal the whole
+  // view), so that a band's sites and real pixels are still held when its next pass reads them. With the mask, the view-size render runs for the
+  // first channel map only: the mask replaces every component's mean, and the noise and counts are the first pass's.
+  const shared: DisplayViewSetup = { ...setup, signal: createDisplayViewSiteStore(setup.signal), pixelStore: createDisplayViewCallStore(4, STORE_BYTES) };
+  const channels = lens ? lens.channels : [-1], hooksAt = (w: number, h: number): (DisplayViewCorrection | undefined)[] => channels.map((c) => (c >= 0 ? lens!.hook(c, w, h) : undefined));
+  const viewHooks = hooksAt(VW, VH).slice(0, sh ? 1 : channels.length), realHooks = sh ? hooksAt(W, H) : [];
+  const N = region.width * region.height, expected = new Float64Array(3 * N), covariance = new Float64Array(6 * N), saturated = new Float64Array(N);
+  // The real output pixels of the region and the mask's reach, rendered at 1:1.
+  const x0 = Math.max(0, Math.floor(region.x * sx) - r), y0 = Math.max(0, Math.floor(region.y * sy) - r);
+  const real = { x: x0, y: y0, width: Math.min(W, Math.ceil((region.x + region.width) * sx) + r) - x0, height: Math.min(H, Math.ceil((region.y + region.height) * sy) + r) - y0 };
+  const one = new Float64Array(sh ? 3 * real.width * real.height : 0);
+  let sampleCount = 0, siteCount = 0, detailPixelCount = 0, uniformPixelCount = 0, estimation: DisplayViewRenderResult["estimation"] = "exact-area-mean";
+  // Bands of equal height (the last one shorter), each at most `displayViewDetailBand.pixels` real pixels where a row allows it.
+  const count = Math.ceil(region.height / Math.max(1, Math.floor(displayViewDetailBand.pixels / (region.width * sx * sy)))), band = Math.ceil(region.height / count);
+  for (let by = region.y; by < region.y + region.height; by += band) {
+    const rect = { x: region.x, y: by, width: region.width, height: Math.min(band, region.y + region.height - by) };
+    const view = await passes(shared, rect, viewHooks, channels, render, false);
+    sampleCount += view.sampleCount; siteCount += view.siteCount; detailPixelCount += view.base.detailPixelCount; uniformPixelCount += view.base.uniformPixelCount; estimation = view.base.estimation;
+    place(view.expected, rect, expected, region, 3); place(view.covariance, rect, covariance, region, 6); place(view.base.saturated, rect, saturated, region, 1);
+    if (!sh) continue;
+    // The band's real rows at 1:1: from its first display row's to the next band's; the outer bands reach the mask's reach.
+    const uy0 = by === region.y ? real.y : Math.floor(by * sy), uy1 = by + band >= region.y + region.height ? real.y + real.height : Math.min(real.y + real.height, Math.floor((by + band) * sy));
+    if (uy1 <= uy0) continue;
+    const part = { x: real.x, y: uy0, width: real.width, height: uy1 - uy0 }, rendered = await passes({ ...shared, viewWidth: W, viewHeight: H }, part, realHooks, channels, render, true);
+    sampleCount += rendered.sampleCount; siteCount += rendered.siteCount;
+    place(rendered.expected, part, one, real, 3);
+  }
+  let saturatedPixelCount = 0;
+  for (let p = 0; p < N; p++) saturatedPixelCount += saturated[p]!;
   let noiseGain = 1;
   if (sh) {
     noiseGain = unsharpNoiseGain(g!, sx, sy, sh.amount);
-    // The real output pixels of the region and the mask's reach, at 1:1, the capture's own mask, then the area mean in linear light.
-    const x0 = Math.max(0, Math.floor(region.x * sx) - r), y0 = Math.max(0, Math.floor(region.y * sy) - r);
-    const real = { x: x0, y: y0, width: Math.min(W, Math.ceil((region.x + region.width) * sx) + r) - x0, height: Math.min(H, Math.ceil((region.y + region.height) * sy) + r) - y0 };
-    const one = await passes({ ...setup, viewWidth: W, viewHeight: H }, real, detail);
-    sampleCount += one.sampleCount; siteCount += one.siteCount;
-    const sharpened = applyUnsharpMask(Float64Array.from(one.expected, (v) => encodeSrgbComponentPortable(clip01(v))), real.width, real.height, sh).samples;
+    // The capture's own mask on the 1:1 values, then the area mean in linear light.
+    const sharpened = applyUnsharpMask(Float64Array.from(one, (v) => encodeSrgbComponentPortable(clip01(v))), real.width, real.height, sh).samples;
     for (let y = 0; y < region.height; y++) {
       const rows = overlaps((region.y + y) * sy, (region.y + y + 1) * sy, H);
       for (let x = 0; x < region.width; x++) {
@@ -92,7 +178,7 @@ export async function renderDisplayViewDetail(setup: DisplayViewSetup, detail: D
     draw(setup.seed, (region.y + y) * VW + region.x + x, expected[3 * p]!, expected[3 * p + 1]!, expected[3 * p + 2]!, c[0]!, c[1]!, c[2]!, c[3]!, c[4]!, c[5]!, samples, 3 * p, maximum);
     for (let k = 0; k < 3; k++) noiseStd[3 * p + k] = Math.sqrt(Math.max(0, c[[0, 3, 5][k]!]!));
   }
-  // The green pass's counts and highlight statistics (of the region).
-  return { ...rendered.base, samples, expected, noiseStd, sampleCount, siteCount };
+  // The first pass's counts and highlight statistics (of the region).
+  return { samples, expected, noiseStd, sampleCount, siteCount, detailPixelCount, uniformPixelCount, estimation, saturated, saturatedPixelCount };
 }
 
