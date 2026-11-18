@@ -22,8 +22,13 @@
  *   white or above) or, with the desaturation, a rendered component reaches 1, the whole chain (white balance, highlight,
  *   matrix, tone curve, desaturation, clip) is integrated over the pixel's normal camera channels with a tensor Gauss–Hermite
  *   rule in Cholesky coordinates (nodes and weights from the Jacobi matrix's eigenvalues, Golub & Welsch 1969; NIST DLMF
- *   §3.5(v)): full 16 points per axis (4,096 nodes), fast 6 per axis (216). Elsewhere `reconstruct` is the unclipped white
- *   balance (exactly linear) and the desaturation leaves the pixel unchanged.
+ *   §3.5(v)): full 16 points per axis (4,096 nodes); fast (#656, 2.27.0) 3 per axis (27) where every channel's σ is below 0.01
+ *   and no kink of the chain other than the highlight blend's (0.8 of white, white, a channel's clip level, the largest channel)
+ *   lies within 8.5σ of the mean — no tone output component reaches 0 or 1 (the output clip, the desaturation's start), the
+ *   luminance does not reach 0 with a luminance curve, no node takes the desaturation, and not with "reconstruct-neighbors" —
+ *   else 6 per axis (216). The spread of a component is taken as Σ_j max|slope_j|·σ_j over the mean and the nodes, which
+ *   bounds its σ (|C_ij| ≤ σ_i·σ_j). Elsewhere `reconstruct` is the unclipped white balance (exactly linear) and the
+ *   desaturation leaves the pixel unchanged.
  * The fast rules are the registered fast methods `output.toneCurve/view-luminance-moments` and
  * `output.highlightMode.reconstruct/view-moments` (src/facade/fast-methods.ts); their measured bounds are in docs/DISPLAY_VIEW.md.
  */
@@ -70,7 +75,11 @@ export function gaussHermite(n: number): { x: Float64Array; w: Float64Array } {
 }
 
 /** Points per axis of the 3-D rule (full and fast) and of the fast 1-D luminance rule. */
-export const DISPLAY_VIEW_CHAIN_POINTS = /* @__PURE__ */ Object.freeze({ full: 16, fast: 6 });
+export const DISPLAY_VIEW_CHAIN_POINTS = /* @__PURE__ */ Object.freeze({ full: 16, fast: 6, fastLow: 3 });
+/** #656: the fast rule takes `fastLow` points per axis where every channel's σ is below this (and its probe finds no kink). */
+export const DISPLAY_VIEW_CHAIN_LOW_SIGMA = 0.01;
+/** One node at the mean (channels without noise). */
+const POINT_RULE = /* @__PURE__ */ Object.freeze({ x: Float64Array.of(0), w: Float64Array.of(1) });
 export const DISPLAY_VIEW_LUMINANCE_FAST_POINTS = 8;
 
 /** What the view renders: the request's tone curve, highlight mode and gamut handling (#601), and whether the fast rules run. */
@@ -106,9 +115,13 @@ export interface DisplayViewCoupledRendering {
   readonly neighborRegions: { measured: number; capped: number };
   readonly desaturate: boolean;
   readonly choice: DisplayViewRenderingChoice;
-  /** Points per axis of the 3-D rule in use; the luminance rule's Gauss–Hermite nodes and weights (8 points), for the GPU kernels. */
+  /** Points per axis of the 3-D rule in use (the fast rule's higher order); the luminance rule's Gauss–Hermite nodes and weights (8 points), for the GPU kernels. */
   readonly chainPoints: number;
   readonly chainRule: { x: Float64Array; w: Float64Array };
+  /** #656: the fast rule's low order (3 points) where the kink probe allows it (see the module notes), or null (full rule, neighbors). */
+  readonly chainLowRule: { x: Float64Array; w: Float64Array } | null;
+  /** #656: the channel σ below which the low order may run (DISPLAY_VIEW_CHAIN_LOW_SIGMA). */
+  readonly chainLowSigma: number;
   readonly luminanceRule: { x: Float64Array; w: Float64Array };
   /** The luminance curve's ratio limit r(0+) (1, 0, 1/(σ·g(Lw)) or ∞). */
   readonly ratioAtZero: number;
@@ -116,7 +129,8 @@ export interface DisplayViewCoupledRendering {
   pixel(c0: number, c1: number, c2: number, out: Float64Array): void;
   /**
    * The moments of the rendered pixel for camera channels c ~ N(cm, C) (C row-major 3 × 3), integrated over the whole chain:
-   * mean (hm), variance (hv) and the expected slopes ∂out_k/∂c_j (A, row-major 3 × 3). Returns the number of nodes evaluated.
+   * mean (hm), variance (hv) and the expected slopes ∂out_k/∂c_j (A, row-major 3 × 3). Returns the number of nodes of the rule
+   * that gave the result (27 or 216 fast, 4,096 full, 1 without noise).
    */
   chain(cm: Float64Array, C: Float64Array, hm: Float64Array, hv: Float64Array, A: Float64Array): number;
   /**
@@ -161,10 +175,11 @@ function luminanceRatio(curve: SdrToneCurve, p: SdrToneCurveParameters | undefin
 
 /**
  * Internal: the coupled rendering of a view, or null when its tone curve is per channel, its highlight mode `clip` and its gamut
- * handling the component clip (the view's own per-component arithmetic then runs, byte for byte as before).
+ * handling the component clip (the view's own per-component arithmetic then runs, byte for byte as before). `lowOrder` false
+ * (tests only) keeps the fast rule at 6 points per axis everywhere, the 2.22.0–2.26.0 fast rule.
  */
 export function createDisplayViewCoupledRendering(choice: DisplayViewRenderingChoice, gains: readonly number[], clipLevel: number,
-  matrix: readonly (readonly number[])[]): DisplayViewCoupledRendering | null {
+  matrix: readonly (readonly number[])[], lowOrder = true): DisplayViewCoupledRendering | null {
   const luminanceTone = choice.toneCurve === "extended-reinhard-luminance" || choice.toneCurve === "naka-rushton-luminance";
   const neighbors = choice.highlightMode === "reconstruct-neighbors", reconstruct = choice.highlightMode === "reconstruct" || neighbors, desaturate = choice.gamutHandling === "desaturate-to-luminance";
   if (!luminanceTone && !reconstruct && !desaturate) return null;
@@ -175,6 +190,13 @@ export function createDisplayViewCoupledRendering(choice: DisplayViewRenderingCh
   const chainRule = gaussHermite(choice.fast ? DISPLAY_VIEW_CHAIN_POINTS.fast : DISPLAY_VIEW_CHAIN_POINTS.full), hermite8 = gaussHermite(DISPLAY_VIEW_LUMINANCE_FAST_POINTS);
   const rr = new Float64Array(2), b = new Float64Array(3), Jb = new Float64Array(9), y = new Float64Array(3), z = new Float64Array(3), Jt = new Float64Array(9), Jz = new Float64Array(9);
   const T = new Float64Array(9), c = new Float64Array(3), out = new Float64Array(3), Jo = new Float64Array(9), chol = new Float64Array(9);
+  // #656: the fast rule's low order and its kink probe (see `integrate`): the tone output before the desaturation (zp), whether a
+  // node took the desaturation, and the largest slopes seen of the developed values (Gy) and the tone output (Gz).
+  const lowRule = choice.fast && !neighbors && lowOrder ? gaussHermite(DISPLAY_VIEW_CHAIN_POINTS.fastLow) : null, zp = new Float64Array(3);
+  const Gy = new Float64Array(9), slopeY = new Float64Array(9), slopeZ = new Float64Array(9), sd = new Float64Array(3), centreZ = new Float64Array(3), centreY = new Float64Array(3);
+  const lowVariance = DISPLAY_VIEW_CHAIN_LOW_SIGMA * DISPLAY_VIEW_CHAIN_LOW_SIGMA;
+  /** Whether the last `develop` took the desaturation, and whether any node of the last probing `sum` did. */
+  let desaturated = false, desaturatedNode = false;
   /** The highlight step b(c) and its slopes Jb = ∂b/∂c (a.e.), as `prepareSensorColorDevelopment` develops. */
   function highlight(c0: number, c1: number, c2: number): void {
     const u0 = c0 * g[0]!, u1 = c1 * g[1]!, u2 = c2 * g[2]!;
@@ -220,6 +242,8 @@ export function createDisplayViewCoupledRendering(choice: DisplayViewRenderingCh
     }
     // #601: toward the luminance until the largest component is 1 (src/output/sdr-rendering.ts, desaturateToLuminance).
     const top = z[0]! > z[1]! ? (z[0]! > z[2]! ? 0 : 2) : (z[1]! > z[2]! ? 1 : 2), zt = z[top]!;
+    zp[0] = z[0]!; zp[1] = z[1]!; zp[2] = z[2]!;
+    desaturated = desaturate && zt > 1;
     if (desaturate && zt > 1) {
       const lp = w0 * z[0]! + w1 * z[1]! + w2 * z[2]!;
       if (lp >= 1) { out.fill(1); Jo.fill(0); return; }
@@ -250,26 +274,90 @@ export function createDisplayViewCoupledRendering(choice: DisplayViewRenderingCh
   }
   // #645: the chain is a function of the pixel's channel moments (cm, C) and its region ratios alone, and many pixels share them
   // exactly (a patch's interior), so its results are kept by the exact bits of those inputs (at most 65,536 at a time): the same values.
-  const memo = new Map<string, Float64Array>();
+  // #656: kept under a 32-bit hash of those bits, each entry holding its inputs' bits (compared in full) before its results.
+  const memo = new Map<number, Float64Array>(), keyIn = new Float64Array(15), keyBits = new Uint32Array(keyIn.buffer);
   function chain(cm: Float64Array, C: Float64Array, hm: Float64Array, hv: Float64Array, A: Float64Array): number {
-    const key = new Uint32Array(Float64Array.of(...cm, ...C, ...(rho ?? [])).buffer).join();
-    let kept = memo.get(key);
-    if (!kept) { const nodes = integrate(cm, C, hm, hv, A); if (memo.size > 65535) memo.clear(); memo.set(key, kept = Float64Array.of(...hm, ...hv, ...A, nodes)); }
-    hm.set(kept.subarray(0, 3)); hv.set(kept.subarray(3, 6)); A.set(kept.subarray(6, 15));
-    return kept[15]!;
+    keyIn.set(cm, 0); keyIn.set(C, 3);
+    if (rho) keyIn.set(rho, 12);
+    const m = rho ? 15 : 12, words = 2 * m;
+    let h = m;
+    for (let i = 0; i < words; i++) h = Math.imul(h ^ keyBits[i]!, 16777619);
+    let kept = memo.get(h);
+    if (kept && kept.length === m + 16) {
+      const bits = new Uint32Array(kept.buffer, kept.byteOffset, words);
+      for (let i = 0; i < words; i++) if (bits[i] !== keyBits[i]) { kept = undefined; break; }
+    } else kept = undefined;
+    if (!kept) {
+      const nodes = integrate(cm, C, hm, hv, A);
+      if (memo.size > 65535) memo.clear();
+      kept = new Float64Array(m + 16); kept.set(keyIn.subarray(0, m)); kept.set(hm, m); kept.set(hv, m + 3); kept.set(A, m + 6); kept[m + 15] = nodes;
+      memo.set(h, kept);
+    }
+    hm.set(kept.subarray(m, m + 3)); hv.set(kept.subarray(m + 3, m + 6)); A.set(kept.subarray(m + 6, m + 15));
+    return kept[m + 15]!;
   }
   function integrate(cm: Float64Array, C: Float64Array, hm: Float64Array, hv: Float64Array, A: Float64Array): number {
     // Cholesky factor of C (positive semidefinite; tiny negative pivots are treated as 0).
     chol.fill(0);
     const l00 = Math.sqrt(Math.max(0, C[0]!)), l10 = l00 > 0 ? C[3]! / l00 : 0, l20 = l00 > 0 ? C[6]! / l00 : 0;
     const l11 = Math.sqrt(Math.max(0, C[4]! - l10 * l10)), l21 = l11 > 0 ? (C[7]! - l20 * l10) / l11 : 0, l22 = Math.sqrt(Math.max(0, C[8]! - l20 * l20 - l21 * l21));
-    const rule = l00 > 0 || l11 > 0 || l22 > 0 ? chainRule : { x: Float64Array.of(0), w: Float64Array.of(1) }, n = rule.x.length;
-    let e0 = 0, e1 = 0, e2 = 0, q0 = 0, q1 = 0, q2 = 0;
+    const noise = l00 > 0 || l11 > 0 || l22 > 0, second = l11 > 0 || l21 !== 0 || l22 > 0;
+    const dimensions = (l00 > 0 ? 1 : 0) + (second ? 1 : 0) + (l22 > 0 ? 1 : 0);
+    // #656 (fast): the 3-point rule where every channel's σ is below DISPLAY_VIEW_CHAIN_LOW_SIGMA and no kink of the chain other
+    // than the highlight blend's lies within reach (`kinkInReach`); else the 6-point rule, as before.
+    if (noise && lowRule && C[0]! < lowVariance && C[4]! < lowVariance && C[8]! < lowVariance) {
+      sd[0] = l00; sd[1] = Math.sqrt(l10 * l10 + l11 * l11); sd[2] = Math.sqrt(l20 * l20 + l21 * l21 + l22 * l22);
+      // The mean first (a node of the odd rule): a kink in reach of its own slopes is in reach of the nodes' largest slopes.
+      develop(cm[0]!, cm[1]!, cm[2]!);
+      for (let r = 0; r < 3; r++) for (let s = 0; s < 3; s++) Gy[r * 3 + s] = M[r * 3]! * Jb[s]! + M[r * 3 + 1]! * Jb[3 + s]! + M[r * 3 + 2]! * Jb[6 + s]!;
+      slopes(true);
+      if (!desaturated && !kinkInReach(zp, y)) {
+        centreZ.set(zp); centreY.set(y);
+        sum(lowRule, cm, l00, l10, l20, l11, l21, l22, second, hm, hv, A, true);
+        if (!desaturatedNode && !kinkInReach(centreZ, centreY)) return lowRule.x.length ** dimensions;
+      }
+    }
+    sum(noise ? chainRule : POINT_RULE, cm, l00, l10, l20, l11, l21, l22, second, hm, hv, A, false);
+    return chainRule.x.length ** dimensions;
+  }
+  /**
+   * The slopes of the developed values (Gy = M·Jb, formed by the caller) and of the tone output (Jt·Gy) at the last node, into the
+   * largest seen (or reset).
+   */
+  function slopes(reset: boolean): void {
+    for (let o = 0; o < 9; o++) {
+      const r = o - (o % 3), s = o % 3, gy = Math.abs(Gy[o]!), gz = Math.abs(Jt[r]! * Gy[s]! + Jt[r + 1]! * Gy[3 + s]! + Jt[r + 2]! * Gy[6 + s]!);
+      if (reset || gy > slopeY[o]!) slopeY[o] = gy;
+      if (reset || gz > slopeZ[o]!) slopeZ[o] = gz;
+    }
+  }
+  /**
+   * Whether, within 8.5σ of the mean (a component's spread taken as Σ_j largest |slope_j|·σ_j, which bounds its σ since
+   * |C_ij| ≤ σ_i·σ_j), a tone output component reaches 0 or 1 (the output clip and the desaturation's start), or, with a luminance
+   * curve, the luminance reaches 0 (where the ratio may jump). zc and yc: the tone output and the developed values at the mean.
+   */
+  function kinkInReach(zc: Float64Array, yc: Float64Array): boolean {
+    for (let o = 0; o < 3; o++) {
+      const spread = CLIP_REACH_SIGMA * (slopeZ[o * 3]! * sd[0]! + slopeZ[o * 3 + 1]! * sd[1]! + slopeZ[o * 3 + 2]! * sd[2]!), v = zc[o]!;
+      if (!(Math.abs(v) > spread) || !(Math.abs(v - 1) > spread)) return true;
+    }
+    if (ratio) {
+      let l = 0, spread = 0;
+      for (let o = 0; o < 3; o++) { l += w[o]! * yc[o]!; spread += Math.abs(w[o]!) * (slopeY[o * 3]! * sd[0]! + slopeY[o * 3 + 1]! * sd[1]! + slopeY[o * 3 + 2]! * sd[2]!); }
+      if (!(Math.abs(l) > CLIP_REACH_SIGMA * spread)) return true;
+    }
+    return false;
+  }
+  /** The tensor rule over the chain into hm, hv and A; with `probe`, the nodes' largest slopes and whether one took the desaturation. */
+  function sum(rule: { x: Float64Array; w: Float64Array }, cm: Float64Array, l00: number, l10: number, l20: number, l11: number, l21: number, l22: number,
+    second: boolean, hm: Float64Array, hv: Float64Array, A: Float64Array, probe: boolean): void {
+    const n = rule.x.length;
+    let e0 = 0, e1 = 0, e2 = 0, q0 = 0, q1 = 0, q2 = 0, anyDesaturated = false;
     T.fill(0);
     for (let i = 0; i < n; i++) {
       const x0 = rule.x[i]!, wi = rule.w[i]!;
-      for (let j = 0; j < (l11 > 0 || l21 !== 0 || l22 > 0 ? n : 1); j++) {
-        const x1 = l11 > 0 || l21 !== 0 || l22 > 0 ? rule.x[j]! : 0, wj = l11 > 0 || l21 !== 0 || l22 > 0 ? wi * rule.w[j]! : wi;
+      for (let j = 0; j < (second ? n : 1); j++) {
+        const x1 = second ? rule.x[j]! : 0, wj = second ? wi * rule.w[j]! : wi;
         for (let k = 0; k < (l22 > 0 ? n : 1); k++) {
           const x2 = l22 > 0 ? rule.x[k]! : 0, weight = l22 > 0 ? wj * rule.w[k]! : wj;
           c[0] = cm[0]! + l00 * x0; c[1] = cm[1]! + l10 * x0 + l11 * x1; c[2] = cm[2]! + l20 * x0 + l21 * x1 + l22 * x2;
@@ -279,15 +367,17 @@ export function createDisplayViewCoupledRendering(choice: DisplayViewRenderingCh
           // ∂out/∂c = Jo·M·Jb.
           for (let r = 0; r < 3; r++) for (let s = 0; s < 3; s++) {
             const ms = M[r * 3]! * Jb[s]! + M[r * 3 + 1]! * Jb[3 + s]! + M[r * 3 + 2]! * Jb[6 + s]!;
+            Gy[r * 3 + s] = ms;
             for (let o = 0; o < 3; o++) T[o * 3 + s] = T[o * 3 + s]! + weight * Jo[o * 3 + r]! * ms;
           }
+          if (probe) { slopes(false); if (desaturated) anyDesaturated = true; }
         }
       }
     }
     hm[0] = e0; hm[1] = e1; hm[2] = e2;
     hv[0] = Math.max(0, q0 - e0 * e0); hv[1] = Math.max(0, q1 - e1 * e1); hv[2] = Math.max(0, q2 - e2 * e2);
     A.set(T);
-    return n ** ((l00 > 0 ? 1 : 0) + (l11 > 0 || l21 !== 0 || l22 > 0 ? 1 : 0) + (l22 > 0 ? 1 : 0));
+    desaturatedNode = anyDesaturated;
   }
   function reconstructInReach(cm: Float64Array, C: Float64Array): boolean {
     const threshold = neighbors ? NEIGHBOR_HIGHLIGHT_THRESHOLD : start;
@@ -499,5 +589,5 @@ export function createDisplayViewCoupledRendering(choice: DisplayViewRenderingCh
     for (let k = 0; k < 3; k++) { hm[k] = m1[k]!; hv[k] = Math.max(0, m2[k]! - m1[k]! * m1[k]!); }
     return !(desaturate && reachesTop);
   }
-  return { luminanceTone, reconstruct, neighbors, ...(neighbors ? { bindView, at, ratioAt } : {}), neighborRegions, desaturate, choice, chainPoints: chainRule.x.length, chainRule, luminanceRule: hermite8, ratioAtZero: ratioZero, pixel, chain, reconstructInReach, tone };
+  return { luminanceTone, reconstruct, neighbors, ...(neighbors ? { bindView, at, ratioAt } : {}), neighborRegions, desaturate, choice, chainPoints: chainRule.x.length, chainRule, chainLowRule: lowRule, chainLowSigma: DISPLAY_VIEW_CHAIN_LOW_SIGMA, luminanceRule: hermite8, ratioAtZero: ratioZero, pixel, chain, reconstructInReach, tone };
 }
