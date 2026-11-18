@@ -38,7 +38,7 @@ export const NEAREST_COMPOSITE_ARITHMETIC: CompositeArithmetic = Object.freeze({
 
 /** A product not yet rounded: what a fusing compiler can still add to with one rounding. */
 class Prod { constructor(readonly a: number, readonly b: number) {} }
-type V = number | Prod;
+export type V = number | Prod;
 interface Ops {
   mul(a: number, b: number): V;
   add(x: V, y: V): number;
@@ -179,10 +179,10 @@ export function emulateCompositeChart(p: Uint32Array, points: Float32Array, tabl
   }
 }
 
-interface B { v: V; e: number }
+export interface B { v: V; e: number }
 
 /** The kernel's bound arithmetic and decisions on an arithmetic, with the shared `flagged` state. */
-interface BoundOps {
+export interface BoundOps {
   bds(a: Dw, scale: number): B; bd(a: Dw): B; bc(c: number): B; bx(c: number): B; badd(a: B, b: B): B; bsub(a: B, b: B): B; bmul(a: B, b: B): B; bneg(a: B): B; babs(a: B): B;
   bdiv(a: B, b: B): B; margin(x: B): number; ge0(x: B): boolean; ge(a: B, b: B): boolean; gt(a: B, b: B): boolean; lt(a: B, b: B): boolean; le(a: B, b: B): boolean;
   bfloor(x: B, lo: number, hi: number): number;
@@ -193,7 +193,7 @@ interface BoundOps {
  * made the per-operation calls about 2.4 times slower (test/display-view-composite-gpu.test.ts, M5 Pro: 95 s before the arithmetic
  * models, 230 s through `boundOps`).
  */
-function nearestBoundOps(flag: () => void): BoundOps {
+export function nearestBoundOps(flag: () => void): BoundOps {
   const n = (x: V): number => x as number;
   const bds = (a: Dw, scale: number): B => ({ v: a[0], e: f(f(Math.abs(a[1]) + f(DW * f(f(Math.abs(a[0]) + Math.abs(a[1])) + scale))) + TINY) });
   const bd = (a: Dw): B => bds(a, 0);

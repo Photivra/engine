@@ -220,7 +220,8 @@ describe("the app's capture-worker shape", () => {
     expect(quality).toHaveLength(1);
     const chunk = quality[0]!;
     expect(chunk.isEntry).toBe(false);
-    expect([...chunk.modules].sort()).toEqual(["gpu/display-view-quality-gpu.ts", "gpu/wgsl-display-view-quality-kernel.ts", "gpu/wgsl-exact-sum.ts"]);
+    // #655 (G1): the catalogue-lens passes load with the Quality host (its chunk).
+    expect([...chunk.modules].sort()).toEqual(["gpu/display-view-lens-gpu.ts", "gpu/display-view-quality-gpu.ts", "gpu/wgsl-display-view-lens-kernel.ts", "gpu/wgsl-display-view-quality-kernel.ts", "gpu/wgsl-exact-sum.ts"]);
     expect(worker.chunks.filter((c) => c.imports.includes(chunk.fileName))).toEqual([]);
     const loaders = worker.chunks.filter((c) => c.dynamicImports.includes(chunk.fileName));
     expect(loaders.map((c) => c.modules.has("gpu/display-view-gpu-renderer.ts"))).toEqual([true]);

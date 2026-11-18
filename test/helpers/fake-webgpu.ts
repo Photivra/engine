@@ -16,6 +16,7 @@ const f = Math.fround;
 // #477: the composite chart kernel and its probe are emulated in their own module.
 import { createCompositeDisplayViewMaterialEmulator, createImagePlaneDisplayViewMaterialEmulator, emulateComposite, emulateImagePlaneQualityLattice, NEAREST_COMPOSITE_ARITHMETIC, type CompositeArithmetic } from "./fake-webgpu-composite.js";
 import { chartCompositeMaterialModuleId } from "../../src/gpu/display-view-composite-material-module.js";
+import { emulateLensLattice, emulateLensPoints, emulateLensSites } from "./fake-webgpu-display-view-lens.js";
 import type { ChartCompositeProductPath } from "../../src/gpu/wgsl-chart-composite-kernel.js";
 
 /** The product path of a display-view pipeline label that carries the composite material module, or null. */
@@ -275,6 +276,13 @@ function emulate(fullLabel: string, buffers: Map<number, FakeBuffer>, arithmetic
     emulateDisplayViewQualitySitesBlocked(u32(0), f32(0), u32(1), f32(3), u32(4), f32(5), f32(6));
   } else if (label === "photivra-display-view-quality-pixels") {
     emulateDisplayViewQualityPixels(u32(0), f32(0), f32(1), f32(2), f32(3), f32(4), u32(5), f32(1).subarray(DISPLAY_VIEW_QUALITY_AUX.size), neighbors);
+  } else if (label === "photivra-display-view-lens-lattice:dekker") {
+    // #655 (G1): the catalogue-lens passes (group 1 of the lattice pass: float records 100, integer records 101, lattice uniform 102).
+    emulateLensLattice(u32(0), u32(1), u32(2), f32(100), u32(101), u32(102));
+  } else if (label === "photivra-display-view-lens-points") {
+    emulateLensPoints(u32(0), u32(1), f32(2), u32(3), f32(4), f32(5));
+  } else if (label === "photivra-display-view-lens-sites") {
+    emulateLensSites(u32(0), u32(1), f32(2), f32(3), f32(4), f32(5), f32(6), f32(7));
   } else if (!emulateComposite(label, (b) => buffers.get(b)!.data, composite)) {
     throw new Error(`No emulator for ${label}`);
   }

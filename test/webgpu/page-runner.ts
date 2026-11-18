@@ -19,6 +19,9 @@ import type { ChartCompositeProductPath } from "../../src/gpu/wgsl-chart-composi
 import { runImagePlaneConformance } from "../../src/gpu/display-view-image-material-module.js";
 import { calculateChartRadianceBatchPlan, prepareImagePlaneScenes, type ChartCompositeProbeRecord } from "../../src/index.js";
 import type { SimulateCaptureOptions, SimulateDisplayViewOptions } from "../../src/index.js";
+import { displayViewLensGpuFixture, renderLensOnGpu } from "../helpers/display-view-lens-gpu-fixture.js";
+import { DISPLAY_VIEW_LENS_CONFORMANCE_CASE } from "../../src/gpu/display-view-quality-gpu.js";
+import { createDisplayViewGpuRenderer } from "../../src/gpu/display-view-gpu-renderer.js";
 
 interface RunRequest<T> { input: T; maximumBandBytes?: number; timeCpu?: boolean; repeat?: number; reference?: boolean }
 
@@ -292,4 +295,52 @@ export async function compositeProbe(payload: string): Promise<string> {
     uploads.release();
     return encodeTransport({ record, compiled, values: result.values, hostRecomputedQueryIndices: result.hostRecomputedQueryIndices, reference: calculateChartRadianceBatch(input).values });
   } finally { runtime.destroy(); }
+}
+
+/**
+ * #655 (G1): a catalogue-lens view on the device through the lens passes and the Quality host (the CPU reference rendered in the page,
+ * its bytes returned for the Node driver's check), with the passes' record.
+ */
+export async function displayViewLens(payload: string): Promise<string> {
+  const { options, view, maximumBandBytes, repeat } = decodeTransport<{ options: SimulateCaptureOptions; view: SimulateDisplayViewOptions; maximumBandBytes?: number; repeat?: number }>(payload);
+  const fixture = await displayViewLensGpuFixture(options, view), device = await runtime();
+  try {
+    let result: Awaited<ReturnType<typeof renderLensOnGpu>> | undefined, milliseconds = 0;
+    for (let i = 0; i < (repeat ?? 1); i++) { const start = performance.now(); result = await renderLensOnGpu(device, fixture, maximumBandBytes); milliseconds = performance.now() - start; }
+    const { gpu, passes } = result!;
+    return encodeTransport({ cpu: { samples: fixture.cpu.samples, expected: fixture.cpu.expected, noiseStd: fixture.cpu.noiseStd, saturated: fixture.cpu.saturated },
+      gpu: { samples: gpu.samples, expected: gpu.expected, noiseStd: gpu.noiseStd, expectedValueBound: gpu.expectedValueBound, varianceBound: gpu.varianceBound,
+        expectedValueAbsoluteBound: gpu.expectedValueAbsoluteBound, varianceAbsoluteBound: gpu.varianceAbsoluteBound, saturated: gpu.saturated },
+      flaggedPixelIndices: gpu.flaggedPixelIndices, hostRecomputedPixelIndices: gpu.hostRecomputedPixelIndices, highlightRecomputedPixelIndices: gpu.highlightRecomputedPixelIndices,
+      execution: gpu.execution, gpuMilliseconds: milliseconds, stageMilliseconds: gpu.stageMilliseconds, tapsPerSite: gpu.tapsPerSite, cpuStages: null,
+      latticePointsResolved: passes.latticePointsResolved, zonesUploaded: passes.zonesUploaded, probe: passes.probe });
+  } finally { device.destroy(); }
+}
+
+/** #655 (G1): the lens passes' self-check case on the device. */
+export async function displayViewLensConformance(): Promise<string> {
+  const device = await runtime();
+  try { return encodeTransport({ outcome: await DISPLAY_VIEW_LENS_CONFORMANCE_CASE.run(device, undefined) }); }
+  finally { device.destroy(); }
+}
+
+/**
+ * #655 (G1): the GPU time of a catalogue-lens part against the same part through a prime, both through the combined renderer on one
+ * device (warm: the median of `repeat` renders after one untimed render).
+ */
+export async function displayViewLensTiming(payload: string): Promise<string> {
+  const { catalogue, prime, view, repeat } = decodeTransport<{ catalogue: SimulateCaptureOptions; prime: SimulateCaptureOptions; view: SimulateDisplayViewOptions; repeat: number }>(payload);
+  const device = await runtime(), renderer = createDisplayViewGpuRenderer(device);
+  try {
+    const median = (values: number[]): number => { const v = [...values].sort((a, b) => a - b); return v[Math.floor(v.length / 2)]!; };
+    const time = async (setup: Parameters<typeof renderer.render>[0]["setup"]): Promise<number[]> => {
+      await renderer.render({ setup, signal: undefined });
+      const out: number[] = [];
+      for (let i = 0; i < repeat; i++) { const start = performance.now(); await renderer.render({ setup, signal: undefined }); out.push(performance.now() - start); }
+      return out;
+    };
+    const lens = await displayViewLensGpuFixture(catalogue, view), primeFixture = await displayViewGpuFixture(prime, view);
+    const lensTimes = await time(lens.setup), primeTimes = await time(primeFixture.input.setup);
+    return encodeTransport({ catalogueMilliseconds: median(lensTimes), primeMilliseconds: median(primeTimes), catalogueRuns: lensTimes, primeRuns: primeTimes });
+  } finally { renderer.dispose?.(); device.destroy(); }
 }
