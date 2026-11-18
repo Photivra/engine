@@ -62,10 +62,10 @@ import { createCaptureWhiteBalanceIntent, type CaptureWhiteBalanceIntent } from 
 import { SENSOR_RAW_PRODUCER_NOISE_MODEL } from "../capture/sensor-raw-producer.js";
 import { calculateNativeRawPlan, nativeRawMaximumProviderEvaluations, NATIVE_RAW_LIMITS, type NativeRawInput, type NativeRawOutput, type NativeRawPlan } from "../capture/native-raw.js";
 import { renderTabulatedNativeRaw, TABULATED_RELATIVE_TOLERANCE } from "../capture/native-environment-tabulated.js";
-import { createDisplayViewExpectedSignal, type DisplayViewExpectedSignal, type DisplayViewExpectedSignalInput } from "./expected-signal.js";
+import { createDisplayViewExpectedSignal } from "./expected-signal.js";
 import type { DisplayViewFastReport } from "./display-view-gpu.js";
 import type { MixedIllumination, ResolvedMixedIllumination } from "./mixed-illumination.js";
-import type { DisplayViewLensPsf } from "./display-view-lens-signal.js";
+import type { DisplayViewLensPsf, DisplayViewLensSignalFactory } from "./display-view-lens-signal.js";
 import type { DevelopedLensCorrection, DevelopedLensCorrectionSelection, createDisplayViewLensCorrection } from "../output/developed-lens-corrections.js";
 import { buildExpectedSignalInput } from "./expected-signal-setup.js";
 import { createNativeEnvironmentRawTask, createNativeEnvironmentRawRegionTask, type NativeEnvironmentRawInput,
@@ -1757,11 +1757,13 @@ export interface DisplayViewRunContext {
    * #563: with `lens.projection`, `lens.distortion`, `lens.vignetting` or camera rotation, the factory of the view's expected signal
    * through the lens (display-view-lens-signal.ts, loaded on demand); undefined without them (the rectilinear expected signal).
    */
-  lens?: ((input: DisplayViewExpectedSignalInput, spanColumns?: number) => DisplayViewExpectedSignal) | undefined;
+  lens?: DisplayViewLensSignalFactory | undefined;
   /** #551: with motion.subject, the moving scene of a provider (its irradiance scale and illuminant shape, or #550's mixed lighting, light the revealed background). */
   movingScene?: ((base: PlanarSceneRadianceProvider, scale: number, shape: (nm: number) => number, light?: ResolvedMixedIllumination) => PlanarSceneRadianceProvider) | undefined;
   /** #569: with `lens.catalogue`, the field-dependent PSF the lens signal reads (createDisplayViewLensPsf, display-view-lens-signal.ts); its axis kernels set the expected signal's lattice. */
   lensPsf?: DisplayViewLensPsf | undefined;
+  /** #655: whether the lens signal takes the uniform-window fast method (`lens.catalogue/view-uniform-window`). */
+  lensUniformWindows?: boolean | undefined;
   diffractionPsf: { kind: "sampled-local"; configuration: Pick<CalculateSensorPsfIrradianceQuadratureInput, "psf" | "psfWavelengthBasis" | "spatialModel">; } | undefined;
   fNumber: number;
   focalLengthMm: number;
@@ -3641,10 +3643,18 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   const displayViewLensPsf = viewLensKit && catalogue && lensPsf ?
     viewLensKit.createDisplayViewLensPsf(lensPsf.configuration.psf as Parameters<typeof viewLensKit.createDisplayViewLensPsf>[0], catalogueKernelRadius, nativeWidth, nativeHeight, pitch,
       catalogueFastRequested ? undefined : Math.max(nativeWidth, nativeHeight)) : undefined;
-  if (displayViewLensPsf && displayViewLensPsf.zoneSites > 1) markFast("lens.catalogue");
-  if (displayViewLensPsf) assume("view.lensPsf", "model", { method: "piecewise-constant-field-zones", zoneSites: displayViewLensPsf.zoneSites, kernelRadiusSites: catalogueKernelRadius, scientificStatus: "approximation" },
-  "Each site takes the lens PSF at its field zone's centre, where the capture resolves it at each query point (docs/DISPLAY_VIEW.md, \"Catalogue lenses\").");
-  const lensSignal = viewLensKit ? viewLensKit.prepareDisplayViewLensSignal({ geometry: lensGeometry!,
+    // #655 step 6: the uniform-window fast method (lens.catalogue's fast) on chart and material scenes; it runs on the CPU.
+  const uniformWindows = displayViewLensPsf !== undefined && catalogueFastRequested && provider.chartMaterialAt !== undefined && !subject;
+  if (displayViewLensPsf && (displayViewLensPsf.zoneSites > 1 || uniformWindows)) markFast("lens.catalogue");
+  if (displayViewLensPsf) assume("view.lensPsf", "model", { method: "piecewise-constant-field-zones", zoneSites: displayViewLensPsf.zoneSites, kernelRadiusSites: catalogueKernelRadius,
+    uniformWindows: uniformWindows ? "field-factor-second-order" : null, scientificStatus: "approximation" },
+  "Each site takes the lens PSF at its field zone's centre, where the capture resolves it at each query point (docs/DISPLAY_VIEW.md, \"Catalogue lenses\")." +
+    (uniformWindows ? " Fast method (#655): a site whose taps read one material takes the field factor to second order; fast: false sums every tap." : ""));
+  // #655 step 4: the view's lattice points take the Newton inverse of a radial distortion (the capture keeps the bisection).
+  const viewLensGeometry = viewLensKit && lensFieldMapping?.distortion?.kind === "radial" ? loadedKit(qualityKit).prepareDefocusImageSpaceGeometry({ focalLengthMm, focusDistanceM,
+    angularVelocityRadPerSec: angular, ...(handShake ? { handShake } : {}), lensMapping: prepareEnvironmentLensFieldMapping(lensFieldMapping), ...(vignetting ? { vignetting } : {}),
+    undistort: viewLensKit.undistortedImagePointNewton }) : lensGeometry;
+  const lensSignal = viewLensKit ? viewLensKit.prepareDisplayViewLensSignal({ geometry: viewLensGeometry!, rollingBands: fastTop, uniformWindows,
     times: rotating || subject ? Array.from({ length: temporalSampleCount }, (_, i) => (i + 0.5) * (shutterSeconds / temporalSampleCount)) : [0], timesAt: rollingRotation ? rollingSiteTimes() : undefined,
     distanceM: planeDistanceM, metresPerFrameUnit,
     pitch, imagingArea, boxSamples, spots: antiAliasing ? antiAliasing.components : [{ offsetMicrometers: { x: 0, y: 0 } }], psf: displayViewLensPsf, zeroBeyondHorizon: catalogue?.kind === "fisheye", ...(veil ? { veil } : {}) }, nativeWidth, nativeHeight,
@@ -3672,7 +3682,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
       cornerStops: lensCorrectionSelection.vignetting ? catalogueCornerStops : null, selection: lensCorrectionSelection, create: lensKit!.createDisplayViewLensCorrection } } : {}) } : undefined;
   // #595: the native photosite's figures (their own module, so a bundler can split them off the default path).
   sensor.native = nativeSensorReport(sensor, regimeByChannel.green.regimeId, greyElectrons, DARK_CURRENT_ELECTRONS_PER_SECOND * shutterSeconds, nativeSensor, fixedPattern);
-  if (displayView) return await renderView!({ sensor, viewFast: { uniformSampling: fastTop, rendering: fastTop, defocusRegrouped: fastTop, perTapSum: fastTop }, viewDetail, gamutHandling, lens: lensSignal, lensPsf: displayViewLensPsf, movingScene, ahd, fastReport, antiAliasing, aspect, assume, assumptions, axisChannelResponse, boxSamples, buildProvider, callerScene, chart, materialLayers, chartReport, chartSize, diffraction, defocus: displayViewDefocus, diffractionPsf, fNumber, focalLengthMm, focusDistanceM, height, highlightMode, exposureGain, illuminanceLux, illuminant, illuminantOption, imagingArea, intentOf, metresPerFrameUnit, framedWidthM, noiseSeed, outputOptions, parsedView, pitch, preset, provider, regimeByChannel, resolvedIso, isoReport, standardExposureDeviationStops: exposureDeviationStops, standardExposureIlluminanceLux: exposureIlluminanceLux, greyCardDeviationStops: exposureGreyCardDeviationStops, metering, sceneOption, scenePreset, shutterSeconds, started, subjectDistanceM, toneCurve, whiteBalanceOption, whiteBalanceState, width, checkAbort, margin, mode, nativeHeight, nativeWidth, sourceSha256, yieldControl, kelvinWhiteBalanceInput,
+  if (displayView) return await renderView!({ sensor, viewFast: { uniformSampling: fastTop, rendering: fastTop, defocusRegrouped: fastTop, perTapSum: fastTop }, viewDetail, gamutHandling, lens: lensSignal, lensPsf: displayViewLensPsf, lensUniformWindows: uniformWindows, movingScene, ahd, fastReport, antiAliasing, aspect, assume, assumptions, axisChannelResponse, boxSamples, buildProvider, callerScene, chart, materialLayers, chartReport, chartSize, diffraction, defocus: displayViewDefocus, diffractionPsf, fNumber, focalLengthMm, focusDistanceM, height, highlightMode, exposureGain, illuminanceLux, illuminant, illuminantOption, imagingArea, intentOf, metresPerFrameUnit, framedWidthM, noiseSeed, outputOptions, parsedView, pitch, preset, provider, regimeByChannel, resolvedIso, isoReport, standardExposureDeviationStops: exposureDeviationStops, standardExposureIlluminanceLux: exposureIlluminanceLux, greyCardDeviationStops: exposureGreyCardDeviationStops, metering, sceneOption, scenePreset, shutterSeconds, started, subjectDistanceM, toneCurve, whiteBalanceOption, whiteBalanceState, width, checkAbort, margin, mode, nativeHeight, nativeWidth, sourceSha256, yieldControl, kelvinWhiteBalanceInput,
     mixedIllumination: mixedKit && lightKit });
   // Ideal reference (2.3): the scene without camera effects, at the capture's own exposure, white balance and encoding.
   if (idealReference) {

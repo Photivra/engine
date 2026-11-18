@@ -70,6 +70,8 @@ export interface DefocusImageSpaceGeometry {
   lensMapping?: PreparedEnvironmentLensFieldMapping;
   /** The site inputs' radial-illumination-vignetting profile; omitted for unity field throughput. */
   vignetting?: IlluminationVignettingProfile;
+  /** #655: the display view's inverse of the lens mapping's distortion (`undistortedImagePointNewton`); omitted: `undistortedImagePoint`, the capture's. */
+  undistort?: typeof undistortedImagePoint;
 }
 
 /** Internal: the scene ray and field factor of sensor points, and the sensor point of a scene ray, for one geometry. */
@@ -87,7 +89,7 @@ export interface PreparedDefocusImageSpaceGeometry {
 
 /** Internal: prepares {@link PreparedDefocusImageSpaceGeometry} with the environment's own conventions and arithmetic. */
 export function prepareDefocusImageSpaceGeometry(geometry: DefocusImageSpaceGeometry): PreparedDefocusImageSpaceGeometry {
-  const { focalLengthMm, focusDistanceM, angularVelocityRadPerSec: omega, handShake, lensMapping, vignetting } = geometry;
+  const { focalLengthMm, focusDistanceM, angularVelocityRadPerSec: omega, handShake, lensMapping, vignetting } = geometry, undistort = geometry.undistort ?? undistortedImagePoint;
   // The projection scale: the thin-lens image distance at the finite focus, for every projection model (the environment's).
   const pd = resolveProjectionDistanceMm(focalLengthMm, focusDistanceM).projectionDistanceMm;
   const model: LensProjectionModel = lensMapping?.mapping.projectionModel ?? "rectilinear";
@@ -117,7 +119,7 @@ export function prepareDefocusImageSpaceGeometry(geometry: DefocusImageSpaceGeom
     timeDependent,
     lookOf(xMm, yMm, t): { x: number; y: number; z: number; factor: number } {
       const image = { x: xMm, y: -yMm };
-      const { ideal, distortionAreaFactor } = lensMapping ? undistortedImagePoint(lensMapping, image) : { ideal: image, distortionAreaFactor: 1 };
+      const { ideal, distortionAreaFactor } = lensMapping ? undistort(lensMapping, image) : { ideal: image, distortionAreaFactor: 1 };
       let lx: number, ly: number, lz: number;
       if (model === "rectilinear") {
         // calculateInverseCameraRotationImageMapping: the captured ray (x/pd, y/pd, 1) in reference axes, projected at pd.

@@ -198,7 +198,9 @@ describe("the app's capture-worker shape", () => {
     // 2.26.0 (owner decision 2026-11-16, "Raise to 49,400 B"): the on-demand row measured 49,382 B on release-2.26.0 after the
     // export kit moved out (flash #639 and hand-shake #641 in the opt-in kit, the record module from #646), limit rounded up to the
     // next 100 B. The fast limit stays 338,900 B.
-    expect(sum(onDemand)).toBeLessThanOrEqual(49_400);
+    // 2.27.0 (owner approval): #649's shared detail passes and #656's 3-or-6 point chain rule (both in the on-demand kits) measured
+    // 51,999 B on the integration branch, limit rounded up to the next 100 B; the savings are issue #658 (2.28.0).
+    expect(sum(onDemand)).toBeLessThanOrEqual(52_000);
     // 2.26.0 (owner decision 2026-11-16, "Move export code out"): the export kit's row, measured at 10,403 B on release-2.26.0 (the JPEG
     // and PNG encoders, the export JPEG coder and the text-metadata writers), limit rounded up to the next 100 B. With it the fast row
     // measured 331,482 B (340,300 B before the move: the split costs 1,585 B in all, the kit compressing without the entry's dictionary

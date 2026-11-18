@@ -293,7 +293,7 @@ describe("the display view with coupled rendering steps against the capture (#59
     const explicit = await simulateDisplayView({ ...options, output: { ...options.output, gamutHandling: "clip-components", highlightMode: "clip" } }, { width: 8, height: 8 });
     expect(Array.from(explicit.image.samples)).toEqual(Array.from(plain.image.samples));
     const coupled = await simulateDisplayView({ ...options, output: { ...options.output, highlightMode: "reconstruct" } }, { width: 8, height: 8 });
-    expect(coupled.assumptions.find((a) => a.id === "view.rendering")?.value).toMatchObject({ highlightMode: "reconstruct", chainPointsPerAxis: 6, fast: true });
+    expect(coupled.assumptions.find((a) => a.id === "view.rendering")?.value).toMatchObject({ highlightMode: "reconstruct", chainPointsPerAxis: "3-or-6", fast: true });
   }, scaledTimeout(60_000));
 });
 
