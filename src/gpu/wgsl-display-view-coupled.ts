@@ -29,7 +29,8 @@
 /** Layout of the coupled-constants buffer (float32 words). */
 export const DISPLAY_VIEW_COUPLED = /* @__PURE__ */ Object.freeze({
   on: 0, luminance: 1, tone: 2, a: 3, n: 4, inverseWhite: 5, ratioAtZero: 6, weights: 7, reconstruct: 10, desaturate: 11, fast: 12,
-  gains: 13, clipLevel: 16, matrix: 17, chainPoints: 26, chainX: 27, chainW: 43, hermiteX: 59, hermiteW: 67, legendreX: 75, legendreW: 91, size: 107
+  gains: 13, clipLevel: 16, matrix: 17, chainPoints: 26, chainX: 27, chainW: 43, hermiteX: 59, hermiteW: 67, legendreX: 75, legendreW: 91,
+  chainLowVariance: 107, chainLowX: 108, chainLowW: 111, size: 114
 });
 /** The largest finite float32 stands for r(0+) = ∞ (Naka–Rushton below exponent 1). */
 export const DISPLAY_VIEW_COUPLED_INFINITE_RATIO = 3.4028234663852886e38;
@@ -185,7 +186,10 @@ fn cp_tone(mu: vec3<f32>, s0: vec3<f32>, s1: vec3<f32>, s2: vec3<f32>, dmu: vec3
 }
 // One node of the development chain at camera channels c: the rendered pixel, the slopes ∂out/∂c (rows), the rounding bound
 // per component (before the node point's own rounding) and whether a luminance at 0 makes the ratio's jump undecided.
-struct CpNode { out: vec3<f32>, t0: vec3<f32>, t1: vec3<f32>, t2: vec3<f32>, err: vec3<f32>, flag: bool };
+// #656: also the tone output before the desaturation (zp, bound ezp), the developed values (y, bound ey), their slopes ∂y/∂c (gy)
+// and ∂zp/∂c (gz), and whether the desaturation was taken, for the fast rule's kink probe.
+struct CpNode { out: vec3<f32>, t0: vec3<f32>, t1: vec3<f32>, t2: vec3<f32>, err: vec3<f32>, flag: bool,
+  zp: vec3<f32>, ezp: vec3<f32>, y: vec3<f32>, ey: vec3<f32>, gy0: vec3<f32>, gy1: vec3<f32>, gy2: vec3<f32>, gz0: vec3<f32>, gz1: vec3<f32>, gz2: vec3<f32>, desat: bool };
 fn cp_develop(c: vec3<f32>) -> CpNode {
   let g = vec3<f32>(cp_k(${C.gains}u), cp_k(${C.gains + 1}u), cp_k(${C.gains + 2}u));
   let lc = cp_k(${C.clipLevel}u);
@@ -246,10 +250,15 @@ fn cp_develop(c: vec3<f32>) -> CpNode {
   }
   var ez = vec3<f32>(0.0);
   for (var k = 0u; k < 3u; k = k + 1u) { ez[k] = cp_dot(abs(jt[k]), ey) + abs(z[k]) * (eta + 4.0) * CP_E; }
+  node.zp = z; node.ezp = ez; node.y = y; node.ey = ey; node.gy0 = mj[0]; node.gy1 = mj[1]; node.gy2 = mj[2];
+  node.gz0 = jt[0].x * mj[0] + jt[0].y * mj[1] + jt[0].z * mj[2];
+  node.gz1 = jt[1].x * mj[0] + jt[1].y * mj[1] + jt[1].z * mj[2];
+  node.gz2 = jt[2].x * mj[0] + jt[2].y * mj[1] + jt[2].z * mj[2];
   // Desaturation toward the luminance (#601).
   var jz = array<vec3<f32>, 3>(vec3<f32>(1.0, 0.0, 0.0), vec3<f32>(0.0, 1.0, 0.0), vec3<f32>(0.0, 0.0, 1.0));
   let ti = select(select(2u, 1u, z.y > z.z), select(2u, 0u, z.x > z.z), z.x > z.y);
   let zt = z[ti];
+  node.desat = cp_desaturate() && zt > 1.0;
   if (cp_desaturate() && zt > 1.0) {
     let lp = cp_dot(w, z);
     if (lp >= 1.0) {
@@ -279,36 +288,63 @@ fn cp_develop(c: vec3<f32>) -> CpNode {
   node.t2 = jo[2].x * mj[0] + jo[2].y * mj[1] + jo[2].z * mj[2];
   return node;
 }
-fn cp_chain(cm: vec3<f32>, c00: f32, c01: f32, c02: f32, c11: f32, c12: f32, c22: f32, dcm: vec3<f32>, dcv: vec3<f32>) -> CpOut {
-  let l00 = sqrt(max(0.0, c00));
-  let l10 = select(0.0, c01 / l00, l00 > 0.0);
-  let l20 = select(0.0, c02 / l00, l00 > 0.0);
-  let l11 = sqrt(max(0.0, c11 - l10 * l10));
-  let l21 = select(0.0, (c12 - l20 * l10) / l11, l11 > 0.0);
-  let l22 = sqrt(max(0.0, c22 - l20 * l20 - l21 * l21));
-  let any_noise = l00 > 0.0 || l11 > 0.0 || l22 > 0.0;
-  let second_axis = l11 > 0.0 || l21 != 0.0 || l22 > 0.0;
-  let n = select(1u, u32(cp_k(${C.chainPoints}u)), any_noise);
+// #656: one pass of the tensor rule (the fast rule's low order with low, else the request's rule) over the chain; with low, the
+// kink probe of the reference (src/facade/display-view-rendering.ts, kinkInReach) on the nodes' largest slopes.
+struct CpSum { t: CpOut, e: vec3<f32>, q: vec3<f32>, count: f32, ok: bool };
+fn cp_sum(cm: vec3<f32>, l: array<f32, 6>, any_noise: bool, second_axis: bool, centre_node: CpNode, dcm: vec3<f32>, dcv: vec3<f32>, low: bool) -> CpSum {
+  let l00 = l[0]; let l10 = l[1]; let l20 = l[2]; let l11 = l[3]; let l21 = l[4]; let l22 = l[5];
+  let rx = select(${C.chainX}u, ${C.chainLowX}u, low);
+  let rw = select(${C.chainW}u, ${C.chainLowW}u, low);
+  let n = select(select(1u, u32(cp_k(${C.chainPoints}u)), any_noise), 3u, low);
   let nj = select(1u, n, second_axis);
   let nk = select(1u, n, l22 > 0.0);
-  let centre = cp_develop(cm).out;
+  let centre = centre_node.out;
+  var r: CpSum;
   var t: CpOut;
   var e = vec3<f32>(0.0); var q = vec3<f32>(0.0); var count = 0.0;
+  var gy = array<vec3<f32>, 3>(vec3<f32>(0.0), vec3<f32>(0.0), vec3<f32>(0.0));
+  var gz = array<vec3<f32>, 3>(vec3<f32>(0.0), vec3<f32>(0.0), vec3<f32>(0.0));
+  var desat = false; var near = false;
+  let roots = sqrt(dcv.x) + sqrt(dcv.y) + sqrt(dcv.z);
   for (var i = 0u; i < n; i = i + 1u) {
-    let x0 = select(0.0, cp_k(${C.chainX}u + i), any_noise);
-    let wi = select(1.0, cp_k(${C.chainW}u + i), any_noise);
+    let x0 = select(0.0, cp_k(rx + i), any_noise);
+    let wi = select(1.0, cp_k(rw + i), any_noise);
     for (var jj = 0u; jj < nj; jj = jj + 1u) {
-      let x1 = select(0.0, cp_k(${C.chainX}u + jj), second_axis);
-      let wj = select(wi, wi * cp_k(${C.chainW}u + jj), second_axis);
+      let x1 = select(0.0, cp_k(rx + jj), second_axis);
+      let wj = select(wi, wi * cp_k(rw + jj), second_axis);
       for (var kk = 0u; kk < nk; kk = kk + 1u) {
-        let x2 = select(0.0, cp_k(${C.chainX}u + kk), l22 > 0.0);
-        let weight = select(wj, wj * cp_k(${C.chainW}u + kk), l22 > 0.0);
+        let x2 = select(0.0, cp_k(rx + kk), l22 > 0.0);
+        let weight = select(wj, wj * cp_k(rw + kk), l22 > 0.0);
         let c = vec3<f32>(cm.x + l00 * x0, cm.y + l10 * x0 + l11 * x1, cm.z + l20 * x0 + l21 * x1 + l22 * x2);
         let dc = 3.0 * CP_E * (abs(cm) + vec3<f32>(abs(l00 * x0), abs(l10 * x0) + abs(l11 * x1), abs(l20 * x0) + abs(l21 * x1) + abs(l22 * x2)));
         let node = cp_develop(c);
         if (node.flag) { t.flag = true; }
         // #605: a node within its bound of the neighbor rebuild's threshold (where a channel is kept or rebuilt).
-        if (nb_on() && any(abs(c - vec3<f32>(NB_H)) <= dc + dcm + 5.0 * (sqrt(dcv.x) + sqrt(dcv.y) + sqrt(dcv.z)) + 16.0 * CP_E)) { t.flag = true; }
+        if (nb_on() && any(abs(c - vec3<f32>(NB_H)) <= dc + dcm + 5.0 * roots + 16.0 * CP_E)) { t.flag = true; }
+        if (low) {
+          gy[0] = max(gy[0], abs(node.gy0)); gy[1] = max(gy[1], abs(node.gy1)); gy[2] = max(gy[2], abs(node.gy2));
+          gz[0] = max(gz[0], abs(node.gz0)); gz[1] = max(gz[1], abs(node.gz1)); gz[2] = max(gz[2], abs(node.gz2));
+          if (node.desat) { desat = true; }
+          // A node within its bound of a branch of the highlight blend or of the desaturation's start: its slopes (and so the
+          // probe's spread) are undecided in float32.
+          let tc = dc + dcm + 5.0 * roots + 16.0 * CP_E;
+          let g = vec3<f32>(cp_k(${C.gains}u), cp_k(${C.gains + 1}u), cp_k(${C.gains + 2}u));
+          let lc = cp_k(${C.clipLevel}u);
+          let s = max(c.x, max(c.y, c.z));
+          let ts = max(tc.x, max(tc.y, tc.z));
+          if (abs(s - CP_START) <= ts || abs(s - 1.0) <= ts) { near = true; }
+          if (s > CP_START - ts) {
+            if (any(abs(c * g - vec3<f32>(lc)) <= g * tc + 4.0 * CP_E * lc)) { near = true; }
+            if (abs(c.x - c.y) <= tc.x + tc.y || abs(c.x - c.z) <= tc.x + tc.z || abs(c.y - c.z) <= tc.y + tc.z) { near = true; }
+            let kc = min(c * g, vec3<f32>(lc));
+            let tk = g * tc + 4.0 * CP_E * lc;
+            if (abs(kc.x - kc.y) <= tk.x + tk.y || abs(kc.x - kc.z) <= tk.x + tk.z || abs(kc.y - kc.z) <= tk.y + tk.z) { near = true; }
+          }
+          if (cp_desaturate()) {
+            let zm = max(node.zp.x, max(node.zp.y, node.zp.z));
+            if (abs(zm - 1.0) <= max(node.ezp.x, max(node.ezp.y, node.ezp.z)) + max(cp_dot(abs(node.gz0), tc), max(cp_dot(abs(node.gz1), tc), cp_dot(abs(node.gz2), tc)))) { near = true; }
+          }
+        }
         count = count + 1.0;
         let d = node.out - centre;
         e = e + weight * node.out;
@@ -320,6 +356,69 @@ fn cp_chain(cm: vec3<f32>, c00: f32, c01: f32, c02: f32, c11: f32, c12: f32, c22
       }
     }
   }
+  r.ok = true;
+  if (low) {
+    // The probe: no node took the desaturation, and within 8.5σ of the mean no tone output component reaches 0 or 1 and (with a
+    // luminance curve) the luminance does not reach 0. A margin inside its float32 bound, or a node near a branch: recompute.
+    var undecided = near;
+    if (desat) { r.ok = false; }
+    let sd = vec3<f32>(l00, sqrt(l10 * l10 + l11 * l11), sqrt(l20 * l20 + l21 * l21 + l22 * l22));
+    let dsd = sqrt(dcv) + 4.0 * CP_E * sd;
+    let gzc = array<vec3<f32>, 3>(centre_node.gz0, centre_node.gz1, centre_node.gz2);
+    for (var k = 0u; k < 3u; k = k + 1u) {
+      let spread = CLIP_REACH * cp_dot(gz[k], sd);
+      let v = centre_node.zp[k];
+      let tol = centre_node.ezp[k] + cp_dot(abs(gzc[k]), dcm) + CLIP_REACH * cp_dot(gz[k], dsd) + 256.0 * CP_E * (abs(v) + spread + 1.0);
+      let margin = min(abs(v), abs(v - 1.0)) - spread;
+      if (!(margin > 0.0)) { r.ok = false; }
+      if (abs(margin) <= tol) { undecided = true; }
+    }
+    if (cp_luminance()) {
+      let w = cp_w();
+      let lum = cp_dot(w, centre_node.y);
+      let gl = abs(w.x) * gy[0] + abs(w.y) * gy[1] + abs(w.z) * gy[2];
+      let spread = CLIP_REACH * cp_dot(gl, sd);
+      let gyc = abs(w.x) * abs(centre_node.gy0) + abs(w.y) * abs(centre_node.gy1) + abs(w.z) * abs(centre_node.gy2);
+      let tol = cp_dot(abs(w), centre_node.ey) + 4.0 * CP_E * cp_dot(abs(w), abs(centre_node.y)) + cp_dot(gyc, dcm) + CLIP_REACH * cp_dot(gl, dsd) + 256.0 * CP_E * (abs(lum) + spread);
+      let margin = abs(lum) - spread;
+      if (!(margin > 0.0)) { r.ok = false; }
+      if (abs(margin) <= tol) { undecided = true; }
+    }
+    if (undecided) { t.flag = true; }
+  }
+  r.t = t; r.e = e; r.q = q; r.count = count;
+  return r;
+}
+fn cp_chain(cm: vec3<f32>, c00: f32, c01: f32, c02: f32, c11: f32, c12: f32, c22: f32, dcm: vec3<f32>, dcv: vec3<f32>) -> CpOut {
+  let l00 = sqrt(max(0.0, c00));
+  let l10 = select(0.0, c01 / l00, l00 > 0.0);
+  let l20 = select(0.0, c02 / l00, l00 > 0.0);
+  let l11 = sqrt(max(0.0, c11 - l10 * l10));
+  let l21 = select(0.0, (c12 - l20 * l10) / l11, l11 > 0.0);
+  let l22 = sqrt(max(0.0, c22 - l20 * l20 - l21 * l21));
+  let any_noise = l00 > 0.0 || l11 > 0.0 || l22 > 0.0;
+  let second_axis = l11 > 0.0 || l21 != 0.0 || l22 > 0.0;
+  let ls = array<f32, 6>(l00, l10, l20, l11, l21, l22);
+  let centre_node = cp_develop(cm);
+  // #656: the fast rule's low order where every channel's variance is below the threshold (undecided in float32: recompute) and
+  // the probe passes; else the 6-point rule.
+  let lv = cp_k(${C.chainLowVariance}u);
+  var flag = false;
+  var low = false;
+  if (any_noise && lv > 0.0) {
+    let cv = vec3<f32>(c00, c11, c22);
+    low = all(cv < vec3<f32>(lv));
+    if (any(abs(cv - vec3<f32>(lv)) <= dcv + 4.0 * CP_E * lv)) { flag = true; }
+  }
+  var r = cp_sum(cm, ls, any_noise, second_axis, centre_node, dcm, dcv, low);
+  if (low) {
+    if (r.t.flag) { flag = true; }
+    if (!r.ok) { r = cp_sum(cm, ls, any_noise, second_axis, centre_node, dcm, dcv, false); }
+  }
+  var t = r.t;
+  if (flag) { t.flag = true; }
+  let e = r.e; let q = r.q; let count = r.count;
+  let centre = centre_node.out;
   let shifted = e - centre;
   t.hm = e;
   t.hv = max(vec3<f32>(0.0), q - shifted * shifted);
@@ -340,7 +439,7 @@ export const displayViewCoupledWgsl = (neighbors: boolean): string => DISPLAY_VI
 export function displayViewCoupledConstants(setup: {
   gains: readonly number[]; clipLevel: number; matrix: readonly (readonly number[])[];
   rendering?: { toneCurve: string; toneCurveParameters?: { whiteLuminance: number } | { exponent: number; semiSaturation: number; whiteLuminance: number }; highlightMode: string; gamutHandling: string; fast: boolean };
-  coupled?: { chainRule: { x: Float64Array; w: Float64Array }; luminanceRule: { x: Float64Array; w: Float64Array }; ratioAtZero: number; luminanceTone: boolean };
+  coupled?: { chainRule: { x: Float64Array; w: Float64Array }; chainLowRule?: { x: Float64Array; w: Float64Array } | null; chainLowSigma?: number; luminanceRule: { x: Float64Array; w: Float64Array }; ratioAtZero: number; luminanceTone: boolean };
 }, weights: readonly number[], legendre: { x: ArrayLike<number>; w: ArrayLike<number> }): Float32Array<ArrayBuffer> {
   const r = setup.rendering, k = setup.coupled;
   if (!r || !k) return new Float32Array(1);
@@ -355,6 +454,8 @@ export function displayViewCoupledConstants(setup: {
   out[C.reconstruct] = r.highlightMode.startsWith("reconstruct") ? 1 : 0; out[C.desaturate] = r.gamutHandling === "desaturate-to-luminance" ? 1 : 0; out[C.fast] = r.fast ? 1 : 0;
   out.set(setup.gains, C.gains); out[C.clipLevel] = setup.clipLevel; out.set(setup.matrix.flat(), C.matrix);
   out[C.chainPoints] = k.chainRule.x.length; out.set(k.chainRule.x, C.chainX); out.set(k.chainRule.w, C.chainW);
+  // #656: the fast rule's low order and its variance threshold (0: none, the full rule and the neighbor reconstruction).
+  if (k.chainLowRule && k.chainLowSigma) { out[C.chainLowVariance] = k.chainLowSigma * k.chainLowSigma; out.set(k.chainLowRule.x, C.chainLowX); out.set(k.chainLowRule.w, C.chainLowW); }
   out.set(k.luminanceRule.x, C.hermiteX); out.set(k.luminanceRule.w, C.hermiteW);
   out.set(Array.from(legendre.x), C.legendreX); out.set(Array.from(legendre.w), C.legendreW);
   return out;

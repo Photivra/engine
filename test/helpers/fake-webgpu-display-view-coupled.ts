@@ -133,12 +133,13 @@ export function coupledEmulator(k: Float32Array, neighbors = false): {
     t.ju = f(f(t.ju + f(4 * count)) * E);
     return t;
   }
-  interface Node { out: V; t: [V, V, V]; err: V; flag: boolean }
+  interface Node { out: V; t: [V, V, V]; err: V; flag: boolean; zp: V; ezp: V; y: V; ey: V; gy: [V, V, V]; gz: [V, V, V]; desat: boolean }
   function develop(c: V): Node {
     const g: V = [k[K.gains]!, k[K.gains + 1]!, k[K.gains + 2]!], lc = k[K.clipLevel]!, u: V = [f(c[0] * g[0]), f(c[1] * g[1]), f(c[2] * g[2])];
     let b: V = [...u];
     const jb: [V, V, V] = [[g[0], 0, 0], [0, g[1], 0], [0, 0, g[2]]];
-    const node: Node = { out: [0, 0, 0], t: [[0, 0, 0], [0, 0, 0], [0, 0, 0]], err: [0, 0, 0], flag: false };
+    const node: Node = { out: [0, 0, 0], t: [[0, 0, 0], [0, 0, 0], [0, 0, 0]], err: [0, 0, 0], flag: false, zp: [0, 0, 0], ezp: [0, 0, 0], y: [0, 0, 0], ey: [0, 0, 0],
+      gy: [[0, 0, 0], [0, 0, 0], [0, 0, 0]], gz: [[0, 0, 0], [0, 0, 0], [0, 0, 0]], desat: false };
     let eb = f(f(8 * E) * Math.max(Math.abs(u[0]), Math.max(Math.abs(u[1]), Math.abs(u[2]))));
     if (neighbors) {
       // #605: nb_rebuild (src/gpu/wgsl-display-view-neighbors.ts).
@@ -192,7 +193,10 @@ export function coupledEmulator(k: Float32Array, neighbors = false): {
     }
     let ez: V = [0, 1, 2].map((i) => f(dot(vabs(jt[i]!), ey) + f(f(Math.abs(z[i]!) * f(eta + 4)) * E))) as V;
     const jz: [V, V, V] = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
+    node.zp = [...z]; node.ezp = [...ez]; node.y = [...y]; node.ey = [...ey]; node.gy = [[...mj[0]], [...mj[1]], [...mj[2]]];
+    for (let i = 0; i < 3; i++) node.gz[i] = add(add(scale(mj[0], jt[i]![0]!), scale(mj[1], jt[i]![1]!)), scale(mj[2], jt[i]![2]!));
     const ti = sel3(z[0]!, z[1]!, z[2]!), zt = z[ti]!;
+    node.desat = desaturate && zt > 1;
     if (desaturate && zt > 1) {
       const lp = dot(w, z);
       if (lp >= 1) { node.out = [1, 1, 1]; return node; }
@@ -209,28 +213,46 @@ export function coupledEmulator(k: Float32Array, neighbors = false): {
     for (let i = 0; i < 3; i++) node.t[i] = add(add(scale(mj[0]!, jo[i]![0]!), scale(mj[1]!, jo[i]![1]!)), scale(mj[2]!, jo[i]![2]!));
     return node;
   }
-  function chain(cm: V, c00: number, c01: number, c02: number, c11: number, c12: number, c22: number, dcm: V, dcv: V): CpOut {
-    const l00 = f(Math.sqrt(Math.max(0, c00))), l10 = l00 > 0 ? f(c01 / l00) : 0, l20 = l00 > 0 ? f(c02 / l00) : 0;
-    const l11 = f(Math.sqrt(Math.max(0, f(c11 - f(l10 * l10))))), l21 = l11 > 0 ? f(f(c12 - f(l20 * l10)) / l11) : 0;
-    const l22 = f(Math.sqrt(Math.max(0, f(f(c22 - f(l20 * l20)) - f(l21 * l21)))));
-    const anyNoise = l00 > 0 || l11 > 0 || l22 > 0, second = l11 > 0 || l21 !== 0 || l22 > 0;
-    const n = anyNoise ? k[K.chainPoints]! : 1, nj = second ? n : 1, nk = l22 > 0 ? n : 1;
-    const centre = develop(cm).out, t = zero();
-    let e: V = [0, 0, 0], q: V = [0, 0, 0], count = 0;
+  /** #656: one pass of the tensor rule (`cp_sum`): the fast rule's low order with its kink probe when `low`, else the request's rule. */
+  function sum(cm: V, ls: number[], anyNoise: boolean, second: boolean, centreNode: Node, dcm: V, dcv: V, low: boolean): { t: CpOut; e: V; q: V; count: number; ok: boolean } {
+    const [l00, l10, l20, l11, l21, l22] = ls as [number, number, number, number, number, number];
+    const rx = low ? K.chainLowX : K.chainX, rw = low ? K.chainLowW : K.chainW;
+    const n = low ? 3 : anyNoise ? k[K.chainPoints]! : 1, nj = second ? n : 1, nk = l22 > 0 ? n : 1;
+    const centre = centreNode.out, t = zero();
+    let e: V = [0, 0, 0], q: V = [0, 0, 0], count = 0, desat = false, near = false;
+    const gy: [V, V, V] = [[0, 0, 0], [0, 0, 0], [0, 0, 0]], gz: [V, V, V] = [[0, 0, 0], [0, 0, 0], [0, 0, 0]];
+    const vmax = (a: V, b: V): V => [Math.max(a[0], b[0]), Math.max(a[1], b[1]), Math.max(a[2], b[2])];
+    const roots = f(f(f(Math.sqrt(dcv[0])) + f(Math.sqrt(dcv[1]))) + f(Math.sqrt(dcv[2])));
     for (let i = 0; i < n; i++) {
-      const x0 = anyNoise ? k[K.chainX + i]! : 0, wi = anyNoise ? k[K.chainW + i]! : 1;
+      const x0 = anyNoise ? k[rx + i]! : 0, wi = anyNoise ? k[rw + i]! : 1;
       for (let j = 0; j < nj; j++) {
-        const x1 = second ? k[K.chainX + j]! : 0, wj = second ? f(wi * k[K.chainW + j]!) : wi;
+        const x1 = second ? k[rx + j]! : 0, wj = second ? f(wi * k[rw + j]!) : wi;
         for (let m = 0; m < nk; m++) {
-          const x2 = l22 > 0 ? k[K.chainX + m]! : 0, weight = l22 > 0 ? f(wj * k[K.chainW + m]!) : wj;
+          const x2 = l22 > 0 ? k[rx + m]! : 0, weight = l22 > 0 ? f(wj * k[rw + m]!) : wj;
           const c: V = [f(cm[0] + f(l00 * x0)), f(f(cm[1] + f(l10 * x0)) + f(l11 * x1)), f(f(f(cm[2] + f(l20 * x0)) + f(l21 * x1)) + f(l22 * x2))];
           const spread: V = [Math.abs(f(l00 * x0)), f(Math.abs(f(l10 * x0)) + Math.abs(f(l11 * x1))), f(f(Math.abs(f(l20 * x0)) + Math.abs(f(l21 * x1))) + Math.abs(f(l22 * x2)))];
           const dc = scale(add(vabs(cm), spread), f(3 * E));
           const node = develop(c);
           if (node.flag) t.flag = true;
-          if (neighbors) {
-            const roots = f(f(f(Math.sqrt(dcv[0])) + f(Math.sqrt(dcv[1]))) + f(Math.sqrt(dcv[2]))), tol = [0, 1, 2].map((i2) => f(f(f(dc[i2]! + dcm[i2]!) + f(5 * roots)) + f(16 * E)));
-            if ([0, 1, 2].some((i2) => Math.abs(f(c[i2]! - NB_H)) <= tol[i2]!)) t.flag = true;
+          const tc = [0, 1, 2].map((i2) => f(f(f(dc[i2]! + dcm[i2]!) + f(5 * roots)) + f(16 * E))) as V;
+          if (neighbors && [0, 1, 2].some((i2) => Math.abs(f(c[i2]! - NB_H)) <= tc[i2]!)) t.flag = true;
+          if (low) {
+            for (let r = 0; r < 3; r++) { gy[r] = vmax(gy[r]!, vabs(node.gy[r]!)); gz[r] = vmax(gz[r]!, vabs(node.gz[r]!)); }
+            if (node.desat) desat = true;
+            const g: V = [k[K.gains]!, k[K.gains + 1]!, k[K.gains + 2]!], lc = k[K.clipLevel]!;
+            const s = Math.max(c[0], c[1], c[2]), ts = Math.max(tc[0], tc[1], tc[2]);
+            if (Math.abs(f(s - START)) <= ts || Math.abs(f(s - 1)) <= ts) near = true;
+            if (s > f(START - ts)) {
+              const pairs = [[0, 1], [0, 2], [1, 2]] as const, cl = f(f(4 * E) * lc);
+              if ([0, 1, 2].some((i2) => Math.abs(f(f(c[i2]! * g[i2]!) - lc)) <= f(f(g[i2]! * tc[i2]!) + cl))) near = true;
+              if (pairs.some(([p, r]) => Math.abs(f(c[p]! - c[r]!)) <= f(tc[p]! + tc[r]!))) near = true;
+              const kc = [0, 1, 2].map((i2) => Math.min(f(c[i2]! * g[i2]!), lc)), tk = [0, 1, 2].map((i2) => f(f(g[i2]! * tc[i2]!) + cl));
+              if (pairs.some(([p, r]) => Math.abs(f(kc[p]! - kc[r]!)) <= f(tk[p]! + tk[r]!))) near = true;
+            }
+            if (desaturate) {
+              const zm = Math.max(...node.zp), em = Math.max(...node.ezp), sl = Math.max(dot(vabs(node.gz[0]), tc), dot(vabs(node.gz[1]), tc), dot(vabs(node.gz[2]), tc));
+              if (Math.abs(f(zm - 1)) <= f(em + sl)) near = true;
+            }
           }
           count = f(count + 1);
           const d = [0, 1, 2].map((i2) => f(node.out[i2]! - centre[i2]!));
@@ -243,13 +265,59 @@ export function coupledEmulator(k: Float32Array, neighbors = false): {
         }
       }
     }
+    let ok = true;
+    if (low) {
+      let undecided = near;
+      if (desat) ok = false;
+      const sd: V = [l00, f(Math.sqrt(f(f(l10 * l10) + f(l11 * l11)))), f(Math.sqrt(f(f(f(l20 * l20) + f(l21 * l21)) + f(l22 * l22))))];
+      const dsd = [0, 1, 2].map((i) => f(f(Math.sqrt(dcv[i]!)) + f(f(4 * E) * sd[i]!))) as V;
+      for (let c = 0; c < 3; c++) {
+        const spread = f(REACH * dot(gz[c]!, sd)), v = centreNode.zp[c]!;
+        const tol = f(f(f(centreNode.ezp[c]! + dot(vabs(centreNode.gz[c]!), dcm)) + f(REACH * dot(gz[c]!, dsd))) + f(f(256 * E) * f(f(Math.abs(v) + spread) + 1)));
+        const margin = f(Math.min(Math.abs(v), Math.abs(f(v - 1))) - spread);
+        if (!(margin > 0)) ok = false;
+        if (Math.abs(margin) <= tol) undecided = true;
+      }
+      if (luminance) {
+        const lum = dot(w, centreNode.y);
+        const gl = add(add(scale(gy[0], Math.abs(w[0])), scale(gy[1], Math.abs(w[1]))), scale(gy[2], Math.abs(w[2])));
+        const spread = f(REACH * dot(gl, sd));
+        const gyc = add(add(scale(vabs(centreNode.gy[0]), Math.abs(w[0])), scale(vabs(centreNode.gy[1]), Math.abs(w[1]))), scale(vabs(centreNode.gy[2]), Math.abs(w[2])));
+        const tol = f(f(f(f(dot(vabs(w), centreNode.ey) + f(f(4 * E) * dot(vabs(w), vabs(centreNode.y)))) + dot(gyc, dcm)) + f(REACH * dot(gl, dsd))) + f(f(256 * E) * f(Math.abs(lum) + spread)));
+        const margin = f(Math.abs(lum) - spread);
+        if (!(margin > 0)) ok = false;
+        if (Math.abs(margin) <= tol) undecided = true;
+      }
+      if (undecided) t.flag = true;
+    }
+    return { t, e, q, count, ok };
+  }
+  function chain(cm: V, c00: number, c01: number, c02: number, c11: number, c12: number, c22: number, dcm: V, dcv: V): CpOut {
+    const l00 = f(Math.sqrt(Math.max(0, c00))), l10 = l00 > 0 ? f(c01 / l00) : 0, l20 = l00 > 0 ? f(c02 / l00) : 0;
+    const l11 = f(Math.sqrt(Math.max(0, f(c11 - f(l10 * l10))))), l21 = l11 > 0 ? f(f(c12 - f(l20 * l10)) / l11) : 0;
+    const l22 = f(Math.sqrt(Math.max(0, f(f(c22 - f(l20 * l20)) - f(l21 * l21)))));
+    const anyNoise = l00 > 0 || l11 > 0 || l22 > 0, second = l11 > 0 || l21 !== 0 || l22 > 0, ls = [l00, l10, l20, l11, l21, l22];
+    const centreNode = develop(cm), lv = k[K.chainLowVariance] ?? 0;
+    let flag = false, low = false;
+    if (anyNoise && lv > 0) {
+      const cv = [c00, c11, c22];
+      low = cv.every((v) => v < lv);
+      if (cv.some((v, i) => Math.abs(f(v - lv)) <= f(dcv[i]! + f(f(4 * E) * lv)))) flag = true;
+    }
+    let r = sum(cm, ls, anyNoise, second, centreNode, dcm, dcv, low);
+    if (low) {
+      if (r.t.flag) flag = true;
+      if (!r.ok) r = sum(cm, ls, anyNoise, second, centreNode, dcm, dcv, false);
+    }
+    const t = r.t, e = r.e, q = r.q, count = r.count, centre = centreNode.out;
+    if (flag) t.flag = true;
     const shifted = [0, 1, 2].map((i) => f(e[i]! - centre[i]!));
     t.hm = e;
     t.hv = [0, 1, 2].map((i) => Math.max(0, f(q[i]! - f(shifted[i]! * shifted[i]!)))) as V;
-    for (let r = 0; r < 3; r++) {
-      const row = vabs(t.a[r]!);
-      t.bm[r] = f(f(f(t.bm[r]! + f(f(count * E) * Math.abs(e[r]!))) + dot(row, dcm)) + f(0.8 * dot(row, dcv.map((x) => f(Math.sqrt(x))))));
-      t.bv[r] = f(f(f(t.bv[r]! + f(f(count * E) * q[r]!)) + f(f(2 * Math.abs(shifted[r]!)) * t.bm[r]!)) + dot(row.map((x) => f(x * x)), dcv));
+    for (let r2 = 0; r2 < 3; r2++) {
+      const row = vabs(t.a[r2]!);
+      t.bm[r2] = f(f(f(t.bm[r2]! + f(f(count * E) * Math.abs(e[r2]!))) + dot(row, dcm)) + f(0.8 * dot(row, dcv.map((x) => f(Math.sqrt(x))))));
+      t.bv[r2] = f(f(f(t.bv[r2]! + f(f(count * E) * q[r2]!)) + f(f(2 * Math.abs(shifted[r2]!)) * t.bm[r2]!)) + dot(row.map((x) => f(x * x)), dcv));
     }
     t.ju = f(f(f(4 * count) + 64) * E);
     return t;
