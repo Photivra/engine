@@ -9,6 +9,7 @@
 import { InvalidConfigurationError } from "../core/configuration-error.js";
 import type { ImagePlaneSignalScene } from "./scene-radiance.js";
 import { createSiteKernelRunsLattice, type SiteKernelRuns, type SiteKernelRunsLattice, type SiteKernelRunsRowPattern } from "../optics/site-kernel-runs.js";
+import { createSpectralLatticeTiles, type SpectralLatticeTiles } from "./spectral-lattice-tiles.js";
 
 /** A query offset from a site centre in sites (+x right, +y down) and its weight (pixel-aperture node × filter spot). */
 export interface DisplayViewQueryOffset { x: number; y: number; weight: number }
@@ -62,18 +63,21 @@ export interface DisplayViewExpectedSignalInput {
    */
   largeKernel?: SiteKernelRuns;
   /**
-   * #612, the display view's regrouped defocus (a disc of any radius applied after the in-focus signal on a fast request): each
-   * in-focus tap is integrated from its material's spectrum against its kernel per node (Σ_n L_m(λ_n)·C_c(t, n)) and the taps
-   * are added in order, instead of per-material sums. The same sum, grouped by tap; only the rounding differs. Absent: per-material
-   * sums, as #564's path above 64 sites has always formed them.
+   * #612, the display view's regrouped defocus (a disc of any radius applied after the in-focus signal on a fast request): the
+   * in-focus signal is formed by tap instead of by per-material sums. #653: from the pre-integrated spectral radiance of the site
+   * positions ({@link spectralRadianceFill}), all three channels from one channel-free sum per site, computed only for the rows a
+   * render reads. The same sum in another order; only the rounding differs. Absent: per-material sums, as #564's path above 64
+   * sites has always formed them.
    */
   inFocusPerTap?: boolean;
   /**
    * #643, the display view's per-tap chart signal (a fast request): with chart materials and kernels, a site whose taps read more than
    * one material adds its taps in order, each integrated from its material's spectrum against its kernel per node
    * (Σ_t Σ_n L_m(t)(λ_n)·C_c(t, n)), instead of forming per-material sums first; a site whose taps all read one material takes
-   * Σ_n L_m(λ_n)·S_c(n) (the channel's kernel sums), as before. The same sum, grouped by tap; only the rounding differs. Every site's
-   * value still depends only on the site, so regions stay bit-identical to the whole frame. Absent: per-material sums.
+   * Σ_n L_m(λ_n)·S_c(n) (the channel's kernel sums), as before. #653: the taps are read as (2R + 1)² taps of the pre-integrated
+   * spectral radiance of the site positions ({@link spectralRadianceFill}), kept per render in fixed spectral lattice tiles. The same
+   * sum in another order; only the rounding differs. Every site's value still depends only on the site, so regions stay
+   * bit-identical to the whole frame. Absent: per-material sums.
    */
   perTapSum?: boolean;
 }
@@ -125,6 +129,11 @@ export interface DisplayViewExpectedSignal {
 }
 
 const OFFSET_TOLERANCE = 1e-9;
+/**
+ * #653: tile side and byte budget of the pre-integrated spectral radiance kept per render (fixed tiles at absolute positions). A
+ * band of display rows across a 6000-site frame at 20 nodes reads about two tile rows at a time (about 30 MiB).
+ */
+const PREINTEGRATED_TILE = 16, PREINTEGRATED_CACHE_BYTES = 48 * 1048576;
 /** Largest cache window, in sites or lattice points; larger windows are evaluated without caching. */
 const CACHE_LIMIT = 1 << 22;
 /** Largest band of looked-up lattice materials per group, in lattice points (a band that would be larger restarts at the window). */
@@ -155,6 +164,16 @@ export interface SignalTables {
    * taps (groups in order, taps row-major), so a site whose every tap reads one material is the same sum as any other site.
    */
   readonly kernelSums: readonly Float64Array[];
+  /**
+   * #653, with kernels and chart materials: each node's kernel K_n(t) at t·N + n ((2R + 1)² taps, row-major), without any channel
+   * response, and Σ_o w_o·Σ_t K_n(t) per node (the query offsets' weights times each node's kernel sum). Geometry only: the
+   * pre-integrated spectral radiance of {@link spectralRadianceFill} is integrated against them and then against a site's own
+   * channel response when the site is read.
+   */
+  readonly nodeTaps: Float64Array;
+  readonly weightedTapSums: Float64Array;
+  /** Σ_o w_o, the query offsets' weights in group and member order (#653). */
+  readonly offsetWeight: number;
 }
 /**
  * A lattice group's fixed part: its fractional shift, members, index bounds, rectangle and combined kernels. Chart materials:
@@ -290,9 +309,19 @@ export function buildTables(input: DisplayViewExpectedSignalInput): SignalTables
     for (const group of groups) { const k = group.nodeKernels[c]!; for (let t = 0; t < group.cw * group.ch; t++) for (let n = 0; n < nodes; n++) out[n] = out[n]! + k[t * nodes + n]!; }
     return out;
   }) : [];
+  // #653: each node's kernel per tap and the weighted kernel sums (geometry only, no response), for the pre-integrated path.
+  let offsetWeight = 0;
+  for (const group of groups) for (const member of group.members) offsetWeight += member.weight;
+  const taps = size * size, withTaps = scene.kind === "materials" && input.kernels !== undefined;
+  const nodeTaps = new Float64Array(withTaps ? taps * nodes : 0), weightedTapSums = new Float64Array(withTaps ? nodes : 0);
+  if (withTaps) for (let n = 0; n < nodes; n++) {
+    let sum = 0;
+    for (let t = 0; t < taps; t++) { const k = kernelAt(n, t); nodeTaps[t * nodes + n] = k; sum += k; }
+    weightedTapSums[n] = offsetWeight * sum;
+  }
   // Frozen records: a render copies each group before it gives it a window (see createDisplayViewExpectedSignal).
   for (const group of groups) Object.freeze(group);
-  return Object.freeze({ spectra, groups, kernelSums });
+  return Object.freeze({ spectra, groups, kernelSums, nodeTaps, weightedTapSums, offsetWeight });
 }
 
 /**
@@ -359,6 +388,74 @@ export function materialSpectrumSignal(a: ArrayLike<number>, spectrum: ArrayLike
 }
 
 /**
+ * #653: the pre-integrated spectral radiance of chart materials at native site positions, B(s)[n] = Σ_o w_o·L_m(o, s)(λ_n), with
+ * L_m(o, s) the material of query offset o of a site at position s (each lattice group's point s + (ix, iy), on the lattice
+ * formula). Offsets in group and member order. A position whose offsets all read one material m takes L_m(λ_n)·Σ_o w_o (the same
+ * at every such position; `flags` then records m, otherwise −1). Spectral values only: no channel response is applied, so a site
+ * integrates them against its own channel's response when it is read (rule 1). Each position's values depend on its position
+ * and the input alone.
+ *
+ * With it a site's expected electrons regroup as μ_c(x) = Σ_n A_c(λ_n)·Σ_t K_n(t)·B(x − t)[n]: (2R + 1)² taps of a spectral
+ * value per site instead of one per lattice group, offset and tap of a material (the same sum, in another order).
+ *
+ * Returns a function that writes positions [x0, x0 + w) × [y0, y0 + h), row-major, N values each, into `out` (zero on entry),
+ * and the positions' flags into `flags` when given; it returns the scene lookups it made.
+ */
+export type SpectralRadianceFill = (x0: number, y0: number, w: number, h: number, out: Float64Array, flags?: Int32Array) => number;
+export function spectralRadianceFill(input: DisplayViewExpectedSignalInput, tables: SignalTables): SpectralRadianceFill {
+  const scene = input.scene;
+  if (scene.kind !== "materials") throw new InvalidConfigurationError("The pre-integrated spectral radiance needs chart materials.");
+  const W = input.nativeWidth, H = input.nativeHeight, g = 2 / input.outputWidth, nodes = input.wavelengthsNm.length;
+  const { spectra, groups, offsetWeight } = tables;
+  // Members flattened in group and member order: group index, offsets from the group's lattice origin, weight.
+  const memberGroup: number[] = [], memberX: number[] = [], memberY: number[] = [], memberW: number[] = [];
+  groups.forEach((group, k) => { for (const m of group.members) { memberGroup.push(k); memberX.push(m.ix - group.minIx); memberY.push(m.iy - group.minIy); memberW.push(m.weight); } });
+  const members = memberW.length;
+  const lattice: Int32Array[] = groups.map(() => new Int32Array(0));
+  const at = new Int32Array(members), widths = new Int32Array(groups.length);
+  return (x0, y0, w, h, out, flags) => {
+    let lookups = 0;
+    // Each group's lattice points [x0 + minIx, x0 + w + maxIx) × [y0 + minIy, y0 + h + maxIy), looked up once.
+    groups.forEach((group, k) => {
+      const gw = w + group.maxIx - group.minIx, gh = h + group.maxIy - group.minIy;
+      if (lattice[k]!.length < gw * gh) lattice[k] = new Int32Array(gw * gh);
+      const material = lattice[k]!;
+      widths[k] = gw;
+      for (let j = 0; j < gh; j++) {
+        const q = y0 + group.minIy + j, v = group.fy === 0 ? -(q + 0.5 - H / 2) * g : -(q + 0.5 + group.fy - H / 2) * g;
+        for (let i = 0; i < gw; i++) {
+          const p = x0 + group.minIx + i, m = scene.materialAt(group.fx === 0 ? (p + 0.5 - W / 2) * g : (p + 0.5 + group.fx - W / 2) * g, v);
+          if (spectra[m] === undefined) throw new InvalidConfigurationError("Unknown chart material.");
+          material[j * gw + i] = m;
+        }
+      }
+      lookups += gw * gh;
+    });
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+      let first = -1, uniform = true;
+      for (let k = 0; k < members; k++) {
+        const gk = memberGroup[k]!, a = (y + memberY[k]!) * widths[gk]! + x + memberX[k]!;
+        at[k] = a;
+        const m = lattice[gk]![a]!;
+        if (k === 0) first = m; else if (m !== first) uniform = false;
+      }
+      const o = (y * w + x) * nodes;
+      if (uniform) {
+        const L = spectra[first]!;
+        for (let n = 0; n < nodes; n++) out[o + n] = L[n]! * offsetWeight;
+      } else {
+        for (let k = 0; k < members; k++) {
+          const L = spectra[lattice[memberGroup[k]!]![at[k]!]!]!, wk = memberW[k]!;
+          for (let n = 0; n < nodes; n++) out[o + n] = out[o + n]! + wk * L[n]!;
+        }
+      }
+      if (flags) flags[y * w + x] = uniform ? first : -1;
+    }
+    return lookups;
+  };
+}
+
+/**
  * Expected photo electrons per site: μ_c(i, j) = Σ_o w_o Σ_λ A_c(λ) Σ_t K_λ(t)·L(p_o(i, j) − t, λ), where p_o is the
  * query point of offset o and K the diffraction kernel (a single unit tap without diffraction). This is the sum the
  * facade's environment chain forms for a still, rectilinear, distortion-free planar scene, where the
@@ -393,25 +490,65 @@ export function createDisplayViewExpectedSignal(input: DisplayViewExpectedSignal
    * the channel's kernel sums (the per-material sums of such a site, bit for bit); otherwise the per-material sums (MaterialSums) or,
    * with `perTapSum` (#643), each tap integrated from its material's spectrum, added in tap order.
    */
-  function tapsValue(c: number): number {
+  function tapsValue(c: number, x: number, y: number): number {
     const first = tapMaterials[0]!, taps = tapMaterials.length;
-    let t = 1, sum = 0;
+    let t = 1;
     while (t < taps && tapMaterials[t] === first) t++;
     acc.reset();
     if (t === taps) { acc.add(first, kernelSums[c]!, 0); return acc.value(); }
+    if (perTap) return preintegratedSite(c, x, y);
     t = 0;
     for (const group of groups) {
       const k = group.nodeKernels[c]!, end = group.cw * group.ch * nodes;
-      for (let at = 0; at < end; at += nodes, t++) {
-        if (!perTap) { acc.add(tapMaterials[t]!, k, at); continue; }
-        const L = spectra[tapMaterials[t]!];
-        if (L === undefined) throw new InvalidConfigurationError("Unknown chart material.");
-        let v = 0;
-        for (let n = 0; n < nodes; n++) v += L[n]! * k[at + n]!;
-        sum += v;
-      }
+      for (let at = 0; at < end; at += nodes, t++) acc.add(tapMaterials[t]!, k, at);
     }
-    return perTap ? sum : acc.value();
+    return acc.value();
+  }
+  /**
+   * #653, a site of several materials with `perTapSum`: μ_c(x) = Σ_n A_c(λ_n)·Σ_t K_n(t)·B(x − t)[n], with B the pre-integrated
+   * spectral radiance at native site positions ({@link spectralRadianceFill}) kept in fixed spectral lattice tiles (spectra only),
+   * the taps in row-major order of their positions. The same sum as the per-tap one (#643), in another order: (2R + 1)² taps of a
+   * spectral value instead of one per lattice group and tap of a material.
+   */
+  let preintegrated: SpectralLatticeTiles | undefined;
+  const radianceSum = new Float64Array(perTap ? nodes : 0), preintegratedRow: Float64Array[] = [];
+  // The tiles a site read last, with the rows known to be filled (bit r: row r), by tile position: a site reads its rows without
+  // asking the store. A held array keeps its filled rows' values after the store drops the tile (spectral-lattice-tiles.ts).
+  const SLOTS = 64, slotX = new Int32Array(SLOTS).fill(-2147483648), slotY = new Int32Array(SLOTS), slotRows = new Uint32Array(SLOTS), slotTile: Float64Array[] = [];
+  function preintegratedRows(tx: number, ty: number, r0: number, r1: number): Float64Array {
+    const slot = (tx & 31) + ((ty & 1) << 5), want = ((1 << r1) - 1) ^ ((1 << r0) - 1);
+    if (slotX[slot] === tx && slotY[slot] === ty && (slotRows[slot]! & want) === want) return slotTile[slot]!;
+    const tile = preintegrated!.rows(0, tx, ty, r0, r1);
+    if (slotX[slot] === tx && slotY[slot] === ty && slotTile[slot] === tile) slotRows[slot] = slotRows[slot]! | want;
+    else { slotX[slot] = tx; slotY[slot] = ty; slotRows[slot] = want; slotTile[slot] = tile; }
+    return tile;
+  }
+  function preintegratedSite(c: number, x: number, y: number): number {
+    if (!preintegrated) {
+      const fill = spectralRadianceFill(input, prepared.tables);
+      preintegrated = createSpectralLatticeTiles({ tile: PREINTEGRATED_TILE, nodes, capacityBytes: PREINTEGRATED_CACHE_BYTES, fill: (_key, x0, y0, w, h, out) => { fill(x0, y0, w, h, out); } });
+    }
+    const T = PREINTEGRATED_TILE, K = prepared.tables.nodeTaps, size = 2 * R + 1, S = radianceSum, a = A[c]!;
+    S.fill(0);
+    const px0 = x - R, px1 = x + R, txA = Math.floor(px0 / T), txB = Math.floor(px1 / T);
+    for (let q = y - R; q <= y + R;) {
+      const ty = Math.floor(q / T), qEnd = Math.min(y + R, ty * T + T - 1), r0 = q - ty * T, r1 = qEnd - ty * T + 1;
+      for (let tx = txA; tx <= txB; tx++) preintegratedRow[tx - txA] = preintegratedRows(tx, ty, r0, r1);
+      // Taps in row-major order of their positions: tap (tu, tv) reads position (x − tu, y − tv), so row qq is tv = y − qq and
+      // column p is tu = x − p.
+      for (let qq = q; qq <= qEnd; qq++) {
+        const rowAt = (qq - ty * T) * T, tapRow = (y - qq + R) * size + R + x;
+        for (let tx = txA; tx <= txB; tx++) {
+          const tile = preintegratedRow[tx - txA]!, pa = Math.max(px0, tx * T), pb = Math.min(px1, tx * T + T - 1);
+          for (let p = pa, b = (rowAt + pa - tx * T) * nodes, k = (tapRow - pa) * nodes; p <= pb; p++, b += nodes, k -= nodes)
+            for (let n = 0; n < nodes; n++) S[n] = S[n]! + K[k + n]! * tile[b + n]!;
+        }
+      }
+      q = qEnd + 1;
+    }
+    let sum = 0;
+    for (let n = 0; n < nodes; n++) sum += a[n]! * S[n]!;
+    return sum;
   }
   /**
    * Without diffraction: one site from the environment's own query points. Also sets lastMaterial: the chart material every
@@ -474,7 +611,7 @@ export function createDisplayViewExpectedSignal(input: DisplayViewExpectedSignal
         }
       }
     }
-    return scene.kind === "materials" ? tapsValue(c) : sum;
+    return scene.kind === "materials" ? tapsValue(c, x, y) : sum;
   }
   // Filled windows (chart materials with diffraction, every lattice point of the window cacheable): each group keeps a band of
   // looked-up lattice materials that covers the window's rows and grows to the right as the windows of a display row move
@@ -565,6 +702,8 @@ export function createDisplayViewExpectedSignal(input: DisplayViewExpectedSignal
         if (m === -1) m = own; else if (own !== m) { m = -2; break; }
       }
       if (m >= 0) { lastMaterial = m; acc.reset(); acc.add(m, kernelSums[c]!, 0); return acc.value(); }
+      // #653: a site of several materials (all its taps are in the band) is read from the pre-integrated spectral radiance.
+      if (perTap) { lastMaterial = -1; return preintegratedSite(c, x, y); }
     }
     lastMaterial = -1;
     for (let g = 0, t = 0; g < groups.length; g++) {
@@ -577,7 +716,7 @@ export function createDisplayViewExpectedSignal(input: DisplayViewExpectedSignal
           (scene as Extract<DisplayViewScene, { kind: "materials" }>).materialAt(latticeU(group, p0 + dx), latticeV(group, q0 + dy));
       }
     }
-    return tapsValue(c);
+    return tapsValue(c, x, y);
   }
   /** Lattice points of an outside site's rectangles that lie outside the window caches (kernelSite looks these up on every read). */
   function outsideLookups(i: number, j: number): number {
@@ -821,20 +960,26 @@ export function createDisplayViewExpectedSignal(input: DisplayViewExpectedSignal
 
 /** #564: tile sides of the large-kernel expected signal: the in-focus signal E (3 channels) and the convolved sites. */
 const LARGE_E_TILE = 64, LARGE_OUTPUT_TILE = 128;
+/** #653: rows of an output tile computed together when one of them is first read (a divisor of LARGE_OUTPUT_TILE). */
+const LARGE_OUTPUT_ROW_BLOCK = 8;
 
 /**
- * #642: whether the regrouped defocus (#612) costs less than the combined kernels for one render whose sites lie in a native
- * rectangle of w × h sites, `sites` of them read at most, counted in tap reads per spectral node. The combined kernels read
- * (2R_c + 1)² taps per site. The regrouped path computes the in-focus signal of all three channels ((2R_f + 1)² taps) at every site
- * of the fixed in-focus tiles under the 128-site output tiles the rectangle touches, widened by the disc radius R_c − R_f: taken as
- * the rectangle widened by the disc radius and by 192 sites per axis (the tiles' rounding, at most 128 + 64, on average about
- * that), then the disc of radius R by runs, about 12R + 2 reads per output per channel without the nodes (2R + 1 runs of two reads
- * and the 8R taps the circle crosses). Both counts are per lattice group, so the groups cancel. A render is counted on its own (tiles
- * an earlier render computed count again), so the choice depends only on the request and the render, never on what came before.
+ * #642, #653: whether the regrouped defocus (#612) costs less than the combined kernels for one render whose sites lie in a native
+ * rectangle of w × h sites, `sites` of them read at most, counted in multiply-adds per spectral node (taps). The combined kernels
+ * read (2R_c + 1)² taps of the pre-integrated spectral radiance per site (#653). The regrouped path computes the in-focus signal
+ * at every site position of the in-focus rows the render reads: the rectangle widened by the disc radius R = R_c − R_f, plus the
+ * tiles' rounding across (whole 128-site output tiles over 64-site in-focus tiles: at most 128 + 64, taken as 192) and the
+ * output row blocks' rounding down (8 rows); each position takes (2R_f + 1)² taps, its three channel responses and about 8 for
+ * its share of the pre-integrated radiance and the uniform-window tables (measured: within 10 % of the fitted cost for R_f of 2,
+ * 3 and 4). The disc by runs then costs about 12R + 2 reads per output, and its prefix sums 3, without the nodes, over the output
+ * tiles' columns and the row blocks. A render is counted on its own (tiles an earlier render computed count again), so the choice
+ * depends only on the request and the render, never on what came before.
  */
 export function regroupedDefocusCheaper(w: number, h: number, sites: number, combinedRadius: number, inFocusRadius: number, nodes: number): boolean {
-  const R = combinedRadius - inFocusRadius, widen = 2 * R + 192;
-  return (w + widen) * (h + widen) * 3 * ((2 * inFocusRadius + 1) ** 2 + (12 * R + 2) / nodes) < Math.min(sites, w * h) * (2 * combinedRadius + 1) ** 2;
+  const R = combinedRadius - inFocusRadius, block = LARGE_OUTPUT_ROW_BLOCK;
+  const inFocus = (w + 2 * R + 192) * (h + 2 * R + block) * ((2 * inFocusRadius + 1) ** 2 + 3 + 8);
+  const disc = (w + LARGE_OUTPUT_TILE) * (h + block) * (12 * R + 5) / nodes;
+  return inFocus + disc < Math.min(sites, w * h) * (2 * combinedRadius + 1) ** 2;
 }
 /** Bytes kept per input for each of the two tile caches (least recently used first; a dropped tile is recomputed with the same bits). */
 const LARGE_CACHE_BYTES = 32 * 1048576;
@@ -851,7 +996,9 @@ const LARGE_PREPARED = new WeakMap<DisplayViewExpectedSignalInput, LargeKernelSt
  * (the same sum as `kernelSite`, on the lattice formula), so the disc is applied once per channel on the native site lattice
  * instead of once per spectral node and lattice group. E is computed in fixed 64-site tiles (all three channels), and D ⊛ E_c
  * by runs in fixed 128-site tiles, each site taking its own channel: every value depends only on the site, so regions and parts
- * are bit-identical to the whole frame. The tiles are kept per input object, across its renders.
+ * are bit-identical to the whole frame. The tiles are kept per input object, across its renders. #653: both compute only the
+ * rows a render reads (output rows in fixed blocks of 8, in-focus rows one by one; see site-kernel-runs.ts, "Rows on demand"),
+ * so a band of rows costs its rows and the disc's reach, not whole tiles.
  *
  * Diagnostics: `lookups` counts the scene lookups this signal's calls caused (tiles computed for it; a tile an earlier render of
  * the input computed costs none). `uniformMaterial` is −1 and nothing is tracked or marked, as for radiance scenes.
@@ -882,44 +1029,67 @@ function createLargeKernelSignal(input: DisplayViewExpectedSignalInput): Display
 function prepareLargeKernel(input: DisplayViewExpectedSignalInput): LargeKernelState {
   const W = input.nativeWidth, H = input.nativeHeight, g = 2 / input.outputWidth, nodes = input.wavelengthsNm.length, R = input.kernels!.radius;
   const tables = displayViewSignalTables(input), { spectra, groups } = tables, scene = input.scene, acc = createMaterialSums(nodes, spectra);
+  const A = input.electronsPerRadiance, size = 2 * R + 1;
   const state = { lookups: 0 } as LargeKernelState;
   const latticeU = (group: GroupTables, p: number): number => (group.fx === 0 ? (p + 0.5 - W / 2) * g : (p + 0.5 + group.fx - W / 2) * g);
   const latticeV = (group: GroupTables, q: number): number => (group.fy === 0 ? -(q + 0.5 - H / 2) * g : -(q + 0.5 + group.fy - H / 2) * g);
-  /** E_c of the native site positions [x0, x0 + T) × [y0, y0 + T), all three channels: kernelSite's sum, each group's lattice read once. */
-  function inFocusTile(x0: number, y0: number, T: number): Float64Array[] {
-    const out = [0, 1, 2].map(() => new Float64Array(T * T));
+  const preintegrated = scene.kind === "materials" && input.inFocusPerTap === true;
+  const fill = preintegrated ? spectralRadianceFill(input, tables) : undefined;
+  /**
+   * #653, `inFocusPerTap` with chart materials: rows [r0, r1) of the in-focus tile at (x0, y0), all three channels, from the
+   * pre-integrated spectral radiance B of the positions the rows' kernels reach (computed for the rows, see spectralRadianceFill):
+   * S(x)[n] = Σ_t K_n(t)·B(x − t)[n] once per site (no channel response), then E_c(x) = Σ_n A_c(λ_n)·S(x)[n] for each channel. A site
+   * whose (2R + 1)² positions all read one material m (summed-area tables of the positions' flags, not a scan) takes
+   * S(x)[n] = L_m(λ_n)·Σ_o w_o·Σ_t K_n(t). The same sum as the per-tap one (#612), in another order.
+   */
+  function preintegratedRows(out: Float64Array[], x0: number, y0: number, T: number, r0: number, r1: number): void {
+    const rows = r1 - r0, bw = T + 2 * R, bh = rows + 2 * R, K = tables.nodeTaps, KW = tables.weightedTapSums;
+    const B = new Float64Array(bw * bh * nodes), flags = new Int32Array(bw * bh);
+    state.lookups += fill!(x0 - R, y0 + r0 - R, bw, bh, B, flags);
+    // Summed-area tables over the positions: mixed positions, and changes from the left and upper neighbours.
+    const S1 = bw + 1, mixed = new Int32Array((bh + 1) * S1), left = new Int32Array((bh + 1) * S1), up = new Int32Array((bh + 1) * S1);
+    for (let j = 0; j < bh; j++) for (let i = 0; i < bw; i++) {
+      const f = flags[j * bw + i]!, a = (j + 1) * S1 + i + 1, b = j * S1 + i + 1, c = (j + 1) * S1 + i, d = j * S1 + i;
+      mixed[a] = mixed[b]! + mixed[c]! - mixed[d]! + (f < 0 ? 1 : 0);
+      left[a] = left[b]! + left[c]! - left[d]! + (i > 0 && flags[j * bw + i - 1] !== f ? 1 : 0);
+      up[a] = up[b]! + up[c]! - up[d]! + (j > 0 && flags[(j - 1) * bw + i] !== f ? 1 : 0);
+    }
+    const rect = (sat: Int32Array, i0: number, j0: number, i1: number, j1: number): number => sat[j1 * S1 + i1]! - sat[j0 * S1 + i1]! - sat[j1 * S1 + i0]! + sat[j0 * S1 + i0]!;
+    const S = new Float64Array(nodes), e0 = out[0]!, e1 = out[1]!, e2 = out[2]!, a0 = A[0]!, a1 = A[1]!, a2 = A[2]!;
+    for (let y = 0; y < rows; y++) for (let x = 0; x < T; x++) {
+      // Site (x, y) of the rows reads positions [x, x + 2R] × [y, y + 2R] of B.
+      if (rect(mixed, x, y, x + size, y + size) === 0 && rect(left, x + 1, y, x + size, y + size) === 0 && rect(up, x, y + 1, x + size, y + size) === 0) {
+        const L = spectra[flags[y * bw + x]!]!;
+        for (let n = 0; n < nodes; n++) S[n] = L[n]! * KW[n]!;
+      } else {
+        S.fill(0);
+        // Taps in row-major order of their positions: position (x + i, y + j) is tap (tu, tv) = (R − i, R − j).
+        for (let j = 0; j < size; j++) for (let i = 0, b = ((y + j) * bw + x) * nodes, k = ((size - 1 - j) * size + size - 1) * nodes; i < size; i++, b += nodes, k -= nodes)
+          for (let n = 0; n < nodes; n++) S[n] = S[n]! + K[k + n]! * B[b + n]!;
+      }
+      let v0 = 0, v1 = 0, v2 = 0;
+      for (let n = 0; n < nodes; n++) { const v = S[n]!; v0 += a0[n]! * v; v1 += a1[n]! * v; v2 += a2[n]! * v; }
+      const o = (r0 + y) * T + x;
+      e0[o] = v0; e1[o] = v1; e2[o] = v2;
+    }
+  }
+  /** E_c of rows [r0, r1) of the native site positions [x0, x0 + T) × [y0, y0 + T), all three channels: kernelSite's sum, each group's lattice read once. */
+  function inFocusRows(out: Float64Array[], x0: number, y0: number, T: number, r0: number, r1: number): void {
+    if (preintegrated) { preintegratedRows(out, x0, y0, T, r0, r1); return; }
+    const rows = r1 - r0;
     for (const group of groups) {
-      const cw = group.cw, ch = group.ch, gw = T + cw - 1, gh = T + ch - 1, p0 = x0 + group.minIx - R, q0 = y0 + group.minIy - R;
+      const cw = group.cw, ch = group.ch, gw = T + cw - 1, gh = rows + ch - 1, p0 = x0 + group.minIx - R, q0 = y0 + r0 + group.minIy - R;
       if (scene.kind === "materials") {
         const material = new Int32Array(gw * gh);
         for (let j = 0; j < gh; j++) { const v = latticeV(group, q0 + j); for (let i = 0; i < gw; i++) material[j * gw + i] = scene.materialAt(latticeU(group, p0 + i), v); }
         state.lookups += gw * gh;
-        if (input.inFocusPerTap) {
-          // #612: per tap, the material's spectrum against the tap's kernel per node, for all three channels from one lookup.
-          for (let c = 0; c < 3; c++) {
-            const k = group.nodeKernels[c]!, e = out[c]!;
-            for (let y = 0; y < T; y++) for (let x = 0; x < T; x++) {
-              let sum = 0;
-              for (let dy = 0, t = 0; dy < ch; dy++) {
-                const row = (y + dy) * gw + x;
-                for (let dx = 0; dx < cw; dx++, t++) {
-                  const L = spectra[material[row + dx]!];
-                  if (L === undefined) throw new InvalidConfigurationError("Unknown chart material.");
-                  let v = 0;
-                  for (let n = 0, at = t * nodes; n < nodes; n++) v += L[n]! * k[at + n]!;
-                  sum += v;
-                }
-              }
-              e[y * T + x] = e[y * T + x]! + sum;
-            }
-          }
-        } else for (let c = 0; c < 3; c++) {
+        for (let c = 0; c < 3; c++) {
           const k = group.nodeKernels[c]!, e = out[c]!;
-          for (let y = 0; y < T; y++) for (let x = 0; x < T; x++) {
+          for (let y = 0; y < rows; y++) for (let x = 0; x < T; x++) {
             // Each group's part of the site, integrated from its taps' material spectra (MaterialSums).
             acc.reset();
             for (let dy = 0; dy < ch; dy++) for (let dx = 0; dx < cw; dx++) acc.add(material[(y + dy) * gw + x + dx]!, k, (dy * cw + dx) * nodes);
-            e[y * T + x] = e[y * T + x]! + acc.value();
+            e[(r0 + y) * T + x] = e[(r0 + y) * T + x]! + acc.value();
           }
         }
       } else {
@@ -931,33 +1101,43 @@ function prepareLargeKernel(input: DisplayViewExpectedSignalInput): LargeKernelS
         state.lookups += gw * gh * nodes;
         for (let c = 0; c < 3; c++) {
           const e = out[c]!;
-          for (let y = 0; y < T; y++) for (let x = 0; x < T; x++) {
+          for (let y = 0; y < rows; y++) for (let x = 0; x < T; x++) {
             let sum = 0;
             for (let dy = 0; dy < ch; dy++) for (let dx = 0; dx < cw; dx++) {
               const r = ((y + dy) * gw + x + dx) * nodes;
               for (let n = 0; n < nodes; n++) sum += group.perNode[n]![c]![dy * cw + dx]! * radiance[r + n]!;
             }
-            e[y * T + x] = e[y * T + x]! + sum;
+            e[(r0 + y) * T + x] = e[(r0 + y) * T + x]! + sum;
           }
         }
       }
     }
-    return out;
   }
   // At least the in-focus tiles one output tile's source spans plus one more row of them, so the next output tile of a row
   // reuses them (about 37 MiB at radius 512); otherwise the byte budget.
   const span = Math.ceil((LARGE_OUTPUT_TILE + 2 * input.largeKernel!.radius) / LARGE_E_TILE) + 1;
-  const inFocus = new Map<number, Float64Array[]>(), inFocusCapacity = Math.max(span * (span + 1), Math.floor(LARGE_CACHE_BYTES / (3 * LARGE_E_TILE * LARGE_E_TILE * 8)));
-  function inFocusTileAt(tx: number, ty: number): Float64Array[] {
+  /** #653: an in-focus tile's three channels and which of its rows are computed (rows on demand; a row's values do not depend on the others). */
+  interface InFocusTile { values: Float64Array[]; done: Uint8Array; missing: number }
+  const inFocus = new Map<number, InFocusTile>(), inFocusCapacity = Math.max(span * (span + 1), Math.floor(LARGE_CACHE_BYTES / (3 * LARGE_E_TILE * LARGE_E_TILE * 8)));
+  /** In-focus tile (tx, ty) with its rows [r0, r1) computed (runs of missing rows). */
+  function inFocusRowsAt(tx: number, ty: number, r0: number, r1: number): Float64Array[] {
     const T = LARGE_E_TILE, key = (ty + 1048576) * 2097152 + tx + 1048576;
     let tile = inFocus.get(key);
     if (tile) { inFocus.delete(key); inFocus.set(key, tile); }
     else {
-      tile = inFocusTile(tx * T, ty * T, T);
+      tile = { values: [0, 1, 2].map(() => new Float64Array(T * T)), done: new Uint8Array(T), missing: T };
       inFocus.set(key, tile);
       if (inFocus.size > inFocusCapacity) inFocus.delete(inFocus.keys().next().value!);
     }
-    return tile;
+    if (tile.missing > 0) for (let r = r0; r < r1;) {
+      if (tile.done[r]) { r++; continue; }
+      let end = r + 1;
+      while (end < r1 && !tile.done[end]) end++;
+      inFocusRows(tile.values, tx * T, ty * T, T, r, end);
+      tile.done.fill(1, r, end); tile.missing -= end - r;
+      r = end;
+    }
+    return tile.values;
   }
   // Which sites of a tile row hold channel c: the CFA's 2 × 2 period, from channelAt (tile origins are even).
   const phase = [0, 1].map((py) => [0, 1].map((px) => input.channelAt(px, py)));
@@ -965,12 +1145,14 @@ function prepareLargeKernel(input: DisplayViewExpectedSignalInput): LargeKernelS
     const p = phase[row & 1]!, even = p[0] === c, odd = p[1] === c;
     return even && odd ? { start: 0, step: 1 } : even ? { start: 0, step: 2 } : odd ? { start: 1, step: 2 } : null;
   });
-  state.lattice = createSiteKernelRunsLattice({ runs: input.largeKernel!, tile: LARGE_OUTPUT_TILE, fields: 3, capacityBytes: LARGE_CACHE_BYTES,
+  // #653: output rows on demand, in fixed blocks of LARGE_OUTPUT_ROW_BLOCK rows; the in-focus rows they read are computed on demand too.
+  state.lattice = createSiteKernelRunsLattice({ runs: input.largeKernel!, tile: LARGE_OUTPUT_TILE, rowBlock: LARGE_OUTPUT_ROW_BLOCK, fields: 3, capacityBytes: LARGE_CACHE_BYTES,
     pattern: (c) => patterns[c], source: (x0, y0, width, height) => (c: number): Float64Array => {
       // Copied from the in-focus tiles the rectangle overlaps, tile by tile, row segment by row segment (the values are copies).
       const samples = new Float64Array(width * height), T = LARGE_E_TILE;
       for (let ty = Math.floor(y0 / T); ty * T < y0 + height; ty++) for (let tx = Math.floor(x0 / T); tx * T < x0 + width; tx++) {
-        const tile = inFocusTileAt(tx, ty)[c]!, ax = Math.max(x0, tx * T), bx = Math.min(x0 + width, (tx + 1) * T), ay = Math.max(y0, ty * T), by = Math.min(y0 + height, (ty + 1) * T);
+        const ax = Math.max(x0, tx * T), bx = Math.min(x0 + width, (tx + 1) * T), ay = Math.max(y0, ty * T), by = Math.min(y0 + height, (ty + 1) * T);
+        const tile = inFocusRowsAt(tx, ty, ay - ty * T, by - ty * T)[c]!;
         for (let y = ay; y < by; y++) samples.set(tile.subarray((y - ty * T) * T + ax - tx * T, (y - ty * T) * T + bx - tx * T), (y - y0) * width + ax - x0);
       }
       return samples;

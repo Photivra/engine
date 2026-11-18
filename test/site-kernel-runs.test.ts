@@ -99,4 +99,29 @@ describe("createSiteKernelRunsLattice (#564)", () => {
     expect(lattice.valueAt(0, 0, 0)).toBe(0);
     expect(lattice.valueAt(0, 1, 1)).toBe(0);
   });
+
+  it("#653: rows on demand give the bits of whole tiles, whatever rows are read first, and compute only the blocks read", () => {
+    const kernel = createDefocusDiscSiteKernel(29)!, runs = siteKernelRuns(kernel.weights, kernel.radius), next = stream(653);
+    const noise = Float64Array.from({ length: 4096 }, () => next());
+    // A value per lattice point and field only (as the tile sources of the expected signal are).
+    const source = (x0: number, y0: number, w: number, h: number) => (field: number): Float64Array =>
+      Float64Array.from({ length: w * h }, (_, k) => noise[(((x0 + (k % w)) * 31 + (y0 + Math.floor(k / w)) * 17 + field * 5) & 4095)]! + ((x0 + (k % w)) > 20 ? 2 : 0));
+    const pattern = (field: number) => (row: number): { start: number; step: number } | null => (field === 1 ? { start: 0, step: 1 } : row % 2 === field ? { start: field, step: 2 } : null);
+    const whole = createSiteKernelRunsLattice({ runs, tile: 32, fields: 2, source, pattern });
+    const blocks = createSiteKernelRunsLattice({ runs, tile: 32, fields: 2, source, pattern, rowBlock: 8 });
+    // One value of row 13 computes one block of 8 rows of one tile.
+    blocks.valueAt(0, 3, 13);
+    expect(blocks.tilesComputed).toBe(1);
+    expect(blocks.rowBlocksComputed).toBe(1);
+    const points: [number, number][] = [];
+    for (let y = -40; y < 70; y += 3) for (let x = -35; x < 75; x += 5) points.push([x, y]);
+    const order = [...points].sort(() => next() - 0.5);
+    const got = new Map<string, number[]>();
+    for (const [x, y] of order) got.set(x + "," + y, [blocks.valueAt(0, x, y), blocks.valueAt(1, x, y)]);
+    for (const [x, y] of points) expect(got.get(x + "," + y)).toEqual([whole.valueAt(0, x, y), whole.valueAt(1, x, y)]);
+    // A whole tile asked for after some of its blocks: the same bits as the whole tile.
+    expect(blocks.tileAt(1, 1).map((f) => Array.from(f))).toEqual(whole.tileAt(1, 1).map((f) => Array.from(f)));
+    expect(whole.rowBlocksComputed).toBe(whole.tilesComputed);
+    expect(() => createSiteKernelRunsLattice({ runs, tile: 32, fields: 1, source, rowBlock: 5 })).toThrow(/row block/u);
+  });
 });
