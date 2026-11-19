@@ -72,7 +72,7 @@ Measured on the app's capture-worker shape (`test/capture-bundle.test.ts`).
 | Tree | Fast worker | On demand | Export kit |
 | --- | --- | --- | --- |
 | 2.26.0 (`94f56f3`) | 331,482 B | 49,382 B | 10,403 B |
-| **This branch** | **338,378 B** | **51,999 B** | **10,399 B** |
+| **This branch** | **338,380 B** | **51,999 B** | **10,399 B** |
 | Limits | 338,900 B (unchanged) | 52,000 B (49,400 B before) | 10,500 B (unchanged) |
 
 - The on-demand limit is the measurement of #649's shared passes and #656's chain rule rounded up to the next 100 B (owner

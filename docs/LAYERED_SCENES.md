@@ -203,7 +203,7 @@ series would give a card two places farther back).
 
 Cost through the public API (2.27.0, report only; `node scripts/benchmark-layered-scenes.mjs 2` after `npm run build`, on an
 Apple M5 Pro, Node 26.13.1, one process, load average 13–19): the tabletop preset on a 6000 × 4000 sensor of 6 µm sites, an ideal
-50 mm lens focused at 1 m, a 2 × 2 box pixel aperture, a 192 × 128 region at the top-right corner of the card at the focus
+50 mm lens focused at 1 m, a 2 × 2 box pixel aperture, a 192 × 128 region on the right edge of the card at the focus
 distance (2.6 % edge sites at f/2 and f/8), CPU time of the process, the second of two runs:
 
 | f-number | View region 1:1, fast | View region 1:1, full | Capture region, fast | Capture region, full |

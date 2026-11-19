@@ -5,7 +5,7 @@
  * host-dependent, no CI threshold.
  *
  * The tabletop preset on a 6000 × 4000 sensor of 6 µm sites, an ideal 50 mm lens focused at 1 m, a 2 × 2 box pixel aperture, and a
- * 192 × 128 region at the top-right corner of the card at the focus distance: the display view (a 1:1 region of a whole-frame view,
+ * 192 × 128 region on the right edge of the card at the focus distance: the display view (a 1:1 region of a whole-frame view,
  * `prepareDisplayView(…, { gpu: "off" })` then `render`) and the capture region (`simulateCapture` with `output.region`), fast and
  * full, at f/2 and f/8. The figure is the CPU time of the process (user + system) per render.
  *
@@ -26,7 +26,7 @@ const engine = await import(pathToFileURL(join(dist, "index.js")).href);
 await engine.prepareLayeredChartScenes();
 const W = 6000, H = 4000, aspect = H / W;
 const scene = engine.resolveLayeredChartPreset({ scale: "tabletop", focusDistanceM: 1, lens: { focalLengthMm: 50 }, aspect });
-// The corner of the card at the focus distance nearest the next card: its top-right corner, in output pixels.
+// A region on the right edge of the card at the focus distance (the middle of the edge), in output pixels.
 const card = scene.cards[2], u = card.centerU + card.width / 2, v = card.centerV + card.height / 2;
 const px = Math.round((u + 1) / 2 * W), py = Math.round((aspect - v) / (2 * aspect) * W);
 const region = { x: px - 96, y: py - 64, width: 192, height: 128 };
