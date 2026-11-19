@@ -31,25 +31,29 @@ async function digest(options: SimulateCaptureOptions, view: SimulateDisplayView
   return hash.digest("hex");
 }
 
+// Re-recorded for 2.27.0 on the integration branch (x64 Node 24.1.0 under Rosetta 2 and arm64, the same hashes): samples of all 17
+// cases unchanged. The two exact cases (fast: false) differ from 2.26.0 by rounding (#655's one kernel pass, #653): site electrons
+// within 6.6·10⁻¹⁶ and expected values within 2.3·10⁻¹⁵ relative. The fast cases also take #655's uniform-window fast method
+// (lens.catalogue/view-uniform-window, new fast default): site electrons within 5.8·10⁻⁹, expected values within 6.1·10⁻⁹ relative.
 /** [case, x64 lock]; the arm64 hash of a lock whose bytes differ there is in ARM64_HASHES (none: every case is the same on both). */
 const LOCKS: readonly [string, string][] = [
-  ["plain-8x", "e200a280a3b49a5250f22f788904cd74bca4701754e92ec15f3785e3778c22cb"],
-  ["plain-2x", "98f05df83f563c26205a354b49cbe46aaeb0c7eb982f432579fbb0286af78dd0"],
-  ["plain-1x", "0e275b477afedc52dae60398dadaf8cd1671a195946dcb0adee30c353e455897"],
-  ["corrections-8x", "78c5ad4191f67079ea9cb5bab5893ece13022956c56f67074a049ab0005c295a"],
-  ["corrections-2x", "fa221390737cc97b3b589d86ec38944132f57a8364b21c473fdc95071a28d1f3"],
-  ["corrections-1x", "fc16b6b2958a16a9fff7b9536d400356e87e2e10dae1c7a7678b2722212839f1"],
-  ["sharpening-8x", "f4563fdf9f3ac932a04c049a250fe53eb8a5db43ceed60d81b583973493dd830"],
-  ["sharpening-2x", "5c146af2e894046440a47a36c46080c98ea74f682785410c1b23e15e787b2d07"],
-  ["sharpening-1x", "b79987ed8f3ab943546a6cb51f5c8cea76679b7aad15bb5cb580d0baca1a3509"],
-  ["both-8x", "b2a205be720df35e90aac80d793a4c7c208e9763fcfaa7d8bde7ff8c88b6ab4d"],
-  ["both-2x", "e235dcd696155a0913036c73e1868f26111b2ae5bf22b027f5350cf5bb737dc4"],
-  ["both-1x", "8a680a628f5003c979a5eca55366d33be8eea0e29c06c3d2147b2dfb60c93b2f"],
-  ["corrections-exact-8x", "a5fbf8bf436620bd0d47d08a00714f3abd430c59bb5d760a5200993d7f477b46"],
-  ["both-exact-2x", "841551eeb368f9face62a71a0db84fd823a85727d194522882e99af3740c6b52"],
-  ["both-ahd-2x", "9e3c2f5aaf2cd05a808a7cf26ab37fb02d427a4360c9dab487e5ddae99f4f121"],
-  ["both-region-2x", "21fd9ac7ff8ad77672136c56e982eb846ece63edf79c9fd52fb2df09edb00fae"],
-  ["neighbors-2x", "2bb593d6697d67b5deed95d6252ca423b517866afcb674887d6fcd069a91302a"],
+  ["plain-8x", "49bfac9dbebe35cee05b192b73b05f2ee79f16b6213ae4da9500bf99b8ab8414"],
+  ["plain-2x", "c785724e99f7d2ad04ba32c7ddc10e2c9856faf4775e09e7fc510e70362053c3"],
+  ["plain-1x", "477595a8ad9d346c7f156b167155940308332ef9b48f77181518fa026ad277cc"],
+  ["corrections-8x", "11a2f3f9cf150c08812ea07f71bcb6b9e7bbb7209d100b622f9dd5605d34adee"],
+  ["corrections-2x", "0f637acc0bd2b6392efbee23e6a3e613abe6cb7c7f47168dff3884baf84b9ce9"],
+  ["corrections-1x", "08f0c03d3f594b98f6f36ea38b81e9f2e44cf72d4bdc7c576c99be1a2405d50d"],
+  ["sharpening-8x", "5cd2f0eeb0128f218513a3f098f681eab6099972888f7c84cc4fdb60f7d33060"],
+  ["sharpening-2x", "5259e9f52e7d6b63b3b1d430a79f4cfe4628dfb161f06017c0312e670dea9b41"],
+  ["sharpening-1x", "0c1704ede2a49a408ba48517d00c03c8ca80de4514474069e9bba3f795f84c7a"],
+  ["both-8x", "936904ee80576a6fa320a6da59d8456a8d668e4e30fd043dfa958605d7047f0b"],
+  ["both-2x", "25cb2ec15a96794cc713ef1d47af6383cdc19c3994097a67493bc8128b8ce7b6"],
+  ["both-1x", "82087e6fcffc097cc065c15d2a971a28e265673dd90fb7a831b4bb04ee122697"],
+  ["corrections-exact-8x", "eeaf125c60cc9a00ae125125d8aeab32e7c746e3fd878c56cc72c039f7ed209f"],
+  ["both-exact-2x", "22d652bd70c729c1972219a32d5cabd55f16c24dd104f1f3cecac5618109a3d0"],
+  ["both-ahd-2x", "801b33fc0f3e4d88798a47532d1b7b1d497e3d0c6765b467cef67264e85e9e86"],
+  ["both-region-2x", "324f73acd7ed6bdf37096ca1148ebc150dd49003842269a2bd27800ba1c1012a"],
+  ["neighbors-2x", "d52a978216597fc0a962437624d43c055dbcfa39d4af6f6d2d07daf01eb90fe2"],
 ];
 const ARM64_HASHES: Readonly<Record<string, string>> = {
 };

@@ -171,8 +171,11 @@ describe("lens.catalogue fast method (#568)", () => {
     expect(spots.diagnostics.fast.applied).toEqual({ "lens.catalogue": false, "sensor.antiAliasing": false });
     for (const catalogue of [{ kind: 50 }, { kind: "pv-50-1.8", fast: "yes" }, { kind: "pv-50-1.8", extra: 1 }, { fast: true }])
       await expect(simulateCapture({ ...fullFrame("pv-50-1.8", 8, 48, star), lens: { catalogue, fNumber: 8 } as never })).rejects.toThrow(InvalidConfigurationError);
-    // The display view renders the record form with #569's per-zone PSF; the fast method is the capture's only, so it reports false.
+    // The display view renders the record form with #569's per-zone PSF (one site per zone on this frame). 2.27.0: the record's fast
+    // takes the view's uniform-window method (#655, lens.catalogue/view-uniform-window), so it reports true; with fast: false, false.
     const view = await simulateDisplayView({ ...fullFrame("pv-50-1.8", 8, 48, star), lens: { catalogue: { kind: "pv-50-1.8", fast: true } } }, { width: 12, height: 8 });
-    expect(view.diagnostics.fast).toMatchObject({ requested: true, applied: { "lens.catalogue": false }, assurance: "engine-reference" });
+    expect(view.diagnostics.fast).toMatchObject({ requested: true, applied: { "lens.catalogue": true }, assurance: "approximation-with-a-priori-bound" });
+    const exactView = await simulateDisplayView({ ...fullFrame("pv-50-1.8", 8, 48, star), lens: { catalogue: { kind: "pv-50-1.8", fast: false } } }, { width: 12, height: 8 });
+    expect(exactView.diagnostics.fast.applied).toMatchObject({ "lens.catalogue": false });
   }, scaledTimeout(120_000));
 });

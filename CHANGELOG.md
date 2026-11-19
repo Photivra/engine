@@ -1,5 +1,91 @@
 # Changelog
 
+## 2.27.0 — unreleased
+
+A minor release: lower CPU cost of the display view with lens corrections and sharpening (#649), with camera rotation under a
+rolling shutter and defocus (#651), of defocused and long-lens Quality frames (#653), with catalogue lenses (#655, CPU) and with
+develop options (#656). Measured before and after below and in docs/DISPLAY_VIEW.md, "2.27.0 cost cases".
+
+- **Changed (fast defaults):** two new fast methods with full methods kept (registry entries `motion.shutter.rolling/view-row-bands`
+  and `lens.catalogue/view-uniform-window`), and the fast rule of `output.highlightMode.reconstruct/view-moments` (3 or 6 points per
+  axis instead of 6). Each is the default for the display view and sRGB samples; `fast: false` (and the record's own flag) takes
+  the full method. Every other change in this release gives the same results within rounding (the 2.27.0 rule: per-site electrons
+  within 1e-9 relative, 8-bit samples within one code) and takes no flag.
+- **New fields:** `view.defocus.rollingBands: { rows, shiftSites }`, `view.lensPsf.uniformWindows`, and
+  `view.rendering.chainPointsPerAxis: "3-or-6"` on fast requests (16 with `fast: false`, as before).
+- **Diagnostics:** with lens corrections or sharpening, `diagnostics.sampleCount`, `siteEvaluations` and `sceneLookups` and
+  `view.estimation`'s `evaluatedRealPixels` count the passes as they now run, so they are lower than in 2.26.0 for the same view.
+- **Capture worker:** the on-demand limit is 52,000 B (owner approval: #649's and #656's code in the on-demand kits measured
+  51,999 B, rounded up to the next 100 B; savings tracked in #658). The fast-worker and export limits are unchanged.
+- **Why minor:** new fast methods, assumption fields and fast-default changes.
+
+Measured on one Apple M5 Pro (18 cores), macOS, Node 26.13.1: `JOBS=1 REPEATS=3 node scripts/benchmark-display-view-cases.mjs
+649 651 653 655 656`, and the same with `DIST=` a 2.26.0 build (`94f56f3`) made in the same session; CPU time of the process for one
+render, the fastest of three; load average 6–33 during the runs.
+
+### #649 Lens corrections and sharpening in the display view
+
+- **Faster, same bytes:** the passes of one call share a site store (each native site's expected electrons, keyed by its coordinates,
+  32 MiB) and a store of the real pixels' recorded terms (32 MiB), both dropped when the call returns; with sharpening the view-size
+  render runs for the first channel map only, and passes whose samples are not used draw no noise. Samples, expected values and noise
+  equal 2.26.0's on 17 recorded cases (`test/display-view-detail-shared.test.ts`).
+- 96 × 96 part of a 1500 × 1000 view, PV 50 1.2 Pro at f/8: no corrections 0.93 → 0.52 s; corrections 2.22 → 0.73 s (1.42× the plain
+  part; target 1.5×); sharpening 1.80 → 0.98 s (1.90×; target 1.7×, the plain part got faster too: 0.98 s is under the 2.1 s target);
+  both 4.74 → 1.24 s (2.40×; target 2.6×).
+
+### #651 Camera rotation with a rolling shutter and defocus in the display view
+
+- **Faster, same sum:** a plain defocus disc through the lens (projection, distortion, vignetting, rotation) takes the regrouped
+  path (the in-focus signal, then the disc by runs) where the lens's cost rule finds it cheaper: under a global shutter on fast
+  requests; under a rolling shutter by fixed row blocks, each row at its own instants, with `fast: false` too.
+- **Changed (fast default, `motion.shutter.rolling/view-row-bands`):** under a rolling shutter rows are grouped into bands of at
+  most 63 that read the band's middle row's instants, chosen so the in-focus image moves at most 1/128 site (the plan's 1/32 failed
+  its go/no-go at 0.14 code RMS against the full method; 1/128 measures 0.094, bound 0.1). Reported in `view.defocus.rollingBands`.
+- 1194 × 796 view, 50 mm f/8, subject 0.63 m, disc radius 11 sites, CPU time: rolling out of focus 48 × 32: 14.45 → 0.88 s (fast;
+  target 1.5 s) and 28.86 → 5.17 s (`fast: false`; target 7 s); 24 × 16: 3.96 → 0.40 s; global out of focus 24 × 16: 1.56 → 0.48 s
+  (target 0.6 s; 2.2× the still out-of-focus region, target 3×). The issue's 192 × 128 region, rolling out of focus: 218 →
+  7.27 s, 4.7× the in-focus region (1.56 s; target 3×, **not met**, owner-accepted: the 1/128 site band shift
+  keeps the accuracy; open for 2.28.0).
+
+### #653 Defocused and long-lens Quality renders
+
+- **Faster, same sums:** channel-free in-focus tile sums, uniform windows in the tiles, rows on demand (output tiles in fixed 8-row
+  blocks, in-focus tiles row by row; `regroupedDefocusCheaper` without its 192-site widening), and in focus the per-tap chart signal
+  read from pre-integrated spectral radiance in fixed 16-site tiles, at most **48 MiB per render**. Per-site electrons within
+  1e-15 relative of 2.26.0, samples identical; the hash locks of the three diffraction chart cases of `test/display-view.test.ts`
+  and one of `test/display-view-pixel-memo.test.ts` re-recorded on x64 and arm64 (samples unchanged, expected values within
+  1.4·10⁻¹⁴ relative).
+- Quality options, 768 × 512 view: 50 mm f/2 focused at 0.8 × the subject distance, a 768 × 43 band 32.12 → 8.70 s (target 14 s),
+  a 768 × 4 band 4.78 → 1.03 s (target 1.5 s); focused at 1.25 × 31.91 → 8.42 s; 200 mm f/8 in focus 6.45 → 4.46 s (1.45×; target
+  1.15×).
+
+### #655 Catalogue-lens display view (CPU)
+
+- **Faster, same sum:** each site takes one kernel pass of its zone's PSF over the lattice's spectral radiance pre-integrated over the
+  query offsets with each point's field factor; zone kernels are built without copying the materials' spectra and kept across
+  prepared views by content (32 MiB); the view's lattice points invert a radial distortion by Newton steps (within 4 ULP of the
+  bisection over 10⁶ radii of each catalogue profile; the capture keeps the bisection).
+- **Changed (fast default, `lens.catalogue/view-uniform-window`, `lens.catalogue`'s flag):** on chart and material scenes a site whose
+  every tap reads one material takes the field factor to second order (within 2.7·10⁻⁸ relative of the full method on every
+  catalogue lens at its widest and narrowest aperture; go/no-go bound 1e-6). Reported in `view.lensPsf.uniformWindows`.
+  The 17 hash locks of `test/display-view-detail-shared.test.ts` (catalogue-lens views) were re-recorded on x64 and arm64: samples
+  unchanged; the two `fast: false` cases within 2.3·10⁻¹⁵ relative of 2.26.0 (rounding), the fast cases within 6.1·10⁻⁹ (the
+  uniform-window method). A small catalogue view with `lens.catalogue: { kind, fast: true }` now reports
+  `diagnostics.fast.applied["lens.catalogue"]: true` (the uniform windows run there).
+- PV 50 1.2 Pro at f/8 against the 50 mm prime, whole views: 96 × 64 point aperture 31.91 → 11.74 s (7.0× the prime; target 16 s);
+  192 × 128 43.77 → 17.47 s (6.1×); 96 × 64 with the 2 × 2 box 95.71 → 23.05 s, 2.0× the point aperture (target 1.3×, **not met**,
+  owner-accepted; open for 2.28.0). Catalogue-lens views still render on the CPU with `gpu: "auto"`, labelled `unsupported-on-backend`; the GPU path for them is planned for 2.28.0 and #655 stays open for it.
+
+### #656 Develop options in the display view
+
+- **Changed (fast default, `output.highlightMode.reconstruct/view-moments`):** the fast chain rule takes 3 points per axis where
+  every channel's standard deviation is below 0.01 and a kink probe finds no output clip, desaturation start or zero luminance within
+  8.5σ, else 6 (owner decision 1). Inside the fast rule's documented bounds against the full rule (chain 1.45·10⁻², 2.41·10⁻⁴ for
+  σ ≤ 0.01); the full rule (16 points) is bit-identical to 2.26.0. The GPU coupled kernels take the same order and probe.
+- 96 × 96 part of a 1500 × 1000 view, 50 mm f/8: Standard, Recover and +1 stop 2.15 → 0.69 s (target 1.0 s; 2.9× the part without
+  develop options, target 2.5×); Recover and +1 stop without Standard 1.28 → 1.22 s (target 0.8 s, **not met**, owner-accepted: the
+  accuracy is kept; open for 2.28.0).
+
 ## 2.26.0 — unreleased (prepared November 16, 2026)
 
 A minor release: the issues of milestone 2.26.0 (#639–#643, #645–#648) and the export kit. A flash light, rolling shutter with camera rotation in the display view and with defocus, a hand-shake trajectory, PNG Exif and subject distance in the metadata readers, thin-lens framing without the catalogues, and lower display-view render cost. See the [2.26.0 release record](https://github.com/Photivra/engine/blob/main/docs/RELEASE_2_26_0.md).

@@ -8165,6 +8165,14 @@ From #563 the view renders `lens.projection`, `lens.distortion`, `lens.vignettin
 each site reads the scene at its own exposure window's instants, as the capture does (a defocus kernel above 64 sites radius
 is refused there, in the view and the capture). See [Lens projection, distortion, vignetting and rotation](https://github.com/Photivra/engine/blob/main/docs/DISPLAY_VIEW.md#lens-projection-distortion-vignetting-and-rotation).
 
+From 2.27.0 these views cost less. Out of focus through the lens the disc is applied after the in-focus signal (#651): under a
+rolling shutter by rows, each row at its own instants with `fast: false`, and by default in bands of rows that read their middle
+row's instants (`view.defocus`'s `rollingBands: { rows, shiftSites }`; the image shifts by at most 1/128 site). A catalogue lens's
+view (#655) takes one kernel pass per site, and on chart scenes by default a site whose taps read one material takes the field
+factor to second order (`view.lensPsf`'s `uniformWindows`; `lens.catalogue: { kind, fast: false }` or `fast: false` sums every
+tap). Lens corrections and sharpening (#649) share their passes' site values, with the same bytes as before and lower
+`diagnostics` counts. See [DISPLAY_VIEW.md, 2.27.0 cost cases](https://github.com/Photivra/engine/blob/main/docs/DISPLAY_VIEW.md#2270-cost-cases).
+
 ```ts
 import { simulateDisplayView } from "@photivra/engine";
 
