@@ -115,7 +115,7 @@ Measured on the app's capture-worker shape (`test/capture-bundle.test.ts`).
 | --- | --- |
 | Tag | `v2.27.0` (annotated, `639d381`) → `4498c630926ec239d150d49f891fe1c8d3fe4884` (#664 on `main`), after `main` CI on that commit passed ([CI run 44526681945](https://github.com/Photivra/engine/actions/runs/44526681945); WebGPU [44526681942](https://github.com/Photivra/engine/actions/runs/44526681942); native performance [44526682034](https://github.com/Photivra/engine/actions/runs/44526682034)) |
 | Publish workflow | [Publish npm run 44527274998](https://github.com/Photivra/engine/actions/runs/44527274998): attempt 1 (started 12:48:10 UTC) failed at the coverage gate, with the coverage shards on mixed Node.js 24.22.2 and 24.22.3 runners ([#666](https://github.com/Photivra/engine/issues/666)), and did not publish; attempt 2 (started 13:06:07 UTC) passed, publish job 13:08:34 to 13:08:53 UTC |
-| npm | `@photivra/engine@2.27.0`, dist-tag `latest`, registry time 13:22:16 UTC, November 19, 2026 |
+| npm | `@photivra/engine@2.27.0`, dist-tag `latest`, registry time 13:22:16 UTC, November 19, 2026; npm accepted the upload at 13:08:52 UTC and reported the package as being processed |
 | Integrity | `sha512-Tyj28UruG5AkgwLYgaw/MWTwkFBWmhRdaNoOkArxE/jh4EzbBMudp6Q2tXY//OVyMojtZtnhY09y/OUus8H71w==` (shasum `302b13c39e4c3ce1a6e3659e45b17831efd9483e`, 1,260 files) |
 | Provenance | SLSA provenance v1 attestation, recorded in the Sigstore transparency log (log index 3997232403); `npm audit signatures` reports a verified registry signature and a verified attestation |
 | GitHub release | [`v2.27.0`](https://github.com/Photivra/engine/releases/tag/v2.27.0), "@photivra/engine 2.27.0", notes generated from `v2.26.0`, published 13:22:59 UTC |
