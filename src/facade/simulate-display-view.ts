@@ -51,6 +51,55 @@ export interface PreparedDisplayViewRenderOptions {
   /** Aborting cancels this render only; the promise rejects with a domain error. The request's own `signal` applies to preparing only. */
   signal?: AbortSignal;
 }
+/** A count that is known exactly (`minimum === maximum`) or only bounded (stratified samples, whose real pixels follow seeded jitter). */
+export interface DisplayViewCountRange { minimum: number; maximum: number }
+/** 2.27.0 (#651): what {@link PreparedDisplayView.estimateRender} returns: the counts and the methods a CPU render of the view would take. */
+export interface DisplayViewRenderEstimate {
+  /** The region's display pixels. */
+  displayPixels: number;
+  /** The estimator `view.estimation` will report. */
+  estimation: "exact-area-mean-over-real-pixels" | "stratified-monte-carlo-over-real-pixels";
+  /** Real pixels per display pixel (scaleX · scaleY). */
+  realPixelsPerDisplayPixel: number;
+  /**
+   * Renderer passes: `view` at the view's size (one per distinct channel map of `output.lensCorrections`, one with `output.sharpening`)
+   * and `realPixels` at 1:1 (with `output.sharpening`, one per channel map).
+   */
+  passes: { view: number; realPixels: number };
+  /** Real pixels the passes evaluate: the render's `diagnostics.sampleCount`. Exact, except for jittered samples through exact lens corrections. */
+  sampleCount: DisplayViewCountRange;
+  /** Demosaic site reads of those real pixels: the render's `diagnostics.siteEvaluations`. Exact on the exact area mean; bounded for stratified views. */
+  siteEvaluations: DisplayViewCountRange;
+  /** Display pixels sampled fully and with the uniform count (the render's `detailPixelCount` and `uniformPixelCount`; the exact area mean counts every pixel as detailed). */
+  detailPixelCount: number;
+  uniformPixelCount: number;
+  /** Native sites of the region's footprint and its reach: the most sites the expected signal computes per pass (each at most once per pass). */
+  nativeSites: number;
+  /** The expected signal's work per site. */
+  signal: {
+    /**
+     * "taps": each site sums its kernel taps; "regrouped": the in-focus signal, then the defocus disc by runs (#612, #642, #651);
+     * "runs": #564's runs above 64 sites; "point": no kernel (one lattice point per query offset).
+     */
+    method: "taps" | "regrouped" | "runs" | "point";
+    /** Radius of the kernel each site reads (the combined kernel; the in-focus kernel's when regrouped), in sites, and its taps. */
+    kernelRadiusSites: number;
+    tapsPerSite: number;
+    /** The defocus disc's radius when regrouped or by runs (its runs per site are about 2·(2R + 1)), else null. */
+    discRadiusSites: number | null;
+    /** Query offsets per site (pixel-aperture nodes × filter spots), spectral nodes and temporal midpoints. */
+    queryOffsets: number;
+    spectralNodes: number;
+    temporalMidpoints: number;
+    /** #651: rows per block under a rolling shutter when regrouped (1: each row at its own instants; more: the fast row bands), else null. */
+    rollingBandRows: number | null;
+    /** #569, #655: the catalogue PSF's field-zone side in sites, and whether the uniform-window fast method is on; null without a catalogue lens. */
+    lensPsfZoneSites: number | null;
+    uniformWindows: boolean | null;
+  };
+  /** #656: points per axis of the development chain's rule (`view.rendering`), or null when the view has no coupled steps. */
+  chainPointsPerAxis: "3-or-6" | 16 | null;
+}
 /**
  * 2.7: a display-view request resolved once (`prepareDisplayView`). `render(view)` gives the same result as
  * `simulateDisplayView(options, view)` for the prepared options, byte for byte (samples, view, exposure, scene, diagnostics
@@ -64,6 +113,14 @@ export interface PreparedDisplayView {
    * says whether the GPU or the CPU reference rendered the view, and why.
    */
   render(view: SimulateDisplayViewOptions, renderOptions?: PreparedDisplayViewRenderOptions): Promise<DisplayViewResult>;
+  /**
+   * 2.27.0 (#651): the work a CPU render of `view` would do, counted without rendering it: the renderer passes, the real pixels and
+   * site reads (`diagnostics.sampleCount` and `siteEvaluations` of that render), the display pixels its pilot finds detailed or uniform,
+   * the native sites the expected signal may compute, and the method each cost choice takes. It reads the scene only at the pilot's
+   * grid points (stratified views). Counts, not seconds: docs/DISPLAY_VIEW.md, "Estimating a render", gives measured times per
+   * operation on one machine as a guide. A GPU render (`gpu` "auto" or "require") reports its own counts.
+   */
+  estimateRender(view: SimulateDisplayViewOptions): Promise<DisplayViewRenderEstimate>;
   /**
    * 2.11 (#481): releases the WebGPU device the view acquired (none with `gpu: "off"`, or when `gpuDevice` gave an accelerator,
    * whose device its owner keeps). Later renders run the CPU reference labelled `fallbackReason: "disposed"` (`"auto"`) or fail
@@ -131,6 +188,9 @@ export async function prepareDisplayView(options: SimulateCaptureOptions, prepar
       const parsed = parseDisplayViewOption(view, frameWidth, frameHeight);
       return await prepared.render(parsed, run, undefined, session);
     },
+    async estimateRender(view: SimulateDisplayViewOptions): Promise<DisplayViewRenderEstimate> {
+      return await prepared.estimate(parseDisplayViewOption(view, frameWidth, frameHeight));
+    },
     dispose(): void { session?.dispose(); },
     // Deprecated since 2.22.0 (no correction states); kept until 3.0.0.
     correctionKey(): string | null { return null; },
@@ -196,6 +256,8 @@ type RenderPreparedView = (view: ParsedDisplayView, run: ViewRun, viewInternals?
 /** A prepared request: its render. */
 interface PreparedViewParts {
   render: RenderPreparedView;
+  /** 2.27.0 (#651): the counts of a CPU render of a view, without rendering it. */
+  estimate(view: ParsedDisplayView): Promise<DisplayViewRenderEstimate>;
   /** #481: what a GPU renderer is asked to support. */
   gpuRequest: DisplayViewGpuRequest;
 }
@@ -428,7 +490,17 @@ async function prepareView(context: DisplayViewRunContext): Promise<PreparedView
         limitations: ["Estimated display view of the full-resolution capture: its expected value is a stratified Monte Carlo estimate and its noise is drawn from the variance of the area mean, so it has the resized capture's statistics, not its exact pixels; not a capture and not a measurement."] },
       assumptions: Object.freeze(assumptions.map((a) => Object.freeze(a))) });
   };
-  return { render, gpuRequest };
+  // #651: estimateRender's counts (display-view-estimate.ts, loaded on demand); the facts it needs from this request and view.
+  const estimate = async (v: ParsedDisplayView): Promise<DisplayViewRenderEstimate> => {
+    const { setup, signal, regrouped } = setupOf(v, { started: 0, viewStarted: 0, checkAbort: (): void => {}, yieldControl: (): Promise<void> => Promise.resolve() });
+    const input = regrouped ? regroupedSignalInput! : signalInput, lensPsf = context.lensPsf;
+    return (await import("./display-view-estimate.js")).estimateDisplayViewRender({ setup, signal, detail, overlaps, exactMaximum: EXACT_AREA_MEAN_MAX_PIXELS,
+      method: regrouped ? "regrouped" : largeDefocus ? "runs" : input.kernels ? "taps" : "point", radius: input.kernels?.radius ?? 0,
+      disc: regrouped ? defocusKernel!.radius : largeDefocus ? largeDefocus.radius : null, offsets: offsets.length, nodes: wavelengths.length, midpoints: lensFactory?.midpoints ?? 1,
+      bandRows: regrouped ? lensFactory?.bandRows ?? null : null, zoneSites: lensPsf ? lensPsf.zoneSites : null, uniformWindows: lensPsf ? context.lensUniformWindows === true : null,
+      chain: rendering ? (rendering.fast ? "3-or-6" : 16) : null });
+  };
+  return { render, estimate, gpuRequest };
 }
 
 

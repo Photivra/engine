@@ -1901,7 +1901,7 @@ export type { SimulateCaptureSubjectMotion } from "./motion/subject-motion.js";
 export { calculateHandShakeAngularDisplacement, calculateHandShakeRmsDisplacement, createHandShakeTrajectory, HAND_SHAKE_MAXIMUM_STABILIZATION_STOPS, HAND_SHAKE_MODEL_VERSION,
   HAND_SHAKE_RMS_ANGULAR_SPEED_RAD_PER_SEC } from "./motion/hand-shake.js";
 export type { CalculateHandShakeInput, HandShakeComponent, HandShakeOptions, HandShakeTrajectory } from "./motion/hand-shake.js";
-export { simulateDisplayView, prepareDisplayView, type PreparedDisplayView, type PreparedDisplayViewRenderOptions, serializeDisplayViewCorrectionStates, bindDisplayViewCorrectionStates,
+export { simulateDisplayView, prepareDisplayView, type PreparedDisplayView, type PreparedDisplayViewRenderOptions, type DisplayViewRenderEstimate, type DisplayViewCountRange, serializeDisplayViewCorrectionStates, bindDisplayViewCorrectionStates,
   type DisplayViewCorrectionStateKeys, type DisplayViewCorrectionStateSet } from "./facade/simulate-display-view.js";
 export type { DisplayViewGpuMode, PrepareDisplayViewOptions, DisplayViewGpuFallbackReason, DisplayViewGpuConformance, DisplayViewExecution,
   DisplayViewFastReport } from "./facade/display-view-gpu.js";

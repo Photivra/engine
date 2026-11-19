@@ -3273,6 +3273,11 @@
       "kind": "type"
     },
     {
+      "name": "DisplayViewCountRange",
+      "source": "src/facade/simulate-display-view.ts",
+      "kind": "type"
+    },
+    {
       "name": "DisplayViewExecution",
       "source": "src/facade/display-view-gpu.ts",
       "kind": "type"
@@ -3300,6 +3305,11 @@
     {
       "name": "DisplayViewHighlightDiagnostics",
       "source": "src/facade/simulate-capture.ts",
+      "kind": "type"
+    },
+    {
+      "name": "DisplayViewRenderEstimate",
+      "source": "src/facade/simulate-display-view.ts",
       "kind": "type"
     },
     {

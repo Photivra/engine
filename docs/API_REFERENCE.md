@@ -1776,6 +1776,8 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 | Export | Kind |
 | --- | --- |
+| [`DisplayViewCountRange`](api/facade-simulate-display-view.md#displayviewcountrange) | Type |
+| [`DisplayViewRenderEstimate`](api/facade-simulate-display-view.md#displayviewrenderestimate) | Type |
 | [`PreparedDisplayView`](api/facade-simulate-display-view.md#prepareddisplayview) | Type |
 | [`PreparedDisplayViewRenderOptions`](api/facade-simulate-display-view.md#prepareddisplayviewrenderoptions) | Type |
 | [`prepareDisplayView`](api/facade-simulate-display-view.md#preparedisplayview) | Runtime |

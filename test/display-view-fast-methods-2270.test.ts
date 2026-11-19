@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 import { describe, expect, it } from "vitest";
-import { simulateCapture, type SimulateCaptureOptions, type SimulateDisplayViewOptions } from "../src/index.js";
+import { prepareDisplayView, simulateCapture, type SimulateCaptureOptions, type SimulateDisplayViewOptions } from "../src/index.js";
 import { simulateDisplayViewWithInternals } from "../src/facade/simulate-display-view.js";
 import { lastDisplayViewLensSetup } from "../src/facade/display-view-lens-signal.js";
 import { prepareDefocusImageSpaceGeometry } from "../src/facade/defocus-image-space-provider.js";
@@ -42,6 +42,18 @@ describe("motion.shutter.rolling/view-row-bands (#651)", () => {
     for (let i = 0; i < fast.result.image.samples.length; i++) expect(Math.abs(fast.result.image.samples[i]! - exact.result.image.samples[i]!)).toBeLessThanOrEqual(1);
   }, scaledTimeout(120_000));
 
+  it("reports the band rows in estimateRender", async () => {
+    for (const fastOption of [true, false]) {
+      const prepared = await prepareDisplayView({ ...options, fast: fastOption }, { gpu: "off" });
+      try {
+        const estimate = await prepared.estimateRender(view), rendered = await prepared.render(view);
+        expect(estimate.signal.rollingBandRows).toBe((assumption(rendered, "view.defocus")!.rollingBands as { rows: number }).rows);
+        expect(estimate.signal.temporalMidpoints).toBe(fastOption ? 8 : 16);
+        expect(estimate.sampleCount.maximum).toBe(rendered.diagnostics.sampleCount);
+      } finally { prepared.dispose(); }
+    }
+  }, scaledTimeout(120_000));
+
   it("is in the registry with its resolver and report", () => {
     expect(SIMULATE_CAPTURE_FAST_METHODS.find((e) => e.id === "motion.shutter.rolling/view-row-bands")).toMatchObject({ override: "fast", report: { assumption: "view.defocus" } });
   });
@@ -63,9 +75,11 @@ describe("lens.catalogue/view-uniform-window (#655)", () => {
     expect(await windows({ ...options, fast: false, lens: { catalogue: { kind: "pv-24-1.8", fast: true }, fNumber: 2.8 } })).toMatchObject({ on: true, reported: "field-factor-second-order", applied: true });
   }, scaledTimeout(120_000));
 
-  it("is not taken for a radiance scene (no materials)", async () => {
+  it("is not taken for a radiance scene (no materials) and is reported in estimateRender", async () => {
     const rings: SimulateCaptureOptions = { ...options, scene: { kind: "reflectance-function", sceneId: "rings", evaluate: (p: { u: number; v: number }): number => 0.4 + 0.3 * Math.cos(40 * Math.hypot(p.u, p.v)) } };
     expect(await windows(rings)).toMatchObject({ on: false, reported: null });
+    const prepared = await prepareDisplayView(options, { gpu: "off" });
+    try { expect((await prepared.estimateRender(view)).signal).toMatchObject({ uniformWindows: true }); } finally { prepared.dispose(); }
   }, scaledTimeout(120_000));
 
   it("leaves exports on the full methods (a DNG capture with the same request has no display-view lens signal)", async () => {

@@ -11,6 +11,11 @@ develop options (#656). Measured before and after below and in docs/DISPLAY_VIEW
   axis instead of 6). Each is the default for the display view and sRGB samples; `fast: false` (and the record's own flag) takes
   the full method. Every other change in this release gives the same results within rounding (the 2.27.0 rule: per-site electrons
   within 1e-9 relative, 8-bit samples within one code) and takes no flag.
+- **New API (#651):** `PreparedDisplayView.estimateRender(view)` resolves to a `DisplayViewRenderEstimate` (and the type
+  `DisplayViewCountRange`): the work a CPU render of the view would do, counted without rendering (passes, real pixels and site reads
+  as `{ minimum, maximum }` ranges equal to the render's `diagnostics.sampleCount` and `siteEvaluations` where they are exact, the
+  pilot's detail and uniform pixels, native sites, and the method each cost choice takes). docs/DISPLAY_VIEW.md, "Estimating a
+  render". Its code is a 1.7 KB gzip chunk loaded on the first estimate.
 - **New fields:** `view.defocus.rollingBands: { rows, shiftSites }`, `view.lensPsf.uniformWindows`, and
   `view.rendering.chainPointsPerAxis: "3-or-6"` on fast requests (16 with `fast: false`, as before).
 - **Diagnostics:** with lens corrections or sharpening, `diagnostics.sampleCount`, `siteEvaluations` and `sceneLookups` and
