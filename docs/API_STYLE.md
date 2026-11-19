@@ -278,7 +278,10 @@ have a fast method, a measured and bounded approximation of it. One flag style s
   instants, the in-focus image shifted by at most 1/128 site; exact reads every row at its own instants), a catalogue lens's
   uniform windows (#655, `lens.catalogue/view-uniform-window`, `lens.catalogue`'s flag: a site whose taps all read one material
   takes the field factor to second order; exact sums every tap with its own factor), and the reconstruct and desaturation chain's
-  fast rule became 3 or 6 points per axis (#656, the same entry, `output.highlightMode.reconstruct/view-moments`). The other
+  fast rule became 3 or 6 points per axis (#656, the same entry, `output.highlightMode.reconstruct/view-moments`), and a layered
+  chart scene's occlusion rows (#652, `scene.layers/occlusion-samples`, the top-level flag: at card edges each pupil region is
+  integrated in 4 rows per site of its footprint fast and 16 exact, exact along each row; reported in the `scene.layers`
+  assumption). The other
   2.27.0 speed-ups (#649, #653, the regrouped lens defocus and the Newton distortion inverse of #651 and #655) give the same
   results within rounding and take no flag. The records of `lens.diffraction`, `sensor.antiAliasing` and `output.demosaic` (in captures) take `fast`
   with no fast method yet. `test/fast-methods-registry.test.ts` fails when a record accepts `fast` without an entry, an entry

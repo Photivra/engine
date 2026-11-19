@@ -10,6 +10,33 @@ Source: `src/facade/layered-chart-scene.ts` (schema, validation, presets, depth 
 (the layered sum and the display view's expected signal), `src/facade/layered-scene-provider.ts` (the capture's and ideal
 reference's scene provider).
 
+## Using it
+
+```ts
+import { prepareLayeredChartScenes, resolveLayeredChartPreset, simulateCapture } from "@photivra/engine";
+
+await prepareLayeredChartScenes(); // once per realm: loads the layered-scene code (a lazy chunk)
+const scene = resolveLayeredChartPreset({ scale: "tabletop", focusDistanceM: 1, lens: { focalLengthMm: 50 } });
+const result = await simulateCapture({ scene, subjectDistanceM: 1, lens: { focalLengthMm: 50, fNumber: 4, focusDistanceM: 1 },
+  exposure: { mode: "manual", shutterSeconds: 1 / 125, iso: 100 }, output: { width: 600, height: 400 } });
+result.scene.layers; // per card and the back plane: distance, blur diameter, within the depth of field
+```
+
+- `simulateCapture`, `simulateIdealReference`, `simulateDisplayView` and `prepareDisplayView` take `scene.kind: "layered-chart"`
+  once `prepareLayeredChartScenes()` has run in the realm; before it a layered request fails with a message saying so. As for
+  image-plane scenes (`prepareImagePlaneScenes()`), the dynamic import in that function is the only reference to the layered code,
+  so a bundle that never imports it carries none of its bytes (about 10 KB gzip).
+- A layered scene implies `lens.defocus: { model: "geometric-disc" }` (recorded as a `lens.defocus` default); the bokeh options
+  of `lens.defocus` (blades, spherical aberration, the cat's eye) shape every surface's kernel.
+- `subjectDistanceM` is the framing reference: the frame's width in metres is taken at that distance (frame units are angles, so
+  each surface's metres per frame unit scale with its own distance). Each surface's defocus is that of its own distance.
+- The result's `scene.layers` is the depth report below; `scene.preset` is `"layered-chart"`; the `scene.layers` assumption
+  records the route, the occlusion rows, each surface's kernel radius and whether a cat's eye shapes them.
+- Metering, white balance and the display view's pilot read, at each frame point, the surface its chief ray meets, sharp and
+  without the point lights (the meter reads the scene before the lens; the lights are single lattice cells).
+- The ideal reference of a layered scene reads the layered sum without diffraction (defocus and occlusion are the scene's depth
+  structure) at the pixel-aperture nodes, with the full occlusion rows by default.
+
 ## The scene
 
 ```ts
@@ -154,13 +181,29 @@ the farthest card.
 
 ## Limits and refusals (2.27.0)
 
-- No GPU path: a layered scene renders on the CPU, labelled `unsupported-on-backend` under `gpu: "auto"`.
-- Refused with layered scenes: `motion` of any kind, `lens.projection` other than rectilinear, and a surface kernel radius
+- No GPU path: a layered scene renders on the CPU, labelled `unsupported-on-backend` under `gpu: "auto"` (`"require"` fails).
+- Refused with layered scenes, each with a message naming the option: `motion` of any kind, `lens.projection` other than
+  rectilinear, `lens.distortion`, `lens.vignetting`, `lens.catalogue`, `lens.pupilSampling`, `lens.psf` (a caller PSF),
+  `chartSize`, `illumination` (mixed lighting), and `lens.defocus.catsEye` with `lens.diffraction` (as for any scene). A single
+  card without a back plane renders on the single-plane path, so `simulateDisplayView` refuses the cat's eye for it. Also refused:
+  two lights that can fall in one site, and a surface kernel radius
   above 64 sites in a scene of more than one surface (edge sites sum the kernel directly).
 - The provider's lattice argument needs the still, rectilinear, distortion-free camera with one radiance-to-irradiance factor
   over the field, as the single-plane object-space convolution does.
 - The ray map is the aberration-free linear one at every surface; with a shaped kernel, V is the share of the disc's rays in
   the tap's region (the kernel's weight carries the shape).
+
+Cost through the public API (2.27.0, report only; `node i2-bench/bench-652.mjs dist 2`, a script outside the repository, on an
+Apple M5 Pro, Node 26.13.1, one process, load average 13–19): the tabletop preset on a 6000 × 4000 sensor of 6 µm sites, an ideal
+50 mm lens focused at 1 m, a 2 × 2 box pixel aperture, a 192 × 128 region at the top-right corner of the card at the focus
+distance (2.6 % edge sites at f/2 and f/8), CPU time of the process, the second of two runs:
+
+| f-number | View region 1:1, fast | View region 1:1, full | Capture region, fast | Capture region, full |
+| --- | --- | --- | --- | --- |
+| f/2 (kernel radii 3, 1, 0, 1, 3 and 8 sites) | 0.26 s | 0.20 s | 0.88 s | 0.80 s |
+| f/8 (radii 1, 0, 0, 0, 1 and 2) | 0.05 s | 0.05 s | 0.79 s | 0.80 s |
+
+The capture region runs the environment chain per site through the layered provider (never the single-plane tables).
 
 Cost, module level, for a 192 × 128-site region at a card corner of the tabletop preset (6000 × 4000 sites of 6 µm, 50 mm,
 focused at 1 m, a 2 × 2 pixel aperture, one process, CPU time on a machine at load average 80–240): about 2–3 µs per site

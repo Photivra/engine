@@ -4,7 +4,8 @@
  * Layered chart scenes (#652): flat, opaque, fronto-parallel cards at several distances in front of an optional back plane,
  * with optional point lights on the back plane. This module holds the scene's schema and validation, the staircase presets,
  * the depth report (per surface: distance, blur diameter and whether it lies within the depth of field) and each surface's
- * scene at the spectral nodes, the form the layered sum (`layered-scene-signal.ts`) reads. Internal until the facade wires it.
+ * scene at the spectral nodes, the form the layered sum (`layered-scene-signal.ts`) reads. The facade's wiring is
+ * `layered-scene-setup.ts`, loaded by `prepareLayeredChartScenes()`.
  *
  * Coordinates. Every card is placed in frame units **as seen from the lens** (u = ±1 at the frame's left and right edges,
  * v up), so a frame unit is the same angle at every depth: a card farther away covers more metres for the same frame
@@ -276,6 +277,9 @@ export interface LayeredChartDepth {
 /** The depth report of a resolved scene (`result.scene.layers`). */
 export function calculateLayeredChartDepths(input: { scene: ResolvedLayeredChartScene; focalLengthMm: number; aperture: number; focusDistanceM: number;
   circleOfConfusionMm: number; pixelPitchMicrometers: number }): LayeredChartDepth[] {
+  const record = allow(input, "calculateLayeredChartDepths input", ["scene", "focalLengthMm", "aperture", "focusDistanceM", "circleOfConfusionMm", "pixelPitchMicrometers"]);
+  if ((record.scene as { kind?: unknown } | undefined)?.kind !== "layered-chart" || !Array.isArray((record.scene as { surfaces?: unknown }).surfaces))
+    fail("calculateLayeredChartDepths input.scene must be a resolved layered chart scene.");
   const { focalLengthMm, aperture, focusDistanceM } = input;
   const dof = calculateDepthOfField({ focalLengthMm, aperture, focusDistanceM, circleOfConfusionMm: input.circleOfConfusionMm }).value;
   return input.scene.surfaces.map((s) => {

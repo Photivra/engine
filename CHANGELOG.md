@@ -17,7 +17,18 @@ develop options (#656). Measured before and after below and in docs/DISPLAY_VIEW
   `view.estimation`'s `evaluatedRealPixels` count the passes as they now run, so they are lower than in 2.26.0 for the same view.
 - **Capture worker:** the on-demand limit is 52,000 B (owner approval: #649's and #656's code in the on-demand kits measured
   51,999 B, rounded up to the next 100 B; savings tracked in #658). The fast-worker and export limits are unchanged.
-- **Why minor:** new fast methods, assumption fields and fast-default changes.
+- **New (#652): layered chart scenes.** `scene: { kind: "layered-chart", cards, backPlane? }` (opaque fronto-parallel cards at
+  several distances in front of an optional back plane with point lights) in `simulateCapture`, `simulateIdealReference`,
+  `simulateDisplayView` and `prepareDisplayView`, after `prepareLayeredChartScenes()` (new; it loads the layered code, about
+  10 KB gzip, as a lazy chunk, so the capture worker's bundle is unchanged). New exports: `resolveLayeredChartPreset` (the
+  staircase preset: macro, tabletop, large), `calculateLayeredChartDepths`, `LAYERED_CHART_PRESET_SCALES`,
+  `LAYERED_CHART_PRESET_STEP_RATIO`, `LAYERED_CHART_LIMITS` and the scene types. A layered scene implies
+  `lens.defocus: { model: "geometric-disc" }`; `result.scene.layers` reports each surface's distance, blur diameter, signed blur
+  radius and depth of field; a new fast method (registry entry `scene.layers/occlusion-samples`: 4 occlusion rows per site of
+  footprint fast, 16 full). One card filling the frame renders its chart's bytes. Refused in 2.27.0: motion, non-rectilinear
+  projections, `lens.distortion`, `lens.vignetting`, `lens.catalogue`, `lens.pupilSampling`, `lens.psf`, `chartSize` and
+  `illumination`; no GPU path (CPU, labelled `unsupported-on-backend`). docs/LAYERED_SCENES.md.
+- **Why minor:** new fast methods, assumption fields and fast-default changes, and the layered scene API.
 
 Measured on one Apple M5 Pro (18 cores), macOS, Node 26.13.1: `JOBS=1 REPEATS=3 node scripts/benchmark-display-view-cases.mjs
 649 651 653 655 656`, and the same with `DIST=` a 2.26.0 build (`94f56f3`) made in the same session; CPU time of the process for one

@@ -1635,6 +1635,34 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 | --- | --- |
 | [`prepareImagePlaneScenes`](api/facade-image-plane-enable.md#prepareimageplanescenes) | Runtime |
 
+## facade/layered-chart-scene.ts
+
+[Detailed contracts](api/facade-layered-chart-scene.md) · [Source](https://github.com/Photivra/engine/blob/main/src/facade/layered-chart-scene.ts)
+
+| Export | Kind |
+| --- | --- |
+| [`calculateLayeredChartDepths`](api/facade-layered-chart-scene.md#calculatelayeredchartdepths) | Runtime |
+| [`LAYERED_CHART_LIMITS`](api/facade-layered-chart-scene.md#layered_chart_limits) | Runtime |
+| [`LAYERED_CHART_PRESET_SCALES`](api/facade-layered-chart-scene.md#layered_chart_preset_scales) | Runtime |
+| [`LAYERED_CHART_PRESET_STEP_RATIO`](api/facade-layered-chart-scene.md#layered_chart_preset_step_ratio) | Runtime |
+| [`LayeredChartBackPlane`](api/facade-layered-chart-scene.md#layeredchartbackplane) | Type |
+| [`LayeredChartCard`](api/facade-layered-chart-scene.md#layeredchartcard) | Type |
+| [`LayeredChartDepth`](api/facade-layered-chart-scene.md#layeredchartdepth) | Type |
+| [`LayeredChartPointLights`](api/facade-layered-chart-scene.md#layeredchartpointlights) | Type |
+| [`LayeredChartScene`](api/facade-layered-chart-scene.md#layeredchartscene) | Type |
+| [`LayeredFrameRectangle`](api/facade-layered-chart-scene.md#layeredframerectangle) | Type |
+| [`ResolvedLayeredChartScene`](api/facade-layered-chart-scene.md#resolvedlayeredchartscene) | Type |
+| [`ResolvedLayeredSurface`](api/facade-layered-chart-scene.md#resolvedlayeredsurface) | Type |
+| [`resolveLayeredChartPreset`](api/facade-layered-chart-scene.md#resolvelayeredchartpreset) | Runtime |
+
+## facade/layered-scene-enable.ts
+
+[Detailed contracts](api/facade-layered-scene-enable.md) · [Source](https://github.com/Photivra/engine/blob/main/src/facade/layered-scene-enable.ts)
+
+| Export | Kind |
+| --- | --- |
+| [`prepareLayeredChartScenes`](api/facade-layered-scene-enable.md#preparelayeredchartscenes) | Runtime |
+
 ## facade/mixed-illumination.ts
 
 [Detailed contracts](api/facade-mixed-illumination.md) · [Source](https://github.com/Photivra/engine/blob/main/src/facade/mixed-illumination.ts)

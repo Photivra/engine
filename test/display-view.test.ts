@@ -54,7 +54,7 @@ describe("simulateDisplayView", () => {
     for (const options of cases) {
       const capture = await simulateCapture(options), { signal } = await simulateDisplayViewWithInternals(options, { width: 4, height: 4, samplesPerAxis: 1 });
       const env = capture.request.environmentRaw.raw.exposure.geometry, nativeWidth = env.nativeRaster.pixelWidth, nativeHeight = env.nativeRaster.pixelHeight;
-      const base = createPlanarSceneRadianceProvider({ scene: options.scene, illuminant: { kind: "planckian", temperatureKelvin: 6500 }, illuminanceLux: capture.scene.illuminant.illuminanceLux,
+      const base = createPlanarSceneRadianceProvider({ scene: options.scene as Parameters<typeof createPlanarSceneRadianceProvider>[0]["scene"], illuminant: { kind: "planckian", temperatureKelvin: 6500 }, illuminanceLux: capture.scene.illuminant.illuminanceLux,
         distanceM: capture.scene.distanceM, framedWidthM: capture.scene.framedWidthM, aspect: capture.scene.framedHeightM / capture.scene.framedWidthM, sceneId: "facade-scene",
         providerProfileId: "facade-provider", ...(options.chartSize ? { chartSize: options.chartSize } : {}) });
       // With diffraction the capture answers each query from the object-space convolution (the same internal provider here).

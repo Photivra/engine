@@ -277,6 +277,19 @@ with K_λ the diffraction kernel (a unit tap without `lens.diffraction`).
   table run. This closes the chain: the view with the option equals
   the view of the pre-blurred scene, which matches its capture (#480), which equals the capture with the option.
 
+### Layered chart scenes (#652)
+
+Layered chart scenes (#652): a site whose lattice points all see one surface takes that surface's single-plane path
+unchanged. Sites within a blur of a card edge take the layered sum of layered-scene-signal.ts: per-layer disc kernels, the
+visible share of each tap's pupil region past the nearer cards (rows exact along Px, 4 rows per site of footprint fast, 16
+full), and spectra integrated per site. lens.defocus.catsEye renders for layered scenes only, by the capture's field zones.
+CPU only in 2.27.0. See [Layered scenes](LAYERED_SCENES.md).
+
+The pilot grid is widened by the largest surface kernel radius on top of the diffraction radius, and the layered signal reports
+no uniform material (`uniformMaterial` −1, `tracksMaterial` and `marksReads` false), so the pilot reads each frame point's
+chief-ray surface and material. The capture's provider answers each query of a lattice point with the same sum, so capture and
+view agree per site within 1e-9 relative (`test/layered-scene-facade.test.ts`).
+
 ### Lens projection, distortion, vignetting and rotation
 
 (2.22.0, #551: `motion.subject` takes this path too. Its sideways motion, under a global shutter, is read at each temporal

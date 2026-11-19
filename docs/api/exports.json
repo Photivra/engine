@@ -1148,6 +1148,11 @@
       "kind": "type"
     },
     {
+      "name": "calculateLayeredChartDepths",
+      "source": "src/facade/layered-chart-scene.ts",
+      "kind": "runtime"
+    },
+    {
       "name": "calculateLensComplexPupilPsf",
       "source": "src/optics/complex-pupil-psf.ts",
       "kind": "runtime"
@@ -5103,8 +5108,53 @@
       "kind": "type"
     },
     {
+      "name": "LAYERED_CHART_LIMITS",
+      "source": "src/facade/layered-chart-scene.ts",
+      "kind": "runtime"
+    },
+    {
+      "name": "LAYERED_CHART_PRESET_SCALES",
+      "source": "src/facade/layered-chart-scene.ts",
+      "kind": "runtime"
+    },
+    {
+      "name": "LAYERED_CHART_PRESET_STEP_RATIO",
+      "source": "src/facade/layered-chart-scene.ts",
+      "kind": "runtime"
+    },
+    {
+      "name": "LayeredChartBackPlane",
+      "source": "src/facade/layered-chart-scene.ts",
+      "kind": "type"
+    },
+    {
+      "name": "LayeredChartCard",
+      "source": "src/facade/layered-chart-scene.ts",
+      "kind": "type"
+    },
+    {
+      "name": "LayeredChartDepth",
+      "source": "src/facade/layered-chart-scene.ts",
+      "kind": "type"
+    },
+    {
+      "name": "LayeredChartPointLights",
+      "source": "src/facade/layered-chart-scene.ts",
+      "kind": "type"
+    },
+    {
+      "name": "LayeredChartScene",
+      "source": "src/facade/layered-chart-scene.ts",
+      "kind": "type"
+    },
+    {
       "name": "LayeredColorSamplingLayout",
       "source": "src/sensor/color-sampling.ts",
+      "kind": "type"
+    },
+    {
+      "name": "LayeredFrameRectangle",
+      "source": "src/facade/layered-chart-scene.ts",
       "kind": "type"
     },
     {
@@ -6778,6 +6828,11 @@
       "kind": "runtime"
     },
     {
+      "name": "prepareLayeredChartScenes",
+      "source": "src/facade/layered-scene-enable.ts",
+      "kind": "runtime"
+    },
+    {
       "name": "prepareQualityPaths",
       "source": "src/facade/quality-paths.ts",
       "kind": "runtime"
@@ -7798,6 +7853,16 @@
       "kind": "type"
     },
     {
+      "name": "ResolvedLayeredChartScene",
+      "source": "src/facade/layered-chart-scene.ts",
+      "kind": "type"
+    },
+    {
+      "name": "ResolvedLayeredSurface",
+      "source": "src/facade/layered-chart-scene.ts",
+      "kind": "type"
+    },
+    {
       "name": "ResolvedLensCorrectionPlan",
       "source": "src/output/lens-corrections.ts",
       "kind": "type"
@@ -7985,6 +8050,11 @@
     {
       "name": "resolveJpegExifCaptureSettings",
       "source": "src/capture/jpeg-exif-writer.ts",
+      "kind": "runtime"
+    },
+    {
+      "name": "resolveLayeredChartPreset",
+      "source": "src/facade/layered-chart-scene.ts",
       "kind": "runtime"
     },
     {

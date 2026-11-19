@@ -251,7 +251,10 @@ async function prepareView(context: DisplayViewRunContext): Promise<PreparedView
   // #643, the fast method (`viewFast.perTapSum`): a chart site whose kernel taps read several materials sums its taps in order (each
   // integrated from its material's spectrum per node), instead of forming per-material sums first; the same sum regrouped.
   const built = buildExpectedSignalInput(setupInput), offsets = built.offsets;
-  const perTapSum = context.viewFast.perTapSum && built.signalInput.kernels !== undefined && built.signalInput.scene.kind === "materials" && !context.lensPsf;
+  // #652: a layered scene's expected signal (the layered sum, a new one per render) and the reach of its largest surface kernel.
+  const layeredView = context.layered?.multi ? context.layered.view(context, { wavelengths, perNode, offsets, channelAt: built.signalInput.channelAt,
+    diffraction: diffraction ? built.signalInput.kernels : undefined, white: Float64Array.from(wavelengths, (nm) => viewIrradianceScale * viewIlluminant.shape.evaluate(nm) / Math.PI) }) : undefined;
+  const perTapSum = context.viewFast.perTapSum && built.signalInput.kernels !== undefined && built.signalInput.scene.kind === "materials" && !context.lensPsf && !layeredView;
   const signalInput: typeof built.signalInput = perTapSum ? { ...built.signalInput, perTapSum: true } : built.signalInput;
   const kernels = signalInput.kernels, largeDefocus = signalInput.largeKernel;
   // #612, the fast method (`viewFast.defocusRegrouped`; the format default of the display view, exact with fast: false): on the CPU, a
@@ -289,7 +292,8 @@ async function prepareView(context: DisplayViewRunContext): Promise<PreparedView
   const toSrgb = resolveCaptureColorModel().xyzToCameraRgb, m = colour.cameraToXyz;
   const matrix = [0, 1, 2].map((r) => [0, 1, 2].map((c) => toSrgb[r]![0]! * m[0]![c]! + toSrgb[r]![1]! * m[1]![c]! + toSrgb[r]![2]! * m[2]![c]!));
   // Reach of a footprint's pixels into the scene, in sites: the demosaic (1), the largest query offset and the kernel radius.
-  const reachSites = (ahd ? 3 : 1) + Math.ceil(Math.max(0, ...offsets.map((o) => Math.max(Math.abs(o.x), Math.abs(o.y))))) + (kernels ? kernels.radius : 0) + (largeDefocus ? largeDefocus.radius : 0);
+  const reachSites = (ahd ? 3 : 1) + Math.ceil(Math.max(0, ...offsets.map((o) => Math.max(Math.abs(o.x), Math.abs(o.y))))) + (kernels ? kernels.radius : 0) + (largeDefocus ? largeDefocus.radius : 0) +
+    (layeredView ? layeredView.reach : 0);
   const gains = colour.appliedGains as [number, number, number], clipLevel = Math.min(...colour.appliedGains), viewToneCurve = toneCurve;
   // #593, #601: the coupled rendering steps (luminance curves, reconstruct, desaturation), with the fast rules when the request is fast.
   const coupledRendering = toneCurve === "extended-reinhard-luminance" || toneCurve === "naka-rushton-luminance" || highlightMode === "reconstruct" || highlightMode === "reconstruct-neighbors" || context.gamutHandling === "desaturate-to-luminance";
@@ -320,14 +324,14 @@ async function prepareView(context: DisplayViewRunContext): Promise<PreparedView
     const cpuSignalInput = regrouped ? regroupedSignalInput : signalInput;
     // The native columns the region's windows span, beyond one window's width: a filled band need not be wider (a speed hint).
     // #563: through the lens (projection, distortion, vignetting, rotation) when the request has them.
-    const signal = (context.lens ?? createDisplayViewExpectedSignal)(cpuSignalInput, Math.ceil((viewRegion.width + 2) * nativeWidth / v.width));
+    const signal = layeredView ? layeredView.signal() : (context.lens ?? createDisplayViewExpectedSignal)(cpuSignalInput, Math.ceil((viewRegion.width + 2) * nativeWidth / v.width));
     return { signal, regrouped, setup: { frameWidth: width, frameHeight: height, margin, nativeWidth, nativeHeight, viewWidth: v.width, viewHeight: v.height,
       region: viewRegion, samplesPerAxis: v.samplesPerAxis, uniformSamplesPerAxis: uniformSamplesOf(v.samplesPerAxis), reachSites, bitDepth: v.bitDepth, seed: noiseSeed, signal, readout, demosaic: demosaicTable,
       ...(ahdCandidates && ahdChoice ? { candidates: ahdCandidates, ahdChoice } : {}),
       gains, clipLevel, matrix, toneCurve: viewToneCurve, ...(rendering ? { rendering, coupled: coupled! } : {}), yieldControl, checkAbort, gpu: { signalInput, chart: viewChart ?? null, layers: materialLayers ?? null, placement, ...(defocusKernel && !largeDefocus ? { defocusRadius: defocusKernel.radius } : {}), reference: cpuSignalInput } } };
   };
   // #492: out of focus the view reads the defocus disc (its kernel in signalInput.kernels); the GPU Quality site pass gathers it (step 2c).
-  const gpuRequest: DisplayViewGpuRequest = { ahd, lens: !!context.lens, ...(viewMixed ? { mixedIllumination: true } : {}), defocus: defocusKernel !== null, ...(largeDefocus ? { largeDefocus: true } : {}), diffraction: diffraction !== undefined, antiAliasing: antiAliasing !== undefined, boxSamples, toneCurve: viewToneCurve, ...(highlightMode === "reconstruct" || highlightMode === "reconstruct-neighbors" || context.gamutHandling === "desaturate-to-luminance" ? { coupled: true } : {}),
+  const gpuRequest: DisplayViewGpuRequest = { ahd, lens: !!context.lens, ...(layeredView ? { layered: true } : {}), ...(viewMixed ? { mixedIllumination: true } : {}), defocus: defocusKernel !== null, ...(largeDefocus ? { largeDefocus: true } : {}), diffraction: diffraction !== undefined, antiAliasing: antiAliasing !== undefined, boxSamples, toneCurve: viewToneCurve, ...(highlightMode === "reconstruct" || highlightMode === "reconstruct-neighbors" || context.gamutHandling === "desaturate-to-luminance" ? { coupled: true } : {}),
     scene: chart ? "chart" : materialLayers ? "material-layers" : callerScene!.kind, ...(detail ? { detail: true } : {}) };
   const render: RenderPreparedView = async (v, run, viewInternals, gpu) => {
     const { started, viewStarted } = run;
@@ -417,7 +421,7 @@ async function prepareView(context: DisplayViewRunContext): Promise<PreparedView
       sensor: context.sensor,
       scene: { sceneId: chart ? "chart:" + chart.preset : callerScene!.sceneId, preset: scenePreset, parameters: (chart ?? callerScene as { parameters?: Readonly<Record<string, unknown>> }).parameters ?? {},
         illuminant: { id: illuminant.id, description: illuminant.description, illuminanceLux }, distanceM: subjectDistanceM,
-        framedWidthM: context.framedWidthM, framedHeightM: context.framedWidthM * aspect, ...(chartReport ? { chart: chartReport } : {}), sourceSha256 },
+        framedWidthM: context.framedWidthM, framedHeightM: context.framedWidthM * aspect, ...(chartReport ? { chart: chartReport } : {}), ...context.layered?.scene, sourceSha256 },
       diagnostics: { sampleCount: rendered.sampleCount, siteEvaluations: rendered.siteCount, sceneLookups: signal.lookups, detailPixelCount: rendered.detailPixelCount,
         uniformPixelCount: rendered.uniformPixelCount, ahdCorrectedPixelCount: 0, timingsMs: { view: viewMs, total: Date.now() - started },
         fast: Object.freeze({ ...context.fastReport, assurance: execution.backend === "webgpu-f32" ? "approximation-with-a-priori-bound" as const : context.fastReport.assurance, execution }),

@@ -1937,6 +1937,11 @@ export { PHOTOPIC_MAXIMUM_LUMINOUS_EFFICACY_LM_PER_W, resolveCaptureIlluminant, 
   type CaptureIlluminant, type ResolvedCaptureIlluminant, type CallerReflectanceScene, type CallerRadianceScene, type CallerMaterialScene, type ScenePlanePoint, type SceneMaterialPoint,
   type PlanarSceneRadianceProvider, type ImagePlaneScene, type ImagePlaneImage } from "./facade/scene-radiance.js";
 export { prepareImagePlaneScenes } from "./facade/image-plane-enable.js";
+export { prepareLayeredChartScenes } from "./facade/layered-scene-enable.js";
+// 2.27.0 (#652): layered chart scenes (docs/LAYERED_SCENES.md); the layered sum and its provider load on demand, for such a request only.
+export { resolveLayeredChartPreset, calculateLayeredChartDepths, LAYERED_CHART_PRESET_SCALES, LAYERED_CHART_PRESET_STEP_RATIO, LAYERED_CHART_LIMITS,
+  type LayeredChartScene, type LayeredChartCard, type LayeredChartBackPlane, type LayeredChartPointLights, type LayeredChartDepth,
+  type ResolvedLayeredChartScene, type ResolvedLayeredSurface, type LayeredFrameRectangle } from "./facade/layered-chart-scene.js";
 export { prepareQualityPaths } from "./facade/quality-paths.js";
 export type { MixedIllumination, MixedIlluminationBlend, MixedIlluminationFlash, MixedIlluminationPoint, MixedIlluminationPointSource, MixedIlluminationSource } from "./facade/mixed-illumination.js";
 export { CHART_RADIANCE_BATCH_SCHEMA_VERSION, CHART_RADIANCE_BATCH_LIMITS, calculateChartRadianceBatchPlan, calculateChartRadianceBatch,

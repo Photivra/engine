@@ -128,7 +128,9 @@ import { exportKit, loadedKit, optInKit, qualityKit } from "./on-demand-kits.js"
 import { characterizeReadout, parseSensorCharacteristics, sensorReport, SENSOR_CHARACTERISTIC_KEYS, type SimulateCaptureSensorCharacteristics, type SimulateCaptureSensorReport } from "../sensor/sensor-characteristics.js";
 import { resolveChartScene, chartMaterialInputs, CHART_SCENE_PRESETS, type ChartScene, type ResolvedChartScene } from "./chart-scenes.js";
 import { resolveChartMaterialLayers, type ChartMaterialLayerScene, type ResolvedChartMaterialLayers } from "./chart-material-layers.js";
-import { imagePlaneSupport } from "./image-plane-support.js";
+import { imagePlaneSupport, layeredSceneSupport } from "./image-plane-support.js";
+import type { LayeredRequest } from "./layered-scene-setup.js";
+import type { LayeredChartDepth, LayeredChartScene } from "./layered-chart-scene.js";
 import { resolveCaptureIlluminant, calculateIlluminantIrradianceScale, buildPlanarSceneRadianceProvider, requireCallerScene, FACADE_SPECTRAL_RANGE_NANOMETERS,
   resolveChartSizeOption, type ChartSizeOption,
   PHOTOPIC_MAXIMUM_LUMINOUS_EFFICACY_LM_PER_W, type CaptureIlluminant, type CallerMaterialScene, type CallerRadianceScene, type CallerReflectanceScene, type ImagePlaneScene, type ResolvedCallerScene,
@@ -566,9 +568,10 @@ export interface SimulateCaptureOptions {
    * Required: an engine chart (for example `{ preset: "uniform" }`, an 18 % grey card), a declared `material-layers` scene (#491:
    * a chart under shape-mask layers, as `resolveChartMaterialLayers` takes it; the capture is that of its `callerScene`, byte for
    * byte, and the display view can render it on the GPU), a caller reflectance, radiance or material function, or (2.21, #581) an
-   * `image-plane` scene: a photo as a flat print (docs/IMAGE_PLANE.md).
+   * `image-plane` scene: a photo as a flat print (docs/IMAGE_PLANE.md), or (2.27.0, #652) a `layered-chart` scene: opaque cards
+   * at several distances in front of an optional back plane with point lights (docs/LAYERED_SCENES.md).
    */
-  scene: ChartScene | ChartMaterialLayerScene | CallerReflectanceScene | CallerRadianceScene | CallerMaterialScene | ImagePlaneScene;
+  scene: ChartScene | ChartMaterialLayerScene | CallerReflectanceScene | CallerRadianceScene | CallerMaterialScene | ImagePlaneScene | LayeredChartScene;
   /** Distance from the camera to the scene plane in metres. Default 5. */
   subjectDistanceM?: number;
   /**
@@ -914,6 +917,12 @@ export interface SimulateCaptureResult {
      */
     chart?: { widthM: number; heightM: number; surroundReflectance: number; frameWidthFraction: number; frameHeightFraction: number;
       magnification: number; imageWidthMm: number; imageHeightMm: number; imageWidthPixels: number; imageHeightPixels: number };
+    /**
+     * 2.27.0 (#652), present with a `layered-chart` scene: per card, nearest first, then the back plane: its distance, geometric
+     * blur diameter in sites (`calculateDefocusCircle` / pitch), signed blur radius (+ behind the focus plane) and whether it
+     * lies within the depth of field (`calculateDepthOfField` at the circle of confusion of the frame's diagonal / 1500).
+     */
+    layers?: LayeredChartDepth[];
     /**
      * SHA-256 of the canonical scene description, recorded as the capture source digest. Caller spectra (a
      * `spectrum` or `daylight` illuminant, chart reflectance spectra) are part of the description: tabulated
@@ -1793,7 +1802,12 @@ export interface DisplayViewRunContext {
    * The display view's fast methods: H2's uniform sampling, the coupled rendering's rules and (#612) a defocus disc applied after
    * the in-focus signal where that is cheaper (`defocusRegrouped`); #643: a chart site's taps summed in order (`perTapSum`).
    */
-  viewFast: { uniformSampling: boolean; rendering: boolean; defocusRegrouped: boolean; perTapSum: boolean };
+  viewFast: { uniformSampling: boolean; rendering: boolean; defocusRegrouped: boolean; perTapSum: boolean; layers: boolean };
+  /** #652: a layered chart scene (layered-scene-setup.ts, loaded on demand), with the inputs its layered sum reads. */
+  layered?: LayeredRequest | undefined;
+  defocusBokeh: ResolvedDefocusBokehOptions | undefined;
+  queryOffsetsSites: readonly { x: number; y: number }[];
+  irradianceScale: number;
   /** #628: `output.lensCorrections` and `output.sharpening` in the view (display-view-detail.ts); `fast` their method. */
   viewDetail?: { fast: boolean; sharpening?: UnsharpMaskSettings; lens?: { correction: DevelopedLensCorrection; cornerStops: number | null;
     selection: DevelopedLensCorrectionSelection; create: typeof createDisplayViewLensCorrection } } | undefined;
@@ -1811,7 +1825,7 @@ export interface DisplayViewRunContext {
   /** 2.14: the capture's `exposure.metering`. */
   metering: SimulateCaptureMetering;
   sceneOption: unknown;
-  scenePreset: "composite" | "uniform" | "patches" | "slanted-edge" | "siemens-star" | "step-wedge" | "grey-ramp" | "checkerboard" | "point-grid" | "dead-leaves" | "bar-groups" | "hyperbolic-wedge" | "zone-plate" | "slanted-squares" | "line-grid" | "fiducial" | "color-patches" | "reflectance-function" | "radiance-function" | "material-function" | "image-plane";
+  scenePreset: "layered-chart" | "composite" | "uniform" | "patches" | "slanted-edge" | "siemens-star" | "step-wedge" | "grey-ramp" | "checkerboard" | "point-grid" | "dead-leaves" | "bar-groups" | "hyperbolic-wedge" | "zone-plate" | "slanted-squares" | "line-grid" | "fiducial" | "color-patches" | "reflectance-function" | "radiance-function" | "material-function" | "image-plane";
   shutterSeconds: number;
   started: number;
   subjectDistanceM: number;
@@ -2149,7 +2163,8 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
     if (lensPsf) fail("lens.diffraction cannot be combined with lens.psf: diffraction would be counted twice.");
     if (pupil) fail("lens.diffraction cannot be combined with lens.pupilSampling: the environment contract does not mix a sampled PSF with pupil rays.");
   }
-  // Defocus (#492): validated here, resolved once the f-number is.
+  // Defocus (#492): validated here, resolved once the f-number is. #652: a layered chart scene implies the geometric disc.
+  const sceneKind = (top.scene as { kind?: unknown } | undefined)?.kind;
   let defocusModel: "geometric-disc" | undefined, defocusBokeh: ResolvedDefocusBokehOptions | undefined;
   if (lensOptions.defocus !== undefined) {
     const record = allowKeys(lensOptions.defocus, "lens.defocus", ["model", "blades", "sphericalAberration", "catsEye"]);
@@ -2168,7 +2183,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
     if (catalogue && defocusBokeh) fail("lens.defocus.blades, sphericalAberration and catsEye cannot be combined with lens.catalogue: the catalogue lens " +
       "sets its own (lens.catalogue.character). Omit the bokeh options, or use lens.focalLengthMm instead of the catalogue lens.");
     if (!catalogue) defocusModel = "geometric-disc";
-  }
+  } else if (sceneKind === "layered-chart") defocusModel = "geometric-disc";
 
   // Motion (2.0): constant camera rotation and the shutter type.
   const motionOptions = allowKeys(top.motion, "motion", ["angularVelocityRadPerSec", "shutter", "rollingShutterSkewSeconds", "subject", "handheld"]);
@@ -2388,7 +2403,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
     if ((outputOptions.lensCorrections as { vignetting?: unknown } | undefined)?.vignetting === true && (outputOptions.highlightMode === "reconstruct" || outputOptions.highlightMode === "reconstruct-neighbors" ||
       outputOptions.gamutHandling === "desaturate-to-luminance")) unsupported("output.lensCorrections.vignetting with highlightMode reconstruct or gamutHandling desaturate-to-luminance",
       "they act before the gain.");
-    if (defocusBokeh?.catsEye) unsupported("lens.defocus.catsEye", "the expected-signal tables hold one kernel per spectral node, and the cat's eye varies over the field; " +
+    if (defocusBokeh?.catsEye && sceneKind !== "layered-chart") unsupported("lens.defocus.catsEye", "the expected-signal tables hold one kernel per spectral node, and the cat's eye varies over the field; " +
       "simulateCapture renders it. lens.defocus.blades and lens.defocus.sphericalAberration are supported.");
   }
 
@@ -2515,7 +2530,11 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   const metresPerFrameUnit = (width * pitch / 2000) * subjectDistanceM / imageDistanceMm;
   const aspect = height / width;
   // #581: an image-plane scene takes the module prepareImagePlaneScenes() loaded, which places its print (chartSize, or fitted in the frame).
-  const imagePlaneModule = (top.scene as { kind?: unknown } | undefined)?.kind === "image-plane" ? imagePlaneSupport() ?? fail("Call prepareImagePlaneScenes() first.") : undefined;
+  // #652: a layered chart scene's refusals, scene and route (layered-scene-setup.ts, loaded only for it).
+  const layered = sceneKind === "layered-chart" ? (layeredSceneSupport() ?? fail("Call prepareLayeredChartScenes() first.")).resolveLayeredRequest({ top, lens: lensOptions, aspect, displayView }) : undefined;
+  if (layered?.multi) defocusModel = undefined;
+  const defocusDistanceM = layered?.distanceM ?? subjectDistanceM;
+  const imagePlaneModule = sceneKind === "image-plane" ? imagePlaneSupport() ?? fail("Call prepareImagePlaneScenes() first.") : undefined;
   // Fixed-size chart (2.3): validated here, before any scene work.
   const chartSize = imagePlaneModule ? imagePlaneModule.imagePlanePrint(top.scene, top.chartSize, 2 * metresPerFrameUnit, aspect, assume) :
     top.chartSize === undefined ? undefined : resolveChartSizeOption(top.chartSize, aspect);
@@ -2568,7 +2587,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   // Scene and illuminant
   // The scene is the one required input: the facade never guesses what is being photographed.
   if (top.scene === undefined) fail("simulateCapture needs a scene, for example { preset: \"uniform\" } (an 18 % grey card) or { preset: \"slanted-edge\" }.");
-  const sceneOption = top.scene;
+  const sceneOption = layered?.sceneOption ?? top.scene;
   requireInputObject(sceneOption, "scene");
   // #550: mixed lighting (loaded only when asked for). Its frame-center light stands in for the single illuminant below: the strongest
   // source at the center (white balance, the illumination profile) and the center's illuminance (grey card, standard exposure).
@@ -2598,8 +2617,8 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
     // #491: a declared material-layers scene is its callerScene (the same validation, materials, digest and bytes as passing that scene);
     // the resolved layers are kept for the display view's GPU renderer.
     if (sceneRecord.kind === "material-layers") materialLayers = resolveChartMaterialLayers({ scene: sceneOption as ChartMaterialLayerScene, aspect: chartSize ? chartSize.heightM / chartSize.widthM : aspect });
-    callerScene = imagePlaneModule ? await imagePlaneModule.resolveImagePlaneScene(sceneOption, chartSize!.heightM / chartSize!.widthM, assume) :
-      requireCallerScene(materialLayers ? materialLayers.callerScene : sceneOption);
+    callerScene = layered?.callerScene ?? (imagePlaneModule ? await imagePlaneModule.resolveImagePlaneScene(sceneOption, chartSize!.heightM / chartSize!.widthM, assume) :
+      requireCallerScene(materialLayers ? materialLayers.callerScene : sceneOption));
   } else {
     chart = resolveChartScene({ scene: sceneOption as ChartScene, aspect: chartSize ? chartSize.heightM / chartSize.widthM : aspect });
     // Composite charts (2.3) report nested defaults by dotted path, for example "elements.2.parameters.cycles".
@@ -2607,7 +2626,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
       key.split(".").reduce<unknown>((value, part) => (value as Record<string, unknown> | undefined)?.[part], chart!.parameters);
     for (const key of chart.defaultedParameters) assume("scene." + key, "default", parameterAt(key), "Chart default for " + chart.preset + ".");
   }
-  const scenePreset = chart ? chart.preset : callerScene!.kind;
+  const scenePreset = layered ? "layered-chart" : chart ? chart.preset : callerScene!.kind;
   // Caller spectra enter the digest as data (see spectrumDigestForm). Without caller spectra the description is unchanged,
   // so default captures keep their digests.
   const illuminantRecord = typeof illuminantOption === "object" ? illuminantOption as { kind?: unknown; basis?: { datasetId?: unknown } } : undefined;
@@ -3022,7 +3041,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   // #553: the shaped kernel (on axis) and, with a cat's eye, its field zones; built when the disc is resolved out of focus.
   let bokehAxisKernel: DefocusBokehSiteKernel | undefined, bokehZones: DefocusBokehZonePlan | undefined;
   const bokehSummary = defocusBokeh === undefined ? undefined : (disc: ResolvedDefocusDisc): { value: Record<string, unknown>; explanation: string } => {
-    const options = defocusBokeh!, side = subjectDistanceM > focusDistanceM ? 1 : -1;
+    const options = defocusBokeh!, side = defocusDistanceM > focusDistanceM ? 1 : -1;
     const build = (field?: { x: number; y: number }): DefocusBokehSiteKernel => {
       try {
         return loadedKit(qualityKit).createDefocusBokehSiteKernel({ diameterSites: disc.diameterSites, side, fNumber, focalLengthMm, pitchMicrometers: pitch, options, ...(field ? { field } : {}) });
@@ -3064,7 +3083,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
     };
   };
   const defocusDisc = defocusModel === undefined ? undefined :
-    resolveDefocusOption({ run, assume, focalLengthMm, fNumber, focusDistanceM, subjectDistanceM, pitch, diffraction: diffractionRadiusOption !== undefined,
+    resolveDefocusOption({ run, assume, focalLengthMm, fNumber, focusDistanceM, subjectDistanceM: defocusDistanceM, pitch, diffraction: diffractionRadiusOption !== undefined,
       ...(defocusBokeh ? { bokehOptions: defocusBokeh, bokeh: bokehSummary! } : {}),
       ...(defocusGeometry ? { imageSpace: (disc: ResolvedDefocusDisc): { options: readonly string[]; fieldVariation: DefocusFieldVariation } => {
         // #640: with rotation under a rolling shutter each row has its own instants, and the provider keeps one row's image per instant (a band of
@@ -3559,7 +3578,8 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
       ...(subject ? { timeDependentScene: true } : {}) }) : sceneProvider;
   // Built on first use: a capture that takes the tabulated path (#394 step 2) never queries it, and its kernels cost a setup.
   let rawProviderBuilt: PlanarSceneRadianceProvider | undefined;
-  const rawProvider = (): PlanarSceneRadianceProvider => (rawProviderBuilt ??= diffractedProvider(regionNative));
+  // #652: a layered scene's provider answers each query with the layered sum (no environment PSF; never the single-plane tables).
+  const rawProvider = (): PlanarSceneRadianceProvider => (rawProviderBuilt ??= layered?.multi ? layered.provider(context) : diffractedProvider(regionNative));
   if (antiAliasing && perSite > 100_000) fail("sensor.antiAliasing with these options needs " + perSite + " scene queries per site; the environment admits at most 100000.");
   const evaluations = nativeWidth * nativeHeight * perSite;
   // The native task admits at most 100 000 radiance queries per tile.
@@ -3682,8 +3702,11 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
       cornerStops: lensCorrectionSelection.vignetting ? catalogueCornerStops : null, selection: lensCorrectionSelection, create: lensKit!.createDisplayViewLensCorrection } } : {}) } : undefined;
   // #595: the native photosite's figures (their own module, so a bundler can split them off the default path).
   sensor.native = nativeSensorReport(sensor, regimeByChannel.green.regimeId, greyElectrons, DARK_CURRENT_ELECTRONS_PER_SECOND * shutterSeconds, nativeSensor, fixedPattern);
-  if (displayView) return await renderView!({ sensor, viewFast: { uniformSampling: fastTop, rendering: fastTop, defocusRegrouped: fastTop, perTapSum: fastTop }, viewDetail, gamutHandling, lens: lensSignal, lensPsf: displayViewLensPsf, lensUniformWindows: uniformWindows, movingScene, ahd, fastReport, antiAliasing, aspect, assume, assumptions, axisChannelResponse, boxSamples, buildProvider, callerScene, chart, materialLayers, chartReport, chartSize, diffraction, defocus: displayViewDefocus, diffractionPsf, fNumber, focalLengthMm, focusDistanceM, height, highlightMode, exposureGain, illuminanceLux, illuminant, illuminantOption, imagingArea, intentOf, metresPerFrameUnit, framedWidthM, noiseSeed, outputOptions, parsedView, pitch, preset, provider, regimeByChannel, resolvedIso, isoReport, standardExposureDeviationStops: exposureDeviationStops, standardExposureIlluminanceLux: exposureIlluminanceLux, greyCardDeviationStops: exposureGreyCardDeviationStops, metering, sceneOption, scenePreset, shutterSeconds, started, subjectDistanceM, toneCurve, whiteBalanceOption, whiteBalanceState, width, checkAbort, margin, mode, nativeHeight, nativeWidth, sourceSha256, yieldControl, kelvinWhiteBalanceInput,
-    mixedIllumination: mixedKit && lightKit });
+  const context: DisplayViewRunContext = { sensor, viewFast: { uniformSampling: fastTop, rendering: fastTop, defocusRegrouped: fastTop, perTapSum: fastTop, layers: fastTop }, layered, defocusBokeh, queryOffsetsSites, irradianceScale, viewDetail, gamutHandling, lens: lensSignal, lensPsf: displayViewLensPsf, lensUniformWindows: uniformWindows, movingScene, ahd, fastReport, antiAliasing, aspect, assume, assumptions, axisChannelResponse, boxSamples, buildProvider, callerScene, chart, materialLayers, chartReport, chartSize, diffraction, defocus: displayViewDefocus, diffractionPsf, fNumber, focalLengthMm, focusDistanceM, height, highlightMode, exposureGain, illuminanceLux, illuminant, illuminantOption, imagingArea, intentOf, metresPerFrameUnit, framedWidthM, noiseSeed, outputOptions, parsedView, pitch, preset, provider, regimeByChannel, resolvedIso, isoReport, standardExposureDeviationStops: exposureDeviationStops, standardExposureIlluminanceLux: exposureIlluminanceLux, greyCardDeviationStops: exposureGreyCardDeviationStops, metering, sceneOption, scenePreset, shutterSeconds, started, subjectDistanceM, toneCurve, whiteBalanceOption, whiteBalanceState, width, checkAbort, margin, mode, nativeHeight, nativeWidth, sourceSha256, yieldControl, kelvinWhiteBalanceInput,
+    mixedIllumination: mixedKit && lightKit };
+  // #652: result.scene.layers and the layered kernels, at the resolved f-number.
+  layered?.report(context);
+  if (displayView) return await renderView!(context);
   // Ideal reference (2.3): the scene without camera effects, at the capture's own exposure, white balance and encoding.
   if (idealReference) {
     const referenceStarted = clockMs();
@@ -3695,7 +3718,9 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
     const responses = CHANNELS.map((c) => [[...electronsPerRadiance[c]].map(([nm, a]) => [wavelengths.indexOf(nm), a] as const), relativePerElectron[c]] as const);
     const signalOf = (spectrum: ArrayLike<number>): number[] => responses.map(([terms, scale]) => { let e = 0; for (const [i, a] of terms) e += a * spectrum[i]!; return e * scale; });
     const materialCount = chart ? chart.materials.length : callerScene?.kind === "material-function" ? callerScene.materials.length : 0;
-    const spectra = provider.chartMaterialAt ? Array.from({ length: materialCount + (chartSize ? 1 : 0) }, (_, m) => wavelengths.map((nm) => provider.materialRadiance!(m, nm))) : undefined;
+    // #652: a layered scene's reference reads the layered sum (without diffraction) at the pixel-aperture nodes.
+    const referenceProvider = layered?.multi ? layered.reference(context) : provider;
+    const spectra = referenceProvider.chartMaterialAt ? Array.from({ length: materialCount + (chartSize ? 1 : 0) }, (_, m) => wavelengths.map((nm) => provider.materialRadiance!(m, nm))) : undefined;
     // 4. Pixels: the native sites of the output (or region) pixels, each centre-sampled or box-integrated like the capture.
     const x0 = (region ? region.x : 0) + margin, y0 = (region ? region.y : 0) + margin, n = boxSamples, unit = 2 / width;
     const referenceIntent = intentOf(whiteBalanceState), referenceGains = referenceIntent ? [referenceIntent.channelGains.red, referenceIntent.channelGains.green, referenceIntent.channelGains.blue] : null;
@@ -3711,7 +3736,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
         sum[0] = 0; sum[1] = 0; sum[2] = 0;
         for (let l = 0; l < n; l++) for (let k = 0; k < n; k++) {
           const u = (x0 + px + (k + 0.5) / n - nativeWidth / 2) * unit, v = -(y0 + py + (l + 0.5) / n - nativeHeight / 2) * unit, m = spectra ? provider.chartMaterialAt!(u, v) : -1;
-          if (m < 0 || m !== last) { s = signalOf(m < 0 ? wavelengths.map((nm) => provider.radianceAt(u, v, nm)) : spectra![m]!); last = m; }
+          if (m < 0 || m !== last) { s = signalOf(m < 0 ? wavelengths.map((nm) => referenceProvider.radianceAt(u, v, nm)) : spectra![m]!); last = m; }
           sum[0] += s[0]!; sum[1] += s[1]!; sum[2] += s[2]!;
         }
         // Normalized RAW values saturate at the white level, as in development.
@@ -3758,7 +3783,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
       exposure: { mode, settings: { fNumber, shutterSeconds, iso: resolvedIso }, ev100: Math.log2(fNumber ** 2 / shutterSeconds), ...isoReport },
       scene: { sceneId: chart ? "chart:" + chart.preset : callerScene!.sceneId, preset: scenePreset, parameters: (chart ?? callerScene as { parameters?: Readonly<Record<string, unknown>> }).parameters ?? {},
         illuminant: { id: illuminant.id, description: illuminant.description, illuminanceLux }, distanceM: subjectDistanceM,
-        framedWidthM, framedHeightM: framedWidthM * aspect, ...(chartReport ? { chart: chartReport } : {}), sourceSha256 },
+        framedWidthM, framedHeightM: framedWidthM * aspect, ...(chartReport ? { chart: chartReport } : {}), ...layered?.scene, sourceSha256 },
       ...(region && regionNative ? { region: { ...region, frameWidth: width, frameHeight: height } } : {}),
       diagnostics: { sampleCount: outputWidth * outputHeight * n * n, timingsMs: { reference: referenceMs, total: Date.now() - started } },
       provenance: { scientificStatus: "approximation" as const, cameraPresetId: preset.presetId, cameraPresetVersion: preset.presetVersion, evidence: [...FACADE_EVIDENCE, ...preset.evidence],
@@ -3785,7 +3810,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
     evaluateRadiance: rawProvider().evaluateRadiance, ...(pupil ? { evaluateApertureRadiance: provider.evaluateApertureRadiance } : {}), yieldControl });
   // #394 step 2: an engine-built planar scene (chart preset or caller material scene; still, rectilinear, no distortion, vignetting,
   // pupil rays or caller PSF) takes its expected electrons from the tabulated signal, verified per CFA phase against the chain.
-  const tabulatedScene = chart !== undefined || callerScene?.kind === "material-function" || callerScene?.kind === "image-plane";
+  const tabulatedScene = !layered?.multi && (chart !== undefined || callerScene?.kind === "material-function" || callerScene?.kind === "image-plane");
   // #391: a DNG from region parts takes the whole frame's RAW from the parts instead of rendering it.
   // #571: simulateCaptureFromParts takes the RAW from the parts in the same way, then develops it as a capture does.
   const dngParts = run === "dng-from-parts" || run === "develop-from-parts" ? viewOption : undefined,
@@ -4173,7 +4198,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
       standardExposureIlluminanceLux: exposureIlluminanceLux, greyCardDeviationStops: exposureGreyCardDeviationStops, resolution },
     scene: { sceneId: chart ? "chart:" + chart.preset : callerScene!.sceneId, preset: scenePreset, parameters: (chart ?? callerScene as { parameters?: Readonly<Record<string, unknown>> }).parameters ?? {},
       illuminant: { id: illuminant.id, description: illuminant.description, illuminanceLux }, distanceM: subjectDistanceM,
-      framedWidthM, framedHeightM: framedWidthM * aspect, ...(chartReport ? { chart: chartReport } : {}), sourceSha256 },
+      framedWidthM, framedHeightM: framedWidthM * aspect, ...(chartReport ? { chart: chartReport } : {}), ...layered?.scene, sourceSha256 },
     diagnostics: { providerEvaluationCount, highlight: developed.highlight, rendering: developed.diagnostics, ...(gamutMappingDiagnostics ? { gamutMapping: gamutMappingDiagnostics } : {}),
       ...(detailRequested ? { detail: Object.freeze(detailDiagnostics) } : {}),
       timingsMs: { raw: rawMs, whiteBalance: wbMs, development: devMs, jpeg: jpegMs, total: Date.now() - started,
