@@ -865,6 +865,36 @@ quantities summed in another order. Measured on the app's chart with a maker lab
 centre strip, one thread), the material form took 1.15 s instead of 3.2 s with the defaults, and 3.0 s instead of 111 s
 with diffraction, the four-spot filter and AHD.
 
+### Layered chart scenes (2.27.0, #652)
+
+A `layered-chart` scene puts opaque cards at several distances in front of an optional back plane with point lights, so
+focus, background blur and the shape of out-of-focus highlights show side by side. Load its code once per realm with
+`prepareLayeredChartScenes()` (a lazy chunk; bundles that never import the function carry none of it), then pass the scene
+to `simulateCapture`, `simulateIdealReference`, `simulateDisplayView` or `prepareDisplayView`:
+
+```ts
+import { prepareLayeredChartScenes, resolveLayeredChartPreset, simulateDisplayView } from "@photivra/engine";
+
+await prepareLayeredChartScenes();
+const scene = resolveLayeredChartPreset({ scale: "tabletop", cards: 5, focusDistanceM: 1, lens: { focalLengthMm: 50 } });
+const view = await simulateDisplayView({ scene, subjectDistanceM: 1, lens: { focalLengthMm: 50, fNumber: 4, focusDistanceM: 1 },
+  output: { width: 1200, height: 800 } }, { width: 600, height: 400 });
+for (const layer of view.scene.layers ?? []) console.log(layer.kind, layer.distanceM, layer.defocusDiameterSites, layer.withinDepthOfField);
+```
+
+- Cards are placed in frame units as seen from the lens (u = ±1 at the frame's edges), nearest first; each shows any chart
+  preset. `subjectDistanceM` is the framing reference; each surface is blurred by the disc of its own distance (a layered scene
+  implies `lens.defocus: { model: "geometric-disc" }`; the bokeh options shape every surface's kernel).
+- `result.scene.layers` lists, per card and for the back plane, the distance, the blur diameter in sites, the signed blur radius
+  and whether the surface lies within the depth of field (at the circle of confusion of the frame's diagonal / 1500).
+- One card filling the frame without a back plane renders exactly as its chart on its own; one card elsewhere renders as its
+  print on the single-plane path at the card's distance.
+- Occlusion at card edges: 4 rows per site of footprint on fast requests (the display view and sRGB samples), 16 with
+  `fast: false`, the exports and the ideal reference (`scene.layers/occlusion-samples`).
+- Not in 2.27.0 (refused with a message): motion, non-rectilinear projections, `lens.distortion`, `lens.vignetting`,
+  `lens.catalogue`, `lens.pupilSampling`, `lens.psf`, `chartSize` and `illumination`; no GPU path (`gpu: "auto"` renders on the
+  CPU, labelled `unsupported-on-backend`). Details: [Layered scenes](https://github.com/Photivra/engine/blob/main/docs/LAYERED_SCENES.md).
+
 ## White balance
 
 | Value | Meaning |

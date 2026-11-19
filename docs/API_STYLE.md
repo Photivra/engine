@@ -273,7 +273,17 @@ have a fast method, a measured and bounded approximation of it. One flag style s
   2.24.0 (owner decision 2026-11-12): the box pixel aperture's default samples per axis (`sensor.pixelAperture.box`: 4 fast, 8 exact;
   the box record's `fast` overrides the request's) and the default temporal midpoints under camera rotation or subject motion
   (`sensor.temporalSampleCount`: 8 fast, 16 exact); an explicit `samplesPerAxis` or `temporalSampleCount` always wins and makes no
-  choice. The records of `lens.diffraction`, `sensor.antiAliasing` and `output.demosaic` (in captures) take `fast`
+  choice. In 2.27.0: the display view's rolling-shutter row bands (#651, `motion.shutter.rolling/view-row-bands`, the top-level
+  flag: with camera rotation under a rolling shutter and the defocus regrouped, rows in bands that read their middle row's
+  instants, the in-focus image shifted by at most 1/128 site; exact reads every row at its own instants), a catalogue lens's
+  uniform windows (#655, `lens.catalogue/view-uniform-window`, `lens.catalogue`'s flag: a site whose taps all read one material
+  takes the field factor to second order; exact sums every tap with its own factor), and the reconstruct and desaturation chain's
+  fast rule became 3 or 6 points per axis (#656, the same entry, `output.highlightMode.reconstruct/view-moments`), and a layered
+  chart scene's occlusion rows (#652, `scene.layers/occlusion-samples`, the top-level flag: at card edges each pupil region is
+  integrated in 4 rows per site of its footprint fast and 16 exact, exact along each row; reported in the `scene.layers`
+  assumption). The other
+  2.27.0 speed-ups (#649, #653, the regrouped lens defocus and the Newton distortion inverse of #651 and #655) give the same
+  results within rounding and take no flag. The records of `lens.diffraction`, `sensor.antiAliasing` and `output.demosaic` (in captures) take `fast`
   with no fast method yet. `test/fast-methods-registry.test.ts` fails when a record accepts `fast` without an entry, an entry
   lacks its resolver or report, or a format default leaves the rule. **Every new fast method adds its entry.**
 - **The same words on WebGPU.** The image-kernel execution record carries `fast` (`false` for `cpu-reference`, `true` for

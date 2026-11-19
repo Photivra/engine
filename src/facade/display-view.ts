@@ -201,9 +201,27 @@ export interface DisplayViewSetup {
   /** #478: the inputs a GPU renderer builds its scene lookup from (see {@link DisplayViewGpuSetup}); not read by `renderDisplayView`. */
   gpu?: DisplayViewGpuSetup;
   /** #628: `output.lensCorrections` (display-view-detail.ts): where each display pixel reads the developed image, and the gain. */
-  correction?: DisplayViewCorrection;
+  correction?: DisplayViewCorrection | undefined;
   /** #628: when present, filled with each display pixel's covariance in linear light (v00, v01, v02, v11, v12, v22). */
-  covariance?: Float64Array;
+  covariance?: Float64Array | undefined;
+  /**
+   * #649: the real pixels' recorded terms kept across the renders of one call (display-view-detail.ts), used in place of the render's own
+   * memo; not with the exact correction (`correction.sources`), whose terms are not per real pixel.
+   */
+  pixelStore?: DisplayViewPixelStore;
+  /** #649: only `expected` (and the counts) are wanted: no samples, noise or covariance are drawn, and those outputs stay zero. */
+  meansOnly?: boolean;
+}
+
+/**
+ * #649: records of `size` values per native site (x, y), for one call. `find` locates (x, y)'s record at `records[offset]` and returns
+ * whether it holds that site's values; `filled` marks the record found last as holding them.
+ */
+export interface DisplayViewPixelStore {
+  find(x: number, y: number, size: number): boolean;
+  readonly records: Float64Array;
+  readonly offset: number;
+  filled(): void;
 }
 
 /**
@@ -593,7 +611,9 @@ export async function renderDisplayView(setup: DisplayViewSetup): Promise<Displa
   while (exactRows < 2 * (Math.ceil(sy) + 1)) exactRows *= 2;
   // #628: a corrected sample's terms carry the gain of its output pixel (the exact method), so its real pixels' records are not shared.
   const corr = setup.correction, bilinear = corr?.sources !== undefined, fp = new Float64Array(4);
-  const exactMemo = exactView && !bilinear && exactRows * exactWidth <= PIXEL_MEMO_LIMIT * 4;
+  // #649: the call's store of real pixels' terms, in place of this render's memos; `meansOnly` a pass that needs only `expected`.
+  const store = bilinear ? undefined : setup.pixelStore, meansOnly = setup.meansOnly === true;
+  const exactMemo = !store && exactView && !bilinear && exactRows * exactWidth <= PIXEL_MEMO_LIMIT * 4;
   const exactStamp = new Int32Array(exactMemo ? exactRows * exactWidth : 0), exactRecords = new Float64Array(exactMemo ? exactRows * exactWidth * MEMO_SIZE : 0);
   const maximum = setup.bitDepth === 8 ? 255 : 65535, step = 1 / maximum;
   const pixelCount = region.width * region.height;
@@ -745,7 +765,7 @@ export async function renderDisplayView(setup: DisplayViewSetup): Promise<Displa
       const vx = region.x + rx, index = vy * viewWidth + vx;
       // #628: a corrected pixel reads its developed footprint fp (frame pixels); its noise weights are that rectangle's.
       footprintOf(vx, vy, fp);
-      if (corr) footprintWeights(axisSums(fp[0]!, fp[1]!, frameWidth, margin), axisSums(fp[2]!, fp[3]!, frameHeight, margin), (fp[1]! - fp[0]!) * (fp[3]! - fp[2]!), B);
+      if (meansOnly) { /* B weighs the noise only */ } else if (corr) footprintWeights(axisSums(fp[0]!, fp[1]!, frameWidth, margin), axisSums(fp[2]!, fp[3]!, frameHeight, margin), (fp[1]! - fp[0]!) * (fp[3]! - fp[2]!), B);
       else footprintWeights(columns[rx]!, rows, area, B);
       let same = true;
       for (let j = 0; j < 3 && same; j++) for (let i = rx; i <= rx + 2; i++) if (flagRows[j]![i] === 0) { same = false; break; }
@@ -774,7 +794,7 @@ export async function renderDisplayView(setup: DisplayViewSetup): Promise<Displa
       const mx0 = Math.floor(f0) + margin, my0 = Math.floor(f2) + margin;
       if (choicePlane && (!exactView || corr)) choicePlane.origin(Math.max(0, mx0 - AHD_REACH - (bilinear ? 2 : 0)));
       const mw = Math.min(frameWidth - 1, Math.ceil(f1)) + margin - mx0 + 1, mh = Math.min(frameHeight - 1, Math.ceil(f3)) + margin - my0 + 1;
-      const pixelMemo = !exactView && !bilinear && setup.signal.cachesSites && mw * mh <= PIXEL_MEMO_LIMIT;
+      const pixelMemo = !store && !exactView && !bilinear && setup.signal.cachesSites && mw * mh <= PIXEL_MEMO_LIMIT;
       // #628, the exact correction: each sample (an output pixel) becomes the developed pixels it reads, with their bilinear weights and gain.
       if (bilinear) {
         let count = 0;
@@ -819,11 +839,14 @@ export async function renderDisplayView(setup: DisplayViewSetup): Promise<Displa
         let material = -2, statistics = false;
         const px = x - mx0, py = y - my0;
         const inside = x >= reach && y >= reach && x + reach < nativeWidth && y + reach < nativeHeight;
-        const stamps = exactMemo ? exactStamp : pixelStamp, records = exactMemo ? exactRecords : pixelRecords, stamp = exactMemo ? y + 1 : pixelGeneration;
+        const stamps = exactMemo ? exactStamp : pixelStamp, stamp = exactMemo ? y + 1 : pixelGeneration;
         const pk = exactMemo ? (inside && x >= exactX0 && x - exactX0 < exactWidth ? (y & (exactRows - 1)) * exactWidth + x - exactX0 : -1)
           : pixelMemo && px >= 0 && py >= 0 && px < mw && py < mh && inside ? py * mw + px : -1;
+        // The sample's record: in the call's store (#649) or the render's memo slot; `held` when it holds the real pixel's terms.
+        const held = store ? inside && store.find(x, y, MEMO_SIZE) : pk >= 0 && stamps[pk] === stamp, kept = store ? inside : pk >= 0;
+        const records = store ? store.records : exactMemo ? exactRecords : pixelRecords, ro = store ? store.offset : pk * MEMO_SIZE;
         let memo: Float64Array | undefined, mo = 0;
-        if (pk >= 0 && stamps[pk] === stamp) { memo = records; mo = pk * MEMO_SIZE; siteCount += list.length; }
+        if (held) { memo = records; mo = ro; siteCount += list.length; }
         // The expected electrons of the sites the demosaic reads (sites outside the raster, at mirror borders, are read
         // reflect-101); where the signal tracks it, whether they all read one chart material, with the statistics below only
         // when the sample is not replayed; otherwise the statistics at once.
@@ -905,7 +928,7 @@ export async function renderDisplayView(setup: DisplayViewSetup): Promise<Displa
           continue;
         }
         // The terms are written where they are kept: the real pixel's memo slot; no typed-array view per sample.
-        const rt = pk >= 0 ? records : undefined, ro = pk >= 0 ? pk * MEMO_SIZE : 0;
+        const rt = kept ? records : undefined;
         // Every field of the record (MEMO_SIZE layout) that the propagation below does not write for this sample is zeroed, as a
         // fill of the whole record would leave it. Always written: [0, 3), [27, 30) and candidate 0's [3, 12) and [21, 24); with
         // two candidates also candidate 1's [12, 21) and [24, 27) and the choice terms [30, 33).
@@ -1081,7 +1104,7 @@ export async function renderDisplayView(setup: DisplayViewSetup): Promise<Displa
           r0 += wR * (x0 / 4); r1 += wR * (x1 / 4); r2 += wR * (x2 / 4);
           if (rt) { rt[ro + 30] = x0 / 4; rt[ro + 31] = x1 / 4; rt[ro + 32] = x2 / 4; }
         }
-        if (pk >= 0) stamps[pk] = stamp;
+        if (store) { if (kept) store.filled(); } else if (pk >= 0) stamps[pk] = stamp;
       }
       sampleCount += sampleTotal;
       // Stratified: means over Q samples. Exact: the weights already sum to 1 (Σ a_j = 1) and the residual carries Σ a_j²·r_j.
@@ -1089,16 +1112,19 @@ export async function renderDisplayView(setup: DisplayViewSetup): Promise<Displa
       // #533: the expected saturated real pixels of the rectangle (A real pixels): A·Σ_j a_j·P_j, or A times the samples' mean.
       const saturatedHere = (sat / Qd) * area;
       saturated[ry * region.width + rx] = saturatedHere; saturatedTotal += saturatedHere;
-      // The real pixels' output rounding (Δ²/12 in the encoded domain), mapped to linear light at the mean.
-      const q0 = quantizationVariance(mean0, step), q1 = quantizationVariance(mean1, step), q2 = quantizationVariance(mean2, step);
-      // Covariance in linear light: the linear part plus the independent per-pixel residuals and rounding.
-      const v00 = exactView ? c00 + r0 + pixels * q0 : c00 / Q + pixels * (r0 / Q + q0), v01 = c01 / Qd, v02 = c02 / Qd,
-        v11 = exactView ? c11 + r1 + pixels * q1 : c11 / Q + pixels * (r1 / Q + q1), v12 = c12 / Qd, v22 = exactView ? c22 + r2 + pixels * q2 : c22 / Q + pixels * (r2 / Q + q2);
       const o = (ry * region.width + rx) * 3;
-      drawDisplayPixel(seed, index, mean0, mean1, mean2, v00, v01, v02, v11, v12, v22, samples, o, maximum);
-      if (setup.covariance) { const c = setup.covariance, k6 = 2 * o; c[k6] = v00; c[k6 + 1] = v01; c[k6 + 2] = v02; c[k6 + 3] = v11; c[k6 + 4] = v12; c[k6 + 5] = v22; }
       expected[o] = mean0; expected[o + 1] = mean1; expected[o + 2] = mean2;
-      noiseStd[o] = Math.sqrt(Math.max(0, v00)); noiseStd[o + 1] = Math.sqrt(Math.max(0, v11)); noiseStd[o + 2] = Math.sqrt(Math.max(0, v22));
+      // #649: a pass whose samples and noise are not used ends here (the values above do not depend on what follows).
+      if (!meansOnly) {
+        // The real pixels' output rounding (Δ²/12 in the encoded domain), mapped to linear light at the mean.
+        const q0 = quantizationVariance(mean0, step), q1 = quantizationVariance(mean1, step), q2 = quantizationVariance(mean2, step);
+        // Covariance in linear light: the linear part plus the independent per-pixel residuals and rounding.
+        const v00 = exactView ? c00 + r0 + pixels * q0 : c00 / Q + pixels * (r0 / Q + q0), v01 = c01 / Qd, v02 = c02 / Qd,
+          v11 = exactView ? c11 + r1 + pixels * q1 : c11 / Q + pixels * (r1 / Q + q1), v12 = c12 / Qd, v22 = exactView ? c22 + r2 + pixels * q2 : c22 / Q + pixels * (r2 / Q + q2);
+        drawDisplayPixel(seed, index, mean0, mean1, mean2, v00, v01, v02, v11, v12, v22, samples, o, maximum);
+        if (setup.covariance) { const c = setup.covariance, k6 = 2 * o; c[k6] = v00; c[k6 + 1] = v01; c[k6 + 2] = v02; c[k6 + 3] = v11; c[k6 + 4] = v12; c[k6 + 5] = v22; }
+        noiseStd[o] = Math.sqrt(Math.max(0, v00)); noiseStd[o + 1] = Math.sqrt(Math.max(0, v11)); noiseStd[o + 2] = Math.sqrt(Math.max(0, v22));
+      }
       // The clock is read every 16 display pixels and at the end of each row (yield timing never changes the output).
       if (((rx & 15) === 15 || rx === region.width - 1) && Date.now() - lastYield >= 8) { await setup.yieldControl(); setup.checkAbort(); lastYield = Date.now(); }
     }

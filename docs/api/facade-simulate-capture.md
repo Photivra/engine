@@ -728,9 +728,10 @@ export interface SimulateCaptureOptions {
    * Required: an engine chart (for example `{ preset: "uniform" }`, an 18 % grey card), a declared `material-layers` scene (#491:
    * a chart under shape-mask layers, as `resolveChartMaterialLayers` takes it; the capture is that of its `callerScene`, byte for
    * byte, and the display view can render it on the GPU), a caller reflectance, radiance or material function, or (2.21, #581) an
-   * `image-plane` scene: a photo as a flat print (docs/IMAGE_PLANE.md).
+   * `image-plane` scene: a photo as a flat print (docs/IMAGE_PLANE.md), or (2.27.0, #652) a `layered-chart` scene: opaque cards
+   * at several distances in front of an optional back plane with point lights (docs/LAYERED_SCENES.md).
    */
-  scene: ChartScene | ChartMaterialLayerScene | CallerReflectanceScene | CallerRadianceScene | CallerMaterialScene | ImagePlaneScene;
+  scene: ChartScene | ChartMaterialLayerScene | CallerReflectanceScene | CallerRadianceScene | CallerMaterialScene | ImagePlaneScene | LayeredChartScene;
   /** Distance from the camera to the scene plane in metres. Default 5. */
   subjectDistanceM?: number;
   /**
@@ -1059,6 +1060,12 @@ export interface SimulateCaptureResult {
      */
     chart?: { widthM: number; heightM: number; surroundReflectance: number; frameWidthFraction: number; frameHeightFraction: number;
       magnification: number; imageWidthMm: number; imageHeightMm: number; imageWidthPixels: number; imageHeightPixels: number };
+    /**
+     * 2.27.0 (#652), present with a `layered-chart` scene: per card, nearest first, then the back plane: its distance, geometric
+     * blur diameter in sites (`calculateDefocusCircle` / pitch), signed blur radius (+ behind the focus plane) and whether it
+     * lies within the depth of field (`calculateDepthOfField` at the circle of confusion of the frame's diagonal / 1500).
+     */
+    layers?: LayeredChartDepth[];
     /**
      * SHA-256 of the canonical scene description, recorded as the capture source digest. Caller spectra (a
      * `spectrum` or `daylight` illuminant, chart reflectance spectra) are part of the description: tabulated

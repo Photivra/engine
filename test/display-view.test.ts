@@ -13,11 +13,11 @@ import { hashLockOnThisArchitecture } from "./helpers/architecture-hash-locks.js
 // #508: the arm64 hashes of the "keeps its bytes" locks whose bytes differ there, keyed by the x64 lock (recorded on
 // Node 24.19.0 and 24.22.1, macOS arm64 and Linux arm64). The Speed case without diffraction is the same on both.
 const ARM64_DISPLAY_VIEW_HASHES: Readonly<Record<string, string>> = {
-  "e0a7c540fdde935f4c06d6e3def3370d94039291eec5aa59b8ca87f62918b5f9": "6e556cbbc80cf946a0c1402454717ce05cc5fc5d45a3ce310b6ed51bb28a9f9f",
+  "b160bd0c7964d574444ef75e3be5e7b589001fac8faf5c224817951492746af8": "5a952bd4396b411ea7ff73ccdd0422b11c8491bfda69f9507e656704b9447ba4",
   "d3158da77a683e55aa2a8a6d332f9ed1118e8338489e76570e1bfc2896bb990c": "c0658e117cb4f8b92497969bba538a94417f069f3ae46254d40cfc3bb176fd4b",
-  "38ec56b1b5498af2bb7fe6837f8fde91d73e31144721093f1925413e15ae669c": "73948a5d7a98cb547b636ee661c91bfefc0e9eba48b300a6d5b3b3585c126175",
+  "d04916365a4cf2b9efb202736d320fb953d7b2c3398eb596f71117ce77f5e5d6": "1e10e4b5ff9cb0331494d4d4fee310740543fbe5a86e47fcbae4318aacb7b751",
   "992eec6e7a1d8d3ec4817baf703156c46f9dda4a8dd340624dac8d1b8f439b77": "c92d880f0fff487be141eba45bc103f28e404c3ca2282c9ee9e3bf93ce5d69c8",
-  "a2d7c3b304ec773b2abe07ca0dce8e068a1bc0a807b5ada7cf5b2699b34ad8b1": "2bcb699cefe152f1959643b2c68157d3e49f8cea0c5f5ff5a11e2c8971c5923f"
+  "431b725a7066aa3a386abedc6fe9a2f1bda82fb5497894d7856526bd458aab39": "218ebea933de43113f020572ac330248f36b0581abc55c2c68809968498a1334"
 };
 
 const decode = (code: number, maximum: number): number => { const e = code / maximum; return e <= 0.04045 ? e / 12.92 : ((e + 0.055) / 1.055) ** 2.4; };
@@ -54,7 +54,7 @@ describe("simulateDisplayView", () => {
     for (const options of cases) {
       const capture = await simulateCapture(options), { signal } = await simulateDisplayViewWithInternals(options, { width: 4, height: 4, samplesPerAxis: 1 });
       const env = capture.request.environmentRaw.raw.exposure.geometry, nativeWidth = env.nativeRaster.pixelWidth, nativeHeight = env.nativeRaster.pixelHeight;
-      const base = createPlanarSceneRadianceProvider({ scene: options.scene, illuminant: { kind: "planckian", temperatureKelvin: 6500 }, illuminanceLux: capture.scene.illuminant.illuminanceLux,
+      const base = createPlanarSceneRadianceProvider({ scene: options.scene as Parameters<typeof createPlanarSceneRadianceProvider>[0]["scene"], illuminant: { kind: "planckian", temperatureKelvin: 6500 }, illuminanceLux: capture.scene.illuminant.illuminanceLux,
         distanceM: capture.scene.distanceM, framedWidthM: capture.scene.framedWidthM, aspect: capture.scene.framedHeightM / capture.scene.framedWidthM, sceneId: "facade-scene",
         providerProfileId: "facade-provider", ...(options.chartSize ? { chartSize: options.chartSize } : {}) });
       // With diffraction the capture answers each query from the object-space convolution (the same internal provider here).
@@ -237,6 +237,9 @@ describe("simulateDisplayView", () => {
     // 2.26.0 (#643, the view's fast per-tap chart signal): the three chart cases with diffraction (the Siemens star, the patches,
     // dead leaves) were re-recorded on x64 (Node 24.1.0 under Rosetta 2) and arm64: samples unchanged, expected values within
     // 7.2·10⁻¹⁵ relative and noise standard deviations within 1.6·10⁻¹³ relative of 2.25.0; the other three keep their hashes.
+    // 2.27.0 (#653, the per-tap chart signal read from the pre-integrated spectral radiance): the same three re-recorded on x64
+    // (Node 24.1.0 under Rosetta 2) and arm64: samples unchanged, expected values within 7.1·10⁻¹⁵ relative and noise standard
+    // deviations within 2.0·10⁻¹³ relative of 2.26.0; the other three keep their hashes.
     // Each case exercises one path: non-uniform and uniform diffraction sites, AHD at low signal, spectral materials with
     // mirror borders, a radiance scene, AHD with a tone curve, and Speed. The display view's own arithmetic and its
     // illuminant use only correctly rounded operations and the engine's portable functions (src/core/portable-math.ts), so
@@ -250,17 +253,17 @@ describe("simulateDisplayView", () => {
     const rings = (p: { u: number; v: number }): number => { const t = 20 * (p.u * p.u + p.v * p.v), f = t - Math.floor(t); return 0.1 + 0.6 * (f < 0.5 ? 2 * f : 2 - 2 * f); };
     const cases: [SimulateCaptureOptions, SimulateDisplayViewOptions, string][] = [
       [{ scene: { preset: "siemens-star" }, lens: { fNumber: 8, diffraction: "circular-aperture" }, sensor: { pixelPitchMicrometers: 1.4, antiAliasing: { kind: "four-spot" } },
-        output: { width: 400, height: 300 } }, { width: 20, height: 15 }, "e0a7c540fdde935f4c06d6e3def3370d94039291eec5aa59b8ca87f62918b5f9"],
+        output: { width: 400, height: 300 } }, { width: 20, height: 15 }, "b160bd0c7964d574444ef75e3be5e7b589001fac8faf5c224817951492746af8"],
       [{ scene: { preset: "uniform", reflectance: 0.18 }, lens: { fNumber: 8, diffraction: "circular-aperture" }, exposure: { iso: 1600, shutterSeconds: 1 / 2000 },
         sensor: { pixelPitchMicrometers: 1.4 }, output: { width: 200, height: 150, demosaic: "ahd" } }, { width: 10, height: 8 }, "d3158da77a683e55aa2a8a6d332f9ed1118e8338489e76570e1bfc2896bb990c"],
       [{ scene: { preset: "patches", patches: [{ patchId: "a", reflectance: red }, { patchId: "b", reflectance: 0.5 }], columns: 2 }, chartSize: { widthM: 0.002, surroundReflectance: 0.3 },
         lens: { diffraction: "circular-aperture" }, sensor: { pixelPitchMicrometers: 2 }, output: { width: 60, height: 40, borderHandling: "mirror" } }, { width: 12, height: 8 },
-      "38ec56b1b5498af2bb7fe6837f8fde91d73e31144721093f1925413e15ae669c"],
+      "d04916365a4cf2b9efb202736d320fb953d7b2c3398eb596f71117ce77f5e5d6"],
       [{ scene: { kind: "reflectance-function", sceneId: "rings", evaluate: rings }, lens: { diffraction: "circular-aperture" },
         sensor: { pixelAperture: { kind: "box", samplesPerAxis: 2 } }, output: { width: 48, height: 32 } }, { width: 12, height: 8 }, "992eec6e7a1d8d3ec4817baf703156c46f9dda4a8dd340624dac8d1b8f439b77"],
       [{ scene: { preset: "dead-leaves" }, lens: { fNumber: 11, diffraction: "circular-aperture" }, sensor: { pixelPitchMicrometers: 4 },
         output: { width: 300, height: 200, demosaic: "ahd", toneCurve: "positive-reinhard-per-channel" } }, { width: 30, height: 20, region: { x: 5, y: 4, width: 9, height: 7 }, format: "srgb-16" },
-      "a2d7c3b304ec773b2abe07ca0dce8e068a1bc0a807b5ada7cf5b2699b34ad8b1"],
+      "431b725a7066aa3a386abedc6fe9a2f1bda82fb5497894d7856526bd458aab39"],
       [{ scene: { preset: "dead-leaves" }, sensor: { pixelPitchMicrometers: 2 }, output: { width: 300, height: 200 } }, { width: 30, height: 20 }, "92c3c98e64304843f89968c2c3ddb0ca72467fb993f09c27a657232be4c18245"]
     ];
     for (const [options, view, expected] of cases) {

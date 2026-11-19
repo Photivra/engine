@@ -9,6 +9,7 @@
 
 import type { ResolvedImagePlaneScene } from "./scene-radiance.js";
 import type { DisplayViewGpuSetup } from "./display-view.js";
+import type { resolveLayeredRequest } from "./layered-scene-setup.js";
 
 /** Internal: what the facade and the GPU display view take from the image-plane module once it is enabled. */
 export interface ImagePlaneSupport {
@@ -34,4 +35,16 @@ export function imagePlaneSupport(): ImagePlaneSupport | undefined {
 /** Internal: records the loaded module (`prepareImagePlaneScenes`, image-plane-enable.ts). */
 export function setImagePlaneSupport(value: ImagePlaneSupport): void {
   support = value;
+}
+
+/**
+ * The opt-in seam of layered chart scenes (2.27.0, #652), as for image-plane scenes: their code (layered-scene-setup.ts) is reachable only
+ * through `prepareLayeredChartScenes()` (layered-scene-enable.ts), so a bundle that never imports that function carries none of it.
+ */
+let layered: { resolveLayeredRequest: typeof resolveLayeredRequest } | undefined;
+/** Internal: the enabled layered-scene module, or undefined. */
+export const layeredSceneSupport = (): typeof layered => layered;
+/** Internal: records the loaded module (`prepareLayeredChartScenes`). */
+export function setLayeredSceneSupport(value: NonNullable<typeof layered>): void {
+  layered = value;
 }

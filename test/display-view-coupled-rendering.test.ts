@@ -3,7 +3,9 @@
  * #593, #601 (2.22.0): the display view's coupled rendering moments (src/facade/display-view-rendering.ts) against seeded Monte
  * Carlo of the same deterministic chain on normal camera channels: the luminance tone curves by conditioning on luminance, the
  * reconstruct blend and the desaturation by the 3-D Gauss–Hermite rule; the expected slopes against Stein's lemma; and the
- * measured gap between the fast and full rules (the bounds stated in docs/DISPLAY_VIEW.md, "Coupled rendering").
+ * measured gap between the fast and full rules (the bounds stated in docs/DISPLAY_VIEW.md, "Coupled rendering"). #656 (2.27.0):
+ * the fast rule's 3-point order (where the channels are quiet and the kink probe allows it) in the same sweep, a sweep straddling
+ * the highlight blend's kinks, and Monte Carlo.
  */
 import { describe, expect, it } from "vitest";
 import { createDisplayViewCoupledRendering, gaussHermite, type DisplayViewRenderingChoice } from "../src/facade/display-view-rendering.js";
@@ -126,7 +128,7 @@ describe("the coupled rendering moments", () => {
   it("keeps the fast rules within their measured bounds of the full ones", () => {
     // A seeded sweep of means and covariances over the reach of each step; the largest gap is the bound stated in the docs.
     const z = normals(3), uniform = (): number => 0.5 + 0.5 * Math.tanh(z());
-    let toneGap = 0, chainGap = 0, quietGap = 0;
+    let toneGap = 0, chainGap = 0, quietGap = 0, low = 0;
     for (let trial = 0; trial < 300; trial++) {
       const scale = 10 ** (-5 + 2.4 * uniform()), cm = [uniform(), uniform(), uniform()].map((v) => 0.98 * v), a = [z(), z(), z()].map((v) => v * Math.sqrt(scale));
       const C = [0, 1, 2].flatMap((i) => [0, 1, 2].map((j) => (i === j ? scale : 0) + 0.5 * a[i]! * a[j]!));
@@ -141,17 +143,78 @@ describe("the coupled rendering moments", () => {
         for (let k = 0; k < 3; k++) toneGap = Math.max(toneGap, Math.abs(h1[k]! - h2[k]!));
         const cf = createDisplayViewCoupledRendering(choice({ highlightMode: "reconstruct", fast: true }), GAINS, 1, MATRIX)!;
         const cx = createDisplayViewCoupledRendering(choice({ highlightMode: "reconstruct", fast: false }), GAINS, 1, MATRIX)!;
-        cf.chain(Float64Array.from(cm), Float64Array.from(C), h1, v, J); cx.chain(Float64Array.from(cm), Float64Array.from(C), h2, v, J);
+        if (cf.chain(Float64Array.from(cm), Float64Array.from(C), h1, v, J) === 27) low++;
+        cx.chain(Float64Array.from(cm), Float64Array.from(C), h2, v, J);
         const quiet = Math.max(C[0]!, C[4]!, C[8]!) <= 1e-4;
         for (let k = 0; k < 3; k++) { chainGap = Math.max(chainGap, Math.abs(h1[k]! - h2[k]!)); if (quiet) quietGap = Math.max(quietGap, Math.abs(h1[k]! - h2[k]!)); }
       }
     }
-    console.log("fast vs full, largest gap of the expected value (linear light):", { tone: toneGap, chain: chainGap, chainUpToSigma001: quietGap });
+    console.log("fast vs full, largest gap of the expected value (linear light):", { tone: toneGap, chain: chainGap, chainUpToSigma001: quietGap, lowOrder: low });
     // Measured 2026-11-11: tone 6.7e-6; chain 1.5e-2 with channel σ up to 0.076 (ISO 6400 on small sites), 2.4e-4 up to σ = 0.01.
+    // 2026-11-18 (#656, the fast rule's 3-point order on 24 of the 300): the same, 1.45e-2 and 2.41e-4.
+    expect(low).toBeGreaterThan(0);
     expect(toneGap).toBeLessThan(2e-5);
     expect(chainGap).toBeLessThan(2e-2);
     expect(quietGap).toBeLessThan(2e-3);
   }, scaledTimeout(60_000));
+
+  it("keeps the fast rule's 3-point order (#656) within the 6-point rule's gap where the highlight blend's kinks are straddled", () => {
+    // Means placed within 3σ of 0.8 of white, of white and of a channel's clip level (the kinks the 3-point order integrates
+    // across), with the identity and Standard curves; the 3-point order's gap to the full rule against the 6-point rule's.
+    const z = normals(11), uniform = (): number => 0.5 + 0.5 * Math.tanh(z());
+    const gaps = { low: 0, six: 0, lowQuiet: 0, sixQuiet: 0, lowCases: 0, lowOrderOnly: 0, sixOnThose: 0 };
+    for (let trial = 0; trial < 300; trial++) {
+      const scale = 10 ** (-5.6 + 3 * uniform()), sigma = Math.sqrt(scale), k = trial % 3, cm = [uniform(), uniform(), uniform()].map((v) => 0.98 * v);
+      const level = [0.8, 1, 1 / GAINS[k]!][Math.floor(trial / 3) % 3]!;
+      cm[k] = level + 6 * sigma * (uniform() - 0.5);
+      if (level !== 0.8) cm[(k + 1) % 3] = Math.max(cm[(k + 1) % 3]!, 0.75);
+      const a = [z(), z(), z()].map((v) => v * Math.sqrt(scale));
+      const C = [0, 1, 2].flatMap((i) => [0, 1, 2].map((j) => (i === j ? scale : 0) + 0.5 * a[i]! * a[j]!));
+      const quiet = Math.max(C[0]!, C[4]!, C[8]!) <= 1e-4;
+      const rendering = trial % 2 === 0 ? choice({ highlightMode: "reconstruct" }) : choice({ highlightMode: "reconstruct", toneCurve: "naka-rushton-luminance", toneCurveParameters: STANDARD });
+      const adaptive = createDisplayViewCoupledRendering({ ...rendering, fast: true }, GAINS, 1, MATRIX)!, six = createDisplayViewCoupledRendering({ ...rendering, fast: true }, GAINS, 1, MATRIX, false)!;
+      const full = createDisplayViewCoupledRendering({ ...rendering, fast: false }, GAINS, 1, MATRIX)!;
+      if (!adaptive.reconstructInReach(Float64Array.from(cm), Float64Array.from(C))) continue;
+      const h1 = new Float64Array(3), h6 = new Float64Array(3), hx = new Float64Array(3), v = new Float64Array(3), J = new Float64Array(9);
+      const nodes = adaptive.chain(Float64Array.from(cm), Float64Array.from(C), h1, v, J);
+      expect(six.chain(Float64Array.from(cm), Float64Array.from(C), h6, v, J)).toBe(216);
+      full.chain(Float64Array.from(cm), Float64Array.from(C), hx, v, J);
+      if (nodes === 27) gaps.lowCases++; else expect(Array.from(h1)).toEqual(Array.from(h6));
+      for (let c = 0; c < 3; c++) {
+        const g1 = Math.abs(h1[c]! - hx[c]!), g6 = Math.abs(h6[c]! - hx[c]!);
+        gaps.low = Math.max(gaps.low, g1); gaps.six = Math.max(gaps.six, g6);
+        if (quiet) { gaps.lowQuiet = Math.max(gaps.lowQuiet, g1); gaps.sixQuiet = Math.max(gaps.sixQuiet, g6); }
+        if (nodes === 27) { gaps.lowOrderOnly = Math.max(gaps.lowOrderOnly, g1); gaps.sixOnThose = Math.max(gaps.sixOnThose, g6); }
+      }
+    }
+    console.log("straddled kinks, largest gap to the full rule (linear light):", gaps);
+    expect(gaps.lowCases).toBeGreaterThan(20);
+    expect(gaps.low).toBeLessThanOrEqual(gaps.six);
+    expect(gaps.lowQuiet).toBeLessThanOrEqual(gaps.sixQuiet);
+    // Measured 2026-11-18: 42 of the 300 take the 3-point order; their largest gap 1.9e-3 (the 6-point rule's on them 4.1e-4),
+    // inside the 6-point rule's own 2.5e-3 for σ ≤ 0.01 (2.4e-2 overall) on this sweep.
+    expect(gaps.lowOrderOnly).toBeLessThanOrEqual(gaps.sixQuiet);
+  }, scaledTimeout(60_000));
+
+  it("matches Monte Carlo with the fast rule's 3-point order (#656)", () => {
+    const quiet = (s: number): number[] => [s, 0.2 * s, 0.1 * s, 0.2 * s, 1.3 * s, 0, 0.1 * s, 0, 0.8 * s];
+    const cases: [DisplayViewRenderingChoice, number[], number[]][] = [
+      // Inside the blend, across 0.8 of white, across white and across the red channel's clip level (1/2.1), quiet channels.
+      [choice({ highlightMode: "reconstruct", fast: true }), [0.2, 0.88, 0.25], quiet(2.5e-5)],
+      [choice({ highlightMode: "reconstruct", fast: true }), [0.3, 0.5, 0.802], quiet(1e-5)],
+      [choice({ highlightMode: "reconstruct", toneCurve: "naka-rushton-luminance", toneCurveParameters: STANDARD, fast: true }), [0.3, 0.999, 0.3], quiet(2.5e-5)],
+      [choice({ highlightMode: "reconstruct", toneCurve: "naka-rushton-luminance", toneCurveParameters: STANDARD, fast: true }), [0.3, 0.85, 0.3], quiet(6e-5)],
+      [choice({ highlightMode: "reconstruct", fast: true }), [0.2, 0.75, 0.476], quiet(4e-6)]
+    ];
+    for (const [rendering, cm, C] of cases) {
+      const coupled = createDisplayViewCoupledRendering(rendering, GAINS, 1, MATRIX)!;
+      const hm = new Float64Array(3), hv = new Float64Array(3), A = new Float64Array(9);
+      expect(coupled.chain(Float64Array.from(cm), Float64Array.from(C), hm, hv, A)).toBe(27);
+      const mc = monteCarlo((c, out) => coupled.pixel(c[0]!, c[1]!, c[2]!, out), cm, C, 400_000);
+      // The bound of the full rule's comparison: 1·10⁻³ plus four standard errors of the Monte Carlo mean.
+      for (let k = 0; k < 3; k++) expect(Math.abs(hm[k]! - mc.mean[k]!)).toBeLessThan(4 * Math.sqrt(mc.variance[k]! / 400_000) + 1e-3);
+    }
+  }, scaledTimeout(120_000));
 });
 
 describe("desaturateToLuminance (#601)", () => {
@@ -230,7 +293,7 @@ describe("the display view with coupled rendering steps against the capture (#59
     const explicit = await simulateDisplayView({ ...options, output: { ...options.output, gamutHandling: "clip-components", highlightMode: "clip" } }, { width: 8, height: 8 });
     expect(Array.from(explicit.image.samples)).toEqual(Array.from(plain.image.samples));
     const coupled = await simulateDisplayView({ ...options, output: { ...options.output, highlightMode: "reconstruct" } }, { width: 8, height: 8 });
-    expect(coupled.assumptions.find((a) => a.id === "view.rendering")?.value).toMatchObject({ highlightMode: "reconstruct", chainPointsPerAxis: 6, fast: true });
+    expect(coupled.assumptions.find((a) => a.id === "view.rendering")?.value).toMatchObject({ highlightMode: "reconstruct", chainPointsPerAxis: "3-or-6", fast: true });
   }, scaledTimeout(60_000));
 });
 

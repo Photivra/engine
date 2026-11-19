@@ -164,6 +164,8 @@ export interface DisplayViewGpuRequest {
   lens?: boolean;
   /** #628: true with `output.lensCorrections` or `output.sharpening`: the CPU reference renders them (display-view-detail.ts). */
   detail?: boolean;
+  /** #652: true for a layered chart scene of more than one surface: the CPU reference renders it (layered-scene-signal.ts) in 2.27.0. */
+  layered?: boolean;
   /**
    * #550: true when the request has `illumination` (mixed lighting): the radiance at a point is no longer a function of its
    * material, so the GPU material lookup cannot render it; the CPU reference does, exactly, and no device is requested.

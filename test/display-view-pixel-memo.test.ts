@@ -21,8 +21,11 @@ import { hashLockOnThisArchitecture } from "./helpers/architecture-hash-locks.js
 // site): samples unchanged; expected values within 1.8·10⁻¹⁴ and noise standard deviations within 4.6·10⁻¹⁴ relative. Re-recorded for
 // 2.26.0 (#643, the per-tap chart signal, x64 Node 24.1.0 under Rosetta 2 and arm64): samples unchanged; expected values within
 // 1.5·10⁻¹⁴ and noise standard deviations within 3.6·10⁻¹⁵ relative of 2.25.0.
+// Re-recorded for 2.27.0 (#653, the per-tap chart signal read from the pre-integrated spectral radiance; x64 Node 24.1.0 under
+// Rosetta 2 and arm64): samples unchanged; expected values within 1.4·10⁻¹⁴ and noise standard deviations within 3.5·10⁻¹⁵
+// relative of 2.26.0.
 const ARM64_PIXEL_MEMO_HASHES: Readonly<Record<string, string>> = {
-  "4b09a8f13b8e20e658749491dc6e9b4327fa2fb1b5f70043c217e2f7f64d51de": "98cd99fb14e2a7b30fcf62abf385267fd545e4fa7006140a0a0ae375517cbc35"
+  "bca55f52050b692639facf5c0af92aaa4db578d6c3f681c97beccbe7ec162d23": "16ed97f8dec4a80e90c3da31adfaa757bbfd55d6d797ee9e206cd0e984530a8e"
 };
 
 describe("display view per-real-pixel memo (#392)", () => {
@@ -32,7 +35,7 @@ describe("display view per-real-pixel memo (#392)", () => {
       [{ scene: { preset: "dead-leaves" }, sensor: { pixelPitchMicrometers: 2 }, output: { width: 60, height: 40 } }, { width: 50, height: 33 }, "0cc1cf1ec466fbdf8bfee6822a151a75892f2f17e8b614da3a8a21eb981d55cd"],
       // Chart materials with diffraction (the filled path and the site ring) and the 2 × 2 box, with AHD.
       [{ scene: { preset: "siemens-star" }, lens: { fNumber: 11, diffraction: "circular-aperture" }, sensor: { pixelPitchMicrometers: 3, pixelAperture: { kind: "box", samplesPerAxis: 2 } },
-        output: { width: 60, height: 40, demosaic: "ahd" } }, { width: 50, height: 33 }, "4b09a8f13b8e20e658749491dc6e9b4327fa2fb1b5f70043c217e2f7f64d51de"]
+        output: { width: 60, height: 40, demosaic: "ahd" } }, { width: 50, height: 33 }, "bca55f52050b692639facf5c0af92aaa4db578d6c3f681c97beccbe7ec162d23"]
     ];
     for (const [options, view, expected] of cases) {
       const { result, internals } = await simulateDisplayViewWithInternals(options, view);

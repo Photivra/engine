@@ -133,6 +133,8 @@ describe("root exports reject malformed input with domain errors (API review #4)
     "resolveSensorProfile",
     // 2.21 (#581): loads the image-plane scene's module; no argument.
     "prepareImagePlaneScenes",
+    // 2.27.0 (#652): loads the layered chart scene's code; no argument.
+    "prepareLayeredChartScenes",
     // 2.22 (#594): loads the on-demand full-quality code; no argument.
     "prepareQualityPaths",
     // 2.22 (#598, #600): positional DNG-import helpers (a stage image with an opcode list and options, tag or file bytes, an

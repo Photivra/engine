@@ -8019,6 +8019,30 @@ const print = await simulateCapture({
 console.log(print.scene.parameters.encoding, print.assumptions.some((a) => a.id === "scene.imagePlane")); // "srgb-8", true
 ```
 
+### Layered chart scenes (2.27, #652)
+
+A [layered chart scene](https://github.com/Photivra/engine/blob/main/docs/LAYERED_SCENES.md) places flat, opaque cards at several
+distances in front of an optional back plane with point lights, so focus, background blur and out-of-focus highlights can be seen
+side by side. Each surface is blurred by the thin-lens disc of its own distance (a layered scene implies
+`lens.defocus: { model: "geometric-disc" }`), and nearer cards cut the blur of farther ones. `simulateCapture`,
+`simulateIdealReference`, `simulateDisplayView` and `prepareDisplayView` render it on the CPU after `prepareLayeredChartScenes()`,
+which loads the layered code (a lazy chunk), so bundles that never use the scene do not carry it. `resolveLayeredChartPreset`
+lays out a staircase of cards around the focus distance; `result.scene.layers` and `calculateLayeredChartDepths` report each
+surface's distance, blur and whether it lies within the depth of field. Motion, distortion, vignetting, catalogue lenses, a caller
+PSF, `chartSize` and mixed lighting are refused with a message naming the option.
+
+```ts
+import { calculateLayeredChartDepths, prepareLayeredChartScenes, resolveLayeredChartPreset, simulateCapture } from "@photivra/engine";
+
+await prepareLayeredChartScenes(); // loads the layered code (a lazy chunk) once
+const scene = resolveLayeredChartPreset({ scale: "tabletop", cards: 3, focusDistanceM: 1, lens: { focalLengthMm: 50 } });
+const photo = await simulateCapture({ scene, subjectDistanceM: 1, lens: { focalLengthMm: 50, fNumber: 4, focusDistanceM: 1 }, output: { width: 48, height: 32 } });
+console.log(photo.scene.layers?.map((layer) => [layer.kind, layer.withinDepthOfField]));
+// [["card", false], ["card", true], ["card", false], ["back-plane", false]]
+const depths = calculateLayeredChartDepths({ scene, focalLengthMm: 50, aperture: 4, focusDistanceM: 1, circleOfConfusionMm: 0.03, pixelPitchMicrometers: 6 });
+console.log(depths.map((depth) => depth.distanceM.toFixed(3))); // ["0.990", "1.000", "1.010", "1.047"]
+```
+
 ### Loading the full-quality code ahead of time (2.22, #594)
 
 The full-quality paths load on demand: a bundler that splits dynamic imports keeps their code out of the first load, and the
@@ -8164,6 +8188,14 @@ From #563 the view renders `lens.projection`, `lens.distortion`, `lens.vignettin
 (`gpu: "auto"` falls back labelled `unsupported-on-backend`). From #640 rotation also renders under `motion.shutter: "rolling"`:
 each site reads the scene at its own exposure window's instants, as the capture does (a defocus kernel above 64 sites radius
 is refused there, in the view and the capture). See [Lens projection, distortion, vignetting and rotation](https://github.com/Photivra/engine/blob/main/docs/DISPLAY_VIEW.md#lens-projection-distortion-vignetting-and-rotation).
+
+From 2.27.0 these views cost less. Out of focus through the lens the disc is applied after the in-focus signal (#651): under a
+rolling shutter by rows, each row at its own instants with `fast: false`, and by default in bands of rows that read their middle
+row's instants (`view.defocus`'s `rollingBands: { rows, shiftSites }`; the image shifts by at most 1/128 site). A catalogue lens's
+view (#655) takes one kernel pass per site, and on chart scenes by default a site whose taps read one material takes the field
+factor to second order (`view.lensPsf`'s `uniformWindows`; `lens.catalogue: { kind, fast: false }` or `fast: false` sums every
+tap). Lens corrections and sharpening (#649) share their passes' site values, with the same bytes as before and lower
+`diagnostics` counts. See [DISPLAY_VIEW.md, 2.27.0 cost cases](https://github.com/Photivra/engine/blob/main/docs/DISPLAY_VIEW.md#2270-cost-cases).
 
 ```ts
 import { simulateDisplayView } from "@photivra/engine";

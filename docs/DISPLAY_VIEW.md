@@ -222,6 +222,23 @@ with K_λ the diffraction kernel (a unit tap without `lens.diffraction`).
   one CPU thread, the machine heavily loaded): the model's ratio and the measured one fall on the same side of 1 for regions of
   4 × 2 to 100 × 50 pixels at 1 and 2 samples per axis with both demosaics, and the samples of every measured region were
   identical under both paths.
+- **In-focus tiles, rows on demand and pre-integrated radiance (#653, 2.27.0).** The same sums in another order, so one path and
+  no flag (the 2.27.0 rule: per-site electrons within 1e-9 relative and samples within one code of the method they replace).
+  (1) Each in-focus tile site forms its spectral radiance S[n] = Σ_t K′(t, n)·L(t)[n] once (K′ the tap kernel per node without the
+  channel response) and then the three channels E_c = Σ_n A_c(λ_n)·S[n]: one pass over the taps and nodes instead of one per
+  channel. (2) A tile site whose window reads one material takes that material's spectrum times the kernel's sums (the window test
+  from summed-area tables of material changes). (3) Output tiles compute fixed blocks of 8 rows and in-focus tiles single rows, only
+  where a render reads them, so a band of rows costs its rows and the disc's reach, not whole tiles; `regroupedDefocusCheaper` drops
+  its 192-site widening, so smaller regions take the regrouped path too. (4) In focus, the per-tap chart signal reads pre-integrated
+  spectral radiance B(s)[n] = Σ_o w_o·L(o, s)(λ_n) per site position (the query offsets summed first) from fixed 16-site spectral
+  lattice tiles, at most 48 MiB per render: (2R + 1)² taps of a spectral value per site instead of one per lattice group, offset
+  and tap. Every cache holds spectral radiance, material indices or geometry, never a channel response summed over the spectrum.
+  Measured: per-site electrons within 1e-15 relative of 2.26.0 on the cost cases' frames, samples identical there. Elsewhere samples
+  can move by one code where AHD's direction choice sits at a tie and a rounding of the site electrons flips it (a 64 × 24 region of
+  the 200 mm Quality frame at 1:1: 2 of 4,608 samples one code apart, and 9 expected values beyond 1e-9, largest 2.3e-3 absolute,
+  with site electrons within 2.2e-15 relative); with the bilinear demosaic the same region agrees within 1.7e-15. The hash locks of the
+  three diffraction chart cases of `test/display-view.test.ts` and one of `test/display-view-pixel-memo.test.ts` were re-recorded
+  (samples unchanged, expected values within 1.4e-14 relative). Cost: [2.27.0 cost cases](#2270-cost-cases).
 - **In focus** (c = 0), or without the option, nothing changes: the view is byte-identical to the request without it,
   and every display-view hash lock holds.
 - **The GPU** renders defocus too (#492 step 2c; `docs/WEBGPU.md`, "Defocus on the GPU"). The engine's renderer gathers
@@ -262,6 +279,19 @@ with K_λ the diffraction kernel (a unit tap without `lens.diffraction`).
   blocks) every RAW code was identical. A rerun of those 8 cases after merging step 2a gave the same view numbers as the
   table run. This closes the chain: the view with the option equals
   the view of the pre-blurred scene, which matches its capture (#480), which equals the capture with the option.
+
+### Layered chart scenes (#652)
+
+Layered chart scenes (#652): a site whose lattice points all see one surface takes that surface's single-plane path
+unchanged. Sites within a blur of a card edge take the layered sum of layered-scene-signal.ts: per-layer disc kernels, the
+visible share of each tap's pupil region past the nearer cards (rows exact along Px, 4 rows per site of footprint fast, 16
+full), and spectra integrated per site. lens.defocus.catsEye renders for layered scenes only, by the capture's field zones.
+CPU only in 2.27.0. See [Layered scenes](LAYERED_SCENES.md).
+
+The pilot grid is widened by the largest surface kernel radius on top of the diffraction radius, and the layered signal reports
+no uniform material (`uniformMaterial` −1, `tracksMaterial` and `marksReads` false), so the pilot reads each frame point's
+chief-ray surface and material. The capture's provider answers each query of a lattice point with the same sum, so capture and
+view agree per site within 1e-9 relative (`test/layered-scene-facade.test.ts`).
 
 ### Lens projection, distortion, vignetting and rotation
 
@@ -405,6 +435,36 @@ projection; `rotation` yaw 0.05 and pitch 0.03 rad/s at 1/125 s, the default eig
 - The capture's own cost with these options (#548's table in [Quick start, Optics](QUICK_START.md#optics)) is far higher;
   the view's follows the display pixels as before.
 
+**2.27.0: defocus regrouped through the lens (#651), and the view's distortion inverse (#655).**
+
+- *Global shutter.* A plain disc through the lens takes the regrouped path of [Defocus](#defocus) on fast requests (fixed 64-site
+  in-focus tiles, each lattice group's points mapped once per tile and midpoint, then the disc by runs) where the lens's cost rule
+  (`regroupedLensDefocusCheaper`, the rectilinear rule with the temporal midpoints) finds it cheaper for the render; a small region
+  keeps the tap sum. The same sum regrouped: per-site electrons within 1e-9 relative of the tap sum and samples within one code on
+  the out-of-focus lens cases (vignetting and distortion still, rotation with 3 and 8 midpoints, at disc radii 3, 11 and about 40;
+  `test/display-view-lens-regrouped.test.ts`).
+- *Rolling shutter, full method.* Each native row has its own instants. Sites are computed in fixed blocks of rows × 128 columns at
+  absolute positions: a block reads the in-focus signal of its rows widened by the disc radius at the row's own instants (all three
+  channels from one lattice lookup per point), then the disc by runs, so a row costs 2R + 1 in-focus rows instead of (2R + 1)² taps
+  per site. It is the tap sum regrouped (the same tolerance), so it runs with `fast: false` too, and `view.defocus` then reports
+  `convolution: "runs"` without a `fast` label. Under a rolling shutter every render of the request takes the row blocks, whatever
+  the region's size (row bands when fast, single rows with `fast: false`; the cost rule acts under a global shutter only), so a request
+  takes one method and a region equals the same pixels of a larger region and of the whole view bit for bit
+  (`test/display-view-lens-rolling-regions.test.ts`). The refusal above 64 sites under a rolling shutter stays, as in the capture.
+- *Rolling shutter, fast method (`motion.shutter.rolling/view-row-bands`).* Rows are grouped into fixed bands of h rows (odd, at most
+  63) that all read the scene at the band's middle row's instants, so a band is one global-shutter problem: (h + 2R)/h in-focus rows
+  per row. h is the largest height for which the in-focus image at each band's first and last rows (three columns, every midpoint)
+  moves at most 1/128 site between the row's own instants and the band's. `view.defocus` reports `rollingBands: { rows, shiftSites }`
+  (rows 1 and shift 0 with `fast: false`). Go/no-go against the full method on the validation charts (expected values within
+  0.1 code RMS and 1 code at most): the plan's 1/32 site failed on a Siemens star through the frame centre (0.14 code RMS: the
+  point-sampled in-focus image is aliased there, so the error does not shrink with the shift as a gradient bound would; 0.106 at
+  1/64), and 1/128 passes (0.094 code RMS), so the method ships at 1/128.
+- *Newton inverse of radial distortion.* The view's lattice points invert a radial distortion by Newton steps from the start point
+  r₀ = d / s(d), which depends on that point alone (so regions stay equal to the whole view), then the bisection's own final bracket test, falling back to the bisection when a step leaves the bracket
+  (`src/optics/radial-distortion-newton.ts`; the geometry's `undistort` hook). Within 4 ULP of the bisection over 10⁶ radii of each
+  of the 30 catalogue profiles, so no flag; the capture keeps the bisection.
+- Cost: [2.27.0 cost cases](#2270-cost-cases).
+
 ### Front-of-lens filter (#624)
 
 `lens.filter` (docs/USAGE.md, "A filter in front of the capture's lens") multiplies the lens transmission by the filter stack's
@@ -483,6 +543,18 @@ edge (20°) on a 192 × 128 frame at 187.5 µm, 8-bit codes of each component's 
 - *Cost.* The fast corrections cost about one view per channel map (three with lateral colour); the exact method several times more
   (memos off; on the 192 × 128 frame at 8× about 18 s against 2 s for the fast one, the machine heavily loaded). Sharpening adds a 1:1
   render of the region and the mask's reach.
+- *Shared passes (#649, 2.27.0).* The passes of one call share a site store (each native site's expected electrons, the value the
+  signal integrated for that site, in fixed 64 × 64 tiles keyed by the site's coordinates, 32 MiB, least recently used first) and a
+  store of the real pixels' recorded terms (the renderer's per-real-pixel memo, which under the fast method does not depend on the
+  channel map: the gain is taken at the developed pixel's centre; 32 MiB). Both are dropped when the call returns; the passes run
+  band by band of whole rows so a band's records are still held when its next pass reads them. With sharpening the view-size render
+  runs for the first channel map only (the mask replaces every component's mean), and passes whose samples are not used draw no
+  noise. The same operations on the same operands, so the samples, expected values and noise equal 2.26.0's byte for byte where
+  #655 does not act (sharpening on a prime lens at 8×, 4× and 1:1, measured against 2.26.0). The 17 hash locks of
+  `test/display-view-detail-shared.test.ts` use a catalogue lens, which #655's one kernel pass moves by rounding, so they were
+  re-recorded on 2.27.0 (samples unchanged; see the changelog) and lock 2.27.0's own results. Reported counts follow the passes as they now run:
+  `diagnostics.sampleCount`, `siteEvaluations` and `sceneLookups` and `view.estimation`'s `evaluatedRealPixels` are lower than in
+  2.26.0 for these requests. The exact correction keeps its memos off, as before. Cost: [2.27.0 cost cases](#2270-cost-cases).
 
 ### Catalogue lenses (#569)
 
@@ -519,6 +591,30 @@ as the capture does ([Flare and breathing](LENS_CATALOGUE.md#flare-and-breathing
 - **Limits:** the capture's own. `lens.diffraction`, `lens.psf` and the bokeh options are refused with the lens (it sets its own
   bokeh, #567, which the view reads in the PSF), a catalogue PSF with a defocus kernel above a combined radius of 16 sites is refused, and with the four-spot filter a large PSF can pass
   the environment's 100 000 scene queries per site (*PV 100 2.8 Macro Pro* at f/22 on 6 µm: 210 000), refused by both.
+
+**2.27.0 (#655, CPU).** The same zones; the sum and its tables change:
+
+- *One kernel pass per site.* Each site is Σ_n A_c(λ_n)·Σ_t K_{z,n}(t)·B(x − t)[n], with K_{z,n} its zone's PSF at node n and
+  B(p)[n] = Σ_o w_o·F(p + o)·L(p + o)[n] the lattice point's spectral radiance pre-integrated over the query offsets (pixel-aperture
+  nodes and filter spots) with each point's field factor F: (2R + 1)² taps per site instead of one combined kernel per lattice group
+  and per-material sums, and the box aperture costs about what the point aperture does. The same sum regrouped: every site within
+  1e-9 relative of 2.26.0's sum with one zone (`test/display-view-lens-catalogue-regrouped.test.ts`). B is spectral radiance (no
+  channel response), kept per lattice point and midpoint in a ring as the lattice points are.
+- *Zone kernels without the copies, kept across prepared views.* A zone builds only its PSF kernels (with their sums and first and
+  second moments per node), not tables with every material's spectrum; they are kept by content (lens, f-number, focus, pitch,
+  raster, nodes, zone) across prepared views, least recently used first, within 32 MiB. They hold optics only: no channel response,
+  no scene.
+- *Uniform windows, fast method (`lens.catalogue/view-uniform-window`, `lens.catalogue`'s `fast`).* On chart and material scenes a
+  site whose every kernel tap reads one material takes Σ_n L_m(λ_n)·A_c(λ_n)·(F̄₀·S_n + ∇F̄·M_n + ½·Σ H_ij·M_ij,n): the
+  pre-integrated field factor F̄ = Σ_o w_o·F(· + o) to second order about the site (its derivatives by central differences of the
+  neighbouring lattice points), with S_n, M_n and M_ij,n the zone kernel's sum and first and second moments at node n. Go/no-go:
+  every site within 1e-6 relative of the full method on every catalogue lens at its widest and narrowest aperture. The plan's
+  first-order form failed it; the second-order form measures within 2.7e-8 and ships. `fast: false` (and
+  `lens.catalogue: { kind, fast: false }`) sums every tap with its own factor; `view.lensPsf` reports
+  `uniformWindows: "field-factor-second-order"` when the method is on.
+- The distortion inverse is the Newton inverse of the lens section above. Cost: [2.27.0 cost cases](#2270-cost-cases). These
+  requests still render on the CPU with `gpu: "auto"`, labelled `unsupported-on-backend`; a GPU path for them is planned for 2.28.0
+  (#655 stays open for it).
 
 **Two capture fixes this needed** (each changes only requests that failed before):
 
@@ -811,7 +907,10 @@ them run the per-component arithmetic unchanged (the hash locks are unchanged).
   within 8.5σ of 0.8 of white or above) or, with the desaturation, a rendered component reaches 1 within reach, the whole chain
   (white balance, highlight, matrix, tone curve, desaturation, clip) is integrated over the pixel's normal camera channels with a
   tensor Gauss–Hermite rule in Cholesky coordinates, with the chain's slopes (a.e.) at each node. **Full:** 16 points per axis
-  (4,096 nodes). **Fast:** 6 per axis (216). Elsewhere `reconstruct` is the unclipped white balance (exactly linear) and the
+  (4,096 nodes). **Fast:** since 2.27.0 (#656) 3 per axis (27 nodes) where every channel's standard deviation is below 0.01 and a
+  kink probe finds no output clip, desaturation start or zero luminance within 8.5σ of the mean, else 6 per axis (216);
+  `view.rendering` reports `chainPointsPerAxis: "3-or-6"` (16 with `fast: false`). The GPU kernels take the same order and probe;
+  a decision inside their float32 bound flags the pixel for the host's reference. Elsewhere `reconstruct` is the unclipped white balance (exactly linear) and the
   desaturation changes nothing. The Gauss–Hermite nodes are the eigenvalues of the Jacobi matrix (Golub & Welsch 1969), found by
   Sturm-sequence bisection with correctly rounded operations only (the same bits in every engine).
 
@@ -819,7 +918,10 @@ them run the per-component arithmetic unchanged (the hash locks are unchanged).
 draws): tone-curve means within four standard errors and variances within 2 %; the chain's means within 1·10⁻³ plus four
 standard errors (the 16-point rule's own error at kinks, measured ≤ 5.3·10⁻⁴ against a 48-point rule at channel σ up to 0.1)
 and variances within 10 %. Fast against full over a seeded sweep (300 means and covariances, channel σ up to 0.076): tone
-6.7·10⁻⁶; chain 1.5·10⁻² (2.4·10⁻⁴ for σ ≤ 0.01, base-ISO noise), in linear light. Against the downsized capture
+6.7·10⁻⁶; chain 1.5·10⁻² (2.4·10⁻⁴ for σ ≤ 0.01, base-ISO noise), in linear light; with the 3-or-6 order (#656; 24 of the
+300 take 3 points) 1.45·10⁻² and 2.41·10⁻⁴. A sweep of means within 3σ of 0.8 of white, of white and of a channel's clip level
+(the kinks the 3-point order must not cross unseen): the 42 of 300 that take 3 points are within 1.9·10⁻³ of the full rule, inside
+the 6-point rule's own 2.5·10⁻³ for σ ≤ 0.01 on that sweep. Against the downsized capture
 (24 × 16 views of a 192 × 128 frame): the Standard and Flat looks, extended Reinhard, reconstruct and the desaturation agree in
 every channel's mean within 0.5–0.6 codes plus three standard errors, fast and full.
 
@@ -1142,6 +1244,64 @@ npm ci && npm run build && npm run accept:gpu:hardware -- --record display-view-
 Two regimes. Where a display pixel covers more than 25 real pixels (narrower than about a fifth of the frame's width), the
 stratified estimator applies and the cost follows the detailed display pixels × K². At or below 25, the
 [exact area mean](#exact-area-mean) applies and the cost follows the real pixels the region touches.
+
+### 2.27.0 cost cases
+
+The cases of the 2.27.0 plan (`scripts/benchmark-display-view-cases.mjs`: a 6000 × 4000 sensor of 6 µm sites, the app's composite
+chart, the fast defaults unless a case says otherwise), measured on the integration branch and on a 2.26.0 build (`94f56f3`) made in
+the same session: `JOBS=1 REPEATS=3 node scripts/benchmark-display-view-cases.mjs 649 651 653 655 656`, then the same with
+`DIST=<2.26.0 build>/dist/index.js`. November 18, 2026, Apple M5 Pro (18 cores), macOS, Node 26.13.1, one process at a time, load
+average 6–33 from other work. The figure is the CPU time of the process for the one render (user + system), the fastest of three;
+the ratios are each group's reference (the plain part, the rolling in-focus region, the 200 mm band, the prime, the part without
+develop options).
+
+| Case | Request | 2.26.0, s | 2.27.0, s | Speed-up | 2.26.0 ratio | 2.27.0 ratio |
+| --- | --- | --- | --- | --- | --- | --- |
+| 649-plain | No corrections | 0.93 | 0.52 | 1.8× |  |  |
+| 649-corrections | `output.lensCorrections` (distortion, lateral color, vignetting) | 2.22 | 0.73 | 3.0× | 2.38× | 1.42×¹ |
+| 649-sharpening | `output.sharpening: { radiusPixels: 1, amount: 1 }` | 1.80 | 0.98 | 1.8× | 1.93× | 1.90×¹ |
+| 649-both | Corrections and sharpening | 4.74 | 1.24 | 3.8× | 5.09× | 2.40×¹ |
+| 651-still | No motion, in focus, 48 × 32 | 0.30 | 0.29 | 1.0× | 1.25× | 0.69× |
+| 651-rolling | Rotation, rolling, in focus, 48 × 32 | 0.24 | 0.42 | 0.6× |  |  |
+| 651-rolling-defocus | Rotation, rolling, out of focus, 48 × 32 | 14.45 | 0.88 | 16.5× | 60.59× | 2.09× |
+| 651-rolling-defocus-small | Rotation, rolling, out of focus, 24 × 16 | 3.96 | 0.40 | 10.0× | 16.61× | 0.95× |
+| 651-global-defocus-small | Rotation, global, out of focus, 24 × 16 | 1.56 | 0.48 | 3.2× | 6.54× | 1.15× |
+| 651-still-defocus-small | No motion, out of focus, 24 × 16 | 0.26 | 0.22 | 1.2× | 1.11× | 0.52× |
+| 653-near | 50 mm f/2, focus 0.8 × the subject distance, 768 × 43 band | 32.12 | 8.70 | 3.7× | 4.98× | 1.95× |
+| 653-far | 50 mm f/2, focus 1.25 × the subject distance, 768 × 43 band | 31.91 | 8.42 | 3.8× | 4.95× | 1.89× |
+| 653-200mm | 200 mm f/8, in focus, 768 × 43 band | 6.45 | 4.46 | 1.4× |  |  |
+| 653-near-4 | 50 mm f/2, focus 0.8 ×, 768 × 4 band | 4.78 | 1.03 | 4.6× | 0.74× | 0.23× |
+| 655-prime-192 | Prime, 192 × 128, point | 2.95 | 2.88 | 1.0× |  |  |
+| 655-catalogue-192 | Catalogue, 192 × 128, point | 43.77 | 17.47 | 2.5× | 14.86× | 6.07× |
+| 655-prime-96 | Prime, 96 × 64, point | 1.52 | 1.67 | 0.9× |  |  |
+| 655-catalogue-96 | Catalogue, 96 × 64, point | 31.91 | 11.74 | 2.7× | 20.99× | 7.02× |
+| 655-prime-96-box | Prime, 96 × 64, 2 × 2 box | 2.52 | 2.53 | 1.0× |  |  |
+| 655-catalogue-96-box | Catalogue, 96 × 64, 2 × 2 box | 95.71 | 23.05 | 4.2× | 37.96× | 9.12× |
+| 656-none | None | 0.24 | 0.24 | 1.0× |  |  |
+| 656-recover | Recover | 0.25 | 0.28 | 0.9× | 1.03× | 1.18× |
+| 656-push | +1 stop | 0.21 | 0.23 | 0.9× | 0.88× | 0.98× |
+| 656-standard | Standard | 0.40 | 0.42 | 0.9× | 1.64× | 1.75× |
+| 656-standard-recover | Standard, Recover | 0.39 | 0.43 | 0.9× | 1.61× | 1.81× |
+| 656-standard-push | Standard, +1 stop | 0.42 | 0.40 | 1.0× | 1.72× | 1.66× |
+| 656-recover-push | Recover, +1 stop | 1.28 | 1.22 | 1.0× | 5.28× | 5.09× |
+| 656-standard-recover-push | Standard, Recover, +1 stop | 2.15 | 0.69 | 3.1× | 8.92× | 2.89× |
+
+- The 651 reference (rotation, rolling, in focus, 48 × 32) measured 0.24–0.39 s on 2.26.0 and 0.42–0.48 s here with the same
+  work (identical `sampleCount`, `siteEvaluations` and `sceneLookups`); at 0.2–0.5 s a render is within the machine's noise, so
+  its ratios read high.
+- `fast: false` and the issue's 192 × 128 region (`651` cases with `fast: false` or a 192 × 128 region, three runs each, the same
+  conditions): rolling out of focus 48 × 32 with `fast: false` 28.86 → 5.17 s (the full method: each row at its own instants);
+  rolling in focus 192 × 128 1.67 → 1.56 s; rolling out of focus 192 × 128 218 → 7.27 s, 4.7× the
+  in-focus region.
+- Targets not met, accepted by the owner and open for 2.28.0: #656 Recover and +1 stop without Standard (1.22 s against 0.8 s; the
+  accuracy is kept), #651's 192 × 128 region (4.7× its in-focus time against 3×; the 1/128 site band shift is kept), and
+  #655's 2 × 2 box (2.0× the point aperture against 1.3×).
+- ¹ #649's ratios to the plain part move by about 20 % with the machine's load at 0.5–1.9 s per render. Over three runs (this
+  table's and two later ones, `REPEATS=2` and `REPEATS=4`, load average 18–100): corrections 1.42–1.79× (target 1.5×, met in this
+  table's run only), sharpening 1.78–2.03× (target 1.7×, not met), both 2.40–2.91× (target 2.6×, met in this table's run only).
+  The absolute targets (corrections 1.9 s, sharpening 2.1 s, both 3.3 s) are met in every run.
+- #649's sharpening alone is 1.78–2.03× the plain part against a target of 1.7×; the plain part itself got 1.8× faster (#653's
+  pre-integrated radiance), and the sharpened part's 0.98 s is under the target's 2.1 s.
 
 ### A device-pixel view rendered in parts
 

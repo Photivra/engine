@@ -32,6 +32,12 @@
  * (tile (tx, ty) holds [tx·T, (tx + 1)·T) × [ty·T, (ty + 1)·T)), each from its own source rectangle, the tile plus R on
  * every side. A value therefore depends only on its lattice point and the request, never on the window, region or order
  * of the queries: regions and parts are bit-identical to the whole frame.
+ *
+ * Rows on demand (#653, `rowBlock`). An output row reads only its own 2R + 1 source rows, and each source row's prefix sums
+ * start at the tile's fixed left edge, so a row's bits do not depend on which other rows of the tile are computed. A lattice
+ * with `rowBlock` B computes a tile's rows in fixed blocks of B rows (rows [b·B, (b + 1)·B) of the tile), each from its own
+ * source rows (the block plus R above and below), when a value of the block is first read: a band of rows costs its blocks
+ * and the source rows 2R beyond them, not whole tiles, and the values are the same bits as those of whole tiles.
  */
 
 import { InvalidConfigurationError } from "../core/configuration-error.js";
@@ -180,6 +186,12 @@ export interface SiteKernelRunsLatticeInput {
   pattern?: (field: number) => SiteKernelRunsRowPattern | undefined;
   /** Bytes of output tiles kept (least recently used dropped first). Default 64 MiB. */
   capacityBytes?: number;
+  /**
+   * #653: rows on demand. A divisor B of the tile side: a tile's rows are computed in fixed blocks of B rows when a value of
+   * the block is first read (`source` is then called with the block's source rectangle, the block plus R on every side).
+   * Default: whole tiles. The values are the same bits either way (see the module comment).
+   */
+  rowBlock?: number;
   /** Called with the duration in ms of each tile (diagnostics only). */
   onTile?: (milliseconds: number) => void;
 }
@@ -192,42 +204,70 @@ export interface SiteKernelRunsLattice {
   tileAt(tx: number, ty: number): readonly Float64Array[];
   /** Tiles computed so far (diagnostics). */
   readonly tilesComputed: number;
+  /** Row blocks computed so far (#653, diagnostics; one per tile without `rowBlock`). */
+  readonly rowBlocksComputed: number;
 }
 
 /** Tile key: tiles within ±2^20 of the origin in each direction. */
 const tileKey = (tx: number, ty: number): number => (ty + 1048576) * 2097152 + tx + 1048576;
 
 export function createSiteKernelRunsLattice(input: SiteKernelRunsLatticeInput): SiteKernelRunsLattice {
-  const { runs, tile: T, fields } = input, R = runs.radius;
+  const { runs, tile: T, fields } = input, R = runs.radius, B = input.rowBlock ?? T;
   if (!Number.isInteger(T) || T < 2 || T % 2 !== 0) throw new InvalidConfigurationError("The run lattice's tile side must be an even integer of 2 or more.");
+  if (!Number.isInteger(B) || B < 1 || T % B !== 0) throw new InvalidConfigurationError("The run lattice's row block must divide its tile side.");
   const capacity = Math.max(1, Math.floor((input.capacityBytes ?? 64 * 1048576) / (fields * T * T * 8)));
-  const cache = new Map<number, Float64Array[]>();
+  const blocks = T / B;
+  /** A tile's fields (T × T values each) and which of its row blocks are computed. */
+  interface Tile { values: Float64Array[]; done: Uint8Array; missing: number }
+  const cache = new Map<number, Tile>();
   const now = (): number => globalThis.performance?.now() ?? Date.now();
-  let computed = 0, lastKey = NaN, last: Float64Array[] | undefined;
-  function tileOf(tx: number, ty: number): Float64Array[] {
+  let computed = 0, blocksComputed = 0, lastKey = NaN, last: Tile | undefined;
+  function tileOf(tx: number, ty: number): Tile {
     const key = tileKey(tx, ty);
     if (key === lastKey) return last!;
-    let values = cache.get(key);
-    if (values) { cache.delete(key); cache.set(key, values); }
+    let t = cache.get(key);
+    if (t) { cache.delete(key); cache.set(key, t); }
     else {
-      const started = input.onTile ? now() : 0;
-      const fieldSource = input.source(tx * T - R, ty * T - R, T + 2 * R, T + 2 * R);
-      values = [];
-      for (let f = 0; f < fields; f++) values.push(convolveSiteKernelRuns(fieldSource(f), T, T, runs, input.pattern?.(f)));
-      cache.set(key, values);
+      t = { values: Array.from({ length: fields }, () => new Float64Array(T * T)), done: new Uint8Array(blocks), missing: blocks };
+      cache.set(key, t);
       if (cache.size > capacity) cache.delete(cache.keys().next().value!);
       computed++;
-      if (input.onTile) input.onTile(now() - started);
     }
-    lastKey = key; last = values;
-    return values;
+    lastKey = key; last = t;
+    return t;
+  }
+  /** Computes row blocks [b0, b1) of tile (tx, ty) (all missing) from one source rectangle. */
+  function fillBlocks(t: Tile, tx: number, ty: number, b0: number, b1: number): void {
+    const started = input.onTile ? now() : 0, row0 = b0 * B, rows = (b1 - b0) * B;
+    const fieldSource = input.source(tx * T - R, ty * T + row0 - R, T + 2 * R, rows + 2 * R);
+    for (let f = 0; f < fields; f++) {
+      const pattern = input.pattern?.(f);
+      const out = convolveSiteKernelRuns(fieldSource(f), T, rows, runs, pattern && row0 !== 0 ? (row: number): ReturnType<SiteKernelRunsRowPattern> => pattern(row + row0) : pattern);
+      t.values[f]!.set(out, row0 * T);
+    }
+    t.done.fill(1, b0, b1); t.missing -= b1 - b0; blocksComputed += b1 - b0;
+    if (input.onTile) input.onTile(now() - started);
+  }
+  /** Tile (tx, ty) with its row blocks [b0, b1) computed (runs of missing blocks, each from one source rectangle). */
+  function rowsOf(tx: number, ty: number, b0: number, b1: number): Tile {
+    const t = tileOf(tx, ty);
+    if (t.missing === 0) return t;
+    for (let b = b0; b < b1;) {
+      if (t.done[b]) { b++; continue; }
+      let end = b + 1;
+      while (end < b1 && !t.done[end]) end++;
+      fillBlocks(t, tx, ty, b, end);
+      b = end;
+    }
+    return t;
   }
   return {
     valueAt(field: number, x: number, y: number): number {
-      const tx = Math.floor(x / T), ty = Math.floor(y / T);
-      return tileOf(tx, ty)[field]![(y - ty * T) * T + x - tx * T]!;
+      const tx = Math.floor(x / T), ty = Math.floor(y / T), ly = y - ty * T, b = Math.floor(ly / B);
+      return rowsOf(tx, ty, b, b + 1).values[field]![ly * T + x - tx * T]!;
     },
-    tileAt: tileOf,
-    get tilesComputed(): number { return computed; }
+    tileAt: (tx: number, ty: number): readonly Float64Array[] => rowsOf(tx, ty, 0, blocks).values,
+    get tilesComputed(): number { return computed; },
+    get rowBlocksComputed(): number { return blocksComputed; }
   };
 }
