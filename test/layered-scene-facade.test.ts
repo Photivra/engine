@@ -38,7 +38,9 @@ describe("layered chart scenes through the public API (#652)", () => {
       expect(Array.from(b.image.samples)).toEqual(Array.from(a.image.samples));
       expect(b.scene.layers).toHaveLength(1);
       expect(b.scene.layers![0]).toMatchObject({ kind: "card", index: 0, distanceM: 1.6 });
-      expect(b.assumptions.find((x) => x.id === "lens.defocus" && x.kind === "default")?.value).toEqual({ model: "geometric-disc" });
+      // One lens.defocus record: the single-plane path's own (the implied disc resolved at the card's distance).
+      expect(b.assumptions.filter((x) => x.id === "lens.defocus")).toHaveLength(1);
+      expect(b.assumptions.find((x) => x.id === "lens.defocus")!.kind).toBe("model");
       const view = { width: 8, height: 6 };
       expect(Array.from((await simulateDisplayView(layered, view)).image.samples)).toEqual(Array.from((await simulateDisplayView(plain, view)).image.samples));
       expect(Array.from((await simulateIdealReference(layered)).image.samples)).toEqual(Array.from((await simulateIdealReference(plain)).image.samples));
@@ -103,6 +105,8 @@ describe("layered chart scenes through the public API (#652)", () => {
     const options = layeredOptions({ output: { width: 24, height: 16 } });
     const capture = await simulateCapture(options);
     expect(rows(capture)).toBe(4);
+    // Several surfaces: the implied disc is recorded once, as the layered sum's default.
+    expect(capture.assumptions.filter((a) => a.id === "lens.defocus").map((a) => a.kind)).toEqual(["default"]);
     expect(rows(await simulateCapture({ ...options, fast: false }))).toBe(16);
     expect(rows(await simulateCapture({ ...options, output: { ...options.output, format: "png" } }))).toBe(16);
     expect(rows(await simulateIdealReference(options))).toBe(16);
@@ -145,9 +149,17 @@ describe("layered chart scenes through the public API (#652)", () => {
       [{ illumination: { sources: [{ illuminant: { kind: "cie-a" }, illuminanceLux: 1000 }] } } as never, /does not support illumination \(mixed lighting\)/],
       [{ lens: { ...lens, diffraction: "circular-aperture", defocus: { model: "geometric-disc", catsEye: { apertures: [{ radiusMm: 9, shiftPerTanFieldMm: 40 }] } } } }, /catsEye cannot be combined with lens\.diffraction/],
       [{ lens: { ...lens, focusDistanceM: 10 }, sensor: { pixelPitchMicrometers: 1, spectralStepNanometers: 40 } }, /kernel radius of \d+ sites; at card edges the layered sum takes at most 64/]];
+    // A caller PSF: the one a plain chart capture with diffraction resolves (a valid lens.psf, so the layered refusal is what fails).
+    const psf = (await simulateCapture({ ...options, scene: { preset: "uniform", reflectance: 0.5 }, lens: { ...lens, diffraction: "circular-aperture" } })).request.diffraction!.psf;
+    cases.push([{ lens: { ...lens, psf } } as never, /does not support lens\.psf in 2\.27\.0: a caller PSF declares its own defocus/]);
     for (const [extra, message] of cases) await expect(simulateCapture({ ...options, ...extra } as SimulateCaptureOptions), String(message)).rejects.toThrow(message);
     const crowded: LayeredChartScene = { ...scene, backPlane: { distanceM: 3, pointLights: { seed: 1, columns: 16, rows: 12, luminousIntensityCandela: 1 } } };
     await expect(simulateCapture({ ...options, scene: crowded })).rejects.toThrow(/two lights can fall in one site/);
+    // A grid pitch above one site, but jitter 0.9 brings grid neighbours within one site of each other on both axes (measured before
+    // the check: 6,000 lights in 5,923 distinct sites of the 240 × 160 frame), so one light of such a pair would be lost.
+    const jittered: LayeredChartScene = { ...scene, backPlane: { distanceM: 3, pointLights: { seed: 1, columns: 100, rows: 60, jitter: 0.9, luminousIntensityCandela: 1 } } };
+    for (const run of [simulateCapture({ ...options, output: { width: 240, height: 160 }, scene: jittered }), simulateDisplayView({ ...options, output: { width: 240, height: 160 }, scene: jittered }, { width: 24, height: 16 })])
+      await expect(run).rejects.toThrow(/two lights can fall in one site \(closer than one site on both axes\), so one would be lost/);
     await expect(simulateDisplayView({ ...options, scene: { kind: "layered-chart", cards: [scene.cards[0]!] }, lens: { ...lens,
       defocus: { model: "geometric-disc", catsEye: { apertures: [{ radiusMm: 9, shiftPerTanFieldMm: 40 }] } } } }, { width: 8, height: 6 })).rejects.toThrow(/one card without a back plane/);
     expect(LAYERED_CHART_LIMITS.maximumCards).toBe(16);

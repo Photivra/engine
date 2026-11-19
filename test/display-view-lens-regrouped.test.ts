@@ -124,7 +124,7 @@ describe("lens signal with the defocus regrouped (#651)", () => {
     expect(worstMax).toBeLessThan(1);
   }, scaledTimeout(600_000));
 
-  it("chooses the band height so that every band moves the image by at most 1/128 site, and the cost choice by the region", async () => {
+  it("chooses the band height so that every band moves the image by at most 1/128 site, and row blocks for every rolling render", async () => {
     const options: SimulateCaptureOptions = { ...base, output: { width: 240, height: 160 }, lens: { focalLengthMm: 50, fNumber: 4, focusDistanceM: 1.4, defocus: { model: "geometric-disc" } },
       motion: { angularVelocityRadPerSec: { yaw: 0.05, roll: 0.2 }, shutter: "rolling", rollingShutterSkewSeconds: 0.002 }, sensor: { ...base.sensor, temporalSampleCount: 4 } };
     const { lens, W, H } = await prepare(options), bands = rollingLensBands(lens.geometry, lens.timesAt!, W, H, lens.pitch);
@@ -141,10 +141,16 @@ describe("lens signal with the defocus regrouped (#651)", () => {
       }
     }
     expect(worst).toBeLessThanOrEqual(LENS_ROW_BAND_MAXIMUM_SHIFT_SITES * 1.05);
-    // A few sites of a small region keep the tap sum; a large region of a rolling view takes the row blocks.
-    expect(regroupedLensDefocusCheaper(30, 30, 50, 11, 0, 21, 8, 1)).toBe(false);
-    expect(regroupedLensDefocusCheaper(250, 170, 40000, 11, 0, 21, 8, 1)).toBe(true);
-    expect(regroupedLensDefocusCheaper(250, 170, 40000, 11, 0, 21, 8, 13)).toBe(true);
+    // A rolling view takes the row blocks for every render, whatever its size (one method per request); under a global shutter the
+    // cost rule keeps the tap sum for a few sites of a small region and takes the fixed tiles for a large one.
+    const factory = prepareDisplayViewLensSignal({ ...lens, rollingBands: true }, W, H, 0, "test"), full = prepareDisplayViewLensSignal({ ...lens, rollingBands: false }, W, H, 0, "test");
+    expect(factory.bandRows).toBe(bands.rows);
+    expect(full.bandRows).toBe(1);
+    for (const f of [factory, full]) { expect(f.regroupedCheaper(1, 1, 1, 11, 0, 21)).toBe(true); expect(f.regroupedCheaper(250, 170, 40000, 11, 0, 21)).toBe(true); }
+    const still = prepareDisplayViewLensSignal({ ...lens, timesAt: undefined }, W, H, 0, "test");
+    expect(still.bandRows).toBeUndefined();
+    expect(still.regroupedCheaper(10, 10, 20, 3, 0, 21)).toBe(false);
+    expect(regroupedLensDefocusCheaper(30, 30, 50, 11, 0, 21, 8)).toBe(false);
     expect(regroupedLensDefocusCheaper(250, 170, 40000, 11, 0, 21, 8)).toBe(true);
     expect(regroupedLensDefocusCheaper(10, 10, 20, 3, 0, 21, 1)).toBe(false);
   }, scaledTimeout(180_000));

@@ -1,10 +1,11 @@
 # Changelog
 
-## 2.27.0 — unreleased
+## 2.27.0 — unreleased (prepared November 18, 2026)
 
 A minor release: lower CPU cost of the display view with lens corrections and sharpening (#649), with camera rotation under a
 rolling shutter and defocus (#651), of defocused and long-lens Quality frames (#653), with catalogue lenses (#655, CPU) and with
-develop options (#656). Measured before and after below and in docs/DISPLAY_VIEW.md, "2.27.0 cost cases".
+develop options (#656), and layered chart scenes (#652). Measured before and after below and in docs/DISPLAY_VIEW.md, "2.27.0 cost
+cases". See the [2.27.0 release record](https://github.com/Photivra/engine/blob/main/docs/RELEASE_2_27_0.md).
 
 - **Changed (fast defaults):** two new fast methods with full methods kept (registry entries `motion.shutter.rolling/view-row-bands`
   and `lens.catalogue/view-uniform-window`), and the fast rule of `output.highlightMode.reconstruct/view-moments` (3 or 6 points per
@@ -20,14 +21,17 @@ develop options (#656). Measured before and after below and in docs/DISPLAY_VIEW
 - **New (#652): layered chart scenes.** `scene: { kind: "layered-chart", cards, backPlane? }` (opaque fronto-parallel cards at
   several distances in front of an optional back plane with point lights) in `simulateCapture`, `simulateIdealReference`,
   `simulateDisplayView` and `prepareDisplayView`, after `prepareLayeredChartScenes()` (new; it loads the layered code, about
-  10 KB gzip, as a lazy chunk, so the capture worker's bundle is unchanged). New exports: `resolveLayeredChartPreset` (the
-  staircase preset: macro, tabletop, large), `calculateLayeredChartDepths`, `LAYERED_CHART_PRESET_SCALES`,
+  10 KB gzip, as a lazy chunk, so the capture worker's bundle is unchanged; `test/capture-bundle.test.ts` checks that no layered
+  module reaches it). New exports: `resolveLayeredChartPreset` (the staircase preset: macro, tabletop, large; the back plane two
+  steps beyond the farthest card), `calculateLayeredChartDepths` (the depth report of a scene as a request writes it), `LAYERED_CHART_PRESET_SCALES`,
   `LAYERED_CHART_PRESET_STEP_RATIO`, `LAYERED_CHART_LIMITS` and the scene types. A layered scene implies
-  `lens.defocus: { model: "geometric-disc" }`; `result.scene.layers` reports each surface's distance, blur diameter, signed blur
+  `lens.defocus: { model: "geometric-disc" }` (recorded once: as a default for several surfaces, as the single-plane path's own
+  record for one card); `result.scene.layers` reports each surface's distance, blur diameter, signed blur
   radius and depth of field; a new fast method (registry entry `scene.layers/occlusion-samples`: 4 occlusion rows per site of
   footprint fast, 16 full). One card filling the frame renders its chart's bytes. Refused in 2.27.0: motion, non-rectilinear
   projections, `lens.distortion`, `lens.vignetting`, `lens.catalogue`, `lens.pupilSampling`, `lens.psf`, `chartSize` and
-  `illumination`; no GPU path (CPU, labelled `unsupported-on-backend`). docs/LAYERED_SCENES.md.
+  `illumination`, and point lights of which two lie closer than one site on both axes (one would be lost); no GPU path (CPU,
+  labelled `unsupported-on-backend`). docs/LAYERED_SCENES.md, docs/USAGE.md ("Layered chart scenes").
 - **Why minor:** new fast methods, assumption fields and fast-default changes, and the layered scene API.
 
 Measured on one Apple M5 Pro (18 cores), macOS, Node 26.13.1: `JOBS=1 REPEATS=3 node scripts/benchmark-display-view-cases.mjs
@@ -40,15 +44,18 @@ render, the fastest of three; load average 6–33 during the runs.
   32 MiB) and a store of the real pixels' recorded terms (32 MiB), both dropped when the call returns; with sharpening the view-size
   render runs for the first channel map only, and passes whose samples are not used draw no noise. Samples, expected values and noise
   equal 2.26.0's on 17 recorded cases (`test/display-view-detail-shared.test.ts`).
-- 96 × 96 part of a 1500 × 1000 view, PV 50 1.2 Pro at f/8: no corrections 0.93 → 0.52 s; corrections 2.22 → 0.73 s (1.42× the plain
-  part; target 1.5×); sharpening 1.80 → 0.98 s (1.90×; target 1.7×, the plain part got faster too: 0.98 s is under the 2.1 s target);
-  both 4.74 → 1.24 s (2.40×; target 2.6×).
+- 96 × 96 part of a 1500 × 1000 view, PV 50 1.2 Pro at f/8: no corrections 0.93 → 0.52 s; corrections 2.22 → 0.73 s; sharpening
+  1.80 → 0.98 s; both 4.74 → 1.24 s. The absolute targets (corrections 1.9 s, sharpening 2.1 s, both 3.3 s) are met in every run.
+  The ratios to the plain part move by about 20 % with the machine's load at these times; over three runs: corrections 1.42–1.79×
+  (target 1.5×), sharpening 1.78–2.03× (target 1.7×, not met; the plain part itself got faster), both 2.40–2.91× (target 2.6×).
 
 ### #651 Camera rotation with a rolling shutter and defocus in the display view
 
 - **Faster, same sum:** a plain defocus disc through the lens (projection, distortion, vignetting, rotation) takes the regrouped
-  path (the in-focus signal, then the disc by runs) where the lens's cost rule finds it cheaper: under a global shutter on fast
-  requests; under a rolling shutter by fixed row blocks, each row at its own instants, with `fast: false` too.
+  path (the in-focus signal, then the disc by runs): under a global shutter on fast requests, where the lens's cost rule finds it
+  cheaper for the render; under a rolling shutter for every render of the request, whatever the region's size, by fixed row blocks
+  (each row at its own instants with `fast: false`), so a request takes one method and a region equals the same pixels of the whole
+  view bit for bit (`test/display-view-lens-rolling-regions.test.ts`).
 - **Changed (fast default, `motion.shutter.rolling/view-row-bands`):** under a rolling shutter rows are grouped into bands of at
   most 63 that read the band's middle row's instants, chosen so the in-focus image moves at most 1/128 site (the plan's 1/32 failed
   its go/no-go at 0.14 code RMS against the full method; 1/128 measures 0.094, bound 0.1). Reported in `view.defocus.rollingBands`.
@@ -63,7 +70,8 @@ render, the fastest of three; load average 6–33 during the runs.
 - **Faster, same sums:** channel-free in-focus tile sums, uniform windows in the tiles, rows on demand (output tiles in fixed 8-row
   blocks, in-focus tiles row by row; `regroupedDefocusCheaper` without its 192-site widening), and in focus the per-tap chart signal
   read from pre-integrated spectral radiance in fixed 16-site tiles, at most **48 MiB per render**. Per-site electrons within
-  1e-15 relative of 2.26.0, samples identical; the hash locks of the three diffraction chart cases of `test/display-view.test.ts`
+  1e-15 relative of 2.26.0; samples identical on the cost cases' frames and within one code elsewhere: with AHD a rounding can flip
+  the direction choice at a tie (a 64 × 24 region of the 200 mm Quality frame at 1:1: 2 of 4,608 samples one code apart); the hash locks of the three diffraction chart cases of `test/display-view.test.ts`
   and one of `test/display-view-pixel-memo.test.ts` re-recorded on x64 and arm64 (samples unchanged, expected values within
   1.4·10⁻¹⁴ relative).
 - Quality options, 768 × 512 view: 50 mm f/2 focused at 0.8 × the subject distance, a 768 × 43 band 32.12 → 8.70 s (target 14 s),
@@ -97,7 +105,7 @@ render, the fastest of three; load average 6–33 during the runs.
   develop options, target 2.5×); Recover and +1 stop without Standard 1.28 → 1.22 s (target 0.8 s, **not met**, owner-accepted: the
   accuracy is kept; open for 2.28.0).
 
-## 2.26.0 — unreleased (prepared November 16, 2026)
+## 2.26.0 — published November 16, 2026
 
 A minor release: the issues of milestone 2.26.0 (#639–#643, #645–#648) and the export kit. A flash light, rolling shutter with camera rotation in the display view and with defocus, a hand-shake trajectory, PNG Exif and subject distance in the metadata readers, thin-lens framing without the catalogues, and lower display-view render cost. See the [2.26.0 release record](https://github.com/Photivra/engine/blob/main/docs/RELEASE_2_26_0.md).
 

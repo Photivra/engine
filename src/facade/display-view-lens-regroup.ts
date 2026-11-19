@@ -20,7 +20,7 @@
  *
  * - The full method (`bandRows` 1): a block is one row at that row's own instants: the tap sum regrouped (2R + 1 in-focus rows per row
  *   instead of (2R + 1)² taps per site).
- * - The fast method (#651 step 3, `motion.shutter.rolling/view-row-bands`): a block is a band of h rows (at most 64) that all read the
+ * - The fast method (#651 step 3, `motion.shutter.rolling/view-row-bands`): a block is a band of h rows (odd, at most 63) that all read the
  *   scene at the band's middle row's instants, so a band is one global-shutter problem: (h + 2R)/h in-focus rows per row. h is chosen
  *   ({@link rollingLensBands}) so that the in-focus image of any row moves by at most 1/128 site between its own instants and its
  *   band's (an approximation: a shift of the image by up to 1/128 site; reported in `view.defocus`). The plan's 1/32 site failed its
@@ -93,22 +93,17 @@ export function rollingLensBands(geometry: PreparedDefocusImageSpaceGeometry, ti
 }
 
 /**
- * #651: whether the regrouped lens defocus costs less than the tap sum for one render whose sites lie in a native rectangle of w × h
- * sites, `sites` of them read at most, counted in reads per spectral node (the form of `regroupedDefocusCheaper`, expected-signal.ts,
- * with the temporal midpoints). The tap sum reads (2R_c + 1)² taps per site and midpoint. Global shutter (`bandRows` undefined): the
- * fixed tiles compute the in-focus signal of all three channels ((2R_f + 1)² taps per midpoint) over the rectangle widened by the disc
- * radius R = R_c − R_f and 192 sites per axis, then the disc by runs once (about 12R + 2 reads per channel without the nodes). Rolling
- * shutter (row blocks of `bandRows` rows): the blocks cover the rectangle widened by 128 columns and one band, each output reading
- * (h + 2R)/h · (128 + 2R)/128 in-focus points per midpoint for each channel its rows hold (2 for single rows, 3 for bands), then the runs.
- * A render is counted on its own, so the choice depends only on the request and the render.
+ * #651: whether the regrouped lens defocus costs less than the tap sum for one render under a global shutter whose sites lie in a native
+ * rectangle of w × h sites, `sites` of them read at most, counted in reads per spectral node (the form of `regroupedDefocusCheaper`,
+ * expected-signal.ts, with the temporal midpoints). The tap sum reads (2R_c + 1)² taps per site and midpoint; the fixed tiles compute the
+ * in-focus signal of all three channels ((2R_f + 1)² taps per midpoint) over the rectangle widened by the disc radius R = R_c − R_f and
+ * 192 sites per axis, then the disc by runs once (about 12R + 2 reads per channel without the nodes). Both are the same sum, so the
+ * choice moves only the rounding. A rolling shutter that scans by rows takes the row blocks for every render (one method per request,
+ * so a region equals the same pixels of the whole view bit for bit); this rule is not asked there.
  */
-export function regroupedLensDefocusCheaper(w: number, h: number, sites: number, combinedRadius: number, inFocusRadius: number, nodes: number, midpoints: number,
-  bandRows?: number): boolean {
-  const R = combinedRadius - inFocusRadius, inFocusTaps = (2 * inFocusRadius + 1) ** 2, runs = (12 * R + 2) / nodes;
-  const tapSum = Math.min(sites, w * h) * (2 * combinedRadius + 1) ** 2 * midpoints;
-  if (bandRows === undefined) { const widen = 2 * R + 192; return (w + widen) * (h + widen) * 3 * (inFocusTaps * midpoints + runs) < tapSum; }
-  const channels = bandRows > 1 ? 3 : 2, perOutput = (bandRows + 2 * R) / bandRows * (LENS_ROW_SEGMENT + 2 * R) / LENS_ROW_SEGMENT * inFocusTaps * midpoints;
-  return (w + LENS_ROW_SEGMENT) * (h + bandRows) * channels * (perOutput + runs) < tapSum;
+export function regroupedLensDefocusCheaper(w: number, h: number, sites: number, combinedRadius: number, inFocusRadius: number, nodes: number, midpoints: number): boolean {
+  const R = combinedRadius - inFocusRadius, inFocusTaps = (2 * inFocusRadius + 1) ** 2, runs = (12 * R + 2) / nodes, widen = 2 * R + 192;
+  return (w + widen) * (h + widen) * 3 * (inFocusTaps * midpoints + runs) < Math.min(sites, w * h) * (2 * combinedRadius + 1) ** 2 * midpoints;
 }
 
 /** What the row blocks need from the lens signal. */

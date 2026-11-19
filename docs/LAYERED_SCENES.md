@@ -68,10 +68,14 @@ scene: {
 
 ## The depth report
 
-Per card and for the back plane, nearest first: `{ distanceM, defocusDiameterSites, withinDepthOfField }`, with the blur
-circle c = f²·|s − d| / (N·d·(s − f)) of `calculateDefocusCircle` divided by the site pitch, and `withinDepthOfField` true
-between the near and far limits of `calculateDepthOfField` at the request's circle of confusion, so callers can label the
-cards.
+Per card and for the back plane, nearest first: `{ kind, index, distanceM, defocusDiameterSites, signedBlurRadiusSites,
+withinDepthOfField }`. `kind` is `"card"` or `"back-plane"` and `index` the card's index in `cards` (−1 for the back plane);
+`defocusDiameterSites` is the blur circle c = f²·|s − d| / (N·d·(s − f)) of `calculateDefocusCircle` divided by the site pitch;
+`signedBlurRadiusSites` is +c/2 behind the focus plane and −c/2 in front of it (the layered sum's ray map); and
+`withinDepthOfField` is true between the near and far limits of `calculateDepthOfField` at the request's circle of confusion,
+so callers can label the cards. `result.scene.layers` reports these records, and `calculateLayeredChartDepths({ scene,
+focalLengthMm, aperture, focusDistanceM, circleOfConfusionMm, pixelPitchMicrometers })` returns them for a scene as a request
+writes it (validated as a request's is; the depths do not depend on the frame's aspect).
 
 ## Model
 
@@ -112,15 +116,18 @@ and, with `lens.diffraction`, each node's diffraction kernel K_n (the single-pla
 disc" approximation, applied per layer).
 
 - **Away from card edges** a lattice point whose rays all reach one surface has V = 1 there and 0 elsewhere: its value is
-  that surface's single-plane sum. A site whose lattice points all see one surface takes the single-plane path of that
-  surface (its tables, regrouped runs and caches) unchanged; the other sites ("edge sites") take the layered sum. Both use the
+  that surface's single-plane sum. A site whose lattice points all see one surface takes the single-plane sum of that
+  surface with its combined kernels (the per-layer kernel convolved with each node's diffraction kernel; never the regrouped
+  runs); the other sites ("edge sites") take the layered sum. Both use the
   same per-layer kernels, so there is no seam between them beyond rounding.
 - **Point lights** are part of the back plane's radiance on the lattice: the lattice cell that holds a light has its radiance
   raised by I_e / A, A the cell's area on the back plane (paraxial, (g·m_B)² with g the frame units per site and m_B the back
   plane's metres per frame unit), so the cell emits the light's power. The sum then spreads it exactly as it spreads the back
   plane: a light renders as the back plane's aperture image (disc, blades, cat's eye) at the back plane's blur, cut by nearer
   cards. In focus a light's energy goes to the site that holds it. A light's position is quantized to its lattice cell (at
-  most half a site), and two lights may not share a cell.
+  most half a site), and two lights may not share a cell: a request where two lights lie closer than one site on both axes
+  (a grid pitch of at most one site, or neighbours brought together by the jitter) is refused, rather than one light being
+  lost.
 - **The cat's eye** (`lens.defocus.catsEye`): the single-plane display view refuses it (its tables hold one kernel), but the
   layered sum reads each lattice point's kernel from the capture's field zones (each zone's shaped kernel at its centre's field
   point), so layered scenes render it in the view as the capture does. Those sites all take the layered sum.
@@ -168,8 +175,9 @@ of the pupil on its own.
 
 `resolveLayeredChartPreset({ scale, cards?, focusDistanceM, lens, aspect?, pointLights? })` lays out a staircase: `cards`
 cards (default 5) with one at the focus distance, each farther card up and to the right of the one in front and overlapping
-it, each showing a Siemens star and its depth label, and a back plane with a 12-column grid of point lights one step beyond
-the farthest card.
+it, each showing a Siemens star and its depth label, and a back plane with a 12-column grid of point lights two steps beyond
+the farthest card (the steps continue the geometric series behind the focus plane: the back plane is at the distance the
+series would give a card two places farther back).
 
 - **Spacing** (owner decision): behind the focus plane the steps grow geometrically from the scale's first step by a ratio of
   1.5, d_i = s + first·(1 + 1.5 + … + 1.5^(i−1)): `macro` 1 mm, `tabletop` 1 cm (at about 1 m), `large` 0.25 m (at about 5 m).
@@ -186,14 +194,14 @@ the farthest card.
   rectilinear, `lens.distortion`, `lens.vignetting`, `lens.catalogue`, `lens.pupilSampling`, `lens.psf` (a caller PSF),
   `chartSize`, `illumination` (mixed lighting), and `lens.defocus.catsEye` with `lens.diffraction` (as for any scene). A single
   card without a back plane renders on the single-plane path, so `simulateDisplayView` refuses the cat's eye for it. Also refused:
-  two lights that can fall in one site, and a surface kernel radius
+  two lights that can fall in one site (closer than one site on both axes), and a surface kernel radius
   above 64 sites in a scene of more than one surface (edge sites sum the kernel directly).
 - The provider's lattice argument needs the still, rectilinear, distortion-free camera with one radiance-to-irradiance factor
   over the field, as the single-plane object-space convolution does.
 - The ray map is the aberration-free linear one at every surface; with a shaped kernel, V is the share of the disc's rays in
   the tap's region (the kernel's weight carries the shape).
 
-Cost through the public API (2.27.0, report only; `node i2-bench/bench-652.mjs dist 2`, a script outside the repository, on an
+Cost through the public API (2.27.0, report only; `node scripts/benchmark-layered-scenes.mjs 2` after `npm run build`, on an
 Apple M5 Pro, Node 26.13.1, one process, load average 13–19): the tabletop preset on a 6000 × 4000 sensor of 6 µm sites, an ideal
 50 mm lens focused at 1 m, a 2 × 2 box pixel aperture, a 192 × 128 region at the top-right corner of the card at the focus
 distance (2.6 % edge sites at f/2 and f/8), CPU time of the process, the second of two runs:

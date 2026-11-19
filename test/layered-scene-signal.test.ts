@@ -16,7 +16,7 @@
 import { describe, expect, it } from "vitest";
 import { createDisplayViewExpectedSignal } from "../src/facade/expected-signal.js";
 import { resolveDefocusDisc } from "../src/optics/defocus-disc-kernel.js";
-import { calculateLayeredChartDepths, layeredSurfaceScene, resolveLayeredChartScene } from "../src/facade/layered-chart-scene.js";
+import { layeredChartDepths, layeredSurfaceScene, resolveLayeredChartScene } from "../src/facade/layered-chart-scene.js";
 import { LAYERED_OCCLUSION_SAMPLES, createLayeredSceneLattice, createLayeredSceneSignal } from "../src/facade/layered-scene-signal.js";
 import { scaledTimeout } from "./helpers/test-timeout.js";
 import { expectSiteElectronsEquivalent } from "./helpers/view-equivalence.js";
@@ -180,7 +180,7 @@ describe("layered scenes: a point light (test 6)", () => {
     for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) m2 += blurred.weights[y * W + x]! * ((x - L.x) ** 2 + (y - L.y) ** 2);
     expect(Math.abs(Math.sqrt(2 * (m2 - 1 / 6)) / rho - 1)).toBeLessThan(0.01);
     // The diameter the depth report gives for that back plane is the same c = 2ρ (calculateDefocusCircle).
-    const depths = calculateLayeredChartDepths({ scene, focalLengthMm: 50, aperture: 4, focusDistanceM: 1, circleOfConfusionMm: 0.03, pixelPitchMicrometers: 6 });
+    const depths = layeredChartDepths(scene, { focalLengthMm: 50, aperture: 4, focusDistanceM: 1, circleOfConfusionMm: 0.03, pixelPitchMicrometers: 6 });
     const disc = resolveDefocusDisc({ focalLengthMm: 50, aperture: 4, focusDistanceM: 1, subjectDistanceM: 2, pitchMicrometers: 6 });
     expect(depths[1]!.defocusDiameterSites).toBe(disc.diameterSites);
     expect(depths[1]!.signedBlurRadiusSites).toBe(disc.diameterSites / 2);

@@ -53,7 +53,7 @@ SIMULATE_CAPTURE_FAST_METHODS: readonly SimulateCaptureFastMethod[] = Object.fre
     exact: "each spectral node's diffraction kernel convolved with the disc, read per site (the GPU's kernels)", followsFormatDefault: true,
     resolver: { file: CAPTURE, call: "defocusRegrouped: fastTop" }, report: { assumption: "view.defocus" } },
   { id: "motion.shutter.rolling/view-row-bands", override: "fast", methods: "fast-and-exact", runs: ["simulateDisplayView", "prepareDisplayView"],
-    fast: "#651: on the CPU, with camera rotation under a rolling shutter and the defocus disc regrouped, rows in fixed bands of at most 64 that read the scene at their middle row's instants (the in-focus image shifts by at most 1/128 site; view.defocus rollingBands)",
+    fast: "#651: on the CPU, with camera rotation under a rolling shutter and the defocus disc regrouped, rows in fixed bands of at most 63 (odd) that read the scene, for every render of the request, at their middle row's instants (the in-focus image shifts by at most 1/128 site; view.defocus rollingBands)",
     exact: "every row at its own instants, regrouped by rows: the same sum as each tap at the site's instants", followsFormatDefault: true,
     resolver: { file: CAPTURE, call: "rollingBands: fastTop" }, report: { assumption: "view.defocus" } },
   { id: "chart.signal/view-per-tap", override: "fast", methods: "fast-and-exact", runs: ["simulateDisplayView", "prepareDisplayView"],

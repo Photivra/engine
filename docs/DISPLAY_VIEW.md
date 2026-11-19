@@ -233,7 +233,10 @@ with K_λ the diffraction kernel (a unit tap without `lens.diffraction`).
   spectral radiance B(s)[n] = Σ_o w_o·L(o, s)(λ_n) per site position (the query offsets summed first) from fixed 16-site spectral
   lattice tiles, at most 48 MiB per render: (2R + 1)² taps of a spectral value per site instead of one per lattice group, offset
   and tap. Every cache holds spectral radiance, material indices or geometry, never a channel response summed over the spectrum.
-  Measured: per-site electrons within 1e-15 relative of 2.26.0 on the cost cases' frames, samples identical; the hash locks of the
+  Measured: per-site electrons within 1e-15 relative of 2.26.0 on the cost cases' frames, samples identical there. Elsewhere samples
+  can move by one code where AHD's direction choice sits at a tie and a rounding of the site electrons flips it (a 64 × 24 region of
+  the 200 mm Quality frame at 1:1: 2 of 4,608 samples one code apart, and 9 expected values beyond 1e-9, largest 2.3e-3 absolute,
+  with site electrons within 2.2e-15 relative); with the bilinear demosaic the same region agrees within 1.7e-15. The hash locks of the
   three diffraction chart cases of `test/display-view.test.ts` and one of `test/display-view-pixel-memo.test.ts` were re-recorded
   (samples unchanged, expected values within 1.4e-14 relative). Cost: [2.27.0 cost cases](#2270-cost-cases).
 - **In focus** (c = 0), or without the option, nothing changes: the view is byte-identical to the request without it,
@@ -444,7 +447,10 @@ projection; `rotation` yaw 0.05 and pitch 0.03 rad/s at 1/125 s, the default eig
   absolute positions: a block reads the in-focus signal of its rows widened by the disc radius at the row's own instants (all three
   channels from one lattice lookup per point), then the disc by runs, so a row costs 2R + 1 in-focus rows instead of (2R + 1)² taps
   per site. It is the tap sum regrouped (the same tolerance), so it runs with `fast: false` too, and `view.defocus` then reports
-  `convolution: "runs"` without a `fast` label. The refusal above 64 sites under a rolling shutter stays, as in the capture.
+  `convolution: "runs"` without a `fast` label. Under a rolling shutter every render of the request takes the row blocks, whatever
+  the region's size (row bands when fast, single rows with `fast: false`; the cost rule acts under a global shutter only), so a request
+  takes one method and a region equals the same pixels of a larger region and of the whole view bit for bit
+  (`test/display-view-lens-rolling-regions.test.ts`). The refusal above 64 sites under a rolling shutter stays, as in the capture.
 - *Rolling shutter, fast method (`motion.shutter.rolling/view-row-bands`).* Rows are grouped into fixed bands of h rows (odd, at most
   63) that all read the scene at the band's middle row's instants, so a band is one global-shutter problem: (h + 2R)/h in-focus rows
   per row. h is the largest height for which the in-focus image at each band's first and last rows (three columns, every midpoint)
@@ -453,8 +459,8 @@ projection; `rotation` yaw 0.05 and pitch 0.03 rad/s at 1/125 s, the default eig
   0.1 code RMS and 1 code at most): the plan's 1/32 site failed on a Siemens star through the frame centre (0.14 code RMS: the
   point-sampled in-focus image is aliased there, so the error does not shrink with the shift as a gradient bound would; 0.106 at
   1/64), and 1/128 passes (0.094 code RMS), so the method ships at 1/128.
-- *Newton inverse of radial distortion.* The view's lattice points invert a radial distortion by Newton steps from the previous
-  point's root, then the bisection's own final bracket test, falling back to the bisection when a step leaves the bracket
+- *Newton inverse of radial distortion.* The view's lattice points invert a radial distortion by Newton steps from the start point
+  r₀ = d / s(d), which depends on that point alone (so regions stay equal to the whole view), then the bisection's own final bracket test, falling back to the bisection when a step leaves the bracket
   (`src/optics/radial-distortion-newton.ts`; the geometry's `undistort` hook). Within 4 ULP of the bisection over 10⁶ radii of each
   of the 30 catalogue profiles, so no flag; the capture keeps the bisection.
 - Cost: [2.27.0 cost cases](#2270-cost-cases).
@@ -543,8 +549,10 @@ edge (20°) on a 192 × 128 frame at 187.5 µm, 8-bit codes of each component's 
   channel map: the gain is taken at the developed pixel's centre; 32 MiB). Both are dropped when the call returns; the passes run
   band by band of whole rows so a band's records are still held when its next pass reads them. With sharpening the view-size render
   runs for the first channel map only (the mask replaces every component's mean), and passes whose samples are not used draw no
-  noise. The same operations on the same operands, so the samples, expected values and noise equal 2.26.0's byte for byte
-  (`test/display-view-detail-shared.test.ts`, hashes recorded on 2.26.0). Reported counts follow the passes as they now run:
+  noise. The same operations on the same operands, so the samples, expected values and noise equal 2.26.0's byte for byte where
+  #655 does not act (sharpening on a prime lens at 8×, 4× and 1:1, measured against 2.26.0). The 17 hash locks of
+  `test/display-view-detail-shared.test.ts` use a catalogue lens, which #655's one kernel pass moves by rounding, so they were
+  re-recorded on 2.27.0 (samples unchanged; see the changelog) and lock 2.27.0's own results. Reported counts follow the passes as they now run:
   `diagnostics.sampleCount`, `siteEvaluations` and `sceneLookups` and `view.estimation`'s `evaluatedRealPixels` are lower than in
   2.26.0 for these requests. The exact correction keeps its memos off, as before. Cost: [2.27.0 cost cases](#2270-cost-cases).
 
@@ -1250,9 +1258,9 @@ develop options).
 | Case | Request | 2.26.0, s | 2.27.0, s | Speed-up | 2.26.0 ratio | 2.27.0 ratio |
 | --- | --- | --- | --- | --- | --- | --- |
 | 649-plain | No corrections | 0.93 | 0.52 | 1.8× |  |  |
-| 649-corrections | `output.lensCorrections` (distortion, lateral color, vignetting) | 2.22 | 0.73 | 3.0× | 2.38× | 1.42× |
-| 649-sharpening | `output.sharpening: { radiusPixels: 1, amount: 1 }` | 1.80 | 0.98 | 1.8× | 1.93× | 1.90× |
-| 649-both | Corrections and sharpening | 4.74 | 1.24 | 3.8× | 5.09× | 2.40× |
+| 649-corrections | `output.lensCorrections` (distortion, lateral color, vignetting) | 2.22 | 0.73 | 3.0× | 2.38× | 1.42×¹ |
+| 649-sharpening | `output.sharpening: { radiusPixels: 1, amount: 1 }` | 1.80 | 0.98 | 1.8× | 1.93× | 1.90×¹ |
+| 649-both | Corrections and sharpening | 4.74 | 1.24 | 3.8× | 5.09× | 2.40×¹ |
 | 651-still | No motion, in focus, 48 × 32 | 0.30 | 0.29 | 1.0× | 1.25× | 0.69× |
 | 651-rolling | Rotation, rolling, in focus, 48 × 32 | 0.24 | 0.42 | 0.6× |  |  |
 | 651-rolling-defocus | Rotation, rolling, out of focus, 48 × 32 | 14.45 | 0.88 | 16.5× | 60.59× | 2.09× |
@@ -1288,7 +1296,11 @@ develop options).
 - Targets not met, accepted by the owner and open for 2.28.0: #656 Recover and +1 stop without Standard (1.22 s against 0.8 s; the
   accuracy is kept), #651's 192 × 128 region (4.7× its in-focus time against 3×; the 1/128 site band shift is kept), and
   #655's 2 × 2 box (2.0× the point aperture against 1.3×).
-- #649's sharpening alone is 1.90× the plain part against a target of 1.7×; the plain part itself got 1.8× faster (#653's
+- ¹ #649's ratios to the plain part move by about 20 % with the machine's load at 0.5–1.9 s per render. Over three runs (this
+  table's and two later ones, `REPEATS=2` and `REPEATS=4`, load average 18–100): corrections 1.42–1.79× (target 1.5×, met in this
+  table's run only), sharpening 1.78–2.03× (target 1.7×, not met), both 2.40–2.91× (target 2.6×, met in this table's run only).
+  The absolute targets (corrections 1.9 s, sharpening 2.1 s, both 3.3 s) are met in every run.
+- #649's sharpening alone is 1.78–2.03× the plain part against a target of 1.7×; the plain part itself got 1.8× faster (#653's
   pre-integrated radiance), and the sharpened part's 0.98 s is under the target's 2.1 s.
 
 ### A device-pixel view rendered in parts

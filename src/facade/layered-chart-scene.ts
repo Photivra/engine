@@ -23,7 +23,8 @@
  * on the back plane (paraxial: (g·m_B)², g the frame units per site and m_B the back plane's metres per frame unit), so the
  * cell emits the light's power into the lens's solid angle. The layered sum then spreads it as it spreads the back plane, so
  * a light renders as the back plane's aperture image (the disc, the blades, the cat's eye) cut by nearer cards. The light's
- * position is quantized to the cell that holds it (at most half a site); two lights may not share a cell.
+ * position is quantized to the cell that holds it (at most half a site); two lights may not share a cell (refused when two lie closer
+ * than one site on both axes).
  */
 
 import { InvalidConfigurationError } from "../core/configuration-error.js";
@@ -228,7 +229,8 @@ function resolvePointLights(value: unknown, aspect: number): NonNullable<Resolve
  * - `metresPerFrameUnit` at `referenceDistanceM` (frame units are angles, so at distance d it is metresPerFrameUnit·d/referenceDistanceM).
  *
  * Lights (back plane only) become one extra radiance material: the plane's radiance plus I_e / A at each node, read where a
- * lattice cell [u − g/2, u + g/2) × (v − g/2, v + g/2] holds a light. Fails when two lights can share a cell.
+ * lattice cell [u − g/2, u + g/2) × (v − g/2, v + g/2] holds a light. Fails when two lights can share a cell: the grid pitch is at most
+ * one site, or two lights (grid neighbours after the jitter) lie closer than one site on both axes.
  */
 export function layeredSurfaceScene(surface: ResolvedLayeredSurface, input: { wavelengthsNm: readonly number[]; whiteRadiance: Float64Array;
   siteFrameUnits: number; metresPerFrameUnit: number; referenceDistanceM: number }): Extract<DisplayViewScene, { kind: "materials" }> {
@@ -238,7 +240,14 @@ export function layeredSurfaceScene(surface: ResolvedLayeredSurface, input: { wa
   const lights = surface.lights;
   if (!lights) return { kind: "materials", materialAt: surface.materialAt, materials, whiteRadiance };
   const g = input.siteFrameUnits, half = g / 2;
-  if (!(lights.pitchU > g && lights.pitchV > g)) fail("scene.backPlane.pointLights: two lights can fall in one site; use fewer columns or rows.");
+  const crowded = "scene.backPlane.pointLights: two lights can fall in one site (closer than one site on both axes), so one would be lost; use fewer columns or rows, or less jitter.";
+  if (!(lights.pitchU > g && lights.pitchV > g)) fail(crowded);
+  // A light lies within half a grid cell of its cell's centre, so only grid neighbours can come within a site of each other: two
+  // lights closer than g on both axes share the cell of some lattice point (whatever the lattice group's shift), so they are refused.
+  for (let j = 0; j < lights.rows; j++) for (let i = 0; i < lights.columns; i++) for (const [di, dj] of [[1, 0], [-1, 1], [0, 1], [1, 1]] as const) {
+    const i2 = i + di, j2 = j + dj, k = j * lights.columns + i, k2 = j2 * lights.columns + i2;
+    if (i2 >= 0 && i2 < lights.columns && j2 < lights.rows && Math.abs(lights.u[k]! - lights.u[k2]!) < g && Math.abs(lights.v[k]! - lights.v[k2]!) < g) fail(crowded);
+  }
   const side = g * input.metresPerFrameUnit * surface.distanceM / input.referenceDistanceM, area = side * side;
   const plane = surface.materials[0]!;
   const planeRadiance = Float64Array.from(wavelengthsNm, (nm, n) => (plane.kind === "neutral" ? plane.reflectance : plane.spectrum.evaluate(nm)) * whiteRadiance[n]!);
@@ -274,15 +283,23 @@ export interface LayeredChartDepth {
   withinDepthOfField: boolean;
 }
 
-/** The depth report of a resolved scene (`result.scene.layers`). */
-export function calculateLayeredChartDepths(input: { scene: ResolvedLayeredChartScene; focalLengthMm: number; aperture: number; focusDistanceM: number;
-  circleOfConfusionMm: number; pixelPitchMicrometers: number }): LayeredChartDepth[] {
+/**
+ * The depth report of a layered chart scene as a request writes it (`result.scene.layers` reports the same records): per surface,
+ * nearest first, its distance, blur diameter, signed blur radius and whether it lies within the depth of field. The scene is
+ * validated as a request's is (unknown fields and values out of range fail with `InvalidConfigurationError`); the depths do not
+ * depend on the frame's aspect.
+ */
+export function calculateLayeredChartDepths(input: { scene: LayeredChartScene; focalLengthMm: number; aperture: number; focusDistanceM: number; circleOfConfusionMm: number;
+  pixelPitchMicrometers: number }): LayeredChartDepth[] {
   const record = allow(input, "calculateLayeredChartDepths input", ["scene", "focalLengthMm", "aperture", "focusDistanceM", "circleOfConfusionMm", "pixelPitchMicrometers"]);
-  if ((record.scene as { kind?: unknown } | undefined)?.kind !== "layered-chart" || !Array.isArray((record.scene as { surfaces?: unknown }).surfaces))
-    fail("calculateLayeredChartDepths input.scene must be a resolved layered chart scene.");
+  return layeredChartDepths(resolveLayeredChartScene({ scene: record.scene as LayeredChartScene, aspect: 2 / 3 }), input);
+}
+
+/** The depth report of a resolved scene (the facade's `result.scene.layers`). */
+export function layeredChartDepths(scene: ResolvedLayeredChartScene, input: Omit<Parameters<typeof calculateLayeredChartDepths>[0], "scene">): LayeredChartDepth[] {
   const { focalLengthMm, aperture, focusDistanceM } = input;
   const dof = calculateDepthOfField({ focalLengthMm, aperture, focusDistanceM, circleOfConfusionMm: input.circleOfConfusionMm }).value;
-  return input.scene.surfaces.map((s) => {
+  return scene.surfaces.map((s) => {
     const disc = resolveDefocusDisc({ focalLengthMm, aperture, focusDistanceM, subjectDistanceM: s.distanceM, pitchMicrometers: input.pixelPitchMicrometers });
     const side = s.distanceM > focusDistanceM ? 1 : s.distanceM < focusDistanceM ? -1 : 0;
     return { kind: s.kind, index: s.index, distanceM: s.distanceM, defocusDiameterSites: disc.diameterSites, signedBlurRadiusSites: side * disc.diameterSites / 2,
@@ -297,7 +314,8 @@ export const LAYERED_CHART_PRESET_STEP_RATIO = 1.5;
 
 /**
  * The staircase preset: `cards` cards (default 5, 1 to 9) with one at the focus distance, the rest stepping back and to the right,
- * each overlapping the one behind it, and a back plane with a grid of point lights one step beyond the farthest card.
+ * each overlapping the one behind it, and a back plane with a grid of point lights two steps beyond the farthest card (the next two
+ * steps of the series behind the focus plane).
  *
  * Spacing. Behind the focus plane the steps grow geometrically from the scale's first step (`macro` 1 mm, `tabletop` 1 cm,
  * `large` 0.25 m) by {@link LAYERED_CHART_PRESET_STEP_RATIO}: d_i = s + first·(1 + 1.5 + … + 1.5^(i−1)). In front of it the cards

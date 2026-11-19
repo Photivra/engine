@@ -45,8 +45,8 @@
  * group's lattice points mapped once per tile and midpoint), and D ⊛ E_c by runs (`site-kernel-runs.ts`) in fixed 128-site tiles,
  * each site taking its own channel: every value depends only on its site, so regions and parts equal the whole view.
  *
- * #651: the regrouped defocus below 64 sites too (the facade's cost choice, {@link regroupedLensDefocusCheaper}), and under a rolling
- * shutter, where each scan line has its own instants, by line blocks (`display-view-lens-regroup.ts`): rows by rows (the full method)
+ * #651: the regrouped defocus below 64 sites too (the facade's cost choice under a global shutter, {@link regroupedLensDefocusCheaper}), and
+ * under a rolling shutter, where each scan line has its own instants, by line blocks for every render (`display-view-lens-regroup.ts`): rows by rows (the full method)
  * or rows grouped into bands that share their middle row's instants (the fast method, `rollingBands`).
  *
  * #655: with a catalogue lens's field-dependent PSF each site is Σ_n A_c(λ_n)·Σ_t K_{z,n}(t)·B(x − t)[n], K_{z,n} its zone's PSF at node n
@@ -262,8 +262,9 @@ export interface DisplayViewLensSignalFactory {
    */
   readonly bandRows: number | undefined;
   /**
-   * #651: {@link regroupedLensDefocusCheaper} for this view's midpoints and blocks (the facade calls it per render, so the display view's
-   * default bundle need not contain the cost rule).
+   * #651: whether a render takes the regrouped input: always under a rolling shutter that scans by rows (`bandRows` set: one method
+   * per request, row bands when fast, single rows with fast: false), else {@link regroupedLensDefocusCheaper} for this view's midpoints
+   * (the facade calls it per render, so the display view's default bundle need not contain the cost rule).
    */
   regroupedCheaper(w: number, h: number, sites: number, combinedRadius: number, inFocusRadius: number, nodes: number): boolean;
 }
@@ -303,7 +304,7 @@ export function prepareDisplayViewLensSignal(lens: DisplayViewLensSetup, nativeW
   const midpoints = lens.times.length;
   return Object.assign(factory, { rolling, midpoints, bandRows,
     regroupedCheaper: (w: number, h: number, sites: number, combinedRadius: number, inFocusRadius: number, nodes: number): boolean =>
-      regroupedLensDefocusCheaper(w, h, sites, combinedRadius, inFocusRadius, nodes, midpoints, bandRows) });
+      bandRows !== undefined || regroupedLensDefocusCheaper(w, h, sites, combinedRadius, inFocusRadius, nodes, midpoints) });
 }
 
 function createLensSignal(lens: DisplayViewLensSetup, input: DisplayViewExpectedSignalInput, spanColumns: number, rolling: DisplayViewLensSignalFactory["rolling"]): DisplayViewExpectedSignal {

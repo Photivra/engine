@@ -210,6 +210,11 @@ describe("the app's capture-worker shape", () => {
     expect(sum(fast) + sum(onDemand) + sum(exportKit)).toBe(worker.totalGzip);
     // #581: the image-plane scene's module, lattice data and GPU module are reachable only through prepareImagePlaneScenes().
     expect([...worker.lazyModules, ...worker.modules.keys()].filter((id) => /image-plane(?!-support)/u.test(id))).toEqual([]);
+    // #652: the layered chart scene code (the scene module, its provider, setup and sum) is reachable only through
+    // prepareLayeredChartScenes(), never in the capture worker's bundle, static or lazy; only the small enable hook may be there.
+    const reached = [...worker.lazyModules, ...worker.modules.keys()];
+    expect(reached.filter((id) => /layered-(?!scene-enable)/u.test(id))).toEqual([]);
+    for (const id of ["facade/layered-chart-scene.ts", "facade/layered-scene-provider.ts", "facade/layered-scene-setup.ts", "facade/layered-scene-signal.ts"]) expect(reached).not.toContain(id);
     // #165: the C2PA export writers load only when an application imports them, never in the capture worker.
     expect([...worker.lazyModules, ...worker.modules.keys()]).not.toContain("capture/c2pa-embed.ts");
   }, testTimeout(120_000));

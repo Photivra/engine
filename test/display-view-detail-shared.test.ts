@@ -2,9 +2,10 @@
 /**
  * #649: the display view with lens corrections and sharpening renders its passes in bands of rows that share one per-call site store
  * and one per-call store of real pixels' recorded terms, skips the view-size passes that the sharpening discards and draws no noise
- * for the passes whose samples are not used. Every step forms the same values from the same operands, so the samples, expected values
- * and noise are those of 2.26.0: these hashes were recorded on 2.26.0 (94f56f3) before the change, on x64 (Node 24.1.0 under
- * Rosetta 2) and on arm64 (Node 26.13.1), the same on both (#508), and hold unchanged after it, with the default bands and with bands
+ * for the passes whose samples are not used. Every step forms the same values from the same operands, so #649 alone keeps the samples,
+ * expected values and noise of 2.26.0. The hashes were first recorded on 2.26.0 (94f56f3) before the change; every case uses a
+ * catalogue lens, which #655 (one kernel pass, uniform windows) moves by rounding, so they were re-recorded for 2.27.0 (see LOCKS
+ * below: samples unchanged) and now lock 2.27.0's own results, on x64 and arm64 alike (#508), with the default bands and with bands
  * of a few rows. The scene-lookup, sample and site-evaluation counts are left out: they count the work done, which the change reduces.
  */
 import { createHash } from "node:crypto";
@@ -67,7 +68,7 @@ CASES["both-region-2x"] = [request({ lensCorrections: all, sharpening }), { ...v
 CASES["neighbors-2x"] = [request({ lensCorrections: { distortion: true, lateralColor: true }, highlightMode: "reconstruct-neighbors" }), views["2x"]!];
 
 describe("display view lens corrections and sharpening share their sites and pixels across passes (#649)", () => {
-  it("keeps the 2.26.0 samples, expected values and noise", async () => {
+  it("keeps the recorded samples, expected values and noise", async () => {
     if (process.env.RECORD_DETAIL_HASHES === "1") {
       for (const [name, c] of Object.entries(CASES)) console.log(JSON.stringify([name, await digest(...c)]));
       return;

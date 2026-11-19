@@ -8,7 +8,7 @@
  *   back plane is a single-plane chart scene: a centred card filling the frame (width 2, height 2·aspect, no depth label) passes
  *   its own `scene` to the existing path (the same bytes as that chart), any other single card a material scene of its print; the
  *   single-plane path then applies `lens.defocus` at the card's distance. More surfaces take the layered sum.
- * - Report (`result.scene.layers`): `calculateLayeredChartDepths` at the frame's circle of confusion (its diagonal / 1500, the
+ * - Report (`result.scene.layers`): the depth report (`layeredChartDepths`, as `calculateLayeredChartDepths`) at the frame's circle of confusion (its diagonal / 1500, the
  *   convention of the catalogue's focus scatter), and each surface's defocus kernel (the disc of `createDefocusDiscSiteKernel`, or
  *   with bokeh options the shaped kernel of `createDefocusBokehSiteKernel` on the surface's side of the focus plane, and with a
  *   cat's eye its field zones, `planDefocusBokehZones`).
@@ -27,7 +27,7 @@ import { loadedKit, qualityKit } from "./on-demand-kits.js";
 import type { PlanarSceneRadianceProvider, ResolvedCallerMaterialScene } from "./scene-radiance.js";
 import type { DiffractionLimitedPsfProfile } from "../optics/diffraction-psf-profile.js";
 import type { SimulateCaptureAssumption } from "./simulate-capture.js";
-import { calculateLayeredChartDepths, layeredSurfaceScene, resolveLayeredChartScene, type LayeredChartDepth, type LayeredChartScene,
+import { layeredChartDepths, layeredSurfaceScene, resolveLayeredChartScene, type LayeredChartDepth, type LayeredChartScene,
   type ResolvedLayeredChartScene } from "./layered-chart-scene.js";
 import { LAYERED_OCCLUSION_SAMPLES, createLayeredSceneLattice, createLayeredSceneSignal, type LayeredSceneLattice, type LayeredSceneLayer } from "./layered-scene-signal.js";
 import { createLayeredSceneProvider } from "./layered-scene-provider.js";
@@ -135,8 +135,9 @@ export function resolveLayeredRequest(input: { top: Record<string, unknown>; len
     report(context) {
       const { width, height, pitch, focalLengthMm, fNumber, focusDistanceM } = context;
       const circleOfConfusionMm = Math.hypot(width, height) * pitch / 1000 / 1500;
-      depths = calculateLayeredChartDepths({ scene: resolved, focalLengthMm, aperture: fNumber, focusDistanceM, circleOfConfusionMm, pixelPitchMicrometers: pitch });
-      if (lens.defocus === undefined) context.assume("lens.defocus", "default", { model: "geometric-disc" },
+      depths = layeredChartDepths(resolved, { focalLengthMm, aperture: fNumber, focusDistanceM, circleOfConfusionMm, pixelPitchMicrometers: pitch });
+      // The single-plane route resolves lens.defocus itself (a "model" record); only the layered sum records the implied default.
+      if (lens.defocus === undefined && request.multi) context.assume("lens.defocus", "default", { model: "geometric-disc" },
         "A layered chart scene implies lens.defocus { model: \"geometric-disc\" }: each surface is blurred by the thin-lens disc of its own distance.");
       if (request.multi) kernels = surfaceKernels(context, depths);
       const fast = context.viewFast.layers, samples = LAYERED_OCCLUSION_SAMPLES[fast ? "fast" : "full"];

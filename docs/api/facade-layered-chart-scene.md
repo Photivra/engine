@@ -4,11 +4,14 @@ The package and root API versions are recorded once in [Navigation](../API_REFER
 
 ## calculateLayeredChartDepths
 
-The depth report of a resolved scene (`result.scene.layers`).
+The depth report of a layered chart scene as a request writes it (`result.scene.layers` reports the same records): per surface,
+nearest first, its distance, blur diameter, signed blur radius and whether it lies within the depth of field. The scene is
+validated as a request's is (unknown fields and values out of range fail with `InvalidConfigurationError`); the depths do not
+depend on the frame's aspect.
 
 ```ts
-export function calculateLayeredChartDepths(input: { scene: ResolvedLayeredChartScene; focalLengthMm: number; aperture: number; focusDistanceM: number;
-  circleOfConfusionMm: number; pixelPitchMicrometers: number }): LayeredChartDepth[];
+export function calculateLayeredChartDepths(input: { scene: LayeredChartScene; focalLengthMm: number; aperture: number; focusDistanceM: number; circleOfConfusionMm: number;
+  pixelPitchMicrometers: number }): LayeredChartDepth[];
 ```
 
 This call is synchronous; any supplied provider must follow its explicit synchronous contract.
@@ -171,7 +174,8 @@ export interface ResolvedLayeredSurface {
 ## resolveLayeredChartPreset
 
 The staircase preset: `cards` cards (default 5, 1 to 9) with one at the focus distance, the rest stepping back and to the right,
-each overlapping the one behind it, and a back plane with a grid of point lights one step beyond the farthest card.
+each overlapping the one behind it, and a back plane with a grid of point lights two steps beyond the farthest card (the next two
+steps of the series behind the focus plane).
 
 Spacing. Behind the focus plane the steps grow geometrically from the scale's first step (`macro` 1 mm, `tabletop` 1 cm,
 `large` 0.25 m) by {@link LAYERED_CHART_PRESET_STEP_RATIO}: d_i = s + first·(1 + 1.5 + … + 1.5^(i−1)). In front of it the cards

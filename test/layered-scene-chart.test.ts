@@ -6,8 +6,9 @@
  */
 import { describe, expect, it } from "vitest";
 import { calculateDefocusCircle, calculateDepthOfField } from "../src/optics/depth-of-field.js";
+import { InvalidConfigurationError, calculateLayeredChartDepths } from "../src/index.js";
 import { calculateIlluminantIrradianceScale, resolveCaptureIlluminant } from "../src/facade/scene-radiance.js";
-import { LAYERED_CHART_PRESET_SCALES, calculateLayeredChartDepths, layeredSurfaceScene, resolveLayeredChartPreset, resolveLayeredChartScene,
+import { LAYERED_CHART_PRESET_SCALES, layeredChartDepths, layeredSurfaceScene, resolveLayeredChartPreset, resolveLayeredChartScene,
   type LayeredChartScene } from "../src/facade/layered-chart-scene.js";
 
 const aspect = 2 / 3;
@@ -94,9 +95,15 @@ describe("layered chart scenes: prints", () => {
 
 describe("layered chart scenes: depth report", () => {
   it("reports each surface's blur and whether it is within the depth of field", () => {
-    const scene = resolveLayeredChartScene({ aspect, scene: { kind: "layered-chart", cards: [card(0.9), card(1), card(1.04)], backPlane: { distanceM: 3 } } });
+    const written: LayeredChartScene = { kind: "layered-chart", cards: [card(0.9), card(1), card(1.04)], backPlane: { distanceM: 3 } };
+    const scene = resolveLayeredChartScene({ aspect, scene: written });
     const lens = { focalLengthMm: 50, aperture: 4, focusDistanceM: 1 }, coc = 0.03;
-    const depths = calculateLayeredChartDepths({ scene, ...lens, circleOfConfusionMm: coc, pixelPitchMicrometers: 5 });
+    const depths = layeredChartDepths(scene, { ...lens, circleOfConfusionMm: coc, pixelPitchMicrometers: 5 });
+    // The root export takes the scene as a request writes it and resolves it itself (the depths do not depend on the aspect).
+    expect(calculateLayeredChartDepths({ scene: written, ...lens, circleOfConfusionMm: coc, pixelPitchMicrometers: 5 })).toEqual(depths);
+    expect(() => calculateLayeredChartDepths({ scene: { ...written, cards: [card(1), card(0.9)] }, ...lens, circleOfConfusionMm: coc, pixelPitchMicrometers: 5 }))
+      .toThrow(InvalidConfigurationError);
+    expect(() => calculateLayeredChartDepths({ scene: written, ...lens, circleOfConfusionMm: coc, pixelPitchMicrometers: 5, extra: 1 } as never)).toThrow(/unknown field "extra"/);
     const dof = calculateDepthOfField({ ...lens, circleOfConfusionMm: coc }).value;
     expect(depths.map((d) => d.withinDepthOfField)).toEqual([0.9, 1, 1.04, 3].map((d) => d >= dof.nearLimitM && d <= dof.farLimitM!));
     expect(depths.map((d) => d.withinDepthOfField)).toEqual([false, true, true, false]);

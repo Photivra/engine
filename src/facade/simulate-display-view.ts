@@ -266,7 +266,8 @@ async function prepareView(context: DisplayViewRunContext): Promise<PreparedView
   // combined kernels (`signalInput`), and so does the exact method. #642: the regrouped path computes the in-focus signal in fixed
   // tiles around the render's sites (`regroupedDefocusCheaper`), which costs more than the combined taps for a small region, so
   // each render takes it only where its own cost is lower (a whole view or a large region; see setupOf).
-  // #651: through the lens too (display-view-lens-regroup.ts); under a rolling shutter by row blocks, the same sum regrouped (taken with fast: false too).
+  // #651: through the lens too (display-view-lens-regroup.ts); under a rolling shutter by row blocks (taken with fast: false too) for every
+  // render whatever its size, so a request takes one method and a region equals the whole view (the cost rule acts under a global shutter only).
   const lensFactory = context.lens, lensRolling = lensFactory?.rolling;
   const regroupEligible = (context.viewFast.defocusRegrouped || lensFactory?.bandRows !== undefined) && defocusKernel !== null && !shaped && !largeDefocus && !context.lensPsf &&
     (lensRolling === undefined || lensFactory!.bandRows !== undefined) &&
