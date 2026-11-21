@@ -9,11 +9,16 @@ import { wgslMinifyPlugin } from "./scripts/lib/wgsl-minify.mjs";
  * 16-21 s under coverage). Coverage runs therefore scale every timeout by the same factor;
  * test files with an explicit timeout use test/helpers/test-timeout.ts. No assertion, test
  * workload or coverage threshold changes.
+ * #668 (owner decision 2026-11-21): plain runs on CI (GitHub Actions sets CI=true) scale by 3.
+ * The hosted runners differ by about 1.7 times from one job to the next and the job's Vitest
+ * workers share 4 vCPUs; on run 44533609809 GPU-emulation tests took up to 140 s against a
+ * 120 s limit and 395 s against 300 s. Local runs keep a factor of 1, so a real slowdown
+ * still shows on a developer's machine. The factor also covers the default and hook timeouts.
  */
 const coverageRun = process.argv.some(
   (argument) => argument === "--coverage" || argument.startsWith("--coverage.") || argument.startsWith("--coverage=")
 );
-const timeoutScale = coverageRun ? 4 : 1;
+const timeoutScale = coverageRun ? 4 : process.env.CI ? 3 : 1;
 /*
  * A sharded coverage run (`--shard=k/n`, the four CI coverage parts) covers only part of the
  * suite, so it keeps raw coverage in its blob report and checks no threshold; the merge of all

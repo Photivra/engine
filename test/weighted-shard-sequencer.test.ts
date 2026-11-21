@@ -8,7 +8,7 @@ describe("weighted coverage shards", () => {
   const files = readdirSync("test").filter((name) => /\.test\.(ts|mjs)$/.test(name)).map((name) => `test/${name}`);
 
   it("runs every test file in exactly one part, for every part count CI uses", () => {
-    for (const count of [3, 10]) {
+    for (const count of [4, 10]) {
       const parts = partition(files, count, weights.files);
       expect(parts).toHaveLength(count);
       expect(parts.flat().sort()).toEqual([...files].sort());
