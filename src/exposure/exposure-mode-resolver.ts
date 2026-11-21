@@ -23,13 +23,14 @@ import type {
 } from "../equipment/exposure-capabilities.js";
 import {
   EXPOSURE_METER_TARGET_SCHEMA_VERSION,
+  validateMeterSnapshot,
   type ExposureMeterTarget
 } from "./metering-target.js";
 import {
   parseExposureProgramLineProfile,
   type ExposureProgramLineProfile
 } from "./program-line.js";
-import { rejectUnknownFields, requireInputKeys, requireTrimmedConfigString as requireNonEmptyString, requireInputPositiveFinite as requirePositiveFinite } from "../core/record-validation.js";
+import { rejectUnknownFields, requireConfigRecord, requireInputFinite, requireInputFiniteAtLeastZero, requireInputKeys, requireTrimmedConfigString as requireNonEmptyString, requireInputPositiveFinite as requirePositiveFinite } from "../core/record-validation.js";
 import { InvalidConfigurationError } from "../core/configuration-error.js";
 // foundation-06 (#699, 2.28.0, owner decision): the settings' log2 and exp2 are the engine's portable functions, so an automatic
 // exposure resolves to the same bits on every Node.js line (V8's log2 and pow differ in the last bits between V8 lines).
@@ -121,7 +122,10 @@ export type ExposureResolutionConstraint =
   | "shutter-grid-quantization"
   | "aperture-widest"
   | "aperture-narrowest"
-  | "aperture-grid-quantization";
+  | "aperture-grid-quantization"
+  /** Program mode with a fixed ISO: the target lies below the line's first node or above its last (foundation-07). */
+  | "program-line-minimum"
+  | "program-line-maximum";
 
 export type ExposureTargetResidual =
   | {
@@ -929,21 +933,8 @@ export type FullAutoExposureModeResolution =
         false;
     };
 
-function requireRecord(
-  value: unknown,
-  path: string
-): UnknownRecord {
-  if (
-    typeof value !== "object" ||
-    value === null ||
-    Array.isArray(value)
-  ) {
-    throw new InvalidConfigurationError(
-      path + " must be an object."
-    );
-  }
-  return value as UnknownRecord;
-}
+/** `<path> must be an object.` (the shared record check). */
+const requireRecord = (value: unknown, path: string): UnknownRecord => requireConfigRecord(value, path, null);
 
 function settingEquals(
   left: number,
@@ -1029,40 +1020,30 @@ function validateTarget(
     );
   }
 
-  const targetId = record.targetId;
-  if (
-    typeof targetId !== "string" ||
-    targetId.trim().length === 0
-  ) {
-    throw new InvalidConfigurationError(
-      "target.targetId must be a non-empty string."
-    );
-  }
+  requireNonEmptyString(record.targetId, "target.targetId");
 
-  requireRecord(
+  // foundation-08: the fields the result copies are checked too, and a resolved target's scale and stops must agree.
+  validateMeterSnapshot(
     record.sourceMeterSnapshot,
-    "target.sourceMeterSnapshot"
+    "target"
   );
+  requirePositiveFinite(record.baseTargetRelativeSignal, "target.baseTargetRelativeSignal");
+  requireInputFiniteAtLeastZero(record.meteredRelativeSignal, "target.meteredRelativeSignal");
+  requireInputFinite(record.exposureCompensationStops, "target.exposureCompensationStops");
 
   if (
     record.status === "resolved"
   ) {
-    requirePositiveFinite(
+    const scale = requirePositiveFinite(
       record
         .requiredExposureScaleToTarget,
       "target.requiredExposureScaleToTarget"
     );
     if (
-      typeof record
-        .exposureOffsetStopsToTarget !==
-        "number" ||
-      !Number.isFinite(
-        record
-          .exposureOffsetStopsToTarget
-      )
+      !(Math.abs(Math.log2(scale) - requireInputFinite(record.exposureOffsetStopsToTarget, "target.exposureOffsetStopsToTarget")) <= 1e-9)
     ) {
       throw new InvalidScientificInputError(
-        "target.exposureOffsetStopsToTarget must be finite."
+        "target.requiredExposureScaleToTarget is inconsistent with target.exposureOffsetStopsToTarget."
       );
     }
   } else if (
@@ -2728,6 +2709,10 @@ function programLineResidualConstraint(
     "maximum"
   ) {
     return "shutter-maximum";
+  }
+  // foundation-07: the target lies beyond an end of the line and no aperture or shutter limit was hit.
+  if (selection.position !== "within-line") {
+    return selection.position === "below-line" ? "program-line-minimum" : "program-line-maximum";
   }
   if (selection.apertureQuantized) {
     return "aperture-grid-quantization";

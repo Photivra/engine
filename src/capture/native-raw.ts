@@ -144,7 +144,9 @@ export function calculateNativeRawPlan(input: NativeRawInput): NativeRawPlan {
     bindingProfile:parseNativeEffectiveRasterColorSamplingBindingProfile(r.bindingProfile)};
   const mode=frame.captureModeProfile.modes.find(m=>m.modeId===frame.modeId);
   if(exposure.noise.model.id!==SENSOR_RAW_PRODUCER_NOISE_MODEL.id||exposure.noise.model.version!==SENSOR_RAW_PRODUCER_NOISE_MODEL.version||
-    frame.colorSamplingProfile.layout.kind!=="periodic-mosaic"||mode?.acquisition.kind!=="single-frame"||mode.perFrameSampling.kind!=="native-effective-raster"||(mode.reconstructionStages?.length??0)!==0)
+    frame.colorSamplingProfile.layout.kind!=="periodic-mosaic"||
+    // capture-17: every CFA phase must be present, or the white level (and the whole capture's work) fails only at the end.
+    native.pixelWidth<frame.colorSamplingProfile.layout.repeatWidthSites||native.pixelHeight<frame.colorSamplingProfile.layout.repeatHeightSites||mode?.acquisition.kind!=="single-frame"||mode.perFrameSampling.kind!=="native-effective-raster"||(mode.reconstructionStages?.length??0)!==0)
     throw new InvalidConfigurationError("Native RAW requires exact noise identity and single-frame native periodic CFA.");
   // The binding is one affine mapping for the whole frame, so checking both corners covers it. Do this before any provider work.
   for(const p of [{x:0,y:0},{x:native.pixelWidth-1,y:native.pixelHeight-1}]){
@@ -208,7 +210,8 @@ export function createNativeRawTaskWithCadence(input: NativeRawInput,provider: N
       if(state!=="ready")throw new InvalidConfigurationError("Native RAW task is single-use.");state="running";
       try{
         const gate=sharedGate??createHostYieldGate(cadence);sharedGate?.restart();
-        const layout=plan.frame.colorSamplingProfile.layout;if(layout.kind!=="periodic-mosaic")throw new InvalidConfigurationError("Native RAW requires periodic CFA.");
+        // calculateNativeRawPlan (above, on the same frozen plan) already refused any other layout kind.
+        const layout=plan.frame.colorSamplingProfile.layout as Extract<typeof plan.frame.colorSamplingProfile.layout,{kind:"periodic-mosaic"}>;
         const white=createPhaseWhiteLevelAccumulator(native.pixelWidth,layout.repeatWidthSites,layout.repeatHeightSites);
         output={plan,codes:new Uint16Array(length),blackLevels:new Uint16Array(length),digitalSaturationCodes:new Uint16Array(length),saturationFlags:new Uint8Array(length),effectiveSaturationCodes:new Uint16Array(layout.repeatWidthSites*layout.repeatHeightSites)};
         for(let y=rowStart;y<rowEnd;y++)for(let x=colStart;x<colEnd;x+=tileWidth){

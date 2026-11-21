@@ -386,7 +386,7 @@ describe(
           phaseRefractiveIndex: 0
         })
       ).toThrow(
-        "phaseRefractiveIndex must be greater than zero"
+        "phaseRefractiveIndex must be from 1 through 1.01"
       );
 
       expect(() =>
@@ -581,3 +581,13 @@ describe(
     });
   }
 );
+
+describe("air phase refractive index range (sensor-22, #701)", () => {
+  it("refuses an index below 1 or far above it and keeps standard air unchanged", () => {
+    for (const n of [0.5, 0.9999, 1.02, 1e6, Number.NaN]) {
+      expect(() => parseSourcedAirPhaseRefractiveIndex({ ...airIndex(), phaseRefractiveIndex: n }), String(n)).toThrow("phaseRefractiveIndex must be from 1 through 1.01");
+    }
+    expect(parseSourcedAirPhaseRefractiveIndex({ ...airIndex(), phaseRefractiveIndex: 1.0003 }).phaseRefractiveIndex).toBe(1.0003);
+    expect(parseSourcedAirPhaseRefractiveIndex({ ...airIndex(), phaseRefractiveIndex: 1 }).phaseRefractiveIndex).toBe(1);
+  });
+});

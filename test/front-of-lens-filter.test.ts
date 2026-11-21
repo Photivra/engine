@@ -14,6 +14,7 @@ import {
   type SceneRadianceEvaluationRequest,
   type SceneRadianceEvaluationResult
 } from "../src/index.js";
+import { prepareSceneRadianceToSensorIrradianceValue } from "../src/optics/scene-to-sensor-irradiance.js";
 
 const evidence = (
   ref: string
@@ -845,5 +846,40 @@ describe("front filter fail-closed profile boundaries", () => {
     ).toBe("calibrated");
     expect(mixed.scientificStatus)
       .toBe("approximation");
+  });
+});
+
+
+describe("prepared optical bridge with front-of-lens filters (optics-20, #700)", () => {
+  const base = { profile: optics(), focalLengthMm: 50, nominalFNumber: 4, focus: { kind: "infinity-focus" as const } };
+  const field = { kind: "unity" as const };
+
+  it("equals the public function for 0, 1 and 2 filters across wavelengths", () => {
+    for (const filters of [undefined, [neutralLinear(0.5)], [neutralLinear(0.5), spectral()]]) {
+      const prepared = prepareSceneRadianceToSensorIrradianceValue({ ...base, ...(filters === undefined ? {} : { frontOfLensFilters: filters }) });
+      for (const w of [450, 500, 550, 600, 650]) {
+        const expected = calculateSceneRadianceToSensorIrradiance({ ...base, sceneRadianceRequest: request(w), sceneRadianceResult: radiance(w),
+          imagePointMm: { x: 0, y: 0 }, fieldThroughput: field, ...(filters === undefined ? {} : { frontOfLensFilters: filters }) })
+          .value.sensorPlaneSpectralIrradianceWattsPerSquareMeterNanometer;
+        expect(prepared(request(w), radiance(w), { x: 0, y: 0 }, field)).toBe(expected);
+      }
+    }
+  });
+
+  it("still refuses an invalid filter", () => {
+    const bad = { ...neutralLinear(0.5), position: "behind-lens" } as unknown as FrontOfLensFilterProfile;
+    expect(() => prepareSceneRadianceToSensorIrradianceValue({ ...base, frontOfLensFilters: [bad] })(request(), radiance(), { x: 0, y: 0 }, field))
+      .toThrow('frontOfLensFilterProfile.position must be "front-of-lens".');
+    // eslint-disable-next-line no-sparse-arrays
+    expect(() => prepareSceneRadianceToSensorIrradianceValue({ ...base, frontOfLensFilters: [, neutralLinear(0.5)] as unknown as FrontOfLensFilterProfile[] })(request(), radiance(), { x: 0, y: 0 }, field))
+      .toThrow("frontOfLensFilterProfile must be an object");
+  });
+
+  it("parses each filter once per preparation, not once per query", () => {
+    let reads = 0;
+    const counted = new Proxy(neutralLinear(0.5), { get(target, key, receiver): unknown { if (key === "filterId") reads += 1; return Reflect.get(target, key, receiver); } });
+    const prepared = prepareSceneRadianceToSensorIrradianceValue({ ...base, frontOfLensFilters: [counted] });
+    for (let i = 0; i < 5; i += 1) prepared(request(), radiance(), { x: 0, y: 0 }, field);
+    expect(reads).toBe(1);
   });
 });

@@ -38,6 +38,7 @@ import type {
 } from "./spatio-spectral-reduction.js";
 import { requireInputObject, requireInputKeys, rejectUnknownVariantFields, UNCERTAINTY_VARIANT_FIELDS, requireConfigRecord as requireRecord, requireConfigString as requireNonEmptyString, requireConfigPositiveFinite as requirePositiveFinite, requireConfigNonNegativeFinite as requireFiniteNonNegative } from "../core/record-validation.js";
 import { parseReferenceConditionPolicy, conditionsMatch } from "./response-application-compatibility.js";
+import { parseReferenceConditions } from "./spectral-response.js";
 
 export type SensorResponseOperatingInputRange =
   | {
@@ -279,90 +280,6 @@ export function parseUncertainty(
   );
 }
 
-function parseReferenceConditions(
-  value: unknown,
-  path: string
-): SensorSpectralReferenceConditions {
-  const record =
-    requireRecord(value, path, ["temperatureC", "incidenceAngleDegreesFromNormal", "polarization"]);
-  const result:
-    SensorSpectralReferenceConditions =
-      {};
-
-  if (
-    record.temperatureC !== undefined
-  ) {
-    if (
-      typeof record.temperatureC !==
-        "number" ||
-      !Number.isFinite(
-        record.temperatureC
-      )
-    ) {
-      throw new InvalidConfigurationError(
-        path +
-          ".temperatureC must be finite."
-      );
-    }
-    result.temperatureC =
-      record.temperatureC;
-  }
-
-  if (
-    record.incidenceAngleDegreesFromNormal !==
-    undefined
-  ) {
-    const angle =
-      record
-        .incidenceAngleDegreesFromNormal;
-    if (
-      typeof angle !== "number" ||
-      !Number.isFinite(angle) ||
-      angle < 0 ||
-      angle > 90
-    ) {
-      throw new InvalidConfigurationError(
-        path +
-          ".incidenceAngleDegreesFromNormal must be finite from 0 through 90."
-      );
-    }
-    result.incidenceAngleDegreesFromNormal =
-      angle;
-  }
-
-  if (
-    record.polarization !== undefined
-  ) {
-    if (
-      record.polarization !==
-        "unpolarized" &&
-      record.polarization !==
-        "unspecified"
-    ) {
-      throw new InvalidConfigurationError(
-        path +
-          ".polarization is invalid."
-      );
-    }
-    result.polarization =
-      record.polarization;
-  }
-
-  if (
-    result.temperatureC === undefined &&
-    result
-      .incidenceAngleDegreesFromNormal ===
-      undefined &&
-    result.polarization === undefined
-  ) {
-    throw new InvalidConfigurationError(
-      path +
-        " must declare at least one condition."
-    );
-  }
-
-  return result;
-}
 
 function parseInputRange(
   value: unknown,
@@ -892,6 +809,7 @@ function validateReductionIdentity(
     SensorResponseApplicationCompatibilityAssessment
 ): void {
   requireInputObject(reduction, "reduction input");
+  requireInputObject(compatibility, "compatibility input");
   if (
     reduction.responseProfileId !==
       compatibility
@@ -1003,6 +921,10 @@ export function assessSensorResponseOperatingRange(
   const wavelengthRange =
     input.reduction
       .wavelengthRangeNanometers;
+  // sensor-15: an incomplete reduction is refused, not authorized.
+  if (!(wavelengthRange?.minimum < wavelengthRange?.maximum && Number.isFinite(wavelengthRange.minimum) && Number.isFinite(wavelengthRange.maximum))) {
+    throw new InvalidScientificInputError("reduction.wavelengthRangeNanometers must hold a finite minimum below its maximum.");
+  }
   if (
     wavelengthRange.minimum <
       profile.wavelengthApplicability
@@ -1059,9 +981,13 @@ export function assessSensorResponseOperatingRange(
     spectralInputModel.kind ===
       "per-spectral-bin"
   ) {
+    const bins = input.reduction.perWavelength;
+    if (!Array.isArray(bins) || bins.length === 0) {
+      throw new InvalidScientificInputError("reduction.perWavelength must hold at least one spectral bin.");
+    }
     for (
       const entry of
-      input.reduction.perWavelength
+      bins
     ) {
       if (
         entry.wavelengthMeasureNanometers >

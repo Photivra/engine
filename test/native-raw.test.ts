@@ -94,3 +94,10 @@ describe("bounded packed native RAW",()=>{
     const complete=createNativeRawTask(f.input,f.provider);await complete.run();complete.cancel();expect(()=>complete.takeOutput()).toThrow();
   });
 });
+describe("a raster smaller than one CFA repeat (capture-17, #698)",()=>{
+  it("is refused by the plan, before any tile is read",()=>{
+    for(const [w,h] of [[4,1],[1,4],[1,1],[3,1],[1,3]] as const)
+      expect(()=>calculateNativeRawPlan(nativeRawFixture(w,h).input),w+"x"+h).toThrow("Native RAW requires exact noise identity and single-frame native periodic CFA.");
+    for(const [w,h] of [[2,2],[4,3]] as const)expect(calculateNativeRawPlan(nativeRawFixture(w,h).input).pixelCount).toBe(w*h);
+  });
+});

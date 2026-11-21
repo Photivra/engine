@@ -1877,6 +1877,17 @@ root exports of the built package, minified, gzip level 9; `test/capture-bundle.
 
   The rows are not additive: the entry's small chunks fold differently once the lens chunk exists, so the merged fast row is
   below step 5's alone.
+
+  **2.28.0 steps 6 and 8 merged (owner rule 2026-11-21, #691).** Measured with rolldown 1.2.14 on the integration tree with
+  step 6 (groups F and D) and step 8 (GPU and CI, low-severity fixes) merged; each limit is that measurement rounded up to the
+  next 100 B, at or below 2.27.0's limits (fast 338,900 B, on demand 52,000 B):
+
+  | Row (worker shape, gzip) | Merged | Limit |
+  | --- | --- | --- |
+  | fast worker | **338,458 B** | 338,500 B |
+  | on demand | **51,893 B** | 51,900 B |
+  | export | **10,396 B** | 10,400 B (unchanged) |
+  | lens | **10,200 B** | 10,200 B (unchanged) |
 - **Shipped shaders are minified (2.14, #536).** `npm run build` strips comments and indentation from the WGSL source
   (`scripts/minify-wgsl-dist.mjs`, see [WebGPU, Shipped shader text](WEBGPU.md#shipped-shader-text)). Measured on the app's
   production build (Vite 8, app 0.50.0 at `a82a5eb`, engine `main` at `42ec9d8` packed before and after): the GPU session

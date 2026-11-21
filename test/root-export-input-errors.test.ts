@@ -307,7 +307,10 @@ describe("release and focus root functions: a missing sub-object fails with a do
     ["resolveFocusTargetObservation", { state, stateId: "s2", event: "acquire", observation }],
     ["setFocusLock", { state, stateId: "s3", locked: true, eventTimeSeconds: 1 }],
     ["setManualFocusState", { state: engine.createFocusControlState({ stateId: "m", profile, mode: "manual", initialFocus: { kind: "infinity" } }), stateId: "s4", focus: { kind: "finite", distanceM: 3 }, eventTimeSeconds: 1, commandId: "c" }],
-    ["assessFocusReleaseGate", { state, profile, priority: "focus-priority" }]
+    ["assessFocusReleaseGate", { state, profile, priority: "focus-priority" }],
+    // capture-32 (#698): the cancel function takes the scheduled sequence the resolver returns.
+    ["createCancelledReleaseSequence", { sequence: engine.resolveReleaseSequence({ sequenceId: "r", releaseRequestTimeSeconds: 0, sequenceSeedUint32: 1,
+      drive: { kind: "single" }, bracket: { kind: "none" }, baseState: baseState as never, releaseCapabilities: tier.body.release, exposureCapabilities }), completedFrameCount: 1, cancelledAtSeconds: 1 }]
   ];
   it.each(cases)("%s: the valid input succeeds and every sub-object variant fails with a domain error", async (name, input) => {
     const fn = engine[name as keyof typeof engine] as (value: unknown) => unknown;

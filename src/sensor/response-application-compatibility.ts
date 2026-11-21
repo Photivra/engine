@@ -26,6 +26,7 @@ import type {
   SensorSpectralReferenceConditions,
   SensorSpectralResponseScientificStatus
 } from "./spectral-response.js";
+import { parseReferenceConditions } from "./spectral-response.js";
 import type {
   SensorSpatioSpectralIrradianceReduction
 } from "./spatio-spectral-reduction.js";
@@ -443,11 +444,11 @@ function requiredSourcePlane(
   scope:
     SensorSpatioSpectralIrradianceReduction["responseScope"]
 ): SensorResponseSourcePlane {
-  return scope ===
-    "sensor-package-incident-effective-channel-response"
-    ? "sensor-package-incident"
-    : "site-incident";
+  if (scope === "sensor-package-incident-effective-channel-response") return "sensor-package-incident";
+  if (scope !== "site-incident-effective-channel-response" && scope !== "site-incident-channel-filter-times-detector-eqe") throw new InvalidConfigurationError("reduction.responseScope is invalid.");
+  return "site-incident";
 }
+
 
 
 export function conditionsMatch(
@@ -491,6 +492,7 @@ function validateReductionBoundary(
     SensorSpatioSpectralIrradianceReduction
 ): number {
   requireInputObject(reduction, "reduction input");
+  requireInputObject(reduction.responseUncertainty, "reduction.responseUncertainty");
   if (
     reduction.outputMeaning !==
       "pre-response-spatio-spectral-radiometric-reduction" ||
@@ -556,6 +558,8 @@ export function assessSensorResponseApplicationCompatibility(
     );
   const sourcePlane =
     parseSourcePlane(input.sourcePlane);
+  // sensor-16: the operating conditions are checked as the profile side's reference conditions are; the result echoes the input.
+  if (input.operatingConditions !== undefined) parseReferenceConditions(input.operatingConditions, "operatingConditions");
   const blockers:
     SensorResponseApplicationCompatibilityBlocker[] =
       [];

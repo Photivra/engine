@@ -909,8 +909,17 @@ function parsePolarizationState(
   return { degreeOfLinearPolarization: degree, angleDegrees: angle };
 }
 
+/**
+ * Twice an angle in radians, for a polarization angle in degrees (period 180). 2 * angle * pi overflows near the top of
+ * the double range; only then is the angle first reduced modulo 180 (2.28.0, optics-23), so every finite result is unchanged.
+ */
+function twiceRadians(angleDegrees: number): number {
+  const twice = (2 * angleDegrees * Math.PI) / 180;
+  return Number.isFinite(twice) ? twice : (2 * (angleDegrees % 180) * Math.PI) / 180;
+}
+
 function stokesFromState(state: LinearPolarizationState): LinearStokes {
-  const twice = (2 * state.angleDegrees * Math.PI) / 180;
+  const twice = twiceRadians(state.angleDegrees);
   return {
     s0: 1,
     s1: state.degreeOfLinearPolarization * Math.cos(twice),
@@ -939,7 +948,7 @@ function applyLinearPolarizer(
   k2: number,
   axisDegrees: number
 ): LinearStokes {
-  const twice = (2 * axisDegrees * Math.PI) / 180;
+  const twice = twiceRadians(axisDegrees);
   const c = Math.cos(twice);
   const sn = Math.sin(twice);
   const sum = (k1 + k2) / 2;
@@ -963,14 +972,26 @@ interface ResolvedComponent {
   outgoing: LinearStokes;
 }
 
+/** Profiles parsed once by {@link prepareFrontOfLensFilterProfile}; private to the engine, never handed to callers. */
+const PREPARED_PROFILES = /* @__PURE__ */ new WeakSet<FrontOfLensFilterProfile>();
+
+/**
+ * @internal Parses one profile for repeated queries (2.28.0, optics-20): the result is held by the caller only, and the
+ * per-query composition then skips its re-parse. Same checks and errors as {@link parseFrontOfLensFilterProfile}.
+ */
+export function prepareFrontOfLensFilterProfile(value: unknown): FrontOfLensFilterProfile {
+  const profile = parseFrontOfLensFilterProfile(value);
+  PREPARED_PROFILES.add(profile);
+  return profile;
+}
+
 function resolveComponent(
   input: ResolveFrontOfLensFilterTransmissionInput,
   incoming: LinearStokes
 ): ResolvedComponent {
-  const profile =
-    parseFrontOfLensFilterProfile(
-      input.profile
-    );
+  const profile = PREPARED_PROFILES.has(input.profile)
+    ? input.profile
+    : parseFrontOfLensFilterProfile(input.profile);
   const wavelength =
     scientificWavelength(
       input.wavelengthNanometers

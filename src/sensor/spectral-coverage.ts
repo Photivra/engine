@@ -181,6 +181,7 @@ export function createSensorSpectralCoverageParticipant(
       input.channelId;
 
   if (
+    typeof participantId !== "string" ||
     participantId.trim().length === 0
   ) {
     throw new InvalidConfigurationError(

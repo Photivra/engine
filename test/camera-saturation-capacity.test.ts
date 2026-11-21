@@ -578,3 +578,11 @@ describe(
     });
   }
 );
+
+describe("nested input errors (sensor-11, #701)", () => {
+  it("rejects accumulated charge without a site with a domain error", () => {
+    const noSite: Record<string, unknown> = { ...charge(80, 150) }; delete noSite.site;
+    expect(() => assessSensorCameraSaturationCapacity({ accumulatedCharge: noSite as never, saturationProfile: profile(), operatingStateId: "state-a", operatingTemperatureC: 20 }))
+      .toThrow(expect.objectContaining({ name: "InvalidConfigurationError" }));
+  });
+});

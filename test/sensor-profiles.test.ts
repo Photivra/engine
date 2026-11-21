@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it } from "vitest";
-import { GENERIC_THIRD_STOP_ISO_SETTINGS, InvalidConfigurationError, InvalidScientificInputError, SENSOR_PROFILE_IDS, SENSOR_PROFILES, resolveSensorProfile as sensorProfile, simulateCapture,
+import { GENERIC_THIRD_STOP_ISO_SETTINGS, InvalidConfigurationError, InvalidScientificInputError, SENSOR_PROFILE_IDS, calculateSensorProfileFrame, resolveSensorProfileIsoSettings, SENSOR_PROFILES, resolveSensorProfile as sensorProfile, simulateCapture,
   simulateDisplayView, type SimulateCaptureOptions, type SimulateCaptureResult } from "../src/index.js";
 import { sensorProfileSaturationIso } from "../src/equipment/sensor-profile-body.js";
 import { scaledTimeout } from "./helpers/test-timeout.js";
@@ -112,6 +112,23 @@ describe("sensor profile records (#554)", () => {
     await bad({ ...phone, goodFor: [42] }, "sensor.profile.goodFor is invalid.");
     await bad({ ...phone, provenance: { fullWellElectrons: 1 } }, "sensor.profile.provenance");
     await bad({ ...phone, fixedLenses: "tele" }, "sensor.profile.fixedLenses must be null or phone.");
+  }, scaledTimeout(60_000));
+
+  // sensor-02 (#701), foundation-04 (#699): a field named like an Object.prototype member is an unknown field, not a schema entry.
+  it("refuse extra fields named like Object.prototype members as unknown fields", async () => {
+    const full = sensorProfile("full-frame-24mp-bsi-2020s");
+    const extras: [string, unknown][] = [["bogus", 1], ["constructor", 1], ["toString", 1], ["valueOf", "x"], ["hasOwnProperty", 1]];
+    const records: [string, unknown][] = extras.map(([k, v]) => [k, { ...full, [k]: v }]);
+    records.push(["__proto__", JSON.parse(JSON.stringify({ ...full, x: 1 }).replace('"x":1', '"__proto__":1'))]);
+    for (const [key, record] of records) {
+      const message = "Unknown sensor.profile field: " + key + ".";
+      await expect(capture({ profile: record as never }), key).rejects.toThrow(message);
+      await expect(capture({ profile: record as never }), key).rejects.toThrow(InvalidConfigurationError);
+      expect(() => calculateSensorProfileFrame({ profile: record as never, width: 16, height: 16 }), key).toThrow(InvalidConfigurationError);
+      expect(() => calculateSensorProfileFrame({ profile: record as never, width: 16, height: 16 }), key).toThrow("Unknown profile field: " + key + ".");
+      expect(() => resolveSensorProfileIsoSettings(record as never), key).toThrow(InvalidConfigurationError);
+      expect(() => resolveSensorProfileIsoSettings(record as never), key).toThrow("Unknown profile field: " + key + ".");
+    }
   }, scaledTimeout(60_000));
 
   it("accept a caller's modified copy, re-rated by the same rule", async () => {

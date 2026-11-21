@@ -253,7 +253,10 @@ export type ExposureResolutionConstraint =
   | "shutter-grid-quantization"
   | "aperture-widest"
   | "aperture-narrowest"
-  | "aperture-grid-quantization";
+  | "aperture-grid-quantization"
+  /** Program mode with a fixed ISO: the target lies below the line's first node or above its last (foundation-07). */
+  | "program-line-minimum"
+  | "program-line-maximum";
 ```
 
 ## ExposureTargetResidual

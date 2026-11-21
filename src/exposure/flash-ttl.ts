@@ -17,7 +17,8 @@
 import { approximationResult, type CalculationResult } from "../core/calculation-result.js";
 import { InvalidConfigurationError } from "../core/configuration-error.js";
 import { InvalidScientificInputError } from "../core/validation.js";
-import { rejectUnknownFields, requireInputKeys, requireInputObject } from "../core/record-validation.js";
+import { requireFiniteResult } from "../color/colorimetry-math.js";
+import { rejectUnknownFields, requireInputFinite, requireInputKeys, requireInputObject } from "../core/record-validation.js";
 import { parseManualFlashProfile, type ManualFlashProfile } from "./flash.js";
 import {
   meterRelativeExposure,
@@ -62,9 +63,12 @@ export interface FlashGuideNumberInput {
  */
 export function calculateFlashGuideNumber(input: FlashGuideNumberInput): number {
   requireInputKeys(input, "calculateFlashGuideNumber", ["fullPowerGuideNumberMetersIso100", "powerFraction", "iso"]);
-  return requirePositive(input.fullPowerGuideNumberMetersIso100, "fullPowerGuideNumberMetersIso100") *
+  const guideNumber = requirePositive(input.fullPowerGuideNumberMetersIso100, "fullPowerGuideNumberMetersIso100") *
     Math.sqrt(requireFraction(input.powerFraction, "powerFraction")) *
     Math.sqrt(requirePositive(input.iso, "iso") / 100);
+  // foundation-10: a bare number, outside the result envelope's finite check.
+  requireFiniteResult([guideNumber], "calculateFlashGuideNumber");
+  return guideNumber;
 }
 
 export interface FlashPowerForDistanceInput {
@@ -98,9 +102,11 @@ export function calculateFlashPowerForDistance(input: FlashPowerForDistanceInput
   const minimum = requireFraction(input.minimumPowerFraction, "minimumPowerFraction");
   const required = (distance * aperture / gnIso) ** 2;
   const power = Math.min(1, Math.max(minimum, required));
+  const errorStops = Math.log2(power / required);
+  requireFiniteResult([required, errorStops], "calculateFlashPowerForDistance");
   return { requiredPowerFraction: required, powerFraction: power,
     status: required < minimum ? "clamped-at-minimum-power" : required > 1 ? "clamped-at-full-power" : "within-range",
-    flashExposureErrorStops: Math.log2(power / required), maximumDistanceM: gnIso / aperture };
+    flashExposureErrorStops: errorStops, maximumDistanceM: gnIso / aperture };
 }
 
 export interface ResolveTtlFlashExposureInput {
@@ -214,10 +220,7 @@ export function resolveTtlFlashExposure(input: ResolveTtlFlashExposureInput): Ca
   if (typeof k !== "number" || !Number.isFinite(k) || k < 0) {
     throw new InvalidScientificInputError("ambientScaleToMainExposure must be a finite number greater than or equal to zero.");
   }
-  const fec = input.flashExposureCompensationStops;
-  if (typeof fec !== "number" || !Number.isFinite(fec)) {
-    throw new InvalidScientificInputError("flashExposureCompensationStops must be finite.");
-  }
+  const fec = requireInputFinite(input.flashExposureCompensationStops, "flashExposureCompensationStops");
   const syncFactor = input.syncEnergyFactor === undefined ? 1 : requireFraction(input.syncEnergyFactor, "syncEnergyFactor");
   const flashOnly: ExposureMeteringSampleSet = { ...input.preFlashSampleSet,
     measurementId: input.preFlashSampleSet.measurementId + ":flash-only",

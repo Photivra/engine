@@ -281,7 +281,10 @@ export function calculatePrintPlan(value: PrintPlanInput): CalculationResult<Pri
     if (!positiveSupported(paperWidth, paperHeight) || !Number.isFinite(x) || !Number.isFinite(y)) return unsupported();
     plan.contain = { paperMm: { width: paperWidth, height: paperHeight }, paperRotated: fitted.paperRotated, bordersMm: { left: x, right: x, top: y, bottom: y } };
   }
-  const aspectError = Math.abs((width / height) / (native.pixelWidth / native.pixelHeight) - 1);
+  // capture-28: the ratio has no unit. A size whose ratio in its own unit is exact reports 0 (the conversion to mm must not add
+  // rounding); every other size keeps the error computed from the mm sizes.
+  const nativeAspect = native.pixelWidth / native.pixelHeight;
+  const aspectError = imageWidth / imageHeight / nativeAspect === 1 ? 0 : Math.abs((width / height) / nativeAspect - 1);
   if (!Number.isFinite(aspectError)) return unsupported();
   plan.relativeAspectError = aspectError;
   const nativeDiagnostics = diagnostics(native, width, height, distance);

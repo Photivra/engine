@@ -510,11 +510,11 @@ export function validateSensorSpectralQuadrature(
   }
 
   const rangeMinimum = requirePositiveFinite(
-    quadrature.wavelengthRangeNanometers.minimum,
+    quadrature.wavelengthRangeNanometers?.minimum,
     "spectralQuadrature.wavelengthRangeNanometers.minimum"
   );
   const rangeMaximum = requirePositiveFinite(
-    quadrature.wavelengthRangeNanometers.maximum,
+    quadrature.wavelengthRangeNanometers?.maximum,
     "spectralQuadrature.wavelengthRangeNanometers.maximum"
   );
   if (!(rangeMinimum < rangeMaximum)) {
@@ -649,7 +649,7 @@ export function validateSensorSpectralQuadrature(
     (node, nodeArrayIndex) => {
       const spectralSampleIndex =
         requireNonNegativeSafeInteger(
-          node.spectralSampleIndex,
+          node?.spectralSampleIndex,
           "spectralQuadrature.nodes[" +
             nodeArrayIndex +
             "].spectralSampleIndex"

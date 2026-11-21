@@ -18,7 +18,7 @@ import { InvalidConfigurationError } from "../core/configuration-error.js";
 import { parseSimulatedCapture, type SimulatedCapture } from "./simulated-capture.js";
 import { parseSensorColorSamplingProfile, type SensorColorSamplingProfile } from "../sensor/color-sampling.js";
 import { parseCaptureModeProfile, type CaptureModeProfile } from "../sensor/capture-mode.js";
-import { parseNativeEffectiveRasterColorSamplingBindingProfile, resolveCaptureModeColorSamplingContributors,
+import { parseNativeEffectiveRasterColorSamplingBindingProfile, prepareCaptureModeColorSamplingContributors,
   type NativeEffectiveRasterColorSamplingBindingProfile } from "../sensor/capture-color-sampling-binding.js";
 import { type SensorRawCaptureSample } from "../sensor/raw-reconstruction.js";
 
@@ -124,10 +124,11 @@ export function parseSensorRawFrameInput(value: unknown): SensorRawFrameInput {
     if (first.effectiveSaturationCode !== s.effectiveSaturationCode || first.systemConversionGainElectronsPerCode !== s.systemConversionGainElectronsPerCode ||
         first.readNoiseRmsElectrons !== s.readNoiseRmsElectrons) throw new InvalidConfigurationError("RAW-frame readout white level, gain and read noise must be constant per CFA phase.");
   }
+  // sensor-27: the binding and mode are parsed and resolved once for every site.
+  const contributorsAt = prepareCaptureModeColorSamplingContributors({ nativeRaster: native, captureModeProfile, modeId, colorSamplingProfile, bindingProfile });
   for (let i = 0; i < samples.length; i++) {
     const s = samples[i]!, x = i%native.pixelWidth, y = Math.floor(i/native.pixelWidth);
-    const c = resolveCaptureModeColorSamplingContributors({ nativeRaster: native, captureModeProfile, modeId,
-      colorSamplingProfile, bindingProfile, modeSampleIndexFullFrame: { x, y } });
+    const c = contributorsAt({ x, y });
     if (c.totalContributorSites !== 1 || c.channelComposition.kind !== "single-channel" ||
         s.captureModeId !== modeId || s.colorSamplingProfileId !== colorSamplingProfile.profileId ||
         s.modeSampleIndexFullFrame.x !== x || s.modeSampleIndexFullFrame.y !== y ||

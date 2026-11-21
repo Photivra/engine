@@ -167,7 +167,8 @@ function parseChannelIds(
     );
   }
 
-  const ids = value.map((entry, index) =>
+  // Array.from visits holes too, so a sparse array fails the per-entry check (sensor-12).
+  const ids = Array.from(value, (entry, index) =>
     requireNonEmptyString(
       entry,
       path + "[" + index + "]"

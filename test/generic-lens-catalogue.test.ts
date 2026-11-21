@@ -309,3 +309,13 @@ describe("the catalogue lenses' generic correction profiles (#549)", () => {
     expect(() => createGenericLensCorrectionProfile({ lensId: "pv-24-1.8", activeImagingArea: FULL_FRAME, state: state("pv-24-1.8", 24, 1.4) })).toThrow(/range/);
   });
 });
+
+describe("resolveGenericLens limitations (optics-07, #700)", () => {
+  it("say which effects simulateCapture renders on request", () => {
+    const text = resolveGenericLens({ lensId: "pv-16-2.8", activeImagingArea: { widthMm: 36, heightMm: 24 } }).limitations.join(" ");
+    expect(text).not.toMatch(/renders none/);
+    expect(text).toMatch(/lens\.catalogue\.flare/);
+    expect(text).toMatch(/lens\.focusScatter/);
+    expect(text).toMatch(/[Gg]hosts/);
+  });
+});

@@ -48,8 +48,11 @@
  * - With spherical aberration the intensity is not uniform (and has a caustic when |b| > c/6 on the bright-rimmed side), so
  *   the pupil is sampled on a square grid of step h ≤ 1/64, fine enough that neighbouring rays land at most 1/8 site apart,
  *   each grid cell's row segment weighted by its exact overlap with the open pupil's chord, and every ray binned into the
- *   site cell it lands in: method `"pupil-ray-binning"`, a quadrature with an error of the order of the ray spacing at the
- *   cells the blur's edge or caustic crosses.
+ *   site cell it lands in: method `"pupil-ray-binning"`, a quadrature. Each ray counts whole in one cell, so every cell's
+ *   count is uncertain by the rays along its boundary and the error is a fixed pattern over the whole blur, not only at its
+ *   edge or caustic. Measured (2.28.0, optics-28 in #700) for a 40-site blur with b = 5 sites against a pupil step about ten
+ *   times finer: an L1 kernel difference of about 2e-2 (8e-3 in front of focus) and single taps off by up to about 10 % of
+ *   the peak tap.
  * Every step uses correctly rounded operations and the engine's portable trigonometry, so the weights are the same bits in
  * every JavaScript engine, and they are normalized as the disc's are (exact sum 1 within half an ulp of the largest weight,
  * which takes up the rounding instead of the centre: off axis the cat's eye can leave the centre cell empty).

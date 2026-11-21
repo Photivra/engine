@@ -14,6 +14,7 @@ import { InvalidConfigurationError } from "../core/configuration-error.js";
 import { fastFormatDefault, resolveFast } from "../facade/fast-resolution.js";
 import { applyDngOpcodes, type DngStageImage } from "./dng-opcodes.js";
 import type { ImportedDngRaw } from "./dng-import.js";
+import { requireImportedDngRaw } from "./dng-raw-measurements.js";
 
 export interface DevelopDngStageImageOptions {
   /** The output the development is for ("srgb-8" or "srgb-16" on screen; "dng", "jpeg" or "png" exports). Default "srgb-8" (fast; owner, 2026-11-11). */
@@ -36,7 +37,7 @@ function fail(message: string): never { throw new InvalidConfigurationError("dev
 
 /** Builds the stage-2 (CFA) or stage-3 (LinearRaw) image of an imported DNG, normalized 0..1, interleaved by sample. */
 export function developDngStageImage(raw: ImportedDngRaw, options: DevelopDngStageImageOptions = {}): DngStageImageResult {
-  if (raw === null || typeof raw !== "object" || !(raw.codes instanceof Uint16Array)) fail("raw must be an ImportedDngRaw.");
+  requireImportedDngRaw(raw, "developDngStageImage");
   if (options === null || typeof options !== "object") fail("options must be an object.");
   for (const key of Object.keys(options)) if (!["format", "fast", "opcodes"].includes(key)) fail("unknown option " + JSON.stringify(key) + ".");
   const format = options.format ?? "srgb-8";

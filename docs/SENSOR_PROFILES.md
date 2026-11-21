@@ -133,18 +133,20 @@ engine's ISO gain builder refuses any regime that would need more, so a capture 
 Kinds: **P** published (source key below), **D** derived from published values, **X** a design value inside the range the
 sources support. Figures under "Calculated" are the engine's model figures (#555): the engineering dynamic range at base
 ISO and at ISO 3200, and the mid-grey SNR at ISO 3200 with 1/32 of the default light (the Professional tier gives 14.7 and
-10.7 stops and an SNR of 15.1).
+10.7 stops and an SNR of 15.6). Each row is `calculateSensorFigures({ profile: resolveSensorProfile(id), iso: 3200 })`
+(`{ iso: 3200 }` for the Professional tier): its `dynamicRangeByIso` entry at the base ISO, its `dynamicRangeStops` and its
+`midGrey.snr`, rounded to one decimal; `test/sensor-figures.test.ts` checks the table against the function.
 
 | Profile id | Name | Tag | Pixels, pitch | Sensor, mm | QE | Full well, e⁻ | Read noise LCG / HCG, e⁻ (switch) | ADC | ISO | Readout | Calculated |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `full-frame-24mp-bsi-2020s` | Full frame 24 MP BSI, 2020s | consumer | 6072 × 4042 P, 5.94 µm P | 36.07 × 24.01 D | 0.80 P | 100 000 P | 6.4 / 1.1 P (ISO 500 D) | 14 P | 100 D – 51 200 X | 50 ms X | 13.9 / 11.5 stops, SNR 18.9 |
-| `full-frame-45mp-stacked-2020s` | Full frame 45 MP stacked, 2020s | professional | 8256 × 5504 X, 4.36 µm D | 36 × 24 X | 0.80 X | 69 000 X | 3.5 / 1.5 X (ISO 250 X) | 14 X | 80 D – 25 600 X | 5 ms X | 14.2 / 10.2, SNR 13.8 |
-| `full-frame-24mp-stacked-sports-2020s` | Full frame 24 MP stacked (sports), 2020s | professional | 6000 × 4000 X, 6.0 µm D | 36 × 24 X | 0.80 X | 80 000 X | 3.0 / 1.0 X (ISO 400 X) | 14 X | 125 D – 102 400 X | 2.5 ms X | 14.5 / 11.6, SNR 19.1 |
-| `full-frame-24mp-fsi-2010s` | Full frame 24 MP front-illuminated, 2010s | professional | 6032 × 4032 P, 5.97 µm P | 36.01 × 24.07 D | 0.53 P | 76 000 P | 4.0 X, one gain | 14 P | 80 D – 25 600 X | 80 ms X | 14.1 / 8.9, SNR 15.0 |
-| `aps-c-24mp-fsi-2020s` | APS-C 24 MP front-illuminated, 2020s | consumer | 6024 × 4024 P, 3.91 µm P | 23.55 × 15.73 D | 0.55 X | 36 000 P | 2.7 P, one gain | 14 P | 80 D – 25 600 X | 60 ms X | 13.7 / 8.4, SNR 10.0 |
-| `aps-c-26mp-bsi-2020s` | APS-C 26 MP BSI, 2020s | professional | 6248 × 4176 P, 3.76 µm P | 23.49 × 15.70 D | 0.80 P | 50 000 P | 3.3 / 1.0 P (ISO 250 X) | 14 X | 80 D – 25 600 X | 25 ms X | 13.8 / 10.3, SNR 12.0 |
-| `medium-format-100mp-bsi-16bit` | Medium format 100 MP BSI, 16-bit | professional | 11656 × 8750 P, 3.76 µm P | 43.856 × 32.9 P | 0.80 X | 50 300 P | 3.3 / 1.0 P (ISO 250 D) | 16 P | 80 D – 12 800 X | 250 ms X | 13.9 / 10.3, SNR 12.0 |
-| `phone-50mp-stacked` | Phone, large, 50 MP stacked | consumer | 8192 × 6144 P, 1.197 µm P | 9.844 × 7.431 P | 0.75 X | 8 600 X | 3.0 X / 1.4 P (ISO 160 X) | 12 P | 40 D – 6 400 X | 33.3 ms D | 11.5 / 6.3, SNR 3.5 |
+| `full-frame-24mp-bsi-2020s` | Full frame 24 MP BSI, 2020s | consumer | 6072 × 4042 P, 5.94 µm P | 36.07 × 24.01 D | 0.80 P | 100 000 P | 6.4 / 1.1 P (ISO 500 D) | 14 P | 100 D – 51 200 X | 50 ms X | 13.9 / 11.5 stops, SNR 19.6 |
+| `full-frame-45mp-stacked-2020s` | Full frame 45 MP stacked, 2020s | professional | 8256 × 5504 X, 4.36 µm D | 36 × 24 X | 0.80 X | 69 000 X | 3.5 / 1.5 X (ISO 250 X) | 14 X | 80 D – 25 600 X | 5 ms X | 14.2 / 10.2, SNR 14.3 |
+| `full-frame-24mp-stacked-sports-2020s` | Full frame 24 MP stacked (sports), 2020s | professional | 6000 × 4000 X, 6.0 µm D | 36 × 24 X | 0.80 X | 80 000 X | 3.0 / 1.0 X (ISO 400 X) | 14 X | 125 D – 102 400 X | 2.5 ms X | 14.5 / 11.6, SNR 19.8 |
+| `full-frame-24mp-fsi-2010s` | Full frame 24 MP front-illuminated, 2010s | professional | 6032 × 4032 P, 5.97 µm P | 36.01 × 24.07 D | 0.53 P | 76 000 P | 4.0 X, one gain | 14 P | 80 D – 25 600 X | 80 ms X | 14.1 / 8.9, SNR 15.6 |
+| `aps-c-24mp-fsi-2020s` | APS-C 24 MP front-illuminated, 2020s | consumer | 6024 × 4024 P, 3.91 µm P | 23.55 × 15.73 D | 0.55 X | 36 000 P | 2.7 P, one gain | 14 P | 80 D – 25 600 X | 60 ms X | 13.7 / 8.4, SNR 10.4 |
+| `aps-c-26mp-bsi-2020s` | APS-C 26 MP BSI, 2020s | professional | 6248 × 4176 P, 3.76 µm P | 23.49 × 15.70 D | 0.80 P | 50 000 P | 3.3 / 1.0 P (ISO 250 X) | 14 X | 80 D – 25 600 X | 25 ms X | 13.8 / 10.3, SNR 12.4 |
+| `medium-format-100mp-bsi-16bit` | Medium format 100 MP BSI, 16-bit | professional | 11656 × 8750 P, 3.76 µm P | 43.856 × 32.9 P | 0.80 X | 50 300 P | 3.3 / 1.0 P (ISO 250 D) | 16 P | 80 D – 12 800 X | 250 ms X | 13.9 / 10.3, SNR 12.4 |
+| `phone-50mp-stacked` | Phone, large, 50 MP stacked | consumer | 8192 × 6144 P, 1.197 µm P | 9.844 × 7.431 P | 0.75 X | 8 600 X | 3.0 X / 1.4 P (ISO 160 X) | 12 P | 40 D – 6 400 X | 33.3 ms D | 11.5 / 6.3, SNR 3.6 |
 
 Each profile also records, in `provenance`, every value's kind and source key, and in `goodFor` and `description` what
 it suits (landscape, sports, wildlife, portrait, studio, journalism and so on). Fixed-pattern magnitudes (PRNU, DSNU,

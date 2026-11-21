@@ -118,6 +118,87 @@
   are accepted as before; only inconsistent inputs that were wrongly accepted are now refused. No output change; fast row +18 B.
   The native capture's lean environment path (`src/capture/native-environment-lean.ts`) makes its per-bin contribution and
   total power checks the same relative way, so it takes the main path's decisions; every hash lock holds.
+- **A sensor-profile field named like an `Object.prototype` member is an unknown field (`foundation-04` in #699, `sensor-02` in
+  #701).** `sensor.profile` with `constructor` or `toString` was accepted, and `valueOf`, `hasOwnProperty` or an own `__proto__`
+  (from `JSON.parse`) threw a plain `TypeError`; each now fails with "Unknown sensor.profile field: <name>."
+  (`InvalidConfigurationError`), also through `calculateSensorProfileFrame` and `resolveSensorProfileIsoSettings`. No output change for
+  valid requests.
+- **Low-severity fixes (2.28.0 step 8, #701).** No output change for valid requests; hash locks and image bytes unchanged.
+  Fast row 337,864 B (24 B below 337,888 B: the duplicated site-applicability, temperature-applicability, uncertainty and
+  reference-conditions parsers are now one copy each); on-demand, export and lens rows unchanged.
+  - *Domain errors for missing nested records (`sensor-11`).* Exported sensor primitives that read a missing or null nested
+    record (compatibility, sensor, wavelength range, quadrature node, exposure binding and rate identity, raw code, centre site,
+    sample, site, sample point, capture mode and its dependencies, sample index, grouping anchor, response uncertainty) now fail
+    with `InvalidConfigurationError` or `InvalidScientificInputError` instead of a plain `TypeError`.
+  - *Sparse arrays (`sensor-12`).* `siteChannelIds`, `interFrameSensorOffsetsNativeSamples.value`, a stabilization trajectory's
+    `samples` and a system profile's `axisResponses` with holes are refused.
+  - *Fields of another kind (`sensor-13`).* A spectral-response channel and a radiometry-readiness requirement may carry only
+    their own kind's or representation's fields; a stray field is refused instead of dropped.
+  - *Misspelled motion keys (`sensor-14`).* The translation-parallax and extended-object quadratures refuse unknown keys in scene
+    samples, points, three-component vectors and `frontoparallelPlane` (a misspelled `subjectVelocityMPS` no longer makes the
+    subject still).
+  - *Operating range and compatibility (`sensor-15`, `sensor-16`).* `assessSensorResponseOperatingRange` refuses a reduction
+    without a finite wavelength range or, for a per-spectral-bin model, without bins; the compatibility check parses
+    `operatingConditions` (known keys, angle 0 to 90°, polarization) and refuses an unknown `responseScope` (`InvalidConfigurationError`). The
+    operating-range profile's reference-condition messages now read as the response profile's.
+  - *RAW code samples (`sensor-17`).* `createSensorRawCaptureSample` requires an integer `rawCode` in
+    [0, `digitalSaturationCode`] with integer black and saturation codes; the reconstruction refuses a non-number sample value
+    instead of coercing a string.
+  - *Video timing (`sensor-18`).* The shutter-angle helpers and `resolveVideoFrameSequence` refuse timings that overflow,
+    underflow or collapse to a zero-length exposure at extreme accepted frame rates.
+  - *Stabilization (`sensor-19`).* `calculateStabilizedCaptureTemporalSamples` refuses a zero or negative local exposure duration.
+  - *Sampling-aperture fit (`sensor-20`).* The "within one lattice cell" test allows 8 ε of the pitch, as the imaging-area fit
+    does: apertures touching the cell edge exactly in decimal are accepted (0 of 4,755 refused, from 511).
+  - *Timing constructors (`sensor-21`).* `parseCaptureModeTimingProfile` requires a positive traversal and rolling skew;
+    `createRollingShutterCaptureExposureSchedule` validates `shutterMechanism`.
+  - *Air refractive index (`sensor-22`).* `phaseRefractiveIndex` must be from 1 through 1.01 (a documented sanity bound;
+    standard air is about 1.00029).
+  - *Dark-current table (`sensor-23`).* A log-linear table whose rate ratio overflows or underflows is evaluated in
+    logarithms; other tables keep the same expression and bits.
+  - *Lower code clamp report (`sensor-24`).* `lowerCodeClampApplied` is also set when the ADC stage clamps below 0 before a
+    declared digital gain; codes unchanged.
+  - *ADC bit depth with INL (`sensor-25`).* `sensor.adcBitDepth` other than the readout's is refused, naming
+    `sensor.adcBitDepth`, when the ADC declares integral non-linearity (no built-in body does).
+  - *Prepared contributor resolver (`sensor-27`).* The RAW-frame and producer paths parse the colour-sampling binding and
+    capture mode once per frame: 3.9 → 0.48 µs per site on a 960 × 640 raster; results identical.
+  - *Docs (`sensor-05`, `sensor-26`).* docs/SENSOR_PROFILES.md's SNR column is regenerated from
+    `calculateSensorFigures({ profile, iso: 3200 })` (Professional tier 15.1 → 15.6) and checked by a test;
+    docs/STABILIZATION.md says the rotation mapping rejects only rays on or behind the camera plane.
+  - Inputs refused now that were accepted before: the malformed records above, stray fields of another variant, extra motion
+    keys, a raw code outside the ADC range or fractional, `operatingConditions` with unknown keys or out-of-range
+    values, a zero traversal or skew, an air index outside [1, 1.01].
+
+### Exposure and colour
+
+- **Low-severity fixes (2.28.0 step 8, #699); no output change for valid requests except the report field of `foundation-07`.
+  Bundle: the first five items are paid for by shared checks (below); `foundation-07` and `foundation-13` add 94 B to the fast row
+  (owner decision 2026-11-21, release-wide bundle rule).**
+  - *Meter targets (`foundation-08`).* The exposure-mode resolvers refuse a resolved target whose `requiredExposureScaleToTarget` and
+    `exposureOffsetStopsToTarget` disagree by more than 1e-9 stops (`InvalidScientificInputError`; such a target was placed by the stops
+    in program and full auto and by the scale elsewhere), a `sourceMeterSnapshot` with a missing or non-string identifier or an unknown
+    `sourceKind` (`InvalidConfigurationError`), and a non-finite `baseTargetRelativeSignal`, `meteredRelativeSignal` or
+    `exposureCompensationStops`. Engine-built targets resolve unchanged.
+  - *White-balance states (`foundation-09`).* `resolveManualWhiteBalance` refuses a missing `channelGains` and an unknown gain key; custom
+    and auto white balance refuse a sample that is not an object and a `clipped` that is not a boolean (**newly refused**: `"true"`, `1`
+    and `null` were read by truthiness); `createLockedWhiteBalanceState` refuses a `sourceState` that `parseResolvedWhiteBalanceState`
+    refuses, so every lock parses again. Domain errors replace the plain `TypeError`s.
+  - *Finite scalar results (`foundation-10`).* `calculatePlanckianSpectralRadiance`, `evaluateSrgbDecoding`, the BT.1886 `decode`,
+    `calculateFlashGuideNumber` and `calculateFlashPowerForDistance` throw `InvalidScientificResultError` instead of returning `Infinity`
+    or `NaN`; Planck's law gives 0 where λ⁵ underflows against an overflowed exponential.
+  - *CCT at the Duv limit (`foundation-11`).* `calculateCorrelatedColorTemperature` reads back a chromaticity made at |Duv| = 0.05
+    (within 1e-12 of the limit, Duv reported clamped to ±0.05); before, 19 of 31 such points threw.
+  - *Quadrature (`foundation-12`).* `createColorimetricMidpointQuadrature` returns one node when the maximum subinterval is far wider
+    than the range (it returned none from 1e12 nm).
+  - *Bundle.* Duplicated checks in the resolver, white balance, colorimetry and Auto ISO slowest-shutter code now call the shared
+    record-validation functions (same messages and error classes); an array `camera` in a Kelvin white balance now fails with "camera
+    must be an object.".
+  - *Program-line ends (`foundation-07`).* Program mode with a fixed ISO reports `targetResidual.limitingConstraint`
+    `"program-line-minimum"` or `"program-line-maximum"` when the target lies beyond the line and no aperture or shutter limit was
+    hit (it reported `"none"`); settings are unchanged. **`ExposureResolutionConstraint` widens** with the two values: an exhaustive
+    `switch` over it needs the two cases (docs/USAGE.md, "Program Auto with manual ISO").
+  - *Typed arrays in a result (`foundation-13`).* The result envelope's finite checks scan a typed array with its own `some()`
+    instead of one `Object.keys` string per element: a `Float64Array` of 1e6 elements 19.1 → 4.7 ms, a `Uint8Array` of 4e6
+    78.5 → 14.5 ms (best of 3). Same answers and the same reported path.
 
 ### Capture
 
@@ -180,6 +261,33 @@
     the grid value nearest in log₂ within 1/12 stop (owner decision 2026-11-21) and reports `exposureBracketRealizedOffsetStops`
     beside the requested offset; farther values are refused as before. A wrong refusal becomes a sequence; sequences that
     resolved before are unchanged (docs/USAGE.md).
+- **Low-severity fixes (2.28.0 step 8, #698).** Inputs that were accepted though invalid, or failed late or with a raw error, now
+  fail with a domain error; no output change for valid requests (hash locks unchanged); bundle rows unchanged (fast 337,888 B).
+  - *Non-finite results (`capture-10`).* `createReinhardGlobalToneMappingTask` (a tiny `whiteLuminance`), `createBilateralFilterTask`
+    (`rangeSigma` below about 1e-154), `createExposureFusionTask` (large exponents on huge frames), `createUnsharpMaskTask` and the
+    Durand–Dorsey colour pass throw `InvalidScientificResultError` instead of storing Infinity or NaN.
+  - *Durand–Dorsey node cap (`capture-11`).* At most 4,096 intensity planes, in the plan, the memory estimate and the body; an image
+    that would need more (`rangeSigmaLog10: 0.001` over 30 decades) is refused with `InvalidScientificInputError`.
+  - *DNG records (`capture-14`, `capture-15`).* `developDngStageImage`, `developDngImage`, `calculateDngRawClipping`,
+    `estimateDngRawNoise` and the what-if functions check the shape of the `ImportedDngRaw` record (dimensions, code count, scale,
+    ActiveArea, white and black levels, linearization table, CFA pattern); `developDngImage` refuses `whiteBalance: null` and
+    unknown or other-variant white-balance fields. The `clippedPixelCount` documentation says what it counts (white-balance clips
+    before the push and tone curve, not the gamut handling).
+  - *Native RAW (`capture-17`).* `calculateNativeRawPlan` refuses a raster smaller than one CFA repeat before any tile is read (it
+    failed after the whole capture with a white-level message).
+  - *Print plans (`capture-28`).* With aspect tolerance 0, a print whose ratio in its own unit is exact (12 × 8 in of a 3600 × 2400
+    capture) is accepted with `relativeAspectError` 0; every other size keeps its reported error.
+  - *Focus and release (`capture-29`, `capture-30`).* `setFocusLock` needs a boolean `locked`; the focus functions refuse a state with
+    an unknown mode or acquisition state, a non-finite or negative time, or `locked` inconsistent with its acquisition state and lock
+    record. `resolveReleaseSequence` refuses timing that collapses to zero-length or overlapping frames at very large request times.
+  - *Saturation code (`capture-31`).* `calculateEffectiveSaturationCode` checks the INL knots it documents (kind, 1 to 4096 finite
+    knots, strictly increasing codes) and a safe-integer `adcMaximumCode`.
+  - *Missing sub-objects (`capture-32`).* `calculateLensCorrectedCapture`, `calculatePeripheralIlluminationCorrection`,
+    `simulateEnvironmentSensorRawFrame` and `createCancelledReleaseSequence` (which now needs a scheduled sequence) throw
+    `InvalidConfigurationError` instead of a raw `TypeError`.
+  - *Browser-native reference, repository only (`capture-33`).* The first hit no longer depends on primitive ID order; the executor
+    refuses a readout ISO gain that differs from the committed capture ISO, as the frame producer does. The dated qualification
+    record under `docs/validation/` keeps the source hashes of its own date.
 
 ### Optics
 
@@ -220,6 +328,45 @@
     (best of 10, alternating in one process): 1.93× (640 × 480, r = 7, 64 × 64-site patches), 2.01× (one patch), 1.97× (400 × 300,
     r = 15) and 2.18× (256 × 256, r = 32). It is the CPU path of `calculateIrradianceConvolution`, the image-kernel accelerator and
     the display view's CPU reference.
+- **Low-severity fixes (2.28.0 step 8, #700); no output change for valid requests.** Fast row +228 B (optics-07, -08, -17 to -21 and
+  -23; owner decision 2026-11-21, release-wide bundle rule); other rows unchanged.
+  - *Field-of-view envelopes (`optics-06`).* `calculateFieldOfView` and `calculateFieldOfViewBounds` return a frozen
+    `calculatedResult` envelope for every projection model; a fisheye or equirectangular request returned a writable copy.
+    Values, model ids and assumptions are unchanged.
+  - *Equirectangular bounds (`optics-24`).* `calculateLensProjectionFieldOfViewBounds` (and `calculateFieldOfViewBounds`)
+    refuses equirectangular bounds outside ±180° (|coordinate/f| > π) with `InvalidScientificInputError`; they returned
+    angles such as −573° to −516°.
+  - *Decentred pupil grids (`optics-14`).* `calculateLensComplexPupilPsf` refuses a pupil grid whose `centerSampleX`/`Y` lies
+    more than one sample from the middle of the grid (`InvalidConfigurationError`); such a centre folded the PSF's far side onto
+    the near side. Every engine-built grid is centred and keeps its kernel (docs/PSF_FOUNDATION.md, "Grid centre").
+  - *Self-intersecting polygons (`optics-15`).* `calculatePolygonPupilFraunhoferPsf` refuses a polygon with two crossing
+    non-adjacent edges (`InvalidScientificInputError`); a bow-tie returned a peak-normalized intensity of 1.49.
+  - *Tangent apertures (`optics-16`).* `calculateMechanicalVignetting` returns the fully vignetted result (area 0, no polygon,
+    null centroid) for an open area within 1e-12 of the pupil's or a single aperture within 1e-12 of external tangency; it threw
+    a non-finite result error or reported a centroid outside the pupil. Other results are unchanged.
+  - *Unit focus at extreme distances (`optics-25`).* `calculateGeometricFocusBreathing` with unit focus gives v = f instead of
+    0 (and a 180° field) once T² overflows (about 1.4e151 m and beyond).
+  - *Bokeh ray binning accuracy (`optics-28`).* The `pupil-ray-binning` description (source comment and docs/QUICK_START.md)
+    states the measured accuracy: about 2 % L1 kernel error and single taps up to about 10 % of the peak for a 40-site blur. No
+    method change.
+  - *Equirectangular poles (`optics-08`).* `calculateLensProjectionDirection` refuses an image point at latitude ±π/2, and the
+    forward mapping treats a rounding residue at the pole as the pole (`InvalidScientificInputError`); the inverse returned a
+    direction the forward mapping refused, and a remap through the pole gave NaN Jacobian entries.
+  - *Working f-number bound (`optics-19`, owner decision 2026-11-21).* `calculateSceneRadianceToSensorIrradiance` and the prepared
+    bridge refuse a working f-number below 0.5 ("Working f-number must be at least 0.5.", which also replaces the message of the
+    non-finite acceptance refusal): in air E = π·L·sin²θ′ ≤ π·L. 0.5 gives E = π·L·τ.
+  - *Lens limitations text (`optics-07`).* `resolveGenericLens(...).limitations` says that flare, focus breathing and focus scatter
+    render in `simulateCapture` on request (`lens.catalogue.flare`, `.breathing`, `lens.focusScatter`) and ghosts are reported
+    numbers; it said none of them rendered.
+  - *Irradiance bridge image point (`optics-17`).* `calculateSceneRadianceToSensorIrradiance` refuses an `imagePointMm` that is not
+    two finite numbers (NaN, infinite, missing or string coordinates bypassed the field-throughput point check).
+  - *Mapped environment query (`optics-18`).* The fisheye and equirectangular branch of `calculateSensorEnvironmentRadianceQuery`
+    checks the focal length, `sourcePointNativeSensorMm` and `angularVelocityRadPerSec` with the plain path's messages.
+  - *Filters parsed once (`optics-20`).* The prepared irradiance bridge parses its front-of-lens filter profiles once and evaluates
+    only the transmission at each query's wavelength; same values, and an invalid filter fails when the bridge is prepared.
+  - *Aperture rays (`optics-21`).* `sensorApertureRayValues` fills a pre-sized array in a plain loop; identical output.
+  - *Polarization angle (`optics-23`).* An incident polarization angle near 1e308 is reduced mod 180° when its doubled radian value
+    overflows, giving a finite state instead of NaN; ordinary angles keep their bits.
 
 ### Facade
 

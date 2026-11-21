@@ -33,7 +33,8 @@
  *   (at most 50 mm equivalent), a cat's eye: one clipping circle of the widest pupil's radius whose shift leaves the open area
  *   2^−s_o of the pupil at the frame corner wide open, s_o the lens's optical vignetting in stops (the light it removes is the
  *   optical part of the relative illumination above; the kernel is a shape only).
- * - Flare, focus breathing and focus consistency are numbers for callers; `simulateCapture` renders none of them.
+ * - `simulateCapture` renders veiling glare and focus breathing only on request (`lens.catalogue.flare`, `.breathing`) and
+ *   focus scatter only with `lens.focusScatter`; ghosts are reported numbers only.
  * @see docs/LENS_CATALOGUE.md for the tables, the adjustments and why each lens has them.
  */
 
@@ -402,7 +403,7 @@ export function resolveGenericLens(input: ResolveGenericLensInput): ResolvedGene
       "A generic Photivra lens, not a real product: every coefficient is a Photivra choice that reproduces typical behaviour of its class, not a measurement.",
       "Primary (Seidel) aberrations only, scaled with the pupil radius and a generic close-focus factor; no higher-order terms, no zoom or focus-group design.",
       "Focal length, close focus and magnification are thin-lens values; the lens design is scaled to the sensor by the crop factor with its wavefront error in waves kept.",
-      "Flare, focus breathing and focus scatter are reported numbers; simulateCapture renders none of them."]) });
+      "Flare, focus breathing and focus scatter render in simulateCapture only on request (lens.catalogue.flare, .breathing, lens.focusScatter); ghosts are reported numbers."]) });
 }
 
 export interface SimulateGenericLensFocusErrorInput {

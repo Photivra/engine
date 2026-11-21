@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 import { describe, it, expect } from "vitest";
-import { createNativeRawTask, simulateSensorRawFrame, createSensorRawFrame, type NativeRawTile } from "../src/index.js";
+import { createNativeRawTask, simulateSensorRawFrame, createSensorRawFrame, InvalidConfigurationError, type NativeRawTile } from "../src/index.js";
 import { calculateEffectiveSaturationCode, calculateSiteEffectiveSaturationCode, createPhaseWhiteLevelAccumulator, nativeCfaPhaseIndex } from "../src/capture/raw-white-level.js";
 import { calculateNativeRawSite } from "../src/capture/sensor-raw-producer.js";
 import { nativeRawFixture } from "./helpers/native-raw-fixture.js";
@@ -93,5 +93,21 @@ describe("effective RAW white level", () => {
     }
     expect(Array.from(byPhase.finish())).toEqual(Array.from(byIndex.finish()));
     expect(() => byPhase.recordPhase(3, 1005)).toThrow("one effective white level per CFA phase");
+  });
+});
+describe("calculateEffectiveSaturationCode checks the INL knots it documents (capture-31, #698)", () => {
+  const base = { physicalChargeCapacityElectrons: 50000, preAdcSaturationElectronEquivalent: 60000, systemConversionGainElectronsPerCode: 4,
+    blackLevelCode: 64, digitalSaturationCode: 16383 };
+  const inl = (knots: unknown): unknown => ({ ...base, integralNonLinearity: { kind: "piecewise-linear-code-offset", knots } });
+  it("refuses missing, decreasing, repeated or non-numeric knots and a non-integer ADC maximum", () => {
+    expect(calculateEffectiveSaturationCode(base)).toBe(12564);
+    for (const readout of [{ ...base, integralNonLinearity: { kind: "piecewise-linear-code-offset" } }, inl([]), inl(new Array(2)),
+      inl([{ code: 16383, offsetCodes: 100 }, { code: 0, offsetCodes: -100 }]),
+      inl([{ code: 0, offsetCodes: 0 }, { code: 12564, offsetCodes: 1 }, { code: 12564, offsetCodes: 3 }, { code: 16383, offsetCodes: 0 }]),
+      inl([{ code: 0, offsetCodes: "1" }, { code: 16383, offsetCodes: 0 }]), { ...base, integralNonLinearity: { kind: "other", knots: [{ code: 0, offsetCodes: 0 }] } },
+      { ...base, adcMaximumCode: "99999" }, { ...base, adcMaximumCode: 1.5 }])
+      expect(() => calculateEffectiveSaturationCode(readout as never), JSON.stringify(readout)).toThrow(InvalidConfigurationError);
+    // Offset at input 12564: -100 + 12564/16383 * 200 = 53.38..., so round(12564 + 53.38) = 12617.
+    expect(calculateEffectiveSaturationCode(inl([{ code: 0, offsetCodes: -100 }, { code: 16383, offsetCodes: 100 }]) as never)).toBe(12617);
   });
 });

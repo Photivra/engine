@@ -660,6 +660,16 @@ export function resolveCaptureModeColorSamplingContributors(
   input: ResolveCaptureModeColorSamplingContributorsInput
 ): ResolvedCaptureModeColorSamplingContributors {
   requireInputKeys(input, "resolveCaptureModeColorSamplingContributors", ["nativeRaster", "captureModeProfile", "modeId", "colorSamplingProfile", "bindingProfile", "modeSampleIndexFullFrame", "groupedSamplingAnchor"]);
+  return prepareCaptureModeColorSamplingContributors(input)(input.modeSampleIndexFullFrame, input.groupedSamplingAnchor);
+}
+
+/**
+ * Internal (sensor-27): parses and resolves the colour-sampling binding and the capture mode once and returns the per-sample
+ * resolver with the public function's checks and arithmetic, in the same order. The RAW-frame and producer paths call it per site.
+ */
+export function prepareCaptureModeColorSamplingContributors(
+  input: Omit<ResolveCaptureModeColorSamplingContributorsInput, "modeSampleIndexFullFrame" | "groupedSamplingAnchor">
+): (modeSampleIndexFullFrame: CaptureModeFullFrameSampleIndex, groupedSamplingAnchor?: GroupedCaptureModeSamplingAnchorDeclaration) => ResolvedCaptureModeColorSamplingContributors {
   const colorSamplingProfile =
     parseSensorColorSamplingProfile(
       input.colorSamplingProfile
@@ -688,12 +698,13 @@ export function resolveCaptureModeColorSamplingContributors(
     );
   }
 
+  return (modeSampleIndexFullFrame, groupedSamplingAnchor) => {
   const modeX = requireFullFrameSampleIndex(
-    input.modeSampleIndexFullFrame.x,
+    modeSampleIndexFullFrame?.x,
     "modeSampleIndexFullFrame.x"
   );
   const modeY = requireFullFrameSampleIndex(
-    input.modeSampleIndexFullFrame.y,
+    modeSampleIndexFullFrame.y,
     "modeSampleIndexFullFrame.y"
   );
 
@@ -727,7 +738,7 @@ export function resolveCaptureModeColorSamplingContributors(
     captureMode.perFrameSampling.kind ===
     "native-effective-raster"
   ) {
-    if (input.groupedSamplingAnchor !== undefined) {
+    if (groupedSamplingAnchor !== undefined) {
       throw new InvalidScientificInputError(
         "groupedSamplingAnchor must be omitted for native-effective-raster capture modes."
       );
@@ -742,8 +753,7 @@ export function resolveCaptureModeColorSamplingContributors(
     grouping = null;
   } else {
     if (
-      input.groupedSamplingAnchor === undefined ||
-      input.groupedSamplingAnchor.anchor !==
+      groupedSamplingAnchor?.anchor !==
         "native-effective-raster-top-left"
     ) {
       throw new InvalidScientificInputError(
@@ -752,7 +762,7 @@ export function resolveCaptureModeColorSamplingContributors(
     }
     const groupingAnchorEvidence =
       parseEvidenceList(
-        input.groupedSamplingAnchor.evidence,
+        groupedSamplingAnchor.evidence,
         "groupedSamplingAnchor.evidence"
       );
 
@@ -941,5 +951,6 @@ export function resolveCaptureModeColorSamplingContributors(
           .colorSamplingProfile,
       captureMode: captureMode.modeEvidence
     }
+  };
   };
 }

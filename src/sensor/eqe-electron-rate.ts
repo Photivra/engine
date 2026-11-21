@@ -230,10 +230,10 @@ function validateAuthorizationChain(
 
   if (
     !compatibility
-      .structuralCompatibilityEstablished ||
+      ?.structuralCompatibilityEstablished ||
     compatibility.compatibilityStatus ===
       "blocked" ||
-    compatibility.blockers.length !== 0 ||
+    compatibility.blockers?.length !== 0 ||
     !compatibility.sourcePlaneMatched ||
     compatibility.requiredSignalPath !==
       "photon-rate-to-electrons"

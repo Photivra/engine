@@ -36,7 +36,7 @@ import {
   type CieXyChromaticity,
   type CieXyzTristimulus
 } from "./colorimetry-math.js";
-import { rejectUnknownFields, requireInputKeys } from "../core/record-validation.js";
+import { rejectUnknownFields, requireInputKeys, requireTrimmedConfigString } from "../core/record-validation.js";
 import { InvalidConfigurationError } from "../core/configuration-error.js";
 
 export const COLORIMETRY_MODEL_VERSION = "2.0.0" as const;
@@ -196,9 +196,7 @@ export function prepareColorMatchingFunctions(source: ColorMatchingFunctionsSour
   if (observer !== "cie-1931-2-degree" && observer !== "cie-1964-10-degree" && observer !== "caller-defined") {
     throw new InvalidConfigurationError("colorMatchingFunctions.observer is not supported.");
   }
-  if (typeof record.datasetId !== "string" || record.datasetId.trim().length === 0) {
-    throw new InvalidConfigurationError("colorMatchingFunctions.datasetId must be a non-empty string.");
-  }
+  const datasetId = requireTrimmedConfigString(record.datasetId, "colorMatchingFunctions.datasetId");
   const signed = observer === "caller-defined";
   const samples = parseIncreasingSamples<TabulatedColorMatchingSample>(record.samples, "colorMatchingFunctions.samples",
     ["wavelengthNanometers", "xBar", "yBar", "zBar"], (s, p) => {
@@ -213,7 +211,7 @@ export function prepareColorMatchingFunctions(source: ColorMatchingFunctionsSour
   return Object.freeze({
     observer,
     sourceKind: "tabulated" as const,
-    datasetId: record.datasetId.trim(),
+    datasetId,
     scientificStatus: "caller-tabulated" as const,
     wavelengthRangeNanometers: range,
     evaluate(wavelengthNanometers: number): CieXyzTristimulus {
@@ -293,7 +291,8 @@ export function createColorimetricMidpointQuadrature(input: CreateColorimetricMi
   const maximum = requirePositiveNumber(range.maximum, "wavelengthRangeNanometers.maximum");
   if (!(minimum < maximum)) throw new InvalidScientificInputError("wavelengthRangeNanometers.minimum must be less than maximum.");
   const width = requirePositiveNumber(input.maximumSubintervalWidthNanometers, "maximumSubintervalWidthNanometers");
-  const count = Math.ceil((maximum - minimum) / width - 1e-9);
+  // foundation-12: at least one node, also when the width is so large that the quotient is below the 1e-9 allowance.
+  const count = Math.max(1, Math.ceil((maximum - minimum) / width - 1e-9));
   if (count > MAX_COLORIMETRIC_QUADRATURE_NODES) throw new InvalidScientificInputError("Quadrature would exceed " + MAX_COLORIMETRIC_QUADRATURE_NODES + " nodes.");
   const step = (maximum - minimum) / count;
   const nodes: ColorimetricQuadratureNode[] = [];

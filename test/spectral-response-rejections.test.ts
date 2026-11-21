@@ -74,3 +74,12 @@ describe("sensor spectral-response profile rejection branches", () => {
       wavelengthBasis: "air" }), (i: Json) => resolveSensorSpectralResponseAtWavelength(i), InvalidScientificInputError, () => undefined, message);
   });
 });
+
+describe("fields of another kind (sensor-13, #701)", () => {
+  it("refuses an EQE channel that also carries responsivity or separable fields", () => {
+    expectRejection(base, parseSensorSpectralResponseProfile, InvalidConfigurationError, (p): void => { p.channels[0].spectralResponsivity = "garbage"; },
+      'has unknown field "spectralResponsivity".');
+    expectRejection(base, parseSensorSpectralResponseProfile, InvalidConfigurationError, (p): void => { p.channels[0].combinationRule = 42; },
+      'has unknown field "combinationRule".');
+  });
+});

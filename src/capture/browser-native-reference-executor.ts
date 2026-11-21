@@ -687,6 +687,19 @@ export function createBrowserNativeReferenceTask(
             };
             firstRawSite ??= rawSite;
             validateNativeRawReadoutIdentity(rawSite, firstRawSite);
+            // capture-33 (#698): the frame producer's check (parseNativeRawProducerSite) that the readout regime's
+            // exposure-index gain is the committed capture ISO.
+            const isoGain = rawSite.readoutProfile.regimes.find(
+              (regime) => regime.regimeId === rawSite.regimeId
+            )?.exposureIndexGain;
+            if (
+              isoGain !== undefined &&
+              isoGain.exposureIndex !== eventPlan.rawPlan.exposure.exposure.iso
+            ) {
+              throw new InvalidConfigurationError(
+                "Readout regime ISO gain differs from the committed capture ISO."
+              );
+            }
 
             pending.push({
               nativeIndex: index,

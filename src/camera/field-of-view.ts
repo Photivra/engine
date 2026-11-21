@@ -177,14 +177,17 @@ export function calculateFieldOfView(
       focalLengthMm: input.focalLengthMm,
       sensorDimensionMm: input.sensorDimensionMm
     });
-    return {
-      ...result,
-      value: {
+    const { provenance } = result;
+    return calculatedResult(
+      {
         radians: result.value.radians,
         degrees: result.value.degrees,
         projectionDistanceMm: result.value.projectionDistanceMm
-      }
-    };
+      },
+      provenance.model,
+      provenance.modelVersion,
+      provenance.assumptions
+    );
   }
 
   const { projectionDistanceMm, focusAware } = resolveProjectionDistance(
@@ -247,7 +250,8 @@ export function calculateFieldOfViewBounds(
     });
     const { projectionModel: _model, ...value } = result.value;
     void _model;
-    return { ...result, value };
+    const { provenance } = result;
+    return calculatedResult(value, provenance.model, provenance.modelVersion, provenance.assumptions);
   }
 
   const { projectionDistanceMm, focusAware } = resolveProjectionDistance(

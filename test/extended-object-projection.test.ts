@@ -908,3 +908,18 @@ describe("extended-object projection rejects a missing, null or non-object sub-o
     }
   });
 });
+
+describe("misspelled nested keys (sensor-14, #701)", () => {
+  const input = (overrides: Record<string, unknown>): never => ({ objectId: "card", focalLengthMm: 50, objectTranslationVelocityMps: { x: 0.2, y: 0, z: -0.2 },
+    cameraTranslationVelocityMps: { x: 0, y: 0, z: 0 }, sampleTimesSecondsFromReference: [0.5],
+    points: [{ pointId: "a", positionCameraM: { x: -0.5, y: 0, z: 8 } }, { pointId: "b", positionCameraM: { x: 0.5, y: 0, z: 8 } }],
+    frontoparallelPlane: { kind: "fronto-parallel-planar-patch", referenceDepthM: 8 }, ...overrides }) as never;
+  const unknown = expect.objectContaining({ name: "InvalidConfigurationError", message: expect.stringContaining("unknown field") });
+  it("refuses extra keys in points, vectors and the plane declaration", () => {
+    expect(() => calculateExtendedObjectProjectionTrajectory(input({}))).not.toThrow();
+    expect(() => calculateExtendedObjectProjectionTrajectory(input({ frontoparallelPlane: { kind: "fronto-parallel-planar-patch", referenceDepthM: 8, extra: 1 } }))).toThrow(unknown);
+    expect(() => calculateExtendedObjectProjectionTrajectory(input({ cameraTranslationVelocityMps: { x: 0, y: 0, z: 0, w: 1 } }))).toThrow(unknown);
+    expect(() => calculateExtendedObjectProjectionTrajectory(input({ points: [{ pointId: "a", positionCameraM: { x: 0, y: 0, z: 8 }, destinationPointNative: { x: 1, y: 1 } }] })))
+      .toThrow(unknown);
+  });
+});

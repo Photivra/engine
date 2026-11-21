@@ -533,3 +533,11 @@ describe(
     });
   }
 );
+
+describe("nested input errors (sensor-11, #701)", () => {
+  it("rejects accumulated charge without a site with a domain error", () => {
+    const noSite: Record<string, unknown> = { ...charge(80) }; delete noSite.site;
+    expect(() => assessSensorPhysicalChargeCapacity({ accumulatedCharge: noSite as never, capacityProfile: capacity(), operatingStateId: "state-a", operatingTemperatureC: 20 }))
+      .toThrow(expect.objectContaining({ name: "InvalidConfigurationError" }));
+  });
+});

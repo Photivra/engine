@@ -8,8 +8,7 @@
  */
 
 import { InvalidScientificInputError, InvalidScientificResultError } from "../core/validation.js";
-import { InvalidConfigurationError } from "../core/configuration-error.js";
-import { rejectUnknownFields } from "../core/record-validation.js";
+import { rejectUnknownFields, requireConfigRecord } from "../core/record-validation.js";
 
 /** Three-component vector (dimensionless unless documented otherwise). */
 export type ColorVector3 = readonly [number, number, number];
@@ -57,12 +56,8 @@ export function requireNonNegativeNumber(value: unknown, path: string): number {
   return n;
 }
 
-export function requireRecordValue(value: unknown, path: string): Record<string, unknown> {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    throw new InvalidConfigurationError(path + " must be an object.");
-  }
-  return value as Record<string, unknown>;
-}
+/** `<path> must be an object.` (the shared record check). */
+export const requireRecordValue = (value: unknown, path: string): Record<string, unknown> => requireConfigRecord(value, path, null);
 
 const XYZ_FIELDS: readonly string[] = /* @__PURE__ */ Object.freeze(["x", "y", "z"]);
 const CHROMATICITY_FIELDS: readonly string[] = /* @__PURE__ */ Object.freeze(["x", "y"]);

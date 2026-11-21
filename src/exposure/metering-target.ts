@@ -327,6 +327,30 @@ export function createExposureMeterTargetFromMeteringResult(
   };
 }
 
+/**
+ * @internal The source meter snapshot a target carries (`<name>.sourceMeterSnapshot`): its three identifiers and source kind. Shared
+ * with the exposure-mode resolver's target check (foundation-08).
+ */
+export function validateMeterSnapshot(
+  snapshot: unknown,
+  name: string
+): void {
+  const path = name + ".sourceMeterSnapshot";
+  requireInputObject(snapshot, path);
+  const record = snapshot as Record<string, unknown>;
+  for (const field of ["measurementId", "sceneStateId", "meteringProfileId"]) requireNonEmptyString(record[field], path + "." + field);
+  if (
+    record.sourceKind !==
+      "spatial-metering-result" &&
+    record.sourceKind !==
+      "temporal-metering-result"
+  ) {
+    throw new InvalidConfigurationError(
+      path + ".sourceKind is invalid."
+    );
+  }
+}
+
 function validateBaseTarget(
   target: ExposureMeterTarget
 ): void {
@@ -345,39 +369,7 @@ function validateBaseTarget(
     target.targetId,
     "baseTarget.targetId"
   );
-  requireInputObject(target.sourceMeterSnapshot, "baseTarget.sourceMeterSnapshot");
-  requireNonEmptyString(
-    target
-      .sourceMeterSnapshot
-      .measurementId,
-    "baseTarget.sourceMeterSnapshot.measurementId"
-  );
-  requireNonEmptyString(
-    target
-      .sourceMeterSnapshot
-      .sceneStateId,
-    "baseTarget.sourceMeterSnapshot.sceneStateId"
-  );
-  requireNonEmptyString(
-    target
-      .sourceMeterSnapshot
-      .meteringProfileId,
-    "baseTarget.sourceMeterSnapshot.meteringProfileId"
-  );
-  if (
-    target
-      .sourceMeterSnapshot
-      .sourceKind !==
-      "spatial-metering-result" &&
-    target
-      .sourceMeterSnapshot
-      .sourceKind !==
-      "temporal-metering-result"
-  ) {
-    throw new InvalidConfigurationError(
-      "baseTarget.sourceMeterSnapshot.sourceKind is invalid."
-    );
-  }
+  validateMeterSnapshot(target.sourceMeterSnapshot, "baseTarget");
   if (
     target.scientificStatus !==
       "approximation" ||

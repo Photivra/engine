@@ -568,7 +568,7 @@ export function parseStabilizationSystemProfile(
     );
   }
   const axisResponses =
-    record.axisResponses.map(
+    Array.from(record.axisResponses,
       (entry, index) =>
         parseAxisResponse(
           entry,
@@ -788,7 +788,7 @@ export function parseStabilizationDisturbanceTrajectory(
   let previousTime =
     Number.NEGATIVE_INFINITY;
   const samples =
-    record.samples.map(
+    Array.from(record.samples,
       (entry, index) => {
         const path =
           "stabilizationDisturbanceTrajectory.samples[" +
@@ -1461,6 +1461,9 @@ function localExposureForPoint(
   }
   const match =
     matches[0]!;
+  const duration = match.localExposureDurationSeconds;
+  // sensor-19: as the translation and extended-object quadratures require.
+  if (!(duration > 0 && duration < Infinity)) throw new InvalidScientificInputError("Stabilization requires a positive finite local exposure duration.");
   return {
     start:
       match
@@ -1468,9 +1471,7 @@ function localExposureForPoint(
     end:
       match
         .endOffsetSecondsFromOpeningReference,
-    duration:
-      match
-        .localExposureDurationSeconds
+    duration
   };
 }
 

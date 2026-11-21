@@ -22,7 +22,7 @@
 
 import { approximationResult, type CalculationResult } from "../core/calculation-result.js";
 import { InvalidConfigurationError } from "../core/configuration-error.js";
-import { rejectUnknownFields, requireInputKeys, requireInputObject, requireInputPositiveFinite as requirePositive } from "../core/record-validation.js";
+import { rejectUnknownFields, requireInputFinite, requireInputKeys, requireInputNonNegativeFinite, requireInputObject, requireInputPositiveFinite as requirePositive } from "../core/record-validation.js";
 import { InvalidScientificInputError, InvalidScientificResultError } from "../core/validation.js";
 import { portableHypot } from "../core/portable-math.js";
 import type { ResolvedGenericEquipmentExposureCapabilities } from "../equipment/exposure-capabilities.js";
@@ -195,16 +195,11 @@ export function estimateAutoIsoSlowestShutter(
   requireInputObject(input.angularVelocityRadPerSec, "angularVelocityRadPerSec");
   rejectUnknownFields(input.angularVelocityRadPerSec, ["yaw", "pitch"], "angularVelocityRadPerSec");
   const { yaw, pitch } = input.angularVelocityRadPerSec;
-  for (const [name, v] of [["yaw", yaw], ["pitch", pitch]] as const) {
-    if (typeof v !== "number" || !Number.isFinite(v)) throw new InvalidScientificInputError("angularVelocityRadPerSec." + name + " must be finite.");
-  }
+  for (const [name, v] of [["yaw", yaw], ["pitch", pitch]] as const) requireInputFinite(v, "angularVelocityRadPerSec." + name);
   if (yaw === 0 && pitch === 0) {
     throw new InvalidScientificInputError("angularVelocityRadPerSec must be non-zero on at least one axis: without shake no shutter limit follows.");
   }
-  const stops = input.stabilizationStopsEquivalent ?? 0;
-  if (typeof stops !== "number" || !Number.isFinite(stops) || stops < 0) {
-    throw new InvalidScientificInputError("stabilizationStopsEquivalent must be finite and greater than or equal to zero.");
-  }
+  const stops = requireInputNonNegativeFinite(input.stabilizationStopsEquivalent ?? 0, "stabilizationStopsEquivalent");
   const bias = input.fasterByStops ?? 0;
   if (typeof bias !== "number" || !Number.isInteger(bias) || Math.abs(bias) > AUTO_ISO_SLOWEST_SHUTTER_MAXIMUM_BIAS_STOPS) {
     throw new InvalidScientificInputError("fasterByStops must be a whole number of stops from -2 to +2.");

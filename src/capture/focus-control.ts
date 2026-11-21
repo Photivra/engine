@@ -561,6 +561,23 @@ function requireStateShape(
   if (!Array.isArray(s.profileLimitations)) {
     throw new InvalidConfigurationError("state.profileLimitations must be an array.");
   }
+  // capture-29 (#698): states are stored and reloaded as JSON, so the fields the focus functions decide on are checked too.
+  const states: readonly unknown[] = ["idle", "acquiring", "acquired", "target-lost", "locked"];
+  const time = (v: unknown): boolean => typeof v === "number" && Number.isFinite(v) && v >= 0;
+  if (!["manual", "single-af", "continuous-af"].includes(s.mode as string)) {
+    throw new InvalidConfigurationError("state.mode must be manual, single-af or continuous-af.");
+  }
+  if (!states.includes(s.acquisitionState)) {
+    throw new InvalidConfigurationError("state.acquisitionState must be idle, acquiring, acquired, target-lost or locked.");
+  }
+  if (!time(s.lastEventTimeSeconds) || !time(s.focusResolvedAtSeconds)) {
+    throw new InvalidConfigurationError("state.lastEventTimeSeconds and state.focusResolvedAtSeconds must be finite non-negative numbers.");
+  }
+  if (typeof s.locked !== "boolean" || s.locked !== (s.acquisitionState === "locked") ||
+    (s.locked && (s.lock === null || typeof s.lock !== "object" || !time(s.lock.lockedAtSeconds) ||
+      (s.lock.resumeAcquisitionState as unknown) === "locked" || !states.includes(s.lock.resumeAcquisitionState)))) {
+    throw new InvalidConfigurationError("state.locked must be a boolean that matches acquisitionState \"locked\" and a lock record.");
+  }
 }
 
 function verifyStateProfile(
@@ -1120,6 +1137,9 @@ export function setFocusLock(
 ): FocusControlState {
   requireInputKeys(input, "setFocusLock", ["state", "stateId", "locked", "eventTimeSeconds"]);
   requireStateShape(input.state);
+  if (typeof input.locked !== "boolean") {
+    throw new InvalidConfigurationError("setFocusLock locked must be a boolean.");
+  }
   const time =
     requireMonotonicEventTime(
       input.state,

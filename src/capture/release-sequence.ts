@@ -997,6 +997,17 @@ export function resolveReleaseSequence(
         "Resolved release-sequence timing must remain finite."
       );
     }
+    // capture-30: at very large request times the binary64 spacing exceeds the exposure, so frames would collapse to zero
+    // length or overlap; refuse rather than schedule them.
+    const previousFrame = frames[frameIndex - 1];
+    if (
+      !(exposureEndTimeSeconds > exposureStartTimeSeconds) ||
+      (previousFrame !== undefined && exposureStartTimeSeconds < previousFrame.exposureEndTimeSeconds)
+    ) {
+      throw new InvalidScientificInputError(
+        "Resolved release-sequence timing is not representable at this request time."
+      );
+    }
 
     frames.push({
       sequenceId,
@@ -1111,6 +1122,11 @@ export function createCancelledReleaseSequence(
     CancelReleaseSequenceInput
 ): CancelledReleaseSequence {
   requireInputKeys(input, "createCancelledReleaseSequence", ["sequence", "completedFrameCount", "cancelledAtSeconds"]);
+  // capture-32: only a scheduled sequence with a list of frames can be cancelled.
+  requireInputObject(input.sequence, "sequence");
+  if (input.sequence.status !== "scheduled" || !Array.isArray(input.sequence.frames) || typeof input.sequence.sequenceId !== "string") {
+    throw new InvalidConfigurationError("sequence must be a scheduled release sequence (status \"scheduled\", a sequenceId and a frames array).");
+  }
   const count =
     requireNonNegativeFinite(
       input.completedFrameCount,

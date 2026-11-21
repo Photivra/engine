@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 import { describe, expect, it } from "vitest";
 import { createDurandDorseyToneMappingTask, createExposureFusionTask, createReinhardGlobalToneMappingTask, InvalidConfigurationError,
-  InvalidScientificInputError, type DurandDorseyToneMappingOutput } from "../src/index.js";
+  InvalidScientificInputError, InvalidScientificResultError, type DurandDorseyToneMappingOutput } from "../src/index.js";
 import { gaussianPyramid, laplacianPyramid, collapse, reflect } from "../src/processing/image-ops.js";
 import { mulberry32, psnr, rgbImage, runTask } from "./helpers/processing-fixture.js";
 
@@ -110,5 +110,26 @@ describe("Mertens 2007 exposure fusion", () => {
     expect(psnr(fused.data, base.data)).toBeGreaterThan(25);
     expect(psnr(fused.data, base.data)).toBeGreaterThan(psnr(dark.data, base.data) + 10);
     expect(() => createExposureFusionTask({ frames: [base, rgbImage(2, 2, () => 0)] }, { yieldControl: async () => {} })).toThrow(InvalidConfigurationError);
+  });
+});
+
+describe("non-finite results and the intensity-node cap (capture-10, capture-11, #698)", () => {
+  const ramp = rgbImage(12, 4, (x, y) => 0.01 + 0.1 * (x + 12 * y));
+  it("Reinhard with a tiny whiteLuminance and fusion of huge frames fail closed instead of storing Infinity or NaN", async () => {
+    for (const whiteLuminance of [1e-20, 1e-200]) {
+      await expect(runTask((p) => createReinhardGlobalToneMappingTask({ image: ramp, inputColorSpace: "linear-srgb-d65", whiteLuminance }, p)))
+        .rejects.toThrow(InvalidScientificResultError);
+    }
+    const huge = rgbImage(4, 4, (x, y, c) => 1e30 * (1 + ((x + y + c) % 3)));
+    await expect(runTask((p) => createExposureFusionTask({ frames: [huge, huge], contrastExponent: 16 }, p))).rejects.toThrow(InvalidScientificResultError);
+  });
+  it("Durand-Dorsey refuses a range sigma that needs more than 4096 nodes and its estimate covers the planes it holds", async () => {
+    const wide = rgbImage(16, 16, (x, y) => 10 ** (-15 + 30 * (x + 16 * y) / 255));
+    await expect(runTask((p) => createDurandDorseyToneMappingTask({ image: wide, inputColorSpace: "linear-srgb-d65", rangeSigmaLog10: 0.001 }, p)))
+      .rejects.toThrow(InvalidScientificInputError);
+    const narrow = rgbImage(16, 16, (x, y) => 10 ** (-1.5 + 3 * (x + 16 * y) / 255));
+    const task = createDurandDorseyToneMappingTask({ image: narrow, inputColorSpace: "linear-srgb-d65", rangeSigmaLog10: 0.01 }, { yieldControl: async () => {} });
+    const z = Math.max(1, Math.round(Math.max(0.5, 0.02 * 16) / 4)), cells = Math.ceil(16 / z) ** 2, planes = Math.ceil(3 / 0.01) + 1;
+    expect(task.estimatedWorkingBytes).toBeGreaterThanOrEqual(planes * cells * 4);
   });
 });

@@ -13,7 +13,7 @@
  */
 
 import { parseEvidenceList, type EvidenceProvenance } from "../core/evidence-provenance.js";
-import { requirePublicOpaqueId, requireInputKeys } from "../core/record-validation.js";
+import { requirePublicOpaqueId, requireInputKeys, requireInputObject } from "../core/record-validation.js";
 import { stringifyCanonicalJson } from "../core/canonical-json.js";
 import { approximationResult, type CalculationResult } from "../core/calculation-result.js";
 import { InvalidScientificInputError } from "../core/validation.js";
@@ -119,6 +119,11 @@ export function simulateEnvironmentSensorRawFrame(input: SimulateEnvironmentSens
   const { evaluateRadiance, evaluateApertureRadiance, ...data } = input;
   if (typeof evaluateRadiance !== "function") throw new InvalidScientificInputError("Environment RAW requires a synchronous evaluator.");
   const owned = structuredClone(data);
+  // capture-32: the nested records are checked before their first read.
+  requireInputObject(owned.frame, "frame");
+  requireInputObject(owned.exposureWindow, "exposureWindow");
+  requireInputObject(owned.exposureWindow.nominalExposureDurationSeconds, "exposureWindow.nominalExposureDurationSeconds");
+  requireInputObject(owned.sceneBinding, "sceneBinding");
   const capture = parseSimulatedCapture(owned.frame.capture), native = capture.geometry.nativeRaster;
   const count = native.pixelWidth*native.pixelHeight;
   if (count > RAW_REFERENCE_MAX_NATIVE_SITES || !Array.isArray(owned.sites) || owned.sites.length !== count ||

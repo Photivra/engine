@@ -6,6 +6,7 @@ import {
   calculateCaptureExposureWindows,
   calculateFlashGuideNumber,
   calculateFlashPowerForDistance,
+  InvalidScientificResultError,
   createHighSpeedSyncIlluminationOverlay,
   createManualFlashIlluminationOverlay,
   integrateSceneIlluminationTemporalMultiplierOverExposureWindow,
@@ -99,6 +100,17 @@ describe("guide number", () => {
     expect(near.status).toBe("clamped-at-minimum-power");
     expect(near.flashExposureErrorStops).toBeCloseTo(Math.log2((1/128)/((.5/40)**2)), 12);
     expect(() => calculateFlashGuideNumber({ fullPowerGuideNumberMetersIso100: 40, powerFraction: 1.5, iso: 100 })).toThrow("(0, 1]");
+  });
+});
+
+// foundation-10 (#699): the two scalar helpers refuse a non-finite result.
+describe("guide number edge inputs", () => {
+  it("refuses an infinite guide number or power fraction", () => {
+    expect(() => calculateFlashGuideNumber({ fullPowerGuideNumberMetersIso100: 1e308, powerFraction: 1, iso: 1e308 })).toThrow(InvalidScientificResultError);
+    expect(() => calculateFlashPowerForDistance({ fullPowerGuideNumberMetersIso100: 40, subjectDistanceM: 1e308, apertureFNumber: 4, iso: 100, minimumPowerFraction: 1 / 128 }))
+      .toThrow(InvalidScientificResultError);
+    expect(calculateFlashPowerForDistance({ fullPowerGuideNumberMetersIso100: 40, subjectDistanceM: 5, apertureFNumber: 4, iso: 100, minimumPowerFraction: 1 / 128 }))
+      .toMatchObject({ requiredPowerFraction: 0.25, powerFraction: 0.25, flashExposureErrorStops: 0, status: "within-range" });
   });
 });
 

@@ -407,3 +407,10 @@ describe("sensor readout scan timing", () => {
     ).toThrow("must be a non-empty array");
   });
 });
+
+describe("nested input errors (sensor-11, #701)", () => {
+  it("rejects an undefined sample point with a domain error", () => {
+    expect(() => calculateSensorReadoutTiming({ nativeRaster, activeCaptureRect: { x: 1000, y: 500, width: 3000, height: 2000 }, shutterMechanism: "electronic",
+      readout: rollingReadout(), samplePointsNative: [undefined as never] })).toThrow(expect.objectContaining({ name: "InvalidScientificInputError" }));
+  });
+});

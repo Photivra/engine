@@ -588,3 +588,34 @@ describe("sensor sampling aperture foundation", () => {
     );
   });
 });
+
+describe("nested input errors (sensor-11, #701)", () => {
+  it("rejects a missing site with a domain error", () => {
+    expect(() => resolveSensorSamplingAperture({ imagingArea, nativeRaster, colorSamplingProfile: colorProfile(), colorSamplingBindingProfile: bindingProfile(),
+      samplingApertureProfile: apertureProfile(), site: undefined as never })).toThrow(expect.objectContaining({ name: expect.stringMatching(/^Invalid(Configuration|ScientificInput)Error$/) }));
+  });
+});
+
+describe("cell fit rounding allowance (sensor-20, #701)", () => {
+  const parse = (pitch: number, width: number, offset: number): unknown => parseSensorSamplingApertureProfile(apertureProfile({ pitchXMicrometers: pitch, pitchYMicrometers: pitch,
+    firstXMicrometers: pitch / 2, firstYMicrometers: pitch / 2, widthMicrometers: width, heightMicrometers: width, offsetXMicrometers: offset, offsetYMicrometers: -offset }));
+  it("accepts apertures that touch the cell edge exactly in decimal", () => {
+    expect(() => parse(0.3, 0.1, 0.1)).not.toThrow();
+    expect(() => parse(1.4, 1.12, 0.14)).not.toThrow();
+    expect(() => parse(0.57, 0.456, 0.057)).not.toThrow();
+    let refused = 0, total = 0;
+    for (let k = 50; k <= 1000; k++) {
+      const pitch = k / 100;
+      for (const [w, o] of [[0.8, 0.1], [0.6, 0.2], [0.5, 0.25], [0.4, 0.3], [0.2, 0.4]] as const) {
+        total++;
+        try { parse(pitch, Number((pitch * w).toFixed(4)), Number((pitch * o).toFixed(4))); } catch { refused++; }
+      }
+    }
+    expect([refused, total]).toEqual([0, 4755]);
+  });
+
+  it("still refuses an aperture over the edge", () => {
+    expect(() => parse(0.3, 0.1, 0.1 + 1e-6)).toThrow("within one regular site lattice cell");
+    expect(() => parse(3.76, 3.008 + 2e-6, 0.376)).toThrow("within one regular site lattice cell");
+  });
+});

@@ -659,6 +659,7 @@ export function intersectBrowserNativeReferenceGeometry(
   const { ray, directionMagnitude } = validateRay(rayInput);
   let best: Extract<BrowserNativeReferenceHitResult, { kind: "hit" }> | null =
     null;
+  let tied = false;
 
   for (const primitive of prepared.primitives) {
     const localRay = rayInPrimitiveLocalSpace(ray, primitive.worldFromLocal);
@@ -681,20 +682,26 @@ export function intersectBrowserNativeReferenceGeometry(
     );
     if (result.kind !== "hit") return result;
 
+    // capture-33 (#698): a tie is reported only when another primitive shares the final minimum, so the answer does not
+    // depend on primitive ID order (a tie between two farther primitives is superseded by a nearer hit).
     if (best === null || result.rayParameter < best.rayParameter) {
       best = result;
+      tied = false;
       continue;
     }
     if (
       result.rayParameter === best.rayParameter &&
       result.primitiveId !== best.primitiveId
     ) {
-      return {
-        kind: "unsupported",
-        reason: "coincident-distinct-first-hit"
-      };
+      tied = true;
     }
   }
 
+  if (tied) {
+    return {
+      kind: "unsupported",
+      reason: "coincident-distinct-first-hit"
+    };
+  }
   return best ?? { kind: "miss" };
 }
