@@ -215,10 +215,9 @@ export function calculateAiryCellEnergies(beta: number, radius: number, scale = 
 const AIRY_FREQUENCY_DOMAIN_MAXIMUM_STEPS = 2.5e8;
 /** Whether (β, R) is integrated in real space; the test-only node scale does not change the method. */
 function useRealSpace(beta: number, radius: number): boolean {
-  if (beta >= AIRY_REAL_SPACE_MINIMUM_BETA) return true;
-  const c = Math.PI * beta * (2 * radius + 1) * Math.SQRT2, margin = 10 * Math.cbrt(c) + 24;
-  const radialNodes = Math.ceil(c + margin), angularNodes = Math.ceil((c + margin) / 4) + 1;
-  return radialNodes * angularNodes * (radius + 1) * (radius + 1) > AIRY_FREQUENCY_DOMAIN_MAXIMUM_STEPS;
+  // The frequency-domain node counts without their rounding up: (c + margin) radial × (c + margin)/4 angular, per cell.
+  const c = Math.PI * beta * (2 * radius + 1) * Math.SQRT2, n = c + 10 * Math.cbrt(c) + 24;
+  return beta >= AIRY_REAL_SPACE_MINIMUM_BETA || n * n / 4 * (radius + 1) * (radius + 1) > AIRY_FREQUENCY_DOMAIN_MAXIMUM_STEPS;
 }
 /**
  * Memoized cell energies (2.6): 800 entries of (R + 1)² values, at most 800 × 33² × 8 bytes ≈ 7.0 MB. 2.15.0: 800 (was 256), so the
