@@ -108,4 +108,17 @@ describe("mixed lighting resolved per point (#735)", () => {
       expect(result.diagnostics.providerEvaluationCount, name).toBe(518_080);
     }
   }, scaledTimeout(120_000));
+  it("keeps a radiance-function scene's surround outside a fixed-size chart (the 2.27.0 bytes)", async () => {
+    // Recorded with 2.27.0: outside the chart the surround is lit by the illuminant; the caller's function is not asked there.
+    let calls = 0;
+    const options: SimulateCaptureOptions = { scene: { kind: "radiance-function", sceneId: "flat", evaluate: () => (calls++, 0.00002) },
+      chartSize: { widthM: 0.01, heightM: 0.006 }, output: { format: "srgb-16", width: 48, height: 32 } };
+    for (const fast of [true, false]) {
+      const result = await simulateCapture({ ...options, fast });
+      expect(result.image.samples[0], String(fast)).toBe(26054);
+      expect(result.image.samples[(16 * 48 + 24) * 3], String(fast)).toBe(182);
+      expect(sha(result.image.samples), String(fast)).toBe("7cc18fe42ad90b3014efbdbad372a033defc4c81594d0f3ddbadb19cc02c191f");
+    }
+    expect(calls).toBeGreaterThan(0);
+  }, scaledTimeout(60_000));
 });

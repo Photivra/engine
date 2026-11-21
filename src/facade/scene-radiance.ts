@@ -471,6 +471,8 @@ export function buildPlanarSceneRadianceProvider(input: {
   /** Under the one illuminant: a caller radiance function's value, or the reflectance × irradianceScale·S(λ) / π (in that order). */
   function radianceAt(u: number, v: number, nm: number): number {
     if (caller?.kind === "radiance-function") {
+      // A fixed-size chart's surround is lit by the illuminant outside the chart, before the caller's function is asked.
+      if (placed && !(Math.abs(u * scale / half) <= 1 && Math.abs(v * scale / half) <= chartAspect)) return placed.surroundReflectance * irradianceScale * shapeAt(nm) / Math.PI;
       const value = caller.evaluate(pointOf(u, v, nm));
       if (typeof value !== "number" || !Number.isFinite(value) || value < 0) throw new InvalidConfigurationError("Scene radiance function must return a finite non-negative radiance.");
       return value;
