@@ -79,6 +79,28 @@ describe("display view Speed kernel with the image-plane module (float32 emulati
     small.destroy(); large.destroy();
   }, scaledTimeout(300_000));
 
+  it("Speed: a strongly reduced, very wide photo whose rows for one display row do not fit one binding is refused by name (gpu-09 in #702)", async () => {
+    // 18000 × 1200 pixels as the 42 mm print of case 0 on the 128 MiB default limit: one row is 216,000 B, so 621 rows fit one
+    // binding, while one site row covers about 321 photo rows and one display row about 1,165. The band of one display row is the
+    // smallest the renderer makes (bandRows is at least 1), so the render throws insufficient-limits, and gpu "auto" runs the
+    // CPU reference labelled with it (docs/IMAGE_PLANE.md, "On the GPU").
+    const options: SimulateCaptureOptions = { ...cases[0]![1], scene: photo(syntheticPhoto(18000, 1200)) };
+    const fixture = await displayViewGpuFixture(options, SMALL_VIEW), runtime = await runtimeOf(createFakeGpu().gpu);
+    expect(runtime.maximumStorageBindingBytes).toBe(128 * 1024 * 1024);
+    const module = await materialModuleOf(runtime, fixture.input.setup);
+    expect(module.bandRows!(fixture.input.setup.frameHeight / SMALL_VIEW.height)).toBe(1);
+    await expect(renderOnGpu(runtime, fixture)).rejects.toMatchObject({ reason: "insufficient-limits", message: "A band's pixel signals exceed the device's storage binding limit." });
+    runtime.destroy();
+    const previous = registerDisplayViewGpuRenderer();
+    try {
+      const prepared = await prepareDisplayView(options, { gpu: "auto", gpuDevice: createFakeGpu().gpu });
+      const result = await prepared.render(SMALL_VIEW);
+      expect(result.diagnostics.fast.execution).toMatchObject({ backend: "cpu-reference", fallbackReason: "insufficient-limits" });
+      expect(Array.from(result.image.samples)).toEqual(Array.from(fixture.cpu.samples));
+      prepared.dispose();
+    } finally { (await import("../src/facade/display-view-gpu.js")).setDisplayViewGpuRendererFactory(previous); }
+  }, scaledTimeout(300_000));
+
   // #581 (owner decision 2026-11-09): the Quality passes for photos: diffraction, the four-spot filter and AHD, defocus of the plane.
   const qualityCases = IMAGE_PLANE_GPU_QUALITY_CASES;
   it.each(qualityCases)("Quality: %s: inside the a-priori bounds, samples within one code", async (name, options, caseView) => {

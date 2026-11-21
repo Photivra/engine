@@ -190,8 +190,13 @@ stratified footprint, or a kernel table above the device's storage limit. Its pi
   - **When they fit one storage binding**, they are uploaded once per scene and kept on the device.
   - **Otherwise each band** of display rows uploads only the pixel rows its native site rows reach. That is the print-local v of
     the band's first and last site rows at every query offset, plus two rows either side. The renderer caps a band's display rows
-    so that those rows fit the binding (owner decision, 2026-11-09). A very large photo therefore never meets the device's storage
-    binding limit, and a banded render equals the whole upload byte for byte (tested with a 2400 × 1600 photo under a 16 MB limit).
+    so that those rows fit the binding (owner decision, 2026-11-09), down to one display row: a band is never smaller. A large photo
+    therefore fits in bands unless the photo rows that one display row reaches do not fit one binding (a strongly reduced, very
+    wide photo): the render is then refused by name, `insufficient-limits` ("A band's pixel signals exceed the device's storage
+    binding limit."), and under `gpu: "auto"` the view runs on the CPU reference labelled with that reason (`gpu-09` in
+    [#702](https://github.com/Photivra/engine/issues/702); tested with an 18000 × 1200 photo as a 42 mm print at 0.63 m on the
+    default 128 MiB limit: 621 rows fit one binding, one display row reaches about 1,165). A banded render equals the whole upload
+    byte for byte (tested with a 2400 × 1600 photo under a 16 MB limit).
     Each render builds its bands' rows again, but a band's rows shared with the previous band are copied on the device from that
     band's buffer (kept until the next band), so each photo row a render reaches is built once. Memory: the host holds at most one
     4 MiB chunk of signals; the device holds at most two band buffers, each within the binding limit. On the emulation, with 20

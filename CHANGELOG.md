@@ -542,6 +542,10 @@ Each item below is one commit of the serial output-change lane, with its measure
     `webgpu-disabled` (it keeps its device), and a view prepared earlier renders on the CPU labelled `webgpu-disabled` under
     `"auto"` or throws that reason under `"require"`; switched on again, the device is used. Results labelled `webgpu-f32` while
     the switch was on are unchanged. Fast row 337,881 → 337,889 B (docs/WEBGPU.md, "The realm's switch").
+  - *docs/IMAGE_PLANE.md no longer says a banded photo never meets the binding limit (`gpu-09`).* A band is at least one display
+    row, so a strongly reduced, very wide photo whose rows for one display row do not fit one binding is refused by name
+    (`insufficient-limits`), and `gpu: "auto"` renders it on the CPU reference with that label. A test with an 18000 × 1200 photo
+    on the 128 MiB default limit checks both. No code change.
 
 ### Benchmarks
 
