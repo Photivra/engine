@@ -63,12 +63,14 @@ describe("catalogue captures without flare or breathing (#631, #632)", () => {
   }, scaledTimeout(300_000));
 });
 
+// 2.28.0 (#674, the catalogue PSF's exact cell integration): the samples and codes of PV 100 2.8 Macro Pro close and PV 8 3.5 Fisheye
+// Pro fast, and the assumptions of PV 24 1.8 fast and PV 100 2.8 Macro Pro close (the PSF's truncated energy), the same on x64 and arm64.
 // 2.28.0 (#733): the two fast cases' `assumptions` digests re-recorded: their check reads the frame's top-left and centre blocks
 // (raw.expectedSignal verificationSites 8 and its text, fast.lens.catalogue gridPointsResolved); samples and codes unchanged.
 const PINS: Record<string, Record<string, string>> = {
-  "PV 24 1.8 fast": { samples: "5e02b2f4be51b560", codes: "f97541696387f501", assumptions: "8e38a066cb25ec23" },
-  "PV 100 2.8 Macro Pro close, chart size": { samples: "b77ba45604470c0a", codes: "dc24930e926963f6", assumptions: "12e745ae80018801" },
+  "PV 24 1.8 fast": { samples: "5e02b2f4be51b560", codes: "f97541696387f501", assumptions: "f3299f17e4003af4" },
+  "PV 100 2.8 Macro Pro close, chart size": { samples: "c6f792ebe95db2bd", codes: "37a3fed383b2e8e0", assumptions: "839cfd6f0b7ded82" },
   "PV 15 2.8 Fisheye Pro exact, chart size": { samples: "f2fa557623a3be59", codes: "72979384de3ef81e" },
-  "PV 8 3.5 Fisheye Pro fast, chart size": { samples: "1333add135ce336f", codes: "3f33f092ac4dd8c8" },
+  "PV 8 3.5 Fisheye Pro fast, chart size": { samples: "1c90c27c64779848", codes: "f81b2844d9a0ed4d" },
   "PV 50 1.8 display view": { samples: "51b018180f574ca8" }
 };

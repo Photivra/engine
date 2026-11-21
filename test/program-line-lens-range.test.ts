@@ -36,6 +36,7 @@ const UNCHANGED: Record<string, SimulateCaptureOptions> = {
 // catalogue50's assumptions re-pinned for #567 (2.20.0): lens.catalogue.character reports the lens's bokeh; its image, RAW and exposure are unchanged.
 // Every assumptions digest re-pinned for 2.22.0: raw.expectedSignal's method is "per-site-integrated-electrons" (before "tabulated-expected-electrons")
 // and its explanation says so; samples, RAW codes and exposure are unchanged (the same on x64 and arm64).
+// 2.28.0 (#674, the catalogue PSF's exact cell integration): catalogue50's samples, codes and assumptions re-pinned (x64 and arm64).
 const PINNED: Record<string, Record<string, string>> = {
   tierLens: { samples: "e93c1106936f4744f0e16b5718eb7c88f2d33844652e4e56dc168ecc3b1e91f8", codes: "ace2bd2120a3f5b59e2076a289198be5f235ef19f3a35d399ca97f983633b28d",
     exposure: "00b53a317629402d6abb579d4805ec2dc134ff172ac6ab779162d2ab6e55f379", assumptions: "e8e5a4d37a2e67c02b4629645f98fdabd3c17ae26d5f1df13955f7d96f36708e" },
@@ -52,8 +53,8 @@ const PINNED: Record<string, Record<string, string>> = {
   // #681 (2.28.0): exposure re-pinned, samples, codes and assumptions unchanged. Its ideal ISO is 99.99999999999997 (residual
   // -4.8e-16 stops), which reported clamped "minimum", "iso-minimum" and quantized; now clamped false, "none", not quantized.
   // The settings are unchanged (f/10.46, 1/125 s, ISO 100).
-  catalogue50: { samples: "d14f71e0d15541621bf2e0f54a08237c6d58d6a762a764fe04f43172b1bf2fa1", codes: "6e9885b34fb07a068711607dd975a99fa8a8619005f274ddfbd4fc9d60eda3f9",
-    exposure: "90155d028eb540cd029ddc97732b06f646ce867d220f428fd75d7dee773fd9bb", assumptions: "719ef58f535b470602ff35bd3af5a4588a0be6e3af25c8a1ede9928737975866" },
+  catalogue50: { samples: "9445f3892b824c8b7aa7bf0f628a72fdc9addc9f1a0402b05f4731c8a05112ce", codes: "91f6a851bb85d0d89d22b1d1eed711f1c8e07ff71b85021bcec7c446581677a6",
+    exposure: "90155d028eb540cd029ddc97732b06f646ce867d220f428fd75d7dee773fd9bb", assumptions: "3af60f63dc51575e280abe6fd6605e7505daad584413f8af1107efb8f97dc14d" },
   idealAboveF8Manual: { samples: "5e929bb9533f1c4c0007f96a44bb58016f959311184609bf38fe4c99ba44eab3", codes: "a7c8a08b2e99486fcc001e4197343bb5ff6c24ed5251e8d0209857a47c739874",
     exposure: "006914fc3987a766d02070f5bb328685533ac903998205648c496168de997191", assumptions: "49f0fafb48448904a3b4ca40184b0ead1944826334df702b4d7b582468e4d2c9" },
   idealBelowF8Aperture: { samples: "e93c1106936f4744f0e16b5718eb7c88f2d33844652e4e56dc168ecc3b1e91f8", codes: "c6d4a30f45b20872c38650cc5c0ce9e13595033744c365f4aa388879737d2d81",

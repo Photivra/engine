@@ -347,6 +347,30 @@ Each item below is one commit of the serial output-change lane, with its measure
     render with the join's `fast` (#728 refuses fast parts under an exact join).
   - *Bundle.* Fast row 337,959 → 338,242 B (+283 B; lane so far +522 B against 337,720 B).
 
+- **Catalogue-lens PSF: the exact cell integral, and small pixels at large f-numbers (#674, with `optics-27` of #700).** The node PSF
+  |FFT(pupil)|² was sampled on a grid of pitch min(λ·N_w/2, p/4), each grid square counted as constant over the site cells it
+  overlapped, with an FFT period of at most 1.25 × the window or the PSF's extent: stopped down, the centre tap came out 2–20 % low
+  and the kernel too wide, and 1–2 µm pixels at f/16–f/32 were refused ("fewer than 9 samples"). Now the grid pitch is λ·N_w/2.5
+  (the intensity, a trigonometric polynomial of degree size/2.5, is resolved), the period holds the PSF and (up to 512 samples) the
+  window, at least 128 samples, and each site cell takes the exact integral of the band-limited periodic intensity (the sinc of a
+  box; Goodman, ch. 2), cells beyond the period integrating only its part. The builder's sines and cosines are the engine's portable
+  ones, so the kernels have the same bits on x64 and arm64. Profile version 1.1.0. The Seidel OPD, node grid, 3 % window rule,
+  centroid alignment and orientation are unchanged; `optics-27`: the window comment says 3 %, as the code and docs do.
+  - *Measured effect* (PV 50 1.2 Pro, focus 50 m, the axial node, centre tap against the exact Airy cells, before → after): 6 µm f/8
+    550 nm −5.27 % → +0.02 % (L1 0.090 → 0.0013), 780 nm −4.59 % → +0.07 %; 6 µm f/22 −3.88 % → +0.07 %; 3 µm f/22 550 nm −11.8 % →
+    +0.10 %, 780 nm −17.3 % → +0.10 %; 2 µm f/22 780 nm −20.2 % → +0.10 % (L1 0.210 → 0.0010); 6 µm f/4 380 nm −0.74 % → −0.17 %
+    (with the lens's axial colour). Without aberrations every node of 1–12 µm × f/4–f/22 × 380–780 nm is within 0.11 % at the centre
+    tap and 0.0034 in L1 (`test/generic-lens-psf-cells.test.ts`). PV 50 1.2 Pro at f/22 on 1.5 µm, at f/16 on 1 µm and PV 200 2 Pro
+    at f/32 on 2 µm now render. Build CPU per profile 0.01–0.06 → 0.03–0.09 s. Every stopped-down `lens.catalogue` render changes;
+    wide open the change is small.
+  - *Locks re-recorded for #674* (x64 Node 24.1.0 under Rosetta and arm64, the same on both): `test/display-view-detail-shared.test.ts`
+    (all 17 cases' internals; the samples of the 12 at 2 and 1 real pixels per display pixel), `test/lens-catalogue-optics-pins.test.ts`
+    (PV 100 2.8 Macro Pro close: samples, codes, assumptions; PV 8 3.5 Fisheye Pro fast: samples, codes; PV 24 1.8 fast: assumptions),
+    `test/program-line-lens-range.test.ts` (`catalogue50`: samples, codes, assumptions), `test/sensor-profile-pins.test.ts` (the phone
+    profile with PV 77 2.8 Phone: raw, assumptions), `test/figure-batch-hash-locks.test.mjs` (`catalogue-768` and `catalogue-corrected`,
+    internals, both flags; samples hold).
+  - *Bundle.* Fast row 338,242 → 338,222 B (−20 B; lane so far +502 B against 337,720 B).
+
 ### Display view
 
 - **Display view: Recover and +1 stop without Standard under its time target (#662); output unchanged.** With the identity tone

@@ -24,6 +24,11 @@
  * `node scripts/benchmark-figure-batch.mjs locks > locks.json` (or `locks <case ids>`); its `locks[id][flag]` holds `samples`,
  * `internals` and `work`. On x64 the values replace LOCKS and WORK; on arm64 each value that differs from the x64 one goes into
  * ARM64_FIGURE_LOCKS (keyed by the x64 digest) or ARM64_WORK. Re-record only with a change that names the moved locks.
+ *
+ * Re-recorded in 2.28.0 step 5 (arm64 and x64 Node 24.1.0 under Rosetta 2; CHANGELOG.md, "Output changes"): #670 win 1, the
+ * `fast: false` internals of 11 cases and the `fast: false` sceneLookups of dof-near-s1 and dof-near-s4 (no samples lock moved);
+ * #732, the default flag's samples, internals and work of 11 cases and detail-noise's work; #674, the internals of catalogue-768
+ * and catalogue-corrected, both flags (their samples hold).
  */
 import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
@@ -90,12 +95,12 @@ const LOCKS = {
     default: ["9934c6898507a19de6458ebed70a66dc99f3f69a35b6b849622f443697c425bc", "8b3197fd2a1954ea1eec9630dfd1db1309b7fc5766ffd208e4b305c13a0505cf"]
   },
   "catalogue-768": {
-    exact: ["de4a03b4e6c178590e234b5052c143c8636158043d26f285d70765707827b47d", "2de5e759ff788a21d3c41cc2ec9c130a8a03d2bf8cd500fa1e982325fd869fec"],
-    default: ["d675d22f872060db8bbf6925e5123b612fcc60e596e541644f88040c0f96715c", "fffa421b1f9743ac5fd1342bee560b0af5a06d40634f02910e8035ff930d16b5"]
+    exact: ["de4a03b4e6c178590e234b5052c143c8636158043d26f285d70765707827b47d", "63e31c64fc30d3f78a2b0c07c4dd885ad0f65651145f138ea1abddf509562e34"],
+    default: ["d675d22f872060db8bbf6925e5123b612fcc60e596e541644f88040c0f96715c", "d6980cf5070fa813b59f3fd46c90c597d98fb95e0a019b8f681f36b50342a029"]
   },
   "catalogue-corrected": {
-    exact: ["ba0c34caf04ad6ab3af89ff4cfd927dc83ae81de05c48720e74a46e2b99a5ddd", "1e8a2cf637e30cf6bda0617f52952827da972db699e2dbdbde97b34769f033b4"],
-    default: ["ebc1cfa2f3e6307ccf74af07fd33c29d65f5913000c59b15c2199212a94e5f55", "0f27692470b7333be8183fdd26518d9184afbf7f06b4870a1770300182545b05"]
+    exact: ["ba0c34caf04ad6ab3af89ff4cfd927dc83ae81de05c48720e74a46e2b99a5ddd", "42078a39f30255d74081e9b25804a8a71ba8089e765318c763f53b8d911cca10"],
+    default: ["ebc1cfa2f3e6307ccf74af07fd33c29d65f5913000c59b15c2199212a94e5f55", "5454875494288df41860b37003853a6fd8ddbc994bf5b2506f6bc300f67a9b7b"]
   },
   "detail-star-f8": {
     exact: ["14abc6c28dbd908ed920ef3ebd98935060da35f54a96b9b1247f132af1794fb2", "719823d483c64ebaf14d1ab0ee1257bff140be64d917fd6c0708fa28b961b9b0"],
@@ -170,10 +175,6 @@ const ARM64_FIGURE_LOCKS = {
   "611ea5d870e78048bf6ddc7faf68636918a8827e8c31b2a6b1f69194553954e4": "0f3ac0fa7f80e81f6d0e2312690527820ef0a648e3b399ea5be35650f0679448",
   "72dfaa4e8a7d61561c07b352ecf36b90e17b20743f2c713dda784acb1a5b708a": "751535c192d4702ff365ea0e289dc20b00d62da48eeedf566f1018d978dbaf61",
   "8b3197fd2a1954ea1eec9630dfd1db1309b7fc5766ffd208e4b305c13a0505cf": "874506479fb2c7d888170e25ff840fa2b796cc4d3babdbcb17026920b026dbdd",
-  "2de5e759ff788a21d3c41cc2ec9c130a8a03d2bf8cd500fa1e982325fd869fec": "9071b49e4ea652787fed7f695295a97721bf9f6feb8a08cda0143a877d473cf1",
-  "fffa421b1f9743ac5fd1342bee560b0af5a06d40634f02910e8035ff930d16b5": "6e7177feaeec16cc193ee717ac12d2acdf8d0cb7706bd109c130c0c2f6a17344",
-  "1e8a2cf637e30cf6bda0617f52952827da972db699e2dbdbde97b34769f033b4": "825ab38636b1fe71df74c042c7e98780f474e2b0f980fa13a531e6fcd0afe7f1",
-  "0f27692470b7333be8183fdd26518d9184afbf7f06b4870a1770300182545b05": "294890a1b80b947cd16dd63ff988bb5ab5f905a94ce60a23890c4a3f804d8633",
   "15179d4c9413f6e67e5b80a7c368eaa46b789b2c6d08982e327bd643d594fb3b": "39238054f0da472a9e32288d29f3d41bf370a8578f95689f7015ad6133d43040",
   "a61931f457062e512670a3be62429fd6b6eb5f409811f60b84522fe2efbab295": "e96bdb909b1b9ef9c99fad646321aa7fb6d28a3928b95bf66952b14b7c0298ea",
   "bd5f87f0b60b22bc81d4021614fede8a1ef9e699db60e2d37f4d124cef1a7eed": "08e9c503ff6aa894c32fde7a88b22397e77541315e9f05bdc108f122ba2c8676",
