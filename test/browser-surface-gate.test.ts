@@ -57,6 +57,11 @@ describe("browser-surface gate (#695)", () => {
     ]);
   });
 
+  it("rejects a relative import of a file that is not a source module", () => {
+    const result = walk({ "index.ts": 'import "./decoder.wasm";\n' });
+    expect(result.violations).toEqual(['index.ts imports "./decoder.wasm", which is not an engine source module.']);
+  });
+
   it("rejects the repository-only API reached from the package graph", () => {
     const result = walk({ "index.ts": 'export { serve } from "./api/server.js";\n', "api/server.ts": 'import "node:http";\n' });
     expect(result.violations).toEqual(["api/server.ts is Node-only POC API code reachable from the root package export."]);

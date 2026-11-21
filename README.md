@@ -455,6 +455,15 @@ import {
 
 CI checks the root dependency graph, so Node-only modules and the repository-local HTTP POC server cannot become reachable from this browser-facing surface.
 
+### WebAssembly
+
+The published package contains no WebAssembly and has no runtime dependency. No engine module imports, fetches, compiles or instantiates WebAssembly. WebAssembly may appear in two places only:
+
+- In an application that opens JPEG XL-compressed DNG files. The application installs and loads a decoder itself and passes it to `importDngRawImage` as `jpegXlDecoder`, optionally through `createJxlOxideDngDecoder` for the `jxl-oxide-wasm` package. Without a decoder such a file is refused with `InvalidConfigurationError`. See [Phone RAW files](https://github.com/Photivra/engine/blob/main/docs/IMPORT_AND_PNG.md#phone-raw-files-2220).
+- In this repository's tests: `jxl-oxide-wasm` is a devDependency, loaded only by `test/dng-import-phone.test.ts`.
+
+`npm run check` enforces the limit (`scripts/check-browser-surface.mjs` and `test/webassembly-boundary.test.ts`).
+
 The open repository still contains a minimal Node HTTP POC server under `src/api`, for contributor integration testing. It is deliberately **not** exported by `@photivra/engine` and is left out of the published npm package. It has no authentication and is **not** a production hosting recommendation.
 
 From 2.0.0, the published manifest declares no `prepare` or other install lifecycle scripts. Install the npm package. A Git checkout must be built explicitly with `npm ci && npm run build` before use.

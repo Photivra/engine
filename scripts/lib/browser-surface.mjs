@@ -16,7 +16,12 @@ import ts from "typescript";
  * An `import()` whose argument is not a literal cannot be followed by any static check.
  */
 export function extractSpecifiers(source) {
-  return ts.preProcessFile(source, true, true).importedFiles.map((file) => file.fileName);
+  return importedModules(source).map((module) => module.specifier);
+}
+
+/** As `extractSpecifiers`, with each specifier's offset in `source`. */
+export function importedModules(source) {
+  return ts.preProcessFile(source, true, true).importedFiles.map((file) => ({ specifier: file.fileName, pos: file.pos }));
 }
 
 const BUILTINS = new Set(builtinModules.filter((name) => !name.startsWith("_")));
@@ -59,6 +64,8 @@ export function walkSourceGraph(entry, { sourceRoot, read }) {
         violations.push(`${relative} imports Node-only module "${specifier}" from the browser package graph.`);
       } else if (!specifier.startsWith("./") && !specifier.startsWith("../")) {
         violations.push(`${relative} imports package "${specifier}"; engine modules import engine modules only (relative paths).`);
+      } else if (![".js", ".ts", ""].includes(path.extname(specifier))) {
+        violations.push(`${relative} imports "${specifier}", which is not an engine source module.`);
       } else {
         pending.push(resolveSourceImport(file, specifier));
       }

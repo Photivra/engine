@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 /** Types of scripts/lib/browser-surface.mjs (#695). */
 export function extractSpecifiers(source: string): string[];
+export function importedModules(source: string): { specifier: string; pos: number }[];
 export function isNodeBuiltin(specifier: string): boolean;
 export function walkSourceGraph(entry: string, io: { sourceRoot: string; read(file: string): string }): { visited: Set<string>; violations: string[] };
 export function isPublished(file: string, patterns: readonly string[]): boolean;

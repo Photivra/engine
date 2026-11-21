@@ -28,6 +28,13 @@
     on any non-relative specifier, names a published `src/` module that no import reaches, and type-checks `src/` (without
     `src/api/`) without Node's type definitions (`tsconfig.browser.json`), so a Node global such as `process` fails. The walk
     is in `scripts/lib/browser-surface.mjs`, with tests. `src/` is unchanged; it already compiles without Node's types.
+  - *WebAssembly stays limited to the opt-in JPEG XL decoder (#659).* `npm run check:browser-surface` fails when any file
+    under `src/` names the `WebAssembly` global, a `.wasm` file or `application/wasm` in code or strings, or imports a module that
+    is not a relative engine module, and when a file other than `src/capture/jpeg-xl-tiles.ts` mentions WebAssembly at all
+    (`scripts/lib/webassembly-boundary.mjs`); `test/webassembly-boundary.test.ts` proves the scanner fails on 15 forms and keeps
+    `jxl-oxide-wasm` to the JPEG XL DNG test; `pack:check` refuses a packed `.wasm` file or any dependency field. README.md and
+    THIRD_PARTY.md state the limit, and the three native-capture "Path B" documents note that an engine-side WebAssembly
+    executor is not permitted while it stands.
 
 ## 2.27.0 — published November 19, 2026
 
