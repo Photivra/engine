@@ -10,6 +10,14 @@
   - *Focus-scatter sampler validation (#687, `optics-04`).* `simulateGenericLensFocusError` refuses a missing `focusDistanceM`
     (`InvalidScientificInputError`; it returned `focusDistanceM: NaN`) and a circle of confusion whose error or depth of focus is not
     finite (`InvalidScientificResultError`; it returned ±Infinity). Every finite result is unchanged.
+  - *Brown–Conrady inverse near the envelope edge (#724, with `optics-13` of #700).* With tangential terms the inverse threw for
+    valid points beyond the radial-only mapped radius (Newton converged to a second preimage outside the disc). When the first
+    start fails it now restarts from boundary points with every iterate kept inside the disc, and a solution in the `1e-12` band
+    above the envelope is put on the boundary radius, so inverse → forward no longer throws at the boundary. Measured on seeded
+    sets: 2,022 of 474,000 interior points (|k| ≤ 0.3, |p| ≤ 0.05) and 3,001 of 300,000 (|k| ≤ 1, |p| ≤ 0.3) failed and now invert,
+    and every interior point that inverted before gives the same bits. On exact-boundary points (400,000, |k| ≤ 0.1, |p| ≤ 0.02)
+    386 inverses and 148,086 inverse → forward round trips failed and now pass; 147,700 inverse results that lay up to 1e-12
+    outside the envelope move onto its boundary (at most 1.0e-12 relative), the only change to a result returned before.
 - **Tooling, CI and tests only (2.28.0 step 1); no package, API, output or bundle change.**
   - *Coverage gates decide per shard (#666, with `ci-07`).* Each coverage shard uploads one part, its blob report or a marker
     naming the `coverage` proof it found; `.github/coverage-parts.mjs` merges ten blobs with the thresholds enforced, passes a

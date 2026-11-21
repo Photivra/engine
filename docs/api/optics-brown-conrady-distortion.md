@@ -81,7 +81,8 @@ export interface CalculateBrownConradyDistortionMappingInput {
 Inverse-maps one distorted image-plane point to its ideal source point, for destination-to-source
 resampling. Damped Newton iteration starts from the radial-only inverse. The solution must lie
 inside the declared envelope and must reproduce the distorted point within a relative tolerance of
-1e-12.
+1e-12. 2.28.0 (#724): if that start fails, it restarts from boundary points with the iterates kept in
+the disc, and a solution within 1e-12 above the envelope is put on its boundary.
 
 ```ts
 export function calculateInverseBrownConradyDistortionMapping(

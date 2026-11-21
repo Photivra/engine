@@ -299,6 +299,7 @@ function solveInverseBrownConrady(
   const tx = point.x / scale;
   const ty = point.y / scale;
   const tolerance = 1e-12 * Math.max(1, Math.hypot(tx, ty));
+  const band = maximum * (1 + 1e-12);
 
   // Starting point: the radial-only inverse if inside its mapped envelope, otherwise the target itself.
   let x = tx;
@@ -313,17 +314,70 @@ function solveInverseBrownConrady(
     y = seed.y / scale;
   }
 
+  const accepted = (s: { x: number; y: number; residual: number }): boolean => s.residual <= tolerance && Math.hypot(s.x, s.y) <= band;
+  let solved = newtonInverse(profile.coefficients, tx, ty, x, y, tolerance, Number.POSITIVE_INFINITY);
+  let iterations = solved.iterations;
+  // 2.28.0 (#724): with tangential terms the mapped envelope reaches past the radial one, so a target seeded with itself can
+  // converge to a second preimage outside the disc. When the first start fails, retry from boundary points (the target's azimuth
+  // first, then 7 more around the circle) with every iterate kept inside the disc. A call that the first start solves never
+  // enters this loop, so its result is unchanged.
+  const azimuth = Math.atan2(ty, tx);
+  for (let k = 0; k < 8 && !accepted(solved); k += 1) {
+    const angle = azimuth + (k * Math.PI) / 4;
+    solved = newtonInverse(profile.coefficients, tx, ty, maximum * Math.cos(angle), maximum * Math.sin(angle), tolerance, maximum);
+    iterations += solved.iterations;
+  }
+  ({ x, y } = solved);
+  let { residual } = solved;
+
+  let sourceNormalizedRadius = Math.hypot(x, y);
+  if (residual <= tolerance && sourceNormalizedRadius > maximum && sourceNormalizedRadius <= band) {
+    // 2.28.0 (optics-13): a solution in the 1e-12 band above the envelope is put on the boundary radius (shrunk by an ulp at a
+    // time if rounding leaves it above), so the forward mapping, which accepts radii up to maximumNormalizedRadius, takes it back.
+    // Results inside the envelope are unchanged.
+    let toBoundary = maximum / sourceNormalizedRadius;
+    do { x = solved.x * toBoundary; y = solved.y * toBoundary; toBoundary *= 1 - Number.EPSILON; } while (Math.hypot(x, y) > maximum);
+    const f = forwardNormalized(x, y, profile.coefficients);
+    residual = Math.hypot(f.x - tx, f.y - ty);
+    sourceNormalizedRadius = Math.hypot(x, y);
+  }
+  if (
+    !(residual <= tolerance) ||
+    sourceNormalizedRadius > band
+  ) {
+    throw new InvalidScientificInputError(
+      "distortedImagePointMm lies outside the mapped Brown-Conrady profile operating envelope."
+    );
+  }
+
+  return { x, y, iterations, residual, sourceNormalizedRadius };
+}
+
+/**
+ * Damped Newton iteration for forward(x, y) = (tx, ty) from (x, y). With a finite `disc`, a trial point outside the disc is
+ * moved radially onto it before its residual is tested, so every iterate stays inside (2.28.0, #724); with an infinite one
+ * the iteration is the one of every release before 2.28.0.
+ */
+function newtonInverse(
+  coefficients: BrownConradyDistortionCoefficients,
+  tx: number,
+  ty: number,
+  x: number,
+  y: number,
+  tolerance: number,
+  disc: number
+): { x: number; y: number; iterations: number; residual: number } {
   let iterations = 0;
   let residual = Number.POSITIVE_INFINITY;
   for (; iterations < MAXIMUM_NEWTON_ITERATIONS; iterations += 1) {
-    const f = forwardNormalized(x, y, profile.coefficients);
+    const f = forwardNormalized(x, y, coefficients);
     const rx = f.x - tx;
     const ry = f.y - ty;
     residual = Math.hypot(rx, ry);
     if (residual <= tolerance) {
       break;
     }
-    const j = jacobianNormalized(x, y, profile.coefficients);
+    const j = jacobianNormalized(x, y, coefficients);
     const det = determinant(j);
     if (!(Math.abs(det) > 0) || !Number.isFinite(det)) {
       break;
@@ -334,9 +388,14 @@ function solveInverseBrownConrady(
     let lambda = 1;
     let accepted = false;
     for (let halving = 0; halving < 30; halving += 1) {
-      const nx = x - lambda * stepX;
-      const ny = y - lambda * stepY;
-      const g = forwardNormalized(nx, ny, profile.coefficients);
+      let nx = x - lambda * stepX;
+      let ny = y - lambda * stepY;
+      const radius = Math.hypot(nx, ny);
+      if (radius > disc) {
+        nx *= disc / radius;
+        ny *= disc / radius;
+      }
+      const g = forwardNormalized(nx, ny, coefficients);
       if (Math.hypot(g.x - tx, g.y - ty) < residual) {
         x = nx;
         y = ny;
@@ -349,18 +408,7 @@ function solveInverseBrownConrady(
       break;
     }
   }
-
-  const sourceNormalizedRadius = Math.hypot(x, y);
-  if (
-    !(residual <= tolerance) ||
-    sourceNormalizedRadius > maximum * (1 + 1e-12)
-  ) {
-    throw new InvalidScientificInputError(
-      "distortedImagePointMm lies outside the mapped Brown-Conrady profile operating envelope."
-    );
-  }
-
-  return { x, y, iterations, residual, sourceNormalizedRadius };
+  return { x, y, iterations, residual };
 }
 
 /** Applies the Brown-Conrady forward mapping to one ideal image-plane point. */
@@ -403,7 +451,8 @@ export function calculateBrownConradyDistortionMapping(
  * Inverse-maps one distorted image-plane point to its ideal source point, for destination-to-source
  * resampling. Damped Newton iteration starts from the radial-only inverse. The solution must lie
  * inside the declared envelope and must reproduce the distorted point within a relative tolerance of
- * 1e-12.
+ * 1e-12. 2.28.0 (#724): if that start fails, it restarts from boundary points with the iterates kept in
+ * the disc, and a solution within 1e-12 above the envelope is put on its boundary.
  */
 export function calculateInverseBrownConradyDistortionMapping(
   input: CalculateInverseBrownConradyDistortionMappingInput
