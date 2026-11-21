@@ -27,6 +27,8 @@
   - *One-frame panorama (#671).* `createPanoramaTask` with one frame and the default `exposureCompensation: "gain"` completed
     the stitch and then failed with "Processing progress accounting disagrees with its plan."; its plan no longer counts the
     gain pass that runs only for two or more frames. Results for two or more frames are unchanged.
+  - *Row bands of a large capture (#678).* `calculateNativeRawRowBands` refused every plan that carried `maximumPixels`
+    ("unknown field"), which every capture above 24 MP needs; it now checks a plan against the one field list of `NativeRawPlan`.
 
 ## 2.27.0 — published November 19, 2026
 
