@@ -13,6 +13,7 @@ import {
   resolveFullAutoExposureMode,
   resolveGenericEquipmentExposureCapabilities,
   resolveProgramAutoExposureMode,
+  simulateCapture,
   InvalidConfigurationError,
   InvalidScientificInputError,
   type ExposureMeterTarget,
@@ -479,6 +480,20 @@ describe("Program Auto", () => {
       result.targetResidual
         .residualStops
     ).toBeCloseTo(2, 12);
+  });
+
+  // foundation-07 (#699): a manual-ISO target beyond either end of the line names the line's end as the limit.
+  it("reports the program line's end as the limiting constraint with a manual ISO", async () => {
+    for (const [scale, position, constraint] of [[16, "above-line", "program-line-maximum"], [1 / 4096, "below-line", "program-line-minimum"]] as const) {
+      const result = resolveProgramAutoExposureMode({ target: targetForScale(scale), capabilities: capabilities(), referenceExposure, programLine: programLine(),
+        isoControl: { kind: "manual", iso: 100 } });
+      if (result.status !== "resolved") throw new Error("Expected resolved Program manual ISO.");
+      expect(result.programLineSelection.position).toBe(position);
+      expect(result.targetResidual.limitingConstraint).toBe(constraint);
+    }
+    const capture = await simulateCapture({ scene: { preset: "uniform" }, exposure: { mode: "program", iso: 100 }, illuminanceLux: 0.5, output: { width: 8, height: 8 } });
+    expect(capture.exposure.settings).toEqual({ fNumber: 4, shutterSeconds: 1.024, iso: 100 });
+    expect((capture.exposure.resolution as { targetResidual?: unknown } | undefined)?.targetResidual).toMatchObject({ state: "under-target", limitingConstraint: "program-line-maximum" });
   });
 
   // foundation-08 (#699): a target whose scale and stops disagree, or whose copied fields are not valid, is refused.

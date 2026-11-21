@@ -5752,7 +5752,7 @@ const resolved =
 
 Aperture and shutter are automatic. ISO is kept exactly, after it is checked against the capabilities.
 
-If the target falls beyond the first or last program-line node, the line stops at that endpoint, and the result reports the remaining under- or over-exposure.
+If the target falls beyond the first or last program-line node, the line stops at that endpoint, and the result reports the remaining under- or over-exposure. When no aperture or shutter limit was hit, `targetResidual.limitingConstraint` names the line's end: `"program-line-minimum"` below the first node, `"program-line-maximum"` above the last (2.28.0; before, it was `"none"`).
 
 ### Program Auto with Auto ISO
 

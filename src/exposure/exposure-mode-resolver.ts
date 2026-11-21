@@ -122,7 +122,10 @@ export type ExposureResolutionConstraint =
   | "shutter-grid-quantization"
   | "aperture-widest"
   | "aperture-narrowest"
-  | "aperture-grid-quantization";
+  | "aperture-grid-quantization"
+  /** Program mode with a fixed ISO: the target lies below the line's first node or above its last (foundation-07). */
+  | "program-line-minimum"
+  | "program-line-maximum";
 
 export type ExposureTargetResidual =
   | {
@@ -2706,6 +2709,10 @@ function programLineResidualConstraint(
     "maximum"
   ) {
     return "shutter-maximum";
+  }
+  // foundation-07: the target lies beyond an end of the line and no aperture or shutter limit was hit.
+  if (selection.position !== "within-line") {
+    return selection.position === "below-line" ? "program-line-minimum" : "program-line-maximum";
   }
   if (selection.apertureQuantized) {
     return "aperture-grid-quantization";

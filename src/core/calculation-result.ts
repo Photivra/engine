@@ -317,6 +317,15 @@ export function validateCalculationQuality(
   }
 }
 
+/**
+ * foundation-13: whether a typed array holds a non-finite element. It is read through the typed array's own `some`, not
+ * through `Object.keys` (one string per element); BigInt elements are finite, and a DataView has no elements. The answer is
+ * that of the key walk (the diagnostic path walk, which runs only after a non-finite number was found, still walks keys).
+ */
+function viewHasNonFinite(view: ArrayBufferView): boolean {
+  return !(view instanceof DataView) && (view as Float64Array).some((entry) => typeof entry === "number" && !Number.isFinite(entry));
+}
+
 function assertFiniteNumbers(
   value: unknown,
   path: string,
@@ -376,6 +385,7 @@ function containsNonFiniteNumber(value: unknown, seen: WeakSet<object>): boolean
     }
     return false;
   }
+  if (ArrayBuffer.isView(value)) return viewHasNonFinite(value);
   const record = value as Record<string, unknown>;
   const keys = Object.keys(record);
   for (let index = 0; index < keys.length; index++) {
@@ -431,6 +441,7 @@ function scanNonFiniteWithoutMemo(value: unknown, depth: number): number {
     }
     return FAST_SCAN_FINITE;
   }
+  if (ArrayBuffer.isView(value)) return viewHasNonFinite(value) ? FAST_SCAN_NON_FINITE : FAST_SCAN_FINITE;
   const record = value as Record<string, unknown>;
   const keys = Object.keys(record);
   for (let index = 0; index < keys.length; index++) {

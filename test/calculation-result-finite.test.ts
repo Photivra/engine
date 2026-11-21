@@ -140,3 +140,29 @@ describe("calculation result finite-number validation", () => {
     });
   });
 });
+
+// foundation-13 (#699): typed arrays are walked by index, not through Object.keys (one string per element).
+describe("typed arrays in a result value", () => {
+  it("are scanned by index with the same answers and path", () => {
+    const keys = Object.keys;
+    const viewsWalked: unknown[] = [];
+    Object.keys = ((o: object) => { if (ArrayBuffer.isView(o)) viewsWalked.push(o); return keys(o); }) as typeof Object.keys;
+    try {
+      for (const samples of [new Float64Array(1000), new Float32Array(1000), new Uint8Array(1000), new Int32Array(10), new Uint16Array(0)]) {
+        expect(calculatedResult({ samples }, "m", "1.0.0", []).value.samples).toBe(samples);
+        expect(calculationValueContainsNonFiniteNumber({ samples })).toBe(false);
+        expect(calculationValueContainsNonFiniteNumberExact({ samples })).toBe(false);
+      }
+      for (const [samples, index] of [[new Float64Array(8), 3], [new Float32Array(8), 7], [new Float64Array(1), 0]] as const) {
+        samples[index] = index === 0 ? Number.NEGATIVE_INFINITY : Number.NaN;
+        expect(calculationValueContainsNonFiniteNumber({ samples })).toBe(true);
+        expect(calculationValueContainsNonFiniteNumberExact({ samples })).toBe(true);
+        expect(() => calculatedResult({ samples }, "m", "1.0.0", [])).toThrow(InvalidScientificResultError);
+        expect(() => calculatedResult({ samples }, "m", "1.0.0", [])).toThrow("Calculation produced a non-finite number at value.samples." + index + ".");
+      }
+    } finally {
+      Object.keys = keys;
+    }
+    expect(viewsWalked).toEqual([]);
+  });
+});
