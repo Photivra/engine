@@ -48,7 +48,7 @@ The engine separately provides `calculateCameraRotationImageMapping()`. It model
 - Positive yaw turns the camera left and moves image content toward +X.
 - Positive pitch tilts the camera up and moves image content toward −Y.
 - For a single axis, at the optical axis, `estimateCameraShakeBlur()` returns the rotation mapping's `deltaMm`, equal within floating-point rounding. (The two evaluate the same tangent with different operation orders.)
-- Both reject a rotation on any axis of a quarter turn (π/2 rad) or more during the exposure, where the tangent would change sign.
+- `estimateCameraShakeBlur()` rejects a rotation on any axis of a quarter turn (π/2 rad) or more during the exposure, where the tangent would change sign. The rotation mapping rejects only a field point whose rotated ray lands on or behind the camera plane (z ≤ 0): it accepts a larger angle for a point that stays in front, and a full turn plus a small angle gives the small angle's mapping, which is right for an instantaneous mapping.
 
 See [Motion and signal](MOTION_AND_SIGNAL.md#spatial-camera-rotation).
 

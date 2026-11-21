@@ -3,6 +3,7 @@
  * #615: calculateSensorFigures gives a sensor's dynamic range, per-pixel noise and mid-grey SNR at an ISO, and they agree with what
  * simulateCapture reports for the same profile and ISO.
  */
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { calculateSensorFigures, resolveSensorProfile, simulateCapture, InvalidConfigurationError, InvalidScientificInputError } from "../src/index.js";
 import { scaledTimeout } from "./helpers/test-timeout.js";
@@ -64,4 +65,20 @@ describe("calculateSensorFigures (#615)", () => {
     // An ISO the sensor does not have is refused by the capture's own check.
     await expect(calculateSensorFigures({ iso: 123 })).rejects.toThrow();
   });
+});
+
+describe("docs/SENSOR_PROFILES.md \"Calculated\" column (sensor-05, #701)", () => {
+  const page = readFileSync("docs/SENSOR_PROFILES.md", "utf8");
+  const figures = async (id?: string): Promise<string> => {
+    const f = (await calculateSensorFigures(id === undefined ? { iso: 3200 } : { profile: resolveSensorProfile(id), iso: 3200 })).value;
+    const base = f.dynamicRangeByIso.reduce((a, b) => (b.iso < a.iso ? b : a));
+    return [base.stops, f.dynamicRangeStops, f.midGrey.snr].map((v) => v.toFixed(1)).join(" ");
+  };
+  it("prints what calculateSensorFigures gives at ISO 3200, to the printed precision", async () => {
+    const rows = [...page.matchAll(/^\| `([a-z0-9-]+)` \|.*\| ([\d.]+) \/ ([\d.]+)(?: stops)?, SNR ([\d.]+) \|$/gm)];
+    expect(rows).toHaveLength(8);
+    for (const [, id, low, high, snr] of rows) expect(await figures(id), id).toBe([low, high, snr].join(" "));
+    const tier = /the Professional tier gives ([\d.]+) and\s+([\d.]+) stops and an SNR of ([\d.]+)\)/.exec(page)!;
+    expect(await figures()).toBe(tier.slice(1).join(" "));
+  }, scaledTimeout(60_000));
 });
