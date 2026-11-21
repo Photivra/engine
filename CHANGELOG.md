@@ -271,6 +271,22 @@
   1.1–1.2 s, color patches 3.8 s → 1.1–1.2 s, dead leaves 4.0–4.3 s → 1.0–1.1 s (clipped: 0.72–0.77 s); the figure-batch
   `detail-perceptual-png` part 0.74× (`fast: false`) and 0.80× (default). Samples and PNG bytes are unchanged, and the hash locks
   hold. `t ** 3` and `BISECTION_STEPS` are unchanged. Tests: `test/gamut-mapping-early-out.test.ts`.
+- **Facade low-severity findings (#730, 2.28.0 step 8).** Refusals and texts only; every valid request keeps its result.
+  - *A missing parts list is refused (`facade-03`).* `serializeSimulatedCaptureDngFromParts(options, undefined)` and
+    `simulateCaptureFromParts(options, undefined)` rendered the whole capture; they now fail as an empty list does ("needs at least
+    one part"), and with `output.region` with the "takes no output.region" refusal.
+  - *Out-of-range settings name the option and the range (`facade-05`).* `lens.fNumber`, `exposure.iso` and
+    `exposure.shutterSeconds` outside the camera's range (or an ISO off its settings grid) were refused with the resolvers' field
+    names (`manualAperture`, `isoControl.iso`, `manualShutterSeconds`, `manualIso`); the refusal now names the option, the value and
+    the range (or lists the settings), for example "lens.fNumber 2.8 is outside the camera's range, f/4 to f/16.";
+    `calculateSensorFigures` and `simulateExposureBuildUp` inherit it. `lens.focalLengthMm` outside the lens's range and an unknown
+    `lens.projection` are refused under their option names. The framing functions' positive-number refusal states its bound (1e7).
+  - *Assumption and provenance texts (`facade-06`).* The `camera` assumption names the default preset's version (2.1.0, was
+    "2.0.0"); `exposure.metering` says when the meter reads through `lens.filter` and when it reads the grey card;
+    `provenance.composedContracts` names the resolver that ran (`resolveAperturePriorityAutoIsoExposureMode` with Auto ISO in
+    aperture priority, and the manual or shutter-priority resolver when a flash alone lights the scene); `exposure.referenceExposure`
+    states the base-ISO anchor of a profile whose base ISO is above 100.
+  - Tests: `test/facade-low-findings.test.ts`; `test/exposure-build-up.test.ts` pins the new shutter refusal.
 
 ### Output changes (2.28.0 step 5)
 

@@ -166,7 +166,7 @@ describe("simulateExposureBuildUp (#534)", () => {
       await expect(simulateExposureBuildUp(options, { fractions: fractions as number[] })).rejects.toThrow(message);
     await expect(simulateExposureBuildUp({ ...options, output: { format: "jpeg" } }, { fractions: [1] })).rejects.toThrow(InvalidConfigurationError);
     await expect(simulateExposureBuildUp({ ...options, exposure: { mode: "manual", shutterSeconds: 1 / 8000 } }, { fractions: [0.1, 1] }))
-      .rejects.toThrow("Fraction 0.1 (manual, 0.0000125 s): manualShutterSeconds lies outside the resolved equipment capability range.");
+      .rejects.toThrow("Fraction 0.1 (manual, 0.0000125 s): exposure.shutterSeconds 0.0000125 is outside the camera's range, 0.000125 s to 30 s.");
     await expect(simulateExposureBuildUp(options, { fractions: [1], extra: 1 } as never)).rejects.toThrow("Unknown simulateExposureBuildUp option");
   }, scaledTimeout(60_000));
 });
