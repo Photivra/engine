@@ -174,6 +174,10 @@ export function workflowRuleErrors({ ciText, publishText, webgpuText }) {
   }
   if (!/^ {4}needs: \[[^\]]*\bconformance\b[^\]]*\]/m.test(workflowJobs(publishText).get("publish") ?? ""))
     errors.push("publish.yml's `publish` job must need `conformance` (#713).");
+  // A version that is already published passes only when the registry holds the verified tarball (its dist.integrity).
+  const publishStep = (workflowJobs(publishText).get("publish") ?? "").split(/\n(?= {6}- )/).find((step) => /^ {6}- name: Publish\s*$/m.test(step)) ?? "";
+  if (!publishStep.includes("dist.integrity") || !publishStep.includes("openssl dgst -sha512 -binary \"$TARBALL\""))
+    errors.push("publish.yml's Publish step must compare the registry's `dist.integrity` with the verified tarball's SHA-512 before it treats a published version as done.");
   return errors;
 }
 

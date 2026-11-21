@@ -122,6 +122,7 @@ test("a release that does not wait for every part of the WebGPU conformance suit
     [({ publishText }) => ({ publishText: publishText.replace(' ${{ steps.part-3.outputs.found }}', "") }), /must fail unless every proof lookup found its proof/],
     [({ publishText }) => ({ publishText: publishText.replace(/(Use Node\.js as webgpu\.yml does\n[\s\S]*?node-version: )"lts\/\*"/, '$1"24"') }), /must set up Node\.js as webgpu\.yml does/],
     [({ publishText }) => ({ publishText: publishText.replace("needs: [verify, coverage, conformance]", "needs: [verify, coverage]") }), /`publish` job must need `conformance`/],
+    [({ publishText }) => ({ publishText: publishText.replace(/dist\.integrity/g, "version") }), /Publish step must compare the registry's `dist\.integrity`/],
     [({ publishText }) => ({ publishText: publishText.replace("          check-latest: true\n", "") }), /publish\.yml: every setup-node step of job `conformance` must set `check-latest: true`/],
     [({ webgpuText }) => ({ webgpuText: webgpuText.replace("          check-latest: true\n", "") }), /webgpu\.yml: every setup-node step of job `webgpu-conformance` must set `check-latest: true`/]
   ];
