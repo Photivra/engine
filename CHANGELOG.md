@@ -84,6 +84,35 @@
   are accepted as before; only inconsistent inputs that were wrongly accepted are now refused. No output change; fast row +18 B.
   The native capture's lean environment path (`src/capture/native-environment-lean.ts`) makes its per-bin contribution and
   total power checks the same relative way, so it takes the main path's decisions; every hash lock holds.
+- **A sensor-profile field named like an `Object.prototype` member is an unknown field (`foundation-04` in #699, `sensor-02` in
+  #701).** `sensor.profile` with `constructor` or `toString` was accepted, and `valueOf`, `hasOwnProperty` or an own `__proto__`
+  (from `JSON.parse`) threw a plain `TypeError`; each now fails with "Unknown sensor.profile field: <name>."
+  (`InvalidConfigurationError`), also through `calculateSensorProfileFrame` and `resolveSensorProfileIsoSettings`. No output change for
+  valid requests.
+
+### Exposure and colour
+
+- **Low-severity fixes (2.28.0 step 8, #699); no output change for valid requests, bundle rows unchanged (fast 337,887 B, on demand
+  51,743 B: the additions are paid for by shared checks, below).**
+  - *Meter targets (`foundation-08`).* The exposure-mode resolvers refuse a resolved target whose `requiredExposureScaleToTarget` and
+    `exposureOffsetStopsToTarget` disagree by more than 1e-9 stops (`InvalidScientificInputError`; such a target was placed by the stops
+    in program and full auto and by the scale elsewhere), a `sourceMeterSnapshot` with a missing or non-string identifier or an unknown
+    `sourceKind` (`InvalidConfigurationError`), and a non-finite `baseTargetRelativeSignal`, `meteredRelativeSignal` or
+    `exposureCompensationStops`. Engine-built targets resolve unchanged.
+  - *White-balance states (`foundation-09`).* `resolveManualWhiteBalance` refuses a missing `channelGains` and an unknown gain key; custom
+    and auto white balance refuse a sample that is not an object and a `clipped` that is not a boolean (**newly refused**: `"true"`, `1`
+    and `null` were read by truthiness); `createLockedWhiteBalanceState` refuses a `sourceState` that `parseResolvedWhiteBalanceState`
+    refuses, so every lock parses again. Domain errors replace the plain `TypeError`s.
+  - *Finite scalar results (`foundation-10`).* `calculatePlanckianSpectralRadiance`, `evaluateSrgbDecoding`, the BT.1886 `decode`,
+    `calculateFlashGuideNumber` and `calculateFlashPowerForDistance` throw `InvalidScientificResultError` instead of returning `Infinity`
+    or `NaN`; Planck's law gives 0 where λ⁵ underflows against an overflowed exponential.
+  - *CCT at the Duv limit (`foundation-11`).* `calculateCorrelatedColorTemperature` reads back a chromaticity made at |Duv| = 0.05
+    (within 1e-12 of the limit, Duv reported clamped to ±0.05); before, 19 of 31 such points threw.
+  - *Quadrature (`foundation-12`).* `createColorimetricMidpointQuadrature` returns one node when the maximum subinterval is far wider
+    than the range (it returned none from 1e12 nm).
+  - *Bundle.* Duplicated checks in the resolver, white balance, colorimetry and Auto ISO slowest-shutter code now call the shared
+    record-validation functions (same messages and error classes); an array `camera` in a Kelvin white balance now fails with "camera
+    must be an object.".
 
 ### Capture
 

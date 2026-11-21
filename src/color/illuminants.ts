@@ -48,13 +48,14 @@ import {
   chromaticityOfXyz,
   parseChromaticity,
   requireFiniteNumber,
+  requireFiniteResult,
   requirePositiveNumber,
   requireRecordValue,
   uvOfChromaticity,
   type Cie1960UvChromaticity,
   type CieXyChromaticity
 } from "./colorimetry-math.js";
-import { rejectUnknownFields, requireInputKeys } from "../core/record-validation.js";
+import { rejectUnknownFields, requireInputKeys, requireTrimmedConfigString } from "../core/record-validation.js";
 import { InvalidConfigurationError } from "../core/configuration-error.js";
 import { portableExpm1, portableHypot, portablePow } from "../core/portable-math.js";
 
@@ -92,7 +93,12 @@ export function calculatePlanckianSpectralRadiance(input: { temperatureKelvin: n
   requireInputKeys(input, "calculatePlanckianSpectralRadiance", ["temperatureKelvin", "wavelengthNanometers"]);
   const t = requirePositiveNumber(input.temperatureKelvin, "temperatureKelvin");
   const nm = requirePositiveNumber(input.wavelengthNanometers, "wavelengthNanometers");
-  return planckianRadiancePerNanometer(t, nm, undefined);
+  // foundation-10: a NaN arises only as ∞ / ∞ or 0 / 0, where λ⁵ or λT is outside the double range and the radiance tends to 0; an infinite
+  // radiance is refused. The shared evaluation keeps its operation order (the capture and the display view call it).
+  const radiance = planckianRadiancePerNanometer(t, nm, undefined);
+  if (Number.isNaN(radiance)) return 0;
+  requireFiniteResult([radiance], "calculatePlanckianSpectralRadiance");
+  return radiance;
 }
 /**
  * Planck's law at temperature t (K) and wavelength nm. `portable` evaluates λ⁵ and e^x − 1 with the engine's portable
@@ -249,9 +255,7 @@ function cieDaylightSpectrum(input: Parameters<typeof createCieDaylightSpectrum>
   }, portable).value;
   const basis = requireRecordValue(input.basis, "basis");
   rejectUnknownFields(basis, ["s0", "s1", "s2", "datasetId"], "basis");
-  if (typeof basis.datasetId !== "string" || basis.datasetId.trim().length === 0) {
-    throw new InvalidConfigurationError("basis.datasetId must be a non-empty string.");
-  }
+  requireTrimmedConfigString(basis.datasetId, "basis.datasetId");
   const s0 = prepareColorimetricSpectrum({ kind: "tabulated", samples: input.basis.s0 }, "basis.s0");
   const s1 = prepareColorimetricSpectrum({ kind: "tabulated", samples: input.basis.s1 }, "basis.s1");
   const s2 = prepareColorimetricSpectrum({ kind: "tabulated", samples: input.basis.s2 }, "basis.s2");
@@ -535,10 +539,11 @@ export function calculateCorrelatedColorTemperature(input: { chromaticity: CieXy
   const t = Math.min(locus.range.maximum, Math.max(locus.range.minimum, 1 / nearest.x));
   const point = nearest.sample, normal = locusNormal(point);
   const duv = (target.u - point.u) * normal.u + (target.v - point.v) * normal.v;
-  if (Math.abs(duv) > MAX_CORRELATED_COLOR_TEMPERATURE_DUV) {
+  // foundation-11: within 1e-12 of the limit is the limit (a chromaticity made at |Duv| = 0.05 reads back 1 ulp above it).
+  if (Math.abs(duv) > MAX_CORRELATED_COLOR_TEMPERATURE_DUV + 1e-12) {
     throw new InvalidScientificInputError("|Duv| exceeds 0.05; no CCT is reported this far from the Planckian locus (the range evaluated by Smet et al. 2023).");
   }
-  const value = { correlatedColorTemperatureKelvin: t, duv };
+  const value = { correlatedColorTemperatureKelvin: t, duv: Math.min(MAX_CORRELATED_COLOR_TEMPERATURE_DUV, Math.max(-MAX_CORRELATED_COLOR_TEMPERATURE_DUV, duv)) };
   const assumptions = ["Nearest point on the Planckian locus in CIE 1960 uv; locus model: " + locus.model, "Duv sign: positive above the locus (toward green), negative below (engine convention)"];
   return locus.approximation
     ? approximationResult(value, "cct-duv-locus-search", COLORIMETRY_MODEL_VERSION, assumptions)
