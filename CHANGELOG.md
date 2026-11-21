@@ -291,6 +291,15 @@
   336,700 → 337,800 B, on demand 50,200 → 50,400 B; export stays 10,400 B (docs/DISPLAY_VIEW.md, "Bundle size"). The 49,400 B
   on-demand target stands.
 
+- **Image-plane prints: the moved-value flag no longer grows with the photo's pixel coordinates (#716).** The image-plane Speed
+  module, the image-plane Quality lattice pass and their emulation bound a bilinear value's move under the point's error by the
+  neighboring pixels' differences in the cells the error reaches (zero in a flat area) and use a derived bound for that error,
+  2⁻⁴⁴·(|X| + half·(extent + 2k)) pixels instead of 4·2⁻⁴⁰·(|X| + 1) (docs/WEBGPU.md, "The image-plane module"). The fixture
+  photo at 6000 × 4000 fitted inside the 600 × 400 frame flags 0 of 27,405 display pixels in the 203 × 135 Speed view (2,611
+  before); a noisy gray ramp at 17000 × 1400, 0 (768). GPU results change for the pixels that were recomputed on the host before:
+  they now carry the GPU's value inside the declared bound (samples within one code). The shader text changes; CPU results, hash
+  locks and the bundle rows are unchanged (the image-plane code is outside the capture worker's shape).
+
 ### Benchmarks
 
 - **The batch-figure benchmark and its hash locks (#670, 2.28.0 step 2); no package, API, output or bundle change.**

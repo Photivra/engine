@@ -19,11 +19,13 @@
  * in double-float32 and decides the print's edge in the composite kernel's bound arithmetic (a point within its bound of the
  * edge is flagged: the display pixel is recomputed on the host). Per axis it splits s = X − ½ into its integer part n and
  * fraction f exactly (double-float32), rounds the smaller of f and 1 − f once to float32 and forms the other as 1 minus it, so
- * each weight carries at most 2E relative error (E = 2⁻²³) besides the point's own error. The point's error moves weight
- * between neighbors: with δ the bound of |X_gpu − X_ref| in pixels (4·(2⁻⁴⁰·(|X| + 1)) + 4·10⁻¹⁴·W/2·k: the recovery, the
- * double-float32 steps and the reference's own float64 rounding of its query point, generously), the value moves by at most
- * (δx + δy)·2·max S, and the point is flagged when that exceeds E times the value. So an unflagged value carries a relative
- * error only: S's rounding 1, the weights 2 + 2, the two products and two sums 4, the flag's budget 1, that is 10 roundings
+ * each weight carries at most 2E relative error (E = 2⁻²³) besides the point's own error. The point's error moves the value
+ * (#716, docs/WEBGPU.md, "The image-plane module"): with δ the bound of |X_gpu − X_ref| in pixels per axis (`imagePlanePointSlack`:
+ * 2⁻⁴⁴·(|X| + (W/2)·(1 + 2k)) for the recovery and the double-float32 steps, and 4·10⁻¹⁴·k·W/2 for the reference's own float64
+ * rounding of its query point), the bilinear value is continuous across cells, so between the two points it moves by at most
+ * δx·gx + δy·gy, gx and gy the largest differences of horizontally and vertically neighboring pixels in the cells the error box
+ * reaches (the cell itself, and the next one when the point lies within 2δ of a cell edge); the point is flagged when that exceeds
+ * E times the value. The move is zero in a flat area. So an unflagged value carries a relative error only: S's rounding 1, the weights 2 + 2, the two products and two sums 4, the flag's budget 1, that is 10 roundings
  * beyond the table lookup's one (`extraSiteRoundings`), added to the Speed kernel's chains (docs/WEBGPU.md, "Display view (Speed)").
  * `nearest` takes the pixel under the point, flagging a point within its bound of a pixel edge (`bfloor`). All S are
  * non-negative (non-negative responses, illuminant and spectra), so the weighted sums need no cancellation term.
@@ -45,7 +47,7 @@ import { resolveMixedIllumination } from "../facade/mixed-illumination.js";
 import { imagePlaneSupport } from "../facade/image-plane-support.js";
 import { CONFORMANCE_FRAME, conformanceChannelAt, conformanceResponses, conformanceSetup, conformanceVerdict, renderDisplayViewSpeedOnGpu, withConformanceAbort } from "./display-view-speed-gpu.js";
 import { renderDisplayViewQualityOnGpu, type DisplayViewQualityImagePasses } from "./display-view-quality-gpu.js";
-import { imagePlaneQualityPasses } from "./display-view-image-quality.js";
+import { IMAGE_PLANE_BILINEAR_WGSL, imagePlanePointSlack, imagePlaneQualityPasses } from "./display-view-image-quality.js";
 import { ChartCompositeProbeError, probeChartCompositeDevice } from "./chart-composite-gpu.js";
 import { createComputePipeline } from "./webgpu-runtime.js";
 
@@ -76,21 +78,20 @@ struct PhotoParams {
 @group(1) @binding(1) var<uniform> photo: PhotoParams;
 ${LATTICE_BINDINGS_WGSL}
 ${LATTICE_POINT_WGSL}
-// The point's error bound in pixels along one axis (see the module comment).
-fn pixel_slack(x: D, slack: f32) -> f32 { return 4.0 * (DW * (abs(x.h) + 1.0)) + 4.0 * slack; }
-// One axis of the bilinear weights: the pixel pair (clamped to the edge) and the weights of s = X − 1/2.
-struct Axis { i0: u32, i1: u32, w0: f32, w1: f32 }
-fn bilinear_axis(s: D, n: u32) -> Axis {
-  var f0 = floor(s.h);
-  if (f0 == s.h && s.l < 0.0) { f0 = f0 - 1.0; }
-  let frac = d_sub(s, D(f0, 0.0));
-  let comp = d_sub(D(ob(f0 + 1.0), 0.0), s);
-  var w0 = 0.0; var w1 = 0.0;
-  if (frac.h <= 0.5) { w1 = ob(frac.h + frac.l); w0 = ob(1.0 - w1); } else { w0 = ob(comp.h + comp.l); w1 = ob(1.0 - w0); }
-  let last = i32(n) - 1;
-  return Axis(u32(clamp(i32(f0), 0, last)), u32(clamp(i32(f0) + 1, 0, last)), w0, w1);
-}
+${IMAGE_PLANE_BILINEAR_WGSL}
 fn photo_at(i: u32, j: u32, c: u32) -> f32 { return photo_signal[((j - photo.row0) * photo.width + i) * 3u + c]; }
+// #716: the largest differences of horizontally and vertically neighboring pixels over the pixels a and b of the two axes reach.
+fn photo_slopes(ax: Axis, ay: Axis, c: u32) -> vec2<f32> {
+  var g = vec2<f32>(0.0, 0.0);
+  for (var j = ay.a; j <= ay.b; j = j + 1u) {
+    for (var i = ax.a; i <= ax.b; i = i + 1u) {
+      let s = photo_at(i, j, c);
+      if (i > ax.a) { g.x = max(g.x, abs(s - photo_at(i - 1u, j, c))); }
+      if (j > ay.a) { g.y = max(g.y, abs(s - photo_at(i, j - 1u, c))); }
+    }
+  }
+  return g;
+}
 fn scene_value(p: vec2<f32>, c: u32) -> f32 {
   let k = D(lattice.chart_k_hi, lattice.chart_k_lo);
   let u = d_mul(lattice_point(p.x, D(lattice.scale_u_hi, lattice.scale_u_lo), 0u), k);
@@ -106,16 +107,19 @@ fn scene_value(p: vec2<f32>, c: u32) -> f32 {
     let j = u32(clamp(bfloor(bd(y), 1.0, last_y), 0.0, last_y));
     return photo_at(i, j, c);
   }
-  let ax = bilinear_axis(d_sub(x, D(0.5, 0.0)), photo.width);
-  let ay = bilinear_axis(d_sub(y, D(0.5, 0.0)), photo.height);
+  let dx = pixel_slack(x, photo.slack_x);
+  let dy = pixel_slack(y, photo.slack_y);
+  let ax = bilinear_axis(d_sub(x, D(0.5, 0.0)), photo.width, dx);
+  let ay = bilinear_axis(d_sub(y, D(0.5, 0.0)), photo.height, dy);
   let s00 = photo_at(ax.i0, ay.i0, c);
   let s10 = photo_at(ax.i1, ay.i0, c);
   let s01 = photo_at(ax.i0, ay.i1, c);
   let s11 = photo_at(ax.i1, ay.i1, c);
   let value = ob(ob(ay.w0 * ob(ob(ax.w0 * s00) + ob(ax.w1 * s10))) + ob(ay.w1 * ob(ob(ax.w0 * s01) + ob(ax.w1 * s11))));
-  let largest = max(max(s00, s10), max(s01, s11));
-  let moved = (pixel_slack(x, photo.slack_x) + pixel_slack(y, photo.slack_y)) * 2.0 * largest;
-  if (!(moved <= E * value)) { material_uncertain = true; }
+  // #716: the move of the value between the device's point and the reference's (see the module comment).
+  var g = vec2<f32>(max(abs(s10 - s00), abs(s11 - s01)), max(abs(s01 - s00), abs(s11 - s10)));
+  if (reaches_next_cell(ax, ay)) { g = photo_slopes(ax, ay, c); }
+  if (!(dx * g.x + dy * g.y <= E * value)) { material_uncertain = true; }
   return value;
 }
 `;
@@ -209,8 +213,9 @@ export function createDisplayViewImageModules(runtime: WebGpuRuntime, probe: (si
       words[P.width] = scene.width; words[P.height] = scene.height; words[P.nearest] = scene.interpolation === "nearest" ? 1 : 0;
       const halfW = scene.width / 2, halfH = scene.height / (2 * scene.aspect);
       [floats[P.halfWHi], floats[P.halfWLo]] = dwSplit(halfW); [floats[P.halfHHi], floats[P.halfHLo]] = dwSplit(halfH); [floats[P.aspectHi], floats[P.aspectLo]] = dwSplit(scene.aspect);
-      // The reference's float64 query point carries up to 10⁻¹⁴ frame units (the composite kernel's slack) times the pixels per frame unit.
-      floats[P.slackX] = 1e-14 * gpu.placement.chartUnitsPerFrameUnit * halfW; floats[P.slackY] = 1e-14 * gpu.placement.chartUnitsPerFrameUnit * halfH;
+      // #716: the point's error bound in pixels beyond 2⁻⁴⁴·|X| (the reference's rounding and the device's recovery; see the module comment).
+      const k = gpu.placement.chartUnitsPerFrameUnit;
+      floats[P.slackX] = imagePlanePointSlack(halfW, k, 1); floats[P.slackY] = imagePlanePointSlack(halfH, k, scene.aspect);
       let code = wgsl.get(path);
       if (code === undefined) { code = imagePlaneMaterialWgsl(path); wgsl.set(path, code); }
       const base = { id: imagePlaneMaterialModuleId(path), wgsl: code, extraSiteRoundings: IMAGE_PLANE_EXTRA_SITE_ROUNDINGS, siteTable: Float32Array.from(image.surround) };

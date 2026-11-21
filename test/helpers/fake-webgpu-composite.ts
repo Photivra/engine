@@ -527,6 +527,40 @@ function wgslRound(x: number): number {
 }
 
 /**
+ * #716, for tests: when set, the image-plane Speed emulator reports each point it maps inside the print: per axis the recovered site
+ * and offset index and the pixel coordinate (X, or Y) it formed in double-float32.
+ */
+export const IMAGE_PLANE_POINT_PROBE: { record?: (sites: readonly [number, number], offsets: readonly [number, number], x: Dw, y: Dw) => void } = {};
+/** One axis of the image-plane bilinear weights (`IMAGE_PLANE_BILINEAR_WGSL`): the pixel pair, the weights and the pixels a..b a move reaches. */
+type ImageAxis = [i0: number, i1: number, w0: number, w1: number, a: number, b: number];
+/** #716: `pixel_slack`, `bilinear_axis` and `reaches_next_cell` of `IMAGE_PLANE_BILINEAR_WGSL` (src/gpu/display-view-image-quality.ts), line by line. */
+function imagePlaneBilinear(K: ReturnType<typeof opsOf>, D: ReturnType<typeof doubleWord>): { slackOf(x: Dw, slack: number): number; axis(s: Dw, n: number, d: number): ImageAxis; reachesNext(ax: ImageAxis, ay: ImageAxis): boolean } {
+  return {
+    slackOf: (x, slack) => K.add(K.v(K.mul(2 ** -44, Math.abs(x[0]))), slack),
+    axis(s, n, d): ImageAxis {
+      let f0 = Math.floor(s[0]);
+      if (f0 === s[0] && s[1] < 0) f0 = f(f0 - 1);
+      const frac = D.dSub(s, [f0, 0]), comp = D.dSub([K.add(f0, 1), 0], s);
+      let w0: number, w1: number;
+      if (frac[0] <= 0.5) { w1 = K.add(frac[0], frac[1]); w0 = K.sub(1, w1); } else { w0 = K.add(comp[0], comp[1]); w1 = K.sub(1, w0); }
+      const last = n - 1, clamp = (i: number): number => Math.min(last, Math.max(0, i));
+      return [clamp(f0), clamp(f0 + 1), w0, w1, clamp(f0 - (w1 <= f(2 * d) ? 1 : 0)), clamp(f0 + 1 + (w0 <= f(2 * d) ? 1 : 0))];
+    },
+    reachesNext: (ax, ay) => ax[4] !== ax[0] || ax[5] !== ax[1] || ay[4] !== ay[0] || ay[5] !== ay[1]
+  };
+}
+/** #716: the largest differences of horizontally and vertically neighboring values over the pixels a..b of the two axes (`photo_slopes`, `pixel_slopes`). */
+function slopes(ax: ImageAxis, ay: ImageAxis, at: (i: number, j: number) => number): [number, number] {
+  let gx = 0, gy = 0;
+  for (let j = ay[4]; j <= ay[5]; j++) for (let i = ax[4]; i <= ax[5]; i++) {
+    const s = at(i, j);
+    if (i > ax[4]) gx = Math.max(gx, Math.abs(f(s - at(i - 1, j))));
+    if (j > ay[4]) gy = Math.max(gy, Math.abs(f(s - at(i, j - 1))));
+  }
+  return [gx, gy];
+}
+
+/**
  * #581: the display view's image-plane module (src/gpu/display-view-image-material-module.ts) on the fake device: the lattice
  * recovery, the print's edge in bound arithmetic, the pixel coordinates in double-float32, the bilinear weights (the smaller of
  * f and 1 − f rounded once, the other as 1 minus it) or the nearest pixel, and the flag on a moved weight. Line by line the WGSL.
@@ -542,42 +576,37 @@ export function createImagePlaneDisplayViewMaterialEmulator(photoWords: Uint32Ar
   const slackX = photoFloats[10]!, slackY = photoFloats[11]!;
   let uncertain = false;
   const K = opsOf(model), D = doubleWord(K, path), { bd, bx, babs, le, bfloor } = boundsOf(model, K, () => { uncertain = true; });
+  const recovered: [number, number, number, number] = [0, 0, 0, 0];
   const latticePoint = (p: number, scale: Dw, axis: 0 | 1): Dw => {
     const rough = f(p / scale[0]);
-    let best = f(3e38), site = 0, cHi = 0, cLo = 0;
+    let best = f(3e38), site = 0, cHi = 0, cLo = 0, offset = 0;
     for (let o = 0; o < count; o++) {
       const hi = offsets[4 * o + 2 * axis]!, lo = offsets[4 * o + 2 * axis + 1]!, d = K.sub(rough, hi), n = wgslRound(d), r = Math.abs(K.sub(d, n));
-      if (r < best) { best = r; site = n; cHi = hi; cLo = lo; }
+      if (r < best) { best = r; site = n; cHi = hi; cLo = lo; offset = o; }
     }
     if (!(best <= tolerance)) uncertain = true;
+    recovered[axis] = site; recovered[2 + axis] = offset;
     return D.dMul(D.dAdd([site, 0], [cHi, cLo]), scale);
   };
-  const slackOf = (x: Dw, slack: number): number => K.add(f(4 * f(DW * K.add(Math.abs(x[0]), 1))), f(4 * slack));
-  const axis = (s: Dw, n: number): [number, number, number, number] => {
-    let f0 = Math.floor(s[0]);
-    if (f0 === s[0] && s[1] < 0) f0 = f(f0 - 1);
-    const frac = D.dSub(s, [f0, 0]), comp = D.dSub([K.add(f0, 1), 0], s);
-    let w0: number, w1: number;
-    if (frac[0] <= 0.5) { w1 = K.add(frac[0], frac[1]); w0 = K.sub(1, w1); } else { w0 = K.add(comp[0], comp[1]); w1 = K.sub(1, w0); }
-    const last = n - 1;
-    return [Math.min(last, Math.max(0, f0)), Math.min(last, Math.max(0, f0 + 1)), w0, w1];
-  };
+  const { slackOf, axis, reachesNext } = imagePlaneBilinear(K, D);
   const at = (i: number, j: number, c: number): number => signal[((j - row0) * width + i) * 3 + c]!;
   const value = (pu: number, pv: number, c: number): number => {
     const u = D.dMul(latticePoint(pu, scaleU, 0), k), v = D.dMul(latticePoint(pv, scaleV, 1), k);
     if (!(le(babs(bd(u)), bx(1)) && le(babs(bd(v)), bd(aspect)))) return surround[c]!;
     const x = D.dMul(D.dAdd(u, [1, 0]), halfW), y = D.dMul(D.dSub(aspect, v), halfH);
+    IMAGE_PLANE_POINT_PROBE.record?.([recovered[0], recovered[1]], [recovered[2], recovered[3]], x, y);
     if (nearest) {
       const lastX = width - 1, lastY = height - 1;
       const i = Math.min(lastX, Math.max(0, bfloor(bd(x), 1, lastX))), j = Math.min(lastY, Math.max(0, bfloor(bd(y), 1, lastY)));
       return at(i, j, c);
     }
-    const [i0, i1, x0, x1] = axis(D.dSub(x, [0.5, 0]), width), [j0, j1, y0, y1] = axis(D.dSub(y, [0.5, 0]), height);
+    const dx = slackOf(x, slackX), dy = slackOf(y, slackY), ax = axis(D.dSub(x, [0.5, 0]), width, dx), ay = axis(D.dSub(y, [0.5, 0]), height, dy);
+    const [i0, i1, x0, x1] = ax, [j0, j1, y0, y1] = ay;
     const s00 = at(i0, j0, c), s10 = at(i1, j0, c), s01 = at(i0, j1, c), s11 = at(i1, j1, c);
     const result = K.add(K.v(K.mul(y0, K.add(K.mul(x0, s00), K.mul(x1, s10)))), K.v(K.mul(y1, K.add(K.mul(x0, s01), K.mul(x1, s11)))));
-    const largest = Math.max(Math.max(s00, s10), Math.max(s01, s11));
-    const moved = f(f(f(slackOf(x, slackX) + slackOf(y, slackY)) * 2) * largest);
-    if (!(moved <= f(E * result))) uncertain = true;
+    // #716: the move of the value under the point's error (the largest neighbor differences in the cells it reaches).
+    const [gx, gy] = reachesNext(ax, ay) ? slopes(ax, ay, (i, j) => at(i, j, c)) : [Math.max(Math.abs(f(s10 - s00)), Math.abs(f(s11 - s01))), Math.max(Math.abs(f(s01 - s00)), Math.abs(f(s11 - s10)))];
+    if (!(K.add(K.v(K.mul(dx, gx)), K.v(K.mul(dy, gy))) <= f(E * result))) uncertain = true;
     return result;
   };
   return { material: () => 0, value, get flagged(): boolean { return uncertain; }, reset(): void { uncertain = false; } };
@@ -598,7 +627,7 @@ export function emulateImagePlaneQualityLattice(pw: Uint32Array, groups: Uint32A
   let uncertain: boolean;
   const K = opsOf(model), D = doubleWord(K, path), { bd, bx, babs, le, bfloor } = boundsOf(model, K, () => { uncertain = true; });
   const white = 125 * N;
-  const pixelSlack = (x: Dw, slack: number): number => K.add(f(4 * f(DW * K.add(Math.abs(x[0]), 1))), f(4 * slack));
+  const { slackOf: pixelSlack, axis, reachesNext } = imagePlaneBilinear(K, D);
   // #597: the mixed light (`light_prepare`, `light_at` of src/gpu/display-view-image-quality.ts), line by line.
   const lit = photoWords[6] !== 0, LI = IMAGE_PLANE_LIGHT, lw = new Uint32Array(light.buffer, light.byteOffset, light.length);
   const { bds, badd, bmul, bdiv, ge } = boundsOf(model, K, () => { uncertain = true; });
@@ -687,14 +716,6 @@ export function emulateImagePlaneQualityLattice(pw: Uint32Array, groups: Uint32A
     return value;
   };
   const whiteAt = (n: number): number => (lit ? lightAt(n) : nodeTable[white + n]!);
-  const axis = (s: Dw, n: number): [number, number, number, number] => {
-    let f0 = Math.floor(s[0]);
-    if (f0 === s[0] && s[1] < 0) f0 = f(f0 - 1);
-    const frac = D.dSub(s, [f0, 0]), comp = D.dSub([K.add(f0, 1), 0], s);
-    let w0: number, w1: number;
-    if (frac[0] <= 0.5) { w1 = K.add(frac[0], frac[1]); w0 = K.sub(1, w1); } else { w0 = K.add(comp[0], comp[1]); w1 = K.sub(1, w0); }
-    return [Math.min(n - 1, Math.max(0, f0)), Math.min(n - 1, Math.max(0, f0 + 1)), w0, w1];
-  };
   const weights = (word: number, bit: number, small: number): [number, number] => (((word >>> bit) & 1) === 0 ? [f(1 - small), small] : [small, f(1 - small)]);
   const pixelAt = (i: number, j: number): { base: number; r: [number, number]; g: [number, number]; b: [number, number] } => {
     const o = ((j - row0) * width + i) * 4, w = records[o]!;
@@ -728,13 +749,15 @@ export function emulateImagePlaneQualityLattice(pw: Uint32Array, groups: Uint32A
       const px = pixelAt(Math.min(lastX, Math.max(0, bfloor(bd(x), 1, lastX))), Math.min(lastY, Math.max(0, bfloor(bd(y), 1, lastY))));
       for (let n = 0; n < N; n++) values[out + n] = f(whiteAt(n) * pixelValue(px, n));
     } else {
-      const [i0, i1, x0, x1] = axis(D.dSub(x, [0.5, 0]), width), [j0, j1, y0, y1] = axis(D.dSub(y, [0.5, 0]), height);
-      const p00 = pixelAt(i0, j0), p10 = pixelAt(i1, j0), p01 = pixelAt(i0, j1), p11 = pixelAt(i1, j1);
-      const slack = f(f(pixelSlack(x, slackX) + pixelSlack(y, slackY)) * 2);
+      const dx = pixelSlack(x, slackX), dy = pixelSlack(y, slackY), ax = axis(D.dSub(x, [0.5, 0]), width, dx), ay = axis(D.dSub(y, [0.5, 0]), height, dy);
+      const [i0, i1, x0, x1] = ax, [j0, j1, y0, y1] = ay;
+      const p00 = pixelAt(i0, j0), p10 = pixelAt(i1, j0), p01 = pixelAt(i0, j1), p11 = pixelAt(i1, j1), next = reachesNext(ax, ay);
       for (let n = 0; n < N; n++) {
         const s00 = pixelValue(p00, n), s10 = pixelValue(p10, n), s01 = pixelValue(p01, n), s11 = pixelValue(p11, n);
         const value = f(f(y0 * f(f(x0 * s00) + f(x1 * s10))) + f(y1 * f(f(x0 * s01) + f(x1 * s11))));
-        if (!(f(slack * Math.max(Math.max(s00, s10), Math.max(s01, s11))) <= f(E * value))) uncertain = true;
+        // #716: the Speed module's rule per node.
+        const [gx, gy] = next ? slopes(ax, ay, (i, j) => pixelValue(pixelAt(i, j), n)) : [Math.max(Math.abs(f(s10 - s00)), Math.abs(f(s11 - s01))), Math.max(Math.abs(f(s01 - s00)), Math.abs(f(s11 - s10)))];
+        if (!(f(f(dx * gx) + f(dy * gy)) <= f(E * value))) uncertain = true;
         values[out + n] = f(whiteAt(n) * value);
       }
     }
