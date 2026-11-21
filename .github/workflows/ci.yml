@@ -202,6 +202,9 @@ jobs:
     # 2.26.0 (#645): back to 20 minutes for every shard. The time was V8's block counters in the full reconstruct chain (16³ nodes
     # for each of 152,875 pixel evaluations, 626 million calls into the highlight rebuild); the chain's results are now kept by
     # their exact inputs (332 distinct ones in that view), so the file took 35 s under coverage locally (415 s before, same machine).
+    # 2.28.0 (#665, owner decision 2026-11-21): the "alone" list is empty. test/display-view-neighbors-gpu.test.ts took 18 to 23 s
+    # under coverage on runs 44453452116 and 44533609809, so shard 1 ran one short file; all ten shards now share the suite.
+    # The mechanism stays. A test file without a recorded time starts first in its shard, and a test fails until it has one.
     name: coverage shard (${{ matrix.shard }}/10)
     needs: scope
     runs-on: ubuntu-latest
