@@ -83,3 +83,18 @@ it.each(["clock","direction","time","point","focus","focal","wavelength","behind
   if(fault==="behind")r.angularVelocityRadPerSec.yaw=400;
   expect(()=>calculateSensorEnvironmentRadianceQuery(r)).toThrow();
 });
+
+it.each(["fisheye-equidistant", "fisheye-equisolid-angle", "fisheye-stereographic", "fisheye-orthographic", "equirectangular"] as const)(
+  "checks focal length, source point and angular velocity with the %s mapping as on the plain path (optics-18, #700)", (projectionModel) => {
+    const mapped = (edit: (r: CalculateSensorEnvironmentRadianceQueryInput) => void) => {
+      const r = { ...request(), lensFieldMapping: { projectionModel, distortion: { kind: "none" as const }, radiometricAreaCorrection: "inverse-distortion-jacobian" as const } };
+      edit(r);
+      return (): unknown => calculateSensorEnvironmentRadianceQuery(r);
+    };
+    expect(mapped(() => {})).not.toThrow();
+    expect(mapped((r) => { r.focalLengthMm = -50; })).toThrow("focalLengthMm must be a finite number greater than zero.");
+    expect(mapped((r) => { r.focalLengthMm = 0; })).toThrow("focalLengthMm must be a finite number greater than zero.");
+    expect(mapped((r) => { (r as { focalLengthMm: unknown }).focalLengthMm = "50"; })).toThrow("focalLengthMm must be a finite number greater than zero.");
+    expect(mapped((r) => { (r.sourcePointNativeSensorMm as unknown) = { x: "4", y: "3" }; })).toThrow("sourcePointNativeSensorMm.x must be finite.");
+    expect(mapped((r) => { (r.angularVelocityRadPerSec as unknown) = { pitch: "1", yaw: 0, roll: 0 }; })).toThrow("angularVelocityRadPerSec.pitch must be finite.");
+  });

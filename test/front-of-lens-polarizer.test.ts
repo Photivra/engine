@@ -144,3 +144,23 @@ describe("front-of-lens linear polarizer", () => {
     expect(() => composeFrontOfLensFilterTransmission(null as never)).toThrow(/object/);
   });
 });
+
+describe("polarization angles near the top of the double range (optics-23, #700)", () => {
+  it("give a finite state for an incident angle or a polarizer axis of 1e308 degrees", () => {
+    for (const filters of [[neutral(0.9)], [polarizer(1e308)], [polarizer(30), neutral(0.5)]]) {
+      const r = composeFrontOfLensFilterTransmission({ filters, ...at, incidentPolarization: { degreeOfLinearPolarization: 0.5, angleDegrees: 1e308 } });
+      for (const s of [r.incidentPolarization, r.transmittedPolarization]) {
+        expect(Number.isFinite(s.degreeOfLinearPolarization)).toBe(true);
+        expect(Number.isFinite(s.angleDegrees)).toBe(true);
+      }
+    }
+    const one = resolveFrontOfLensFilterTransmission({ profile: neutral(0.9), ...at, incidentPolarization: { degreeOfLinearPolarization: 0.5, angleDegrees: 1e308 } });
+    expect(Number.isFinite(one.transmittedPolarization.angleDegrees)).toBe(true);
+  });
+
+  it("treats 180 + a as a", () => {
+    const at30 = resolveFrontOfLensFilterTransmission({ profile: polarizer(25), ...at, incidentPolarization: { degreeOfLinearPolarization: 0.7, angleDegrees: 30 } });
+    const at210 = resolveFrontOfLensFilterTransmission({ profile: polarizer(25), ...at, incidentPolarization: { degreeOfLinearPolarization: 0.7, angleDegrees: 210 } });
+    expect(at210.linearTransmissionFactor).toBeCloseTo(at30.linearTransmissionFactor, 14);
+  });
+});

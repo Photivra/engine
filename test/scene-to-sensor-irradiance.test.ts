@@ -825,6 +825,22 @@ describe("optical bridge profile schema guards", () => {
   });
 });
 
+describe("optical bridge image point (optics-17, #700)", () => {
+  const vignettingAt = (x: number, y: number): ReturnType<typeof calculateIlluminationVignetting>["value"] => calculateIlluminationVignetting({
+    imagePointMm: { x, y },
+    profile: { normalizationRadiusMm: 20, maximumNormalizedRadius: 1, coefficients: { r2: -0.5, r4: 0, r6: 0 } }
+  }).value;
+
+  it("refuses a non-finite, missing or non-number image point with a field-throughput result", () => {
+    const field = { kind: "illumination-vignetting-result" as const, result: vignettingAt(10, 5) };
+    expect(calculate({ imagePointMm: { x: 10, y: 5 }, fieldThroughput: field }).sensorPlaneSpectralIrradianceWattsPerSquareMeterNanometer).toBeGreaterThan(0);
+    for (const imagePointMm of [{ x: NaN, y: NaN }, { x: Infinity, y: 0 }, {}, { x: 10 }, { x: "10", y: "5" }, { x: 0, y: 0 }]) {
+      expect(() => calculate({ imagePointMm: imagePointMm as { x: number; y: number }, fieldThroughput: field }), JSON.stringify(imagePointMm))
+        .toThrow(InvalidScientificInputError);
+    }
+  });
+});
+
 describe("optical bridge numerical fail-closed guards", () => {
   it("rejects a working f-number so small that paraxial acceptance overflows", () => {
     expect(() =>

@@ -34,7 +34,7 @@ import {
 } from "../core/evidence-provenance.js";
 import { type SpectralWavelengthBasis } from "../core/spectral.js";
 import { InvalidScientificInputError } from "../core/validation.js";
-import { composeFrontOfLensFilterTransmission, type FrontOfLensFilterProfile, parseRange, parseResolvedBasis } from "./front-of-lens-filter.js";
+import { composeFrontOfLensFilterTransmission, type FrontOfLensFilterProfile, parseRange, parseResolvedBasis, prepareFrontOfLensFilterProfile } from "./front-of-lens-filter.js";
 import type { IlluminationVignetting } from "./illumination-vignetting.js";
 import { calculateThinLensImageDistance } from "./thin-lens.js";
 import {
@@ -1009,7 +1009,9 @@ function fieldFactor(
       Number.EPSILON *
       64 *
       scale;
+    // 2.28.0 (optics-17): a NaN, infinite, missing or string coordinate no longer passes both comparisons.
     if (
+      ![imagePointMm.x, imagePointMm.y, result.imagePointMm.x, result.imagePointMm.y].every(Number.isFinite) ||
       Math.abs(
         result.imagePointMm.x -
           imagePointMm.x
@@ -1020,7 +1022,7 @@ function fieldFactor(
       ) > tolerance
     ) {
       throw new InvalidScientificInputError(
-        "Illumination-vignetting result imagePointMm must match the optical bridge imagePointMm."
+        "Illumination-vignetting result imagePointMm must match the optical bridge imagePointMm, both finite."
       );
     }
     const factor =
@@ -1339,7 +1341,9 @@ export function prepareSceneRadianceToSensorIrradianceValue(
 ): (request: SceneRadianceEvaluationRequest, result: SceneRadianceEvaluationResult, imagePointMm: { x: number; y: number },
     fieldThroughput: OpticalBridgeFieldThroughput) => number {
   const prepared = prepareSceneRadianceToSensorIrradiance(optics);
-  const frontOfLensFilters = optics.frontOfLensFilters;
+  // optics-20: each filter is parsed once here (Array.from visits holes, which the parser refuses), not on every query.
+  const filters = optics.frontOfLensFilters;
+  const frontOfLensFilters = Array.isArray(filters) ? Array.from(filters, prepareFrontOfLensFilterProfile) : filters;
   return (request, result, imagePointMm, fieldThroughput) => {
     validateSceneIdentity(request, result);
     return applySceneRadianceToSensorIrradiance(prepared, { imagePointMm, fieldThroughput, frontOfLensFilters }, request, result).irradiance;

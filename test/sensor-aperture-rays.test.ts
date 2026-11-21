@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 import {expect,it} from "vitest";
+import {createHash} from "node:crypto";
 import {calculateSensorApertureRays,type CalculateSensorApertureRaysInput} from "../src/index.js";
+// sha256 of the rays' JSON at 2.28.0 before optics-21 (8405ae2).
+const FINITE_DIGEST="46ea5e6e14a5f7c5d7db403f16c719a9fd5981e5f08ba3e4d8e42001dadc14ea",INFINITY_DIGEST="b4171c5b1eaa36ea021e9b7c06467e20590cc01a752daa53f2c54a48bc6436e9";
 const input=():CalculateSensorApertureRaysInput=>({sourcePointNativeSensorMm:{x:8,y:3},focalLengthMm:50,nominalFNumber:2,
  focus:{kind:"finite",distanceM:4},angularVelocityRadPerSec:{pitch:0,yaw:0,roll:0},timeSecondsFromOpeningReference:0,
  pupil:{kind:"ideal-uniform-circular-pupil",radialSampleCount:4,angularSampleCount:16,evidence:[{sourceOrigin:"photivra",sourceReference:"test:owned-pupil",reuseStatus:"photivra-owned"}],limitation:"Constructed ideal geometric reference, no measured lens."}});
@@ -59,4 +62,10 @@ it.each(['count','evidence','kind','limit','zero-aperture','nan-point','bad-focu
 it("returned evidence and geometry own their copies without freezing caller data",()=>{
  const x=input(),r=calculateSensorApertureRays(x).value;x.pupil.evidence[0]!.sourceReference='changed';
  expect(r.pupil.evidence[0]!.sourceReference).not.toBe('changed');expect(Object.isFrozen(x.pupil)).toBe(false);
+});
+it.each([["finite",{kind:"finite",distanceM:4}],["infinity",{kind:"infinity"}]] as const)(
+ "keeps the %s-focus rays with rotation bit-identical (optics-21, #700)",(_,focus)=>{
+ const x=input();x.focus=focus;x.angularVelocityRadPerSec={pitch:.3,yaw:-.4,roll:.7};x.timeSecondsFromOpeningReference=.2;
+ const digest=createHash("sha256").update(JSON.stringify(calculateSensorApertureRays(x).value.rays)).digest("hex");
+ expect(digest).toBe(focus.kind==="finite"?FINITE_DIGEST:INFINITY_DIGEST);
 });
