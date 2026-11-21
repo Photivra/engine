@@ -24,6 +24,9 @@
   `sensor.temporalSampleCount` assumption reports `{ requested, used: 1 }`, and `diagnostics.options` still lists the option.
   Requests with rotation, a moving subject, a flash or a build-up keep their count. Tests:
   `test/simulate-capture-still-temporal.test.ts`.
+- **Fixed: `SIMULATE_CAPTURE_FAST_METHODS` is frozen all the way down (#683, its facade part).** Only the array was frozen, so a
+  caller could edit an entry's records in place. Data only; captures and display views do not import it. Tests:
+  `test/fast-methods-registry.test.ts`.
 - **Tooling, CI and tests only (2.28.0 step 1); no package, API, output or bundle change.**
   - *Coverage gates decide per shard (#666, with `ci-07`).* Each coverage shard uploads one part, its blob report or a marker
     naming the `coverage` proof it found; `.github/coverage-parts.mjs` merges ten blobs with the thresholds enforced, passes a

@@ -17,6 +17,11 @@ const source = (file: string): string => readFileSync(file, "utf8");
 const facade = readdirSync("src/facade").filter((f) => f.endsWith(".ts")).map((f) => "src/facade/" + f);
 
 describe("the fast-method registry (2.20.0)", () => {
+  it("is frozen all the way down, so a caller cannot edit a shared entry (#683)", () => {
+    const nodes = (value: unknown): unknown[] => value !== null && typeof value === "object" ? [value, ...Object.values(value).flatMap(nodes)] : [];
+    expect(nodes(SIMULATE_CAPTURE_FAST_METHODS).filter((node) => !Object.isFrozen(node))).toEqual([]);
+  });
+
   it("has an entry for every record that accepts fast, and for every listed fast option", () => {
     const overrides = new Set(SIMULATE_CAPTURE_FAST_METHODS.map((e) => e.override));
     const accepting = new Set<string>();
