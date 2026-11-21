@@ -70,8 +70,13 @@ export interface DefocusImageSpaceGeometry {
   lensMapping?: PreparedEnvironmentLensFieldMapping;
   /** The site inputs' radial-illumination-vignetting profile; omitted for unity field throughput. */
   vignetting?: IlluminationVignettingProfile;
-  /** #655: the display view's inverse of the lens mapping's distortion (`undistortedImagePointNewton`); omitted: `undistortedImagePoint`, the capture's. */
-  undistort?: typeof undistortedImagePoint;
+  /**
+   * #655: the display view's inverse of the lens mapping's distortion (`undistortedImagePointNewton`); omitted: `undistortedImagePoint`, the
+   * capture's. #685: called with a third argument `out`; a result of undefined means the ideal x and y, the area factor and the point's
+   * radius Math.hypot(x, y) are in out[0..3].
+   */
+  undistort?: (prepared: PreparedEnvironmentLensFieldMapping, imagePointMm: { x: number; y: number }, out: Float64Array) =>
+    { ideal: { x: number; y: number }; distortionAreaFactor: number } | undefined;
 }
 
 /** Internal: the scene ray and field factor of sensor points, and the sensor point of a scene ray, for one geometry. */
@@ -115,25 +120,32 @@ export function prepareDefocusImageSpaceGeometry(geometry: DefocusImageSpaceGeom
     }
     return { x: m[0]! * v.x + m[1]! * v.y + m[2]! * v.z, y: m[3]! * v.x + m[4]! * v.y + m[5]! * v.z, z: m[6]! * v.x + m[7]! * v.y + m[8]! * v.z };
   };
+  // #685: a still camera's rotation is the identity (applyPhysicalCameraRotation returns a copy of its vector), so the ray is
+  // taken as it is, without the displacement, its Math.hypot and the copy; the same values.
+  const toReference = (v: { x: number; y: number; z: number }, t: number): { x: number; y: number; z: number } =>
+    timeDependent ? applyPhysicalCameraRotation(v, displacement(t), "camera-to-reference") : v;
+  // #685: the non-allocating inverse's outputs (ideal x and y, area factor, the point's Math.hypot), read before the next call.
+  const inverse = new Float64Array(4);
   return {
     timeDependent,
     lookOf(xMm, yMm, t): { x: number; y: number; z: number; factor: number } {
       const image = { x: xMm, y: -yMm };
-      const { ideal, distortionAreaFactor } = lensMapping ? undistort(lensMapping, image) : { ideal: image, distortionAreaFactor: 1 };
+      const u = lensMapping ? undistort(lensMapping, image, inverse) : { ideal: image, distortionAreaFactor: 1 };
+      const ix = u ? u.ideal.x : inverse[0]!, iy = u ? u.ideal.y : inverse[1]!;
       let lx: number, ly: number, lz: number;
       if (model === "rectilinear") {
         // calculateInverseCameraRotationImageMapping: the captured ray (x/pd, y/pd, 1) in reference axes, projected at pd.
-        const reference = applyPhysicalCameraRotation({ x: ideal.x / pd, y: ideal.y / pd, z: 1 }, displacement(t), "camera-to-reference");
+        const reference = toReference({ x: ix / pd, y: iy / pd, z: 1 }, t);
         if (!(reference.z > 0)) throw new InvalidConfigurationError("lens.defocus: a lattice point's ray points to or behind the reference camera plane.");
         lx = pd * (reference.x / reference.z); ly = pd * (reference.y / reference.z); lz = pd;
       } else {
-        const reference = applyPhysicalCameraRotation(backward && !insideRadialImageCircle(model, pd, Math.hypot(ideal.x, ideal.y)) ? { x: 0, y: 0, z: -1 } :
-          lensProjectionDirectionValue(model, pd, ideal.x, ideal.y), displacement(t), "camera-to-reference");
+        const reference = toReference(backward && !insideRadialImageCircle(model, pd, Math.hypot(ix, iy)) ? { x: 0, y: 0, z: -1 } : lensProjectionDirectionValue(model, pd, ix, iy), t);
         lx = reference.x; ly = reference.y; lz = reference.z;
       }
       const length = hypot3(lx, ly, lz);
-      const throughput = throughputAt ? throughputAt(image) : 1;
-      return { x: lx / length, y: ly / length, z: lz / length, factor: throughput * distortionAreaFactor };
+      // #685: from the Newton inverse, the throughput takes its radius of the same point (Math.hypot(x, −y), finite): one hypot per point.
+      const throughput = throughputAt ? (u ? throughputAt(image) : throughputAt.atRadius(inverse[3]!)) : 1;
+      return { x: lx / length, y: ly / length, z: lz / length, factor: throughput * (u ? u.distortionAreaFactor : inverse[2]!) };
     },
     sensorPointOf(look, t): { x: number; y: number } | undefined {
       try {

@@ -29,6 +29,14 @@
   expected values and noise standard deviations are the same bits, fast and full (`test/display-view-coupled-rendering.test.ts`
   locks the chain over a seeded sweep of four tone and gamut choices and the part's render). Bundle: the on-demand Quality kit
   +95 B gzip.
+- **Lens mapping per point without a still camera's rotation (#685 (a)–(c), step 1 of the box-aperture plan); output unchanged.**
+  `prepareDefocusImageSpaceGeometry`'s `lookOf` takes a still camera's ray without the rotation (which returned a copy of it), the
+  display view's Newton inverse of a radial distortion writes its results to a reused array (`undistortedImagePointNewton` with
+  `out`), and the vignetting throughput takes that inverse's radius of the point (`atRadius`): one `Math.hypot` per point. The
+  capture's bisection, rotation, hand shake, fisheye projections and Brown–Conrady keep their paths. `lookOf` costs about 0.6× of 2.27.0's per call
+  (Newton inverse with vignetting); the #655 catalogue view takes 0.91× (2 × 2 box) and 0.95× (point aperture) of 2.27.0's CPU time
+  in four paired runs under load (box over point 2.13× → 2.03×; the 1.3× target is steps 2 and 3 of the plan). Every field equals the general path's bit for bit (`test/defocus-image-space-geometry.test.ts`), and the rendered
+  samples, expected values and noise of the #655 cases are the same SHA-256. Bundle: fast row +63 B, on-demand Quality kit +44 B gzip.
 
 ## 2.27.0 — published November 19, 2026
 

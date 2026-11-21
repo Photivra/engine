@@ -71,6 +71,7 @@
   "test/defocus-bokeh-kernel.test.ts": 4618,
   "test/defocus-disc-kernel.test.ts": 3444,
   "test/defocus-disc-limit.test.ts": 10949,
+  "test/defocus-image-space-geometry.test.ts": 1000,
   "test/defocus-integration-2-17.test.ts": 185203,
   "test/detail-limit.test.ts": 1646,
   "test/deterministic-fuzz.test.ts": 389,

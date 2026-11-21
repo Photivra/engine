@@ -1302,6 +1302,9 @@ develop options).
 - 2.28.0 (#662): `656-recover-push` 1.35 → 0.79 s (fastest of five paired runs against 2.27.0's code; median ratio 0.61×,
   load average 16–26), under the 0.8 s target; with `fast: false` 18.8 → 8.1 s. Samples, expected values and noise standard
   deviations are the same bits (SHA-256), fast and full; `656-standard-recover-push` 0.93× and `656-none` 1.00× of 2.27.0.
+- 2.28.0 (#685, step 1 of the box-aperture plan): the lens mapping of a still camera skips the rotation and its allocations, the same
+  bits; `655-catalogue-96-box` 0.91× and `655-catalogue-96` 0.95× of 2.27.0's code (median of four paired runs, load average
+  200–700), box over point 2.13× → 2.03× in those runs. The 1.3× target needs steps 2 and 3 of the plan (a flagged fast method).
 - ¹ #649's ratios to the plain part move by about 20 % with the machine's load at 0.5–1.9 s per render. Over three runs (this
   table's and two later ones, `REPEATS=2` and `REPEATS=4`, load average 18–100): corrections 1.42–1.79× (target 1.5×, met in this
   table's run only), sharpening 1.78–2.03× (target 1.7×, not met), both 2.40–2.91× (target 2.6×, met in this table's run only).
