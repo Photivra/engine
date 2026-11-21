@@ -1,0 +1,3234 @@
+{
+ "benchmark": "figure-batch",
+ "issue": 670,
+ "script": "scripts/benchmark-figure-batch.mjs",
+ "cases": "scripts/lib/figure-batch-cases.mjs",
+ "recordedDateUtc": "2026-11-21",
+ "measurementPolicy": "informational-only-no-ci-threshold",
+ "machine": {
+  "cpuModel": "Apple M5 Pro",
+  "logicalCpuCount": 18,
+  "performanceCores": 6,
+  "efficiencyCores": 12,
+  "platform": "darwin",
+  "arch": "arm64",
+  "node": "v26.13.1",
+  "load": "other work on the machine throughout (load average 2 to 48 during the session); rely on the ratios of the paired runs, the counts and the hashes"
+ },
+ "builds": {
+  "2.26.0": "v2.26.0 (94f56f3)",
+  "2.27.0": "main at 99782e7 (2.27.0 source; CI and the publication record since the tag). The whole-figure rows name 3008653, the head of the branch the benchmark was added on; its dist/ was built at 99782e7 and the branch changes no file under src/."
+ },
+ "method": {
+  "flags": "exact = fast: false (batch figure renders, quoted first); default = fast omitted",
+  "pair": "part tier: one band or region per case, one process per case, flag and build; the two builds of a case started together; CPU s = prepare + render (user + system); REPEATS 1; TIMEOUT 900 s per process",
+  "whole": "whole figures: every 128-row band of both files, 6 persistent workers per figure and flag, one prepared view per worker; built one after the other (not paired)"
+ },
+ "pairs": [
+  {
+   "tier": "pair",
+   "id": "frame-768",
+   "flag": "exact",
+   "a": {
+    "id": "frame-768",
+    "flag": "exact",
+    "engine": "2.26.0",
+    "node": "v26.13.1",
+    "arch": "arm64",
+    "prepareCpu": 0.153,
+    "renderCpu": 13.856,
+    "wall": 13.283,
+    "maxRssMB": 255,
+    "work": {
+     "sampleCount": 528384,
+     "siteEvaluations": 14267668,
+     "sceneLookups": 77160514
+    },
+    "sha256": "f6977c5b1e093820ff166651ff75fca67f9f62d6c44f40102c2e982ffcbac52b",
+    "width": 768,
+    "height": 43,
+    "fastApplied": {
+     "lens.diffraction": false,
+     "sensor.antiAliasing": false,
+     "sensor.pixelAperture.box": false,
+     "output.demosaic.ahd": false
+    },
+    "load": [
+     2.5,
+     3.9
+    ],
+    "commit": "94f56f3"
+   },
+   "b": {
+    "id": "frame-768",
+    "flag": "exact",
+    "engine": "2.27.0",
+    "node": "v26.13.1",
+    "arch": "arm64",
+    "prepareCpu": 0.15,
+    "renderCpu": 13.77,
+    "wall": 13.22,
+    "maxRssMB": 249,
+    "work": {
+     "sampleCount": 528384,
+     "siteEvaluations": 14267668,
+     "sceneLookups": 77160514
+    },
+    "sha256": "f6977c5b1e093820ff166651ff75fca67f9f62d6c44f40102c2e982ffcbac52b",
+    "width": 768,
+    "height": 43,
+    "fastApplied": {
+     "lens.diffraction": false,
+     "sensor.antiAliasing": false,
+     "sensor.pixelAperture.box": false,
+     "output.demosaic.ahd": false
+    },
+    "load": [
+     2.5,
+     3.9
+    ],
+    "commit": "99782e7"
+   },
+   "ratio": 0.994,
+   "samplesEqual": true
+  },
+  {
+   "tier": "pair",
+   "id": "frame-768",
+   "flag": "default",
+   "a": {
+    "id": "frame-768",
+    "flag": "default",
+    "engine": "2.26.0",
+    "node": "v26.13.1",
+    "arch": "arm64",
+    "prepareCpu": 0.15,
+    "renderCpu": 5.445,
+    "wall": 5.109,
+    "maxRssMB": 246,
+    "work": {
+     "sampleCount": 283614,
+     "siteEvaluations": 7659166,
+     "sceneLookups": 61023330
+    },
+    "sha256": "31ed3ccd63a06c9280d1b6c97385ad54af9c6ffeb75c98aba81923621908c2f1",
+    "width": 768,
+    "height": 43,
+    "fastApplied": {
+     "lens.diffraction": false,
+     "sensor.antiAliasing": false,
+     "sensor.pixelAperture.box": false,
+     "output.demosaic.ahd": false
+    },
+    "load": [
+     2.5,
+     3.3
+    ],
+    "commit": "94f56f3"
+   },
+   "b": {
+    "id": "frame-768",
+    "flag": "default",
+    "engine": "2.27.0",
+    "node": "v26.13.1",
+    "arch": "arm64",
+    "prepareCpu": 0.16,
+    "renderCpu": 3.312,
+    "wall": 2.861,
+    "maxRssMB": 322,
+    "work": {
+     "sampleCount": 283614,
+     "siteEvaluations": 7659166,
+     "sceneLookups": 61032094
+    },
+    "sha256": "e96e78f5bdfb7075a988eb08174c295f76d1d67d238131b78149b5daccb9416f",
+    "width": 768,
+    "height": 43,
+    "fastApplied": {
+     "lens.diffraction": false,
+     "sensor.antiAliasing": false,
+     "sensor.pixelAperture.box": false,
+     "output.demosaic.ahd": false
+    },
+    "load": [
+     2.5,
+     3.3
+    ],
+    "commit": "99782e7"
+   },
+   "ratio": 0.62,
+   "samplesEqual": false
+  },
+  {
+   "tier": "pair",
+   "id": "frame-1536",
+   "flag": "exact",
+   "a": {
+    "id": "frame-1536",
+    "flag": "exact",
+    "engine": "2.26.0",
+    "node": "v26.13.1",
+    "arch": "arm64",
+    "prepareCpu": 0.147,
+    "renderCpu": 2.798,
+    "wall": 2.521,
+    "maxRssMB": 280,
+    "work": {
+     "sampleCount": 584064,
+     "siteEvaluations": 15769728,
+     "sceneLookups": 34692360
+    },
+    "sha256": "a4d9dedca870252e767227a3d768ed412869d20daa5ba47ddb63497e5da5277c",
+    "width": 1536,
+    "height": 16,
+    "fastApplied": {
+     "lens.diffraction": false,
+     "sensor.antiAliasing": false,
+     "sensor.pixelAperture.box": false,
+     "output.demosaic.ahd": false
+    },
+    "load": [
+     2.5,
+     2.5
+    ],
+    "commit": "94f56f3"
+   },
+   "b": {
+    "id": "frame-1536",
+    "flag": "exact",
+    "engine": "2.27.0",
+    "node": "v26.13.1",
+    "arch": "arm64",
+    "prepareCpu": 0.142,
+    "renderCpu": 2.8,
+    "wall": 2.515,
+    "maxRssMB": 272,
+    "work": {
+     "sampleCount": 584064,
+     "siteEvaluations": 15769728,
+     "sceneLookups": 34692360
+    },
+    "sha256": "a4d9dedca870252e767227a3d768ed412869d20daa5ba47ddb63497e5da5277c",
+    "width": 1536,
+    "height": 16,
+    "fastApplied": {
+     "lens.diffraction": false,
+     "sensor.antiAliasing": false,
+     "sensor.pixelAperture.box": false,
+     "output.demosaic.ahd": false
+    },
+    "load": [
+     2.5,
+     2.5
+    ],
+    "commit": "99782e7"
+   },
+   "ratio": 1,
+   "samplesEqual": true
+  },
+  {
+   "tier": "pair",
+   "id": "frame-1536",
+   "flag": "default",
+   "a": {
+    "id": "frame-1536",
+    "flag": "default",
+    "engine": "2.26.0",
+    "node": "v26.13.1",
+    "arch": "arm64",
+    "prepareCpu": 0.138,
+    "renderCpu": 1.476,
+    "wall": 1.21,
+    "maxRssMB": 272,
+    "work": {
+     "sampleCount": 584064,
+     "siteEvaluations": 15769728,
+     "sceneLookups": 34693296
+    },
+    "sha256": "a4d9dedca870252e767227a3d768ed412869d20daa5ba47ddb63497e5da5277c",
+    "width": 1536,
+    "height": 16,
+    "fastApplied": {
+     "lens.diffraction": false,
+     "sensor.antiAliasing": false,
+     "sensor.pixelAperture.box": false,
+     "output.demosaic.ahd": false
+    },
+    "load": [
+     2.5,
+     3.3
+    ],
+    "commit": "94f56f3"
+   },
+   "b": {
+    "id": "frame-1536",
+    "flag": "default",
+    "engine": "2.27.0",
+    "node": "v26.13.1",
+    "arch": "arm64",
+    "prepareCpu": 0.153,
+    "renderCpu": 1.215,
+    "wall": 0.858,
+    "maxRssMB": 306,
+    "work": {
+     "sampleCount": 584064,
+     "siteEvaluations": 15769728,
+     "sceneLookups": 34693296
+    },
+    "sha256": "a4d9dedca870252e767227a3d768ed412869d20daa5ba47ddb63497e5da5277c",
+    "width": 1536,
+    "height": 16,
+    "fastApplied": {
+     "lens.diffraction": false,
+     "sensor.antiAliasing": false,
+     "sensor.pixelAperture.box": false,
+     "output.demosaic.ahd": false
+    },
+    "load": [
+     2.5,
+     3.3
+    ],
+    "commit": "99782e7"
+   },
+   "ratio": 0.851,
+   "samplesEqual": true
+  },
+  {
+   "tier": "pair",
+   "id": "tele-200",
+   "flag": "exact",
+   "a": {
+    "id": "tele-200",
+    "flag": "exact",
+    "engine": "2.26.0",
+    "node": "v26.13.1",
+    "arch": "arm64",
+    "prepareCpu": 0.132,
+    "renderCpu": 29.728,
+    "wall": 29.292,
+    "maxRssMB": 247,
+    "work": {
+     "sampleCount": 528384,
+     "siteEvaluations": 14267668,
+     "sceneLookups": 88190575
+    },
+    "sha256": "f4681cee22b0d4120419e1e97f0b39dd2c5d34acee1b3d96d00654af9dbe7e8b",
+    "width": 768,
+    "height": 43,
+    "fastApplied": {
+     "lens.diffraction": false,
+     "sensor.antiAliasing": false,
+     "sensor.pixelAperture.box": false,
+     "output.demosaic.ahd": false
+    },
+    "load": [
+     3.3,
+     4.8
+    ],
+    "commit": "94f56f3"
+   },
+   "b": {
+    "id": "tele-200",
+    "flag": "exact",
+    "engine": "2.27.0",
+    "node": "v26.13.1",
+    "arch": "arm64",
+    "prepareCpu": 0.141,
+    "renderCpu": 29.758,
+    "wall": 29.318,
+    "maxRssMB": 245,
+    "work": {
+     "sampleCount": 528384,
+     "siteEvaluations": 14267668,
+     "sceneLookups": 88190575
+    },
+    "sha256": "f4681cee22b0d4120419e1e97f0b39dd2c5d34acee1b3d96d00654af9dbe7e8b",
+    "width": 768,
+    "height": 43,
+    "fastApplied": {
+     "lens.diffraction": false,
+     "sensor.antiAliasing": false,
+     "sensor.pixelAperture.box": false,
+     "output.demosaic.ahd": false
+    },
+    "load": [
+     3.3,
+     4.8
+    ],
+    "commit": "99782e7"
+   },
+   "ratio": 1.001,
+   "samplesEqual": true
+  },
+  {
+   "tier": "pair",
+   "id": "tele-200",
+   "flag": "default",
+   "a": {
+    "id": "tele-200",
+    "flag": "default",
+    "engine": "2.26.0",
+    "node": "v26.13.1",
+    "arch": "arm64",
+    "prepareCpu": 0.147,
+    "renderCpu": 12.18,
+    "wall": 11.812,
+    "maxRssMB": 222,
+    "work": {
+     "sampleCount": 528384,
+     "siteEvaluations": 14267668,
+     "sceneLookups": 88190575
+    },
+    "sha256": "f4681cee22b0d4120419e1e97f0b39dd2c5d34acee1b3d96d00654af9dbe7e8b",
+    "width": 768,
+    "height": 43,
+    "fastApplied": {
+     "lens.diffraction": false,
+     "sensor.antiAliasing": false,
+     "sensor.pixelAperture.box": false,
+     "output.demosaic.ahd": false
+    },
+    "load": [
+     3.3,
+     3.9
+    ],
+    "commit": "94f56f3"
+   },
+   "b": {
+    "id": "tele-200",
+    "flag": "default",
+    "engine": "2.27.0",
+    "node": "v26.13.1",
+    "arch": "arm64",
+    "prepareCpu": 0.143,
+    "renderCpu": 7.05,
+    "wall": 5.998,
+    "maxRssMB": 355,
+    "work": {
+     "sampleCount": 528384,
+     "siteEvaluations": 14267668,
+     "sceneLookups": 88190575
+    },
+    "sha256": "f4681cee22b0d4120419e1e97f0b39dd2c5d34acee1b3d96d00654af9dbe7e8b",
+    "width": 768,
+    "height": 43,
+    "fastApplied": {
+     "lens.diffraction": false,
+     "sensor.antiAliasing": false,
+     "sensor.pixelAperture.box": false,
+     "output.demosaic.ahd": false
+    },
+    "load": [
+     3.3,
+     3.7
+    ],
+    "commit": "99782e7"
+   },
+   "ratio": 0.583,
+   "samplesEqual": true
+  },
+  {
+   "tier": "pair",
+   "id": "wide-24",
+   "flag": "exact",
+   "a": {
+    "id": "wide-24",
+    "flag": "exact",
+    "engine": "2.26.0",
+    "node": "v26.13.1",
+    "arch": "arm64",
+    "prepareCpu": 0.134,
+    "renderCpu": 7.357,
+    "wall": 6.891,
+    "maxRssMB": 252,
+    "work": {
+     "sampleCount": 528384,
+     "siteEvaluations": 14267668,
+     "sceneLookups": 73004408
+    },
+    "sha256": "074772baaf4293e8b011ecd2146b400e452d6d2ab9a2e035fb51599e03fd8438",
+    "width": 768,
+    "height": 43,
+    "fastApplied": {
+     "lens.diffraction": false,
+     "sensor.antiAliasing": false,
+     "sensor.pixelAperture.box": false,
+     "output.demosaic.ahd": false
+    },
+    "load": [
+     3.9,
+     4.3
+    ],
+    "commit": "94f56f3"
+   },
+   "b": {
+    "id": "wide-24",
+    "flag": "exact",
+    "engine": "2.27.0",
+    "node": "v26.13.1",
+    "arch": "arm64",
+    "prepareCpu": 0.134,
+    "renderCpu": 7.325,
+    "wall": 6.792,
+    "maxRssMB": 254,
+    "work": {
+     "sampleCount": 528384,
+     "siteEvaluations": 14267668,
+     "sceneLookups": 73004408
+    },
+    "sha256": "074772baaf4293e8b011ecd2146b400e452d6d2ab9a2e035fb51599e03fd8438",
+    "width": 768,
+    "height": 43,
+    "fastApplied": {
+     "lens.diffraction": false,
+     "sensor.antiAliasing": false,
+     "sensor.pixelAperture.box": false,
+     "output.demosaic.ahd": false
+    },
+    "load": [
+     3.9,
+     4.3
+    ],
+    "commit": "99782e7"
+   },
+   "ratio": 0.996,
+   "samplesEqual": true
+  },
+  {
+   "tier": "pair",
+   "id": "wide-24",
+   "flag": "default",
+   "a": {
+    "id": "wide-24",
+    "flag": "default",
+    "engine": "2.26.0",
+    "node": "v26.13.1",
+    "arch": "arm64",
+    "prepareCpu": 0.134,
+    "renderCpu": 3.024,
+    "wall": 2.793,
+    "maxRssMB": 219,
+    "work": {
+     "sampleCount": 180864,
+     "siteEvaluations": 4883924,
+     "sceneLookups": 50118720
+    },
+    "sha256": "66e903bc33b824615b53e9ce3a9f1a9b26048532409420999d3c725f89bb3fd5",
+    "width": 768,
+    "height": 43,
+    "fastApplied": {
+     "lens.diffraction": false,
+     "sensor.antiAliasing": false,
+     "sensor.pixelAperture.box": false,
+     "output.demosaic.ahd": false
+    },
+    "load": [
+     3.9,
+     4.3
+    ],
+    "commit": "94f56f3"
+   },
+   "b": {
+    "id": "wide-24",
+    "flag": "default",
+    "engine": "2.27.0",
+    "node": "v26.13.1",
+    "arch": "arm64",
+    "prepareCpu": 0.145,
+    "renderCpu": 1.954,
+    "wall": 1.666,
+    "maxRssMB": 293,
+    "work": {
+     "sampleCount": 180864,
+     "siteEvaluations": 4883924,
+     "sceneLookups": 50105308
+    },
+    "sha256": "1b8dd9f79243405f4d72f00aa9c981e68faf04fb1c3cb98ca941f8b884dd8dba",
+    "width": 768,
+    "height": 43,
+    "fastApplied": {
+     "lens.diffraction": false,
+     "sensor.antiAliasing": false,
+     "sensor.pixelAperture.box": false,
+     "output.demosaic.ahd": false
+    },
+    "load": [
+     3.9,
+     4.3
+    ],
+    "commit": "99782e7"
+   },
+   "ratio": 0.665,
+   "samplesEqual": false
+  },
+  {
+   "tier": "pair",
+   "id": "sensor-phone",
+   "flag": "exact",
+   "a": {
+    "id": "sensor-phone",
+    "flag": "exact",
+    "engine": "2.26.0",
+    "node": "v26.13.1",
+    "arch": "arm64",
+    "prepareCpu": 0.14,
+    "renderCpu": 2.26,
+    "wall": 1.836,
+    "maxRssMB": 228,
+    "work": {
+     "sampleCount": 135168,
+     "siteEvaluations": 3649168,
+     "sceneLookups": 14682060
+    },
+    "sha256": "01b8dc1dda340b85908aa5ede18e7fff62f14cd99bae75db08c291b56f00e502",
+    "width": 768,
+    "height": 11,
+    "fastApplied": {
+     "lens.diffraction": false,
+     "sensor.antiAliasing": false,
+     "sensor.pixelAperture.box": false,
+     "output.demosaic.ahd": false
+    },
+    "load": [
+     4.3,
+     4.3
+    ],
+    "commit": "94f56f3"
+   },
+   "b": {
+    "id": "sensor-phone",
+    "flag": "exact",
+    "engine": "2.27.0",
+    "node": "v26.13.1",
+    "arch": "arm64",
+    "prepareCpu": 0.148,
+    "renderCpu": 2.343,
+    "wall": 1.825,
+    "maxRssMB": 239,
+    "work": {
+     "sampleCount": 135168,
+     "siteEvaluations": 3649168,
+     "sceneLookups": 14682060
+    },
+    "sha256": "01b8dc1dda340b85908aa5ede18e7fff62f14cd99bae75db08c291b56f00e502",
+    "width": 768,
+    "height": 11,
+    "fastApplied": {
+     "lens.diffraction": false,
+     "sensor.antiAliasing": false,
+     "sensor.pixelAperture.box": false,
+     "output.demosaic.ahd": false
+    },
+    "load": [
+     4.3,
+     4.3
+    ],
+    "commit": "99782e7"
+   },
+   "ratio": 1.038,
+   "samplesEqual": true
+  },
+  {
+   "tier": "pair",
+   "id": "sensor-phone",
+   "flag": "default",
+   "a": {
+    "id": "sensor-phone",
+    "flag": "default",
+    "engine": "2.26.0",
+    "node": "v26.13.1",
+    "arch": "arm64",
+    "prepareCpu": 0.15,
+    "renderCpu": 1.022,
+    "wall": 0.764,
+    "maxRssMB": 200,
+    "work": {
+     "sampleCount": 59343,
+     "siteEvaluations": 1601775,
+     "sceneLookups": 11495792
+    },
+    "sha256": "01b8dc1dda340b85908aa5ede18e7fff62f14cd99bae75db08c291b56f00e502",
+    "width": 768,
+    "height": 11,
+    "fastApplied": {
+     "lens.diffraction": false,
+     "sensor.antiAliasing": false,
+     "sensor.pixelAperture.box": false,
+     "output.demosaic.ahd": false
+    },
+    "load": [
+     4.3,
+     4.3
+    ],
+    "commit": "94f56f3"
+   },
+   "b": {
+    "id": "sensor-phone",
+    "flag": "default",
+    "engine": "2.27.0",
+    "node": "v26.13.1",
+    "arch": "arm64",
+    "prepareCpu": 0.153,
+    "renderCpu": 0.879,
+    "wall": 0.527,
+    "maxRssMB": 238,
+    "work": {
+     "sampleCount": 59343,
+     "siteEvaluations": 1601775,
+     "sceneLookups": 11495792
+    },
+    "sha256": "01b8dc1dda340b85908aa5ede18e7fff62f14cd99bae75db08c291b56f00e502",
+    "width": 768,
+    "height": 11,
+    "fastApplied": {
+     "lens.diffraction": false,
+     "sensor.antiAliasing": false,
+     "sensor.pixelAperture.box": false,
+     "output.demosaic.ahd": false
+    },
+    "load": [
+     4.3,
+     4.3
+    ],
+    "commit": "99782e7"
+   },
+   "ratio": 0.88,
+   "samplesEqual": true
+  },
+  {
+   "tier": "pair",
+   "id": "dof-near-s1",
+   "flag": "exact",
+   "a": {
+    "id": "dof-near-s1",
+    "flag": "exact",
+    "engine": "2.26.0",
+    "node": "v26.13.1",
+    "arch": "arm64",
+    "prepareCpu": 0.145,
+    "renderCpu": 86.675,
+    "wall": 86.852,
+    "maxRssMB": 253,
+    "work": {
+     "sampleCount": 33024,
+     "siteEvaluations": 892324,
+     "sceneLookups": 192629149
+    },
+    "sha256": "6520415953f5eca40d29980e5b3a3235d70b20c752f8b411f3eabb389414ddbf",
+    "width": 768,
+    "height": 43,
+    "fastApplied": {
+     "lens.diffraction": false,
+     "sensor.antiAliasing": false,
+     "sensor.pixelAperture.box": false,
+     "output.demosaic.ahd": false
+    },
+    "load": [
+     4.3,
+     9.8
+    ],
+    "commit": "94f56f3"
+   },
+   "b": {
+    "id": "dof-near-s1",
+    "flag": "exact",
+    "engine": "2.27.0",
+    "node": "v26.13.1",
+    "arch": "arm64",
+    "prepareCpu": 0.145,
+    "renderCpu": 86.871,
+    "wall": 87.036,
+    "maxRssMB": 245,
+    "work": {
+     "sampleCount": 33024,
+     "siteEvaluations": 892324,
+     "sceneLookups": 192629149
+    },
+    "sha256": "6520415953f5eca40d29980e5b3a3235d70b20c752f8b411f3eabb389414ddbf",
+    "width": 768,
+    "height": 43,
+    "fastApplied": {
+     "lens.diffraction": false,
+     "sensor.antiAliasing": false,
+     "sensor.pixelAperture.box": false,
+     "output.demosaic.ahd": false
+    },
+    "load": [
+     4.3,
+     9.8
+    ],
+    "commit": "99782e7"
+   },
+   "ratio": 1.002,
+   "samplesEqual": true
+  },
+  {
+   "tier": "pair",
+   "id": "dof-near-s1",
+   "flag": "default",
+   "a": {
+    "id": "dof-near-s1",
+    "flag": "default",
+    "engine": "2.26.0",
+    "node": "v26.13.1",
+    "arch": "arm64",
+    "prepareCpu": 0.142,
+    "renderCpu": 28.092,
+    "wall": 27.201,
+    "maxRssMB": 284,
+    "work": {
+     "sampleCount": 33024,
+     "siteEvaluations": 892324,
+     "sceneLookups": 49316461
+    },
+    "sha256": "6520415953f5eca40d29980e5b3a3235d70b20c752f8b411f3eabb389414ddbf",
+    "width": 768,
+    "height": 43,
+    "fastApplied": {
+     "lens.diffraction": false,
+     "sensor.antiAliasing": false,
+     "sensor.pixelAperture.box": false,
+     "output.demosaic.ahd": false
+    },
+    "load": [
+     4.3,
+     5.3
+    ],
+    "commit": "94f56f3"
+   },
+   "b": {
+    "id": "dof-near-s1",
+    "flag": "default",
+    "engine": "2.27.0",
+    "node": "v26.13.1",
+    "arch": "arm64",
+    "prepareCpu": 0.146,
+    "renderCpu": 2.455,
+    "wall": 1.864,
+    "maxRssMB": 326,
+    "work": {
+     "sampleCount": 33024,
+     "siteEvaluations": 892324,
+     "sceneLookups": 18298141
+    },
+    "sha256": "6520415953f5eca40d29980e5b3a3235d70b20c752f8b411f3eabb389414ddbf",
+    "width": 768,
+    "height": 43,
+    "fastApplied": {
+     "lens.diffraction": false,
+     "sensor.antiAliasing": false,
+     "sensor.pixelAperture.box": false,
+     "output.demosaic.ahd": false
+    },
+    "load": [
+     4.3,
+     4.5
+    ],
+    "commit": "99782e7"
+   },
+   "ratio": 0.092,
+   "samplesEqual": true
+  },
+  {
+   "tier": "pair",
+   "id": "dof-near-s4",
+   "flag": "exact",
+   "a": {
+    "id": "dof-near-s4",
+    "flag": "exact",
+    "engine": "2.26.0",
+    "node": "v26.13.1",
+    "arch": "arm64",
+    "prepareCpu": 0.141,
+    "renderCpu": 26.134,
+    "wall": 25.884,
+    "maxRssMB": 242,
+    "work": {
+     "sampleCount": 135168,
+     "siteEvaluations": 3649904,
+     "sceneLookups": 68486891
+    },
+    "sha256": "121ec57c75f620cfa760b518ef8ad7f54efe950ad26de3d2e6a1d60497228d86",
+    "width": 768,
+    "height": 11,
+    "fastApplied": {
+     "lens.diffraction": false,
+     "sensor.antiAliasing": false,
+     "sensor.pixelAperture.box": false,
+     "output.demosaic.ahd": false
+    },
+    "load": [
+     4.8,
+     5.9
+    ],
+    "commit": "94f56f3"
+   },
+   "b": {
+    "id": "dof-near-s4",
+    "flag": "exact",
+    "engine": "2.27.0",
+    "node": "v26.13.1",
+    "arch": "arm64",
+    "prepareCpu": 0.145,
+    "renderCpu": 26.225,
+    "wall": 25.975,
+    "maxRssMB": 244,
+    "work": {
+     "sampleCount": 135168,
+     "siteEvaluations": 3649904,
+     "sceneLookups": 68486891
+    },
+    "sha256": "121ec57c75f620cfa760b518ef8ad7f54efe950ad26de3d2e6a1d60497228d86",
+    "width": 768,
+    "height": 11,
+    "fastApplied": {
+     "lens.diffraction": false,
+     "sensor.antiAliasing": false,
+     "sensor.pixelAperture.box": false,
+     "output.demosaic.ahd": false
+    },
+    "load": [
+     4.8,
+     5.9
+    ],
+    "commit": "99782e7"
+   },
+   "ratio": 1.004,
+   "samplesEqual": true
+  },
+  {
+   "tier": "pair",
+   "id": "dof-near-s4",
+   "flag": "default",
+   "a": {
+    "id": "dof-near-s4",
+    "flag": "default",
+    "engine": "2.26.0",
+    "node": "v26.13.1",
+    "arch": "arm64",
+    "prepareCpu": 0.147,
+    "renderCpu": 8.006,
+    "wall": 7.591,
+    "maxRssMB": 259,
+    "work": {
+     "sampleCount": 87693,
+     "siteEvaluations": 2368765,
+     "sceneLookups": 13064735
+    },
+    "sha256": "8c830c61530e86bda5e957e0116889e39a18d167a2fa76a479053edee61aa9c4",
+    "width": 768,
+    "height": 11,
+    "fastApplied": {
+     "lens.diffraction": false,
+     "sensor.antiAliasing": false,
+     "sensor.pixelAperture.box": false,
+     "output.demosaic.ahd": false
+    },
+    "load": [
+     5.3,
+     5.6
+    ],
+    "commit": "94f56f3"
+   },
+   "b": {
+    "id": "dof-near-s4",
+    "flag": "default",
+    "engine": "2.27.0",
+    "node": "v26.13.1",
+    "arch": "arm64",
+    "prepareCpu": 0.148,
+    "renderCpu": 1.121,
+    "wall": 0.796,
+    "maxRssMB": 270,
+    "work": {
+     "sampleCount": 87693,
+     "siteEvaluations": 2368765,
+     "sceneLookups": 5931647
+    },
+    "sha256": "8c830c61530e86bda5e957e0116889e39a18d167a2fa76a479053edee61aa9c4",
+    "width": 768,
+    "height": 11,
+    "fastApplied": {
+     "lens.diffraction": false,
+     "sensor.antiAliasing": false,
+     "sensor.pixelAperture.box": false,
+     "output.demosaic.ahd": false
+    },
+    "load": [
+     5.3,
+     5.3
+    ],
+    "commit": "99782e7"
+   },
+   "ratio": 0.156,
+   "samplesEqual": true
+  },
+  {
+   "tier": "pair",
+   "id": "bokeh-s1",
+   "flag": "exact",
+   "a": {
+    "id": "bokeh-s1",
+    "flag": "exact",
+    "engine": "2.26.0",
+    "node": "v26.13.1",
+    "arch": "arm64",
+    "prepareCpu": 0.157,
+    "renderCpu": 50.654,
+    "wall": 50.768,
+    "maxRssMB": 232,
+    "work": {
+     "sampleCount": 33024,
+     "siteEvaluations": 892324,
+     "sceneLookups": 119997090
+    },
+    "sha256": "191616f2ac1e61bf610700389730818241f476f2bcb2ed13dd18fa5e54352b2c",
+    "width": 768,
+    "height": 43,
+    "fastApplied": {
+     "lens.diffraction": false,
+     "sensor.antiAliasing": false,
+     "sensor.pixelAperture.box": false,
+     "output.demosaic.ahd": false
+    },
+    "load": [
+     5.6,
+     9.8
+    ],
+    "commit": "94f56f3"
+   },
+   "b": {
+    "id": "bokeh-s1",
+    "flag": "exact",
+    "engine": "2.27.0",
+    "node": "v26.13.1",
+    "arch": "arm64",
+    "prepareCpu": 0.156,
+    "renderCpu": 49.709,
+    "wall": 49.683,
+    "maxRssMB": 234,
+    "work": {
+     "sampleCount": 33024,
+     "siteEvaluations": 892324,
+     "sceneLookups": 119997090
+    },
+    "sha256": "191616f2ac1e61bf610700389730818241f476f2bcb2ed13dd18fa5e54352b2c",
+    "width": 768,
+    "height": 43,
+    "fastApplied": {
+     "lens.diffraction": false,
+     "sensor.antiAliasing": false,
+     "sensor.pixelAperture.box": false,
+     "output.demosaic.ahd": false
+    },
+    "load": [
+     5.6,
+     9
+    ],
+    "commit": "99782e7"
+   },
+   "ratio": 0.981,
+   "samplesEqual": true
+  },
+  {
+   "tier": "pair",
+   "id": "bokeh-s1",
+   "flag": "default",
+   "a": {
+    "id": "bokeh-s1",
+    "flag": "default",
+    "engine": "2.26.0",
+    "node": "v26.13.1",
+    "arch": "arm64",
+    "prepareCpu": 0.162,
+    "renderCpu": 20.344,
+    "wall": 20.162,
+    "maxRssMB": 230,
+    "work": {
+     "sampleCount": 33024,
+     "siteEvaluations": 892324,
+     "sceneLookups": 119955810
+    },
+    "sha256": "191616f2ac1e61bf610700389730818241f476f2bcb2ed13dd18fa5e54352b2c",
+    "width": 768,
+    "height": 43,
+    "fastApplied": {
+     "lens.diffraction": false,
+     "sensor.antiAliasing": false,
+     "sensor.pixelAperture.box": false,
+     "output.demosaic.ahd": false
+    },
+    "load": [
+     5.9,
+     6.9
+    ],
+    "commit": "94f56f3"
+   },
+   "b": {
+    "id": "bokeh-s1",
+    "flag": "default",
+    "engine": "2.27.0",
+    "node": "v26.13.1",
+    "arch": "arm64",
+    "prepareCpu": 0.152,
+    "renderCpu": 6.867,
+    "wall": 6.386,
+    "maxRssMB": 296,
+    "work": {
+     "sampleCount": 33024,
+     "siteEvaluations": 892324,
+     "sceneLookups": 120000738
+    },
+    "sha256": "191616f2ac1e61bf610700389730818241f476f2bcb2ed13dd18fa5e54352b2c",
+    "width": 768,
+    "height": 43,
+    "fastApplied": {
+     "lens.diffraction": false,
+     "sensor.antiAliasing": false,
+     "sensor.pixelAperture.box": false,
+     "output.demosaic.ahd": false
+    },
+    "load": [
+     5.9,
+     6.2
+    ],
+    "commit": "99782e7"
+   },
+   "ratio": 0.342,
+   "samplesEqual": true
+  },
+  {
+   "tier": "pair",
+   "id": "motion-yaw",
+   "flag": "exact",
+   "a": {
+    "id": "motion-yaw",
+    "flag": "exact",
+    "engine": "2.26.0",
+    "node": "v26.13.1",
+    "arch": "arm64",
+    "prepareCpu": 0.13,
+    "renderCpu": 18.576,
+    "wall": 17.841,
+    "maxRssMB": 216,
+    "work": {
+     "sampleCount": 135168,
+     "siteEvaluations": 3649904,
+     "sceneLookups": 146563215
+    },
+    "sha256": "0b1c4a9d3196c78e2faeef511d0b9517b9ce29f8b0806b481effbbf6e7343cf6",
+    "width": 768,
+    "height": 11,
+    "fastApplied": {
+     "sensor.antiAliasing": false,
+     "sensor.pixelAperture.box": false,
+     "output.demosaic.ahd": false,
+     "sensor.temporalSampleCount": false
+    },
+    "load": [
+     6.9,
+     7.9
+    ],
+    "commit": "94f56f3"
+   },
+   "b": {
+    "id": "motion-yaw",
+    "flag": "exact",
+    "engine": "2.27.0",
+    "node": "v26.13.1",
+    "arch": "arm64",
+    "prepareCpu": 0.133,
+    "renderCpu": 17.936,
+    "wall": 17.197,
+    "maxRssMB": 215,
+    "work": {
+     "sampleCount": 135168,
+     "siteEvaluations": 3649904,
+     "sceneLookups": 146563215
+    },
+    "sha256": "0b1c4a9d3196c78e2faeef511d0b9517b9ce29f8b0806b481effbbf6e7343cf6",
+    "width": 768,
+    "height": 11,
+    "fastApplied": {
+     "sensor.antiAliasing": false,
+     "sensor.pixelAperture.box": false,
+     "output.demosaic.ahd": false,
+     "sensor.temporalSampleCount": false
+    },
+    "load": [
+     6.9,
+     7.8
+    ],
+    "commit": "99782e7"
+   },
+   "ratio": 0.966,
+   "samplesEqual": true
+  },
+  {
+   "tier": "pair",
+   "id": "motion-yaw",
+   "flag": "default",
+   "a": {
+    "id": "motion-yaw",
+    "flag": "default",
+    "engine": "2.26.0",
+    "node": "v26.13.1",
+    "arch": "arm64",
+    "prepareCpu": 0.127,
+    "renderCpu": 7.161,
+    "wall": 7,
+    "maxRssMB": 178,
+    "work": {
+     "sampleCount": 72243,
+     "siteEvaluations": 1950967,
+     "sceneLookups": 53106309
+    },
+    "sha256": "ad0fbc6356a2a78721d06725f1fdb19dbb6d7ea9f515938827c85ac51df3f9b8",
+    "width": 768,
+    "height": 11,
+    "fastApplied": {
+     "sensor.antiAliasing": false,
+     "sensor.pixelAperture.box": false,
+     "output.demosaic.ahd": false,
+     "sensor.temporalSampleCount": true
+    },
+    "load": [
+     7.9,
+     9
+    ],
+    "commit": "94f56f3"
+   },
+   "b": {
+    "id": "motion-yaw",
+    "flag": "default",
+    "engine": "2.27.0",
+    "node": "v26.13.1",
+    "arch": "arm64",
+    "prepareCpu": 0.128,
+    "renderCpu": 7.06,
+    "wall": 6.901,
+    "maxRssMB": 179,
+    "work": {
+     "sampleCount": 72243,
+     "siteEvaluations": 1950967,
+     "sceneLookups": 53106309
+    },
+    "sha256": "ad0fbc6356a2a78721d06725f1fdb19dbb6d7ea9f515938827c85ac51df3f9b8",
+    "width": 768,
+    "height": 11,
+    "fastApplied": {
+     "sensor.antiAliasing": false,
+     "sensor.pixelAperture.box": false,
+     "output.demosaic.ahd": false,
+     "sensor.temporalSampleCount": true
+    },
+    "load": [
+     7.9,
+     9
+    ],
+    "commit": "99782e7"
+   },
+   "ratio": 0.986,
+   "samplesEqual": true
+  },
+  {
+   "tier": "pair",
+   "id": "detail-subject-motion",
+   "flag": "exact",
+   "a": {
+    "id": "detail-subject-motion",
+    "flag": "exact",
+    "engine": "2.26.0",
+    "node": "v26.13.1",
+    "arch": "arm64",
+    "prepareCpu": 0,
+    "renderCpu": 3.31,
+    "wall": 2.389,
+    "maxRssMB": 391,
+    "work": {
+     "providerEvaluationCount": 2069760
+    },
+    "sha256": "fea6126f1cf8c7aaef2cbceb6214c84d4b8e214f2f29cafc88c5523e310cf5a1",
+    "width": 96,
+    "height": 64,
+    "fastApplied": {
+     "motion.subject": false,
+     "sensor.temporalSampleCount": false
+    },
+    "load": [
+     9,
+     9
+    ],
+    "commit": "94f56f3"
+   },
+   "b": {
+    "id": "detail-subject-motion",
+    "flag": "exact",
+    "engine": "2.27.0",
+    "node": "v26.13.1",
+    "arch": "arm64",
+    "prepareCpu": 0,
+    "renderCpu": 3.378,
+    "wall": 2.404,
+    "maxRssMB": 384,
+    "work": {
+     "providerEvaluationCount": 2069760
+    },
+    "sha256": "fea6126f1cf8c7aaef2cbceb6214c84d4b8e214f2f29cafc88c5523e310cf5a1",
+    "width": 96,
+    "height": 64,
+    "fastApplied": {
+     "motion.subject": false,
+     "sensor.temporalSampleCount": false
+    },
+    "load": [
+     9,
+     9
+    ],
+    "commit": "99782e7"
+   },
+   "ratio": 1.021,
+   "samplesEqual": true
+  },
+  {
+   "tier": "pair",
+   "id": "detail-subject-motion",
+   "flag": "default",
+   "a": {
+    "id": "detail-subject-motion",
+    "flag": "default",
+    "engine": "2.26.0",
+    "node": "v26.13.1",
+    "arch": "arm64",
+    "prepareCpu": 0,
+    "renderCpu": 1.823,
+    "wall": 1.753,
+    "maxRssMB": 314,
+    "work": {
+     "providerEvaluationCount": 1034880
+    },
+    "sha256": "af4a6034e69a3fa08c0253bf16e06612dbf1f23129497662a2511bec9135bd4e",
+    "width": 96,
+    "height": 64,
+    "fastApplied": {
+     "motion.subject": false,
+     "sensor.temporalSampleCount": true
+    },
+    "load": [
+     9,
+     9.8
+    ],
+    "commit": "94f56f3"
+   },
+   "b": {
+    "id": "detail-subject-motion",
+    "flag": "default",
+    "engine": "2.27.0",
+    "node": "v26.13.1",
+    "arch": "arm64",
+    "prepareCpu": 0,
+    "renderCpu": 1.827,
+    "wall": 1.767,
+    "maxRssMB": 319,
+    "work": {
+     "providerEvaluationCount": 1034880
+    },
+    "sha256": "af4a6034e69a3fa08c0253bf16e06612dbf1f23129497662a2511bec9135bd4e",
+    "width": 96,
+    "height": 64,
+    "fastApplied": {
+     "motion.subject": false,
+     "sensor.temporalSampleCount": true
+    },
+    "load": [
+     9,
+     9.8
+    ],
+    "commit": "99782e7"
+   },
+   "ratio": 1.005,
+   "samplesEqual": true
+  },
+  {
+   "tier": "pair",
+   "id": "noise-iso-frame",
+   "flag": "exact",
+   "a": {
+    "id": "noise-iso-frame",
+    "flag": "exact",
+    "engine": "2.26.0",
+    "node": "v26.13.1",
+    "arch": "arm64",
+    "prepareCpu": 0.184,
+    "renderCpu": 17.679,
+    "wall": 22.304,
+    "maxRssMB": 234,
+    "work": {
+     "sampleCount": 528384,
+     "siteEvaluations": 14267668,
+     "sceneLookups": 77160514
+    },
+    "sha256": "d5d3b7be26f0dd4e01cf3e5580272be4ff724b9edbd08505e46cba3058b72ccf",
+    "width": 768,
+    "height": 43,
+    "fastApplied": {
+     "lens.diffraction": false,
+     "sensor.antiAliasing": false,
+     "sensor.pixelAperture.box": false,
+     "output.demosaic.ahd": false
+    },
+    "load": [
+     9.8,
+     16.2
+    ],
+    "commit": "94f56f3"
+   },
+   "b": {
+    "id": "noise-iso-frame",
+    "flag": "exact",
+    "engine": "2.27.0",
+    "node": "v26.13.1",
+    "arch": "arm64",
+    "prepareCpu": 0.172,
+    "renderCpu": 17.756,
+    "wall": 22.281,
+    "maxRssMB": 226,
+    "work": {
+     "sampleCount": 528384,
+     "siteEvaluations": 14267668,
+     "sceneLookups": 77160514
+    },
+    "sha256": "d5d3b7be26f0dd4e01cf3e5580272be4ff724b9edbd08505e46cba3058b72ccf",
+    "width": 768,
+    "height": 43,
+    "fastApplied": {
+     "lens.diffraction": false,
+     "sensor.antiAliasing": false,
+     "sensor.pixelAperture.box": false,
+     "output.demosaic.ahd": false
+    },
+    "load": [
+     9.8,
+     16.2
+    ],
+    "commit": "99782e7"
+   },
+   "ratio": 1.004,
+   "samplesEqual": true
+  },
+  {
+   "tier": "pair",
+   "id": "noise-iso-frame",
+   "flag": "default",
+   "a": {
+    "id": "noise-iso-frame",
+    "flag": "default",
+    "engine": "2.26.0",
+    "node": "v26.13.1",
+    "arch": "arm64",
+    "prepareCpu": 0.172,
+    "renderCpu": 7.653,
+    "wall": 10.218,
+    "maxRssMB": 222,
+    "work": {
+     "sampleCount": 283614,
+     "siteEvaluations": 7659166,
+     "sceneLookups": 61023330
+    },
+    "sha256": "6323e1f5d80bd1c94e3121df90b96dbedf0f6e4accca209a5f6779d2f7cc276b",
+    "width": 768,
+    "height": 43,
+    "fastApplied": {
+     "lens.diffraction": false,
+     "sensor.antiAliasing": false,
+     "sensor.pixelAperture.box": false,
+     "output.demosaic.ahd": false
+    },
+    "load": [
+     9.8,
+     12.7
+    ],
+    "commit": "94f56f3"
+   },
+   "b": {
+    "id": "noise-iso-frame",
+    "flag": "default",
+    "engine": "2.27.0",
+    "node": "v26.13.1",
+    "arch": "arm64",
+    "prepareCpu": 0.178,
+    "renderCpu": 4.522,
+    "wall": 5.261,
+    "maxRssMB": 329,
+    "work": {
+     "sampleCount": 283614,
+     "siteEvaluations": 7659166,
+     "sceneLookups": 61032094
+    },
+    "sha256": "6323e1f5d80bd1c94e3121df90b96dbedf0f6e4accca209a5f6779d2f7cc276b",
+    "width": 768,
+    "height": 43,
+    "fastApplied": {
+     "lens.diffraction": false,
+     "sensor.antiAliasing": false,
+     "sensor.pixelAperture.box": false,
+     "output.demosaic.ahd": false
+    },
+    "load": [
+     9.8,
+     10.1
+    ],
+    "commit": "99782e7"
+   },
+   "ratio": 0.601,
+   "samplesEqual": true
+  },
+  {
+   "tier": "pair",
+   "id": "detail-noise",
+   "flag": "exact",
+   "a": {
+    "id": "detail-noise",
+    "flag": "exact",
+    "engine": "2.26.0",
+    "node": "v26.13.1",
+    "arch": "arm64",
+    "prepareCpu": 0,
+    "renderCpu": 0.609,
+    "wall": 0.681,
+    "maxRssMB": 186,
+    "work": {
+     "providerEvaluationCount": 225780
+    },
+    "sha256": "f22e4e753d138ef5e9d770bb914b61abe3b13ded044842faaaec402ad2e6d1b0",
+    "width": 192,
+    "height": 128,
+    "fastApplied": {
+     "lens.diffraction": false,
+     "sensor.antiAliasing": false,
+     "sensor.pixelAperture.box": false,
+     "output.demosaic.ahd": false
+    },
+    "load": [
+     9.8,
+     9.8
+    ],
+    "commit": "94f56f3"
+   },
+   "b": {
+    "id": "detail-noise",
+    "flag": "exact",
+    "engine": "2.27.0",
+    "node": "v26.13.1",
+    "arch": "arm64",
+    "prepareCpu": 0,
+    "renderCpu": 0.608,
+    "wall": 0.675,
+    "maxRssMB": 185,
+    "work": {
+     "providerEvaluationCount": 225780
+    },
+    "sha256": "f22e4e753d138ef5e9d770bb914b61abe3b13ded044842faaaec402ad2e6d1b0",
+    "width": 192,
+    "height": 128,
+    "fastApplied": {
+     "lens.diffraction": false,
+     "sensor.antiAliasing": false,
+     "sensor.pixelAperture.box": false,
+     "output.demosaic.ahd": false
+    },
+    "load": [
+     9.8,
+     9.8
+    ],
+    "commit": "99782e7"
+   },
+   "ratio": 1,
+   "samplesEqual": true
+  },
+  {
+   "tier": "pair",
+   "id": "detail-noise",
+   "flag": "default",
+   "a": {
+    "id": "detail-noise",
+    "flag": "default",
+    "engine": "2.26.0",
+    "node": "v26.13.1",
+    "arch": "arm64",
+    "prepareCpu": 0,
+    "renderCpu": 0.641,
+    "wall": 0.697,
+    "maxRssMB": 182,
+    "work": {
+     "providerEvaluationCount": 225780
+    },
+    "sha256": "f22e4e753d138ef5e9d770bb914b61abe3b13ded044842faaaec402ad2e6d1b0",
+    "width": 192,
+    "height": 128,
+    "fastApplied": {
+     "lens.diffraction": false,
+     "sensor.antiAliasing": false,
+     "sensor.pixelAperture.box": false,
+     "output.demosaic.ahd": false
+    },
+    "load": [
+     9.8,
+     9.8
+    ],
+    "commit": "94f56f3"
+   },
+   "b": {
+    "id": "detail-noise",
+    "flag": "default",
+    "engine": "2.27.0",
+    "node": "v26.13.1",
+    "arch": "arm64",
+    "prepareCpu": 0,
+    "renderCpu": 0.647,
+    "wall": 0.73,
+    "maxRssMB": 186,
+    "work": {
+     "providerEvaluationCount": 225780
+    },
+    "sha256": "f22e4e753d138ef5e9d770bb914b61abe3b13ded044842faaaec402ad2e6d1b0",
+    "width": 192,
+    "height": 128,
+    "fastApplied": {
+     "lens.diffraction": false,
+     "sensor.antiAliasing": false,
+     "sensor.pixelAperture.box": false,
+     "output.demosaic.ahd": false
+    },
+    "load": [
+     9.8,
+     9.8
+    ],
+    "commit": "99782e7"
+   },
+   "ratio": 1.016,
+   "samplesEqual": true
+  },
+  {
+   "tier": "pair",
+   "id": "dr-recover-push",
+   "flag": "exact",
+   "a": {
+    "id": "dr-recover-push",
+    "flag": "exact",
+    "engine": "2.26.0",
+    "node": "v26.13.1",
+    "arch": "arm64",
+    "prepareCpu": 0.177,
+    "renderCpu": 72.25,
+    "wall": 81.567,
+    "maxRssMB": 354,
+    "work": {
+     "sampleCount": 528384,
+     "siteEvaluations": 14267668,
+     "sceneLookups": 77160514
+    },
+    "sha256": "fd9f81e9c849f0d4c9f301eeb1f2658e7ded41b5816508c4924cb5e90b2517fe",
+    "width": 768,
+    "height": 43,
+    "fastApplied": {
+     "lens.diffraction": false,
+     "sensor.antiAliasing": false,
+     "sensor.pixelAperture.box": false,
+     "output.demosaic.ahd": false
+    },
+    "load": [
+     9.8,
+     19.4
+    ],
+    "commit": "94f56f3"
+   },
+   "b": {
+    "id": "dr-recover-push",
+    "flag": "exact",
+    "engine": "2.27.0",
+    "node": "v26.13.1",
+    "arch": "arm64",
+    "prepareCpu": 0.181,
+    "renderCpu": 74.078,
+    "wall": 84.05,
+    "maxRssMB": 327,
+    "work": {
+     "sampleCount": 528384,
+     "siteEvaluations": 14267668,
+     "sceneLookups": 77160514
+    },
+    "sha256": "fd9f81e9c849f0d4c9f301eeb1f2658e7ded41b5816508c4924cb5e90b2517fe",
+    "width": 768,
+    "height": 43,
+    "fastApplied": {
+     "lens.diffraction": false,
+     "sensor.antiAliasing": false,
+     "sensor.pixelAperture.box": false,
+     "output.demosaic.ahd": false
+    },
+    "load": [
+     9.8,
+     19.4
+    ],
+    "commit": "99782e7"
+   },
+   "ratio": 1.025,
+   "samplesEqual": true
+  },
+  {
+   "tier": "pair",
+   "id": "dr-recover-push",
+   "flag": "default",
+   "a": {
+    "id": "dr-recover-push",
+    "flag": "default",
+    "engine": "2.26.0",
+    "node": "v26.13.1",
+    "arch": "arm64",
+    "prepareCpu": 0.179,
+    "renderCpu": 11.234,
+    "wall": 12.374,
+    "maxRssMB": 316,
+    "work": {
+     "sampleCount": 283614,
+     "siteEvaluations": 7659166,
+     "sceneLookups": 61023330
+    },
+    "sha256": "ea1798a4abf2b0854e5d3402251be3f4421d7295ec8015ff1c0e7572a7badfd7",
+    "width": 768,
+    "height": 43,
+    "fastApplied": {
+     "lens.diffraction": false,
+     "sensor.antiAliasing": false,
+     "sensor.pixelAperture.box": false,
+     "output.demosaic.ahd": false
+    },
+    "load": [
+     12.7,
+     16.2
+    ],
+    "commit": "94f56f3"
+   },
+   "b": {
+    "id": "dr-recover-push",
+    "flag": "default",
+    "engine": "2.27.0",
+    "node": "v26.13.1",
+    "arch": "arm64",
+    "prepareCpu": 0.184,
+    "renderCpu": 7.374,
+    "wall": 7.474,
+    "maxRssMB": 355,
+    "work": {
+     "sampleCount": 283614,
+     "siteEvaluations": 7659166,
+     "sceneLookups": 61032094
+    },
+    "sha256": "7de341e79f8a26241e55abe6e0360cc0161e398c2459274fb13b586b162b2873",
+    "width": 768,
+    "height": 43,
+    "fastApplied": {
+     "lens.diffraction": false,
+     "sensor.antiAliasing": false,
+     "sensor.pixelAperture.box": false,
+     "output.demosaic.ahd": false
+    },
+    "load": [
+     12.7,
+     14.4
+    ],
+    "commit": "99782e7"
+   },
+   "ratio": 0.663,
+   "samplesEqual": false
+  },
+  {
+   "tier": "pair",
+   "id": "catalogue-768",
+   "flag": "exact",
+   "a": {
+    "id": "catalogue-768",
+    "flag": "exact",
+    "error": "stopped after 900 s (SIGKILL)",
+    "commit": "94f56f3"
+   },
+   "b": {
+    "id": "catalogue-768",
+    "flag": "exact",
+    "engine": "2.27.0",
+    "node": "v26.13.1",
+    "arch": "arm64",
+    "prepareCpu": 0.184,
+    "renderCpu": 51.035,
+    "wall": 53.12,
+    "maxRssMB": 779,
+    "work": {
+     "sampleCount": 135168,
+     "siteEvaluations": 3648248,
+     "sceneLookups": 1359241
+    },
+    "sha256": "2b53a5ccd89ddc160adcddccc6240926b161261cf881fe17b03f76c188c81a6d",
+    "width": 768,
+    "height": 11,
+    "fastApplied": {
+     "lens.catalogue": false,
+     "sensor.antiAliasing": false,
+     "output.demosaic.ahd": false
+    },
+    "load": [
+     16.2,
+     21
+    ],
+    "commit": "99782e7"
+   },
+   "ratio": null,
+   "samplesEqual": null
+  },
+  {
+   "tier": "pair",
+   "id": "catalogue-768",
+   "flag": "default",
+   "a": {
+    "id": "catalogue-768",
+    "flag": "default",
+    "engine": "2.26.0",
+    "node": "v26.13.1",
+    "arch": "arm64",
+    "prepareCpu": 0.197,
+    "renderCpu": 1.62,
+    "wall": 1.403,
+    "maxRssMB": 241,
+    "work": {
+     "sampleCount": 19998,
+     "siteEvaluations": 539754,
+     "sceneLookups": 1322394
+    },
+    "sha256": "bd8ffb0526fde360505f757118aa0d1074773ee26de475b1e30f1db52023dae5",
+    "width": 768,
+    "height": 11,
+    "fastApplied": {
+     "lens.catalogue": true,
+     "sensor.antiAliasing": false,
+     "output.demosaic.ahd": false
+    },
+    "load": [
+     16.2,
+     16.3
+    ],
+    "commit": "94f56f3"
+   },
+   "b": {
+    "id": "catalogue-768",
+    "flag": "default",
+    "engine": "2.27.0",
+    "node": "v26.13.1",
+    "arch": "arm64",
+    "prepareCpu": 0.19,
+    "renderCpu": 0.817,
+    "wall": 0.59,
+    "maxRssMB": 219,
+    "work": {
+     "sampleCount": 19998,
+     "siteEvaluations": 539754,
+     "sceneLookups": 1322394
+    },
+    "sha256": "bd8ffb0526fde360505f757118aa0d1074773ee26de475b1e30f1db52023dae5",
+    "width": 768,
+    "height": 11,
+    "fastApplied": {
+     "lens.catalogue": true,
+     "sensor.antiAliasing": false,
+     "output.demosaic.ahd": false
+    },
+    "load": [
+     16.2,
+     16.2
+    ],
+    "commit": "99782e7"
+   },
+   "ratio": 0.555,
+   "samplesEqual": true
+  },
+  {
+   "tier": "pair",
+   "id": "catalogue-corrected",
+   "flag": "exact",
+   "a": {
+    "id": "catalogue-corrected",
+    "flag": "exact",
+    "error": "stopped after 900 s (SIGKILL)",
+    "commit": "94f56f3"
+   },
+   "b": {
+    "id": "catalogue-corrected",
+    "flag": "exact",
+    "engine": "2.27.0",
+    "node": "v26.13.1",
+    "arch": "arm64",
+    "prepareCpu": 0.212,
+    "renderCpu": 56.924,
+    "wall": 58.242,
+    "maxRssMB": 821,
+    "work": {
+     "sampleCount": 1622016,
+     "siteEvaluations": 43794432,
+     "sceneLookups": 6629866
+    },
+    "sha256": "ebee57bb1b5270f5b69287a45be8fb3497c86aaf6dc7d2d55d5f2634915f144c",
+    "width": 768,
+    "height": 11,
+    "fastApplied": {
+     "lens.catalogue": false,
+     "sensor.antiAliasing": false,
+     "output.demosaic.ahd": false
+    },
+    "load": [
+     16.3,
+     20.3
+    ],
+    "commit": "99782e7"
+   },
+   "ratio": null,
+   "samplesEqual": null
+  },
+  {
+   "tier": "pair",
+   "id": "catalogue-corrected",
+   "flag": "default",
+   "a": {
+    "id": "catalogue-corrected",
+    "flag": "default",
+    "engine": "2.26.0",
+    "node": "v26.13.1",
+    "arch": "arm64",
+    "prepareCpu": 0.189,
+    "renderCpu": 3.222,
+    "wall": 2.71,
+    "maxRssMB": 268,
+    "work": {
+     "sampleCount": 60984,
+     "siteEvaluations": 1646292,
+     "sceneLookups": 3534392
+    },
+    "sha256": "f64ba0899182ea62c34533448087afab8bf1885d56eaabb9707c80d0297f3445",
+    "width": 768,
+    "height": 11,
+    "fastApplied": {
+     "lens.catalogue": true,
+     "sensor.antiAliasing": false,
+     "output.demosaic.ahd": false
+    },
+    "load": [
+     19.4,
+     18.3
+    ],
+    "commit": "94f56f3"
+   },
+   "b": {
+    "id": "catalogue-corrected",
+    "flag": "default",
+    "engine": "2.27.0",
+    "node": "v26.13.1",
+    "arch": "arm64",
+    "prepareCpu": 0.189,
+    "renderCpu": 2.204,
+    "wall": 1.432,
+    "maxRssMB": 339,
+    "work": {
+     "sampleCount": 60984,
+     "siteEvaluations": 1646292,
+     "sceneLookups": 4599768
+    },
+    "sha256": "f64ba0899182ea62c34533448087afab8bf1885d56eaabb9707c80d0297f3445",
+    "width": 768,
+    "height": 11,
+    "fastApplied": {
+     "lens.catalogue": true,
+     "sensor.antiAliasing": false,
+     "output.demosaic.ahd": false
+    },
+    "load": [
+     19.4,
+     19.4
+    ],
+    "commit": "99782e7"
+   },
+   "ratio": 0.701,
+   "samplesEqual": true
+  },
+  {
+   "tier": "pair",
+   "id": "detail-star-f8",
+   "flag": "exact",
+   "a": {
+    "id": "detail-star-f8",
+    "flag": "exact",
+    "engine": "2.26.0",
+    "node": "v26.13.1",
+    "arch": "arm64",
+    "prepareCpu": 0,
+    "renderCpu": 0.538,
+    "wall": 0.399,
+    "maxRssMB": 170,
+    "work": {
+     "providerEvaluationCount": 157332
+    },
+    "sha256": "774a9e1fe92991f391eea11f82c58dc5e7ff2d055630b7e80a79e545387f2572",
+    "width": 192,
+    "height": 128,
+    "fastApplied": {
+     "lens.diffraction": false,
+     "sensor.antiAliasing": false,
+     "sensor.pixelAperture.box": false,
+     "output.demosaic.ahd": false
+    },
+    "load": [
+     18.3,
+     18.3
+    ],
+    "commit": "94f56f3"
+   },
+   "b": {
+    "id": "detail-star-f8",
+    "flag": "exact",
+    "engine": "2.27.0",
+    "node": "v26.13.1",
+    "arch": "arm64",
+    "prepareCpu": 0,
+    "renderCpu": 0.553,
+    "wall": 0.41,
+    "maxRssMB": 171,
+    "work": {
+     "providerEvaluationCount": 157332
+    },
+    "sha256": "774a9e1fe92991f391eea11f82c58dc5e7ff2d055630b7e80a79e545387f2572",
+    "width": 192,
+    "height": 128,
+    "fastApplied": {
+     "lens.diffraction": false,
+     "sensor.antiAliasing": false,
+     "sensor.pixelAperture.box": false,
+     "output.demosaic.ahd": false
+    },
+    "load": [
+     18.3,
+     18.3
+    ],
+    "commit": "99782e7"
+   },
+   "ratio": 1.019,
+   "samplesEqual": true
+  },
+  {
+   "tier": "pair",
+   "id": "detail-star-f8",
+   "flag": "default",
+   "a": {
+    "id": "detail-star-f8",
+    "flag": "default",
+    "engine": "2.26.0",
+    "node": "v26.13.1",
+    "arch": "arm64",
+    "prepareCpu": 0,
+    "renderCpu": 0.545,
+    "wall": 0.407,
+    "maxRssMB": 169,
+    "work": {
+     "providerEvaluationCount": 157332
+    },
+    "sha256": "774a9e1fe92991f391eea11f82c58dc5e7ff2d055630b7e80a79e545387f2572",
+    "width": 192,
+    "height": 128,
+    "fastApplied": {
+     "lens.diffraction": false,
+     "sensor.antiAliasing": false,
+     "sensor.pixelAperture.box": false,
+     "output.demosaic.ahd": false
+    },
+    "load": [
+     18.3,
+     18.3
+    ],
+    "commit": "94f56f3"
+   },
+   "b": {
+    "id": "detail-star-f8",
+    "flag": "default",
+    "engine": "2.27.0",
+    "node": "v26.13.1",
+    "arch": "arm64",
+    "prepareCpu": 0,
+    "renderCpu": 0.547,
+    "wall": 0.408,
+    "maxRssMB": 170,
+    "work": {
+     "providerEvaluationCount": 157332
+    },
+    "sha256": "774a9e1fe92991f391eea11f82c58dc5e7ff2d055630b7e80a79e545387f2572",
+    "width": 192,
+    "height": 128,
+    "fastApplied": {
+     "lens.diffraction": false,
+     "sensor.antiAliasing": false,
+     "sensor.pixelAperture.box": false,
+     "output.demosaic.ahd": false
+    },
+    "load": [
+     18.3,
+     18.3
+    ],
+    "commit": "99782e7"
+   },
+   "ratio": 1,
+   "samplesEqual": true
+  },
+  {
+   "tier": "pair",
+   "id": "detail-star-f22",
+   "flag": "exact",
+   "a": {
+    "id": "detail-star-f22",
+    "flag": "exact",
+    "engine": "2.26.0",
+    "node": "v26.13.1",
+    "arch": "arm64",
+    "prepareCpu": 0,
+    "renderCpu": 1.623,
+    "wall": 1.461,
+    "maxRssMB": 182,
+    "work": {
+     "providerEvaluationCount": 225780
+    },
+    "sha256": "3af2a326822df9106808a6d9d5b0e02255811d34ce98f875f0943427622c55d4",
+    "width": 192,
+    "height": 128,
+    "fastApplied": {
+     "lens.diffraction": false,
+     "sensor.antiAliasing": false,
+     "sensor.pixelAperture.box": false,
+     "output.demosaic.ahd": false
+    },
+    "load": [
+     18.3,
+     18.3
+    ],
+    "commit": "94f56f3"
+   },
+   "b": {
+    "id": "detail-star-f22",
+    "flag": "exact",
+    "engine": "2.27.0",
+    "node": "v26.13.1",
+    "arch": "arm64",
+    "prepareCpu": 0,
+    "renderCpu": 1.644,
+    "wall": 1.474,
+    "maxRssMB": 182,
+    "work": {
+     "providerEvaluationCount": 225780
+    },
+    "sha256": "3af2a326822df9106808a6d9d5b0e02255811d34ce98f875f0943427622c55d4",
+    "width": 192,
+    "height": 128,
+    "fastApplied": {
+     "lens.diffraction": false,
+     "sensor.antiAliasing": false,
+     "sensor.pixelAperture.box": false,
+     "output.demosaic.ahd": false
+    },
+    "load": [
+     18.3,
+     18.3
+    ],
+    "commit": "99782e7"
+   },
+   "ratio": 1.012,
+   "samplesEqual": true
+  },
+  {
+   "tier": "pair",
+   "id": "detail-star-f22",
+   "flag": "default",
+   "a": {
+    "id": "detail-star-f22",
+    "flag": "default",
+    "engine": "2.26.0",
+    "node": "v26.13.1",
+    "arch": "arm64",
+    "prepareCpu": 0,
+    "renderCpu": 1.661,
+    "wall": 1.517,
+    "maxRssMB": 180,
+    "work": {
+     "providerEvaluationCount": 225780
+    },
+    "sha256": "3af2a326822df9106808a6d9d5b0e02255811d34ce98f875f0943427622c55d4",
+    "width": 192,
+    "height": 128,
+    "fastApplied": {
+     "lens.diffraction": false,
+     "sensor.antiAliasing": false,
+     "sensor.pixelAperture.box": false,
+     "output.demosaic.ahd": false
+    },
+    "load": [
+     18.3,
+     17.4
+    ],
+    "commit": "94f56f3"
+   },
+   "b": {
+    "id": "detail-star-f22",
+    "flag": "default",
+    "engine": "2.27.0",
+    "node": "v26.13.1",
+    "arch": "arm64",
+    "prepareCpu": 0,
+    "renderCpu": 1.657,
+    "wall": 1.507,
+    "maxRssMB": 182,
+    "work": {
+     "providerEvaluationCount": 225780
+    },
+    "sha256": "3af2a326822df9106808a6d9d5b0e02255811d34ce98f875f0943427622c55d4",
+    "width": 192,
+    "height": 128,
+    "fastApplied": {
+     "lens.diffraction": false,
+     "sensor.antiAliasing": false,
+     "sensor.pixelAperture.box": false,
+     "output.demosaic.ahd": false
+    },
+    "load": [
+     18.3,
+     18.3
+    ],
+    "commit": "99782e7"
+   },
+   "ratio": 1,
+   "samplesEqual": true
+  },
+  {
+   "tier": "pair",
+   "id": "layered-tabletop",
+   "flag": "exact",
+   "a": {
+    "id": "layered-tabletop",
+    "flag": "exact",
+    "error": "engine.prepareLayeredChartScenes is not a function",
+    "commit": "94f56f3"
+   },
+   "b": {
+    "id": "layered-tabletop",
+    "flag": "exact",
+    "engine": "2.27.0",
+    "node": "v26.13.1",
+    "arch": "arm64",
+    "prepareCpu": 0.116,
+    "renderCpu": 1.604,
+    "wall": 1.175,
+    "maxRssMB": 376,
+    "work": {
+     "sampleCount": 135168,
+     "siteEvaluations": 3649904,
+     "sceneLookups": 27099704
+    },
+    "sha256": "abe6126db05f8867efecb3a367aa5092a8eccd539239928fb242ed4aaec9a14d",
+    "width": 768,
+    "height": 11,
+    "fastApplied": {
+     "lens.diffraction": false,
+     "sensor.antiAliasing": false,
+     "sensor.pixelAperture.box": false,
+     "output.demosaic.ahd": false
+    },
+    "load": [
+     17.4,
+     17.4
+    ],
+    "commit": "99782e7"
+   },
+   "ratio": null,
+   "samplesEqual": null
+  },
+  {
+   "tier": "pair",
+   "id": "layered-tabletop",
+   "flag": "default",
+   "a": {
+    "id": "layered-tabletop",
+    "flag": "default",
+    "error": "engine.prepareLayeredChartScenes is not a function",
+    "commit": "94f56f3"
+   },
+   "b": {
+    "id": "layered-tabletop",
+    "flag": "default",
+    "engine": "2.27.0",
+    "node": "v26.13.1",
+    "arch": "arm64",
+    "prepareCpu": 0.119,
+    "renderCpu": 1.201,
+    "wall": 0.85,
+    "maxRssMB": 378,
+    "work": {
+     "sampleCount": 38748,
+     "siteEvaluations": 1046544,
+     "sceneLookups": 18125376
+    },
+    "sha256": "49a8a8e7d3b568dc62041f4a42621cabf4de182731711174337cf4e02898296a",
+    "width": 768,
+    "height": 11,
+    "fastApplied": {
+     "lens.diffraction": false,
+     "sensor.antiAliasing": false,
+     "sensor.pixelAperture.box": false,
+     "output.demosaic.ahd": false
+    },
+    "load": [
+     17.4,
+     17.4
+    ],
+    "commit": "99782e7"
+   },
+   "ratio": null,
+   "samplesEqual": null
+  },
+  {
+   "tier": "pair",
+   "id": "mixed-light",
+   "flag": "exact",
+   "a": {
+    "id": "mixed-light",
+    "flag": "exact",
+    "engine": "2.26.0",
+    "node": "v26.13.1",
+    "arch": "arm64",
+    "prepareCpu": 0.167,
+    "renderCpu": 67.854,
+    "wall": 72.483,
+    "maxRssMB": 211,
+    "work": {
+     "sampleCount": 135168,
+     "siteEvaluations": 3649904,
+     "sceneLookups": 445190147
+    },
+    "sha256": "766e311c8e552b234466c5e6b0a7c7d067a3176663af2dc2a64e502266698236",
+    "width": 768,
+    "height": 11,
+    "fastApplied": {
+     "lens.diffraction": false,
+     "sensor.antiAliasing": false,
+     "sensor.pixelAperture.box": false,
+     "output.demosaic.ahd": false
+    },
+    "load": [
+     17.4,
+     17
+    ],
+    "commit": "94f56f3"
+   },
+   "b": {
+    "id": "mixed-light",
+    "flag": "exact",
+    "engine": "2.27.0",
+    "node": "v26.13.1",
+    "arch": "arm64",
+    "prepareCpu": 0.153,
+    "renderCpu": 68.377,
+    "wall": 73.11,
+    "maxRssMB": 211,
+    "work": {
+     "sampleCount": 135168,
+     "siteEvaluations": 3649904,
+     "sceneLookups": 445190147
+    },
+    "sha256": "766e311c8e552b234466c5e6b0a7c7d067a3176663af2dc2a64e502266698236",
+    "width": 768,
+    "height": 11,
+    "fastApplied": {
+     "lens.diffraction": false,
+     "sensor.antiAliasing": false,
+     "sensor.pixelAperture.box": false,
+     "output.demosaic.ahd": false
+    },
+    "load": [
+     17.4,
+     17
+    ],
+    "commit": "99782e7"
+   },
+   "ratio": 1.007,
+   "samplesEqual": true
+  },
+  {
+   "tier": "pair",
+   "id": "mixed-light",
+   "flag": "default",
+   "a": {
+    "id": "mixed-light",
+    "flag": "default",
+    "engine": "2.26.0",
+    "node": "v26.13.1",
+    "arch": "arm64",
+    "prepareCpu": 0.202,
+    "renderCpu": 51.553,
+    "wall": 57.33,
+    "maxRssMB": 182,
+    "work": {
+     "sampleCount": 83778,
+     "siteEvaluations": 2262498,
+     "sceneLookups": 360038547
+    },
+    "sha256": "b0402de49be07f837cbb11cd5e0b76ce0698066e9042edf225939240af80aa6e",
+    "width": 768,
+    "height": 11,
+    "fastApplied": {
+     "lens.diffraction": false,
+     "sensor.antiAliasing": false,
+     "sensor.pixelAperture.box": false,
+     "output.demosaic.ahd": false
+    },
+    "load": [
+     17,
+     16.5
+    ],
+    "commit": "94f56f3"
+   },
+   "b": {
+    "id": "mixed-light",
+    "flag": "default",
+    "engine": "2.27.0",
+    "node": "v26.13.1",
+    "arch": "arm64",
+    "prepareCpu": 0.206,
+    "renderCpu": 55.458,
+    "wall": 61.137,
+    "maxRssMB": 175,
+    "work": {
+     "sampleCount": 83778,
+     "siteEvaluations": 2262498,
+     "sceneLookups": 360038547
+    },
+    "sha256": "b0402de49be07f837cbb11cd5e0b76ce0698066e9042edf225939240af80aa6e",
+    "width": 768,
+    "height": 11,
+    "fastApplied": {
+     "lens.diffraction": false,
+     "sensor.antiAliasing": false,
+     "sensor.pixelAperture.box": false,
+     "output.demosaic.ahd": false
+    },
+    "load": [
+     17,
+     15.8
+    ],
+    "commit": "99782e7"
+   },
+   "ratio": 1.076,
+   "samplesEqual": true
+  },
+  {
+   "tier": "pair",
+   "id": "detail-perceptual-png",
+   "flag": "exact",
+   "a": {
+    "id": "detail-perceptual-png",
+    "flag": "exact",
+    "engine": "2.26.0",
+    "node": "v26.13.1",
+    "arch": "arm64",
+    "prepareCpu": 0,
+    "renderCpu": 0.413,
+    "wall": 0.242,
+    "maxRssMB": 170,
+    "work": {
+     "providerEvaluationCount": 157332
+    },
+    "sha256": "4edc1747679c6c1d3afc4b4d1aa7baed508f4d72c1c917231a875cf3594f971d",
+    "width": 192,
+    "height": 128,
+    "fastApplied": {
+     "lens.diffraction": false,
+     "sensor.antiAliasing": false,
+     "sensor.pixelAperture.box": false,
+     "output.demosaic.ahd": false
+    },
+    "load": [
+     15.8,
+     15.8
+    ],
+    "commit": "94f56f3"
+   },
+   "b": {
+    "id": "detail-perceptual-png",
+    "flag": "exact",
+    "engine": "2.27.0",
+    "node": "v26.13.1",
+    "arch": "arm64",
+    "prepareCpu": 0,
+    "renderCpu": 0.421,
+    "wall": 0.244,
+    "maxRssMB": 170,
+    "work": {
+     "providerEvaluationCount": 157332
+    },
+    "sha256": "4edc1747679c6c1d3afc4b4d1aa7baed508f4d72c1c917231a875cf3594f971d",
+    "width": 192,
+    "height": 128,
+    "fastApplied": {
+     "lens.diffraction": false,
+     "sensor.antiAliasing": false,
+     "sensor.pixelAperture.box": false,
+     "output.demosaic.ahd": false
+    },
+    "load": [
+     15.8,
+     15.8
+    ],
+    "commit": "99782e7"
+   },
+   "ratio": 1.024,
+   "samplesEqual": true
+  },
+  {
+   "tier": "pair",
+   "id": "detail-perceptual-png",
+   "flag": "default",
+   "a": {
+    "id": "detail-perceptual-png",
+    "flag": "default",
+    "engine": "2.26.0",
+    "node": "v26.13.1",
+    "arch": "arm64",
+    "prepareCpu": 0,
+    "renderCpu": 0.431,
+    "wall": 0.245,
+    "maxRssMB": 170,
+    "work": {
+     "providerEvaluationCount": 157332
+    },
+    "sha256": "4edc1747679c6c1d3afc4b4d1aa7baed508f4d72c1c917231a875cf3594f971d",
+    "width": 192,
+    "height": 128,
+    "fastApplied": {
+     "lens.diffraction": false,
+     "sensor.antiAliasing": false,
+     "sensor.pixelAperture.box": false,
+     "output.demosaic.ahd": false
+    },
+    "load": [
+     15.8,
+     15.8
+    ],
+    "commit": "94f56f3"
+   },
+   "b": {
+    "id": "detail-perceptual-png",
+    "flag": "default",
+    "engine": "2.27.0",
+    "node": "v26.13.1",
+    "arch": "arm64",
+    "prepareCpu": 0,
+    "renderCpu": 0.424,
+    "wall": 0.246,
+    "maxRssMB": 170,
+    "work": {
+     "providerEvaluationCount": 157332
+    },
+    "sha256": "4edc1747679c6c1d3afc4b4d1aa7baed508f4d72c1c917231a875cf3594f971d",
+    "width": 192,
+    "height": 128,
+    "fastApplied": {
+     "lens.diffraction": false,
+     "sensor.antiAliasing": false,
+     "sensor.pixelAperture.box": false,
+     "output.demosaic.ahd": false
+    },
+    "load": [
+     15.8,
+     15.8
+    ],
+    "commit": "99782e7"
+   },
+   "ratio": 0.977,
+   "samplesEqual": true
+  },
+  {
+   "tier": "pair",
+   "id": "rolling-yaw",
+   "flag": "exact",
+   "a": {
+    "id": "rolling-yaw",
+    "flag": "exact",
+    "engine": "2.26.0",
+    "node": "v26.13.1",
+    "arch": "arm64",
+    "prepareCpu": 0.101,
+    "renderCpu": 2.336,
+    "wall": 1.97,
+    "maxRssMB": 202,
+    "work": {
+     "sampleCount": 135168,
+     "siteEvaluations": 3649904,
+     "sceneLookups": 14050401
+    },
+    "sha256": "a73b0377923a66e64de1dee84e6a89f91f81104c1b44380938c681352f0e07f0",
+    "width": 768,
+    "height": 11,
+    "fastApplied": {
+     "output.demosaic.ahd": false,
+     "sensor.temporalSampleCount": false
+    },
+    "load": [
+     15.8,
+     15.8
+    ],
+    "commit": "94f56f3"
+   },
+   "b": {
+    "id": "rolling-yaw",
+    "flag": "exact",
+    "engine": "2.27.0",
+    "node": "v26.13.1",
+    "arch": "arm64",
+    "prepareCpu": 0.116,
+    "renderCpu": 2.352,
+    "wall": 1.981,
+    "maxRssMB": 202,
+    "work": {
+     "sampleCount": 135168,
+     "siteEvaluations": 3649904,
+     "sceneLookups": 14050401
+    },
+    "sha256": "a73b0377923a66e64de1dee84e6a89f91f81104c1b44380938c681352f0e07f0",
+    "width": 768,
+    "height": 11,
+    "fastApplied": {
+     "output.demosaic.ahd": false,
+     "sensor.temporalSampleCount": false
+    },
+    "load": [
+     15.8,
+     15.8
+    ],
+    "commit": "99782e7"
+   },
+   "ratio": 1.012,
+   "samplesEqual": true
+  },
+  {
+   "tier": "pair",
+   "id": "rolling-yaw",
+   "flag": "default",
+   "a": {
+    "id": "rolling-yaw",
+    "flag": "default",
+    "engine": "2.26.0",
+    "node": "v26.13.1",
+    "arch": "arm64",
+    "prepareCpu": 0.095,
+    "renderCpu": 1.252,
+    "wall": 1.034,
+    "maxRssMB": 183,
+    "work": {
+     "sampleCount": 69918,
+     "siteEvaluations": 1888234,
+     "sceneLookups": 6613005
+    },
+    "sha256": "627f8911ea845e8c3cdc8e569f54c40d999fd4f79570ae5ff97524097f782fa7",
+    "width": 768,
+    "height": 11,
+    "fastApplied": {
+     "output.demosaic.ahd": false,
+     "sensor.temporalSampleCount": true
+    },
+    "load": [
+     15.2,
+     15.2
+    ],
+    "commit": "94f56f3"
+   },
+   "b": {
+    "id": "rolling-yaw",
+    "flag": "default",
+    "engine": "2.27.0",
+    "node": "v26.13.1",
+    "arch": "arm64",
+    "prepareCpu": 0.111,
+    "renderCpu": 1.26,
+    "wall": 1.04,
+    "maxRssMB": 179,
+    "work": {
+     "sampleCount": 69918,
+     "siteEvaluations": 1888234,
+     "sceneLookups": 6613005
+    },
+    "sha256": "627f8911ea845e8c3cdc8e569f54c40d999fd4f79570ae5ff97524097f782fa7",
+    "width": 768,
+    "height": 11,
+    "fastApplied": {
+     "output.demosaic.ahd": false,
+     "sensor.temporalSampleCount": true
+    },
+    "load": [
+     15.2,
+     15.2
+    ],
+    "commit": "99782e7"
+   },
+   "ratio": 1.015,
+   "samplesEqual": true
+  },
+  {
+   "tier": "pair",
+   "id": "sensor-aps-c",
+   "flag": "exact",
+   "a": {
+    "id": "sensor-aps-c",
+    "flag": "exact",
+    "engine": "2.26.0",
+    "node": "v26.13.1",
+    "arch": "arm64",
+    "prepareCpu": 0.164,
+    "renderCpu": 5.079,
+    "wall": 5.253,
+    "maxRssMB": 239,
+    "work": {
+     "sampleCount": 135168,
+     "siteEvaluations": 3648976,
+     "sceneLookups": 20265815
+    },
+    "sha256": "dd23aa732935ebb44ffcad0d3ff66f4e48a10321379bfe01e039436b2bae7c6f",
+    "width": 768,
+    "height": 11,
+    "fastApplied": {
+     "lens.diffraction": false,
+     "sensor.antiAliasing": false,
+     "sensor.pixelAperture.box": false,
+     "output.demosaic.ahd": false
+    },
+    "load": [
+     15.2,
+     22.4
+    ],
+    "commit": "94f56f3"
+   },
+   "b": {
+    "id": "sensor-aps-c",
+    "flag": "exact",
+    "engine": "2.27.0",
+    "node": "v26.13.1",
+    "arch": "arm64",
+    "prepareCpu": 0.167,
+    "renderCpu": 5.118,
+    "wall": 5.385,
+    "maxRssMB": 235,
+    "work": {
+     "sampleCount": 135168,
+     "siteEvaluations": 3648976,
+     "sceneLookups": 20265815
+    },
+    "sha256": "dd23aa732935ebb44ffcad0d3ff66f4e48a10321379bfe01e039436b2bae7c6f",
+    "width": 768,
+    "height": 11,
+    "fastApplied": {
+     "lens.diffraction": false,
+     "sensor.antiAliasing": false,
+     "sensor.pixelAperture.box": false,
+     "output.demosaic.ahd": false
+    },
+    "load": [
+     15.2,
+     22.4
+    ],
+    "commit": "99782e7"
+   },
+   "ratio": 1.01,
+   "samplesEqual": true
+  },
+  {
+   "tier": "pair",
+   "id": "sensor-aps-c",
+   "flag": "default",
+   "a": {
+    "id": "sensor-aps-c",
+    "flag": "default",
+    "engine": "2.26.0",
+    "node": "v26.13.1",
+    "arch": "arm64",
+    "prepareCpu": 0.188,
+    "renderCpu": 2.333,
+    "wall": 2.222,
+    "maxRssMB": 236,
+    "work": {
+     "sampleCount": 74043,
+     "siteEvaluations": 1998967,
+     "sceneLookups": 16041627
+    },
+    "sha256": "2c63b0e0e22eed377d96afd9b97e4976fa94e461a5c66d4ffe8c1d46dd6d0f1f",
+    "width": 768,
+    "height": 11,
+    "fastApplied": {
+     "lens.diffraction": false,
+     "sensor.antiAliasing": false,
+     "sensor.pixelAperture.box": false,
+     "output.demosaic.ahd": false
+    },
+    "load": [
+     22.4,
+     22.4
+    ],
+    "commit": "94f56f3"
+   },
+   "b": {
+    "id": "sensor-aps-c",
+    "flag": "default",
+    "engine": "2.27.0",
+    "node": "v26.13.1",
+    "arch": "arm64",
+    "prepareCpu": 0.171,
+    "renderCpu": 1.424,
+    "wall": 1.274,
+    "maxRssMB": 282,
+    "work": {
+     "sampleCount": 74043,
+     "siteEvaluations": 1998967,
+     "sceneLookups": 16029631
+    },
+    "sha256": "2c63b0e0e22eed377d96afd9b97e4976fa94e461a5c66d4ffe8c1d46dd6d0f1f",
+    "width": 768,
+    "height": 11,
+    "fastApplied": {
+     "lens.diffraction": false,
+     "sensor.antiAliasing": false,
+     "sensor.pixelAperture.box": false,
+     "output.demosaic.ahd": false
+    },
+    "load": [
+     22.4,
+     22.4
+    ],
+    "commit": "99782e7"
+   },
+   "ratio": 0.631,
+   "samplesEqual": true
+  }
+ ],
+ "whole": [
+  {
+   "tier": "whole",
+   "id": "frame-768",
+   "flag": "exact",
+   "file": "768x512",
+   "samplesPerAxis": 4,
+   "bands": 4,
+   "bandRows": 128,
+   "cpu": 108.37,
+   "cheapestBand": 12.82,
+   "dearestBand": 47.34,
+   "sha256": "bb7c6117268e2f6420f71fb3b9f31885f35cd3d1491f76daac4685e77f65870a",
+   "engine": "2.27.0",
+   "node": "v26.13.1",
+   "arch": "arm64",
+   "commit": "3008653"
+  },
+  {
+   "tier": "whole",
+   "id": "frame-768",
+   "flag": "exact",
+   "file": "1536x1024",
+   "samplesPerAxis": 4,
+   "bands": 8,
+   "bandRows": 128,
+   "cpu": 148.37,
+   "cheapestBand": 9.19,
+   "dearestBand": 38.99,
+   "sha256": "4565487c10299cd31aeb77e8cc2355fc38cfa48571a3b0dd9ccb99e5e1b5fdac",
+   "engine": "2.27.0",
+   "node": "v26.13.1",
+   "arch": "arm64",
+   "commit": "3008653"
+  },
+  {
+   "tier": "whole-figure",
+   "id": "frame-768",
+   "flag": "exact",
+   "engine": "2.27.0",
+   "jobs": 6,
+   "cpu": 256.75,
+   "wall": 68.51,
+   "peakRssMB": 411,
+   "load": [
+    4,
+    16.2
+   ],
+   "node": "v26.13.1",
+   "arch": "arm64",
+   "commit": "3008653"
+  },
+  {
+   "tier": "whole",
+   "id": "frame-768",
+   "flag": "default",
+   "file": "768x512",
+   "samplesPerAxis": 4,
+   "bands": 4,
+   "bandRows": 128,
+   "cpu": 25.5,
+   "cheapestBand": 3.81,
+   "dearestBand": 9.75,
+   "sha256": "c79751c4fabc6dbdd1ecb70780fd35476a4fcb225850a9ce2c3d0bf37c5b230e",
+   "engine": "2.27.0",
+   "node": "v26.13.1",
+   "arch": "arm64",
+   "commit": "3008653"
+  },
+  {
+   "tier": "whole",
+   "id": "frame-768",
+   "flag": "default",
+   "file": "1536x1024",
+   "samplesPerAxis": 4,
+   "bands": 8,
+   "bandRows": 128,
+   "cpu": 53.87,
+   "cheapestBand": 5.29,
+   "dearestBand": 9.53,
+   "sha256": "925d6c11a87e0238de1033a040a39c6c3bdf6d5c0b531579ee29c7a7888d22d5",
+   "engine": "2.27.0",
+   "node": "v26.13.1",
+   "arch": "arm64",
+   "commit": "3008653"
+  },
+  {
+   "tier": "whole-figure",
+   "id": "frame-768",
+   "flag": "default",
+   "engine": "2.27.0",
+   "jobs": 6,
+   "cpu": 79.37,
+   "wall": 13.93,
+   "peakRssMB": 516,
+   "load": [
+    16.2,
+    14.9
+   ],
+   "node": "v26.13.1",
+   "arch": "arm64",
+   "commit": "3008653"
+  },
+  {
+   "tier": "whole",
+   "id": "dof-near-s1",
+   "flag": "exact",
+   "file": "768x512",
+   "samplesPerAxis": 1,
+   "bands": 4,
+   "bandRows": 128,
+   "cpu": 611.68,
+   "cheapestBand": 82.16,
+   "dearestBand": 257.97,
+   "sha256": "371ed376b588e917ffe21a793e4206daac61410bef5497df911a0517f40233cd",
+   "engine": "2.27.0",
+   "node": "v26.13.1",
+   "arch": "arm64",
+   "commit": "3008653"
+  },
+  {
+   "tier": "whole",
+   "id": "dof-near-s1",
+   "flag": "exact",
+   "file": "1536x1024",
+   "samplesPerAxis": 1,
+   "bands": 8,
+   "bandRows": 128,
+   "cpu": 923.82,
+   "cheapestBand": 46.77,
+   "dearestBand": 256.25,
+   "sha256": "2996f4da9875260c0a4bd6b60f20f0769ac5c5ca4253299e6e120be4f996a9a5",
+   "engine": "2.27.0",
+   "node": "v26.13.1",
+   "arch": "arm64",
+   "commit": "3008653"
+  },
+  {
+   "tier": "whole-figure",
+   "id": "dof-near-s1",
+   "flag": "exact",
+   "engine": "2.27.0",
+   "jobs": 6,
+   "cpu": 1535.5,
+   "wall": 338.2,
+   "peakRssMB": 331,
+   "load": [
+    14.9,
+    4.9
+   ],
+   "node": "v26.13.1",
+   "arch": "arm64",
+   "commit": "3008653"
+  },
+  {
+   "tier": "whole",
+   "id": "dof-near-s1",
+   "flag": "default",
+   "file": "768x512",
+   "samplesPerAxis": 1,
+   "bands": 4,
+   "bandRows": 128,
+   "cpu": 24.78,
+   "cheapestBand": 5.54,
+   "dearestBand": 6.78,
+   "sha256": "26b04cf5af6adf7cafb5899f164202c82ee85678fbee687249ade4fc5534350b",
+   "engine": "2.27.0",
+   "node": "v26.13.1",
+   "arch": "arm64",
+   "commit": "3008653"
+  },
+  {
+   "tier": "whole",
+   "id": "dof-near-s1",
+   "flag": "default",
+   "file": "1536x1024",
+   "samplesPerAxis": 1,
+   "bands": 8,
+   "bandRows": 128,
+   "cpu": 45.08,
+   "cheapestBand": 4.82,
+   "dearestBand": 6.15,
+   "sha256": "0b103e9a1e1f89b381e43e329e0b385d46d1b3061ccd4daf7d1eedf7fa5a3adc",
+   "engine": "2.27.0",
+   "node": "v26.13.1",
+   "arch": "arm64",
+   "commit": "3008653"
+  },
+  {
+   "tier": "whole-figure",
+   "id": "dof-near-s1",
+   "flag": "default",
+   "engine": "2.27.0",
+   "jobs": 6,
+   "cpu": 69.85,
+   "wall": 9.23,
+   "peakRssMB": 478,
+   "load": [
+    4.9,
+    8
+   ],
+   "node": "v26.13.1",
+   "arch": "arm64",
+   "commit": "3008653"
+  },
+  {
+   "tier": "whole",
+   "id": "frame-768",
+   "flag": "exact",
+   "file": "768x512",
+   "samplesPerAxis": 4,
+   "bands": 4,
+   "bandRows": 128,
+   "cpu": 91.99,
+   "cheapestBand": 10.06,
+   "dearestBand": 41.04,
+   "sha256": "bb7c6117268e2f6420f71fb3b9f31885f35cd3d1491f76daac4685e77f65870a",
+   "engine": "2.26.0",
+   "node": "v26.13.1",
+   "arch": "arm64",
+   "commit": "94f56f3"
+  },
+  {
+   "tier": "whole",
+   "id": "frame-768",
+   "flag": "exact",
+   "file": "1536x1024",
+   "samplesPerAxis": 4,
+   "bands": 8,
+   "bandRows": 128,
+   "cpu": 140.66,
+   "cheapestBand": 7.6,
+   "dearestBand": 37.5,
+   "sha256": "4565487c10299cd31aeb77e8cc2355fc38cfa48571a3b0dd9ccb99e5e1b5fdac",
+   "engine": "2.26.0",
+   "node": "v26.13.1",
+   "arch": "arm64",
+   "commit": "94f56f3"
+  },
+  {
+   "tier": "whole-figure",
+   "id": "frame-768",
+   "flag": "exact",
+   "engine": "2.26.0",
+   "jobs": 6,
+   "cpu": 232.65,
+   "wall": 47.1,
+   "peakRssMB": 449,
+   "load": [
+    8,
+    7.2
+   ],
+   "node": "v26.13.1",
+   "arch": "arm64",
+   "commit": "94f56f3"
+  },
+  {
+   "tier": "whole",
+   "id": "frame-768",
+   "flag": "default",
+   "file": "768x512",
+   "samplesPerAxis": 4,
+   "bands": 4,
+   "bandRows": 128,
+   "cpu": 40.31,
+   "cheapestBand": 5.29,
+   "dearestBand": 16.79,
+   "sha256": "c70e39e7bf2d5a30490ae9e614399643bbcfc1d3634f2bc5433551618e30c77b",
+   "engine": "2.26.0",
+   "node": "v26.13.1",
+   "arch": "arm64",
+   "commit": "94f56f3"
+  },
+  {
+   "tier": "whole",
+   "id": "frame-768",
+   "flag": "default",
+   "file": "1536x1024",
+   "samplesPerAxis": 4,
+   "bands": 8,
+   "bandRows": 128,
+   "cpu": 69.73,
+   "cheapestBand": 5.95,
+   "dearestBand": 14.28,
+   "sha256": "6aa7a5630452337f43d6f9319c1a4f015e6fad5bdffd04c6508715acc37b7746",
+   "engine": "2.26.0",
+   "node": "v26.13.1",
+   "arch": "arm64",
+   "commit": "94f56f3"
+  },
+  {
+   "tier": "whole-figure",
+   "id": "frame-768",
+   "flag": "default",
+   "engine": "2.26.0",
+   "jobs": 6,
+   "cpu": 110.04,
+   "wall": 19.83,
+   "peakRssMB": 437,
+   "load": [
+    7.2,
+    7.6
+   ],
+   "node": "v26.13.1",
+   "arch": "arm64",
+   "commit": "94f56f3"
+  },
+  {
+   "tier": "whole",
+   "id": "dof-near-s1",
+   "flag": "exact",
+   "file": "768x512",
+   "samplesPerAxis": 1,
+   "bands": 4,
+   "bandRows": 128,
+   "cpu": 673.45,
+   "cheapestBand": 83.86,
+   "dearestBand": 299.85,
+   "sha256": "371ed376b588e917ffe21a793e4206daac61410bef5497df911a0517f40233cd",
+   "engine": "2.26.0",
+   "node": "v26.13.1",
+   "arch": "arm64",
+   "commit": "94f56f3"
+  },
+  {
+   "tier": "whole",
+   "id": "dof-near-s1",
+   "flag": "exact",
+   "file": "1536x1024",
+   "samplesPerAxis": 1,
+   "bands": 8,
+   "bandRows": 128,
+   "cpu": 1159.08,
+   "cheapestBand": 47.1,
+   "dearestBand": 295.87,
+   "sha256": "2996f4da9875260c0a4bd6b60f20f0769ac5c5ca4253299e6e120be4f996a9a5",
+   "engine": "2.26.0",
+   "node": "v26.13.1",
+   "arch": "arm64",
+   "commit": "94f56f3"
+  },
+  {
+   "tier": "whole-figure",
+   "id": "dof-near-s1",
+   "flag": "exact",
+   "engine": "2.26.0",
+   "jobs": 6,
+   "cpu": 1832.53,
+   "wall": 423.1,
+   "peakRssMB": 324,
+   "load": [
+    7.6,
+    8.4
+   ],
+   "node": "v26.13.1",
+   "arch": "arm64",
+   "commit": "94f56f3"
+  },
+  {
+   "tier": "whole",
+   "id": "dof-near-s1",
+   "flag": "default",
+   "file": "768x512",
+   "samplesPerAxis": 1,
+   "bands": 4,
+   "bandRows": 128,
+   "cpu": 395.52,
+   "cheapestBand": 86.31,
+   "dearestBand": 104.77,
+   "sha256": "26b04cf5af6adf7cafb5899f164202c82ee85678fbee687249ade4fc5534350b",
+   "engine": "2.26.0",
+   "node": "v26.13.1",
+   "arch": "arm64",
+   "commit": "94f56f3"
+  },
+  {
+   "tier": "whole",
+   "id": "dof-near-s1",
+   "flag": "default",
+   "file": "1536x1024",
+   "samplesPerAxis": 1,
+   "bands": 8,
+   "bandRows": 128,
+   "cpu": 732,
+   "cheapestBand": 65.1,
+   "dearestBand": 99.39,
+   "sha256": "4fe4771da069399640fd64f2562a9c91008a95bc138bb0c2f9a5ecd465950222",
+   "engine": "2.26.0",
+   "node": "v26.13.1",
+   "arch": "arm64",
+   "commit": "94f56f3"
+  },
+  {
+   "tier": "whole-figure",
+   "id": "dof-near-s1",
+   "flag": "default",
+   "engine": "2.26.0",
+   "jobs": 6,
+   "cpu": 1127.52,
+   "wall": 215.84,
+   "peakRssMB": 405,
+   "load": [
+    8.4,
+    77.5
+   ],
+   "node": "v26.13.1",
+   "arch": "arm64",
+   "commit": "94f56f3"
+  }
+ ],
+ "notes": [
+  "catalogue-768 and catalogue-corrected with fast: false on 2.26.0 were stopped at the 900 s limit (as in the #670 plan, where they did not finish in 12.7 CPU minutes).",
+  "layered-tabletop needs 2.27.0 (#652); it fails on 2.26.0 by design.",
+  "Whole figures were rendered one build after the other, not paired: compare their CPU s across builds only with the load in mind; the file hashes of fast: false equal on 2.26.0 and 2.27.0."
+ ]
+}
