@@ -79,7 +79,13 @@ export function createDisplayViewGpuRenderer(runtime: WebGpuRuntime, options: { 
   const bandBytes = options.maximumBandBytes ?? Math.min(64 * 1024 * 1024, runtime.maximumStorageBindingBytes);
   const source: PipelineSource = (label, code) => {
     let pending = pipelines.get(label);
-    if (!pending) { pending = createComputePipeline(runtime, label, code, undefined); pipelines.set(label, pending); pending.catch(() => pipelines.delete(label)); }
+    // #692: a kernel the device did not compile stays failed for this device, so later renders fall back without compiling it
+    // again; any other failure (a lost device) is forgotten.
+    if (!pending) {
+      pending = createComputePipeline(runtime, label, code, undefined);
+      pipelines.set(label, pending);
+      pending.catch((error: unknown) => { if (!(error instanceof ImageKernelExecutionError && error.reason === "gpu-validation")) pipelines.delete(label); });
+    }
     return pending;
   };
   // #491: one set of material modules per device for both kernels (the preset module per chart; the composite module, its probe

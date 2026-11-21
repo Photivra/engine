@@ -280,6 +280,10 @@ function createSession(options: ParsedPrepareDisplayViewOptions, runtime: WebGpu
         // #492: a render past the device's limits (a kernel table or band above its storage binding limit) runs the CPU reference too.
         if (error instanceof ImageKernelExecutionError && error.reason === "insufficient-limits")
           return fallback("insufficient-limits", "the device's limits do not hold this render on the GPU: " + error.message, cpu);
+        // #692 (owner decision 2026-11-21): under "auto" a kernel the device does not compile (the self-check does not build every
+        // pipeline a render uses) or a device out of memory runs the CPU reference for that render; "require" throws the error as is.
+        if (options.gpu === "auto" && error instanceof ImageKernelExecutionError && (error.reason === "gpu-validation" || error.reason === "out-of-memory"))
+          return fallback(error.reason, error.message, cpu);
         throw error;
       }
       if (output === null) return this.render(setup, signal, cpu);

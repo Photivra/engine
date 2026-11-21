@@ -1909,6 +1909,12 @@ with that reason for `"require"`:
   render asks the renderer again.
 - *Device loss.* A render during which the device is lost falls back to the CPU for that render, and every later render of the
   view runs on the CPU, labelled `device-lost`. With `"require"` that event is an error.
+- *Compile and memory failures (2.28.0, #692, owner decision 2026-11-21).* The self-check does not build every pipeline a render
+  uses (the composite material module and probe, the coupled and neighbor variants, the image-plane module). Under `"auto"` a
+  render whose kernel the device does not compile runs the CPU reference, labelled `gpu-validation`, and that kernel is not
+  compiled again for the view's device, so later renders that use it fall back the same way; a render during which the device
+  runs out of memory runs the CPU reference, labelled `out-of-memory`, and the next render tries the GPU again. With
+  `"require"` both are thrown as `ImageKernelExecutionError` with that reason, as before.
 - *Abort.* A render's `signal` aborts its GPU dispatch; the render rejects with the engine's abort error, as a CPU render does.
 - `dispose()` releases a device the view acquired (not one an accelerator handle shares) and the scene records the renderer
   uploaded for it. Later renders run on the CPU

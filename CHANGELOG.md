@@ -35,6 +35,11 @@
   the check reject with `ImageKernelExecutionError` reason `aborted`. The checks now run under the session's own signal, each
   render waits under its own, and `dispose()` ends a running check (the waiting render runs as one after `dispose()`,
   `disposed`). Results of renders that complete are unchanged.
+- **`gpu: "auto"` falls back on a compile or memory failure (#692, owner decision 2026-11-21).** A GPU display-view render
+  whose kernel the device does not compile after the self-check passed, or during which the device runs out of memory, now
+  runs the CPU reference labelled `gpu-validation` or `out-of-memory` instead of rejecting. A kernel that did not compile is not
+  compiled again for that device. `DisplayViewGpuFallbackReason` gains the two reasons; `gpu: "require"` still throws.
+  Renders that succeed today are unchanged.
 
 ## 2.27.0 — published November 19, 2026
 

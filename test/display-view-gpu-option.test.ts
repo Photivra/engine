@@ -397,6 +397,72 @@ describe("display view GPU option (#481)", () => {
     }
   });
 
+  // #692 (owner decision 2026-11-21): the self-check does not compile every pipeline a render uses. A kernel the device refuses
+  // after the check (the fake starts refusing pipelines after its k-th dispatch) runs the CPU reference under "auto", labelled
+  // gpu-validation, and is not compiled again; "require" throws. The review's two scenes, a Quality view of each.
+  it("a kernel that fails to compile after the self-check falls back under auto (gpu-validation, remembered) and throws under require", async () => {
+    setDisplayViewGpuRendererFactory(engineRendererFactory);
+    const region = { ...SMALL_VIEW, region: { x: 90, y: 60, width: 16, height: 12 } };
+    for (const preset of ["dead-leaves", "checkerboard"]) {
+      const request = { scene: { preset }, subjectDistanceM: 2, sensor: { pixelPitchMicrometers: 6 }, lens: { diffraction: "circular-aperture" },
+        output: { ...SMALL_FRAME, format: "srgb-8", demosaic: "ahd" } } as unknown as SimulateCaptureOptions;
+      const reference = (await (await prepareDisplayView(request, { gpu: "off" })).render(region)).image.samples;
+      const outcomes = new Set<string>();
+      for (const k of [8, 12, 16, 20, 24]) {
+        for (const gpu of ["auto", "require"] as const) {
+          const fake = createFakeGpu();
+          fake.controls.beforeDispatch = (count): void => { if (count === k) fake.controls.failPipeline = true; };
+          const prepared = await prepareDisplayView(request, { gpu, gpuDevice: fake.gpu });
+          if (gpu === "require") {
+            const outcome = await reason(prepared.render(region));
+            expect(["conformance-failed", "gpu-validation"], preset + " " + k).toContain(outcome);
+          } else {
+            const result = await prepared.render(region);
+            const execution = result.diagnostics.fast.execution;
+            expect(execution.backend, preset + " " + k).toBe("cpu-reference");
+            expect(["conformance-failed", "gpu-validation"], preset + " " + k).toContain(execution.fallbackReason);
+            expect(Array.from(result.image.samples)).toEqual(Array.from(reference));
+            outcomes.add(execution.fallbackReason!);
+            if (execution.fallbackReason === "gpu-validation") {
+              expect(execution.conformance?.passed).toBe(true);
+              expect(execution.limitations.at(-1)).toMatch(/could not compile the photivra-/u);
+              // The refused kernel is remembered: with the device accepting pipelines again the view still falls back.
+              fake.controls.failPipeline = false;
+              fake.controls.beforeDispatch = undefined;
+              expect((await prepared.render(region)).diagnostics.fast.execution.fallbackReason).toBe("gpu-validation");
+            }
+          }
+          prepared.dispose();
+        }
+      }
+      expect(outcomes.has("gpu-validation"), preset).toBe(true);
+    }
+  }, testTimeout(300_000));
+
+  it("a device out of memory during a render falls back for that render under auto (out-of-memory, not remembered) and throws under require", async () => {
+    setDisplayViewGpuRendererFactory(fakeRenderer({ onRender: () => { throw new ImageKernelExecutionError("out-of-memory", "The WebGPU device ran out of memory."); } }).factory);
+    for (const gpu of ["auto", "require"] as const) {
+      const prepared = await prepareDisplayView(REQUEST, { gpu, gpuDevice: createFakeGpu().gpu });
+      if (gpu === "require") expect(await reason(prepared.render(VIEW))).toBe("out-of-memory");
+      else {
+        const result = await prepared.render(VIEW);
+        expect(result.diagnostics.fast.execution).toMatchObject({ backend: "cpu-reference", fallbackReason: "out-of-memory", conformance: { passed: true } });
+        expect(result.image.samples).toEqual((await simulateDisplayView(REQUEST, VIEW)).image.samples);
+      }
+      prepared.dispose();
+    }
+    // The engine renderer on the fake device: one render's out-of-memory scope, then the GPU again.
+    setDisplayViewGpuRendererFactory(engineRendererFactory);
+    const request = { scene: { preset: "checkerboard" }, subjectDistanceM: 2, sensor: { pixelPitchMicrometers: 6 }, output: { ...SMALL_FRAME, format: "srgb-8" } } as SimulateCaptureOptions;
+    const region = { ...SMALL_VIEW, region: { x: 90, y: 60, width: 16, height: 12 } };
+    const fake = createFakeGpu(), prepared = await prepareDisplayView(request, { gpu: "auto", gpuDevice: fake.gpu });
+    expect((await prepared.render(region)).diagnostics.fast.execution.backend).toBe("webgpu-f32");
+    fake.controls.failNextScope = "out-of-memory";
+    expect((await prepared.render(region)).diagnostics.fast.execution.fallbackReason).toBe("out-of-memory");
+    expect((await prepared.render(region)).diagnostics.fast.execution.backend).toBe("webgpu-f32");
+    prepared.dispose();
+  }, testTimeout(120_000));
+
   it("the render's signal aborts a GPU render with the engine's error", async () => {
     const controller = new AbortController();
     setDisplayViewGpuRendererFactory(fakeRenderer({ onRender: (part) => { controller.abort(); if (part.signal?.aborted) throw new ImageKernelExecutionError("aborted", "aborted"); } }).factory);
