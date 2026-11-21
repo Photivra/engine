@@ -1890,6 +1890,8 @@ export { SIMULATE_CAPTURE_FACADE_VERSION, SIMULATE_CAPTURE_DEFAULT_ILLUMINANCE_L
   simulateIdealReference, type IdealReferenceResult, serializeSimulatedCaptureDngFromParts, type SimulateCaptureDngPart, type SimulateDisplayViewOptions, type DisplayViewResult,
   type DisplayViewHighlightDiagnostics, SIMULATE_DISPLAY_VIEW_DEFAULT_SAMPLES_PER_AXIS } from "./facade/simulate-capture.js";
 export { simulateCaptureFromParts } from "./facade/develop-joined-parts.js";
+// #739: the false color of a demosaic (its body loads on demand).
+export { simulateFalseColor, SIMULATE_FALSE_COLOR_LIMITS, type FalseColorResult, type SimulateFalseColorOptions } from "./facade/false-color-entry.js";
 export { EXPOSURE_BUILD_UP_MAXIMUM_FRACTIONS, EXPOSURE_BUILD_UP_STREAM_BASE, simulateExposureBuildUp, type SimulateExposureBuildUpFrame, type SimulateExposureBuildUpOptions,
   type SimulateExposureBuildUpResult } from "./facade/exposure-build-up.js";
 export type { SimulateCaptureSensorCharacteristics, SimulateCaptureSensorReport, SimulateCaptureNoiseComponents, SimulateCaptureNativeSensorReport, SimulateCaptureMidGreyFigure } from "./sensor/sensor-characteristics.js";

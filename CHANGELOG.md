@@ -552,6 +552,35 @@ Byte-identical: samples, RAW codes and every hash lock are unchanged. Work count
     1.00×, and a centroid cache keyed by kernel object 0.92× but with different samples (the key was not safe in that quick form),
     so nothing byte-identical worth its bytes was found.
 
+### New API: `simulateFalseColor` (2.28.0 step 6b, #739)
+
+- **`simulateFalseColor(options, measure?)` measures the false color a demosaic produces (owner decisions 2026-11-21).** It takes the
+  request `simulateCapture` takes and compares, per output pixel in CIELAB a\*b\* (D65 white, `portableCbrt`), the capture's
+  noise-free mosaic demosaiced with `output.demosaic` (bilinear, or AHD's candidates and its choice on that mosaic) against a
+  full-color sensor reading of the same capture (each site's expected electrons with all three channel responses, through the same
+  optics, filter, pixel aperture and exposure), both developed by the display view's noise-free chain. The result
+  (`FalseColorResult`, `kind: "false-color"`) reports the mean, RMS, median, 95th and 99th percentiles, maximum and its position,
+  `fractionAbove` the thresholds (default [1, 2, 5], reporting levels with no claim about visibility), the mean ΔE\*ab and each
+  image's mean chroma; `measure.map` adds the `Float32Array` values and a gray RGBA image (no PNG), `measure.images` the two developed
+  images, `measure.region` a rectangle equal bit for bit to the same pixels of the whole frame. Expected values only, always full
+  quality on the CPU; it refuses `fast: true`, the luminance tone curves, highlight reconstruction, `desaturate-to-luminance`,
+  `output.lensCorrections`, `output.sharpening`, `output.diffractionCorrection`, `output.region`, JPEG, PNG and DNG output,
+  `whiteBalance: "auto"`, `lens.pupilSampling`, a caller `lens.psf`, `lens.defocus.catsEye`, `sensor.fixedPatternNoise` and layered
+  chart scenes. Each site's own-channel plane equals the display view's expected signal bit for bit (chart and function scenes,
+  the filter and box aperture, diffraction, a catalogue lens), and a material scene and its reflectance function give equal
+  values. Measured (64 × 64, mean a\*b\* difference, bilinear / AHD): uniform field 0 / 0; Siemens star 42.63 / 29.59; zone plate
+  31.89 / 25.08; a 0.45 cycles/pixel grating 49.17 / 18.29, 10.30 / 2.91 with the four-spot filter and 10.46 / 0.63 with
+  diffraction at f/16. A 768 × 512 zone plate with diffraction at f/8 takes 1.9 s (bilinear) and 2.4 s (AHD) of CPU against
+  0.8–1.0 s for its `fast: false` capture. Existing requests are unchanged: no existing module changes except the root export line;
+  no hash lock moves. docs/QUICK_START.md, "False color (2.28)"; docs/USAGE.md; docs/PROCESSING.md. Tests:
+  `test/simulate-false-color.test.ts`.
+  - *Bundle.* The body (`src/facade/false-color.ts`) is its own on-demand chunk holding only that module: a new row, "false color",
+    measured at 5,023 B gzip with rolldown 1.2.14, limit 5,100 B (its measurement rounded up to the next 100 B). The capture
+    worker does not import the function, so its rows are unchanged (fast 337,889 B, on demand 51,756 B, export 10,396 B, lens
+    10,200 B); a bundle that imports it adds 348 B to its first load (the stub). The plan's prototype measured 3,581 B and
+    estimated 3.8 to 4.4 kB for the built function; the difference is the band loop, the histogram, the images, the region and
+    the validation and refusal texts.
+
 ### Benchmarks
 
 - **The batch-figure benchmark and its hash locks (#670, 2.28.0 step 2); no package, API, output or bundle change.**

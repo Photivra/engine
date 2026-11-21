@@ -18,6 +18,7 @@
 ## One call: a full simulated photo
 
 - [simulateCapture()](https://github.com/Photivra/engine/blob/main/docs/api/facade-simulate-capture.md#simulatecapture): async; camera tier, lens, exposure and chart scene in, developed image plus `assumptions` and `provenance` out
+- [simulateFalseColor()](https://github.com/Photivra/engine/blob/main/docs/api/facade-false-color-entry.md#simulatefalsecolor): async (2.28); the false color a demosaic produces for a capture request, per pixel in CIELAB a*b* against a full-color sensor reading, noise-free
 
 ## Single calculations by task
 

@@ -1628,6 +1628,24 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 | [`SimulateExposureBuildUpOptions`](api/facade-exposure-build-up.md#simulateexposurebuildupoptions) | Type |
 | [`SimulateExposureBuildUpResult`](api/facade-exposure-build-up.md#simulateexposurebuildupresult) | Type |
 
+## facade/false-color-entry.ts
+
+[Detailed contracts](api/facade-false-color-entry.md) · [Source](https://github.com/Photivra/engine/blob/main/src/facade/false-color-entry.ts)
+
+| Export | Kind |
+| --- | --- |
+| [`SIMULATE_FALSE_COLOR_LIMITS`](api/facade-false-color-entry.md#simulate_false_color_limits) | Runtime |
+| [`simulateFalseColor`](api/facade-false-color-entry.md#simulatefalsecolor) | Runtime |
+
+## facade/false-color.ts
+
+[Detailed contracts](api/facade-false-color.md) · [Source](https://github.com/Photivra/engine/blob/main/src/facade/false-color.ts)
+
+| Export | Kind |
+| --- | --- |
+| [`FalseColorResult`](api/facade-false-color.md#falsecolorresult) | Type |
+| [`SimulateFalseColorOptions`](api/facade-false-color.md#simulatefalsecoloroptions) | Type |
+
 ## facade/fast-methods.ts
 
 [Detailed contracts](api/facade-fast-methods.md) · [Source](https://github.com/Photivra/engine/blob/main/src/facade/fast-methods.ts)

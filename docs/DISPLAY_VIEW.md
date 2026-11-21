@@ -1726,6 +1726,10 @@ root exports of the built package, minified, gzip level 9; `test/capture-bundle.
   (rolldown 1.2.9; 46,380 B and 18,540 B before: a simpler Kelvin white-balance branch and one view-region expression
   more than pay for the lens hook), within the unchanged budget; the capture-only entry grows by 642 B (212 B gzip) for
   the request setup in `runCapture`, and a splitting bundler emits the chunk for capture-only consumers too, never loaded.
+- **`simulateFalseColor` is loaded on demand (#739, 2.28.0).** Its body (`facade/false-color.ts`) is one chunk that imports no
+  module and loads at the first call; the capture worker does not import the function, so its rows are unchanged. Measured with
+  rolldown 1.2.14: the chunk 5,023 B gzip (its own row, "false color", limit 5,100 B); a bundle that imports the function adds
+  348 B to its first load, and it also takes the display view's code, which the function is built on.
 - **The GPU display view is loaded on demand.** `prepareDisplayView` imports `facade/display-view-gpu-session.ts` (the GPU
   session, the Speed and Quality renderers and their WGSL) dynamically, and only when `gpu` is `"auto"` or `"require"`, so a
   bundler that splits dynamic imports puts it in a chunk the default `gpu: "off"` never loads (52 kB gzip, 15 `src/gpu`
