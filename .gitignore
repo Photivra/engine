@@ -14,3 +14,7 @@ coverage/
 
 # Preview acceptance harness output (scripts/accept-display-view-gpu.mjs, default --out): difference images, not committed
 /display-view-acceptance/
+
+# Documentation site build output (site/build.mjs)
+/_site/
+/site/.cache/

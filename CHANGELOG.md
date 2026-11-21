@@ -1,5 +1,24 @@
 # Changelog
 
+## Unreleased
+
+- **Documentation site (#669); no package, API, output or bundle change.** `site/` builds `https://engine.photivra.com/` from the
+  repository's own files (design: docs/design/engine-site.md): the README's opening, install and Node support, the quick start
+  and nine guides (the three long documents one page per section), one page per API module with a task index, a search page
+  that is a complete A to Z index without JavaScript and filters as you type with one small script, release notes from this
+  changelog, and the license, notices and third-party inventory. Two figures are the output of guide code blocks, run unchanged
+  by the engine built from the same commit. No cookies, no requests to other hosts, a Content-Security-Policy on every page,
+  self-hosted Inter subsets (THIRD_PARTY.md) and Tailwind CSS compiled at build. `.github/workflows/pages.yml` checks
+  every build (HTML validation, links, metadata and sitemap, size budgets, a browser pass with axe-core, Lighthouse floors) and
+  deploys after a successful npm publish, or from `main` when the changelog's newest section is the published version.
+  - `docs/COLOR_PATCHES.md` gains a display-view example (the home page's picture); `docs/LAYERED_SCENES.md` says why its
+    example's star centers alias.
+  - *Gates.* `docs:check` resolves absolute links to the repository again (#694: its pattern named the former repository) and
+    fails if it resolves none; heading ids come from the shared `scripts/lib/anchors.mjs`, which skips fenced code (#709). The
+    identity gate reads every tracked text file and any host domain (#696). The licence gate reads more than one lockfile
+    (`site/package-lock.json`) and refuses a compound expression with `AND` (`ci-11` in #703). Their logic has unit tests
+    (`scripts/test-gates.mjs`). A change confined to `site/` or `docs/design/` runs no engine tests (`.github/ci-scope.mjs`).
+
 ## 2.27.0 — published November 19, 2026
 
 A minor release: lower CPU cost of the display view with lens corrections and sharpening (#649), with camera rotation under a

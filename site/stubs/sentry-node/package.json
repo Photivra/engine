@@ -1,0 +1,10 @@
+{
+  "name": "@sentry/node",
+  "version": "0.0.0-photivra-stub",
+  "private": true,
+  "description": "Stand-in for Lighthouse's optional error reporting, which the site's checks never turn on. It sends nothing anywhere.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "main": "index.js",
+  "exports": "./index.js"
+}

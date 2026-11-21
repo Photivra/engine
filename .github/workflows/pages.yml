@@ -1,0 +1,168 @@
+name: Pages
+
+# The engine documentation site (docs/design/engine-site.md, section 14; build plan in #669). Builds and checks the site
+# from site/; deploys it to GitHub Pages after a successful npm publish, and from main behind the publication guard.
+# Pull requests build and check without deploying. This workflow is path-filtered and is not a required check.
+on:
+  pull_request:
+    paths:
+      - "site/**"
+      - "src/**"
+      - "docs/**"
+      - "README.md"
+      - "CHANGELOG.md"
+      - "CITATION.cff"
+      - "LICENSE"
+      - "NOTICE"
+      - "THIRD_PARTY.md"
+      - "NODE_SUPPORT.md"
+      - "package.json"
+      - "llms.txt"
+      - "scripts/lib/anchors.mjs"
+      - "scripts/check-project-identity.mjs"
+      - "scripts/check-license-policy.mjs"
+      - ".github/workflows/pages.yml"
+  push:
+    branches: [main]
+    paths:
+      - "site/**"
+      - "docs/**"
+      - "README.md"
+      - "CHANGELOG.md"
+      - "CITATION.cff"
+      - "LICENSE"
+      - "NOTICE"
+      - "THIRD_PARTY.md"
+      - "NODE_SUPPORT.md"
+      - "package.json"
+      - "llms.txt"
+      - "scripts/lib/anchors.mjs"
+      - ".github/workflows/pages.yml"
+  # After the npm publish workflow: the site goes out when, and only when, the package has.
+  workflow_run:
+    workflows: ["Publish npm"]
+    types: [completed]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  # One deployment at a time and a running one is never cancelled; pull requests cancel their own earlier runs.
+  group: ${{ github.event_name == 'pull_request' && format('pages-pr-{0}', github.event.pull_request.number) || 'pages' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  build:
+    name: build and check the site
+    # A publish run counts only when it succeeded, was started by a push (a protected v* tag) and ran in this repository;
+    # only then is its commit checked out (#709, gap 6).
+    if: >-
+      github.event_name != 'workflow_run' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.event == 'push' &&
+       github.event.workflow_run.head_repository.full_name == github.repository)
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    outputs:
+      deploy: ${{ steps.decide.outputs.deploy }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || '' }}
+          persist-credentials: false
+      - name: Use Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+      - name: Verify Node.js support policy
+        run: |
+          node --test .github/test-node-lts-policy.mjs
+          node .github/node-lts-policy.mjs
+      - name: Decide whether to deploy (publication guard)
+        id: decide
+        env:
+          EVENT: ${{ github.event_name }}
+        # Pull requests never deploy. A publish run deploys: its success is the proof, and the build shows that version as
+        # published. A push to main or a manual run deploys only if the changelog's newest section is package.json's
+        # version marked published (site/guard.mjs, design 14.3).
+        run: |
+          case "$EVENT" in
+            pull_request)
+              echo "deploy=false" >> "$GITHUB_OUTPUT"
+              echo "Pull request: the site is built and checked, never deployed." | tee -a "$GITHUB_STEP_SUMMARY" ;;
+            workflow_run)
+              echo "deploy=true" >> "$GITHUB_OUTPUT"
+              echo "SITE_PUBLISHED_VERSION=$(node -p 'require("./package.json").version')" >> "$GITHUB_ENV" ;;
+            *)
+              node site/guard.mjs ;;
+          esac
+      - name: Install the engine
+        run: npm ci --ignore-scripts
+      - name: Build the engine (for the rendered examples)
+        run: npm run build
+      - name: Install the site tools
+        run: npm ci --ignore-scripts --prefix site
+      - name: Licence policy of the site tools
+        run: node scripts/check-license-policy.mjs site/package-lock.json
+      - name: Unit tests of the generator, checks and gates
+        run: |
+          node --test site/test/
+          node --test scripts/test-gates.mjs
+      - name: Build the site
+        run: npm run build --prefix site
+      - name: Reproducibility (a second build is byte-identical)
+        run: |
+          node site/build.mjs --out "$RUNNER_TEMP/site-again"
+          diff -r _site "$RUNNER_TEMP/site-again"
+      - name: "Check: the site's promises"
+        run: node site/checks/requests.mjs _site
+      - name: "Check: links"
+        run: node site/checks/links.mjs _site
+      - name: "Check: metadata, sitemap and single sources"
+        run: node site/checks/meta.mjs _site
+      - name: "Check: size budgets"
+        run: node site/checks/budgets.mjs _site
+      - name: "Check: font subset"
+        run: node site/checks/fonts.mjs _site
+      - name: "Check: HTML validation"
+        run: node site/checks/html.mjs _site
+      - name: "Check: identity of the built output"
+        run: node scripts/check-project-identity.mjs --dir _site
+      - name: Install Playwright's Chromium
+        # The same command and version as webgpu.yml: the checks drive Chromium over the DevTools protocol, no npm package.
+        run: npx --yes playwright@1.63.0 install --with-deps chromium
+      - name: "Check: browser pass (requests, storage, reflow, focus, axe-core in both color schemes, search)"
+        run: node site/checks/browser.mjs _site
+      - name: "Check: Lighthouse floors"
+        run: node site/checks/lighthouse.mjs _site
+      - name: Upload the built site for review
+        if: github.event_name == 'pull_request'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: site
+          path: _site
+          retention-days: 1
+      - name: Upload the Pages artifact
+        if: steps.decide.outputs.deploy == 'true'
+        uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+        with:
+          path: _site
+
+  deploy:
+    name: deploy to GitHub Pages
+    needs: build
+    if: needs.build.outputs.deploy == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy
+        id: deployment
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1

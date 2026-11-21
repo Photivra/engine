@@ -1,0 +1,24 @@
+{
+  "about": "Rendered examples (docs/design/engine-site.md, section 7). Each entry names a fenced ts block by file and index (as docs/validation/documentation-fragments.json counts them) and the binding that holds the result. The build runs the block unchanged with the engine built from the same commit and shows the engine's own pixels. `home` puts the picture on the home page as well.",
+  "examples": [
+    {
+      "name": "color-patches-display-view",
+      "file": "docs/COLOR_PATCHES.md",
+      "block": 1,
+      "result": "view",
+      "home": true,
+      "homeLabel": "Color patches, display view.",
+      "homeLink": "Color patches: the code for this picture",
+      "alt": "The 30 color patches in six columns and five rows on a gray background: six neutral grays from near white to near black in the top row, then saturated and muted colors, skin tones, foliage, sky blue, orange and violet.",
+      "facts": ["exposure.settings", "assumptions"]
+    },
+    {
+      "name": "layered-scenes-using-it",
+      "file": "docs/LAYERED_SCENES.md",
+      "block": 0,
+      "result": "result",
+      "alt": "Five white cards in a staircase, marked 976, 990, 1000, 1010 and 1025, each with a Siemens star, in front of a gray back plane with small colored point lights. The star on the card marked 1000 is the sharpest; the stars on the nearest and farthest cards are blurred. The star centers show false patterns and colored fringes.",
+      "facts": ["scene.layers", "exposure.settings", "assumptions"]
+    }
+  ]
+}

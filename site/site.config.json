@@ -1,0 +1,92 @@
+{
+  "about": "Page map and site-only text of the engine documentation site (docs/design/engine-site.md). Every other text comes from its source file in the repository.",
+  "origin": "https://engine.photivra.com",
+  "siteName": "Photivra engine",
+  "programmingLanguage": "TypeScript",
+  "allowedTemplateHosts": ["github.com", "www.npmjs.com", "photivra.com"],
+  "nav": [
+    { "label": "Install", "href": "/install/", "section": "install" },
+    { "label": "Quick start", "href": "/quick-start/", "section": "quick-start" },
+    { "label": "Guides", "href": "/guides/", "section": "guides" },
+    { "label": "API", "href": "/api/", "section": "api" },
+    { "label": "Releases", "href": "/releases/", "section": "releases" },
+    { "label": "GitHub", "href": "{repository}" }
+  ],
+  "documents": [
+    { "source": "docs/QUICK_START.md", "url": "/quick-start/", "section": "quick-start", "name": "Quick start", "splitAt": "h2" },
+    { "source": "docs/USAGE.md", "url": "/guides/usage/", "section": "guides", "name": "Usage", "splitAt": "h2" },
+    { "source": "docs/DISPLAY_VIEW.md", "url": "/guides/display-view/", "section": "guides", "name": "Display view", "splitAt": "h2" },
+    { "source": "docs/LAYERED_SCENES.md", "url": "/guides/layered-scenes/", "section": "guides", "name": "Layered chart scenes" },
+    { "source": "docs/AGENT_GUIDE.md", "url": "/guides/agent-guide/", "section": "guides", "name": "Agent guide" },
+    { "source": "docs/COLOR_PATCHES.md", "url": "/guides/color-patches/", "section": "guides", "name": "Color patches" },
+    { "source": "docs/IMAGE_PLANE.md", "url": "/guides/image-plane/", "section": "guides", "name": "Image-plane scene" },
+    { "source": "docs/MIXED_ILLUMINATION.md", "url": "/guides/mixed-illumination/", "section": "guides", "name": "Mixed lighting and flash" },
+    { "source": "docs/LIGHT_SOURCES.md", "url": "/guides/light-sources/", "section": "guides", "name": "Light sources" },
+    { "source": "docs/CONTENT_CREDENTIALS.md", "url": "/guides/content-credentials/", "section": "guides", "name": "Content Credentials" }
+  ],
+  "pages": {
+    "home": {
+      "title": "Photivra engine: the science of photography in TypeScript",
+      "descriptionSuffix": "Apache-2.0, for browsers and Node.",
+      "coversHeading": "What the API covers",
+      "documentationHeading": "Documentation",
+      "cards": [
+        { "label": "Quick start", "href": "/quick-start/", "text": "`simulateCapture()`: inputs, defaults, chart presets and output formats." },
+        { "label": "Guides", "href": "/guides/", "text": "Usage by area, the display view and layered chart scenes, with examples rendered by the engine." },
+        { "label": "API reference", "href": "/api/", "text": "{exports} root exports in {modules} modules, with a task index and search." },
+        { "label": "Release notes", "href": "/releases/", "text": "Every version from the changelog. The current release is {version}." }
+      ],
+      "renderedHeading": "Rendered by the engine",
+      "renderedText": "The pictures in the guides are not illustrations. Each one is the output of the code block above it, run unchanged by `@photivra/engine` {version} when this site was built."
+    },
+    "install": {
+      "title": "Install · Photivra engine",
+      "heading": "Install",
+      "description": "Install @photivra/engine {version} from npm. Node {node} and current browsers.",
+      "intro": "Install the package from npm. Its Node.js support policy follows."
+    },
+    "guides": {
+      "title": "Guides · Photivra engine",
+      "heading": "Guides",
+      "description": "Guides to @photivra/engine {version}: usage by area, the display view, layered chart scenes and more, with examples rendered by the engine.",
+      "intro": "The quick start and the guides, as published in the repository. Each title links to the guide; the sentence under it is the guide's own first sentence."
+    },
+    "api": {
+      "title": "API reference · Photivra engine",
+      "heading": "API reference",
+      "description": "Every root export of @photivra/engine {version}: {exports} exports in {modules} modules, with a task index.",
+      "areasHeading": "Modules by area"
+    },
+    "search": {
+      "title": "Search · Photivra engine",
+      "heading": "Search",
+      "description": "Find an export, module, task or guide section of @photivra/engine.",
+      "hint": "Matches names of exports, modules, tasks and guide sections. Several words must all match.",
+      "noScript": "Filtering as you type needs JavaScript, which is off or has not loaded. Everything is still here: this page lists every task, module, export and guide section. Use the links below or your browser's Find."
+    },
+    "releases": {
+      "title": "Release notes · Photivra engine",
+      "heading": "Release notes",
+      "description": "Every version of @photivra/engine, newest first.",
+      "historyTitle": "Engine API history before 1.0.0",
+      "historyDescription": "Changelog sections of @photivra/engine kept from before 1.0.0: engine API versions and features of that time."
+    },
+    "license": { "title": "License · Photivra engine", "heading": "License", "description": "The Apache License, Version 2.0, under which the source code of @photivra/engine is made available." },
+    "notices": { "title": "Notices · Photivra engine", "heading": "Notices", "description": "The NOTICE file of @photivra/engine: copyright, trademarks and retained third-party notices." },
+    "thirdParty": { "title": "Third-party material · Photivra engine", "description": "The inventory of third-party material, data, methods and tools used by @photivra/engine and their licenses." },
+    "notFound": { "title": "Page not found · Photivra engine" }
+  },
+  "footer": {
+    "links": [
+      { "label": "License", "href": "/license/" },
+      { "label": "Notices", "href": "/notices/" },
+      { "label": "Third-party material", "href": "/third-party/" },
+      { "label": "Security policy", "href": "{repository}/blob/main/SECURITY.md" },
+      { "label": "Source on GitHub", "href": "{repository}" },
+      { "label": "Package on npm", "href": "https://www.npmjs.com/package/{package}" },
+      { "label": "photivra.com", "href": "{citationUrl}" }
+    ],
+    "privacy": "It sets no cookies and loads nothing from other sites. The only script is the filter on the search page."
+  },
+  "social": { "image": "/social.png", "width": 1200, "height": 630, "alt": "Photivra. {abstract} @photivra/engine." }
+}

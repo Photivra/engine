@@ -1,0 +1,27 @@
+{
+  "name": "photivra-engine-site",
+  "private": true,
+  "description": "Generator and checks for the engine documentation site (engine.photivra.com). Not part of the published package.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "build": "node build.mjs",
+    "test": "node --test test/",
+    "check": "node checks/run-all.mjs"
+  },
+  "devDependencies": {
+    "@sentry/node": "file:./stubs/sentry-node",
+    "@tailwindcss/cli": "4.3.5",
+    "axe-core": "4.14.1",
+    "html-validate": "11.21.1",
+    "lighthouse": "13.6.0",
+    "marked": "18.2.1",
+    "tailwindcss": "4.3.5"
+  },
+  "overrides": {
+    "@sentry/node": "$@sentry/node"
+  }
+}

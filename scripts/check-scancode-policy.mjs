@@ -33,6 +33,8 @@ const LICENCE_NAMES_IN_DOCS = "names licences of third-party material in prose (
 const LOCK_METADATA = "npm dependency licence metadata; dependency licences are gated by scripts/check-license-policy.mjs";
 const COLOR_PATCH_SOURCES = "attribution of the reference colors' sRGB hex values in docs/COLOR_PATCHES.md (Result table), recorded in THIRD_PARTY.md (Distinctness check); names the sources' licences, no licence text";
 const OWN_ALLOWLIST = "this script's allowlist names this key as data; no licence text";
+const SITE_FONT = "Inter typeface for the documentation site (#669; owner decision 2026-11-21: the OFL is approved), recorded in THIRD_PARTY.md (Documentation site)";
+const SITE_LOCK = "the documentation site's npm dependency licence metadata (#669); checked by scripts/check-license-policy.mjs site/package-lock.json";
 /**
  * 2.22.0: the dual licence of jxl-oxide-wasm (#598, a devDependency, chosen licence Apache-2.0) and of c2pa-rs (#165, read for
  * interoperability facts only), as ScanCode reports it.
@@ -48,7 +50,9 @@ const OWN_KEYS = [
   "LicenseRef-scancode-public-domain", "LicenseRef-scancode-unknown-license-reference", "MIT", "MPL-2.0", "PSF-2.0",
   "LicenseRef-scancode-generic-cla",
   // 2.22.0: found on the dual-licence constant below and on the JPEG XL patent-clue entry.
-  "MIT OR Apache-2.0", "LicenseRef-scancode-unknown"
+  "MIT OR Apache-2.0", "LicenseRef-scancode-unknown",
+  // 2.28.0: the documentation site's entries below (#669).
+  "OFL-1.1", "0BSD", "MIT OR CC0-1.0"
 ];
 
 /** File plus licence expression (SPDX form as ScanCode reports it). */
@@ -167,12 +171,22 @@ const LICENSE_ALLOWLIST = [
   { path: "scripts/check-license-policy.mjs", license: "MPL-2.0", reason: "dependency licence gate lists the allowed keys" },
   { path: "scripts/check-license-policy.mjs", license: DUAL_MIT_APACHE, reason: "dependency licence gate explains its SPDX OR rule with this expression (2.22.0)" },
 
+  // The documentation site (#669). Not yet confirmed by a scan (2.28.0): adjust to the first CI scan's findings.
+  { path: "site/assets/fonts/OFL.txt", license: "OFL-1.1", reason: `${SITE_FONT}; exact licence copy that accompanies the font files` },
+  { path: "THIRD_PARTY.md", license: "OFL-1.1", reason: `${LICENCE_NAMES_IN_DOCS} (${SITE_FONT})` },
+  { path: "THIRD_PARTY.md", license: "0BSD", reason: `${LICENCE_NAMES_IN_DOCS} (the site tools' dependency licences)` },
+  { path: "THIRD_PARTY.md", license: "MIT OR CC0-1.0", reason: `${LICENCE_NAMES_IN_DOCS} (the site tools' dependency licences)` },
+  { path: "docs/design/engine-site.md", license: "OFL-1.1", reason: `${LICENCE_NAMES_IN_DOCS} (the site design names the typeface's licence)` },
+  ...["BSD-2-Clause", "BSD-3-Clause", "BlueOak-1.0.0", "ISC", "MIT", "MPL-2.0", "0BSD", "MIT OR CC0-1.0"]
+    .map((license) => ({ path: "site/package-lock.json", license, reason: SITE_LOCK })),
+
   // This script: its allowlist data names these keys.
   ...OWN_KEYS.map((license) => ({ path: "scripts/check-scancode-policy.mjs", license, reason: OWN_ALLOWLIST }))
 ];
 
 /** File plus copyright holder as ScanCode reports it. */
 const HOLDER_ALLOWLIST = [
+  { path: "site/assets/fonts/OFL.txt", holder: "The Inter Project Authors", reason: SITE_FONT },
   { path: "DCO", holder: "The Linux Foundation and its contributors", reason: "verbatim Developer Certificate of Origin 1.1" },
   { path: "NOTICE", holder: "Graphics and Displays group - University of Cambridge", reason: CASTLE },
   { path: "THIRD_PARTY.md", holder: "Graphics and Displays group - University of Cambridge", reason: CASTLE },
