@@ -153,7 +153,11 @@ jobs:
   deploy:
     name: deploy to GitHub Pages
     needs: build
-    if: needs.build.outputs.deploy == 'true'
+    # Deploys only once the owner has set up Pages and set the repository variable PAGES_DEPLOY to "true"
+    # (docs/DEVELOPERS.md, "Documentation site"); a manual run deploys only from main.
+    if: >-
+      needs.build.outputs.deploy == 'true' && vars.PAGES_DEPLOY == 'true' &&
+      (github.ref == 'refs/heads/main' || github.event_name == 'workflow_run')
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:

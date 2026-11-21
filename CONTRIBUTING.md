@@ -53,6 +53,8 @@ It never changes `POC_SIMULATION_API_VERSION` or any schema or model version, an
 
 Tag a release only after the `WebGPU conformance` workflow has passed on the release commit on `main` (its run after the merge, or the pull request's run on the same tree). The publish workflow's `WebGPU conformance proofs` job requires its three proofs and stops the release otherwise ([#713](https://github.com/Photivra/engine/issues/713)). The job also fails when its proofs are missing for another reason: a proof lasts 7 days, and it is named by the Node.js release it ran on, so a conformance run on another `lts/*` release than the publish job's does not count. In either case run the workflow on the release commit (`gh workflow run webgpu.yml --ref <tag>` if `main` has moved), then re-run the failed jobs of the publish run. The release tarball and the coverage parts that run keeps last one day; after that, re-run all jobs.
 
+Before the tag, a release whose changelog states a GPU result on hardware needs the owner's hardware run on the release commit, recorded in [docs/WEBGPU_DEVICES.md](docs/WEBGPU_DEVICES.md). The documentation site deploys after the publish run only once the owner has set up GitHub Pages and set the repository variable `PAGES_DEPLOY` to `true` ([docs/DEVELOPERS.md](docs/DEVELOPERS.md#documentation-site)); until then the site is built and checked and the deployment is skipped.
+
 Tests derive the expected engine version from `package.json` and `ENGINE_API_VERSION`, so a version bump needs no test edits.
 
 ## Before submitting
