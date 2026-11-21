@@ -8,6 +8,7 @@ import { anchors, headings, headingSlug } from "./lib/anchors.mjs";
 import { checkLinks, repositoryWebUrl } from "./check-release-docs.mjs";
 import { licenseAllowed, checkLockfile } from "./check-license-policy.mjs";
 import { identityViolations, isText } from "./check-project-identity.mjs";
+import { orphanPages } from "./lib/generated-pages.mjs";
 
 const REPO = "https://github.com/Photivra/engine";
 
@@ -80,4 +81,13 @@ test("the identity gate reads every text file and any host domain (#696)", () =>
   assert.equal(isText("scripts/verify.py", Buffer.from("print()")), true);
   assert.equal(isText("a.png", Buffer.from("text")), false);
   assert.equal(isText("a.bin", Buffer.from([1, 0, 2])), false);
+});
+
+test("the API-reference check names a page it no longer generates (ci-09 in #703)", () => {
+  const listing = ["camera-field-of-view.md", "exports.json", "optics-depth-of-field.md", "zz-removed-module.md", "notes.txt"];
+  const emitted = new Set(["docs/api/camera-field-of-view.md", "docs/api/optics-depth-of-field.md", "docs/api/exports.json"]);
+  assert.deepEqual(orphanPages("docs/api", listing, emitted), ["docs/api/zz-removed-module.md"]);
+  assert.deepEqual(orphanPages("docs/api", listing.filter((name) => name !== "zz-removed-module.md"), emitted), []);
+  // Only generated kinds count: a page or JSON file the generator could have written, not any file.
+  assert.deepEqual(orphanPages("docs/api", ["old.json"], new Set()), ["docs/api/old.json"]);
 });

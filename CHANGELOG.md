@@ -47,6 +47,9 @@
     primary leg's (24) from its own runtime, with no network call, instead of the newest Node 24 patch in the release index. On
     run 44453452116 the hosted runners held 24.22.2 and 24.22.3, so two parts of `lts/-1` skipped and two ran in full. This
     supersedes the patch-level wording of the 2.20.0 decision (#231).
+  - *Orphan API pages (`ci-09`).* `node scripts/generate-api-reference.mjs --check` (part of `docs:check`) fails on a `.md` or
+    `.json` file in `docs/api` that it no longer generates, and a write run deletes it, so the page of a module that stops
+    exporting through the root cannot stay in the package. None exists today.
 
 ### Site
 
