@@ -362,3 +362,17 @@ describe("the automatic slowest shutter: slowestPreferredShutterSeconds \"auto\"
     await expect(prepareDisplayView({ ...small, exposure })).rejects.toThrow(InvalidConfigurationError);
   });
 });
+
+describe("an exposure met at the ISO range end is not reported as held there (#681)", () => {
+  it("program-mode daylight at ISO 100 and manual + Auto ISO at ISO 25 600", async () => {
+    // Both program captures end at ISO 100 on target; before #681 the first (ideal ISO 99.99999999999997) reported
+    // clamped "minimum" and "iso-minimum", the second not. The manual capture's ideal ISO was 25600.000000000033.
+    for (const [illuminanceLux, exposure, iso] of [[1000, { mode: "program", iso: "auto" }, 100], [130_220.023, { mode: "program", iso: "auto" }, 100],
+      [LUX / 256, { iso: "auto", metering: "grey-card" }, 25600]] as const) {
+      const r = await simulateCapture({ ...small, illuminanceLux, exposure } as SimulateCaptureOptions);
+      expect(r.exposure.settings.iso).toBe(iso);
+      expect(Math.abs(r.exposure.autoIso!.residualStops)).toBeLessThan(1e-12);
+      expect(r.exposure.autoIso).toMatchObject({ clamped: false, limitingConstraint: "none" });
+    }
+  });
+});

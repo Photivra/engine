@@ -1498,21 +1498,25 @@ function nearestDiscreteIso(
     values[values.length - 1]!;
 
   if (idealIso < first) {
+    // #681: within settingEquals of the end, the end is met exactly, not held.
+    const met = settingEquals(idealIso, first);
     return {
       iso: first,
-      quantized: true,
-      clamped: "minimum",
+      quantized: !met,
+      clamped: met ? false : "minimum",
       limitingConstraint:
-        "iso-minimum"
+        met ? "none" : "iso-minimum"
     };
   }
   if (idealIso > last) {
+    // #681: within settingEquals of the end, the end is met exactly, not held.
+    const met = settingEquals(idealIso, last);
     return {
       iso: last,
-      quantized: true,
-      clamped: "maximum",
+      quantized: !met,
+      clamped: met ? false : "maximum",
       limitingConstraint:
-        "iso-maximum"
+        met ? "none" : "iso-maximum"
     };
   }
 
@@ -1784,28 +1788,32 @@ function resolveAutomaticIso(
     idealIso <
     bounds.minimum
   ) {
+    // #681: within settingEquals of the bound, the bound is met exactly, not held.
+    const met = settingEquals(idealIso, bounds.minimum);
     return {
       iso:
         bounds.minimum,
       kind: "continuous",
       quantized: false,
-      clamped: "minimum",
+      clamped: met ? false : "minimum",
       limitingConstraint:
-        bounds.minimumConstraint
+        met ? "none" : bounds.minimumConstraint
     };
   }
   if (
     idealIso >
     bounds.maximum
   ) {
+    // #681: within settingEquals of the bound, the bound is met exactly, not held.
+    const met = settingEquals(idealIso, bounds.maximum);
     return {
       iso:
         bounds.maximum,
       kind: "continuous",
       quantized: false,
-      clamped: "maximum",
+      clamped: met ? false : "maximum",
       limitingConstraint:
-        bounds.maximumConstraint
+        met ? "none" : bounds.maximumConstraint
     };
   }
 
@@ -1836,21 +1844,25 @@ function nearestDiscreteShutter(
     values[values.length - 1]!;
 
   if (idealShutterSeconds < first) {
+    // #681: within settingEquals of the end, the end is met exactly, not held.
+    const met = settingEquals(idealShutterSeconds, first);
     return {
       shutterSeconds: first,
-      quantized: true,
-      clamped: "minimum",
+      quantized: !met,
+      clamped: met ? false : "minimum",
       limitingConstraint:
-        "shutter-minimum"
+        met ? "none" : "shutter-minimum"
     };
   }
   if (idealShutterSeconds > last) {
+    // #681: within settingEquals of the end, the end is met exactly, not held.
+    const met = settingEquals(idealShutterSeconds, last);
     return {
       shutterSeconds: last,
-      quantized: true,
-      clamped: "maximum",
+      quantized: !met,
+      clamped: met ? false : "maximum",
       limitingConstraint:
-        "shutter-maximum"
+        met ? "none" : "shutter-maximum"
     };
   }
 
@@ -1950,15 +1962,17 @@ function resolveAutomaticShutter(
     capabilities.shutter
       .minimumSeconds
   ) {
+    // #681: within settingEquals of the end, the end is met exactly, not held.
+    const met = settingEquals(idealShutterSeconds, capabilities.shutter.minimumSeconds);
     return {
       shutterSeconds:
         capabilities.shutter
           .minimumSeconds,
       kind: "continuous",
       quantized: false,
-      clamped: "minimum",
+      clamped: met ? false : "minimum",
       limitingConstraint:
-        "shutter-minimum"
+        met ? "none" : "shutter-minimum"
     };
   }
   if (
@@ -1966,15 +1980,17 @@ function resolveAutomaticShutter(
     capabilities.shutter
       .maximumSeconds
   ) {
+    // #681: within settingEquals of the end, the end is met exactly, not held.
+    const met = settingEquals(idealShutterSeconds, capabilities.shutter.maximumSeconds);
     return {
       shutterSeconds:
         capabilities.shutter
           .maximumSeconds,
       kind: "continuous",
       quantized: false,
-      clamped: "maximum",
+      clamped: met ? false : "maximum",
       limitingConstraint:
-        "shutter-maximum"
+        met ? "none" : "shutter-maximum"
     };
   }
 
@@ -2156,21 +2172,25 @@ function nearestDiscreteAperture(
     values[values.length - 1]!;
 
   if (idealFNumber < first) {
+    // #681: within settingEquals of the end, the end is met exactly, not held.
+    const met = settingEquals(idealFNumber, first);
     return {
       aperture: first,
-      quantized: true,
-      clamped: "widest",
+      quantized: !met,
+      clamped: met ? false : "widest",
       limitingConstraint:
-        "aperture-widest"
+        met ? "none" : "aperture-widest"
     };
   }
   if (idealFNumber > last) {
+    // #681: within settingEquals of the end, the end is met exactly, not held.
+    const met = settingEquals(idealFNumber, last);
     return {
       aperture: last,
-      quantized: true,
-      clamped: "narrowest",
+      quantized: !met,
+      clamped: met ? false : "narrowest",
       limitingConstraint:
-        "aperture-narrowest"
+        met ? "none" : "aperture-narrowest"
     };
   }
 
@@ -2265,23 +2285,27 @@ function resolveAutomaticAperture(
   }
 
   if (idealFNumber < minimum) {
+    // #681: within settingEquals of the end, the end is met exactly, not held.
+    const met = settingEquals(idealFNumber, minimum);
     return {
       aperture: minimum,
       kind: "continuous",
       quantized: false,
-      clamped: "widest",
+      clamped: met ? false : "widest",
       limitingConstraint:
-        "aperture-widest"
+        met ? "none" : "aperture-widest"
     };
   }
   if (idealFNumber > maximum) {
+    // #681: within settingEquals of the end, the end is met exactly, not held.
+    const met = settingEquals(idealFNumber, maximum);
     return {
       aperture: maximum,
       kind: "continuous",
       quantized: false,
-      clamped: "narrowest",
+      clamped: met ? false : "narrowest",
       limitingConstraint:
-        "aperture-narrowest"
+        met ? "none" : "aperture-narrowest"
     };
   }
 

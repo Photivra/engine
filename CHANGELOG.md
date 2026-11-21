@@ -31,6 +31,14 @@
   changed the catalogue and its siblings for the rest of the session. A modified copy still works; copy each nested part you
   change (docs/SENSOR_PROFILES.md). `SIMULATE_CAPTURE_FAST_METHODS` has the same shallow freeze and is left to the facade's
   change. No value or output changes; bundle rows unchanged (the catalogue is not in the capture worker).
+- **An exposure met exactly at a range end is no longer reported as held there (#681).** When the ideal ISO, shutter or
+  f-number came out a few ulp past a range end (ISO 100 as 99.99999999999997, ISO 25 600 as 25600.000000000033), the
+  resolvers reported `clamped` and `"iso-minimum"`, `"iso-maximum"`, `"shutter-…"` or `"aperture-…"` for an exposure on target;
+  in program-mode daylight about a third of captures did. Within `settingEquals`' tolerance (32 ulp) the end is now met:
+  `clamped: false`, `limitingConstraint: "none"`, `quantized: false`. Only these report fields change (in a 600-capture sweep of
+  program, shutter and aperture priority, 72 reports and no settings, ideal values or residuals); samples and RAW codes are
+  unchanged. One digest of `test/program-line-lens-range.test.ts` (the `exposure` of `catalogue50`) is re-pinned for it. Fast
+  row +83 B.
 
 ## 2.27.0 — published November 19, 2026
 

@@ -692,7 +692,8 @@ The result says what happened. `exposure.settings.iso` is the ISO used and `expo
 `exposure.autoIso` reports `idealIsoBeforeConstraints`, the Auto ISO range (`autoIsoMinimum`, `autoIsoMaximum`),
 `clamped`, `limitingConstraint` and `residualStops`. The last two are the resolver's: for example `"iso-maximum"` when
 the exposure stays under target at the maximum ISO, `"iso-grid-quantization"` for the nearest selectable ISO, or
-`"none"`. A positive residual is under target. In aperture priority the report also repeats `afterMaximumIso` and
+`"none"`. A positive residual is under target. An ideal ISO within rounding (32 ulp) of an end of the range is that end
+met exactly: `clamped: false` and `"none"` (2.28.0, #681). In aperture priority the report also repeats `afterMaximumIso` and
 `slowestPreferredShutterSeconds`, and says whether the slower-shutter fallback ran (`afterMaximumIsoFallbackUsed`).
 A display view, an ideal reference and every `output.region` part of the same request meter the whole frame, so
 they resolve the same exposure and report the same values. Requests without `"auto"` are unchanged: their
