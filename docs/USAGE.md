@@ -6211,7 +6211,7 @@ This API returns **only time-sampled geometry and its weights**. It does not:
 
 Averaging geometric coordinates is not the same as integrating radiance along moving rays.
 
-Photivra also does not report an integration-error estimate from geometry alone. The error in the image depends on radiance, visibility, how fine the texture and edges are, reconstruction and the motion path. When convergence evidence is needed, a reference renderer can compare increasing `temporalSampleCount` values on the radiance or output.
+Photivra also does not report an integration-error estimate from geometry alone. The error in the image depends on radiance, visibility, how fine the texture and edges are, reconstruction and the motion path. When convergence evidence is needed, a reference renderer can compare increasing `temporalSampleCount` values on the radiance or output. Since 2.28.0 `calculateCaptureRotationTemporalQuadrature`, `calculateCaptureTranslationParallaxTemporalQuadrature`, `calculateCaptureExtendedObjectTemporalProjection` and `calculateStabilizedCaptureTemporalSamples` take at most 256 temporal samples (simulateCapture's own limit) and at most 65,536 nodes (temporal samples × points); a larger request fails with `InvalidScientificInputError` before any node is built.
 
 ## Instantaneous capture rotation inverse mapping
 

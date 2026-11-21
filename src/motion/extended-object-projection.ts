@@ -36,6 +36,7 @@ import type {
 } from "../sensor/capture-mode-timing.js";
 import { requireInputKeys, requireInputObject, requireTrimmedConfigString as requireNonEmptyString } from "../core/record-validation.js";
 import { InvalidConfigurationError } from "../core/configuration-error.js";
+import { requireTemporalSampleBudget } from "./temporal-sample-limits.js";
 import { sameSite as samePoint } from "../core/shared-helpers.js";
 import { requireFiniteVector } from "./capture-translation-parallax-temporal-quadrature.js";
 import { requireScientificFinite as requireFiniteTime } from "../color/white-balance.js";
@@ -850,6 +851,7 @@ export function calculateCaptureExtendedObjectTemporalProjection(
       "temporalSampleCount × points.length must remain a safe integer."
     );
   }
+  requireTemporalSampleBudget(input.temporalSampleCount, points.length, "points");
 
   const pointTrajectories =
     points.map(

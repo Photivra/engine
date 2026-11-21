@@ -36,6 +36,7 @@ import type {
 } from "../sensor/sensor-geometry.js";
 import { requireInputObject, requireInputKeys, requireTrimmedConfigString as requireNonEmptyString } from "../core/record-validation.js";
 import { InvalidConfigurationError } from "../core/configuration-error.js";
+import { requireTemporalSampleBudget } from "./temporal-sample-limits.js";
 import { sameSite as samePoint } from "../core/shared-helpers.js";
 
 export interface CaptureTranslationParallaxSceneSample {
@@ -298,6 +299,7 @@ export function calculateCaptureTranslationParallaxTemporalQuadrature(
   }
 
   input.sceneSamples.forEach((sample, index) => requireInputObject(sample, "sceneSamples[" + index + "]"));
+  requireTemporalSampleBudget(input.temporalSampleCount, input.sceneSamples.length, "sceneSamples");
   const ids =
     input.sceneSamples.map(
       (sample) =>

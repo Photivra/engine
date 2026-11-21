@@ -20,6 +20,7 @@ import {
   type CalculationResult
 } from "../core/calculation-result.js";
 import { InvalidConfigurationError } from "../core/configuration-error.js";
+import { requireTemporalSampleBudget } from "../motion/temporal-sample-limits.js";
 import {
   parseEvidenceList,
   type EvidenceBackedFact,
@@ -1538,6 +1539,7 @@ export function calculateStabilizedCaptureTemporalSamples(
       "temporalSampleCount × samplePointsNative.length must remain a safe integer."
     );
   }
+  requireTemporalSampleBudget(input.temporalSampleCount, input.samplePointsNative.length, "samplePointsNative");
 
   const disturbanceIndex =
     indexDisturbance(disturbance);

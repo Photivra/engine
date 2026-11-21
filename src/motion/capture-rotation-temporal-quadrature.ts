@@ -38,6 +38,7 @@ import {
 } from "./capture-rotation-inverse-mapping.js";
 import { requireInputKeys, requireInputObject } from "../core/record-validation.js";
 import { InvalidConfigurationError } from "../core/configuration-error.js";
+import { requireTemporalSampleBudget } from "./temporal-sample-limits.js";
 
 export interface CalculateCaptureRotationTemporalQuadratureInput
   extends Omit<
@@ -160,6 +161,7 @@ export function calculateCaptureRotationTemporalQuadrature(
       "temporalSampleCount × samplePointsNative.length must be a safe integer."
     );
   }
+  requireTemporalSampleBudget(input.temporalSampleCount, input.samplePointsNative.length, "samplePointsNative");
 
   const {
     temporalSampleCount,
