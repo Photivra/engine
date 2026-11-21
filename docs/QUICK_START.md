@@ -1616,7 +1616,7 @@ lens: { focalLengthMm: 50, fNumber: 4, focusDistanceM: 1.4, defocus: { model: "g
   polygon; circles and blade arcs are 1024-gons scaled to their true area, within 5e-6 of the radius of the true curve)
   inside the site's cell, divided by its area (`"exact-polygon-cell-area"`). With it the pupil is sampled on a square grid
   fine enough that neighbouring rays land at most 1/8 site apart, each grid cell weighted by its exact overlap with the
-  pupil's chord, and every ray binned into the site cell it lands in (`"pupil-ray-binning"`; it handles the caustic).
+  pupil's chord, and every ray binned into the site cell it lands in (`"pupil-ray-binning"`; it handles the caustic; a quadrature measured at about 2 % L1 kernel error, single taps up to about 10 % of the peak, for a 40-site blur).
   Only correctly rounded operations and the portable trigonometry are used, so the weights are the same bits in every
   JavaScript engine.
 - **Validation** (`test/defocus-bokeh-kernel.test.ts`, `test/simulate-capture-defocus-bokeh.test.ts`):

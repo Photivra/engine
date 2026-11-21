@@ -250,6 +250,32 @@ function requirePlanarPoint(value: unknown, path: string): { x: number; y: numbe
   return { x: record.x, y: record.y };
 }
 
+/** Sign of the turn a -> b -> c (positive anticlockwise). */
+function turn(a: { x: number; y: number }, b: { x: number; y: number }, c: { x: number; y: number }): number {
+  return (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
+}
+
+/**
+ * Rejects a polygon two of whose non-adjacent edges cross (a proper crossing: each edge's end points
+ * lie strictly on opposite sides of the other edge). The edge integral and the signed area assume a
+ * simple polygon; a crossing one gives a wrong area and a peak-normalized intensity above 1.
+ */
+function requireSimplePolygon(vertices: readonly { x: number; y: number }[]): void {
+  const n = vertices.length;
+  for (let i = 0; i < n; i += 1) {
+    const a = vertices[i]!, b = vertices[(i + 1) % n]!;
+    for (let j = i + 2; j < n; j += 1) {
+      if (i === 0 && j === n - 1) continue; // adjacent through the closing edge
+      const c = vertices[j]!, d = vertices[(j + 1) % n]!;
+      if (turn(a, b, c) * turn(a, b, d) < 0 && turn(c, d, a) * turn(c, d, b) < 0) {
+        throw new InvalidScientificInputError(
+          `pupilVerticesMm must form a simple polygon: edges ${i} and ${j} cross.`
+        );
+      }
+    }
+  }
+}
+
 /**
  * Continuous, single-wavelength Fraunhofer PSF density for any simple polygon pupil that is uniformly
  * lit and has zero phase (for example a cat's-eye pupil from mechanical vignetting).
@@ -285,6 +311,7 @@ export function calculatePolygonPupilFraunhoferPsf(
     throw new InvalidScientificInputError("pupilVerticesMm must span a finite non-zero region.");
   }
   let normalized = vertices.map((v) => ({ x: (v.x - cx) / scale, y: (v.y - cy) / scale }));
+  requireSimplePolygon(normalized);
   let twiceArea = 0;
   for (let index = 0; index < normalized.length; index += 1) {
     const a = normalized[index]!;
