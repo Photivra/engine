@@ -106,13 +106,17 @@ export interface DisplayViewQualityGpuInput {
   image?: DisplayViewQualityImagePasses;
 }
 /**
- * #581: an image-plane print's passes 1 and 2 (src/gpu/display-view-image-quality.ts): pass 1 writes `pointFloats` radiance values
- * per lattice point and a flag word; pass 2 is the blocked sum over them (the flags at binding 6).
+ * #581: an image-plane print's passes 1 and 2 (src/gpu/display-view-image-quality.ts): pass 1 writes the radiance at each of the
+ * gather's `nodes` per lattice point and a flag word; pass 2 is the blocked sum over them (the flags at binding 6).
  */
 export interface DisplayViewQualityImagePasses {
   gather: SignalGather;
   siteGamma: number;
-  pointFloats: number;
+  /**
+   * #715: the band bytes of passes 1 and 2 beyond the sites for a band's site window (first column, first row, columns, rows): the
+   * lattice values and flags, and the largest pixel records any band of that height uploads.
+   */
+  bandBytes(x0: number, y0: number, w: number, h: number): number;
   lattice: [label: string, wgsl: string];
   sites: [label: string, wgsl: string];
   /** Runs pass 1 over a band's lattice windows, and with site kernels resolves its flagged points with the reference (their count). */
@@ -464,8 +468,9 @@ export async function renderDisplayViewQualityOnGpu(runtime: WebGpuRuntime, band
   if (blocked && !signalInput.kernels && !image) throw new ImageKernelExecutionError("unsupported-on-backend", "webgpu-f32 display view (Quality): the blocked site sum needs site kernels; use cpu-reference.");
   const tapBudget = input.maximumSiteTapsPerDispatch ?? DISPLAY_VIEW_QUALITY_SITE_TAPS_PER_DISPATCH;
   const gather = image?.gather ?? signalGather(signalInput), aux = auxTable(setup), { params, words, ints, floats } = constants(setup, signalInput, gather, reach, count, blocked);
-  // #581: the print's site bound and its radiance values per lattice point (the site pass's node count in the last word).
-  if (image) { floats[50] = image.siteGamma; words[55] = image.pointFloats; }
+  // #581: the print's site pass reads its node count in the last word (no other pass reads it), and its site bound.
+  words[55] = gather.nodes;
+  if (image) floats[50] = image.siteGamma;
   const stride = DISPLAY_VIEW_QUALITY_GEOMETRY_STRIDE, geometry = new Float32Array((region.width + region.height) * stride);
   const columnSums: AxisSums[] = [], rowSums: AxisSums[] = [];
   for (let i = 0; i < region.width; i++) { axisRecord(geometry, i * stride, (region.x + i) * shape.sx, (region.x + i + 1) * shape.sx, setup.frameWidth, margin, shape.sx); columnSums.push(axisSums((region.x + i) * shape.sx, (region.x + i + 1) * shape.sx, setup.frameWidth, margin)); }
@@ -479,8 +484,9 @@ export async function renderDisplayViewQualityOnGpu(runtime: WebGpuRuntime, band
   const bandBytesOf = (rows: number): number => {
     const { y0, y1 } = siteRows(0, rows), siteH = y1 - y0 + 1;
     let lattice = 0;
-    for (const g of gather.groups) lattice += (siteW + g.dpSpan) * (siteH + g.dqSpan) * 4 * (image ? image.pointFloats + 1 : 1);
-    return lattice + siteW * siteH * SITE_BYTES + rows * region.width * OUTPUT_BYTES_PER_PIXEL;
+    for (const g of gather.groups) lattice += (siteW + g.dpSpan) * (siteH + g.dqSpan) * 4;
+    // #715: a print's own passes count their lattice values, flags and pixel records.
+    return (image ? image.bandBytes(siteX0, y0, siteW, siteH) : lattice) + siteW * siteH * SITE_BYTES + rows * region.width * OUTPUT_BYTES_PER_PIXEL;
   };
   let rows = region.height;
   while (rows > 1 && bandBytesOf(rows) > bandBytes) rows = Math.ceil(rows / 2);

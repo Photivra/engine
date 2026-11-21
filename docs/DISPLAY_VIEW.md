@@ -1836,6 +1836,10 @@ root exports of the built package, minified, gzip level 9; `test/capture-bundle.
   The fast row's +1,163 B is the other groups' additions together, not measured one by one; the on-demand row's +213 B
   includes #662's (+95 B) and #685's (+44 B) Quality kit code as measured on their branch. The 49,400 B on-demand target
   stays.
+
+  **2.28.0 step 7 (#715).** The GPU Quality host counts an image-plane print's pixel records in its band size through the print's
+  passes (`bandBytes`, which replaces the per-point multiplier), and reads the print's site-pass node count from the gather:
+  on demand 50,400 B (+9 B, at its limit); fast worker 337,720 B and export 10,399 B unchanged.
 - **Shipped shaders are minified (2.14, #536).** `npm run build` strips comments and indentation from the WGSL source
   (`scripts/minify-wgsl-dist.mjs`, see [WebGPU, Shipped shader text](WEBGPU.md#shipped-shader-text)). Measured on the app's
   production build (Vite 8, app 0.50.0 at `a82a5eb`, engine `main` at `42ec9d8` packed before and after): the GPU session

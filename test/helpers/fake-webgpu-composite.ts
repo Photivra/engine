@@ -621,7 +621,7 @@ export function emulateImagePlaneQualityLattice(pw: Uint32Array, groups: Uint32A
   photoFloats: Float32Array, nodeTable: Float32Array, path: ChartCompositeProductPath = "dekker", model: CompositeArithmetic = NEAREST_COMPOSITE_ARITHMETIC, light: Float32Array = new Float32Array(1)): void {
   const GROUP_WORDS = 8, latticeTotal = pw[20]!, groupCount = pw[19]!, gi = new Int32Array(groups.buffer, groups.byteOffset, groups.length), gf = new Float32Array(groups.buffer, groups.byteOffset, groups.length);
   const recordFloats = new Float32Array(records.buffer, records.byteOffset, records.length);
-  const [width, height, nearest, N, row0] = [photoWords[0]!, photoWords[1]!, photoWords[2] !== 0, photoWords[3]!, photoWords[4]!];
+  const [width, height, nearest, N, row0, col0, columns] = [photoWords[0]!, photoWords[1]!, photoWords[2] !== 0, photoWords[3]!, photoWords[4]!, photoWords[7]!, photoWords[24]!];
   const F = (a: number): Dw => [photoFloats[a]!, photoFloats[a + 1]!];
   const su = F(8), sv = F(10), k = F(12), hw = F(14), hh = F(16), aspect = F(18), slackX = photoFloats[20]!, slackY = photoFloats[21]!, black = photoFloats[22]!, span = photoFloats[23]!;
   let uncertain: boolean;
@@ -718,7 +718,8 @@ export function emulateImagePlaneQualityLattice(pw: Uint32Array, groups: Uint32A
   const whiteAt = (n: number): number => (lit ? lightAt(n) : nodeTable[white + n]!);
   const weights = (word: number, bit: number, small: number): [number, number] => (((word >>> bit) & 1) === 0 ? [f(1 - small), small] : [small, f(1 - small)]);
   const pixelAt = (i: number, j: number): { base: number; r: [number, number]; g: [number, number]; b: [number, number] } => {
-    const o = ((j - row0) * width + i) * 4, w = records[o]!;
+    const o = ((j - row0) * columns + i - col0) * 4, w = records[o]!;
+    if (w === undefined) throw new Error(`pixel (${i}, ${j}) is outside the band's records (rows from ${row0}, columns ${col0}..${col0 + columns - 1})`);
     return { base: (w & 3) * 25 + ((w >>> 2) & 3) * 5 + ((w >>> 4) & 3), r: weights(w, 6, recordFloats[o + 1]!), g: weights(w, 7, recordFloats[o + 2]!), b: weights(w, 8, recordFloats[o + 3]!) };
   };
   const node = (kk: number, n: number): number => nodeTable[kk * N + n]!;

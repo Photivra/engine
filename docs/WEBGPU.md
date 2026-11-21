@@ -564,8 +564,18 @@ the host finishing are unchanged.
     composite kernel's bound arithmetic), the pixel coordinates, and the bilinear weights as the Speed module forms them.
   - **The value.** For every node: L_n = W_n·Σ_j b_j·(ρ_black + (ρ_white − ρ_black)·Σ_corners w_jk·s_k(λ_n)).
   - **The records.** Each pixel's lattice cell and fractions come from the host (float64, as the reference decodes the pixel), per
-    band for the pixel rows its lattice windows reach. A record is 16 bytes: the cell, and per channel the smaller of f and 1 − f
-    rounded once, with a bit for which. So every corner weight carries at most 2E relative per channel.
+    band for the pixels its lattice windows reach: since #715 their rows and their columns (the pixel coordinate of each window's
+    first and last lattice point, two pixels of margin), built and written 4 MiB of rows at a time. A record is 16 bytes: the cell,
+    and per channel the smaller of f and 1 − f rounded once, with a bit for which. So every corner weight carries at most 2E relative
+    per channel. The Quality host counts a band's records in its band size (the passes' `bandBytes`), so a band whose records would
+    pass the device's storage binding limit is split like any other band; `insufficient-limits` is left for one display row that
+    does not fit. The records are the same numbers at other offsets: a banded render equals one band byte for byte (tested).
+    Measured on the float32 emulation (`syntheticPhoto(6000, 4000)` fitted inside the 600 × 400 frame, `lens.diffraction`, the
+    203 × 135 view): a 48 × 36 region builds 1 180 rows × 1 530 columns, 28.9 MB in 45–53 ms (113.3 MB in 242–325 ms before, every
+    column of the photo); a 24 × 135 region 4 000 × 820, 52.5 MB in 76–78 ms (384 MB in 834–873 ms), and with a 128 MiB binding limit
+    it renders on the device (before, it fell back to the CPU reference, 67–81 s for that request). Keeping a scene's records on the
+    device across renders (the ticket's fourth step) is not done: at 16 bytes per pixel a 24 MP photo's records are 384 MB, three
+    times WebGPU's default binding limit, and rebuilding the region's columns costs the times above.
   - **The bound.** All terms are non-negative. L_n carries at most 27 roundings, declared `IMAGE_PLANE_LATTICE_U` = 32:
     - s 1;
     - three channel weights 6;

@@ -213,7 +213,7 @@ describe("the app's capture-worker shape", () => {
     // kits and the GPU Quality host (owner decision 2026-11-21) 50,178 B. The limit is that measurement rounded up to the next
     // 100 B; the target stays 49,400 B (owner decision 2026-11-21), and the rest of #658 is open.
     // 2.28.0 step 4 merged (owner decisions 2026-11-21): 50,391 B on the integration tree (#662's and #685's Quality kit additions),
-    // limit rounded up to the next 100 B.
+    // limit rounded up to the next 100 B. 2.28.0 step 7 (#715): 50,400 B (the image-plane passes' band-size hook).
     expect(sum(onDemand)).toBeLessThanOrEqual(50_400);
     // 2.26.0 (owner decision 2026-11-16, "Move export code out"): the export kit's row, measured at 10,403 B on release-2.26.0 (the JPEG
     // and PNG encoders, the export JPEG coder and the text-metadata writers), limit rounded up to the next 100 B. With it the fast row

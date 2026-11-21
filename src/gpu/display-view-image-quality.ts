@@ -19,8 +19,9 @@
  *   L_n = W_n·Σ_j b_j·(ρ_black + (ρ_white − ρ_black)·Σ_corners w_jk·s_k(λ_n)),
  *
  * the reference's arithmetic regrouped. Each pixel's lattice cell and fractions come from the host (float64, as the reference
- * decodes the pixel), per band for the rows its lattice windows reach: 16 bytes per pixel (the cell, and per channel the smaller
- * of f and 1 − f rounded once, with a bit for which), so every corner weight carries at most 2E relative per channel. All terms
+ * decodes the pixel), per band for the pixels its lattice windows reach (#715: their rows and columns, two pixels of margin, built
+ * and written 4 MiB of rows at a time; the Quality host counts them in its band size): 16 bytes per pixel (the cell, and per
+ * channel the smaller of f and 1 − f rounded once, with a bit for which), so every corner weight carries at most 2E relative per channel. All terms
  * are non-negative: L_n carries `IMAGE_PLANE_LATTICE_U`·E relative (s 1, three channel weights 6, the nested trilinear form 6,
  * the paper 3, the bilinear weights 4, their products and sums 4, the moved-weight budget 1, W_n 2: 27, declared 32), or the
  * point is flagged: on the print's edge, near a nearest-pixel edge, or where the point's error could move the value by more than
@@ -74,9 +75,11 @@ export const IMAGE_PLANE_LIGHT = /* @__PURE__ */ Object.freeze({ kind: 0, source
 const NODES = 125;
 /** Words per pixel record. */
 const RECORD_WORDS = 4;
-/** Layout of the photo uniform (u32 / float32 words, 96 bytes). */
-export const IMAGE_PLANE_QUALITY_PARAMS = /* @__PURE__ */ Object.freeze({ width: 0, height: 1, nearest: 2, nodes: 3, row0: 4, zero: 5, lit: 6, suHi: 8, suLo: 9, svHi: 10, svLo: 11,
-  kHi: 12, kLo: 13, halfWHi: 14, halfWLo: 15, halfHHi: 16, halfHLo: 17, aspectHi: 18, aspectLo: 19, slackX: 20, slackY: 21, black: 22, span: 23, words: 24 });
+/** Layout of the photo uniform (u32 / float32 words, 112 bytes); #715: the band's records start at pixel (col0, row0) and are `columns` wide. */
+export const IMAGE_PLANE_QUALITY_PARAMS = /* @__PURE__ */ Object.freeze({ width: 0, height: 1, nearest: 2, nodes: 3, row0: 4, zero: 5, lit: 6, col0: 7, suHi: 8, suLo: 9, svHi: 10, svLo: 11,
+  kHi: 12, kLo: 13, halfWHi: 14, halfWLo: 15, halfHHi: 16, halfHLo: 17, aspectHi: 18, aspectLo: 19, slackX: 20, slackY: 21, black: 22, span: 23, columns: 24, words: 28 });
+/** Host bytes of pixel records built per write. */
+const UPLOAD_CHUNK_BYTES = 4 << 20;
 const FLOAT32_SAFE_MAGNITUDE = 2 ** 120, FLOAT32_MINIMUM_NORMAL = 2 ** -126;
 /**
  * #716: the host's part of a photo point's error bound in pixels along one axis (the shaders' `pixel_slack` adds 2⁻⁴⁴·|X|; docs/WEBGPU.md,
@@ -309,9 +312,10 @@ export function imagePlaneQualityLatticeWgsl(path: ChartCompositeProductPath): s
 @group(0) @binding(2) var<storage, read_write> lattice_values: array<f32>;
 @group(0) @binding(3) var<storage, read_write> lattice_flags: array<u32>;
 struct PhotoParams {
-  width: u32, height: u32, nearest: u32, nodes: u32, row0: u32, zero: u32, lit: u32, pad1: u32,
+  width: u32, height: u32, nearest: u32, nodes: u32, row0: u32, zero: u32, lit: u32, col0: u32,
   su_hi: f32, su_lo: f32, sv_hi: f32, sv_lo: f32, k_hi: f32, k_lo: f32, hw_hi: f32, hw_lo: f32,
   hh_hi: f32, hh_lo: f32, aspect_hi: f32, aspect_lo: f32, slack_x: f32, slack_y: f32, black: f32, span: f32,
+  columns: u32, pad1: u32, pad2: u32, pad3: u32,
 };
 @group(1) @binding(0) var<storage, read> records: array<u32>;
 @group(1) @binding(1) var<uniform> photo: PhotoParams;
@@ -327,7 +331,7 @@ fn channel_weights(word: u32, bit: u32, small: f32) -> vec2<f32> {
 }
 struct Pixel { base: u32, r: vec2<f32>, g: vec2<f32>, b: vec2<f32> }
 fn pixel_at(i: u32, j: u32) -> Pixel {
-  let o = ((j - photo.row0) * photo.width + i) * ${RECORD_WORDS}u;
+  let o = ((j - photo.row0) * photo.columns + i - photo.col0) * ${RECORD_WORDS}u;
   let w = records[o];
   return Pixel((w & 3u) * 25u + ((w >> 2u) & 3u) * 5u + ((w >> 4u) & 3u), channel_weights(w, 6u, bitcast<f32>(records[o + 1u])),
     channel_weights(w, 7u, bitcast<f32>(records[o + 2u])), channel_weights(w, 8u, bitcast<f32>(records[o + 3u])));
@@ -540,10 +544,30 @@ export function imagePlaneQualityPasses(runtime: WebGpuRuntime, gpu: DisplayView
   floats[P.slackX] = imagePlanePointSlack(halfW, k, 1); floats[P.slackY] = imagePlanePointSlack(halfH, k, scene.aspect); floats[P.black] = scene.paperBlackReflectance; floats[P.span] = scene.paperWhiteReflectance - scene.paperBlackReflectance;
   const label = path === "dekker" ? "image-plane" : "image-plane-fma";
   const fractions = new Float64Array(3);
+  // #715: the photo pixels that lattice windows (first column, first row, columns, rows, cu, cv) reach: per axis the pixel coordinate of
+  // each window's first and last lattice point, two pixels of margin, clamped to the photo; `span` is the rows' extent before the floor.
+  const reach = (windows: readonly (readonly number[])[]): { col0: number; col1: number; row0: number; row1: number; span: number } => {
+    let left = Infinity, right = -Infinity, low = Infinity, high = -Infinity;
+    for (const [x0, y0, lw, lh, cu, cv] of windows) for (const t of [0, 1]) {
+      const X = (((x0! + t * (lw! - 1)) + cu!) * geometry.scaleU * k + 1) * halfW, Y = (scene.aspect - ((y0! + t * (lh! - 1)) + cv!) * geometry.scaleV * k) * halfH;
+      left = Math.min(left, X); right = Math.max(right, X); low = Math.min(low, Y); high = Math.max(high, Y);
+    }
+    const clamp = (x: number, n: number): number => Math.max(0, Math.min(n - 1, x)), col0 = clamp(Math.floor(left) - 2, scene.width), row0 = clamp(Math.floor(low) - 2, scene.height);
+    return { col0, col1: Math.max(col0, clamp(Math.floor(right) + 2, scene.width)), row0, row1: Math.max(row0, clamp(Math.floor(high) + 2, scene.height)), span: high - low };
+  };
   const passes: DisplayViewQualityImagePasses = {
-    gather, siteGamma: (IMAGE_PLANE_LATTICE_U + (lit ? IMAGE_PLANE_LIGHT_U : 0) + N + cw + ch + gather.groups.length + 4) * E, pointFloats: N,
+    gather, siteGamma: (IMAGE_PLANE_LATTICE_U + (lit ? IMAGE_PLANE_LIGHT_U : 0) + N + cw + ch + gather.groups.length + 4) * E,
     lattice: ["photivra-display-view-quality-photo-lattice:" + label, imagePlaneQualityLatticeWgsl(path)],
     sites: ["photivra-display-view-quality-photo-sites", IMAGE_PLANE_QUALITY_SITES_WGSL],
+    // #715: for the site window (x0, y0, w, h), the lattice values (N per point) and flags, and the band's records at most: their
+    // columns are every band's; their rows are those of any band of h site rows (the rows' extent, the margin and a row for the floors),
+    // so the host's band size holds for each band.
+    bandBytes(x0, y0, w, h): number {
+      const windows = gather.groups.map((g) => [x0 + g.dpMin, y0 + g.dqMin, w + g.dpSpan, h + g.dqSpan, g.cu, g.cv]), r = reach(windows);
+      let lattice = 0;
+      for (const [, , lw, lh] of windows) lattice += lw! * lh! * 4 * (N + 1);
+      return lattice + (r.col1 - r.col0 + 1) * Math.min(scene.height, Math.floor(r.span) + 7) * RECORD_WORDS * 4;
+    },
     async runLattice(band, pipeline, latticeParams, groupBuffer, groupWords, latticeTotal, signal): Promise<{ values: GPUBuffer; flags: GPUBuffer; resolved: number }> {
       let values = band.buffer("photivra-display-view-photo-lattice", latticeTotal * 4 * N, BUFFER_USAGE.STORAGE | BUFFER_USAGE.COPY_SRC);
       let flags = band.buffer("photivra-display-view-photo-lattice-flags", latticeTotal * 4, BUFFER_USAGE.STORAGE | BUFFER_USAGE.COPY_SRC);
@@ -558,33 +582,33 @@ export function imagePlaneQualityPasses(runtime: WebGpuRuntime, gpu: DisplayView
     }
   };
   function bandGroup(scope: GpuResourceScope, layout: GPUBindGroupLayout, groupWords: Uint32Array): GPUBindGroup {
-      // The pixel rows the band's lattice windows reach (the print-local v of each window's first and last rows, two rows of margin).
+      // The pixels the band's lattice windows reach (#715: rows and columns), built and written UPLOAD_CHUNK_BYTES of rows at a time.
       const ints = new Int32Array(groupWords.buffer, groupWords.byteOffset, groupWords.length), groupFloats = new Float32Array(groupWords.buffer, groupWords.byteOffset, groupWords.length);
-      let low = Infinity, high = -Infinity;
-      for (let gi = 0; gi < gather.groups.length; gi++) {
-        const base = gi * DISPLAY_VIEW_QUALITY_GROUP_WORDS, cv = groupFloats[base + 7]!;
-        for (const q of [ints[base + 1]!, ints[base + 1]! + groupWords[base + 3]! - 1]) {
-          const Y = (scene.aspect - (q + cv) * geometry.scaleV * k) * halfH;
-          low = Math.min(low, Y); high = Math.max(high, Y);
+      const { col0, col1, row0, row1 } = reach(gather.groups.map((_, gi) => {
+        const base = gi * DISPLAY_VIEW_QUALITY_GROUP_WORDS;
+        return [ints[base]!, ints[base + 1]!, groupWords[base + 2]!, groupWords[base + 3]!, groupFloats[base + 6]!, groupFloats[base + 7]!];
+      }));
+      const columns = col1 - col0 + 1, rowBytes = columns * RECORD_WORDS * 4, bytes = (row1 - row0 + 1) * rowBytes;
+      if (bytes > runtime.maximumStorageBindingBytes) throw new ImageKernelExecutionError("insufficient-limits", "A band's pixel records exceed the device's storage binding limit.");
+      const buffer = scope.buffer("photivra-display-view-photo-records", bytes, BUFFER_USAGE.STORAGE | BUFFER_USAGE.COPY_DST), chunk = Math.max(1, Math.floor(UPLOAD_CHUNK_BYTES / rowBytes));
+      for (let j0 = row0; j0 <= row1; j0 += chunk) {
+        const j1 = Math.min(row1 + 1, j0 + chunk), records = new Uint32Array((j1 - j0) * columns * RECORD_WORDS), recordFloats = new Float32Array(records.buffer);
+        for (let j = j0, o = 0; j < j1; j++) for (let i = col0; i <= col1; i++, o += RECORD_WORDS) {
+          const cell = scene.pixelLattice(j * scene.width + i, fractions);
+          let word = Math.floor(cell / 25) | ((Math.floor(cell / 5) % 5) << 2) | ((cell % 5) << 4);
+          for (let c = 0; c < 3; c++) {
+            const f = fractions[c]!, high1 = f > 0.5;
+            if (high1) word |= 1 << (6 + c);
+            recordFloats[o + 1 + c] = high1 ? 1 - f : f;
+          }
+          records[o] = word;
         }
+        runtime.device.queue.writeBuffer(buffer, (j0 - row0) * rowBytes, records.buffer, 0, records.byteLength);
       }
-      const row0 = Math.max(0, Math.min(scene.height - 1, Math.floor(low) - 2)), row1 = Math.max(row0, Math.min(scene.height - 1, Math.floor(high) + 2));
-      const records = new Uint32Array((row1 - row0 + 1) * scene.width * RECORD_WORDS), recordFloats = new Float32Array(records.buffer);
-      for (let j = row0, o = 0; j <= row1; j++) for (let i = 0; i < scene.width; i++, o += RECORD_WORDS) {
-        const cell = scene.pixelLattice(j * scene.width + i, fractions);
-        let word = Math.floor(cell / 25) | ((Math.floor(cell / 5) % 5) << 2) | ((cell % 5) << 4);
-        for (let c = 0; c < 3; c++) {
-          const f = fractions[c]!, high1 = f > 0.5;
-          if (high1) word |= 1 << (6 + c);
-          recordFloats[o + 1 + c] = high1 ? 1 - f : f;
-        }
-        records[o] = word;
-      }
-      const bandParams = params.slice(0);
-      new Uint32Array(bandParams)[P.row0] = row0;
-      if (records.byteLength > runtime.maximumStorageBindingBytes) throw new ImageKernelExecutionError("insufficient-limits", "A band's pixel records exceed the device's storage binding limit.");
+      const bandParams = params.slice(0), bandWords = new Uint32Array(bandParams);
+      bandWords[P.row0] = row0; bandWords[P.col0] = col0; bandWords[P.columns] = columns;
       return runtime.device.createBindGroup({ layout, entries: [
-        { binding: 0, resource: { buffer: scope.upload("photivra-display-view-photo-records", records, BUFFER_USAGE.STORAGE) } },
+        { binding: 0, resource: { buffer } },
         { binding: 1, resource: { buffer: scope.upload("photivra-display-view-photo-params", new Uint8Array(bandParams), BUFFER_USAGE.UNIFORM) } },
         { binding: 2, resource: { buffer: scope.upload("photivra-display-view-photo-nodes", nodeTable, BUFFER_USAGE.STORAGE) } },
         { binding: 3, resource: { buffer: scope.upload("photivra-display-view-photo-light", lightTable, BUFFER_USAGE.STORAGE) } }] });

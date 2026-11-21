@@ -300,6 +300,17 @@
   they now carry the GPU's value inside the declared bound (samples within one code). The shader text changes; CPU results, hash
   locks and the bundle rows are unchanged (the image-plane code is outside the capture worker's shape).
 
+- **Image-plane prints in the Quality passes build only the pixel records a band reaches (#715).** Each band built and uploaded a
+  16-byte record for every column of the photo over the rows its lattice windows reach, in one piece, and the Quality host did not
+  count them in its band size, so a band whose records passed the device's storage binding limit threw `insufficient-limits` and
+  `gpu: "auto"` rendered the view on the CPU. The records now cover the columns the band reaches too, are written 4 MiB of rows at
+  a time, and the host counts them (`DisplayViewQualityImagePasses.bandBytes`) and splits such a band. Measured on the float32
+  emulation (`syntheticPhoto(6000, 4000)` fitted inside the frame, diffraction, 203 × 135 view): a 48 × 36 region builds 28.9 MB of
+  records in 45–53 ms (113.3 MB in 242–325 ms before); a 24 × 135 region 52.5 MB in 76–78 ms (384 MB in 834–873 ms), and with a
+  128 MiB binding limit it renders on the device instead of falling back. Values are unchanged (banded renders equal one band byte
+  for byte; the Quality image-plane cases' bytes equal the previous commit's). On-demand row 50,391 → 50,400 B (limit 50,400 B):
+  the host's hook replaces the per-point multiplier, and the image-plane site pass's node count is read from the gather.
+
 ### Benchmarks
 
 - **The batch-figure benchmark and its hash locks (#670, 2.28.0 step 2); no package, API, output or bundle change.**
