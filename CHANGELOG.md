@@ -89,6 +89,50 @@
   (from `JSON.parse`) threw a plain `TypeError`; each now fails with "Unknown sensor.profile field: <name>."
   (`InvalidConfigurationError`), also through `calculateSensorProfileFrame` and `resolveSensorProfileIsoSettings`. No output change for
   valid requests.
+- **Low-severity fixes (2.28.0 step 8, #701).** No output change for valid requests; hash locks and image bytes unchanged.
+  Fast row 337,864 B (24 B below 337,888 B: the duplicated site-applicability, temperature-applicability, uncertainty and
+  reference-conditions parsers are now one copy each); on-demand, export and lens rows unchanged.
+  - *Domain errors for missing nested records (`sensor-11`).* Exported sensor primitives that read a missing or null nested
+    record (compatibility, sensor, wavelength range, quadrature node, exposure binding and rate identity, raw code, centre site,
+    sample, site, sample point, capture mode and its dependencies, sample index, grouping anchor, response uncertainty) now fail
+    with `InvalidConfigurationError` or `InvalidScientificInputError` instead of a plain `TypeError`.
+  - *Sparse arrays (`sensor-12`).* `siteChannelIds`, `interFrameSensorOffsetsNativeSamples.value`, a stabilization trajectory's
+    `samples` and a system profile's `axisResponses` with holes are refused.
+  - *Fields of another kind (`sensor-13`).* A spectral-response channel and a radiometry-readiness requirement may carry only
+    their own kind's or representation's fields; a stray field is refused instead of dropped.
+  - *Misspelled motion keys (`sensor-14`).* The translation-parallax and extended-object quadratures refuse unknown keys in scene
+    samples, points, three-component vectors and `frontoparallelPlane` (a misspelled `subjectVelocityMPS` no longer makes the
+    subject still).
+  - *Operating range and compatibility (`sensor-15`, `sensor-16`).* `assessSensorResponseOperatingRange` refuses a reduction
+    without a finite wavelength range or, for a per-spectral-bin model, without bins; the compatibility check parses
+    `operatingConditions` (known keys, angle 0 to 90°, polarization) and refuses an unknown `responseScope`. The
+    operating-range profile's reference-condition messages now read as the response profile's.
+  - *RAW code samples (`sensor-17`).* `createSensorRawCaptureSample` requires an integer `rawCode` in
+    [0, `digitalSaturationCode`] with integer black and saturation codes; the reconstruction refuses a non-number sample value
+    instead of coercing a string.
+  - *Video timing (`sensor-18`).* The shutter-angle helpers and `resolveVideoFrameSequence` refuse timings that overflow,
+    underflow or collapse to a zero-length exposure at extreme accepted frame rates.
+  - *Stabilization (`sensor-19`).* `calculateStabilizedCaptureTemporalSamples` refuses a zero or negative local exposure duration.
+  - *Sampling-aperture fit (`sensor-20`).* The "within one lattice cell" test allows 8 ε of the pitch, as the imaging-area fit
+    does: apertures touching the cell edge exactly in decimal are accepted (0 of 4,755 refused, from 511).
+  - *Timing constructors (`sensor-21`).* `parseCaptureModeTimingProfile` requires a positive traversal and rolling skew;
+    `createRollingShutterCaptureExposureSchedule` validates `shutterMechanism`.
+  - *Air refractive index (`sensor-22`).* `phaseRefractiveIndex` must be from 1 through 1.01 (a documented sanity bound;
+    standard air is about 1.00029).
+  - *Dark-current table (`sensor-23`).* A log-linear table whose rate ratio overflows or underflows is evaluated in
+    logarithms; other tables keep the same expression and bits.
+  - *Lower code clamp report (`sensor-24`).* `lowerCodeClampApplied` is also set when the ADC stage clamps below 0 before a
+    declared digital gain; codes unchanged.
+  - *ADC bit depth with INL (`sensor-25`).* `sensor.adcBitDepth` other than the readout's is refused, naming
+    `sensor.adcBitDepth`, when the ADC declares integral non-linearity (no built-in body does).
+  - *Prepared contributor resolver (`sensor-27`).* The RAW-frame and producer paths parse the colour-sampling binding and
+    capture mode once per frame: 3.9 → 0.48 µs per site on a 960 × 640 raster; results identical.
+  - *Docs (`sensor-05`, `sensor-26`).* docs/SENSOR_PROFILES.md's SNR column is regenerated from
+    `calculateSensorFigures({ profile, iso: 3200 })` (Professional tier 15.1 → 15.6) and checked by a test;
+    docs/STABILIZATION.md says the rotation mapping rejects only rays on or behind the camera plane.
+  - Inputs refused now that were accepted before: the malformed records above, stray fields of another variant, extra motion
+    keys, a raw code outside the ADC range or fractional, `operatingConditions` with unknown keys or out-of-range
+    values, a zero traversal or skew, an air index outside [1, 1.01].
 
 ### Exposure and colour
 
