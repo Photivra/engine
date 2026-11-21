@@ -2871,7 +2871,8 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   } else {
     // #583: a lens range without f/4–f/16 limits the line to it; every other request keeps the line and its assumption.
     const programLine = facadeProgramLine(clamp(4), clamp(16), reference, FACADE_EVIDENCE);
-    // A limited line (#583) records its nodes under the profile id "facade-generic-program-line-lens-range".
+    // A limited line (#583) records its nodes under the profile id "facade-generic-program-line-lens-range"; #673: a line anchored at a
+    // base ISO above 100, under "facade-generic-program-line-base-iso".
     if (!calls) assume("exposure.programLine", "model", programLine.nodes.length > 4 ? programLine.profileId : programLine,
       "Engine-authored generic program line (f/16 1/2000 s … f/8 1/125 s … f/4 1.024 s); not a manufacturer program.");
     resolution = resolveProgramAutoExposureMode({ target, capabilities: resolverCapabilities, referenceExposure: reference, programLine,

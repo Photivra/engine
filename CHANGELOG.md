@@ -9,6 +9,13 @@
   of 2026-11-21): 80, 100, 200, 400 … up to the profile's Auto ISO maximum. Every other grid keeps its list, so a request that
   resolved before resolves to the same settings and bytes (3,804 requests compared: 2,647 unchanged, 424 that were refused now
   resolve, none changed). Tests: `test/sensor-profile-auto-iso.test.ts`.
+- **Fixed: program mode on a sensor profile whose base ISO is above 100 (#673).** `exposure.mode: "program"` was refused on
+  `full-frame-24mp-stacked-sports-2020s` (base ISO 125) and on any profile copy with a base ISO above 100: such a profile moves
+  the exposure reference to a shorter shutter, and the line's fixed node stops, measured from f/8 at 1/125 s, no longer matched
+  it. The fixed nodes are now used only at that anchor; any other takes the computed nodes (f/16 1/2000 s, f/16 1/125 s, f/4
+  1/125 s, f/4 1.024 s, stops from the anchor), recorded as `"facade-generic-program-line-base-iso"`. A request that resolved
+  before used the default anchor, so its line, settings and bytes are unchanged (3,804 requests compared: none changed; 373 more
+  resolve). `calculateProgramLine` takes no profile and is unchanged. Tests: `test/program-line-lens-range.test.ts`.
 - **Tooling, CI and tests only (2.28.0 step 1); no package, API, output or bundle change.**
   - *Coverage gates decide per shard (#666, with `ci-07`).* Each coverage shard uploads one part, its blob report or a marker
     naming the `coverage` proof it found; `.github/coverage-parts.mjs` merges ten blobs with the thresholds enforced, passes a

@@ -25,8 +25,7 @@ const copy = (baseIso: number): SensorProfile => ({ ...ff, id: "copy-" + baseIso
 describe("Auto ISO in whole stops on every sensor profile (#672)", () => {
   it.each(SENSOR_PROFILES.map((p) => [p.id, p] as const))("%s: every mode resolves, the base ISO in bright light and above ISO 640 in the dark", async (_, p) => {
     const settings = resolveSensorProfileIsoSettings(p);
-    // Program mode on a base ISO above 100 is #673.
-    for (const mode of MODES.filter((m) => m !== "program" || p.baseIso <= 100)) {
+    for (const mode of MODES) {
       const bright = await capture(2e6, { sensor: { profile: p } }, autoIso(mode)), dark = await capture(0.5, { sensor: { profile: p } }, autoIso(mode));
       for (const r of [bright, dark]) expect(settings).toContain(r.exposure.settings.iso);
       // The base ISO stays in the whole-stop list (owner decision of 2026-11-21).

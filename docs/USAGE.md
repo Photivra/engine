@@ -5652,7 +5652,9 @@ still from 1/2000 s to 1.024 s. Where both lines run, the limited line's apertur
 Beyond the line's ends the resolver holds them as before. A range that holds f/4–f/16, or no range, keeps the line and its
 bytes. The limited line is recorded as its profile (id `"facade-generic-program-line-lens-range"`), with node stops measured from the
 capture's exposure anchor (f/8, 1/125 s; the same N²/t at the range's aperture nearest f/8; or, #585, that aperture at the
-body's shortest shutter when the same N²/t would need a shorter one). An approximation of a generic
+body's shortest shutter when the same N²/t would need a shorter one). A sensor profile whose base ISO is above 100 moves the
+anchor to a shorter shutter (the same N²/(t·S) at its base ISO); its line has the same f/16, f/4 and shutter nodes with stops
+measured from that anchor, recorded under the id `"facade-generic-program-line-base-iso"` (#673). An approximation of a generic
 program, not a manufacturer's.
 
 ## Program Auto and Full Auto exposure
