@@ -117,3 +117,12 @@ test("a release that does not wait for every part of the WebGPU conformance suit
   // The conformance job's own selector is not the tooling-major pin that every other publish.yml job keeps.
   assert.deepEqual(matrixDrift(files, afterNode26Lts).errors, []);
 });
+test("a proof upload that can fail a passing job, or a job that hides its failure, fails (ci-20 and ci-21 in #703)", () => {
+  assert.equal((files.ciText.match(/- name: Keep the proof\n(?: {8}#.*\n)* {8}continue-on-error: true\n/g) ?? []).length, 4);
+  const cases = [
+    [({ ciText }) => ({ ciText: ciText.replace(/(- name: Keep the proof\n(?: {8}#.*\n)*) {8}continue-on-error: true\n/, "$1") }), /"Keep the proof" step of job `test` must set `continue-on-error: true`/],
+    [({ webgpuText }) => ({ webgpuText: webgpuText.replace("        continue-on-error: true\n", "") }), /webgpu\.yml: the "Keep the proof" step of job `webgpu-conformance`/],
+    [({ ciText }) => ({ ciText: ciText.replace("    runs-on: macos-latest\n", "    runs-on: macos-latest\n    continue-on-error: true\n") }), /job `hash-locks-macos` must not set job-level `continue-on-error`/]
+  ];
+  for (const [change, expected] of cases) assert.match(ruleErrorsOf(change), expected);
+});

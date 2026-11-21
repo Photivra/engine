@@ -149,6 +149,9 @@ jobs:
           node .github/ci-proof.mjs name "test-${{ matrix.part }}"
           echo "$GITHUB_RUN_ID" > "$RUNNER_TEMP/ci-proof.txt"
       - name: Keep the proof
+        # A failed upload (a network error) must not fail a job whose work passed: the proof only lets a later run skip
+        # that work, and without it the work runs again (ci-20 in #703).
+        continue-on-error: true
         if: steps.proof-name.outcome == 'success'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
@@ -364,6 +367,9 @@ jobs:
           node .github/ci-proof.mjs name coverage
           echo "$GITHUB_RUN_ID" > "$RUNNER_TEMP/ci-proof.txt"
       - name: Keep the proof
+        # A failed upload (a network error) must not fail a job whose work passed: the proof only lets a later run skip
+        # that work, and without it the work runs again (ci-20 in #703).
+        continue-on-error: true
         if: steps.proof-name.outcome == 'success'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
@@ -436,6 +442,9 @@ jobs:
           node .github/ci-proof.mjs name licence-scan
           echo "$GITHUB_RUN_ID" > "$RUNNER_TEMP/ci-proof.txt"
       - name: Keep the proof
+        # A failed upload (a network error) must not fail a job whose work passed: the proof only lets a later run skip
+        # that work, and without it the work runs again (ci-20 in #703).
+        continue-on-error: true
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: steps.proof-name.outcome == 'success'
         with:
@@ -444,18 +453,19 @@ jobs:
           retention-days: 7
 
   hash-locks-macos:
-    # Informational portability check for the bit-identity hash locks, which
-    # were recorded on Linux x64 (docs/NUMERICAL_CORRECTNESS.md, "Test hash
-    # locks and platforms"); three of them hold on x64 only and are checked here
-    # against their recorded arm64 hashes (#508). It does not block the required
-    # verify gate; a failure is a portability finding to investigate. GitHub-hosted macOS
-    # minutes are free for this public repository. It is a required check, so it also
-    # reports on merge-queue entries; there it skips on a proof of the same tree.
+    # The bit-identity hash locks on macOS arm64. They were recorded on Linux x64
+    # (docs/NUMERICAL_CORRECTNESS.md, "Test hash locks and platforms"); three of them
+    # hold on x64 only and are checked here against their recorded arm64 hashes (#508).
+    # It is a required check of the main ruleset and blocks a merge like the others (owner
+    # decision 2026-11-21, ci-21 in #703: until 2.28.0 this comment called it informational
+    # and the job set continue-on-error, which does not change a failed job's check result).
+    # A failure is a portability finding to investigate before merging. GitHub-hosted macOS
+    # minutes are free for this public repository. It also reports on merge-queue entries;
+    # there it skips on a proof of the same tree.
     name: hash locks (macos-latest)
     if: github.event_name != 'push'
     runs-on: macos-latest
     timeout-minutes: 15
-    continue-on-error: true
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -505,6 +515,9 @@ jobs:
           node .github/ci-proof.mjs name hash-locks-macos
           echo "$GITHUB_RUN_ID" > "$RUNNER_TEMP/ci-proof.txt"
       - name: Keep the proof
+        # A failed upload (a network error) must not fail a job whose work passed: the proof only lets a later run skip
+        # that work, and without it the work runs again (ci-20 in #703).
+        continue-on-error: true
         if: steps.proof-name.outcome == 'success'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:

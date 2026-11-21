@@ -133,6 +133,15 @@ export function workflowRuleErrors({ ciText, publishText, webgpuText }) {
   const verifyPrimary = workflowJobs(ciText).get("verify-primary") ?? "";
   if (!/id: proof-name\n\s+if: [^\n]*steps\.parts\.outputs\.action == 'merge'/.test(verifyPrimary))
     errors.push("`verify (lts/*)` must name the `coverage` proof only after a merge of ten blobs (#666).");
+  // ci-20 (#703): a failed proof upload must not fail a job whose work passed. ci-21: no job of ci.yml sets job-level
+  // `continue-on-error`, which leaves a failed job's check result `failure` (a required check still blocks) while it hides the
+  // failure from the run's result.
+  for (const [file, text] of [["ci.yml", ciText], ["webgpu.yml", webgpuText]])
+    for (const [id, block] of workflowJobs(text)) {
+      if (/^ {4}continue-on-error:/m.test(block)) errors.push(`${file}: job \`${id}\` must not set job-level \`continue-on-error\` (ci-21 in #703).`);
+      for (const step of block.split(/\n(?= {6}- )/).filter((step) => /^ {6}- name: Keep the proof\s*$/m.test(step)))
+        if (!/^ {8}continue-on-error: true\s*$/m.test(step)) errors.push(`${file}: the "Keep the proof" step of job \`${id}\` must set \`continue-on-error: true\` (ci-20 in #703).`);
+    }
   // #713: a release waits for every part of the WebGPU conformance suite on its tree, looked up on webgpu.yml's Node.js release.
   const conformance = workflowJobs(publishText).get("conformance") ?? "";
   const parts = [...(workflowJobs(webgpuText).get("webgpu-conformance") ?? "").matchAll(/^\s+- part: (\d+)\s*$/gm)].map((m) => m[1]);
