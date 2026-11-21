@@ -9,6 +9,8 @@
 import type { EvidenceProvenance } from "../core/evidence-provenance.js";
 import type { GenericTierLensAssets } from "../equipment/generic-tier-assets.js";
 import { parseExposureProgramLineProfile, type ExposureProgramLineProfile } from "../exposure/program-line.js";
+// foundation-06 (#699, 2.28.0): the portable log2, the same bits on every Node.js line.
+import { portableLog2 } from "../core/portable-math.js";
 
 /** The facade's exposure anchor: f/8, 1/125 s, ISO 100 (its defaults). */
 export const FACADE_EXPOSURE_ANCHOR = /* @__PURE__ */ Object.freeze({ fNumber: 8, shutterSeconds: 1 / 125, iso: 100 });
@@ -58,6 +60,6 @@ export function facadeProgramLine(wide: number, narrow: number, anchor: { apertu
     limitations: ["Generic educational program line authored for the capture facade; not any manufacturer's program."],
     nodes: (own ? [["minus-6", -6, 16, 1 / 2000], ["minus-2", -2, 16, 1 / 125], ["zero", 0, 8, 1 / 125], ["plus-2", 2, 4, 1 / 125], ["plus-9", 9, 4, 128 / 125]] as const :
       [[narrow, 1 / 2000], [narrow, 1 / 125], [wide, 1 / 125], [wide, 128 / 125]].filter((_, i) => i !== 2 || wide < narrow)
-        .map(([aperture, shutterSeconds], i) => ["n" + i, Math.log2(shutterSeconds! * anchor.aperture ** 2 / anchor.shutterSeconds / aperture! ** 2), aperture!, shutterSeconds!] as const))
+        .map(([aperture, shutterSeconds], i) => ["n" + i, portableLog2(shutterSeconds! * anchor.aperture ** 2 / anchor.shutterSeconds / aperture! ** 2), aperture!, shutterSeconds!] as const))
       .map(([nodeId, opticalExposureStopsFromReference, aperture, shutterSeconds]) => ({ nodeId, opticalExposureStopsFromReference, aperture, shutterSeconds })) });
 }

@@ -231,6 +231,184 @@
   identical; `diagnostics.providerEvaluationCount` unchanged. Mixed lighting, caller function scenes, the display view and the
   defocus and diffraction providers keep their own handling. Tests: `test/simulate-capture-subject-motion.test.ts`.
 
+### Output changes (2.28.0 step 5)
+
+Each item below is one commit of the serial output-change lane, with its measured effect and the hash locks it re-records.
+
+- **A fast catalogue-lens region takes the whole frame's method (#733).** The run-time check of `lens.catalogue`'s fast method
+  (#568) read the region's own top-left 2 × 2 block, so a region that started on fine detail failed the 0.5 % check there and
+  rendered with the exact method while the whole frame took the fast one (480 × 320 Siemens star, PV 50 1.8 at f/1.8, `fast: true`:
+  the region at 216, 144, 48 × 32 differed from the same pixels of the whole frame in 392 of 4,608 samples, by up to 421 16-bit
+  codes). The check now reads two blocks fixed by the whole frame, its top-left 2 × 2 block and the block at its centre (eight
+  sites; a region reads them through providers windowed to each block), so a frame and all its regions take one method and a
+  region equals the same pixels of the whole render (`test/simulate-capture-lens-catalogue-fast-region.test.ts`). Per-site
+  integration of both methods is unchanged; only where the check reads moved. No new grid step (owner decision 2026-11-21).
+  - *Measured effect.* Whole frames that take the fast method today and fail the centre check now take the exact method. Over
+    the catalogue wide open (30 lenses without the phone set, Siemens star, slanted edge, 16-square checkerboard and dead leaves,
+    `fast: true`, sRGB-8): 480 × 320 and 768 × 512, 0 of 240 frames fall back, before and after, and every frame's samples are
+    unchanged; 96 × 64 and 192 × 128, 11 of 240 frames now fall back (all at 96 × 64, Siemens star or checkerboard, PV 16 2.8,
+    PV 20 2, PV 24 1.8, PV 35 1.8, PV 85 1.8, PV 100 2 and PV 200 5.6), against 0 before; their samples change to the exact
+    method's. Fallback rate over the 480 frames: 2.3 %, all on frames 96 pixels wide.
+  - *Reports.* `raw.expectedSignal` of the catalogue paths says `verificationSites: 8`; `fast.lens.catalogue`'s
+    `gridPointsResolved` counts the centre block's grid points too.
+  - *Locks.* No samples, codes or display-view lock moves (arm64, and x64 Node 24.1.0 under Rosetta). Re-recorded for #733: the
+    `assumptions` digests of `PV 24 1.8 fast` and `PV 100 2.8 Macro Pro close, chart size` in `test/lens-catalogue-optics-pins.test.ts`
+    (the report fields above; the same on both architectures). `test/lens-catalogue-flare.test.ts`'s fast case uses 7 squares instead
+    of 6, so that its frame centre lies inside a square (on the corner of four, the 4-cell grid is over the check's tolerance and
+    the capture now takes the exact method).
+  - *Bundle.* Fast row 337,720 → 337,829 B (+109 B); with #670 win 1 (next item) the row is under its 337,800 B limit again.
+
+- **Full-quality display views take the two exact regroupings (#670 win 1, owner decision 2026-11-21).** `fast: false` (the
+  flag batch figure renders use) now takes the per-tap chart signal from the pre-integrated spectral radiance (#643, #653) and the
+  regrouped defocus disc (#612, #642), which 2.25.0 to 2.27.0 ran only on fast requests. Both are the same sums in another order, so
+  they are no longer fast methods: the registry entries `chart.signal/view-per-tap` and `lens.defocus/view-regrouped` are removed,
+  `view.signal` reports `{ sum: "per-tap" }` (no `fast: true`) and `view.defocus` no longer reports `fast:
+  "defocus-after-in-focus-signal"`, on both flags. Per-site integration is unchanged: the pre-integrated values are spectra,
+  integrated against each site's own channel response when the site is read. The default flag's output is unchanged.
+  - *Measured effect* (the #670 part tier, `fast: false`, against 2.27.0's `fast: false` at 8ec59ee): 8-bit samples that differ:
+    1 of 99,072 (by one level) in `frame-768`, `wide-24` and `noise-iso-frame`, 2 of 99,072 (by one level) in `dr-recover-push`;
+    0 in the other 18 cases.
+  - *Speed* (`node scripts/benchmark-figure-batch.mjs pair`, `FLAGS=exact`, each pair started together, a loaded machine, CPU s):
+    `dof-near-s1` 81.9 → 2.3 (0.03×), `dof-near-s4` 25.5 → 1.3 (0.05×), `bokeh-s1` 45.9 → 6.5 (0.14×), `tele-200` 28.3 → 6.6
+    (0.23×), `frame-768` 13.3 → 4.0 (0.30×), `noise-iso-frame` 14.0 → 4.3 (0.30×), `sensor-aps-c` 0.39×, `wide-24` 0.40×,
+    `frame-1536` 0.48×, `sensor-phone` 0.54×, `dr-recover-push` 0.69×; the other cases 0.98–1.12× (no kernel sums of this kind:
+    catalogue lens, motion, layered, mixed light, captures). Set of 22 parts: 438.0 → 234.2 CPU s (0.53×). Peak RSS up to 83 MB
+    higher (the spectral lattice tiles).
+  - *Locks re-recorded for #670 win 1* (`test/figure-batch-hash-locks.test.mjs`, arm64 and x64 Node 24.1.0 under Rosetta): the
+    `fast: false` `internals` digests of `frame-768`, `frame-1536`, `tele-200`, `wide-24`, `sensor-phone`, `dof-near-s1`,
+    `dof-near-s4`, `bokeh-s1`, `noise-iso-frame`, `dr-recover-push` and `sensor-aps-c` (they now equal the default flag's), and the
+    `fast: false` `sceneLookups` of `dof-near-s1` (602,488 → 198,096) and `dof-near-s4` (823,888 → 203,992). No `samples` lock moved
+    (the lock regions are small); the display-view locks of `test/display-view.test.ts`, `-pixel-memo` and `-detail-shared` hold.
+  - *Bundle.* Fast row 337,829 → 337,715 B (−114 B; lane so far −5 B against step 4's 337,720 B).
+
+- **Captures with kernels take the per-tap sum, fast and exact (#731, owner decision 2026-11-21).** The tabulated RAW path of a
+  capture with kernels (`lens.diffraction`, or a small `lens.defocus` disc) on a chart or material scene formed one set of kernel
+  taps per lattice group, N² groups for an N × N box pixel aperture, so its time grew with N² where the display view's did not. It
+  now takes the display view's per-tap sum of the pre-integrated spectral radiance (#643, #653) on every request, exports and
+  `fast: false` included (no flag: the same sum regrouped). `raw.expectedSignal` adds `sum: "per-tap"`. The run-time check against
+  the chain stays at 1e-9; per-site integration is unchanged.
+  - *Measured effect.* Expected electrons within 1.5e-14 relative of the per-material sums (1.4 µm, f/8, 4 × 4 box, 32 × 24 sites;
+    `test/simulate-capture-per-tap.test.ts`). Samples: 0 changed in 18 captures (9 requests × both flags, 128 × 128 regions,
+    884,736 samples) and in the five capture cases of the #670 benchmark, both flags.
+  - *Speed* (paired, CPU s, 128 × 128, f/8 with diffraction): 1.4 µm 4 × 4 box Siemens star 10.4 → 0.48 (0.05×) fast and
+    10.4 → 0.44 exact (sRGB-16 exact 13.8 → 0.44), dead leaves 4.3 → 0.28, four-spot and 2 × 2 box 3.8 → 0.41, 2 × 2 box 1.7 → 0.55
+    (sRGB-8) and 2.7 → 0.39 (sRGB-16); 6 µm 4 × 4 box Siemens star 1.31 → 0.17, slanted edge 0.19 → 0.11; point aperture
+    0.92 → 0.36. #670 captures: `detail-star-f22` 0.33×, `detail-star-f8` 0.63×, `detail-noise` 0.71× on both flags. The 384 × 384
+    and 12-megapixel cases of the ticket and a whole capture's peak memory were not re-measured (peak RSS of the parts above: up to
+    +14 MB; the spectral tiles are bounded by `PREINTEGRATED_CACHE_BYTES`).
+  - *Locks.* None moved (every capture, DNG, display-view and figure-batch lock holds on arm64 and x64).
+  - *Bundle.* Fast row 337,715 → 337,772 B (+57 B; lane so far +52 B against 337,720 B).
+
+- **Region results describe themselves and a join of parts checks them (#728).** The join of `serializeSimulatedCaptureDngFromParts`
+  and `simulateCaptureFromParts` refused a part rendered by a fast method only when the caller set the optional `part.fast`, which
+  the documented part shape `{ raw: result.raw, region: result.region! }` does not; and nothing identified a part's request. With
+  `sensor.pixelAperture: "box"` or camera yaw, sRGB parts (fast by the format default) joined into an exact DNG were accepted and the
+  DNG differed from the whole render (969 and 918 of 4,652 bytes, 48 × 32); parts rendered at ISO 800, of another scene or another
+  pixel pitch joined under an ISO 100 request. A region result's `region` now carries `fast` (a fast method ran) and `requestKey`
+  (SHA-256 over the scene digest, the request's options without `output` and `fast`, the resolved exposure settings and noise seed,
+  the native raster and pitch, and the resolved spectral step, box and temporal counts). The join reads `region.fast ?? fast` and
+  refuses a part whose key is another request's; a part without the new fields (an earlier version's) joins with the earlier checks.
+  The two examples in `docs/QUICK_START.md` render their parts with the join's `fast` (`fast: false`).
+  - *Measured effect.* Additive fields only: no sample, RAW code or DNG byte of a capture changes, and every join that matched its
+    whole render joins to the same bytes (`test/simulate-capture-dng-parts.test.ts`, `-develop-parts`); the two failing rows above
+    and the other-request sets are refused (`test/simulate-capture-parts-self-describing.test.ts`). Two existing tests now see a
+    part of another request refused by its key (the same "not the same request" text), and the registry's join test sets
+    `region.fast`, which takes precedence over `fast`.
+  - *Locks.* None moved (arm64 and x64).
+  - *Bundle.* Fast row 337,772 → 337,959 B (+187 B; lane so far +239 B against 337,720 B). Over the 337,800 B limit in the test,
+    which this branch does not change (see the step 5 report).
+
+- **`lens.diffraction`: the default kernel window follows the flag (#732, owner decision 2026-11-21).** Without
+  `kernelRadiusSamples`, a request that resolves to fast (sRGB captures and display views by default) takes the Airy kernel window
+  to the second dark ring at the longest spectral node (j₁,₂ = 7.0156, NIST DLMF Table 10.21.1) where that is fewer sites than the
+  third; exact requests (`fast: false`, `"dng"`, `"jpeg"`, `"png"`, `simulateIdealReference`) keep the third ring, and an explicit
+  `kernelRadiusSamples` always wins. Radii: 15 → 10 at 1.4 µm f/8, 8 → 5 at f/4, 29 → 20 at f/16; 4 → 3 at 6 µm f/8, 7 → 5 at f/16.
+  `diagnostics.fast.applied["lens.diffraction"]` is `true` and the `fast.lens.diffraction` assumption's `window` gives both radii and
+  the a-priori bound B = max over nodes of (T_fast − T_exact) / (1 − T_exact), T the Airy energy outside each window, the largest
+  change at a site as a share of the scene contrast its CFA colour sees (2.79 % at 1.4 µm f/8, 1.31 % at 6 µm f/8; the test checks it
+  at every native site of 96 × 96 at the Siemens star's centre, 1.4 µm f/8 and 6 µm f/16). Registry entry
+  `lens.diffraction/kernel-window`. Per-site integration is unchanged; only the optics kernel's window. The window reaches the GPU
+  kernels, the defocus kernels and the layered scene through `kernelRadiusSamples`. `docs/QUICK_START.md`'s `fast` row is corrected
+  (it said the default was `false` and that no option had a fast method).
+  - *Measured effect* (the #670 part tier, default flag, against the tree before #732): 8-bit samples that differ, all by one level
+    in the views: `frame-768` 1,838 of 99,072, `tele-200` 1,079 of 99,072, `sensor-aps-c` 569 of 25,344, `mixed-light` 232 of
+    25,344, `sensor-phone` 5 of 25,344; the 1.4 µm captures `detail-star-f8` 31,023 and `detail-star-f22` 37,127 of 73,728 (up to 10
+    and 9 levels at the star's centre), `detail-noise` 2,634 of 73,728 (ISO 25,600: a shifted expected value changes the seeded
+    draws, up to 61 levels). The review's ΔE measurements are on the ticket (largest ΔE 2.5 at 1.4 µm and 3.3 at 6 µm at 1:1).
+    `fast: false` and every request with an explicit radius are unchanged.
+  - *Speed* (paired, default flag, CPU s): `mixed-light` 48.7 → 35.7 (0.73×), `detail-star-f22` 0.83×, the 6 µm frames 0.89–0.92×,
+    `frame-1536` 1.03× (one run); the review measured 2.1–2.6× on its 1.4 µm f/8 cases (not re-measured here).
+  - *Locks re-recorded for #732* (arm64 and x64 Node 24.1.0 under Rosetta): `test/display-view.test.ts` cases 1, 3, 4 and 5
+    (`samples`, `internals`, `combined`) and case 2's `internals` and `combined` (its samples hold); `test/display-view-pixel-memo.test.ts`
+    case 2 (all three); `test/figure-batch-hash-locks.test.mjs`, default flag: `samples`, `internals` and `sceneLookups` of
+    `frame-768`, `frame-1536`, `tele-200`, `wide-24`, `sensor-phone`, `noise-iso-frame`, `dr-recover-push`, `mixed-light`,
+    `sensor-aps-c`, `detail-star-f8` and `detail-star-f22`, and `providerEvaluationCount` of `detail-noise`. Tests that compared a
+    fast and an exact diffraction request for another method now give an explicit radius, and the parts of the DNG and develop joins
+    render with the join's `fast` (#728 refuses fast parts under an exact join).
+  - *Bundle.* Fast row 337,959 → 338,242 B (+283 B; lane so far +522 B against 337,720 B).
+
+- **Catalogue-lens PSF: the exact cell integral, and small pixels at large f-numbers (#674, with `optics-27` of #700).** The node PSF
+  |FFT(pupil)|² was sampled on a grid of pitch min(λ·N_w/2, p/4), each grid square counted as constant over the site cells it
+  overlapped, with an FFT period of at most 1.25 × the window or the PSF's extent: stopped down, the centre tap came out 2–20 % low
+  and the kernel too wide, and 1–2 µm pixels at f/16–f/32 were refused ("fewer than 9 samples"). Now the grid pitch is λ·N_w/2.5
+  (the intensity, a trigonometric polynomial of degree size/2.5, is resolved), the period holds the PSF and (up to 512 samples) the
+  window, at least 128 samples, and each site cell takes the exact integral of the band-limited periodic intensity (the sinc of a
+  box; Goodman, ch. 2), cells beyond the period integrating only its part. The builder's sines and cosines are the engine's portable
+  ones, so the kernels have the same bits on x64 and arm64. Profile version 1.1.0. The Seidel OPD, node grid, 3 % window rule,
+  centroid alignment and orientation are unchanged; `optics-27`: the window comment says 3 %, as the code and docs do.
+  - *Measured effect* (PV 50 1.2 Pro, focus 50 m, the axial node, centre tap against the exact Airy cells, before → after): 6 µm f/8
+    550 nm −5.27 % → +0.02 % (L1 0.090 → 0.0013), 780 nm −4.59 % → +0.07 %; 6 µm f/22 −3.88 % → +0.07 %; 3 µm f/22 550 nm −11.8 % →
+    +0.10 %, 780 nm −17.3 % → +0.10 %; 2 µm f/22 780 nm −20.2 % → +0.10 % (L1 0.210 → 0.0010); 6 µm f/4 380 nm −0.74 % → −0.17 %
+    (with the lens's axial colour). Without aberrations every node of 1–12 µm × f/4–f/22 × 380–780 nm is within 0.11 % at the centre
+    tap and 0.0034 in L1 (`test/generic-lens-psf-cells.test.ts`). PV 50 1.2 Pro at f/22 on 1.5 µm, at f/16 on 1 µm and PV 200 2 Pro
+    at f/32 on 2 µm now render. Build CPU per profile 0.01–0.06 → 0.03–0.09 s. Every stopped-down `lens.catalogue` render changes;
+    wide open the change is small.
+  - *Locks re-recorded for #674* (x64 Node 24.1.0 under Rosetta and arm64, the same on both): `test/display-view-detail-shared.test.ts`
+    (all 17 cases' internals; the samples of the 12 at 2 and 1 real pixels per display pixel), `test/lens-catalogue-optics-pins.test.ts`
+    (PV 100 2.8 Macro Pro close: samples, codes, assumptions; PV 8 3.5 Fisheye Pro fast: samples, codes; PV 24 1.8 fast: assumptions),
+    `test/program-line-lens-range.test.ts` (`catalogue50`: samples, codes, assumptions), `test/sensor-profile-pins.test.ts` (the phone
+    profile with PV 77 2.8 Phone: raw, assumptions), `test/figure-batch-hash-locks.test.mjs` (`catalogue-768` and `catalogue-corrected`,
+    internals, both flags; samples hold).
+  - *Bundle.* Fast row 338,242 → 338,222 B (−20 B; lane so far +502 B against 337,720 B).
+
+- **Display view, catalogue lens with the box aperture: the offsets' lens mapping to second order (#685, steps 2–3 of the
+  box-aperture plan; a new fast method).** Each pre-integrated lattice point B(p) = Σ_o w_o·F(p + o)·L(p + o) mapped every query
+  offset through the lens (four mappings per point for a 2 × 2 box, 64 % of the box's extra cost). On a fast request with more than
+  one query offset, each offset's plane point and field factor now come from a second-order expansion about its nearest site
+  centre (value, central-difference gradient and Hessian of the 3 × 3 mapped site centres), each offset still reading its own
+  material, and a point whose offsets read one material takes (Σ_o w_o·F_o)·L_m per node (`lens.catalogue/view-offset-expansion`,
+  `lens.catalogue`'s flag; `view.lensPsf` reports `offsetMapping: "second-order-expansion"`). Fisheyes, radiance scenes and
+  `fast: false` keep one mapping per offset. The code is in the on-demand Quality kit (`src/facade/display-view-offset-expansion.ts`).
+  - *Measured effect.* Against the full method, every site of every catalogue lens but the fisheyes and phones, wide open and at its
+    narrowest f-number, 2 × 2 box, dead leaves at 12 µm: within 1.9e-11 relative (bound tested: 1e-6); within 1e-6 with the four-spot
+    filter and under a rolling shutter with rotation; regions equal the whole view (`test/display-view-lens-offset-expansion.test.ts`).
+    The #670 part tier's catalogue cases (four-spot filter, default flag): samples unchanged.
+  - *Speed* (`scripts/benchmark-display-view-cases.mjs`, CPU s, a heavily loaded machine): 655-catalogue-96-box 29.5 → 21.7 against the
+    tree before (paired, two runs, before a last change that reuses a shared centre's coefficients); box ÷ point 1.90× → 1.19–1.32×
+    with that change (median 1.25×, three paired runs; the plan's target 1.3×). The
+    #670 catalogue parts: 1.10× and 1.01× (one paired run; their four spots read one material each per offset).
+  - *Locks re-recorded for #685* (arm64 and x64 Node 24.1.0 under Rosetta): `test/figure-batch-hash-locks.test.mjs`, default flag:
+    the `internals` of `catalogue-768` and `catalogue-corrected` and their `sceneLookups` (6,560 → 11,968 and 15,608 → 20,956: each
+    offset now reads its material, where the group lattice ring shared them); samples hold. `test/display-view-lens-catalogue-regrouped-1.test.ts`
+    compares the full methods (no offset expansion) as before.
+  - *Bundle.* Fast row 338,222 → 338,444 B (+222 B: the lens signal's hook and the facade's flag; lane so far +724 B against
+    337,720 B); on-demand row 50,391 → 51,450 B (+1,059 B, the Quality kit).
+
+- **Automatic exposure resolves to the same bits on more Node.js lines (`foundation-06` in #699, owner decision 2026-11-21).** The
+  program line's log-interpolation of aperture and shutter, the ISO offset, the meter target and its compensation, and the
+  centre-weighted and highlight-weighted meter policies take the engine's portable `log2`, `exp2` and `pow` (src/core/portable-math.ts)
+  instead of V8's `Math.log2` and `Math.pow`, whose last bits differ between V8 12, 13 and 14. Manual exposure is unchanged.
+  - *Measured effect* (the review's sweep, 76 requests, 24 × 16 Siemens star, DNG: aperture and shutter priority, program, Auto ISO):
+    on each of Node 22.13, 24.19 and 26.13 (and x64 Node 24.1 under Rosetta, the same as arm64 Node 24.19), 2 requests' settings move
+    by 1 ulp (aperture priority at +1/2 stop on Node 22, −1/2 stop on 24 and 26, its shutter; program at 6,680 lux, its f-number on 22,
+    and so on); no DNG byte changes. Settings that differ between Node 22 and Node 24/26: 4 → 2. The two left (program at 58,568 and
+    46,989 lux, 5 and 10 ulp) come from the meter's zone signal (2 ulp apart: the scene radiance it reads uses `Math`);
+    docs/NUMERICAL_CORRECTNESS.md lists them. `test/exposure-settings-portable.test.ts` locks three requests' settings as IEEE-754 hex,
+    the same on Node 22, 24 and 26.
+  - *Locks.* None moved (every lock file and the exposure, program-line and sensor-profile pins hold on arm64 and x64).
+  - *Bundle.* Fast row 338,444 → 338,421 B (−23 B; the lane +701 B against 337,720 B); the capture-only bundle now also holds
+    `portableLog2`.
+
 ### Display view
 
 - **Display view: Recover and +1 stop without Standard under its time target (#662); output unchanged.** With the identity tone

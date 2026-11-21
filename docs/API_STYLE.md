@@ -255,11 +255,8 @@ have a fast method, a measured and bounded approximation of it. One flag style s
   and `simulateDngRawWhatIf` are full quality only, with no `fast` (owner decision 2026-11-11): the clipping count is exact, the
   noise fit already runs in linear time (quickselect medians; 1.8 s on 24 MP) and a subsample would only add error to a number
   shown to the user, and the what-if's per-site seeded draws are what make it deterministic, so no faster method keeps its result;
-  in 2.25.0, the display view's regrouped defocus (#612, `lens.defocus/view-regrouped`: on the CPU, a disc much wider than the
-  diffraction kernel applied after the in-focus signal, by runs, the same sum regrouped; exact keeps each node's combined kernel;
-  from 2.26.0 only where a render's own region costs less that way, #642); in 2.26.0, the display view's per-tap chart signal (#643,
-  `chart.signal/view-per-tap`: on the CPU, a site whose kernel taps read several materials adds its taps in order, each integrated
-  from its material's spectrum, the same sum regrouped; exact forms per-material sums first);
+  (the display view's regrouped defocus, #612, and per-tap chart signal, #643, were fast methods in 2.25.0 to 2.27.0; from 2.28.0
+  every CPU render takes them, as regroupings that differ only by rounding, owner decision 2026-11-21, #670);
   the display view's lens corrections (#628, `output.lensCorrections/view-footprint`: each display pixel's developed rectangle
   area-averaged fast, each output pixel's four bilinear sources rendered from their combined moments exact); the catalogue fast method's
   box pixel aperture (#629, part of `lens.catalogue/field-grid`: each lattice point's box-integrated spectral radiance, one kernel per site);
@@ -277,14 +274,18 @@ have a fast method, a measured and bounded approximation of it. One flag style s
   flag: with camera rotation under a rolling shutter and the defocus regrouped, rows in bands that read their middle row's
   instants, the in-focus image shifted by at most 1/128 site; exact reads every row at its own instants), a catalogue lens's
   uniform windows (#655, `lens.catalogue/view-uniform-window`, `lens.catalogue`'s flag: a site whose taps all read one material
-  takes the field factor to second order; exact sums every tap with its own factor), and the reconstruct and desaturation chain's
+  takes the field factor to second order; exact sums every tap with its own factor; 2.28.0: its offset expansion, #685,
+  `lens.catalogue/view-offset-expansion`: with more than one query offset each offset's lens mapping to second order about its
+  site centre; exact maps every offset), and the reconstruct and desaturation chain's
   fast rule became 3 or 6 points per axis (#656, the same entry, `output.highlightMode.reconstruct/view-moments`), and a layered
   chart scene's occlusion rows (#652, `scene.layers/occlusion-samples`, the top-level flag: at card edges each pupil region is
   integrated in 4 rows per site of its footprint fast and 16 exact, exact along each row; reported in the `scene.layers`
   assumption). The other
   2.27.0 speed-ups (#649, #653, the regrouped lens defocus and the Newton distortion inverse of #651 and #655) give the same
-  results within rounding and take no flag. The records of `lens.diffraction`, `sensor.antiAliasing` and `output.demosaic` (in captures) take `fast`
-  with no fast method yet. `test/fast-methods-registry.test.ts` fails when a record accepts `fast` without an entry, an entry
+  results within rounding and take no flag. In 2.28.0: `lens.diffraction`'s default kernel window (#732, `lens.diffraction/kernel-window`:
+  to the second dark ring at the longest node fast, the third exact; an explicit `kernelRadiusSamples` always wins; reported in
+  `diagnostics.fast.applied["lens.diffraction"]` and the `fast.lens.diffraction` assumption's `window`, with its a-priori bound). The
+  records of `sensor.antiAliasing` and `output.demosaic` (in captures) take `fast` with no fast method yet. `test/fast-methods-registry.test.ts` fails when a record accepts `fast` without an entry, an entry
   lacks its resolver or report, or a format default leaves the rule. **Every new fast method adds its entry.**
 - **The same words on WebGPU.** The image-kernel execution record carries `fast` (`false` for `cpu-reference`, `true` for
   `webgpu-f32`) beside `assurance`; `backend` still names where the work runs.
@@ -294,7 +295,7 @@ have a fast method, a measured and bounded approximation of it. One flag style s
   less accurate method becomes the fast method behind the flag.
 - **Parameters are not the flag.** Sample counts and windows (`samplesPerAxis`, `kernelRadiusSamples`, `separationSites`) are
   model parameters and keep their names. Where a parameter's default follows the flag (the spectral step, the box aperture's samples,
-  the temporal midpoints), an explicit value always wins.
+  the temporal midpoints, the diffraction kernel window since 2.28.0), an explicit value always wins.
 - **Names:** `lens.diffraction` names its model by `kind` like the other records; `aperture`, its name before #395, stays a
   deprecated alias until 3.0.0, and giving both is an error.
 

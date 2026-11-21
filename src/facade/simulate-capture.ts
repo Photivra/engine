@@ -124,7 +124,7 @@ import { sumFixedPatternSites } from "../sensor/fixed-pattern-noise.js";
 import { sensorProfileFrame } from "../equipment/sensor-profile-frame.js";
 import type { SimulateCaptureSubjectMotion, SubjectMotion } from "../motion/subject-motion.js";
 import type { HandShakeOptions } from "../motion/hand-shake.js";
-import { exportKit, loadedKit, OK_CATALOGUE_OPTICS_ASSUMPTIONS, OK_CREATE_SUBJECT_MOTION_PROVIDER, OK_FLASH_ALONE_SHUTTER, OK_HAND_SHAKE_ASSUMPTION, OK_HAND_SHAKE_QUADRUPLES, OK_METER_FLASH, OK_PARSE_SENSOR_PROFILE, OK_REBIND_FLASH_ASSUMPTIONS, OK_REQUIRE_FLASH_ROWS, OK_RESOLVE_HAND_SHAKE, OK_RESOLVE_LENS_FILTER, OK_RESOLVE_MIXED_ILLUMINATION, OK_SENSOR_PROFILE_BODY, OK_SENSOR_PROFILE_SATURATION_ISO, OK_SOLVE_FLASH_SHUTTER, OK_SUBJECT_TRAVEL_M, optInKit, QK_CALCULATE_DEFOCUS_FIELD_VARIATION, QK_CREATE_AHD_DEMOSAIC_TASK, QK_CREATE_DEFOCUS_BOKEH_SITE_KERNEL, QK_CREATE_DEFOCUS_IMAGE_SPACE_PROVIDER, QK_CREATE_DIFFRACTION_LIMITED_PSF_PROFILE, QK_NEIGHBOR_HIGHLIGHT_RING, QK_NEIGHBOR_HIGHLIGHT_THRESHOLD, QK_PLAN_DEFOCUS_BOKEH_ZONES, QK_PREPARE_DEFOCUS_IMAGE_SPACE_GEOMETRY, QK_RECONSTRUCT_HIGHLIGHTS_FROM_NEIGHBORS, QK_REGISTER_DIFFRACTION_PSF_KEY, QK_RESOLVE_DEFOCUS_BOKEH_OPTIONS, QK_SITE_DIFFRACTION_KERNEL, qualityKit } from "./on-demand-kits.js";
+import { exportKit, loadedKit, OK_CATALOGUE_OPTICS_ASSUMPTIONS, OK_CREATE_SUBJECT_MOTION_PROVIDER, OK_FLASH_ALONE_SHUTTER, OK_HAND_SHAKE_ASSUMPTION, OK_HAND_SHAKE_QUADRUPLES, OK_METER_FLASH, OK_PARSE_SENSOR_PROFILE, OK_REBIND_FLASH_ASSUMPTIONS, OK_REQUIRE_FLASH_ROWS, OK_RESOLVE_HAND_SHAKE, OK_RESOLVE_LENS_FILTER, OK_RESOLVE_MIXED_ILLUMINATION, OK_SENSOR_PROFILE_BODY, OK_SENSOR_PROFILE_SATURATION_ISO, OK_SOLVE_FLASH_SHUTTER, OK_SUBJECT_TRAVEL_M, optInKit, QK_CALCULATE_DEFOCUS_FIELD_VARIATION, QK_CREATE_AHD_DEMOSAIC_TASK, QK_CREATE_DEFOCUS_BOKEH_SITE_KERNEL, QK_CREATE_DEFOCUS_IMAGE_SPACE_PROVIDER, QK_CREATE_DIFFRACTION_LIMITED_PSF_PROFILE, QK_CREATE_OFFSET_EXPANSION, QK_NEIGHBOR_HIGHLIGHT_RING, QK_NEIGHBOR_HIGHLIGHT_THRESHOLD, QK_PLAN_DEFOCUS_BOKEH_ZONES, QK_PREPARE_DEFOCUS_IMAGE_SPACE_GEOMETRY, QK_RECONSTRUCT_HIGHLIGHTS_FROM_NEIGHBORS, QK_REGISTER_DIFFRACTION_PSF_KEY, QK_RESOLVE_DEFOCUS_BOKEH_OPTIONS, QK_SITE_DIFFRACTION_KERNEL, qualityKit } from "./on-demand-kits.js";
 import { characterizeReadout, parseSensorCharacteristics, sensorReport, SENSOR_CHARACTERISTIC_KEYS, type SimulateCaptureSensorCharacteristics, type SimulateCaptureSensorReport } from "../sensor/sensor-characteristics.js";
 import { resolveChartScene, chartMaterialInputs, CHART_SCENE_PRESETS, type ChartScene, type ResolvedChartScene } from "./chart-scenes.js";
 import { resolveChartMaterialLayers, type ChartMaterialLayerScene, type ResolvedChartMaterialLayers } from "./chart-material-layers.js";
@@ -499,7 +499,7 @@ export interface SimulateCaptureOptions {
      * Opt-in (2.1) diffraction blur of an ideal, aberration-free, in-focus lens with a circular pupil at the
      * capture's resolved f-number: the engine builds the Airy kernels (`createDiffractionLimitedPsfProfile`)
      * on the site pitch. `kernelRadiusSamples` (0–32) sets the kernel window; default: the third dark ring at
-     * the longest spectral node, capped at 32 sites. Not combinable with `psf` or `pupilSampling`. Default off.
+     * the longest spectral node, capped at 32 sites (2.28.0, #732: the second on a fast request, where that is fewer sites). Not combinable with `psf` or `pupilSampling`. Default off.
      */
     diffraction?: SimulateCaptureLensDiffraction;
     /**
@@ -841,7 +841,15 @@ export interface SimulateCaptureResult {
    * frame, and the native sites rendered for it (`nativeRect`, in the whole frame's native raster: the region, the
    * demosaic reach on each side clipped to the raster, and its origin rounded down to the 2 × 2 CFA repeat).
    */
-  region?: { x: number; y: number; width: number; height: number; frameWidth: number; frameHeight: number; nativeRect: { x: number; y: number; width: number; height: number } };
+  region?: { x: number; y: number; width: number; height: number; frameWidth: number; frameHeight: number; nativeRect: { x: number; y: number; width: number; height: number };
+    /** 2.28.0 (#728): true when a fast method ran for this region (`Object.values(diagnostics.fast.applied).includes(true)`). */
+    fast: boolean;
+    /**
+     * 2.28.0 (#728): SHA-256 (hex) over the resolved state that determines the RAW: the scene digest, the camera, lens, exposure, sensor,
+     * motion and illumination options (without `fast` and `output`), the resolved exposure settings and noise seed, the native raster and
+     * pitch, and the resolved spectral step, pixel-aperture and temporal counts. A join of parts refuses a part whose key is not its own.
+     */
+    requestKey: string };
   /** The complete underlying request. */
   request: {
     environmentRaw: NativeEnvironmentRawInput;
@@ -1154,6 +1162,8 @@ export function apertureNodeOffsets(n: number): { x: number; y: number }[] {
 }
 /** Third dark ring of the Airy pattern in units of λ·N_w (j₁,₃/π, j₁,₃ = 10.1734681351): the default diffraction kernel reach. */
 const AIRY_THIRD_ZERO_PER_LAMBDA_N = 10.173468135062722 / Math.PI;
+/** #732: the second dark ring (j₁,₂ = 7.0155866698, NIST DLMF Table 10.21.1): the default reach on a fast request. */
+const AIRY_SECOND_ZERO_PER_LAMBDA_N = 7.015586669815619 / Math.PI;
 /** Default temporal midpoints when the camera rotates or the subject moves (2.0 motion option), on a fast request. */
 const ROTATING_TEMPORAL_SAMPLE_COUNT = 8;
 /** 2.24.0: the same default on an exact request. */
@@ -1561,11 +1571,16 @@ export async function simulateCapture(options: SimulateCaptureOptions): Promise<
 /** One part of a whole-frame DNG (#391): a region render's packed RAW and where its native sites lie (`result.raw`, `result.region`). */
 export interface SimulateCaptureDngPart {
   raw: Pick<NativeRawOutput, "codes" | "blackLevels" | "digitalSaturationCodes" | "saturationFlags" | "effectiveSaturationCodes">;
-  region: { nativeRect: { x: number; y: number; width: number; height: number } };
   /**
-   * 2.20.0: true when a fast method ran for this part (`Object.values(result.diagnostics.fast.applied).includes(true)`). The join
-   * refuses such a part unless its own request resolves to fast too (a DNG, JPEG or PNG is exact by default): render the parts with
-   * the same `fast` as the join, or with `fast: false`.
+   * The region result's `region`. 2.28.0 (#728): its `fast` and `requestKey` describe the part; a region result carries them, so
+   * `{ raw: result.raw, region: result.region! }` passes them through. A part without them (a result of an earlier version) joins
+   * with the checks of that version.
+   */
+  region: { nativeRect: { x: number; y: number; width: number; height: number }; fast?: boolean; requestKey?: string };
+  /**
+   * 2.20.0: true when a fast method ran for this part (`Object.values(result.diagnostics.fast.applied).includes(true)`); `region.fast`
+   * takes precedence. The join refuses such a part unless its own request resolves to fast too (a DNG, JPEG or PNG is exact by default):
+   * render the parts with the same `fast` as the join, or with `fast: false`.
    */
   fast?: boolean;
 }
@@ -1576,7 +1591,9 @@ export interface SimulateCaptureDngPart {
  * render's (each site's seeds come from its index in the whole raster), so the joined RAW is the whole render's RAW, and the
  * request is resolved and written exactly as `simulateCapture` writes its DNG: the bytes are the same. The parts must cover
  * every native site of the frame; where they overlap (each region carries the demosaic margin) their sites must agree. Region
- * renders of the request with any format serve (a region's own `output.format` does not change its RAW). A region cannot take
+ * renders of the request with any format serve if they resolve to the same methods: a region's `output.format` decides the default of `fast`
+ * (2.20.0), so render the parts with the join's `fast` (an sRGB region is fast by default, a DNG exact); a part that a fast method rendered
+ * under an exact join, or whose `region.requestKey` is another request's (2.28.0, #728), is refused. A region cannot take
  * `output.whiteBalance: "auto"` or `output.dng`: render the parts with a fixed white balance (the RAW codes do not depend on the
  * white-balance intent) and pass the DNG's own options here, where auto white balance is measured over the joined frame.
  * @returns The DNG (its `bytes` are those of `SimulateCaptureResult.image.dng` for the same options), with its stored levels and identifiers.
@@ -1586,7 +1603,7 @@ export async function serializeSimulatedCaptureDngFromParts(options: SimulateCap
 }
 
 /** The whole frame's packed RAW from region parts (see `serializeSimulatedCaptureDngFromParts`). */
-function joinNativeRawParts(value: unknown, plan: NativeRawOutput["plan"], width: number, height: number, caller: string, fast: boolean): NativeRawOutput {
+function joinNativeRawParts(value: unknown, plan: NativeRawOutput["plan"], width: number, height: number, caller: string, fast: boolean, key: string): NativeRawOutput {
   if (!Array.isArray(value) || value.length === 0) throw new InvalidConfigurationError(caller + " needs at least one part.");
   const parts = value as readonly SimulateCaptureDngPart[], count = width * height;
   const codes = new Uint16Array(count), blackLevels = new Uint16Array(count), digitalSaturationCodes = new Uint16Array(count), saturationFlags = new Uint8Array(count);
@@ -1595,7 +1612,9 @@ function joinNativeRawParts(value: unknown, plan: NativeRawOutput["plan"], width
   parts.forEach((part, k) => {
     const rect = part?.region?.nativeRect, raw = part?.raw;
     if (!rect || !raw) bad(k, "needs raw and region.nativeRect (a region render's result).");
-    if (part.fast === true && !fast) bad(k, "a fast method rendered it, but this request resolves to the exact methods (fast: false, the default for a DNG, JPEG or PNG). Render the parts with fast: false, or pass fast: true here.");
+    if ((part.region.fast ?? part.fast) === true && !fast) bad(k, "a fast method rendered it, but this request resolves to the exact methods (fast: false, the default for a DNG, JPEG or PNG). Render the parts with fast: false, or pass fast: true here.");
+    // #728: a part names its request's key; one of another request (scene, exposure, sensor, lens, motion or resolved counts) is refused.
+    if (part.region.requestKey !== undefined && part.region.requestKey !== key) bad(k, "its region.requestKey is another request's: not the same request.");
     const { x, y, width: w, height: h } = rect!;
     if (![x, y, w, h].every(Number.isSafeInteger) || x < 0 || y < 0 || w < 1 || h < 1 || x + w > width || y + h > height) bad(k, "its nativeRect is not inside the frame's native raster.");
     const n = w * h;
@@ -1811,10 +1830,10 @@ export interface DisplayViewRunContext {
   sensor: SimulateCaptureSensorReport;
   /** 2.20.0: the view's own fast methods, resolved: the quarter sampling of uniform pixels (top-level `fast`); 2.22.0: the coupled rendering steps' rules (#593, #601). */
   /**
-   * The display view's fast methods: H2's uniform sampling, the coupled rendering's rules and (#612) a defocus disc applied after
-   * the in-focus signal where that is cheaper (`defocusRegrouped`); #643: a chart site's taps summed in order (`perTapSum`).
+   * The display view's fast methods: H2's uniform sampling, the coupled rendering's rules and the layered scene's samples. #670 win 1
+   * (2.28.0): #612's regrouped defocus and #643's per-tap sum are no longer fast methods; every CPU render takes them.
    */
-  viewFast: { uniformSampling: boolean; rendering: boolean; defocusRegrouped: boolean; perTapSum: boolean; layers: boolean };
+  viewFast: { uniformSampling: boolean; rendering: boolean; layers: boolean };
   /** #652: a layered chart scene (layered-scene-setup.ts, loaded on demand), with the inputs its layered sum reads. */
   layered?: LayeredRequest | undefined;
   defocusBokeh: ResolvedDefocusBokehOptions | undefined;
@@ -3461,15 +3480,28 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
     const aaReachMm = antiAliasing ? Math.max(...antiAliasing.components.map((c) => Math.max(Math.abs(c.offsetMicrometers.x), Math.abs(c.offsetMicrometers.y)))) / 1000 : 0;
     // The default reach is capped at the 32-site convolution limit; a capped window ends inside the third dark ring, and the
     // larger tail energy outside it is listed per wavelength like any other (2.2.1 states the cap in the explanation).
-    const thirdRingSites = Math.max(1, Math.ceil(AIRY_THIRD_ZERO_PER_LAMBDA_N * lambdaN / pitch));
-    const kernelRadiusSamples = diffractionRadiusOption ?? Math.min(32, thirdRingSites);
-    const profileInput = { aperture: "circular" as const, focalLengthMm, apertureFNumber: fNumber, focus: { kind: "finite" as const, distanceM: focusDistanceM },
-      wavelengthsNm: wavelengths, samplePitchMicrometers: pitch, kernelRadiusSamples, fieldHalfExtentMm: aaReachMm === 0 ? { x: imagingArea.widthMm / 2, y: imagingArea.heightMm / 2 } :
+    const thirdRingSites = Math.max(1, Math.ceil(AIRY_THIRD_ZERO_PER_LAMBDA_N * lambdaN / pitch)), third = Math.min(32, thirdRingSites);
+    // #732 (owner decision 2026-11-21): a fast request without an explicit radius takes the window to the second dark ring.
+    const second = Math.min(32, Math.ceil(AIRY_SECOND_ZERO_PER_LAMBDA_N * lambdaN / pitch)), window = diffractionRadiusOption === null && resolveFast(diffractionFast, fastTop) && second < third;
+    const kernelRadiusSamples = diffractionRadiusOption ?? (window ? second : third);
+    const inputOf = (radius: number): Parameters<typeof createDiffractionLimitedPsfProfile>[0] => ({ aperture: "circular", focalLengthMm, apertureFNumber: fNumber, focus: { kind: "finite", distanceM: focusDistanceM },
+      wavelengthsNm: wavelengths, samplePitchMicrometers: pitch, kernelRadiusSamples: radius, fieldHalfExtentMm: aaReachMm === 0 ? { x: imagingArea.widthMm / 2, y: imagingArea.heightMm / 2 } :
         { x: imagingArea.widthMm / 2 + aaReachMm, y: imagingArea.heightMm / 2 + aaReachMm },
-      profileId: "facade-diffraction-airy" };
+      profileId: "facade-diffraction-airy" }), profileInput = inputOf(kernelRadiusSamples);
     // #449: a copy of the profile kept for this input; it equals createDiffractionLimitedPsfProfile(profileInput).value field by
     // field, so the registration below (keyed by profileInput) holds for it.
     diffraction = cachedDiffractionProfile(profileInput);
+    if (window) {
+      // The a-priori bound of the change at a site, as a share of the scene contrast its colour sees: max over the nodes of
+      // (T_fast − T_exact) / (1 − T_exact), T the Airy energy outside each window.
+      const exactTails = cachedDiffractionProfile(inputOf(third)).wavelengths;
+      markFast("lens.diffraction");
+      const w = { method: "second-dark-ring", kernelRadiusSamples, exactKernelRadiusSamples: third,
+        bound: Math.max(...diffraction.wavelengths.map((n, i) => (n.truncatedEnergyFraction - exactTails[i]!.truncatedEnergyFraction) / (1 - exactTails[i]!.truncatedEnergyFraction))) };
+      const taps = assumptions.find((a) => a.id === "fast.lens.diffraction");
+      if (taps) taps.value = { ...taps.value as object, window: w };
+      else assume("fast.lens.diffraction", "model", { window: w }, "Fast (#732): the kernel window to the second dark ring; bound: the largest change at a site, of the contrast its colour sees.");
+    }
     diffractionPsf = { kind: "sampled-local", configuration: { psf: { profile: diffraction.profile, focalLengthMm, focus: { kind: "finite", distanceM: focusDistanceM },
       apertureFNumber: fNumber, signedDefocusImagePlaneMicrometers: 0 }, psfWavelengthBasis: { value: "vacuum", evidence },
     spatialModel: { kind: "destination-local-shift-invariant-approximation", evidence, limitation: "Diffraction-limited Airy PSF, the same at every field point." } } };
@@ -3481,7 +3513,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
       execution: diffractionObjectSpace ? "object-space-convolution" : defocusImageSpace ? "image-space-convolution" : "environment-psf-quadrature" },
       "Scalar Fraunhofer diffraction of an ideal, aberration-free circular pupil (Airy pattern, createDiffractionLimitedPsfProfile) at the resolved f-number, in focus, with D = f/N and the thin-lens image distance (working f-number N·v/f). " +
       "One kernel per spectral node, binned into site-sized cells over a " + (2 * kernelRadiusSamples + 1) + " × " + (2 * kernelRadiusSamples + 1) + " window" +
-      (diffractionRadiusOption !== null ? "" : thirdRingSites > 32 ? " (capped at 32 sites; the third dark ring at the longest node needs " + thirdRingSites + ")" :
+      (diffractionRadiusOption !== null ? "" : window ? " (to the second dark ring, #732)" : thirdRingSites > 32 ? " (capped at 32 sites; the third dark ring at the longest node needs " + thirdRingSites + ")" :
         " (reaching the third dark ring at the longest node)") + "; the Airy tail energy outside it (listed per wavelength) is put back by unit-sum renormalization. " +
       (diffractionObjectSpace ? "Applied as an object-space convolution: the scene radiance on the site lattice is convolved once per spectral node (calculateIrradianceConvolution) and the provider answers each site query with it, so the site inputs declare no PSF; this equals the per-tap environment PSF quadrature for this still, distortion-free planar scene (request.diffraction.psf). " :
         defocusImageSpace ? "Applied with lens.defocus as one image-space kernel per spectral node (the diffraction kernel convolved with the disc) on the sensor's site lattice (#548; see the lens.defocus assumption), " +
@@ -3707,15 +3739,18 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
     // #655 step 6: the uniform-window fast method (lens.catalogue's fast) on chart and material scenes; it runs on the CPU.
   const uniformWindows = displayViewLensPsf !== undefined && catalogueFastRequested && provider.chartMaterialAt !== undefined && !subject;
   if (displayViewLensPsf && (displayViewLensPsf.zoneSites > 1 || uniformWindows)) markFast("lens.catalogue");
+  // #685: with more than one query offset (the box pixel aperture), each offset's lens mapping to second order about its site centre.
+  const offsetExpansion = uniformWindows && catalogue!.kind !== "fisheye" && queryOffsetsSites.length > 1;
   if (displayViewLensPsf) assume("view.lensPsf", "model", { method: "piecewise-constant-field-zones", zoneSites: displayViewLensPsf.zoneSites, kernelRadiusSites: catalogueKernelRadius,
-    uniformWindows: uniformWindows ? "field-factor-second-order" : null, scientificStatus: "approximation" },
+    uniformWindows: uniformWindows ? "field-factor-second-order" : null, offsetMapping: offsetExpansion ? "second-order-expansion" : null, scientificStatus: "approximation" },
   "Each site takes the lens PSF at its field zone's centre, where the capture resolves it at each query point (docs/DISPLAY_VIEW.md, \"Catalogue lenses\")." +
-    (uniformWindows ? " Fast method (#655): a site whose taps read one material takes the field factor to second order; fast: false sums every tap." : ""));
+    (uniformWindows ? " Fast method (#655): a site whose taps read one material takes the field factor to second order; fast: false sums every tap." : "") +
+    (offsetExpansion ? " Fast (#685): the offsets' lens mapping to second order." : ""));
   // #655 step 4: the view's lattice points take the Newton inverse of a radial distortion (the capture keeps the bisection).
   const viewLensGeometry = viewLensKit && lensFieldMapping?.distortion?.kind === "radial" ? loadedKit(qualityKit)[QK_PREPARE_DEFOCUS_IMAGE_SPACE_GEOMETRY]({ focalLengthMm, focusDistanceM,
     angularVelocityRadPerSec: angular, ...(handShake ? { handShake } : {}), lensMapping: prepareEnvironmentLensFieldMapping(lensFieldMapping), ...(vignetting ? { vignetting } : {}),
     undistort: viewLensKit.undistortedImagePointNewton }) : lensGeometry;
-  const lensSignal = viewLensKit ? viewLensKit.prepareDisplayViewLensSignal({ geometry: viewLensGeometry!, rollingBands: fastTop, uniformWindows,
+  const lensSignal = viewLensKit ? viewLensKit.prepareDisplayViewLensSignal({ geometry: viewLensGeometry!, rollingBands: fastTop, uniformWindows, ...(offsetExpansion ? { offsetExpansion: loadedKit(qualityKit)[QK_CREATE_OFFSET_EXPANSION] } : {}),
     times: rotating || subject ? Array.from({ length: temporalSampleCount }, (_, i) => (i + 0.5) * (shutterSeconds / temporalSampleCount)) : [0], timesAt: rollingRotation ? rollingSiteTimes() : undefined,
     distanceM: planeDistanceM, metresPerFrameUnit,
     pitch, imagingArea, boxSamples, spots: antiAliasing ? antiAliasing.components : [{ offsetMicrometers: { x: 0, y: 0 } }], psf: displayViewLensPsf, zeroBeyondHorizon: catalogue?.kind === "fisheye", ...(veil ? { veil } : {}) }, nativeWidth, nativeHeight,
@@ -3743,7 +3778,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
       cornerStops: lensCorrectionSelection.vignetting ? catalogueCornerStops : null, selection: lensCorrectionSelection, create: lensKit!.createDisplayViewLensCorrection } } : {}) } : undefined;
   // #595: the native photosite's figures (their own module, so a bundler can split them off the default path).
   sensor.native = nativeSensorReport(sensor, regimeByChannel.green.regimeId, greyElectrons, DARK_CURRENT_ELECTRONS_PER_SECOND * shutterSeconds, nativeSensor, fixedPattern);
-  const context: DisplayViewRunContext = { sensor, viewFast: { uniformSampling: fastTop, rendering: fastTop, defocusRegrouped: fastTop, perTapSum: fastTop, layers: fastTop }, layered, defocusBokeh, queryOffsetsSites, irradianceScale, viewDetail, gamutHandling, lens: lensSignal, lensPsf: displayViewLensPsf, lensUniformWindows: uniformWindows, movingScene, ahd, fastReport, antiAliasing, aspect, assume, assumptions, axisChannelResponse, boxSamples, buildProvider, callerScene, chart, materialLayers, chartReport, chartSize, diffraction, defocus: displayViewDefocus, diffractionPsf, fNumber, focalLengthMm, focusDistanceM, height, highlightMode, exposureGain, illuminanceLux, illuminant, illuminantOption, imagingArea, intentOf, metresPerFrameUnit, framedWidthM, noiseSeed, outputOptions, parsedView, pitch, preset, provider, regimeByChannel, resolvedIso, isoReport, standardExposureDeviationStops: exposureDeviationStops, standardExposureIlluminanceLux: exposureIlluminanceLux, greyCardDeviationStops: exposureGreyCardDeviationStops, metering, sceneOption, scenePreset, shutterSeconds, started, subjectDistanceM, toneCurve, whiteBalanceOption, whiteBalanceState, width, checkAbort, margin, mode, nativeHeight, nativeWidth, sourceSha256, yieldControl, kelvinWhiteBalanceInput,
+  const context: DisplayViewRunContext = { sensor, viewFast: { uniformSampling: fastTop, rendering: fastTop, layers: fastTop }, layered, defocusBokeh, queryOffsetsSites, irradianceScale, viewDetail, gamutHandling, lens: lensSignal, lensPsf: displayViewLensPsf, lensUniformWindows: uniformWindows, movingScene, ahd, fastReport, antiAliasing, aspect, assume, assumptions, axisChannelResponse, boxSamples, buildProvider, callerScene, chart, materialLayers, chartReport, chartSize, diffraction, defocus: displayViewDefocus, diffractionPsf, fNumber, focalLengthMm, focusDistanceM, height, highlightMode, exposureGain, illuminanceLux, illuminant, illuminantOption, imagingArea, intentOf, metresPerFrameUnit, framedWidthM, noiseSeed, outputOptions, parsedView, pitch, preset, provider, regimeByChannel, resolvedIso, isoReport, standardExposureDeviationStops: exposureDeviationStops, standardExposureIlluminanceLux: exposureIlluminanceLux, greyCardDeviationStops: exposureGreyCardDeviationStops, metering, sceneOption, scenePreset, shutterSeconds, started, subjectDistanceM, toneCurve, whiteBalanceOption, whiteBalanceState, width, checkAbort, margin, mode, nativeHeight, nativeWidth, sourceSha256, yieldControl, kelvinWhiteBalanceInput,
     mixedIllumination: mixedKit && lightKit };
   // #652: result.scene.layers and the layered kernels, at the resolved f-number.
   layered?.report(context);
@@ -3841,6 +3876,11 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   }
   const rawStarted = Date.now();
   const plan = calculateNativeRawPlan(environmentRaw.raw);
+  // #728: the key a region result carries and a join of parts checks (SimulateCaptureResult.region.requestKey); output and fast are left out.
+  const requestKey = regionNative || run === "dng-from-parts" || run === "develop-from-parts" ? await sha256Hex(JSON.stringify([sourceSha256, top, fNumber, shutterSeconds, resolvedIso,
+    plan.exposure.noise.seedUint32, nativeWidth, nativeHeight, pitch, spectralStep, boxSamples, temporalSampleCount],
+  // The scene enters by its digest; a key named fast, output or scene is left out at every level.
+  (key, value: unknown) => (/^(fast|output|scene)$/.test(key) ? undefined : typeof value === "object" && value !== null && "evaluate" in value ? 0 : value))) : undefined;
   const progress = (stage: SimulateCaptureProgress["stage"], total: number) => {
     let completed = 0;
     return (): void => { completed++; onProgress?.({ stage, completedTileCount: completed, totalTileCount: total }); };
@@ -3857,7 +3897,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   const dngParts = run === "dng-from-parts" || run === "develop-from-parts" ? viewOption : undefined,
     partsCaller = run === "dng-from-parts" ? "serializeSimulatedCaptureDngFromParts" : "simulateCaptureFromParts";
   if (dngParts !== undefined && regionNative) fail(partsCaller + " takes the whole frame: the options take no output.region.");
-  let tabulated: Awaited<ReturnType<typeof renderTabulatedNativeRaw>>;
+  let tabulated: Awaited<ReturnType<typeof renderTabulatedNativeRaw>>, perTapSum = false;
   // #568: lens.catalogue's fast method: expected electrons integrated per site at use, with the PSF blended over a field grid (catalogue-lens-signal.ts), for a
   // still camera, site-centre queries and a chart or material scene; verified per CFA phase against the exact chain within its tolerance.
   let catalogueFastRun: { columns: number; rows: number; resolved: number; verificationRelativeDifference: number; subdivisions: number; boxSamples: number } | undefined;
@@ -3883,6 +3923,8 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
     // #603: the grid follows the request's quality: 2.20.0's faster grid on a fast request (but for the measured lenses that keep the
     // full one), the full one on an exact one.
     const gridSubdivisions = lensKit!.catalogueFastGridSubdivisions(catalogue!.lensId, fastTop);
+    // #733: the check reads the whole frame's top-left and centre 2 × 2 blocks (a region's own provider covers only the region, so
+    // there each block is read through a provider windowed to it; the window never changes a value), so every region takes the frame's method.
     // #632: with flare, an exact request takes each site's exact kernels (the exact method's sum), and a fast one whose check fails does too.
     const render = async (exactKernels: boolean): Promise<typeof tabulated> => {
       const signal = lensKit!.createCatalogueLensSignal({ nativeWidth, nativeHeight, pitch, psf: lensPsf!.configuration.psf, wavelengthsNm: wavelengths, electronsPerRadiance: perNode, gridSubdivisions,
@@ -3893,7 +3935,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
         // #629: the box pixel aperture's N × N nodes (midpoint rule, equal weights), folded into each lattice point's scene value.
         ...(boxSamples > 1 ? { queryOffsets: apertureNodeOffsets(boxSamples).map((o) => ({ ...o, weight: 1 / (boxSamples * boxSamples) })) } : {}) });
       const out = await renderTabulatedNativeRaw({ input: environmentRaw, region: regionNative, siteInput, evaluateRadiance: rawProvider().evaluateRadiance,
-        electrons: signal, relativeTolerance: lensKit!.CATALOGUE_FAST_VERIFICATION_TOLERANCE, onTile: rawTick, tileWidth, yieldControl: () => yieldControl(), checkAbort,
+        electrons: signal, relativeTolerance: lensKit!.CATALOGUE_FAST_VERIFICATION_TOLERANCE, frameChecks: (x, y) => diffractedProvider({ x, y, width: 2, height: 2 }).evaluateRadiance, onTile: rawTick, tileWidth, yieldControl: () => yieldControl(), checkAbort,
         ...(signal.veiled ? { adjust: signal.veiled } : {}) });
       if (out && !exactKernels) catalogueFastRun = { ...signal.grid, verificationRelativeDifference: out.verificationRelativeDifference, subdivisions: gridSubdivisions, boxSamples };
       return out;
@@ -3926,19 +3968,23 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
     // The verification reads only the region's top-left 2 × 2 block, so its diffraction convolves only that block's lattice; the
     // window never changes a value (see diffraction-provider.ts), so the chain it runs is the whole render's.
     const verificationProvider = diffractedProvider({ x: regionNative?.x ?? 0, y: regionNative?.y ?? 0, width: 2, height: 2 });
+    // #731 (owner decision 2026-11-21: fast and exact requests): with kernels, a chart or material scene's sites take the display view's
+    // per-tap sum of the pre-integrated spectral radiance (#643, #653), one set of (2R + 1)² taps per site instead of one per lattice
+    // group (N² groups for an N × N box): the same sum regrouped, within the verification's 1e-9.
+    perTapSum = signalInput.kernels !== undefined && signalInput.scene.kind === "materials" && !signalInput.largeKernel;
     tabulated = await renderTabulatedNativeRaw({ input: environmentRaw, region: regionNative, siteInput, evaluateRadiance: verificationProvider.evaluateRadiance,
-      electrons: createDisplayViewExpectedSignal(signalInput), onTile: rawTick, tileWidth, yieldControl: () => yieldControl(), checkAbort });
+      electrons: createDisplayViewExpectedSignal(perTapSum ? { ...signalInput, perTapSum } : signalInput), onTile: rawTick, tileWidth, yieldControl: () => yieldControl(), checkAbort });
   }
   let rawOutput: { raw: NativeRawOutput; providerEvaluationCount: number };
   if (dngParts !== undefined) {
-    rawOutput = { raw: joinNativeRawParts(dngParts, plan, nativeWidth, nativeHeight, partsCaller, fastReport.requested), providerEvaluationCount: 0 };
+    rawOutput = { raw: joinNativeRawParts(dngParts, plan, nativeWidth, nativeHeight, partsCaller, fastReport.requested, requestKey!), providerEvaluationCount: 0 };
     if (run === "develop-from-parts") assume("parts", "model", { partCount: (dngParts as readonly unknown[]).length },
       "The whole render's RAW, joined from region renders of this request (#571); how they were rendered is in their results.");
   }
   else if (tabulated && veil && !catalogueFastRun) {
     rawOutput = { raw: tabulated.raw, providerEvaluationCount: tabulated.providerEvaluationCount };
-    assume("raw.expectedSignal", "model", { method: "per-site-integrated-electrons-catalogue-psf-exact-kernels", verificationSites: 4, tolerance: lensKit!.CATALOGUE_FAST_VERIFICATION_TOLERANCE },
-      "#632: the exact method's sum per site (each site's own PSF), checked against the exact chain at one site per CFA phase.");
+    assume("raw.expectedSignal", "model", { method: "per-site-integrated-electrons-catalogue-psf-exact-kernels", verificationSites: 8, tolerance: lensKit!.CATALOGUE_FAST_VERIFICATION_TOLERANCE },
+      "#632: the exact method's sum per site (each site's own PSF), checked against the exact chain at the frame's top-left and centre 2 × 2 blocks.");
   }
   else if (tabulated && catalogueFastRun) {
     rawOutput = { raw: tabulated.raw, providerEvaluationCount: tabulated.providerEvaluationCount };
@@ -3949,7 +3995,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
     rawOutput = { raw: tabulated.raw, providerEvaluationCount: tabulated.providerEvaluationCount };
     // The verification's relative difference itself is not reported: it is a last-bits quantity, and captures use the JavaScript
     // engine's own Math functions, so it differs between engines while the results are the same.
-    assume("raw.expectedSignal", "model", { method: "per-site-integrated-electrons", verificationSites: 4, tolerance: TABULATED_RELATIVE_TOLERANCE },
+    assume("raw.expectedSignal", "model", { method: "per-site-integrated-electrons", verificationSites: 4, tolerance: TABULATED_RELATIVE_TOLERANCE, ...(perTapSum ? { sum: "per-tap" } : {}) },
     "Each native site's expected photo electrons are integrated per site when the site is read: the sum over the pixel-aperture nodes, anti-aliasing spots, diffraction taps and spectral nodes " +
       "of each tap's material spectrum against the site's channel response (the display view's expected signal), " +
       "the same quantity the environment chain computes for this still, rectilinear, distortion-free planar scene, formed in another order, so it can differ in the last bits. The sensor stage (dark charge, Poisson draws, " +
@@ -4229,7 +4275,8 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
     facadeVersion: SIMULATE_CAPTURE_FACADE_VERSION, engineApiVersion: ENGINE_API_VERSION,
     image: { width: outputWidth, height: outputHeight, format, samples: developed.integerSamples, ...(jpeg ? { jpeg } : {}), ...(png ? { png, colorEncoding: colorEncoding! } : {}), ...(dng ? { dng: dng.bytes } : {}) },
     raw: developed.raw, plan: developmentPlan,
-    ...(region && regionNative ? { region: { ...imageRegion ?? region, frameWidth: width, frameHeight: height, nativeRect: { ...regionNative } } } : {}),
+    ...(region && regionNative ? { region: { ...imageRegion ?? region, frameWidth: width, frameHeight: height, nativeRect: { ...regionNative },
+      fast: Object.values(fastReport.applied).includes(true), requestKey: requestKey! } } : {}),
     request: { environmentRaw: finalRawInput, siteInput, development, whiteBalanceState,
       ...(diffraction ? { diffraction: { profile: diffraction, psf: diffractionPsf!, execution: diffractionObjectSpace ? "object-space-convolution" as const :
         defocusImageSpace ? "image-space-convolution" as const : "environment-psf-quadrature" as const } } : {}) },

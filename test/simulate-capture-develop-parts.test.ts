@@ -20,7 +20,9 @@ async function partsOf(options: SimulateCaptureOptions, columns: number, rows: n
     delete output.dng; delete output.sharpening; delete output.diffractionCorrection;
     delete output.colorEncoding; delete output.gamutMapping; delete output.bitDepth;
     if (output.whiteBalance === "auto") output.whiteBalance = "scene-illuminant";
-    const result = await simulateCapture({ ...options, output });
+    // #728, #732: a part renders with the join's fast (an sRGB region is fast by default; a DNG, JPEG or PNG join is exact).
+    const joinFast = options.fast ?? !["dng", "jpeg", "png"].includes(options.output?.format ?? "srgb-8");
+    const result = await simulateCapture({ ...options, fast: joinFast, output });
     parts.push({ raw: result.raw, region: result.region! });
   }
   return parts;

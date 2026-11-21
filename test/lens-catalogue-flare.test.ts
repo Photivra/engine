@@ -13,7 +13,7 @@ afterEach(() => setCatalogueLensSignalTestHook(undefined));
 
 const LENS = "pv-16-2.8";
 const g = resolveGenericLens({ lensId: LENS, activeImagingArea: { widthMm: 36, heightMm: 24 } }).character.strayLight.veilingGlareFraction;
-const board = (flare: boolean, fast: boolean, width = 96): SimulateCaptureOptions => ({ scene: { preset: "checkerboard", squaresAcross: 6, darkReflectance: 0.01, lightReflectance: 0.9 },
+const board = (flare: boolean, fast: boolean, width = 96, squaresAcross = 6): SimulateCaptureOptions => ({ scene: { preset: "checkerboard", squaresAcross, darkReflectance: 0.01, lightReflectance: 0.9 },
   subjectDistanceM: 3, output: { width, height: width * 2 / 3, format: "srgb-16" }, sensor: { pixelPitchMicrometers: 36000 / width, spectralStepNanometers: 50 },
   lens: { catalogue: { kind: LENS, fast, flare }, fNumber: 8 }, exposure: { mode: "manual", shutterSeconds: 1 / 100, iso: 100 } });
 
@@ -28,8 +28,10 @@ const mean = (a: ArrayLike<number>, pick: (i: number) => boolean = () => true): 
 describe("lens.catalogue.flare: veiling glare (#632)", () => {
   it("lifts the dark squares by g·(Ē − E) and keeps the frame's mean, on the fast and the exact path", async () => {
     expect(g).toBeCloseTo(0.024, 12);
+    // #733: the fast method's check reads the frame's centre too; 7 squares put it inside a square (with 6 it lies on the corner of
+    // four, where the 4-cell grid is 0.5 % or more from the exact chain and the capture takes the exact method).
     for (const fast of [true, false]) {
-      const off = greens(await simulateCapture(board(false, fast))), onResult = await simulateCapture(board(true, fast)), on = greens(onResult);
+      const off = greens(await simulateCapture(board(false, fast, 96, 7))), onResult = await simulateCapture(board(true, fast, 96, 7)), on = greens(onResult);
       const peak = Math.max(...off), dark = (i: number): boolean => off[i]! < 0.1 * peak;
       const frame = mean(off), darkOff = mean(off, dark), darkOn = mean(on, dark);
       // The frame's mean is kept (the veil is the image's own light, spread uniformly); Poisson noise of the same seeds differs by well under 0.3 %.

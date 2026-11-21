@@ -31,7 +31,8 @@ describe("motion.shutter.rolling/view-row-bands (#651)", () => {
     expect(bands.rows).toBeGreaterThan(1);
     expect(bands.shiftSites).toBeGreaterThan(0);
     expect(bands.shiftSites).toBeLessThanOrEqual(1 / 128);
-    expect(assumption(fast.result, "view.defocus")).toMatchObject({ convolution: "runs", fast: "defocus-after-in-focus-signal" });
+    // #670 win 1 (2.28.0): the regrouped defocus is no longer labelled fast (both flags take it); the bands are this method's.
+    expect(assumption(fast.result, "view.defocus")).toMatchObject({ convolution: "runs" });
     const exact = await simulateDisplayViewWithInternals({ ...options, fast: false }, view);
     expect(lastDisplayViewLensSetup()!.lens.rollingBands).toBe(false);
     // The full method is the tap sum regrouped by rows (the same sum), so it is taken with fast: false too, without a fast label.

@@ -253,28 +253,29 @@ async function prepareView(context: DisplayViewRunContext): Promise<PreparedView
       whiteRadiance: (nm: number): number => viewIrradianceScale * viewIlluminant.shape.evaluate(nm) / Math.PI } : undefined,
     radianceAt: viewProvider.radianceAt, imageSignalScene: viewProvider.imageSignalScene,
     imagingArea, focalLengthMm, focusDistanceM, subjectDistanceM, metresPerFrameUnit, caller: "simulateDisplayView" };
-  // #643, the fast method (`viewFast.perTapSum`): a chart site whose kernel taps read several materials sums its taps in order (each
-  // integrated from its material's spectrum per node), instead of forming per-material sums first; the same sum regrouped.
+  // #643: a chart site whose kernel taps read several materials sums its taps in order (each integrated from its material's spectrum
+  // per node), instead of forming per-material sums first; the same sum regrouped. #670 win 1 (2.28.0, owner decision 2026-11-21):
+  // on every CPU render (fast and full quality), no longer a fast method.
   const built = buildExpectedSignalInput(setupInput), offsets = built.offsets;
   // #652: a layered scene's expected signal (the layered sum, a new one per render) and the reach of its largest surface kernel.
   const layeredView = context.layered?.multi ? context.layered.view(context, { wavelengths, perNode, offsets, channelAt: built.signalInput.channelAt,
     diffraction: diffraction ? built.signalInput.kernels : undefined, white: Float64Array.from(wavelengths, (nm) => viewIrradianceScale * viewIlluminant.shape.evaluate(nm) / Math.PI) }) : undefined;
-  const perTapSum = context.viewFast.perTapSum && built.signalInput.kernels !== undefined && built.signalInput.scene.kind === "materials" && !context.lensPsf && !layeredView;
+  const perTapSum = built.signalInput.kernels !== undefined && built.signalInput.scene.kind === "materials" && !context.lensPsf && !layeredView;
   const signalInput: typeof built.signalInput = perTapSum ? { ...built.signalInput, perTapSum: true } : built.signalInput;
   const kernels = signalInput.kernels, largeDefocus = signalInput.largeKernel;
-  // #612, the fast method (`viewFast.defocusRegrouped`; the format default of the display view, exact with fast: false): on the CPU, a
+  // #612 (2.25.0 a fast method; #670 win 1, 2.28.0: on every CPU render, fast and full quality, owner decision 2026-11-21): on the CPU, a
   // geometric disc much wider than the diffraction kernel is applied after each channel's in-focus signal, by runs (#564's path above
   // 64 sites), instead of as each node's diffraction kernel convolved with it. Defocus of a plane is space-invariant and the same at
   // every node, so this is the same sum regrouped; only the rounding differs. The regrouped path computes the in-focus signal of
   // all three channels at every site (3·(2R_f + 1)² taps) and the disc by runs (about 2·(2R_d + 1) scalar additions); the direct
   // one reads (2R_c + 1)² combined taps, each per spectral node. It is chosen where (2R_c + 1)² > 4·(2R_f + 1)². The GPU keeps the
-  // combined kernels (`signalInput`), and so does the exact method. #642: the regrouped path computes the in-focus signal in fixed
+  // combined kernels (`signalInput`). #642: the regrouped path computes the in-focus signal in fixed
   // tiles around the render's sites (`regroupedDefocusCheaper`), which costs more than the combined taps for a small region, so
   // each render takes it only where its own cost is lower (a whole view or a large region; see setupOf).
   // #651: through the lens too (display-view-lens-regroup.ts); under a rolling shutter by row blocks (taken with fast: false too) for every
   // render whatever its size, so a request takes one method and a region equals the whole view (the cost rule acts under a global shutter only).
   const lensFactory = context.lens, lensRolling = lensFactory?.rolling;
-  const regroupEligible = (context.viewFast.defocusRegrouped || lensFactory?.bandRows !== undefined) && defocusKernel !== null && !shaped && !largeDefocus && !context.lensPsf &&
+  const regroupEligible = defocusKernel !== null && !shaped && !largeDefocus && !context.lensPsf &&
     (lensRolling === undefined || lensFactory!.bandRows !== undefined) &&
     (2 * combinedRadius + 1) ** 2 > 4 * (2 * diffractionRadius + 1) ** 2;
   const regroupedSignalInput = regroupEligible ? { ...buildExpectedSignalInput({ ...setupInput, largeDefocus: siteKernelRuns(defocusKernel!.weights, defocusKernel!.radius) }).signalInput, inFocusPerTap: true } : undefined;
@@ -384,8 +385,7 @@ async function prepareView(context: DisplayViewRunContext): Promise<PreparedView
     if (defocusKernel) {
       assume("view.defocus", "model", { kernel: shaped ? (diffraction ? "diffraction-convolved-with-shaped-kernel" : "shaped-kernel") : diffraction ? "diffraction-convolved-with-disc" : "disc", defocusKernelRadiusSites: defocusKernel.radius,
         diffractionKernelRadiusSites: diffraction ? diffractionRadius : null, kernelRadiusSites: combinedRadius, scientificStatus: "approximation", ...(largeDefocus ? { convolution: "runs" } : {}),
-        // #651: under a rolling shutter with fast: false the regrouping by rows is the full method (the same sum), not a fast one.
-        ...(regrouped && execution.backend !== "webgpu-f32" ? { convolution: "runs", ...(context.viewFast.defocusRegrouped ? { fast: "defocus-after-in-focus-signal" } : {}) } : {}),
+        ...(regrouped && execution.backend !== "webgpu-f32" ? { convolution: "runs" } : {}),
         ...(regrouped && lensFactory?.bandRows !== undefined ? { rollingBands: { rows: lensFactory.bandRows, shiftSites: lensFactory.bandRows > 1 ? lensRolling!.bands.shiftSites : 0 } } : {}) },
         // #564: the lens.defocus assumption explains the run convolution above 64 sites (convolution: "runs").
         "The expected electrons of each real site read the scene on the site lattice through the defocus " + (shaped ? "kernel shaped by the lens (#553; see the lens.defocus assumption; " : "disc (") +
@@ -393,14 +393,12 @@ async function prepareView(context: DisplayViewRunContext): Promise<PreparedView
         defocusKernel.width + " window), as the capture's convolution does; the estimators then run unchanged on the blurred signal. " + (diffraction ?
           "With lens.diffraction each spectral node's kernel is its diffraction kernel convolved with the disc (" + (2 * combinedRadius + 1) + " × " + (2 * combinedRadius + 1) + " taps): " +
           "an approximation, because the PSF of a defocused wave is not the in-focus Airy pattern convolved with a geometric disc." :
-          "The disc is the same at every spectral node (geometric optics).") + (regrouped && execution.backend !== "webgpu-f32" ? (context.viewFast.defocusRegrouped ?
-          " Fast method (#612): the disc is applied after each channel's in-focus signal, by runs, the same sum regrouped (equal to rounding); fast: false keeps the combined kernels." :
-          " The disc is applied after each row's in-focus signal at the row's own instants, by runs (#651): the same sum regrouped.") : "") +
+          "The disc is the same at every spectral node (geometric optics).") + (regrouped && execution.backend !== "webgpu-f32" ? " The disc is applied after each channel's in-focus signal (under a rolling shutter each row's, at its own instants), by runs (#612, #651): the same sum regrouped." : "") +
         (regrouped && lensFactory?.bandRows !== undefined && lensFactory.bandRows > 1 ? " Fast method (#651): rows in bands of " + lensFactory.bandRows + " read their middle row's instants; fast: false reads each row's own." : ""));
     }
-    // #643: the fast per-tap sum of chart sites read through kernels (the CPU reference; the regrouped defocus and #564's runs have their own).
-    if (perTapSum && !regrouped && !largeDefocus && execution.backend !== "webgpu-f32") assume("view.signal", "model", { sum: "per-tap", fast: true },
-      "Fast method (#643): a site whose kernel taps read several materials adds its taps in order, the same sum regrouped; fast: false sums them per material first.");
+    // #643: the per-tap sum of chart sites read through kernels (the CPU reference; the regrouped defocus and #564's runs have their own).
+    if (perTapSum && !regrouped && !largeDefocus && execution.backend !== "webgpu-f32") assume("view.signal", "model", { sum: "per-tap" },
+      "A site whose kernel taps read several materials adds its taps in order (#643), the same sum regrouped.");
     if (detail) for (const a of displayViewDetailAssumptions(detailOption!, detail.lens?.channels.length ?? 0)) assume(a.id, "model", a.value, a.explanation);
     if (viewMixed) assume("view.illumination", "model", { method: "radiance-at-every-query-point" },
       "Mixed lighting (#550): the radiance at every query point, as in the capture (no material tables; exact). Not on the GPU.");

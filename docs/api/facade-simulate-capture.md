@@ -123,7 +123,9 @@ the same request (#391), so the RAW can render in parallel. A region render's na
 render's (each site's seeds come from its index in the whole raster), so the joined RAW is the whole render's RAW, and the
 request is resolved and written exactly as `simulateCapture` writes its DNG: the bytes are the same. The parts must cover
 every native site of the frame; where they overlap (each region carries the demosaic margin) their sites must agree. Region
-renders of the request with any format serve (a region's own `output.format` does not change its RAW). A region cannot take
+renders of the request with any format serve if they resolve to the same methods: a region's `output.format` decides the default of `fast`
+(2.20.0), so render the parts with the join's `fast` (an sRGB region is fast by default, a DNG exact); a part that a fast method rendered
+under an exact join, or whose `region.requestKey` is another request's (2.28.0, #728), is refused. A region cannot take
 `output.whiteBalance: "auto"` or `output.dng`: render the parts with a fixed white balance (the RAW codes do not depend on the
 white-balance intent) and pass the DNG's own options here, where auto white balance is measured over the joined frame.
 
@@ -432,11 +434,16 @@ One part of a whole-frame DNG (#391): a region render's packed RAW and where its
 ```ts
 export interface SimulateCaptureDngPart {
   raw: Pick<NativeRawOutput, "codes" | "blackLevels" | "digitalSaturationCodes" | "saturationFlags" | "effectiveSaturationCodes">;
-  region: { nativeRect: { x: number; y: number; width: number; height: number } };
   /**
-   * 2.20.0: true when a fast method ran for this part (`Object.values(result.diagnostics.fast.applied).includes(true)`). The join
-   * refuses such a part unless its own request resolves to fast too (a DNG, JPEG or PNG is exact by default): render the parts with
-   * the same `fast` as the join, or with `fast: false`.
+   * The region result's `region`. 2.28.0 (#728): its `fast` and `requestKey` describe the part; a region result carries them, so
+   * `{ raw: result.raw, region: result.region! }` passes them through. A part without them (a result of an earlier version) joins
+   * with the checks of that version.
+   */
+  region: { nativeRect: { x: number; y: number; width: number; height: number }; fast?: boolean; requestKey?: string };
+  /**
+   * 2.20.0: true when a fast method ran for this part (`Object.values(result.diagnostics.fast.applied).includes(true)`); `region.fast`
+   * takes precedence. The join refuses such a part unless its own request resolves to fast too (a DNG, JPEG or PNG is exact by default):
+   * render the parts with the same `fast` as the join, or with `fast: false`.
    */
   fast?: boolean;
 }
@@ -659,7 +666,7 @@ export interface SimulateCaptureOptions {
      * Opt-in (2.1) diffraction blur of an ideal, aberration-free, in-focus lens with a circular pupil at the
      * capture's resolved f-number: the engine builds the Airy kernels (`createDiffractionLimitedPsfProfile`)
      * on the site pitch. `kernelRadiusSamples` (0–32) sets the kernel window; default: the third dark ring at
-     * the longest spectral node, capped at 32 sites. Not combinable with `psf` or `pupilSampling`. Default off.
+     * the longest spectral node, capped at 32 sites (2.28.0, #732: the second on a fast request, where that is fewer sites). Not combinable with `psf` or `pupilSampling`. Default off.
      */
     diffraction?: SimulateCaptureLensDiffraction;
     /**
@@ -984,7 +991,15 @@ export interface SimulateCaptureResult {
    * frame, and the native sites rendered for it (`nativeRect`, in the whole frame's native raster: the region, the
    * demosaic reach on each side clipped to the raster, and its origin rounded down to the 2 × 2 CFA repeat).
    */
-  region?: { x: number; y: number; width: number; height: number; frameWidth: number; frameHeight: number; nativeRect: { x: number; y: number; width: number; height: number } };
+  region?: { x: number; y: number; width: number; height: number; frameWidth: number; frameHeight: number; nativeRect: { x: number; y: number; width: number; height: number };
+    /** 2.28.0 (#728): true when a fast method ran for this region (`Object.values(diagnostics.fast.applied).includes(true)`). */
+    fast: boolean;
+    /**
+     * 2.28.0 (#728): SHA-256 (hex) over the resolved state that determines the RAW: the scene digest, the camera, lens, exposure, sensor,
+     * motion and illumination options (without `fast` and `output`), the resolved exposure settings and noise seed, the native raster and
+     * pitch, and the resolved spectral step, pixel-aperture and temporal counts. A join of parts refuses a part whose key is not its own.
+     */
+    requestKey: string };
   /** The complete underlying request. */
   request: {
     environmentRaw: NativeEnvironmentRawInput;

@@ -71,8 +71,8 @@ export function catalogueFastGridSubdivisions(lensId: string, fast: boolean): nu
 /** Largest move of a node kernel's intensity centroid across one grid cell, in sites (sets finer grids where lateral color moves the PSF). */
 export const CATALOGUE_FAST_GRID_CENTROID_STEP_SITES = 0.05;
 /**
- * Largest relative difference between the fast and the exact expected electrons that the run-time verification (one site per
- * CFA phase through the exact chain, `renderTabulatedNativeRaw`) accepts; above it the capture runs the exact method.
+ * Largest relative difference between the fast and the exact expected electrons that the run-time verification (the sites of the
+ * frame's top-left 2 × 2 block and of the block at its centre, #733, through the exact chain, `renderTabulatedNativeRaw`) accepts; above it the capture runs the exact method.
  */
 export const CATALOGUE_FAST_VERIFICATION_TOLERANCE = 0.005;
 /** Largest cache window, in lattice points; a larger window is evaluated without caching. */
@@ -396,12 +396,12 @@ export function createCatalogueLensSignal(given: CatalogueLensSignalInput): Cata
 export function catalogueFastAssumptions(run: { columns: number; rows: number; resolved: number; verificationRelativeDifference: number; subdivisions: number; boxSamples?: number }):
   { id: string; value: Record<string, unknown>; explanation: string }[] {
   const tolerance = CATALOGUE_FAST_VERIFICATION_TOLERANCE, cells = run.subdivisions, step = CATALOGUE_FAST_GRID_CENTROID_STEP_SITES;
-  return [{ id: "raw.expectedSignal", value: { method: "per-site-integrated-electrons-catalogue-psf-field-grid", verificationSites: 4, tolerance,
+  return [{ id: "raw.expectedSignal", value: { method: "per-site-integrated-electrons-catalogue-psf-field-grid", verificationSites: 8, tolerance,
     verificationRelativeDifference: run.verificationRelativeDifference },
   explanation: "Each native site's expected photo electrons are integrated per site when the site is read: the sum over the PSF taps of the field factor (vignetting × distortion area factor) times the " +
     "grid-blended kernel per spectral node times the channel response, integrated with each tap's material spectrum (see fast.lens.catalogue). The sensor stage (dark charge, Poisson draws, read noise, ADC) " +
-    "is the native one with each site's own seeds. One site of each CFA phase ran the exact chain (the environment PSF quadrature): its readout was reproduced bit for bit and " +
-    "its electrons agreed with the fast ones within the tolerance (verificationRelativeDifference: the largest difference there)." },
+    "is the native one with each site's own seeds. The frame's top-left and centre 2 × 2 blocks ran the exact chain (the environment PSF quadrature): their readouts were reproduced bit for bit and " +
+    "their electrons agreed with the fast ones within the tolerance (verificationRelativeDifference: the largest difference there)." },
   { id: "fast.lens.catalogue", value: { method: "field-grid-bilinear-psf", gridColumns: run.columns, gridRows: run.rows, gridPointsResolved: run.resolved,
     minimumSubdivisions: cells, centroidStepSites: step, verificationTolerance: tolerance, ...(run.boxSamples !== undefined && run.boxSamples > 1 ? { boxSamplesPerAxis: run.boxSamples } : {}) },
   explanation: "Fast method (#568), an approximation of the exact one: the catalogue PSF is resolved exactly on a field grid (each interval between the profile's field nodes " +

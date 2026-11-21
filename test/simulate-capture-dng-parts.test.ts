@@ -12,13 +12,15 @@ async function partsOf(options: SimulateCaptureOptions, columns: number, rows: n
   for (let r = 0; r < rows; r++) for (let c = 0; c < columns; c++) {
     const x = edge(c, columns, width), y = edge(r, rows, height);
     const region = { x, y, width: edge(c + 1, columns, width) - x, height: edge(r + 1, rows, height) - y };
-    // A part's own format does not change its RAW; the app renders them as sRGB.
+    // The app renders the parts as sRGB.
     // A region takes no capture time and no auto white balance; neither changes the RAW codes (the DNG measures auto white balance
     // over the joined frame).
     const output = { ...options.output!, format: "srgb-8" as const, region };
     delete output.dng;
     if (output.whiteBalance === "auto") output.whiteBalance = "scene-illuminant";
-    const result = await simulateCapture({ ...options, output });
+    // #728, #732: a part renders with the join's fast (an sRGB region is fast by default; a DNG, JPEG or PNG join is exact).
+    const joinFast = options.fast ?? !["dng", "jpeg", "png"].includes(options.output?.format ?? "srgb-8");
+    const result = await simulateCapture({ ...options, fast: joinFast, output });
     parts.push({ raw: result.raw, region: result.region! });
   }
   return parts;

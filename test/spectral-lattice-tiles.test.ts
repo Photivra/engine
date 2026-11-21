@@ -188,7 +188,8 @@ describe("view-equivalence helper", () => {
       scene: { kind: "material-function", sceneId: "equivalence-fine", materials: Array.from({ length: MATERIALS }, (_, m) => 0.05 + 0.9 * m / (MATERIALS - 1)), materialAt },
       subjectDistanceM: 2, exposure: { mode: "manual", iso: 100, shutterSeconds: 1 / 60 },
       sensor: { pixelPitchMicrometers: 6, pixelAperture: { kind: "box", samplesPerAxis: 2 } }, output: { width: W, height: H },
-      lens: { prime: 50, fNumber: 8, diffraction: "circular-aperture" }, ...(fast === undefined ? {} : { fast }) });
+      // An explicit window (the exact default): #732's second-ring window on fast requests is not part of this pair.
+      lens: { prime: 50, fNumber: 8, diffraction: { kind: "circular-aperture", kernelRadiusSamples: 4 } }, ...(fast === undefined ? {} : { fast }) });
     const VIEW = { width: 300, height: 200, region: { x: 140, y: 90, width: 16, height: 12 } };
     const fast = await simulateDisplayViewWithInternals(request(), VIEW), exact = await simulateDisplayViewWithInternals(request(false), VIEW);
     const perTap = createDisplayViewExpectedSignal(fast.signalInput), sums = createDisplayViewExpectedSignal({ ...fast.signalInput, perTapSum: false });

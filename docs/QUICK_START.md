@@ -76,7 +76,7 @@ modelling choices (such as "no lens PSF") as `kind: "model"`.
 | `lens.vignetting` | none | An `IlluminationVignettingProfile` (radial relative illumination). |
 | `lens.psf` | none | A `{ kind: "sampled-local", configuration }` sampled lens PSF, passed to the environment contract unchanged. |
 | `lens.defocus` | off | `{ model: "geometric-disc" }`: defocus of the scene plane as the geometric blur disc (see [Optics](#optics)). `simulateCapture` and `simulateDisplayView` render it. Optional bokeh character (#553), each part off by default: `blades`, `sphericalAberration`, `catsEye` (see [Bokeh character](#bokeh-character-553)). |
-| `lens.diffraction` | off | 2.1: `"circular-aperture"` or `{ kind: "circular-aperture", kernelRadiusSamples, fast }`: diffraction blur of an ideal lens at the resolved f-number (see [Optics](#optics)). `aperture` is accepted as a deprecated alias of `kind` until 3.0.0. |
+| `lens.diffraction` | off | 2.1: `"circular-aperture"` or `{ kind: "circular-aperture", kernelRadiusSamples, fast }`: diffraction blur of an ideal lens at the resolved f-number (see [Optics](#optics)). 2.28.0: without `kernelRadiusSamples` the window reaches the second dark ring on a fast request and the third on an exact one (#732). `aperture` is accepted as a deprecated alias of `kind` until 3.0.0. |
 | `exposure.mode` | `"manual"` | Also `"aperture-priority"`, `"shutter-priority"`, `"program"`. |
 | `exposure.iso` | 100 | Selects the body's ISO readout regime (gain and read noise). From 2.14 the tier bodies (preset 2.1.0) take the third-stop settings `GENERIC_THIRD_STOP_ISO_SETTINGS` (100, 125, 160, 200 … up to the body's maximum: 6400, 12 800 or 25 600). `"auto"` lets Auto ISO choose it from the meter in any mode (see [Auto ISO](#auto-iso-516)); it steps in whole stops unless `exposure.autoIso.isoSteps: "third-stop"`. |
 | `exposure.autoIso` | none | With `iso: "auto"` only. `aperture-priority` requires `{ slowestPreferredShutterSeconds, afterMaximumIso? }`, and `program` takes them optionally; the slowest shutter may be `"auto"`, set by `automaticSlowestShutter`. Every mode takes `limits: { maximum, minimum? }`, the photographer's Auto ISO range (see [Auto ISO](#auto-iso-516)). |
@@ -115,7 +115,7 @@ modelling choices (such as "no lens PSF") as `kind: "model"`.
 | `sensor.noiseSeed` | 1 | Output is deterministic for a given seed. |
 | `sensor.antiAliasing` | off | 2.1: an optical low-pass (anti-aliasing) filter: `{ kind: "four-spot", separationSites? }`, `{ kind: "two-spot", axis, separationSites? }` or `{ kind: "point-splitting", components }` (see [Anti-aliasing filter](#anti-aliasing-filter)). Each record also takes `fast`. |
 | `sensor.pixelAperture` | `"point"` | 2.3: `"box"` or `{ kind: "box", samplesPerAxis, fast }` integrates each square photosite (see [Pixel aperture](#pixel-aperture-23)). |
-| `fast` | `false` | Exact or fast for every option in `SIMULATE_CAPTURE_FAST_OPTIONS`; an option's record `fast` overrides it. No option has a fast method yet, so results are exact; `diagnostics.fast` reports what was requested and what ran (see [Exact and fast modes](https://github.com/Photivra/engine/blob/main/docs/API_STYLE.md#exact-and-fast-modes)). |
+| `fast` | by format | Exact or fast for every option in `SIMULATE_CAPTURE_FAST_OPTIONS`; an option's record `fast` overrides it. Without it the format decides (2.20.0): fast for `"srgb-8"`, `"srgb-16"` and the display view, exact for `"dng"`, `"jpeg"`, `"png"` and `simulateIdealReference`. `SIMULATE_CAPTURE_FAST_METHODS` lists the fast methods; `diagnostics.fast` reports what was requested and what ran (see [Exact and fast modes](https://github.com/Photivra/engine/blob/main/docs/API_STYLE.md#exact-and-fast-modes)). |
 | `motion.angularVelocityRadPerSec` | still | `{ pitch?, yaw?, roll? }` in rad/s (see [Motion](#motion)). |
 | `motion.shutter` | `"global"` | Or `"rolling"`. |
 | `motion.rollingShutterSkewSeconds` | the body's readout skew | Rolling only. |
@@ -1245,8 +1245,13 @@ The optics options feed only what the environment site contract accepts:
     2.44·λ·N_w, and the energy inside radius r is 1 − J₀(x)² − J₁(x)², x = π·r/(λ·N_w) (Wyant &
     Creath 1992, §II, eqs. 1–4, free). The Bessel-function relations and expansions come from the
     NIST DLMF (free). Full references are under [Sources](#sources).
-  - The kernel window reaches the third dark ring at the longest node by default (2, 4 and 7 sites at
-    f/4, f/8 and f/16 with 6 µm pixels); set `kernelRadiusSamples` (0–32) to change it. The Airy tail
+  - The kernel window reaches the third dark ring at the longest node by default on an exact request (2, 4 and 7 sites at
+    f/4, f/8 and f/16 with 6 µm pixels); set `kernelRadiusSamples` (0–32) to change it. 2.28.0 (#732, owner decision): on a
+    fast request (sRGB captures and display views by default) the default reaches the second dark ring (j₁,₂ = 7.0156,
+    NIST DLMF Table 10.21.1; 15 → 10 sites at 1.4 µm f/8, 4 → 3 at 6 µm f/8), where that is fewer sites;
+    `diagnostics.fast.applied["lens.diffraction"]` is then `true` and the `fast.lens.diffraction` assumption's `window` gives both
+    radii and the a-priori bound B = max over nodes of (T_fast − T_exact) / (1 − T_exact), T the Airy energy outside each window:
+    the largest change at a site as a share of the scene contrast its CFA colour sees (2.8 % at 1.4 µm f/8, 1.3 % at 6 µm f/8). The Airy tail
     outside the window (2–6 % of the energy with the default) is listed per wavelength in the
     `lens.diffraction` assumption and put back by renormalizing each kernel to unit sum.
   - The default window is capped at 32 sites, the convolution limit. Small pixels at large f-numbers
@@ -2092,7 +2097,12 @@ Each part is a region result's `raw` and `region` (any region format; `result.ra
 `result.region.nativeRect` where they lie). A region's sites are the whole render's sites, so the joined RAW is the whole
 render's RAW; the function then resolves the request and writes the DNG exactly as `simulateCapture` does, and the bytes
 are the same. The parts must cover the frame's native raster; where they overlap (the demosaic margin) their sites must
-agree, and a part from another request is refused. Render the parts with a fixed white balance and without `output.dng`
+agree, and a part from another request is refused: since 2.28.0 (#728) a region result's `region` carries `fast` (a fast
+method ran) and `requestKey` (SHA-256 of the resolved state that determines the RAW), which `{ raw, region }` passes through,
+and the join refuses a part of another key, or one a fast method rendered under a join that resolves to exact. A region's
+format decides the default of `fast` (an sRGB region is fast, a DNG exact), so with an option that has a fast method (the box
+pixel aperture, motion, a light with narrow bands, a catalogue lens) render the parts with the join's `fast`, for example
+`fast: false`. Render the parts with a fixed white balance and without `output.dng`
 (a region takes neither; the RAW codes do not depend on the white-balance intent): auto white balance and the capture time
 apply to the DNG options passed here, and auto white balance is measured over the joined frame.
 
@@ -2106,9 +2116,9 @@ the same bytes both ways; the parts took 58.1 s of CPU against 50.6 s for one wh
 import { serializeSimulatedCaptureDngFromParts, simulateCapture, type SimulateCaptureDngPart, type SimulateCaptureOptions } from "@photivra/engine";
 
 const dngFrame: SimulateCaptureOptions = { scene: { preset: "siemens-star" }, output: { width: 96, height: 64, format: "dng" } };
-// Two strips rendered as sRGB regions (in an application, in separate Web Workers), then one DNG of the whole frame.
+// Two strips rendered as sRGB regions (in an application, in separate Web Workers) with the DNG's fast (exact), then one DNG of the whole frame.
 const parts: SimulateCaptureDngPart[] = await Promise.all([0, 32].map(async (y) => {
-  const part = await simulateCapture({ ...dngFrame, output: { width: 96, height: 64, region: { x: 0, y, width: 96, height: 32 } } });
+  const part = await simulateCapture({ ...dngFrame, fast: false, output: { width: 96, height: 64, region: { x: 0, y, width: 96, height: 32 } } });
   return { raw: part.raw, region: part.region! };
 }));
 const dng = await serializeSimulatedCaptureDngFromParts(dngFrame, parts);
@@ -2141,9 +2151,9 @@ import { simulateCaptureFromParts, simulateCapture, type SimulateCaptureDngPart,
 
 const whole: SimulateCaptureOptions = { scene: { preset: "slanted-edge" }, lens: { fNumber: 16, diffraction: "circular-aperture" },
   output: { width: 96, height: 64, format: "jpeg", diffractionCorrection: {}, sharpening: {} } };
-// Two strips rendered without the whole-image stages (in an application, in separate Web Workers).
+// Two strips rendered without the whole-image stages (in an application, in separate Web Workers), with the JPEG's fast (exact).
 const parts: SimulateCaptureDngPart[] = await Promise.all([0, 32].map(async (y) => {
-  const part = await simulateCapture({ ...whole, output: { width: 96, height: 64, region: { x: 0, y, width: 96, height: 32 } } });
+  const part = await simulateCapture({ ...whole, fast: false, output: { width: 96, height: 64, region: { x: 0, y, width: 96, height: 32 } } });
   return { raw: part.raw, region: part.region! };
 }));
 const developed = await simulateCaptureFromParts({ ...whole, onProgress: ({ stage, completedTileCount, totalTileCount }) => {

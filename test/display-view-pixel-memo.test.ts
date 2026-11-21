@@ -30,9 +30,9 @@ import { displayViewDigests } from "./helpers/display-view-digests.js";
 // Record all three with RECORD_DISPLAY_VIEW_HASHES=1 (prints them; asserts nothing).
 interface Lock { combined: string; samples: string; internals: string }
 const ARM64_PIXEL_MEMO_HASHES: Readonly<Record<string, string>> = {
-  "bca55f52050b692639facf5c0af92aaa4db578d6c3f681c97beccbe7ec162d23": "16ed97f8dec4a80e90c3da31adfaa757bbfd55d6d797ee9e206cd0e984530a8e",
   // #697: the internals locks whose bytes differ on arm64 (the samples locks are the same on both).
-  "8c8a71aa684c1920159f249cb58bd2b1707de184dba668dd6f34c2100057fe75": "85d254edfb6a76a0f7b9e5eef339ac7a7a75d7bbd7e2b1ad76b6ea2aed5e7fc0"
+  "b74ec7e74686ba94443b003034ef02b616c0a60870e3ca0dbf1f2fa3657a4e60": "7c56d42b09539e40509bffd04c3d5657ed5e4c1ea142ad9065e00d7a158fe13f",
+  "079004b53b8cf2521b0207a3c74f555cd39d49363f755698d1618a1cdc4c8470": "4609390df12291c129be1edf470894fb2d0cf2aebf876870256b5b703f36a472"
 };
 
 describe("display view per-real-pixel memo (#392)", () => {
@@ -42,7 +42,7 @@ describe("display view per-real-pixel memo (#392)", () => {
       [{ scene: { preset: "dead-leaves" }, sensor: { pixelPitchMicrometers: 2 }, output: { width: 60, height: 40 } }, { width: 50, height: 33 }, { combined: "0cc1cf1ec466fbdf8bfee6822a151a75892f2f17e8b614da3a8a21eb981d55cd", samples: "3fb428007f59f143b175a161b359f0e03ecc775fbd3e386c1197415daf926886", internals: "865621939c2de3de2d429628ceb3c710ee93cc3506f7784b0d871354b56dc701" }],
       // Chart materials with diffraction (the filled path and the site ring) and the 2 × 2 box, with AHD.
       [{ scene: { preset: "siemens-star" }, lens: { fNumber: 11, diffraction: "circular-aperture" }, sensor: { pixelPitchMicrometers: 3, pixelAperture: { kind: "box", samplesPerAxis: 2 } },
-        output: { width: 60, height: 40, demosaic: "ahd" } }, { width: 50, height: 33 }, { combined: "bca55f52050b692639facf5c0af92aaa4db578d6c3f681c97beccbe7ec162d23", samples: "4d84d49eb4a06af25ca9a34e2493cf53388e668a56ffe6aeded8b447383b001e", internals: "8c8a71aa684c1920159f249cb58bd2b1707de184dba668dd6f34c2100057fe75" }]
+        output: { width: 60, height: 40, demosaic: "ahd" } }, { width: 50, height: 33 }, { combined: "b74ec7e74686ba94443b003034ef02b616c0a60870e3ca0dbf1f2fa3657a4e60", samples: "0f4de02d7a22895b6ea3cb9880aaf6821573f6bac6586b9d986a9b46db2069ac", internals: "079004b53b8cf2521b0207a3c74f555cd39d49363f755698d1618a1cdc4c8470" }]
     ];
     const recorded: unknown[] = [];
     for (const [k, [options, view, lock]] of cases.entries()) {
@@ -51,7 +51,8 @@ describe("display view per-real-pixel memo (#392)", () => {
       delete diagnostics.timingsMs;
       // #395: diagnostics.fast is additive; it is checked on its own and left out of the recorded digests.
       // 2.20.0: the view's AHD low-signal correction is its fast method (the view's default), so AHD views report the approximation.
-      expect(diagnostics.fast?.assurance).toBe(diagnostics.fast?.applied["output.demosaic.ahd"] ? "approximation-with-a-priori-bound" : "engine-reference");
+      // 2.28.0 (#732): the diffraction window is a fast method too (the view's default).
+      expect(diagnostics.fast?.assurance).toBe(Object.values(diagnostics.fast?.applied ?? {}).includes(true) ? "approximation-with-a-priori-bound" : "engine-reference");
       delete diagnostics.fast;
       // #533: diagnostics.highlight is additive too (it changes no sample); it is checked on its own and left out of the digests.
       expect(diagnostics.highlight).toEqual({ saturatedPixelCount: internals.saturatedPixelCount, statistic: "expected-value" });

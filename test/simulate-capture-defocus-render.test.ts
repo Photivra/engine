@@ -168,7 +168,8 @@ describe("lens.defocus parts, strips, regions and DNG parts equal the whole fram
       const dngOptions = { ...options, output: { ...options.output, format: "dng" as const } };
       const parts: SimulateCaptureDngPart[] = [];
       for (const [x, y] of [[0, 0], [16, 0], [0, 12], [16, 12]] as const) {
-        const part = await simulateCapture({ ...options, output: { ...options.output, region: { x, y, width: 16, height: 12 } } });
+        // #728, #732: with the DNG's fast (exact): an sRGB part is fast by default.
+        const part = await simulateCapture({ ...options, fast: false, output: { ...options.output, region: { x, y, width: 16, height: 12 } } });
         parts.push({ raw: part.raw, region: part.region! });
       }
       const joined = await serializeSimulatedCaptureDngFromParts(dngOptions, parts);
