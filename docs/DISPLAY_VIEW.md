@@ -2011,7 +2011,9 @@ with that reason for `"require"`:
    `lens.catalogue` view with a radial distortion is the exception; the request describes it (`lensView`) and the renderer
    takes a still, rectilinear view in field zones without `flare` on its lens passes ([WebGPU, Catalogue lenses on the
    GPU](WEBGPU.md#catalogue-lenses-on-the-gpu-655)); rotation, hand shake, a moving subject, `fast: false`, a fisheye and
-   `flare` run the CPU reference labelled `unsupported-on-backend` with the reason.
+   `flare` run the CPU reference labelled `unsupported-on-backend` with the reason. With the box pixel aperture the lens
+   passes map every query offset through the lens (the full method's mapping), not the CPU fast reference's second-order
+   offset expansion (#685); the two agree within its 1e-6 relative go/no-go, outside the GPU's a-priori bound.
 5. The renderer must support the request (AHD, diffraction, the anti-aliasing filter, the pixel aperture, the tone curve
    and the scene kind: a chart or `material-layers`, not a caller function): `unsupported-on-backend` otherwise, and a device
    the view acquired is released.
