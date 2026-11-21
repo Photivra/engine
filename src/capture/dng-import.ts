@@ -642,7 +642,13 @@ async function decodeChunk(p: ImagePlan, chunk: Chunk, little: boolean, decoder:
   const sync = decodeChunkSync(p, chunk, little);
   if (sync) return sync;
   if (!decoder) fail("JPEG XL (Compression 52546) data needs a jpegXlDecoder (importDngRawImage).");
-  return readJpegXlTilePng(await decoder(chunk.data), chunk.width, chunk.rows, p.spp, p.bits);
+  let png: Uint8Array;
+  // 2.28.0: the caller's decoder may throw anything for a corrupt codestream; the import reports it as a domain error.
+  try { png = await decoder(chunk.data); } catch (error) {
+    if (error instanceof InvalidConfigurationError) throw error;
+    throw new InvalidConfigurationError("DNG import: the JPEG XL decoder could not decode a strip or tile.", { cause: error });
+  }
+  return readJpegXlTilePng(png, chunk.width, chunk.rows, p.spp, p.bits);
 }
 /** Copies one decoded chunk into a mask's 0..1 values (chunk by chunk, so only one chunk's samples are held). */
 function addMaskChunk(p: ImagePlan, out: Float32Array, chunk: Chunk, decoded: Uint16Array): void {

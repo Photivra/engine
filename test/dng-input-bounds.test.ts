@@ -209,6 +209,14 @@ describe("DNG import: strip tables, masks and tag counts (2.28.0)", () => {
     await expect(importDngRawImage({ bytes, jpegXlDecoder: () => png })).resolves.toMatchObject({ width: 4, height: 4 });
     await expect(importDngRawImage({ bytes, jpegXlDecoder: () => late })).rejects.toThrow(InvalidConfigurationError);
     await expect(importDngRawImage({ bytes, jpegXlDecoder: () => none })).rejects.toThrow(/no IHDR/u);
+    // A decoder's own exception is reported as a domain error that keeps it as its cause.
+    const own = new Error("corrupt codestream");
+    const failed = await importDngRawImage({ bytes, jpegXlDecoder: () => { throw own; } }).catch((error: unknown) => error);
+    expect(failed).toBeInstanceOf(InvalidConfigurationError);
+    expect((failed as Error).message).toBe("DNG import: the JPEG XL decoder could not decode a strip or tile.");
+    expect((failed as Error).cause).toBe(own);
+    const rejected = await importDngRawImage({ bytes, jpegXlDecoder: () => Promise.reject(new RangeError("x")) }).catch((error: unknown) => error);
+    expect(rejected).toBeInstanceOf(InvalidConfigurationError);
   });
 });
 
