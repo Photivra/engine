@@ -38,8 +38,9 @@ const ci = ".github/workflows/ci.yml";
 const artifact = (run, extra = {}) => ({ expired: false, workflow_run: { id: run, head_repository_id: repo }, ...extra });
 const head = "fedcba9876543210fedcba9876543210fedcba98";
 const trees = new Map([[head, tree]]);
+const intoMain = [{ base: { ref: "main", repo: { id: repo } }, head: { sha: head, repo: { id: repo } } }];
 const run = (id, extra = {}) => [id, { id, path: ".github/workflows/ci.yml", head_repository: { id: repo }, event: "pull_request", head_branch: "feature",
-  status: "completed", conclusion: "success", head_sha: head, ...extra }];
+  status: "completed", conclusion: "success", head_sha: head, pull_requests: intoMain, ...extra }];
 test("a proof counts only from this repository's same workflow and before it expires", () => {
   assert.equal(acceptedRun([artifact(7)], new Map([run(7)]), repo, ci, tree, trees), 7);
   assert.equal(acceptedRun([artifact(7, { expired: true })], new Map([run(7)]), repo, ci, tree, trees), undefined);
@@ -66,6 +67,32 @@ test("a proof counts only from a successful run of a proving event on the tree i
   assert.equal(acceptedRun([artifact(7)], new Map([run(7, { event: "push", head_branch: "main" })]), repo, ci, other, trees, [base, head]), undefined);
 });
 
+test("a pull request's proof counts only when its base is main", () => {
+  const accepted = (extra, pulls = new Map()) => acceptedRun([artifact(7)], new Map([run(7, extra)]), repo, ci, tree, trees, [], new Map(), pulls);
+  assert.equal(accepted({}), 7);
+  // Into another branch, into main of another repository, or into main and another branch at once: no proof.
+  assert.equal(accepted({ pull_requests: [{ base: { ref: "release", repo: { id: repo } } }] }), undefined);
+  assert.equal(accepted({ pull_requests: [{ base: { ref: "main", repo: { id: 2002 } } }] }), undefined);
+  assert.equal(accepted({ pull_requests: [...intoMain, { base: { ref: "release", repo: { id: repo } } }] }), undefined);
+  // The run lists no pull request (it was merged or closed): the pull requests whose head is the run's head decide.
+  assert.equal(accepted({ pull_requests: [] }), undefined);
+  assert.equal(accepted({ pull_requests: [] }, new Map([[head, intoMain]])), 7);
+  assert.equal(accepted({ pull_requests: [] }, new Map([[head, [{ base: { ref: "release", repo: { id: repo } }, head: { sha: head, repo: { id: repo } } }]]])), undefined);
+  assert.equal(accepted({ pull_requests: [] }, new Map([[head, [{ ...intoMain[0], head: { sha: "3".repeat(40), repo: { id: repo } } }]]])), undefined);
+  assert.equal(accepted({ pull_requests: [] }, new Map([[head, [{ ...intoMain[0], head: { sha: head, repo: { id: 2002 } } }]]])), undefined);
+  assert.equal(accepted({ pull_requests: [] }, new Map([[head, [...intoMain, { base: { ref: "release", repo: { id: repo } }, head: { sha: head, repo: { id: repo } } }]]])), undefined);
+  assert.equal(accepted({ pull_requests: undefined }), undefined);
+});
+test("a manual run on a release tag counts when the tag names the run's head commit", () => {
+  const tags = new Map([["v2.28.0", head]]);
+  const accepted = (extra, known = tags) => acceptedRun([artifact(7)], new Map([run(7, extra)]), repo, ci, tree, trees, [], known);
+  assert.equal(accepted({ event: "workflow_dispatch", head_branch: "v2.28.0" }), 7);
+  // The tag must exist and name this commit; a push to it, or a branch or tag of another name, does not count.
+  assert.equal(accepted({ event: "workflow_dispatch", head_branch: "v2.28.0" }, new Map()), undefined);
+  assert.equal(accepted({ event: "workflow_dispatch", head_branch: "v2.28.0" }, new Map([["v2.28.0", "4".repeat(40)]])), undefined);
+  assert.equal(accepted({ event: "push", head_branch: "v2.28.0" }), undefined);
+  assert.equal(accepted({ event: "workflow_dispatch", head_branch: "release" }, new Map([["release", head]])), undefined);
+});
 // #666: each coverage shard leaves one part, its blob report or a proof marker, and the gate decides from the ten parts.
 const parts = (kinds) => kinds.map((kind, i) => (kind === "b" ? `blob-${i + 1}-10.json` : `proven-${i + 1}.txt`));
 test("the 2.27.0 publish run (nine shards proven, shard 2 ran) passes without a merge", () => {
