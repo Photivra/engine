@@ -3,10 +3,12 @@
  * #583: in program mode the program line follows the lens's f-number range (`lens.ideal` widestFNumber/narrowestFNumber,
  * `lens.prime`, `lens.catalogue`). Requests whose range holds the line (f/4–f/16), and requests with no range, keep their bytes.
  * #585: a range narrower than about f/1 anchors the exposure at the body's shortest shutter; requests that resolved before keep theirs.
+ * #673: a sensor profile whose base ISO is above 100 moves the anchor's shutter; its program line's stops are measured from that anchor.
  */
 import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
-import { simulateCapture, simulateDisplayView, type SimulateCaptureOptions, type SimulateCaptureResult } from "../src/index.js";
+import { resolveSensorProfile, SENSOR_PROFILES, simulateCapture, simulateDisplayView, type SensorProfile, type SimulateCaptureOptions,
+  type SimulateCaptureResult } from "../src/index.js";
 import { scaledTimeout } from "./helpers/test-timeout.js";
 
 const sha = (data: ArrayBufferView | string): string => createHash("sha256")
@@ -173,5 +175,29 @@ describe("program line limited to the lens's f-number range (#583)", () => {
       // Program and aperture priority reach the meter target in 20 lx (shutter priority at 1/4000 s and manual at 1/8000 s cannot).
       if (exposure.mode === "program" || exposure.mode === "aperture-priority") expect(Math.abs(capture.exposure.standardExposureDeviationStops!), exposure.mode).toBeLessThan(0.5);
     }
+  }, scaledTimeout(60_000));
+});
+
+describe("program mode on a sensor profile whose base ISO is above 100 (#673)", () => {
+  const ff = resolveSensorProfile("full-frame-24mp-bsi-2020s");
+  const base200: SensorProfile = { ...ff, id: "copy-200", baseIso: 200, maximumIso: 102400,
+    readNoise: { lowGainElectrons: 3, highGainElectrons: 3, highGainFromIso: null }, highGainFullWellElectrons: null };
+  const line = (r: SimulateCaptureResult): unknown => r.assumptions.find((a) => a.id === "exposure.programLine")!.value;
+  it("resolves on every profile and on a base-200 copy, at the meter target, with the default ISO and with Auto ISO", async () => {
+    for (const profile of [...SENSOR_PROFILES, base200]) for (const exposure of [{ mode: "program" as const }, { mode: "program" as const, iso: "auto" as const }]) {
+      const r = await simulateCapture({ ...base, scene: { preset: "uniform" }, sensor: { profile }, exposure });
+      expect(Math.abs(r.exposure.standardExposureDeviationStops!), profile.id).toBeLessThan(1e-6);
+      if (profile.baseIso > 100) expect(line(r), profile.id).toMatchObject({ profileId: "facade-generic-program-line-base-iso", nodes: [{ aperture: 16, shutterSeconds: 1 / 2000 },
+        { aperture: 16, shutterSeconds: 1 / 125 }, { aperture: 4, shutterSeconds: 1 / 125 }, { aperture: 4, shutterSeconds: 128 / 125 }] });
+      else expect(line(r), profile.id).toBe("facade-generic-program-line");
+    }
+  }, scaledTimeout(60_000));
+  it("measures the line's stops from the base-ISO anchor: f/8 at 1/125 s lies on it, 0.32 stops from the base-125 anchor", async () => {
+    const r = await simulateCapture({ ...base, sensor: { profile: resolveSensorProfile("full-frame-24mp-stacked-sports-2020s") }, exposure: { mode: "program" } });
+    const nodes = (line(r) as { nodes: { opticalExposureStopsFromReference: number; aperture: number; shutterSeconds: number }[] }).nodes;
+    // The reference is f/8 at 1/125 s × 100/125, so f/16 at 1/125 s is log2(1.25 / 4) stops from it.
+    expect(nodes[1]!.opticalExposureStopsFromReference).toBeCloseTo(Math.log2(1.25 / 4), 12);
+    expect(nodes[2]!.opticalExposureStopsFromReference).toBeCloseTo(Math.log2(1.25 * 4), 12);
+    expect((nodes[1]!.opticalExposureStopsFromReference + nodes[2]!.opticalExposureStopsFromReference) / 2).toBeCloseTo(Math.log2(1.25), 12);
   }, scaledTimeout(60_000));
 });

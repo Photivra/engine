@@ -548,8 +548,9 @@ export interface SimulateCaptureOptions {
      *   engine never clips a limit. When the ISO stops at a limit strictly inside the body's range, the report's
      *   `limitingConstraint` is `"user-iso-maximum"` or `"user-iso-minimum"`.
      * - `isoSteps` (2.14): `"whole-stop"` (default) lets Auto ISO choose only the whole-stop ISOs of the body's grid
-     *   (100, 200, 400 …), as before the generic bodies gained third-stop settings (preset 2.1.0); `"third-stop"` lets it
-     *   choose every setting (100, 125, 160 …). Manual ISO always takes any setting of the grid. Limits must lie on the
+     *   (100, 200, 400 …), as before the generic bodies gained third-stop settings (preset 2.1.0); on a sensor profile, its base ISO·2^k,
+     *   or, when that list leaves out ISO 100 (base ISO 32, 40, 64 or 80, #672), every third setting from ISO 100 with the base ISO
+     *   kept (80, 100, 200 …); `"third-stop"` lets it choose every setting (100, 125, 160 …). Manual ISO always takes any setting of the grid. Limits must lie on the
      *   grid Auto ISO uses.
      */
     autoIso?: { slowestPreferredShutterSeconds?: number | "auto"; afterMaximumIso?: SimulateCaptureAutoIsoAfterMaximum; limits?: AutoIsoLimits;
@@ -718,7 +719,10 @@ export interface SimulateCaptureOptions {
     pixelPitchMicrometers?: number;
     /** Maximum spectral quadrature subinterval in nm. Default 20. */
     spectralStepNanometers?: number;
-    /** Temporal midpoint samples across the exposure, 1–256. Default 1; with camera rotation or subject motion (2.24.0) 8 on a fast request and 16 on an exact one. */
+    /**
+     * Temporal midpoint samples across the exposure, 1–256. Default 1; with camera rotation or subject motion (2.24.0) 8 on a fast request and 16 on an exact one.
+     * #729: a still request (no rotation, moving subject, flash or exposure build-up) renders with one, whatever the count.
+     */
     temporalSampleCount?: number;
     /** Noise seed (uint32). Default 1. */
     noiseSeed?: number;
@@ -1247,12 +1251,20 @@ function luminanceOf(radiance: (nm: number) => number): number {
 /**
  * 2.14: the capabilities with the ISO grid cut to its whole stops from the base ISO (ISO 100·2^k on the tiers, as the 2.0.0 bodies list them; #554: a profile's base·2^k), for
  * Auto ISO's default `isoSteps: "whole-stop"`. A whole-stop grid is returned unchanged, so 2.0.0 records resolve as before.
+ * #672: when that list leaves out the reference exposure's ISO (ISO 100 on a profile whose base ISO is below 100, which every exposure mode
+ * refuses) and the grid is a third-stop grid, the whole stops are every third setting counted from the reference ISO, and the base ISO.
+ * Counting positions keeps the nominal markings (1250, not 1280). Every other grid keeps the list it had.
  */
-function wholeStopIsoCapabilities(capabilities: ResolvedGenericEquipmentExposureCapabilities): ResolvedGenericEquipmentExposureCapabilities {
+function wholeStopIsoCapabilities(capabilities: ResolvedGenericEquipmentExposureCapabilities, referenceIso: number): ResolvedGenericEquipmentExposureCapabilities {
   const grid = capabilities.iso.settingGrid;
   if (grid.kind !== "discrete-values") return capabilities;
-  const whole = grid.values.filter((iso) => Number.isInteger(Math.log2(iso / grid.values[0]!)));
-  if (whole.length === grid.values.length || whole.length === 0) return capabilities;
+  // `at` matches at least every ISO the resolvers' grid check matches (32 ε relative: the reference ISO is 100 or more).
+  const values = grid.values, at = (list: readonly number[]): number => list.findIndex((iso) => Math.abs(iso / referenceIso - 1) < 1e-12);
+  let whole = values.filter((iso) => Number.isInteger(Math.log2(iso / values[0]!)));
+  const from = at(values);
+  if (at(whole) < 0 && from >= 0 && values.every((iso, i) => !i || Math.abs(3 * Math.log2(iso / values[i - 1]!) - 1) < .1))
+    whole = values.filter((_, i) => !i || (i - from) % 3 === 0);
+  if (whole.length === values.length || whole.length === 0) return capabilities;
   return { ...capabilities, iso: { ...capabilities.iso, settingGrid: { kind: "discrete-values", values: Object.freeze(whole) } } };
 }
 /** The white balance measured from a perfect white diffuser under the scene illuminant ("scene-illuminant"). */
@@ -2206,6 +2218,11 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
     await optInKit.load();
   }
   if (subject && pupil) fail("motion.subject cannot be combined with lens.pupilSampling.");
+  // #688: a subject at rest (no velocity, no rotation) is the still scene, which it equals; it renders as one.
+  if (subject && !subject.vx && !subject.vy && !subject.omega) {
+    assume("motion.subject", "model", { velocityMPerSec: { x: 0, y: 0 }, angularVelocityRadPerSec: 0, atRest: true }, "The subject is at rest: the scene is rendered still.");
+    subject = undefined;
+  }
   const angular = { pitch: 0, yaw: 0, roll: 0 };
   if (motionOptions.angularVelocityRadPerSec !== undefined) {
     const a = allowKeys(motionOptions.angularVelocityRadPerSec, "motion.angularVelocityRadPerSec", ["pitch", "yaw", "roll"]);
@@ -2349,6 +2366,13 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
       motionWord + " temporal midpoints sample the subject's motion (8 on a fast request, 16 on an exact one); raise it for long streaks.") :
     pick(sensorOptions, "temporalSampleCount", "sensor.temporalSampleCount", DEFAULTS.temporalSampleCount,
       "One temporal sample: the static scene and still camera make more samples unnecessary."), "sensor.temporalSampleCount", 1, 256);
+  // #729: a still request (no camera rotation, moving subject, flash or exposure build-up) gives every temporal midpoint the same
+  // queries, so it renders with one; the count asked for is still validated and listed in diagnostics.options.
+  const requestedTemporalSampleCount = temporalSampleCount;
+  if (temporalSampleCount > 1 && !rotating && !subject && !illumination?.flash && !(run === "capture" && viewOption)) {
+    assume("sensor.temporalSampleCount", "model", { requested: temporalSampleCount, used: 1 }, "One temporal sample: with a still camera and scene every midpoint reads the same scene.");
+    temporalSampleCount = 1;
+  }
   const parsedCharacteristics = parseSensorCharacteristics(sensorOptions), rn = parsedCharacteristics?.readNoise, rs = profileReadNoiseScale;
   // #554: on a profile's downsized view a site sums photosites: explicit read noises (per photosite) scale as the profile's do (#637: the fixed pattern is summed below).
   const characteristics = rn && rs !== 1 ? { ...parsedCharacteristics!, readNoise: { ...rn, ...(rn.lowGainElectrons === undefined ? {} : { lowGainElectrons: rn.lowGainElectrons * rs }),
@@ -2657,10 +2681,12 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   // #551: the moving subject's scene; renderers read it at each query's time. The revealed background is a neutral 18 % reflectance
   // under the plane's irradiance at the revealed point: the illuminant, or (#550) the blend and point sources there, from the spectrum.
   const half = chartSize ? chartSize.widthM / 2 / metresPerFrameUnit : 1;
+  const revealed = (scale: number, shape: (nm: number) => number, light?: ResolvedMixedIllumination) => (u: number, v: number, nm: number): number =>
+    0.18 * (light ? light.irradianceAt(u / half, v / half, u * metresPerFrameUnit, v * metresPerFrameUnit, nm) : scale * shape(nm)) / Math.PI;
   const movingScene = subject ? (base: PlanarSceneRadianceProvider, scale: number, shape: (nm: number) => number, light?: ResolvedMixedIllumination): PlanarSceneRadianceProvider =>
-    loadedKit(optInKit).createSubjectMotionProvider(base, subject, subjectDistanceM, metresPerFrameUnit,
-      (u, v, nm): number => 0.18 * (light ? light.irradianceAt(u / half, v / half, u * metresPerFrameUnit, v * metresPerFrameUnit, nm) : scale * shape(nm)) / Math.PI) : undefined;
-  let sceneProvider = movingScene ? movingScene(provider, irradianceScale, (nm) => illuminant.shape.evaluate(nm), mixed) : provider;
+    loadedKit(optInKit).createSubjectMotionProvider(base, subject, subjectDistanceM, metresPerFrameUnit, revealed(scale, shape, light)) : undefined;
+  const sceneShape = (nm: number): number => illuminant.shape.evaluate(nm);
+  let sceneProvider = movingScene ? movingScene(provider, irradianceScale, sceneShape, mixed) : provider;
   // 2.6: a chart preset's evaluator is engine-built end to end (its results: the schema's exact keys, constant fields,
   // the request's identifiers, deep-frozen FACADE_EVIDENCE, UNCERTAINTY and limitations, and an engine-computed
   // radiance), so the native task may skip re-parsing the fixed parts. Caller scenes keep the full validation.
@@ -2672,6 +2698,20 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   const materialOfDirection = planarProviderMaterialOfDirection(provider);
   if (materialEvaluator && materialOfDirection && provider.materialRadiance) registerInternalRadianceAccess(provider.evaluateRadiance,
     { keyOfDirection: materialOfDirection, radianceOfKey: provider.materialRadiance, tabulated: true });
+  // #676: the moving subject's evaluator returns the base's records with the radiance replaced, so it is engine-built too. With the
+  // base's lookup (one illuminant: the revealed radiance is the same everywhere), its key is the base's material where the subject
+  // shows, -1 for the revealed background, found by a probe of the same moving scene over the base's materials (its arithmetic).
+  if (materialEvaluator && sceneProvider !== provider) {
+    markInternalSceneRadianceEvaluator(sceneProvider.evaluateRadiance);
+    const { chartMaterialAt: materialAt, materialRadiance } = provider;
+    if (materialOfDirection && materialAt && materialRadiance) {
+      let key = -1;
+      const probe = loadedKit(optInKit).createSubjectMotionProvider({ ...provider, radianceAt: (x, y) => (key = materialAt(x, y), 0) }, subject!, subjectDistanceM, metresPerFrameUnit, () => (key = -1, 0));
+      const background = revealed(irradianceScale, sceneShape);
+      registerInternalRadianceAccess(sceneProvider.evaluateRadiance, { tabulated: true, radianceOfKey: (k, nm) => k < 0 ? background(0, 0, nm) : materialRadiance(k, nm),
+        keyOfDirection: (o, t) => { const d = subjectDistanceM / -o.z; return o.z < 0 ? (probe.radianceAt(-o.x * d / metresPerFrameUnit, -o.y * d / metresPerFrameUnit, 0, t), key) : undefined; } });
+    }
+  }
   assume("model.scene-radiometry", "model", "lambertian-plane", "Radiance = reflectance × irradiance / π on one plane; illuminance from K_m = 683 lm/W and the engine's analytic CIE 1931 ȳ fit.");
 
   // Metering (CIPA DC-004 standard output sensitivity and camera equation) and exposure-mode resolution
@@ -2794,7 +2834,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
     if (autoIsoOptions.isoSteps !== undefined && autoIsoOptions.isoSteps !== "whole-stop" && autoIsoOptions.isoSteps !== "third-stop")
       fail('exposure.autoIso.isoSteps must be "whole-stop" or "third-stop".');
     if (autoIsoOptions.isoSteps === "third-stop") autoIsoIsoSteps = "third-stop";
-    if (autoIsoIsoSteps === "whole-stop") resolverCapabilities = wholeStopIsoCapabilities(capabilities);
+    if (autoIsoIsoSteps === "whole-stop") resolverCapabilities = wholeStopIsoCapabilities(capabilities, reference.iso);
     if (mode !== "aperture-priority" && mode !== "program") for (const key of ["slowestPreferredShutterSeconds", "afterMaximumIso", "automaticSlowestShutter"])
       if (autoIsoOptions[key] !== undefined) fail("exposure.autoIso." + key + ' applies only to exposure.mode "aperture-priority" or "program"; omit it.');
     if (autoIsoOptions.limits !== undefined) autoIsoLimits = parseAutoIsoLimitsOption(autoIsoOptions.limits, resolverCapabilities.iso);
@@ -2862,7 +2902,8 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   } else {
     // #583: a lens range without f/4–f/16 limits the line to it; every other request keeps the line and its assumption.
     const programLine = facadeProgramLine(clamp(4), clamp(16), reference, FACADE_EVIDENCE);
-    // A limited line (#583) records its nodes under the profile id "facade-generic-program-line-lens-range".
+    // A limited line (#583) records its nodes under the profile id "facade-generic-program-line-lens-range"; #673: a line anchored at a
+    // base ISO above 100, under "facade-generic-program-line-base-iso".
     if (!calls) assume("exposure.programLine", "model", programLine.nodes.length > 4 ? programLine.profileId : programLine,
       "Engine-authored generic program line (f/16 1/2000 s … f/8 1/125 s … f/4 1.024 s); not a manufacturer program.");
     resolution = resolveProgramAutoExposureMode({ target, capabilities: resolverCapabilities, referenceExposure: reference, programLine,
@@ -4176,7 +4217,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
     ...(distortion ? ["lens.distortion" as const] : []), ...(vignetting ? ["lens.vignetting" as const] : []), ...(lensPsf ? ["lens.psf" as const] : []),
     ...(catalogue ? ["lens.catalogue" as const] : []),
     ...(diffraction ? ["lens.diffraction" as const] : []), ...(defocusSiteKernels || catalogueDefocusApplied ? ["lens.defocus" as const] : []), ...(antiAliasing ? ["sensor.antiAliasing" as const] : []), ...(boxAperture ? ["sensor.pixelAperture.box" as const] : []),
-    ...(temporalSampleCount > 1 ? ["sensor.temporalSampleCount" as const] : []), ...(rotating ? ["motion.rotation" as const] : []), ...(subject ? ["motion.subject" as const] : []),
+    ...(requestedTemporalSampleCount > 1 ? ["sensor.temporalSampleCount" as const] : []), ...(rotating ? ["motion.rotation" as const] : []), ...(subject ? ["motion.subject" as const] : []),
     ...(rollingSchedule ? ["motion.shutter.rolling" as const] : []), ...(mirrorBorder ? ["output.borderHandling.mirror" as const] : []), ...(region ? ["output.region" as const] : []),
     ...(needsAuto ? ["output.whiteBalance.auto" as const] : []), ...(ahd ? ["output.demosaic.ahd" as const] : []),
     ...(highlightMode === "reconstruct" || neighborHighlights ? ["output.highlightMode.reconstruct" as const] : []), ...(wideGamut ? ["output.colorEncoding.wide-gamut" as const] : []),

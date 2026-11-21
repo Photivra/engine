@@ -4,10 +4,10 @@ The package and root API versions are recorded once in [Navigation](../API_REFER
 
 ## SIMULATE_CAPTURE_FAST_METHODS
 
-2.20.0: every speed-versus-accuracy choice of the capture facade and the display view (see the module comment).
+2.20.0: every speed-versus-accuracy choice of the capture facade and the display view (see the module comment); #683: frozen all the way down.
 
 ```ts
-SIMULATE_CAPTURE_FAST_METHODS: readonly SimulateCaptureFastMethod[] = Object.freeze([
+SIMULATE_CAPTURE_FAST_METHODS: readonly SimulateCaptureFastMethod[] = freezeOwnedData([
   { id: "lens.catalogue/field-grid", override: "lens.catalogue", methods: "fast-and-exact", runs: ["simulateCapture"],
     fast: "#568: the PSF blended over a field grid, with each site's expected electrons integrated from its taps' material spectra at use, verified per CFA phase against the exact chain; #629: with the box pixel aperture, each lattice point's box-integrated spectral radiance and one kernel per site",
     exact: "the environment PSF quadrature with the PSF resolved at each query point", followsFormatDefault: true,

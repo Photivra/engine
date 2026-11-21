@@ -13,6 +13,7 @@
  * @see docs/API_STYLE.md, "Exact and fast modes".
  */
 
+import { freezeOwnedData } from "../core/owned-data.js";
 /** One speed-versus-accuracy choice of {@link SIMULATE_CAPTURE_FAST_METHODS} (2.20.0). */
 export interface SimulateCaptureFastMethod {
   /** A short id: the option path and, where one option has several fast methods, the method. */
@@ -45,8 +46,8 @@ export interface SimulateCaptureFastMethod {
 
 const CAPTURE = "src/facade/simulate-capture.ts", VIEW = "src/facade/simulate-display-view.ts";
 
-/** 2.20.0: every speed-versus-accuracy choice of the capture facade and the display view (see the module comment). */
-export const SIMULATE_CAPTURE_FAST_METHODS: readonly SimulateCaptureFastMethod[] = /* @__PURE__ */ Object.freeze([
+/** 2.20.0: every speed-versus-accuracy choice of the capture facade and the display view (see the module comment); #683: frozen all the way down. */
+export const SIMULATE_CAPTURE_FAST_METHODS: readonly SimulateCaptureFastMethod[] = /* @__PURE__ */ freezeOwnedData([
   { id: "lens.catalogue/field-grid", override: "lens.catalogue", methods: "fast-and-exact", runs: ["simulateCapture"],
     fast: "#568: the PSF blended over a field grid, with each site's expected electrons integrated from its taps' material spectra at use, verified per CFA phase against the exact chain; #629: with the box pixel aperture, each lattice point's box-integrated spectral radiance and one kernel per site",
     exact: "the environment PSF quadrature with the PSF resolved at each query point", followsFormatDefault: true,

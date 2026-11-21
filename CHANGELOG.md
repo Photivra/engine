@@ -39,6 +39,47 @@
     (best of 10, alternating in one process): 1.93× (640 × 480, r = 7, 64 × 64-site patches), 2.01× (one patch), 1.97× (400 × 300,
     r = 15) and 2.18× (256 × 256, r = 32). It is the CPU path of `calculateIrradianceConvolution`, the image-kernel accelerator and
     the display view's CPU reference.
+- **Fixed: Auto ISO on sensor profiles with a base ISO below 100 (#672).** `exposure.iso: "auto"` with its default whole-stop
+  steps was refused in every exposure mode on six of the eight profiles (base ISO 80 and the phone's 40): the whole stops counted
+  from the base ISO (80, 160, 320, 640) left out ISO 100, the exposure reference's ISO. When that list leaves out the reference
+  ISO on a third-stop grid, the whole stops are now every third setting counted from it, with the base ISO kept (owner decision
+  of 2026-11-21): 80, 100, 200, 400 … up to the profile's Auto ISO maximum. Every other grid keeps its list, so a request that
+  resolved before resolves to the same settings and bytes (3,804 requests compared: 2,647 unchanged, 424 that were refused now
+  resolve, none changed). Tests: `test/sensor-profile-auto-iso.test.ts`.
+- **Fixed: program mode on a sensor profile whose base ISO is above 100 (#673).** `exposure.mode: "program"` was refused on
+  `full-frame-24mp-stacked-sports-2020s` (base ISO 125) and on any profile copy with a base ISO above 100: such a profile moves
+  the exposure reference to a shorter shutter, and the line's fixed node stops, measured from f/8 at 1/125 s, no longer matched
+  it. The fixed nodes are now used only at that anchor; any other takes the computed nodes (f/16 1/2000 s, f/16 1/125 s, f/4
+  1/125 s, f/4 1.024 s, stops from the anchor), recorded as `"facade-generic-program-line-base-iso"`. A request that resolved
+  before used the default anchor, so its line, settings and bytes are unchanged (3,804 requests compared: none changed; 373 more
+  resolve). `calculateProgramLine` takes no profile and is unchanged. Tests: `test/program-line-lens-range.test.ts`.
+- **Faster: `sensor.temporalSampleCount` on a still request (#729).** Without camera rotation (including `motion.handheld`), a
+  moving subject, a flash or an exposure build-up, every temporal midpoint reads the same scene, yet the count multiplied the
+  scene queries of every site (64 × the provider evaluations at N = 64 on a function scene) and entered the per-site query
+  limit, so a box aperture with a four-spot filter at N = 100 was refused. Such a request now renders with one midpoint. RAW
+  codes and samples are unchanged (compared below); `diagnostics.providerEvaluationCount` falls to that of one sample, the
+  `sensor.temporalSampleCount` assumption reports `{ requested, used: 1 }`, and `diagnostics.options` still lists the option.
+  Requests with rotation, a moving subject, a flash or a build-up keep their count. Tests:
+  `test/simulate-capture-still-temporal.test.ts`.
+- **Fixed: `SIMULATE_CAPTURE_FAST_METHODS` is frozen all the way down (#683, its facade part).** Only the array was frozen, so a
+  caller could edit an entry's records in place. Data only; captures and display views do not import it. Tests:
+  `test/fast-methods-registry.test.ts`.
+- **Faster: a `motion.subject` at rest (#688).** A subject record with no velocity and no rotation (`subject: {}` or zeros)
+  took the moving-subject path with 16 (exact) or 8 (fast) temporal midpoints for the picture of the still scene. It now
+  renders as the still scene: 160 × 120 slanted edge 5,157 ms → 25 ms exact and 535 ms → 16 ms fast (best of two, paired,
+  machine under load), RAW codes and samples identical. The record is still validated (an out-of-range value is refused, as
+  is the combination with `lens.pupilSampling`). Reported metadata changes for this input: the `sensor.temporalSampleCount`
+  assumption (1), the `motion.subject` assumption (`atRest: true`), no `diagnostics.fast.applied["motion.subject"]`, and
+  `diagnostics.providerEvaluationCount` (that of the still request). Tests: `test/simulate-capture-subject-motion.test.ts`.
+- **Faster: a moving subject on a chart or material scene (#676).** The moving scene's evaluator was treated as caller code (every
+  result fully re-validated) and had no material lookup, so the executor called it for every tap and spectral node. It is now
+  marked engine-built, and, under one illuminant, registered with a lookup that names the material each query reads (the base
+  scene's material where the subject shows, a reserved key for the revealed background), found with the moving scene's own
+  arithmetic; the executor still integrates every site and checks the lookup against its own evaluations. 160 × 120, best of two,
+  paired, machine under load: slanted edge exact 5.0–5.3 s → 0.50–0.57 s (8.7–10.0×, whole scene, regions, rotation, rolling
+  shutter), color patches fast 2.6–2.8 s → 0.36–0.41 s (6.8–7.3×); camera rotation alone unchanged. RAW codes and samples
+  identical; `diagnostics.providerEvaluationCount` unchanged. Mixed lighting, caller function scenes, the display view and the
+  defocus and diffraction providers keep their own handling. Tests: `test/simulate-capture-subject-motion.test.ts`.
 - **Tooling, CI and tests only (2.28.0 step 1); no package, API, output or bundle change.**
   - *Coverage gates decide per shard (#666, with `ci-07`).* Each coverage shard uploads one part, its blob report or a marker
     naming the `coverage` proof it found; `.github/coverage-parts.mjs` merges ten blobs with the thresholds enforced, passes a

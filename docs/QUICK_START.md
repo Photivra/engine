@@ -111,7 +111,7 @@ modelling choices (such as "no lens PSF") as `kind: "model"`.
 | `output.jpegQuantizationStep` | 2 | JPEG only: constant step 1–255, not a manufacturer quality scale. |
 | `sensor.pixelPitchMicrometers` | 6 | 0.5–1000 (2.5; 0.5–100 before). The sensor is `width × pitch` wide (see [Geometry](#geometry)); the ISO readout scales with the pixel area (see [ISO and pixel size](#iso-and-pixel-size)). Above 100 µm the capture is a downsized view of a whole frame (see [Whole-frame views](#whole-frame-views-25)). |
 | `sensor.spectralStepNanometers` | 20; 5 on exact requests under a spiky light (2.22.0, #590) | Spectral quadrature over 380–780 nm. A light is spiky when R(20) = 20²·κ/24 > 0.01, κ = Σ\|Δ²S\| / ΣS on a 1 nm grid (the midpoint rule's error term, DLMF §3.5(i)): the fluorescent and LED representative sources. Exact requests (DNG, JPEG, PNG, `fast: false`) then take 5 nm; fast ones keep 20 nm, add the assumption `sensor.spectralSpikiness` and report `diagnostics.fast.applied["sensor.spectralStepNanometers"]: true` (exact ones `false`). An explicit step wins and adds no key. |
-| `sensor.temporalSampleCount` | 1; with camera rotation or subject motion 8 on fast requests, 16 on exact ones (2.24.0) | Midpoints across each site's exposure window. |
+| `sensor.temporalSampleCount` | 1; with camera rotation or subject motion 8 on fast requests, 16 on exact ones (2.24.0) | Midpoints across each site's exposure window. A still request (no camera rotation, moving subject, flash or exposure build-up) renders with one whatever the count, with the same result; the `sensor.temporalSampleCount` assumption reports the count asked for and the one used (#729). |
 | `sensor.noiseSeed` | 1 | Output is deterministic for a given seed. |
 | `sensor.antiAliasing` | off | 2.1: an optical low-pass (anti-aliasing) filter: `{ kind: "four-spot", separationSites? }`, `{ kind: "two-spot", axis, separationSites? }` or `{ kind: "point-splitting", components }` (see [Anti-aliasing filter](#anti-aliasing-filter)). Each record also takes `fast`. |
 | `sensor.pixelAperture` | `"point"` | 2.3: `"box"` or `{ kind: "box", samplesPerAxis, fast }` integrates each square photosite (see [Pixel aperture](#pixel-aperture-23)). |
@@ -1798,7 +1798,8 @@ rectangle of it (`region: { centerXM, centerYM, widthM, heightM }` in metres at 
 
 - `velocityMPerSec: { x, y }` is a translation in m/s on the plane (+x right, +y up as seen from the camera).
   `angularVelocityRadPerSec` adds a rotation about an axis parallel to the optical axis, counter-clockwise as seen from
-  the camera: the optical axis for the whole scene, the region's center for a region.
+  the camera: the optical axis for the whole scene, the region's center for a region. A subject at rest (no velocity
+  and no rotation, `subject: {}` included) renders as the still scene it equals, with one temporal sample (#688).
 - The model is rigid motion of a planar layer. At time t from the first opening (camera rotation's time reference), a
   subject point at rest q is at R(ωt)(q − c) + c + v·t. A plane point shows the subject where one is there, else the
   region's rest rectangle shows a neutral 18 % background (what the subject revealed), else the still scene. The background
