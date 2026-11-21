@@ -20,7 +20,7 @@ const coverageRun = process.argv.some(
 );
 const timeoutScale = coverageRun ? 4 : process.env.CI ? 3 : 1;
 /*
- * A sharded coverage run (`--shard=k/n`, the four CI coverage parts) covers only part of the
+ * A sharded coverage run (`--shard=k/n`, the ten CI coverage shards) covers only part of the
  * suite, so it keeps raw coverage in its blob report and checks no threshold; the merge of all
  * parts (`vitest --merge-reports --coverage`, the required `verify (lts/*)` check) enforces the
  * thresholds below on the whole suite. Every other coverage run enforces them directly.
