@@ -16,8 +16,9 @@
 // coverage, thresholds enforced, on this exact tree. Anything else fails.
 import console from "node:console";
 import process from "node:process";
-import { appendFileSync, readdirSync, readFileSync } from "node:fs";
+import { appendFileSync, readdirSync, readFileSync, realpathSync } from "node:fs";
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 
 export function coverageDecision(names, count = 10) {
   if (!Number.isInteger(count) || count < 1) throw new Error(`not a part count: ${count}`);
@@ -53,7 +54,9 @@ function main([directory, count = "10"]) {
   if (process.env.GITHUB_OUTPUT) appendFileSync(process.env.GITHUB_OUTPUT, `action=${decision.action}\n`);
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+// Run as a command whatever the path looks like (spaces, a symbolic link): a check that missed would print nothing, exit 0 and
+// leave the gate without a decision. The workflows also require one of the two actions in the step's output.
+if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href) {
   try {
     main(process.argv.slice(2));
   } catch (error) {

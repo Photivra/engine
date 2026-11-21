@@ -1,6 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 import assert from "node:assert/strict";
 import test from "node:test";
+import { spawnSync } from "node:child_process";
+import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import process from "node:process";
+import { fileURLToPath, URL } from "node:url";
 import { acceptedRun, proofName } from "./ci-proof.mjs";
 import { docsOnlyReason } from "./ci-scope.mjs";
 import { coverageDecision } from "./coverage-parts.mjs";
@@ -61,4 +67,28 @@ test("a part present twice (a blob and a marker) fails: a stale part is never me
 test("any other file fails", () => {
   for (const name of ["blob-11-10.json", "blob-2-8.json", "blob-0-10.json", "proven-02.txt", "notes.txt"])
     assert.throws(() => coverageDecision([...parts([..."bbbbbbbbbb"]), name]), /Unexpected file/, name);
+});
+
+const parts10 = (kinds) => [...kinds].map((kind, i) => (kind === "b" ? `blob-${i + 1}-10.json` : `proven-${i + 1}.txt`));
+// The command line must run, and decide, from any path: a missed entry check would print nothing and exit 0 (#666).
+test("the coverage-parts command decides from a path with a space and through a symbolic link", (t) => {
+  const root = mkdtempSync(join(tmpdir(), "coverage parts "));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const script = join(root, "with space", "coverage-parts.mjs"), link = join(root, "link.mjs"), parts = join(root, "parts"), output = join(root, "output.txt");
+  mkdirSync(join(root, "with space"));
+  mkdirSync(parts);
+  copyFileSync(fileURLToPath(new URL("./coverage-parts.mjs", import.meta.url)), script);
+  symlinkSync(script, link);
+  for (const name of parts10("pbpppppppp")) writeFileSync(join(parts, name), "44453452116\n");
+  for (const path of [script, link]) {
+    writeFileSync(output, "");
+    const run = spawnSync(process.execPath, [path, parts, "10"], { encoding: "utf8", env: { ...process.env, GITHUB_OUTPUT: output } });
+    assert.equal(run.status, 0, run.stderr);
+    assert.match(run.stdout, /action=proven/);
+    assert.equal(readFileSync(output, "utf8"), "action=proven\n");
+  }
+  rmSync(join(parts, "proven-7.txt"));
+  const missing = spawnSync(process.execPath, [link, parts, "10"], { encoding: "utf8", env: { ...process.env, GITHUB_OUTPUT: output } });
+  assert.equal(missing.status, 1);
+  assert.match(missing.stdout, /::error title=Coverage::Coverage part 7 of 10 missing/);
 });

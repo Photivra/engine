@@ -17,9 +17,11 @@ import weights from "../shard-weights.json" with { type: "json" };
  * slowest, and if it is fast, starting it first costs nothing. Ranked last (before 2.28.0) or at
  * the median (397 ms), a new slow file started after the part's heavy files and could push the
  * part past its limit. Start order cannot help a part that draws several new slow files at the
- * median's weight, so a pull request that adds a test file records its time
- * (scripts/record-shard-weights.mjs, from that pull request's first run) before it merges; a test
- * fails while a test file has no recorded time.
+ * median's weight, so a test fails while a test file has no recorded time: a pull request that
+ * adds one enters an estimate in test/shard-weights.json by hand (its local time under coverage
+ * times about 2.8, the CI-to-local ratio of the 2.27.0 record). Measured times replace the table
+ * at the next full re-record from all ten `coverage-timings-k` artifacts of one run
+ * (scripts/record-shard-weights.mjs rewrites the whole table).
  */
 /** The order in which a part's files start: unrecorded files first (by name), then by recorded time, longest first, ties by name. */
 export function startOrder(files: readonly string[], recorded: Readonly<Record<string, number>>): string[] {

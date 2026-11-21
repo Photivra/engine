@@ -343,7 +343,9 @@ jobs:
         # releases on the runners) passes on the proof instead of failing on a blob count (#666, ci-07).
         id: parts
         if: env.TESTS == 'true' && steps.proof.outputs.found != 'true'
-        run: node .github/coverage-parts.mjs .vitest-reports 10
+        run: |
+          node .github/coverage-parts.mjs .vitest-reports 10
+          grep -qxE 'action=(merge|proven)' "$GITHUB_OUTPUT"
       - name: Merge the ten parts (coverage gate, thresholds enforced)
         if: env.TESTS == 'true' && steps.proof.outputs.found != 'true' && steps.parts.outputs.action == 'merge'
         run: npx vitest --merge-reports .vitest-reports --coverage

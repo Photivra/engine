@@ -245,7 +245,9 @@ jobs:
           path: .vitest-reports
       - name: Decide from the ten parts
         id: parts
-        run: node .github/coverage-parts.mjs .vitest-reports 10
+        run: |
+          node .github/coverage-parts.mjs .vitest-reports 10
+          grep -qxE 'action=(merge|proven)' "$GITHUB_OUTPUT"
       - name: Install
         if: steps.parts.outputs.action == 'merge'
         run: npm ci --ignore-scripts
@@ -271,6 +273,8 @@ jobs:
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version: "lts/*"
+          # The newest release, as webgpu.yml takes it, not whichever one the runner image caches (#713).
+          check-latest: true
           package-manager-cache: false
       - name: Proof of conformance part 1
         id: part-1
@@ -292,7 +296,7 @@ jobs:
           FOUND: ${{ steps.part-1.outputs.found }} ${{ steps.part-2.outputs.found }} ${{ steps.part-3.outputs.found }}
         run: |
           if [ "$FOUND" != "true true true" ]; then
-            echo "::error title=WebGPU conformance::No passing WebGPU conformance run of this tree on Node.js $(node --version) for every part (found: $FOUND). Wait for webgpu.yml's run on main to pass, or run it on main by manual dispatch (a proof lasts 7 days), then re-run the failed jobs of this workflow."
+            echo "::error title=WebGPU conformance::No passing WebGPU conformance run of this tree on Node.js $(node --version) for every part (found: $FOUND). Either webgpu.yml has not passed on the release commit (or its proof expired after 7 days), or it ran on another Node.js release than this job. Run webgpu.yml on the release commit (gh workflow run webgpu.yml --ref $GITHUB_REF_NAME if main has moved), then re-run the failed jobs of this workflow within a day; the release tarball and the coverage parts last one day, after that re-run all jobs."
             exit 1
           fi
           echo "WebGPU conformance passed on this tree in all three parts."

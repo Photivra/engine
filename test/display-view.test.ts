@@ -49,11 +49,6 @@ const sd = (a: readonly number[]): number => { const m = mean(a); return Math.sq
 
 describe("simulateDisplayView", () => {
   it("evaluates each real site's expected electrons exactly as the capture's environment chain does", async () => {
-    // 2.28.0 (#697): each case locks two digests, `samples` (the image bytes only) and `internals` (the expected values, the noise
-    // standard deviations and the diagnostics), recorded at main (99782e7, 2.27.0's results) on x64 (Node 24.1.0 under Rosetta 2) and
-    // arm64, before any 2.28.0 output change. A change that claims "samples unchanged" leaves every `samples` lock as it is.
-    // `combined` is the digest of the locks above, over both; it is kept for 2.28.0 only, then removed.
-    // Record all three with RECORD_DISPLAY_VIEW_HASHES=1 (prints them; asserts nothing).
     const red = { kind: "function" as const, wavelengthRangeNanometers: { minimum: 380, maximum: 780 }, evaluate: (nm: number): number => (nm > 600 ? 0.7 : 0.08) };
     const cases: SimulateCaptureOptions[] = [
       { scene: { preset: "siemens-star", cycles: 12 }, output: { width: 24, height: 16 } },
@@ -263,6 +258,11 @@ describe("simulateDisplayView", () => {
     // x64 (#508: first Math.log(14)), so on arm64 (Apple silicon, Linux arm64) five of the six differ and are locked to their
     // own arm64 hashes below (docs/NUMERICAL_CORRECTNESS.md, "Test hash locks and platforms"). Any other mismatch is a
     // portability finding (docs/DISPLAY_VIEW.md, "Same bytes in every engine"). The radiance scene's own function uses exact operations only.
+    // 2.28.0 (#697): each case locks two digests, `samples` (the image bytes only) and `internals` (the expected values, the noise
+    // standard deviations and the diagnostics), recorded at main (99782e7, 2.27.0's results) on x64 (Node 24.1.0 under Rosetta 2) and
+    // arm64, before any 2.28.0 output change. A change that claims "samples unchanged" leaves every `samples` lock as it is.
+    // `combined` is the digest of the locks above, over both; it is kept for 2.28.0 only, then removed.
+    // Record all three with RECORD_DISPLAY_VIEW_HASHES=1 (prints them; asserts nothing).
     const red = { kind: "function" as const, wavelengthRangeNanometers: { minimum: 380, maximum: 780 }, evaluate: (nm: number): number => (nm > 600 ? 0.7 : 0.08) };
     const rings = (p: { u: number; v: number }): number => { const t = 20 * (p.u * p.u + p.v * p.v), f = t - Math.floor(t); return 0.1 + 0.6 * (f < 0.5 ? 2 * f : 2 - 2 * f); };
     const cases: [SimulateCaptureOptions, SimulateDisplayViewOptions, Lock][] = [

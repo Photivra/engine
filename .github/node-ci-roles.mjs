@@ -67,10 +67,16 @@ export function jobNodeVersions(workflowText, job) {
   return { matrix, setup };
 }
 
+// A workflow's text without its whole-line comments (YAML comments, and shell comments in `run:`
+// blocks), so that a rule never reads a comment as a setting.
+export function withoutCommentLines(workflowText) {
+  return workflowText.split("\n").filter((line) => !/^\s*#/.test(line)).join("\n");
+}
+
 // The jobs of a workflow, by id, each with the text of its block (the lines from `  <id>:` to
-// the next line at two spaces' indent or less).
+// the next line at two spaces' indent or less), comment lines left out.
 export function workflowJobs(workflowText) {
-  const lines = workflowText.split("\n");
+  const lines = withoutCommentLines(workflowText).split("\n");
   const start = lines.indexOf("jobs:");
   assert.ok(start !== -1, "The workflow has no `jobs:`.");
   const jobs = new Map();
@@ -111,14 +117,18 @@ export function workflowRuleErrors({ ciText, publishText, webgpuText }) {
   const workflows = { "ci.yml": ciText, "publish.yml": publishText, "webgpu.yml": webgpuText };
   for (const [file, text] of Object.entries(workflows)) {
     const matrix = matrixJobs(text);
-    for (const [, job] of text.matchAll(/needs\.([A-Za-z0-9_-]+)\.outputs\./g))
+    // Code only: whole-line comments and trailing ` # ...` comments are left out. Both spellings, needs.<job> and needs['<job>'].
+    const code = withoutCommentLines(text).split("\n").map((line) => line.replace(/\s#\s.*$/, "")).join("\n");
+    for (const [, dotted, quoted] of code.matchAll(/needs(?:\.([A-Za-z0-9_-]+)|\[\s*['"]([A-Za-z0-9_-]+)['"]\s*\])\.outputs\b/g)) {
+      const job = dotted ?? quoted;
       if (matrix.includes(job)) errors.push(`${file} reads \`needs.${job}.outputs\`, but \`${job}\` is a matrix job: GitHub keeps one part's value for the whole matrix (#666).`);
+    }
   }
   // #666: the coverage gates decide from the ten parts (a blob or a proof marker each), not from a count of blobs.
   for (const [file, text, job] of [["ci.yml", ciText, "verify-primary"], ["publish.yml", publishText, "coverage"]]) {
     const block = workflowJobs(text).get(job) ?? "";
-    if (!block.includes("run: node .github/coverage-parts.mjs .vitest-reports 10"))
-      errors.push(`The coverage gate (${file}, job \`${job}\`) must decide from the ten parts with \`node .github/coverage-parts.mjs .vitest-reports 10\` (#666).`);
+    if (!/\n\s+node \.github\/coverage-parts\.mjs \.vitest-reports 10\n\s+grep -qxE 'action=\(merge\|proven\)' "\$GITHUB_OUTPUT"\n/.test(block))
+      errors.push(`The coverage gate (${file}, job \`${job}\`) must decide from the ten parts with \`node .github/coverage-parts.mjs .vitest-reports 10\` and fail unless it printed \`action=merge\` or \`action=proven\` (#666).`);
     if (block.includes('test "$(find')) errors.push(`The coverage gate (${file}, job \`${job}\`) must not count blob files itself; .github/coverage-parts.mjs decides (#666).`);
     if (!/name: Merge the ten parts[^\n]*\n\s+if: [^\n]*steps\.parts\.outputs\.action == 'merge'/.test(block))
       errors.push(`The coverage gate (${file}, job \`${job}\`) must merge the parts only when .github/coverage-parts.mjs says \`merge\` (#666).`);
@@ -155,6 +165,13 @@ export function workflowRuleErrors({ ciText, publishText, webgpuText }) {
   const selector = JSON.stringify(jobNodeVersions(webgpuText, "webgpu-conformance").setup);
   if (JSON.stringify(jobNodeVersions(publishText, "conformance").setup) !== selector)
     errors.push(`publish.yml's \`conformance\` job must set up Node.js as webgpu.yml does (${selector}): the proofs are named by its release (#713).`);
+  // The runner image's cached release can differ from the newest one (two patch releases in one run, #666), and a proof is named by
+  // the exact release: both sides take the newest release, so the lookup asks for the name the conformance run uploaded.
+  for (const [file, text, job] of [["publish.yml", publishText, "conformance"], ["webgpu.yml", webgpuText, "webgpu-conformance"]]) {
+    const setups = (workflowJobs(text).get(job) ?? "").split(/\n(?= {6}- )/).filter((step) => /uses: actions\/setup-node@/.test(step));
+    if (setups.length === 0 || setups.some((step) => !/^ {10}check-latest: true\s*$/m.test(step)))
+      errors.push(`${file}: every setup-node step of job \`${job}\` must set \`check-latest: true\`, so the proof lookup and the conformance run take the same, newest Node.js release (#713).`);
+  }
   if (!/^ {4}needs: \[[^\]]*\bconformance\b[^\]]*\]/m.test(workflowJobs(publishText).get("publish") ?? ""))
     errors.push("publish.yml's `publish` job must need `conformance` (#713).");
   return errors;
