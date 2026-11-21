@@ -135,6 +135,9 @@ Boundary alternatives are rounded outward to the adjacent binary64 value, and th
 - Positive finite requests whose converted lengths, pitches, densities, diagnostics or output (as a safe integer) cannot be represented give `unsupported`.
 - Calculations use binary64. Conservative rounding up can move an exact mathematical angular boundary by one ratio unit.
 - Manual count calculations use directly supplied inches as they are, rather than converting through pitch and back.
+- A pixel count at a manual or lab PPI that lies within 4 ulps of a whole number is taken as that whole number before rounding
+  up, so a size in mm, cm or m needs the same pixels as the same size in inches (30.48 cm × 300 PPI is 3600 pixels, not 3603).
+  The same 4-ulp rule decides whole pixels in crops; it is rounding error only, not a sampling tolerance.
 - No global epsilon turns a failed sampling criterion into a pass.
 - Results contain only finite numbers, and null where something is absent.
 

@@ -46,6 +46,12 @@
     values with `referenceWhiteCode: 65535` ("cannot represent the declared finite range"; `65535 / (65535 / 0.9)` is one ulp
     below 0.9). The largest representable value is now never below reference white. A wrong refusal becomes an encoding; codes of
     inputs that encoded before are unchanged (docs/LINEAR_CAPTURE_ENCODING.md).
+  - *Metric print sizes at a manual or lab PPI (#717).* `calculatePrintPlan` asked for up to one ratio unit more pixels for a
+    size in mm, cm or m than for the same size in inches (`30.48 × 10 / 25.4 × 300` is `3600.0000000000005`): a false
+    `insufficient-native-pixels`, a false `exact-provider-density-has-no-integer-raster`, or a recommended raster a few pixels
+    larger. A pixel count within 4 ulps of a whole number is now that number, the rule crops already use. **Output change** for
+    those inputs only: their minimum and recommended rasters drop to the inch result, and some refusals become `ready`
+    (docs/PRINT_PLANNING.md).
 
 ## 2.27.0 — published November 19, 2026
 
