@@ -38,6 +38,10 @@
     reseeded stream instead of a new one per value. A 1024 × 768 slanted edge, `fast: false`, DNG, with
     `sensor.fixedPatternNoise: true`: median 547 → 394 ms (7 paired runs; the option's own cost 264 → 113 ms, about 2.3× less).
     RAW codes identical (new SHA-256 locks, recorded on the unchanged code). Fast bundle row +112 B.
+  - *DNG development colour loops (#677).* `developDngImage`'s camera → sRGB loop, its two ProPhoto → sRGB loops and the
+    RGBTables pre-pass use scalar locals instead of two arrays and a closure per pixel; every product and sum keeps its operands
+    and order. A 6 MP engine-written CFA DNG: fast development median 548 → 329 ms, exact (AHD) 1248 → 947 ms (7 paired runs);
+    samples and `clippedPixelCount` identical. No bundle row changes.
 
 ## 2.27.0 — published November 19, 2026
 

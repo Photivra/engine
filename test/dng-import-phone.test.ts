@@ -327,6 +327,45 @@ describe("ProfileGainTableMap and RGBTables (#598)", () => {
     expect(parseDngRgbTables(Uint8Array.of(0, 0, 0, 0), true)).toBeNull();
     expect(() => parseDngRgbTables(Uint8Array.of(21, 0, 0, 0, 0, 0, 0, 0), true)).toThrow(InvalidConfigurationError);
   });
+
+  // #677: developDngImage's colour loops (camera → sRGB, ProPhoto with a gain table map, RGBTables) keep every byte. Recorded on
+  // the code before #677.
+  it("keeps developDngImage's bytes with a profile gain table map and RGBTables", async () => {
+    const { createHash } = await import("node:crypto");
+    const { simulateCapture, developDngImage } = await import("../src/index.js");
+    const sha = (a: Uint8Array | Uint16Array): string => createHash("sha256").update(new Uint8Array(a.buffer, a.byteOffset, a.byteLength)).digest("hex").slice(0, 32);
+    const c = await simulateCapture({ scene: { preset: "color-patches" }, sensor: { noiseSeed: 5 }, exposure: { compensationStops: 1.5 }, output: { width: 48, height: 32, format: "dng" } });
+    const parsed = parseDngRawImage({ bytes: c.image.dng! }), codes = parsed.codes.slice();
+    // Saturate the top rows so the white-balance clip (and its count) is exercised.
+    codes.fill(Math.max(...parsed.whiteLevel), 0, 6 * 48);
+    const raw = { ...parsed, codes };
+    const map = parseDngProfileGainTableMap(pgtm(1, [1, 3, 1, 3]), true, 1), tables = parseDngRgbTables(rgbTables([{ name: "", samples: swap }]), true)!;
+    const variants = { plain: raw, pgtm: { ...raw, profileGainTableMap: map }, tables: { ...raw, rgbTables: tables }, both: { ...raw, profileGainTableMap: map, rgbTables: tables } };
+    const digests: Record<string, string> = {};
+    for (const [name, input] of Object.entries(variants)) for (const [mode, options] of Object.entries({ fast: { format: "srgb-16" as const }, exact: { fast: false, format: "srgb-16" as const },
+      half: { size: "half" as const, fast: false }, binned: { size: "half" as const } })) {
+      const out = await developDngImage(input, options);
+      digests[name + " " + mode] = sha(out.samples) + " " + out.clippedPixelCount;
+    }
+    expect(digests).toEqual({
+      "both binned": "be89873d49e515a4a785a6bcf65a0de6 67",
+      "both exact": "a526f8d10616aa2e227d0b37cfed8949 236",
+      "both fast": "e941d48a6c442057affc8c9e943c1b39 229",
+      "both half": "2c2ed1d76b0f41564aa635d8063ad320 67",
+      "pgtm binned": "cf9359973a8d02cde29cf82e1ec9f206 67",
+      "pgtm exact": "01616133b29f91f5e60e28040952baec 236",
+      "pgtm fast": "871686268a83eb9ee7d4157b1e793061 229",
+      "pgtm half": "9186fce8294823a4d4fd2bb926bc135c 67",
+      "plain binned": "c957279599bcd2093368ade45ecd8c41 67",
+      "plain exact": "b1bb37edf5df5397a4319cf318206dae 236",
+      "plain fast": "67d24bdb0c722bc625a1af52a4552c0a 229",
+      "plain half": "cea558761c53404fe979c6fd9c92bf9f 67",
+      "tables binned": "f1b69e523f5c7fc425bba0a079e3e785 67",
+      "tables exact": "cd156fddd5624b15aa96f1cca0ce9487 236",
+      "tables fast": "c53937158284cea42444166195369df1 229",
+      "tables half": "545113765a547f2351aab264aff4b121 67"
+    });
+  }, scaledTimeout(60_000));
 });
 
 describe("Row and column interleave (#598)", () => {
