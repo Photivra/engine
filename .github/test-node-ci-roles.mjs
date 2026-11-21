@@ -147,3 +147,14 @@ test("a proof upload that can fail a passing job, or a job that hides its failur
   ];
   for (const [change, expected] of cases) assert.match(ruleErrorsOf(change), expected);
 });
+test("every matrix job of ci.yml sets fail-fast: false, so one line's failure cancels no other line (ci-19 in #703)", () => {
+  assert.deepEqual(matrixJobs(files.ciText), ["test", "verify", "coverage-shard"]);
+  for (const job of matrixJobs(files.ciText)) assert.match(workflowJobs(files.ciText).get(job), /^ {4}strategy:\n(?: {6}#.*\n)* {6}fail-fast: false\n/m, job);
+  const cases = [
+    [({ ciText }) => ({ ciText: ciText.replace(/(\n {2}verify:\n[\s\S]*?\n {4}strategy:\n(?: {6}#.*\n)*) {6}fail-fast: false\n/, "$1") }), /ci\.yml: matrix job `verify` must set `fail-fast: false`/],
+    [({ ciText }) => ({ ciText: ciText.replace(/(\n {2}test:\n[\s\S]*?\n {4}strategy:\n(?: {6}#.*\n)*) {6}fail-fast: false\n/, "$1") }), /ci\.yml: matrix job `test` must set `fail-fast: false`/],
+    [({ ciText }) => ({ ciText: ciText.replace(/(\n {2}coverage-shard:\n[\s\S]*?\n {4}strategy:\n(?: {6}#.*\n)*) {6}fail-fast: false\n/, "$1      # fail-fast: false\n") }), /matrix job `coverage-shard` must set `fail-fast: false`/],
+    [({ ciText }) => ({ ciText: ciText.replace(/(\n {2}verify:\n[\s\S]*?\n {4}strategy:\n(?: {6}#.*\n)*) {6}fail-fast: false\n/, "$1      fail-fast: true\n") }), /matrix job `verify` must set `fail-fast: false`/]
+  ];
+  for (const [change, expected] of cases) assert.match(ruleErrorsOf(change), expected);
+});

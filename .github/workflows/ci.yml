@@ -173,6 +173,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     strategy:
+      # One line's failure must not cancel the other lines' checks (ci-19 in #703): with the default fail-fast, which line
+      # showed `failure` and which `cancelled` depended on which five-second job finished first.
+      fail-fast: false
       matrix:
         node-version: ["22.13.0", "lts/-1", "node"]
     steps:

@@ -63,6 +63,8 @@
   - *The SPDX-header gate's scope (`ci-15`, owner decision 2026-11-21).* `npm run check:license-headers` also reads `test/`,
     `.github/` and the repository root's own source files, and every `.ts`, `.mts`, `.cts`, `.js`, `.mjs` and `.cjs` file;
     `vitest.config.ts`, `vitest.webgpu.config.ts` and `eslint.config.js` carry the Apache-2.0 header, with no exceptions list.
+  - *One line's failed `verify` check no longer cancels the others (`ci-19`).* The `verify` job sets `fail-fast: false`, and the
+    workflow rules (`.github/node-ci-roles.mjs`) fail when any matrix job of `ci.yml`, `publish.yml` or `webgpu.yml` leaves it out.
 
 ### Site
 

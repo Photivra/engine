@@ -153,6 +153,12 @@ export function workflowRuleErrors({ ciText, publishText, webgpuText }) {
       for (const step of block.split(/\n(?= {6}- )/).filter((step) => /^ {6}- name: Keep the proof\s*$/m.test(step)))
         if (!/^ {8}continue-on-error: true\s*$/m.test(step)) errors.push(`${file}: the "Keep the proof" step of job \`${id}\` must set \`continue-on-error: true\` (ci-20 in #703).`);
     }
+  // ci-19 (#703): with GitHub's default fail-fast, one matrix part's failure cancels its siblings, so which required checks show
+  // `failure` and which `cancelled` depended on which job finished first. Every matrix job sets `fail-fast: false`.
+  for (const [file, text] of Object.entries(workflows))
+    for (const id of matrixJobs(text))
+      if (!/^ {4}strategy:\n(?: {6}.*\n)*? {6}fail-fast: false[ \t]*$/m.test(workflowJobs(text).get(id)))
+        errors.push(`${file}: matrix job \`${id}\` must set \`fail-fast: false\` in its \`strategy\` (ci-19 in #703).`);
   // #713: a release waits for every part of the WebGPU conformance suite on its tree, looked up on webgpu.yml's Node.js release.
   const conformance = workflowJobs(publishText).get("conformance") ?? "";
   const parts = [...(workflowJobs(webgpuText).get("webgpu-conformance") ?? "").matchAll(/^\s+- part: (\d+)\s*$/gm)].map((m) => m[1]);
