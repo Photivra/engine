@@ -1143,14 +1143,11 @@ function prepareSceneRadianceToSensorIrradiance(
       workingFNumberValue *
       workingFNumberValue);
 
-  if (
-    !Number.isFinite(
-      geometricAcceptance
-    ) ||
-    geometricAcceptance <= 0
-  ) {
+  // 2.28.0 (optics-19): in air E = pi L sin^2(theta') <= pi L, so the working f-number is at least 0.5 and the acceptance
+  // pi / (4 N^2) at most pi (exactly pi at N = 0.5).
+  if (!(geometricAcceptance > 0 && geometricAcceptance <= Math.PI)) {
     throw new InvalidScientificInputError(
-      "Paraxial geometric acceptance must remain finite and greater than zero."
+      "Working f-number must be at least 0.5."
     );
   }
 
