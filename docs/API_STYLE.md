@@ -274,7 +274,9 @@ have a fast method, a measured and bounded approximation of it. One flag style s
   flag: with camera rotation under a rolling shutter and the defocus regrouped, rows in bands that read their middle row's
   instants, the in-focus image shifted by at most 1/128 site; exact reads every row at its own instants), a catalogue lens's
   uniform windows (#655, `lens.catalogue/view-uniform-window`, `lens.catalogue`'s flag: a site whose taps all read one material
-  takes the field factor to second order; exact sums every tap with its own factor), and the reconstruct and desaturation chain's
+  takes the field factor to second order; exact sums every tap with its own factor; 2.28.0: its offset expansion, #685,
+  `lens.catalogue/view-offset-expansion`: with more than one query offset each offset's lens mapping to second order about its
+  site centre; exact maps every offset), and the reconstruct and desaturation chain's
   fast rule became 3 or 6 points per axis (#656, the same entry, `output.highlightMode.reconstruct/view-moments`), and a layered
   chart scene's occlusion rows (#652, `scene.layers/occlusion-samples`, the top-level flag: at card edges each pupil region is
   integrated in 4 rows per site of its footprint fast and 16 exact, exact along each row; reported in the `scene.layers`

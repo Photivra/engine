@@ -174,7 +174,8 @@ const QUALITY_ON_DEMAND_MODULES = ["gpu/display-view-quality-gpu.ts", "gpu/wgsl-
   "facade/quality-kit.ts", "facade/opt-in-kit.ts"];
 /** The modules each CPU kit holds (#594): none may reach the fast worker's chunks. */
 const CPU_QUALITY_KIT_MODULES = ["facade/quality-kit.ts", "optics/diffraction-psf-profile.ts", "optics/site-diffraction-kernel.ts", "optics/lens-psf-kernels.ts", "processing/demosaic.ts",
-  "facade/defocus-bokeh-zones.ts", "facade/large-defocus-lattice.ts", "facade/defocus-image-space-provider.ts", "facade/display-view-rendering.ts", "color/neighbor-highlight-reconstruction.ts"];
+  "facade/defocus-bokeh-zones.ts", "facade/large-defocus-lattice.ts", "facade/defocus-image-space-provider.ts", "facade/display-view-rendering.ts", "color/neighbor-highlight-reconstruction.ts",
+  "facade/display-view-offset-expansion.ts"];
 // #628: the display view's lens corrections and sharpening (display-view-detail.ts) are opt-in features too; #641: motion.handheld (hand-shake.ts);
 // #646: the sensor-profile record and parser (sensor-profile-record.ts).
 const OPT_IN_KIT_MODULES = ["facade/opt-in-kit.ts", "facade/catalogue-lens-optics.ts", "equipment/sensor-profile-body.ts", "equipment/sensor-profile-record.ts", "facade/lens-filter.ts", "facade/mixed-illumination.ts", "motion/subject-motion.ts",

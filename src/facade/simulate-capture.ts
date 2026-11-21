@@ -124,7 +124,7 @@ import { sumFixedPatternSites } from "../sensor/fixed-pattern-noise.js";
 import { sensorProfileFrame } from "../equipment/sensor-profile-frame.js";
 import type { SimulateCaptureSubjectMotion, SubjectMotion } from "../motion/subject-motion.js";
 import type { HandShakeOptions } from "../motion/hand-shake.js";
-import { exportKit, loadedKit, OK_CATALOGUE_OPTICS_ASSUMPTIONS, OK_CREATE_SUBJECT_MOTION_PROVIDER, OK_FLASH_ALONE_SHUTTER, OK_HAND_SHAKE_ASSUMPTION, OK_HAND_SHAKE_QUADRUPLES, OK_METER_FLASH, OK_PARSE_SENSOR_PROFILE, OK_REBIND_FLASH_ASSUMPTIONS, OK_REQUIRE_FLASH_ROWS, OK_RESOLVE_HAND_SHAKE, OK_RESOLVE_LENS_FILTER, OK_RESOLVE_MIXED_ILLUMINATION, OK_SENSOR_PROFILE_BODY, OK_SENSOR_PROFILE_SATURATION_ISO, OK_SOLVE_FLASH_SHUTTER, OK_SUBJECT_TRAVEL_M, optInKit, QK_CALCULATE_DEFOCUS_FIELD_VARIATION, QK_CREATE_AHD_DEMOSAIC_TASK, QK_CREATE_DEFOCUS_BOKEH_SITE_KERNEL, QK_CREATE_DEFOCUS_IMAGE_SPACE_PROVIDER, QK_CREATE_DIFFRACTION_LIMITED_PSF_PROFILE, QK_NEIGHBOR_HIGHLIGHT_RING, QK_NEIGHBOR_HIGHLIGHT_THRESHOLD, QK_PLAN_DEFOCUS_BOKEH_ZONES, QK_PREPARE_DEFOCUS_IMAGE_SPACE_GEOMETRY, QK_RECONSTRUCT_HIGHLIGHTS_FROM_NEIGHBORS, QK_REGISTER_DIFFRACTION_PSF_KEY, QK_RESOLVE_DEFOCUS_BOKEH_OPTIONS, QK_SITE_DIFFRACTION_KERNEL, qualityKit } from "./on-demand-kits.js";
+import { exportKit, loadedKit, OK_CATALOGUE_OPTICS_ASSUMPTIONS, OK_CREATE_SUBJECT_MOTION_PROVIDER, OK_FLASH_ALONE_SHUTTER, OK_HAND_SHAKE_ASSUMPTION, OK_HAND_SHAKE_QUADRUPLES, OK_METER_FLASH, OK_PARSE_SENSOR_PROFILE, OK_REBIND_FLASH_ASSUMPTIONS, OK_REQUIRE_FLASH_ROWS, OK_RESOLVE_HAND_SHAKE, OK_RESOLVE_LENS_FILTER, OK_RESOLVE_MIXED_ILLUMINATION, OK_SENSOR_PROFILE_BODY, OK_SENSOR_PROFILE_SATURATION_ISO, OK_SOLVE_FLASH_SHUTTER, OK_SUBJECT_TRAVEL_M, optInKit, QK_CALCULATE_DEFOCUS_FIELD_VARIATION, QK_CREATE_AHD_DEMOSAIC_TASK, QK_CREATE_DEFOCUS_BOKEH_SITE_KERNEL, QK_CREATE_DEFOCUS_IMAGE_SPACE_PROVIDER, QK_CREATE_DIFFRACTION_LIMITED_PSF_PROFILE, QK_CREATE_OFFSET_EXPANSION, QK_NEIGHBOR_HIGHLIGHT_RING, QK_NEIGHBOR_HIGHLIGHT_THRESHOLD, QK_PLAN_DEFOCUS_BOKEH_ZONES, QK_PREPARE_DEFOCUS_IMAGE_SPACE_GEOMETRY, QK_RECONSTRUCT_HIGHLIGHTS_FROM_NEIGHBORS, QK_REGISTER_DIFFRACTION_PSF_KEY, QK_RESOLVE_DEFOCUS_BOKEH_OPTIONS, QK_SITE_DIFFRACTION_KERNEL, qualityKit } from "./on-demand-kits.js";
 import { characterizeReadout, parseSensorCharacteristics, sensorReport, SENSOR_CHARACTERISTIC_KEYS, type SimulateCaptureSensorCharacteristics, type SimulateCaptureSensorReport } from "../sensor/sensor-characteristics.js";
 import { resolveChartScene, chartMaterialInputs, CHART_SCENE_PRESETS, type ChartScene, type ResolvedChartScene } from "./chart-scenes.js";
 import { resolveChartMaterialLayers, type ChartMaterialLayerScene, type ResolvedChartMaterialLayers } from "./chart-material-layers.js";
@@ -3739,15 +3739,18 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
     // #655 step 6: the uniform-window fast method (lens.catalogue's fast) on chart and material scenes; it runs on the CPU.
   const uniformWindows = displayViewLensPsf !== undefined && catalogueFastRequested && provider.chartMaterialAt !== undefined && !subject;
   if (displayViewLensPsf && (displayViewLensPsf.zoneSites > 1 || uniformWindows)) markFast("lens.catalogue");
+  // #685: with more than one query offset (the box pixel aperture), each offset's lens mapping to second order about its site centre.
+  const offsetExpansion = uniformWindows && catalogue!.kind !== "fisheye" && queryOffsetsSites.length > 1;
   if (displayViewLensPsf) assume("view.lensPsf", "model", { method: "piecewise-constant-field-zones", zoneSites: displayViewLensPsf.zoneSites, kernelRadiusSites: catalogueKernelRadius,
-    uniformWindows: uniformWindows ? "field-factor-second-order" : null, scientificStatus: "approximation" },
+    uniformWindows: uniformWindows ? "field-factor-second-order" : null, offsetMapping: offsetExpansion ? "second-order-expansion" : null, scientificStatus: "approximation" },
   "Each site takes the lens PSF at its field zone's centre, where the capture resolves it at each query point (docs/DISPLAY_VIEW.md, \"Catalogue lenses\")." +
-    (uniformWindows ? " Fast method (#655): a site whose taps read one material takes the field factor to second order; fast: false sums every tap." : ""));
+    (uniformWindows ? " Fast method (#655): a site whose taps read one material takes the field factor to second order; fast: false sums every tap." : "") +
+    (offsetExpansion ? " Fast (#685): the offsets' lens mapping to second order." : ""));
   // #655 step 4: the view's lattice points take the Newton inverse of a radial distortion (the capture keeps the bisection).
   const viewLensGeometry = viewLensKit && lensFieldMapping?.distortion?.kind === "radial" ? loadedKit(qualityKit)[QK_PREPARE_DEFOCUS_IMAGE_SPACE_GEOMETRY]({ focalLengthMm, focusDistanceM,
     angularVelocityRadPerSec: angular, ...(handShake ? { handShake } : {}), lensMapping: prepareEnvironmentLensFieldMapping(lensFieldMapping), ...(vignetting ? { vignetting } : {}),
     undistort: viewLensKit.undistortedImagePointNewton }) : lensGeometry;
-  const lensSignal = viewLensKit ? viewLensKit.prepareDisplayViewLensSignal({ geometry: viewLensGeometry!, rollingBands: fastTop, uniformWindows,
+  const lensSignal = viewLensKit ? viewLensKit.prepareDisplayViewLensSignal({ geometry: viewLensGeometry!, rollingBands: fastTop, uniformWindows, ...(offsetExpansion ? { offsetExpansion: loadedKit(qualityKit)[QK_CREATE_OFFSET_EXPANSION] } : {}),
     times: rotating || subject ? Array.from({ length: temporalSampleCount }, (_, i) => (i + 0.5) * (shutterSeconds / temporalSampleCount)) : [0], timesAt: rollingRotation ? rollingSiteTimes() : undefined,
     distanceM: planeDistanceM, metresPerFrameUnit,
     pitch, imagingArea, boxSamples, spots: antiAliasing ? antiAliasing.components : [{ offsetMicrometers: { x: 0, y: 0 } }], psf: displayViewLensPsf, zeroBeyondHorizon: catalogue?.kind === "fisheye", ...(veil ? { veil } : {}) }, nativeWidth, nativeHeight,

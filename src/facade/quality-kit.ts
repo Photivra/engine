@@ -22,6 +22,7 @@ import { LARGE_DEFOCUS_CACHE_BYTES, createLargeDefocusNodeLattice } from "./larg
 import { calculateDefocusFieldVariation, createDefocusImageSpaceProvider, prepareDefocusImageSpaceGeometry } from "./defocus-image-space-provider.js";
 import { createDisplayViewCoupledRendering } from "./display-view-rendering.js";
 import { NEIGHBOR_HIGHLIGHT_RING, NEIGHBOR_HIGHLIGHT_THRESHOLD, reconstructHighlightsFromNeighbors } from "../color/neighbor-highlight-reconstruction.js";
+import { createOffsetExpansion } from "./display-view-offset-expansion.js";
 
 /**
  * #658: the kit is one exported tuple, read by position (the `QK_*` constants of src/facade/on-demand-kits.ts, which a bundler
@@ -43,5 +44,6 @@ export const QUALITY_KIT = [
   createDisplayViewCoupledRendering,
   NEIGHBOR_HIGHLIGHT_RING,
   NEIGHBOR_HIGHLIGHT_THRESHOLD,
-  reconstructHighlightsFromNeighbors
+  reconstructHighlightsFromNeighbors,
+  createOffsetExpansion
 ] as const;

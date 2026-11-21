@@ -613,6 +613,17 @@ as the capture does ([Flare and breathing](LENS_CATALOGUE.md#flare-and-breathing
   first-order form failed it; the second-order form measures within 2.7e-8 and ships. `fast: false` (and
   `lens.catalogue: { kind, fast: false }`) sums every tap with its own factor; `view.lensPsf` reports
   `uniformWindows: "field-factor-second-order"` when the method is on.
+- *Offset expansion, fast method (2.28.0, #685, `lens.catalogue/view-offset-expansion`, `lens.catalogue`'s `fast`).* With more than
+  one query offset (the box pixel aperture, the four-spot filter) each pre-integrated lattice point B(p) = Σ_o w_o·F(p + o)·L(p + o)
+  mapped every offset through the lens: four mappings per point for a 2 × 2 box, 64 % of the box's extra cost. On a fast request
+  each offset's plane point and field factor come instead from a second-order expansion about its nearest site centre (value,
+  central-difference gradient and Hessian of the 3 × 3 mapped site centres; offsets within half a site), each offset still reads
+  its own material there, and a point whose offsets all read one material takes (Σ_o w_o·F_o)·L_m per node. A centre's coefficients
+  depend only on its 3 × 3 centres, so regions equal the whole view. Go/no-go: every site within 1e-6 relative of the full method on
+  every catalogue lens but the fisheyes and phones, wide open and at the narrowest f-number, 2 × 2 box, dead leaves at 12 µm
+  (measured: 1.9e-11 at most), and with the four-spot filter and under a rolling shutter with rotation
+  (`test/display-view-lens-offset-expansion.test.ts`). Fisheyes (rays beyond 90°) and radiance scenes keep the full method;
+  `fast: false` maps every offset. `view.lensPsf` reports `offsetMapping: "second-order-expansion"`. The code is in the Quality kit.
 - The distortion inverse is the Newton inverse of the lens section above. Cost: [2.27.0 cost cases](#2270-cost-cases). These
   requests still render on the CPU with `gpu: "auto"`, labelled `unsupported-on-backend`; a GPU path for them is planned for 2.28.0
   (#655 stays open for it).

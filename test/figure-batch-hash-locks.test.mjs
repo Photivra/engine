@@ -96,11 +96,11 @@ const LOCKS = {
   },
   "catalogue-768": {
     exact: ["de4a03b4e6c178590e234b5052c143c8636158043d26f285d70765707827b47d", "63e31c64fc30d3f78a2b0c07c4dd885ad0f65651145f138ea1abddf509562e34"],
-    default: ["d675d22f872060db8bbf6925e5123b612fcc60e596e541644f88040c0f96715c", "d6980cf5070fa813b59f3fd46c90c597d98fb95e0a019b8f681f36b50342a029"]
+    default: ["d675d22f872060db8bbf6925e5123b612fcc60e596e541644f88040c0f96715c", "e82ae48c852ae0c8c1cc0761e2acaf9a660f0d0bc153895ea228006b226fe18d"]
   },
   "catalogue-corrected": {
     exact: ["ba0c34caf04ad6ab3af89ff4cfd927dc83ae81de05c48720e74a46e2b99a5ddd", "42078a39f30255d74081e9b25804a8a71ba8089e765318c763f53b8d911cca10"],
-    default: ["ebc1cfa2f3e6307ccf74af07fd33c29d65f5913000c59b15c2199212a94e5f55", "5454875494288df41860b37003853a6fd8ddbc994bf5b2506f6bc300f67a9b7b"]
+    default: ["ebc1cfa2f3e6307ccf74af07fd33c29d65f5913000c59b15c2199212a94e5f55", "f9acc17ca1a20276c2e45798914e464936e138374cc443791c40975628c46e6f"]
   },
   "detail-star-f8": {
     exact: ["14abc6c28dbd908ed920ef3ebd98935060da35f54a96b9b1247f132af1794fb2", "719823d483c64ebaf14d1ab0ee1257bff140be64d917fd6c0708fa28b961b9b0"],
@@ -146,8 +146,8 @@ const WORK = {
   "noise-iso-frame": { exact: [1536, 41540, 256048], default: [1536, 41540, 216160] },
   "detail-noise": { exact: [30192], default: [21792] },
   "dr-recover-push": { exact: [1536, 41540, 256048], default: [1536, 41540, 216160] },
-  "catalogue-768": { exact: [384, 10324, 7541], default: [24, 648, 6560] },
-  "catalogue-corrected": { exact: [4608, 124416, 23468], default: [72, 1948, 15608] },
+  "catalogue-768": { exact: [384, 10324, 7541], default: [24, 648, 11968] },
+  "catalogue-corrected": { exact: [4608, 124416, 23468], default: [72, 1948, 20956] },
   "detail-star-f8": { exact: [15120], default: [13280] },
   "detail-star-f22": { exact: [30192], default: [21792] },
   "layered-tabletop": { exact: [1536, 41540, 143056], default: [1536, 41540, 143056] },

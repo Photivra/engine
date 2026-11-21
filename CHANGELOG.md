@@ -371,6 +371,29 @@ Each item below is one commit of the serial output-change lane, with its measure
     internals, both flags; samples hold).
   - *Bundle.* Fast row 338,242 → 338,222 B (−20 B; lane so far +502 B against 337,720 B).
 
+- **Display view, catalogue lens with the box aperture: the offsets' lens mapping to second order (#685, steps 2–3 of the
+  box-aperture plan; a new fast method).** Each pre-integrated lattice point B(p) = Σ_o w_o·F(p + o)·L(p + o) mapped every query
+  offset through the lens (four mappings per point for a 2 × 2 box, 64 % of the box's extra cost). On a fast request with more than
+  one query offset, each offset's plane point and field factor now come from a second-order expansion about its nearest site
+  centre (value, central-difference gradient and Hessian of the 3 × 3 mapped site centres), each offset still reading its own
+  material, and a point whose offsets read one material takes (Σ_o w_o·F_o)·L_m per node (`lens.catalogue/view-offset-expansion`,
+  `lens.catalogue`'s flag; `view.lensPsf` reports `offsetMapping: "second-order-expansion"`). Fisheyes, radiance scenes and
+  `fast: false` keep one mapping per offset. The code is in the on-demand Quality kit (`src/facade/display-view-offset-expansion.ts`).
+  - *Measured effect.* Against the full method, every site of every catalogue lens but the fisheyes and phones, wide open and at its
+    narrowest f-number, 2 × 2 box, dead leaves at 12 µm: within 1.9e-11 relative (bound tested: 1e-6); within 1e-6 with the four-spot
+    filter and under a rolling shutter with rotation; regions equal the whole view (`test/display-view-lens-offset-expansion.test.ts`).
+    The #670 part tier's catalogue cases (four-spot filter, default flag): samples unchanged.
+  - *Speed* (`scripts/benchmark-display-view-cases.mjs`, CPU s, a heavily loaded machine): 655-catalogue-96-box 29.5 → 21.7 against the
+    tree before (paired, two runs, before a last change that reuses a shared centre's coefficients); box ÷ point 1.90× → 1.19–1.32×
+    with that change (median 1.25×, three paired runs; the plan's target 1.3×). The
+    #670 catalogue parts: 1.10× and 1.01× (one paired run; their four spots read one material each per offset).
+  - *Locks re-recorded for #685* (arm64 and x64 Node 24.1.0 under Rosetta): `test/figure-batch-hash-locks.test.mjs`, default flag:
+    the `internals` of `catalogue-768` and `catalogue-corrected` and their `sceneLookups` (6,560 → 11,968 and 15,608 → 20,956: each
+    offset now reads its material, where the group lattice ring shared them); samples hold. `test/display-view-lens-catalogue-regrouped-1.test.ts`
+    compares the full methods (no offset expansion) as before.
+  - *Bundle.* Fast row 338,222 → 338,444 B (+222 B: the lens signal's hook and the facade's flag; lane so far +724 B against
+    337,720 B); on-demand row 50,391 → 51,450 B (+1,059 B, the Quality kit).
+
 ### Display view
 
 - **Display view: Recover and +1 stop without Standard under its time target (#662); output unchanged.** With the identity tone
