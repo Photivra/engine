@@ -107,19 +107,10 @@ export function displayViewQualityGpuSupports(request: DisplayViewGpuRequest): t
  * is loaded on demand (#594, `prepareDisplayViewQualityGpu`).
  */
 export function createDisplayViewGpuRenderer(runtime: WebGpuRuntime, options: { maximumBandBytes?: number; yieldControl?: YieldControl } = {}): DisplayViewGpuRenderer {
-  const pipelines = new Map<string, Promise<GPUComputePipeline>>();
   const bandBytes = options.maximumBandBytes ?? Math.min(64 * 1024 * 1024, runtime.maximumStorageBindingBytes);
-  const source: PipelineSource = (label, code) => {
-    let pending = pipelines.get(label);
-    // #692: a kernel the device did not compile stays failed for this device, so later renders fall back without compiling it
-    // again; any other failure (a lost device) is forgotten.
-    if (!pending) {
-      pending = createComputePipeline(runtime, label, code, undefined);
-      pipelines.set(label, pending);
-      pending.catch((error: unknown) => { if (!(error instanceof ImageKernelExecutionError && error.reason === "gpu-validation")) pipelines.delete(label); });
-    }
-    return pending;
-  };
+  // The device's pipeline cache (createComputePipeline, gpu-04 in #702): shared with the self-checks, so each shader compiles once;
+  // #692: a kernel the device did not compile stays failed for this device, so later renders fall back without compiling it again.
+  const source: PipelineSource = (label, code) => createComputePipeline(runtime, label, code);
   // #491: one set of material modules per device for both kernels (the preset module per chart; the composite module, its probe
   // and its uploaded scene records), released by `dispose`.
   const modules = createDisplayViewMaterialModules(runtime, source);

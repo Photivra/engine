@@ -358,8 +358,11 @@ describe("webgpu-f32 host path (in-process float32 emulation of the WGSL kernels
     }
     f = await fake(); f.controls.failPipeline = true;
     expect(await reason(f.accelerator.convolveIrradiance(input))).toBe("gpu-validation");
-    f.controls.failPipeline = false; f.controls.failNextScope = "validation";
+    // gpu-04 (#702): a kernel the device did not compile stays refused on that device (one pipeline cache per device, #692's rule);
+    // a new accelerator recovers.
+    f.controls.failPipeline = false;
     expect(await reason(f.accelerator.convolveIrradiance(input))).toBe("gpu-validation");
+    f = await fake();
     expect(await reason(f.accelerator.convolveIrradiance(input))).toBe("resolved");
     f = await fake({}, 4096);
     const controller = new AbortController();

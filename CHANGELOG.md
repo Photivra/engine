@@ -546,6 +546,13 @@ Each item below is one commit of the serial output-change lane, with its measure
     row, so a strongly reduced, very wide photo whose rows for one display row do not fit one binding is refused by name
     (`insufficient-limits`), and `gpu: "auto"` renders it on the CPU reference with that label. A test with an 18000 × 1200 photo
     on the 128 MiB default limit checks both. No code change.
+  - *The first render compiles each shader once (`gpu-04`).* `createComputePipeline` keeps one pipeline per device and shader
+    text, shared by the accelerator's operations, the display-view renderers and their run-time self-checks, so a self-check
+    proves the pipelines the render uses. On the fake device a first Speed render compiles 2 shader modules (was 4) and a first
+    Quality render with diffraction and AHD 6 (was 12); a second view of another chart preset on a shared accelerator compiles
+    none. A kernel the device refused stays refused for that device (`gpu-validation`, as #692 did for the renderer; the
+    accelerator recompiled it before). No output changes. The hardware first-render time saved is not measured. Fast row
+    337,889 → 337,894 B.
 
 ### Benchmarks
 

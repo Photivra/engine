@@ -205,7 +205,7 @@ export function acceleratorRuntime(value: unknown): unknown {
 /**
  * Internal (#481, not exported from the package): runs the `webgpu-f32` convolution on a runtime (`WebGpuRuntime`, passed as
  * `unknown` to keep WebGPU types out of the published declarations), for the display view's run-time conformance self-check.
- * Pipelines are compiled per call; `signal` aborts the run.
+ * It uses the device's pipelines (createComputePipeline: compiled once per device, gpu-04 in #702); `signal` aborts the run.
  */
 export async function convolveIrradianceOnRuntime(runtime: unknown, input: IrradianceConvolutionInput, signal: AbortSignal | undefined): Promise<IrradianceConvolutionResult> {
   const gpu = runtime as WebGpuRuntime, plan = calculateIrradianceConvolutionPlan(input), link = linkedAbort(signal);
@@ -217,20 +217,10 @@ export async function convolveIrradianceOnRuntime(runtime: unknown, input: Irrad
 function createAccelerator(requested: ImageKernelBackend, fallbackReason: ImageKernelFallbackReason | null,
   runtime: WebGpuRuntime | null, bandBytes: number): ImageKernelAccelerator {
   let disposed = false, busy = false;
-  const pipelines = new Map<string, Promise<GPUComputePipeline>>();
   // #477: a scene's chart records are uploaded once and reused by later calls (a prepared view's parts).
   const chartUploads = runtime ? new ChartSceneUploads(runtime) : null;
   const backend: ImageKernelBackend = runtime ? "webgpu-f32" : "cpu-reference";
   function state(): ImageKernelAcceleratorState { return disposed ? "disposed" : runtime?.isLost() ? "lost" : "ready"; }
-  function pipeline(gpu: WebGpuRuntime, label: string, code: string, signal: AbortSignal): Promise<GPUComputePipeline> {
-    let pending = pipelines.get(label);
-    if (!pending) {
-      pending = createComputePipeline(gpu, label, code, undefined);
-      pipelines.set(label, pending);
-      pending.catch(() => pipelines.delete(label));
-    }
-    return gpu.guard(pending, signal);
-  }
   /** Runs one operation at a time, and turns aborts, disposal and device loss into domain errors. */
   async function operate<T>(signal: AbortSignal | undefined, body: (abort: AbortController, gpu: WebGpuRuntime | null) => Promise<T>): Promise<T> {
     if (disposed) throw new ImageKernelExecutionError("disposed", "The image-kernel accelerator was disposed.");
@@ -267,7 +257,7 @@ function createAccelerator(requested: ImageKernelBackend, fallbackReason: ImageK
           try { await task.run(); return { ...task.takeOutput(), execution: cpuLabel() }; }
           finally { abort.signal.removeEventListener("abort", cancel); task.dispose(); }
         }
-        return renderSdrOnGpu(gpu, bandBytes, input, provider, abort, (label, code) => pipeline(gpu, label, code, abort.signal));
+        return renderSdrOnGpu(gpu, bandBytes, input, provider, abort, (label, code) => createComputePipeline(gpu, label, code, abort.signal));
       });
     },
     async developNativeRaw(input, provider, options): Promise<AcceleratedNativeRawDevelopmentOutput> {
@@ -280,7 +270,7 @@ function createAccelerator(requested: ImageKernelBackend, fallbackReason: ImageK
           try { await task.run(); return { ...task.takeOutput(), execution: cpuLabel() }; }
           finally { abort.signal.removeEventListener("abort", cancel); task.dispose(); }
         }
-        return developRawOnGpu(gpu, bandBytes, input, provider, abort, (label, code) => pipeline(gpu, label, code, abort.signal));
+        return developRawOnGpu(gpu, bandBytes, input, provider, abort, (label, code) => createComputePipeline(gpu, label, code, abort.signal));
       });
     },
     async convolveIrradiance(input, options): Promise<IrradianceConvolutionResult> {
@@ -289,14 +279,14 @@ function createAccelerator(requested: ImageKernelBackend, fallbackReason: ImageK
         const plan = calculateIrradianceConvolutionPlan(input);
         if (!gpu) return convolveOnCpu(plan, input, abort, run.yieldControl, cpuLabel());
         return convolveOnGpu(gpu, bandBytes, plan, input, abort, run.yieldControl,
-          (label, code) => pipeline(gpu, label, code, abort.signal));
+          (label, code) => createComputePipeline(gpu, label, code, abort.signal));
       });
     },
     async simulateSensorRaw(input, options): Promise<AcceleratedPackedSensorRawResult> {
       const run = runOptions(options);
       return operate(run.signal, async (abort, gpu) => {
         if (!gpu) return simulateSensorRawOnCpu(input, abort, run.yieldControl, cpuLabel());
-        return simulateSensorRawOnGpu(gpu, bandBytes, input, abort, run.yieldControl, (label, code) => pipeline(gpu, label, code, abort.signal));
+        return simulateSensorRawOnGpu(gpu, bandBytes, input, abort, run.yieldControl, (label, code) => createComputePipeline(gpu, label, code, abort.signal));
       });
     },
     async sumTemporalExposure(input, options): Promise<TemporalExposureSumResult> {
@@ -305,20 +295,19 @@ function createAccelerator(requested: ImageKernelBackend, fallbackReason: ImageK
         const plan = calculateTemporalExposureSumPlan(input);
         if (!gpu) return sumTemporalExposureOnCpu(plan, input, abort, run.yieldControl, cpuLabel());
         return sumTemporalExposureOnGpu(gpu, bandBytes, plan, input, abort, run.yieldControl,
-          (label, code) => pipeline(gpu, label, code, abort.signal));
+          (label, code) => createComputePipeline(gpu, label, code, abort.signal));
       });
     },
     async evaluateChartRadiance(input, options): Promise<ChartRadianceResult> {
       const run = runOptions(options);
       return operate(run.signal, async (abort, gpu) => {
         if (!gpu) return evaluateChartRadianceOnCpu(input, abort, run.yieldControl, cpuLabel());
-        return evaluateChartRadianceOnGpu(gpu, bandBytes, input, abort, run.yieldControl, (label, code) => pipeline(gpu, label, code, abort.signal), chartUploads!);
+        return evaluateChartRadianceOnGpu(gpu, bandBytes, input, abort, run.yieldControl, (label, code) => createComputePipeline(gpu, label, code, abort.signal), chartUploads!);
       });
     },
     dispose(): void {
       if (disposed) return;
       disposed = true;
-      pipelines.clear();
       chartUploads?.release();
       runtime?.destroy();
     }

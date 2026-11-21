@@ -542,13 +542,9 @@ export const DISPLAY_VIEW_SPEED_CONFORMANCE_CASE: DisplayViewGpuConformanceCase 
  * operations do. `dispose` releases the uploaded scene records.
  */
 export function createDisplayViewSpeedGpuRenderer(runtime: WebGpuRuntime, options: { maximumBandBytes?: number; yieldControl?: YieldControl } = {}): DisplayViewGpuRenderer {
-  const pipelines = new Map<string, Promise<GPUComputePipeline>>();
   const bandBytes = options.maximumBandBytes ?? Math.min(64 * 1024 * 1024, runtime.maximumStorageBindingBytes);
-  const source: PipelineSource = (label, code) => {
-    let pending = pipelines.get(label);
-    if (!pending) { pending = createComputePipeline(runtime, label, code, undefined); pipelines.set(label, pending); pending.catch(() => pipelines.delete(label)); }
-    return pending;
-  };
+  // The device's pipeline cache (createComputePipeline, gpu-04 in #702), shared with the self-check.
+  const source: PipelineSource = (label, code) => createComputePipeline(runtime, label, code);
   const modules = createDisplayViewMaterialModules(runtime, source);
   return {
     id: "photivra-display-view-speed",
