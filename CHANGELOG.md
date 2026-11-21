@@ -234,6 +234,33 @@
   function a bundle that does not import it carries none of it: the capture-worker fast row is 13 B smaller, the on-demand and
   export rows are unchanged, and a bundle that imports it adds 1,655 B gzip to its first load. docs/DISPLAY_VIEW.md, "Estimating a
   render".
+- **Unused SDR shader text leaves the GPU session chunk (#690).** The six shader literals of `src/gpu/wgsl-kernels.ts` are
+  marked pure, so a bundler drops the SDR and luminance preludes from the display view's GPU session, which uses only the
+  irradiance convolution shader. The shader strings are unchanged (same SHA-256 for all four). Fast worker row 338,380 →
+  336,612 B (−1,768 B; session chunk 33,950 → 32,182 B), measured with rolldown 1.2.9; on-demand and export rows unchanged.
+- **Bundle rows measured with the app's bundler (#691).** `test/capture-bundle.test.ts` builds with rolldown 1.2.14 (was
+  1.2.9), the version the Photivra app's worker build uses through Vite 8.3.2 (owner decision 2026-11-21). Re-measured: fast
+  worker 336,616 B, on demand 51,987 B, export 10,399 B; limits lowered to each measurement rounded up to the next 100 B
+  (fast 338,900 → 336,700 B, export 10,500 → 10,400 B; on demand stays 52,000 B until #658). No package change.
+- **An aborted GPU display-view render no longer fails a concurrent one (#675).** The device and Quality self-checks of a
+  prepared view ran under the signal of the render that started them, so aborting that render made every render waiting for
+  the check reject with `ImageKernelExecutionError` reason `aborted`. The checks now run under the session's own signal, each
+  render waits under its own, and `dispose()` ends a running check (the waiting render runs as one after `dispose()`,
+  `disposed`). Results of renders that complete are unchanged.
+- **`gpu: "auto"` falls back on a compile or memory failure (#692, owner decision 2026-11-21).** A GPU display-view render
+  whose kernel the device does not compile after the self-check passed, or during which the device runs out of memory, now
+  runs the CPU reference labelled `gpu-validation` or `out-of-memory` instead of rejecting. A kernel that did not compile is not
+  compiled again for that device. `DisplayViewGpuFallbackReason` gains the two reasons; `gpu: "require"` still throws.
+  Renders that succeed today are unchanged.
+- **On-demand bundle row 51,990 → 50,178 B (#658, in progress).** The Quality kit re-exports by name instead of a namespace
+  object; the GPU renderer and both GPU hosts read only the names they use from the on-demand GPU chunks; the Speed kernel's
+  eleven helper functions are written once and shared with the Quality kernels (every assembled shader keeps its token stream,
+  pinned in `test/wgsl-display-view-tokens.test.ts`); the CPU kits and the GPU chunks are read by position, so their export
+  names are not shipped; and (owner decision 2026-11-21) 33 result and refusal texts are shorter: the limitations of the Airy
+  profile, the AHD demosaic and the lens PSF kernels, the hand-shake, focus-breathing, veiling-glare, flash-shutter and sensor-profile
+  assumptions, two flash and one sensor-profile error message, and eight GPU Quality refusal and self-check texts. The on-demand limit is lowered
+  52,000 → 50,200 B; fast worker 336,556 B. The 49,400 B target is not yet met. Image bytes and numbers are unchanged; those texts
+  are the only result change.
 
 ## 2.27.0 — published November 19, 2026
 

@@ -33,7 +33,7 @@ import type { DisplayViewGpuSetup } from "../facade/display-view.js";
 import type { DisplayViewMaterialModules } from "./display-view-composite-material-module.js";
 import type { DisplayViewGpuConformanceCase, DisplayViewGpuRuntimeHandle } from "../facade/display-view-gpu.js";
 import { chartPresetMaterialModule } from "./display-view-chart-material-module.js";
-import { CONFORMANCE_FRAME, LARGE_DEFOCUS_REASON, recomputeRuns, footprintShape, conformanceChannelAt, conformanceChart, conformanceResponses, conformanceSetup, conformanceVerdict, withConformanceAbort, axisRecord, finishDisplayViewPixel, gaussLegendre16, queryGeometry,
+import { CONFORMANCE_FRAME, LARGE_DEFOCUS_REASON, recomputeRuns, footprintShape, conformanceChannelAt, conformanceChart, conformanceResponses, conformanceSetup, conformanceVerdict, withConformanceAbort, axisRecord, finishDisplayViewPixel, gaussLegendre16, loadDisplayViewCoupled, queryGeometry,
   type DisplayViewGpuMaterialModule } from "./display-view-speed-gpu.js";
 import { createHostYieldGate } from "../capture/host-yield-cadence.js";
 import { createDefocusDiscSiteKernel } from "../optics/defocus-disc-kernel.js";
@@ -43,7 +43,6 @@ import { DISPLAY_VIEW_QUALITY_AUX, DISPLAY_VIEW_QUALITY_CANDIDATE_ENTRIES, DISPL
   DISPLAY_VIEW_QUALITY_GEOMETRY_STRIDE, DISPLAY_VIEW_QUALITY_GROUP_WORDS, DISPLAY_VIEW_QUALITY_MAXIMUM_NODES, DISPLAY_VIEW_QUALITY_MAXIMUM_PIXELS_PER_AXIS, DISPLAY_VIEW_QUALITY_OUTPUT_FLOATS, DISPLAY_VIEW_QUALITY_PARAM_WORDS,
   DISPLAY_VIEW_QUALITY_PIXELS_WGSL, DISPLAY_VIEW_QUALITY_SITES_BLOCKED_WGSL, DISPLAY_VIEW_QUALITY_SITES_WGSL, DISPLAY_VIEW_QUALITY_SITE_FLOATS, DISPLAY_VIEW_QUALITY_TAP_WORDS, DISPLAY_VIEW_QUALITY_WORKGROUP_SIZE,
   assembleDisplayViewQualityLatticeWgsl, assembleDisplayViewQualityPixelsWgsl } from "./wgsl-display-view-quality-kernel.js";
-import { SDR_LUMINANCE_WEIGHTS } from "../output/sdr-rendering.js";
 
 type PipelineSource = (label: string, code: string) => Promise<GPUComputePipeline>;
 type YieldControl = ((signal: AbortSignal) => Promise<void>) | undefined;
@@ -211,17 +210,17 @@ export function displayViewQualityGpuUnsupportedReason(setup: DisplayViewSetup, 
   if (signalInput.kernels && (signalInput.kernels.radius < 0 || signalInput.kernels.radius > DISPLAY_VIEW_QUALITY_MAXIMUM_KERNEL_RADIUS))
     return "a site kernel radius above " + DISPLAY_VIEW_QUALITY_MAXIMUM_KERNEL_RADIUS + " (the diffraction and defocus caps)";
   const shape = footprintShape(setup);
-  if (!shape.exact) return "the stratified estimator (footprints above 25 real pixels) is not on the GPU";
+  if (!shape.exact) return "the stratified estimator is not on the GPU";
   if (shape.maximumColumns > DISPLAY_VIEW_QUALITY_MAXIMUM_PIXELS_PER_AXIS || shape.maximumRows > DISPLAY_VIEW_QUALITY_MAXIMUM_PIXELS_PER_AXIS)
     return "a footprint touches more than " + DISPLAY_VIEW_QUALITY_MAXIMUM_PIXELS_PER_AXIS + " real pixels along an axis";
   const { candidates, count, reach } = candidatesOf(setup);
-  if (candidates.length !== 4 || (count !== 1 && count !== 2) || candidates.some((p) => p.length !== count || p.some((d) => d.length !== 3))) return "each CFA phase needs 1 or 2 demosaic candidates with a kernel per channel";
+  if (candidates.length !== 4 || (count !== 1 && count !== 2) || candidates.some((p) => p.length !== count || p.some((d) => d.length !== 3))) return "not 1 or 2 demosaic candidates per CFA phase";
   if (reach > MAXIMUM_REACH) return "demosaic kernels reaching more than " + MAXIMUM_REACH + " sites";
   // The kernel treats a channel whose sites are all exactly at white as exact: its weights must sum exactly in float32 (dyadic, denominators to 256, magnitudes below 2^10).
-  for (const t of candidates.flat(3)) if (!Number.isInteger(t.weight * 256) || Math.abs(t.weight) >= 1024) return "demosaic weights that are not dyadic rationals (denominators to 256)";
+  for (const t of candidates.flat(3)) if (!Number.isInteger(t.weight * 256) || Math.abs(t.weight) >= 1024) return "demosaic weights not dyadic (k/256)";
   for (let p = 0; p < 4; p++) for (let c = 0; c < 3; c++) {
     const taps = setup.demosaic[p]?.[c];
-    if (!taps || taps.length < 1 || taps.length > 4 || taps.some((t) => Math.abs(t.dx) > 1 || Math.abs(t.dy) > 1)) return "the site-variance kernels are not the bilinear kernels (at most 4 taps within one site)";
+    if (!taps || taps.length < 1 || taps.length > 4 || taps.some((t) => Math.abs(t.dx) > 1 || Math.abs(t.dy) > 1)) return "site-variance kernels other than bilinear";
   }
   if (setup.nativeWidth < 2 * reach + 2 || setup.nativeHeight < 2 * reach + 2) return "a raster smaller than 2·reach + 2 sites";
   const tables = displayViewSignalTables(signalInput);
@@ -232,12 +231,12 @@ export function displayViewQualityGpuUnsupportedReason(setup: DisplayViewSetup, 
     // group's shift, which is the same number only when ix + f equals the offset exactly (the grouping tolerates 1e-9).
     for (const group of tables.groups) for (const member of group.members) {
       const exact = signalInput.offsets.some((o) => o.x === member.ix + group.fx && o.y === member.iy + group.fy && o.weight === member.weight);
-      if (!exact) return "a query offset that its lattice group does not reproduce exactly";
+      if (!exact) return "an inexact lattice query offset";
     }
   }
   for (const group of tables.groups) {
     const spanX = Math.max(Math.abs(group.minIx), Math.abs(group.maxIx)) + R + W, spanY = Math.max(Math.abs(group.minIy), Math.abs(group.maxIy)) + R + H;
-    if (!exactLatticeConstant(0.5 + group.fx - W / 2, spanX) || !exactLatticeConstant(0.5 + group.fy - H / 2, spanY)) return "a query offset whose lattice constant is not exact in float32";
+    if (!exactLatticeConstant(0.5 + group.fx - W / 2, spanX) || !exactLatticeConstant(0.5 + group.fy - H / 2, spanY)) return "an inexact float32 lattice constant";
   }
   return null;
 }
@@ -384,7 +383,7 @@ function auxTable(setup: DisplayViewSetup): Float32Array<ArrayBuffer> {
       for (let k = 0; k < 6; k++) aux[entry + 2 + k] = dense[k * WINDOW_SLOTS + slot]!;
       n++;
     }
-    if (n > DISPLAY_VIEW_QUALITY_CANDIDATE_ENTRIES) throw new ImageKernelExecutionError("unsupported-on-backend", "The demosaic candidates read more slots than the table holds.");
+    if (n > DISPLAY_VIEW_QUALITY_CANDIDATE_ENTRIES) throw new ImageKernelExecutionError("unsupported-on-backend", "Too many demosaic candidate slots.");
     words[base] = n;
   }
   void count;
@@ -495,11 +494,11 @@ export async function renderDisplayViewQualityOnGpu(runtime: WebGpuRuntime, band
   const sitesPipeline = image ? await pipelines(...image.sites) : blocked ? await pipelines("photivra-display-view-quality-sites-blocked", DISPLAY_VIEW_QUALITY_SITES_BLOCKED_WGSL) :
     await pipelines("photivra-display-view-quality-sites", DISPLAY_VIEW_QUALITY_SITES_WGSL);
   // #593, #601: the coupled steps' text and constants, loaded on demand for a view that asks for them.
-  const coupled = setup.rendering ? await import("./wgsl-display-view-coupled.js") : null;
-  const coupledConstants = coupled ? coupled.displayViewCoupledConstants(setup, SDR_LUMINANCE_WEIGHTS, gaussLegendre16()) : new Float32Array(1);
+  const coupled = await loadDisplayViewCoupled(setup);
+  const coupledConstants = coupled ? coupled.constants : new Float32Array(1);
   // #605: the neighbor reconstruction's ratios from the host, in a second dispatch per band (wgsl-display-view-neighbors.ts).
   const neighbors = setup.coupled?.neighbors && coupled;
-  const pixelsPipeline = coupled ? await pipelines("photivra-display-view-quality-pixels+coupled" + (neighbors ? "+neighbors" : ""), assembleDisplayViewQualityPixelsWgsl(coupled.displayViewCoupledWgsl(!!neighbors)))
+  const pixelsPipeline = coupled ? await pipelines("photivra-display-view-quality-pixels+coupled" + (neighbors ? "+neighbors" : ""), assembleDisplayViewQualityPixelsWgsl(coupled.wgsl(!!neighbors)))
     : await pipelines("photivra-display-view-quality-pixels", DISPLAY_VIEW_QUALITY_PIXELS_WGSL);
   const moments = new Float32Array(pixelCount * DISPLAY_VIEW_QUALITY_OUTPUT_FLOATS), pixelFlags = new Uint32Array(pixelCount), masks = new Uint32Array(2 * pixelCount);
   let latticePointsResolved = 0;
@@ -753,7 +752,7 @@ async function runQualityConformance(handle: DisplayViewGpuRuntimeHandle, signal
   return await withConformanceAbort(runtime, signal, async (abort, pipelines) => {
     const gather = defocus ? { blockedSum: true, maximumSiteTapsPerDispatch: 64 * 4 * (2 * 3 + 2) ** 2 } : {};
     const gpu = await renderDisplayViewQualityOnGpu(runtime, 1 << 20, { setup, signalInput, material: chartPresetMaterialModule(chart), ...gather }, abort, undefined, pipelines);
-    if (defocus && (!gpu.blockedSum || gpu.stageMilliseconds.siteDispatches < 2)) return "the self-check did not exercise the blocked site sum over several dispatches.";
+    if (defocus && (!gpu.blockedSum || gpu.stageMilliseconds.siteDispatches < 2)) return "the self-check did not run the blocked site sum.";
     // #533: the verdict includes the saturated-pixel count (the light squares sit at the white clip).
     return conformanceVerdict(reference, gpu);
   });
@@ -766,3 +765,5 @@ export const DISPLAY_VIEW_QUALITY_DEFOCUS_CONFORMANCE_CASE: DisplayViewGpuConfor
   run: (handle, signal) => runQualityConformance(handle, signal, true) };
 /** #594: the Quality kernels' self-check cases, run before the first render that takes the Quality passes (`onDemandConformanceCases`). */
 export const DISPLAY_VIEW_QUALITY_CONFORMANCE_CASES: readonly DisplayViewGpuConformanceCase[] = Object.freeze([DISPLAY_VIEW_QUALITY_CONFORMANCE_CASE, DISPLAY_VIEW_QUALITY_DEFOCUS_CONFORMANCE_CASE]);
+/** #658: what the renderer reads, as one tuple (no export names in the chunk). */
+export const QUALITY_GPU_KIT = [DISPLAY_VIEW_QUALITY_CONFORMANCE_CASES, qualityMaterialModule, renderDisplayViewQualityOnGpu] as const;

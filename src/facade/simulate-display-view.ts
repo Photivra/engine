@@ -26,7 +26,7 @@ import { runCapture, apertureNodeOffsets, bilinearPhaseProfiles, clockMs, fail, 
   SIMULATE_CAPTURE_FACADE_VERSION, DISPLAY_VIEW_WITHOUT_VIEW, allowKeys, parseDisplayViewOption, type DisplayViewResult, type DisplayViewRunContext, type ParsedDisplayView,
   type SimulateCaptureAssumption, type SimulateCaptureOptions, type SimulateDisplayViewOptions } from "./simulate-capture.js";
 import { createHostYield } from "./host-yield.js";
-import { optInKit, qualityKit } from "./on-demand-kits.js";
+import { OK_RENDER_DISPLAY_VIEW_DETAIL, optInKit, QK_CREATE_DISPLAY_VIEW_COUPLED_RENDERING, qualityKit } from "./on-demand-kits.js";
 import { createDefocusDiscSiteKernel } from "../optics/defocus-disc-kernel.js";
 import { siteKernelRuns } from "../optics/site-kernel-runs.js";
 import { cpuDisplayViewExecution, parsePrepareDisplayViewOptions, type DisplayViewExecution, type DisplayViewGpuRequest, type PrepareDisplayViewOptions } from "./display-view-gpu.js";
@@ -306,7 +306,7 @@ async function prepareView(context: DisplayViewRunContext): Promise<PreparedView
   const rendering: DisplayViewRenderingChoice | undefined = coupledRendering ? { toneCurve, ...(outputOptions.toneCurveParameters === undefined ? {} : { toneCurveParameters: outputOptions.toneCurveParameters as SdrToneCurveParameters }),
     highlightMode, gamutHandling: context.gamutHandling, fast: context.viewFast.rendering } : undefined;
   // The coupled steps' module is loaded only for a view that asks for them (the Quality kit, #594; the default path never imports it).
-  const coupled: DisplayViewCoupledRendering | undefined = rendering ? (await qualityKit.load()).createDisplayViewCoupledRendering(rendering, colour.appliedGains, Math.min(...colour.appliedGains), matrix)! : undefined;
+  const coupled: DisplayViewCoupledRendering | undefined = rendering ? (await qualityKit.load())[QK_CREATE_DISPLAY_VIEW_COUPLED_RENDERING](rendering, colour.appliedGains, Math.min(...colour.appliedGains), matrix)! : undefined;
   // #628: lens corrections and sharpening (their module loaded only for a view that asks for them; the CPU renders them).
   const detailOption = context.viewDetail, detailKit = detailOption ? await optInKit.load() : undefined, lensDetail = detailOption?.lens;
   const detail = detailOption ? { view: { render: renderDisplayView, draw: drawDisplayPixel, overlaps, noiseGain: unsharpNoiseGain }, ...(lensDetail ? { lens: { hook: (channel: number, vw: number, vh: number): DisplayViewCorrection => lensDetail.create(lensDetail.correction, lensDetail.cornerStops, channel, vw, vh, !detailOption.fast),
@@ -345,7 +345,7 @@ async function prepareView(context: DisplayViewRunContext): Promise<PreparedView
     const assume = (id: string, kind: SimulateCaptureAssumption["kind"], value: unknown, explanation: string): void => { assumptions.push({ id, kind, value, explanation }); };
     const { setup, signal, regrouped } = setupOf(v, run), viewRegion = setup.region;
     // #481: the GPU session renders on the device when it can, else through the CPU reference, and labels which ran.
-    const cpu = (): Promise<DisplayViewRenderResult> => detail ? detailKit!.renderDisplayViewDetail(setup, detail) : renderDisplayView(setup);
+    const cpu = (): Promise<DisplayViewRenderResult> => detail ? detailKit![OK_RENDER_DISPLAY_VIEW_DETAIL](setup, detail) : renderDisplayView(setup);
     const { rendered, execution }: { rendered: DisplayViewRenderResult; execution: DisplayViewExecution } = gpu ? await gpu.render(setup, run.signal, cpu)
       : { rendered: await cpu(), execution: cpuDisplayViewExecution("off", null, null, null) };
     if (viewInternals) { viewInternals.value = rendered; viewInternals.signal = signal; viewInternals.setup = setup; viewInternals.signalInput = signalInput; }

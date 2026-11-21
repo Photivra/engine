@@ -31,12 +31,12 @@ interface Bundle {
   gzip: number;
   /** Every chunk's gzip size (level 9) added up, the lazy ones included: what an application's total-JavaScript budget counts. */
   totalGzip: number;
-  /** Every chunk: its modules, gzip size (level 9), whether it is the entry, and the chunks it imports statically and dynamically. */
-  chunks: { fileName: string; modules: Set<string>; gzip: number; isEntry: boolean; imports: readonly string[]; dynamicImports: readonly string[] }[];
+  /** Every chunk: its modules, code, gzip size (level 9), whether it is the entry, and the chunks it imports statically and dynamically. */
+  chunks: { fileName: string; modules: Set<string>; code: string; gzip: number; isEntry: boolean; imports: readonly string[]; dynamicImports: readonly string[] }[];
 }
 const srcPath = (id: string): string => id.replace(/\\/g, "/").replace(/^.*\/src\//, "");
 /**
- * Bundles a consumer that imports only the named root exports (rolldown, the bundler Vite uses, minified ESM, tree-shaken,
+ * Bundles a consumer that imports only the named root exports (rolldown, the bundler Vite uses, at the version of the app's build (#691), minified ESM, tree-shaken,
  * dynamic imports split into their own chunks) and returns its entry chunk's modules and size and the lazy chunks' modules.
  */
 async function bundle(names: string[]): Promise<Bundle> {
@@ -58,7 +58,7 @@ async function bundle(names: string[]): Promise<Bundle> {
     for (const chunk of chunks) {
       const gzip = gzipSync(chunk.code, { level: 9 }).length;
       result.totalGzip += gzip;
-      result.chunks.push({ fileName: chunk.fileName, modules: new Set(Object.keys(chunk.modules).map(srcPath)), gzip, isEntry: chunk.isEntry, imports: chunk.imports, dynamicImports: chunk.dynamicImports });
+      result.chunks.push({ fileName: chunk.fileName, modules: new Set(Object.keys(chunk.modules).map(srcPath)), code: chunk.code, gzip, isEntry: chunk.isEntry, imports: chunk.imports, dynamicImports: chunk.dynamicImports });
       if (!eager.has(chunk.fileName)) { for (const id of Object.keys(chunk.modules)) result.lazyModules.add(srcPath(id)); continue; }
       for (const [id, m] of Object.entries(chunk.modules)) result.modules.set(srcPath(id), m.renderedExports);
       result.minified += Buffer.byteLength(chunk.code);
@@ -194,19 +194,30 @@ describe("the app's capture-worker shape", () => {
     const sum = (chunks: Bundle["chunks"]): number => chunks.reduce((total, c) => total + c.gzip, 0);
     // Owner decision 2026-11-16 ("Raise limits slightly"), for 2.25.0's named-lens work (#628-#633): measured
     // 338,815 B fast and 47,358 B on demand, limits set to those rounded up to the next 100 B.
-    expect(sum(fast)).toBeLessThanOrEqual(338_900);
+    // 2.28.0 (#691, owner decision 2026-11-21): the rows are measured with the rolldown version the app's worker build uses
+    // (1.2.14, through Vite 8.3.2; `rolldown` in package.json follows the app). Re-measured after #690 (rolldown 1.2.9 there:
+    // 336,612 B fast, 51,999 B on demand, 10,399 B export): 336,616 B fast, 51,987 B on demand, 10,399 B export, 25 chunks as
+    // with 1.2.9. Each limit is its measurement rounded up to the next 100 B; limits only go down.
+    expect(sum(fast)).toBeLessThanOrEqual(336_700);
     // 2.26.0 (owner decision 2026-11-16, "Raise to 49,400 B"): the on-demand row measured 49,382 B on release-2.26.0 after the
     // export kit moved out (flash #639 and hand-shake #641 in the opt-in kit, the record module from #646), limit rounded up to the
     // next 100 B. The fast limit stays 338,900 B.
     // 2.27.0 (owner approval): #649's shared detail passes and #656's 3-or-6 point chain rule (both in the on-demand kits) measured
     // 51,999 B on the integration branch, limit rounded up to the next 100 B; the savings are issue #658 (2.28.0).
-    expect(sum(onDemand)).toBeLessThanOrEqual(52_000);
+    // #691 (rolldown 1.2.14): 51,987 B, which rounds up to the same 52,000 B.
+    // #658 (2.28.0), after #675 and #692 (51,990 B): named re-exports in the Quality kit 51,828 B, the destructured GPU Quality
+    // import 51,704 B, one loader for the coupled chunk 51,569 B, the Speed kernel's helper functions shared with the Quality
+    // kernels 51,092 B, the two CPU kits and the two GPU chunks read by position 50,684 B, shorter result and refusal texts in the
+    // kits and the GPU Quality host (owner decision 2026-11-21) 50,178 B. The limit is that measurement rounded up to the next
+    // 100 B; the target stays 49,400 B (owner decision 2026-11-21), and the rest of #658 is open.
+    expect(sum(onDemand)).toBeLessThanOrEqual(50_200);
     // 2.26.0 (owner decision 2026-11-16, "Move export code out"): the export kit's row, measured at 10,403 B on release-2.26.0 (the JPEG
     // and PNG encoders, the export JPEG coder and the text-metadata writers), limit rounded up to the next 100 B. With it the fast row
     // measured 331,482 B (340,300 B before the move: the split costs 1,585 B in all, the kit compressing without the entry's dictionary
     // and the shared bindings it imports), and the on-demand row 49,382 B, over its limit; that overage is an open owner decision.
     expect(exportKit).toHaveLength(1);
-    expect(sum(exportKit)).toBeLessThanOrEqual(10_500);
+    // #691 (rolldown 1.2.14): 10,399 B, limit 10,500 → 10,400 B.
+    expect(sum(exportKit)).toBeLessThanOrEqual(10_400);
     expect(sum(fast) + sum(onDemand) + sum(exportKit)).toBe(worker.totalGzip);
     // #581: the image-plane scene's module, lattice data and GPU module are reachable only through prepareImagePlaneScenes().
     expect([...worker.lazyModules, ...worker.modules.keys()].filter((id) => /image-plane(?!-support)/u.test(id))).toEqual([]);
@@ -215,8 +226,13 @@ describe("the app's capture-worker shape", () => {
     const reached = [...worker.lazyModules, ...worker.modules.keys()];
     expect(reached.filter((id) => /layered-(?!scene-enable)/u.test(id))).toEqual([]);
     for (const id of ["facade/layered-chart-scene.ts", "facade/layered-scene-provider.ts", "facade/layered-scene-setup.ts", "facade/layered-scene-signal.ts"]) expect(reached).not.toContain(id);
+    // #658: no chunk carries the bundler's namespace-object helper (a kit's `export * as` brought it in).
+    expect(worker.chunks.filter((c) => [...c.modules].some((id) => id.endsWith("rolldown/runtime.js"))).map((c) => c.fileName)).toEqual([]);
     // #165: the C2PA export writers load only when an application imports them, never in the capture worker.
     expect([...worker.lazyModules, ...worker.modules.keys()]).not.toContain("capture/c2pa-embed.ts");
+    // #690: the GPU session uses only the irradiance convolution shader of src/gpu/wgsl-kernels.ts; the SDR and luminance shader
+    // preludes (fn render_sample, fn encode_srgb, the tone curves) are wrapped as pure so the bundler can drop them.
+    for (const c of worker.chunks) for (const fn of ["fn render_sample", "fn encode_srgb", "fn render_toned"]) expect(c.code.includes(fn), `${c.fileName}: ${fn}`).toBe(false);
   }, testTimeout(120_000));
 
   // #594: the GPU Quality host is one chunk that only a dynamic import reaches, from the GPU session chunk; no other chunk imports
@@ -242,7 +258,7 @@ describe("the app's capture-worker shape", () => {
       expect(holders).toHaveLength(1);
       const chunk = holders[0]!;
       expect(chunk.isEntry).toBe(false);
-      expect([...chunk.modules].filter((id) => !id.endsWith("rolldown/runtime.js")).sort()).toEqual([...modules].sort());
+      expect([...chunk.modules].sort()).toEqual([...modules].sort());
       expect(worker.chunks.filter((c) => c.imports.includes(chunk.fileName))).toEqual([]);
       expect(worker.chunks.filter((c) => c.dynamicImports.includes(chunk.fileName)).map((c) => c.isEntry)).toEqual([true]);
       for (const id of modules) expect(worker.modules.has(id), id).toBe(false);

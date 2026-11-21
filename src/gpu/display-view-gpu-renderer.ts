@@ -20,12 +20,16 @@ import { abortedError, createComputePipeline, type WebGpuRuntime } from "./webgp
 
 type PipelineSource = (label: string, code: string) => Promise<GPUComputePipeline>;
 type YieldControl = ((signal: AbortSignal) => Promise<void>) | undefined;
-type QualityKit = typeof import("./display-view-quality-gpu.js");
+/** #658: the three exports the renderer reads; a destructured import lets the chunk drop the other export names. */
+type QualityKit = Pick<typeof import("./display-view-quality-gpu.js"), "DISPLAY_VIEW_QUALITY_CONFORMANCE_CASES" | "qualityMaterialModule" | "renderDisplayViewQualityOnGpu">;
 
 /** Largest lattice group count the Quality tables hold (`display-view-quality-gpu.ts`). */
 const QUALITY_MAXIMUM_GROUPS = 64;
 
-const importQualityKit = (): Promise<QualityKit> => import("./display-view-quality-gpu.js");
+const importQualityKit = async (): Promise<QualityKit> => {
+  const [DISPLAY_VIEW_QUALITY_CONFORMANCE_CASES, qualityMaterialModule, renderDisplayViewQualityOnGpu] = (await import("./display-view-quality-gpu.js")).QUALITY_GPU_KIT;
+  return { DISPLAY_VIEW_QUALITY_CONFORMANCE_CASES, qualityMaterialModule, renderDisplayViewQualityOnGpu };
+};
 let loadQualityKit: () => Promise<QualityKit> = importQualityKit;
 let qualityKit: Promise<QualityKit> | null = null;
 /**
@@ -79,7 +83,13 @@ export function createDisplayViewGpuRenderer(runtime: WebGpuRuntime, options: { 
   const bandBytes = options.maximumBandBytes ?? Math.min(64 * 1024 * 1024, runtime.maximumStorageBindingBytes);
   const source: PipelineSource = (label, code) => {
     let pending = pipelines.get(label);
-    if (!pending) { pending = createComputePipeline(runtime, label, code, undefined); pipelines.set(label, pending); pending.catch(() => pipelines.delete(label)); }
+    // #692: a kernel the device did not compile stays failed for this device, so later renders fall back without compiling it
+    // again; any other failure (a lost device) is forgotten.
+    if (!pending) {
+      pending = createComputePipeline(runtime, label, code, undefined);
+      pipelines.set(label, pending);
+      pending.catch((error: unknown) => { if (!(error instanceof ImageKernelExecutionError && error.reason === "gpu-validation")) pipelines.delete(label); });
+    }
     return pending;
   };
   // #491: one set of material modules per device for both kernels (the preset module per chart; the composite module, its probe

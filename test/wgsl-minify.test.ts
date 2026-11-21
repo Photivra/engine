@@ -76,7 +76,8 @@ describe("WGSL minification (#536)", () => {
     // 2.22.0: + #597's mixed light in the image-plane Quality pass, and #593/#601's coupled steps (their shared declarations, the
     // stub and the on-demand module; the Quality pixel pass is now its body plus one of them, so it stays one literal).
     // 2.23.0: + #605's neighbor reconstruction (the kernels' stub, and the on-demand module's shared, off and full forms).
-    expect(literals).toBe(32);
+    // 2.28.0: + #658's six helper literals the Speed and Quality kernels share (src/gpu/wgsl-display-view-speed-kernel.ts).
+    expect(literals).toBe(38);
     expect(after).toBeLessThan(0.86 * before);
   });
 

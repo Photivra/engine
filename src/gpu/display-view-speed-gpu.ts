@@ -311,6 +311,17 @@ export async function recomputeRuns(setup: DisplayViewSetup, signalInput: Displa
 }
 
 /** Renders one region of a Speed display view on the GPU (see the module comment). */
+/**
+ * #593, #601: the coupled steps (`wgsl-display-view-coupled.ts`, its own on-demand chunk) for a view that asks for them, or null:
+ * their constants for `setup`, their shader text and the neighbor dispatch (#605). #658: the one loader of both hosts, reading
+ * three names of the chunk, so the chunk keeps no other export names.
+ */
+export async function loadDisplayViewCoupled(setup: DisplayViewSetup): Promise<{ constants: Float32Array; wgsl: (neighbors: boolean) => string;
+  dispatchWithNeighborRatios: typeof import("./wgsl-display-view-coupled.js").dispatchWithNeighborRatios } | null> {
+  if (!setup.rendering) return null;
+  const [displayViewCoupledConstants, displayViewCoupledWgsl, dispatchWithNeighborRatios] = (await import("./wgsl-display-view-coupled.js")).COUPLED_KIT;
+  return { constants: displayViewCoupledConstants(setup, SDR_LUMINANCE_WEIGHTS, gaussLegendre16()), wgsl: displayViewCoupledWgsl, dispatchWithNeighborRatios };
+}
 export async function renderDisplayViewSpeedOnGpu(runtime: WebGpuRuntime, bandBytes: number, input: DisplayViewSpeedGpuInput, abort: AbortController,
   yieldControl: YieldControl, pipelines: PipelineSource): Promise<DisplayViewSpeedGpuResult> {
   const { setup, signalInput, material } = input;
@@ -326,12 +337,12 @@ export async function renderDisplayViewSpeedOnGpu(runtime: WebGpuRuntime, bandBy
   if (Math.max(rows * region.width * 4 * DISPLAY_VIEW_OUTPUT_FLOATS, geometry.byteLength, table.byteLength) > runtime.maximumStorageBindingBytes)
     throw new ImageKernelExecutionError("insufficient-limits", "One display-view band exceeds the device's storage binding limit.");
   // #593, #601: the coupled steps' shader text and constants, loaded on demand for a view that asks for them.
-  const coupled = setup.rendering ? await import("./wgsl-display-view-coupled.js") : null;
-  const coupledConstants = coupled ? coupled.displayViewCoupledConstants(setup, SDR_LUMINANCE_WEIGHTS, gaussLegendre16()) : new Float32Array(1);
+  const coupled = await loadDisplayViewCoupled(setup);
+  const coupledConstants = coupled ? coupled.constants : new Float32Array(1);
   // #605: the neighbor reconstruction's ratios from the host, in a second dispatch per band (wgsl-display-view-neighbors.ts).
   const neighbors = setup.coupled?.neighbors && coupled;
   const pipeline = await pipelines("photivra-display-view-speed:" + material.id + (coupled ? "+coupled" : "") + (neighbors ? "+neighbors" : ""),
-    assembleDisplayViewSpeedWgsl(material.wgsl, coupled?.displayViewCoupledWgsl(!!neighbors)));
+    assembleDisplayViewSpeedWgsl(material.wgsl, coupled?.wgsl(!!neighbors)));
   const moments = new Float32Array(pixelCount * DISPLAY_VIEW_OUTPUT_FLOATS), flagged: number[] = [], flagWords = new Uint32Array(pixelCount * DISPLAY_VIEW_FLAG_WORDS);
   const words = new Uint32Array(params);
   const scope = new GpuResourceScope(runtime);

@@ -47,7 +47,7 @@ const isoSettings = (p: SensorProfile): number[] => ISO_MARKINGS.filter((iso) =>
  */
 export function sensorProfileBody(p: SensorProfile, body: GenericTierBodyAssets, version: GenericTierPresetVersion, readNoiseScale = 1): GenericTierBodyAssets {
   const evidence: readonly EvidenceProvenance[] = [{ sourceOrigin: "manufacturer", sourceReference: "photivra:sensor-profiles-v1#" + p.id, reuseStatus: "factual-reference-only",
-    note: "Published specifications and open papers (docs/SENSOR_PROFILES.md); unpublished values are Photivra design values." }];
+    note: "Published specifications and open papers; other values are Photivra design values (docs/SENSOR_PROFILES.md)." }];
   const black = { 12: 256, 14: 1024, 16: 4096 }[p.adcBitDepth], n = p.readNoise;
   const built = bodyAssets(version, "photivra-sensor-profile-" + p.id, p.maximumIso, 1, 1, { bitDepth: p.adcBitDepth, blackLevelCode: black,
     saturationElectrons: p.fullWellElectrons, maximumAnalogGain: p.maximumAnalogGain, lowGainReadNoise: n.lowGainElectrons * readNoiseScale, highGainReadNoise: n.highGainElectrons * readNoiseScale,
@@ -55,7 +55,7 @@ export function sensorProfileBody(p: SensorProfile, body: GenericTierBodyAssets,
     prnu: p.fixedPattern.prnu, dsnu: p.fixedPattern.dsnu, hotFraction: p.fixedPattern.hotPixelFraction, hotMultiplier: p.fixedPattern.hotPixelMultiplier,
     rowRms: p.fixedPattern.rowElectrons, columnRms: p.fixedPattern.columnElectrons, instanceSeed: (0x9e3779b9 ^ (p.pixelsWide * 8191 + p.pixelsHigh)) >>> 0 },
   p.readoutSeconds, .5, .01, false, false, { isoValues: isoSettings(p), evidence,
-    limitations: ["Sensor profile " + p.name + " (#554): published, derived and design values (docs/SENSOR_PROFILES.md); not a calibration of any camera."] });
+    limitations: ["Sensor profile " + p.name + " (#554): published, derived and design values; not a camera calibration."] });
   // Only the sensor assets are taken; the placeholders above (release, stabilization …) are the body's own.
   return { ...body, exposure: built.exposure, iso: built.iso, signalChain: built.signalChain, readout: built.readout, readoutTiming: built.readoutTiming,
     rollingReadoutTiming: built.rollingReadoutTiming, fixedPatternNoise: built.fixedPatternNoise, flashSync: built.flashSync };

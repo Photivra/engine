@@ -67,10 +67,12 @@ export function parsePrepareDisplayViewOptions(value: unknown, fast = false): Pa
  * request), `conformance-failed` (the device failed the run-time self-check before the view's first GPU render), `device-lost`
  * (the device was lost; the rest of the view runs on the CPU) and `disposed` (the prepared view was disposed). 2.22.0 (#594):
  * `quality-code-unavailable` (the on-demand GPU full-quality code could not be loaded; that render runs the CPU reference, and
- * the next render that needs the code tries to load it again).
+ * the next render that needs the code tries to load it again). 2.28.0 (#692): `gpu-validation` (the device did not compile a
+ * kernel the render uses; later renders that use it fall back without compiling it again) and `out-of-memory` (the device ran out
+ * of memory during the render); with `"require"` both are thrown as before.
  */
 export type DisplayViewGpuFallbackReason = ImageKernelFallbackReason | "unsupported-on-backend" | "conformance-failed" | "device-lost" | "disposed" |
-  "quality-code-unavailable";
+  "quality-code-unavailable" | "gpu-validation" | "out-of-memory";
 
 /** 2.11 (#481): the run-time conformance self-check of a device, run once before the view's first GPU render. */
 export interface DisplayViewGpuConformance {

@@ -1793,6 +1793,36 @@ root exports of the built package, minified, gzip level 9; `test/capture-bundle.
   The GPU coupled steps (#593) load on demand too and count in that row. The bundler now gives the entry ten small chunks it
   shares with the kits (imported statically; 252,371 B of entry plus 27,348 B), so the display view's addition is measured on
   the entry and those chunks together: 38,370 B minified and 14,126 B gzip (2.21.0: 46,270 B and 18,327 B).
+
+  **The bundler version and the 2.28.0 limits (#690, #691, owner decision 2026-11-21).** The rows are measured with the
+  rolldown version the Photivra app's worker build uses (1.2.14, through Vite 8.3.2); the `rolldown` pin in `package.json`
+  follows the app when it updates. #690 lets a bundler drop the SDR and luminance shader text that the GPU session chunk
+  carried unused (session chunk 33,950 → 32,182 B). Each limit is its row's measurement rounded up to the next 100 B, and
+  limits only go down:
+
+  | Row (worker shape, gzip) | 2.27.0 (rolldown 1.2.9) | After #690 (rolldown 1.2.9) | After #691 (rolldown 1.2.14) | Limit |
+  | --- | --- | --- | --- | --- |
+  | fast worker | 338,380 B | 336,612 B | **336,616 B** | 336,700 B (was 338,900 B) |
+  | on demand | 51,999 B | 51,999 B | **51,987 B** | 52,000 B (unchanged; #658 brings it to 49,400 B) |
+  | export | 10,399 B | 10,399 B | **10,399 B** | 10,400 B (was 10,500 B) |
+
+  Rolldown 1.2.14 builds the same 25 chunks as 1.2.9.
+
+  **The on-demand row toward 49,400 B (#658).** Measured with rolldown 1.2.14 after #675 and #692 (fast 336,700 B, on demand
+  51,990 B), each step on the previous one, results and shader tokens unchanged:
+
+  | Step | On demand | Fast worker |
+  | --- | --- | --- |
+  | named re-exports in the Quality kit (no namespace object) | 51,828 B | 336,685 B |
+  | the renderer reads three names of the GPU Quality host | 51,704 B | 336,713 B |
+  | one loader for the GPU coupled steps | 51,569 B | 336,742 B |
+  | the Speed kernel's helper functions shared with the Quality kernels (same tokens) | 51,092 B | 336,826 B |
+  | the CPU kits read by position (`QK_*`, `OK_*` in `src/facade/on-demand-kits.ts`) | 50,745 B | 336,552 B |
+  | the GPU Quality host and coupled chunk read by position | 50,684 B | 336,558 B |
+  | shorter result texts (limitations, assumptions) and refusal messages in the kits and the GPU Quality host | **50,178 B** | **336,556 B** |
+
+  The on-demand limit is 50,200 B (the measurement rounded up to the next 100 B); the target stays 49,400 B. A read of the two
+  CPU kits for code no request reaches found only test instrumentation and a few dozen bytes of fallbacks.
 - **Shipped shaders are minified (2.14, #536).** `npm run build` strips comments and indentation from the WGSL source
   (`scripts/minify-wgsl-dist.mjs`, see [WebGPU, Shipped shader text](WEBGPU.md#shipped-shader-text)). Measured on the app's
   production build (Vite 8, app 0.50.0 at `a82a5eb`, engine `main` at `42ec9d8` packed before and after): the GPU session
@@ -1927,7 +1957,10 @@ with that reason for `"require"`:
   the view's first render that takes the Quality passes, after the Quality code has loaded on demand. Their ids are then
   appended to `conformance.cases`, and a failure keeps that render and every later one on the CPU, labelled as above. Results
   do not change: only when the Quality cases run, and so which ids a Speed-only view's record lists (the two built-in cases
-  and the Speed case).
+  and the Speed case). Both checks belong to the view, not to the render that started them (2.28.0, #675): a render's
+  `signal` ends only that render's wait, so a concurrent render that was not aborted still gets the check's outcome, and
+  `prepared.dispose()` ends a running check; a render that was waiting for it runs as one started after `dispose()`
+  (`disposed`).
 - *Single flight.* GPU renders of one view run one at a time on its device; concurrent `render` calls queue rather than
   reject with `busy`. CPU renders are unaffected.
 - *Refused at render time.* What only a render can tell (a view coarser than the exact area mean, a footprint above 6 real
@@ -1937,6 +1970,12 @@ with that reason for `"require"`:
   render asks the renderer again.
 - *Device loss.* A render during which the device is lost falls back to the CPU for that render, and every later render of the
   view runs on the CPU, labelled `device-lost`. With `"require"` that event is an error.
+- *Compile and memory failures (2.28.0, #692, owner decision 2026-11-21).* The self-check does not build every pipeline a render
+  uses (the composite material module and probe, the coupled and neighbor variants, the image-plane module). Under `"auto"` a
+  render whose kernel the device does not compile runs the CPU reference, labelled `gpu-validation`, and that kernel is not
+  compiled again for the view's device, so later renders that use it fall back the same way; a render during which the device
+  runs out of memory runs the CPU reference, labelled `out-of-memory`, and the next render tries the GPU again. With
+  `"require"` both are thrown as `ImageKernelExecutionError` with that reason, as before.
 - *Abort.* A render's `signal` aborts its GPU dispatch; the render rejects with the engine's abort error, as a CPU render does.
 - `dispose()` releases a device the view acquired (not one an accelerator handle shares) and the scene records the renderer
   uploaded for it. Later renders run on the CPU

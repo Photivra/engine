@@ -100,6 +100,59 @@ const literal = (value: number): string => {
   return /[.e]/u.test(text) ? text : `${text}.0`;
 };
 
+/** #658: shared with the Quality kernels (wgsl-display-view-quality-kernel.ts), which load after this module's chunk. */
+export const DISPLAY_VIEW_ACCESSORS_WGSL = /* wgsl */ `
+fn k_of(c: u32) -> f32 { if (c == 0u) { return params.k0; } if (c == 1u) { return params.k1; } return params.k2; }
+fn dark_of(c: u32) -> f32 { if (c == 0u) { return params.dark0; } if (c == 1u) { return params.dark1; } return params.dark2; }
+fn c0_of(c: u32) -> f32 { if (c == 0u) { return params.c0_0; } if (c == 1u) { return params.c0_1; } return params.c0_2; }
+fn g_of(c: u32) -> f32 { if (c == 0u) { return params.g0; } if (c == 1u) { return params.g1; } return params.g2; }
+`;
+/** #658: shared with the Quality kernels (wgsl-display-view-quality-kernel.ts), which load after this module's chunk. */
+export const DISPLAY_VIEW_MATRIX_WGSL = /* wgsl */ `
+fn m_of(r: u32, c: u32) -> f32 {
+  let i = r * 3u + c;
+  switch (i) {
+    case 0u: { return params.m00; } case 1u: { return params.m01; } case 2u: { return params.m02; }
+    case 3u: { return params.m10; } case 4u: { return params.m11; } case 5u: { return params.m12; }
+    case 6u: { return params.m20; } case 7u: { return params.m21; } default: { return params.m22; }
+  }
+}
+`;
+/** #658: shared with the Quality kernels (wgsl-display-view-quality-kernel.ts), which load after this module's chunk. */
+export const DISPLAY_VIEW_NORMAL_WGSL = /* wgsl */ `
+fn phi(z: f32) -> f32 { return 0.3989422804014327 * exp(-0.5 * z * z); }
+fn pq(z: f32) -> vec2<f32> {
+  let x = abs(z);
+  let t = 1.0 / (1.0 + 0.2316419 * x);
+  let q = phi(x) * t * (0.319381530 + t * (-0.356563782 + t * (1.781477937 + t * (-1.821255978 + t * 1.330274429))));
+  if (z >= 0.0) { return vec2<f32>(1.0 - q, q); }
+  return vec2<f32>(q, 1.0 - q);
+}
+`;
+/** #658: shared with the Quality kernels (wgsl-display-view-quality-kernel.ts), which load after this module's chunk. */
+export const DISPLAY_VIEW_CLIP_STATE_WGSL = /* wgsl */ `
+fn clip_state(m: f32, dm: f32, v: f32, dv: f32) -> u32 {
+  let gap = 1.0 - m;
+  let wide = 4.0 * params.reach2 * (v + 2.0 * dv);
+  let below = gap - 2.0 * dm;
+  let above = gap + 2.0 * dm;
+  if (below > 0.0 && below * below > wide) { return 0u; }
+  if (above < 0.0 && above * above > wide) { return 1u; }
+  return 2u;
+}
+`;
+/** #658: shared with the Quality kernels (wgsl-display-view-quality-kernel.ts), which load after this module's chunk. */
+export const DISPLAY_VIEW_REFLECT_WGSL = /* wgsl */ `
+fn reflect_x(x: i32) -> i32 { if (x < 0) { return -x; } if (x >= i32(params.native_w)) { return 2 * i32(params.native_w) - 2 - x; } return x; }
+fn reflect_y(y: i32) -> i32 { if (y < 0) { return -y; } if (y >= i32(params.native_h)) { return 2 * i32(params.native_h) - 2 - y; } return y; }
+`;
+/** #658: shared with the Quality kernels (wgsl-display-view-quality-kernel.ts), which load after this module's chunk. */
+export const DISPLAY_VIEW_CHANNEL_WGSL = /* wgsl */ `
+fn channel_of(x: i32, y: i32) -> u32 {
+  if ((y & 1) == 0) { return select(1u, 0u, (x & 1) == 0); }
+  return select(2u, 1u, (x & 1) == 0);
+}
+`;
 /**
  * The kernel's own WGSL, without the material module. `assembleDisplayViewSpeedWgsl` appends a module that defines
  * `fn material_at(p: vec2<f32>) -> u32` and `var<private> material_uncertain: bool` (set to true when the point's
@@ -151,40 +204,15 @@ var<private> site_bound: array<f32, 64>;
 // #533: 0 certainly below white, 1 certainly at or above it, 2 undecided.
 var<private> site_clip: array<u32, 64>;
 
-fn k_of(c: u32) -> f32 { if (c == 0u) { return params.k0; } if (c == 1u) { return params.k1; } return params.k2; }
-fn dark_of(c: u32) -> f32 { if (c == 0u) { return params.dark0; } if (c == 1u) { return params.dark1; } return params.dark2; }
-fn c0_of(c: u32) -> f32 { if (c == 0u) { return params.c0_0; } if (c == 1u) { return params.c0_1; } return params.c0_2; }
-fn g_of(c: u32) -> f32 { if (c == 0u) { return params.g0; } if (c == 1u) { return params.g1; } return params.g2; }
-fn m_of(r: u32, c: u32) -> f32 {
-  let i = r * 3u + c;
-  switch (i) {
-    case 0u: { return params.m00; } case 1u: { return params.m01; } case 2u: { return params.m02; }
-    case 3u: { return params.m10; } case 4u: { return params.m11; } case 5u: { return params.m12; }
-    case 6u: { return params.m20; } case 7u: { return params.m21; } default: { return params.m22; }
-  }
-}
+${DISPLAY_VIEW_ACCESSORS_WGSL}
+${DISPLAY_VIEW_MATRIX_WGSL}
 // Standard normal density, as the reference forms it: 0.3989422804014327·exp(−0.5·z·z).
-fn phi(z: f32) -> f32 { return 0.3989422804014327 * exp(-0.5 * z * z); }
+${DISPLAY_VIEW_NORMAL_WGSL}
 // Abramowitz & Stegun 26.2.17: returns (Φ(z), 1 − Φ(z)), each formed from the tail q directly where it is small.
-fn pq(z: f32) -> vec2<f32> {
-  let x = abs(z);
-  let t = 1.0 / (1.0 + 0.2316419 * x);
-  let q = phi(x) * t * (0.319381530 + t * (-0.356563782 + t * (1.781477937 + t * (-1.821255978 + t * 1.330274429))));
-  if (z >= 0.0) { return vec2<f32>(1.0 - q, q); }
-  return vec2<f32>(q, 1.0 - q);
-}
 // #533: whether a site with mean m (bound dm) and variance v (bound dv) is certainly below white (0), certainly at or above it
 // (1) or undecided (2): the reference's clip probability is exactly 0 or 1 beyond 8.5 standard deviations, and the decision here
 // asks for twice that distance (4·reach²) after moving the mean by twice its bound and the variance up by twice its bound.
-fn clip_state(m: f32, dm: f32, v: f32, dv: f32) -> u32 {
-  let gap = 1.0 - m;
-  let wide = 4.0 * params.reach2 * (v + 2.0 * dv);
-  let below = gap - 2.0 * dm;
-  let above = gap + 2.0 * dm;
-  if (below > 0.0 && below * below > wide) { return 0u; }
-  if (above < 0.0 && above * above > wide) { return 1u; }
-  return 2u;
-}
+${DISPLAY_VIEW_CLIP_STATE_WGSL}
 // Moments of min(Y, top) for Y ~ N(m, v): (mean, variance, slope P). The variance is v·(P − zφ + z²Q − δ²) with
 // δ = φ − zQ: algebraically E[min²] − E[min]² without the m² cancellation.
 fn upper_clip(m: f32, v: f32, top: f32) -> vec3<f32> {
@@ -258,12 +286,8 @@ fn reinhard_moments(m: f32, v: f32) -> vec3<f32> {
   return vec3<f32>(e1, max(0.0, e2 - shifted * shifted), ed);
 }
 
-fn reflect_x(x: i32) -> i32 { if (x < 0) { return -x; } if (x >= i32(params.native_w)) { return 2 * i32(params.native_w) - 2 - x; } return x; }
-fn reflect_y(y: i32) -> i32 { if (y < 0) { return -y; } if (y >= i32(params.native_h)) { return 2 * i32(params.native_h) - 2 - y; } return y; }
-fn channel_of(x: i32, y: i32) -> u32 {
-  if ((y & 1) == 0) { return select(1u, 0u, (x & 1) == 0); }
-  return select(2u, 1u, (x & 1) == 0);
-}
+${DISPLAY_VIEW_REFLECT_WGSL}
+${DISPLAY_VIEW_CHANNEL_WGSL}
 fn material_signal(m: u32, c: u32) -> f32 {
   let n = params.nodes;
   var s = 0.0;

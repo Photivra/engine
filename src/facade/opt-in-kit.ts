@@ -8,10 +8,34 @@
  * `output.lensCorrections` and `output.sharpening`, and (#641) `motion.handheld`.
  */
 
-export { parseSensorProfile, sensorProfileBody, sensorProfileSaturationIso } from "../equipment/sensor-profile-body.js";
-export { flashAloneShutter, meterFlash, rebindFlashAssumptions, requireFlashRows, resolveMixedIllumination, solveFlashShutter } from "./mixed-illumination.js";
-export { createSubjectMotionProvider, subjectTravelM } from "../motion/subject-motion.js";
-export { resolveLensFilter } from "./lens-filter.js";
-export { catalogueOpticsAssumptions } from "./catalogue-lens-optics.js";
-export { renderDisplayViewDetail } from "./display-view-detail.js";
-export { handShakeAssumption, handShakeQuadruples, resolveHandShake } from "../motion/hand-shake.js";
+import { parseSensorProfile, sensorProfileBody, sensorProfileSaturationIso } from "../equipment/sensor-profile-body.js";
+import { flashAloneShutter, meterFlash, rebindFlashAssumptions, requireFlashRows, resolveMixedIllumination, solveFlashShutter } from "./mixed-illumination.js";
+import { createSubjectMotionProvider, subjectTravelM } from "../motion/subject-motion.js";
+import { resolveLensFilter } from "./lens-filter.js";
+import { catalogueOpticsAssumptions } from "./catalogue-lens-optics.js";
+import { renderDisplayViewDetail } from "./display-view-detail.js";
+import { handShakeAssumption, handShakeQuadruples, resolveHandShake } from "../motion/hand-shake.js";
+
+/**
+ * #658: the kit is one exported tuple, read by position (the `OK_*` constants of src/facade/on-demand-kits.ts, which a bundler
+ * inlines), so neither this chunk's export list nor the code that calls it carries the long export names.
+ */
+export const OPT_IN_KIT = [
+  parseSensorProfile,
+  sensorProfileBody,
+  sensorProfileSaturationIso,
+  flashAloneShutter,
+  meterFlash,
+  rebindFlashAssumptions,
+  requireFlashRows,
+  resolveMixedIllumination,
+  solveFlashShutter,
+  createSubjectMotionProvider,
+  subjectTravelM,
+  resolveLensFilter,
+  catalogueOpticsAssumptions,
+  renderDisplayViewDetail,
+  handShakeAssumption,
+  handShakeQuadruples,
+  resolveHandShake
+] as const;
