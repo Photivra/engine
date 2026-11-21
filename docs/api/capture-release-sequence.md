@@ -171,6 +171,13 @@ export interface ResolvedReleaseFrame {
   focus: FocusPlane;
   exposureBracketOffsetStops?:
     number;
+  /**
+   * #680: the offset the frame's setting realizes, present only when the exact setting `base × 2^offset` was not on a
+   * discrete setting grid and the nearest grid value (within 1/12 stop) was taken instead: log₂(setting ÷ base) for
+   * shutter and ISO, 2·log₂(base ÷ setting) for the f-number.
+   */
+  exposureBracketRealizedOffsetStops?:
+    number;
   automation:
     ReleaseBaseCaptureState["automation"];
   whiteBalanceStateId?: string;

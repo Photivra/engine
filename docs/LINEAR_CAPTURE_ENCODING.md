@@ -27,7 +27,7 @@ Using the same normalisation and scale on every channel keeps linear colour rati
 | --- | --- |
 | blackValue / blackCode | Relative source baseline and its integer code; blackCode can reserve room for negative samples. |
 | referenceWhiteValue / referenceWhiteCode | Source normalization and its code; reference white can be below the code maximum to preserve headroom. |
-| representable limits | B − b/scale and B + (65535−b)/scale; these are encoded range limits, not physical capture saturation. |
+| representable limits | B − b/scale and B + (65535−b)/scale, the upper one never below R (code r ≤ 65535 always represents reference white, so r = 65535 encodes for any R); these are encoded range limits, not physical capture saturation. |
 | headroomFactor | (65535−b)/(r−b), relative to the above-black reference-white interval. |
 | negativeValues | Explicit reject of any sample < 0, or preserve-if-representable. The latter still obeys the independently declared out-of-range policy. |
 | outOfRange | Explicit reject, or clip to 0/65535 with separate low/high source-sample counts. |

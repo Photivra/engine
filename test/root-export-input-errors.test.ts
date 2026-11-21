@@ -281,6 +281,39 @@ describe("a missing, null or non-object sub-object fails with a domain error (2.
   });
 });
 
+// capture-20 (#698): the release-sequence and focus-control functions an app calls on every shutter press. The {} probe above
+// passes for them only because their first check is on a scalar; here each starts from a valid input and loses one sub-object.
+describe("release and focus root functions: a missing sub-object fails with a domain error (capture-20)", () => {
+  const ev = (ref: string): { sourceOrigin: "photivra"; sourceReference: string; reuseStatus: "photivra-owned" }[] =>
+    [{ sourceOrigin: "photivra", sourceReference: "test:" + ref, reuseStatus: "photivra-owned" }];
+  const tier = engine.resolveGenericEquipmentTierCatalog({ presetVersion: "2.0.0" }).find((p) => p.tier === "professional")!;
+  const exposureCapabilities = engine.resolveGenericEquipmentExposureCapabilities({ bodyProfile: tier.body.exposure, lensProfile: tier.lens.exposure,
+    selectedFocalLengthMm: tier.lens.exposure.focalLengthMmRange.value.minimum });
+  const baseState = { exposure: { aperture: 8, shutterSeconds: 1 / 125, iso: 400 }, focus: { kind: "finite", distanceM: 5 },
+    automation: { ae: "locked", af: "locked", awb: "locked" } };
+  const profile = engine.parseFocusControlProfile({ schemaVersion: "0.1.0", profileId: "focus", profileVersion: "1.0.0", scientificStatus: "approximation",
+    supportedModes: ["manual", "single-af", "continuous-af"], actuator: { kind: "ideal-instantaneous", evidence: ev("actuator") },
+    continuousTargetLossPolicy: "hold-last-focus-require-explicit-reacquisition", supportedReleasePriorities: ["focus-priority", "release-priority", "balanced"],
+    evidence: ev("profile"), limitations: ["test"] });
+  const state = engine.createFocusControlState({ stateId: "s", profile, mode: "single-af", initialFocus: { kind: "finite", distanceM: 5 } });
+  const observation = { kind: "finite-surface", targetId: "t", focusAreaId: "a", observedAtSeconds: 1, longitudinalDistanceM: 2 };
+  const cases: readonly [string, Record<string, unknown>][] = [
+    ["resolveReleaseSequence", { sequenceId: "r", releaseRequestTimeSeconds: 0, sequenceSeedUint32: 1, drive: { kind: "single" },
+      bracket: { kind: "exposure", axis: "shutter", offsetsStops: [0] }, baseState, releaseCapabilities: tier.body.release, exposureCapabilities }],
+    ["resolveFocusTargetObservation", { state, stateId: "s2", event: "acquire", observation }],
+    ["setFocusLock", { state, stateId: "s3", locked: true, eventTimeSeconds: 1 }],
+    ["setManualFocusState", { state: engine.createFocusControlState({ stateId: "m", profile, mode: "manual", initialFocus: { kind: "infinity" } }), stateId: "s4", focus: { kind: "finite", distanceM: 3 }, eventTimeSeconds: 1, commandId: "c" }],
+    ["assessFocusReleaseGate", { state, profile, priority: "focus-priority" }]
+  ];
+  it.each(cases)("%s: the valid input succeeds and every sub-object variant fails with a domain error", async (name, input) => {
+    const fn = engine[name as keyof typeof engine] as (value: unknown) => unknown;
+    expect(() => fn(input), name).not.toThrow();
+    const { probedPaths, escaped } = await probeSubObjects(fn, input);
+    expect(probedPaths).toBeGreaterThan(0);
+    expect(escaped).toEqual([]);
+  });
+});
+
 describe("nested objects reject unknown fields (2.0.0 pre-release review)", () => {
   const ev = [{ sourceOrigin: "photivra", sourceReference: "test:e", reuseStatus: "photivra-owned" }];
   it("estimateCameraShakeBlur angularVelocityRadPerSec, calculateProjectedMotionBlur positionM/velocityMps and the rotation mappings", () => {

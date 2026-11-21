@@ -4,11 +4,14 @@
  * the float64 reference against the per-site engine functions, and the `webgpu-f32` stage (fake device,
  * float32 emulation) against the reference with the "exact except flagged sites" guarantee.
  */
+import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
-import { assessSensorPhysicalChargeCapacity, calculatePackedSensorRawPlan, createImageKernelAccelerator, parseSensorChargeSamplingProfile,
+import { assessSensorPhysicalChargeCapacity, calculatePackedSensorRawPlan, calculateSensorFixedPatternSite, simulateCapture, createImageKernelAccelerator, parseSensorChargeSamplingProfile,
   parseSensorReadoutConversionProfile, simulatePackedSensorRaw, simulateSensorChargeRealization, simulateSensorRawCode,
   type PackedSensorRawInput, type SensorAccumulatedChargeComposition, type SensorReadoutConversionProfile } from "../src/index.js";
 import { createPackedFixedPattern, simulatePackedSensorSite } from "../src/capture/packed-sensor-raw.js";
+import { evaluateFixedPatternColumnOffset, evaluateFixedPatternRowOffset, evaluateFixedPatternSiteFactors } from "../src/sensor/fixed-pattern-noise.js";
+import { scaledTimeout } from "./helpers/test-timeout.js";
 import { deriveNativeSiteStreamSeedUint32, NATIVE_SITE_CHARGE_STREAM_ID, NATIVE_SITE_READ_NOISE_STREAM_ID } from "../src/sensor/stochastic-seed.js";
 import { createFakeGpu } from "./helpers/fake-webgpu.js";
 import { corpusRandom, fixedPatternCorpus, fixedPatternProfile, readoutProfile } from "./helpers/sensor-stage-fixtures.js";
@@ -207,4 +210,38 @@ describe("webgpu-f32 sensor stage with fixed-pattern noise and additional charge
     await expect(a.simulateSensorRaw(big)).rejects.toMatchObject({ reason: "unsupported-float32-domain" });
     a.dispose();
   });
+});
+
+// #689: the native capture computes the row and column offsets once per row and column and reuses one random stream.
+describe("fixed-pattern noise per row and column (#689)", () => {
+  it("gives every field of calculateSensorFixedPatternSite from the site factors and the row and column offsets", () => {
+    for (const profile of [fixedPatternProfile(), fixedPatternProfile({ hotFraction: 0.3, seed: 7 }), fixedPatternProfile({ prnu: 0, dsnu: 0, hotFraction: 0, row: 0, column: 0 })]) {
+      const rows = new Map<number, number>(), columns = new Map<number, number>();
+      for (const y of [0, 1, 2, 17, 4095]) for (const x of [0, 1, 3, 64, 0xffff_ffff]) {
+        const site = calculateSensorFixedPatternSite({ profile, site: { x, y } }), factors = evaluateFixedPatternSiteFactors(profile, x, y);
+        if (!rows.has(y)) rows.set(y, evaluateFixedPatternRowOffset(profile, y));
+        if (!columns.has(x)) columns.set(x, evaluateFixedPatternColumnOffset(profile, x));
+        expect(Object.is(factors.photoResponseGainFactor, site.photoResponseGainFactor)).toBe(true);
+        expect(Object.is(factors.darkCurrentFactor, site.darkCurrentFactor)).toBe(true);
+        expect(factors.hotPixel).toBe(site.hotPixel);
+        expect(Object.is(rows.get(y)! + columns.get(x)!, site.readoutOffsetElectrons)).toBe(true);
+      }
+    }
+  });
+
+  // Recorded on the code before the change (2.27.0 arithmetic): the RAW codes keep every bit.
+  it("keeps the RAW codes of captures with fixed-pattern noise", async () => {
+    const sha = (a: Uint16Array): string => createHash("sha256").update(new Uint8Array(a.buffer, a.byteOffset, a.byteLength)).digest("hex");
+    const cases: [Parameters<typeof simulateCapture>[0], string][] = [
+      [{ scene: { preset: "slanted-edge" }, sensor: { fixedPatternNoise: true }, output: { width: 48, height: 32 } },
+        "f45b189708314c5cc3a81f2eac97c58f6c14fec5c7e75eab2e48a0d10e55ca07"],
+      [{ scene: { preset: "slanted-edge" }, sensor: { fixedPatternNoise: true }, output: { width: 48, height: 32, region: { x: 7, y: 5, width: 20, height: 13 } } },
+        "cec144dd725d518ac640ff9d15f772147c85992eb62d15cf98bbd022139c21cd"],
+      [{ scene: { preset: "siemens-star" }, sensor: { fixedPatternNoise: true }, fast: false, motion: { shutter: "rolling" }, output: { width: 40, height: 30 } },
+        "63f66609899b50766376e9f4fd9a5137cd4822ba53200bb1cc3ff0f1d76bd33a"],
+      [{ scene: { preset: "uniform" }, sensor: { fixedPatternNoise: true }, output: { width: 1, height: 1 } },
+        "508c21562bbba61e895ca3ca039e1b85200219462e1349a1c19421236a6dd81b"]
+    ];
+    for (const [request, digest] of cases) expect(sha((await simulateCapture(request)).raw.codes)).toBe(digest);
+  }, scaledTimeout(60_000));
 });

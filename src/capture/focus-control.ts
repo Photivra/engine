@@ -547,6 +547,22 @@ function requireMonotonicEventTime(
   return parsed;
 }
 
+/**
+ * capture-20 (#698): the sub-objects of a caller-supplied state that the focus functions read, so a missing one fails with
+ * a domain error instead of a raw TypeError.
+ */
+function requireStateShape(
+  state: unknown
+): void {
+  requireInputObject(state, "state");
+  const s = state as Partial<FocusControlState>;
+  requireInputObject(s.sourceProfile, "state.sourceProfile");
+  requireInputObject(s.focus, "state.focus");
+  if (!Array.isArray(s.profileLimitations)) {
+    throw new InvalidConfigurationError("state.profileLimitations must be an array.");
+  }
+}
+
 function verifyStateProfile(
   state:
     FocusControlState,
@@ -658,7 +674,7 @@ export function setManualFocusState(
     SetManualFocusStateInput
 ): FocusControlState {
   requireInputKeys(input, "setManualFocusState", ["state", "stateId", "focus", "eventTimeSeconds", "commandId"]);
-  requireInputObject(input.state, "state");
+  requireStateShape(input.state);
   if (
     input.state.mode !==
     "manual"
@@ -921,6 +937,8 @@ export function resolveFocusTargetObservation(
     ResolveFocusTargetObservationInput
 ): FocusTargetResolution {
   requireInputKeys(input, "resolveFocusTargetObservation", ["state", "stateId", "event", "observation"]);
+  requireStateShape(input.state);
+  requireInputObject(input.observation, "observation");
   if (
     input.event !== "acquire" &&
     input.event !== "update"
@@ -1101,6 +1119,7 @@ export function setFocusLock(
     SetFocusLockInput
 ): FocusControlState {
   requireInputKeys(input, "setFocusLock", ["state", "stateId", "locked", "eventTimeSeconds"]);
+  requireStateShape(input.state);
   const time =
     requireMonotonicEventTime(
       input.state,
@@ -1182,6 +1201,7 @@ export function assessFocusReleaseGate(
     AssessFocusReleaseGateInput
 ): FocusReleaseGateAssessment {
   requireInputKeys(input, "assessFocusReleaseGate", ["state", "profile", "priority"]);
+  requireStateShape(input.state);
   const profile =
     parseFocusControlProfile(
       input.profile

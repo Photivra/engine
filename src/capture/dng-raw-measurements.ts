@@ -203,11 +203,11 @@ function medianInPlace(a: Float64Array): number {
   for (let i = 0; i < n >> 1; i++) if (a[i]! > lower) lower = a[i]!; // after selection, a[0 .. n/2 − 1] ≤ the upper middle
   return (lower + upper) / 2;
 }
-/** Median absolute deviation of `values` (a copy is sorted). */
+/** Median absolute deviation of `values` (one scratch copy, reused for the deviations; #723). */
 function mad(values: Float64Array): number {
-  const m = medianInPlace(Float64Array.from(values)), d = new Float64Array(values.length);
-  for (let i = 0; i < values.length; i++) d[i] = Math.abs(values[i]! - m);
-  return medianInPlace(d);
+  const scratch = Float64Array.from(values), m = medianInPlace(scratch);
+  for (let i = 0; i < values.length; i++) scratch[i] = Math.abs(values[i]! - m);
+  return medianInPlace(scratch);
 }
 
 /**
@@ -285,22 +285,23 @@ export function estimateDngRawNoise(raw: ImportedDngRaw, options: EstimateDngRaw
     const cw = Math.max(0, Math.ceil((r.x + r.width - sx) / rc)), ch = Math.max(0, Math.ceil((r.y + r.height - sy) / rr));
     return { sx, sy, plane: site.planeOf(sx - ax, sy - ay, 0), blocks: bw * bh, bw, bh, sites: cw * ch, cw, ch };
   });
-  const blocks = Array.from({ length: site.planes }, (_, p) => {
-    const mine = phases.filter((q) => q.plane === p), nb = mine.reduce((t, q) => t + q.blocks, 0), ns = mine.reduce((t, q) => t + q.sites, 0);
-    return { m: new Float64Array(nb), d: new Float64Array(nb), h: new Float64Array(nb), signal: new Float64Array(ns), total: 0, sites: 0 };
-  });
   const at = (x: number, y: number): number => site.value(raw.codes[y * raw.width + x]!, x - ax, y - ay, 0);
-  for (const q of phases) {
-    const k = blocks[q.plane]!;
-    for (let j = 0; j < q.bh; j++) for (let i = 0; i < q.bw; i++) {
+  // #723: one colour plane at a time, its median taken before its block arrays exist, so at most one plane's arrays are held.
+  // Each plane's values are filled in the same phase order as before, so every number is unchanged.
+  const planes = Array.from({ length: site.planes }, (_, p): DngRawNoisePlane => {
+    const mine = phases.filter((q) => q.plane === p), nb = mine.reduce((t, q) => t + q.blocks, 0);
+    const median = ((): number => {
+      const signal = new Float64Array(mine.reduce((t, q) => t + q.sites, 0));
+      let sites = 0;
+      for (const q of mine) for (let j = 0; j < q.ch; j++) for (let i = 0; i < q.cw; i++) signal[sites++] = at(q.sx + rc * i, q.sy + rr * j);
+      return signal.length ? medianInPlace(signal) : 0;
+    })();
+    const k = { m: new Float64Array(nb), d: new Float64Array(nb), h: new Float64Array(nb), total: 0 };
+    for (const q of mine) for (let j = 0; j < q.bh; j++) for (let i = 0; i < q.bw; i++) {
       const x = q.sx + 2 * rc * i, y = q.sy + 2 * rr * j, a = at(x, y), b = at(x + rc, y), c = at(x, y + rr), e = at(x + rc, y + rr), t = k.total++;
       k.m[t] = (a + b + c + e) / 4; k.d[t] = (a - b - c + e) / 2; k.h[t] = Math.abs(a + c - b - e) / 2 + Math.abs(a + b - c - e) / 2;
     }
-    for (let j = 0; j < q.ch; j++) for (let i = 0; i < q.cw; i++) k.signal[k.sites++] = at(q.sx + rc * i, q.sy + rr * j);
-  }
-  const planes = blocks.map((k, p): DngRawNoisePlane => {
     const result = fitBlockNoise(k.m, k.d, k.h, bins, minimum);
-    const median = k.signal.length ? medianInPlace(k.signal) : 0;
     const sigma = (x: number): number | null => { if (!result.fit) return null; const v = result.fit.scale * x + result.fit.offset; return v > 0 ? Math.sqrt(v) : null; };
     const np = raw.noiseProfile?.[p], stated = np ? Math.sqrt(np.scale * Math.max(0, median) + np.offset) : null, measured = sigma(median);
     return { plane: p, color: site.planeNames[p]!, blocksKept: result.kept, blocksTotal: k.total, bins: result.bins, fit: result.fit, medianSignal: median,

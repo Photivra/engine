@@ -356,6 +356,66 @@ describe("Full color development of an imported DNG (2.24.0)", () => {
   });
 });
 
+describe("what-if labels (2.28.0)", () => {
+  // #679: sites clipped in the photo stay at the white level (an upper bound); the result counts them and says so.
+  it("counts the clipped sites it keeps at the white level and labels the bound", async () => {
+    const { raw } = await uniform(0.18, 100, BASE, 4, 64);
+    const a = raw.activeArea, white = raw.whiteLevel[0]!, half = a.x + Math.floor(a.width / 2), codes = raw.codes.slice();
+    let expected = 0;
+    for (let y = a.y; y < a.y + a.height; y++) for (let x = half; x < a.x + a.width; x++) { codes[y * raw.width + x] = white; expected++; }
+    const clipped = { ...raw, codes }, darker = simulateDngRawWhatIf(clipped, { exposureStops: -2, seed: 1, verifyNoiseProfile: false });
+    expect(darker.clippedSitesKept).toBe(expected);
+    expect(darker.assumptions).toContain(expected + " sites were clipped in the photo; their light is unknown, so they are kept at the white level " +
+      "(an upper bound; with less light they would read between black + 0.25 × (white − black) and white).");
+    for (let y = a.y; y < a.y + a.height; y++) expect(darker.raw.codes[y * raw.width + half]).toBe(white);
+    const plain = simulateDngRawWhatIf(raw, { exposureStops: -2, seed: 1 });
+    expect(plain.clippedSitesKept).toBe(0);
+    expect(plain.assumptions.some((t) => t.includes("were clipped in the photo"))).toBe(false);
+    // More light reaching the white level anyway (ISO ×4 at the same light) is not a bound: nothing to label.
+    expect(simulateDngRawWhatIf(clipped, { iso: 400, highGainFromIso: 800, seed: 1, verifyNoiseProfile: false }).clippedSitesKept).toBe(0);
+  }, scaledTimeout(60_000));
+});
+
+describe("what-if noise check without a measurement (2.28.0)", () => {
+  // #719, owner decision 2026-11-21 (option b): a file whose noise cannot be measured stays allowed, and the result says the
+  // NoiseProfile was not verified.
+  it("allows a file whose noise cannot be measured and says its NoiseProfile was not verified", async () => {
+    const note = "The file's noise could not be measured, so its NoiseProfile was not verified.";
+    const capture = async (width: number, height: number): Promise<ImportedDngRaw> =>
+      parseDngRawImage({ bytes: (await simulateCapture({ scene: { preset: "step-wedge" }, output: { width, height, format: "dng" } })).image.dng! });
+    const raw = await capture(256, 192), small = await capture(64, 48), black = raw.blackLevel.values[0]!, white = raw.whiteLevel[0]!;
+    const noiseFree = { ...raw, codes: Uint16Array.from(raw.codes, (_, i) => black + Math.floor((i % raw.width) / raw.width * 8) * Math.floor((white - black) / 10)) };
+    for (const file of [noiseFree, small]) {
+      expect(estimateDngRawNoise(file).planes.find((p) => p.color === "green")!.measuredToProfile).toBeNull();
+      expect(assessDngRawWhatIf(file, { exposureStops: -2, seed: 1 }).allowed).toBe(true);
+      const result = simulateDngRawWhatIf(file, { exposureStops: -2, seed: 1 });
+      expect(result.measuredToProfile).toBeNull();
+      expect(result.assumptions).toContain(note);
+      expect(simulateDngRawWhatIf(file, { exposureStops: -2, seed: 1, verifyNoiseProfile: false }).assumptions).not.toContain(note);
+    }
+    const measured = simulateDngRawWhatIf(raw, { exposureStops: -2, seed: 1 });
+    expect(measured.measuredToProfile).toBeGreaterThan(0.85);
+    expect(measured.assumptions).not.toContain(note);
+  }, scaledTimeout(60_000));
+});
+
+describe("RAW noise estimate values (2.28.0)", () => {
+  // #723: every number of estimateDngRawNoise, recorded on the code before the per-plane memory change.
+  it("keeps every number of estimateDngRawNoise", async () => {
+    const { createHash } = await import("node:crypto");
+    const digests: string[] = [];
+    for (const [scene, exposure] of [[{ preset: "step-wedge" }, {}], [{ preset: "dead-leaves", seed: 2 }, {}], [{ preset: "color-patches" }, { iso: 3200 }]] as const) {
+      const c = await simulateCapture({ scene, exposure, sensor: { noiseSeed: 4 }, output: { width: 192, height: 128, format: "dng" } });
+      const raw = parseDngRawImage({ bytes: c.image.dng! });
+      for (const options of [{}, { signalLevels: [0.05, 0.2, 0.6], bins: 8, minimumBlocksPerBin: 40 }]) {
+        digests.push(createHash("sha256").update(JSON.stringify(estimateDngRawNoise(raw, options))).digest("hex").slice(0, 24));
+      }
+    }
+    expect(digests).toEqual(["cbe963c04dd38278ac7e7ef1", "d60cc16e3614edf01844be1c", "df83781abccc27acddf393b8", "01a31ab968dc505748545cd1",
+      "5a9ec7e29b9f101ed5c5f2b6", "d7bfd126a9b641f69b71cc60"]);
+  }, scaledTimeout(60_000));
+});
+
 describe("dual-gain switch catalog and the denoised-file check (2.24.0)", () => {
   it("ships only cited entries and finds none for an unknown camera", async () => {
     const { DNG_GAIN_SWITCH_CATALOG, resolveDngGainSwitch } = await import("../src/index.js");

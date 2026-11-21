@@ -9,6 +9,9 @@ import {
   parseGenericReleaseCapabilityProfile,
   resolveGenericEquipmentExposureCapabilities,
   resolveReleaseSequence,
+  resolveGenericEquipmentTierCatalog,
+  InvalidConfigurationError,
+  type GenericBodyExposureCapabilityProfile,
   type GenericReleaseCapabilityProfile,
   type ReleaseBaseCaptureState,
   type ResolvedGenericEquipmentExposureCapabilities
@@ -733,3 +736,81 @@ describe("release sequence fail-closed boundaries", () => {
     ).toThrow("must be finite");
   });
 });
+
+/** The fixture's body with nominal (discrete) ISO and shutter grids. */
+const discreteCapabilities = (iso: readonly number[], shutter?: readonly number[]): ResolvedGenericEquipmentExposureCapabilities => {
+  const tier = resolveGenericEquipmentTierCatalog({ presetVersion: "2.0.0" }).find((p) => p.tier === "professional")!;
+  const body = tier.body.exposure as GenericBodyExposureCapabilityProfile;
+  return resolveGenericEquipmentExposureCapabilities({
+    bodyProfile: parseGenericBodyExposureCapabilityProfile({ ...body,
+      iso: { ...body.iso, settingGrid: { kind: "discrete-values", values: { value: iso, evidence: evidence("nominal-iso") } } },
+      ...(shutter ? { shutter: { ...body.shutter, settingGrid: { kind: "discrete-values", values: { value: shutter, evidence: evidence("nominal-shutter") } } } } : {}) }),
+    lensProfile: tier.lens.exposure, selectedFocalLengthMm: tier.lens.exposure.focalLengthMmRange.value.minimum });
+};
+const bracketed = (exposureCapabilities: ResolvedGenericEquipmentExposureCapabilities, axis: "iso" | "shutter", offsetsStops: number[],
+  exposure: Partial<ReleaseBaseCaptureState["exposure"]>): ReturnType<typeof resolveReleaseSequence> => {
+  const tier = resolveGenericEquipmentTierCatalog({ presetVersion: "2.0.0" }).find((p) => p.tier === "professional")!;
+  return resolveReleaseSequence({ sequenceId: "bracket", releaseRequestTimeSeconds: 0, sequenceSeedUint32: 1, drive: { kind: "single" },
+    bracket: { kind: "exposure", axis, offsetsStops }, requestedCadenceFps: 2, baseState: { ...baseState(), exposure: { ...baseState().exposure, aperture: 8, ...exposure } },
+    releaseCapabilities: tier.body.release, exposureCapabilities });
+};
+
+describe("brackets on nominal setting grids (#680)", () => {
+  const thirds = [100, 125, 160, 200, 250, 320, 400, 500, 640, 800, 1000, 1250, 1600, 2000, 2500, 3200, 4000, 5000, 6400];
+  it("takes the nearest nominal ISO within 1/12 stop and reports the realized offset", () => {
+    const caps = discreteCapabilities(thirds);
+    const a = bracketed(caps, "iso", [-1 / 3, 0, 1 / 3], { iso: 400 });
+    expect(a.frames.map((f) => f.exposure.iso)).toEqual([320, 400, 500]);
+    expect(a.frames.map((f) => f.exposureBracketOffsetStops)).toEqual([-1 / 3, 0, 1 / 3]);
+    expect(a.frames[0]!.exposureBracketRealizedOffsetStops).toBe(Math.log2(320 / 400));
+    expect(a.frames[1]!.exposureBracketRealizedOffsetStops).toBeUndefined();
+    expect(bracketed(caps, "iso", [-2 / 3, 0, 2 / 3], { iso: 400 }).frames.map((f) => f.exposure.iso)).toEqual([250, 400, 640]);
+    expect(bracketed(caps, "iso", [0, 1, 3], { iso: 160 }).frames.map((f) => f.exposure.iso)).toEqual([160, 320, 1250]);
+    // 400 · 2^0.5 = 565.7 lies 0.18 stop from 500 and from 640: refused as before.
+    expect(() => bracketed(caps, "iso", [0, 0.5], { iso: 400 })).toThrow("frames[1].exposure.iso is not present in the resolved equipment setting grid.");
+  });
+  it("snaps a whole-stop bracket on a nominal shutter grid", () => {
+    const caps = discreteCapabilities(thirds, [1 / 250, 1 / 125, 1 / 60, 1 / 8, 1 / 4, 1 / 2]);
+    const s = bracketed(caps, "shutter", [-1, 0, 1], { shutterSeconds: 1 / 125, iso: 400 });
+    expect(s.frames.map((f) => f.exposure.shutterSeconds)).toEqual([1 / 250, 1 / 125, 1 / 60]);
+    expect(s.frames[2]!.exposureBracketRealizedOffsetStops).toBe(Math.log2((1 / 60) / (1 / 125)));
+    const exact = bracketed(caps, "shutter", [-1, 0, 1], { shutterSeconds: 1 / 4, iso: 400 });
+    expect(exact.frames.map((f) => f.exposure.shutterSeconds)).toEqual([1 / 8, 1 / 4, 1 / 2]);
+    expect(exact.frames.every((f) => f.exposureBracketRealizedOffsetStops === undefined)).toBe(true);
+  });
+});
+
+describe("bracket policy and sub-object validation (#720, capture-20)", () => {
+  const input = (patch: Record<string, unknown>): Parameters<typeof resolveReleaseSequence>[0] => ({ sequenceId: "v", releaseRequestTimeSeconds: 0,
+    sequenceSeedUint32: 1, drive: { kind: "single" }, bracket: { kind: "none" }, requestedCadenceFps: 2, baseState: baseState(), releaseCapabilities: releaseCapabilities(),
+    exposureCapabilities: exposureCapabilities(), ...patch } as never);
+  const focusStates = [{ kind: "finite", distanceM: 1 }, { kind: "finite", distanceM: 2 }, { kind: "infinity" }];
+  const holey = [...focusStates];
+  delete holey[1];
+  it("refuses an unknown bracket kind, a missing kind and a list that is not a dense array", () => {
+    const noFocus = parseGenericReleaseCapabilityProfile({ ...releaseCapabilities(), focusBracketing: { availability: { value: "unsupported", evidence: evidence("none") } } });
+    expect(() => resolveReleaseSequence(input({ releaseCapabilities: noFocus, bracket: { kind: "focus", focusStates } }))).toThrow("Focus bracketing is not supported");
+    for (const bracket of [{ kind: "Focus", focusStates }, { kind: "white-balance", focusStates }, { focusStates }]) {
+      expect(() => resolveReleaseSequence(input({ releaseCapabilities: noFocus, bracket }))).toThrow(InvalidConfigurationError);
+    }
+    for (const bracket of [{ kind: "focus", focusStates: { length: NaN } }, { kind: "focus", focusStates: { length: 2.5, 0: focusStates[0], 1: focusStates[1], 2: focusStates[2] } },
+      { kind: "focus", focusStates: holey }, { kind: "exposure", axis: "iso", offsetsStops: { length: 2, 0: 0, 1: 1 } },
+      { kind: "exposure", axis: "iso", offsetsStops: [0, 1], focusStates }, { kind: "none", axis: "iso" }]) {
+      expect(() => resolveReleaseSequence(input({ bracket }))).toThrow(InvalidConfigurationError);
+    }
+    expect(resolveReleaseSequence(input({ bracket: { kind: "focus", focusStates } })).frames).toHaveLength(3);
+  });
+  it("refuses a missing or malformed sub-object with a domain error", () => {
+    for (const key of ["drive", "bracket", "baseState", "releaseCapabilities", "exposureCapabilities"]) {
+      expect(() => resolveReleaseSequence(input({ [key]: undefined }))).toThrow(InvalidConfigurationError);
+    }
+    const { automation: _a, ...noAutomation } = baseState(), { exposure: _e, ...noExposure } = baseState();
+    void _a; void _e;
+    for (const state of [noAutomation, noExposure, { ...baseState(), automation: { ae: 7 } }, { ...baseState(), automation: { ae: "locked", af: "locked", awb: "locked", x: 1 } },
+      { ...baseState(), exposure: { ...baseState().exposure, extra: 1 } }]) {
+      expect(() => resolveReleaseSequence(input({ baseState: state })), JSON.stringify(state)).toThrow(InvalidConfigurationError);
+    }
+    expect(() => resolveReleaseSequence(input({ baseState: { ...baseState(), automation: { ae: "auto", af: "locked", awb: "locked" } } }))).toThrow(InvalidConfigurationError);
+  });
+});
+

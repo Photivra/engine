@@ -81,4 +81,17 @@ describe("effective RAW white level", () => {
     const raw = loadSensorRawFrameInput(), frame = createSensorRawFrame(raw);
     expect(frame.samples[3]!.effectiveSaturationCode).toBe(1023);
   });
+
+  // #721: the render loops record by phase from x and y; the accumulator must not depend on which call they use.
+  it("records the same codes by phase as by native index, and still throws for a disagreeing site", () => {
+    const W = 5, H = 3, codes = [1001, 1002, 1003, 1004];
+    const byIndex = createPhaseWhiteLevelAccumulator(W, 2, 2), byPhase = createPhaseWhiteLevelAccumulator(W, 2, 2);
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+      const phase = (y % 2) * 2 + x % 2;
+      expect(nativeCfaPhaseIndex(y * W + x, W, 2, 2)).toBe(phase);
+      byIndex.record(y * W + x, codes[phase]!); byPhase.recordPhase(phase, codes[phase]!);
+    }
+    expect(Array.from(byPhase.finish())).toEqual(Array.from(byIndex.finish()));
+    expect(() => byPhase.recordPhase(3, 1005)).toThrow("one effective white level per CFA phase");
+  });
 });

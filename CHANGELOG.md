@@ -74,6 +74,65 @@
   authorization, or with per-bin contributions and a total that do not match it. Their three power checks each (per-bin
   contribution, total, operating-range node values) are now purely relative (1e-10; two zeros are equal). Chains the engine builds
   are accepted as before; only inconsistent inputs that were wrongly accepted are now refused. No output change; fast row +18 B.
+- **Capture, processing and output (2.28.0 step 4, group C).** No output change for a request that renders today unless an
+  entry says otherwise.
+  - *One-frame panorama (#671).* `createPanoramaTask` with one frame and the default `exposureCompensation: "gain"` completed
+    the stitch and then failed with "Processing progress accounting disagrees with its plan."; its plan no longer counts the
+    gain pass that runs only for two or more frames. Results for two or more frames are unchanged.
+  - *Row bands of a large capture (#678).* `calculateNativeRawRowBands` refused every plan that carried `maximumPixels`
+    ("unknown field"), which every capture above 24 MP needs; it now checks a plan against the one field list of `NativeRawPlan`.
+  - *White-level bookkeeping by phase (#721).* The tabulated native RAW loop (the default for chart scenes) records each site's
+    white level by its 2 × 2 CFA phase from `x` and `y` instead of recovering the phase from the row-major index; the per-site
+    check that all sites of a phase agree stays. A 1536 × 1024 Siemens star: median 628 → 573 ms (11 paired runs, −8.8 %);
+    RAW codes, white levels and sRGB samples identical (SHA-256). Fast bundle row +4 B.
+  - *Fixed-pattern noise per row and column (#689).* The native capture takes each site's row and column offsets from a value
+    computed once per row and column (row + column, in that order, as before) and draws every fixed-pattern value from one
+    reseeded stream instead of a new one per value. A 1024 × 768 slanted edge, `fast: false`, DNG, with
+    `sensor.fixedPatternNoise: true`: median 547 → 394 ms (7 paired runs; the option's own cost 264 → 113 ms, about 2.3× less).
+    RAW codes identical (new SHA-256 locks, recorded on the unchanged code). Fast bundle row +112 B.
+  - *DNG development colour loops (#677).* `developDngImage`'s camera → sRGB loop, its two ProPhoto → sRGB loops and the
+    RGBTables pre-pass use scalar locals instead of two arrays and a closure per pixel; every product and sum keeps its operands
+    and order. A 6 MP engine-written CFA DNG: fast development median 548 → 329 ms, exact (AHD) 1248 → 947 ms (7 paired runs);
+    samples and `clippedPixelCount` identical. No bundle row changes.
+  - *Linear encoding with a full-scale white code (#718).* `calculateLinearCaptureEncoding` refused about 7 % of reference-white
+    values with `referenceWhiteCode: 65535` ("cannot represent the declared finite range"; `65535 / (65535 / 0.9)` is one ulp
+    below 0.9). The largest representable value is now never below reference white. A wrong refusal becomes an encoding; codes of
+    inputs that encoded before are unchanged (docs/LINEAR_CAPTURE_ENCODING.md).
+  - *Metric print sizes at a manual or lab PPI (#717).* `calculatePrintPlan` asked for up to one ratio unit more pixels for a
+    size in mm, cm or m than for the same size in inches (`30.48 × 10 / 25.4 × 300` is `3600.0000000000005`): a false
+    `insufficient-native-pixels`, a false `exact-provider-density-has-no-integer-raster`, or a recommended raster a few pixels
+    larger. A pixel count within 4 ulps of a whole number is now that number, the rule crops already use. **Output change** for
+    those inputs only: their minimum and recommended rasters drop to the inch result, and some refusals become `ready`
+    (docs/PRINT_PLANNING.md).
+  - *What-if clipped sites labeled (#679).* `simulateDngRawWhatIf` keeps sites clipped in the photo at the white level, as before;
+    a new `clippedSitesKept` counts them when the simulation has less signal (light × ISO factor below 1), and an assumption names
+    the count and the bound (white is an upper bound; they would read between black + factor × (white − black) and white).
+    Owner decision 2026-11-21: label only; codes unchanged (docs/IMPORT_AND_PNG.md).
+  - *What-if noise check that cannot measure (#719).* When the noise check is on and the file's noise cannot be measured (too
+    few smooth blocks, or no positive fitted variance as in noise-free data), `simulateDngRawWhatIf` still allows it and now adds
+    the assumption "The file's noise could not be measured, so its NoiseProfile was not verified."; the docs no longer present
+    `measuredToProfile: null` as only "check off". Owner decision 2026-11-21 (option b): no result changes.
+  - *RAW noise estimate memory (#723).* `estimateDngRawNoise` (run by default in the DNG what-if) measures one colour plane at a
+    time, takes each plane's median before its block arrays exist, and reuses one scratch buffer in the MAD. A 6000 × 4000 RGGB
+    mosaic: peak live typed arrays 426 → 164 MB (8.9× → 3.4× the 48 MB of RAW codes), time unchanged; every result number
+    identical (new value locks recorded on the unchanged code). No bundle row changes.
+  - *Release and focus inputs with a missing sub-object (`capture-20` in #698).* `resolveReleaseSequence`,
+    `resolveFocusTargetObservation`, `setFocusLock`, `setManualFocusState` and `assessFocusReleaseGate` threw a raw `TypeError` or
+    `SyntaxError` when a required sub-object (`drive`, `bracket`, `baseState` and its `exposure` and `automation`, the capability
+    records and their axis grids, a focus `state` or its parts, `observation`) was missing; they now fail with
+    `InvalidConfigurationError`. `baseState.automation` must hold `ae`, `af` and `awb`, each `"manual"`, `"locked"` or
+    `"continuous"`, and `baseState.exposure` only its three settings (a stray field was copied or ignored before). Valid inputs
+    resolve unchanged.
+  - *Unknown bracket kinds (#720).* `resolveReleaseSequence` treated any `bracket.kind` other than `"none"` and `"exposure"`
+    (a typo such as `"Focus"`, `"white-balance"`, or no kind) as a focus bracket and skipped the profile's focus-bracketing check,
+    and accepted a non-array or sparse `focusStates` / `offsetsStops` (0 frames, or `requestedFrameCount: 2.5`). Each now fails
+    with `InvalidConfigurationError`, as do fields of another bracket kind. Valid brackets resolve unchanged.
+  - *Brackets on nominal setting grids (#680).* An exposure bracket whose exact setting (`base × 2^offset`) is not on a
+    `discrete-values` grid was always refused, so third-stop ISO brackets never resolved on the generic bodies (400 × 2^(−1/3) =
+    317.5 against 320) and some whole-stop shutter brackets failed on a nominal grid (1/62.5 s against 1/60 s). The frame now takes
+    the grid value nearest in log₂ within 1/12 stop (owner decision 2026-11-21) and reports `exposureBracketRealizedOffsetStops`
+    beside the requested offset; farther values are refused as before. A wrong refusal becomes a sequence; sequences that
+    resolved before are unchanged (docs/USAGE.md).
 
 ## 2.27.0 — published November 19, 2026
 

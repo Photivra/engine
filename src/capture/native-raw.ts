@@ -64,6 +64,9 @@ export interface NativeRawPlan {
   upstreamRadiometryVerified: false;
   seedSchedule: "murmur3-capture-seed-native-index-stream-v2";
 }
+/** Every field a NativeRawPlan can carry, required or optional; the one list that checks a plan passed back in. */
+export const NATIVE_RAW_PLAN_FIELDS: readonly (keyof NativeRawPlan)[] = ["schemaVersion","exposure","frame","exposureWindow","pixelCount","outputBytes",
+  "tileCount","tileWidth","maximumPixels","upstreamRadiometryVerified","seedSchedule"];
 /** Tile rectangle, in absolute full-sensor CFA coordinates, before orientation, active-area crop or output scaling. */
 export interface NativeRawTileRequest { captureId: string; frameId: string; x: number; y: number; width: number; height: number }
 export interface NativeRawTile extends NativeRawTileRequest { sites: readonly SensorRawProducerSiteInput[] }

@@ -159,7 +159,7 @@ export function createPanoramaTask(input: PanoramaInput, provider: ProcessingPro
   const blendRows = blending === "feather" ? H : H + K * (H + 3 * gaussianPyramidRows(W, H, levels) + collapseRows(W, H, levels)) + collapseRows(W, H, levels);
   const bytes = n * (12 + 1) + (blending === "multi-band" ? n * (12 + 8 + 1) + 2 * pyramidBytes(W, H, 3, levels) + pyramidBytes(W, H, 1, levels) * 2 : 4 * n);
   return createProcessingTask({
-    provider, totalTileCount: frameRows + (compensation === "gain" ? H : 0) + blendRows, estimatedWorkingBytes: bytes,
+    provider, totalTileCount: frameRows + (compensation === "gain" && K > 1 ? H : 0) + blendRows, estimatedWorkingBytes: bytes,
     maximumWorkingBytes: maximumWorkingBytes(r.maximumWorkingBytes),
     body: function* (): ProcessingBody<PanoramaOutput> {
       for (const [k, f] of frames.entries()) yield* finiteRows(f.image.data, f.image.width, f.image.height, 3, "frames[" + k + "].image");

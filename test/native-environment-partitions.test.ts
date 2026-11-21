@@ -2,7 +2,7 @@
 import { createHash } from "node:crypto";
 import { beforeAll, describe, expect, it } from "vitest";
 import { createNativeEnvironmentRawPartitionTask, createNativeEnvironmentRawTask, composeNativeEnvironmentRawPartitions, calculateNativeRawRowBands,
-  simulateCapture, type NativeEnvironmentRawInput, type NativeEnvironmentRawOutput, type NativeEnvironmentRawPartition, type NativeEnvironmentRawProvider,
+  calculateNativeRawPlan, simulateCapture, type NativeEnvironmentRawInput, type NativeEnvironmentRawOutput, type NativeEnvironmentRawPartition, type NativeEnvironmentRawProvider,
   type NativeEnvironmentRawTile, type NativeRawRowBand, type SceneRadianceEvaluationRequest, type SceneRadianceEvaluationResult } from "../src/index.js";
 import { nativeEnvironmentWorkload, nativeEnvironmentWorkloads } from "./helpers/native-environment-workloads.js";
 import { scaledTimeout } from "./helpers/test-timeout.js";
@@ -66,6 +66,20 @@ describe("native environment RAW partitions (opt-in parallel execution)", () => 
     expect(calculateNativeRawRowBands(plan, 1)).toEqual([{ y: 0, height: 10 }]);
     expect(calculateNativeRawRowBands(plan, 64)).toHaveLength(10);
     for (const count of [0, 1.5, 1025, Number.NaN]) expect(() => calculateNativeRawRowBands(plan, count)).toThrow(/partition count/);
+  });
+
+  // #678: a plan that carries every optional field (tileWidth, maximumPixels, exposureWindow) is accepted.
+  it("splits the plan of a capture that raised maximumPixels, with every optional plan field set", async () => {
+    const output = { width: 8, height: 8 };
+    const plain = await simulateCapture({ scene: { preset: "slanted-edge" }, output });
+    const raised = await simulateCapture({ scene: { preset: "slanted-edge" }, output: { ...output, maximumPixels: 30_000_000 } });
+    expect(raised.plan.maximumPixels).toBe(30_000_000);
+    expect(calculateNativeRawRowBands(raised.plan, 2)).toEqual(calculateNativeRawRowBands(plain.plan, 2));
+    const full = await simulateCapture({ scene: { preset: "slanted-edge" }, motion: { shutter: "rolling" }, output: { ...output, maximumPixels: 30_000_000 } });
+    const plan = calculateNativeRawPlan({ ...full.request.environmentRaw.raw, tileWidth: 3 });
+    for (const key of ["tileWidth", "maximumPixels", "exposureWindow"]) expect(Object.keys(plan)).toContain(key);
+    expect(calculateNativeRawRowBands(plan, 4)).toEqual(calculateNativeRawRowBands(plain.plan, 4));
+    expect(() => calculateNativeRawRowBands({ ...plan, extra: 1 } as typeof plan, 4)).toThrow(/unknown field "extra"/u);
   });
 
   it.each(nativeEnvironmentWorkloads)("merges %s partitions byte-identically to the single task", async kind => {
