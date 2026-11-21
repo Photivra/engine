@@ -48,6 +48,35 @@ describe("on-demand CPU kits (#594)", () => {
     expect(qualityKit.loaded).toBeDefined();
     expect(loadedKit(qualityKit)).toBe(await qualityKit.load());
   }, scaledTimeout(120_000));
+  // ci-12 (#703): the path a browser takes when a lazily loaded chunk fails to download (offline, or a chunk name that changed
+  // with a deployment). The three kits are built by kitLoader; it is tested directly, so no test hook adds code to a bundle row.
+  it("turn a failed load into a domain error and retry it on the next call", async () => {
+    let calls = 0;
+    let release: (value: { id: number }) => void = () => undefined;
+    const kit = kits.kitLoader("test", () => {
+      calls += 1;
+      if (calls === 1) return Promise.reject(new TypeError("Failed to fetch dynamically imported module: /assets/quality-kit-1a2b.js"));
+      return new Promise<{ id: number }>((resolve) => { release = resolve; });
+    });
+    const failed = await kit.load().then(() => undefined, (error: unknown) => error);
+    expect(failed).toBeInstanceOf(ImageKernelExecutionError);
+    expect((failed as ImageKernelExecutionError).reason).toBe("quality-code-unavailable");
+    expect((failed as Error).message).toContain("the engine's test code could not be loaded: Failed to fetch dynamically imported module");
+    expect(kit.loaded).toBeUndefined();
+    // The failure is not remembered: the next call imports again, and two concurrent calls share that one import.
+    const first = kit.load();
+    const second = kit.load();
+    expect(calls).toBe(2);
+    expect(second).toBe(first);
+    release({ id: 7 });
+    expect(await first).toEqual({ id: 7 });
+    expect(kit.loaded).toEqual({ id: 7 });
+    expect(await kit.load()).toBe(kit.loaded);
+    expect(calls).toBe(2);
+    // A rejection that is not an Error is named too.
+    const odd = kits.kitLoader("odd", () => Promise.reject("offline"));
+    await expect(odd.load()).rejects.toThrow("the engine's odd code could not be loaded: offline");
+  });
   // #658: each kit is one tuple read by position; every position constant names the export it stands for, and every slot is used.
   it("read every export at the position its constant names", () => {
     const positions = kits as unknown as Record<string, number>;

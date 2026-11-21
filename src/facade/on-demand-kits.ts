@@ -55,7 +55,8 @@ export type ExportKit = typeof import("./export-kit.js");
 
 /** One kit's loader: `load()` imports it once (single flight, retried after a failure); `loaded` is the module once imported. */
 interface KitLoader<T> { loaded: T | undefined; load(): Promise<T> }
-function kitLoader<T>(name: string, importer: () => Promise<T>): KitLoader<T> {
+/** Exported for test/on-demand-kits.test.ts (ci-12 in #703); repository-internal, not a root export. */
+export function kitLoader<T>(name: string, importer: () => Promise<T>): KitLoader<T> {
   let pending: Promise<T> | null = null;
   const kit: KitLoader<T> = {
     loaded: undefined,

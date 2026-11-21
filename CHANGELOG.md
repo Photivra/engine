@@ -53,6 +53,10 @@
   - *A path named in a comment is not "read by a test" (`ci-10`).* `.github/ci-scope.mjs` strips comments from a reader's text
     (strings kept whole, so a URL's `//` starts no comment) before it looks for a changed Markdown path. Of 399 Markdown files
     outside the code directories, 5 count as read by a test, from 13; the 8 dropped were named only in comments.
+  - *The on-demand kits' load-failure path is tested (`ci-12`).* `kitLoader` (`src/facade/on-demand-kits.ts`) is exported for
+    its test, not from the root: a failed import rejects with `ImageKernelExecutionError` `quality-code-unavailable` naming the
+    kit, the next call retries, and concurrent calls share one import. Bundle rows unchanged (fast 337,888 B, on demand
+    51,744 B, export 10,396 B, lens 10,200 B).
 
 ### Site
 
