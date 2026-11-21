@@ -2377,7 +2377,8 @@ and 2.4 s (AHD) of CPU against 0.8–1.0 s for the `fast: false` capture of the 
 
 **Limits.** Expected values only: no photon, dark or read noise and no ADC rounding (chroma noise is a separate quantity). Per
 output pixel, not weighted by viewing distance or display size (no S-CIELAB spatial filtering). With AHD the direction is the
-one chosen on the noise-free mosaic. Always full quality (`fast: false`, on the CPU; `fast: true` is refused). **Refused**, with
+one chosen on the noise-free mosaic. Always full quality (`fast: false`, on the CPU; `fast: true` is refused, top-level or on an option record: `lens.catalogue`,
+`lens.diffraction`, `motion.subject`, `output.demosaic`, `sensor.pixelAperture`, `sensor.antiAliasing`). **Refused**, with
 an `InvalidConfigurationError` naming the function, because they change color after the demosaic or have no expected-signal
 path: the luminance tone curves, `highlightMode` `"reconstruct"` and `"reconstruct-neighbors"`, `gamutHandling:
 "desaturate-to-luminance"`, `output.lensCorrections`, `output.sharpening`, `output.diffractionCorrection`, `output.region` (use

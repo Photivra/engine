@@ -109,7 +109,10 @@ function refuse(options: SimulateCaptureOptions, deps: FalseColorDeps): void {
   const o = options as unknown as Record<string, Record<string, unknown> | undefined> & { fast?: unknown };
   const output = o.output ?? {}, lens = o.lens ?? {}, sensor = o.sensor ?? {}, scene = o.scene ?? {};
   const no = (what: string, why: string): never => deps.fail(NAME + " does not support " + what + ": " + why);
-  if (o.fast === true) no("fast: true", "it always measures the full-quality path (fast: false).");
+  // Full quality only: the top-level flag and every option record's `fast` override (#395).
+  for (const path of ["", "lens.catalogue.", "lens.diffraction.", "motion.subject.", "output.demosaic.", "sensor.pixelAperture.", "sensor.antiAliasing."])
+    if ((path.split(".").reduce((r: unknown, key) => key ? (r as Record<string, unknown> | null | undefined)?.[key] : r, o) as { fast?: unknown } | null | undefined)?.fast === true)
+      no(path + "fast: true", "it always measures the full-quality path (fast: false).");
   const curve = output.toneCurve;
   if (curve === "extended-reinhard-luminance" || curve === "naka-rushton-luminance") no("output.toneCurve \"" + String(curve) + "\"", "a luminance tone curve couples the colors after the demosaic.");
   if (output.highlightMode === "reconstruct" || output.highlightMode === "reconstruct-neighbors") no("output.highlightMode \"" + String(output.highlightMode) + "\"", "highlight reconstruction changes color after the demosaic.");

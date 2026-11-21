@@ -138,7 +138,10 @@ describe("simulateFalseColor (#739)", () => {
   it("refuses what it does not measure, with its own name", async () => {
     const star = { preset: "siemens-star" } as Scene;
     const refused: [Record<string, unknown>, RegExp][] = [
-      [{ fast: true }, /fast: true/], [{ output: { width: 64, height: 64, toneCurve: "extended-reinhard-luminance" } }, /luminance tone curve/],
+      [{ fast: true }, /does not support fast: true/], [{ lens: { prime: 50, fNumber: 8, diffraction: { kind: "circular-aperture", fast: true } } }, /does not support lens\.diffraction\.fast: true/],
+      [{ output: { width: 64, height: 64, demosaic: { kind: "ahd", fast: true } } }, /output\.demosaic\.fast: true/], [{ sensor: { pixelAperture: { kind: "box", fast: true } } }, /sensor\.pixelAperture\.fast: true/],
+      [{ motion: { subject: { velocityMPerSec: { x: 0.1, y: 0 }, fast: true } } }, /motion\.subject\.fast: true/], [{ lens: { catalogue: { kind: "pv-50-1.8", fast: true } } }, /lens\.catalogue\.fast: true/],
+      [{ sensor: { antiAliasing: { kind: "four-spot", fast: true } } }, /sensor\.antiAliasing\.fast: true/], [{ output: { width: 64, height: 64, toneCurve: "extended-reinhard-luminance" } }, /luminance tone curve/],
       [{ output: { width: 64, height: 64, highlightMode: "reconstruct" } }, /highlightMode/], [{ output: { width: 64, height: 64, gamutHandling: "desaturate-to-luminance" } }, /desaturate/],
       [{ output: { width: 64, height: 64, sharpening: { radiusPixels: 1, amount: 1 } } }, /output\.sharpening/], [{ output: { width: 64, height: 64, region: { x: 0, y: 0, width: 8, height: 8 } } }, /second argument/],
       [{ output: { width: 64, height: 64, format: "png" } }, /output\.format/], [{ output: { width: 64, height: 64, whiteBalance: "auto" } }, /whiteBalance/],
