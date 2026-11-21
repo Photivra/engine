@@ -205,6 +205,20 @@ describe("step 8 edge cases (#700)", () => {
     expect(fov.provenance).toEqual(lens.provenance);
   });
 
+  it("rejects the equirectangular pole in both directions and keeps points just inside (optics-08)", () => {
+    const f = 8;
+    expect(() => calculateLensProjectionDirection({ projectionModel: "equirectangular", focalLengthMm: f, imagePointMm: { x: 3, y: (f * Math.PI) / 2 } }))
+      .toThrow(/equirectangular/);
+    expect(() => calculateLensProjectionImagePoint({ projectionModel: "equirectangular", focalLengthMm: f, direction: { x: 0, y: 1, z: 0 } })).toThrow(/poles/);
+    // The rounding residue of a pole direction (cos(pi / 2) is 6e-17, not 0) is the pole too.
+    expect(() => calculateLensProjectionImagePoint({ projectionModel: "equirectangular", focalLengthMm: f, direction: { x: 0, y: 1, z: Math.cos(Math.PI / 2) } })).toThrow(/poles/);
+    const latitude = Math.PI / 2 - 1e-9;
+    const { direction } = calculateLensProjectionDirection({ projectionModel: "equirectangular", focalLengthMm: f, imagePointMm: { x: 3, y: f * latitude } }).value;
+    const back = calculateLensProjectionImagePoint({ projectionModel: "equirectangular", focalLengthMm: f, direction }).value.imagePointMm;
+    expect(back.x).toBeCloseTo(3, 5);
+    expect(back.y).toBeCloseTo(f * latitude, 6);
+  });
+
   it("rejects equirectangular field-of-view bounds outside +/-180 degrees (optics-24)", () => {
     expect(() => calculateLensProjectionFieldOfViewBounds({ projectionModel: "equirectangular", focalLengthMm: 8, minimumSensorCoordinateMm: -80, maximumSensorCoordinateMm: -72 }))
       .toThrow(/180/);

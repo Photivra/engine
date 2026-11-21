@@ -286,6 +286,32 @@
     (best of 10, alternating in one process): 1.93× (640 × 480, r = 7, 64 × 64-site patches), 2.01× (one patch), 1.97× (400 × 300,
     r = 15) and 2.18× (256 × 256, r = 32). It is the CPU path of `calculateIrradianceConvolution`, the image-kernel accelerator and
     the display view's CPU reference.
+- **Low-severity fixes (2.28.0 step 8, #700); no output change for valid requests; fast row 337,865 → 337,874 B with optics-08 and optics-19, other rows unchanged.**
+  - *Field-of-view envelopes (`optics-06`).* `calculateFieldOfView` and `calculateFieldOfViewBounds` return a frozen
+    `calculatedResult` envelope for every projection model; a fisheye or equirectangular request returned a writable copy.
+    Values, model ids and assumptions are unchanged.
+  - *Equirectangular bounds (`optics-24`).* `calculateLensProjectionFieldOfViewBounds` (and `calculateFieldOfViewBounds`)
+    refuses equirectangular bounds outside ±180° (|coordinate/f| > π) with `InvalidScientificInputError`; they returned
+    angles such as −573° to −516°.
+  - *Decentred pupil grids (`optics-14`).* `calculateLensComplexPupilPsf` refuses a pupil grid whose `centerSampleX`/`Y` lies
+    more than one sample from the middle of the grid (`InvalidConfigurationError`); such a centre folded the PSF's far side onto
+    the near side. Every engine-built grid is centred and keeps its kernel (docs/PSF_FOUNDATION.md, "Grid centre").
+  - *Self-intersecting polygons (`optics-15`).* `calculatePolygonPupilFraunhoferPsf` refuses a polygon with two crossing
+    non-adjacent edges (`InvalidScientificInputError`); a bow-tie returned a peak-normalized intensity of 1.49.
+  - *Tangent apertures (`optics-16`).* `calculateMechanicalVignetting` returns the fully vignetted result (area 0, no polygon,
+    null centroid) for an open area within 1e-12 of the pupil's or a single aperture within 1e-12 of external tangency; it threw
+    a non-finite result error or reported a centroid outside the pupil. Other results are unchanged.
+  - *Unit focus at extreme distances (`optics-25`).* `calculateGeometricFocusBreathing` with unit focus gives v = f instead of
+    0 (and a 180° field) once T² overflows (about 1.4e151 m and beyond).
+  - *Bokeh ray binning accuracy (`optics-28`).* The `pupil-ray-binning` description (source comment and docs/QUICK_START.md)
+    states the measured accuracy: about 2 % L1 kernel error and single taps up to about 10 % of the peak for a 40-site blur. No
+    method change.
+  - *Equirectangular poles (`optics-08`).* `calculateLensProjectionDirection` refuses an image point at latitude ±π/2, and the
+    forward mapping treats a rounding residue at the pole as the pole (`InvalidScientificInputError`); the inverse returned a
+    direction the forward mapping refused, and a remap through the pole gave NaN Jacobian entries.
+  - *Working f-number bound (`optics-19`, owner decision 2026-11-21).* `calculateSceneRadianceToSensorIrradiance` and the prepared
+    bridge refuse a working f-number below 0.5 ("Working f-number must be at least 0.5.", which also replaces the message of the
+    non-finite acceptance refusal): in air E = π·L·sin²θ′ ≤ π·L. 0.5 gives E = π·L·τ.
 
 ### Facade
 
