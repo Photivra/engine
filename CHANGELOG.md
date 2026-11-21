@@ -16,6 +16,14 @@
   1/125 s, f/4 1.024 s, stops from the anchor), recorded as `"facade-generic-program-line-base-iso"`. A request that resolved
   before used the default anchor, so its line, settings and bytes are unchanged (3,804 requests compared: none changed; 373 more
   resolve). `calculateProgramLine` takes no profile and is unchanged. Tests: `test/program-line-lens-range.test.ts`.
+- **Faster: `sensor.temporalSampleCount` on a still request (#729).** Without camera rotation (including `motion.handheld`), a
+  moving subject, a flash or an exposure build-up, every temporal midpoint reads the same scene, yet the count multiplied the
+  scene queries of every site (64 × the provider evaluations at N = 64 on a function scene) and entered the per-site query
+  limit, so a box aperture with a four-spot filter at N = 100 was refused. Such a request now renders with one midpoint. RAW
+  codes and samples are unchanged (compared below); `diagnostics.providerEvaluationCount` falls to that of one sample, the
+  `sensor.temporalSampleCount` assumption reports `{ requested, used: 1 }`, and `diagnostics.options` still lists the option.
+  Requests with rotation, a moving subject, a flash or a build-up keep their count. Tests:
+  `test/simulate-capture-still-temporal.test.ts`.
 - **Tooling, CI and tests only (2.28.0 step 1); no package, API, output or bundle change.**
   - *Coverage gates decide per shard (#666, with `ci-07`).* Each coverage shard uploads one part, its blob report or a marker
     naming the `coverage` proof it found; `.github/coverage-parts.mjs` merges ten blobs with the thresholds enforced, passes a

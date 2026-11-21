@@ -719,7 +719,10 @@ export interface SimulateCaptureOptions {
     pixelPitchMicrometers?: number;
     /** Maximum spectral quadrature subinterval in nm. Default 20. */
     spectralStepNanometers?: number;
-    /** Temporal midpoint samples across the exposure, 1–256. Default 1; with camera rotation or subject motion (2.24.0) 8 on a fast request and 16 on an exact one. */
+    /**
+     * Temporal midpoint samples across the exposure, 1–256. Default 1; with camera rotation or subject motion (2.24.0) 8 on a fast request and 16 on an exact one.
+     * #729: a still request (no rotation, moving subject, flash or exposure build-up) renders with one, whatever the count.
+     */
     temporalSampleCount?: number;
     /** Noise seed (uint32). Default 1. */
     noiseSeed?: number;
@@ -2358,6 +2361,13 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
       motionWord + " temporal midpoints sample the subject's motion (8 on a fast request, 16 on an exact one); raise it for long streaks.") :
     pick(sensorOptions, "temporalSampleCount", "sensor.temporalSampleCount", DEFAULTS.temporalSampleCount,
       "One temporal sample: the static scene and still camera make more samples unnecessary."), "sensor.temporalSampleCount", 1, 256);
+  // #729: a still request (no camera rotation, moving subject, flash or exposure build-up) gives every temporal midpoint the same
+  // queries, so it renders with one; the count asked for is still validated and listed in diagnostics.options.
+  const requestedTemporalSampleCount = temporalSampleCount;
+  if (temporalSampleCount > 1 && !rotating && !subject && !illumination?.flash && !(run === "capture" && viewOption)) {
+    assume("sensor.temporalSampleCount", "model", { requested: temporalSampleCount, used: 1 }, "One temporal sample: with a still camera and scene every midpoint reads the same scene.");
+    temporalSampleCount = 1;
+  }
   const parsedCharacteristics = parseSensorCharacteristics(sensorOptions), rn = parsedCharacteristics?.readNoise, rs = profileReadNoiseScale;
   // #554: on a profile's downsized view a site sums photosites: explicit read noises (per photosite) scale as the profile's do (#637: the fixed pattern is summed below).
   const characteristics = rn && rs !== 1 ? { ...parsedCharacteristics!, readNoise: { ...rn, ...(rn.lowGainElectrons === undefined ? {} : { lowGainElectrons: rn.lowGainElectrons * rs }),
@@ -4186,7 +4196,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
     ...(distortion ? ["lens.distortion" as const] : []), ...(vignetting ? ["lens.vignetting" as const] : []), ...(lensPsf ? ["lens.psf" as const] : []),
     ...(catalogue ? ["lens.catalogue" as const] : []),
     ...(diffraction ? ["lens.diffraction" as const] : []), ...(defocusSiteKernels || catalogueDefocusApplied ? ["lens.defocus" as const] : []), ...(antiAliasing ? ["sensor.antiAliasing" as const] : []), ...(boxAperture ? ["sensor.pixelAperture.box" as const] : []),
-    ...(temporalSampleCount > 1 ? ["sensor.temporalSampleCount" as const] : []), ...(rotating ? ["motion.rotation" as const] : []), ...(subject ? ["motion.subject" as const] : []),
+    ...(requestedTemporalSampleCount > 1 ? ["sensor.temporalSampleCount" as const] : []), ...(rotating ? ["motion.rotation" as const] : []), ...(subject ? ["motion.subject" as const] : []),
     ...(rollingSchedule ? ["motion.shutter.rolling" as const] : []), ...(mirrorBorder ? ["output.borderHandling.mirror" as const] : []), ...(region ? ["output.region" as const] : []),
     ...(needsAuto ? ["output.whiteBalance.auto" as const] : []), ...(ahd ? ["output.demosaic.ahd" as const] : []),
     ...(highlightMode === "reconstruct" || neighborHighlights ? ["output.highlightMode.reconstruct" as const] : []), ...(wideGamut ? ["output.colorEncoding.wide-gamut" as const] : []),
