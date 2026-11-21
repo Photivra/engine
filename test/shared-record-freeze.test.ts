@@ -37,10 +37,8 @@ describe("engine-owned records shared between results cannot be rewritten (#682)
 });
 
 describe("exported catalogue constants are frozen all the way down (#683)", () => {
-  // `SIMULATE_CAPTURE_FAST_METHODS` (src/facade/) has the same shallow freeze; its fix belongs to the facade's owner.
-  const notYet = new Set(["SIMULATE_CAPTURE_FAST_METHODS"]);
   it("no exported object constant has an unfrozen plain record or array", () => {
-    const unfrozen = Object.entries(engine).filter(([name, value]) => typeof value === "object" && value !== null && !notYet.has(name))
+    const unfrozen = Object.entries(engine).filter(([, value]) => typeof value === "object" && value !== null)
       .flatMap(([name, value]) => [...plainNodes(value, name)].filter(([node]) => !Object.isFrozen(node)).map(([, path]) => path));
     expect(unfrozen).toEqual([]);
   });

@@ -507,16 +507,17 @@ jobs:
           test/jpeg-reference-byte-parity.test.ts
           test/poc-projection-reuse.test.ts
       - name: x64 hash locks, checked against their arm64 hashes (Photivra/engine#508)
-        # These three files lock bytes that differ between arm64 and x64 by one-ulp Math
+        # These files lock bytes that differ between arm64 and x64 by one-ulp Math
         # results (#508); on arm64 they assert their own recorded arm64 hashes, so a
         # failure here is a real failure of this step (docs/NUMERICAL_CORRECTNESS.md,
-        # "Test hash locks and platforms").
+        # "Test hash locks and platforms"). #670 adds the batch-figure locks.
         if: steps.proof.outputs.found != 'true'
         run: >-
           npx vitest run
           test/display-view.test.ts
           test/display-view-pixel-memo.test.ts
           test/diffraction-psf-profile.test.ts
+          test/figure-batch-hash-locks.test.mjs
       - name: Name the proof
         id: proof-name
         if: steps.proof.outputs.found != 'true'

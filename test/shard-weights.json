@@ -1,5 +1,5 @@
 {
- "about": "Per-file wall time in ms of the Vitest coverage run (2.27.0: the nine coverage shards that finished on run 44445662395 (e227-int at f2d3eb3); shard 10, cancelled at 20 minutes, run locally under coverage with --maxWorkers=3 and its times multiplied by 2.82, the median CI-to-local ratio of nine files measured both ways, 2026-11-19), used only to balance --shard parts (test/helpers/weighted-shard-sequencer.ts). 2.28.0 (#693): test/display-view-lens-catalogue-regrouped.test.ts was split in two; until the next re-recording its weight is divided between test/display-view-lens-catalogue-regrouped-1.test.ts and -2.test.ts by their shares of a local run under coverage (110 s and 134 s). Re-record with scripts/record-shard-weights.mjs when the shard times drift.",
+ "about": "Per-file wall time in ms of the Vitest coverage run (2.27.0: the nine coverage shards that finished on run 44445662395 (e227-int at f2d3eb3); shard 10, cancelled at 20 minutes, run locally under coverage with --maxWorkers=3 and its times multiplied by 2.82, the median CI-to-local ratio of nine files measured both ways, 2026-11-19), used only to balance --shard parts (test/helpers/weighted-shard-sequencer.ts). 2.28.0 (#693): test/display-view-lens-catalogue-regrouped.test.ts was split in two; until the next re-recording its weight is divided between test/display-view-lens-catalogue-regrouped-1.test.ts and -2.test.ts by their shares of a local run under coverage (110 s and 134 s). Files added in 2.28.0 carry estimates until that re-recording (test/figure-batch-hash-locks.test.mjs: 51 s locally under coverage × 2.8). Re-record with scripts/record-shard-weights.mjs when the shard times drift.",
  "alone": [],
  "files": {
   "test/accumulated-charge.test.ts": 8,
@@ -173,6 +173,7 @@
   "test/extended-object-projection.test.ts": 22,
   "test/fast-flag-convention.test.ts": 54865,
   "test/fast-methods-registry.test.ts": 3949,
+  "test/figure-batch-hash-locks.test.mjs": 143000,
   "test/filtered-exposure-time.test.ts": 25,
   "test/final-scientific-conformance.test.ts": 2275,
   "test/flash-ttl-hss.test.ts": 138,

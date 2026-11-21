@@ -1823,6 +1823,19 @@ root exports of the built package, minified, gzip level 9; `test/capture-bundle.
 
   The on-demand limit is 50,200 B (the measurement rounded up to the next 100 B); the target stays 49,400 B. A read of the two
   CPU kits for code no request reaches found only test instrumentation and a few dozen bytes of fallbacks.
+
+  **The 2.28.0 step 4 groups merged (owner decisions 2026-11-21 on #658 and #691).** Measured with rolldown 1.2.14 on the
+  tree with every group's step 4 work merged; each limit is that measurement rounded up to the next 100 B:
+
+  | Row (worker shape, gzip) | After #658's steps (group G alone) | Groups merged | Limit |
+  | --- | --- | --- | --- |
+  | fast worker | 336,556 B | **337,719 B** | 337,800 B (was 336,700 B) |
+  | on demand | 50,178 B | **50,391 B** | 50,400 B (was 50,200 B) |
+  | export | 10,399 B | **10,399 B** | 10,400 B (unchanged) |
+
+  The fast row's +1,163 B is the other groups' additions together, not measured one by one; the on-demand row's +213 B
+  includes #662's (+95 B) and #685's (+44 B) Quality kit code as measured on their branch. The 49,400 B on-demand target
+  stays.
 - **Shipped shaders are minified (2.14, #536).** `npm run build` strips comments and indentation from the WGSL source
   (`scripts/minify-wgsl-dist.mjs`, see [WebGPU, Shipped shader text](WEBGPU.md#shipped-shader-text)). Measured on the app's
   production build (Vite 8, app 0.50.0 at `a82a5eb`, engine `main` at `42ec9d8` packed before and after): the GPU session

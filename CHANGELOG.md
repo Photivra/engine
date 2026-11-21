@@ -2,84 +2,8 @@
 
 ## Unreleased
 
-- **Optics and camera (2.28.0 step 4, group O).** No output change for a request that renders today unless stated.
-  - *Diffraction PSF profile bound (#686, `optics-03`).* `createDiffractionLimitedPsfProfile` refuses β = pitch/(λ·N_w) above
-    `DIFFRACTION_LIMITED_PSF_PROFILE_LIMITS.maximumBeta` (1e5, owner decision 2026-11-21) with `InvalidConfigurationError` before any
-    cell is integrated; f/1e-9, a 1e-6 nm wavelength or a 1e300 µm pitch never returned before. Inputs between 1e5 and about 1.1e5,
-    which took about a second (for example f/1e-4 at 6 µm and 550 nm), are now refused too. Kernels at or below the bound are unchanged.
-  - *Focus-scatter sampler validation (#687, `optics-04`).* `simulateGenericLensFocusError` refuses a missing `focusDistanceM`
-    (`InvalidScientificInputError`; it returned `focusDistanceM: NaN`) and a circle of confusion whose error or depth of focus is not
-    finite (`InvalidScientificResultError`; it returned ±Infinity). Every finite result is unchanged.
-  - *Brown–Conrady inverse near the envelope edge (#724, with `optics-13` of #700).* With tangential terms the inverse threw for
-    valid points beyond the radial-only mapped radius (Newton converged to a second preimage outside the disc). When the first
-    start fails it now restarts from boundary points with every iterate kept inside the disc, and a solution in the `1e-12` band
-    above the envelope is put on the boundary radius, so inverse → forward no longer throws at the boundary. Measured on seeded
-    sets: 2,022 of 474,000 interior points (|k| ≤ 0.3, |p| ≤ 0.05) and 3,001 of 300,000 (|k| ≤ 1, |p| ≤ 0.3) failed and now invert,
-    and every interior point that inverted before gives the same bits. On exact-boundary points (400,000, |k| ≤ 0.1, |p| ≤ 0.02)
-    386 inverses and 148,086 inverse → forward round trips failed and now pass; 147,700 inverse results that lay up to 1e-12
-    outside the envelope move onto its boundary (at most 1.0e-12 relative), the only change to a result returned before.
-  - *Bokeh blades with a tiny curvature (#725, `optics-10`).* A `curvature` below 1e-6 now gives straight blades: its arcs lie within
-    0.375·κ < 4e-7 circumradii of their chords, below the 5e-6 accuracy of the kernel's 1024-gon curves, while the arc's centre-based
-    construction lost about log10(1/κ) digits (κ = 1e-12 differed from straight blades by 3.8e-6 in a tap, 5.55e-17, the value of
-    `0.1 + 0.2 - 0.3`, gave a 73-site window instead of 23, and κ ≤ 1e-17 threw a non-finite error). Kernels at κ ≥ 1e-6 (the
-    catalogue's 0.3 and 0.7 among them) keep their bits.
-  - *Sparse arrays and missing records in the optics modules (#726, with `optics-05` of #700).* Thirteen entry lists that were
-    validated with `map` (which skips holes) are read with `Array.from`, so a hole meets the entry's own check: Zernike coefficients
-    and the aperture mask, complex-pupil amplitude and path difference, sampled-PSF nodes and kernel samples, MTF samples, polygon
-    image points, front-of-lens and scene-to-sensor transmission samples, focal-shift samples, cat's-eye apertures and spectral
-    weights. A missing or null field point, focus, working f-number, field throughput, image point, source point, angular velocity
-    (non-rectilinear mapping), scene binding or spectral quadrature, and the vignetting, radial-distortion and lateral-colour
-    coefficient records, now fail with `InvalidConfigurationError`; a value that cannot be copied fails the same way instead of a
-    `DOMException`. Before, these threw a raw `TypeError`, returned the hole (one resolver returned `undefined` as a kernel sample),
-    or passed the parser. `calculatePsfFoundationComponents` copies only the field point's x and y into its context. Dense, complete
-    inputs give the same results.
-  - *Irradiance convolution gather (#727, `optics-12`).* `convolveIrradianceRows` clips its tap ranges once per row and pixel and
-    reads each source column's kernel offset from a table built once per call (an index cache; no signal is tabulated), with the same
-    products in the same order: every value is bit-identical (`Object.is`, test/irradiance-convolution-gather.test.ts). Paired runs
-    (best of 10, alternating in one process): 1.93× (640 × 480, r = 7, 64 × 64-site patches), 2.01× (one patch), 1.97× (400 × 300,
-    r = 15) and 2.18× (256 × 256, r = 32). It is the CPU path of `calculateIrradianceConvolution`, the image-kernel accelerator and
-    the display view's CPU reference.
-- **Fixed: Auto ISO on sensor profiles with a base ISO below 100 (#672).** `exposure.iso: "auto"` with its default whole-stop
-  steps was refused in every exposure mode on six of the eight profiles (base ISO 80 and the phone's 40): the whole stops counted
-  from the base ISO (80, 160, 320, 640) left out ISO 100, the exposure reference's ISO. When that list leaves out the reference
-  ISO on a third-stop grid, the whole stops are now every third setting counted from it, with the base ISO kept (owner decision
-  of 2026-11-21): 80, 100, 200, 400 … up to the profile's Auto ISO maximum. Every other grid keeps its list, so a request that
-  resolved before resolves to the same settings and bytes (3,804 requests compared: 2,647 unchanged, 424 that were refused now
-  resolve, none changed). Tests: `test/sensor-profile-auto-iso.test.ts`.
-- **Fixed: program mode on a sensor profile whose base ISO is above 100 (#673).** `exposure.mode: "program"` was refused on
-  `full-frame-24mp-stacked-sports-2020s` (base ISO 125) and on any profile copy with a base ISO above 100: such a profile moves
-  the exposure reference to a shorter shutter, and the line's fixed node stops, measured from f/8 at 1/125 s, no longer matched
-  it. The fixed nodes are now used only at that anchor; any other takes the computed nodes (f/16 1/2000 s, f/16 1/125 s, f/4
-  1/125 s, f/4 1.024 s, stops from the anchor), recorded as `"facade-generic-program-line-base-iso"`. A request that resolved
-  before used the default anchor, so its line, settings and bytes are unchanged (3,804 requests compared: none changed; 373 more
-  resolve). `calculateProgramLine` takes no profile and is unchanged. Tests: `test/program-line-lens-range.test.ts`.
-- **Faster: `sensor.temporalSampleCount` on a still request (#729).** Without camera rotation (including `motion.handheld`), a
-  moving subject, a flash or an exposure build-up, every temporal midpoint reads the same scene, yet the count multiplied the
-  scene queries of every site (64 × the provider evaluations at N = 64 on a function scene) and entered the per-site query
-  limit, so a box aperture with a four-spot filter at N = 100 was refused. Such a request now renders with one midpoint. RAW
-  codes and samples are unchanged (compared below); `diagnostics.providerEvaluationCount` falls to that of one sample, the
-  `sensor.temporalSampleCount` assumption reports `{ requested, used: 1 }`, and `diagnostics.options` still lists the option.
-  Requests with rotation, a moving subject, a flash or a build-up keep their count. Tests:
-  `test/simulate-capture-still-temporal.test.ts`.
-- **Fixed: `SIMULATE_CAPTURE_FAST_METHODS` is frozen all the way down (#683, its facade part).** Only the array was frozen, so a
-  caller could edit an entry's records in place. Data only; captures and display views do not import it. Tests:
-  `test/fast-methods-registry.test.ts`.
-- **Faster: a `motion.subject` at rest (#688).** A subject record with no velocity and no rotation (`subject: {}` or zeros)
-  took the moving-subject path with 16 (exact) or 8 (fast) temporal midpoints for the picture of the still scene. It now
-  renders as the still scene: 160 × 120 slanted edge 5,157 ms → 25 ms exact and 535 ms → 16 ms fast (best of two, paired,
-  machine under load), RAW codes and samples identical. The record is still validated (an out-of-range value is refused, as
-  is the combination with `lens.pupilSampling`). Reported metadata changes for this input: the `sensor.temporalSampleCount`
-  assumption (1), the `motion.subject` assumption (`atRest: true`), no `diagnostics.fast.applied["motion.subject"]`, and
-  `diagnostics.providerEvaluationCount` (that of the still request). Tests: `test/simulate-capture-subject-motion.test.ts`.
-- **Faster: a moving subject on a chart or material scene (#676).** The moving scene's evaluator was treated as caller code (every
-  result fully re-validated) and had no material lookup, so the executor called it for every tap and spectral node. It is now
-  marked engine-built, and, under one illuminant, registered with a lookup that names the material each query reads (the base
-  scene's material where the subject shows, a reserved key for the revealed background), found with the moving scene's own
-  arithmetic; the executor still integrates every site and checks the lookup against its own evaluations. 160 × 120, best of two,
-  paired, machine under load: slanted edge exact 5.0–5.3 s → 0.50–0.57 s (8.7–10.0×, whole scene, regions, rotation, rolling
-  shutter), color patches fast 2.6–2.8 s → 0.36–0.41 s (6.8–7.3×); camera rotation alone unchanged. RAW codes and samples
-  identical; `diagnostics.providerEvaluationCount` unchanged. Mixed lighting, caller function scenes, the display view and the
-  defocus and diffraction providers keep their own handling. Tests: `test/simulate-capture-subject-motion.test.ts`.
+### Gates
+
 - **Tooling, CI and tests only (2.28.0 step 1); no package, API, output or bundle change.**
   - *Coverage gates decide per shard (#666, with `ci-07`).* Each coverage shard uploads one part, its blob report or a marker
     naming the `coverage` proof it found; `.github/coverage-parts.mjs` merges ten blobs with the thresholds enforced, passes a
@@ -113,6 +37,14 @@
     `jxl-oxide-wasm` to the JPEG XL DNG test; `pack:check` refuses a packed `.wasm` file or any dependency field. README.md and
     THIRD_PARTY.md state the limit, and the three native-capture "Path B" documents note that an engine-side WebAssembly
     executor is not permitted while it stands.
+- **Gates the documentation site needs (#694, #709, #696, `ci-11` in #703).** `docs:check` resolves absolute links to the repository again (#694: its pattern named the former repository) and
+  fails if it resolves none; heading ids come from the shared `scripts/lib/anchors.mjs`, which skips fenced code (#709). The
+  identity gate reads every tracked text file and any host domain (#696). The licence gate reads more than one lockfile
+  (`site/package-lock.json`) and refuses a compound expression with `AND` (`ci-11` in #703). Their logic has unit tests
+  (`scripts/test-gates.mjs`). A change confined to `site/` or `docs/design/` runs no engine tests (`.github/ci-scope.mjs`).
+
+### Site
+
 - **Documentation site (#669); no package, API, output or bundle change.** `site/` builds `https://engine.photivra.com/` from the
   repository's own files (design: docs/design/engine-site.md): the README's opening, install and Node support, the quick start
   and nine guides (the three long documents one page per section), one page per API module with a task index, a search page
@@ -124,11 +56,9 @@
   deploys after a successful npm publish, or from `main` when the changelog's newest section is the published version.
   - `docs/COLOR_PATCHES.md` gains a display-view example (the home page's picture); `docs/LAYERED_SCENES.md` says why its
     example's star centers alias.
-  - *Gates.* `docs:check` resolves absolute links to the repository again (#694: its pattern named the former repository) and
-    fails if it resolves none; heading ids come from the shared `scripts/lib/anchors.mjs`, which skips fenced code (#709). The
-    identity gate reads every tracked text file and any host domain (#696). The licence gate reads more than one lockfile
-    (`site/package-lock.json`) and refuses a compound expression with `AND` (`ci-11` in #703). Their logic has unit tests
-    (`scripts/test-gates.mjs`). A change confined to `site/` or `docs/design/` runs no engine tests (`.github/ci-scope.mjs`).
+
+### Sensor
+
 - **The generic tier assets are frozen as built (#682).** The tier evidence and limitation records, which every tier profile and
   every capture's `provenance.evidence` share, were writable until the public catalogue was first asked for, so one write to a
   result's provenance changed it for every later capture. The presets of both versions are now deep-frozen when
@@ -136,8 +66,8 @@
 - **`SENSOR_PROFILES` is frozen all the way down (#683).** Its nested records (`readNoise`, `fixedPattern`, `goodFor`,
   `provenance`) were writable, and the fixed-pattern records are shared by several profiles, so writing into a resolved profile
   changed the catalogue and its siblings for the rest of the session. A modified copy still works; copy each nested part you
-  change (docs/SENSOR_PROFILES.md). `SIMULATE_CAPTURE_FAST_METHODS` has the same shallow freeze and is left to the facade's
-  change. No value or output changes; bundle rows unchanged (the catalogue is not in the capture worker).
+  change (docs/SENSOR_PROFILES.md). `SIMULATE_CAPTURE_FAST_METHODS` had the same shallow freeze; the facade's change freezes it
+  (Facade, below). No value or output changes; bundle rows unchanged (the catalogue is not in the capture worker).
 - **An exposure met exactly at a range end is no longer reported as held there (#681).** When the ideal ISO, shutter or
   f-number came out a few ulp past a range end (ISO 100 as 99.99999999999997, ISO 25 600 as 25600.000000000033), the
   resolvers reported `clamped` and `"iso-minimum"`, `"iso-maximum"`, `"shutter-…"` or `"aperture-…"` for an exposure on target;
@@ -152,6 +82,11 @@
   authorization, or with per-bin contributions and a total that do not match it. Their three power checks each (per-bin
   contribution, total, operating-range node values) are now purely relative (1e-10; two zeros are equal). Chains the engine builds
   are accepted as before; only inconsistent inputs that were wrongly accepted are now refused. No output change; fast row +18 B.
+  The native capture's lean environment path (`src/capture/native-environment-lean.ts`) makes its per-bin contribution and
+  total power checks the same relative way, so it takes the main path's decisions; every hash lock holds.
+
+### Capture
+
 - **Capture, processing and output (2.28.0 step 4, group C).** No output change for a request that renders today unless an
   entry says otherwise.
   - *One-frame panorama (#671).* `createPanoramaTask` with one frame and the default `exposureCompensation: "gain"` completed
@@ -211,6 +146,93 @@
     the grid value nearest in log₂ within 1/12 stop (owner decision 2026-11-21) and reports `exposureBracketRealizedOffsetStops`
     beside the requested offset; farther values are refused as before. A wrong refusal becomes a sequence; sequences that
     resolved before are unchanged (docs/USAGE.md).
+
+### Optics
+
+- **Optics and camera (2.28.0 step 4, group O).** No output change for a request that renders today unless stated.
+  - *Diffraction PSF profile bound (#686, `optics-03`).* `createDiffractionLimitedPsfProfile` refuses β = pitch/(λ·N_w) above
+    `DIFFRACTION_LIMITED_PSF_PROFILE_LIMITS.maximumBeta` (1e5, owner decision 2026-11-21) with `InvalidConfigurationError` before any
+    cell is integrated; f/1e-9, a 1e-6 nm wavelength or a 1e300 µm pitch never returned before. Inputs between 1e5 and about 1.1e5,
+    which took about a second (for example f/1e-4 at 6 µm and 550 nm), are now refused too. Kernels at or below the bound are unchanged.
+  - *Focus-scatter sampler validation (#687, `optics-04`).* `simulateGenericLensFocusError` refuses a missing `focusDistanceM`
+    (`InvalidScientificInputError`; it returned `focusDistanceM: NaN`) and a circle of confusion whose error or depth of focus is not
+    finite (`InvalidScientificResultError`; it returned ±Infinity). Every finite result is unchanged.
+  - *Brown–Conrady inverse near the envelope edge (#724, with `optics-13` of #700).* With tangential terms the inverse threw for
+    valid points beyond the radial-only mapped radius (Newton converged to a second preimage outside the disc). When the first
+    start fails it now restarts from boundary points with every iterate kept inside the disc, and a solution in the `1e-12` band
+    above the envelope is put on the boundary radius, so inverse → forward no longer throws at the boundary. Measured on seeded
+    sets: 2,022 of 474,000 interior points (|k| ≤ 0.3, |p| ≤ 0.05) and 3,001 of 300,000 (|k| ≤ 1, |p| ≤ 0.3) failed and now invert,
+    and every interior point that inverted before gives the same bits. On exact-boundary points (400,000, |k| ≤ 0.1, |p| ≤ 0.02)
+    386 inverses and 148,086 inverse → forward round trips failed and now pass; 147,700 inverse results that lay up to 1e-12
+    outside the envelope move onto its boundary (at most 1.0e-12 relative), the only change to a result returned before.
+  - *Bokeh blades with a tiny curvature (#725, `optics-10`).* A `curvature` below 1e-6 now gives straight blades: its arcs lie within
+    0.375·κ < 4e-7 circumradii of their chords, below the 5e-6 accuracy of the kernel's 1024-gon curves, while the arc's centre-based
+    construction lost about log10(1/κ) digits (κ = 1e-12 differed from straight blades by 3.8e-6 in a tap, 5.55e-17, the value of
+    `0.1 + 0.2 - 0.3`, gave a 73-site window instead of 23, and κ ≤ 1e-17 threw a non-finite error). Kernels at κ ≥ 1e-6 (the
+    catalogue's 0.3 and 0.7 among them) keep their bits.
+  - *Sparse arrays and missing records in the optics modules (#726, with `optics-05` of #700).* Thirteen entry lists that were
+    validated with `map` (which skips holes) are read with `Array.from`, so a hole meets the entry's own check: Zernike coefficients
+    and the aperture mask, complex-pupil amplitude and path difference, sampled-PSF nodes and kernel samples, MTF samples, polygon
+    image points, front-of-lens and scene-to-sensor transmission samples, focal-shift samples, cat's-eye apertures and spectral
+    weights. A missing or null field point, focus, working f-number, field throughput, image point, source point, angular velocity
+    (non-rectilinear mapping), scene binding or spectral quadrature, and the vignetting, radial-distortion and lateral-colour
+    coefficient records, now fail with `InvalidConfigurationError`; a value that cannot be copied fails the same way instead of a
+    `DOMException`. Before, these threw a raw `TypeError`, returned the hole (one resolver returned `undefined` as a kernel sample),
+    or passed the parser. `calculatePsfFoundationComponents` copies only the field point's x and y into its context. Dense, complete
+    inputs give the same results.
+  - *Irradiance convolution gather (#727, `optics-12`).* `convolveIrradianceRows` clips its tap ranges once per row and pixel and
+    reads each source column's kernel offset from a table built once per call (an index cache; no signal is tabulated), with the same
+    products in the same order: every value is bit-identical (`Object.is`, test/irradiance-convolution-gather.test.ts). Paired runs
+    (best of 10, alternating in one process): 1.93× (640 × 480, r = 7, 64 × 64-site patches), 2.01× (one patch), 1.97× (400 × 300,
+    r = 15) and 2.18× (256 × 256, r = 32). It is the CPU path of `calculateIrradianceConvolution`, the image-kernel accelerator and
+    the display view's CPU reference.
+
+### Facade
+
+- **Fixed: Auto ISO on sensor profiles with a base ISO below 100 (#672).** `exposure.iso: "auto"` with its default whole-stop
+  steps was refused in every exposure mode on six of the eight profiles (base ISO 80 and the phone's 40): the whole stops counted
+  from the base ISO (80, 160, 320, 640) left out ISO 100, the exposure reference's ISO. When that list leaves out the reference
+  ISO on a third-stop grid, the whole stops are now every third setting counted from it, with the base ISO kept (owner decision
+  of 2026-11-21): 80, 100, 200, 400 … up to the profile's Auto ISO maximum. Every other grid keeps its list, so a request that
+  resolved before resolves to the same settings and bytes (3,804 requests compared: 2,647 unchanged, 424 that were refused now
+  resolve, none changed). Tests: `test/sensor-profile-auto-iso.test.ts`.
+- **Fixed: program mode on a sensor profile whose base ISO is above 100 (#673).** `exposure.mode: "program"` was refused on
+  `full-frame-24mp-stacked-sports-2020s` (base ISO 125) and on any profile copy with a base ISO above 100: such a profile moves
+  the exposure reference to a shorter shutter, and the line's fixed node stops, measured from f/8 at 1/125 s, no longer matched
+  it. The fixed nodes are now used only at that anchor; any other takes the computed nodes (f/16 1/2000 s, f/16 1/125 s, f/4
+  1/125 s, f/4 1.024 s, stops from the anchor), recorded as `"facade-generic-program-line-base-iso"`. A request that resolved
+  before used the default anchor, so its line, settings and bytes are unchanged (3,804 requests compared: none changed; 373 more
+  resolve). `calculateProgramLine` takes no profile and is unchanged. Tests: `test/program-line-lens-range.test.ts`.
+- **Faster: `sensor.temporalSampleCount` on a still request (#729).** Without camera rotation (including `motion.handheld`), a
+  moving subject, a flash or an exposure build-up, every temporal midpoint reads the same scene, yet the count multiplied the
+  scene queries of every site (64 × the provider evaluations at N = 64 on a function scene) and entered the per-site query
+  limit, so a box aperture with a four-spot filter at N = 100 was refused. Such a request now renders with one midpoint. RAW
+  codes and samples are unchanged (compared below); `diagnostics.providerEvaluationCount` falls to that of one sample, the
+  `sensor.temporalSampleCount` assumption reports `{ requested, used: 1 }`, and `diagnostics.options` still lists the option.
+  Requests with rotation, a moving subject, a flash or a build-up keep their count. Tests:
+  `test/simulate-capture-still-temporal.test.ts`.
+- **Fixed: `SIMULATE_CAPTURE_FAST_METHODS` is frozen all the way down (#683, its facade part).** Only the array was frozen, so a
+  caller could edit an entry's records in place. Data only; captures and display views do not import it. Tests:
+  `test/fast-methods-registry.test.ts`.
+- **Faster: a `motion.subject` at rest (#688).** A subject record with no velocity and no rotation (`subject: {}` or zeros)
+  took the moving-subject path with 16 (exact) or 8 (fast) temporal midpoints for the picture of the still scene. It now
+  renders as the still scene: 160 × 120 slanted edge 5,157 ms → 25 ms exact and 535 ms → 16 ms fast (best of two, paired,
+  machine under load), RAW codes and samples identical. The record is still validated (an out-of-range value is refused, as
+  is the combination with `lens.pupilSampling`). Reported metadata changes for this input: the `sensor.temporalSampleCount`
+  assumption (1), the `motion.subject` assumption (`atRest: true`), no `diagnostics.fast.applied["motion.subject"]`, and
+  `diagnostics.providerEvaluationCount` (that of the still request). Tests: `test/simulate-capture-subject-motion.test.ts`.
+- **Faster: a moving subject on a chart or material scene (#676).** The moving scene's evaluator was treated as caller code (every
+  result fully re-validated) and had no material lookup, so the executor called it for every tap and spectral node. It is now
+  marked engine-built, and, under one illuminant, registered with a lookup that names the material each query reads (the base
+  scene's material where the subject shows, a reserved key for the revealed background), found with the moving scene's own
+  arithmetic; the executor still integrates every site and checks the lookup against its own evaluations. 160 × 120, best of two,
+  paired, machine under load: slanted edge exact 5.0–5.3 s → 0.50–0.57 s (8.7–10.0×, whole scene, regions, rotation, rolling
+  shutter), color patches fast 2.6–2.8 s → 0.36–0.41 s (6.8–7.3×); camera rotation alone unchanged. RAW codes and samples
+  identical; `diagnostics.providerEvaluationCount` unchanged. Mixed lighting, caller function scenes, the display view and the
+  defocus and diffraction providers keep their own handling. Tests: `test/simulate-capture-subject-motion.test.ts`.
+
+### Display view
+
 - **Display view: Recover and +1 stop without Standard under its time target (#662); output unchanged.** With the identity tone
   curve and the component clip the chain takes its slopes as the identity and diag(inside) instead of forming the 3 × 3 products
   at every node, and nine-element resets no longer go through `TypedArray.fill`. The #656 part (96 × 96 of a 1500 × 1000 view)
@@ -234,6 +256,9 @@
   function a bundle that does not import it carries none of it: the capture-worker fast row is 13 B smaller, the on-demand and
   export rows are unchanged, and a bundle that imports it adds 1,655 B gzip to its first load. docs/DISPLAY_VIEW.md, "Estimating a
   render".
+
+### GPU and bundles
+
 - **Unused SDR shader text leaves the GPU session chunk (#690).** The six shader literals of `src/gpu/wgsl-kernels.ts` are
   marked pure, so a bundler drops the SDR and luminance preludes from the display view's GPU session, which uses only the
   irradiance convolution shader. The shader strings are unchanged (same SHA-256 for all four). Fast worker row 338,380 →
@@ -261,6 +286,20 @@
   assumptions, two flash and one sensor-profile error message, and eight GPU Quality refusal and self-check texts. The on-demand limit is lowered
   52,000 → 50,200 B; fast worker 336,556 B. The 49,400 B target is not yet met. Image bytes and numbers are unchanged; those texts
   are the only result change.
+- **Bundle limits with every step 4 group merged (owner decisions 2026-11-21 on #658 and #691).** Measured with rolldown 1.2.14:
+  fast worker 337,719 B, on demand 50,391 B, export 10,399 B. Limits set to those rounded up to the next 100 B: fast
+  336,700 → 337,800 B, on demand 50,200 → 50,400 B; export stays 10,400 B (docs/DISPLAY_VIEW.md, "Bundle size"). The 49,400 B
+  on-demand target stands.
+
+### Benchmarks
+
+- **The batch-figure benchmark and its hash locks (#670, 2.28.0 step 2); no package, API, output or bundle change.**
+  `scripts/benchmark-figure-batch.mjs` runs the #670 set (`scripts/lib/figure-batch-cases.mjs`: 22 cases) through public APIs
+  only, with both flags (`fast: false` first), and reports CPU and wall time, peak RSS, the render's work counts and the SHA-256 of
+  the samples; it is informational, host-dependent and not run by CI. `test/figure-batch-hash-locks.test.mjs` locks a small
+  region of each case's request with both flags (samples, internals and work counts, split as #697 splits the display-view
+  locks), recorded at 2.27.0 before any 2.28.0 source change on x64 and arm64; CI's macOS hash-lock step runs it. The 2.26.0 and
+  2.27.0 records are `docs/benchmarks/2026-11-21-figure-batch-2.26.0-2.27.0.json`.
 
 ## 2.27.0 — published November 19, 2026
 

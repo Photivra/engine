@@ -70,7 +70,7 @@ import { adcTransfer, resolveSensorReadoutRegime, samplePoisson, type ResolvedSe
 import { createResettableUniformStream, deriveNativeSiteStreamSeedUint32, sampleDeterministicStandardNormal,
   NATIVE_SITE_CHARGE_STREAM_ID, NATIVE_SITE_READ_NOISE_STREAM_ID } from "../sensor/stochastic-seed.js";
 import { evaluateFixedPatternSiteFactors, evaluateParsedFixedPatternSite, type SensorFixedPatternNoiseProfile } from "../sensor/fixed-pattern-noise.js";
-import { approximatelyEqual } from "../core/shared-helpers.js";
+import { relativelyEqual } from "../core/shared-helpers.js";
 
 type Site = SimulateEnvironmentSensorRawFrameInput["sites"][number];
 type Env = Site["environment"];
@@ -521,11 +521,11 @@ function photo(k: PlanConstants, c: ExecutionConstants, values: readonly Float64
     for (let s = 0; s < S; s++) {
       const expected = flux[s]! * c.measure[s]!;
       if (!Number.isFinite(flux[s]!) || flux[s]! < 0 || !Number.isFinite(contribution[s]!) || contribution[s]! < 0 ||
-        !Number.isFinite(expected) || !approximatelyEqual(contribution[s]!, expected)) return undefined;
+        !Number.isFinite(expected) || !relativelyEqual(contribution[s]!, expected)) return undefined;
       const adjusted = contribution[s]! - powerCorrection, next = powerSum + adjusted;
       powerCorrection = (next - powerSum) - adjusted; powerSum = next;
     }
-    if (!(Number.isFinite(integratedFlux) && integratedFlux >= 0) || !approximatelyEqual(powerSum, integratedFlux)) return undefined;
+    if (!(Number.isFinite(integratedFlux) && integratedFlux >= 0) || !relativelyEqual(powerSum, integratedFlux)) return undefined;
     let photonSum = 0, photonCorrection = 0, electronSum = 0, electronCorrection = 0;
     for (let s = 0; s < S; s++) {
       const radiantPower = flux[s]! * c.measure[s]!;
