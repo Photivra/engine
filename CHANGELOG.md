@@ -531,6 +531,11 @@ Each item below is one commit of the serial output-change lane, with its measure
   2026-11-21). Other rows: on demand 50,700 B, fast worker 337,192 B, export 10,398 B. CPU results are unchanged; the lens shaders'
   text is G1's. Conformance: every value inside its bound on the emulation, SwiftShader and the Apple M5 Pro. The acceptance
   harness gains an `app-lens` case for the public path.
+- **Low-severity GPU and bundle findings (2.28.0 step 8, #702).**
+  - *Two GPU fallback reasons match the request (`gpu-06`).* The display view's CPU-fallback text for a lens request names
+    `lens.catalogue` (without a radial distortion) beside lens.projection, lens.distortion, lens.vignetting and camera rotation,
+    and the layered-scene reason no longer names a release ("layered chart scenes render on the CPU (#652)"). Fast row
+    337,888 → 337,881 B.
 
 ### Benchmarks
 

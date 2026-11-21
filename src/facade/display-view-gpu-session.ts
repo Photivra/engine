@@ -94,9 +94,9 @@ export async function openDisplayViewGpuSession(options: ParsedPrepareDisplayVie
   // #563: the lens signal (projection, distortion, vignetting, rotation) runs on the CPU reference only; no device is requested for it.
   // #661: unless the request describes a catalogue-lens view (`lensView`), which the renderer decides.
   if (request.lens && !request.lensView) return fallBack(options, "unsupported-on-backend", "the GPU display-view renderers do not render lens.projection, lens.distortion, lens.vignetting or " +
-    "camera rotation (#563), or a catalogue lens without a radial distortion; the CPU reference renders them. No device was requested.");
+    "camera rotation (#563), or lens.catalogue without a radial distortion; the CPU reference renders them. No device was requested.");
   if (request.detail) return fallBack(options, "unsupported-on-backend", "lens corrections and sharpening run on the CPU (#628).");
-  if (request.layered) return fallBack(options, "unsupported-on-backend", "layered chart scenes render on the CPU in 2.27.0 (#652).");
+  if (request.layered) return fallBack(options, "unsupported-on-backend", "layered chart scenes render on the CPU (#652).");
   // #597: an image-plane print under mixed light renders on the device (its Quality passes light each lattice point); charts keep the CPU.
   if (request.mixedIllumination && request.scene !== "image-plane") return fallBack(options, "unsupported-on-backend", "the GPU renderers light chart materials with one illuminant; the CPU reference renders mixed illumination (#550). No device was requested.");
   let runtime: WebGpuRuntime, owned = false;

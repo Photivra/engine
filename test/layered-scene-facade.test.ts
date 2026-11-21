@@ -126,6 +126,9 @@ describe("layered chart scenes through the public API (#652)", () => {
     for (let j = 0; j < 7; j++) for (let i = 0; i < 9; i++) for (let k = 0; k < 3; k++)
       expect(part.image.samples[(j * 9 + i) * 3 + k]).toBe(whole.image.samples[((j + 3) * 24 + i + 5) * 3 + k]);
     expect(whole.diagnostics.fast.execution).toMatchObject({ backend: "cpu-reference", fallbackReason: "unsupported-on-backend" });
+    // gpu-06 (#702): the reason names no release, which would be wrong in the next one.
+    expect(whole.diagnostics.fast.execution.limitations.join(" ")).toMatch(/layered chart scenes render on the CPU \(#652\)/u);
+    expect(whole.diagnostics.fast.execution.limitations.join(" ")).not.toMatch(/\b2\.\d+\.\d+\b/u);
     const preset = resolveLayeredChartPreset({ scale: "tabletop", cards: 3, focusDistanceM: 1, lens: { focalLengthMm: 50 }, aspect: 2 / 3 });
     const lit = await simulateDisplayView({ scene: preset, subjectDistanceM: 1, lens: { focalLengthMm: 50, fNumber: 4, focusDistanceM: 1,
       defocus: { model: "geometric-disc", blades: { count: 6 }, catsEye: { apertures: [{ radiusMm: 9, shiftPerTanFieldMm: 40 }] } } },
