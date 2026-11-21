@@ -396,7 +396,8 @@ function parseSpectralSamples(
 
   let previous =
     Number.NEGATIVE_INFINITY;
-  return value.map(
+  // 2.28.0 (#726): Array.from visits holes (as undefined), which the per-entry check refuses; map would skip them.
+  return Array.from(value, 
     (entry, index) => {
       const samplePath =
         path +
@@ -848,6 +849,7 @@ function workingFNumber(
     focus.kind ===
     "supplied-working-f-number"
   ) {
+    requireRecord(focus.workingFNumber, "focus.workingFNumber", null);
     const value =
       requirePositiveFiniteScientific(
         focus.workingFNumber.value,
@@ -872,6 +874,8 @@ function finiteFocusDistance(
   focus:
     OpticalBridgeFocusContext
 ): number | null {
+  // 2.28.0 (#726): missing focus records are domain errors, not TypeErrors from a property read.
+  requireRecord(focus, "focus", null);
   if (
     focus.kind ===
     "ideal-symmetric-thin-lens"
@@ -881,6 +885,7 @@ function finiteFocusDistance(
       "focus.objectDistanceM"
     );
   }
+  if (focus.kind === "supplied-working-f-number") requireRecord(focus.focus, "focus.focus", null);
   if (
     focus.kind ===
       "supplied-working-f-number" &&
@@ -979,6 +984,8 @@ function fieldFactor(
     y: number;
   }
 ): number {
+  // 2.28.0 (#726): missing records are domain errors, not TypeErrors from a property read.
+  requireRecord(field, "fieldThroughput", null);
   if (field.kind === "unity") {
     return 1;
   }
@@ -988,6 +995,9 @@ function fieldFactor(
   ) {
     const result =
       field.result;
+    requireRecord(result, "fieldThroughput.result", null);
+    requireRecord(result.imagePointMm, "fieldThroughput.result.imagePointMm", null);
+    requireRecord(imagePointMm, "imagePointMm", null);
     const scale = Math.max(
       1,
       Math.abs(imagePointMm.x),

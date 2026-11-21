@@ -168,7 +168,8 @@ export function resolveDefocusBokehOptions(value: unknown, label: string): Resol
     const c = requireAllowlistedRecord(record.catsEye, ["apertures", "fieldZonesAcrossLongSide"], label + ".catsEye must be an object.");
     if (!Array.isArray(c.apertures) || c.apertures.length < 1 || c.apertures.length > MAXIMUM_CLIPPING_APERTURES)
       throw new InvalidScientificInputError(label + ".catsEye.apertures must list 1 to " + MAXIMUM_CLIPPING_APERTURES + " clipping apertures.");
-    const apertures = (c.apertures as unknown[]).map((a, k) => {
+    // 2.28.0 (#726): Array.from visits holes (as undefined), which the record check refuses; map would skip them.
+    const apertures = Array.from(c.apertures as unknown[], (a, k) => {
       const r = requireAllowlistedRecord(a, ["radiusMm", "shiftPerTanFieldMm"], label + ".catsEye.apertures[" + k + "] must be an object.");
       return { radiusMm: finiteIn(label + ".catsEye.apertures[" + k + "].radiusMm", r.radiusMm, 1e-6, 1e4),
         shiftPerTanFieldMm: finiteIn(label + ".catsEye.apertures[" + k + "].shiftPerTanFieldMm", r.shiftPerTanFieldMm, -1e4, 1e4) };
@@ -219,6 +220,9 @@ function clipConvex(p: Polygon, clip: Polygon): Polygon {
   return out;
 }
 
+/** Curvature below which rounded blades are built straight (2.28.0, #725); see `openingPolygon`. */
+const STRAIGHT_BLADES_BELOW_CURVATURE = 1e-6;
+
 /** The unit circle as a regular polygon of {@link CURVE_SIDES} sides, scaled to the circle's area π (built once). */
 let unitCircle: Polygon | undefined;
 function unitCirclePolygon(): Polygon {
@@ -237,7 +241,10 @@ function scaled(p: Polygon, s: number): Polygon { return p.map((v) => v * s); }
 function openingPolygon(blades: ResolvedDefocusBokehOptions["blades"], fNumber: number): Polygon {
   if (!blades || blades.curvature === 1 || (blades.circularAtOrBelowFNumber !== null && fNumber <= blades.circularAtOrBelowFNumber)) return unitCirclePolygon();
   const n = blades.count, first = blades.firstBladeEdgeAngleDegrees / 360 - 0.25 + 0.5 / n, p: Polygon = [];
-  if (blades.curvature === 0) {
+  // 2.28.0 (#725): below κ = 1e-6 the blades are straight. The arc lies within 0.375·κ < 4e-7 circumradii of its chord there, below
+  // the 5e-6 accuracy of the curves' 1024-gons, while the centre-based form below loses about log10(1/κ) digits to cancellation
+  // (a wrong window at 1e-15, a non-finite error below about 1e-17). Kernels at κ ≥ 1e-6 keep their bits.
+  if (blades.curvature < STRAIGHT_BLADES_BELOW_CURVATURE) {
     for (let k = 0; k < n; k++) p.push(portableCosTwoPi(first + k / n), portableSinTwoPi(first + k / n));
   } else {
     // Edge k runs from vertex k to vertex k + 1; its normal is at turn first + (k + ½)/n. The arc of radius ρ_b = 1/κ through both

@@ -1576,7 +1576,8 @@ lens: { focalLengthMm: 50, fNumber: 4, focusDistanceM: 1.4, defocus: { model: "g
   the method, b in sites, and the cat's-eye zones) and says all this.
 - **`blades`**: a regular polygon of `count` (3–32) straight blades, with `calculateIdealApertureGeometry`'s
   `firstBladeEdgeAngleDegrees`; `curvature` κ in [0, 1] makes each edge an arc of radius 1/κ circumradii through its two
-  vertices (κ = 1 is the circle); at or below `circularAtOrBelowFNumber` the blades are open and the opening is circular.
+  vertices (κ = 1 is the circle; since 2.28.0 a κ below 1e-6, whose arcs lie within 4e-7 circumradii of straight edges, gives
+  straight blades); at or below `circularAtOrBelowFNumber` the blades are open and the opening is circular.
   The opening is scaled to the area of the f/N circle, so the f-number keeps its meaning for light and the blur has the
   disc's area.
 - **Front against back.** Behind the focus plane the rays have crossed before the sensor, in front they have not, so the

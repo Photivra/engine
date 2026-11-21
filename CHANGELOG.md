@@ -2,6 +2,43 @@
 
 ## Unreleased
 
+- **Optics and camera (2.28.0 step 4, group O).** No output change for a request that renders today unless stated.
+  - *Diffraction PSF profile bound (#686, `optics-03`).* `createDiffractionLimitedPsfProfile` refuses β = pitch/(λ·N_w) above
+    `DIFFRACTION_LIMITED_PSF_PROFILE_LIMITS.maximumBeta` (1e5, owner decision 2026-11-21) with `InvalidConfigurationError` before any
+    cell is integrated; f/1e-9, a 1e-6 nm wavelength or a 1e300 µm pitch never returned before. Inputs between 1e5 and about 1.1e5,
+    which took about a second (for example f/1e-4 at 6 µm and 550 nm), are now refused too. Kernels at or below the bound are unchanged.
+  - *Focus-scatter sampler validation (#687, `optics-04`).* `simulateGenericLensFocusError` refuses a missing `focusDistanceM`
+    (`InvalidScientificInputError`; it returned `focusDistanceM: NaN`) and a circle of confusion whose error or depth of focus is not
+    finite (`InvalidScientificResultError`; it returned ±Infinity). Every finite result is unchanged.
+  - *Brown–Conrady inverse near the envelope edge (#724, with `optics-13` of #700).* With tangential terms the inverse threw for
+    valid points beyond the radial-only mapped radius (Newton converged to a second preimage outside the disc). When the first
+    start fails it now restarts from boundary points with every iterate kept inside the disc, and a solution in the `1e-12` band
+    above the envelope is put on the boundary radius, so inverse → forward no longer throws at the boundary. Measured on seeded
+    sets: 2,022 of 474,000 interior points (|k| ≤ 0.3, |p| ≤ 0.05) and 3,001 of 300,000 (|k| ≤ 1, |p| ≤ 0.3) failed and now invert,
+    and every interior point that inverted before gives the same bits. On exact-boundary points (400,000, |k| ≤ 0.1, |p| ≤ 0.02)
+    386 inverses and 148,086 inverse → forward round trips failed and now pass; 147,700 inverse results that lay up to 1e-12
+    outside the envelope move onto its boundary (at most 1.0e-12 relative), the only change to a result returned before.
+  - *Bokeh blades with a tiny curvature (#725, `optics-10`).* A `curvature` below 1e-6 now gives straight blades: its arcs lie within
+    0.375·κ < 4e-7 circumradii of their chords, below the 5e-6 accuracy of the kernel's 1024-gon curves, while the arc's centre-based
+    construction lost about log10(1/κ) digits (κ = 1e-12 differed from straight blades by 3.8e-6 in a tap, 5.55e-17, the value of
+    `0.1 + 0.2 - 0.3`, gave a 73-site window instead of 23, and κ ≤ 1e-17 threw a non-finite error). Kernels at κ ≥ 1e-6 (the
+    catalogue's 0.3 and 0.7 among them) keep their bits.
+  - *Sparse arrays and missing records in the optics modules (#726, with `optics-05` of #700).* Thirteen entry lists that were
+    validated with `map` (which skips holes) are read with `Array.from`, so a hole meets the entry's own check: Zernike coefficients
+    and the aperture mask, complex-pupil amplitude and path difference, sampled-PSF nodes and kernel samples, MTF samples, polygon
+    image points, front-of-lens and scene-to-sensor transmission samples, focal-shift samples, cat's-eye apertures and spectral
+    weights. A missing or null field point, focus, working f-number, field throughput, image point, source point, angular velocity
+    (non-rectilinear mapping), scene binding or spectral quadrature, and the vignetting, radial-distortion and lateral-colour
+    coefficient records, now fail with `InvalidConfigurationError`; a value that cannot be copied fails the same way instead of a
+    `DOMException`. Before, these threw a raw `TypeError`, returned the hole (one resolver returned `undefined` as a kernel sample),
+    or passed the parser. `calculatePsfFoundationComponents` copies only the field point's x and y into its context. Dense, complete
+    inputs give the same results.
+  - *Irradiance convolution gather (#727, `optics-12`).* `convolveIrradianceRows` clips its tap ranges once per row and pixel and
+    reads each source column's kernel offset from a table built once per call (an index cache; no signal is tabulated), with the same
+    products in the same order: every value is bit-identical (`Object.is`, test/irradiance-convolution-gather.test.ts). Paired runs
+    (best of 10, alternating in one process): 1.93× (640 × 480, r = 7, 64 × 64-site patches), 2.01× (one patch), 1.97× (400 × 300,
+    r = 15) and 2.18× (256 × 256, r = 32). It is the CPU path of `calculateIrradianceConvolution`, the image-kernel accelerator and
+    the display view's CPU reference.
 - **Tooling, CI and tests only (2.28.0 step 1); no package, API, output or bundle change.**
   - *Coverage gates decide per shard (#666, with `ci-07`).* Each coverage shard uploads one part, its blob report or a marker
     naming the `coverage` proof it found; `.github/coverage-parts.mjs` merges ten blobs with the thresholds enforced, passes a

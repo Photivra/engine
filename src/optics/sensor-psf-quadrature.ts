@@ -20,7 +20,7 @@ import { bindSensorSpatioSpectralSamples, reduceSensorSpatioSpectralIrradiance,
   type ReduceSensorSpatioSpectralIrradianceInput, type SensorSpatioSpectralNodeIdentity } from "../sensor/spatio-spectral-reduction.js";
 import { sensorSpatialQuadratureNodeIdentityKey } from "../sensor/spatial-sample-reduction.js";
 import { resolveLensSampledPsf, type ResolveLensSampledPsfInput } from "./lens-psf-profile.js";
-import { requireInputKeys } from "../core/record-validation.js";
+import { requireInputKeys, requireInputObject } from "../core/record-validation.js";
 
 /** One pre-PSF incident irradiance value per explicitly identified kernel tap. */
 export interface SensorPsfSourceSample {
@@ -89,6 +89,8 @@ export function calculateSensorPsfIrradianceQuadrature(
     typeof input.spatialModel.limitation !== "string" || !input.spatialModel.limitation.trim()) {
     throw new InvalidScientificInputError("PSF execution requires explicit pre-PSF light and a limited local shift-invariant approximation.");
   }
+  // 2.28.0 (#726): missing records are domain errors, not TypeErrors from a property read.
+  requireInputObject(input.spectralQuadrature, "spectralQuadrature");
   if ((input.psfWavelengthBasis?.value !== "air" && input.psfWavelengthBasis?.value !== "vacuum") ||
     input.psfWavelengthBasis.value !== input.spectralQuadrature.wavelengthBasis) {
     throw new InvalidScientificInputError("PSF wavelength basis must explicitly match the spectral plan.");
@@ -111,6 +113,7 @@ export function calculateSensorPsfIrradianceQuadrature(
       const node = { spatialNode, spectralSampleIndex: spectral.spectralSampleIndex, wavelengthNanometers: spectral.wavelengthNanometers };
       const declared = bound.valuesByKey.get(sensorSpatialQuadratureNodeIdentityKey(spatialNode) + "|" + spectral.spectralSampleIndex)!;
       const destination = spatial.preAntiAliasingSourcePointMm;
+      requireInputObject(destination, "spatialQuadrature.nodes[].preAntiAliasingSourcePointMm");
       const psf = resolveLensSampledPsf({ ...input.psf, wavelengthNm: spectral.wavelengthNanometers,
         fieldPointMm: { x: destination.x, y: -destination.y } });
       const kernel = psf.value.kernel;

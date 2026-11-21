@@ -8,7 +8,7 @@
 import { describe, expect, it } from "vitest";
 import {
   GENERIC_LENS_CATALOGUE, GENERIC_LENS_IDS, GENERIC_LENS_SET_BASELINES, GENERIC_PRIME_THIRD_STOP_F_NUMBERS, createDiffractionLimitedPsfProfile, resolveGenericLens,
-  simulateGenericLensFocusError, InvalidConfigurationError, InvalidScientificInputError, createGenericLensCorrectionProfile, calculatePeripheralIlluminationCorrection,
+  simulateGenericLensFocusError, InvalidConfigurationError, InvalidScientificInputError, InvalidScientificResultError, createGenericLensCorrectionProfile, calculatePeripheralIlluminationCorrection,
   parseGenericLensCorrectionProfile, type GenericLensCorrectionProfile, type IlluminationLensCorrection, type OpticalProfileState, type ResolvedGenericLens
 } from "../src/index.js";
 import { createGenericLensPsfProfile, genericLensPsfKernelRadius, GENERIC_LENS_PSF_WAVELENGTHS_NM } from "../src/optics/generic-lens-psf.js";
@@ -178,6 +178,20 @@ describe("the focus-scatter sampler (#549)", () => {
     const near = simulateGenericLensFocusError({ ...base, focusDistanceM: fiftyMinimum(), circleOfConfusionMm: 5 });
     expect(near.focusDistanceM).toBeGreaterThanOrEqual(fiftyMinimum());
     expect(() => simulateGenericLensFocusError({ ...base, seed: -1 })).toThrow(InvalidScientificInputError);
+  });
+
+  it("refuses a missing focus distance and a circle of confusion that overflows (#687)", () => {
+    const missing: Partial<typeof base> = { ...base };
+    delete missing.focusDistanceM;
+    // Before 2.28.0: focusDistanceM NaN and no intended distance; then an infinite error and depth of focus.
+    expect(() => simulateGenericLensFocusError(missing as never)).toThrow(InvalidScientificInputError);
+    expect(() => simulateGenericLensFocusError(missing as never)).toThrow(/focusDistanceM must be a positive finite number/);
+    for (const circleOfConfusionMm of [1e308, 1e306]) {
+      expect(() => simulateGenericLensFocusError({ ...base, focusDistanceM: 3, circleOfConfusionMm })).toThrow(InvalidScientificResultError);
+    }
+    const large = simulateGenericLensFocusError({ ...base, focusDistanceM: 3, circleOfConfusionMm: 1e300 });
+    expect(Number.isFinite(large.imageSideErrorMicrometers) && Number.isFinite(large.depthOfFocusMicrometers)).toBe(true);
+    expect(large.held).toBe("far-limit");
   });
 });
 
