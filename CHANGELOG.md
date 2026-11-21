@@ -502,6 +502,19 @@ Each item below is one commit of the serial output-change lane, with its measure
   text is G1's. Conformance: every value inside its bound on the emulation, SwiftShader and the Apple M5 Pro. The acceptance
   harness gains an `app-lens` case for the public path.
 
+### Full-quality speed (2.28.0 step 6, group D)
+
+All byte-identical: every sample, RAW code and hash lock is unchanged.
+
+- **A large defocus disc with `lens.diffraction` no longer recomputes its run tiles per spectral node (#734).** A diffraction
+  tile read the 9 run tiles it overlaps once per node, so when a lattice's share of the tile cache held fewer than 9 (a 3 × 3 or
+  larger box aperture, a 5 nm spectral step, camera rotation with several temporal samples) every read recomputed all of that
+  tile's nodes: 9·N run tiles per diffraction tile instead of 9. A diffraction tile is now computed for every node in one pass
+  over its run tiles. #734's request (16 × 12 region of a 600 × 400 Siemens star, defocus radius 104 sites, diffraction, 20 nm),
+  CPU s: 3 × 3 box 109.2 → 6.8 (2 × 2 box 3.25 → 3.10; 3 × 3 now 2.2× the 2 × 2, about 9/4 as expected); with `lens.vignetting`
+  (image space) 3 × 3 118.3 → 6.7. RAW codes and samples equal 2.28.0 step 5's tree on arm64 and x64. Tests:
+  `test/large-defocus-lattice-tiles.test.ts` (run tiles computed 180 → 9 at 20 nodes and 9 lattices, 729 → 9 at 81 nodes and 4).
+
 ### Benchmarks
 
 - **The batch-figure benchmark and its hash locks (#670, 2.28.0 step 2); no package, API, output or bundle change.**
