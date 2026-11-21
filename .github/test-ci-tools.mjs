@@ -36,14 +36,34 @@ test("a proof name is the tree, the job and the runtime", () => {
 const repo = 1001;
 const ci = ".github/workflows/ci.yml";
 const artifact = (run, extra = {}) => ({ expired: false, workflow_run: { id: run, head_repository_id: repo }, ...extra });
-const run = (id, extra = {}) => [id, { id, path: ".github/workflows/ci.yml", head_repository: { id: repo }, ...extra }];
+const head = "fedcba9876543210fedcba9876543210fedcba98";
+const trees = new Map([[head, tree]]);
+const run = (id, extra = {}) => [id, { id, path: ".github/workflows/ci.yml", head_repository: { id: repo }, event: "pull_request", head_branch: "feature",
+  status: "completed", conclusion: "success", head_sha: head, ...extra }];
 test("a proof counts only from this repository's same workflow and before it expires", () => {
-  assert.equal(acceptedRun([artifact(7)], new Map([run(7)]), repo, ci), 7);
-  assert.equal(acceptedRun([artifact(7, { expired: true })], new Map([run(7)]), repo, ci), undefined);
-  assert.equal(acceptedRun([artifact(7, { workflow_run: { id: 7, head_repository_id: 2002 } })], new Map([run(7)]), repo, ci), undefined);
-  assert.equal(acceptedRun([artifact(7)], new Map([run(7, { head_repository: { id: 2002 } })]), repo, ci), undefined);
-  assert.equal(acceptedRun([artifact(7)], new Map([run(7, { path: ".github/workflows/webgpu.yml" })]), repo, ci), undefined);
-  assert.equal(acceptedRun([artifact(7)], new Map(), repo, ci), undefined);
+  assert.equal(acceptedRun([artifact(7)], new Map([run(7)]), repo, ci, tree, trees), 7);
+  assert.equal(acceptedRun([artifact(7, { expired: true })], new Map([run(7)]), repo, ci, tree, trees), undefined);
+  assert.equal(acceptedRun([artifact(7, { workflow_run: { id: 7, head_repository_id: 2002 } })], new Map([run(7)]), repo, ci, tree, trees), undefined);
+  assert.equal(acceptedRun([artifact(7)], new Map([run(7, { head_repository: { id: 2002 } })]), repo, ci, tree, trees), undefined);
+  assert.equal(acceptedRun([artifact(7)], new Map([run(7, { path: ".github/workflows/webgpu.yml" })]), repo, ci, tree, trees), undefined);
+  assert.equal(acceptedRun([artifact(7)], new Map(), repo, ci, tree, trees), undefined);
+});
+test("a proof counts only from a successful run of a proving event on the tree it names", () => {
+  const accepted = (extra, wanted = tree) => acceptedRun([artifact(7)], new Map([run(7, extra)]), repo, ci, wanted, trees);
+  for (const extra of [{ event: "merge_group", head_branch: "gh-readonly-queue/main/pr-12-abc" }, { event: "push", head_branch: "main" }, { event: "workflow_dispatch", head_branch: "main" }])
+    assert.equal(accepted(extra), 7);
+  for (const extra of [{ conclusion: "failure" }, { status: "in_progress", conclusion: null }, { conclusion: "cancelled" }, { event: "push", head_branch: "feature" },
+    { event: "workflow_dispatch", head_branch: "feature" }, { event: "merge_group", head_branch: "gh-readonly-queue/other/pr-1" }, { event: "schedule", head_branch: "main" },
+    { event: "pull_request_target" }, { head_sha: "0000000000000000000000000000000000000000" }])
+    assert.equal(accepted(extra), undefined, JSON.stringify(extra));
+  // The proof's tree must be the run's head tree: a run cannot prove another tree.
+  assert.equal(accepted({}, "1111111111111111111111111111111111111111"), undefined);
+  assert.equal(accepted({}, "main"), undefined);
+  // A pull request's run also proves a merge of its head (the merge queue's commit has that head as a parent); other events do not.
+  const other = "1111111111111111111111111111111111111111", base = "2222222222222222222222222222222222222222";
+  assert.equal(acceptedRun([artifact(7)], new Map([run(7)]), repo, ci, other, trees, [base, head]), 7);
+  assert.equal(acceptedRun([artifact(7)], new Map([run(7)]), repo, ci, other, trees, [base]), undefined);
+  assert.equal(acceptedRun([artifact(7)], new Map([run(7, { event: "push", head_branch: "main" })]), repo, ci, other, trees, [base, head]), undefined);
 });
 
 // #666: each coverage shard leaves one part, its blob report or a proof marker, and the gate decides from the ten parts.
