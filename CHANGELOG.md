@@ -57,6 +57,9 @@
     its test, not from the root: a failed import rejects with `ImageKernelExecutionError` `quality-code-unavailable` naming the
     kit, the next call retries, and concurrent calls share one import. Bundle rows unchanged (fast 337,888 B, on demand
     51,744 B, export 10,396 B, lens 10,200 B).
+  - *Lean-executor tests require success (`ci-14`).* `same()` in `test/native-environment-lean.test.ts` asserts whether the
+    summary holds an error; the 16 calls of the four coverage tests must succeed and the error tests pass `expectError`, so a
+    configuration that failed the same way on both paths no longer passes a test meant to cover it.
 
 ### Site
 
