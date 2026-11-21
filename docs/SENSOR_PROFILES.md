@@ -21,6 +21,9 @@ r.sensor.dynamicRangeStops; r.sensor.midGrey?.snr; // midGrey: on exact requests
 SENSOR_PROFILES.map((p) => p.name);
 ```
 
+The records are frozen all the way down (2.28.0, #683); several profiles share their fixed-pattern record. To change a value,
+copy the parts you change: `{ ...profile, readNoise: { ...profile.readNoise, lowGainElectrons: 5 } }`.
+
 ## What a profile sets
 
 A profile replaces the camera body's sensor assets: the ISO range and settings, the readout regimes (full well, the

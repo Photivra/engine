@@ -12,6 +12,7 @@
  */
 
 import { InvalidConfigurationError } from "../core/configuration-error.js";
+import { freezeOwnedData } from "../core/owned-data.js";
 import type { SensorProfile } from "./sensor-profile-body.js";
 
 export type { SensorProfile, SensorProfileValueKind } from "./sensor-profile-body.js";
@@ -20,8 +21,11 @@ const BSI = { prnu: .004, dsnu: .15, hotPixelFraction: 5e-5, hotPixelMultiplier:
 const FSI = { prnu: .006, dsnu: .2, hotPixelFraction: 1e-4, hotPixelMultiplier: 40, rowElectrons: .3, columnElectrons: .2 };
 const sourced = (key: string, ...fields: string[]): Record<string, string> => Object.fromEntries(fields.map((f) => [f, "published " + key]));
 
-/** The catalogue, in the issue's order. Frozen. */
-export const SENSOR_PROFILES: readonly SensorProfile[] = /* @__PURE__ */ Object.freeze(([
+/**
+ * The catalogue, in the issue's order. Frozen all the way down (#683): several profiles share one fixed-pattern record, so edit a
+ * copy (`{ ...profile, readNoise: { ...profile.readNoise, lowGainElectrons: 5 } }`), never the resolved record.
+ */
+export const SENSOR_PROFILES: readonly SensorProfile[] = /* @__PURE__ */ freezeOwnedData([
   { id: "full-frame-24mp-bsi-2020s", name: "Full frame 24 MP BSI, 2020s", marketTag: "consumer", architecture: "back-illuminated",
     sensorWidthMm: 36.07, sensorHeightMm: 24.01, pixelsWide: 6072, pixelsHigh: 4042, pixelPitchMicrometers: 5.94, peakQuantumEfficiency: .8,
     fullWellElectrons: 100000, readNoise: { lowGainElectrons: 6.4, highGainElectrons: 1.1, highGainFromIso: 500 }, highGainFullWellElectrons: 20000,
@@ -78,7 +82,7 @@ export const SENSOR_PROFILES: readonly SensorProfile[] = /* @__PURE__ */ Object.
     fixedLenses: "phone", provenance: { ...sourced("S9", "pixels", "pixelPitchMicrometers", "sensorSize", "architecture", "adcBitDepth"), fullWellElectrons: "design (S10 scaled by pixel area)",
       readNoise: "high gain published S10, low gain design", highGainFullWellElectrons: "derived", readoutSeconds: "derived S9 (1 / full-resolution frame rate)",
       fixedPattern: "PRNU, row and column published S10; the rest design", baseIso: "derived" } }
-] satisfies SensorProfile[]).map((p) => Object.freeze(p)));
+] satisfies SensorProfile[]);
 
 /** The profile ids, in catalogue order. */
 export const SENSOR_PROFILE_IDS: readonly string[] = /* @__PURE__ */ Object.freeze(SENSOR_PROFILES.map((p) => p.id));

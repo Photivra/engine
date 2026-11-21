@@ -26,6 +26,11 @@
   every capture's `provenance.evidence` share, were writable until the public catalogue was first asked for, so one write to a
   result's provenance changed it for every later capture. The presets of both versions are now deep-frozen when
   they are built. No value or output changes; fast row +13 B.
+- **`SENSOR_PROFILES` is frozen all the way down (#683).** Its nested records (`readNoise`, `fixedPattern`, `goodFor`,
+  `provenance`) were writable, and the fixed-pattern records are shared by several profiles, so writing into a resolved profile
+  changed the catalogue and its siblings for the rest of the session. A modified copy still works; copy each nested part you
+  change (docs/SENSOR_PROFILES.md). `SIMULATE_CAPTURE_FAST_METHODS` has the same shallow freeze and is left to the facade's
+  change. No value or output changes; bundle rows unchanged (the catalogue is not in the capture worker).
 
 ## 2.27.0 — published November 19, 2026
 

@@ -573,7 +573,9 @@ reports the same `sensor` record as its capture.
 
 `sensor.profile` takes one of eight representative sensor profile records whose values come from
 published specifications (`SENSOR_PROFILES`, or `resolveSensorProfile(id)`; unnamed, by format,
-resolution, architecture and era), checked strictly, so a modified copy also works. It
+resolution, architecture and era), checked strictly, so a modified copy also works. The records are
+frozen all the way down (2.28.0), so copy each nested part you change
+(`{ ...profile, readNoise: { ...profile.readNoise, lowGainElectrons: 5 } }`). It
 replaces the body's ISO range, readout regimes (full well, read noise of each conversion gain, the
 dual-gain switch and the high gain's storage, ADC bit depth), readout time and fixed-pattern noise,
 and sets the default pitch and peak QE; the characteristics above still override it one at a time.
