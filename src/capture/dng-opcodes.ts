@@ -233,7 +233,8 @@ function applyArea(image: DngStageImage, p: AreaParameters, scale: number): void
   const { width, height, planes, data } = image, a = p.area;
   const top = Math.floor(a.top * scale), left = Math.floor(a.left * scale), bottom = Math.min(height, Math.ceil(a.bottom * scale)), right = Math.min(width, Math.ceil(a.right * scale));
   const lastPlane = Math.min(planes, a.plane + a.planes);
-  const clip = (x: number): number => x < 0 ? 0 : x > 1 ? 1 : x;
+  // 2.28.0: NaN (a hand-built coefficient of ±Infinity) clips to 0; every other value, −0 included, as before.
+  const clip = (x: number): number => x >= 0 ? x > 1 ? 1 : x : 0;
   for (let plane = a.plane; plane < lastPlane; plane++) for (let row = top, ri = 0; row < bottom; row += a.rowPitch, ri++) {
     for (let col = left, ci = 0; col < right; col += a.colPitch, ci++) {
       const i = (row * width + col) * planes + plane, x = data[i]!;

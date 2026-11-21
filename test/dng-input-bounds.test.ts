@@ -144,7 +144,8 @@ describe("DNG opcode lists: bounded work and finite results (2.28.0)", () => {
     const op = (parameters: DngOpcode["parameters"]): DngOpcode[] => [{ id: 0, name: "x", dngVersion: [1, 3, 0, 0], optional: false, previewSkip: false, parameters }];
     for (const parameters of [{ opcode: "FixVignetteRadial", coefficients: [1e308, 1e308, 1e308, 1e308, 1e308], centerX: 0.5, centerY: 0.5 },
       { opcode: "WarpRectilinear", planes: [{ radial: [1e308, 1e308, 1e308, 1e308], tangential: [0, 0] }], centerX: 0.5, centerY: 0.5 },
-      { opcode: "WarpRectilinear", planes: [{ radial: [NaN, 0, 0, 0], tangential: [0, 0] }], centerX: 0.5, centerY: 0.5 }] as DngOpcode["parameters"][]) {
+      { opcode: "WarpRectilinear", planes: [{ radial: [NaN, 0, 0, 0], tangential: [0, 0] }], centerX: 0.5, centerY: 0.5 },
+      { opcode: "MapPolynomial", area: { top: 0, left: 0, bottom: 8, right: 8, plane: 0, planes: 1, rowPitch: 1, colPitch: 1 }, coefficients: [Infinity, -Infinity] }] as DngOpcode["parameters"][]) {
       for (const fast of [true, false]) {
         const image = stage(8, 8);
         applyDngOpcodes(image, op(parameters), { stage: 2, fast });
