@@ -111,3 +111,31 @@ jobs:
 
       - name: Qualify progressive browser-native complete events
         run: npm run qualify:native-reference-progressive
+
+  optional-tests:
+    # The two opt-in tests no other workflow runs (owner decision 2026-11-21, ci-13 in #703): the one-megapixel native RAW
+    # exposure and the app's scene as material layers on the float32 emulation (#491). Nightly and on manual dispatch only,
+    # never on pull requests or pushes. Measured on a local Apple silicon host (2026-11-21): 44 s and 8.3 min.
+    name: optional tests
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Use Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: "lts/*"
+      - name: Verify Node.js support policy
+        run: |
+          node --test .github/test-node-lts-policy.mjs
+          node .github/node-lts-policy.mjs
+      - name: Install
+        run: npm ci --ignore-scripts
+      - name: One-megapixel native RAW exposure
+        run: PHOTIVRA_VALIDATE_MEGAPIXEL_RAW=1 npx vitest run test/native-raw-megapixel.test.ts
+      - name: The app's scene as material layers on the float32 emulation
+        run: PHOTIVRA_DISPLAY_VIEW_APP_SCENE=1 npx vitest run test/display-view-speed-gpu-full.test.ts

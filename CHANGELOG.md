@@ -72,6 +72,10 @@
   - *`test/image-plane.test.ts` runs a test alone (`ci-23`).* The "image-plane scene" block has its own `beforeAll` that calls
     `prepareImagePlaneScenes()`, so `-t "clips and counts linear samples"` passes (it failed with "Call
     prepareImagePlaneScenes() first."). The first block, which checks the state before any call, must still run first.
+  - *The two opt-in tests run nightly (`ci-13`, owner decision 2026-11-21).* `native-performance.yml` gains an `optional tests`
+    job, nightly and on manual dispatch only (never on pull requests), 45-minute timeout, that runs
+    `test/native-raw-megapixel.test.ts` with `PHOTIVRA_VALIDATE_MEGAPIXEL_RAW=1` and `test/display-view-speed-gpu-full.test.ts`
+    with `PHOTIVRA_DISPLAY_VIEW_APP_SCENE=1`. Measured locally first: 44 s and 8.3 min (Apple silicon), so both stay scheduled.
 
 ### Site
 

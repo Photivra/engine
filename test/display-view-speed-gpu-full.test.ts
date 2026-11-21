@@ -5,7 +5,8 @@
  * emulation against the CPU reference per pixel. One whole view: the CPU reference takes tens of seconds on this host and the
  * emulation about as long, so this file runs apart from the small fixtures (test/display-view-speed-gpu.test.ts).
  *
- * #491, opt-in (`PHOTIVRA_DISPLAY_VIEW_APP_SCENE=1`, about 15 minutes on this 4-vCPU host, most of it the emulation): the app's request shape with its scene declared
+ * #491, opt-in (`PHOTIVRA_DISPLAY_VIEW_APP_SCENE=1`, about 15 minutes on a 4-vCPU host, 8.3 min for the file on an Apple silicon host, most of it the
+ * emulation; run nightly by .github/workflows/native-performance.yml, ci-13 in #703): the app's request shape with its scene declared
  * as `material-layers` (the app's composite chart of scripts/lib/display-view-app-request.mjs under a label layer, a fixed-size chart
  * 0.42 m wide at 0.63 m) through the composite material module, scored with the preview acceptance harness's reduction (#480).
  */
