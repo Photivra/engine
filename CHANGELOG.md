@@ -26,6 +26,10 @@
   marked pure, so a bundler drops the SDR and luminance preludes from the display view's GPU session, which uses only the
   irradiance convolution shader. The shader strings are unchanged (same SHA-256 for all four). Fast worker row 338,380 →
   336,612 B (−1,768 B; session chunk 33,950 → 32,182 B), measured with rolldown 1.2.9; on-demand and export rows unchanged.
+- **Bundle rows measured with the app's bundler (#691).** `test/capture-bundle.test.ts` builds with rolldown 1.2.14 (was
+  1.2.9), the version the Photivra app's worker build uses through Vite 8.3.2 (owner decision 2026-11-21). Re-measured: fast
+  worker 336,616 B, on demand 51,987 B, export 10,399 B; limits lowered to each measurement rounded up to the next 100 B
+  (fast 338,900 → 336,700 B, export 10,500 → 10,400 B; on demand stays 52,000 B until #658). No package change.
 
 ## 2.27.0 — published November 19, 2026
 

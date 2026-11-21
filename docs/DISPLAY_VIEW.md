@@ -1748,6 +1748,20 @@ root exports of the built package, minified, gzip level 9; `test/capture-bundle.
   The GPU coupled steps (#593) load on demand too and count in that row. The bundler now gives the entry ten small chunks it
   shares with the kits (imported statically; 252,371 B of entry plus 27,348 B), so the display view's addition is measured on
   the entry and those chunks together: 38,370 B minified and 14,126 B gzip (2.21.0: 46,270 B and 18,327 B).
+
+  **The bundler version and the 2.28.0 limits (#690, #691, owner decision 2026-11-21).** The rows are measured with the
+  rolldown version the Photivra app's worker build uses (1.2.14, through Vite 8.3.2); the `rolldown` pin in `package.json`
+  follows the app when it updates. #690 lets a bundler drop the SDR and luminance shader text that the GPU session chunk
+  carried unused (session chunk 33,950 → 32,182 B). Each limit is its row's measurement rounded up to the next 100 B, and
+  limits only go down:
+
+  | Row (worker shape, gzip) | 2.27.0 (rolldown 1.2.9) | After #690 (rolldown 1.2.9) | After #691 (rolldown 1.2.14) | Limit |
+  | --- | --- | --- | --- | --- |
+  | fast worker | 338,380 B | 336,612 B | **336,616 B** | 336,700 B (was 338,900 B) |
+  | on demand | 51,999 B | 51,999 B | **51,987 B** | 52,000 B (unchanged; #658 brings it to 49,400 B) |
+  | export | 10,399 B | 10,399 B | **10,399 B** | 10,400 B (was 10,500 B) |
+
+  Rolldown 1.2.14 builds the same 25 chunks as 1.2.9.
 - **Shipped shaders are minified (2.14, #536).** `npm run build` strips comments and indentation from the WGSL source
   (`scripts/minify-wgsl-dist.mjs`, see [WebGPU, Shipped shader text](WEBGPU.md#shipped-shader-text)). Measured on the app's
   production build (Vite 8, app 0.50.0 at `a82a5eb`, engine `main` at `42ec9d8` packed before and after): the GPU session

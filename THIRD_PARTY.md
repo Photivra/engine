@@ -13,7 +13,7 @@ This file records direct development and CI dependencies intentionally used by t
 | typescript-eslint | 8.70.0 | TypeScript ESLint integration | MIT |
 | Vitest | 5.0.1 | Unit/integration testing | MIT |
 | @vitest/coverage-v8 | 5.0.1 | V8-backed test coverage | MIT |
-| rolldown | 1.2.9 | Bundling test of capture-only consumers (`test/capture-bundle.test.ts`) | MIT |
+| rolldown | 1.2.14 | Bundling test of capture-only consumers (`test/capture-bundle.test.ts`) | MIT |
 | jxl-oxide-wasm | 0.12.6 | JPEG XL tile decoding in the phone DNG import tests (`test/dng-import-phone.test.ts`); see [JPEG XL](#jpeg-xl-2220) | MIT OR Apache-2.0 |
 | actions/checkout | v7 / `3d3c42e5aac5ba805825da76410c181273ba90b1` | CI checkout | MIT |
 | actions/setup-node | v7 / `820762786026740c76f36085b0efc47a31fe5020` | CI Node setup | MIT |
