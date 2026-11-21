@@ -264,10 +264,12 @@ export function detailLimitOpticsMtf(w: DetailLimitWavefront, s: number, tangent
   return Math.min(1, Math.hypot(re, im) / Math.PI);
 }
 
-/** Smallest s in (0, 1) where f(s) ≤ 0.5: a scan from 0 with the given step, then bisection. */
+/** Smallest s in (0, 1) where f(s) ≤ 0.5: a scan from 0 with the given step (finite, > 0), then bisection. */
 function firstHalfCrossing(f: (s: number) => number, step: number): number {
+  if (!(step > 0 && step <= 1)) throw new InvalidScientificInputError("The detail-limit scan step must be in (0, 1].");
   let lo = 0;
-  for (let s = step; ; s += step) {
+  // The scan reaches 1 within ⌈1/step⌉ steps; the bound only guards the loop.
+  for (let s = step, k = 0, steps = 2 * Math.ceil(1 / step) + 2; k < steps; s += step, k++) {
     const hi = Math.min(s, 1);
     if (f(hi) <= 0.5) {
       let a = lo, b = hi;
@@ -277,6 +279,7 @@ function firstHalfCrossing(f: (s: number) => number, step: number): number {
     if (hi >= 1) return 1;
     lo = hi;
   }
+  return 1;
 }
 
 /** The diffraction-limited MTF50 as a fraction of the cut-off: (2/π)(acos s − s√(1 − s²)) = 0.5, s ≈ 0.40397. */
@@ -378,6 +381,10 @@ export function calculateDetailLimit(input: CalculateDetailLimitInput): Calculat
   wavefront.defocus += defocusWaves;
   const totalRms = rmsWaves(wavefront), defocusRms = Math.abs(defocusWaves) / (2 * Math.sqrt(3));
   const magnitude = wavefrontMagnitude(wavefront);
+  // Finite but extreme inputs (a focus distance near the float range, an f-number near 0) can overflow the image geometry.
+  if (![sensorImageMm, subjectImageMm, pupilMm, workingFNumber, defocusWaves, defocusBlurDiameterMm, aberrationRms, totalRms].every(Number.isFinite) || !(workingFNumber > 0)) {
+    throw new InvalidScientificInputError("The focus distance, f-number and focal length give an image geometry outside the floating-point range; use values within the physical range.");
+  }
   if (magnitude > DETAIL_LIMIT_LIMITS.maximumWavefrontWaves) {
     throw new InvalidScientificInputError(`The wavefront (${magnitude.toPrecision(3)} waves, defocus blur ${defocusBlurDiameterMm.toPrecision(3)} mm) exceeds ` +
       `${DETAIL_LIMIT_LIMITS.maximumWavefrontWaves} waves: the blur is geometric; use calculateDefocusCircle for it.`);
@@ -385,6 +392,9 @@ export function calculateDetailLimit(input: CalculateDetailLimitInput): Calculat
 
   const pitchMm = input.sensor.widthMm / input.sensor.pixelWidth, cutoff = 1 / (lambdaMm * workingFNumber), nyquist = 1 / (2 * pitchMm);
   const step = Math.min(1 / 128, 1 / (32 * Math.max(1, magnitude)));
+  if (!Number.isFinite(cutoff) || !Number.isFinite(nyquist)) {
+    throw new InvalidScientificInputError("The f-number, wavelength and pixel pitch give a cut-off frequency outside the floating-point range.");
+  }
   const symmetric = wavefront.coma === 0 && wavefront.astigmatism === 0;
   const opticsAt = (s: number, tangential: boolean): number => detailLimitOpticsMtf(wavefront, s, tangential);
   const tangential50 = firstHalfCrossing((s) => opticsAt(s, true), step) * cutoff;
