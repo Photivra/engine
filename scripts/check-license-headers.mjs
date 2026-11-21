@@ -4,7 +4,9 @@ import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import { stdout } from "node:process";
 
-const ROOTS = ["src", "scripts"];
+// site: the documentation site's generator, checks and tools (#669); its installed tools are skipped.
+const ROOTS = ["src", "scripts", "site"];
+const SKIP = new Set(["node_modules", ".cache"]);
 const EXPECTED = "// SPDX-License-Identifier: Apache-2.0";
 const violations = [];
 
@@ -15,6 +17,7 @@ async function walk(directory) {
     const fullPath = path.join(directory, entry.name);
 
     if (entry.isDirectory()) {
+      if (SKIP.has(entry.name)) continue;
       await walk(fullPath);
       continue;
     }
