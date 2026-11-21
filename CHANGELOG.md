@@ -60,6 +60,9 @@
   - *Lean-executor tests require success (`ci-14`).* `same()` in `test/native-environment-lean.test.ts` asserts whether the
     summary holds an error; the 16 calls of the four coverage tests must succeed and the error tests pass `expectError`, so a
     configuration that failed the same way on both paths no longer passes a test meant to cover it.
+  - *The SPDX-header gate's scope (`ci-15`, owner decision 2026-11-21).* `npm run check:license-headers` also reads `test/`,
+    `.github/` and the repository root's own source files, and every `.ts`, `.mts`, `.cts`, `.js`, `.mjs` and `.cjs` file;
+    `vitest.config.ts`, `vitest.webgpu.config.ts` and `eslint.config.js` carry the Apache-2.0 header, with no exceptions list.
 
 ### Site
 

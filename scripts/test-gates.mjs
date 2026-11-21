@@ -9,6 +9,10 @@ import { checkLinks, repositoryWebUrl } from "./check-release-docs.mjs";
 import { licenseAllowed, checkLockfile } from "./check-license-policy.mjs";
 import { identityViolations, isText } from "./check-project-identity.mjs";
 import { orphanPages } from "./lib/generated-pages.mjs";
+import { licenseHeaderViolations } from "./check-license-headers.mjs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 const REPO = "https://github.com/Photivra/engine";
 
@@ -90,4 +94,21 @@ test("the API-reference check names a page it no longer generates (ci-09 in #703
   assert.deepEqual(orphanPages("docs/api", listing.filter((name) => name !== "zz-removed-module.md"), emitted), []);
   // Only generated kinds count: a page or JSON file the generator could have written, not any file.
   assert.deepEqual(orphanPages("docs/api", ["old.json"], new Set()), ["docs/api/old.json"]);
+});
+
+test("the SPDX-header gate reads test/, .github/ and the root configuration files (ci-15 in #703)", async () => {
+  const root = mkdtempSync(join(tmpdir(), "spdx-gate-"));
+  try {
+    const write = (path, text) => { mkdirSync(join(root, path, ".."), { recursive: true }); writeFileSync(join(root, path), text); };
+    const header = "// SPDX-License-Identifier: Apache-2.0\n";
+    for (const path of ["src/a.ts", "scripts/b.mjs", "site/c.mjs", "test/d.test.ts", ".github/e.mjs", "vitest.config.ts", "eslint.config.js", "scripts/lib/f.d.mts"])
+      write(path, header + "export {};\n");
+    write("site/node_modules/pkg/index.js", "module.exports = 1;\n");
+    write("README.md", "# no header needed\n");
+    assert.deepEqual(await licenseHeaderViolations(root), []);
+    for (const path of ["test/new.test.ts", ".github/new-tool.mjs", "vitest.webgpu.config.ts", "eslint.config.js", "test/helpers/g.js"]) write(path, "export {};\n");
+    assert.deepEqual(await licenseHeaderViolations(root), [".github/new-tool.mjs", "eslint.config.js", "test/helpers/g.js", "test/new.test.ts", "vitest.webgpu.config.ts"]);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });
