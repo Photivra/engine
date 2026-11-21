@@ -22,6 +22,26 @@
     (docs/NUMERICAL_CORRECTNESS.md).
   - *Proof uploads and the macOS check (`ci-20`, `ci-21` in #703).* A failed proof upload no longer fails a job whose work passed;
     `hash locks (macos-latest)` drops `continue-on-error` and is documented as the blocking required check it is.
+- **Input bounds (2.28.0 step 3).** Limits on inputs whose size sets the work or memory of one call, checked before allocation;
+  results for requests within them are unchanged.
+  - *DNG.* At most 64 opcodes are applied per opcode list (the rest are reported, not applied); FixBadPixelsList rectangles are
+    marked in one pass; a WarpRectilinear or FixVignetteRadial coefficient beyond ±10⁶ makes its list malformed, and opcode results
+    stay finite. `maximumBytes` now counts semantic masks, which are decoded strip by strip; a file whose masks push the estimate
+    over it now fails with `InvalidConfigurationError`. A file with very many strips or tiles imports. A tag that must hold one
+    value and holds none, a header with no IFD, and a decoded JPEG XL tile PNG without a leading 13-byte IHDR fail with
+    `InvalidConfigurationError`. `serializeRewrittenDng` requires strip or tile tables that match the image layout and do not
+    overlap. The DNG noise estimate's median selection has an O(n log n) worst case.
+  - *Release sequences* hold at most 10,000 frames (`maximumLogicalFramesPerSequence` too).
+  - *Temporal samples.* The rotation and translation quadratures, the extended-object projection and the stabilized capture
+    samples take at most 256 temporal samples and 65,536 nodes (samples × points).
+  - *Charts.* A composite's distinct dead-leaves elements together use at most 8,388,608 lookup cells and 8,000,000 disks;
+    identical elements are resolved once.
+  - *Optics.* `calculateDetailLimit` refuses finite inputs whose image geometry overflows (it did not return); Airy cells whose
+    frequency-domain work would exceed 2.5 × 10⁸ steps use the real-space method (agreement within 2 × 10⁻¹³).
+  - *Sensor.* Spectral curves are interpolated by binary search (same values); channel lists with holes are refused.
+  - *CI.* A test-once proof counts only from a successful run on the tree it names; a re-run of `publish.yml` for a version that
+    is already published passes only when the registry's `dist.integrity` matches the verified tarball. The Playwright install
+    exception is documented in docs/DEVELOPERS.md.
 
 ## 2.27.0 — published November 19, 2026
 
