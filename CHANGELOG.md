@@ -1,5 +1,28 @@
 # Changelog
 
+## Unreleased
+
+- **Tooling, CI and tests only (2.28.0 step 1); no package, API, output or bundle change.**
+  - *Coverage gates decide per shard (#666, with `ci-07`).* Each coverage shard uploads one part, its blob report or a marker
+    naming the `coverage` proof it found; `.github/coverage-parts.mjs` merges ten blobs with the thresholds enforced, passes a
+    mix of markers and blobs on the proof, and fails on a missing, doubled or unknown part. `publish.yml` no longer reads a
+    matrix job's output (the 2.27.0 publish run failed its gate on that), `ci.yml`'s merge-queue path has the same decision, and
+    `verify (lts/*)` names a new proof only after a merge. Proof names keep the exact Node.js release.
+  - *Shard start order (#665).* A test file without a recorded time starts first in its shard; the `alone` list is empty; a test
+    fails while a test file has no recorded time in `test/shard-weights.json`, or when a recorded time passes 900 s (#693).
+  - *The longest coverage file is split (#693).* `test/display-view-lens-catalogue-regrouped.test.ts` becomes `-1` and `-2`
+    (the uniform-window check by lens set; same cases, bounds and timeouts). Its weight is divided between the halves until the
+    weights are re-recorded from the first green CI run after the split.
+  - *WebGPU conformance (#713).* It also runs on pull requests that change `src/facade/display-view*.ts`,
+    `src/facade/simulate-display-view.ts`, `test/helpers/` or `scripts/lib/wgsl-minify.mjs`, and the publish workflow's new
+    `WebGPU conformance proofs` job stops a release unless all three parts passed on the tagged tree (CONTRIBUTING.md).
+  - *Display-view hash locks (#697).* Each case locks `samples` (image bytes) apart from `internals` (float64 values and
+    diagnostics), recorded at 2.27.0's results on x64 and arm64; every earlier lock is kept beside them for this release and
+    holds unchanged. A change that claims "samples unchanged" must leave every `samples` lock as it is
+    (docs/NUMERICAL_CORRECTNESS.md).
+  - *Proof uploads and the macOS check (`ci-20`, `ci-21` in #703).* A failed proof upload no longer fails a job whose work passed;
+    `hash locks (macos-latest)` drops `continue-on-error` and is documented as the blocking required check it is.
+
 ## 2.27.0 — published November 19, 2026
 
 A minor release: lower CPU cost of the display view with lens corrections and sharpening (#649), with camera rotation under a
