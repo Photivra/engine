@@ -67,6 +67,75 @@ export function jobNodeVersions(workflowText, job) {
   return { matrix, setup };
 }
 
+// The jobs of a workflow, by id, each with the text of its block (the lines from `  <id>:` to
+// the next line at two spaces' indent or less).
+export function workflowJobs(workflowText) {
+  const lines = workflowText.split("\n");
+  const start = lines.indexOf("jobs:");
+  assert.ok(start !== -1, "The workflow has no `jobs:`.");
+  const jobs = new Map();
+  let id, from;
+  for (let i = start + 1; i <= lines.length; i++) {
+    const header = i < lines.length ? /^ {2}([A-Za-z0-9_-]+):\s*$/.exec(lines[i]) : null;
+    if (i === lines.length || header || (lines[i] !== "" && /^\S/.test(lines[i]))) {
+      if (id) jobs.set(id, lines.slice(from, i).join("\n"));
+      id = header?.[1];
+      from = i;
+      if (!header && i < lines.length) break;
+    }
+  }
+  return jobs;
+}
+
+// The ids of the jobs that run as a matrix. GitHub keeps one value of a matrix job's output for
+// the whole matrix (the one written last), so `needs.<matrix job>.outputs` reads one part's
+// value as if it were the job's (#666).
+export function matrixJobs(workflowText) {
+  const isMatrix = (block) => {
+    const lines = block.split("\n");
+    const strategy = lines.indexOf("    strategy:");
+    if (strategy === -1) return false;
+    for (const line of lines.slice(strategy + 1)) {
+      if (/^ {0,4}\S/.test(line)) return false;
+      if (/^ {6}matrix:/.test(line)) return true;
+    }
+    return false;
+  };
+  return [...workflowJobs(workflowText)].filter(([, block]) => isMatrix(block)).map(([id]) => id);
+}
+
+// Rules on the workflow texts that are not about Node.js roles: each one guards a defect that a
+// green run would not show. `errors` lists the broken rules.
+export function workflowRuleErrors({ ciText, publishText }) {
+  const errors = [];
+  const workflows = { "ci.yml": ciText, "publish.yml": publishText };
+  for (const [file, text] of Object.entries(workflows)) {
+    const matrix = matrixJobs(text);
+    for (const [, job] of text.matchAll(/needs\.([A-Za-z0-9_-]+)\.outputs\./g))
+      if (matrix.includes(job)) errors.push(`${file} reads \`needs.${job}.outputs\`, but \`${job}\` is a matrix job: GitHub keeps one part's value for the whole matrix (#666).`);
+  }
+  // #666: the coverage gates decide from the ten parts (a blob or a proof marker each), not from a count of blobs.
+  for (const [file, text, job] of [["ci.yml", ciText, "verify-primary"], ["publish.yml", publishText, "coverage"]]) {
+    const block = workflowJobs(text).get(job) ?? "";
+    if (!block.includes("run: node .github/coverage-parts.mjs .vitest-reports 10"))
+      errors.push(`The coverage gate (${file}, job \`${job}\`) must decide from the ten parts with \`node .github/coverage-parts.mjs .vitest-reports 10\` (#666).`);
+    if (block.includes('test "$(find')) errors.push(`The coverage gate (${file}, job \`${job}\`) must not count blob files itself; .github/coverage-parts.mjs decides (#666).`);
+    if (!/name: Merge the ten parts[^\n]*\n\s+if: [^\n]*steps\.parts\.outputs\.action == 'merge'/.test(block))
+      errors.push(`The coverage gate (${file}, job \`${job}\`) must merge the parts only when .github/coverage-parts.mjs says \`merge\` (#666).`);
+  }
+  const shardJobs = [["ci.yml", ciText], ["publish.yml", publishText]];
+  for (const [file, text] of shardJobs) {
+    const block = workflowJobs(text).get("coverage-shard") ?? "";
+    if (!/name: coverage-part-\$\{\{ matrix\.shard \}\}/.test(block) || !block.includes("proven-${{ matrix.shard }}.txt"))
+      errors.push(`Each coverage shard (${file}) must upload one part, \`coverage-part-<k>\`: its blob or its proof marker (#666).`);
+  }
+  // A proven decision did not run the suite under coverage on this runner's release: it must name no new proof (#666).
+  const verifyPrimary = workflowJobs(ciText).get("verify-primary") ?? "";
+  if (!/id: proof-name\n\s+if: [^\n]*steps\.parts\.outputs\.action == 'merge'/.test(verifyPrimary))
+    errors.push("`verify (lts/*)` must name the `coverage` proof only after a merge of ten blobs (#666).");
+  return errors;
+}
+
 // The supported major an alias stands for on a date, or undefined (none, or an EOL exact
 // version). Exact versions keep their major only while that major is in a reviewed window.
 export function resolveLeg(alias, at = new Date()) {
@@ -168,11 +237,14 @@ export function readRepositoryFiles(root = new URL("../", import.meta.url)) {
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const at = new Date();
-  const { legs, skipping, errors, notices } = matrixDrift(readRepositoryFiles(), at);
+  const files = readRepositoryFiles();
+  const { legs, skipping, errors: drift, notices } = matrixDrift(files, at);
+  const errors = [...drift, ...workflowRuleErrors(files)];
   log(`CI Node legs on ${at.toISOString().slice(0, 10)}: ${legs.map(({ leg, major }) => `${leg} → ${major ?? "none"}`).join(", ")}` +
     (skipping.length ? `; ${skipping.join(", ")} skip their test work (the primary leg's release).` : "."));
   for (const notice of notices) log(`::notice title=CI Node roles::${notice}`);
-  for (const message of errors) error(`::error title=CI Node matrix drift::${message}`);
+  for (const message of drift) error(`::error title=CI Node matrix drift::${message}`);
+  for (const message of errors.slice(drift.length)) error(`::error title=CI workflow rule::${message}`);
   if (errors.length > 0) process.exitCode = 1;
-  else log("The CI Node matrix matches the reviewed support policy.");
+  else log("The CI Node matrix matches the reviewed support policy, and the workflow rules hold.");
 }

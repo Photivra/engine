@@ -17,9 +17,13 @@ permissions:
 # The whole suite under coverage no longer fits one job: 2.11.0's single-job coverage gate
 # was still running when the 25-minute limit cancelled it (run 40636849817, 2026-10-28), so
 # 2.11.0 never reached npm. Coverage now runs as ten parallel shards (eight in 2.22.0, six in 2.21.0), balanced as in ci.yml
-# (test/helpers/weighted-shard-sequencer.ts), beside `verify`; `coverage gate` merges them and
-# enforces the thresholds of vitest.config.ts on the whole suite. `publish` needs both: the
-# package is published only from a tree that passed every gate, as before (#510).
+# (test/helpers/weighted-shard-sequencer.ts), beside `verify`. Each shard leaves one part: its
+# blob report, or a marker when ci.yml's coverage proof of this exact tree and Node.js release
+# lets it skip the repeat. `coverage gate` decides from the ten parts (.github/coverage-parts.mjs,
+# #666): ten blobs are merged and the thresholds of vitest.config.ts enforced on the whole suite;
+# a mix of markers and blobs passes on the proof (that run enforced them on this tree); a missing
+# or doubled part fails. `publish` needs both: the package is published only from a tree that
+# passed every gate, as before (#510).
 jobs:
   verify:
     runs-on: ubuntu-latest
@@ -166,8 +170,8 @@ jobs:
         # took 9-15 minutes under coverage and one or two of six shards reached the 20-minute limit on every run. Six since
         # 2.21.0: the suite grew about 28 % (CI test legs 2,612 -> 3,350 s) and three of four shards reached the limit (#596).
         shard: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
-    outputs:
-      proven: ${{ steps.proof.outputs.found }}
+    # No job outputs: GitHub keeps one value of a matrix job's output for the whole matrix, the one written last. The 2.27.0
+    # publish run (44527274998) had nine proven shards and one that ran, read the one value `false` and failed the gate (#666).
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -193,18 +197,30 @@ jobs:
       - name: Tests with coverage, this quarter
         if: steps.proof.outputs.found != 'true'
         run: npx vitest run --coverage --shard=${{ matrix.shard }}/10 --reporter=blob --outputFile=.vitest-reports/blob-${{ matrix.shard }}-10.json
-      - name: Keep the blob report for the merge
-        if: steps.proof.outputs.found != 'true'
+      - name: Mark this part as proven
+        if: steps.proof.outputs.found == 'true'
+        env:
+          PROOF_RUN: ${{ steps.proof.outputs.run }}
+        run: |
+          mkdir -p .vitest-reports
+          printf '%s\n' "$PROOF_RUN" > ".vitest-reports/proven-${{ matrix.shard }}.txt"
+      - name: Keep this coverage part for the gate
+        # One file: the blob report or the proof marker (.github/coverage-parts.mjs).
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: coverage-blob-${{ matrix.shard }}
-          path: .vitest-reports/blob-${{ matrix.shard }}-10.json
+          name: coverage-part-${{ matrix.shard }}
+          path: |
+            .vitest-reports/blob-${{ matrix.shard }}-10.json
+            .vitest-reports/proven-${{ matrix.shard }}.txt
           if-no-files-found: error
           retention-days: 1
+          overwrite: true
 
   coverage:
-    # The coverage gate: all ten shards merged, thresholds enforced on the whole suite. A
-    # skipped or failed shard fails it.
+    # The coverage gate, decided from the ten parts (.github/coverage-parts.mjs, #666): ten blob
+    # reports are merged and the thresholds enforced on the whole suite; parts proven by ci.yml's
+    # coverage proof of this tree pass without a merge. A failed or skipped shard fails it, and so
+    # does a part that is missing, present twice or not a blob or a marker.
     name: coverage gate
     needs: coverage-shard
     runs-on: ubuntu-latest
@@ -219,21 +235,21 @@ jobs:
         with:
           node-version: "24"
           package-manager-cache: false
-      - name: Install
-        if: needs.coverage-shard.outputs.proven != 'true'
-        run: npm ci --ignore-scripts
       - name: Download the ten coverage parts
-        if: needs.coverage-shard.outputs.proven != 'true'
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          pattern: coverage-blob-*
+          pattern: coverage-part-*
           merge-multiple: true
           path: .vitest-reports
-      - name: Coverage gate (all ten parts merged, thresholds enforced)
-        if: needs.coverage-shard.outputs.proven != 'true'
-        run: |
-          test "$(find .vitest-reports -maxdepth 1 -name 'blob-*-10.json' | wc -l)" = "10"
-          npx vitest --merge-reports .vitest-reports --coverage
+      - name: Decide from the ten parts
+        id: parts
+        run: node .github/coverage-parts.mjs .vitest-reports 10
+      - name: Install
+        if: steps.parts.outputs.action == 'merge'
+        run: npm ci --ignore-scripts
+      - name: Merge the ten parts (thresholds enforced)
+        if: steps.parts.outputs.action == 'merge'
+        run: npx vitest --merge-reports .vitest-reports --coverage
 
   publish:
     needs: [verify, coverage]

@@ -245,14 +245,26 @@ jobs:
           npx vitest run --coverage --shard=${{ matrix.shard }}/10
           --reporter=blob --outputFile.blob=.vitest-reports/blob-${{ matrix.shard }}-10.json
           --reporter=json --outputFile.json=.vitest-timings/coverage-${{ matrix.shard }}-10.json
-      - name: Keep the blob report for the merge
-        if: env.RUNS == 'true' && steps.proof.outputs.found != 'true'
+      - name: Mark this part as proven
+        # Merge-queue entries only (the only lookup): the part found the `coverage` proof of this tree on this runner's release.
+        if: github.event_name == 'merge_group' && env.RUNS == 'true' && steps.proof.outputs.found == 'true'
+        env:
+          PROOF_RUN: ${{ steps.proof.outputs.run }}
+        run: |
+          mkdir -p .vitest-reports
+          printf '%s\n' "$PROOF_RUN" > ".vitest-reports/proven-${{ matrix.shard }}.txt"
+      - name: Keep this coverage part for the merge
+        # One file: the blob report or the proof marker; `verify (lts/*)` decides from the ten (.github/coverage-parts.mjs, #666).
+        if: env.RUNS == 'true'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: coverage-blob-${{ matrix.shard }}
-          path: .vitest-reports/blob-${{ matrix.shard }}-10.json
+          name: coverage-part-${{ matrix.shard }}
+          path: |
+            .vitest-reports/blob-${{ matrix.shard }}-10.json
+            .vitest-reports/proven-${{ matrix.shard }}.txt
           if-no-files-found: error
           retention-days: 1
+          overwrite: true
       - name: Keep the per-file times
         # Also after a failed run (the JSON report names the failing test, which the blob reporter does not print).
         if: ${{ !cancelled() && env.RUNS == 'true' && steps.proof.outputs.found != 'true' }}
@@ -267,7 +279,8 @@ jobs:
     # The required `verify (lts/*)` check. It runs even when a shard failed (a
     # skipped required check would count as passing) and then fails at once; it
     # merges the ten coverage parts and enforces the coverage thresholds of
-    # vitest.config.ts on the whole suite, and runs the static, documentation and
+    # vitest.config.ts on the whole suite (on a merge-queue entry, parts proven by the
+    # `coverage` proof pass without the merge: .github/coverage-parts.mjs, #666), and runs the static, documentation and
     # package gates on the primary leg, Node 24 (pinned since 2.20.0, #231; the check
     # keeps its required name `verify (lts/*)`). Its proof is the `coverage` proof the
     # shards and `main smoke` look up.
@@ -316,14 +329,18 @@ jobs:
         if: env.TESTS == 'true' && steps.proof.outputs.found != 'true'
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          pattern: coverage-blob-*
+          pattern: coverage-part-*
           merge-multiple: true
           path: .vitest-reports
-      - name: Coverage gate (all ten parts merged, thresholds enforced)
+      - name: Decide from the ten parts
+        # Ten blobs (every pull request): merge. A merge-queue entry whose shards mixed proven and unproven parts (two Node.js
+        # releases on the runners) passes on the proof instead of failing on a blob count (#666, ci-07).
+        id: parts
         if: env.TESTS == 'true' && steps.proof.outputs.found != 'true'
-        run: |
-          test "$(find .vitest-reports -maxdepth 1 -name 'blob-*-10.json' | wc -l)" = "10"
-          npx vitest --merge-reports .vitest-reports --coverage
+        run: node .github/coverage-parts.mjs .vitest-reports 10
+      - name: Merge the ten parts (coverage gate, thresholds enforced)
+        if: env.TESTS == 'true' && steps.proof.outputs.found != 'true' && steps.parts.outputs.action == 'merge'
+        run: npx vitest --merge-reports .vitest-reports --coverage
       - name: Build
         if: steps.proof.outputs.found != 'true'
         run: npm run build
@@ -337,8 +354,9 @@ jobs:
         if: steps.proof.outputs.found != 'true'
         run: npm run pack:check
       - name: Name the proof
+        # Only after a merge: a decision made on markers ran no coverage on this runner's Node.js release (#666).
         id: proof-name
-        if: env.TESTS == 'true' && steps.proof.outputs.found != 'true'
+        if: env.TESTS == 'true' && steps.proof.outputs.found != 'true' && steps.parts.outputs.action == 'merge'
         run: |
           node .github/ci-proof.mjs name coverage
           echo "$GITHUB_RUN_ID" > "$RUNNER_TEMP/ci-proof.txt"

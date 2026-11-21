@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 import assert from "node:assert/strict";
 import test from "node:test";
-import { ciNodeRoles, jobNodeVersions, matrixDrift, readRepositoryFiles, resolveLeg } from "./node-ci-roles.mjs";
+import { ciNodeRoles, jobNodeVersions, matrixDrift, matrixJobs, readRepositoryFiles, resolveLeg, workflowJobs, workflowRuleErrors } from "./node-ci-roles.mjs";
 import { lifecycleAt } from "./node-lts-policy.mjs";
 
 const files = readRepositoryFiles();
@@ -83,4 +83,25 @@ test("drift between the workflow and the policy fails", () => {
     [({ supportText }) => ({ supportText: supportText.replace("| `lts/-1` |", "| `lts/-2` |") }), /alias table/]
   ];
   for (const [change, expected] of cases) assert.match(errorsOf(change).join("\n"), expected);
+});
+
+const ruleErrorsOf = (change) => workflowRuleErrors(edit(change)).join("\n");
+test("the workflow reader finds each job and the matrix jobs", () => {
+  assert.deepEqual([...workflowJobs(files.publishText).keys()].slice(0, 3), ["verify", "coverage-shard", "coverage"]);
+  assert.deepEqual(matrixJobs(files.ciText), ["test", "verify", "coverage-shard"]);
+  assert.deepEqual(matrixJobs(files.publishText), ["coverage-shard"]);
+});
+test("the workflow rules hold for the repository's workflows", () => {
+  assert.deepEqual(workflowRuleErrors(files), []);
+});
+test("a gate that reads a matrix job's output, or counts blobs instead of deciding from the parts, fails (#666)", () => {
+  const cases = [
+    [({ publishText }) => ({ publishText: publishText.replace("if: steps.parts.outputs.action == 'merge'", "if: needs.coverage-shard.outputs.proven != 'true'") }), /reads `needs\.coverage-shard\.outputs`/],
+    [({ ciText }) => ({ ciText: ciText.replace("run: node .github/coverage-parts.mjs .vitest-reports 10", 'run: test "$(find .vitest-reports -name \'blob-*\' | wc -l)" = "10"') }), /\(ci\.yml, job `verify-primary`\) must decide from the ten parts[\s\S]*must not count blob files/],
+    [({ publishText }) => ({ publishText: publishText.replace("run: node .github/coverage-parts.mjs .vitest-reports 10", "run: true") }), /\(publish\.yml, job `coverage`\) must decide from the ten parts/],
+    [({ publishText }) => ({ publishText: publishText.replace(/(name: Merge the ten parts[^\n]*\n\s+)if: [^\n]*/, "$1if: always()") }), /\(publish\.yml, job `coverage`\) must merge the parts only when/],
+    [({ ciText }) => ({ ciText: ciText.replace("name: coverage-part-${{ matrix.shard }}", "name: coverage-blob-${{ matrix.shard }}") }), /Each coverage shard \(ci\.yml\) must upload one part/],
+    [({ ciText }) => ({ ciText: ciText.replace(/(id: proof-name\n\s+if: [^\n]*?) && steps\.parts\.outputs\.action == 'merge'/, "$1") }), /must name the `coverage` proof only after a merge/]
+  ];
+  for (const [change, expected] of cases) assert.match(ruleErrorsOf(change), expected);
 });
