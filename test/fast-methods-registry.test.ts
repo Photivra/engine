@@ -97,7 +97,8 @@ describe("the fast-method registry (2.20.0)", () => {
     }
     const exactBytes = (await serializeSimulatedCaptureDngFromParts(options, parts)).bytes;
     expect(exactBytes).toEqual((await simulateCapture(options)).image.dng);
-    const flagged = parts.map((p) => ({ ...p, fast: true }));
+    // #728: a region result's own region.fast takes precedence over the part's fast.
+    const flagged = parts.map((p) => ({ ...p, region: { ...p.region, fast: true } }));
     await expect(serializeSimulatedCaptureDngFromParts(options, flagged)).rejects.toThrow(/Part 0: a fast method rendered it/u);
     expect((await serializeSimulatedCaptureDngFromParts({ ...options, fast: true }, flagged)).bytes).toEqual(exactBytes);
   }, scaledTimeout(60_000));

@@ -2092,7 +2092,12 @@ Each part is a region result's `raw` and `region` (any region format; `result.ra
 `result.region.nativeRect` where they lie). A region's sites are the whole render's sites, so the joined RAW is the whole
 render's RAW; the function then resolves the request and writes the DNG exactly as `simulateCapture` does, and the bytes
 are the same. The parts must cover the frame's native raster; where they overlap (the demosaic margin) their sites must
-agree, and a part from another request is refused. Render the parts with a fixed white balance and without `output.dng`
+agree, and a part from another request is refused: since 2.28.0 (#728) a region result's `region` carries `fast` (a fast
+method ran) and `requestKey` (SHA-256 of the resolved state that determines the RAW), which `{ raw, region }` passes through,
+and the join refuses a part of another key, or one a fast method rendered under a join that resolves to exact. A region's
+format decides the default of `fast` (an sRGB region is fast, a DNG exact), so with an option that has a fast method (the box
+pixel aperture, motion, a light with narrow bands, a catalogue lens) render the parts with the join's `fast`, for example
+`fast: false`. Render the parts with a fixed white balance and without `output.dng`
 (a region takes neither; the RAW codes do not depend on the white-balance intent): auto white balance and the capture time
 apply to the DNG options passed here, and auto white balance is measured over the joined frame.
 
@@ -2106,9 +2111,9 @@ the same bytes both ways; the parts took 58.1 s of CPU against 50.6 s for one wh
 import { serializeSimulatedCaptureDngFromParts, simulateCapture, type SimulateCaptureDngPart, type SimulateCaptureOptions } from "@photivra/engine";
 
 const dngFrame: SimulateCaptureOptions = { scene: { preset: "siemens-star" }, output: { width: 96, height: 64, format: "dng" } };
-// Two strips rendered as sRGB regions (in an application, in separate Web Workers), then one DNG of the whole frame.
+// Two strips rendered as sRGB regions (in an application, in separate Web Workers) with the DNG's fast (exact), then one DNG of the whole frame.
 const parts: SimulateCaptureDngPart[] = await Promise.all([0, 32].map(async (y) => {
-  const part = await simulateCapture({ ...dngFrame, output: { width: 96, height: 64, region: { x: 0, y, width: 96, height: 32 } } });
+  const part = await simulateCapture({ ...dngFrame, fast: false, output: { width: 96, height: 64, region: { x: 0, y, width: 96, height: 32 } } });
   return { raw: part.raw, region: part.region! };
 }));
 const dng = await serializeSimulatedCaptureDngFromParts(dngFrame, parts);
@@ -2141,9 +2146,9 @@ import { simulateCaptureFromParts, simulateCapture, type SimulateCaptureDngPart,
 
 const whole: SimulateCaptureOptions = { scene: { preset: "slanted-edge" }, lens: { fNumber: 16, diffraction: "circular-aperture" },
   output: { width: 96, height: 64, format: "jpeg", diffractionCorrection: {}, sharpening: {} } };
-// Two strips rendered without the whole-image stages (in an application, in separate Web Workers).
+// Two strips rendered without the whole-image stages (in an application, in separate Web Workers), with the JPEG's fast (exact).
 const parts: SimulateCaptureDngPart[] = await Promise.all([0, 32].map(async (y) => {
-  const part = await simulateCapture({ ...whole, output: { width: 96, height: 64, region: { x: 0, y, width: 96, height: 32 } } });
+  const part = await simulateCapture({ ...whole, fast: false, output: { width: 96, height: 64, region: { x: 0, y, width: 96, height: 32 } } });
   return { raw: part.raw, region: part.region! };
 }));
 const developed = await simulateCaptureFromParts({ ...whole, onProgress: ({ stage, completedTileCount, totalTileCount }) => {

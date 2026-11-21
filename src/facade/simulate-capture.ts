@@ -841,7 +841,15 @@ export interface SimulateCaptureResult {
    * frame, and the native sites rendered for it (`nativeRect`, in the whole frame's native raster: the region, the
    * demosaic reach on each side clipped to the raster, and its origin rounded down to the 2 × 2 CFA repeat).
    */
-  region?: { x: number; y: number; width: number; height: number; frameWidth: number; frameHeight: number; nativeRect: { x: number; y: number; width: number; height: number } };
+  region?: { x: number; y: number; width: number; height: number; frameWidth: number; frameHeight: number; nativeRect: { x: number; y: number; width: number; height: number };
+    /** 2.28.0 (#728): true when a fast method ran for this region (`Object.values(diagnostics.fast.applied).includes(true)`). */
+    fast: boolean;
+    /**
+     * 2.28.0 (#728): SHA-256 (hex) over the resolved state that determines the RAW: the scene digest, the camera, lens, exposure, sensor,
+     * motion and illumination options (without `fast` and `output`), the resolved exposure settings and noise seed, the native raster and
+     * pitch, and the resolved spectral step, pixel-aperture and temporal counts. A join of parts refuses a part whose key is not its own.
+     */
+    requestKey: string };
   /** The complete underlying request. */
   request: {
     environmentRaw: NativeEnvironmentRawInput;
@@ -1561,11 +1569,16 @@ export async function simulateCapture(options: SimulateCaptureOptions): Promise<
 /** One part of a whole-frame DNG (#391): a region render's packed RAW and where its native sites lie (`result.raw`, `result.region`). */
 export interface SimulateCaptureDngPart {
   raw: Pick<NativeRawOutput, "codes" | "blackLevels" | "digitalSaturationCodes" | "saturationFlags" | "effectiveSaturationCodes">;
-  region: { nativeRect: { x: number; y: number; width: number; height: number } };
   /**
-   * 2.20.0: true when a fast method ran for this part (`Object.values(result.diagnostics.fast.applied).includes(true)`). The join
-   * refuses such a part unless its own request resolves to fast too (a DNG, JPEG or PNG is exact by default): render the parts with
-   * the same `fast` as the join, or with `fast: false`.
+   * The region result's `region`. 2.28.0 (#728): its `fast` and `requestKey` describe the part; a region result carries them, so
+   * `{ raw: result.raw, region: result.region! }` passes them through. A part without them (a result of an earlier version) joins
+   * with the checks of that version.
+   */
+  region: { nativeRect: { x: number; y: number; width: number; height: number }; fast?: boolean; requestKey?: string };
+  /**
+   * 2.20.0: true when a fast method ran for this part (`Object.values(result.diagnostics.fast.applied).includes(true)`); `region.fast`
+   * takes precedence. The join refuses such a part unless its own request resolves to fast too (a DNG, JPEG or PNG is exact by default):
+   * render the parts with the same `fast` as the join, or with `fast: false`.
    */
   fast?: boolean;
 }
@@ -1576,7 +1589,9 @@ export interface SimulateCaptureDngPart {
  * render's (each site's seeds come from its index in the whole raster), so the joined RAW is the whole render's RAW, and the
  * request is resolved and written exactly as `simulateCapture` writes its DNG: the bytes are the same. The parts must cover
  * every native site of the frame; where they overlap (each region carries the demosaic margin) their sites must agree. Region
- * renders of the request with any format serve (a region's own `output.format` does not change its RAW). A region cannot take
+ * renders of the request with any format serve if they resolve to the same methods: a region's `output.format` decides the default of `fast`
+ * (2.20.0), so render the parts with the join's `fast` (an sRGB region is fast by default, a DNG exact); a part that a fast method rendered
+ * under an exact join, or whose `region.requestKey` is another request's (2.28.0, #728), is refused. A region cannot take
  * `output.whiteBalance: "auto"` or `output.dng`: render the parts with a fixed white balance (the RAW codes do not depend on the
  * white-balance intent) and pass the DNG's own options here, where auto white balance is measured over the joined frame.
  * @returns The DNG (its `bytes` are those of `SimulateCaptureResult.image.dng` for the same options), with its stored levels and identifiers.
@@ -1586,7 +1601,7 @@ export async function serializeSimulatedCaptureDngFromParts(options: SimulateCap
 }
 
 /** The whole frame's packed RAW from region parts (see `serializeSimulatedCaptureDngFromParts`). */
-function joinNativeRawParts(value: unknown, plan: NativeRawOutput["plan"], width: number, height: number, caller: string, fast: boolean): NativeRawOutput {
+function joinNativeRawParts(value: unknown, plan: NativeRawOutput["plan"], width: number, height: number, caller: string, fast: boolean, key: string): NativeRawOutput {
   if (!Array.isArray(value) || value.length === 0) throw new InvalidConfigurationError(caller + " needs at least one part.");
   const parts = value as readonly SimulateCaptureDngPart[], count = width * height;
   const codes = new Uint16Array(count), blackLevels = new Uint16Array(count), digitalSaturationCodes = new Uint16Array(count), saturationFlags = new Uint8Array(count);
@@ -1595,7 +1610,9 @@ function joinNativeRawParts(value: unknown, plan: NativeRawOutput["plan"], width
   parts.forEach((part, k) => {
     const rect = part?.region?.nativeRect, raw = part?.raw;
     if (!rect || !raw) bad(k, "needs raw and region.nativeRect (a region render's result).");
-    if (part.fast === true && !fast) bad(k, "a fast method rendered it, but this request resolves to the exact methods (fast: false, the default for a DNG, JPEG or PNG). Render the parts with fast: false, or pass fast: true here.");
+    if ((part.region.fast ?? part.fast) === true && !fast) bad(k, "a fast method rendered it, but this request resolves to the exact methods (fast: false, the default for a DNG, JPEG or PNG). Render the parts with fast: false, or pass fast: true here.");
+    // #728: a part names its request's key; one of another request (scene, exposure, sensor, lens, motion or resolved counts) is refused.
+    if (part.region.requestKey !== undefined && part.region.requestKey !== key) bad(k, "its region.requestKey is another request's: not the same request.");
     const { x, y, width: w, height: h } = rect!;
     if (![x, y, w, h].every(Number.isSafeInteger) || x < 0 || y < 0 || w < 1 || h < 1 || x + w > width || y + h > height) bad(k, "its nativeRect is not inside the frame's native raster.");
     const n = w * h;
@@ -3841,6 +3858,11 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   }
   const rawStarted = Date.now();
   const plan = calculateNativeRawPlan(environmentRaw.raw);
+  // #728: the key a region result carries and a join of parts checks (SimulateCaptureResult.region.requestKey); output and fast are left out.
+  const requestKey = regionNative || run === "dng-from-parts" || run === "develop-from-parts" ? await sha256Hex(JSON.stringify([sourceSha256, top, fNumber, shutterSeconds, resolvedIso,
+    plan.exposure.noise.seedUint32, nativeWidth, nativeHeight, pitch, spectralStep, boxSamples, temporalSampleCount],
+  // The scene enters by its digest; a key named fast, output or scene is left out at every level.
+  (key, value: unknown) => (/^(fast|output|scene)$/.test(key) ? undefined : typeof value === "object" && value !== null && "evaluate" in value ? 0 : value))) : undefined;
   const progress = (stage: SimulateCaptureProgress["stage"], total: number) => {
     let completed = 0;
     return (): void => { completed++; onProgress?.({ stage, completedTileCount: completed, totalTileCount: total }); };
@@ -3937,7 +3959,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   }
   let rawOutput: { raw: NativeRawOutput; providerEvaluationCount: number };
   if (dngParts !== undefined) {
-    rawOutput = { raw: joinNativeRawParts(dngParts, plan, nativeWidth, nativeHeight, partsCaller, fastReport.requested), providerEvaluationCount: 0 };
+    rawOutput = { raw: joinNativeRawParts(dngParts, plan, nativeWidth, nativeHeight, partsCaller, fastReport.requested, requestKey!), providerEvaluationCount: 0 };
     if (run === "develop-from-parts") assume("parts", "model", { partCount: (dngParts as readonly unknown[]).length },
       "The whole render's RAW, joined from region renders of this request (#571); how they were rendered is in their results.");
   }
@@ -4235,7 +4257,8 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
     facadeVersion: SIMULATE_CAPTURE_FACADE_VERSION, engineApiVersion: ENGINE_API_VERSION,
     image: { width: outputWidth, height: outputHeight, format, samples: developed.integerSamples, ...(jpeg ? { jpeg } : {}), ...(png ? { png, colorEncoding: colorEncoding! } : {}), ...(dng ? { dng: dng.bytes } : {}) },
     raw: developed.raw, plan: developmentPlan,
-    ...(region && regionNative ? { region: { ...imageRegion ?? region, frameWidth: width, frameHeight: height, nativeRect: { ...regionNative } } } : {}),
+    ...(region && regionNative ? { region: { ...imageRegion ?? region, frameWidth: width, frameHeight: height, nativeRect: { ...regionNative },
+      fast: Object.values(fastReport.applied).includes(true), requestKey: requestKey! } } : {}),
     request: { environmentRaw: finalRawInput, siteInput, development, whiteBalanceState,
       ...(diffraction ? { diffraction: { profile: diffraction, psf: diffractionPsf!, execution: diffractionObjectSpace ? "object-space-convolution" as const :
         defocusImageSpace ? "image-space-convolution" as const : "environment-psf-quadrature" as const } } : {}) },

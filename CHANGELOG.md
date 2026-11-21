@@ -299,6 +299,25 @@ Each item below is one commit of the serial output-change lane, with its measure
   - *Locks.* None moved (every capture, DNG, display-view and figure-batch lock holds on arm64 and x64).
   - *Bundle.* Fast row 337,715 → 337,772 B (+57 B; lane so far +52 B against 337,720 B).
 
+- **Region results describe themselves and a join of parts checks them (#728).** The join of `serializeSimulatedCaptureDngFromParts`
+  and `simulateCaptureFromParts` refused a part rendered by a fast method only when the caller set the optional `part.fast`, which
+  the documented part shape `{ raw: result.raw, region: result.region! }` does not; and nothing identified a part's request. With
+  `sensor.pixelAperture: "box"` or camera yaw, sRGB parts (fast by the format default) joined into an exact DNG were accepted and the
+  DNG differed from the whole render (969 and 918 of 4,652 bytes, 48 × 32); parts rendered at ISO 800, of another scene or another
+  pixel pitch joined under an ISO 100 request. A region result's `region` now carries `fast` (a fast method ran) and `requestKey`
+  (SHA-256 over the scene digest, the request's options without `output` and `fast`, the resolved exposure settings and noise seed,
+  the native raster and pitch, and the resolved spectral step, box and temporal counts). The join reads `region.fast ?? fast` and
+  refuses a part whose key is another request's; a part without the new fields (an earlier version's) joins with the earlier checks.
+  The two examples in `docs/QUICK_START.md` render their parts with the join's `fast` (`fast: false`).
+  - *Measured effect.* Additive fields only: no sample, RAW code or DNG byte of a capture changes, and every join that matched its
+    whole render joins to the same bytes (`test/simulate-capture-dng-parts.test.ts`, `-develop-parts`); the two failing rows above
+    and the other-request sets are refused (`test/simulate-capture-parts-self-describing.test.ts`). Two existing tests now see a
+    part of another request refused by its key (the same "not the same request" text), and the registry's join test sets
+    `region.fast`, which takes precedence over `fast`.
+  - *Locks.* None moved (arm64 and x64).
+  - *Bundle.* Fast row 337,772 → 337,959 B (+187 B; lane so far +239 B against 337,720 B). Over the 337,800 B limit in the test,
+    which this branch does not change (see the step 5 report).
+
 ### Display view
 
 - **Display view: Recover and +1 stop without Standard under its time target (#662); output unchanged.** With the identity tone
