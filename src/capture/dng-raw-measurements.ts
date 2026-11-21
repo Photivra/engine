@@ -48,10 +48,38 @@ export interface DngSiteAccess {
   planeOf(ax: number, ay: number, s: number): number;
 }
 
+const isCount = (v: unknown): v is number => Number.isSafeInteger(v) && (v as number) >= 1;
+const finiteList = (v: unknown, length: number): boolean => Array.isArray(v) && v.length === length && v.every((x) => typeof x === "number" && Number.isFinite(x));
+const isRect = (r: unknown): r is ImportedDngRect => r !== null && typeof r === "object" && [(r as ImportedDngRect).x, (r as ImportedDngRect).y, (r as ImportedDngRect).width, (r as ImportedDngRect).height]
+  .every((v) => typeof v === "number" && Number.isFinite(v));
+
+/**
+ * Internal (capture-15): checks, in O(1) apart from the short pattern lists, that `raw` has the shape of an ImportedDngRaw (the
+ * parser's output) before a development or measurement reads it: dimensions, the code count, scale, the ActiveArea inside the
+ * image, the white and black levels, the linearization table and the CFA pattern.
+ */
+export function requireImportedDngRaw(raw: ImportedDngRaw, name: string): void {
+  const bad = (what: string): never => fail(name, "raw must be an ImportedDngRaw (parseDngRawImage or importDngRawImage): " + what + ".");
+  if (raw === null || typeof raw !== "object" || !(raw.codes instanceof Uint16Array)) bad("codes must be a Uint16Array");
+  const { width, height, samplesPerPixel: spp, activeArea: a, blackLevel: b, cfa } = raw;
+  if (!isCount(width) || !isCount(height) || !isCount(spp)) bad("width, height and samplesPerPixel must be integers of at least 1");
+  if (raw.codes.length !== width * height * spp) bad("codes must hold width × height × samplesPerPixel values");
+  if (raw.scale !== 1 && raw.scale !== 0.5) bad("scale must be 1 or 0.5");
+  if (!isRect(a) || !(a.x >= 0 && a.y >= 0 && a.width > 0 && a.height > 0 && a.x + a.width <= width && a.y + a.height <= height)) bad("activeArea must be a rectangle inside the image");
+  if (!isRect(raw.defaultCrop)) bad("defaultCrop must be a rectangle");
+  if (!finiteList(raw.whiteLevel, spp)) bad("whiteLevel must be samplesPerPixel finite numbers");
+  if (b === null || typeof b !== "object" || !isCount(b.repeatRows) || !isCount(b.repeatColumns) || !finiteList(b.values, b.repeatRows * b.repeatColumns * spp)
+    || [b.deltaH, b.deltaV].some((d) => d !== null && !(Array.isArray(d) && d.every((x) => typeof x === "number" && Number.isFinite(x)))))
+    bad("blackLevel must hold repeatRows × repeatColumns × samplesPerPixel finite values and null or numeric deltaH and deltaV");
+  if (raw.linearizationTable !== null && !(raw.linearizationTable instanceof Uint16Array)) bad("linearizationTable must be null or a Uint16Array");
+  if (cfa !== null && (typeof cfa !== "object" || !isCount(cfa.repeatRows) || !isCount(cfa.repeatColumns) || !Array.isArray(cfa.planeColors)
+    || !Array.isArray(cfa.pattern) || cfa.pattern.length !== cfa.repeatRows * cfa.repeatColumns
+    || cfa.pattern.some((p) => !Number.isInteger(p) || p < 0 || p >= cfa.planeColors.length))) bad("cfa must be null or a pattern of repeatRows × repeatColumns plane indices");
+}
+
 /** Internal: checks an ImportedDngRaw record (the parser's output) and prepares per-site access. */
 export function prepareDngSiteAccess(raw: ImportedDngRaw, name: string): DngSiteAccess {
-  if (raw === null || typeof raw !== "object" || !(raw.codes instanceof Uint16Array) || !raw.blackLevel || !Array.isArray(raw.whiteLevel) || !raw.activeArea)
-    fail(name, "raw must be an ImportedDngRaw (parseDngRawImage or importDngRawImage).");
+  requireImportedDngRaw(raw, name);
   const { activeArea: a, defaultCrop: c, linearizationTable: table, blackLevel, whiteLevel, cfa } = raw;
   const ax = Math.floor(a.x), ay = Math.floor(a.y), aw = Math.floor(a.width), ah = Math.floor(a.height);
   const x0 = Math.min(aw, Math.max(0, Math.ceil(c.x))), y0 = Math.min(ah, Math.max(0, Math.ceil(c.y)));

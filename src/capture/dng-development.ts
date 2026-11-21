@@ -40,6 +40,7 @@ import { applyDngOpcodes, type DngStageImage } from "./dng-opcodes.js";
 import { applyDngProfileGainTableMap, applyDngRgbTables } from "./dng-profile-maps.js";
 import { developDngStageImage } from "./dng-stage-image.js";
 import type { ImportedDngRaw } from "./dng-import.js";
+import { requireImportedDngRaw } from "./dng-raw-measurements.js";
 
 /** The white balance of a development: the file's as-shot white, a correlated color temperature, a chromaticity or a camera neutral. */
 export type DevelopDngImageWhiteBalance =
@@ -103,7 +104,7 @@ export interface DevelopedDngImage {
   /** 2.25.0 (#622): the requested size; "half" halves the stage grid. */
   size: "full" | "half";
   fast: { requested: boolean; defaultedFrom: "request" | "format" };
-  /** Pixels with a white-balanced channel clipped at 1, and output components clipped by the gamut handling. */
+  /** Pixels with a white-balanced channel clipped at 1 (before the exposure push and the tone curve); components clipped later by the gamut handling are not counted. */
   clippedPixelCount: number;
   assumptions: string[];
 }
@@ -227,7 +228,7 @@ function transformPixels(m: ColorMatrix3x3, data: Float32Array, pixels: number):
 
 /** Full color development of an imported DNG (see the module comment). */
 export async function developDngImage(raw: ImportedDngRaw, options: DevelopDngImageOptions = {}): Promise<DevelopedDngImage> {
-  if (raw === null || typeof raw !== "object" || !(raw.codes instanceof Uint16Array)) fail("raw must be an ImportedDngRaw.");
+  requireImportedDngRaw(raw, "developDngImage");
   if (options === null || typeof options !== "object") fail("options must be an object.");
   for (const key of Object.keys(options)) if (!KEYS.includes(key)) fail("unknown option " + JSON.stringify(key) + ".");
   const format = options.format ?? "srgb-8";
@@ -257,6 +258,11 @@ export async function developDngImage(raw: ImportedDngRaw, options: DevelopDngIm
   notes.push(...stage.assumptions);
   const W = stage.width, H = stage.height;
   // 3. White balance and camera → XYZ D50.
+  // capture-15: null is not "as-shot", and each record variant takes only its own fields.
+  if (options.whiteBalance === null) fail('whiteBalance must be "as-shot", { kelvin }, { chromaticity } or { cameraNeutral }.');
+  const wbFields = options.whiteBalance !== undefined && typeof options.whiteBalance === "object" ? Object.keys(options.whiteBalance) : [];
+  const wbAllowed = wbFields.includes("kelvin") ? ["kelvin", "duv", "whiteLocus"] : wbFields.includes("chromaticity") ? ["chromaticity"] : ["cameraNeutral"];
+  for (const key of wbFields) if (!wbAllowed.includes(key)) fail("unknown whiteBalance field " + JSON.stringify(key) + ".");
   const color = prepareColor(raw, notes), wb = options.whiteBalance ?? "as-shot";
   let neutral: ColorVector3, xy: CieXyChromaticity, source: DevelopedDngImage["whiteBalance"]["source"];
   if (wb === "as-shot") {

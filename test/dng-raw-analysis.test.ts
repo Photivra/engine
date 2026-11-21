@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 import { describe, expect, it } from "vitest";
 import {
-  parseDngRawImage, simulateCapture, calculateDngRawClipping, estimateDngRawNoise, assessDngRawWhatIf, simulateDngRawWhatIf, developDngImage,
+  parseDngRawImage, developDngStageImage, simulateCapture, calculateDngRawClipping, estimateDngRawNoise, assessDngRawWhatIf, simulateDngRawWhatIf, developDngImage,
   DngRawWhatIfRefusedError, InvalidConfigurationError, InvalidScientificInputError, DNG_IMPORT_SCHEMA_VERSION, type ImportedDngRaw, type SimulateCaptureOptions
 } from "../src/index.js";
 import { writeTiff, packBits, rationalPairs, type TagSpec } from "./helpers/dng-test-writer.js";
@@ -448,4 +448,22 @@ describe("dual-gain switch catalog and the denoised-file check (2.24.0)", () => 
     expect(checked).toBe(32);
     expect(lowest).toBeGreaterThan(0.9);
   }, scaledTimeout(240_000));
+});
+
+describe("the shape of an ImportedDngRaw record (capture-15, #698)", () => {
+  it("a partial or inconsistent record, a null white balance and unknown white-balance fields throw InvalidConfigurationError", async () => {
+    const raw = parseDngRawImage({ bytes: syntheticDng() });
+    const bad: unknown[] = [{ codes: new Uint16Array(4) }, { ...raw, width: 1e9 }, { ...raw, whiteLevel: [] }, { ...raw, activeArea: { x: 0, y: 0, width: 99, height: 12 } },
+      { ...raw, blackLevel: { ...raw.blackLevel, values: [] } }, { ...raw, cfa: { ...raw.cfa!, pattern: [0] } }, { ...raw, scale: 2 }, { ...raw, linearizationTable: [1, 2] }];
+    for (const record of bad) {
+      expect(() => developDngStageImage(record as ImportedDngRaw), JSON.stringify(Object.keys(record as object))).toThrow(InvalidConfigurationError);
+      await expect(developDngImage(record as ImportedDngRaw)).rejects.toThrow(InvalidConfigurationError);
+      expect(() => calculateDngRawClipping(record as ImportedDngRaw)).toThrow(InvalidConfigurationError);
+      expect(() => estimateDngRawNoise(record as ImportedDngRaw)).toThrow(InvalidConfigurationError);
+    }
+    for (const whiteBalance of [null, { kelvin: 5000, tint: 3 }, { chromaticity: { x: 0.31, y: 0.33 }, kelvin: 5000 }, { cameraNeutral: [1, 1, 1], extra: 1 }])
+      await expect(developDngImage(raw, { whiteBalance: whiteBalance as never })).rejects.toThrow(InvalidConfigurationError);
+    await expect(developDngImage(raw, { whiteBalance: { kelvin: 5000, duv: 0.001 } })).resolves.toBeDefined();
+    expect(developDngStageImage(raw).width).toBe(16);
+  });
 });
