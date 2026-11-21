@@ -268,7 +268,8 @@ function requireReusableCurveEvidence(
   return evidence;
 }
 
-function parseUncertainty(
+/** The relative / not-quantified uncertainty record; shared by the sensor response, charge, capacity and dark-current parsers. */
+export function parseUncertainty(
   value: unknown,
   path: string
 ): SensorSpectralResponseUncertainty {

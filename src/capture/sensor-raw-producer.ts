@@ -32,7 +32,7 @@ import { parseSensorFixedPatternNoiseProfile, type SensorFixedPatternNoiseProfil
 import { deriveNativeSiteStreamSeedUint32, NATIVE_SITE_CHARGE_STREAM_ID, NATIVE_SITE_READ_NOISE_STREAM_ID } from "../sensor/stochastic-seed.js";
 import { parseSensorColorSamplingProfile } from "../sensor/color-sampling.js";
 import { parseCaptureModeProfile } from "../sensor/capture-mode.js";
-import { parseNativeEffectiveRasterColorSamplingBindingProfile, resolveCaptureModeColorSamplingContributors } from "../sensor/capture-color-sampling-binding.js";
+import { parseNativeEffectiveRasterColorSamplingBindingProfile, prepareCaptureModeColorSamplingContributors } from "../sensor/capture-color-sampling-binding.js";
 import { calculateCaptureExposureWindows, type CalculateCaptureExposureWindowsInput, type CaptureExposureWindows } from "../sensor/exposure-window.js";
 
 export const SENSOR_RAW_PRODUCER_SCHEMA_VERSION = "0.3.0" as const;
@@ -229,14 +229,16 @@ function sourceBoundary(schedule: CaptureExposureWindows["opening"]["schedule"])
 export type NativeRawProducerFrameContext = Omit<SensorRawProducerInput["frame"], "capture"> & {
   capture: Pick<SensorRawProducerInput["frame"]["capture"], "geometry" | "exposure" | "noise" | "focus" | "sceneStateId" | "sceneTimeSeconds">;
 };
+const contributorsFor = (frame: NativeRawProducerFrameContext): ReturnType<typeof prepareCaptureModeColorSamplingContributors> => prepareCaptureModeColorSamplingContributors({
+  nativeRaster: frame.capture.geometry.nativeRaster, captureModeProfile: frame.captureModeProfile, modeId: frame.modeId, colorSamplingProfile: frame.colorSamplingProfile,
+  bindingProfile: frame.bindingProfile });
+/** `contributorsAt`: the frame's prepared contributor resolver (sensor-27), when the caller checks many sites of one frame. */
 export function parseNativeRawProducerSite(site: unknown, i: number, frame: NativeRawProducerFrameContext,
-  window?: CaptureExposureWindows["samples"][number]): SensorRawProducerSiteInput {
+  window?: CaptureExposureWindows["samples"][number], contributorsAt = contributorsFor(frame)): SensorRawProducerSiteInput {
   const native = frame.capture.geometry.nativeRaster;
     const s = fields(site, ["charge", "samplingProfile", "capacityProfile", "operatingStateId", "readoutProfile", "regimeId", "fixedPatternNoise"]);
     const charge = chargeInput(s.charge), p = charge.photoSignal;
-    const contributors = resolveCaptureModeColorSamplingContributors({ nativeRaster: native, captureModeProfile: frame.captureModeProfile,
-      modeId: frame.modeId, colorSamplingProfile: frame.colorSamplingProfile, bindingProfile: frame.bindingProfile,
-      modeSampleIndexFullFrame: { x: i%native.pixelWidth, y: Math.floor(i/native.pixelWidth) } });
+    const contributors = contributorsAt({ x: i%native.pixelWidth, y: Math.floor(i/native.pixelWidth) });
 
     if (contributors.totalContributorSites !== 1 || contributors.channelComposition.kind !== "single-channel" ||
         p.colorSamplingProfileId !== frame.colorSamplingProfile.profileId || p.channelId !== contributors.channelComposition.channelId ||
@@ -309,7 +311,8 @@ export function parseSensorRawProducerInput(value: unknown): SensorRawProducerIn
     throw new InvalidConfigurationError("Producer requires exact noise identity and bounded single-frame native CFA coverage.");
   }
   const timing = r.exposureWindow === undefined ? undefined : localWindows(frame, r.exposureWindow);
-  const parsed = sites.map((site, i) => parseNativeRawProducerSite(site, i, frame, timing?.value.samples[i]));
+  const contributorsAt = contributorsFor(frame);
+  const parsed = sites.map((site, i) => parseNativeRawProducerSite(site, i, frame, timing?.value.samples[i], contributorsAt));
   for (const site of parsed) validateNativeRawReadoutIdentity(site, parsed[0]!);
   publicIdentities(frame);
   return { frame, sites: parsed, ...(timing === undefined ? {} : { exposureWindow: {
@@ -322,12 +325,10 @@ export function parseSensorRawProducerInput(value: unknown): SensorRawProducerIn
 export function simulateSensorRawFrame(input: SensorRawProducerInput): CalculationResult<SensorRawProducerResult> {
   const v = parseSensorRawProducerInput(input), seed = v.frame.capture.noise.seedUint32;
   const sites = v.sites.map((s, i) => calculateNativeRawSite(s, seed, i));
-  const native = v.frame.capture.geometry.nativeRaster;
+  const native = v.frame.capture.geometry.nativeRaster, contributorsAt = contributorsFor(v.frame);
   const samples = sites.map((s, i) => createSensorRawCaptureSample({ rawCode: s.readout.value,
     ...regimeInl(v.sites[i]!),
-    contributors: resolveCaptureModeColorSamplingContributors({ nativeRaster: native, captureModeProfile: v.frame.captureModeProfile,
-      modeId: v.frame.modeId, colorSamplingProfile: v.frame.colorSamplingProfile, bindingProfile: v.frame.bindingProfile,
-      modeSampleIndexFullFrame: { x: i%native.pixelWidth, y: Math.floor(i/native.pixelWidth) } }) }));
+    contributors: contributorsAt({ x: i%native.pixelWidth, y: Math.floor(i/native.pixelWidth) }) }));
   return approximationResult({ schemaVersion: SENSOR_RAW_PRODUCER_SCHEMA_VERSION, codeProducer: "engine-charge-capacity-noise-adc",
     upstreamOrigin: "declared-eqe-and-dark-exposure-results", upstreamRadiometryVerified: false,
     seedSchedule: "murmur3-capture-seed-native-index-stream-v2", frame: createSensorRawFrame({ ...v.frame, samples }), sites,

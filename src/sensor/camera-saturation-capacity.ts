@@ -12,6 +12,7 @@
  * limits.
  */
 
+import { parseUncertainty } from "./spectral-response.js";
 import {
   approximationResult,
   type CalculationResult
@@ -29,7 +30,7 @@ import type {
   SensorSpectralResponseScientificStatus,
   SensorSpectralResponseUncertainty
 } from "./spectral-response.js";
-import { requireInputObject, requireInputKeys, rejectUnknownVariantFields, UNCERTAINTY_VARIANT_FIELDS, requireConfigRecord as requireRecord, requireConfigFinite as requireFinite, requireConfigString as requireNonEmptyString, requireInputNonNegativeFinite as requireNonNegativeFiniteInput, requireConfigNonNegativeSafeInteger as requireSiteIndex, requireConfigFiniteAboveZero as requirePositiveFinite } from "../core/record-validation.js";
+import { requireInputObject, requireInputKeys, rejectUnknownVariantFields, requireConfigRecord as requireRecord, requireConfigFinite as requireFinite, requireConfigString as requireNonEmptyString, requireInputNonNegativeFinite as requireNonNegativeFiniteInput, requireConfigNonNegativeSafeInteger as requireSiteIndex, requireConfigFiniteAboveZero as requirePositiveFinite } from "../core/record-validation.js";
 import { sameSite } from "../core/shared-helpers.js";
 
 export type SensorCameraSaturationSiteApplicability =
@@ -179,142 +180,38 @@ export interface SensorCameraSaturationCapacityAssessment {
   };
 }
 
-export function parseUncertainty(
-  value: unknown,
-  path: string
-): SensorSpectralResponseUncertainty {
-  const record = requireRecord(
-    value,
-    path, null
-  );
-  rejectUnknownVariantFields(record, "kind", UNCERTAINTY_VARIANT_FIELDS, path);
-  if (record.kind === "relative") {
-    const fraction = requireFinite(
-      record.fraction,
-      path + ".fraction"
-    );
-    if (fraction < 0) {
-      throw new InvalidConfigurationError(
-        path +
-          ".fraction must be nonnegative."
-      );
-    }
-    return {
-      kind: "relative",
-      fraction,
-      basis: requireNonEmptyString(
-        record.basis,
-        path + ".basis"
-      )
-    };
-  }
-  if (
-    record.kind === "not-quantified"
-  ) {
-    return {
-      kind: "not-quantified",
-      limitation:
-        requireNonEmptyString(
-          record.limitation,
-          path + ".limitation"
-        )
-    };
-  }
-  throw new InvalidConfigurationError(
-    path + ".kind is invalid."
-  );
-}
 
-function parseSiteApplicability(
-  value: unknown
-): SensorCameraSaturationSiteApplicability {
-  const record = requireRecord(
-    value,
-    "sensorCameraSaturation.siteApplicability", null
-  );
-  rejectUnknownVariantFields(record, "kind", { "exact-site": ["kind", "site"], "channel-population-mean-approximation": ["kind", "limitation", "evidence"] }, "sensorCameraSaturation.siteApplicability");
+/**
+ * Site applicability of a capacity, saturation or dark-current profile: one exact site, or the named approximation kind
+ * with its limitation and evidence. Shared by the three parsers, with each one's path and approximation kind.
+ */
+export function parseSiteApplicability<T>(value: unknown, path: string, approximationKind: string): T {
+  const record = requireRecord(value, path, null);
+  rejectUnknownVariantFields(record, "kind", { "exact-site": ["kind", "site"], [approximationKind]: ["kind", "limitation", "evidence"] }, path);
   if (record.kind === "exact-site") {
-    const site = requireRecord(
-      record.site,
-      "sensorCameraSaturation.siteApplicability.site", ["x", "y"]
-    );
-    return {
-      kind: "exact-site",
-      site: {
-        x: requireSiteIndex(
-          site.x,
-          "sensorCameraSaturation.siteApplicability.site.x"
-        ),
-        y: requireSiteIndex(
-          site.y,
-          "sensorCameraSaturation.siteApplicability.site.y"
-        )
-      }
-    };
+    const site = requireRecord(record.site, path + ".site", ["x", "y"]);
+    return { kind: "exact-site", site: { x: requireSiteIndex(site.x, path + ".site.x"), y: requireSiteIndex(site.y, path + ".site.y") } } as T;
   }
-  if (
-    record.kind ===
-      "channel-population-mean-approximation"
-  ) {
-    return {
-      kind:
-        "channel-population-mean-approximation",
-      limitation:
-        requireNonEmptyString(
-          record.limitation,
-          "sensorCameraSaturation.siteApplicability.limitation"
-        ),
-      evidence: parseEvidenceList(
-        record.evidence,
-        "sensorCameraSaturation.siteApplicability.evidence"
-      )
-    };
+  if (record.kind === approximationKind) {
+    return { kind: approximationKind, limitation: requireNonEmptyString(record.limitation, path + ".limitation"),
+      evidence: parseEvidenceList(record.evidence, path + ".evidence") } as T;
   }
-  throw new InvalidConfigurationError(
-    "sensorCameraSaturation.siteApplicability.kind is invalid."
-  );
+  throw new InvalidConfigurationError(path + ".kind is invalid.");
 }
 
-function parseTemperatureApplicability(
-  value: unknown
-): SensorCameraSaturationTemperatureApplicability {
-  const record = requireRecord(
-    value,
-    "sensorCameraSaturation.temperatureApplicability", null
-  );
-  rejectUnknownVariantFields(record, "kind", { "exact-reference-temperature": ["kind", "temperatureC"], "not-modeled": ["kind", "limitation", "evidence"] }, "sensorCameraSaturation.temperatureApplicability");
-  if (
-    record.kind ===
-      "exact-reference-temperature"
-  ) {
-    return {
-      kind:
-        "exact-reference-temperature",
-      temperatureC:
-        requireFinite(
-          record.temperatureC,
-          "sensorCameraSaturation.temperatureApplicability.temperatureC"
-        )
-    };
-  }
+/** Temperature applicability of a capacity or saturation profile; shared by the two parsers, with each one's path. */
+export function parseTemperatureApplicability<T>(value: unknown, path: string): T {
+  const record = requireRecord(value, path, null);
+  rejectUnknownVariantFields(record, "kind", { "exact-reference-temperature": ["kind", "temperatureC"], "not-modeled": ["kind", "limitation", "evidence"] }, path);
+  if (record.kind === "exact-reference-temperature") return { kind: "exact-reference-temperature", temperatureC: requireFinite(record.temperatureC, path + ".temperatureC") } as T;
   if (record.kind === "not-modeled") {
-    return {
-      kind: "not-modeled",
-      limitation:
-        requireNonEmptyString(
-          record.limitation,
-          "sensorCameraSaturation.temperatureApplicability.limitation"
-        ),
-      evidence: parseEvidenceList(
-        record.evidence,
-        "sensorCameraSaturation.temperatureApplicability.evidence"
-      )
-    };
+    return { kind: "not-modeled", limitation: requireNonEmptyString(record.limitation, path + ".limitation"), evidence: parseEvidenceList(record.evidence, path + ".evidence") } as T;
   }
-  throw new InvalidConfigurationError(
-    "sensorCameraSaturation.temperatureApplicability.kind is invalid."
-  );
+  throw new InvalidConfigurationError(path + ".kind is invalid.");
 }
+
+
+
 
 /**
  * Validates untrusted input and returns it as a normalized, typed value. Unknown enum values,
@@ -387,12 +284,12 @@ export function parseSensorCameraSaturationCapacityProfile(
   }
 
   const siteApplicability =
-    parseSiteApplicability(
-      record.siteApplicability
+    parseSiteApplicability<SensorCameraSaturationSiteApplicability>(
+      record.siteApplicability, "sensorCameraSaturation.siteApplicability", "channel-population-mean-approximation"
     );
   const temperatureApplicability =
-    parseTemperatureApplicability(
-      record.temperatureApplicability
+    parseTemperatureApplicability<SensorCameraSaturationTemperatureApplicability>(
+      record.temperatureApplicability, "sensorCameraSaturation.temperatureApplicability"
     );
 
   if (

@@ -12,6 +12,7 @@ import {
   type NativeEffectiveRasterColorSamplingBindingProfile,
   type SensorColorSamplingProfile
 } from "../src/index.js";
+import { prepareCaptureModeColorSamplingContributors } from "../src/sensor/capture-color-sampling-binding.js";
 
 type OwnedEvidence = readonly [
   {
@@ -700,5 +701,23 @@ describe("nested input errors (sensor-11, #701)", () => {
       colorSamplingProfile: bayerLikeProfile(), bindingProfile: binding(), modeSampleIndexFullFrame: undefined as never })).toThrow(domain);
     expect(() => resolveCaptureModeColorSamplingContributors({ nativeRaster, captureModeProfile: modeProfile(groupedMode()), modeId: "grouped",
       colorSamplingProfile: bayerLikeProfile(), bindingProfile: binding(), modeSampleIndexFullFrame: { x: 0, y: 0 }, groupedSamplingAnchor: null as never })).toThrow(domain);
+  });
+});
+
+describe("prepared contributor resolver (sensor-27, #701)", () => {
+  it("equals the public function for every sample of an unbinned and a binned mode", () => {
+    for (const [mode, modeId, anchor] of [[nativeMode(), "native", undefined], [groupedMode(), "grouped", topLeftGroupingAnchor()]] as const) {
+      const common = { nativeRaster, captureModeProfile: modeProfile(mode), modeId, colorSamplingProfile: bayerLikeProfile(), bindingProfile: binding() };
+      const prepared = prepareCaptureModeColorSamplingContributors(common);
+      const raster = prepared({ x: 0, y: 0 }, anchor).modeSampleRaster;
+      let checked = 0;
+      for (let y = 0; y < raster.pixelHeight; y++) for (let x = 0; x < raster.pixelWidth; x++) {
+        const index = { x, y };
+        expect(prepared(index, anchor)).toEqual(resolveCaptureModeColorSamplingContributors({ ...common, modeSampleIndexFullFrame: index, ...(anchor ? { groupedSamplingAnchor: anchor } : {}) }));
+        checked++;
+      }
+      expect(checked).toBe(raster.pixelWidth * raster.pixelHeight);
+      expect(() => prepared({ x: raster.pixelWidth, y: 0 }, anchor)).toThrow("must lie within the selected mode's full-frame per-frame sampling raster");
+    }
   });
 });

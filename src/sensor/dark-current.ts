@@ -23,7 +23,9 @@ import {
   parseEvidenceList,
   type EvidenceProvenance
 } from "../core/evidence-provenance.js";
+import { parseUncertainty } from "./spectral-response.js";
 import type { SensorEqeExposureIntegration } from "./constant-rate-temporal-integration.js";
+import { parseSiteApplicability } from "./camera-saturation-capacity.js";
 import { parseSensorEqeTemporalPhotoSignal } from "./temporal-photo-signal.js";
 import { InvalidScientificInputError } from "../core/validation.js";
 import type {
@@ -33,7 +35,7 @@ import type {
   SensorSpectralResponseScientificStatus,
   SensorSpectralResponseUncertainty
 } from "./spectral-response.js";
-import { requireInputObject, requireInputKeys, rejectUnknownVariantFields, UNCERTAINTY_VARIANT_FIELDS, requireConfigRecord as requireRecord, requireConfigFinite as requireFinite, requireConfigString as requireNonEmptyString, requireConfigNonNegativeSafeInteger as requireSiteIndex, requireConfigFiniteAtLeastZero as requireNonNegativeFinite } from "../core/record-validation.js";
+import { requireInputObject, requireInputKeys, rejectUnknownVariantFields, requireConfigRecord as requireRecord, requireConfigFinite as requireFinite, requireConfigString as requireNonEmptyString, requireConfigFiniteAtLeastZero as requireNonNegativeFinite } from "../core/record-validation.js";
 import { sameSite } from "../core/shared-helpers.js";
 
 export type SensorDarkCurrentSiteApplicability =
@@ -182,106 +184,7 @@ export type SensorTemporalDarkCurrentCharge = Omit<SensorDarkCurrentCharge, "sta
 };
 export type SensorPhotoDarkCurrentCharge = SensorDarkCurrentCharge | SensorTemporalDarkCurrentCharge;
 
-function parseUncertainty(
-  value: unknown,
-  path: string
-): SensorSpectralResponseUncertainty {
-  const record =
-    requireRecord(value, path, null);
-  rejectUnknownVariantFields(record, "kind", UNCERTAINTY_VARIANT_FIELDS, path);
 
-  if (record.kind === "relative") {
-    const fraction =
-      requireNonNegativeFinite(
-        record.fraction,
-        path + ".fraction"
-      );
-    if (
-      typeof record.basis !== "string" ||
-      record.basis.trim().length === 0
-    ) {
-      throw new InvalidConfigurationError(
-        path +
-          ".basis must be a non-empty string."
-      );
-    }
-    return {
-      kind: "relative",
-      fraction,
-      basis: record.basis
-    };
-  }
-
-  if (
-    record.kind === "not-quantified"
-  ) {
-    return {
-      kind: "not-quantified",
-      limitation:
-        requireNonEmptyString(
-          record.limitation,
-          path + ".limitation"
-        )
-    };
-  }
-
-  throw new InvalidConfigurationError(
-    path + ".kind is invalid."
-  );
-}
-
-function parseSiteApplicability(
-  value: unknown
-): SensorDarkCurrentSiteApplicability {
-  const record = requireRecord(
-    value,
-    "sensorDarkCurrent.siteApplicability", null
-  );
-  rejectUnknownVariantFields(record, "kind", { "exact-site": ["kind", "site"], "uniform-site-mean-approximation": ["kind", "limitation", "evidence"] }, "sensorDarkCurrent.siteApplicability");
-
-  if (record.kind === "exact-site") {
-    const site = requireRecord(
-      record.site,
-      "sensorDarkCurrent.siteApplicability.site", ["x", "y"]
-    );
-    return {
-      kind: "exact-site",
-      site: {
-        x: requireSiteIndex(
-          site.x,
-          "sensorDarkCurrent.siteApplicability.site.x"
-        ),
-        y: requireSiteIndex(
-          site.y,
-          "sensorDarkCurrent.siteApplicability.site.y"
-        )
-      }
-    };
-  }
-
-  if (
-    record.kind ===
-    "uniform-site-mean-approximation"
-  ) {
-    return {
-      kind:
-        "uniform-site-mean-approximation",
-      limitation:
-        requireNonEmptyString(
-          record.limitation,
-          "sensorDarkCurrent.siteApplicability.limitation"
-        ),
-      evidence: parseEvidenceList(
-        record.evidence,
-        "sensorDarkCurrent.siteApplicability.evidence"
-      )
-    };
-  }
-
-  throw new InvalidConfigurationError(
-    "sensorDarkCurrent.siteApplicability.kind is invalid."
-  );
-}
 
 function parseTemperatureModel(
   value: unknown
@@ -509,8 +412,8 @@ export function parseSensorDarkCurrentProfile(
   }
 
   const siteApplicability =
-    parseSiteApplicability(
-      record.siteApplicability
+    parseSiteApplicability<SensorDarkCurrentSiteApplicability>(
+      record.siteApplicability, "sensorDarkCurrent.siteApplicability", "uniform-site-mean-approximation"
     );
   if (
     siteApplicability.kind ===
