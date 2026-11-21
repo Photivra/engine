@@ -250,6 +250,27 @@ describe("serializeRewrittenDng: layout checks (2.28.0)", () => {
     expect(() => parseDngRawImage({ bytes: overlapping })).not.toThrow();
   });
 
+  it("refuses copied tag values that share bytes, before copying them", () => {
+    // Every allow-listed camera tag of IFD 0 points at one 64 kB block: the rewrite would copy it once per tag.
+    const t = new Tiff(), block = t.blob(new Uint8Array(65_536)), data = t.blob(new Uint8Array(128));
+    const camera = [50721, 50722, 50723, 50724, 50725, 50726, 50938, 50939, 50940, 50982];
+    const file = t.finish(t.ifd([...cfaTags(8, 8, [{ id: 278, type: 4, values: [8] }, ...strips([data], [128])]), DNG_VERSION]));
+    const bytes = file.slice(), view = new DataView(bytes.buffer), ifd = view.getUint32(4, true), n = view.getUint16(ifd, true);
+    // A new IFD 0 at the end of the file: the original entries plus the shared ones.
+    const entries = Array.from({ length: n }, (_, i) => bytes.slice(ifd + 2 + i * 12, ifd + 14 + i * 12));
+    const shared = camera.map((id) => { const e = new Uint8Array(12), v = new DataView(e.buffer); v.setUint16(0, id, true); v.setUint16(2, 7, true); v.setUint32(4, 65_536, true); v.setUint32(8, block, true); return e; });
+    const all = [...entries, ...shared].sort((a, b) => new DataView(a.buffer).getUint16(0, true) - new DataView(b.buffer).getUint16(0, true));
+    const grown = new Uint8Array(bytes.length + 2 + all.length * 12 + 4), g = new DataView(grown.buffer);
+    grown.set(bytes); g.setUint32(4, bytes.length, true); g.setUint16(bytes.length, all.length, true);
+    all.forEach((e, i) => grown.set(e, bytes.length + 2 + i * 12));
+    expect(() => serializeRewrittenDng({ bytes: grown })).toThrow(/share bytes/u);
+    // The same tags with their own bytes are written as before.
+    const u = new Tiff(), at = u.blob(new Uint8Array(128));
+    const distinct = u.finish(u.ifd([...cfaTags(8, 8, [{ id: 278, type: 4, values: [8] }, ...strips([at], [128])]), DNG_VERSION,
+      ...camera.map((id) => ({ id, type: 7, bytes: new Uint8Array(4_096) }))]));
+    expect(serializeRewrittenDng({ bytes: distinct }).writtenTags.ifd0).toEqual(expect.arrayContaining(camera));
+  });
+
   it("still rewrites valid multi-strip and tiled files that read back with the same codes", () => {
     const codes = Uint16Array.from({ length: 16 * 12 }, (_, i) => 1000 + (i * 37) % 500), le = (values: ArrayLike<number>): Uint8Array => {
       const out = new Uint8Array(values.length * 2); for (let i = 0; i < values.length; i++) { out[2 * i] = values[i]! & 255; out[2 * i + 1] = values[i]! >> 8; } return out;

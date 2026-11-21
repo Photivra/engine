@@ -197,24 +197,24 @@ export function serializeRewrittenDng(input: DngRewriteInput): RewrittenDng {
   const activeWidth = area[3]! - area[1]!, activeHeight = area[2]! - area[0]!;
 
   const enc = createEncoder(little), edits = parseEdits(input.edits, colorPlanes, activeWidth, activeHeight, enc);
-  const copy = (id: number, e: Entry): OutTag => ({ id, type: e.type, count: e.count, data: bytes.slice(e.at, e.at + e.size) });
-  const select = (ids: readonly number[], lookup: (id: number) => Entry | undefined): OutTag[] => {
-    const out: OutTag[] = [];
-    for (const id of ids) { const e = lookup(id); if (e) out.push(copy(id, e)); }
+  // Tags to copy are chosen first and copied only after the size check below.
+  let copied = 0;
+  const select = (ids: readonly number[], lookup: (id: number) => Entry | undefined): [number, Entry][] => {
+    const out: [number, Entry][] = [];
+    for (const id of ids) { const e = lookup(id); if (e) { out.push([id, e]); copied += e.size; } }
     return out;
   };
+  const copy = (picked: [number, Entry][]): OutTag[] => picked.map(([id, e]) => ({ id, type: e.type, count: e.count, data: bytes.slice(e.at, e.at + e.size) }));
   const replaced = new Set(edits.map((t) => t.id)), removed = new Set<number>();
   if (input.edits?.asShotNeutral) removed.add(50729);
   if (input.edits?.asShotWhiteXy) removed.add(50728);
   if (input.edits?.baselineExposure !== undefined) removed.add(51109);
   if (input.edits?.defaultCrop) { removed.add(50719); removed.add(50720); }
-  const main: OutTag[] = [
+  const mainPicked = [
     ...select(DNG_REWRITE_ALLOWED_TAGS.raw.filter((id) => !replaced.has(id) && !removed.has(id)), (id) => raw.get(id) ?? (RAW_ELSE_IFD0.has(id) ? ifd0.get(id) : undefined)),
-    ...select(DNG_REWRITE_ALLOWED_TAGS.camera.filter((id) => !replaced.has(id) && !removed.has(id)), (id) => ifd0.get(id) ?? raw.get(id)),
-    ...edits, enc.long(254, [0])
+    ...select(DNG_REWRITE_ALLOWED_TAGS.camera.filter((id) => !replaced.has(id) && !removed.has(id)), (id) => ifd0.get(id) ?? raw.get(id))
   ];
-  const exif = select(DNG_REWRITE_ALLOWED_TAGS.exif, (id) => exifIfd?.get(id) ?? ifd0.get(id) ?? raw.get(id));
-  if (exif.length && !exif.some((t) => t.id === 36864)) exif.push({ id: 36864, type: 7, count: 4, data: new TextEncoder().encode("0232") });
+  const exifPicked = select(DNG_REWRITE_ALLOWED_TAGS.exif, (id) => exifIfd?.get(id) ?? ifd0.get(id) ?? raw.get(id));
 
   /**
    * The strips or tiles of an image IFD, bounded by the file. The tables must hold one entry per strip (RowsPerStrip rows) or per
@@ -235,10 +235,19 @@ export function serializeRewrittenDng(input: DngRewriteInput): RewrittenDng {
     }) };
   };
   const mainChunks = chunksOf(raw);
-  const maskSpecs = masks.map((m) => ({ tags: [...select(DNG_REWRITE_ALLOWED_TAGS.mask, (id) => m.get(id)), enc.long(254, [0x10004])], chunks: chunksOf(m) }));
+  const maskPicked = masks.map((m) => ({ picked: select(DNG_REWRITE_ALLOWED_TAGS.mask, (id) => m.get(id)), chunks: chunksOf(m) }));
   // No two strips or tiles (of the raw image and the masks) may share bytes.
   ranges.sort((a, b) => a[0] - b[0]);
   for (let i = 1; i < ranges.length; i++) if (ranges[i]![0] < ranges[i - 1]![1]) fail("strips or tiles overlap.");
+  // 2.28.0: each copied value and each strip or tile has its own bytes in a file, so together they fit in it; more means tags
+  // share bytes, and the rewrite would copy them once per tag.
+  let total = copied;
+  for (const [start, end] of ranges) total += end - start;
+  if (total > n) fail("tag values and strip or tile data add up to more than the file: tags share bytes.");
+  const main: OutTag[] = [...copy(mainPicked), ...edits, enc.long(254, [0])];
+  const exif = copy(exifPicked);
+  if (exif.length && !exif.some((t) => t.id === 36864)) exif.push({ id: 36864, type: 7, count: 4, data: new TextEncoder().encode("0232") });
+  const maskSpecs = maskPicked.map((m) => ({ tags: [...copy(m.picked), enc.long(254, [0x10004])], chunks: m.chunks }));
   const out = pack(little, { tags: main, chunks: mainChunks }, exif, maskSpecs);
 
   const written = new Set([...main, ...exif, ...maskSpecs.flatMap((m) => m.tags)].map((t) => t.id));

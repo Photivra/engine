@@ -31,7 +31,7 @@
     value and holds none, a header with no IFD, and a decoded JPEG XL tile PNG without a leading 13-byte IHDR fail with
     `InvalidConfigurationError`. An exception thrown by the caller's `jpegXlDecoder` rejects the import with `InvalidConfigurationError` (the original as
     `cause`; `InvalidConfigurationError` takes an optional `{ cause }`). `serializeRewrittenDng` requires strip or tile tables that match the image layout and do not
-    overlap. The DNG noise estimate's median selection has an O(n log n) worst case.
+    overlap, and copied tag values that, with the strips or tiles, fit in the file's size. The DNG noise estimate's median selection has an O(n log n) worst case.
   - *Release sequences* hold at most 10,000 frames (`maximumLogicalFramesPerSequence` too).
   - *Temporal samples.* The rotation and translation quadratures, the extended-object projection and the stabilized capture
     samples take at most 256 temporal samples and 65,536 nodes (samples × points).
