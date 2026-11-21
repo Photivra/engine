@@ -10,6 +10,7 @@ import { licenseAllowed, checkLockfile } from "./check-license-policy.mjs";
 import { identityViolations, isText } from "./check-project-identity.mjs";
 import { orphanPages } from "./lib/generated-pages.mjs";
 import { licenseHeaderViolations } from "./check-license-headers.mjs";
+import { declaredDependencyFields } from "./lib/dependency-fields.mjs";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -111,4 +112,12 @@ test("the SPDX-header gate reads test/, .github/ and the root configuration file
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+test("the no-runtime-dependency checks read every dependency field (ci-22 in #703)", () => {
+  assert.deepEqual(declaredDependencyFields({ name: "@photivra/engine", devDependencies: { vitest: "4" } }), []);
+  for (const field of ["dependencies", "optionalDependencies", "peerDependencies", "bundleDependencies", "bundledDependencies"])
+    assert.deepEqual(declaredDependencyFields({ devDependencies: {}, [field]: field.startsWith("bundle") ? ["left-pad"] : { "left-pad": "1.3.0" } }), [field]);
+  // #659: the published manifest declares none of the fields at all, so an empty one is refused too.
+  assert.deepEqual(declaredDependencyFields({ optionalDependencies: {} }), ["optionalDependencies"]);
 });

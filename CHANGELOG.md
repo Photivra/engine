@@ -65,6 +65,10 @@
     `vitest.config.ts`, `vitest.webgpu.config.ts` and `eslint.config.js` carry the Apache-2.0 header, with no exceptions list.
   - *One line's failed `verify` check no longer cancels the others (`ci-19`).* The `verify` job sets `fail-fast: false`, and the
     workflow rules (`.github/node-ci-roles.mjs`) fail when any matrix job of `ci.yml`, `publish.yml` or `webgpu.yml` leaves it out.
+  - *The packed-consumer check reads every dependency field (`ci-22`).* `scripts/check-release-consumer.mjs` failed only on a
+    non-empty `dependencies`; it now refuses the five fields `pack:check` refuses since #659 (`dependencies`,
+    `optionalDependencies`, `peerDependencies`, `bundleDependencies`, `bundledDependencies`), from one shared list
+    (`scripts/lib/dependency-fields.mjs`). With `"optionalDependencies": { "left-pad": "1.3.0" }` both checks fail.
 
 ### Site
 
