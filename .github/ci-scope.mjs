@@ -10,7 +10,8 @@
 // Prints `tests=true` or `tests=false` (and appends it to $GITHUB_OUTPUT when set).
 // `tests=false` only when every changed path is a Markdown file outside src/, test/,
 // scripts/ and .github/, and no file under test/ or a Vitest config that uses the file
-// system names its path (the published src/ is browser-safe and reads no files).
+// system names its path (the published src/ is browser-safe and reads no files), or is under
+// site/ or docs/design/ (the documentation site and its design, #669).
 // Anything else, an empty diff or a git error, gives `tests=true`: the rule fails
 // towards running the tests. A docs-only change still runs the static, documentation,
 // packed-consumer, package and licence gates, which read the Markdown.
@@ -24,10 +25,14 @@ const testReaders = ["test"];
 const testConfigs = /^vitest(\..+)?\.config\.ts$/;
 const codeDirectories = /^(src|test|scripts|\.github)\//;
 const fileSystem = /node:fs|from "fs|from 'fs|require\(["']fs|\bfs\./;
+// #669 (#709, gap 2): the documentation site's sources and the design figures are no part of the engine and no test reads
+// them; pages.yml builds and checks the site.
+const siteOnly = /^(site|docs\/design)\//;
 
 export function docsOnlyReason(changed, readerTexts) {
   if (changed.length === 0) return "no changed files were found";
   for (const path of changed) {
+    if (siteOnly.test(path)) continue;
     if (!path.endsWith(".md")) return `${path} is not Markdown`;
     if (codeDirectories.test(path)) return `${path} is under a code directory`;
     const reader = readerTexts.find(({ text }) => text.includes(path));

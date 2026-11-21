@@ -14,6 +14,8 @@ const gates = [
   ["lint", ["node_modules/eslint/bin/eslint.js", "."]],
   ["typecheck", ["node_modules/typescript/bin/tsc", "--noEmit"]],
   ["licenses", ["scripts/check-license-policy.mjs"]],
+  ["site tool licenses", ["scripts/check-license-policy.mjs", "site/package-lock.json"]],
+  ["gate unit tests", ["--test", "scripts/test-gates.mjs"]],
   ["license headers", ["scripts/check-license-headers.mjs"]],
   ["identity", ["scripts/check-project-identity.mjs"]],
   ["browser surface", ["scripts/check-browser-surface.mjs"]],
