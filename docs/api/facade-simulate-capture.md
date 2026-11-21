@@ -666,7 +666,7 @@ export interface SimulateCaptureOptions {
      * Opt-in (2.1) diffraction blur of an ideal, aberration-free, in-focus lens with a circular pupil at the
      * capture's resolved f-number: the engine builds the Airy kernels (`createDiffractionLimitedPsfProfile`)
      * on the site pitch. `kernelRadiusSamples` (0–32) sets the kernel window; default: the third dark ring at
-     * the longest spectral node, capped at 32 sites. Not combinable with `psf` or `pupilSampling`. Default off.
+     * the longest spectral node, capped at 32 sites (2.28.0, #732: the second on a fast request, where that is fewer sites). Not combinable with `psf` or `pupilSampling`. Default off.
      */
     diffraction?: SimulateCaptureLensDiffraction;
     /**

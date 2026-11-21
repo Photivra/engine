@@ -76,7 +76,11 @@ describe("lens.diffraction under a rolling shutter with camera rotation: lattice
   }, scaledTimeout(120_000));
 
   it("changes nothing but ties: dead leaves give the same RAW either way", async () => {
-    const off = await simulateCapture(options("dead-leaves", false)), on = await simulateCapture(options("dead-leaves", true));
+    // #732: the record's fast also sets the default kernel window, so the fast run takes the exact run's radius explicitly.
+    const on = await simulateCapture(options("dead-leaves", true));
+    const kernelRadiusSamples = (on.assumptions.find((a) => a.id === "lens.diffraction")!.value as { kernelRadiusSamples: number }).kernelRadiusSamples;
+    const off = await simulateCapture({ ...options("dead-leaves", false), lens: { fNumber: 11, diffraction: { kind: "circular-aperture", fast: true, kernelRadiusSamples } } });
+    expect(off.assumptions.some((a) => a.id === "fast.lens.diffraction")).toBe(true);
     expect(Array.from(on.raw.codes)).toEqual(Array.from(off.raw.codes));
   }, scaledTimeout(120_000));
 });

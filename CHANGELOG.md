@@ -318,6 +318,35 @@ Each item below is one commit of the serial output-change lane, with its measure
   - *Bundle.* Fast row 337,772 → 337,959 B (+187 B; lane so far +239 B against 337,720 B). Over the 337,800 B limit in the test,
     which this branch does not change (see the step 5 report).
 
+- **`lens.diffraction`: the default kernel window follows the flag (#732, owner decision 2026-11-21).** Without
+  `kernelRadiusSamples`, a request that resolves to fast (sRGB captures and display views by default) takes the Airy kernel window
+  to the second dark ring at the longest spectral node (j₁,₂ = 7.0156, NIST DLMF Table 10.21.1) where that is fewer sites than the
+  third; exact requests (`fast: false`, `"dng"`, `"jpeg"`, `"png"`, `simulateIdealReference`) keep the third ring, and an explicit
+  `kernelRadiusSamples` always wins. Radii: 15 → 10 at 1.4 µm f/8, 8 → 5 at f/4, 29 → 20 at f/16; 4 → 3 at 6 µm f/8, 7 → 5 at f/16.
+  `diagnostics.fast.applied["lens.diffraction"]` is `true` and the `fast.lens.diffraction` assumption's `window` gives both radii and
+  the a-priori bound B = max over nodes of (T_fast − T_exact) / (1 − T_exact), T the Airy energy outside each window, the largest
+  change at a site as a share of the scene contrast its CFA colour sees (2.79 % at 1.4 µm f/8, 1.31 % at 6 µm f/8; the test checks it
+  at every native site of 96 × 96 at the Siemens star's centre, 1.4 µm f/8 and 6 µm f/16). Registry entry
+  `lens.diffraction/kernel-window`. Per-site integration is unchanged; only the optics kernel's window. The window reaches the GPU
+  kernels, the defocus kernels and the layered scene through `kernelRadiusSamples`. `docs/QUICK_START.md`'s `fast` row is corrected
+  (it said the default was `false` and that no option had a fast method).
+  - *Measured effect* (the #670 part tier, default flag, against the tree before #732): 8-bit samples that differ, all by one level
+    in the views: `frame-768` 1,838 of 99,072, `tele-200` 1,079 of 99,072, `sensor-aps-c` 569 of 25,344, `mixed-light` 232 of
+    25,344, `sensor-phone` 5 of 25,344; the 1.4 µm captures `detail-star-f8` 31,023 and `detail-star-f22` 37,127 of 73,728 (up to 10
+    and 9 levels at the star's centre), `detail-noise` 2,634 of 73,728 (ISO 25,600: a shifted expected value changes the seeded
+    draws, up to 61 levels). The review's ΔE measurements are on the ticket (largest ΔE 2.5 at 1.4 µm and 3.3 at 6 µm at 1:1).
+    `fast: false` and every request with an explicit radius are unchanged.
+  - *Speed* (paired, default flag, CPU s): `mixed-light` 48.7 → 35.7 (0.73×), `detail-star-f22` 0.83×, the 6 µm frames 0.89–0.92×,
+    `frame-1536` 1.03× (one run); the review measured 2.1–2.6× on its 1.4 µm f/8 cases (not re-measured here).
+  - *Locks re-recorded for #732* (arm64 and x64 Node 24.1.0 under Rosetta): `test/display-view.test.ts` cases 1, 3, 4 and 5
+    (`samples`, `internals`, `combined`) and case 2's `internals` and `combined` (its samples hold); `test/display-view-pixel-memo.test.ts`
+    case 2 (all three); `test/figure-batch-hash-locks.test.mjs`, default flag: `samples`, `internals` and `sceneLookups` of
+    `frame-768`, `frame-1536`, `tele-200`, `wide-24`, `sensor-phone`, `noise-iso-frame`, `dr-recover-push`, `mixed-light`,
+    `sensor-aps-c`, `detail-star-f8` and `detail-star-f22`, and `providerEvaluationCount` of `detail-noise`. Tests that compared a
+    fast and an exact diffraction request for another method now give an explicit radius, and the parts of the DNG and develop joins
+    render with the join's `fast` (#728 refuses fast parts under an exact join).
+  - *Bundle.* Fast row 337,959 → 338,242 B (+283 B; lane so far +522 B against 337,720 B).
+
 ### Display view
 
 - **Display view: Recover and +1 stop without Standard under its time target (#662); output unchanged.** With the identity tone

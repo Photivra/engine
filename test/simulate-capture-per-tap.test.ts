@@ -12,7 +12,8 @@ import { simulateDisplayViewWithInternals } from "../src/facade/simulate-display
 import { createDisplayViewExpectedSignal } from "../src/facade/expected-signal.js";
 import { scaledTimeout } from "./helpers/test-timeout.js";
 
-const request = (n: number, fast?: boolean): SimulateCaptureOptions => ({ scene: { preset: "siemens-star" }, lens: { fNumber: 8, diffraction: "circular-aperture" },
+// An explicit window (the third dark ring, the exact default), so that the fast and exact requests differ in no other method (#732).
+const request = (n: number, fast?: boolean): SimulateCaptureOptions => ({ scene: { preset: "siemens-star" }, lens: { fNumber: 8, diffraction: { kind: "circular-aperture", kernelRadiusSamples: 15 } },
   sensor: { pixelPitchMicrometers: 1.4, pixelAperture: { kind: "box", samplesPerAxis: n } },
   output: { width: 4000, height: 3000, region: { x: 1984, y: 1488, width: 32, height: 24 } }, ...(fast === undefined ? {} : { fast }) });
 const expectedSignal = (r: { assumptions: readonly { id: string; value: unknown }[] }): Record<string, unknown> =>

@@ -280,8 +280,10 @@ have a fast method, a measured and bounded approximation of it. One flag style s
   integrated in 4 rows per site of its footprint fast and 16 exact, exact along each row; reported in the `scene.layers`
   assumption). The other
   2.27.0 speed-ups (#649, #653, the regrouped lens defocus and the Newton distortion inverse of #651 and #655) give the same
-  results within rounding and take no flag. The records of `lens.diffraction`, `sensor.antiAliasing` and `output.demosaic` (in captures) take `fast`
-  with no fast method yet. `test/fast-methods-registry.test.ts` fails when a record accepts `fast` without an entry, an entry
+  results within rounding and take no flag. In 2.28.0: `lens.diffraction`'s default kernel window (#732, `lens.diffraction/kernel-window`:
+  to the second dark ring at the longest node fast, the third exact; an explicit `kernelRadiusSamples` always wins; reported in
+  `diagnostics.fast.applied["lens.diffraction"]` and the `fast.lens.diffraction` assumption's `window`, with its a-priori bound). The
+  records of `sensor.antiAliasing` and `output.demosaic` (in captures) take `fast` with no fast method yet. `test/fast-methods-registry.test.ts` fails when a record accepts `fast` without an entry, an entry
   lacks its resolver or report, or a format default leaves the rule. **Every new fast method adds its entry.**
 - **The same words on WebGPU.** The image-kernel execution record carries `fast` (`false` for `cpu-reference`, `true` for
   `webgpu-f32`) beside `assurance`; `backend` still names where the work runs.
@@ -291,7 +293,7 @@ have a fast method, a measured and bounded approximation of it. One flag style s
   less accurate method becomes the fast method behind the flag.
 - **Parameters are not the flag.** Sample counts and windows (`samplesPerAxis`, `kernelRadiusSamples`, `separationSites`) are
   model parameters and keep their names. Where a parameter's default follows the flag (the spectral step, the box aperture's samples,
-  the temporal midpoints), an explicit value always wins.
+  the temporal midpoints, the diffraction kernel window since 2.28.0), an explicit value always wins.
 - **Names:** `lens.diffraction` names its model by `kind` like the other records; `aperture`, its name before #395, stays a
   deprecated alias until 3.0.0, and giving both is an error.
 

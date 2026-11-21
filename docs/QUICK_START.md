@@ -76,7 +76,7 @@ modelling choices (such as "no lens PSF") as `kind: "model"`.
 | `lens.vignetting` | none | An `IlluminationVignettingProfile` (radial relative illumination). |
 | `lens.psf` | none | A `{ kind: "sampled-local", configuration }` sampled lens PSF, passed to the environment contract unchanged. |
 | `lens.defocus` | off | `{ model: "geometric-disc" }`: defocus of the scene plane as the geometric blur disc (see [Optics](#optics)). `simulateCapture` and `simulateDisplayView` render it. Optional bokeh character (#553), each part off by default: `blades`, `sphericalAberration`, `catsEye` (see [Bokeh character](#bokeh-character-553)). |
-| `lens.diffraction` | off | 2.1: `"circular-aperture"` or `{ kind: "circular-aperture", kernelRadiusSamples, fast }`: diffraction blur of an ideal lens at the resolved f-number (see [Optics](#optics)). `aperture` is accepted as a deprecated alias of `kind` until 3.0.0. |
+| `lens.diffraction` | off | 2.1: `"circular-aperture"` or `{ kind: "circular-aperture", kernelRadiusSamples, fast }`: diffraction blur of an ideal lens at the resolved f-number (see [Optics](#optics)). 2.28.0: without `kernelRadiusSamples` the window reaches the second dark ring on a fast request and the third on an exact one (#732). `aperture` is accepted as a deprecated alias of `kind` until 3.0.0. |
 | `exposure.mode` | `"manual"` | Also `"aperture-priority"`, `"shutter-priority"`, `"program"`. |
 | `exposure.iso` | 100 | Selects the body's ISO readout regime (gain and read noise). From 2.14 the tier bodies (preset 2.1.0) take the third-stop settings `GENERIC_THIRD_STOP_ISO_SETTINGS` (100, 125, 160, 200 … up to the body's maximum: 6400, 12 800 or 25 600). `"auto"` lets Auto ISO choose it from the meter in any mode (see [Auto ISO](#auto-iso-516)); it steps in whole stops unless `exposure.autoIso.isoSteps: "third-stop"`. |
 | `exposure.autoIso` | none | With `iso: "auto"` only. `aperture-priority` requires `{ slowestPreferredShutterSeconds, afterMaximumIso? }`, and `program` takes them optionally; the slowest shutter may be `"auto"`, set by `automaticSlowestShutter`. Every mode takes `limits: { maximum, minimum? }`, the photographer's Auto ISO range (see [Auto ISO](#auto-iso-516)). |
@@ -115,7 +115,7 @@ modelling choices (such as "no lens PSF") as `kind: "model"`.
 | `sensor.noiseSeed` | 1 | Output is deterministic for a given seed. |
 | `sensor.antiAliasing` | off | 2.1: an optical low-pass (anti-aliasing) filter: `{ kind: "four-spot", separationSites? }`, `{ kind: "two-spot", axis, separationSites? }` or `{ kind: "point-splitting", components }` (see [Anti-aliasing filter](#anti-aliasing-filter)). Each record also takes `fast`. |
 | `sensor.pixelAperture` | `"point"` | 2.3: `"box"` or `{ kind: "box", samplesPerAxis, fast }` integrates each square photosite (see [Pixel aperture](#pixel-aperture-23)). |
-| `fast` | `false` | Exact or fast for every option in `SIMULATE_CAPTURE_FAST_OPTIONS`; an option's record `fast` overrides it. No option has a fast method yet, so results are exact; `diagnostics.fast` reports what was requested and what ran (see [Exact and fast modes](https://github.com/Photivra/engine/blob/main/docs/API_STYLE.md#exact-and-fast-modes)). |
+| `fast` | by format | Exact or fast for every option in `SIMULATE_CAPTURE_FAST_OPTIONS`; an option's record `fast` overrides it. Without it the format decides (2.20.0): fast for `"srgb-8"`, `"srgb-16"` and the display view, exact for `"dng"`, `"jpeg"`, `"png"` and `simulateIdealReference`. `SIMULATE_CAPTURE_FAST_METHODS` lists the fast methods; `diagnostics.fast` reports what was requested and what ran (see [Exact and fast modes](https://github.com/Photivra/engine/blob/main/docs/API_STYLE.md#exact-and-fast-modes)). |
 | `motion.angularVelocityRadPerSec` | still | `{ pitch?, yaw?, roll? }` in rad/s (see [Motion](#motion)). |
 | `motion.shutter` | `"global"` | Or `"rolling"`. |
 | `motion.rollingShutterSkewSeconds` | the body's readout skew | Rolling only. |
@@ -1245,8 +1245,13 @@ The optics options feed only what the environment site contract accepts:
     2.44·λ·N_w, and the energy inside radius r is 1 − J₀(x)² − J₁(x)², x = π·r/(λ·N_w) (Wyant &
     Creath 1992, §II, eqs. 1–4, free). The Bessel-function relations and expansions come from the
     NIST DLMF (free). Full references are under [Sources](#sources).
-  - The kernel window reaches the third dark ring at the longest node by default (2, 4 and 7 sites at
-    f/4, f/8 and f/16 with 6 µm pixels); set `kernelRadiusSamples` (0–32) to change it. The Airy tail
+  - The kernel window reaches the third dark ring at the longest node by default on an exact request (2, 4 and 7 sites at
+    f/4, f/8 and f/16 with 6 µm pixels); set `kernelRadiusSamples` (0–32) to change it. 2.28.0 (#732, owner decision): on a
+    fast request (sRGB captures and display views by default) the default reaches the second dark ring (j₁,₂ = 7.0156,
+    NIST DLMF Table 10.21.1; 15 → 10 sites at 1.4 µm f/8, 4 → 3 at 6 µm f/8), where that is fewer sites;
+    `diagnostics.fast.applied["lens.diffraction"]` is then `true` and the `fast.lens.diffraction` assumption's `window` gives both
+    radii and the a-priori bound B = max over nodes of (T_fast − T_exact) / (1 − T_exact), T the Airy energy outside each window:
+    the largest change at a site as a share of the scene contrast its CFA colour sees (2.8 % at 1.4 µm f/8, 1.3 % at 6 µm f/8). The Airy tail
     outside the window (2–6 % of the energy with the default) is listed per wavelength in the
     `lens.diffraction` assumption and put back by renormalizing each kernel to unit sum.
   - The default window is capped at 32 sites, the convolution limit. Small pixels at large f-numbers

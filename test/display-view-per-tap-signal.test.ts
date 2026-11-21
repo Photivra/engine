@@ -29,7 +29,8 @@ const request = (fast?: boolean): SimulateCaptureOptions => ({
   subjectDistanceM: 2, exposure: { mode: "manual", iso: 100, shutterSeconds: 1 / 60 },
   sensor: { pixelPitchMicrometers: 6, antiAliasing: { kind: "four-spot" }, pixelAperture: { kind: "box", samplesPerAxis: 2 } },
   output: { width: W, height: H, demosaic: "ahd" },
-  lens: { prime: 50, fNumber: 8, diffraction: "circular-aperture" },
+  // An explicit window (the exact default, the third dark ring): #732's second-ring window on fast requests is not what this compares.
+  lens: { prime: 50, fNumber: 8, diffraction: { kind: "circular-aperture", kernelRadiusSamples: 4 } },
   ...(fast === undefined ? {} : { fast }) });
 const VIEW = { width: 300, height: 200, samplesPerAxis: 2, region: { x: 140, y: 90, width: 24, height: 16 } };
 const signalOf = (result: { assumptions: readonly { id: string; value: unknown }[] }): unknown => result.assumptions.find((a) => a.id === "view.signal")?.value;
