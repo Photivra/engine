@@ -175,9 +175,10 @@ function fail(message: string): never { throw new InvalidConfigurationError(mess
 export function checkFieldRanges(record: Record<string, unknown>, keys: readonly string[], prefix: string, ranges: Readonly<Record<string, FieldRange>> = RANGES, root = "sensor.", required = false): void {
   const all = required ? [...new Set([...keys, ...Object.keys(ranges).filter((k) => k.startsWith(prefix) && !k.slice(prefix.length).includes(".")).map((k) => k.slice(prefix.length))])] : keys;
   for (const key of all) {
-    const path = prefix + key, value = record[key], range = ranges[path];
+    const path = prefix + key, value = record[key], range = ranges[path]!;
     if (value === undefined && !required) continue;
-    if (range === undefined) fail("Unknown " + (root + prefix).slice(0, -1) + " field: " + key + ".");
+    // Own entries only: a key named like an Object.prototype member is unknown (foundation-04, sensor-02).
+    if (!Object.hasOwn(ranges, path)) fail("Unknown " + (root + prefix).slice(0, -1) + " field: " + key + ".");
     if (value === undefined) fail(root + path + " is required.");
     if (range === 0) {
       requireInputObject(value, root + path);
