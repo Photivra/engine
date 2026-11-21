@@ -913,6 +913,9 @@ them run the per-component arithmetic unchanged (the hash locks are unchanged).
   a decision inside their float32 bound flags the pixel for the host's reference. Elsewhere `reconstruct` is the unclipped white balance (exactly linear) and the
   desaturation changes nothing. The Gauss–Hermite nodes are the eigenvalues of the Jacobi matrix (Golub & Welsch 1969), found by
   Sturm-sequence bisection with correctly rounded operations only (the same bits in every engine).
+  2.28.0 (#662): with the identity tone curve and the component clip (Recover without a tone curve) the tone and gamut slopes
+  are the identity at every node and the clip's is diag(inside), so the chain takes them as such instead of forming the 3 × 3
+  products; the results are the same bits (a `+0` term leaves a sum that starts at `+0` unchanged), fast and full.
 
 **Accuracy (measured, `test/display-view-coupled-rendering.test.ts`).** Against seeded Monte Carlo of the same chain (400,000
 draws): tone-curve means within four standard errors and variances within 2 %; the chain's means within 1·10⁻³ plus four
@@ -1294,8 +1297,11 @@ develop options).
   rolling in focus 192 × 128 1.67 → 1.56 s; rolling out of focus 192 × 128 218 → 7.27 s, 4.7× the
   in-focus region.
 - Targets not met, accepted by the owner and open for 2.28.0: #656 Recover and +1 stop without Standard (1.22 s against 0.8 s; the
-  accuracy is kept), #651's 192 × 128 region (4.7× its in-focus time against 3×; the 1/128 site band shift is kept), and
+  accuracy is kept; 2.28.0, #662: 0.61× of 2.27.0 in paired runs, the same bits, below), #651's 192 × 128 region (4.7× its in-focus time against 3×; the 1/128 site band shift is kept), and
   #655's 2 × 2 box (2.0× the point aperture against 1.3×).
+- 2.28.0 (#662): `656-recover-push` 1.35 → 0.79 s (fastest of five paired runs against 2.27.0's code; median ratio 0.61×,
+  load average 16–26), under the 0.8 s target; with `fast: false` 18.8 → 8.1 s. Samples, expected values and noise standard
+  deviations are the same bits (SHA-256), fast and full; `656-standard-recover-push` 0.93× and `656-none` 1.00× of 2.27.0.
 - ¹ #649's ratios to the plain part move by about 20 % with the machine's load at 0.5–1.9 s per render. Over three runs (this
   table's and two later ones, `REPEATS=2` and `REPEATS=4`, load average 18–100): corrections 1.42–1.79× (target 1.5×, met in this
   table's run only), sharpening 1.78–2.03× (target 1.7×, not met), both 2.40–2.91× (target 2.6×, met in this table's run only).

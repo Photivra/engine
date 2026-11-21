@@ -22,6 +22,13 @@
     (docs/NUMERICAL_CORRECTNESS.md).
   - *Proof uploads and the macOS check (`ci-20`, `ci-21` in #703).* A failed proof upload no longer fails a job whose work passed;
     `hash locks (macos-latest)` drops `continue-on-error` and is documented as the blocking required check it is.
+- **Display view: Recover and +1 stop without Standard under its time target (#662); output unchanged.** With the identity tone
+  curve and the component clip the chain takes its slopes as the identity and diag(inside) instead of forming the 3 × 3 products
+  at every node, and nine-element resets no longer go through `TypedArray.fill`. The #656 part (96 × 96 of a 1500 × 1000 view)
+  takes 1.35 → 0.79 s in paired runs (median 0.61× of 2.27.0's code; target 0.8 s) and 18.8 → 8.1 s with `fast: false`; samples,
+  expected values and noise standard deviations are the same bits, fast and full (`test/display-view-coupled-rendering.test.ts`
+  locks the chain over a seeded sweep of four tone and gamut choices and the part's render). Bundle: the on-demand Quality kit
+  +95 B gzip.
 
 ## 2.27.0 — published November 19, 2026
 

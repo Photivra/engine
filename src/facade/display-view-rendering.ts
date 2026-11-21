@@ -184,12 +184,18 @@ export function createDisplayViewCoupledRendering(choice: DisplayViewRenderingCh
   const neighbors = choice.highlightMode === "reconstruct-neighbors", reconstruct = choice.highlightMode === "reconstruct" || neighbors, desaturate = choice.gamutHandling === "desaturate-to-luminance";
   if (!luminanceTone && !reconstruct && !desaturate) return null;
   const reinhard = choice.toneCurve === "positive-reinhard-per-channel", ratio = luminanceTone ? luminanceRatio(choice.toneCurve, choice.toneCurveParameters) : null;
+  // #662: the identity tone curve with the component clip (Recover without a tone curve): Jt and Jz are the identity at every
+  // node and Jo is diag(inside), so `render` and `sum` take those values directly (the same bits as the general products).
+  const simple = !ratio && !reinhard && !desaturate;
   const ratioZero = ratioAtZero(choice.toneCurve, choice.toneCurveParameters);
   const w0 = SDR_LUMINANCE_WEIGHTS[0]!, w1 = SDR_LUMINANCE_WEIGHTS[1]!, w2 = SDR_LUMINANCE_WEIGHTS[2]!, w = [w0, w1, w2];
   const g = Float64Array.from(gains), L = clipLevel, M = Float64Array.from(matrix.flat()), start = RAW_HIGHLIGHT_RECONSTRUCTION_START;
   const chainRule = gaussHermite(choice.fast ? DISPLAY_VIEW_CHAIN_POINTS.fast : DISPLAY_VIEW_CHAIN_POINTS.full), hermite8 = gaussHermite(DISPLAY_VIEW_LUMINANCE_FAST_POINTS);
   const rr = new Float64Array(2), b = new Float64Array(3), Jb = new Float64Array(9), y = new Float64Array(3), z = new Float64Array(3), Jt = new Float64Array(9), Jz = new Float64Array(9);
-  const T = new Float64Array(9), c = new Float64Array(3), out = new Float64Array(3), Jo = new Float64Array(9), chol = new Float64Array(9);
+  const T = new Float64Array(9), c = new Float64Array(3), out = new Float64Array(3), Jo = new Float64Array(9);
+  /** Nine scalar stores (TypedArray.fill costs more than the node's arithmetic on nine elements). */
+  const zero9 = (a: Float64Array): void => { for (let i = 0; i < 9; i++) a[i] = 0; };
+  if (simple) Jt[0] = Jt[4] = Jt[8] = 1;
   // #656: the fast rule's low order and its kink probe (see `integrate`): the tone output before the desaturation (zp), whether a
   // node took the desaturation, and the largest slopes seen of the developed values (Gy) and the tone output (Gz).
   const lowRule = choice.fast && !neighbors && lowOrder ? gaussHermite(DISPLAY_VIEW_CHAIN_POINTS.fastLow) : null, zp = new Float64Array(3);
@@ -200,7 +206,7 @@ export function createDisplayViewCoupledRendering(choice: DisplayViewRenderingCh
   /** The highlight step b(c) and its slopes Jb = ∂b/∂c (a.e.), as `prepareSensorColorDevelopment` develops. */
   function highlight(c0: number, c1: number, c2: number): void {
     const u0 = c0 * g[0]!, u1 = c1 * g[1]!, u2 = c2 * g[2]!;
-    Jb.fill(0);
+    zero9(Jb);
     if (neighbors) {
       // #602: the pixel's region ratios (its own chromaticity when no region is bound: the rebuild then keeps u).
       if (rho) rebuildClippedPixel(c0, c1, c2, g, rho, b, Jb);
@@ -228,7 +234,11 @@ export function createDisplayViewCoupledRendering(choice: DisplayViewRenderingCh
   }
   /** Tone, gamut and clip of developed y into out, with the slopes Jo = ∂out/∂y (a.e.). */
   function render(): void {
-    Jt.fill(0);
+    if (simple) {
+      for (let k = 0; k < 3; k++) { const v = y[k]!; z[k] = zp[k] = v; out[k] = v < 0 ? 0 : v > 1 ? 1 : v; Jo[k * 4] = v > 0 && v < 1 ? 1 : 0; }
+      return;
+    }
+    zero9(Jt);
     if (ratio) {
       const l = w0 * y[0]! + w1 * y[1]! + w2 * y[2]!;
       if (l > 0) {
@@ -249,13 +259,13 @@ export function createDisplayViewCoupledRendering(choice: DisplayViewRenderingCh
       if (lp >= 1) { out.fill(1); Jo.fill(0); return; }
       const d = zt - lp, a = (1 - lp) / d;
       // ∂a/∂z_j = (−w_j·d − (1 − lp)·(δ_tj − w_j))/d².
-      for (let j = 0; j < 9; j++) Jz[j] = 0;
+      zero9(Jz);
       for (let k = 0; k < 3; k++) for (let j = 0; j < 3; j++) {
         const da = (-w[j]! * d - (1 - lp) * ((j === top ? 1 : 0) - w[j]!)) / (d * d);
         Jz[k * 3 + j] = w[j]! * (1 - a) + (k === j ? a : 0) + (z[k]! - lp) * da;
       }
       desaturateToLuminance(z);
-    } else { Jz.fill(0); Jz[0] = 1; Jz[4] = 1; Jz[8] = 1; }
+    } else { zero9(Jz); Jz[0] = 1; Jz[4] = 1; Jz[8] = 1; }
     // Jo = diag(inside)·Jz·Jt.
     for (let k = 0; k < 3; k++) {
       const v = z[k]!, inside = v > 0 && v < 1;
@@ -298,7 +308,6 @@ export function createDisplayViewCoupledRendering(choice: DisplayViewRenderingCh
   }
   function integrate(cm: Float64Array, C: Float64Array, hm: Float64Array, hv: Float64Array, A: Float64Array): number {
     // Cholesky factor of C (positive semidefinite; tiny negative pivots are treated as 0).
-    chol.fill(0);
     const l00 = Math.sqrt(Math.max(0, C[0]!)), l10 = l00 > 0 ? C[3]! / l00 : 0, l20 = l00 > 0 ? C[6]! / l00 : 0;
     const l11 = Math.sqrt(Math.max(0, C[4]! - l10 * l10)), l21 = l11 > 0 ? (C[7]! - l20 * l10) / l11 : 0, l22 = Math.sqrt(Math.max(0, C[8]! - l20 * l20 - l21 * l21));
     const noise = l00 > 0 || l11 > 0 || l22 > 0, second = l11 > 0 || l21 !== 0 || l22 > 0;
@@ -364,8 +373,15 @@ export function createDisplayViewCoupledRendering(choice: DisplayViewRenderingCh
           develop(c[0], c[1], c[2]);
           e0 += weight * out[0]!; e1 += weight * out[1]!; e2 += weight * out[2]!;
           q0 += weight * out[0]! * out[0]!; q1 += weight * out[1]! * out[1]!; q2 += weight * out[2]! * out[2]!;
-          // ∂out/∂c = Jo·M·Jb.
-          for (let r = 0; r < 3; r++) for (let s = 0; s < 3; s++) {
+          // ∂out/∂c = Jo·M·Jb. #662: with `simple`, Jo = diag(inside): row o adds weight·(M·Jb)[o][s] where inside (the other
+          // rows' terms are ±0, which leave a sum that starts at +0 unchanged); the probe still needs every slope.
+          if (simple) {
+            for (let o = 0; o < 3; o++) if (probe || Jo[o * 4]) for (let s = 0; s < 3; s++) {
+              const ms = M[o * 3]! * Jb[s]! + M[o * 3 + 1]! * Jb[3 + s]! + M[o * 3 + 2]! * Jb[6 + s]!;
+              Gy[o * 3 + s] = ms;
+              if (Jo[o * 4]) T[o * 3 + s] = T[o * 3 + s]! + weight * ms;
+            }
+          } else for (let r = 0; r < 3; r++) for (let s = 0; s < 3; s++) {
             const ms = M[r * 3]! * Jb[s]! + M[r * 3 + 1]! * Jb[3 + s]! + M[r * 3 + 2]! * Jb[6 + s]!;
             Gy[r * 3 + s] = ms;
             for (let o = 0; o < 3; o++) T[o * 3 + s] = T[o * 3 + s]! + weight * Jo[o * 3 + r]! * ms;
