@@ -22,6 +22,10 @@
     (docs/NUMERICAL_CORRECTNESS.md).
   - *Proof uploads and the macOS check (`ci-20`, `ci-21` in #703).* A failed proof upload no longer fails a job whose work passed;
     `hash locks (macos-latest)` drops `continue-on-error` and is documented as the blocking required check it is.
+- **The generic tier assets are frozen as built (#682).** The tier evidence and limitation records, which every tier profile and
+  every capture's `provenance.evidence` share, were writable until the public catalogue was first asked for, so one write to a
+  result's provenance changed it for every later capture. The presets of both versions are now deep-frozen when
+  they are built. No value or output changes; fast row +13 B.
 
 ## 2.27.0 — published November 19, 2026
 
