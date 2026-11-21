@@ -536,6 +536,12 @@ Each item below is one commit of the serial output-change lane, with its measure
     `lens.catalogue` (without a radial distortion) beside lens.projection, lens.distortion, lens.vignetting and camera rotation,
     and the layered-scene reason no longer names a release ("layered chart scenes render on the CPU (#652)"). Fast row
     337,888 → 337,881 B.
+  - *`setWebGpuEnabled(false)` stops GPU work that already has a device (`gpu-05`).* The realm's switch is read on every
+    accelerator operation and every prepared display-view render, not only when the accelerator or view is created (before, one
+    operation of six read it per call). While it is off, an accelerator created earlier runs the CPU reference labelled
+    `webgpu-disabled` (it keeps its device), and a view prepared earlier renders on the CPU labelled `webgpu-disabled` under
+    `"auto"` or throws that reason under `"require"`; switched on again, the device is used. Results labelled `webgpu-f32` while
+    the switch was on are unchanged. Fast row 337,881 → 337,889 B (docs/WEBGPU.md, "The realm's switch").
 
 ### Benchmarks
 

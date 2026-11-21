@@ -247,6 +247,8 @@ function createSession(options: ParsedPrepareDisplayViewOptions, runtime: WebGpu
   return {
     async render(setup, signal, cpu): Promise<{ rendered: DisplayViewRenderResult; execution: DisplayViewExecution }> {
       if (disposed) return fallback("disposed", "the prepared view was disposed.", cpu);
+      // gpu-05 (#702): the realm's switch is read per render, as the accelerator reads it per operation; the device is kept.
+      if (!getWebGpuEnabled()) return fallback("webgpu-disabled", "WebGPU is switched off in this realm (setWebGpuEnabled(false)).", cpu);
       if (lost || runtime.isLost()) { lost = true; return fallback("device-lost", "the WebGPU device was lost; the rest of the view runs on the CPU.", cpu); }
       let check: DisplayViewGpuConformance;
       try {

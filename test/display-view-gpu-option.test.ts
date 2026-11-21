@@ -133,6 +133,24 @@ describe("display view GPU option (#481)", () => {
     expect(await reason(prepareDisplayView(REQUEST, { gpu: "require", gpuDevice: gpu }))).toBe("webgpu-disabled");
   });
 
+  it("the realm's switch, turned off after a view was prepared, keeps that view's renders on the CPU until it is on again (gpu-05 in #702)", async () => {
+    const fake = fakeRenderer();
+    setDisplayViewGpuRendererFactory(fake.factory);
+    const prepared = await prepareDisplayView(REQUEST, { gpu: "auto", gpuDevice: createFakeGpu().gpu });
+    const strict = await prepareDisplayView(REQUEST, { gpu: "require", gpuDevice: createFakeGpu().gpu });
+    expect((await prepared.render(VIEW)).diagnostics.fast.execution).toMatchObject({ backend: "webgpu-f32", fallbackReason: null });
+    setWebGpuEnabled(false);
+    const off = await prepared.render(VIEW);
+    expect(off.diagnostics.fast.execution).toMatchObject({ gpu: "auto", backend: "cpu-reference", requestedBackend: "webgpu-f32", fallbackReason: "webgpu-disabled", adapter: FAKE_ADAPTER_INFO });
+    expect(comparable(off)).toEqual({ ...comparable(await simulateDisplayView(REQUEST, VIEW)) as object, diagnostics: expect.anything() });
+    expect(await reason(strict.render(VIEW))).toBe("webgpu-disabled");
+    expect(fake.renders).toBe(1);
+    setWebGpuEnabled(true);
+    expect((await prepared.render(VIEW)).diagnostics.fast.execution).toMatchObject({ backend: "webgpu-f32", fallbackReason: null });
+    expect(fake.renders).toBe(2);
+    prepared.dispose(); strict.dispose();
+  });
+
   it("auto on a conforming device renders on the GPU: the label names webgpu-f32, its bound, the adapter and the passed self-check", async () => {
     const fake = fakeRenderer({ perturb: true });
     setDisplayViewGpuRendererFactory(fake.factory);

@@ -232,7 +232,7 @@ function createAccelerator(requested: ImageKernelBackend, fallbackReason: ImageK
     return gpu.guard(pending, signal);
   }
   /** Runs one operation at a time, and turns aborts, disposal and device loss into domain errors. */
-  async function operate<T>(signal: AbortSignal | undefined, body: (abort: AbortController) => Promise<T>): Promise<T> {
+  async function operate<T>(signal: AbortSignal | undefined, body: (abort: AbortController, gpu: WebGpuRuntime | null) => Promise<T>): Promise<T> {
     if (disposed) throw new ImageKernelExecutionError("disposed", "The image-kernel accelerator was disposed.");
     if (runtime?.isLost()) throw new ImageKernelExecutionError("device-lost", "The WebGPU device was lost; create a new accelerator.");
     if (busy) throw new ImageKernelExecutionError("busy", "The image-kernel accelerator runs one operation at a time.");
@@ -240,7 +240,9 @@ function createAccelerator(requested: ImageKernelBackend, fallbackReason: ImageK
     const link = linkedAbort(signal);
     try {
       if (link.controller.signal.aborted) throw abortedError();
-      return await body(link.controller);
+      // gpu-05 (#702): the realm's switch is read per operation, so `setWebGpuEnabled(false)` keeps an accelerator that already has
+      // its device on the CPU reference, labelled `webgpu-disabled`, until it is switched on again; the device is kept.
+      return await body(link.controller, runtime && getWebGpuEnabled() ? runtime : null);
     } catch (error) {
       link.controller.abort();
       if (disposed) throw new ImageKernelExecutionError("disposed", "The image-kernel accelerator was disposed; no output is available.");
@@ -251,68 +253,66 @@ function createAccelerator(requested: ImageKernelBackend, fallbackReason: ImageK
       busy = false;
     }
   }
-  const cpuLabel = (): ImageKernelExecution => cpuExecution(requested, fallbackReason);
+  const cpuLabel = (): ImageKernelExecution => cpuExecution(requested, runtime ? "webgpu-disabled" : fallbackReason);
   const accelerator: ImageKernelAccelerator = {
     backend, requestedBackend: requested, fallbackReason, adapter: runtime?.adapter ?? null,
     get state(): ImageKernelAcceleratorState { return state(); },
     async renderNativeCaptureSdr(input, provider, options): Promise<AcceleratedNativeCaptureSdrOutput> {
       const run = runOptions(options);
-      return operate(run.signal, async (abort) => {
-        if (!runtime) {
+      return operate(run.signal, async (abort, gpu) => {
+        if (!gpu) {
           const task = createNativeCaptureSdrTask(input, provider);
           const cancel = (): void => task.cancel();
           abort.signal.addEventListener("abort", cancel, { once: true });
           try { await task.run(); return { ...task.takeOutput(), execution: cpuLabel() }; }
           finally { abort.signal.removeEventListener("abort", cancel); task.dispose(); }
         }
-        return renderSdrOnGpu(runtime, bandBytes, input, provider, abort, (label, code) => pipeline(runtime, label, code, abort.signal));
+        return renderSdrOnGpu(gpu, bandBytes, input, provider, abort, (label, code) => pipeline(gpu, label, code, abort.signal));
       });
     },
     async developNativeRaw(input, provider, options): Promise<AcceleratedNativeRawDevelopmentOutput> {
       const run = runOptions(options);
-      return operate(run.signal, async (abort) => {
-        if (!runtime) {
+      return operate(run.signal, async (abort, gpu) => {
+        if (!gpu) {
           const task = createNativeRawDevelopmentTask(input, provider);
           const cancel = (): void => task.cancel();
           abort.signal.addEventListener("abort", cancel, { once: true });
           try { await task.run(); return { ...task.takeOutput(), execution: cpuLabel() }; }
           finally { abort.signal.removeEventListener("abort", cancel); task.dispose(); }
         }
-        return developRawOnGpu(runtime, bandBytes, input, provider, abort, (label, code) => pipeline(runtime, label, code, abort.signal));
+        return developRawOnGpu(gpu, bandBytes, input, provider, abort, (label, code) => pipeline(gpu, label, code, abort.signal));
       });
     },
     async convolveIrradiance(input, options): Promise<IrradianceConvolutionResult> {
       const run = runOptions(options);
-      return operate(run.signal, async (abort) => {
+      return operate(run.signal, async (abort, gpu) => {
         const plan = calculateIrradianceConvolutionPlan(input);
-        if (!runtime) return convolveOnCpu(plan, input, abort, run.yieldControl, cpuLabel());
-        return convolveOnGpu(runtime, bandBytes, plan, input, abort, run.yieldControl,
-          (label, code) => pipeline(runtime, label, code, abort.signal));
+        if (!gpu) return convolveOnCpu(plan, input, abort, run.yieldControl, cpuLabel());
+        return convolveOnGpu(gpu, bandBytes, plan, input, abort, run.yieldControl,
+          (label, code) => pipeline(gpu, label, code, abort.signal));
       });
     },
     async simulateSensorRaw(input, options): Promise<AcceleratedPackedSensorRawResult> {
       const run = runOptions(options);
-      return operate(run.signal, async (abort) => {
-        if (!runtime) return simulateSensorRawOnCpu(input, abort, run.yieldControl, cpuLabel());
-        return simulateSensorRawOnGpu(runtime, bandBytes, input, abort, run.yieldControl, (label, code) => pipeline(runtime, label, code, abort.signal));
+      return operate(run.signal, async (abort, gpu) => {
+        if (!gpu) return simulateSensorRawOnCpu(input, abort, run.yieldControl, cpuLabel());
+        return simulateSensorRawOnGpu(gpu, bandBytes, input, abort, run.yieldControl, (label, code) => pipeline(gpu, label, code, abort.signal));
       });
     },
     async sumTemporalExposure(input, options): Promise<TemporalExposureSumResult> {
       const run = runOptions(options);
-      return operate(run.signal, async (abort) => {
+      return operate(run.signal, async (abort, gpu) => {
         const plan = calculateTemporalExposureSumPlan(input);
-        if (!runtime) return sumTemporalExposureOnCpu(plan, input, abort, run.yieldControl, cpuLabel());
-        return sumTemporalExposureOnGpu(runtime, bandBytes, plan, input, abort, run.yieldControl,
-          (label, code) => pipeline(runtime, label, code, abort.signal));
+        if (!gpu) return sumTemporalExposureOnCpu(plan, input, abort, run.yieldControl, cpuLabel());
+        return sumTemporalExposureOnGpu(gpu, bandBytes, plan, input, abort, run.yieldControl,
+          (label, code) => pipeline(gpu, label, code, abort.signal));
       });
     },
     async evaluateChartRadiance(input, options): Promise<ChartRadianceResult> {
       const run = runOptions(options);
-      return operate(run.signal, async (abort) => {
-        if (!runtime) return evaluateChartRadianceOnCpu(input, abort, run.yieldControl, cpuLabel());
-        // #477: the chart stage consults the realm's switch on every call; off, the reference runs and the label says so.
-        if (!getWebGpuEnabled()) return evaluateChartRadianceOnCpu(input, abort, run.yieldControl, cpuExecution(requested, "webgpu-disabled"));
-        return evaluateChartRadianceOnGpu(runtime, bandBytes, input, abort, run.yieldControl, (label, code) => pipeline(runtime, label, code, abort.signal), chartUploads!);
+      return operate(run.signal, async (abort, gpu) => {
+        if (!gpu) return evaluateChartRadianceOnCpu(input, abort, run.yieldControl, cpuLabel());
+        return evaluateChartRadianceOnGpu(gpu, bandBytes, input, abort, run.yieldControl, (label, code) => pipeline(gpu, label, code, abort.signal), chartUploads!);
       });
     },
     dispose(): void {
