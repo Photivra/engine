@@ -188,6 +188,25 @@ describe("DNG import: strip tables, masks and tag counts (2.28.0)", () => {
     expect(parseDngRawImage({ bytes: smallDng(8, 8), maximumBytes: 1024 }).codes.length).toBe(64);
   });
 
+  it("checks the masks' memory from their layout, before reading their strip tables", async () => {
+    // Masks whose strip offsets point past the end of the file: over maximumBytes the import refuses on memory without reading
+    // a table (it used to build every mask's strip list first); within it the strips are refused as before.
+    const t = new Tiff(), data = t.blob(new Uint8Array(128)), size = 4096;
+    const masks = Array.from({ length: 4 }, (_, k) => t.ifd([{ id: 254, type: 4, values: [0x10004] }, { id: 256, type: 4, values: [1] }, { id: 257, type: 4, values: [size] },
+      { id: 258, type: 3, values: [8] }, { id: 259, type: 3, values: [1] }, { id: 262, type: 3, values: [52527] }, { id: 277, type: 3, values: [1] }, { id: 278, type: 4, values: [1] },
+      ...strips(filled(size, 0x7fffffff), filled(size, 1)), { id: 52526, type: 2, values: ascii("Mask" + k) }]));
+    const bytes = t.finish(t.ifd([...cfaTags(8, 8, [{ id: 278, type: 4, values: [8] }, ...strips([data], [128])]), DNG_VERSION, { id: 330, type: 4, values: masks }]));
+    expect(() => parseDngRawImage({ bytes, maximumBytes: 16_384 })).toThrow(/maximumBytes/u);
+    await expect(importDngRawImage({ bytes, maximumBytes: 16_384 })).rejects.toThrow(/maximumBytes/u);
+    expect(() => parseDngRawImage({ bytes })).toThrow(/exceeds the file/u);
+    // A table whose length does not match the mask's layout is still refused before any allocation.
+    const u = new Tiff(), at = u.blob(new Uint8Array(128));
+    const short = u.ifd([{ id: 254, type: 4, values: [0x10004] }, { id: 256, type: 4, values: [1] }, { id: 257, type: 4, values: [8] }, { id: 258, type: 3, values: [8] },
+      { id: 259, type: 3, values: [1] }, { id: 262, type: 3, values: [52527] }, { id: 277, type: 3, values: [1] }, { id: 278, type: 4, values: [1] }, ...strips(filled(7, at), filled(7, 1))]);
+    const mismatched = u.finish(u.ifd([...cfaTags(8, 8, [{ id: 278, type: 4, values: [8] }, ...strips([at], [128])]), DNG_VERSION, { id: 330, type: 4, values: [short] }]));
+    expect(() => parseDngRawImage({ bytes: mismatched })).toThrow(/do not match the image layout/u);
+  });
+
   it("refuses a tag that must hold one value and holds none", () => {
     const zero = (id: number): Tag => ({ id, type: 3, values: [] });
     expect(() => parseDngRawImage({ bytes: smallDng(8, 8, [], [zero(274)]) })).toThrow(InvalidConfigurationError);

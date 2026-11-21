@@ -231,6 +231,10 @@ function limit(value: number | undefined, fallback: number, max: number, name: s
 interface Chunk { data: Uint8Array; x0: number; y0: number; width: number; rows: number }
 /** A planned image IFD: its layout, its chunks and how to decode one. */
 interface ImagePlan { width: number; height: number; spp: number; bits: number; code: number; chunks: Chunk[]; jpegTables: Uint8Array | undefined; legacy: boolean }
+/** An image IFD's layout, checked without reading its strip or tile table: `largest` is its largest chunk's sample count. */
+interface ImageLayout { width: number; height: number; code: number; largest: number }
+/** The layout fields the planner needs as well. */
+interface FullLayout extends ImageLayout { spp: number; bits: number; tiled: boolean; tileWidth: number; tileLength: number; across: number; count: number }
 /** Rendering-relevant tags that are not returned or applied, by tag id (DNG 1.4–1.7 tag names). */
 const UNAPPLIED_TAGS: readonly [number, string][] = [[50938, "ProfileHueSatMapData1"], [50939, "ProfileHueSatMapData2"], [50940, "ProfileToneCurve"], [50982, "ProfileLookTableData"],
   [51110, "DefaultBlackRender"], [52529, "CalibrationIlluminant3"], [52531, "ColorMatrix3"], [52532, "ForwardMatrix3"], [52533, "IlluminantData1"], [52534, "IlluminantData2"],
@@ -241,7 +245,8 @@ const JXL_WORKING_BYTES_PER_SAMPLE = 16;
 /** The shared parser: walks the IFDs, plans the image and reads the metadata. Decoding is done by the sync or async caller. */
 interface Prepared {
   image: ImagePlan; little: boolean; assumptions: string[];
-  masks: { name: string; instanceId: string | null; plan: ImagePlan }[];
+  masks: { name: string; instanceId: string | null; ifd: Ifd; layout: ImageLayout }[];
+  plan(ifd: Ifd, kind: "raw" | "mask"): ImagePlan;
   write(chunk: Chunk, samples: Uint16Array): void;
   finish(masks: ImportedDngSemanticMask[]): ImportedDngRaw;
 }
@@ -352,8 +357,11 @@ function prepare(input: DngImportInput, keys: readonly string[]): Prepared {
   if (dngVersionTag && !dngVersion) fail("invalid DNGVersion.");
   const assumptions: string[] = [];
 
-  /** Plans one image IFD (the raw image or a mask): layout checks and the strip or tile table. */
-  const plan = (ifd: Ifd, kind: "raw" | "mask"): ImagePlan => {
+  /**
+   * Checks one image IFD's layout (the raw image or a mask) and its strip or tile table's type and length, without reading the
+   * table, so the memory check can count a mask before any per-strip work (2.28.0).
+   */
+  const layout = (ifd: Ifd, kind: "raw" | "mask"): FullLayout => {
     const width = one(ifd, 256, 0), height = one(ifd, 257, 0), spp = one(ifd, 277, 1), code = one(ifd, 259, 1), photometric = one(ifd, 262, 0);
     if (width < 1 || height < 1 || width > 65535 * 4 || height > 65535 * 4) fail("invalid image dimensions.");
     if (width * height > maximumPixels) fail("image exceeds the pixel limit.");
@@ -370,8 +378,20 @@ function prepare(input: DngImportInput, keys: readonly string[]): Prepared {
     const tileWidth = tiled ? one(ifd, 322, 0) : width, tileLength = tiled ? one(ifd, 323, 0) : Math.min(height, one(ifd, 278, 0xffffffff));
     if (tileWidth < 1 || tileLength < 1 || tileWidth > 65535 * 4 || tileLength > 65535 * 4 || (tiled && tileWidth * tileLength > maximumPixels)) fail("invalid strip or tile size.");
     const across = Math.ceil(width / tileWidth), down = Math.ceil(height / tileLength), count = across * down;
-    const offsets = integers(ifd.get(tiled ? 324 : 273), count, [3, 4]), counts = integers(ifd.get(tiled ? 325 : 279), count, [3, 4]);
-    if (!offsets || !counts || offsets.length !== count || counts.length !== count) fail("strip or tile tables do not match the image layout.");
+    const tables = [ifd.get(tiled ? 324 : 273), ifd.get(tiled ? 325 : 279)];
+    for (const entry of tables) {
+      if (entry && ![3, 4].includes(entry.type)) fail("tag has an unsupported field type.");
+      if (entry && entry.count > count) fail("tag count exceeds its expected size.");
+    }
+    if (tables.some((entry) => entry?.count !== count)) fail("strip or tile tables do not match the image layout.");
+    // Strips cover whole rows (the first is the largest); tiles are always full-size.
+    const largest = (tiled ? tileWidth * tileLength : width * Math.min(tileLength, height)) * spp;
+    return { width, height, spp, bits, code, tiled, tileWidth, tileLength, across, count, largest };
+  };
+  /** Plans one image IFD: its layout and the strip or tile table. */
+  const plan = (ifd: Ifd, kind: "raw" | "mask"): ImagePlan => {
+    const { width, height, spp, bits, code, tiled, tileWidth, tileLength, across, count } = layout(ifd, kind);
+    const offsets = integers(ifd.get(tiled ? 324 : 273), count, [3, 4])!, counts = integers(ifd.get(tiled ? 325 : 279), count, [3, 4])!;
     const chunks: Chunk[] = [];
     for (let i = 0; i < count; i++) {
       if (offsets[i]! + counts[i]! > n) fail("strip or tile data exceeds the file.");
@@ -394,9 +414,8 @@ function prepare(input: DngImportInput, keys: readonly string[]): Prepared {
   // Memory pre-check (estimates, docs/IMPORT_AND_PNG.md "Memory"): output codes (plus the half-size sums), one chunk's decoded
   // samples twice (decode buffer and copy), and its decoder's working memory.
   const outWidth = half ? Math.ceil(width / 2) : width, outHeight = half ? Math.ceil(height / 2) : height;
-  const largestChunk = (p: ImagePlan): number => { let largest = 0; for (const c of p.chunks) largest = Math.max(largest, c.width * c.rows); return largest * p.spp; };
   const decoderBytes = (code: number, samples: number): number => code === 52546 ? samples * JXL_WORKING_BYTES_PER_SAMPLE : code === 34892 ? samples * 2 + samples : samples * 2;
-  const largest = largestChunk(image);
+  const largest = layout(raw, "raw").largest;
   let estimate = outWidth * outHeight * spp * 2 + (half ? outWidth * outHeight * spp * 4 : 0) + (interleaved ? width * height * spp * 2 : 0) + largest * 4 + decoderBytes(compressionCode, largest);
   const checkEstimate = (): void => {
     if (estimate > maximumBytes) fail("the import needs an estimated " + Math.ceil(estimate / 1048576) + " MiB, above maximumBytes (" + Math.floor(maximumBytes / 1048576) + " MiB); raise maximumBytes or use size \"half\" for a LinearRaw preview.");
@@ -568,16 +587,16 @@ function prepare(input: DngImportInput, keys: readonly string[]): Prepared {
   // Semantic masks (DNG 1.6): planned here, decoded with the image.
   const masks = ifds.filter((ifd) => one(ifd, 254, 0) === 0x10004 && one(ifd, 262, 0) === 52527).map((ifd) => {
     if (ifd.has(52536)) assumptions.push("dngImport.semanticMask: MaskSubArea is present; the mask is returned as stored and spans the whole image in applyDngRgbTables.");
-    return { name: ascii(ifd.get(52526)) ?? "", instanceId: ascii(ifd.get(52528)), plan: plan(ifd, "mask") };
+    return { name: ascii(ifd.get(52526)) ?? "", instanceId: ascii(ifd.get(52528)), ifd, layout: layout(ifd, "mask") };
   });
   // The masks' memory, before any image allocation: every decoded mask's values (all held at the end) plus the largest mask
-  // strip or tile's decode (one at a time). A JPEG XL mask counts only when a decoder will decode it.
+  // strip or tile's decode (one at a time), from their layouts; each mask's strip list is built when it is decoded. A JPEG XL
+  // mask counts only when a decoder will decode it.
   let maskChunk = 0;
-  for (const m of masks) {
-    if (m.plan.code === 52546 && !decodesJpegXl) continue;
-    const samples = largestChunk(m.plan);
-    estimate += m.plan.width * m.plan.height * 4;
-    maskChunk = Math.max(maskChunk, samples * 2 + decoderBytes(m.plan.code, samples));
+  for (const { layout: m } of masks) {
+    if (m.code === 52546 && !decodesJpegXl) continue;
+    estimate += m.width * m.height * 4;
+    maskChunk = Math.max(maskChunk, m.largest * 2 + decoderBytes(m.code, m.largest));
   }
   estimate += maskChunk;
   checkEstimate();
@@ -619,7 +638,7 @@ function prepare(input: DngImportInput, keys: readonly string[]): Prepared {
       opcodeList1, opcodeList2, opcodeList3, profileGainTableMap, rgbTables, semanticMasks, noiseProfile, exif, ...calibrationExtras, enhancedImages, assumptions
     };
   };
-  return { image, write, finish, masks, assumptions, little };
+  return { image, write, finish, masks, plan, assumptions, little };
 }
 
 /** Decodes one chunk without a JPEG XL decoder; null for JPEG XL data. */
@@ -692,7 +711,7 @@ export function parseDngRawImage(input: DngImportInput): ImportedDngRaw {
   for (const chunk of ctx.image.chunks) ctx.write(chunk, decodeChunkSync(ctx.image, chunk, ctx.little)!);
   const masks: ImportedDngSemanticMask[] = [];
   for (const m of ctx.masks) {
-    const p = m.plan;
+    const p = ctx.plan(m.ifd, "mask");
     if (p.code === 52546) { ctx.assumptions.push("dngImport.semanticMask: mask " + JSON.stringify(m.name) + " is JPEG XL and was not decoded (use importDngRawImage)."); continue; }
     const data = new Float32Array(p.width * p.height);
     for (const c of p.chunks) addMaskChunk(p, data, c, decodeChunkSync(p, c, ctx.little)!);
@@ -712,7 +731,7 @@ export async function importDngRawImage(input: DngImportAsyncInput): Promise<Imp
   for (const chunk of ctx.image.chunks) ctx.write(chunk, await decodeChunk(ctx.image, chunk, ctx.little, decoder));
   const masks: ImportedDngSemanticMask[] = [];
   for (const m of ctx.masks) {
-    const p = m.plan;
+    const p = ctx.plan(m.ifd, "mask");
     if (p.code === 52546 && !decoder) { ctx.assumptions.push("dngImport.semanticMask: mask " + JSON.stringify(m.name) + " is JPEG XL and no jpegXlDecoder was given."); continue; }
     const data = new Float32Array(p.width * p.height);
     for (const c of p.chunks) addMaskChunk(p, data, c, await decodeChunk(p, c, ctx.little, decoder));
