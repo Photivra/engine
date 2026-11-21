@@ -22,6 +22,11 @@
     (docs/NUMERICAL_CORRECTNESS.md).
   - *Proof uploads and the macOS check (`ci-20`, `ci-21` in #703).* A failed proof upload no longer fails a job whose work passed;
     `hash locks (macos-latest)` drops `continue-on-error` and is documented as the blocking required check it is.
+- **Capture, processing and output (2.28.0 step 4, group C).** No output change for a request that renders today unless an
+  entry says otherwise.
+  - *One-frame panorama (#671).* `createPanoramaTask` with one frame and the default `exposureCompensation: "gain"` completed
+    the stitch and then failed with "Processing progress accounting disagrees with its plan."; its plan no longer counts the
+    gain pass that runs only for two or more frames. Results for two or more frames are unchanged.
 
 ## 2.27.0 — published November 19, 2026
 
