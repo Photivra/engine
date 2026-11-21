@@ -230,6 +230,48 @@
   shutter), color patches fast 2.6–2.8 s → 0.36–0.41 s (6.8–7.3×); camera rotation alone unchanged. RAW codes and samples
   identical; `diagnostics.providerEvaluationCount` unchanged. Mixed lighting, caller function scenes, the display view and the
   defocus and diffraction providers keep their own handling. Tests: `test/simulate-capture-subject-motion.test.ts`.
+- **Faster: mixed lighting resolves each point once, not once per spectral node (#735, 2.28.0 step 6).** Under `illumination`, a
+  point's blend segment and fraction, each point source's fall-off and the chart or scene material are functions of the point
+  alone, yet were recomputed for each of the 21 to 81 spectral nodes. The lit scene now has a spectrum form (the material and the
+  blend resolved once, the illuminant shapes and a spectral material's reflectance read at the nodes once per wavelength list),
+  used by the expected signal's direct, kernel and lattice paths, the ideal reference and the CPU display view; each node keeps
+  today's expression in today's order, so RAW codes, samples, float64 internals and `sceneLookups` are unchanged (SHA-256 over
+  14 requests: gradient, radial, 64 regions and point sources, with diffraction, box aperture and four-spot filter, a fixed-size
+  chart, caller material and reflectance functions, the ideal reference and both display-view flags; the figure-batch hash locks
+  hold). 600 × 400 color patches at 5 nm, three captures, `fast: false`, two paired runs on a loaded machine: one illuminant
+  0.61–0.69 s; linear gradient 3.9–4.8 s → 1.1–1.2 s, radial 4.5–5.8 s → 1.0–1.2 s, 64 regions 5.2–6.3 s → 1.0–1.2 s, gradient with
+  a point source 5.7–6.8 s → 1.5–1.6 s; the default flag alike. The figure-batch `mixed-light` part (a display view): 0.60×
+  (`fast: false`) and 0.48× (default) of the CPU time. Per-site integration is unchanged: each site's signal is still integrated
+  from the spectrum at use; the cached values are spectra (illuminant shapes, reflectances), no channel values. Tests:
+  `test/mixed-illumination-spectrum.test.ts`.
+- **Faster: environment-chain captures compare fewer site records (#722, 2.28.0 step 6).** The lean executor proves each site's
+  records strictly equal to its template's; `siteInput` built the site-independent nested records afresh for every site, so each
+  was compared key by key. The dark-current profile's `uncertainty` and `temperatureModel`, the capacity profile's `uncertainty`,
+  `operatingState` and `temperatureApplicability`, the completeness profile's `includedAdditionalComponentIds` and each channel's
+  `sensor.responseApplication` are now built once per capture and shared by every site's input, frozen (a caller of
+  `result.request.siteInput` can no longer change a record another site reads); their values are unchanged. The lean
+  executor's rule is unchanged (a site still matches its template strictly before any check is skipped). 384 × 256 Siemens
+  star, five paired runs, median, loaded machine: default flag, camera pan 2.20 → 1.81 s (−18 %), pan with rolling shutter
+  2.26 → 2.01 s (−11 %), hand shake 2.16 → 1.76 s (−19 %); `fast: false` 3.45 → 3.20, 3.85 → 3.29 and 4.02 → 3.38 s (noisier). The
+  record-comparison functions fall from 21.9 % to about 17 % of the pan's CPU profile. Samples, RAW codes, the site inputs' JSON
+  and the lean executor's site counts are unchanged (pan, rolling shutter, hand shake, `lens.pupilSampling`, a catalogue lens with
+  `fast: false`, fixed-pattern noise, the tabulated default). The second step of the plan (prototype records for the site-carrying
+  parts) was not taken. Tests: `test/simulate-capture-site-records.test.ts`.
+- **Faster: `output.gamutMapping: "perceptual"` skips the boundary search for colours below the knee (#684, 2.28.0 step 6).**
+  `prepareRgbGamutMapping(...).map` ran the doubling and all 60 bisection steps for every in-gamut colour with any chroma, only
+  to return most of them unchanged. Before the search it now evaluates the cube test once at chroma / k × (1 + 1e-9); if that
+  point is inside, the colour is below the knee and is returned unchanged, as the search returns it. This is exact where the
+  in-gamut part of the constant-L*, constant-hue ray is one interval, which fails near the yellow cusp, so the early-out applies
+  below L* 85 only (and above chroma 1e-6, which keeps the probe's margin above the search's resolution). Gate: on every 8-bit
+  surface triple scaled by 0.5, 0.9, 0.99 and 1 and a 64³ interior lattice (1,822,752 colours per space), for `srgb`,
+  `display-p3` and `rec2020` at k = 0.25, 0.5, 0.75, 0.9 and 0.99, no result differs from the search's (`Object.is` on
+  `linearRgb`, and `adjusted` and `lightnessClipped`); without the L* limit 3 colours per space differ at k = 0.9 (L* 90.7–93.1). A ray scan (L* 80–92 by
+  0.05, hue by 0.1°; 0–100 by 0.25 and 0.25°) finds rays that are not one interval only above L* 90.5 (`display-p3`), 93.25
+  (`srgb`) and 93.75 (`rec2020`). 1024 × 1024 PNG, `fast: false`, two paired runs on a loaded machine: Siemens star 3.8–4.0 s →
+  1.1–1.2 s, color patches 3.8 s → 1.1–1.2 s, dead leaves 4.0–4.3 s → 1.0–1.1 s (clipped: 0.72–0.77 s); the figure-batch
+  `detail-perceptual-png` part 0.74× (`fast: false`) and 0.80× (default). Samples and PNG bytes are unchanged, and the hash locks
+  hold. `t ** 3` and `BISECTION_STEPS` are unchanged. The exactness below L* 85 rests on these measurements, not on a proof;
+  the owner accepted it on them (2026-11-21; docs/COLORIMETRY.md, "Perceptual gamut mapping"). Tests: `test/gamut-mapping-early-out.test.ts`.
 
 ### Output changes (2.28.0 step 5)
 

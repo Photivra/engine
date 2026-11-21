@@ -164,7 +164,11 @@ point's radiance is no longer a function of its material alone, so no renderer t
 scene still takes the capture's tabulated expected signal (#394), which then reads the radiance under the blend at every lattice
 point and is verified per CFA phase against the environment chain (1e-9 relative, as for one illuminant); other scenes take the
 chain itself. Measured once on an arm64 laptop (Node.js 24, 600 × 400 `color-patches`): the capture 139 ms under one
-illuminant, 401 ms under a two-source gradient; a 300 × 200 display view 174 ms and 528 ms.
+illuminant, 401 ms under a two-source gradient; a 300 × 200 display view 174 ms and 528 ms. Since 2.28.0 (#735) each point's
+material and blend are resolved once for all its spectral nodes (the same values), which matters most at the 5 nm step: three
+600 × 400 `color-patches` captures at `sensor.spectralStepNanometers: 5` with `fast: false` took 0.6–0.7 s under one illuminant
+and 3.9–6.8 s under a gradient, a radial blend, 64 regions or a gradient with a point source before, 1.0–1.6 s after (paired runs on
+a loaded machine).
 
 **Prints (#597, 2.22.0).** An `image-plane` print (#581) is lit like a chart: its reflectance spectrum at each point (the four
 nearest pixels' spectra, bilinearly) times the blended irradiance, per spectral node. Its per-pixel channel signals assume one

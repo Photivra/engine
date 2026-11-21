@@ -134,7 +134,7 @@ import type { LayeredChartDepth, LayeredChartScene } from "./layered-chart-scene
 import { resolveCaptureIlluminant, calculateIlluminantIrradianceScale, buildPlanarSceneRadianceProvider, requireCallerScene, FACADE_SPECTRAL_RANGE_NANOMETERS,
   resolveChartSizeOption, type ChartSizeOption,
   PHOTOPIC_MAXIMUM_LUMINOUS_EFFICACY_LM_PER_W, type CaptureIlluminant, type CallerMaterialScene, type CallerRadianceScene, type CallerReflectanceScene, type ImagePlaneScene, type ResolvedCallerScene,
-  planarProviderMaterialOfDirection, type PlanarSceneRadianceProvider, type ResolvedCallerMaterialScene, type ResolvedCaptureIlluminant } from "./scene-radiance.js";
+  planarProviderMaterialOfDirection, planarRadianceSpectrumOf, type PlanarSceneRadianceProvider, type ResolvedCallerMaterialScene, type ResolvedCaptureIlluminant } from "./scene-radiance.js";
 
 /** Version of how the facade builds requests. It changes whenever the same input would build a different request. */
 export const SIMULATE_CAPTURE_FACADE_VERSION = "1.0.0" as const;
@@ -3414,11 +3414,13 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   const opticalStackProfile: SensorOpticalStackProfile = antiAliasing ? { schemaVersion: "0.1.0", profileId: stackId, evidence, effectiveAntiAliasingSpatialResponse: {
     kind: "normalized-point-splitting-kernel", evidence, coordinateSystem: "native-sensor-physical", scope: "field-wavelength-polarization-invariant-approximation",
     components: antiAliasing.components } } : { schemaVersion: "0.1.0" as const, profileId: IDS.stack, evidence, effectiveAntiAliasingSpatialResponse: { kind: "absent" as const, evidence } };
+  const sourcePlane = { value: "sensor-package-incident" as const, evidence };
+  // #722: each channel's response application is built once and shared (frozen) by its sites' inputs (see siteInput).
   const perChannel = Object.fromEntries(CHANNELS.map((channelId) => [channelId, {
-    applicationProfile: { schemaVersion: "0.1.0" as const, profileId: "facade-application-" + channelId, spectralResponseProfileId: IDS.spectral, colorSamplingProfileId: IDS.cfa, channelId,
+    responseApplication: Object.freeze({ applicationProfile: { schemaVersion: "0.1.0" as const, profileId: "facade-application-" + channelId, spectralResponseProfileId: IDS.spectral, colorSamplingProfileId: IDS.cfa, channelId,
       samplingApertureProfileId: IDS.sampling, opticalStackProfileId: stackId, evidence, incidentAreaBasis: { kind: "geometric-sensitive-aperture" as const, areaSquareMicrometers: apertureArea },
       spatialResponseModel: { kind: "uniform-over-geometric-sensitive-aperture" as const, scientificStatus: "approximation" as const, evidence, limitation: "Uniform response over the square aperture." },
-      referenceConditionPolicy: { kind: "exact-match-required" as const } },
+      referenceConditionPolicy: { kind: "exact-match-required" as const } }, sourcePlane, operatingConditions }),
     operatingRangeProfile: { schemaVersion: "0.1.0" as const, profileId: "facade-linearity-" + channelId, responseApplicationProfileId: "facade-application-" + channelId,
       spectralResponseProfileId: IDS.spectral, colorSamplingProfileId: IDS.cfa, channelId, scientificStatus: "approximation" as const,
       uncertainty: { kind: "not-quantified" as const, limitation: "Declared linear photo response for the idealized sensor." }, evidence,
@@ -3427,8 +3429,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
       linearityCriterion: { maximumAbsoluteRelativeDeviation: 0.01 },
       spatialLinearityModel: { kind: "linear-superposition-over-geometric-aperture" as const, scientificStatus: "approximation" as const, evidence, limitation: "Declared linear superposition." },
       spectralInputModel: { kind: "per-spectral-bin" as const, maximumBinWidthNanometers: Math.max(spectralStep, 20), scientificStatus: "approximation" as const, evidence, limitation: "Declared per-bin linearity." },
-      referenceConditions: operatingConditions, referenceConditionPolicy: { kind: "exact-match-required" as const } } }])) as Record<Channel, { applicationProfile: unknown; operatingRangeProfile: unknown }>;
-  const sourcePlane = { value: "sensor-package-incident" as const, evidence };
+      referenceConditions: operatingConditions, referenceConditionPolicy: { kind: "exact-match-required" as const } } }])) as Record<Channel, { responseApplication: unknown; operatingRangeProfile: unknown }>;
   const localExposure = { bindingProfile, exposureWindowInput: { ...exposureWindow, nativeRaster } };
   const sceneBindings = {
     illuminationProfile: { schemaVersion: "0.1.0" as const, profileId: IDS.lights, sceneId: IDS.scene, evidence, sources: [{ sourceId: "illuminant", family: "environment" as const,
@@ -3593,31 +3594,36 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   const fixedPattern = characteristics?.fixedPatternNoise ? body.fixedPatternNoise.profile : undefined, sitePattern = fixedPattern && sumFixedPatternSites(fixedPattern, profileReadNoiseScale ** 2);
   if (fixedPattern && displayView) fail("simulateDisplayView does not render sensor.fixedPatternNoise; use simulateCapture.");
   const channelAt = (x: number, y: number): Channel => (["red", "green", "green", "blue"] as const)[(y % 2) * 2 + (x % 2)]!;
+  // #722: the nested records that do not depend on the site, built once per capture and shared (frozen) by every site's input, so the
+  // lean executor's strict comparison with its template finds the same objects instead of comparing them key by key at every site.
+  const darkUncertainty = Object.freeze({ kind: "not-quantified", limitation: "Synthetic dark current for the capture facade." });
+  const darkTemperatureModel = Object.freeze({ kind: "fixed-reference-temperature", referenceTemperatureC: OPERATING_TEMPERATURE_C, darkCurrentElectronsPerSecond: DARK_CURRENT_ELECTRONS_PER_SECOND });
+  const capacityUncertainty = Object.freeze({ kind: "not-quantified", limitation: "Derived from the tier's declared saturation signal." });
+  const operatingState = Object.freeze({ stateId: IDS.operatingState, evidence });
+  const temperatureApplicability = Object.freeze({ kind: "exact-reference-temperature", temperatureC: OPERATING_TEMPERATURE_C }), noComponents = Object.freeze([]);
   function siteInput(index: number): SimulateEnvironmentSensorRawFrameInput["sites"][number] {
     if (!Number.isSafeInteger(index) || index < 0 || index >= nativeWidth * nativeHeight) fail("Native site index out of range.");
     const x = index % nativeWidth, y = Math.floor(index / nativeWidth), channel = channelAt(x, y), site = { x, y }, c = perChannel[channel], r = regimeByChannel[channel];
     const environment = { temporalIntegrationId: IDS.frame + ":native:" + index,
       sensor: { spatialSampling: { imagingArea, samplingApertureProfile, opticalStackProfile, site, spatialSampleCountX: boxSamples, spatialSampleCountY: boxSamples },
         spectralSampling: spectralSamplingByChannel[channel], colorSamplingProfile, spectralResponseProfile: spectralResponseProfiles[channel],
-        responseApplication: { applicationProfile: c.applicationProfile, sourcePlane, operatingConditions }, operatingRangeProfile: c.operatingRangeProfile, localExposure },
+        responseApplication: c.responseApplication, operatingRangeProfile: c.operatingRangeProfile, localExposure },
       sceneBindings, optics, motion, temporalSampleCount, fieldThroughput, psf, ...(pupilRecord ? { pupil: pupilRecord } : {}), ...(lensFieldMapping ? { lensFieldMapping } : {}) };
     // The charge completeness profile must cover the site's own exposure window (shifted by s·τ under a rolling shutter).
     const window = rollingSchedule ? calculateCaptureExposureWindows({ ...exposureWindow, nativeRaster, samplePointsNative: [{ x: x + 0.5, y: y + 0.5 }] }).value.samples[0]! :
       { startOffsetSecondsFromOpeningReference: 0, endOffsetSecondsFromOpeningReference: shutterSeconds };
     return { environment, operatingTemperatureC: OPERATING_TEMPERATURE_C,
       darkCurrentProfile: { schemaVersion: "0.1.0", profileId: IDS.dark, colorSamplingProfileId: IDS.cfa, channelId: channel, scientificStatus: "approximation", evidence,
-        uncertainty: { kind: "not-quantified", limitation: "Synthetic dark current for the capture facade." }, chargeMeaning: "pre-compensation-thermally-generated-electrons",
-        siteApplicability: { kind: "exact-site", site }, temperatureModel: { kind: "fixed-reference-temperature", referenceTemperatureC: OPERATING_TEMPERATURE_C,
-          darkCurrentElectronsPerSecond: DARK_CURRENT_ELECTRONS_PER_SECOND }, darkCurrentCompensationIncluded: false, spatialDarkCurrentNonuniformityModeled: false },
+        uncertainty: darkUncertainty, chargeMeaning: "pre-compensation-thermally-generated-electrons",
+        siteApplicability: { kind: "exact-site", site }, temperatureModel: darkTemperatureModel, darkCurrentCompensationIncluded: false, spatialDarkCurrentNonuniformityModeled: false },
       charge: { completenessProfile: { schemaVersion: "0.1.0", profileId: IDS.completeness, colorSamplingProfileId: IDS.cfa, channelId: channel, site, bindingId: IDS.binding,
         timeReference: "first-opening-boundary-phase", startOffsetSecondsFromOpeningReference: window.startOffsetSecondsFromOpeningReference,
         endOffsetSecondsFromOpeningReference: window.endOffsetSecondsFromOpeningReference,
-        darkCurrentProfileId: IDS.dark, includedAdditionalComponentIds: [], coverageMeaning: "all-material-stored-electron-contributors-accounted-for",
+        darkCurrentProfileId: IDS.dark, includedAdditionalComponentIds: noComponents, coverageMeaning: "all-material-stored-electron-contributors-accounted-for",
         scientificStatus: "approximation", evidence, limitation: "Photo and dark charge only." } },
       readout: { samplingProfile: chargeSamplingProfile, capacityProfile: { schemaVersion: "0.1.0", profileId: IDS.capacity, colorSamplingProfileId: IDS.cfa, channelId: channel,
         capacityMeaning: "physical-charge-storage-capacity-electrons", capacityElectrons, scientificStatus: "approximation",
-        uncertainty: { kind: "not-quantified", limitation: "Derived from the tier's declared saturation signal." }, evidence, siteApplicability: { kind: "exact-site", site },
-        operatingState: { stateId: IDS.operatingState, evidence }, temperatureApplicability: { kind: "exact-reference-temperature", temperatureC: OPERATING_TEMPERATURE_C } },
+        uncertainty: capacityUncertainty, evidence, siteApplicability: { kind: "exact-site", site }, operatingState, temperatureApplicability },
         operatingStateId: IDS.operatingState, readoutProfile: r.readoutProfile, regimeId: r.regimeId, ...(sitePattern ? { fixedPatternNoise: sitePattern } : {}) } } as unknown as SimulateEnvironmentSensorRawFrameInput["sites"][number];
   }
   const readTile = async (request: { captureId: string; frameId: string; x: number; y: number; width: number; height: number }): Promise<NativeEnvironmentRawTile> =>
@@ -3811,12 +3817,17 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
     const rgb = new Float64Array(outputWidth * outputHeight * 3), counts = { whiteBalanceClippedSampleCount: 0, reconstructedPixelCount: 0 }, sum = [0, 0, 0];
     // A sample that reads the previous sample's material reuses that sample's integral (nothing is kept per material).
     let last = -1, s: number[] = [];
+    // #735: under mixed light, each sample's spectrum with its material and light resolved once (the same values).
+    const referenceSpectrum = planarRadianceSpectrumOf(referenceProvider.radianceAt), referenceNodes = new Float64Array(wavelengths.length);
     for (let py = 0; py < outputHeight; py++) {
       for (let px = 0; px < outputWidth; px++) {
         sum[0] = 0; sum[1] = 0; sum[2] = 0;
         for (let l = 0; l < n; l++) for (let k = 0; k < n; k++) {
           const u = (x0 + px + (k + 0.5) / n - nativeWidth / 2) * unit, v = -(y0 + py + (l + 0.5) / n - nativeHeight / 2) * unit, m = spectra ? provider.chartMaterialAt!(u, v) : -1;
-          if (m < 0 || m !== last) { s = signalOf(m < 0 ? wavelengths.map((nm) => referenceProvider.radianceAt(u, v, nm)) : spectra![m]!); last = m; }
+          if (m < 0 || m !== last) {
+            s = signalOf(m >= 0 ? spectra![m]! : referenceSpectrum ? (referenceSpectrum(u, v, wavelengths, referenceNodes), referenceNodes) : wavelengths.map((nm) => referenceProvider.radianceAt(u, v, nm)));
+            last = m;
+          }
           sum[0] += s[0]!; sum[1] += s[1]!; sum[2] += s[2]!;
         }
         // Normalized RAW values saturate at the white level, as in development.
@@ -3890,7 +3901,8 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
     return (): void => { completed++; onProgress?.({ stage, completedTileCount: completed, totalTileCount: total }); };
   };
   const rawTick = progress("raw", regionNative ? regionNative.height * Math.ceil(regionNative.width / tileWidth) : plan.tileCount);
-  // #394: siteInput builds fresh site records per call and never changes them, so the native task plans them without a copy.
+  // #394: siteInput builds fresh site records per call (#722: the site-independent nested ones shared and frozen) and never changes
+  // them, so the native task plans them without a copy.
   const rawCallbacks = (): Parameters<typeof createNativeEnvironmentRawTask>[1] => ({ readTile: markInternalNativeTileReader(async (request: Parameters<typeof readTile>[0]): Promise<NativeEnvironmentRawTile> => { const tile = await readTile(request); rawTick(); return tile; }),
     evaluateRadiance: rawProvider().evaluateRadiance, ...(pupil ? { evaluateApertureRadiance: provider.evaluateApertureRadiance } : {}), yieldControl });
   // #394 step 2: an engine-built planar scene (chart preset or caller material scene; still, rectilinear, no distortion, vignetting,

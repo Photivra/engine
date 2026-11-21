@@ -21,6 +21,7 @@ import { convolveSiteKernels } from "../optics/defocus-disc-kernel.js";
 import { DEFOCUS_DIRECT_KERNEL_MAXIMUM_RADIUS_SITES, siteKernelRuns, type SiteKernelRuns } from "../optics/site-kernel-runs.js";
 import { resolveProjectionDistanceMm } from "../motion/camera-rotation.js";
 import { hypot3 } from "../core/portable-math.js";
+import { planarRadianceSpectrumOf } from "./scene-radiance.js";
 import type { DisplayViewExpectedSignalInput, DisplayViewScene } from "./display-view.js";
 
 /** A unit site kernel of radius 0 (shared: the tables only read it). */
@@ -110,7 +111,7 @@ export function buildExpectedSignalInput(input: ExpectedSignalSetupInput): { off
   const scene: DisplayViewScene = materials ? { kind: "materials", materialAt: materials.materialAt,
     materials: materials.list.map((m) => ("neutral" in m ? { neutral: m.neutral } : { radiance: Float64Array.from(wavelengths, (nm) => m.radiance(nm)) })),
     whiteRadiance: Float64Array.from(wavelengths, (nm) => materials.whiteRadiance(nm)) } :
-    input.imageSignalScene ? input.imageSignalScene(wavelengths, input.perNode) : { kind: "radiance", radianceAt: input.radianceAt };
+    input.imageSignalScene ? input.imageSignalScene(wavelengths, input.perNode) : { kind: "radiance", radianceAt: input.radianceAt, radianceSpectrumAt: planarRadianceSpectrumOf(input.radianceAt) };
   const channelIndex = (x: number, y: number): number => ((y & 1) === 0 ? ((x & 1) === 0 ? 0 : 1) : ((x & 1) === 0 ? 1 : 2));
   // Without diffraction the environment's own query arithmetic (native-environment-lean.ts `geometry`, then the rectilinear
   // still-camera ray and the planar provider's plane point), so boundary points resolve as in the capture.

@@ -349,6 +349,19 @@ export function planarProviderMaterialOfDirection(provider: PlanarSceneRadianceP
   return MATERIAL_OF_DIRECTION.get(provider);
 }
 
+/**
+ * Internal (#735): per lit provider's `radianceAt` (mixed illumination), its spectrum form: `radianceAt(u, v, wavelengths[n])` into
+ * `out[n]` for every node, with the point's material and light resolved once. Keyed by the function, so only a caller holding the
+ * provider's own `radianceAt` (not a wrapper's) gets it.
+ */
+const RADIANCE_SPECTRUM_OF = new WeakMap<(u: number, v: number, nm: number) => number, (u: number, v: number, wavelengths: readonly number[], out: Float64Array) => void>();
+
+/** Internal (#735): the spectrum form of a lit planar provider's `radianceAt`, or undefined for any other function. */
+export function planarRadianceSpectrumOf(radianceAt: (u: number, v: number, nm: number) => number):
+  ((u: number, v: number, wavelengths: readonly number[], out: Float64Array) => void) | undefined {
+  return RADIANCE_SPECTRUM_OF.get(radianceAt);
+}
+
 const UNCERTAINTY = /* @__PURE__ */ Object.freeze({ kind: "not-quantified" as const, limitation: "Analytic planar Lambertian scene; no measured scene, BRDF or illumination." });
 
 /** Most distinct wavelengths {@link tabulatedSpectrum} keeps; later ones are evaluated on every call. */
@@ -423,40 +436,50 @@ export function buildPlanarSceneRadianceProvider(input: {
   if (light && caller?.kind === "radiance-function") throw new InvalidConfigurationError("illumination needs a lit scene; a radiance-function scene ignores the illuminant.");
   // #597 (2.22.0): mixed light over a print reads the print's reflectance spectrum (its pixels' spectra, cached per spectral node) times the
   // blended irradiance at each point; no per-pixel signal is cached (the image access below is left out), so every site integrates at use.
+  /** A caller function's plane point (chart-local `chartU`, `chartV` with a fixed-size chart). */
+  const pointOf = (u: number, v: number, nm: number): ScenePlanePoint => {
+    const xM = u * scale, yM = v * scale;
+    return placed ? { xM, yM, u, v, wavelengthNanometers: nm, chartU: xM / half, chartV: yM / half } : { xM, yM, u, v, wavelengthNanometers: nm };
+  };
+  /** The material at a frame point (a chart's or a material scene's; a fixed-size chart's surround at `materials.length`), or −1. */
+  const materialOf = (u: number, v: number): number => (materialScene ? callerMaterialAt(u, v) : chart ? chartMaterialAt(u, v) : -1);
+  /**
+   * The reflectance at a frame point and wavelength: material `m` (from materialOf), or with m < 0 a fixed-size chart's surround, the
+   * print's or the caller's reflectance function.
+   */
+  function reflectanceOf(u: number, v: number, m: number, nm: number): number {
+    if (m >= 0) return materialReflectanceOf(m, nm);
+    const cu = placed ? u * scale / half : u, cv = placed ? v * scale / half : v;
+    if (placed && !(Math.abs(cu) <= 1 && Math.abs(cv) <= chartAspect)) return placed.surroundReflectance;
+    return imageScene ? imageScene.reflectanceAt(cu, cv, nm) : callerReflectance(pointOf(u, v, nm));
+  }
   /** #550: reflectance × the blended irradiance at the point (chart-local units with a fixed-size chart) / π. */
   function litRadianceAt(u: number, v: number, nm: number): number {
-    let cu = u, cv = v, reflectance: number;
-    if (placed) { cu = u * scale / half; cv = v * scale / half; }
-    if (materialScene) reflectance = materialReflectanceOf(callerMaterialAt(u, v), nm);
-    else if (placed && !(Math.abs(cu) <= 1 && Math.abs(cv) <= chartAspect)) reflectance = placed.surroundReflectance;
-    else if (chart) reflectance = chart.reflectanceAt(cu, cv, nm);
-    else if (imageScene) reflectance = imageScene.reflectanceAt(cu, cv, nm);
-    else reflectance = callerReflectance(placed ? { xM: u * scale, yM: v * scale, u, v, wavelengthNanometers: nm, chartU: cu, chartV: cv } : { xM: u * scale, yM: v * scale, u, v, wavelengthNanometers: nm });
-    return reflectance * light!(cu, cv, u * scale, v * scale, nm) / Math.PI;
+    const reflectance = reflectanceOf(u, v, materialOf(u, v), nm);
+    return reflectance * light!(placed ? u * scale / half : u, placed ? v * scale / half : v, u * scale, v * scale, nm) / Math.PI;
   }
+  let rowsOf: readonly number[] | undefined, rows: Float64Array[] = [];
+  /** #735: litRadianceAt at each of `wavelengths` into `out`, the point's material and the light's blend resolved once (the same values). */
+  function litRadianceSpectrumAt(u: number, v: number, wavelengths: readonly number[], out: Float64Array): void {
+    const m = materialOf(u, v);
+    // A spectral material's reflectance at the nodes, kept per material for this wavelength list (a spectrum, no channel value).
+    if (rowsOf !== wavelengths) { rows = []; rowsOf = wavelengths; }
+    const row = materials?.[m]?.kind === "spectrum" ? rows[m] ??= Float64Array.from(wavelengths, (nm) => materialReflectanceOf(m, nm)) : undefined;
+    input.illumination!.irradianceSpectrumAt(placed ? u * scale / half : u, placed ? v * scale / half : v, u * scale, v * scale, wavelengths, out);
+    for (let n = 0; n < wavelengths.length; n++) out[n] = (row ? row[n]! : reflectanceOf(u, v, m, wavelengths[n]!)) * out[n]! / Math.PI;
+  }
+  /** Under the one illuminant: a caller radiance function's value, or the reflectance × irradianceScale·S(λ) / π (in that order). */
   function radianceAt(u: number, v: number, nm: number): number {
-    if (materialScene) return materialRadianceOf(callerMaterialAt(u, v), nm);
-    if (placed) {
-      // Fixed-size chart (2.3): chart-local frame units from the plane point in metres.
-      const xM = u * scale, yM = v * scale, cu = xM / half, cv = yM / half;
-      if (!(Math.abs(cu) <= 1 && Math.abs(cv) <= chartAspect)) return placed.surroundReflectance * irradianceScale * shapeAt(nm) / Math.PI;
-      // #581: an image-plane print, like a chart, in print-local units.
-      const planar = chart ?? imageScene;
-      if (planar) return planar.reflectanceAt(cu, cv, nm) * irradianceScale * shapeAt(nm) / Math.PI;
-      return callerValue({ xM, yM, u, v, wavelengthNanometers: nm, chartU: cu, chartV: cv }, nm);
+    if (caller?.kind === "radiance-function") {
+      const value = caller.evaluate(pointOf(u, v, nm));
+      if (typeof value !== "number" || !Number.isFinite(value) || value < 0) throw new InvalidConfigurationError("Scene radiance function must return a finite non-negative radiance.");
+      return value;
     }
-    if (chart) return chart.reflectanceAt(u, v, nm) * irradianceScale * shapeAt(nm) / Math.PI;
-    return callerValue({ xM: u * scale, yM: v * scale, u, v, wavelengthNanometers: nm }, nm);
+    return reflectanceOf(u, v, materialOf(u, v), nm) * irradianceScale * shapeAt(nm) / Math.PI;
   }
   function callerReflectance(point: Readonly<ScenePlanePoint>): number {
     const value = (caller as CallerReflectanceScene).evaluate(point);
     if (typeof value !== "number" || !Number.isFinite(value) || value < 0 || value > 1) throw new InvalidConfigurationError("Scene reflectance function must return a value in [0, 1].");
-    return value;
-  }
-  function callerValue(point: Readonly<ScenePlanePoint>, nm: number): number {
-    if (caller!.kind === "reflectance-function") return callerReflectance(point) * irradianceScale * shapeAt(nm) / Math.PI;
-    const value = (caller as CallerRadianceScene).evaluate(point);
-    if (typeof value !== "number" || !Number.isFinite(value) || value < 0) throw new InvalidConfigurationError("Scene radiance function must return a finite non-negative radiance.");
     return value;
   }
   function result(request: Readonly<SceneRadianceEvaluationRequest>, radiance: number): SceneRadianceEvaluationResult {
@@ -522,6 +545,7 @@ export function buildPlanarSceneRadianceProvider(input: {
     }
   };
   if (materialOfDirection) MATERIAL_OF_DIRECTION.set(provider, materialOfDirection);
+  if (input.illumination) RADIANCE_SPECTRUM_OF.set(litRadianceAt, litRadianceSpectrumAt);
   return provider;
 }
 
