@@ -42,6 +42,10 @@
     RGBTables pre-pass use scalar locals instead of two arrays and a closure per pixel; every product and sum keeps its operands
     and order. A 6 MP engine-written CFA DNG: fast development median 548 → 329 ms, exact (AHD) 1248 → 947 ms (7 paired runs);
     samples and `clippedPixelCount` identical. No bundle row changes.
+  - *Linear encoding with a full-scale white code (#718).* `calculateLinearCaptureEncoding` refused about 7 % of reference-white
+    values with `referenceWhiteCode: 65535` ("cannot represent the declared finite range"; `65535 / (65535 / 0.9)` is one ulp
+    below 0.9). The largest representable value is now never below reference white. A wrong refusal becomes an encoding; codes of
+    inputs that encoded before are unchanged (docs/LINEAR_CAPTURE_ENCODING.md).
 
 ## 2.27.0 — published November 19, 2026
 
