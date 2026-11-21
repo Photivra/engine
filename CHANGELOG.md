@@ -270,7 +270,8 @@
   (`srgb`) and 93.75 (`rec2020`). 1024 × 1024 PNG, `fast: false`, two paired runs on a loaded machine: Siemens star 3.8–4.0 s →
   1.1–1.2 s, color patches 3.8 s → 1.1–1.2 s, dead leaves 4.0–4.3 s → 1.0–1.1 s (clipped: 0.72–0.77 s); the figure-batch
   `detail-perceptual-png` part 0.74× (`fast: false`) and 0.80× (default). Samples and PNG bytes are unchanged, and the hash locks
-  hold. `t ** 3` and `BISECTION_STEPS` are unchanged. Tests: `test/gamut-mapping-early-out.test.ts`.
+  hold. `t ** 3` and `BISECTION_STEPS` are unchanged. The exactness below L* 85 rests on these measurements, not on a proof;
+  the owner accepted it on them (2026-11-21; docs/COLORIMETRY.md, "Perceptual gamut mapping"). Tests: `test/gamut-mapping-early-out.test.ts`.
 
 ### Output changes (2.28.0 step 5)
 
