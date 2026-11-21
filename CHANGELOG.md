@@ -230,6 +230,20 @@
   shutter), color patches fast 2.6–2.8 s → 0.36–0.41 s (6.8–7.3×); camera rotation alone unchanged. RAW codes and samples
   identical; `diagnostics.providerEvaluationCount` unchanged. Mixed lighting, caller function scenes, the display view and the
   defocus and diffraction providers keep their own handling. Tests: `test/simulate-capture-subject-motion.test.ts`.
+- **Faster: mixed lighting resolves each point once, not once per spectral node (#735, 2.28.0 step 6).** Under `illumination`, a
+  point's blend segment and fraction, each point source's fall-off and the chart or scene material are functions of the point
+  alone, yet were recomputed for each of the 21 to 81 spectral nodes. The lit scene now has a spectrum form (the material and the
+  blend resolved once, the illuminant shapes and a spectral material's reflectance read at the nodes once per wavelength list),
+  used by the expected signal's direct, kernel and lattice paths, the ideal reference and the CPU display view; each node keeps
+  today's expression in today's order, so RAW codes, samples, float64 internals and `sceneLookups` are unchanged (SHA-256 over
+  14 requests: gradient, radial, 64 regions and point sources, with diffraction, box aperture and four-spot filter, a fixed-size
+  chart, caller material and reflectance functions, the ideal reference and both display-view flags; the figure-batch hash locks
+  hold). 600 × 400 color patches at 5 nm, three captures, `fast: false`, two paired runs on a loaded machine: one illuminant
+  0.61–0.69 s; linear gradient 3.9–4.8 s → 1.1–1.2 s, radial 4.5–5.8 s → 1.0–1.2 s, 64 regions 5.2–6.3 s → 1.0–1.2 s, gradient with
+  a point source 5.7–6.8 s → 1.5–1.6 s; the default flag alike. The figure-batch `mixed-light` part (a display view): 0.60×
+  (`fast: false`) and 0.48× (default) of the CPU time. Per-site integration is unchanged: each site's signal is still integrated
+  from the spectrum at use; the cached values are spectra (illuminant shapes, reflectances), no channel values. Tests:
+  `test/mixed-illumination-spectrum.test.ts`.
 
 ### Output changes (2.28.0 step 5)
 

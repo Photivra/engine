@@ -134,7 +134,7 @@ import type { LayeredChartDepth, LayeredChartScene } from "./layered-chart-scene
 import { resolveCaptureIlluminant, calculateIlluminantIrradianceScale, buildPlanarSceneRadianceProvider, requireCallerScene, FACADE_SPECTRAL_RANGE_NANOMETERS,
   resolveChartSizeOption, type ChartSizeOption,
   PHOTOPIC_MAXIMUM_LUMINOUS_EFFICACY_LM_PER_W, type CaptureIlluminant, type CallerMaterialScene, type CallerRadianceScene, type CallerReflectanceScene, type ImagePlaneScene, type ResolvedCallerScene,
-  planarProviderMaterialOfDirection, type PlanarSceneRadianceProvider, type ResolvedCallerMaterialScene, type ResolvedCaptureIlluminant } from "./scene-radiance.js";
+  planarProviderMaterialOfDirection, planarRadianceSpectrumOf, type PlanarSceneRadianceProvider, type ResolvedCallerMaterialScene, type ResolvedCaptureIlluminant } from "./scene-radiance.js";
 
 /** Version of how the facade builds requests. It changes whenever the same input would build a different request. */
 export const SIMULATE_CAPTURE_FACADE_VERSION = "1.0.0" as const;
@@ -3811,12 +3811,17 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
     const rgb = new Float64Array(outputWidth * outputHeight * 3), counts = { whiteBalanceClippedSampleCount: 0, reconstructedPixelCount: 0 }, sum = [0, 0, 0];
     // A sample that reads the previous sample's material reuses that sample's integral (nothing is kept per material).
     let last = -1, s: number[] = [];
+    // #735: under mixed light, each sample's spectrum with its material and light resolved once (the same values).
+    const referenceSpectrum = planarRadianceSpectrumOf(referenceProvider.radianceAt), referenceNodes = new Float64Array(wavelengths.length);
     for (let py = 0; py < outputHeight; py++) {
       for (let px = 0; px < outputWidth; px++) {
         sum[0] = 0; sum[1] = 0; sum[2] = 0;
         for (let l = 0; l < n; l++) for (let k = 0; k < n; k++) {
           const u = (x0 + px + (k + 0.5) / n - nativeWidth / 2) * unit, v = -(y0 + py + (l + 0.5) / n - nativeHeight / 2) * unit, m = spectra ? provider.chartMaterialAt!(u, v) : -1;
-          if (m < 0 || m !== last) { s = signalOf(m < 0 ? wavelengths.map((nm) => referenceProvider.radianceAt(u, v, nm)) : spectra![m]!); last = m; }
+          if (m < 0 || m !== last) {
+            s = signalOf(m >= 0 ? spectra![m]! : referenceSpectrum ? (referenceSpectrum(u, v, wavelengths, referenceNodes), referenceNodes) : wavelengths.map((nm) => referenceProvider.radianceAt(u, v, nm)));
+            last = m;
+          }
           sum[0] += s[0]!; sum[1] += s[1]!; sum[2] += s[2]!;
         }
         // Normalized RAW values saturate at the white level, as in development.
