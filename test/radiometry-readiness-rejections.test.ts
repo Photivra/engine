@@ -79,4 +79,11 @@ describe("fields of another representation (sensor-13, #701)", () => {
     }
     expect(() => parseRadiometryReadinessProfile(base())).not.toThrow();
   });
+
+  it("takes a field set to undefined as left out, as 2.27.0 did", () => {
+    const profile = base();
+    profile.components[1].tStop = undefined;
+    profile.components[1].fillFactor = undefined;
+    expect(() => parseRadiometryReadinessProfile(profile)).not.toThrow();
+  });
 });

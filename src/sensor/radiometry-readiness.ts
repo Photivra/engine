@@ -317,7 +317,8 @@ function requireApproximationStatus(
 /** sensor-13: a requirement may carry only the fields of its own representation (a field of another is refused, not dropped). */
 function parseRequirement(value: unknown, path: string): RadiometryRequirement {
   const parsed = parseRequirementFields(value, path);
-  rejectUnknownFields(value as object, Object.keys(parsed), path);
+  // An optional field set to undefined is the field left out.
+  rejectUnknownFields(value as object, [...Object.keys(parsed), ...Object.keys(value as object).filter((key) => (value as Record<string, unknown>)[key] === undefined)], path);
   return parsed;
 }
 
