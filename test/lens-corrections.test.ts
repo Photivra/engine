@@ -154,3 +154,24 @@ describe("generic camera lens correction", () => {
     expect(() => plan(correctionProfile, { unknown: "on" })).toThrow();
   });
 });
+
+describe("missing sub-objects (capture-32, #698)", () => {
+  it("fail with a domain error, never a raw TypeError, in both correction functions", async () => {
+    const { probeSubObjects } = await import("./helpers/sub-object-probe.js");
+    const { InvalidConfigurationError, InvalidScientificInputError } = await import("../src/index.js");
+    const request = { plan: plan(), capture, destinationRaster: raster, resampler, physicalProjectionDistanceMm: 50, clippingLevel: 100 };
+    for (const p of [{}, { profile: {} }, { ...plan(), components: undefined }])
+      expect(() => calculateLensCorrectedCapture({ ...request, plan: p as never }), JSON.stringify(p).slice(0, 40)).toThrow(InvalidConfigurationError);
+    expect(() => calculateLensCorrectedCapture({ ...request, capture: { ...capture, channels: undefined } as never })).toThrow(InvalidConfigurationError);
+    expect(() => calculatePeripheralIlluminationCorrection({ component: { kind: "peripheral-illumination", strength: 1 } as never, imagePointMm: { x: 4, y: 0 },
+      signal: 10, noiseVariance: 4, clippingLevel: 15 })).toThrow(InvalidConfigurationError);
+    const domain = (e: unknown): boolean => e instanceof InvalidConfigurationError || e instanceof InvalidScientificInputError;
+    expect(domain).toBeTypeOf("function");
+    for (const [fn, input] of [[calculateLensCorrectedCapture, request], [calculatePeripheralIlluminationCorrection,
+      { component: gain, imagePointMm: { x: 4, y: 0 }, signal: 10, noiseVariance: 4, clippingLevel: 15 }]] as const) {
+      const { probedPaths, escaped } = await probeSubObjects(fn as (v: unknown) => unknown, input);
+      expect(probedPaths).toBeGreaterThan(0);
+      expect(escaped).toEqual([]);
+    }
+  });
+});

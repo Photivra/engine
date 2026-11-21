@@ -10,6 +10,7 @@ import {
   resolveFocusTargetObservation,
   setFocusLock,
   setManualFocusState,
+  InvalidConfigurationError,
   type FocusControlProfile,
   type FocusControlState
 } from "../src/index.js";
@@ -1042,5 +1043,21 @@ describe("focus-control remaining state boundaries", () => {
     ).toThrow(
       "commandId must be a non-empty string"
     );
+  });
+});
+
+describe("invalid focus states and lock values (capture-29, #698)", () => {
+  const edit = (patch: Record<string, unknown>): FocusControlState => ({ ...JSON.parse(JSON.stringify(state("single-af"))), ...patch }) as FocusControlState;
+  it("setFocusLock refuses a non-boolean locked and the focus functions refuse an invalid state", () => {
+    for (const locked of ["false", "no", 1, {}, null, 0, undefined])
+      expect(() => setFocusLock({ state: state("single-af"), stateId: "s2", locked: locked as never, eventTimeSeconds: 1 }), String(locked)).toThrow(InvalidConfigurationError);
+    const bad = [edit({ lastEventTimeSeconds: NaN }), edit({ mode: "bogus-mode", acquisitionState: "acquired" }), edit({ acquisitionState: "weird" }),
+      edit({ locked: "true" }), edit({ locked: true }), edit({ acquisitionState: "locked", locked: true })];
+    for (const s of bad) {
+      expect(() => assessFocusReleaseGate({ state: s, profile: profile(), priority: "focus-priority" }), JSON.stringify(s.mode) + s.acquisitionState).toThrow(InvalidConfigurationError);
+      expect(() => setFocusLock({ state: s, stateId: "s2", locked: true, eventTimeSeconds: 1 })).toThrow(InvalidConfigurationError);
+    }
+    const locked = setFocusLock({ state: state("single-af"), stateId: "s2", locked: true, eventTimeSeconds: 1 });
+    expect(setFocusLock({ state: JSON.parse(JSON.stringify(locked)) as FocusControlState, stateId: "s3", locked: false, eventTimeSeconds: 2 }).acquisitionState).toBe("idle");
   });
 });

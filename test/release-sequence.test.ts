@@ -814,3 +814,27 @@ describe("bracket policy and sub-object validation (#720, capture-20)", () => {
   });
 });
 
+
+describe("release timing at very large request times (capture-30, #698)", () => {
+  const burst = (releaseRequestTimeSeconds: number): ReturnType<typeof resolveReleaseSequence> => resolveReleaseSequence({ sequenceId: "late-1", releaseRequestTimeSeconds, sequenceSeedUint32: 7,
+    drive: { kind: "burst", frameCount: 3 }, bracket: { kind: "none" }, requestedCadenceFps: 5, baseState: baseState(),
+    releaseCapabilities: releaseCapabilities(), exposureCapabilities: exposureCapabilities() });
+  it("refuses frames that would collapse to zero-length exposures and keeps increasing times at 1e9 s", () => {
+    for (const t of [1e15, 1e16]) expect(() => burst(t), String(t)).toThrow("Resolved release-sequence timing is not representable at this request time.");
+    const frames = burst(1e9).frames;
+    for (const [k, f] of frames.entries()) {
+      expect(f.exposureEndTimeSeconds).toBeGreaterThan(f.exposureStartTimeSeconds);
+      if (k > 0) expect(f.exposureStartTimeSeconds).toBeGreaterThanOrEqual(frames[k - 1]!.exposureEndTimeSeconds);
+    }
+  });
+});
+
+describe("createCancelledReleaseSequence checks its sequence (capture-32, #698)", () => {
+  it("refuses a cancelled record, a missing sequence and a non-array frame list", () => {
+    const sequence = resolveReleaseSequence({ sequenceId: "c-1", releaseRequestTimeSeconds: 0, sequenceSeedUint32: 7, drive: { kind: "burst", frameCount: 3 },
+      bracket: { kind: "none" }, requestedCadenceFps: 5, baseState: baseState(), releaseCapabilities: releaseCapabilities(), exposureCapabilities: exposureCapabilities() });
+    const cancelled = createCancelledReleaseSequence({ sequence, completedFrameCount: 1, cancelledAtSeconds: 0.1 });
+    for (const bad of [cancelled, undefined, null, { status: "scheduled", frames: "abcd", sequenceId: 7 }, { ...sequence, frames: "abcd" }, { ...sequence, sequenceId: 7 }])
+      expect(() => createCancelledReleaseSequence({ sequence: bad as never, completedFrameCount: 1, cancelledAtSeconds: 0.1 }), JSON.stringify(bad)?.slice(0, 40)).toThrow(InvalidConfigurationError);
+  });
+});

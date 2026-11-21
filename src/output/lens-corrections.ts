@@ -193,6 +193,7 @@ export function calculatePeripheralIlluminationCorrection(input: {
   requireInputKeys(input, "calculatePeripheralIlluminationCorrection", ["component", "imagePointMm", "signal", "noiseVariance", "clippingLevel"]);
   const component = input.component;
   requireInputObject(component, "component input");
+  requireInputObject(component.profile, "component.profile");
   if (component.kind !== "peripheral-illumination" || component.strength < 0 || component.strength > 1 || !Number.isFinite(component.strength)) throw new InvalidScientificInputError("Invalid illumination component.");
   const signal = finite(input.signal, "signal"), variance = finite(input.noiseVariance, "noiseVariance");
   const level = positive(input.clippingLevel, "clippingLevel");
@@ -240,6 +241,12 @@ export function calculateLensCorrectedCapture(input: {
   requireInputKeys(input, "calculateLensCorrectedCapture", ["plan", "capture", "destinationRaster", "resampler", "physicalProjectionDistanceMm", "clippingLevel"]);
   // Re-resolve the plan, which may be untrusted or changed, so callers cannot fake enabled or mandatory states.
   requireInputObject(input.plan, "plan");
+  // capture-32: the nested records are checked before their first read.
+  requireInputObject(input.plan.profile, "plan.profile");
+  if (!Array.isArray(input.plan.components)) throw new InvalidConfigurationError("plan.components must be an array.");
+  input.plan.components.forEach((e, i) => { requireInputObject(e, "plan.components[" + i + "]"); requireInputObject(e.component, "plan.components[" + i + "].component"); });
+  requireInputObject(input.capture, "capture");
+  requireInputObject(input.capture.channels, "capture.channels");
   const plan = resolveLensCorrectionPlan({ profile: input.plan.profile, state: input.plan.profile.state,
     selections: Object.fromEntries(input.plan.components.filter((e) => e.component.availability === "toggle").map((e) => [e.component.id, e.enabled ? "on" : "off"])),
     outputKind: input.plan.outputKind, selectionKind: input.plan.selectionKind }).value;
