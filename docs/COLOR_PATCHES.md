@@ -350,6 +350,17 @@ the engine's portable exponential, so the display view's chart presets give the 
 formulas. Inside a caller material scene or a material-layers scene the display view uses `Math.exp`. The WebGPU chart
 stage classifies a `color-patches` element with the `patches` geometry; reflectances are evaluated in float64 on the CPU.
 
+For example, the whole chart in a display view: the image a 2400 × 2000 capture of it would show, resized to 480 × 400 for a
+screen (an estimate, labeled as one in `view.label`; see [Display view](DISPLAY_VIEW.md)):
+
+```ts
+import { simulateDisplayView } from "@photivra/engine";
+
+const view = await simulateDisplayView({ scene: { preset: "color-patches" }, output: { width: 2400, height: 2000 } },
+  { width: 480, height: 400 });
+console.log(view.label, view.image.width, view.image.height); // "Display view: …", 480, 400
+```
+
 ## Cost
 
 A built-in patch's values are memoized per wavelength, so a capture evaluates each patch's formula once per quadrature
