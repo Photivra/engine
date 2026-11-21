@@ -15,7 +15,8 @@ SIMULATE_FALSE_COLOR_LIMITS: { readonly maximumThresholds: 8; readonly maximumDi
 #739: the false color a demosaic produces for a capture request: its color error per output pixel against a full-color sensor
 reading of the same capture (each site's expected electrons with all three channel responses, through the same optics, filter,
 pixel aperture and exposure), both noise-free and developed alike, in CIELAB a*b* (see {@link FalseColorResult}). It takes the
-request `simulateCapture` takes, always at full quality (`fast: false`, on the CPU), and refuses what changes color after the
+request `simulateCapture` takes, always at full quality (`fast: false`, on the CPU; `fast: true`, top-level or on an option record
+such as `lens.diffraction`, is refused), and refuses what changes color after the
 demosaic or has no expected-signal path (luminance tone curves, highlight reconstruction, `desaturate-to-luminance`,
 `output.lensCorrections`, `output.sharpening`, `output.diffractionCorrection`, `output.region` (use `measure.region`), JPEG, PNG and
 DNG output, `whiteBalance: "auto"`, `lens.pupilSampling`, a caller `lens.psf`, `lens.defocus.catsEye`, `sensor.fixedPatternNoise`,

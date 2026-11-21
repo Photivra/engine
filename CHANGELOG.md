@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 2.28.0 — unreleased (prepared November 21, 2026)
 
 ### Gates
 
