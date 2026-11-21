@@ -33,6 +33,11 @@
     white level by its 2 × 2 CFA phase from `x` and `y` instead of recovering the phase from the row-major index; the per-site
     check that all sites of a phase agree stays. A 1536 × 1024 Siemens star: median 628 → 573 ms (11 paired runs, −8.8 %);
     RAW codes, white levels and sRGB samples identical (SHA-256). Fast bundle row +4 B.
+  - *Fixed-pattern noise per row and column (#689).* The native capture takes each site's row and column offsets from a value
+    computed once per row and column (row + column, in that order, as before) and draws every fixed-pattern value from one
+    reseeded stream instead of a new one per value. A 1024 × 768 slanted edge, `fast: false`, DNG, with
+    `sensor.fixedPatternNoise: true`: median 547 → 394 ms (7 paired runs; the option's own cost 264 → 113 ms, about 2.3× less).
+    RAW codes identical (new SHA-256 locks, recorded on the unchanged code). Fast bundle row +112 B.
 
 ## 2.27.0 — published November 19, 2026
 
