@@ -1896,7 +1896,10 @@ with that reason for `"require"`:
   the view's first render that takes the Quality passes, after the Quality code has loaded on demand. Their ids are then
   appended to `conformance.cases`, and a failure keeps that render and every later one on the CPU, labelled as above. Results
   do not change: only when the Quality cases run, and so which ids a Speed-only view's record lists (the two built-in cases
-  and the Speed case).
+  and the Speed case). Both checks belong to the view, not to the render that started them (2.28.0, #675): a render's
+  `signal` ends only that render's wait, so a concurrent render that was not aborted still gets the check's outcome, and
+  `prepared.dispose()` ends a running check; a render that was waiting for it runs as one started after `dispose()`
+  (`disposed`).
 - *Single flight.* GPU renders of one view run one at a time on its device; concurrent `render` calls queue rather than
   reject with `busy`. CPU renders are unaffected.
 - *Refused at render time.* What only a render can tell (a view coarser than the exact area mean, a footprint above 6 real

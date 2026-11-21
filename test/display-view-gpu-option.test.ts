@@ -12,7 +12,9 @@ import { renderDisplayView } from "../src/facade/display-view.js";
 import { setDisplayViewGpuRendererFactory, type DisplayViewGpuConformanceCase, type DisplayViewGpuPart, type DisplayViewGpuRenderer,
   type DisplayViewGpuRendererFactory } from "../src/facade/display-view-gpu.js";
 import { DISPLAY_VIEW_GPU_BUILT_IN_CASES } from "../src/facade/display-view-gpu-session.js";
+import { displayViewGpuRendererFactory as engineRendererFactory, setDisplayViewQualityGpuLoader } from "../src/gpu/display-view-gpu-renderer.js";
 import { createFakeGpu, FAKE_ADAPTER_INFO } from "./helpers/fake-webgpu.js";
+import { SMALL_FRAME, SMALL_VIEW } from "./helpers/display-view-gpu-fixture.js";
 import { scaledTimeout as testTimeout } from "./helpers/test-timeout.js";
 
 const REQUEST: SimulateCaptureOptions = { scene: { preset: "siemens-star" }, sensor: { pixelPitchMicrometers: 4 }, output: { width: 24, height: 16 } };
@@ -51,6 +53,24 @@ function fakeRenderer(options: FakeRendererOptions = {}): { factory: DisplayView
     }
   });
   return state;
+}
+/** A conformance case that waits until released and rejects with `aborted` when the signal it was given aborts (#675). */
+function gatedCase(id: string): { case: DisplayViewGpuConformanceCase; started: Promise<void>; release: () => void; signals: (AbortSignal | undefined)[] } {
+  const signals: (AbortSignal | undefined)[] = [];
+  let release = (): void => undefined, markStarted = (): void => undefined;
+  const started = new Promise<void>((resolve) => { markStarted = resolve; });
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  return { started, release: () => release(), signals, case: { id, async run(_runtime, signal): Promise<true> {
+    signals.push(signal);
+    markStarted();
+    await new Promise<void>((resolve, reject) => {
+      const aborted = (): void => reject(new ImageKernelExecutionError("aborted", "aborted"));
+      if (signal?.aborted) { aborted(); return; }
+      signal?.addEventListener("abort", aborted, { once: true });
+      void gate.then(resolve);
+    });
+    return true;
+  } } };
 }
 async function reason(promise: Promise<unknown>): Promise<string> {
   return promise.then(() => "resolved", (error: unknown) => (error instanceof ImageKernelExecutionError ? error.reason : (error as Error).name));
@@ -315,6 +335,66 @@ describe("display view GPU option (#481)", () => {
     expect((await (await prepareDisplayView(REQUEST, { gpu: "auto", gpuDevice: cpu })).render(VIEW)).diagnostics.fast.execution.fallbackReason).toBe("webgpu-unavailable");
     // Without a handle the engine asks globalThis.navigator.gpu; Node has none.
     expect((await (await prepareDisplayView(REQUEST, { gpu: "auto" })).render(VIEW)).diagnostics.fast.execution.fallbackReason).toBe("webgpu-unavailable");
+  });
+
+  // #675: the shared self-checks run under the session's signal; a render's own signal only stops that render waiting.
+  it("an aborted render does not end the self-check a concurrent render waits for (device and on-demand checks)", async () => {
+    for (const where of ["device", "on-demand"] as const) {
+      const gated = gatedCase("preview:gated");
+      setDisplayViewGpuRendererFactory(fakeRenderer(where === "device" ? { cases: [gated.case] } : { onDemand: (): Promise<DisplayViewGpuConformanceCase[]> => Promise.resolve([gated.case]) }).factory);
+      const prepared = await prepareDisplayView(REQUEST, { gpu: "auto", gpuDevice: createFakeGpu().gpu });
+      const controller = new AbortController();
+      const aborted = prepared.render(VIEW, { signal: controller.signal }), other = prepared.render(VIEW);
+      await gated.started;
+      controller.abort();
+      await expect(aborted, where).rejects.toThrow(InvalidConfigurationError);
+      gated.release();
+      const result = await other;
+      expect(result.diagnostics.fast.execution, where).toMatchObject({ backend: "webgpu-f32", fallbackReason: null, conformance: { passed: true } });
+      expect(gated.signals.map((signal) => signal?.aborted), where).toEqual([false]);
+      expect((await prepared.render(VIEW)).diagnostics.fast.execution.backend).toBe("webgpu-f32");
+      prepared.dispose();
+    }
+  });
+
+  // #675, the review's case S1: the engine's renderer on the fake device; render A is aborted while the checks run and render B,
+  // started with it, is never aborted. Without diffraction A's abort lands in the device self-check (at its second dispatch);
+  // with lens.diffraction it lands as the Quality self-check starts (when the Quality host is loaded for its cases).
+  it("with the engine's renderer, a concurrent render that was not aborted renders on the GPU (device and Quality self-checks)", async () => {
+    setDisplayViewGpuRendererFactory(engineRendererFactory);
+    const region = (x: number, y: number): typeof SMALL_VIEW & { region: { x: number; y: number; width: number; height: number } } => ({ ...SMALL_VIEW, region: { x, y, width: 16, height: 12 } });
+    try {
+      for (const quality of [false, true]) {
+        const lens = quality ? { diffraction: "circular-aperture" } : {};
+        const request = { scene: { preset: "checkerboard" }, subjectDistanceM: 2, sensor: { pixelPitchMicrometers: 6 }, lens, output: { ...SMALL_FRAME, format: "srgb-8" } } as SimulateCaptureOptions;
+        const fake = createFakeGpu(), prepared = await prepareDisplayView(request, { gpu: "auto", gpuDevice: fake.gpu });
+        const controller = new AbortController();
+        let qualityLoads = 0;
+        if (quality) setDisplayViewQualityGpuLoader(() => { qualityLoads++; controller.abort(); return import("../src/gpu/display-view-quality-gpu.js"); });
+        else fake.controls.beforeDispatch = (count): void => { if (count === 2) controller.abort(); };
+        const a = prepared.render(region(90, 60), { signal: controller.signal }), b = prepared.render(region(20, 20));
+        await expect(a).rejects.toThrow(InvalidConfigurationError);
+        const result = await b;
+        expect(result.diagnostics.fast.execution, "quality " + quality).toMatchObject({ backend: "webgpu-f32", fallbackReason: null, conformance: { passed: true } });
+        expect(qualityLoads).toBe(quality ? 1 : 0);
+        expect((await prepared.render(region(20, 20))).diagnostics.fast.execution.backend).toBe("webgpu-f32");
+        prepared.dispose();
+      }
+    } finally { setDisplayViewQualityGpuLoader(null); }
+  }, testTimeout(120_000));
+
+  it("dispose() ends a running self-check; the render that waited runs the CPU reference labelled disposed, or fails under require", async () => {
+    for (const gpu of ["auto", "require"] as const) for (const where of ["device", "on-demand"] as const) {
+      const gated = gatedCase("preview:gated");
+      setDisplayViewGpuRendererFactory(fakeRenderer(where === "device" ? { cases: [gated.case] } : { onDemand: (): Promise<DisplayViewGpuConformanceCase[]> => Promise.resolve([gated.case]) }).factory);
+      const prepared = await prepareDisplayView(REQUEST, { gpu, gpuDevice: createFakeGpu().gpu });
+      const pending = gpu === "auto" ? prepared.render(VIEW).then((r) => r.diagnostics.fast.execution.fallbackReason) : reason(prepared.render(VIEW));
+      await gated.started;
+      prepared.dispose();
+      expect(gated.signals.map((signal) => signal?.aborted), where).toEqual([true]);
+      expect(await pending, gpu + " " + where).toBe("disposed");
+      gated.release();
+    }
   });
 
   it("the render's signal aborts a GPU render with the engine's error", async () => {

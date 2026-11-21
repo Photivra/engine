@@ -215,11 +215,17 @@ function createSession(options: ParsedPrepareDisplayViewOptions, runtime: WebGpu
     if (options.gpu === "require") throw requireError(reason, detail, compositeProbe);
     return { rendered: await cpu(), execution: cpuDisplayViewExecution(options.gpu, reason, adapter, conformance, detail, compositeProbe) };
   };
+  /**
+   * #675: the shared checks belong to the session, not to the render that happened to start them: they run under the session's
+   * own signal (aborted only by `dispose()`), and each render waits for them under its own signal (`runtime.guard`), so one
+   * render's abort never ends a check that a concurrent render is waiting for.
+   */
+  const session = new AbortController();
   /** The self-check, run once per session (single flight); a failing check is remembered and never repeated. */
-  function selfCheck(signal: AbortSignal | undefined): Promise<DisplayViewGpuConformance> {
+  function selfCheck(): Promise<DisplayViewGpuConformance> {
     if (conformance) return Promise.resolve(conformance);
     if (!checking) {
-      checking = runConformance(runtime, [...DISPLAY_VIEW_GPU_BUILT_IN_CASES, ...(renderer.conformanceCases ?? [])], signal).then((result) => { conformance = result; return result; }, (error: unknown) => { checking = null; throw error; });
+      checking = runConformance(runtime, [...DISPLAY_VIEW_GPU_BUILT_IN_CASES, ...(renderer.conformanceCases ?? [])], session.signal).then((result) => { conformance = result; return result; }, (error: unknown) => { checking = null; throw error; });
     }
     return checking;
   }
@@ -229,11 +235,11 @@ function createSession(options: ParsedPrepareDisplayViewOptions, runtime: WebGpu
    * failure keeps this render and every later one on the CPU, as a failure at the first render does.
    */
   let onDemand: Promise<DisplayViewGpuConformance> | null = null;
-  function onDemandCheck(setup: DisplayViewSetup, passed: DisplayViewGpuConformance, signal: AbortSignal | undefined): Promise<DisplayViewGpuConformance> {
+  function onDemandCheck(setup: DisplayViewSetup, passed: DisplayViewGpuConformance): Promise<DisplayViewGpuConformance> {
     if (onDemand) return onDemand;
     const cases = renderer.onDemandConformanceCases?.(setup);
     if (!cases) return Promise.resolve(passed);
-    return onDemand = cases.then((list) => runConformance(runtime, list, signal, passed)).then((result) => conformance = result,
+    return onDemand = cases.then((list) => runConformance(runtime, list, session.signal, passed)).then((result) => conformance = result,
       (error: unknown) => { onDemand = null; throw error; });
   }
   function lostError(error: unknown): boolean { return (error instanceof ImageKernelExecutionError && error.reason === "device-lost") || runtime.isLost(); }
@@ -243,10 +249,13 @@ function createSession(options: ParsedPrepareDisplayViewOptions, runtime: WebGpu
       if (lost || runtime.isLost()) { lost = true; return fallback("device-lost", "the WebGPU device was lost; the rest of the view runs on the CPU.", cpu); }
       let check: DisplayViewGpuConformance;
       try {
-        check = await selfCheck(signal);
-        if (check.passed) check = await onDemandCheck(setup, check, signal);
+        check = await runtime.guard(selfCheck(), signal);
+        if (check.passed) check = await runtime.guard(onDemandCheck(setup, check), signal);
       }
       catch (error) {
+        // #675: dispose() ended the check this render was waiting for (and released an owned device): the render runs as one that
+        // starts after dispose(), unless its own signal aborted it.
+        if (disposed) { setup.checkAbort(); return fallback("disposed", "the prepared view was disposed.", cpu); }
         if (lostError(error)) { lost = true; return fallback("device-lost", "the WebGPU device was lost during its conformance check.", cpu); }
         // #594: the on-demand code did not load: this render runs the CPU reference; the next one that needs it tries again.
         if (qualityCodeUnavailable(error)) return fallback("quality-code-unavailable", (error as Error).message, cpu);
@@ -283,6 +292,7 @@ function createSession(options: ParsedPrepareDisplayViewOptions, runtime: WebGpu
     dispose(): void {
       if (disposed) return;
       disposed = true;
+      session.abort();
       renderer.dispose?.();
       if (owned) runtime.destroy();
     }

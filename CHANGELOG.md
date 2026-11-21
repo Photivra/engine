@@ -30,6 +30,11 @@
   1.2.9), the version the Photivra app's worker build uses through Vite 8.3.2 (owner decision 2026-11-21). Re-measured: fast
   worker 336,616 B, on demand 51,987 B, export 10,399 B; limits lowered to each measurement rounded up to the next 100 B
   (fast 338,900 → 336,700 B, export 10,500 → 10,400 B; on demand stays 52,000 B until #658). No package change.
+- **An aborted GPU display-view render no longer fails a concurrent one (#675).** The device and Quality self-checks of a
+  prepared view ran under the signal of the render that started them, so aborting that render made every render waiting for
+  the check reject with `ImageKernelExecutionError` reason `aborted`. The checks now run under the session's own signal, each
+  render waits under its own, and `dispose()` ends a running check (the waiting render runs as one after `dispose()`,
+  `disposed`). Results of renders that complete are unchanged.
 
 ## 2.27.0 — published November 19, 2026
 
