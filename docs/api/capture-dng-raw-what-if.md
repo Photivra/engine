@@ -88,7 +88,10 @@ export interface DngRawWhatIfRequest {
   highGainFromIso?: number | null;
   /** uint32 seed of the added noise (deterministic: the same seed gives the same codes on every engine). */
   seed: number;
-  /** Check the NoiseProfile against the measured noise and refuse a file whose noise was reduced (default true). */
+  /**
+   * Check the NoiseProfile against the measured noise and refuse a file whose noise was reduced (default true). A file whose noise
+   * cannot be measured is allowed, with an assumption that its NoiseProfile was not verified.
+   */
   verifyNoiseProfile?: boolean;
 }
 ```
@@ -123,7 +126,11 @@ export interface DngRawWhatIfResult {
   clippedSitesKept: number;
   /** The gain switch the ISO check used and where it came from ("not-needed" without an ISO change). */
   gainSwitch: { highGainFromIso: number | null; from: "request" | "catalog" | "not-needed"; entry: DngGainSwitchEntry | null };
-  /** The measured ÷ stated σ of the check (green plane where there is one), or null when the check was off. */
+  /**
+   * The measured ÷ stated σ of the check (green plane where there is one), or null when the check was off or the noise could not be
+   * measured (too few smooth blocks in a small, dark or smooth image, or no positive fitted variance, as in noise-free data). An
+   * unmeasured file is allowed, and `assumptions` says that its NoiseProfile was not verified.
+   */
   measuredToProfile: number | null;
   assumptions: string[];
 }

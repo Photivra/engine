@@ -376,6 +376,29 @@ describe("what-if labels (2.28.0)", () => {
   }, scaledTimeout(60_000));
 });
 
+describe("what-if noise check without a measurement (2.28.0)", () => {
+  // #719, owner decision 2026-11-21 (option b): a file whose noise cannot be measured stays allowed, and the result says the
+  // NoiseProfile was not verified.
+  it("allows a file whose noise cannot be measured and says its NoiseProfile was not verified", async () => {
+    const note = "The file's noise could not be measured, so its NoiseProfile was not verified.";
+    const capture = async (width: number, height: number): Promise<ImportedDngRaw> =>
+      parseDngRawImage({ bytes: (await simulateCapture({ scene: { preset: "step-wedge" }, output: { width, height, format: "dng" } })).image.dng! });
+    const raw = await capture(256, 192), small = await capture(64, 48), black = raw.blackLevel.values[0]!, white = raw.whiteLevel[0]!;
+    const noiseFree = { ...raw, codes: Uint16Array.from(raw.codes, (_, i) => black + Math.floor((i % raw.width) / raw.width * 8) * Math.floor((white - black) / 10)) };
+    for (const file of [noiseFree, small]) {
+      expect(estimateDngRawNoise(file).planes.find((p) => p.color === "green")!.measuredToProfile).toBeNull();
+      expect(assessDngRawWhatIf(file, { exposureStops: -2, seed: 1 }).allowed).toBe(true);
+      const result = simulateDngRawWhatIf(file, { exposureStops: -2, seed: 1 });
+      expect(result.measuredToProfile).toBeNull();
+      expect(result.assumptions).toContain(note);
+      expect(simulateDngRawWhatIf(file, { exposureStops: -2, seed: 1, verifyNoiseProfile: false }).assumptions).not.toContain(note);
+    }
+    const measured = simulateDngRawWhatIf(raw, { exposureStops: -2, seed: 1 });
+    expect(measured.measuredToProfile).toBeGreaterThan(0.85);
+    expect(measured.assumptions).not.toContain(note);
+  }, scaledTimeout(60_000));
+});
+
 describe("dual-gain switch catalog and the denoised-file check (2.24.0)", () => {
   it("ships only cited entries and finds none for an unknown camera", async () => {
     const { DNG_GAIN_SWITCH_CATALOG, resolveDngGainSwitch } = await import("../src/index.js");

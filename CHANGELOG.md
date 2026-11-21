@@ -56,6 +56,10 @@
     a new `clippedSitesKept` counts them when the simulation has less signal (light × ISO factor below 1), and an assumption names
     the count and the bound (white is an upper bound; they would read between black + factor × (white − black) and white).
     Owner decision 2026-11-21: label only; codes unchanged (docs/IMPORT_AND_PNG.md).
+  - *What-if noise check that cannot measure (#719).* When the noise check is on and the file's noise cannot be measured (too
+    few smooth blocks, or no positive fitted variance as in noise-free data), `simulateDngRawWhatIf` still allows it and now adds
+    the assumption "The file's noise could not be measured, so its NoiseProfile was not verified."; the docs no longer present
+    `measuredToProfile: null` as only "check off". Owner decision 2026-11-21 (option b): no result changes.
 
 ## 2.27.0 — published November 19, 2026
 
