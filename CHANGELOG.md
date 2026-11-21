@@ -504,7 +504,8 @@ Each item below is one commit of the serial output-change lane, with its measure
 
 ### Full-quality speed (2.28.0 step 6, group D)
 
-Byte-identical: samples, RAW codes and every hash lock are unchanged. Work counts that change are named.
+Byte-identical: samples, RAW codes and every hash lock are unchanged (the figure-batch locks, samples, internals and work counts,
+equal 2.28.0 step 5's tree on arm64 and on x64 Node 24.1 under Rosetta 2). Work counts that change are named.
 
 - **A large defocus disc with `lens.diffraction` no longer recomputes its run tiles per spectral node (#734).** A diffraction
   tile read the 9 run tiles it overlaps once per node, so when a lattice's share of the tile cache held fewer than 9 (a 3 × 3 or
@@ -514,6 +515,7 @@ Byte-identical: samples, RAW codes and every hash lock are unchanged. Work count
   CPU s: 3 × 3 box 109.2 → 6.8 (2 × 2 box 3.25 → 3.10; 3 × 3 now 2.2× the 2 × 2, about 9/4 as expected); with `lens.vignetting`
   (image space) 3 × 3 118.3 → 6.7. RAW codes and samples equal 2.28.0 step 5's tree on arm64 and x64. Tests:
   `test/large-defocus-lattice-tiles.test.ts` (run tiles computed 180 → 9 at 20 nodes and 9 lattices, 729 → 9 at 81 nodes and 4).
+  Bundle: on-demand row 51,744 → 51,756 B (+12 B, the Quality kit; limit 51,800 B).
 - **Display view: rolling shutter with defocus, less in-focus work and a cheaper block lookup (#711, owner decision 2026-11-21:
   byte-identical fixes only).** The row blocks of the regrouped lens signal (#651) each computed their in-focus rectangle widened by
   the disc radius on every side; the 2D columns two neighbouring blocks of one band share are read at the same instants, so a
@@ -526,7 +528,7 @@ Byte-identical: samples, RAW codes and every hash lock are unchanged. Work count
   focus in these runs (4.8× before; target 3×, **not met**): what is left is the in-focus work of the rows above and below each
   band, which are read at the next band's instants and cannot be shared without changing the fast method's output (not taken).
   Samples equal 2.28.0 step 5's tree in all three cases. The global-shutter lens tiles take the same clipping path for every tile
-  (one rectangle copied in), which keeps the fast row within its limit: fast worker 337,887 → 337,889 B. Tests:
+  (one rectangle copied in), which keeps the fast row within its limit: fast worker 337,888 → 337,889 B (limit 337,900 B). Tests:
   `test/display-view-lens-regroup-blocks.test.ts` (in-focus sites per band row, values whatever the block order),
   `test/display-view-lens-rolling-regions.test.ts` unchanged.
 - **Batch figure renders: the worker recipe, its example and shard balancing (#670, step 6); no package code, output or bundle
