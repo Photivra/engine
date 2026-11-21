@@ -244,6 +244,19 @@
   (`fast: false`) and 0.48× (default) of the CPU time. Per-site integration is unchanged: each site's signal is still integrated
   from the spectrum at use; the cached values are spectra (illuminant shapes, reflectances), no channel values. Tests:
   `test/mixed-illumination-spectrum.test.ts`.
+- **Faster: environment-chain captures compare fewer site records (#722, 2.28.0 step 6).** The lean executor proves each site's
+  records strictly equal to its template's; `siteInput` built the site-independent nested records afresh for every site, so each
+  was compared key by key. The dark-current profile's `uncertainty` and `temperatureModel`, the capacity profile's `uncertainty`,
+  `operatingState` and `temperatureApplicability`, the completeness profile's `includedAdditionalComponentIds` and each channel's
+  `sensor.responseApplication` are now built once per capture and shared by every site's input, frozen (a caller of
+  `result.request.siteInput` can no longer change a record another site reads); their values are unchanged. The lean
+  executor's rule is unchanged (a site still matches its template strictly before any check is skipped). 384 × 256 Siemens
+  star, five paired runs, median, loaded machine: default flag, camera pan 2.20 → 1.81 s (−18 %), pan with rolling shutter
+  2.26 → 2.01 s (−11 %), hand shake 2.16 → 1.76 s (−19 %); `fast: false` 3.45 → 3.20, 3.85 → 3.29 and 4.02 → 3.38 s (noisier). The
+  record-comparison functions fall from 21.9 % to about 17 % of the pan's CPU profile. Samples, RAW codes, the site inputs' JSON
+  and the lean executor's site counts are unchanged (pan, rolling shutter, hand shake, `lens.pupilSampling`, a catalogue lens with
+  `fast: false`, fixed-pattern noise, the tabulated default). The second step of the plan (prototype records for the site-carrying
+  parts) was not taken. Tests: `test/simulate-capture-site-records.test.ts`.
 
 ### Output changes (2.28.0 step 5)
 
