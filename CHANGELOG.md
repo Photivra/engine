@@ -544,6 +544,96 @@ Each item below is one commit of the serial output-change lane, with its measure
   text is G1's. Conformance: every value inside its bound on the emulation, SwiftShader and the Apple M5 Pro. The acceptance
   harness gains an `app-lens` case for the public path.
 
+### Full-quality speed (2.28.0 step 6, group D)
+
+Byte-identical: samples, RAW codes and every hash lock are unchanged (the figure-batch locks, samples, internals and work counts,
+equal 2.28.0 step 5's tree on arm64 and on x64 Node 24.1 under Rosetta 2). Work counts that change are named.
+
+- **A large defocus disc with `lens.diffraction` no longer recomputes its run tiles per spectral node (#734).** A diffraction
+  tile read the 9 run tiles it overlaps once per node, so when a lattice's share of the tile cache held fewer than 9 (a 3 × 3 or
+  larger box aperture, a 5 nm spectral step, camera rotation with several temporal samples) every read recomputed all of that
+  tile's nodes: 9·N run tiles per diffraction tile instead of 9. A diffraction tile is now computed for every node in one pass
+  over its run tiles. #734's request (16 × 12 region of a 600 × 400 Siemens star, defocus radius 104 sites, diffraction, 20 nm),
+  CPU s: 3 × 3 box 109.2 → 6.8 (2 × 2 box 3.25 → 3.10; 3 × 3 now 2.2× the 2 × 2, about 9/4 as expected); with `lens.vignetting`
+  (image space) 3 × 3 118.3 → 6.7. RAW codes and samples equal 2.28.0 step 5's tree on arm64 and x64. Tests:
+  `test/large-defocus-lattice-tiles.test.ts` (run tiles computed 180 → 9 at 20 nodes and 9 lattices, 729 → 9 at 81 nodes and 4).
+  Bundle: on-demand row 51,744 → 51,756 B (+12 B, the Quality kit; limit 51,800 B).
+- **Display view: rolling shutter with defocus, less in-focus work and a cheaper block lookup (#711, owner decision 2026-11-21:
+  byte-identical fixes only).** The row blocks of the regrouped lens signal (#651) each computed their in-focus rectangle widened by
+  the disc radius on every side; the 2D columns two neighbouring blocks of one band share are read at the same instants, so a
+  block now takes them from its left neighbour (an in-focus value depends only on its position and the instants). The block
+  cache no longer reorders itself on every change of block (17 % of the render in #711's profile): a block hit is a plain read,
+  and blocks leave in the order they were computed, which only decides what is computed again with the same bits. #711's request
+  (`scripts/benchmark-display-view-cases.mjs 711`, 192 × 128 region of a 1194 × 796 view, three pairs started together, CPU s):
+  rolling, out of focus 6.91–7.48 → 5.10–5.63 (0.73–0.77×; scene lookups 24,545,784 → 21,359,480); rolling, in focus 1.43–1.64
+  and 1.47–1.50 (unchanged); global shutter, out of focus unchanged (four pairs, 0.97–1.03×). Out of focus is now about 3.5× in
+  focus in these runs (4.8× before; target 3×, **not met**): what is left is the in-focus work of the rows above and below each
+  band, which are read at the next band's instants and cannot be shared without changing the fast method's output (not taken).
+  Samples equal 2.28.0 step 5's tree in all three cases. The global-shutter lens tiles take the same clipping path for every tile
+  (one rectangle copied in), which keeps the fast row within its limit: fast worker 337,888 → 337,889 B (limit 337,900 B). Tests:
+  `test/display-view-lens-regroup-blocks.test.ts` (in-focus sites per band row, values whatever the block order),
+  `test/display-view-lens-rolling-regions.test.ts` unchanged.
+- **Batch figure renders: the worker recipe, its example and shard balancing (#670, step 6); no package code, output or bundle
+  change.** docs/QUICK_START.md, "Batch figure renders in Node", documents the recipe (row bands as the unit of work, persistent
+  workers, one prepared view per request per worker, `gpu: "off"`, the flag stated per figure, reuse of finished bands, shards by
+  predicted cost) and `docs/examples/figure-batch-workers.mjs` runs it with `worker_threads` and checks that the bands join to the
+  one-piece render. `scripts/benchmark-figure-batch.mjs` records each band's `estimateDisplayViewRender` counts with `whole`
+  (outside the timed render) and gains `balance`, which fits the #670 plan's predictor (sites·taps·nodes·midpoints, site reads, a
+  constant; then the pilot's detailed pixels) to measured bands and deals shards from it. Measured with `fast: false` on 74 bands
+  of six figures (one arm64 machine, load average 37–172): the fit is within ±25 % for 22 % of the bands (19 % with the detail
+  term; the plan's test asked for 90 %), and six shards dealt by the fitted cost reach 1.14–1.15× the mean (target 1.15×) against
+  1.22× dealt by rows; the recipe therefore uses the estimate as an ordering with a dynamic queue. Whole figures on this tree with
+  `fast: false` (6 workers, same session): `frame-768` 121.1 CPU s (256.7 on 2.27.0 in the step 2 record, win 1 of step 5),
+  `tele-200` 245.6, `wide-24` 66.7, `sensor-phone` 70.4, `dof-near-s4` 126.1, `noise-iso-frame` 101.3.
+  - *Measured and not built.* The exact small-pixel diffraction requests of #710 now take 2.7 CPU s (capture; 18.0 in the step 2
+    profile of 2.27.0, #731) and 13.0 s (display view; 19.5, win 1); the 2.26.0 call site of `MaterialSums` is no longer on either path. What is
+    left of the view is the per-tap spectral sum (`preintegratedSite`, 84 % of the render); four nodes at a time is built (next
+    item, owner decision 2026-11-21). Candidate 6 (keeping the pre-integrated tiles per prepared view) is bounded by the
+    tile fill's share of a full-quality frame (about 7 %) on the second file only and needs fast-row bytes in
+    `expected-signal.ts`; not built. Candidate 7 (the catalogue lens's per-site PSF resolve with `fast: false`, about 40 s of the
+    `catalogue-768` part): reading the bilinear corners in line gave 1.00×, skipping the zone moments the exact path does not read
+    1.00×, and a centroid cache keyed by kernel object 0.92× but with different samples (the key was not safe in that quick form),
+    so nothing byte-identical worth its bytes was found.
+- **Full-quality diffraction views: the pre-integrated per-tap sum adds four spectral nodes at a time (#670, owner decision
+  2026-11-21).** `preintegratedSite` (expected-signal.ts) accumulated each tap into all nodes one after another; it now keeps four
+  nodes in their own accumulators over a row of taps, with the remainder one at a time. Each node's additions are the same and in
+  the same order, so every bit is the same: `test/display-view-preintegrated-nodes.test.ts` locks the samples and the float64
+  expected values of #710's 1.4 µm view (20 and 81 spectral nodes), recorded before the change on x64 and arm64; the figure-batch
+  locks equal 2.28.0 step 5's tree on both architectures, and the display-view hash locks pass. Paired runs: #710's view 14.37 /
+  13.85 / 16.49 → 11.16 / 10.58 / 11.87 CPU s (0.72–0.78×); figure parts with `fast: false`: `bokeh-s1` 0.81×, `frame-768`,
+  `tele-200`, `wide-24` 0.91–0.92×, `noise-iso-frame`, `sensor-aps-c` 0.94×, `sensor-phone` 0.90× (second run), `frame-1536` 0.98×,
+  `dof-near-s4` 1.01–1.02× (no pre-integrated sites); the default flag likewise (`bokeh-s1` 0.81×). Bundle: fast row 337,889 →
+  338,009 B (+120 B); under the owner's release-wide rule the fast limit becomes that rounded up to the next 100 B (338,100 B).
+
+### New API: `simulateFalseColor` (2.28.0 step 6b, #739)
+
+- **`simulateFalseColor(options, measure?)` measures the false color a demosaic produces (owner decisions 2026-11-21).** It takes the
+  request `simulateCapture` takes and compares, per output pixel in CIELAB a\*b\* (D65 white, `portableCbrt`), the capture's
+  noise-free mosaic demosaiced with `output.demosaic` (bilinear, or AHD's candidates and its choice on that mosaic) against a
+  full-color sensor reading of the same capture (each site's expected electrons with all three channel responses, through the same
+  optics, filter, pixel aperture and exposure), both developed by the display view's noise-free chain. The result
+  (`FalseColorResult`, `kind: "false-color"`) reports the mean, RMS, median, 95th and 99th percentiles, maximum and its position,
+  `fractionAbove` the thresholds (default [1, 2, 5], reporting levels with no claim about visibility), the mean ΔE\*ab and each
+  image's mean chroma; `measure.map` adds the `Float32Array` values and a gray RGBA image (no PNG), `measure.images` the two developed
+  images, `measure.region` a rectangle equal bit for bit to the same pixels of the whole frame. Expected values only, always full
+  quality on the CPU; it refuses `fast: true`, the luminance tone curves, highlight reconstruction, `desaturate-to-luminance`,
+  `output.lensCorrections`, `output.sharpening`, `output.diffractionCorrection`, `output.region`, JPEG, PNG and DNG output,
+  `whiteBalance: "auto"`, `lens.pupilSampling`, a caller `lens.psf`, `lens.defocus.catsEye`, `sensor.fixedPatternNoise` and layered
+  chart scenes. Each site's own-channel plane equals the display view's expected signal bit for bit (chart and function scenes,
+  the filter and box aperture, diffraction, a catalogue lens), and a material scene and its reflectance function give equal
+  values. Measured (64 × 64, mean a\*b\* difference, bilinear / AHD): uniform field 0 / 0; Siemens star 42.63 / 29.59; zone plate
+  31.89 / 25.08; a 0.45 cycles/pixel grating 49.17 / 18.29, 10.30 / 2.91 with the four-spot filter and 10.46 / 0.63 with
+  diffraction at f/16. A 768 × 512 zone plate with diffraction at f/8 takes 1.9 s (bilinear) and 2.4 s (AHD) of CPU against
+  0.8–1.0 s for its `fast: false` capture. Existing requests are unchanged: no existing module changes except the root export line;
+  no hash lock moves. docs/QUICK_START.md, "False color (2.28)"; docs/USAGE.md; docs/PROCESSING.md. Tests:
+  `test/simulate-false-color.test.ts`.
+  - *Bundle.* The body (`src/facade/false-color.ts`) is its own on-demand chunk holding only that module: a new row, "false color",
+    measured at 5,023 B gzip with rolldown 1.2.14, limit 5,100 B (its measurement rounded up to the next 100 B). The capture
+    worker does not import the function, so its rows are unchanged (fast 337,889 B, on demand 51,756 B, export 10,396 B, lens
+    10,200 B); a bundle that imports it adds 348 B to its first load (the stub). The plan's prototype measured 3,581 B and
+    estimated 3.8 to 4.4 kB for the built function; the difference is the band loop, the histogram, the images, the region and
+    the validation and refusal texts.
+
 ### Benchmarks
 
 - **The batch-figure benchmark and its hash locks (#670, 2.28.0 step 2); no package, API, output or bundle change.**

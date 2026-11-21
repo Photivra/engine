@@ -8663,3 +8663,18 @@ const freeze = calculateFreezeShutterSpeed({ subjectSpeedMps: 1, subjectDistance
   blurLimit: { fractionOfFrame: 1 / 1500, sensor: { widthMm: 36, heightMm: 24 } }, shutterDialSeconds: GENERIC_THIRD_STOP_SHUTTER_SECONDS }).value;
 console.log(freeze.shutterSeconds.toFixed(5), freeze.dialShutterSeconds); // 0.00286, 0.0025 (1/400 s)
 ```
+
+## False color of a demosaic
+
+`simulateFalseColor(options, measure?)` (2.28, #739) takes a `simulateCapture` request and returns the demosaic's color error per
+output pixel against a full-color sensor reading of the same capture (both noise-free, CIELAB a\*b\*), with summary statistics,
+an optional map and the two developed images.
+
+```js
+import { simulateFalseColor } from "@photivra/engine";
+
+const result = await simulateFalseColor({ scene: { preset: "zone-plate" }, output: { width: 64, height: 64, demosaic: "ahd" } }, { thresholds: [1, 2, 5] });
+console.log(result.chromaDifference.mean, result.chromaDifference.fractionAbove);
+```
+
+See [False color (2.28)](QUICK_START.md#false-color-228) for the definition, the measured table, the limits and the refused options.

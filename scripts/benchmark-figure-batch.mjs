@@ -15,6 +15,7 @@
  *   node scripts/benchmark-figure-batch.mjs whole [ids]                    # whole figures: every band of every file, JOBS workers
  *   node scripts/benchmark-figure-batch.mjs check [ids]                    # determinism checks (below); exits 1 when one fails
  *   node scripts/benchmark-figure-batch.mjs locks [ids]                    # the hash-lock digests of this build, as JSON
+ *   node scripts/benchmark-figure-batch.mjs balance [ids]                  # #660: fit the band cost predictor, deal shards (below)
  *
  * Per case and flag: CPU s of prepare and of render, wall s, peak RSS (`process.resourceUsage().maxRSS`), the render's own counts
  * (`sampleCount`, `siteEvaluations`, `sceneLookups`; `providerEvaluationCount` for a capture) so a time change can be told from a
@@ -25,6 +26,11 @@
  * Whole figures use persistent workers (the recipe of the #670 plan): JOBS processes started once per figure and flag, fed bands
  * from a queue in file order, each keeping one prepared view per request. Bands are BAND_ROWS display rows.
  *
+ * Shard balancing (`balance`, #670 with #660): each band of `whole` also records its `estimateDisplayViewRender` counts (outside the
+ * timed render) as a "band" row with OUT; `balance` fits cost ≈ a·sites·taps·nodes·midpoints + b·site reads + c to the measured bands,
+ * adds the pilot's detailed-pixel count when fewer than 90 % of bands fit within ±25 %, and deals SHARDS shards dearest first by the
+ * fitted cost (FROM: read the bands from an earlier OUT record instead of running `whole`).
+ *
  * Determinism checks (`check`): (a) the part joined from bands of three heights (CHECK_HEIGHTS, default 4,8,16 rows) equals the
  * part rendered in one piece; (b) a second render from a new prepared view gives the same bytes; (c) with EXPECT (a JSONL record
  * written by `parts` with OUT), each hash equals the recorded one of the same engine version and architecture; (d) the Node line
@@ -34,7 +40,7 @@
  * "exact,default"; "exact" is `fast: false`), REPEATS (runs per case and flag, the fastest is reported; default 1), JOBS (processes
  * at a time; default 3, whole figures 6), BAND_ROWS (default 128), TIMEOUT (seconds per process, default 1800), PROFILE (a
  * directory: each part also writes a `node --cpu-prof` profile there), OUT (append one JSON line per result to this file),
- * EXPECT (see check (c)).
+ * EXPECT (see check (c)), SHARDS (shards `balance` forms; default 6), FROM (the OUT record `balance` reads its bands from).
  *
  * Hash locks for the other architecture: `node scripts/benchmark-figure-batch.mjs locks` prints the digests of this build on
  * this machine's architecture in the form `test/figure-batch-hash-locks.test.mjs` records (see that file).
@@ -45,7 +51,7 @@ import { Buffer } from "node:buffer";
 import { createHash } from "node:crypto";
 import { fork, spawn, spawnSync } from "node:child_process";
 import { appendFileSync, existsSync, readFileSync, statSync } from "node:fs";
-import { loadavg } from "node:os";
+import { loadavg, tmpdir } from "node:os";
 import { performance } from "node:perf_hooks";
 import { clearTimeout, setTimeout } from "node:timers";
 import { dirname, join, resolve } from "node:path";
@@ -183,10 +189,15 @@ async function worker() {
       views.clear();
       const t = cpuSeconds(); views.set(key, await engine.prepareDisplayView(await figureRequest(engine, c, task.flag), { gpu: "off" })); prepareCpu = cpuSeconds() - t;
     }
-    const t = cpuSeconds(), file = task.file;
-    const result = await views.get(key).render({ ...file, region: { x: 0, y: task.y, width: file.width, height: task.rows } });
+    const file = task.file, view = { ...file, region: { x: 0, y: task.y, width: file.width, height: task.rows } };
+    // #660: the band's estimate (synchronous, renders nothing), outside the timed render; builds before 2.28.0 have none.
+    const e = engine.estimateDisplayViewRender?.(views.get(key), view);
+    const estimate = e && { nativeSites: e.nativeSites, tapsPerSite: e.signal.tapsPerSite, spectralNodes: e.signal.spectralNodes, temporalMidpoints: e.signal.temporalMidpoints,
+      queryOffsets: e.signal.queryOffsets, method: e.signal.method, siteEvaluationsMaximum: e.siteEvaluations.maximum, sampleCountMaximum: e.sampleCount.maximum,
+      detailPixelCount: e.detailPixelCount, displayPixels: e.displayPixels, chain: e.chainPointsPerAxis };
+    const t = cpuSeconds(), result = await views.get(key).render(view);
     const s = result.image.samples;
-    process.send({ seq: task.seq, prepareCpu, renderCpu: cpuSeconds() - t, work: workOf(result), bytes: Buffer.from(s.buffer, s.byteOffset, s.byteLength).toString("base64") });
+    process.send({ seq: task.seq, prepareCpu, renderCpu: cpuSeconds() - t, work: workOf(result), estimate, bytes: Buffer.from(s.buffer, s.byteOffset, s.byteLength).toString("base64") });
   });
   process.send({ ready: true });
 }
@@ -217,6 +228,8 @@ async function whole(names) {
       const mine = tasks.filter((t) => t.f === f), hash = createHash("sha256");
       for (const t of mine) hash.update(Buffer.from(t.bytes, "base64"));
       const band = mine.map((t) => t.renderCpu), fileCpu = mine.reduce((s, t) => s + t.prepareCpu + t.renderCpu, 0), sha256 = hash.digest("hex");
+      for (const t of mine) record({ tier: "band", id: c.id, flag, file: `${file.width}x${file.height}`, y: t.y, rows: t.rows, renderCpu: +t.renderCpu.toFixed(3), work: t.work, estimate: t.estimate,
+        engine: version, arch: process.arch, commit });
       const row = { tier: "whole", id: c.id, flag, file: `${file.width}x${file.height}`, samplesPerAxis: file.samplesPerAxis, bands: mine.length, bandRows, cpu: +fileCpu.toFixed(2),
         cheapestBand: +Math.min(...band).toFixed(2), dearestBand: +Math.max(...band).toFixed(2), sha256, engine: version, node: process.version, arch: process.arch, commit };
       record(row);
@@ -230,6 +243,65 @@ async function whole(names) {
 }
 
 // ---------------------------------------------------------------------------------------------------------------------------
+// #670 / #660: shard balancing from the estimate's counts.
+
+/** Least squares β of y ≈ X·β (normal equations, Gaussian elimination with partial pivoting; a handful of columns). */
+function leastSquares(X, y) {
+  const k = X[0].length, A = Array.from({ length: k }, () => new Array(k + 1).fill(0));
+  for (let r = 0; r < X.length; r++) for (let i = 0; i < k; i++) { for (let j = 0; j < k; j++) A[i][j] += X[r][i] * X[r][j]; A[i][k] += X[r][i] * y[r]; }
+  for (let c = 0; c < k; c++) {
+    let p = c; for (let r = c + 1; r < k; r++) if (Math.abs(A[r][c]) > Math.abs(A[p][c])) p = r;
+    [A[c], A[p]] = [A[p], A[c]];
+    if (A[c][c] === 0) continue;
+    for (let r = 0; r < k; r++) if (r !== c) { const f = A[r][c] / A[c][c]; for (let j = c; j <= k; j++) A[r][j] -= f * A[c][j]; }
+  }
+  return A.map((row, i) => (row[i] === 0 ? 0 : row[k] / row[i]));
+}
+/** The plan's predictor terms of one band: [site work, site reads, 1] and, with `detail`, the pilot's detailed display pixels. */
+function features(e, detail) {
+  const siteWork = e.nativeSites * e.tapsPerSite * e.spectralNodes * e.temporalMidpoints;
+  return detail ? [siteWork, e.siteEvaluationsMaximum, e.detailPixelCount, 1] : [siteWork, e.siteEvaluationsMaximum, 1];
+}
+/** Bands dealt dearest first (by `key`) to the shard with the smallest total of `key`; returns each shard's measured CPU. */
+function deal(bands, shards, key) {
+  const totals = new Array(shards).fill(0), measured = new Array(shards).fill(0);
+  for (const b of [...bands].sort((p, q) => key(q) - key(p))) { let s = 0; for (let i = 1; i < shards; i++) if (totals[i] < totals[s]) s = i; totals[s] += key(b); measured[s] += b.renderCpu; }
+  return measured;
+}
+
+/**
+ * `balance [ids]`: fits the plan's cost predictor to measured bands and forms shards from it. Bands come from FROM (a JSONL record of
+ * `whole` with OUT; its "band" rows carry each band's render CPU and estimate) or, without FROM, from a `whole` run of the cases. Per
+ * flag: the fit (cost ≈ a·sites·taps·nodes·midpoints + b·site reads + c), the share of bands whose fitted cost is within ±25 % of
+ * their measured CPU (the plan's test: 90 % or more, else the detailed-pixel term is added and the fit repeated), and SHARDS shards
+ * (default 6) dealt dearest first by the fitted cost against dealt by display rows: the dearest shard's CPU ÷ the mean (target ≤ 1.15).
+ * Coefficients are this machine's, informational, not constants.
+ */
+async function balance(names) {
+  let rows;
+  if (process.env.FROM) rows = readFileSync(process.env.FROM, "utf8").trim().split("\n").map((l) => JSON.parse(l));
+  else {
+    const out = process.env.OUT ?? join(tmpdir(), `figure-batch-balance-${process.pid}.jsonl`);
+    process.env.OUT = out; await whole(names); rows = readFileSync(out, "utf8").trim().split("\n").map((l) => JSON.parse(l));
+  }
+  const wanted = names.length && !names.includes("all") ? new Set(names) : undefined, shards = Number(process.env.SHARDS ?? 6);
+  const bands = rows.filter((r) => r.tier === "band" && r.estimate && (!wanted || wanted.has(r.id)));
+  if (!bands.length) throw new Error("balance: no band rows with an estimate (run `whole` with OUT on a build that has estimateDisplayViewRender).");
+  console.log("\n| Flag | Bands | Predictor | Within ±25 % | Dearest shard ÷ mean, by fitted cost | By display rows | Coefficients |\n| --- | --- | --- | --- | --- | --- | --- |");
+  for (const flag of [...new Set(bands.map((b) => b.flag))]) {
+    const mine = bands.filter((b) => b.flag === flag), y = mine.map((b) => b.renderCpu);
+    const mean = (m) => m.reduce((a, b) => a + b, 0) / m.length;
+    for (const detail of [false, true]) {
+      const X = mine.map((b) => features(b.estimate, detail)), beta = leastSquares(X, y), fitted = X.map((x) => x.reduce((s, v, i) => s + v * beta[i], 0));
+      const within = fitted.filter((f, i) => Math.abs(f - y[i]) <= 0.25 * y[i]).length / mine.length;
+      mine.forEach((b, i) => { b.fitted = fitted[i]; });
+      const byFit = deal(mine, shards, (b) => b.fitted), byRows = deal(mine, shards, (b) => b.rows * Number(b.file.split("x")[0]));
+      console.log(`| ${flagLabel(flag)} | ${mine.length} | ${detail ? "sites·taps·nodes·midpoints, site reads, detailed pixels, 1" : "sites·taps·nodes·midpoints, site reads, 1"} | ` +
+        `${(100 * within).toFixed(0)} % | ${(Math.max(...byFit) / mean(byFit)).toFixed(2)} | ${(Math.max(...byRows) / mean(byRows)).toFixed(2)} | ${beta.map((v) => v.toExponential(3)).join(", ")} |`);
+      if (within >= 0.9) break;
+    }
+  }
+}
 
 async function check(names) {
   const index = distIndex(process.env.DIST ?? DEFAULT_DIST), cases = select(names), flags = flagsOf();
@@ -274,10 +346,11 @@ if (argv[0] === "--part") {
 } else if (argv[0] === "--worker") await worker();
 else if (argv[0] === "--list" || argv.length === 0) {
   for (const c of FIGURE_CASES) console.log(`${c.id.padEnd(24)} ${c.kind.padEnd(8)} ${c.added ? "(added) " : ""}${c.topic}`);
-  console.log("\nCommands: parts, pair <distA> <distB>, whole, check, locks; ids or all.");
+  console.log("\nCommands: parts, pair <distA> <distB>, whole, check, locks, balance; ids or all.");
 } else if (argv[0] === "parts") await parts(argv.slice(1));
 else if (argv[0] === "pair") await pair(argv[1], argv[2], argv.slice(3));
 else if (argv[0] === "whole") await whole(argv.slice(1));
 else if (argv[0] === "check") await check(argv.slice(1));
+else if (argv[0] === "balance") await balance(argv.slice(1));
 else if (argv[0] === "locks") await locks(argv.slice(1));
 else throw new Error(`Unknown command ${argv[0]}; --list shows the commands.`);

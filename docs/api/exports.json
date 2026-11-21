@@ -3918,6 +3918,11 @@
       "kind": "type"
     },
     {
+      "name": "FalseColorResult",
+      "source": "src/facade/false-color.ts",
+      "kind": "type"
+    },
+    {
       "name": "FiducialChartScene",
       "source": "src/facade/chart-scenes.ts",
       "kind": "type"
@@ -9673,6 +9678,11 @@
       "kind": "runtime"
     },
     {
+      "name": "SIMULATE_FALSE_COLOR_LIMITS",
+      "source": "src/facade/false-color-entry.ts",
+      "kind": "runtime"
+    },
+    {
       "name": "simulateCapture",
       "source": "src/facade/simulate-capture.ts",
       "kind": "runtime"
@@ -9925,6 +9935,16 @@
     {
       "name": "SimulateExposureBuildUpResult",
       "source": "src/facade/exposure-build-up.ts",
+      "kind": "type"
+    },
+    {
+      "name": "simulateFalseColor",
+      "source": "src/facade/false-color-entry.ts",
+      "kind": "runtime"
+    },
+    {
+      "name": "SimulateFalseColorOptions",
+      "source": "src/facade/false-color.ts",
       "kind": "type"
     },
     {

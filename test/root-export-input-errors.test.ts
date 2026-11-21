@@ -109,7 +109,9 @@ describe("root exports reject malformed input with domain errors (API review #4)
     // 2.25 (#620): serializeRewrittenDng's own allowlist ("serializeRewrittenDng: unknown input field ...").
     "serializeRewrittenDng",
     // 2.25 (#635): a whole sensor profile record, checked by parseSensorProfile as a capture checks it ("Unknown profile field: ...").
-    "resolveSensorProfileIsoSettings"
+    "resolveSensorProfileIsoSettings",
+    // #739 (2.28.0): the capture request, checked as simulateCapture checks it; its second argument has its own allowlist ("measure").
+    "simulateFalseColor"
   ]);
   const NO_INPUT_OBJECT = new Set([
     // Positional scalars or bound objects, a string id, raw bytes, result factories or no argument at all.

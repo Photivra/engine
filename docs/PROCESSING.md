@@ -88,6 +88,10 @@ The paper's optional iterative median artifact-reduction step is not applied. `d
 
 On the colour step, the zipper metric (summed alternation along the edge, where the truth is 0) is 0 for AHD and 1.5 for bilinear. AHD removes zippering by interpolating along edges, but its colour-difference fill still crosses strongly chromatic edges.
 
+**Measuring false color (2.28, #739).** `simulateFalseColor` compares a capture's demosaiced noise-free mosaic with a
+full-color sensor reading of the same capture, per output pixel in CIELAB a\*b\*, the evaluation protocol of the demosaicing
+literature (Gunturk et al., 2005; Losson, Macaire & Yang, 2010); see docs/QUICK_START.md, "False color (2.28)".
+
 ## HDR
 
 ### Linear RAW bracket merge
@@ -192,6 +196,7 @@ All filters use one global parameter set. Linear RAW noise is signal-dependent, 
 - EMVA Standard 1288: linear camera model and quantization noise variance 1/12 DN².
 - Granados, M., Ajdin, B., Wand, M., Theobalt, C., Seidel, H.-P. & Lensch, H. P. A. (2010). Optimal HDR reconstruction with linear digital cameras. *Proc. CVPR 2010*.
 - Gunturk, B. K., Glotzbach, J., Altunbasak, Y., Schafer, R. W. & Mersereau, R. M. (2005). Demosaicking: color filter array interpolation. *IEEE Signal Processing Magazine* 22(1).
+- Losson, O., Macaire, L. & Yang, Y. (2010). Comparison of color demosaicing methods. *Advances in Imaging and Electron Physics* 162, 173–265. doi:10.1016/S1076-5670(10)62005-8; open copy HAL hal-00683233.
 - Hasinoff, S. W., Durand, F. & Freeman, W. T. (2010). Noise-optimal capture for high dynamic range photography. *Proc. CVPR 2010*.
 - Hirakawa, K. & Parks, T. W. (2005). Adaptive homogeneity-directed demosaicing algorithm. *IEEE Trans. Image Processing* 14(3), 360–369.
 - ITU-R BT.2020-2 and BT.2087 (free).

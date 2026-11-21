@@ -549,16 +549,13 @@ function createLensSignal(lens: DisplayViewLensSetup, input: DisplayViewExpected
   function inFocusLensTile(x0: number, y0: number, TS: number): Float64Array[] {
     const out = [0, 1, 2].map(() => new Float64Array(TS * TS));
     // A fixed tile reaches past the raster: positions more than the disc's radius beyond it feed no site, so they stay 0 and are never
-    // mapped (the lens profiles are checked only up to the view's reach).
-    const D = input.largeKernel!.radius;
-    if (x0 + TS <= -D || x0 >= W + D || y0 + TS <= -D || y0 >= H + D) return out;
-    if (x0 < -D || x0 + TS > W + D || y0 < -D || y0 + TS > H + D) {
-      const xa = Math.max(x0, -D), xb = Math.min(x0 + TS, W + D), ya = Math.max(y0, -D), yb = Math.min(y0 + TS, H + D);
+    // mapped (the lens profiles are checked only up to the view's reach). The rest is computed as one rectangle and copied in.
+    const D = input.largeKernel!.radius, xa = Math.max(x0, -D), xb = Math.min(x0 + TS, W + D), ya = Math.max(y0, -D), yb = Math.min(y0 + TS, H + D);
+    if (xa < xb && ya < yb) {
       const part = inFocusLensRect(xa, ya, xb - xa, yb - ya, lens.times, 7);
       for (let c = 0; c < 3; c++) for (let y = ya; y < yb; y++) out[c]!.set(part[c]!.subarray((y - ya) * (xb - xa), (y - ya + 1) * (xb - xa)), (y - y0) * TS + xa - x0);
-      return out;
     }
-    return inFocusLensRect(x0, y0, TS, TS, lens.times, 7);
+    return out;
   }
   /**
    * E_c of the native site positions [x0, x0 + w) × [y0, y0 + h), row-major, with the scene read at `instants` (their mean), for the

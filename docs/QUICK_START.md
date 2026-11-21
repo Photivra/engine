@@ -2313,6 +2313,79 @@ const [capture, reference] = await Promise.all([simulateCapture(request), simula
 console.log(reference.kind, reference.label, capture.image.samples.length === reference.image.samples.length);
 ```
 
+## False color (2.28)
+
+`simulateFalseColor(options, measure?)` (#739) measures the false color a demosaic produces for a capture request: color
+moiré and false-color fringes on fine detail. It takes the request `simulateCapture` takes and compares two noise-free images
+of it:
+
+- **the reference**: every site's expected electrons read with each of the three channel responses (a full-color sensor),
+  through the capture's own optics, anti-aliasing filter, pixel aperture, exposure and site lattice, developed without a
+  demosaic;
+- **the capture side**: the same values with each site keeping only its own channel (the noise-free color filter mosaic),
+  demosaiced with the request's `output.demosaic` (the bilinear kernels, or AHD's two candidates and its homogeneity choice on
+  that mosaic, a tie averaging them) and developed by the same chain.
+
+Both are developed as the display view develops a noise-free value: each site normalized and clipped at white, the
+white-balance gains, the highlight clip, the camera → linear sRGB matrix, the tone curve and the clip to [0, 1]. Per output
+pixel the measure is the chroma and hue part of the CIE 1976 color difference in CIELAB (linear sRGB → XYZ, D65 white):
+
+d = √((a\*₁ − a\*₂)² + (b\*₁ − b\*₂)²)
+
+since ΔE\*ab² = ΔL\*² + d². Lightness errors (resolution loss, zipper) are not false color; `colorDifference.meanDeltaE76`
+reports the full ΔE\*ab for context. This is the usual way demosaicing methods are compared: a full-color image is sampled
+through the color filter array, demosaiced and compared with the original (Gunturk et al. 2005; Losson, Macaire & Yang 2010).
+A reference without the camera's optics (`simulateIdealReference`) would mix lens blur, the anti-aliasing filter and noise into
+the number; this one is 0 wherever the demosaic reconstructs exactly.
+
+```js
+import { simulateFalseColor } from "@photivra/engine";
+
+// A neutral grating at 0.45 cycles per output pixel across a 64-pixel frame.
+const grating = { kind: "reflectance-function", sceneId: "grating-0.45",
+  evaluate: (p) => 0.4 + 0.3 * Math.sin(2 * Math.PI * 0.45 * 32 * p.u) };
+for (const demosaic of ["bilinear", "ahd"]) {
+  const result = await simulateFalseColor({ scene: grating, output: { width: 64, height: 64, demosaic } }, { map: true });
+  console.log(demosaic, result.chromaDifference.mean.toFixed(1), result.chromaDifference.fractionAbove, result.map.rgba.length);
+}
+```
+
+The result (`kind: "false-color"`) has `chromaDifference` (pixel count, mean, root mean square, median, 95th and 99th
+percentiles from a histogram of 0.01, the maximum and where it is, and `fractionAbove` each threshold), `colorDifference`,
+`meanChroma` of both images (a neutral scene's reference stays near 0), and with `measure.map` the per-pixel `values`
+(`Float32Array`) and a gray RGBA image of min(1, d / `maximum`) (default 20). `measure.images: true` also returns both developed
+images as sRGB 8-bit RGBA. `measure.thresholds` (default [1, 2, 5], up to 8, in (0, 200]) are reporting levels, with no claim
+about visibility. `measure.region` measures a rectangle of output pixels; its values equal the same pixels of the whole frame
+bit for bit, and the statistics other than the percentiles add over regions (`pixelCount` is reported for that).
+
+Measured (64 × 64, defaults unless noted; mean / 95th percentile / maximum of d; the gratings are the example's along u):
+
+| Scene | Bilinear | AHD |
+| --- | --- | --- |
+| Uniform field | 0 / 0 / 0 | 0 / 0 / 0 |
+| Grating, 0.05 cycles/pixel | 2.03 / 5.2 / 9.4 | 0.59 / 2.5 / 3.2 |
+| Grating, 0.25 cycles/pixel | 36.62 / 72.0 / 72.0 | 16.91 / 50.5 / 50.5 |
+| Grating, 0.45 cycles/pixel | 49.17 / 85.5 / 86.4 | 18.29 / 53.2 / 53.7 |
+| The same, four-spot anti-aliasing filter | 10.30 / 25.0 / 25.1 | 2.91 / 8.2 / 9.3 |
+| The same, diffraction at f/16 | 10.46 / 21.0 / 21.1 | 0.63 / 1.7 / 1.7 |
+| Siemens star | 42.63 / 88.8 / 119.7 | 29.59 / 83.0 / 114.4 |
+| Zone plate | 31.89 / 90.4 / 114.8 | 25.08 / 77.9 / 104.4 |
+| Siemens star, `pv-50-1.8` at f/2.8 | 24.40 / 63.5 / 106.4 | 10.21 / 38.4 / 103.1 |
+
+It costs three expected-signal passes and the demosaic: a 768 × 512 zone plate with diffraction at f/8 took 1.9 s (bilinear)
+and 2.4 s (AHD) of CPU against 0.8–1.0 s for the `fast: false` capture of the same request (one arm64 machine under load).
+
+**Limits.** Expected values only: no photon, dark or read noise and no ADC rounding (chroma noise is a separate quantity). Per
+output pixel, not weighted by viewing distance or display size (no S-CIELAB spatial filtering). With AHD the direction is the
+one chosen on the noise-free mosaic. Always full quality (`fast: false`, on the CPU; `fast: true` is refused). **Refused**, with
+an `InvalidConfigurationError` naming the function, because they change color after the demosaic or have no expected-signal
+path: the luminance tone curves, `highlightMode` `"reconstruct"` and `"reconstruct-neighbors"`, `gamutHandling:
+"desaturate-to-luminance"`, `output.lensCorrections`, `output.sharpening`, `output.diffractionCorrection`, `output.region` (use
+`measure.region`), `output.format` `"jpeg"`, `"png"` and `"dng"`, `whiteBalance: "auto"`, `lens.pupilSampling`, a caller
+`lens.psf`, `lens.defocus.catsEye`, `sensor.fixedPatternNoise` and layered chart scenes; the display view's own refusals apply
+too. The function's code loads on demand (docs/DISPLAY_VIEW.md, "Bundle size"). The figures quoted elsewhere in this guide as
+"mean false color |R − G| + |B − G|" are dated measurements of a different quantity.
+
 ## Display view
 
 `simulateDisplayView(options, view)` returns what the real full-resolution capture of `options` would look like
@@ -2447,6 +2520,60 @@ site kernel in the expected signal (#492; see [Optics](#optics)). `onProgress` i
 The result is labelled `kind: "display-view"` with a `label` for the user interface; it has no RAW, plan or file, and
 the `view.*` assumptions state the definition, the estimator, the noise model, the demosaic treatment and which capture
 options were ignored. The whole-frame views of [Whole-frame views](#whole-frame-views-25) are unchanged.
+
+### Batch figure renders in Node (2.28.0)
+
+A set of explanatory figures (lens, sensor, depth-of-field, noise and motion comparisons) is many display-view files rendered
+in one batch. The recipe below is measured on the batch-figure benchmark (`scripts/benchmark-figure-batch.mjs`, #670); a
+runnable version with worker threads is
+[`docs/examples/figure-batch-workers.mjs`](examples/figure-batch-workers.mjs).
+The engine adds no worker code: the workers are the caller's.
+
+1. **Row bands are the unit of work.** Cut each file into bands with `view.region` (`{ x: 0, y, width, height: rows }`). Bands
+   join to the same bytes as the file rendered in one piece. Use bands of at least 128 display rows: each band re-reads its
+   edge rows and starts its own windows.
+2. **Persistent workers.** Start W = min(performance cores, ⌊free memory ÷ 1 GiB⌋) processes or `worker_threads` once and feed
+   them bands from a queue. A process per band cost 10–40 % more CPU than one piece in the #670 measurements (module load,
+   preparing and compilation warm-up per process). Peak memory per worker in the benchmark: about 170–500 MB, up to about
+   900 MB for a catalogue lens with `fast: false`.
+3. **One prepared view per request per worker.** Call `prepareDisplayView` once and render every band of every file of that
+   request from it; keep one at a time (it holds the setup of the whole request) and queue a request's bands together so it is
+   not rebuilt. Preparing costs about 0.03–0.16 s, so nothing needs to be shared between workers.
+4. **`gpu: "off"`**, so every machine renders the same bytes.
+5. **Choose the flag per figure and say which.** `fast: false` is the full-quality path; the display view's default applies
+   the flagged fast methods within their documented bounds.
+6. **Reuse finished bands.** A band's bytes are stable for the engine version, the architecture, the Node.js release line, the
+   request, the view and the region, so key stored bands by those and render only new or changed ones.
+7. **Balance shards by predicted cost, not by count.** `estimateDisplayViewRender(prepared, view)` (#660) counts a band's work
+   without rendering it. The bands of one file differ several-fold in cost (the middle band of the composite chart costs about
+   2.5 times its cheapest), so deal bands dearest first to the shard with the smallest predicted total.
+
+```js
+import { estimateDisplayViewRender, prepareDisplayView } from "@photivra/engine";
+
+const request = { scene: { preset: "siemens-star" }, subjectDistanceM: 2, fast: false,
+  lens: { prime: 50, fNumber: 8, diffraction: "circular-aperture" }, output: { width: 1200, height: 800, format: "srgb-8" } };
+const file = { width: 192, height: 128, samplesPerAxis: 4 }, rows = 32;
+const prepared = await prepareDisplayView(request, { gpu: "off" });
+const bands = [];
+for (let y = 0; y < file.height; y += rows) {
+  const view = { ...file, region: { x: 0, y, width: file.width, height: Math.min(rows, file.height - y) } };
+  const e = estimateDisplayViewRender(prepared, view);
+  bands.push({ view, cost: e.nativeSites * e.signal.tapsPerSite * e.signal.spectralNodes * e.signal.temporalMidpoints });
+}
+bands.sort((a, b) => b.cost - a.cost); // deal these to the workers' queues, dearest first
+const band = await prepared.render(bands[0].view);
+console.log(band.image.width, band.image.height);
+```
+
+The cost term above is the predictor's main term. `node scripts/benchmark-figure-batch.mjs balance` fits the predictor
+(that term, the band's site reads and a constant) to measured bands on your machine, reports how many it predicts within
+±25 %, and deals shards from it. Measured on 2.28.0 with `fast: false` (74 bands of 128 rows from six figures of the benchmark,
+one arm64 machine under heavy load): the fitted cost is within ±25 % of the measured CPU for only 22 % of the bands (19 % with
+the pilot's detailed-pixel count added), because most of a band's cost follows its content (how many sites read more than
+one material), which the counts do not see; six shards dealt dearest first by the fitted cost still came out at 1.14–1.15× the
+mean shard, against 1.22× when dealt by display rows. Treat the estimate as an ordering, not a time, and keep the queue
+dynamic (persistent workers pulling the next band) so the content term evens out.
 
 ## Not available
 
