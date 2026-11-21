@@ -165,19 +165,23 @@ export function calculateIrradianceConvolutionPlan(input: IrradianceConvolutionI
 export function convolveIrradianceRows(plan: IrradianceConvolutionPlan, samples: Float32Array | Float64Array,
   kernels: Float32Array | Float64Array, y0: number, y1: number, output: Float64Array): void {
   const { width, height, kernelRadius: r, kernelSize, tapCount, patchWidth, patchHeight, patchColumns, patchRows } = plan;
+  // 2.28.0 (#727): the tap ranges are clipped to the grid once per row and pixel instead of testing every tap, and each source
+  // column's kernel offset (its patch column × tapCount) is read from a table built once per call (an index cache: no signal is
+  // tabulated). The taps, their products and their order (v outer, u inner, both ascending) are unchanged, so every value is the same.
+  const columnKernelOffset = new Int32Array(width);
+  for (let sx = 0; sx < width; sx++) columnKernelOffset[sx] = Math.min(Math.floor(sx / patchWidth), patchColumns - 1) * tapCount;
   for (let y = y0; y < y1; y++) {
+    // Taps with 0 ≤ y − v < height and 0 ≤ x − u < width.
+    const vFirst = Math.max(-r, y - height + 1), vLast = Math.min(r, y);
     for (let x = 0; x < width; x++) {
+      const uFirst = Math.max(-r, x - width + 1), uLast = Math.min(r, x);
       let sum = 0;
-      for (let v = -r; v <= r; v++) {
+      for (let v = vFirst; v <= vLast; v++) {
         const sy = y - v;
-        if (sy < 0 || sy >= height) continue;
-        const patchRowBase = Math.min(Math.floor(sy / patchHeight), patchRows - 1) * patchColumns;
-        const kernelRow = (v + r) * kernelSize + r, sampleRow = sy * width;
-        for (let u = -r; u <= r; u++) {
-          const sx = x - u;
-          if (sx < 0 || sx >= width) continue;
-          const patch = patchRowBase + Math.min(Math.floor(sx / patchWidth), patchColumns - 1);
-          sum += samples[sampleRow + sx]! * kernels[patch * tapCount + kernelRow + u]!;
+        const patchRowOffset = Math.min(Math.floor(sy / patchHeight), patchRows - 1) * patchColumns * tapCount;
+        const kernelRow = patchRowOffset + (v + r) * kernelSize + r, sampleRow = sy * width + x;
+        for (let u = uFirst; u <= uLast; u++) {
+          sum += samples[sampleRow - u]! * kernels[columnKernelOffset[x - u]! + kernelRow + u]!;
         }
       }
       output[(y - y0) * width + x] = sum;

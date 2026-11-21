@@ -33,6 +33,12 @@
     `DOMException`. Before, these threw a raw `TypeError`, returned the hole (one resolver returned `undefined` as a kernel sample),
     or passed the parser. `calculatePsfFoundationComponents` copies only the field point's x and y into its context. Dense, complete
     inputs give the same results.
+  - *Irradiance convolution gather (#727, `optics-12`).* `convolveIrradianceRows` clips its tap ranges once per row and pixel and
+    reads each source column's kernel offset from a table built once per call (an index cache; no signal is tabulated), with the same
+    products in the same order: every value is bit-identical (`Object.is`, test/irradiance-convolution-gather.test.ts). Paired runs
+    (best of 10, alternating in one process): 1.93× (640 × 480, r = 7, 64 × 64-site patches), 2.01× (one patch), 1.97× (400 × 300,
+    r = 15) and 2.18× (256 × 256, r = 32). It is the CPU path of `calculateIrradianceConvolution`, the image-kernel accelerator and
+    the display view's CPU reference.
 - **Tooling, CI and tests only (2.28.0 step 1); no package, API, output or bundle change.**
   - *Coverage gates decide per shard (#666, with `ci-07`).* Each coverage shard uploads one part, its blob report or a marker
     naming the `coverage` proof it found; `.github/coverage-parts.mjs` merges ten blobs with the thresholds enforced, passes a
