@@ -6,6 +6,7 @@
  */
 
 import { layeredSceneSupport, setLayeredSceneSupport } from "./image-plane-support.js";
+import { loadOnDemandCode } from "./on-demand-code.js";
 
 /**
  * 2.27.0 (#652): enables `{ kind: "layered-chart" }` scenes (docs/LAYERED_SCENES.md) in this JavaScript realm by loading their
@@ -13,5 +14,5 @@ import { layeredSceneSupport, setLayeredSceneSupport } from "./image-plane-suppo
  * later calls resolve at once. A request with a layered scene before it fails with a message saying so.
  */
 export async function prepareLayeredChartScenes(): Promise<void> {
-  if (!layeredSceneSupport()) setLayeredSceneSupport(await import("./layered-scene-setup.js"));
+  if (!layeredSceneSupport()) setLayeredSceneSupport(await loadOnDemandCode("layered scene", () => import("./layered-scene-setup.js")));
 }

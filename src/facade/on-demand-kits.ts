@@ -9,6 +9,7 @@
  */
 
 import { ImageKernelExecutionError } from "../core/execution-error.js";
+import { loadOnDemandCode } from "./on-demand-code.js";
 
 /*
  * #658: positions in the Quality kit's tuple (QUALITY_KIT, src/facade/quality-kit.ts) and the opt-in kit's (OPT_IN_KIT,
@@ -61,10 +62,7 @@ function kitLoader<T>(name: string, importer: () => Promise<T>): KitLoader<T> {
     loaded: undefined,
     load(): Promise<T> {
       if (kit.loaded) return Promise.resolve(kit.loaded);
-      pending ??= importer().then((module) => (kit.loaded = module), (error: unknown) => {
-        pending = null;
-        throw new ImageKernelExecutionError("quality-code-unavailable", "the engine's " + name + " code could not be loaded: " + (error instanceof Error ? error.message : String(error)));
-      });
+      pending ??= loadOnDemandCode(name, importer).then((module) => (kit.loaded = module), (error: unknown) => { pending = null; throw error; });
       return pending;
     }
   };
