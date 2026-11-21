@@ -50,6 +50,9 @@
   - *Orphan API pages (`ci-09`).* `node scripts/generate-api-reference.mjs --check` (part of `docs:check`) fails on a `.md` or
     `.json` file in `docs/api` that it no longer generates, and a write run deletes it, so the page of a module that stops
     exporting through the root cannot stay in the package. None exists today.
+  - *A path named in a comment is not "read by a test" (`ci-10`).* `.github/ci-scope.mjs` strips comments from a reader's text
+    (strings kept whole, so a URL's `//` starts no comment) before it looks for a changed Markdown path. Of 399 Markdown files
+    outside the code directories, 5 count as read by a test, from 13; the 8 dropped were named only in comments.
 
 ### Site
 

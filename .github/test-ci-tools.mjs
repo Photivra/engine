@@ -19,6 +19,17 @@ test("a change to Markdown that no test reads is docs-only", () => {
 test("Markdown that a test reads runs the tests", () => {
   assert.match(docsOnlyReason(["docs/API_STYLE.md"], readers), /read by test\/fast-flag-convention/);
 });
+test("a path named only in a comment is not read by that test (ci-10 in #703)", () => {
+  const commented = [{ file: "test/capture-bundle.test.ts", text: 'import { readFileSync } from "node:fs";\n// The rows are listed in CHANGELOG.md.\n/* and in\n docs/IMAGE_PLANE.md */\nconst x = 1;' }];
+  assert.equal(docsOnlyReason(["CHANGELOG.md", "docs/IMAGE_PLANE.md"], commented), undefined);
+  // A string after a comment on the same line, a string holding `//` (a URL) and a template literal still count.
+  const afterComment = [{ file: "test/a.test.ts", text: '/* note */ const p = "../CHANGELOG.md";' }];
+  assert.match(docsOnlyReason(["CHANGELOG.md"], afterComment), /CHANGELOG\.md is read by test\/a\.test\.ts/);
+  const url = [{ file: "test/b.test.ts", text: 'const base = "https://example.org/"; const doc = new URL("../docs/WEBGPU.md", import.meta.url); // c' }];
+  assert.match(docsOnlyReason(["docs/WEBGPU.md"], url), /read by test\/b\.test\.ts/);
+  const template = [{ file: "test/c.test.ts", text: "const doc = `${root}//docs/USAGE.md`;" }];
+  assert.match(docsOnlyReason(["docs/USAGE.md"], template), /read by test\/c\.test\.ts/);
+});
 test("any non-Markdown file, code directory or empty diff runs the tests", () => {
   assert.match(docsOnlyReason(["docs/validation/tier-acceptance-report-v1.json"], readers), /not Markdown/);
   assert.match(docsOnlyReason(["README.md", "src/index.ts"], readers), /not Markdown/);
