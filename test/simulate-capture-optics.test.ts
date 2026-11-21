@@ -62,20 +62,19 @@ describe("simulateCapture without the 2.1 options is byte-identical to 2.0.0", (
   });
   // 2.20.0: the JPEG default step is 1; the 2.0.0 bytes are kept with the old step 2 given explicitly (its assumption list, and so its
   // metadata digest, then lacks the default-step entry).
-  // 2.28.0 (facade-06 in #730): the metadata digests (second hash) re-recorded for the corrected assumption and contract texts; bytes unchanged.
   const cases: Record<string, [SimulateCaptureOptions, string, string]> = {
     edge: [{ scene: { preset: "slanted-edge" }, output: { width: 24, height: 16 } },
-      "0cce9455f8a541eed2ebe6f652556d7ea0d10601f2a35f8529768311e8ec0acf", "ea5df25d9080f1dc899e07c16a4e08459cf1548064158ec805008b674557c167"],
+      "0cce9455f8a541eed2ebe6f652556d7ea0d10601f2a35f8529768311e8ec0acf", "091640a48006caac93cbd56114f45631ba14c9fb0670fe1f99b1c0ab7ae87784"],
     star: [{ scene: { preset: "siemens-star" }, output: { width: 20, height: 20, format: "png" }, lens: { fNumber: 4 } },
-      "775575f46b684c0eb44196270893632995c8ae7ca9400e878efcf2e29c9a7f1b", "509dc833690805211bd58a7be8fcb92e3dd829e8834255036a1402b7e5dee249"],
+      "775575f46b684c0eb44196270893632995c8ae7ca9400e878efcf2e29c9a7f1b", "5689e2574124165e5ef30a5e5e0d6c4f22899b1c805b0155777597c71090517c"],
     jpeg: [{ scene: { preset: "checkerboard" }, output: { width: 16, height: 16, format: "jpeg", whiteBalance: "auto", jpegQuantizationStep: 2 } },
-      "afeb03932b61751778c2ac285ce8245cd6feec4d0c18ffe7732f0a2d0588b70c", "6eb5e456a3ea1e18830e74bd6a02bb9e4a22547856a162023afd46d1bc2cae2f"],
+      "afeb03932b61751778c2ac285ce8245cd6feec4d0c18ffe7732f0a2d0588b70c", "0bf8d20f3b6872a05a8c8e0eab41d44f4de8c4ea873e2a94e9917062c563d095"],
     mirror: [{ scene: { preset: "grey-ramp" }, output: { width: 16, height: 12, demosaic: "bilinear", borderHandling: "mirror", format: "srgb-16" } },
-      "f8f7c5dc63ba0ad1ee0390d03ac08f3ee202bf57a560f9a834942303e3924c39", "33c184e938bb3391277d4ccf0d4fe5225916ffc4d3a65b92858b86f8a6276d18"],
+      "f8f7c5dc63ba0ad1ee0390d03ac08f3ee202bf57a560f9a834942303e3924c39", "f921aaad24c40ec5060982e2ed783e4d40d44495a94cd3b9a065dd7fe131cafa"],
     p3: [{ scene: { preset: "step-wedge" }, output: { width: 16, height: 8, format: "png", colorEncoding: "display-p3" } },
-      "ffd78b35089083915e69cccbf16476a79690ce31095c1e428d6edc8672ecca0c", "7215eebede06b02ba07db9c9c2a67e3c88fcc3bf2c55fff41eb53435375612c4"],
+      "ffd78b35089083915e69cccbf16476a79690ce31095c1e428d6edc8672ecca0c", "33c16609602743dd796abc08270090f69ddfecb20bbb9413fa85483cd5a1d98a"],
     dng: [{ scene: { preset: "point-grid" }, output: { width: 12, height: 12, format: "dng" }, exposure: { mode: "program" } },
-      "faaf9e2bf9ae86261adb153f4aea04a29476b4e38c3e3acc616d4aee3fe3a106", "21407bf1aa47aba1707676dcd04184fa53ba8748c8398f52485e6c61d7c6e1ba"]
+      "faaf9e2bf9ae86261adb153f4aea04a29476b4e38c3e3acc616d4aee3fe3a106", "28c18a4c36cb3958cdfa6afd29e4b43d6ef914cbc69ca0d229389391a1127bc4"]
   };
   const expectedOptions: Record<string, readonly string[]> = { edge: [], star: ["output.format.png"], jpeg: ["output.whiteBalance.auto", "output.format.jpeg"],
     mirror: ["output.borderHandling.mirror"], p3: ["output.colorEncoding.wide-gamut", "output.format.png"], dng: ["output.format.dng"] };

@@ -87,7 +87,7 @@ import { resolveCaptureColorModel } from "../color/capture-color.js";
 import { evaluateBt709Oetf, evaluateSrgbEncoding, resolveRgbColorSpace } from "../color/rgb-color-spaces.js";
 import type { PngColourEncoding } from "../output/png-encoder.js";
 import { parseOutputTextMetadata, type OutputTextMetadata } from "../output/text-metadata.js";
-import { LENS_PROJECTION_MODELS, parseLensProjectionModel, type LensProjectionModel } from "../camera/lens-projection.js";
+import { parseLensProjectionModel, type LensProjectionModel } from "../camera/lens-projection.js";
 import { prepareEnvironmentLensFieldMapping, type EnvironmentLensFieldMapping } from "../optics/sensor-environment-query.js";
 import type { RadialDistortionProfile } from "../optics/radial-distortion.js";
 import type { BrownConradyDistortionProfile } from "../optics/brown-conrady-distortion.js";
@@ -2020,7 +2020,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
 
   // Camera
   const cameraOption = pick<GenericEquipmentTier | GenericEquipmentTierPreset>(top, "camera", "camera", DEFAULTS.camera,
-    "Generic Photivra tier preset " + GENERIC_TIER_ASSETS.find((p) => p.tier === DEFAULTS.camera)!.presetVersion + " (synthetic educational values, not a real camera).");
+    "Generic Photivra tier preset 2.0.0 (synthetic educational values, not a real camera).");
   let preset: GenericEquipmentTierPreset;
   if (typeof cameraOption === "string") preset = GENERIC_TIER_ASSETS.find((p) => p.tier === cameraOption) ?? fail("Unknown camera tier.");
   else preset = parseCallerCameraPreset(cameraOption);
@@ -2122,9 +2122,6 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   const focalDefault = lensExposure.focalLengthMmRange.value.minimum;
   const focalLengthMm = lensRange ? lensRange.focalLengthMm :
     positive(pick(lensOptions, "focalLengthMm", "lens.focalLengthMm", focalDefault, "The preset lens's focal length (the generic primes are 50 mm)."), "lens.focalLengthMm");
-  const focalRange = lensExposure.focalLengthMmRange.value;
-  if (!lensRange && !(focalLengthMm >= focalRange.minimum && focalLengthMm <= focalRange.maximum))
-    fail("lens.focalLengthMm " + focalLengthMm + " is outside the lens's range, " + focalRange.minimum + " mm to " + focalRange.maximum + " mm.");
   const capabilities = resolveGenericEquipmentExposureCapabilities({ bodyProfile: body.exposure, lensProfile: lensExposure, selectedFocalLengthMm: focalLengthMm });
   const subjectDistanceM = positive(pick(top, "subjectDistanceM", "subjectDistanceM", DEFAULTS.subjectDistanceM, "Scene plane 5 m in front of the camera (the generic tiers' reference focus distance)."), "subjectDistanceM");
   // #569: twice the focal length itself is admitted (magnification 1, the catalogue Macro's close focus f·(1 + 1/1)).
@@ -2154,8 +2151,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   }
   // 2.0 optics hooks: only what the environment site contract accepts.
   const projection: LensProjectionModel | undefined = lensOptions.projection === undefined ? (catalogue && catalogue.projection !== "rectilinear" ? catalogue.projection : undefined) :
-    (LENS_PROJECTION_MODELS as readonly unknown[]).includes(lensOptions.projection) ? parseLensProjectionModel(lensOptions.projection) :
-      fail("lens.projection must be one of " + LENS_PROJECTION_MODELS.join(", ") + ".");
+    parseLensProjectionModel(lensOptions.projection);
   let distortion: SimulateCaptureLensDistortion | undefined;
   if (lensOptions.distortion !== undefined) {
     const d = allowKeys(lensOptions.distortion, "lens.distortion", ["kind", "profile"]);
@@ -2767,9 +2763,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   const referenceLuminance = sosReferenceLuminance(reference.aperture, reference.shutterSeconds, reference.iso);
   assume("exposure.referenceExposure", "model", { ...reference, meteredLuminanceCdPerSquareMeter: referenceLuminance },
     "Exposure anchor: f/8, 1/125 s, ISO 100 gives the CIPA DC-004 standard output sensitivity reference exposure H = 10/S = 0.1 lx·s for an average scene luminance of 10·N²/(0.65·t·S) ≈ 1230.77 cd/m² (camera equation H = 0.65·L·t/N²)" +
-    (referenceAperture === DEFAULTS.fNumber ? "" : "; the lens excludes f/8: " + (reference.shutterSeconds > sameShutter ? "the shortest shutter" : "the same N²/t") + " at f/" + referenceAperture) +
-    // facade-06 (#730): a profile whose base ISO is above 100 takes the same N²/(t·S) at its base ISO (#554).
-    (reference.iso === DEFAULTS.iso ? "." : "; at the profile's base ISO " + reference.iso + ", the same N²/(t·S) at " + reference.shutterSeconds + " s."));
+    (referenceAperture === DEFAULTS.fNumber ? "." : "; the lens excludes f/8: " + (reference.shutterSeconds > sameShutter ? "the shortest shutter" : "the same N²/t") + " at f/" + referenceAperture + "."));
   const meterProfile = body.metering[0]!.profile, zones = 16, zoneSamples: { sampleId: string; positionOrientedCaptureUv: { u: number; v: number }; relativeLinearSignal: number; areaWeight: number }[] = [];
   // #624: the meter reads through lens.filter: L·T for a spectrally flat stack, the photopic integral of L(λ)·T(λ) otherwise.
   const filterT = lensFilter?.transmissionAt;
@@ -2801,8 +2795,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
     (lensFilter.spectrallyFlat ? "Spectrally flat: one factor, resolved at 550 nm." : "Spectral: sampled at the filters' wavelengths (vacuum) and interpolated linearly; the meter integrates the photopic luminance through it.") +
     " Inter-filter reflections, flare and light leaks are not modelled; the filter's evidence and limitations are the caller's.");
   assume("exposure.metering", "model", { policy: meterProfile.policy.kind, zones: zones * zones },
-    "The body's " + meterProfile.policy.kind + " meter reads " + (metering === "grey-card" ? "an 18 % grey card in every zone (exposure.meteringSource)" : "scene luminance") +
-    " on a 16 × 16 zone grid, before the lens (no lens transmission, vignetting or flare)" + (lensFilter ? " but through lens.filter (TTL)." : "."));
+    "The body's " + meterProfile.policy.kind + " meter reads scene luminance on a 16 × 16 zone grid, before the lens (no lens transmission, vignetting or flare).");
   if (metering === "grey-card") {
     // 2.14: incident metering. Every zone reads the 18 % Lambertian grey card under the request's illuminance, L = 0.18·E/π.
     if (callerScene?.kind === "radiance-function") fail('exposure.metering "grey-card" needs a scene lit by the illuminance; a radiance-function scene ignores illuminanceLux.');
@@ -2912,25 +2905,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   }
   let calls = 0;
   /** Resolves the settings from the reading at shutter t; returns their shutter. */
-  /**
-   * facade-05 (#730): a setting the resolvers refuse is named by its option and the camera's range or settings, not by the resolver's
-   * field (manualAperture, isoControl.iso, …).
-   */
-  const named = (error: unknown): never => {
-    const m = error instanceof Error ? /^(manualAperture|manualShutterSeconds|manualIso|isoControl\.iso) (lies outside|is not present)/.exec(error.message) : null;
-    if (!m) throw error;
-    const [option, value, setting] = m[1] === "manualAperture" ? ["lens.fNumber", fNumber, capabilities.aperture] : m[1] === "manualShutterSeconds" ?
-      ["exposure.shutterSeconds", shutterSeconds, capabilities.shutter] : ["exposure.iso", iso, capabilities.iso];
-    const range = "minimumSeconds" in setting ? setting.minimumSeconds + " s to " + setting.maximumSeconds + " s" : "minimum" in setting ? "ISO " + setting.minimum + " to " + setting.maximum :
-      "f/" + setting.widestAvailableFNumber + " to f/" + setting.narrowestAvailableFNumber;
-    const grid = setting.settingGrid;
-    throw new (error as { constructor: new (message: string) => Error }).constructor(option + " " + value + (m[2] === "lies outside" ? " is outside the camera's range, " + range + "." :
-      " is not one of the camera's settings" + (grid.kind === "discrete-values" ? ": " + grid.values.join(", ") : "") + "."));
-  };
   const resolveAt = (t: number): number => {
-  try { return resolveSettingsAt(t); } catch (error) { return named(error); }
-  };
-  const resolveSettingsAt = (t: number): number => {
   if (flashAt) { flashAt(t); target = meterTarget(); }
   if (as === "manual") {
     resolution = resolveManualExposureMode({ target, capabilities: resolverCapabilities, referenceExposure: reference, manualAperture: fNumber, manualShutterSeconds: shutterSeconds,
@@ -3935,8 +3910,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   const tabulatedScene = !layered?.multi && (chart !== undefined || callerScene?.kind === "material-function" || callerScene?.kind === "image-plane");
   // #391: a DNG from region parts takes the whole frame's RAW from the parts instead of rendering it.
   // #571: simulateCaptureFromParts takes the RAW from the parts in the same way, then develops it as a capture does.
-  // facade-03 (#730): the entry function decides a parts run, so a missing parts list is refused like an empty one.
-  const dngParts = run === "dng-from-parts" || run === "develop-from-parts" ? viewOption ?? null : undefined,
+  const dngParts = run === "dng-from-parts" || run === "develop-from-parts" ? viewOption : undefined,
     partsCaller = run === "dng-from-parts" ? "serializeSimulatedCaptureDngFromParts" : "simulateCaptureFromParts";
   if (dngParts !== undefined && regionNative) fail(partsCaller + " takes the whole frame: the options take no output.region.");
   let tabulated: Awaited<ReturnType<typeof renderTabulatedNativeRaw>>, perTapSum = false;
@@ -4338,8 +4312,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
     provenance: { scientificStatus: "approximation" as const, cameraPresetId: preset.presetId, cameraPresetVersion: preset.presetVersion,
       evidence: [...FACADE_EVIDENCE, ...preset.evidence],
       composedContracts: ["resolveGenericEquipmentExposureCapabilities", "meterRelativeExposure", "createExposureMeterTargetFromMeteringResult",
-        // facade-06 (#730): the resolver that ran (Auto ISO in aperture priority; a flash alone resolves as manual or shutter priority).
-        "resolve" + (as === "manual" ? "Manual" : autoIsoAperturePriority ? "AperturePriorityAutoIso" : as === "aperture-priority" ? "AperturePriority" : as === "shutter-priority" ? "ShutterPriority" : "ProgramAuto") + "ExposureMode",
+        "resolve" + (mode === "manual" ? "Manual" : mode === "aperture-priority" ? "AperturePriority" : mode === "shutter-priority" ? "ShutterPriority" : "ProgramAuto") + "ExposureMode",
         ...(rollingSchedule ? ["resolveElectronicRollingShutterExposureSchedule", "createRollingShutterCaptureExposureSchedule"] : []),
         ...(diffraction ? ["createDiffractionLimitedPsfProfile", ...(diffractionObjectSpace ? ["resolveLensPsfConvolutionKernels", ...(defocusSiteKernels ? [] : ["calculateIrradianceConvolution"])] : [])] : []),
         ...(defocusSiteKernels ? ["calculateDefocusCircle", defocusImageSpace ? "defocus disc site kernel (image-space convolution)" : "defocus disc site kernel (object-space convolution)"] : []),

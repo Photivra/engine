@@ -36,11 +36,10 @@ describe("sensor profile captures without the new options (#635–#638)", () => 
 });
 
 // 2.28.0 (#674, the catalogue PSF's exact cell integration): the phone profile's raw and assumptions re-pinned (x64 and arm64).
-// 2.28.0 (facade-06 in #730): the assumptions digests re-recorded for the corrected assumption texts; image, RAW and sensor digests unchanged.
 const PINS: Record<string, Record<string, string>> = {
-  "APS-C BSI downsized view, read noise": { assumptions: "074935b990c754b1", image: "de83810a3d0a4515", raw: "1da6b6c6c314da23", sensor: "a3dc1ff54903f12e" },
+  "APS-C BSI downsized view, read noise": { assumptions: "688f86ff865d5966", image: "de83810a3d0a4515", raw: "1da6b6c6c314da23", sensor: "a3dc1ff54903f12e" },
   "consumer tier, unlinked full well, fixed pattern": { assumptions: "43d532377a0795b4", image: "1a33a0327f794d39", raw: "956453b3cc103cd7", sensor: "69b84d219a6bb2b5" },
-  "full frame BSI at its own pitch, fixed pattern": { assumptions: "7cd5b16f3be3de44", image: "976c7d57f7b67e75", raw: "f4d62a2d4a2b8dfb", sensor: "abb6a7221566586e" },
-  "phone profile, PV 77 2.8 Phone (exact)": { assumptions: "ce95a7c0cda962a0", image: "d397edef4cf4719a", raw: "8cb84c7d309241b3", sensor: "1a7e39d2d106344f" },
-  "professional tier, linked full well at 4 µm": { assumptions: "a669c211248f2264", image: "7c2444652f117a2b", raw: "8a738e421ef932c9", sensor: "139a6eefca301330" }
+  "full frame BSI at its own pitch, fixed pattern": { assumptions: "25a6cac3dc5f6b39", image: "976c7d57f7b67e75", raw: "f4d62a2d4a2b8dfb", sensor: "abb6a7221566586e" },
+  "phone profile, PV 77 2.8 Phone (exact)": { assumptions: "a1870b0260d2199f", image: "d397edef4cf4719a", raw: "8cb84c7d309241b3", sensor: "1a7e39d2d106344f" },
+  "professional tier, linked full well at 4 µm": { assumptions: "ce34bb19adcbaca7", image: "7c2444652f117a2b", raw: "8a738e421ef932c9", sensor: "139a6eefca301330" }
 };

@@ -93,21 +93,20 @@ describe("display view without diffraction keeps its bytes (#444)", () => {
   // and arm64): all 120 display pixels had it; red rises by 2.47 8-bit codes and green and blue fall by 0.36 and 0.59 on average
   // (6.10 at most), 240 of 360 samples change, and view.demosaic reports the approximation. Re-recorded for 2.26.0: view.demosaic's
   // explanation shortened (its measured AHD figures now point to docs/DISPLAY_VIEW.md); samples, expected values and noise unchanged.
-  // 2.28.0 (facade-06 in #730): re-recorded for the corrected assumption texts only (the same samples, expected values and noise).
   const cases: [string, SimulateCaptureOptions, SimulateDisplayViewOptions, string][] = [
     ["caller material scene, mirror borders, exact area mean", { scene: checker, sensor: speed, output: { width: 240, height: 160, borderHandling: "mirror" } },
-      { width: 80, height: 54 }, "f8b192f76e62102dc646ae32fc6eac2ea2925d9e0e0b8f3ca7723c5ab24b0ce1"],
+      { width: 80, height: 54 }, "88614416ef0fcbbff7d695eeaeec793b0951c64eeda0695c77cb7122f5b3a900"],
     ["caller material scene, part at a corner, 16-bit", { scene: checker, sensor: speed, output: { width: 240, height: 160, borderHandling: "mirror" } },
-      { width: 80, height: 54, region: { x: 60, y: 40, width: 20, height: 14 }, format: "srgb-16" }, "b30191956c8f4074816f9e6212cb210a84071a44b1292ffc19ed224bc6e0b9e9"],
-    ["caller material scene, stratified estimator", { scene: checker, sensor: speed, output: { width: 240, height: 160 } }, { width: 24, height: 16 }, "3bcd6b897528c78a1111ae600d05a5beef29f02483956a6756b693938e15eaee"],
+      { width: 80, height: 54, region: { x: 60, y: 40, width: 20, height: 14 }, format: "srgb-16" }, "8f03a919449620648cfb27dbfc2994dd961b9d0cd323c4b86865ae4832869ae4"],
+    ["caller material scene, stratified estimator", { scene: checker, sensor: speed, output: { width: 240, height: 160 } }, { width: 24, height: 16 }, "6ead9437c338654c9b4fa0df6ba8f07f965d53665e346aa1032cec7bf624aaad"],
     ["chart preset, AHD at ISO 3200, 1.4 µm", { scene: { preset: "patches", patches: [{ patchId: "a", reflectance: 0.18 }, { patchId: "b", reflectance: 0.6 }], columns: 2 }, exposure: { mode: "manual", iso: 3200, shutterSeconds: 1 / 4000 },
       sensor: { pixelPitchMicrometers: 1.4, pixelAperture: { kind: "box", samplesPerAxis: 2 } }, output: { width: 120, height: 90, demosaic: "ahd" } },
-      { width: 40, height: 30, region: { x: 14, y: 10, width: 12, height: 10 } }, "b4627a7c25034d130a38d4e792b4e6c0c0946a6599b65f8e504a599bd9dbb72b"],
+      { width: 40, height: 30, region: { x: 14, y: 10, width: 12, height: 10 } }, "037b28bbf837e1b3d6ae727442baf68996659456de8a6b6c9bbeb3c68cf976d1"],
     // 2.22.0 integration: the AHD case carries both parts' changes, checked separately: its samples are those of the AHD correction's
     // removal (above; the same sample digest as that part alone), and its assumptions differ from that part only by #599's new
     // sensor.isoAreaNormalization explanation text (samples, expected values and noise unchanged by #599 at 1.4 µm).
     ["radiance scene (not tracked)", { scene: { kind: "radiance-function", sceneId: "speed-radiance-lock", evaluate: (p: { u: number; v: number }) => 0.02 * (1.25 + 0.5 * Math.floor(4 * p.u) / 4 - 0.25 * Math.floor(3 * p.v) / 3) },
-      sensor: speed, output: { width: 120, height: 80 } }, { width: 40, height: 27 }, "fb299ab92a659facc6f5b34ab2d5301be1e5d1143992dc75a06dbdd4d53de79c"]
+      sensor: speed, output: { width: 120, height: 80 } }, { width: 40, height: 27 }, "724e9bcb5028c54d6d6c29ea085a9a6c790edc92711dead5085132b8cb47321f"]
   ];
   it.each(cases)("%s", async (name, options, view, expected) => {
     const { result, internals } = await simulateDisplayViewWithInternals(options, view);
