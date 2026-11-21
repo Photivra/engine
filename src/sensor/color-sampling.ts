@@ -167,12 +167,17 @@ function parseChannelIds(
     );
   }
 
-  const ids = value.map((entry, index) =>
-    requireNonEmptyString(
-      entry,
-      path + "[" + index + "]"
-    )
-  );
+  // 2.28.0: every index in turn (Array.prototype.map skips holes, and walks the whole length of a sparse array), so a hole fails at
+  // once with a domain error.
+  const ids: string[] = [];
+  for (let index = 0; index < value.length; index++) {
+    ids.push(
+      requireNonEmptyString(
+        value[index],
+        path + "[" + index + "]"
+      )
+    );
+  }
 
   if (
     !options.allowDuplicates &&

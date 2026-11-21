@@ -1070,12 +1070,16 @@ function interpolateCurve<T extends {
     );
   }
 
-  for (
-    let index = 0;
-    index < samples.length;
-    index += 1
-  ) {
-    const sample = samples[index]!;
+  // 2.28.0: the first sample at or above the wavelength by binary search (the wavelengths are strictly increasing), then the
+  // same exact-match or interpolation step as the former linear scan, so every value is unchanged.
+  let low = 0, high = samples.length;
+  while (low < high) {
+    const middle = (low + high) >>> 1;
+    if (samples[middle]!.wavelengthNanometers < wavelengthNanometers) low = middle + 1;
+    else high = middle;
+  }
+  const sample = samples[low];
+  if (sample !== undefined) {
     if (
       wavelengthNanometers ===
       sample.wavelengthNanometers
@@ -1091,7 +1095,7 @@ function interpolateCurve<T extends {
       sample.wavelengthNanometers
     ) {
       const previous =
-        samples[index - 1]!;
+        samples[low - 1]!;
       const phase =
         (wavelengthNanometers -
           previous.wavelengthNanometers) /
