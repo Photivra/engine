@@ -297,9 +297,9 @@ export function calculateCaptureTranslationParallaxTemporalQuadrature(
       "sceneSamples must be a non-empty array."
     );
   }
+  requireTemporalSampleBudget(input.temporalSampleCount, input.sceneSamples.length, "sceneSamples");
 
   input.sceneSamples.forEach((sample, index) => requireInputObject(sample, "sceneSamples[" + index + "]"));
-  requireTemporalSampleBudget(input.temporalSampleCount, input.sceneSamples.length, "sceneSamples");
   const ids =
     input.sceneSamples.map(
       (sample) =>

@@ -152,7 +152,8 @@ export function parseEvidenceList(
     );
   }
 
-  return value.map((entry, index) =>
+  // 2.28.0: Array.from visits holes too, so a sparse list fails at its first hole instead of after a walk of its whole length.
+  return Array.from(value, (entry, index) =>
     parseEvidenceProvenance(entry, `${path}[${index}]`)
   );
 }

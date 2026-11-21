@@ -829,6 +829,7 @@ export function calculateCaptureExtendedObjectTemporalProjection(
       objectVelocity,
       cameraVelocity
     );
+  if (Array.isArray(input.points)) requireTemporalSampleBudget(input.temporalSampleCount, input.points.length, "points");
   const points =
     validateUniquePoints(
       input.points
@@ -851,7 +852,6 @@ export function calculateCaptureExtendedObjectTemporalProjection(
       "temporalSampleCount × points.length must remain a safe integer."
     );
   }
-  requireTemporalSampleBudget(input.temporalSampleCount, points.length, "points");
 
   const pointTrajectories =
     points.map(
