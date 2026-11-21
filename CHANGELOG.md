@@ -257,6 +257,20 @@
   and the lean executor's site counts are unchanged (pan, rolling shutter, hand shake, `lens.pupilSampling`, a catalogue lens with
   `fast: false`, fixed-pattern noise, the tabulated default). The second step of the plan (prototype records for the site-carrying
   parts) was not taken. Tests: `test/simulate-capture-site-records.test.ts`.
+- **Faster: `output.gamutMapping: "perceptual"` skips the boundary search for colours below the knee (#684, 2.28.0 step 6).**
+  `prepareRgbGamutMapping(...).map` ran the doubling and all 60 bisection steps for every in-gamut colour with any chroma, only
+  to return most of them unchanged. Before the search it now evaluates the cube test once at chroma / k × (1 + 1e-9); if that
+  point is inside, the colour is below the knee and is returned unchanged, as the search returns it. This is exact where the
+  in-gamut part of the constant-L*, constant-hue ray is one interval, which fails near the yellow cusp, so the early-out applies
+  below L* 85 only (and above chroma 1e-6, which keeps the probe's margin above the search's resolution). Gate: on every 8-bit
+  surface triple scaled by 0.5, 0.9, 0.99 and 1 and a 64³ interior lattice (1,822,752 colours per space), for `srgb`,
+  `display-p3` and `rec2020` at k = 0.25, 0.5, 0.75, 0.9 and 0.99, no result differs from the search's (`Object.is` on
+  `linearRgb`, and `adjusted` and `lightnessClipped`); without the L* limit 3 colours per space differ at k = 0.9 (L* 90.7–93.1). A ray scan (L* 80–92 by
+  0.05, hue by 0.1°; 0–100 by 0.25 and 0.25°) finds rays that are not one interval only above L* 90.5 (`display-p3`), 93.25
+  (`srgb`) and 93.75 (`rec2020`). 1024 × 1024 PNG, `fast: false`, two paired runs on a loaded machine: Siemens star 3.8–4.0 s →
+  1.1–1.2 s, color patches 3.8 s → 1.1–1.2 s, dead leaves 4.0–4.3 s → 1.0–1.1 s (clipped: 0.72–0.77 s); the figure-batch
+  `detail-perceptual-png` part 0.74× (`fast: false`) and 0.80× (default). Samples and PNG bytes are unchanged, and the hash locks
+  hold. `t ** 3` and `BISECTION_STEPS` are unchanged. Tests: `test/gamut-mapping-early-out.test.ts`.
 
 ### Output changes (2.28.0 step 5)
 

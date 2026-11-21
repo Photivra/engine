@@ -69,6 +69,8 @@ export interface PreparedRgbGamutMapping {
 
 const IN_GAMUT_TOLERANCE = 1e-12;
 const BISECTION_STEPS = 60;
+/** #684: the early-out below the knee applies below this L* (see `map`). */
+const EARLY_OUT_MAXIMUM_LIGHTNESS = 85;
 
 function inCube(rgb: ColorVector3): boolean {
   return rgb.every((v) => v >= -IN_GAMUT_TOLERANCE && v <= 1 + IN_GAMUT_TOLERANCE);
@@ -103,6 +105,15 @@ export function prepareRgbGamutMapping(input: PrepareRgbGamutMappingInput): Prep
       const inside = inCube(rgb);
       if (chroma === 0 || (inside && k === 1)) return { linearRgb: clampCube(rgb), adjusted: false, lightnessClipped: false };
       const ua = lab.aStar / chroma, ub = lab.bStar / chroma;
+      // #684: an in-gamut colour whose ray is inside the cube a little beyond chroma / k lies below the knee, which the search
+      // below finds only after its 56–59 boundary evaluations; it is returned unchanged, as the search returns it. Exact where the
+      // ray's in-cube part is one interval from the neutral axis (then the search never moves its outer end below the probe, so
+      // C_max > chroma / k): measured below L* = EARLY_OUT_MAXIMUM_LIGHTNESS for the three spaces (test/gamut-mapping-early-out.test.ts),
+      // not near the yellow cusp. The chroma floor keeps the probe's margin above the search's resolution (C_max ≤ 600 / 2^60).
+      if (inside && k > 0 && lab.lStar < EARLY_OUT_MAXIMUM_LIGHTNESS && chroma > 1e-6) {
+        const probe = chroma / k * (1 + 1e-9);
+        if (inCube(toRgb(lab.lStar, ua * probe, ub * probe))) return { linearRgb: clampCube(rgb), adjusted: false, lightnessClipped: false };
+      }
       // Find the boundary chroma at constant L* and h by bisection. The neutral point is inside the cube.
       let lo = 0, hi = chroma;
       if (inside) {
