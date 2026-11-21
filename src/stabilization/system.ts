@@ -1525,8 +1525,6 @@ export function calculateStabilizedCaptureTemporalSamples(
       "samplePointsNative must be a non-empty array."
     );
   }
-  requireTemporalSampleBudget(input.temporalSampleCount, input.samplePointsNative.length, "samplePointsNative");
-  input.samplePointsNative.forEach((point, index) => requireInputObject(point, "samplePointsNative[" + index + "]"));
 
   const totalNodeCount =
     input.temporalSampleCount *
@@ -1540,6 +1538,8 @@ export function calculateStabilizedCaptureTemporalSamples(
       "temporalSampleCount × samplePointsNative.length must remain a safe integer."
     );
   }
+  requireTemporalSampleBudget(input.temporalSampleCount, input.samplePointsNative.length, "samplePointsNative");
+  input.samplePointsNative.forEach((point, index) => requireInputObject(point, "samplePointsNative[" + index + "]"));
 
   const disturbanceIndex =
     indexDisturbance(disturbance);

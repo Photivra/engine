@@ -152,8 +152,6 @@ export function calculateCaptureRotationTemporalQuadrature(
       "samplePointsNative must be a non-empty array."
     );
   }
-  requireTemporalSampleBudget(input.temporalSampleCount, input.samplePointsNative.length, "samplePointsNative");
-  input.samplePointsNative.forEach((point, index) => requireInputObject(point, "samplePointsNative[" + index + "]"));
 
   const totalNodeCount =
     input.temporalSampleCount * input.samplePointsNative.length;
@@ -162,6 +160,8 @@ export function calculateCaptureRotationTemporalQuadrature(
       "temporalSampleCount × samplePointsNative.length must be a safe integer."
     );
   }
+  requireTemporalSampleBudget(input.temporalSampleCount, input.samplePointsNative.length, "samplePointsNative");
+  input.samplePointsNative.forEach((point, index) => requireInputObject(point, "samplePointsNative[" + index + "]"));
 
   const {
     temporalSampleCount,
