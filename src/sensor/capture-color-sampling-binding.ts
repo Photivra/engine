@@ -689,7 +689,7 @@ export function resolveCaptureModeColorSamplingContributors(
   }
 
   const modeX = requireFullFrameSampleIndex(
-    input.modeSampleIndexFullFrame.x,
+    input.modeSampleIndexFullFrame?.x,
     "modeSampleIndexFullFrame.x"
   );
   const modeY = requireFullFrameSampleIndex(
@@ -742,8 +742,7 @@ export function resolveCaptureModeColorSamplingContributors(
     grouping = null;
   } else {
     if (
-      input.groupedSamplingAnchor === undefined ||
-      input.groupedSamplingAnchor.anchor !==
+      input.groupedSamplingAnchor?.anchor !==
         "native-effective-raster-top-left"
     ) {
       throw new InvalidScientificInputError(

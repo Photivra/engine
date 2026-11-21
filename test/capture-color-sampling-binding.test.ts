@@ -692,3 +692,13 @@ describe("capture mode / color sampling binding", () => {
     ).toThrow("safe integer");
   });
 });
+
+describe("nested input errors (sensor-11, #701)", () => {
+  const domain = expect.objectContaining({ name: expect.stringMatching(/^Invalid(Configuration|ScientificInput)Error$/) });
+  it("rejects a missing sample index or a null grouping anchor with a domain error", () => {
+    expect(() => resolveCaptureModeColorSamplingContributors({ nativeRaster, captureModeProfile: modeProfile(nativeMode()), modeId: "native",
+      colorSamplingProfile: bayerLikeProfile(), bindingProfile: binding(), modeSampleIndexFullFrame: undefined as never })).toThrow(domain);
+    expect(() => resolveCaptureModeColorSamplingContributors({ nativeRaster, captureModeProfile: modeProfile(groupedMode()), modeId: "grouped",
+      colorSamplingProfile: bayerLikeProfile(), bindingProfile: binding(), modeSampleIndexFullFrame: { x: 0, y: 0 }, groupedSamplingAnchor: null as never })).toThrow(domain);
+  });
+});

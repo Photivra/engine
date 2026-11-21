@@ -588,3 +588,10 @@ describe("sensor sampling aperture foundation", () => {
     );
   });
 });
+
+describe("nested input errors (sensor-11, #701)", () => {
+  it("rejects a missing site with a domain error", () => {
+    expect(() => resolveSensorSamplingAperture({ imagingArea, nativeRaster, colorSamplingProfile: colorProfile(), colorSamplingBindingProfile: bindingProfile(),
+      samplingApertureProfile: apertureProfile(), site: undefined as never })).toThrow(expect.objectContaining({ name: expect.stringMatching(/^Invalid(Configuration|ScientificInput)Error$/) }));
+  });
+});

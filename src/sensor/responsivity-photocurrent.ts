@@ -467,10 +467,10 @@ function validateAuthorizationChain(
 
   if (
     !compatibility
-      .structuralCompatibilityEstablished ||
+      ?.structuralCompatibilityEstablished ||
     compatibility.compatibilityStatus ===
       "blocked" ||
-    compatibility.blockers.length !== 0 ||
+    compatibility.blockers?.length !== 0 ||
     !compatibility.sourcePlaneMatched ||
     compatibility.requiredSignalPath !==
       "radiant-power-to-current"

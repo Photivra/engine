@@ -43,7 +43,7 @@ import {
 import type {
   NativeImageRaster
 } from "./sensor-geometry.js";
-import { requireInputKeys, requireConfigRecord as requireRecord, requireTrimmedConfigString as requireNonEmptyString, requireConfigNonNegativeFinite as requireNonNegativeFinite, parseConfigLimitations as parseLimitations } from "../core/record-validation.js";
+import { requireInputKeys, requireInputObject, requireInputArray, requireConfigRecord as requireRecord, requireTrimmedConfigString as requireNonEmptyString, requireConfigNonNegativeFinite as requireNonNegativeFinite, parseConfigLimitations as parseLimitations } from "../core/record-validation.js";
 
 export const CAPTURE_MODE_TIMING_PROFILE_SCHEMA_VERSION =
   "0.1.0" as const;
@@ -418,6 +418,8 @@ export function resolveCaptureModeTiming(
       input.timingProfile
     );
 
+  requireInputObject(input.captureMode, "captureMode");
+  requireInputArray(input.captureMode.dependencies, "captureMode.dependencies");
   if (
     profile.captureModeId !==
     input.captureMode.modeId

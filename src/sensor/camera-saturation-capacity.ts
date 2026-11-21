@@ -488,6 +488,7 @@ function validateCharge(
   total: number;
 } {
   requireInputObject(charge, "charge input");
+  requireInputObject(charge.site, "accumulatedCharge.site");
   if (
     charge.accumulatedChargeCompleteness !==
       "complete-for-physical-storage-capacity-assessment" ||

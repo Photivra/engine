@@ -311,7 +311,8 @@ function parseUncertainty(
   );
 }
 
-function parseReferenceConditions(
+/** Parses a reference or operating conditions record (temperature, incidence angle 0 to 90 degrees, polarization); shared by the response, application and operating-range parsers. */
+export function parseReferenceConditions(
   value: unknown,
   path: string
 ): SensorSpectralReferenceConditions {

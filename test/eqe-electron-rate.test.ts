@@ -1251,3 +1251,56 @@ describe("consistency checks at photosite power (#712)", () => {
     expect(() => convert(zero)).not.toThrow();
   });
 });
+
+describe("nested input errors (sensor-11, sensor-15, sensor-16, #701)", () => {
+  const domain = expect.objectContaining({ name: expect.stringMatching(/^Invalid(Configuration|ScientificInput)Error$/) });
+  const sourcePlane = { value: "site-incident" as const, evidence: evidence("test:site-plane") };
+  const assessRange = (reduction: unknown, compatibility: unknown): ReturnType<typeof assessSensorResponseOperatingRange> => assessSensorResponseOperatingRange({
+    reduction: reduction as never, compatibility: compatibility as never, operatingRangeProfile: operatingProfile() });
+  const assessCompatibility = (reduction: unknown, conditions: unknown, profile = applicationProfile()): ReturnType<typeof assessSensorResponseApplicationCompatibility> => assessSensorResponseApplicationCompatibility({
+    reduction: reduction as never, applicationProfile: profile, sourcePlane, operatingConditions: conditions as never });
+
+  it("rejects a null compatibility record in the EQE rate conversion", () => {
+    const pipeline = buildPipeline();
+    expect(() => calculateSensorEqeElectronRate({ reduction: pipeline.reduction, compatibility: null as never, operatingRange: pipeline.operatingRange,
+      colorSamplingProfile: colorProfile(), spectralResponseProfile: pipeline.responseProfile })).toThrow(domain);
+  });
+
+  it("rejects a missing compatibility record or reduction fields in the operating-range check", () => {
+    const { reduction, compatibility } = buildPipeline();
+    expect(() => assessRange(reduction, undefined)).toThrow(domain);
+    const noRange: Record<string, unknown> = { ...reduction }; delete noRange.wavelengthRangeNanometers;
+    expect(() => assessRange(noRange, compatibility)).toThrow(domain);
+    const noBins: Record<string, unknown> = { ...reduction }; delete noBins.perWavelength;
+    expect(() => assessRange(noBins, compatibility)).toThrow(domain);
+  });
+
+  it("refuses an incomplete reduction instead of authorizing it (sensor-15)", () => {
+    const { reduction, compatibility } = buildPipeline();
+    expect(() => assessRange({ ...reduction, wavelengthRangeNanometers: {} }, compatibility)).toThrow(InvalidScientificInputError);
+    expect(() => assessRange({ ...reduction, wavelengthRangeNanometers: { minimum: Number.NaN, maximum: 500 } }, compatibility)).toThrow(InvalidScientificInputError);
+    expect(() => assessRange({ ...reduction, perWavelength: [] }, compatibility)).toThrow(InvalidScientificInputError);
+    expect(assessRange(reduction, compatibility).value.responseRateConversionAuthorized).toBe(true);
+  });
+
+  it("rejects a reduction without responseUncertainty in the compatibility check", () => {
+    const { reduction } = buildPipeline();
+    const noUncertainty: Record<string, unknown> = { ...reduction }; delete noUncertainty.responseUncertainty;
+    expect(() => assessCompatibility(noUncertainty, operatingConditions)).toThrow(domain);
+  });
+
+  it("validates operatingConditions and the response scope (sensor-16)", () => {
+    const { reduction } = buildPipeline();
+    expect(() => assessCompatibility(reduction, { temperatureC: 25, incidenceAngleDegreesFromNormal: 500, polarization: "unpolarized" })).toThrow(InvalidConfigurationErrorClass());
+    expect(() => assessCompatibility(reduction, { ...operatingConditions, polarization: "sideways" })).toThrow(InvalidConfigurationErrorClass());
+    expect(() => assessCompatibility(reduction, { ...operatingConditions, madeUp: "x" })).toThrow(InvalidConfigurationErrorClass());
+    const assumeCompatible = { ...applicationProfile(), referenceConditionPolicy: { kind: "assume-compatible" as const, limitation: "test", evidence: evidence("test:assume") } };
+    expect(() => assessCompatibility(reduction, "hot", assumeCompatible as never)).toThrow(InvalidConfigurationErrorClass());
+    expect(() => assessCompatibility({ ...reduction, responseScope: "bogus" }, operatingConditions)).toThrow(domain);
+    expect(assessCompatibility(reduction, operatingConditions).value.compatibilityStatus).not.toBe("blocked");
+  });
+});
+
+function InvalidConfigurationErrorClass(): unknown {
+  return expect.objectContaining({ name: "InvalidConfigurationError" });
+}

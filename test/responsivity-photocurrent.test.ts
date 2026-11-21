@@ -1783,3 +1783,13 @@ describe("consistency checks at photosite power (#712)", () => {
     expect(() => convert(zero)).not.toThrow();
   });
 });
+
+describe("nested input errors (sensor-11, #701)", () => {
+  it("rejects a null compatibility record with a domain error", () => {
+    const pipeline = buildPipeline();
+    expect(() => calculateSensorResponsivityPhotocurrent({
+      reduction: pipeline.reduction, compatibility: null as never, operatingRange: pipeline.operatingRange, colorSamplingProfile: colorProfile(),
+      spectralResponseProfile: pipeline.spectralResponseProfile, electricalApplicabilityProfile: electricalProfile(), operatingElectricalConditions: zeroBiasConditions
+    })).toThrow(expect.objectContaining({ name: "InvalidScientificInputError" }));
+  });
+});

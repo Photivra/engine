@@ -568,7 +568,7 @@ export function parseStabilizationSystemProfile(
     );
   }
   const axisResponses =
-    record.axisResponses.map(
+    Array.from(record.axisResponses,
       (entry, index) =>
         parseAxisResponse(
           entry,
@@ -788,7 +788,7 @@ export function parseStabilizationDisturbanceTrajectory(
   let previousTime =
     Number.NEGATIVE_INFINITY;
   const samples =
-    record.samples.map(
+    Array.from(record.samples,
       (entry, index) => {
         const path =
           "stabilizationDisturbanceTrajectory.samples[" +

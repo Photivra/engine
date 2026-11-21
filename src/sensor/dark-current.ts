@@ -662,16 +662,10 @@ function resolveDarkCurrentRate(
     model.kind ===
     "log-linear-temperature-table"
   ) {
-    // r = r0^(1-alpha) * r1^alpha, written as r0 * (r1/r0)^alpha.
+    // r = r0^(1-alpha) * r1^alpha, written as r0 * (r1/r0)^alpha; in logarithms when the ratio overflows or underflows (sensor-23).
+    const r0 = lower.darkCurrentElectronsPerSecond, r1 = upper.darkCurrentElectronsPerSecond, ratio = r1 / r0;
     return {
-      rate:
-        lower
-          .darkCurrentElectronsPerSecond *
-        (upper
-          .darkCurrentElectronsPerSecond /
-          lower
-            .darkCurrentElectronsPerSecond) **
-          alpha,
+      rate: ratio > 0 && ratio < Infinity ? r0 * ratio ** alpha : Math.exp((1 - alpha) * Math.log(r0) + alpha * Math.log(r1)),
       interpolationUsed: true
     };
   }
@@ -697,6 +691,7 @@ function validateExposure(
     SensorEqePhotoExposure
 ): void {
   requireInputObject(exposure, "exposure input");
+  requireInputObject(exposure.site, "exposure.site");
   if (exposure.kind === "eqe-temporal-photo-signal") parseSensorEqeTemporalPhotoSignal(exposure);
   if (
     (exposure.kind !== "eqe-expected-counts" && exposure.kind !== "eqe-temporal-photo-signal") ||

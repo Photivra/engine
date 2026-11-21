@@ -1064,3 +1064,10 @@ describe("capture-local stabilization rejects a missing, null or non-object sub-
     expect(escaped).toEqual([]);
   });
 });
+
+describe("sparse arrays (sensor-12, #701)", () => {
+  it("refuses trajectory samples and axis responses with holes", () => {
+    expect(() => parseStabilizationDisturbanceTrajectory({ ...trajectory(), samples: new Array(2) as never })).toThrow(expect.objectContaining({ name: "InvalidConfigurationError" }));
+    expect(() => parseStabilizationSystemProfile({ ...profile(), axisResponses: new Array(1) as never })).toThrow(expect.objectContaining({ name: "InvalidConfigurationError" }));
+  });
+});

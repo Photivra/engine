@@ -3,6 +3,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  InvalidScientificInputError,
   assessSensorPhysicalChargeCapacity,
   calculateExpectedSensorReadout,
   createSensorRawCaptureSample,
@@ -2137,5 +2138,32 @@ describe("sensor RAW closeout validation and edge boundaries", () => {
     ).toThrow(
       "must remain finite"
     );
+  });
+});
+
+describe("RAW capture sample and reconstruction inputs (sensor-11, sensor-17, #701)", () => {
+  const domain = expect.objectContaining({ name: expect.stringMatching(/^Invalid(Configuration|ScientificInput)Error$/) });
+  const reconstruct = (samples: unknown[], centerSite: unknown = { x: 1, y: 0 }): ReturnType<typeof resolveSensorRawReconstruction> => resolveSensorRawReconstruction({
+    profile: reconstructionProfile(), colorSamplingProfile: colorProfile(), centerSite: centerSite as never, samples: samples as never });
+  const neighborhood = (): SensorRawCaptureSample[] => [captureRawAt(0, 0, "red", 1064), captureRawAt(1, 0, "green", 2064), captureRawAt(1, 1, "blue", 3064)];
+
+  it("rejects a missing raw code, center site or sample with a domain error", () => {
+    expect(() => createSensorRawCaptureSample({ rawCode: undefined as never, contributors: contributorsAt(0, 0) })).toThrow(domain);
+    expect(() => reconstruct(neighborhood(), null)).toThrow(domain);
+    expect(() => reconstruct([null, ...neighborhood()])).toThrow(domain);
+  });
+
+  it("refuses a raw code that is not an integer code inside the ADC range", () => {
+    for (const rawCode of [Number.NaN, 99999, -5, 1064.5]) {
+      expect(() => createSensorRawCaptureSample({ rawCode: rawAt(0, 0, "red", rawCode), contributors: contributorsAt(0, 0) }), String(rawCode)).toThrow(InvalidScientificInputError);
+    }
+    expect(() => createSensorRawCaptureSample({ rawCode: { ...rawAt(0, 0, "red", 1064), blackLevelCode: 64.5 }, contributors: contributorsAt(0, 0) })).toThrow(InvalidScientificInputError);
+    expect(captureRawAt(0, 0, "red", 1064).rawCode).toBe(1064);
+  });
+
+  it("refuses a sample value that is not a number instead of coercing it", () => {
+    const [red, green, blue] = neighborhood();
+    expect(() => reconstruct([{ ...red!, blackSubtractedNormalizedCode: "0.5" }, green, blue])).toThrow(InvalidScientificInputError);
+    expect(reconstruct([red, green, blue]).value.outputChannels.length).toBeGreaterThan(0);
   });
 });

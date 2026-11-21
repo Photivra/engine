@@ -1092,3 +1092,15 @@ describe("translation parallax rejects a missing, null or non-object sub-object 
     expect(escaped).toEqual([]);
   });
 });
+
+describe("capture-mode timing nested inputs (sensor-11, #701)", () => {
+  const domain = expect.objectContaining({ name: expect.stringMatching(/^Invalid(Configuration|ScientificInput)Error$/) });
+  const call = (mode: unknown): unknown => resolveCaptureModeTiming({ captureMode: mode as never, timingProfile: rollingProfile(),
+    nominalExposureDurationSeconds: { value: 0.02, unit: "s", evidence: evidence("exposure-duration") }, samplePointsNative: [centerPoint] });
+  it("rejects a missing capture mode or a mode without dependencies with a domain error", () => {
+    expect(() => call(undefined)).toThrow(domain);
+    const noDependencies: Record<string, unknown> = { ...captureMode() }; delete noDependencies.dependencies;
+    expect(() => call(noDependencies)).toThrow(domain);
+    expect(() => call(captureMode())).not.toThrow();
+  });
+});

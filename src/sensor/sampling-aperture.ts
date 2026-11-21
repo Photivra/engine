@@ -532,7 +532,7 @@ export function resolveSensorSamplingAperture(
   }
 
   const siteX = requireSiteIndex(
-    input.site.x,
+    input.site?.x,
     "site.x"
   );
   const siteY = requireSiteIndex(

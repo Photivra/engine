@@ -462,6 +462,7 @@ export function createSensorRawCaptureSample(
     input.contributors;
 
   requireInputObject(contributors, "contributors input");
+  requireInputObject(raw, "rawCode input");
   if (
     contributors
       .modeSamplingKind !==
@@ -527,6 +528,11 @@ export function createSensorRawCaptureSample(
     throw new InvalidScientificInputError(
       "RAW black/white code span must be positive."
     );
+  }
+  // sensor-17: an integer code inside [0, digitalSaturationCode] with integer black and white levels, as the readout produces.
+  if (!(Number.isSafeInteger(raw.rawCode) && Number.isSafeInteger(raw.blackLevelCode) && Number.isSafeInteger(raw.digitalSaturationCode) &&
+    raw.rawCode >= 0 && raw.rawCode <= raw.digitalSaturationCode)) {
+    throw new InvalidScientificInputError("rawCode must be an integer code from 0 to digitalSaturationCode, with integer black and saturation codes.");
   }
 
   return {
@@ -624,7 +630,7 @@ function requireCenterSite(
   return {
     x:
       requireNonNegativeSafeIntegerInput(
-        value.x,
+        value?.x,
         "centerSite.x"
       ),
     y:
@@ -686,6 +692,7 @@ export function resolveSensorRawReconstruction(
     input.samples
   ) {
     if (
+      typeof sample?.blackSubtractedNormalizedCode !== "number" ||
       sample.captureModeId !==
         profile.captureModeId ||
       sample

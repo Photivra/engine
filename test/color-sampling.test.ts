@@ -376,3 +376,9 @@ describe("sensor color sampling topology", () => {
     ).toThrow("not-resolved");
   });
 });
+
+describe("sparse arrays (sensor-12, #701)", () => {
+  it("refuses site channel IDs with holes", () => {
+    expect(() => parseSensorColorSamplingProfile(periodicProfile(new Array(4)))).toThrow(expect.objectContaining({ name: "InvalidConfigurationError" }));
+  });
+});

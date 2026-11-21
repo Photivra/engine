@@ -330,3 +330,10 @@ describe("sensor coverage adapter additional branches", () => {
     );
   });
 });
+
+describe("nested input errors (sensor-11, #701)", () => {
+  it("rejects a non-string participant ID with a domain error", () => {
+    expect(() => createSensorSpectralCoverageParticipant({ spectralResponseProfile: directProfile(), channelId: "green", participantId: 5 as unknown as string }))
+      .toThrow(expect.objectContaining({ name: "InvalidConfigurationError" }));
+  });
+});
