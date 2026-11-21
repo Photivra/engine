@@ -41,7 +41,9 @@
  * counts. The threshold was 192 in 2.5; it moved to 32 because from there the real-space cells agree with the frequency-domain cells
  * within about 1e-12 and cost a few to a few hundred times less (a 750 µm whole-frame cell at f/8 took 3.4 s for 20
  * wavelengths). Every β a native pitch up to 10 µm reaches (at most 10/(0.38·1.4) ≈ 19) stays in the frequency domain,
- * so captures at sensor pitch are unchanged; larger cells (binned and whole-frame views) change in the last bits only.
+ * so captures at sensor pitch are unchanged; larger cells (binned and whole-frame views) change in the last bits only. 2.28.0: below
+ * β = 32 a (β, R) whose frequency-domain work would exceed 2.5 × 10⁸ inner steps (a large β with a large kernel radius, which took
+ * up to tens of seconds per wavelength) is integrated in real space too; the two agree there within 2 × 10⁻¹³.
  *
  * **Reuse (2.6).** The cells depend only on (β, R) (and the test-only node scale), so `calculateAiryCellEnergies` keeps the
  * 800 most recently used results (256 before 2.15.0; 800 holds two whole 400-node grids) and returns copies: tiles of one frame rendered in the same worker, and captures that
@@ -128,7 +130,7 @@ export interface DiffractionLimitedPsfProfile {
   /** Largest truncated energy over the wavelengths. */
   maximumTruncatedEnergyFraction: number;
   /**
-   * How the cells were integrated. 2.5: wavelengths with β = p·f_c ≥ `AIRY_REAL_SPACE_MINIMUM_BETA` (192 in 2.5–2.8.1, then 32) use the real-space
+   * How the cells were integrated. 2.5: wavelengths with β = p·f_c ≥ `AIRY_REAL_SPACE_MINIMUM_BETA` (192 in 2.5–2.8.1, then 32; since 2.28.0 also a smaller β whose frequency-domain work would be too large) use the real-space
    * encircled-energy method; `realSpaceWavelengthsNm` lists them, and `method` is `"frequency-domain-and-real-space"` when both ran.
    * `maximumRadialNodes` counts frequency-domain radial nodes (0 when only the real-space method ran); `maximumAngularNodes` the
    * angular nodes of either method (for the real-space method, all θ nodes of one wavelength).
@@ -198,11 +200,25 @@ export function calculateAiryCellEnergies(beta: number, radius: number, scale = 
     AIRY_CELL_CACHE.delete(key); AIRY_CELL_CACHE.set(key, cached);
     return { ...cached, cells: cached.cells.slice() };
   }
-  const result = beta >= AIRY_REAL_SPACE_MINIMUM_BETA ? { ...calculateAiryCellEnergiesInRealSpace(beta, radius, scale), radialNodes: 0, realSpace: true } :
+  const result = useRealSpace(beta, radius) ? { ...calculateAiryCellEnergiesInRealSpace(beta, radius, scale), radialNodes: 0, realSpace: true } :
     { ...calculateAiryCellEnergiesInFrequencyDomain(beta, radius, scale), realSpace: false };
   AIRY_CELL_CACHE.set(key, { ...result, cells: result.cells.slice() });
   if (AIRY_CELL_CACHE.size > AIRY_CELL_CACHE_ENTRIES) AIRY_CELL_CACHE.delete(AIRY_CELL_CACHE.keys().next().value!);
   return result;
+}
+/**
+ * 2.28.0: the frequency-domain work of one call, about radialNodes × angularNodes × (R + 1)² inner steps, above which the cells are
+ * integrated in real space even below `AIRY_REAL_SPACE_MINIMUM_BETA` (2.5 × 10⁸ steps at node scale 1, about 0.35 s on the development machine;
+ * measured 1.4 ns per step). There the two methods agree within 2 × 10⁻¹³ (measured from β = 2 to 31.9 at R = 8 to 32), and the
+ * real-space work is 3 to 200 times smaller (β = 31.9, R = 32: 34 s against 0.15 s per wavelength).
+ */
+const AIRY_FREQUENCY_DOMAIN_MAXIMUM_STEPS = 2.5e8;
+/** Whether (β, R) is integrated in real space; the test-only node scale does not change the method. */
+function useRealSpace(beta: number, radius: number): boolean {
+  if (beta >= AIRY_REAL_SPACE_MINIMUM_BETA) return true;
+  const c = Math.PI * beta * (2 * radius + 1) * Math.SQRT2, margin = 10 * Math.cbrt(c) + 24;
+  const radialNodes = Math.ceil(c + margin), angularNodes = Math.ceil((c + margin) / 4) + 1;
+  return radialNodes * angularNodes * (radius + 1) * (radius + 1) > AIRY_FREQUENCY_DOMAIN_MAXIMUM_STEPS;
 }
 /**
  * Memoized cell energies (2.6): 800 entries of (R + 1)² values, at most 800 × 33² × 8 bytes ≈ 7.0 MB. 2.15.0: 800 (was 256), so the
