@@ -1837,6 +1837,13 @@ root exports of the built package, minified, gzip level 9; `test/capture-bundle.
   includes #662's (+95 B) and #685's (+44 B) Quality kit code as measured on their branch. The 49,400 B on-demand target
   stays.
 
+  **2.28.0 step 7 (#661, owner decisions 2026-11-21 on #661 and #691).** The catalogue-lens passes are their own on-demand chunk
+  and their own row, "lens" (10,200 B, limit 10,200 B). The GPU Quality host's lens hook and loader and the facade wiring add to the
+  other rows: on demand 50,700 B, fast worker 337,192 B (the entry's small chunks fold differently once the lens chunk exists; 24
+  chunks), export 10,398 B. Per the owner's rule for 2.28.0 (each limit the release tree's measurement rounded up to the next 100 B,
+  at or below 2.27.0's: fast 338,900 B, on demand 52,000 B) the branch's limits are fast 337,200 B and on demand 50,700 B; they are
+  set again at release integration.
+
   **2.28.0 step 7 (#715).** The GPU Quality host counts an image-plane print's pixel records in its band size through the print's
   passes (`bandBytes`, which replaces the per-point multiplier), and reads the print's site-pass node count from the gather:
   on demand 50,400 B (+9 B, at its limit); fast worker 337,720 B and export 10,399 B unchanged.
@@ -1957,7 +1964,11 @@ with that reason for `"require"`:
    own `signal` aborts the acquisition. A disposed accelerator handle is a configuration error; one on the CPU reference
    gives its own fallback reason (`webgpu-unavailable` when it has none).
 4. A request with `lens.projection`, `lens.distortion`, `lens.vignetting` or camera rotation (#563) gives
-   `unsupported-on-backend` before the device step, with no adapter requested: the CPU reference renders it.
+   `unsupported-on-backend` before the device step, with no adapter requested: the CPU reference renders it. #661: a
+   `lens.catalogue` view with a radial distortion is the exception; the request describes it (`lensView`) and the renderer
+   takes a still, rectilinear view in field zones without `flare` on its lens passes ([WebGPU, Catalogue lenses on the
+   GPU](WEBGPU.md#catalogue-lenses-on-the-gpu-655)); rotation, hand shake, a moving subject, `fast: false`, a fisheye and
+   `flare` run the CPU reference labelled `unsupported-on-backend` with the reason.
 5. The renderer must support the request (AHD, diffraction, the anti-aliasing filter, the pixel aperture, the tone curve
    and the scene kind: a chart or `material-layers`, not a caller function): `unsupported-on-backend` otherwise, and a device
    the view acquired is released.

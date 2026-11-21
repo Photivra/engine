@@ -218,6 +218,8 @@ export interface DisplayViewMaterialModules {
   moduleFor(gpu: DisplayViewGpuSetup, signal: AbortSignal): Promise<DisplayViewGpuMaterialModule>;
   /** #581: an image-plane print's Quality passes (after `prepareImagePlaneScenes()`), or an `unsupported-on-backend` error. */
   imagePasses(gpu: DisplayViewGpuSetup, signal: AbortSignal): Promise<DisplayViewQualityImagePasses>;
+  /** #661: the composite kernel's device probe (once per renderer, single flight), which the catalogue-lens passes take too. */
+  probe(signal: AbortSignal): Promise<ChartCompositeProbeRecord>;
   /** Uploaded scenes (for tests). */
   readonly uploadedScenes: number;
   release(): void;
@@ -269,6 +271,7 @@ export function createDisplayViewMaterialModules(runtime: WebGpuRuntime, pipelin
         { binding: 2, kind: "uniform", data: new Uint8Array(lattice.params) }, { binding: 3, kind: "storage", data: lattice.offsets }] };
     },
     async imagePasses(gpu, signal): Promise<DisplayViewQualityImagePasses> { return await (await imageModules()).qualityPasses(gpu, signal); },
+    probe,
     get uploadedScenes(): number { return uploads.length; },
     release(): void { for (const entry of uploads.splice(0)) entry.scope.release(); images?.release(); }
   };

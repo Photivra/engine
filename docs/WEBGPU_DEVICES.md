@@ -36,6 +36,34 @@ Reading the rows:
 - The two rows on ae0f8f4 are the 2.17.0 release gate, after #564 added the GPU refusal of discs above 64 sites: both pass, and the refusal is confirmed on the device.
 - The two rows on b8af756 are the 2.19.0 release gate, after the integration moved shared helpers in `src/gpu` (no WGSL or dispatch change): both pass.
 
+## Release gate: catalogue lenses on the GPU (#655)
+
+The catalogue-lens passes ([Catalogue lenses on the GPU](WEBGPU.md#catalogue-lenses-on-the-gpu-655)) ship in a release only after a hardware run passes on the device of record. If the run fails, they move to the next release and #655 stays open.
+
+**Devices.** The Apple M5 Pro of the rows above (WebGPU on Metal), the device of record. A run on any other hardware adapter (a discrete or integrated GPU on Windows, Linux or macOS) adds a row of its own. A software adapter (SwiftShader) is not a hardware run.
+
+**What to run**, on the release branch's commit, in the repository:
+
+```sh
+npm ci
+npm run test:webgpu:hardware -- test/webgpu/display-view-lens.webgpu.ts 2>&1 | tee webgpu-lens-hardware.log
+npm run test:webgpu:hardware 2>&1 | tee webgpu-hardware.log
+```
+
+- The first command runs the catalogue-lens file alone (about a minute): five views through `pv-50-1.2-pro` at f/8 and `pv-16-2.8` wide open (the app's composite chart, a Siemens star, dead leaves, a `material-layers` scene, and the 2 × 2 box with the four-spot filter on a fixed-size chart), the lens self-check case, and the timing of a 96 × 64 part of a 2028 × 1352 view of a 6000 × 4000 frame (the point aperture) through the catalogue lens and through the 50 mm prime, both on the GPU. The script sets `PHOTIVRA_WEBGPU_REQUIRE_HARDWARE=1`, so a software adapter fails every test and the timing is asserted.
+- The second command is the whole suite. The catalogue-lens passes change the Quality host (`src/gpu/display-view-quality-gpu.ts`), so its files must pass too.
+- #661: the suite drives the lens passes through a test fixture. The public path (`prepareDisplayView` with `gpu: "auto"`) is the acceptance harness's `app-lens` case: `npm run accept:gpu:hardware -- --charts app-lens --options speed` must pass with the case on `webgpu-f32`.
+- If the run reports a software adapter or no adapter, follow [Running on hardware](WEBGPU.md#running-on-hardware) (`PHOTIVRA_WEBGPU_HEADLESS=0`, `PHOTIVRA_WEBGPU_BROWSER`).
+
+**What passes.**
+
+- All seven tests of `test/webgpu/display-view-lens.webgpu.ts` pass. For each view: every component's expected value and variance inside the result's a-priori bound, every 8-bit sample within one code of the reference, every flagged pixel recomputed with the reference (its samples equal the reference's), and every pixel's highlight count the reference's. The self-check case `display-view:lens:checkerboard-13x9-zones` passes.
+- The timing test passes: the catalogue part's GPU time is at most 3× the prime part's (the median of five warm renders each, through the combined renderer on one device). The log's report prints `catalogueMilliseconds`, `primeMilliseconds` and `catalogueOverPrime`; copy them into the row.
+- The whole suite passes (no test fails or is skipped).
+- The report's adapter line shows `softwareAdapter: false`.
+
+**Record** the run as a row of the table above ("Adding a row" below), with the engine commit, the two logs' results and the three timing figures, and post the same facts on #655.
+
 ## Adding a row
 
 1. Run the suite or the bench as [Running on hardware](WEBGPU.md#running-on-hardware) describes; with `PHOTIVRA_WEBGPU_TIMING_OUT`, save the bench's JSON report under `docs/validation/webgpu-devices/` named by date and device.

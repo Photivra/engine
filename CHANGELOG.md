@@ -311,6 +311,19 @@
   for byte; the Quality image-plane cases' bytes equal the previous commit's). On-demand row 50,391 → 50,400 B (limit 50,400 B):
   the host's hook replaces the per-point multiplier, and the image-plane site pass's node count is read from the gather.
 
+- **Catalogue-lens display views on the GPU (#661).** A still, rectilinear `lens.catalogue` view in field zones (its fast method),
+  without `flare`, on a chart or `material-layers` scene, now renders on `webgpu-f32` with `gpu: "auto"`; before, every catalogue
+  view ran the CPU reference labelled `unsupported-on-backend`. Passes 1 and 2 (the lens lattice in double-float32, the
+  pre-integrated points, the sites through each zone's PSF) are the 2.27.0 G1 work (#655), rebased; pass 3, the finishing and the
+  recomputation of flagged pixels (through the view's own lens signal) are the Quality host's. `simulateCapture` keeps the raw
+  geometry and lens-signal setup of a radial-distortion view for `setup.gpu.lens`, and `DisplayViewGpuRequest.lensView` describes it;
+  rotation, hand shake, a moving subject, `fast: false`, a fisheye and `flare` stay on the CPU with the reason. The passes use the
+  renderer's composite-kernel probe (no second cache per device). Layout B of the 2.28.0 review: the lens code is its own on-demand
+  chunk, which only the Quality host loads, importing no module statically; its bundle row "lens" measures 10,200 B (owner decision
+  2026-11-21). Other rows: on demand 50,700 B, fast worker 337,192 B, export 10,398 B. CPU results are unchanged; the lens shaders'
+  text is G1's. Conformance: every value inside its bound on the emulation, SwiftShader and the Apple M5 Pro. The acceptance
+  harness gains an `app-lens` case for the public path.
+
 ### Benchmarks
 
 - **The batch-figure benchmark and its hash locks (#670, 2.28.0 step 2); no package, API, output or bundle change.**

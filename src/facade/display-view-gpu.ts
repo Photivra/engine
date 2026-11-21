@@ -20,6 +20,8 @@ import type { ChartCompositeProbeRecord, ImageKernelAdapterDescription, ImageKer
 import type { DisplayViewRenderResult, DisplayViewSetup } from "./display-view.js";
 import type { SimulateCaptureFastReport } from "./simulate-capture.js";
 import type { SdrToneCurve } from "../output/sdr-rendering.js";
+import type { DisplayViewLensSetup } from "./display-view-lens-signal.js";
+import type { DefocusImageSpaceGeometry } from "./defocus-image-space-provider.js";
 
 /**
  * 2.11 (#481): whether a prepared display view may render on the GPU. `"off"` (the default) is the CPU reference, today's
@@ -162,8 +164,16 @@ export interface DisplayViewGpuRequest {
   /**
    * #563: true when the request has `lens.projection`, `lens.distortion`, `lens.vignetting` or camera rotation: the CPU reference
    * renders it (display-view-lens-signal.ts) and no GPU renderer is asked or device requested (`unsupported-on-backend`).
+   * #655 (G1): unless {@link lensView} describes it; the engine's renderer then takes a still catalogue-lens view on its lens passes.
    */
   lens?: boolean;
+  /**
+   * #655 (G1): with `lens`, the form of the lens signal, for the renderer's choice: `catalogueZones`, a catalogue lens's PSF in field
+   * zones (its fast method; false for lens.projection, lens.distortion or lens.vignetting alone, and for the PSF at every site of
+   * `fast: false`); `still`, one instant (no camera rotation, hand shake or moving subject); `rectilinear`, the rectilinear projection
+   * (no fisheye); `flare`, lens.catalogue.flare's veiling glare. Absent with `lens`: no GPU renderer is asked (the #563 rule above).
+   */
+  lensView?: { catalogueZones: boolean; still: boolean; rectilinear: boolean; flare: boolean };
   /** #628: true with `output.lensCorrections` or `output.sharpening`: the CPU reference renders them (display-view-detail.ts). */
   detail?: boolean;
   /** #652: true for a layered chart scene of more than one surface: the CPU reference renders it (layered-scene-signal.ts) in 2.27.0. */
@@ -176,6 +186,13 @@ export interface DisplayViewGpuRequest {
   /** The scene's form: an engine chart, a declared `material-layers` scene (#491), or a caller function. */
   scene: "chart" | "material-layers" | "material-function" | "reflectance-function" | "radiance-function" | "image-plane";
 }
+/**
+ * #655 (G1): what a GPU renderer needs of a lens view beyond its expected-signal input (`DisplayViewGpuSetup.lens`): the lens signal's
+ * setup (its geometry is the reference's, the host checks its model against it and resolves flagged lattice points with it) and the
+ * raw geometry the setup's `geometry` was prepared from (`prepareDefocusImageSpaceGeometry`'s input: focal length, focus, rotation,
+ * the prepared lens mapping and the vignetting profile), whose coefficients the GPU lens passes evaluate.
+ */
+export interface DisplayViewLensGpuInput { lens: DisplayViewLensSetup; geometry: DefocusImageSpaceGeometry }
 /** One render of a region: the CPU renderer's own setup (tables, readout, demosaic, region, callbacks) and the render's signal. */
 export interface DisplayViewGpuPart { setup: DisplayViewSetup; signal: AbortSignal | undefined }
 /** What a GPU render returns: the CPU renderer's result shape plus the a-priori bound of its values against the reference. */
