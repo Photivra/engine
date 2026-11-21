@@ -231,6 +231,33 @@
   identical; `diagnostics.providerEvaluationCount` unchanged. Mixed lighting, caller function scenes, the display view and the
   defocus and diffraction providers keep their own handling. Tests: `test/simulate-capture-subject-motion.test.ts`.
 
+### Output changes (2.28.0 step 5)
+
+Each item below is one commit of the serial output-change lane, with its measured effect and the hash locks it re-records.
+
+- **A fast catalogue-lens region takes the whole frame's method (#733).** The run-time check of `lens.catalogue`'s fast method
+  (#568) read the region's own top-left 2 × 2 block, so a region that started on fine detail failed the 0.5 % check there and
+  rendered with the exact method while the whole frame took the fast one (480 × 320 Siemens star, PV 50 1.8 at f/1.8, `fast: true`:
+  the region at 216, 144, 48 × 32 differed from the same pixels of the whole frame in 392 of 4,608 samples, by up to 421 16-bit
+  codes). The check now reads two blocks fixed by the whole frame, its top-left 2 × 2 block and the block at its centre (eight
+  sites; a region reads them through providers windowed to each block), so a frame and all its regions take one method and a
+  region equals the same pixels of the whole render (`test/simulate-capture-lens-catalogue-fast-region.test.ts`). Per-site
+  integration of both methods is unchanged; only where the check reads moved. No new grid step (owner decision 2026-11-21).
+  - *Measured effect.* Whole frames that take the fast method today and fail the centre check now take the exact method. Over
+    the catalogue wide open (30 lenses without the phone set, Siemens star, slanted edge, 16-square checkerboard and dead leaves,
+    `fast: true`, sRGB-8): 480 × 320 and 768 × 512, 0 of 240 frames fall back, before and after, and every frame's samples are
+    unchanged; 96 × 64 and 192 × 128, 11 of 240 frames now fall back (all at 96 × 64, Siemens star or checkerboard, PV 16 2.8,
+    PV 20 2, PV 24 1.8, PV 35 1.8, PV 85 1.8, PV 100 2 and PV 200 5.6), against 0 before; their samples change to the exact
+    method's. Fallback rate over the 480 frames: 2.3 %, all on frames 96 pixels wide.
+  - *Reports.* `raw.expectedSignal` of the catalogue paths says `verificationSites: 8`; `fast.lens.catalogue`'s
+    `gridPointsResolved` counts the centre block's grid points too.
+  - *Locks.* No samples, codes or display-view lock moves (arm64, and x64 Node 24.1.0 under Rosetta). Re-recorded for #733: the
+    `assumptions` digests of `PV 24 1.8 fast` and `PV 100 2.8 Macro Pro close, chart size` in `test/lens-catalogue-optics-pins.test.ts`
+    (the report fields above; the same on both architectures). `test/lens-catalogue-flare.test.ts`'s fast case uses 7 squares instead
+    of 6, so that its frame centre lies inside a square (on the corner of four, the 4-cell grid is over the check's tolerance and
+    the capture now takes the exact method).
+  - *Bundle.* Fast row 337,720 → 337,829 B (+109 B), 29 B over its 337,800 B limit, which is not raised: open for the owner.
+
 ### Display view
 
 - **Display view: Recover and +1 stop without Standard under its time target (#662); output unchanged.** With the identity tone

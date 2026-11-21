@@ -13,7 +13,8 @@
  * unchanged.
  *
  * Verification at run time: one site of each CFA phase runs the full chain (planning, the evaluator's callbacks, composition,
- * parsing and `calculateNativeRawSite`). Its readout template must reproduce that site bit for bit, and its tabulated
+ * parsing and `calculateNativeRawSite`): the region's top-left 2 × 2 block or, with `frameChecks` (#733), the frame's top-left block
+ * and the block at its centre, so the outcome is the same for the whole frame and every region of it. Its readout template must reproduce that site bit for bit, and its tabulated
  * electrons must agree with the chain's within `TABULATED_RELATIVE_TOLERANCE`; otherwise the caller runs the environment task.
  * #453: the chain's photo signal comes from `executeEngineOwnedEnvironmentPhotoSignal`, the same operations and values as
  * `executeEnvironmentSensorPhotoSignal` for these engine-built records, without re-validating records that cannot have changed.
@@ -81,6 +82,12 @@ export interface TabulatedNativeRawInput {
    * approximates the chain (`lens.catalogue`'s field-grid PSF) passes its own measured bound.
    */
   relativeTolerance?: number;
+  /**
+   * #733: verify at the whole frame's top-left 2 × 2 block and at the block at its centre (x, y = the even sites nearest below
+   * half the raster), not at the region's own block, each block through the evaluator this returns for its top-left site. A fast
+   * method whose check depends on where it reads (`lens.catalogue`'s field grid) then takes one outcome for a frame and all its regions.
+   */
+  frameChecks?: (x: number, y: number) => EnvironmentRadianceEvaluator;
   yieldControl(): Promise<void>;
   checkAbort(): void;
 }
@@ -121,21 +128,22 @@ export async function renderTabulatedNativeRaw(t: TabulatedNativeRawInput): Prom
   const region = t.region ?? { x: 0, y: 0, width: W, height: native.pixelHeight };
   if (region.width < 2 || region.height < 2) return undefined;
   const seed = plan.exposure.noise.seedUint32, b = EXPOSURE_BUILD_UP_STAGES.get(t.input.raw), schedule = plan.exposureWindow, memo = createEnvironmentRawFrameCanonicalMemo(plan.frame, schedule);
-  let evaluations = 0;
-  const evaluate: EnvironmentRadianceEvaluator = (request) => { evaluations++; return t.evaluateRadiance(request); };
-  // The counting wrapper returns the evaluator's own results, so they are engine-built exactly when the evaluator is.
-  const engineBuiltResults = isInternalSceneRadianceEvaluator(t.evaluateRadiance);
-  // Verification: the region's top-left 2 × 2 block, one site per CFA phase, through the full chain.
-  const readouts: NativeSiteReadout[] = [];
+  let evaluations = 0, own = t.evaluateRadiance;
+  const evaluate: EnvironmentRadianceEvaluator = (request) => { evaluations++; return own(request); };
+  // Verification: the region's top-left 2 × 2 block (or the frame's two blocks, #733), one site per CFA phase, through the full chain.
+  const readouts: NativeSiteReadout[] = [], f = t.frameChecks;
   let worst = 0;
-  for (let k = 0; k < 4; k++) {
-    const x = region.x + (k & 1), y = region.y + (k >> 1), index = y * W + x, site = t.siteInput(index);
+  for (let k = 0; k < (f ? 8 : 4); k++) {
+    const x = (k > 3 ? W >> 2 << 1 : f ? 0 : region.x) + (k & 1), y = (k > 3 ? native.pixelHeight >> 2 << 1 : f ? 0 : region.y) + (k >> 1 & 1), index = y * W + x, site = t.siteInput(index);
+    if (f && !(k & 3)) own = f(x, y);
+    // The counting wrapper returns the evaluator's own results, so they are engine-built exactly when the evaluator is.
+    const engineBuiltResults = isInternalSceneRadianceEvaluator(own);
     const full = planEnvironmentRawSite(site, index, plan.frame, sceneBinding, schedule, "engine-owned", memo, "photo-only");
     // #453: the chain for these engine-built site records (the same operations and values as executeEnvironmentSensorPhotoSignal,
     // without re-validating records that have not changed; see executeEngineOwnedEnvironmentPhotoSignal).
     const photoResult = executeEngineOwnedEnvironmentPhotoSignal(full, evaluate, engineBuiltResults), photo = photoResult.value.photoSignal;
     tabulatedVerificationStatistics.chainExecutions++;
-    if (testHook?.fullPhoto) testHook.fullPhoto(photoResult, executeEnvironmentSensorPhotoSignal(full, t.evaluateRadiance, undefined, "photo-only").value.photo);
+    if (testHook?.fullPhoto) testHook.fullPhoto(photoResult, executeEnvironmentSensorPhotoSignal(full, own, undefined, "photo-only").value.photo);
     const timing = calculateCaptureExposureWindows({ ...schedule, nativeRaster: native, samplePointsNative: [{ x: x + 0.5, y: y + 0.5 }] }).value.samples[0];
     const parsed = parseNativeRawProducerSite(composeNativeEnvironmentSensorSite(site, photo), index, plan.frame, timing);
     const result = calculateNativeRawSite(parsed, seed, index, b);

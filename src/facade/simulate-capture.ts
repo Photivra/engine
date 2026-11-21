@@ -3883,6 +3883,8 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
     // #603: the grid follows the request's quality: 2.20.0's faster grid on a fast request (but for the measured lenses that keep the
     // full one), the full one on an exact one.
     const gridSubdivisions = lensKit!.catalogueFastGridSubdivisions(catalogue!.lensId, fastTop);
+    // #733: the check reads the whole frame's top-left and centre 2 × 2 blocks (a region's own provider covers only the region, so
+    // there each block is read through a provider windowed to it; the window never changes a value), so every region takes the frame's method.
     // #632: with flare, an exact request takes each site's exact kernels (the exact method's sum), and a fast one whose check fails does too.
     const render = async (exactKernels: boolean): Promise<typeof tabulated> => {
       const signal = lensKit!.createCatalogueLensSignal({ nativeWidth, nativeHeight, pitch, psf: lensPsf!.configuration.psf, wavelengthsNm: wavelengths, electronsPerRadiance: perNode, gridSubdivisions,
@@ -3893,7 +3895,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
         // #629: the box pixel aperture's N × N nodes (midpoint rule, equal weights), folded into each lattice point's scene value.
         ...(boxSamples > 1 ? { queryOffsets: apertureNodeOffsets(boxSamples).map((o) => ({ ...o, weight: 1 / (boxSamples * boxSamples) })) } : {}) });
       const out = await renderTabulatedNativeRaw({ input: environmentRaw, region: regionNative, siteInput, evaluateRadiance: rawProvider().evaluateRadiance,
-        electrons: signal, relativeTolerance: lensKit!.CATALOGUE_FAST_VERIFICATION_TOLERANCE, onTile: rawTick, tileWidth, yieldControl: () => yieldControl(), checkAbort,
+        electrons: signal, relativeTolerance: lensKit!.CATALOGUE_FAST_VERIFICATION_TOLERANCE, frameChecks: (x, y) => diffractedProvider({ x, y, width: 2, height: 2 }).evaluateRadiance, onTile: rawTick, tileWidth, yieldControl: () => yieldControl(), checkAbort,
         ...(signal.veiled ? { adjust: signal.veiled } : {}) });
       if (out && !exactKernels) catalogueFastRun = { ...signal.grid, verificationRelativeDifference: out.verificationRelativeDifference, subdivisions: gridSubdivisions, boxSamples };
       return out;
@@ -3937,8 +3939,8 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   }
   else if (tabulated && veil && !catalogueFastRun) {
     rawOutput = { raw: tabulated.raw, providerEvaluationCount: tabulated.providerEvaluationCount };
-    assume("raw.expectedSignal", "model", { method: "per-site-integrated-electrons-catalogue-psf-exact-kernels", verificationSites: 4, tolerance: lensKit!.CATALOGUE_FAST_VERIFICATION_TOLERANCE },
-      "#632: the exact method's sum per site (each site's own PSF), checked against the exact chain at one site per CFA phase.");
+    assume("raw.expectedSignal", "model", { method: "per-site-integrated-electrons-catalogue-psf-exact-kernels", verificationSites: 8, tolerance: lensKit!.CATALOGUE_FAST_VERIFICATION_TOLERANCE },
+      "#632: the exact method's sum per site (each site's own PSF), checked against the exact chain at the frame's top-left and centre 2 × 2 blocks.");
   }
   else if (tabulated && catalogueFastRun) {
     rawOutput = { raw: tabulated.raw, providerEvaluationCount: tabulated.providerEvaluationCount };

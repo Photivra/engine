@@ -63,9 +63,11 @@ describe("catalogue captures without flare or breathing (#631, #632)", () => {
   }, scaledTimeout(300_000));
 });
 
+// 2.28.0 (#733): the two fast cases' `assumptions` digests re-recorded: their check reads the frame's top-left and centre blocks
+// (raw.expectedSignal verificationSites 8 and its text, fast.lens.catalogue gridPointsResolved); samples and codes unchanged.
 const PINS: Record<string, Record<string, string>> = {
-  "PV 24 1.8 fast": { samples: "5e02b2f4be51b560", codes: "f97541696387f501", assumptions: "a7a44d0f12b38b7b" },
-  "PV 100 2.8 Macro Pro close, chart size": { samples: "b77ba45604470c0a", codes: "dc24930e926963f6", assumptions: "cb47f4a338aa9e07" },
+  "PV 24 1.8 fast": { samples: "5e02b2f4be51b560", codes: "f97541696387f501", assumptions: "8e38a066cb25ec23" },
+  "PV 100 2.8 Macro Pro close, chart size": { samples: "b77ba45604470c0a", codes: "dc24930e926963f6", assumptions: "12e745ae80018801" },
   "PV 15 2.8 Fisheye Pro exact, chart size": { samples: "f2fa557623a3be59", codes: "72979384de3ef81e" },
   "PV 8 3.5 Fisheye Pro fast, chart size": { samples: "1333add135ce336f", codes: "3f33f092ac4dd8c8" },
   "PV 50 1.8 display view": { samples: "51b018180f574ca8" }
