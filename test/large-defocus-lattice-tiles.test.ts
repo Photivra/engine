@@ -3,7 +3,7 @@
 // whatever the lattice's share of the cache. Values are unchanged (each node's gather reads the same run-tile values).
 import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
-import { createLargeDefocusNodeLattice, LARGE_DEFOCUS_CACHE_BYTES, LARGE_DEFOCUS_TILE } from "../src/facade/large-defocus-lattice.js";
+import { createLargeDefocusNodeLattice, LARGE_DEFOCUS_CACHE_BYTES, LARGE_DEFOCUS_TILE, type LargeDefocusNodeLattice } from "../src/facade/large-defocus-lattice.js";
 import { siteKernelRuns } from "../src/optics/site-kernel-runs.js";
 import { simulateCapture } from "../src/index.js";
 
@@ -24,7 +24,7 @@ function diffraction(nm: number): Float64Array {
   return k;
 }
 
-function lattice(nodes: number, lattices: number) {
+function lattice(nodes: number, lattices: number): { L: LargeDefocusNodeLattice; sources: () => number } {
   const wavelengthsNm = Array.from({ length: nodes }, (_, n) => 400 + (300 * n) / Math.max(1, nodes - 1));
   let sources = 0;
   const L = createLargeDefocusNodeLattice({
@@ -32,7 +32,7 @@ function lattice(nodes: number, lattices: number) {
     wavelengthsNm, capacityBytes: LARGE_DEFOCUS_CACHE_BYTES / lattices,
     source: (x0, y0, width, height) => {
       sources++;
-      return (node) => {
+      return (node): Float64Array => {
         const out = new Float64Array(width * height);
         for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) out[y * width + x] = 0.5 + 0.4 * Math.sin((x0 + x) * 0.37 + (y0 + y) * 0.11 + node);
         return out;
@@ -65,17 +65,17 @@ describe("large defocus lattice with diffraction (#734)", () => {
     const a = readBlock(small.L, 20), b = readBlock(large.L, 20);
     expect(a).toEqual(b);
     // A block across a tile corner reads four diffraction tiles and the same values from either share.
-    const corner = (L: typeof small.L) => { const v: number[] = []; for (let y = LARGE_DEFOCUS_TILE - 3; y < LARGE_DEFOCUS_TILE + 3; y++) for (let x = LARGE_DEFOCUS_TILE - 3; x < LARGE_DEFOCUS_TILE + 3; x++) for (let n = 0; n < 20; n++) v.push(L.valueAt(n, x, y)); return v; };
+    const corner = (L: LargeDefocusNodeLattice): number[] => { const v: number[] = []; for (let y = LARGE_DEFOCUS_TILE - 3; y < LARGE_DEFOCUS_TILE + 3; y++) for (let x = LARGE_DEFOCUS_TILE - 3; x < LARGE_DEFOCUS_TILE + 3; x++) for (let n = 0; n < 20; n++) v.push(L.valueAt(n, x, y)); return v; };
     expect(corner(small.L)).toEqual(corner(large.L));
   });
   it("renders the issue's 3 × 3 box request at no more than 4 × the CPU of its 2 × 2 box (37 × before)", async () => {
-    const request = (samplesPerAxis: number) => ({ scene: { preset: "siemens-star" as const }, subjectDistanceM: 5, fast: false,
+    const request = (samplesPerAxis: number): Parameters<typeof simulateCapture>[0] => ({ scene: { preset: "siemens-star" as const }, subjectDistanceM: 5, fast: false,
       sensor: { pixelAperture: { kind: "box" as const, samplesPerAxis } },
       lens: { focalLengthMm: 50, fNumber: 4, focusDistanceM: 0.5, defocus: { model: "geometric-disc" as const }, diffraction: "circular-aperture" as const },
       output: { width: 600, height: 400, format: "srgb-16" as const, region: { x: 292, y: 194, width: 16, height: 12 } } });
     const sha = (a: ArrayBufferView): string => createHash("sha256").update(new Uint8Array(a.buffer, a.byteOffset, a.byteLength)).digest("hex");
     const raws: Record<number, string> = {};
-    const cpu = async (n: number) => { const t = process.cpuUsage(); const r = await simulateCapture(request(n)); const d = process.cpuUsage(t); raws[n] = sha(r.raw.codes); return (d.user + d.system) / 1e6; };
+    const cpu = async (n: number): Promise<number> => { const t = process.cpuUsage(); const r = await simulateCapture(request(n)); const d = process.cpuUsage(t); raws[n] = sha(r.raw.codes); return (d.user + d.system) / 1e6; };
     await cpu(2);
     const two = await cpu(2), three = await cpu(3);
     // Expected about 9/4; 4 leaves room for a loaded machine (before: 108 s against 3 s).

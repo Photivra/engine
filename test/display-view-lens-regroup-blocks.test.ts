@@ -16,12 +16,13 @@ function disc(R: number): Float64Array {
   return k;
 }
 
-function signal(bandRows = BAND) {
+type Blocks = ReturnType<typeof createRollingRegroupedLensSignal>;
+function signal(bandRows = BAND): { s: Blocks; sites: () => number } {
   let sites = 0;
   const input = { nativeWidth: W, nativeHeight: H, largeKernel: siteKernelRuns(disc(D), D), kernels: { radius: 0, perNode: [] },
     channelAt: (x: number, y: number) => (x & 1) + (y & 1) } as unknown as DisplayViewExpectedSignalInput;
   const s = createRollingRegroupedLensSignal({ input, bandRows, instantsOfRow: (y) => [y * 1e-3, y * 1e-3 + 5e-4],
-    inFocus(x0, y0, w, h, instants, channels) {
+    inFocus(x0, y0, w, h, instants, channels): Float64Array[] {
       sites += w * h;
       return [0, 1, 2].map((c) => {
         const out = new Float64Array(w * h);
