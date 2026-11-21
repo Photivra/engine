@@ -6,7 +6,6 @@
  */
 
 import { imagePlaneSupport, setImagePlaneSupport } from "./image-plane-support.js";
-import { loadOnDemandCode } from "./on-demand-code.js";
 
 /**
  * 2.21 (#581): enables `{ kind: "image-plane" }` scenes (a photo as a flat print, docs/IMAGE_PLANE.md) in this JavaScript realm by
@@ -15,5 +14,5 @@ import { loadOnDemandCode } from "./on-demand-code.js";
  * message saying so.
  */
 export async function prepareImagePlaneScenes(): Promise<void> {
-  if (!imagePlaneSupport()) setImagePlaneSupport(await loadOnDemandCode("image-plane scene", () => import("./image-plane.js")));
+  if (!imagePlaneSupport()) setImagePlaneSupport(await import("./image-plane.js"));
 }

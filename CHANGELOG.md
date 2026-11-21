@@ -286,22 +286,7 @@
     `provenance.composedContracts` names the resolver that ran (`resolveAperturePriorityAutoIsoExposureMode` with Auto ISO in
     aperture priority, and the manual or shutter-priority resolver when a flash alone lights the scene); `exposure.referenceExposure`
     states the base-ISO anchor of a profile whose base ISO is above 100.
-  - *Chart options (`facade-15`).* The `line-grid` `spacing` and dead-leaves `radiusMaximum` JSDoc state the open bound (2 is refused,
-    as before). The dead-leaves lookup grid grows its cell when rounding both counts up passed the cell limit, so a chart that was
-    refused with "the chart aspect is too extreme for the lookup grid" renders (for example `radiusMinimum: 0.002` at aspect 4; a
-    chart that rendered keeps its grid and its values). `calculateBarGroupTargets` and `calculateSlantedSquareEdges` say that a
-    composite's `background` is not listed. A composite element too small for a finite scale (`width: 1e-320`) is refused instead
-    of failing later with a `TypeError`.
-  - *On-demand code that cannot load (`facade-18`).* The catalogue lens's code, the display view's lens signal,
-    `prepareImagePlaneScenes` and `prepareLayeredChartScenes` load through the kits' path (`src/facade/on-demand-code.ts`), so a
-    failed load rejects with `ImageKernelExecutionError` reason `quality-code-unavailable` (docs/RELEASE_2_22_0.md) instead of the
-    host's module error; a retry loads it.
-  - *`docs/LENS_CATALOGUE.md` (`facade-20`)* says that a fast display view reports `lens.catalogue` applied (its coarser field zones,
-    since 2.20.0) and a `fast: false` view does not.
-  - Tests: `test/facade-low-findings.test.ts`; `test/exposure-build-up.test.ts` pins the new shutter refusal. The metadata digests
-    that include the assumption texts are re-recorded for `facade-06` (`test/simulate-capture-optics.test.ts`,
-    `test/display-view-speed-material.test.ts`, `test/lens-catalogue-optics-pins.test.ts`, `test/sensor-profile-pins.test.ts`); with
-    the four texts reverted those files pass their old digests, so samples, RAW codes and internals are unchanged.
+  - Tests: `test/facade-low-findings.test.ts`; `test/exposure-build-up.test.ts` pins the new shutter refusal.
 
 ### Output changes (2.28.0 step 5)
 

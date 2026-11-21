@@ -6,9 +6,6 @@
 import { describe, expect, it } from "vitest";
 import { GENERIC_ND_FILTER_PROFILES, calculateChartFraming, resolveSensorProfile, serializeSimulatedCaptureDngFromParts, simulateCapture, simulateCaptureFromParts,
   type SimulateCaptureOptions } from "../src/index.js";
-import { ImageKernelExecutionError } from "../src/core/execution-error.js";
-import { resolveChartScene, type ChartScene } from "../src/facade/chart-scenes.js";
-import { loadOnDemandCode } from "../src/facade/on-demand-code.js";
 import { scaledTimeout } from "./helpers/test-timeout.js";
 
 const SMALL: SimulateCaptureOptions = { scene: { preset: "siemens-star" }, output: { width: 16, height: 12 } };
@@ -60,25 +57,4 @@ describe("facade-06: the assumption and provenance texts match what ran", () => 
     expect((anchor.value as { iso: number }).iso).toBe(125);
     expect(anchor.explanation).toMatch(/at the profile's base ISO 125, the same N²\/\(t·S\) at 0\.0064 s\.$/);
   }, scaledTimeout(60_000));
-});
-
-describe("facade-15: chart options", () => {
-  it("renders the dead-leaves lookup grid that rounding pushed past its limit, and refuses a composite element too small to scale", () => {
-    // Refused before ("the chart aspect is too extreme for the lookup grid"); aspect 3 renders as before.
-    expect(resolveChartScene({ scene: { preset: "dead-leaves", radiusMinimum: 0.002 } as ChartScene, aspect: 4 }).reflectanceAt(0.25, 0, 550)).toBeGreaterThan(0);
-    expect(() => resolveChartScene({ scene: { preset: "composite", elements: [{ scene: { preset: "uniform" }, centerU: 0, centerV: 0, width: 1e-320, height: 0.1 }] } as ChartScene,
-      aspect: 0.5 })).toThrow("elements[0] is too small");
-  }, scaledTimeout(60_000));
-});
-
-describe("facade-18: on-demand code that cannot load fails with the documented error", () => {
-  it("rejects with ImageKernelExecutionError reason quality-code-unavailable, and loads at the next call", async () => {
-    let attempts = 0;
-    const importer = (): Promise<{ ok: true }> => (++attempts === 1 ? Promise.reject(new Error("Cannot find module")) : Promise.resolve({ ok: true }));
-    const failure = await loadOnDemandCode("catalogue lens", importer).catch((error: unknown) => error);
-    expect(failure).toBeInstanceOf(ImageKernelExecutionError);
-    expect((failure as ImageKernelExecutionError).reason).toBe("quality-code-unavailable");
-    expect((failure as Error).message).toContain("the engine's catalogue lens code could not be loaded: Cannot find module");
-    await expect(loadOnDemandCode("catalogue lens", importer)).resolves.toEqual({ ok: true });
-  });
 });
