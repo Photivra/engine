@@ -445,7 +445,7 @@ function requiredSourcePlane(
     SensorSpatioSpectralIrradianceReduction["responseScope"]
 ): SensorResponseSourcePlane {
   if (scope === "sensor-package-incident-effective-channel-response") return "sensor-package-incident";
-  if (scope !== "site-incident-effective-channel-response" && scope !== "site-incident-channel-filter-times-detector-eqe") throw new InvalidScientificInputError("reduction.responseScope is invalid.");
+  if (scope !== "site-incident-effective-channel-response" && scope !== "site-incident-channel-filter-times-detector-eqe") throw new InvalidConfigurationError("reduction.responseScope is invalid.");
   return "site-incident";
 }
 
