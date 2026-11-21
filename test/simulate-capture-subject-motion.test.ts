@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 import { describe, expect, it } from "vitest";
+import { createHash } from "node:crypto";
 import { InvalidConfigurationError, evaluateSrgbDecoding, prepareDisplayView, simulateCapture, simulateDisplayView, type SimulateCaptureOptions, type SimulateCaptureResult } from "../src/index.js";
 import { subjectSourcePoint } from "../src/motion/subject-motion.js";
 import { scaledTimeout } from "./helpers/test-timeout.js";
@@ -72,6 +73,46 @@ describe("subject motion (#551)", () => {
     const view = await simulateDisplayView({ ...request(32, 24), motion: { subject: {} } }, { width: 16, height: 12 }), stillView = await simulateDisplayView(request(32, 24), { width: 16, height: 12 });
     expect(view.image.samples).toEqual(stillView.image.samples);
     await expect(simulateCapture({ ...request(16, 8), motion: { subject: { velocityMPerSec: { x: 1e5 } } } })).rejects.toThrow(InvalidConfigurationError);
+  }, scaledTimeout(120_000));
+
+  it("keeps the bytes of moving-subject captures recorded before #676, and reads a material scene's materials once per tap", async () => {
+    const sha = (a: ArrayBufferView): string => createHash("sha256").update(new Uint8Array(a.buffer, a.byteOffset, a.byteLength)).digest("hex").slice(0, 16);
+    let calls = 0;
+    const mat = { kind: "material-function" as const, sceneId: "m", materials: [0.2, { kind: "color-patch" as const, patchId: "red" as const }],
+      materialAt: (u: number, v: number): number => (calls++, u * 3 + v > 0 ? 1 : 0) };
+    const edgeChart = { preset: "slanted-edge" as const }, region = (w: number, h: number, x = 0): { centerXM: number; centerYM: number; widthM: number; heightM: number } =>
+      ({ centerXM: x, centerYM: 0, widthM: w, heightM: h });
+    const cases: Record<string, Partial<SimulateCaptureOptions>> = {
+      "whole scene 0.5 m/s": { scene: edgeChart, motion: { subject: { velocityMPerSec: { x: 0.5 } } } },
+      "3 x 2 cm region, diagonal": { scene: edgeChart, motion: { subject: { velocityMPerSec: { x: 0.4, y: 0.3 }, region: region(0.03, 0.02, 0.01) } } },
+      "region rotating 40 rad/s": { scene: edgeChart, motion: { subject: { angularVelocityRadPerSec: 40, region: region(0.03, 0.02) } } },
+      "rolling shutter": { scene: edgeChart, motion: { subject: { velocityMPerSec: { x: 0.5 } }, shutter: "rolling" } },
+      "color patches, fast": { scene: { preset: "color-patches" }, fast: true, motion: { subject: { velocityMPerSec: { x: 0.5 }, region: region(0.05, 0.05) } } },
+      chartSize: { scene: edgeChart, chartSize: { widthM: 0.5 }, motion: { subject: { velocityMPerSec: { x: 0.5 }, region: region(0.1, 0.1) } } },
+      "material-function scene": { scene: mat as never, motion: { subject: { velocityMPerSec: { x: 0.5 }, region: region(0.1, 0.1) } } },
+      "mixed lighting": { scene: edgeChart, illumination: { sources: [{ illuminant: { kind: "cie-a" }, illuminanceLux: 300 }, { illuminant: { kind: "planckian", temperatureKelvin: 6500 }, illuminanceLux: 900 }],
+        blend: { kind: "linear-gradient", from: { u: -0.5, v: 0 }, to: { u: 0.5, v: 0 } } }, motion: { subject: { velocityMPerSec: { x: 0.5 }, region: region(0.1, 0.1) } } },
+      "output.region": { scene: edgeChart, output: { width: 48, height: 36, region: { x: 8, y: 8, width: 16, height: 12 } }, motion: { subject: { velocityMPerSec: { x: 0.5 } } } }
+    };
+    // RAW codes and samples by SHA-256 (first 16 hex digits), recorded on the code before #676.
+    const pinned = [
+      ["whole scene 0.5 m/s","78750a48ce337a0a","3c0642bee5e02032"],
+      ["3 x 2 cm region, diagonal","b6f4d8cb3012dc67","512a2a6fb6462bb9"],
+      ["region rotating 40 rad/s","2acc56c7504e91c7","b5c13fcf7e2e8bac"],
+      ["rolling shutter","d585fdae4f8d2e1a","ecdb50321b62552c"],
+      ["color patches, fast","cf05fd3f38f6b422","cb0c42f6d974b6ab"],
+      ["chartSize","78750a48ce337a0a","3c0642bee5e02032"],
+      ["material-function scene","7d6767f3f3d4c212","e0fdb266579da7c6"],
+      ["mixed lighting","cefbb39455f18fce","a99efc44a1ca0723"],
+      ["output.region","2fffb549ce744350","406a317af6f0fd6d"],
+    ];
+    for (const [name, codes, image] of pinned) {
+      calls = 0;
+      const r = await simulateCapture({ fast: false, output: { width: 48, height: 36 }, sensor: { spectralStepNanometers: 40 }, ...cases[name!] } as SimulateCaptureOptions);
+      expect([name, sha(r.raw.codes), sha(r.image.samples)]).toEqual([name, codes, image]);
+      // The material lookup: once per tap instead of twice per tap and spectral node (628,736 calls before #676).
+      if (name === "material-function scene") expect(calls).toBeLessThan(100_000);
+    }
   }, scaledTimeout(120_000));
 
   it("blurs a moving edge over v·T·m on the sensor", async () => {

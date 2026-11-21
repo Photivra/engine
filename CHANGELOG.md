@@ -34,6 +34,15 @@
   is the combination with `lens.pupilSampling`). Reported metadata changes for this input: the `sensor.temporalSampleCount`
   assumption (1), the `motion.subject` assumption (`atRest: true`), no `diagnostics.fast.applied["motion.subject"]`, and
   `diagnostics.providerEvaluationCount` (that of the still request). Tests: `test/simulate-capture-subject-motion.test.ts`.
+- **Faster: a moving subject on a chart or material scene (#676).** The moving scene's evaluator was treated as caller code (every
+  result fully re-validated) and had no material lookup, so the executor called it for every tap and spectral node. It is now
+  marked engine-built, and, under one illuminant, registered with a lookup that names the material each query reads (the base
+  scene's material where the subject shows, a reserved key for the revealed background), found with the moving scene's own
+  arithmetic; the executor still integrates every site and checks the lookup against its own evaluations. 160 × 120, best of two,
+  paired, machine under load: slanted edge exact 5.0–5.3 s → 0.50–0.57 s (8.7–10.0×, whole scene, regions, rotation, rolling
+  shutter), color patches fast 2.6–2.8 s → 0.36–0.41 s (6.8–7.3×); camera rotation alone unchanged. RAW codes and samples
+  identical; `diagnostics.providerEvaluationCount` unchanged. Mixed lighting, caller function scenes, the display view and the
+  defocus and diffraction providers keep their own handling. Tests: `test/simulate-capture-subject-motion.test.ts`.
 - **Tooling, CI and tests only (2.28.0 step 1); no package, API, output or bundle change.**
   - *Coverage gates decide per shard (#666, with `ci-07`).* Each coverage shard uploads one part, its blob report or a marker
     naming the `coverage` proof it found; `.github/coverage-parts.mjs` merges ten blobs with the thresholds enforced, passes a

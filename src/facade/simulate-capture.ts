@@ -2681,10 +2681,12 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   // #551: the moving subject's scene; renderers read it at each query's time. The revealed background is a neutral 18 % reflectance
   // under the plane's irradiance at the revealed point: the illuminant, or (#550) the blend and point sources there, from the spectrum.
   const half = chartSize ? chartSize.widthM / 2 / metresPerFrameUnit : 1;
+  const revealed = (scale: number, shape: (nm: number) => number, light?: ResolvedMixedIllumination) => (u: number, v: number, nm: number): number =>
+    0.18 * (light ? light.irradianceAt(u / half, v / half, u * metresPerFrameUnit, v * metresPerFrameUnit, nm) : scale * shape(nm)) / Math.PI;
   const movingScene = subject ? (base: PlanarSceneRadianceProvider, scale: number, shape: (nm: number) => number, light?: ResolvedMixedIllumination): PlanarSceneRadianceProvider =>
-    loadedKit(optInKit).createSubjectMotionProvider(base, subject, subjectDistanceM, metresPerFrameUnit,
-      (u, v, nm): number => 0.18 * (light ? light.irradianceAt(u / half, v / half, u * metresPerFrameUnit, v * metresPerFrameUnit, nm) : scale * shape(nm)) / Math.PI) : undefined;
-  let sceneProvider = movingScene ? movingScene(provider, irradianceScale, (nm) => illuminant.shape.evaluate(nm), mixed) : provider;
+    loadedKit(optInKit).createSubjectMotionProvider(base, subject, subjectDistanceM, metresPerFrameUnit, revealed(scale, shape, light)) : undefined;
+  const sceneShape = (nm: number): number => illuminant.shape.evaluate(nm);
+  let sceneProvider = movingScene ? movingScene(provider, irradianceScale, sceneShape, mixed) : provider;
   // 2.6: a chart preset's evaluator is engine-built end to end (its results: the schema's exact keys, constant fields,
   // the request's identifiers, deep-frozen FACADE_EVIDENCE, UNCERTAINTY and limitations, and an engine-computed
   // radiance), so the native task may skip re-parsing the fixed parts. Caller scenes keep the full validation.
@@ -2696,6 +2698,20 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   const materialOfDirection = planarProviderMaterialOfDirection(provider);
   if (materialEvaluator && materialOfDirection && provider.materialRadiance) registerInternalRadianceAccess(provider.evaluateRadiance,
     { keyOfDirection: materialOfDirection, radianceOfKey: provider.materialRadiance, tabulated: true });
+  // #676: the moving subject's evaluator returns the base's records with the radiance replaced, so it is engine-built too. With the
+  // base's lookup (one illuminant: the revealed radiance is the same everywhere), its key is the base's material where the subject
+  // shows, -1 for the revealed background, found by a probe of the same moving scene over the base's materials (its arithmetic).
+  if (materialEvaluator && sceneProvider !== provider) {
+    markInternalSceneRadianceEvaluator(sceneProvider.evaluateRadiance);
+    const { chartMaterialAt: materialAt, materialRadiance } = provider;
+    if (materialOfDirection && materialAt && materialRadiance) {
+      let key = -1;
+      const probe = loadedKit(optInKit).createSubjectMotionProvider({ ...provider, radianceAt: (x, y) => (key = materialAt(x, y), 0) }, subject!, subjectDistanceM, metresPerFrameUnit, () => (key = -1, 0));
+      const background = revealed(irradianceScale, sceneShape);
+      registerInternalRadianceAccess(sceneProvider.evaluateRadiance, { tabulated: true, radianceOfKey: (k, nm) => k < 0 ? background(0, 0, nm) : materialRadiance(k, nm),
+        keyOfDirection: (o, t) => { const d = subjectDistanceM / -o.z; return o.z < 0 ? (probe.radianceAt(-o.x * d / metresPerFrameUnit, -o.y * d / metresPerFrameUnit, 0, t), key) : undefined; } });
+    }
+  }
   assume("model.scene-radiometry", "model", "lambertian-plane", "Radiance = reflectance × irradiance / π on one plane; illuminance from K_m = 683 lm/W and the engine's analytic CIE 1931 ȳ fit.");
 
   // Metering (CIPA DC-004 standard output sensitivity and camera equation) and exposure-mode resolution
