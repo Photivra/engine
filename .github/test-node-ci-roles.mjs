@@ -105,3 +105,15 @@ test("a gate that reads a matrix job's output, or counts blobs instead of decidi
   ];
   for (const [change, expected] of cases) assert.match(ruleErrorsOf(change), expected);
 });
+test("a release that does not wait for every part of the WebGPU conformance suite fails (#713)", () => {
+  const cases = [
+    [({ publishText }) => ({ publishText: publishText.replace(/\n {6}- name: Proof of conformance part 3\n(?: {8}.*\n)+/, "\n") }), /look up the proof of WebGPU conformance part 3/],
+    [({ webgpuText }) => ({ webgpuText: webgpuText.replace('            files: "test/webgpu/display-view-neighbors"', '            files: "test/webgpu/display-view-neighbors"\n          - part: 4\n            files: "x"') }), /look up the proof of WebGPU conformance part 4/],
+    [({ publishText }) => ({ publishText: publishText.replace(' ${{ steps.part-3.outputs.found }}', "") }), /must fail unless every proof lookup found its proof/],
+    [({ publishText }) => ({ publishText: publishText.replace(/(Use Node\.js as webgpu\.yml does\n[\s\S]*?node-version: )"lts\/\*"/, '$1"24"') }), /must set up Node\.js as webgpu\.yml does/],
+    [({ publishText }) => ({ publishText: publishText.replace("needs: [verify, coverage, conformance]", "needs: [verify, coverage]") }), /`publish` job must need `conformance`/]
+  ];
+  for (const [change, expected] of cases) assert.match(ruleErrorsOf(change), expected);
+  // The conformance job's own selector is not the tooling-major pin that every other publish.yml job keeps.
+  assert.deepEqual(matrixDrift(files, afterNode26Lts).errors, []);
+});

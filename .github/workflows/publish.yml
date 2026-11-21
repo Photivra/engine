@@ -22,8 +22,10 @@ permissions:
 # lets it skip the repeat. `coverage gate` decides from the ten parts (.github/coverage-parts.mjs,
 # #666): ten blobs are merged and the thresholds of vitest.config.ts enforced on the whole suite;
 # a mix of markers and blobs passes on the proof (that run enforced them on this tree); a missing
-# or doubled part fails. `publish` needs both: the package is published only from a tree that
-# passed every gate, as before (#510).
+# or doubled part fails. `conformance` requires the WebGPU conformance proofs of this tree
+# (webgpu.yml's three parts, uploaded when its run on main or on a pull request passed; #713).
+# `publish` needs all three: the package is published only from a tree that passed every gate,
+# as before (#510).
 jobs:
   verify:
     runs-on: ubuntu-latest
@@ -251,8 +253,52 @@ jobs:
         if: steps.parts.outputs.action == 'merge'
         run: npx vitest --merge-reports .vitest-reports --coverage
 
+  conformance:
+    # The WebGPU conformance suite (webgpu.yml) compares the kernels with the CPU reference and is no
+    # required check of a pull request, so a release waits for its result here (#713): each of its
+    # three parts must have passed on this exact tree. No test runs: a passing run of webgpu.yml
+    # (every push to main, or a pull request on the same tree) uploaded the proofs. The proof names
+    # carry the Node.js release, so this job sets up Node.js as webgpu.yml does (lts/*).
+    name: WebGPU conformance proofs
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Use Node.js as webgpu.yml does
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: "lts/*"
+          package-manager-cache: false
+      - name: Proof of conformance part 1
+        id: part-1
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node .github/ci-proof.mjs find webgpu-swiftshader-1 .github/workflows/webgpu.yml
+      - name: Proof of conformance part 2
+        id: part-2
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node .github/ci-proof.mjs find webgpu-swiftshader-2 .github/workflows/webgpu.yml
+      - name: Proof of conformance part 3
+        id: part-3
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node .github/ci-proof.mjs find webgpu-swiftshader-3 .github/workflows/webgpu.yml
+      - name: Require all three
+        env:
+          FOUND: ${{ steps.part-1.outputs.found }} ${{ steps.part-2.outputs.found }} ${{ steps.part-3.outputs.found }}
+        run: |
+          if [ "$FOUND" != "true true true" ]; then
+            echo "::error title=WebGPU conformance::No passing WebGPU conformance run of this tree on Node.js $(node --version) for every part (found: $FOUND). Wait for webgpu.yml's run on main to pass, or run it on main by manual dispatch (a proof lasts 7 days), then re-run the failed jobs of this workflow."
+            exit 1
+          fi
+          echo "WebGPU conformance passed on this tree in all three parts."
+
   publish:
-    needs: [verify, coverage]
+    needs: [verify, coverage, conformance]
     runs-on: ubuntu-latest
     # About 1 minute normally.
     timeout-minutes: 5

@@ -4,9 +4,13 @@ name: WebGPU conformance
 # on Google SwiftShader, a Vulkan CPU implementation, in Playwright's Chromium headless. It checks
 # the WGSL kernels against the float64 reference within the bounds of docs/WEBGPU.md; it measures no
 # GPU speed. Spend rules as native-performance.yml: a pull request runs it only when the kernels,
-# the suite or its configuration change; every push to main runs it once, unless a pull request
-# already passed it on the same tree (the test-once proof of .github/ci-proof.mjs, #510); manual
-# dispatch for the rest.
+# the suite or its configuration change, or the suite's direct neighbors (since 2.28.0, #713,
+# owner decision 2026-11-21: the display view's facade files, the shared test helpers and the WGSL
+# minifier; 2.25.0's pull request #634 changed six such files, ran no conformance and failed the
+# suite on main); every push to main runs it once, unless a pull request already passed it on the
+# same tree (the test-once proof of .github/ci-proof.mjs, #510); manual dispatch for the rest.
+# A change elsewhere in the CPU reference (src/sensor, src/optics, src/color, ...) still runs it
+# only on main. A release waits for it: publish.yml requires this tree's three proofs.
 # Two parallel jobs since 2.22.0 (owner decision): the suite took more than the 45-minute job limit on 2.22.0's pull request
 # (#606: 2.21.0's run took about 35 minutes, and 2.22.0 adds the coupled-step cases). Part 2 runs
 # test/webgpu/display-view-quality.webgpu.ts (the display view's Quality and defocus cases); part 1 runs every other file, so a
@@ -20,6 +24,10 @@ on:
       - "test/webgpu/**"
       - "vitest.webgpu*.config.ts"
       - ".github/workflows/webgpu.yml"
+      - "src/facade/display-view*.ts"
+      - "src/facade/simulate-display-view.ts"
+      - "test/helpers/**"
+      - "scripts/lib/wgsl-minify.mjs"
   push:
     branches: [main]
   workflow_dispatch:

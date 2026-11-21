@@ -51,6 +51,8 @@ To align a release candidate's version numbers, run `npm run release:prepare -- 
 
 It never changes `POC_SIMULATION_API_VERSION` or any schema or model version, and it never tags or publishes. The changelog, release record and publication dates stay manual.
 
+Tag a release only after the `WebGPU conformance` workflow has passed on the release commit on `main` (its run after the merge, or the pull request's run on the same tree). The publish workflow's `WebGPU conformance proofs` job requires its three proofs and stops the release otherwise ([#713](https://github.com/Photivra/engine/issues/713)). A proof lasts 7 days: for an older commit, run the workflow on `main` by manual dispatch first. If the job failed, re-run the failed jobs once the proofs exist.
+
 Tests derive the expected engine version from `package.json` and `ENGINE_API_VERSION`, so a version bump needs no test edits.
 
 ## Before submitting

@@ -106,9 +106,9 @@ export function matrixJobs(workflowText) {
 
 // Rules on the workflow texts that are not about Node.js roles: each one guards a defect that a
 // green run would not show. `errors` lists the broken rules.
-export function workflowRuleErrors({ ciText, publishText }) {
+export function workflowRuleErrors({ ciText, publishText, webgpuText }) {
   const errors = [];
-  const workflows = { "ci.yml": ciText, "publish.yml": publishText };
+  const workflows = { "ci.yml": ciText, "publish.yml": publishText, "webgpu.yml": webgpuText };
   for (const [file, text] of Object.entries(workflows)) {
     const matrix = matrixJobs(text);
     for (const [, job] of text.matchAll(/needs\.([A-Za-z0-9_-]+)\.outputs\./g))
@@ -133,6 +133,21 @@ export function workflowRuleErrors({ ciText, publishText }) {
   const verifyPrimary = workflowJobs(ciText).get("verify-primary") ?? "";
   if (!/id: proof-name\n\s+if: [^\n]*steps\.parts\.outputs\.action == 'merge'/.test(verifyPrimary))
     errors.push("`verify (lts/*)` must name the `coverage` proof only after a merge of ten blobs (#666).");
+  // #713: a release waits for every part of the WebGPU conformance suite on its tree, looked up on webgpu.yml's Node.js release.
+  const conformance = workflowJobs(publishText).get("conformance") ?? "";
+  const parts = [...(workflowJobs(webgpuText).get("webgpu-conformance") ?? "").matchAll(/^\s+- part: (\d+)\s*$/gm)].map((m) => m[1]);
+  if (parts.length === 0) errors.push("webgpu.yml's `webgpu-conformance` job has no `part:` matrix entries.");
+  for (const part of parts)
+    if (!conformance.includes(`run: node .github/ci-proof.mjs find webgpu-swiftshader-${part} .github/workflows/webgpu.yml`))
+      errors.push(`publish.yml's \`conformance\` job must look up the proof of WebGPU conformance part ${part} (#713).`);
+  const lookups = [...conformance.matchAll(/find webgpu-swiftshader-(\d+) /g)].map((m) => m[1]);
+  if (!/if \[ "\$FOUND" != "(true ?)+" \]/.test(conformance) || (conformance.match(/\$\{\{ steps\.part-\d+\.outputs\.found \}\}/g) ?? []).length !== lookups.length)
+    errors.push("publish.yml's `conformance` job must fail unless every proof lookup found its proof (#713).");
+  const selector = JSON.stringify(jobNodeVersions(webgpuText, "webgpu-conformance").setup);
+  if (JSON.stringify(jobNodeVersions(publishText, "conformance").setup) !== selector)
+    errors.push(`publish.yml's \`conformance\` job must set up Node.js as webgpu.yml does (${selector}): the proofs are named by its release (#713).`);
+  if (!/^ {4}needs: \[[^\]]*\bconformance\b[^\]]*\]/m.test(workflowJobs(publishText).get("publish") ?? ""))
+    errors.push("publish.yml's `publish` job must need `conformance` (#713).");
   return errors;
 }
 
@@ -185,7 +200,10 @@ export function matrixDrift({ ciText, publishText, supportText, enginesNode }, a
   if (!/node-version: \$\{\{ steps\.newest\.outputs\.version \|\| matrix\.node-version \}\}/.test(ciText))
     errors.push("The `test` job must set up the resolved newest stable release for the `node` leg, else its matrix value.");
 
-  const publishVersions = [...publishText.matchAll(/^\s+node-version:\s*["']?([^"'\s]+)["']?\s*$/gm)].map((m) => m[1]);
+  // Every publish.yml job but `conformance` runs on the tooling major; that job only looks up webgpu.yml's proofs, which are
+  // named by webgpu.yml's Node.js release, so it uses webgpu.yml's selector (checked in workflowRuleErrors, #713).
+  const publishVersions = [...workflowJobs(publishText)].filter(([job]) => job !== "conformance")
+    .flatMap(([, block]) => [...block.matchAll(/^\s+node-version:\s*["']?([^"'\s]+)["']?\s*$/gm)].map((m) => m[1]));
   if (publishVersions.length === 0 || publishVersions.some((v) => v !== String(roles.toolingMajor)))
     errors.push(`publish.yml must pin tooling major ${roles.toolingMajor}; found ${publishVersions.join(", ") || "none"}.`);
 
@@ -230,6 +248,7 @@ export function readRepositoryFiles(root = new URL("../", import.meta.url)) {
   return {
     ciText: read(".github/workflows/ci.yml"),
     publishText: read(".github/workflows/publish.yml"),
+    webgpuText: read(".github/workflows/webgpu.yml"),
     supportText: read("NODE_SUPPORT.md"),
     enginesNode: JSON.parse(read("package.json")).engines?.node
   };
