@@ -251,3 +251,21 @@ describe("Print planning parser rejections and unsupported numeric ranges", () =
     expect(plan.reasons).toContain("provider-exact-raster-density-conflict");
   });
 });
+
+describe("an exactly matching aspect at tolerance 0 (capture-28, #698)", () => {
+  it("is accepted for 3:2 prints in inches, and an inexact size keeps its reported error", () => {
+    const at = (width: number, height: number, unit: "inches" | "cm"): PrintPlanInput => ({ ...request(),
+      source: { kind: "native-retained", captureId: "public-capture-1", geometry: { imagingArea: { widthMm: 36, heightMm: 24 }, nativeRaster: { pixelWidth: 3600, pixelHeight: 2400 }, orientation: "landscape" } },
+      printedImage: { width, height, unit }, fit: { kind: "confirmed-native-aspect", maximumRelativeAspectError: 0 } });
+    for (const [w, h] of [[12, 8], [6, 4], [3, 2], [18, 12], [24, 16], [36, 24], [15, 10]] as const) {
+      const p = calculatePrintPlan(at(w, h, "inches")).value;
+      expect(p.reasons, w + "x" + h).not.toContain("printed-image-and-confirmed-crop-aspect-mismatch");
+      expect(p.relativeAspectError).toBe(0);
+      if (w <= 12) expect(p.status).toBe("ready");
+    }
+    expect(calculatePrintPlan(at(30, 20, "cm")).value.status).toBe("ready");
+    const off = calculatePrintPlan(at(12, 8.001, "inches")).value;
+    expect(off.status).toBe("crop-confirmation-required");
+    expect(off.relativeAspectError).toBe(Math.abs((12 * 25.4 / (8.001 * 25.4)) / (3600 / 2400) - 1));
+  });
+});
