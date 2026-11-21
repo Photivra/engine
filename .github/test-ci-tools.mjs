@@ -26,6 +26,12 @@ test("any non-Markdown file, code directory or empty diff runs the tests", () =>
   assert.match(docsOnlyReason([".github/pull_request_template.md"], readers), /code directory/);
   assert.match(docsOnlyReason([], readers), /no changed files/);
 });
+test("a change confined to the documentation site or its design runs no engine tests (#709, gap 2)", () => {
+  assert.equal(docsOnlyReason(["site/build.mjs", "site/styles/site.css", "site/package-lock.json", "site/content/404.md"], readers), undefined);
+  assert.equal(docsOnlyReason(["docs/design/engine-site.md", "docs/design/screens/site-home.png", "README.md"], readers), undefined);
+  assert.match(docsOnlyReason(["site/build.mjs", "src/index.ts"], readers), /src\/index\.ts is not Markdown/);
+  assert.match(docsOnlyReason(["site/build.mjs", "scripts/lib/anchors.mjs"], readers), /not Markdown/);
+});
 
 const tree = "0123456789abcdef0123456789abcdef01234567";
 test("a proof name is the tree, the job and the runtime", () => {

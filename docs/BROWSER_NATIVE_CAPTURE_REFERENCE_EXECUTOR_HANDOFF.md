@@ -397,6 +397,8 @@ committed finite calculation:
 - exact invariant coefficient precomputation;
 - wavelength-independent geometry reuse under the frozen conditions.
 
+Note (2.28.0, #659): an engine-side WebAssembly executor is not permitted while WebAssembly stays limited to the caller-loaded JPEG XL decoder; revisiting it needs an owner decision and a change to the allowlist in `scripts/lib/webassembly-boundary.mjs`.
+
 The following may **not** be introduced in #234 without entering the Path-B gate:
 
 - changed sample coordinates/counts/weights;

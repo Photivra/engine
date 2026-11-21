@@ -331,6 +331,13 @@ jobs:
       - name: Verify static and policy gates
         if: steps.proof.outputs.found != 'true'
         run: npm run check:static
+      - name: Licence policy of the documentation site's tools
+        # #669: site/package-lock.json is separate from the published manifest; the same gate reads it.
+        if: steps.proof.outputs.found != 'true'
+        run: node scripts/check-license-policy.mjs site/package-lock.json
+      - name: Unit tests of the documentation, licence and identity gates
+        if: steps.proof.outputs.found != 'true'
+        run: node --test scripts/test-gates.mjs
       - name: Download the ten coverage parts
         if: env.TESTS == 'true' && steps.proof.outputs.found != 'true'
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
