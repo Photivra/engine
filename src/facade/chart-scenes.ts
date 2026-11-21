@@ -735,10 +735,10 @@ function resolveScene(scene: unknown, aspect: number, context: ChartContext): Re
         if (mask !== "rectangle" && mask !== "ellipse") throw new InvalidConfigurationError(name + ".mask must be rectangle or ellipse.");
         if (e.mask === undefined) defaulted.push("elements." + index + ".placement.mask");
         // The element's own frame: u = ±1 across its width; frequencies keep the composite's picture height.
-        let key: string | undefined;
-        try { key = JSON.stringify([e.scene, height / width, context.pictureHeight * 2 / width]); } catch { key = undefined; }
-        const chart = (key === undefined ? undefined : resolvedElements.get(key)) ?? resolveScene(e.scene, height / width, { pictureHeight: context.pictureHeight * 2 / width, nested: true, ...portable });
-        if (key !== undefined) resolvedElements.set(key, chart);
+        let key = "";
+        try { key = JSON.stringify([e.scene, height, width]); } catch { /* not shared */ }
+        const chart = resolvedElements.get(key) ?? resolveScene(e.scene, height / width, { pictureHeight: context.pictureHeight * 2 / width, nested: true, ...portable });
+        if (key) resolvedElements.set(key, chart);
         for (const key of chart.defaultedParameters) defaulted.push("elements." + index + ".parameters." + key);
         const offset = materials.length;
         materials.push(...chart.materials);
@@ -765,6 +765,7 @@ const DEAD_LEAVES_MINIMUM_RADIUS = 0.002;
 const DEAD_LEAVES_MAXIMUM_CELLS = 4_194_304, DEAD_LEAVES_MAXIMUM_DISKS = 4_000_000;
 /** 2.28.0: the dead-leaves cells and disks of all of one composite's distinct elements together (twice one chart's limits). */
 const DEAD_LEAVES_COMPOSITE_MAXIMUM_CELLS = 2 * DEAD_LEAVES_MAXIMUM_CELLS, DEAD_LEAVES_COMPOSITE_MAXIMUM_DISKS = 2 * DEAD_LEAVES_MAXIMUM_DISKS;
+const DEAD_LEAVES_COMPOSITE_LIMIT = "Dead leaves: a composite's elements need more than 8388608 lookup cells or 8000000 disks in all; raise radiusMinimum.";
 /** The covered margin around the chart, frame units; beyond it the texture is its mean grey. */
 const DEAD_LEAVES_MARGIN = 0.1;
 /**
@@ -780,19 +781,15 @@ function generateDeadLeaves(rMin: number, rMax: number, seed: number, aspect: nu
   const cell = Math.max(rMin, Math.sqrt(width * height / DEAD_LEAVES_MAXIMUM_CELLS));
   const nx = Math.ceil(width / cell), ny = Math.ceil(height / cell), cells = nx * ny;
   if (!(cells <= DEAD_LEAVES_MAXIMUM_CELLS)) throw new InvalidConfigurationError("Dead leaves: the chart aspect is too extreme for the lookup grid.");
-  const over = (what: string): never => { throw new InvalidConfigurationError("Dead leaves: a composite's elements need more than " + what + " in all; raise radiusMinimum."); };
-  if (budget && cells > budget.cells) over(DEAD_LEAVES_COMPOSITE_MAXIMUM_CELLS + " lookup cells");
-  const maximumDisks = budget ? Math.min(DEAD_LEAVES_MAXIMUM_DISKS, budget.disks) : DEAD_LEAVES_MAXIMUM_DISKS;
+  if (budget && cells > budget.cells) throw new InvalidConfigurationError(DEAD_LEAVES_COMPOSITE_LIMIT);
+  const maximumDisks = Math.min(DEAD_LEAVES_MAXIMUM_DISKS, budget?.disks ?? DEAD_LEAVES_MAXIMUM_DISKS);
   const closed = new Uint8Array(cells), head = new Int32Array(cells).fill(-1), tail = new Int32Array(cells).fill(-1);
   let next = new Int32Array(1 << 16), entryDisk = new Int32Array(1 << 16), entries = 0;
   let X = new Float64Array(1 << 14), Y = new Float64Array(1 << 14), R2 = new Float64Array(1 << 14), level = new Uint16Array(1 << 14);
   const a = 1 / (rMin * rMin), b = 1 / (rMax * rMax), random = createDeterministicUniformStream(seed);
   let open = cells, n = 0;
   while (open > 0) {
-    if (n >= maximumDisks) {
-      if (maximumDisks < DEAD_LEAVES_MAXIMUM_DISKS) over(DEAD_LEAVES_COMPOSITE_MAXIMUM_DISKS + " disks");
-      throw new InvalidConfigurationError("Dead leaves need more than " + DEAD_LEAVES_MAXIMUM_DISKS + " disks; raise radiusMinimum.");
-    }
+    if (n >= maximumDisks) throw new InvalidConfigurationError(maximumDisks < DEAD_LEAVES_MAXIMUM_DISKS ? DEAD_LEAVES_COMPOSITE_LIMIT : "Dead leaves need more than " + DEAD_LEAVES_MAXIMUM_DISKS + " disks; raise radiusMinimum.");
     // Inverse CDF of the density ∝ r⁻³ on [rMin, rMax]: r = (rMin⁻² − U·(rMin⁻² − rMax⁻²))^(−1/2).
     const r = 1 / Math.sqrt(a - random.next() * (a - b));
     const x = u0 - rMax + random.next() * (width + 2 * rMax), y = v0 - rMax + random.next() * (height + 2 * rMax);
