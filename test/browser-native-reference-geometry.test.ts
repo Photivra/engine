@@ -471,3 +471,15 @@ describe("repository-internal browser native reference geometry", () => {
     ).toEqual({ kind: "miss" });
   });
 });
+
+describe("first hit independent of primitive ID order (capture-33, #698)", () => {
+  it("a nearer primitive supersedes a tie between two farther ones, whatever the IDs", () => {
+    const ray = { originM: { x: 0, y: 0, z: 0 }, directionUnitVector: { x: 0, y: 0, z: 1 } };
+    for (const near of ["a-near", "z-near"]) {
+      const result = intersectBrowserNativeReferenceGeometry(prepare([rectangle("b-far", 5), rectangle("c-far", 5), rectangle(near, 3)]), ray);
+      expect(result, near).toMatchObject({ kind: "hit", primitiveId: near, distanceM: 3 });
+    }
+    expect(intersectBrowserNativeReferenceGeometry(prepare([rectangle("b", 5), rectangle("c", 5)]), ray))
+      .toEqual({ kind: "unsupported", reason: "coincident-distinct-first-hit" });
+  });
+});

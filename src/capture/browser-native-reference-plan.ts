@@ -116,6 +116,11 @@ export function prepareBrowserNativeReferenceEventPlan(
     );
   }
 
+  if (typeof input.event !== "object" || input.event === null) {
+    throw new InvalidConfigurationError(
+      "Browser-native reference prepared event requires an event object."
+    );
+  }
   const rawPlan = calculateNativeRawPlan(input.event.raw);
   const sceneBinding = parseSceneBinding(input.event.sceneBinding);
   const geometry = prepareBrowserNativeReferenceGeometry(input.geometry);

@@ -146,6 +146,33 @@
     the grid value nearest in log₂ within 1/12 stop (owner decision 2026-11-21) and reports `exposureBracketRealizedOffsetStops`
     beside the requested offset; farther values are refused as before. A wrong refusal becomes a sequence; sequences that
     resolved before are unchanged (docs/USAGE.md).
+- **Low-severity fixes (2.28.0 step 8, #698).** Inputs that were accepted though invalid, or failed late or with a raw error, now
+  fail with a domain error; no output change for valid requests (hash locks unchanged); bundle rows unchanged (fast 337,888 B).
+  - *Non-finite results (`capture-10`).* `createReinhardGlobalToneMappingTask` (a tiny `whiteLuminance`), `createBilateralFilterTask`
+    (`rangeSigma` below about 1e-154), `createExposureFusionTask` (large exponents on huge frames), `createUnsharpMaskTask` and the
+    Durand–Dorsey colour pass throw `InvalidScientificResultError` instead of storing Infinity or NaN.
+  - *Durand–Dorsey node cap (`capture-11`).* At most 4,096 intensity planes, in the plan, the memory estimate and the body; an image
+    that would need more (`rangeSigmaLog10: 0.001` over 30 decades) is refused with `InvalidScientificInputError`.
+  - *DNG records (`capture-14`, `capture-15`).* `developDngStageImage`, `developDngImage`, `calculateDngRawClipping`,
+    `estimateDngRawNoise` and the what-if functions check the shape of the `ImportedDngRaw` record (dimensions, code count, scale,
+    ActiveArea, white and black levels, linearization table, CFA pattern); `developDngImage` refuses `whiteBalance: null` and
+    unknown or other-variant white-balance fields. The `clippedPixelCount` documentation says what it counts (white-balance clips
+    before the push and tone curve, not the gamut handling).
+  - *Native RAW (`capture-17`).* `calculateNativeRawPlan` refuses a raster smaller than one CFA repeat before any tile is read (it
+    failed after the whole capture with a white-level message).
+  - *Print plans (`capture-28`).* With aspect tolerance 0, a print whose ratio in its own unit is exact (12 × 8 in of a 3600 × 2400
+    capture) is accepted with `relativeAspectError` 0; every other size keeps its reported error.
+  - *Focus and release (`capture-29`, `capture-30`).* `setFocusLock` needs a boolean `locked`; the focus functions refuse a state with
+    an unknown mode or acquisition state, a non-finite or negative time, or `locked` inconsistent with its acquisition state and lock
+    record. `resolveReleaseSequence` refuses timing that collapses to zero-length or overlapping frames at very large request times.
+  - *Saturation code (`capture-31`).* `calculateEffectiveSaturationCode` checks the INL knots it documents (kind, 1 to 4096 finite
+    knots, strictly increasing codes) and a safe-integer `adcMaximumCode`.
+  - *Missing sub-objects (`capture-32`).* `calculateLensCorrectedCapture`, `calculatePeripheralIlluminationCorrection`,
+    `simulateEnvironmentSensorRawFrame` and `createCancelledReleaseSequence` (which now needs a scheduled sequence) throw
+    `InvalidConfigurationError` instead of a raw `TypeError`.
+  - *Browser-native reference, repository only (`capture-33`).* The first hit no longer depends on primitive ID order; the executor
+    refuses a readout ISO gain that differs from the committed capture ISO, as the frame producer does. The dated qualification
+    record under `docs/validation/` keeps the source hashes of its own date.
 
 ### Optics
 
