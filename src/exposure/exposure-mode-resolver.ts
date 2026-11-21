@@ -31,6 +31,9 @@ import {
 } from "./program-line.js";
 import { rejectUnknownFields, requireInputKeys, requireTrimmedConfigString as requireNonEmptyString, requireInputPositiveFinite as requirePositiveFinite } from "../core/record-validation.js";
 import { InvalidConfigurationError } from "../core/configuration-error.js";
+// foundation-06 (#699, 2.28.0, owner decision): the settings' log2 and exp2 are the engine's portable functions, so an automatic
+// exposure resolves to the same bits on every Node.js line (V8's log2 and pow differ in the last bits between V8 lines).
+import { portableExp2, portableLog2 } from "../core/portable-math.js";
 
 type UnknownRecord = Record<string, unknown>;
 
@@ -1438,9 +1441,9 @@ function targetResidual(
     target
       .exposureOffsetStopsToTarget;
   const achievedStops =
-    Math.log2(achievedScale);
+    portableLog2(achievedScale);
   const residualStops =
-    Math.log2(
+    portableLog2(
       targetScale /
       achievedScale
     );
@@ -1523,7 +1526,7 @@ function nearestDiscreteIso(
   let selected = first;
   let selectedDistance =
     Math.abs(
-      Math.log2(
+      portableLog2(
         idealIso / first
       )
     );
@@ -1537,7 +1540,7 @@ function nearestDiscreteIso(
       values[index]!;
     const distance =
       Math.abs(
-        Math.log2(
+        portableLog2(
           idealIso /
           candidate
         )
@@ -1869,7 +1872,7 @@ function nearestDiscreteShutter(
   let selected = first;
   let selectedDistance =
     Math.abs(
-      Math.log2(
+      portableLog2(
         idealShutterSeconds /
         first
       )
@@ -1884,7 +1887,7 @@ function nearestDiscreteShutter(
       values[index]!;
     const distance =
       Math.abs(
-        Math.log2(
+        portableLog2(
           idealShutterSeconds /
           candidate
         )
@@ -2197,7 +2200,7 @@ function nearestDiscreteAperture(
   let selected = first;
   let selectedDistance =
     Math.abs(
-      Math.log2(
+      portableLog2(
         idealFNumber /
         first
       )
@@ -2212,7 +2215,7 @@ function nearestDiscreteAperture(
       values[index]!;
     const distance =
       Math.abs(
-        Math.log2(
+        portableLog2(
           idealFNumber /
           candidate
         )
@@ -2510,7 +2513,7 @@ function validateProgramLineForResolution(
     }
 
     const computedStops =
-      Math.log2(
+      portableLog2(
         opticalExposureFactor(
           node.aperture,
           node.shutterSeconds,
@@ -2638,26 +2641,26 @@ function selectProgramLineSettings(
       requestedOpticalStops;
 
     const logAperture =
-      Math.log2(left.aperture) +
+      portableLog2(left.aperture) +
       phase *
-        (Math.log2(right.aperture) -
-          Math.log2(left.aperture));
+        (portableLog2(right.aperture) -
+          portableLog2(left.aperture));
     const logShutter =
-      Math.log2(
+      portableLog2(
         left.shutterSeconds
       ) +
       phase *
-        (Math.log2(
+        (portableLog2(
           right.shutterSeconds
         ) -
-          Math.log2(
+          portableLog2(
             left.shutterSeconds
           ));
 
     idealAperture =
-      Math.pow(2, logAperture);
+      portableExp2(logAperture);
     idealShutterSeconds =
-      Math.pow(2, logShutter);
+      portableExp2(logShutter);
   }
 
   const aperture =
@@ -4142,7 +4145,7 @@ export function resolveProgramAutoExposureMode(
     const requestedOpticalStops =
       target
         .exposureOffsetStopsToTarget -
-      Math.log2(
+      portableLog2(
         manualIso /
           referenceExposure.iso
       );
@@ -4283,7 +4286,7 @@ export function resolveProgramAutoExposureMode(
   const requestedOpticalStops =
     target
       .exposureOffsetStopsToTarget -
-    Math.log2(
+    portableLog2(
       baselineIso /
         referenceExposure.iso
     );
@@ -4662,7 +4665,7 @@ export function resolveFullAutoExposureMode(
   const requestedOpticalStops =
     target
       .exposureOffsetStopsToTarget -
-    Math.log2(
+    portableLog2(
       baselineIso /
         referenceExposure.iso
     );

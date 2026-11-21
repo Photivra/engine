@@ -19,6 +19,8 @@ import {
   type CalculationResult
 } from "../core/calculation-result.js";
 import { InvalidConfigurationError } from "../core/configuration-error.js";
+// foundation-06 (#699, 2.28.0): the portable log2, exp2 and pow, the same bits on every Node.js line.
+import { portableExp2, portableLog2, portablePow } from "../core/portable-math.js";
 import {
   parseEvidenceList,
   type EvidenceProvenance
@@ -402,7 +404,7 @@ export function calculateHighlightPriorityPlacementSignal(
     );
   }
   return saturationRelativeSignal *
-    Math.pow(2, -headroomStops);
+    portableExp2(-headroomStops);
 }
 
 /**
@@ -721,7 +723,7 @@ function policyWeight(
     return (
       policy.edgeWeight +
       (1 - policy.edgeWeight) *
-        Math.pow(
+        portablePow(
           1 - radialPhase,
           policy.exponent
         )
@@ -760,7 +762,7 @@ function policyWeight(
     policy.minimumWeightFraction +
     (1 -
       policy.minimumWeightFraction) *
-      Math.pow(
+      portablePow(
         normalizedHighlight,
         policy.exponent
       )
@@ -1046,7 +1048,7 @@ export function meterRelativeExposure(
               .targetRelativeSignal /
             meteredRelativeSignal,
           exposureOffsetStopsToTarget:
-            Math.log2(
+            portableLog2(
               profile.target
                 .targetRelativeSignal /
                 meteredRelativeSignal

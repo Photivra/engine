@@ -22,6 +22,8 @@ import type {
 } from "./metering-temporal.js";
 import { requireInputObject, requireInputKeys, requireTrimmedConfigString as requireNonEmptyString, requireInputFinite as requireFinite, requireInputFiniteAboveZero as requirePositiveFinite, requireInputFiniteAtLeastZero as requireNonNegativeFinite } from "../core/record-validation.js";
 import { InvalidConfigurationError } from "../core/configuration-error.js";
+// foundation-06 (#699, 2.28.0): the portable log2 and exp2, the same bits on every Node.js line.
+import { portableExp2, portableLog2 } from "../core/portable-math.js";
 
 export const EXPOSURE_METER_TARGET_SCHEMA_VERSION =
   "0.1.0" as const;
@@ -304,7 +306,7 @@ export function createExposureMeterTargetFromMeteringResult(
     );
   }
   const baseStops =
-    Math.log2(baseScale);
+    portableLog2(baseScale);
   if (!Number.isFinite(baseStops)) {
     throw new InvalidScientificInputError(
       "Base exposure offset must remain finite."
@@ -501,7 +503,7 @@ export function setExposureCompensationOnMeterTarget(
   const compensatedScale =
     input.baseTarget
       .baseRequiredExposureScaleToTarget *
-    Math.pow(2, compensation);
+    portableExp2(compensation);
 
   if (
     !Number.isFinite(

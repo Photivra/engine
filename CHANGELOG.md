@@ -394,6 +394,21 @@ Each item below is one commit of the serial output-change lane, with its measure
   - *Bundle.* Fast row 338,222 → 338,444 B (+222 B: the lens signal's hook and the facade's flag; lane so far +724 B against
     337,720 B); on-demand row 50,391 → 51,450 B (+1,059 B, the Quality kit).
 
+- **Automatic exposure resolves to the same bits on more Node.js lines (`foundation-06` in #699, owner decision 2026-11-21).** The
+  program line's log-interpolation of aperture and shutter, the ISO offset, the meter target and its compensation, and the
+  centre-weighted and highlight-weighted meter policies take the engine's portable `log2`, `exp2` and `pow` (src/core/portable-math.ts)
+  instead of V8's `Math.log2` and `Math.pow`, whose last bits differ between V8 12, 13 and 14. Manual exposure is unchanged.
+  - *Measured effect* (the review's sweep, 76 requests, 24 × 16 Siemens star, DNG: aperture and shutter priority, program, Auto ISO):
+    on each of Node 22.13, 24.19 and 26.13 (and x64 Node 24.1 under Rosetta, the same as arm64 Node 24.19), 2 requests' settings move
+    by 1 ulp (aperture priority at +1/2 stop on Node 22, −1/2 stop on 24 and 26, its shutter; program at 6,680 lux, its f-number on 22,
+    and so on); no DNG byte changes. Settings that differ between Node 22 and Node 24/26: 4 → 2. The two left (program at 58,568 and
+    46,989 lux, 5 and 10 ulp) come from the meter's zone signal (2 ulp apart: the scene radiance it reads uses `Math`);
+    docs/NUMERICAL_CORRECTNESS.md lists them. `test/exposure-settings-portable.test.ts` locks three requests' settings as IEEE-754 hex,
+    the same on Node 22, 24 and 26.
+  - *Locks.* None moved (every lock file and the exposure, program-line and sensor-profile pins hold on arm64 and x64).
+  - *Bundle.* Fast row 338,444 → 338,421 B (−23 B; the lane +701 B against 337,720 B); the capture-only bundle now also holds
+    `portableLog2`.
+
 ### Display view
 
 - **Display view: Recover and +1 stop without Standard under its time target (#662); output unchanged.** With the identity tone

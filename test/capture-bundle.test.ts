@@ -86,8 +86,10 @@ describe("capture-only bundles", () => {
     // 2.22.0 (#594): portableExp and portablePow (about 1 KB of source) are in the first load too, but only because the on-demand
     // Quality kit (diffraction, defocus extras) imports them from the chunk that portable-math shares with the capture; the
     // capture's own code does not call them. 2.26.0 (#641): portableExp2 likewise, for the opt-in kit's hand-shake trajectory.
+    // 2.28.0: automatic exposure calls portableLog2, portableExp2 and portablePow (foundation-06, #699), and the catalogue PSF
+    // builder portableCosTwoPi and portableSinTwoPi (#674).
     expect([...(modules.get("core/portable-math.ts") ?? [])].sort()).toEqual(["equalWithinUlps", "hypot3", "portableAsin", "portableCosTwoPi", "portableExp", "portableExp2", "portableHypot",
-      "portablePow", "portableSinTwoPi"]);
+      "portableLog2", "portablePow", "portableSinTwoPi"]);
   }, testTimeout(60_000));
 
   it("keep them when the display view is imported", async () => {
