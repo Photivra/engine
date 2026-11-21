@@ -1104,3 +1104,27 @@ describe("capture-mode timing nested inputs (sensor-11, #701)", () => {
     expect(() => call(captureMode())).not.toThrow();
   });
 });
+
+describe("translation parallax misspelled nested keys (sensor-14, #701)", () => {
+  const request = (sample: Record<string, unknown>, camera: Record<string, unknown> = { x: 1, y: 0, z: 0 }): never => ({ timing: resolveTiming(rollingProfile(), [centerPoint]),
+    imagingArea: { widthMm: 36, heightMm: 24 }, focalLengthMm: 50, focusDistanceM: 5, orientation: "landscape", cameraTranslationVelocityMps: camera, temporalSampleCount: 2,
+    sceneSamples: [{ sampleId: "near", destinationPointNative: centerPoint, positionCameraM: { x: 0, y: 0, z: 5 }, ...sample }] }) as never;
+  const unknown = expect.objectContaining({ name: "InvalidConfigurationError", message: expect.stringContaining("unknown field") });
+  it("refuses a misspelled subject velocity and a four-component vector instead of treating the subject as still", () => {
+    expect(() => calculateCaptureTranslationParallaxTemporalQuadrature(request({ subjectVelocityMps: { x: 1, y: 0, z: 0 } }))).not.toThrow();
+    expect(() => calculateCaptureTranslationParallaxTemporalQuadrature(request({ subjectVelocityMPS: { x: 1, y: 0, z: 0 } }))).toThrow(unknown);
+    expect(() => calculateCaptureTranslationParallaxTemporalQuadrature(request({}, { x: 1, y: 0, z: 0, w: 0 }))).toThrow(unknown);
+  });
+});
+
+describe("timing constructors refuse what the next step always refuses (sensor-21, #701)", () => {
+  it("refuses a zero traversal duration or rolling skew in the profile parser", () => {
+    expect(() => parseCaptureModeTimingProfile(structuredClone(rollingProfile()))).not.toThrow();
+    const zeroTraversal = structuredClone(rollingProfile()) as unknown as { opening: { traversalDurationSeconds: { value: number } } };
+    zeroTraversal.opening.traversalDurationSeconds.value = 0;
+    expect(() => parseCaptureModeTimingProfile(zeroTraversal)).toThrow("opening.traversalDurationSeconds.value");
+    const zeroSkew = structuredClone(rollingProfile()) as unknown as { readout: { spatialSamplingSkewSeconds: { value: number } } };
+    zeroSkew.readout.spatialSamplingSkewSeconds.value = 0;
+    expect(() => parseCaptureModeTimingProfile(zeroSkew)).toThrow("readout.spatialSamplingSkewSeconds.value");
+  });
+});

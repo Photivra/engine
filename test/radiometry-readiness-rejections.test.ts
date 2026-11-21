@@ -71,3 +71,12 @@ describe("radiometry readiness profile branches", () => {
     expectRejection(base, parseRadiometryReadinessProfile, InvalidConfigurationError, mutate, message);
   });
 });
+
+describe("fields of another representation (sensor-13, #701)", () => {
+  it("refuses a spectral-data optical transmission that also carries t-stop or area fields", () => {
+    for (const [key, value] of [["tStop", "banana"], ["fillFactor", -5], ["effectiveQuantumEfficiency", 99]] as const) {
+      expectRejection(base, parseRadiometryReadinessProfile, InvalidConfigurationError, (p): void => { p.components[1][key] = value; }, `has unknown field "${key}".`);
+    }
+    expect(() => parseRadiometryReadinessProfile(base())).not.toThrow();
+  });
+});

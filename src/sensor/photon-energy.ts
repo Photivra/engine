@@ -47,6 +47,10 @@ export interface SourcedAirPhaseRefractiveIndex {
   wavelengthBasis: "air";
   definition:
     "vacuum-wavelength-divided-by-air-wavelength";
+  /**
+   * n = λ_vacuum / λ_air, from 1 through 1.01. Standard air is about 1.00029 (Ciddor 1996); the upper
+   * bound is a sanity limit (n − 1 scales with gas density, so 1.01 is about 35 times standard air).
+   */
   phaseRefractiveIndex: number;
   scientificStatus:
     SensorSpectralResponseScientificStatus;
@@ -407,6 +411,10 @@ export function parseSourcedAirPhaseRefractiveIndex(
     );
   }
 
+  // sensor-22: n = λ_vacuum / λ_air below 1 or far above it would scale the photon energy by an unphysical factor.
+  if (!(record.phaseRefractiveIndex as number >= 1 && record.phaseRefractiveIndex as number <= 1.01)) {
+    throw new InvalidConfigurationError("airPhaseRefractiveIndex.phaseRefractiveIndex must be from 1 through 1.01.");
+  }
   return {
     wavelengthNanometers:
       requirePositiveFinite(

@@ -225,6 +225,8 @@ export function characterizeReadout(profile: SensorReadoutConversionProfile, cha
   if (chargeScale === 1 && !bits && !n && readNoiseScale === 1) return profile;
   return parseSensorReadoutConversionProfile({ ...profile, regimes: profile.regimes.map((regime) => {
     const adc = regime.adc, rescale = bits !== undefined && bits !== adc.bitDepth;
+    // sensor-25: INL knots are codes of the declared ADC; they are not rescaled, so another bit depth is refused here.
+    if (rescale && adc.integralNonLinearity) fail("sensor.adcBitDepth cannot change the bit depth of a readout whose ADC declares integral non-linearity.");
     const black = rescale ? Math.round(adc.blackLevelCode * 2 ** (bits - adc.bitDepth)) : adc.blackLevelCode, saturation = rescale ? 2 ** bits - 1 : adc.digitalSaturationCode;
     const out = { ...regime, systemConversionGainElectronsPerCode: { ...regime.systemConversionGainElectronsPerCode, value: rescale ?
         regime.systemConversionGainElectronsPerCode.value * chargeScale * (adc.digitalSaturationCode - adc.blackLevelCode) / (saturation - black) : regime.systemConversionGainElectronsPerCode.value * chargeScale },

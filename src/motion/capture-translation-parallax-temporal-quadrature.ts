@@ -34,7 +34,7 @@ import type {
 import type {
   SensorImagingArea
 } from "../sensor/sensor-geometry.js";
-import { requireInputObject, requireInputKeys, requireTrimmedConfigString as requireNonEmptyString } from "../core/record-validation.js";
+import { requireInputObject, requireInputKeys, rejectUnknownFields, requireTrimmedConfigString as requireNonEmptyString } from "../core/record-validation.js";
 import { InvalidConfigurationError } from "../core/configuration-error.js";
 import { sameSite as samePoint } from "../core/shared-helpers.js";
 
@@ -163,6 +163,7 @@ export function requireFiniteVector(
   path: string
 ): Vector3 {
   requireInputObject(value, path);
+  rejectUnknownFields(value, ["x", "y", "z"], path);
   for (
     const axis of
     ["x", "y", "z"] as const
@@ -297,7 +298,10 @@ export function calculateCaptureTranslationParallaxTemporalQuadrature(
     );
   }
 
-  input.sceneSamples.forEach((sample, index) => requireInputObject(sample, "sceneSamples[" + index + "]"));
+  input.sceneSamples.forEach((sample, index) => {
+    requireInputObject(sample, "sceneSamples[" + index + "]");
+    rejectUnknownFields(sample, ["sampleId", "destinationPointNative", "positionCameraM", "subjectVelocityMps"], "sceneSamples[" + index + "]");
+  });
   const ids =
     input.sceneSamples.map(
       (sample) =>

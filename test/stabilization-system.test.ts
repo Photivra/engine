@@ -1071,3 +1071,18 @@ describe("sparse arrays (sensor-12, #701)", () => {
     expect(() => parseStabilizationSystemProfile({ ...profile(), axisResponses: new Array(1) as never })).toThrow(expect.objectContaining({ name: "InvalidConfigurationError" }));
   });
 });
+
+describe("local exposure duration (sensor-19, #701)", () => {
+  it("refuses a zero or negative local exposure duration in a hand-built timing", () => {
+    for (const duration of [0, -0.2]) {
+      const resolved = structuredClone(timing()) as unknown as { exposureWindows: { samples: { startOffsetSecondsFromOpeningReference: number; endOffsetSecondsFromOpeningReference: number; localExposureDurationSeconds: number }[] } };
+      for (const sample of resolved.exposureWindows.samples) {
+        sample.startOffsetSecondsFromOpeningReference = 0.6;
+        sample.localExposureDurationSeconds = duration;
+        sample.endOffsetSecondsFromOpeningReference = 0.6 + duration;
+      }
+      expect(() => calculateStabilizedCaptureTemporalSamples({ disturbance: trajectory(), profile: profile(), captureKind: "still", timing: resolved as never,
+        samplePointsNative: [{ x: 50, y: 25 }], temporalSampleCount: 2 }), String(duration)).toThrow("positive finite local exposure duration");
+    }
+  });
+});

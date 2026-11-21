@@ -327,10 +327,11 @@ function parseGeometricSensitiveAperture(
       ".centerOffsetFromSiteCenterMicrometers.y"
   );
 
+  // sensor-20: the same rounding allowance as the imaging-area fit, so an aperture that touches the cell edge in decimal fits.
   const halfCellX =
-    lattice.pitchXMicrometers / 2;
+    lattice.pitchXMicrometers / 2 + apertureFitAllowanceMicrometers(lattice.pitchXMicrometers);
   const halfCellY =
-    lattice.pitchYMicrometers / 2;
+    lattice.pitchYMicrometers / 2 + apertureFitAllowanceMicrometers(lattice.pitchYMicrometers);
 
   if (
     Math.abs(offsetX) +

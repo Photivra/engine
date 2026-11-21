@@ -28,6 +28,7 @@ import {
   type SensorRawReconstructionProfile,
   type SensorReadoutConversionProfile
 } from "../src/index.js";
+import { characterizeReadout } from "../src/sensor/sensor-characteristics.js";
 
 type OwnedEvidence = readonly [{
   sourceOrigin: "photivra";
@@ -2165,5 +2166,47 @@ describe("RAW capture sample and reconstruction inputs (sensor-11, sensor-17, #7
     const [red, green, blue] = neighborhood();
     expect(() => reconstruct([{ ...red!, blackSubtractedNormalizedCode: "0.5" }, green, blue])).toThrow(InvalidScientificInputError);
     expect(reconstruct([red, green, blue]).value.outputChannels.length).toBeGreaterThan(0);
+  });
+});
+
+describe("lower code clamp report with a declared digital gain (sensor-24, #701)", () => {
+  it("reports the clamp for every site below code 0, with or without a digital gain", () => {
+    const accumulated = charge(0);
+    const realization = simulateSensorChargeRealization({ accumulatedCharge: accumulated, samplingProfile: samplingProfile(), seedUint32: 11 }).value;
+    const counts = [undefined, 1, 2].map((digitalGain) => {
+      const profile = structuredClone(readoutProfile()) as unknown as { regimes: { systemConversionGainElectronsPerCode: { value: number };
+        readNoiseComponents: { rmsElectrons: { value: number } }[]; adc: Record<string, unknown> }[] };
+      const regime = profile.regimes[0]!;
+      regime.systemConversionGainElectronsPerCode.value = 1;
+      regime.readNoiseComponents[0]!.rmsElectrons.value = 50;
+      regime.adc.blackLevelCode = 0;
+      if (digitalGain !== undefined) regime.adc.digitalGain = digitalGain;
+      let below = 0, flagged = 0;
+      for (let seed = 0; seed < 200; seed++) {
+        const code = simulateSensorRawCode({ chargeRealization: realization, physicalCapacityAssessment: capacity(accumulated), readoutProfile: profile as never,
+          regimeId: "base", readNoiseSeedUint32: seed }).value;
+        if (Math.floor(code.codeBeforeQuantization + 0.5) < 0) below++;
+        if (code.lowerCodeClampApplied) flagged++;
+        expect(code.rawCode).toBeGreaterThanOrEqual(0);
+      }
+      return [below, flagged];
+    });
+    expect(counts[0]![0]).toBeGreaterThan(50);
+    for (const [below, flagged] of counts) expect(flagged).toBe(below);
+  });
+});
+
+describe("sensor.adcBitDepth with ADC integral non-linearity (sensor-25, #701)", () => {
+  it("keeps the declared bit depth and refuses another one with a message naming sensor.adcBitDepth", () => {
+    const withInl = structuredClone(readoutProfile()) as unknown as { regimes: { adc: Record<string, unknown> }[] };
+    for (const regime of withInl.regimes) {
+      regime.adc.integralNonLinearity = { kind: "piecewise-linear-code-offset", evidence: evidence("inl"),
+        knots: [{ code: 0, offsetCodes: 0 }, { code: 2000, offsetCodes: 1 }, { code: 4095, offsetCodes: 0 }] };
+    }
+    const profile = parseSensorReadoutConversionProfile(withInl);
+    expect(() => characterizeReadout(profile, 1, { adcBitDepth: 12 } as never)).not.toThrow();
+    for (const adcBitDepth of [14, 16]) {
+      expect(() => characterizeReadout(profile, 1, { adcBitDepth } as never), String(adcBitDepth)).toThrow(/^sensor\.adcBitDepth cannot change the bit depth/);
+    }
   });
 });

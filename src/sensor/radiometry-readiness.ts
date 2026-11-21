@@ -14,7 +14,7 @@ import {
   parseEvidenceList,
   type EvidenceProvenance
 } from "../core/evidence-provenance.js";
-import { rejectUnknownVariantFields, UNCERTAINTY_VARIANT_FIELDS, requireConfigRecord as requireRecord, requireConfigRecordString as requireString } from "../core/record-validation.js";
+import { rejectUnknownFields, rejectUnknownVariantFields, UNCERTAINTY_VARIANT_FIELDS, requireConfigRecord as requireRecord, requireConfigRecordString as requireString } from "../core/record-validation.js";
 import { InvalidConfigurationError } from "../core/configuration-error.js";
 import { requirePositiveNumber } from "../schema/validation.js";
 
@@ -314,7 +314,14 @@ function requireApproximationStatus(
   }
 }
 
-function parseRequirement(
+/** sensor-13: a requirement may carry only the fields of its own representation (a field of another is refused, not dropped). */
+function parseRequirement(value: unknown, path: string): RadiometryRequirement {
+  const parsed = parseRequirementFields(value, path);
+  rejectUnknownFields(value as object, Object.keys(parsed), path);
+  return parsed;
+}
+
+function parseRequirementFields(
   value: unknown,
   path: string
 ): RadiometryRequirement {
