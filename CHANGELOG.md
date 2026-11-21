@@ -39,6 +39,12 @@
   program, shutter and aperture priority, 72 reports and no settings, ideal values or residuals); samples and RAW codes are
   unchanged. One digest of `test/program-line-lens-range.test.ts` (the `exposure` of `catalogue50`) is re-pinned for it. Fast
   row +83 B.
+- **Photosite-scale consistency checks fail when they should (#712).** `calculateSensorEqeElectronRate` and
+  `calculateSensorResponsivityPhotocurrent` compared radiant powers with a tolerance that is absolute (1e-10 W) below 1 W, so at a
+  photosite (about 1e-15 to 1e-10 W per bin) every pair compared equal: a reduction passed with another chain's operating-range
+  authorization, or with per-bin contributions and a total that do not match it. Their three power checks each (per-bin
+  contribution, total, operating-range node values) are now purely relative (1e-10; two zeros are equal). Chains the engine builds
+  are accepted as before; only inconsistent inputs that were wrongly accepted are now refused. No output change; fast row +18 B.
 
 ## 2.27.0 — published November 19, 2026
 

@@ -48,10 +48,9 @@ import type {
   SensorSpatioSpectralWavelengthReduction
 } from "./spatio-spectral-reduction.js";
 import { requireInputObject, requireInputKeys, rejectUnknownVariantFields, requireConfigRecord as requireRecord, requireConfigString as requireNonEmptyString, requireConfigPositiveFinite as requirePositiveFiniteConfiguration, requireInputNonNegativeFinite as requireNonNegativeFiniteInput, requireInputPositiveFinite as requirePositiveFiniteInput, requireInputNonNegativeSafeInteger as requireSafeNonNegativeInteger } from "../core/record-validation.js";
-import { addCompensated, approximatelyEqual } from "../core/shared-helpers.js";
+import { addCompensated, approximatelyEqual, relativelyEqual } from "../core/shared-helpers.js";
 import { parseReferenceConditionPolicy as parseConditionPolicy } from "./response-application-compatibility.js";
 import { parseUncertainty } from "./response-operating-range.js";
-
 
 export type SensorResponsivityBiasCondition =
   | {
@@ -642,7 +641,7 @@ function validateReductionNodes(
         fluxDensity * measure;
       if (
         !Number.isFinite(expected) ||
-        !approximatelyEqual(
+        !relativelyEqual(
           power,
           expected
         )
@@ -682,7 +681,7 @@ function validateReductionNodes(
       "reduction.wavelengthIntegratedGeometricApertureIncidentFluxWatts"
     );
   if (
-    !approximatelyEqual(
+    !relativelyEqual(
       totalPower.sum,
       reductionPower
     )
@@ -762,7 +761,7 @@ function validateOperatingRangeNodeBinding(
           operatingRange.inputRange.kind ||
         entry.unit !==
           operatingRange.inputRange.unit ||
-        !approximatelyEqual(
+        !relativelyEqual(
           entry.value,
           expected
         )
