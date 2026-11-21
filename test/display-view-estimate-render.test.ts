@@ -38,7 +38,7 @@ describe("estimateDisplayViewRender (#660)", () => {
       if (estimate.estimation === "exact-area-mean-over-real-pixels") expect(estimate.siteEvaluations.maximum).toBe(d.siteEvaluations);
       expect({ detail: estimate.detailPixelCount, uniform: estimate.uniformPixelCount }).toEqual({ detail: d.detailPixelCount, uniform: d.uniformPixelCount });
       const defocus = value("view.defocus");
-      expect(estimate.signal.method === "regrouped").toBe(defocus?.convolution === "runs" && defocus.fast !== undefined);
+      expect(estimate.signal.method === "regrouped" || estimate.signal.method === "runs").toBe(defocus?.convolution === "runs");
       expect(estimate.chainPointsPerAxis).toBe((value("view.rendering")?.chainPointsPerAxis as DisplayViewRenderEstimate["chainPointsPerAxis"] | undefined) ?? null);
       const corrections = value("view.lensCorrections");
       if (corrections) expect(estimate.passes.view).toBe(corrections.passes);
@@ -49,23 +49,24 @@ describe("estimateDisplayViewRender (#660)", () => {
 
   it("names the methods: regrouped defocus, its disc and taps", async () => {
     const [, options, view] = cases[4]!, prepared = await prepareDisplayView(options, { gpu: "off" });
+    let disc: number | null;
     try {
       const whole = estimateDisplayViewRender(prepared, view);
+      disc = whole.signal.discRadiusSites;
       expect(whole.signal).toMatchObject({ method: "regrouped", kernelRadiusSites: 0, tapsPerSite: 1, temporalMidpoints: 1, rollingBandRows: null, lensPsfZoneSites: null, uniformWindows: null });
       expect(whole.signal.discRadiusSites).toBeGreaterThan(3);
       expect(whole.chainPointsPerAxis).toBe("3-or-6");
       // A region takes #642's cost choice per render, as the render does.
       const regionView = { ...view, region: { x: 30, y: 20, width: 2, height: 1 } }, small = estimateDisplayViewRender(prepared, regionView), rendered = await prepared.render(regionView);
-      const defocus = rendered.assumptions.find((a) => a.id === "view.defocus")!.value as { fast?: string };
-      expect(small.signal.method === "regrouped").toBe(defocus.fast === "defocus-after-in-focus-signal");
+      const defocus = rendered.assumptions.find((a) => a.id === "view.defocus")!.value as { convolution?: string };
+      expect(small.signal.method === "regrouped").toBe(defocus.convolution === "runs");
     } finally { prepared.dispose(); }
-    // fast: false keeps the combined kernels and the full chain rule.
+    // fast: false takes the regrouped defocus too (#670 win 1, 2.28.0; the combined kernels before) and keeps the full chain rule.
     const exact = await prepareDisplayView({ ...options, fast: false });
     try {
       const estimate = estimateDisplayViewRender(exact, view);
-      expect(estimate).toMatchObject({ signal: { method: "taps", discRadiusSites: null }, chainPointsPerAxis: 16 });
-      expect(estimate.signal.tapsPerSite).toBe((2 * estimate.signal.kernelRadiusSites + 1) ** 2);
-      expect(estimate.signal.kernelRadiusSites).toBeGreaterThan(3);
+      expect(estimate).toMatchObject({ signal: { method: "regrouped", kernelRadiusSites: 0, tapsPerSite: 1 }, chainPointsPerAxis: 16 });
+      expect(estimate.signal.discRadiusSites).toBe(disc);
     } finally { exact.dispose(); }
   }, scaledTimeout(120_000));
 

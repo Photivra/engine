@@ -255,11 +255,8 @@ have a fast method, a measured and bounded approximation of it. One flag style s
   and `simulateDngRawWhatIf` are full quality only, with no `fast` (owner decision 2026-11-11): the clipping count is exact, the
   noise fit already runs in linear time (quickselect medians; 1.8 s on 24 MP) and a subsample would only add error to a number
   shown to the user, and the what-if's per-site seeded draws are what make it deterministic, so no faster method keeps its result;
-  in 2.25.0, the display view's regrouped defocus (#612, `lens.defocus/view-regrouped`: on the CPU, a disc much wider than the
-  diffraction kernel applied after the in-focus signal, by runs, the same sum regrouped; exact keeps each node's combined kernel;
-  from 2.26.0 only where a render's own region costs less that way, #642); in 2.26.0, the display view's per-tap chart signal (#643,
-  `chart.signal/view-per-tap`: on the CPU, a site whose kernel taps read several materials adds its taps in order, each integrated
-  from its material's spectrum, the same sum regrouped; exact forms per-material sums first);
+  (the display view's regrouped defocus, #612, and per-tap chart signal, #643, were fast methods in 2.25.0 to 2.27.0; from 2.28.0
+  every CPU render takes them, as regroupings that differ only by rounding, owner decision 2026-11-21, #670);
   the display view's lens corrections (#628, `output.lensCorrections/view-footprint`: each display pixel's developed rectangle
   area-averaged fast, each output pixel's four bilinear sources rendered from their combined moments exact); the catalogue fast method's
   box pixel aperture (#629, part of `lens.catalogue/field-grid`: each lattice point's box-integrated spectral radiance, one kernel per site);

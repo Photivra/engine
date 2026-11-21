@@ -1811,10 +1811,10 @@ export interface DisplayViewRunContext {
   sensor: SimulateCaptureSensorReport;
   /** 2.20.0: the view's own fast methods, resolved: the quarter sampling of uniform pixels (top-level `fast`); 2.22.0: the coupled rendering steps' rules (#593, #601). */
   /**
-   * The display view's fast methods: H2's uniform sampling, the coupled rendering's rules and (#612) a defocus disc applied after
-   * the in-focus signal where that is cheaper (`defocusRegrouped`); #643: a chart site's taps summed in order (`perTapSum`).
+   * The display view's fast methods: H2's uniform sampling, the coupled rendering's rules and the layered scene's samples. #670 win 1
+   * (2.28.0): #612's regrouped defocus and #643's per-tap sum are no longer fast methods; every CPU render takes them.
    */
-  viewFast: { uniformSampling: boolean; rendering: boolean; defocusRegrouped: boolean; perTapSum: boolean; layers: boolean };
+  viewFast: { uniformSampling: boolean; rendering: boolean; layers: boolean };
   /** #652: a layered chart scene (layered-scene-setup.ts, loaded on demand), with the inputs its layered sum reads. */
   layered?: LayeredRequest | undefined;
   defocusBokeh: ResolvedDefocusBokehOptions | undefined;
@@ -3743,7 +3743,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
       cornerStops: lensCorrectionSelection.vignetting ? catalogueCornerStops : null, selection: lensCorrectionSelection, create: lensKit!.createDisplayViewLensCorrection } } : {}) } : undefined;
   // #595: the native photosite's figures (their own module, so a bundler can split them off the default path).
   sensor.native = nativeSensorReport(sensor, regimeByChannel.green.regimeId, greyElectrons, DARK_CURRENT_ELECTRONS_PER_SECOND * shutterSeconds, nativeSensor, fixedPattern);
-  const context: DisplayViewRunContext = { sensor, viewFast: { uniformSampling: fastTop, rendering: fastTop, defocusRegrouped: fastTop, perTapSum: fastTop, layers: fastTop }, layered, defocusBokeh, queryOffsetsSites, irradianceScale, viewDetail, gamutHandling, lens: lensSignal, lensPsf: displayViewLensPsf, lensUniformWindows: uniformWindows, movingScene, ahd, fastReport, antiAliasing, aspect, assume, assumptions, axisChannelResponse, boxSamples, buildProvider, callerScene, chart, materialLayers, chartReport, chartSize, diffraction, defocus: displayViewDefocus, diffractionPsf, fNumber, focalLengthMm, focusDistanceM, height, highlightMode, exposureGain, illuminanceLux, illuminant, illuminantOption, imagingArea, intentOf, metresPerFrameUnit, framedWidthM, noiseSeed, outputOptions, parsedView, pitch, preset, provider, regimeByChannel, resolvedIso, isoReport, standardExposureDeviationStops: exposureDeviationStops, standardExposureIlluminanceLux: exposureIlluminanceLux, greyCardDeviationStops: exposureGreyCardDeviationStops, metering, sceneOption, scenePreset, shutterSeconds, started, subjectDistanceM, toneCurve, whiteBalanceOption, whiteBalanceState, width, checkAbort, margin, mode, nativeHeight, nativeWidth, sourceSha256, yieldControl, kelvinWhiteBalanceInput,
+  const context: DisplayViewRunContext = { sensor, viewFast: { uniformSampling: fastTop, rendering: fastTop, layers: fastTop }, layered, defocusBokeh, queryOffsetsSites, irradianceScale, viewDetail, gamutHandling, lens: lensSignal, lensPsf: displayViewLensPsf, lensUniformWindows: uniformWindows, movingScene, ahd, fastReport, antiAliasing, aspect, assume, assumptions, axisChannelResponse, boxSamples, buildProvider, callerScene, chart, materialLayers, chartReport, chartSize, diffraction, defocus: displayViewDefocus, diffractionPsf, fNumber, focalLengthMm, focusDistanceM, height, highlightMode, exposureGain, illuminanceLux, illuminant, illuminantOption, imagingArea, intentOf, metresPerFrameUnit, framedWidthM, noiseSeed, outputOptions, parsedView, pitch, preset, provider, regimeByChannel, resolvedIso, isoReport, standardExposureDeviationStops: exposureDeviationStops, standardExposureIlluminanceLux: exposureIlluminanceLux, greyCardDeviationStops: exposureGreyCardDeviationStops, metering, sceneOption, scenePreset, shutterSeconds, started, subjectDistanceM, toneCurve, whiteBalanceOption, whiteBalanceState, width, checkAbort, margin, mode, nativeHeight, nativeWidth, sourceSha256, yieldControl, kelvinWhiteBalanceInput,
     mixedIllumination: mixedKit && lightKit };
   // #652: result.scene.layers and the layered kernels, at the resolved f-number.
   layered?.report(context);

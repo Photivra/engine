@@ -108,11 +108,11 @@ unit tap without `lens.diffraction`). Dark electrons (1 e⁻/s × exposure) are 
   window over fine chart detail cost about the square of its distinct materials. The sets, their order and every sum are
   unchanged, so the result is bit-identical to 2.24.0. What remains of 2.21.0's cost is the per-node sum itself: one
   addition per tap and spectral node, against one per tap before 2.21.0 ([Cost, defocus](#defocus-1)).
-- **Per-tap sum on the CPU (#643, 2.26.0, fast method `chart.signal/view-per-tap`).** On a fast request (the display view's
-  default), a site whose taps read more than one material adds its taps in order, each integrated from its material's spectrum
+- **Per-tap sum on the CPU (#643, 2.26.0; on every CPU render since 2.28.0, #670).** On every CPU render (a fast method on fast
+  requests only in 2.26.0 and 2.27.0), a site whose taps read more than one material adds its taps in order, each integrated from its material's spectrum
   against the tap's kernel at every node (Σ_t Σ_n L_m(t)(λ_n)·C_c(t, n)), instead of first forming the per-material sums; a site
   whose taps read one material takes Σ_n L_m(λ_n)·S_c(n) as before. The same sum regrouped, still integrated per site when the site
-  is read; `view.signal` records `{ sum: "per-tap", fast: true }`, and `fast: false` keeps the per-material sums. Measured on the
+  is read; `view.signal` records `{ sum: "per-tap" }` (`fast: true` in it, and the per-material sums with `fast: false`, before 2.28.0). Measured on the
   in-focus Quality frames from 2.20.0 to 2.25.0 (a 768 × 128 band of a 200 mm wall-chart frame, one CPU thread, the same machine):
   2.20.0 8.6 s, 2.21.0–2.24.0 91–95 s, 2.25.0 57.8 s, the same samples throughout. Every site of that band reads about 130
   distinct materials through 400 taps of 20 nodes, so the per-node work, not the material search, is what 2.21.0 added; the
@@ -199,11 +199,12 @@ with K_λ the diffraction kernel (a unit tap without `lens.diffraction`).
   more than 64 columns beyond the raster edges, which a combined radius above 64 reaches, are looked up directly
   instead of from the lattice rings: the same values, at a higher cost. The cost grows with the square of the radius
   ([Cost, defocus](#defocus-1)).
-- **Regrouped on the CPU (#612, fast method `lens.defocus/view-regrouped`).** On a fast request (the display view's default), a
+- **Regrouped on the CPU (#612; on every CPU render since 2.28.0, #670).** On every CPU render (a fast method on fast requests only
+  from 2.25.0 to 2.27.0), a
   plain disc much wider than the diffraction kernel, (2R_c + 1)² > 4·(2R_f + 1)² with R_c = R_f + R_d, takes the path above
   64 sites at any radius: the in-focus signal of each channel at every site, then the disc by runs. This is the same sum
-  regrouped, so it differs from the combined kernels only by rounding; `view.defocus` records `convolution: "runs"` and
-  `fast: "defocus-after-in-focus-signal"`. `fast: false` keeps the combined kernels, and so does the GPU. Shaped bokeh kernels and
+  regrouped, so it differs from the combined kernels only by rounding; `view.defocus` records `convolution: "runs"` (and, before
+  2.28.0, `fast: "defocus-after-in-focus-signal"`; `fast: false` kept the combined kernels). The GPU keeps the combined kernels. Shaped bokeh kernels and
   the lens path keep their own routes. Measured on one test chart's Guide views (768 × 512, Quality, one CPU thread, the
   machine heavily loaded, CPU time of the same region back to back): f/2 focused in front, a 16 × 8 region, 5.8–5.9 s with the
   combined kernels, 0.74–0.82 s regrouped (2.20.0: 2.0–2.1 s); f/2 focused behind 3.6–3.7 s, 0.72–0.83 s (2.20.0: 1.2 s). f/16

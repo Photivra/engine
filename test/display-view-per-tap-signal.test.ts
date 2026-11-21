@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 /**
- * #643, the display view's per-tap chart signal (fast method `chart.signal/view-per-tap`). From 2.21.0 each chart site's signal is
+ * #643, the display view's per-tap chart signal (a fast method in 2.26.0 and 2.27.0; on every CPU render since 2.28.0, #670 win 1). From 2.21.0 each chart site's signal is
  * integrated from its materials' spectra (no per-material channel values). 2.21.0–2.25.0 formed per-material sums of the taps' kernels
  * first (`createMaterialSums`); on a fast request the CPU reference now adds the taps in order, each integrated from its material's
  * spectrum per spectral node, which is the same sum regrouped and about 1.6–1.7 times faster on fine chart detail (a 768 × 16 band of
@@ -35,12 +35,13 @@ const VIEW = { width: 300, height: 200, samplesPerAxis: 2, region: { x: 140, y: 
 const signalOf = (result: { assumptions: readonly { id: string; value: unknown }[] }): unknown => result.assumptions.find((a) => a.id === "view.signal")?.value;
 
 describe("display view: per-tap chart signal (#643)", () => {
-  it("is the fast default, equal to the per-material sums to rounding; fast: false keeps the per-material sums", async () => {
+  it("is taken with both flags (#670 win 1, 2.28.0; fast only before), equal to the per-material sums to rounding", async () => {
     const fast = await simulateDisplayViewWithInternals(request(), VIEW);
     const exact = await simulateDisplayViewWithInternals(request(false), VIEW);
-    expect(signalOf(fast.result)).toEqual({ sum: "per-tap", fast: true });
-    expect(signalOf(exact.result)).toBeUndefined();
+    expect(signalOf(fast.result)).toEqual({ sum: "per-tap" });
+    expect(signalOf(exact.result)).toEqual({ sum: "per-tap" });
     expect(fast.signalInput.perTapSum).toBe(true);
+    expect(exact.signalInput.perTapSum).toBe(true);
     // The same input with the per-material sums: the expected electrons of every site agree to rounding.
     const perTap = createDisplayViewExpectedSignal(fast.signalInput), sums = createDisplayViewExpectedSignal({ ...fast.signalInput, perTapSum: false });
     let worst = 0, mixed = 0;

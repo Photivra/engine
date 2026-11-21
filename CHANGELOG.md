@@ -256,7 +256,30 @@ Each item below is one commit of the serial output-change lane, with its measure
     (the report fields above; the same on both architectures). `test/lens-catalogue-flare.test.ts`'s fast case uses 7 squares instead
     of 6, so that its frame centre lies inside a square (on the corner of four, the 4-cell grid is over the check's tolerance and
     the capture now takes the exact method).
-  - *Bundle.* Fast row 337,720 → 337,829 B (+109 B), 29 B over its 337,800 B limit, which is not raised: open for the owner.
+  - *Bundle.* Fast row 337,720 → 337,829 B (+109 B); with #670 win 1 (next item) the row is under its 337,800 B limit again.
+
+- **Full-quality display views take the two exact regroupings (#670 win 1, owner decision 2026-11-21).** `fast: false` (the
+  flag batch figure renders use) now takes the per-tap chart signal from the pre-integrated spectral radiance (#643, #653) and the
+  regrouped defocus disc (#612, #642), which 2.25.0 to 2.27.0 ran only on fast requests. Both are the same sums in another order, so
+  they are no longer fast methods: the registry entries `chart.signal/view-per-tap` and `lens.defocus/view-regrouped` are removed,
+  `view.signal` reports `{ sum: "per-tap" }` (no `fast: true`) and `view.defocus` no longer reports `fast:
+  "defocus-after-in-focus-signal"`, on both flags. Per-site integration is unchanged: the pre-integrated values are spectra,
+  integrated against each site's own channel response when the site is read. The default flag's output is unchanged.
+  - *Measured effect* (the #670 part tier, `fast: false`, against 2.27.0's `fast: false` at 8ec59ee): 8-bit samples that differ:
+    1 of 99,072 (by one level) in `frame-768`, `wide-24` and `noise-iso-frame`, 2 of 99,072 (by one level) in `dr-recover-push`;
+    0 in the other 18 cases.
+  - *Speed* (`node scripts/benchmark-figure-batch.mjs pair`, `FLAGS=exact`, each pair started together, a loaded machine, CPU s):
+    `dof-near-s1` 81.9 → 2.3 (0.03×), `dof-near-s4` 25.5 → 1.3 (0.05×), `bokeh-s1` 45.9 → 6.5 (0.14×), `tele-200` 28.3 → 6.6
+    (0.23×), `frame-768` 13.3 → 4.0 (0.30×), `noise-iso-frame` 14.0 → 4.3 (0.30×), `sensor-aps-c` 0.39×, `wide-24` 0.40×,
+    `frame-1536` 0.48×, `sensor-phone` 0.54×, `dr-recover-push` 0.69×; the other cases 0.98–1.12× (no kernel sums of this kind:
+    catalogue lens, motion, layered, mixed light, captures). Set of 22 parts: 438.0 → 234.2 CPU s (0.53×). Peak RSS up to 83 MB
+    higher (the spectral lattice tiles).
+  - *Locks re-recorded for #670 win 1* (`test/figure-batch-hash-locks.test.mjs`, arm64 and x64 Node 24.1.0 under Rosetta): the
+    `fast: false` `internals` digests of `frame-768`, `frame-1536`, `tele-200`, `wide-24`, `sensor-phone`, `dof-near-s1`,
+    `dof-near-s4`, `bokeh-s1`, `noise-iso-frame`, `dr-recover-push` and `sensor-aps-c` (they now equal the default flag's), and the
+    `fast: false` `sceneLookups` of `dof-near-s1` (602,488 → 198,096) and `dof-near-s4` (823,888 → 203,992). No `samples` lock moved
+    (the lock regions are small); the display-view locks of `test/display-view.test.ts`, `-pixel-memo` and `-detail-shared` hold.
+  - *Bundle.* Fast row 337,829 → 337,715 B (−114 B; lane so far −5 B against step 4's 337,720 B).
 
 ### Display view
 
