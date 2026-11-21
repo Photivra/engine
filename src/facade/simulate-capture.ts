@@ -3857,7 +3857,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   const dngParts = run === "dng-from-parts" || run === "develop-from-parts" ? viewOption : undefined,
     partsCaller = run === "dng-from-parts" ? "serializeSimulatedCaptureDngFromParts" : "simulateCaptureFromParts";
   if (dngParts !== undefined && regionNative) fail(partsCaller + " takes the whole frame: the options take no output.region.");
-  let tabulated: Awaited<ReturnType<typeof renderTabulatedNativeRaw>>;
+  let tabulated: Awaited<ReturnType<typeof renderTabulatedNativeRaw>>, perTapSum = false;
   // #568: lens.catalogue's fast method: expected electrons integrated per site at use, with the PSF blended over a field grid (catalogue-lens-signal.ts), for a
   // still camera, site-centre queries and a chart or material scene; verified per CFA phase against the exact chain within its tolerance.
   let catalogueFastRun: { columns: number; rows: number; resolved: number; verificationRelativeDifference: number; subdivisions: number; boxSamples: number } | undefined;
@@ -3928,8 +3928,12 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
     // The verification reads only the region's top-left 2 × 2 block, so its diffraction convolves only that block's lattice; the
     // window never changes a value (see diffraction-provider.ts), so the chain it runs is the whole render's.
     const verificationProvider = diffractedProvider({ x: regionNative?.x ?? 0, y: regionNative?.y ?? 0, width: 2, height: 2 });
+    // #731 (owner decision 2026-11-21: fast and exact requests): with kernels, a chart or material scene's sites take the display view's
+    // per-tap sum of the pre-integrated spectral radiance (#643, #653), one set of (2R + 1)² taps per site instead of one per lattice
+    // group (N² groups for an N × N box): the same sum regrouped, within the verification's 1e-9.
+    perTapSum = signalInput.kernels !== undefined && signalInput.scene.kind === "materials" && !signalInput.largeKernel;
     tabulated = await renderTabulatedNativeRaw({ input: environmentRaw, region: regionNative, siteInput, evaluateRadiance: verificationProvider.evaluateRadiance,
-      electrons: createDisplayViewExpectedSignal(signalInput), onTile: rawTick, tileWidth, yieldControl: () => yieldControl(), checkAbort });
+      electrons: createDisplayViewExpectedSignal(perTapSum ? { ...signalInput, perTapSum } : signalInput), onTile: rawTick, tileWidth, yieldControl: () => yieldControl(), checkAbort });
   }
   let rawOutput: { raw: NativeRawOutput; providerEvaluationCount: number };
   if (dngParts !== undefined) {
@@ -3951,7 +3955,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
     rawOutput = { raw: tabulated.raw, providerEvaluationCount: tabulated.providerEvaluationCount };
     // The verification's relative difference itself is not reported: it is a last-bits quantity, and captures use the JavaScript
     // engine's own Math functions, so it differs between engines while the results are the same.
-    assume("raw.expectedSignal", "model", { method: "per-site-integrated-electrons", verificationSites: 4, tolerance: TABULATED_RELATIVE_TOLERANCE },
+    assume("raw.expectedSignal", "model", { method: "per-site-integrated-electrons", verificationSites: 4, tolerance: TABULATED_RELATIVE_TOLERANCE, ...(perTapSum ? { sum: "per-tap" } : {}) },
     "Each native site's expected photo electrons are integrated per site when the site is read: the sum over the pixel-aperture nodes, anti-aliasing spots, diffraction taps and spectral nodes " +
       "of each tap's material spectrum against the site's channel response (the display view's expected signal), " +
       "the same quantity the environment chain computes for this still, rectilinear, distortion-free planar scene, formed in another order, so it can differ in the last bits. The sensor stage (dark charge, Poisson draws, " +

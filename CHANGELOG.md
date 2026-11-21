@@ -281,6 +281,24 @@ Each item below is one commit of the serial output-change lane, with its measure
     (the lock regions are small); the display-view locks of `test/display-view.test.ts`, `-pixel-memo` and `-detail-shared` hold.
   - *Bundle.* Fast row 337,829 → 337,715 B (−114 B; lane so far −5 B against step 4's 337,720 B).
 
+- **Captures with kernels take the per-tap sum, fast and exact (#731, owner decision 2026-11-21).** The tabulated RAW path of a
+  capture with kernels (`lens.diffraction`, or a small `lens.defocus` disc) on a chart or material scene formed one set of kernel
+  taps per lattice group, N² groups for an N × N box pixel aperture, so its time grew with N² where the display view's did not. It
+  now takes the display view's per-tap sum of the pre-integrated spectral radiance (#643, #653) on every request, exports and
+  `fast: false` included (no flag: the same sum regrouped). `raw.expectedSignal` adds `sum: "per-tap"`. The run-time check against
+  the chain stays at 1e-9; per-site integration is unchanged.
+  - *Measured effect.* Expected electrons within 1.5e-14 relative of the per-material sums (1.4 µm, f/8, 4 × 4 box, 32 × 24 sites;
+    `test/simulate-capture-per-tap.test.ts`). Samples: 0 changed in 18 captures (9 requests × both flags, 128 × 128 regions,
+    884,736 samples) and in the five capture cases of the #670 benchmark, both flags.
+  - *Speed* (paired, CPU s, 128 × 128, f/8 with diffraction): 1.4 µm 4 × 4 box Siemens star 10.4 → 0.48 (0.05×) fast and
+    10.4 → 0.44 exact (sRGB-16 exact 13.8 → 0.44), dead leaves 4.3 → 0.28, four-spot and 2 × 2 box 3.8 → 0.41, 2 × 2 box 1.7 → 0.55
+    (sRGB-8) and 2.7 → 0.39 (sRGB-16); 6 µm 4 × 4 box Siemens star 1.31 → 0.17, slanted edge 0.19 → 0.11; point aperture
+    0.92 → 0.36. #670 captures: `detail-star-f22` 0.33×, `detail-star-f8` 0.63×, `detail-noise` 0.71× on both flags. The 384 × 384
+    and 12-megapixel cases of the ticket and a whole capture's peak memory were not re-measured (peak RSS of the parts above: up to
+    +14 MB; the spectral tiles are bounded by `PREINTEGRATED_CACHE_BYTES`).
+  - *Locks.* None moved (every capture, DNG, display-view and figure-batch lock holds on arm64 and x64).
+  - *Bundle.* Fast row 337,715 → 337,772 B (+57 B; lane so far +52 B against 337,720 B).
+
 ### Display view
 
 - **Display view: Recover and +1 stop without Standard under its time target (#662); output unchanged.** With the identity tone
