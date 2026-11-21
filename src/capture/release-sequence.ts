@@ -124,6 +124,13 @@ export interface ResolvedReleaseFrame {
   focus: FocusPlane;
   exposureBracketOffsetStops?:
     number;
+  /**
+   * #680: the offset the frame's setting realizes, present only when the exact setting `base × 2^offset` was not on a
+   * discrete setting grid and the nearest grid value (within 1/12 stop) was taken instead: log₂(setting ÷ base) for
+   * shutter and ISO, 2·log₂(base ÷ setting) for the f-number.
+   */
+  exposureBracketRealizedOffsetStops?:
+    number;
   automation:
     ReleaseBaseCaptureState["automation"];
   whiteBalanceStateId?: string;
@@ -310,6 +317,69 @@ function resolveFrameCount(
   return bracketCount;
 }
 
+/** True when `value` is on a discrete grid (within 1e-12 relative) or the grid is continuous. */
+function onGrid(
+  value: number,
+  grid:
+    ResolvedNumericSettingGrid
+): boolean {
+  return grid.kind !==
+    "discrete-values" ||
+    grid.values.some(
+      (candidate) =>
+        Math.abs(
+          candidate - value
+        ) <=
+        Math.max(
+          1,
+          Math.abs(value)
+        ) *
+          1e-12
+    );
+}
+
+/** #680 (owner decision 2026-11-21): the largest distance, in stops, from an exact bracket setting to the grid value taken. */
+const BRACKET_GRID_SNAP_STOPS = 1 / 12;
+
+/**
+ * #680: a bracketed setting not on its discrete grid becomes the grid value nearest in log₂ when that lies within
+ * BRACKET_GRID_SNAP_STOPS (`stopsPerLog2` is 1 for shutter and ISO, 2 for the f-number); otherwise it is returned
+ * unchanged, and the grid check refuses it as before.
+ */
+function snapToGrid(
+  value: number,
+  grid:
+    ResolvedNumericSettingGrid,
+  stopsPerLog2: number
+): number {
+  if (
+    grid.kind !==
+      "discrete-values" ||
+    !(value > 0) ||
+    onGrid(value, grid)
+  ) {
+    return value;
+  }
+  let best = value,
+    distance = Infinity;
+  for (const candidate of grid.values) {
+    const stops =
+      Math.abs(
+        Math.log2(
+          candidate / value
+        )
+      ) * stopsPerLog2;
+    if (stops < distance) {
+      distance = stops;
+      best = candidate;
+    }
+  }
+  return distance <=
+    BRACKET_GRID_SNAP_STOPS
+    ? best
+    : value;
+}
+
 function validateGridSetting(
   value: number,
   minimum: number,
@@ -329,21 +399,7 @@ function validateGridSetting(
     );
   }
 
-  if (
-    grid.kind ===
-      "discrete-values" &&
-    !grid.values.some(
-      (candidate) =>
-        Math.abs(
-          candidate - value
-        ) <=
-        Math.max(
-          1,
-          Math.abs(value)
-        ) *
-          1e-12
-    )
-  ) {
+  if (!onGrid(value, grid)) {
     throw new InvalidScientificInputError(
       path +
         " is not present in the resolved equipment setting grid."
@@ -436,6 +492,8 @@ function resolveFrameState(
   focus: FocusPlane;
   exposureBracketOffsetStops?:
     number;
+  exposureBracketRealizedOffsetStops?:
+    number;
 } {
   if (input.bracket.kind === "none") {
     return {
@@ -496,6 +554,32 @@ function resolveFrameState(
     focus:
       parseFocusPlane(focus)
   };
+}
+
+/** #680: the bracketed axis's setting on a discrete grid, with its realized offset when it moved (see snapToGrid). */
+function snapBracketedSetting(
+  state: {
+    exposure:
+      ReleaseBaseCaptureState["exposure"];
+    exposureBracketRealizedOffsetStops?:
+      number;
+  },
+  base:
+    ReleaseBaseCaptureState["exposure"],
+  axis:
+    GenericExposureBracketAxis,
+  capabilities:
+    ResolvedGenericEquipmentExposureCapabilities
+): void {
+  const exposure = state.exposure;
+  if (axis === "aperture") {
+    const value = snapToGrid(exposure.aperture, capabilities.aperture.settingGrid, 2);
+    if (value !== exposure.aperture) { exposure.aperture = value; state.exposureBracketRealizedOffsetStops = 2 * Math.log2(base.aperture / value); }
+  } else {
+    const key = axis === "iso" ? "iso" : "shutterSeconds",
+      value = snapToGrid(exposure[key], (axis === "iso" ? capabilities.iso : capabilities.shutter).settingGrid, 1);
+    if (value !== exposure[key]) { exposure[key] = value; state.exposureBracketRealizedOffsetStops = Math.log2(value / base[key]); }
+  }
 }
 
 function validateBracketSupport(
@@ -839,6 +923,14 @@ export function resolveReleaseSequence(
         input,
         frameIndex
       );
+    if (input.bracket.kind === "exposure") {
+      snapBracketedSetting(
+        state,
+        baseState.exposure,
+        input.bracket.axis,
+        input.exposureCapabilities
+      );
+    }
     validateExposure(
       state.exposure,
       input.exposureCapabilities,
@@ -942,6 +1034,15 @@ export function resolveReleaseSequence(
             exposureBracketOffsetStops:
               state
                 .exposureBracketOffsetStops
+          }),
+      ...(state
+        .exposureBracketRealizedOffsetStops ===
+      undefined
+        ? {}
+        : {
+            exposureBracketRealizedOffsetStops:
+              state
+                .exposureBracketRealizedOffsetStops
           }),
       automation:
         cloneJson(

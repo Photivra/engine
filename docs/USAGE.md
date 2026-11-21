@@ -4743,6 +4743,18 @@ Schema 0.1.0 does not model slowdown from buffers, media or heat, pre-release ca
 
 Exposure bracketing changes an explicit physical exposure setting for each frame. It does not add a brightness offset after rendering.
 
+Each frame's setting is `base × 2^offset` (shutter and ISO) or `base ÷ 2^(offset/2)` (f-number). When the bracketed axis has a
+`discrete-values` grid of nominal settings (ISO 100, 125, 160, …; 1/250, 1/125, 1/60 s) and that exact value is not on it, the
+frame takes the grid value nearest to it in log₂ when that lies within 1/12 stop (half the step between third stops; owner
+decision 2026-11-21, #680): ISO 400 with offsets `[-1/3, 0, 1/3]` gives ISO 320, 400 and 500, and 1/125 s with `[-1, 0, 1]` gives
+1/250, 1/125 and 1/60 s. Such a frame keeps the requested `exposureBracketOffsetStops` and adds
+`exposureBracketRealizedOffsetStops`, the offset its setting realizes. A value farther than 1/12 stop from every grid value (ISO
+400 with an offset of 0.5 stop, 565.7, between 500 and 640) is refused, and a continuous grid is used as it is.
+
+`bracket.kind` must be `"none"`, `"exposure"` or `"focus"`, with only that kind's fields, and `offsetsStops` or `focusStates` a
+dense array; `baseState.exposure` takes only `aperture`, `shutterSeconds` and `iso`, and `baseState.automation` only `ae`, `af` and
+`awb`, each `"manual"`, `"locked"` or `"continuous"`. A missing sub-object fails with `InvalidConfigurationError` (#720, `capture-20`).
+
 Focus bracketing uses explicit `FocusPlane` states. It does not claim to produce a focus-stacked image, and does not give an abstract focus-step index a universal physical meaning.
 
 White-balance bracketing is not forced to mean several physical exposures. Varying WB in rendering or development is work for the colour pipeline later on.

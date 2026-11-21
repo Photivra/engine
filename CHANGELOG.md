@@ -75,6 +75,12 @@
     (a typo such as `"Focus"`, `"white-balance"`, or no kind) as a focus bracket and skipped the profile's focus-bracketing check,
     and accepted a non-array or sparse `focusStates` / `offsetsStops` (0 frames, or `requestedFrameCount: 2.5`). Each now fails
     with `InvalidConfigurationError`, as do fields of another bracket kind. Valid brackets resolve unchanged.
+  - *Brackets on nominal setting grids (#680).* An exposure bracket whose exact setting (`base × 2^offset`) is not on a
+    `discrete-values` grid was always refused, so third-stop ISO brackets never resolved on the generic bodies (400 × 2^(−1/3) =
+    317.5 against 320) and some whole-stop shutter brackets failed on a nominal grid (1/62.5 s against 1/60 s). The frame now takes
+    the grid value nearest in log₂ within 1/12 stop (owner decision 2026-11-21) and reports `exposureBracketRealizedOffsetStops`
+    beside the requested offset; farther values are refused as before. A wrong refusal becomes a sequence; sequences that
+    resolved before are unchanged (docs/USAGE.md).
 
 ## 2.27.0 — published November 19, 2026
 
