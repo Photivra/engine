@@ -18,6 +18,11 @@
     and every interior point that inverted before gives the same bits. On exact-boundary points (400,000, |k| ≤ 0.1, |p| ≤ 0.02)
     386 inverses and 148,086 inverse → forward round trips failed and now pass; 147,700 inverse results that lay up to 1e-12
     outside the envelope move onto its boundary (at most 1.0e-12 relative), the only change to a result returned before.
+  - *Bokeh blades with a tiny curvature (#725, `optics-10`).* A `curvature` below 1e-6 now gives straight blades: its arcs lie within
+    0.375·κ < 4e-7 circumradii of their chords, below the 5e-6 accuracy of the kernel's 1024-gon curves, while the arc's centre-based
+    construction lost about log10(1/κ) digits (κ = 1e-12 differed from straight blades by 3.8e-6 in a tap, 5.55e-17, the value of
+    `0.1 + 0.2 - 0.3`, gave a 73-site window instead of 23, and κ ≤ 1e-17 threw a non-finite error). Kernels at κ ≥ 1e-6 (the
+    catalogue's 0.3 and 0.7 among them) keep their bits.
 - **Tooling, CI and tests only (2.28.0 step 1); no package, API, output or bundle change.**
   - *Coverage gates decide per shard (#666, with `ci-07`).* Each coverage shard uploads one part, its blob report or a marker
     naming the `coverage` proof it found; `.github/coverage-parts.mjs` merges ten blobs with the thresholds enforced, passes a
