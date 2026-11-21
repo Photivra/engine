@@ -123,6 +123,8 @@ describe("root exports reject malformed input with domain errors (API review #4)
     "parseColorimetricQuadratureNodes", "parseLensProjectionModel", "parseLosslessJpeg", "parseSpectralWavelengthBasis",
     // #447: the AHD correction states of the display view: no argument, and an array of { key, gridKeys, values } entries.
     "serializeDisplayViewCorrectionStates", "bindDisplayViewCorrectionStates",
+    // #660 (2.28.0): a view returned by prepareDisplayView first (refused otherwise), then the view record, checked as render checks it.
+    "estimateDisplayViewRender",
     // #474: the realm's WebGPU switch: no argument, and one boolean.
     "getWebGpuEnabled", "setWebGpuEnabled",
     // #388: the text writers take a file's raw bytes and the text; the text rejects unknown fields as output.metadata does.
