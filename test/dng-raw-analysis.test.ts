@@ -399,6 +399,23 @@ describe("what-if noise check without a measurement (2.28.0)", () => {
   }, scaledTimeout(60_000));
 });
 
+describe("RAW noise estimate values (2.28.0)", () => {
+  // #723: every number of estimateDngRawNoise, recorded on the code before the per-plane memory change.
+  it("keeps every number of estimateDngRawNoise", async () => {
+    const { createHash } = await import("node:crypto");
+    const digests: string[] = [];
+    for (const [scene, exposure] of [[{ preset: "step-wedge" }, {}], [{ preset: "dead-leaves", seed: 2 }, {}], [{ preset: "color-patches" }, { iso: 3200 }]] as const) {
+      const c = await simulateCapture({ scene, exposure, sensor: { noiseSeed: 4 }, output: { width: 192, height: 128, format: "dng" } });
+      const raw = parseDngRawImage({ bytes: c.image.dng! });
+      for (const options of [{}, { signalLevels: [0.05, 0.2, 0.6], bins: 8, minimumBlocksPerBin: 40 }]) {
+        digests.push(createHash("sha256").update(JSON.stringify(estimateDngRawNoise(raw, options))).digest("hex").slice(0, 24));
+      }
+    }
+    expect(digests).toEqual(["cbe963c04dd38278ac7e7ef1", "d60cc16e3614edf01844be1c", "df83781abccc27acddf393b8", "01a31ab968dc505748545cd1",
+      "5a9ec7e29b9f101ed5c5f2b6", "d7bfd126a9b641f69b71cc60"]);
+  }, scaledTimeout(60_000));
+});
+
 describe("dual-gain switch catalog and the denoised-file check (2.24.0)", () => {
   it("ships only cited entries and finds none for an unknown camera", async () => {
     const { DNG_GAIN_SWITCH_CATALOG, resolveDngGainSwitch } = await import("../src/index.js");

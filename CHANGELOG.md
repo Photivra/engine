@@ -60,6 +60,10 @@
     few smooth blocks, or no positive fitted variance as in noise-free data), `simulateDngRawWhatIf` still allows it and now adds
     the assumption "The file's noise could not be measured, so its NoiseProfile was not verified."; the docs no longer present
     `measuredToProfile: null` as only "check off". Owner decision 2026-11-21 (option b): no result changes.
+  - *RAW noise estimate memory (#723).* `estimateDngRawNoise` (run by default in the DNG what-if) measures one colour plane at a
+    time, takes each plane's median before its block arrays exist, and reuses one scratch buffer in the MAD. A 6000 × 4000 RGGB
+    mosaic: peak live typed arrays 426 → 164 MB (8.9× → 3.4× the 48 MB of RAW codes), time unchanged; every result number
+    identical (new value locks recorded on the unchanged code). No bundle row changes.
 
 ## 2.27.0 — published November 19, 2026
 
