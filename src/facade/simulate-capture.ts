@@ -548,8 +548,9 @@ export interface SimulateCaptureOptions {
      *   engine never clips a limit. When the ISO stops at a limit strictly inside the body's range, the report's
      *   `limitingConstraint` is `"user-iso-maximum"` or `"user-iso-minimum"`.
      * - `isoSteps` (2.14): `"whole-stop"` (default) lets Auto ISO choose only the whole-stop ISOs of the body's grid
-     *   (100, 200, 400 …), as before the generic bodies gained third-stop settings (preset 2.1.0); `"third-stop"` lets it
-     *   choose every setting (100, 125, 160 …). Manual ISO always takes any setting of the grid. Limits must lie on the
+     *   (100, 200, 400 …), as before the generic bodies gained third-stop settings (preset 2.1.0); on a sensor profile, its base ISO·2^k,
+     *   or, when that list leaves out ISO 100 (base ISO 32, 40, 64 or 80, #672), every third setting from ISO 100 with the base ISO
+     *   kept (80, 100, 200 …); `"third-stop"` lets it choose every setting (100, 125, 160 …). Manual ISO always takes any setting of the grid. Limits must lie on the
      *   grid Auto ISO uses.
      */
     autoIso?: { slowestPreferredShutterSeconds?: number | "auto"; afterMaximumIso?: SimulateCaptureAutoIsoAfterMaximum; limits?: AutoIsoLimits;
@@ -1247,12 +1248,20 @@ function luminanceOf(radiance: (nm: number) => number): number {
 /**
  * 2.14: the capabilities with the ISO grid cut to its whole stops from the base ISO (ISO 100·2^k on the tiers, as the 2.0.0 bodies list them; #554: a profile's base·2^k), for
  * Auto ISO's default `isoSteps: "whole-stop"`. A whole-stop grid is returned unchanged, so 2.0.0 records resolve as before.
+ * #672: when that list leaves out the reference exposure's ISO (ISO 100 on a profile whose base ISO is below 100, which every exposure mode
+ * refuses) and the grid is a third-stop grid, the whole stops are every third setting counted from the reference ISO, and the base ISO.
+ * Counting positions keeps the nominal markings (1250, not 1280). Every other grid keeps the list it had.
  */
-function wholeStopIsoCapabilities(capabilities: ResolvedGenericEquipmentExposureCapabilities): ResolvedGenericEquipmentExposureCapabilities {
+function wholeStopIsoCapabilities(capabilities: ResolvedGenericEquipmentExposureCapabilities, referenceIso: number): ResolvedGenericEquipmentExposureCapabilities {
   const grid = capabilities.iso.settingGrid;
   if (grid.kind !== "discrete-values") return capabilities;
-  const whole = grid.values.filter((iso) => Number.isInteger(Math.log2(iso / grid.values[0]!)));
-  if (whole.length === grid.values.length || whole.length === 0) return capabilities;
+  // `at` matches at least every ISO the resolvers' grid check matches (32 ε relative: the reference ISO is 100 or more).
+  const values = grid.values, at = (list: readonly number[]): number => list.findIndex((iso) => Math.abs(iso / referenceIso - 1) < 1e-12);
+  let whole = values.filter((iso) => Number.isInteger(Math.log2(iso / values[0]!)));
+  const from = at(values);
+  if (at(whole) < 0 && from >= 0 && values.every((iso, i) => !i || Math.abs(3 * Math.log2(iso / values[i - 1]!) - 1) < .1))
+    whole = values.filter((_, i) => !i || (i - from) % 3 === 0);
+  if (whole.length === values.length || whole.length === 0) return capabilities;
   return { ...capabilities, iso: { ...capabilities.iso, settingGrid: { kind: "discrete-values", values: Object.freeze(whole) } } };
 }
 /** The white balance measured from a perfect white diffuser under the scene illuminant ("scene-illuminant"). */
@@ -2794,7 +2803,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
     if (autoIsoOptions.isoSteps !== undefined && autoIsoOptions.isoSteps !== "whole-stop" && autoIsoOptions.isoSteps !== "third-stop")
       fail('exposure.autoIso.isoSteps must be "whole-stop" or "third-stop".');
     if (autoIsoOptions.isoSteps === "third-stop") autoIsoIsoSteps = "third-stop";
-    if (autoIsoIsoSteps === "whole-stop") resolverCapabilities = wholeStopIsoCapabilities(capabilities);
+    if (autoIsoIsoSteps === "whole-stop") resolverCapabilities = wholeStopIsoCapabilities(capabilities, reference.iso);
     if (mode !== "aperture-priority" && mode !== "program") for (const key of ["slowestPreferredShutterSeconds", "afterMaximumIso", "automaticSlowestShutter"])
       if (autoIsoOptions[key] !== undefined) fail("exposure.autoIso." + key + ' applies only to exposure.mode "aperture-priority" or "program"; omit it.');
     if (autoIsoOptions.limits !== undefined) autoIsoLimits = parseAutoIsoLimitsOption(autoIsoOptions.limits, resolverCapabilities.iso);

@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- **Fixed: Auto ISO on sensor profiles with a base ISO below 100 (#672).** `exposure.iso: "auto"` with its default whole-stop
+  steps was refused in every exposure mode on six of the eight profiles (base ISO 80 and the phone's 40): the whole stops counted
+  from the base ISO (80, 160, 320, 640) left out ISO 100, the exposure reference's ISO. When that list leaves out the reference
+  ISO on a third-stop grid, the whole stops are now every third setting counted from it, with the base ISO kept (owner decision
+  of 2026-11-21): 80, 100, 200, 400 … up to the profile's Auto ISO maximum. Every other grid keeps its list, so a request that
+  resolved before resolves to the same settings and bytes (3,804 requests compared: 2,647 unchanged, 424 that were refused now
+  resolve, none changed). Tests: `test/sensor-profile-auto-iso.test.ts`.
 - **Tooling, CI and tests only (2.28.0 step 1); no package, API, output or bundle change.**
   - *Coverage gates decide per shard (#666, with `ci-07`).* Each coverage shard uploads one part, its blob report or a marker
     naming the `coverage` proof it found; `.github/coverage-parts.mjs` merges ten blobs with the thresholds enforced, passes a

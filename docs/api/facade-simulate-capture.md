@@ -708,8 +708,9 @@ export interface SimulateCaptureOptions {
      *   engine never clips a limit. When the ISO stops at a limit strictly inside the body's range, the report's
      *   `limitingConstraint` is `"user-iso-maximum"` or `"user-iso-minimum"`.
      * - `isoSteps` (2.14): `"whole-stop"` (default) lets Auto ISO choose only the whole-stop ISOs of the body's grid
-     *   (100, 200, 400 …), as before the generic bodies gained third-stop settings (preset 2.1.0); `"third-stop"` lets it
-     *   choose every setting (100, 125, 160 …). Manual ISO always takes any setting of the grid. Limits must lie on the
+     *   (100, 200, 400 …), as before the generic bodies gained third-stop settings (preset 2.1.0); on a sensor profile, its base ISO·2^k,
+     *   or, when that list leaves out ISO 100 (base ISO 32, 40, 64 or 80, #672), every third setting from ISO 100 with the base ISO
+     *   kept (80, 100, 200 …); `"third-stop"` lets it choose every setting (100, 125, 160 …). Manual ISO always takes any setting of the grid. Limits must lie on the
      *   grid Auto ISO uses.
      */
     autoIso?: { slowestPreferredShutterSeconds?: number | "auto"; afterMaximumIso?: SimulateCaptureAutoIsoAfterMaximum; limits?: AutoIsoLimits;
