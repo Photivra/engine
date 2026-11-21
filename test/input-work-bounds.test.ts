@@ -6,7 +6,7 @@ import {
   parseSensorColorSamplingProfile, parseSensorSpectralResponseProfile, resolveChartScene, resolveGenericEquipmentExposureCapabilities,
   resolveReleaseSequence, InvalidConfigurationError, InvalidScientificInputError, type ChartScene
 } from "../src/index.js";
-import { calculateAiryCellEnergies, calculateAiryCellEnergiesInFrequencyDomain } from "../src/optics/diffraction-psf-profile.js";
+import { calculateAiryCellEnergies, calculateAiryCellEnergiesInFrequencyDomain, createDiffractionLimitedPsfProfile } from "../src/optics/diffraction-psf-profile.js";
 import { resolveParsedSensorSpectralResponseAtWavelength } from "../src/sensor/spectral-response.js";
 import { scaledTimeout } from "./helpers/test-timeout.js";
 
@@ -102,6 +102,27 @@ describe("diffraction cells: method by estimated work", () => {
     // Cheap cases keep the frequency-domain method (and its values).
     expect(calculateAiryCellEnergies(6, 4).realSpace).toBe(false);
     expect(calculateAiryCellEnergies(31.9, 1).realSpace).toBe(false);
+  }, scaledTimeout(60_000));
+});
+
+describe("diffraction profiles: one cell-work bound per profile", () => {
+  // β = pitch / (λ·N): at 500 nm and f/1 (infinity focus) β is twice the pitch in µm.
+  const profile = (samplePitchMicrometers: number, kernelRadiusSamples: number, wavelengthsNm: number[] = [500]): unknown => createDiffractionLimitedPsfProfile({
+    aperture: "circular", focalLengthMm: 50, apertureFNumber: 1, focus: { kind: "infinity" }, wavelengthsNm, samplePitchMicrometers, kernelRadiusSamples,
+    fieldHalfExtentMm: { x: 1, y: 1 }, profileId: "bound" });
+
+  it("refuses a profile whose β·(R + 1)², summed over its wavelengths, is above 400 × 32 × 33², before integrating a cell", () => {
+    const start = performance.now();
+    // One wavelength, β 13,000, R 32 (about 12 s of real-space cells before): 1.416 × 10⁷.
+    expect(() => profile(6_500, 32)).toThrow(/cell work/u);
+    // 400 wavelengths from 500 nm with β about 33 at the shortest, R 32.
+    expect(() => profile(16.5, 32, Array.from({ length: 400 }, (_, i) => 500 + i * 0.01))).toThrow(InvalidConfigurationError);
+    expect(performance.now() - start).toBeLessThan(scaledTimeout(200));
+  }, scaledTimeout(60_000));
+
+  it("keeps large cells with a small window", () => {
+    // β 50,000 at R 2: 4.5 × 10⁵.
+    expect(profile(25_000, 2)).toMatchObject({ value: { kernelRadiusSamples: 2 } });
   }, scaledTimeout(60_000));
 });
 

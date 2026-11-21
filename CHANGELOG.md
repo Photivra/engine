@@ -23,7 +23,7 @@
   - *Proof uploads and the macOS check (`ci-20`, `ci-21` in #703).* A failed proof upload no longer fails a job whose work passed;
     `hash locks (macos-latest)` drops `continue-on-error` and is documented as the blocking required check it is.
 - **Input bounds (2.28.0 step 3).** Limits on inputs whose size sets the work or memory of one call, checked before allocation;
-  results for requests within them are unchanged.
+  results for requests within them are unchanged, except Airy cells that change method (below).
   - *DNG.* At most 64 opcodes are applied per opcode list (the rest are reported, not applied); FixBadPixelsList rectangles are
     marked in one pass; a WarpRectilinear or FixVignetteRadial coefficient beyond ±10⁶ makes its list malformed, and opcode results
     stay finite. `maximumBytes` now counts semantic masks, which are decoded strip by strip; a file whose masks push the estimate
@@ -38,7 +38,8 @@
   - *Charts.* A composite's distinct dead-leaves elements together use at most 8,388,608 lookup cells and 8,000,000 disks;
     identical elements are resolved once.
   - *Optics.* `calculateDetailLimit` refuses finite inputs whose image geometry overflows (it did not return); Airy cells whose
-    frequency-domain work would exceed 2.5 × 10⁸ steps use the real-space method (agreement within 2 × 10⁻¹³).
+    frequency-domain work would exceed 2.5 × 10⁸ steps use the real-space method (cells move by at most 2 × 10⁻¹³; only explicit kernel
+    radii of 10 or more); a diffraction profile whose β·(R + 1)², summed over its wavelengths, exceeds 400 × 32 × 33² is refused.
   - *Sensor.* Spectral curves are interpolated by binary search (same values); channel lists with holes are refused.
   - *CI.* A test-once proof counts only from a successful run on the tree it names; a re-run of `publish.yml` for a version that
     is already published passes only when the registry's `dist.integrity` matches the verified tarball. The WebGPU workflow

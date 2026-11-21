@@ -40,10 +40,13 @@
  * real-space cells against the asymptotic leakage 8√2/(π³·β) of the centre cell, and convergence under doubled panel
  * counts. The threshold was 192 in 2.5; it moved to 32 because from there the real-space cells agree with the frequency-domain cells
  * within about 1e-12 and cost a few to a few hundred times less (a 750 µm whole-frame cell at f/8 took 3.4 s for 20
- * wavelengths). Every β a native pitch up to 10 µm reaches (at most 10/(0.38·1.4) ≈ 19) stays in the frequency domain,
- * so captures at sensor pitch are unchanged; larger cells (binned and whole-frame views) change in the last bits only. 2.28.0: below
- * β = 32 a (β, R) whose frequency-domain work would exceed 2.5 × 10⁸ inner steps (a large β with a large kernel radius, which took
- * up to tens of seconds per wavelength) is integrated in real space too; the two agree there within 2 × 10⁻¹³.
+ * wavelengths). Every β a native pitch up to 10 µm reaches (at most 10/(0.38·1.4) ≈ 19) stays in the frequency domain at the
+ * default kernel radius, so default captures at sensor pitch are unchanged; larger cells (binned and whole-frame views) change in the
+ * last bits only. 2.28.0: below β = 32 a (β, R) whose frequency-domain work would exceed 2.5 × 10⁸ inner steps (a large β with a
+ * large kernel radius, which took up to tens of seconds per wavelength) is integrated in real space too; the two agree there within
+ * 2 × 10⁻¹³, so cells of an explicit radius of 10 or more (from β ≈ 29 at R 10, β ≈ 12 at R 16) move by up to that much
+ * (1.3 × 10⁻¹³ measured at R 16, β 12–19); a default radius never switches. 2.28.0: a profile is refused when β·(R + 1)², summed over its wavelengths, exceeds 400 × 32 × 33² (the most
+ * that 400 wavelengths below the real-space β reach at R 32), the real-space work growing as β·(R + 1)².
  *
  * **Reuse (2.6).** The cells depend only on (β, R) (and the test-only node scale), so `calculateAiryCellEnergies` keeps the
  * 800 most recently used results (256 before 2.15.0; 800 holds two whole 400-node grids) and returns copies: tiles of one frame rendered in the same worker, and captures that
@@ -81,7 +84,7 @@ export const DIFFRACTION_LIMITED_PSF_PROFILE_MODEL = /* @__PURE__ */ Object.free
 export const DIFFRACTION_LIMITED_PSF_PROFILE_LIMITS = /* @__PURE__ */ Object.freeze({ maximumWavelengths: 400, maximumKernelRadiusSamples: 32 });
 /**
  * Internal: β = p·f_c (cell side over the cut-off period) from which `calculateAiryCellEnergies` integrates the cells in
- * real space (2.5). Above every β of a `simulateCapture` pitch up to 100 µm, whose captures keep the frequency-domain values.
+ * real space (2.5); below it, also a (β, R) whose frequency-domain work is too large (2.28.0).
  */
 export const AIRY_REAL_SPACE_MINIMUM_BETA = 32;
 /** Radius of the first dark ring of the Airy pattern in units of λ·N_w: j₁,₁/π, j₁,₁ = 3.8317059702 (first zero of J₁). */
@@ -396,6 +399,10 @@ export function createDiffractionLimitedPsfProfile(input: CreateDiffractionLimit
   if (typeof r.profileId !== "string" || !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(r.profileId)) throw new InvalidConfigurationError("profileId must be a public opaque ID.");
 
   const pupilDiameterMm = focalLengthMm / fNumber, workingFNumber = distanceMm / pupilDiameterMm, size = 2 * radius + 1;
+  // 2.28.0: the cell work grows as β·(R + 1)² per wavelength; their sum is at most what 400 wavelengths below the real-space β reach at R 32.
+  let work = 0;
+  for (const nm of wavelengths) work += pitch * 1000 / (nm * workingFNumber) * (radius + 1) ** 2;
+  if (!(work <= L.maximumWavelengths * AIRY_REAL_SPACE_MINIMUM_BETA * 1089)) throw new InvalidConfigurationError("Diffraction cell work is over its limit; lower kernelRadiusSamples, the pitch or the wavelength count.");
   let maximumRadialNodes = 0, maximumAngularNodes = 0, maximumTruncated = 0;
   const records: DiffractionLimitedPsfWavelength[] = [], kernels: number[][] = [], realSpaceWavelengthsNm: number[] = [];
   for (const nm of wavelengths) {
