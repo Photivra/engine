@@ -504,7 +504,7 @@ Each item below is one commit of the serial output-change lane, with its measure
 
 ### Full-quality speed (2.28.0 step 6, group D)
 
-All byte-identical: every sample, RAW code and hash lock is unchanged.
+Byte-identical: samples, RAW codes and every hash lock are unchanged. Work counts that change are named.
 
 - **A large defocus disc with `lens.diffraction` no longer recomputes its run tiles per spectral node (#734).** A diffraction
   tile read the 9 run tiles it overlaps once per node, so when a lattice's share of the tile cache held fewer than 9 (a 3 × 3 or
@@ -514,6 +514,21 @@ All byte-identical: every sample, RAW code and hash lock is unchanged.
   CPU s: 3 × 3 box 109.2 → 6.8 (2 × 2 box 3.25 → 3.10; 3 × 3 now 2.2× the 2 × 2, about 9/4 as expected); with `lens.vignetting`
   (image space) 3 × 3 118.3 → 6.7. RAW codes and samples equal 2.28.0 step 5's tree on arm64 and x64. Tests:
   `test/large-defocus-lattice-tiles.test.ts` (run tiles computed 180 → 9 at 20 nodes and 9 lattices, 729 → 9 at 81 nodes and 4).
+- **Display view: rolling shutter with defocus, less in-focus work and a cheaper block lookup (#711, owner decision 2026-11-21:
+  byte-identical fixes only).** The row blocks of the regrouped lens signal (#651) each computed their in-focus rectangle widened by
+  the disc radius on every side; the 2D columns two neighbouring blocks of one band share are read at the same instants, so a
+  block now takes them from its left neighbour (an in-focus value depends only on its position and the instants). The block
+  cache no longer reorders itself on every change of block (17 % of the render in #711's profile): a block hit is a plain read,
+  and blocks leave in the order they were computed, which only decides what is computed again with the same bits. #711's request
+  (`scripts/benchmark-display-view-cases.mjs 711`, 192 × 128 region of a 1194 × 796 view, three pairs started together, CPU s):
+  rolling, out of focus 6.91–7.48 → 5.10–5.63 (0.73–0.77×; scene lookups 24,545,784 → 21,359,480); rolling, in focus 1.43–1.64
+  and 1.47–1.50 (unchanged); global shutter, out of focus unchanged (four pairs, 0.97–1.03×). Out of focus is now about 3.5× in
+  focus in these runs (4.8× before; target 3×, **not met**): what is left is the in-focus work of the rows above and below each
+  band, which are read at the next band's instants and cannot be shared without changing the fast method's output (not taken).
+  Samples equal 2.28.0 step 5's tree in all three cases. The global-shutter lens tiles take the same clipping path for every tile
+  (one rectangle copied in), which keeps the fast row within its limit: fast worker 337,887 → 337,889 B. Tests:
+  `test/display-view-lens-regroup-blocks.test.ts` (in-focus sites per band row, values whatever the block order),
+  `test/display-view-lens-rolling-regions.test.ts` unchanged.
 
 ### Benchmarks
 

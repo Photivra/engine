@@ -1,19 +1,20 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Repository-only display-view cost cases of the 2.27.0 plan (#649, #651, #653, #655, #656). Informational only:
+ * Repository-only display-view cost cases of the 2.27.0 plan (#649, #651, #653, #655, #656) and #711. Informational only:
  * host-dependent, no CI threshold.
  *
  * Each case runs in its own Node process: `prepareDisplayView(request, { gpu: "off" })`, then one `render(view)`. The
  * figure is the CPU time of the process for that one render (`process.cpuUsage`, user + system), so the result is an upper
  * bound that stays usable on a loaded machine; ratios between cases of one group are the measure. Wall time, the load
- * average before and after, and what the render reported (estimation method, defocus kernel radius) are recorded beside it.
+ * average before and after, what the render reported (estimation method, defocus kernel radius, scene lookups) and the SHA-256
+ * of its samples are recorded beside it (in the JSON lines on stderr).
  *
  * Common request, unless a case says otherwise: a 6000 × 4000 sensor of 6 µm sites, the composite chart `APP_CHART` of
  * `scripts/lib/display-view-app-request.mjs`, `subjectDistanceM: 2`, `output.format: "srgb-8"`, the fast defaults.
  *
  *   node scripts/benchmark-display-view-cases.mjs --list            # the cases and groups
- *   node scripts/benchmark-display-view-cases.mjs 656               # one group (649, 651, 653, 655, 656) or one case id
+ *   node scripts/benchmark-display-view-cases.mjs 656               # one group (649, 651, 653, 655, 656, 711) or one case id
  *   node scripts/benchmark-display-view-cases.mjs 649 656-none      # several
  *   node scripts/benchmark-display-view-cases.mjs all
  *
@@ -23,6 +24,7 @@
  */
 import console from "node:console";
 import process from "node:process";
+import { createHash } from "node:crypto";
 import { spawn, spawnSync } from "node:child_process";
 import { loadavg } from "node:os";
 import { performance } from "node:perf_hooks";
@@ -74,6 +76,10 @@ export const CASES = [
   { id: "651-rolling-defocus-small", group: "651", label: "Rotation, rolling, out of focus, 24 × 16", request: () => ({ ...ROTATION, ...rotation("rolling"), lens: defocused50 }), view: VIEW_651(24, 16) },
   { id: "651-global-defocus-small", group: "651", label: "Rotation, global, out of focus, 24 × 16", request: () => ({ ...ROTATION, ...rotation("global"), lens: defocused50 }), view: VIEW_651(24, 16) },
   { id: "651-still-defocus-small", group: "651", label: "No motion, out of focus, 24 × 16", request: () => ({ ...ROTATION, lens: defocused50 }), view: VIEW_651(24, 16) },
+  // #711 (2.28.0): #651's 192 × 128 region, rolling shutter, in focus and out of focus (target: out of focus within 3× in focus).
+  { id: "711-rolling", group: "711", label: "Rotation, rolling, in focus, 192 × 128", request: () => ({ ...ROTATION, ...rotation("rolling"), lens: prime50 }), view: VIEW_651(192, 128) },
+  { id: "711-rolling-defocus", group: "711", label: "Rotation, rolling, out of focus, 192 × 128", request: () => ({ ...ROTATION, ...rotation("rolling"), lens: defocused50 }), view: VIEW_651(192, 128) },
+  { id: "711-global-defocus", group: "711", label: "Rotation, global, out of focus, 192 × 128", request: () => ({ ...ROTATION, ...rotation("global"), lens: defocused50 }), view: VIEW_651(192, 128) },
 
   { id: "653-near", group: "653", label: "50 mm f/2, focus 0.8 × the subject distance, 768 × 43 band",
     request: () => quality({ prime: 50, fNumber: 2, focusDistanceM: 1.6, defocus: { model: "geometric-disc" } }), view: BAND(43) },
@@ -96,11 +102,12 @@ export const CASES = [
     id: `656-${name}`, group: "656", label: name === "none" ? "None" : name.split("-").map((w) => ({ standard: "Standard", recover: "Recover", push: "+1 stop" })[w]).join(", "),
     request: (engine) => develop(engine, options), view: PART }))
 ];
-const GROUP_REFERENCE = { 649: "649-plain", 651: "651-rolling", 653: "653-200mm", 656: "656-none" };
+const GROUP_REFERENCE = { 649: "649-plain", 651: "651-rolling", 711: "711-rolling", 653: "653-200mm", 656: "656-none" };
 
-/** The plan's baseline (November 17, 2026, 2.26.0 at 94f56f3), CPU seconds per case. */
+/** The plan's baseline (November 17, 2026, 2.26.0 at 94f56f3), CPU seconds per case; the 711 group's is 2.27.0 source (99782e7) as #711's profile measured it (run 2). */
 export const PLAN_BASELINE = { "649-plain": 1.26, "649-corrections": 3.26, "649-sharpening": 2.75, "649-both": 7.29,
   "651-still": 0.26, "651-rolling": 0.51, "651-rolling-defocus": 19.96, "651-rolling-defocus-small": 5.75, "651-global-defocus-small": 2.40, "651-still-defocus-small": 0.43,
+  "711-rolling": 1.95, "711-rolling-defocus": 7.64, "711-global-defocus": 4.16,
   "653-near": 36.05, "653-far": 35.91, "653-200mm": 7.86, "653-near-4": 6.26,
   "655-prime-192": 3.87, "655-catalogue-192": 58.74, "655-prime-96": 2.57, "655-catalogue-96": 41.60, "655-prime-96-box": 3.43, "655-catalogue-96-box": 127.61,
   "656-none": 0.40, "656-recover": 0.38, "656-push": 0.28, "656-standard": 0.53, "656-standard-recover": 0.62, "656-standard-push": 0.61, "656-recover-push": 1.76, "656-standard-recover-push": 2.71 };
@@ -118,7 +125,8 @@ async function runCase(id, distPath) {
   const assumption = (key) => result.assumptions.find((a) => a.id === key)?.value;
   return { id, cpuSeconds: (cpu.user + cpu.system) / 1e6, wallSeconds, loadBefore, loadAfter: loadavg()[0],
     estimation: assumption("view.estimation")?.method ?? null, defocusKernelRadiusSites: assumption("view.defocus")?.kernelRadiusSites ?? null,
-    backend: result.diagnostics?.backend ?? null, node: process.version };
+    backend: result.diagnostics?.backend ?? null, node: process.version, sceneLookups: result.diagnostics?.sceneLookups ?? null,
+    sha256: createHash("sha256").update(new Uint8Array(result.image.samples.buffer, result.image.samples.byteOffset, result.image.samples.byteLength)).digest("hex") };
 }
 
 function child(id, distPath) {
@@ -139,7 +147,7 @@ async function main() {
   if (caseFlag >= 0) { console.log(JSON.stringify(await runCase(argv[caseFlag + 1], argv[argv.indexOf("--dist") + 1]))); return; }
   if (argv.includes("--list") || argv.length === 0) {
     for (const c of CASES) console.log(`${c.id.padEnd(28)} ${c.label}`);
-    console.log("\nGroups: 649, 651, 653, 655, 656, all.");
+    console.log("\nGroups: 649, 651, 653, 655, 656, 711, all.");
     return;
   }
   const dist = resolve(process.env.DIST ?? defaultDist);
