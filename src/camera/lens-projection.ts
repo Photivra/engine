@@ -465,6 +465,11 @@ export function calculateLensProjectionFieldOfViewBounds(
   const minimumRadians = signedAxisAngle(model, input.focalLengthMm, minimum);
   const maximumRadians = signedAxisAngle(model, input.focalLengthMm, maximum);
   const radians = maximumRadians - minimumRadians;
+  if (model === "equirectangular" && Math.max(-minimumRadians, maximumRadians) > Math.PI) {
+    throw new InvalidScientificInputError(
+      "Sensor bounds lie outside the equirectangular +/-180-degree domain."
+    );
+  }
   if (model === "equirectangular" && radians > 2 * Math.PI) {
     throw new InvalidScientificInputError(
       "Sensor bounds exceed the full 360-degree equirectangular span."

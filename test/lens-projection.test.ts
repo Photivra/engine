@@ -187,3 +187,30 @@ describe("ideal lens projection mapping functions", () => {
     expect(() => calculateLensProjectionDirection({ projectionModel: "rectilinear", focalLengthMm: 1, imagePointMm: { x: Number.NaN, y: 0 } })).toThrow(/finite/);
   });
 });
+
+describe("step 8 edge cases (#700)", () => {
+  it("returns frozen field-of-view envelopes for every projection model (optics-06)", () => {
+    for (const projectionModel of LENS_PROJECTION_MODELS) {
+      const fov = calculateFieldOfView({ focalLengthMm: 8, sensorDimensionMm: 12, projectionModel });
+      expect(Object.isFrozen(fov), projectionModel).toBe(true);
+      expect(Object.isFrozen(fov.value), projectionModel).toBe(true);
+      expect(fov.provenance.kind).toBe("calculated");
+      const bounds = calculateFieldOfViewBounds({ focalLengthMm: 8, minimumSensorCoordinateMm: -5, maximumSensorCoordinateMm: 6, projectionModel });
+      expect(Object.isFrozen(bounds), projectionModel).toBe(true);
+      expect(Object.isFrozen(bounds.value), projectionModel).toBe(true);
+    }
+    const lens = calculateLensProjectionFieldOfView({ projectionModel: "fisheye-equisolid-angle", focalLengthMm: 8, sensorDimensionMm: 20 });
+    const fov = calculateFieldOfView({ focalLengthMm: 8, sensorDimensionMm: 20, projectionModel: "fisheye-equisolid-angle" });
+    expect(fov.value.degrees).toBe(lens.value.degrees);
+    expect(fov.provenance).toEqual(lens.provenance);
+  });
+
+  it("rejects equirectangular field-of-view bounds outside +/-180 degrees (optics-24)", () => {
+    expect(() => calculateLensProjectionFieldOfViewBounds({ projectionModel: "equirectangular", focalLengthMm: 8, minimumSensorCoordinateMm: -80, maximumSensorCoordinateMm: -72 }))
+      .toThrow(/180/);
+    expect(() => calculateFieldOfViewBounds({ projectionModel: "equirectangular", focalLengthMm: 8, minimumSensorCoordinateMm: 100, maximumSensorCoordinateMm: 110 }))
+      .toThrow(/180/);
+    const full = calculateLensProjectionFieldOfViewBounds({ projectionModel: "equirectangular", focalLengthMm: 8, minimumSensorCoordinateMm: -8 * Math.PI, maximumSensorCoordinateMm: 8 * Math.PI });
+    expect(full.value.radians).toBeCloseTo(2 * Math.PI, 12);
+  });
+});
