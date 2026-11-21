@@ -75,7 +75,7 @@ export interface DiffractionLimitedPsfProfile {
   /** Largest truncated energy over the wavelengths. */
   maximumTruncatedEnergyFraction: number;
   /**
-   * How the cells were integrated. 2.5: wavelengths with β = p·f_c ≥ `AIRY_REAL_SPACE_MINIMUM_BETA` (192 in 2.5–2.8.1, then 32) use the real-space
+   * How the cells were integrated. 2.5: wavelengths with β = p·f_c ≥ `AIRY_REAL_SPACE_MINIMUM_BETA` (192 in 2.5–2.8.1, then 32; since 2.28.0 also a smaller β whose frequency-domain work would be too large) use the real-space
    * encircled-energy method; `realSpaceWavelengthsNm` lists them, and `method` is `"frequency-domain-and-real-space"` when both ran.
    * `maximumRadialNodes` counts frequency-domain radial nodes (0 when only the real-space method ran); `maximumAngularNodes` the
    * angular nodes of either method (for the real-space method, all θ nodes of one wavelength).
