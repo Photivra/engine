@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 import { readdirSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { partition } from "./helpers/weighted-shard-sequencer.js";
+import { partition, startOrder } from "./helpers/weighted-shard-sequencer.js";
 import weights from "./shard-weights.json" with { type: "json" };
 
 describe("weighted coverage shards", () => {
@@ -29,8 +29,8 @@ describe("weighted coverage shards", () => {
     expect(parts).toEqual([["b"], ["a", "e"], ["c", "d"]]);
     // Never every part: one stays open for the rest.
     expect(partition(["a", "b"], 1, { a: 1, b: 1 }, ["a"])).toEqual([["a", "b"]]);
+    // The list is empty since 2.28.0 (#665); the mechanism stays for the next file that needs it.
     const listed = (weights as { alone?: string[] }).alone ?? [];
-    expect(listed).toContain("test/display-view-neighbors-gpu.test.ts");
     const coverage = partition(files, 10, weights.files, listed);
     expect(coverage.flat().sort()).toEqual([...files].sort());
     for (const file of listed) expect(coverage.find((part) => part.includes(file)), file).toEqual([file]);
@@ -38,5 +38,38 @@ describe("weighted coverage shards", () => {
 
   it("weighs a file without a recorded time as the median", () => {
     expect(partition(["new", "a", "b", "c"], 2, { a: 1, b: 2, c: 9 })).toEqual([["c"], ["b", "new", "a"]]);
+  });
+
+  // #665 (owner decision 2026-11-21): a file without a recorded time may be the slowest of its part, so it starts first.
+  it("starts files without a recorded time first, then the recorded ones longest first", () => {
+    expect(startOrder(["a", "new", "b", "c"], { a: 1, b: 2, c: 9 })).toEqual(["new", "c", "b", "a"]);
+    expect(startOrder(["a", "zeta", "b", "alpha"], { a: 1, b: 2 })).toEqual(["alpha", "zeta", "b", "a"]);
+  });
+
+  it("breaks equal weights by file name, whatever order the files come in", () => {
+    expect(startOrder(["c", "a", "b"], { a: 5, b: 5, c: 5 })).toEqual(["a", "b", "c"]);
+    expect(startOrder(["b", "a", "c"], { a: 5, b: 5, c: 5 })).toEqual(["a", "b", "c"]);
+  });
+
+  it("orders every test file of the suite exactly once", () => {
+    const order = startOrder(files, weights.files);
+    expect([...order].sort()).toEqual([...files].sort());
+  });
+
+  // #693 (ci-02): the sequencer starts a part's longest file first, so no split makes a part shorter than its longest file. A file
+  // whose recorded time passes three quarters of the coverage shard's 20-minute limit (ci.yml) fails here, not in a CI job: split it.
+  it("records no file longer than 900 s, three quarters of a coverage shard's 20-minute limit", () => {
+    const longest = Object.entries(weights.files).sort(([, a], [, b]) => b - a)[0]!;
+    expect(longest[1], longest[0]).toBeLessThanOrEqual(900_000);
+  });
+
+  // #665 (owner decision 2026-11-21): a new test file needs a time in test/shard-weights.json in the pull request that adds it, so
+  // several new slow files cannot land in one part at the median's weight. Enter an estimate by hand (its local time under coverage
+  // times about 2.8); measured times come at the next full re-record from all ten `coverage-timings-k` artifacts of one run
+  // (scripts/record-shard-weights.mjs rewrites the whole table). The table also names no file that no longer exists.
+  it("has a recorded time for every test file, and none for a file that no longer exists", () => {
+    const recorded = Object.keys(weights.files);
+    expect(files.filter((file) => !recorded.includes(file)), "test files with no recorded time in test/shard-weights.json").toEqual([]);
+    expect(recorded.filter((file) => !files.includes(file)), "recorded times of files that no longer exist").toEqual([]);
   });
 });

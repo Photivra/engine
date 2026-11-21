@@ -149,6 +149,9 @@ jobs:
           node .github/ci-proof.mjs name "test-${{ matrix.part }}"
           echo "$GITHUB_RUN_ID" > "$RUNNER_TEMP/ci-proof.txt"
       - name: Keep the proof
+        # A failed upload (a network error) must not fail a job whose work passed: the proof only lets a later run skip
+        # that work, and without it the work runs again (ci-20 in #703).
+        continue-on-error: true
         if: steps.proof-name.outcome == 'success'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
@@ -202,6 +205,9 @@ jobs:
     # 2.26.0 (#645): back to 20 minutes for every shard. The time was V8's block counters in the full reconstruct chain (16³ nodes
     # for each of 152,875 pixel evaluations, 626 million calls into the highlight rebuild); the chain's results are now kept by
     # their exact inputs (332 distinct ones in that view), so the file took 35 s under coverage locally (415 s before, same machine).
+    # 2.28.0 (#665, owner decision 2026-11-21): the "alone" list is empty. test/display-view-neighbors-gpu.test.ts took 18 to 23 s
+    # under coverage on runs 44453452116 and 44533609809, so shard 1 ran one short file; all ten shards now share the suite.
+    # The mechanism stays. A test file without a recorded time starts first in its shard, and a test fails until it has one.
     name: coverage shard (${{ matrix.shard }}/10)
     needs: scope
     runs-on: ubuntu-latest
@@ -245,14 +251,26 @@ jobs:
           npx vitest run --coverage --shard=${{ matrix.shard }}/10
           --reporter=blob --outputFile.blob=.vitest-reports/blob-${{ matrix.shard }}-10.json
           --reporter=json --outputFile.json=.vitest-timings/coverage-${{ matrix.shard }}-10.json
-      - name: Keep the blob report for the merge
-        if: env.RUNS == 'true' && steps.proof.outputs.found != 'true'
+      - name: Mark this part as proven
+        # Merge-queue entries only (the only lookup): the part found the `coverage` proof of this tree on this runner's release.
+        if: github.event_name == 'merge_group' && env.RUNS == 'true' && steps.proof.outputs.found == 'true'
+        env:
+          PROOF_RUN: ${{ steps.proof.outputs.run }}
+        run: |
+          mkdir -p .vitest-reports
+          printf '%s\n' "$PROOF_RUN" > ".vitest-reports/proven-${{ matrix.shard }}.txt"
+      - name: Keep this coverage part for the merge
+        # One file: the blob report or the proof marker; `verify (lts/*)` decides from the ten (.github/coverage-parts.mjs, #666).
+        if: env.RUNS == 'true'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: coverage-blob-${{ matrix.shard }}
-          path: .vitest-reports/blob-${{ matrix.shard }}-10.json
+          name: coverage-part-${{ matrix.shard }}
+          path: |
+            .vitest-reports/blob-${{ matrix.shard }}-10.json
+            .vitest-reports/proven-${{ matrix.shard }}.txt
           if-no-files-found: error
           retention-days: 1
+          overwrite: true
       - name: Keep the per-file times
         # Also after a failed run (the JSON report names the failing test, which the blob reporter does not print).
         if: ${{ !cancelled() && env.RUNS == 'true' && steps.proof.outputs.found != 'true' }}
@@ -267,7 +285,8 @@ jobs:
     # The required `verify (lts/*)` check. It runs even when a shard failed (a
     # skipped required check would count as passing) and then fails at once; it
     # merges the ten coverage parts and enforces the coverage thresholds of
-    # vitest.config.ts on the whole suite, and runs the static, documentation and
+    # vitest.config.ts on the whole suite (on a merge-queue entry, parts proven by the
+    # `coverage` proof pass without the merge: .github/coverage-parts.mjs, #666), and runs the static, documentation and
     # package gates on the primary leg, Node 24 (pinned since 2.20.0, #231; the check
     # keeps its required name `verify (lts/*)`). Its proof is the `coverage` proof the
     # shards and `main smoke` look up.
@@ -316,14 +335,20 @@ jobs:
         if: env.TESTS == 'true' && steps.proof.outputs.found != 'true'
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          pattern: coverage-blob-*
+          pattern: coverage-part-*
           merge-multiple: true
           path: .vitest-reports
-      - name: Coverage gate (all ten parts merged, thresholds enforced)
+      - name: Decide from the ten parts
+        # Ten blobs (every pull request): merge. A merge-queue entry whose shards mixed proven and unproven parts (two Node.js
+        # releases on the runners) passes on the proof instead of failing on a blob count (#666, ci-07).
+        id: parts
         if: env.TESTS == 'true' && steps.proof.outputs.found != 'true'
         run: |
-          test "$(find .vitest-reports -maxdepth 1 -name 'blob-*-10.json' | wc -l)" = "10"
-          npx vitest --merge-reports .vitest-reports --coverage
+          node .github/coverage-parts.mjs .vitest-reports 10
+          grep -qxE 'action=(merge|proven)' "$GITHUB_OUTPUT"
+      - name: Merge the ten parts (coverage gate, thresholds enforced)
+        if: env.TESTS == 'true' && steps.proof.outputs.found != 'true' && steps.parts.outputs.action == 'merge'
+        run: npx vitest --merge-reports .vitest-reports --coverage
       - name: Build
         if: steps.proof.outputs.found != 'true'
         run: npm run build
@@ -337,12 +362,16 @@ jobs:
         if: steps.proof.outputs.found != 'true'
         run: npm run pack:check
       - name: Name the proof
+        # Only after a merge: a decision made on markers ran no coverage on this runner's Node.js release (#666).
         id: proof-name
-        if: env.TESTS == 'true' && steps.proof.outputs.found != 'true'
+        if: env.TESTS == 'true' && steps.proof.outputs.found != 'true' && steps.parts.outputs.action == 'merge'
         run: |
           node .github/ci-proof.mjs name coverage
           echo "$GITHUB_RUN_ID" > "$RUNNER_TEMP/ci-proof.txt"
       - name: Keep the proof
+        # A failed upload (a network error) must not fail a job whose work passed: the proof only lets a later run skip
+        # that work, and without it the work runs again (ci-20 in #703).
+        continue-on-error: true
         if: steps.proof-name.outcome == 'success'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
@@ -415,6 +444,9 @@ jobs:
           node .github/ci-proof.mjs name licence-scan
           echo "$GITHUB_RUN_ID" > "$RUNNER_TEMP/ci-proof.txt"
       - name: Keep the proof
+        # A failed upload (a network error) must not fail a job whose work passed: the proof only lets a later run skip
+        # that work, and without it the work runs again (ci-20 in #703).
+        continue-on-error: true
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: steps.proof-name.outcome == 'success'
         with:
@@ -423,18 +455,19 @@ jobs:
           retention-days: 7
 
   hash-locks-macos:
-    # Informational portability check for the bit-identity hash locks, which
-    # were recorded on Linux x64 (docs/NUMERICAL_CORRECTNESS.md, "Test hash
-    # locks and platforms"); three of them hold on x64 only and are checked here
-    # against their recorded arm64 hashes (#508). It does not block the required
-    # verify gate; a failure is a portability finding to investigate. GitHub-hosted macOS
-    # minutes are free for this public repository. It is a required check, so it also
-    # reports on merge-queue entries; there it skips on a proof of the same tree.
+    # The bit-identity hash locks on macOS arm64. They were recorded on Linux x64
+    # (docs/NUMERICAL_CORRECTNESS.md, "Test hash locks and platforms"); three of them
+    # hold on x64 only and are checked here against their recorded arm64 hashes (#508).
+    # It is a required check of the main ruleset and blocks a merge like the others (owner
+    # decision 2026-11-21, ci-21 in #703: until 2.28.0 this comment called it informational
+    # and the job set continue-on-error, which does not change a failed job's check result).
+    # A failure is a portability finding to investigate before merging. GitHub-hosted macOS
+    # minutes are free for this public repository. It also reports on merge-queue entries;
+    # there it skips on a proof of the same tree.
     name: hash locks (macos-latest)
     if: github.event_name != 'push'
     runs-on: macos-latest
     timeout-minutes: 15
-    continue-on-error: true
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -484,6 +517,9 @@ jobs:
           node .github/ci-proof.mjs name hash-locks-macos
           echo "$GITHUB_RUN_ID" > "$RUNNER_TEMP/ci-proof.txt"
       - name: Keep the proof
+        # A failed upload (a network error) must not fail a job whose work passed: the proof only lets a later run skip
+        # that work, and without it the work runs again (ci-20 in #703).
+        continue-on-error: true
         if: steps.proof-name.outcome == 'success'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:

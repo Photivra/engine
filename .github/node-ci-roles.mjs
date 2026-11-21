@@ -67,6 +67,116 @@ export function jobNodeVersions(workflowText, job) {
   return { matrix, setup };
 }
 
+// A workflow's text without its whole-line comments (YAML comments, and shell comments in `run:`
+// blocks), so that a rule never reads a comment as a setting.
+export function withoutCommentLines(workflowText) {
+  return workflowText.split("\n").filter((line) => !/^\s*#/.test(line)).join("\n");
+}
+
+// The jobs of a workflow, by id, each with the text of its block (the lines from `  <id>:` to
+// the next line at two spaces' indent or less), comment lines left out.
+export function workflowJobs(workflowText) {
+  const lines = withoutCommentLines(workflowText).split("\n");
+  const start = lines.indexOf("jobs:");
+  assert.ok(start !== -1, "The workflow has no `jobs:`.");
+  const jobs = new Map();
+  let id, from;
+  for (let i = start + 1; i <= lines.length; i++) {
+    const header = i < lines.length ? /^ {2}([A-Za-z0-9_-]+):\s*$/.exec(lines[i]) : null;
+    if (i === lines.length || header || (lines[i] !== "" && /^\S/.test(lines[i]))) {
+      if (id) jobs.set(id, lines.slice(from, i).join("\n"));
+      id = header?.[1];
+      from = i;
+      if (!header && i < lines.length) break;
+    }
+  }
+  return jobs;
+}
+
+// The ids of the jobs that run as a matrix. GitHub keeps one value of a matrix job's output for
+// the whole matrix (the one written last), so `needs.<matrix job>.outputs` reads one part's
+// value as if it were the job's (#666).
+export function matrixJobs(workflowText) {
+  const isMatrix = (block) => {
+    const lines = block.split("\n");
+    const strategy = lines.indexOf("    strategy:");
+    if (strategy === -1) return false;
+    for (const line of lines.slice(strategy + 1)) {
+      if (/^ {0,4}\S/.test(line)) return false;
+      if (/^ {6}matrix:/.test(line)) return true;
+    }
+    return false;
+  };
+  return [...workflowJobs(workflowText)].filter(([, block]) => isMatrix(block)).map(([id]) => id);
+}
+
+// Rules on the workflow texts that are not about Node.js roles: each one guards a defect that a
+// green run would not show. `errors` lists the broken rules.
+export function workflowRuleErrors({ ciText, publishText, webgpuText }) {
+  const errors = [];
+  const workflows = { "ci.yml": ciText, "publish.yml": publishText, "webgpu.yml": webgpuText };
+  for (const [file, text] of Object.entries(workflows)) {
+    const matrix = matrixJobs(text);
+    // Code only: whole-line comments and trailing ` # ...` comments are left out. Both spellings, needs.<job> and needs['<job>'].
+    const code = withoutCommentLines(text).split("\n").map((line) => line.replace(/\s#\s.*$/, "")).join("\n");
+    for (const [, dotted, quoted] of code.matchAll(/needs(?:\.([A-Za-z0-9_-]+)|\[\s*['"]([A-Za-z0-9_-]+)['"]\s*\])\.outputs\b/g)) {
+      const job = dotted ?? quoted;
+      if (matrix.includes(job)) errors.push(`${file} reads \`needs.${job}.outputs\`, but \`${job}\` is a matrix job: GitHub keeps one part's value for the whole matrix (#666).`);
+    }
+  }
+  // #666: the coverage gates decide from the ten parts (a blob or a proof marker each), not from a count of blobs.
+  for (const [file, text, job] of [["ci.yml", ciText, "verify-primary"], ["publish.yml", publishText, "coverage"]]) {
+    const block = workflowJobs(text).get(job) ?? "";
+    if (!/\n\s+node \.github\/coverage-parts\.mjs \.vitest-reports 10\n\s+grep -qxE 'action=\(merge\|proven\)' "\$GITHUB_OUTPUT"\n/.test(block))
+      errors.push(`The coverage gate (${file}, job \`${job}\`) must decide from the ten parts with \`node .github/coverage-parts.mjs .vitest-reports 10\` and fail unless it printed \`action=merge\` or \`action=proven\` (#666).`);
+    if (block.includes('test "$(find')) errors.push(`The coverage gate (${file}, job \`${job}\`) must not count blob files itself; .github/coverage-parts.mjs decides (#666).`);
+    if (!/name: Merge the ten parts[^\n]*\n\s+if: [^\n]*steps\.parts\.outputs\.action == 'merge'/.test(block))
+      errors.push(`The coverage gate (${file}, job \`${job}\`) must merge the parts only when .github/coverage-parts.mjs says \`merge\` (#666).`);
+  }
+  const shardJobs = [["ci.yml", ciText], ["publish.yml", publishText]];
+  for (const [file, text] of shardJobs) {
+    const block = workflowJobs(text).get("coverage-shard") ?? "";
+    if (!/name: coverage-part-\$\{\{ matrix\.shard \}\}/.test(block) || !block.includes("proven-${{ matrix.shard }}.txt"))
+      errors.push(`Each coverage shard (${file}) must upload one part, \`coverage-part-<k>\`: its blob or its proof marker (#666).`);
+  }
+  // A proven decision did not run the suite under coverage on this runner's release: it must name no new proof (#666).
+  const verifyPrimary = workflowJobs(ciText).get("verify-primary") ?? "";
+  if (!/id: proof-name\n\s+if: [^\n]*steps\.parts\.outputs\.action == 'merge'/.test(verifyPrimary))
+    errors.push("`verify (lts/*)` must name the `coverage` proof only after a merge of ten blobs (#666).");
+  // ci-20 (#703): a failed proof upload must not fail a job whose work passed. ci-21: no job of ci.yml sets job-level
+  // `continue-on-error`, which leaves a failed job's check result `failure` (a required check still blocks) while it hides the
+  // failure from the run's result.
+  for (const [file, text] of [["ci.yml", ciText], ["webgpu.yml", webgpuText]])
+    for (const [id, block] of workflowJobs(text)) {
+      if (/^ {4}continue-on-error:/m.test(block)) errors.push(`${file}: job \`${id}\` must not set job-level \`continue-on-error\` (ci-21 in #703).`);
+      for (const step of block.split(/\n(?= {6}- )/).filter((step) => /^ {6}- name: Keep the proof\s*$/m.test(step)))
+        if (!/^ {8}continue-on-error: true\s*$/m.test(step)) errors.push(`${file}: the "Keep the proof" step of job \`${id}\` must set \`continue-on-error: true\` (ci-20 in #703).`);
+    }
+  // #713: a release waits for every part of the WebGPU conformance suite on its tree, looked up on webgpu.yml's Node.js release.
+  const conformance = workflowJobs(publishText).get("conformance") ?? "";
+  const parts = [...(workflowJobs(webgpuText).get("webgpu-conformance") ?? "").matchAll(/^\s+- part: (\d+)\s*$/gm)].map((m) => m[1]);
+  if (parts.length === 0) errors.push("webgpu.yml's `webgpu-conformance` job has no `part:` matrix entries.");
+  for (const part of parts)
+    if (!conformance.includes(`run: node .github/ci-proof.mjs find webgpu-swiftshader-${part} .github/workflows/webgpu.yml`))
+      errors.push(`publish.yml's \`conformance\` job must look up the proof of WebGPU conformance part ${part} (#713).`);
+  const lookups = [...conformance.matchAll(/find webgpu-swiftshader-(\d+) /g)].map((m) => m[1]);
+  if (!/if \[ "\$FOUND" != "(true ?)+" \]/.test(conformance) || (conformance.match(/\$\{\{ steps\.part-\d+\.outputs\.found \}\}/g) ?? []).length !== lookups.length)
+    errors.push("publish.yml's `conformance` job must fail unless every proof lookup found its proof (#713).");
+  const selector = JSON.stringify(jobNodeVersions(webgpuText, "webgpu-conformance").setup);
+  if (JSON.stringify(jobNodeVersions(publishText, "conformance").setup) !== selector)
+    errors.push(`publish.yml's \`conformance\` job must set up Node.js as webgpu.yml does (${selector}): the proofs are named by its release (#713).`);
+  // The runner image's cached release can differ from the newest one (two patch releases in one run, #666), and a proof is named by
+  // the exact release: both sides take the newest release, so the lookup asks for the name the conformance run uploaded.
+  for (const [file, text, job] of [["publish.yml", publishText, "conformance"], ["webgpu.yml", webgpuText, "webgpu-conformance"]]) {
+    const setups = (workflowJobs(text).get(job) ?? "").split(/\n(?= {6}- )/).filter((step) => /uses: actions\/setup-node@/.test(step));
+    if (setups.length === 0 || setups.some((step) => !/^ {10}check-latest: true\s*$/m.test(step)))
+      errors.push(`${file}: every setup-node step of job \`${job}\` must set \`check-latest: true\`, so the proof lookup and the conformance run take the same, newest Node.js release (#713).`);
+  }
+  if (!/^ {4}needs: \[[^\]]*\bconformance\b[^\]]*\]/m.test(workflowJobs(publishText).get("publish") ?? ""))
+    errors.push("publish.yml's `publish` job must need `conformance` (#713).");
+  return errors;
+}
+
 // The supported major an alias stands for on a date, or undefined (none, or an EOL exact
 // version). Exact versions keep their major only while that major is in a reviewed window.
 export function resolveLeg(alias, at = new Date()) {
@@ -116,7 +226,10 @@ export function matrixDrift({ ciText, publishText, supportText, enginesNode }, a
   if (!/node-version: \$\{\{ steps\.newest\.outputs\.version \|\| matrix\.node-version \}\}/.test(ciText))
     errors.push("The `test` job must set up the resolved newest stable release for the `node` leg, else its matrix value.");
 
-  const publishVersions = [...publishText.matchAll(/^\s+node-version:\s*["']?([^"'\s]+)["']?\s*$/gm)].map((m) => m[1]);
+  // Every publish.yml job but `conformance` runs on the tooling major; that job only looks up webgpu.yml's proofs, which are
+  // named by webgpu.yml's Node.js release, so it uses webgpu.yml's selector (checked in workflowRuleErrors, #713).
+  const publishVersions = [...workflowJobs(publishText)].filter(([job]) => job !== "conformance")
+    .flatMap(([, block]) => [...block.matchAll(/^\s+node-version:\s*["']?([^"'\s]+)["']?\s*$/gm)].map((m) => m[1]));
   if (publishVersions.length === 0 || publishVersions.some((v) => v !== String(roles.toolingMajor)))
     errors.push(`publish.yml must pin tooling major ${roles.toolingMajor}; found ${publishVersions.join(", ") || "none"}.`);
 
@@ -161,6 +274,7 @@ export function readRepositoryFiles(root = new URL("../", import.meta.url)) {
   return {
     ciText: read(".github/workflows/ci.yml"),
     publishText: read(".github/workflows/publish.yml"),
+    webgpuText: read(".github/workflows/webgpu.yml"),
     supportText: read("NODE_SUPPORT.md"),
     enginesNode: JSON.parse(read("package.json")).engines?.node
   };
@@ -168,11 +282,14 @@ export function readRepositoryFiles(root = new URL("../", import.meta.url)) {
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const at = new Date();
-  const { legs, skipping, errors, notices } = matrixDrift(readRepositoryFiles(), at);
+  const files = readRepositoryFiles();
+  const { legs, skipping, errors: drift, notices } = matrixDrift(files, at);
+  const errors = [...drift, ...workflowRuleErrors(files)];
   log(`CI Node legs on ${at.toISOString().slice(0, 10)}: ${legs.map(({ leg, major }) => `${leg} → ${major ?? "none"}`).join(", ")}` +
     (skipping.length ? `; ${skipping.join(", ")} skip their test work (the primary leg's release).` : "."));
   for (const notice of notices) log(`::notice title=CI Node roles::${notice}`);
-  for (const message of errors) error(`::error title=CI Node matrix drift::${message}`);
+  for (const message of drift) error(`::error title=CI Node matrix drift::${message}`);
+  for (const message of errors.slice(drift.length)) error(`::error title=CI workflow rule::${message}`);
   if (errors.length > 0) process.exitCode = 1;
-  else log("The CI Node matrix matches the reviewed support policy.");
+  else log("The CI Node matrix matches the reviewed support policy, and the workflow rules hold.");
 }

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 import assert from "node:assert/strict";
 import test from "node:test";
-import { ciNodeRoles, jobNodeVersions, matrixDrift, readRepositoryFiles, resolveLeg } from "./node-ci-roles.mjs";
+import { ciNodeRoles, jobNodeVersions, matrixDrift, matrixJobs, readRepositoryFiles, resolveLeg, workflowJobs, workflowRuleErrors } from "./node-ci-roles.mjs";
 import { lifecycleAt } from "./node-lts-policy.mjs";
 
 const files = readRepositoryFiles();
@@ -83,4 +83,58 @@ test("drift between the workflow and the policy fails", () => {
     [({ supportText }) => ({ supportText: supportText.replace("| `lts/-1` |", "| `lts/-2` |") }), /alias table/]
   ];
   for (const [change, expected] of cases) assert.match(errorsOf(change).join("\n"), expected);
+});
+
+const ruleErrorsOf = (change) => workflowRuleErrors(edit(change)).join("\n");
+test("the workflow reader finds each job and the matrix jobs", () => {
+  assert.deepEqual([...workflowJobs(files.publishText).keys()].slice(0, 3), ["verify", "coverage-shard", "coverage"]);
+  assert.deepEqual(matrixJobs(files.ciText), ["test", "verify", "coverage-shard"]);
+  assert.deepEqual(matrixJobs(files.publishText), ["coverage-shard"]);
+});
+test("the rule reader skips comments: a commented job, matrix or output read is not one", () => {
+  const text = "jobs:\n# a comment at column 0\n  a:\n    # strategy:\n    #   matrix:\n    runs-on: x\n  b:\n    strategy:\n      # fail-fast: false\n      matrix:\n        k: [1]\n";
+  assert.deepEqual([...workflowJobs(text).keys()], ["a", "b"]);
+  assert.deepEqual(matrixJobs(text), ["b"]);
+  const comment = (publishText) => publishText.replace("    steps:\n", "    # needs.coverage-shard.outputs.proven was read here before #666\n    steps:\n");
+  assert.deepEqual(workflowRuleErrors(edit(({ publishText }) => ({ publishText: comment(publishText) }))), []);
+  assert.match(ruleErrorsOf(({ publishText }) => ({ publishText: publishText.replace("if: steps.parts.outputs.action == 'merge'", "if: needs['coverage-shard'].outputs.proven != 'true'") })),
+    /reads `needs\.coverage-shard\.outputs`/);
+});
+test("the workflow rules hold for the repository's workflows", () => {
+  assert.deepEqual(workflowRuleErrors(files), []);
+});
+test("a gate that reads a matrix job's output, or counts blobs instead of deciding from the parts, fails (#666)", () => {
+  const cases = [
+    [({ publishText }) => ({ publishText: publishText.replace("if: steps.parts.outputs.action == 'merge'", "if: needs.coverage-shard.outputs.proven != 'true'") }), /reads `needs\.coverage-shard\.outputs`/],
+    [({ ciText }) => ({ ciText: ciText.replace("node .github/coverage-parts.mjs .vitest-reports 10\n", 'test "$(find .vitest-reports -name \'blob-*\' | wc -l)" = "10"\n') }), /\(ci\.yml, job `verify-primary`\) must decide from the ten parts[\s\S]*must not count blob files/],
+    [({ publishText }) => ({ publishText: publishText.replace("node .github/coverage-parts.mjs .vitest-reports 10\n", "true\n") }), /\(publish\.yml, job `coverage`\) must decide from the ten parts/],
+    [({ publishText }) => ({ publishText: publishText.replace(/\n\s+grep -qxE 'action=\(merge\|proven\)' "\$GITHUB_OUTPUT"/, "") }), /\(publish\.yml, job `coverage`\) must decide[^\n]*fail unless it printed/],
+    [({ publishText }) => ({ publishText: publishText.replace(/(name: Merge the ten parts[^\n]*\n\s+)if: [^\n]*/, "$1if: always()") }), /\(publish\.yml, job `coverage`\) must merge the parts only when/],
+    [({ ciText }) => ({ ciText: ciText.replace("name: coverage-part-${{ matrix.shard }}", "name: coverage-blob-${{ matrix.shard }}") }), /Each coverage shard \(ci\.yml\) must upload one part/],
+    [({ ciText }) => ({ ciText: ciText.replace(/(id: proof-name\n\s+if: [^\n]*?) && steps\.parts\.outputs\.action == 'merge'/, "$1") }), /must name the `coverage` proof only after a merge/]
+  ];
+  for (const [change, expected] of cases) assert.match(ruleErrorsOf(change), expected);
+});
+test("a release that does not wait for every part of the WebGPU conformance suite fails (#713)", () => {
+  const cases = [
+    [({ publishText }) => ({ publishText: publishText.replace(/\n {6}- name: Proof of conformance part 3\n(?: {8}.*\n)+/, "\n") }), /look up the proof of WebGPU conformance part 3/],
+    [({ webgpuText }) => ({ webgpuText: webgpuText.replace('            files: "test/webgpu/display-view-neighbors"', '            files: "test/webgpu/display-view-neighbors"\n          - part: 4\n            files: "x"') }), /look up the proof of WebGPU conformance part 4/],
+    [({ publishText }) => ({ publishText: publishText.replace(' ${{ steps.part-3.outputs.found }}', "") }), /must fail unless every proof lookup found its proof/],
+    [({ publishText }) => ({ publishText: publishText.replace(/(Use Node\.js as webgpu\.yml does\n[\s\S]*?node-version: )"lts\/\*"/, '$1"24"') }), /must set up Node\.js as webgpu\.yml does/],
+    [({ publishText }) => ({ publishText: publishText.replace("needs: [verify, coverage, conformance]", "needs: [verify, coverage]") }), /`publish` job must need `conformance`/],
+    [({ publishText }) => ({ publishText: publishText.replace("          check-latest: true\n", "") }), /publish\.yml: every setup-node step of job `conformance` must set `check-latest: true`/],
+    [({ webgpuText }) => ({ webgpuText: webgpuText.replace("          check-latest: true\n", "") }), /webgpu\.yml: every setup-node step of job `webgpu-conformance` must set `check-latest: true`/]
+  ];
+  for (const [change, expected] of cases) assert.match(ruleErrorsOf(change), expected);
+  // The conformance job's own selector is not the tooling-major pin that every other publish.yml job keeps.
+  assert.deepEqual(matrixDrift(files, afterNode26Lts).errors, []);
+});
+test("a proof upload that can fail a passing job, or a job that hides its failure, fails (ci-20 and ci-21 in #703)", () => {
+  assert.equal((files.ciText.match(/- name: Keep the proof\n(?: {8}#.*\n)* {8}continue-on-error: true\n/g) ?? []).length, 4);
+  const cases = [
+    [({ ciText }) => ({ ciText: ciText.replace(/(- name: Keep the proof\n(?: {8}#.*\n)*) {8}continue-on-error: true\n/, "$1") }), /"Keep the proof" step of job `test` must set `continue-on-error: true`/],
+    [({ webgpuText }) => ({ webgpuText: webgpuText.replace("        continue-on-error: true\n", "") }), /webgpu\.yml: the "Keep the proof" step of job `webgpu-conformance`/],
+    [({ ciText }) => ({ ciText: ciText.replace("    runs-on: macos-latest\n", "    runs-on: macos-latest\n    continue-on-error: true\n") }), /job `hash-locks-macos` must not set job-level `continue-on-error`/]
+  ];
+  for (const [change, expected] of cases) assert.match(ruleErrorsOf(change), expected);
 });

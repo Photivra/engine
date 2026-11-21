@@ -50,7 +50,7 @@ Every leg runs the test suite and the packed-consumer acceptance check, except a
 - The minimum-version leg matches `engines.node`. It rises when that line reaches end of life.
 - The policy guard runs before installation. If an alias moves to an unreviewed or end-of-life major, CI fails instead of adopting it. An alias cannot silently widen the support set.
 - When Node 26 enters LTS (2026-10-28), `lts/-1` moves to 24. Node 22 then stays covered by the minimum-version leg until its end of life.
-- Release publication (`publish.yml`) stays pinned to tooling major 24, so the release toolchain changes only through review.
+- Release publication (`publish.yml`) stays pinned to tooling major 24, so the release toolchain changes only through review. Its `conformance` job runs no tests and builds nothing: it looks up the WebGPU conformance proofs of `webgpu.yml`, which are named by that workflow's Node.js release, so it sets up Node.js as `webgpu.yml` does (`lts/*`; [#713](https://github.com/Photivra/engine/issues/713)).
 - The normal tooling baseline and the pinned `@types/node` major remain **24**.
 
 Use current patched releases for ordinary development and deployment. The historical minimum-version regression job is not a deployment recommendation.
