@@ -31,8 +31,8 @@ interface Bundle {
   gzip: number;
   /** Every chunk's gzip size (level 9) added up, the lazy ones included: what an application's total-JavaScript budget counts. */
   totalGzip: number;
-  /** Every chunk: its modules, gzip size (level 9), whether it is the entry, and the chunks it imports statically and dynamically. */
-  chunks: { fileName: string; modules: Set<string>; gzip: number; isEntry: boolean; imports: readonly string[]; dynamicImports: readonly string[] }[];
+  /** Every chunk: its modules, code, gzip size (level 9), whether it is the entry, and the chunks it imports statically and dynamically. */
+  chunks: { fileName: string; modules: Set<string>; code: string; gzip: number; isEntry: boolean; imports: readonly string[]; dynamicImports: readonly string[] }[];
 }
 const srcPath = (id: string): string => id.replace(/\\/g, "/").replace(/^.*\/src\//, "");
 /**
@@ -58,7 +58,7 @@ async function bundle(names: string[]): Promise<Bundle> {
     for (const chunk of chunks) {
       const gzip = gzipSync(chunk.code, { level: 9 }).length;
       result.totalGzip += gzip;
-      result.chunks.push({ fileName: chunk.fileName, modules: new Set(Object.keys(chunk.modules).map(srcPath)), gzip, isEntry: chunk.isEntry, imports: chunk.imports, dynamicImports: chunk.dynamicImports });
+      result.chunks.push({ fileName: chunk.fileName, modules: new Set(Object.keys(chunk.modules).map(srcPath)), code: chunk.code, gzip, isEntry: chunk.isEntry, imports: chunk.imports, dynamicImports: chunk.dynamicImports });
       if (!eager.has(chunk.fileName)) { for (const id of Object.keys(chunk.modules)) result.lazyModules.add(srcPath(id)); continue; }
       for (const [id, m] of Object.entries(chunk.modules)) result.modules.set(srcPath(id), m.renderedExports);
       result.minified += Buffer.byteLength(chunk.code);
@@ -217,6 +217,9 @@ describe("the app's capture-worker shape", () => {
     for (const id of ["facade/layered-chart-scene.ts", "facade/layered-scene-provider.ts", "facade/layered-scene-setup.ts", "facade/layered-scene-signal.ts"]) expect(reached).not.toContain(id);
     // #165: the C2PA export writers load only when an application imports them, never in the capture worker.
     expect([...worker.lazyModules, ...worker.modules.keys()]).not.toContain("capture/c2pa-embed.ts");
+    // #690: the GPU session uses only the irradiance convolution shader of src/gpu/wgsl-kernels.ts; the SDR and luminance shader
+    // preludes (fn render_sample, fn encode_srgb, the tone curves) are wrapped as pure so the bundler can drop them.
+    for (const c of worker.chunks) for (const fn of ["fn render_sample", "fn encode_srgb", "fn render_toned"]) expect(c.code.includes(fn), `${c.fileName}: ${fn}`).toBe(false);
   }, testTimeout(120_000));
 
   // #594: the GPU Quality host is one chunk that only a dynamic import reaches, from the GPU session chunk; no other chunk imports

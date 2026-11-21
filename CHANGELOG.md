@@ -22,6 +22,10 @@
     (docs/NUMERICAL_CORRECTNESS.md).
   - *Proof uploads and the macOS check (`ci-20`, `ci-21` in #703).* A failed proof upload no longer fails a job whose work passed;
     `hash locks (macos-latest)` drops `continue-on-error` and is documented as the blocking required check it is.
+- **Unused SDR shader text leaves the GPU session chunk (#690).** The six shader literals of `src/gpu/wgsl-kernels.ts` are
+  marked pure, so a bundler drops the SDR and luminance preludes from the display view's GPU session, which uses only the
+  irradiance convolution shader. The shader strings are unchanged (same SHA-256 for all four). Fast worker row 338,380 →
+  336,612 B (−1,768 B; session chunk 33,950 → 32,182 B), measured with rolldown 1.2.9; on-demand and export rows unchanged.
 
 ## 2.27.0 — published November 19, 2026
 
