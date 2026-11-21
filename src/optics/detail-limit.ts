@@ -266,7 +266,7 @@ export function detailLimitOpticsMtf(w: DetailLimitWavefront, s: number, tangent
 
 /** Smallest s in (0, 1) where f(s) ≤ 0.5: a scan from 0 with the given step (finite, > 0), then bisection. */
 function firstHalfCrossing(f: (s: number) => number, step: number): number {
-  if (!(step > 0 && step <= 1)) throw new InvalidScientificInputError("The detail-limit scan step must be in (0, 1].");
+  if (!(step > 0 && step <= 1)) throw new InvalidScientificInputError("Invalid detail-limit scan step.");
   let lo = 0;
   // The scan reaches 1 within ⌈1/step⌉ steps; the bound only guards the loop.
   for (let s = step, k = 0, steps = 2 * Math.ceil(1 / step) + 2; k < steps; s += step, k++) {
@@ -383,7 +383,7 @@ export function calculateDetailLimit(input: CalculateDetailLimitInput): Calculat
   const magnitude = wavefrontMagnitude(wavefront);
   // Finite but extreme inputs (a focus distance near the float range, an f-number near 0) can overflow the image geometry.
   if (![sensorImageMm, subjectImageMm, pupilMm, workingFNumber, defocusWaves, defocusBlurDiameterMm, aberrationRms, totalRms].every(Number.isFinite) || !(workingFNumber > 0)) {
-    throw new InvalidScientificInputError("The focus distance, f-number and focal length give an image geometry outside the floating-point range; use values within the physical range.");
+    throw new InvalidScientificInputError("The focus distance and f-number give an image geometry outside the floating-point range.");
   }
   if (magnitude > DETAIL_LIMIT_LIMITS.maximumWavefrontWaves) {
     throw new InvalidScientificInputError(`The wavefront (${magnitude.toPrecision(3)} waves, defocus blur ${defocusBlurDiameterMm.toPrecision(3)} mm) exceeds ` +
@@ -392,9 +392,7 @@ export function calculateDetailLimit(input: CalculateDetailLimitInput): Calculat
 
   const pitchMm = input.sensor.widthMm / input.sensor.pixelWidth, cutoff = 1 / (lambdaMm * workingFNumber), nyquist = 1 / (2 * pitchMm);
   const step = Math.min(1 / 128, 1 / (32 * Math.max(1, magnitude)));
-  if (!Number.isFinite(cutoff) || !Number.isFinite(nyquist)) {
-    throw new InvalidScientificInputError("The f-number, wavelength and pixel pitch give a cut-off frequency outside the floating-point range.");
-  }
+  if (!Number.isFinite(cutoff * nyquist)) throw new InvalidScientificInputError("The cut-off frequency is outside the floating-point range.");
   const symmetric = wavefront.coma === 0 && wavefront.astigmatism === 0;
   const opticsAt = (s: number, tangential: boolean): number => detailLimitOpticsMtf(wavefront, s, tangential);
   const tangential50 = firstHalfCrossing((s) => opticsAt(s, true), step) * cutoff;

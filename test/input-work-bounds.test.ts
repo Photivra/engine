@@ -110,7 +110,7 @@ describe("composite charts: one dead-leaves budget, identical elements shared", 
   const composite = (scenes: ChartScene[]): ChartScene => ({ preset: "composite", elements: scenes.map((scene, i) => ({ scene, centerU: -0.75 + (i % 4) * 0.5, centerV: -0.75 + Math.floor(i / 4 % 4) * 0.5, width: 0.5, height: 0.5 })) } as ChartScene);
 
   it("refuses 256 distinct fine dead-leaves elements once the budget is spent", () => {
-    expect(() => resolveChartScene({ scene: composite(Array.from({ length: 256 }, (_, i) => leaves(i + 1))), aspect: 1 })).toThrow(/composite's dead-leaves elements/u);
+    expect(() => resolveChartScene({ scene: composite(Array.from({ length: 256 }, (_, i) => leaves(i + 1))), aspect: 1 })).toThrow(/composite's elements need more than/u);
   }, scaledTimeout(60_000));
 
   it("resolves 256 identical elements once", () => {

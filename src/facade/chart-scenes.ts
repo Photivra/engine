@@ -780,7 +780,8 @@ function generateDeadLeaves(rMin: number, rMax: number, seed: number, aspect: nu
   const cell = Math.max(rMin, Math.sqrt(width * height / DEAD_LEAVES_MAXIMUM_CELLS));
   const nx = Math.ceil(width / cell), ny = Math.ceil(height / cell), cells = nx * ny;
   if (!(cells <= DEAD_LEAVES_MAXIMUM_CELLS)) throw new InvalidConfigurationError("Dead leaves: the chart aspect is too extreme for the lookup grid.");
-  if (budget && cells > budget.cells) throw new InvalidConfigurationError("Dead leaves: a composite's dead-leaves elements need more than " + DEAD_LEAVES_COMPOSITE_MAXIMUM_CELLS + " lookup cells in all; raise radiusMinimum or use fewer distinct elements.");
+  const over = (what: string): never => { throw new InvalidConfigurationError("Dead leaves: a composite's elements need more than " + what + " in all; raise radiusMinimum."); };
+  if (budget && cells > budget.cells) over(DEAD_LEAVES_COMPOSITE_MAXIMUM_CELLS + " lookup cells");
   const maximumDisks = budget ? Math.min(DEAD_LEAVES_MAXIMUM_DISKS, budget.disks) : DEAD_LEAVES_MAXIMUM_DISKS;
   const closed = new Uint8Array(cells), head = new Int32Array(cells).fill(-1), tail = new Int32Array(cells).fill(-1);
   let next = new Int32Array(1 << 16), entryDisk = new Int32Array(1 << 16), entries = 0;
@@ -789,8 +790,8 @@ function generateDeadLeaves(rMin: number, rMax: number, seed: number, aspect: nu
   let open = cells, n = 0;
   while (open > 0) {
     if (n >= maximumDisks) {
-      throw new InvalidConfigurationError(maximumDisks < DEAD_LEAVES_MAXIMUM_DISKS ? "Dead leaves: a composite's dead-leaves elements need more than " + DEAD_LEAVES_COMPOSITE_MAXIMUM_DISKS + " disks in all; raise radiusMinimum or use fewer distinct elements."
-        : "Dead leaves need more than " + DEAD_LEAVES_MAXIMUM_DISKS + " disks; raise radiusMinimum.");
+      if (maximumDisks < DEAD_LEAVES_MAXIMUM_DISKS) over(DEAD_LEAVES_COMPOSITE_MAXIMUM_DISKS + " disks");
+      throw new InvalidConfigurationError("Dead leaves need more than " + DEAD_LEAVES_MAXIMUM_DISKS + " disks; raise radiusMinimum.");
     }
     // Inverse CDF of the density ∝ r⁻³ on [rMin, rMax]: r = (rMin⁻² − U·(rMin⁻² − rMax⁻²))^(−1/2).
     const r = 1 / Math.sqrt(a - random.next() * (a - b));

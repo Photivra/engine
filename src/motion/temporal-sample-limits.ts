@@ -18,9 +18,9 @@ export const MAXIMUM_TEMPORAL_NODE_COUNT = 256 * 256;
 export function requireTemporalSampleBudget(temporalSampleCount: number, pointCount: number, pointsName: string): void {
   requirePositiveInteger("temporalSampleCount", temporalSampleCount);
   if (temporalSampleCount > MAXIMUM_TEMPORAL_SAMPLE_COUNT) {
-    throw new InvalidScientificInputError("temporalSampleCount must be at most " + MAXIMUM_TEMPORAL_SAMPLE_COUNT + " (an engine limit).");
+    throw new InvalidScientificInputError("temporalSampleCount must be at most " + MAXIMUM_TEMPORAL_SAMPLE_COUNT + ".");
   }
   if (temporalSampleCount * pointCount > MAXIMUM_TEMPORAL_NODE_COUNT) {
-    throw new InvalidScientificInputError("temporalSampleCount × " + pointsName + ".length must be at most " + MAXIMUM_TEMPORAL_NODE_COUNT + " (an engine limit).");
+    throw new InvalidScientificInputError("temporalSampleCount × " + pointsName + ".length must be at most " + MAXIMUM_TEMPORAL_NODE_COUNT + ".");
   }
 }
