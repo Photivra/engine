@@ -168,7 +168,8 @@ export async function renderTabulatedNativeRaw(t: TabulatedNativeRawInput): Prom
         // A check of the full path failed for this site: let the environment task decide (it throws its own error).
         if (!o) return undefined;
         raw.codes[at] = o.rawCode; raw.blackLevels[at] = o.blackLevelCode; raw.digitalSaturationCodes[at] = o.digitalSaturationCode; raw.saturationFlags[at] = o.flags;
-        white.record(index, o.whiteCode);
+        // The 2 × 2 phase from x and y (#721); the same check as record(index), without recovering x and y from the index.
+        white.recordPhase((y & 1) * 2 + (x & 1), o.whiteCode);
       }
       for (let k = 0; k < tilesPerRow; k++) t.onTile?.();
       if (y === region.y + region.height - 1 || Date.now() - last >= YIELD_MS) { await t.yieldControl(); t.checkAbort(); last = Date.now(); }

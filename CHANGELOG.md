@@ -29,6 +29,10 @@
     gain pass that runs only for two or more frames. Results for two or more frames are unchanged.
   - *Row bands of a large capture (#678).* `calculateNativeRawRowBands` refused every plan that carried `maximumPixels`
     ("unknown field"), which every capture above 24 MP needs; it now checks a plan against the one field list of `NativeRawPlan`.
+  - *White-level bookkeeping by phase (#721).* The tabulated native RAW loop (the default for chart scenes) records each site's
+    white level by its 2 × 2 CFA phase from `x` and `y` instead of recovering the phase from the row-major index; the per-site
+    check that all sites of a phase agree stays. A 1536 × 1024 Siemens star: median 628 → 573 ms (11 paired runs, −8.8 %);
+    RAW codes, white levels and sRGB samples identical (SHA-256). Fast bundle row +4 B.
 
 ## 2.27.0 — published November 19, 2026
 
