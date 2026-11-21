@@ -50,16 +50,16 @@ describe("temporal-sample calculators take at most 256 samples and 65,536 nodes"
   const timing = (points: { x: number; y: number }[]): never => ({ timingProfileId: "p", timingProfileVersion: "1", captureModeId: "m", nativeRaster: raster,
     exposureWindows: { samples: points.map((p) => ({ pointNative: p, startOffsetSecondsFromOpeningReference: 0, endOffsetSecondsFromOpeningReference: 0.01, localExposureDurationSeconds: 0.01 })) } }) as never;
   const points = (n: number): { x: number; y: number }[] => Array.from({ length: n }, (_, i) => ({ x: 100 + (i % 500) * 10, y: 100 + Math.floor(i / 500) * 10 }));
-  const rotation = (count: number, n = 1): unknown => calculateCaptureRotationTemporalQuadrature({ imagingArea: { widthMm: 36, heightMm: 24 }, nativeRaster: raster, shutterMechanism: "electronic",
+  const rotation = (count: number, n = 1, list?: unknown[]): unknown => calculateCaptureRotationTemporalQuadrature({ imagingArea: { widthMm: 36, heightMm: 24 }, nativeRaster: raster, shutterMechanism: "electronic",
     nominalExposureDurationSeconds: seconds(0.01), opening: { kind: "simultaneous" }, closing: { kind: "simultaneous" }, focalLengthMm: 50, angularVelocityRadPerSec: { pitch: 0, yaw: 0.1, roll: 0 },
-    orientation: "landscape", temporalSampleCount: count, samplePointsNative: n === 1 ? [point] : points(n) } as never);
-  const parallax = (count: number, n = 1): unknown => calculateCaptureTranslationParallaxTemporalQuadrature({ timing: timing(points(n)), imagingArea: { widthMm: 36, heightMm: 24 }, focalLengthMm: 50,
+    orientation: "landscape", temporalSampleCount: count, samplePointsNative: list ?? (n === 1 ? [point] : points(n)) } as never);
+  const parallax = (count: number, n = 1, list?: unknown[]): unknown => calculateCaptureTranslationParallaxTemporalQuadrature({ timing: timing(points(n)), imagingArea: { widthMm: 36, heightMm: 24 }, focalLengthMm: 50,
     orientation: "landscape", cameraTranslationVelocityMps: { x: 0.1, y: 0, z: 0 }, temporalSampleCount: count,
-    sceneSamples: points(n).map((p, i) => ({ sampleId: "s" + i, destinationPointNative: p, positionCameraM: { x: 0, y: 0, z: 2 } })) } as never);
-  const extended = (count: number, n = 1): unknown => calculateCaptureExtendedObjectTemporalProjection({ objectId: "o", timing: timing(points(n)), focalLengthMm: 50,
+    sceneSamples: list ?? points(n).map((p, i) => ({ sampleId: "s" + i, destinationPointNative: p, positionCameraM: { x: 0, y: 0, z: 2 } })) } as never);
+  const extended = (count: number, n = 1, list?: unknown[]): unknown => calculateCaptureExtendedObjectTemporalProjection({ objectId: "o", timing: timing(points(n)), focalLengthMm: 50,
     objectTranslationVelocityMps: { x: 0.1, y: 0, z: 0 }, cameraTranslationVelocityMps: { x: 0, y: 0, z: 0 }, temporalSampleCount: count,
-    points: points(n).map((p, i) => ({ pointId: "p" + i, destinationPointNative: p, positionCameraM: { x: 0, y: 0, z: 2 } })) } as never);
-  const stabilized = (count: number, n = 1): unknown => calculateStabilizedCaptureTemporalSamples({ captureKind: "still", timing: timing(points(n)), samplePointsNative: points(n), temporalSampleCount: count,
+    points: list ?? points(n).map((p, i) => ({ pointId: "p" + i, destinationPointNative: p, positionCameraM: { x: 0, y: 0, z: 2 } })) } as never);
+  const stabilized = (count: number, n = 1, list?: unknown[]): unknown => calculateStabilizedCaptureTemporalSamples({ captureKind: "still", timing: timing(points(n)), samplePointsNative: list ?? points(n), temporalSampleCount: count,
     disturbance: { version: "0.1.0", trajectoryId: "d", timeReference: "first-opening-boundary-phase", initialAngularDisplacementIsZero: true, cameraTranslationIncluded: false, subjectMotionIncluded: false,
       supportStateEncoded: false, evidence: ev("d"), limitations: ["x"], samples: [{ timeSecondsFromCaptureReference: 0, angularDisplacementRad: { pitch: 0, yaw: 0, roll: 0 } },
         { timeSecondsFromCaptureReference: 1, angularDisplacementRad: { pitch: 0.1, yaw: 0.1, roll: 0 } }] },
@@ -73,7 +73,11 @@ describe("temporal-sample calculators take at most 256 samples and 65,536 nodes"
     expect(() => run(257)).toThrow(InvalidScientificInputError);
     expect(() => run(2 ** 32)).toThrow(InvalidScientificInputError);
     expect(() => run(256, 257)).toThrow(/at most 65536/u);
-  });
+    // The budget is checked before the list is walked: a sparse list of 2²⁶ entries is refused at once.
+    const start = performance.now();
+    expect(() => run(256, 1, new Array(2 ** 26))).toThrow(/at most 65536/u);
+    expect(performance.now() - start).toBeLessThan(scaledTimeout(100));
+  }, scaledTimeout(60_000));
 });
 
 describe("calculateDetailLimit refuses finite inputs that overflow its geometry", () => {
@@ -141,6 +145,16 @@ describe("composite charts: one dead-leaves budget, identical elements shared", 
     expect(params(many)).toEqual(Array.from({ length: 256 }, () => params(one)[0]));
   }, scaledTimeout(60_000));
 
+  it("shares dead leaves only between elements with the same radii, seed and aspect", () => {
+    // Same JSON, different seeds (inherited): each element keeps its own seed and disks.
+    const inherited = (seed: number): ChartScene => Object.assign(Object.create({ seed }) as object, { preset: "dead-leaves", radiusMinimum: 0.01 }) as ChartScene;
+    const r = resolveChartScene({ scene: composite([inherited(9), inherited(10)]), aspect: 1 });
+    const params = (r.parameters as { elements: { parameters: { seed: number; diskCount: number } }[] }).elements.map((e) => e.parameters);
+    const alone = (seed: number): unknown => (resolveChartScene({ scene: composite([inherited(seed)]), aspect: 1 }).parameters as { elements: { parameters: unknown }[] }).elements[0]!.parameters;
+    expect(params).toEqual([alone(9), alone(10)]);
+    expect(params[0]!.seed).not.toBe(params[1]!.seed);
+  }, scaledTimeout(60_000));
+
   it("keeps a composite of a few distinct elements", () => {
     const r = resolveChartScene({ scene: composite([leaves(1), leaves(2), { preset: "dead-leaves", seed: 3 } as ChartScene]), aspect: 1 });
     expect((r.parameters as { elements: unknown[] }).elements).toHaveLength(3);
@@ -158,6 +172,15 @@ describe("spectral curves and channel lists", () => {
     expect(() => parseSensorColorSamplingProfile(color(new Array(100_000_000), 10_000, 10_000) as never)).toThrow(InvalidConfigurationError);
     expect(performance.now() - start).toBeLessThan(scaledTimeout(500));
     expect(parseSensorColorSamplingProfile(color(["red", "green", "green", "blue"]) as never).layout).toMatchObject({ siteChannelIds: ["red", "green", "green", "blue"] });
+  });
+
+  it("refuses an evidence list with holes at its first hole", () => {
+    const profile = (evidence: unknown[]): unknown => ({ ...(color(["red", "green", "green", "blue"]) as object), evidence });
+    const start = performance.now();
+    expect(() => parseSensorColorSamplingProfile(profile(new Array(2 ** 26)) as never)).toThrow(/evidence\[0\]/u);
+    expect(performance.now() - start).toBeLessThan(scaledTimeout(100));
+    expect(() => parseSensorColorSamplingProfile(profile([...ev("a"), , ...ev("b")]) as never)).toThrow(/evidence\[1\]/u); // eslint-disable-line no-sparse-arrays
+    expect(parseSensorColorSamplingProfile(profile([...ev("a"), ...ev("b")]) as never).evidence).toHaveLength(2);
   });
 
   it("interpolates a long curve by binary search with the piecewise-linear values", () => {

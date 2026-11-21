@@ -34,13 +34,14 @@
     overlap, and copied tag values that, with the strips or tiles, fit in the file's size. The DNG noise estimate's median selection has an O(n log n) worst case.
   - *Release sequences* hold at most 10,000 frames (`maximumLogicalFramesPerSequence` too).
   - *Temporal samples.* The rotation and translation quadratures, the extended-object projection and the stabilized capture
-    samples take at most 256 temporal samples and 65,536 nodes (samples × points).
+    samples take at most 256 temporal samples and 65,536 nodes (samples × points), checked before the points are read.
   - *Charts.* A composite's distinct dead-leaves elements together use at most 8,388,608 lookup cells and 8,000,000 disks;
-    identical elements are resolved once.
+    dead-leaves elements with the same radii, seed and aspect share one generated texture.
   - *Optics.* `calculateDetailLimit` refuses finite inputs whose image geometry overflows (it did not return); Airy cells whose
     frequency-domain work would exceed 2.5 × 10⁸ steps use the real-space method (cells move by at most 2 × 10⁻¹³; only explicit kernel
     radii of 10 or more); a diffraction profile whose β·(R + 1)², summed over its wavelengths, exceeds 400 × 32 × 33² is refused.
-  - *Sensor.* Spectral curves are interpolated by binary search (same values); channel lists with holes are refused.
+  - *Sensor.* Spectral curves are interpolated by binary search (same values); channel lists and evidence lists with holes are
+    refused at their first hole.
   - *CI.* A test-once proof counts only from a successful run on the tree it names; a re-run of `publish.yml` for a version that
     is already published passes only when the registry's `dist.integrity` matches the verified tarball. The WebGPU workflow
     installs Chromium with the lockfile's `playwright-core` 1.63.0, a new exactly pinned devDependency (Apache-2.0; owner decision
