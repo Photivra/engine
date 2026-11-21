@@ -363,7 +363,7 @@ The application can then use those results, while the photography calculations t
 
 ## Status
 
-- Repository package version: `2.27.0` (release candidate prepared November 18, 2026; publication is separate)
+- Repository package version: `2.27.0` (published November 19, 2026)
 - Engine API contract: `2.27.0`
 - Versioned generic tier reference assets: [GENERIC_TIER_PRESETS.md](https://github.com/Photivra/engine/blob/main/docs/GENERIC_TIER_PRESETS.md).
 - Sensor profiles from published specifications (#554, unnamed): [SENSOR_PROFILES.md](https://github.com/Photivra/engine/blob/main/docs/SENSOR_PROFILES.md).

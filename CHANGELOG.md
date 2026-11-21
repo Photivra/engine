@@ -1,6 +1,6 @@
 # Changelog
 
-## 2.27.0 — unreleased (prepared November 18, 2026)
+## 2.27.0 — published November 19, 2026
 
 A minor release: lower CPU cost of the display view with lens corrections and sharpening (#649), with camera rotation under a
 rolling shutter and defocus (#651), of defocused and long-lens Quality frames (#653), with catalogue lenses (#655, CPU) and with
