@@ -356,6 +356,26 @@ describe("Full color development of an imported DNG (2.24.0)", () => {
   });
 });
 
+describe("what-if labels (2.28.0)", () => {
+  // #679: sites clipped in the photo stay at the white level (an upper bound); the result counts them and says so.
+  it("counts the clipped sites it keeps at the white level and labels the bound", async () => {
+    const { raw } = await uniform(0.18, 100, BASE, 4, 64);
+    const a = raw.activeArea, white = raw.whiteLevel[0]!, half = a.x + Math.floor(a.width / 2), codes = raw.codes.slice();
+    let expected = 0;
+    for (let y = a.y; y < a.y + a.height; y++) for (let x = half; x < a.x + a.width; x++) { codes[y * raw.width + x] = white; expected++; }
+    const clipped = { ...raw, codes }, darker = simulateDngRawWhatIf(clipped, { exposureStops: -2, seed: 1, verifyNoiseProfile: false });
+    expect(darker.clippedSitesKept).toBe(expected);
+    expect(darker.assumptions).toContain(expected + " sites were clipped in the photo; their light is unknown, so they are kept at the white level " +
+      "(an upper bound; with less light they would read between black + 0.25 × (white − black) and white).");
+    for (let y = a.y; y < a.y + a.height; y++) expect(darker.raw.codes[y * raw.width + half]).toBe(white);
+    const plain = simulateDngRawWhatIf(raw, { exposureStops: -2, seed: 1 });
+    expect(plain.clippedSitesKept).toBe(0);
+    expect(plain.assumptions.some((t) => t.includes("were clipped in the photo"))).toBe(false);
+    // More light reaching the white level anyway (ISO ×4 at the same light) is not a bound: nothing to label.
+    expect(simulateDngRawWhatIf(clipped, { iso: 400, highGainFromIso: 800, seed: 1, verifyNoiseProfile: false }).clippedSitesKept).toBe(0);
+  }, scaledTimeout(60_000));
+});
+
 describe("dual-gain switch catalog and the denoised-file check (2.24.0)", () => {
   it("ships only cited entries and finds none for an unknown camera", async () => {
     const { DNG_GAIN_SWITCH_CATALOG, resolveDngGainSwitch } = await import("../src/index.js");

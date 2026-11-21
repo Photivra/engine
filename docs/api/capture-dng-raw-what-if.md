@@ -115,6 +115,12 @@ export interface DngRawWhatIfResult {
   targetIso: number | null;
   /** Sites that reached the white level in the simulation and were below it in the photo. */
   newlyClippedSites: number;
+  /**
+   * Sites at the white level in the photo that the simulation keeps there although it has less signal (light × ISO factor below 1):
+   * their light is unknown, so the white level is an upper bound (they would read between black + factor × (white − black) and
+   * white). 0 otherwise; an assumption says so when it is above 0.
+   */
+  clippedSitesKept: number;
   /** The gain switch the ISO check used and where it came from ("not-needed" without an ISO change). */
   gainSwitch: { highGainFromIso: number | null; from: "request" | "catalog" | "not-needed"; entry: DngGainSwitchEntry | null };
   /** The measured ÷ stated σ of the check (green plane where there is one), or null when the check was off. */
@@ -126,8 +132,9 @@ export interface DngRawWhatIfResult {
 ## simulateDngRawWhatIf
 
 The RAW of the same scene with less light and/or a higher ISO, seeded (see the module comment); a positive `exposureStops` is
-returned as a development push, labeled "brightened in editing". Throws {@link DngRawWhatIfRefusedError} with every reason when the
-file or the request cannot be shown accurately.
+returned as a development push, labeled "brightened in editing". Sites clipped in the photo stay at the white level, an upper bound
+when the simulation has less signal (counted in `clippedSitesKept`, named in `assumptions`). Throws {@link DngRawWhatIfRefusedError}
+with every reason when the file or the request cannot be shown accurately.
 
 ```ts
 export function simulateDngRawWhatIf(raw: ImportedDngRaw, request: DngRawWhatIfRequest): DngRawWhatIfResult;

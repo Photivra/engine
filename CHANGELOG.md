@@ -52,6 +52,10 @@
     larger. A pixel count within 4 ulps of a whole number is now that number, the rule crops already use. **Output change** for
     those inputs only: their minimum and recommended rasters drop to the inch result, and some refusals become `ready`
     (docs/PRINT_PLANNING.md).
+  - *What-if clipped sites labeled (#679).* `simulateDngRawWhatIf` keeps sites clipped in the photo at the white level, as before;
+    a new `clippedSitesKept` counts them when the simulation has less signal (light × ISO factor below 1), and an assumption names
+    the count and the bound (white is an upper bound; they would read between black + factor × (white − black) and white).
+    Owner decision 2026-11-21: label only; codes unchanged (docs/IMPORT_AND_PNG.md).
 
 ## 2.27.0 — published November 19, 2026
 
