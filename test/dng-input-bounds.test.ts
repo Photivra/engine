@@ -97,7 +97,7 @@ describe("DNG opcode lists: bounded work and finite results (2.28.0)", () => {
   });
 
   it("marks overlapping, touching, empty and out-of-image rectangles exactly as a direct loop does", () => {
-    const width = 23, height = 17, next = ((s: number) => () => { s = (s * 1103515245 + 12345) >>> 0; return s / 4294967296; })(0x2280);
+    const width = 23, height = 17, next = ((s: number) => (): number => { s = (s * 1103515245 + 12345) >>> 0; return s / 4294967296; })(0x2280);
     for (let trial = 0; trial < 40; trial++) {
       const rects = Array.from({ length: 1 + Math.floor(next() * 6) }, (): [number, number, number, number] => {
         const t = Math.floor(next() * 22), l = Math.floor(next() * 28), pick = next();
