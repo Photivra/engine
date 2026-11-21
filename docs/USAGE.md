@@ -8248,6 +8248,27 @@ it: Vite builds workers as `iife` by default, so a worker that calls `prepareDis
 modules (`worker: { format: "es" }`, with `new Worker(url, { type: "module" })`) to keep it out. Measured sizes:
 [Bundle size](https://github.com/Photivra/engine/blob/main/docs/DISPLAY_VIEW.md#bundle-size).
 
+#### Estimating a render (2.28.0, #660)
+
+`estimateDisplayViewRender(prepared, view)` counts the work a CPU render of `view` would do, without rendering it: the renderer's
+passes, the real pixels and demosaic site reads as `{ minimum, maximum }` ranges (equal to the render's `diagnostics.sampleCount`
+and `siteEvaluations` where they are exact), the pilot's detailed and uniform display pixels, the native sites, and the method
+each cost choice takes. It is synchronous, checks `view` as `render` does, and returns counts, not seconds; see
+[Estimating a render](https://github.com/Photivra/engine/blob/main/docs/DISPLAY_VIEW.md#estimating-a-render-2280). A bundle
+that does not import it carries none of its code.
+
+```ts
+import { estimateDisplayViewRender, prepareDisplayView, type SimulateCaptureOptions } from "@photivra/engine";
+
+const request: SimulateCaptureOptions = { scene: { preset: "dead-leaves" }, sensor: { pixelPitchMicrometers: 2 }, output: { width: 240, height: 160 } };
+const prepared = await prepareDisplayView(request, { gpu: "off" });
+const view = { width: 24, height: 16, region: { x: 0, y: 0, width: 12, height: 8 } };
+const estimate = estimateDisplayViewRender(prepared, view);
+console.log(estimate.estimation, estimate.sampleCount.maximum, estimate.signal.method); // before paying for the render
+const tile = await prepared.render(view);
+console.log(tile.diagnostics.sampleCount); // within estimate.sampleCount
+```
+
 #### AHD correction states (deprecated in 2.22.0)
 
 From 2.10 to 2.21, low-signal AHD display pixels read correction states that workers could exchange. 2.22.0 removes the

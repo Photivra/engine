@@ -913,6 +913,9 @@ them run the per-component arithmetic unchanged (the hash locks are unchanged).
   a decision inside their float32 bound flags the pixel for the host's reference. Elsewhere `reconstruct` is the unclipped white balance (exactly linear) and the
   desaturation changes nothing. The Gauss–Hermite nodes are the eigenvalues of the Jacobi matrix (Golub & Welsch 1969), found by
   Sturm-sequence bisection with correctly rounded operations only (the same bits in every engine).
+  2.28.0 (#662): with the identity tone curve and the component clip (Recover without a tone curve) the tone and gamut slopes
+  are the identity at every node and the clip's is diag(inside), so the chain takes them as such instead of forming the 3 × 3
+  products; the results are the same bits (a `+0` term leaves a sum that starts at `+0` unchanged), fast and full.
 
 **Accuracy (measured, `test/display-view-coupled-rendering.test.ts`).** Against seeded Monte Carlo of the same chain (400,000
 draws): tone-curve means within four standard errors and variances within 2 %; the chain's means within 1·10⁻³ plus four
@@ -1245,6 +1248,42 @@ Two regimes. Where a display pixel covers more than 25 real pixels (narrower tha
 stratified estimator applies and the cost follows the detailed display pixels × K². At or below 25, the
 [exact area mean](#exact-area-mean) applies and the cost follows the real pixels the region touches.
 
+### Estimating a render (2.28.0)
+
+`estimateDisplayViewRender(prepared, view)` (#660) counts the work a CPU render of `view` by a view from `prepareDisplayView`
+would do, without rendering it, so a caller can choose a view size, a region or `fast` before paying for it, or balance the
+regions of a batch across workers. It is synchronous and returns counts, not seconds:
+
+- `passes`: the renderer's passes at the view's size (one per distinct channel map of `output.lensCorrections`, one with
+  `output.sharpening`) and at 1:1 (with `output.sharpening`).
+- `sampleCount` and `siteEvaluations`: the real pixels the passes evaluate and their demosaic site reads, the render's
+  `diagnostics.sampleCount` and `siteEvaluations`. Each is a `{ minimum, maximum }` range: exact on the exact area mean, and for the
+  sample count of stratified views too (the pilot that chooses each display pixel's samples is run: the scene at its fixed grid,
+  no site integration); the site reads of jittered samples, and the samples through the exact lens correction, are bounded.
+- `detailPixelCount` and `uniformPixelCount`: the pilot's choice (the render's diagnostics of the same names).
+- `nativeSites`: the region's native footprint and its reach, the most sites the expected signal computes per pass.
+- `signal`: the method the cost choices take for this render (`"taps"`, `"regrouped"`, `"runs"` or `"point"`), the kernel radius
+  and taps per site, the defocus disc's radius when it is applied by runs, the query offsets, spectral nodes and temporal midpoints,
+  the rolling-shutter band rows (#651), and the catalogue PSF's zone size and uniform windows (#655).
+- `chainPointsPerAxis`: the development chain's rule (`"3-or-6"` fast, 16 full; #656), or null.
+
+It checks `view` as `render` does and refuses a handle that `prepareDisplayView` did not return. Each call builds the view's setup
+(allocation, and on stratified views the pilot's scene reads), as a render does before its first site. A GPU render reports its
+own counts. `test/display-view-estimate-render.test.ts` checks the counts against a render's diagnostics on five requests (the
+exact area mean, a stratified region, sharpening, lens corrections with lateral color, and AHD with the regrouped defocus and
+Recover) and the methods against the render's assumptions.
+
+It is a root function, not a method of the prepared view, so a bundle that does not import it carries none of its code (the
+capture-worker shape of `test/capture-bundle.test.ts` does not); a bundle that imports it adds about 1.7 kB gzip to its first load
+(1,655 B measured on the worker shape, November 21, 2026).
+
+**As a guide** (the [2.27.0 cost cases](#2270-cost-cases) on 2.27.0, their CPU time divided by the estimate's
+`sampleCount.maximum`; one thread): about 1.2–1.6 µs per real pixel for a point signal (a 96 × 64 whole view of the prime, 1.38 M
+samples, 1.67 s; a 96 × 96 part at 16 real pixels per display pixel, 147 k, 0.24 s), 1.7 µs for Quality with the regrouped disc
+(a 768 × 43 band, 5.05 M, 8.70 s), 2.2 µs for the rolling-shutter row bands at 8 midpoints (48 × 32, 393 k, 0.88 s) and 8.5 µs
+for a catalogue lens's 81 taps at 20 nodes (96 × 64, 1.38 M, 11.74 s). Work outside the samples (the in-focus tiles of a
+regrouped disc, the zone kernels, a 1:1 sharpening pass) is in these figures, so they hold for requests like these, not as a model.
+
 ### 2.27.0 cost cases
 
 The cases of the 2.27.0 plan (`scripts/benchmark-display-view-cases.mjs`: a 6000 × 4000 sensor of 6 µm sites, the app's composite
@@ -1294,8 +1333,14 @@ develop options).
   rolling in focus 192 × 128 1.67 → 1.56 s; rolling out of focus 192 × 128 218 → 7.27 s, 4.7× the
   in-focus region.
 - Targets not met, accepted by the owner and open for 2.28.0: #656 Recover and +1 stop without Standard (1.22 s against 0.8 s; the
-  accuracy is kept), #651's 192 × 128 region (4.7× its in-focus time against 3×; the 1/128 site band shift is kept), and
+  accuracy is kept; 2.28.0, #662: 0.61× of 2.27.0 in paired runs, the same bits, below), #651's 192 × 128 region (4.7× its in-focus time against 3×; the 1/128 site band shift is kept), and
   #655's 2 × 2 box (2.0× the point aperture against 1.3×).
+- 2.28.0 (#662): `656-recover-push` 1.35 → 0.79 s (fastest of five paired runs against 2.27.0's code; median ratio 0.61×,
+  load average 16–26), under the 0.8 s target; with `fast: false` 18.8 → 8.1 s. Samples, expected values and noise standard
+  deviations are the same bits (SHA-256), fast and full; `656-standard-recover-push` 0.93× and `656-none` 1.00× of 2.27.0.
+- 2.28.0 (#685, step 1 of the box-aperture plan): the lens mapping of a still camera skips the rotation and its allocations, the same
+  bits; `655-catalogue-96-box` 0.91× and `655-catalogue-96` 0.95× of 2.27.0's code (median of four paired runs, load average
+  200–700), box over point 2.13× → 2.03× in those runs. The 1.3× target needs steps 2 and 3 of the plan (a flagged fast method).
 - ¹ #649's ratios to the plain part move by about 20 % with the machine's load at 0.5–1.9 s per render. Over three runs (this
   table's and two later ones, `REPEATS=2` and `REPEATS=4`, load average 18–100): corrections 1.42–1.79× (target 1.5×, met in this
   table's run only), sharpening 1.78–2.03× (target 1.7×, not met), both 2.40–2.91× (target 2.6×, met in this table's run only).

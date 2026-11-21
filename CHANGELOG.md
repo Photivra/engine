@@ -211,6 +211,29 @@
     the grid value nearest in log₂ within 1/12 stop (owner decision 2026-11-21) and reports `exposureBracketRealizedOffsetStops`
     beside the requested offset; farther values are refused as before. A wrong refusal becomes a sequence; sequences that
     resolved before are unchanged (docs/USAGE.md).
+- **Display view: Recover and +1 stop without Standard under its time target (#662); output unchanged.** With the identity tone
+  curve and the component clip the chain takes its slopes as the identity and diag(inside) instead of forming the 3 × 3 products
+  at every node, and nine-element resets no longer go through `TypedArray.fill`. The #656 part (96 × 96 of a 1500 × 1000 view)
+  takes 1.35 → 0.79 s in paired runs (median 0.61× of 2.27.0's code; target 0.8 s) and 18.8 → 8.1 s with `fast: false`; samples,
+  expected values and noise standard deviations are the same bits, fast and full (`test/display-view-coupled-rendering.test.ts`
+  locks the chain over a seeded sweep of four tone and gamut choices and the part's render). Bundle: the on-demand Quality kit
+  +95 B gzip.
+- **Lens mapping per point without a still camera's rotation (#685 (a)–(c), step 1 of the box-aperture plan); output unchanged.**
+  `prepareDefocusImageSpaceGeometry`'s `lookOf` takes a still camera's ray without the rotation (which returned a copy of it), the
+  display view's Newton inverse of a radial distortion writes its results to a reused array (`undistortedImagePointNewton` with
+  `out`), and the vignetting throughput takes that inverse's radius of the point (`atRadius`): one `Math.hypot` per point. The
+  capture's bisection, rotation, hand shake, fisheye projections and Brown–Conrady keep their paths. `lookOf` costs about 0.6× of 2.27.0's per call
+  (Newton inverse with vignetting); the #655 catalogue view takes 0.91× (2 × 2 box) and 0.95× (point aperture) of 2.27.0's CPU time
+  in four paired runs under load (box over point 2.13× → 2.03×; the 1.3× target is steps 2 and 3 of the plan). Every field equals the general path's bit for bit (`test/defocus-image-space-geometry.test.ts`), and the rendered
+  samples, expected values and noise of the #655 cases are the same SHA-256. Bundle: fast row +63 B, on-demand Quality kit +44 B gzip.
+- **New API: `estimateDisplayViewRender(prepared, view)` (#660).** A root function that counts the work a CPU render of a prepared
+  view would do, without rendering (passes, real pixels and site reads as `{ minimum, maximum }` ranges equal to the render's
+  `diagnostics.sampleCount` and `siteEvaluations` where they are exact, the pilot's detail and uniform pixels, native sites, and the
+  method each cost choice takes), with the types `DisplayViewRenderEstimate` and `DisplayViewCountRange`. Synchronous; it checks the
+  view as `render` does. Planned as `PreparedDisplayView.estimateRender` for 2.27.0, where a method grew every worker; as a root
+  function a bundle that does not import it carries none of it: the capture-worker fast row is 13 B smaller, the on-demand and
+  export rows are unchanged, and a bundle that imports it adds 1,655 B gzip to its first load. docs/DISPLAY_VIEW.md, "Estimating a
+  render".
 
 ## 2.27.0 — published November 19, 2026
 

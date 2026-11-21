@@ -265,4 +265,12 @@ describe("the app's capture-worker shape", () => {
     expect(worker.modules.has("equipment/sensor-profile-body.ts")).toBe(false);
     expect(worker.lazyModules.has("equipment/sensor-profile-body.ts")).toBe(true);
   }, testTimeout(120_000));
+
+  // #660 (2.28.0): estimateDisplayViewRender is a root function, so the worker (which does not import it) carries none of its module,
+  // static or lazy; a consumer that imports it has it in its first load.
+  it("leaves out the render estimate unless it is imported", async () => {
+    const worker = await bundle(WORKER_SHAPE), withEstimate = await bundle([...WORKER_SHAPE, "estimateDisplayViewRender"]);
+    expect([...worker.lazyModules, ...worker.modules.keys()]).not.toContain("facade/display-view-estimate.ts");
+    expect(withEstimate.modules.has("facade/display-view-estimate.ts")).toBe(true);
+  }, testTimeout(120_000));
 });

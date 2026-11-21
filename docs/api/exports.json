@@ -3278,6 +3278,11 @@
       "kind": "type"
     },
     {
+      "name": "DisplayViewCountRange",
+      "source": "src/facade/display-view-estimate.ts",
+      "kind": "type"
+    },
+    {
       "name": "DisplayViewExecution",
       "source": "src/facade/display-view-gpu.ts",
       "kind": "type"
@@ -3305,6 +3310,11 @@
     {
       "name": "DisplayViewHighlightDiagnostics",
       "source": "src/facade/simulate-capture.ts",
+      "kind": "type"
+    },
+    {
+      "name": "DisplayViewRenderEstimate",
+      "source": "src/facade/display-view-estimate.ts",
       "kind": "type"
     },
     {
@@ -3620,6 +3630,11 @@
     {
       "name": "estimateCorrelatedColorTemperatureMcCamy",
       "source": "src/color/illuminants.ts",
+      "kind": "runtime"
+    },
+    {
+      "name": "estimateDisplayViewRender",
+      "source": "src/facade/display-view-estimate.ts",
       "kind": "runtime"
     },
     {

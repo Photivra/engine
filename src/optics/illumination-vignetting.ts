@@ -199,7 +199,9 @@ function validateProfile(
 
 /** The normalized radius and throughput factor at an image point, for a validated profile (the arithmetic of calculateIlluminationVignetting). */
 function throughputAt(profile: ValidatedIlluminationProfile, imagePointMm: LensFieldPointMm): { normalizedRadius: number; linearThroughputFactor: number } {
-  const radiusMm = Math.hypot(imagePointMm.x, imagePointMm.y);
+  return throughputAtRadius(profile, Math.hypot(imagePointMm.x, imagePointMm.y));
+}
+function throughputAtRadius(profile: ValidatedIlluminationProfile, radiusMm: number): { normalizedRadius: number; linearThroughputFactor: number } {
   const normalizedRadius = radiusMm / profile.normalizationRadiusMm;
 
   if (normalizedRadius > profile.maximumNormalizedRadius) {
@@ -217,14 +219,19 @@ function throughputAt(profile: ValidatedIlluminationProfile, imagePointMm: LensF
  * the same arithmetic and the same errors, without the result envelope, for callers that evaluate one profile at many points
  * (the image-space field factor of `prepareDefocusImageSpaceGeometry`).
  */
-export function prepareIlluminationVignettingThroughput(profile: IlluminationVignettingProfile): (imagePointMm: LensFieldPointMm) => number {
+export function prepareIlluminationVignettingThroughput(profile: IlluminationVignettingProfile): IlluminationVignettingThroughput {
   const validated = validateProfile(profile);
-  return (imagePointMm) => {
+  const at = (imagePointMm: LensFieldPointMm): number => {
     requireFinite("imagePointMm.x", imagePointMm.x);
     requireFinite("imagePointMm.y", imagePointMm.y);
     return throughputAt(validated, imagePointMm).linearThroughputFactor;
   };
+  // #685: the same factor from the point's radius Math.hypot(x, y), for a caller that formed it already from finite x and y.
+  at.atRadius = (radiusMm: number): number => throughputAtRadius(validated, radiusMm).linearThroughputFactor;
+  return at;
 }
+/** @internal The throughput of a prepared profile at an image point (mm), and at a radius already formed from finite coordinates. */
+export interface IlluminationVignettingThroughput { (imagePointMm: LensFieldPointMm): number; atRadius(radiusMm: number): number }
 
 function assumptions(): readonly string[] {
   return [
