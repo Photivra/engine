@@ -93,6 +93,7 @@
   "test/display-view-defocus-regrouped.test.ts": 134474,
   "test/display-view-defocus.test.mjs": 192689,
   "test/display-view-detail-shared.test.ts": 47329,
+  "test/display-view-estimate-render.test.ts": 6000,
   "test/display-view-exact-mean.test.ts": 5827,
   "test/display-view-fast-methods-2270.test.ts": 5106,
   "test/display-view-gpu-option.test.ts": 943,

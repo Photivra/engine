@@ -37,6 +37,14 @@
   (Newton inverse with vignetting); the #655 catalogue view takes 0.91× (2 × 2 box) and 0.95× (point aperture) of 2.27.0's CPU time
   in four paired runs under load (box over point 2.13× → 2.03×; the 1.3× target is steps 2 and 3 of the plan). Every field equals the general path's bit for bit (`test/defocus-image-space-geometry.test.ts`), and the rendered
   samples, expected values and noise of the #655 cases are the same SHA-256. Bundle: fast row +63 B, on-demand Quality kit +44 B gzip.
+- **New API: `estimateDisplayViewRender(prepared, view)` (#660).** A root function that counts the work a CPU render of a prepared
+  view would do, without rendering (passes, real pixels and site reads as `{ minimum, maximum }` ranges equal to the render's
+  `diagnostics.sampleCount` and `siteEvaluations` where they are exact, the pilot's detail and uniform pixels, native sites, and the
+  method each cost choice takes), with the types `DisplayViewRenderEstimate` and `DisplayViewCountRange`. Synchronous; it checks the
+  view as `render` does. Planned as `PreparedDisplayView.estimateRender` for 2.27.0, where a method grew every worker; as a root
+  function a bundle that does not import it carries none of it: the capture-worker fast row is 13 B smaller, the on-demand and
+  export rows are unchanged, and a bundle that imports it adds 1,655 B gzip to its first load. docs/DISPLAY_VIEW.md, "Estimating a
+  render".
 
 ## 2.27.0 — published November 19, 2026
 

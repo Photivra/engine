@@ -1248,6 +1248,42 @@ Two regimes. Where a display pixel covers more than 25 real pixels (narrower tha
 stratified estimator applies and the cost follows the detailed display pixels × K². At or below 25, the
 [exact area mean](#exact-area-mean) applies and the cost follows the real pixels the region touches.
 
+### Estimating a render (2.28.0)
+
+`estimateDisplayViewRender(prepared, view)` (#660) counts the work a CPU render of `view` by a view from `prepareDisplayView`
+would do, without rendering it, so a caller can choose a view size, a region or `fast` before paying for it, or balance the
+regions of a batch across workers. It is synchronous and returns counts, not seconds:
+
+- `passes`: the renderer's passes at the view's size (one per distinct channel map of `output.lensCorrections`, one with
+  `output.sharpening`) and at 1:1 (with `output.sharpening`).
+- `sampleCount` and `siteEvaluations`: the real pixels the passes evaluate and their demosaic site reads, the render's
+  `diagnostics.sampleCount` and `siteEvaluations`. Each is a `{ minimum, maximum }` range: exact on the exact area mean, and for the
+  sample count of stratified views too (the pilot that chooses each display pixel's samples is run: the scene at its fixed grid,
+  no site integration); the site reads of jittered samples, and the samples through the exact lens correction, are bounded.
+- `detailPixelCount` and `uniformPixelCount`: the pilot's choice (the render's diagnostics of the same names).
+- `nativeSites`: the region's native footprint and its reach, the most sites the expected signal computes per pass.
+- `signal`: the method the cost choices take for this render (`"taps"`, `"regrouped"`, `"runs"` or `"point"`), the kernel radius
+  and taps per site, the defocus disc's radius when it is applied by runs, the query offsets, spectral nodes and temporal midpoints,
+  the rolling-shutter band rows (#651), and the catalogue PSF's zone size and uniform windows (#655).
+- `chainPointsPerAxis`: the development chain's rule (`"3-or-6"` fast, 16 full; #656), or null.
+
+It checks `view` as `render` does and refuses a handle that `prepareDisplayView` did not return. Each call builds the view's setup
+(allocation, and on stratified views the pilot's scene reads), as a render does before its first site. A GPU render reports its
+own counts. `test/display-view-estimate-render.test.ts` checks the counts against a render's diagnostics on five requests (the
+exact area mean, a stratified region, sharpening, lens corrections with lateral color, and AHD with the regrouped defocus and
+Recover) and the methods against the render's assumptions.
+
+It is a root function, not a method of the prepared view, so a bundle that does not import it carries none of its code (the
+capture-worker shape of `test/capture-bundle.test.ts` does not); a bundle that imports it adds about 1.7 kB gzip to its first load
+(1,655 B measured on the worker shape, November 21, 2026).
+
+**As a guide** (the [2.27.0 cost cases](#2270-cost-cases) on 2.27.0, their CPU time divided by the estimate's
+`sampleCount.maximum`; one thread): about 1.2–1.6 µs per real pixel for a point signal (a 96 × 64 whole view of the prime, 1.38 M
+samples, 1.67 s; a 96 × 96 part at 16 real pixels per display pixel, 147 k, 0.24 s), 1.7 µs for Quality with the regrouped disc
+(a 768 × 43 band, 5.05 M, 8.70 s), 2.2 µs for the rolling-shutter row bands at 8 midpoints (48 × 32, 393 k, 0.88 s) and 8.5 µs
+for a catalogue lens's 81 taps at 20 nodes (96 × 64, 1.38 M, 11.74 s). Work outside the samples (the in-focus tiles of a
+regrouped disc, the zone kernels, a 1:1 sharpening pass) is in these figures, so they hold for requests like these, not as a model.
+
 ### 2.27.0 cost cases
 
 The cases of the 2.27.0 plan (`scripts/benchmark-display-view-cases.mjs`: a 6000 × 4000 sensor of 6 µm sites, the app's composite

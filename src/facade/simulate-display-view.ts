@@ -149,16 +149,17 @@ export async function prepareDisplayView(options: SimulateCaptureOptions, prepar
       } catch (error) { return Promise.reject(error as Error); }
     }
   });
-  PREPARED_INTERNALS.set(handle, async (view, renderOptions) => {
-    const internals: ViewInternals = {};
-    const result = await prepared.render(parseDisplayViewOption(view, frameWidth, frameHeight), runOf(renderOptions), internals, session);
-    return { result, internals: internals.value! };
-  });
+  PREPARED_PARTS.set(handle, [prepared, session, runOf]);
   return handle;
 }
-/** The internal render of each prepared view (the same render as `render`, keeping its renderer's result). */
-const PREPARED_INTERNALS = new WeakMap<PreparedDisplayView, (view: SimulateDisplayViewOptions, renderOptions?: PreparedDisplayViewRenderOptions) =>
-  Promise<{ result: DisplayViewResult; internals: DisplayViewRenderResult }>>();
+/** #660: each prepared view's parts (its request-level parts, GPU session and per-call run), for the functions that are not methods of the handle. */
+const PREPARED_PARTS = new WeakMap<PreparedDisplayView, readonly [PreparedViewParts, DisplayViewGpuSession | null, (renderOptions: PreparedDisplayViewRenderOptions | undefined) => ViewRun]>();
+/** Internal (#660): the parts of a view returned by `prepareDisplayView`. */
+export function preparedDisplayViewParts(prepared: PreparedDisplayView, caller: string): readonly [PreparedViewParts, DisplayViewGpuSession | null, (renderOptions: PreparedDisplayViewRenderOptions | undefined) => ViewRun] {
+  const parts = PREPARED_PARTS.get(prepared);
+  if (!parts) fail(caller + " needs a view returned by prepareDisplayView.");
+  return parts;
+}
 /**
  * Internal (not exported from the package): renders a view of a prepared view as `render` does (the same GPU session and labels)
  * and also returns the renderer's noise-free expected linear values and noise standard deviations, whichever renderer ran (#480's
@@ -166,9 +167,9 @@ const PREPARED_INTERNALS = new WeakMap<PreparedDisplayView, (view: SimulateDispl
  */
 export async function renderPreparedDisplayViewWithInternals(prepared: PreparedDisplayView, view: SimulateDisplayViewOptions, renderOptions?: PreparedDisplayViewRenderOptions):
   Promise<{ result: DisplayViewResult; internals: DisplayViewRenderResult }> {
-  const render = PREPARED_INTERNALS.get(prepared);
-  if (!render) fail("renderPreparedDisplayViewWithInternals needs a view returned by prepareDisplayView.");
-  return await render(view, renderOptions);
+  const [parts, session, runOf] = preparedDisplayViewParts(prepared, "renderPreparedDisplayViewWithInternals"), internals: ViewInternals = {};
+  const result = await parts.render(parseDisplayViewOption(view, parts.context.width, parts.context.height), runOf(renderOptions), internals, session);
+  return { result, internals: internals.value! };
 }
 /**
  * Internal (not exported from the package): the display view plus its noise-free expected linear values and noise standard
@@ -191,11 +192,15 @@ type ViewInternals = { value?: DisplayViewRenderResult; signal?: DisplayViewExpe
   /** #478: the render's setup and the expected signal's input, for the GPU display view's tests. */
   setup?: DisplayViewSetup; signalInput?: DisplayViewExpectedSignalInput };
 /** What one render of a prepared view needs from its call: its start times, cancellation and yielding. */
-interface ViewRun { started: number; viewStarted: number; checkAbort: () => void; yieldControl: () => Promise<void>; signal?: AbortSignal | undefined }
+export interface ViewRun { started: number; viewStarted: number; checkAbort: () => void; yieldControl: () => Promise<void>; signal?: AbortSignal | undefined }
 type RenderPreparedView = (view: ParsedDisplayView, run: ViewRun, viewInternals?: ViewInternals, gpu?: DisplayViewGpuSession | null) => Promise<DisplayViewResult>;
 /** A prepared request: its render. */
-interface PreparedViewParts {
+export interface PreparedViewParts {
   render: RenderPreparedView;
+  /** #660: what `estimateDisplayViewRender` (display-view-estimate.ts) reads: a view's setup, the detail passes and the resolved request. */
+  setupOf(v: ParsedDisplayView, run: ViewRun): { setup: DisplayViewSetup; signal: DisplayViewExpectedSignal; regrouped: boolean };
+  detail: { lens?: { hook(channel: number, viewWidth: number, viewHeight: number): DisplayViewCorrection; channels: readonly number[] }; sharpening?: { radiusPixels: number } } | undefined;
+  context: DisplayViewRunContext;
   /** #481: what a GPU renderer is asked to support. */
   gpuRequest: DisplayViewGpuRequest;
 }
@@ -433,7 +438,7 @@ async function prepareView(context: DisplayViewRunContext): Promise<PreparedView
         limitations: ["Estimated display view of the full-resolution capture: its expected value is a stratified Monte Carlo estimate and its noise is drawn from the variance of the area mean, so it has the resized capture's statistics, not its exact pixels; not a capture and not a measurement."] },
       assumptions: Object.freeze(assumptions.map((a) => Object.freeze(a))) });
   };
-  return { render, gpuRequest };
+  return { render, gpuRequest, setupOf, detail, context };
 }
 
 

@@ -1581,6 +1581,16 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 | --- | --- |
 | [`simulateCaptureFromParts`](api/facade-develop-joined-parts.md#simulatecapturefromparts) | Runtime |
 
+## facade/display-view-estimate.ts
+
+[Detailed contracts](api/facade-display-view-estimate.md) · [Source](https://github.com/Photivra/engine/blob/main/src/facade/display-view-estimate.ts)
+
+| Export | Kind |
+| --- | --- |
+| [`DisplayViewCountRange`](api/facade-display-view-estimate.md#displayviewcountrange) | Type |
+| [`DisplayViewRenderEstimate`](api/facade-display-view-estimate.md#displayviewrenderestimate) | Type |
+| [`estimateDisplayViewRender`](api/facade-display-view-estimate.md#estimatedisplayviewrender) | Runtime |
+
 ## facade/display-view-gpu.ts
 
 [Detailed contracts](api/facade-display-view-gpu.md) · [Source](https://github.com/Photivra/engine/blob/main/src/facade/display-view-gpu.ts)
