@@ -55,7 +55,8 @@ export interface DngImportInput {
   maximumIfds?: number;
   /**
    * Estimated peak memory of the import, bytes (the codes, the largest strip or tile's decode buffers and its decoder's working
-   * memory; see docs/IMPORT_AND_PNG.md, "Memory"), checked before any image allocation. Default 1 073 741 824 (1 GiB), at most 4 GiB.
+   * memory, and the semantic masks' values and their largest strip or tile's decode; see docs/IMPORT_AND_PNG.md, "Memory"), checked
+   * before any image allocation. Default 1 073 741 824 (1 GiB), at most 4 GiB.
    */
   maximumBytes?: number;
   /**
@@ -240,8 +241,7 @@ const JXL_WORKING_BYTES_PER_SAMPLE = 16;
 /** The shared parser: walks the IFDs, plans the image and reads the metadata. Decoding is done by the sync or async caller. */
 interface Prepared {
   image: ImagePlan; little: boolean; assumptions: string[];
-  masks: { name: string; instanceId: string | null; ifd: Ifd }[];
-  plan(ifd: Ifd, kind: "raw" | "mask"): ImagePlan;
+  masks: { name: string; instanceId: string | null; plan: ImagePlan }[];
   write(chunk: Chunk, samples: Uint16Array): void;
   finish(masks: ImportedDngSemanticMask[]): ImportedDngRaw;
 }
@@ -255,6 +255,7 @@ function prepare(input: DngImportInput, keys: readonly string[]): Prepared {
   const maximumBytes = limit(input.maximumBytes, DNG_IMPORT_LIMITS.defaultMaximumBytes, DNG_IMPORT_LIMITS.maximumBytes, "maximumBytes");
   if (input.size !== undefined && input.size !== "full" && input.size !== "half") fail('size must be "full" or "half".');
   const half = input.size === "half";
+  const decodesJpegXl = keys.includes("jpegXlDecoder") && (input as DngImportAsyncInput).jpegXlDecoder !== undefined;
   const n = bytes.length, view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   if (n < 8) fail("file is too short.");
   const little = bytes[0] === 0x49 && bytes[1] === 0x49;
@@ -335,12 +336,14 @@ function prepare(input: DngImportInput, keys: readonly string[]): Prepared {
   };
   const one = (ifd: Ifd, id: number, fallback: number): number => {
     const v = integers(ifd.get(id), 1, [3, 4]);
+    if (v && v.length !== 1) fail("tag " + id + " must have one value.");
     return v ? v[0]! : fallback;
   };
   const blob = (entry: Entry | undefined): Uint8Array | null => entry ? bytes.subarray(entry.at, entry.at + entry.count * TYPE_SIZES[entry.type]!) : null;
 
   const raw = ifds.find((ifd) => one(ifd, 254, 0) === 0 && [32803, 34892].includes(one(ifd, 262, -1)));
   if (!raw) fail("no primary CFA or LinearRaw image IFD.");
+  if (ifds.length === 0) fail("the file has no IFD.");
   const ifd0 = ifds[0]!;
   // DNG places camera-level tags in IFD 0; TIFF-EP files may carry them only in the raw IFD.
   const pick = (id: number): Entry | undefined => ifd0.get(id) ?? raw.get(id);
@@ -391,12 +394,17 @@ function prepare(input: DngImportInput, keys: readonly string[]): Prepared {
   // Memory pre-check (estimates, docs/IMPORT_AND_PNG.md "Memory"): output codes (plus the half-size sums), one chunk's decoded
   // samples twice (decode buffer and copy), and its decoder's working memory.
   const outWidth = half ? Math.ceil(width / 2) : width, outHeight = half ? Math.ceil(height / 2) : height;
-  const largest = Math.max(...image.chunks.map((c) => c.width * c.rows)) * spp;
-  const decoderBytes = compressionCode === 52546 ? largest * JXL_WORKING_BYTES_PER_SAMPLE : compressionCode === 34892 ? largest * 2 + largest : largest * 2;
-  const estimate = outWidth * outHeight * spp * 2 + (half ? outWidth * outHeight * spp * 4 : 0) + (interleaved ? width * height * spp * 2 : 0) + largest * 4 + decoderBytes;
-  if (estimate > maximumBytes) fail("the import needs an estimated " + Math.ceil(estimate / 1048576) + " MiB, above maximumBytes (" + Math.floor(maximumBytes / 1048576) + " MiB); raise maximumBytes or use size \"half\" for a LinearRaw preview.");
+  const largestChunk = (p: ImagePlan): number => { let largest = 0; for (const c of p.chunks) largest = Math.max(largest, c.width * c.rows); return largest * p.spp; };
+  const decoderBytes = (code: number, samples: number): number => code === 52546 ? samples * JXL_WORKING_BYTES_PER_SAMPLE : code === 34892 ? samples * 2 + samples : samples * 2;
+  const largest = largestChunk(image);
+  let estimate = outWidth * outHeight * spp * 2 + (half ? outWidth * outHeight * spp * 4 : 0) + (interleaved ? width * height * spp * 2 : 0) + largest * 4 + decoderBytes(compressionCode, largest);
+  const checkEstimate = (): void => {
+    if (estimate > maximumBytes) fail("the import needs an estimated " + Math.ceil(estimate / 1048576) + " MiB, above maximumBytes (" + Math.floor(maximumBytes / 1048576) + " MiB); raise maximumBytes or use size \"half\" for a LinearRaw preview.");
+  };
+  checkEstimate();
 
-  const maxCode = 2 ** bitsPerSample - 1, codes = new Uint16Array(outWidth * outHeight * spp), sums = half ? new Uint32Array(outWidth * outHeight * spp) : null;
+  const maxCode = 2 ** bitsPerSample - 1;
+  let codes = new Uint16Array(0), sums: Uint32Array | null = null;
   const write = (chunk: Chunk, samples: Uint16Array): void => {
     for (let y = 0; y < chunk.rows && chunk.y0 + y < height; y++) {
       const columns = Math.min(chunk.width, width - chunk.x0) * spp, from = y * chunk.width * spp;
@@ -456,7 +464,11 @@ function prepare(input: DngImportInput, keys: readonly string[]): Prepared {
   };
   const neutral = integers(pick(50728), colorPlanes, [3, 5]);
   if (neutral && (neutral.length !== colorPlanes || neutral.some((v) => v <= 0))) fail("invalid AsShotNeutral.");
-  const illuminant = (id: number): number | null => { const v = integers(pick(id), 1, [3]); return v ? v[0]! : null; };
+  const illuminant = (id: number): number | null => {
+    const v = integers(pick(id), 1, [3]);
+    if (v && v.length !== 1) fail("tag " + id + " must have one value.");
+    return v ? v[0]! : null;
+  };
   const uniqueId = integers(pick(50781), 16, [1]);
   if (uniqueId && uniqueId.length !== 16) fail("RawDataUniqueID must have 16 bytes.");
   const orientation = one(ifd0.has(274) ? ifd0 : raw, 274, 1);
@@ -556,8 +568,21 @@ function prepare(input: DngImportInput, keys: readonly string[]): Prepared {
   // Semantic masks (DNG 1.6): planned here, decoded with the image.
   const masks = ifds.filter((ifd) => one(ifd, 254, 0) === 0x10004 && one(ifd, 262, 0) === 52527).map((ifd) => {
     if (ifd.has(52536)) assumptions.push("dngImport.semanticMask: MaskSubArea is present; the mask is returned as stored and spans the whole image in applyDngRgbTables.");
-    return { name: ascii(ifd.get(52526)) ?? "", instanceId: ascii(ifd.get(52528)), ifd };
+    return { name: ascii(ifd.get(52526)) ?? "", instanceId: ascii(ifd.get(52528)), plan: plan(ifd, "mask") };
   });
+  // The masks' memory, before any image allocation: every decoded mask's values (all held at the end) plus the largest mask
+  // strip or tile's decode (one at a time). A JPEG XL mask counts only when a decoder will decode it.
+  let maskChunk = 0;
+  for (const m of masks) {
+    if (m.plan.code === 52546 && !decodesJpegXl) continue;
+    const samples = largestChunk(m.plan);
+    estimate += m.plan.width * m.plan.height * 4;
+    maskChunk = Math.max(maskChunk, samples * 2 + decoderBytes(m.plan.code, samples));
+  }
+  estimate += maskChunk;
+  checkEstimate();
+  codes = new Uint16Array(outWidth * outHeight * spp);
+  sums = half ? new Uint32Array(outWidth * outHeight * spp) : null;
 
   const halve = (r: ImportedDngRect): ImportedDngRect => half ? { x: r.x / 2, y: r.y / 2, width: r.width / 2, height: r.height / 2 } : r;
   const pairMean = (values: number[] | null): number[] | null => values && half ? Array.from({ length: Math.ceil(values.length / 2) }, (_, i) => (values[2 * i]! + (values[2 * i + 1] ?? values[2 * i]!)) / 2) : values;
@@ -594,7 +619,7 @@ function prepare(input: DngImportInput, keys: readonly string[]): Prepared {
       opcodeList1, opcodeList2, opcodeList3, profileGainTableMap, rgbTables, semanticMasks, noiseProfile, exif, ...calibrationExtras, enhancedImages, assumptions
     };
   };
-  return { image, write, finish, masks, plan, assumptions, little };
+  return { image, write, finish, masks, assumptions, little };
 }
 
 /** Decodes one chunk without a JPEG XL decoder; null for JPEG XL data. */
@@ -619,14 +644,11 @@ async function decodeChunk(p: ImagePlan, chunk: Chunk, little: boolean, decoder:
   if (!decoder) fail("JPEG XL (Compression 52546) data needs a jpegXlDecoder (importDngRawImage).");
   return readJpegXlTilePng(await decoder(chunk.data), chunk.width, chunk.rows, p.spp, p.bits);
 }
-/** Copies decoded chunks into a mask's 0..1 values. */
-function maskValues(p: ImagePlan, decoded: Uint16Array[]): Float32Array {
-  const out = new Float32Array(p.width * p.height), scale = 1 / (2 ** p.bits - 1);
-  p.chunks.forEach((chunk, k) => {
-    for (let y = 0; y < chunk.rows && chunk.y0 + y < p.height; y++) for (let x = 0; x < chunk.width && chunk.x0 + x < p.width; x++)
-      out[(chunk.y0 + y) * p.width + chunk.x0 + x] = Math.min(1, decoded[k]![y * chunk.width + x]! * scale);
-  });
-  return out;
+/** Copies one decoded chunk into a mask's 0..1 values (chunk by chunk, so only one chunk's samples are held). */
+function addMaskChunk(p: ImagePlan, out: Float32Array, chunk: Chunk, decoded: Uint16Array): void {
+  const scale = 1 / (2 ** p.bits - 1);
+  for (let y = 0; y < chunk.rows && chunk.y0 + y < p.height; y++) for (let x = 0; x < chunk.width && chunk.x0 + x < p.width; x++)
+    out[(chunk.y0 + y) * p.width + chunk.x0 + x] = Math.min(1, decoded[y * chunk.width + x]! * scale);
 }
 
 /**
@@ -664,9 +686,11 @@ export function parseDngRawImage(input: DngImportInput): ImportedDngRaw {
   for (const chunk of ctx.image.chunks) ctx.write(chunk, decodeChunkSync(ctx.image, chunk, ctx.little)!);
   const masks: ImportedDngSemanticMask[] = [];
   for (const m of ctx.masks) {
-    const p = ctx.plan(m.ifd, "mask");
+    const p = m.plan;
     if (p.code === 52546) { ctx.assumptions.push("dngImport.semanticMask: mask " + JSON.stringify(m.name) + " is JPEG XL and was not decoded (use importDngRawImage)."); continue; }
-    masks.push({ name: m.name, instanceId: m.instanceId, width: p.width, height: p.height, data: maskValues(p, p.chunks.map((c) => decodeChunkSync(p, c, ctx.little)!)) });
+    const data = new Float32Array(p.width * p.height);
+    for (const c of p.chunks) addMaskChunk(p, data, c, decodeChunkSync(p, c, ctx.little)!);
+    masks.push({ name: m.name, instanceId: m.instanceId, width: p.width, height: p.height, data });
   }
   return ctx.finish(masks);
 }
@@ -682,11 +706,11 @@ export async function importDngRawImage(input: DngImportAsyncInput): Promise<Imp
   for (const chunk of ctx.image.chunks) ctx.write(chunk, await decodeChunk(ctx.image, chunk, ctx.little, decoder));
   const masks: ImportedDngSemanticMask[] = [];
   for (const m of ctx.masks) {
-    const p = ctx.plan(m.ifd, "mask");
+    const p = m.plan;
     if (p.code === 52546 && !decoder) { ctx.assumptions.push("dngImport.semanticMask: mask " + JSON.stringify(m.name) + " is JPEG XL and no jpegXlDecoder was given."); continue; }
-    const decoded: Uint16Array[] = [];
-    for (const c of p.chunks) decoded.push(await decodeChunk(p, c, ctx.little, decoder));
-    masks.push({ name: m.name, instanceId: m.instanceId, width: p.width, height: p.height, data: maskValues(p, decoded) });
+    const data = new Float32Array(p.width * p.height);
+    for (const c of p.chunks) addMaskChunk(p, data, c, await decodeChunk(p, c, ctx.little, decoder));
+    masks.push({ name: m.name, instanceId: m.instanceId, width: p.width, height: p.height, data });
   }
   return ctx.finish(masks);
 }
