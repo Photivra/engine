@@ -124,7 +124,7 @@ import { sumFixedPatternSites } from "../sensor/fixed-pattern-noise.js";
 import { sensorProfileFrame } from "../equipment/sensor-profile-frame.js";
 import type { SimulateCaptureSubjectMotion, SubjectMotion } from "../motion/subject-motion.js";
 import type { HandShakeOptions } from "../motion/hand-shake.js";
-import { exportKit, loadedKit, optInKit, qualityKit } from "./on-demand-kits.js";
+import { exportKit, loadedKit, OK_CATALOGUE_OPTICS_ASSUMPTIONS, OK_CREATE_SUBJECT_MOTION_PROVIDER, OK_FLASH_ALONE_SHUTTER, OK_HAND_SHAKE_ASSUMPTION, OK_HAND_SHAKE_QUADRUPLES, OK_METER_FLASH, OK_PARSE_SENSOR_PROFILE, OK_REBIND_FLASH_ASSUMPTIONS, OK_REQUIRE_FLASH_ROWS, OK_RESOLVE_HAND_SHAKE, OK_RESOLVE_LENS_FILTER, OK_RESOLVE_MIXED_ILLUMINATION, OK_SENSOR_PROFILE_BODY, OK_SENSOR_PROFILE_SATURATION_ISO, OK_SOLVE_FLASH_SHUTTER, OK_SUBJECT_TRAVEL_M, optInKit, QK_CALCULATE_DEFOCUS_FIELD_VARIATION, QK_CREATE_AHD_DEMOSAIC_TASK, QK_CREATE_DEFOCUS_BOKEH_SITE_KERNEL, QK_CREATE_DEFOCUS_IMAGE_SPACE_PROVIDER, QK_CREATE_DIFFRACTION_LIMITED_PSF_PROFILE, QK_NEIGHBOR_HIGHLIGHT_RING, QK_NEIGHBOR_HIGHLIGHT_THRESHOLD, QK_PLAN_DEFOCUS_BOKEH_ZONES, QK_PREPARE_DEFOCUS_IMAGE_SPACE_GEOMETRY, QK_RECONSTRUCT_HIGHLIGHTS_FROM_NEIGHBORS, QK_REGISTER_DIFFRACTION_PSF_KEY, QK_RESOLVE_DEFOCUS_BOKEH_OPTIONS, QK_SITE_DIFFRACTION_KERNEL, qualityKit } from "./on-demand-kits.js";
 import { characterizeReadout, parseSensorCharacteristics, sensorReport, SENSOR_CHARACTERISTIC_KEYS, type SimulateCaptureSensorCharacteristics, type SimulateCaptureSensorReport } from "../sensor/sensor-characteristics.js";
 import { resolveChartScene, chartMaterialInputs, CHART_SCENE_PRESETS, type ChartScene, type ResolvedChartScene } from "./chart-scenes.js";
 import { resolveChartMaterialLayers, type ChartMaterialLayerScene, type ResolvedChartMaterialLayers } from "./chart-material-layers.js";
@@ -1083,7 +1083,7 @@ function cachedDiffractionProfile(input: Parameters<typeof createDiffractionLimi
   const key = JSON.stringify(input);
   let kept = diffractionProfileCache.get(key);
   if (kept) diffractionProfileCache.delete(key);
-  else kept = loadedKit(qualityKit).createDiffractionLimitedPsfProfile(input).value;
+  else kept = loadedKit(qualityKit)[QK_CREATE_DIFFRACTION_LIMITED_PSF_PROFILE](input).value;
   diffractionProfileCache.set(key, kept);
   let kernelValues = 0;
   for (const profile of diffractionProfileCache.values()) kernelValues += kernelValuesOf(profile);
@@ -1395,8 +1395,8 @@ function pngColourEncoding(encoding: SimulateCaptureColorEncoding): PngColourEnc
  */
 async function developLinearSrgb(input: NativeRawDevelopmentInput, afterRow: (completed: number, total: number) => Promise<void>,
   ahd?: { yieldControl: () => Promise<void>; checkAbort: () => void; onDemosaicMs?: (milliseconds: number) => void },
-  neighbors?: { fast: boolean; module: typeof import("../color/neighbor-highlight-reconstruction.js") }): Promise<{ rgb: Float64Array; highlight: RawHighlightDiagnostics }> {
-  if (neighbors) return developWithNeighborHighlights(input, afterRow, ahd, neighbors.fast, neighbors.module.reconstructHighlightsFromNeighbors);
+  neighbors?: { fast: boolean; reconstruct: typeof import("../color/neighbor-highlight-reconstruction.js").reconstructHighlightsFromNeighbors }): Promise<{ rgb: Float64Array; highlight: RawHighlightDiagnostics }> {
+  if (neighbors) return developWithNeighborHighlights(input, afterRow, ahd, neighbors.fast, neighbors.reconstruct);
   return developLinearSrgbWith(prepareNativeRawDevelopment(input), input, afterRow, ahd);
 }
 /** The body of {@link developLinearSrgb} for a prepared development (its operator may be replaced, #602). */
@@ -1464,7 +1464,7 @@ async function developAhd(v: ReturnType<typeof prepareNativeRawDevelopment>, raw
   const m = v.color.normalizedCameraChannelsToXyz;
   const cameraToXyz = [0, 1, 2].map((r) => [0, 1, 2].map((c) => m[r]![c]! * gains[c]!)) as unknown as ColorMatrix3x3;
   // A caller-raised pixel limit already bounds the raster, so its working memory is not capped again at the 1 GiB default.
-  const task = (await qualityKit.load()).createAhdDemosaicTask({ plane: { width: W, height: H, captureModeId: v.plan.frame.modeId, colorSamplingProfile: v.plan.frame.colorSamplingProfile, samples },
+  const task = (await qualityKit.load())[QK_CREATE_AHD_DEMOSAIC_TASK]({ plane: { width: W, height: H, captureModeId: v.plan.frame.modeId, colorSamplingProfile: v.plan.frame.colorSamplingProfile, samples },
     channelRoles: { red: "red", green: "green", blue: "blue" }, cameraToXyz, ...(v.plan.maximumPixels === undefined ? {} : { maximumWorkingBytes: Number.MAX_SAFE_INTEGER }) }, { yieldControl: async () => { await host.yieldControl(); host.checkAbort(); } });
   const demosaicStarted = clockMs();
   await task.run();
@@ -1998,7 +1998,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   let profile: SensorProfile | undefined, profileSensor: { widthMm: number; heightMm: number } | undefined, profilePitch: number = DEFAULTS.pixelPitchMicrometers, profileReadNoiseScale = 1;
   if (profileRecord !== undefined) {
     const kit = await optInKit.load();
-    profile = kit.parseSensorProfile(profileRecord);
+    profile = kit[OK_PARSE_SENSOR_PROFILE](profileRecord);
     profilePitch = profile.pixelPitchMicrometers;
     // #554: with a catalogue lens the capture frames on the profile's sensor: by default the largest centred region of the output's
     // aspect (pitch = min(W/w, H/h)); an explicit pitch gives a centred crop of it. A site of N photosites sums their charge (the
@@ -2008,11 +2008,11 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
       (top.sensor as Record<string, unknown>).pixelPitchMicrometers, typeof top.lens === "object" && top.lens !== null && (top.lens as Record<string, unknown>).catalogue !== undefined);
     profilePitch = view.pixelPitchMicrometers; profileReadNoiseScale = view.readNoiseScale;
     if (view.lensFramedOnSensor) profileSensor = { widthMm: view.sensorWidthMm, heightMm: view.sensorHeightMm };
-    preset = { ...preset, body: kit.sensorProfileBody(profile, preset.body, preset.presetVersion, profileReadNoiseScale) };
+    preset = { ...preset, body: kit[OK_SENSOR_PROFILE_BODY](profile, preset.body, preset.presetVersion, profileReadNoiseScale) };
     if (profileSensor || view.photositesPerSite !== 1) assume("sensor.profileView", "model", view,
     "Approximation (#554; docs/SENSOR_PROFILES.md): the catalogue lens is resolved on the profile's sensor and the capture is its centred frame of the output's aspect (cropped, " +
       "not stretched); a site sums photositesPerSite photosites (charge by area, read noise ×readNoiseScale). A downsized view, not the sensor's own pixels.");
-    assume("sensor.profile", "model", { ...profile, sensitivityOffsetStops: Math.log2(kit.sensorProfileSaturationIso(profile) / profile.baseIso) },
+    assume("sensor.profile", "model", { ...profile, sensitivityOffsetStops: Math.log2(kit[OK_SENSOR_PROFILE_SATURATION_ISO](profile) / profile.baseIso) },
       "Sensor profile (#554; docs/SENSOR_PROFILES.md): published, derived and design values, not a camera calibration; its base ISO is re-rated from full well, QE and pixel area.");
   }
   const body = preset.body, lens = preset.lens;
@@ -2021,7 +2021,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   const lensOptions = allowKeys(top.lens, "lens", ["focalLengthMm", "fNumber", "focusDistanceM", "pupilSampling", "projection", "distortion", "vignetting", "psf", "diffraction", "prime", "defocus",
     "catalogue", "focusScatter", "ideal", "filter"]);
   // #624: a front-of-lens filter stack (ND, optical density, polarizer or spectral), loaded with the opt-in kit.
-  const lensFilter = lensOptions.filter === undefined ? undefined : (await optInKit.load()).resolveLensFilter(lensOptions.filter, FACADE_SPECTRAL_RANGE_NANOMETERS);
+  const lensFilter = lensOptions.filter === undefined ? undefined : (await optInKit.load())[OK_RESOLVE_LENS_FILTER](lensOptions.filter, FACADE_SPECTRAL_RANGE_NANOMETERS);
   // Generic prime (2.3): resolved on the simulated frame's size, which the output and sensor sections validate again below.
   let prime: GenericPrimeLens | undefined;
   // The simulated frame in mm (output width × height × pixel pitch), validated again below.
@@ -2173,7 +2173,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
     if (record.blades !== undefined || record.sphericalAberration !== undefined || record.catsEye !== undefined) {
       const bokeh: Record<string, unknown> = { ...record };
       delete bokeh.model;
-      try { defocusBokeh = (await qualityKit.load()).resolveDefocusBokehOptions(bokeh, "lens.defocus"); } catch (error) { fail((error as Error).message); }
+      try { defocusBokeh = (await qualityKit.load())[QK_RESOLVE_DEFOCUS_BOKEH_OPTIONS](bokeh, "lens.defocus"); } catch (error) { fail((error as Error).message); }
       if (defocusBokeh.catsEye && diffractionRadiusOption !== undefined) fail("lens.defocus.catsEye cannot be combined with lens.diffraction: the cat's eye varies over the field, " +
         "so each field zone would need its own diffraction kernel convolved with its clipped pupil at every spectral node. Omit one of the options.");
     }
@@ -2216,8 +2216,8 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
     }
   }
   // #641: the hand-shake trajectory (motion/hand-shake.ts), added to the constant rotation on every render path.
-  const handheld = motionOptions.handheld === undefined ? undefined : (await optInKit.load()).resolveHandShake(motionOptions.handheld);
-  const handShake = handheld && loadedKit(optInKit).handShakeQuadruples(handheld);
+  const handheld = motionOptions.handheld === undefined ? undefined : (await optInKit.load())[OK_RESOLVE_HAND_SHAKE](motionOptions.handheld);
+  const handShake = handheld && loadedKit(optInKit)[OK_HAND_SHAKE_QUADRUPLES](handheld);
   const rotating = angular.pitch !== 0 || angular.yaw !== 0 || angular.roll !== 0 || handheld !== undefined;
   const shutterKind = motionOptions.shutter === undefined ? "global" : motionOptions.shutter;
   if (shutterKind !== "global" && shutterKind !== "rolling") fail("motion.shutter must be global or rolling.");
@@ -2597,7 +2597,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   // #639: a flash is resolved for the exposure window flashWindow (1 s until the exposure is resolved, ∞ for the ambient light alone).
   let flashWindow = 1;
   const lightKit = (resolveIlluminant: (value: CaptureIlluminant) => ResolvedCaptureIlluminant): ResolvedMixedIllumination =>
-    mixedKit!.resolveMixedIllumination(top.illumination, resolveIlluminant, flashWindow, planeDistanceM, rotating || !!subject);
+    mixedKit![OK_RESOLVE_MIXED_ILLUMINATION](top.illumination, resolveIlluminant, flashWindow, planeDistanceM, rotating || !!subject);
   let mixed = mixedKit && lightKit(resolveCaptureIlluminant), strongest = mixed?.sources[mixed.center.strongestSource];
   const flash = mixed?.flash;
   let illuminantOption = strongest ? strongest.option : pick<CaptureIlluminant>(top, "illuminant", "illuminant", { kind: "planckian", temperatureKelvin: DEFAULTS.illuminantKelvin },
@@ -2658,7 +2658,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   // under the plane's irradiance at the revealed point: the illuminant, or (#550) the blend and point sources there, from the spectrum.
   const half = chartSize ? chartSize.widthM / 2 / metresPerFrameUnit : 1;
   const movingScene = subject ? (base: PlanarSceneRadianceProvider, scale: number, shape: (nm: number) => number, light?: ResolvedMixedIllumination): PlanarSceneRadianceProvider =>
-    loadedKit(optInKit).createSubjectMotionProvider(base, subject, subjectDistanceM, metresPerFrameUnit,
+    loadedKit(optInKit)[OK_CREATE_SUBJECT_MOTION_PROVIDER](base, subject, subjectDistanceM, metresPerFrameUnit,
       (u, v, nm): number => 0.18 * (light ? light.irradianceAt(u / half, v / half, u * metresPerFrameUnit, v * metresPerFrameUnit, nm) : scale * shape(nm)) / Math.PI) : undefined;
   let sceneProvider = movingScene ? movingScene(provider, irradianceScale, (nm) => illuminant.shape.evaluate(nm), mixed) : provider;
   // 2.6: a chart preset's evaluator is engine-built end to end (its results: the schema's exact keys, constant fields,
@@ -2839,7 +2839,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   if (flash) {
     flashWindow = Infinity;
     const ambient = lightKit(resolveCaptureIlluminant);
-    flashAt = loadedKit(optInKit).meterFlash(zoneSamples, through, meterZones(buildProvider(illuminant, irradianceScale, ambient))[2], meterProfile.target.targetRelativeSignal / referenceLuminance,
+    flashAt = loadedKit(optInKit)[OK_METER_FLASH](zoneSamples, through, meterZones(buildProvider(illuminant, irradianceScale, ambient))[2], meterProfile.target.targetRelativeSignal / referenceLuminance,
       metering === "grey-card" ? [ambient.center.illuminanceLux, illuminanceLux, GREY_CARD_REFLECTANCE / Math.PI * cardTransmission()] : undefined);
   }
   let calls = 0;
@@ -2876,9 +2876,9 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   // (within the body's range) and resolves the rest at it: aperture priority as manual (Auto ISO from the reading), program as shutter priority.
   if (flashAt && (mode === "aperture-priority" || mode === "program") && flashAt.alone) {
     as = mode === "program" ? "shutter-priority" : "manual";
-    resolveAt(shutterSeconds = loadedKit(optInKit).flashAloneShutter(capabilities.shutter.minimumSeconds, capabilities.shutter.maximumSeconds, assume));
+    resolveAt(shutterSeconds = loadedKit(optInKit)[OK_FLASH_ALONE_SHUTTER](capabilities.shutter.minimumSeconds, capabilities.shutter.maximumSeconds, assume));
   } else if (!flashAt || mode === "manual" || mode === "shutter-priority") resolveAt(shutterSeconds);
-  else loadedKit(optInKit).solveFlashShutter(resolveAt, capabilities.shutter.minimumSeconds, capabilities.shutter.maximumSeconds);
+  else loadedKit(optInKit)[OK_SOLVE_FLASH_SHUTTER](resolveAt, capabilities.shutter.minimumSeconds, capabilities.shutter.maximumSeconds);
   if (resolution.status !== "resolved" || !resolution.resolvedSettings) fail("Exposure could not be resolved (" + resolution.status + "); the scene may have no signal.");
   fNumber = resolution.resolvedSettings.aperture ?? fNumber;
   shutterSeconds = resolution.resolvedSettings.shutterSeconds ?? shutterSeconds;
@@ -2893,11 +2893,11 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
     sceneProvider = provider = buildProvider(illuminant, irradianceScale, mixed);
     if (materialEvaluator) markInternalSceneRadianceEvaluator(provider.evaluateRadiance);
     [meteredLuminance, filteredMean] = meterZones(provider);
-    loadedKit(optInKit).rebindFlashAssumptions(assumptions, mixed);
+    loadedKit(optInKit)[OK_REBIND_FLASH_ASSUMPTIONS](assumptions, mixed);
   }
   // #551: motion.subject's fast method: with the default count and a still camera, one midpoint per site of the streak, plus one.
   if (subject) {
-    const streakSites = loadedKit(optInKit).subjectTravelM(subject, shutterSeconds, metresPerFrameUnit * Math.hypot(1, aspect)) * width / (2 * metresPerFrameUnit), fewer = Math.ceil(streakSites) + 1;
+    const streakSites = loadedKit(optInKit)[OK_SUBJECT_TRAVEL_M](subject, shutterSeconds, metresPerFrameUnit * Math.hypot(1, aspect)) * width / (2 * metresPerFrameUnit), fewer = Math.ceil(streakSites) + 1;
     if (sensorOptions.temporalSampleCount === undefined && !rotating && resolveFast(subjectFast, fastTop) && fewer < temporalSampleCount) {
       queriesPerSite = queriesPerSite / temporalSampleCount * fewer;
       temporalSampleCount = fewer;
@@ -3028,7 +3028,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   // #594: the image-space provider (lens projection, distortion, vignetting, rotation, a moving subject) is in the Quality kit.
   const lensGeometryNeeded = (defocusModel !== undefined || displayView || diffractionRadiusOption !== undefined || catalogueTaps !== undefined && !rollingFastTaps) && imageSpaceOptions.length > 0;
   if (lensGeometryNeeded) await qualityKit.load();
-  const lensGeometry = lensGeometryNeeded ? loadedKit(qualityKit).prepareDefocusImageSpaceGeometry({ focalLengthMm, focusDistanceM,
+  const lensGeometry = lensGeometryNeeded ? loadedKit(qualityKit)[QK_PREPARE_DEFOCUS_IMAGE_SPACE_GEOMETRY]({ focalLengthMm, focusDistanceM,
     angularVelocityRadPerSec: angular, ...(handShake ? { handShake } : {}), ...(lensFieldMapping ? { lensMapping: prepareEnvironmentLensFieldMapping(lensFieldMapping) } : {}), ...(vignetting ? { vignetting } : {}) }) : undefined;
   const defocusGeometry = defocusModel !== undefined ? lensGeometry : undefined;
   if (rollingFastTaps) {
@@ -3044,7 +3044,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
     const options = defocusBokeh!, side = defocusDistanceM > focusDistanceM ? 1 : -1;
     const build = (field?: { x: number; y: number }): DefocusBokehSiteKernel => {
       try {
-        return loadedKit(qualityKit).createDefocusBokehSiteKernel({ diameterSites: disc.diameterSites, side, fNumber, focalLengthMm, pitchMicrometers: pitch, options, ...(field ? { field } : {}) });
+        return loadedKit(qualityKit)[QK_CREATE_DEFOCUS_BOKEH_SITE_KERNEL]({ diameterSites: disc.diameterSites, side, fNumber, focalLengthMm, pitchMicrometers: pitch, options, ...(field ? { field } : {}) });
       } catch (error) { const message = (error as Error).message; fail(message.startsWith("lens.defocus") ? message : "lens.defocus: " + message); }
     };
     const axis = build();
@@ -3061,7 +3061,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
         const look = defocusGeometry.lookOf((x - nativeWidth / 2) * mmPerSite, (y - nativeHeight / 2) * mmPerSite, 0);
         return { x: look.x / look.z, y: look.y / look.z };
       } : (x: number, y: number): { x: number; y: number } => ({ x: (x - nativeWidth / 2) * g * metresPerFrameUnit / subjectDistanceM, y: -(y - nativeHeight / 2) * g * metresPerFrameUnit / subjectDistanceM });
-      bokehZones = loadedKit(qualityKit).planDefocusBokehZones({ options, nativeWidth, nativeHeight, radius: axis.radius, fNumber, focalLengthMm, fieldOf, kernelAt: build });
+      bokehZones = loadedKit(qualityKit)[QK_PLAN_DEFOCUS_BOKEH_ZONES]({ options, nativeWidth, nativeHeight, radius: axis.radius, fNumber, focalLengthMm, fieldOf, kernelAt: build });
       if (!(bokehZones.minimumOpenAreaRatio > 0)) fail("lens.defocus.catsEye: the clipping apertures close the pupil in part of the frame; reduce shiftPerTanFieldMm or enlarge radiusMm.");
     }
     const zones = bokehZones;
@@ -3096,7 +3096,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
         // The midpoints of the first row's window and (#640) of the last row's, a rolling readout's skew later.
         const midpoints = rotating ? Array.from({ length: temporalSampleCount }, (_, i) => (i + 0.5) * (shutterSeconds / temporalSampleCount)) : [];
         const temporalMidpointsSeconds = rollingRotation ? [...midpoints, ...midpoints.map((t) => t + rollingReadout().spatialSamplingSkewSeconds!.value)] : midpoints;
-        return { options: imageSpaceOptions, fieldVariation: loadedKit(qualityKit).calculateDefocusFieldVariation({ geometry: defocusGeometry, ...(lensFieldMapping ? { lensMapping: prepareEnvironmentLensFieldMapping(lensFieldMapping) } : {}),
+        return { options: imageSpaceOptions, fieldVariation: loadedKit(qualityKit)[QK_CALCULATE_DEFOCUS_FIELD_VARIATION]({ geometry: defocusGeometry, ...(lensFieldMapping ? { lensMapping: prepareEnvironmentLensFieldMapping(lensFieldMapping) } : {}),
           focalLengthMm, fNumber, focusDistanceM, subjectDistanceM, pitchMicrometers: pitch, nativeWidth, nativeHeight, angularVelocityRadPerSec: angular, handShake, temporalMidpointsSeconds,
           diameterSites: disc.diameterSites, discAt: (distanceM) => resolveDefocusDisc({ focalLengthMm, aperture: fNumber, focusDistanceM, subjectDistanceM: distanceM, pitchMicrometers: pitch }).diameterSites }) };
       } } : {}) });
@@ -3208,9 +3208,9 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
       "Electronic rolling shutter (line reset/read linkage): a site at normalized scan position s integrates over [s·τ, s·τ + T]. " +
       (rollingSkewOption === undefined ? "τ is the body's declared full-frame data-readout skew, applied unchanged across the simulated frame (it is not scaled to the cropped sensor), so a small frame shows the skew of a full-sensor readout." :
         "τ is the caller-declared skew across the simulated frame."));
-    if (flash) loadedKit(optInKit).requireFlashRows(shutterSeconds, rollingSchedule.lineScanSkewSeconds);
+    if (flash) loadedKit(optInKit)[OK_REQUIRE_FLASH_ROWS](shutterSeconds, rollingSchedule.lineScanSkewSeconds);
   } else assume("sensor.shutter", "model", "global-electronic", "Global electronic shutter: every site integrates the same exposure window.");
-  if (handheld) loadedKit(optInKit).handShakeAssumption(assume, handheld, shutterSeconds);
+  if (handheld) loadedKit(optInKit)[OK_HAND_SHAKE_ASSUMPTION](assume, handheld, shutterSeconds);
   if (rotating) assume("motion.angularVelocityRadPerSec", "model", { ...angular },
     "Constant camera angular velocity applied to every scene ray at each temporal midpoint of each site's exposure window (engine rotation convention, docs/SENSOR_ENVIRONMENT_QUERY.md); motion blur is the midpoint quadrature over sensor.temporalSampleCount samples.");
   if (catalogue) assume("lens.psf", "model", lensPsf ? { kind: "sampled-local", source: "lens.catalogue" } : "not-applied", lensPsf ?
@@ -3275,8 +3275,8 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   if (neighborHighlights && outputOptions.region !== undefined) fail("output.highlightMode \"reconstruct-neighbors\" reads whole clipped regions; it is not available with output.region.");
   const neighborFast = fastTop;
   // #602: loaded on demand (the Quality kit, #594), only for a request that asks for it.
-  const neighborModule = neighborHighlights ? (await qualityKit.load()).neighborHighlights : null;
-  const { NEIGHBOR_HIGHLIGHT_RING, NEIGHBOR_HIGHLIGHT_THRESHOLD } = neighborModule ?? { NEIGHBOR_HIGHLIGHT_RING: 0, NEIGHBOR_HIGHLIGHT_THRESHOLD: 0 };
+  const neighborModule = neighborHighlights ? await qualityKit.load() : null;
+  const NEIGHBOR_HIGHLIGHT_RING = neighborModule ? neighborModule[QK_NEIGHBOR_HIGHLIGHT_RING] : 0, NEIGHBOR_HIGHLIGHT_THRESHOLD = neighborModule ? neighborModule[QK_NEIGHBOR_HIGHLIGHT_THRESHOLD] : 0;
   if (neighborHighlights && !displayView) assume("output.highlightMode.reconstructNeighbors", "model", { method: neighborFast ? "ring-average" : "harmonic-interpolation", threshold: NEIGHBOR_HIGHLIGHT_THRESHOLD,
     ringPixels: NEIGHBOR_HIGHLIGHT_RING, fast: neighborFast, scientificStatus: "estimate" },
   "Clipped highlights (a channel at " + NEIGHBOR_HIGHLIGHT_THRESHOLD + " of white or above) are rebuilt from the color ratios of the unclipped pixels around each clipped region: " +
@@ -3433,7 +3433,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
       apertureFNumber: fNumber, signedDefocusImagePlaneMicrometers: 0 }, psfWavelengthBasis: { value: "vacuum", evidence },
     spatialModel: { kind: "destination-local-shift-invariant-approximation", evidence, limitation: "Diffraction-limited Airy PSF, the same at every field point." } } };
     // Requests with the same profile input and PSF fields share their site diffraction kernels (optics/site-diffraction-kernel.ts).
-    loadedKit(qualityKit).registerDiffractionPsfKey(diffractionPsf.configuration.psf, profileInput);
+    loadedKit(qualityKit)[QK_REGISTER_DIFFRACTION_PSF_KEY](diffractionPsf.configuration.psf, profileInput);
     assume("lens.diffraction", "model", { model: diffraction.model, aperture: "circular-aperture", fNumber, workingFNumber: diffraction.workingFNumber,
       kernelRadiusSamples, samplePitchMicrometers: pitch, maximumTruncatedEnergyFraction: diffraction.maximumTruncatedEnergyFraction,
       truncatedEnergyByWavelength: diffraction.wavelengths.map((w) => ({ wavelengthNm: w.wavelengthNm, truncatedEnergyFraction: w.truncatedEnergyFraction })),
@@ -3464,7 +3464,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
         let kernel = diffractionKernels.get(wavelengthNm);
         if (!kernel) {
           if (!profileWavelengths.includes(wavelengthNm)) fail("simulateCapture: a spectral node has no diffraction kernel.");
-          kernel = loadedKit(qualityKit).siteDiffractionKernel(psfConfiguration!, wavelengthNm, pitch, diffractionRadius, "simulateCapture: diffraction kernels must sample the site pitch exactly.");
+          kernel = loadedKit(qualityKit)[QK_SITE_DIFFRACTION_KERNEL](psfConfiguration!, wavelengthNm, pitch, diffractionRadius, "simulateCapture: diffraction kernels must sample the site pitch exactly.");
           diffractionKernels.set(wavelengthNm, kernel);
         }
         return kernel;
@@ -3481,7 +3481,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
         let kernel = combined.get(wavelengthNm);
         if (!kernel) {
           if (!profileWavelengths.includes(wavelengthNm)) fail("simulateCapture: a spectral node has no diffraction kernel.");
-          kernel = convolveSiteKernels(loadedKit(qualityKit).siteDiffractionKernel(psfConfiguration, wavelengthNm, pitch, diffractionRadius, "simulateCapture: diffraction kernels must sample the site pitch exactly."),
+          kernel = convolveSiteKernels(loadedKit(qualityKit)[QK_SITE_DIFFRACTION_KERNEL](psfConfiguration, wavelengthNm, pitch, diffractionRadius, "simulateCapture: diffraction kernels must sample the site pitch exactly."),
             diffractionRadius, defocusKernel.weights, defocusKernel.radius);
           combined.set(wavelengthNm, kernel);
         }
@@ -3552,7 +3552,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   let diffractionMs = 0, defocusMs = 0, demosaicMs: number | undefined, encodeMs: number | undefined;
   const diffractedProvider = (window: { x: number; y: number; width: number; height: number } | undefined): PlanarSceneRadianceProvider =>
     // #548: the disc (or diffraction ⊛ disc) in image space, on the sensor's site lattice, through the mapping, field throughput and rotation.
-    defocusSiteKernels && defocusGeometry && defocusImageSpace ? loadedKit(qualityKit).createDefocusImageSpaceProvider({ base: sceneProvider, geometry: defocusGeometry, siteKernels: defocusSiteKernels.at,
+    defocusSiteKernels && defocusGeometry && defocusImageSpace ? loadedKit(qualityKit)[QK_CREATE_DEFOCUS_IMAGE_SPACE_PROVIDER]({ base: sceneProvider, geometry: defocusGeometry, siteKernels: defocusSiteKernels.at,
       ...(defocusSiteKernels.large ? { largeKernel: defocusSiteKernels.large } : {}),
       wavelengthsNm: defocusSiteKernels.wavelengthsNm, kernelRadius: defocusSiteKernels.radius, nativeWidth, nativeHeight, sitePitchMicrometers: pitch, distanceM: planeDistanceM,
       metresPerFrameUnit, queryOffsetsSites, timesPerBand: temporalSampleCount, onConvolution: (ms) => { defocusMs += ms; }, ...(window ? { window } : {}), ...(subject ? { timeDependentScene: true } : {}),
@@ -3571,7 +3571,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
       // The environment queries each site at each aperture node minus each split offset (sites, +x right, +y down).
       ...(antiAliasing || boxSamples > 1 ? { queryOffsetsSites } : {}) }) :
     // #565, #588: the PSF quadrature reads each tap's source at its lattice point (a unit kernel on #548's lattice), so ties resolve as on the lattice.
-    (diffraction || catalogueTaps !== undefined) && latticeTaps ? loadedKit(qualityKit).createDefocusImageSpaceProvider({ base: sceneProvider, geometry: lensGeometry, siteKernels: () => UNIT_SITE_KERNEL,
+    (diffraction || catalogueTaps !== undefined) && latticeTaps ? loadedKit(qualityKit)[QK_CREATE_DEFOCUS_IMAGE_SPACE_PROVIDER]({ base: sceneProvider, geometry: lensGeometry, siteKernels: () => UNIT_SITE_KERNEL,
       kernelRadius: 0, wavelengthsNm: diffraction ? diffraction.profile.axes.wavelengthNm : quadratureWavelengths(), nativeWidth, nativeHeight, sitePitchMicrometers: pitch, distanceM: planeDistanceM, metresPerFrameUnit,
       queryOffsetsSites: [-1, 0, 1].flatMap((k) => { const r = k * (diffraction ? diffraction.kernelRadiusSamples : catalogueKernelRadius); return queryOffsetsSites.map((o) => ({ x: o.x + r, y: o.y + r })); }),
       timesPerBand: temporalSampleCount, zeroBeyondHorizon: catalogue?.kind === "fisheye", ...(window ? { window } : {}),
@@ -3657,7 +3657,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
     step: lensKit!.genericLensVeilStep(nativeWidth, nativeHeight, catalogueFastRequested) } : undefined;
   if (veil && (rotating || subject || boxSamples !== 1 || antiAliasing || mixed || provider.chartMaterialAt === undefined || provider.materialRadiance === undefined))
     fail("lens.catalogue.flare needs a still camera and a chart or material scene under uniform light, without sensor.antiAliasing or sensor.pixelAperture.");
-  if (catalogueFlare || breathing) loadedKit(optInKit).catalogueOpticsAssumptions(assume, catalogue!, breathing ? { scale: breathingScale, planeDistanceM } : undefined, catalogueFlare, veil);
+  if (catalogueFlare || breathing) loadedKit(optInKit)[OK_CATALOGUE_OPTICS_ASSUMPTIONS](assume, catalogue!, breathing ? { scale: breathingScale, planeDistanceM } : undefined, catalogueFlare, veil);
   const viewLensKit = displayView && lensGeometry ? await import("./display-view-lens-signal.js") : undefined;
   // 2.20.0: the field zones are lens.catalogue's fast method in the view; exact resolves the PSF at every site (zones of one site).
   const displayViewLensPsf = viewLensKit && catalogue && lensPsf ?
@@ -3671,7 +3671,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   "Each site takes the lens PSF at its field zone's centre, where the capture resolves it at each query point (docs/DISPLAY_VIEW.md, \"Catalogue lenses\")." +
     (uniformWindows ? " Fast method (#655): a site whose taps read one material takes the field factor to second order; fast: false sums every tap." : ""));
   // #655 step 4: the view's lattice points take the Newton inverse of a radial distortion (the capture keeps the bisection).
-  const viewLensGeometry = viewLensKit && lensFieldMapping?.distortion?.kind === "radial" ? loadedKit(qualityKit).prepareDefocusImageSpaceGeometry({ focalLengthMm, focusDistanceM,
+  const viewLensGeometry = viewLensKit && lensFieldMapping?.distortion?.kind === "radial" ? loadedKit(qualityKit)[QK_PREPARE_DEFOCUS_IMAGE_SPACE_GEOMETRY]({ focalLengthMm, focusDistanceM,
     angularVelocityRadPerSec: angular, ...(handShake ? { handShake } : {}), lensMapping: prepareEnvironmentLensFieldMapping(lensFieldMapping), ...(vignetting ? { vignetting } : {}),
     undistort: viewLensKit.undistortedImagePointNewton }) : lensGeometry;
   const lensSignal = viewLensKit ? viewLensKit.prepareDisplayViewLensSignal({ geometry: viewLensGeometry!, rollingBands: fastTop, uniformWindows,
@@ -3747,7 +3747,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
       if ((py & 15) === 15) { await yieldControl(); checkAbort(); }
     }
     if (neighborHighlights) {
-      neighborModule!.reconstructHighlightsFromNeighbors(rgb, outputWidth, outputHeight, realDevelopment.appliedGains, neighborFast);
+      neighborModule![QK_RECONSTRUCT_HIGHLIGHTS_FROM_NEIGHBORS](rgb, outputWidth, outputHeight, realDevelopment.appliedGains, neighborFast);
       for (let i = 0; i < outputWidth * outputHeight; i++) realDevelopment.developWhiteBalancedInto(rgb[3 * i]!, rgb[3 * i + 1]!, rgb[3 * i + 2]!, rgb, 3 * i);
     }
     let samples: Uint8Array | Uint16Array;
@@ -4092,7 +4092,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   };
   if (ahd || neighborHighlights || ((detailRequested || lensCorrection) && !linearPath)) {
     const linear = await developLinearSrgb({ ...development, raw: rawOutput.raw }, rowProgress("development"), ahd ? { yieldControl: (): Promise<void> => yieldControl(), checkAbort, onDemosaicMs: (ms: number): void => { demosaicMs = ms; } } : undefined,
-      neighborModule ? { fast: neighborFast, module: neighborModule } : undefined);
+      neighborModule ? { fast: neighborFast, reconstruct: neighborModule[QK_RECONSTRUCT_HIGHLIGHTS_FROM_NEIGHBORS] } : undefined);
     const rgb = await correctLinear(linear.rgb);
     if (!linearPath) {
       let codes: Uint8Array | Uint16Array, counts: SdrPixelCounts;
@@ -4118,7 +4118,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
     developed = devTask.takeOutput();
   } else {
     // Wide gamut: the native development operator up to linear sRGB/D65 (unclipped), then XYZ → target primaries.
-    const linear = await developLinearSrgb({ ...development, raw: rawOutput.raw }, rowProgress("development"), undefined, neighborModule ? { fast: neighborFast, module: neighborModule } : undefined);
+    const linear = await developLinearSrgb({ ...development, raw: rawOutput.raw }, rowProgress("development"), undefined, neighborModule ? { fast: neighborFast, reconstruct: neighborModule[QK_RECONSTRUCT_HIGHLIGHTS_FROM_NEIGHBORS] } : undefined);
     {
       developed = encodeLinear(await correctLinear(linear.rgb), linear.highlight);
       if (perceptual) {

@@ -20,12 +20,16 @@ import { abortedError, createComputePipeline, type WebGpuRuntime } from "./webgp
 
 type PipelineSource = (label: string, code: string) => Promise<GPUComputePipeline>;
 type YieldControl = ((signal: AbortSignal) => Promise<void>) | undefined;
-type QualityKit = typeof import("./display-view-quality-gpu.js");
+/** #658: the three exports the renderer reads; a destructured import lets the chunk drop the other export names. */
+type QualityKit = Pick<typeof import("./display-view-quality-gpu.js"), "DISPLAY_VIEW_QUALITY_CONFORMANCE_CASES" | "qualityMaterialModule" | "renderDisplayViewQualityOnGpu">;
 
 /** Largest lattice group count the Quality tables hold (`display-view-quality-gpu.ts`). */
 const QUALITY_MAXIMUM_GROUPS = 64;
 
-const importQualityKit = (): Promise<QualityKit> => import("./display-view-quality-gpu.js");
+const importQualityKit = async (): Promise<QualityKit> => {
+  const [DISPLAY_VIEW_QUALITY_CONFORMANCE_CASES, qualityMaterialModule, renderDisplayViewQualityOnGpu] = (await import("./display-view-quality-gpu.js")).QUALITY_GPU_KIT;
+  return { DISPLAY_VIEW_QUALITY_CONFORMANCE_CASES, qualityMaterialModule, renderDisplayViewQualityOnGpu };
+};
 let loadQualityKit: () => Promise<QualityKit> = importQualityKit;
 let qualityKit: Promise<QualityKit> | null = null;
 /**

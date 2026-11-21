@@ -49,7 +49,7 @@
  * trigonometric built-in).
  */
 
-import { DISPLAY_VIEW_CLIP_MEAN_U, DISPLAY_VIEW_CLIP_VARIANCE_U, DISPLAY_VIEW_REINHARD_MEAN_U, DISPLAY_VIEW_REINHARD_VARIANCE_U } from "./wgsl-display-view-speed-kernel.js";
+import { DISPLAY_VIEW_ACCESSORS_WGSL, DISPLAY_VIEW_MATRIX_WGSL, DISPLAY_VIEW_NORMAL_WGSL, DISPLAY_VIEW_CLIP_STATE_WGSL, DISPLAY_VIEW_REFLECT_WGSL, DISPLAY_VIEW_CHANNEL_WGSL, DISPLAY_VIEW_CLIP_MEAN_U, DISPLAY_VIEW_CLIP_VARIANCE_U, DISPLAY_VIEW_REINHARD_MEAN_U, DISPLAY_VIEW_REINHARD_VARIANCE_U } from "./wgsl-display-view-speed-kernel.js";
 import { EXACT_SUM_WGSL } from "./wgsl-exact-sum.js";
 import { DISPLAY_VIEW_COUPLED_STUB_WGSL } from "./wgsl-display-view-coupled-stub.js";
 
@@ -166,24 +166,11 @@ struct Params {
 };
 @group(0) @binding(0) var<uniform> params: Params;
 
-fn k_of(c: u32) -> f32 { if (c == 0u) { return params.k0; } if (c == 1u) { return params.k1; } return params.k2; }
-fn dark_of(c: u32) -> f32 { if (c == 0u) { return params.dark0; } if (c == 1u) { return params.dark1; } return params.dark2; }
-fn c0_of(c: u32) -> f32 { if (c == 0u) { return params.c0_0; } if (c == 1u) { return params.c0_1; } return params.c0_2; }
-fn g_of(c: u32) -> f32 { if (c == 0u) { return params.g0; } if (c == 1u) { return params.g1; } return params.g2; }
+${DISPLAY_VIEW_ACCESSORS_WGSL}
 // Whether the channel's white-balance gain is the clip level itself (the smallest gain), exactly, in the reference's float64.
 fn gain_at_clip(c: u32) -> bool { if (c == 0u) { return params.gain_at_clip0 == 1u; } if (c == 1u) { return params.gain_at_clip1 == 1u; } return params.gain_at_clip2 == 1u; }
-fn m_of(r: u32, c: u32) -> f32 {
-  let i = r * 3u + c;
-  switch (i) {
-    case 0u: { return params.m00; } case 1u: { return params.m01; } case 2u: { return params.m02; }
-    case 3u: { return params.m10; } case 4u: { return params.m11; } case 5u: { return params.m12; }
-    case 6u: { return params.m20; } case 7u: { return params.m21; } default: { return params.m22; }
-  }
-}
-fn channel_of(x: i32, y: i32) -> u32 {
-  if ((y & 1) == 0) { return select(1u, 0u, (x & 1) == 0); }
-  return select(2u, 1u, (x & 1) == 0);
-}
+${DISPLAY_VIEW_MATRIX_WGSL}
+${DISPLAY_VIEW_CHANNEL_WGSL}
 // A value with its absolute error bound (x: value, y: bound). First-order rules; the host doubles the final bound.
 fn b_add(a: vec2<f32>, b: vec2<f32>) -> vec2<f32> { let v = a.x + b.x; return vec2<f32>(v, a.y + b.y + E * abs(v)); }
 fn b_sub(a: vec2<f32>, b: vec2<f32>) -> vec2<f32> { let v = a.x - b.x; return vec2<f32>(v, a.y + b.y + E * abs(v)); }
@@ -192,15 +179,7 @@ fn b_mul(a: vec2<f32>, b: vec2<f32>) -> vec2<f32> { let v = a.x * b.x; return ve
 fn b_scale(a: vec2<f32>, k: f32) -> vec2<f32> { let v = a.x * k; return vec2<f32>(v, a.y * abs(k) + E * abs(v)); }
 // #533: 0 when a site of mean m (bound dm) and variance v (bound dv) is certainly below white, 1 certainly at or above it, 2
 // undecided (the Speed kernel's rule: twice the reference's 8.5 standard deviations, the mean moved by twice its bound).
-fn clip_state(m: f32, dm: f32, v: f32, dv: f32) -> u32 {
-  let gap = 1.0 - m;
-  let wide = 4.0 * params.reach2 * (v + 2.0 * dv);
-  let below = gap - 2.0 * dm;
-  let above = gap + 2.0 * dm;
-  if (below > 0.0 && below * below > wide) { return 0u; }
-  if (above < 0.0 && above * above > wide) { return 1u; }
-  return 2u;
-}
+${DISPLAY_VIEW_CLIP_STATE_WGSL}
 // A host constant rounded once to float32 (a gain, a matrix entry).
 fn b_rounded(k: f32) -> vec2<f32> { return vec2<f32>(k, E * abs(k)); }
 fn b_div(a: vec2<f32>, b: vec2<f32>) -> vec2<f32> { let v = a.x / b.x; return vec2<f32>(v, (a.y + abs(v) * b.y) / abs(b.x) + 2.5 * E * abs(v)); }
@@ -211,14 +190,7 @@ fn b_sqrt(a: vec2<f32>) -> vec2<f32> {
   return vec2<f32>(0.0, sqrt(a.y));
 }
 // Standard normal density, as the reference forms it, and Abramowitz & Stegun 26.2.17 as (Φ, 1 − Φ).
-fn phi(z: f32) -> f32 { return 0.3989422804014327 * exp(-0.5 * z * z); }
-fn pq(z: f32) -> vec2<f32> {
-  let x = abs(z);
-  let t = 1.0 / (1.0 + 0.2316419 * x);
-  let q = phi(x) * t * (0.319381530 + t * (-0.356563782 + t * (1.781477937 + t * (-1.821255978 + t * 1.330274429))));
-  if (z >= 0.0) { return vec2<f32>(1.0 - q, q); }
-  return vec2<f32>(q, 1.0 - q);
-}
+${DISPLAY_VIEW_NORMAL_WGSL}
 struct Moments { mean: vec2<f32>, variance: vec2<f32>, slope: vec2<f32> }
 // Moments of min(Y, top) for Y ~ N(m, v) with their bounds: Var = v·(Φ − zφ + z²Q − δ²), δ = φ − zQ (the Speed forms).
 fn upper_clip(m: vec2<f32>, v: vec2<f32>, top: f32) -> Moments {
@@ -558,8 +530,7 @@ fn cp_k(i: u32) -> f32 { return aux[${DISPLAY_VIEW_QUALITY_AUX.size}u + i]; }
 
 var<private> pixel_flags: u32;
 ${REINHARD_WGSL}
-fn reflect_x(x: i32) -> i32 { if (x < 0) { return -x; } if (x >= i32(params.native_w)) { return 2 * i32(params.native_w) - 2 - x; } return x; }
-fn reflect_y(y: i32) -> i32 { if (y < 0) { return -y; } if (y >= i32(params.native_h)) { return 2 * i32(params.native_h) - 2 - y; } return y; }
+${DISPLAY_VIEW_REFLECT_WGSL}
 // The site buffer offset of native site (x, y) (reflected at the raster's borders), or a flag when it lies outside the window.
 fn site_at(x: i32, y: i32) -> u32 {
   let rx = reflect_x(x) - params.site_x0;

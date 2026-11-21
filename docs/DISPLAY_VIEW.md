@@ -1762,6 +1762,22 @@ root exports of the built package, minified, gzip level 9; `test/capture-bundle.
   | export | 10,399 B | 10,399 B | **10,399 B** | 10,400 B (was 10,500 B) |
 
   Rolldown 1.2.14 builds the same 25 chunks as 1.2.9.
+
+  **The on-demand row toward 49,400 B (#658).** Measured with rolldown 1.2.14 after #675 and #692 (fast 336,700 B, on demand
+  51,990 B), each step on the previous one, results and shader tokens unchanged:
+
+  | Step | On demand | Fast worker |
+  | --- | --- | --- |
+  | named re-exports in the Quality kit (no namespace object) | 51,828 B | 336,685 B |
+  | the renderer reads three names of the GPU Quality host | 51,704 B | 336,713 B |
+  | one loader for the GPU coupled steps | 51,569 B | 336,742 B |
+  | the Speed kernel's helper functions shared with the Quality kernels (same tokens) | 51,092 B | 336,826 B |
+  | the CPU kits read by position (`QK_*`, `OK_*` in `src/facade/on-demand-kits.ts`) | 50,745 B | 336,552 B |
+  | the GPU Quality host and coupled chunk read by position | 50,684 B | 336,558 B |
+  | shorter result texts (limitations, assumptions) and refusal messages in the kits and the GPU Quality host | **50,178 B** | **336,556 B** |
+
+  The on-demand limit is 50,200 B (the measurement rounded up to the next 100 B); the target stays 49,400 B. A read of the two
+  CPU kits for code no request reaches found only test instrumentation and a few dozen bytes of fallbacks.
 - **Shipped shaders are minified (2.14, #536).** `npm run build` strips comments and indentation from the WGSL source
   (`scripts/minify-wgsl-dist.mjs`, see [WebGPU, Shipped shader text](WEBGPU.md#shipped-shader-text)). Measured on the app's
   production build (Vite 8, app 0.50.0 at `a82a5eb`, engine `main` at `42ec9d8` packed before and after): the GPU session

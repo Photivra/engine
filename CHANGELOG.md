@@ -40,6 +40,15 @@
   runs the CPU reference labelled `gpu-validation` or `out-of-memory` instead of rejecting. A kernel that did not compile is not
   compiled again for that device. `DisplayViewGpuFallbackReason` gains the two reasons; `gpu: "require"` still throws.
   Renders that succeed today are unchanged.
+- **On-demand bundle row 51,990 → 50,178 B (#658, in progress).** The Quality kit re-exports by name instead of a namespace
+  object; the GPU renderer and both GPU hosts read only the names they use from the on-demand GPU chunks; the Speed kernel's
+  eleven helper functions are written once and shared with the Quality kernels (every assembled shader keeps its token stream,
+  pinned in `test/wgsl-display-view-tokens.test.ts`); the CPU kits and the GPU chunks are read by position, so their export
+  names are not shipped; and (owner decision 2026-11-21) 33 result and refusal texts are shorter: the limitations of the Airy
+  profile, the AHD demosaic and the lens PSF kernels, the hand-shake, focus-breathing, veiling-glare, flash-shutter and sensor-profile
+  assumptions, two flash and one sensor-profile error message, and eight GPU Quality refusal and self-check texts. The on-demand limit is lowered
+  52,000 → 50,200 B; fast worker 336,556 B. The 49,400 B target is not yet met. Image bytes and numbers are unchanged; those texts
+  are the only result change.
 
 ## 2.27.0 — published November 19, 2026
 

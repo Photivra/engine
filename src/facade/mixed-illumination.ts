@@ -171,7 +171,7 @@ export function resolveMixedIllumination(value: unknown, resolveIlluminant: (val
   });
   // #639: the flash, the last point: Q = p·Q_full cd·s, the intensity Q/T over the window T.
   if (record.flash !== undefined) {
-    if (moving) fail("illumination.flash does not support motion: the pulse freezes the scene at one instant, which the temporal quadrature does not place.");
+    if (moving) fail("illumination.flash does not support motion (the temporal quadrature does not place the pulse).");
     const f = fields(record.flash, ".flash", ["illuminant", "position", "output", "powerFraction"]), o = fields(f.output, ".flash.output", ["guideNumberM", "candelaSeconds", "luxSeconds", "distanceM"]);
     const option = (f.illuminant ?? { kind: "planckian", temperatureKelvin: 5500 }) as CaptureIlluminant, illuminant = resolveIlluminant(option);
     const power = f.powerFraction === undefined ? 1 : positive(f.powerFraction, ".flash.powerFraction", 1), forms = Object.keys(o).sort().join();
@@ -286,7 +286,7 @@ export function meterFlash(samples: { relativeLinearSignal: number }[], total: r
  */
 export function flashAloneShutter(minimumSeconds: number, maximumSeconds: number, assume: (id: string, kind: "model", value: unknown, explanation: string) => void): number {
   const t = Math.min(maximumSeconds, Math.max(minimumSeconds, 1 / 125));
-  assume("exposure.flashShutter", "model", t, "The flash alone lights the scene (no ambient reading), so every shutter gives the same exposure: the automatic mode takes 1/125 s within the body's range and resolves the rest at it.");
+  assume("exposure.flashShutter", "model", t, "Flash alone (no ambient reading): every shutter gives the same exposure, so the automatic mode takes 1/125 s within the body's range.");
   return t;
 }
 
@@ -317,6 +317,5 @@ export function rebindFlashAssumptions(assumptions: { id: string; value: unknown
 
 /** Internal (#639): under a rolling shutter the flash needs one instant at which every row is open, t ≥ the readout skew τ. */
 export function requireFlashRows(shutterSeconds: number, skewSeconds: number): void {
-  if (shutterSeconds < skewSeconds) throw new InvalidScientificInputError("illumination.flash with motion.shutter \"rolling\" needs a shutter time of at least the readout skew, " +
-    skewSeconds + " s, so that every row is open when the flash fires.");
+  if (shutterSeconds < skewSeconds) throw new InvalidScientificInputError("illumination.flash with a rolling shutter needs a shutter time ≥ the readout skew, " + skewSeconds + " s.");
 }

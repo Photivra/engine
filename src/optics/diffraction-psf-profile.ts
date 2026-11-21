@@ -140,11 +140,11 @@ export interface DiffractionLimitedPsfProfile {
 const EVIDENCE: readonly EvidenceProvenance[] = /* @__PURE__ */ Object.freeze([/* @__PURE__ */ Object.freeze({ sourceOrigin: "photivra" as const,
   sourceReference: "photivra:diffraction-limited-psf-profile", reuseStatus: "photivra-owned" as const })]);
 const LIMITATIONS = /* @__PURE__ */ Object.freeze([
-  "Scalar Fraunhofer diffraction of an ideal, uniformly lit circular pupil (Airy pattern); no aberration, apodization, polarization or stray light.",
-  "Exactly in focus: no defocus or depth of field. Thin lens with unity pupil magnification; the pupil-to-image distance is the thin-lens image distance.",
-  "The on-axis PSF is declared unchanged across the field (isoplanatic); no field-dependent aberration or pupil clipping.",
-  "PSF energy is binned into square sample cells; the finite window misses the Airy tail energy listed per wavelength and is renormalized to unit sum.",
-  "Wavelengths are used as given, in the declared basis, without air/vacuum conversion."
+  "Scalar Fraunhofer diffraction of an ideal circular pupil (Airy); no aberration, apodization, polarization or stray light.",
+  "In focus (no defocus); thin lens with unity pupil magnification.",
+  "The on-axis PSF is used across the field (isoplanatic).",
+  "PSF energy in square cells of a finite window (tail energy listed per wavelength), renormalized to unit sum.",
+  "Wavelengths as given (no air/vacuum conversion)."
 ]);
 
 function positive(value: unknown, name: string): number {
@@ -405,7 +405,7 @@ export function createDiffractionLimitedPsfProfile(input: CreateDiffractionLimit
     records.push({ wavelengthNm: nm, cutoffFrequencyCyclesPerMicrometer: cutoff, firstZeroRadiusMicrometers: AIRY_FIRST_ZERO_PER_LAMBDA_N * lambdaN,
       capturedEnergyFraction: captured, truncatedEnergyFraction: truncated, centreSampleFraction: kernel[radius * size + radius]! });
   }
-  const uncertainty = { kind: "not-quantified" as const, limitation: "Ideal diffraction-limited model; no measured lens or quadrature error bound." };
+  const uncertainty = { kind: "not-quantified" as const, limitation: "Ideal diffraction-limited model; no error bound." };
   const nodes = [-fieldX, fieldX].flatMap((fx) => [-fieldY, fieldY].flatMap((fy) => wavelengths.map((nm, index) => ({
     nodeId: "airy-" + (fx < 0 ? "xm" : "xp") + "-" + (fy < 0 ? "ym" : "yp") + "-" + index,
     coordinate: { focalLengthMm, focusDiopters, apertureFNumber: fNumber, fieldXmm: fx, fieldYmm: fy, wavelengthNm: nm, signedDefocusImagePlaneMicrometers: 0 },

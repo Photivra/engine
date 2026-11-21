@@ -455,6 +455,7 @@
   "test/webgpu-rollout.test.ts": 97500,
   "test/webgpu-timing-summary.test.ts": 4,
   "test/weighted-shard-sequencer.test.ts": 26,
+  "test/wgsl-display-view-tokens.test.ts": 400,
   "test/wgsl-minify.test.ts": 387,
   "test/white-balance.test.ts": 14
  }

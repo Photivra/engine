@@ -205,9 +205,9 @@ function resolveKernels(input: LensPsfConvolutionKernelsInput, ownedProfile: obj
   return approximationResult({ schemaVersion: LENS_PSF_CONVOLUTION_KERNELS_SCHEMA_VERSION, kernelRadius: radius, patchWidth, patchHeight,
     patchColumns: columns, patchRows: rows, kernels, exactSiteSampling: exact, maximumKernelSum, patches: Object.freeze(patches) },
   "lens-psf-convolution-kernels", LENS_PSF_CONVOLUTION_KERNELS_SCHEMA_VERSION, [
-    "One PSF per patch, resolved at the patch centre with resolveLensSampledPsf; indexed by source site in the convolution (isoplanatic patches).",
-    exact ? "Every PSF tap maps to one integer site displacement (exact site sampling)." :
-      "PSF taps between sites are split bilinearly (the adjoint of bilinear interpolation of site-centre samples); a labelled approximation.",
-    "Relative pupil throughput is reported per patch and not applied to the unit-energy kernels."
+    "One PSF per isoplanatic patch, resolved at its centre (resolveLensSampledPsf), indexed by source site.",
+    exact ? "Exact site sampling: one integer site per PSF tap." :
+      "PSF taps between sites are split bilinearly (an approximation).",
+    "Pupil throughput is reported per patch, not applied to the kernels."
   ]);
 }

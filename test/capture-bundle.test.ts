@@ -205,7 +205,12 @@ describe("the app's capture-worker shape", () => {
     // 2.27.0 (owner approval): #649's shared detail passes and #656's 3-or-6 point chain rule (both in the on-demand kits) measured
     // 51,999 B on the integration branch, limit rounded up to the next 100 B; the savings are issue #658 (2.28.0).
     // #691 (rolldown 1.2.14): 51,987 B, which rounds up to the same 52,000 B.
-    expect(sum(onDemand)).toBeLessThanOrEqual(52_000);
+    // #658 (2.28.0), after #675 and #692 (51,990 B): named re-exports in the Quality kit 51,828 B, the destructured GPU Quality
+    // import 51,704 B, one loader for the coupled chunk 51,569 B, the Speed kernel's helper functions shared with the Quality
+    // kernels 51,092 B, the two CPU kits and the two GPU chunks read by position 50,684 B, shorter result and refusal texts in the
+    // kits and the GPU Quality host (owner decision 2026-11-21) 50,178 B. The limit is that measurement rounded up to the next
+    // 100 B; the target stays 49,400 B (owner decision 2026-11-21), and the rest of #658 is open.
+    expect(sum(onDemand)).toBeLessThanOrEqual(50_200);
     // 2.26.0 (owner decision 2026-11-16, "Move export code out"): the export kit's row, measured at 10,403 B on release-2.26.0 (the JPEG
     // and PNG encoders, the export JPEG coder and the text-metadata writers), limit rounded up to the next 100 B. With it the fast row
     // measured 331,482 B (340,300 B before the move: the split costs 1,585 B in all, the kit compressing without the entry's dictionary
@@ -221,6 +226,8 @@ describe("the app's capture-worker shape", () => {
     const reached = [...worker.lazyModules, ...worker.modules.keys()];
     expect(reached.filter((id) => /layered-(?!scene-enable)/u.test(id))).toEqual([]);
     for (const id of ["facade/layered-chart-scene.ts", "facade/layered-scene-provider.ts", "facade/layered-scene-setup.ts", "facade/layered-scene-signal.ts"]) expect(reached).not.toContain(id);
+    // #658: no chunk carries the bundler's namespace-object helper (a kit's `export * as` brought it in).
+    expect(worker.chunks.filter((c) => [...c.modules].some((id) => id.endsWith("rolldown/runtime.js"))).map((c) => c.fileName)).toEqual([]);
     // #165: the C2PA export writers load only when an application imports them, never in the capture worker.
     expect([...worker.lazyModules, ...worker.modules.keys()]).not.toContain("capture/c2pa-embed.ts");
     // #690: the GPU session uses only the irradiance convolution shader of src/gpu/wgsl-kernels.ts; the SDR and luminance shader
@@ -251,7 +258,7 @@ describe("the app's capture-worker shape", () => {
       expect(holders).toHaveLength(1);
       const chunk = holders[0]!;
       expect(chunk.isEntry).toBe(false);
-      expect([...chunk.modules].filter((id) => !id.endsWith("rolldown/runtime.js")).sort()).toEqual([...modules].sort());
+      expect([...chunk.modules].sort()).toEqual([...modules].sort());
       expect(worker.chunks.filter((c) => c.imports.includes(chunk.fileName))).toEqual([]);
       expect(worker.chunks.filter((c) => c.dynamicImports.includes(chunk.fileName)).map((c) => c.isEntry)).toEqual([true]);
       for (const id of modules) expect(worker.modules.has(id), id).toBe(false);

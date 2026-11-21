@@ -13,12 +13,35 @@
  *   highlight reconstruction (#602).
  */
 
-export { createDiffractionLimitedPsfProfile } from "../optics/diffraction-psf-profile.js";
-export { registerDiffractionPsfKey, siteDiffractionKernel } from "../optics/site-diffraction-kernel.js";
-export { createAhdDemosaicTask } from "../processing/demosaic.js";
-export { createDefocusBokehSiteKernel, resolveDefocusBokehOptions } from "../optics/defocus-bokeh-kernel.js";
-export { planDefocusBokehZones } from "./defocus-bokeh-zones.js";
-export { LARGE_DEFOCUS_CACHE_BYTES, createLargeDefocusNodeLattice } from "./large-defocus-lattice.js";
-export { calculateDefocusFieldVariation, createDefocusImageSpaceProvider, prepareDefocusImageSpaceGeometry } from "./defocus-image-space-provider.js";
-export { createDisplayViewCoupledRendering } from "./display-view-rendering.js";
-export * as neighborHighlights from "../color/neighbor-highlight-reconstruction.js";
+import { createDiffractionLimitedPsfProfile } from "../optics/diffraction-psf-profile.js";
+import { registerDiffractionPsfKey, siteDiffractionKernel } from "../optics/site-diffraction-kernel.js";
+import { createAhdDemosaicTask } from "../processing/demosaic.js";
+import { createDefocusBokehSiteKernel, resolveDefocusBokehOptions } from "../optics/defocus-bokeh-kernel.js";
+import { planDefocusBokehZones } from "./defocus-bokeh-zones.js";
+import { LARGE_DEFOCUS_CACHE_BYTES, createLargeDefocusNodeLattice } from "./large-defocus-lattice.js";
+import { calculateDefocusFieldVariation, createDefocusImageSpaceProvider, prepareDefocusImageSpaceGeometry } from "./defocus-image-space-provider.js";
+import { createDisplayViewCoupledRendering } from "./display-view-rendering.js";
+import { NEIGHBOR_HIGHLIGHT_RING, NEIGHBOR_HIGHLIGHT_THRESHOLD, reconstructHighlightsFromNeighbors } from "../color/neighbor-highlight-reconstruction.js";
+
+/**
+ * #658: the kit is one exported tuple, read by position (the `QK_*` constants of src/facade/on-demand-kits.ts, which a bundler
+ * inlines), so neither this chunk's export list nor the code that calls it carries the long export names.
+ */
+export const QUALITY_KIT = [
+  createDiffractionLimitedPsfProfile,
+  registerDiffractionPsfKey,
+  siteDiffractionKernel,
+  createAhdDemosaicTask,
+  createDefocusBokehSiteKernel,
+  resolveDefocusBokehOptions,
+  planDefocusBokehZones,
+  LARGE_DEFOCUS_CACHE_BYTES,
+  createLargeDefocusNodeLattice,
+  calculateDefocusFieldVariation,
+  createDefocusImageSpaceProvider,
+  prepareDefocusImageSpaceGeometry,
+  createDisplayViewCoupledRendering,
+  NEIGHBOR_HIGHLIGHT_RING,
+  NEIGHBOR_HIGHLIGHT_THRESHOLD,
+  reconstructHighlightsFromNeighbors
+] as const;

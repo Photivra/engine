@@ -23,7 +23,7 @@ import { convolveSiteKernels, createDefocusDiscSiteKernel } from "../optics/defo
 import type { DefocusBokehSiteKernel, ResolvedDefocusBokehOptions } from "../optics/defocus-bokeh-kernel.js";
 import type { SiteKernelFieldZones } from "./diffraction-provider.js";
 import type { DisplayViewExpectedSignal, DisplayViewQueryOffset } from "./expected-signal.js";
-import { loadedKit, qualityKit } from "./on-demand-kits.js";
+import { loadedKit, QK_CREATE_DEFOCUS_BOKEH_SITE_KERNEL, QK_PLAN_DEFOCUS_BOKEH_ZONES, QK_SITE_DIFFRACTION_KERNEL, qualityKit } from "./on-demand-kits.js";
 import type { PlanarSceneRadianceProvider, ResolvedCallerMaterialScene } from "./scene-radiance.js";
 import type { DiffractionLimitedPsfProfile } from "../optics/diffraction-psf-profile.js";
 import type { SimulateCaptureAssumption } from "./simulate-capture.js";
@@ -218,14 +218,14 @@ function surfaceKernels(context: LayeredRequestContext, depths: readonly Layered
     const side = depth.distanceM > focusDistanceM ? 1 : -1, kit = loadedKit(qualityKit);
     const build = (field?: { x: number; y: number }): DefocusBokehSiteKernel => {
       try {
-        return kit.createDefocusBokehSiteKernel({ diameterSites: c, side, fNumber, focalLengthMm, pitchMicrometers: pitch, options, ...(field ? { field } : {}) });
+        return kit[QK_CREATE_DEFOCUS_BOKEH_SITE_KERNEL]({ diameterSites: c, side, fNumber, focalLengthMm, pitchMicrometers: pitch, options, ...(field ? { field } : {}) });
       } catch (error) { const message = (error as Error).message; return fail(message.startsWith("lens.defocus") ? message : "lens.defocus: " + message); }
     };
     const axis = build();
     if (!options.catsEye) return { kernel: { radius: axis.radius, weights: axis.weights } };
     // The field tangent of a native point (sites from the top-left corner), output-image axes (+Y up), on the planar lattice.
     const g = 2 / width, tangent = g * context.metresPerFrameUnit / context.subjectDistanceM;
-    const plan = kit.planDefocusBokehZones({ options, nativeWidth, nativeHeight, radius: axis.radius, fNumber, focalLengthMm,
+    const plan = kit[QK_PLAN_DEFOCUS_BOKEH_ZONES]({ options, nativeWidth, nativeHeight, radius: axis.radius, fNumber, focalLengthMm,
       fieldOf: (x, y) => ({ x: (x - nativeWidth / 2) * tangent, y: -(y - nativeHeight / 2) * tangent }), kernelAt: build });
     if (!(plan.minimumOpenAreaRatio > 0)) fail("lens.defocus.catsEye: the clipping apertures close the pupil in part of the frame; reduce shiftPerTanFieldMm or enlarge radiusMm.");
     return { kernel: { radius: axis.radius, weights: axis.weights }, zones: plan.zones };
@@ -242,7 +242,7 @@ function diffractionOf(context: LayeredRequestContext, wavelengths: readonly num
   const radius = d.kernelRadiusSamples, psf = context.diffractionPsf!.configuration.psf as never;
   return { radius, perNode: wavelengths.map((nm) => {
     if (!d.profile.axes.wavelengthNm.includes(nm)) fail("simulateCapture: a spectral node has no diffraction kernel.");
-    return loadedKit(qualityKit).siteDiffractionKernel(psf, nm, context.pitch, radius, "simulateCapture: diffraction kernels must sample the site pitch exactly.");
+    return loadedKit(qualityKit)[QK_SITE_DIFFRACTION_KERNEL](psf, nm, context.pitch, radius, "simulateCapture: diffraction kernels must sample the site pitch exactly.");
   }) };
 }
 function providerOf(context: LayeredRequestContext, lattice: LayeredSceneLattice, wavelengthsNm: readonly number[], queryOffsetsSites: readonly { x: number; y: number }[]):
