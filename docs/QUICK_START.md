@@ -2448,6 +2448,60 @@ The result is labelled `kind: "display-view"` with a `label` for the user interf
 the `view.*` assumptions state the definition, the estimator, the noise model, the demosaic treatment and which capture
 options were ignored. The whole-frame views of [Whole-frame views](#whole-frame-views-25) are unchanged.
 
+### Batch figure renders in Node (2.28.0)
+
+A set of explanatory figures (lens, sensor, depth-of-field, noise and motion comparisons) is many display-view files rendered
+in one batch. The recipe below is measured on the batch-figure benchmark (`scripts/benchmark-figure-batch.mjs`, #670); a
+runnable version with worker threads is
+[`docs/examples/figure-batch-workers.mjs`](examples/figure-batch-workers.mjs).
+The engine adds no worker code: the workers are the caller's.
+
+1. **Row bands are the unit of work.** Cut each file into bands with `view.region` (`{ x: 0, y, width, height: rows }`). Bands
+   join to the same bytes as the file rendered in one piece. Use bands of at least 128 display rows: each band re-reads its
+   edge rows and starts its own windows.
+2. **Persistent workers.** Start W = min(performance cores, ⌊free memory ÷ 1 GiB⌋) processes or `worker_threads` once and feed
+   them bands from a queue. A process per band cost 10–40 % more CPU than one piece in the #670 measurements (module load,
+   preparing and compilation warm-up per process). Peak memory per worker in the benchmark: about 170–500 MB, up to about
+   900 MB for a catalogue lens with `fast: false`.
+3. **One prepared view per request per worker.** Call `prepareDisplayView` once and render every band of every file of that
+   request from it; keep one at a time (it holds the setup of the whole request) and queue a request's bands together so it is
+   not rebuilt. Preparing costs about 0.03–0.16 s, so nothing needs to be shared between workers.
+4. **`gpu: "off"`**, so every machine renders the same bytes.
+5. **Choose the flag per figure and say which.** `fast: false` is the full-quality path; the display view's default applies
+   the flagged fast methods within their documented bounds.
+6. **Reuse finished bands.** A band's bytes are stable for the engine version, the architecture, the Node.js release line, the
+   request, the view and the region, so key stored bands by those and render only new or changed ones.
+7. **Balance shards by predicted cost, not by count.** `estimateDisplayViewRender(prepared, view)` (#660) counts a band's work
+   without rendering it. The bands of one file differ several-fold in cost (the middle band of the composite chart costs about
+   2.5 times its cheapest), so deal bands dearest first to the shard with the smallest predicted total.
+
+```js
+import { estimateDisplayViewRender, prepareDisplayView } from "@photivra/engine";
+
+const request = { scene: { preset: "siemens-star" }, subjectDistanceM: 2, fast: false,
+  lens: { prime: 50, fNumber: 8, diffraction: "circular-aperture" }, output: { width: 1200, height: 800, format: "srgb-8" } };
+const file = { width: 192, height: 128, samplesPerAxis: 4 }, rows = 32;
+const prepared = await prepareDisplayView(request, { gpu: "off" });
+const bands = [];
+for (let y = 0; y < file.height; y += rows) {
+  const view = { ...file, region: { x: 0, y, width: file.width, height: Math.min(rows, file.height - y) } };
+  const e = estimateDisplayViewRender(prepared, view);
+  bands.push({ view, cost: e.nativeSites * e.signal.tapsPerSite * e.signal.spectralNodes * e.signal.temporalMidpoints });
+}
+bands.sort((a, b) => b.cost - a.cost); // deal these to the workers' queues, dearest first
+const band = await prepared.render(bands[0].view);
+console.log(band.image.width, band.image.height);
+```
+
+The cost term above is the predictor's main term. `node scripts/benchmark-figure-batch.mjs balance` fits the predictor
+(that term, the band's site reads and a constant) to measured bands on your machine, reports how many it predicts within
+±25 %, and deals shards from it. Measured on 2.28.0 with `fast: false` (74 bands of 128 rows from six figures of the benchmark,
+one arm64 machine under heavy load): the fitted cost is within ±25 % of the measured CPU for only 22 % of the bands (19 % with
+the pilot's detailed-pixel count added), because most of a band's cost follows its content (how many sites read more than
+one material), which the counts do not see; six shards dealt dearest first by the fitted cost still came out at 1.14–1.15× the
+mean shard, against 1.22× when dealt by display rows. Treat the estimate as an ordering, not a time, and keep the queue
+dynamic (persistent workers pulling the next band) so the content term evens out.
+
 ## Not available
 
 The facade offers no atmospheric haze or polarizer (see [Optics](#optics)), video, HDR brackets

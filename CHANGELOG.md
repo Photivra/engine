@@ -529,6 +529,28 @@ Byte-identical: samples, RAW codes and every hash lock are unchanged. Work count
   (one rectangle copied in), which keeps the fast row within its limit: fast worker 337,887 → 337,889 B. Tests:
   `test/display-view-lens-regroup-blocks.test.ts` (in-focus sites per band row, values whatever the block order),
   `test/display-view-lens-rolling-regions.test.ts` unchanged.
+- **Batch figure renders: the worker recipe, its example and shard balancing (#670, step 6); no package code, output or bundle
+  change.** docs/QUICK_START.md, "Batch figure renders in Node", documents the recipe (row bands as the unit of work, persistent
+  workers, one prepared view per request per worker, `gpu: "off"`, the flag stated per figure, reuse of finished bands, shards by
+  predicted cost) and `docs/examples/figure-batch-workers.mjs` runs it with `worker_threads` and checks that the bands join to the
+  one-piece render. `scripts/benchmark-figure-batch.mjs` records each band's `estimateDisplayViewRender` counts with `whole`
+  (outside the timed render) and gains `balance`, which fits the #670 plan's predictor (sites·taps·nodes·midpoints, site reads, a
+  constant; then the pilot's detailed pixels) to measured bands and deals shards from it. Measured with `fast: false` on 74 bands
+  of six figures (one arm64 machine, load average 37–172): the fit is within ±25 % for 22 % of the bands (19 % with the detail
+  term; the plan's test asked for 90 %), and six shards dealt by the fitted cost reach 1.14–1.15× the mean (target 1.15×) against
+  1.22× dealt by rows; the recipe therefore uses the estimate as an ordering with a dynamic queue. Whole figures on this tree with
+  `fast: false` (6 workers, same session): `frame-768` 121.1 CPU s (256.7 on 2.27.0 in the step 2 record, win 1 of step 5),
+  `tele-200` 245.6, `wide-24` 66.7, `sensor-phone` 70.4, `dof-near-s4` 126.1, `noise-iso-frame` 101.3.
+  - *Measured and not built.* The exact small-pixel diffraction requests of #710 now take 2.7 CPU s (capture; 18.0 in the step 2
+    profile of 2.27.0, #731) and 13.0 s (display view; 19.5, win 1); the 2.26.0 call site of `MaterialSums` is no longer on either path. What is
+    left of the view is the per-tap spectral sum (`preintegratedSite`, 84 % of the render); summing four nodes at a time in their
+    own accumulators keeps every bit and takes 0.76× of its time in paired runs, but adds 120 B to the fast row (11 B of room), so
+    it waits for the owner's call on the row. Candidate 6 (keeping the pre-integrated tiles per prepared view) is bounded by the
+    tile fill's share of a full-quality frame (about 7 %) on the second file only and needs fast-row bytes in
+    `expected-signal.ts`; not built. Candidate 7 (the catalogue lens's per-site PSF resolve with `fast: false`, about 40 s of the
+    `catalogue-768` part): reading the bilinear corners in line gave 1.00×, skipping the zone moments the exact path does not read
+    1.00×, and a centroid cache keyed by kernel object 0.92× but with different samples (the key was not safe in that quick form),
+    so nothing byte-identical worth its bytes was found.
 
 ### Benchmarks
 
