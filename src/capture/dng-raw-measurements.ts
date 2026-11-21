@@ -179,10 +179,17 @@ export interface DngRawNoise {
   assumptions: string[];
 }
 
-/** The k-th smallest value of `a` (reordered in place): Hoare's selection with a median-of-three pivot, linear on average. */
+/**
+ * The k-th smallest value of `a` (reordered in place, a[0 .. k − 1] ≤ a[k]): Hoare's selection with a median-of-three pivot, linear
+ * on average. 2.28.0: when the partitions have scanned 16 times the length (an order that defeats the pivot rule), the remaining range
+ * is sorted instead, so the worst case is O(n log n); the value returned is the same k-th smallest either way.
+ */
 function select(a: Float64Array, k: number): number {
-  let lo = 0, hi = a.length - 1;
+  let lo = 0, hi = a.length - 1, work = 0;
+  const budget = 16 * a.length;
   while (hi > lo) {
+    work += hi - lo + 1;
+    if (work > budget) { a.subarray(lo, hi + 1).sort(); return a[k]!; }
     const mid = (lo + hi) >> 1, x = a[lo]!, y = a[mid]!, z = a[hi]!;
     const pivot = x < y ? (y < z ? y : x < z ? z : x) : (x < z ? x : y < z ? z : y);
     let i = lo, j = hi;
