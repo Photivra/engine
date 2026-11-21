@@ -1,0 +1,9 @@
+{
+  "extends": ["html-validate:recommended"],
+  "rules": {
+    "doctype-style": ["error", { "style": "uppercase" }],
+    "long-title": ["error", { "maxlength": 110 }],
+    "prefer-native-element": ["error", { "exclude": ["region"] }],
+    "valid-id": ["error", { "relaxed": true }]
+  }
+}

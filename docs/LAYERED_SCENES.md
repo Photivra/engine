@@ -22,6 +22,11 @@ const result = await simulateCapture({ scene, subjectDistanceM: 1, lens: { focal
 result.scene.layers; // per card and the back plane: distance, blur diameter, within the depth of field
 ```
 
+The centers of the Siemens stars hold detail finer than one pixel. With the defaults this capture samples each site at its
+center, has no anti-aliasing filter and demosaics bilinearly, so that detail aliases: the star centers show false patterns and
+false color. [Pixel aperture](QUICK_START.md#pixel-aperture-23) and [Anti-aliasing filter](QUICK_START.md#anti-aliasing-filter)
+in the quick start describe the options that reduce it, and what each costs.
+
 - `simulateCapture`, `simulateIdealReference`, `simulateDisplayView` and `prepareDisplayView` take `scene.kind: "layered-chart"`
   once `prepareLayeredChartScenes()` has run in the realm; before it a layered request fails with a message saying so. As for
   image-plane scenes (`prepareImagePlaneScenes()`), the dynamic import in that function is the only reference to the layered code,
