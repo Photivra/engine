@@ -12,6 +12,7 @@
 
 import { InvalidScientificInputError } from "../core/validation.js";
 import {
+  MAXIMUM_LOGICAL_FRAMES_PER_SEQUENCE,
   parseGenericReleaseCapabilityProfile,
   type GenericExposureBracketAxis,
   type GenericReleaseCapabilityProfile
@@ -286,6 +287,11 @@ function resolveFrameCount(
     driveFrameCount(drive);
   const bracketCount =
     bracketFrameCount(bracket);
+  if (Math.max(driveCount, bracketCount ?? 0) > MAXIMUM_LOGICAL_FRAMES_PER_SEQUENCE) {
+    throw new InvalidScientificInputError(
+      "A release sequence holds at most " + MAXIMUM_LOGICAL_FRAMES_PER_SEQUENCE + " frames (an engine limit)."
+    );
+  }
 
   if (bracketCount === null) {
     return driveCount;
