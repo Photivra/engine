@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 import assert from "node:assert/strict";
 import test from "node:test";
+import { readFileSync } from "node:fs";
+import { URL } from "node:url";
 import { ciNodeRoles, jobNodeVersions, matrixDrift, matrixJobs, readRepositoryFiles, resolveLeg, workflowJobs, workflowRuleErrors } from "./node-ci-roles.mjs";
 import { lifecycleAt } from "./node-lts-policy.mjs";
 
@@ -49,16 +51,23 @@ test("since Node 26 entered LTS the lts/-1 leg runs the primary leg's Node 24 an
   assert.deepEqual(skipping, ["lts/-1"]);
   assert.deepEqual(notices, ["Node 22 is tested only at its exact minimum 22.13.0, not at its newest release."]);
 });
-test("a leg on the primary leg's release must skip its test work", () => {
+test("a leg on the primary leg's major must skip its test work", () => {
   const unskipped = edit(({ ciText }) => ({ ciText: ciText.replace(/(name: Test suite, this part\n\s+if: [^\n]*?) && steps\.same\.outputs\.skip != 'true'/, "$1") }));
   assert.match(matrixDrift(unskipped, afterNode26Lts).errors.join("\n"), /must skip its test work/);
 });
-test("the leg compares its runtime with the primary leg's release", async () => {
+test("the leg compares its runtime's major with the primary leg's major, with no network call (ci-08 in #703)", async () => {
   const { sameRelease } = await import("./node-lts-lookahead.mjs");
-  assert.equal(sameRelease("24.19.0", "24.19.0"), true);
-  assert.equal(sameRelease("v24.19.0", "24.19.0"), true);
-  assert.equal(sameRelease("24.18.0", "24.19.0"), false);
-  assert.equal(sameRelease("26.13.0", "24.19.0"), false);
+  assert.equal(sameRelease("24.19.0", 24), true);
+  assert.equal(sameRelease("v24.19.0", 24), true);
+  // Two patches of one major on the hosted images during a roll-out are one release line for this decision.
+  assert.equal(sameRelease("24.18.0", 24), true);
+  assert.equal(sameRelease("24.22.2"), true);
+  assert.equal(sameRelease("26.13.0", 24), false);
+  assert.equal(sameRelease("2.4.0", 24), false);
+  const source = readFileSync(new URL("./node-lts-lookahead.mjs", import.meta.url), "utf8");
+  const sameBranch = source.slice(source.indexOf('"--same-as-primary"'), source.indexOf("const response = await globalThis.fetch"));
+  assert.ok(source.indexOf('"--same-as-primary"') < source.indexOf("globalThis.fetch"), "--same-as-primary must be decided before the release index is fetched");
+  assert.doesNotMatch(sameBranch, /fetch|releases/);
 });
 test("at Node 22's end of life the minimum leg fails until engines.node rises", () => {
   assert.match(matrixDrift(files, afterNode22Eol).errors.join("\n"), /Leg 22\.13\.0 resolves to no supported/);

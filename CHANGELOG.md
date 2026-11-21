@@ -42,6 +42,11 @@
   identity gate reads every tracked text file and any host domain (#696). The licence gate reads more than one lockfile
   (`site/package-lock.json`) and refuses a compound expression with `AND` (`ci-11` in #703). Their logic has unit tests
   (`scripts/test-gates.mjs`). A change confined to `site/` or `docs/design/` runs no engine tests (`.github/ci-scope.mjs`).
+- **Low-severity tests, CI and scripts findings (2.28.0 step 8, #703); no package, API, output or bundle change.**
+  - *A leg skips by major (`ci-08`, owner decision 2026-11-21).* `--same-as-primary` compares the leg's Node.js major with the
+    primary leg's (24) from its own runtime, with no network call, instead of the newest Node 24 patch in the release index. On
+    run 44453452116 the hosted runners held 24.22.2 and 24.22.3, so two parts of `lts/-1` skipped and two ran in full. This
+    supersedes the patch-level wording of the 2.20.0 decision (#231).
 
 ### Site
 

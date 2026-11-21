@@ -7,8 +7,9 @@
 // major, the primary leg (Node 24, pinned to the tooling major since 2.20.0: coverage, static,
 // documentation and package gates; its required check keeps the name `verify (lts/*)`) and the
 // tooling major (`toolingNodeMajor`: typings and `publish.yml`). A `test` leg that resolves to
-// the primary leg's release skips its test work (`--same-as-primary` in node-lts-lookahead.mjs);
-// its required `verify` check still runs (owner decision for 2.20.0, #231).
+// the primary leg's major skips its test work (`--same-as-primary` in node-lts-lookahead.mjs);
+// its required `verify` check still runs (owner decision for 2.20.0, #231; by major, not patch,
+// since 2.28.0: ci-08 in #703).
 //
 // The alias resolution here is a model of setup-node's aliases over the reviewed snapshot,
 // not a lookup of Node's release index: `lts/*` is the newest major in an LTS window, `lts/-N`
@@ -246,7 +247,7 @@ export function matrixDrift({ ciText, publishText, supportText, enginesNode }, a
   const onPrimary = resolved.filter(({ leg, major }) => leg !== roles.primary && !exactVersion.test(leg) && major === primaryMajor).map(({ leg }) => leg);
   const skips = ciText.includes("run: node .github/node-lts-lookahead.mjs --same-as-primary") &&
     /name: Test suite, this part\n\s+if: [^\n]*steps\.same\.outputs\.skip != 'true'/.test(ciText);
-  if (!skips) errors.push("The `test` job must skip its test work on a leg that runs the primary leg's release (step `same`, `--same-as-primary`).");
+  if (!skips) errors.push("The `test` job must skip its test work on a leg that runs the primary leg's major (step `same`, `--same-as-primary`).");
   for (const { leg, major } of resolved)
     if (major === undefined || !supportedNodeMajors.includes(major))
       errors.push(`Leg ${leg} resolves to no supported, maintained Node line on ${at.toISOString().slice(0, 10)}.`);
@@ -286,7 +287,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   const { legs, skipping, errors: drift, notices } = matrixDrift(files, at);
   const errors = [...drift, ...workflowRuleErrors(files)];
   log(`CI Node legs on ${at.toISOString().slice(0, 10)}: ${legs.map(({ leg, major }) => `${leg} → ${major ?? "none"}`).join(", ")}` +
-    (skipping.length ? `; ${skipping.join(", ")} skip their test work (the primary leg's release).` : "."));
+    (skipping.length ? `; ${skipping.join(", ")} skip their test work (the primary leg's major).` : "."));
   for (const notice of notices) log(`::notice title=CI Node roles::${notice}`);
   for (const message of drift) error(`::error title=CI Node matrix drift::${message}`);
   for (const message of errors.slice(drift.length)) error(`::error title=CI workflow rule::${message}`);
