@@ -35,7 +35,7 @@ import {
 import { calculateThinLensImageDistance } from "./thin-lens.js";
 import { parseSceneRadianceEvaluationRequest, type SceneRadianceEvaluationRequest } from "../schema/scene-radiance.js";
 import { parseFocusPlane, type FocusPlane } from "./focus-state.js";
-import { requireInputKeys } from "../core/record-validation.js";
+import { requireInputKeys, requireInputObject } from "../core/record-validation.js";
 import { InvalidConfigurationError } from "../core/configuration-error.js";
 import { hypot3 } from "../core/portable-math.js";
 
@@ -171,6 +171,8 @@ export function calculateSensorEnvironmentRadianceQuery(
     throw new InvalidScientificInputError("Environment projection requires explicit opening-boundary time and outgoing-toward-camera direction conventions.");
   }
   const focus = parseFocusPlane(input.focus);
+  // 2.28.0 (#726): a missing source point is a domain error, not a TypeError from reading its x.
+  requireInputObject(input.sourcePointNativeSensorMm, "sourcePointNativeSensorMm");
   const sourcePointImagePlaneMm = { x: input.sourcePointNativeSensorMm.x, y: -input.sourcePointNativeSensorMm.y };
   const projection = calculateInverseCameraRotationImageMapping({ focalLengthMm: input.focalLengthMm,
     imagePointMm: sourcePointImagePlaneMm, angularVelocityRadPerSec: input.angularVelocityRadPerSec,
@@ -260,6 +262,7 @@ export function calculateMappedSensorEnvironmentRadianceQuery(
     throw new InvalidScientificInputError("Environment projection requires explicit opening-boundary time and outgoing-toward-camera direction conventions.");
   }
   const focus = parseFocusPlane(input.focus);
+  requireInputObject(input.sourcePointNativeSensorMm, "sourcePointNativeSensorMm");
   const sourcePointImagePlaneMm = { x: input.sourcePointNativeSensorMm.x, y: -input.sourcePointNativeSensorMm.y };
   const mapping = prepared.mapping;
   const { ideal, distortionAreaFactor } = undistortedImagePoint(prepared, sourcePointImagePlaneMm);
@@ -284,6 +287,7 @@ export function calculateMappedSensorEnvironmentRadianceQuery(
     if (typeof t !== "number" || !Number.isFinite(t) || t < 0) {
       throw new InvalidScientificInputError("timeSecondsFromOpeningReference must be finite and non-negative.");
     }
+    requireInputObject(velocity, "angularVelocityRadPerSec");
     // #549: outside the image circle, with "backward-ray", look straight back (no forward scene there).
     const captured = mapping.outsideImageCircle === "backward-ray" &&
       !insideRadialImageCircle(mapping.projectionModel, projectionScaleMm, Math.hypot(ideal.x, ideal.y)) ? { x: 0, y: 0, z: -1 } :

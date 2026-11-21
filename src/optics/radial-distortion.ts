@@ -244,6 +244,8 @@ export function validateRadialDistortionProfile(
     "profile.maximumNormalizedRadius",
     profile.maximumNormalizedRadius
   );
+  // 2.28.0 (optics-05): a missing coefficient record is a configuration error, not a TypeError from a property read.
+  requireInputObject(profile.coefficients, "profile.coefficients");
   requireFinite("profile.coefficients.k1", profile.coefficients.k1);
   requireFinite("profile.coefficients.k2", profile.coefficients.k2);
   requireFinite("profile.coefficients.k3", profile.coefficients.k3);

@@ -140,6 +140,9 @@ function throughputCriticalSquaredRadii(
 function validateProfile(
   profile: IlluminationVignettingProfile
 ): ValidatedIlluminationProfile {
+  // 2.28.0 (optics-05): missing records are configuration errors, not TypeErrors from a property read.
+  requireInputObject(profile, "profile");
+  requireInputObject(profile.coefficients, "profile.coefficients");
   requirePositiveFinite(
     "profile.normalizationRadiusMm",
     profile.normalizationRadiusMm

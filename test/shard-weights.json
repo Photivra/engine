@@ -270,6 +270,7 @@
   "test/numerical-correctness-contract.test.ts": 3,
   "test/on-demand-kits.test.ts": 1265,
   "test/optical-stack.test.ts": 11,
+  "test/optics-sparse-and-missing-records.test.ts": 80,
   "test/optics-validator-extrema.test.ts": 67,
   "test/optics.test.ts": 34,
   "test/output-text-metadata.test.ts": 2085,

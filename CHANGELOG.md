@@ -23,6 +23,16 @@
     construction lost about log10(1/κ) digits (κ = 1e-12 differed from straight blades by 3.8e-6 in a tap, 5.55e-17, the value of
     `0.1 + 0.2 - 0.3`, gave a 73-site window instead of 23, and κ ≤ 1e-17 threw a non-finite error). Kernels at κ ≥ 1e-6 (the
     catalogue's 0.3 and 0.7 among them) keep their bits.
+  - *Sparse arrays and missing records in the optics modules (#726, with `optics-05` of #700).* Thirteen entry lists that were
+    validated with `map` (which skips holes) are read with `Array.from`, so a hole meets the entry's own check: Zernike coefficients
+    and the aperture mask, complex-pupil amplitude and path difference, sampled-PSF nodes and kernel samples, MTF samples, polygon
+    image points, front-of-lens and scene-to-sensor transmission samples, focal-shift samples, cat's-eye apertures and spectral
+    weights. A missing or null field point, focus, working f-number, field throughput, image point, source point, angular velocity
+    (non-rectilinear mapping), scene binding or spectral quadrature, and the vignetting, radial-distortion and lateral-colour
+    coefficient records, now fail with `InvalidConfigurationError`; a value that cannot be copied fails the same way instead of a
+    `DOMException`. Before, these threw a raw `TypeError`, returned the hole (one resolver returned `undefined` as a kernel sample),
+    or passed the parser. `calculatePsfFoundationComponents` copies only the field point's x and y into its context. Dense, complete
+    inputs give the same results.
 - **Tooling, CI and tests only (2.28.0 step 1); no package, API, output or bundle change.**
   - *Coverage gates decide per shard (#666, with `ci-07`).* Each coverage shard uploads one part, its blob report or a marker
     naming the `coverage` proof it found; `.github/coverage-parts.mjs` merges ten blobs with the thresholds enforced, passes a

@@ -288,8 +288,9 @@ function parseGrid(
     );
   }
 
+  // 2.28.0 (#726): Array.from visits holes (as undefined), which the per-entry check refuses; map would skip them.
   const relativeAmplitude =
-    record.relativeAmplitude.map(
+    Array.from(record.relativeAmplitude, 
       (entry, index) =>
         requireUnitInterval(
           entry,
@@ -309,9 +310,9 @@ function parseGrid(
     );
   }
   const opd =
-    record
-      .opticalPathDifferenceMicrometers
-      .map(
+    Array.from(
+      record
+        .opticalPathDifferenceMicrometers,
         (entry, index) =>
           requireFinite(
             entry,

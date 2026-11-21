@@ -303,7 +303,8 @@ export function calculatePolygonPupilFraunhoferPsf(
       ![pupilAreaSquareMm, propagationScale, densityScale].every((x) => Number.isFinite(x) && x > 0)) {
     throw new InvalidScientificInputError("Polygon pupil area and derived scales must remain finite and positive.");
   }
-  const samples = input.imagePointsMicrometers.map((value, index) => {
+  // 2.28.0 (#726): Array.from visits holes (as undefined), which the per-entry check refuses; map would skip them.
+  const samples = Array.from(input.imagePointsMicrometers, (value, index) => {
     const point = requirePlanarPoint(value, `imagePointsMicrometers[${index}]`);
     const qx = 2 * Math.PI * (point.x / 1000) * scale / propagationScale;
     const qy = 2 * Math.PI * (point.y / 1000) * scale / propagationScale;

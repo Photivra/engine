@@ -124,7 +124,8 @@ function resolveKernels(input: LensPsfConvolutionKernelsInput, ownedProfile: obj
   if (!Array.isArray(list) || list.length < 1 || list.length > LENS_PSF_CONVOLUTION_KERNELS_MAXIMUM_WAVELENGTHS) {
     throw new InvalidConfigurationError("spectralWeights must list 1 to " + LENS_PSF_CONVOLUTION_KERNELS_MAXIMUM_WAVELENGTHS + " wavelengths.");
   }
-  const spectral = list.map((entry: unknown) => {
+  // 2.28.0 (#726): Array.from visits holes (as undefined), which the per-entry check refuses; map would skip them.
+  const spectral = Array.from(list as unknown[], (entry: unknown) => {
     const e = requireAllowlistedRecord(entry, ["wavelengthNm", "weight"], "Invalid spectral weight.");
     if (typeof e.weight !== "number" || !(e.weight >= 0 && e.weight <= Number.MAX_VALUE)) throw new InvalidConfigurationError("Spectral weights must be finite and non-negative.");
     return { wavelengthNm: positive(e.wavelengthNm, "Wavelengths must be positive."), weight: e.weight };
@@ -133,7 +134,11 @@ function resolveKernels(input: LensPsfConvolutionKernelsInput, ownedProfile: obj
   if (!(totalWeight > 0 && totalWeight <= Number.MAX_VALUE)) throw new InvalidConfigurationError("At least one spectral weight must be positive.");
   const psf = requireAllowlistedRecord(r.psf, ["profile", "focalLengthMm", "focus", "apertureFNumber", "signedDefocusImagePlaneMicrometers"], "Invalid PSF state.");
   // One private parse of the profile for every patch and wavelength (and, with an owned profile, for every call).
-  const profile = ownedProfile ?? structuredClone(psf.profile);
+  // 2.28.0 (#726): a profile that cannot be copied (a function inside, for example) is a configuration error, not a DOMException.
+  let profile: unknown = ownedProfile;
+  if (!ownedProfile) {
+    try { profile = structuredClone(psf.profile); } catch { throw new InvalidConfigurationError("Invalid PSF state."); }
+  }
   if (!ownedProfile) markEngineOwnedLensSampledPsfProfile(profile);
   const state = { ...(psf as unknown as Omit<ResolveLensSampledPsfInput, "fieldPointMm" | "wavelengthNm">), profile } as Omit<ResolveLensSampledPsfInput, "fieldPointMm" | "wavelengthNm">;
 

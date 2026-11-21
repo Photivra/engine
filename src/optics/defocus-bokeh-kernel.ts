@@ -168,7 +168,8 @@ export function resolveDefocusBokehOptions(value: unknown, label: string): Resol
     const c = requireAllowlistedRecord(record.catsEye, ["apertures", "fieldZonesAcrossLongSide"], label + ".catsEye must be an object.");
     if (!Array.isArray(c.apertures) || c.apertures.length < 1 || c.apertures.length > MAXIMUM_CLIPPING_APERTURES)
       throw new InvalidScientificInputError(label + ".catsEye.apertures must list 1 to " + MAXIMUM_CLIPPING_APERTURES + " clipping apertures.");
-    const apertures = (c.apertures as unknown[]).map((a, k) => {
+    // 2.28.0 (#726): Array.from visits holes (as undefined), which the record check refuses; map would skip them.
+    const apertures = Array.from(c.apertures as unknown[], (a, k) => {
       const r = requireAllowlistedRecord(a, ["radiusMm", "shiftPerTanFieldMm"], label + ".catsEye.apertures[" + k + "] must be an object.");
       return { radiusMm: finiteIn(label + ".catsEye.apertures[" + k + "].radiusMm", r.radiusMm, 1e-6, 1e4),
         shiftPerTanFieldMm: finiteIn(label + ".catsEye.apertures[" + k + "].shiftPerTanFieldMm", r.shiftPerTanFieldMm, -1e4, 1e4) };

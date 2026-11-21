@@ -395,7 +395,8 @@ function parseSpectralSamples(
 
   let previous =
     Number.NEGATIVE_INFINITY;
-  return value.map(
+  // 2.28.0 (#726): Array.from visits holes (as undefined), which the per-entry check refuses; map would skip them.
+  return Array.from(value, 
     (entry, index) => {
       const samplePath =
         path +

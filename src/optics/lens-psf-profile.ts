@@ -471,10 +471,11 @@ function parseKernel(
         ".normalizedIntensity length must equal widthSamples × heightSamples."
     );
   }
+  // 2.28.0 (#726): Array.from visits holes (as undefined), which the per-entry check refuses; map would skip them.
   const normalizedIntensity =
-    record
-      .normalizedIntensity
-      .map(
+    Array.from(
+      record
+        .normalizedIntensity,
         (entry, index) =>
           requireNonNegativeFinite(
             entry,
@@ -967,8 +968,9 @@ export function parseLensSampledPsfProfile(
       "lensPsfProfile.nodes must contain exactly one node for every regular-grid coordinate."
     );
   }
+  // 2.28.0 (#726): Array.from visits holes (as undefined), which the per-entry check refuses; map would skip them.
   const nodes =
-    record.nodes.map(
+    Array.from(record.nodes, 
       (node, index) =>
         parseNode(
           node,
@@ -1226,6 +1228,8 @@ function queryCoordinate(
     parseFocusPlane(
       input.focus
     );
+  // 2.28.0 (#726): a missing or null field point is a domain error, not a TypeError from reading its x.
+  requireRecord(input.fieldPointMm, "fieldPointMm", null);
   return {
     coordinate: {
       focalLengthMm:
@@ -1889,8 +1893,9 @@ export function parseLensMtfDiagnosticProfile(
   }
   let priorFrequency =
     -1;
+  // 2.28.0 (#726): Array.from visits holes (as undefined), which the per-entry check refuses; map would skip them.
   const samples =
-    record.samples.map(
+    Array.from(record.samples, 
       (entry, index) => {
         const path =
           "lensMtfProfile.samples[" +

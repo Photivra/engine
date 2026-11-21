@@ -9,7 +9,8 @@ import { InvalidScientificInputError, requirePositiveFinite } from "../core/vali
 import { calculateFocusPlaneImageDistance, parseFocusPlane, type FocusPlane } from "./focus-state.js";
 import { applyPhysicalCameraRotation, calculateInverseCameraRotationImageMapping,
   type CameraAngularVelocityRadPerSec } from "../motion/camera-rotation.js";
-import { requireInputKeys } from "../core/record-validation.js";
+import { requireInputKeys, requireInputObject } from "../core/record-validation.js";
+import { InvalidConfigurationError } from "../core/configuration-error.js";
 import { hypot3 } from "../core/portable-math.js";
 export interface IdealCircularPupil {
   kind: "ideal-uniform-circular-pupil";
@@ -51,7 +52,11 @@ export interface SensorApertureRays {
  */
 export function calculateSensorApertureRays(input: CalculateSensorApertureRaysInput): CalculationResult<SensorApertureRays> {
   requireInputKeys(input, "calculateSensorApertureRays", ["sourcePointNativeSensorMm", "focalLengthMm", "nominalFNumber", "focus", "pupil", "angularVelocityRadPerSec", "timeSecondsFromOpeningReference"]);
-  const owned = structuredClone(input), pupil = owned.pupil;
+  // 2.28.0 (#726): a value that cannot be copied (a function, for example) is a configuration error, not a DOMException.
+  let owned: CalculateSensorApertureRaysInput;
+  try { owned = structuredClone(input); } catch { throw new InvalidConfigurationError("calculateSensorApertureRays input must hold plain data only."); }
+  const pupil = owned.pupil;
+  requireInputObject(owned.sourcePointNativeSensorMm, "sourcePointNativeSensorMm");
   requirePositiveFinite("nominalFNumber", owned.nominalFNumber);
   if (!pupil || pupil.kind !== "ideal-uniform-circular-pupil" ||
     !Number.isSafeInteger(pupil.radialSampleCount) || pupil.radialSampleCount < 1 || pupil.radialSampleCount > 32 ||

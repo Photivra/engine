@@ -143,6 +143,8 @@ function requireFiniteCoefficients(
   path: string,
   coefficients: RadialDistortionCoefficients
 ): void {
+  // 2.28.0 (optics-05): a missing coefficient record is a configuration error, not a TypeError from a property read.
+  requireInputObject(coefficients, path);
   for (const key of ["k1", "k2", "k3"] as const) {
     if (!Number.isFinite(coefficients[key])) {
       throw new InvalidScientificInputError(
