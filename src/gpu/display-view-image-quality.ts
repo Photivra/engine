@@ -19,12 +19,14 @@
  *   L_n = W_n·Σ_j b_j·(ρ_black + (ρ_white − ρ_black)·Σ_corners w_jk·s_k(λ_n)),
  *
  * the reference's arithmetic regrouped. Each pixel's lattice cell and fractions come from the host (float64, as the reference
- * decodes the pixel), per band for the rows its lattice windows reach: 16 bytes per pixel (the cell, and per channel the smaller
- * of f and 1 − f rounded once, with a bit for which), so every corner weight carries at most 2E relative per channel. All terms
+ * decodes the pixel), per band for the pixels its lattice windows reach (#715: their rows and columns, two pixels of margin, built
+ * and written 4 MiB of rows at a time; the Quality host counts them in its band size): 16 bytes per pixel (the cell, and per
+ * channel the smaller of f and 1 − f rounded once, with a bit for which), so every corner weight carries at most 2E relative per channel. All terms
  * are non-negative: L_n carries `IMAGE_PLANE_LATTICE_U`·E relative (s 1, three channel weights 6, the nested trilinear form 6,
  * the paper 3, the bilinear weights 4, their products and sums 4, the moved-weight budget 1, W_n 2: 27, declared 32), or the
- * point is flagged: on the print's edge, near a nearest-pixel edge, or where a bilinear weight moved by the point's error could
- * change the value by more than E of it (the Speed module's rule, per node).
+ * point is flagged: on the print's edge, near a nearest-pixel edge, or where the point's error could move the value by more than
+ * E of it (#716: the Speed module's rule, per node; the point's error δ is `imagePlanePointSlack` plus 2⁻⁴⁴·|X|, which also bounds
+ * the two double-float32 products that form the point here).
  *
  * **Mixed light (#597).** Under `illumination` W_n is replaced by the irradiance / π at the point, E_n(p) = Σ_i w_i(p)·T_i,n +
  * Σ_j c_j,n·h_j/d_j³ (src/facade/mixed-illumination.ts), from the light table (`imagePlaneLightTable`: the parts and the spectra at
@@ -73,10 +75,41 @@ export const IMAGE_PLANE_LIGHT = /* @__PURE__ */ Object.freeze({ kind: 0, source
 const NODES = 125;
 /** Words per pixel record. */
 const RECORD_WORDS = 4;
-/** Layout of the photo uniform (u32 / float32 words, 96 bytes). */
-export const IMAGE_PLANE_QUALITY_PARAMS = /* @__PURE__ */ Object.freeze({ width: 0, height: 1, nearest: 2, nodes: 3, row0: 4, zero: 5, lit: 6, suHi: 8, suLo: 9, svHi: 10, svLo: 11,
-  kHi: 12, kLo: 13, halfWHi: 14, halfWLo: 15, halfHHi: 16, halfHLo: 17, aspectHi: 18, aspectLo: 19, slackX: 20, slackY: 21, black: 22, span: 23, words: 24 });
+/** Layout of the photo uniform (u32 / float32 words, 112 bytes); #715: the band's records start at pixel (col0, row0) and are `columns` wide. */
+export const IMAGE_PLANE_QUALITY_PARAMS = /* @__PURE__ */ Object.freeze({ width: 0, height: 1, nearest: 2, nodes: 3, row0: 4, zero: 5, lit: 6, col0: 7, suHi: 8, suLo: 9, svHi: 10, svLo: 11,
+  kHi: 12, kLo: 13, halfWHi: 14, halfWLo: 15, halfHHi: 16, halfHLo: 17, aspectHi: 18, aspectLo: 19, slackX: 20, slackY: 21, black: 22, span: 23, columns: 24, words: 28 });
+/** Host bytes of pixel records built per write. */
+const UPLOAD_CHUNK_BYTES = 4 << 20;
 const FLOAT32_SAFE_MAGNITUDE = 2 ** 120, FLOAT32_MINIMUM_NORMAL = 2 ** -126;
+/**
+ * #716: the host's part of a photo point's error bound in pixels along one axis (the shaders' `pixel_slack` adds 2⁻⁴⁴·|X|; docs/WEBGPU.md,
+ * "The image-plane module"): 4·10⁻¹⁴·k·half for the reference's own float64 rounding of its point (the composite kernel's 10⁻¹⁴ frame units
+ * times SAFETY 4, k chart units per frame unit, `half` pixels per chart unit), and 2⁻⁴⁴·half·(extent + 2k) for the device's: the lattice
+ * recovery or the two products that form the point, and the scaling to pixels, each double-float32 step within 6·2⁻⁴⁸ relative
+ * (Joldes, Muller and Popescu, ACM TOMS 44(2), 2017), on a point within `extent` (1 across, the aspect down) of the print's center.
+ */
+export const imagePlanePointSlack = (half: number, k: number, extent: number): number => 4e-14 * k * half + 2 ** -44 * half * (extent + 2 * k);
+/**
+ * #716: the bilinear weights of one axis shared by the Speed module and pass 1: the pixel pair (clamped to the edge), the weights of
+ * s = X − 1/2, and the pixels a..b whose cells a move of d reaches (one more on the side of a cell edge within 2d: the weight is
+ * rounded once). `pixel_slack` is the point's error bound in pixels (`imagePlanePointSlack` plus 2⁻⁴⁴·|X|).
+ */
+export const IMAGE_PLANE_BILINEAR_WGSL = /* wgsl */ `fn pixel_slack(x: D, slack: f32) -> f32 { return ${2 ** -44} * abs(x.h) + slack; }
+struct Axis { i0: u32, i1: u32, w0: f32, w1: f32, a: u32, b: u32 }
+fn bilinear_axis(s: D, n: u32, d: f32) -> Axis {
+  var f0 = floor(s.h);
+  if (f0 == s.h && s.l < 0.0) { f0 = f0 - 1.0; }
+  let frac = d_sub(s, D(f0, 0.0));
+  let comp = d_sub(D(ob(f0 + 1.0), 0.0), s);
+  var w0 = 0.0; var w1 = 0.0;
+  if (frac.h <= 0.5) { w1 = ob(frac.h + frac.l); w0 = ob(1.0 - w1); } else { w0 = ob(comp.h + comp.l); w1 = ob(1.0 - w0); }
+  let last = i32(n) - 1;
+  let a = clamp(i32(f0) - select(0, 1, w1 <= 2.0 * d), 0, last);
+  let b = clamp(i32(f0) + 1 + select(0, 1, w0 <= 2.0 * d), 0, last);
+  return Axis(u32(clamp(i32(f0), 0, last)), u32(clamp(i32(f0) + 1, 0, last)), w0, w1, u32(a), u32(b));
+}
+// Whether a move reaches pixels beyond the cell's four.
+fn reaches_next_cell(ax: Axis, ay: Axis) -> bool { return ax.a != ax.i0 || ax.b != ax.i1 || ay.a != ay.i0 || ay.b != ay.i1; }`;
 
 const L = IMAGE_PLANE_LIGHT;
 /**
@@ -279,9 +312,10 @@ export function imagePlaneQualityLatticeWgsl(path: ChartCompositeProductPath): s
 @group(0) @binding(2) var<storage, read_write> lattice_values: array<f32>;
 @group(0) @binding(3) var<storage, read_write> lattice_flags: array<u32>;
 struct PhotoParams {
-  width: u32, height: u32, nearest: u32, nodes: u32, row0: u32, zero: u32, lit: u32, pad1: u32,
+  width: u32, height: u32, nearest: u32, nodes: u32, row0: u32, zero: u32, lit: u32, col0: u32,
   su_hi: f32, su_lo: f32, sv_hi: f32, sv_lo: f32, k_hi: f32, k_lo: f32, hw_hi: f32, hw_lo: f32,
   hh_hi: f32, hh_lo: f32, aspect_hi: f32, aspect_lo: f32, slack_x: f32, slack_y: f32, black: f32, span: f32,
+  columns: u32, pad1: u32, pad2: u32, pad3: u32,
 };
 @group(1) @binding(0) var<storage, read> records: array<u32>;
 @group(1) @binding(1) var<uniform> photo: PhotoParams;
@@ -289,18 +323,7 @@ struct PhotoParams {
 @group(1) @binding(3) var<storage, read> light: array<f32>;
 ${photoCommon(path)}
 ${LIGHT_WGSL}
-fn pixel_slack(x: D, slack: f32) -> f32 { return 4.0 * (DW * (abs(x.h) + 1.0)) + 4.0 * slack; }
-struct Axis { i0: u32, i1: u32, w0: f32, w1: f32 }
-fn bilinear_axis(s: D, n: u32) -> Axis {
-  var f0 = floor(s.h);
-  if (f0 == s.h && s.l < 0.0) { f0 = f0 - 1.0; }
-  let frac = d_sub(s, D(f0, 0.0));
-  let comp = d_sub(D(ob(f0 + 1.0), 0.0), s);
-  var w0 = 0.0; var w1 = 0.0;
-  if (frac.h <= 0.5) { w1 = ob(frac.h + frac.l); w0 = ob(1.0 - w1); } else { w0 = ob(comp.h + comp.l); w1 = ob(1.0 - w0); }
-  let last = i32(n) - 1;
-  return Axis(u32(clamp(i32(f0), 0, last)), u32(clamp(i32(f0) + 1, 0, last)), w0, w1);
-}
+${IMAGE_PLANE_BILINEAR_WGSL}
 // A channel's two corner weights from its record: the stored smaller one and 1 minus it.
 fn channel_weights(word: u32, bit: u32, small: f32) -> vec2<f32> {
   if (((word >> bit) & 1u) == 0u) { return vec2<f32>(ob(1.0 - small), small); }
@@ -308,7 +331,7 @@ fn channel_weights(word: u32, bit: u32, small: f32) -> vec2<f32> {
 }
 struct Pixel { base: u32, r: vec2<f32>, g: vec2<f32>, b: vec2<f32> }
 fn pixel_at(i: u32, j: u32) -> Pixel {
-  let o = ((j - photo.row0) * photo.width + i) * ${RECORD_WORDS}u;
+  let o = ((j - photo.row0) * photo.columns + i - photo.col0) * ${RECORD_WORDS}u;
   let w = records[o];
   return Pixel((w & 3u) * 25u + ((w >> 2u) & 3u) * 5u + ((w >> 4u) & 3u), channel_weights(w, 6u, bitcast<f32>(records[o + 1u])),
     channel_weights(w, 7u, bitcast<f32>(records[o + 2u])), channel_weights(w, 8u, bitcast<f32>(records[o + 3u])));
@@ -322,6 +345,18 @@ fn pixel_value(px: Pixel, n: u32) -> f32 {
   let lat = px.r.x * (px.g.x * (px.b.x * node(b, n) + px.b.y * node(b + 1u, n)) + px.g.y * (px.b.x * node(b + 5u, n) + px.b.y * node(b + 6u, n))) +
     px.r.y * (px.g.x * (px.b.x * node(b + 25u, n) + px.b.y * node(b + 26u, n)) + px.g.y * (px.b.x * node(b + 30u, n) + px.b.y * node(b + 31u, n)));
   return photo.black + photo.span * lat;
+}
+// #716: the largest differences of horizontally and vertically neighboring pixels' values at node n over the pixels the axes reach.
+fn pixel_slopes(ax: Axis, ay: Axis, n: u32) -> vec2<f32> {
+  var g = vec2<f32>(0.0, 0.0);
+  for (var j = ay.a; j <= ay.b; j = j + 1u) {
+    for (var i = ax.a; i <= ax.b; i = i + 1u) {
+      let s = pixel_value(pixel_at(i, j), n);
+      if (i > ax.a) { g.x = max(g.x, abs(s - pixel_value(pixel_at(i - 1u, j), n))); }
+      if (j > ay.a) { g.y = max(g.y, abs(s - pixel_value(pixel_at(i, j - 1u), n))); }
+    }
+  }
+  return g;
 }
 @compute @workgroup_size(${DISPLAY_VIEW_QUALITY_WORKGROUP_SIZE})
 fn main(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_workgroups) wg: vec3<u32>) {
@@ -359,20 +394,25 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_workgroups) 
     let px = pixel_at(u32(clamp(bfloor(bd(x), 1.0, last_x), 0.0, last_x)), u32(clamp(bfloor(bd(y), 1.0, last_y), 0.0, last_y)));
     for (var n = 0u; n < N; n = n + 1u) { lattice_values[out + n] = white_at(white, n) * pixel_value(px, n); }
   } else {
-    let ax = bilinear_axis(d_sub(x, D(0.5, 0.0)), photo.width);
-    let ay = bilinear_axis(d_sub(y, D(0.5, 0.0)), photo.height);
+    let dx = pixel_slack(x, photo.slack_x);
+    let dy = pixel_slack(y, photo.slack_y);
+    let ax = bilinear_axis(d_sub(x, D(0.5, 0.0)), photo.width, dx);
+    let ay = bilinear_axis(d_sub(y, D(0.5, 0.0)), photo.height, dy);
     let p00 = pixel_at(ax.i0, ay.i0);
     let p10 = pixel_at(ax.i1, ay.i0);
     let p01 = pixel_at(ax.i0, ay.i1);
     let p11 = pixel_at(ax.i1, ay.i1);
-    let slack = (pixel_slack(x, photo.slack_x) + pixel_slack(y, photo.slack_y)) * 2.0;
+    let next = reaches_next_cell(ax, ay);
     for (var n = 0u; n < N; n = n + 1u) {
       let s00 = pixel_value(p00, n);
       let s10 = pixel_value(p10, n);
       let s01 = pixel_value(p01, n);
       let s11 = pixel_value(p11, n);
       let value = ay.w0 * (ax.w0 * s00 + ax.w1 * s10) + ay.w1 * (ax.w0 * s01 + ax.w1 * s11);
-      if (!(slack * max(max(s00, s10), max(s01, s11)) <= E * value)) { material_uncertain = true; }
+      // #716: the move of the value between the device's point and the reference's (the Speed module's rule).
+      var g = vec2<f32>(max(abs(s10 - s00), abs(s11 - s01)), max(abs(s01 - s00), abs(s11 - s10)));
+      if (next) { g = pixel_slopes(ax, ay, n); }
+      if (!(dx * g.x + dy * g.y <= E * value)) { material_uncertain = true; }
       lattice_values[out + n] = white_at(white, n) * value;
     }
   }
@@ -501,13 +541,33 @@ export function imagePlaneQualityPasses(runtime: WebGpuRuntime, gpu: DisplayView
   const lightTable = lit ? lit.table : new Float32Array(1);
   [floats[P.suHi], floats[P.suLo]] = dwSplit(geometry.scaleU); [floats[P.svHi], floats[P.svLo]] = dwSplit(geometry.scaleV); [floats[P.kHi], floats[P.kLo]] = dwSplit(k);
   [floats[P.halfWHi], floats[P.halfWLo]] = dwSplit(halfW); [floats[P.halfHHi], floats[P.halfHLo]] = dwSplit(halfH); [floats[P.aspectHi], floats[P.aspectLo]] = dwSplit(scene.aspect);
-  floats[P.slackX] = 1e-14 * k * halfW; floats[P.slackY] = 1e-14 * k * halfH; floats[P.black] = scene.paperBlackReflectance; floats[P.span] = scene.paperWhiteReflectance - scene.paperBlackReflectance;
+  floats[P.slackX] = imagePlanePointSlack(halfW, k, 1); floats[P.slackY] = imagePlanePointSlack(halfH, k, scene.aspect); floats[P.black] = scene.paperBlackReflectance; floats[P.span] = scene.paperWhiteReflectance - scene.paperBlackReflectance;
   const label = path === "dekker" ? "image-plane" : "image-plane-fma";
   const fractions = new Float64Array(3);
+  // #715: the photo pixels that lattice windows (first column, first row, columns, rows, cu, cv) reach: per axis the pixel coordinate of
+  // each window's first and last lattice point, two pixels of margin, clamped to the photo; `span` is the rows' extent before the floor.
+  const reach = (windows: readonly (readonly number[])[]): { col0: number; col1: number; row0: number; row1: number; span: number } => {
+    let left = Infinity, right = -Infinity, low = Infinity, high = -Infinity;
+    for (const [x0, y0, lw, lh, cu, cv] of windows) for (const t of [0, 1]) {
+      const X = (((x0! + t * (lw! - 1)) + cu!) * geometry.scaleU * k + 1) * halfW, Y = (scene.aspect - ((y0! + t * (lh! - 1)) + cv!) * geometry.scaleV * k) * halfH;
+      left = Math.min(left, X); right = Math.max(right, X); low = Math.min(low, Y); high = Math.max(high, Y);
+    }
+    const clamp = (x: number, n: number): number => Math.max(0, Math.min(n - 1, x)), col0 = clamp(Math.floor(left) - 2, scene.width), row0 = clamp(Math.floor(low) - 2, scene.height);
+    return { col0, col1: Math.max(col0, clamp(Math.floor(right) + 2, scene.width)), row0, row1: Math.max(row0, clamp(Math.floor(high) + 2, scene.height)), span: high - low };
+  };
   const passes: DisplayViewQualityImagePasses = {
-    gather, siteGamma: (IMAGE_PLANE_LATTICE_U + (lit ? IMAGE_PLANE_LIGHT_U : 0) + N + cw + ch + gather.groups.length + 4) * E, pointFloats: N,
+    gather, siteGamma: (IMAGE_PLANE_LATTICE_U + (lit ? IMAGE_PLANE_LIGHT_U : 0) + N + cw + ch + gather.groups.length + 4) * E,
     lattice: ["photivra-display-view-quality-photo-lattice:" + label, imagePlaneQualityLatticeWgsl(path)],
     sites: ["photivra-display-view-quality-photo-sites", IMAGE_PLANE_QUALITY_SITES_WGSL],
+    // #715: for the site window (x0, y0, w, h), the lattice values (N per point) and flags, and the band's records at most: their
+    // columns are every band's; their rows are those of any band of h site rows (the rows' extent, the margin and a row for the floors),
+    // so the host's band size holds for each band.
+    bandBytes(x0, y0, w, h): number {
+      const windows = gather.groups.map((g) => [x0 + g.dpMin, y0 + g.dqMin, w + g.dpSpan, h + g.dqSpan, g.cu, g.cv]), r = reach(windows);
+      let lattice = 0;
+      for (const [, , lw, lh] of windows) lattice += lw! * lh! * 4 * (N + 1);
+      return lattice + (r.col1 - r.col0 + 1) * Math.min(scene.height, Math.floor(r.span) + 7) * RECORD_WORDS * 4;
+    },
     async runLattice(band, pipeline, latticeParams, groupBuffer, groupWords, latticeTotal, signal): Promise<{ values: GPUBuffer; flags: GPUBuffer; resolved: number }> {
       let values = band.buffer("photivra-display-view-photo-lattice", latticeTotal * 4 * N, BUFFER_USAGE.STORAGE | BUFFER_USAGE.COPY_SRC);
       let flags = band.buffer("photivra-display-view-photo-lattice-flags", latticeTotal * 4, BUFFER_USAGE.STORAGE | BUFFER_USAGE.COPY_SRC);
@@ -522,33 +582,33 @@ export function imagePlaneQualityPasses(runtime: WebGpuRuntime, gpu: DisplayView
     }
   };
   function bandGroup(scope: GpuResourceScope, layout: GPUBindGroupLayout, groupWords: Uint32Array): GPUBindGroup {
-      // The pixel rows the band's lattice windows reach (the print-local v of each window's first and last rows, two rows of margin).
+      // The pixels the band's lattice windows reach (#715: rows and columns), built and written UPLOAD_CHUNK_BYTES of rows at a time.
       const ints = new Int32Array(groupWords.buffer, groupWords.byteOffset, groupWords.length), groupFloats = new Float32Array(groupWords.buffer, groupWords.byteOffset, groupWords.length);
-      let low = Infinity, high = -Infinity;
-      for (let gi = 0; gi < gather.groups.length; gi++) {
-        const base = gi * DISPLAY_VIEW_QUALITY_GROUP_WORDS, cv = groupFloats[base + 7]!;
-        for (const q of [ints[base + 1]!, ints[base + 1]! + groupWords[base + 3]! - 1]) {
-          const Y = (scene.aspect - (q + cv) * geometry.scaleV * k) * halfH;
-          low = Math.min(low, Y); high = Math.max(high, Y);
+      const { col0, col1, row0, row1 } = reach(gather.groups.map((_, gi) => {
+        const base = gi * DISPLAY_VIEW_QUALITY_GROUP_WORDS;
+        return [ints[base]!, ints[base + 1]!, groupWords[base + 2]!, groupWords[base + 3]!, groupFloats[base + 6]!, groupFloats[base + 7]!];
+      }));
+      const columns = col1 - col0 + 1, rowBytes = columns * RECORD_WORDS * 4, bytes = (row1 - row0 + 1) * rowBytes;
+      if (bytes > runtime.maximumStorageBindingBytes) throw new ImageKernelExecutionError("insufficient-limits", "A band's pixel records exceed the device's storage binding limit.");
+      const buffer = scope.buffer("photivra-display-view-photo-records", bytes, BUFFER_USAGE.STORAGE | BUFFER_USAGE.COPY_DST), chunk = Math.max(1, Math.floor(UPLOAD_CHUNK_BYTES / rowBytes));
+      for (let j0 = row0; j0 <= row1; j0 += chunk) {
+        const j1 = Math.min(row1 + 1, j0 + chunk), records = new Uint32Array((j1 - j0) * columns * RECORD_WORDS), recordFloats = new Float32Array(records.buffer);
+        for (let j = j0, o = 0; j < j1; j++) for (let i = col0; i <= col1; i++, o += RECORD_WORDS) {
+          const cell = scene.pixelLattice(j * scene.width + i, fractions);
+          let word = Math.floor(cell / 25) | ((Math.floor(cell / 5) % 5) << 2) | ((cell % 5) << 4);
+          for (let c = 0; c < 3; c++) {
+            const f = fractions[c]!, high1 = f > 0.5;
+            if (high1) word |= 1 << (6 + c);
+            recordFloats[o + 1 + c] = high1 ? 1 - f : f;
+          }
+          records[o] = word;
         }
+        runtime.device.queue.writeBuffer(buffer, (j0 - row0) * rowBytes, records.buffer, 0, records.byteLength);
       }
-      const row0 = Math.max(0, Math.min(scene.height - 1, Math.floor(low) - 2)), row1 = Math.max(row0, Math.min(scene.height - 1, Math.floor(high) + 2));
-      const records = new Uint32Array((row1 - row0 + 1) * scene.width * RECORD_WORDS), recordFloats = new Float32Array(records.buffer);
-      for (let j = row0, o = 0; j <= row1; j++) for (let i = 0; i < scene.width; i++, o += RECORD_WORDS) {
-        const cell = scene.pixelLattice(j * scene.width + i, fractions);
-        let word = Math.floor(cell / 25) | ((Math.floor(cell / 5) % 5) << 2) | ((cell % 5) << 4);
-        for (let c = 0; c < 3; c++) {
-          const f = fractions[c]!, high1 = f > 0.5;
-          if (high1) word |= 1 << (6 + c);
-          recordFloats[o + 1 + c] = high1 ? 1 - f : f;
-        }
-        records[o] = word;
-      }
-      const bandParams = params.slice(0);
-      new Uint32Array(bandParams)[P.row0] = row0;
-      if (records.byteLength > runtime.maximumStorageBindingBytes) throw new ImageKernelExecutionError("insufficient-limits", "A band's pixel records exceed the device's storage binding limit.");
+      const bandParams = params.slice(0), bandWords = new Uint32Array(bandParams);
+      bandWords[P.row0] = row0; bandWords[P.col0] = col0; bandWords[P.columns] = columns;
       return runtime.device.createBindGroup({ layout, entries: [
-        { binding: 0, resource: { buffer: scope.upload("photivra-display-view-photo-records", records, BUFFER_USAGE.STORAGE) } },
+        { binding: 0, resource: { buffer } },
         { binding: 1, resource: { buffer: scope.upload("photivra-display-view-photo-params", new Uint8Array(bandParams), BUFFER_USAGE.UNIFORM) } },
         { binding: 2, resource: { buffer: scope.upload("photivra-display-view-photo-nodes", nodeTable, BUFFER_USAGE.STORAGE) } },
         { binding: 3, resource: { buffer: scope.upload("photivra-display-view-photo-light", lightTable, BUFFER_USAGE.STORAGE) } }] });

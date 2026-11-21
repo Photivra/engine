@@ -84,8 +84,9 @@ describe("display view with lens.catalogue (#569)", () => {
     const prepared = await prepareDisplayView(options, { gpu: "auto" });
     const rendered = await prepared.render(view);
     expect(Array.from(rendered.image.samples)).toEqual(Array.from(whole.image.samples));
+    // #661: a still catalogue view in field zones goes to the GPU lens passes, so gpu "auto" asks for a device; Node has none.
     expect(rendered.diagnostics.fast.execution.backend).toBe("cpu-reference");
-    expect(rendered.diagnostics.fast.execution.fallbackReason).toBe("unsupported-on-backend");
+    expect(rendered.diagnostics.fast.execution.fallbackReason).toBe("webgpu-unavailable");
     prepared.dispose();
   }, scaledTimeout(240_000));
 

@@ -190,10 +190,16 @@ const OPT_IN_KIT_MODULES = ["facade/opt-in-kit.ts", "facade/catalogue-lens-optic
 const EXPORT_KIT_MODULES = ["facade/export-kit.ts", "output/print-jpeg.ts", "capture/export-jpeg.ts", "output/png-encoder.ts", "output/text-metadata-writers.ts"];
 const isExport = (chunk: Bundle["chunks"][number]): boolean => chunk.modules.has("facade/export-kit.ts");
 const isOnDemand = (chunk: Bundle["chunks"][number]): boolean => QUALITY_ON_DEMAND_MODULES.some((id) => chunk.modules.has(id));
+/**
+ * #661 (owner decision 2026-11-21): the catalogue-lens passes are one chunk that loads only for a catalogue-lens view on the GPU. It is
+ * its own measured row ("lens"), not part of the fast or on-demand rows, with its own limit: its measurement rounded up to the next 100 B.
+ */
+const isLens = (chunk: Bundle["chunks"][number]): boolean => chunk.modules.has("gpu/display-view-lens-gpu.ts");
 describe("the app's capture-worker shape", () => {
   it("keeps the fast worker, the on-demand Quality chunks and the export kit within their measured sizes", async () => {
     const worker = await bundle(WORKER_SHAPE);
-    const onDemand = worker.chunks.filter(isOnDemand), exportKit = worker.chunks.filter(isExport), fast = worker.chunks.filter((c) => !isOnDemand(c) && !isExport(c));
+    const onDemand = worker.chunks.filter(isOnDemand), exportKit = worker.chunks.filter(isExport), lensKit = worker.chunks.filter(isLens);
+    const fast = worker.chunks.filter((c) => !isOnDemand(c) && !isExport(c) && !isLens(c));
     const sum = (chunks: Bundle["chunks"]): number => chunks.reduce((total, c) => total + c.gzip, 0);
     // Owner decision 2026-11-16 ("Raise limits slightly"), for 2.25.0's named-lens work (#628-#633): measured
     // 338,815 B fast and 47,358 B on demand, limits set to those rounded up to the next 100 B.
@@ -202,8 +208,9 @@ describe("the app's capture-worker shape", () => {
     // 336,612 B fast, 51,999 B on demand, 10,399 B export): 336,616 B fast, 51,987 B on demand, 10,399 B export, 25 chunks as
     // with 1.2.9. Each limit is its measurement rounded up to the next 100 B; limits only go down.
     // 2.28.0 step 4 merged (owner decisions 2026-11-21 on #658 and #691): the groups' fast-row additions measured 337,719 B on the
-    // integration tree, limit set to that rounded up to the next 100 B.
-    expect(sum(fast)).toBeLessThanOrEqual(338_500);
+    // integration tree, limit set to that rounded up to the next 100 B. 2.28.0 steps 5 and 7 merged (owner rule 2026-11-21, #691):
+    // 337,888 B on the integration tree, limit rounded up to the next 100 B.
+    expect(sum(fast)).toBeLessThanOrEqual(337_900);
     // 2.26.0 (owner decision 2026-11-16, "Raise to 49,400 B"): the on-demand row measured 49,382 B on release-2.26.0 after the
     // export kit moved out (flash #639 and hand-shake #641 in the opt-in kit, the record module from #646), limit rounded up to the
     // next 100 B. The fast limit stays 338,900 B.
@@ -216,8 +223,9 @@ describe("the app's capture-worker shape", () => {
     // kits and the GPU Quality host (owner decision 2026-11-21) 50,178 B. The limit is that measurement rounded up to the next
     // 100 B; the target stays 49,400 B (owner decision 2026-11-21), and the rest of #658 is open.
     // 2.28.0 step 4 merged (owner decisions 2026-11-21): 50,391 B on the integration tree (#662's and #685's Quality kit additions),
-    // limit rounded up to the next 100 B.
-    expect(sum(onDemand)).toBeLessThanOrEqual(51_500);
+    // limit rounded up to the next 100 B. 2.28.0 steps 5 and 7 merged (owner rule 2026-11-21, #691): 51,744 B on the integration
+    // tree (step 5's output changes and #715's band-size hook), limit rounded up to the next 100 B.
+    expect(sum(onDemand)).toBeLessThanOrEqual(51_800);
     // 2.26.0 (owner decision 2026-11-16, "Move export code out"): the export kit's row, measured at 10,403 B on release-2.26.0 (the JPEG
     // and PNG encoders, the export JPEG coder and the text-metadata writers), limit rounded up to the next 100 B. With it the fast row
     // measured 331,482 B (340,300 B before the move: the split costs 1,585 B in all, the kit compressing without the entry's dictionary
@@ -225,7 +233,10 @@ describe("the app's capture-worker shape", () => {
     expect(exportKit).toHaveLength(1);
     // #691 (rolldown 1.2.14): 10,399 B, limit 10,500 → 10,400 B. 2.28.0 step 4 merged: 10,399 B, unchanged.
     expect(sum(exportKit)).toBeLessThanOrEqual(10_400);
-    expect(sum(fast) + sum(onDemand) + sum(exportKit)).toBe(worker.totalGzip);
+    // #661: the lens row, measured at 10,200 B; limit its measurement rounded up to the next 100 B.
+    expect(lensKit).toHaveLength(1);
+    expect(sum(lensKit)).toBeLessThanOrEqual(10_200);
+    expect(sum(fast) + sum(onDemand) + sum(exportKit) + sum(lensKit)).toBe(worker.totalGzip);
     // #581: the image-plane scene's module, lattice data and GPU module are reachable only through prepareImagePlaneScenes().
     expect([...worker.lazyModules, ...worker.modules.keys()].filter((id) => /image-plane(?!-support)/u.test(id))).toEqual([]);
     // #652: the layered chart scene code (the scene module, its provider, setup and sum) is reachable only through
@@ -251,6 +262,15 @@ describe("the app's capture-worker shape", () => {
     const chunk = quality[0]!;
     expect(chunk.isEntry).toBe(false);
     expect([...chunk.modules].sort()).toEqual(["gpu/display-view-quality-gpu.ts", "gpu/wgsl-display-view-quality-kernel.ts", "gpu/wgsl-exact-sum.ts"]);
+    // #661 (layout B): the catalogue-lens passes are their own chunk, which only the Quality host's dynamic import reaches. It imports
+    // no chunk statically (the Quality host hands it what it takes), so it shares no module with the session or Quality chunk, and the
+    // session chunk stays one chunk: exactly four chunks hold gpu/ modules (session, Quality, coupled steps, lens).
+    const lens = worker.chunks.filter(isLens);
+    expect(lens.map((c) => [...c.modules].sort())).toEqual([["gpu/display-view-lens-gpu.ts", "gpu/wgsl-display-view-lens-kernel.ts"]]);
+    expect(lens[0]!.imports).toEqual([]);
+    expect(worker.chunks.filter((c) => c.imports.includes(lens[0]!.fileName))).toEqual([]);
+    expect(worker.chunks.filter((c) => c.dynamicImports.includes(lens[0]!.fileName)).map((c) => c.fileName)).toEqual([chunk.fileName]);
+    expect(worker.chunks.filter((c) => [...c.modules].some((id) => id.startsWith("gpu/")))).toHaveLength(4);
     expect(worker.chunks.filter((c) => c.imports.includes(chunk.fileName))).toEqual([]);
     const loaders = worker.chunks.filter((c) => c.dynamicImports.includes(chunk.fileName));
     expect(loaders.map((c) => c.modules.has("gpu/display-view-gpu-renderer.ts"))).toEqual([true]);

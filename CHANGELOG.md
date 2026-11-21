@@ -469,6 +469,39 @@ Each item below is one commit of the serial output-change lane, with its measure
   336,700 → 337,800 B, on demand 50,200 → 50,400 B; export stays 10,400 B (docs/DISPLAY_VIEW.md, "Bundle size"). The 49,400 B
   on-demand target stands.
 
+- **Image-plane prints: the moved-value flag no longer grows with the photo's pixel coordinates (#716).** The image-plane Speed
+  module, the image-plane Quality lattice pass and their emulation bound a bilinear value's move under the point's error by the
+  neighboring pixels' differences in the cells the error reaches (zero in a flat area) and use a derived bound for that error,
+  2⁻⁴⁴·(|X| + half·(extent + 2k)) pixels instead of 4·2⁻⁴⁰·(|X| + 1) (docs/WEBGPU.md, "The image-plane module"). The fixture
+  photo at 6000 × 4000 fitted inside the 600 × 400 frame flags 0 of 27,405 display pixels in the 203 × 135 Speed view (2,611
+  before); a noisy gray ramp at 17000 × 1400, 0 (768). GPU results change for the pixels that were recomputed on the host before:
+  they now carry the GPU's value inside the declared bound (samples within one code). The shader text changes; CPU results, hash
+  locks and the bundle rows are unchanged (the image-plane code is outside the capture worker's shape).
+
+- **Image-plane prints in the Quality passes build only the pixel records a band reaches (#715).** Each band built and uploaded a
+  16-byte record for every column of the photo over the rows its lattice windows reach, in one piece, and the Quality host did not
+  count them in its band size, so a band whose records passed the device's storage binding limit threw `insufficient-limits` and
+  `gpu: "auto"` rendered the view on the CPU. The records now cover the columns the band reaches too, are written 4 MiB of rows at
+  a time, and the host counts them (`DisplayViewQualityImagePasses.bandBytes`) and splits such a band. Measured on the float32
+  emulation (`syntheticPhoto(6000, 4000)` fitted inside the frame, diffraction, 203 × 135 view): a 48 × 36 region builds 28.9 MB of
+  records in 45–53 ms (113.3 MB in 242–325 ms before); a 24 × 135 region 52.5 MB in 76–78 ms (384 MB in 834–873 ms), and with a
+  128 MiB binding limit it renders on the device instead of falling back. Values are unchanged (banded renders equal one band byte
+  for byte; the Quality image-plane cases' bytes equal the previous commit's). On-demand row 50,391 → 50,400 B (limit 50,400 B):
+  the host's hook replaces the per-point multiplier, and the image-plane site pass's node count is read from the gather.
+
+- **Catalogue-lens display views on the GPU (#661).** A still, rectilinear `lens.catalogue` view in field zones (its fast method),
+  without `flare`, on a chart or `material-layers` scene, now renders on `webgpu-f32` with `gpu: "auto"`; before, every catalogue
+  view ran the CPU reference labelled `unsupported-on-backend`. Passes 1 and 2 (the lens lattice in double-float32, the
+  pre-integrated points, the sites through each zone's PSF) are the 2.27.0 G1 work (#655), rebased; pass 3, the finishing and the
+  recomputation of flagged pixels (through the view's own lens signal) are the Quality host's. `simulateCapture` keeps the raw
+  geometry and lens-signal setup of a radial-distortion view for `setup.gpu.lens`, and `DisplayViewGpuRequest.lensView` describes it;
+  rotation, hand shake, a moving subject, `fast: false`, a fisheye and `flare` stay on the CPU with the reason. The passes use the
+  renderer's composite-kernel probe (no second cache per device). Layout B of the 2.28.0 review: the lens code is its own on-demand
+  chunk, which only the Quality host loads, importing no module statically; its bundle row "lens" measures 10,200 B (owner decision
+  2026-11-21). Other rows: on demand 50,700 B, fast worker 337,192 B, export 10,398 B. CPU results are unchanged; the lens shaders'
+  text is G1's. Conformance: every value inside its bound on the emulation, SwiftShader and the Apple M5 Pro. The acceptance
+  harness gains an `app-lens` case for the public path.
+
 ### Benchmarks
 
 - **The batch-figure benchmark and its hash locks (#670, 2.28.0 step 2); no package, API, output or bundle change.**

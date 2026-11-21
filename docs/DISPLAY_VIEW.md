@@ -1848,6 +1848,31 @@ root exports of the built package, minified, gzip level 9; `test/capture-bundle.
   The fast row's +1,163 B is the other groups' additions together, not measured one by one; the on-demand row's +213 B
   includes #662's (+95 B) and #685's (+44 B) Quality kit code as measured on their branch. The 49,400 B on-demand target
   stays.
+
+  **2.28.0 step 7 (#661, owner decisions 2026-11-21 on #661 and #691).** The catalogue-lens passes are their own on-demand chunk
+  and their own row, "lens" (10,200 B, limit 10,200 B). The GPU Quality host's lens hook and loader and the facade wiring add to the
+  other rows: on demand 50,700 B, fast worker 337,192 B (the entry's small chunks fold differently once the lens chunk exists; 24
+  chunks), export 10,398 B. Per the owner's rule for 2.28.0 (each limit the release tree's measurement rounded up to the next 100 B,
+  at or below 2.27.0's: fast 338,900 B, on demand 52,000 B) the branch's limits are fast 337,200 B and on demand 50,700 B; they are
+  set again at release integration.
+
+  **2.28.0 step 7 (#715).** The GPU Quality host counts an image-plane print's pixel records in its band size through the print's
+  passes (`bandBytes`, which replaces the per-point multiplier), and reads the print's site-pass node count from the gather:
+  on demand 50,400 B (+9 B, at its limit); fast worker 337,720 B and export 10,399 B unchanged.
+
+  **2.28.0 steps 5 and 7 merged (owner rule 2026-11-21, #691).** Measured with rolldown 1.2.14 on the integration tree with step 5's
+  output changes and step 7 merged; each limit is that measurement rounded up to the next 100 B, at or below 2.27.0's limits
+  (fast 338,900 B, on demand 52,000 B):
+
+  | Row (worker shape, gzip) | Step 5 alone | Step 7 alone | Merged | Limit |
+  | --- | --- | --- | --- | --- |
+  | fast worker | 338,421 B | 337,192 B | **337,888 B** | 337,900 B |
+  | on demand | 51,446 B | 50,400 B | **51,744 B** | 51,800 B |
+  | export | 10,399 B | 10,398 B | **10,396 B** | 10,400 B (unchanged) |
+  | lens | (no row) | 10,200 B | **10,200 B** | 10,200 B (unchanged) |
+
+  The rows are not additive: the entry's small chunks fold differently once the lens chunk exists, so the merged fast row is
+  below step 5's alone.
 - **Shipped shaders are minified (2.14, #536).** `npm run build` strips comments and indentation from the WGSL source
   (`scripts/minify-wgsl-dist.mjs`, see [WebGPU, Shipped shader text](WEBGPU.md#shipped-shader-text)). Measured on the app's
   production build (Vite 8, app 0.50.0 at `a82a5eb`, engine `main` at `42ec9d8` packed before and after): the GPU session
@@ -1965,7 +1990,11 @@ with that reason for `"require"`:
    own `signal` aborts the acquisition. A disposed accelerator handle is a configuration error; one on the CPU reference
    gives its own fallback reason (`webgpu-unavailable` when it has none).
 4. A request with `lens.projection`, `lens.distortion`, `lens.vignetting` or camera rotation (#563) gives
-   `unsupported-on-backend` before the device step, with no adapter requested: the CPU reference renders it.
+   `unsupported-on-backend` before the device step, with no adapter requested: the CPU reference renders it. #661: a
+   `lens.catalogue` view with a radial distortion is the exception; the request describes it (`lensView`) and the renderer
+   takes a still, rectilinear view in field zones without `flare` on its lens passes ([WebGPU, Catalogue lenses on the
+   GPU](WEBGPU.md#catalogue-lenses-on-the-gpu-655)); rotation, hand shake, a moving subject, `fast: false`, a fisheye and
+   `flare` run the CPU reference labelled `unsupported-on-backend` with the reason.
 5. The renderer must support the request (AHD, diffraction, the anti-aliasing filter, the pixel aperture, the tone curve
    and the scene kind: a chart or `material-layers`, not a caller function): `unsupported-on-backend` otherwise, and a device
    the view acquired is released.
