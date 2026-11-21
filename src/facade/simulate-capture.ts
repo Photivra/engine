@@ -2218,6 +2218,11 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
     await optInKit.load();
   }
   if (subject && pupil) fail("motion.subject cannot be combined with lens.pupilSampling.");
+  // #688: a subject at rest (no velocity, no rotation) is the still scene, which it equals; it renders as one.
+  if (subject && !subject.vx && !subject.vy && !subject.omega) {
+    assume("motion.subject", "model", { velocityMPerSec: { x: 0, y: 0 }, angularVelocityRadPerSec: 0, atRest: true }, "The subject is at rest: the scene is rendered still.");
+    subject = undefined;
+  }
   const angular = { pitch: 0, yaw: 0, roll: 0 };
   if (motionOptions.angularVelocityRadPerSec !== undefined) {
     const a = allowKeys(motionOptions.angularVelocityRadPerSec, "motion.angularVelocityRadPerSec", ["pitch", "yaw", "roll"]);

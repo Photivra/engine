@@ -27,6 +27,13 @@
 - **Fixed: `SIMULATE_CAPTURE_FAST_METHODS` is frozen all the way down (#683, its facade part).** Only the array was frozen, so a
   caller could edit an entry's records in place. Data only; captures and display views do not import it. Tests:
   `test/fast-methods-registry.test.ts`.
+- **Faster: a `motion.subject` at rest (#688).** A subject record with no velocity and no rotation (`subject: {}` or zeros)
+  took the moving-subject path with 16 (exact) or 8 (fast) temporal midpoints for the picture of the still scene. It now
+  renders as the still scene: 160 × 120 slanted edge 5,157 ms → 25 ms exact and 535 ms → 16 ms fast (best of two, paired,
+  machine under load), RAW codes and samples identical. The record is still validated (an out-of-range value is refused, as
+  is the combination with `lens.pupilSampling`). Reported metadata changes for this input: the `sensor.temporalSampleCount`
+  assumption (1), the `motion.subject` assumption (`atRest: true`), no `diagnostics.fast.applied["motion.subject"]`, and
+  `diagnostics.providerEvaluationCount` (that of the still request). Tests: `test/simulate-capture-subject-motion.test.ts`.
 - **Tooling, CI and tests only (2.28.0 step 1); no package, API, output or bundle change.**
   - *Coverage gates decide per shard (#666, with `ci-07`).* Each coverage shard uploads one part, its blob report or a marker
     naming the `coverage` proof it found; `.github/coverage-parts.mjs` merges ten blobs with the thresholds enforced, passes a

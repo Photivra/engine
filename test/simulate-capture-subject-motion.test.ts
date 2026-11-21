@@ -46,13 +46,33 @@ describe("subject motion (#551)", () => {
       expect(zero.assumptions.find((a) => a.id === "sensor.temporalSampleCount")?.value ?? zero.assumptions.find((a) => a.id === "fast.motion.subject")?.value).toBeDefined();
       expect(samples(zero)).toEqual(samples(still));
       expect(samples(region)).toEqual(samples(still));
-      expect(zero.diagnostics.fast.applied["motion.subject"]).toBe(fast);
+      // #688: a subject at rest renders as the still scene, so no subject fast method is reported.
+      expect(zero.diagnostics.fast.applied["motion.subject"]).toBeUndefined();
     }
     // A chart scene: the still capture takes the tabulated path, the moving one the environment chain (the same sums).
     const star = { scene: { preset: "siemens-star" as const }, output: { width: 16, height: 12 }, fast: false };
     const stillStar = await simulateCapture({ ...star, sensor: { temporalSampleCount: 8 } }), zeroStar = await simulateCapture({ ...star, motion: { subject: {} } });
     expect(samples(zeroStar)).toEqual(samples(stillStar));
   }, scaledTimeout(60_000));
+
+  it("renders a subject at rest as the still scene: same RAW and samples, one temporal sample, the still request's queries (#688)", async () => {
+    for (const fast of [true, false]) for (const scene of [edge, { preset: "slanted-edge" as const }]) {
+      const options = { ...request(32, 24, { fast }), scene } as SimulateCaptureOptions;
+      const still = await simulateCapture(options);
+      for (const subject of [{}, { velocityMPerSec: { x: 0, y: 0 } }, { velocityMPerSec: { x: 0 }, angularVelocityRadPerSec: 0, region: { centerXM: 0, centerYM: 0, widthM: 0.004, heightM: 0.002 } }]) {
+        const zero = await simulateCapture({ ...options, motion: { subject } });
+        expect(zero.raw.codes).toEqual(still.raw.codes);
+        expect(zero.image.samples).toEqual(still.image.samples);
+        expect(zero.assumptions.find((a) => a.id === "sensor.temporalSampleCount")?.value).toBe(1);
+        // Before #688: 16 (exact) or 8 (fast) times as many, through the moving-subject path.
+        expect(zero.diagnostics.providerEvaluationCount).toBeLessThanOrEqual(still.diagnostics.providerEvaluationCount);
+        expect(zero.assumptions.find((a) => a.id === "motion.subject")?.value).toMatchObject({ atRest: true });
+      }
+    }
+    const view = await simulateDisplayView({ ...request(32, 24), motion: { subject: {} } }, { width: 16, height: 12 }), stillView = await simulateDisplayView(request(32, 24), { width: 16, height: 12 });
+    expect(view.image.samples).toEqual(stillView.image.samples);
+    await expect(simulateCapture({ ...request(16, 8), motion: { subject: { velocityMPerSec: { x: 1e5 } } } })).rejects.toThrow(InvalidConfigurationError);
+  }, scaledTimeout(120_000));
 
   it("blurs a moving edge over v·T·m on the sensor", async () => {
     const still = await simulateCapture(request(64, 8));
