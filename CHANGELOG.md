@@ -22,6 +22,12 @@
     (docs/NUMERICAL_CORRECTNESS.md).
   - *Proof uploads and the macOS check (`ci-20`, `ci-21` in #703).* A failed proof upload no longer fails a job whose work passed;
     `hash locks (macos-latest)` drops `continue-on-error` and is documented as the blocking required check it is.
+- **Gates (2.28.0 step 4, group CI); no package, API, output or bundle change.**
+  - *Browser-surface gate (#695, with `capture-12`).* The walk from `src/index.ts` follows `import()` and `require()` as well
+    as static imports (333 modules, from 318: the 15 published modules loaded only on demand), fails on every Node built-in and
+    on any non-relative specifier, names a published `src/` module that no import reaches, and type-checks `src/` (without
+    `src/api/`) without Node's type definitions (`tsconfig.browser.json`), so a Node global such as `process` fails. The walk
+    is in `scripts/lib/browser-surface.mjs`, with tests. `src/` is unchanged; it already compiles without Node's types.
 
 ## 2.27.0 — published November 19, 2026
 

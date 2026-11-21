@@ -23,6 +23,7 @@
   "test/browser-native-reference-plan.test.ts": 145,
   "test/browser-native-reference-site.test.ts": 134,
   "test/browser-native-reference-source.test.ts": 5,
+  "test/browser-surface-gate.test.ts": 600,
   "test/c2pa-embed.test.ts": 4550,
   "test/calculation-quality.test.ts": 15,
   "test/calculation-result-finite.test.ts": 332,

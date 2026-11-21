@@ -1,104 +1,54 @@
 // SPDX-License-Identifier: Apache-2.0
 
-import { readFile } from "node:fs/promises";
+/**
+ * Browser-surface gate: the published package must stay browser-safe (AGENTS.md, "Code").
+ *
+ * 1. Walk the source graph from src/index.ts, following static imports, re-exports, `import()` and `require()`; every
+ *    Node built-in and every non-relative specifier fails (the package has no runtime dependencies), as does reaching
+ *    src/api/ (scripts/lib/browser-surface.mjs, #695).
+ * 2. Every src/ module that package.json's `files` would publish must be reached by that walk, so no loading style can
+ *    hide shipped code from step 1 (`capture-12`).
+ * 3. Type-check src/ (src/api/ excepted) without Node's type definitions (tsconfig.browser.json), so a Node global such
+ *    as `process`, `Buffer` or `__dirname` fails here rather than in a browser.
+ */
+import { execFileSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 import path from "node:path";
 import { stdout } from "node:process";
+import ts from "typescript";
+import { unvisitedPublished, walkSourceGraph } from "./lib/browser-surface.mjs";
 
 const sourceRoot = path.resolve("src");
-const entrypoint = path.join(sourceRoot, "index.ts");
-const visited = new Set();
-const violations = [];
+const { visited, violations } = walkSourceGraph(path.join(sourceRoot, "index.ts"), {
+  sourceRoot,
+  read: (file) => readFileSync(file, "utf8")
+});
 
-function extractSpecifiers(source) {
-  const specifiers = [];
-  const fromPattern = /\bfrom\s+["']([^"']+)["']/gu;
-  const sideEffectPattern = /\bimport\s+["']([^"']+)["']/gu;
-
-  for (const pattern of [fromPattern, sideEffectPattern]) {
-    for (const match of source.matchAll(pattern)) {
-      const specifier = match[1];
-      if (specifier !== undefined) {
-        specifiers.push(specifier);
-      }
-    }
-  }
-
-  return specifiers;
+const manifest = JSON.parse(readFileSync("package.json", "utf8"));
+const files = execFileSync("git", ["ls-files", "--cached", "--others", "--exclude-standard", "--", "src"], { encoding: "utf8" })
+  .split("\n").filter(Boolean);
+const reached = new Set([...visited].map((file) => path.relative(".", file).replaceAll("\\", "/")));
+for (const module of unvisitedPublished(files, reached, manifest.files)) {
+  violations.push(`${module} is published but not reachable from src/index.ts by any import, so this gate would not read it.`);
 }
 
-function resolveSourceImport(importer, specifier) {
-  if (!specifier.startsWith(".")) {
-    return null;
-  }
-
-  const resolved = path.resolve(path.dirname(importer), specifier);
-  if (resolved.endsWith(".js")) {
-    return resolved.slice(0, -3) + ".ts";
-  }
-  if (path.extname(resolved) === "") {
-    return resolved + ".ts";
-  }
-  return resolved;
+const config = ts.readConfigFile("tsconfig.browser.json", ts.sys.readFile);
+if (config.error) throw new Error(ts.flattenDiagnosticMessageText(config.error.messageText, "\n"));
+const parsed = ts.parseJsonConfigFileContent(config.config, ts.sys, ".");
+const program = ts.createProgram(parsed.fileNames, parsed.options);
+for (const diagnostic of ts.getPreEmitDiagnostics(program)) {
+  const message = ts.flattenDiagnosticMessageText(diagnostic.messageText, " ");
+  const where = diagnostic.file
+    ? `${path.relative(".", diagnostic.file.fileName)}:${diagnostic.file.getLineAndCharacterOfPosition(diagnostic.start ?? 0).line + 1}`
+    : "tsconfig.browser.json";
+  violations.push(`${where} does not type-check without Node's types: ${message}`);
 }
-
-async function visit(file) {
-  if (visited.has(file)) {
-    return;
-  }
-  visited.add(file);
-
-  if (!file.startsWith(sourceRoot + path.sep)) {
-    violations.push(
-      `${path.relative(sourceRoot, file)} escapes the engine source root.`
-    );
-    return;
-  }
-
-  const relative = path.relative(sourceRoot, file).replaceAll("\\", "/");
-  if (relative.startsWith("api/")) {
-    violations.push(
-      `${relative} is Node-only POC API code reachable from the root package export.`
-    );
-    return;
-  }
-
-  const source = await readFile(file, "utf8");
-  for (const specifier of extractSpecifiers(source)) {
-    if (
-      specifier.startsWith("node:") ||
-      specifier === "fs" ||
-      specifier === "path" ||
-      specifier === "http" ||
-      specifier === "https" ||
-      specifier === "net" ||
-      specifier === "tls" ||
-      specifier === "child_process" ||
-      specifier === "worker_threads"
-    ) {
-      violations.push(
-        `${relative} imports Node-only module "${specifier}" from the browser package graph.`
-      );
-      continue;
-    }
-
-    const dependency = resolveSourceImport(file, specifier);
-    if (dependency !== null) {
-      await visit(dependency);
-    }
-  }
-}
-
-await visit(entrypoint);
 
 if (violations.length > 0) {
-  throw new Error(
-    [
-      "Browser package surface check failed:",
-      ...violations.map((violation) => `- ${violation}`)
-    ].join("\n")
-  );
+  throw new Error(["Browser package surface check failed:", ...violations.map((violation) => `- ${violation}`)].join("\n"));
 }
 
 stdout.write(
-  `Browser package surface check passed across ${visited.size} reachable source modules.\n`
+  `Browser package surface check passed across ${visited.size} reachable source modules; ` +
+    `${parsed.fileNames.length} source files type-check without Node's types.\n`
 );
