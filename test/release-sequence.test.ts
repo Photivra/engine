@@ -735,10 +735,26 @@ describe("release sequence fail-closed boundaries", () => {
   });
 });
 
-describe("sub-object validation (capture-20)", () => {
+describe("bracket policy and sub-object validation (#720, capture-20)", () => {
   const input = (patch: Record<string, unknown>): Parameters<typeof resolveReleaseSequence>[0] => ({ sequenceId: "v", releaseRequestTimeSeconds: 0,
     sequenceSeedUint32: 1, drive: { kind: "single" }, bracket: { kind: "none" }, requestedCadenceFps: 2, baseState: baseState(), releaseCapabilities: releaseCapabilities(),
     exposureCapabilities: exposureCapabilities(), ...patch } as never);
+  const focusStates = [{ kind: "finite", distanceM: 1 }, { kind: "finite", distanceM: 2 }, { kind: "infinity" }];
+  const holey = [...focusStates];
+  delete holey[1];
+  it("refuses an unknown bracket kind, a missing kind and a list that is not a dense array", () => {
+    const noFocus = parseGenericReleaseCapabilityProfile({ ...releaseCapabilities(), focusBracketing: { availability: { value: "unsupported", evidence: evidence("none") } } });
+    expect(() => resolveReleaseSequence(input({ releaseCapabilities: noFocus, bracket: { kind: "focus", focusStates } }))).toThrow("Focus bracketing is not supported");
+    for (const bracket of [{ kind: "Focus", focusStates }, { kind: "white-balance", focusStates }, { focusStates }]) {
+      expect(() => resolveReleaseSequence(input({ releaseCapabilities: noFocus, bracket }))).toThrow(InvalidConfigurationError);
+    }
+    for (const bracket of [{ kind: "focus", focusStates: { length: NaN } }, { kind: "focus", focusStates: { length: 2.5, 0: focusStates[0], 1: focusStates[1], 2: focusStates[2] } },
+      { kind: "focus", focusStates: holey }, { kind: "exposure", axis: "iso", offsetsStops: { length: 2, 0: 0, 1: 1 } },
+      { kind: "exposure", axis: "iso", offsetsStops: [0, 1], focusStates }, { kind: "none", axis: "iso" }]) {
+      expect(() => resolveReleaseSequence(input({ bracket }))).toThrow(InvalidConfigurationError);
+    }
+    expect(resolveReleaseSequence(input({ bracket: { kind: "focus", focusStates } })).frames).toHaveLength(3);
+  });
   it("refuses a missing or malformed sub-object with a domain error", () => {
     for (const key of ["drive", "bracket", "baseState", "releaseCapabilities", "exposureCapabilities"]) {
       expect(() => resolveReleaseSequence(input({ [key]: undefined }))).toThrow(InvalidConfigurationError);

@@ -71,6 +71,10 @@
     `InvalidConfigurationError`. `baseState.automation` must hold `ae`, `af` and `awb`, each `"manual"`, `"locked"` or
     `"continuous"`, and `baseState.exposure` only its three settings (a stray field was copied or ignored before). Valid inputs
     resolve unchanged.
+  - *Unknown bracket kinds (#720).* `resolveReleaseSequence` treated any `bracket.kind` other than `"none"` and `"exposure"`
+    (a typo such as `"Focus"`, `"white-balance"`, or no kind) as a focus bracket and skipped the profile's focus-bracketing check,
+    and accepted a non-array or sparse `focusStates` / `offsetsStops` (0 frames, or `requestedFrameCount: 2.5`). Each now fails
+    with `InvalidConfigurationError`, as do fields of another bracket kind. Valid brackets resolve unchanged.
 
 ## 2.27.0 — published November 19, 2026
 

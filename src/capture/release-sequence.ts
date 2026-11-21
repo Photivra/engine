@@ -25,7 +25,7 @@ import {
   type FocusPlane
 } from "../optics/focus-state.js";
 import { InvalidConfigurationError } from "../core/configuration-error.js";
-import { rejectUnknownFields, requireInputObject, requireInputKeys, requireTrimmedConfigString as requireNonEmptyString, requireInputFinite as requireFinite, requireInputFiniteAboveZero as requirePositiveFinite, requireInputFiniteAtLeastZero as requireNonNegativeFinite } from "../core/record-validation.js";
+import { rejectUnknownFields, rejectUnknownVariantFields, requireInputObject, requireInputKeys, requireTrimmedConfigString as requireNonEmptyString, requireInputFinite as requireFinite, requireInputFiniteAboveZero as requirePositiveFinite, requireInputFiniteAtLeastZero as requireNonNegativeFinite } from "../core/record-validation.js";
 import { deepFreeze, cloneJson } from "../core/shared-helpers.js";
 
 export const RELEASE_SEQUENCE_VERSION =
@@ -671,8 +671,9 @@ function intervalForPreviousFrame(
 const AUTOMATION_STATES: readonly string[] = ["manual", "locked", "continuous"];
 
 /**
- * capture-20 (#698): every required sub-object is an object, and the base state's exposure and automation have only their own
- * fields, so a malformed request fails with a domain error instead of a raw TypeError or a copied stray field.
+ * capture-20 (#698) and #720: every required sub-object is an object, the bracket is one of its three kinds with only that
+ * kind's fields and a dense list, and the base state's exposure and automation have only their own fields, so a malformed
+ * request fails with a domain error instead of a raw TypeError, a skipped capability check or a copied stray field.
  */
 function validateSequencePolicies(
   input:
@@ -699,6 +700,17 @@ function validateSequencePolicies(
     if (!AUTOMATION_STATES.includes(automation[key])) {
       throw new InvalidConfigurationError("baseState.automation." + key + ' must be "manual", "locked" or "continuous".');
     }
+  }
+  const bracket = input.bracket as unknown as Readonly<Record<string, unknown>>, kind = bracket.kind;
+  if (kind !== "none" && kind !== "exposure" && kind !== "focus") {
+    throw new InvalidConfigurationError('bracket.kind must be "none", "exposure" or "focus".');
+  }
+  rejectUnknownVariantFields(bracket, "kind", { none: ["kind"], exposure: ["kind", "axis", "offsetsStops"], focus: ["kind", "focusStates"] }, "bracket");
+  if (kind === "none") return;
+  const field = kind === "exposure" ? "offsetsStops" : "focusStates", list = bracket[field];
+  // A hole in the list leaves one index without an own key.
+  if (!Array.isArray(list) || list.length !== Object.keys(list).length) {
+    throw new InvalidConfigurationError("bracket." + field + " must be a dense array.");
   }
 }
 

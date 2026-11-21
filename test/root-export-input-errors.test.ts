@@ -299,7 +299,7 @@ describe("release and focus root functions: a missing sub-object fails with a do
   const observation = { kind: "finite-surface", targetId: "t", focusAreaId: "a", observedAtSeconds: 1, longitudinalDistanceM: 2 };
   const cases: readonly [string, Record<string, unknown>][] = [
     ["resolveReleaseSequence", { sequenceId: "r", releaseRequestTimeSeconds: 0, sequenceSeedUint32: 1, drive: { kind: "single" },
-      bracket: { kind: "none" }, baseState, releaseCapabilities: tier.body.release, exposureCapabilities }],
+      bracket: { kind: "exposure", axis: "shutter", offsetsStops: [0] }, baseState, releaseCapabilities: tier.body.release, exposureCapabilities }],
     ["resolveFocusTargetObservation", { state, stateId: "s2", event: "acquire", observation }],
     ["setFocusLock", { state, stateId: "s3", locked: true, eventTimeSeconds: 1 }],
     ["setManualFocusState", { state: engine.createFocusControlState({ stateId: "m", profile, mode: "manual", initialFocus: { kind: "infinity" } }), stateId: "s4", focus: { kind: "finite", distanceM: 3 }, eventTimeSeconds: 1, commandId: "c" }],
