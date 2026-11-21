@@ -105,7 +105,7 @@
     subject still).
   - *Operating range and compatibility (`sensor-15`, `sensor-16`).* `assessSensorResponseOperatingRange` refuses a reduction
     without a finite wavelength range or, for a per-spectral-bin model, without bins; the compatibility check parses
-    `operatingConditions` (known keys, angle 0 to 90°, polarization) and refuses an unknown `responseScope`. The
+    `operatingConditions` (known keys, angle 0 to 90°, polarization) and refuses an unknown `responseScope` (`InvalidConfigurationError`). The
     operating-range profile's reference-condition messages now read as the response profile's.
   - *RAW code samples (`sensor-17`).* `createSensorRawCaptureSample` requires an integer `rawCode` in
     [0, `digitalSaturationCode`] with integer black and saturation codes; the reconstruction refuses a non-number sample value
@@ -136,8 +136,9 @@
 
 ### Exposure and colour
 
-- **Low-severity fixes (2.28.0 step 8, #699); no output change for valid requests, bundle rows unchanged (fast 337,887 B, on demand
-  51,743 B: the additions are paid for by shared checks, below).**
+- **Low-severity fixes (2.28.0 step 8, #699); no output change for valid requests except the report field of `foundation-07`.
+  Bundle: the first five items are paid for by shared checks (below); `foundation-07` and `foundation-13` add 94 B to the fast row
+  (owner decision 2026-11-21, release-wide bundle rule).**
   - *Meter targets (`foundation-08`).* The exposure-mode resolvers refuse a resolved target whose `requiredExposureScaleToTarget` and
     `exposureOffsetStopsToTarget` disagree by more than 1e-9 stops (`InvalidScientificInputError`; such a target was placed by the stops
     in program and full auto and by the scale elsewhere), a `sourceMeterSnapshot` with a missing or non-string identifier or an unknown
@@ -157,6 +158,13 @@
   - *Bundle.* Duplicated checks in the resolver, white balance, colorimetry and Auto ISO slowest-shutter code now call the shared
     record-validation functions (same messages and error classes); an array `camera` in a Kelvin white balance now fails with "camera
     must be an object.".
+  - *Program-line ends (`foundation-07`).* Program mode with a fixed ISO reports `targetResidual.limitingConstraint`
+    `"program-line-minimum"` or `"program-line-maximum"` when the target lies beyond the line and no aperture or shutter limit was
+    hit (it reported `"none"`); settings are unchanged. **`ExposureResolutionConstraint` widens** with the two values: an exhaustive
+    `switch` over it needs the two cases (docs/USAGE.md, "Program Auto with manual ISO").
+  - *Typed arrays in a result (`foundation-13`).* The result envelope's finite checks scan a typed array with its own `some()`
+    instead of one `Object.keys` string per element: a `Float64Array` of 1e6 elements 19.1 → 4.7 ms, a `Uint8Array` of 4e6
+    78.5 → 14.5 ms (best of 3). Same answers and the same reported path.
 
 ### Capture
 
@@ -286,7 +294,8 @@
     (best of 10, alternating in one process): 1.93× (640 × 480, r = 7, 64 × 64-site patches), 2.01× (one patch), 1.97× (400 × 300,
     r = 15) and 2.18× (256 × 256, r = 32). It is the CPU path of `calculateIrradianceConvolution`, the image-kernel accelerator and
     the display view's CPU reference.
-- **Low-severity fixes (2.28.0 step 8, #700); no output change for valid requests; fast row 337,865 → 337,874 B with optics-08 and optics-19, other rows unchanged.**
+- **Low-severity fixes (2.28.0 step 8, #700); no output change for valid requests.** Fast row +228 B (optics-07, -08, -17 to -21 and
+  -23; owner decision 2026-11-21, release-wide bundle rule); other rows unchanged.
   - *Field-of-view envelopes (`optics-06`).* `calculateFieldOfView` and `calculateFieldOfViewBounds` return a frozen
     `calculatedResult` envelope for every projection model; a fisheye or equirectangular request returned a writable copy.
     Values, model ids and assumptions are unchanged.
@@ -312,6 +321,18 @@
   - *Working f-number bound (`optics-19`, owner decision 2026-11-21).* `calculateSceneRadianceToSensorIrradiance` and the prepared
     bridge refuse a working f-number below 0.5 ("Working f-number must be at least 0.5.", which also replaces the message of the
     non-finite acceptance refusal): in air E = π·L·sin²θ′ ≤ π·L. 0.5 gives E = π·L·τ.
+  - *Lens limitations text (`optics-07`).* `resolveGenericLens(...).limitations` says that flare, focus breathing and focus scatter
+    render in `simulateCapture` on request (`lens.catalogue.flare`, `.breathing`, `lens.focusScatter`) and ghosts are reported
+    numbers; it said none of them rendered.
+  - *Irradiance bridge image point (`optics-17`).* `calculateSceneRadianceToSensorIrradiance` refuses an `imagePointMm` that is not
+    two finite numbers (NaN, infinite, missing or string coordinates bypassed the field-throughput point check).
+  - *Mapped environment query (`optics-18`).* The fisheye and equirectangular branch of `calculateSensorEnvironmentRadianceQuery`
+    checks the focal length, `sourcePointNativeSensorMm` and `angularVelocityRadPerSec` with the plain path's messages.
+  - *Filters parsed once (`optics-20`).* The prepared irradiance bridge parses its front-of-lens filter profiles once and evaluates
+    only the transmission at each query's wavelength; same values, and an invalid filter fails when the bridge is prepared.
+  - *Aperture rays (`optics-21`).* `sensorApertureRayValues` fills a pre-sized array in a plain loop; identical output.
+  - *Polarization angle (`optics-23`).* An incident polarization angle near 1e308 is reduced mod 180° when its doubled radian value
+    overflows, giving a finite state instead of NaN; ordinary angles keep their bits.
 
 ### Facade
 
