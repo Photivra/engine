@@ -449,14 +449,21 @@ export function buildPlanarSceneRadianceProvider(input: {
    */
   function reflectanceOf(u: number, v: number, m: number, nm: number): number {
     if (m >= 0) return materialReflectanceOf(m, nm);
-    const cu = placed ? u * scale / half : u, cv = placed ? v * scale / half : v;
-    if (placed && !(Math.abs(cu) <= 1 && Math.abs(cv) <= chartAspect)) return placed.surroundReflectance;
-    return imageScene ? imageScene.reflectanceAt(cu, cv, nm) : callerReflectance(pointOf(u, v, nm));
+    if (surround(u, v)) return placed!.surroundReflectance;
+    return imageScene ? imageScene.reflectanceAt(local(u), local(v), nm) : callerReflectance(pointOf(u, v, nm));
+  }
+  /** A frame coordinate in chart-local units with a fixed-size chart (u·scale/half), else the frame coordinate. */
+  function local(w: number): number {
+    return placed ? w * scale / half : w;
+  }
+  /** Whether a frame point is a fixed-size chart's surround (outside the chart). */
+  function surround(u: number, v: number): boolean {
+    return placed !== undefined && !(Math.abs(local(u)) <= 1 && Math.abs(local(v)) <= chartAspect);
   }
   /** #550: reflectance × the blended irradiance at the point (chart-local units with a fixed-size chart) / π. */
   function litRadianceAt(u: number, v: number, nm: number): number {
     const reflectance = reflectanceOf(u, v, materialOf(u, v), nm);
-    return reflectance * light!(placed ? u * scale / half : u, placed ? v * scale / half : v, u * scale, v * scale, nm) / Math.PI;
+    return reflectance * light!(local(u), local(v), u * scale, v * scale, nm) / Math.PI;
   }
   let rowsOf: readonly number[] | undefined, rows: Float64Array[] = [];
   /** #735: litRadianceAt at each of `wavelengths` into `out`, the point's material and the light's blend resolved once (the same values). */
@@ -465,14 +472,15 @@ export function buildPlanarSceneRadianceProvider(input: {
     // A spectral material's reflectance at the nodes, kept per material for this wavelength list (a spectrum, no channel value).
     if (rowsOf !== wavelengths) { rows = []; rowsOf = wavelengths; }
     const row = materials?.[m]?.kind === "spectrum" ? rows[m] ??= Float64Array.from(wavelengths, (nm) => materialReflectanceOf(m, nm)) : undefined;
-    input.illumination!.irradianceSpectrumAt(placed ? u * scale / half : u, placed ? v * scale / half : v, u * scale, v * scale, wavelengths, out);
+    input.illumination!.irradianceSpectrumAt(local(u), local(v), u * scale, v * scale, wavelengths, out);
     for (let n = 0; n < wavelengths.length; n++) out[n] = (row ? row[n]! : reflectanceOf(u, v, m, wavelengths[n]!)) * out[n]! / Math.PI;
   }
-  /** Under the one illuminant: a caller radiance function's value, or the reflectance × irradianceScale·S(λ) / π (in that order). */
+  /**
+   * Under the one illuminant: a caller radiance function's value, or the reflectance × irradianceScale·S(λ) / π (in that order). A
+   * fixed-size chart's surround takes the second form with a radiance function too: the function is not asked outside the chart.
+   */
   function radianceAt(u: number, v: number, nm: number): number {
-    if (caller?.kind === "radiance-function") {
-      // A fixed-size chart's surround is lit by the illuminant outside the chart, before the caller's function is asked.
-      if (placed && !(Math.abs(u * scale / half) <= 1 && Math.abs(v * scale / half) <= chartAspect)) return placed.surroundReflectance * irradianceScale * shapeAt(nm) / Math.PI;
+    if (caller?.kind === "radiance-function" && !surround(u, v)) {
       const value = caller.evaluate(pointOf(u, v, nm));
       if (typeof value !== "number" || !Number.isFinite(value) || value < 0) throw new InvalidConfigurationError("Scene radiance function must return a finite non-negative radiance.");
       return value;

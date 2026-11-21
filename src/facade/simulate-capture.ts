@@ -3891,11 +3891,17 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   }
   const rawStarted = Date.now();
   const plan = calculateNativeRawPlan(environmentRaw.raw);
-  // #728: the key a region result carries and a join of parts checks (SimulateCaptureResult.region.requestKey); output and fast are left out.
+  // #728: the key a region result carries and a join of parts checks (SimulateCaptureResult.region.requestKey): the resolved values
+  // and the other options in a canonical form (keys sorted, an array as its indices; undefined and empty objects left out). The
+  // scene enters by its digest; fast, output, signal, onProgress and the options the tuple holds resolved are left out.
+  const omit = (key: string, value?: unknown): boolean => value === undefined ||
+    /^(fast|output|scene|signal|onProgress|fNumber|shutterSeconds|iso|pixelPitchMicrometers|spectralStepNanometers|temporalSampleCount)$/.test(key);
   const requestKey = regionNative || run === "dng-from-parts" || run === "develop-from-parts" ? await sha256Hex(JSON.stringify([sourceSha256, top, fNumber, shutterSeconds, resolvedIso,
-    plan.exposure.noise.seedUint32, nativeWidth, nativeHeight, pitch, spectralStep, boxSamples, temporalSampleCount],
-  // The scene enters by its digest; a key named fast, output or scene is left out at every level.
-  (key, value: unknown) => (/^(fast|output|scene)$/.test(key) ? undefined : typeof value === "object" && value !== null && "evaluate" in value ? 0 : value))) : undefined;
+    plan.exposure.noise.seedUint32, nativeWidth, nativeHeight, pitch, spectralStep, boxSamples, temporalSampleCount], (_key, value: unknown) => {
+    if (typeof value !== "object" || value === null) return value;
+    const entries = Object.entries(value).filter(([k, v]) => !omit(k, v)).sort();
+    return entries.length ? Object.fromEntries(entries) : undefined;
+  })) : undefined;
   const progress = (stage: SimulateCaptureProgress["stage"], total: number) => {
     let completed = 0;
     return (): void => { completed++; onProgress?.({ stage, completedTileCount: completed, totalTileCount: total }); };

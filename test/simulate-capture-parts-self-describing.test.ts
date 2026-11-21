@@ -35,7 +35,7 @@ describe("parts describe themselves and a join checks them (#728)", () => {
   it("refuses whole sets of parts of another request (ISO, scene, pixel pitch); a part without the new fields still joins", async () => {
     const options = frame({ exposure: { mode: "manual", shutterSeconds: 1 / 125, iso: 100 } });
     for (const other of [frame({ exposure: { mode: "manual", shutterSeconds: 1 / 125, iso: 800 } }),
-      { ...options, scene: { preset: "slanted-edge" } }, { ...options, sensor: { pixelPitchMicrometers: 6 } }] as SimulateCaptureOptions[]) {
+      { ...options, scene: { preset: "slanted-edge" } }, { ...options, sensor: { pixelPitchMicrometers: 4 } }] as SimulateCaptureOptions[]) {
       await expect(serializeSimulatedCaptureDngFromParts(options, await strips(other)), JSON.stringify(other)).rejects.toThrow(/region.requestKey is another request's: not the same request/);
     }
     const parts = await strips(options), whole = await simulateCapture(options);
@@ -45,5 +45,30 @@ describe("parts describe themselves and a join checks them (#728)", () => {
     const older = parts.map((p) => ({ raw: p.raw, region: { nativeRect: p.region.nativeRect } }));
     expect(Buffer.from((await serializeSimulatedCaptureDngFromParts(options, older)).bytes).equals(Buffer.from(whole.image.dng!))).toBe(true);
     expect(Buffer.from((await serializeSimulatedCaptureDngFromParts(options, parts)).bytes).equals(Buffer.from(whole.image.dng!))).toBe(true);
+  }, scaledTimeout(120_000));
+  it("keys the resolved request: key order, written defaults and a still request's temporal count do not matter", async () => {
+    const options = frame({ exposure: { mode: "manual", shutterSeconds: 1 / 125, iso: 100 }, sensor: { noiseSeed: 7, pixelPitchMicrometers: 4 } });
+    const whole = await simulateCapture(options), parts = await strips(options);
+    const joins: SimulateCaptureOptions[] = [
+      // The same options in another key order.
+      { sensor: { pixelPitchMicrometers: 4, noiseSeed: 7 }, exposure: { iso: 100, shutterSeconds: 1 / 125, mode: "manual" }, output: { format: "dng", height: 32, width: 48 }, scene: { preset: "siemens-star" } },
+      // The default temporal count written out, against parts without it.
+      { ...options, sensor: { ...options.sensor, temporalSampleCount: 1 } },
+      // A still request renders with one temporal sample (#729), whatever count it asks for.
+      { ...options, sensor: { ...options.sensor, temporalSampleCount: 4 } }];
+    for (const join of joins) {
+      const joined = await serializeSimulatedCaptureDngFromParts(join, parts);
+      expect(Buffer.from(joined.bytes).equals(Buffer.from(whole.image.dng!)), JSON.stringify(join)).toBe(true);
+    }
+    const written = await strips({ ...options, sensor: { ...options.sensor, temporalSampleCount: 1 }, exposure: { iso: 100, mode: "manual", shutterSeconds: 1 / 125 } });
+    expect(written[0]!.region.requestKey).toBe(parts[0]!.region.requestKey);
+  }, scaledTimeout(120_000));
+
+  it("refuses exact parts under a fast join with camera rotation (another resolved temporal count)", async () => {
+    const options = frame({ motion: { angularVelocityRadPerSec: { yaw: 0.05 } } });
+    const exactParts = await strips(options, false);
+    await expect(serializeSimulatedCaptureDngFromParts({ ...options, fast: true }, exactParts)).rejects.toThrow(/Part 0: its region.requestKey is another request's/);
+    const fastParts = await strips(options, true), whole = await simulateCapture({ ...options, fast: true });
+    expect(Buffer.from((await serializeSimulatedCaptureDngFromParts({ ...options, fast: true }, fastParts)).bytes).equals(Buffer.from(whole.image.dng!))).toBe(true);
   }, scaledTimeout(120_000));
 });
