@@ -75,8 +75,12 @@ export const DIFFRACTION_LIMITED_PSF_PROFILE_MODEL = /* @__PURE__ */ Object.free
  * sampling of `simulateCapture` and the display view (`sensor.spectralStepNanometers` 1 nm over 380–780 nm), so `lens.diffraction`
  * builds one exact kernel per spectral node at every allowed step; it was 64 before 2.15.0, which refused every step under 6.25 nm.
  * The work and memory are linear in the count (measured in docs/PSF_FOUNDATION.md, "Spectral nodes").
+ * `maximumBeta` (2.28.0, #686): the largest β = p·f_c = pitch/(λ·N_w), the cell side over the cut-off period, at the shortest wavelength.
+ * The real-space cell work grows as β, so a request above it is refused before any cell is integrated. 1e5 keeps every documented use
+ * (whole-frame cells reach β ≈ 250; the tests go to 400) and keeps one wavelength at radius 2 to under a second.
  */
-export const DIFFRACTION_LIMITED_PSF_PROFILE_LIMITS = /* @__PURE__ */ Object.freeze({ maximumWavelengths: 400, maximumKernelRadiusSamples: 32 });
+export const DIFFRACTION_LIMITED_PSF_PROFILE_LIMITS = /* @__PURE__ */ Object.freeze({ maximumWavelengths: 400, maximumKernelRadiusSamples: 32, maximumBeta: 1e5 });
+const MAXIMUM_BETA = 1e5;
 /**
  * Internal: β = p·f_c (cell side over the cut-off period) from which `calculateAiryCellEnergies` integrates the cells in
  * real space (2.5). Above every β of a `simulateCapture` pitch up to 100 µm, whose captures keep the frequency-domain values.
@@ -191,6 +195,9 @@ function sinc(x: number): number {
  * multiplies the node or panel counts (1 in production; the tests use 2 to check convergence).
  */
 export function calculateAiryCellEnergies(beta: number, radius: number, scale = 1): { cells: Float64Array; radialNodes: number; angularNodes: number; realSpace: boolean } {
+  // #686: a non-finite or huge β would never leave the panel loop; refuse it before the cache or any integration. The profile's
+  // first wavelength is its shortest, with the largest β, so a profile above the bound fails before any cell is integrated.
+  if (!(beta > 0 && beta <= MAXIMUM_BETA)) throw new InvalidConfigurationError("Diffraction beta must be in (0, 100000].");
   // 2.6: a pure function of (β, R, scale), so results are memoized (most recently used first) and handed out as copies.
   // Tiles of one frame, and captures that change only the exposure or the scene, rebuild the same kernels.
   const key = beta + "|" + radius + "|" + scale, cached = AIRY_CELL_CACHE.get(key);

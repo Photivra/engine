@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- **Optics and camera (2.28.0 step 4, group O).** No output change for a request that renders today unless stated.
+  - *Diffraction PSF profile bound (#686, `optics-03`).* `createDiffractionLimitedPsfProfile` refuses β = pitch/(λ·N_w) above
+    `DIFFRACTION_LIMITED_PSF_PROFILE_LIMITS.maximumBeta` (1e5, owner decision 2026-11-21) with `InvalidConfigurationError` before any
+    cell is integrated; f/1e-9, a 1e-6 nm wavelength or a 1e300 µm pitch never returned before. Inputs between 1e5 and about 1.1e5,
+    which took about a second (for example f/1e-4 at 6 µm and 550 nm), are now refused too. Kernels at or below the bound are unchanged.
 - **Tooling, CI and tests only (2.28.0 step 1); no package, API, output or bundle change.**
   - *Coverage gates decide per shard (#666, with `ci-07`).* Each coverage shard uploads one part, its blob report or a marker
     naming the `coverage` proof it found; `.github/coverage-parts.mjs` merges ten blobs with the thresholds enforced, passes a
