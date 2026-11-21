@@ -39,7 +39,7 @@
     dead-leaves elements with the same radii, seed and aspect share one generated texture.
   - *Optics.* `calculateDetailLimit` refuses finite inputs whose image geometry overflows (it did not return); Airy cells whose
     frequency-domain work would exceed 2.5 × 10⁸ steps use the real-space method (cells move by at most 2 × 10⁻¹³; only explicit kernel
-    radii of 10 or more); a diffraction profile whose β·(R + 1)², summed over its wavelengths, exceeds 400 × 32 × 33² is refused.
+    radii of 10 or more); a diffraction profile whose largest β times (R + 1)² times its wavelength count exceeds 400 × 32 × 33² is refused.
   - *Sensor.* Spectral curves are interpolated by binary search (same values); channel lists and evidence lists with holes are
     refused at their first hole.
   - *CI.* A test-once proof counts only from a successful run on the tree it names; a re-run of `publish.yml` for a version that

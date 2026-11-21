@@ -115,7 +115,7 @@ describe("diffraction profiles: one cell-work bound per profile", () => {
     aperture: "circular", focalLengthMm: 50, apertureFNumber: 1, focus: { kind: "infinity" }, wavelengthsNm, samplePitchMicrometers, kernelRadiusSamples,
     fieldHalfExtentMm: { x: 1, y: 1 }, profileId: "bound" });
 
-  it("refuses a profile whose β·(R + 1)², summed over its wavelengths, is above 400 × 32 × 33², before integrating a cell", () => {
+  it("refuses a profile whose largest β × (R + 1)² × wavelength count is above 400 × 32 × 33², before integrating a cell", () => {
     const start = performance.now();
     // One wavelength, β 13,000, R 32 (about 12 s of real-space cells before): 1.416 × 10⁷.
     expect(() => profile(6_500, 32)).toThrow(/cell work/u);
