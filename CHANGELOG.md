@@ -69,6 +69,9 @@
     non-empty `dependencies`; it now refuses the five fields `pack:check` refuses since #659 (`dependencies`,
     `optionalDependencies`, `peerDependencies`, `bundleDependencies`, `bundledDependencies`), from one shared list
     (`scripts/lib/dependency-fields.mjs`). With `"optionalDependencies": { "left-pad": "1.3.0" }` both checks fail.
+  - *`test/image-plane.test.ts` runs a test alone (`ci-23`).* The "image-plane scene" block has its own `beforeAll` that calls
+    `prepareImagePlaneScenes()`, so `-t "clips and counts linear samples"` passes (it failed with "Call
+    prepareImagePlaneScenes() first."). The first block, which checks the state before any call, must still run first.
 
 ### Site
 
