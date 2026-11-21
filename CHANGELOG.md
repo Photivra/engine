@@ -7,6 +7,9 @@
     `DIFFRACTION_LIMITED_PSF_PROFILE_LIMITS.maximumBeta` (1e5, owner decision 2026-11-21) with `InvalidConfigurationError` before any
     cell is integrated; f/1e-9, a 1e-6 nm wavelength or a 1e300 µm pitch never returned before. Inputs between 1e5 and about 1.1e5,
     which took about a second (for example f/1e-4 at 6 µm and 550 nm), are now refused too. Kernels at or below the bound are unchanged.
+  - *Focus-scatter sampler validation (#687, `optics-04`).* `simulateGenericLensFocusError` refuses a missing `focusDistanceM`
+    (`InvalidScientificInputError`; it returned `focusDistanceM: NaN`) and a circle of confusion whose error or depth of focus is not
+    finite (`InvalidScientificResultError`; it returned ±Infinity). Every finite result is unchanged.
 - **Tooling, CI and tests only (2.28.0 step 1); no package, API, output or bundle change.**
   - *Coverage gates decide per shard (#666, with `ci-07`).* Each coverage shard uploads one part, its blob report or a marker
     naming the `coverage` proof it found; `.github/coverage-parts.mjs` merges ten blobs with the thresholds enforced, passes a
