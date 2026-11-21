@@ -83,12 +83,13 @@ jobs:
         run: npm ci --ignore-scripts
       - name: Install Playwright's Chromium
         if: steps.proof.outputs.found != 'true'
-        # The suite adds no npm dependency: it drives Chromium over the DevTools protocol and finds
-        # Playwright's browser under ~/.cache/ms-playwright on its own (docs/WEBGPU.md, "Browser
-        # support and running the suite"). Playwright 1.63.0 installs Chromium build 1243 (Chrome
-        # for Testing 153.0.8010.12), the build the suite was run with in the development container.
-        # Bump the version here and in docs/WEBGPU.md together, after a local run on the new build.
-        run: npx --yes playwright@1.63.0 install --with-deps chromium
+        # The suite drives Chromium over the DevTools protocol and finds Playwright's browser under
+        # ~/.cache/ms-playwright on its own (docs/WEBGPU.md, "Browser support and running the suite").
+        # The installer is the lockfile's playwright-core (a devDependency pinned exactly, verified by
+        # npm ci; nothing fetched outside the lockfile). playwright-core 1.63.0 installs Chromium build
+        # 1243 (Chrome for Testing 153.0.8010.12), the build the suite was run with in the development
+        # container. Bump it in package.json and docs/WEBGPU.md together, after a local run on the new build.
+        run: npx --no-install playwright-core install --with-deps chromium
       - name: WebGPU conformance suite on SwiftShader
         if: steps.proof.outputs.found != 'true'
         # PHOTIVRA_WEBGPU_REQUIRED=1 fails instead of skipping when no browser or adapter is found.
