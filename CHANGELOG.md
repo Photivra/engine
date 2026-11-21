@@ -64,6 +64,13 @@
     time, takes each plane's median before its block arrays exist, and reuses one scratch buffer in the MAD. A 6000 × 4000 RGGB
     mosaic: peak live typed arrays 426 → 164 MB (8.9× → 3.4× the 48 MB of RAW codes), time unchanged; every result number
     identical (new value locks recorded on the unchanged code). No bundle row changes.
+  - *Release and focus inputs with a missing sub-object (`capture-20` in #698).* `resolveReleaseSequence`,
+    `resolveFocusTargetObservation`, `setFocusLock`, `setManualFocusState` and `assessFocusReleaseGate` threw a raw `TypeError` or
+    `SyntaxError` when a required sub-object (`drive`, `bracket`, `baseState` and its `exposure` and `automation`, the capability
+    records and their axis grids, a focus `state` or its parts, `observation`) was missing; they now fail with
+    `InvalidConfigurationError`. `baseState.automation` must hold `ae`, `af` and `awb`, each `"manual"`, `"locked"` or
+    `"continuous"`, and `baseState.exposure` only its three settings (a stray field was copied or ignored before). Valid inputs
+    resolve unchanged.
 
 ## 2.27.0 — published November 19, 2026
 

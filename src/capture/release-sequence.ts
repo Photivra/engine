@@ -24,7 +24,8 @@ import {
   parseFocusPlane,
   type FocusPlane
 } from "../optics/focus-state.js";
-import { requireInputKeys, requireTrimmedConfigString as requireNonEmptyString, requireInputFinite as requireFinite, requireInputFiniteAboveZero as requirePositiveFinite, requireInputFiniteAtLeastZero as requireNonNegativeFinite } from "../core/record-validation.js";
+import { InvalidConfigurationError } from "../core/configuration-error.js";
+import { rejectUnknownFields, requireInputObject, requireInputKeys, requireTrimmedConfigString as requireNonEmptyString, requireInputFinite as requireFinite, requireInputFiniteAboveZero as requirePositiveFinite, requireInputFiniteAtLeastZero as requireNonNegativeFinite } from "../core/record-validation.js";
 import { deepFreeze, cloneJson } from "../core/shared-helpers.js";
 
 export const RELEASE_SEQUENCE_VERSION =
@@ -667,6 +668,40 @@ function intervalForPreviousFrame(
   };
 }
 
+const AUTOMATION_STATES: readonly string[] = ["manual", "locked", "continuous"];
+
+/**
+ * capture-20 (#698): every required sub-object is an object, and the base state's exposure and automation have only their own
+ * fields, so a malformed request fails with a domain error instead of a raw TypeError or a copied stray field.
+ */
+function validateSequencePolicies(
+  input:
+    ResolveReleaseSequenceInput
+): void {
+  for (const key of ["drive", "bracket", "baseState", "releaseCapabilities", "exposureCapabilities"] as const) {
+    requireInputObject(input[key], key);
+  }
+  for (const axis of ["aperture", "shutter", "iso"] as const) {
+    const capability = input.exposureCapabilities[axis];
+    requireInputObject(capability, "exposureCapabilities." + axis);
+    const grid = capability.settingGrid as { kind?: unknown; values?: unknown };
+    requireInputObject(grid, "exposureCapabilities." + axis + ".settingGrid");
+    if (grid.kind === "discrete-values" && !Array.isArray(grid.values)) {
+      throw new InvalidConfigurationError("exposureCapabilities." + axis + ".settingGrid.values must be an array.");
+    }
+  }
+  const { exposure, automation } = input.baseState;
+  requireInputObject(exposure, "baseState.exposure");
+  rejectUnknownFields(exposure, ["aperture", "shutterSeconds", "iso"], "baseState.exposure");
+  requireInputObject(automation, "baseState.automation");
+  rejectUnknownFields(automation, ["ae", "af", "awb"], "baseState.automation");
+  for (const key of ["ae", "af", "awb"] as const) {
+    if (!AUTOMATION_STATES.includes(automation[key])) {
+      throw new InvalidConfigurationError("baseState.automation." + key + ' must be "manual", "locked" or "continuous".');
+    }
+  }
+}
+
 /**
  * Resolves one deterministic still-release sequence.
  *
@@ -678,6 +713,7 @@ export function resolveReleaseSequence(
     ResolveReleaseSequenceInput
 ): ResolvedReleaseSequence {
   requireInputKeys(input, "resolveReleaseSequence", ["sequenceId", "releaseRequestTimeSeconds", "sequenceSeedUint32", "drive", "bracket", "requestedCadenceFps", "baseState", "releaseCapabilities", "exposureCapabilities"]);
+  validateSequencePolicies(input);
   const sequenceId =
     requireNonEmptyString(
       input.sequenceId,

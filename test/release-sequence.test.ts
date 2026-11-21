@@ -9,6 +9,7 @@ import {
   parseGenericReleaseCapabilityProfile,
   resolveGenericEquipmentExposureCapabilities,
   resolveReleaseSequence,
+  InvalidConfigurationError,
   type GenericReleaseCapabilityProfile,
   type ReleaseBaseCaptureState,
   type ResolvedGenericEquipmentExposureCapabilities
@@ -733,3 +734,22 @@ describe("release sequence fail-closed boundaries", () => {
     ).toThrow("must be finite");
   });
 });
+
+describe("sub-object validation (capture-20)", () => {
+  const input = (patch: Record<string, unknown>): Parameters<typeof resolveReleaseSequence>[0] => ({ sequenceId: "v", releaseRequestTimeSeconds: 0,
+    sequenceSeedUint32: 1, drive: { kind: "single" }, bracket: { kind: "none" }, requestedCadenceFps: 2, baseState: baseState(), releaseCapabilities: releaseCapabilities(),
+    exposureCapabilities: exposureCapabilities(), ...patch } as never);
+  it("refuses a missing or malformed sub-object with a domain error", () => {
+    for (const key of ["drive", "bracket", "baseState", "releaseCapabilities", "exposureCapabilities"]) {
+      expect(() => resolveReleaseSequence(input({ [key]: undefined }))).toThrow(InvalidConfigurationError);
+    }
+    const { automation: _a, ...noAutomation } = baseState(), { exposure: _e, ...noExposure } = baseState();
+    void _a; void _e;
+    for (const state of [noAutomation, noExposure, { ...baseState(), automation: { ae: 7 } }, { ...baseState(), automation: { ae: "locked", af: "locked", awb: "locked", x: 1 } },
+      { ...baseState(), exposure: { ...baseState().exposure, extra: 1 } }]) {
+      expect(() => resolveReleaseSequence(input({ baseState: state })), JSON.stringify(state)).toThrow(InvalidConfigurationError);
+    }
+    expect(() => resolveReleaseSequence(input({ baseState: { ...baseState(), automation: { ae: "auto", af: "locked", awb: "locked" } } }))).toThrow(InvalidConfigurationError);
+  });
+});
+
