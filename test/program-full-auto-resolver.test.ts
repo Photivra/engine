@@ -13,6 +13,8 @@ import {
   resolveFullAutoExposureMode,
   resolveGenericEquipmentExposureCapabilities,
   resolveProgramAutoExposureMode,
+  InvalidConfigurationError,
+  InvalidScientificInputError,
   type ExposureMeterTarget,
   type ExposureProgramLineProfile,
   type FullAutoExposurePolicy,
@@ -477,6 +479,22 @@ describe("Program Auto", () => {
       result.targetResidual
         .residualStops
     ).toBeCloseTo(2, 12);
+  });
+
+  // foundation-08 (#699): a target whose scale and stops disagree, or whose copied fields are not valid, is refused.
+  it("refuses an inconsistent or malformed meter target", () => {
+    const resolve = (target: unknown): unknown => resolveProgramAutoExposureMode({ target: target as ExposureMeterTarget, capabilities: capabilities(), referenceExposure,
+      programLine: programLine(), isoControl: { kind: "automatic", isoBaseline: "minimum-selectable", isoQuantizationPolicy: "nearest-log2-lower-on-tie" } });
+    const base = targetForScale(4);
+    expect(() => resolve(base)).not.toThrow();
+    expect(() => resolve({ ...base, exposureOffsetStopsToTarget: 0 })).toThrow("target.requiredExposureScaleToTarget is inconsistent with target.exposureOffsetStopsToTarget.");
+    expect(() => resolve({ ...base, exposureOffsetStopsToTarget: 0 })).toThrow(InvalidScientificInputError);
+    expect(() => resolve({ ...base, sourceMeterSnapshot: { ...base.sourceMeterSnapshot, measurementId: 5 } })).toThrow(InvalidConfigurationError);
+    expect(() => resolve({ ...base, sourceMeterSnapshot: { ...base.sourceMeterSnapshot, sourceKind: "made-up" } })).toThrow(InvalidConfigurationError);
+    for (const [field, value] of [["baseTargetRelativeSignal", Number.NaN], ["meteredRelativeSignal", "1"], ["exposureCompensationStops", Number.POSITIVE_INFINITY],
+      ["baseTargetRelativeSignal", [1]]] as const) {
+      expect(() => resolve({ ...base, [field]: value }), field).toThrow(InvalidScientificInputError);
+    }
   });
 
   it("uses Auto ISO to fill exposure beyond the program-line endpoint", () => {
