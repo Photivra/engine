@@ -47,8 +47,11 @@ const PINNED: Record<string, Record<string, string>> = {
     exposure: "00b53a317629402d6abb579d4805ec2dc134ff172ac6ab779162d2ab6e55f379", assumptions: "98284a9376537ce9dde98b2ef392e00c600f5ffca9e52d81982433e7f0367842" },
   // #588 and #589: samples and codes re-pinned on the merged tree: the exact catalogue quadrature reads the star's ties at lattice
   // points (#588; test/simulate-capture-lens-catalogue-ties.test.ts), and the off-axis kernels carry the PSF's own centroid (#589).
+  // #681 (2.28.0): exposure re-pinned, samples, codes and assumptions unchanged. Its ideal ISO is 99.99999999999997 (residual
+  // -4.8e-16 stops), which reported clamped "minimum", "iso-minimum" and quantized; now clamped false, "none", not quantized.
+  // The settings are unchanged (f/10.46, 1/125 s, ISO 100).
   catalogue50: { samples: "d14f71e0d15541621bf2e0f54a08237c6d58d6a762a764fe04f43172b1bf2fa1", codes: "6e9885b34fb07a068711607dd975a99fa8a8619005f274ddfbd4fc9d60eda3f9",
-    exposure: "bb54027b8c93f83b0a5a524441a9e1ee0ee153a8c0eb9699fefe7806bc64ccd8", assumptions: "719ef58f535b470602ff35bd3af5a4588a0be6e3af25c8a1ede9928737975866" },
+    exposure: "90155d028eb540cd029ddc97732b06f646ce867d220f428fd75d7dee773fd9bb", assumptions: "719ef58f535b470602ff35bd3af5a4588a0be6e3af25c8a1ede9928737975866" },
   idealAboveF8Manual: { samples: "5e929bb9533f1c4c0007f96a44bb58016f959311184609bf38fe4c99ba44eab3", codes: "a7c8a08b2e99486fcc001e4197343bb5ff6c24ed5251e8d0209857a47c739874",
     exposure: "006914fc3987a766d02070f5bb328685533ac903998205648c496168de997191", assumptions: "49f0fafb48448904a3b4ca40184b0ead1944826334df702b4d7b582468e4d2c9" },
   idealBelowF8Aperture: { samples: "e93c1106936f4744f0e16b5718eb7c88f2d33844652e4e56dc168ecc3b1e91f8", codes: "c6d4a30f45b20872c38650cc5c0ce9e13595033744c365f4aa388879737d2d81",

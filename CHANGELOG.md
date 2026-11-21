@@ -51,6 +51,29 @@
     identity gate reads every tracked text file and any host domain (#696). The licence gate reads more than one lockfile
     (`site/package-lock.json`) and refuses a compound expression with `AND` (`ci-11` in #703). Their logic has unit tests
     (`scripts/test-gates.mjs`). A change confined to `site/` or `docs/design/` runs no engine tests (`.github/ci-scope.mjs`).
+- **The generic tier assets are frozen as built (#682).** The tier evidence and limitation records, which every tier profile and
+  every capture's `provenance.evidence` share, were writable until the public catalogue was first asked for, so one write to a
+  result's provenance changed it for every later capture. The presets of both versions are now deep-frozen when
+  they are built. No value or output changes; fast row +13 B.
+- **`SENSOR_PROFILES` is frozen all the way down (#683).** Its nested records (`readNoise`, `fixedPattern`, `goodFor`,
+  `provenance`) were writable, and the fixed-pattern records are shared by several profiles, so writing into a resolved profile
+  changed the catalogue and its siblings for the rest of the session. A modified copy still works; copy each nested part you
+  change (docs/SENSOR_PROFILES.md). `SIMULATE_CAPTURE_FAST_METHODS` has the same shallow freeze and is left to the facade's
+  change. No value or output changes; bundle rows unchanged (the catalogue is not in the capture worker).
+- **An exposure met exactly at a range end is no longer reported as held there (#681).** When the ideal ISO, shutter or
+  f-number came out a few ulp past a range end (ISO 100 as 99.99999999999997, ISO 25 600 as 25600.000000000033), the
+  resolvers reported `clamped` and `"iso-minimum"`, `"iso-maximum"`, `"shutter-…"` or `"aperture-…"` for an exposure on target;
+  in program-mode daylight about a third of captures did. Within `settingEquals`' tolerance (32 ulp) the end is now met:
+  `clamped: false`, `limitingConstraint: "none"`, `quantized: false`. Only these report fields change (in a 600-capture sweep of
+  program, shutter and aperture priority, 72 reports and no settings, ideal values or residuals); samples and RAW codes are
+  unchanged. One digest of `test/program-line-lens-range.test.ts` (the `exposure` of `catalogue50`) is re-pinned for it. Fast
+  row +83 B.
+- **Photosite-scale consistency checks fail when they should (#712).** `calculateSensorEqeElectronRate` and
+  `calculateSensorResponsivityPhotocurrent` compared radiant powers with a tolerance that is absolute (1e-10 W) below 1 W, so at a
+  photosite (about 1e-15 to 1e-10 W per bin) every pair compared equal: a reduction passed with another chain's operating-range
+  authorization, or with per-bin contributions and a total that do not match it. Their three power checks each (per-bin
+  contribution, total, operating-range node values) are now purely relative (1e-10; two zeros are equal). Chains the engine builds
+  are accepted as before; only inconsistent inputs that were wrongly accepted are now refused. No output change; fast row +18 B.
 
 ## 2.27.0 — published November 19, 2026
 

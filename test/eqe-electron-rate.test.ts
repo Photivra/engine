@@ -6,9 +6,12 @@ import {
   assessSensorResponseApplicationCompatibility,
   assessSensorResponseOperatingRange,
   calculateSensorEqeElectronRate,
+  calculateSensorSpatialSamplingQuadrature,
   calculateSensorSpectralQuadrature,
   InvalidScientificInputError,
   reduceSensorSpatioSpectralIrradiance,
+  type SensorResponseApplicationProfile,
+  type SensorResponseOperatingRangeProfile,
   type SensorSpectralResponseProfile,
   type SensorSpatioSpectralIrradianceSample,
   type SourcedAirPhaseRefractiveIndex,
@@ -16,11 +19,31 @@ import {
 } from "../src/index.js";
 import { expectRejection, type Json, type RejectionCase } from "./helpers/rejection-table.js";
 import {
-  makeQuadrature
+  absentStack, bindingProfile, colorProfile as fixtureColorProfile, imagingArea, makeQuadrature, nativeRaster, samplingProfile
 } from "./helpers/spatial-sample-fixture.js";
 
 import { createSensorSpectralResponseChannelBinding } from "../src/sensor/spectral-response.js";
 import { evidence, operatingConditions, colorProfile, spectralProfile, applicationProfile, operatingProfile } from "./helpers/eqe-response-fixture.js";
+
+/**
+ * #712: a photosite-scale chain. The sensitive aperture is 6 × 6 µm (36 µm², also the response's incident area), so each 50 nm bin
+ * of the 400–500 nm range (a 50 nm maximum subinterval) collects
+ * irradiance × 1.8e-9 W (1.8e-12 W at 1e-3 W/m²/nm), and the operating range's
+ * linear input range is 0 to 1e-11 W per bin.
+ */
+function photositeQuadrature(): ReturnType<typeof calculateSensorSpatialSamplingQuadrature>["value"] {
+  const sampling = samplingProfile();
+  return calculateSensorSpatialSamplingQuadrature({ imagingArea, nativeRaster, colorSamplingProfile: fixtureColorProfile(),
+    colorSamplingBindingProfile: bindingProfile(), opticalStackProfile: absentStack(), site: { x: 1, y: 0 }, spatialSampleCountX: 1, spatialSampleCountY: 1,
+    samplingApertureProfile: { ...sampling, geometricSensitiveAperture: { kind: "uniform-axis-aligned-rectangle", widthMicrometers: 6, heightMicrometers: 6,
+      centerOffsetFromSiteCenterMicrometers: { x: 0, y: 0 }, evidence: sampling.geometricSensitiveAperture.evidence } } }).value;
+}
+function photositeApplicationProfile(profile: SensorResponseApplicationProfile): SensorResponseApplicationProfile {
+  return { ...profile, incidentAreaBasis: { kind: "geometric-sensitive-aperture", areaSquareMicrometers: 36 } };
+}
+function photositeOperatingProfile(profile: SensorResponseOperatingRangeProfile): SensorResponseOperatingRangeProfile {
+  return { ...profile, inputRange: { ...profile.inputRange, minimumInclusive: 0, maximumInclusive: 1e-11 } };
+}
 
 function buildPipeline(
   kind:
@@ -31,7 +54,8 @@ function buildPipeline(
     "air" | "vacuum" = "vacuum",
   maximumSubintervalWidthNanometers =
     100,
-  spatialEstablished = true
+  spatialEstablished = true,
+  photositeIrradiance?: number
 ): {
   reduction: ReturnType<
     typeof reduceSensorSpatioSpectralIrradiance
@@ -46,7 +70,9 @@ function buildPipeline(
     SensorSpectralResponseProfile;
 } {
   const spatial =
-    makeQuadrature().value;
+    photositeIrradiance === undefined
+      ? makeQuadrature().value
+      : photositeQuadrature();
   const responseProfile =
     spectralProfile(
       kind,
@@ -93,7 +119,7 @@ function buildPipeline(
                     .wavelengthNanometers
               },
               spectralIrradianceWattsPerSquareMeterPerNanometer:
-                2
+                photositeIrradiance ?? 2
             })
           )
       );
@@ -110,7 +136,9 @@ function buildPipeline(
     assessSensorResponseApplicationCompatibility({
       reduction,
       applicationProfile:
-        applicationProfile(),
+        photositeIrradiance === undefined
+          ? applicationProfile()
+          : photositeApplicationProfile(applicationProfile()),
       sourcePlane: {
         value: "site-incident",
         evidence: evidence(
@@ -125,10 +153,17 @@ function buildPipeline(
       reduction,
       compatibility,
       operatingRangeProfile:
-        operatingProfile(
-          wavelengthBasis,
-          spatialEstablished
-        )
+        photositeIrradiance === undefined
+          ? operatingProfile(
+              wavelengthBasis,
+              spatialEstablished
+            )
+          : photositeOperatingProfile(
+              operatingProfile(
+                wavelengthBasis,
+                spatialEstablished
+              )
+            )
     }).value;
 
   return {
@@ -1182,5 +1217,37 @@ describe("sensor EQE electron-rate authorization-chain rejection branches", () =
   ];
   it.each(cases)("rejects %s", (_name, mutate, message) => {
     expectRejection(base, calculateSensorEqeElectronRate, InvalidScientificInputError, mutate, message);
+  });
+});
+
+describe("consistency checks at photosite power (#712)", () => {
+  // Per-bin powers of 1e-15 to 1e-10 W all differ by less than 1e-10, so an absolute tolerance accepted any of them as equal.
+  const dim = buildPipeline("direct-eqe", "vacuum", 50, true, 1e-3), bright = buildPipeline("direct-eqe", "vacuum", 50, true, 3e-2);
+  const convert = (chain: { reduction: unknown; compatibility: unknown; operatingRange: unknown }): unknown => calculateSensorEqeElectronRate({ reduction: chain.reduction, compatibility: chain.compatibility, operatingRange: chain.operatingRange, colorSamplingProfile: colorProfile(),
+    spectralResponseProfile: dim.responseProfile } as Parameters<typeof calculateSensorEqeElectronRate>[0]);
+  it("builds the dim chain authorized and the bright one blocked", () => {
+    expect(dim.reduction.perWavelength.map((n) => n.wavelengthIntegratedGeometricApertureIncidentFluxContributionWatts)
+      .every((w) => Math.abs(w / 1.8e-12 - 1) < 1e-12)).toBe(true);
+    expect(dim.operatingRange.status).toBe("rate-conversion-authorized");
+    expect(bright.operatingRange.status).toBe("blocked");
+    expect(() => convert(dim)).not.toThrow();
+  });
+  it("refuses a reduction paired with another chain's operating-range authorization", () => {
+    expect(() => convert({ ...bright, operatingRange: dim.operatingRange })).toThrow("spectral-node values must match the reduction values");
+  });
+  it("refuses per-bin contributions or a total power that do not match the reduction", () => {
+    const tripled = { ...dim.reduction, wavelengthIntegratedGeometricApertureIncidentFluxWatts: 0,
+      perWavelength: dim.reduction.perWavelength.map((n) => ({ ...n,
+        wavelengthIntegratedGeometricApertureIncidentFluxContributionWatts: n.wavelengthIntegratedGeometricApertureIncidentFluxContributionWatts * 3 })) };
+    expect(() => convert({ ...dim, reduction: tripled })).toThrow("contribution must equal spectral flux density");
+    expect(() => convert({ ...dim, reduction: { ...dim.reduction, wavelengthIntegratedGeometricApertureIncidentFluxWatts: 0 } }))
+      .toThrow("reduction total geometric-aperture radiant power must match");
+    expect(() => convert({ ...bright, operatingRange: dim.operatingRange, reduction: { ...bright.reduction, wavelengthIntegratedGeometricApertureIncidentFluxWatts: 0 } }))
+      .toThrow("reduction total geometric-aperture radiant power must match");
+  });
+  it("still accepts a zero-irradiance chain", () => {
+    const zero = buildPipeline("direct-eqe", "vacuum", 50, true, 0);
+    expect(zero.operatingRange.status).toBe("rate-conversion-authorized");
+    expect(() => convert(zero)).not.toThrow();
   });
 });

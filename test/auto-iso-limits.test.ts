@@ -3,7 +3,8 @@
  * #505: photographer-set Auto ISO limits (`autoIsoLimits: { maximum, minimum? }`) on every Auto ISO resolver, kept
  * separate from the body's Auto ISO capability. A limit strictly inside the body's range that holds the ISO is reported
  * as `user-iso-maximum` / `user-iso-minimum`; a limit outside the body's range or off its ISO grid fails.
- * The last block covers #504: Program + Auto ISO holding the line's shutter at a slowest preferred shutter.
+ * The #504 block covers Program + Auto ISO holding the line's shutter at a slowest preferred shutter; the last block, #681: a
+ * target met exactly at a range end (within rounding) is not reported as held there.
  *
  * Exposure H ∝ t·S/N² (reciprocity), so at the reference f/4, 1/125 s, ISO 100 a target k times the reference exposure
  * needs ISO 100·k at f/4, 1/125 s; every expected ISO below follows from that.
@@ -14,7 +15,7 @@ import {
   createExposureMeterTargetFromMeteringResult, InvalidConfigurationError, InvalidScientificInputError, meterRelativeExposure,
   parseExposureMeteringProfile, parseExposureProgramLineProfile, parseGenericBodyExposureCapabilityProfile, parseGenericLensExposureCapabilityProfile,
   resolveAperturePriorityAutoIsoExposureMode, resolveCaptureGeometry, resolveFullAutoExposureMode, resolveGenericEquipmentExposureCapabilities,
-  resolveManualExposureMode, resolveProgramAutoExposureMode, resolveShutterPriorityExposureMode, type AutoIsoLimits, type ExposureMeterTarget, type ExposureProgramLineProfile,
+  GENERIC_THIRD_STOP_ISO_SETTINGS, resolveAperturePriorityExposureMode, resolveManualExposureMode, resolveProgramAutoExposureMode, resolveShutterPriorityExposureMode, type AutoIsoLimits, type ExposureMeterTarget, type ExposureProgramLineProfile,
   type ResolvedGenericEquipmentExposureCapabilities
 } from "../src/index.js";
 
@@ -270,5 +271,57 @@ describe("Program + Auto ISO: holding the line's shutter at a slowest preferred 
     expect(() => program(4, { slowestPreferredShutterSeconds: NaN, afterMaximumIso: "allow-slower-shutter" })).toThrow(InvalidScientificInputError);
     expect(() => program(4, { slowestPreferredShutterSeconds: 1 / 60, afterMaximumIso: "allow" as never })).toThrow(InvalidConfigurationError);
     expect(() => program(4, { slowestPreferredShutterSeconds: 1 / 60, afterMaximumIso: "allow-slower-shutter", extra: 1 } as never)).toThrow(InvalidConfigurationError);
+  });
+});
+
+describe("a target met within rounding at a range end is not held there (#681)", () => {
+  // Rounding in the target's scale (a few ulp, either side) must not decide whether a range end "held" the exposure: within
+  // settingEquals' 32 ulp the ideal setting is the end itself, so the report is clamped: false and "none"; a target clearly past
+  // the end still clamps. The resolved settings are the same either way: the end itself from outside the range, the continuous
+  // ideal from inside it (within rounding of the end).
+  const ulps = [-8, -4, -2, -1, 0, 1, 2, 4, 8];
+  const professional = (isoGrid?: "continuous"): Caps => capabilities({ isoValues: GENERIC_THIRD_STOP_ISO_SETTINGS.filter((v) => v <= 25600), ...(isoGrid ? { isoGrid } : {}) });
+  const reference = { aperture: 8, shutterSeconds: 1 / 125, iso: 100 };
+  const manualAutoIso = (scale: number, caps: Caps): Resolved => resolved(resolveManualExposureMode({ target: targetForScale(scale), capabilities: caps,
+    referenceExposure: reference, manualAperture: 8, manualShutterSeconds: 1 / 125, isoControl: { kind: "automatic", quantizationPolicy: "nearest-log2-lower-on-tie" } }));
+  for (const grid of ["discrete", "continuous"] as const) it(`Auto ISO at ISO 100 and 25 600 (${grid} grid)`, () => {
+    const caps = professional(grid === "continuous" ? "continuous" : undefined);
+    for (const [scale, iso] of [[1, 100], [256, 25600]] as const) for (const k of ulps) {
+      const r = manualAutoIso(scale * (1 + k * 2 ** -52), caps);
+      if (grid === "discrete") expect(r.resolvedSettings.iso, `${scale}, ${k} ulp`).toBe(iso);
+      else expect(r.resolvedSettings.iso, `${scale}, ${k} ulp`).toBeCloseTo(iso, 8);
+      expect(r.isoResolution.clamped, `${scale}, ${k} ulp`).toBe(false);
+      expect(r.targetResidual, `${scale}, ${k} ulp`).toMatchObject({ state: "matched", limitingConstraint: "none" });
+    }
+    expect(manualAutoIso(1 - 2 ** -30, caps).isoResolution.clamped).toBe("minimum");
+    expect(manualAutoIso(256 * (1 + 2 ** -30), caps).isoResolution.clamped).toBe("maximum");
+  });
+  it("the automatic shutter at 1/8000 s and 30 s", () => {
+    // Aperture priority, f/4 and ISO 100 at the f/4, 1/125 s reference: the ideal shutter is the target's scale / 125 s.
+    type WithShutter = Resolved & { shutterResolution: { clamped: unknown } };
+    const shutterFor = (scale: number): WithShutter => resolveAperturePriorityExposureMode({ target: targetForScale(scale), capabilities: capabilities(), referenceExposure,
+      manualAperture: 4, manualIso: 100, shutterQuantizationPolicy: "nearest-log2-shorter-on-tie" }) as unknown as WithShutter;
+    for (const [scale, seconds] of [[125 / 8000, 1 / 8000], [30 * 125, 30]] as const) for (const k of ulps) {
+      const r = shutterFor(scale * (1 + k * 2 ** -52));
+      expect(r.resolvedSettings.shutterSeconds / seconds, `${seconds}, ${k} ulp`).toBeCloseTo(1, 12);
+      expect(r.shutterResolution.clamped, `${seconds}, ${k} ulp`).toBe(false);
+      expect(r.targetResidual.limitingConstraint, `${seconds}, ${k} ulp`).toBe("none");
+    }
+    expect(shutterFor(125 / 8000 * (1 - 2 ** -30)).targetResidual.limitingConstraint).toBe("shutter-minimum");
+    expect(shutterFor(30 * 125 * (1 + 2 ** -30)).targetResidual.limitingConstraint).toBe("shutter-maximum");
+  });
+  it("the automatic aperture at f/1.8 and f/16", () => {
+    // Shutter priority, 1/125 s and ISO 100: the ideal f-number is 4 / sqrt(scale).
+    type WithAperture = Resolved & { apertureResolution: { clamped: unknown } };
+    const apertureFor = (scale: number): WithAperture => resolveShutterPriorityExposureMode({ target: targetForScale(scale), capabilities: capabilities(), referenceExposure,
+      manualShutterSeconds: 1 / 125, isoControl: { kind: "manual", iso: 100, apertureQuantizationPolicy: "nearest-log2-narrower-on-tie" } }) as unknown as WithAperture;
+    for (const [scale, fNumber] of [[(4 / 1.8) ** 2, 1.8], [(4 / 16) ** 2, 16]] as const) for (const k of ulps) {
+      const r = apertureFor(scale * (1 + k * 2 ** -52));
+      expect(r.resolvedSettings.aperture, `f/${fNumber}, ${k} ulp`).toBeCloseTo(fNumber, 12);
+      expect(r.apertureResolution.clamped, `f/${fNumber}, ${k} ulp`).toBe(false);
+      expect(r.targetResidual.limitingConstraint, `f/${fNumber}, ${k} ulp`).toBe("none");
+    }
+    expect(apertureFor((4 / 1.8) ** 2 * (1 + 2 ** -30)).targetResidual.limitingConstraint).toBe("aperture-widest");
+    expect(apertureFor((4 / 16) ** 2 * (1 - 2 ** -30)).targetResidual.limitingConstraint).toBe("aperture-narrowest");
   });
 });

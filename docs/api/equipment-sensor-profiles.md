@@ -22,10 +22,11 @@ SENSOR_PROFILE_IDS: readonly string[] = Object.freeze(SENSOR_PROFILES.map((p) =>
 
 ## SENSOR_PROFILES
 
-The catalogue, in the issue's order. Frozen.
+The catalogue, in the issue's order. Frozen all the way down (#683): several profiles share one fixed-pattern record, so edit a
+copy (`{ ...profile, readNoise: { ...profile.readNoise, lowGainElectrons: 5 } }`), never the resolved record.
 
 ```ts
-SENSOR_PROFILES: readonly SensorProfile[] = Object.freeze(([
+SENSOR_PROFILES: readonly SensorProfile[] = freezeOwnedData([
   { id: "full-frame-24mp-bsi-2020s", name: "Full frame 24 MP BSI, 2020s", marketTag: "consumer", architecture: "back-illuminated",
     sensorWidthMm: 36.07, sensorHeightMm: 24.01, pixelsWide: 6072, pixelsHigh: 4042, pixelPitchMicrometers: 5.94, peakQuantumEfficiency: .8,
     fullWellElectrons: 100000, readNoise: { lowGainElectrons: 6.4, highGainElectrons: 1.1, highGainFromIso: 500 }, highGainFullWellElectrons: 20000,
@@ -82,5 +83,5 @@ SENSOR_PROFILES: readonly SensorProfile[] = Object.freeze(([
     fixedLenses: "phone", provenance: { ...sourced("S9", "pixels", "pixelPitchMicrometers", "sensorSize", "architecture", "adcBitDepth"), fullWellElectrons: "design (S10 scaled by pixel area)",
       readNoise: "high gain published S10, low gain design", highGainFullWellElectrons: "derived", readoutSeconds: "derived S9 (1 / full-resolution frame rate)",
       fixedPattern: "PRNU, row and column published S10; the rest design", baseIso: "derived" } }
-] satisfies SensorProfile[]).map((p) => Object.freeze(p)))
+] satisfies SensorProfile[])
 ```

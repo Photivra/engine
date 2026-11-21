@@ -385,6 +385,7 @@
   "test/sensor-spectral-coverage.test.ts": 8,
   "test/separable-emission-qualification.test.ts": 2777,
   "test/separable-emission.test.ts": 1165,
+  "test/shared-record-freeze.test.ts": 400,
   "test/signal-conformance.test.ts": 4,
   "test/simulate-capture-antialiasing.test.ts": 126584,
   "test/simulate-capture-auto-iso.test.ts": 4225,

@@ -11,6 +11,7 @@
  */
 
 import type { EvidenceBackedFact, EvidenceProvenance } from "../core/evidence-provenance.js";
+import { freezeOwnedData } from "../core/owned-data.js";
 import { parseGenericBodyExposureCapabilityProfile, parseGenericLensExposureCapabilityProfile,
   type GenericBodyExposureCapabilityProfile, type GenericLensExposureCapabilityProfile } from "./exposure-capabilities.js";
 import { parseIsoCapabilityProfile, type IsoCapabilityProfile } from "./iso-capabilities.js";
@@ -78,9 +79,10 @@ export interface GenericEquipmentTierPreset {
   tradeoffs: readonly string[];
 }
 
-const tierEvidence: readonly EvidenceProvenance[] = [{ sourceOrigin: "photivra", sourceReference: "photivra:generic-tier-assets-v1",
-  reuseStatus: "photivra-owned" }];
-const tierLimitations = ["Synthetic educational design values; no named camera/lens calibration or population ranking."];
+// #682: frozen where defined; every tier profile, and every capture's `provenance.evidence`, references these records.
+const tierEvidence: readonly EvidenceProvenance[] = /* @__PURE__ */ Object.freeze([/* @__PURE__ */ Object.freeze({ sourceOrigin: "photivra",
+  sourceReference: "photivra:generic-tier-assets-v1", reuseStatus: "photivra-owned" } as const)]);
+const tierLimitations: readonly string[] = /* @__PURE__ */ Object.freeze(["Synthetic educational design values; no named camera/lens calibration or population ranking."]);
 const evidence = tierEvidence, limitations = tierLimitations;
 const fact = <T>(value: T): EvidenceBackedFact<T> => ({ value, evidence });
 /**
@@ -209,8 +211,9 @@ function lensAssets(version: GenericTierPresetVersion, id: string, r: GenericTie
 }
 const common = { focalLengthMm: 50 as const, aperture: 4 as const, focusDistanceM: 5 as const, wavelengthNm: 550 as const,
   normalizationRadiusMm: Math.hypot(18,12), correctionCaFraction: .8 };
+/** #682: deep-frozen as built, so a caller cannot rewrite a record that later captures and the public catalogue share. */
 function buildGenericTierAssets(version: GenericTierPresetVersion): readonly GenericEquipmentTierPreset[] {
-  return [
+  return freezeOwnedData<readonly GenericEquipmentTierPreset[]>([
   { tier: "consumer", label: "Consumer", presetId: "photivra-consumer", presetVersion: version, scientificStatus: "approximation", evidence,
     body: bodyAssets(version, "photivra-consumer-body", 6400, 4, 8, { bitDepth: 12, blackLevelCode: 256, saturationElectrons: 20000,
       maximumAnalogGain: 32, lowGainReadNoise: 6, highGainReadNoise: 2.5, highGainFromIso: 800, highGainMaximumCharge: 6000,
@@ -235,7 +238,7 @@ function buildGenericTierAssets(version: GenericTierPresetVersion): readonly Gen
       breathingProjectionScale: 1.005, transmission: .9, correctionGainStrength: .8, ghostPowerFraction: .001, veilPowerFraction: .002,
       pupilAmplitudeByField: [disk, disk, disk], pupilOpdMicrometersByDefocus: [near.map((v)=>v*.9), flat, far.map((v)=>v*.6)], pupilThroughputByField: [1,.98,.95] }),
     tradeoffs: ["Less edge clipping/stray light, with greater f/4 falloff/gain cost than Prosumer and asymmetric near/far wavefront character."] }
-  ];
+  ]);
 }
 
 /** The presets of the current version, 2.1.0 (third-stop ISO settings). */
