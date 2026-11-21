@@ -2338,15 +2338,15 @@ through the color filter array, demosaiced and compared with the original (Guntu
 A reference without the camera's optics (`simulateIdealReference`) would mix lens blur, the anti-aliasing filter and noise into
 the number; this one is 0 wherever the demosaic reconstructs exactly.
 
-```js
-import { simulateFalseColor } from "@photivra/engine";
+```ts
+import { simulateFalseColor, type SimulateCaptureOptions } from "@photivra/engine";
 
 // A neutral grating at 0.45 cycles per output pixel across a 64-pixel frame.
-const grating = { kind: "reflectance-function", sceneId: "grating-0.45",
-  evaluate: (p) => 0.4 + 0.3 * Math.sin(2 * Math.PI * 0.45 * 32 * p.u) };
-for (const demosaic of ["bilinear", "ahd"]) {
+const grating: SimulateCaptureOptions["scene"] = { kind: "reflectance-function", sceneId: "grating-0.45",
+  evaluate: (p: { u: number }) => 0.4 + 0.3 * Math.sin(2 * Math.PI * 0.45 * 32 * p.u) };
+for (const demosaic of ["bilinear", "ahd"] as const) {
   const result = await simulateFalseColor({ scene: grating, output: { width: 64, height: 64, demosaic } }, { map: true });
-  console.log(demosaic, result.chromaDifference.mean.toFixed(1), result.chromaDifference.fractionAbove, result.map.rgba.length);
+  console.log(demosaic, result.chromaDifference.mean.toFixed(1), result.chromaDifference.fractionAbove, result.map?.rgba.length);
 }
 ```
 
@@ -2548,10 +2548,10 @@ The engine adds no worker code: the workers are the caller's.
    without rendering it. The bands of one file differ several-fold in cost (the middle band of the composite chart costs about
    2.5 times its cheapest), so deal bands dearest first to the shard with the smallest predicted total.
 
-```js
-import { estimateDisplayViewRender, prepareDisplayView } from "@photivra/engine";
+```ts
+import { estimateDisplayViewRender, prepareDisplayView, type SimulateCaptureOptions } from "@photivra/engine";
 
-const request = { scene: { preset: "siemens-star" }, subjectDistanceM: 2, fast: false,
+const request: SimulateCaptureOptions = { scene: { preset: "siemens-star" }, subjectDistanceM: 2, fast: false,
   lens: { prime: 50, fNumber: 8, diffraction: "circular-aperture" }, output: { width: 1200, height: 800, format: "srgb-8" } };
 const file = { width: 192, height: 128, samplesPerAxis: 4 }, rows = 32;
 const prepared = await prepareDisplayView(request, { gpu: "off" });
