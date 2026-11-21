@@ -540,8 +540,18 @@ export function createDisplayViewExpectedSignal(input: DisplayViewExpectedSignal
         const rowAt = (qq - ty * T) * T, tapRow = (y - qq + R) * size + R + x;
         for (let tx = txA; tx <= txB; tx++) {
           const tile = preintegratedRow[tx - txA]!, pa = Math.max(px0, tx * T), pb = Math.min(px1, tx * T + T - 1);
-          for (let p = pa, b = (rowAt + pa - tx * T) * nodes, k = (tapRow - pa) * nodes; p <= pb; p++, b += nodes, k -= nodes)
-            for (let n = 0; n < nodes; n++) S[n] = S[n]! + K[k + n]! * tile[b + n]!;
+          // Four nodes at a time, each in its own accumulator over the row's taps: the same additions in the same order per node
+          // (S[n] + K·B tap after tap), so the same bits, at about 0.76× the time of one node at a time (#670).
+          const b0 = (rowAt + pa - tx * T) * nodes, k0 = (tapRow - pa) * nodes;
+          let n = 0;
+          for (; n + 4 <= nodes; n += 4) {
+            let s0 = S[n]!, s1 = S[n + 1]!, s2 = S[n + 2]!, s3 = S[n + 3]!;
+            for (let p = pa, b = b0 + n, k = k0 + n; p <= pb; p++, b += nodes, k -= nodes) {
+              s0 += K[k]! * tile[b]!; s1 += K[k + 1]! * tile[b + 1]!; s2 += K[k + 2]! * tile[b + 2]!; s3 += K[k + 3]! * tile[b + 3]!;
+            }
+            S[n] = s0; S[n + 1] = s1; S[n + 2] = s2; S[n + 3] = s3;
+          }
+          for (; n < nodes; n++) for (let p = pa, b = b0 + n, k = k0 + n; p <= pb; p++, b += nodes, k -= nodes) S[n] = S[n]! + K[k]! * tile[b]!;
         }
       }
       q = qEnd + 1;

@@ -545,14 +545,23 @@ equal 2.28.0 step 5's tree on arm64 and on x64 Node 24.1 under Rosetta 2). Work 
   `tele-200` 245.6, `wide-24` 66.7, `sensor-phone` 70.4, `dof-near-s4` 126.1, `noise-iso-frame` 101.3.
   - *Measured and not built.* The exact small-pixel diffraction requests of #710 now take 2.7 CPU s (capture; 18.0 in the step 2
     profile of 2.27.0, #731) and 13.0 s (display view; 19.5, win 1); the 2.26.0 call site of `MaterialSums` is no longer on either path. What is
-    left of the view is the per-tap spectral sum (`preintegratedSite`, 84 % of the render); summing four nodes at a time in their
-    own accumulators keeps every bit and takes 0.76× of its time in paired runs, but adds 120 B to the fast row (11 B of room), so
-    it waits for the owner's call on the row. Candidate 6 (keeping the pre-integrated tiles per prepared view) is bounded by the
+    left of the view is the per-tap spectral sum (`preintegratedSite`, 84 % of the render); four nodes at a time is built (next
+    item, owner decision 2026-11-21). Candidate 6 (keeping the pre-integrated tiles per prepared view) is bounded by the
     tile fill's share of a full-quality frame (about 7 %) on the second file only and needs fast-row bytes in
     `expected-signal.ts`; not built. Candidate 7 (the catalogue lens's per-site PSF resolve with `fast: false`, about 40 s of the
     `catalogue-768` part): reading the bilinear corners in line gave 1.00×, skipping the zone moments the exact path does not read
     1.00×, and a centroid cache keyed by kernel object 0.92× but with different samples (the key was not safe in that quick form),
     so nothing byte-identical worth its bytes was found.
+- **Full-quality diffraction views: the pre-integrated per-tap sum adds four spectral nodes at a time (#670, owner decision
+  2026-11-21).** `preintegratedSite` (expected-signal.ts) accumulated each tap into all nodes one after another; it now keeps four
+  nodes in their own accumulators over a row of taps, with the remainder one at a time. Each node's additions are the same and in
+  the same order, so every bit is the same: `test/display-view-preintegrated-nodes.test.ts` locks the samples and the float64
+  expected values of #710's 1.4 µm view (20 and 81 spectral nodes), recorded before the change on x64 and arm64; the figure-batch
+  locks equal 2.28.0 step 5's tree on both architectures, and the display-view hash locks pass. Paired runs: #710's view 14.37 /
+  13.85 / 16.49 → 11.16 / 10.58 / 11.87 CPU s (0.72–0.78×); figure parts with `fast: false`: `bokeh-s1` 0.81×, `frame-768`,
+  `tele-200`, `wide-24` 0.91–0.92×, `noise-iso-frame`, `sensor-aps-c` 0.94×, `sensor-phone` 0.90× (second run), `frame-1536` 0.98×,
+  `dof-near-s4` 1.01–1.02× (no pre-integrated sites); the default flag likewise (`bokeh-s1` 0.81×). Bundle: fast row 337,889 →
+  338,009 B (+120 B); under the owner's release-wide rule the fast limit becomes that rounded up to the next 100 B (338,100 B).
 
 ### New API: `simulateFalseColor` (2.28.0 step 6b, #739)
 
