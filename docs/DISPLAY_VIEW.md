@@ -1987,7 +1987,9 @@ prepared.dispose(); // releases a device the view acquired
 **Order of decisions** when the view is prepared, each a fallback reason for `"auto"` and an `ImageKernelExecutionError`
 with that reason for `"require"`:
 
-1. The realm's switch: `setWebGpuEnabled(false)` gives `webgpu-disabled`, and no adapter is requested.
+1. The realm's switch: `setWebGpuEnabled(false)` gives `webgpu-disabled`, and no adapter is requested. It is read again at every
+   render (`gpu-05` in [#702](https://github.com/Photivra/engine/issues/702)): a view prepared while it was on renders on the CPU,
+   `webgpu-disabled`, while it is off.
 2. No GPU display-view renderer registered (this version): `unsupported-on-backend`, no adapter requested.
 3. The device: the handle's, or acquired with the accelerator's rules and reasons (`webgpu-unavailable`,
    `adapter-unavailable`, `device-request-failed`, `insufficient-limits`, `unsupported-platform-endianness`). The request's

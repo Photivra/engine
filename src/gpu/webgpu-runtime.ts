@@ -26,8 +26,10 @@ export interface WebGpuRuntime {
   /** Set once `device.lost` settles; every later wait rejects with `device-lost`. */
   isLost(): boolean;
   /** Races a GPU promise with device loss and the operation's abort signal. */
-  guard<T>(promise: Promise<T>, signal: AbortSignal | undefined): Promise<T>;
+  guard<T>(promise: Promise<T>, signal?: AbortSignal): Promise<T>;
   destroy(): void;
+  /** gpu-04 (#702): the device's compute pipelines by shader text (createComputePipeline). */
+  readonly pipelines: Map<string, Promise<GPUComputePipeline>>;
 }
 
 export type WebGpuAcquisition = { runtime: WebGpuRuntime } | { failure: ImageKernelFallbackReason; message: string };
@@ -128,13 +130,14 @@ function createRuntime(device: GPUDevice, storage: number, adapter: ImageKernelA
     maximumStorageBindingBytes: Math.min(storage, device.limits.maxStorageBufferBindingSize, device.limits.maxBufferSize),
     maximumWorkgroupsPerDimension,
     isLost: (): boolean => lost,
-    async guard<T>(promise: Promise<T>, signal: AbortSignal | undefined): Promise<T> {
+    async guard<T>(promise: Promise<T>, signal?: AbortSignal): Promise<T> {
       promise.catch(() => undefined);
       if (lost) throw new ImageKernelExecutionError("device-lost", "The WebGPU device was lost; no output is available.");
       const abort = abortRace(signal);
       try { return await Promise.race([promise, lostPromise, abort.promise]); } finally { abort.cleanup(); }
     },
-    destroy(): void { if (!destroyed) { destroyed = true; device.destroy(); } }
+    destroy(): void { if (!destroyed) { destroyed = true; device.destroy(); } },
+    pipelines: new Map()
   };
 }
 
@@ -210,23 +213,36 @@ export async function runComputePass(runtime: WebGpuRuntime, scope: GpuResourceS
   return results;
 }
 
-/** Compiles a compute pipeline; compilation/validation failures are domain errors. */
-export async function createComputePipeline(runtime: WebGpuRuntime, label: string, code: string,
-  signal: AbortSignal | undefined): Promise<GPUComputePipeline> {
-  const device = runtime.device;
-  device.pushErrorScope("validation");
-  const module = device.createShaderModule({ label, code });
-  const pending = device.createComputePipelineAsync({ label, layout: "auto", compute: { module, entryPoint: "main" } });
-  const scope = device.popErrorScope();
-  let pipeline: GPUComputePipeline;
-  try {
-    pipeline = await runtime.guard(pending, signal);
-  } catch (error) {
-    if (error instanceof ImageKernelExecutionError) throw error;
-    throw new ImageKernelExecutionError("gpu-validation", `WebGPU could not compile the ${label} kernel.`);
+/**
+ * A compute pipeline, compiled once per device and shader text (gpu-04 in #702); compilation/validation failures are domain errors.
+ * Every caller on one device (the accelerator's operations, the display-view renderers, their run-time self-checks) shares one
+ * compilation of each shader, so a self-check proves the very pipelines a render uses, and two labels of one text (a chart preset's
+ * module) compile once; a failure names the label of the first caller. A kernel the device did not compile stays refused for that
+ * device (#692); the only other failure, a lost device, fails every later wait on that device anyway (`guard`). `signal` aborts the
+ * caller's wait, not the compilation; `guard` handles the rejection of a compilation no caller waits for any more.
+ */
+export function createComputePipeline(runtime: WebGpuRuntime, label: string, code: string, signal?: AbortSignal): Promise<GPUComputePipeline> {
+  const cache = runtime.pipelines;
+  let pending = cache.get(code);
+  if (!pending) {
+    const device = runtime.device;
+    device.pushErrorScope("validation");
+    const module = device.createShaderModule({ label, code });
+    const compiled = device.createComputePipelineAsync({ label, layout: "auto", compute: { module, entryPoint: "main" } });
+    const scope = device.popErrorScope();
+    cache.set(code, pending = (async (): Promise<GPUComputePipeline> => {
+      let pipeline: GPUComputePipeline;
+      try {
+        pipeline = await runtime.guard(compiled);
+      } catch (error) {
+        if (error instanceof ImageKernelExecutionError) throw error;
+        throw new ImageKernelExecutionError("gpu-validation", `WebGPU could not compile the ${label} kernel.`);
+      }
+      if (await runtime.guard(scope)) {
+        throw new ImageKernelExecutionError("gpu-validation", `WebGPU could not compile the ${label} kernel.`);
+      }
+      return pipeline;
+    })());
   }
-  if (await runtime.guard(scope, signal)) {
-    throw new ImageKernelExecutionError("gpu-validation", `WebGPU could not compile the ${label} kernel.`);
-  }
-  return pipeline;
+  return runtime.guard(pending, signal);
 }

@@ -38,6 +38,7 @@ function blocks(colors: readonly (readonly number[])[], columns: number, block: 
 const COLORS = [[255, 255, 255], [128, 128, 128], [20, 20, 20], [200, 40, 30], [40, 160, 60], [40, 70, 190], [230, 200, 40], [180, 60, 150], [60, 170, 180],
   [233, 195, 170], [120, 80, 50], [250, 120, 20]] as const;
 
+// This block must run first: it asserts the state before any call of prepareImagePlaneScenes() in this file's module graph.
 describe("before prepareImagePlaneScenes()", () => {
   it("a request with an image-plane scene fails, saying what to call", async () => {
     const data = new Uint8Array(3).fill(128);
@@ -66,6 +67,8 @@ describe("print reflectance lattice", () => {
 });
 
 describe("image-plane scene", () => {
+  // Its own hook (ci-23 in #703): one test of this block can run alone (-t) or in a shuffled order.
+  beforeAll(async () => { await prepareImagePlaneScenes(); });
   const base = (scene: Partial<ImagePlaneScene> = {}): ImagePlaneScene => ({ kind: "image-plane", sceneId: "photo", image: blocks(COLORS, 4, 2), ...scene });
 
   it("validates its input", async () => {

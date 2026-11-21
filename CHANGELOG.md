@@ -42,6 +42,40 @@
   identity gate reads every tracked text file and any host domain (#696). The licence gate reads more than one lockfile
   (`site/package-lock.json`) and refuses a compound expression with `AND` (`ci-11` in #703). Their logic has unit tests
   (`scripts/test-gates.mjs`). A change confined to `site/` or `docs/design/` runs no engine tests (`.github/ci-scope.mjs`).
+- **Low-severity tests, CI and scripts findings (2.28.0 step 8, #703); no package, API, output or bundle change.**
+  - *A leg skips by major (`ci-08`, owner decision 2026-11-21).* `--same-as-primary` compares the leg's Node.js major with the
+    primary leg's (24) from its own runtime, with no network call, instead of the newest Node 24 patch in the release index. On
+    run 44453452116 the hosted runners held 24.22.2 and 24.22.3, so two parts of `lts/-1` skipped and two ran in full. This
+    supersedes the patch-level wording of the 2.20.0 decision (#231).
+  - *Orphan API pages (`ci-09`).* `node scripts/generate-api-reference.mjs --check` (part of `docs:check`) fails on a `.md` or
+    `.json` file in `docs/api` that it no longer generates, and a write run deletes it, so the page of a module that stops
+    exporting through the root cannot stay in the package. None exists today.
+  - *A path named in a comment is not "read by a test" (`ci-10`).* `.github/ci-scope.mjs` strips comments from a reader's text
+    (strings kept whole, so a URL's `//` starts no comment) before it looks for a changed Markdown path. Of 399 Markdown files
+    outside the code directories, 5 count as read by a test, from 13; the 8 dropped were named only in comments.
+  - *The on-demand kits' load-failure path is tested (`ci-12`).* `kitLoader` (`src/facade/on-demand-kits.ts`) is exported for
+    its test, not from the root: a failed import rejects with `ImageKernelExecutionError` `quality-code-unavailable` naming the
+    kit, the next call retries, and concurrent calls share one import. Bundle rows unchanged (fast 337,888 B, on demand
+    51,744 B, export 10,396 B, lens 10,200 B).
+  - *Lean-executor tests require success (`ci-14`).* `same()` in `test/native-environment-lean.test.ts` asserts whether the
+    summary holds an error; the 16 calls of the four coverage tests must succeed and the error tests pass `expectError`, so a
+    configuration that failed the same way on both paths no longer passes a test meant to cover it.
+  - *The SPDX-header gate's scope (`ci-15`, owner decision 2026-11-21).* `npm run check:license-headers` also reads `test/`,
+    `.github/` and the repository root's own source files, and every `.ts`, `.mts`, `.cts`, `.js`, `.mjs` and `.cjs` file;
+    `vitest.config.ts`, `vitest.webgpu.config.ts` and `eslint.config.js` carry the Apache-2.0 header, with no exceptions list.
+  - *One line's failed `verify` check no longer cancels the others (`ci-19`).* The `verify` job sets `fail-fast: false`, and the
+    workflow rules (`.github/node-ci-roles.mjs`) fail when any matrix job of `ci.yml`, `publish.yml` or `webgpu.yml` leaves it out.
+  - *The packed-consumer check reads every dependency field (`ci-22`).* `scripts/check-release-consumer.mjs` failed only on a
+    non-empty `dependencies`; it now refuses the five fields `pack:check` refuses since #659 (`dependencies`,
+    `optionalDependencies`, `peerDependencies`, `bundleDependencies`, `bundledDependencies`), from one shared list
+    (`scripts/lib/dependency-fields.mjs`). With `"optionalDependencies": { "left-pad": "1.3.0" }` both checks fail.
+  - *`test/image-plane.test.ts` runs a test alone (`ci-23`).* The "image-plane scene" block has its own `beforeAll` that calls
+    `prepareImagePlaneScenes()`, so `-t "clips and counts linear samples"` passes (it failed with "Call
+    prepareImagePlaneScenes() first."). The first block, which checks the state before any call, must still run first.
+  - *The two opt-in tests run nightly (`ci-13`, owner decision 2026-11-21).* `native-performance.yml` gains an `optional tests`
+    job, nightly and on manual dispatch only (never on pull requests), 45-minute timeout, that runs
+    `test/native-raw-megapixel.test.ts` with `PHOTIVRA_VALIDATE_MEGAPIXEL_RAW=1` and `test/display-view-speed-gpu-full.test.ts`
+    with `PHOTIVRA_DISPLAY_VIEW_APP_SCENE=1`. Measured locally first: 44 s and 8.3 min (Apple silicon), so both stay scheduled.
 
 ### Site
 
@@ -543,6 +577,28 @@ Each item below is one commit of the serial output-change lane, with its measure
   2026-11-21). Other rows: on demand 50,700 B, fast worker 337,192 B, export 10,398 B. CPU results are unchanged; the lens shaders'
   text is G1's. Conformance: every value inside its bound on the emulation, SwiftShader and the Apple M5 Pro. The acceptance
   harness gains an `app-lens` case for the public path.
+- **Low-severity GPU and bundle findings (2.28.0 step 8, #702).**
+  - *Two GPU fallback reasons match the request (`gpu-06`).* The display view's CPU-fallback text for a lens request names
+    `lens.catalogue` (without a radial distortion) beside lens.projection, lens.distortion, lens.vignetting and camera rotation,
+    and the layered-scene reason no longer names a release ("layered chart scenes render on the CPU (#652)"). Fast row
+    337,888 → 337,881 B.
+  - *`setWebGpuEnabled(false)` stops GPU work that already has a device (`gpu-05`).* The realm's switch is read on every
+    accelerator operation and every prepared display-view render, not only when the accelerator or view is created (before, one
+    operation of six read it per call). While it is off, an accelerator created earlier runs the CPU reference labelled
+    `webgpu-disabled` (it keeps its device), and a view prepared earlier renders on the CPU labelled `webgpu-disabled` under
+    `"auto"` or throws that reason under `"require"`; switched on again, the device is used. Results labelled `webgpu-f32` while
+    the switch was on are unchanged. Fast row 337,881 → 337,889 B (docs/WEBGPU.md, "The realm's switch").
+  - *docs/IMAGE_PLANE.md no longer says a banded photo never meets the binding limit (`gpu-09`).* A band is at least one display
+    row, so a strongly reduced, very wide photo whose rows for one display row do not fit one binding is refused by name
+    (`insufficient-limits`), and `gpu: "auto"` renders it on the CPU reference with that label. A test with an 18000 × 1200 photo
+    on the 128 MiB default limit checks both. No code change.
+  - *The first render compiles each shader once (`gpu-04`).* `createComputePipeline` keeps one pipeline per device and shader
+    text, shared by the accelerator's operations, the display-view renderers and their run-time self-checks, so a self-check
+    proves the pipelines the render uses. On the fake device a first Speed render compiles 2 shader modules (was 4) and a first
+    Quality render with diffraction and AHD 6 (was 12); a second view of another chart preset on a shared accelerator compiles
+    none. A kernel the device refused stays refused for that device (`gpu-validation`, as #692 did for the renderer; the
+    accelerator recompiled it before). No output changes. The hardware first-render time saved is not measured. Fast row
+    337,889 → 337,894 B.
 
 ### Full-quality speed (2.28.0 step 6, group D)
 

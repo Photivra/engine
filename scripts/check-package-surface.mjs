@@ -4,6 +4,7 @@ import { execFileSync } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import { posix } from "node:path";
 import { platform, stdout } from "node:process";
+import { declaredDependencyFields } from "./lib/dependency-fields.mjs";
 
 const packageJson = JSON.parse(
   await readFile("package.json", "utf8")
@@ -38,8 +39,8 @@ if (JSON.stringify(packageJson.exports) !== expectedExports) {
 }
 
 // #659: the package has no runtime dependency, so nothing it ships can bring WebAssembly (or anything else) along.
-for (const field of ["dependencies", "peerDependencies", "optionalDependencies", "bundledDependencies", "bundleDependencies"]) {
-  if (packageJson[field] !== undefined) fail(`Published manifest must not declare ${field} (#659: the engine has no runtime dependency).`);
+for (const field of declaredDependencyFields(packageJson)) {
+  fail(`Published manifest must not declare ${field} (#659: the engine has no runtime dependency).`);
 }
 
 const raw = execFileSync(

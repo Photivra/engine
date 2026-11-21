@@ -174,6 +174,23 @@ describe("accelerator backend selection", () => {
       expect(fresh.backend).toBe("webgpu-f32");
       kept.dispose(); fresh.dispose();
     });
+    it("off after creation: an accelerator that has its device runs every operation on the reference, labelled webgpu-disabled (gpu-05 in #702)", async () => {
+      const { gpu } = createFakeGpu();
+      const kept = await createImageKernelAccelerator({ backend: "webgpu-f32", fallback: "fail", gpu });
+      const input = convolutionCorpus(16, 8, 1, 16, 8, 7);
+      expect((await kept.convolveIrradiance(input)).execution).toMatchObject({ backend: "webgpu-f32", fallbackReason: null });
+      setWebGpuEnabled(false);
+      const off = await kept.convolveIrradiance(input);
+      expect(off.execution).toMatchObject({ backend: "cpu-reference", requestedBackend: "webgpu-f32", fallbackReason: "webgpu-disabled", bitIdenticalToReference: true });
+      expect(Array.from(off.values)).toEqual(Array.from(calculateIrradianceConvolution(input).values));
+      const sdr = sdrInput(8, 3, 64, 1, sdrProfile(8, "identity", "clip-components", 0)), packed = sdrCorpus(8, 3, 64, sdr.profile, 1, 1);
+      const rendered = await kept.renderNativeCaptureSdr(sdr, tiles(packed, 8));
+      expect(rendered.execution).toMatchObject({ backend: "cpu-reference", fallbackReason: "webgpu-disabled" });
+      // The accelerator keeps its device: switched on again, the next operation runs on it.
+      setWebGpuEnabled(true);
+      expect((await kept.convolveIrradiance(input)).execution).toMatchObject({ backend: "webgpu-f32", fallbackReason: null });
+      kept.dispose();
+    });
   });
   it("destroys a device that arrives after acquisition was aborted", async () => {
     const { gpu, controls } = createFakeGpu({ device: "deferred" }), controller = new AbortController();
@@ -341,8 +358,11 @@ describe("webgpu-f32 host path (in-process float32 emulation of the WGSL kernels
     }
     f = await fake(); f.controls.failPipeline = true;
     expect(await reason(f.accelerator.convolveIrradiance(input))).toBe("gpu-validation");
-    f.controls.failPipeline = false; f.controls.failNextScope = "validation";
+    // gpu-04 (#702): a kernel the device did not compile stays refused on that device (one pipeline cache per device, #692's rule);
+    // a new accelerator recovers.
+    f.controls.failPipeline = false;
     expect(await reason(f.accelerator.convolveIrradiance(input))).toBe("gpu-validation");
+    f = await fake();
     expect(await reason(f.accelerator.convolveIrradiance(input))).toBe("resolved");
     f = await fake({}, 4096);
     const controller = new AbortController();

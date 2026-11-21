@@ -175,6 +175,8 @@ describe("display view with lens projection, distortion, vignetting and camera r
     const execution = (await prepared.render({ width: 4, height: 4 })).diagnostics.fast.execution;
     expect(execution).toMatchObject({ backend: "cpu-reference", fallbackReason: "unsupported-on-backend", adapter: null });
     expect(execution.limitations.join(" ")).toMatch(/lens\.projection, lens\.distortion, lens\.vignetting or camera rotation \(#563\)/u);
+    // gpu-06 (#702): the reason names the options it is about, lens.catalogue among them.
+    expect(execution.limitations.join(" ")).toMatch(/lens\.catalogue without a radial distortion/u);
     await expect(prepareDisplayView(options, { gpu: "require" })).rejects.toThrow(ImageKernelExecutionError);
   }, scaledTimeout(60_000));
 

@@ -133,6 +133,24 @@ describe("display view GPU option (#481)", () => {
     expect(await reason(prepareDisplayView(REQUEST, { gpu: "require", gpuDevice: gpu }))).toBe("webgpu-disabled");
   });
 
+  it("the realm's switch, turned off after a view was prepared, keeps that view's renders on the CPU until it is on again (gpu-05 in #702)", async () => {
+    const fake = fakeRenderer();
+    setDisplayViewGpuRendererFactory(fake.factory);
+    const prepared = await prepareDisplayView(REQUEST, { gpu: "auto", gpuDevice: createFakeGpu().gpu });
+    const strict = await prepareDisplayView(REQUEST, { gpu: "require", gpuDevice: createFakeGpu().gpu });
+    expect((await prepared.render(VIEW)).diagnostics.fast.execution).toMatchObject({ backend: "webgpu-f32", fallbackReason: null });
+    setWebGpuEnabled(false);
+    const off = await prepared.render(VIEW);
+    expect(off.diagnostics.fast.execution).toMatchObject({ gpu: "auto", backend: "cpu-reference", requestedBackend: "webgpu-f32", fallbackReason: "webgpu-disabled", adapter: FAKE_ADAPTER_INFO });
+    expect(comparable(off)).toEqual({ ...comparable(await simulateDisplayView(REQUEST, VIEW)) as object, diagnostics: expect.anything() });
+    expect(await reason(strict.render(VIEW))).toBe("webgpu-disabled");
+    expect(fake.renders).toBe(1);
+    setWebGpuEnabled(true);
+    expect((await prepared.render(VIEW)).diagnostics.fast.execution).toMatchObject({ backend: "webgpu-f32", fallbackReason: null });
+    expect(fake.renders).toBe(2);
+    prepared.dispose(); strict.dispose();
+  });
+
   it("auto on a conforming device renders on the GPU: the label names webgpu-f32, its bound, the adapter and the passed self-check", async () => {
     const fake = fakeRenderer({ perturb: true });
     setDisplayViewGpuRendererFactory(fake.factory);
@@ -383,6 +401,55 @@ describe("display view GPU option (#481)", () => {
     } finally { setDisplayViewQualityGpuLoader(null); }
   }, testTimeout(120_000));
 
+  // gpu-04 (#702): the self-check runs the very pipelines the render uses, so the first render compiles each distinct shader once.
+  it("with the engine's renderer, the first render compiles each distinct shader once and the second compiles none", async () => {
+    setDisplayViewGpuRendererFactory(engineRendererFactory);
+    const counting = (): { gpu: unknown; labels: string[] } => {
+      const fake = createFakeGpu(), labels: string[] = [];
+      type Device = { createShaderModule(d: { label: string; code: string }): unknown };
+      type Adapter = { requestDevice(d: unknown): Promise<Device> };
+      const gpu = fake.gpu as { requestAdapter(o?: unknown): Promise<Adapter> }, requestAdapter = gpu.requestAdapter.bind(gpu);
+      gpu.requestAdapter = async (o?: unknown): Promise<Adapter> => {
+        const adapter = await requestAdapter(o), requestDevice = adapter.requestDevice.bind(adapter);
+        adapter.requestDevice = async (d: unknown): Promise<Device> => {
+          const device = await requestDevice(d), create = device.createShaderModule.bind(device);
+          device.createShaderModule = (m): unknown => { labels.push(m.label); return create(m); };
+          return device;
+        };
+        return adapter;
+      };
+      return { gpu, labels };
+    };
+    const region = (x: number, y: number): typeof SMALL_VIEW & { region: { x: number; y: number; width: number; height: number } } => ({ ...SMALL_VIEW, region: { x, y, width: 16, height: 12 } });
+    // Speed: the convolution and the Speed kernel; Quality (diffraction and AHD): the convolution, the Speed kernel of the device's
+    // self-check, the lattice, sites, pixels and blocked-sites kernels.
+    for (const [quality, distinct] of [[false, 2], [true, 6]] as const) {
+      const extra = quality ? { lens: { diffraction: "circular-aperture" }, output: { ...SMALL_FRAME, format: "srgb-8", demosaic: "ahd" } } : {};
+      const request = { scene: { preset: "checkerboard" }, subjectDistanceM: 2, sensor: { pixelPitchMicrometers: 6 }, output: { ...SMALL_FRAME, format: "srgb-8" }, ...extra } as SimulateCaptureOptions;
+      const c = counting(), prepared = await prepareDisplayView(request, { gpu: "auto", gpuDevice: c.gpu });
+      expect((await prepared.render(region(90, 60))).diagnostics.fast.execution).toMatchObject({ backend: "webgpu-f32", conformance: { passed: true } });
+      expect(new Set(c.labels).size, c.labels.join(", ")).toBe(distinct);
+      expect(c.labels.length, c.labels.join(", ")).toBe(distinct);
+      await prepared.render(region(20, 20));
+      expect(c.labels.length).toBe(distinct);
+      prepared.dispose();
+    }
+    // Views that share an accelerator's device share its pipelines: a second chart preset's module has the same shader text, so
+    // a Speed view of another preset compiles nothing (before, its label made the Speed kernel compile again).
+    const c = counting(), accelerator = await createImageKernelAccelerator({ webgpu: true, gpu: c.gpu as never });
+    const view = async (preset: string): Promise<void> => {
+      const request = { scene: { preset }, subjectDistanceM: 2, sensor: { pixelPitchMicrometers: 6 }, output: { ...SMALL_FRAME, format: "srgb-8" } } as unknown as SimulateCaptureOptions;
+      const prepared = await prepareDisplayView(request, { gpu: "auto", gpuDevice: accelerator });
+      expect((await prepared.render(region(90, 60))).diagnostics.fast.execution.backend).toBe("webgpu-f32");
+      prepared.dispose();
+    };
+    await view("checkerboard");
+    expect(c.labels.length).toBe(2);
+    await view("siemens-star");
+    expect(c.labels.length, c.labels.join(", ")).toBe(2);
+    accelerator.dispose();
+  }, testTimeout(120_000));
+
   it("dispose() ends a running self-check; the render that waited runs the CPU reference labelled disposed, or fails under require", async () => {
     for (const gpu of ["auto", "require"] as const) for (const where of ["device", "on-demand"] as const) {
       const gated = gatedCase("preview:gated");
@@ -415,12 +482,16 @@ describe("display view GPU option (#481)", () => {
           const prepared = await prepareDisplayView(request, { gpu, gpuDevice: fake.gpu });
           if (gpu === "require") {
             const outcome = await reason(prepared.render(region));
-            expect(["conformance-failed", "gpu-validation"], preset + " " + k).toContain(outcome);
+            expect(["conformance-failed", "gpu-validation", "resolved"], preset + " " + k).toContain(outcome);
+            if (preset === "checkerboard") expect(outcome).not.toBe("gpu-validation");
           } else {
             const result = await prepared.render(region);
             const execution = result.diagnostics.fast.execution;
-            expect(execution.backend, preset + " " + k).toBe("cpu-reference");
+            // gpu-04 (#702): the self-checks build every pipeline a chart-preset view renders with, so after them a checkerboard
+            // render compiles nothing and runs on the GPU; dead leaves (a composite chart) compiles its probe and lattice at render.
+            if (execution.backend === "webgpu-f32") { expect(preset, String(k)).toBe("checkerboard"); outcomes.add("gpu"); prepared.dispose(); continue; }
             expect(["conformance-failed", "gpu-validation"], preset + " " + k).toContain(execution.fallbackReason);
+            if (preset === "checkerboard") expect(execution.fallbackReason).toBe("conformance-failed");
             expect(Array.from(result.image.samples)).toEqual(Array.from(reference));
             outcomes.add(execution.fallbackReason!);
             if (execution.fallbackReason === "gpu-validation") {
@@ -435,7 +506,7 @@ describe("display view GPU option (#481)", () => {
           prepared.dispose();
         }
       }
-      expect(outcomes.has("gpu-validation"), preset).toBe(true);
+      expect(outcomes.has(preset === "checkerboard" ? "gpu" : "gpu-validation"), preset + " " + [...outcomes].join()).toBe(true);
     }
   }, testTimeout(300_000));
 

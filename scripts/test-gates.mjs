@@ -8,6 +8,12 @@ import { anchors, headings, headingSlug } from "./lib/anchors.mjs";
 import { checkLinks, repositoryWebUrl } from "./check-release-docs.mjs";
 import { licenseAllowed, checkLockfile } from "./check-license-policy.mjs";
 import { identityViolations, isText } from "./check-project-identity.mjs";
+import { orphanPages } from "./lib/generated-pages.mjs";
+import { licenseHeaderViolations } from "./check-license-headers.mjs";
+import { declaredDependencyFields } from "./lib/dependency-fields.mjs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 const REPO = "https://github.com/Photivra/engine";
 
@@ -80,4 +86,38 @@ test("the identity gate reads every text file and any host domain (#696)", () =>
   assert.equal(isText("scripts/verify.py", Buffer.from("print()")), true);
   assert.equal(isText("a.png", Buffer.from("text")), false);
   assert.equal(isText("a.bin", Buffer.from([1, 0, 2])), false);
+});
+
+test("the API-reference check names a page it no longer generates (ci-09 in #703)", () => {
+  const listing = ["camera-field-of-view.md", "exports.json", "optics-depth-of-field.md", "zz-removed-module.md", "notes.txt"];
+  const emitted = new Set(["docs/api/camera-field-of-view.md", "docs/api/optics-depth-of-field.md", "docs/api/exports.json"]);
+  assert.deepEqual(orphanPages("docs/api", listing, emitted), ["docs/api/zz-removed-module.md"]);
+  assert.deepEqual(orphanPages("docs/api", listing.filter((name) => name !== "zz-removed-module.md"), emitted), []);
+  // Only generated kinds count: a page or JSON file the generator could have written, not any file.
+  assert.deepEqual(orphanPages("docs/api", ["old.json"], new Set()), ["docs/api/old.json"]);
+});
+
+test("the SPDX-header gate reads test/, .github/ and the root configuration files (ci-15 in #703)", async () => {
+  const root = mkdtempSync(join(tmpdir(), "spdx-gate-"));
+  try {
+    const write = (path, text) => { mkdirSync(join(root, path, ".."), { recursive: true }); writeFileSync(join(root, path), text); };
+    const header = "// SPDX-License-Identifier: Apache-2.0\n";
+    for (const path of ["src/a.ts", "scripts/b.mjs", "site/c.mjs", "test/d.test.ts", ".github/e.mjs", "vitest.config.ts", "eslint.config.js", "scripts/lib/f.d.mts"])
+      write(path, header + "export {};\n");
+    write("site/node_modules/pkg/index.js", "module.exports = 1;\n");
+    write("README.md", "# no header needed\n");
+    assert.deepEqual(await licenseHeaderViolations(root), []);
+    for (const path of ["test/new.test.ts", ".github/new-tool.mjs", "vitest.webgpu.config.ts", "eslint.config.js", "test/helpers/g.js"]) write(path, "export {};\n");
+    assert.deepEqual(await licenseHeaderViolations(root), [".github/new-tool.mjs", "eslint.config.js", "test/helpers/g.js", "test/new.test.ts", "vitest.webgpu.config.ts"]);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("the no-runtime-dependency checks read every dependency field (ci-22 in #703)", () => {
+  assert.deepEqual(declaredDependencyFields({ name: "@photivra/engine", devDependencies: { vitest: "4" } }), []);
+  for (const field of ["dependencies", "optionalDependencies", "peerDependencies", "bundleDependencies", "bundledDependencies"])
+    assert.deepEqual(declaredDependencyFields({ devDependencies: {}, [field]: field.startsWith("bundle") ? ["left-pad"] : { "left-pad": "1.3.0" } }), [field]);
+  // #659: the published manifest declares none of the fields at all, so an empty one is refused too.
+  assert.deepEqual(declaredDependencyFields({ optionalDependencies: {} }), ["optionalDependencies"]);
 });

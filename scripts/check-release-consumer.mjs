@@ -8,6 +8,7 @@ import { execFileSync } from "node:child_process";
 import { mkdtempSync, writeFileSync, readFileSync, copyFileSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { declaredDependencyFields } from "./lib/dependency-fields.mjs";
 const scratch = mkdtempSync(join(tmpdir(), "photivra-packed-consumer-"));
 try {
   const pack = JSON.parse(execFileSync("npm", ["pack", "--cache", join(scratch,"cache"), "--ignore-scripts", "--json", "--pack-destination", scratch], { encoding: "utf8" }))[0];
@@ -16,7 +17,8 @@ try {
   const packageRoot = join(scratch,"node_modules/@photivra/engine");
   const manifest = JSON.parse(readFileSync(join(packageRoot,"package.json"),"utf8"));
   const sourceManifest = JSON.parse(readFileSync("package.json", "utf8"));
-  if (manifest.version !== sourceManifest.version || manifest.dependencies && Object.keys(manifest.dependencies).length) throw new Error("Release package identity/dependencies changed");
+  // ci-22 (#703): every field npm installs through, not `dependencies` alone (an optional dependency it cannot fetch offline is skipped).
+  if (manifest.version !== sourceManifest.version || declaredDependencyFields(manifest).length) throw new Error("Release package identity/dependencies changed");
   const packedApiVersion = execFileSync(process.execPath, ["--input-type=module", "-e", 'import { ENGINE_API_VERSION } from "@photivra/engine"; console.log(ENGINE_API_VERSION);'], { cwd: scratch, encoding: "utf8" }).trim();
   if (packedApiVersion !== manifest.version) throw new Error("Packed package/root API version drift");
   // CommonJS consumers resolve the "default" condition through require(esm); the manifest is exported.

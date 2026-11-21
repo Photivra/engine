@@ -60,25 +60,26 @@ describe("catalogue-lens display views through prepareDisplayView (#661)", () =>
     prepared.dispose();
   }, scaledTimeout(180_000));
 
-  // #692 with a lens: a pipeline the device refuses after the self-check (from the k-th dispatch on) is a CPU fallback under auto. On the
-  // fake device the device and lens self-checks take 27 dispatches, so from the 28th to the 31st a render's lens or pass-3 pipelines fail.
-  it("a lens kernel the device refuses after the self-check falls back under auto (gpu-validation) and throws under require (#692)", async () => {
+  // #692 with a lens: a pipeline the device refuses (from the k-th dispatch on) is a CPU fallback under auto. gpu-04 (#702): the
+  // device and lens self-checks build every pipeline this view renders with (one cache per device), so a refusal during them is
+  // conformance-failed, and after them the render compiles nothing and runs on the GPU.
+  it("a lens kernel the device refuses during the self-check falls back under auto (conformance-failed); after it the render reuses the checked pipelines (#692, gpu-04)", async () => {
     const reference = (await (await prepareDisplayView(still, { gpu: "off" })).render(region(90, 60))).image.samples, outcomes = new Set<string>();
     for (const k of [24, 28, 30, 31, 34]) for (const gpu of ["auto", "require"] as const) {
       const fake = createFakeGpu();
       fake.controls.beforeDispatch = (count): void => { if (count === k) fake.controls.failPipeline = true; };
       const prepared = await prepareDisplayView(still, { gpu, gpuDevice: fake.gpu });
-      if (gpu === "require") expect(["conformance-failed", "gpu-validation", "resolved"]).toContain(await reason(prepared.render(region(90, 60))));
+      if (gpu === "require") expect(["conformance-failed", "resolved"]).toContain(await reason(prepared.render(region(90, 60))));
       else {
         const result = await prepared.render(region(90, 60)), e = execution(result);
         if (e.backend === "cpu-reference") {
-          expect(["conformance-failed", "gpu-validation"]).toContain(e.fallbackReason);
+          expect(e.fallbackReason).toBe("conformance-failed");
           expect(Array.from(result.image.samples)).toEqual(Array.from(reference));
-          outcomes.add(e.fallbackReason!);
         }
+        outcomes.add(e.fallbackReason ?? e.backend);
       }
       prepared.dispose();
     }
-    expect(outcomes.has("gpu-validation")).toBe(true);
+    expect([...outcomes].sort()).toEqual(["conformance-failed", "webgpu-f32"]);
   }, scaledTimeout(600_000));
 });

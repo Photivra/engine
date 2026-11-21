@@ -87,8 +87,10 @@ jobs:
         # an unreviewed or end-of-life major fails instead of being adopted.
         # The primary leg (the coverage shards and `verify-primary` below) is pinned to Node
         # 24, the tooling major (owner decision for 2.20.0, #231). A leg that resolves to the
-        # same release as the primary (lts/-1 while it is Node 24) skips its test work; its
-        # required `verify` check still runs and passes. `node` is resolved to the newest
+        # primary's major (lts/-1 while it is Node 24) skips its test work; its required
+        # `verify` check still runs and passes. Compared by major with no network call (owner
+        # decision 2026-11-21, ci-08 in #703): during an image roll-out one run's runners hold
+        # two patches of a major, and a patch comparison split a leg's parts between them. `node` is resolved to the newest
         # stable release (first step below).
         node-version:
           - "22.13.0"
@@ -117,9 +119,10 @@ jobs:
         run: |
           node --test .github/test-node-lts-policy.mjs
           node .github/node-lts-policy.mjs
-      - name: Same release as the primary leg
+      - name: Same major as the primary leg
         # The primary leg runs the whole suite under coverage and the package gates on this
-        # release already, so this leg would repeat them (#231): it skips its test work.
+        # major already, so this leg would repeat them (#231): it skips its test work. Decided
+        # from process.versions.node and primaryNodeMajor alone (ci-08 in #703).
         id: same
         run: node .github/node-lts-lookahead.mjs --same-as-primary
       - name: Proof of this tree
@@ -170,6 +173,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     strategy:
+      # One line's failure must not cancel the other lines' checks (ci-19 in #703): with the default fail-fast, which line
+      # showed `failure` and which `cancelled` depended on which five-second job finished first.
+      fail-fast: false
       matrix:
         node-version: ["22.13.0", "lts/-1", "node"]
     steps:

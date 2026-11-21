@@ -10,7 +10,7 @@
 // Prints `tests=true` or `tests=false` (and appends it to $GITHUB_OUTPUT when set).
 // `tests=false` only when every changed path is a Markdown file outside src/, test/,
 // scripts/ and .github/, and no file under test/ or a Vitest config that uses the file
-// system names its path (the published src/ is browser-safe and reads no files), or is under
+// system names its path outside a comment (the published src/ is browser-safe and reads no files), or is under
 // site/ or docs/design/ (the documentation site and its design, #669).
 // Anything else, an empty diff or a git error, gives `tests=true`: the rule fails
 // towards running the tests. A docs-only change still runs the static, documentation,
@@ -29,13 +29,21 @@ const fileSystem = /node:fs|from "fs|from 'fs|require\(["']fs|\bfs\./;
 // them; pages.yml builds and checks the site.
 const siteOnly = /^(site|docs\/design)\//;
 
+// A reader's text without its comments (ci-10 in #703): a path named only in a comment is not read. Strings are kept whole,
+// so `//` inside a string (a URL) starts no comment. A text this misreads keeps more of itself, never less, except
+// between a `//` or `/*` outside a string and the end of that comment.
+const commentOrString = /("(?:\\.|[^"\\\n])*"|'(?:\\.|[^'\\\n])*'|`(?:\\.|[^`\\])*`)|\/\*[\s\S]*?\*\/|\/\/[^\n]*/g;
+export function withoutComments(text) {
+  return text.replace(commentOrString, (match, string) => string ?? (match.startsWith("/*") ? " " : ""));
+}
+
 export function docsOnlyReason(changed, readerTexts) {
   if (changed.length === 0) return "no changed files were found";
   for (const path of changed) {
     if (siteOnly.test(path)) continue;
     if (!path.endsWith(".md")) return `${path} is not Markdown`;
     if (codeDirectories.test(path)) return `${path} is under a code directory`;
-    const reader = readerTexts.find(({ text }) => text.includes(path));
+    const reader = readerTexts.find(({ text }) => withoutComments(text).includes(path));
     if (reader) return `${path} is read by ${reader.file}`;
   }
   return undefined;
