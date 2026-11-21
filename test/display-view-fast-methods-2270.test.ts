@@ -11,7 +11,7 @@ import { scaledTimeout } from "./helpers/test-timeout.js";
 /*
  * 2.27.0: the facade's choice of the new fast methods (docs/API_STYLE.md, "Exact and fast modes"): the fast method by default for the
  * display view, the full method with fast: false, and the option record's own flag over the top-level one. The methods themselves are
- * tested in test/display-view-lens-regrouped.test.ts (#651) and test/display-view-lens-catalogue-regrouped.test.ts (#655).
+ * tested in test/display-view-lens-regrouped.test.ts (#651) and test/display-view-lens-catalogue-regrouped-1.test.ts and -2.test.ts (#655).
  */
 
 type Value = Record<string, unknown>;

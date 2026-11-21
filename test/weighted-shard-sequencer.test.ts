@@ -59,6 +59,13 @@ describe("weighted coverage shards", () => {
   // #665 (owner decision 2026-11-21): a new test file needs its recorded time in the pull request that adds it, from that pull
   // request's first run (`coverage-timings-k` artifacts, scripts/record-shard-weights.mjs), so several new slow files cannot
   // land in one part at the median's weight. The table also names no file that no longer exists.
+  // #693 (ci-02): the sequencer starts a part's longest file first, so no split makes a part shorter than its longest file. A file
+  // whose recorded time passes three quarters of the coverage shard's 20-minute limit (ci.yml) fails here, not in a CI job: split it.
+  it("records no file longer than 900 s, three quarters of a coverage shard's 20-minute limit", () => {
+    const longest = Object.entries(weights.files).sort(([, a], [, b]) => b - a)[0]!;
+    expect(longest[1], longest[0]).toBeLessThanOrEqual(900_000);
+  });
+
   it("has a recorded time for every test file, and none for a file that no longer exists", () => {
     const recorded = Object.keys(weights.files);
     expect(files.filter((file) => !recorded.includes(file)), "test files with no recorded time in test/shard-weights.json").toEqual([]);

@@ -598,7 +598,7 @@ as the capture does ([Flare and breathing](LENS_CATALOGUE.md#flare-and-breathing
   B(p)[n] = Σ_o w_o·F(p + o)·L(p + o)[n] the lattice point's spectral radiance pre-integrated over the query offsets (pixel-aperture
   nodes and filter spots) with each point's field factor F: (2R + 1)² taps per site instead of one combined kernel per lattice group
   and per-material sums, and the box aperture costs about what the point aperture does. The same sum regrouped: every site within
-  1e-9 relative of 2.26.0's sum with one zone (`test/display-view-lens-catalogue-regrouped.test.ts`). B is spectral radiance (no
+  1e-9 relative of 2.26.0's sum with one zone (`test/display-view-lens-catalogue-regrouped-1.test.ts`; the uniform-window check in `-1` and `-2`). B is spectral radiance (no
   channel response), kept per lattice point and midpoint in a ring as the lattice points are.
 - *Zone kernels without the copies, kept across prepared views.* A zone builds only its PSF kernels (with their sums and first and
   second moments per node), not tables with every material's spectrum; they are kept by content (lens, f-number, focus, pitch,

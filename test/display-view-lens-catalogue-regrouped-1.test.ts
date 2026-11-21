@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 import { describe, expect, it } from "vitest";
-import { GENERIC_LENS_CATALOGUE, resolveGenericLens, type SimulateCaptureOptions } from "../src/index.js";
+import type { SimulateCaptureOptions } from "../src/index.js";
 import { simulateDisplayViewWithInternals } from "../src/facade/simulate-display-view.js";
-import { clearDisplayViewLensZoneCache, displayViewLensZoneCacheState, lastDisplayViewLensSetup, prepareDisplayViewLensSignal, type DisplayViewLensPsf,
-  type DisplayViewLensSetup } from "../src/facade/display-view-lens-signal.js";
+import { clearDisplayViewLensZoneCache, displayViewLensZoneCacheState, prepareDisplayViewLensSignal, type DisplayViewLensPsf } from "../src/facade/display-view-lens-signal.js";
 import type { DisplayViewExpectedSignal, DisplayViewExpectedSignalInput } from "../src/facade/expected-signal.js";
 import { scaledTimeout } from "./helpers/test-timeout.js";
-import { exposure, fullFrame } from "./helpers/display-view-lens-catalogue.js";
+import { exposure } from "./helpers/display-view-lens-catalogue.js";
+import { prepare, uniformWindowCheck, uniformWindowLenses } from "./helpers/display-view-lens-uniform-windows.js";
 
 /*
  * #655 (CPU): the catalogue lens's display-view signal (src/facade/display-view-lens-signal.ts, psfSite). Each site is
@@ -15,14 +15,12 @@ import { exposure, fullFrame } from "./helpers/display-view-lens-catalogue.js";
  * kernels of each lattice group and per-material sums (kernelSite), given the zone's kernels as the input's. With one zone the two
  * are the same sum regrouped: every site within 1e-9 relative (the 2.27.0 plan's equivalence tolerance). The zone selection is
  * unchanged and covered by test/display-view-lens-catalogue*.test.ts against the capture.
+ * #693 (2.28.0): the uniform-window check over every catalogue lens set this file's shard's run time (815 to 1,004 s of a 20-minute
+ * job under coverage), so it is split by lens set into two files of about equal time: the professional lenses here, the others in
+ * test/display-view-lens-catalogue-regrouped-2.test.ts. Each part asserts the bound and the uniform share on its own lenses, which
+ * implies the single test's assertions over all of them.
  */
 
-interface Prepared { lens: DisplayViewLensSetup; W: number; H: number; input: DisplayViewExpectedSignalInput }
-async function prepare(options: SimulateCaptureOptions): Promise<Prepared> {
-  const { signalInput } = await simulateDisplayViewWithInternals(options, { width: 4, height: 4, samplesPerAxis: 1 });
-  const last = lastDisplayViewLensSetup()!;
-  return { lens: last.lens, W: last.nativeWidth, H: last.nativeHeight, input: signalInput };
-}
 /** Every native site of a signal, read through windows of whole rows (as a render reads them). */
 function sites(signal: DisplayViewExpectedSignal, W: number, H: number): Float64Array {
   const out = new Float64Array(W * H);
@@ -93,30 +91,12 @@ describe("catalogue-lens display view: the pre-integrated kernel pass (#655)", (
   /*
    * #655 step 6, go/no-go: the uniform-window method (a site whose taps all read one material takes the field factor to second order)
    * against the full method, per site, on every catalogue lens at its widest and narrowest aperture: at most 1e-6 relative. The plan's first-order
-   * form measured 5.4e-6 at most here (no-go); the second-order form 2.7e-8.
+   * form measured 5.4e-6 at most here (no-go); the second-order form 2.7e-8. Part 1 of 2: the professional lenses.
    */
-  it("uniform windows: every site within 1e-6 of the full method on every catalogue lens, widest and narrowest aperture", async () => {
-    const lenses = GENERIC_LENS_CATALOGUE.filter((lens) => lens.set !== "phone");
-    let largest = 0, uniformSites = 0, total = 0;
-    for (const lens of lenses) {
-      const resolved = resolveGenericLens({ lensId: lens.lensId, activeImagingArea: { widthMm: 36, heightMm: 24 } });
-      for (const fNumber of [resolved.widestFNumber, resolved.narrowestFNumber]) {
-        const options: SimulateCaptureOptions = { scene: { preset: "dead-leaves" }, output: fullFrame(12), sensor: { pixelPitchMicrometers: 12, spectralStepNanometers: 80 },
-          subjectDistanceM: resolved.minimumFocusDistanceM * 2, exposure: { ...exposure, shutterSeconds: (fNumber / 8) ** 2 / 125 }, lens: { catalogue: lens.lensId, fNumber } };
-        const { lens: setup, W, H, input } = await prepare(options);
-        // Every 61st row of the frame (corners and edges included through the first and last rows).
-        const rows = [...Array.from({ length: Math.ceil(H / 61) }, (_, k) => 61 * k), H - 1];
-        const full = prepareDisplayViewLensSignal({ ...setup, uniformWindows: false }, W, H, 0, "test")(input);
-        const fast = prepareDisplayViewLensSignal({ ...setup, uniformWindows: true }, W, H, 0, "test")(input) as DisplayViewExpectedSignal & { uniformWindowSites: number };
-        for (const y of rows) {
-          full.window(0, y, W, y + 1); fast.window(0, y, W, y + 1);
-          for (let x = 0; x < W; x++) { const a = fast.site(x, y), b = full.site(x, y); largest = Math.max(largest, b === 0 ? (a === 0 ? 0 : Infinity) : Math.abs(a - b) / b); total++; }
-        }
-        uniformSites += fast.uniformWindowSites;
-        if (process.env.UNIFORM_REPORT) process.stdout.write(lens.lensId + " f/" + fNumber + ": " + largest.toExponential(2) + "\n");
-      }
-    }
-    if (process.env.UNIFORM_REPORT) process.stdout.write("uniform windows: largest " + largest.toExponential(3) + ", uniform " + uniformSites + " of " + total + " sites\n");
+  it("uniform windows: every site within 1e-6 of the full method on every catalogue lens, widest and narrowest aperture (part 1 of 2: professional)", async () => {
+    const lenses = uniformWindowLenses(1);
+    expect(lenses.length).toBeGreaterThan(0);
+    const { largest, uniformSites, total } = await uniformWindowCheck(lenses);
     expect(uniformSites).toBeGreaterThan(0.2 * total);
     expect(largest).toBeLessThan(1e-6);
   }, scaledTimeout(900_000));
