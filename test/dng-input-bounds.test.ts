@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 import { describe, expect, it } from "vitest";
 import {
-  parseDngRawImage, importDngRawImage, developDngStageImage, applyDngOpcodes, parseDngOpcodeList, serializeRewrittenDng, InvalidConfigurationError,
+  parseDngRawImage, importDngRawImage, developDngStageImage, estimateDngRawNoise, applyDngOpcodes, parseDngOpcodeList, serializeRewrittenDng, InvalidConfigurationError,
   type DngOpcode, type DngStageImage
 } from "../src/index.js";
 import { opcodeList, BigEndianBytes, encodeTestPng } from "./helpers/phone-dng-fixtures.js";
@@ -254,4 +254,49 @@ describe("serializeRewrittenDng: layout checks (2.28.0)", () => {
     }
     expect(written).toBeGreaterThan(0);
   });
+});
+
+describe("estimateDngRawNoise: median selection (2.28.0)", () => {
+  /** McIlroy's adversary for a median-of-three quickselect: the order of n distinct values that makes it quadratic. */
+  function adversary(n: number, k: number): Int32Array {
+    const gas = n, val = new Int32Array(n).fill(gas), p = Int32Array.from({ length: n }, (_, i) => i);
+    let solid = 0, candidate = 0;
+    const lt = (x: number, y: number): boolean => {
+      if (val[x] === gas && val[y] === gas) { if (x === candidate) val[x] = solid++; else val[y] = solid++; }
+      if (val[x] === gas) candidate = x; else if (val[y] === gas) candidate = y;
+      return val[x]! < val[y]!;
+    };
+    let lo = 0, hi = n - 1;
+    while (hi > lo) {
+      const mid = (lo + hi) >> 1, x = p[lo]!, y = p[mid]!, z = p[hi]!;
+      const pivot = lt(x, y) ? (lt(y, z) ? y : lt(x, z) ? z : x) : (lt(x, z) ? x : lt(y, z) ? z : y);
+      let i = lo, j = hi;
+      while (i <= j) { while (lt(p[i]!, pivot)) i++; while (lt(pivot, p[j]!)) j--; if (i <= j) { const t = p[i]!; p[i] = p[j]!; p[j] = t; i++; j--; } }
+      if (k <= j) hi = j; else if (k >= i) lo = i; else break;
+    }
+    for (let i = 0; i < n; i++) if (val[i] === gas) val[i] = solid++;
+    return val;
+  }
+
+  it("gives the exact median of an adversarially ordered plane in bounded work", () => {
+    const W = 512, H = 512, n = 65_536, order = adversary(n, n >> 1);
+    const file = (red: (k: number) => number): ReturnType<typeof parseDngRawImage> => {
+      const t = new Tiff(), data = new Uint8Array(W * H * 2);
+      for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+        const v = y % 2 === 0 && x % 2 === 0 ? red((y / 2) * 256 + x / 2) : 1000, i = y * W + x;
+        data[2 * i] = v & 255; data[2 * i + 1] = v >> 8;
+      }
+      const at = t.blob(data);
+      return parseDngRawImage({ bytes: t.finish(t.ifd([...cfaTags(W, H, [{ id: 278, type: 4, values: [H] }, ...strips([at], [data.length])]), DNG_VERSION])) });
+    };
+    const raw = file((k) => order[k]!), shuffled = file((k) => (k * 40_503) % n);
+    const timed = (r: typeof raw): [number, ReturnType<typeof estimateDngRawNoise>] => { const start = performance.now(), out = estimateDngRawNoise(r); return [performance.now() - start, out]; };
+    timed(shuffled);
+    const [plain] = timed(shuffled), [crafted, noise] = timed(raw);
+    // Informational bound: the crafted order costs about as much as a plain one (it took over ten times as long before).
+    expect(crafted).toBeLessThan(4 * plain + 30);
+    // The red sites hold every code 0 … 65 535 once: the median is the mean of the two middle codes, normalized.
+    const red = noise.planes[0]!;
+    expect(red.medianSignal).toBeCloseTo((32_767.5) / 65_535, 12);
+  }, scaledTimeout(60_000));
 });
