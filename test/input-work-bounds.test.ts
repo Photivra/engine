@@ -31,8 +31,8 @@ describe("release sequences hold at most 10,000 frames", () => {
       focalLengthMmRange: fact({ minimum: 50, maximum: 50 }),
       aperture: { widestAvailableFNumber: { kind: "constant", fNumber: fact(1.4) }, narrowestAvailableFNumber: fact(22), settingGrid: { kind: "continuous-within-range" } } }),
     selectedFocalLengthMm: 50 });
-  const sequence = (frames: number, profileFrames: number): ReturnType<typeof resolveReleaseSequence> => resolveReleaseSequence({
-    sequenceId: "s", releaseRequestTimeSeconds: 0, sequenceSeedUint32: 1, drive: { kind: "burst", frameCount: frames }, bracket: { kind: "none" }, requestedCadenceFps: 1e6,
+  const sequence = (frames: number, profileFrames: number, bracket: unknown = { kind: "none" }): ReturnType<typeof resolveReleaseSequence> => resolveReleaseSequence({
+    sequenceId: "s", releaseRequestTimeSeconds: 0, sequenceSeedUint32: 1, drive: { kind: "burst", frameCount: frames }, bracket: bracket as never, requestedCadenceFps: 1e6,
     baseState: { exposure: { aperture: 4, shutterSeconds: 1 / 8000, iso: 100 }, focus: { kind: "finite", distanceM: 5 }, automation: { ae: "locked", af: "locked", awb: "locked" } },
     releaseCapabilities: release(profileFrames) as never, exposureCapabilities: exposure() });
 
@@ -43,6 +43,12 @@ describe("release sequences hold at most 10,000 frames", () => {
     expect(() => sequence(10_001, 10_000)).toThrow(InvalidScientificInputError);
     expect(sequence(3, 10_000).frames).toHaveLength(3);
   });
+
+  it("refuses a bracket list above the limit before checking its entries", () => {
+    const offsetsStops = new Array(5_000_000).fill(0), start = performance.now();
+    expect(() => sequence(3, 10_000, { kind: "exposure", axis: "iso", offsetsStops })).toThrow(/at most 10000 frames/u);
+    expect(performance.now() - start).toBeLessThan(scaledTimeout(20));
+  }, scaledTimeout(60_000));
 });
 
 describe("temporal-sample calculators take at most 256 samples and 65,536 nodes", () => {

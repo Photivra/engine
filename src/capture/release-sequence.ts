@@ -798,8 +798,8 @@ function validateSequencePolicies(
   rejectUnknownVariantFields(bracket, "kind", { none: ["kind"], exposure: ["kind", "axis", "offsetsStops"], focus: ["kind", "focusStates"] }, "bracket");
   if (kind === "none") return;
   const field = kind === "exposure" ? "offsetsStops" : "focusStates", list = bracket[field];
-  // A hole in the list leaves one index without an own key.
-  if (!Array.isArray(list) || list.length !== Object.keys(list).length) {
+  // A hole in the list leaves one index without an own key. A list above the frame limit is refused by that limit, before its keys are listed.
+  if (!Array.isArray(list) || list.length <= MAXIMUM_LOGICAL_FRAMES_PER_SEQUENCE && list.length !== Object.keys(list).length) {
     throw new InvalidConfigurationError("bracket." + field + " must be a dense array.");
   }
 }
