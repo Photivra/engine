@@ -414,7 +414,8 @@ export function createDiffractionLimitedPsfProfile(input: CreateDiffractionLimit
     // 2.28.0: the cell work grows as β·(R + 1)² per wavelength. The first (shortest) wavelength has the largest β, so this refuses
     // before any cell is integrated when that β times (R + 1)² times the count exceeds what 400 wavelengths below the real-space β
     // reach at R 32: 400 × 32 × 33² = 13 939 200.
-    if (beta * wavelengths.length * (radius + 1) ** 2 > 13939200) throw new InvalidConfigurationError("Diffraction cell work exceeds its limit.");
+    // A β outside (0, 1e5] gets calculateAiryCellEnergies' own refusal.
+    if (beta <= MAXIMUM_BETA && beta * wavelengths.length * (radius + 1) ** 2 > 13939200) throw new InvalidConfigurationError("Diffraction cell work exceeds its limit.");
     const airy = calculateAiryCellEnergies(beta, radius);
     if (airy.realSpace) realSpaceWavelengthsNm.push(nm);
     maximumRadialNodes = Math.max(maximumRadialNodes, airy.radialNodes); maximumAngularNodes = Math.max(maximumAngularNodes, airy.angularNodes);
