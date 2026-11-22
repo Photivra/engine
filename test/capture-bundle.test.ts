@@ -211,7 +211,9 @@ describe("the app's capture-worker shape", () => {
     // integration tree, limit set to that rounded up to the next 100 B. 2.28.0 steps 5 and 7 merged (owner rule 2026-11-21, #691):
     // 337,888 B on the integration tree, limit rounded up to the next 100 B. 2.28.0 steps 6 and 8 merged (owner rule 2026-11-21,
     // #691 and #658, never above 2.27.0's 338,900 B): 338,458 B on the integration tree, limit rounded up to the next 100 B.
-    expect(sum(fast)).toBeLessThanOrEqual(338_500);
+    // 2.28.0 release review fixes (#735's surround, #728's canonical key, the GPU offset-mapping report; owner decision
+    // 2026-11-21, final limit at most 338,900 B): 338,565 B, limit rounded up to the next 100 B.
+    expect(sum(fast)).toBeLessThanOrEqual(338_600);
     // 2.26.0 (owner decision 2026-11-16, "Raise to 49,400 B"): the on-demand row measured 49,382 B on release-2.26.0 after the
     // export kit moved out (flash #639 and hand-shake #641 in the opt-in kit, the record module from #646), limit rounded up to the
     // next 100 B. The fast limit stays 338,900 B.

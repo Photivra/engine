@@ -71,7 +71,7 @@ no existing export changes kind.
 | `simulateFalseColor`, `SIMULATE_FALSE_COLOR_LIMITS` | `SimulateFalseColorOptions`, `FalseColorResult` | #739 |
 | `estimateDisplayViewRender` | `DisplayViewRenderEstimate`, `DisplayViewCountRange` | #660 |
 
-**New fields on existing results:** `region.fast` and `region.requestKey` (#728), `view.lensPsf.offsetMapping` (#685),
+**New fields on existing results:** `region.fast` and `region.requestKey` (#728), `view.lensPsf.offsetMapping` (#685), `view.execution.offsetMapping` on a `webgpu-f32` lens render with several query offsets,
 `raw.expectedSignal.sum` (#731), `clippedSitesKept` in `simulateDngRawWhatIf` (#679), `exposureBracketRealizedOffsetStops`
 (#680). `ExposureResolutionConstraint` and `DisplayViewGpuFallbackReason` gain two values each.
 
@@ -91,13 +91,13 @@ Node 26, gzip. 2.27.0's rows were measured with rolldown 1.2.9.
 
 | Row | 2.27.0 (rolldown 1.2.9) | 2.28.0 | Limit (2.27.0's) |
 | --- | --- | --- | --- |
-| fast worker | 338,380 B | **338,532 B** | limit: owner decision pending (338,900 B) |
+| fast worker | 338,380 B | **final value set at release** | set at release (338,900 B) |
 | on demand | 51,999 B | **51,893 B** | 51,900 B (52,000 B) |
 | export kit | 10,399 B | **10,396 B** | 10,400 B (10,500 B) |
 | lens passes (#661) | (no row) | **10,200 B** | 10,200 B (none) |
 | false color (#739) | (no row) | **5,094 B** | 5,100 B (none) |
 
-- The fast worker measures 338,532 B against the test's current limit of 338,500 B; its limit is the owner's decision.
+- The fast worker's final measurement and limit are set at release, at most 338,900 B (2.27.0's limit).
 - #658's on-demand target of 49,400 B was not met; #658 stays open ([DISPLAY_VIEW.md, "Bundle size"](DISPLAY_VIEW.md#bundle-size)).
 - The lens passes and the false-color body are on-demand chunks of their own; neither reaches the fast worker.
 
@@ -117,10 +117,6 @@ Per-part figures are in the record. Times are host-dependent; the benchmark is i
 
 ## Known limits
 
-- GPU lens route (#661, #685): with more than one query offset the GPU lens passes map every offset through the lens, while the
-  CPU fast reference expands each offset to second order; they agree within the 1e-6 go/no-go (1.9e-11 measured), the
-  difference is not part of the GPU's a-priori bound, and a `webgpu-f32` render's `view.lensPsf.offsetMapping` still reads
-  `"second-order-expansion"`.
 - #661's lens passes conform on the float32 emulation and SwiftShader; the hardware run is a step before the tag.
 - #711: the 192 × 128 out-of-focus rolling-shutter region stays above 3× its in-focus time.
 - #724/`optics-13`: the Brown–Conrady inverse throws for some targets within 1e-12 of the envelope that 2.27.0 inverted (7 of

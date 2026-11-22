@@ -33,6 +33,22 @@ describe("catalogue-lens display views through prepareDisplayView (#661)", () =>
     prepared.dispose(); cpu.dispose();
   }, scaledTimeout(180_000));
 
+  // #685 on the GPU: with several query offsets the lens passes map every offset through the lens; view.execution says so.
+  it("a box-aperture catalogue view on webgpu-f32 reports the GPU's offset mapping in view.execution", async () => {
+    const offsetMapping = (result: DisplayViewResult): unknown => (result.assumptions.find((a) => a.id === "view.execution")?.value as { offsetMapping?: unknown } | undefined)?.offsetMapping;
+    const box = { ...still, sensor: { pixelPitchMicrometers: 6, pixelAperture: "box" } } as SimulateCaptureOptions;
+    const prepared = await prepareDisplayView(box, { gpu: "auto", gpuDevice: createFakeGpu().gpu });
+    const result = await prepared.render(region(90, 60));
+    expect(execution(result).backend).toBe("webgpu-f32");
+    expect(offsetMapping(result)).toBe("lens-mapping-per-offset");
+    expect((result.assumptions.find((a) => a.id === "view.lensPsf")?.value as { offsetMapping?: unknown }).offsetMapping).toBe("second-order-expansion");
+    const plain = await prepareDisplayView(still, { gpu: "auto", gpuDevice: createFakeGpu().gpu });
+    const one = await plain.render(region(90, 60));
+    expect(execution(one).backend).toBe("webgpu-f32");
+    expect(offsetMapping(one)).toBeUndefined();
+    prepared.dispose(); plain.dispose();
+  }, scaledTimeout(180_000));
+
   const refused: [string, SimulateCaptureOptions, RegExp][] = [
     ["camera rotation", { ...still, motion: { angularVelocityRadPerSec: { pitch: 0.2, yaw: 0.5, roll: 3 } }, sensor: { pixelPitchMicrometers: 6, temporalSampleCount: 3 } } as SimulateCaptureOptions, /rotation/u],
     ["fast: false (the PSF at every site)", { ...still, fast: false } as SimulateCaptureOptions, /field zones|fast: false/u],

@@ -406,7 +406,7 @@ async function prepareView(context: DisplayViewRunContext): Promise<PreparedView
     if (viewMixed) assume("view.illumination", "model", { method: "radiance-at-every-query-point" },
       "Mixed lighting (#550): the radiance at every query point, as in the capture (no material tables; exact). Not on the GPU.");
     if (execution.backend === "webgpu-f32") {
-      assume("view.execution", "model", { backend: execution.backend, arithmetic: execution.arithmetic, errorBound: execution.errorBound, adapter: execution.adapter },
+      assume("view.execution", "model", { backend: execution.backend, arithmetic: execution.arithmetic, errorBound: execution.errorBound, adapter: execution.adapter, ...(lensSetup?.offsetExpansion ? { offsetMapping: "lens-mapping-per-offset" } : {}) },
         "Estimated on the GPU: this view was rendered by the WebGPU float32 display-view renderer, a labelled approximation of the float64 CPU reference within the a-priori " +
         "error bound reported in diagnostics.fast.execution.errorBound; it is not bit-identical to the reference. The device passed the engine's run-time conformance check first.");
     }

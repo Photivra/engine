@@ -1858,7 +1858,7 @@ root exports of the built package, minified, gzip level 9; `test/capture-bundle.
 
   | Row (worker shape, gzip) | 2.28.0 | Limit | 2.27.0's limit |
   | --- | --- | --- | --- |
-  | fast worker | **338,532 B** | limit: owner decision pending | 338,900 B |
+  | fast worker | **final value set at release** | set at release (at most 338,900 B) | 338,900 B |
   | on demand | **51,893 B** | 51,900 B | 52,000 B |
   | export | **10,396 B** | 10,400 B | 10,500 B |
   | lens passes | **10,200 B** | 10,200 B | (no row) |
@@ -1988,7 +1988,8 @@ with that reason for `"require"`:
    GPU](WEBGPU.md#catalogue-lenses-on-the-gpu-655)); rotation, hand shake, a moving subject, `fast: false`, a fisheye and
    `flare` run the CPU reference labelled `unsupported-on-backend` with the reason. With the box pixel aperture the lens
    passes map every query offset through the lens (the full method's mapping), not the CPU fast reference's second-order
-   offset expansion (#685); the two agree within its 1e-6 relative go/no-go, outside the GPU's a-priori bound.
+   offset expansion (#685); the two agree within its 1e-6 relative go/no-go, outside the GPU's a-priori bound. Such a render
+   reports `offsetMapping: "lens-mapping-per-offset"` in its `view.execution` assumption.
 5. The renderer must support the request (AHD, diffraction, the anti-aliasing filter, the pixel aperture, the tone curve
    and the scene kind: a chart or `material-layers`, not a caller function): `unsupported-on-backend` otherwise, and a device
    the view acquired is released.
