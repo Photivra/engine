@@ -94,10 +94,12 @@ benchmark is not run by CI.
 
 ### Known limitations
 
-- **GPU hardware run: conformance only.** The conformance suite (`npm run test:webgpu:hardware`) passed 205 of 205 tests on an
-  Apple M5 Pro (WebGPU on Metal, Chrome 158, macOS 27.2.1) on the release commit 0aa0e00, #661's lens passes (7 of 7, the
-  catalogue part's GPU time 0.57× the prime's) and #716's changed GPU results included (docs/WEBGPU_DEVICES.md). The preview
-  acceptance (`accept:gpu:hardware`, the `app-lens` case) was not run on hardware.
+- **GPU hardware run: conformance and the `app-lens` acceptance case.** The conformance suite (`npm run test:webgpu:hardware`)
+  passed 205 of 205 tests on an Apple M5 Pro (WebGPU on Metal, Chrome 158, macOS 27.2.1) on the release commit 0aa0e00, #661's
+  lens passes (7 of 7, the catalogue part's GPU time 0.57× the prime's) and #716's changed GPU results included. The preview
+  acceptance's `app-lens` case (`accept:gpu:hardware -- --charts app-lens --options speed`) passed 2 of 2 on the same device on
+  4ec2508 (0aa0e00 with a documentation-only commit), the GPU's expected images identical to the CPU reference's; the other
+  acceptance cases were not run on hardware (docs/WEBGPU_DEVICES.md).
 - **Brown–Conrady inverse (#724, `optics-13`).** For some targets within 1e-12 of the envelope that 2.27.0 inverted, the inverse
   now throws (7 of 40,000 seeded cases).
 - **A `motion.subject` at rest (#688)** is no longer listed in `diagnostics.options`.
@@ -773,7 +775,7 @@ benchmark is not run by CI.
   results are unchanged. Conformance: every value inside its bound on the emulation, SwiftShader and a hardware adapter (Apple
   M5 Pro, Metal; docs/WEBGPU_DEVICES.md). With more than one query offset the passes map every offset through the lens (Known
   limitations, above). The
-  acceptance harness gains an `app-lens` case for the public path.
+  acceptance harness gains an `app-lens` case for the public path; it passes on the same hardware adapter (2 of 2).
 - **Image-plane prints: the moved-value flag no longer grows with the photo's pixel coordinates (#716).** The image-plane Speed
   module, the image-plane Quality lattice pass and their emulation bound a bilinear value's move under the point's error by the
   neighboring pixels' differences in the cells the error reaches (zero in a flat area) and use a derived bound for that error,
