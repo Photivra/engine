@@ -1,7 +1,7 @@
 # 2.28.0 release
 
-> **Prepared November 21, 2026; not yet published.** npm publishing runs only from the owner's `v2.28.0` tag
-> ([Before the tag](#before-the-tag)).
+> **Published November 22, 2026 (04:26 UTC).** The `v2.28.0` tag is on `eb6f34a` (`main` after #754); npm publishing ran
+> from the tag ([Publication](#publication)).
 
 ## At a glance
 
@@ -141,11 +141,27 @@ count only when its head tree is `main`'s tree after the squash. If they do not,
 
 - [x] The owner's hardware GPU runs, recorded in [WEBGPU_DEVICES.md](WEBGPU_DEVICES.md) (the lens passes of #661 and #716's GPU
   results): the conformance suite, 205 of 205 on 0aa0e00, and the `app-lens` preview acceptance, 2 of 2 on 4ec2508.
-- [ ] The WebGPU conformance run on the release commit (all three parts; the publish workflow's `WebGPU conformance proofs` job
-  requires them).
+- [x] The WebGPU conformance run on the release commit (all three parts; the publish workflow's `WebGPU conformance proofs` job
+  requires them): #754's run on the tree of `eb6f34a`, and `main`'s run on `eb6f34a` ([Publication](#publication)).
 - [x] The figure-batch record `docs/benchmarks/2026-11-21-figure-batch-2.27.0-2.28.0.json` committed and its figures entered in
   [Benchmarks](#benchmarks) and the changelog.
 - [x] The fast worker's limit set ([Sizes](#sizes)).
-- [ ] The owner's GitHub Pages setup, then the repository variable `PAGES_DEPLOY` set to `true`
+- [x] The owner's GitHub Pages setup, then the repository variable `PAGES_DEPLOY` set to `true`
   ([DEVELOPERS.md](DEVELOPERS.md#documentation-site)).
-- [ ] The owner's approval to tag `v2.28.0` (AGENTS.md rule 3).
+- [x] The owner's approval to tag `v2.28.0` (AGENTS.md rule 3).
+- [x] After publication:
+  - [x] npm version, dist-tag, integrity and provenance verified;
+  - [x] GitHub release notes published;
+  - [x] publication dates updated in `CHANGELOG.md`, `README.md`, `SECURITY.md`, `docs/DEVELOPERS.md` and this record.
+
+## Publication
+
+| Fact | Value |
+| --- | --- |
+| Tag | `v2.28.0` (annotated, `3691514`) → `eb6f34aaabfaff95c591b8cd8df2be15c982213d` (#754 on `main`), created 04:19:12 UTC. #754's head `0ca11d8` has the same tree as `eb6f34a`; its CI ([run 44981939443](https://github.com/Photivra/engine/actions/runs/44981939443), attempt 2; attempt 1 failed in coverage shards 1, 3 and 10) and WebGPU ([44981939444](https://github.com/Photivra/engine/actions/runs/44981939444)) runs passed before the merge. `main` on `eb6f34a`: CI [44984464644](https://github.com/Photivra/engine/actions/runs/44984464644), WebGPU [44984464493](https://github.com/Photivra/engine/actions/runs/44984464493) and native performance [44984464484](https://github.com/Photivra/engine/actions/runs/44984464484) passed |
+| Publish workflow | [Publish npm run 44984521112](https://github.com/Photivra/engine/actions/runs/44984521112), attempt 1 (started 04:19:15 UTC): the `WebGPU conformance proofs` job and the coverage gate passed; publish job 04:22:40 to 04:22:52 UTC |
+| npm | `@photivra/engine@2.28.0`, dist-tag `latest`, registry time 04:26:58 UTC, November 22, 2026; npm accepted the upload at 04:22:50 UTC and reported the package as being processed |
+| Integrity | `sha512-a0F0w/okHifkxWcbzPVjgFEAluahohSfWpW5CEtCKxnKpNBZFz5ATBTLndIss3cIKzyXq4C5/A/ZBSrwvtsmTw==` (shasum `6841fe15448724a8291265eb3c104c07b3b001e8`, 1,285 files) |
+| Provenance | SLSA provenance v1 attestation, recorded in the Sigstore transparency log (log index 4035618026); `npm audit signatures` reports a verified registry signature and a verified attestation |
+| GitHub release | [`v2.28.0`](https://github.com/Photivra/engine/releases/tag/v2.28.0), "@photivra/engine 2.28.0", a summary from this record and notes generated from `v2.27.0`, published 04:26:13 UTC |
+| Documentation site | The Pages run after the publish ([44984800742](https://github.com/Photivra/engine/actions/runs/44984800742)) built, checked and deployed the site. The Pages run on the push of `eb6f34a` ([44984464492](https://github.com/Photivra/engine/actions/runs/44984464492)) failed at its publication guard: `node site/guard.mjs` imports the site's Markdown parser, and the step ran before "Install the site tools". The commit that adds this section moves the step after it (`.github/workflows/pages.yml`) |

@@ -82,5 +82,7 @@ describe("large defocus lattice with diffraction (#734)", () => {
     expect(three / two).toBeLessThan(4);
     // The RAW codes of 2.28.0 step 5's tree (8405ae2), on which the 3 × 3 request took 109 CPU s: unchanged.
     expect(raws).toEqual({ 2: "dbc58400995c536e5d2662846ce97bbeeb60d07d5e5cf01cd71acbf767ea5403", 3: "28e79fbaca839ebc339492b18d27274425882b967783d429e2f9dcd1ac1c84c7" });
-  }, 240_000);
+    // 240 s, or 600 s under coverage (owner decision 2026-11-22): the test takes about 100 s alone under V8 coverage
+    // locally and about 280 s on the hosted runners, so 240 s failed whenever its coverage shard ran slowly.
+  }, Number(process.env.PHOTIVRA_TEST_TIMEOUT_SCALE) >= 4 ? 600_000 : 240_000);
 });

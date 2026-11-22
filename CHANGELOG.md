@@ -1,6 +1,6 @@
 # Changelog
 
-## 2.28.0 — unreleased (prepared November 21, 2026)
+## 2.28.0 — published November 22, 2026
 
 A minor release: lower CPU cost of full-quality and batch figure renders (#670, #731, #734, #735, #684, #722), catalogue-lens
 display views on the GPU (#661), the false color of a demosaic (`simulateFalseColor`, #739), a render estimate
