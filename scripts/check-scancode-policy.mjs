@@ -51,8 +51,8 @@ const OWN_KEYS = [
   "LicenseRef-scancode-generic-cla",
   // 2.22.0: found on the dual-licence constant below and on the JPEG XL patent-clue entry.
   "MIT OR Apache-2.0", "LicenseRef-scancode-unknown",
-  // 2.28.0: the documentation site's entries below (#669).
-  "OFL-1.1", "0BSD", "MIT OR CC0-1.0"
+  // 2.28.0: the documentation site's entries and the gate-test entries below (#669, #703).
+  "OFL-1.1", "0BSD", "GPL-3.0-only", "LGPL-3.0-only", "Unlicense", "LLVM-exception"
 ];
 
 /** File plus licence expression (SPDX form as ScanCode reports it). */
@@ -169,16 +169,22 @@ const LICENSE_ALLOWLIST = [
   { path: "scripts/check-license-policy.mjs", license: "MIT AND BSD-2-Clause", reason: "dependency licence gate lists the allowed keys" },
   { path: "scripts/check-license-policy.mjs", license: "BSD-3-Clause", reason: "dependency licence gate lists the allowed keys" },
   { path: "scripts/check-license-policy.mjs", license: "MPL-2.0", reason: "dependency licence gate lists the allowed keys" },
-  { path: "scripts/check-license-policy.mjs", license: DUAL_MIT_APACHE, reason: "dependency licence gate explains its SPDX OR rule with this expression (2.22.0)" },
+  { path: "scripts/check-license-policy.mjs", license: "0BSD", reason: "dependency licence gate lists 0BSD as allowed for development dependencies only (2.28.0, #669)" },
 
-  // The documentation site (#669). Not yet confirmed by a scan (2.28.0): adjust to the first CI scan's findings.
+  // The documentation site (#669), as the pinned scan of the 2.28.0 tree reports it.
   { path: "site/assets/fonts/OFL.txt", license: "OFL-1.1", reason: `${SITE_FONT}; exact licence copy that accompanies the font files` },
   { path: "THIRD_PARTY.md", license: "OFL-1.1", reason: `${LICENCE_NAMES_IN_DOCS} (${SITE_FONT})` },
   { path: "THIRD_PARTY.md", license: "0BSD", reason: `${LICENCE_NAMES_IN_DOCS} (the site tools' dependency licences)` },
-  { path: "THIRD_PARTY.md", license: "MIT OR CC0-1.0", reason: `${LICENCE_NAMES_IN_DOCS} (the site tools' dependency licences)` },
+  { path: "CHANGELOG.md", license: "0BSD", reason: `${LICENCE_NAMES_IN_DOCS} (2.28.0: the site tools' development-only licence)` },
   { path: "docs/design/engine-site.md", license: "OFL-1.1", reason: `${LICENCE_NAMES_IN_DOCS} (the site design names the typeface's licence)` },
-  ...["BSD-2-Clause", "BSD-3-Clause", "BlueOak-1.0.0", "ISC", "MIT", "MPL-2.0", "0BSD", "MIT OR CC0-1.0"]
+  { path: "docs/design/engine-site.md", license: "JSON", reason: "false positive: a table row about the site's structured data (\"license\" pointing to the SPDX page of the project's licence)" },
+  { path: "site/lib/templates.mjs", license: "LicenseRef-scancode-unknown", reason: "false positive: the footer template's copyright and licence-name placeholders" },
+  ...["BSD-2-Clause", "BSD-3-Clause", "BlueOak-1.0.0", "ISC", "MIT", "MPL-2.0", "0BSD", "CC0-1.0"]
     .map((license) => ({ path: "site/package-lock.json", license, reason: SITE_LOCK })),
+
+  // The dependency licence gate's own tests (#703, ci-11): licence identifiers and SPDX expressions as test data.
+  ...["GPL-3.0-only", "LGPL-3.0-only", "MPL-2.0", "0BSD", "CC0-1.0", "Unlicense", "LLVM-exception", "MIT", "LicenseRef-scancode-unknown-spdx"]
+    .map((license) => ({ path: "scripts/test-gates.mjs", license, reason: "licence identifiers used as test data for the dependency licence gate (ci-11, #703)" })),
 
   // This script: its allowlist data names these keys.
   ...OWN_KEYS.map((license) => ({ path: "scripts/check-scancode-policy.mjs", license, reason: OWN_ALLOWLIST }))
@@ -186,7 +192,7 @@ const LICENSE_ALLOWLIST = [
 
 /** File plus copyright holder as ScanCode reports it. */
 const HOLDER_ALLOWLIST = [
-  { path: "site/assets/fonts/OFL.txt", holder: "The Inter Project Authors", reason: SITE_FONT },
+  { path: "site/assets/fonts/OFL.txt", holder: "The Inter Project", reason: SITE_FONT },
   { path: "DCO", holder: "The Linux Foundation and its contributors", reason: "verbatim Developer Certificate of Origin 1.1" },
   { path: "NOTICE", holder: "Graphics and Displays group - University of Cambridge", reason: CASTLE },
   { path: "THIRD_PARTY.md", holder: "Graphics and Displays group - University of Cambridge", reason: CASTLE },
@@ -274,7 +280,8 @@ for (const entry of report.files) {
 
   const holders = entry.holders ?? [];
   for (const record of holders) {
-    if (!ALLOWED_HOLDERS.has(record.holder)) {
+    // A holder at the end of a sentence ("… Shackelford Creative, LLC.", the site's footer) is the same holder.
+    if (!ALLOWED_HOLDERS.has(String(record.holder).replace(/\.$/u, ""))) {
       holderFindings.push({ path, holder: String(record.holder), line: record.start_line });
     }
   }
