@@ -117,7 +117,9 @@ Per-part figures are in the record. Times are host-dependent; the benchmark is i
 
 ## Known limits
 
-- #661's lens passes conform on the float32 emulation and SwiftShader; the hardware run is a step before the tag.
+- #661's lens passes conform on the float32 emulation, SwiftShader and a hardware adapter: the conformance suite passed 205 of 205
+  tests on an Apple M5 Pro (WebGPU on Metal) on 0aa0e00 ([WEBGPU_DEVICES.md](WEBGPU_DEVICES.md)). The preview acceptance's
+  `app-lens` case was not run on hardware.
 - #711: the 192 × 128 out-of-focus rolling-shutter region stays above 3× its in-focus time.
 - #724/`optics-13`: the Brown–Conrady inverse throws for some targets within 1e-12 of the envelope that 2.27.0 inverted (7 of
   40,000 seeded cases).
@@ -130,7 +132,7 @@ Per-part figures are in the record. Times are host-dependent; the benchmark is i
 
 ## Before the tag
 
-- [ ] The owner's hardware GPU run on the release commit, recorded in [WEBGPU_DEVICES.md](WEBGPU_DEVICES.md) (the lens passes of
+- [x] The owner's hardware GPU run on the release commit, recorded in [WEBGPU_DEVICES.md](WEBGPU_DEVICES.md) (the lens passes of
   #661 and #716's GPU results).
 - [ ] The WebGPU conformance run on the release commit (all three parts; the publish workflow's `WebGPU conformance proofs` job
   requires them).
