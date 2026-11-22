@@ -1847,7 +1847,7 @@ root exports of the built package, minified, gzip level 9; `test/capture-bundle.
 
   A read of the two CPU kits for code no request reaches found only test instrumentation and a few dozen bytes of fallbacks.
   This release's later additions to the on-demand code (among them #662's chain slopes, #685's offset expansion, #715's band
-  size, #734's single pass and the GPU Quality host's lens hook) bring the row to 51,893 B on the release tree: the 49,400 B
+  size, #734's single pass and the GPU Quality host's lens hook) bring the row to 51,971 B on the release tree: the 49,400 B
   target was not met, and #658 stays open.
 
   **The lens passes and false color (#661, #739).** The catalogue-lens passes are their own on-demand chunk and their own row,
@@ -1858,9 +1858,9 @@ root exports of the built package, minified, gzip level 9; `test/capture-bundle.
 
   | Row (worker shape, gzip) | 2.28.0 | Limit | 2.27.0's limit |
   | --- | --- | --- | --- |
-  | fast worker | **final value set at release** | set at release (at most 338,900 B) | 338,900 B |
-  | on demand | **51,893 B** | 51,900 B | 52,000 B |
-  | export | **10,396 B** | 10,400 B | 10,500 B |
+  | fast worker | **338,838 B** | 338,900 B | 338,900 B |
+  | on demand | **51,971 B** | 52,000 B | 52,000 B |
+  | export | **10,395 B** | 10,400 B | 10,500 B |
   | lens passes | **10,200 B** | 10,200 B | (no row) |
   | false color | **5,094 B** | 5,100 B | (no row) |
 - **Shipped shaders are minified (2.14, #536).** `npm run build` strips comments and indentation from the WGSL source

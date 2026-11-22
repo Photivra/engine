@@ -73,13 +73,13 @@ Node 26, gzip. 2.27.0's rows were measured with rolldown 1.2.9.
 
 | Row | 2.27.0 (rolldown 1.2.9) | 2.28.0 | Limit (2.27.0's) |
 | --- | --- | --- | --- |
-| fast worker | 338,380 B | **final value set at release** | set at release (338,900 B) |
-| on demand | 51,999 B | **51,893 B** | 51,900 B (52,000 B) |
-| export kit | 10,399 B | **10,396 B** | 10,400 B (10,500 B) |
+| fast worker | 338,380 B | **338,838 B** | 338,900 B (338,900 B) |
+| on demand | 51,999 B | **51,971 B** | 52,000 B (52,000 B) |
+| export kit | 10,399 B | **10,395 B** | 10,400 B (10,500 B) |
 | lens passes (#661) | (no row) | **10,200 B** | 10,200 B (none) |
 | false color (#739) | (no row) | **5,094 B** | 5,100 B (none) |
 
-The on-demand row is 51,893 B: #658's 49,400 B target was not met, and #658 stays open. The lens passes and the false-color
+The on-demand row is 51,971 B: #658's 49,400 B target was not met, and #658 stays open. The lens passes and the false-color
 body are on-demand chunks of their own, each measured as its own row; a bundle that imports `simulateFalseColor` adds 348 B to
 its first load, and one that imports `estimateDisplayViewRender` 1,655 B.
 
@@ -835,7 +835,7 @@ benchmark is not run by CI.
   shipped; and 33 result and refusal texts are shorter: the limitations of the Airy profile, the AHD demosaic and the lens PSF
   kernels, the hand-shake, focus-breathing, veiling-glare, flash-shutter and sensor-profile assumptions, two flash and one
   sensor-profile error message, and eight GPU Quality refusal and self-check texts. Image bytes and numbers are unchanged; those
-  texts are the only result change. With this release's additions to the on-demand code the row is 51,893 B on the release tree:
+  texts are the only result change. With this release's additions to the on-demand code the row is 51,971 B on the release tree:
   the 49,400 B target was not met, and #658 stays open (docs/DISPLAY_VIEW.md, "Bundle size").
 
 ### Benchmark tools

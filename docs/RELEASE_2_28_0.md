@@ -22,8 +22,8 @@
     removed from the root and no export changes kind.
   - Some outputs, report fields and refusals change, and two registry entries of `SIMULATE_CAPTURE_FAST_METHODS` are removed
     ([Default and output changes](#default-and-output-changes)).
-- **Capture-worker sizes:** on demand 51,893 B (limit 51,900 B); #658's 49,400 B target was not met and #658 stays open. The
-  fast worker's limit is an open owner decision ([Sizes](#sizes)).
+- **Capture-worker sizes:** fast worker 338,838 B (limit 338,900 B, 2.27.0's); on demand 51,971 B (limit 52,000 B, 2.27.0's);
+  #658's 49,400 B target was not met and #658 stays open ([Sizes](#sizes)).
 
 ## Scope
 
@@ -91,13 +91,13 @@ Node 26, gzip. 2.27.0's rows were measured with rolldown 1.2.9.
 
 | Row | 2.27.0 (rolldown 1.2.9) | 2.28.0 | Limit (2.27.0's) |
 | --- | --- | --- | --- |
-| fast worker | 338,380 B | **final value set at release** | set at release (338,900 B) |
-| on demand | 51,999 B | **51,893 B** | 51,900 B (52,000 B) |
-| export kit | 10,399 B | **10,396 B** | 10,400 B (10,500 B) |
+| fast worker | 338,380 B | **338,838 B** | 338,900 B (338,900 B) |
+| on demand | 51,999 B | **51,971 B** | 52,000 B (52,000 B) |
+| export kit | 10,399 B | **10,395 B** | 10,400 B (10,500 B) |
 | lens passes (#661) | (no row) | **10,200 B** | 10,200 B (none) |
 | false color (#739) | (no row) | **5,094 B** | 5,100 B (none) |
 
-- The fast worker's final measurement and limit are set at release, at most 338,900 B (2.27.0's limit).
+- The fast worker measures 338,838 B on the release tree; its limit is 338,900 B (2.27.0's limit, owner decision 2026-11-21).
 - #658's on-demand target of 49,400 B was not met; #658 stays open ([DISPLAY_VIEW.md, "Bundle size"](DISPLAY_VIEW.md#bundle-size)).
 - The lens passes and the false-color body are on-demand chunks of their own; neither reaches the fast worker.
 
