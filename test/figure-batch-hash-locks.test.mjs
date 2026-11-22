@@ -28,7 +28,9 @@
  * Re-recorded in 2.28.0 step 5 (arm64 and x64 Node 24.1.0 under Rosetta 2; CHANGELOG.md, "Output changes"): #670 win 1, the
  * `fast: false` internals of 11 cases and the `fast: false` sceneLookups of dof-near-s1 and dof-near-s4 (no samples lock moved);
  * #732, the default flag's samples, internals and work of 11 cases and detail-noise's work; #674, the internals of catalogue-768
- * and catalogue-corrected, both flags (their samples hold).
+ * and catalogue-corrected, both flags (their samples hold). Re-recorded with #685's offset expansion (its fast method and the
+ * default flag): the default flag's internals and work of catalogue-768 and catalogue-corrected (sceneLookups 6,560 → 11,968
+ * and 15,608 → 20,956; samples hold).
  */
 import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";

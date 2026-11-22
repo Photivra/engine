@@ -22,7 +22,7 @@ const ALWAYS_ALLOWED = new Set([
 
 /**
  * Allowed for development dependencies only: the Mozilla licence (axe-core and lightningcss) and, from 2.28.0, the zero-clause
- * BSD licence of tslib in the Tailwind CSS CLI's tree (site/package-lock.json, #669; for the owner's review of that tree).
+ * BSD licence of tslib in the Tailwind CSS CLI's tree (site/package-lock.json, #669; approved by the owner on 2026-11-21).
  */
 const DEV_ONLY_ALLOWED = new Set(["MPL-2.0", "0BSD"]);
 

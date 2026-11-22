@@ -1,6 +1,6 @@
 # The documentation site: engine.photivra.com
 
-Status: **design proposal for release 2.28.0 (issue #669), written 2026-11-21 against `main` at 99782e7 (2.27.0).** This page designs the engine's public documentation site, served by GitHub Pages at `https://engine.photivra.com/`. It is a design and a build specification. No site code is part of this change, nothing is published, and no repository setting is changed by it.
+Status: **the design of the documentation site built in release 2.28.0 (issue #669), written 2026-11-21 against `main` at 99782e7 (2.27.0).** This page designs the engine's public documentation site, served by GitHub Pages at `https://engine.photivra.com/`. It is the design and build specification the site in `site/` follows; deploying it needs the owner's Pages setup ([docs/DEVELOPERS.md](../DEVELOPERS.md#documentation-site)).
 
 The figures are listed in [engine-site.html](engine-site.html) and kept in `screens/site-*`. Site-only sentences below are drafts for the owner's wording review; everything else on the site is the repository's own text.
 
@@ -541,7 +541,7 @@ After that a release needs nothing more for the site: the publish workflow's suc
 
 ## 17. Owner decisions
 
-Each with the recommendation. Decisions already made on 2026-11-19 and 2026-11-21 are not repeated.
+Each as it was proposed, with the recommendation; the site in `site/` is built to the recommendations. Decisions already made on 2026-11-19 and 2026-11-21 are not repeated.
 
 1. **Accept this design as the site for 2.28.0.** Recommended.
 2. **JavaScript: one self-hosted script, only on `/search/`, at most 2.5 kB compressed; none anywhere else** (no theme switch, no menu button, no copy buttons). Recommended. The alternative with no script at all leaves search to the browser's Find on the index page.

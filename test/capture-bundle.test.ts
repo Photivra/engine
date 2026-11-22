@@ -203,8 +203,8 @@ describe("the app's capture-worker shape", () => {
     const sum = (chunks: Bundle["chunks"]): number => chunks.reduce((total, c) => total + c.gzip, 0);
     // Owner decision 2026-11-16 ("Raise limits slightly"), for 2.25.0's named-lens work (#628-#633): measured
     // 338,815 B fast and 47,358 B on demand, limits set to those rounded up to the next 100 B.
-    // 2.28.0 (#691, owner decision 2026-11-21): the rows are measured with the rolldown version the app's worker build uses
-    // (1.2.14, through Vite 8.3.2; `rolldown` in package.json follows the app). Re-measured after #690 (rolldown 1.2.9 there:
+    // 2.28.0 (#691, owner decision 2026-11-21): the rows are measured with the measured bundler version (rolldown 1.2.14,
+    // `rolldown` in package.json). Re-measured after #690 (rolldown 1.2.9 there:
     // 336,612 B fast, 51,999 B on demand, 10,399 B export): 336,616 B fast, 51,987 B on demand, 10,399 B export, 25 chunks as
     // with 1.2.9. Each limit is its measurement rounded up to the next 100 B; limits only go down.
     // 2.28.0 step 4 merged (owner decisions 2026-11-21 on #658 and #691): the groups' fast-row additions measured 337,719 B on the

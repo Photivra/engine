@@ -624,9 +624,10 @@ as the capture does ([Flare and breathing](LENS_CATALOGUE.md#flare-and-breathing
   (measured: 1.9e-11 at most), and with the four-spot filter and under a rolling shutter with rotation
   (`test/display-view-lens-offset-expansion.test.ts`). Fisheyes (rays beyond 90°) and radiance scenes keep the full method;
   `fast: false` maps every offset. `view.lensPsf` reports `offsetMapping: "second-order-expansion"`. The code is in the Quality kit.
-- The distortion inverse is the Newton inverse of the lens section above. Cost: [2.27.0 cost cases](#2270-cost-cases). These
-  requests still render on the CPU with `gpu: "auto"`, labelled `unsupported-on-backend`; a GPU path for them is planned for 2.28.0
-  (#655 stays open for it).
+- The distortion inverse is the Newton inverse of the lens section above. Cost: [2.27.0 cost cases](#2270-cost-cases). Since 2.28.0
+  (#661) a still, rectilinear view in field zones renders on `webgpu-f32` with `gpu: "auto"` ([WebGPU, Catalogue lenses on the
+  GPU](WEBGPU.md#catalogue-lenses-on-the-gpu-655)); the other catalogue-lens requests render on the CPU, labelled
+  `unsupported-on-backend`.
 
 **Two capture fixes this needed** (each changes only requests that failed before):
 
@@ -1344,15 +1345,23 @@ develop options).
   conditions): rolling out of focus 48 × 32 with `fast: false` 28.86 → 5.17 s (the full method: each row at its own instants);
   rolling in focus 192 × 128 1.67 → 1.56 s; rolling out of focus 192 × 128 218 → 7.27 s, 4.7× the
   in-focus region.
-- Targets not met, accepted by the owner and open for 2.28.0: #656 Recover and +1 stop without Standard (1.22 s against 0.8 s; the
-  accuracy is kept; 2.28.0, #662: 0.61× of 2.27.0 in paired runs, the same bits, below), #651's 192 × 128 region (4.7× its in-focus time against 3×; the 1/128 site band shift is kept), and
-  #655's 2 × 2 box (2.0× the point aperture against 1.3×).
+- Targets not met in 2.27.0: #656 Recover and +1 stop without Standard (1.22 s against 0.8 s; the accuracy is kept), #651's
+  192 × 128 region (4.7× its in-focus time against 3×; the 1/128 site band shift is kept), and #655's 2 × 2 box (2.0× the point
+  aperture against 1.3×). Where they stand in 2.28.0:
+  - #656: met by #662 (next item).
+  - #651's 192 × 128 region: not met. #711 shares the in-focus columns of neighbouring row blocks and makes the block lookup
+    cheaper, with the same bits; the out-of-focus region is faster but stays above 3× its in-focus time. What is left is the
+    in-focus work of the rows above and below each band, which are read at the next band's instants and cannot be shared
+    without changing the fast method's output.
+  - #655's 2 × 2 box: the lens mapping of a still camera (below) and the offset expansion (`lens.catalogue/view-offset-expansion`,
+    #685, a fast method; [Catalogue lenses](#catalogue-lenses-569)) lower the box's extra cost: box over point 1.19–1.32× in
+    three paired runs with both (median 1.25×, under the 1.3× target; CHANGELOG.md, 2.28.0).
 - 2.28.0 (#662): `656-recover-push` 1.35 → 0.79 s (fastest of five paired runs against 2.27.0's code; median ratio 0.61×,
   load average 16–26), under the 0.8 s target; with `fast: false` 18.8 → 8.1 s. Samples, expected values and noise standard
   deviations are the same bits (SHA-256), fast and full; `656-standard-recover-push` 0.93× and `656-none` 1.00× of 2.27.0.
-- 2.28.0 (#685, step 1 of the box-aperture plan): the lens mapping of a still camera skips the rotation and its allocations, the same
-  bits; `655-catalogue-96-box` 0.91× and `655-catalogue-96` 0.95× of 2.27.0's code (median of four paired runs, load average
-  200–700), box over point 2.13× → 2.03× in those runs. The 1.3× target needs steps 2 and 3 of the plan (a flagged fast method).
+- 2.28.0 (#685, the lens mapping of a still camera): the mapping skips the rotation and its allocations, the same bits;
+  `655-catalogue-96-box` 0.91× and `655-catalogue-96` 0.95× of 2.27.0's code (median of four paired runs, load average
+  200–700), box over point 2.13× → 2.03× in those runs.
 - ¹ #649's ratios to the plain part move by about 20 % with the machine's load at 0.5–1.9 s per render. Over three runs (this
   table's and two later ones, `REPEATS=2` and `REPEATS=4`, load average 18–100): corrections 1.42–1.79× (target 1.5×, met in this
   table's run only), sharpening 1.78–2.03× (target 1.7×, not met), both 2.40–2.91× (target 2.6×, met in this table's run only).
@@ -1728,7 +1737,7 @@ root exports of the built package, minified, gzip level 9; `test/capture-bundle.
   the request setup in `runCapture`, and a splitting bundler emits the chunk for capture-only consumers too, never loaded.
 - **`simulateFalseColor` is loaded on demand (#739, 2.28.0).** Its body (`facade/false-color.ts`) is one chunk that imports no
   module and loads at the first call; the capture worker does not import the function, so its rows are unchanged. Measured with
-  rolldown 1.2.14: the chunk 5,023 B gzip (its own row, "false color", limit 5,100 B); a bundle that imports the function adds
+  rolldown 1.2.14: the chunk 5,094 B gzip (its own row, "false color", limit 5,100 B); a bundle that imports the function adds
   348 B to its first load, and it also takes the display view's code, which the function is built on.
 - **The GPU display view is loaded on demand.** `prepareDisplayView` imports `facade/display-view-gpu-session.ts` (the GPU
   session, the Speed and Quality renderers and their WGSL) dynamically, and only when `gpu` is `"auto"` or `"require"`, so a
@@ -1810,24 +1819,23 @@ root exports of the built package, minified, gzip level 9; `test/capture-bundle.
   shares with the kits (imported statically; 252,371 B of entry plus 27,348 B), so the display view's addition is measured on
   the entry and those chunks together: 38,370 B minified and 14,126 B gzip (2.21.0: 46,270 B and 18,327 B).
 
-  **The bundler version and the 2.28.0 limits (#690, #691, owner decision 2026-11-21).** The rows are measured with the
-  rolldown version the Photivra app's worker build uses (1.2.14, through Vite 8.3.2); the `rolldown` pin in `package.json`
-  follows the app when it updates. #690 lets a bundler drop the SDR and luminance shader text that the GPU session chunk
-  carried unused (session chunk 33,950 → 32,182 B). Each limit is its row's measurement rounded up to the next 100 B, and
-  limits only go down:
+  **The bundler version and the 2.28.0 limits (#690, #691).** The rows are measured with the measured bundler version
+  (rolldown 1.2.14; 2.27.0's rows were measured with 1.2.9). #690 lets a bundler drop the SDR and luminance shader text that
+  the GPU session chunk carried unused (session chunk 33,950 → 32,182 B). Each limit is its row's measurement on the release
+  tree rounded up to the next 100 B, at or below 2.27.0's limits:
 
-  | Row (worker shape, gzip) | 2.27.0 (rolldown 1.2.9) | After #690 (rolldown 1.2.9) | After #691 (rolldown 1.2.14) | Limit |
-  | --- | --- | --- | --- | --- |
-  | fast worker | 338,380 B | 336,612 B | **336,616 B** | 336,700 B (was 338,900 B) |
-  | on demand | 51,999 B | 51,999 B | **51,987 B** | 52,000 B (unchanged; #658 brings it to 49,400 B) |
-  | export | 10,399 B | 10,399 B | **10,399 B** | 10,400 B (was 10,500 B) |
+  | Row (worker shape, gzip) | 2.27.0 (rolldown 1.2.9) | After #690 (rolldown 1.2.9) | After #691 (rolldown 1.2.14) |
+  | --- | --- | --- | --- |
+  | fast worker | 338,380 B | 336,612 B | 336,616 B |
+  | on demand | 51,999 B | 51,999 B | 51,987 B |
+  | export | 10,399 B | 10,399 B | 10,399 B |
 
   Rolldown 1.2.14 builds the same 25 chunks as 1.2.9.
 
-  **The on-demand row toward 49,400 B (#658).** Measured with rolldown 1.2.14 after #675 and #692 (fast 336,700 B, on demand
-  51,990 B), each step on the previous one, results and shader tokens unchanged:
+  **The on-demand row and #658.** Measured with rolldown 1.2.14 after #675 and #692 (fast 336,700 B, on demand 51,990 B), each
+  change on the previous one, results and shader tokens unchanged:
 
-  | Step | On demand | Fast worker |
+  | Change | On demand | Fast worker |
   | --- | --- | --- |
   | named re-exports in the Quality kit (no namespace object) | 51,828 B | 336,685 B |
   | the renderer reads three names of the GPU Quality host | 51,704 B | 336,713 B |
@@ -1837,57 +1845,24 @@ root exports of the built package, minified, gzip level 9; `test/capture-bundle.
   | the GPU Quality host and coupled chunk read by position | 50,684 B | 336,558 B |
   | shorter result texts (limitations, assumptions) and refusal messages in the kits and the GPU Quality host | **50,178 B** | **336,556 B** |
 
-  The on-demand limit is 50,200 B (the measurement rounded up to the next 100 B); the target stays 49,400 B. A read of the two
-  CPU kits for code no request reaches found only test instrumentation and a few dozen bytes of fallbacks.
+  A read of the two CPU kits for code no request reaches found only test instrumentation and a few dozen bytes of fallbacks.
+  This release's later additions to the on-demand code (among them #662's chain slopes, #685's offset expansion, #715's band
+  size, #734's single pass and the GPU Quality host's lens hook) bring the row to 51,893 B on the release tree: the 49,400 B
+  target was not met, and #658 stays open.
 
-  **The 2.28.0 step 4 groups merged (owner decisions 2026-11-21 on #658 and #691).** Measured with rolldown 1.2.14 on the
-  tree with every group's step 4 work merged; each limit is that measurement rounded up to the next 100 B:
+  **The lens passes and false color (#661, #739).** The catalogue-lens passes are their own on-demand chunk and their own row,
+  "lens passes", which only the GPU Quality host loads; `simulateFalseColor`'s body is another, "false color". The rows are not
+  additive: the entry's small chunks fold differently once the lens chunk exists (24 chunks).
 
-  | Row (worker shape, gzip) | After #658's steps (group G alone) | Groups merged | Limit |
+  **2.28.0 (the release tree).** Measured with rolldown 1.2.14 on Node 26 (`test/capture-bundle.test.ts`):
+
+  | Row (worker shape, gzip) | 2.28.0 | Limit | 2.27.0's limit |
   | --- | --- | --- | --- |
-  | fast worker | 336,556 B | **337,719 B** | 337,800 B (was 336,700 B) |
-  | on demand | 50,178 B | **50,391 B** | 50,400 B (was 50,200 B) |
-  | export | 10,399 B | **10,399 B** | 10,400 B (unchanged) |
-
-  The fast row's +1,163 B is the other groups' additions together, not measured one by one; the on-demand row's +213 B
-  includes #662's (+95 B) and #685's (+44 B) Quality kit code as measured on their branch. The 49,400 B on-demand target
-  stays.
-
-  **2.28.0 step 7 (#661, owner decisions 2026-11-21 on #661 and #691).** The catalogue-lens passes are their own on-demand chunk
-  and their own row, "lens" (10,200 B, limit 10,200 B). The GPU Quality host's lens hook and loader and the facade wiring add to the
-  other rows: on demand 50,700 B, fast worker 337,192 B (the entry's small chunks fold differently once the lens chunk exists; 24
-  chunks), export 10,398 B. Per the owner's rule for 2.28.0 (each limit the release tree's measurement rounded up to the next 100 B,
-  at or below 2.27.0's: fast 338,900 B, on demand 52,000 B) the branch's limits are fast 337,200 B and on demand 50,700 B; they are
-  set again at release integration.
-
-  **2.28.0 step 7 (#715).** The GPU Quality host counts an image-plane print's pixel records in its band size through the print's
-  passes (`bandBytes`, which replaces the per-point multiplier), and reads the print's site-pass node count from the gather:
-  on demand 50,400 B (+9 B, at its limit); fast worker 337,720 B and export 10,399 B unchanged.
-
-  **2.28.0 steps 5 and 7 merged (owner rule 2026-11-21, #691).** Measured with rolldown 1.2.14 on the integration tree with step 5's
-  output changes and step 7 merged; each limit is that measurement rounded up to the next 100 B, at or below 2.27.0's limits
-  (fast 338,900 B, on demand 52,000 B):
-
-  | Row (worker shape, gzip) | Step 5 alone | Step 7 alone | Merged | Limit |
-  | --- | --- | --- | --- | --- |
-  | fast worker | 338,421 B | 337,192 B | **337,888 B** | 337,900 B |
-  | on demand | 51,446 B | 50,400 B | **51,744 B** | 51,800 B |
-  | export | 10,399 B | 10,398 B | **10,396 B** | 10,400 B (unchanged) |
-  | lens | (no row) | 10,200 B | **10,200 B** | 10,200 B (unchanged) |
-
-  The rows are not additive: the entry's small chunks fold differently once the lens chunk exists, so the merged fast row is
-  below step 5's alone.
-
-  **2.28.0 steps 6 and 8 merged (owner rule 2026-11-21, #691).** Measured with rolldown 1.2.14 on the integration tree with
-  step 6 (groups F and D) and step 8 (GPU and CI, low-severity fixes) merged; each limit is that measurement rounded up to the
-  next 100 B, at or below 2.27.0's limits (fast 338,900 B, on demand 52,000 B):
-
-  | Row (worker shape, gzip) | Merged | Limit |
-  | --- | --- | --- |
-  | fast worker | **338,458 B** | 338,500 B |
-  | on demand | **51,893 B** | 51,900 B |
-  | export | **10,396 B** | 10,400 B (unchanged) |
-  | lens | **10,200 B** | 10,200 B (unchanged) |
+  | fast worker | **338,532 B** | limit: owner decision pending | 338,900 B |
+  | on demand | **51,893 B** | 51,900 B | 52,000 B |
+  | export | **10,396 B** | 10,400 B | 10,500 B |
+  | lens passes | **10,200 B** | 10,200 B | (no row) |
+  | false color | **5,094 B** | 5,100 B | (no row) |
 - **Shipped shaders are minified (2.14, #536).** `npm run build` strips comments and indentation from the WGSL source
   (`scripts/minify-wgsl-dist.mjs`, see [WebGPU, Shipped shader text](WEBGPU.md#shipped-shader-text)). Measured on the app's
   production build (Vite 8, app 0.50.0 at `a82a5eb`, engine `main` at `42ec9d8` packed before and after): the GPU session
