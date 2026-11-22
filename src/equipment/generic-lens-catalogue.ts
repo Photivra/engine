@@ -33,12 +33,13 @@
  *   (at most 50 mm equivalent), a cat's eye: one clipping circle of the widest pupil's radius whose shift leaves the open area
  *   2^−s_o of the pupil at the frame corner wide open, s_o the lens's optical vignetting in stops (the light it removes is the
  *   optical part of the relative illumination above; the kernel is a shape only).
- * - Flare, focus breathing and focus consistency are numbers for callers; `simulateCapture` renders none of them.
+ * - `simulateCapture` renders veiling glare and focus breathing only on request (`lens.catalogue.flare`, `.breathing`) and
+ *   focus scatter only with `lens.focusScatter`; ghosts are reported numbers only.
  * @see docs/LENS_CATALOGUE.md for the tables, the adjustments and why each lens has them.
  */
 
 import { InvalidConfigurationError } from "../core/configuration-error.js";
-import { InvalidScientificInputError } from "../core/validation.js";
+import { InvalidScientificInputError, InvalidScientificResultError } from "../core/validation.js";
 import { requireInputKeys, requireInputObject } from "../core/record-validation.js";
 import type { EvidenceProvenance } from "../core/evidence-provenance.js";
 import { calculateEquivalentFocalLength35Mm } from "../camera/equivalent-focal-length.js";
@@ -402,7 +403,7 @@ export function resolveGenericLens(input: ResolveGenericLensInput): ResolvedGene
       "A generic Photivra lens, not a real product: every coefficient is a Photivra choice that reproduces typical behaviour of its class, not a measurement.",
       "Primary (Seidel) aberrations only, scaled with the pupil radius and a generic close-focus factor; no higher-order terms, no zoom or focus-group design.",
       "Focal length, close focus and magnification are thin-lens values; the lens design is scaled to the sensor by the crop factor with its wavefront error in waves kept.",
-      "Flare, focus breathing and focus scatter are reported numbers; simulateCapture renders none of them."]) });
+      "Flare, focus breathing and focus scatter render in simulateCapture only on request (lens.catalogue.flare, .breathing, lens.focusScatter); ghosts are reported numbers."]) });
 }
 
 export interface SimulateGenericLensFocusErrorInput {
@@ -455,16 +456,23 @@ function uint32(value: unknown, name: string): number {
 export function simulateGenericLensFocusError(input: SimulateGenericLensFocusErrorInput): GenericLensFocusError {
   requireInputObject(input, "simulateGenericLensFocusError input");
   requireInputKeys(input, "simulateGenericLensFocusError", ["lensId", "activeImagingArea", "fNumber", "focusDistanceM", "seed", "shotIndex", "circleOfConfusionMm"]);
-  const lens = resolveGenericLens({ lensId: input.lensId, activeImagingArea: input.activeImagingArea, fNumber: input.fNumber, focusDistanceM: input.focusDistanceM });
+  // #687: the type requires the intended focus; resolveGenericLens reads a missing one as infinity, which has no image distance here.
+  const intendedFocusDistanceM = positiveFinite(input.focusDistanceM, "focusDistanceM");
+  const lens = resolveGenericLens({ lensId: input.lensId, activeImagingArea: input.activeImagingArea, fNumber: input.fNumber, focusDistanceM: intendedFocusDistanceM });
   const seed = uint32(input.seed, "seed"), shot = input.shotIndex === undefined ? 0 : uint32(input.shotIndex, "shotIndex");
   const c = input.circleOfConfusionMm === undefined ? 2 * lens.halfDiagonalMm / 1500 : positiveFinite(input.circleOfConfusionMm, "circleOfConfusionMm");
   const z = sampleDeterministicStandardNormal(createDeterministicUniformStream(deriveNativeSiteStreamSeedUint32(seed, shot, FOCUS_SCATTER_STREAM_ID)));
   const sigma = lens.character.focusScatterDepthOfFocusFraction, depthOfFocusMm = 2 * lens.character.fNumber * c, errorMm = z * sigma * depthOfFocusMm;
   const f = lens.focalLengthMm, imageDistance = (d: number): number => 1 / (1 / f - 1 / (d * 1000));
   const nearest = imageDistance(lens.minimumFocusDistanceM), farthest = imageDistance(FOCUS_SCATTER_FAR_LIMIT_M);
-  const v = imageDistance(input.focusDistanceM) + errorMm, held = v > nearest ? "minimum-focus" as const : v < farthest ? "far-limit" as const : null;
+  const imageSideErrorMicrometers = errorMm * 1000, depthOfFocusMicrometers = depthOfFocusMm * 1000;
+  // #687: a huge circle of confusion overflows the depth of focus; never return an infinite error.
+  if (!Number.isFinite(imageSideErrorMicrometers) || !Number.isFinite(depthOfFocusMicrometers)) {
+    throw new InvalidScientificResultError("circleOfConfusionMm gives a non-finite focus error.");
+  }
+  const v = imageDistance(intendedFocusDistanceM) + errorMm, held = v > nearest ? "minimum-focus" as const : v < farthest ? "far-limit" as const : null;
   const vHeld = Math.min(nearest, Math.max(farthest, v));
   const focusDistanceM = held === "minimum-focus" ? lens.minimumFocusDistanceM : held === "far-limit" ? FOCUS_SCATTER_FAR_LIMIT_M : 1 / (1 / f - 1 / vHeld) / 1000;
-  return Object.freeze({ lensId: lens.lensId, intendedFocusDistanceM: input.focusDistanceM, focusDistanceM, standardNormal: z, imageSideErrorMicrometers: errorMm * 1000,
-    depthOfFocusFraction: sigma, depthOfFocusMicrometers: depthOfFocusMm * 1000, held, scientificStatus: "approximation" as const });
+  return Object.freeze({ lensId: lens.lensId, intendedFocusDistanceM, focusDistanceM, standardNormal: z, imageSideErrorMicrometers,
+    depthOfFocusFraction: sigma, depthOfFocusMicrometers, held, scientificStatus: "approximation" as const });
 }

@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="en-US">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>Page not found · Photivra engine</title>
+<!-- Design figure for docs/design/engine-site.md. Self-contained: no scripts, no external requests.
+     Text is set in Inter when it is installed, otherwise in the system font; the built site self-hosts Inter. -->
+<style>
+:root{--ground:#ffffff;--surface:#f2f2f7;--ink:#1c1c1e;--muted:#5f5f64;--rule:#d1d1d6;--control:#6e6e73;--focus:#1c1c1e;color-scheme:light dark}
+@media (prefers-color-scheme:dark){:root{--ground:#111113;--surface:#1c1c1e;--ink:#f2f2f7;--muted:#aeaeb2;--rule:#3a3a3c;--control:#8e8e93;--focus:#40c8e0}}
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--ground);color:var(--ink);font:400 1.0625rem/1.55 Inter,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+code,pre,kbd{font-family:ui-monospace,"SF Mono",SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace;font-size:.875em}
+a{color:inherit;text-decoration:underline;text-underline-offset:.18em;text-decoration-thickness:.0625em}
+a:hover{text-decoration-thickness:.125em}
+:focus-visible{outline:3px solid var(--focus);outline-offset:3px;border-radius:2px}
+.skip{position:absolute;left:1rem;top:-4rem;background:var(--ink);color:var(--ground);padding:.75rem 1rem;font-weight:600;z-index:2}
+.skip:focus{top:1rem}
+.vh{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
+.wrap{max-width:82rem;margin:0 auto;padding:0 1.5rem}
+header.site{border-bottom:1px solid var(--rule)}
+.bar{display:flex;flex-wrap:wrap;align-items:center;gap:.5rem 1.5rem;padding-top:.75rem;padding-bottom:.75rem}
+.brand{display:inline-flex;align-items:baseline;gap:.4rem;text-decoration:none;min-height:2.75rem;padding:.5rem 0}
+.brand .name{font-weight:700;font-size:1.25rem;letter-spacing:-.01em}
+.brand .sub{color:var(--muted);font-size:1rem}
+nav.primary li{margin:0}
+nav.primary ul{display:flex;flex-wrap:wrap;gap:0 .25rem;list-style:none;margin:0;padding:0}
+nav.primary a{display:inline-flex;align-items:center;min-height:2.75rem;padding:0 .625rem;text-decoration:none;font-size:1rem}
+nav.primary a:hover{text-decoration:underline}
+nav.primary a[aria-current]{font-weight:600;text-decoration:underline;text-decoration-thickness:.125em;text-underline-offset:.4em}
+form.search{display:flex;gap:.5rem;margin-left:auto}
+form.search input{font:inherit;font-size:1rem;color:var(--ink);background:var(--ground);border:1px solid var(--control);border-radius:.5rem;min-height:2.75rem;padding:0 .75rem;width:13rem;max-width:100%}
+form.search input::placeholder{color:var(--muted);opacity:1}
+button,.button{font:inherit;font-size:1rem;font-weight:600;color:var(--ground);background:var(--ink);border:1px solid var(--ink);border-radius:.5rem;min-height:2.75rem;padding:0 1rem;text-decoration:none;display:inline-flex;align-items:center;cursor:pointer}
+.button.quiet{background:transparent;color:var(--ink);border-color:var(--control)}
+main{display:block}
+h1,h2,h3{line-height:1.2;letter-spacing:-.015em;margin:0}
+h1{font-size:clamp(2rem,1.5rem + 2vw,2.75rem);font-weight:700}
+h2{font-size:1.5rem;font-weight:700;margin-top:2.5rem}
+h3{font-size:1.1875rem;font-weight:600;margin-top:1.75rem}
+p,ul,ol,dl,pre,table,figure{margin:1rem 0 0}
+ul,ol{padding-left:1.25rem}li+li{margin-top:.25rem}
+.lead{font-size:1.25rem;line-height:1.45;max-width:40rem}
+.muted{color:var(--muted)}.small{font-size:.9375rem}
+pre{background:var(--surface);border-radius:.75rem;padding:1rem 1.125rem;overflow-x:auto;line-height:1.5;tab-size:2}
+:not(pre)>code{background:var(--surface);border-radius:.25rem;padding:.1em .3em;overflow-wrap:anywhere}
+.scroll{overflow-x:auto}
+table{border-collapse:collapse;width:100%;font-size:.9375rem}
+th,td{text-align:left;vertical-align:top;padding:.5rem .75rem .5rem 0;border-bottom:1px solid var(--rule)}
+th{font-weight:600}
+td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
+/* home */
+.hero{padding:3.5rem 0 3rem;display:grid;gap:2.5rem;grid-template-columns:minmax(0,1fr)}
+@media (min-width:64rem){.hero{grid-template-columns:minmax(0,1fr) minmax(0,1fr);align-items:start}}
+.ipa{color:var(--muted);font-size:1rem;margin-top:.5rem}
+.actions{display:flex;flex-wrap:wrap;gap:.75rem;margin-top:1.5rem}
+.band{border-top:1px solid var(--rule);padding:3rem 0}
+.cols{display:grid;gap:2rem;grid-template-columns:minmax(0,1fr)}
+@media (min-width:48rem){.cols{grid-template-columns:repeat(2,minmax(0,1fr))}.cols.four{grid-template-columns:repeat(4,minmax(0,1fr))}.cols.three{grid-template-columns:repeat(3,minmax(0,1fr))}}
+.band .cols{margin-top:1.25rem}
+.card{background:var(--surface);border-radius:.75rem;padding:1.25rem}
+.card h3{margin-top:0}.card p{margin-top:.5rem}
+.plain{list-style:none;padding:0}
+/* documents */
+.doc{display:grid;gap:0 3rem;grid-template-columns:minmax(0,1fr);padding-top:1.5rem;padding-bottom:4rem}
+@media (min-width:64rem){.doc{grid-template-columns:15rem minmax(0,1fr)}.doc.with-toc{grid-template-columns:15rem minmax(0,1fr) 13rem}}
+.side{font-size:.9375rem}
+.side h2{font-size:.9375rem;margin:0 0 .5rem;letter-spacing:0}
+.side ul{list-style:none;padding:0;margin:.25rem 0 0}
+.side li+li{margin:0}
+.side a{display:block;padding:.3125rem .5rem;text-decoration:none;border-radius:.375rem;overflow-wrap:anywhere}
+.side a:hover{text-decoration:underline}
+.side code{background:none;padding:0}
+.side a[aria-current]{background:var(--surface);font-weight:600}
+.side details{border-bottom:1px solid var(--rule)}
+.side summary{cursor:pointer;padding:.5rem;font-weight:600;min-height:2.75rem;display:flex;align-items:center;justify-content:space-between;list-style:none}
+.side summary::-webkit-details-marker{display:none}
+.side summary::after{content:"+";color:var(--muted);font-weight:400}
+.side details[open]>summary::after{content:"\2212"}
+.side summary .count{color:var(--muted);font-weight:400;margin-left:auto;margin-right:.75rem}
+.side details ul{padding-bottom:.5rem}
+@media (min-width:64rem){.side{position:sticky;top:1rem;align-self:start;max-height:calc(100vh - 2rem);overflow-y:auto}}
+@media (max-width:63.99rem){.side{border:1px solid var(--rule);border-radius:.75rem;padding:.25rem .5rem;margin-bottom:1.5rem}.side>details{border:0}.toc{display:none}}
+.crumbs{font-size:.9375rem;color:var(--muted)}
+.crumbs ol{list-style:none;display:flex;flex-wrap:wrap;gap:.25rem .5rem;padding:0;margin:0 0 .75rem}
+.crumbs li+li{margin:0}.crumbs li+li::before{content:"/";margin-right:.5rem}
+.prose{max-width:46rem;min-width:0}
+.prose h2{padding-top:.25rem}
+.prose h2 .kind{font:600 .75rem/1 Inter,system-ui,sans-serif;letter-spacing:.04em;text-transform:uppercase;color:var(--muted);border:1px solid var(--control);border-radius:.375rem;padding:.25rem .4rem;margin-left:.5rem;vertical-align:.3em;white-space:nowrap}
+.prose h2 code{font-size:.92em;overflow-wrap:anywhere}
+.meta{display:flex;flex-wrap:wrap;gap:.25rem 1.25rem;margin-top:.75rem;color:var(--muted);font-size:.9375rem}
+figure.example{border:1px solid var(--rule);border-radius:.75rem;padding:1rem;margin-top:1.25rem}
+figure.example img{display:block;max-width:100%;height:auto;border-radius:.375rem;background:var(--surface)}
+figure.example figcaption{margin-top:.75rem;font-size:.9375rem}
+figure.example .label{font-weight:600}
+.pager{display:flex;justify-content:space-between;gap:1rem;flex-wrap:wrap;margin-top:3rem;padding-top:1.5rem;border-top:1px solid var(--rule)}
+.note{border-left:3px solid var(--control);padding:.25rem 0 .25rem 1rem;margin-top:1.25rem}
+/* search */
+.searchpage{max-width:54rem;padding-top:2.5rem;padding-bottom:4rem}
+.bigsearch{display:flex;gap:.5rem;margin-top:1.25rem}
+.bigsearch input{flex:1;min-width:0;font:inherit;color:var(--ink);background:var(--ground);border:1px solid var(--control);border-radius:.5rem;min-height:3rem;padding:0 .875rem}
+.results{list-style:none;padding:0}
+.results li{display:grid;grid-template-columns:minmax(0,1fr);gap:.125rem;padding:.625rem 0;border-bottom:1px solid var(--rule);margin:0}
+.results .what{color:var(--muted);font-size:.9375rem;overflow-wrap:anywhere}
+.results a code{background:none;padding:0;font-size:1rem}
+.letters{display:flex;flex-wrap:wrap;gap:.125rem;list-style:none;padding:0}
+.letters li{margin:0}
+.letters a{display:inline-flex;min-width:2.75rem;min-height:2.75rem;align-items:center;justify-content:center;text-decoration:none;border-radius:.375rem}
+.letters a:hover{background:var(--surface)}
+footer.site{border-top:1px solid var(--rule);padding:2rem 0 3rem;font-size:.875rem;color:var(--muted)}
+footer.site ul{list-style:none;padding:0;margin:0 0 1rem;display:flex;flex-wrap:wrap;gap:0 1.25rem;font-size:.9375rem;color:var(--ink)}
+footer.site li{margin:0}footer.site ul a{display:inline-flex;align-items:center;min-height:2.75rem}
+footer.site p{margin:.5rem 0 0;max-width:60rem}
+@media (max-width:47.99rem){.wrap{padding:0 1rem}form.search{margin-left:0;width:100%}form.search input{flex:1;width:auto;min-width:0}.hero{padding:2rem 0}.band{padding:2rem 0}}
+@media (forced-colors:active){.side a[aria-current]{outline:1px solid CanvasText}}
+@media print{header.site nav,form.search,.side,.toc,footer.site ul{display:none}}
+</style>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<header class="site"><div class="wrap bar">
+<a class="brand" href="/"><span class="name">Photivra</span> <span class="sub">engine</span></a>
+<nav class="primary" aria-label="Site"><ul>
+<li><a href="/install/">Install</a></li>
+<li><a href="/quick-start/">Quick start</a></li>
+<li><a href="/guides/">Guides</a></li>
+<li><a href="/api/">API</a></li>
+<li><a href="/releases/">Releases</a></li>
+<li><a href="https://github.com/Photivra/engine">GitHub</a></li>
+</ul></nav>
+<form class="search" role="search" action="/search/" method="get"><label class="vh" for="q">Search the API and guides</label><input type="search" id="q" name="q" placeholder="Search" autocomplete="off"><button type="submit">Search</button></form>
+</div></header>
+<main id="main">
+
+<div class="wrap searchpage">
+<h1>Page not found</h1>
+<p class="lead">There is no page at this address.</p>
+<p>The documentation describes the current release only, @photivra/engine 2.27.0. A page for a module or guide section that was renamed or removed is no longer here.</p>
+<form class="bigsearch" role="search" action="/search/" method="get"><label class="vh" for="sq">Search the API and guides</label><input type="search" id="sq" name="q" autocomplete="off" spellcheck="false"><button type="submit">Search</button></form>
+<h2>Where to go</h2>
+<ul>
+<li><a href="/">Home</a></li>
+<li><a href="/quick-start/">Quick start</a></li>
+<li><a href="/guides/">Guides</a></li>
+<li><a href="/api/">API reference</a></li>
+<li><a href="/search/">Index of every export, module and guide section</a></li>
+<li><a href="/releases/">Release notes</a></li>
+</ul>
+</div>
+</main>
+<footer class="site"><div class="wrap">
+<ul><li><a href="/license/">License</a></li><li><a href="/notices/">Notices</a></li><li><a href="/third-party/">Third-party material</a></li><li><a href="https://github.com/Photivra/engine/blob/main/SECURITY.md">Security policy</a></li><li><a href="https://github.com/Photivra/engine">Source on GitHub</a></li><li><a href="https://www.npmjs.com/package/@photivra/engine">Package on npm</a></li></ul>
+<p>@photivra/engine 2.27.0. This site was built from the public source at commit <a href="https://github.com/Photivra/engine/commit/99782e7">99782e7</a>. It sets no cookies and loads nothing from other sites. The only script is the filter on the search page.</p>
+<p>Copyright 2026 Shackelford Creative, LLC. Source code under the Apache License, Version 2.0. Photivra trade names, trademarks and logos are owned by Shackelford Creative, LLC. This product includes DNG technology under license by Adobe.</p>
+</div></footer>
+</body>
+</html>

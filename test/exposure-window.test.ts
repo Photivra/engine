@@ -544,3 +544,10 @@ describe("capture exposure-window timing", () => {
     );
   });
 });
+
+describe("nested input errors (sensor-11, #701)", () => {
+  it("rejects a null sample point with a domain error", () => {
+    expect(() => calculateCaptureExposureWindows({ nativeRaster, shutterMechanism: "electronic", nominalExposureDurationSeconds: secondsFact(0.01, "test:nominal"),
+      opening: simultaneous(), closing: simultaneous(), samplePointsNative: [null as never] })).toThrow(expect.objectContaining({ name: "InvalidScientificInputError" }));
+  });
+});

@@ -1,6 +1,6 @@
 # Public API reference
 
-Generated from the exact root exports for **@photivra/engine 2.27.0 / root contract 2.27.0** by `node scripts/generate-api-reference.mjs`. No module deep import is supported.
+Generated from the exact root exports for **@photivra/engine 2.28.0 / root contract 2.28.0** by `node scripts/generate-api-reference.mjs`. No module deep import is supported.
 
 Use [the developer guide](https://github.com/Photivra/engine/blob/main/docs/DEVELOPERS.md) for executable paths and scientific boundaries. Types are contracts, not runtime validation: parse untrusted data, preserve units/reference frames, read assessment blockers, and retain evidence/limitations. Optional properties do not imply a universal default. Model/schema IDs remain independent of the distribution.
 
@@ -1581,6 +1581,16 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 | --- | --- |
 | [`simulateCaptureFromParts`](api/facade-develop-joined-parts.md#simulatecapturefromparts) | Runtime |
 
+## facade/display-view-estimate.ts
+
+[Detailed contracts](api/facade-display-view-estimate.md) · [Source](https://github.com/Photivra/engine/blob/main/src/facade/display-view-estimate.ts)
+
+| Export | Kind |
+| --- | --- |
+| [`DisplayViewCountRange`](api/facade-display-view-estimate.md#displayviewcountrange) | Type |
+| [`DisplayViewRenderEstimate`](api/facade-display-view-estimate.md#displayviewrenderestimate) | Type |
+| [`estimateDisplayViewRender`](api/facade-display-view-estimate.md#estimatedisplayviewrender) | Runtime |
+
 ## facade/display-view-gpu.ts
 
 [Detailed contracts](api/facade-display-view-gpu.md) · [Source](https://github.com/Photivra/engine/blob/main/src/facade/display-view-gpu.ts)
@@ -1617,6 +1627,24 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 | [`SimulateExposureBuildUpFrame`](api/facade-exposure-build-up.md#simulateexposurebuildupframe) | Type |
 | [`SimulateExposureBuildUpOptions`](api/facade-exposure-build-up.md#simulateexposurebuildupoptions) | Type |
 | [`SimulateExposureBuildUpResult`](api/facade-exposure-build-up.md#simulateexposurebuildupresult) | Type |
+
+## facade/false-color-entry.ts
+
+[Detailed contracts](api/facade-false-color-entry.md) · [Source](https://github.com/Photivra/engine/blob/main/src/facade/false-color-entry.ts)
+
+| Export | Kind |
+| --- | --- |
+| [`SIMULATE_FALSE_COLOR_LIMITS`](api/facade-false-color-entry.md#simulate_false_color_limits) | Runtime |
+| [`simulateFalseColor`](api/facade-false-color-entry.md#simulatefalsecolor) | Runtime |
+
+## facade/false-color.ts
+
+[Detailed contracts](api/facade-false-color.md) · [Source](https://github.com/Photivra/engine/blob/main/src/facade/false-color.ts)
+
+| Export | Kind |
+| --- | --- |
+| [`FalseColorResult`](api/facade-false-color.md#falsecolorresult) | Type |
+| [`SimulateFalseColorOptions`](api/facade-false-color.md#simulatefalsecoloroptions) | Type |
 
 ## facade/fast-methods.ts
 

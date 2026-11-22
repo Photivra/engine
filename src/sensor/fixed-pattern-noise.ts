@@ -30,7 +30,7 @@ import { parseEvidenceList, type EvidenceBackedFact, type EvidenceProvenance } f
 import { requireAllowlistedRecord, requirePublicOpaqueId, requireInputKeys } from "../core/record-validation.js";
 import { InvalidScientificInputError } from "../core/validation.js";
 import {
-  createDeterministicUniformStream,
+  createResettableUniformStream,
   deriveSensorFixedPatternSeedUint32,
   sampleDeterministicStandardNormal,
   SENSOR_FIXED_PATTERN_COLUMN_STREAM_ID,
@@ -180,8 +180,17 @@ export function sumFixedPatternSites(p: SensorFixedPatternNoiseProfile, n: numbe
     rowOffset: { rmsElectrons: at(p.rowOffset.rmsElectrons, p.rowOffset.rmsElectrons.value * k) }, columnOffset: { rmsElectrons: at(p.columnOffset.rmsElectrons, p.columnOffset.rmsElectrons.value * k) } };
 }
 
+/**
+ * #689: the stream of every fixed-pattern value, reseeded per value. The calls are synchronous and never re-entered, and reset(seed)
+ * sets exactly the state createDeterministicUniformStream(seed) starts from, so every draw is unchanged.
+ */
+const patternStream = /* @__PURE__ */ createResettableUniformStream();
+function uniform(seed: number, x: number, y: number, stream: number): typeof patternStream {
+  patternStream.reset(deriveSensorFixedPatternSeedUint32(seed, x, y, stream));
+  return patternStream;
+}
 function normal(seed: number, x: number, y: number, stream: number): number {
-  return sampleDeterministicStandardNormal(createDeterministicUniformStream(deriveSensorFixedPatternSeedUint32(seed, x, y, stream)));
+  return sampleDeterministicStandardNormal(uniform(seed, x, y, stream));
 }
 
 /**
@@ -215,7 +224,7 @@ export function evaluateFixedPatternSiteFactors(profile: SensorFixedPatternNoise
   const hotFraction = profile.hotPixels.siteFraction.value;
   const photoResponseGainFactor = prnuSd === 0 ? 1 : Math.max(0, 1 + prnuSd * normal(seed, x, y, SENSOR_FIXED_PATTERN_PRNU_STREAM_ID));
   const hotPixel = hotFraction > 0 &&
-    createDeterministicUniformStream(deriveSensorFixedPatternSeedUint32(seed, x, y, SENSOR_FIXED_PATTERN_HOT_PIXEL_STREAM_ID)).next() < hotFraction;
+    uniform(seed, x, y, SENSOR_FIXED_PATTERN_HOT_PIXEL_STREAM_ID).next() < hotFraction;
   const darkCurrentFactor = hotPixel ? profile.hotPixels.darkCurrentMultiplier.value :
     dsnuSd === 0 ? 1 : Math.max(0, 1 + dsnuSd * normal(seed, x, y, SENSOR_FIXED_PATTERN_DSNU_STREAM_ID));
   return { photoResponseGainFactor, darkCurrentFactor, hotPixel };

@@ -7,11 +7,12 @@
  * the fast rule's 3-point order (where the channels are quiet and the kink probe allows it) in the same sweep, a sweep straddling
  * the highlight blend's kinks, and Monte Carlo.
  */
+import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { createDisplayViewCoupledRendering, gaussHermite, type DisplayViewRenderingChoice } from "../src/facade/display-view-rendering.js";
 import { calculateSdrRendering, desaturateToLuminance, SDR_LUMINANCE_WEIGHTS } from "../src/output/sdr-rendering.js";
-import { simulateCapture, simulateDisplayView, type SimulateCaptureOptions } from "../src/index.js";
-import { simulateDisplayViewWithInternals } from "../src/facade/simulate-display-view.js";
+import { NATIVE_RAW_LIMITS, prepareDisplayView, simulateCapture, simulateDisplayView, type SimulateCaptureOptions } from "../src/index.js";
+import { renderPreparedDisplayViewWithInternals, simulateDisplayViewWithInternals } from "../src/facade/simulate-display-view.js";
 import { scaledTimeout } from "./helpers/test-timeout.js";
 
 /** Seeded normal pairs (a 32-bit linear congruential generator and Box–Muller); test-only. */
@@ -214,6 +215,66 @@ describe("the coupled rendering moments", () => {
       // The bound of the full rule's comparison: 1·10⁻³ plus four standard errors of the Monte Carlo mean.
       for (let k = 0; k < 3; k++) expect(Math.abs(hm[k]! - mc.mean[k]!)).toBeLessThan(4 * Math.sqrt(mc.variance[k]! / 400_000) + 1e-3);
     }
+  }, scaledTimeout(120_000));
+});
+
+// #662 (2.28.0): the identity tone curve's chain takes Jt = Jz = I and Jo = diag(inside) directly. Recorded on main (7c07a5e,
+// 2.27.0's chain) before the change, the same on x64 (Node 24.1.0 under Rosetta 2) and arm64 (Node 26.13.1): SHA-256 of every
+// trial's hm, hv, A and node count.
+const CHAIN_DIGESTS: Readonly<Record<string, string>> = {
+  "identity-fast": "b370071634ad8de82b7e1ffd73668a941483c37ddd51515aa666c8626ec2117f",
+  "identity-full": "3713372a248f53722d6330b88170e686da349ce11fcf279feb0be0b0ea4f43bf",
+  "desaturate-fast": "5930a667391667374bed5dc7f7629fb4e5d9c2d03f4d35494e1b2f2bb633ec68",
+  "desaturate-full": "6a556e24475937499b85c1dbaf948cb6c466b0cadbd7e3b52cf758a1ba209c3a",
+  "standard-fast": "f9753e4f8efc96aac1efed2c6af3d98d550d4201e052f6dc7842a845e4ee7e41",
+  "standard-full": "5339b8806518555bc9800c6d96303174d2156e52bc30a4a8c19d20c2fa92a684",
+  "reinhard-fast": "7584fdc45e15e615259b2cedcd160ffd7f32c131a6d29b481c2ada33353d53be",
+  "reinhard-full": "0a9d95995b65350b56ca084d0f579d4caf697bff6498d2a6fca9fbe7649a319e"
+};
+// The 656-recover-push part of scripts/benchmark-display-view-cases.mjs (Recover and +1 stop without Standard), recorded on main
+// (7c07a5e) on x64 and arm64 alike: SHA-256 of the samples, the expected values and the noise standard deviations.
+const RECOVER_PUSH_DIGESTS = ["8b961e9c1c38b99c6789c830b6a442f6371eb482219f4611585776973990425f", "c682c24fcd80216618592e75fec099ed2bb3ef2a3e9464f53e39f07168fd1017",
+  "160e9d370d579fe85038751dbc3c305ef62455acd474195738218d1526e10034"];
+const sha256 = (a: ArrayBufferView): string => createHash("sha256").update(new Uint8Array(a.buffer, a.byteOffset, a.byteLength)).digest("hex");
+
+describe("the chain's slopes for the identity tone curve (#662)", () => {
+  it("gives the bits of the general products, fast and full, for every chain choice", () => {
+    const CHOICES: Record<string, Partial<DisplayViewRenderingChoice>> = { identity: {}, desaturate: { gamutHandling: "desaturate-to-luminance" },
+      standard: { toneCurve: "naka-rushton-luminance", toneCurveParameters: STANDARD }, reinhard: { toneCurve: "positive-reinhard-per-channel" } };
+    const digests: Record<string, string> = {};
+    for (const [name, extra] of Object.entries(CHOICES)) for (const fast of [true, false]) {
+      const r = createDisplayViewCoupledRendering(choice({ highlightMode: "reconstruct", ...extra, fast }), GAINS, 1, MATRIX)!;
+      // Inputs from + − × ÷ and √ only (no Math.log, sin, cos, tanh or pow), so the digests are the same on x64 and arm64.
+      let state = 3;
+      const uniform = (): number => { state = (Math.imul(state, 1664525) + 1013904223) >>> 0; return (state + 0.5) / 4294967296; };
+      const normal = (): number => (uniform() + uniform() + uniform() + uniform() - 2) * Math.sqrt(3);
+      const values = new Float64Array(600 * 16), hm = new Float64Array(3), hv = new Float64Array(3), A = new Float64Array(9), nodeCounts: Record<number, number> = {};
+      for (let trial = 0; trial < 600; trial++) {
+        // Channel variances 2.5e-6 to 5e-3 (σ 0.0016 to 0.071). Trials 0–299: means over the reach of each step; 300–599: one channel
+        // within 3σ of 0.95 of white (blend active, the output clip in reach).
+        let scale = 2.5e-6 * (1 + uniform());
+        for (let k = Math.floor(11 * uniform()); k > 0; k--) scale *= 2;
+        const cm = [uniform(), uniform(), uniform()].map((v) => 0.98 * v), sigma = Math.sqrt(scale);
+        if (trial >= 300) cm[trial % 3] = 0.95 + 6 * sigma * (uniform() - 0.5);
+        const a = [normal(), normal(), normal()].map((v) => v * sigma);
+        const C = [0, 1, 2].flatMap((i) => [0, 1, 2].map((j) => (i === j ? scale : 0) + 0.5 * a[i]! * a[j]!));
+        const nodes = r.chain(Float64Array.from(cm), Float64Array.from(C), hm, hv, A);
+        nodeCounts[nodes] = (nodeCounts[nodes] ?? 0) + 1;
+        values.set(hm, trial * 16); values.set(hv, trial * 16 + 3); values.set(A, trial * 16 + 6); values[trial * 16 + 15] = nodes;
+      }
+      // Both fast orders are reached (the identity curve: 88 trials take 27 nodes, 512 take 216).
+      if (fast) expect(Object.keys(nodeCounts).sort()).toEqual(["216", "27"]);
+      digests[`${name}-${fast ? "fast" : "full"}`] = sha256(values);
+    }
+    expect(digests).toEqual(CHAIN_DIGESTS);
+  }, scaledTimeout(60_000));
+
+  it("renders the Recover and +1 stop part (without Standard) to its recorded bits", async () => {
+    const chart = ((await import(new URL("../scripts/lib/display-view-app-request.mjs", import.meta.url).href)) as { APP_CHART: SimulateCaptureOptions["scene"] }).APP_CHART;
+    const prepared = await prepareDisplayView({ scene: chart, subjectDistanceM: 2, lens: { prime: 50, fNumber: 8 }, sensor: { pixelPitchMicrometers: 6 },
+      output: { width: 6000, height: 4000, format: "srgb-8", maximumPixels: NATIVE_RAW_LIMITS.ceilingPixels, highlightMode: "reconstruct", exposureCompensationStops: 1 } }, { gpu: "off" });
+    const { result, internals } = await renderPreparedDisplayViewWithInternals(prepared, { width: 1500, height: 1000, region: { x: 702, y: 452, width: 96, height: 96 } });
+    expect([sha256(result.image.samples), sha256(internals.expected), sha256(internals.noiseStd)]).toEqual(RECOVER_PUSH_DIGESTS);
   }, scaledTimeout(120_000));
 });
 

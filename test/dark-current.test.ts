@@ -633,3 +633,24 @@ describe("sensor dark-current charge", () => {
     );
   });
 });
+
+describe("dark-current edge inputs (sensor-11, sensor-23, #701)", () => {
+  const table = (samples: { temperatureC: number; darkCurrentElectronsPerSecond: number }[]): SensorDarkCurrentProfile => exactProfile({
+    temperatureModel: { kind: "log-linear-temperature-table", interpolation: "log-linear", outsideRangeBehavior: "fail-closed", samples } });
+
+  it("rejects an exposure without a site with a domain error", () => {
+    const noSite: Record<string, unknown> = { ...exposure() }; delete noSite.site;
+    expect(() => calculateSensorDarkCurrentCharge({ exposure: noSite as never, darkCurrentProfile: exactProfile(), operatingTemperatureC: 20 }))
+      .toThrow(expect.objectContaining({ name: "InvalidConfigurationError" }));
+  });
+
+  it("interpolates an extreme log-linear table without overflow", () => {
+    const wide = table([{ temperatureC: 0, darkCurrentElectronsPerSecond: 1e-200 }, { temperatureC: 10, darkCurrentElectronsPerSecond: 1e200 }]);
+    expect(calculateSensorDarkCurrentCharge({ exposure: exposure(), darkCurrentProfile: wide, operatingTemperatureC: 5 }).value.darkCurrentElectronsPerSecond)
+      .toBeCloseTo(1, 12);
+    const subnormal = table([{ temperatureC: 0, darkCurrentElectronsPerSecond: 5e-324 }, { temperatureC: 10, darkCurrentElectronsPerSecond: 1 }]);
+    const rate = calculateSensorDarkCurrentCharge({ exposure: exposure(), darkCurrentProfile: subnormal, operatingTemperatureC: 5 }).value.darkCurrentElectronsPerSecond;
+    expect(Number.isFinite(rate) && rate > 0).toBe(true);
+    expect(rate).toBeCloseTo(Math.exp(0.5 * Math.log(5e-324)), 170);
+  });
+});

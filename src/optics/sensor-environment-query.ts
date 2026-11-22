@@ -21,7 +21,7 @@
  */
 
 import { approximationResult, type CalculationResult } from "../core/calculation-result.js";
-import { InvalidScientificInputError } from "../core/validation.js";
+import { InvalidScientificInputError, requirePositiveFinite } from "../core/validation.js";
 import { applyPhysicalCameraRotation, calculateInverseCameraRotationImageMapping,
   type CameraAngularVelocityRadPerSec } from "../motion/camera-rotation.js";
 import { insideRadialImageCircle, lensProjectionDirectionValue, parseLensProjectionModel, type LensProjectionModel } from "../camera/lens-projection.js";
@@ -35,7 +35,7 @@ import {
 import { calculateThinLensImageDistance } from "./thin-lens.js";
 import { parseSceneRadianceEvaluationRequest, type SceneRadianceEvaluationRequest } from "../schema/scene-radiance.js";
 import { parseFocusPlane, type FocusPlane } from "./focus-state.js";
-import { requireInputKeys } from "../core/record-validation.js";
+import { assertNamedFinite as requireFinite, requireInputKeys, requireInputObject } from "../core/record-validation.js";
 import { InvalidConfigurationError } from "../core/configuration-error.js";
 import { hypot3 } from "../core/portable-math.js";
 
@@ -171,6 +171,10 @@ export function calculateSensorEnvironmentRadianceQuery(
     throw new InvalidScientificInputError("Environment projection requires explicit opening-boundary time and outgoing-toward-camera direction conventions.");
   }
   const focus = parseFocusPlane(input.focus);
+  // 2.28.0 (#726): a missing source point is a domain error, not a TypeError from reading its x.
+  requireInputObject(input.sourcePointNativeSensorMm, "sourcePointNativeSensorMm");
+  requireFinite("sourcePointNativeSensorMm.x", input.sourcePointNativeSensorMm.x);
+  requireFinite("sourcePointNativeSensorMm.y", input.sourcePointNativeSensorMm.y);
   const sourcePointImagePlaneMm = { x: input.sourcePointNativeSensorMm.x, y: -input.sourcePointNativeSensorMm.y };
   const projection = calculateInverseCameraRotationImageMapping({ focalLengthMm: input.focalLengthMm,
     imagePointMm: sourcePointImagePlaneMm, angularVelocityRadPerSec: input.angularVelocityRadPerSec,
@@ -260,6 +264,9 @@ export function calculateMappedSensorEnvironmentRadianceQuery(
     throw new InvalidScientificInputError("Environment projection requires explicit opening-boundary time and outgoing-toward-camera direction conventions.");
   }
   const focus = parseFocusPlane(input.focus);
+  requireInputObject(input.sourcePointNativeSensorMm, "sourcePointNativeSensorMm");
+  requireFinite("sourcePointNativeSensorMm.x", input.sourcePointNativeSensorMm.x);
+  requireFinite("sourcePointNativeSensorMm.y", input.sourcePointNativeSensorMm.y);
   const sourcePointImagePlaneMm = { x: input.sourcePointNativeSensorMm.x, y: -input.sourcePointNativeSensorMm.y };
   const mapping = prepared.mapping;
   const { ideal, distortionAreaFactor } = undistortedImagePoint(prepared, sourcePointImagePlaneMm);
@@ -276,6 +283,8 @@ export function calculateMappedSensorEnvironmentRadianceQuery(
     look = { x: point.x/length, y: point.y/length, z: z/length };
     projectionScaleMm = z;
   } else {
+    // 2.28.0 (optics-18): the checks the rectilinear branch gets from the inverse rotation mapping.
+    requirePositiveFinite("focalLengthMm", input.focalLengthMm);
     projectionScaleMm = focus.kind === "finite"
       ? calculateThinLensImageDistance({ focalLengthMm: input.focalLengthMm, objectDistanceM: focus.distanceM }).value.imageDistanceMm
       : input.focalLengthMm;
@@ -284,6 +293,8 @@ export function calculateMappedSensorEnvironmentRadianceQuery(
     if (typeof t !== "number" || !Number.isFinite(t) || t < 0) {
       throw new InvalidScientificInputError("timeSecondsFromOpeningReference must be finite and non-negative.");
     }
+    requireInputObject(velocity, "angularVelocityRadPerSec");
+    for (const axis of ["pitch", "yaw", "roll"] as const) requireFinite(`angularVelocityRadPerSec.${axis}`, velocity[axis]);
     // #549: outside the image circle, with "backward-ray", look straight back (no forward scene there).
     const captured = mapping.outsideImageCircle === "backward-ray" &&
       !insideRadialImageCircle(mapping.projectionModel, projectionScaleMm, Math.hypot(ideal.x, ideal.y)) ? { x: 0, y: 0, z: -1 } :

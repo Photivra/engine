@@ -58,7 +58,7 @@ import { InvalidConfigurationError } from "../core/configuration-error.js";
 import { isInternalSceneRadianceEvaluator, markInternalSceneRadianceEvaluator, registerInternalRadianceAccess } from "../core/internal-radiance-evaluator.js";
 import type { SceneRadianceEvaluationRequest, SceneRadianceEvaluationResult } from "../schema/scene-radiance.js";
 import { createIrradianceConvolutionInteriorRunner } from "../optics/irradiance-convolution.js";
-import { loadedKit, qualityKit } from "./on-demand-kits.js";
+import { loadedKit, QK_CREATE_LARGE_DEFOCUS_NODE_LATTICE, QK_LARGE_DEFOCUS_CACHE_BYTES, QK_SITE_DIFFRACTION_KERNEL, qualityKit } from "./on-demand-kits.js";
 import type { ResolveLensSampledPsfInput } from "../optics/lens-psf-profile.js";
 import type { PlanarSceneRadianceProvider } from "./scene-radiance.js";
 import type { LargeDefocusKernel, LargeDefocusNodeLattice } from "./large-defocus-lattice.js";
@@ -136,7 +136,7 @@ export function createDiffractedPlanarProvider(input: DiffractedPlanarProviderIn
   const siteKernels = input.siteKernels, large = input.largeKernel;
   if (!siteKernels && !input.psf && !large) throw new InvalidConfigurationError("The object-space convolution needs a PSF or site kernels.");
   const kernels = large ? [] : wavelengthsNm.map((wavelengthNm) => siteKernels ? checkedSiteKernel(siteKernels(wavelengthNm), R) :
-    loadedKit(qualityKit).siteDiffractionKernel(input.psf!, wavelengthNm, pitch, R, "Diffraction kernels must sample the site pitch exactly."));
+    loadedKit(qualityKit)[QK_SITE_DIFFRACTION_KERNEL](input.psf!, wavelengthNm, pitch, R, "Diffraction kernels must sample the site pitch exactly."));
   // #492: each site kernel's non-zero taps as grid offsets, in the gather's order.
   const taps = siteKernels && !large ? kernels.map((kernel) => kernelTaps(kernel, R, NW + 2 * R)) : [];
   const gridWidth = NW + 2 * R;
@@ -204,7 +204,7 @@ export function createDiffractedPlanarProvider(input: DiffractedPlanarProviderIn
       const vOf = (lj: number): number => shift.y === 0 ? -(lj - M + 0.5 - H / 2) * g : -(lj - M + 0.5 + shift.y - H / 2) * g;
       const uOf = (li: number): number => shift.x === 0 ? (li - M + 0.5 - W / 2) * g : (li - M + 0.5 + shift.x - W / 2) * g;
       const kit = loadedKit(qualityKit);
-      lattice = largeLattices[s] = kit.createLargeDefocusNodeLattice({ kernel: large!, wavelengthsNm, capacityBytes: kit.LARGE_DEFOCUS_CACHE_BYTES / shifts.length, ...(input.onConvolution ? { onTile: input.onConvolution } : {}),
+      lattice = largeLattices[s] = kit[QK_CREATE_LARGE_DEFOCUS_NODE_LATTICE]({ kernel: large!, wavelengthsNm, capacityBytes: kit[QK_LARGE_DEFOCUS_CACHE_BYTES] / shifts.length, ...(input.onConvolution ? { onTile: input.onConvolution } : {}),
         source: (x0, y0, width, height) => {
           const size = width * height;
           let materialOf: Int32Array | undefined;

@@ -6,6 +6,7 @@ import {
   calculateFieldOfView,
   calculateFocusBreathingFieldOfView,
   calculateFocusBreathingProjection,
+  calculateGeometricFocusBreathing,
   calculateThinLensImageDistance
 } from "../src/index.js";
 
@@ -206,5 +207,17 @@ describe("declared-scale focus breathing", () => {
         breathingProjectionScale: 1
       })
     ).toThrow("sensorDimensionMm");
+  });
+});
+
+describe("unit focus at a very large subject distance (optics-25, #700)", () => {
+  it("returns v = f, not 0, once T^2 overflows", () => {
+    for (const subjectToSensorDistanceM of [1.4e151, 1e155, 1e300]) {
+      const r = calculateGeometricFocusBreathing({ focalLengthMm: 50, subjectToSensorDistanceM, sensorDimensionMm: 36, focusingMethod: "unit-focus" }).value;
+      expect(r.imageDistanceMm).toBe(50);
+      expect(r.fieldOfViewDegrees).toBeCloseTo(39.598, 3);
+    }
+    const ordinary = calculateGeometricFocusBreathing({ focalLengthMm: 50, subjectToSensorDistanceM: 1.3e151, sensorDimensionMm: 36, focusingMethod: "unit-focus" }).value;
+    expect(ordinary.imageDistanceMm).toBe(50);
   });
 });

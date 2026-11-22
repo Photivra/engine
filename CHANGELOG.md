@@ -1,13 +1,122 @@
 # Changelog
 
-## Unreleased
+## 2.28.0 — unreleased (prepared November 21, 2026)
 
-- **Tooling, CI and tests only (2.28.0 step 1); no package, API, output or bundle change.**
+A minor release: lower CPU cost of full-quality and batch figure renders (#670, #731, #734, #735, #684, #722), catalogue-lens
+display views on the GPU (#661), the false color of a demosaic (`simulateFalseColor`, #739), a render estimate
+(`estimateDisplayViewRender`, #660), and the low-severity fixes of the 2.27.0 review (#698–#703). It is minor because it adds
+7 root exports (2,110 → 2,117; runtime exports 722 → 725) and new result fields, adds two fast methods
+(`lens.diffraction/kernel-window`, `lens.catalogue/view-offset-expansion`) and changes some outputs and refusals (listed first
+below); nothing is removed from the root and no export changes kind. See the
+[2.28.0 release record](https://github.com/Photivra/engine/blob/main/docs/RELEASE_2_28_0.md).
+
+### Output and behaviour changes (migration)
+
+Each item is described in its entry below.
+
+- **Diffraction's default kernel window follows the flag (#732, new fast method `lens.diffraction/kernel-window`).** Fast
+  requests without `kernelRadiusSamples` take the Airy window to the second dark ring; their samples change, mostly by one level.
+  `fast: false`, the exports, `simulateIdealReference` and an explicit radius are unchanged.
+- **The catalogue-lens PSF takes the exact cell integral (#674, profile 1.1.0).** Stopped-down `lens.catalogue` renders change;
+  small pixels at large f-numbers that were refused now render.
+- **Full-quality display views (#670).** `fast: false` takes the per-tap chart signal and the regrouped defocus disc; the
+  registry entries `chart.signal/view-per-tap` and `lens.defocus/view-regrouped` are removed from
+  `SIMULATE_CAPTURE_FAST_METHODS`, and `view.signal` and `view.defocus` no longer report them as fast. `fast: false` samples
+  change by one level in at most 2 of 99,072 samples in the measured cases.
+- **A fast catalogue-lens region takes the whole frame's method (#733)**; some small frames now take the exact one.
+- **New default fast method `lens.catalogue/view-offset-expansion` (#685)** for catalogue-lens views with several query
+  offsets; `view.lensPsf.offsetMapping` reports it. Samples of the measured cases are unchanged; the default-flag `sceneLookups`
+  of the two catalogue cases of `test/figure-batch-hash-locks.test.mjs` rose (6,560 → 11,968 and 15,608 → 20,956).
+- **Joins of region parts check the parts (#728).** sRGB parts (fast by the format default) joined into an exact DNG or JPEG are
+  refused; parts are keyed by their resolved request (key order, written defaults and a still request's temporal count do not
+  matter); exact parts under a `fast: true` join with camera rotation are refused (another temporal sample count).
+- **Widened unions:** `ExposureResolutionConstraint` gains `"program-line-minimum"` and `"program-line-maximum"`
+  (`foundation-07`); `DisplayViewGpuFallbackReason` gains `"gpu-validation"` and `"out-of-memory"` (#692).
+- **33 result and refusal texts are shorter (#658);** bytes and numbers are unchanged.
+- **Metric print sizes (#717)** ask for the same pixels as the same size in inches.
+- **Report fields:** range ends within 32 ulp are not clamped (#681); a still request reports `{ requested, used: 1 }` temporal
+  samples (#729); a `motion.subject` at rest renders as the still scene and is no longer listed in `diagnostics.options` (#688);
+  program mode with a fixed ISO names the line's end (`foundation-07`). New fields: `raw.expectedSignal.sum` (#731),
+  `region.fast`, `region.requestKey` (#728), `view.lensPsf.offsetMapping` (#685) and, on a `webgpu-f32` render whose lens passes
+  map every query offset through the lens (the full method's mapping, within the CPU fast method's 1e-6 go/no-go; not part of the
+  GPU's a-priori bound), `view.execution.offsetMapping: "lens-mapping-per-offset"`, `clippedSitesKept` (#679, #719),
+  `exposureBracketRealizedOffsetStops` (#680).
+- **Automatic exposure uses portable math (`foundation-06`):** 2 of 76 measured requests' settings move by 1 ulp.
+- **GPU results (#716, #661, #692, `gpu-05`).** Image-plane prints keep the GPU's value inside its bound; catalogue-lens views in
+  field zones render on `webgpu-f32`; `gpu: "auto"` falls back on a compile or out-of-memory failure;
+  `setWebGpuEnabled(false)` also stops earlier accelerators and prepared views.
+- **Deeply frozen shared records** (#682, #683, #722, `optics-06`): writing into a resolved sensor profile now throws a
+  `TypeError` in strict-mode code; copy each nested part you change.
+- **Now resolve (refused before):** #672, #673, #680, #718, #671, #678, some Brown–Conrady inverses (#724), `foundation-11`,
+  `sensor-20`, #674.
+- **Newly refused inputs** (each with a domain error; described in the entries):
+  - *Capture and facade:* #728's parts; `simulateFalseColor` with `fast: true` at the top level or on an option record (#739);
+    #720, `capture-14`, `capture-15`, `capture-17`, `capture-20`, `capture-29`, `capture-30`, `capture-31`.
+  - *Processing:* a Durand–Dorsey image that needs more than 4,096 intensity nodes (`capture-11`; 2.27.0 rendered it with wider
+    node spacing); non-finite results of the tone and fusion passes (`capture-10`).
+  - *Sensor:* #712, `foundation-04`, `sensor-02`, `sensor-12` to `sensor-19`, `sensor-21`, `sensor-22`, `sensor-25`; with
+    `sensor-13`, a spectral channel record whose optional field of another kind is present as `undefined` (2.27.0 accepted it; a
+    radiometry requirement accepts it again).
+  - *Exposure and colour:* `foundation-08`, `foundation-09` (white-balance fields read by truthiness before), `foundation-10`.
+  - *Optics:* #686 (β above 1e5), #687, #726, `optics-08`, `optics-14`, `optics-15`, `optics-17`, `optics-19`, `optics-24`.
+  - *Input bounds:* work and memory limits on DNG import and rewrite, release sequences, temporal samples, composite charts
+    and diffraction profiles (Input bounds, below).
+
+### New API
+
+- `simulateFalseColor(options, measure?)`, with `SimulateFalseColorOptions`, `FalseColorResult` and
+  `SIMULATE_FALSE_COLOR_LIMITS` (#739; False color, below).
+- `estimateDisplayViewRender(prepared, view)`, with `DisplayViewRenderEstimate` and `DisplayViewCountRange` (#660; Display view, below).
+
+### Sizes
+
+Measured on the capture worker's shape (`test/capture-bundle.test.ts`) with the measured bundler version (rolldown 1.2.14),
+Node 26, gzip. 2.27.0's rows were measured with rolldown 1.2.9.
+
+| Row | 2.27.0 (rolldown 1.2.9) | 2.28.0 | Limit (2.27.0's) |
+| --- | --- | --- | --- |
+| fast worker | 338,380 B | **338,840 B** | 338,900 B (338,900 B) |
+| on demand | 51,999 B | **51,977 B** | 52,000 B (52,000 B) |
+| export kit | 10,399 B | **10,395 B** | 10,400 B (10,500 B) |
+| lens passes (#661) | (no row) | **10,200 B** | 10,200 B (none) |
+| false color (#739) | (no row) | **5,094 B** | 5,100 B (none) |
+
+The on-demand row is 51,977 B: #658's 49,400 B target was not met, and #658 stays open. The lens passes and the false-color
+body are on-demand chunks of their own, each measured as its own row; a bundle that imports `simulateFalseColor` adds 348 B to
+its first load, and one that imports `estimateDisplayViewRender` 1,655 B.
+
+### Benchmarks
+
+`docs/benchmarks/2026-11-21-figure-batch-2.27.0-2.28.0.json` records the #670 set (22 parts, `fast: false` first, then the
+default flag) on 2.27.0 and 2.28.0 in paired runs, and the whole figures `frame-768` and `dof-near-s1` on 2.28.0. Part tier,
+CPU seconds of the 22 parts, 2.27.0 → 2.28.0: `fast: false` 435.3 → 190.1 (0.44×);
+default flag 94.2 → 57.1 (0.61×). Whole figures on 2.28.0, `fast: false`:
+`frame-768` 83.3 CPU s and `dof-near-s1` 70.7 CPU s (6 workers; the 2.27.0 record has 256.8 and 1,535.5 from another session). Per-part figures are in the record. Times are host-dependent and the
+benchmark is not run by CI.
+
+### Known limitations
+
+- **GPU hardware run: conformance and the `app-lens` acceptance case.** The conformance suite (`npm run test:webgpu:hardware`)
+  passed 205 of 205 tests on an Apple M5 Pro (WebGPU on Metal, Chrome 158, macOS 27.2.1) on the release commit 0aa0e00, #661's
+  lens passes (7 of 7, the catalogue part's GPU time 0.57× the prime's) and #716's changed GPU results included. The preview
+  acceptance's `app-lens` case (`accept:gpu:hardware -- --charts app-lens --options speed`) passed 2 of 2 on the same device on
+  4ec2508 (0aa0e00 with a documentation-only commit), the GPU's expected images identical to the CPU reference's; the other
+  acceptance cases were not run on hardware (docs/WEBGPU_DEVICES.md).
+- **Brown–Conrady inverse (#724, `optics-13`).** For some targets within 1e-12 of the envelope that 2.27.0 inverted, the inverse
+  now throws (7 of 40,000 seeded cases).
+- **A `motion.subject` at rest (#688)** is no longer listed in `diagnostics.options`.
+- **Targets not met:** #658's on-demand target (above); #711's out-of-focus rolling-shutter region stays above 3× its in-focus
+  time (#711, Display view).
+
+### Gates
+
+- **Coverage, shards and conformance; no package, API, output or bundle change.**
   - *Coverage gates decide per shard (#666, with `ci-07`).* Each coverage shard uploads one part, its blob report or a marker
     naming the `coverage` proof it found; `.github/coverage-parts.mjs` merges ten blobs with the thresholds enforced, passes a
     mix of markers and blobs on the proof, and fails on a missing, doubled or unknown part. `publish.yml` no longer reads a
     matrix job's output (the 2.27.0 publish run failed its gate on that), `ci.yml`'s merge-queue path has the same decision, and
     `verify (lts/*)` names a new proof only after a merge. Proof names keep the exact Node.js release.
+  - *Test legs in four parts (#668).* The plain test legs run in four parts, and CI timeouts are scaled by 3.
   - *Shard start order (#665).* A test file without a recorded time starts first in its shard; the `alone` list is empty; a test
     fails while a test file has no recorded time in `test/shard-weights.json`, or when a recorded time passes 900 s (#693).
   - *The longest coverage file is split (#693).* `test/display-view-lens-catalogue-regrouped.test.ts` becomes `-1` and `-2`
@@ -22,6 +131,776 @@
     (docs/NUMERICAL_CORRECTNESS.md).
   - *Proof uploads and the macOS check (`ci-20`, `ci-21` in #703).* A failed proof upload no longer fails a job whose work passed;
     `hash locks (macos-latest)` drops `continue-on-error` and is documented as the blocking required check it is.
+- **Browser surface and WebAssembly; no package, API, output or bundle change.**
+  - *Browser-surface gate (#695, with `capture-12`).* The walk from `src/index.ts` follows `import()` and `require()` as well
+    as static imports (339 modules on this tree, the published modules loaded only on demand among them), fails on every Node
+    built-in and on any non-relative specifier, names a published `src/` module that no import reaches, and type-checks `src/`
+    (without `src/api/`) without Node's type definitions (`tsconfig.browser.json`), so a Node global such as `process` fails. The
+    walk is in `scripts/lib/browser-surface.mjs`, with tests. `src/` is unchanged; it already compiles without Node's types.
+  - *WebAssembly stays limited to the opt-in JPEG XL decoder (#659).* `npm run check:browser-surface` fails when any file
+    under `src/` names the `WebAssembly` global, a `.wasm` file or `application/wasm` in code or strings, or imports a module that
+    is not a relative engine module, and when a file other than `src/capture/jpeg-xl-tiles.ts` mentions WebAssembly at all
+    (`scripts/lib/webassembly-boundary.mjs`); `test/webassembly-boundary.test.ts` proves the scanner fails on 15 forms and keeps
+    `jxl-oxide-wasm` to the JPEG XL DNG test; `pack:check` refuses a packed `.wasm` file or any dependency field. README.md and
+    THIRD_PARTY.md state the limit, and the three native-capture "Path B" documents note that an engine-side WebAssembly
+    executor is not permitted while it stands.
+- **Gates the documentation site needs (#694, #709, #696, `ci-11` in #703).** `docs:check` resolves absolute links to the
+  repository again (#694: its pattern named the former repository) and fails if it resolves none; heading ids come from the
+  shared `scripts/lib/anchors.mjs`, which skips fenced code (#709). The identity gate reads every tracked text file and any host
+  domain (#696). The licence gate reads more than one lockfile (`site/package-lock.json`) and refuses a compound expression with
+  `AND` (`ci-11` in #703). Their logic has unit tests (`scripts/test-gates.mjs`). A change confined to `site/` or `docs/design/`
+  runs no engine tests (`.github/ci-scope.mjs`).
+- **Low-severity tests, CI and scripts findings (#703); no package, API, output or bundle change.**
+  - *A leg skips by major (`ci-08`):* `--same-as-primary` compares the leg's Node.js major with the primary leg's (24) from its
+    own runtime, with no network call (supersedes the patch-level wording of #231).
+  - *Orphan API pages (`ci-09`):* `generate-api-reference.mjs --check` fails on a page in `docs/api` it no longer generates.
+  - *A path named in a comment is not "read by a test" (`ci-10`):* `.github/ci-scope.mjs` strips comments before it looks.
+  - *Tests:* the on-demand kits' load-failure path (`ci-12`, `kitLoader`, exported for its test only); lean-executor tests require
+    success (`ci-14`); `test/image-plane.test.ts` runs a test alone (`ci-23`); the two opt-in tests run nightly in
+    `native-performance.yml` (`ci-13`).
+  - *Gates:* the SPDX-header gate reads `test/`, `.github/` and the root's source files (`ci-15`); `verify` sets
+    `fail-fast: false`, checked by `.github/node-ci-roles.mjs` (`ci-19`); the packed-consumer check refuses the five dependency
+    fields `pack:check` refuses, from one shared list (`ci-22`).
+- **Workflows; no package, API, output or bundle change.** `main smoke` sets up Node 24, the line `verify (lts/*)` names its
+  coverage proof by, so it finds the proof; `verify (lts/*)` requires the scope's tests output to be `true` or `false`;
+  `.github/ci-scope.mjs` and `.github/ci-proof.mjs` compare their entry by `pathToFileURL(realpathSync(argv[1]))`, as
+  `coverage-parts.mjs` does since #666; `publish.yml` pins `actions/upload-artifact` v7.0.2, as the other workflows do.
+
+### Site
+
+- **Documentation site (#669); no package, API, output or bundle change.** `site/` builds `https://engine.photivra.com/` from the
+  repository's own files (design: docs/design/engine-site.md): the README's opening, install and Node support, the quick start
+  and nine guides (the three long documents one page per section), one page per API module with a task index, a search page
+  that is a complete A to Z index without JavaScript and filters as you type with one small script, release notes from this
+  changelog, and the license, notices and third-party inventory. Two figures are the output of guide code blocks, run unchanged
+  by the engine built from the same commit. No cookies, no requests to other hosts, a Content-Security-Policy on every page,
+  self-hosted Inter subsets (THIRD_PARTY.md) and Tailwind CSS compiled at build. The site's development dependency tree
+  (`site/package-lock.json`, with `tslib` under 0BSD, development only) and its icon are approved. `.github/workflows/pages.yml`
+  checks every build (HTML validation, links, metadata and sitemap, size budgets, a browser pass with axe-core, Lighthouse
+  floors) and deploys after a successful npm publish, or from `main` when the changelog's newest section is the published
+  version. The deploy job runs only when the repository variable `PAGES_DEPLOY` is `true`, and a manual run deploys only from
+  `main` (docs/DEVELOPERS.md).
+  - `docs/COLOR_PATCHES.md` gains a display-view example (the home page's picture); `docs/LAYERED_SCENES.md` says why its
+    example's star centers alias.
+
+### Sensor
+
+- **The generic tier assets are frozen as built (#682).** The tier evidence and limitation records, which every tier profile and
+  every capture's `provenance.evidence` share, were writable until the public catalogue was first asked for, so one write to a
+  result's provenance changed it for every later capture. The presets of both versions are now deep-frozen when they are built.
+  No value or output changes.
+- **`SENSOR_PROFILES` is frozen all the way down (#683).** Its nested records (`readNoise`, `fixedPattern`, `goodFor`,
+  `provenance`) were writable, and the fixed-pattern records are shared by several profiles, so writing into a resolved profile
+  changed the catalogue and its siblings for the rest of the session. Writing into a resolved profile now throws a `TypeError` in
+  strict-mode code. A modified copy still works; copy each nested part you change (docs/SENSOR_PROFILES.md).
+  `SIMULATE_CAPTURE_FAST_METHODS` had the same shallow freeze; the facade's change freezes it (Facade, below). No value or output
+  changes.
+- **An exposure met exactly at a range end is no longer reported as held there (#681).** When the ideal ISO, shutter or
+  f-number came out a few ulp past a range end (ISO 100 as 99.99999999999997, ISO 25 600 as 25600.000000000033), the
+  resolvers reported `clamped` and `"iso-minimum"`, `"iso-maximum"`, `"shutter-…"` or `"aperture-…"` for an exposure on target;
+  in program-mode daylight about a third of captures did. Within `settingEquals`' tolerance (32 ulp) the end is now met:
+  `clamped: false`, `limitingConstraint: "none"`, `quantized: false`. Only these report fields change (in a 600-capture sweep of
+  program, shutter and aperture priority, 72 reports and no settings, ideal values or residuals); samples and RAW codes are
+  unchanged. One digest of `test/program-line-lens-range.test.ts` (the `exposure` of `catalogue50`) is re-pinned for it.
+- **Photosite-scale consistency checks fail when they should (#712).** `calculateSensorEqeElectronRate` and
+  `calculateSensorResponsivityPhotocurrent` compared radiant powers with a tolerance that is absolute (1e-10 W) below 1 W, so at a
+  photosite (about 1e-15 to 1e-10 W per bin) every pair compared equal: a reduction passed with another chain's operating-range
+  authorization, or with per-bin contributions and a total that do not match it. Their three power checks each (per-bin
+  contribution, total, operating-range node values) are now purely relative (1e-10; two zeros are equal). Chains the engine builds
+  are accepted as before; only inconsistent inputs that were wrongly accepted are now refused. No output change.
+  The native capture's lean environment path (`src/capture/native-environment-lean.ts`) makes its per-bin contribution and
+  total power checks the same relative way, so it takes the main path's decisions; every hash lock holds.
+- **A sensor-profile field named like an `Object.prototype` member is an unknown field (`foundation-04` in #699, `sensor-02` in
+  #701).** `sensor.profile` with `constructor` or `toString` was accepted, and `valueOf`, `hasOwnProperty` or an own `__proto__`
+  (from `JSON.parse`) threw a plain `TypeError`; each now fails with "Unknown sensor.profile field: <name>."
+  (`InvalidConfigurationError`), also through `calculateSensorProfileFrame` and `resolveSensorProfileIsoSettings`. No output change
+  for valid requests.
+- **Low-severity fixes (#701).** No output change for valid requests; hash locks and image bytes unchanged. The duplicated
+  site-applicability, temperature-applicability, uncertainty and reference-conditions parsers are now one copy each.
+  - *Domain errors for missing nested records (`sensor-11`).* Exported sensor primitives that read a missing or null nested
+    record (compatibility, sensor, wavelength range, quadrature node, exposure binding and rate identity, raw code, centre site,
+    sample, site, sample point, capture mode and its dependencies, sample index, grouping anchor, response uncertainty) now fail
+    with `InvalidConfigurationError` or `InvalidScientificInputError` instead of a plain `TypeError`.
+  - *Sparse arrays (`sensor-12`).* `siteChannelIds`, `interFrameSensorOffsetsNativeSamples.value`, a stabilization trajectory's
+    `samples` and a system profile's `axisResponses` with holes are refused.
+  - *Fields of another kind (`sensor-13`).* A spectral-response channel and a radiometry-readiness requirement may carry only
+    their own kind's or representation's fields; a stray field is refused instead of dropped. A radiometry requirement's field
+    of another representation that is present with the value `undefined` counts as left out, as in 2.27.0; on a spectral-response
+    channel such a field is refused (2.27.0 accepted it).
+  - *Misspelled motion keys (`sensor-14`).* The translation-parallax and extended-object quadratures refuse unknown keys in scene
+    samples, points, three-component vectors and `frontoparallelPlane` (a misspelled `subjectVelocityMPS` no longer makes the
+    subject still).
+  - *Operating range and compatibility (`sensor-15`, `sensor-16`).* `assessSensorResponseOperatingRange` refuses a reduction
+    without a finite wavelength range or, for a per-spectral-bin model, without bins; the compatibility check parses
+    `operatingConditions` (known keys, angle 0 to 90°, polarization) and refuses an unknown `responseScope`
+    (`InvalidConfigurationError`). The operating-range profile's reference-condition messages now read as the response profile's.
+  - *RAW code samples (`sensor-17`).* `createSensorRawCaptureSample` requires an integer `rawCode` in
+    [0, `digitalSaturationCode`] with integer black and saturation codes; the reconstruction refuses a non-number sample value
+    instead of coercing a string.
+  - *Video timing (`sensor-18`).* The shutter-angle helpers and `resolveVideoFrameSequence` refuse timings that overflow,
+    underflow or collapse to a zero-length exposure at extreme accepted frame rates.
+  - *Stabilization (`sensor-19`).* `calculateStabilizedCaptureTemporalSamples` refuses a zero or negative local exposure duration.
+  - *Sampling-aperture fit (`sensor-20`).* The "within one lattice cell" test allows 8 ε of the pitch, as the imaging-area fit
+    does: apertures touching the cell edge exactly in decimal are accepted (0 of 4,755 refused, from 511).
+  - *Timing constructors (`sensor-21`).* `parseCaptureModeTimingProfile` requires a positive traversal and rolling skew;
+    `createRollingShutterCaptureExposureSchedule` validates `shutterMechanism`.
+  - *Air refractive index (`sensor-22`).* `phaseRefractiveIndex` must be from 1 through 1.01 (a documented sanity bound;
+    standard air is about 1.00029).
+  - *Dark-current table (`sensor-23`).* A log-linear table whose rate ratio overflows or underflows is evaluated in
+    logarithms; other tables keep the same expression and bits.
+  - *Lower code clamp report (`sensor-24`).* `lowerCodeClampApplied` is also set when the ADC stage clamps below 0 before a
+    declared digital gain; codes unchanged.
+  - *ADC bit depth with INL (`sensor-25`).* `sensor.adcBitDepth` other than the readout's is refused, naming
+    `sensor.adcBitDepth`, when the ADC declares integral non-linearity (no built-in body does).
+  - *Prepared contributor resolver (`sensor-27`).* The RAW-frame and producer paths parse the colour-sampling binding and
+    capture mode once per frame: 3.9 → 0.48 µs per site on a 960 × 640 raster; results identical.
+  - *Docs (`sensor-05`, `sensor-26`).* docs/SENSOR_PROFILES.md's SNR column is regenerated from
+    `calculateSensorFigures({ profile, iso: 3200 })` (Professional tier 15.1 → 15.6) and checked by a test;
+    docs/STABILIZATION.md says the rotation mapping rejects only rays on or behind the camera plane.
+
+### Exposure and colour
+
+- **Automatic exposure resolves to the same bits on more Node.js lines (`foundation-06` in #699).** The program line's
+  log-interpolation of aperture and shutter, the ISO offset, the meter target and its compensation, and the centre-weighted and
+  highlight-weighted meter policies take the engine's portable `log2`, `exp2` and `pow` (src/core/portable-math.ts) instead of
+  V8's `Math.log2` and `Math.pow`, whose last bits differ between V8 12, 13 and 14. Manual exposure is unchanged.
+  - *Measured effect* (the review's sweep, 76 requests, 24 × 16 Siemens star, DNG: aperture and shutter priority, program, Auto
+    ISO): on each of Node 22.13, 24.19 and 26.13 (and x64 Node 24.1 under Rosetta, the same as arm64 Node 24.19), 2 requests'
+    settings move by 1 ulp (aperture priority at +1/2 stop on Node 22, −1/2 stop on 24 and 26, its shutter; program at 6,680
+    lux, its f-number on 22, and so on); no DNG byte changes. Settings that differ between Node 22 and Node 24/26: 4 → 2. The two
+    left (program at 58,568 and 46,989 lux, 5 and 10 ulp) come from the meter's zone signal (2 ulp apart: the scene radiance it
+    reads uses `Math`); docs/NUMERICAL_CORRECTNESS.md lists them. `test/exposure-settings-portable.test.ts` locks three
+    requests' settings as IEEE-754 hex, the same on Node 22, 24 and 26. No hash lock moved (arm64 and x64).
+- **Low-severity fixes (#699); no output change for valid requests except the report field of `foundation-07`.**
+  - *Meter targets (`foundation-08`).* The exposure-mode resolvers refuse a resolved target whose `requiredExposureScaleToTarget`
+    and `exposureOffsetStopsToTarget` disagree by more than 1e-9 stops (`InvalidScientificInputError`; such a target was placed by
+    the stops in program and full auto and by the scale elsewhere), a `sourceMeterSnapshot` with a missing or non-string
+    identifier or an unknown `sourceKind` (`InvalidConfigurationError`), and a non-finite `baseTargetRelativeSignal`,
+    `meteredRelativeSignal` or `exposureCompensationStops`. Engine-built targets resolve unchanged.
+  - *White-balance states (`foundation-09`).* `resolveManualWhiteBalance` refuses a missing `channelGains` and an unknown gain
+    key; custom and auto white balance refuse a sample that is not an object and a `clipped` that is not a boolean
+    (**newly refused**: `"true"`, `1` and `null` were read by truthiness); `createLockedWhiteBalanceState` refuses a `sourceState`
+    that `parseResolvedWhiteBalanceState` refuses, so every lock parses again. Domain errors replace the plain `TypeError`s.
+  - *Finite scalar results (`foundation-10`).* `calculatePlanckianSpectralRadiance`, `evaluateSrgbDecoding`, the BT.1886
+    `decode`, `calculateFlashGuideNumber` and `calculateFlashPowerForDistance` throw `InvalidScientificResultError` instead of
+    returning `Infinity` or `NaN`; Planck's law gives 0 where λ⁵ underflows against an overflowed exponential.
+  - *CCT at the Duv limit (`foundation-11`).* `calculateCorrelatedColorTemperature` reads back a chromaticity made at
+    |Duv| = 0.05 (within 1e-12 of the limit, Duv reported clamped to ±0.05); before, 19 of 31 such points threw.
+  - *Quadrature (`foundation-12`).* `createColorimetricMidpointQuadrature` returns one node when the maximum subinterval is far
+    wider than the range (it returned none from 1e12 nm).
+  - *Shared checks.* Duplicated checks in the resolver, white balance, colorimetry and Auto ISO slowest-shutter code now call the
+    shared record-validation functions (same messages and error classes); an array `camera` in a Kelvin white balance now fails
+    with "camera must be an object.".
+  - *Program-line ends (`foundation-07`).* Program mode with a fixed ISO reports `targetResidual.limitingConstraint`
+    `"program-line-minimum"` or `"program-line-maximum"` when the target lies beyond the line and no aperture or shutter limit
+    was hit (it reported `"none"`); settings are unchanged. **`ExposureResolutionConstraint` widens** with the two values: an
+    exhaustive `switch` over it needs the two cases (docs/USAGE.md, "Program Auto with manual ISO").
+  - *Typed arrays in a result (`foundation-13`).* The result envelope's finite checks scan a typed array with its own `some()`
+    instead of one `Object.keys` string per element, which is faster for large arrays. Same answers and the same reported path.
+
+### Capture
+
+- **Capture, processing and output.** No output change for a request that renders today unless an entry says otherwise.
+  - *One-frame panorama (#671).* `createPanoramaTask` with one frame and the default `exposureCompensation: "gain"` completed
+    the stitch and then failed with "Processing progress accounting disagrees with its plan."; its plan no longer counts the
+    gain pass that runs only for two or more frames. Results for two or more frames are unchanged.
+  - *Row bands of a large capture (#678).* `calculateNativeRawRowBands` refused every plan that carried `maximumPixels`
+    ("unknown field"), which every capture above 24 MP needs; it now checks a plan against the one field list of `NativeRawPlan`.
+  - *White-level bookkeeping by phase (#721).* The tabulated native RAW loop (the default for chart scenes) records each site's
+    white level by its 2 × 2 CFA phase from `x` and `y` instead of recovering the phase from the row-major index; the per-site
+    check that all sites of a phase agree stays. Slightly faster on chart captures; RAW codes, white levels and sRGB samples
+    identical (SHA-256).
+  - *Fixed-pattern noise per row and column (#689).* The native capture takes each site's row and column offsets from a value
+    computed once per row and column (row + column, in that order, as before) and draws every fixed-pattern value from one
+    reseeded stream instead of a new one per value, so `sensor.fixedPatternNoise: true` costs less. RAW codes identical (new
+    SHA-256 locks, recorded on the unchanged code).
+  - *DNG development colour loops (#677).* `developDngImage`'s camera → sRGB loop, its two ProPhoto → sRGB loops and the
+    RGBTables pre-pass use scalar locals instead of two arrays and a closure per pixel; every product and sum keeps its operands
+    and order, so development is faster, fast and exact (AHD); samples and `clippedPixelCount` identical.
+  - *Linear encoding with a full-scale white code (#718).* `calculateLinearCaptureEncoding` refused about 7 % of reference-white
+    values with `referenceWhiteCode: 65535` ("cannot represent the declared finite range"; `65535 / (65535 / 0.9)` is one ulp
+    below 0.9). The largest representable value is now never below reference white. A wrong refusal becomes an encoding; codes of
+    inputs that encoded before are unchanged (docs/LINEAR_CAPTURE_ENCODING.md).
+  - *Metric print sizes at a manual or lab PPI (#717).* `calculatePrintPlan` asked for up to one ratio unit more pixels for a
+    size in mm, cm or m than for the same size in inches (`30.48 × 10 / 25.4 × 300` is `3600.0000000000005`): a false
+    `insufficient-native-pixels`, a false `exact-provider-density-has-no-integer-raster`, or a recommended raster a few pixels
+    larger. A pixel count within 4 ulps of a whole number is now that number, the rule crops already use. **Output change** for
+    those inputs only: their minimum and recommended rasters drop to the inch result, and some refusals become `ready`
+    (docs/PRINT_PLANNING.md).
+  - *What-if clipped sites labeled (#679).* `simulateDngRawWhatIf` keeps sites clipped in the photo at the white level, as
+    before; a new `clippedSitesKept` counts them when the simulation has less signal (light × ISO factor below 1), and an
+    assumption names the count and the bound (white is an upper bound; they would read between black + factor × (white − black)
+    and white). Label only; codes unchanged (docs/IMPORT_AND_PNG.md).
+  - *What-if noise check that cannot measure (#719).* When the noise check is on and the file's noise cannot be measured (too
+    few smooth blocks, or no positive fitted variance as in noise-free data), `simulateDngRawWhatIf` still allows it and now adds
+    the assumption "The file's noise could not be measured, so its NoiseProfile was not verified."; the docs no longer present
+    `measuredToProfile: null` as only "check off". No result changes.
+  - *RAW noise estimate memory (#723).* `estimateDngRawNoise` (run by default in the DNG what-if) measures one colour plane at a
+    time, takes each plane's median before its block arrays exist, and reuses one scratch buffer in the MAD. A 6000 × 4000 RGGB
+    mosaic: peak live typed arrays 426 → 164 MB (8.9× → 3.4× the 48 MB of RAW codes), time unchanged; every result number
+    identical (new value locks recorded on the unchanged code).
+  - *Release and focus inputs with a missing sub-object (`capture-20` in #698).* `resolveReleaseSequence`,
+    `resolveFocusTargetObservation`, `setFocusLock`, `setManualFocusState` and `assessFocusReleaseGate` threw a raw `TypeError`
+    or `SyntaxError` when a required sub-object (`drive`, `bracket`, `baseState` and its `exposure` and `automation`, the
+    capability records and their axis grids, a focus `state` or its parts, `observation`) was missing; they now fail with
+    `InvalidConfigurationError`. `baseState.automation` must hold `ae`, `af` and `awb`, each `"manual"`, `"locked"` or
+    `"continuous"`, and `baseState.exposure` only its three settings (a stray field was copied or ignored before). Valid inputs
+    resolve unchanged.
+  - *Unknown bracket kinds (#720).* `resolveReleaseSequence` treated any `bracket.kind` other than `"none"` and `"exposure"`
+    (a typo such as `"Focus"`, `"white-balance"`, or no kind) as a focus bracket and skipped the profile's focus-bracketing
+    check, and accepted a non-array or sparse `focusStates` / `offsetsStops` (0 frames, or `requestedFrameCount: 2.5`). Each now
+    fails with `InvalidConfigurationError`, as do fields of another bracket kind. Valid brackets resolve unchanged.
+  - *Brackets on nominal setting grids (#680).* An exposure bracket whose exact setting (`base × 2^offset`) is not on a
+    `discrete-values` grid was always refused, so third-stop ISO brackets never resolved on the generic bodies (400 × 2^(−1/3) =
+    317.5 against 320) and some whole-stop shutter brackets failed on a nominal grid (1/62.5 s against 1/60 s). The frame now
+    takes the grid value nearest in log₂ within 1/12 stop and reports `exposureBracketRealizedOffsetStops` beside the requested
+    offset; farther values are refused as before. A wrong refusal becomes a sequence; sequences that resolved before are
+    unchanged (docs/USAGE.md).
+- **Captures with kernels take the per-tap sum, fast and exact (#731).** The tabulated RAW path of a capture with kernels
+  (`lens.diffraction`, or a small `lens.defocus` disc) on a chart or material scene formed one set of kernel taps per lattice
+  group, N² groups for an N × N box pixel aperture, so its time grew with N² where the display view's did not. It now takes the
+  display view's per-tap sum of the pre-integrated spectral radiance (#643, #653) on every request, exports and `fast: false`
+  included (no flag: the same sum regrouped). `raw.expectedSignal` adds `sum: "per-tap"`. The run-time check against the chain
+  stays at 1e-9; per-site integration is unchanged.
+  - *Measured effect.* Expected electrons within 1.5e-14 relative of the per-material sums (1.4 µm, f/8, 4 × 4 box, 32 × 24
+    sites; `test/simulate-capture-per-tap.test.ts`). Samples: 0 changed in 18 captures (9 requests × both flags, 128 × 128
+    regions, 884,736 samples) and in the five capture cases of the #670 benchmark, both flags. No lock moved (every capture, DNG,
+    display-view and figure-batch lock holds on arm64 and x64).
+  - *Speed.* Much faster for small pixels with a box aperture and diffraction, fast and exact. The spectral
+    tiles are bounded by `PREINTEGRATED_CACHE_BYTES`.
+- **Region results describe themselves and a join of parts checks them (#728).** The join of
+  `serializeSimulatedCaptureDngFromParts` and `simulateCaptureFromParts` refused a part rendered by a fast method only when the
+  caller set the optional `part.fast`, which the documented part shape `{ raw: result.raw, region: result.region! }` does not;
+  and nothing identified a part's request. With `sensor.pixelAperture: "box"` or camera yaw, sRGB parts (fast by the format
+  default) joined into an exact DNG were accepted and the DNG differed from the whole render (969 and 918 of 4,652 bytes,
+  48 × 32); parts rendered at ISO 800, of another scene or another pixel pitch joined under an ISO 100 request. A region result's
+  `region` now carries `fast` (a fast method ran) and `requestKey`: SHA-256 over the scene digest, the resolved exposure
+  settings and noise seed, the native raster and pitch, the resolved spectral step, box and temporal counts, and the remaining
+  options in a canonical form (object keys sorted; undefined values, empty objects, `fast`, `output`, `scene`, `signal`,
+  `onProgress` and the options the key already holds resolved, `fNumber`, `shutterSeconds`, `iso`, the pixel pitch, the
+  spectral step and the temporal count, left out). So the same request in another key order, with a default written out, or a
+  still request that asks for more temporal samples joins; exact parts under a `fast: true` join with camera rotation are
+  refused (they resolve to another temporal sample count). The join reads `region.fast ?? fast` and refuses a part whose key is
+  another request's; a part without the new fields (an earlier version's) joins with the earlier checks. The two examples in
+  `docs/QUICK_START.md` render their parts with the join's `fast` (`fast: false`).
+  - *Measured effect.* Additive fields only: no sample, RAW code or DNG byte of a capture changes, and every join of parts of
+    one request with the join's `fast` joins to the same bytes as before (`test/simulate-capture-dng-parts.test.ts`,
+    `-develop-parts`); the two failing rows above, the other-request sets and the exact parts under a fast join with rotation
+    are refused, and the same request in another key order or with a default written out joins
+    (`test/simulate-capture-parts-self-describing.test.ts`). No lock moved (arm64 and x64).
+- **Low-severity fixes (#698).** Inputs that were accepted though invalid, or failed late or with a raw error, now fail with a
+  domain error; no output change for valid requests (hash locks unchanged).
+  - *Non-finite results (`capture-10`).* `createReinhardGlobalToneMappingTask` (a tiny `whiteLuminance`),
+    `createBilateralFilterTask` (`rangeSigma` below about 1e-154), `createExposureFusionTask` (large exponents on huge frames),
+    `createUnsharpMaskTask` and the Durand–Dorsey colour pass throw `InvalidScientificResultError` instead of storing Infinity or
+    NaN.
+  - *Durand–Dorsey node cap (`capture-11`).* At most 4,096 intensity planes, in the plan, the memory estimate and the body
+    (src/processing/tone-mapping.ts). An image that would need more (`rangeSigmaLog10: 0.001` over 30 decades) is now refused
+    with `InvalidScientificInputError`; 2.27.0 rendered it, with up to `ceil(90 / rangeSigmaLog10) + 2` planes, spaced wider
+    than the range sigma when the data needed more. Images that need at most 4,096 nodes give the same output.
+  - *DNG records (`capture-14`, `capture-15`).* `developDngStageImage`, `developDngImage`, `calculateDngRawClipping`,
+    `estimateDngRawNoise` and the what-if functions check the shape of the `ImportedDngRaw` record (dimensions, code count, scale,
+    ActiveArea, white and black levels, linearization table, CFA pattern); `developDngImage` refuses `whiteBalance: null` and
+    unknown or other-variant white-balance fields. The `clippedPixelCount` documentation says what it counts (white-balance
+    clips before the push and tone curve, not the gamut handling).
+  - *Native RAW (`capture-17`).* `calculateNativeRawPlan` refuses a raster smaller than one CFA repeat before any tile is read
+    (it failed after the whole capture with a white-level message).
+  - *Print plans (`capture-28`).* With aspect tolerance 0, a print whose ratio in its own unit is exact (12 × 8 in of a
+    3600 × 2400 capture) is accepted with `relativeAspectError` 0; every other size keeps its reported error.
+  - *Focus and release (`capture-29`, `capture-30`).* `setFocusLock` needs a boolean `locked`; the focus functions refuse a state
+    with an unknown mode or acquisition state, a non-finite or negative time, or `locked` inconsistent with its acquisition state
+    and lock record. `resolveReleaseSequence` refuses timing that collapses to zero-length or overlapping frames at very large
+    request times.
+  - *Saturation code (`capture-31`).* `calculateEffectiveSaturationCode` checks the INL knots it documents (kind, 1 to 4096
+    finite knots, strictly increasing codes) and a safe-integer `adcMaximumCode`.
+  - *Missing sub-objects (`capture-32`).* `calculateLensCorrectedCapture`, `calculatePeripheralIlluminationCorrection`,
+    `simulateEnvironmentSensorRawFrame` and `createCancelledReleaseSequence` (which now needs a scheduled sequence) throw
+    `InvalidConfigurationError` instead of a raw `TypeError`.
+  - *Browser-native reference, repository only (`capture-33`).* The first hit no longer depends on primitive ID order; the
+    executor refuses a readout ISO gain that differs from the committed capture ISO, as the frame producer does. The dated
+    qualification record under `docs/validation/` keeps the source hashes of its own date.
+
+### Optics
+
+- **`lens.diffraction`: the default kernel window follows the flag (#732).** Without `kernelRadiusSamples`, a request that
+  resolves to fast (sRGB captures and display views by default) takes the Airy kernel window to the second dark ring at the
+  longest spectral node (j₁,₂ = 7.0156, NIST DLMF Table 10.21.1) where that is fewer sites than the third; exact requests
+  (`fast: false`, `"dng"`, `"jpeg"`, `"png"`, `simulateIdealReference`) keep the third ring, and an explicit
+  `kernelRadiusSamples` always wins. Radii: 15 → 10 at 1.4 µm f/8, 8 → 5 at f/4, 29 → 20 at f/16; 4 → 3 at 6 µm f/8, 7 → 5 at
+  f/16. `diagnostics.fast.applied["lens.diffraction"]` is `true` and the `fast.lens.diffraction` assumption's `window` gives both
+  radii and the a-priori bound B = max over nodes of (T_fast − T_exact) / (1 − T_exact), T the Airy energy outside each window,
+  the largest change at a site as a share of the scene contrast its CFA colour sees (2.79 % at 1.4 µm f/8, 1.31 % at 6 µm f/8;
+  the test checks it at every native site of 96 × 96 at the Siemens star's centre, 1.4 µm f/8 and 6 µm f/16). Registry entry
+  `lens.diffraction/kernel-window`. Per-site integration is unchanged; only the optics kernel's window. The window reaches the
+  GPU kernels, the defocus kernels and the layered scene through `kernelRadiusSamples`. `docs/QUICK_START.md`'s `fast` row is
+  corrected (it said the default was `false` and that no option had a fast method).
+  - *Measured effect* (the #670 part tier, default flag, against the tree before this change): 8-bit samples that differ, all
+    by one level in the views: `frame-768` 1,838 of 99,072, `tele-200` 1,079 of 99,072, `sensor-aps-c` 569 of 25,344,
+    `mixed-light` 232 of 25,344, `sensor-phone` 5 of 25,344; the 1.4 µm captures `detail-star-f8` 31,023 and `detail-star-f22`
+    37,127 of 73,728 (up to 10 and 9 levels at the star's centre), `detail-noise` 2,634 of 73,728 (ISO 25,600: a shifted expected
+    value changes the seeded draws, up to 61 levels). The review's ΔE measurements are on the ticket (largest ΔE 2.5 at 1.4 µm
+    and 3.3 at 6 µm at 1:1). `fast: false` and every request with an explicit radius are unchanged.
+  - *Locks re-recorded* (arm64 and x64 Node 24.1.0 under Rosetta): `test/display-view.test.ts` cases 1, 3, 4 and 5 (`samples`,
+    `internals`, `combined`) and case 2's `internals` and `combined` (its samples hold); `test/display-view-pixel-memo.test.ts`
+    case 2 (all three); `test/figure-batch-hash-locks.test.mjs`, default flag: `samples`, `internals` and `sceneLookups` of
+    `frame-768`, `frame-1536`, `tele-200`, `wide-24`, `sensor-phone`, `noise-iso-frame`, `dr-recover-push`, `mixed-light`,
+    `sensor-aps-c`, `detail-star-f8` and `detail-star-f22`, and `providerEvaluationCount` of `detail-noise`. Tests that compared
+    a fast and an exact diffraction request for another method now give an explicit radius, and the parts of the DNG and develop
+    joins render with the join's `fast` (#728 refuses fast parts under an exact join).
+- **Catalogue-lens PSF: the exact cell integral, and small pixels at large f-numbers (#674, with `optics-27` of #700).** The node
+  PSF |FFT(pupil)|² was sampled on a grid of pitch min(λ·N_w/2, p/4), each grid square counted as constant over the site cells
+  it overlapped, with an FFT period of at most 1.25 × the window or the PSF's extent: stopped down, the centre tap came out
+  2–20 % low and the kernel too wide, and 1–2 µm pixels at f/16–f/32 were refused ("fewer than 9 samples"). Now the grid pitch is
+  λ·N_w/2.5 (the intensity, a trigonometric polynomial of degree size/2.5, is resolved), the period holds the PSF and (up to 512
+  samples) the window, at least 128 samples, and each site cell takes the exact integral of the band-limited periodic intensity
+  (the sinc of a box; Goodman, ch. 2), cells beyond the period integrating only its part. The builder's sines and cosines are
+  the engine's portable ones, so the kernels have the same bits on x64 and arm64. Profile version 1.1.0. The Seidel OPD, node
+  grid, 3 % window rule, centroid alignment and orientation are unchanged; `optics-27`: the window comment says 3 %, as the code
+  and docs do.
+  - *Measured effect* (PV 50 1.2 Pro, focus 50 m, the axial node, centre tap against the exact Airy cells, before → after): 6 µm
+    f/8 550 nm −5.27 % → +0.02 % (L1 0.090 → 0.0013), 780 nm −4.59 % → +0.07 %; 6 µm f/22 −3.88 % → +0.07 %; 3 µm f/22 550 nm
+    −11.8 % → +0.10 %, 780 nm −17.3 % → +0.10 %; 2 µm f/22 780 nm −20.2 % → +0.10 % (L1 0.210 → 0.0010); 6 µm f/4 380 nm
+    −0.74 % → −0.17 % (with the lens's axial colour). Without aberrations every node of 1–12 µm × f/4–f/22 × 380–780 nm is within
+    0.5 % of the exact Airy cells at the centre tap and within 0.01 in L1, which `test/generic-lens-psf-cells.test.ts` asserts.
+    PV 50 1.2 Pro at f/22 on 1.5 µm, at f/16 on 1 µm and PV 200 2 Pro at f/32 on 2 µm now render. Building a profile costs a little more
+    CPU. Every stopped-down `lens.catalogue` render changes; wide open the change is small.
+  - *Locks re-recorded* (x64 Node 24.1.0 under Rosetta and arm64, the same on both): `test/display-view-detail-shared.test.ts`
+    (all 17 cases' internals; the samples of the 12 at 2 and 1 real pixels per display pixel),
+    `test/lens-catalogue-optics-pins.test.ts` (PV 100 2.8 Macro Pro close: samples, codes, assumptions; PV 8 3.5 Fisheye Pro fast:
+    samples, codes; PV 24 1.8 fast: assumptions), `test/program-line-lens-range.test.ts` (`catalogue50`: samples, codes,
+    assumptions), `test/sensor-profile-pins.test.ts` (the phone profile with PV 77 2.8 Phone: raw, assumptions),
+    `test/figure-batch-hash-locks.test.mjs` (`catalogue-768` and `catalogue-corrected`, internals, both flags; samples hold).
+- **A fast catalogue-lens region takes the whole frame's method (#733).** The run-time check of `lens.catalogue`'s fast method
+  (#568) read the region's own top-left 2 × 2 block, so a region that started on fine detail failed the 0.5 % check there and
+  rendered with the exact method while the whole frame took the fast one (480 × 320 Siemens star, PV 50 1.8 at f/1.8,
+  `fast: true`: the region at 216, 144, 48 × 32 differed from the same pixels of the whole frame in 392 of 4,608 samples, by up
+  to 421 16-bit codes). The check now reads two blocks fixed by the whole frame, its top-left 2 × 2 block and the block at its
+  centre (eight sites; a region reads them through providers windowed to each block), so a frame and all its regions take one
+  method and a region equals the same pixels of the whole render (`test/simulate-capture-lens-catalogue-fast-region.test.ts`).
+  Per-site integration of both methods is unchanged; only where the check reads moved. No new grid step.
+  - *Measured effect.* Whole frames that take the fast method and fail the centre check now take the exact method. Over the
+    catalogue wide open (30 lenses without the phone set, Siemens star, slanted edge, 16-square checkerboard and dead leaves,
+    `fast: true`, sRGB-8): at 480 × 320 and 768 × 512 no frame falls back, before or after, and every frame's samples are
+    unchanged; at 96 × 64 some Siemens-star and checkerboard frames now fall back (PV 16 2.8, PV 20 2, PV 24 1.8, PV 35 1.8,
+    PV 85 1.8, PV 100 2 and PV 200 5.6), against none before, and their samples change to the exact method's; at 192 × 128 none.
+  - *Reports.* `raw.expectedSignal` of the catalogue paths says `verificationSites: 8`; `fast.lens.catalogue`'s
+    `gridPointsResolved` counts the centre block's grid points too.
+  - *Locks.* No samples, codes or display-view lock moves (arm64, and x64 Node 24.1.0 under Rosetta). Re-recorded: the
+    `assumptions` digests of `PV 24 1.8 fast` and `PV 100 2.8 Macro Pro close, chart size` in
+    `test/lens-catalogue-optics-pins.test.ts` (the report fields above; the same on both architectures).
+    `test/lens-catalogue-flare.test.ts`'s fast case uses 7 squares instead of 6, so that its frame centre lies inside a square
+    (on the corner of four, the 4-cell grid is over the check's tolerance and the capture now takes the exact method).
+- **Optics and camera.** No output change for a request that renders today unless stated.
+  - *Diffraction PSF profile bound (#686, `optics-03`).* `createDiffractionLimitedPsfProfile` refuses β = pitch/(λ·N_w) above
+    `DIFFRACTION_LIMITED_PSF_PROFILE_LIMITS.maximumBeta` (1e5) with `InvalidConfigurationError` before any cell is integrated;
+    f/1e-9, a 1e-6 nm wavelength or a 1e300 µm pitch never returned before. Inputs between 1e5 and about 1.1e5, which took about
+    a second (for example f/1e-4 at 6 µm and 550 nm), are now refused too. Kernels at or below the bound are unchanged.
+  - *Focus-scatter sampler validation (#687, `optics-04`).* `simulateGenericLensFocusError` refuses a missing `focusDistanceM`
+    (`InvalidScientificInputError`; it returned `focusDistanceM: NaN`) and a circle of confusion whose error or depth of focus is
+    not finite (`InvalidScientificResultError`; it returned ±Infinity). Every finite result is unchanged.
+  - *Brown–Conrady inverse near the envelope edge (#724, with `optics-13` of #700).* With tangential terms the inverse threw for
+    valid points beyond the radial-only mapped radius (Newton converged to a second preimage outside the disc). When the first
+    start fails it now restarts from boundary points with every iterate kept inside the disc, and a solution in the `1e-12` band
+    above the envelope is put on the boundary radius, so inverse → forward no longer throws at the boundary. Measured on seeded
+    sets: 2,022 of 474,000 interior points (|k| ≤ 0.3, |p| ≤ 0.05) and 3,001 of 300,000 (|k| ≤ 1, |p| ≤ 0.3) failed and now
+    invert, and every interior point that inverted before gives the same bits. On exact-boundary points (400,000, |k| ≤ 0.1,
+    |p| ≤ 0.02) 386 inverses and 148,086 inverse → forward round trips failed and now pass; 147,700 inverse results that lay up
+    to 1e-12 outside the envelope move onto its boundary (at most 1.0e-12 relative), the only change to a result returned before.
+    Known limitation: for some targets within 1e-12 of the envelope that 2.27.0 inverted, the inverse now throws (7 of 40,000
+    seeded cases).
+  - *Bokeh blades with a tiny curvature (#725, `optics-10`).* A `curvature` below 1e-6 now gives straight blades: its arcs lie
+    within 0.375·κ < 4e-7 circumradii of their chords, below the 5e-6 accuracy of the kernel's 1024-gon curves, while the arc's
+    centre-based construction lost about log10(1/κ) digits (κ = 1e-12 differed from straight blades by 3.8e-6 in a tap,
+    5.55e-17, the value of `0.1 + 0.2 - 0.3`, gave a 73-site window instead of 23, and κ ≤ 1e-17 threw a non-finite error).
+    Kernels at κ ≥ 1e-6 (the catalogue's 0.3 and 0.7 among them) keep their bits.
+  - *Sparse arrays and missing records in the optics modules (#726, with `optics-05` of #700).* Thirteen entry lists that were
+    validated with `map` (which skips holes) are read with `Array.from`, so a hole meets the entry's own check: Zernike
+    coefficients and the aperture mask, complex-pupil amplitude and path difference, sampled-PSF nodes and kernel samples, MTF
+    samples, polygon image points, front-of-lens and scene-to-sensor transmission samples, focal-shift samples, cat's-eye
+    apertures and spectral weights. A missing or null field point, focus, working f-number, field throughput, image point, source
+    point, angular velocity (non-rectilinear mapping), scene binding or spectral quadrature, and the vignetting,
+    radial-distortion and lateral-colour coefficient records, now fail with `InvalidConfigurationError`; a value that cannot be
+    copied fails the same way instead of a `DOMException`. Before, these threw a raw `TypeError`, returned the hole (one resolver
+    returned `undefined` as a kernel sample), or passed the parser. `calculatePsfFoundationComponents` copies only the field
+    point's x and y into its context. Dense, complete inputs give the same results.
+  - *Irradiance convolution gather (#727, `optics-12`).* `convolveIrradianceRows` clips its tap ranges once per row and pixel and
+    reads each source column's kernel offset from a table built once per call (an index cache; no signal is tabulated), with the
+    same products in the same order: every value is bit-identical (`Object.is`, test/irradiance-convolution-gather.test.ts).
+    Faster in paired runs. It is the CPU path of `calculateIrradianceConvolution`, the
+    image-kernel accelerator and the display view's CPU reference.
+- **Low-severity fixes (#700); no output change for valid requests.**
+  - *Field-of-view envelopes (`optics-06`).* `calculateFieldOfView` and `calculateFieldOfViewBounds` return a frozen
+    `calculatedResult` envelope for every projection model; a fisheye or equirectangular request returned a writable copy.
+    Values, model ids and assumptions are unchanged.
+  - *Equirectangular bounds (`optics-24`).* `calculateLensProjectionFieldOfViewBounds` (and `calculateFieldOfViewBounds`)
+    refuses equirectangular bounds outside ±180° (|coordinate/f| > π) with `InvalidScientificInputError`; they returned
+    angles such as −573° to −516°.
+  - *Decentred pupil grids (`optics-14`).* `calculateLensComplexPupilPsf` refuses a pupil grid whose `centerSampleX`/`Y` lies
+    more than one sample from the middle of the grid (`InvalidConfigurationError`); such a centre folded the PSF's far side onto
+    the near side. Every engine-built grid is centred and keeps its kernel (docs/PSF_FOUNDATION.md, "Grid centre").
+  - *Self-intersecting polygons (`optics-15`).* `calculatePolygonPupilFraunhoferPsf` refuses a polygon with two crossing
+    non-adjacent edges (`InvalidScientificInputError`); a bow-tie returned a peak-normalized intensity of 1.49.
+  - *Tangent apertures (`optics-16`).* `calculateMechanicalVignetting` returns the fully vignetted result (area 0, no polygon,
+    null centroid) for an open area within 1e-12 of the pupil's or a single aperture within 1e-12 of external tangency; it threw
+    a non-finite result error or reported a centroid outside the pupil. Other results are unchanged.
+  - *Unit focus at extreme distances (`optics-25`).* `calculateGeometricFocusBreathing` with unit focus gives v = f instead of
+    0 (and a 180° field) once T² overflows (about 1.4e151 m and beyond).
+  - *Bokeh ray binning accuracy (`optics-28`).* The `pupil-ray-binning` description (source comment and docs/QUICK_START.md)
+    states the measured accuracy: about 2 % L1 kernel error and single taps up to about 10 % of the peak for a 40-site blur. No
+    method change.
+  - *Equirectangular poles (`optics-08`).* `calculateLensProjectionDirection` refuses an image point at latitude ±π/2, and the
+    forward mapping treats a rounding residue at the pole as the pole (`InvalidScientificInputError`); the inverse returned a
+    direction the forward mapping refused, and a remap through the pole gave NaN Jacobian entries.
+  - *Working f-number bound (`optics-19`).* `calculateSceneRadianceToSensorIrradiance` and the prepared bridge refuse a working
+    f-number below 0.5 ("Working f-number must be at least 0.5.", which also replaces the message of the non-finite acceptance
+    refusal): in air E = π·L·sin²θ′ ≤ π·L. 0.5 gives E = π·L·τ.
+  - *Lens limitations text (`optics-07`).* `resolveGenericLens(...).limitations` says that flare, focus breathing and focus
+    scatter render in `simulateCapture` on request (`lens.catalogue.flare`, `.breathing`, `lens.focusScatter`) and ghosts are
+    reported numbers; it said none of them rendered.
+  - *Irradiance bridge image point (`optics-17`).* `calculateSceneRadianceToSensorIrradiance` refuses an `imagePointMm` that is
+    not two finite numbers (NaN, infinite, missing or string coordinates bypassed the field-throughput point check).
+  - *Mapped environment query (`optics-18`).* The fisheye and equirectangular branch of `calculateSensorEnvironmentRadianceQuery`
+    checks the focal length, `sourcePointNativeSensorMm` and `angularVelocityRadPerSec` with the plain path's messages.
+  - *Filters parsed once (`optics-20`).* The prepared irradiance bridge parses its front-of-lens filter profiles once and
+    evaluates only the transmission at each query's wavelength; same values, and an invalid filter fails when the bridge is
+    prepared.
+  - *Aperture rays (`optics-21`).* `sensorApertureRayValues` fills a pre-sized array in a plain loop; identical output.
+  - *Polarization angle (`optics-23`).* An incident polarization angle near 1e308 is reduced mod 180° when its doubled radian
+    value overflows, giving a finite state instead of NaN; ordinary angles keep their bits.
+
+### Facade
+
+- **Fixed: Auto ISO on sensor profiles with a base ISO below 100 (#672).** `exposure.iso: "auto"` with its default whole-stop
+  steps was refused in every exposure mode on six of the eight profiles (base ISO 80 and the phone's 40): the whole stops counted
+  from the base ISO (80, 160, 320, 640) left out ISO 100, the exposure reference's ISO. When that list leaves out the reference
+  ISO on a third-stop grid, the whole stops are now every third setting counted from it, with the base ISO kept: 80, 100, 200,
+  400 … up to the profile's Auto ISO maximum. Every other grid keeps its list, so a request that resolved before resolves to the
+  same settings and bytes (3,804 requests compared: 2,647 unchanged, 424 that were refused now resolve, none changed). Tests:
+  `test/sensor-profile-auto-iso.test.ts`.
+- **Fixed: program mode on a sensor profile whose base ISO is above 100 (#673).** `exposure.mode: "program"` was refused on
+  `full-frame-24mp-stacked-sports-2020s` (base ISO 125) and on any profile copy with a base ISO above 100: such a profile moves
+  the exposure reference to a shorter shutter, and the line's fixed node stops, measured from f/8 at 1/125 s, no longer matched
+  it. The fixed nodes are now used only at that anchor; any other takes the computed nodes (f/16 1/2000 s, f/16 1/125 s, f/4
+  1/125 s, f/4 1.024 s, stops from the anchor), recorded as `"facade-generic-program-line-base-iso"`. A request that resolved
+  before used the default anchor, so its line, settings and bytes are unchanged (3,804 requests compared: none changed; 373 more
+  resolve). `calculateProgramLine` takes no profile and is unchanged. Tests: `test/program-line-lens-range.test.ts`.
+- **Faster: `sensor.temporalSampleCount` on a still request (#729).** Without camera rotation (including `motion.handheld`), a
+  moving subject, a flash or an exposure build-up, every temporal midpoint reads the same scene, yet the count multiplied the
+  scene queries of every site (64 × the provider evaluations at N = 64 on a function scene) and entered the per-site query
+  limit, so a box aperture with a four-spot filter at N = 100 was refused. Such a request now renders with one midpoint. RAW
+  codes and samples are unchanged (compared below); `diagnostics.providerEvaluationCount` falls to that of one sample, the
+  `sensor.temporalSampleCount` assumption reports `{ requested, used: 1 }`, and `diagnostics.options` still lists the option.
+  Requests with rotation, a moving subject, a flash or a build-up keep their count. Tests:
+  `test/simulate-capture-still-temporal.test.ts`.
+- **Fixed: `SIMULATE_CAPTURE_FAST_METHODS` is frozen all the way down (#683, its facade part).** Only the array was frozen, so a
+  caller could edit an entry's records in place. Data only; captures and display views do not import it. Tests:
+  `test/fast-methods-registry.test.ts`.
+- **Faster: a `motion.subject` at rest (#688).** A subject record with no velocity and no rotation (`subject: {}` or zeros)
+  took the moving-subject path with 16 (exact) or 8 (fast) temporal midpoints for the picture of the still scene. It now
+  renders as the still scene, far faster, with RAW codes and samples identical. The record is still validated (an out-of-range value is refused, as
+  is the combination with `lens.pupilSampling`). Reported metadata changes for this input: the `sensor.temporalSampleCount`
+  assumption (1), the `motion.subject` assumption (`atRest: true`), no `diagnostics.fast.applied["motion.subject"]`,
+  `diagnostics.providerEvaluationCount` (that of the still request), and `diagnostics.options` no longer lists
+  `motion.subject`. Tests: `test/simulate-capture-subject-motion.test.ts`.
+- **Faster: a moving subject on a chart or material scene (#676).** The moving scene's evaluator was treated as caller code (every
+  result fully re-validated) and had no material lookup, so the executor called it for every tap and spectral node. It is now
+  marked engine-built, and, under one illuminant, registered with a lookup that names the material each query reads (the base
+  scene's material where the subject shows, a reserved key for the revealed background), found with the moving scene's own
+  arithmetic; the executor still integrates every site and checks the lookup against its own evaluations. Moving-subject captures
+  are several times faster, exact and fast; camera rotation alone is unchanged. RAW codes and samples
+  identical; `diagnostics.providerEvaluationCount` unchanged. Mixed lighting, caller function scenes, the display view and the
+  defocus and diffraction providers keep their own handling. Tests: `test/simulate-capture-subject-motion.test.ts`.
+- **Faster: mixed lighting resolves each point once, not once per spectral node (#735).** Under `illumination`, a point's blend
+  segment and fraction, each point source's fall-off and the chart or scene material are functions of the point alone, yet were
+  recomputed for each of the 21 to 81 spectral nodes. The lit scene now has a spectrum form (the material and the blend resolved
+  once, the illuminant shapes and a spectral material's reflectance read at the nodes once per wavelength list), used by the
+  expected signal's direct, kernel and lattice paths, the ideal reference and the CPU display view; each node keeps the earlier
+  expression in the earlier order, so RAW codes, samples, float64 internals and `sceneLookups` are unchanged (SHA-256 over 14
+  requests: gradient, radial, 64 regions and point sources, with diffraction, box aperture and four-spot filter, a fixed-size
+  chart, caller material and reflectance functions, the ideal reference and both display-view flags; the figure-batch hash locks
+  hold). A radiance-function scene with `chartSize` returns the lit surround outside the chart, without asking the caller's
+  function there: the same bytes as 2.27.0, fast and full quality (`test/mixed-illumination-spectrum.test.ts`). Mixed-lighting
+  captures are faster on both flags (the `mixed-light` case of the committed benchmark record). Per-site integration is unchanged: each site's signal is still integrated from
+  the spectrum at use; the cached values are spectra (illuminant shapes, reflectances), no channel values. Tests:
+  `test/mixed-illumination-spectrum.test.ts`.
+- **Faster: environment-chain captures compare fewer site records (#722).** The lean executor proves each site's records strictly
+  equal to its template's; `siteInput` built the site-independent nested records afresh for every site, so each was compared key
+  by key. The dark-current profile's `uncertainty` and `temperatureModel`, the capacity profile's `uncertainty`,
+  `operatingState` and `temperatureApplicability`, the completeness profile's `includedAdditionalComponentIds` and each channel's
+  `sensor.responseApplication` are now built once per capture and shared by every site's input, frozen (a caller of
+  `result.request.siteInput` can no longer change a record another site reads); their values are unchanged. The lean executor's
+  rule is unchanged (a site still matches its template strictly before any check is skipped). Captures with camera motion are
+  somewhat faster, on both flags. Samples, RAW codes, the site inputs' JSON
+  and the lean executor's site counts are unchanged (pan, rolling shutter, hand shake, `lens.pupilSampling`, a catalogue lens with
+  `fast: false`, fixed-pattern noise, the tabulated default). Prototype records for the site-carrying parts were not built.
+  Tests: `test/simulate-capture-site-records.test.ts`.
+- **Faster: `output.gamutMapping: "perceptual"` skips the boundary search for colours below the knee (#684).**
+  `prepareRgbGamutMapping(...).map` ran the doubling and all 60 bisection steps for every in-gamut colour with any chroma, only
+  to return most of them unchanged. Before the search it now evaluates the cube test once at chroma / k × (1 + 1e-9); if that
+  point is inside, the colour is below the knee and is returned unchanged, as the search returns it. This is exact where the
+  in-gamut part of the constant-L*, constant-hue ray is one interval, which fails near the yellow cusp, so the early-out applies
+  below L* 85 only (and above chroma 1e-6, which keeps the probe's margin above the search's resolution). Gate: on every 8-bit
+  surface triple scaled by 0.5, 0.9, 0.99 and 1 and a 64³ interior lattice (1,822,752 colours per space), for `srgb`,
+  `display-p3` and `rec2020` at k = 0.25, 0.5, 0.75, 0.9 and 0.99, no result differs from the search's (`Object.is` on
+  `linearRgb`, and `adjusted` and `lightnessClipped`); without the L* limit 3 colours per space differ at k = 0.9 (L* 90.7–93.1).
+  A ray scan (L* 80–92 by 0.05, hue by 0.1°; 0–100 by 0.25 and 0.25°) finds rays that are not one interval only above L* 90.5
+  (`display-p3`), 93.25 (`srgb`) and 93.75 (`rec2020`). Perceptual PNG exports are faster. Samples and PNG bytes are unchanged, and the hash locks hold. `t ** 3` and `BISECTION_STEPS` are unchanged. The
+  exactness below L* 85 rests on these measurements, not on a proof (docs/COLORIMETRY.md, "Perceptual gamut mapping"). Tests:
+  `test/gamut-mapping-early-out.test.ts`.
+- **Faster: a large defocus disc with `lens.diffraction` no longer recomputes its run tiles per spectral node (#734).** A
+  diffraction tile read the 9 run tiles it overlaps once per node, so when a lattice's share of the tile cache held fewer than 9
+  (a 3 × 3 or larger box aperture, a 5 nm spectral step, camera rotation with several temporal samples) every read recomputed
+  all of that tile's nodes: 9·N run tiles per diffraction tile instead of 9. A diffraction tile is now computed for every node in
+  one pass over its run tiles. RAW codes and samples are unchanged by this change (arm64 and x64). Tests:
+  `test/large-defocus-lattice-tiles.test.ts` (run tiles computed 180 → 9 at 20 nodes and 9 lattices, 729 → 9 at 81 nodes and 4).
+
+### Display view
+
+- **Full-quality display views take the two exact regroupings (#670).** `fast: false` (the flag batch figure renders use) now
+  takes the per-tap chart signal from the pre-integrated spectral radiance (#643, #653) and the regrouped defocus disc (#612,
+  #642), which 2.25.0 to 2.27.0 ran only on fast requests. Both are the same sums in another order, so they are no longer fast
+  methods: the registry entries `chart.signal/view-per-tap` and `lens.defocus/view-regrouped` are removed, `view.signal`
+  reports `{ sum: "per-tap" }` (no `fast: true`) and `view.defocus` no longer reports `fast: "defocus-after-in-focus-signal"`,
+  on both flags. Per-site integration is unchanged: the pre-integrated values are spectra, integrated against each site's own
+  channel response when the site is read. The default flag's output is unchanged.
+  - *Measured effect* (the #670 part tier, `fast: false`, against the tree before this change): 8-bit samples that differ:
+    1 of 99,072 (by one level) in `frame-768`, `wide-24` and `noise-iso-frame`, 2 of 99,072 (by one level) in
+    `dr-recover-push`; 0 in the other 18 cases. Peak RSS is higher (the spectral lattice tiles). Speed: see
+    Benchmarks, above.
+  - *Locks re-recorded* (`test/figure-batch-hash-locks.test.mjs`, arm64 and x64 Node 24.1.0 under Rosetta): the `fast: false`
+    `internals` digests of `frame-768`, `frame-1536`, `tele-200`, `wide-24`, `sensor-phone`, `dof-near-s1`, `dof-near-s4`,
+    `bokeh-s1`, `noise-iso-frame`, `dr-recover-push` and `sensor-aps-c` (they now equal the default flag's), and the
+    `fast: false` `sceneLookups` of `dof-near-s1` (602,488 → 198,096) and `dof-near-s4` (823,888 → 203,992). No `samples` lock
+    moved (the lock regions are small); the display-view locks of `test/display-view.test.ts`, `-pixel-memo` and
+    `-detail-shared` hold.
+- **Full-quality diffraction views: the pre-integrated per-tap sum adds four spectral nodes at a time (#670).**
+  `preintegratedSite` (expected-signal.ts) accumulated each tap into all nodes one after another; it now keeps four nodes in
+  their own accumulators over a row of taps, with the remainder one at a time. Each node's additions are the same and in the
+  same order, so every bit is the same: `test/display-view-preintegrated-nodes.test.ts` locks the samples and the float64
+  expected values of #710's 1.4 µm view (20 and 81 spectral nodes), recorded before the change on x64 and arm64; the
+  figure-batch locks are unchanged by this change on both architectures, and the display-view hash locks pass. Speed: see
+  Benchmarks, above.
+- **Display view, catalogue lens with the box aperture: the offsets' lens mapping to second order (#685; a new fast
+  method).** Each pre-integrated lattice point B(p) = Σ_o w_o·F(p + o)·L(p + o) mapped every query offset through the lens (four
+  mappings per point for a 2 × 2 box, 64 % of the box's extra cost). On a fast request with more than one query offset, each
+  offset's plane point and field factor now come from a second-order expansion about its nearest site centre (value,
+  central-difference gradient and Hessian of the 3 × 3 mapped site centres), each offset still reading its own material, and a
+  point whose offsets read one material takes (Σ_o w_o·F_o)·L_m per node (`lens.catalogue/view-offset-expansion`,
+  `lens.catalogue`'s flag; `view.lensPsf` reports `offsetMapping: "second-order-expansion"`). Fisheyes, radiance scenes and
+  `fast: false` keep one mapping per offset. The code is in the on-demand Quality kit
+  (`src/facade/display-view-offset-expansion.ts`). On the GPU route see Known limitations, above.
+  - *Measured effect.* Against the full method, every site of every catalogue lens but the fisheyes and phones, wide open and at
+    its narrowest f-number, 2 × 2 box, dead leaves at 12 µm: within 1.9e-11 relative (bound tested: 1e-6); within 1e-6 with the
+    four-spot filter and under a rolling shutter with rotation; regions equal the whole view
+    (`test/display-view-lens-offset-expansion.test.ts`). The #670 part tier's catalogue cases (four-spot filter, default flag):
+    samples unchanged.
+  - *Speed.* A catalogue-lens view with the 2 × 2 box costs less relative to the point aperture than before; #655's target for
+    that ratio is met in the measured runs.
+  - *Locks re-recorded* (arm64 and x64 Node 24.1.0 under Rosetta): `test/figure-batch-hash-locks.test.mjs`, default flag: the
+    `internals` of `catalogue-768` and `catalogue-corrected` and their `sceneLookups` (6,560 → 11,968 and 15,608 → 20,956: each
+    offset now reads its material, where the group lattice ring shared them); samples hold.
+    `test/display-view-lens-catalogue-regrouped-1.test.ts` compares the full methods (no offset expansion) as before.
+- **Lens mapping per point without a still camera's rotation (#685); output unchanged.**
+  `prepareDefocusImageSpaceGeometry`'s `lookOf` takes a still camera's ray without the rotation (which returned a copy of it),
+  the display view's Newton inverse of a radial distortion writes its results to a reused array (`undistortedImagePointNewton`
+  with `out`), and the vignetting throughput takes that inverse's radius of the point (`atRadius`): one `Math.hypot` per point.
+  The capture's bisection, rotation, hand shake, fisheye projections and Brown–Conrady keep their paths. `lookOf` is cheaper
+  per call, and the #655 catalogue view somewhat faster. Every field equals the general
+  path's bit for bit (`test/defocus-image-space-geometry.test.ts`), and the rendered samples, expected values and noise of the
+  #655 cases are the same SHA-256.
+- **Display view: rolling shutter with defocus, less in-focus work and a cheaper block lookup (#711); byte-identical.** The row
+  blocks of the regrouped lens signal (#651) each computed their in-focus rectangle widened by the disc radius on every side;
+  the 2D columns two neighbouring blocks of one band share are read at the same instants, so a block now takes them from its
+  left neighbour (an in-focus value depends only on its position and the instants). The block cache no longer reorders itself
+  on every change of block: a block hit is a plain read, and blocks leave in the order they were computed, which only decides
+  what is computed again with the same bits. On #711's request (`scripts/benchmark-display-view-cases.mjs 711`, 192 × 128 region
+  of a 1194 × 796 view) the rolling, out-of-focus render's scene lookups fall 24,545,784 → 21,359,480 and its CPU time falls;
+  the in-focus and global-shutter renders are unchanged. Out of focus stays above 3× the in-focus time (target 3×, **not met**):
+  what is left is the in-focus work of the rows above and below each band, which are read at the next band's instants and
+  cannot be shared without changing the fast method's output (not done). Samples are unchanged by this change in all three
+  cases. The global-shutter lens tiles take the same clipping path for every tile (one rectangle copied in). Tests:
+  `test/display-view-lens-regroup-blocks.test.ts` (in-focus sites per band row, values whatever the block order),
+  `test/display-view-lens-rolling-regions.test.ts` unchanged.
+- **Display view: Recover and +1 stop without Standard under its time target (#662); output unchanged.** With the identity tone
+  curve and the component clip the chain takes its slopes as the identity and diag(inside) instead of forming the 3 × 3 products
+  at every node, and nine-element resets no longer go through `TypedArray.fill`. The #656 part (96 × 96 of a 1500 × 1000 view)
+  now meets its time target (docs/DISPLAY_VIEW.md has the figures), and `fast: false` is faster too; samples,
+  expected values and noise standard deviations are the same bits, fast and full (`test/display-view-coupled-rendering.test.ts`
+  locks the chain over a seeded sweep of four tone and gamut choices and the part's render).
+- **New API: `estimateDisplayViewRender(prepared, view)` (#660).** A root function that counts the work a CPU render of a
+  prepared view would do, without rendering (passes, real pixels and site reads as `{ minimum, maximum }` ranges equal to the
+  render's `diagnostics.sampleCount` and `siteEvaluations` where they are exact, the pilot's detail and uniform pixels, native
+  sites, and the method each cost choice takes), with the types `DisplayViewRenderEstimate` and `DisplayViewCountRange`.
+  Synchronous; it checks the view as `render` does. As a root function (not a method of `PreparedDisplayView`), a bundle that
+  does not import it carries none of it; a bundle that imports it adds 1,655 B gzip to its first load. docs/DISPLAY_VIEW.md,
+  "Estimating a render".
+
+### False color
+
+- **`simulateFalseColor(options, measure?)` measures the false color a demosaic produces (#739).** It takes the request
+  `simulateCapture` takes and compares, per output pixel in CIELAB a\*b\* (D65 white, `portableCbrt`), the capture's
+  noise-free mosaic demosaiced with `output.demosaic` (bilinear, or AHD's candidates and its choice on that mosaic) against a
+  full-color sensor reading of the same capture (each site's expected electrons with all three channel responses, through the
+  same optics, filter, pixel aperture and exposure), both developed by the display view's noise-free chain. The result
+  (`FalseColorResult`, `kind: "false-color"`) reports the mean, RMS, median, 95th and 99th percentiles, maximum and its
+  position, `fractionAbove` the thresholds (default [1, 2, 5], reporting levels with no claim about visibility), the mean
+  ΔE\*ab and each image's mean chroma; `measure.map` adds the `Float32Array` values and a gray RGBA image (no PNG),
+  `measure.images` the two developed images, `measure.region` a rectangle equal bit for bit to the same pixels of the whole
+  frame. `SIMULATE_FALSE_COLOR_LIMITS` holds its limits. Expected values only, always full quality on the CPU; it refuses
+  `fast: true` at the top level and on an option record (`lens.catalogue`, `lens.diffraction`, `motion.subject`,
+  `output.demosaic`, `sensor.pixelAperture`, `sensor.antiAliasing`), the luminance tone curves, highlight reconstruction,
+  `desaturate-to-luminance`, `output.lensCorrections`, `output.sharpening`, `output.diffractionCorrection`, `output.region`,
+  JPEG, PNG and DNG output, `whiteBalance: "auto"`, `lens.pupilSampling`, a caller `lens.psf`, `lens.defocus.catsEye`,
+  `sensor.fixedPatternNoise` and layered chart scenes. Each site's own-channel plane equals the display view's expected signal
+  bit for bit (chart and function scenes, the filter and box aperture, diffraction, a catalogue lens), and a material scene and
+  its reflectance function give equal values. Measured (64 × 64, mean a\*b\* difference, bilinear / AHD): uniform field 0 / 0;
+  Siemens star 42.63 / 29.59; zone plate 31.89 / 25.08; a 0.45 cycles/pixel grating 49.17 / 18.29, 10.30 / 2.91 with the
+  four-spot filter and 10.46 / 0.63 with diffraction at f/16. A 768 × 512 zone plate with diffraction at f/8 takes 1.9 s
+  (bilinear) and 2.4 s (AHD) of CPU against 0.8–1.0 s for its `fast: false` capture. Existing requests are unchanged: no
+  existing module changes except the root export line; no hash lock moves. docs/QUICK_START.md, "False color (2.28)";
+  docs/USAGE.md; docs/PROCESSING.md. Tests: `test/simulate-false-color.test.ts`.
+  - *Bundle.* The body (`src/facade/false-color.ts`) is its own on-demand chunk holding only that module, measured as its own
+    row, "false color" (Sizes, above). The capture worker does not import the function; a bundle that imports it adds 348 B
+    to its first load (the stub).
+
+### GPU
+
+- **Catalogue-lens display views on the GPU (#661).** A still, rectilinear `lens.catalogue` view in field zones (its fast
+  method), without `flare`, on a chart or `material-layers` scene, now renders on `webgpu-f32` with `gpu: "auto"`; before, every
+  catalogue view ran the CPU reference labelled `unsupported-on-backend`. Passes 1 and 2 (the lens lattice in double-float32, the
+  pre-integrated points, the sites through each zone's PSF) are the 2.27.0 GPU work of #655, rebased; pass 3, the finishing and
+  the recomputation of flagged pixels (through the view's own lens signal) are the Quality host's. `simulateCapture` keeps the
+  raw geometry and lens-signal setup of a radial-distortion view for `setup.gpu.lens`, and `DisplayViewGpuRequest.lensView`
+  describes it; rotation, hand shake, a moving subject, `fast: false`, a fisheye and `flare` stay on the CPU with the reason. The
+  passes use the renderer's composite-kernel probe (no second cache per device). The lens code is its own on-demand chunk, which
+  only the Quality host loads, importing no module statically, with its own bundle row, "lens passes" (Sizes, above). CPU
+  results are unchanged. Conformance: every value inside its bound on the emulation, SwiftShader and a hardware adapter (Apple
+  M5 Pro, Metal; docs/WEBGPU_DEVICES.md). With more than one query offset the passes map every offset through the lens (Known
+  limitations, above). The
+  acceptance harness gains an `app-lens` case for the public path; it passes on the same hardware adapter (2 of 2).
+- **Image-plane prints: the moved-value flag no longer grows with the photo's pixel coordinates (#716).** The image-plane Speed
+  module, the image-plane Quality lattice pass and their emulation bound a bilinear value's move under the point's error by the
+  neighboring pixels' differences in the cells the error reaches (zero in a flat area) and use a derived bound for that error,
+  2⁻⁴⁴·(|X| + half·(extent + 2k)) pixels instead of 4·2⁻⁴⁰·(|X| + 1) (docs/WEBGPU.md, "The image-plane module"). The fixture
+  photo at 6000 × 4000 fitted inside the 600 × 400 frame flags 0 of 27,405 display pixels in the 203 × 135 Speed view (2,611
+  before); a noisy gray ramp at 17000 × 1400, 0 (768). GPU results change for the pixels that were recomputed on the host before:
+  they now carry the GPU's value inside the declared bound (samples within one code). The shader text changes; CPU results and
+  hash locks are unchanged.
+- **Image-plane prints in the Quality passes build only the pixel records a band reaches (#715).** Each band built and uploaded
+  a 16-byte record for every column of the photo over the rows its lattice windows reach, in one piece, and the Quality host did
+  not count them in its band size, so a band whose records passed the device's storage binding limit threw
+  `insufficient-limits` and `gpu: "auto"` rendered the view on the CPU. The records now cover the columns the band reaches too,
+  are written 4 MiB of rows at a time, and the host counts them (`DisplayViewQualityImagePasses.bandBytes`) and splits such a
+  band. Measured on the float32 emulation (`syntheticPhoto(6000, 4000)` fitted inside the frame, diffraction, 203 × 135 view): a
+  48 × 36 region builds 28.9 MB of records in 45–53 ms (113.3 MB in 242–325 ms before); a 24 × 135 region 52.5 MB in 76–78 ms
+  (384 MB in 834–873 ms), and with a 128 MiB binding limit it renders on the device instead of falling back. Values are unchanged
+  (banded renders equal one band byte for byte; the Quality image-plane cases' bytes equal those before this change).
+- **An aborted GPU display-view render no longer fails a concurrent one (#675).** The device and Quality self-checks of a
+  prepared view ran under the signal of the render that started them, so aborting that render made every render waiting for
+  the check reject with `ImageKernelExecutionError` reason `aborted`. The checks now run under the session's own signal, each
+  render waits under its own, and `dispose()` ends a running check (the waiting render runs as one after `dispose()`,
+  `disposed`). Results of renders that complete are unchanged.
+- **`gpu: "auto"` falls back on a compile or memory failure (#692).** A GPU display-view render whose kernel the device does
+  not compile after the self-check passed, or during which the device runs out of memory, now runs the CPU reference labelled
+  `gpu-validation` or `out-of-memory` instead of rejecting. A kernel that did not compile is not compiled again for that device.
+  `DisplayViewGpuFallbackReason` gains the two reasons; `gpu: "require"` still throws. Renders that succeed today are
+  unchanged.
+- **Low-severity GPU findings (#702).**
+  - *Two GPU fallback reasons match the request (`gpu-06`).* The display view's CPU-fallback text for a lens request names
+    `lens.catalogue` (without a radial distortion) beside lens.projection, lens.distortion, lens.vignetting and camera rotation,
+    and the layered-scene reason no longer names a release ("layered chart scenes render on the CPU (#652)").
+  - *`setWebGpuEnabled(false)` stops GPU work that already has a device (`gpu-05`).* The realm's switch is read on every
+    accelerator operation and every prepared display-view render, not only when the accelerator or view is created (before, one
+    operation of six read it per call). While it is off, an accelerator created earlier runs the CPU reference labelled
+    `webgpu-disabled` (it keeps its device), and a view prepared earlier renders on the CPU labelled `webgpu-disabled` under
+    `"auto"` or throws that reason under `"require"`; switched on again, the device is used. Results labelled `webgpu-f32` while
+    the switch was on are unchanged (docs/WEBGPU.md, "The realm's switch").
+  - *docs/IMAGE_PLANE.md no longer says a banded photo never meets the binding limit (`gpu-09`).* A band is at least one display
+    row, so a strongly reduced, very wide photo whose rows for one display row do not fit one binding is refused by name
+    (`insufficient-limits`), and `gpu: "auto"` renders it on the CPU reference with that label. A test with an 18000 × 1200
+    photo on the 128 MiB default limit checks both. No code change.
+  - *The first render compiles each shader once (`gpu-04`).* `createComputePipeline` keeps one pipeline per device and shader
+    text, shared by the accelerator's operations, the display-view renderers and their run-time self-checks, so a self-check
+    proves the pipelines the render uses. On the fake device a first Speed render compiles 2 shader modules (was 4) and a first
+    Quality render with diffraction and AHD 6 (was 12); a second view of another chart preset on a shared accelerator compiles
+    none. A kernel the device refused stays refused for that device (`gpu-validation`, as #692 did for the renderer; the
+    accelerator recompiled it before). No output changes. The hardware first-render time saved is not measured.
+
+### Bundles
+
+- **Unused SDR shader text leaves the GPU session chunk (#690).** The six shader literals of `src/gpu/wgsl-kernels.ts` are
+  marked pure, so a bundler drops the SDR and luminance preludes from the display view's GPU session, which uses only the
+  irradiance convolution shader (session chunk 33,950 → 32,182 B gzip, rolldown 1.2.9). The shader strings are unchanged (same
+  SHA-256 for all four).
+- **Bundle rows measured with the measured bundler version (#691).** `test/capture-bundle.test.ts` builds with rolldown 1.2.14
+  (was 1.2.9). Each limit is its row's measurement on the release tree rounded up to the next 100 B, at or below 2.27.0's
+  (Sizes, above). No package change.
+- **The on-demand row (#658).** The Quality kit re-exports by name instead of a namespace object; the GPU renderer and both GPU
+  hosts read only the names they use from the on-demand GPU chunks; the Speed kernel's eleven helper functions are written once
+  and shared with the Quality kernels (every assembled shader keeps its token stream, pinned in
+  `test/wgsl-display-view-tokens.test.ts`); the CPU kits and the GPU chunks are read by position, so their export names are not
+  shipped; and 33 result and refusal texts are shorter: the limitations of the Airy profile, the AHD demosaic and the lens PSF
+  kernels, the hand-shake, focus-breathing, veiling-glare, flash-shutter and sensor-profile assumptions, two flash and one
+  sensor-profile error message, and eight GPU Quality refusal and self-check texts. Image bytes and numbers are unchanged; those
+  texts are the only result change. With this release's additions to the on-demand code the row is 51,977 B on the release tree:
+  the 49,400 B target was not met, and #658 stays open (docs/DISPLAY_VIEW.md, "Bundle size").
+
+### Benchmark tools
+
+- **The batch-figure benchmark and its hash locks (#670); no package, API, output or bundle change.**
+  `scripts/benchmark-figure-batch.mjs` runs the #670 set (`scripts/lib/figure-batch-cases.mjs`: 22 cases) through public APIs
+  only, with both flags (`fast: false` first), and reports CPU and wall time, peak RSS, the render's work counts and the SHA-256
+  of the samples; it is informational, host-dependent and not run by CI. `test/figure-batch-hash-locks.test.mjs` locks a small
+  region of each case's request with both flags (samples, internals and work counts, split as #697 splits the display-view
+  locks), recorded at 2.27.0 before any 2.28.0 source change on x64 and arm64; CI's macOS hash-lock step runs it. The 2.26.0 and
+  2.27.0 records are `docs/benchmarks/2026-11-21-figure-batch-2.26.0-2.27.0.json`; 2.27.0 against 2.28.0 is
+  `docs/benchmarks/2026-11-21-figure-batch-2.27.0-2.28.0.json` (Benchmarks, above).
+- **Batch figure renders: the worker recipe, its example and shard balancing (#670); no package code, output or bundle
+  change.** docs/QUICK_START.md, "Batch figure renders in Node", documents the recipe (row bands as the unit of work, persistent
+  workers, one prepared view per request per worker, `gpu: "off"`, the flag stated per figure, reuse of finished bands, shards by
+  predicted cost) and `docs/examples/figure-batch-workers.mjs` runs it with `worker_threads` and checks that the bands join to
+  the one-piece render. `scripts/benchmark-figure-batch.mjs` records each band's `estimateDisplayViewRender` counts with `whole`
+  (outside the timed render) and gains `balance`, which fits the #670 plan's predictor (sites·taps·nodes·midpoints, site reads, a
+  constant; then the pilot's detailed pixels) to measured bands and deals shards from it. Measured with `fast: false` on 74 bands
+  of six figures (one arm64 machine, load average 37–172): the fit is within ±25 % for 22 % of the bands (19 % with the detail
+  term; the plan's test asked for 90 %), and shards dealt by the fitted cost were more even than shards dealt by rows; the
+  recipe therefore uses the estimate as an ordering with a dynamic queue.
+  - *Investigated and not changed.* The exact small-pixel diffraction requests of #710 now take the per-tap sum (#731, capture)
+    and the exact regroupings (#670, display view); the 2.26.0 call site of `MaterialSums` is no longer on either path, and what
+    is left of the view is mostly the per-tap spectral sum (`preintegratedSite`), which now adds four nodes at a time (above).
+    Keeping the pre-integrated tiles per prepared view is bounded by the tile fill's share of a full-quality frame and would add
+    fast-row bytes in `expected-signal.ts`; not built. For the catalogue lens's per-site PSF resolve with `fast: false`, reading
+    the bilinear corners in line and skipping the zone moments the exact path does not read gave no gain, and a centroid cache
+    keyed by kernel object changed samples (the key was not safe in that form), so nothing byte-identical worth its bytes was
+    found.
+
+### Input bounds
+
+Limits on inputs whose size sets the work or memory of one call, checked before allocation; results for requests within them
+are unchanged, except Airy cells that change method (below).
+
+- *DNG.* At most 64 opcodes are applied per opcode list (the rest are reported, not applied); FixBadPixelsList rectangles are
+  marked in one pass; a WarpRectilinear or FixVignetteRadial coefficient beyond ±10⁶ makes its list malformed, and opcode results
+  stay finite. `maximumBytes` now counts semantic masks, which are decoded strip by strip; a file whose masks push the estimate
+  over it now fails with `InvalidConfigurationError`. A file with very many strips or tiles imports. A tag that must hold one
+  value and holds none, a header with no IFD, and a decoded JPEG XL tile PNG without a leading 13-byte IHDR fail with
+  `InvalidConfigurationError`. An exception thrown by the caller's `jpegXlDecoder` rejects the import with `InvalidConfigurationError` (the original as
+  `cause`; `InvalidConfigurationError` takes an optional `{ cause }`). `serializeRewrittenDng` requires strip or tile tables that match the image layout and do not
+  overlap, and copied tag values that, with the strips or tiles, fit in the file's size. The DNG noise estimate's median selection has an O(n log n) worst case.
+- *Release sequences* hold at most 10,000 frames (`maximumLogicalFramesPerSequence` too).
+- *Temporal samples.* The rotation and translation quadratures, the extended-object projection and the stabilized capture
+  samples take at most 256 temporal samples and 65,536 nodes (samples × points), checked before the points are read.
+- *Charts.* A composite's distinct dead-leaves elements together use at most 8,388,608 lookup cells and 8,000,000 disks;
+  dead-leaves elements with the same radii, seed and aspect share one generated texture.
+- *Optics.* `calculateDetailLimit` refuses finite inputs whose image geometry overflows (it did not return); Airy cells whose
+  frequency-domain work would exceed 2.5 × 10⁸ steps use the real-space method (cells move by at most 2 × 10⁻¹³; only explicit kernel
+  radii of 10 or more); a diffraction profile whose largest β times (R + 1)² times its wavelength count exceeds 400 × 32 × 33² is refused.
+- *Sensor.* Spectral curves are interpolated by binary search (same values); channel lists and evidence lists with holes are
+  refused at their first hole.
+- *CI.* A test-once proof counts only from a successful run on the tree it names; a re-run of `publish.yml` for a version that
+  is already published passes only when the registry's `dist.integrity` matches the verified tarball. The WebGPU and Pages workflows
+  install Chromium with the lockfile's `playwright-core` 1.63.0, a new exactly pinned devDependency (Apache-2.0; owner decision
+  2026-11-21), instead of `npx --yes playwright@1.63.0`.
 
 ## 2.27.0 — published November 19, 2026
 

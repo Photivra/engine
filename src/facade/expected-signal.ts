@@ -27,6 +27,8 @@ export type DisplayViewScene =
      * reconstructed spectrum and interpolated between pixels (a site without kernels takes it instead of one radiance lookup per node).
      */
     signalAt?(u: number, v: number, c: number): number;
+    /** #735, mixed illumination: `radianceAt` at each of `wavelengths` into `out`, the point's material and light resolved once. */
+    radianceSpectrumAt?: ((u: number, v: number, wavelengths: readonly number[], out: Float64Array) => void) | undefined;
     /** #581: the image-plane print behind `signalAt` (its scene, spectral nodes and surround), for the GPU's image-plane module. */
     image?: ImagePlaneSignalScene["image"] };
 
@@ -387,6 +389,12 @@ export function materialSpectrumSignal(a: ArrayLike<number>, spectrum: ArrayLike
   return s;
 }
 
+/** #735: a radiance scene's values at every node of a point into `out`: its spectrum form, or radianceAt per node (the same values). */
+function radianceSpectrum(scene: Extract<DisplayViewScene, { kind: "radiance" }>, wavelengths: readonly number[]): (u: number, v: number, out: Float64Array) => void {
+  const spectrum = scene.radianceSpectrumAt;
+  return spectrum ? (u, v, out): void => spectrum(u, v, wavelengths, out) : (u, v, out): void => { for (let n = 0; n < wavelengths.length; n++) out[n] = scene.radianceAt(u, v, wavelengths[n]!); };
+}
+
 /**
  * #653: the pre-integrated spectral radiance of chart materials at native site positions, B(s)[n] = Σ_o w_o·L_m(o, s)(λ_n), with
  * L_m(o, s) the material of query offset o of a site at position s (each lattice group's point s + (ix, iy), on the lattice
@@ -540,8 +548,18 @@ export function createDisplayViewExpectedSignal(input: DisplayViewExpectedSignal
         const rowAt = (qq - ty * T) * T, tapRow = (y - qq + R) * size + R + x;
         for (let tx = txA; tx <= txB; tx++) {
           const tile = preintegratedRow[tx - txA]!, pa = Math.max(px0, tx * T), pb = Math.min(px1, tx * T + T - 1);
-          for (let p = pa, b = (rowAt + pa - tx * T) * nodes, k = (tapRow - pa) * nodes; p <= pb; p++, b += nodes, k -= nodes)
-            for (let n = 0; n < nodes; n++) S[n] = S[n]! + K[k + n]! * tile[b + n]!;
+          // Four nodes at a time, each in its own accumulator over the row's taps: the same additions in the same order per node
+          // (S[n] + K·B tap after tap), so the same bits, at about 0.76× the time of one node at a time (#670).
+          const b0 = (rowAt + pa - tx * T) * nodes, k0 = (tapRow - pa) * nodes;
+          let n = 0;
+          for (; n + 4 <= nodes; n += 4) {
+            let s0 = S[n]!, s1 = S[n + 1]!, s2 = S[n + 2]!, s3 = S[n + 3]!;
+            for (let p = pa, b = b0 + n, k = k0 + n; p <= pb; p++, b += nodes, k -= nodes) {
+              s0 += K[k]! * tile[b]!; s1 += K[k + 1]! * tile[b + 1]!; s2 += K[k + 2]! * tile[b + 2]!; s3 += K[k + 3]! * tile[b + 3]!;
+            }
+            S[n] = s0; S[n + 1] = s1; S[n + 2] = s2; S[n + 3] = s3;
+          }
+          for (; n < nodes; n++) for (let p = pa, b = b0 + n, k = k0 + n; p <= pb; p++, b += nodes, k -= nodes) S[n] = S[n]! + K[k]! * tile[b]!;
         }
       }
       q = qEnd + 1;
@@ -555,6 +573,8 @@ export function createDisplayViewExpectedSignal(input: DisplayViewExpectedSignal
    * query point read, or −1 when they read more than one (or the scene is a radiance scene). A site whose points all read
    * material m sums the same operands in the same order as every other such site of its channel, so it holds the same value.
    */
+  // #735: a radiance scene's values at the nodes of a point: its spectrum form, or radianceAt per node (the same values).
+  const spectrumScratch = new Float64Array(nodes), spectrumAt = scene.kind === "radiance" ? radianceSpectrum(scene, input.wavelengthsNm) : undefined;
   function directSite(x: number, y: number): number {
     const c = channelAt(x, y);
     let sum = 0, uniform = -1, lastM = -1, lastValue = 0;
@@ -568,7 +588,7 @@ export function createDisplayViewExpectedSignal(input: DisplayViewExpectedSignal
         if (m !== lastM) { lastValue = materialSpectrumSignal(A[c]!, spectra[m], nodes); lastM = m; }
         value = lastValue; lookups++;
       } else if (scene.signalAt) { value = scene.signalAt(point[0]!, point[1]!, c); lookups++; }
-      else { value = 0; for (let n = 0; n < nodes; n++) value += A[c]![n]! * scene.radianceAt(point[0]!, point[1]!, input.wavelengthsNm[n]!); lookups += nodes; }
+      else { spectrumAt!(point[0]!, point[1]!, spectrumScratch); value = 0; for (let n = 0; n < nodes; n++) value += A[c]![n]! * spectrumScratch[n]!; lookups += nodes; }
       sum += offsets[o]!.weight * value;
     }
     lastMaterial = uniform < 0 ? -1 : uniform;
@@ -591,7 +611,7 @@ export function createDisplayViewExpectedSignal(input: DisplayViewExpectedSignal
     const i = p - group.cx0, j = q - group.cy0, cached = i >= 0 && j >= 0 && i < group.cpw && j < group.cph, cache = group.cache as Float64Array;
     if (cached && !Number.isNaN(cache[(j * group.cpw + i) * nodes]!)) { for (let n = 0; n < nodes; n++) radianceScratch[n] = cache[(j * group.cpw + i) * nodes + n]!; return radianceScratch; }
     const u = latticeU(group, p), v = latticeV(group, q);
-    for (let n = 0; n < nodes; n++) radianceScratch[n] = (scene as Extract<DisplayViewScene, { kind: "radiance" }>).radianceAt(u, v, input.wavelengthsNm[n]!);
+    spectrumAt!(u, v, radianceScratch);
     lookups += nodes;
     if (cached) for (let n = 0; n < nodes; n++) cache[(j * group.cpw + i) * nodes + n] = radianceScratch[n]!;
     return radianceScratch;
@@ -1093,10 +1113,14 @@ function prepareLargeKernel(input: DisplayViewExpectedSignalInput): LargeKernelS
           }
         }
       } else {
-        const radiance = new Float64Array(gw * gh * nodes);
+        const radiance = new Float64Array(gw * gh * nodes), spectrum = new Float64Array(nodes), spectrumAt = radianceSpectrum(scene, input.wavelengthsNm);
         for (let j = 0; j < gh; j++) {
           const v = latticeV(group, q0 + j);
-          for (let i = 0; i < gw; i++) { const u = latticeU(group, p0 + i); for (let n = 0; n < nodes; n++) radiance[(j * gw + i) * nodes + n] = scene.radianceAt(u, v, input.wavelengthsNm[n]!); }
+          for (let i = 0; i < gw; i++) {
+            const u = latticeU(group, p0 + i);
+            spectrumAt(u, v, spectrum);
+            radiance.set(spectrum, (j * gw + i) * nodes);
+          }
         }
         state.lookups += gw * gh * nodes;
         for (let c = 0; c < 3; c++) {

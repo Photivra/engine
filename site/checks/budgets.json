@@ -1,0 +1,30 @@
+{
+  "about": "Size budgets in bytes as transferred with gzip (fonts and images as they are), docs/design/engine-site.md sections 7.4 and 11. A page kind's HTML budget applies to every page of that kind. Set from the design's estimates and confirmed by the first build (site/checks/budgets.mjs prints the largest page of each kind).",
+  "html": {
+    "home": 10000,
+    "install": 40000,
+    "guide-contents": 40000,
+    "guide-section": 40000,
+    "guide": 40000,
+    "guides-index": 40000,
+    "api-module": 40000,
+    "api-index": 20000,
+    "search": 70000,
+    "release": 40000,
+    "releases-index": 40000,
+    "license": 8000,
+    "notices": 8000,
+    "third-party": 40000,
+    "not-found": 8000
+  },
+  "css": 12000,
+  "fonts": { "files": 2, "bytes": 60000 },
+  "searchScript": 2500,
+  "icons": 6000,
+  "firstView": 120000,
+  "firstViewHome": 90000,
+  "exampleImage": 400000,
+  "exampleImagesPerPage": 3,
+  "exampleImagesAll": 4000000,
+  "socialImage": 120000
+}

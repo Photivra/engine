@@ -6,7 +6,12 @@ import {
   createColorTemperatureWhiteBalanceIntent,
   createLockedWhiteBalanceState,
   estimateAutoWhiteBalance,
+  InvalidConfigurationError,
+  InvalidScientificInputError,
+  parseResolvedWhiteBalanceState,
   parseWhiteBalanceProfile,
+  resolveCaptureColorModel,
+  resolveColorTemperatureWhiteBalance,
   resolveCustomWhiteBalance,
   resolveManualWhiteBalance,
   resolvePresetWhiteBalance,
@@ -630,5 +635,47 @@ describe("white-balance profile validation", () => {
           sampleSet("capture", 1, 1, 1)
       })
     ).toThrow("not declared");
+  });
+});
+
+// foundation-09 (#699): domain errors instead of raw TypeErrors, and a lock builds only states the engine parses again.
+describe("white-balance state input checks", () => {
+  const domain = (call: () => unknown, message: string | RegExp): void => {
+    let error: unknown;
+    try { call(); } catch (e) { error = e; }
+    expect(error instanceof InvalidConfigurationError || error instanceof InvalidScientificInputError, String(error)).toBe(true);
+    expect(String(error)).toMatch(message);
+  };
+  it("refuses a missing gain record, a null sample, a non-boolean clipped and an invalid source state", () => {
+    domain(() => resolveManualWhiteBalance({ stateId: "s" } as never), "channelGains");
+    domain(() => resolveManualWhiteBalance({ stateId: "s", channelGains: { red: 1, green: 1, blue: 1, magenta: 9 } } as never), "magenta");
+    domain(() => resolveCustomWhiteBalance({ stateId: "c", sampleSet: { ...sampleSet("i", 1, 1, 1), samples: [null] } } as never), "sampleSet.samples[0]");
+    for (const clipped of ["true", 1, null]) {
+      const set = sampleSet("i", 1, 1, 1);
+      domain(() => estimateAutoWhiteBalance({ stateId: "a", profile: profile(), policyId: "standard", sampleSet: { ...set, samples: [{ ...set.samples[0]!, clipped }] } } as never),
+        "sampleSet.samples[0].clipped");
+    }
+    domain(() => createLockedWhiteBalanceState({ stateId: "locked" } as never), "sourceState");
+    const manual = resolveManualWhiteBalance({ stateId: "m", channelGains: { red: 1.5, green: 1, blue: 0.75 } });
+    domain(() => createLockedWhiteBalanceState({ stateId: "locked", sourceState: { stateId: "m", channelGains: manual.channelGains, limitations: "abc", version: 5,
+      source: "made-up", inputDomain: null, trueIlluminantMetadataUsed: true, extra: {} } } as never), /./u);
+    domain(() => createLockedWhiteBalanceState({ stateId: "locked", sourceState: { ...manual, extra: {} } } as never), "extra");
+  });
+  it("locks a state of every source into one the parser accepts, with unchanged gains", () => {
+    const camera = { profileId: "ideal-colorimetric", profileVersion: "0.1.0", xyzToCameraRgb: resolveCaptureColorModel().xyzToCameraRgb };
+    const sources = [
+      resolveManualWhiteBalance({ stateId: "m", channelGains: { red: 1.5, green: 1, blue: 0.75 } }),
+      resolvePresetWhiteBalance({ stateId: "p", profile: profile(), presetId: "daylight-like" }),
+      resolveCustomWhiteBalance({ stateId: "c", sampleSet: sampleSet("i", 0.5, 1, 2) }),
+      estimateAutoWhiteBalance({ stateId: "a", profile: profile(), policyId: "standard", sampleSet: sampleSet("i", 2, 1, 0.5) }),
+      resolveColorTemperatureWhiteBalance({ stateId: "k", intent: createColorTemperatureWhiteBalanceIntent({ intentId: "k", colorTemperatureKelvin: 5000, tint: 0 }),
+        whiteLocus: "planckian", tintInterpretation: "duv-cie-1960-uv", camera })];
+    for (const source of sources) {
+      const locked = createLockedWhiteBalanceState({ stateId: "locked-" + source.stateId, sourceState: source });
+      expect(locked.channelGains, source.source).toEqual(source.channelGains);
+      expect(locked).toMatchObject({ locked: true, sourceStateId: source.stateId, source: source.source });
+      expect(Object.isFrozen(locked)).toBe(true);
+      expect(parseResolvedWhiteBalanceState(locked)).toEqual(locked);
+    }
   });
 });

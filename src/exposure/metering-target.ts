@@ -22,6 +22,8 @@ import type {
 } from "./metering-temporal.js";
 import { requireInputObject, requireInputKeys, requireTrimmedConfigString as requireNonEmptyString, requireInputFinite as requireFinite, requireInputFiniteAboveZero as requirePositiveFinite, requireInputFiniteAtLeastZero as requireNonNegativeFinite } from "../core/record-validation.js";
 import { InvalidConfigurationError } from "../core/configuration-error.js";
+// foundation-06 (#699, 2.28.0): the portable log2 and exp2, the same bits on every Node.js line.
+import { portableExp2, portableLog2 } from "../core/portable-math.js";
 
 export const EXPOSURE_METER_TARGET_SCHEMA_VERSION =
   "0.1.0" as const;
@@ -304,7 +306,7 @@ export function createExposureMeterTargetFromMeteringResult(
     );
   }
   const baseStops =
-    Math.log2(baseScale);
+    portableLog2(baseScale);
   if (!Number.isFinite(baseStops)) {
     throw new InvalidScientificInputError(
       "Base exposure offset must remain finite."
@@ -325,6 +327,30 @@ export function createExposureMeterTargetFromMeteringResult(
   };
 }
 
+/**
+ * @internal The source meter snapshot a target carries (`<name>.sourceMeterSnapshot`): its three identifiers and source kind. Shared
+ * with the exposure-mode resolver's target check (foundation-08).
+ */
+export function validateMeterSnapshot(
+  snapshot: unknown,
+  name: string
+): void {
+  const path = name + ".sourceMeterSnapshot";
+  requireInputObject(snapshot, path);
+  const record = snapshot as Record<string, unknown>;
+  for (const field of ["measurementId", "sceneStateId", "meteringProfileId"]) requireNonEmptyString(record[field], path + "." + field);
+  if (
+    record.sourceKind !==
+      "spatial-metering-result" &&
+    record.sourceKind !==
+      "temporal-metering-result"
+  ) {
+    throw new InvalidConfigurationError(
+      path + ".sourceKind is invalid."
+    );
+  }
+}
+
 function validateBaseTarget(
   target: ExposureMeterTarget
 ): void {
@@ -343,39 +369,7 @@ function validateBaseTarget(
     target.targetId,
     "baseTarget.targetId"
   );
-  requireInputObject(target.sourceMeterSnapshot, "baseTarget.sourceMeterSnapshot");
-  requireNonEmptyString(
-    target
-      .sourceMeterSnapshot
-      .measurementId,
-    "baseTarget.sourceMeterSnapshot.measurementId"
-  );
-  requireNonEmptyString(
-    target
-      .sourceMeterSnapshot
-      .sceneStateId,
-    "baseTarget.sourceMeterSnapshot.sceneStateId"
-  );
-  requireNonEmptyString(
-    target
-      .sourceMeterSnapshot
-      .meteringProfileId,
-    "baseTarget.sourceMeterSnapshot.meteringProfileId"
-  );
-  if (
-    target
-      .sourceMeterSnapshot
-      .sourceKind !==
-      "spatial-metering-result" &&
-    target
-      .sourceMeterSnapshot
-      .sourceKind !==
-      "temporal-metering-result"
-  ) {
-    throw new InvalidConfigurationError(
-      "baseTarget.sourceMeterSnapshot.sourceKind is invalid."
-    );
-  }
+  validateMeterSnapshot(target.sourceMeterSnapshot, "baseTarget");
   if (
     target.scientificStatus !==
       "approximation" ||
@@ -501,7 +495,7 @@ export function setExposureCompensationOnMeterTarget(
   const compensatedScale =
     input.baseTarget
       .baseRequiredExposureScaleToTarget *
-    Math.pow(2, compensation);
+    portableExp2(compensation);
 
   if (
     !Number.isFinite(

@@ -44,9 +44,12 @@ Input limits: at most 400 wavelengths, kernel radius 0–32 samples (the irradia
 sampling of `simulateCapture` and the display view (`sensor.spectralStepNanometers` 1 nm over 380–780 nm), so `lens.diffraction`
 builds one exact kernel per spectral node at every allowed step; it was 64 before 2.15.0, which refused every step under 6.25 nm.
 The work and memory are linear in the count (measured in docs/PSF_FOUNDATION.md, "Spectral nodes").
+`maximumBeta` (2.28.0, #686): the largest β = p·f_c = pitch/(λ·N_w), the cell side over the cut-off period, at the shortest wavelength.
+The real-space cell work grows as β, so a request above it is refused before any cell is integrated. 1e5 keeps every documented use
+(whole-frame cells reach β ≈ 250; the tests go to 400) and keeps one wavelength at radius 2 to under a second.
 
 ```ts
-DIFFRACTION_LIMITED_PSF_PROFILE_LIMITS = Object.freeze({ maximumWavelengths: 400, maximumKernelRadiusSamples: 32 })
+DIFFRACTION_LIMITED_PSF_PROFILE_LIMITS = Object.freeze({ maximumWavelengths: 400, maximumKernelRadiusSamples: 32, maximumBeta: 1e5 })
 ```
 
 ## DIFFRACTION_LIMITED_PSF_PROFILE_MODEL
@@ -75,7 +78,7 @@ export interface DiffractionLimitedPsfProfile {
   /** Largest truncated energy over the wavelengths. */
   maximumTruncatedEnergyFraction: number;
   /**
-   * How the cells were integrated. 2.5: wavelengths with β = p·f_c ≥ `AIRY_REAL_SPACE_MINIMUM_BETA` (192 in 2.5–2.8.1, then 32) use the real-space
+   * How the cells were integrated. 2.5: wavelengths with β = p·f_c ≥ `AIRY_REAL_SPACE_MINIMUM_BETA` (192 in 2.5–2.8.1, then 32; since 2.28.0 also a smaller β whose frequency-domain work would be too large) use the real-space
    * encircled-energy method; `realSpaceWavelengthsNm` lists them, and `method` is `"frequency-domain-and-real-space"` when both ran.
    * `maximumRadialNodes` counts frequency-domain radial nodes (0 when only the real-space method ran); `maximumAngularNodes` the
    * angular nodes of either method (for the real-space method, all θ nodes of one wavelength).

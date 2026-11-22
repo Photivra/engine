@@ -40,8 +40,14 @@
  * real-space cells against the asymptotic leakage 8√2/(π³·β) of the centre cell, and convergence under doubled panel
  * counts. The threshold was 192 in 2.5; it moved to 32 because from there the real-space cells agree with the frequency-domain cells
  * within about 1e-12 and cost a few to a few hundred times less (a 750 µm whole-frame cell at f/8 took 3.4 s for 20
- * wavelengths). Every β a native pitch up to 10 µm reaches (at most 10/(0.38·1.4) ≈ 19) stays in the frequency domain,
- * so captures at sensor pitch are unchanged; larger cells (binned and whole-frame views) change in the last bits only.
+ * wavelengths). Every β a native pitch up to 10 µm reaches (at most 10/(0.38·1.4) ≈ 19) stays in the frequency domain at the
+ * default kernel radius, so default captures at sensor pitch are unchanged; larger cells (binned and whole-frame views) change in the
+ * last bits only. 2.28.0: below β = 32 a (β, R) whose frequency-domain work would exceed 2.5 × 10⁸ inner steps (a large β with a
+ * large kernel radius, which took up to tens of seconds per wavelength) is integrated in real space too; the two agree there within
+ * 2 × 10⁻¹³, so cells of an explicit radius of 10 or more (from β ≈ 29 at R 10, β ≈ 12 at R 16) move by up to that much
+ * (1.3 × 10⁻¹³ measured at R 16, β 12–19); a default radius never switches. 2.28.0: a profile is refused when its largest β times
+ * (R + 1)² times its wavelength count exceeds 400 × 32 × 33² (the most that 400 wavelengths below the real-space β reach at R 32),
+ * the real-space work growing as β·(R + 1)² per wavelength.
  *
  * **Reuse (2.6).** The cells depend only on (β, R) (and the test-only node scale), so `calculateAiryCellEnergies` keeps the
  * 800 most recently used results (256 before 2.15.0; 800 holds two whole 400-node grids) and returns copies: tiles of one frame rendered in the same worker, and captures that
@@ -75,11 +81,15 @@ export const DIFFRACTION_LIMITED_PSF_PROFILE_MODEL = /* @__PURE__ */ Object.free
  * sampling of `simulateCapture` and the display view (`sensor.spectralStepNanometers` 1 nm over 380–780 nm), so `lens.diffraction`
  * builds one exact kernel per spectral node at every allowed step; it was 64 before 2.15.0, which refused every step under 6.25 nm.
  * The work and memory are linear in the count (measured in docs/PSF_FOUNDATION.md, "Spectral nodes").
+ * `maximumBeta` (2.28.0, #686): the largest β = p·f_c = pitch/(λ·N_w), the cell side over the cut-off period, at the shortest wavelength.
+ * The real-space cell work grows as β, so a request above it is refused before any cell is integrated. 1e5 keeps every documented use
+ * (whole-frame cells reach β ≈ 250; the tests go to 400) and keeps one wavelength at radius 2 to under a second.
  */
-export const DIFFRACTION_LIMITED_PSF_PROFILE_LIMITS = /* @__PURE__ */ Object.freeze({ maximumWavelengths: 400, maximumKernelRadiusSamples: 32 });
+export const DIFFRACTION_LIMITED_PSF_PROFILE_LIMITS = /* @__PURE__ */ Object.freeze({ maximumWavelengths: 400, maximumKernelRadiusSamples: 32, maximumBeta: 1e5 });
+const MAXIMUM_BETA = 1e5;
 /**
  * Internal: β = p·f_c (cell side over the cut-off period) from which `calculateAiryCellEnergies` integrates the cells in
- * real space (2.5). Above every β of a `simulateCapture` pitch up to 100 µm, whose captures keep the frequency-domain values.
+ * real space (2.5); below it, also a (β, R) whose frequency-domain work is too large (2.28.0).
  */
 export const AIRY_REAL_SPACE_MINIMUM_BETA = 32;
 /** Radius of the first dark ring of the Airy pattern in units of λ·N_w: j₁,₁/π, j₁,₁ = 3.8317059702 (first zero of J₁). */
@@ -128,7 +138,7 @@ export interface DiffractionLimitedPsfProfile {
   /** Largest truncated energy over the wavelengths. */
   maximumTruncatedEnergyFraction: number;
   /**
-   * How the cells were integrated. 2.5: wavelengths with β = p·f_c ≥ `AIRY_REAL_SPACE_MINIMUM_BETA` (192 in 2.5–2.8.1, then 32) use the real-space
+   * How the cells were integrated. 2.5: wavelengths with β = p·f_c ≥ `AIRY_REAL_SPACE_MINIMUM_BETA` (192 in 2.5–2.8.1, then 32; since 2.28.0 also a smaller β whose frequency-domain work would be too large) use the real-space
    * encircled-energy method; `realSpaceWavelengthsNm` lists them, and `method` is `"frequency-domain-and-real-space"` when both ran.
    * `maximumRadialNodes` counts frequency-domain radial nodes (0 when only the real-space method ran); `maximumAngularNodes` the
    * angular nodes of either method (for the real-space method, all θ nodes of one wavelength).
@@ -140,11 +150,11 @@ export interface DiffractionLimitedPsfProfile {
 const EVIDENCE: readonly EvidenceProvenance[] = /* @__PURE__ */ Object.freeze([/* @__PURE__ */ Object.freeze({ sourceOrigin: "photivra" as const,
   sourceReference: "photivra:diffraction-limited-psf-profile", reuseStatus: "photivra-owned" as const })]);
 const LIMITATIONS = /* @__PURE__ */ Object.freeze([
-  "Scalar Fraunhofer diffraction of an ideal, uniformly lit circular pupil (Airy pattern); no aberration, apodization, polarization or stray light.",
-  "Exactly in focus: no defocus or depth of field. Thin lens with unity pupil magnification; the pupil-to-image distance is the thin-lens image distance.",
-  "The on-axis PSF is declared unchanged across the field (isoplanatic); no field-dependent aberration or pupil clipping.",
-  "PSF energy is binned into square sample cells; the finite window misses the Airy tail energy listed per wavelength and is renormalized to unit sum.",
-  "Wavelengths are used as given, in the declared basis, without air/vacuum conversion."
+  "Scalar Fraunhofer diffraction of an ideal circular pupil (Airy); no aberration, apodization, polarization or stray light.",
+  "In focus (no defocus); thin lens with unity pupil magnification.",
+  "The on-axis PSF is used across the field (isoplanatic).",
+  "PSF energy in square cells of a finite window (tail energy listed per wavelength), renormalized to unit sum.",
+  "Wavelengths as given (no air/vacuum conversion)."
 ]);
 
 function positive(value: unknown, name: string): number {
@@ -191,6 +201,9 @@ function sinc(x: number): number {
  * multiplies the node or panel counts (1 in production; the tests use 2 to check convergence).
  */
 export function calculateAiryCellEnergies(beta: number, radius: number, scale = 1): { cells: Float64Array; radialNodes: number; angularNodes: number; realSpace: boolean } {
+  // #686: a non-finite or huge β would never leave the panel loop; refuse it before the cache or any integration. The profile's
+  // first wavelength is its shortest, with the largest β, so a profile above the bound fails before any cell is integrated.
+  if (!(beta > 0 && beta <= MAXIMUM_BETA)) throw new InvalidConfigurationError("Diffraction beta must be in (0, 100000].");
   // 2.6: a pure function of (β, R, scale), so results are memoized (most recently used first) and handed out as copies.
   // Tiles of one frame, and captures that change only the exposure or the scene, rebuild the same kernels.
   const key = beta + "|" + radius + "|" + scale, cached = AIRY_CELL_CACHE.get(key);
@@ -198,11 +211,24 @@ export function calculateAiryCellEnergies(beta: number, radius: number, scale = 
     AIRY_CELL_CACHE.delete(key); AIRY_CELL_CACHE.set(key, cached);
     return { ...cached, cells: cached.cells.slice() };
   }
-  const result = beta >= AIRY_REAL_SPACE_MINIMUM_BETA ? { ...calculateAiryCellEnergiesInRealSpace(beta, radius, scale), radialNodes: 0, realSpace: true } :
+  const result = useRealSpace(beta, radius) ? { ...calculateAiryCellEnergiesInRealSpace(beta, radius, scale), radialNodes: 0, realSpace: true } :
     { ...calculateAiryCellEnergiesInFrequencyDomain(beta, radius, scale), realSpace: false };
   AIRY_CELL_CACHE.set(key, { ...result, cells: result.cells.slice() });
   if (AIRY_CELL_CACHE.size > AIRY_CELL_CACHE_ENTRIES) AIRY_CELL_CACHE.delete(AIRY_CELL_CACHE.keys().next().value!);
   return result;
+}
+/**
+ * 2.28.0: the frequency-domain work of one call, about radialNodes × angularNodes × (R + 1)² inner steps, above which the cells are
+ * integrated in real space even below `AIRY_REAL_SPACE_MINIMUM_BETA` (2.5 × 10⁸ steps at node scale 1, about 0.35 s on the development machine;
+ * measured 1.4 ns per step). There the two methods agree within 2 × 10⁻¹³ (measured from β = 2 to 31.9 at R = 8 to 32), and the
+ * real-space work is 3 to 200 times smaller (β = 31.9, R = 32: 34 s against 0.15 s per wavelength).
+ */
+const AIRY_FREQUENCY_DOMAIN_MAXIMUM_STEPS = 2.5e8;
+/** Whether (β, R) is integrated in real space; the test-only node scale does not change the method. */
+function useRealSpace(beta: number, radius: number): boolean {
+  // The frequency-domain node counts without their rounding up: (c + margin) radial × (c + margin)/4 angular, per cell.
+  const c = Math.PI * beta * (2 * radius + 1) * Math.SQRT2, n = c + 10 * Math.cbrt(c) + 24;
+  return beta >= AIRY_REAL_SPACE_MINIMUM_BETA || n * n / 4 * (radius + 1) * (radius + 1) > AIRY_FREQUENCY_DOMAIN_MAXIMUM_STEPS;
 }
 /**
  * Memoized cell energies (2.6): 800 entries of (R + 1)² values, at most 800 × 33² × 8 bytes ≈ 7.0 MB. 2.15.0: 800 (was 256), so the
@@ -384,8 +410,13 @@ export function createDiffractionLimitedPsfProfile(input: CreateDiffractionLimit
   let maximumRadialNodes = 0, maximumAngularNodes = 0, maximumTruncated = 0;
   const records: DiffractionLimitedPsfWavelength[] = [], kernels: number[][] = [], realSpaceWavelengthsNm: number[] = [];
   for (const nm of wavelengths) {
-    const lambdaN = nm / 1000 * workingFNumber, cutoff = 1 / lambdaN;
-    const airy = calculateAiryCellEnergies(pitch * cutoff, radius);
+    const lambdaN = nm / 1000 * workingFNumber, cutoff = 1 / lambdaN, beta = pitch * cutoff;
+    // 2.28.0: the cell work grows as β·(R + 1)² per wavelength. The first (shortest) wavelength has the largest β, so this refuses
+    // before any cell is integrated when that β times (R + 1)² times the count exceeds what 400 wavelengths below the real-space β
+    // reach at R 32: 400 × 32 × 33² = 13 939 200.
+    // A β outside (0, 1e5] gets calculateAiryCellEnergies' own refusal.
+    if (beta <= MAXIMUM_BETA && beta * wavelengths.length * (radius + 1) ** 2 > 13939200) throw new InvalidConfigurationError("Diffraction cell work exceeds its limit.");
+    const airy = calculateAiryCellEnergies(beta, radius);
     if (airy.realSpace) realSpaceWavelengthsNm.push(nm);
     maximumRadialNodes = Math.max(maximumRadialNodes, airy.radialNodes); maximumAngularNodes = Math.max(maximumAngularNodes, airy.angularNodes);
     const values: number[] = new Array(size * size);
@@ -405,7 +436,7 @@ export function createDiffractionLimitedPsfProfile(input: CreateDiffractionLimit
     records.push({ wavelengthNm: nm, cutoffFrequencyCyclesPerMicrometer: cutoff, firstZeroRadiusMicrometers: AIRY_FIRST_ZERO_PER_LAMBDA_N * lambdaN,
       capturedEnergyFraction: captured, truncatedEnergyFraction: truncated, centreSampleFraction: kernel[radius * size + radius]! });
   }
-  const uncertainty = { kind: "not-quantified" as const, limitation: "Ideal diffraction-limited model; no measured lens or quadrature error bound." };
+  const uncertainty = { kind: "not-quantified" as const, limitation: "Ideal diffraction-limited model; no error bound." };
   const nodes = [-fieldX, fieldX].flatMap((fx) => [-fieldY, fieldY].flatMap((fy) => wavelengths.map((nm, index) => ({
     nodeId: "airy-" + (fx < 0 ? "xm" : "xp") + "-" + (fy < 0 ? "ym" : "yp") + "-" + index,
     coordinate: { focalLengthMm, focusDiopters, apertureFNumber: fNumber, fieldXmm: fx, fieldYmm: fy, wavelengthNm: nm, signedDefocusImagePlaneMicrometers: 0 },

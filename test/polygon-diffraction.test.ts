@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it } from "vitest";
-import { calculateIdealPolygonDiffractionPsf, calculateAiryDisk, InvalidConfigurationError, InvalidScientificInputError } from "../src/index.js";
+import { calculateIdealPolygonDiffractionPsf, calculateAiryDisk, calculatePolygonPupilFraunhoferPsf, InvalidConfigurationError, InvalidScientificInputError } from "../src/index.js";
 import type { CalculateIdealPolygonDiffractionInput } from "../src/index.js";
 
 const base: CalculateIdealPolygonDiffractionInput = {
@@ -173,6 +173,28 @@ describe("ideal polygon diffraction", () => {
       { ...base, imagePointsMicrometers: [{ x: 0, y: 0, field: 1 }] },
       { ...base, imagePointsMicrometers: new Array(1) }]) {
       expect(() => calculateIdealPolygonDiffractionPsf(malformed as unknown as CalculateIdealPolygonDiffractionInput)).toThrow(InvalidScientificInputError);
+    }
+  });
+});
+
+describe("calculatePolygonPupilFraunhoferPsf: simple polygons only (optics-15, #700)", () => {
+  const call = (pupilVerticesMm: { x: number; y: number }[]): ReturnType<typeof calculatePolygonPupilFraunhoferPsf> => calculatePolygonPupilFraunhoferPsf({
+    pupilVerticesMm, pupilToImageDistanceMm: 50, wavelengthNm: 550, wavelengthBasis: "air",
+    imagePointsMicrometers: [{ x: 0, y: 0 }, { x: 3, y: 1 }]
+  });
+
+  it("rejects a self-intersecting polygon", () => {
+    expect(() => call([{ x: -1, y: -1 }, { x: 2, y: 2 }, { x: 2, y: -2 }, { x: -1, y: 1 }])).toThrow(InvalidScientificInputError);
+    expect(() => call([{ x: -1, y: -1 }, { x: 2, y: 2 }, { x: 2, y: -2 }, { x: -1, y: 1 }])).toThrow(/simple/);
+  });
+
+  it("keeps simple polygons, convex and concave, with peak-normalized intensity at most 1", () => {
+    for (const vertices of [
+      [{ x: -1, y: -1 }, { x: 2, y: -2 }, { x: 2, y: 2 }, { x: -1, y: 1 }],
+      [{ x: 0, y: 0 }, { x: 2, y: 0 }, { x: 2, y: 2 }, { x: 1, y: 0.5 }, { x: 0, y: 2 }]
+    ]) {
+      const result = call(vertices).value;
+      for (const s of result.samples) expect(s.peakNormalizedIntensity).toBeLessThanOrEqual(1 + 1e-12);
     }
   });
 });

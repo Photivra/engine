@@ -154,9 +154,11 @@ export function serializeRewrittenDng(input: DngRewriteInput): RewrittenDng {
     }
   };
   walk(u32(4), 0);
-  const ints = (e: Entry | undefined): number[] | null => {
+  if (ifds.length === 0) fail("the file has no IFD.");
+  const ints = (e: Entry | undefined, maximumCount = 4096): number[] | null => {
     if (!e) return null;
     if (e.type !== 3 && e.type !== 4 && e.type !== 1 && e.type !== 13) fail("an integer tag has an unsupported field type.");
+    if (e.count > maximumCount) fail("tag count exceeds its expected size.");
     const out: number[] = [];
     for (let i = 0; i < e.count; i++) out.push(e.type === 1 ? bytes[e.at + i]! : e.type === 3 ? u16(e.at + i * 2) : u32(e.at + i * 4));
     return out;
@@ -195,37 +197,58 @@ export function serializeRewrittenDng(input: DngRewriteInput): RewrittenDng {
   const activeWidth = area[3]! - area[1]!, activeHeight = area[2]! - area[0]!;
 
   const enc = createEncoder(little), edits = parseEdits(input.edits, colorPlanes, activeWidth, activeHeight, enc);
-  const copy = (id: number, e: Entry): OutTag => ({ id, type: e.type, count: e.count, data: bytes.slice(e.at, e.at + e.size) });
-  const select = (ids: readonly number[], lookup: (id: number) => Entry | undefined): OutTag[] => {
-    const out: OutTag[] = [];
-    for (const id of ids) { const e = lookup(id); if (e) out.push(copy(id, e)); }
+  // Tags to copy are chosen first and copied only after the size check below.
+  let copied = 0;
+  const select = (ids: readonly number[], lookup: (id: number) => Entry | undefined): [number, Entry][] => {
+    const out: [number, Entry][] = [];
+    for (const id of ids) { const e = lookup(id); if (e) { out.push([id, e]); copied += e.size; } }
     return out;
   };
+  const copy = (picked: [number, Entry][]): OutTag[] => picked.map(([id, e]) => ({ id, type: e.type, count: e.count, data: bytes.slice(e.at, e.at + e.size) }));
   const replaced = new Set(edits.map((t) => t.id)), removed = new Set<number>();
   if (input.edits?.asShotNeutral) removed.add(50729);
   if (input.edits?.asShotWhiteXy) removed.add(50728);
   if (input.edits?.baselineExposure !== undefined) removed.add(51109);
   if (input.edits?.defaultCrop) { removed.add(50719); removed.add(50720); }
-  const main: OutTag[] = [
+  const mainPicked = [
     ...select(DNG_REWRITE_ALLOWED_TAGS.raw.filter((id) => !replaced.has(id) && !removed.has(id)), (id) => raw.get(id) ?? (RAW_ELSE_IFD0.has(id) ? ifd0.get(id) : undefined)),
-    ...select(DNG_REWRITE_ALLOWED_TAGS.camera.filter((id) => !replaced.has(id) && !removed.has(id)), (id) => ifd0.get(id) ?? raw.get(id)),
-    ...edits, enc.long(254, [0])
+    ...select(DNG_REWRITE_ALLOWED_TAGS.camera.filter((id) => !replaced.has(id) && !removed.has(id)), (id) => ifd0.get(id) ?? raw.get(id))
   ];
-  const exif = select(DNG_REWRITE_ALLOWED_TAGS.exif, (id) => exifIfd?.get(id) ?? ifd0.get(id) ?? raw.get(id));
-  if (exif.length && !exif.some((t) => t.id === 36864)) exif.push({ id: 36864, type: 7, count: 4, data: new TextEncoder().encode("0232") });
+  const exifPicked = select(DNG_REWRITE_ALLOWED_TAGS.exif, (id) => exifIfd?.get(id) ?? ifd0.get(id) ?? raw.get(id));
 
-  /** The strips or tiles of an image IFD, bounded by the file. */
+  /**
+   * The strips or tiles of an image IFD, bounded by the file. The tables must hold one entry per strip (RowsPerStrip rows) or per
+   * tile of the grid, as the DNG import requires, so the written file reads back.
+   */
+  const ranges: [number, number][] = [];
   const chunksOf = (ifd: Ifd): { tiled: boolean; data: Uint8Array[] } => {
-    const tiled = ifd.has(324);
-    const offsets = ints(ifd.get(tiled ? 324 : 273)), counts = ints(ifd.get(tiled ? 325 : 279));
-    if (!offsets || !counts || offsets.length !== counts.length || offsets.length === 0) fail("strip or tile tables are missing or do not match.");
+    const tiled = ifd.has(324), w = one(ifd, 256, 0), h = one(ifd, 257, 0);
+    const tileWidth = tiled ? one(ifd, 322, 0) : w, tileLength = tiled ? one(ifd, 323, 0) : Math.min(h, one(ifd, 278, 0xffffffff));
+    if (w < 1 || h < 1 || tileWidth < 1 || tileLength < 1) fail("invalid image, strip or tile size.");
+    const count = Math.ceil(w / tileWidth) * Math.ceil(h / tileLength);
+    const offsets = ints(ifd.get(tiled ? 324 : 273), count), counts = ints(ifd.get(tiled ? 325 : 279), count);
+    if (!offsets || !counts || offsets.length !== count || counts.length !== count) fail("strip or tile tables do not match the image layout.");
     return { tiled, data: offsets.map((o, i) => {
       if (o + counts[i]! > n) fail("strip or tile data exceeds the file.");
+      if (counts[i]! > 0) ranges.push([o, o + counts[i]!]);
       return bytes.subarray(o, o + counts[i]!);
     }) };
   };
-  const maskSpecs = masks.map((m) => ({ tags: [...select(DNG_REWRITE_ALLOWED_TAGS.mask, (id) => m.get(id)), enc.long(254, [0x10004])], chunks: chunksOf(m) }));
-  const out = pack(little, { tags: main, chunks: chunksOf(raw) }, exif, maskSpecs);
+  const mainChunks = chunksOf(raw);
+  const maskPicked = masks.map((m) => ({ picked: select(DNG_REWRITE_ALLOWED_TAGS.mask, (id) => m.get(id)), chunks: chunksOf(m) }));
+  // No two strips or tiles (of the raw image and the masks) may share bytes.
+  ranges.sort((a, b) => a[0] - b[0]);
+  for (let i = 1; i < ranges.length; i++) if (ranges[i]![0] < ranges[i - 1]![1]) fail("strips or tiles overlap.");
+  // 2.28.0: each copied value and each strip or tile has its own bytes in a file, so together they fit in it; more means tags
+  // share bytes, and the rewrite would copy them once per tag.
+  let total = copied;
+  for (const [start, end] of ranges) total += end - start;
+  if (total > n) fail("tag values and strip or tile data add up to more than the file: tags share bytes.");
+  const main: OutTag[] = [...copy(mainPicked), ...edits, enc.long(254, [0])];
+  const exif = copy(exifPicked);
+  if (exif.length && !exif.some((t) => t.id === 36864)) exif.push({ id: 36864, type: 7, count: 4, data: new TextEncoder().encode("0232") });
+  const maskSpecs = maskPicked.map((m) => ({ tags: [...copy(m.picked), enc.long(254, [0x10004])], chunks: m.chunks }));
+  const out = pack(little, { tags: main, chunks: mainChunks }, exif, maskSpecs);
 
   const written = new Set([...main, ...exif, ...maskSpecs.flatMap((m) => m.tags)].map((t) => t.id));
   const omitted = new Set<number>();

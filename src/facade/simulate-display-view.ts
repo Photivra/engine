@@ -26,7 +26,7 @@ import { runCapture, apertureNodeOffsets, bilinearPhaseProfiles, clockMs, fail, 
   SIMULATE_CAPTURE_FACADE_VERSION, DISPLAY_VIEW_WITHOUT_VIEW, allowKeys, parseDisplayViewOption, type DisplayViewResult, type DisplayViewRunContext, type ParsedDisplayView,
   type SimulateCaptureAssumption, type SimulateCaptureOptions, type SimulateDisplayViewOptions } from "./simulate-capture.js";
 import { createHostYield } from "./host-yield.js";
-import { optInKit, qualityKit } from "./on-demand-kits.js";
+import { OK_RENDER_DISPLAY_VIEW_DETAIL, optInKit, QK_CREATE_DISPLAY_VIEW_COUPLED_RENDERING, qualityKit } from "./on-demand-kits.js";
 import { createDefocusDiscSiteKernel } from "../optics/defocus-disc-kernel.js";
 import { siteKernelRuns } from "../optics/site-kernel-runs.js";
 import { cpuDisplayViewExecution, parsePrepareDisplayViewOptions, type DisplayViewExecution, type DisplayViewGpuRequest, type PrepareDisplayViewOptions } from "./display-view-gpu.js";
@@ -149,16 +149,17 @@ export async function prepareDisplayView(options: SimulateCaptureOptions, prepar
       } catch (error) { return Promise.reject(error as Error); }
     }
   });
-  PREPARED_INTERNALS.set(handle, async (view, renderOptions) => {
-    const internals: ViewInternals = {};
-    const result = await prepared.render(parseDisplayViewOption(view, frameWidth, frameHeight), runOf(renderOptions), internals, session);
-    return { result, internals: internals.value! };
-  });
+  PREPARED_PARTS.set(handle, [prepared, session, runOf]);
   return handle;
 }
-/** The internal render of each prepared view (the same render as `render`, keeping its renderer's result). */
-const PREPARED_INTERNALS = new WeakMap<PreparedDisplayView, (view: SimulateDisplayViewOptions, renderOptions?: PreparedDisplayViewRenderOptions) =>
-  Promise<{ result: DisplayViewResult; internals: DisplayViewRenderResult }>>();
+/** #660: each prepared view's parts (its request-level parts, GPU session and per-call run), for the functions that are not methods of the handle. */
+const PREPARED_PARTS = new WeakMap<PreparedDisplayView, readonly [PreparedViewParts, DisplayViewGpuSession | null, (renderOptions: PreparedDisplayViewRenderOptions | undefined) => ViewRun]>();
+/** Internal (#660): the parts of a view returned by `prepareDisplayView`. */
+export function preparedDisplayViewParts(prepared: PreparedDisplayView, caller: string): readonly [PreparedViewParts, DisplayViewGpuSession | null, (renderOptions: PreparedDisplayViewRenderOptions | undefined) => ViewRun] {
+  const parts = PREPARED_PARTS.get(prepared);
+  if (!parts) fail(caller + " needs a view returned by prepareDisplayView.");
+  return parts;
+}
 /**
  * Internal (not exported from the package): renders a view of a prepared view as `render` does (the same GPU session and labels)
  * and also returns the renderer's noise-free expected linear values and noise standard deviations, whichever renderer ran (#480's
@@ -166,9 +167,9 @@ const PREPARED_INTERNALS = new WeakMap<PreparedDisplayView, (view: SimulateDispl
  */
 export async function renderPreparedDisplayViewWithInternals(prepared: PreparedDisplayView, view: SimulateDisplayViewOptions, renderOptions?: PreparedDisplayViewRenderOptions):
   Promise<{ result: DisplayViewResult; internals: DisplayViewRenderResult }> {
-  const render = PREPARED_INTERNALS.get(prepared);
-  if (!render) fail("renderPreparedDisplayViewWithInternals needs a view returned by prepareDisplayView.");
-  return await render(view, renderOptions);
+  const [parts, session, runOf] = preparedDisplayViewParts(prepared, "renderPreparedDisplayViewWithInternals"), internals: ViewInternals = {};
+  const result = await parts.render(parseDisplayViewOption(view, parts.context.width, parts.context.height), runOf(renderOptions), internals, session);
+  return { result, internals: internals.value! };
 }
 /**
  * Internal (not exported from the package): the display view plus its noise-free expected linear values and noise standard
@@ -191,11 +192,15 @@ type ViewInternals = { value?: DisplayViewRenderResult; signal?: DisplayViewExpe
   /** #478: the render's setup and the expected signal's input, for the GPU display view's tests. */
   setup?: DisplayViewSetup; signalInput?: DisplayViewExpectedSignalInput };
 /** What one render of a prepared view needs from its call: its start times, cancellation and yielding. */
-interface ViewRun { started: number; viewStarted: number; checkAbort: () => void; yieldControl: () => Promise<void>; signal?: AbortSignal | undefined }
+export interface ViewRun { started: number; viewStarted: number; checkAbort: () => void; yieldControl: () => Promise<void>; signal?: AbortSignal | undefined }
 type RenderPreparedView = (view: ParsedDisplayView, run: ViewRun, viewInternals?: ViewInternals, gpu?: DisplayViewGpuSession | null) => Promise<DisplayViewResult>;
 /** A prepared request: its render. */
-interface PreparedViewParts {
+export interface PreparedViewParts {
   render: RenderPreparedView;
+  /** #660: what `estimateDisplayViewRender` (display-view-estimate.ts) reads: a view's setup, the detail passes and the resolved request. */
+  setupOf(v: ParsedDisplayView, run: ViewRun): { setup: DisplayViewSetup; signal: DisplayViewExpectedSignal; regrouped: boolean };
+  detail: { lens?: { hook(channel: number, viewWidth: number, viewHeight: number): DisplayViewCorrection; channels: readonly number[] }; sharpening?: { radiusPixels: number } } | undefined;
+  context: DisplayViewRunContext;
   /** #481: what a GPU renderer is asked to support. */
   gpuRequest: DisplayViewGpuRequest;
 }
@@ -213,7 +218,7 @@ async function renderDisplayViewResult(context: DisplayViewRunContext, viewInter
  * signal caches, lookup count and assumptions), so its results are those of separate calls.
  */
 async function prepareView(context: DisplayViewRunContext): Promise<PreparedViewParts> {
-  const { ahd, antiAliasing, aspect, axisChannelResponse, boxSamples, buildProvider, callerScene, chart, materialLayers, chartReport, chartSize, diffraction, diffractionPsf, fNumber, focalLengthMm, focusDistanceM, height, highlightMode, exposureGain, illuminanceLux, illuminant, illuminantOption, imagingArea, intentOf, metresPerFrameUnit, noiseSeed, outputOptions, pitch, preset, provider, regimeByChannel, resolvedIso, isoReport, standardExposureDeviationStops, standardExposureIlluminanceLux, greyCardDeviationStops, metering, sceneOption, scenePreset, shutterSeconds, subjectDistanceM, toneCurve, whiteBalanceOption, whiteBalanceState, width, margin, mode, nativeHeight, nativeWidth, sourceSha256 } = context;
+  const { ahd, antiAliasing, aspect, axisChannelResponse, boxSamples, buildProvider, callerScene, chart, materialLayers, chartReport, chartSize, diffraction, diffractionPsf, fNumber, focalLengthMm, focusDistanceM, height, highlightMode, exposureGain, illuminanceLux, illuminant, illuminantOption, imagingArea, intentOf, metresPerFrameUnit, noiseSeed, outputOptions, pitch, preset, provider, regimeByChannel, resolvedIso, isoReport, standardExposureDeviationStops, standardExposureIlluminanceLux, greyCardDeviationStops, metering, sceneOption, scenePreset, shutterSeconds, subjectDistanceM, toneCurve, whiteBalanceOption, whiteBalanceState, width, margin, mode, nativeHeight, nativeWidth, sourceSha256, lensGpu } = context;
   const kelvinInput = context.kelvinWhiteBalanceInput;
   // The engine's illuminant formulas (Planckian, CIE A, daylight locus) evaluated with the portable power and e^x − 1, so
   // the view's radiances, irradiance scale and scene-illuminant white balance have the same bits in every JavaScript
@@ -248,28 +253,29 @@ async function prepareView(context: DisplayViewRunContext): Promise<PreparedView
       whiteRadiance: (nm: number): number => viewIrradianceScale * viewIlluminant.shape.evaluate(nm) / Math.PI } : undefined,
     radianceAt: viewProvider.radianceAt, imageSignalScene: viewProvider.imageSignalScene,
     imagingArea, focalLengthMm, focusDistanceM, subjectDistanceM, metresPerFrameUnit, caller: "simulateDisplayView" };
-  // #643, the fast method (`viewFast.perTapSum`): a chart site whose kernel taps read several materials sums its taps in order (each
-  // integrated from its material's spectrum per node), instead of forming per-material sums first; the same sum regrouped.
+  // #643: a chart site whose kernel taps read several materials sums its taps in order (each integrated from its material's spectrum
+  // per node), instead of forming per-material sums first; the same sum regrouped. #670 win 1 (2.28.0, owner decision 2026-11-21):
+  // on every CPU render (fast and full quality), no longer a fast method.
   const built = buildExpectedSignalInput(setupInput), offsets = built.offsets;
   // #652: a layered scene's expected signal (the layered sum, a new one per render) and the reach of its largest surface kernel.
   const layeredView = context.layered?.multi ? context.layered.view(context, { wavelengths, perNode, offsets, channelAt: built.signalInput.channelAt,
     diffraction: diffraction ? built.signalInput.kernels : undefined, white: Float64Array.from(wavelengths, (nm) => viewIrradianceScale * viewIlluminant.shape.evaluate(nm) / Math.PI) }) : undefined;
-  const perTapSum = context.viewFast.perTapSum && built.signalInput.kernels !== undefined && built.signalInput.scene.kind === "materials" && !context.lensPsf && !layeredView;
+  const perTapSum = built.signalInput.kernels !== undefined && built.signalInput.scene.kind === "materials" && !context.lensPsf && !layeredView;
   const signalInput: typeof built.signalInput = perTapSum ? { ...built.signalInput, perTapSum: true } : built.signalInput;
   const kernels = signalInput.kernels, largeDefocus = signalInput.largeKernel;
-  // #612, the fast method (`viewFast.defocusRegrouped`; the format default of the display view, exact with fast: false): on the CPU, a
+  // #612 (2.25.0 a fast method; #670 win 1, 2.28.0: on every CPU render, fast and full quality, owner decision 2026-11-21): on the CPU, a
   // geometric disc much wider than the diffraction kernel is applied after each channel's in-focus signal, by runs (#564's path above
   // 64 sites), instead of as each node's diffraction kernel convolved with it. Defocus of a plane is space-invariant and the same at
   // every node, so this is the same sum regrouped; only the rounding differs. The regrouped path computes the in-focus signal of
   // all three channels at every site (3·(2R_f + 1)² taps) and the disc by runs (about 2·(2R_d + 1) scalar additions); the direct
   // one reads (2R_c + 1)² combined taps, each per spectral node. It is chosen where (2R_c + 1)² > 4·(2R_f + 1)². The GPU keeps the
-  // combined kernels (`signalInput`), and so does the exact method. #642: the regrouped path computes the in-focus signal in fixed
+  // combined kernels (`signalInput`). #642: the regrouped path computes the in-focus signal in fixed
   // tiles around the render's sites (`regroupedDefocusCheaper`), which costs more than the combined taps for a small region, so
   // each render takes it only where its own cost is lower (a whole view or a large region; see setupOf).
   // #651: through the lens too (display-view-lens-regroup.ts); under a rolling shutter by row blocks (taken with fast: false too) for every
   // render whatever its size, so a request takes one method and a region equals the whole view (the cost rule acts under a global shutter only).
   const lensFactory = context.lens, lensRolling = lensFactory?.rolling;
-  const regroupEligible = (context.viewFast.defocusRegrouped || lensFactory?.bandRows !== undefined) && defocusKernel !== null && !shaped && !largeDefocus && !context.lensPsf &&
+  const regroupEligible = defocusKernel !== null && !shaped && !largeDefocus && !context.lensPsf &&
     (lensRolling === undefined || lensFactory!.bandRows !== undefined) &&
     (2 * combinedRadius + 1) ** 2 > 4 * (2 * diffractionRadius + 1) ** 2;
   const regroupedSignalInput = regroupEligible ? { ...buildExpectedSignalInput({ ...setupInput, largeDefocus: siteKernelRuns(defocusKernel!.weights, defocusKernel!.radius) }).signalInput, inFocusPerTap: true } : undefined;
@@ -301,7 +307,7 @@ async function prepareView(context: DisplayViewRunContext): Promise<PreparedView
   const rendering: DisplayViewRenderingChoice | undefined = coupledRendering ? { toneCurve, ...(outputOptions.toneCurveParameters === undefined ? {} : { toneCurveParameters: outputOptions.toneCurveParameters as SdrToneCurveParameters }),
     highlightMode, gamutHandling: context.gamutHandling, fast: context.viewFast.rendering } : undefined;
   // The coupled steps' module is loaded only for a view that asks for them (the Quality kit, #594; the default path never imports it).
-  const coupled: DisplayViewCoupledRendering | undefined = rendering ? (await qualityKit.load()).createDisplayViewCoupledRendering(rendering, colour.appliedGains, Math.min(...colour.appliedGains), matrix)! : undefined;
+  const coupled: DisplayViewCoupledRendering | undefined = rendering ? (await qualityKit.load())[QK_CREATE_DISPLAY_VIEW_COUPLED_RENDERING](rendering, colour.appliedGains, Math.min(...colour.appliedGains), matrix)! : undefined;
   // #628: lens corrections and sharpening (their module loaded only for a view that asks for them; the CPU renders them).
   const detailOption = context.viewDetail, detailKit = detailOption ? await optInKit.load() : undefined, lensDetail = detailOption?.lens;
   const detail = detailOption ? { view: { render: renderDisplayView, draw: drawDisplayPixel, overlaps, noiseGain: unsharpNoiseGain }, ...(lensDetail ? { lens: { hook: (channel: number, vw: number, vh: number): DisplayViewCorrection => lensDetail.create(lensDetail.correction, lensDetail.cornerStops, channel, vw, vh, !detailOption.fast),
@@ -329,10 +335,13 @@ async function prepareView(context: DisplayViewRunContext): Promise<PreparedView
     return { signal, regrouped, setup: { frameWidth: width, frameHeight: height, margin, nativeWidth, nativeHeight, viewWidth: v.width, viewHeight: v.height,
       region: viewRegion, samplesPerAxis: v.samplesPerAxis, uniformSamplesPerAxis: uniformSamplesOf(v.samplesPerAxis), reachSites, bitDepth: v.bitDepth, seed: noiseSeed, signal, readout, demosaic: demosaicTable,
       ...(ahdCandidates && ahdChoice ? { candidates: ahdCandidates, ahdChoice } : {}),
-      gains, clipLevel, matrix, toneCurve: viewToneCurve, ...(rendering ? { rendering, coupled: coupled! } : {}), yieldControl, checkAbort, gpu: { signalInput, chart: viewChart ?? null, layers: materialLayers ?? null, placement, ...(defocusKernel && !largeDefocus ? { defocusRadius: defocusKernel.radius } : {}), reference: cpuSignalInput } } };
+      gains, clipLevel, matrix, toneCurve: viewToneCurve, ...(rendering ? { rendering, coupled: coupled! } : {}), yieldControl, checkAbort, gpu: { signalInput, chart: viewChart ?? null, layers: materialLayers ?? null, placement, ...(defocusKernel && !largeDefocus ? { defocusRadius: defocusKernel.radius } : {}), reference: cpuSignalInput, ...(lensGpu ? { lens: lensGpu } : {}) } } };
   };
   // #492: out of focus the view reads the defocus disc (its kernel in signalInput.kernels); the GPU Quality site pass gathers it (step 2c).
-  const gpuRequest: DisplayViewGpuRequest = { ahd, lens: !!context.lens, ...(layeredView ? { layered: true } : {}), ...(viewMixed ? { mixedIllumination: true } : {}), defocus: defocusKernel !== null, ...(largeDefocus ? { largeDefocus: true } : {}), diffraction: diffraction !== undefined, antiAliasing: antiAliasing !== undefined, boxSamples, toneCurve: viewToneCurve, ...(highlightMode === "reconstruct" || highlightMode === "reconstruct-neighbors" || context.gamutHandling === "desaturate-to-luminance" ? { coupled: true } : {}),
+  // #661: a catalogue-lens view with a radial distortion describes its lens signal for the renderer (DisplayViewGpuRequest.lensView).
+  const lensSetup = lensGpu?.lens.psf ? lensGpu.lens : undefined;
+  const gpuRequest: DisplayViewGpuRequest = { ahd, lens: !!context.lens, ...(lensSetup ? { lensView: { catalogueZones: (lensSetup.psf?.zoneSites ?? 0) > 1,
+    still: lensSetup.times.length === 1 && !lensSetup.timesAt && !lensGpu!.geometry.handShake && !context.movingScene, rectilinear: !lensSetup.zeroBeyondHorizon, flare: !!lensSetup.veil } } : {}), ...(layeredView ? { layered: true } : {}), ...(viewMixed ? { mixedIllumination: true } : {}), defocus: defocusKernel !== null, ...(largeDefocus ? { largeDefocus: true } : {}), diffraction: diffraction !== undefined, antiAliasing: antiAliasing !== undefined, boxSamples, toneCurve: viewToneCurve, ...(highlightMode === "reconstruct" || highlightMode === "reconstruct-neighbors" || context.gamutHandling === "desaturate-to-luminance" ? { coupled: true } : {}),
     scene: chart ? "chart" : materialLayers ? "material-layers" : callerScene!.kind, ...(detail ? { detail: true } : {}) };
   const render: RenderPreparedView = async (v, run, viewInternals, gpu) => {
     const { started, viewStarted } = run;
@@ -340,7 +349,7 @@ async function prepareView(context: DisplayViewRunContext): Promise<PreparedView
     const assume = (id: string, kind: SimulateCaptureAssumption["kind"], value: unknown, explanation: string): void => { assumptions.push({ id, kind, value, explanation }); };
     const { setup, signal, regrouped } = setupOf(v, run), viewRegion = setup.region;
     // #481: the GPU session renders on the device when it can, else through the CPU reference, and labels which ran.
-    const cpu = (): Promise<DisplayViewRenderResult> => detail ? detailKit!.renderDisplayViewDetail(setup, detail) : renderDisplayView(setup);
+    const cpu = (): Promise<DisplayViewRenderResult> => detail ? detailKit![OK_RENDER_DISPLAY_VIEW_DETAIL](setup, detail) : renderDisplayView(setup);
     const { rendered, execution }: { rendered: DisplayViewRenderResult; execution: DisplayViewExecution } = gpu ? await gpu.render(setup, run.signal, cpu)
       : { rendered: await cpu(), execution: cpuDisplayViewExecution("off", null, null, null) };
     if (viewInternals) { viewInternals.value = rendered; viewInternals.signal = signal; viewInternals.setup = setup; viewInternals.signalInput = signalInput; }
@@ -379,8 +388,7 @@ async function prepareView(context: DisplayViewRunContext): Promise<PreparedView
     if (defocusKernel) {
       assume("view.defocus", "model", { kernel: shaped ? (diffraction ? "diffraction-convolved-with-shaped-kernel" : "shaped-kernel") : diffraction ? "diffraction-convolved-with-disc" : "disc", defocusKernelRadiusSites: defocusKernel.radius,
         diffractionKernelRadiusSites: diffraction ? diffractionRadius : null, kernelRadiusSites: combinedRadius, scientificStatus: "approximation", ...(largeDefocus ? { convolution: "runs" } : {}),
-        // #651: under a rolling shutter with fast: false the regrouping by rows is the full method (the same sum), not a fast one.
-        ...(regrouped && execution.backend !== "webgpu-f32" ? { convolution: "runs", ...(context.viewFast.defocusRegrouped ? { fast: "defocus-after-in-focus-signal" } : {}) } : {}),
+        ...(regrouped && execution.backend !== "webgpu-f32" ? { convolution: "runs" } : {}),
         ...(regrouped && lensFactory?.bandRows !== undefined ? { rollingBands: { rows: lensFactory.bandRows, shiftSites: lensFactory.bandRows > 1 ? lensRolling!.bands.shiftSites : 0 } } : {}) },
         // #564: the lens.defocus assumption explains the run convolution above 64 sites (convolution: "runs").
         "The expected electrons of each real site read the scene on the site lattice through the defocus " + (shaped ? "kernel shaped by the lens (#553; see the lens.defocus assumption; " : "disc (") +
@@ -388,19 +396,17 @@ async function prepareView(context: DisplayViewRunContext): Promise<PreparedView
         defocusKernel.width + " window), as the capture's convolution does; the estimators then run unchanged on the blurred signal. " + (diffraction ?
           "With lens.diffraction each spectral node's kernel is its diffraction kernel convolved with the disc (" + (2 * combinedRadius + 1) + " × " + (2 * combinedRadius + 1) + " taps): " +
           "an approximation, because the PSF of a defocused wave is not the in-focus Airy pattern convolved with a geometric disc." :
-          "The disc is the same at every spectral node (geometric optics).") + (regrouped && execution.backend !== "webgpu-f32" ? (context.viewFast.defocusRegrouped ?
-          " Fast method (#612): the disc is applied after each channel's in-focus signal, by runs, the same sum regrouped (equal to rounding); fast: false keeps the combined kernels." :
-          " The disc is applied after each row's in-focus signal at the row's own instants, by runs (#651): the same sum regrouped.") : "") +
+          "The disc is the same at every spectral node (geometric optics).") + (regrouped && execution.backend !== "webgpu-f32" ? " The disc is applied after each channel's in-focus signal (under a rolling shutter each row's, at its own instants), by runs (#612, #651): the same sum regrouped." : "") +
         (regrouped && lensFactory?.bandRows !== undefined && lensFactory.bandRows > 1 ? " Fast method (#651): rows in bands of " + lensFactory.bandRows + " read their middle row's instants; fast: false reads each row's own." : ""));
     }
-    // #643: the fast per-tap sum of chart sites read through kernels (the CPU reference; the regrouped defocus and #564's runs have their own).
-    if (perTapSum && !regrouped && !largeDefocus && execution.backend !== "webgpu-f32") assume("view.signal", "model", { sum: "per-tap", fast: true },
-      "Fast method (#643): a site whose kernel taps read several materials adds its taps in order, the same sum regrouped; fast: false sums them per material first.");
+    // #643: the per-tap sum of chart sites read through kernels (the CPU reference; the regrouped defocus and #564's runs have their own).
+    if (perTapSum && !regrouped && !largeDefocus && execution.backend !== "webgpu-f32") assume("view.signal", "model", { sum: "per-tap" },
+      "A site whose kernel taps read several materials adds its taps in order (#643), the same sum regrouped.");
     if (detail) for (const a of displayViewDetailAssumptions(detailOption!, detail.lens?.channels.length ?? 0)) assume(a.id, "model", a.value, a.explanation);
     if (viewMixed) assume("view.illumination", "model", { method: "radiance-at-every-query-point" },
       "Mixed lighting (#550): the radiance at every query point, as in the capture (no material tables; exact). Not on the GPU.");
     if (execution.backend === "webgpu-f32") {
-      assume("view.execution", "model", { backend: execution.backend, arithmetic: execution.arithmetic, errorBound: execution.errorBound, adapter: execution.adapter },
+      assume("view.execution", "model", { backend: execution.backend, arithmetic: execution.arithmetic, errorBound: execution.errorBound, adapter: execution.adapter, ...(lensSetup?.offsetExpansion ? { offsetMapping: "lens-mapping-per-offset" } : {}) },
         "Estimated on the GPU: this view was rendered by the WebGPU float32 display-view renderer, a labelled approximation of the float64 CPU reference within the a-priori " +
         "error bound reported in diagnostics.fast.execution.errorBound; it is not bit-identical to the reference. The device passed the engine's run-time conformance check first.");
     }
@@ -433,7 +439,7 @@ async function prepareView(context: DisplayViewRunContext): Promise<PreparedView
         limitations: ["Estimated display view of the full-resolution capture: its expected value is a stratified Monte Carlo estimate and its noise is drawn from the variance of the area mean, so it has the resized capture's statistics, not its exact pixels; not a capture and not a measurement."] },
       assumptions: Object.freeze(assumptions.map((a) => Object.freeze(a))) });
   };
-  return { render, gpuRequest };
+  return { render, gpuRequest, setupOf, detail, context };
 }
 
 

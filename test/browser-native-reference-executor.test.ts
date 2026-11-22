@@ -451,3 +451,21 @@ describe("bounded prepared browser-native Path-A executor", () => {
     ).toThrow("event/native index");
   });
 });
+
+describe("readout ISO against the committed capture (capture-33, #698)", () => {
+  it("refuses a readout regime whose exposure-index gain differs from the capture ISO, as the frame producer does", async () => {
+    const fixture = denseFixture(false);
+    const iso = fixture.frame.capture.exposure.iso;
+    for (const site of fixture.sites) for (const regime of site.readout.readoutProfile.regimes as unknown as Record<string, unknown>[])
+      regime.exposureIndexGain = { exposureIndex: 4 * iso, baseExposureIndex: iso, analogGain: 4, digitalGain: 1, conversionGainMode: "single-conversion-gain", evidence: evidence("test:capture-33") };
+    expect(() => simulateEnvironmentSensorRawFrame(fixture)).toThrow("Readout regime ISO gain differs from the committed capture ISO.");
+    const { eventPlan, source, sites } = prepared(fixture);
+    const task = createBrowserNativeReferenceTask({ eventPlan, source, sites, batchSize: 2 }, provider());
+    await expect(task.run()).rejects.toThrow("Readout regime ISO gain differs from the committed capture ISO.");
+  });
+  it("prepareBrowserNativeReferenceEventPlan refuses a missing event with a domain error", async () => {
+    const { InvalidConfigurationError } = await import("../src/index.js");
+    expect(() => prepareBrowserNativeReferenceEventPlan({} as never)).toThrow(InvalidConfigurationError);
+    expect(() => prepareBrowserNativeReferenceEventPlan({ event: { raw: undefined } } as never)).toThrow(InvalidConfigurationError);
+  });
+});

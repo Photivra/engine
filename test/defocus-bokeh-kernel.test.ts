@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it } from "vitest";
+import { createHash } from "node:crypto";
 
 import { calculateDefocusBokehKernel, calculateIdealApertureGeometry, calculateMechanicalVignetting, InvalidConfigurationError, InvalidScientificInputError } from "../src/index.js";
 import { createDefocusBokehSiteKernel, resolveDefocusBokehOptions, type ResolvedDefocusBokehOptions } from "../src/optics/defocus-bokeh-kernel.js";
@@ -245,6 +246,31 @@ describe("calculateDefocusBokehKernel (#553)", () => {
     const focused = calculateDefocusBokehKernel({ ...input, focusDistanceM: 2, bokeh: { blades: { count: 9 } } }).value;
     expect(focused).toMatchObject({ side: "in-focus", weights: null, kernelRadiusSites: 0, method: "none" });
   });
+  it("gives the straight-blade kernel within 0.01·κ + 1e-12 as the curvature tends to 0 (#725), and keeps the recorded kernels", () => {
+    const blades = (curvature: number, firstBladeEdgeAngleDegrees = 0): ReturnType<typeof calculateDefocusBokehKernel>["value"] => calculateDefocusBokehKernel({ focalLengthMm: 50,
+      aperture: 2.8, focusDistanceM: 3, subjectDistanceM: 5, pixelPitchMicrometers: 6, bokeh: { blades: { count: 7, curvature, firstBladeEdgeAngleDegrees } } }).value;
+    const straight = blades(0);
+    // Before 2.28.0: 3.8e-6 at 1e-12, a 27-site window at 1e-15, 73 sites at 5.55e-17 (0.1 + 0.2 − 0.3) and a non-finite error below 1e-17.
+    for (const curvature of [1e-6, 1e-9, 1e-10, 1e-12, 1e-15, 5.551115123125783e-17, 1e-17, 1e-100, 1e-300, 5e-324]) {
+      const r = blades(curvature);
+      expect(r.width).toBe(straight.width);
+      let largest = 0;
+      for (let k = 0; k < r.weights!.length; k++) largest = Math.max(largest, Math.abs(r.weights![k]! - straight.weights![k]!));
+      expect(largest).toBeLessThanOrEqual(0.01 * curvature + 1e-12);
+    }
+    // SHA-256 of the weights at 2.27.0 (portable arithmetic: the same on every architecture), the second with a 13° first blade edge.
+    const sha = (w: Float64Array): string => createHash("sha256").update(new Uint8Array(w.buffer, w.byteOffset, w.byteLength)).digest("hex");
+    const locks: [number, string, string][] = [
+      [0, "6de7c573b5f5809d8dfee19bc5f2c127c8cf9aba9d9c0e37935f1a56a3f367ab", ""],
+      [1e-3, "4996d2a6314edba5df0f9181f03cc46db4f9f678f88f7d17bbaceb64f262918f", "c76d3921af818f2b8e721f416d9c1c3cb0bd4ac2270a17b503baa1c329b7e5f1"],
+      [0.3, "c9772c11b9f527e648cee6cf03b6f64d1e9f499359b1227d0f6a60a96029cdc2", "d4000aa733a04ae5ec4574ebd1bba469980bd07314c23e1b30c5f7584d860a6a"],
+      [0.7, "de54d6292afb4fd1ba4cb0943ca7ac7d091f38248154fc686709228dfe896c40", "b6968c3e92c27def883704f3093dc48790bbfaff41fd4ac4ae7401022663a490"]];
+    for (const [curvature, lock, turned] of locks) {
+      expect(sha(blades(curvature).weights!)).toBe(lock);
+      if (turned) expect(sha(blades(curvature, 13).weights!)).toBe(turned);
+    }
+  });
+
   it("validates its options", () => {
     expect(() => calculateDefocusBokehKernel({ ...input, bokeh: { blades: { count: 2 } } })).toThrow(InvalidScientificInputError);
     expect(() => calculateDefocusBokehKernel({ ...input, bokeh: { blades: { count: 6, curvature: 1.5 } } })).toThrow(InvalidScientificInputError);

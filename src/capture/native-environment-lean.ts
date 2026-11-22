@@ -69,8 +69,8 @@ import type { ExposureBuildUpStage } from "./exposure-build-up-stage.js";
 import { adcTransfer, resolveSensorReadoutRegime, samplePoisson, type ResolvedSensorReadoutRegime } from "../sensor/raw-readout.js";
 import { createResettableUniformStream, deriveNativeSiteStreamSeedUint32, sampleDeterministicStandardNormal,
   NATIVE_SITE_CHARGE_STREAM_ID, NATIVE_SITE_READ_NOISE_STREAM_ID } from "../sensor/stochastic-seed.js";
-import { evaluateParsedFixedPatternSite, type SensorFixedPatternNoiseProfile } from "../sensor/fixed-pattern-noise.js";
-import { approximatelyEqual } from "../core/shared-helpers.js";
+import { evaluateFixedPatternSiteFactors, evaluateParsedFixedPatternSite, type SensorFixedPatternNoiseProfile } from "../sensor/fixed-pattern-noise.js";
+import { relativelyEqual } from "../core/shared-helpers.js";
 
 type Site = SimulateEnvironmentSensorRawFrameInput["sites"][number];
 type Env = Site["environment"];
@@ -521,11 +521,11 @@ function photo(k: PlanConstants, c: ExecutionConstants, values: readonly Float64
     for (let s = 0; s < S; s++) {
       const expected = flux[s]! * c.measure[s]!;
       if (!Number.isFinite(flux[s]!) || flux[s]! < 0 || !Number.isFinite(contribution[s]!) || contribution[s]! < 0 ||
-        !Number.isFinite(expected) || !approximatelyEqual(contribution[s]!, expected)) return undefined;
+        !Number.isFinite(expected) || !relativelyEqual(contribution[s]!, expected)) return undefined;
       const adjusted = contribution[s]! - powerCorrection, next = powerSum + adjusted;
       powerCorrection = (next - powerSum) - adjusted; powerSum = next;
     }
-    if (!(Number.isFinite(integratedFlux) && integratedFlux >= 0) || !approximatelyEqual(powerSum, integratedFlux)) return undefined;
+    if (!(Number.isFinite(integratedFlux) && integratedFlux >= 0) || !relativelyEqual(powerSum, integratedFlux)) return undefined;
     let photonSum = 0, photonCorrection = 0, electronSum = 0, electronCorrection = 0;
     for (let s = 0; s < S; s++) {
       const radiantPower = flux[s]! * c.measure[s]!;
@@ -1087,6 +1087,8 @@ interface FlatSensorStage {
   out: NativeRawLeanOutput & { photoRealized: number; darkRealized: number };
   /** #534: the build-up fraction's stage, if any. */
   b: ExposureBuildUpStage | undefined;
+  /** #689: the fixed-pattern row offset of row `patternRow` and the column offsets by absolute x, each computed once. */
+  patternRow: number; rowOffset: number; columnOffsets: number[];
 }
 function flatSensorStage(t: Pick<SensorTemplate, "darkRate" | "capacity" | "readout" | "pattern" | "whiteCode">, b: ExposureBuildUpStage | undefined): FlatSensorStage {
   const regime = t.readout.regime;
@@ -1094,13 +1096,23 @@ function flatSensorStage(t: Pick<SensorTemplate, "darkRate" | "capacity" | "read
     inlDefined: regime.adc.integralNonLinearity !== undefined, gain: regime.systemConversionGainElectronsPerCode.value, black: regime.adc.blackLevelCode,
     digitalGain: regime.adc.digitalGain, digitalSaturationCode: regime.adc.digitalSaturationCode, threshold: regime.preAdcSaturationElectronEquivalent.value,
     rms: Float64Array.from(regime.readNoiseComponents, (component) => component.rmsElectrons.value), darkMean: NaN, darkThreshold: NaN,
-    out: { rawCode: 0, blackLevelCode: 0, digitalSaturationCode: 0, flags: 0, whiteCode: 0, photoRealized: 0, darkRealized: 0 }, b };
+    out: { rawCode: 0, blackLevelCode: 0, digitalSaturationCode: 0, flags: 0, whiteCode: 0, photoRealized: 0, darkRealized: 0 }, b,
+    patternRow: NaN, rowOffset: 0, columnOffsets: [] };
 }
 /** Writes the site's outputs into `f.out`; false where a check of calculateNativeRawSite would throw. */
 function flatSensorSite(f: FlatSensorStage, photoE: number, darkE: number, total: number, x: number, y: number, index: number, seed: number): boolean {
   const ratio = total / f.capacity, headroom = f.capacity - total;
   if (!Number.isFinite(ratio) || !Number.isFinite(headroom)) return false;
-  const pattern = f.pattern === undefined ? null : evaluateParsedFixedPatternSite(f.pattern, { x, y });
+  // #689: evaluateParsedFixedPatternSite's values, with the row and column offsets taken from it once per row and column (so a
+  // new coordinate is checked as it checks it) and summed row + column as it sums them.
+  const pattern = f.pattern === undefined ? null : evaluateFixedPatternSiteFactors(f.pattern, x, y);
+  let readoutOffset = 0;
+  if (pattern !== null) {
+    if (y !== f.patternRow) { f.rowOffset = evaluateParsedFixedPatternSite(f.pattern!, { x, y }).rowOffsetElectrons; f.patternRow = y; }
+    let column = f.columnOffsets[x];
+    if (column === undefined) column = f.columnOffsets[x] = evaluateParsedFixedPatternSite(f.pattern!, { x, y }).columnOffsetElectrons;
+    readoutOffset = f.rowOffset + column;
+  }
   const photoMean = pattern === null ? photoE : photoE * pattern.photoResponseGainFactor;
   const darkMean = pattern === null ? darkE : darkE * pattern.darkCurrentFactor;
   if (!Number.isFinite(photoMean) || photoMean < 0 || !Number.isFinite(darkMean) || darkMean < 0) return false;
@@ -1131,7 +1143,7 @@ function flatSensorSite(f: FlatSensorStage, photoE: number, darkE: number, total
     const rms = rmsAll[k]!;
     totalReadNoise = totalReadNoise + (rms === 0 ? 0 : sampleDeterministicStandardNormal(readRandom) * rms);
   }
-  const afterReadNoise = afterPhysical + totalReadNoise + (pattern === null ? 0 : pattern.readoutOffsetElectrons);
+  const afterReadNoise = afterPhysical + totalReadNoise + (pattern === null ? 0 : readoutOffset);
   const threshold = f.threshold;
   const afterPreAdc = Math.min(afterReadNoise, threshold), preAdcSaturation = afterReadNoise > threshold;
   let quantized: number;

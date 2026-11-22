@@ -1,0 +1,15 @@
+# The characters of the site's Inter subsets (site/tools/make-fonts.py): the characters the built pages set in the text
+# face, from `node site/checks/fonts.mjs _site --list`. One code point or range per item; site/checks/fonts.mjs fails on a
+# character the pages use that is in neither list.
+U+0020-007E
+U+00A7 U+00B0 U+00B1 U+00B2 U+00B3 U+00B5 U+00B7 U+00B9 U+00BC U+00BD U+00BE U+00C9 U+00D7
+U+00E3 U+00E9 U+00F6 U+00F7 U+00FC U+010D U+0112 U+015C U+0233 U+0259 U+026A U+0279 U+028A
+U+02C8 U+02E3 U+0302 U+0303 U+0304 U+0393 U+0394 U+039B U+03A0 U+03A3 U+03A6 U+03A9 U+03B1
+U+03B2 U+03B3 U+03B4 U+03B5 U+03B7 U+03B8 U+03BA U+03BB U+03BC U+03BD U+03C0 U+03C1 U+03C3
+U+03C4 U+03C6 U+03C9 U+1D62 U+2013 U+2014 U+2016 U+201C U+201D U+2026 U+2032 U+2070
+U+2074 U+2075 U+2076 U+2077 U+2078 U+2079 U+207B U+207F U+2080 U+2081 U+2082 U+2083 U+2084
+U+2086 U+2087 U+208A U+2096 U+2154 U+2190 U+2192 U+2194 U+2202 U+2212
+U+221A U+221E U+222B U+2248 U+2260 U+2264 U+2265 U+2295 U+2297
+U+2C7C
+# Not in Inter 4.1: set in the system font through the font stack (make-fonts.py reports these).
+U+1D40 U+2207 U+2208 U+2217 U+221D U+226A U+229B U+2308 U+2309 U+230A U+230B U+27E8 U+27E9

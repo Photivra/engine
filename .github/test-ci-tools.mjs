@@ -19,12 +19,29 @@ test("a change to Markdown that no test reads is docs-only", () => {
 test("Markdown that a test reads runs the tests", () => {
   assert.match(docsOnlyReason(["docs/API_STYLE.md"], readers), /read by test\/fast-flag-convention/);
 });
+test("a path named only in a comment is not read by that test (ci-10 in #703)", () => {
+  const commented = [{ file: "test/capture-bundle.test.ts", text: 'import { readFileSync } from "node:fs";\n// The rows are listed in CHANGELOG.md.\n/* and in\n docs/IMAGE_PLANE.md */\nconst x = 1;' }];
+  assert.equal(docsOnlyReason(["CHANGELOG.md", "docs/IMAGE_PLANE.md"], commented), undefined);
+  // A string after a comment on the same line, a string holding `//` (a URL) and a template literal still count.
+  const afterComment = [{ file: "test/a.test.ts", text: '/* note */ const p = "../CHANGELOG.md";' }];
+  assert.match(docsOnlyReason(["CHANGELOG.md"], afterComment), /CHANGELOG\.md is read by test\/a\.test\.ts/);
+  const url = [{ file: "test/b.test.ts", text: 'const base = "https://example.org/"; const doc = new URL("../docs/WEBGPU.md", import.meta.url); // c' }];
+  assert.match(docsOnlyReason(["docs/WEBGPU.md"], url), /read by test\/b\.test\.ts/);
+  const template = [{ file: "test/c.test.ts", text: "const doc = `${root}//docs/USAGE.md`;" }];
+  assert.match(docsOnlyReason(["docs/USAGE.md"], template), /read by test\/c\.test\.ts/);
+});
 test("any non-Markdown file, code directory or empty diff runs the tests", () => {
   assert.match(docsOnlyReason(["docs/validation/tier-acceptance-report-v1.json"], readers), /not Markdown/);
   assert.match(docsOnlyReason(["README.md", "src/index.ts"], readers), /not Markdown/);
   assert.match(docsOnlyReason(["test/fixtures/producer-export-acceptance/README.md"], readers), /code directory/);
   assert.match(docsOnlyReason([".github/pull_request_template.md"], readers), /code directory/);
   assert.match(docsOnlyReason([], readers), /no changed files/);
+});
+test("a change confined to the documentation site or its design runs no engine tests (#709, gap 2)", () => {
+  assert.equal(docsOnlyReason(["site/build.mjs", "site/styles/site.css", "site/package-lock.json", "site/content/404.md"], readers), undefined);
+  assert.equal(docsOnlyReason(["docs/design/engine-site.md", "docs/design/screens/site-home.png", "README.md"], readers), undefined);
+  assert.match(docsOnlyReason(["site/build.mjs", "src/index.ts"], readers), /src\/index\.ts is not Markdown/);
+  assert.match(docsOnlyReason(["site/build.mjs", "scripts/lib/anchors.mjs"], readers), /not Markdown/);
 });
 
 const tree = "0123456789abcdef0123456789abcdef01234567";
@@ -36,16 +53,63 @@ test("a proof name is the tree, the job and the runtime", () => {
 const repo = 1001;
 const ci = ".github/workflows/ci.yml";
 const artifact = (run, extra = {}) => ({ expired: false, workflow_run: { id: run, head_repository_id: repo }, ...extra });
-const run = (id, extra = {}) => [id, { id, path: ".github/workflows/ci.yml", head_repository: { id: repo }, ...extra }];
+const head = "fedcba9876543210fedcba9876543210fedcba98";
+const trees = new Map([[head, tree]]);
+const intoMain = [{ base: { ref: "main", repo: { id: repo } }, head: { sha: head, repo: { id: repo } } }];
+const run = (id, extra = {}) => [id, { id, path: ".github/workflows/ci.yml", head_repository: { id: repo }, event: "pull_request", head_branch: "feature",
+  status: "completed", conclusion: "success", head_sha: head, pull_requests: intoMain, ...extra }];
 test("a proof counts only from this repository's same workflow and before it expires", () => {
-  assert.equal(acceptedRun([artifact(7)], new Map([run(7)]), repo, ci), 7);
-  assert.equal(acceptedRun([artifact(7, { expired: true })], new Map([run(7)]), repo, ci), undefined);
-  assert.equal(acceptedRun([artifact(7, { workflow_run: { id: 7, head_repository_id: 2002 } })], new Map([run(7)]), repo, ci), undefined);
-  assert.equal(acceptedRun([artifact(7)], new Map([run(7, { head_repository: { id: 2002 } })]), repo, ci), undefined);
-  assert.equal(acceptedRun([artifact(7)], new Map([run(7, { path: ".github/workflows/webgpu.yml" })]), repo, ci), undefined);
-  assert.equal(acceptedRun([artifact(7)], new Map(), repo, ci), undefined);
+  assert.equal(acceptedRun([artifact(7)], new Map([run(7)]), repo, ci, tree, trees), 7);
+  assert.equal(acceptedRun([artifact(7, { expired: true })], new Map([run(7)]), repo, ci, tree, trees), undefined);
+  assert.equal(acceptedRun([artifact(7, { workflow_run: { id: 7, head_repository_id: 2002 } })], new Map([run(7)]), repo, ci, tree, trees), undefined);
+  assert.equal(acceptedRun([artifact(7)], new Map([run(7, { head_repository: { id: 2002 } })]), repo, ci, tree, trees), undefined);
+  assert.equal(acceptedRun([artifact(7)], new Map([run(7, { path: ".github/workflows/webgpu.yml" })]), repo, ci, tree, trees), undefined);
+  assert.equal(acceptedRun([artifact(7)], new Map(), repo, ci, tree, trees), undefined);
+});
+test("a proof counts only from a successful run of a proving event on the tree it names", () => {
+  const accepted = (extra, wanted = tree) => acceptedRun([artifact(7)], new Map([run(7, extra)]), repo, ci, wanted, trees);
+  for (const extra of [{ event: "merge_group", head_branch: "gh-readonly-queue/main/pr-12-abc" }, { event: "push", head_branch: "main" }, { event: "workflow_dispatch", head_branch: "main" }])
+    assert.equal(accepted(extra), 7);
+  for (const extra of [{ conclusion: "failure" }, { status: "in_progress", conclusion: null }, { conclusion: "cancelled" }, { event: "push", head_branch: "feature" },
+    { event: "workflow_dispatch", head_branch: "feature" }, { event: "merge_group", head_branch: "gh-readonly-queue/other/pr-1" }, { event: "schedule", head_branch: "main" },
+    { event: "pull_request_target" }, { head_sha: "0000000000000000000000000000000000000000" }])
+    assert.equal(accepted(extra), undefined, JSON.stringify(extra));
+  // The proof's tree must be the run's head tree: a run cannot prove another tree.
+  assert.equal(accepted({}, "1111111111111111111111111111111111111111"), undefined);
+  assert.equal(accepted({}, "main"), undefined);
+  // A pull request's run also proves a merge of its head (the merge queue's commit has that head as a parent); other events do not.
+  const other = "1111111111111111111111111111111111111111", base = "2222222222222222222222222222222222222222";
+  assert.equal(acceptedRun([artifact(7)], new Map([run(7)]), repo, ci, other, trees, [base, head]), 7);
+  assert.equal(acceptedRun([artifact(7)], new Map([run(7)]), repo, ci, other, trees, [base]), undefined);
+  assert.equal(acceptedRun([artifact(7)], new Map([run(7, { event: "push", head_branch: "main" })]), repo, ci, other, trees, [base, head]), undefined);
 });
 
+test("a pull request's proof counts only when its base is main", () => {
+  const accepted = (extra, pulls = new Map()) => acceptedRun([artifact(7)], new Map([run(7, extra)]), repo, ci, tree, trees, [], new Map(), pulls);
+  assert.equal(accepted({}), 7);
+  // Into another branch, into main of another repository, or into main and another branch at once: no proof.
+  assert.equal(accepted({ pull_requests: [{ base: { ref: "release", repo: { id: repo } } }] }), undefined);
+  assert.equal(accepted({ pull_requests: [{ base: { ref: "main", repo: { id: 2002 } } }] }), undefined);
+  assert.equal(accepted({ pull_requests: [...intoMain, { base: { ref: "release", repo: { id: repo } } }] }), undefined);
+  // The run lists no pull request (it was merged or closed): the pull requests whose head is the run's head decide.
+  assert.equal(accepted({ pull_requests: [] }), undefined);
+  assert.equal(accepted({ pull_requests: [] }, new Map([[head, intoMain]])), 7);
+  assert.equal(accepted({ pull_requests: [] }, new Map([[head, [{ base: { ref: "release", repo: { id: repo } }, head: { sha: head, repo: { id: repo } } }]]])), undefined);
+  assert.equal(accepted({ pull_requests: [] }, new Map([[head, [{ ...intoMain[0], head: { sha: "3".repeat(40), repo: { id: repo } } }]]])), undefined);
+  assert.equal(accepted({ pull_requests: [] }, new Map([[head, [{ ...intoMain[0], head: { sha: head, repo: { id: 2002 } } }]]])), undefined);
+  assert.equal(accepted({ pull_requests: [] }, new Map([[head, [...intoMain, { base: { ref: "release", repo: { id: repo } }, head: { sha: head, repo: { id: repo } } }]]])), undefined);
+  assert.equal(accepted({ pull_requests: undefined }), undefined);
+});
+test("a manual run on a release tag counts when the tag names the run's head commit", () => {
+  const tags = new Map([["v2.28.0", head]]);
+  const accepted = (extra, known = tags) => acceptedRun([artifact(7)], new Map([run(7, extra)]), repo, ci, tree, trees, [], known);
+  assert.equal(accepted({ event: "workflow_dispatch", head_branch: "v2.28.0" }), 7);
+  // The tag must exist and name this commit; a push to it, or a branch or tag of another name, does not count.
+  assert.equal(accepted({ event: "workflow_dispatch", head_branch: "v2.28.0" }, new Map()), undefined);
+  assert.equal(accepted({ event: "workflow_dispatch", head_branch: "v2.28.0" }, new Map([["v2.28.0", "4".repeat(40)]])), undefined);
+  assert.equal(accepted({ event: "push", head_branch: "v2.28.0" }), undefined);
+  assert.equal(accepted({ event: "workflow_dispatch", head_branch: "release" }, new Map([["release", head]])), undefined);
+});
 // #666: each coverage shard leaves one part, its blob report or a proof marker, and the gate decides from the ten parts.
 const parts = (kinds) => kinds.map((kind, i) => (kind === "b" ? `blob-${i + 1}-10.json` : `proven-${i + 1}.txt`));
 test("the 2.27.0 publish run (nine shards proven, shard 2 ran) passes without a merge", () => {

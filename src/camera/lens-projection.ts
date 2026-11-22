@@ -465,6 +465,11 @@ export function calculateLensProjectionFieldOfViewBounds(
   const minimumRadians = signedAxisAngle(model, input.focalLengthMm, minimum);
   const maximumRadians = signedAxisAngle(model, input.focalLengthMm, maximum);
   const radians = maximumRadians - minimumRadians;
+  if (model === "equirectangular" && Math.max(-minimumRadians, maximumRadians) > Math.PI) {
+    throw new InvalidScientificInputError(
+      "Sensor bounds lie outside the equirectangular +/-180-degree domain."
+    );
+  }
   if (model === "equirectangular" && radians > 2 * Math.PI) {
     throw new InvalidScientificInputError(
       "Sensor bounds exceed the full 360-degree equirectangular span."
@@ -510,8 +515,9 @@ export function lensProjectionImagePointValue(
   if (model === "equirectangular") {
     const latitude = Math.asin(Math.max(-1, Math.min(1, y / length)));
     const horizontal = Math.hypot(x, z);
-    if (horizontal === 0) {
-      // Poles have an undefined longitude; the projection is singular there.
+    if (horizontal <= 1e-15 * length) {
+      // Poles have an undefined longitude; the projection is singular there. A rounding residue
+      // (cos(pi / 2) is 6e-17) counts as the pole.
       throw new InvalidScientificInputError(
         "Equirectangular projection is undefined at the poles (direction parallel to +/-Y)."
       );
@@ -552,7 +558,8 @@ export function lensProjectionDirectionValue(
   if (model === "equirectangular") {
     const longitude = px / f;
     const latitude = py / f;
-    if (Math.abs(longitude) > Math.PI || Math.abs(latitude) > HALF_PI) {
+    // The poles (|latitude| = pi / 2) are excluded, as in the forward mapping.
+    if (Math.abs(longitude) > Math.PI || Math.abs(latitude) >= HALF_PI) {
       throw new InvalidScientificInputError(
         "imagePointMm lies outside the equirectangular longitude/latitude domain."
       );

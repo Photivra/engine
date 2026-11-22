@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 /**
- * #612, the display view's regrouped defocus (fast method `lens.defocus/view-regrouped`). On the CPU, a disc much wider than the
+ * #612, the display view's regrouped defocus (a fast method from 2.25.0 to 2.27.0; on every CPU render since 2.28.0, #670 win 1). On the CPU, a disc much wider than the
  * diffraction kernel is applied after each channel's in-focus signal, by runs (#564's path above 64 sites), instead of as each
  * node's diffraction kernel convolved with it. Defocus of a plane is space-invariant and the same at every spectral node, so the
  * two are the same sum regrouped: the expected electrons agree to rounding and the samples to at most one code.
@@ -38,14 +38,16 @@ const defocusOf = (result: { assumptions: readonly { id: string; value: unknown 
   result.assumptions.find((a) => a.id === "view.defocus")!.value as Record<string, unknown>;
 
 describe("display view: regrouped defocus (#612)", () => {
-  it("is the fast default for a wide disc, equal to the combined kernels to rounding; fast: false keeps the combined kernels", async () => {
+  it("is taken for a wide disc with both flags (#670 win 1, 2.28.0; fast only before), with the same values under both", async () => {
     const fast = await simulateDisplayViewWithInternals(request(2.8, 1.4), VIEW);
     const exact = await simulateDisplayViewWithInternals(request(2.8, 1.4, false), VIEW);
-    expect(defocusOf(fast.result)).toMatchObject({ convolution: "runs", fast: "defocus-after-in-focus-signal" });
-    expect(defocusOf(exact.result).convolution).toBeUndefined();
+    expect(defocusOf(fast.result).convolution).toBe("runs");
+    expect(defocusOf(exact.result).convolution).toBe("runs");
+    expect(defocusOf(exact.result).fast).toBeUndefined();
     expect(defocusOf(fast.result).defocusKernelRadiusSites as number).toBeGreaterThan(4 * (defocusOf(fast.result).diffractionKernelRadiusSites as number));
     // Same seed and same sample positions under both flags: compare the expected linear signal and the samples. fast: false also
-    // turns off H2's quarter sampling of uniform pixels, which this scene (detail everywhere) does not use.
+    // turns off H2's quarter sampling of uniform pixels, which this scene (detail everywhere) does not use. The regrouped path against
+    // the combined kernels: the region of a few pixels below, which keeps them (#642).
     const a = fast.internals.expected, b = exact.internals.expected;
     expect(a.length).toBe(b.length);
     let worst = 0;
@@ -88,25 +90,7 @@ describe("display view: regrouped defocus (#612)", () => {
     expect(codes).toBeLessThanOrEqual(1);
   }, scaledTimeout(600_000));
 
-  it("renders a region of a few pixels in about the exact method's time (#642)", async () => {
-    // 2.25.0 took the regrouped path for any region: its in-focus tiles around a 4 × 2 region cost 8–15 times the exact method's
-    // combined taps (measured, two demosaics, one process, machine loaded). The bound sits between that and the fixed code's ~1.
-    const time = async (r: SimulateCaptureOptions): Promise<number> => {
-      let best = Infinity;
-      for (let i = 0; i < 3; i++) { const t0 = performance.now(); await simulateDisplayViewWithInternals(r, TINY); best = Math.min(best, performance.now() - t0); }
-      return best;
-    };
-    await time(request(2.8, 1.4));
-    const fastMs = await time(request(2.8, 1.4)), exactMs = await time(request(2.8, 1.4, false));
-    expect(fastMs / exactMs).toBeLessThan(3);
-  }, scaledTimeout(600_000));
-
-  it("costs under half the exact method on fine detail", async () => {
-    // A region of 40 × 20 display pixels, 2 × 2 samples: the regrouped path's in-focus tiles (all sites around the region) cost less
-    // than the combined taps of the sampled sites. #642: a region of a few pixels keeps the combined kernels (test above).
-    const region = { width: 750, height: 500, samplesPerAxis: 2, region: { x: 355, y: 240, width: 40, height: 20 } };
-    const time = async (r: SimulateCaptureOptions): Promise<number> => { const t0 = performance.now(); await simulateDisplayViewWithInternals(r, region); return performance.now() - t0; };
-    const fastMs = await time(request(2.8, 1.4)), exactMs = await time(request(2.8, 1.4, false));
-    expect(fastMs / exactMs).toBeLessThan(0.5);
-  }, scaledTimeout(1_800_000));
+  // The two timings of 2.25.0 to 2.27.0 compared this path with the combined kernels through the flag (fast: false kept them); since
+  // #670 win 1 both flags take it, and its cost against the combined kernels is the measurement in docs/DISPLAY_VIEW.md
+  // ("Regrouped on the CPU") and the #670 benchmark's record (CHANGELOG, 2.28.0).
 });

@@ -63,6 +63,12 @@ export interface ApplyDngOpcodesOptions {
 
 const NAMES = ["Unknown", "WarpRectilinear", "WarpFisheye", "FixVignetteRadial", "FixBadPixelsConstant", "FixBadPixelsList", "TrimBounds", "MapTable",
   "MapPolynomial", "GainMap", "DeltaPerRow", "DeltaPerColumn", "ScalePerRow", "ScalePerColumn", "WarpRectilinear2"] as const;
+/**
+ * Engine limits on opcode lists (not from the DNG specification). MAXIMUM_APPLIED_OPCODES_PER_LIST: opcodes after that many applied
+ * ones in one list are reported and not applied (each is a full pass over its area). MAXIMUM_COEFFICIENT: the largest magnitude of
+ * a WarpRectilinear or FixVignetteRadial coefficient (far beyond any lens); a larger one makes the list malformed.
+ */
+const MAXIMUM_APPLIED_OPCODES_PER_LIST = 64, MAXIMUM_COEFFICIENT = 1e6;
 function fail(message: string): never { throw new InvalidConfigurationError("DNG opcodes: " + message); }
 
 /** Parses an opcode list (the tag's bytes). Every count and length is checked against the bytes before allocation. */
@@ -90,6 +96,10 @@ function parseParameters(id: number, v: DataView): DngOpcodeParameters | null {
   const size = v.byteLength;
   const need = (bytes: number): void => { if (bytes !== size) fail("opcode " + id + " has " + size + " parameter bytes, expected " + bytes + "."); };
   const finite = (x: number): number => { if (!Number.isFinite(x)) fail("non-finite opcode parameter."); return x; };
+  const coefficient = (x: number): number => {
+    if (!(Math.abs(finite(x)) <= MAXIMUM_COEFFICIENT)) fail("opcode " + id + " has a coefficient beyond ±" + MAXIMUM_COEFFICIENT + " (an engine limit).");
+    return x;
+  };
   const area = (): DngOpcodeArea => {
     if (size < 32) fail("area opcode parameters are too short.");
     const [top, left, bottom, right, plane, planes, rowPitch, colPitch] = [0, 4, 8, 12, 16, 20, 24, 28].map((o) => v.getUint32(o)) as [number, number, number, number, number, number, number, number];
@@ -103,7 +113,7 @@ function parseParameters(id: number, v: DataView): DngOpcodeParameters | null {
       if (planes < 1 || planes > 4) fail("WarpRectilinear needs 1 to 4 planes.");
       need(4 + planes * 48 + 16);
       const list = Array.from({ length: planes }, (_, i) => {
-        const at = 4 + i * 48, d = (j: number): number => finite(v.getFloat64(at + j * 8));
+        const at = 4 + i * 48, d = (j: number): number => coefficient(v.getFloat64(at + j * 8));
         return { radial: [d(0), d(1), d(2), d(3)] as [number, number, number, number], tangential: [d(4), d(5)] as [number, number] };
       });
       const centerX = finite(v.getFloat64(4 + planes * 48)), centerY = finite(v.getFloat64(12 + planes * 48));
@@ -113,9 +123,9 @@ function parseParameters(id: number, v: DataView): DngOpcodeParameters | null {
     case 3: {
       need(56);
       const d = (j: number): number => finite(v.getFloat64(j * 8));
-      const centerX = d(5), centerY = d(6);
+      const centerX = d(5), centerY = d(6), k = (j: number): number => coefficient(d(j));
       if (!(centerX >= 0 && centerX <= 1 && centerY >= 0 && centerY <= 1)) fail("FixVignetteRadial's centre must be within the image.");
-      return { opcode: "FixVignetteRadial", coefficients: [d(0), d(1), d(2), d(3), d(4)], centerX, centerY };
+      return { opcode: "FixVignetteRadial", coefficients: [k(0), k(1), k(2), k(3), k(4)], centerX, centerY };
     }
     case 4: {
       need(8);
@@ -195,19 +205,22 @@ export function applyDngOpcodes(image: DngStageImage, opcodes: readonly DngOpcod
   const { width, height, planes } = image, scale = options.scale ?? 1, notes: string[] = [];
   if (!(image.data instanceof Float32Array) || image.data.length !== width * height * planes) fail("the stage image's data does not match its size.");
   const label = (op: DngOpcode): string => "OpcodeList" + options.stage + " " + op.name + " (" + op.id + ")";
+  const cap = MAXIMUM_APPLIED_OPCODES_PER_LIST;
+  let applied = 0;
   for (const op of opcodes) {
     const p = op.parameters;
     if (!p) { notes.push(label(op) + " not applied: not supported" + (op.optional ? " (optional)." : " (marked required by the file).")); continue; }
     if (scale !== 1 && (p.opcode === "FixBadPixelsConstant" || p.opcode === "FixBadPixelsList")) { notes.push(label(op) + " not applied: a half-size image has no single raw pixels."); continue; }
     if ((p.opcode === "FixBadPixelsConstant" || p.opcode === "FixBadPixelsList") && planes !== 1) { notes.push(label(op) + " not applied: bad-pixel opcodes act on single-plane CFA data."); continue; }
     if ("area" in p && scale !== 1 && (p.area.rowPitch > 1 || p.area.colPitch > 1)) { notes.push(label(op) + " not applied: a pitched area cannot be scaled to a half-size image."); continue; }
+    if (p.opcode === "WarpRectilinear" && p.planes.length !== 1 && p.planes.length !== planes) { notes.push(label(op) + " not applied: its plane count does not match the image."); continue; }
+    if (applied >= cap) { notes.push(label(op) + " not applied: the list holds more than " + cap + " applied opcodes."); continue; }
+    applied++;
     switch (p.opcode) {
       case "MapTable": case "MapPolynomial": case "DeltaPerRow": case "DeltaPerColumn": case "ScalePerRow": case "ScalePerColumn": case "GainMap":
         applyArea(image, p, scale); break;
       case "FixVignetteRadial": applyVignette(image, p); break;
-      case "WarpRectilinear":
-        if (p.planes.length !== 1 && p.planes.length !== planes) { notes.push(label(op) + " not applied: its plane count does not match the image."); continue; }
-        image.data = warp(image, p, options.fast); break;
+      case "WarpRectilinear": image.data = warp(image, p, options.fast); break;
       case "FixBadPixelsConstant": case "FixBadPixelsList": fixBadPixels(image, p); break;
     }
     notes.push(label(op) + " applied" + (p.opcode === "WarpRectilinear" ? (options.fast ? " (bilinear resampling, fast)." : " (cubic convolution, a = −0.75).") : "."));
@@ -220,7 +233,8 @@ function applyArea(image: DngStageImage, p: AreaParameters, scale: number): void
   const { width, height, planes, data } = image, a = p.area;
   const top = Math.floor(a.top * scale), left = Math.floor(a.left * scale), bottom = Math.min(height, Math.ceil(a.bottom * scale)), right = Math.min(width, Math.ceil(a.right * scale));
   const lastPlane = Math.min(planes, a.plane + a.planes);
-  const clip = (x: number): number => x < 0 ? 0 : x > 1 ? 1 : x;
+  // 2.28.0: NaN (a hand-built coefficient of ±Infinity) clips to 0; every other value, −0 included, as before.
+  const clip = (x: number): number => x >= 0 ? x > 1 ? 1 : x : 0;
   for (let plane = a.plane; plane < lastPlane; plane++) for (let row = top, ri = 0; row < bottom; row += a.rowPitch, ri++) {
     for (let col = left, ci = 0; col < right; col += a.colPitch, ci++) {
       const i = (row * width + col) * planes + plane, x = data[i]!;
@@ -262,12 +276,15 @@ function geometry(image: DngStageImage, centerX: number, centerY: number): { cx:
   return { cx, cy, radius: Math.max(Math.hypot(cx, cy), Math.hypot(image.width - cx, cy), Math.hypot(cx, image.height - cy), Math.hypot(image.width - cx, image.height - cy)) };
 }
 
+/** min(max(v, 0), 1) with NaN mapped to 0 (the same value for every other input, −0 included). */
+function unit(v: number): number { return v > 0 ? (v < 1 ? v : 1) : 0; }
+
 function applyVignette(image: DngStageImage, p: Extract<DngOpcodeParameters, { opcode: "FixVignetteRadial" }>): void {
   const { width, height, planes, data } = image, { cx, cy, radius } = geometry(image, p.centerX, p.centerY), k = p.coefficients;
   for (let row = 0; row < height; row++) for (let col = 0; col < width; col++) {
     const r2 = ((col - cx) ** 2 + (row - cy) ** 2) / (radius * radius);
     const gain = 1 + r2 * (k[0] + r2 * (k[1] + r2 * (k[2] + r2 * (k[3] + r2 * k[4]))));
-    for (let c = 0; c < planes; c++) { const i = (row * width + col) * planes + c; data[i] = Math.min(Math.max(data[i]! * gain, 0), 1); }
+    for (let c = 0; c < planes; c++) { const i = (row * width + col) * planes + c; data[i] = unit(data[i]! * gain); }
   }
 }
 
@@ -283,13 +300,14 @@ function warp(image: DngStageImage, p: Extract<DngOpcodeParameters, { opcode: "W
     const { radial: [k0, k1, k2, k3], tangential: [t0, t1] } = p.planes[p.planes.length === 1 ? 0 : plane]!;
     for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) {
       const dx = (x - cx) / radius, dy = (y - cy) / radius, r2 = dx * dx + dy * dy, ratio = k0 + r2 * (k1 + r2 * (k2 + r2 * k3));
-      const sx = Math.min(Math.max(cx + radius * (dx * ratio + t1 * (r2 + 2 * dx * dx) + 2 * t0 * dx * dy), 0), width - 1);
-      const sy = Math.min(Math.max(cy + radius * (dy * ratio + t0 * (r2 + 2 * dy * dy) + 2 * t1 * dx * dy), 0), height - 1);
+      // A non-finite source position (only from hand-built coefficients) is held at the centre.
+      const rx = cx + radius * (dx * ratio + t1 * (r2 + 2 * dx * dx) + 2 * t0 * dx * dy), ry = cy + radius * (dy * ratio + t0 * (r2 + 2 * dy * dy) + 2 * t1 * dx * dy);
+      const sx = Math.min(Math.max(rx === rx ? rx : cx, 0), width - 1), sy = Math.min(Math.max(ry === ry ? ry : cy, 0), height - 1);
       const ix = Math.floor(sx), iy = Math.floor(sy), fx = sx - ix, fy = sy - iy;
       let value = 0;
       if (fast) value = (sample(plane, ix, iy) * (1 - fx) + sample(plane, ix + 1, iy) * fx) * (1 - fy) + (sample(plane, ix, iy + 1) * (1 - fx) + sample(plane, ix + 1, iy + 1) * fx) * fy;
       else for (let j = -1; j <= 2; j++) { const wy = cubic(j - fy); for (let i = -1; i <= 2; i++) value += wy * cubic(i - fx) * sample(plane, ix + i, iy + j); }
-      out[(y * width + x) * planes + plane] = Math.min(Math.max(value, 0), 1);
+      out[(y * width + x) * planes + plane] = unit(value);
     }
   }
   return out;
@@ -306,7 +324,21 @@ function fixBadPixels(image: DngStageImage, p: Extract<DngOpcodeParameters, { op
   if (p.opcode === "FixBadPixelsConstant") { for (let i = 0; i < bad.length; i++) if (Math.round(data[i]! * 65535) === p.constant) bad[i] = 1; }
   else {
     for (const [r, c] of p.points) if (r < height && c < width) bad[r * width + c] = 1;
-    for (const [t, l, b, r] of p.rects) for (let y = t; y < Math.min(b, height); y++) for (let x = l; x < Math.min(r, width); x++) bad[y * width + x] = 1;
+    if (p.rects.length) {
+      // Rectangles in O(rectangles + pixels): a (width + 1) × (height + 1) difference grid, then one 2-D prefix sum.
+      const w1 = width + 1, grid = new Int32Array(w1 * (height + 1));
+      for (const [t, l, b, r] of p.rects) {
+        const bottom = Math.min(b, height), right = Math.min(r, width);
+        if (t >= bottom || l >= right) continue;
+        const add = (k: number, d: number): void => { grid[k] = grid[k]! + d; };
+        add(t * w1 + l, 1); add(t * w1 + right, -1); add(bottom * w1 + l, -1); add(bottom * w1 + right, 1);
+      }
+      for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) {
+        const i = y * w1 + x, sum = grid[i]! + (x ? grid[i - 1]! : 0) + (y ? grid[i - w1]! : 0) - (x && y ? grid[i - w1 - 1]! : 0);
+        grid[i] = sum;
+        if (sum > 0) bad[y * width + x] = 1;
+      }
+    }
   }
   const rings = [[[-1, 1], [-1, -1], [1, -1], [1, 1]], [[-2, 0], [2, 0], [0, -2], [0, 2]], [[-2, -2], [-2, 2], [2, -2], [2, 2]]] as const;
   const source = data.slice();

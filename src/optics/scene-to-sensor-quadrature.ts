@@ -21,7 +21,7 @@ import { bindSensorSpatioSpectralSamples, reduceSensorSpatioSpectralIrradiance,
   type ReduceSensorSpatioSpectralIrradianceInput, type SensorSpatioSpectralNodeIdentity } from "../sensor/spatio-spectral-reduction.js";
 import { sensorSpatialQuadratureNodeIdentityKey } from "../sensor/spatial-sample-reduction.js";
 import { calculateSceneRadianceToSensorIrradiance, type CalculateSceneRadianceToSensorIrradianceInput } from "./scene-to-sensor-irradiance.js";
-import { requireInputKeys } from "../core/record-validation.js";
+import { requireInputKeys, requireInputObject } from "../core/record-validation.js";
 
 /**
  * One declared scene query and its result, for one exact spatial and wavelength node before the
@@ -86,6 +86,8 @@ export function calculateSceneToSensorIrradianceQuadrature(
     throw new InvalidScientificInputError("Quadrature sample time must be finite and nonnegative.");
   }
   const bound = bindSensorSpatioSpectralSamples({ ...input, sampleValues: input.samples }, sample => sample);
+  // 2.28.0 (#726): a missing record is a domain error, not a TypeError from a property read.
+  requireInputObject(input.sceneBindings, "sceneBindings");
   const sceneBindings = {
     providerProfile: parseSceneRadianceProviderProfile(input.sceneBindings.providerProfile),
     illuminationProfile: parseSceneIlluminationProfile(input.sceneBindings.illuminationProfile),

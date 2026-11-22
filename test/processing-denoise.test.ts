@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 import { describe, expect, it } from "vitest";
 import { createBilateralFilterTask, createNonLocalMeansTask, createSyntheticFilmGrainTask, createUnsharpMaskTask, InvalidConfigurationError,
-  InvalidScientificInputError, SYNTHETIC_FILM_GRAIN_STREAM_ID, type ProcessingRgbImage } from "../src/index.js";
+  InvalidScientificInputError, InvalidScientificResultError, SYNTHETIC_FILM_GRAIN_STREAM_ID, type ProcessingRgbImage } from "../src/index.js";
 import { gaussian, mulberry32, rgbImage, runTask } from "./helpers/processing-fixture.js";
 
 const W = 40, H = 24, SIGMA = 0.05;
@@ -77,5 +77,14 @@ describe("synthetic film grain", () => {
     const ends = await runTask((p) => createSyntheticFilmGrainTask({ image: rgbImage(2, 1, (x) => x), seedUint32: 1, intensity: 0.5 }, p));
     expect(Array.from(ends.data)).toEqual([0, 0, 0, 1, 1, 1]);
     expect(() => createSyntheticFilmGrainTask({ image: grey, seedUint32: -1, intensity: 0.1 }, { yieldControl: async () => {} })).toThrow(InvalidConfigurationError);
+  });
+});
+
+describe("non-finite results (capture-10, #698)", () => {
+  it("the bilateral filter with a range sigma whose 1/(2 sigma^2) overflows and an unsharp mask that overflows float32 fail closed", async () => {
+    const image = rgbImage(6, 4, (x, y, c) => 0.1 * (x + y + c));
+    await expect(runTask((p) => createBilateralFilterTask({ image, spatialSigmaPixels: 1, rangeSigma: 1e-200 }, p))).rejects.toThrow(InvalidScientificResultError);
+    const edge = rgbImage(6, 4, (x) => (x < 3 ? 0 : 3e38));
+    await expect(runTask((p) => createUnsharpMaskTask({ image: edge, radiusSigmaPixels: 1, amount: 100 }, p))).rejects.toThrow(InvalidScientificResultError);
   });
 });

@@ -48,18 +48,22 @@ function fail(message: string): never { throw new InvalidConfigurationError("DNG
 export async function readJpegXlTilePng(png: Uint8Array, width: number, height: number, channels: number, bits: number): Promise<Uint16Array> {
   if (!(png instanceof Uint8Array) || png.length < 33 || png[0] !== 0x89 || png[1] !== 0x50 || png[2] !== 0x4e || png[3] !== 0x47) fail("the JPEG XL decoder did not return a PNG.");
   const view = new DataView(png.buffer, png.byteOffset, png.byteLength);
-  let p = 8, depth = 0, colorType = -1, w = 0, h = 0, idatBytes = 0;
+  let p = 8, depth = 0, colorType = -1, w = 0, h = 0, idatBytes = 0, header = false;
   const idat: Uint8Array[] = [];
   while (p + 12 <= png.length) {
     const length = view.getUint32(p), type = String.fromCharCode(png[p + 4]!, png[p + 5]!, png[p + 6]!, png[p + 7]!);
     if (p + 12 + length > png.length) fail("the decoded PNG is truncated.");
     if (type === "IHDR") {
+      // PNG: IHDR is the first chunk and holds 13 bytes.
+      if (p !== 8 || length !== 13) fail("the decoded PNG has a malformed IHDR chunk.");
+      header = true;
       w = view.getUint32(p + 8); h = view.getUint32(p + 12); depth = png[p + 16]!; colorType = png[p + 17]!;
       if (png[p + 20] !== 0) fail("the decoded PNG is interlaced.");
     } else if (type === "IDAT") { idat.push(png.subarray(p + 8, p + 8 + length)); idatBytes += length; }
     else if (type === "IEND") break;
     p += 12 + length;
   }
+  if (!header) fail("the decoded PNG has no IHDR chunk.");
   const pngChannels = colorType === 0 ? 1 : colorType === 2 ? 3 : 0;
   if (!pngChannels) fail("the decoded JPEG XL tile has an alpha or palette channel; DNG tiles are grey or RGB.");
   if (w !== width || h !== height || pngChannels !== channels) fail("the decoded JPEG XL tile does not match the strip or tile size and SamplesPerPixel.");

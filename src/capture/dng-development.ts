@@ -40,6 +40,7 @@ import { applyDngOpcodes, type DngStageImage } from "./dng-opcodes.js";
 import { applyDngProfileGainTableMap, applyDngRgbTables } from "./dng-profile-maps.js";
 import { developDngStageImage } from "./dng-stage-image.js";
 import type { ImportedDngRaw } from "./dng-import.js";
+import { requireImportedDngRaw } from "./dng-raw-measurements.js";
 
 /** The white balance of a development: the file's as-shot white, a correlated color temperature, a chromaticity or a camera neutral. */
 export type DevelopDngImageWhiteBalance =
@@ -103,7 +104,7 @@ export interface DevelopedDngImage {
   /** 2.25.0 (#622): the requested size; "half" halves the stage grid. */
   size: "full" | "half";
   fast: { requested: boolean; defaultedFrom: "request" | "format" };
-  /** Pixels with a white-balanced channel clipped at 1, and output components clipped by the gamut handling. */
+  /** Pixels with a white-balanced channel clipped at 1 (before the exposure push and the tone curve); components clipped later by the gamut handling are not counted. */
   clippedPixelCount: number;
   assumptions: string[];
 }
@@ -216,9 +217,18 @@ function binHalf(data: Float32Array, W: number, GW: number, GH: number, pattern:
   return out;
 }
 
+/** #677: `m` · each RGB pixel of `data` in place, `m[k][0]·r + m[k][1]·g + m[k][2]·b`, with scalar locals. */
+function transformPixels(m: ColorMatrix3x3, data: Float32Array, pixels: number): void {
+  const [[m00, m01, m02], [m10, m11, m12], [m20, m21, m22]] = m;
+  for (let p = 0; p < pixels; p++) {
+    const r = data[3 * p]!, g = data[3 * p + 1]!, b = data[3 * p + 2]!;
+    data[3 * p] = m00 * r + m01 * g + m02 * b; data[3 * p + 1] = m10 * r + m11 * g + m12 * b; data[3 * p + 2] = m20 * r + m21 * g + m22 * b;
+  }
+}
+
 /** Full color development of an imported DNG (see the module comment). */
 export async function developDngImage(raw: ImportedDngRaw, options: DevelopDngImageOptions = {}): Promise<DevelopedDngImage> {
-  if (raw === null || typeof raw !== "object" || !(raw.codes instanceof Uint16Array)) fail("raw must be an ImportedDngRaw.");
+  requireImportedDngRaw(raw, "developDngImage");
   if (options === null || typeof options !== "object") fail("options must be an object.");
   for (const key of Object.keys(options)) if (!KEYS.includes(key)) fail("unknown option " + JSON.stringify(key) + ".");
   const format = options.format ?? "srgb-8";
@@ -248,6 +258,11 @@ export async function developDngImage(raw: ImportedDngRaw, options: DevelopDngIm
   notes.push(...stage.assumptions);
   const W = stage.width, H = stage.height;
   // 3. White balance and camera → XYZ D50.
+  // capture-15: null is not "as-shot", and each record variant takes only its own fields.
+  if (options.whiteBalance === null) fail('whiteBalance must be "as-shot", { kelvin }, { chromaticity } or { cameraNeutral }.');
+  const wbFields = options.whiteBalance !== undefined && typeof options.whiteBalance === "object" ? Object.keys(options.whiteBalance) : [];
+  const wbAllowed = wbFields.includes("kelvin") ? ["kelvin", "duv", "whiteLocus"] : wbFields.includes("chromaticity") ? ["chromaticity"] : ["cameraNeutral"];
+  for (const key of wbFields) if (!wbAllowed.includes(key)) fail("unknown whiteBalance field " + JSON.stringify(key) + ".");
   const color = prepareColor(raw, notes), wb = options.whiteBalance ?? "as-shot";
   let neutral: ColorVector3, xy: CieXyChromaticity, source: DevelopedDngImage["whiteBalance"]["source"];
   if (wb === "as-shot") {
@@ -363,21 +378,23 @@ export async function developDngImage(raw: ImportedDngRaw, options: DevelopDngIm
   const clippedAt = half && !binned ? new Uint8Array(rw * rh) : null;
   const usePgtm = raw.profileGainTableMap !== null && (options.opcodes ?? true), useTables = raw.rgbTables !== null && (options.opcodes ?? true);
   const work = usePgtm ? toProphoto : toSrgb;
+  // #677: scalar locals, no per-pixel arrays or closures; every product and sum keeps its operands and order.
+  const [[p00, p01, p02], [p10, p11, p12], [p20, p21, p22]] = P;
+  const [[w00, w01, w02], [w10, w11, w12], [w20, w21, w22]] = work;
   for (let y = 0; y < rh; y++) for (let x = 0; x < rw; x++) {
-    const i = 3 * ((ry0 + y) * GW + rx0 + x), c: ColorVector3 = [rgb[i]!, rgb[i + 1]!, rgb[i + 2]!];
-    let any = false;
-    const b = [0, 1, 2].map((k) => { const v = P[k]![0] * c[0] + P[k]![1] * c[1] + P[k]![2] * c[2]; if (v > 1) { any = true; return 1; } return v; });
+    const i = 3 * ((ry0 + y) * GW + rx0 + x), c0 = rgb[i]!, c1 = rgb[i + 1]!, c2 = rgb[i + 2]!;
+    let b0 = p00 * c0 + p01 * c1 + p02 * c2, b1 = p10 * c0 + p11 * c1 + p12 * c2, b2 = p20 * c0 + p21 * c1 + p22 * c2, any = false;
+    if (b0 > 1) { any = true; b0 = 1; }
+    if (b1 > 1) { any = true; b1 = 1; }
+    if (b2 > 1) { any = true; b2 = 1; }
     if (any) { clipped++; if (clippedAt) clippedAt[y * rw + x] = 1; }
     const o = 3 * (y * rw + x);
-    for (let k = 0; k < 3; k++) linear[o + k] = work[k]![0] * b[0]! + work[k]![1] * b[1]! + work[k]![2] * b[2]!;
+    linear[o] = w00 * b0 + w01 * b1 + w02 * b2; linear[o + 1] = w10 * b0 + w11 * b1 + w12 * b2; linear[o + 2] = w20 * b0 + w21 * b1 + w22 * b2;
   }
   if (usePgtm) {
     applyDngProfileGainTableMap({ image: { width: rw, height: rh, data: linear }, map: raw.profileGainTableMap!, baselineExposureStops: baseline,
       region: { x: rx0, y: ry0, stageWidth: GW, stageHeight: GH }, overrange: true });
-    for (let p = 0; p < rw * rh; p++) {
-      const r = linear[3 * p]!, g = linear[3 * p + 1]!, bl = linear[3 * p + 2]!;
-      for (let k = 0; k < 3; k++) linear[3 * p + k] = prophotoToSrgb[k]![0] * r + prophotoToSrgb[k]![1] * g + prophotoToSrgb[k]![2] * bl;
-    }
+    transformPixels(prophotoToSrgb, linear, rw * rh);
     notes.push("developDngImage.profileGainTableMap: applied in linear ProPhoto (D50) before BaselineExposure.");
   }
   if (clippedAt) {
@@ -397,15 +414,15 @@ export async function developDngImage(raw: ImportedDngRaw, options: DevelopDngIm
   const counts: SdrPixelCounts = { negative: 0, above: 0, changed: 0, low: 0, high: 0, outOfGamut: false };
   if (useTables) {
     // RGBTables act on ProPhoto RGB after the tone curve (DNG SDK order): tone here, then the tables, then the encoding alone.
+    const [[s00, s01, s02], [s10, s11, s12], [s20, s21, s22]] = srgbToProphoto;
     for (let p = 0; p < rw * rh; p++) {
       tone(linear[3 * p]! * scale, linear[3 * p + 1]! * scale, linear[3 * p + 2]! * scale, scratch);
-      for (let k = 0; k < 3; k++) linear[3 * p + k] = Math.min(1, Math.max(0, srgbToProphoto[k]![0] * scratch[0]! + srgbToProphoto[k]![1] * scratch[1]! + srgbToProphoto[k]![2] * scratch[2]!));
+      const r = scratch[0]!, g = scratch[1]!, bl = scratch[2]!;
+      linear[3 * p] = Math.min(1, Math.max(0, s00 * r + s01 * g + s02 * bl)); linear[3 * p + 1] = Math.min(1, Math.max(0, s10 * r + s11 * g + s12 * bl));
+      linear[3 * p + 2] = Math.min(1, Math.max(0, s20 * r + s21 * g + s22 * bl));
     }
     notes.push(...applyDngRgbTables({ image: { width: rw, height: rh, data: linear }, tables: raw.rgbTables!, masks: raw.semanticMasks }));
-    for (let p = 0; p < rw * rh; p++) {
-      const r = linear[3 * p]!, g = linear[3 * p + 1]!, bl = linear[3 * p + 2]!;
-      for (let k = 0; k < 3; k++) linear[3 * p + k] = prophotoToSrgb[k]![0] * r + prophotoToSrgb[k]![1] * g + prophotoToSrgb[k]![2] * bl;
-    }
+    transformPixels(prophotoToSrgb, linear, rw * rh);
     renderSdrRunInto(linear, 0, rw * rh, profile, prepareSdrPixelTone({ toneCurve: "identity" }), 1, maximum, codes, 0, scratch, counts);
     notes.push("developDngImage.rgbTables: applied in ProPhoto after the tone curve.");
   } else renderSdrRunInto(linear, 0, rw * rh, profile, tone, scale, maximum, codes, 0, scratch, counts);

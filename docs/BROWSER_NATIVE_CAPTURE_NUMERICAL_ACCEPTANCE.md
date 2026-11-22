@@ -162,6 +162,8 @@ https://webassembly.github.io/spec/core/syntax/values.html
 A WebAssembly implementation is not automatically trusted merely because it uses
 `f64`; it must still pass the same evidence matrix.
 
+Note (2.28.0, #659): an engine-side WebAssembly executor is not permitted while WebAssembly stays limited to the caller-loaded JPEG XL decoder; revisiting it needs an owner decision and a change to the allowlist in `scripts/lib/webassembly-boundary.mjs`.
+
 ### WebGPU/WGSL candidates
 
 The W3C WGSL Candidate Recommendation Draft current during this review

@@ -48,7 +48,8 @@ export interface DngImportInput {
   maximumIfds?: number;
   /**
    * Estimated peak memory of the import, bytes (the codes, the largest strip or tile's decode buffers and its decoder's working
-   * memory; see docs/IMPORT_AND_PNG.md, "Memory"), checked before any image allocation. Default 1 073 741 824 (1 GiB), at most 4 GiB.
+   * memory, and the semantic masks' values and their largest strip or tile's decode; see docs/IMPORT_AND_PNG.md, "Memory"), checked
+   * before any image allocation. Default 1 073 741 824 (1 GiB), at most 4 GiB.
    */
   maximumBytes?: number;
   /**

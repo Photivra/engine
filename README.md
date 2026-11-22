@@ -32,10 +32,10 @@ The source is licensed under Apache-2.0.
 
 ## Quick start
 
-Install the published ESM package below. The [2.27.0 release record](https://github.com/Photivra/engine/blob/main/docs/RELEASE_2_27_0.md) and [changelog](https://github.com/Photivra/engine/blob/main/CHANGELOG.md) describe the current release:
+Install the published ESM package below. The [2.28.0 release record](https://github.com/Photivra/engine/blob/main/docs/RELEASE_2_28_0.md) and [changelog](https://github.com/Photivra/engine/blob/main/CHANGELOG.md) describe the current release:
 
 ```sh
-npm install @photivra/engine@2.27.0
+npm install @photivra/engine@2.28.0
 ```
 
 Simulate a photograph of a test chart with a generic camera, then read the developed sRGB pixels:
@@ -75,7 +75,7 @@ console.log(horizontal.provenance);
 
 Start with the [Developer Guide](https://github.com/Photivra/engine/blob/main/docs/DEVELOPERS.md). Then use the [Usage Guide](https://github.com/Photivra/engine/blob/main/docs/USAGE.md) and the [API reference](https://github.com/Photivra/engine/blob/main/docs/API_REFERENCE.md), which is generated from the package exports.
 
-Repository `main` may describe newer, unreleased work. For the stable contract, use the docs bundled in the published package, or the exact `v2.27.0` tag.
+Repository `main` may describe newer, unreleased work. For the stable contract, use the docs bundled in the published package, or the exact `v2.28.0` tag.
 
 ## Documentation
 
@@ -363,14 +363,14 @@ The application can then use those results, while the photography calculations t
 
 ## Status
 
-- Repository package version: `2.27.0` (published November 19, 2026)
-- Engine API contract: `2.27.0`
+- Repository package version: `2.28.0` (release candidate prepared November 21, 2026; publication is separate)
+- Engine API contract: `2.28.0`
 - Versioned generic tier reference assets: [GENERIC_TIER_PRESETS.md](https://github.com/Photivra/engine/blob/main/docs/GENERIC_TIER_PRESETS.md).
 - Sensor profiles from published specifications (#554, unnamed): [SENSOR_PROFILES.md](https://github.com/Photivra/engine/blob/main/docs/SENSOR_PROFILES.md).
 - Composed POC simulation API contract: `1.0.0`
 - Stability: 1.0 root-package compatibility policy; bounded scientific models and independent POC contract
 
-From 1.0.1, the package version and `ENGINE_API_VERSION` are equal. New captures/plans record 2.27.0; existing archives keep their original creator identities. Schema, model and POC contract versions stay independent.
+From 1.0.1, the package version and `ENGINE_API_VERSION` are equal. New captures/plans record 2.28.0; existing archives keep their original creator identities. Schema, model and POC contract versions stay independent.
 
 A breaking change to the root contracts now needs a new package major version. Additive and corrective changes follow [compatibility and migration](https://github.com/Photivra/engine/blob/main/docs/RELEASE_1_3_0.md). A 1.0 package is not a claim of calibrated physical accuracy.
 
@@ -454,6 +454,15 @@ import {
 ```
 
 CI checks the root dependency graph, so Node-only modules and the repository-local HTTP POC server cannot become reachable from this browser-facing surface.
+
+### WebAssembly
+
+The published package contains no WebAssembly and has no runtime dependency. No engine module imports, fetches, compiles or instantiates WebAssembly. WebAssembly may appear in two places only:
+
+- In an application that opens JPEG XL-compressed DNG files. The application installs and loads a decoder itself and passes it to `importDngRawImage` as `jpegXlDecoder`, optionally through `createJxlOxideDngDecoder` for the `jxl-oxide-wasm` package. Without a decoder such a file is refused with `InvalidConfigurationError`. See [Phone RAW files](https://github.com/Photivra/engine/blob/main/docs/IMPORT_AND_PNG.md#phone-raw-files-2220).
+- In this repository's tests: `jxl-oxide-wasm` is a devDependency, loaded only by `test/dng-import-phone.test.ts`.
+
+`npm run check` enforces the limit (`scripts/check-browser-surface.mjs` and `test/webassembly-boundary.test.ts`).
 
 The open repository still contains a minimal Node HTTP POC server under `src/api`, for contributor integration testing. It is deliberately **not** exported by `@photivra/engine` and is left out of the published npm package. It has no authentication and is **not** a production hosting recommendation.
 

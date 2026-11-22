@@ -20,7 +20,7 @@ import { InvalidConfigurationError } from "../core/configuration-error.js";
 import { createDeterministicUniformStream, deriveNativeSiteStreamSeedUint32, sampleDeterministicStandardNormal } from "../sensor/stochastic-seed.js";
 import { convolveRows, convolveSeparable, gaussianKernel, reflect } from "./image-ops.js";
 import {
-  createProcessingTask, finiteRows, maximumWorkingBytes, optionalFiniteIn, optionalIntegerIn, processingProvenance, requireEnum, requireFiniteIn,
+  createProcessingTask, finiteRows, maximumWorkingBytes, optionalFiniteIn, optionalIntegerIn, processingProvenance, requireEnum, requireFiniteIn, requireFiniteOutput,
   requireImage, requireOptions,
   type ProcessingBody, type ProcessingProvenance, type ProcessingProvider, type ProcessingRgbImage, type ProcessingTask
 } from "./processing-task.js";
@@ -63,6 +63,7 @@ export function createBilateralFilterTask(input: BilateralFilterInput, provider:
           }
           out[i] = sr / ws; out[i + 1] = sg / ws; out[i + 2] = sb / ws;
         }
+        requireFiniteOutput(out, 3 * y * W, 3 * (y + 1) * W, "Bilateral filter (rangeSigma)");
         yield;
       }
       return { width: W, height: H, data: out, provenance: processingProvenance("denoise-bilateral-tomasi-manduchi-1998", [
@@ -164,6 +165,7 @@ export function createUnsharpMaskTask(input: UnsharpMaskInput, provider: Process
           const detail = d[i]! - blur[i]!;
           out[i] = Math.abs(detail) > threshold ? d[i]! + amount * detail : d[i]!;
         }
+        requireFiniteOutput(out, 3 * y * W, 3 * (y + 1) * W, "Unsharp mask (amount)");
         yield;
       }
       return { width: W, height: H, data: out, provenance: processingProvenance("sharpen-unsharp-mask", [

@@ -71,9 +71,10 @@ const ROOT = fileURLToPath(new URL("..", import.meta.url)), DIST_URL = new URL("
 const CPU_PRODUCER = fileURLToPath(new URL("./lib/display-view-cpu-producer.mjs", import.meta.url)), GPU_PRODUCER = fileURLToPath(new URL("./lib/display-view-gpu-producer.mjs", import.meta.url));
 /**
  * `app` is the app's composite chart; `app-defocus` the same request focused at 0.8 × the subject distance with `lens.defocus`
- * (#492; Speed only); the others are the five fixture charts.
+ * (#492; Speed only); `app-lens` the same request through the catalogue lens PV 50 1.2 Pro (#661: the public path of the GPU lens
+ * passes; Speed only, the catalogue's field zones); the others are the five fixture charts.
  */
-const FIXTURE_CHARTS = ["app", "app-defocus", "slanted-edge", "siemens-star", "bar-groups", "dead-leaves", "step-wedge"];
+const FIXTURE_CHARTS = ["app", "app-defocus", "app-lens", "slanted-edge", "siemens-star", "bar-groups", "dead-leaves", "step-wedge"];
 /**
  * Cases the GPU is expected not to cover yet: with `--gpu` a refusal with `unsupported-on-backend` is recorded as an expected
  * fallback (its reason printed), not a failure; once the GPU renders the case it is compared like every other. Defocus on the GPU
@@ -115,10 +116,11 @@ const pct = (x) => f3(100 * x, 2) + " %";
 
 /** The request of a case: the app's shape with the case's chart (the app's composite, or a fixture chart in its place). */
 function caseRequest(engine, c) {
-  const app = c.chart === "app" || c.chart === "app-defocus";
+  const app = c.chart === "app" || c.chart === "app-defocus" || c.chart === "app-lens";
   const request = appRequestOptions(engine, { options: c.options, fNumber: c.fNumber }, { chart: app ? APP_CHART : { preset: c.chart }, view: { width: c.width, height: c.height },
     sceneId: `acceptance:${c.chart}`, scene: c.scene ?? "material-function" });
   if (c.chart === "app-defocus") request.lens = { ...request.lens, focusDistanceM: DEFOCUS_FOCUS_FRACTION * request.subjectDistanceM, defocus: { model: "geometric-disc" } };
+  if (c.chart === "app-lens") request.lens = { catalogue: "pv-50-1.2-pro", fNumber: request.lens.fNumber };
   return request;
 }
 /** The display view of a case: the whole view, or `region` of it. */
@@ -213,7 +215,8 @@ function timingLines(records) {
 function writeRecord(name, records, summary, environment, images, errors = [], fallbacks = []) {
   const dir = join(ROOT, "docs", "validation", name);
   mkdirSync(dir, { recursive: true });
-  writeFileSync(join(dir, "results.jsonl"), [...records, ...fallbacks].map((r) => JSON.stringify(r)).join("\n") + "\n");
+  // The record holds the bare file name: the run's out directory is a local path (the README prints the same name).
+  writeFileSync(join(dir, "results.jsonl"), [...records, ...fallbacks].map((r) => JSON.stringify(r.differenceImage ? { ...r, differenceImage: basename(r.differenceImage) } : r)).join("\n") + "\n");
   const cand = records[0].candidate, selfCheck = records.every((r) => r.candidateModule === relative(ROOT, CPU_PRODUCER));
   const date = new Date(environment.date), title = `${date.toLocaleString("en-US", { month: "long" })} ${date.getUTCDate()}, ${date.getUTCFullYear()}`;
   const lines = [`# Preview acceptance${selfCheck ? " self-check" : ""}, ${title} (${cand} against ${records[0].reference})`, "",
@@ -250,7 +253,7 @@ if (has("--case")) {
   for (const c of charts) if (!FIXTURE_CHARTS.includes(c)) throw new Error(`Unknown fixture chart ${c}; one of ${FIXTURE_CHARTS.join(", ")}.`);
   const queue = [];
   for (const chart of charts) for (const size of sizes) for (const o of options) {
-    if (chart === "app-defocus" && o !== "speed") continue;
+    if ((chart === "app-defocus" || chart === "app-lens") && o !== "speed") continue;
     queue.push({ id: queue.length, chart, options: o, fNumber, ...size, scene: sceneForm, ...(region ? { region } : {}), ...(EXPECTED_GPU_FALLBACK.has(chart) ? { expectFallback: true } : {}) });
   }
   mkdirSync(outDir, { recursive: true });

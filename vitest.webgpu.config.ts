@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 import { defineConfig } from "vitest/config";
 // #536: the page and Node run the shader text the build ships; PHOTIVRA_WGSL_MINIFY=0 runs the source text.
 import { wgslMinifyPlugin } from "./scripts/lib/wgsl-minify.mjs";

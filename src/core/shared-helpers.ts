@@ -38,3 +38,11 @@ export function fullRect(raster: { pixelWidth: number; pixelHeight: number }): {
 export function approximatelyEqual(actual: number, expected: number, tolerance = 1e-10): boolean {
   return Math.abs(actual - expected) <= tolerance * Math.max(1, Math.abs(actual), Math.abs(expected));
 }
+/**
+ * |actual − expected| ≤ 1e-10 · max(|actual|, |expected|), purely relative (two zeros are equal). #712: for quantities far below 1,
+ * such as the radiant power at a photosite (about 1e-15 to 1e-10 W per spectral bin), where approximatelyEqual's floor of 1
+ * makes its tolerance an absolute 1e-10 and accepts any two values.
+ */
+export function relativelyEqual(actual: number, expected: number): boolean {
+  return actual === expected || Math.abs(actual - expected) <= 1e-10 * Math.max(Math.abs(actual), Math.abs(expected));
+}

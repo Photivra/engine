@@ -108,6 +108,8 @@ function canonical(value: unknown): string {
   return stringifyCanonicalJson(value,{undefinedObjectProperties:"reject",nonFiniteNumberMessage:"Invalid RAW metadata.",unsupportedValueMessage:"Invalid RAW metadata."});
 }
 /** Validates packed RAW storage and recomputes its plan. Shared with the native DNG writer. Not exported from the package. */
+/** calculateNativeRawPlan accepts only a periodic-mosaic layout, so every plan below (all of them recalculated by it) has one. */
+type PeriodicLayout=Extract<NativeRawOutput["plan"]["frame"]["colorSamplingProfile"]["layout"],{kind:"periodic-mosaic"}>;
 export function validatePackedNativeRaw(raw: NativeRawOutput): NativeRawOutput["plan"] {
   requireAllowlistedRecord(raw,["plan","codes","blackLevels","digitalSaturationCodes","saturationFlags","effectiveSaturationCodes"],"Invalid packed RAW output.");
   const p=raw.plan;
@@ -123,7 +125,7 @@ export function validatePackedNativeRaw(raw: NativeRawOutput): NativeRawOutput["
   if(typeof equivalentFocalLength35Mm!=="number"||!equalWithinUlps(equivalentFocalLength35Mm,eq,8)||typeof archivedFrameEq!=="number"||!equalWithinUlps(archivedFrameEq,eq,8)||
     canonical({...p,exposure:{...p.exposure,equivalentFocalLength35Mm:eq},frame:{...p.frame,capture:{...p.frame.capture,equivalentFocalLength35Mm:eq}}})!==canonical(plan))
     throw new InvalidConfigurationError("Packed RAW metadata is stale or inconsistent.");
-  const layout=plan.frame.colorSamplingProfile.layout,phaseCount=layout.kind==="periodic-mosaic"?layout.repeatWidthSites*layout.repeatHeightSites:0;
+  const layout=plan.frame.colorSamplingProfile.layout as PeriodicLayout,phaseCount=layout.repeatWidthSites*layout.repeatHeightSites;
   const buffers=new Set<ArrayBufferLike>();
   for(const [a,type,length] of [[raw.codes,Uint16Array,plan.pixelCount],[raw.blackLevels,Uint16Array,plan.pixelCount],[raw.digitalSaturationCodes,Uint16Array,plan.pixelCount],
     [raw.saturationFlags,Uint8Array,plan.pixelCount],[raw.effectiveSaturationCodes,Uint16Array,phaseCount]] as const){
@@ -176,8 +178,8 @@ export function prepareNativeRawDevelopment(input: NativeRawDevelopmentInput): P
   const bytes=plan.outputBytes+raster.pixelWidth*raster.pixelHeight*3*profile.bitDepth/8;
   if(typeof r.maximumRetainedPayloadBytes!=="number"||!Number.isSafeInteger(r.maximumRetainedPayloadBytes)||r.maximumRetainedPayloadBytes<bytes)throw new InvalidConfigurationError("Development exceeds retained output budget.");
   const gains=intent?[intent.channelGains.red,intent.channelGains.green,intent.channelGains.blue]:null;
-  const development=prepareSensorColorDevelopment(color.normalizedCameraChannelsToXyz,gains,highlightMode),layout=plan.frame.colorSamplingProfile.layout;
-  if(layout.kind!=="periodic-mosaic")throw new InvalidConfigurationError("Development requires periodic CFA.");
+  // The plan is calculateNativeRawPlan's (validatePackedNativeRaw), which refuses any layout but a periodic mosaic.
+  const development=prepareSensorColorDevelopment(color.normalizedCameraChannelsToXyz,gains,highlightMode),layout=plan.frame.colorSamplingProfile.layout as PeriodicLayout;
   const nativeCorners=[{x:crop.x+.5,y:crop.y+.5},{x:crop.x+crop.width-.5,y:crop.y+crop.height-.5}].map(point=>{
     const p=transformOrientedRasterPointToNative({point,nativeRaster:g.activeCapture.raster,orientation:plan.exposure.geometry.orientation});return {x:Math.floor(p.x)+active.x,y:Math.floor(p.y)+active.y};
   });
@@ -220,8 +222,7 @@ export function checkNativeRawIntegrity(raw: NativeRawOutput, nativeWidth: numbe
   }
 }
 function source(raw: NativeRawOutput, plan: NativeRawOutput["plan"], exposureGain: number): RawDevelopmentSource {
-  const layout=plan.frame.colorSamplingProfile.layout;
-  if(layout.kind!=="periodic-mosaic")throw new InvalidConfigurationError("Development requires periodic CFA.");
+  const layout=plan.frame.colorSamplingProfile.layout as PeriodicLayout;
   return {nativeWidth:plan.exposure.geometry.nativeRaster.pixelWidth,repeatWidth:layout.repeatWidthSites,repeatHeight:layout.repeatHeightSites,
     codes:raw.codes,blackLevels:raw.blackLevels,saturationFlags:raw.saturationFlags,whiteByPhase:raw.effectiveSaturationCodes,...(exposureGain===1?{}:{exposureGain})};
 }

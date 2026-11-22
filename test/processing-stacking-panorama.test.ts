@@ -77,6 +77,21 @@ describe("panorama from known rotations", () => {
     expect(() => createPanoramaTask({ frames, canvas: { ...canvas, projection: "fisheye" as "cylindrical" } }, { yieldControl: async () => {} })).toThrow(InvalidConfigurationError);
   });
 
+  it("completes a single frame with the default gain compensation, equal to compensation off (#671)", async () => {
+    const small = { projection: "equirectangular" as const, width: 16, height: 8, longitudeRangeRad: [-1, 1] as const, latitudeRangeRad: [-0.33, 0.33] as const };
+    for (const blending of ["feather", "multi-band"] as const) for (const c of [small, canvas]) {
+      const frames = [renderFrame(0, 0, 1)];
+      const out = await runTask((p) => createPanoramaTask({ frames, canvas: c, blending }, p));
+      const off = await runTask((p) => createPanoramaTask({ frames, canvas: c, blending, exposureCompensation: "none" }, p));
+      expect(out.gains).toEqual([1]);
+      expect(out.coverage[(c.height >> 1) * c.width + (c.width >> 1)]).toBe(1);
+      expect(Array.from(out.coverage)).toEqual(Array.from(off.coverage));
+      expect(Array.from(out.data)).toEqual(Array.from(off.data));
+    }
+    const tiny = { width: 8, height: 6, data: new Float32Array(8 * 6 * 3).fill(0.5) };
+    await runTask((p) => createPanoramaTask({ frames: [{ image: tiny, focalLengthPixels: 8, rotationRad: { pitch: 0, yaw: 0, roll: 0 } }], canvas: small }, p));
+  });
+
   it("stitches onto a cylindrical canvas", async () => {
     const frames = [renderFrame(-0.4, 0, 1), renderFrame(0.4, 0, 1)];
     const cyl = { projection: "cylindrical" as const, width: 80, height: 30, longitudeRangeRad: [-0.8, 0.8] as const, latitudeRangeRad: [-0.3, 0.3] as const };

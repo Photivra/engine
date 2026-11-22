@@ -34,8 +34,9 @@ import type {
 import type {
   ResolvedCaptureModeTiming
 } from "../sensor/capture-mode-timing.js";
-import { requireInputKeys, requireInputObject, requireTrimmedConfigString as requireNonEmptyString } from "../core/record-validation.js";
+import { requireInputKeys, requireInputObject, rejectUnknownFields, requireTrimmedConfigString as requireNonEmptyString } from "../core/record-validation.js";
 import { InvalidConfigurationError } from "../core/configuration-error.js";
+import { requireTemporalSampleBudget } from "./temporal-sample-limits.js";
 import { sameSite as samePoint } from "../core/shared-helpers.js";
 import { requireFiniteVector } from "./capture-translation-parallax-temporal-quadrature.js";
 import { requireScientificFinite as requireFiniteTime } from "../color/white-balance.js";
@@ -313,8 +314,11 @@ function projectMetricPoint(
   return mapped;
 }
 
+const POINT_KEYS = ["pointId", "positionCameraM"], CAPTURE_POINT_KEYS = [...POINT_KEYS, "destinationPointNative"];
+
 function validateUniquePoints<T extends ExtendedObjectMetricPoint>(
-  points: readonly T[]
+  points: readonly T[],
+  pointKeys: readonly string[]
 ): readonly {
   point:
     T;
@@ -339,6 +343,7 @@ function validateUniquePoints<T extends ExtendedObjectMetricPoint>(
           index +
           "]";
         requireInputObject(point, path);
+        rejectUnknownFields(point, pointKeys, path);
         const pointId =
           requireNonEmptyString(
             point.pointId,
@@ -474,6 +479,7 @@ function validatePlanarDeclaration(
     return null;
   }
   requireInputObject(declaration, "frontoparallelPlane");
+  rejectUnknownFields(declaration, ["kind", "referenceDepthM"], "frontoparallelPlane");
   if (
     declaration.kind !==
     "fronto-parallel-planar-patch"
@@ -638,7 +644,7 @@ export function calculateExtendedObjectProjectionTrajectory(
     );
   const points =
     validateUniquePoints(
-      input.points
+      input.points, POINT_KEYS
     );
   const planarDepth =
     validatePlanarDeclaration(
@@ -828,9 +834,10 @@ export function calculateCaptureExtendedObjectTemporalProjection(
       objectVelocity,
       cameraVelocity
     );
+  if (Array.isArray(input.points)) requireTemporalSampleBudget(input.temporalSampleCount, input.points.length, "points");
   const points =
     validateUniquePoints(
-      input.points
+      input.points, CAPTURE_POINT_KEYS
     );
   const planarDepth =
     validatePlanarDeclaration(

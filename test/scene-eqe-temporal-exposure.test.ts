@@ -130,3 +130,7 @@ it("connects changing declared scene radiance through temporal photo/RAW to exac
   expect(Array.from({ length: 4 }, (_, i) => view.getUint16(strip+2*i, true)))
     .toEqual(produced.value.frame.samples.map(s => s.rawCode));
 });
+
+it("rejects a null sensor record with a domain error (sensor-11, #701)", () => {
+  expect(() => calculateSceneSensorEqeTemporalExposure({ ...request(), sensor: null as never })).toThrow(expect.objectContaining({ name: "InvalidScientificInputError" }));
+});

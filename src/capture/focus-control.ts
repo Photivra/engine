@@ -547,6 +547,39 @@ function requireMonotonicEventTime(
   return parsed;
 }
 
+/**
+ * capture-20 (#698): the sub-objects of a caller-supplied state that the focus functions read, so a missing one fails with
+ * a domain error instead of a raw TypeError.
+ */
+function requireStateShape(
+  state: unknown
+): void {
+  requireInputObject(state, "state");
+  const s = state as Partial<FocusControlState>;
+  requireInputObject(s.sourceProfile, "state.sourceProfile");
+  requireInputObject(s.focus, "state.focus");
+  if (!Array.isArray(s.profileLimitations)) {
+    throw new InvalidConfigurationError("state.profileLimitations must be an array.");
+  }
+  // capture-29 (#698): states are stored and reloaded as JSON, so the fields the focus functions decide on are checked too.
+  const states: readonly unknown[] = ["idle", "acquiring", "acquired", "target-lost", "locked"];
+  const time = (v: unknown): boolean => typeof v === "number" && Number.isFinite(v) && v >= 0;
+  if (!["manual", "single-af", "continuous-af"].includes(s.mode as string)) {
+    throw new InvalidConfigurationError("state.mode must be manual, single-af or continuous-af.");
+  }
+  if (!states.includes(s.acquisitionState)) {
+    throw new InvalidConfigurationError("state.acquisitionState must be idle, acquiring, acquired, target-lost or locked.");
+  }
+  if (!time(s.lastEventTimeSeconds) || !time(s.focusResolvedAtSeconds)) {
+    throw new InvalidConfigurationError("state.lastEventTimeSeconds and state.focusResolvedAtSeconds must be finite non-negative numbers.");
+  }
+  if (typeof s.locked !== "boolean" || s.locked !== (s.acquisitionState === "locked") ||
+    (s.locked && (s.lock === null || typeof s.lock !== "object" || !time(s.lock.lockedAtSeconds) ||
+      (s.lock.resumeAcquisitionState as unknown) === "locked" || !states.includes(s.lock.resumeAcquisitionState)))) {
+    throw new InvalidConfigurationError("state.locked must be a boolean that matches acquisitionState \"locked\" and a lock record.");
+  }
+}
+
 function verifyStateProfile(
   state:
     FocusControlState,
@@ -658,7 +691,7 @@ export function setManualFocusState(
     SetManualFocusStateInput
 ): FocusControlState {
   requireInputKeys(input, "setManualFocusState", ["state", "stateId", "focus", "eventTimeSeconds", "commandId"]);
-  requireInputObject(input.state, "state");
+  requireStateShape(input.state);
   if (
     input.state.mode !==
     "manual"
@@ -921,6 +954,8 @@ export function resolveFocusTargetObservation(
     ResolveFocusTargetObservationInput
 ): FocusTargetResolution {
   requireInputKeys(input, "resolveFocusTargetObservation", ["state", "stateId", "event", "observation"]);
+  requireStateShape(input.state);
+  requireInputObject(input.observation, "observation");
   if (
     input.event !== "acquire" &&
     input.event !== "update"
@@ -1101,6 +1136,10 @@ export function setFocusLock(
     SetFocusLockInput
 ): FocusControlState {
   requireInputKeys(input, "setFocusLock", ["state", "stateId", "locked", "eventTimeSeconds"]);
+  requireStateShape(input.state);
+  if (typeof input.locked !== "boolean") {
+    throw new InvalidConfigurationError("setFocusLock locked must be a boolean.");
+  }
   const time =
     requireMonotonicEventTime(
       input.state,
@@ -1182,6 +1221,7 @@ export function assessFocusReleaseGate(
     AssessFocusReleaseGateInput
 ): FocusReleaseGateAssessment {
   requireInputKeys(input, "assessFocusReleaseGate", ["state", "profile", "priority"]);
+  requireStateShape(input.state);
   const profile =
     parseFocusControlProfile(
       input.profile

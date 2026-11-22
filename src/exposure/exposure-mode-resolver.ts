@@ -23,14 +23,18 @@ import type {
 } from "../equipment/exposure-capabilities.js";
 import {
   EXPOSURE_METER_TARGET_SCHEMA_VERSION,
+  validateMeterSnapshot,
   type ExposureMeterTarget
 } from "./metering-target.js";
 import {
   parseExposureProgramLineProfile,
   type ExposureProgramLineProfile
 } from "./program-line.js";
-import { rejectUnknownFields, requireInputKeys, requireTrimmedConfigString as requireNonEmptyString, requireInputPositiveFinite as requirePositiveFinite } from "../core/record-validation.js";
+import { rejectUnknownFields, requireConfigRecord, requireInputFinite, requireInputFiniteAtLeastZero, requireInputKeys, requireTrimmedConfigString as requireNonEmptyString, requireInputPositiveFinite as requirePositiveFinite } from "../core/record-validation.js";
 import { InvalidConfigurationError } from "../core/configuration-error.js";
+// foundation-06 (#699, 2.28.0, owner decision): the settings' log2 and exp2 are the engine's portable functions, so an automatic
+// exposure resolves to the same bits on every Node.js line (V8's log2 and pow differ in the last bits between V8 lines).
+import { portableExp2, portableLog2 } from "../core/portable-math.js";
 
 type UnknownRecord = Record<string, unknown>;
 
@@ -118,7 +122,10 @@ export type ExposureResolutionConstraint =
   | "shutter-grid-quantization"
   | "aperture-widest"
   | "aperture-narrowest"
-  | "aperture-grid-quantization";
+  | "aperture-grid-quantization"
+  /** Program mode with a fixed ISO: the target lies below the line's first node or above its last (foundation-07). */
+  | "program-line-minimum"
+  | "program-line-maximum";
 
 export type ExposureTargetResidual =
   | {
@@ -926,21 +933,8 @@ export type FullAutoExposureModeResolution =
         false;
     };
 
-function requireRecord(
-  value: unknown,
-  path: string
-): UnknownRecord {
-  if (
-    typeof value !== "object" ||
-    value === null ||
-    Array.isArray(value)
-  ) {
-    throw new InvalidConfigurationError(
-      path + " must be an object."
-    );
-  }
-  return value as UnknownRecord;
-}
+/** `<path> must be an object.` (the shared record check). */
+const requireRecord = (value: unknown, path: string): UnknownRecord => requireConfigRecord(value, path, null);
 
 function settingEquals(
   left: number,
@@ -1026,40 +1020,30 @@ function validateTarget(
     );
   }
 
-  const targetId = record.targetId;
-  if (
-    typeof targetId !== "string" ||
-    targetId.trim().length === 0
-  ) {
-    throw new InvalidConfigurationError(
-      "target.targetId must be a non-empty string."
-    );
-  }
+  requireNonEmptyString(record.targetId, "target.targetId");
 
-  requireRecord(
+  // foundation-08: the fields the result copies are checked too, and a resolved target's scale and stops must agree.
+  validateMeterSnapshot(
     record.sourceMeterSnapshot,
-    "target.sourceMeterSnapshot"
+    "target"
   );
+  requirePositiveFinite(record.baseTargetRelativeSignal, "target.baseTargetRelativeSignal");
+  requireInputFiniteAtLeastZero(record.meteredRelativeSignal, "target.meteredRelativeSignal");
+  requireInputFinite(record.exposureCompensationStops, "target.exposureCompensationStops");
 
   if (
     record.status === "resolved"
   ) {
-    requirePositiveFinite(
+    const scale = requirePositiveFinite(
       record
         .requiredExposureScaleToTarget,
       "target.requiredExposureScaleToTarget"
     );
     if (
-      typeof record
-        .exposureOffsetStopsToTarget !==
-        "number" ||
-      !Number.isFinite(
-        record
-          .exposureOffsetStopsToTarget
-      )
+      !(Math.abs(Math.log2(scale) - requireInputFinite(record.exposureOffsetStopsToTarget, "target.exposureOffsetStopsToTarget")) <= 1e-9)
     ) {
       throw new InvalidScientificInputError(
-        "target.exposureOffsetStopsToTarget must be finite."
+        "target.requiredExposureScaleToTarget is inconsistent with target.exposureOffsetStopsToTarget."
       );
     }
   } else if (
@@ -1438,9 +1422,9 @@ function targetResidual(
     target
       .exposureOffsetStopsToTarget;
   const achievedStops =
-    Math.log2(achievedScale);
+    portableLog2(achievedScale);
   const residualStops =
-    Math.log2(
+    portableLog2(
       targetScale /
       achievedScale
     );
@@ -1498,28 +1482,32 @@ function nearestDiscreteIso(
     values[values.length - 1]!;
 
   if (idealIso < first) {
+    // #681: within settingEquals of the end, the end is met exactly, not held.
+    const met = settingEquals(idealIso, first);
     return {
       iso: first,
-      quantized: true,
-      clamped: "minimum",
+      quantized: !met,
+      clamped: met ? false : "minimum",
       limitingConstraint:
-        "iso-minimum"
+        met ? "none" : "iso-minimum"
     };
   }
   if (idealIso > last) {
+    // #681: within settingEquals of the end, the end is met exactly, not held.
+    const met = settingEquals(idealIso, last);
     return {
       iso: last,
-      quantized: true,
-      clamped: "maximum",
+      quantized: !met,
+      clamped: met ? false : "maximum",
       limitingConstraint:
-        "iso-maximum"
+        met ? "none" : "iso-maximum"
     };
   }
 
   let selected = first;
   let selectedDistance =
     Math.abs(
-      Math.log2(
+      portableLog2(
         idealIso / first
       )
     );
@@ -1533,7 +1521,7 @@ function nearestDiscreteIso(
       values[index]!;
     const distance =
       Math.abs(
-        Math.log2(
+        portableLog2(
           idealIso /
           candidate
         )
@@ -1784,28 +1772,32 @@ function resolveAutomaticIso(
     idealIso <
     bounds.minimum
   ) {
+    // #681: within settingEquals of the bound, the bound is met exactly, not held.
+    const met = settingEquals(idealIso, bounds.minimum);
     return {
       iso:
         bounds.minimum,
       kind: "continuous",
       quantized: false,
-      clamped: "minimum",
+      clamped: met ? false : "minimum",
       limitingConstraint:
-        bounds.minimumConstraint
+        met ? "none" : bounds.minimumConstraint
     };
   }
   if (
     idealIso >
     bounds.maximum
   ) {
+    // #681: within settingEquals of the bound, the bound is met exactly, not held.
+    const met = settingEquals(idealIso, bounds.maximum);
     return {
       iso:
         bounds.maximum,
       kind: "continuous",
       quantized: false,
-      clamped: "maximum",
+      clamped: met ? false : "maximum",
       limitingConstraint:
-        bounds.maximumConstraint
+        met ? "none" : bounds.maximumConstraint
     };
   }
 
@@ -1836,28 +1828,32 @@ function nearestDiscreteShutter(
     values[values.length - 1]!;
 
   if (idealShutterSeconds < first) {
+    // #681: within settingEquals of the end, the end is met exactly, not held.
+    const met = settingEquals(idealShutterSeconds, first);
     return {
       shutterSeconds: first,
-      quantized: true,
-      clamped: "minimum",
+      quantized: !met,
+      clamped: met ? false : "minimum",
       limitingConstraint:
-        "shutter-minimum"
+        met ? "none" : "shutter-minimum"
     };
   }
   if (idealShutterSeconds > last) {
+    // #681: within settingEquals of the end, the end is met exactly, not held.
+    const met = settingEquals(idealShutterSeconds, last);
     return {
       shutterSeconds: last,
-      quantized: true,
-      clamped: "maximum",
+      quantized: !met,
+      clamped: met ? false : "maximum",
       limitingConstraint:
-        "shutter-maximum"
+        met ? "none" : "shutter-maximum"
     };
   }
 
   let selected = first;
   let selectedDistance =
     Math.abs(
-      Math.log2(
+      portableLog2(
         idealShutterSeconds /
         first
       )
@@ -1872,7 +1868,7 @@ function nearestDiscreteShutter(
       values[index]!;
     const distance =
       Math.abs(
-        Math.log2(
+        portableLog2(
           idealShutterSeconds /
           candidate
         )
@@ -1950,15 +1946,17 @@ function resolveAutomaticShutter(
     capabilities.shutter
       .minimumSeconds
   ) {
+    // #681: within settingEquals of the end, the end is met exactly, not held.
+    const met = settingEquals(idealShutterSeconds, capabilities.shutter.minimumSeconds);
     return {
       shutterSeconds:
         capabilities.shutter
           .minimumSeconds,
       kind: "continuous",
       quantized: false,
-      clamped: "minimum",
+      clamped: met ? false : "minimum",
       limitingConstraint:
-        "shutter-minimum"
+        met ? "none" : "shutter-minimum"
     };
   }
   if (
@@ -1966,15 +1964,17 @@ function resolveAutomaticShutter(
     capabilities.shutter
       .maximumSeconds
   ) {
+    // #681: within settingEquals of the end, the end is met exactly, not held.
+    const met = settingEquals(idealShutterSeconds, capabilities.shutter.maximumSeconds);
     return {
       shutterSeconds:
         capabilities.shutter
           .maximumSeconds,
       kind: "continuous",
       quantized: false,
-      clamped: "maximum",
+      clamped: met ? false : "maximum",
       limitingConstraint:
-        "shutter-maximum"
+        met ? "none" : "shutter-maximum"
     };
   }
 
@@ -2156,28 +2156,32 @@ function nearestDiscreteAperture(
     values[values.length - 1]!;
 
   if (idealFNumber < first) {
+    // #681: within settingEquals of the end, the end is met exactly, not held.
+    const met = settingEquals(idealFNumber, first);
     return {
       aperture: first,
-      quantized: true,
-      clamped: "widest",
+      quantized: !met,
+      clamped: met ? false : "widest",
       limitingConstraint:
-        "aperture-widest"
+        met ? "none" : "aperture-widest"
     };
   }
   if (idealFNumber > last) {
+    // #681: within settingEquals of the end, the end is met exactly, not held.
+    const met = settingEquals(idealFNumber, last);
     return {
       aperture: last,
-      quantized: true,
-      clamped: "narrowest",
+      quantized: !met,
+      clamped: met ? false : "narrowest",
       limitingConstraint:
-        "aperture-narrowest"
+        met ? "none" : "aperture-narrowest"
     };
   }
 
   let selected = first;
   let selectedDistance =
     Math.abs(
-      Math.log2(
+      portableLog2(
         idealFNumber /
         first
       )
@@ -2192,7 +2196,7 @@ function nearestDiscreteAperture(
       values[index]!;
     const distance =
       Math.abs(
-        Math.log2(
+        portableLog2(
           idealFNumber /
           candidate
         )
@@ -2265,23 +2269,27 @@ function resolveAutomaticAperture(
   }
 
   if (idealFNumber < minimum) {
+    // #681: within settingEquals of the end, the end is met exactly, not held.
+    const met = settingEquals(idealFNumber, minimum);
     return {
       aperture: minimum,
       kind: "continuous",
       quantized: false,
-      clamped: "widest",
+      clamped: met ? false : "widest",
       limitingConstraint:
-        "aperture-widest"
+        met ? "none" : "aperture-widest"
     };
   }
   if (idealFNumber > maximum) {
+    // #681: within settingEquals of the end, the end is met exactly, not held.
+    const met = settingEquals(idealFNumber, maximum);
     return {
       aperture: maximum,
       kind: "continuous",
       quantized: false,
-      clamped: "narrowest",
+      clamped: met ? false : "narrowest",
       limitingConstraint:
-        "aperture-narrowest"
+        met ? "none" : "aperture-narrowest"
     };
   }
 
@@ -2486,7 +2494,7 @@ function validateProgramLineForResolution(
     }
 
     const computedStops =
-      Math.log2(
+      portableLog2(
         opticalExposureFactor(
           node.aperture,
           node.shutterSeconds,
@@ -2614,26 +2622,26 @@ function selectProgramLineSettings(
       requestedOpticalStops;
 
     const logAperture =
-      Math.log2(left.aperture) +
+      portableLog2(left.aperture) +
       phase *
-        (Math.log2(right.aperture) -
-          Math.log2(left.aperture));
+        (portableLog2(right.aperture) -
+          portableLog2(left.aperture));
     const logShutter =
-      Math.log2(
+      portableLog2(
         left.shutterSeconds
       ) +
       phase *
-        (Math.log2(
+        (portableLog2(
           right.shutterSeconds
         ) -
-          Math.log2(
+          portableLog2(
             left.shutterSeconds
           ));
 
     idealAperture =
-      Math.pow(2, logAperture);
+      portableExp2(logAperture);
     idealShutterSeconds =
-      Math.pow(2, logShutter);
+      portableExp2(logShutter);
   }
 
   const aperture =
@@ -2701,6 +2709,10 @@ function programLineResidualConstraint(
     "maximum"
   ) {
     return "shutter-maximum";
+  }
+  // foundation-07: the target lies beyond an end of the line and no aperture or shutter limit was hit.
+  if (selection.position !== "within-line") {
+    return selection.position === "below-line" ? "program-line-minimum" : "program-line-maximum";
   }
   if (selection.apertureQuantized) {
     return "aperture-grid-quantization";
@@ -4118,7 +4130,7 @@ export function resolveProgramAutoExposureMode(
     const requestedOpticalStops =
       target
         .exposureOffsetStopsToTarget -
-      Math.log2(
+      portableLog2(
         manualIso /
           referenceExposure.iso
       );
@@ -4259,7 +4271,7 @@ export function resolveProgramAutoExposureMode(
   const requestedOpticalStops =
     target
       .exposureOffsetStopsToTarget -
-    Math.log2(
+    portableLog2(
       baselineIso /
         referenceExposure.iso
     );
@@ -4638,7 +4650,7 @@ export function resolveFullAutoExposureMode(
   const requestedOpticalStops =
     target
       .exposureOffsetStopsToTarget -
-    Math.log2(
+    portableLog2(
       baselineIso /
         referenceExposure.iso
     );

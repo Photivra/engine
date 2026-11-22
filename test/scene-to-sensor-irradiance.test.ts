@@ -825,6 +825,22 @@ describe("optical bridge profile schema guards", () => {
   });
 });
 
+describe("optical bridge image point (optics-17, #700)", () => {
+  const vignettingAt = (x: number, y: number): ReturnType<typeof calculateIlluminationVignetting>["value"] => calculateIlluminationVignetting({
+    imagePointMm: { x, y },
+    profile: { normalizationRadiusMm: 20, maximumNormalizedRadius: 1, coefficients: { r2: -0.5, r4: 0, r6: 0 } }
+  }).value;
+
+  it("refuses a non-finite, missing or non-number image point with a field-throughput result", () => {
+    const field = { kind: "illumination-vignetting-result" as const, result: vignettingAt(10, 5) };
+    expect(calculate({ imagePointMm: { x: 10, y: 5 }, fieldThroughput: field }).sensorPlaneSpectralIrradianceWattsPerSquareMeterNanometer).toBeGreaterThan(0);
+    for (const imagePointMm of [{ x: NaN, y: NaN }, { x: Infinity, y: 0 }, {}, { x: 10 }, { x: "10", y: "5" }, { x: 0, y: 0 }]) {
+      expect(() => calculate({ imagePointMm: imagePointMm as { x: number; y: number }, fieldThroughput: field }), JSON.stringify(imagePointMm))
+        .toThrow(InvalidScientificInputError);
+    }
+  });
+});
+
 describe("optical bridge numerical fail-closed guards", () => {
   it("rejects a working f-number so small that paraxial acceptance overflows", () => {
     expect(() =>
@@ -845,7 +861,7 @@ describe("optical bridge numerical fail-closed guards", () => {
         }
       })
     ).toThrow(
-      "Paraxial geometric acceptance must remain finite"
+      "Working f-number must be at least 0.5."
     );
   });
 
@@ -875,7 +891,7 @@ describe("optical bridge numerical fail-closed guards", () => {
             Number.MAX_VALUE
           ),
         profile: ultraFast,
-        nominalFNumber: 0.2
+        nominalFNumber: 0.5
       })
     ).toThrow(
       "Sensor-plane spectral irradiance must remain finite"
@@ -931,5 +947,26 @@ describe("scene-to-sensor irradiance profile and context rejection branches", ()
     ["an unknown field-throughput kind", (i: Json): void => { i.fieldThroughput = { kind: "cos4" }; }, "fieldThroughput.kind is invalid.", InvalidConfigurationError]
   ] as MixedRejectionCase[])("rejects a calculation with %s", (_name, mutate, message, errorClass) => {
     expectRejection(context, (i: Json) => calculateSceneRadianceToSensorIrradiance(i), errorClass ?? InvalidScientificInputError, mutate, message);
+  });
+});
+
+
+describe("optical bridge working f-number bound (optics-19, #700)", () => {
+  it("enforces a working f-number of at least 0.5 for every focus kind (optics-19)", () => {
+    const base = spectralProfile([1, 1, 1]);
+    const ultraFast = parseSceneToSensorIrradianceProfile({ ...base, applicability: { ...base.applicability, nominalFNumber: { minimum: 0.1, maximum: 16 } } });
+    const atHalf = calculate({ profile: ultraFast, nominalFNumber: 0.5 });
+    expect(atHalf.sensorPlaneSpectralIrradianceWattsPerSquareMeterNanometer).toBeCloseTo(Math.PI * 10, 12);
+    const supplied = (value: number): { kind: "supplied-working-f-number"; focus: { kind: "infinity" }; workingFNumber: { value: number; evidence: ReturnType<typeof evidence> }; basis: string } => ({ kind: "supplied-working-f-number" as const, focus: { kind: "infinity" as const },
+      workingFNumber: { value, evidence: evidence("working-f-number") }, basis: "Test." });
+    expect(calculate({ profile: ultraFast, nominalFNumber: 4, focus: supplied(0.5) }).sensorPlaneSpectralIrradianceWattsPerSquareMeterNanometer).toBeCloseTo(Math.PI * 10, 12);
+    for (const overrides of [
+      { nominalFNumber: 0.49 },
+      { nominalFNumber: 0.3, focus: { kind: "ideal-symmetric-thin-lens" as const, objectDistanceM: 1e6, pupilMagnificationAssumption: "unity" as const } },
+      { nominalFNumber: 4, focus: supplied(0.49) },
+      { nominalFNumber: 4, focus: supplied(0.05) }
+    ]) {
+      expect(() => calculate({ profile: ultraFast, ...overrides }), JSON.stringify(overrides)).toThrow(/Working f-number must be at least 0\.5/);
+    }
   });
 });

@@ -11,8 +11,9 @@ runtime schema.
 export class InvalidConfigurationError extends TypeError {
   readonly code = "INVALID_CONFIGURATION";
 
-  constructor(message: string) {
-    super(message);
+  /** 2.28.0: `options.cause` keeps an underlying error (for example a caller-supplied decoder's own exception). */
+  constructor(message: string, options?: { cause?: unknown }) {
+    super(message, options);
     this.name = "InvalidConfigurationError";
   }
 }

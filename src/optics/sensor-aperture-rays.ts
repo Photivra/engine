@@ -9,7 +9,8 @@ import { InvalidScientificInputError, requirePositiveFinite } from "../core/vali
 import { calculateFocusPlaneImageDistance, parseFocusPlane, type FocusPlane } from "./focus-state.js";
 import { applyPhysicalCameraRotation, calculateInverseCameraRotationImageMapping,
   type CameraAngularVelocityRadPerSec } from "../motion/camera-rotation.js";
-import { requireInputKeys } from "../core/record-validation.js";
+import { requireInputKeys, requireInputObject } from "../core/record-validation.js";
+import { InvalidConfigurationError } from "../core/configuration-error.js";
 import { hypot3 } from "../core/portable-math.js";
 export interface IdealCircularPupil {
   kind: "ideal-uniform-circular-pupil";
@@ -51,7 +52,11 @@ export interface SensorApertureRays {
  */
 export function calculateSensorApertureRays(input: CalculateSensorApertureRaysInput): CalculationResult<SensorApertureRays> {
   requireInputKeys(input, "calculateSensorApertureRays", ["sourcePointNativeSensorMm", "focalLengthMm", "nominalFNumber", "focus", "pupil", "angularVelocityRadPerSec", "timeSecondsFromOpeningReference"]);
-  const owned = structuredClone(input), pupil = owned.pupil;
+  // 2.28.0 (#726): a value that cannot be copied (a function, for example) is a configuration error, not a DOMException.
+  let owned: CalculateSensorApertureRaysInput;
+  try { owned = structuredClone(input); } catch { throw new InvalidConfigurationError("calculateSensorApertureRays input must hold plain data only."); }
+  const pupil = owned.pupil;
+  requireInputObject(owned.sourcePointNativeSensorMm, "sourcePointNativeSensorMm");
   requirePositiveFinite("nominalFNumber", owned.nominalFNumber);
   if (!pupil || pupil.kind !== "ideal-uniform-circular-pupil" ||
     !Number.isSafeInteger(pupil.radialSampleCount) || pupil.radialSampleCount < 1 || pupil.radialSampleCount > 32 ||
@@ -89,7 +94,9 @@ export function sensorApertureRayValues(owned: Pick<CalculateSensorApertureRaysI
   const displacement = inverse.angularDisplacementRad;
   const radius = owned.focalLengthMm/(2*owned.nominalFNumber), count = pupil.radialSampleCount*pupil.angularSampleCount;
   if (!Number.isFinite(radius) || radius <= 0) throw new InvalidScientificInputError("Pupil radius must remain positive and finite.");
-  const rays = Array.from({ length: count }, (_, i): SensorApertureRay => {
+  // optics-21: a plain loop into a pre-sized array, and the six coordinates tested directly (same values, same error).
+  const rays: SensorApertureRay[] = new Array<SensorApertureRay>(count);
+  for (let i = 0; i < count; i++) {
     const r = radius*Math.sqrt((Math.floor(i/pupil.angularSampleCount)+.5)/pupil.radialSampleCount);
     const theta = 2*Math.PI*((i%pupil.angularSampleCount)+.5)/pupil.angularSampleCount;
     const point = { x: r*Math.cos(theta), y: r*Math.sin(theta) };
@@ -100,12 +107,13 @@ export function sensorApertureRayValues(owned: Pick<CalculateSensorApertureRaysI
     const length = hypot3(direction.x,direction.y,direction.z);
     const unit = { x: direction.x/length, y: direction.y/length, z: direction.z/length };
     // Same physical right-hand camera rotation as the inverse mapping above.
-    const rotatedOrigin = applyPhysicalCameraRotation(origin, displacement, "camera-to-reference"),
-      rotatedDirection = applyPhysicalCameraRotation(unit, displacement, "camera-to-reference");
-    if (![...Object.values(rotatedOrigin),...Object.values(rotatedDirection)].every(Number.isFinite) || rotatedDirection.z <= 0) {
+    const o = applyPhysicalCameraRotation(origin, displacement, "camera-to-reference"),
+      d = applyPhysicalCameraRotation(unit, displacement, "camera-to-reference");
+    if (!(Number.isFinite(o.x) && Number.isFinite(o.y) && Number.isFinite(o.z) && Number.isFinite(d.x) && Number.isFinite(d.y) &&
+      Number.isFinite(d.z)) || d.z <= 0) {
       throw new InvalidScientificInputError("A pupil ray leaves the supported forward hemisphere or finite coordinate domain.");
     }
-    return { originM: rotatedOrigin, directionUnitVector: rotatedDirection, pupilPointMm: point, weight: 1/count, pupilSampleIndex: i };
-  });
+    rays[i] = { originM: o, directionUnitVector: d, pupilPointMm: point, weight: 1/count, pupilSampleIndex: i };
+  }
   return { rays, v, radius };
 }

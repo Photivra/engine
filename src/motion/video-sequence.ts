@@ -41,6 +41,8 @@ function requireFrameRate(frameRateHz: number): number {
   return frameRateHz;
 }
 
+const REPRESENTABLE = "The shutter-angle timing is not representable as a finite, positive duration at this frame rate.";
+
 function requireShutterAngle(shutterAngleDegrees: number): number {
   if (typeof shutterAngleDegrees !== "number" || !Number.isFinite(shutterAngleDegrees) ||
     shutterAngleDegrees <= 0 || shutterAngleDegrees > 360) {
@@ -54,7 +56,10 @@ function requireShutterAngle(shutterAngleDegrees: number): number {
  * A 180° angle exposes for half of each frame period.
  */
 export function calculateShutterAngleExposureSeconds(frameRateHz: number, shutterAngleDegrees: number): number {
-  return requireShutterAngle(shutterAngleDegrees) / 360 / requireFrameRate(frameRateHz);
+  const exposureSeconds = requireShutterAngle(shutterAngleDegrees) / 360 / requireFrameRate(frameRateHz);
+  // sensor-18: an extreme accepted rate can overflow to Infinity or underflow to a zero-length exposure.
+  if (!(exposureSeconds > 0 && exposureSeconds < Infinity)) throw new InvalidScientificInputError(REPRESENTABLE);
+  return exposureSeconds;
 }
 
 /** Inverse of {@link calculateShutterAngleExposureSeconds}: angle = 360 · frameRateHz · t. */
@@ -66,6 +71,7 @@ export function calculateShutterAngleFromExposureSeconds(frameRateHz: number, ex
   if (angle > 360 * (1 + 1e-12)) {
     throw new InvalidScientificInputError("Exposure longer than one frame period has no shutter angle.");
   }
+  if (!(angle > 0)) throw new InvalidScientificInputError(REPRESENTABLE);
   return Math.min(360, angle);
 }
 
@@ -89,10 +95,11 @@ export interface ShutterAngleRuleAssessment {
 export function assessShutterAngleRule(frameRateHz: number, shutterAngleDegrees: number): ShutterAngleRuleAssessment {
   const exposureSeconds = calculateShutterAngleExposureSeconds(frameRateHz, shutterAngleDegrees);
   const conventionExposureSeconds = 1 / (2 * frameRateHz);
-  const ratio = exposureSeconds / conventionExposureSeconds;
+  const ratio = exposureSeconds / conventionExposureSeconds, deviationStops = Math.log2(ratio);
+  if (!(conventionExposureSeconds > 0 && conventionExposureSeconds < Infinity && Number.isFinite(deviationStops))) throw new InvalidScientificInputError(REPRESENTABLE);
   return {
     frameRateHz, shutterAngleDegrees, exposureSeconds, conventionExposureSeconds,
-    deviationStops: Math.log2(ratio),
+    deviationStops,
     classification: Math.abs(ratio - 1) <= 1e-9 ? "matches-180-degree-convention"
       : ratio < 1 ? "shorter-than-convention" : "longer-than-convention",
     conventionNotPhysics: true
@@ -230,6 +237,10 @@ export function resolveVideoFrameSequence(input: ResolveVideoFrameSequenceInput)
       ...(whiteBalanceStateId === undefined ? {} : { whiteBalanceStateId })
     };
   });
+  const last = frames[frames.length - 1]!;
+  if (!(framePeriodSeconds < Infinity && last.exposureEndTimeSeconds > last.exposureStartTimeSeconds && last.exposureEndTimeSeconds < Infinity)) {
+    throw new InvalidScientificInputError(REPRESENTABLE);
+  }
 
   return {
     version: VIDEO_FRAME_SEQUENCE_VERSION,

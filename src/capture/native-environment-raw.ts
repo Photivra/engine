@@ -6,7 +6,7 @@
  */
 import {internalRadianceAccess,isInternalNativeTileReader,isInternalSceneRadianceEvaluator} from "../core/internal-radiance-evaluator.js";
 import { calculateNativeRawPlan, createNativeRawTaskWithCadence, nativeRawMaximumProviderEvaluations, type NativeRawInput, type NativeRawOutput,
-  type NativeRawPlan, type NativeRawTask, type NativeRawTileRequest, type NativeRawTaskState } from "./native-raw.js";
+  NATIVE_RAW_PLAN_FIELDS, type NativeRawPlan, type NativeRawTask, type NativeRawTileRequest, type NativeRawTaskState } from "./native-raw.js";
 import { createPhaseWhiteLevelAccumulator } from "./raw-white-level.js";
 import type { SensorRawProducerSiteInput } from "./sensor-raw-producer.js";
 import { createEnvironmentRawFrameCanonicalMemo, planEnvironmentRawSite, type SimulateEnvironmentSensorRawFrameInput } from "./environment-raw-producer.js";
@@ -371,8 +371,7 @@ export interface NativeRawRowBand { y: number; height: number }
  * `count`. Use one band per worker with createNativeEnvironmentRawPartitionTask.
  */
 export function calculateNativeRawRowBands(plan:Pick<NativeRawPlan,"exposure">,count:number):NativeRawRowBand[] {
-  if(plan!==null&&typeof plan==="object")rejectUnknownFields(plan,["schemaVersion","exposure","frame","exposureWindow","pixelCount","outputBytes","tileCount",
-    "tileWidth","upstreamRadiometryVerified","seedSchedule"],"Native RAW plan");
+  if(plan!==null&&typeof plan==="object")rejectUnknownFields(plan,NATIVE_RAW_PLAN_FIELDS,"Native RAW plan");
   const height=plan?.exposure?.geometry?.nativeRaster?.pixelHeight;
   if(typeof height!=="number"||!Number.isSafeInteger(height)||height<1)throw new InvalidConfigurationError("Native RAW partitioning requires a native RAW plan.");
   if(typeof count!=="number"||!Number.isSafeInteger(count)||count<1||count>1024)throw new InvalidConfigurationError("Native RAW partition count must be an integer from 1 to 1024.");

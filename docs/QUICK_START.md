@@ -76,7 +76,7 @@ modelling choices (such as "no lens PSF") as `kind: "model"`.
 | `lens.vignetting` | none | An `IlluminationVignettingProfile` (radial relative illumination). |
 | `lens.psf` | none | A `{ kind: "sampled-local", configuration }` sampled lens PSF, passed to the environment contract unchanged. |
 | `lens.defocus` | off | `{ model: "geometric-disc" }`: defocus of the scene plane as the geometric blur disc (see [Optics](#optics)). `simulateCapture` and `simulateDisplayView` render it. Optional bokeh character (#553), each part off by default: `blades`, `sphericalAberration`, `catsEye` (see [Bokeh character](#bokeh-character-553)). |
-| `lens.diffraction` | off | 2.1: `"circular-aperture"` or `{ kind: "circular-aperture", kernelRadiusSamples, fast }`: diffraction blur of an ideal lens at the resolved f-number (see [Optics](#optics)). `aperture` is accepted as a deprecated alias of `kind` until 3.0.0. |
+| `lens.diffraction` | off | 2.1: `"circular-aperture"` or `{ kind: "circular-aperture", kernelRadiusSamples, fast }`: diffraction blur of an ideal lens at the resolved f-number (see [Optics](#optics)). 2.28.0: without `kernelRadiusSamples` the window reaches the second dark ring on a fast request and the third on an exact one (#732). `aperture` is accepted as a deprecated alias of `kind` until 3.0.0. |
 | `exposure.mode` | `"manual"` | Also `"aperture-priority"`, `"shutter-priority"`, `"program"`. |
 | `exposure.iso` | 100 | Selects the body's ISO readout regime (gain and read noise). From 2.14 the tier bodies (preset 2.1.0) take the third-stop settings `GENERIC_THIRD_STOP_ISO_SETTINGS` (100, 125, 160, 200 … up to the body's maximum: 6400, 12 800 or 25 600). `"auto"` lets Auto ISO choose it from the meter in any mode (see [Auto ISO](#auto-iso-516)); it steps in whole stops unless `exposure.autoIso.isoSteps: "third-stop"`. |
 | `exposure.autoIso` | none | With `iso: "auto"` only. `aperture-priority` requires `{ slowestPreferredShutterSeconds, afterMaximumIso? }`, and `program` takes them optionally; the slowest shutter may be `"auto"`, set by `automaticSlowestShutter`. Every mode takes `limits: { maximum, minimum? }`, the photographer's Auto ISO range (see [Auto ISO](#auto-iso-516)). |
@@ -111,11 +111,11 @@ modelling choices (such as "no lens PSF") as `kind: "model"`.
 | `output.jpegQuantizationStep` | 2 | JPEG only: constant step 1–255, not a manufacturer quality scale. |
 | `sensor.pixelPitchMicrometers` | 6 | 0.5–1000 (2.5; 0.5–100 before). The sensor is `width × pitch` wide (see [Geometry](#geometry)); the ISO readout scales with the pixel area (see [ISO and pixel size](#iso-and-pixel-size)). Above 100 µm the capture is a downsized view of a whole frame (see [Whole-frame views](#whole-frame-views-25)). |
 | `sensor.spectralStepNanometers` | 20; 5 on exact requests under a spiky light (2.22.0, #590) | Spectral quadrature over 380–780 nm. A light is spiky when R(20) = 20²·κ/24 > 0.01, κ = Σ\|Δ²S\| / ΣS on a 1 nm grid (the midpoint rule's error term, DLMF §3.5(i)): the fluorescent and LED representative sources. Exact requests (DNG, JPEG, PNG, `fast: false`) then take 5 nm; fast ones keep 20 nm, add the assumption `sensor.spectralSpikiness` and report `diagnostics.fast.applied["sensor.spectralStepNanometers"]: true` (exact ones `false`). An explicit step wins and adds no key. |
-| `sensor.temporalSampleCount` | 1; with camera rotation or subject motion 8 on fast requests, 16 on exact ones (2.24.0) | Midpoints across each site's exposure window. |
+| `sensor.temporalSampleCount` | 1; with camera rotation or subject motion 8 on fast requests, 16 on exact ones (2.24.0) | Midpoints across each site's exposure window. A still request (no camera rotation, moving subject, flash or exposure build-up) renders with one whatever the count, with the same result; the `sensor.temporalSampleCount` assumption reports the count asked for and the one used (#729). |
 | `sensor.noiseSeed` | 1 | Output is deterministic for a given seed. |
 | `sensor.antiAliasing` | off | 2.1: an optical low-pass (anti-aliasing) filter: `{ kind: "four-spot", separationSites? }`, `{ kind: "two-spot", axis, separationSites? }` or `{ kind: "point-splitting", components }` (see [Anti-aliasing filter](#anti-aliasing-filter)). Each record also takes `fast`. |
 | `sensor.pixelAperture` | `"point"` | 2.3: `"box"` or `{ kind: "box", samplesPerAxis, fast }` integrates each square photosite (see [Pixel aperture](#pixel-aperture-23)). |
-| `fast` | `false` | Exact or fast for every option in `SIMULATE_CAPTURE_FAST_OPTIONS`; an option's record `fast` overrides it. No option has a fast method yet, so results are exact; `diagnostics.fast` reports what was requested and what ran (see [Exact and fast modes](https://github.com/Photivra/engine/blob/main/docs/API_STYLE.md#exact-and-fast-modes)). |
+| `fast` | by format | Exact or fast for every option in `SIMULATE_CAPTURE_FAST_OPTIONS`; an option's record `fast` overrides it. Without it the format decides (2.20.0): fast for `"srgb-8"`, `"srgb-16"` and the display view, exact for `"dng"`, `"jpeg"`, `"png"` and `simulateIdealReference`. `SIMULATE_CAPTURE_FAST_METHODS` lists the fast methods; `diagnostics.fast` reports what was requested and what ran (see [Exact and fast modes](https://github.com/Photivra/engine/blob/main/docs/API_STYLE.md#exact-and-fast-modes)). |
 | `motion.angularVelocityRadPerSec` | still | `{ pitch?, yaw?, roll? }` in rad/s (see [Motion](#motion)). |
 | `motion.shutter` | `"global"` | Or `"rolling"`. |
 | `motion.rollingShutterSkewSeconds` | the body's readout skew | Rolling only. |
@@ -573,7 +573,9 @@ reports the same `sensor` record as its capture.
 
 `sensor.profile` takes one of eight representative sensor profile records whose values come from
 published specifications (`SENSOR_PROFILES`, or `resolveSensorProfile(id)`; unnamed, by format,
-resolution, architecture and era), checked strictly, so a modified copy also works. It
+resolution, architecture and era), checked strictly, so a modified copy also works. The records are
+frozen all the way down (2.28.0), so copy each nested part you change
+(`{ ...profile, readNoise: { ...profile.readNoise, lowGainElectrons: 5 } }`). It
 replaces the body's ISO range, readout regimes (full well, read noise of each conversion gain, the
 dual-gain switch and the high gain's storage, ADC bit depth), readout time and fixed-pattern noise,
 and sets the default pitch and peak QE; the characteristics above still override it one at a time.
@@ -690,7 +692,8 @@ The result says what happened. `exposure.settings.iso` is the ISO used and `expo
 `exposure.autoIso` reports `idealIsoBeforeConstraints`, the Auto ISO range (`autoIsoMinimum`, `autoIsoMaximum`),
 `clamped`, `limitingConstraint` and `residualStops`. The last two are the resolver's: for example `"iso-maximum"` when
 the exposure stays under target at the maximum ISO, `"iso-grid-quantization"` for the nearest selectable ISO, or
-`"none"`. A positive residual is under target. In aperture priority the report also repeats `afterMaximumIso` and
+`"none"`. A positive residual is under target. An ideal ISO within rounding (32 ulp) of an end of the range is that end
+met exactly: `clamped: false` and `"none"` (2.28.0, #681). In aperture priority the report also repeats `afterMaximumIso` and
 `slowestPreferredShutterSeconds`, and says whether the slower-shutter fallback ran (`afterMaximumIsoFallbackUsed`).
 A display view, an ideal reference and every `output.region` part of the same request meter the whole frame, so
 they resolve the same exposure and report the same values. Requests without `"auto"` are unchanged: their
@@ -793,7 +796,7 @@ the range, far below sensor noise.
 | `slanted-squares` | `columns` (3), `rows` (2), `sizeFraction` (0.5), `angleDegrees` (5), `darkReflectance` (0.15), `lightReflectance` (0.6) | A dark square rotated clockwise by the angle, centred in each cell: two near-vertical and two near-horizontal slanted edges each, 4:1 contrast by default (Burns 2000). |
 | `line-grid` | `spacing` (1/3), `lineWidth` (0.01), `lineReflectance` (0.42), `backgroundReflectance` (0.6) | Lines at every multiple of `spacing` from the centre in u and v: a distortion and registration grid. |
 | `fiducial` | `radiusFraction` (0.8), `ringFraction` (0.18), `inverted` (false), `darkReflectance` (0.05), `lightReflectance` (0.8), `backgroundReflectance` (0.18) | A 2 × 2 checker disk in a dark ring, for registration; `inverted` swaps the checker phase (an orientation cue). |
-| `composite` | `background` (`{ preset: "uniform", reflectance: 0.18 }`), `elements` (required, 1–256) | Each element is `{ scene, centerU, centerV, width, height, mask? }`: any preset except `composite`, drawn inside its placement rectangle (frame units of the composite), clipped to the rectangle or, with `mask: "ellipse"`, to the inscribed ellipse. Later elements cover earlier ones. An element sees its own frame (u = ±1 across its width, aspect = height/width) but LW/PH frequencies keep the composite's picture height. Nested defaults are reported by path, for example `scene.elements.3.parameters.cycles`. |
+| `composite` | `background` (`{ preset: "uniform", reflectance: 0.18 }`), `elements` (required, 1–256) | Each element is `{ scene, centerU, centerV, width, height, mask? }`: any preset except `composite`, drawn inside its placement rectangle (frame units of the composite), clipped to the rectangle or, with `mask: "ellipse"`, to the inscribed ellipse. Later elements cover earlier ones. An element sees its own frame (u = ±1 across its width, aspect = height/width) but LW/PH frequencies keep the composite's picture height. Nested defaults are reported by path, for example `scene.elements.3.parameters.cycles`. 2.28.0: dead-leaves elements and background with the same radii, seed and aspect share one generated texture, and the distinct ones of one composite together may use at most 8 388 608 lookup cells and 8 000 000 disks (twice one dead-leaves chart's limits); beyond that the chart fails with `InvalidConfigurationError`. |
 
 The engine provides only these generic parts. A product's own layout, label or brand belongs in the
 application: build it as a `composite`.
@@ -1242,8 +1245,13 @@ The optics options feed only what the environment site contract accepts:
     2.44·λ·N_w, and the energy inside radius r is 1 − J₀(x)² − J₁(x)², x = π·r/(λ·N_w) (Wyant &
     Creath 1992, §II, eqs. 1–4, free). The Bessel-function relations and expansions come from the
     NIST DLMF (free). Full references are under [Sources](#sources).
-  - The kernel window reaches the third dark ring at the longest node by default (2, 4 and 7 sites at
-    f/4, f/8 and f/16 with 6 µm pixels); set `kernelRadiusSamples` (0–32) to change it. The Airy tail
+  - The kernel window reaches the third dark ring at the longest node by default on an exact request (2, 4 and 7 sites at
+    f/4, f/8 and f/16 with 6 µm pixels); set `kernelRadiusSamples` (0–32) to change it. 2.28.0 (#732, owner decision): on a
+    fast request (sRGB captures and display views by default) the default reaches the second dark ring (j₁,₂ = 7.0156,
+    NIST DLMF Table 10.21.1; 15 → 10 sites at 1.4 µm f/8, 4 → 3 at 6 µm f/8), where that is fewer sites;
+    `diagnostics.fast.applied["lens.diffraction"]` is then `true` and the `fast.lens.diffraction` assumption's `window` gives both
+    radii and the a-priori bound B = max over nodes of (T_fast − T_exact) / (1 − T_exact), T the Airy energy outside each window:
+    the largest change at a site as a share of the scene contrast its CFA colour sees (2.8 % at 1.4 µm f/8, 1.3 % at 6 µm f/8). The Airy tail
     outside the window (2–6 % of the energy with the default) is listed per wavelength in the
     `lens.diffraction` assumption and put back by renormalizing each kernel to unit sum.
   - The default window is capped at 32 sites, the convolution limit. Small pixels at large f-numbers
@@ -1573,7 +1581,8 @@ lens: { focalLengthMm: 50, fNumber: 4, focusDistanceM: 1.4, defocus: { model: "g
   the method, b in sites, and the cat's-eye zones) and says all this.
 - **`blades`**: a regular polygon of `count` (3–32) straight blades, with `calculateIdealApertureGeometry`'s
   `firstBladeEdgeAngleDegrees`; `curvature` κ in [0, 1] makes each edge an arc of radius 1/κ circumradii through its two
-  vertices (κ = 1 is the circle); at or below `circularAtOrBelowFNumber` the blades are open and the opening is circular.
+  vertices (κ = 1 is the circle; since 2.28.0 a κ below 1e-6, whose arcs lie within 4e-7 circumradii of straight edges, gives
+  straight blades); at or below `circularAtOrBelowFNumber` the blades are open and the opening is circular.
   The opening is scaled to the area of the f/N circle, so the f-number keeps its meaning for light and the blur has the
   disc's area.
 - **Front against back.** Behind the focus plane the rays have crossed before the sensor, in front they have not, so the
@@ -1607,7 +1616,7 @@ lens: { focalLengthMm: 50, fNumber: 4, focusDistanceM: 1.4, defocus: { model: "g
   polygon; circles and blade arcs are 1024-gons scaled to their true area, within 5e-6 of the radius of the true curve)
   inside the site's cell, divided by its area (`"exact-polygon-cell-area"`). With it the pupil is sampled on a square grid
   fine enough that neighbouring rays land at most 1/8 site apart, each grid cell weighted by its exact overlap with the
-  pupil's chord, and every ray binned into the site cell it lands in (`"pupil-ray-binning"`; it handles the caustic).
+  pupil's chord, and every ray binned into the site cell it lands in (`"pupil-ray-binning"`; it handles the caustic; a quadrature measured at about 2 % L1 kernel error, single taps up to about 10 % of the peak, for a 40-site blur).
   Only correctly rounded operations and the portable trigonometry are used, so the weights are the same bits in every
   JavaScript engine.
 - **Validation** (`test/defocus-bokeh-kernel.test.ts`, `test/simulate-capture-defocus-bokeh.test.ts`):
@@ -1794,7 +1803,8 @@ rectangle of it (`region: { centerXM, centerYM, widthM, heightM }` in metres at 
 
 - `velocityMPerSec: { x, y }` is a translation in m/s on the plane (+x right, +y up as seen from the camera).
   `angularVelocityRadPerSec` adds a rotation about an axis parallel to the optical axis, counter-clockwise as seen from
-  the camera: the optical axis for the whole scene, the region's center for a region.
+  the camera: the optical axis for the whole scene, the region's center for a region. A subject at rest (no velocity
+  and no rotation, `subject: {}` included) renders as the still scene it equals, with one temporal sample (#688).
 - The model is rigid motion of a planar layer. At time t from the first opening (camera rotation's time reference), a
   subject point at rest q is at R(ωt)(q − c) + c + v·t. A plane point shows the subject where one is there, else the
   region's rest rectangle shows a neutral 18 % background (what the subject revealed), else the still scene. The background
@@ -2087,7 +2097,12 @@ Each part is a region result's `raw` and `region` (any region format; `result.ra
 `result.region.nativeRect` where they lie). A region's sites are the whole render's sites, so the joined RAW is the whole
 render's RAW; the function then resolves the request and writes the DNG exactly as `simulateCapture` does, and the bytes
 are the same. The parts must cover the frame's native raster; where they overlap (the demosaic margin) their sites must
-agree, and a part from another request is refused. Render the parts with a fixed white balance and without `output.dng`
+agree, and a part from another request is refused: since 2.28.0 (#728) a region result's `region` carries `fast` (a fast
+method ran) and `requestKey` (SHA-256 of the resolved state that determines the RAW), which `{ raw, region }` passes through,
+and the join refuses a part of another key, or one a fast method rendered under a join that resolves to exact. A region's
+format decides the default of `fast` (an sRGB region is fast, a DNG exact), so with an option that has a fast method (the box
+pixel aperture, motion, a light with narrow bands, a catalogue lens) render the parts with the join's `fast`, for example
+`fast: false`. Render the parts with a fixed white balance and without `output.dng`
 (a region takes neither; the RAW codes do not depend on the white-balance intent): auto white balance and the capture time
 apply to the DNG options passed here, and auto white balance is measured over the joined frame.
 
@@ -2101,9 +2116,9 @@ the same bytes both ways; the parts took 58.1 s of CPU against 50.6 s for one wh
 import { serializeSimulatedCaptureDngFromParts, simulateCapture, type SimulateCaptureDngPart, type SimulateCaptureOptions } from "@photivra/engine";
 
 const dngFrame: SimulateCaptureOptions = { scene: { preset: "siemens-star" }, output: { width: 96, height: 64, format: "dng" } };
-// Two strips rendered as sRGB regions (in an application, in separate Web Workers), then one DNG of the whole frame.
+// Two strips rendered as sRGB regions (in an application, in separate Web Workers) with the DNG's fast (exact), then one DNG of the whole frame.
 const parts: SimulateCaptureDngPart[] = await Promise.all([0, 32].map(async (y) => {
-  const part = await simulateCapture({ ...dngFrame, output: { width: 96, height: 64, region: { x: 0, y, width: 96, height: 32 } } });
+  const part = await simulateCapture({ ...dngFrame, fast: false, output: { width: 96, height: 64, region: { x: 0, y, width: 96, height: 32 } } });
   return { raw: part.raw, region: part.region! };
 }));
 const dng = await serializeSimulatedCaptureDngFromParts(dngFrame, parts);
@@ -2136,9 +2151,9 @@ import { simulateCaptureFromParts, simulateCapture, type SimulateCaptureDngPart,
 
 const whole: SimulateCaptureOptions = { scene: { preset: "slanted-edge" }, lens: { fNumber: 16, diffraction: "circular-aperture" },
   output: { width: 96, height: 64, format: "jpeg", diffractionCorrection: {}, sharpening: {} } };
-// Two strips rendered without the whole-image stages (in an application, in separate Web Workers).
+// Two strips rendered without the whole-image stages (in an application, in separate Web Workers), with the JPEG's fast (exact).
 const parts: SimulateCaptureDngPart[] = await Promise.all([0, 32].map(async (y) => {
-  const part = await simulateCapture({ ...whole, output: { width: 96, height: 64, region: { x: 0, y, width: 96, height: 32 } } });
+  const part = await simulateCapture({ ...whole, fast: false, output: { width: 96, height: 64, region: { x: 0, y, width: 96, height: 32 } } });
   return { raw: part.raw, region: part.region! };
 }));
 const developed = await simulateCaptureFromParts({ ...whole, onProgress: ({ stage, completedTileCount, totalTileCount }) => {
@@ -2298,6 +2313,80 @@ const [capture, reference] = await Promise.all([simulateCapture(request), simula
 console.log(reference.kind, reference.label, capture.image.samples.length === reference.image.samples.length);
 ```
 
+## False color (2.28)
+
+`simulateFalseColor(options, measure?)` (#739) measures the false color a demosaic produces for a capture request: color
+moiré and false-color fringes on fine detail. It takes the request `simulateCapture` takes and compares two noise-free images
+of it:
+
+- **the reference**: every site's expected electrons read with each of the three channel responses (a full-color sensor),
+  through the capture's own optics, anti-aliasing filter, pixel aperture, exposure and site lattice, developed without a
+  demosaic;
+- **the capture side**: the same values with each site keeping only its own channel (the noise-free color filter mosaic),
+  demosaiced with the request's `output.demosaic` (the bilinear kernels, or AHD's two candidates and its homogeneity choice on
+  that mosaic, a tie averaging them) and developed by the same chain.
+
+Both are developed as the display view develops a noise-free value: each site normalized and clipped at white, the
+white-balance gains, the highlight clip, the camera → linear sRGB matrix, the tone curve and the clip to [0, 1]. Per output
+pixel the measure is the chroma and hue part of the CIE 1976 color difference in CIELAB (linear sRGB → XYZ, D65 white):
+
+d = √((a\*₁ − a\*₂)² + (b\*₁ − b\*₂)²)
+
+since ΔE\*ab² = ΔL\*² + d². Lightness errors (resolution loss, zipper) are not false color; `colorDifference.meanDeltaE76`
+reports the full ΔE\*ab for context. This is the usual way demosaicing methods are compared: a full-color image is sampled
+through the color filter array, demosaiced and compared with the original (Gunturk et al. 2005; Losson, Macaire & Yang 2010).
+A reference without the camera's optics (`simulateIdealReference`) would mix lens blur, the anti-aliasing filter and noise into
+the number; this one is 0 wherever the demosaic reconstructs exactly.
+
+```ts
+import { simulateFalseColor, type SimulateCaptureOptions } from "@photivra/engine";
+
+// A neutral grating at 0.45 cycles per output pixel across a 64-pixel frame.
+const grating: SimulateCaptureOptions["scene"] = { kind: "reflectance-function", sceneId: "grating-0.45",
+  evaluate: (p: { u: number }) => 0.4 + 0.3 * Math.sin(2 * Math.PI * 0.45 * 32 * p.u) };
+for (const demosaic of ["bilinear", "ahd"] as const) {
+  const result = await simulateFalseColor({ scene: grating, output: { width: 64, height: 64, demosaic } }, { map: true });
+  console.log(demosaic, result.chromaDifference.mean.toFixed(1), result.chromaDifference.fractionAbove, result.map?.rgba.length);
+}
+```
+
+The result (`kind: "false-color"`) has `chromaDifference` (pixel count, mean, root mean square, median, 95th and 99th
+percentiles from a histogram of 0.01, the maximum and where it is, and `fractionAbove` each threshold), `colorDifference`,
+`meanChroma` of both images (a neutral scene's reference stays near 0), and with `measure.map` the per-pixel `values`
+(`Float32Array`) and a gray RGBA image of min(1, d / `maximum`) (default 20). `measure.images: true` also returns both developed
+images as sRGB 8-bit RGBA. `measure.thresholds` (default [1, 2, 5], up to 8, in (0, 200]) are reporting levels, with no claim
+about visibility. `measure.region` measures a rectangle of output pixels; its values equal the same pixels of the whole frame
+bit for bit, and the statistics other than the percentiles add over regions (`pixelCount` is reported for that).
+
+Measured (64 × 64, defaults unless noted; mean / 95th percentile / maximum of d; the gratings are the example's along u):
+
+| Scene | Bilinear | AHD |
+| --- | --- | --- |
+| Uniform field | 0 / 0 / 0 | 0 / 0 / 0 |
+| Grating, 0.05 cycles/pixel | 2.03 / 5.2 / 9.4 | 0.59 / 2.5 / 3.2 |
+| Grating, 0.25 cycles/pixel | 36.62 / 72.0 / 72.0 | 16.91 / 50.5 / 50.5 |
+| Grating, 0.45 cycles/pixel | 49.17 / 85.5 / 86.4 | 18.29 / 53.2 / 53.7 |
+| The same, four-spot anti-aliasing filter | 10.30 / 25.0 / 25.1 | 2.91 / 8.2 / 9.3 |
+| The same, diffraction at f/16 | 10.46 / 21.0 / 21.1 | 0.63 / 1.7 / 1.7 |
+| Siemens star | 42.63 / 88.8 / 119.7 | 29.59 / 83.0 / 114.4 |
+| Zone plate | 31.89 / 90.4 / 114.8 | 25.08 / 77.9 / 104.4 |
+| Siemens star, `pv-50-1.8` at f/2.8 | 24.40 / 63.5 / 106.4 | 10.21 / 38.4 / 103.1 |
+
+It costs three expected-signal passes and the demosaic: a 768 × 512 zone plate with diffraction at f/8 took 1.9 s (bilinear)
+and 2.4 s (AHD) of CPU against 0.8–1.0 s for the `fast: false` capture of the same request (one arm64 machine under load).
+
+**Limits.** Expected values only: no photon, dark or read noise and no ADC rounding (chroma noise is a separate quantity). Per
+output pixel, not weighted by viewing distance or display size (no S-CIELAB spatial filtering). With AHD the direction is the
+one chosen on the noise-free mosaic. Always full quality (`fast: false`, on the CPU; `fast: true` is refused, top-level or on an option record: `lens.catalogue`,
+`lens.diffraction`, `motion.subject`, `output.demosaic`, `sensor.pixelAperture`, `sensor.antiAliasing`). **Refused**, with
+an `InvalidConfigurationError` naming the function, because they change color after the demosaic or have no expected-signal
+path: the luminance tone curves, `highlightMode` `"reconstruct"` and `"reconstruct-neighbors"`, `gamutHandling:
+"desaturate-to-luminance"`, `output.lensCorrections`, `output.sharpening`, `output.diffractionCorrection`, `output.region` (use
+`measure.region`), `output.format` `"jpeg"`, `"png"` and `"dng"`, `whiteBalance: "auto"`, `lens.pupilSampling`, a caller
+`lens.psf`, `lens.defocus.catsEye`, `sensor.fixedPatternNoise` and layered chart scenes; the display view's own refusals apply
+too. The function's code loads on demand (docs/DISPLAY_VIEW.md, "Bundle size"). The figures quoted elsewhere in this guide as
+"mean false color |R − G| + |B − G|" are dated measurements of a different quantity.
+
 ## Display view
 
 `simulateDisplayView(options, view)` returns what the real full-resolution capture of `options` would look like
@@ -2432,6 +2521,60 @@ site kernel in the expected signal (#492; see [Optics](#optics)). `onProgress` i
 The result is labelled `kind: "display-view"` with a `label` for the user interface; it has no RAW, plan or file, and
 the `view.*` assumptions state the definition, the estimator, the noise model, the demosaic treatment and which capture
 options were ignored. The whole-frame views of [Whole-frame views](#whole-frame-views-25) are unchanged.
+
+### Batch figure renders in Node (2.28.0)
+
+A set of explanatory figures (lens, sensor, depth-of-field, noise and motion comparisons) is many display-view files rendered
+in one batch. The recipe below is measured on the batch-figure benchmark (`scripts/benchmark-figure-batch.mjs`, #670); a
+runnable version with worker threads is
+[`docs/examples/figure-batch-workers.mjs`](examples/figure-batch-workers.mjs).
+The engine adds no worker code: the workers are the caller's.
+
+1. **Row bands are the unit of work.** Cut each file into bands with `view.region` (`{ x: 0, y, width, height: rows }`). Bands
+   join to the same bytes as the file rendered in one piece. Use bands of at least 128 display rows: each band re-reads its
+   edge rows and starts its own windows.
+2. **Persistent workers.** Start W = min(performance cores, ⌊free memory ÷ 1 GiB⌋) processes or `worker_threads` once and feed
+   them bands from a queue. A process per band cost 10–40 % more CPU than one piece in the #670 measurements (module load,
+   preparing and compilation warm-up per process). Peak memory per worker in the benchmark: about 170–500 MB, up to about
+   900 MB for a catalogue lens with `fast: false`.
+3. **One prepared view per request per worker.** Call `prepareDisplayView` once and render every band of every file of that
+   request from it; keep one at a time (it holds the setup of the whole request) and queue a request's bands together so it is
+   not rebuilt. Preparing costs about 0.03–0.16 s, so nothing needs to be shared between workers.
+4. **`gpu: "off"`**, so every machine renders the same bytes.
+5. **Choose the flag per figure and say which.** `fast: false` is the full-quality path; the display view's default applies
+   the flagged fast methods within their documented bounds.
+6. **Reuse finished bands.** A band's bytes are stable for the engine version, the architecture, the Node.js release line, the
+   request, the view and the region, so key stored bands by those and render only new or changed ones.
+7. **Balance shards by predicted cost, not by count.** `estimateDisplayViewRender(prepared, view)` (#660) counts a band's work
+   without rendering it. The bands of one file differ several-fold in cost (the middle band of the composite chart costs about
+   2.5 times its cheapest), so deal bands dearest first to the shard with the smallest predicted total.
+
+```ts
+import { estimateDisplayViewRender, prepareDisplayView, type SimulateCaptureOptions } from "@photivra/engine";
+
+const request: SimulateCaptureOptions = { scene: { preset: "siemens-star" }, subjectDistanceM: 2, fast: false,
+  lens: { prime: 50, fNumber: 8, diffraction: "circular-aperture" }, output: { width: 1200, height: 800, format: "srgb-8" } };
+const file = { width: 192, height: 128, samplesPerAxis: 4 }, rows = 32;
+const prepared = await prepareDisplayView(request, { gpu: "off" });
+const bands = [];
+for (let y = 0; y < file.height; y += rows) {
+  const view = { ...file, region: { x: 0, y, width: file.width, height: Math.min(rows, file.height - y) } };
+  const e = estimateDisplayViewRender(prepared, view);
+  bands.push({ view, cost: e.nativeSites * e.signal.tapsPerSite * e.signal.spectralNodes * e.signal.temporalMidpoints });
+}
+bands.sort((a, b) => b.cost - a.cost); // deal these to the workers' queues, dearest first
+const band = await prepared.render(bands[0].view);
+console.log(band.image.width, band.image.height);
+```
+
+The cost term above is the predictor's main term. `node scripts/benchmark-figure-batch.mjs balance` fits the predictor
+(that term, the band's site reads and a constant) to measured bands on your machine, reports how many it predicts within
+±25 %, and deals shards from it. Measured on 2.28.0 with `fast: false` (74 bands of 128 rows from six figures of the benchmark,
+one arm64 machine under heavy load): the fitted cost is within ±25 % of the measured CPU for only 22 % of the bands (19 % with
+the pilot's detailed-pixel count added), because most of a band's cost follows its content (how many sites read more than
+one material), which the counts do not see; six shards dealt dearest first by the fitted cost still came out at 1.14–1.15× the
+mean shard, against 1.22× when dealt by display rows. Treat the estimate as an ordering, not a time, and keep the queue
+dynamic (persistent workers pulling the next band) so the content term evens out.
 
 ## Not available
 

@@ -3,6 +3,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  InvalidScientificInputError,
   assessSensorPhysicalChargeCapacity,
   calculateExpectedSensorReadout,
   createSensorRawCaptureSample,
@@ -27,6 +28,7 @@ import {
   type SensorRawReconstructionProfile,
   type SensorReadoutConversionProfile
 } from "../src/index.js";
+import { characterizeReadout } from "../src/sensor/sensor-characteristics.js";
 
 type OwnedEvidence = readonly [{
   sourceOrigin: "photivra";
@@ -2137,5 +2139,74 @@ describe("sensor RAW closeout validation and edge boundaries", () => {
     ).toThrow(
       "must remain finite"
     );
+  });
+});
+
+describe("RAW capture sample and reconstruction inputs (sensor-11, sensor-17, #701)", () => {
+  const domain = expect.objectContaining({ name: expect.stringMatching(/^Invalid(Configuration|ScientificInput)Error$/) });
+  const reconstruct = (samples: unknown[], centerSite: unknown = { x: 1, y: 0 }): ReturnType<typeof resolveSensorRawReconstruction> => resolveSensorRawReconstruction({
+    profile: reconstructionProfile(), colorSamplingProfile: colorProfile(), centerSite: centerSite as never, samples: samples as never });
+  const neighborhood = (): SensorRawCaptureSample[] => [captureRawAt(0, 0, "red", 1064), captureRawAt(1, 0, "green", 2064), captureRawAt(1, 1, "blue", 3064)];
+
+  it("rejects a missing raw code, center site or sample with a domain error", () => {
+    expect(() => createSensorRawCaptureSample({ rawCode: undefined as never, contributors: contributorsAt(0, 0) })).toThrow(domain);
+    expect(() => reconstruct(neighborhood(), null)).toThrow(domain);
+    expect(() => reconstruct([null, ...neighborhood()])).toThrow(domain);
+  });
+
+  it("refuses a raw code that is not an integer code inside the ADC range", () => {
+    for (const rawCode of [Number.NaN, 99999, -5, 1064.5]) {
+      expect(() => createSensorRawCaptureSample({ rawCode: rawAt(0, 0, "red", rawCode), contributors: contributorsAt(0, 0) }), String(rawCode)).toThrow(InvalidScientificInputError);
+    }
+    expect(() => createSensorRawCaptureSample({ rawCode: { ...rawAt(0, 0, "red", 1064), blackLevelCode: 64.5 }, contributors: contributorsAt(0, 0) })).toThrow(InvalidScientificInputError);
+    expect(captureRawAt(0, 0, "red", 1064).rawCode).toBe(1064);
+  });
+
+  it("refuses a sample value that is not a number instead of coercing it", () => {
+    const [red, green, blue] = neighborhood();
+    expect(() => reconstruct([{ ...red!, blackSubtractedNormalizedCode: "0.5" }, green, blue])).toThrow(InvalidScientificInputError);
+    expect(reconstruct([red, green, blue]).value.outputChannels.length).toBeGreaterThan(0);
+  });
+});
+
+describe("lower code clamp report with a declared digital gain (sensor-24, #701)", () => {
+  it("reports the clamp for every site below code 0, with or without a digital gain", () => {
+    const accumulated = charge(0);
+    const realization = simulateSensorChargeRealization({ accumulatedCharge: accumulated, samplingProfile: samplingProfile(), seedUint32: 11 }).value;
+    const counts = [undefined, 1, 2].map((digitalGain) => {
+      const profile = structuredClone(readoutProfile()) as unknown as { regimes: { systemConversionGainElectronsPerCode: { value: number };
+        readNoiseComponents: { rmsElectrons: { value: number } }[]; adc: Record<string, unknown> }[] };
+      const regime = profile.regimes[0]!;
+      regime.systemConversionGainElectronsPerCode.value = 1;
+      regime.readNoiseComponents[0]!.rmsElectrons.value = 50;
+      regime.adc.blackLevelCode = 0;
+      if (digitalGain !== undefined) regime.adc.digitalGain = digitalGain;
+      let below = 0, flagged = 0;
+      for (let seed = 0; seed < 200; seed++) {
+        const code = simulateSensorRawCode({ chargeRealization: realization, physicalCapacityAssessment: capacity(accumulated), readoutProfile: profile as never,
+          regimeId: "base", readNoiseSeedUint32: seed }).value;
+        if (Math.floor(code.codeBeforeQuantization + 0.5) < 0) below++;
+        if (code.lowerCodeClampApplied) flagged++;
+        expect(code.rawCode).toBeGreaterThanOrEqual(0);
+      }
+      return [below, flagged];
+    });
+    expect(counts[0]![0]).toBeGreaterThan(50);
+    for (const [below, flagged] of counts) expect(flagged).toBe(below);
+  });
+});
+
+describe("sensor.adcBitDepth with ADC integral non-linearity (sensor-25, #701)", () => {
+  it("keeps the declared bit depth and refuses another one with a message naming sensor.adcBitDepth", () => {
+    const withInl = structuredClone(readoutProfile()) as unknown as { regimes: { adc: Record<string, unknown> }[] };
+    for (const regime of withInl.regimes) {
+      regime.adc.integralNonLinearity = { kind: "piecewise-linear-code-offset", evidence: evidence("inl"),
+        knots: [{ code: 0, offsetCodes: 0 }, { code: 2000, offsetCodes: 1 }, { code: 4095, offsetCodes: 0 }] };
+    }
+    const profile = parseSensorReadoutConversionProfile(withInl);
+    expect(() => characterizeReadout(profile, 1, { adcBitDepth: 12 } as never)).not.toThrow();
+    for (const adcBitDepth of [14, 16]) {
+      expect(() => characterizeReadout(profile, 1, { adcBitDepth } as never), String(adcBitDepth)).toThrow(/^sensor\.adcBitDepth cannot change the bit depth/);
+    }
   });
 });

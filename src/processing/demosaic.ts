@@ -331,10 +331,10 @@ export function createAhdDemosaicTask(input: AhdDemosaicInput, provider: Process
         yield;
       }
       return { width: W, height: H, data: out, direction, provenance: processingProvenance("ahd-demosaic-hirakawa-parks-2005", [
-        "Directional green with the 5-tap filter [-1/4, 1/2, 1/2, 1/2, -1/4]; red/blue from bilinear colour differences.",
-        "Homogeneity in CIELAB of the declared camera-to-XYZ matrix over the 4-neighbourhood, summed over 3x3; ties average.",
-        "The paper's iterative median artifact reduction is not applied.",
-        "Non-linear adaptive reconstruction; not a calibrated or manufacturer demosaic."]) };
+        "Directional green, 5-tap filter [-1/4, 1/2, 1/2, 1/2, -1/4]; red/blue from bilinear colour differences.",
+        "CIELAB homogeneity (declared camera-to-XYZ matrix), 4-neighbourhood summed over 3x3; ties average.",
+        "No iterative median artifact reduction.",
+        "Not a calibrated or manufacturer demosaic."]) };
     }
   });
 }

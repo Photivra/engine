@@ -43,7 +43,7 @@ import {
 import type {
   NativeImageRaster
 } from "./sensor-geometry.js";
-import { requireInputKeys, requireConfigRecord as requireRecord, requireTrimmedConfigString as requireNonEmptyString, requireConfigNonNegativeFinite as requireNonNegativeFinite, parseConfigLimitations as parseLimitations } from "../core/record-validation.js";
+import { requireInputKeys, requireInputObject, requireInputArray, requireConfigRecord as requireRecord, requireTrimmedConfigString as requireNonEmptyString, requireConfigNonNegativeFinite as requireNonNegativeFinite, requireConfigPositiveFinite as requirePositiveFinite, parseConfigLimitations as parseLimitations } from "../core/record-validation.js";
 
 export const CAPTURE_MODE_TIMING_PROFILE_SCHEMA_VERSION =
   "0.1.0" as const;
@@ -125,7 +125,8 @@ const SCAN_DIRECTIONS =
 
 function parseSecondsFact(
   value: unknown,
-  path: string
+  path: string,
+  positive = false
 ): SourcedSensorTimingSeconds {
   const record =
     requireRecord(value, path, ["unit", "value", "evidence"]);
@@ -135,8 +136,9 @@ function parseSecondsFact(
     );
   }
   return {
+    // sensor-21: a scan traversal and a rolling skew must be positive, as resolveCaptureModeTiming requires.
     value:
-      requireNonNegativeFinite(
+      (positive ? requirePositiveFinite : requireNonNegativeFinite)(
         record.value,
         path + ".value"
       ),
@@ -216,7 +218,8 @@ function parseBoundarySchedule(
         parseSecondsFact(
           record.traversalDurationSeconds,
           path +
-            ".traversalDurationSeconds"
+            ".traversalDurationSeconds",
+          true
         )
     };
   }
@@ -274,7 +277,8 @@ function parseReadout(
         parseSecondsFact(
           record.spatialSamplingSkewSeconds,
           path +
-            ".spatialSamplingSkewSeconds"
+            ".spatialSamplingSkewSeconds",
+          true
         )
     };
   }
@@ -418,6 +422,8 @@ export function resolveCaptureModeTiming(
       input.timingProfile
     );
 
+  requireInputObject(input.captureMode, "captureMode");
+  requireInputArray(input.captureMode.dependencies, "captureMode.dependencies");
   if (
     profile.captureModeId !==
     input.captureMode.modeId

@@ -129,7 +129,10 @@ export function evaluateSrgbEncoding(linear: number): number {
 
 /** sRGB / Display P3 decoding of one non-linear component. */
 export function evaluateSrgbDecoding(encoded: number): number {
-  return decodeSrgbComponent(requireFiniteNumber(encoded, "encoded"));
+  // foundation-10: a component beyond about 1e123 decodes to Infinity, which is refused.
+  const linear = decodeSrgbComponent(requireFiniteNumber(encoded, "encoded"));
+  requireFiniteResult([linear], "evaluateSrgbDecoding");
+  return linear;
 }
 
 /**
@@ -170,7 +173,11 @@ export function prepareBt1886Eotf(input: { whiteLuminanceCdPerSquareMeter: numbe
   const a = root ** g, b = lb ** (1 / g) / root;
   return Object.freeze({
     whiteLuminanceCdPerSquareMeter: lw, blackLuminanceCdPerSquareMeter: lb, a, b,
-    decode: (signal: number) => a * Math.max(requireFiniteNumber(signal, "signal") + b, 0) ** g,
+    decode: (signal: number) => {
+      const luminance = a * Math.max(requireFiniteNumber(signal, "signal") + b, 0) ** g;
+      requireFiniteResult([luminance], "BT.1886 decode");
+      return luminance;
+    },
     encode: (luminance: number) => (requireNonNegativeNumber(luminance, "luminanceCdPerSquareMeter") / a) ** (1 / g) - b
   });
 }

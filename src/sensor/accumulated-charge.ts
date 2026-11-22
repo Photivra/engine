@@ -14,6 +14,7 @@
  * limits.
  */
 
+import { parseUncertainty } from "./spectral-response.js";
 import {
   approximationResult,
   calculatedResult,
@@ -37,7 +38,7 @@ import type {
   SensorSpectralResponseScientificStatus,
   SensorSpectralResponseUncertainty
 } from "./spectral-response.js";
-import { requireInputObject, requireInputKeys, rejectUnknownVariantFields, UNCERTAINTY_VARIANT_FIELDS, requireConfigRecord as requireRecord, requireConfigFinite as requireFinite, requireConfigString as requireNonEmptyString, parseConfigScientificStatus as parseStatus, requireConfigNonNegativeSafeInteger as requireSiteIndex, requireConfigFiniteAtLeastZero as requireNonNegativeFinite } from "../core/record-validation.js";
+import { requireInputObject, requireInputKeys, requireConfigRecord as requireRecord, requireConfigFinite as requireFinite, requireConfigString as requireNonEmptyString, parseConfigScientificStatus as parseStatus, requireConfigNonNegativeSafeInteger as requireSiteIndex, requireConfigFiniteAtLeastZero as requireNonNegativeFinite } from "../core/record-validation.js";
 import { addCompensated, sameSite } from "../core/shared-helpers.js";
 
 type UnknownRecord = Record<string, unknown>;
@@ -199,47 +200,6 @@ interface CompensatedSum {
   correction: number;
 }
 
-function parseUncertainty(
-  value: unknown,
-  path: string
-): SensorSpectralResponseUncertainty {
-  const record =
-    requireRecord(value, path, null);
-  rejectUnknownVariantFields(record, "kind", UNCERTAINTY_VARIANT_FIELDS, path);
-
-  if (record.kind === "relative") {
-    const fraction =
-      requireNonNegativeFinite(
-        record.fraction,
-        path + ".fraction"
-      );
-    return {
-      kind: "relative",
-      fraction,
-      basis: requireNonEmptyString(
-        record.basis,
-        path + ".basis"
-      )
-    };
-  }
-
-  if (
-    record.kind === "not-quantified"
-  ) {
-    return {
-      kind: "not-quantified",
-      limitation:
-        requireNonEmptyString(
-          record.limitation,
-          path + ".limitation"
-        )
-    };
-  }
-
-  throw new InvalidConfigurationError(
-    path + ".kind is invalid."
-  );
-}
 
 function parseWindowIdentity(
   record: UnknownRecord,

@@ -92,10 +92,11 @@ export async function openDisplayViewGpuSession(options: ParsedPrepareDisplayVie
   const factory = displayViewGpuRendererFactory();
   if (!factory) return fallBack(options, "unsupported-on-backend", "this version of the engine has no GPU display-view renderer (#478); no device was requested.");
   // #563: the lens signal (projection, distortion, vignetting, rotation) runs on the CPU reference only; no device is requested for it.
-  if (request.lens) return fallBack(options, "unsupported-on-backend", "the GPU display-view renderers do not render lens.projection, lens.distortion, lens.vignetting or " +
-    "camera rotation (#563); the CPU reference renders them. No device was requested.");
+  // #661: unless the request describes a catalogue-lens view (`lensView`), which the renderer decides.
+  if (request.lens && !request.lensView) return fallBack(options, "unsupported-on-backend", "the GPU display-view renderers do not render lens.projection, lens.distortion, lens.vignetting or " +
+    "camera rotation (#563), or lens.catalogue without a radial distortion; the CPU reference renders them. No device was requested.");
   if (request.detail) return fallBack(options, "unsupported-on-backend", "lens corrections and sharpening run on the CPU (#628).");
-  if (request.layered) return fallBack(options, "unsupported-on-backend", "layered chart scenes render on the CPU in 2.27.0 (#652).");
+  if (request.layered) return fallBack(options, "unsupported-on-backend", "layered chart scenes render on the CPU (#652).");
   // #597: an image-plane print under mixed light renders on the device (its Quality passes light each lattice point); charts keep the CPU.
   if (request.mixedIllumination && request.scene !== "image-plane") return fallBack(options, "unsupported-on-backend", "the GPU renderers light chart materials with one illuminant; the CPU reference renders mixed illumination (#550). No device was requested.");
   let runtime: WebGpuRuntime, owned = false;
@@ -215,11 +216,17 @@ function createSession(options: ParsedPrepareDisplayViewOptions, runtime: WebGpu
     if (options.gpu === "require") throw requireError(reason, detail, compositeProbe);
     return { rendered: await cpu(), execution: cpuDisplayViewExecution(options.gpu, reason, adapter, conformance, detail, compositeProbe) };
   };
+  /**
+   * #675: the shared checks belong to the session, not to the render that happened to start them: they run under the session's
+   * own signal (aborted only by `dispose()`), and each render waits for them under its own signal (`runtime.guard`), so one
+   * render's abort never ends a check that a concurrent render is waiting for.
+   */
+  const session = new AbortController();
   /** The self-check, run once per session (single flight); a failing check is remembered and never repeated. */
-  function selfCheck(signal: AbortSignal | undefined): Promise<DisplayViewGpuConformance> {
+  function selfCheck(): Promise<DisplayViewGpuConformance> {
     if (conformance) return Promise.resolve(conformance);
     if (!checking) {
-      checking = runConformance(runtime, [...DISPLAY_VIEW_GPU_BUILT_IN_CASES, ...(renderer.conformanceCases ?? [])], signal).then((result) => { conformance = result; return result; }, (error: unknown) => { checking = null; throw error; });
+      checking = runConformance(runtime, [...DISPLAY_VIEW_GPU_BUILT_IN_CASES, ...(renderer.conformanceCases ?? [])], session.signal).then((result) => { conformance = result; return result; }, (error: unknown) => { checking = null; throw error; });
     }
     return checking;
   }
@@ -229,24 +236,29 @@ function createSession(options: ParsedPrepareDisplayViewOptions, runtime: WebGpu
    * failure keeps this render and every later one on the CPU, as a failure at the first render does.
    */
   let onDemand: Promise<DisplayViewGpuConformance> | null = null;
-  function onDemandCheck(setup: DisplayViewSetup, passed: DisplayViewGpuConformance, signal: AbortSignal | undefined): Promise<DisplayViewGpuConformance> {
+  function onDemandCheck(setup: DisplayViewSetup, passed: DisplayViewGpuConformance): Promise<DisplayViewGpuConformance> {
     if (onDemand) return onDemand;
     const cases = renderer.onDemandConformanceCases?.(setup);
     if (!cases) return Promise.resolve(passed);
-    return onDemand = cases.then((list) => runConformance(runtime, list, signal, passed)).then((result) => conformance = result,
+    return onDemand = cases.then((list) => runConformance(runtime, list, session.signal, passed)).then((result) => conformance = result,
       (error: unknown) => { onDemand = null; throw error; });
   }
   function lostError(error: unknown): boolean { return (error instanceof ImageKernelExecutionError && error.reason === "device-lost") || runtime.isLost(); }
   return {
     async render(setup, signal, cpu): Promise<{ rendered: DisplayViewRenderResult; execution: DisplayViewExecution }> {
       if (disposed) return fallback("disposed", "the prepared view was disposed.", cpu);
+      // gpu-05 (#702): the realm's switch is read per render, as the accelerator reads it per operation; the device is kept.
+      if (!getWebGpuEnabled()) return fallback("webgpu-disabled", "WebGPU is switched off in this realm (setWebGpuEnabled(false)).", cpu);
       if (lost || runtime.isLost()) { lost = true; return fallback("device-lost", "the WebGPU device was lost; the rest of the view runs on the CPU.", cpu); }
       let check: DisplayViewGpuConformance;
       try {
-        check = await selfCheck(signal);
-        if (check.passed) check = await onDemandCheck(setup, check, signal);
+        check = await runtime.guard(selfCheck(), signal);
+        if (check.passed) check = await runtime.guard(onDemandCheck(setup, check), signal);
       }
       catch (error) {
+        // #675: dispose() ended the check this render was waiting for (and released an owned device): the render runs as one that
+        // starts after dispose(), unless its own signal aborted it.
+        if (disposed) { setup.checkAbort(); return fallback("disposed", "the prepared view was disposed.", cpu); }
         if (lostError(error)) { lost = true; return fallback("device-lost", "the WebGPU device was lost during its conformance check.", cpu); }
         // #594: the on-demand code did not load: this render runs the CPU reference; the next one that needs it tries again.
         if (qualityCodeUnavailable(error)) return fallback("quality-code-unavailable", (error as Error).message, cpu);
@@ -271,6 +283,10 @@ function createSession(options: ParsedPrepareDisplayViewOptions, runtime: WebGpu
         // #492: a render past the device's limits (a kernel table or band above its storage binding limit) runs the CPU reference too.
         if (error instanceof ImageKernelExecutionError && error.reason === "insufficient-limits")
           return fallback("insufficient-limits", "the device's limits do not hold this render on the GPU: " + error.message, cpu);
+        // #692 (owner decision 2026-11-21): under "auto" a kernel the device does not compile (the self-check does not build every
+        // pipeline a render uses) or a device out of memory runs the CPU reference for that render; "require" throws the error as is.
+        if (options.gpu === "auto" && error instanceof ImageKernelExecutionError && (error.reason === "gpu-validation" || error.reason === "out-of-memory"))
+          return fallback(error.reason, error.message, cpu);
         throw error;
       }
       if (output === null) return this.render(setup, signal, cpu);
@@ -283,6 +299,7 @@ function createSession(options: ParsedPrepareDisplayViewOptions, runtime: WebGpu
     dispose(): void {
       if (disposed) return;
       disposed = true;
+      session.abort();
       renderer.dispose?.();
       if (owned) runtime.destroy();
     }

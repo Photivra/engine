@@ -288,8 +288,9 @@ function parseGrid(
     );
   }
 
+  // 2.28.0 (#726): Array.from visits holes (as undefined), which the per-entry check refuses; map would skip them.
   const relativeAmplitude =
-    record.relativeAmplitude.map(
+    Array.from(record.relativeAmplitude, 
       (entry, index) =>
         requireUnitInterval(
           entry,
@@ -309,9 +310,9 @@ function parseGrid(
     );
   }
   const opd =
-    record
-      .opticalPathDifferenceMicrometers
-      .map(
+    Array.from(
+      record
+        .opticalPathDifferenceMicrometers,
         (entry, index) =>
           requireFinite(
             entry,
@@ -687,6 +688,17 @@ function planPupilSampling(
   propagationDistanceMm: number
 ): PupilSamplingPlan {
   const grid = profile.grid;
+  // The output kernel's zero frequency sits at the pupil centre plus the leading padding, which
+  // spans the transform's principal period only for a centre near the middle of the grid (every
+  // engine-built grid). A centre further out would fold the far side of the PSF onto the near one.
+  if (
+    Math.abs(grid.centerSampleX - (grid.widthSamples - 1) / 2) > 1 ||
+    Math.abs(grid.centerSampleY - (grid.heightSamples - 1) / 2) > 1
+  ) {
+    throw new InvalidConfigurationError(
+      "lensComplexPupil grid center must lie within one sample of the middle of the grid, (widthSamples - 1) / 2 and (heightSamples - 1) / 2."
+    );
+  }
   const supportX = supportSpan(grid, "x");
   const supportY = supportSpan(grid, "y");
   const diameterX = (supportX - 1) * grid.pupilSamplePitchMmX;

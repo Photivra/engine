@@ -56,3 +56,13 @@ describe("spectral quadrature construction and validation rejection branches", (
     expectRejection(quadrature, validateSensorSpectralQuadrature, errorClass ?? InvalidScientificInputError, mutate, message);
   });
 });
+
+describe("nested input errors (sensor-11, #701)", () => {
+  const domain = expect.objectContaining({ name: expect.stringMatching(/^Invalid(Configuration|ScientificInput)Error$/) });
+  it("rejects a missing wavelength range and a null node with a domain error", () => {
+    const noRange = quadrature(); delete noRange.wavelengthRangeNanometers;
+    expect(() => validateSensorSpectralQuadrature(noRange)).toThrow(domain);
+    const nullNode = quadrature(); nullNode.nodes[0] = null;
+    expect(() => validateSensorSpectralQuadrature(nullNode)).toThrow(domain);
+  });
+});

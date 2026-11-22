@@ -83,6 +83,8 @@ Examples include:
   current committed discrete value and does not replace or remove any committed
   sampling measure.
 
+Note (2.28.0, #659): an engine-side WebAssembly executor is not permitted while WebAssembly stays limited to the caller-loaded JPEG XL decoder; revisiting it needs an owner decision and a change to the allowlist in `scripts/lib/webassembly-boundary.mjs`.
+
 A Path-A optimization may reduce **executed** operations.
 
 It does not remove the logical support recorded by the resource-accounting

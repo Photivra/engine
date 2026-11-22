@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 import { expect, it } from "vitest";
 import { calculateEnvironmentSensorPhotoSignal, simulateEnvironmentSensorRawFrame, createPhotographicExportPair,
-  type SceneRadianceEvaluationRequest, type SceneRadianceEvaluationResult } from "../src/index.js";
+  InvalidConfigurationError, type SceneRadianceEvaluationRequest, type SceneRadianceEvaluationResult } from "../src/index.js";
 import { input as sensorInput } from "./helpers/eqe-exposure-fixture.js";
 import { evidence } from "./helpers/eqe-response-fixture.js";
 import { frameInput, siteInput, evaluator } from "./helpers/environment-raw-fixture.js";
@@ -110,4 +110,11 @@ it("snapshots caller state against callback changes and preserves canonical prop
     return evaluator(q,1e-9);
   };
   expect(simulateEnvironmentSensorRawFrame(r)).toEqual(expected);
+});
+
+it("refuses a missing frame, exposure window or scene binding with a domain error (capture-32, #698)",()=>{
+  const base=frameInput(false,false);
+  const cases:Record<string,unknown>[]=[{...base,frame:undefined},{...base,frame:{...base.frame,capture:undefined}},{...base,exposureWindow:{}},
+    {...base,exposureWindow:undefined},{...base,sceneBinding:undefined},{evaluateRadiance:base.evaluateRadiance,sceneBinding:{},exposureWindow:{},sites:[]}];
+  for(const c of cases)expect(()=>simulateEnvironmentSensorRawFrame(c as never)).toThrow(InvalidConfigurationError);
 });

@@ -86,7 +86,7 @@ export function parseSensorProfile(value: unknown, path = "sensor.profile"): Sen
   if (p.baseIso > p.maximumIso) fail(path + ".baseIso must not exceed maximumIso.");
   if (n.highGainFromIso === null ? p.highGainFullWellElectrons !== null || n.highGainElectrons !== n.lowGainElectrons :
     p.highGainFullWellElectrons === null || n.highGainFromIso <= p.baseIso || p.highGainFullWellElectrons > p.fullWellElectrons)
-    fail(path + ": a dual-gain switch above baseIso needs highGainFullWellElectrons up to the full well; without one, equal read noises and a null storage.");
+    fail(path + ": a dual-gain switch above baseIso needs highGainFullWellElectrons ≤ the full well; without one, equal read noises and null.");
   return p;
 }
 

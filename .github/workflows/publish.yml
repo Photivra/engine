@@ -147,7 +147,7 @@ jobs:
           )
 
       - name: Upload verified release tarball
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: npm-release-package
           path: release-artifact/
@@ -367,12 +367,22 @@ jobs:
         run: |
           set -euo pipefail
 
-          if npm view "$PACKAGE_NAME@$PACKAGE_VERSION" version >/dev/null 2>&1; then
-            echo "$PACKAGE_NAME@$PACKAGE_VERSION is already published; nothing to do."
-            exit 0
-          fi
-
           TARBALL="$(find "$PWD/release-artifact" -maxdepth 1 -type f -name '*.tgz' -print -quit)"
           test -n "$TARBALL"
           test -f "$TARBALL"
+
+          if npm view "$PACKAGE_NAME@$PACKAGE_VERSION" version >/dev/null 2>&1; then
+            # A re-run after a successful publish is green only when the registry holds this verified tarball.
+            PUBLISHED_INTEGRITY="$(npm view "$PACKAGE_NAME@$PACKAGE_VERSION" dist.integrity)"
+            LOCAL_INTEGRITY="sha512-$(openssl dgst -sha512 -binary "$TARBALL" | openssl base64 -A)"
+            if [ "$PUBLISHED_INTEGRITY" != "$LOCAL_INTEGRITY" ]; then
+              echo "$PACKAGE_NAME@$PACKAGE_VERSION is already published with a different tarball."
+              echo "registry: $PUBLISHED_INTEGRITY"
+              echo "verified: $LOCAL_INTEGRITY"
+              exit 1
+            fi
+            echo "$PACKAGE_NAME@$PACKAGE_VERSION is already published with this tarball; nothing to do."
+            exit 0
+          fi
+
           npm publish "$TARBALL" --access public

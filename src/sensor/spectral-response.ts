@@ -34,7 +34,7 @@ import {
   parseSensorColorSamplingProfile,
   type SensorColorSamplingProfile
 } from "./color-sampling.js";
-import { requireInputKeys, rejectUnknownVariantFields, UNCERTAINTY_VARIANT_FIELDS, requireConfigRecord as requireRecord, requireConfigString as requireNonEmptyString, parseConfigScientificStatus as parseScientificStatus, requireConfigFiniteNumber as requireFinite, requireConfigFraction as requireFraction, requireConfigNumberAboveZero as requirePositiveFinite } from "../core/record-validation.js";
+import { requireInputKeys, rejectUnknownFields, rejectUnknownVariantFields, UNCERTAINTY_VARIANT_FIELDS, requireConfigRecord as requireRecord, requireConfigString as requireNonEmptyString, parseConfigScientificStatus as parseScientificStatus, requireConfigFiniteNumber as requireFinite, requireConfigFraction as requireFraction, requireConfigNumberAboveZero as requirePositiveFinite } from "../core/record-validation.js";
 
 type UnknownRecord = Record<string, unknown>;
 
@@ -268,7 +268,8 @@ function requireReusableCurveEvidence(
   return evidence;
 }
 
-function parseUncertainty(
+/** The relative / not-quantified uncertainty record; shared by the sensor response, charge, capacity and dark-current parsers. */
+export function parseUncertainty(
   value: unknown,
   path: string
 ): SensorSpectralResponseUncertainty {
@@ -311,7 +312,8 @@ function parseUncertainty(
   );
 }
 
-function parseReferenceConditions(
+/** Parses a reference or operating conditions record (temperature, incidence angle 0 to 90 degrees, polarization); shared by the response, application and operating-range parsers. */
+export function parseReferenceConditions(
   value: unknown,
   path: string
 ): SensorSpectralReferenceConditions {
@@ -646,7 +648,14 @@ function usableRange(
   return { minimum, maximum };
 }
 
-function parseChannelResponse(
+/** sensor-13: a channel record may carry only its own kind's fields (a field of another kind is refused, not dropped). */
+function parseChannelResponse(value: unknown, path: string): SensorSpectralChannelResponse {
+  const parsed = parseChannelResponseFields(value, path);
+  rejectUnknownFields(value as object, Object.keys(parsed), path);
+  return parsed;
+}
+
+function parseChannelResponseFields(
   value: unknown,
   path: string
 ): SensorSpectralChannelResponse {
@@ -1070,12 +1079,16 @@ function interpolateCurve<T extends {
     );
   }
 
-  for (
-    let index = 0;
-    index < samples.length;
-    index += 1
-  ) {
-    const sample = samples[index]!;
+  // 2.28.0: the first sample at or above the wavelength by binary search (the wavelengths are strictly increasing), then the
+  // same exact-match or interpolation step as the former linear scan, so every value is unchanged.
+  let low = 0, high = samples.length;
+  while (low < high) {
+    const middle = (low + high) >>> 1;
+    if (samples[middle]!.wavelengthNanometers < wavelengthNanometers) low = middle + 1;
+    else high = middle;
+  }
+  const sample = samples[low];
+  if (sample !== undefined) {
     if (
       wavelengthNanometers ===
       sample.wavelengthNanometers
@@ -1091,7 +1104,7 @@ function interpolateCurve<T extends {
       sample.wavelengthNanometers
     ) {
       const previous =
-        samples[index - 1]!;
+        samples[low - 1]!;
       const phase =
         (wavelengthNanometers -
           previous.wavelengthNanometers) /

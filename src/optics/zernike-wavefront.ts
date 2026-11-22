@@ -230,7 +230,8 @@ function parseZernike(
     throw new InvalidConfigurationError("zernikeCoefficients must be an array.");
   }
   const seen = new Set<number>();
-  return value.map((entry, index) => {
+  // 2.28.0 (#726): Array.from visits holes (as undefined), which the per-entry check refuses; map would skip them.
+  return Array.from(value, (entry, index) => {
     if (typeof entry !== "object" || entry === null) {
       throw new InvalidConfigurationError(`zernikeCoefficients[${index}] must be an object.`);
     }
@@ -316,7 +317,8 @@ function parseMask(
       "apertureMaskVerticesMm must contain 3 through 4096 vertices."
     );
   }
-  return value.map((vertex, index) => {
+  // 2.28.0 (#726): Array.from visits holes (as undefined), which the per-entry check refuses; map would skip them.
+  return Array.from(value, (vertex, index) => {
     if (typeof vertex !== "object" || vertex === null) {
       throw new InvalidConfigurationError(`apertureMaskVerticesMm[${index}] must be an object.`);
     }

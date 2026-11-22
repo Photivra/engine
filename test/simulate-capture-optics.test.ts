@@ -138,7 +138,8 @@ describe("lens.diffraction object-space convolution equals the per-tap environme
       const fast = await simulateCapture(options(preset));
       const perTap = await simulateCapture({ ...options(preset), lens: { fNumber: 16, psf: fast.request.diffraction!.psf } });
       expect(Array.from(perTap.raw.codes)).toEqual(Array.from(fast.raw.codes));
-      expect(fast.diagnostics.providerEvaluationCount * 225).toBe(perTap.diagnostics.providerEvaluationCount);
+      // The kernel's taps per site: (2R + 1)² (#732: R follows the flag; 7 on this fast request, 10 on an exact one).
+      expect(fast.diagnostics.providerEvaluationCount * (2 * (fast.assumptions.find((a) => a.id === "lens.diffraction")!.value as { kernelRadiusSamples: number }).kernelRadiusSamples + 1) ** 2).toBe(perTap.diagnostics.providerEvaluationCount);
     }
   }, scaledTimeout(60_000));
 

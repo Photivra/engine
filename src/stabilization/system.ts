@@ -20,6 +20,7 @@ import {
   type CalculationResult
 } from "../core/calculation-result.js";
 import { InvalidConfigurationError } from "../core/configuration-error.js";
+import { requireTemporalSampleBudget } from "../motion/temporal-sample-limits.js";
 import {
   parseEvidenceList,
   type EvidenceBackedFact,
@@ -568,7 +569,7 @@ export function parseStabilizationSystemProfile(
     );
   }
   const axisResponses =
-    record.axisResponses.map(
+    Array.from(record.axisResponses,
       (entry, index) =>
         parseAxisResponse(
           entry,
@@ -788,7 +789,7 @@ export function parseStabilizationDisturbanceTrajectory(
   let previousTime =
     Number.NEGATIVE_INFINITY;
   const samples =
-    record.samples.map(
+    Array.from(record.samples,
       (entry, index) => {
         const path =
           "stabilizationDisturbanceTrajectory.samples[" +
@@ -1461,6 +1462,9 @@ function localExposureForPoint(
   }
   const match =
     matches[0]!;
+  const duration = match.localExposureDurationSeconds;
+  // sensor-19: as the translation and extended-object quadratures require.
+  if (!(duration > 0 && duration < Infinity)) throw new InvalidScientificInputError("Stabilization requires a positive finite local exposure duration.");
   return {
     start:
       match
@@ -1468,9 +1472,7 @@ function localExposureForPoint(
     end:
       match
         .endOffsetSecondsFromOpeningReference,
-    duration:
-      match
-        .localExposureDurationSeconds
+    duration
   };
 }
 
@@ -1524,7 +1526,6 @@ export function calculateStabilizedCaptureTemporalSamples(
       "samplePointsNative must be a non-empty array."
     );
   }
-  input.samplePointsNative.forEach((point, index) => requireInputObject(point, "samplePointsNative[" + index + "]"));
 
   const totalNodeCount =
     input.temporalSampleCount *
@@ -1538,6 +1539,8 @@ export function calculateStabilizedCaptureTemporalSamples(
       "temporalSampleCount × samplePointsNative.length must remain a safe integer."
     );
   }
+  requireTemporalSampleBudget(input.temporalSampleCount, input.samplePointsNative.length, "samplePointsNative");
+  input.samplePointsNative.forEach((point, index) => requireInputObject(point, "samplePointsNative[" + index + "]"));
 
   const disturbanceIndex =
     indexDisturbance(disturbance);

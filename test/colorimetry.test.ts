@@ -32,6 +32,9 @@ import {
   resolveChromaticAdaptationConeMatrix,
   InvalidConfigurationError,
   InvalidScientificInputError,
+  InvalidScientificResultError,
+  evaluateSrgbDecoding,
+  prepareBt1886Eotf,
   CHROMATIC_ADAPTATION_TRANSFORMS,
   SECOND_RADIATION_CONSTANT_METER_KELVIN,
   ANALYTIC_CIE_1931_CMF_DOMAIN_NANOMETERS,
@@ -572,5 +575,45 @@ describe("CIELAB and colour difference", () => {
     }
     expect(() => calculateCielabFromXyz({ xyz: { x: 0.2, y: 0.3, z: 0.4 }, referenceWhiteXyz: { x: 0, y: 1, z: 1 } })).toThrow();
     expect(() => calculateCielabFromCielch({ lch: { lStar: 50, chromaStar: -1, hueDegrees: 0 } })).toThrow();
+  });
+});
+
+// foundation-10, foundation-11, foundation-12 (#699).
+describe("colour edge inputs", () => {
+  it("refuses a non-finite scalar result instead of returning Infinity or NaN (foundation-10)", () => {
+    expect(() => calculatePlanckianSpectralRadiance({ temperatureKelvin: 1e300, wavelengthNanometers: 500 })).toThrow(InvalidScientificResultError);
+    // λ⁵ underflows and the exponential overflows: the radiance is 0, not NaN.
+    expect(calculatePlanckianSpectralRadiance({ temperatureKelvin: 5000, wavelengthNanometers: 1e-70 })).toBe(0);
+    expect(calculatePlanckianSpectralRadiance({ temperatureKelvin: 5000, wavelengthNanometers: 500 })).toBe(
+      (createPlanckianSpectrum({ temperatureKelvin: 5000, wavelengthRangeNanometers: { minimum: 400, maximum: 600 } }) as { evaluate(nm: number): number }).evaluate(500));
+    expect(() => evaluateSrgbDecoding(1e200)).toThrow(InvalidScientificResultError);
+    expect(evaluateSrgbDecoding(0.5)).toBeCloseTo(0.21404114048223255, 15);
+    const eotf = prepareBt1886Eotf({ whiteLuminanceCdPerSquareMeter: 100, blackLuminanceCdPerSquareMeter: 0.1 });
+    expect(() => eotf.decode(1e200)).toThrow(InvalidScientificResultError);
+    expect(Number.isFinite(eotf.decode(1))).toBe(true);
+  });
+
+  it("reads back a chromaticity made at |Duv| = 0.05 (foundation-11)", () => {
+    const locus = { kind: "planck-analytic-cmf" as const };
+    let physical = 0;
+    for (const t of [1000, 1500, 2000, 2500, 3000, 4000, 5000, 6000, 6500, 7000, 8000, 10000, 12000, 15000, 20000, 30000, 50000, 70000, 100000]) {
+      for (const duv of [-0.05, 0.05]) {
+        let xy;
+        try { xy = calculateChromaticityFromCorrelatedColorTemperature({ correlatedColorTemperatureKelvin: t, duv, whiteLocus: "planckian", locus }).value; } catch { continue; }
+        physical++;
+        const back = calculateCorrelatedColorTemperature({ chromaticity: xy, locus }).value;
+        expect(Math.abs(back.correlatedColorTemperatureKelvin / t - 1), t + " " + duv).toBeLessThan(1e-9);
+        expect(Math.abs(back.duv)).toBeLessThanOrEqual(0.05);
+        expect(back.duv).toBeCloseTo(duv, 12);
+      }
+    }
+    expect(physical).toBeGreaterThan(30);
+  });
+
+  it("returns one node when the maximum subinterval is far wider than the range (foundation-12)", () => {
+    for (const width of [470, 1e9, 1e12, 1e300]) {
+      expect(createColorimetricMidpointQuadrature({ wavelengthRangeNanometers: { minimum: 360, maximum: 830 }, maximumSubintervalWidthNanometers: width }), String(width))
+        .toEqual([{ wavelengthNanometers: 595, wavelengthMeasureNanometers: 470 }]);
+    }
   });
 });

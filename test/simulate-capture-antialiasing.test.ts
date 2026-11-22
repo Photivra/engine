@@ -133,7 +133,8 @@ describe("sensor.antiAliasing with diffraction: the object-space convolution equ
       const fast = await simulateCapture(options("slanted-edge", antiAliasing));
       const perTap = await simulateCapture({ ...options("slanted-edge", antiAliasing), lens: { fNumber: 8, psf: fast.request.diffraction!.psf } });
       expect(Array.from(perTap.raw.codes)).toEqual(Array.from(fast.raw.codes));
-      expect(fast.diagnostics.providerEvaluationCount * 81).toBe(perTap.diagnostics.providerEvaluationCount);
+      // The kernel's taps per site: (2R + 1)² (#732: R follows the flag).
+      expect(fast.diagnostics.providerEvaluationCount * (2 * (fast.assumptions.find((a) => a.id === "lens.diffraction")!.value as { kernelRadiusSamples: number }).kernelRadiusSamples + 1) ** 2).toBe(perTap.diagnostics.providerEvaluationCount);
     }
   }, scaledTimeout(120_000));
 });

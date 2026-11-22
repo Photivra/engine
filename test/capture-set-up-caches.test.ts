@@ -47,8 +47,10 @@ function expectSameCapture(actual: SimulateCaptureResult, expected: SimulateCapt
   expect(actual.assumptions).toEqual(expected.assumptions);
   expect(JSON.stringify(actual.request.diffraction?.profile)).toBe(JSON.stringify(expected.request.diffraction?.profile));
 }
+// fast: false (2.28.0, #732): a fast request with the default window also builds the exact window's profile for its bound, so these
+// cache counts are of exact requests, which build one profile each.
 const quality = { scene: { preset: "zone-plate" }, lens: { fNumber: 11, diffraction: "circular-aperture" }, sensor: { antiAliasing: { kind: "four-spot" } },
-  output: { width: 64, height: 48, region: { x: 8, y: 4, width: 16, height: 12 } } } as SimulateCaptureOptions;
+  output: { width: 64, height: 48, region: { x: 8, y: 4, width: 16, height: 12 } }, fast: false } as SimulateCaptureOptions;
 const withRegion = (options: SimulateCaptureOptions, region: { x: number; y: number; width: number; height: number }): SimulateCaptureOptions =>
   ({ ...options, output: { ...options.output, region } });
 

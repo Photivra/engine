@@ -17,7 +17,7 @@ import {
   type EvidenceProvenance
 } from "../core/evidence-provenance.js";
 import { InvalidScientificInputError } from "../core/validation.js";
-import { requireInputObject, requireInputKeys, requireConfigRecord as requireRecord, requireTrimmedConfigString as requireNonEmptyString, requireTrimmedConfigString as requireScientificNonEmptyString, requireConfigFinite as requireFinite, requireConfigNonNegativeSafeInteger as requireNonNegativeSafeInteger, parseConfigLimitations as parseLimitations, requireConfigFiniteAboveZero as requirePositiveFinite } from "../core/record-validation.js";
+import { requireInputObject, requireInputKeys, requireConfigRecord as requireRecord, requireTrimmedConfigString as requireNonEmptyString, requireTrimmedConfigString as requireScientificNonEmptyString, requireConfigFinite as requireFinite, requireConfigNonNegativeSafeInteger as requireNonNegativeSafeInteger, parseConfigLimitations as parseLimitations, requireConfigFiniteAboveZero as requirePositiveFinite, requireInputFinite, requireInputFiniteAboveZero as requireScientificPositiveFinite, requireInputFiniteAtLeastZero as requireScientificNonNegativeFinite } from "../core/record-validation.js";
 import {
   calculateChromaticityFromCorrelatedColorTemperature,
   calculatePortableChromaticityFromCorrelatedColorTemperature,
@@ -423,41 +423,9 @@ export function parseWhiteBalanceProfile(
   };
 }
 
-export function requireScientificFinite(
-  value: number,
-  path: string
-): number {
-  if (!Number.isFinite(value)) {
-    throw new InvalidScientificInputError(path + " must be finite.");
-  }
-  return value;
-}
-
-function requireScientificPositiveFinite(
-  value: number,
-  path: string
-): number {
-  const parsed = requireScientificFinite(value, path);
-  if (parsed <= 0) {
-    throw new InvalidScientificInputError(
-      path + " must be greater than zero."
-    );
-  }
-  return parsed;
-}
-
-function requireScientificNonNegativeFinite(
-  value: number,
-  path: string
-): number {
-  const parsed = requireScientificFinite(value, path);
-  if (parsed < 0) {
-    throw new InvalidScientificInputError(
-      path + " must be greater than or equal to zero."
-    );
-  }
-  return parsed;
-}
+// The scientific number checks are the shared ones (same messages and error class): requireInputFinite,
+// requireInputFiniteAboveZero and requireInputFiniteAtLeastZero from core/record-validation.ts.
+export const requireScientificFinite = requireInputFinite;
 
 function validateResolvedGains(
   gains: WhiteBalanceChannelGains,
@@ -581,6 +549,7 @@ export function resolveManualWhiteBalance(
   input: ResolveManualWhiteBalanceInput
 ): ResolvedWhiteBalanceState {
   requireInputKeys(input, "resolveManualWhiteBalance", ["stateId", "channelGains"]);
+  requireRecord(input.channelGains, "channelGains", ["red", "green", "blue"]);
   return immutableState(
     stateBase(
       input.stateId,
@@ -666,9 +635,7 @@ function colorTemperatureWhiteBalance(input: ResolveColorTemperatureWhiteBalance
     throw new InvalidConfigurationError('tintInterpretation must be "duv-cie-1960-uv".');
   }
   const camera = input.camera;
-  if (typeof camera !== "object" || camera === null) {
-    throw new InvalidConfigurationError("camera must be an object.");
-  }
+  requireInputObject(camera, "camera");
   const profileId = requireScientificNonEmptyString(camera.profileId, "camera.profileId");
   const profileVersion = requireScientificNonEmptyString(camera.profileVersion, "camera.profileVersion");
   const matrix = parseMatrix3x3(camera.xyzToCameraRgb, "camera.xyzToCameraRgb");
@@ -748,6 +715,8 @@ function reduceSampleSet(
 
   sampleSet.samples.forEach((sample, index) => {
     const path = "sampleSet.samples[" + index + "]";
+    requireInputObject(sample, path);
+    if (typeof sample.clipped !== "boolean") throw new InvalidConfigurationError(path + ".clipped must be a boolean.");
     const sampleId = requireScientificNonEmptyString(
       sample.sampleId,
       path + ".sampleId"
@@ -941,6 +910,9 @@ export function createLockedWhiteBalanceState(
 ): ResolvedWhiteBalanceState {
   requireInputKeys(input, "createLockedWhiteBalanceState", ["stateId", "sourceState"]);
   const stateId = requireScientificNonEmptyString(input.stateId, "stateId");
+  // foundation-09: the source must be a state the engine parses; the lock is built from it as before, so valid states lock unchanged.
+  requireInputObject(input.sourceState, "sourceState");
+  parseResolvedWhiteBalanceState(input.sourceState);
   const source = input.sourceState;
 
   return immutableState({

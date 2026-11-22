@@ -90,12 +90,16 @@ async function run(options: Options, lean: boolean): Promise<Summary> {
   }
   return { ...summary, calls, requests: createHash("sha256").update(requests.join("\n")).digest("hex"), photo: sha(Float64Array.from(photo)) };
 }
-/** Runs both paths; asserts identity and that the lean path did lean work. */
-async function same(options: Options, expectLean = true): Promise<Summary> {
+/**
+ * Runs both paths; asserts identity, that the lean path did lean work, and (ci-14 in #703) whether the request failed: two equal
+ * errors are equal summaries, so without the check a configuration that failed on both paths would pass a test meant to cover it.
+ */
+async function same(options: Options, expectLean = true, expectError = false): Promise<Summary> {
   const full = await run(options, false);
   const before = { ...nativeEnvironmentLeanStatistics };
   const lean = await run(options, true);
   expect(lean).toEqual(full);
+  expect(lean.error === undefined, `summary error: ${String(lean.error)}`).toBe(!expectError);
   if (expectLean) {
     expect(nativeEnvironmentLeanStatistics.executedSites - before.executedSites).toBeGreaterThan(0);
     expect(nativeEnvironmentLeanStatistics.plannedSites - before.plannedSites).toBeGreaterThan(0);
@@ -197,14 +201,14 @@ describe("lean native environment executor (2.0 performance)", () => {
     for (const site of [psf, mapped]) for (const bad of [(r: SceneRadianceEvaluationResult): SceneRadianceEvaluationResult => ({ ...r, sampleId: "other" }),
       (r: SceneRadianceEvaluationResult): SceneRadianceEvaluationResult => ({ ...r, spectralRadianceWattsPerSquareMeterSteradianNanometer: Number.NaN }),
       (r: SceneRadianceEvaluationResult): SceneRadianceEvaluationResult => ({ ...r, spectralRadianceWattsPerSquareMeterSteradianNanometer: 1.7e308 })]) {
-      const summary = await same({ site, bad: { at: late, result: bad } });
+      const summary = await same({ site, bad: { at: late, result: bad } }, true, true);
       expect(summary.error).toBeTypeOf("string");
       expect(summary.calls).toBeGreaterThanOrEqual(late);
       expect(summary.calls).toBeLessThanOrEqual(late+200);
     }
     for (const site of [psf, mapped]) {
       const summary = await same({ site, bad: { at: late, onward: true,
-        result: (r): SceneRadianceEvaluationResult => ({ ...r, spectralRadianceWattsPerSquareMeterSteradianNanometer: 1.7e308 }) } });
+        result: (r): SceneRadianceEvaluationResult => ({ ...r, spectralRadianceWattsPerSquareMeterSteradianNanometer: 1.7e308 }) } }, true, true);
       expect(summary.error).toBeTypeOf("string");
     }
   }, scaledTimeout(180_000));
@@ -229,7 +233,7 @@ describe("lean native environment executor (2.0 performance)", () => {
     // Top-right corner: a lean site (its CFA phase's template is site 1).
     const corner = new RegExp(`:native:${width-1}-t`), before = nativeEnvironmentLeanStatistics.psfFallbacks;
     const summary = await same({ site, bad: { at: 0, where: q => corner.test(q.sampleId),
-      result: (r): SceneRadianceEvaluationResult => ({ ...r, spectralRadianceWattsPerSquareMeterSteradianNanometer: 1.7e308 }) } });
+      result: (r): SceneRadianceEvaluationResult => ({ ...r, spectralRadianceWattsPerSquareMeterSteradianNanometer: 1.7e308 }) } }, true, true);
     // Thrown by the PSF quadrature (its spatio-spectral reduction overflows) at the end of the corner site's first instant.
     expect(summary.error).toMatch(/spatio-spectral values must remain finite/);
     expect(nativeEnvironmentLeanStatistics.psfFallbacks - before).toBeGreaterThan(0);
@@ -254,14 +258,14 @@ describe("lean native environment executor (2.0 performance)", () => {
       (s: Mutable, i: number): void => { if (i === mid) { const c = s.charge as { completenessProfile: Record<string, unknown> };
         c.completenessProfile = { ...c.completenessProfile, endOffsetSecondsFromOpeningReference: 1 }; } },
       (s: Mutable, i: number): void => { if (i === mid) s.operatingTemperatureC = 26; }]) {
-      expect((await same({ site }, false)).error).toBeTypeOf("string");
+      expect((await same({ site }, false, true)).error).toBeTypeOf("string");
     }
     for (const bad of [(r: SceneRadianceEvaluationResult): SceneRadianceEvaluationResult => ({ ...r, sampleId: "other" }),
       (r: SceneRadianceEvaluationResult): SceneRadianceEvaluationResult => ({ ...r, evidence: [] }),
       (r: SceneRadianceEvaluationResult): SceneRadianceEvaluationResult => ({ ...r, spectralRadianceWattsPerSquareMeterSteradianNanometer: Number.NaN }),
       (r: SceneRadianceEvaluationResult): SceneRadianceEvaluationResult => ({ ...r, spectralRadianceWattsPerSquareMeterSteradianNanometer: 1.7e308 }),
       (r: SceneRadianceEvaluationResult): SceneRadianceEvaluationResult => ({ ...r, wavelengthNanometers: r.wavelengthNanometers+1e-9 })]) {
-      const summary = await same({ bad: { at: late, result: bad } });
+      const summary = await same({ bad: { at: late, result: bad } }, true, true);
       expect(summary.error).toBeTypeOf("string");
       // Result defects fail at their callback; an overflowing radiance fails after the site's last callback.
       expect(summary.calls).toBeGreaterThanOrEqual(late);
@@ -286,7 +290,7 @@ describe("lean native environment executor (2.0 performance)", () => {
         const middle = Math.sqrt(failing*passing);
         if (await firstSiteFails(key, middle)) failing = middle; else passing = middle;
       }
-      outcomes.push(await same(bounded(key, passing), false));
+      outcomes.push(await same(bounded(key, passing), false, true));
     }
     expect(outcomes.some(o => typeof o.error === "string" && (o.calls as number) > 20)).toBe(true);
   }, scaledTimeout(120_000));

@@ -23,6 +23,20 @@ import { requireConfigRecord as requireRecord, requireTrimmedConfigString as req
 export const GENERIC_RELEASE_CAPABILITY_SCHEMA_VERSION =
   "0.1.0" as const;
 
+/**
+ * 2.28.0: the most logical frames one release sequence may hold (an engine limit, far above any drive mode the presets
+ * describe), checked before a sequence is allocated.
+ */
+export const MAXIMUM_LOGICAL_FRAMES_PER_SEQUENCE = 10_000;
+
+function requireFrameLimit(value: unknown, path: string): number {
+  const frames = requirePositiveSafeInteger(value, path);
+  if (frames > MAXIMUM_LOGICAL_FRAMES_PER_SEQUENCE) {
+    throw new InvalidConfigurationError(path + " must be at most " + MAXIMUM_LOGICAL_FRAMES_PER_SEQUENCE + " (an engine limit).");
+  }
+  return frames;
+}
+
 export type GenericReleaseDriveMode =
   | "single"
   | "burst"
@@ -292,7 +306,7 @@ export function parseGenericReleaseCapabilityProfile(
       parseFact(
         record.maximumLogicalFramesPerSequence,
         "genericReleaseCapabilityProfile.maximumLogicalFramesPerSequence",
-        requirePositiveSafeInteger
+        requireFrameLimit
       ),
     maximumCadenceFps:
       parseFact(

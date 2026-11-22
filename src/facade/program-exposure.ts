@@ -9,6 +9,8 @@
 import type { EvidenceProvenance } from "../core/evidence-provenance.js";
 import type { GenericTierLensAssets } from "../equipment/generic-tier-assets.js";
 import { parseExposureProgramLineProfile, type ExposureProgramLineProfile } from "../exposure/program-line.js";
+// foundation-06 (#699, 2.28.0): the portable log2, the same bits on every Node.js line.
+import { portableLog2 } from "../core/portable-math.js";
 
 /** The facade's exposure anchor: f/8, 1/125 s, ISO 100 (its defaults). */
 export const FACADE_EXPOSURE_ANCHOR = /* @__PURE__ */ Object.freeze({ fNumber: 8, shutterSeconds: 1 / 125, iso: 100 });
@@ -46,15 +48,18 @@ export function facadeLensRangeExposure(exposure: GenericTierLensAssets["exposur
  * opens the aperture toward f/4, then lengthens the shutter; for more light it first closes toward f/16, then shortens the
  * shutter. #583: a lens range without f/4–f/16 moves those ends to the range (wide/narrow, the line's f/4 and f/16 clamped to
  * it): the same shape, the aperture held at the range's end and the shutter taking up the stops (stops = log2 of t/N² over the
- * anchor's t/N²; #585 may move the anchor), still from 1/2000 s to 1.024 s.
+ * anchor's t/N²; #585 may move the anchor), still from 1/2000 s to 1.024 s. #673: an anchor other than f/8, 1/125 s (a sensor profile
+ * whose base ISO is above 100) takes the same computed nodes for f/4–f/16, the f/8 node left out (it lies on the line between them),
+ * under the profile id "facade-generic-program-line-base-iso".
  */
 export function facadeProgramLine(wide: number, narrow: number, anchor: { aperture: number; shutterSeconds: number }, evidence: readonly EvidenceProvenance[]): ExposureProgramLineProfile {
-  const own = wide === 4 && narrow === 16;
-  return parseExposureProgramLineProfile({ schemaVersion: "0.1.0", profileId: "facade-generic-program-line" + (own ? "" : "-lens-range"), profileVersion: "1.0.0",
+  // #673: the fixed nodes' stops are from f/8, 1/125 s; any other anchor (a profile's base ISO above 100) takes the computed nodes.
+  const own = wide === 4 && narrow === 16 && anchor.aperture === 8 && anchor.shutterSeconds === 1 / 125;
+  return parseExposureProgramLineProfile({ schemaVersion: "0.1.0", profileId: "facade-generic-program-line" + (own ? "" : wide === 4 && narrow === 16 ? "-base-iso" : "-lens-range"), profileVersion: "1.0.0",
     scientificStatus: "approximation", policyKind: "generic-program-line", interpolation: "log2-aperture-shutter", evidence,
     limitations: ["Generic educational program line authored for the capture facade; not any manufacturer's program."],
     nodes: (own ? [["minus-6", -6, 16, 1 / 2000], ["minus-2", -2, 16, 1 / 125], ["zero", 0, 8, 1 / 125], ["plus-2", 2, 4, 1 / 125], ["plus-9", 9, 4, 128 / 125]] as const :
       [[narrow, 1 / 2000], [narrow, 1 / 125], [wide, 1 / 125], [wide, 128 / 125]].filter((_, i) => i !== 2 || wide < narrow)
-        .map(([aperture, shutterSeconds], i) => ["n" + i, Math.log2(shutterSeconds! * anchor.aperture ** 2 / anchor.shutterSeconds / aperture! ** 2), aperture!, shutterSeconds!] as const))
+        .map(([aperture, shutterSeconds], i) => ["n" + i, portableLog2(shutterSeconds! * anchor.aperture ** 2 / anchor.shutterSeconds / aperture! ** 2), aperture!, shutterSeconds!] as const))
       .map(([nodeId, opticalExposureStopsFromReference, aperture, shutterSeconds]) => ({ nodeId, opticalExposureStopsFromReference, aperture, shutterSeconds })) });
 }

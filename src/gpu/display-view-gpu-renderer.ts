@@ -7,25 +7,33 @@
  * renders Speed views never downloads them. That render first runs the Quality kernels' self-check cases (the renderer's
  * `onDemandConformanceCases`); every Speed render runs only the Speed case before the device's first render. The Quality code,
  * its results and its bounds are unchanged; `prepareDisplayViewQualityGpu()` loads it ahead of time.
+ *
+ * #655 (G1), #661: a still catalogue-lens view (the request's `lensView`, the setup's `gpu.lens`) takes the Quality passes with the lens
+ * passes of `display-view-lens-gpu.ts`, their own chunk, which the Quality host loads at the first such view, and their own self-check case.
  */
 
 import type { DisplayViewRenderResult, DisplayViewSetup } from "../facade/display-view.js";
 import { createDisplayViewMaterialModules } from "./display-view-composite-material-module.js";
 import { setDisplayViewGpuRendererFactory, type DisplayViewGpuConformanceCase, type DisplayViewGpuPart, type DisplayViewGpuRenderOutput, type DisplayViewGpuRenderer,
-  type DisplayViewGpuRendererFactory, type DisplayViewGpuRequest, type DisplayViewGpuRuntimeHandle } from "../facade/display-view-gpu.js";
+  type DisplayViewGpuRendererFactory, type DisplayViewGpuRequest, type DisplayViewGpuRuntimeHandle, type DisplayViewLensGpuInput } from "../facade/display-view-gpu.js";
 import { DISPLAY_VIEW_SPEED_CONFORMANCE_CASE, LARGE_DEFOCUS_REASON, sceneToneAndOffsetsReason, displayViewSpeedGpuSupports, displayViewSpeedGpuUnsupportedReason, renderDisplayViewSpeedOnGpu,
   type DisplayViewGpuMaterialModule } from "./display-view-speed-gpu.js";
 import { ImageKernelExecutionError, type ImageKernelExecution, type ImageKernelRelativeErrorBound } from "./image-kernel-execution.js";
 import { abortedError, createComputePipeline, type WebGpuRuntime } from "./webgpu-runtime.js";
+import type { DisplayViewLensGpu } from "./display-view-lens-gpu.js";
 
 type PipelineSource = (label: string, code: string) => Promise<GPUComputePipeline>;
 type YieldControl = ((signal: AbortSignal) => Promise<void>) | undefined;
-type QualityKit = typeof import("./display-view-quality-gpu.js");
+/** #658: the three exports the renderer reads; a destructured import lets the chunk drop the other export names. #661: and the lens loader. */
+type QualityKit = Pick<typeof import("./display-view-quality-gpu.js"), "DISPLAY_VIEW_QUALITY_CONFORMANCE_CASES" | "qualityMaterialModule" | "renderDisplayViewQualityOnGpu" | "loadDisplayViewLensGpu">;
 
 /** Largest lattice group count the Quality tables hold (`display-view-quality-gpu.ts`). */
 const QUALITY_MAXIMUM_GROUPS = 64;
 
-const importQualityKit = (): Promise<QualityKit> => import("./display-view-quality-gpu.js");
+const importQualityKit = async (): Promise<QualityKit> => {
+  const [DISPLAY_VIEW_QUALITY_CONFORMANCE_CASES, qualityMaterialModule, renderDisplayViewQualityOnGpu, loadDisplayViewLensGpu] = (await import("./display-view-quality-gpu.js")).QUALITY_GPU_KIT;
+  return { DISPLAY_VIEW_QUALITY_CONFORMANCE_CASES, qualityMaterialModule, renderDisplayViewQualityOnGpu, loadDisplayViewLensGpu };
+};
 let loadQualityKit: () => Promise<QualityKit> = importQualityKit;
 let qualityKit: Promise<QualityKit> | null = null;
 /**
@@ -43,6 +51,30 @@ export function prepareDisplayViewQualityGpu(): Promise<QualityKit> {
   }
   return qualityKit;
 }
+/** #661: the catalogue-lens passes (their chunk, through the Quality host); a failed load is `quality-code-unavailable`, and the next render loads again. */
+const loadLens = (kit: QualityKit): Promise<DisplayViewLensGpu> => kit.loadDisplayViewLensGpu().catch((error: unknown) => {
+  throw new ImageKernelExecutionError("quality-code-unavailable", "GPU catalogue-lens code did not load: " + String(error));
+});
+/** #655 (G1): the lens input of a setup (`DisplayViewGpuSetup.lens`), or undefined. */
+const lensOf = (setup: DisplayViewSetup): DisplayViewLensGpuInput | undefined => (setup.gpu as { lens?: DisplayViewLensGpuInput } | undefined)?.lens;
+
+/**
+ * #655 (G1): why the lens passes do not take a lens request (`request.lens`), or true: a still, rectilinear catalogue-lens view in
+ * field zones without the veiling glare, then the Quality path's own scene, tone-curve and offset rules. Whether the lens's geometry
+ * is the model the passes evaluate, and the frame's own limits, are known per render.
+ */
+export function displayViewLensGpuSupports(request: DisplayViewGpuRequest): true | string {
+  const view = request.lensView;
+  if (!view) return "lens.projection, lens.distortion, lens.vignetting and camera rotation run on the CPU (#563)";
+  if (!view.catalogueZones) return "the GPU lens passes take a catalogue lens's PSF in field zones (lens.catalogue, the fast method); lens.projection, lens.distortion or lens.vignetting alone and fast: false run on the CPU";
+  if (!view.still) return "camera rotation, hand shake and a moving subject through a catalogue lens run on the CPU";
+  if (!view.rectilinear) return "a fisheye catalogue lens runs on the CPU";
+  if (view.flare) return "lens.catalogue.flare runs on the CPU";
+  if (request.largeDefocus) return LARGE_DEFOCUS_REASON;
+  if (request.scene !== "chart" && request.scene !== "material-layers") return "the GPU lens passes classify engine charts and declared material-layers scenes";
+  return displayViewQualityGpuSupports(request);
+}
+
 /**
  * Internal, for tests: replaces how the Quality host is loaded (null restores the dynamic import) and forgets a loaded one,
  * so a test can make the load fail and then succeed. Returns nothing; the engine never calls it.
@@ -75,19 +107,17 @@ export function displayViewQualityGpuSupports(request: DisplayViewGpuRequest): t
  * is loaded on demand (#594, `prepareDisplayViewQualityGpu`).
  */
 export function createDisplayViewGpuRenderer(runtime: WebGpuRuntime, options: { maximumBandBytes?: number; yieldControl?: YieldControl } = {}): DisplayViewGpuRenderer {
-  const pipelines = new Map<string, Promise<GPUComputePipeline>>();
   const bandBytes = options.maximumBandBytes ?? Math.min(64 * 1024 * 1024, runtime.maximumStorageBindingBytes);
-  const source: PipelineSource = (label, code) => {
-    let pending = pipelines.get(label);
-    if (!pending) { pending = createComputePipeline(runtime, label, code, undefined); pipelines.set(label, pending); pending.catch(() => pipelines.delete(label)); }
-    return pending;
-  };
+  // The device's pipeline cache (createComputePipeline, gpu-04 in #702): shared with the self-checks, so each shader compiles once;
+  // #692: a kernel the device did not compile stays failed for this device, so later renders fall back without compiling it again.
+  const source: PipelineSource = (label, code) => createComputePipeline(runtime, label, code);
   // #491: one set of material modules per device for both kernels (the preset module per chart; the composite module, its probe
   // and its uploaded scene records), released by `dispose`.
   const modules = createDisplayViewMaterialModules(runtime, source);
   return {
     id: "photivra-display-view",
     supports(request: DisplayViewGpuRequest): true | string {
+      if (request.lens) return displayViewLensGpuSupports(request);
       if (request.largeDefocus) return LARGE_DEFOCUS_REASON;
       // #492: out of focus the expected signal carries the defocus disc as site kernels, which only the Quality site pass gathers;
       // a Speed request then runs the Quality passes with its own bilinear demosaic (one candidate) and finishing.
@@ -100,7 +130,8 @@ export function createDisplayViewGpuRenderer(runtime: WebGpuRuntime, options: { 
     // render that takes the Quality passes, after their code has loaded.
     conformanceCases: [DISPLAY_VIEW_SPEED_CONFORMANCE_CASE],
     onDemandConformanceCases(setup: DisplayViewSetup): Promise<readonly DisplayViewGpuConformanceCase[]> | null {
-      // The routing of `render` below: a setup the Speed kernel does not cover takes the Quality passes.
+      // The routing of `render` below: a setup the Speed kernel does not cover takes the Quality passes; #655: a lens view adds its own case.
+      if (setup.gpu && lensOf(setup)) return prepareDisplayViewQualityGpu().then(async (kit) => [...kit.DISPLAY_VIEW_QUALITY_CONFORMANCE_CASES, (await loadLens(kit)).displayViewLensConformanceCase(modules.probe)]);
       return setup.gpu && displayViewSpeedGpuUnsupportedReason(setup, setup.gpu.signalInput) !== null ? prepareDisplayViewQualityGpu().then((kit) => kit.DISPLAY_VIEW_QUALITY_CONFORMANCE_CASES) : null;
     },
     async render(part: DisplayViewGpuPart): Promise<DisplayViewGpuRenderOutput> {
@@ -113,7 +144,14 @@ export function createDisplayViewGpuRenderer(runtime: WebGpuRuntime, options: { 
         const signalInput = setup.gpu.signalInput;
         let result: DisplayViewRenderResult & { expectedValueBound: ImageKernelRelativeErrorBound; execution: ImageKernelExecution };
         let material: DisplayViewGpuMaterialModule;
-        if (displayViewSpeedGpuUnsupportedReason(setup, signalInput) === null) {
+        const lensInput = lensOf(setup);
+        if (lensInput) {
+          // #655 (G1): the lens passes (passes 1 and 2) with the Quality host's pass 3, finishing and recomputation.
+          const kit = await prepareDisplayViewQualityGpu();
+          const passes = await (await loadLens(kit)).createDisplayViewLensPasses(runtime, setup, lensInput, source, modules.probe, abort.signal);
+          material = { id: "catalogue-lens", wgsl: "", bindings: [], compositeProbe: passes.probe };
+          result = await kit.renderDisplayViewQualityOnGpu(runtime, bandBytes, { setup, signalInput, material, lens: passes }, abort, options.yieldControl, source);
+        } else if (displayViewSpeedGpuUnsupportedReason(setup, signalInput) === null) {
           material = await modules.moduleFor(setup.gpu, abort.signal);
           result = await renderDisplayViewSpeedOnGpu(runtime, bandBytes, { setup, signalInput, material }, abort, options.yieldControl, source);
         } else {
