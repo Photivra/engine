@@ -38,6 +38,10 @@ const PRIVATE_HOST = new RegExp(
 const FORMER_REPOSITORY = new RegExp("\\bPhotivra/" + "photivra\\b", "i");
 const REPOSITORY_URL = "https://github.com/Photivra/engine";
 
+// Validation records hold file names only: an absolute local path (a home or temporary directory) names the machine
+// and user that wrote it.
+const LOCAL_PATH = /(?<=^|["'`\s(=])(?:\/Users\/|\/home\/|\/private\/tmp\/|\/tmp\/)[^\s"'`)]*/;
+
 /** The violations in one file's text. */
 export function identityViolations(file, content) {
   const violations = [];
@@ -49,6 +53,10 @@ export function identityViolations(file, content) {
   const former = content.match(FORMER_REPOSITORY);
   if (former) {
     violations.push(`${file}: links to the former repository name ${JSON.stringify(former[0])}; use Photivra/engine`);
+  }
+  const local = file.replaceAll("\\", "/").startsWith("docs/validation/") ? content.match(LOCAL_PATH) : null;
+  if (local) {
+    violations.push(`${file}: holds an absolute local path ${JSON.stringify(local[0])}; record the file name only`);
   }
   const host = content.match(PRIVATE_HOST);
   if (host) {
@@ -111,7 +119,7 @@ async function main(args) {
     );
   }
 
-  stdout.write(`Photivra identity check passed for ${scanned} text files${directory ? ` under ${directory}` : ""}; no legacy project identifiers, former repository links or private hosts found.\n`);
+  stdout.write(`Photivra identity check passed for ${scanned} text files${directory ? ` under ${directory}` : ""}; no legacy project identifiers, former repository links, private hosts or local paths in validation records found.\n`);
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) await main(argv.slice(2));

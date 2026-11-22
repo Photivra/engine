@@ -82,6 +82,11 @@ test("the identity gate reads every text file and any host domain (#696)", () =>
   assert.equal(identityViolations("x.md", `${"stag"}ing.example.com`).length, 1);
   assert.deepEqual(identityViolations("x.md", `${"stag"}ing buffers`), []);
   assert.deepEqual(identityViolations("x.ts", `${"stag"}ingBuffer.size; i < ${"stag"}ing.length; ${"stag"}ing.getMappedRange().slice(0)`), []);
+  for (const dir of ["/Users/x/", "/home/x/", "/private/tmp/x/", "/tmp/x/"]) {
+    assert.equal(identityViolations("docs/validation/r/results.jsonl", `{"differenceImage":"${dir}00-app.png"}`).length, 1, dir);
+  }
+  assert.deepEqual(identityViolations("docs/validation/r/results.jsonl", '{"differenceImage":"00-app.png"}'), []);
+  assert.deepEqual(identityViolations("docs/DEVELOPERS.md", "python3.13 -m venv /tmp/scancode-venv"), []);
   assert.equal(isText("site/index.html", Buffer.from("<p>")), true);
   assert.equal(isText("scripts/verify.py", Buffer.from("print()")), true);
   assert.equal(isText("a.png", Buffer.from("text")), false);

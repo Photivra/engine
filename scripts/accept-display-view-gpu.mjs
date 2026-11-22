@@ -215,7 +215,8 @@ function timingLines(records) {
 function writeRecord(name, records, summary, environment, images, errors = [], fallbacks = []) {
   const dir = join(ROOT, "docs", "validation", name);
   mkdirSync(dir, { recursive: true });
-  writeFileSync(join(dir, "results.jsonl"), [...records, ...fallbacks].map((r) => JSON.stringify(r)).join("\n") + "\n");
+  // The record holds the bare file name: the run's out directory is a local path (the README prints the same name).
+  writeFileSync(join(dir, "results.jsonl"), [...records, ...fallbacks].map((r) => JSON.stringify(r.differenceImage ? { ...r, differenceImage: basename(r.differenceImage) } : r)).join("\n") + "\n");
   const cand = records[0].candidate, selfCheck = records.every((r) => r.candidateModule === relative(ROOT, CPU_PRODUCER));
   const date = new Date(environment.date), title = `${date.toLocaleString("en-US", { month: "long" })} ${date.getUTCDate()}, ${date.getUTCFullYear()}`;
   const lines = [`# Preview acceptance${selfCheck ? " self-check" : ""}, ${title} (${cand} against ${records[0].reference})`, "",
