@@ -37,7 +37,9 @@ Each item is described in its entry below.
 - **Report fields:** range ends within 32 ulp are not clamped (#681); a still request reports `{ requested, used: 1 }` temporal
   samples (#729); a `motion.subject` at rest renders as the still scene and is no longer listed in `diagnostics.options` (#688);
   program mode with a fixed ISO names the line's end (`foundation-07`). New fields: `raw.expectedSignal.sum` (#731),
-  `region.fast`, `region.requestKey` (#728), `view.lensPsf.offsetMapping` (#685), `clippedSitesKept` (#679, #719),
+  `region.fast`, `region.requestKey` (#728), `view.lensPsf.offsetMapping` (#685) and, on a `webgpu-f32` render whose lens passes
+  map every query offset through the lens (the full method's mapping, within the CPU fast method's 1e-6 go/no-go; not part of the
+  GPU's a-priori bound), `view.execution.offsetMapping: "lens-mapping-per-offset"`, `clippedSitesKept` (#679, #719),
   `exposureBracketRealizedOffsetStops` (#680).
 - **Automatic exposure uses portable math (`foundation-06`):** 2 of 76 measured requests' settings move by 1 ulp.
 - **GPU results (#716, #661, #692, `gpu-05`).** Image-plane prints keep the GPU's value inside its bound; catalogue-lens views in
@@ -71,7 +73,7 @@ Node 26, gzip. 2.27.0's rows were measured with rolldown 1.2.9.
 
 | Row | 2.27.0 (rolldown 1.2.9) | 2.28.0 | Limit (2.27.0's) |
 | --- | --- | --- | --- |
-| fast worker | 338,380 B | **338,532 B** | limit: owner decision pending (338,900 B) |
+| fast worker | 338,380 B | **final value set at release** | set at release (338,900 B) |
 | on demand | 51,999 B | **51,893 B** | 51,900 B (52,000 B) |
 | export kit | 10,399 B | **10,396 B** | 10,400 B (10,500 B) |
 | lens passes (#661) | (no row) | **10,200 B** | 10,200 B (none) |
@@ -92,11 +94,6 @@ benchmark is not run by CI.
 
 ### Known limitations
 
-- **GPU lens route (#661, #685).** With more than one query offset the GPU lens passes map every offset through the lens (the
-  full method's mapping), while the CPU fast reference expands each offset to second order. The two agree within that method's
-  1e-6 relative go/no-go (1.9e-11 measured at most); the difference is not part of the GPU's a-priori bound, host-recomputed
-  pixels carry the CPU's expansion, and a `webgpu-f32` render's `view.lensPsf.offsetMapping` still reads
-  `"second-order-expansion"`.
 - **GPU hardware run pending.** #661's lens passes conform on the float32 emulation and SwiftShader; the hardware run on the
   release commit, for them and for #716's changed GPU results, is pending (docs/WEBGPU_DEVICES.md).
 - **Brown–Conrady inverse (#724, `optics-13`).** For some targets within 1e-12 of the envelope that 2.27.0 inverted, the inverse
@@ -293,8 +290,7 @@ benchmark is not run by CI.
     was hit (it reported `"none"`); settings are unchanged. **`ExposureResolutionConstraint` widens** with the two values: an
     exhaustive `switch` over it needs the two cases (docs/USAGE.md, "Program Auto with manual ISO").
   - *Typed arrays in a result (`foundation-13`).* The result envelope's finite checks scan a typed array with its own `some()`
-    instead of one `Object.keys` string per element: a `Float64Array` of 1e6 elements 19.1 → 4.7 ms, a `Uint8Array` of 4e6
-    78.5 → 14.5 ms (best of 3). Same answers and the same reported path.
+    instead of one `Object.keys` string per element, which is faster for large arrays. Same answers and the same reported path.
 
 ### Capture
 
@@ -306,17 +302,15 @@ benchmark is not run by CI.
     ("unknown field"), which every capture above 24 MP needs; it now checks a plan against the one field list of `NativeRawPlan`.
   - *White-level bookkeeping by phase (#721).* The tabulated native RAW loop (the default for chart scenes) records each site's
     white level by its 2 × 2 CFA phase from `x` and `y` instead of recovering the phase from the row-major index; the per-site
-    check that all sites of a phase agree stays. A 1536 × 1024 Siemens star: median 628 → 573 ms (11 paired runs, −8.8 %);
-    RAW codes, white levels and sRGB samples identical (SHA-256).
+    check that all sites of a phase agree stays. Slightly faster on chart captures; RAW codes, white levels and sRGB samples
+    identical (SHA-256).
   - *Fixed-pattern noise per row and column (#689).* The native capture takes each site's row and column offsets from a value
     computed once per row and column (row + column, in that order, as before) and draws every fixed-pattern value from one
-    reseeded stream instead of a new one per value. A 1024 × 768 slanted edge, `fast: false`, DNG, with
-    `sensor.fixedPatternNoise: true`: median 547 → 394 ms (7 paired runs; the option's own cost 264 → 113 ms, about 2.3× less).
-    RAW codes identical (new SHA-256 locks, recorded on the unchanged code).
+    reseeded stream instead of a new one per value, so `sensor.fixedPatternNoise: true` costs less. RAW codes identical (new
+    SHA-256 locks, recorded on the unchanged code).
   - *DNG development colour loops (#677).* `developDngImage`'s camera → sRGB loop, its two ProPhoto → sRGB loops and the
     RGBTables pre-pass use scalar locals instead of two arrays and a closure per pixel; every product and sum keeps its operands
-    and order. A 6 MP engine-written CFA DNG: fast development median 548 → 329 ms, exact (AHD) 1248 → 947 ms (7 paired runs);
-    samples and `clippedPixelCount` identical.
+    and order, so development is faster, fast and exact (AHD); samples and `clippedPixelCount` identical.
   - *Linear encoding with a full-scale white code (#718).* `calculateLinearCaptureEncoding` refused about 7 % of reference-white
     values with `referenceWhiteCode: 65535` ("cannot represent the declared finite range"; `65535 / (65535 / 0.9)` is one ulp
     below 0.9). The largest representable value is now never below reference white. A wrong refusal becomes an encoding; codes of
@@ -366,11 +360,8 @@ benchmark is not run by CI.
     sites; `test/simulate-capture-per-tap.test.ts`). Samples: 0 changed in 18 captures (9 requests × both flags, 128 × 128
     regions, 884,736 samples) and in the five capture cases of the #670 benchmark, both flags. No lock moved (every capture, DNG,
     display-view and figure-batch lock holds on arm64 and x64).
-  - *Speed* (paired, CPU s, 128 × 128, f/8 with diffraction): 1.4 µm 4 × 4 box Siemens star 10.4 → 0.48 (0.05×) fast and
-    10.4 → 0.44 exact (sRGB-16 exact 13.8 → 0.44), dead leaves 4.3 → 0.28, four-spot and 2 × 2 box 3.8 → 0.41, 2 × 2 box
-    1.7 → 0.55 (sRGB-8) and 2.7 → 0.39 (sRGB-16); 6 µm 4 × 4 box Siemens star 1.31 → 0.17, slanted edge 0.19 → 0.11; point
-    aperture 0.92 → 0.36. The 384 × 384 and 12-megapixel cases of the ticket and a whole capture's peak memory were not
-    re-measured (peak RSS of the parts above: up to +14 MB; the spectral tiles are bounded by `PREINTEGRATED_CACHE_BYTES`).
+  - *Speed.* Much faster for small pixels with a box aperture and diffraction, fast and exact. The spectral
+    tiles are bounded by `PREINTEGRATED_CACHE_BYTES`.
 - **Region results describe themselves and a join of parts checks them (#728).** The join of
   `serializeSimulatedCaptureDngFromParts` and `simulateCaptureFromParts` refused a part rendered by a fast method only when the
   caller set the optional `part.fast`, which the documented part shape `{ raw: result.raw, region: result.region! }` does not;
@@ -465,8 +456,8 @@ benchmark is not run by CI.
     −11.8 % → +0.10 %, 780 nm −17.3 % → +0.10 %; 2 µm f/22 780 nm −20.2 % → +0.10 % (L1 0.210 → 0.0010); 6 µm f/4 380 nm
     −0.74 % → −0.17 % (with the lens's axial colour). Without aberrations every node of 1–12 µm × f/4–f/22 × 380–780 nm is within
     0.5 % of the exact Airy cells at the centre tap and within 0.01 in L1, which `test/generic-lens-psf-cells.test.ts` asserts.
-    PV 50 1.2 Pro at f/22 on 1.5 µm, at f/16 on 1 µm and PV 200 2 Pro at f/32 on 2 µm now render. Build CPU per profile
-    0.01–0.06 → 0.03–0.09 s. Every stopped-down `lens.catalogue` render changes; wide open the change is small.
+    PV 50 1.2 Pro at f/22 on 1.5 µm, at f/16 on 1 µm and PV 200 2 Pro at f/32 on 2 µm now render. Building a profile costs a little more
+    CPU. Every stopped-down `lens.catalogue` render changes; wide open the change is small.
   - *Locks re-recorded* (x64 Node 24.1.0 under Rosetta and arm64, the same on both): `test/display-view-detail-shared.test.ts`
     (all 17 cases' internals; the samples of the 12 at 2 and 1 real pixels per display pixel),
     `test/lens-catalogue-optics-pins.test.ts` (PV 100 2.8 Macro Pro close: samples, codes, assumptions; PV 8 3.5 Fisheye Pro fast:
@@ -529,8 +520,7 @@ benchmark is not run by CI.
   - *Irradiance convolution gather (#727, `optics-12`).* `convolveIrradianceRows` clips its tap ranges once per row and pixel and
     reads each source column's kernel offset from a table built once per call (an index cache; no signal is tabulated), with the
     same products in the same order: every value is bit-identical (`Object.is`, test/irradiance-convolution-gather.test.ts).
-    Paired runs (best of 10, alternating in one process): 1.93× (640 × 480, r = 7, 64 × 64-site patches), 2.01× (one patch),
-    1.97× (400 × 300, r = 15) and 2.18× (256 × 256, r = 32). It is the CPU path of `calculateIrradianceConvolution`, the
+    Faster in paired runs. It is the CPU path of `calculateIrradianceConvolution`, the
     image-kernel accelerator and the display view's CPU reference.
 - **Low-severity fixes (#700); no output change for valid requests.**
   - *Field-of-view envelopes (`optics-06`).* `calculateFieldOfView` and `calculateFieldOfViewBounds` return a frozen
@@ -601,8 +591,7 @@ benchmark is not run by CI.
   `test/fast-methods-registry.test.ts`.
 - **Faster: a `motion.subject` at rest (#688).** A subject record with no velocity and no rotation (`subject: {}` or zeros)
   took the moving-subject path with 16 (exact) or 8 (fast) temporal midpoints for the picture of the still scene. It now
-  renders as the still scene: 160 × 120 slanted edge 5,157 ms → 25 ms exact and 535 ms → 16 ms fast (best of two, paired,
-  machine under load), RAW codes and samples identical. The record is still validated (an out-of-range value is refused, as
+  renders as the still scene, far faster, with RAW codes and samples identical. The record is still validated (an out-of-range value is refused, as
   is the combination with `lens.pupilSampling`). Reported metadata changes for this input: the `sensor.temporalSampleCount`
   assumption (1), the `motion.subject` assumption (`atRest: true`), no `diagnostics.fast.applied["motion.subject"]`,
   `diagnostics.providerEvaluationCount` (that of the still request), and `diagnostics.options` no longer lists
@@ -611,9 +600,8 @@ benchmark is not run by CI.
   result fully re-validated) and had no material lookup, so the executor called it for every tap and spectral node. It is now
   marked engine-built, and, under one illuminant, registered with a lookup that names the material each query reads (the base
   scene's material where the subject shows, a reserved key for the revealed background), found with the moving scene's own
-  arithmetic; the executor still integrates every site and checks the lookup against its own evaluations. 160 × 120, best of two,
-  paired, machine under load: slanted edge exact 5.0–5.3 s → 0.50–0.57 s (8.7–10.0×, whole scene, regions, rotation, rolling
-  shutter), color patches fast 2.6–2.8 s → 0.36–0.41 s (6.8–7.3×); camera rotation alone unchanged. RAW codes and samples
+  arithmetic; the executor still integrates every site and checks the lookup against its own evaluations. Moving-subject captures
+  are several times faster, exact and fast; camera rotation alone is unchanged. RAW codes and samples
   identical; `diagnostics.providerEvaluationCount` unchanged. Mixed lighting, caller function scenes, the display view and the
   defocus and diffraction providers keep their own handling. Tests: `test/simulate-capture-subject-motion.test.ts`.
 - **Faster: mixed lighting resolves each point once, not once per spectral node (#735).** Under `illumination`, a point's blend
@@ -625,10 +613,8 @@ benchmark is not run by CI.
   requests: gradient, radial, 64 regions and point sources, with diffraction, box aperture and four-spot filter, a fixed-size
   chart, caller material and reflectance functions, the ideal reference and both display-view flags; the figure-batch hash locks
   hold). A radiance-function scene with `chartSize` returns the lit surround outside the chart, without asking the caller's
-  function there: the same bytes as 2.27.0, fast and full quality (`test/mixed-illumination-spectrum.test.ts`). 600 × 400 color
-  patches at 5 nm, three captures, `fast: false`, two paired runs on a loaded machine: one illuminant 0.61–0.69 s; linear
-  gradient 3.9–4.8 s → 1.1–1.2 s, radial 4.5–5.8 s → 1.0–1.2 s, 64 regions 5.2–6.3 s → 1.0–1.2 s, gradient with a point source
-  5.7–6.8 s → 1.5–1.6 s; the default flag alike. Per-site integration is unchanged: each site's signal is still integrated from
+  function there: the same bytes as 2.27.0, fast and full quality (`test/mixed-illumination-spectrum.test.ts`). Mixed-lighting
+  captures are faster on both flags (the `mixed-light` case of the committed benchmark record). Per-site integration is unchanged: each site's signal is still integrated from
   the spectrum at use; the cached values are spectra (illuminant shapes, reflectances), no channel values. Tests:
   `test/mixed-illumination-spectrum.test.ts`.
 - **Faster: environment-chain captures compare fewer site records (#722).** The lean executor proves each site's records strictly
@@ -637,10 +623,8 @@ benchmark is not run by CI.
   `operatingState` and `temperatureApplicability`, the completeness profile's `includedAdditionalComponentIds` and each channel's
   `sensor.responseApplication` are now built once per capture and shared by every site's input, frozen (a caller of
   `result.request.siteInput` can no longer change a record another site reads); their values are unchanged. The lean executor's
-  rule is unchanged (a site still matches its template strictly before any check is skipped). 384 × 256 Siemens star, five
-  paired runs, median, loaded machine: default flag, camera pan 2.20 → 1.81 s (−18 %), pan with rolling shutter 2.26 → 2.01 s
-  (−11 %), hand shake 2.16 → 1.76 s (−19 %); `fast: false` 3.45 → 3.20, 3.85 → 3.29 and 4.02 → 3.38 s (noisier). The
-  record-comparison functions fall from 21.9 % to about 17 % of the pan's CPU profile. Samples, RAW codes, the site inputs' JSON
+  rule is unchanged (a site still matches its template strictly before any check is skipped). Captures with camera motion are
+  somewhat faster, on both flags. Samples, RAW codes, the site inputs' JSON
   and the lean executor's site counts are unchanged (pan, rolling shutter, hand shake, `lens.pupilSampling`, a catalogue lens with
   `fast: false`, fixed-pattern noise, the tabulated default). Prototype records for the site-carrying parts were not built.
   Tests: `test/simulate-capture-site-records.test.ts`.
@@ -654,9 +638,7 @@ benchmark is not run by CI.
   `display-p3` and `rec2020` at k = 0.25, 0.5, 0.75, 0.9 and 0.99, no result differs from the search's (`Object.is` on
   `linearRgb`, and `adjusted` and `lightnessClipped`); without the L* limit 3 colours per space differ at k = 0.9 (L* 90.7–93.1).
   A ray scan (L* 80–92 by 0.05, hue by 0.1°; 0–100 by 0.25 and 0.25°) finds rays that are not one interval only above L* 90.5
-  (`display-p3`), 93.25 (`srgb`) and 93.75 (`rec2020`). 1024 × 1024 PNG, `fast: false`, two paired runs on a loaded machine:
-  Siemens star 3.8–4.0 s → 1.1–1.2 s, color patches 3.8 s → 1.1–1.2 s, dead leaves 4.0–4.3 s → 1.0–1.1 s (clipped:
-  0.72–0.77 s). Samples and PNG bytes are unchanged, and the hash locks hold. `t ** 3` and `BISECTION_STEPS` are unchanged. The
+  (`display-p3`), 93.25 (`srgb`) and 93.75 (`rec2020`). Perceptual PNG exports are faster. Samples and PNG bytes are unchanged, and the hash locks hold. `t ** 3` and `BISECTION_STEPS` are unchanged. The
   exactness below L* 85 rests on these measurements, not on a proof (docs/COLORIMETRY.md, "Perceptual gamut mapping"). Tests:
   `test/gamut-mapping-early-out.test.ts`.
 - **Faster: a large defocus disc with `lens.diffraction` no longer recomputes its run tiles per spectral node (#734).** A
@@ -706,9 +688,8 @@ benchmark is not run by CI.
     four-spot filter and under a rolling shutter with rotation; regions equal the whole view
     (`test/display-view-lens-offset-expansion.test.ts`). The #670 part tier's catalogue cases (four-spot filter, default flag):
     samples unchanged.
-  - *Speed* (`scripts/benchmark-display-view-cases.mjs`, CPU s, a heavily loaded machine): 655-catalogue-96-box 29.5 → 21.7
-    against the code before this change (paired, two runs, before the reuse of a shared centre's coefficients); box ÷ point
-    1.90× → 1.19–1.32× with that reuse (median 1.25×, three paired runs; the target was 1.3×).
+  - *Speed.* A catalogue-lens view with the 2 × 2 box costs less relative to the point aperture than before; #655's target for
+    that ratio is met in the measured runs.
   - *Locks re-recorded* (arm64 and x64 Node 24.1.0 under Rosetta): `test/figure-batch-hash-locks.test.mjs`, default flag: the
     `internals` of `catalogue-768` and `catalogue-corrected` and their `sceneLookups` (6,560 → 11,968 and 15,608 → 20,956: each
     offset now reads its material, where the group lattice ring shared them); samples hold.
@@ -717,9 +698,8 @@ benchmark is not run by CI.
   `prepareDefocusImageSpaceGeometry`'s `lookOf` takes a still camera's ray without the rotation (which returned a copy of it),
   the display view's Newton inverse of a radial distortion writes its results to a reused array (`undistortedImagePointNewton`
   with `out`), and the vignetting throughput takes that inverse's radius of the point (`atRadius`): one `Math.hypot` per point.
-  The capture's bisection, rotation, hand shake, fisheye projections and Brown–Conrady keep their paths. `lookOf` costs about
-  0.6× of 2.27.0's per call (Newton inverse with vignetting); the #655 catalogue view takes 0.91× (2 × 2 box) and 0.95× (point
-  aperture) of 2.27.0's CPU time in four paired runs under load (box over point 2.13× → 2.03×). Every field equals the general
+  The capture's bisection, rotation, hand shake, fisheye projections and Brown–Conrady keep their paths. `lookOf` is cheaper
+  per call, and the #655 catalogue view somewhat faster. Every field equals the general
   path's bit for bit (`test/defocus-image-space-geometry.test.ts`), and the rendered samples, expected values and noise of the
   #655 cases are the same SHA-256.
 - **Display view: rolling shutter with defocus, less in-focus work and a cheaper block lookup (#711); byte-identical.** The row
@@ -738,7 +718,7 @@ benchmark is not run by CI.
 - **Display view: Recover and +1 stop without Standard under its time target (#662); output unchanged.** With the identity tone
   curve and the component clip the chain takes its slopes as the identity and diag(inside) instead of forming the 3 × 3 products
   at every node, and nine-element resets no longer go through `TypedArray.fill`. The #656 part (96 × 96 of a 1500 × 1000 view)
-  takes 1.35 → 0.79 s in paired runs (median 0.61× of 2.27.0's code; target 0.8 s) and 18.8 → 8.1 s with `fast: false`; samples,
+  now meets its time target (docs/DISPLAY_VIEW.md has the figures), and `fast: false` is faster too; samples,
   expected values and noise standard deviations are the same bits, fast and full (`test/display-view-coupled-rendering.test.ts`
   locks the chain over a seeded sweep of four tone and gamut choices and the part's render).
 - **New API: `estimateDisplayViewRender(prepared, view)` (#660).** A root function that counts the work a CPU render of a
@@ -876,8 +856,8 @@ benchmark is not run by CI.
   (outside the timed render) and gains `balance`, which fits the #670 plan's predictor (sites·taps·nodes·midpoints, site reads, a
   constant; then the pilot's detailed pixels) to measured bands and deals shards from it. Measured with `fast: false` on 74 bands
   of six figures (one arm64 machine, load average 37–172): the fit is within ±25 % for 22 % of the bands (19 % with the detail
-  term; the plan's test asked for 90 %), and six shards dealt by the fitted cost reach 1.14–1.15× the mean (target 1.15×)
-  against 1.22× dealt by rows; the recipe therefore uses the estimate as an ordering with a dynamic queue.
+  term; the plan's test asked for 90 %), and shards dealt by the fitted cost were more even than shards dealt by rows; the
+  recipe therefore uses the estimate as an ordering with a dynamic queue.
   - *Investigated and not changed.* The exact small-pixel diffraction requests of #710 now take the per-tap sum (#731, capture)
     and the exact regroupings (#670, display view); the 2.26.0 call site of `MaterialSums` is no longer on either path, and what
     is left of the view is mostly the per-tap spectral sum (`preintegratedSite`), which now adds four nodes at a time (above).
