@@ -14,104 +14,49 @@ below); nothing is removed from the root and no export changes kind. See the
 
 Each item is described in its entry below.
 
-- **Diffraction's default kernel window follows the flag (#732).** Without `kernelRadiusSamples`, fast requests (sRGB captures and
-  display views by default) take the Airy window to the second dark ring where that is smaller (new fast method
-  `lens.diffraction/kernel-window`). Their samples change, mostly by one level; `fast: false`, DNG, JPEG, PNG,
-  `simulateIdealReference` and an explicit radius are unchanged.
-- **The catalogue-lens PSF takes the exact cell integral (#674).** Every stopped-down `lens.catalogue` render changes (wide open
-  the change is small); profile version 1.1.0; small pixels at large f-numbers that were refused now render.
-- **Full-quality display views (#670).** `fast: false` now takes the per-tap chart signal and the regrouped defocus disc, which
-  were fast methods before. The registry entries `chart.signal/view-per-tap` and `lens.defocus/view-regrouped` are removed from
-  `SIMULATE_CAPTURE_FAST_METHODS`; `view.signal` no longer reports `fast: true` and `view.defocus` no longer reports
-  `fast: "defocus-after-in-focus-signal"`, on both flags. `fast: false` samples change by one level in at most 2 of 99,072
-  samples in the measured cases; the default flag's output is unchanged.
-- **A fast catalogue-lens region takes the whole frame's method (#733).** The fast method's check reads two blocks fixed by the
-  whole frame. Some small frames that took the fast method now take the exact one; `raw.expectedSignal` reports
-  `verificationSites: 8`.
-- **A new default fast method for catalogue-lens display views with several query offsets (#685).** The box pixel aperture or the
-  four-spot filter with `lens.catalogue` in the display view takes `lens.catalogue/view-offset-expansion` on fast requests;
-  `view.lensPsf` reports `offsetMapping`. Samples of the measured cases are unchanged; work counts change (the default-flag
-  `sceneLookups` of the two catalogue cases of `test/figure-batch-hash-locks.test.mjs` rose 6,560 → 11,968 and
-  15,608 → 20,956).
-- **Joins of region parts check the parts (#728).** A region result's `region` carries `fast` and `requestKey`. sRGB parts
-  (fast by the format default) joined into an exact DNG or JPEG are now refused; render the parts with the join's `fast`. Parts
-  are keyed by their resolved request, so a part of another request is refused, while the same request in another key order,
-  with a default written out, or a still request that asks for more temporal samples joins. Exact (`fast: false`) parts under a
-  `fast: true` join with camera rotation are refused: they resolve to another temporal sample count. Parts without the new fields
-  (from an earlier version) join with the earlier checks.
-- **Widened unions.** `ExposureResolutionConstraint` gains `"program-line-minimum"` and `"program-line-maximum"`
-  (`foundation-07`); `DisplayViewGpuFallbackReason` gains `"gpu-validation"` and `"out-of-memory"` (#692). An exhaustive `switch`
-  over either needs the new cases.
-- **33 result and refusal texts are shorter (#658):** limitations, assumptions, three error messages and eight GPU Quality
-  refusal and self-check texts. Image bytes and numbers are unchanged.
-- **Metric print sizes (#717).** `calculatePrintPlan` asks for the same pixels for a size in mm, cm or m as for the same size in
-  inches: minimum and recommended rasters of those sizes drop to the inch result, and some refusals become `ready`.
-- **Report fields.** At a range end met within 32 ulp, exposure reports `clamped: false`, `limitingConstraint: "none"`,
-  `quantized: false` (#681). A still request with `sensor.temporalSampleCount` renders with one midpoint: its assumption reports
-  `{ requested, used: 1 }` and `diagnostics.providerEvaluationCount` is that of one sample (#729). A `motion.subject` at rest
-  renders as the still scene: its assumptions report one temporal sample and `atRest: true`, `diagnostics.fast.applied` has no
-  `motion.subject` entry, `diagnostics.providerEvaluationCount` is the still request's, and `diagnostics.options` no longer lists
-  `motion.subject` (#688). Program mode with a fixed ISO reports the line's end as its limiting constraint (`foundation-07`).
-  Additive fields: `raw.expectedSignal.sum: "per-tap"` (#731), `region.fast` and `region.requestKey` (#728),
-  `view.lensPsf.offsetMapping` (#685), `clippedSitesKept` and a new assumption in `simulateDngRawWhatIf` (#679, #719),
+- **Diffraction's default kernel window follows the flag (#732, new fast method `lens.diffraction/kernel-window`).** Fast
+  requests without `kernelRadiusSamples` take the Airy window to the second dark ring; their samples change, mostly by one level.
+  `fast: false`, the exports, `simulateIdealReference` and an explicit radius are unchanged.
+- **The catalogue-lens PSF takes the exact cell integral (#674, profile 1.1.0).** Stopped-down `lens.catalogue` renders change;
+  small pixels at large f-numbers that were refused now render.
+- **Full-quality display views (#670).** `fast: false` takes the per-tap chart signal and the regrouped defocus disc; the
+  registry entries `chart.signal/view-per-tap` and `lens.defocus/view-regrouped` are removed from
+  `SIMULATE_CAPTURE_FAST_METHODS`, and `view.signal` and `view.defocus` no longer report them as fast. `fast: false` samples
+  change by one level in at most 2 of 99,072 samples in the measured cases.
+- **A fast catalogue-lens region takes the whole frame's method (#733)**; some small frames now take the exact one.
+- **New default fast method `lens.catalogue/view-offset-expansion` (#685)** for catalogue-lens views with several query
+  offsets; `view.lensPsf.offsetMapping` reports it. Samples of the measured cases are unchanged; the default-flag `sceneLookups`
+  of the two catalogue cases of `test/figure-batch-hash-locks.test.mjs` rose (6,560 → 11,968 and 15,608 → 20,956).
+- **Joins of region parts check the parts (#728).** sRGB parts (fast by the format default) joined into an exact DNG or JPEG are
+  refused; parts are keyed by their resolved request (key order, written defaults and a still request's temporal count do not
+  matter); exact parts under a `fast: true` join with camera rotation are refused (another temporal sample count).
+- **Widened unions:** `ExposureResolutionConstraint` gains `"program-line-minimum"` and `"program-line-maximum"`
+  (`foundation-07`); `DisplayViewGpuFallbackReason` gains `"gpu-validation"` and `"out-of-memory"` (#692).
+- **33 result and refusal texts are shorter (#658);** bytes and numbers are unchanged.
+- **Metric print sizes (#717)** ask for the same pixels as the same size in inches.
+- **Report fields:** range ends within 32 ulp are not clamped (#681); a still request reports `{ requested, used: 1 }` temporal
+  samples (#729); a `motion.subject` at rest renders as the still scene and is no longer listed in `diagnostics.options` (#688);
+  program mode with a fixed ISO names the line's end (`foundation-07`). New fields: `raw.expectedSignal.sum` (#731),
+  `region.fast`, `region.requestKey` (#728), `view.lensPsf.offsetMapping` (#685), `clippedSitesKept` (#679, #719),
   `exposureBracketRealizedOffsetStops` (#680).
-- **Automatic exposure uses portable math (`foundation-06`).** Program, aperture and shutter priority, Auto ISO and the meter
-  policies take the engine's portable `log2`, `exp2` and `pow`: in the measured sweep 2 of 76 requests' settings move by 1 ulp
-  on each Node.js line, and settings agree across Node 22, 24 and 26 in more cases. Manual exposure is unchanged.
-- **GPU results (#716, #661).** Image-plane prints on the GPU keep the GPU's value, inside the declared bound (within one code),
-  for pixels that were recomputed on the host before (#716). Catalogue-lens views in field zones render on `webgpu-f32` under
-  `gpu: "auto"`; before, they ran the CPU reference labelled `unsupported-on-backend` (#661). `gpu: "auto"` now falls back to the
-  CPU on a compile or out-of-memory failure instead of rejecting (#692), and `setWebGpuEnabled(false)` also stops an accelerator
-  or prepared view created earlier (`gpu-05`).
-- **Deeply frozen shared records.** The generic tier assets (#682), `SENSOR_PROFILES` and its nested records, and
-  `SIMULATE_CAPTURE_FAST_METHODS` (#683), the site-independent records of `result.request.siteInput` in environment-chain
-  captures (#722) and the field-of-view envelopes of every projection (`optics-06`) are frozen. Writing into a resolved sensor
-  profile now throws a `TypeError` in strict-mode code (every ES module) instead of changing the catalogue; copy each nested part
-  you change (docs/SENSOR_PROFILES.md).
-- **Requests that were refused and now resolve:** Auto ISO on profiles with a base ISO below 100 (#672), program mode on a
-  profile with a base ISO above 100 (#673), exposure brackets near a nominal grid value (#680), `referenceWhiteCode: 65535`
-  linear encodings (#718), a one-frame panorama with gain compensation (#671), row bands of a plan with `maximumPixels` (#678),
-  some Brown–Conrady inverses near the envelope edge (#724), CCT at the Duv limit (`foundation-11`), sampling apertures touching
-  the cell edge (`sensor-20`), and the small-pixel catalogue lenses above (#674).
-- **Newly refused inputs** (each with a domain error; valid requests are unchanged):
-  - *Capture and facade:* region parts as above (#728); `simulateFalseColor` with `fast: true` at the top level or on an option
-    record (`lens.catalogue`, `lens.diffraction`, `motion.subject`, `output.demosaic`, `sensor.pixelAperture`,
-    `sensor.antiAliasing`) (#739); an unknown `bracket.kind`, a non-array or sparse `focusStates` / `offsetsStops` and fields of
-    another bracket kind (#720); `baseState.exposure` with a stray field and `baseState.automation` without `ae`, `af` and `awb`
-    of the allowed values (`capture-20`); a focus state with an unknown mode or acquisition state, a non-finite or negative time
-    or an inconsistent `locked`, a non-boolean `locked` in `setFocusLock`, and release timing that collapses to zero-length or
-    overlapping frames (`capture-29`, `capture-30`); a malformed `ImportedDngRaw` record, `whiteBalance: null` and unknown or
-    other-variant white-balance fields in `developDngImage` (`capture-14`, `capture-15`); an INL record outside its documented
-    form or a non-safe-integer `adcMaximumCode` (`capture-31`); a raster smaller than one CFA repeat, before any tile is read
-    (`capture-17`).
-  - *Processing:* a Durand–Dorsey image that needs more than 4,096 intensity nodes (`capture-11`; 2.27.0 rendered it, with
-    nodes up to `ceil(90 / rangeSigmaLog10) + 2`, spaced wider than the range sigma when the data needed more); results that
-    would be Infinity or NaN in the Reinhard, bilateral, exposure-fusion, unsharp-mask and Durand–Dorsey colour passes
-    (`capture-10`).
-  - *Sensor:* consistency checks that compared photosite powers as equal (#712); a `sensor.profile` field named like an
-    `Object.prototype` member (`foundation-04`, `sensor-02`); sparse `siteChannelIds`, offsets, stabilization samples and
-    `axisResponses` (`sensor-12`); a spectral-response channel or radiometry-readiness requirement with a field of another kind
-    or representation (`sensor-13`), including a spectral channel record whose optional field of another kind is present with
-    the value `undefined` (2.27.0 accepted it; the same case on a radiometry requirement is accepted again in this release);
-    unknown keys in the motion quadratures' samples, points, vectors and `frontoparallelPlane` (`sensor-14`); a reduction
-    without a finite wavelength range or bins (`sensor-15`); `operatingConditions` with unknown keys or out-of-range values and
-    an unknown `responseScope` (`sensor-16`); a fractional raw code or one outside [0, `digitalSaturationCode`] and a
-    non-number sample value (`sensor-17`); video timings that overflow, underflow or collapse (`sensor-18`); a zero or negative
-    local exposure duration (`sensor-19`); a non-positive traversal or rolling skew and an invalid `shutterMechanism`
-    (`sensor-21`); an air phase refractive index outside [1, 1.01] (`sensor-22`); `sensor.adcBitDepth` other than the
-    readout's when the ADC declares integral non-linearity (`sensor-25`).
-  - *Exposure and colour:* a meter target whose scale and stops disagree by more than 1e-9 stops, a malformed
-    `sourceMeterSnapshot` and non-finite meter signals (`foundation-08`); a missing `channelGains`, an unknown gain key, a
-    sample that is not an object and a `clipped` that is not a boolean (`"true"`, `1` and `null` were read by truthiness) in
-    white balance, a lock of a state that does not parse, and an array `camera` in a Kelvin white balance (`foundation-09`);
-    Planck radiance, sRGB and BT.1886 decoding and flash guide-number results that would be Infinity or NaN
-    (`foundation-10`).
-  - *Optics:* a diffraction PSF profile with β above 1e5, including β between 1e5 and about 1.1e5, which rendered slowly
-    before (#686); a focus-scatter request without `focusDistanceM` or with a non-finite result (#687); sparse arrays and
-    missing records in the optics modules (#726); equirectangular bounds outside ±180° (`optics-24`) and image points at the
-    poles (`optics-08`); a pupil grid whose centre is more than one sample off the middle (`optics-14`); a self-intersecting
-    pupil polygon (`optics-15`); a working f-number below 0.5 (`optics-19`); an `imagePointMm` that is not two finite numbers
-    (`optics-17`).
+- **Automatic exposure uses portable math (`foundation-06`):** 2 of 76 measured requests' settings move by 1 ulp.
+- **GPU results (#716, #661, #692, `gpu-05`).** Image-plane prints keep the GPU's value inside its bound; catalogue-lens views in
+  field zones render on `webgpu-f32`; `gpu: "auto"` falls back on a compile or out-of-memory failure;
+  `setWebGpuEnabled(false)` also stops earlier accelerators and prepared views.
+- **Deeply frozen shared records** (#682, #683, #722, `optics-06`): writing into a resolved sensor profile now throws a
+  `TypeError` in strict-mode code; copy each nested part you change.
+- **Now resolve (refused before):** #672, #673, #680, #718, #671, #678, some Brown–Conrady inverses (#724), `foundation-11`,
+  `sensor-20`, #674.
+- **Newly refused inputs** (each with a domain error; described in the entries):
+  - *Capture and facade:* #728's parts; `simulateFalseColor` with `fast: true` at the top level or on an option record (#739);
+    #720, `capture-14`, `capture-15`, `capture-17`, `capture-20`, `capture-29`, `capture-30`, `capture-31`.
+  - *Processing:* a Durand–Dorsey image that needs more than 4,096 intensity nodes (`capture-11`; 2.27.0 rendered it with wider
+    node spacing); non-finite results of the tone and fusion passes (`capture-10`).
+  - *Sensor:* #712, `foundation-04`, `sensor-02`, `sensor-12` to `sensor-19`, `sensor-21`, `sensor-22`, `sensor-25`; with
+    `sensor-13`, a spectral channel record whose optional field of another kind is present as `undefined` (2.27.0 accepted it; a
+    radiometry requirement accepts it again).
+  - *Exposure and colour:* `foundation-08`, `foundation-09` (white-balance fields read by truthiness before), `foundation-10`.
+  - *Optics:* #686 (β above 1e5), #687, #726, `optics-08`, `optics-14`, `optics-15`, `optics-17`, `optics-19`, `optics-24`.
 
 ### New API
 
@@ -203,38 +148,16 @@ benchmark is not run by CI.
   `AND` (`ci-11` in #703). Their logic has unit tests (`scripts/test-gates.mjs`). A change confined to `site/` or `docs/design/`
   runs no engine tests (`.github/ci-scope.mjs`).
 - **Low-severity tests, CI and scripts findings (#703); no package, API, output or bundle change.**
-  - *A leg skips by major (`ci-08`).* `--same-as-primary` compares the leg's Node.js major with the primary leg's (24) from its
-    own runtime, with no network call, instead of the newest Node 24 patch in the release index. On run 44453452116 the hosted
-    runners held 24.22.2 and 24.22.3, so two parts of `lts/-1` skipped and two ran in full. This supersedes the patch-level
-    wording of the 2.20.0 decision (#231).
-  - *Orphan API pages (`ci-09`).* `node scripts/generate-api-reference.mjs --check` (part of `docs:check`) fails on a `.md` or
-    `.json` file in `docs/api` that it no longer generates, and a write run deletes it, so the page of a module that stops
-    exporting through the root cannot stay in the package. None exists today.
-  - *A path named in a comment is not "read by a test" (`ci-10`).* `.github/ci-scope.mjs` strips comments from a reader's text
-    (strings kept whole, so a URL's `//` starts no comment) before it looks for a changed Markdown path. Of 399 Markdown files
-    outside the code directories, 5 count as read by a test, from 13; the 8 dropped were named only in comments.
-  - *The on-demand kits' load-failure path is tested (`ci-12`).* `kitLoader` (`src/facade/on-demand-kits.ts`) is exported for
-    its test, not from the root: a failed import rejects with `ImageKernelExecutionError` `quality-code-unavailable` naming the
-    kit, the next call retries, and concurrent calls share one import.
-  - *Lean-executor tests require success (`ci-14`).* `same()` in `test/native-environment-lean.test.ts` asserts whether the
-    summary holds an error; the 16 calls of the four coverage tests must succeed and the error tests pass `expectError`, so a
-    configuration that failed the same way on both paths no longer passes a test meant to cover it.
-  - *The SPDX-header gate's scope (`ci-15`).* `npm run check:license-headers` also reads `test/`, `.github/` and the repository
-    root's own source files, and every `.ts`, `.mts`, `.cts`, `.js`, `.mjs` and `.cjs` file; `vitest.config.ts`,
-    `vitest.webgpu.config.ts` and `eslint.config.js` carry the Apache-2.0 header, with no exceptions list.
-  - *One line's failed `verify` check no longer cancels the others (`ci-19`).* The `verify` job sets `fail-fast: false`, and the
-    workflow rules (`.github/node-ci-roles.mjs`) fail when any matrix job of `ci.yml`, `publish.yml` or `webgpu.yml` leaves it out.
-  - *The packed-consumer check reads every dependency field (`ci-22`).* `scripts/check-release-consumer.mjs` failed only on a
-    non-empty `dependencies`; it now refuses the five fields `pack:check` refuses since #659 (`dependencies`,
-    `optionalDependencies`, `peerDependencies`, `bundleDependencies`, `bundledDependencies`), from one shared list
-    (`scripts/lib/dependency-fields.mjs`). With `"optionalDependencies": { "left-pad": "1.3.0" }` both checks fail.
-  - *`test/image-plane.test.ts` runs a test alone (`ci-23`).* The "image-plane scene" block has its own `beforeAll` that calls
-    `prepareImagePlaneScenes()`, so `-t "clips and counts linear samples"` passes (it failed with "Call
-    prepareImagePlaneScenes() first."). The first block, which checks the state before any call, must still run first.
-  - *The two opt-in tests run nightly (`ci-13`).* `native-performance.yml` gains an `optional tests` job, nightly and on manual
-    dispatch only (never on pull requests), 45-minute timeout, that runs `test/native-raw-megapixel.test.ts` with
-    `PHOTIVRA_VALIDATE_MEGAPIXEL_RAW=1` and `test/display-view-speed-gpu-full.test.ts` with `PHOTIVRA_DISPLAY_VIEW_APP_SCENE=1`.
-    Measured locally first: 44 s and 8.3 min (Apple silicon), so both stay scheduled.
+  - *A leg skips by major (`ci-08`):* `--same-as-primary` compares the leg's Node.js major with the primary leg's (24) from its
+    own runtime, with no network call (supersedes the patch-level wording of #231).
+  - *Orphan API pages (`ci-09`):* `generate-api-reference.mjs --check` fails on a page in `docs/api` it no longer generates.
+  - *A path named in a comment is not "read by a test" (`ci-10`):* `.github/ci-scope.mjs` strips comments before it looks.
+  - *Tests:* the on-demand kits' load-failure path (`ci-12`, `kitLoader`, exported for its test only); lean-executor tests require
+    success (`ci-14`); `test/image-plane.test.ts` runs a test alone (`ci-23`); the two opt-in tests run nightly in
+    `native-performance.yml` (`ci-13`).
+  - *Gates:* the SPDX-header gate reads `test/`, `.github/` and the root's source files (`ci-15`); `verify` sets
+    `fail-fast: false`, checked by `.github/node-ci-roles.mjs` (`ci-19`); the packed-consumer check refuses the five dependency
+    fields `pack:check` refuses, from one shared list (`ci-22`).
 - **Workflows; no package, API, output or bundle change.** `main smoke` sets up Node 24, the line `verify (lts/*)` names its
   coverage proof by, so it finds the proof; `verify (lts/*)` requires the scope's tests output to be `true` or `false`;
   `.github/ci-scope.mjs` and `.github/ci-proof.mjs` compare their entry by `pathToFileURL(realpathSync(argv[1]))`, as
