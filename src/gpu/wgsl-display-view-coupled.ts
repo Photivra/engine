@@ -37,8 +37,8 @@ export const DISPLAY_VIEW_COUPLED_INFINITE_RATIO = 3.4028234663852886e38;
 
 import { DISPLAY_VIEW_COUPLED_DECLARATIONS_WGSL } from "./wgsl-display-view-coupled-stub.js";
 // #605: the neighbor reconstruction's GPU code loads with the coupled steps (one on-demand chunk).
-import { displayViewNeighborsWgsl } from "./wgsl-display-view-neighbors.js";
-export { dispatchWithNeighborRatios } from "./wgsl-display-view-neighbors.js";
+import { dispatchWithNeighborRatios, displayViewNeighborsWgsl } from "./wgsl-display-view-neighbors.js";
+export { dispatchWithNeighborRatios };
 
 const E_LITERAL = "1.1920928955078125e-7";
 const C = DISPLAY_VIEW_COUPLED;
@@ -460,3 +460,5 @@ export function displayViewCoupledConstants(setup: {
   out.set(Array.from(legendre.x), C.legendreX); out.set(Array.from(legendre.w), C.legendreW);
   return out;
 }
+/** #658: what the hosts read, as one tuple (no export names in the chunk). */
+export const COUPLED_KIT = [displayViewCoupledConstants, displayViewCoupledWgsl, dispatchWithNeighborRatios] as const;

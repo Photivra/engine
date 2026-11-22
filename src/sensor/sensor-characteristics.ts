@@ -175,9 +175,10 @@ function fail(message: string): never { throw new InvalidConfigurationError(mess
 export function checkFieldRanges(record: Record<string, unknown>, keys: readonly string[], prefix: string, ranges: Readonly<Record<string, FieldRange>> = RANGES, root = "sensor.", required = false): void {
   const all = required ? [...new Set([...keys, ...Object.keys(ranges).filter((k) => k.startsWith(prefix) && !k.slice(prefix.length).includes(".")).map((k) => k.slice(prefix.length))])] : keys;
   for (const key of all) {
-    const path = prefix + key, value = record[key], range = ranges[path];
+    const path = prefix + key, value = record[key], range = ranges[path]!;
     if (value === undefined && !required) continue;
-    if (range === undefined) fail("Unknown " + (root + prefix).slice(0, -1) + " field: " + key + ".");
+    // Own entries only: a key named like an Object.prototype member is unknown (foundation-04, sensor-02).
+    if (!Object.hasOwn(ranges, path)) fail("Unknown " + (root + prefix).slice(0, -1) + " field: " + key + ".");
     if (value === undefined) fail(root + path + " is required.");
     if (range === 0) {
       requireInputObject(value, root + path);
@@ -224,6 +225,8 @@ export function characterizeReadout(profile: SensorReadoutConversionProfile, cha
   if (chargeScale === 1 && !bits && !n && readNoiseScale === 1) return profile;
   return parseSensorReadoutConversionProfile({ ...profile, regimes: profile.regimes.map((regime) => {
     const adc = regime.adc, rescale = bits !== undefined && bits !== adc.bitDepth;
+    // sensor-25: INL knots are codes of the declared ADC; they are not rescaled, so another bit depth is refused here.
+    if (rescale && adc.integralNonLinearity) fail("sensor.adcBitDepth cannot change the bit depth of a readout whose ADC declares integral non-linearity.");
     const black = rescale ? Math.round(adc.blackLevelCode * 2 ** (bits - adc.bitDepth)) : adc.blackLevelCode, saturation = rescale ? 2 ** bits - 1 : adc.digitalSaturationCode;
     const out = { ...regime, systemConversionGainElectronsPerCode: { ...regime.systemConversionGainElectronsPerCode, value: rescale ?
         regime.systemConversionGainElectronsPerCode.value * chargeScale * (adc.digitalSaturationCode - adc.blackLevelCode) / (saturation - black) : regime.systemConversionGainElectronsPerCode.value * chargeScale },

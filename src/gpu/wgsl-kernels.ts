@@ -25,12 +25,18 @@ export const LINEAR_WORKGROUP_SIZE = 256;
 const RAW_HIGHLIGHT_START_WGSL = "0.8";
 export const CONVOLUTION_WORKGROUP_EDGE = 16;
 
+/*
+ * #690: each shader literal below is wrapped as a pure call. Its `${SDR_COUNTER.…}` interpolations read object properties, which a
+ * bundler cannot prove free of side effects, so a bare literal stays in every bundle that imports this module, used or not (the
+ * display view's GPU session uses only IRRADIANCE_CONVOLUTION_WGSL). The strings are the same; the wrap only lets them be dropped.
+ */
+
 /**
  * Shared SDR sample renderer. `band0`/`band1` are absolute classification bands around 0 and 1 inside
  * which the float32 decision may differ from float64; such samples increment the uncertainty counter.
  * A zero result from a non-zero source (underflow) and tiny positive Reinhard inputs are also uncertain.
  */
-const SDR_FUNCTIONS = /* wgsl */ `
+const SDR_FUNCTIONS = /* @__PURE__ */ ((): string => /* wgsl */ `
 var<workgroup> local_counters: array<atomic<u32>, ${SDR_COUNTER_SLOTS}>;
 fn count(slot: u32) { atomicAdd(&local_counters[slot], 1u); }
 fn encode_srgb(x: f32) -> f32 {
@@ -72,7 +78,7 @@ fn flush_counters(local_index: u32) {
     else if (value > 0u) { atomicAdd(&counters[local_index], value); }
   }
 }
-`;
+`)();
 
 /**
  * Luminance tone curves (`prepareSdrPixelTone`): every component of a pixel is scaled by h(L) = f(L)/L,
@@ -84,7 +90,7 @@ fn flush_counters(local_index: u32) {
  * (see docs/WEBGPU.md, "Luminance tone curves"). The bound itself is evaluated in float32 and inflated.
  * Uniform fields used: tone_mode, tone = (Reinhard: 1/Lw²; Naka–Rushton: σ, n, 1/g(Lw), σⁿ), lum = (kr, kg, kb, T).
  */
-const LUMINANCE_FUNCTIONS = /* wgsl */ `
+const LUMINANCE_FUNCTIONS = /* @__PURE__ */ ((): string => /* wgsl */ `
 const LU: f32 = 5.9604644775390625e-8;
 const ULP1: f32 = 1.1920928955078125e-7;
 fn count_max(slot: u32, value: f32) { atomicMax(&local_counters[slot], bitcast<u32>(max(value, 0.0))); }
@@ -171,10 +177,10 @@ fn render_toned(e: f32, source_nonzero: bool, band0: f32, band1: f32, m: f32, de
   let code = floor(encode_srgb(linear) * maximum + 0.5);
   return u32(clamp(code, 0.0, maximum));
 }
-`;
+`)();
 
 /** Pointwise SDR over a packed float32 band; one invocation per sample. */
-export const SDR_WGSL = /* wgsl */ `
+export const SDR_WGSL = /* @__PURE__ */ ((): string => /* wgsl */ `
 struct Params { count: u32, reinhard: u32, reject: u32, pad0: u32, scale: f32, maximum: f32, band1: f32, pad1: f32 };
 @group(0) @binding(0) var<uniform> params: Params;
 @group(0) @binding(1) var<storage, read> source: array<f32>;
@@ -192,10 +198,10 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(local_invocation
   }
   flush_counters(local_index);
 }
-`;
+`)();
 
 /** Pointwise SDR with a luminance tone curve over a packed float32 band; one invocation per pixel. */
-export const SDR_LUMINANCE_WGSL = /* wgsl */ `
+export const SDR_LUMINANCE_WGSL = /* @__PURE__ */ ((): string => /* wgsl */ `
 struct Params { pixels: u32, reject: u32, tone_mode: u32, pad0: u32, scale: f32, maximum: f32, band1: f32, pad1: f32,
   tone: vec4<f32>, lum: vec4<f32> };
 @group(0) @binding(0) var<uniform> params: Params;
@@ -225,7 +231,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(local_invocation
   }
   flush_counters(local_index);
 }
-`;
+`)();
 
 /**
  * Packed native RAW development of one band of output rows; one invocation per output pixel.
@@ -235,7 +241,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(local_invocation
  * Highlight handling matches `prepareSensorColorDevelopment` (clip at the smallest applied gain, or the
  * declared neutral blend).
  */
-export const RAW_DEVELOPMENT_WGSL = /* wgsl */ `
+export const RAW_DEVELOPMENT_WGSL = /* @__PURE__ */ ((): string => /* wgsl */ `
 struct Params {
   width: u32, count: u32, row0: u32, reinhard: u32,
   reject: u32, repeat_w: u32, repeat_h: u32, region_w: u32,
@@ -333,10 +339,10 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(local_invocation
   }
   flush_counters(local_index);
 }
-`;
+`)();
 
 /** Source-indexed isoplanatic-patch convolution of one output-row band; one invocation per output site. */
-export const IRRADIANCE_CONVOLUTION_WGSL = /* wgsl */ `
+export const IRRADIANCE_CONVOLUTION_WGSL = /* @__PURE__ */ ((): string => /* wgsl */ `
 struct Params {
   width: u32, height: u32, radius: u32, size: u32,
   patch_w: u32, patch_h: u32, cols: u32, rows: u32,
@@ -369,4 +375,4 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
   }
   result[local_y * params.width + x] = sum;
 }
-`;
+`)();

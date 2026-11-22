@@ -50,8 +50,7 @@ import type {
 } from "./spatio-spectral-reduction.js";
 import { requireInputObject, requireInputKeys, requireInputNonNegativeFinite as requireNonNegativeFinite, requireInputPositiveFinite as requirePositiveFinite, requireInputNonNegativeSafeInteger as requireSafeNonNegativeInteger } from "../core/record-validation.js";
 import { InvalidConfigurationError } from "../core/configuration-error.js";
-import { addCompensated, approximatelyEqual } from "../core/shared-helpers.js";
-
+import { addCompensated, approximatelyEqual, relativelyEqual } from "../core/shared-helpers.js";
 
 export interface SensorEqeAirRefractiveIndexSample {
   spectralSampleIndex: number;
@@ -231,10 +230,10 @@ function validateAuthorizationChain(
 
   if (
     !compatibility
-      .structuralCompatibilityEstablished ||
+      ?.structuralCompatibilityEstablished ||
     compatibility.compatibilityStatus ===
       "blocked" ||
-    compatibility.blockers.length !== 0 ||
+    compatibility.blockers?.length !== 0 ||
     !compatibility.sourcePlaneMatched ||
     compatibility.requiredSignalPath !==
       "photon-rate-to-electrons"
@@ -421,7 +420,7 @@ function validateReductionSpectralNodes(
         !Number.isFinite(
           expectedContribution
         ) ||
-        !approximatelyEqual(
+        !relativelyEqual(
           contribution,
           expectedContribution
         )
@@ -467,7 +466,7 @@ function validateReductionSpectralNodes(
       "reduction.wavelengthIntegratedGeometricApertureIncidentFluxWatts"
     );
   if (
-    !approximatelyEqual(
+    !relativelyEqual(
       integratedPower.sum,
       totalPower
     )
@@ -547,7 +546,7 @@ function validateOperatingRangeNodeBinding(
           operatingRange.inputRange.kind ||
         entry.unit !==
           operatingRange.inputRange.unit ||
-        !approximatelyEqual(
+        !relativelyEqual(
           entry.value,
           expected
         )

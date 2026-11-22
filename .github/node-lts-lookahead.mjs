@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Node release-index helpers for the support policy. `--newest-stable` gives CI's `node` leg its
-// version; `--same-as-primary` tells a `test` leg whether its runtime is the primary leg's release
-// (the newest stable build of primaryNodeMajor), so it can skip work the primary leg does (#231). Without arguments it evaluates the newest published build of each supported major
+// version; `--same-as-primary` tells a `test` leg whether its runtime is on the primary leg's major
+// (primaryNodeMajor), so it can skip work the primary leg does (#231), with no network call (ci-08 in #703). Without arguments it evaluates the newest published build of each supported major
 // against node-lts-policy.mjs for today and the next days, so a date boundary (an LTS start,
 // the end of the LTS marker grace period, an end of life) can be checked before it fails the
 // required CI checks; run it by hand (`node .github/node-lts-lookahead.mjs`), for example
@@ -48,9 +48,12 @@ export function newestStableRelease(releases) {
   return newest;
 }
 
-// True when a leg's runtime is exactly the primary leg's release (#231: it then skips its test work).
-export function sameRelease(runtimeVersion, primaryVersion) {
-  return runtimeVersion.replace(/^v/, "") === primaryVersion.replace(/^v/, "");
+// True when a leg's runtime is on the primary leg's major (#231: it then skips its test work). Decided by major, not
+// by patch (owner decision 2026-11-21, ci-08 in #703): during an image roll-out the hosted runners of one run hold two
+// patches of a major, so a patch comparison made one part of a leg skip and another run in full, and the newest patch
+// in the release index was not the one most of the primary leg ran.
+export function sameRelease(runtimeVersion, primaryMajor = primaryNodeMajor) {
+  return runtimeVersion.replace(/^v/, "").split(".")[0] === String(primaryMajor);
 }
 
 // Evaluates the policy at 00:00 UTC of `from`'s date and of each of the next `days` dates (the
@@ -81,6 +84,13 @@ export function lookAheadFailures(releases, from = new Date(), days = lookAheadD
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  if (process.argv[2] === "--same-as-primary") {
+    // Prints skip=true when this runtime is on the major the primary leg (setup-node "<primaryNodeMajor>") installs.
+    const skip = sameRelease(process.versions.node);
+    log(`This leg runs Node ${process.versions.node}; the primary leg runs Node ${primaryNodeMajor}: skip=${skip}`);
+    if (process.env.GITHUB_OUTPUT) appendFileSync(process.env.GITHUB_OUTPUT, `skip=${skip}\n`);
+    process.exit(0);
+  }
   const response = await globalThis.fetch(nodeReleaseIndexUrl);
   assert.ok(response.ok, `Fetching ${nodeReleaseIndexUrl} failed: HTTP ${response.status}.`);
   const releases = await response.json();
@@ -90,15 +100,6 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     assert.ok(newest, "The Node release index lists no stable release.");
     log(`version=${newest.version}`);
     if (process.env.GITHUB_OUTPUT) appendFileSync(process.env.GITHUB_OUTPUT, `version=${newest.version}\n`);
-    process.exit(0);
-  }
-  if (process.argv[2] === "--same-as-primary") {
-    // Prints skip=true when this runtime is the release the primary leg (setup-node "<primaryNodeMajor>") installs.
-    const primary = newestRelease(releases, primaryNodeMajor);
-    assert.ok(primary, `The Node release index lists no stable Node ${primaryNodeMajor} release.`);
-    const skip = sameRelease(process.versions.node, primary.version);
-    log(`This leg runs Node ${process.versions.node}; the primary leg runs Node ${primary.version}: skip=${skip}`);
-    if (process.env.GITHUB_OUTPUT) appendFileSync(process.env.GITHUB_OUTPUT, `skip=${skip}\n`);
     process.exit(0);
   }
   const from = new Date();

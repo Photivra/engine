@@ -123,7 +123,9 @@ the same request (#391), so the RAW can render in parallel. A region render's na
 render's (each site's seeds come from its index in the whole raster), so the joined RAW is the whole render's RAW, and the
 request is resolved and written exactly as `simulateCapture` writes its DNG: the bytes are the same. The parts must cover
 every native site of the frame; where they overlap (each region carries the demosaic margin) their sites must agree. Region
-renders of the request with any format serve (a region's own `output.format` does not change its RAW). A region cannot take
+renders of the request with any format serve if they resolve to the same methods: a region's `output.format` decides the default of `fast`
+(2.20.0), so render the parts with the join's `fast` (an sRGB region is fast by default, a DNG exact); a part that a fast method rendered
+under an exact join, or whose `region.requestKey` is another request's (2.28.0, #728), is refused. A region cannot take
 `output.whiteBalance: "auto"` or `output.dng`: render the parts with a fixed white balance (the RAW codes do not depend on the
 white-balance intent) and pass the DNG's own options here, where auto white balance is measured over the joined frame.
 
@@ -432,11 +434,16 @@ One part of a whole-frame DNG (#391): a region render's packed RAW and where its
 ```ts
 export interface SimulateCaptureDngPart {
   raw: Pick<NativeRawOutput, "codes" | "blackLevels" | "digitalSaturationCodes" | "saturationFlags" | "effectiveSaturationCodes">;
-  region: { nativeRect: { x: number; y: number; width: number; height: number } };
   /**
-   * 2.20.0: true when a fast method ran for this part (`Object.values(result.diagnostics.fast.applied).includes(true)`). The join
-   * refuses such a part unless its own request resolves to fast too (a DNG, JPEG or PNG is exact by default): render the parts with
-   * the same `fast` as the join, or with `fast: false`.
+   * The region result's `region`. 2.28.0 (#728): its `fast` and `requestKey` describe the part; a region result carries them, so
+   * `{ raw: result.raw, region: result.region! }` passes them through. A part without them (a result of an earlier version) joins
+   * with the checks of that version.
+   */
+  region: { nativeRect: { x: number; y: number; width: number; height: number }; fast?: boolean; requestKey?: string };
+  /**
+   * 2.20.0: true when a fast method ran for this part (`Object.values(result.diagnostics.fast.applied).includes(true)`); `region.fast`
+   * takes precedence. The join refuses such a part unless its own request resolves to fast too (a DNG, JPEG or PNG is exact by default):
+   * render the parts with the same `fast` as the join, or with `fast: false`.
    */
   fast?: boolean;
 }
@@ -659,7 +666,7 @@ export interface SimulateCaptureOptions {
      * Opt-in (2.1) diffraction blur of an ideal, aberration-free, in-focus lens with a circular pupil at the
      * capture's resolved f-number: the engine builds the Airy kernels (`createDiffractionLimitedPsfProfile`)
      * on the site pitch. `kernelRadiusSamples` (0–32) sets the kernel window; default: the third dark ring at
-     * the longest spectral node, capped at 32 sites. Not combinable with `psf` or `pupilSampling`. Default off.
+     * the longest spectral node, capped at 32 sites (2.28.0, #732: the second on a fast request, where that is fewer sites). Not combinable with `psf` or `pupilSampling`. Default off.
      */
     diffraction?: SimulateCaptureLensDiffraction;
     /**
@@ -708,8 +715,9 @@ export interface SimulateCaptureOptions {
      *   engine never clips a limit. When the ISO stops at a limit strictly inside the body's range, the report's
      *   `limitingConstraint` is `"user-iso-maximum"` or `"user-iso-minimum"`.
      * - `isoSteps` (2.14): `"whole-stop"` (default) lets Auto ISO choose only the whole-stop ISOs of the body's grid
-     *   (100, 200, 400 …), as before the generic bodies gained third-stop settings (preset 2.1.0); `"third-stop"` lets it
-     *   choose every setting (100, 125, 160 …). Manual ISO always takes any setting of the grid. Limits must lie on the
+     *   (100, 200, 400 …), as before the generic bodies gained third-stop settings (preset 2.1.0); on a sensor profile, its base ISO·2^k,
+     *   or, when that list leaves out ISO 100 (base ISO 32, 40, 64 or 80, #672), every third setting from ISO 100 with the base ISO
+     *   kept (80, 100, 200 …); `"third-stop"` lets it choose every setting (100, 125, 160 …). Manual ISO always takes any setting of the grid. Limits must lie on the
      *   grid Auto ISO uses.
      */
     autoIso?: { slowestPreferredShutterSeconds?: number | "auto"; afterMaximumIso?: SimulateCaptureAutoIsoAfterMaximum; limits?: AutoIsoLimits;
@@ -878,7 +886,10 @@ export interface SimulateCaptureOptions {
     pixelPitchMicrometers?: number;
     /** Maximum spectral quadrature subinterval in nm. Default 20. */
     spectralStepNanometers?: number;
-    /** Temporal midpoint samples across the exposure, 1–256. Default 1; with camera rotation or subject motion (2.24.0) 8 on a fast request and 16 on an exact one. */
+    /**
+     * Temporal midpoint samples across the exposure, 1–256. Default 1; with camera rotation or subject motion (2.24.0) 8 on a fast request and 16 on an exact one.
+     * #729: a still request (no rotation, moving subject, flash or exposure build-up) renders with one, whatever the count.
+     */
     temporalSampleCount?: number;
     /** Noise seed (uint32). Default 1. */
     noiseSeed?: number;
@@ -980,7 +991,15 @@ export interface SimulateCaptureResult {
    * frame, and the native sites rendered for it (`nativeRect`, in the whole frame's native raster: the region, the
    * demosaic reach on each side clipped to the raster, and its origin rounded down to the 2 × 2 CFA repeat).
    */
-  region?: { x: number; y: number; width: number; height: number; frameWidth: number; frameHeight: number; nativeRect: { x: number; y: number; width: number; height: number } };
+  region?: { x: number; y: number; width: number; height: number; frameWidth: number; frameHeight: number; nativeRect: { x: number; y: number; width: number; height: number };
+    /** 2.28.0 (#728): true when a fast method ran for this region (`Object.values(diagnostics.fast.applied).includes(true)`). */
+    fast: boolean;
+    /**
+     * 2.28.0 (#728): SHA-256 (hex) over the resolved state that determines the RAW: the scene digest, the camera, lens, exposure, sensor,
+     * motion and illumination options (without `fast` and `output`), the resolved exposure settings and noise seed, the native raster and
+     * pitch, and the resolved spectral step, pixel-aperture and temporal counts. A join of parts refuses a part whose key is not its own.
+     */
+    requestKey: string };
   /** The complete underlying request. */
   request: {
     environmentRaw: NativeEnvironmentRawInput;

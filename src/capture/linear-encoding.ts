@@ -100,7 +100,9 @@ export function calculateLinearCaptureEncoding(input: LinearCaptureEncodingInput
   const codeWidth = encoding.referenceWhiteCode-encoding.blackCode;
   const scale = codeWidth/width;
   const minimum = encoding.blackValue-encoding.blackCode/scale;
-  const maximum = encoding.blackValue+(65535-encoding.blackCode)/scale;
+  // Code referenceWhiteCode ≤ 65535 always represents reference white, so the largest value is at least that (#718): through
+  // `scale`, 65535 / (65535 / 0.9) is one ulp below 0.9. Only the reported maximum of an input refused before changes.
+  const maximum = Math.max(encoding.blackValue+(65535-encoding.blackCode)/scale, plane.referenceWhiteValue);
   if (!(width > 0) || ![width, scale, minimum, maximum, maximum-minimum].every(Number.isFinite) || !(scale > 0) ||
       minimum > encoding.blackValue || maximum < plane.referenceWhiteValue || maximum <= minimum ||
       (encoding.blackCode > 0 && minimum === encoding.blackValue)) {

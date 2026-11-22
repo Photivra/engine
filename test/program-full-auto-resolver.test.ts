@@ -13,6 +13,9 @@ import {
   resolveFullAutoExposureMode,
   resolveGenericEquipmentExposureCapabilities,
   resolveProgramAutoExposureMode,
+  simulateCapture,
+  InvalidConfigurationError,
+  InvalidScientificInputError,
   type ExposureMeterTarget,
   type ExposureProgramLineProfile,
   type FullAutoExposurePolicy,
@@ -477,6 +480,36 @@ describe("Program Auto", () => {
       result.targetResidual
         .residualStops
     ).toBeCloseTo(2, 12);
+  });
+
+  // foundation-07 (#699): a manual-ISO target beyond either end of the line names the line's end as the limit.
+  it("reports the program line's end as the limiting constraint with a manual ISO", async () => {
+    for (const [scale, position, constraint] of [[16, "above-line", "program-line-maximum"], [1 / 4096, "below-line", "program-line-minimum"]] as const) {
+      const result = resolveProgramAutoExposureMode({ target: targetForScale(scale), capabilities: capabilities(), referenceExposure, programLine: programLine(),
+        isoControl: { kind: "manual", iso: 100 } });
+      if (result.status !== "resolved") throw new Error("Expected resolved Program manual ISO.");
+      expect(result.programLineSelection.position).toBe(position);
+      expect(result.targetResidual.limitingConstraint).toBe(constraint);
+    }
+    const capture = await simulateCapture({ scene: { preset: "uniform" }, exposure: { mode: "program", iso: 100 }, illuminanceLux: 0.5, output: { width: 8, height: 8 } });
+    expect(capture.exposure.settings).toEqual({ fNumber: 4, shutterSeconds: 1.024, iso: 100 });
+    expect((capture.exposure.resolution as { targetResidual?: unknown } | undefined)?.targetResidual).toMatchObject({ state: "under-target", limitingConstraint: "program-line-maximum" });
+  });
+
+  // foundation-08 (#699): a target whose scale and stops disagree, or whose copied fields are not valid, is refused.
+  it("refuses an inconsistent or malformed meter target", () => {
+    const resolve = (target: unknown): unknown => resolveProgramAutoExposureMode({ target: target as ExposureMeterTarget, capabilities: capabilities(), referenceExposure,
+      programLine: programLine(), isoControl: { kind: "automatic", isoBaseline: "minimum-selectable", isoQuantizationPolicy: "nearest-log2-lower-on-tie" } });
+    const base = targetForScale(4);
+    expect(() => resolve(base)).not.toThrow();
+    expect(() => resolve({ ...base, exposureOffsetStopsToTarget: 0 })).toThrow("target.requiredExposureScaleToTarget is inconsistent with target.exposureOffsetStopsToTarget.");
+    expect(() => resolve({ ...base, exposureOffsetStopsToTarget: 0 })).toThrow(InvalidScientificInputError);
+    expect(() => resolve({ ...base, sourceMeterSnapshot: { ...base.sourceMeterSnapshot, measurementId: 5 } })).toThrow(InvalidConfigurationError);
+    expect(() => resolve({ ...base, sourceMeterSnapshot: { ...base.sourceMeterSnapshot, sourceKind: "made-up" } })).toThrow(InvalidConfigurationError);
+    for (const [field, value] of [["baseTargetRelativeSignal", Number.NaN], ["meteredRelativeSignal", "1"], ["exposureCompensationStops", Number.POSITIVE_INFINITY],
+      ["baseTargetRelativeSignal", [1]]] as const) {
+      expect(() => resolve({ ...base, [field]: value }), field).toThrow(InvalidScientificInputError);
+    }
   });
 
   it("uses Auto ISO to fill exposure beyond the program-line endpoint", () => {

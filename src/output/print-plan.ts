@@ -10,6 +10,7 @@ import { requireAllowlistedRecord, requirePublicOpaqueId } from "../core/record-
 import { requirePositiveFinite, requirePositiveInteger } from "../core/validation.js";
 import { ENGINE_API_VERSION } from "../core/version.js";
 import { resolveCaptureGeometry, type ResolveCaptureGeometryInput } from "./capture-geometry.js";
+import { snapWholePixels } from "./crop.js";
 import type { RasterDimensions } from "../sensor/sensor-geometry.js";
 
 /** A physical length. Not to be confused with image pixels or printer dots. */
@@ -280,7 +281,10 @@ export function calculatePrintPlan(value: PrintPlanInput): CalculationResult<Pri
     if (!positiveSupported(paperWidth, paperHeight) || !Number.isFinite(x) || !Number.isFinite(y)) return unsupported();
     plan.contain = { paperMm: { width: paperWidth, height: paperHeight }, paperRotated: fitted.paperRotated, bordersMm: { left: x, right: x, top: y, bottom: y } };
   }
-  const aspectError = Math.abs((width / height) / (native.pixelWidth / native.pixelHeight) - 1);
+  // capture-28: the ratio has no unit. A size whose ratio in its own unit is exact reports 0 (the conversion to mm must not add
+  // rounding); every other size keeps the error computed from the mm sizes.
+  const nativeAspect = native.pixelWidth / native.pixelHeight;
+  const aspectError = imageWidth / imageHeight / nativeAspect === 1 ? 0 : Math.abs((width / height) / nativeAspect - 1);
   if (!Number.isFinite(aspectError)) return unsupported();
   plan.relativeAspectError = aspectError;
   const nativeDiagnostics = diagnostics(native, width, height, distance);
@@ -288,10 +292,11 @@ export function calculatePrintPlan(value: PrintPlanInput): CalculationResult<Pri
   plan.native = nativeDiagnostics;
   // A contain fit has the native aspect ratio by construction; its rounding error is reported, not checked.
   if (input.fit.kind === "confirmed-native-aspect" && aspectError > input.fit.maximumRelativeAspectError) { plan.status = "crop-confirmation-required"; plan.reasons.push("printed-image-and-confirmed-crop-aspect-mismatch"); return finish(); }
+  // #717: pixel counts at a density are snapped to a whole number within rounding error (snapWholePixels) before the round-up.
   const widthInches = input.printedImage.unit === "inches" ? imageWidth : width / 25.4;
   const heightInches = input.printedImage.unit === "inches" ? imageHeight : height / 25.4;
   const required = input.sampling.kind === "manual-ppi"
-    ? minimumRaster(native, widthInches * ppi, heightInches * ppi)
+    ? minimumRaster(native, snapWholePixels(widthInches * ppi), snapWholePixels(heightInches * ppi))
     : minimumRaster(native, width / pitch, height / pitch);
   if (required === null) return unsupported();
   plan.minimumSamplingRaster = required;
@@ -302,7 +307,7 @@ export function calculatePrintPlan(value: PrintPlanInput): CalculationResult<Pri
   let maxWidth = width * maxScale, maxHeight = height * maxScale;
   if (!positiveSupported(maxWidth, maxHeight) || (minimumDistance !== null && !positiveSupported(minimumDistance))) return unsupported();
   const fits = (w: number, h: number, p: number): boolean => {
-    const candidate = input.sampling.kind === "manual-ppi" ? minimumRaster(native, w / 25.4 * ppi, h / 25.4 * ppi) : minimumRaster(native, w / p, h / p);
+    const candidate = input.sampling.kind === "manual-ppi" ? minimumRaster(native, snapWholePixels(w / 25.4 * ppi), snapWholePixels(h / 25.4 * ppi)) : minimumRaster(native, w / p, h / p);
     return candidate !== null && candidate.pixelWidth <= native.pixelWidth && candidate.pixelHeight <= native.pixelHeight;
   };
   // Return only alternatives that still pass their own documented integer rule.
@@ -320,11 +325,11 @@ export function calculatePrintPlan(value: PrintPlanInput): CalculationResult<Pri
   const provider = input.provider;
   if (provider) {
     const density = Math.max(provider.minimumPpi ?? 0, provider.exactPpi ?? 0);
-    const constrained = minimumRaster(native, Math.max(required.pixelWidth, provider.minimumRaster?.pixelWidth ?? 0, widthInches * density), Math.max(required.pixelHeight, provider.minimumRaster?.pixelHeight ?? 0, heightInches * density));
+    const constrained = minimumRaster(native, Math.max(required.pixelWidth, provider.minimumRaster?.pixelWidth ?? 0, snapWholePixels(widthInches * density)), Math.max(required.pixelHeight, provider.minimumRaster?.pixelHeight ?? 0, snapWholePixels(heightInches * density)));
     if (constrained === null) return unsupported();
     file = provider.exactRaster ?? constrained;
     if (provider.exactPpi !== undefined) {
-      const exact = { pixelWidth: widthInches * provider.exactPpi, pixelHeight: heightInches * provider.exactPpi };
+      const exact = { pixelWidth: snapWholePixels(widthInches * provider.exactPpi), pixelHeight: snapWholePixels(heightInches * provider.exactPpi) };
       if (!Number.isSafeInteger(exact.pixelWidth) || !Number.isSafeInteger(exact.pixelHeight)) plan.reasons.push("exact-provider-density-has-no-integer-raster");
       else if (provider.exactRaster && (exact.pixelWidth !== file.pixelWidth || exact.pixelHeight !== file.pixelHeight)) plan.reasons.push("provider-exact-raster-density-conflict");
       else file = exact;

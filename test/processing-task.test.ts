@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 import { describe, expect, it } from "vitest";
-import { createUnsharpMaskTask, InvalidConfigurationError, InvalidScientificInputError, PROCESSING_DEFAULT_MAXIMUM_WORKING_BYTES, type ProcessingTask } from "../src/index.js";
+import {
+  createBilateralFilterTask, createDurandDorseyToneMappingTask, createExposureFusionTask, createFocusStackTask, createHdrBracketMergeTask,
+  createNonLocalMeansTask, createPanoramaTask, createReinhardGlobalToneMappingTask, createSyntheticFilmGrainTask, createUnsharpMaskTask, InvalidConfigurationError, InvalidScientificInputError, PROCESSING_DEFAULT_MAXIMUM_WORKING_BYTES, type ProcessingTask } from "../src/index.js";
 import { createProcessingTask } from "../src/processing/processing-task.js";
-import { rgbImage } from "./helpers/processing-fixture.js";
+import { rgbImage, runTask } from "./helpers/processing-fixture.js";
 
 const image = rgbImage(16, 16, (x, y) => (x + y) / 32);
 
@@ -48,5 +50,26 @@ describe("processing task contract", () => {
     const drift = createProcessingTask({ provider: { yieldControl: async () => {} }, totalTileCount: 3, estimatedWorkingBytes: 0, maximumWorkingBytes: 1,
       body: function* () { yield; return 0; } });
     await expect(drift.run()).rejects.toThrow(/progress accounting/u);
+  });
+
+  // #671: the progress plan of every operator matches its body on one-frame, 1 × 1 and 1 × N inputs.
+  it.each([[1, 1], [1, 5], [5, 1], [3, 2]])("completes every operator's progress plan on a %i × %i input", async (w, h) => {
+    const img = rgbImage(w, h, (x, y, c) => 0.2 + 0.1 * c + 0.05 * ((x + y) % 3));
+    const pano = { projection: "equirectangular" as const, width: w, height: h, longitudeRangeRad: [-0.2, 0.2] as const, latitudeRangeRad: [-0.1, 0.1] as const };
+    const frame = { image: img, focalLengthPixels: 4, rotationRad: { pitch: 0, yaw: 0, roll: 0 } };
+    const codes = Float32Array.from({ length: w * h }, (_, i) => 200 + 10 * i);
+    const raw = { exposureTimeSeconds: 0.01, codes, blackLevelCode: 64, whiteLevelCode: 4000, conversionGainElectronsPerCode: 2, readNoiseElectrons: 3 };
+    await runTask((p) => createFocusStackTask({ frames: [img] }, p));
+    await runTask((p) => createExposureFusionTask({ frames: [img] }, p));
+    await runTask((p) => createReinhardGlobalToneMappingTask({ image: img, inputColorSpace: "linear-srgb-d65" }, p));
+    await runTask((p) => createDurandDorseyToneMappingTask({ image: img, inputColorSpace: "linear-srgb-d65" }, p));
+    await runTask((p) => createBilateralFilterTask({ image: img, spatialSigmaPixels: 1, rangeSigma: 0.1 }, p));
+    await runTask((p) => createNonLocalMeansTask({ image: img, filteringParameter: 0.1 }, p));
+    await runTask((p) => createUnsharpMaskTask({ image: img, radiusSigmaPixels: 1, amount: 1 }, p));
+    await runTask((p) => createSyntheticFilmGrainTask({ image: img, seedUint32: 1, intensity: 0.02 }, p));
+    await runTask((p) => createHdrBracketMergeTask({ sampleCount: w * h, frames: [raw] }, p));
+    for (const blending of ["feather", "multi-band"] as const) for (const exposureCompensation of ["gain", "none"] as const) {
+      await runTask((p) => createPanoramaTask({ frames: [frame], canvas: pano, blending, exposureCompensation }, p));
+    }
   });
 });

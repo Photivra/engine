@@ -3,7 +3,7 @@
 import { describe, expect, it } from "vitest";
 import { createHash } from "node:crypto";
 import { calculateIdealPolygonDiffractionPsf, createDiffractionLimitedPsfProfile, parseLensSampledPsfProfile, resolveLensSampledPsf,
-  InvalidConfigurationError, type CreateDiffractionLimitedPsfProfileInput } from "../src/index.js";
+  InvalidConfigurationError, DIFFRACTION_LIMITED_PSF_PROFILE_LIMITS, type CreateDiffractionLimitedPsfProfileInput } from "../src/index.js";
 import { AIRY_REAL_SPACE_MINIMUM_BETA, besselSquareSum, calculateAiryCellEnergies, calculateAiryCellEnergiesInFrequencyDomain,
   calculateAiryCellEnergiesInRealSpace } from "../src/optics/diffraction-psf-profile.js";
 import { scaledTimeout } from "./helpers/test-timeout.js";
@@ -182,6 +182,35 @@ describe("createDiffractionLimitedPsfProfile", () => {
       expect(() => createDiffractionLimitedPsfProfile({ ...base, ...patch } as never)).toThrow(InvalidConfigurationError);
       expect(() => createDiffractionLimitedPsfProfile({ ...base, ...patch } as never)).toThrow(message);
     }
+  });
+});
+
+describe("β bound (#686): finite, positive inputs that would never return are refused at once", () => {
+  it("refuses β above 1e5 before integrating a cell, in the profile and in the internal cell builder", () => {
+    expect(DIFFRACTION_LIMITED_PSF_PROFILE_LIMITS.maximumBeta).toBe(1e5);
+    const one = { ...base, wavelengthsNm: [550], kernelRadiusSamples: 2 };
+    // f/1e-4 (β ≈ 1.08e5, 0.9 s before the bound), f/1e-9, a 1e-6 nm wavelength and a 1e300 µm pitch (no result in 20 s before it).
+    for (const patch of [{ apertureFNumber: 1e-4 }, { apertureFNumber: 1e-9 }, { wavelengthsNm: [1e-6] }, { samplePitchMicrometers: 1e300 },
+      { focalLengthMm: 1e300, apertureFNumber: 1e-10, focus: { kind: "infinity" as const } }]) {
+      const started = performance.now();
+      expect(() => createDiffractionLimitedPsfProfile({ ...one, ...patch })).toThrow(InvalidConfigurationError);
+      expect(() => createDiffractionLimitedPsfProfile({ ...one, ...patch })).toThrow(/must be in \(0, 100000\]/);
+      expect(performance.now() - started).toBeLessThan(1_000);
+    }
+    for (const beta of [1e5 * (1 + Number.EPSILON), 1e9, Number.POSITIVE_INFINITY, Number.NaN, 0, -1]) {
+      expect(() => calculateAiryCellEnergies(beta, 1)).toThrow(InvalidConfigurationError);
+    }
+  });
+
+  it("keeps the recorded kernel just under the bound (β = 99,173.6)", () => {
+    const result = createDiffractionLimitedPsfProfile({ ...base, apertureFNumber: 1.1e-4, focus: { kind: "infinity" }, wavelengthsNm: [550], kernelRadiusSamples: 1 }).value;
+    // Recorded before the bound (2.27.0 code, arm64); x64 may differ in the last bits (Math.cos and Math.acos, #508).
+    const recorded = [1.4475909272589378e-7, 4.6845025617924394e-7, 1.4475909272589378e-7, 4.6845025617924394e-7, 0.9999975471626044,
+      4.6845025617924394e-7, 1.4475909272589378e-7, 4.6845025617924394e-7, 1.4475909272589378e-7];
+    const kernel = result.profile.nodes[0]!.kernel.normalizedIntensity;
+    for (let i = 0; i < recorded.length; i++) expect(Math.abs(kernel[i]! - recorded[i]!)).toBeLessThan(1e-15);
+    expect(Math.abs(result.wavelengths[0]!.capturedEnergyFraction - 0.9999987735827875)).toBeLessThan(1e-15);
+    expect(result.quadrature.method).toBe("real-space-encircled-energy-gauss-legendre");
   });
 });
 

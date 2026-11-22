@@ -90,7 +90,7 @@ export interface DevelopedDngImage {
   /** 2.25.0 (#622): the requested size; "half" halves the stage grid. */
   size: "full" | "half";
   fast: { requested: boolean; defaultedFrom: "request" | "format" };
-  /** Pixels with a white-balanced channel clipped at 1, and output components clipped by the gamut handling. */
+  /** Pixels with a white-balanced channel clipped at 1 (before the exposure push and the tone curve); components clipped later by the gamut handling are not counted. */
   clippedPixelCount: number;
   assumptions: string[];
 }

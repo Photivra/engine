@@ -23,7 +23,9 @@ import {
   parseEvidenceList,
   type EvidenceProvenance
 } from "../core/evidence-provenance.js";
+import { parseUncertainty } from "./spectral-response.js";
 import type { SensorEqeExposureIntegration } from "./constant-rate-temporal-integration.js";
+import { parseSiteApplicability } from "./camera-saturation-capacity.js";
 import { parseSensorEqeTemporalPhotoSignal } from "./temporal-photo-signal.js";
 import { InvalidScientificInputError } from "../core/validation.js";
 import type {
@@ -33,7 +35,7 @@ import type {
   SensorSpectralResponseScientificStatus,
   SensorSpectralResponseUncertainty
 } from "./spectral-response.js";
-import { requireInputObject, requireInputKeys, rejectUnknownVariantFields, UNCERTAINTY_VARIANT_FIELDS, requireConfigRecord as requireRecord, requireConfigFinite as requireFinite, requireConfigString as requireNonEmptyString, requireConfigNonNegativeSafeInteger as requireSiteIndex, requireConfigFiniteAtLeastZero as requireNonNegativeFinite } from "../core/record-validation.js";
+import { requireInputObject, requireInputKeys, rejectUnknownVariantFields, requireConfigRecord as requireRecord, requireConfigFinite as requireFinite, requireConfigString as requireNonEmptyString, requireConfigFiniteAtLeastZero as requireNonNegativeFinite } from "../core/record-validation.js";
 import { sameSite } from "../core/shared-helpers.js";
 
 export type SensorDarkCurrentSiteApplicability =
@@ -182,106 +184,7 @@ export type SensorTemporalDarkCurrentCharge = Omit<SensorDarkCurrentCharge, "sta
 };
 export type SensorPhotoDarkCurrentCharge = SensorDarkCurrentCharge | SensorTemporalDarkCurrentCharge;
 
-function parseUncertainty(
-  value: unknown,
-  path: string
-): SensorSpectralResponseUncertainty {
-  const record =
-    requireRecord(value, path, null);
-  rejectUnknownVariantFields(record, "kind", UNCERTAINTY_VARIANT_FIELDS, path);
 
-  if (record.kind === "relative") {
-    const fraction =
-      requireNonNegativeFinite(
-        record.fraction,
-        path + ".fraction"
-      );
-    if (
-      typeof record.basis !== "string" ||
-      record.basis.trim().length === 0
-    ) {
-      throw new InvalidConfigurationError(
-        path +
-          ".basis must be a non-empty string."
-      );
-    }
-    return {
-      kind: "relative",
-      fraction,
-      basis: record.basis
-    };
-  }
-
-  if (
-    record.kind === "not-quantified"
-  ) {
-    return {
-      kind: "not-quantified",
-      limitation:
-        requireNonEmptyString(
-          record.limitation,
-          path + ".limitation"
-        )
-    };
-  }
-
-  throw new InvalidConfigurationError(
-    path + ".kind is invalid."
-  );
-}
-
-function parseSiteApplicability(
-  value: unknown
-): SensorDarkCurrentSiteApplicability {
-  const record = requireRecord(
-    value,
-    "sensorDarkCurrent.siteApplicability", null
-  );
-  rejectUnknownVariantFields(record, "kind", { "exact-site": ["kind", "site"], "uniform-site-mean-approximation": ["kind", "limitation", "evidence"] }, "sensorDarkCurrent.siteApplicability");
-
-  if (record.kind === "exact-site") {
-    const site = requireRecord(
-      record.site,
-      "sensorDarkCurrent.siteApplicability.site", ["x", "y"]
-    );
-    return {
-      kind: "exact-site",
-      site: {
-        x: requireSiteIndex(
-          site.x,
-          "sensorDarkCurrent.siteApplicability.site.x"
-        ),
-        y: requireSiteIndex(
-          site.y,
-          "sensorDarkCurrent.siteApplicability.site.y"
-        )
-      }
-    };
-  }
-
-  if (
-    record.kind ===
-    "uniform-site-mean-approximation"
-  ) {
-    return {
-      kind:
-        "uniform-site-mean-approximation",
-      limitation:
-        requireNonEmptyString(
-          record.limitation,
-          "sensorDarkCurrent.siteApplicability.limitation"
-        ),
-      evidence: parseEvidenceList(
-        record.evidence,
-        "sensorDarkCurrent.siteApplicability.evidence"
-      )
-    };
-  }
-
-  throw new InvalidConfigurationError(
-    "sensorDarkCurrent.siteApplicability.kind is invalid."
-  );
-}
 
 function parseTemperatureModel(
   value: unknown
@@ -509,8 +412,8 @@ export function parseSensorDarkCurrentProfile(
   }
 
   const siteApplicability =
-    parseSiteApplicability(
-      record.siteApplicability
+    parseSiteApplicability<SensorDarkCurrentSiteApplicability>(
+      record.siteApplicability, "sensorDarkCurrent.siteApplicability", "uniform-site-mean-approximation"
     );
   if (
     siteApplicability.kind ===
@@ -662,16 +565,10 @@ function resolveDarkCurrentRate(
     model.kind ===
     "log-linear-temperature-table"
   ) {
-    // r = r0^(1-alpha) * r1^alpha, written as r0 * (r1/r0)^alpha.
+    // r = r0^(1-alpha) * r1^alpha, written as r0 * (r1/r0)^alpha; in logarithms when the ratio overflows or underflows (sensor-23).
+    const r0 = lower.darkCurrentElectronsPerSecond, r1 = upper.darkCurrentElectronsPerSecond, ratio = r1 / r0;
     return {
-      rate:
-        lower
-          .darkCurrentElectronsPerSecond *
-        (upper
-          .darkCurrentElectronsPerSecond /
-          lower
-            .darkCurrentElectronsPerSecond) **
-          alpha,
+      rate: ratio > 0 && ratio < Infinity ? r0 * ratio ** alpha : Math.exp((1 - alpha) * Math.log(r0) + alpha * Math.log(r1)),
       interpolationUsed: true
     };
   }
@@ -697,6 +594,7 @@ function validateExposure(
     SensorEqePhotoExposure
 ): void {
   requireInputObject(exposure, "exposure input");
+  requireInputObject(exposure.site, "exposure.site");
   if (exposure.kind === "eqe-temporal-photo-signal") parseSensorEqeTemporalPhotoSignal(exposure);
   if (
     (exposure.kind !== "eqe-expected-counts" && exposure.kind !== "eqe-temporal-photo-signal") ||

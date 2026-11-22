@@ -2583,8 +2583,9 @@ export function simulateSensorRawCode(
         readout.regime
           .adc
           .digitalSaturationCode,
+      // sensor-24: also when the ADC stage clamps below code 0 before a digital gain.
       lowerCodeClampApplied:
-        quantized < 0,
+        quantized < 0 || roundHalfUp(codeBeforeQuantization) < 0,
       adcTransfer:
         "uniform-round-half-up",
       physicalSaturationApplied:

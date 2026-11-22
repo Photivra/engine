@@ -114,3 +114,22 @@ describe("video frame sequences", () => {
       .toMatchObject({ whiteBalanceStateId: "wb-1", focus: { kind: "infinity" } });
   });
 });
+
+describe("extreme accepted frame rates (sensor-18, #701)", () => {
+  const refused = expect.objectContaining({ name: "InvalidScientificInputError" });
+  it("refuses timings that overflow, underflow or collapse to a zero-length exposure", () => {
+    expect(() => calculateShutterAngleExposureSeconds(1e-320, 180)).toThrow(refused);
+    expect(() => calculateShutterAngleExposureSeconds(1e300, 1e-30)).toThrow(refused);
+    expect(() => calculateShutterAngleFromExposureSeconds(1e-200, 1e-200)).toThrow(refused);
+    expect(() => assessShutterAngleRule(1e308, 180)).toThrow(refused);
+    expect(() => assessShutterAngleRule(1e-320, 180)).toThrow(refused);
+    expect(() => resolveVideoFrameSequence(request({ opticalState: optical(1e-320) }))).toThrow(refused);
+    expect(() => resolveVideoFrameSequence(request({ opticalState: optical(1e300), shutterAngleDegrees: 1e-30 }))).toThrow(refused);
+  });
+
+  it("keeps ordinary rates unchanged", () => {
+    expect(calculateShutterAngleExposureSeconds(24, 180)).toBe(180 / 360 / 24);
+    expect(calculateShutterAngleFromExposureSeconds(24, 1 / 48)).toBe(180);
+    expect(assessShutterAngleRule(24, 180).deviationStops).toBe(0);
+  });
+});

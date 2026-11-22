@@ -87,17 +87,26 @@ export function calculateEffectiveSaturationCode(readout: EffectiveSaturationRea
   if (inl !== undefined) {
     requireInputObject(inl, "calculateEffectiveSaturationCode input.integralNonLinearity");
     rejectUnknownFields(inl as object, ["kind", "knots", "evidence"], "calculateEffectiveSaturationCode input.integralNonLinearity");
+    // capture-31: the knots are checked as the readout-profile parser checks them (kind, a dense list of 1 to 4096 finite
+    // knots with strictly increasing codes); the end points are not required here because adcMaximumCode is optional.
+    const name = "calculateEffectiveSaturationCode input.integralNonLinearity";
+    if ((inl as { kind?: unknown }).kind !== "piecewise-linear-code-offset") throw new InvalidConfigurationError(name + '.kind must be "piecewise-linear-code-offset".');
     const knots = (inl as { knots?: unknown }).knots;
-    if (Array.isArray(knots)) {
-      knots.forEach((knot: unknown, index) => {
-        const path = `calculateEffectiveSaturationCode input.integralNonLinearity.knots[${index}]`;
-        requireInputObject(knot, path);
-        rejectUnknownFields(knot as object, ["code", "offsetCodes"], path);
-      });
+    if (!Array.isArray(knots) || knots.length < 1 || knots.length > 4096) throw new InvalidConfigurationError(name + ".knots must contain 1 through 4096 knots.");
+    for (let index = 0; index < knots.length; index++) {
+      const path = `${name}.knots[${index}]`, knot: unknown = knots[index];
+      requireInputObject(knot, path);
+      rejectUnknownFields(knot as object, ["code", "offsetCodes"], path);
+      const { code, offsetCodes } = knot as { code: unknown; offsetCodes: unknown };
+      if (typeof code !== "number" || !Number.isFinite(code) || typeof offsetCodes !== "number" || !Number.isFinite(offsetCodes))
+        throw new InvalidConfigurationError(path + " must hold a finite code and offsetCodes.");
+      if (index > 0 && !(code > (knots[index - 1] as { code: number }).code)) throw new InvalidConfigurationError(name + ".knots must have strictly increasing codes.");
     }
     const inlEvidence = (inl as { evidence?: unknown }).evidence;
     if (inlEvidence !== undefined) parseEvidenceList(inlEvidence, "calculateEffectiveSaturationCode input.integralNonLinearity.evidence");
   }
+  if (readout.adcMaximumCode !== undefined && !Number.isSafeInteger(readout.adcMaximumCode))
+    throw new InvalidConfigurationError("calculateEffectiveSaturationCode input.adcMaximumCode must be a safe integer.");
   return computeEffectiveSaturationCode(readout);
 }
 

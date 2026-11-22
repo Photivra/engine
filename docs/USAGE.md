@@ -4743,6 +4743,18 @@ Schema 0.1.0 does not model slowdown from buffers, media or heat, pre-release ca
 
 Exposure bracketing changes an explicit physical exposure setting for each frame. It does not add a brightness offset after rendering.
 
+Each frame's setting is `base × 2^offset` (shutter and ISO) or `base ÷ 2^(offset/2)` (f-number). When the bracketed axis has a
+`discrete-values` grid of nominal settings (ISO 100, 125, 160, …; 1/250, 1/125, 1/60 s) and that exact value is not on it, the
+frame takes the grid value nearest to it in log₂ when that lies within 1/12 stop (half the step between third stops; owner
+decision 2026-11-21, #680): ISO 400 with offsets `[-1/3, 0, 1/3]` gives ISO 320, 400 and 500, and 1/125 s with `[-1, 0, 1]` gives
+1/250, 1/125 and 1/60 s. Such a frame keeps the requested `exposureBracketOffsetStops` and adds
+`exposureBracketRealizedOffsetStops`, the offset its setting realizes. A value farther than 1/12 stop from every grid value (ISO
+400 with an offset of 0.5 stop, 565.7, between 500 and 640) is refused, and a continuous grid is used as it is.
+
+`bracket.kind` must be `"none"`, `"exposure"` or `"focus"`, with only that kind's fields, and `offsetsStops` or `focusStates` a
+dense array; `baseState.exposure` takes only `aperture`, `shutterSeconds` and `iso`, and `baseState.automation` only `ae`, `af` and
+`awb`, each `"manual"`, `"locked"` or `"continuous"`. A missing sub-object fails with `InvalidConfigurationError` (#720, `capture-20`).
+
 Focus bracketing uses explicit `FocusPlane` states. It does not claim to produce a focus-stacked image, and does not give an abstract focus-step index a universal physical meaning.
 
 White-balance bracketing is not forced to mean several physical exposures. Varying WB in rendering or development is work for the colour pipeline later on.
@@ -5652,7 +5664,9 @@ still from 1/2000 s to 1.024 s. Where both lines run, the limited line's apertur
 Beyond the line's ends the resolver holds them as before. A range that holds f/4–f/16, or no range, keeps the line and its
 bytes. The limited line is recorded as its profile (id `"facade-generic-program-line-lens-range"`), with node stops measured from the
 capture's exposure anchor (f/8, 1/125 s; the same N²/t at the range's aperture nearest f/8; or, #585, that aperture at the
-body's shortest shutter when the same N²/t would need a shorter one). An approximation of a generic
+body's shortest shutter when the same N²/t would need a shorter one). A sensor profile whose base ISO is above 100 moves the
+anchor to a shorter shutter (the same N²/(t·S) at its base ISO); its line has the same f/16, f/4 and shutter nodes with stops
+measured from that anchor, recorded under the id `"facade-generic-program-line-base-iso"` (#673). An approximation of a generic
 program, not a manufacturer's.
 
 ## Program Auto and Full Auto exposure
@@ -5738,7 +5752,7 @@ const resolved =
 
 Aperture and shutter are automatic. ISO is kept exactly, after it is checked against the capabilities.
 
-If the target falls beyond the first or last program-line node, the line stops at that endpoint, and the result reports the remaining under- or over-exposure.
+If the target falls beyond the first or last program-line node, the line stops at that endpoint, and the result reports the remaining under- or over-exposure. When no aperture or shutter limit was hit, `targetResidual.limitingConstraint` names the line's end: `"program-line-minimum"` below the first node, `"program-line-maximum"` above the last (2.28.0; before, it was `"none"`).
 
 ### Program Auto with Auto ISO
 
@@ -8234,6 +8248,27 @@ it: Vite builds workers as `iife` by default, so a worker that calls `prepareDis
 modules (`worker: { format: "es" }`, with `new Worker(url, { type: "module" })`) to keep it out. Measured sizes:
 [Bundle size](https://github.com/Photivra/engine/blob/main/docs/DISPLAY_VIEW.md#bundle-size).
 
+#### Estimating a render (2.28.0, #660)
+
+`estimateDisplayViewRender(prepared, view)` counts the work a CPU render of `view` would do, without rendering it: the renderer's
+passes, the real pixels and demosaic site reads as `{ minimum, maximum }` ranges (equal to the render's `diagnostics.sampleCount`
+and `siteEvaluations` where they are exact), the pilot's detailed and uniform display pixels, the native sites, and the method
+each cost choice takes. It is synchronous, checks `view` as `render` does, and returns counts, not seconds; see
+[Estimating a render](https://github.com/Photivra/engine/blob/main/docs/DISPLAY_VIEW.md#estimating-a-render-2280). A bundle
+that does not import it carries none of its code.
+
+```ts
+import { estimateDisplayViewRender, prepareDisplayView, type SimulateCaptureOptions } from "@photivra/engine";
+
+const request: SimulateCaptureOptions = { scene: { preset: "dead-leaves" }, sensor: { pixelPitchMicrometers: 2 }, output: { width: 240, height: 160 } };
+const prepared = await prepareDisplayView(request, { gpu: "off" });
+const view = { width: 24, height: 16, region: { x: 0, y: 0, width: 12, height: 8 } };
+const estimate = estimateDisplayViewRender(prepared, view);
+console.log(estimate.estimation, estimate.sampleCount.maximum, estimate.signal.method); // before paying for the render
+const tile = await prepared.render(view);
+console.log(tile.diagnostics.sampleCount); // within estimate.sampleCount
+```
+
 #### AHD correction states (deprecated in 2.22.0)
 
 From 2.10 to 2.21, low-signal AHD display pixels read correction states that workers could exchange. 2.22.0 removes the
@@ -8628,3 +8663,18 @@ const freeze = calculateFreezeShutterSpeed({ subjectSpeedMps: 1, subjectDistance
   blurLimit: { fractionOfFrame: 1 / 1500, sensor: { widthMm: 36, heightMm: 24 } }, shutterDialSeconds: GENERIC_THIRD_STOP_SHUTTER_SECONDS }).value;
 console.log(freeze.shutterSeconds.toFixed(5), freeze.dialShutterSeconds); // 0.00286, 0.0025 (1/400 s)
 ```
+
+## False color of a demosaic
+
+`simulateFalseColor(options, measure?)` (2.28, #739) takes a `simulateCapture` request and returns the demosaic's color error per
+output pixel against a full-color sensor reading of the same capture (both noise-free, CIELAB a\*b\*), with summary statistics,
+an optional map and the two developed images.
+
+```js
+import { simulateFalseColor } from "@photivra/engine";
+
+const result = await simulateFalseColor({ scene: { preset: "zone-plate" }, output: { width: 64, height: 64, demosaic: "ahd" } }, { thresholds: [1, 2, 5] });
+console.log(result.chromaDifference.mean, result.chromaDifference.fractionAbove);
+```
+
+See [False color (2.28)](QUICK_START.md#false-color-228) for the definition, the measured table, the limits and the refused options.

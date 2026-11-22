@@ -44,9 +44,12 @@ Input limits: at most 400 wavelengths, kernel radius 0–32 samples (the irradia
 sampling of `simulateCapture` and the display view (`sensor.spectralStepNanometers` 1 nm over 380–780 nm), so `lens.diffraction`
 builds one exact kernel per spectral node at every allowed step; it was 64 before 2.15.0, which refused every step under 6.25 nm.
 The work and memory are linear in the count (measured in docs/PSF_FOUNDATION.md, "Spectral nodes").
+`maximumBeta` (2.28.0, #686): the largest β = p·f_c = pitch/(λ·N_w), the cell side over the cut-off period, at the shortest wavelength.
+The real-space cell work grows as β, so a request above it is refused before any cell is integrated. 1e5 keeps every documented use
+(whole-frame cells reach β ≈ 250; the tests go to 400) and keeps one wavelength at radius 2 to under a second.
 
 ```ts
-DIFFRACTION_LIMITED_PSF_PROFILE_LIMITS = Object.freeze({ maximumWavelengths: 400, maximumKernelRadiusSamples: 32 })
+DIFFRACTION_LIMITED_PSF_PROFILE_LIMITS = Object.freeze({ maximumWavelengths: 400, maximumKernelRadiusSamples: 32, maximumBeta: 1e5 })
 ```
 
 ## DIFFRACTION_LIMITED_PSF_PROFILE_MODEL

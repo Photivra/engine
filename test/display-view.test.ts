@@ -16,17 +16,17 @@ import { displayViewDigests } from "./helpers/display-view-digests.js";
 /** #697: a case's locks (test/helpers/display-view-digests.ts); each is an x64 lock, with its arm64 hash below if its bytes differ there. */
 interface Lock { combined: string; samples: string; internals: string }
 const ARM64_DISPLAY_VIEW_HASHES: Readonly<Record<string, string>> = {
-  "b160bd0c7964d574444ef75e3be5e7b589001fac8faf5c224817951492746af8": "5a952bd4396b411ea7ff73ccdd0422b11c8491bfda69f9507e656704b9447ba4",
-  "d3158da77a683e55aa2a8a6d332f9ed1118e8338489e76570e1bfc2896bb990c": "c0658e117cb4f8b92497969bba538a94417f069f3ae46254d40cfc3bb176fd4b",
-  "d04916365a4cf2b9efb202736d320fb953d7b2c3398eb596f71117ce77f5e5d6": "1e10e4b5ff9cb0331494d4d4fee310740543fbe5a86e47fcbae4318aacb7b751",
-  "992eec6e7a1d8d3ec4817baf703156c46f9dda4a8dd340624dac8d1b8f439b77": "c92d880f0fff487be141eba45bc103f28e404c3ca2282c9ee9e3bf93ce5d69c8",
-  "431b725a7066aa3a386abedc6fe9a2f1bda82fb5497894d7856526bd458aab39": "218ebea933de43113f020572ac330248f36b0581abc55c2c68809968498a1334",
-  // #697: the internals locks whose bytes differ on arm64 (the samples locks are the same on both).
-  "d72c37472780b632937895dceac56d8ae9da73d0999d501e9c612daca315964b": "6ac80c2b82d2736f30c21ef3d8af8daa88343c68c15e9249592555e10845f0fd",
-  "73f92bda69a163f400e6d8b70585217249749ee5fde87eec6e40cd4aea3b7c83": "a52491336e585a01c2c26c8b32f94ae7128bd9f9dbed61e52e99df43df6d9ec4",
-  "fb6550a2a8b3ce1fe225b0955bebdd92b69ff586e1bb7859d0fd2ae6526a29a8": "b449a6887081a76e0f163c0ffa7ad5753479dbfbb746edb72e9fd4a8f93d2de1",
-  "6b5f75cbcb756014d1dbc810dce8329520a63677baf7c5bd93a476af2f545232": "a0067f46bbb73a21d81a2a4eea2b531d07af5c5416e156db7d6e75e9f39b8b2c",
-  "9a0af41098e1d6ea4463e69e416cb3d2f845fadb38f09ecacef6b24cb1646df5": "de04fb00a1adbc2d18ac2be7acb5fc2ed6401f284a6c9672c6b83fbad483f197"
+  // #697: the combined and internals locks whose bytes differ on arm64 (the samples locks are the same on both). Re-recorded for #732.
+  "4e7ad07ab2d98963b7b75010a2fdf4c2d117e1a63a81743fadf67665080012d8": "2394f008b46f0816bfba8d6e91421d96814a27a0e53eb92e34151a31861fa55e",
+  "bef9689c1c9c997368a3e9a2658df65584bd066bccefae0e604d37553d3eb0df": "0dc4b29c250bffca3cc437e5d343ab60cc01639d08200527c9870ea2ac148a13",
+  "7edf23687e2fc2e356b545fec108937b071579f831ea35684b1209bb0e573f25": "156a2b28d19de5c3fe9c1fe5d1c914e81861e725f48627b45842a7617044ac04",
+  "8d827f27aff1812d9a61ac744177989944584feaedc91aa518225f19e5e52ee8": "7059af9c31ea3d5ed5964aab51c506b7991cd6503ad373a28c4e650173730353",
+  "8d15df0e4467691124275b878da1a077a312fa9d3471bd328dc338f7ba830a1a": "1eabf3bb723871f98086ac06811e2a2c7e9fb8b459d86f7a0242e3cebff959c4",
+  "f96c46a24ad84f23b4427e23a2be738bed9f29391b458cbb91f75673fec3649a": "1a025aff25f12ed65401e13d14cdc3d1e5beec24cb7bfee67552090dfb3515d5",
+  "ce833d286599b798324a738cf4fcd71369512d0f635fba0afd36bc924bae5660": "4a3346d4e0a5c5a5df7f27c7d9a6ef266f464b71c02baf6341e7e2e7eda2a3b9",
+  "a78e38b3f01b8c1fec1a7ce1a5f50464cae5e33c175749941e08afa21ef0b4b4": "127c1db2455806ee6c2e54ef8564055784de1eeb191d6633b24221d0c7f4eca5",
+  "859f6f33e6dd02308d4fb64bd5b6deb0ad647a1c2308582a92ff9b445a0b9f63": "aadeaabf8820fdb4d673eb3df1828998b14523af902aedb65894ed29f162e88e",
+  "4582f7bb71f2ea1cdca403ea042a7c3b9a8b3fa05c48914c798bad4aa3b23b27": "c7b6a96d6bbcb44f059e86b13a5843280c2230ebafcc0712c0b0229f4d08b2e5"
 };
 
 const decode = (code: number, maximum: number): number => { const e = code / maximum; return e <= 0.04045 ? e / 12.92 : ((e + 0.055) / 1.055) ** 2.4; };
@@ -267,17 +267,17 @@ describe("simulateDisplayView", () => {
     const rings = (p: { u: number; v: number }): number => { const t = 20 * (p.u * p.u + p.v * p.v), f = t - Math.floor(t); return 0.1 + 0.6 * (f < 0.5 ? 2 * f : 2 - 2 * f); };
     const cases: [SimulateCaptureOptions, SimulateDisplayViewOptions, Lock][] = [
       [{ scene: { preset: "siemens-star" }, lens: { fNumber: 8, diffraction: "circular-aperture" }, sensor: { pixelPitchMicrometers: 1.4, antiAliasing: { kind: "four-spot" } },
-        output: { width: 400, height: 300 } }, { width: 20, height: 15 }, { combined: "b160bd0c7964d574444ef75e3be5e7b589001fac8faf5c224817951492746af8", samples: "06c3e4931c07f81e16c30c3e9ace267547ff2b4a14191d202f8ef728a3a10f02", internals: "d72c37472780b632937895dceac56d8ae9da73d0999d501e9c612daca315964b" }],
+        output: { width: 400, height: 300 } }, { width: 20, height: 15 }, { combined: "4e7ad07ab2d98963b7b75010a2fdf4c2d117e1a63a81743fadf67665080012d8", samples: "5406d4f872753f1ed54e9f486114d7ce826e7658741686baaf09e281dc0ee749", internals: "bef9689c1c9c997368a3e9a2658df65584bd066bccefae0e604d37553d3eb0df" }],
       [{ scene: { preset: "uniform", reflectance: 0.18 }, lens: { fNumber: 8, diffraction: "circular-aperture" }, exposure: { iso: 1600, shutterSeconds: 1 / 2000 },
-        sensor: { pixelPitchMicrometers: 1.4 }, output: { width: 200, height: 150, demosaic: "ahd" } }, { width: 10, height: 8 }, { combined: "d3158da77a683e55aa2a8a6d332f9ed1118e8338489e76570e1bfc2896bb990c", samples: "e47ce7451de7dc9fc6d3e3e9e919f2c73f6211a4a867e44299752fc921bc36db", internals: "73f92bda69a163f400e6d8b70585217249749ee5fde87eec6e40cd4aea3b7c83" }],
+        sensor: { pixelPitchMicrometers: 1.4 }, output: { width: 200, height: 150, demosaic: "ahd" } }, { width: 10, height: 8 }, { combined: "7edf23687e2fc2e356b545fec108937b071579f831ea35684b1209bb0e573f25", samples: "e47ce7451de7dc9fc6d3e3e9e919f2c73f6211a4a867e44299752fc921bc36db", internals: "8d827f27aff1812d9a61ac744177989944584feaedc91aa518225f19e5e52ee8" }],
       [{ scene: { preset: "patches", patches: [{ patchId: "a", reflectance: red }, { patchId: "b", reflectance: 0.5 }], columns: 2 }, chartSize: { widthM: 0.002, surroundReflectance: 0.3 },
         lens: { diffraction: "circular-aperture" }, sensor: { pixelPitchMicrometers: 2 }, output: { width: 60, height: 40, borderHandling: "mirror" } }, { width: 12, height: 8 },
-      { combined: "d04916365a4cf2b9efb202736d320fb953d7b2c3398eb596f71117ce77f5e5d6", samples: "d6d0b160b7c5abd9e2d02d23f60537a823ba5ab63fd6935659a8155f2a980583", internals: "fb6550a2a8b3ce1fe225b0955bebdd92b69ff586e1bb7859d0fd2ae6526a29a8" }],
+      { combined: "8d15df0e4467691124275b878da1a077a312fa9d3471bd328dc338f7ba830a1a", samples: "b8f2304d4471d75bf4cc7e3f502fa88543ab6fe09e1584ec4258e774428d2d57", internals: "f96c46a24ad84f23b4427e23a2be738bed9f29391b458cbb91f75673fec3649a" }],
       [{ scene: { kind: "reflectance-function", sceneId: "rings", evaluate: rings }, lens: { diffraction: "circular-aperture" },
-        sensor: { pixelAperture: { kind: "box", samplesPerAxis: 2 } }, output: { width: 48, height: 32 } }, { width: 12, height: 8 }, { combined: "992eec6e7a1d8d3ec4817baf703156c46f9dda4a8dd340624dac8d1b8f439b77", samples: "24caf6893e1c8db8ca2700a53253f6b8f437c1a5020558a63e1af0241501103a", internals: "6b5f75cbcb756014d1dbc810dce8329520a63677baf7c5bd93a476af2f545232" }],
+        sensor: { pixelAperture: { kind: "box", samplesPerAxis: 2 } }, output: { width: 48, height: 32 } }, { width: 12, height: 8 }, { combined: "ce833d286599b798324a738cf4fcd71369512d0f635fba0afd36bc924bae5660", samples: "ac6f912cd0be6d58f7bde04a4150dde75752ab57734a1bb820a1120e279667c5", internals: "a78e38b3f01b8c1fec1a7ce1a5f50464cae5e33c175749941e08afa21ef0b4b4" }],
       [{ scene: { preset: "dead-leaves" }, lens: { fNumber: 11, diffraction: "circular-aperture" }, sensor: { pixelPitchMicrometers: 4 },
         output: { width: 300, height: 200, demosaic: "ahd", toneCurve: "positive-reinhard-per-channel" } }, { width: 30, height: 20, region: { x: 5, y: 4, width: 9, height: 7 }, format: "srgb-16" },
-      { combined: "431b725a7066aa3a386abedc6fe9a2f1bda82fb5497894d7856526bd458aab39", samples: "7119c180660671fa276fea6234d5d50f1ba495113f917369c206302fee762594", internals: "9a0af41098e1d6ea4463e69e416cb3d2f845fadb38f09ecacef6b24cb1646df5" }],
+      { combined: "859f6f33e6dd02308d4fb64bd5b6deb0ad647a1c2308582a92ff9b445a0b9f63", samples: "df718aef04c925ebdb0dcef7ebe3780585c22948011f74ce0c212ece67dab7b4", internals: "4582f7bb71f2ea1cdca403ea042a7c3b9a8b3fa05c48914c798bad4aa3b23b27" }],
       [{ scene: { preset: "dead-leaves" }, sensor: { pixelPitchMicrometers: 2 }, output: { width: 300, height: 200 } }, { width: 30, height: 20 }, { combined: "92c3c98e64304843f89968c2c3ddb0ca72467fb993f09c27a657232be4c18245", samples: "494a5750cead031184c5b56ece2f183f6ab62b2abc3eefc29fb6578259e26e41", internals: "61fb99997bb6c0fb46865e9c1378857ceded90f1a6e8a3bf4427f36238e32a7e" }]
     ];
     const recorded: unknown[] = [];
@@ -287,7 +287,8 @@ describe("simulateDisplayView", () => {
       delete diagnostics.timingsMs;
       // #395: diagnostics.fast is additive; it is checked on its own and left out of the recorded digests.
       // 2.20.0: the view's AHD low-signal correction is its fast method (the view's default), so AHD views report the approximation.
-      expect(diagnostics.fast?.assurance).toBe(diagnostics.fast?.applied["output.demosaic.ahd"] ? "approximation-with-a-priori-bound" : "engine-reference");
+      // 2.28.0 (#732): the diffraction window is a fast method too (the view's default).
+      expect(diagnostics.fast?.assurance).toBe(Object.values(diagnostics.fast?.applied ?? {}).includes(true) ? "approximation-with-a-priori-bound" : "engine-reference");
       delete diagnostics.fast;
       // #533: diagnostics.highlight is additive too (it changes no sample); it is checked on its own and left out of the digests.
       expect(diagnostics.highlight).toEqual({ saturatedPixelCount: internals.saturatedPixelCount, statistic: "expected-value" });

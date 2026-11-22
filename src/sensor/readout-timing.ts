@@ -264,7 +264,7 @@ function validatePointWithinActiveCapture(
   rect: RasterRect,
   index: number
 ): void {
-  if (!Number.isFinite(point.x) || !Number.isFinite(point.y)) {
+  if (!Number.isFinite(point?.x) || !Number.isFinite(point.y)) {
     throw new InvalidScientificInputError(
       "samplePointsNative[" + index + "] coordinates must be finite."
     );

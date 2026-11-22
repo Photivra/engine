@@ -13,7 +13,7 @@ This file records direct development and CI dependencies intentionally used by t
 | typescript-eslint | 8.70.0 | TypeScript ESLint integration | MIT |
 | Vitest | 5.0.1 | Unit/integration testing | MIT |
 | @vitest/coverage-v8 | 5.0.1 | V8-backed test coverage | MIT |
-| rolldown | 1.2.9 | Bundling test of capture-only consumers (`test/capture-bundle.test.ts`) | MIT |
+| rolldown | 1.2.14 | Bundling test of capture-only consumers (`test/capture-bundle.test.ts`) | MIT |
 | playwright-core | 1.63.0 | Installs Chromium for the WebGPU conformance workflow (`.github/workflows/webgpu.yml`); CI and local runs only | Apache-2.0 |
 | jxl-oxide-wasm | 0.12.6 | JPEG XL tile decoding in the phone DNG import tests (`test/dng-import-phone.test.ts`); see [JPEG XL](#jpeg-xl-2220) | MIT OR Apache-2.0 |
 | actions/checkout | v7 / `3d3c42e5aac5ba805825da76410c181273ba90b1` | CI checkout | MIT |
@@ -24,6 +24,8 @@ This file records direct development and CI dependencies intentionally used by t
 ## JPEG XL (2.22.0)
 
 DNG 1.7 phone files may store their raw data as JPEG XL (Compression 52546; #598). The owner chose the jxl-oxide decoder (owner, 2026-11-10), as its prebuilt WebAssembly package from npm, `jxl-oxide-wasm` 0.12.6 (<https://github.com/tirr-c/jxl-oxide>), dual-licensed MIT OR Apache-2.0. **Chosen licence: Apache-2.0** (owner-accepted 2026-11-11, with the licence check's rule that an SPDX `OR` expression passes when one choice is allowed). It is a **devDependency only**: the published package declares no runtime dependency and does not import it. `createJxlOxideDngDecoder` takes the module the application loaded (structurally typed), so an application that opens JPEG XL DNGs installs and lazily loads jxl-oxide-wasm itself, and its licence then applies to that application. No jxl-oxide source is vendored or copied. `scripts/check-license-policy.mjs` accepts an SPDX `OR` expression when one of its choices is on the allowlist (here Apache-2.0 and MIT both are).
+
+Where WebAssembly may appear (2.28.0, #659): only in an application that loads a JPEG XL decoder and passes it to the engine, and in this repository's JPEG XL DNG tests (`test/dng-import-phone.test.ts`). The engine never fetches, compiles or instantiates WebAssembly itself; `npm run check:browser-surface` and `test/webassembly-boundary.test.ts` fail if an engine module does.
 
 Patents (rule 2; not legal advice): JPEG XL is ISO/IEC 18181. At the 2026-11-10 research (#598), royalty-free patent declarations on JPEG XL had been filed by Google and Cloudinary only; Google's patent grant text covers its own implementations (libjxl, jxl-rs), not jxl-oxide. The owner accepted jxl-oxide on that basis (2026-11-10). The engine itself contains no JPEG XL coding: its tests carry a small test-only lossless encoder (`test/helpers/phone-dng-fixtures.ts`, written from ISO/IEC 18181-1:2022, modular mode with the zero predictor and prefix codes) to build fixtures, never shipped.
 
@@ -40,6 +42,26 @@ Node built-in modules are used only by development tooling and the repository-lo
 `src/capture/c2pa-embed.ts` (#165) is written from the C2PA Technical Specification 2.4 (free, published by the C2PA) and ISO 19566-5 box framing as that specification describes it. To produce the same JPEG and PNG bytes as the C2PA reference SDK, it uses interoperability facts read from c2pa-rs `sdk/src/asset_handlers/jpeg_io.rs` and `png_io.rs` (MIT OR Apache-2.0): the 64,000-byte split of the store across APP11 segments, the box instance number `En` = 0x0211 and the segments' place right after the last APP0 (or SOI); and the PNG `caBX` chunk's place right after IHDR with the whole chunk excluded. No c2pa-rs source is vendored or copied, and nothing is a runtime dependency. Checking a signed file with the C2PA reference validator is pending (docs/RELEASE_2_22_0.md, "Pending"); the engine signs nothing and makes no network request.
 
 This inventory does not replace a transitive dependency/SBOM review before a release. New runtime dependencies, scientific datasets, model weights, or calibration material require explicit provenance and license review.
+
+## Documentation site (2.28.0, #669)
+
+The documentation site (`site/`, served at `https://engine.photivra.com/`) is built by its own private manifest, `site/package.json`, with its own lockfile, `site/package-lock.json`. Nothing under `site/` is in the published package, and the root manifest and lockfile are unchanged. The site's tools are development dependencies only; `scripts/check-license-policy.mjs site/package-lock.json` checks their whole tree (CI, the Pages workflow and `npm run prepush`). The owner approved this dependency tree on 2026-11-21.
+
+| Component | Version | Purpose | License |
+| --- | --- | --- | --- |
+| tailwindcss, @tailwindcss/cli | 4.3.5 | Compiles the one stylesheet at build time; nothing of it runs in a reader's browser | MIT |
+| marked | 18.2.1 | Markdown to HTML | MIT |
+| html-validate | 11.21.1 | HTML validation of the built pages | MIT |
+| axe-core | 4.14.1 | Accessibility rules in the browser pass (development only) | MPL-2.0 |
+| lighthouse | 13.6.0 | Lighthouse scores, run locally against the built site | Apache-2.0 |
+| `@sentry/node` stand-in | `site/stubs/sentry-node` | Lighthouse's optional error reporting is never turned on; a local package of no-op functions (Apache-2.0, this repository) replaces it through an npm `overrides` entry, so its dependency tree, which includes a package under a source-available licence the policy does not allow, is not installed | Apache-2.0 |
+| actions/upload-pages-artifact | v5.0.0 / `fc324d3547104276b827a68afc52ff2a11cc49c9` | Pages workflow: the site artifact | MIT |
+| actions/deploy-pages | v5.0.1 / `368f82528645a54fb793d4d04e342629a3f51346` | Pages workflow: the deployment | MIT |
+| actions/upload-artifact | v7.0.2 / `cf430e030ddbb5b0abf93d22962f4752f3646cd9` | Pages workflow: the built site of a pull request, for review | MIT |
+
+Transitive licences in `site/package-lock.json` beyond the root policy's list: MPL-2.0 (axe-core, lightningcss and its platform packages; development only, as for the root), 0BSD (tslib, in the Tailwind CLI's WebAssembly fallback; development only; a public-domain-equivalent licence on the development-only list of `scripts/check-license-policy.mjs`, approved by the owner on 2026-11-21) and `(MIT OR CC0-1.0)` (type-fest; MIT chosen).
+
+**Inter typeface.** The site sets its text in Inter 4.1 (variable font, version string "4.001;git-9221beed3") by The Inter Project Authors (<https://github.com/rsms/inter>), licensed under the SIL Open Font License 1.1 (OFL-1.1); the licence declares no Reserved Font Name. Owner decision 2026-11-21: approved for this site and the licence scan. The source file was `variable/InterVariable.woff2` from the npm package `inter-ui` 4.1.1 (OFL-1.1), which repackages the Inter 4.1 release; the font's own name table reads version 4.001 and names the Inter Project Authors. `site/tools/make-fonts.py` (fontTools) made two subsets from it, `site/assets/fonts/inter-400.woff2` (weight 400) and `inter-600-700.woff2` (weights 600 to 700), holding only the characters the site's pages use (`site/assets/fonts/charset.txt`), with the font's copyright, licence and version names kept. The licence text is beside them, `site/assets/fonts/OFL.txt`, and is served with them at `/assets/fonts/OFL.txt`. The fonts are served only by the site; they are not in the npm package. The site's icon (`site/assets/icon.svg` and the raster icons made from it) draws the outline of Inter Bold's letter "P", as the design's decision 11 asks; the owner approved it on 2026-11-21.
 
 ## Pending licence and source reviews
 

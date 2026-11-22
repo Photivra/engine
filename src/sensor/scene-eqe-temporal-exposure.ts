@@ -63,7 +63,7 @@ export function calculateSceneSensorEqeTemporalExposure(
   if (input.timeReference !== "first-opening-boundary-phase") {
     throw new InvalidScientificInputError("Scene samples must use the explicit first-opening-boundary-phase time reference.");
   }
-  if (input.sensor.responseApplication.sourcePlane.value !== "sensor-package-incident") {
+  if (input.sensor?.responseApplication.sourcePlane.value !== "sensor-package-incident") {
     throw new InvalidScientificInputError("Scene optical output requires a sensor-package-incident response application.");
   }
   // Check the total declared work against its limit before any per-instant optical calculation.

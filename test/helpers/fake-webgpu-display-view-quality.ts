@@ -449,3 +449,6 @@ export function emulateImagePlaneQualitySites(pw: Uint32Array, pf: Float32Array,
     writeSite(P, sites, sw, i, c, e, f(f(P.siteGamma! * e) + P.siteTiny!), flagged ? 1 : 0);
   }
 }
+
+// #655 (G1): shared with the catalogue-lens passes' emulation (test/helpers/fake-webgpu-display-view-lens.ts).
+export { readParams, writeSite, nodeTotal, channelOf, bAdd, bMul, bScale, bRounded, type B as BoundedValue };

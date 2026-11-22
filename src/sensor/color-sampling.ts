@@ -167,17 +167,13 @@ function parseChannelIds(
     );
   }
 
-  // 2.28.0: every index in turn (Array.prototype.map skips holes, and walks the whole length of a sparse array), so a hole fails at
-  // once with a domain error.
-  const ids: string[] = [];
-  for (let index = 0; index < value.length; index++) {
-    ids.push(
-      requireNonEmptyString(
-        value[index],
-        path + "[" + index + "]"
-      )
-    );
-  }
+  // Array.from visits holes too, so a sparse array fails the per-entry check (sensor-12).
+  const ids = Array.from(value, (entry, index) =>
+    requireNonEmptyString(
+      entry,
+      path + "[" + index + "]"
+    )
+  );
 
   if (
     !options.allowDuplicates &&

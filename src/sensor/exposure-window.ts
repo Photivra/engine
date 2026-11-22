@@ -308,7 +308,7 @@ function validatePointWithinActiveCapture(
   rect: RasterRect,
   path: string
 ): void {
-  if (!Number.isFinite(point.x) || !Number.isFinite(point.y)) {
+  if (!Number.isFinite(point?.x) || !Number.isFinite(point.y)) {
     throw new InvalidScientificInputError(
       path + " coordinates must be finite."
     );

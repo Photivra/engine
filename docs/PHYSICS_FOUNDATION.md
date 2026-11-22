@@ -355,7 +355,7 @@ y_d = y (1 + k1 r² + k2 r⁴ + k3 r⁶) + p1 (r² + 2y²) + 2 p2 x y
 
 A smooth, locally invertible map of a closed disk that is one-to-one on its boundary is one-to-one everywhere, so the inverse has a single value. Note that these conditions are checked at the sample points, not proven between them.
 
-`calculateInverseBrownConradyDistortionMapping()` uses damped Newton iteration, starting from the radial inverse. It requires a normalised residual of `1e-12` inside the valid range. Thin-prism and anamorphic terms are not modelled.
+`calculateInverseBrownConradyDistortionMapping()` uses damped Newton iteration, starting from the radial inverse. It requires a normalised residual of `1e-12` inside the valid range. Thin-prism and anamorphic terms are not modelled. Since 2.28.0 (#724), when that start fails (with tangential terms the mapped envelope reaches past the radial one, and a target beyond the radial envelope could converge to a second preimage outside the disc), the iteration is restarted from eight boundary points, the target's azimuth first, with every iterate kept inside the disc; a solution within the `1e-12` band above the envelope is put on the boundary radius, so the forward mapping takes it back (`optics-13`). Every point that the first start solves keeps its result bit for bit.
 
 ### Declared-scale focus breathing
 

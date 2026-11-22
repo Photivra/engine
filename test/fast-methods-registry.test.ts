@@ -17,6 +17,11 @@ const source = (file: string): string => readFileSync(file, "utf8");
 const facade = readdirSync("src/facade").filter((f) => f.endsWith(".ts")).map((f) => "src/facade/" + f);
 
 describe("the fast-method registry (2.20.0)", () => {
+  it("is frozen all the way down, so a caller cannot edit a shared entry (#683)", () => {
+    const nodes = (value: unknown): unknown[] => value !== null && typeof value === "object" ? [value, ...Object.values(value).flatMap(nodes)] : [];
+    expect(nodes(SIMULATE_CAPTURE_FAST_METHODS).filter((node) => !Object.isFrozen(node))).toEqual([]);
+  });
+
   it("has an entry for every record that accepts fast, and for every listed fast option", () => {
     const overrides = new Set(SIMULATE_CAPTURE_FAST_METHODS.map((e) => e.override));
     const accepting = new Set<string>();
@@ -92,7 +97,8 @@ describe("the fast-method registry (2.20.0)", () => {
     }
     const exactBytes = (await serializeSimulatedCaptureDngFromParts(options, parts)).bytes;
     expect(exactBytes).toEqual((await simulateCapture(options)).image.dng);
-    const flagged = parts.map((p) => ({ ...p, fast: true }));
+    // #728: a region result's own region.fast takes precedence over the part's fast.
+    const flagged = parts.map((p) => ({ ...p, region: { ...p.region, fast: true } }));
     await expect(serializeSimulatedCaptureDngFromParts(options, flagged)).rejects.toThrow(/Part 0: a fast method rendered it/u);
     expect((await serializeSimulatedCaptureDngFromParts({ ...options, fast: true }, flagged)).bytes).toEqual(exactBytes);
   }, scaledTimeout(60_000));

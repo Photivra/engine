@@ -4,6 +4,7 @@ import { execFileSync } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import { posix } from "node:path";
 import { platform, stdout } from "node:process";
+import { declaredDependencyFields } from "./lib/dependency-fields.mjs";
 
 const packageJson = JSON.parse(
   await readFile("package.json", "utf8")
@@ -37,6 +38,11 @@ if (JSON.stringify(packageJson.exports) !== expectedExports) {
   fail(`Published package exports must be exactly ${expectedExports}; found ${JSON.stringify(packageJson.exports)}`);
 }
 
+// #659: the package has no runtime dependency, so nothing it ships can bring WebAssembly (or anything else) along.
+for (const field of declaredDependencyFields(packageJson)) {
+  fail(`Published manifest must not declare ${field} (#659: the engine has no runtime dependency).`);
+}
+
 const raw = execFileSync(
   platform === "win32" ? "npm.cmd" : "npm",
   ["pack", "--dry-run", "--json", "--ignore-scripts"],
@@ -68,6 +74,9 @@ for (const path of paths) {
   if (!USER_FILES.has(path) && !USER_DIRECTORIES.some((prefix) => path.startsWith(prefix))) {
     fail(`Published package contains a non-user file: ${path}`);
   }
+}
+for (const path of paths) {
+  if (/\.wasm$/iu.test(path)) fail(`Published package contains a WebAssembly file: ${path} (#659).`);
 }
 for (const required of [...USER_FILES, "dist/index.js", "dist/index.d.ts"]) {
   if (!packedPaths.has(required)) fail(`Published package is missing required file: ${required}`);

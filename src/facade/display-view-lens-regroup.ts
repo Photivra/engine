@@ -27,9 +27,9 @@
  *   go/no-go on a Siemens star through the frame centre (0.14 code RMS against the full method, the bound 0.1): the point-sampled
  *   in-focus image there is aliased, so the error does not shrink with the shift as a gradient bound would (0.106 at 1/64, 0.094 at 1/128).
  *
- * Caches (memory only): the convolved blocks, each site's own channel value (electrons formed at that site from the spectrum), least
- * recently used first within LENS_ROW_CACHE_BYTES. The in-focus rows are computed per block and released. No value is keyed by
- * material or level.
+ * Caches (memory only): the convolved blocks, each site's own channel value (electrons formed at that site from the spectrum), the
+ * first computed leaving first within LENS_ROW_CACHE_BYTES. The in-focus rows are computed per block; the last block of a band keeps
+ * them for its right neighbour (#711), and the rest are released. No value is keyed by material or level.
  */
 
 import { InvalidConfigurationError } from "../core/configuration-error.js";
@@ -136,8 +136,10 @@ export function createRollingRegroupedLensSignal(source: RollingRegroupedLensInp
     return even && odd ? { start: 0, step: 1 } : even ? { start: 0, step: 2 } : odd ? { start: 1, step: 2 } : null;
   };
   const blocks = new Map<number, Float64Array>(), capacity = Math.max(4, Math.floor(LENS_ROW_CACHE_BYTES / (S * h * 8)));
+  // #711: the in-focus samples of the last 8 blocks computed (by block key), for their right neighbours.
+  const edges = new Map<number, { xb: number; s: Float64Array[] }>();
   let computed = 0, lastKey = -1, last: Float64Array = new Float64Array(0);
-  function block(b: number, k: number): Float64Array {
+  function block(b: number, k: number, key: number): Float64Array {
     const y0 = b * h, y1 = Math.min(H, y0 + h), rows = y1 - y0, instants = instantsOfRow(Math.min(H - 1, y0 + (h >> 1)));
     let mask = 0;
     for (let y = y0; y < Math.min(y1, y0 + 2); y++) for (let x = 0; x < 2; x++) mask |= 1 << channelAt(x, y);
@@ -145,19 +147,27 @@ export function createRollingRegroupedLensSignal(source: RollingRegroupedLensInp
     // site, so they stay 0 and are never mapped (the lens profiles are checked only up to the view's reach).
     const sx0 = k * S - D, sw = S + 2 * D, sy0 = y0 - D, sh = rows + 2 * D;
     const xa = Math.max(sx0, -D), xb = Math.min(sx0 + sw, W + D), ya = Math.max(sy0, -D), yb = Math.min(sy0 + sh, H + D);
-    const part = inFocus(xa, ya, xb - xa, yb - ya, instants, mask), whole = xa === sx0 && xb === sx0 + sw && ya === sy0 && yb === sy0 + sh;
+    // #711: the left neighbour of this band read the same rows at the same instants, so its columns [xa, from) are taken from it (an
+    // in-focus value depends only on its position and the instants, not on the rectangle it is computed in).
+    const e = edges.get(key - 1), from = e ? e.xb : xa, pw = xb - from;
+    const part = inFocus(from, ya, pw, yb - ya, instants, mask), kept: Float64Array[] = [];
     const out = new Float64Array(S * rows);
     for (let c = 0; c < 3; c++) {
       if ((mask & (1 << c)) === 0) continue;
-      let samples: Float64Array = part[c]!;
-      if (!whole) {
-        samples = new Float64Array(sw * sh);
-        for (let y = ya; y < yb; y++) samples.set(part[c]!.subarray((y - ya) * (xb - xa), (y - ya + 1) * (xb - xa)), (y - sy0) * sw + xa - sx0);
+      const samples = kept[c] = new Float64Array(sw * sh);
+      for (let y = ya; y < yb; y++) {
+        const o = (y - sy0) * sw - sx0;
+        if (e) samples.set(e.s[c]!.subarray(o + xa + S, o + from + S), o + xa);
+        samples.set(part[c]!.subarray((y - ya) * pw, (y - ya + 1) * pw), o + from);
       }
       // Sites of another channel are 0 in this channel's result, and x + 0 = x exactly.
       const convolved = convolveSiteKernelRuns(samples, S, rows, runs, patterns(c, y0));
       for (let i = 0; i < out.length; i++) out[i] = out[i]! + convolved[i]!;
     }
+    edges.set(key, { xb, s: kept });
+    if (edges.size > 8) edges.delete(edges.keys().next().value!);
+    blocks.set(key, out);
+    if (blocks.size > capacity) blocks.delete(blocks.keys().next().value!);
     computed++;
     return out;
   }
@@ -172,16 +182,9 @@ export function createRollingRegroupedLensSignal(source: RollingRegroupedLensInp
     window(): void { /* the blocks are fixed and kept for the signal; a window changes nothing */ },
     site(x: number, y: number): number {
       const b = Math.floor(y / h), k = Math.floor(x / S), key = b * 65536 + k;
-      if (key !== lastKey) {
-        let found = blocks.get(key);
-        if (found) { blocks.delete(key); blocks.set(key, found); }
-        else {
-          found = block(b, k);
-          blocks.set(key, found);
-          if (blocks.size > capacity) blocks.delete(blocks.keys().next().value!);
-        }
-        lastKey = key; last = found;
-      }
+      // #711: a hit is not moved to the end (that was 17 % of a render): blocks leave in the order they were computed, which only
+      // decides what is computed again, with the same bits.
+      if (key !== lastKey) { lastKey = key; last = blocks.get(key) ?? block(b, k, key); }
       return last[(y - b * h) * S + x - k * S]!;
     },
     pilot: source.pilot

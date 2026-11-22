@@ -206,6 +206,11 @@ export function requireImageList(value: unknown, label: string, minimum: number)
   return images;
 }
 
+/** Fails closed when a stored output sample in [from, to) is not finite (NaN or Infinity never leaves an operator). */
+export function requireFiniteOutput(data: Float32Array, from: number, to: number, operator: string): void {
+  for (let i = from; i < to; i++) if (!Number.isFinite(data[i]!)) throw new InvalidScientificResultError(operator + " gives a non-finite value; check its parameters against the image values.");
+}
+
 /** Row generator rejecting non-finite samples (one tile per row). */
 export function* finiteRows(data: Float32Array, width: number, height: number, channels: number, label: string,
   minimum = -Infinity): ProcessingBody<void> {

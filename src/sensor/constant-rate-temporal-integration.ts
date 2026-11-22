@@ -370,6 +370,7 @@ function validateBinding(
   duration: number;
 } {
   const site = requireRateSite(rate);
+  requireInputObject(binding, "exposureBinding");
 
   if (
     !sameSite(site, binding.site) ||
@@ -415,7 +416,7 @@ function validateBinding(
 
   if (
     binding.rateIdentity
-      .responseProfileId !==
+      ?.responseProfileId !==
       rate.responseProfileId ||
     binding.rateIdentity
       .responseApplicationProfileId !==

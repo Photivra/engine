@@ -673,3 +673,17 @@ describe("capture mode contract", () => {
     );
   });
 });
+
+describe("sparse arrays (sensor-12, #701)", () => {
+  it("refuses inter-frame offsets with holes", () => {
+    expect(() => parseCaptureModeProfile(profile([{
+      modeId: "pixel-shift-4", evidence: evidence("test:pixel-shift"),
+      acquisition: { kind: "fixed-multi-frame", frameCount: fact(4, "test:frame-count") },
+      perFrameSampling: { kind: "native-effective-raster" },
+      interFrameSensorOffsetsNativeSamples: fact(new Array(4) as never, "test:offset-sequence"),
+      reconstructionStages: [fact("pixel-shift-combination", "test:pixel-shift-stage")],
+      processedImageRaster: fact({ pixelWidth: 12000, pixelHeight: 8000 }, "test:pixel-shift-processed"),
+      dependencies: ["inter-frame-registration", "color-sampling-model"]
+    } as never]))).toThrow(expect.objectContaining({ name: "InvalidConfigurationError" }));
+  });
+});

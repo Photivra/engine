@@ -214,7 +214,8 @@ function parseSamples(
     );
   }
   let previous = 0;
-  return value.map((entry: unknown, index) => {
+  // 2.28.0 (#726): Array.from visits holes (as undefined), which the per-entry check refuses; map would skip them.
+  return Array.from(value as unknown[], (entry: unknown, index) => {
     if (typeof entry !== "object" || entry === null) {
       throw new InvalidConfigurationError(`dispersion.samples[${index}] must be an object.`);
     }

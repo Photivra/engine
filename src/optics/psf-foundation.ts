@@ -27,7 +27,7 @@ import {
 import type { LensFieldPointMm } from "./radial-distortion.js";
 import { calculateDefocusCircle } from "./depth-of-field.js";
 import { calculateAiryDisk } from "./diffraction.js";
-import { requireInputKeys } from "../core/record-validation.js";
+import { requireInputKeys, requireInputObject } from "../core/record-validation.js";
 import { InvalidConfigurationError } from "../core/configuration-error.js";
 
 export const PSF_FOUNDATION_VERSION = "0.3.0" as const;
@@ -252,6 +252,8 @@ export function calculatePsfFoundationComponents(
     input.spectralBasis.wavelengthNm
   );
 
+  // 2.28.0 (#726): a missing or null field point is a domain error, not a TypeError from reading its x.
+  requireInputObject(input.fieldPointMm, "fieldPointMm");
   if (!Number.isFinite(input.fieldPointMm.x)) {
     throw new InvalidScientificInputError(
       "fieldPointMm.x must be finite."
@@ -283,7 +285,8 @@ export function calculatePsfFoundationComponents(
     {
       context: {
         field: {
-          imagePointMm: { ...input.fieldPointMm },
+          // The validated coordinates only (2.28.0, #726: unknown keys of the record were copied before).
+          imagePointMm: { x: input.fieldPointMm.x, y: input.fieldPointMm.y },
           radiusMm,
           normalizationRadiusMm: input.fieldNormalizationRadiusMm,
           normalizedRadius: radiusMm / input.fieldNormalizationRadiusMm

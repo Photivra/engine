@@ -60,6 +60,7 @@
  * the PSF alone), see {@link DisplayViewLensSetup.uniformWindows}.
  */
 
+import type { createOffsetExpansion } from "./display-view-offset-expansion.js";
 import { InvalidConfigurationError } from "../core/configuration-error.js";
 import { createSiteKernelRunsLattice, type SiteKernelRunsRowPattern } from "../optics/site-kernel-runs.js";
 import type { PreparedDefocusImageSpaceGeometry } from "./defocus-image-space-provider.js";
@@ -244,6 +245,13 @@ export interface DisplayViewLensSetup {
    * 2.7e-8 relative of the full method on every catalogue lens). Absent or false: every tap with its own field factor.
    */
   uniformWindows?: boolean | undefined;
+  /**
+   * #685 steps 2–3, the fast method `lens.catalogue/view-offset-expansion` (a catalogue lens's PSF on a chart or material scene with more
+   * than one query offset): the Quality kit's `createOffsetExpansion` (display-view-offset-expansion.ts), which gives each offset's
+   * plane point and field factor to second order about its nearest site centre instead of one lens mapping per offset. Not for lenses
+   * that see nothing beyond their horizon (fisheyes). Absent: every offset through the lens (the full method).
+   */
+  offsetExpansion?: typeof createOffsetExpansion | undefined;
 }
 
 /** The lens signal factory of a prepared view: one expected signal per expected-signal input (and render). */
@@ -287,7 +295,8 @@ export function lastDisplayViewLensSetup(): { lens: DisplayViewLensSetup; native
 
 export function prepareDisplayViewLensSignal(lens: DisplayViewLensSetup, nativeWidth: number, nativeHeight: number, reachSites: number, options: string): DisplayViewLensSignalFactory {
   lastPrepared = { lens, nativeWidth, nativeHeight };
-  const xMm = (nativeWidth / 2 + reachSites) * lens.pitch / 1000, yMm = (nativeHeight / 2 + reachSites) * lens.pitch / 1000;
+  // #685: the offset expansion maps the site centres one site beyond the query offsets' reach.
+  const reach = reachSites + (lens.offsetExpansion ? 1 : 0), xMm = (nativeWidth / 2 + reach) * lens.pitch / 1000, yMm = (nativeHeight / 2 + reach) * lens.pitch / 1000;
   for (const [x, y] of [[-xMm, -yMm], [xMm, -yMm], [-xMm, yMm], [xMm, yMm]] as const) for (const t of lens.timesAt?.(x < 0 ? 0 : nativeWidth - 1, y < 0 ? 0 : nativeHeight - 1) ?? lens.times) {
     try { if (!(lens.geometry.lookOf(x, y, t).z > 0) && !lens.zeroBeyondHorizon) throw new InvalidConfigurationError("its ray does not point toward the scene plane."); } catch (error) {
       throw new InvalidConfigurationError("simulateDisplayView with " + options + " reads the scene through the lens up to " + (reachSites + 0.5) + " sites beyond the native " +
@@ -440,7 +449,11 @@ function createLensSignal(lens: DisplayViewLensSetup, input: DisplayViewExpected
   const offGroup: number[] = [], offIx: number[] = [], offIy: number[] = [], offW: number[] = [];
   for (let g = 0; g < G; g++) for (const member of groups[g]!.members) { offGroup.push(g); offIx.push(member.ix); offIy.push(member.iy); offW.push(member.weight); }
   const offCount = offGroup.length;
+  // #685: the offset expansion (the Quality kit's), for a chart or material scene through a lens that always sees the plane.
+  const expansion = usePsf && materials && !zeroBeyond && offCount > 1 ?
+    lens.offsetExpansion?.(lens, input, spectra, offGroup.map((g, o) => ({ fx: groups[g]!.fx, fy: groups[g]!.fy, ix: offIx[o]!, iy: offIy[o]!, weight: offW[o]! }))) : undefined;
   function bPoint(ti: number, p: number, q: number, out: Float64Array, at: number): void {
+    if (expansion) { bm = expansion.point(ti, p, q, out, at, times[ti]!); bf = expansion.factor; return; }
     out.fill(0, at, at + nodes);
     let m = -2, f = 0;
     for (let o = 0; o < offCount; o++) {
@@ -536,16 +549,13 @@ function createLensSignal(lens: DisplayViewLensSetup, input: DisplayViewExpected
   function inFocusLensTile(x0: number, y0: number, TS: number): Float64Array[] {
     const out = [0, 1, 2].map(() => new Float64Array(TS * TS));
     // A fixed tile reaches past the raster: positions more than the disc's radius beyond it feed no site, so they stay 0 and are never
-    // mapped (the lens profiles are checked only up to the view's reach).
-    const D = input.largeKernel!.radius;
-    if (x0 + TS <= -D || x0 >= W + D || y0 + TS <= -D || y0 >= H + D) return out;
-    if (x0 < -D || x0 + TS > W + D || y0 < -D || y0 + TS > H + D) {
-      const xa = Math.max(x0, -D), xb = Math.min(x0 + TS, W + D), ya = Math.max(y0, -D), yb = Math.min(y0 + TS, H + D);
+    // mapped (the lens profiles are checked only up to the view's reach). The rest is computed as one rectangle and copied in.
+    const D = input.largeKernel!.radius, xa = Math.max(x0, -D), xb = Math.min(x0 + TS, W + D), ya = Math.max(y0, -D), yb = Math.min(y0 + TS, H + D);
+    if (xa < xb && ya < yb) {
       const part = inFocusLensRect(xa, ya, xb - xa, yb - ya, lens.times, 7);
       for (let c = 0; c < 3; c++) for (let y = ya; y < yb; y++) out[c]!.set(part[c]!.subarray((y - ya) * (xb - xa), (y - ya + 1) * (xb - xa)), (y - y0) * TS + xa - x0);
-      return out;
     }
-    return inFocusLensRect(x0, y0, TS, TS, lens.times, 7);
+    return out;
   }
   /**
    * E_c of the native site positions [x0, x0 + w) × [y0, y0 + h), row-major, with the scene read at `instants` (their mean), for the
@@ -602,7 +612,7 @@ function createLensSignal(lens: DisplayViewLensSetup, input: DisplayViewExpected
   let ringRows = 0, ring = new Float64Array(0), ringRowId = new Int32Array(0), ringOn = false;
   const compute = usePsf ? psfSite : kernels ? kernelSite : directSite;
   return veiled({
-    get lookups(): number { return lookups; },
+    get lookups(): number { return lookups + (expansion ? expansion.lookups : 0); },
     /** #655: sites the uniform-window method took (diagnostics). */
     get uniformWindowSites(): number { return uniformSites; },
     uniformMaterial: -1,
@@ -634,7 +644,10 @@ function createLensSignal(lens: DisplayViewLensSetup, input: DisplayViewExpected
           const size = T * rows * cols;
           bTagQ = new Int32Array(size).fill(-2147483648); bTagP = new Int32Array(size); bTagT = new Float64Array(size); bValues = new Float64Array(size * nodes);
           bMaterial = new Int32Array(size); bFactor = new Float64Array(size);
+          expansion?.resize(rows, cols);
         }
+        // #685: the expansion reads no group lattice point.
+        if (expansion) { cacheRows = 0; return; }
         // Each group lattice point serves one B point per member: the ring below only pays for itself with several members per group.
         if (groups.every((g) => g.members.length === 1)) { cacheRows = 0; return; }
       }

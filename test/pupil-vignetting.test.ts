@@ -208,3 +208,32 @@ describe("cat's-eye pupil as a PSF aperture", () => {
     expect(() => calculatePolygonPupilFraunhoferPsf(null as never)).toThrow(/object/);
   });
 });
+
+describe("calculateMechanicalVignetting at tangency (optics-16, #700)", () => {
+  it("returns the fully vignetted result when an aperture only touches the pupil", () => {
+    for (const input of [
+      { entrancePupilDiameterMm: 10, fieldAngleDegrees: 45, fieldAzimuthDegrees: 45, apertures: [{ radiusMm: 5, shiftPerTanFieldMm: 10 }] },
+      { entrancePupilDiameterMm: 25, fieldAngleDegrees: 45, fieldAzimuthDegrees: 90, apertures: [{ radiusMm: 12.5, shiftPerTanFieldMm: 25 }] }
+    ]) {
+      const v = calculateMechanicalVignetting(input).value;
+      expect(v.openAreaSquareMm).toBe(0);
+      expect(v.openAreaRatio).toBe(0);
+      expect(v.openPupilPolygonMm).toEqual([]);
+      expect(v.openPupilCentroidMm).toBeNull();
+    }
+  });
+
+  it("puts the centroid inside the pupil at internal tangency and for round-number tangent cases", () => {
+    for (const samples of [17, 64, 256]) {
+      const v = calculateMechanicalVignetting({ entrancePupilDiameterMm: 10, fieldAngleDegrees: 45, fieldAzimuthDegrees: 30, apertures: [{ radiusMm: 3, shiftPerTanFieldMm: 2 }], boundarySamplesPerCircle: samples }).value;
+      expect(v.openAreaRatio).toBeCloseTo(0.36, 12);
+      expect(Math.hypot(v.openPupilCentroidMm!.x, v.openPupilCentroidMm!.y)).toBeLessThanOrEqual(5);
+    }
+    for (const d of [10, 20, 25, 50]) for (const angle of [30, 45, 60]) for (const azimuth of [0, 45, 90, 135]) {
+      const r = d / 2;
+      const shift = d / Math.tan((angle * Math.PI) / 180);
+      const v = calculateMechanicalVignetting({ entrancePupilDiameterMm: d, fieldAngleDegrees: angle, fieldAzimuthDegrees: azimuth, apertures: [{ radiusMm: r, shiftPerTanFieldMm: shift }] }).value;
+      if (v.openPupilCentroidMm !== null) expect(Math.hypot(v.openPupilCentroidMm.x, v.openPupilCentroidMm.y)).toBeLessThanOrEqual(r);
+    }
+  });
+});

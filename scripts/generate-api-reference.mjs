@@ -4,10 +4,13 @@
 import ts from "typescript";
 import process from "node:process";
 import console from "node:console";
-import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { readFileSync, writeFileSync, mkdirSync, readdirSync, rmSync } from "node:fs";
 import { relative } from "node:path";
+import { orphanPages } from "./lib/generated-pages.mjs";
 const checkOnly = process.argv.includes("--check");
+const emitted = new Set();
 function emit(path, content) {
+  emitted.add(path);
   content = content.trimEnd() + "\n";
   if (checkOnly) {
     if (readFileSync(path, "utf8") !== content) throw new Error(`Stale generated reference: ${path}`);
@@ -97,4 +100,10 @@ for (const [file, rows] of [...grouped].sort(([a], [b]) => a.localeCompare(b))) 
 }
 emit("docs/API_REFERENCE.md", reference);
 emit("docs/api/exports.json", JSON.stringify({ packageVersion, engineApiVersion: version, exports: manifest.sort((a,b) => a.name.localeCompare(b.name)) }, null, 2) + "\n");
+// A page of a module that no longer exports through the root is stale too (ci-09 in #703): --check fails on it, a write deletes it.
+for (const path of orphanPages("docs/api", readdirSync("docs/api"), emitted)) {
+  if (checkOnly) throw new Error(`Stale generated reference: ${path} (no longer generated)`);
+  rmSync(path);
+  console.log(`Removed ${path} (no longer generated).`);
+}
 console.log(`Reference generated: ${manifest.length} root symbols across ${grouped.size} modules.`);

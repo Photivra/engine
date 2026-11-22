@@ -87,8 +87,10 @@ jobs:
         # an unreviewed or end-of-life major fails instead of being adopted.
         # The primary leg (the coverage shards and `verify-primary` below) is pinned to Node
         # 24, the tooling major (owner decision for 2.20.0, #231). A leg that resolves to the
-        # same release as the primary (lts/-1 while it is Node 24) skips its test work; its
-        # required `verify` check still runs and passes. `node` is resolved to the newest
+        # primary's major (lts/-1 while it is Node 24) skips its test work; its required
+        # `verify` check still runs and passes. Compared by major with no network call (owner
+        # decision 2026-11-21, ci-08 in #703): during an image roll-out one run's runners hold
+        # two patches of a major, and a patch comparison split a leg's parts between them. `node` is resolved to the newest
         # stable release (first step below).
         node-version:
           - "22.13.0"
@@ -117,9 +119,10 @@ jobs:
         run: |
           node --test .github/test-node-lts-policy.mjs
           node .github/node-lts-policy.mjs
-      - name: Same release as the primary leg
+      - name: Same major as the primary leg
         # The primary leg runs the whole suite under coverage and the package gates on this
-        # release already, so this leg would repeat them (#231): it skips its test work.
+        # major already, so this leg would repeat them (#231): it skips its test work. Decided
+        # from process.versions.node and primaryNodeMajor alone (ci-08 in #703).
         id: same
         run: node .github/node-lts-lookahead.mjs --same-as-primary
       - name: Proof of this tree
@@ -170,6 +173,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     strategy:
+      # One line's failure must not cancel the other lines' checks (ci-19 in #703): with the default fail-fast, which line
+      # showed `failure` and which `cancelled` depended on which five-second job finished first.
+      fail-fast: false
       matrix:
         node-version: ["22.13.0", "lts/-1", "node"]
     steps:
@@ -307,6 +313,10 @@ jobs:
             echo "::error title=Coverage::The change scope ($SCOPE) or a coverage shard ($SHARDS) did not pass."
             exit 1
           fi
+          if [ "$TESTS" != "true" ] && [ "$TESTS" != "false" ]; then
+            echo "::error title=Coverage::The change scope gave no tests decision (tests=\"$TESTS\")."
+            exit 1
+          fi
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -331,6 +341,13 @@ jobs:
       - name: Verify static and policy gates
         if: steps.proof.outputs.found != 'true'
         run: npm run check:static
+      - name: Licence policy of the documentation site's tools
+        # #669: site/package-lock.json is separate from the published manifest; the same gate reads it.
+        if: steps.proof.outputs.found != 'true'
+        run: node scripts/check-license-policy.mjs site/package-lock.json
+      - name: Unit tests of the documentation, licence and identity gates
+        if: steps.proof.outputs.found != 'true'
+        run: node --test scripts/test-gates.mjs
       - name: Download the ten coverage parts
         if: env.TESTS == 'true' && steps.proof.outputs.found != 'true'
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
@@ -500,16 +517,17 @@ jobs:
           test/jpeg-reference-byte-parity.test.ts
           test/poc-projection-reuse.test.ts
       - name: x64 hash locks, checked against their arm64 hashes (Photivra/engine#508)
-        # These three files lock bytes that differ between arm64 and x64 by one-ulp Math
+        # These files lock bytes that differ between arm64 and x64 by one-ulp Math
         # results (#508); on arm64 they assert their own recorded arm64 hashes, so a
         # failure here is a real failure of this step (docs/NUMERICAL_CORRECTNESS.md,
-        # "Test hash locks and platforms").
+        # "Test hash locks and platforms"). #670 adds the batch-figure locks.
         if: steps.proof.outputs.found != 'true'
         run: >-
           npx vitest run
           test/display-view.test.ts
           test/display-view-pixel-memo.test.ts
           test/diffraction-psf-profile.test.ts
+          test/figure-batch-hash-locks.test.mjs
       - name: Name the proof
         id: proof-name
         if: steps.proof.outputs.found != 'true'
@@ -543,9 +561,10 @@ jobs:
         with:
           persist-credentials: false
       - name: Use Node.js
+        # The coverage proof it looks up is named by the Node.js release of `verify (lts/*)`, which runs on "24".
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
-          node-version: "lts/*"
+          node-version: "24"
       - name: Verify Node.js support policy
         run: |
           node --test .github/test-node-lts-policy.mjs

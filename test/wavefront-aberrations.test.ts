@@ -18,6 +18,7 @@ import {
   resolveZernikeNollOrder,
   type LensComplexPupilGrid
 } from "../src/index.js";
+import { InvalidConfigurationError } from "../src/core/configuration-error.js";
 import { complexPupilProfileForGrid } from "./helpers/complex-pupil-profile.js";
 
 const PUPIL_MM = 12.5; // f = 50 mm at f/4
@@ -234,5 +235,21 @@ describe("longitudinal chromatic aberration", () => {
     expect(() => calculateLongitudinalChromaticFocus({ focalLengthMm: 50, referenceWavelengthNm: 550, wavelengthNm: 500, apertureFNumber: 2, focusDistanceM: 3, dispersion: { kind: "thin-singlet-abbe", refractiveIndexD: 0.9, abbeNumberD: 50 } })).toThrow(/refractiveIndexD/);
     expect(() => calculateLongitudinalChromaticFocus({ focalLengthMm: 50, referenceWavelengthNm: 550, wavelengthNm: 500, apertureFNumber: 2, focusDistanceM: 0.01, dispersion: glass })).toThrow(/beyond/);
     expect(() => calculateLongitudinalChromaticFocus(null as never)).toThrow(/object/);
+  });
+});
+
+describe("complex-pupil PSF grid centre (optics-14, #700)", () => {
+  const grid = createWavefrontPupilGrid({ pupilDiameterMm: PUPIL_MM, samplesAcross: 15 }).value.grid;
+  const kernelFor = (centerSampleX: number): ReturnType<typeof calculateLensComplexPupilPsf>["value"]["kernel"] =>
+    calculateLensComplexPupilPsf({ profile: complexPupilProfileForGrid({ ...grid, centerSampleX }) }).value.kernel;
+
+  it("keeps a grid centred within one sample of its middle unchanged and symmetric", () => {
+    const k = kernelFor(7);
+    expect(k.centerSampleX).toBe(14);
+    for (const c of [6, 8]) expect(() => kernelFor(c)).not.toThrow();
+  });
+
+  it("rejects a pupil grid centre more than one sample from the middle of the grid", () => {
+    for (const c of [0, 3, 5, 9, 14]) expect(() => kernelFor(c)).toThrow(InvalidConfigurationError);
   });
 });

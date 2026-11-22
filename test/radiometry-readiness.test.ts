@@ -127,6 +127,8 @@ describe("radiometry readiness", () => {
       representation: "t-stop-approximation",
       tStop: 2.8
     };
+    // The spectral-data artifact belongs to the replaced representation (refused since #701, sensor-13).
+    delete (raw.components[1] as Record<string, unknown>).dataArtifact;
     const profile = parseRadiometryReadinessProfile(raw);
     const assessment = assessRadiometryReadiness(profile);
 

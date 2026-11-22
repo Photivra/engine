@@ -526,7 +526,7 @@ function parseOffsetsFact(
     );
   }
 
-  const offsets = record.value.map((entry, index) => {
+  const offsets = Array.from(record.value, (entry, index) => {
     const item = requireRecord(
       entry,
       path + ".value[" + index + "]", ["x", "y"]

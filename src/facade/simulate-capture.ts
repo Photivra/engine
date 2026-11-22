@@ -63,7 +63,7 @@ import { SENSOR_RAW_PRODUCER_NOISE_MODEL } from "../capture/sensor-raw-producer.
 import { calculateNativeRawPlan, nativeRawMaximumProviderEvaluations, NATIVE_RAW_LIMITS, type NativeRawInput, type NativeRawOutput, type NativeRawPlan } from "../capture/native-raw.js";
 import { renderTabulatedNativeRaw, TABULATED_RELATIVE_TOLERANCE } from "../capture/native-environment-tabulated.js";
 import { createDisplayViewExpectedSignal } from "./expected-signal.js";
-import type { DisplayViewFastReport } from "./display-view-gpu.js";
+import type { DisplayViewFastReport, DisplayViewLensGpuInput } from "./display-view-gpu.js";
 import type { MixedIllumination, ResolvedMixedIllumination } from "./mixed-illumination.js";
 import type { DisplayViewLensPsf, DisplayViewLensSignalFactory } from "./display-view-lens-signal.js";
 import type { DevelopedLensCorrection, DevelopedLensCorrectionSelection, createDisplayViewLensCorrection } from "../output/developed-lens-corrections.js";
@@ -124,7 +124,7 @@ import { sumFixedPatternSites } from "../sensor/fixed-pattern-noise.js";
 import { sensorProfileFrame } from "../equipment/sensor-profile-frame.js";
 import type { SimulateCaptureSubjectMotion, SubjectMotion } from "../motion/subject-motion.js";
 import type { HandShakeOptions } from "../motion/hand-shake.js";
-import { exportKit, loadedKit, optInKit, qualityKit } from "./on-demand-kits.js";
+import { exportKit, loadedKit, OK_CATALOGUE_OPTICS_ASSUMPTIONS, OK_CREATE_SUBJECT_MOTION_PROVIDER, OK_FLASH_ALONE_SHUTTER, OK_HAND_SHAKE_ASSUMPTION, OK_HAND_SHAKE_QUADRUPLES, OK_METER_FLASH, OK_PARSE_SENSOR_PROFILE, OK_REBIND_FLASH_ASSUMPTIONS, OK_REQUIRE_FLASH_ROWS, OK_RESOLVE_HAND_SHAKE, OK_RESOLVE_LENS_FILTER, OK_RESOLVE_MIXED_ILLUMINATION, OK_SENSOR_PROFILE_BODY, OK_SENSOR_PROFILE_SATURATION_ISO, OK_SOLVE_FLASH_SHUTTER, OK_SUBJECT_TRAVEL_M, optInKit, QK_CALCULATE_DEFOCUS_FIELD_VARIATION, QK_CREATE_AHD_DEMOSAIC_TASK, QK_CREATE_DEFOCUS_BOKEH_SITE_KERNEL, QK_CREATE_DEFOCUS_IMAGE_SPACE_PROVIDER, QK_CREATE_DIFFRACTION_LIMITED_PSF_PROFILE, QK_CREATE_OFFSET_EXPANSION, QK_NEIGHBOR_HIGHLIGHT_RING, QK_NEIGHBOR_HIGHLIGHT_THRESHOLD, QK_PLAN_DEFOCUS_BOKEH_ZONES, QK_PREPARE_DEFOCUS_IMAGE_SPACE_GEOMETRY, QK_RECONSTRUCT_HIGHLIGHTS_FROM_NEIGHBORS, QK_REGISTER_DIFFRACTION_PSF_KEY, QK_RESOLVE_DEFOCUS_BOKEH_OPTIONS, QK_SITE_DIFFRACTION_KERNEL, qualityKit } from "./on-demand-kits.js";
 import { characterizeReadout, parseSensorCharacteristics, sensorReport, SENSOR_CHARACTERISTIC_KEYS, type SimulateCaptureSensorCharacteristics, type SimulateCaptureSensorReport } from "../sensor/sensor-characteristics.js";
 import { resolveChartScene, chartMaterialInputs, CHART_SCENE_PRESETS, type ChartScene, type ResolvedChartScene } from "./chart-scenes.js";
 import { resolveChartMaterialLayers, type ChartMaterialLayerScene, type ResolvedChartMaterialLayers } from "./chart-material-layers.js";
@@ -134,7 +134,7 @@ import type { LayeredChartDepth, LayeredChartScene } from "./layered-chart-scene
 import { resolveCaptureIlluminant, calculateIlluminantIrradianceScale, buildPlanarSceneRadianceProvider, requireCallerScene, FACADE_SPECTRAL_RANGE_NANOMETERS,
   resolveChartSizeOption, type ChartSizeOption,
   PHOTOPIC_MAXIMUM_LUMINOUS_EFFICACY_LM_PER_W, type CaptureIlluminant, type CallerMaterialScene, type CallerRadianceScene, type CallerReflectanceScene, type ImagePlaneScene, type ResolvedCallerScene,
-  planarProviderMaterialOfDirection, type PlanarSceneRadianceProvider, type ResolvedCallerMaterialScene, type ResolvedCaptureIlluminant } from "./scene-radiance.js";
+  planarProviderMaterialOfDirection, planarRadianceSpectrumOf, type PlanarSceneRadianceProvider, type ResolvedCallerMaterialScene, type ResolvedCaptureIlluminant } from "./scene-radiance.js";
 
 /** Version of how the facade builds requests. It changes whenever the same input would build a different request. */
 export const SIMULATE_CAPTURE_FACADE_VERSION = "1.0.0" as const;
@@ -499,7 +499,7 @@ export interface SimulateCaptureOptions {
      * Opt-in (2.1) diffraction blur of an ideal, aberration-free, in-focus lens with a circular pupil at the
      * capture's resolved f-number: the engine builds the Airy kernels (`createDiffractionLimitedPsfProfile`)
      * on the site pitch. `kernelRadiusSamples` (0–32) sets the kernel window; default: the third dark ring at
-     * the longest spectral node, capped at 32 sites. Not combinable with `psf` or `pupilSampling`. Default off.
+     * the longest spectral node, capped at 32 sites (2.28.0, #732: the second on a fast request, where that is fewer sites). Not combinable with `psf` or `pupilSampling`. Default off.
      */
     diffraction?: SimulateCaptureLensDiffraction;
     /**
@@ -548,8 +548,9 @@ export interface SimulateCaptureOptions {
      *   engine never clips a limit. When the ISO stops at a limit strictly inside the body's range, the report's
      *   `limitingConstraint` is `"user-iso-maximum"` or `"user-iso-minimum"`.
      * - `isoSteps` (2.14): `"whole-stop"` (default) lets Auto ISO choose only the whole-stop ISOs of the body's grid
-     *   (100, 200, 400 …), as before the generic bodies gained third-stop settings (preset 2.1.0); `"third-stop"` lets it
-     *   choose every setting (100, 125, 160 …). Manual ISO always takes any setting of the grid. Limits must lie on the
+     *   (100, 200, 400 …), as before the generic bodies gained third-stop settings (preset 2.1.0); on a sensor profile, its base ISO·2^k,
+     *   or, when that list leaves out ISO 100 (base ISO 32, 40, 64 or 80, #672), every third setting from ISO 100 with the base ISO
+     *   kept (80, 100, 200 …); `"third-stop"` lets it choose every setting (100, 125, 160 …). Manual ISO always takes any setting of the grid. Limits must lie on the
      *   grid Auto ISO uses.
      */
     autoIso?: { slowestPreferredShutterSeconds?: number | "auto"; afterMaximumIso?: SimulateCaptureAutoIsoAfterMaximum; limits?: AutoIsoLimits;
@@ -718,7 +719,10 @@ export interface SimulateCaptureOptions {
     pixelPitchMicrometers?: number;
     /** Maximum spectral quadrature subinterval in nm. Default 20. */
     spectralStepNanometers?: number;
-    /** Temporal midpoint samples across the exposure, 1–256. Default 1; with camera rotation or subject motion (2.24.0) 8 on a fast request and 16 on an exact one. */
+    /**
+     * Temporal midpoint samples across the exposure, 1–256. Default 1; with camera rotation or subject motion (2.24.0) 8 on a fast request and 16 on an exact one.
+     * #729: a still request (no rotation, moving subject, flash or exposure build-up) renders with one, whatever the count.
+     */
     temporalSampleCount?: number;
     /** Noise seed (uint32). Default 1. */
     noiseSeed?: number;
@@ -837,7 +841,15 @@ export interface SimulateCaptureResult {
    * frame, and the native sites rendered for it (`nativeRect`, in the whole frame's native raster: the region, the
    * demosaic reach on each side clipped to the raster, and its origin rounded down to the 2 × 2 CFA repeat).
    */
-  region?: { x: number; y: number; width: number; height: number; frameWidth: number; frameHeight: number; nativeRect: { x: number; y: number; width: number; height: number } };
+  region?: { x: number; y: number; width: number; height: number; frameWidth: number; frameHeight: number; nativeRect: { x: number; y: number; width: number; height: number };
+    /** 2.28.0 (#728): true when a fast method ran for this region (`Object.values(diagnostics.fast.applied).includes(true)`). */
+    fast: boolean;
+    /**
+     * 2.28.0 (#728): SHA-256 (hex) over the resolved state that determines the RAW: the scene digest, the camera, lens, exposure, sensor,
+     * motion and illumination options (without `fast` and `output`), the resolved exposure settings and noise seed, the native raster and
+     * pitch, and the resolved spectral step, pixel-aperture and temporal counts. A join of parts refuses a part whose key is not its own.
+     */
+    requestKey: string };
   /** The complete underlying request. */
   request: {
     environmentRaw: NativeEnvironmentRawInput;
@@ -1083,7 +1095,7 @@ function cachedDiffractionProfile(input: Parameters<typeof createDiffractionLimi
   const key = JSON.stringify(input);
   let kept = diffractionProfileCache.get(key);
   if (kept) diffractionProfileCache.delete(key);
-  else kept = loadedKit(qualityKit).createDiffractionLimitedPsfProfile(input).value;
+  else kept = loadedKit(qualityKit)[QK_CREATE_DIFFRACTION_LIMITED_PSF_PROFILE](input).value;
   diffractionProfileCache.set(key, kept);
   let kernelValues = 0;
   for (const profile of diffractionProfileCache.values()) kernelValues += kernelValuesOf(profile);
@@ -1150,6 +1162,8 @@ export function apertureNodeOffsets(n: number): { x: number; y: number }[] {
 }
 /** Third dark ring of the Airy pattern in units of λ·N_w (j₁,₃/π, j₁,₃ = 10.1734681351): the default diffraction kernel reach. */
 const AIRY_THIRD_ZERO_PER_LAMBDA_N = 10.173468135062722 / Math.PI;
+/** #732: the second dark ring (j₁,₂ = 7.0155866698, NIST DLMF Table 10.21.1): the default reach on a fast request. */
+const AIRY_SECOND_ZERO_PER_LAMBDA_N = 7.015586669815619 / Math.PI;
 /** Default temporal midpoints when the camera rotates or the subject moves (2.0 motion option), on a fast request. */
 const ROTATING_TEMPORAL_SAMPLE_COUNT = 8;
 /** 2.24.0: the same default on an exact request. */
@@ -1247,12 +1261,20 @@ function luminanceOf(radiance: (nm: number) => number): number {
 /**
  * 2.14: the capabilities with the ISO grid cut to its whole stops from the base ISO (ISO 100·2^k on the tiers, as the 2.0.0 bodies list them; #554: a profile's base·2^k), for
  * Auto ISO's default `isoSteps: "whole-stop"`. A whole-stop grid is returned unchanged, so 2.0.0 records resolve as before.
+ * #672: when that list leaves out the reference exposure's ISO (ISO 100 on a profile whose base ISO is below 100, which every exposure mode
+ * refuses) and the grid is a third-stop grid, the whole stops are every third setting counted from the reference ISO, and the base ISO.
+ * Counting positions keeps the nominal markings (1250, not 1280). Every other grid keeps the list it had.
  */
-function wholeStopIsoCapabilities(capabilities: ResolvedGenericEquipmentExposureCapabilities): ResolvedGenericEquipmentExposureCapabilities {
+function wholeStopIsoCapabilities(capabilities: ResolvedGenericEquipmentExposureCapabilities, referenceIso: number): ResolvedGenericEquipmentExposureCapabilities {
   const grid = capabilities.iso.settingGrid;
   if (grid.kind !== "discrete-values") return capabilities;
-  const whole = grid.values.filter((iso) => Number.isInteger(Math.log2(iso / grid.values[0]!)));
-  if (whole.length === grid.values.length || whole.length === 0) return capabilities;
+  // `at` matches at least every ISO the resolvers' grid check matches (32 ε relative: the reference ISO is 100 or more).
+  const values = grid.values, at = (list: readonly number[]): number => list.findIndex((iso) => Math.abs(iso / referenceIso - 1) < 1e-12);
+  let whole = values.filter((iso) => Number.isInteger(Math.log2(iso / values[0]!)));
+  const from = at(values);
+  if (at(whole) < 0 && from >= 0 && values.every((iso, i) => !i || Math.abs(3 * Math.log2(iso / values[i - 1]!) - 1) < .1))
+    whole = values.filter((_, i) => !i || (i - from) % 3 === 0);
+  if (whole.length === values.length || whole.length === 0) return capabilities;
   return { ...capabilities, iso: { ...capabilities.iso, settingGrid: { kind: "discrete-values", values: Object.freeze(whole) } } };
 }
 /** The white balance measured from a perfect white diffuser under the scene illuminant ("scene-illuminant"). */
@@ -1395,8 +1417,8 @@ function pngColourEncoding(encoding: SimulateCaptureColorEncoding): PngColourEnc
  */
 async function developLinearSrgb(input: NativeRawDevelopmentInput, afterRow: (completed: number, total: number) => Promise<void>,
   ahd?: { yieldControl: () => Promise<void>; checkAbort: () => void; onDemosaicMs?: (milliseconds: number) => void },
-  neighbors?: { fast: boolean; module: typeof import("../color/neighbor-highlight-reconstruction.js") }): Promise<{ rgb: Float64Array; highlight: RawHighlightDiagnostics }> {
-  if (neighbors) return developWithNeighborHighlights(input, afterRow, ahd, neighbors.fast, neighbors.module.reconstructHighlightsFromNeighbors);
+  neighbors?: { fast: boolean; reconstruct: typeof import("../color/neighbor-highlight-reconstruction.js").reconstructHighlightsFromNeighbors }): Promise<{ rgb: Float64Array; highlight: RawHighlightDiagnostics }> {
+  if (neighbors) return developWithNeighborHighlights(input, afterRow, ahd, neighbors.fast, neighbors.reconstruct);
   return developLinearSrgbWith(prepareNativeRawDevelopment(input), input, afterRow, ahd);
 }
 /** The body of {@link developLinearSrgb} for a prepared development (its operator may be replaced, #602). */
@@ -1464,7 +1486,7 @@ async function developAhd(v: ReturnType<typeof prepareNativeRawDevelopment>, raw
   const m = v.color.normalizedCameraChannelsToXyz;
   const cameraToXyz = [0, 1, 2].map((r) => [0, 1, 2].map((c) => m[r]![c]! * gains[c]!)) as unknown as ColorMatrix3x3;
   // A caller-raised pixel limit already bounds the raster, so its working memory is not capped again at the 1 GiB default.
-  const task = (await qualityKit.load()).createAhdDemosaicTask({ plane: { width: W, height: H, captureModeId: v.plan.frame.modeId, colorSamplingProfile: v.plan.frame.colorSamplingProfile, samples },
+  const task = (await qualityKit.load())[QK_CREATE_AHD_DEMOSAIC_TASK]({ plane: { width: W, height: H, captureModeId: v.plan.frame.modeId, colorSamplingProfile: v.plan.frame.colorSamplingProfile, samples },
     channelRoles: { red: "red", green: "green", blue: "blue" }, cameraToXyz, ...(v.plan.maximumPixels === undefined ? {} : { maximumWorkingBytes: Number.MAX_SAFE_INTEGER }) }, { yieldControl: async () => { await host.yieldControl(); host.checkAbort(); } });
   const demosaicStarted = clockMs();
   await task.run();
@@ -1549,11 +1571,16 @@ export async function simulateCapture(options: SimulateCaptureOptions): Promise<
 /** One part of a whole-frame DNG (#391): a region render's packed RAW and where its native sites lie (`result.raw`, `result.region`). */
 export interface SimulateCaptureDngPart {
   raw: Pick<NativeRawOutput, "codes" | "blackLevels" | "digitalSaturationCodes" | "saturationFlags" | "effectiveSaturationCodes">;
-  region: { nativeRect: { x: number; y: number; width: number; height: number } };
   /**
-   * 2.20.0: true when a fast method ran for this part (`Object.values(result.diagnostics.fast.applied).includes(true)`). The join
-   * refuses such a part unless its own request resolves to fast too (a DNG, JPEG or PNG is exact by default): render the parts with
-   * the same `fast` as the join, or with `fast: false`.
+   * The region result's `region`. 2.28.0 (#728): its `fast` and `requestKey` describe the part; a region result carries them, so
+   * `{ raw: result.raw, region: result.region! }` passes them through. A part without them (a result of an earlier version) joins
+   * with the checks of that version.
+   */
+  region: { nativeRect: { x: number; y: number; width: number; height: number }; fast?: boolean; requestKey?: string };
+  /**
+   * 2.20.0: true when a fast method ran for this part (`Object.values(result.diagnostics.fast.applied).includes(true)`); `region.fast`
+   * takes precedence. The join refuses such a part unless its own request resolves to fast too (a DNG, JPEG or PNG is exact by default):
+   * render the parts with the same `fast` as the join, or with `fast: false`.
    */
   fast?: boolean;
 }
@@ -1564,7 +1591,9 @@ export interface SimulateCaptureDngPart {
  * render's (each site's seeds come from its index in the whole raster), so the joined RAW is the whole render's RAW, and the
  * request is resolved and written exactly as `simulateCapture` writes its DNG: the bytes are the same. The parts must cover
  * every native site of the frame; where they overlap (each region carries the demosaic margin) their sites must agree. Region
- * renders of the request with any format serve (a region's own `output.format` does not change its RAW). A region cannot take
+ * renders of the request with any format serve if they resolve to the same methods: a region's `output.format` decides the default of `fast`
+ * (2.20.0), so render the parts with the join's `fast` (an sRGB region is fast by default, a DNG exact); a part that a fast method rendered
+ * under an exact join, or whose `region.requestKey` is another request's (2.28.0, #728), is refused. A region cannot take
  * `output.whiteBalance: "auto"` or `output.dng`: render the parts with a fixed white balance (the RAW codes do not depend on the
  * white-balance intent) and pass the DNG's own options here, where auto white balance is measured over the joined frame.
  * @returns The DNG (its `bytes` are those of `SimulateCaptureResult.image.dng` for the same options), with its stored levels and identifiers.
@@ -1574,7 +1603,7 @@ export async function serializeSimulatedCaptureDngFromParts(options: SimulateCap
 }
 
 /** The whole frame's packed RAW from region parts (see `serializeSimulatedCaptureDngFromParts`). */
-function joinNativeRawParts(value: unknown, plan: NativeRawOutput["plan"], width: number, height: number, caller: string, fast: boolean): NativeRawOutput {
+function joinNativeRawParts(value: unknown, plan: NativeRawOutput["plan"], width: number, height: number, caller: string, fast: boolean, key: string): NativeRawOutput {
   if (!Array.isArray(value) || value.length === 0) throw new InvalidConfigurationError(caller + " needs at least one part.");
   const parts = value as readonly SimulateCaptureDngPart[], count = width * height;
   const codes = new Uint16Array(count), blackLevels = new Uint16Array(count), digitalSaturationCodes = new Uint16Array(count), saturationFlags = new Uint8Array(count);
@@ -1583,7 +1612,9 @@ function joinNativeRawParts(value: unknown, plan: NativeRawOutput["plan"], width
   parts.forEach((part, k) => {
     const rect = part?.region?.nativeRect, raw = part?.raw;
     if (!rect || !raw) bad(k, "needs raw and region.nativeRect (a region render's result).");
-    if (part.fast === true && !fast) bad(k, "a fast method rendered it, but this request resolves to the exact methods (fast: false, the default for a DNG, JPEG or PNG). Render the parts with fast: false, or pass fast: true here.");
+    if ((part.region.fast ?? part.fast) === true && !fast) bad(k, "a fast method rendered it, but this request resolves to the exact methods (fast: false, the default for a DNG, JPEG or PNG). Render the parts with fast: false, or pass fast: true here.");
+    // #728: a part names its request's key; one of another request (scene, exposure, sensor, lens, motion or resolved counts) is refused.
+    if (part.region.requestKey !== undefined && part.region.requestKey !== key) bad(k, "its region.requestKey is another request's: not the same request.");
     const { x, y, width: w, height: h } = rect!;
     if (![x, y, w, h].every(Number.isSafeInteger) || x < 0 || y < 0 || w < 1 || h < 1 || x + w > width || y + h > height) bad(k, "its nativeRect is not inside the frame's native raster.");
     const n = w * h;
@@ -1773,6 +1804,8 @@ export interface DisplayViewRunContext {
   lensPsf?: DisplayViewLensPsf | undefined;
   /** #655: whether the lens signal takes the uniform-window fast method (`lens.catalogue/view-uniform-window`). */
   lensUniformWindows?: boolean | undefined;
+  /** #661: with a radial distortion, the lens signal's setup and the raw geometry it was prepared from, for the GPU lens passes. */
+  lensGpu?: DisplayViewLensGpuInput | undefined;
   diffractionPsf: { kind: "sampled-local"; configuration: Pick<CalculateSensorPsfIrradianceQuadratureInput, "psf" | "psfWavelengthBasis" | "spatialModel">; } | undefined;
   fNumber: number;
   focalLengthMm: number;
@@ -1799,10 +1832,10 @@ export interface DisplayViewRunContext {
   sensor: SimulateCaptureSensorReport;
   /** 2.20.0: the view's own fast methods, resolved: the quarter sampling of uniform pixels (top-level `fast`); 2.22.0: the coupled rendering steps' rules (#593, #601). */
   /**
-   * The display view's fast methods: H2's uniform sampling, the coupled rendering's rules and (#612) a defocus disc applied after
-   * the in-focus signal where that is cheaper (`defocusRegrouped`); #643: a chart site's taps summed in order (`perTapSum`).
+   * The display view's fast methods: H2's uniform sampling, the coupled rendering's rules and the layered scene's samples. #670 win 1
+   * (2.28.0): #612's regrouped defocus and #643's per-tap sum are no longer fast methods; every CPU render takes them.
    */
-  viewFast: { uniformSampling: boolean; rendering: boolean; defocusRegrouped: boolean; perTapSum: boolean; layers: boolean };
+  viewFast: { uniformSampling: boolean; rendering: boolean; layers: boolean };
   /** #652: a layered chart scene (layered-scene-setup.ts, loaded on demand), with the inputs its layered sum reads. */
   layered?: LayeredRequest | undefined;
   defocusBokeh: ResolvedDefocusBokehOptions | undefined;
@@ -1998,7 +2031,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   let profile: SensorProfile | undefined, profileSensor: { widthMm: number; heightMm: number } | undefined, profilePitch: number = DEFAULTS.pixelPitchMicrometers, profileReadNoiseScale = 1;
   if (profileRecord !== undefined) {
     const kit = await optInKit.load();
-    profile = kit.parseSensorProfile(profileRecord);
+    profile = kit[OK_PARSE_SENSOR_PROFILE](profileRecord);
     profilePitch = profile.pixelPitchMicrometers;
     // #554: with a catalogue lens the capture frames on the profile's sensor: by default the largest centred region of the output's
     // aspect (pitch = min(W/w, H/h)); an explicit pitch gives a centred crop of it. A site of N photosites sums their charge (the
@@ -2008,11 +2041,11 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
       (top.sensor as Record<string, unknown>).pixelPitchMicrometers, typeof top.lens === "object" && top.lens !== null && (top.lens as Record<string, unknown>).catalogue !== undefined);
     profilePitch = view.pixelPitchMicrometers; profileReadNoiseScale = view.readNoiseScale;
     if (view.lensFramedOnSensor) profileSensor = { widthMm: view.sensorWidthMm, heightMm: view.sensorHeightMm };
-    preset = { ...preset, body: kit.sensorProfileBody(profile, preset.body, preset.presetVersion, profileReadNoiseScale) };
+    preset = { ...preset, body: kit[OK_SENSOR_PROFILE_BODY](profile, preset.body, preset.presetVersion, profileReadNoiseScale) };
     if (profileSensor || view.photositesPerSite !== 1) assume("sensor.profileView", "model", view,
     "Approximation (#554; docs/SENSOR_PROFILES.md): the catalogue lens is resolved on the profile's sensor and the capture is its centred frame of the output's aspect (cropped, " +
       "not stretched); a site sums photositesPerSite photosites (charge by area, read noise ×readNoiseScale). A downsized view, not the sensor's own pixels.");
-    assume("sensor.profile", "model", { ...profile, sensitivityOffsetStops: Math.log2(kit.sensorProfileSaturationIso(profile) / profile.baseIso) },
+    assume("sensor.profile", "model", { ...profile, sensitivityOffsetStops: Math.log2(kit[OK_SENSOR_PROFILE_SATURATION_ISO](profile) / profile.baseIso) },
       "Sensor profile (#554; docs/SENSOR_PROFILES.md): published, derived and design values, not a camera calibration; its base ISO is re-rated from full well, QE and pixel area.");
   }
   const body = preset.body, lens = preset.lens;
@@ -2021,7 +2054,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   const lensOptions = allowKeys(top.lens, "lens", ["focalLengthMm", "fNumber", "focusDistanceM", "pupilSampling", "projection", "distortion", "vignetting", "psf", "diffraction", "prime", "defocus",
     "catalogue", "focusScatter", "ideal", "filter"]);
   // #624: a front-of-lens filter stack (ND, optical density, polarizer or spectral), loaded with the opt-in kit.
-  const lensFilter = lensOptions.filter === undefined ? undefined : (await optInKit.load()).resolveLensFilter(lensOptions.filter, FACADE_SPECTRAL_RANGE_NANOMETERS);
+  const lensFilter = lensOptions.filter === undefined ? undefined : (await optInKit.load())[OK_RESOLVE_LENS_FILTER](lensOptions.filter, FACADE_SPECTRAL_RANGE_NANOMETERS);
   // Generic prime (2.3): resolved on the simulated frame's size, which the output and sensor sections validate again below.
   let prime: GenericPrimeLens | undefined;
   // The simulated frame in mm (output width × height × pixel pitch), validated again below.
@@ -2173,7 +2206,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
     if (record.blades !== undefined || record.sphericalAberration !== undefined || record.catsEye !== undefined) {
       const bokeh: Record<string, unknown> = { ...record };
       delete bokeh.model;
-      try { defocusBokeh = (await qualityKit.load()).resolveDefocusBokehOptions(bokeh, "lens.defocus"); } catch (error) { fail((error as Error).message); }
+      try { defocusBokeh = (await qualityKit.load())[QK_RESOLVE_DEFOCUS_BOKEH_OPTIONS](bokeh, "lens.defocus"); } catch (error) { fail((error as Error).message); }
       if (defocusBokeh.catsEye && diffractionRadiusOption !== undefined) fail("lens.defocus.catsEye cannot be combined with lens.diffraction: the cat's eye varies over the field, " +
         "so each field zone would need its own diffraction kernel convolved with its clipped pupil at every spectral node. Omit one of the options.");
     }
@@ -2206,6 +2239,11 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
     await optInKit.load();
   }
   if (subject && pupil) fail("motion.subject cannot be combined with lens.pupilSampling.");
+  // #688: a subject at rest (no velocity, no rotation) is the still scene, which it equals; it renders as one.
+  if (subject && !subject.vx && !subject.vy && !subject.omega) {
+    assume("motion.subject", "model", { velocityMPerSec: { x: 0, y: 0 }, angularVelocityRadPerSec: 0, atRest: true }, "The subject is at rest: the scene is rendered still.");
+    subject = undefined;
+  }
   const angular = { pitch: 0, yaw: 0, roll: 0 };
   if (motionOptions.angularVelocityRadPerSec !== undefined) {
     const a = allowKeys(motionOptions.angularVelocityRadPerSec, "motion.angularVelocityRadPerSec", ["pitch", "yaw", "roll"]);
@@ -2216,8 +2254,8 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
     }
   }
   // #641: the hand-shake trajectory (motion/hand-shake.ts), added to the constant rotation on every render path.
-  const handheld = motionOptions.handheld === undefined ? undefined : (await optInKit.load()).resolveHandShake(motionOptions.handheld);
-  const handShake = handheld && loadedKit(optInKit).handShakeQuadruples(handheld);
+  const handheld = motionOptions.handheld === undefined ? undefined : (await optInKit.load())[OK_RESOLVE_HAND_SHAKE](motionOptions.handheld);
+  const handShake = handheld && loadedKit(optInKit)[OK_HAND_SHAKE_QUADRUPLES](handheld);
   const rotating = angular.pitch !== 0 || angular.yaw !== 0 || angular.roll !== 0 || handheld !== undefined;
   const shutterKind = motionOptions.shutter === undefined ? "global" : motionOptions.shutter;
   if (shutterKind !== "global" && shutterKind !== "rolling") fail("motion.shutter must be global or rolling.");
@@ -2349,6 +2387,13 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
       motionWord + " temporal midpoints sample the subject's motion (8 on a fast request, 16 on an exact one); raise it for long streaks.") :
     pick(sensorOptions, "temporalSampleCount", "sensor.temporalSampleCount", DEFAULTS.temporalSampleCount,
       "One temporal sample: the static scene and still camera make more samples unnecessary."), "sensor.temporalSampleCount", 1, 256);
+  // #729: a still request (no camera rotation, moving subject, flash or exposure build-up) gives every temporal midpoint the same
+  // queries, so it renders with one; the count asked for is still validated and listed in diagnostics.options.
+  const requestedTemporalSampleCount = temporalSampleCount;
+  if (temporalSampleCount > 1 && !rotating && !subject && !illumination?.flash && !(run === "capture" && viewOption)) {
+    assume("sensor.temporalSampleCount", "model", { requested: temporalSampleCount, used: 1 }, "One temporal sample: with a still camera and scene every midpoint reads the same scene.");
+    temporalSampleCount = 1;
+  }
   const parsedCharacteristics = parseSensorCharacteristics(sensorOptions), rn = parsedCharacteristics?.readNoise, rs = profileReadNoiseScale;
   // #554: on a profile's downsized view a site sums photosites: explicit read noises (per photosite) scale as the profile's do (#637: the fixed pattern is summed below).
   const characteristics = rn && rs !== 1 ? { ...parsedCharacteristics!, readNoise: { ...rn, ...(rn.lowGainElectrons === undefined ? {} : { lowGainElectrons: rn.lowGainElectrons * rs }),
@@ -2597,7 +2642,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   // #639: a flash is resolved for the exposure window flashWindow (1 s until the exposure is resolved, ∞ for the ambient light alone).
   let flashWindow = 1;
   const lightKit = (resolveIlluminant: (value: CaptureIlluminant) => ResolvedCaptureIlluminant): ResolvedMixedIllumination =>
-    mixedKit!.resolveMixedIllumination(top.illumination, resolveIlluminant, flashWindow, planeDistanceM, rotating || !!subject);
+    mixedKit![OK_RESOLVE_MIXED_ILLUMINATION](top.illumination, resolveIlluminant, flashWindow, planeDistanceM, rotating || !!subject);
   let mixed = mixedKit && lightKit(resolveCaptureIlluminant), strongest = mixed?.sources[mixed.center.strongestSource];
   const flash = mixed?.flash;
   let illuminantOption = strongest ? strongest.option : pick<CaptureIlluminant>(top, "illuminant", "illuminant", { kind: "planckian", temperatureKelvin: DEFAULTS.illuminantKelvin },
@@ -2657,10 +2702,12 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   // #551: the moving subject's scene; renderers read it at each query's time. The revealed background is a neutral 18 % reflectance
   // under the plane's irradiance at the revealed point: the illuminant, or (#550) the blend and point sources there, from the spectrum.
   const half = chartSize ? chartSize.widthM / 2 / metresPerFrameUnit : 1;
+  const revealed = (scale: number, shape: (nm: number) => number, light?: ResolvedMixedIllumination) => (u: number, v: number, nm: number): number =>
+    0.18 * (light ? light.irradianceAt(u / half, v / half, u * metresPerFrameUnit, v * metresPerFrameUnit, nm) : scale * shape(nm)) / Math.PI;
   const movingScene = subject ? (base: PlanarSceneRadianceProvider, scale: number, shape: (nm: number) => number, light?: ResolvedMixedIllumination): PlanarSceneRadianceProvider =>
-    loadedKit(optInKit).createSubjectMotionProvider(base, subject, subjectDistanceM, metresPerFrameUnit,
-      (u, v, nm): number => 0.18 * (light ? light.irradianceAt(u / half, v / half, u * metresPerFrameUnit, v * metresPerFrameUnit, nm) : scale * shape(nm)) / Math.PI) : undefined;
-  let sceneProvider = movingScene ? movingScene(provider, irradianceScale, (nm) => illuminant.shape.evaluate(nm), mixed) : provider;
+    loadedKit(optInKit)[OK_CREATE_SUBJECT_MOTION_PROVIDER](base, subject, subjectDistanceM, metresPerFrameUnit, revealed(scale, shape, light)) : undefined;
+  const sceneShape = (nm: number): number => illuminant.shape.evaluate(nm);
+  let sceneProvider = movingScene ? movingScene(provider, irradianceScale, sceneShape, mixed) : provider;
   // 2.6: a chart preset's evaluator is engine-built end to end (its results: the schema's exact keys, constant fields,
   // the request's identifiers, deep-frozen FACADE_EVIDENCE, UNCERTAINTY and limitations, and an engine-computed
   // radiance), so the native task may skip re-parsing the fixed parts. Caller scenes keep the full validation.
@@ -2672,6 +2719,20 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   const materialOfDirection = planarProviderMaterialOfDirection(provider);
   if (materialEvaluator && materialOfDirection && provider.materialRadiance) registerInternalRadianceAccess(provider.evaluateRadiance,
     { keyOfDirection: materialOfDirection, radianceOfKey: provider.materialRadiance, tabulated: true });
+  // #676: the moving subject's evaluator returns the base's records with the radiance replaced, so it is engine-built too. With the
+  // base's lookup (one illuminant: the revealed radiance is the same everywhere), its key is the base's material where the subject
+  // shows, -1 for the revealed background, found by a probe of the same moving scene over the base's materials (its arithmetic).
+  if (materialEvaluator && sceneProvider !== provider) {
+    markInternalSceneRadianceEvaluator(sceneProvider.evaluateRadiance);
+    const { chartMaterialAt: materialAt, materialRadiance } = provider;
+    if (materialOfDirection && materialAt && materialRadiance) {
+      let key = -1;
+      const probe = loadedKit(optInKit)[OK_CREATE_SUBJECT_MOTION_PROVIDER]({ ...provider, radianceAt: (x, y) => (key = materialAt(x, y), 0) }, subject!, subjectDistanceM, metresPerFrameUnit, () => (key = -1, 0));
+      const background = revealed(irradianceScale, sceneShape);
+      registerInternalRadianceAccess(sceneProvider.evaluateRadiance, { tabulated: true, radianceOfKey: (k, nm) => k < 0 ? background(0, 0, nm) : materialRadiance(k, nm),
+        keyOfDirection: (o, t) => { const d = subjectDistanceM / -o.z; return o.z < 0 ? (probe.radianceAt(-o.x * d / metresPerFrameUnit, -o.y * d / metresPerFrameUnit, 0, t), key) : undefined; } });
+    }
+  }
   assume("model.scene-radiometry", "model", "lambertian-plane", "Radiance = reflectance × irradiance / π on one plane; illuminance from K_m = 683 lm/W and the engine's analytic CIE 1931 ȳ fit.");
 
   // Metering (CIPA DC-004 standard output sensitivity and camera equation) and exposure-mode resolution
@@ -2794,7 +2855,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
     if (autoIsoOptions.isoSteps !== undefined && autoIsoOptions.isoSteps !== "whole-stop" && autoIsoOptions.isoSteps !== "third-stop")
       fail('exposure.autoIso.isoSteps must be "whole-stop" or "third-stop".');
     if (autoIsoOptions.isoSteps === "third-stop") autoIsoIsoSteps = "third-stop";
-    if (autoIsoIsoSteps === "whole-stop") resolverCapabilities = wholeStopIsoCapabilities(capabilities);
+    if (autoIsoIsoSteps === "whole-stop") resolverCapabilities = wholeStopIsoCapabilities(capabilities, reference.iso);
     if (mode !== "aperture-priority" && mode !== "program") for (const key of ["slowestPreferredShutterSeconds", "afterMaximumIso", "automaticSlowestShutter"])
       if (autoIsoOptions[key] !== undefined) fail("exposure.autoIso." + key + ' applies only to exposure.mode "aperture-priority" or "program"; omit it.');
     if (autoIsoOptions.limits !== undefined) autoIsoLimits = parseAutoIsoLimitsOption(autoIsoOptions.limits, resolverCapabilities.iso);
@@ -2839,7 +2900,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   if (flash) {
     flashWindow = Infinity;
     const ambient = lightKit(resolveCaptureIlluminant);
-    flashAt = loadedKit(optInKit).meterFlash(zoneSamples, through, meterZones(buildProvider(illuminant, irradianceScale, ambient))[2], meterProfile.target.targetRelativeSignal / referenceLuminance,
+    flashAt = loadedKit(optInKit)[OK_METER_FLASH](zoneSamples, through, meterZones(buildProvider(illuminant, irradianceScale, ambient))[2], meterProfile.target.targetRelativeSignal / referenceLuminance,
       metering === "grey-card" ? [ambient.center.illuminanceLux, illuminanceLux, GREY_CARD_REFLECTANCE / Math.PI * cardTransmission()] : undefined);
   }
   let calls = 0;
@@ -2862,7 +2923,8 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   } else {
     // #583: a lens range without f/4–f/16 limits the line to it; every other request keeps the line and its assumption.
     const programLine = facadeProgramLine(clamp(4), clamp(16), reference, FACADE_EVIDENCE);
-    // A limited line (#583) records its nodes under the profile id "facade-generic-program-line-lens-range".
+    // A limited line (#583) records its nodes under the profile id "facade-generic-program-line-lens-range"; #673: a line anchored at a
+    // base ISO above 100, under "facade-generic-program-line-base-iso".
     if (!calls) assume("exposure.programLine", "model", programLine.nodes.length > 4 ? programLine.profileId : programLine,
       "Engine-authored generic program line (f/16 1/2000 s … f/8 1/125 s … f/4 1.024 s); not a manufacturer program.");
     resolution = resolveProgramAutoExposureMode({ target, capabilities: resolverCapabilities, referenceExposure: reference, programLine,
@@ -2876,9 +2938,9 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   // (within the body's range) and resolves the rest at it: aperture priority as manual (Auto ISO from the reading), program as shutter priority.
   if (flashAt && (mode === "aperture-priority" || mode === "program") && flashAt.alone) {
     as = mode === "program" ? "shutter-priority" : "manual";
-    resolveAt(shutterSeconds = loadedKit(optInKit).flashAloneShutter(capabilities.shutter.minimumSeconds, capabilities.shutter.maximumSeconds, assume));
+    resolveAt(shutterSeconds = loadedKit(optInKit)[OK_FLASH_ALONE_SHUTTER](capabilities.shutter.minimumSeconds, capabilities.shutter.maximumSeconds, assume));
   } else if (!flashAt || mode === "manual" || mode === "shutter-priority") resolveAt(shutterSeconds);
-  else loadedKit(optInKit).solveFlashShutter(resolveAt, capabilities.shutter.minimumSeconds, capabilities.shutter.maximumSeconds);
+  else loadedKit(optInKit)[OK_SOLVE_FLASH_SHUTTER](resolveAt, capabilities.shutter.minimumSeconds, capabilities.shutter.maximumSeconds);
   if (resolution.status !== "resolved" || !resolution.resolvedSettings) fail("Exposure could not be resolved (" + resolution.status + "); the scene may have no signal.");
   fNumber = resolution.resolvedSettings.aperture ?? fNumber;
   shutterSeconds = resolution.resolvedSettings.shutterSeconds ?? shutterSeconds;
@@ -2893,11 +2955,11 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
     sceneProvider = provider = buildProvider(illuminant, irradianceScale, mixed);
     if (materialEvaluator) markInternalSceneRadianceEvaluator(provider.evaluateRadiance);
     [meteredLuminance, filteredMean] = meterZones(provider);
-    loadedKit(optInKit).rebindFlashAssumptions(assumptions, mixed);
+    loadedKit(optInKit)[OK_REBIND_FLASH_ASSUMPTIONS](assumptions, mixed);
   }
   // #551: motion.subject's fast method: with the default count and a still camera, one midpoint per site of the streak, plus one.
   if (subject) {
-    const streakSites = loadedKit(optInKit).subjectTravelM(subject, shutterSeconds, metresPerFrameUnit * Math.hypot(1, aspect)) * width / (2 * metresPerFrameUnit), fewer = Math.ceil(streakSites) + 1;
+    const streakSites = loadedKit(optInKit)[OK_SUBJECT_TRAVEL_M](subject, shutterSeconds, metresPerFrameUnit * Math.hypot(1, aspect)) * width / (2 * metresPerFrameUnit), fewer = Math.ceil(streakSites) + 1;
     if (sensorOptions.temporalSampleCount === undefined && !rotating && resolveFast(subjectFast, fastTop) && fewer < temporalSampleCount) {
       queriesPerSite = queriesPerSite / temporalSampleCount * fewer;
       temporalSampleCount = fewer;
@@ -3028,7 +3090,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   // #594: the image-space provider (lens projection, distortion, vignetting, rotation, a moving subject) is in the Quality kit.
   const lensGeometryNeeded = (defocusModel !== undefined || displayView || diffractionRadiusOption !== undefined || catalogueTaps !== undefined && !rollingFastTaps) && imageSpaceOptions.length > 0;
   if (lensGeometryNeeded) await qualityKit.load();
-  const lensGeometry = lensGeometryNeeded ? loadedKit(qualityKit).prepareDefocusImageSpaceGeometry({ focalLengthMm, focusDistanceM,
+  const lensGeometry = lensGeometryNeeded ? loadedKit(qualityKit)[QK_PREPARE_DEFOCUS_IMAGE_SPACE_GEOMETRY]({ focalLengthMm, focusDistanceM,
     angularVelocityRadPerSec: angular, ...(handShake ? { handShake } : {}), ...(lensFieldMapping ? { lensMapping: prepareEnvironmentLensFieldMapping(lensFieldMapping) } : {}), ...(vignetting ? { vignetting } : {}) }) : undefined;
   const defocusGeometry = defocusModel !== undefined ? lensGeometry : undefined;
   if (rollingFastTaps) {
@@ -3044,7 +3106,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
     const options = defocusBokeh!, side = defocusDistanceM > focusDistanceM ? 1 : -1;
     const build = (field?: { x: number; y: number }): DefocusBokehSiteKernel => {
       try {
-        return loadedKit(qualityKit).createDefocusBokehSiteKernel({ diameterSites: disc.diameterSites, side, fNumber, focalLengthMm, pitchMicrometers: pitch, options, ...(field ? { field } : {}) });
+        return loadedKit(qualityKit)[QK_CREATE_DEFOCUS_BOKEH_SITE_KERNEL]({ diameterSites: disc.diameterSites, side, fNumber, focalLengthMm, pitchMicrometers: pitch, options, ...(field ? { field } : {}) });
       } catch (error) { const message = (error as Error).message; fail(message.startsWith("lens.defocus") ? message : "lens.defocus: " + message); }
     };
     const axis = build();
@@ -3061,7 +3123,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
         const look = defocusGeometry.lookOf((x - nativeWidth / 2) * mmPerSite, (y - nativeHeight / 2) * mmPerSite, 0);
         return { x: look.x / look.z, y: look.y / look.z };
       } : (x: number, y: number): { x: number; y: number } => ({ x: (x - nativeWidth / 2) * g * metresPerFrameUnit / subjectDistanceM, y: -(y - nativeHeight / 2) * g * metresPerFrameUnit / subjectDistanceM });
-      bokehZones = loadedKit(qualityKit).planDefocusBokehZones({ options, nativeWidth, nativeHeight, radius: axis.radius, fNumber, focalLengthMm, fieldOf, kernelAt: build });
+      bokehZones = loadedKit(qualityKit)[QK_PLAN_DEFOCUS_BOKEH_ZONES]({ options, nativeWidth, nativeHeight, radius: axis.radius, fNumber, focalLengthMm, fieldOf, kernelAt: build });
       if (!(bokehZones.minimumOpenAreaRatio > 0)) fail("lens.defocus.catsEye: the clipping apertures close the pupil in part of the frame; reduce shiftPerTanFieldMm or enlarge radiusMm.");
     }
     const zones = bokehZones;
@@ -3096,7 +3158,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
         // The midpoints of the first row's window and (#640) of the last row's, a rolling readout's skew later.
         const midpoints = rotating ? Array.from({ length: temporalSampleCount }, (_, i) => (i + 0.5) * (shutterSeconds / temporalSampleCount)) : [];
         const temporalMidpointsSeconds = rollingRotation ? [...midpoints, ...midpoints.map((t) => t + rollingReadout().spatialSamplingSkewSeconds!.value)] : midpoints;
-        return { options: imageSpaceOptions, fieldVariation: loadedKit(qualityKit).calculateDefocusFieldVariation({ geometry: defocusGeometry, ...(lensFieldMapping ? { lensMapping: prepareEnvironmentLensFieldMapping(lensFieldMapping) } : {}),
+        return { options: imageSpaceOptions, fieldVariation: loadedKit(qualityKit)[QK_CALCULATE_DEFOCUS_FIELD_VARIATION]({ geometry: defocusGeometry, ...(lensFieldMapping ? { lensMapping: prepareEnvironmentLensFieldMapping(lensFieldMapping) } : {}),
           focalLengthMm, fNumber, focusDistanceM, subjectDistanceM, pitchMicrometers: pitch, nativeWidth, nativeHeight, angularVelocityRadPerSec: angular, handShake, temporalMidpointsSeconds,
           diameterSites: disc.diameterSites, discAt: (distanceM) => resolveDefocusDisc({ focalLengthMm, aperture: fNumber, focusDistanceM, subjectDistanceM: distanceM, pitchMicrometers: pitch }).diameterSites }) };
       } } : {}) });
@@ -3208,9 +3270,9 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
       "Electronic rolling shutter (line reset/read linkage): a site at normalized scan position s integrates over [s·τ, s·τ + T]. " +
       (rollingSkewOption === undefined ? "τ is the body's declared full-frame data-readout skew, applied unchanged across the simulated frame (it is not scaled to the cropped sensor), so a small frame shows the skew of a full-sensor readout." :
         "τ is the caller-declared skew across the simulated frame."));
-    if (flash) loadedKit(optInKit).requireFlashRows(shutterSeconds, rollingSchedule.lineScanSkewSeconds);
+    if (flash) loadedKit(optInKit)[OK_REQUIRE_FLASH_ROWS](shutterSeconds, rollingSchedule.lineScanSkewSeconds);
   } else assume("sensor.shutter", "model", "global-electronic", "Global electronic shutter: every site integrates the same exposure window.");
-  if (handheld) loadedKit(optInKit).handShakeAssumption(assume, handheld, shutterSeconds);
+  if (handheld) loadedKit(optInKit)[OK_HAND_SHAKE_ASSUMPTION](assume, handheld, shutterSeconds);
   if (rotating) assume("motion.angularVelocityRadPerSec", "model", { ...angular },
     "Constant camera angular velocity applied to every scene ray at each temporal midpoint of each site's exposure window (engine rotation convention, docs/SENSOR_ENVIRONMENT_QUERY.md); motion blur is the midpoint quadrature over sensor.temporalSampleCount samples.");
   if (catalogue) assume("lens.psf", "model", lensPsf ? { kind: "sampled-local", source: "lens.catalogue" } : "not-applied", lensPsf ?
@@ -3275,8 +3337,8 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   if (neighborHighlights && outputOptions.region !== undefined) fail("output.highlightMode \"reconstruct-neighbors\" reads whole clipped regions; it is not available with output.region.");
   const neighborFast = fastTop;
   // #602: loaded on demand (the Quality kit, #594), only for a request that asks for it.
-  const neighborModule = neighborHighlights ? (await qualityKit.load()).neighborHighlights : null;
-  const { NEIGHBOR_HIGHLIGHT_RING, NEIGHBOR_HIGHLIGHT_THRESHOLD } = neighborModule ?? { NEIGHBOR_HIGHLIGHT_RING: 0, NEIGHBOR_HIGHLIGHT_THRESHOLD: 0 };
+  const neighborModule = neighborHighlights ? await qualityKit.load() : null;
+  const NEIGHBOR_HIGHLIGHT_RING = neighborModule ? neighborModule[QK_NEIGHBOR_HIGHLIGHT_RING] : 0, NEIGHBOR_HIGHLIGHT_THRESHOLD = neighborModule ? neighborModule[QK_NEIGHBOR_HIGHLIGHT_THRESHOLD] : 0;
   if (neighborHighlights && !displayView) assume("output.highlightMode.reconstructNeighbors", "model", { method: neighborFast ? "ring-average" : "harmonic-interpolation", threshold: NEIGHBOR_HIGHLIGHT_THRESHOLD,
     ringPixels: NEIGHBOR_HIGHLIGHT_RING, fast: neighborFast, scientificStatus: "estimate" },
   "Clipped highlights (a channel at " + NEIGHBOR_HIGHLIGHT_THRESHOLD + " of white or above) are rebuilt from the color ratios of the unclipped pixels around each clipped region: " +
@@ -3352,11 +3414,13 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   const opticalStackProfile: SensorOpticalStackProfile = antiAliasing ? { schemaVersion: "0.1.0", profileId: stackId, evidence, effectiveAntiAliasingSpatialResponse: {
     kind: "normalized-point-splitting-kernel", evidence, coordinateSystem: "native-sensor-physical", scope: "field-wavelength-polarization-invariant-approximation",
     components: antiAliasing.components } } : { schemaVersion: "0.1.0" as const, profileId: IDS.stack, evidence, effectiveAntiAliasingSpatialResponse: { kind: "absent" as const, evidence } };
+  const sourcePlane = { value: "sensor-package-incident" as const, evidence };
+  // #722: each channel's response application is built once and shared (frozen) by its sites' inputs (see siteInput).
   const perChannel = Object.fromEntries(CHANNELS.map((channelId) => [channelId, {
-    applicationProfile: { schemaVersion: "0.1.0" as const, profileId: "facade-application-" + channelId, spectralResponseProfileId: IDS.spectral, colorSamplingProfileId: IDS.cfa, channelId,
+    responseApplication: Object.freeze({ applicationProfile: { schemaVersion: "0.1.0" as const, profileId: "facade-application-" + channelId, spectralResponseProfileId: IDS.spectral, colorSamplingProfileId: IDS.cfa, channelId,
       samplingApertureProfileId: IDS.sampling, opticalStackProfileId: stackId, evidence, incidentAreaBasis: { kind: "geometric-sensitive-aperture" as const, areaSquareMicrometers: apertureArea },
       spatialResponseModel: { kind: "uniform-over-geometric-sensitive-aperture" as const, scientificStatus: "approximation" as const, evidence, limitation: "Uniform response over the square aperture." },
-      referenceConditionPolicy: { kind: "exact-match-required" as const } },
+      referenceConditionPolicy: { kind: "exact-match-required" as const } }, sourcePlane, operatingConditions }),
     operatingRangeProfile: { schemaVersion: "0.1.0" as const, profileId: "facade-linearity-" + channelId, responseApplicationProfileId: "facade-application-" + channelId,
       spectralResponseProfileId: IDS.spectral, colorSamplingProfileId: IDS.cfa, channelId, scientificStatus: "approximation" as const,
       uncertainty: { kind: "not-quantified" as const, limitation: "Declared linear photo response for the idealized sensor." }, evidence,
@@ -3365,8 +3429,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
       linearityCriterion: { maximumAbsoluteRelativeDeviation: 0.01 },
       spatialLinearityModel: { kind: "linear-superposition-over-geometric-aperture" as const, scientificStatus: "approximation" as const, evidence, limitation: "Declared linear superposition." },
       spectralInputModel: { kind: "per-spectral-bin" as const, maximumBinWidthNanometers: Math.max(spectralStep, 20), scientificStatus: "approximation" as const, evidence, limitation: "Declared per-bin linearity." },
-      referenceConditions: operatingConditions, referenceConditionPolicy: { kind: "exact-match-required" as const } } }])) as Record<Channel, { applicationProfile: unknown; operatingRangeProfile: unknown }>;
-  const sourcePlane = { value: "sensor-package-incident" as const, evidence };
+      referenceConditions: operatingConditions, referenceConditionPolicy: { kind: "exact-match-required" as const } } }])) as Record<Channel, { responseApplication: unknown; operatingRangeProfile: unknown }>;
   const localExposure = { bindingProfile, exposureWindowInput: { ...exposureWindow, nativeRaster } };
   const sceneBindings = {
     illuminationProfile: { schemaVersion: "0.1.0" as const, profileId: IDS.lights, sceneId: IDS.scene, evidence, sources: [{ sourceId: "illuminant", family: "environment" as const,
@@ -3420,27 +3483,40 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
     const aaReachMm = antiAliasing ? Math.max(...antiAliasing.components.map((c) => Math.max(Math.abs(c.offsetMicrometers.x), Math.abs(c.offsetMicrometers.y)))) / 1000 : 0;
     // The default reach is capped at the 32-site convolution limit; a capped window ends inside the third dark ring, and the
     // larger tail energy outside it is listed per wavelength like any other (2.2.1 states the cap in the explanation).
-    const thirdRingSites = Math.max(1, Math.ceil(AIRY_THIRD_ZERO_PER_LAMBDA_N * lambdaN / pitch));
-    const kernelRadiusSamples = diffractionRadiusOption ?? Math.min(32, thirdRingSites);
-    const profileInput = { aperture: "circular" as const, focalLengthMm, apertureFNumber: fNumber, focus: { kind: "finite" as const, distanceM: focusDistanceM },
-      wavelengthsNm: wavelengths, samplePitchMicrometers: pitch, kernelRadiusSamples, fieldHalfExtentMm: aaReachMm === 0 ? { x: imagingArea.widthMm / 2, y: imagingArea.heightMm / 2 } :
+    const thirdRingSites = Math.max(1, Math.ceil(AIRY_THIRD_ZERO_PER_LAMBDA_N * lambdaN / pitch)), third = Math.min(32, thirdRingSites);
+    // #732 (owner decision 2026-11-21): a fast request without an explicit radius takes the window to the second dark ring.
+    const second = Math.min(32, Math.ceil(AIRY_SECOND_ZERO_PER_LAMBDA_N * lambdaN / pitch)), window = diffractionRadiusOption === null && resolveFast(diffractionFast, fastTop) && second < third;
+    const kernelRadiusSamples = diffractionRadiusOption ?? (window ? second : third);
+    const inputOf = (radius: number): Parameters<typeof createDiffractionLimitedPsfProfile>[0] => ({ aperture: "circular", focalLengthMm, apertureFNumber: fNumber, focus: { kind: "finite", distanceM: focusDistanceM },
+      wavelengthsNm: wavelengths, samplePitchMicrometers: pitch, kernelRadiusSamples: radius, fieldHalfExtentMm: aaReachMm === 0 ? { x: imagingArea.widthMm / 2, y: imagingArea.heightMm / 2 } :
         { x: imagingArea.widthMm / 2 + aaReachMm, y: imagingArea.heightMm / 2 + aaReachMm },
-      profileId: "facade-diffraction-airy" };
+      profileId: "facade-diffraction-airy" }), profileInput = inputOf(kernelRadiusSamples);
     // #449: a copy of the profile kept for this input; it equals createDiffractionLimitedPsfProfile(profileInput).value field by
     // field, so the registration below (keyed by profileInput) holds for it.
     diffraction = cachedDiffractionProfile(profileInput);
+    if (window) {
+      // The a-priori bound of the change at a site, as a share of the scene contrast its colour sees: max over the nodes of
+      // (T_fast − T_exact) / (1 − T_exact), T the Airy energy outside each window.
+      const exactTails = cachedDiffractionProfile(inputOf(third)).wavelengths;
+      markFast("lens.diffraction");
+      const w = { method: "second-dark-ring", kernelRadiusSamples, exactKernelRadiusSamples: third,
+        bound: Math.max(...diffraction.wavelengths.map((n, i) => (n.truncatedEnergyFraction - exactTails[i]!.truncatedEnergyFraction) / (1 - exactTails[i]!.truncatedEnergyFraction))) };
+      const taps = assumptions.find((a) => a.id === "fast.lens.diffraction");
+      if (taps) taps.value = { ...taps.value as object, window: w };
+      else assume("fast.lens.diffraction", "model", { window: w }, "Fast (#732): the kernel window to the second dark ring; bound: the largest change at a site, of the contrast its colour sees.");
+    }
     diffractionPsf = { kind: "sampled-local", configuration: { psf: { profile: diffraction.profile, focalLengthMm, focus: { kind: "finite", distanceM: focusDistanceM },
       apertureFNumber: fNumber, signedDefocusImagePlaneMicrometers: 0 }, psfWavelengthBasis: { value: "vacuum", evidence },
     spatialModel: { kind: "destination-local-shift-invariant-approximation", evidence, limitation: "Diffraction-limited Airy PSF, the same at every field point." } } };
     // Requests with the same profile input and PSF fields share their site diffraction kernels (optics/site-diffraction-kernel.ts).
-    loadedKit(qualityKit).registerDiffractionPsfKey(diffractionPsf.configuration.psf, profileInput);
+    loadedKit(qualityKit)[QK_REGISTER_DIFFRACTION_PSF_KEY](diffractionPsf.configuration.psf, profileInput);
     assume("lens.diffraction", "model", { model: diffraction.model, aperture: "circular-aperture", fNumber, workingFNumber: diffraction.workingFNumber,
       kernelRadiusSamples, samplePitchMicrometers: pitch, maximumTruncatedEnergyFraction: diffraction.maximumTruncatedEnergyFraction,
       truncatedEnergyByWavelength: diffraction.wavelengths.map((w) => ({ wavelengthNm: w.wavelengthNm, truncatedEnergyFraction: w.truncatedEnergyFraction })),
       execution: diffractionObjectSpace ? "object-space-convolution" : defocusImageSpace ? "image-space-convolution" : "environment-psf-quadrature" },
       "Scalar Fraunhofer diffraction of an ideal, aberration-free circular pupil (Airy pattern, createDiffractionLimitedPsfProfile) at the resolved f-number, in focus, with D = f/N and the thin-lens image distance (working f-number N·v/f). " +
       "One kernel per spectral node, binned into site-sized cells over a " + (2 * kernelRadiusSamples + 1) + " × " + (2 * kernelRadiusSamples + 1) + " window" +
-      (diffractionRadiusOption !== null ? "" : thirdRingSites > 32 ? " (capped at 32 sites; the third dark ring at the longest node needs " + thirdRingSites + ")" :
+      (diffractionRadiusOption !== null ? "" : window ? " (to the second dark ring, #732)" : thirdRingSites > 32 ? " (capped at 32 sites; the third dark ring at the longest node needs " + thirdRingSites + ")" :
         " (reaching the third dark ring at the longest node)") + "; the Airy tail energy outside it (listed per wavelength) is put back by unit-sum renormalization. " +
       (diffractionObjectSpace ? "Applied as an object-space convolution: the scene radiance on the site lattice is convolved once per spectral node (calculateIrradianceConvolution) and the provider answers each site query with it, so the site inputs declare no PSF; this equals the per-tap environment PSF quadrature for this still, distortion-free planar scene (request.diffraction.psf). " :
         defocusImageSpace ? "Applied with lens.defocus as one image-space kernel per spectral node (the diffraction kernel convolved with the disc) on the sensor's site lattice (#548; see the lens.defocus assumption), " +
@@ -3464,7 +3540,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
         let kernel = diffractionKernels.get(wavelengthNm);
         if (!kernel) {
           if (!profileWavelengths.includes(wavelengthNm)) fail("simulateCapture: a spectral node has no diffraction kernel.");
-          kernel = loadedKit(qualityKit).siteDiffractionKernel(psfConfiguration!, wavelengthNm, pitch, diffractionRadius, "simulateCapture: diffraction kernels must sample the site pitch exactly.");
+          kernel = loadedKit(qualityKit)[QK_SITE_DIFFRACTION_KERNEL](psfConfiguration!, wavelengthNm, pitch, diffractionRadius, "simulateCapture: diffraction kernels must sample the site pitch exactly.");
           diffractionKernels.set(wavelengthNm, kernel);
         }
         return kernel;
@@ -3481,7 +3557,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
         let kernel = combined.get(wavelengthNm);
         if (!kernel) {
           if (!profileWavelengths.includes(wavelengthNm)) fail("simulateCapture: a spectral node has no diffraction kernel.");
-          kernel = convolveSiteKernels(loadedKit(qualityKit).siteDiffractionKernel(psfConfiguration, wavelengthNm, pitch, diffractionRadius, "simulateCapture: diffraction kernels must sample the site pitch exactly."),
+          kernel = convolveSiteKernels(loadedKit(qualityKit)[QK_SITE_DIFFRACTION_KERNEL](psfConfiguration, wavelengthNm, pitch, diffractionRadius, "simulateCapture: diffraction kernels must sample the site pitch exactly."),
             diffractionRadius, defocusKernel.weights, defocusKernel.radius);
           combined.set(wavelengthNm, kernel);
         }
@@ -3518,31 +3594,36 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   const fixedPattern = characteristics?.fixedPatternNoise ? body.fixedPatternNoise.profile : undefined, sitePattern = fixedPattern && sumFixedPatternSites(fixedPattern, profileReadNoiseScale ** 2);
   if (fixedPattern && displayView) fail("simulateDisplayView does not render sensor.fixedPatternNoise; use simulateCapture.");
   const channelAt = (x: number, y: number): Channel => (["red", "green", "green", "blue"] as const)[(y % 2) * 2 + (x % 2)]!;
+  // #722: the nested records that do not depend on the site, built once per capture and shared (frozen) by every site's input, so the
+  // lean executor's strict comparison with its template finds the same objects instead of comparing them key by key at every site.
+  const darkUncertainty = Object.freeze({ kind: "not-quantified", limitation: "Synthetic dark current for the capture facade." });
+  const darkTemperatureModel = Object.freeze({ kind: "fixed-reference-temperature", referenceTemperatureC: OPERATING_TEMPERATURE_C, darkCurrentElectronsPerSecond: DARK_CURRENT_ELECTRONS_PER_SECOND });
+  const capacityUncertainty = Object.freeze({ kind: "not-quantified", limitation: "Derived from the tier's declared saturation signal." });
+  const operatingState = Object.freeze({ stateId: IDS.operatingState, evidence });
+  const temperatureApplicability = Object.freeze({ kind: "exact-reference-temperature", temperatureC: OPERATING_TEMPERATURE_C }), noComponents = Object.freeze([]);
   function siteInput(index: number): SimulateEnvironmentSensorRawFrameInput["sites"][number] {
     if (!Number.isSafeInteger(index) || index < 0 || index >= nativeWidth * nativeHeight) fail("Native site index out of range.");
     const x = index % nativeWidth, y = Math.floor(index / nativeWidth), channel = channelAt(x, y), site = { x, y }, c = perChannel[channel], r = regimeByChannel[channel];
     const environment = { temporalIntegrationId: IDS.frame + ":native:" + index,
       sensor: { spatialSampling: { imagingArea, samplingApertureProfile, opticalStackProfile, site, spatialSampleCountX: boxSamples, spatialSampleCountY: boxSamples },
         spectralSampling: spectralSamplingByChannel[channel], colorSamplingProfile, spectralResponseProfile: spectralResponseProfiles[channel],
-        responseApplication: { applicationProfile: c.applicationProfile, sourcePlane, operatingConditions }, operatingRangeProfile: c.operatingRangeProfile, localExposure },
+        responseApplication: c.responseApplication, operatingRangeProfile: c.operatingRangeProfile, localExposure },
       sceneBindings, optics, motion, temporalSampleCount, fieldThroughput, psf, ...(pupilRecord ? { pupil: pupilRecord } : {}), ...(lensFieldMapping ? { lensFieldMapping } : {}) };
     // The charge completeness profile must cover the site's own exposure window (shifted by s·τ under a rolling shutter).
     const window = rollingSchedule ? calculateCaptureExposureWindows({ ...exposureWindow, nativeRaster, samplePointsNative: [{ x: x + 0.5, y: y + 0.5 }] }).value.samples[0]! :
       { startOffsetSecondsFromOpeningReference: 0, endOffsetSecondsFromOpeningReference: shutterSeconds };
     return { environment, operatingTemperatureC: OPERATING_TEMPERATURE_C,
       darkCurrentProfile: { schemaVersion: "0.1.0", profileId: IDS.dark, colorSamplingProfileId: IDS.cfa, channelId: channel, scientificStatus: "approximation", evidence,
-        uncertainty: { kind: "not-quantified", limitation: "Synthetic dark current for the capture facade." }, chargeMeaning: "pre-compensation-thermally-generated-electrons",
-        siteApplicability: { kind: "exact-site", site }, temperatureModel: { kind: "fixed-reference-temperature", referenceTemperatureC: OPERATING_TEMPERATURE_C,
-          darkCurrentElectronsPerSecond: DARK_CURRENT_ELECTRONS_PER_SECOND }, darkCurrentCompensationIncluded: false, spatialDarkCurrentNonuniformityModeled: false },
+        uncertainty: darkUncertainty, chargeMeaning: "pre-compensation-thermally-generated-electrons",
+        siteApplicability: { kind: "exact-site", site }, temperatureModel: darkTemperatureModel, darkCurrentCompensationIncluded: false, spatialDarkCurrentNonuniformityModeled: false },
       charge: { completenessProfile: { schemaVersion: "0.1.0", profileId: IDS.completeness, colorSamplingProfileId: IDS.cfa, channelId: channel, site, bindingId: IDS.binding,
         timeReference: "first-opening-boundary-phase", startOffsetSecondsFromOpeningReference: window.startOffsetSecondsFromOpeningReference,
         endOffsetSecondsFromOpeningReference: window.endOffsetSecondsFromOpeningReference,
-        darkCurrentProfileId: IDS.dark, includedAdditionalComponentIds: [], coverageMeaning: "all-material-stored-electron-contributors-accounted-for",
+        darkCurrentProfileId: IDS.dark, includedAdditionalComponentIds: noComponents, coverageMeaning: "all-material-stored-electron-contributors-accounted-for",
         scientificStatus: "approximation", evidence, limitation: "Photo and dark charge only." } },
       readout: { samplingProfile: chargeSamplingProfile, capacityProfile: { schemaVersion: "0.1.0", profileId: IDS.capacity, colorSamplingProfileId: IDS.cfa, channelId: channel,
         capacityMeaning: "physical-charge-storage-capacity-electrons", capacityElectrons, scientificStatus: "approximation",
-        uncertainty: { kind: "not-quantified", limitation: "Derived from the tier's declared saturation signal." }, evidence, siteApplicability: { kind: "exact-site", site },
-        operatingState: { stateId: IDS.operatingState, evidence }, temperatureApplicability: { kind: "exact-reference-temperature", temperatureC: OPERATING_TEMPERATURE_C } },
+        uncertainty: capacityUncertainty, evidence, siteApplicability: { kind: "exact-site", site }, operatingState, temperatureApplicability },
         operatingStateId: IDS.operatingState, readoutProfile: r.readoutProfile, regimeId: r.regimeId, ...(sitePattern ? { fixedPatternNoise: sitePattern } : {}) } } as unknown as SimulateEnvironmentSensorRawFrameInput["sites"][number];
   }
   const readTile = async (request: { captureId: string; frameId: string; x: number; y: number; width: number; height: number }): Promise<NativeEnvironmentRawTile> =>
@@ -3552,7 +3633,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   let diffractionMs = 0, defocusMs = 0, demosaicMs: number | undefined, encodeMs: number | undefined;
   const diffractedProvider = (window: { x: number; y: number; width: number; height: number } | undefined): PlanarSceneRadianceProvider =>
     // #548: the disc (or diffraction ⊛ disc) in image space, on the sensor's site lattice, through the mapping, field throughput and rotation.
-    defocusSiteKernels && defocusGeometry && defocusImageSpace ? loadedKit(qualityKit).createDefocusImageSpaceProvider({ base: sceneProvider, geometry: defocusGeometry, siteKernels: defocusSiteKernels.at,
+    defocusSiteKernels && defocusGeometry && defocusImageSpace ? loadedKit(qualityKit)[QK_CREATE_DEFOCUS_IMAGE_SPACE_PROVIDER]({ base: sceneProvider, geometry: defocusGeometry, siteKernels: defocusSiteKernels.at,
       ...(defocusSiteKernels.large ? { largeKernel: defocusSiteKernels.large } : {}),
       wavelengthsNm: defocusSiteKernels.wavelengthsNm, kernelRadius: defocusSiteKernels.radius, nativeWidth, nativeHeight, sitePitchMicrometers: pitch, distanceM: planeDistanceM,
       metresPerFrameUnit, queryOffsetsSites, timesPerBand: temporalSampleCount, onConvolution: (ms) => { defocusMs += ms; }, ...(window ? { window } : {}), ...(subject ? { timeDependentScene: true } : {}),
@@ -3571,7 +3652,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
       // The environment queries each site at each aperture node minus each split offset (sites, +x right, +y down).
       ...(antiAliasing || boxSamples > 1 ? { queryOffsetsSites } : {}) }) :
     // #565, #588: the PSF quadrature reads each tap's source at its lattice point (a unit kernel on #548's lattice), so ties resolve as on the lattice.
-    (diffraction || catalogueTaps !== undefined) && latticeTaps ? loadedKit(qualityKit).createDefocusImageSpaceProvider({ base: sceneProvider, geometry: lensGeometry, siteKernels: () => UNIT_SITE_KERNEL,
+    (diffraction || catalogueTaps !== undefined) && latticeTaps ? loadedKit(qualityKit)[QK_CREATE_DEFOCUS_IMAGE_SPACE_PROVIDER]({ base: sceneProvider, geometry: lensGeometry, siteKernels: () => UNIT_SITE_KERNEL,
       kernelRadius: 0, wavelengthsNm: diffraction ? diffraction.profile.axes.wavelengthNm : quadratureWavelengths(), nativeWidth, nativeHeight, sitePitchMicrometers: pitch, distanceM: planeDistanceM, metresPerFrameUnit,
       queryOffsetsSites: [-1, 0, 1].flatMap((k) => { const r = k * (diffraction ? diffraction.kernelRadiusSamples : catalogueKernelRadius); return queryOffsetsSites.map((o) => ({ x: o.x + r, y: o.y + r })); }),
       timesPerBand: temporalSampleCount, zeroBeyondHorizon: catalogue?.kind === "fisheye", ...(window ? { window } : {}),
@@ -3657,7 +3738,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
     step: lensKit!.genericLensVeilStep(nativeWidth, nativeHeight, catalogueFastRequested) } : undefined;
   if (veil && (rotating || subject || boxSamples !== 1 || antiAliasing || mixed || provider.chartMaterialAt === undefined || provider.materialRadiance === undefined))
     fail("lens.catalogue.flare needs a still camera and a chart or material scene under uniform light, without sensor.antiAliasing or sensor.pixelAperture.");
-  if (catalogueFlare || breathing) loadedKit(optInKit).catalogueOpticsAssumptions(assume, catalogue!, breathing ? { scale: breathingScale, planeDistanceM } : undefined, catalogueFlare, veil);
+  if (catalogueFlare || breathing) loadedKit(optInKit)[OK_CATALOGUE_OPTICS_ASSUMPTIONS](assume, catalogue!, breathing ? { scale: breathingScale, planeDistanceM } : undefined, catalogueFlare, veil);
   const viewLensKit = displayView && lensGeometry ? await import("./display-view-lens-signal.js") : undefined;
   // 2.20.0: the field zones are lens.catalogue's fast method in the view; exact resolves the PSF at every site (zones of one site).
   const displayViewLensPsf = viewLensKit && catalogue && lensPsf ?
@@ -3666,18 +3747,23 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
     // #655 step 6: the uniform-window fast method (lens.catalogue's fast) on chart and material scenes; it runs on the CPU.
   const uniformWindows = displayViewLensPsf !== undefined && catalogueFastRequested && provider.chartMaterialAt !== undefined && !subject;
   if (displayViewLensPsf && (displayViewLensPsf.zoneSites > 1 || uniformWindows)) markFast("lens.catalogue");
+  // #685: with more than one query offset (the box pixel aperture), each offset's lens mapping to second order about its site centre.
+  const offsetExpansion = uniformWindows && catalogue!.kind !== "fisheye" && queryOffsetsSites.length > 1;
   if (displayViewLensPsf) assume("view.lensPsf", "model", { method: "piecewise-constant-field-zones", zoneSites: displayViewLensPsf.zoneSites, kernelRadiusSites: catalogueKernelRadius,
-    uniformWindows: uniformWindows ? "field-factor-second-order" : null, scientificStatus: "approximation" },
+    uniformWindows: uniformWindows ? "field-factor-second-order" : null, offsetMapping: offsetExpansion ? "second-order-expansion" : null, scientificStatus: "approximation" },
   "Each site takes the lens PSF at its field zone's centre, where the capture resolves it at each query point (docs/DISPLAY_VIEW.md, \"Catalogue lenses\")." +
-    (uniformWindows ? " Fast method (#655): a site whose taps read one material takes the field factor to second order; fast: false sums every tap." : ""));
+    (uniformWindows ? " Fast method (#655): a site whose taps read one material takes the field factor to second order; fast: false sums every tap." : "") +
+    (offsetExpansion ? " Fast (#685): the offsets' lens mapping to second order." : ""));
   // #655 step 4: the view's lattice points take the Newton inverse of a radial distortion (the capture keeps the bisection).
-  const viewLensGeometry = viewLensKit && lensFieldMapping?.distortion?.kind === "radial" ? loadedKit(qualityKit).prepareDefocusImageSpaceGeometry({ focalLengthMm, focusDistanceM,
+  // #661: the raw geometry and the lens signal's setup are kept for the GPU lens passes (setup.gpu.lens), which evaluate the raw coefficients.
+  const viewLensRaw = viewLensKit && lensFieldMapping?.distortion?.kind === "radial" ? { focalLengthMm, focusDistanceM,
     angularVelocityRadPerSec: angular, ...(handShake ? { handShake } : {}), lensMapping: prepareEnvironmentLensFieldMapping(lensFieldMapping), ...(vignetting ? { vignetting } : {}),
-    undistort: viewLensKit.undistortedImagePointNewton }) : lensGeometry;
-  const lensSignal = viewLensKit ? viewLensKit.prepareDisplayViewLensSignal({ geometry: viewLensGeometry!, rollingBands: fastTop, uniformWindows,
+    undistort: viewLensKit.undistortedImagePointNewton } : undefined;
+  const viewLensSetup = viewLensKit && { geometry: viewLensRaw ? loadedKit(qualityKit)[QK_PREPARE_DEFOCUS_IMAGE_SPACE_GEOMETRY](viewLensRaw) : lensGeometry!, rollingBands: fastTop, uniformWindows, ...(offsetExpansion ? { offsetExpansion: loadedKit(qualityKit)[QK_CREATE_OFFSET_EXPANSION] } : {}),
     times: rotating || subject ? Array.from({ length: temporalSampleCount }, (_, i) => (i + 0.5) * (shutterSeconds / temporalSampleCount)) : [0], timesAt: rollingRotation ? rollingSiteTimes() : undefined,
     distanceM: planeDistanceM, metresPerFrameUnit,
-    pitch, imagingArea, boxSamples, spots: antiAliasing ? antiAliasing.components : [{ offsetMicrometers: { x: 0, y: 0 } }], psf: displayViewLensPsf, zeroBeyondHorizon: catalogue?.kind === "fisheye", ...(veil ? { veil } : {}) }, nativeWidth, nativeHeight,
+    pitch, imagingArea, boxSamples, spots: antiAliasing ? antiAliasing.components : [{ offsetMicrometers: { x: 0, y: 0 } }], psf: displayViewLensPsf, zeroBeyondHorizon: catalogue?.kind === "fisheye", ...(veil ? { veil } : {}) };
+  const lensSignal = viewLensKit ? viewLensKit.prepareDisplayViewLensSignal(viewLensSetup!, nativeWidth, nativeHeight,
   (diffraction ? diffraction.kernelRadiusSamples : 0) + (displayViewDefocus ? (bokehAxisKernel?.radius ?? defocusDiscKernelRadius(displayViewDefocus.diameterSites)) : 0) + catalogueKernelRadius +
     Math.max(0, ...queryOffsetsSites.map((o) => Math.max(Math.abs(o.x), Math.abs(o.y)))) - 0.5, catalogue ? "lens.catalogue" : imageSpaceOptions.join(", ")) : undefined;
   // #535: the green channel's expected charge from an 18 % Lambertian grey patch (radiance 0.18·E·S(λ)/π) next to the axis, and the sensor report;
@@ -3702,7 +3788,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
       cornerStops: lensCorrectionSelection.vignetting ? catalogueCornerStops : null, selection: lensCorrectionSelection, create: lensKit!.createDisplayViewLensCorrection } } : {}) } : undefined;
   // #595: the native photosite's figures (their own module, so a bundler can split them off the default path).
   sensor.native = nativeSensorReport(sensor, regimeByChannel.green.regimeId, greyElectrons, DARK_CURRENT_ELECTRONS_PER_SECOND * shutterSeconds, nativeSensor, fixedPattern);
-  const context: DisplayViewRunContext = { sensor, viewFast: { uniformSampling: fastTop, rendering: fastTop, defocusRegrouped: fastTop, perTapSum: fastTop, layers: fastTop }, layered, defocusBokeh, queryOffsetsSites, irradianceScale, viewDetail, gamutHandling, lens: lensSignal, lensPsf: displayViewLensPsf, lensUniformWindows: uniformWindows, movingScene, ahd, fastReport, antiAliasing, aspect, assume, assumptions, axisChannelResponse, boxSamples, buildProvider, callerScene, chart, materialLayers, chartReport, chartSize, diffraction, defocus: displayViewDefocus, diffractionPsf, fNumber, focalLengthMm, focusDistanceM, height, highlightMode, exposureGain, illuminanceLux, illuminant, illuminantOption, imagingArea, intentOf, metresPerFrameUnit, framedWidthM, noiseSeed, outputOptions, parsedView, pitch, preset, provider, regimeByChannel, resolvedIso, isoReport, standardExposureDeviationStops: exposureDeviationStops, standardExposureIlluminanceLux: exposureIlluminanceLux, greyCardDeviationStops: exposureGreyCardDeviationStops, metering, sceneOption, scenePreset, shutterSeconds, started, subjectDistanceM, toneCurve, whiteBalanceOption, whiteBalanceState, width, checkAbort, margin, mode, nativeHeight, nativeWidth, sourceSha256, yieldControl, kelvinWhiteBalanceInput,
+  const context: DisplayViewRunContext = { sensor, viewFast: { uniformSampling: fastTop, rendering: fastTop, layers: fastTop }, layered, defocusBokeh, queryOffsetsSites, irradianceScale, viewDetail, gamutHandling, lens: lensSignal, lensPsf: displayViewLensPsf, lensUniformWindows: uniformWindows, lensGpu: viewLensRaw && { lens: viewLensSetup!, geometry: viewLensRaw }, movingScene, ahd, fastReport, antiAliasing, aspect, assume, assumptions, axisChannelResponse, boxSamples, buildProvider, callerScene, chart, materialLayers, chartReport, chartSize, diffraction, defocus: displayViewDefocus, diffractionPsf, fNumber, focalLengthMm, focusDistanceM, height, highlightMode, exposureGain, illuminanceLux, illuminant, illuminantOption, imagingArea, intentOf, metresPerFrameUnit, framedWidthM, noiseSeed, outputOptions, parsedView, pitch, preset, provider, regimeByChannel, resolvedIso, isoReport, standardExposureDeviationStops: exposureDeviationStops, standardExposureIlluminanceLux: exposureIlluminanceLux, greyCardDeviationStops: exposureGreyCardDeviationStops, metering, sceneOption, scenePreset, shutterSeconds, started, subjectDistanceM, toneCurve, whiteBalanceOption, whiteBalanceState, width, checkAbort, margin, mode, nativeHeight, nativeWidth, sourceSha256, yieldControl, kelvinWhiteBalanceInput,
     mixedIllumination: mixedKit && lightKit };
   // #652: result.scene.layers and the layered kernels, at the resolved f-number.
   layered?.report(context);
@@ -3731,12 +3817,17 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
     const rgb = new Float64Array(outputWidth * outputHeight * 3), counts = { whiteBalanceClippedSampleCount: 0, reconstructedPixelCount: 0 }, sum = [0, 0, 0];
     // A sample that reads the previous sample's material reuses that sample's integral (nothing is kept per material).
     let last = -1, s: number[] = [];
+    // #735: under mixed light, each sample's spectrum with its material and light resolved once (the same values).
+    const referenceSpectrum = planarRadianceSpectrumOf(referenceProvider.radianceAt), referenceNodes = new Float64Array(wavelengths.length);
     for (let py = 0; py < outputHeight; py++) {
       for (let px = 0; px < outputWidth; px++) {
         sum[0] = 0; sum[1] = 0; sum[2] = 0;
         for (let l = 0; l < n; l++) for (let k = 0; k < n; k++) {
           const u = (x0 + px + (k + 0.5) / n - nativeWidth / 2) * unit, v = -(y0 + py + (l + 0.5) / n - nativeHeight / 2) * unit, m = spectra ? provider.chartMaterialAt!(u, v) : -1;
-          if (m < 0 || m !== last) { s = signalOf(m < 0 ? wavelengths.map((nm) => referenceProvider.radianceAt(u, v, nm)) : spectra![m]!); last = m; }
+          if (m < 0 || m !== last) {
+            s = signalOf(m >= 0 ? spectra![m]! : referenceSpectrum ? (referenceSpectrum(u, v, wavelengths, referenceNodes), referenceNodes) : wavelengths.map((nm) => referenceProvider.radianceAt(u, v, nm)));
+            last = m;
+          }
           sum[0] += s[0]!; sum[1] += s[1]!; sum[2] += s[2]!;
         }
         // Normalized RAW values saturate at the white level, as in development.
@@ -3747,7 +3838,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
       if ((py & 15) === 15) { await yieldControl(); checkAbort(); }
     }
     if (neighborHighlights) {
-      neighborModule!.reconstructHighlightsFromNeighbors(rgb, outputWidth, outputHeight, realDevelopment.appliedGains, neighborFast);
+      neighborModule![QK_RECONSTRUCT_HIGHLIGHTS_FROM_NEIGHBORS](rgb, outputWidth, outputHeight, realDevelopment.appliedGains, neighborFast);
       for (let i = 0; i < outputWidth * outputHeight; i++) realDevelopment.developWhiteBalancedInto(rgb[3 * i]!, rgb[3 * i + 1]!, rgb[3 * i + 2]!, rgb, 3 * i);
     }
     let samples: Uint8Array | Uint16Array;
@@ -3800,12 +3891,24 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   }
   const rawStarted = Date.now();
   const plan = calculateNativeRawPlan(environmentRaw.raw);
+  // #728: the key a region result carries and a join of parts checks (SimulateCaptureResult.region.requestKey): the resolved values
+  // and the other options in a canonical form (keys sorted, an array as its indices; undefined and empty objects left out). The
+  // scene enters by its digest; fast, output, signal, onProgress and the options the tuple holds resolved are left out.
+  const omit = (key: string, value?: unknown): boolean => value === undefined ||
+    /^(fast|output|scene|signal|onProgress|fNumber|shutterSeconds|iso|pixelPitchMicrometers|spectralStepNanometers|temporalSampleCount)$/.test(key);
+  const requestKey = regionNative || run === "dng-from-parts" || run === "develop-from-parts" ? await sha256Hex(JSON.stringify([sourceSha256, top, fNumber, shutterSeconds, resolvedIso,
+    plan.exposure.noise.seedUint32, nativeWidth, nativeHeight, pitch, spectralStep, boxSamples, temporalSampleCount], (_key, value: unknown) => {
+    if (typeof value !== "object" || value === null) return value;
+    const entries = Object.entries(value).filter(([k, v]) => !omit(k, v)).sort();
+    return entries.length ? Object.fromEntries(entries) : undefined;
+  })) : undefined;
   const progress = (stage: SimulateCaptureProgress["stage"], total: number) => {
     let completed = 0;
     return (): void => { completed++; onProgress?.({ stage, completedTileCount: completed, totalTileCount: total }); };
   };
   const rawTick = progress("raw", regionNative ? regionNative.height * Math.ceil(regionNative.width / tileWidth) : plan.tileCount);
-  // #394: siteInput builds fresh site records per call and never changes them, so the native task plans them without a copy.
+  // #394: siteInput builds fresh site records per call (#722: the site-independent nested ones shared and frozen) and never changes
+  // them, so the native task plans them without a copy.
   const rawCallbacks = (): Parameters<typeof createNativeEnvironmentRawTask>[1] => ({ readTile: markInternalNativeTileReader(async (request: Parameters<typeof readTile>[0]): Promise<NativeEnvironmentRawTile> => { const tile = await readTile(request); rawTick(); return tile; }),
     evaluateRadiance: rawProvider().evaluateRadiance, ...(pupil ? { evaluateApertureRadiance: provider.evaluateApertureRadiance } : {}), yieldControl });
   // #394 step 2: an engine-built planar scene (chart preset or caller material scene; still, rectilinear, no distortion, vignetting,
@@ -3816,7 +3919,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   const dngParts = run === "dng-from-parts" || run === "develop-from-parts" ? viewOption : undefined,
     partsCaller = run === "dng-from-parts" ? "serializeSimulatedCaptureDngFromParts" : "simulateCaptureFromParts";
   if (dngParts !== undefined && regionNative) fail(partsCaller + " takes the whole frame: the options take no output.region.");
-  let tabulated: Awaited<ReturnType<typeof renderTabulatedNativeRaw>>;
+  let tabulated: Awaited<ReturnType<typeof renderTabulatedNativeRaw>>, perTapSum = false;
   // #568: lens.catalogue's fast method: expected electrons integrated per site at use, with the PSF blended over a field grid (catalogue-lens-signal.ts), for a
   // still camera, site-centre queries and a chart or material scene; verified per CFA phase against the exact chain within its tolerance.
   let catalogueFastRun: { columns: number; rows: number; resolved: number; verificationRelativeDifference: number; subdivisions: number; boxSamples: number } | undefined;
@@ -3842,6 +3945,8 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
     // #603: the grid follows the request's quality: 2.20.0's faster grid on a fast request (but for the measured lenses that keep the
     // full one), the full one on an exact one.
     const gridSubdivisions = lensKit!.catalogueFastGridSubdivisions(catalogue!.lensId, fastTop);
+    // #733: the check reads the whole frame's top-left and centre 2 × 2 blocks (a region's own provider covers only the region, so
+    // there each block is read through a provider windowed to it; the window never changes a value), so every region takes the frame's method.
     // #632: with flare, an exact request takes each site's exact kernels (the exact method's sum), and a fast one whose check fails does too.
     const render = async (exactKernels: boolean): Promise<typeof tabulated> => {
       const signal = lensKit!.createCatalogueLensSignal({ nativeWidth, nativeHeight, pitch, psf: lensPsf!.configuration.psf, wavelengthsNm: wavelengths, electronsPerRadiance: perNode, gridSubdivisions,
@@ -3852,7 +3957,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
         // #629: the box pixel aperture's N × N nodes (midpoint rule, equal weights), folded into each lattice point's scene value.
         ...(boxSamples > 1 ? { queryOffsets: apertureNodeOffsets(boxSamples).map((o) => ({ ...o, weight: 1 / (boxSamples * boxSamples) })) } : {}) });
       const out = await renderTabulatedNativeRaw({ input: environmentRaw, region: regionNative, siteInput, evaluateRadiance: rawProvider().evaluateRadiance,
-        electrons: signal, relativeTolerance: lensKit!.CATALOGUE_FAST_VERIFICATION_TOLERANCE, onTile: rawTick, tileWidth, yieldControl: () => yieldControl(), checkAbort,
+        electrons: signal, relativeTolerance: lensKit!.CATALOGUE_FAST_VERIFICATION_TOLERANCE, frameChecks: (x, y) => diffractedProvider({ x, y, width: 2, height: 2 }).evaluateRadiance, onTile: rawTick, tileWidth, yieldControl: () => yieldControl(), checkAbort,
         ...(signal.veiled ? { adjust: signal.veiled } : {}) });
       if (out && !exactKernels) catalogueFastRun = { ...signal.grid, verificationRelativeDifference: out.verificationRelativeDifference, subdivisions: gridSubdivisions, boxSamples };
       return out;
@@ -3885,19 +3990,23 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
     // The verification reads only the region's top-left 2 × 2 block, so its diffraction convolves only that block's lattice; the
     // window never changes a value (see diffraction-provider.ts), so the chain it runs is the whole render's.
     const verificationProvider = diffractedProvider({ x: regionNative?.x ?? 0, y: regionNative?.y ?? 0, width: 2, height: 2 });
+    // #731 (owner decision 2026-11-21: fast and exact requests): with kernels, a chart or material scene's sites take the display view's
+    // per-tap sum of the pre-integrated spectral radiance (#643, #653), one set of (2R + 1)² taps per site instead of one per lattice
+    // group (N² groups for an N × N box): the same sum regrouped, within the verification's 1e-9.
+    perTapSum = signalInput.kernels !== undefined && signalInput.scene.kind === "materials" && !signalInput.largeKernel;
     tabulated = await renderTabulatedNativeRaw({ input: environmentRaw, region: regionNative, siteInput, evaluateRadiance: verificationProvider.evaluateRadiance,
-      electrons: createDisplayViewExpectedSignal(signalInput), onTile: rawTick, tileWidth, yieldControl: () => yieldControl(), checkAbort });
+      electrons: createDisplayViewExpectedSignal(perTapSum ? { ...signalInput, perTapSum } : signalInput), onTile: rawTick, tileWidth, yieldControl: () => yieldControl(), checkAbort });
   }
   let rawOutput: { raw: NativeRawOutput; providerEvaluationCount: number };
   if (dngParts !== undefined) {
-    rawOutput = { raw: joinNativeRawParts(dngParts, plan, nativeWidth, nativeHeight, partsCaller, fastReport.requested), providerEvaluationCount: 0 };
+    rawOutput = { raw: joinNativeRawParts(dngParts, plan, nativeWidth, nativeHeight, partsCaller, fastReport.requested, requestKey!), providerEvaluationCount: 0 };
     if (run === "develop-from-parts") assume("parts", "model", { partCount: (dngParts as readonly unknown[]).length },
       "The whole render's RAW, joined from region renders of this request (#571); how they were rendered is in their results.");
   }
   else if (tabulated && veil && !catalogueFastRun) {
     rawOutput = { raw: tabulated.raw, providerEvaluationCount: tabulated.providerEvaluationCount };
-    assume("raw.expectedSignal", "model", { method: "per-site-integrated-electrons-catalogue-psf-exact-kernels", verificationSites: 4, tolerance: lensKit!.CATALOGUE_FAST_VERIFICATION_TOLERANCE },
-      "#632: the exact method's sum per site (each site's own PSF), checked against the exact chain at one site per CFA phase.");
+    assume("raw.expectedSignal", "model", { method: "per-site-integrated-electrons-catalogue-psf-exact-kernels", verificationSites: 8, tolerance: lensKit!.CATALOGUE_FAST_VERIFICATION_TOLERANCE },
+      "#632: the exact method's sum per site (each site's own PSF), checked against the exact chain at the frame's top-left and centre 2 × 2 blocks.");
   }
   else if (tabulated && catalogueFastRun) {
     rawOutput = { raw: tabulated.raw, providerEvaluationCount: tabulated.providerEvaluationCount };
@@ -3908,7 +4017,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
     rawOutput = { raw: tabulated.raw, providerEvaluationCount: tabulated.providerEvaluationCount };
     // The verification's relative difference itself is not reported: it is a last-bits quantity, and captures use the JavaScript
     // engine's own Math functions, so it differs between engines while the results are the same.
-    assume("raw.expectedSignal", "model", { method: "per-site-integrated-electrons", verificationSites: 4, tolerance: TABULATED_RELATIVE_TOLERANCE },
+    assume("raw.expectedSignal", "model", { method: "per-site-integrated-electrons", verificationSites: 4, tolerance: TABULATED_RELATIVE_TOLERANCE, ...(perTapSum ? { sum: "per-tap" } : {}) },
     "Each native site's expected photo electrons are integrated per site when the site is read: the sum over the pixel-aperture nodes, anti-aliasing spots, diffraction taps and spectral nodes " +
       "of each tap's material spectrum against the site's channel response (the display view's expected signal), " +
       "the same quantity the environment chain computes for this still, rectilinear, distortion-free planar scene, formed in another order, so it can differ in the last bits. The sensor stage (dark charge, Poisson draws, " +
@@ -4092,7 +4201,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   };
   if (ahd || neighborHighlights || ((detailRequested || lensCorrection) && !linearPath)) {
     const linear = await developLinearSrgb({ ...development, raw: rawOutput.raw }, rowProgress("development"), ahd ? { yieldControl: (): Promise<void> => yieldControl(), checkAbort, onDemosaicMs: (ms: number): void => { demosaicMs = ms; } } : undefined,
-      neighborModule ? { fast: neighborFast, module: neighborModule } : undefined);
+      neighborModule ? { fast: neighborFast, reconstruct: neighborModule[QK_RECONSTRUCT_HIGHLIGHTS_FROM_NEIGHBORS] } : undefined);
     const rgb = await correctLinear(linear.rgb);
     if (!linearPath) {
       let codes: Uint8Array | Uint16Array, counts: SdrPixelCounts;
@@ -4118,7 +4227,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
     developed = devTask.takeOutput();
   } else {
     // Wide gamut: the native development operator up to linear sRGB/D65 (unclipped), then XYZ → target primaries.
-    const linear = await developLinearSrgb({ ...development, raw: rawOutput.raw }, rowProgress("development"), undefined, neighborModule ? { fast: neighborFast, module: neighborModule } : undefined);
+    const linear = await developLinearSrgb({ ...development, raw: rawOutput.raw }, rowProgress("development"), undefined, neighborModule ? { fast: neighborFast, reconstruct: neighborModule[QK_RECONSTRUCT_HIGHLIGHTS_FROM_NEIGHBORS] } : undefined);
     {
       developed = encodeLinear(await correctLinear(linear.rgb), linear.highlight);
       if (perceptual) {
@@ -4176,7 +4285,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
     ...(distortion ? ["lens.distortion" as const] : []), ...(vignetting ? ["lens.vignetting" as const] : []), ...(lensPsf ? ["lens.psf" as const] : []),
     ...(catalogue ? ["lens.catalogue" as const] : []),
     ...(diffraction ? ["lens.diffraction" as const] : []), ...(defocusSiteKernels || catalogueDefocusApplied ? ["lens.defocus" as const] : []), ...(antiAliasing ? ["sensor.antiAliasing" as const] : []), ...(boxAperture ? ["sensor.pixelAperture.box" as const] : []),
-    ...(temporalSampleCount > 1 ? ["sensor.temporalSampleCount" as const] : []), ...(rotating ? ["motion.rotation" as const] : []), ...(subject ? ["motion.subject" as const] : []),
+    ...(requestedTemporalSampleCount > 1 ? ["sensor.temporalSampleCount" as const] : []), ...(rotating ? ["motion.rotation" as const] : []), ...(subject ? ["motion.subject" as const] : []),
     ...(rollingSchedule ? ["motion.shutter.rolling" as const] : []), ...(mirrorBorder ? ["output.borderHandling.mirror" as const] : []), ...(region ? ["output.region" as const] : []),
     ...(needsAuto ? ["output.whiteBalance.auto" as const] : []), ...(ahd ? ["output.demosaic.ahd" as const] : []),
     ...(highlightMode === "reconstruct" || neighborHighlights ? ["output.highlightMode.reconstruct" as const] : []), ...(wideGamut ? ["output.colorEncoding.wide-gamut" as const] : []),
@@ -4188,7 +4297,8 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
     facadeVersion: SIMULATE_CAPTURE_FACADE_VERSION, engineApiVersion: ENGINE_API_VERSION,
     image: { width: outputWidth, height: outputHeight, format, samples: developed.integerSamples, ...(jpeg ? { jpeg } : {}), ...(png ? { png, colorEncoding: colorEncoding! } : {}), ...(dng ? { dng: dng.bytes } : {}) },
     raw: developed.raw, plan: developmentPlan,
-    ...(region && regionNative ? { region: { ...imageRegion ?? region, frameWidth: width, frameHeight: height, nativeRect: { ...regionNative } } } : {}),
+    ...(region && regionNative ? { region: { ...imageRegion ?? region, frameWidth: width, frameHeight: height, nativeRect: { ...regionNative },
+      fast: Object.values(fastReport.applied).includes(true), requestKey: requestKey! } } : {}),
     request: { environmentRaw: finalRawInput, siteInput, development, whiteBalanceState,
       ...(diffraction ? { diffraction: { profile: diffraction, psf: diffractionPsf!, execution: diffractionObjectSpace ? "object-space-convolution" as const :
         defocusImageSpace ? "image-space-convolution" as const : "environment-psf-quadrature" as const } } : {}) },

@@ -9,11 +9,11 @@ import { scaledTimeout } from "./helpers/test-timeout.js";
 /*
  * #395: one exact-or-fast convention across the engine. The top-level `fast` sets every listed option; an option's record
  * `fast` overrides it for that option; `diagnostics.fast` reports what was requested and what ran. The options in WITH_FAST_METHOD
- * have a fast method (#568, #551; 2.24.0: the box aperture's default samples): every other option must give the exact result, byte
+ * have a fast method (#568, #551; 2.24.0: the box aperture's default samples; 2.28.0: lens.diffraction's default window, #732): every other option must give the exact result, byte
  * for byte, and report `false`; an option with a fast method reports `true` exactly when its effective flag is true.
  */
 /** Options with a fast method. */
-const WITH_FAST_METHOD: readonly SimulateCaptureFastOption[] = ["lens.catalogue", "motion.subject", "sensor.pixelAperture.box"];
+const WITH_FAST_METHOD: readonly SimulateCaptureFastOption[] = ["lens.catalogue", "lens.diffraction", "motion.subject", "sensor.pixelAperture.box"];
 type Options = Record<string, Record<string, unknown> | unknown>;
 // 2.20.0: fast: false here, so a test's own fast overrides an exact request (the format default, fast for sRGB, is tested at the end
 // and in fast-methods-registry.test.ts).
@@ -88,9 +88,10 @@ describe("exact-or-fast flag convention (#395)", () => {
     const result = await simulateCapture(all);
     // motion.subject (#551) has its own cases above; it would multiply this request's scene queries by its temporal midpoints.
     expect(Object.keys(result.diagnostics.fast.applied)).toEqual(RECORD_OPTIONS.filter((option) => option !== "lens.catalogue" && option !== "motion.subject"));
-    // 2.24.0: the box's default 4 samples per axis is its fast method; the others run exact.
-    const onlyBox = (applied: Readonly<Record<string, boolean | undefined>>): void => { for (const [option, value] of Object.entries(applied)) expect(value, option).toBe(option === "sensor.pixelAperture.box"); };
-    onlyBox(result.diagnostics.fast.applied);
+    // 2.24.0: the box's default 4 samples per axis is its fast method; 2.28.0 (#732): the diffraction window; the others run exact.
+    const only = (applied: Readonly<Record<string, boolean | undefined>>, ran: readonly string[]): void => { for (const [option, value] of Object.entries(applied)) expect(value, option).toBe(ran.includes(option)); };
+    const onlyBox = (applied: Readonly<Record<string, boolean | undefined>>): void => only(applied, ["sensor.pixelAperture.box"]);
+    only(result.diagnostics.fast.applied, ["lens.diffraction", "sensor.pixelAperture.box"]);
     // With anti-aliasing (off the site centres) the catalogue's fast method does not apply, so it reports false.
     // An 8 × 8 region at an 80 nm spectral step keeps the exact catalogue quadrature (every tap a scene query) affordable on CI runners.
     const catalogue = await simulateCapture(request({ lens: { catalogue: "pv-50-1.8", fNumber: 8 }, sensor: { pixelPitchMicrometers: 750, spectralStepNanometers: 80, antiAliasing: { kind: "four-spot" }, pixelAperture: "box" },
@@ -120,11 +121,14 @@ describe("exact-or-fast flag convention (#395)", () => {
     const view = { width: 16, height: 12 };
     const exact = await simulateDisplayView(request(FORMS["lens.diffraction"].shorthand), view);
     const fast = await simulateDisplayView(request({ ...FORMS["lens.diffraction"].record(true) }), view);
-    expect(samples(fast)).toEqual(samples(exact));
+    // #732: the record's fast takes the second-ring window, a fast method; an explicit kernelRadiusSamples is exact.
+    const explicit = await simulateDisplayView(request({ lens: { diffraction: { kind: "circular-aperture", fast: true, kernelRadiusSamples: 2 } } }), view);
+    expect(samples(explicit)).toEqual(samples(await simulateDisplayView(request({ lens: { diffraction: { kind: "circular-aperture", kernelRadiusSamples: 2 } } }), view)));
+    expect(explicit.diagnostics.fast).toMatchObject({ requested: true, applied: { "lens.diffraction": false }, assurance: "engine-reference" });
     // #481: a display view's report also carries `execution`, where the render ran; the CPU reference here (simulateDisplayView has no GPU option).
     const execution = { gpu: "off", backend: "cpu-reference", requestedBackend: "cpu-reference", fallbackReason: null, assurance: "engine-reference", fast: false };
     expect(exact.diagnostics.fast).toMatchObject({ requested: false, applied: { "lens.diffraction": false }, assurance: "engine-reference", execution });
-    expect(fast.diagnostics.fast).toMatchObject({ requested: true, applied: { "lens.diffraction": false }, assurance: "engine-reference", execution });
+    expect(fast.diagnostics.fast).toMatchObject({ requested: true, applied: { "lens.diffraction": true }, assurance: "approximation-with-a-priori-bound", execution });
     expect(Object.keys(exact.diagnostics.fast).sort()).toEqual(["applied", "assurance", "defaultedFrom", "execution", "requested"]);
   }, scaledTimeout(120_000));
 

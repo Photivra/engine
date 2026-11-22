@@ -4,10 +4,10 @@ The package and root API versions are recorded once in [Navigation](../API_REFER
 
 ## SIMULATE_CAPTURE_FAST_METHODS
 
-2.20.0: every speed-versus-accuracy choice of the capture facade and the display view (see the module comment).
+2.20.0: every speed-versus-accuracy choice of the capture facade and the display view (see the module comment); #683: frozen all the way down.
 
 ```ts
-SIMULATE_CAPTURE_FAST_METHODS: readonly SimulateCaptureFastMethod[] = Object.freeze([
+SIMULATE_CAPTURE_FAST_METHODS: readonly SimulateCaptureFastMethod[] = freezeOwnedData([
   { id: "lens.catalogue/field-grid", override: "lens.catalogue", methods: "fast-and-exact", runs: ["simulateCapture"],
     fast: "#568: the PSF blended over a field grid, with each site's expected electrons integrated from its taps' material spectra at use, verified per CFA phase against the exact chain; #629: with the box pixel aperture, each lattice point's box-integrated spectral radiance and one kernel per site",
     exact: "the environment PSF quadrature with the PSF resolved at each query point", followsFormatDefault: true,
@@ -28,10 +28,18 @@ SIMULATE_CAPTURE_FAST_METHODS: readonly SimulateCaptureFastMethod[] = Object.fre
     fast: "#655: on the CPU, with a chart or material scene, a site whose every kernel tap reads one material takes the field factor to second order about the site (its zone kernel's sum and first and second moments per spectral node; measured within 2.7·10⁻⁸ relative of the full method on every catalogue lens)",
     exact: "every kernel tap with its own field factor", followsFormatDefault: true,
     resolver: { file: CAPTURE, call: "catalogueFastRequested && provider.chartMaterialAt !== undefined" }, report: { applied: "lens.catalogue", assumption: "view.lensPsf" } },
+  { id: "lens.catalogue/view-offset-expansion", override: "lens.catalogue", methods: "fast-and-exact", runs: ["simulateDisplayView", "prepareDisplayView"],
+    fast: "#685: on the CPU, with a chart or material scene and more than one query offset (the box pixel aperture, the four-spot filter), each offset's plane point and field factor to second order about its nearest site centre (from the 3 × 3 mapped site centres) instead of one lens mapping per offset, and a lattice point whose offsets read one material takes (Σ w·F)·L once; not for fisheyes",
+    exact: "each query offset through the lens (one mapping per offset), its spectrum added in offset order", followsFormatDefault: true,
+    resolver: { file: CAPTURE, call: "catalogueFastRequested && provider.chartMaterialAt !== undefined" }, report: { applied: "lens.catalogue", assumption: "view.lensPsf" } },
   { id: "lens.catalogue/flare-veil-mean", override: "lens.catalogue", methods: "fast-and-exact", runs: ["simulateCapture", "simulateDisplayView", "prepareDisplayView"],
     fast: "#632: with flare, the veiling glare's frame mean read on every n-th site per axis, n = ⌈√(W·H / 65,536)⌉ (at most about 65,536 lattice points)",
     exact: "the mean over every native site; with flare an exact capture's per-site signal takes each site's exact kernels", followsFormatDefault: true,
     resolver: { file: CAPTURE, call: "resolveFast(catalogueFast, fastTop)" }, report: { assumption: "lens.catalogue.flare" } },
+  { id: "lens.diffraction/kernel-window", override: "lens.diffraction", methods: "fast-and-exact", runs: ["simulateCapture", "simulateDisplayView", "prepareDisplayView"],
+    fast: "#732: without kernelRadiusSamples, the Airy kernel window reaches the second dark ring at the longest spectral node (where that is fewer sites than the third), within an a-priori bound",
+    exact: "the window reaches the third dark ring at the longest node (capped at 32 sites); an explicit kernelRadiusSamples always wins", followsFormatDefault: true,
+    resolver: { file: CAPTURE, call: "resolveFast(diffractionFast, fastTop)" }, report: { applied: "lens.diffraction", assumption: "fast.lens.diffraction" } },
   { id: "lens.diffraction/rolling-shutter-taps", override: "lens.diffraction", methods: "fast-and-exact", runs: ["simulateCapture"],
     fast: "#565: under rolling-shutter rotation (#551: or subject motion), each PSF tap reads the scene at its own source point",
     exact: "each tap reads the scene at its site-lattice point (ties on chart boundaries resolve as on the lattice)", followsFormatDefault: true,
@@ -48,18 +56,10 @@ SIMULATE_CAPTURE_FAST_METHODS: readonly SimulateCaptureFastMethod[] = Object.fre
     fast: "(H2) a quarter of the samples per axis in display pixels whose pilot finds no detail",
     exact: "the full samples per axis in every display pixel", followsFormatDefault: true,
     resolver: { file: CAPTURE, call: "uniformSampling: fastTop" }, report: { assumption: "view.estimation" } },
-  { id: "lens.defocus/view-regrouped", override: "fast", methods: "fast-and-exact", runs: ["simulateDisplayView", "prepareDisplayView"],
-    fast: "#612: on the CPU, a geometric disc much wider than the diffraction kernel ((2R_c + 1)² > 4·(2R_f + 1)²) applied after each channel's in-focus signal, by runs: the same sum regrouped, equal to rounding; #642: only for a render whose region costs less that way (a whole view or a large region; a small region keeps the combined kernels)",
-    exact: "each spectral node's diffraction kernel convolved with the disc, read per site (the GPU's kernels)", followsFormatDefault: true,
-    resolver: { file: CAPTURE, call: "defocusRegrouped: fastTop" }, report: { assumption: "view.defocus" } },
   { id: "motion.shutter.rolling/view-row-bands", override: "fast", methods: "fast-and-exact", runs: ["simulateDisplayView", "prepareDisplayView"],
     fast: "#651: on the CPU, with camera rotation under a rolling shutter and the defocus disc regrouped, rows in fixed bands of at most 63 (odd) that read the scene, for every render of the request, at their middle row's instants (the in-focus image shifts by at most 1/128 site; view.defocus rollingBands)",
     exact: "every row at its own instants, regrouped by rows: the same sum as each tap at the site's instants", followsFormatDefault: true,
     resolver: { file: CAPTURE, call: "rollingBands: fastTop" }, report: { assumption: "view.defocus" } },
-  { id: "chart.signal/view-per-tap", override: "fast", methods: "fast-and-exact", runs: ["simulateDisplayView", "prepareDisplayView"],
-    fast: "#643: on the CPU, a chart site whose kernel taps read more than one material adds its taps in order, each integrated from its material's spectrum per spectral node: the same sum regrouped, equal to rounding",
-    exact: "per-material sums of the taps' kernels, each integrated from its material's spectrum (2.21.0–2.25.0)", followsFormatDefault: true,
-    resolver: { file: CAPTURE, call: "perTapSum: fastTop" }, report: { assumption: "view.signal" } },
   { id: "prepareDisplayView.gpu", override: "fast", methods: "fast-and-exact", runs: ["prepareDisplayView"],
     fast: "gpu \"auto\": WebGPU float32 where a conforming device supports the request (a bounded approximation), else the CPU reference",
     exact: "gpu \"off\": the CPU reference; an explicit gpu wins", followsFormatDefault: true,

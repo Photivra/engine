@@ -34,7 +34,7 @@ import {
   parseSensorColorSamplingProfile,
   type SensorColorSamplingProfile
 } from "./color-sampling.js";
-import { requireInputKeys, rejectUnknownVariantFields, UNCERTAINTY_VARIANT_FIELDS, requireConfigRecord as requireRecord, requireConfigString as requireNonEmptyString, parseConfigScientificStatus as parseScientificStatus, requireConfigFiniteNumber as requireFinite, requireConfigFraction as requireFraction, requireConfigNumberAboveZero as requirePositiveFinite } from "../core/record-validation.js";
+import { requireInputKeys, rejectUnknownFields, rejectUnknownVariantFields, UNCERTAINTY_VARIANT_FIELDS, requireConfigRecord as requireRecord, requireConfigString as requireNonEmptyString, parseConfigScientificStatus as parseScientificStatus, requireConfigFiniteNumber as requireFinite, requireConfigFraction as requireFraction, requireConfigNumberAboveZero as requirePositiveFinite } from "../core/record-validation.js";
 
 type UnknownRecord = Record<string, unknown>;
 
@@ -268,7 +268,8 @@ function requireReusableCurveEvidence(
   return evidence;
 }
 
-function parseUncertainty(
+/** The relative / not-quantified uncertainty record; shared by the sensor response, charge, capacity and dark-current parsers. */
+export function parseUncertainty(
   value: unknown,
   path: string
 ): SensorSpectralResponseUncertainty {
@@ -311,7 +312,8 @@ function parseUncertainty(
   );
 }
 
-function parseReferenceConditions(
+/** Parses a reference or operating conditions record (temperature, incidence angle 0 to 90 degrees, polarization); shared by the response, application and operating-range parsers. */
+export function parseReferenceConditions(
   value: unknown,
   path: string
 ): SensorSpectralReferenceConditions {
@@ -646,7 +648,14 @@ function usableRange(
   return { minimum, maximum };
 }
 
-function parseChannelResponse(
+/** sensor-13: a channel record may carry only its own kind's fields (a field of another kind is refused, not dropped). */
+function parseChannelResponse(value: unknown, path: string): SensorSpectralChannelResponse {
+  const parsed = parseChannelResponseFields(value, path);
+  rejectUnknownFields(value as object, Object.keys(parsed), path);
+  return parsed;
+}
+
+function parseChannelResponseFields(
   value: unknown,
   path: string
 ): SensorSpectralChannelResponse {

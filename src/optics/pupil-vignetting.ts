@@ -341,13 +341,26 @@ export function calculateMechanicalVignetting(
   });
 
   const pupilArea = Math.PI * pupilRadius * pupilRadius;
-  const polygon = intersectionPolygon(circles, samples);
-  const geometry = polygon.length >= 3 ? polygonAreaAndCentroid(polygon) : undefined;
+  // An open area within 1e-12 of the pupil's is rounding at tangency: fully vignetted (2.28.0, optics-16).
+  const negligibleArea = 1e-12 * pupilArea;
+  let polygon = intersectionPolygon(circles, samples);
+  let geometry = polygon.length >= 3 ? polygonAreaAndCentroid(polygon) : undefined;
+  if (geometry !== undefined && !(geometry.area > negligibleArea)) {
+    polygon = [];
+    geometry = undefined;
+  }
   let openArea: number;
   let areaMethod: MechanicalVignetting["areaMethod"];
   if (circles.length === 2) {
     const other = circles[1]!;
-    openArea = circleIntersectionArea(pupilRadius, other.r, Math.hypot(other.x, other.y));
+    const distance = Math.hypot(other.x, other.y);
+    openArea = circleIntersectionArea(pupilRadius, other.r, distance);
+    // Within rounding of external tangency the lens-area formula is all cancellation.
+    if (distance >= (pupilRadius + other.r) * (1 - 1e-12) || !(openArea > negligibleArea)) {
+      openArea = 0;
+      polygon = [];
+      geometry = undefined;
+    }
     areaMethod = "exact-circle-circle-intersection";
   } else {
     openArea = geometry?.area ?? 0;

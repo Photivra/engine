@@ -89,40 +89,62 @@ export function radialInverseNewtonRadius(d: number, profile: ValidatedRadialPro
 }
 
 /**
+ * The radial scale s(r) of the source point of distorted point (x, y) mm by {@link radialInverseNewtonRadius}, with its distorted
+ * radius Math.hypot(x, y) in `radius[0]` and the normalized source radius in `radius[1]`; NaN where the bisection must decide (see the module comment).
+ */
+function newtonScale(x: number, y: number, profile: ValidatedRadialProfile, radius: Float64Array): number {
+  if (typeof x !== "number" || typeof y !== "number" || !Number.isFinite(x) || !Number.isFinite(y)) return NaN;
+  const { k1, k2, k3 } = profile.coefficients;
+  const d = (radius[0] = Math.hypot(x, y)) / profile.normalizationRadiusMm;
+  if (k1 === 0 && k2 === 0 && k3 === 0) return NaN;
+  // Within the mapped radius (no clamping to the boundary): the bisection's tolerance test cannot be reached from here.
+  if (!(d < profile.maximumMappedNormalizedRadius - Number.EPSILON * MAPPED_RADIUS_TOLERANCE_ULPS * Math.max(1, d, profile.maximumMappedNormalizedRadius))) return NaN;
+  const r = radius[1] = radialInverseNewtonRadius(d, profile);
+  return r === r ? scaleOf(r, k1, k2, k3) : NaN;
+}
+const radiusOut = new Float64Array(2);
+
+/**
  * `calculateInverseRadialSourcePointValue` (radial-distortion.ts) with the normalized radius from {@link radialInverseNewtonRadius}:
  * the same fields, formed with the same arithmetic from that radius, and the bisection's own result wherever the Newton method
  * does not apply.
  */
 export function calculateInverseRadialSourcePointNewton(distortedImagePointMm: LensFieldPointMm, profile: ValidatedRadialProfile, pointPath: string): InverseRadialSourcePointValue {
-  const { x, y } = distortedImagePointMm;
-  if (typeof x !== "number" || typeof y !== "number" || !Number.isFinite(x) || !Number.isFinite(y)) return calculateInverseRadialSourcePointValue(distortedImagePointMm, profile, pointPath);
-  const { k1, k2, k3 } = profile.coefficients;
-  const d = Math.hypot(x, y) / profile.normalizationRadiusMm;
-  if (k1 === 0 && k2 === 0 && k3 === 0) return calculateInverseRadialSourcePointValue(distortedImagePointMm, profile, pointPath);
-  // Within the mapped radius (no clamping to the boundary): the bisection's tolerance test cannot be reached from here.
-  if (!(d < profile.maximumMappedNormalizedRadius - Number.EPSILON * MAPPED_RADIUS_TOLERANCE_ULPS * Math.max(1, d, profile.maximumMappedNormalizedRadius)))
-    return calculateInverseRadialSourcePointValue(distortedImagePointMm, profile, pointPath);
-  const r = radialInverseNewtonRadius(d, profile);
-  if (!(r === r)) return calculateInverseRadialSourcePointValue(distortedImagePointMm, profile, pointPath);
-  const scale = scaleOf(r, k1, k2, k3);
-  return { sourceImagePointMm: { x: x / scale, y: y / scale }, distortedNormalizedRadius: d, sourceNormalizedRadius: r, radialScaleAtSource: scale };
+  const { x, y } = distortedImagePointMm, scale = newtonScale(x, y, profile, radiusOut);
+  if (!(scale === scale)) return calculateInverseRadialSourcePointValue(distortedImagePointMm, profile, pointPath);
+  return { sourceImagePointMm: { x: x / scale, y: y / scale }, distortedNormalizedRadius: radiusOut[0]! / profile.normalizationRadiusMm, sourceNormalizedRadius: radiusOut[1]!, radialScaleAtSource: scale };
 }
 
 /**
  * `undistortedImagePoint` (sensor-environment-query.ts) with {@link calculateInverseRadialSourcePointNewton} for a radial profile:
  * the ideal image point of a physical sensor point (+X right, +Y up, mm) and the distortion area factor, with the same arithmetic.
  * Brown–Conrady and identity mappings take `undistortedImagePoint` itself.
+ *
+ * #685: with `out`, nothing is allocated where the Newton method applies: the ideal x and y, the area factor and the point's radius
+ * Math.hypot(x, y) are written to out[0..3] and the result is undefined; elsewhere (the bisection, Brown–Conrady, identity) the
+ * result is returned as without `out`.
  */
-export function undistortedImagePointNewton(prepared: PreparedEnvironmentLensFieldMapping, imagePointMm: { x: number; y: number }): { ideal: { x: number; y: number }; distortionAreaFactor: number } {
+export function undistortedImagePointNewton(prepared: PreparedEnvironmentLensFieldMapping, imagePointMm: { x: number; y: number }): { ideal: { x: number; y: number }; distortionAreaFactor: number };
+export function undistortedImagePointNewton(prepared: PreparedEnvironmentLensFieldMapping, imagePointMm: { x: number; y: number }, out: Float64Array):
+  { ideal: { x: number; y: number }; distortionAreaFactor: number } | undefined;
+export function undistortedImagePointNewton(prepared: PreparedEnvironmentLensFieldMapping, imagePointMm: { x: number; y: number }, out?: Float64Array):
+  { ideal: { x: number; y: number }; distortionAreaFactor: number } | undefined {
   const radial = prepared.radial;
   if (radial === undefined) return undistortedImagePoint(prepared, imagePointMm);
-  const ideal = calculateInverseRadialSourcePointNewton(imagePointMm, radial, "sourcePointNativeSensorMm").sourceImagePointMm;
+  const { x, y } = imagePointMm, s = newtonScale(x, y, radial, radiusOut);
+  let ix: number, iy: number;
+  if (s === s) { ix = x / s; iy = y / s; } else {
+    const p = calculateInverseRadialSourcePointValue(imagePointMm, radial, "sourcePointNativeSensorMm").sourceImagePointMm;
+    ix = p.x; iy = p.y;
+  }
   // As undistortedImagePoint: det = s (s + r ds/dr) with r ds/dr = 2 r² s'(r²).
   const { k1, k2, k3 } = radial.coefficients;
-  const r2 = (ideal.x*ideal.x+ideal.y*ideal.y)/radial.normalizationRadiusMm**2;
+  const r2 = (ix*ix+iy*iy)/radial.normalizationRadiusMm**2;
   const scale = 1+k1*r2+k2*r2*r2+k3*r2*r2*r2;
   const radialDerivative = 1+3*k1*r2+5*k2*r2*r2+7*k3*r2*r2*r2;
   const distortionAreaFactor = 1/(scale*radialDerivative);
   if (!(distortionAreaFactor > 0) || !Number.isFinite(distortionAreaFactor)) throw new InvalidScientificInputError("Distortion area factor must remain finite and positive.");
-  return { ideal, distortionAreaFactor };
+  if (!out || !(s === s)) return { ideal: { x: ix, y: iy }, distortionAreaFactor };
+  out[0] = ix; out[1] = iy; out[2] = distortionAreaFactor; out[3] = radiusOut[0]!;
+  return undefined;
 }

@@ -847,3 +847,12 @@ describe(
     });
   }
 );
+
+describe("nested input errors (sensor-11, #701)", () => {
+  const domain = expect.objectContaining({ name: expect.stringMatching(/^Invalid(Configuration|ScientificInput)Error$/) });
+  it("rejects a missing exposure binding or rate identity with a domain error", () => {
+    expect(() => integrateStationarySensorRateOverLocalExposure({ rate: eqeRate(), exposureBinding: undefined as never, stationarityProfile: stationarity() })).toThrow(domain);
+    const noIdentity: Record<string, unknown> = { ...binding() }; delete noIdentity.rateIdentity;
+    expect(() => integrateStationarySensorRateOverLocalExposure({ rate: eqeRate(), exposureBinding: noIdentity as never, stationarityProfile: stationarity() })).toThrow(domain);
+  });
+});

@@ -183,3 +183,10 @@ describe("rolling-shutter flicker banding", () => {
     for (const value of flat) expect(value).toBeCloseTo(1, 4);
   });
 });
+
+describe("schedule constructor (sensor-21, #701)", () => {
+  it("refuses an unknown shutter mechanism", () => {
+    const schedule = rollingSchedule("top-to-bottom", .02, .008);
+    expect(() => createRollingShutterCaptureExposureSchedule({ ...schedule, shutterMechanism: "bogus" as never })).toThrow("shutterMechanism is invalid.");
+  });
+});

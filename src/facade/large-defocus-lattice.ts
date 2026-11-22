@@ -43,20 +43,25 @@ export function createLargeDefocusNodeLattice(input: { kernel: LargeDefocusKerne
   // The diffraction gather over the D-convolved values: tile plus Rd on each side, read from the fixed run tiles.
   const Rd = diffraction.radius, gridWidth = T + 2 * Rd;
   const taps = wavelengthsNm.map((nm) => kernelTaps(checkedSiteKernel(diffraction.kernelAt(nm), Rd), Rd, gridWidth));
-  return createSiteKernelLatticeFromTiles(nodes, T, share, (tx, ty, node) => {
-    // The tile plus Rd on each side, copied row segment by row segment from the run tiles it overlaps.
-    const grid = new Float64Array(gridWidth * gridWidth), x0 = tx * T - Rd, y0 = ty * T - Rd;
+  // #734: a diffraction tile is computed for every node in one pass, so each run tile it overlaps is read once (all its fields),
+  // not once per node: with fewer run tiles cached than the 9 a diffraction tile overlaps, a read per node recomputed them all.
+  return createSiteKernelLatticeFromTiles(nodes, T, share, (tx, ty) => {
+    // The tile plus Rd on each side, per node, copied row segment by row segment from the run tiles it overlaps.
+    const grids = Array.from({ length: nodes }, () => new Float64Array(gridWidth * gridWidth)), x0 = tx * T - Rd, y0 = ty * T - Rd;
     for (let by = Math.floor(y0 / T); by * T < y0 + gridWidth; by++) for (let bx = Math.floor(x0 / T); bx * T < x0 + gridWidth; bx++) {
-      const values = blurred.tileAt(bx, by)[node]!, ax = Math.max(x0, bx * T), ex = Math.min(x0 + gridWidth, (bx + 1) * T);
-      for (let y = Math.max(y0, by * T); y < Math.min(y0 + gridWidth, (by + 1) * T); y++)
-        grid.set(values.subarray((y - by * T) * T + ax - bx * T, (y - by * T) * T + ex - bx * T), (y - y0) * gridWidth + ax - x0);
+      const tile = blurred.tileAt(bx, by), ax = Math.max(x0, bx * T), ex = Math.min(x0 + gridWidth, (bx + 1) * T);
+      for (let node = 0; node < nodes; node++) {
+        const values = tile[node]!, grid = grids[node]!;
+        for (let y = Math.max(y0, by * T); y < Math.min(y0 + gridWidth, (by + 1) * T); y++)
+          grid.set(values.subarray((y - by * T) * T + ax - bx * T, (y - by * T) * T + ex - bx * T), (y - y0) * gridWidth + ax - x0);
+      }
     }
-    return gatherInterior(grid, taps[node]!, gridWidth, T, T, Rd);
+    return grids.map((grid, node) => gatherInterior(grid, taps[node]!, gridWidth, T, T, Rd));
   });
 }
 
-/** A lattice of `fields` values per point from fixed T × T tiles computed by `compute`, least recently used dropped beyond `bytes`. */
-function createSiteKernelLatticeFromTiles(fields: number, T: number, bytes: number, compute: (tx: number, ty: number, field: number) => Float64Array): LargeDefocusNodeLattice {
+/** A lattice of `fields` values per point from fixed T × T tiles (every field of a tile computed by one `compute`), least recently used dropped beyond `bytes`. */
+function createSiteKernelLatticeFromTiles(fields: number, T: number, bytes: number, compute: (tx: number, ty: number) => Float64Array[]): LargeDefocusNodeLattice {
   const cache = new Map<number, Float64Array[]>(), capacity = Math.max(1, Math.floor(bytes / (fields * T * T * 8)));
   return {
     valueAt(field, x, y): number {
@@ -64,7 +69,7 @@ function createSiteKernelLatticeFromTiles(fields: number, T: number, bytes: numb
       let values = cache.get(key);
       if (values) { cache.delete(key); cache.set(key, values); }
       else {
-        values = Array.from({ length: fields }, (_, f) => compute(tx, ty, f));
+        values = compute(tx, ty);
         cache.set(key, values);
         if (cache.size > capacity) cache.delete(cache.keys().next().value!);
       }

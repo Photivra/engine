@@ -43,6 +43,15 @@ export function floorWholePixels(length: number): number {
   );
 }
 
+/**
+ * A pixel count within the same tolerance of a whole number, as that whole number; any other count unchanged. For counts
+ * derived from exact sizes through binary64 unit conversions (30.48 cm / 25.4 × 300 = 3600.0000000000005). Internal.
+ */
+export function snapWholePixels(count: number): number {
+  const whole = Math.round(count);
+  return Math.abs(whole - count) <= WHOLE_PIXEL_SNAP_ULPS * Number.EPSILON * count ? whole : count;
+}
+
 export interface CalculateCenteredCropInput {
   /** Original image width in pixels. */
   pixelWidth: number;

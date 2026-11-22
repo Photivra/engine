@@ -28,6 +28,7 @@ import {
   calculateCaptureExposureWindows,
   parseBoundarySchedule,
   parseSecondsFact,
+  validateShutterMechanism,
   type CalculateCaptureExposureWindowsInput,
   type ExposureBoundarySchedule,
   type UniformLinearExposureBoundarySchedule,
@@ -493,6 +494,7 @@ export function createRollingShutterCaptureExposureSchedule(
   const record = requireRecord(schedule, "rollingShutterSchedule", ["modelId", "modelVersion", "shutterMechanism",
     "nominalExposureDurationSeconds", "opening", "closing", "linkage", "lineScanSkewSeconds", "localExposureDurationSeconds",
     "limitations"]);
+  validateShutterMechanism(record.shutterMechanism);
   parseSecondsFact(record.nominalExposureDurationSeconds, "rollingShutterSchedule.nominalExposureDurationSeconds");
   parseBoundarySchedule(record.opening, "rollingShutterSchedule.opening");
   parseBoundarySchedule(record.closing, "rollingShutterSchedule.closing");

@@ -17,12 +17,13 @@
  * @see docs/PROCESSING.md for equations, sources and limits.
  */
 
+import { InvalidScientificInputError, InvalidScientificResultError } from "../core/validation.js";
 import {
   autoLevels, collapse, collapseRows, convolveRows, convolveSeparable, gaussianKernel, gaussianPyramid, gaussianPyramidRows, laplacianPyramid,
   laplacianPyramidRows, luminanceWeights, pyramidBytes, reflect
 } from "./image-ops.js";
 import {
-  createProcessingTask, finiteRows, maximumWorkingBytes, optionalFiniteIn, optionalIntegerIn, processingProvenance, requireEnum, requireImage,
+  createProcessingTask, finiteRows, maximumWorkingBytes, requireFiniteOutput, optionalFiniteIn, optionalIntegerIn, processingProvenance, requireEnum, requireImage,
   requireImageList, requireOptions,
   type ProcessingBody, type ProcessingLinearColorSpace, type ProcessingProvenance, type ProcessingProvider, type ProcessingRgbImage, type ProcessingTask
 } from "./processing-task.js";
@@ -82,6 +83,7 @@ export function createReinhardGlobalToneMappingTask(input: ReinhardGlobalToneMap
           const l = scale * lw, ld = l * (1 + l / (lWhite * lWhite)) / (1 + l), ratio = ld / lw;
           for (let c = 0; c < 3; c++) { const v = (out[i + c] = Math.max(0, d[i + c]!) * ratio); if (v > 1) above++; }
         }
+        requireFiniteOutput(out, y * stride, (y + 1) * stride, "Reinhard tone mapping (whiteLuminance)");
         yield;
       }
       return { width: image.width, height: h, data: out, aboveOneSampleCount: above, logAverageLuminance: logAverage, whiteLuminance: lWhite,
@@ -132,11 +134,12 @@ export function createDurandDorseyToneMappingTask(input: DurandDorseyToneMapping
   const z = optionalIntegerIn(r.downsampleFactor, Math.max(1, Math.round(sigmaS / 4)), "downsampleFactor", 1, 1024);
   const cw = Math.ceil(W / z), ch = Math.ceil(H / z), kernel = gaussianKernel(sigmaS / z);
   const [wr, wg, wb] = luminanceWeights(space);
-  // Node count depends on the data range; the plan bounds it by the float32 log₁₀ range (≈ 90 decades).
-  const maxNodes = Math.ceil(90 / sigmaR) + 2;
+  // Node count depends on the data range; the plan bounds it by the float32 log₁₀ range (≈ 90 decades) and by 4096 planes,
+  // and the body refuses data that would need more nodes than that (capture-11) rather than spacing them wider than σ_r.
+  const maxNodes = Math.min(4096, Math.ceil(90 / sigmaR) + 2);
   const nodeRows = 2 * convolveRows(ch) + ch;
   return createProcessingTask({
-    provider, totalTileCount: 4 * H + ch + maxNodes * nodeRows, estimatedWorkingBytes: n * (3 * 4 + 4 + 4) + cw * ch * 4 * 6 + Math.min(maxNodes, 4096) * cw * ch * 4,
+    provider, totalTileCount: 4 * H + ch + maxNodes * nodeRows, estimatedWorkingBytes: n * (3 * 4 + 4 + 4) + cw * ch * 4 * 6 + maxNodes * cw * ch * 4,
     maximumWorkingBytes: maximumWorkingBytes(r.maximumWorkingBytes),
     body: function* (): ProcessingBody<DurandDorseyToneMappingOutput> {
       yield* finiteRows(image.data, W, H, 3, "image");
@@ -167,7 +170,8 @@ export function createDurandDorseyToneMappingTask(input: DurandDorseyToneMapping
       }
       for (let i = 0; i < n; i++) if (logL[i]! > -Infinity) { lo = Math.min(lo, logL[i]!); hi = Math.max(hi, logL[i]!); }
       if (!(hi >= lo)) { lo = 0; hi = 0; } // all-zero image
-      const nodes = hi > lo ? Math.min(maxNodes, Math.ceil((hi - lo) / sigmaR) + 1) : 1;
+      const nodes = hi > lo ? Math.ceil((hi - lo) / sigmaR) + 1 : 1;
+      if (nodes > maxNodes) throw new InvalidScientificInputError("rangeSigmaLog10 is too small for this image's luminance range (more than " + maxNodes + " intensity nodes).");
       const step = nodes > 1 ? (hi - lo) / (nodes - 1) : 0, J: Float32Array[] = [];
       const g = new Float32Array(cw * ch), hgt = new Float32Array(cw * ch), tmp = new Float32Array(cw * ch), gs = new Float32Array(cw * ch), hs = new Float32Array(cw * ch);
       for (let j = 0; j < maxNodes; j++) {
@@ -218,6 +222,7 @@ export function createDurandDorseyToneMappingTask(input: DurandDorseyToneMapping
           const ratio = 10 ** (base[i]! * factor + (logL[i]! - base[i]!) - offset) / lw;
           for (let c = 0; c < 3; c++) { const v = (out[3 * i + c] = Math.max(0, d[3 * i + c]!) * ratio); if (v > 1) above++; }
         }
+        requireFiniteOutput(out, 3 * y * W, 3 * (y + 1) * W, "Durand-Dorsey tone mapping");
         yield;
       }
       return { width: W, height: H, data: out, baseLog10: base, compressionFactor: factor, aboveOneSampleCount: above,
@@ -286,6 +291,7 @@ export function createExposureFusionTask(input: ExposureFusionInput, provider: P
         for (let i = y * W; i < (y + 1) * W; i++) {
           let sum = 0;
           for (const w of weights) sum += w[i]!;
+          if (!(sum < Infinity)) throw new InvalidScientificResultError("Exposure fusion gives a non-finite weight; check contrastExponent, saturationExponent and wellExposednessExponent against the frame values.");
           for (const w of weights) w[i] = w[i]! / sum;
         }
         yield;
@@ -303,6 +309,7 @@ export function createExposureFusionTask(input: ExposureFusionInput, provider: P
       const fused = yield* collapse({ levels: acc!, sizes, channels: 3 });
       let clipped = 0;
       for (let y = 0; y < H; y++) {
+        requireFiniteOutput(fused, 3 * y * W, 3 * (y + 1) * W, "Exposure fusion");
         for (let i = 3 * y * W; i < 3 * (y + 1) * W; i++) {
           const v = fused[i]!;
           if (v < 0) { fused[i] = 0; clipped++; } else if (v > 1) { fused[i] = 1; clipped++; }

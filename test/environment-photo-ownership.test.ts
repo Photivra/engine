@@ -54,3 +54,8 @@ it("re-parses caller PSF profiles on every resolve and caches only registered en
   expect(() => resolveLensSampledPsf({ ...query, profile: invalid as unknown as typeof p.profile })).toThrow("lensPsfProfile.schemaVersion");
   expect(Object.isFrozen(invalid)).toBe(false);
 });
+
+it("rejects a null sensor record with a domain error (sensor-11, #701)", () => {
+  const data: Record<string, unknown> = { ...siteInput(undefined, false) }; delete data.evaluateRadiance;
+  expect(() => planEnvironmentSensorPhotoSignal({ ...data, sensor: null } as never)).toThrow(expect.objectContaining({ name: "InvalidScientificInputError" }));
+});

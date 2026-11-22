@@ -90,4 +90,24 @@ describe("deterministic linear uint16 encoding", () => {
       storage: { kind: "external-float32", byteOrder: "little-endian", artifactId: "external", sha256: "a".repeat(64), sampleCount: 6 } }] });
     expect(() => calculateLinearCaptureEncoding(input)).toThrow();
   });
+  // #718: with white code 65535 the largest code is reference white itself; 65535 / (65535 / 0.9) is one ulp below 0.9.
+  it("encodes a full-scale white code for any reference white", () => {
+    const plane = (white: number, samples: number[], e: Partial<LinearCaptureEncoding> = {}): LinearCaptureEncodingInput => {
+      const input = request(samples);
+      input.capture = parseSimulatedCapture({ ...input.capture, planes: [{ ...input.capture.planes[0]!, referenceWhiteValue: white }] });
+      input.encoding = { ...encoding, referenceWhiteCode: 65535, ...e };
+      return input;
+    };
+    const r = calculateLinearCaptureEncoding(plane(0.9, [0, 0.45, 0.9, 0.9, 1, -1])).value;
+    expect(r.samples).toEqual([0, 32768, 65535, 65535, 65535, 0]);
+    expect(r.maximumRepresentableValue).toBe(0.9); expect(r.clippedHighSampleCount).toBe(1);
+    expect(calculateLinearCaptureEncoding(plane(2, [0.01, 1, 2, 2, 0, 0], { blackValue: 0.01 })).value.samples.slice(0, 3)).toEqual([0, 32603, 65535]);
+    expect(calculateLinearCaptureEncoding(plane(1, [0.01, 1, 0, 0, 0, 0], { blackValue: 0.01, blackCode: 64 })).value.samples.slice(0, 2)).toEqual([64, 65535]);
+    let seed = 718;
+    const next = (): number => { seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0; return seed / 2 ** 32; };
+    for (let i = 0; i < 1000; i++) {
+      const white = Math.round(1 + next() * 99_999) / 10_000;
+      expect(calculateLinearCaptureEncoding(plane(white, [0, white, white / 2, 0, 0, 0])).value.samples[1]).toBe(65535);
+    }
+  });
 });

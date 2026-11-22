@@ -8,8 +8,9 @@
  * lens's Seidel wavefront (`resolveGenericLens`; the expansion of `createWavefrontPupilGrid`, Hopkins 1950; Wyant & Creath
  * 1992), propagated to the thin-lens image distance z (working f-number z/D; Goodman, Introduction to Fourier Optics, ch. 4-6).
  * U(x) = Σ_pupil exp(i·2π·W(u)/λ)·exp(−i·2π·x·u/(λ·z)) is evaluated with a zero-padded radix-2 FFT (Cooley & Tukey 1965) on
- * an image grid of pitch δ = min(λ·N_w/2, p/4) (p the site pitch), and |U|² is integrated over each site's square cell (exact
- * overlap of each δ-square with the cell). Lateral colour displaces the PSF radially by Δr(λ). The kernel window is (2R + 1)²
+ * an image grid of pitch δ = λ·N_w/2.5 over a period that holds the window and the PSF, and |U|², a band-limited periodic
+ * function, is integrated exactly over each site's square cell (p the site pitch; #674, 2.28.0: before, each δ-square of pitch
+ * min(λ·N_w/2, p/4) was counted as constant and split between the cells it overlapped). Lateral colour displaces the PSF radially by Δr(λ). The kernel window is (2R + 1)²
  * sites; the energy outside it is reported and put back by unit-sum renormalisation, as for `lens.diffraction`. Each kernel's
  * centroid is then moved onto the PSF's own first moment (#589, `alignKernelCentroid`): the lateral colour and coma's mean tilt.
  *
@@ -27,6 +28,7 @@ import type { EvidenceProvenance } from "../core/evidence-provenance.js";
 import { genericLensDispersion, type ResolvedGenericLens } from "../equipment/generic-lens-catalogue.js";
 import { kernelCentroid, markEngineOwnedLensSampledPsfProfile, type LensSampledPsfGridNode, type LensSampledPsfProfile } from "./lens-psf-profile.js";
 import { convolveSiteKernels } from "./defocus-disc-kernel.js";
+import { portableCosTwoPi, portableSinTwoPi } from "../core/portable-math.js";
 import { createDefocusBokehSiteKernel, type DefocusBokehSiteKernel, type ResolvedDefocusBokehOptions } from "./defocus-bokeh-kernel.js";
 
 /** Wavelength nodes of a catalogue PSF profile, nm (they span the facade's 380–780 nm quadrature). */
@@ -39,6 +41,8 @@ export const GENERIC_LENS_PSF_MAXIMUM_COMBINED_RADIUS_SITES = 16;
 export const GENERIC_LENS_PSF_WINDOW_TRUNCATION = 0.03;
 /** Largest FFT size per axis. */
 const MAXIMUM_TRANSFORM = 2048;
+/** #674: the FFT size up to which the period is widened to hold the whole kernel window (beyond it, only the PSF's extent). */
+const WINDOW_TRANSFORM = 512;
 /** Largest optical-path step between neighbouring pupil samples, in waves (Nyquist is 0.5). */
 const MAXIMUM_PHASE_STEP_WAVES = 0.35;
 const DESIGN_WAVELENGTH_UM = 0.55;
@@ -92,20 +96,30 @@ function radix2Fft(re: Float64Array, im: Float64Array, n: number, cos: Float64Ar
   }
 }
 
-/** One axis's overlap of δ-squares centred at positions (s·δ + shift) with site cells [(i − ½)p, (i + ½)p], i ∈ [−R, R]. */
-function overlaps(count: number, delta: number, shift: number, pitch: number, radius: number): { cell: Int32Array; weight: Float64Array; cell2: Int32Array; weight2: Float64Array } {
-  const cell = new Int32Array(count).fill(-1), weight = new Float64Array(count), cell2 = new Int32Array(count).fill(-1), weight2 = new Float64Array(count);
-  for (let k = 0; k < count; k++) {
-    const signed = k < count / 2 ? k : k - count, centre = signed * delta + shift, lo = centre - delta / 2, hi = centre + delta / 2;
-    const first = Math.floor(lo / pitch + 0.5), last = Math.floor(hi / pitch + 0.5);
-    for (let i = first; i <= last && i <= first + 1; i++) {
-      if (i < -radius || i > radius) continue;
-      const w = (Math.min(hi, (i + 0.5) * pitch) - Math.max(lo, (i - 0.5) * pitch)) / delta;
-      if (w <= 0) continue;
-      if (cell[k] === -1) { cell[k] = i + radius; weight[k] = w; } else { cell2[k] = i + radius; weight2[k] = w; }
+/**
+ * #674: one axis's weights of the exact cell integral of the band-limited periodic intensity. The intensity |U|² on a period of
+ * L = size·δ is a trigonometric polynomial of degree at most `degree` (twice the pupil's reach in samples), so its samples I[k] at
+ * k·δ give it exactly, and its integral over site cell i, [x_i − p/2, x_i + p/2] with x_i = i·p − shift, is Σ_k I[k]·W[i][k] with
+ * W[i][k] = (p/L)·Σ_{|m| ≤ degree} sinc(p·m/L)·exp(i·2π·m·(x_i − k·δ)/L) (the sinc of a box; Goodman, Introduction to Fourier
+ * Optics, ch. 2). A cell reaching beyond the principal period [−L/2, L/2] integrates only its part inside it (the same formula with
+ * the clipped width and centre). Each row is one length-`size` FFT; the rows are real. Cells i ∈ [−R, R].
+ */
+function cellWeights(size: number, delta: number, shift: number, pitch: number, radius: number, degree: number, cos: Float64Array, sin: Float64Array): Float64Array[] {
+  const L = size * delta, rows: Float64Array[] = [], re = new Float64Array(size), im = new Float64Array(size);
+  for (let i = -radius; i <= radius; i++) {
+    re.fill(0); im.fill(0);
+    // The cell clipped to the principal period [−L/2, L/2] about the PSF (empty for a cell wholly beyond it): width w, centre c.
+    const a = Math.max(i * pitch - shift - pitch / 2, -L / 2), b = Math.min(i * pitch - shift + pitch / 2, L / 2), w = b - a, c = (a + b) / 2;
+    if (w > 0) for (let m = -degree; m <= degree; m++) {
+      // The engine's portable sine and cosine (the same bits on every platform; V8's differ by an ulp between arm64 and x64, #508).
+      const u = w * m / L, sinc = m === 0 ? 1 : portableSinTwoPi(u / 2) / (Math.PI * u), turns = m * c / L, at = (m + size) % size;
+      re[at] = w / L * sinc * portableCosTwoPi(turns); im[at] = w / L * sinc * portableSinTwoPi(turns);
     }
+    // FFT with exp(−i·2π·k·m/size): Σ_m a_m·exp(−i·2π·m·k·δ/L), the weights of the samples k (signed k by its index modulo size).
+    radix2Fft(re, im, size, cos, sin);
+    rows.push(Float64Array.from(re));
   }
-  return { cell, weight, cell2, weight2 };
+  return rows;
 }
 
 /**
@@ -164,12 +178,15 @@ function nodeKernel(lens: ResolvedGenericLens, xMm: number, yMm: number, lambdaN
   const cosPhi = r > 0 ? xMm / r : 1, sinPhi = r > 0 ? yMm / r : 0;
   // Lateral colour: radial displacement L·R·H·D(λ), µm.
   const shift = lens.character.lateralColor.fraction * lens.halfDiagonalMm * 1000 * H * genericLensDispersion(lambdaNm);
-  const delta = Math.min(lambdaUm * workingF / 2, pitch / 4);
-  let size = 64;
-  // The FFT period must hold the window, or (when the PSF is much smaller than the window, for large pixels) the PSF itself:
-  // the geometric blur plus 16·λ·N_w of Airy rings (the energy beyond, about 1 %, folds back into the period).
-  const psfExtentUm = 2 * (geometricRadiusMicrometers(lens, H, lambdaUm, workingF) + 16 * lambdaUm * workingF);
-  while (size * delta < Math.min(2.5 * (radius + 0.5) * pitch, psfExtentUm) + 2 * Math.abs(shift)) size *= 2;
+  // #674: the image grid's pitch δ = λ·N_w/2.5 resolves the intensity, a trigonometric polynomial of degree 2·reach = size/2.5 per
+  // axis (reach the pupil radius in samples, size/5), below size/2; the cells integrate it exactly (cellWeights).
+  const delta = lambdaUm * workingF / 2.5;
+  let size = 128;
+  // The FFT period must hold the PSF itself (the geometric blur plus 16·λ·N_w of Airy rings, about 99 % of the energy) and the
+  // lateral-colour shift, and, up to WINDOW_TRANSFORM samples, the whole kernel window too; cells beyond the principal period (large
+  // pixels) integrate only its part of them (cellWeights), so no energy folds back.
+  const psfExtentUm = 2 * (geometricRadiusMicrometers(lens, H, lambdaUm, workingF) + 16 * lambdaUm * workingF), shiftUm = 2 * Math.abs(shift);
+  while (size * delta < psfExtentUm + shiftUm || size < WINDOW_TRANSFORM && size * delta < 2 * (radius + 0.5) * pitch + shiftUm) size *= 2;
   for (;;) {
     if (size > MAXIMUM_TRANSFORM) throw new InvalidScientificInputError("The catalogue lens PSF needs an FFT larger than " + MAXIMUM_TRANSFORM + " per axis.");
     // Pupil pitch: δ · p_pupil = λ·z / size (mm).
@@ -180,10 +197,10 @@ function nodeKernel(lens: ResolvedGenericLens, xMm: number, yMm: number, lambdaN
     for (let v = -reach; v <= reach; v++) for (let u = -reach; u <= reach; u++) {
       const px = u * pupilPitchMm / half, py = v * pupilPitchMm / half;
       if (px * px + py * py > 1 + 1e-12) continue;
-      const w = opdMicrometers(lens, H, cosPhi, sinPhi, lambdaUm, px, py), phase = 2 * Math.PI * w / lambdaUm;
+      const w = opdMicrometers(lens, H, cosPhi, sinPhi, lambdaUm, px, py);
       opd[(v + reach) * (2 * reach + 1) + u + reach] = w;
       const index = ((v + size) % size) * size + (u + size) % size;
-      re[index] = Math.cos(phase); im[index] = Math.sin(phase); rowUsed[(v + size) % size] = 1; open++;
+      re[index] = portableCosTwoPi(w / lambdaUm); im[index] = portableSinTwoPi(w / lambdaUm); rowUsed[(v + size) % size] = 1; open++;
     }
     // The largest step to the next sample in a row and in a column (outside the pupil the OPD is NaN, and so is the step: skipped).
     const width = 2 * reach + 1;
@@ -191,34 +208,35 @@ function nodeKernel(lens: ResolvedGenericLens, xMm: number, yMm: number, lambdaN
       if ((k + 1) % width) phaseStep = Math.max(phaseStep, Math.abs(opd[k + 1]! - opd[k]!) / lambdaUm || 0);
       if (k + width < opd.length) phaseStep = Math.max(phaseStep, Math.abs(opd[k + width]! - opd[k]!) / lambdaUm || 0);
     }
+    // A guard: with δ = λ·N_w/2.5 and size ≥ 128 the pupil's radius is size/5 ≥ 25 samples (#674).
     if (open < 9) throw new InvalidScientificInputError("The catalogue lens PSF pupil has fewer than 9 samples.");
     if (phaseStep > MAXIMUM_PHASE_STEP_WAVES) { size *= 2; continue; }
     const cos = new Float64Array(size / 2), sin = new Float64Array(size / 2);
-    for (let k = 0; k < size / 2; k++) { cos[k] = Math.cos(2 * Math.PI * k / size); sin[k] = Math.sin(2 * Math.PI * k / size); }
+    // #674: the engine's portable cosine and sine here and for the pupil's phase, so the kernels have the same bits on every platform.
+    for (let k = 0; k < size / 2; k++) { cos[k] = portableCosTwoPi(k / size); sin[k] = portableSinTwoPi(k / size); }
     for (let y = 0; y < size; y++) if (rowUsed[y]) radix2Fft(re.subarray(y * size, (y + 1) * size), im.subarray(y * size, (y + 1) * size), size, cos, sin);
-    const colRe = new Float64Array(size), colIm = new Float64Array(size);
-    const ox = overlaps(size, delta, shift * cosPhi, pitch, radius), oy = overlaps(size, delta, shift * sinPhi, pitch, radius);
-    const w2 = 2 * radius + 1, kernel = new Float64Array(w2 * w2);
+    const colRe = new Float64Array(size), colIm = new Float64Array(size), intensity = new Float64Array(size * size);
     let total = 0;
     for (let x = 0; x < size; x++) {
       for (let y = 0; y < size; y++) { colRe[y] = re[y * size + x]!; colIm[y] = im[y * size + x]!; }
       radix2Fft(colRe, colIm, size, cos, sin);
-      const cx = ox.cell[x]!, cx2 = ox.cell2[x]!, wx = ox.weight[x]!, wx2 = ox.weight2[x]!;
-      for (let y = 0; y < size; y++) {
-        const intensity = colRe[y]! * colRe[y]! + colIm[y]! * colIm[y]!;
-        total += intensity;
-        if (cx < 0) continue;
-        const cy = oy.cell[y]!;
-        if (cy < 0) continue;
-        const cy2 = oy.cell2[y]!, wy = oy.weight[y]!, wy2 = oy.weight2[y]!;
-        // Row index increases with image +Y (the quadrature's orientation).
-        kernel[cy * w2 + cx]! += intensity * wx * wy;
-        if (cx2 >= 0) kernel[cy * w2 + cx2]! += intensity * wx2 * wy;
-        if (cy2 >= 0) {
-          kernel[cy2 * w2 + cx]! += intensity * wx * wy2;
-          if (cx2 >= 0) kernel[cy2 * w2 + cx2]! += intensity * wx2 * wy2;
-        }
-      }
+      for (let y = 0; y < size; y++) { const v = colRe[y]! * colRe[y]! + colIm[y]! * colIm[y]!; intensity[y * size + x] = v; total += v; }
+    }
+    // #674: the exact cell integrals, K(i, j) = Σ_k' Σ_k I[k', k]·W_y[j][k']·W_x[i][k] (x along the columns, y along the rows); a
+    // rounding-level negative value is clamped to 0. Row index increases with image +Y (the quadrature's orientation).
+    const degree = 2 * reach, wx = cellWeights(size, delta, shift * cosPhi, pitch, radius, degree, cos, sin), wy = cellWeights(size, delta, shift * sinPhi, pitch, radius, degree, cos, sin);
+    const w2 = 2 * radius + 1, kernel = new Float64Array(w2 * w2), rowSums = new Float64Array(size * w2);
+    for (let y = 0; y < size; y++) for (let i = 0; i < w2; i++) {
+      const weights = wx[i]!;
+      let sum = 0;
+      for (let x = 0; x < size; x++) sum += intensity[y * size + x]! * weights[x]!;
+      rowSums[y * w2 + i] = sum;
+    }
+    for (let j = 0; j < w2; j++) for (let i = 0; i < w2; i++) {
+      const weights = wy[j]!;
+      let sum = 0;
+      for (let y = 0; y < size; y++) sum += weights[y]! * rowSums[y * w2 + i]!;
+      kernel[j * w2 + i] = sum > 0 ? sum : 0;
     }
     if (!(total > 0) || !kernel.some((v) => v > 0)) throw new InvalidScientificInputError("The catalogue lens PSF has no energy in its window.");
     // #589: the PSF's first moment is the pupil-mean wavefront tilt 2·N_w·⟨∇W⟩ (the Fourier transform's moment theorem; Goodman,
@@ -277,7 +295,7 @@ export function createGenericLensPsfProfile(input: GenericLensPsfInput): Generic
     maximumTransform = Math.max(maximumTransform, node.transform); phaseStep = Math.max(phaseStep, node.phaseStep);
     quadrant.set(x + ":" + y + ":" + nm, node);
   }
-  // The window: the smallest radius that keeps at most 1 % of every node's energy outside it (at most the bound).
+  // The window: the smallest radius that keeps at most 3 % (GENERIC_LENS_PSF_WINDOW_TRUNCATION) of every node's energy outside it (at most the bound).
   const outside = (r: number): number => {
     let worst = 0;
     for (const node of quadrant.values()) {
@@ -318,7 +336,7 @@ export function createGenericLensPsfProfile(input: GenericLensPsfInput): Generic
         normalizedIntensity: Array.from(kernel) },
       bestFocusImagePlaneOffsetMicrometers: 0, relativePupilThroughputFactor: 1, evidence: input.evidence, uncertainty });
   }
-  const profile: LensSampledPsfProfile = { schemaVersion: "0.1.0", profileId: "photivra-" + lens.lensId + ":psf", profileVersion: "1.0.0", scientificStatus: "approximation",
+  const profile: LensSampledPsfProfile = { schemaVersion: "0.1.0", profileId: "photivra-" + lens.lensId + ":psf", profileVersion: "1.1.0", scientificStatus: "approximation",
     opticalDomain: "lens-primary-optical-path-only", coordinateSystem: "image-plane-metric", fieldAxes: "+X right, +Y up", kernelEnergyNormalization: "unit-energy-shape",
     interpolation: "bounded-regular-grid-centroid-aligned", throughputOwnership: "separate-relative-pupil-throughput-factor",
     responseIncludes: { diffraction: true, aberration: true, defocus: extra !== undefined, pupilClippingShape: extra?.clipped === true },

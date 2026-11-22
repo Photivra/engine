@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en-US">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>Photivra engine design: the documentation site</title>
+<style>
+:root{--bg:#f2f2f7;--card:#fff;--ink:#1c1c1e;--muted:#5f5f64;--rule:#d1d1d6}
+@media (prefers-color-scheme:dark){:root{--bg:#111113;--card:#1c1c1e;--ink:#f2f2f7;--muted:#aeaeb2;--rule:#3a3a3c}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:1rem/1.5 Inter,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+main{max-width:72rem;margin:0 auto;padding:2rem 1rem 4rem}
+h1{font-size:1.75rem;margin:0 0 .5rem}h2{font-size:1.375rem;margin:3rem 0 .5rem}
+p{margin:0 0 .75rem;max-width:52rem}a{color:inherit}.muted{color:var(--muted)}
+.figs{display:grid;grid-template-columns:repeat(auto-fill,minmax(17rem,1fr));gap:2rem 1.5rem;margin-top:1rem;align-items:start}
+figure{margin:0;background:var(--card);border:1px solid var(--rule);border-radius:.75rem;padding:.75rem}
+figure img{display:block;width:100%;height:auto;border-radius:.375rem;border:1px solid var(--rule)}
+figcaption{margin-top:.5rem;font-size:.9375rem}
+:focus-visible{outline:3px solid currentColor;outline-offset:3px}
+</style>
+</head>
+<body>
+<main>
+<h1>The documentation site: figures</h1>
+<p>Figures for <a href="engine-site.md">engine-site.md</a>, the design of the engine's public documentation site. Each figure is a self-contained HTML page (no scripts, no external requests) with a PNG capture. The pages follow the reader's light or dark setting; the captures show the theme named in the caption.</p>
+<p class="muted">The captures set text in Inter, as the built site will. The HTML pages use Inter when it is installed and the system font otherwise, because no font file is committed with this design. The picture in the guide and home figures is a real render by @photivra/engine 2.27.0; every other value is taken from the repository at 2.27.0.</p>
+
+<h2>Home</h2>
+<div class="figs">
+<figure><a href="screens/site-home.html"><img src="screens/site-home.png" width="1280" height="1945" alt="Home page, light theme, 1280 pixels wide" loading="lazy"></a><figcaption><code>site-home</code>: light, 1280 px</figcaption></figure>
+<figure><a href="screens/site-home.html"><img src="screens/site-home-dark.png" width="1280" height="1945" alt="Home page, dark theme, 1280 pixels wide" loading="lazy"></a><figcaption><code>site-home-dark</code>: dark, 1280 px</figcaption></figure>
+<figure><a href="screens/site-home.html"><img src="screens/site-home-phone.png" width="390" height="3509" alt="Home page, dark theme, 390 pixels wide" loading="lazy"></a><figcaption><code>site-home-phone</code>: dark, 390 px</figcaption></figure>
+</div>
+
+<h2>API reference page</h2>
+<div class="figs">
+<figure><a href="screens/site-api.html"><img src="screens/site-api.png" width="1280" height="1700" alt="API module page, light theme, 1280 pixels wide" loading="lazy"></a><figcaption><code>site-api</code>: light, 1280 px (top of the page)</figcaption></figure>
+<figure><a href="screens/site-api.html"><img src="screens/site-api-dark.png" width="1280" height="1700" alt="API module page, dark theme, 1280 pixels wide" loading="lazy"></a><figcaption><code>site-api-dark</code>: dark, 1280 px</figcaption></figure>
+<figure><a href="screens/site-api.html"><img src="screens/site-api-phone.png" width="390" height="2400" alt="API module page, dark theme, 390 pixels wide" loading="lazy"></a><figcaption><code>site-api-phone</code>: dark, 390 px</figcaption></figure>
+</div>
+
+<h2>Search</h2>
+<div class="figs">
+<figure><a href="screens/site-search.html"><img src="screens/site-search.png" width="1280" height="1679" alt="Search page with results for the word depth, light theme" loading="lazy"></a><figcaption><code>site-search</code>: results for “depth”, light, 1280 px</figcaption></figure>
+<figure><a href="screens/site-search.html"><img src="screens/site-search-phone.png" width="390" height="1952" alt="Search page with results, dark theme, 390 pixels wide" loading="lazy"></a><figcaption><code>site-search-phone</code>: dark, 390 px</figcaption></figure>
+<figure><a href="screens/site-search-index.html"><img src="screens/site-search-index.png" width="1280" height="1645" alt="Search page without JavaScript: the full index with a notice" loading="lazy"></a><figcaption><code>site-search-index</code>: the same address without JavaScript, light, 1280 px</figcaption></figure>
+</div>
+
+<h2>Guide with a rendered example</h2>
+<div class="figs">
+<figure><a href="screens/site-guide.html"><img src="screens/site-guide.png" width="1280" height="2259" alt="Guide page with a rendered example, light theme" loading="lazy"></a><figcaption><code>site-guide</code>: light, 1280 px</figcaption></figure>
+<figure><a href="screens/site-guide.html"><img src="screens/site-guide-dark.png" width="1280" height="2259" alt="Guide page with a rendered example, dark theme" loading="lazy"></a><figcaption><code>site-guide-dark</code>: dark, 1280 px</figcaption></figure>
+<figure><a href="screens/site-guide.html"><img src="screens/site-guide-phone.png" width="390" height="2989" alt="Guide page, dark theme, 390 pixels wide" loading="lazy"></a><figcaption><code>site-guide-phone</code>: dark, 390 px</figcaption></figure>
+</div>
+
+<h2>Release notes</h2>
+<div class="figs">
+<figure><a href="screens/site-release.html"><img src="screens/site-release.png" width="1280" height="1392" alt="Release notes page for one version, light theme" loading="lazy"></a><figcaption><code>site-release</code>: light, 1280 px</figcaption></figure>
+<figure><a href="screens/site-release.html"><img src="screens/site-release-phone.png" width="390" height="2712" alt="Release notes page, dark theme, 390 pixels wide" loading="lazy"></a><figcaption><code>site-release-phone</code>: dark, 390 px</figcaption></figure>
+</div>
+
+<h2>Not found</h2>
+<div class="figs">
+<figure><a href="screens/site-404.html"><img src="screens/site-404.png" width="1280" height="909" alt="Not-found page, light theme" loading="lazy"></a><figcaption><code>site-404</code>: light, 1280 px</figcaption></figure>
+<figure><a href="screens/site-404.html"><img src="screens/site-404-phone.png" width="390" height="1190" alt="Not-found page, dark theme, 390 pixels wide" loading="lazy"></a><figcaption><code>site-404-phone</code>: dark, 390 px</figcaption></figure>
+</div>
+</main>
+</body>
+</html>

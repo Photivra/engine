@@ -51,7 +51,7 @@ export interface ResolvedGenericTierLensProfiles {
 const catalogs = new Map<GenericTierPresetVersion, readonly GenericEquipmentTierPreset[]>();
 function catalogOf(version: GenericTierPresetVersion): readonly GenericEquipmentTierPreset[] {
   let catalog = catalogs.get(version);
-  if (!catalog) catalogs.set(version, catalog = freezeOwnedData(genericTierAssets(version)));
+  if (!catalog) catalogs.set(version, catalog = genericTierAssets(version)); // #682: frozen as built
   return catalog;
 }
 function preset(version: GenericTierPresetVersion, tier: GenericEquipmentTier): GenericEquipmentTierPreset {

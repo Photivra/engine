@@ -35,6 +35,30 @@ describe("native Print planning", () => {
     const boundary = calculatePrintPlan({ ...request(), printedImage: { width, height, unit }, viewingDistance: { value, unit }, sampling: { kind: "manual-ppi", pixelsPerInch: 160 } }).value;
     expect(boundary.minimumSamplingRaster).toEqual({ pixelWidth: 2560, pixelHeight: 1440 });
   });
+  // #717: an exact metric size at a manual ppi asks for the raster of the same size in inches (an inch is exactly 25.4 mm).
+  it("asks for the same raster in mm, cm, m and inches at a manual ppi", () => {
+    const plan = (native: [number, number], width: number, height: number, unit: "mm" | "cm" | "m" | "inches", ppi: number, provider?: PrintPlanInput["provider"]): ReturnType<typeof calculatePrintPlan>["value"] =>
+      calculatePrintPlan({ source: { kind: "native-retained", captureId: "public-capture-1", geometry: { imagingArea: { widthMm: 36, heightMm: 24 },
+        nativeRaster: { pixelWidth: native[0], pixelHeight: native[1] }, orientation: "landscape" } }, printedImage: { width, height, unit },
+        viewingDistance: { value: 24, unit: "inches" }, sampling: { kind: "manual-ppi", pixelsPerInch: ppi }, fit: { kind: "confirmed-native-aspect", maximumRelativeAspectError: 1e-9 },
+        ...(provider ? { provider } : {}) }).value;
+    for (const [w, h, unit] of [[12, 8, "inches"], [30.48, 20.32, "cm"], [304.8, 203.2, "mm"]] as const) {
+      const p = plan([3600, 2400], w, h, unit, 300);
+      expect(p.status).toBe("ready"); expect(p.minimumSamplingRaster).toEqual({ pixelWidth: 3600, pixelHeight: 2400 });
+      const lab = plan([6000, 4000], w, h, unit, 150, { exactPpi: 300 });
+      expect(lab.status).toBe("ready"); expect(lab.recommended?.raster).toEqual({ pixelWidth: 3600, pixelHeight: 2400 });
+    }
+    const cm = plan([1200, 800], 12, 8, "cm", 254);
+    expect(cm.status).toBe("ready"); expect(cm.minimumSamplingRaster).toEqual({ pixelWidth: 1200, pixelHeight: 800 });
+    // Whole-inch 3:2 prints from 3 × 2 to 60 × 40 inches, written as exact metric decimals.
+    for (let inches = 3; inches <= 60; inches += 3) for (const ppi of [150, 200, 240, 300, 360, 600]) {
+      const w = inches, h = inches * 2 / 3, raster = { pixelWidth: w * ppi, pixelHeight: h * ppi };
+      for (const [unit, f] of [["mm", 254], ["cm", 25.4], ["m", 0.254]] as const) {
+        const p = plan([raster.pixelWidth, raster.pixelHeight], Number((w * f / 10).toPrecision(12)), Number((h * f / 10).toPrecision(12)), unit, ppi);
+        expect(p.minimumSamplingRaster, `${w} × ${h} in as ${unit} at ${ppi} ppi`).toEqual(raster);
+      }
+    }
+  });
   it.each([159.99, 160, 160.01])("does not forgive one native boundary at %s PPI", ppi => {
     const p = calculatePrintPlan(manual(ppi)).value;
     expect(p.nativePixelSufficiency).toBe(ppi <= 160 ? "sufficient" : "insufficient");
@@ -225,5 +249,23 @@ describe("Print planning parser rejections and unsupported numeric ranges", () =
     const plan = calculatePrintPlan({ ...request(), provider: { exactPpi: 160, exactRaster: { pixelWidth: 2304, pixelHeight: 1296 } } }).value;
     expect(plan.status).toBe("provider-conflict");
     expect(plan.reasons).toContain("provider-exact-raster-density-conflict");
+  });
+});
+
+describe("an exactly matching aspect at tolerance 0 (capture-28, #698)", () => {
+  it("is accepted for 3:2 prints in inches, and an inexact size keeps its reported error", () => {
+    const at = (width: number, height: number, unit: "inches" | "cm"): PrintPlanInput => ({ ...request(),
+      source: { kind: "native-retained", captureId: "public-capture-1", geometry: { imagingArea: { widthMm: 36, heightMm: 24 }, nativeRaster: { pixelWidth: 3600, pixelHeight: 2400 }, orientation: "landscape" } },
+      printedImage: { width, height, unit }, fit: { kind: "confirmed-native-aspect", maximumRelativeAspectError: 0 } });
+    for (const [w, h] of [[12, 8], [6, 4], [3, 2], [18, 12], [24, 16], [36, 24], [15, 10]] as const) {
+      const p = calculatePrintPlan(at(w, h, "inches")).value;
+      expect(p.reasons, w + "x" + h).not.toContain("printed-image-and-confirmed-crop-aspect-mismatch");
+      expect(p.relativeAspectError).toBe(0);
+      if (w <= 12) expect(p.status).toBe("ready");
+    }
+    expect(calculatePrintPlan(at(30, 20, "cm")).value.status).toBe("ready");
+    const off = calculatePrintPlan(at(12, 8.001, "inches")).value;
+    expect(off.status).toBe("crop-confirmation-required");
+    expect(off.relativeAspectError).toBe(Math.abs((12 * 25.4 / (8.001 * 25.4)) / (3600 / 2400) - 1));
   });
 });

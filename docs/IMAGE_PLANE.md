@@ -190,8 +190,13 @@ stratified footprint, or a kernel table above the device's storage limit. Its pi
   - **When they fit one storage binding**, they are uploaded once per scene and kept on the device.
   - **Otherwise each band** of display rows uploads only the pixel rows its native site rows reach. That is the print-local v of
     the band's first and last site rows at every query offset, plus two rows either side. The renderer caps a band's display rows
-    so that those rows fit the binding (owner decision, 2026-11-09). A very large photo therefore never meets the device's storage
-    binding limit, and a banded render equals the whole upload byte for byte (tested with a 2400 × 1600 photo under a 16 MB limit).
+    so that those rows fit the binding (owner decision, 2026-11-09), down to one display row: a band is never smaller. A large photo
+    therefore fits in bands unless the photo rows that one display row reaches do not fit one binding (a strongly reduced, very
+    wide photo): the render is then refused by name, `insufficient-limits` ("A band's pixel signals exceed the device's storage
+    binding limit."), and under `gpu: "auto"` the view runs on the CPU reference labelled with that reason (`gpu-09` in
+    [#702](https://github.com/Photivra/engine/issues/702); tested with an 18000 × 1200 photo as a 42 mm print at 0.63 m on the
+    default 128 MiB limit: 621 rows fit one binding, one display row reaches about 1,165). A banded render equals the whole upload
+    byte for byte (tested with a 2400 × 1600 photo under a 16 MB limit).
     Each render builds its bands' rows again, but a band's rows shared with the previous band are copied on the device from that
     band's buffer (kept until the next band), so each photo row a render reaches is built once. Memory: the host holds at most one
     4 MiB chunk of signals; the device holds at most two band buffers, each within the binding limit. On the emulation, with 20
@@ -223,8 +228,8 @@ Measured agreement with the CPU reference, per display pixel, on a 600 × 400 fr
 - **Speed:** a 203 × 135 view.
 - **Quality:** 48 × 36 regions of that view, and 16 × 12 blocks of the 24 MP 6 µm frame for the defocused cases, as the chart
   defocus fixtures frame them.
-- **Where:** the float32 emulation (`test/display-view-image-gpu.test.ts`) and SwiftShader (Chromium headless,
-  `test/webgpu/display-view.webgpu.ts`), which agree to the digits shown.
+- **Where:** the float32 emulation (`test/display-view-image-gpu.test.ts`; the two #716 rows `test/display-view-image-gpu-flags.test.ts`)
+  and SwiftShader (Chromium headless, `test/webgpu/display-view.webgpu.ts`), which agree to the digits shown.
 - **Result:** every component lies inside its bound and every sample within one code. Flagged display pixels are recomputed with
   the reference, so they are exact.
 - **Quality flags:** they come from AHD's choice on the noise-free mosaic (#457), as for charts, unless stated.
@@ -237,6 +242,8 @@ Measured agreement with the CPU reference, per display pixel, on a 600 × 400 fr
 | Speed: 600 × 400 photo, bilinear | 4 | 2.0e-5 | 4.7e-5 | 4.2 % / 2.6 % | 0 |
 | Speed: linear RGBA with half-transparent pixels, custom paper | 4 | 2.0e-5 | 4.2e-5 | 2.6 % / 2.6 % | 0 |
 | Speed: Reinhard at the white clip | 4 | 3.7e-5 | 2.8e-4 | 3.1 % / 2.7 % | 0 |
+| Speed: 6000 × 4000 photo (24 MP), fitted inside the frame (#716) | 4 | 2.0e-5 | 6.7e-5 | 5.4 % / 2.6 % | 0 (2 611 before #716) |
+| Speed: 17000 × 1400 noisy gray ramp (23.8 MP), fitted inside the frame (#716) | 4 | 2.2e-5 | 3.7e-5 | 2.8 % / 2.5 % | 0 (768 before #716) |
 | Quality: diffraction, four-spot filter and AHD | 400 | 7.3e-4 | 9.4e-4 | 3.3 % / 0.9 % | 466 of 1 728 |
 | Quality: AHD without diffraction | 4 | 1.6e-5 | 3.8e-5 | 0.1 % / 1.2 % | 357 of 1 728 |
 | Quality: diffraction, linear RGBA, fitted in the frame | 324 | 2.3e-5 | 7.3e-5 | 0.6 % / 1.2 % | 0 |

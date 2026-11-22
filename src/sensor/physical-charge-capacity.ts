@@ -29,9 +29,10 @@ import type {
   SensorSpectralResponseScientificStatus,
   SensorSpectralResponseUncertainty
 } from "./spectral-response.js";
-import { requireInputObject, requireInputKeys, rejectUnknownVariantFields, requireConfigRecord as requireRecord, requireConfigFinite as requireFinite, requireConfigString as requireNonEmptyString, requireInputNonNegativeFinite as requireNonNegativeFiniteInput, requireConfigNonNegativeSafeInteger as requireSiteIndex, requireConfigFiniteAboveZero as requirePositiveFinite } from "../core/record-validation.js";
+import { requireInputObject, requireInputKeys, requireConfigRecord as requireRecord, requireConfigString as requireNonEmptyString, requireInputNonNegativeFinite as requireNonNegativeFiniteInput, requireConfigFiniteAboveZero as requirePositiveFinite } from "../core/record-validation.js";
 import { sameSite } from "../core/shared-helpers.js";
-import { parseUncertainty } from "./camera-saturation-capacity.js";
+import { parseSiteApplicability, parseTemperatureApplicability } from "./camera-saturation-capacity.js";
+import { parseUncertainty } from "./spectral-response.js";
 
 export type SensorPhysicalChargeCapacitySiteApplicability =
   | {
@@ -159,96 +160,7 @@ export interface SensorPhysicalChargeCapacityAssessment {
   };
 }
 
-function parseSiteApplicability(
-  value: unknown
-): SensorPhysicalChargeCapacitySiteApplicability {
-  const record = requireRecord(
-    value,
-    "sensorPhysicalChargeCapacity.siteApplicability", null
-  );
-  rejectUnknownVariantFields(record, "kind", { "exact-site": ["kind", "site"], "uniform-site-capacity-approximation": ["kind", "limitation", "evidence"] }, "sensorPhysicalChargeCapacity.siteApplicability");
-  if (record.kind === "exact-site") {
-    const site = requireRecord(
-      record.site,
-      "sensorPhysicalChargeCapacity.siteApplicability.site", ["x", "y"]
-    );
-    return {
-      kind: "exact-site",
-      site: {
-        x: requireSiteIndex(
-          site.x,
-          "sensorPhysicalChargeCapacity.siteApplicability.site.x"
-        ),
-        y: requireSiteIndex(
-          site.y,
-          "sensorPhysicalChargeCapacity.siteApplicability.site.y"
-        )
-      }
-    };
-  }
-  if (
-    record.kind ===
-      "uniform-site-capacity-approximation"
-  ) {
-    return {
-      kind:
-        "uniform-site-capacity-approximation",
-      limitation:
-        requireNonEmptyString(
-          record.limitation,
-          "sensorPhysicalChargeCapacity.siteApplicability.limitation"
-        ),
-      evidence: parseEvidenceList(
-        record.evidence,
-        "sensorPhysicalChargeCapacity.siteApplicability.evidence"
-      )
-    };
-  }
-  throw new InvalidConfigurationError(
-    "sensorPhysicalChargeCapacity.siteApplicability.kind is invalid."
-  );
-}
 
-function parseTemperatureApplicability(
-  value: unknown
-): SensorPhysicalChargeCapacityTemperatureApplicability {
-  const record = requireRecord(
-    value,
-    "sensorPhysicalChargeCapacity.temperatureApplicability", null
-  );
-  rejectUnknownVariantFields(record, "kind", { "exact-reference-temperature": ["kind", "temperatureC"], "not-modeled": ["kind", "limitation", "evidence"] }, "sensorPhysicalChargeCapacity.temperatureApplicability");
-  if (
-    record.kind ===
-      "exact-reference-temperature"
-  ) {
-    return {
-      kind:
-        "exact-reference-temperature",
-      temperatureC:
-        requireFinite(
-          record.temperatureC,
-          "sensorPhysicalChargeCapacity.temperatureApplicability.temperatureC"
-        )
-    };
-  }
-  if (record.kind === "not-modeled") {
-    return {
-      kind: "not-modeled",
-      limitation:
-        requireNonEmptyString(
-          record.limitation,
-          "sensorPhysicalChargeCapacity.temperatureApplicability.limitation"
-        ),
-      evidence: parseEvidenceList(
-        record.evidence,
-        "sensorPhysicalChargeCapacity.temperatureApplicability.evidence"
-      )
-    };
-  }
-  throw new InvalidConfigurationError(
-    "sensorPhysicalChargeCapacity.temperatureApplicability.kind is invalid."
-  );
-}
 
 /**
  * Validates untrusted input and returns it as a normalized, typed value. Unknown enum values,
@@ -311,12 +223,12 @@ export function parseSensorPhysicalChargeCapacityProfile(
   }
 
   const siteApplicability =
-    parseSiteApplicability(
-      record.siteApplicability
+    parseSiteApplicability<SensorPhysicalChargeCapacitySiteApplicability>(
+      record.siteApplicability, "sensorPhysicalChargeCapacity.siteApplicability", "uniform-site-capacity-approximation"
     );
   const temperatureApplicability =
-    parseTemperatureApplicability(
-      record.temperatureApplicability
+    parseTemperatureApplicability<SensorPhysicalChargeCapacityTemperatureApplicability>(
+      record.temperatureApplicability, "sensorPhysicalChargeCapacity.temperatureApplicability"
     );
 
   if (
@@ -398,6 +310,7 @@ function validateCharge(
     SensorAccumulatedChargeComposition
 ): number {
   requireInputObject(charge, "charge input");
+  requireInputObject(charge.site, "accumulatedCharge.site");
   if (
     charge
       .physicalFullWellAssessmentAuthorized !==

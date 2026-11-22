@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
+// Opt-in (PHOTIVRA_VALIDATE_MEGAPIXEL_RAW=1, 44 s on an Apple silicon host); run nightly by .github/workflows/native-performance.yml (ci-13 in #703).
 import {gzipSync} from "node:zlib";
 import {it,expect} from "vitest";
 import {createHash} from "node:crypto";

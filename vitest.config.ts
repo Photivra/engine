@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 import { configDefaults, defineConfig } from "vitest/config";
 import WeightedShardSequencer from "./test/helpers/weighted-shard-sequencer.js";
 // #536: the tests run the shader text the build ships (comments and indentation stripped); PHOTIVRA_WGSL_MINIFY=0 runs the source text.

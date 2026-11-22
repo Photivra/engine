@@ -108,11 +108,11 @@ unit tap without `lens.diffraction`). Dark electrons (1 e⁻/s × exposure) are 
   window over fine chart detail cost about the square of its distinct materials. The sets, their order and every sum are
   unchanged, so the result is bit-identical to 2.24.0. What remains of 2.21.0's cost is the per-node sum itself: one
   addition per tap and spectral node, against one per tap before 2.21.0 ([Cost, defocus](#defocus-1)).
-- **Per-tap sum on the CPU (#643, 2.26.0, fast method `chart.signal/view-per-tap`).** On a fast request (the display view's
-  default), a site whose taps read more than one material adds its taps in order, each integrated from its material's spectrum
+- **Per-tap sum on the CPU (#643, 2.26.0; on every CPU render since 2.28.0, #670).** On every CPU render (a fast method on fast
+  requests only in 2.26.0 and 2.27.0), a site whose taps read more than one material adds its taps in order, each integrated from its material's spectrum
   against the tap's kernel at every node (Σ_t Σ_n L_m(t)(λ_n)·C_c(t, n)), instead of first forming the per-material sums; a site
   whose taps read one material takes Σ_n L_m(λ_n)·S_c(n) as before. The same sum regrouped, still integrated per site when the site
-  is read; `view.signal` records `{ sum: "per-tap", fast: true }`, and `fast: false` keeps the per-material sums. Measured on the
+  is read; `view.signal` records `{ sum: "per-tap" }` (`fast: true` in it, and the per-material sums with `fast: false`, before 2.28.0). Measured on the
   in-focus Quality frames from 2.20.0 to 2.25.0 (a 768 × 128 band of a 200 mm wall-chart frame, one CPU thread, the same machine):
   2.20.0 8.6 s, 2.21.0–2.24.0 91–95 s, 2.25.0 57.8 s, the same samples throughout. Every site of that band reads about 130
   distinct materials through 400 taps of 20 nodes, so the per-node work, not the material search, is what 2.21.0 added; the
@@ -199,11 +199,12 @@ with K_λ the diffraction kernel (a unit tap without `lens.diffraction`).
   more than 64 columns beyond the raster edges, which a combined radius above 64 reaches, are looked up directly
   instead of from the lattice rings: the same values, at a higher cost. The cost grows with the square of the radius
   ([Cost, defocus](#defocus-1)).
-- **Regrouped on the CPU (#612, fast method `lens.defocus/view-regrouped`).** On a fast request (the display view's default), a
+- **Regrouped on the CPU (#612; on every CPU render since 2.28.0, #670).** On every CPU render (a fast method on fast requests only
+  from 2.25.0 to 2.27.0), a
   plain disc much wider than the diffraction kernel, (2R_c + 1)² > 4·(2R_f + 1)² with R_c = R_f + R_d, takes the path above
   64 sites at any radius: the in-focus signal of each channel at every site, then the disc by runs. This is the same sum
-  regrouped, so it differs from the combined kernels only by rounding; `view.defocus` records `convolution: "runs"` and
-  `fast: "defocus-after-in-focus-signal"`. `fast: false` keeps the combined kernels, and so does the GPU. Shaped bokeh kernels and
+  regrouped, so it differs from the combined kernels only by rounding; `view.defocus` records `convolution: "runs"` (and, before
+  2.28.0, `fast: "defocus-after-in-focus-signal"`; `fast: false` kept the combined kernels). The GPU keeps the combined kernels. Shaped bokeh kernels and
   the lens path keep their own routes. Measured on one test chart's Guide views (768 × 512, Quality, one CPU thread, the
   machine heavily loaded, CPU time of the same region back to back): f/2 focused in front, a 16 × 8 region, 5.8–5.9 s with the
   combined kernels, 0.74–0.82 s regrouped (2.20.0: 2.0–2.1 s); f/2 focused behind 3.6–3.7 s, 0.72–0.83 s (2.20.0: 1.2 s). f/16
@@ -612,9 +613,21 @@ as the capture does ([Flare and breathing](LENS_CATALOGUE.md#flare-and-breathing
   first-order form failed it; the second-order form measures within 2.7e-8 and ships. `fast: false` (and
   `lens.catalogue: { kind, fast: false }`) sums every tap with its own factor; `view.lensPsf` reports
   `uniformWindows: "field-factor-second-order"` when the method is on.
-- The distortion inverse is the Newton inverse of the lens section above. Cost: [2.27.0 cost cases](#2270-cost-cases). These
-  requests still render on the CPU with `gpu: "auto"`, labelled `unsupported-on-backend`; a GPU path for them is planned for 2.28.0
-  (#655 stays open for it).
+- *Offset expansion, fast method (2.28.0, #685, `lens.catalogue/view-offset-expansion`, `lens.catalogue`'s `fast`).* With more than
+  one query offset (the box pixel aperture, the four-spot filter) each pre-integrated lattice point B(p) = Σ_o w_o·F(p + o)·L(p + o)
+  mapped every offset through the lens: four mappings per point for a 2 × 2 box, 64 % of the box's extra cost. On a fast request
+  each offset's plane point and field factor come instead from a second-order expansion about its nearest site centre (value,
+  central-difference gradient and Hessian of the 3 × 3 mapped site centres; offsets within half a site), each offset still reads
+  its own material there, and a point whose offsets all read one material takes (Σ_o w_o·F_o)·L_m per node. A centre's coefficients
+  depend only on its 3 × 3 centres, so regions equal the whole view. Go/no-go: every site within 1e-6 relative of the full method on
+  every catalogue lens but the fisheyes and phones, wide open and at the narrowest f-number, 2 × 2 box, dead leaves at 12 µm
+  (measured: 1.9e-11 at most), and with the four-spot filter and under a rolling shutter with rotation
+  (`test/display-view-lens-offset-expansion.test.ts`). Fisheyes (rays beyond 90°) and radiance scenes keep the full method;
+  `fast: false` maps every offset. `view.lensPsf` reports `offsetMapping: "second-order-expansion"`. The code is in the Quality kit.
+- The distortion inverse is the Newton inverse of the lens section above. Cost: [2.27.0 cost cases](#2270-cost-cases). Since 2.28.0
+  (#661) a still, rectilinear view in field zones renders on `webgpu-f32` with `gpu: "auto"` ([WebGPU, Catalogue lenses on the
+  GPU](WEBGPU.md#catalogue-lenses-on-the-gpu-655)); the other catalogue-lens requests render on the CPU, labelled
+  `unsupported-on-backend`.
 
 **Two capture fixes this needed** (each changes only requests that failed before):
 
@@ -913,6 +926,9 @@ them run the per-component arithmetic unchanged (the hash locks are unchanged).
   a decision inside their float32 bound flags the pixel for the host's reference. Elsewhere `reconstruct` is the unclipped white balance (exactly linear) and the
   desaturation changes nothing. The Gauss–Hermite nodes are the eigenvalues of the Jacobi matrix (Golub & Welsch 1969), found by
   Sturm-sequence bisection with correctly rounded operations only (the same bits in every engine).
+  2.28.0 (#662): with the identity tone curve and the component clip (Recover without a tone curve) the tone and gamut slopes
+  are the identity at every node and the clip's is diag(inside), so the chain takes them as such instead of forming the 3 × 3
+  products; the results are the same bits (a `+0` term leaves a sum that starts at `+0` unchanged), fast and full.
 
 **Accuracy (measured, `test/display-view-coupled-rendering.test.ts`).** Against seeded Monte Carlo of the same chain (400,000
 draws): tone-curve means within four standard errors and variances within 2 %; the chain's means within 1·10⁻³ plus four
@@ -1245,6 +1261,42 @@ Two regimes. Where a display pixel covers more than 25 real pixels (narrower tha
 stratified estimator applies and the cost follows the detailed display pixels × K². At or below 25, the
 [exact area mean](#exact-area-mean) applies and the cost follows the real pixels the region touches.
 
+### Estimating a render (2.28.0)
+
+`estimateDisplayViewRender(prepared, view)` (#660) counts the work a CPU render of `view` by a view from `prepareDisplayView`
+would do, without rendering it, so a caller can choose a view size, a region or `fast` before paying for it, or balance the
+regions of a batch across workers. It is synchronous and returns counts, not seconds:
+
+- `passes`: the renderer's passes at the view's size (one per distinct channel map of `output.lensCorrections`, one with
+  `output.sharpening`) and at 1:1 (with `output.sharpening`).
+- `sampleCount` and `siteEvaluations`: the real pixels the passes evaluate and their demosaic site reads, the render's
+  `diagnostics.sampleCount` and `siteEvaluations`. Each is a `{ minimum, maximum }` range: exact on the exact area mean, and for the
+  sample count of stratified views too (the pilot that chooses each display pixel's samples is run: the scene at its fixed grid,
+  no site integration); the site reads of jittered samples, and the samples through the exact lens correction, are bounded.
+- `detailPixelCount` and `uniformPixelCount`: the pilot's choice (the render's diagnostics of the same names).
+- `nativeSites`: the region's native footprint and its reach, the most sites the expected signal computes per pass.
+- `signal`: the method the cost choices take for this render (`"taps"`, `"regrouped"`, `"runs"` or `"point"`), the kernel radius
+  and taps per site, the defocus disc's radius when it is applied by runs, the query offsets, spectral nodes and temporal midpoints,
+  the rolling-shutter band rows (#651), and the catalogue PSF's zone size and uniform windows (#655).
+- `chainPointsPerAxis`: the development chain's rule (`"3-or-6"` fast, 16 full; #656), or null.
+
+It checks `view` as `render` does and refuses a handle that `prepareDisplayView` did not return. Each call builds the view's setup
+(allocation, and on stratified views the pilot's scene reads), as a render does before its first site. A GPU render reports its
+own counts. `test/display-view-estimate-render.test.ts` checks the counts against a render's diagnostics on five requests (the
+exact area mean, a stratified region, sharpening, lens corrections with lateral color, and AHD with the regrouped defocus and
+Recover) and the methods against the render's assumptions.
+
+It is a root function, not a method of the prepared view, so a bundle that does not import it carries none of its code (the
+capture-worker shape of `test/capture-bundle.test.ts` does not); a bundle that imports it adds about 1.7 kB gzip to its first load
+(1,655 B measured on the worker shape, November 21, 2026).
+
+**As a guide** (the [2.27.0 cost cases](#2270-cost-cases) on 2.27.0, their CPU time divided by the estimate's
+`sampleCount.maximum`; one thread): about 1.2–1.6 µs per real pixel for a point signal (a 96 × 64 whole view of the prime, 1.38 M
+samples, 1.67 s; a 96 × 96 part at 16 real pixels per display pixel, 147 k, 0.24 s), 1.7 µs for Quality with the regrouped disc
+(a 768 × 43 band, 5.05 M, 8.70 s), 2.2 µs for the rolling-shutter row bands at 8 midpoints (48 × 32, 393 k, 0.88 s) and 8.5 µs
+for a catalogue lens's 81 taps at 20 nodes (96 × 64, 1.38 M, 11.74 s). Work outside the samples (the in-focus tiles of a
+regrouped disc, the zone kernels, a 1:1 sharpening pass) is in these figures, so they hold for requests like these, not as a model.
+
 ### 2.27.0 cost cases
 
 The cases of the 2.27.0 plan (`scripts/benchmark-display-view-cases.mjs`: a 6000 × 4000 sensor of 6 µm sites, the app's composite
@@ -1293,9 +1345,23 @@ develop options).
   conditions): rolling out of focus 48 × 32 with `fast: false` 28.86 → 5.17 s (the full method: each row at its own instants);
   rolling in focus 192 × 128 1.67 → 1.56 s; rolling out of focus 192 × 128 218 → 7.27 s, 4.7× the
   in-focus region.
-- Targets not met, accepted by the owner and open for 2.28.0: #656 Recover and +1 stop without Standard (1.22 s against 0.8 s; the
-  accuracy is kept), #651's 192 × 128 region (4.7× its in-focus time against 3×; the 1/128 site band shift is kept), and
-  #655's 2 × 2 box (2.0× the point aperture against 1.3×).
+- Targets not met in 2.27.0: #656 Recover and +1 stop without Standard (1.22 s against 0.8 s; the accuracy is kept), #651's
+  192 × 128 region (4.7× its in-focus time against 3×; the 1/128 site band shift is kept), and #655's 2 × 2 box (2.0× the point
+  aperture against 1.3×). Where they stand in 2.28.0:
+  - #656: met by #662 (next item).
+  - #651's 192 × 128 region: not met. #711 shares the in-focus columns of neighbouring row blocks and makes the block lookup
+    cheaper, with the same bits; the out-of-focus region is faster but stays above 3× its in-focus time. What is left is the
+    in-focus work of the rows above and below each band, which are read at the next band's instants and cannot be shared
+    without changing the fast method's output.
+  - #655's 2 × 2 box: the lens mapping of a still camera (below) and the offset expansion (`lens.catalogue/view-offset-expansion`,
+    #685, a fast method; [Catalogue lenses](#catalogue-lenses-569)) lower the box's extra cost: box over point 1.19–1.32× in
+    three paired runs with both (median 1.25×, under the 1.3× target; CHANGELOG.md, 2.28.0).
+- 2.28.0 (#662): `656-recover-push` 1.35 → 0.79 s (fastest of five paired runs against 2.27.0's code; median ratio 0.61×,
+  load average 16–26), under the 0.8 s target; with `fast: false` 18.8 → 8.1 s. Samples, expected values and noise standard
+  deviations are the same bits (SHA-256), fast and full; `656-standard-recover-push` 0.93× and `656-none` 1.00× of 2.27.0.
+- 2.28.0 (#685, the lens mapping of a still camera): the mapping skips the rotation and its allocations, the same bits;
+  `655-catalogue-96-box` 0.91× and `655-catalogue-96` 0.95× of 2.27.0's code (median of four paired runs, load average
+  200–700), box over point 2.13× → 2.03× in those runs.
 - ¹ #649's ratios to the plain part move by about 20 % with the machine's load at 0.5–1.9 s per render. Over three runs (this
   table's and two later ones, `REPEATS=2` and `REPEATS=4`, load average 18–100): corrections 1.42–1.79× (target 1.5×, met in this
   table's run only), sharpening 1.78–2.03× (target 1.7×, not met), both 2.40–2.91× (target 2.6×, met in this table's run only).
@@ -1669,6 +1735,10 @@ root exports of the built package, minified, gzip level 9; `test/capture-bundle.
   (rolldown 1.2.9; 46,380 B and 18,540 B before: a simpler Kelvin white-balance branch and one view-region expression
   more than pay for the lens hook), within the unchanged budget; the capture-only entry grows by 642 B (212 B gzip) for
   the request setup in `runCapture`, and a splitting bundler emits the chunk for capture-only consumers too, never loaded.
+- **`simulateFalseColor` is loaded on demand (#739, 2.28.0).** Its body (`facade/false-color.ts`) is one chunk that imports no
+  module and loads at the first call; the capture worker does not import the function, so its rows are unchanged. Measured with
+  rolldown 1.2.14: the chunk 5,094 B gzip (its own row, "false color", limit 5,100 B); a bundle that imports the function adds
+  348 B to its first load, and it also takes the display view's code, which the function is built on.
 - **The GPU display view is loaded on demand.** `prepareDisplayView` imports `facade/display-view-gpu-session.ts` (the GPU
   session, the Speed and Quality renderers and their WGSL) dynamically, and only when `gpu` is `"auto"` or `"require"`, so a
   bundler that splits dynamic imports puts it in a chunk the default `gpu: "off"` never loads (52 kB gzip, 15 `src/gpu`
@@ -1748,6 +1818,51 @@ root exports of the built package, minified, gzip level 9; `test/capture-bundle.
   The GPU coupled steps (#593) load on demand too and count in that row. The bundler now gives the entry ten small chunks it
   shares with the kits (imported statically; 252,371 B of entry plus 27,348 B), so the display view's addition is measured on
   the entry and those chunks together: 38,370 B minified and 14,126 B gzip (2.21.0: 46,270 B and 18,327 B).
+
+  **The bundler version and the 2.28.0 limits (#690, #691).** The rows are measured with the measured bundler version
+  (rolldown 1.2.14; 2.27.0's rows were measured with 1.2.9). #690 lets a bundler drop the SDR and luminance shader text that
+  the GPU session chunk carried unused (session chunk 33,950 → 32,182 B). Each limit is its row's measurement on the release
+  tree rounded up to the next 100 B, at or below 2.27.0's limits:
+
+  | Row (worker shape, gzip) | 2.27.0 (rolldown 1.2.9) | After #690 (rolldown 1.2.9) | After #691 (rolldown 1.2.14) |
+  | --- | --- | --- | --- |
+  | fast worker | 338,380 B | 336,612 B | 336,616 B |
+  | on demand | 51,999 B | 51,999 B | 51,987 B |
+  | export | 10,399 B | 10,399 B | 10,399 B |
+
+  Rolldown 1.2.14 builds the same 25 chunks as 1.2.9.
+
+  **The on-demand row and #658.** Measured with rolldown 1.2.14 after #675 and #692 (fast 336,700 B, on demand 51,990 B), each
+  change on the previous one, results and shader tokens unchanged:
+
+  | Change | On demand | Fast worker |
+  | --- | --- | --- |
+  | named re-exports in the Quality kit (no namespace object) | 51,828 B | 336,685 B |
+  | the renderer reads three names of the GPU Quality host | 51,704 B | 336,713 B |
+  | one loader for the GPU coupled steps | 51,569 B | 336,742 B |
+  | the Speed kernel's helper functions shared with the Quality kernels (same tokens) | 51,092 B | 336,826 B |
+  | the CPU kits read by position (`QK_*`, `OK_*` in `src/facade/on-demand-kits.ts`) | 50,745 B | 336,552 B |
+  | the GPU Quality host and coupled chunk read by position | 50,684 B | 336,558 B |
+  | shorter result texts (limitations, assumptions) and refusal messages in the kits and the GPU Quality host | **50,178 B** | **336,556 B** |
+
+  A read of the two CPU kits for code no request reaches found only test instrumentation and a few dozen bytes of fallbacks.
+  This release's later additions to the on-demand code (among them #662's chain slopes, #685's offset expansion, #715's band
+  size, #734's single pass and the GPU Quality host's lens hook) bring the row to 51,893 B on the release tree: the 49,400 B
+  target was not met, and #658 stays open.
+
+  **The lens passes and false color (#661, #739).** The catalogue-lens passes are their own on-demand chunk and their own row,
+  "lens passes", which only the GPU Quality host loads; `simulateFalseColor`'s body is another, "false color". The rows are not
+  additive: the entry's small chunks fold differently once the lens chunk exists (24 chunks).
+
+  **2.28.0 (the release tree).** Measured with rolldown 1.2.14 on Node 26 (`test/capture-bundle.test.ts`):
+
+  | Row (worker shape, gzip) | 2.28.0 | Limit | 2.27.0's limit |
+  | --- | --- | --- | --- |
+  | fast worker | **final value set at release** | set at release (at most 338,900 B) | 338,900 B |
+  | on demand | **51,893 B** | 51,900 B | 52,000 B |
+  | export | **10,396 B** | 10,400 B | 10,500 B |
+  | lens passes | **10,200 B** | 10,200 B | (no row) |
+  | false color | **5,094 B** | 5,100 B | (no row) |
 - **Shipped shaders are minified (2.14, #536).** `npm run build` strips comments and indentation from the WGSL source
   (`scripts/minify-wgsl-dist.mjs`, see [WebGPU, Shipped shader text](WEBGPU.md#shipped-shader-text)). Measured on the app's
   production build (Vite 8, app 0.50.0 at `a82a5eb`, engine `main` at `42ec9d8` packed before and after): the GPU session
@@ -1858,14 +1973,23 @@ prepared.dispose(); // releases a device the view acquired
 **Order of decisions** when the view is prepared, each a fallback reason for `"auto"` and an `ImageKernelExecutionError`
 with that reason for `"require"`:
 
-1. The realm's switch: `setWebGpuEnabled(false)` gives `webgpu-disabled`, and no adapter is requested.
+1. The realm's switch: `setWebGpuEnabled(false)` gives `webgpu-disabled`, and no adapter is requested. It is read again at every
+   render (`gpu-05` in [#702](https://github.com/Photivra/engine/issues/702)): a view prepared while it was on renders on the CPU,
+   `webgpu-disabled`, while it is off.
 2. No GPU display-view renderer registered (this version): `unsupported-on-backend`, no adapter requested.
 3. The device: the handle's, or acquired with the accelerator's rules and reasons (`webgpu-unavailable`,
    `adapter-unavailable`, `device-request-failed`, `insufficient-limits`, `unsupported-platform-endianness`). The request's
    own `signal` aborts the acquisition. A disposed accelerator handle is a configuration error; one on the CPU reference
    gives its own fallback reason (`webgpu-unavailable` when it has none).
 4. A request with `lens.projection`, `lens.distortion`, `lens.vignetting` or camera rotation (#563) gives
-   `unsupported-on-backend` before the device step, with no adapter requested: the CPU reference renders it.
+   `unsupported-on-backend` before the device step, with no adapter requested: the CPU reference renders it. #661: a
+   `lens.catalogue` view with a radial distortion is the exception; the request describes it (`lensView`) and the renderer
+   takes a still, rectilinear view in field zones without `flare` on its lens passes ([WebGPU, Catalogue lenses on the
+   GPU](WEBGPU.md#catalogue-lenses-on-the-gpu-655)); rotation, hand shake, a moving subject, `fast: false`, a fisheye and
+   `flare` run the CPU reference labelled `unsupported-on-backend` with the reason. With the box pixel aperture the lens
+   passes map every query offset through the lens (the full method's mapping), not the CPU fast reference's second-order
+   offset expansion (#685); the two agree within its 1e-6 relative go/no-go, outside the GPU's a-priori bound. Such a render
+   reports `offsetMapping: "lens-mapping-per-offset"` in its `view.execution` assumption.
 5. The renderer must support the request (AHD, diffraction, the anti-aliasing filter, the pixel aperture, the tone curve
    and the scene kind: a chart or `material-layers`, not a caller function): `unsupported-on-backend` otherwise, and a device
    the view acquired is released.
@@ -1882,7 +2006,10 @@ with that reason for `"require"`:
   the view's first render that takes the Quality passes, after the Quality code has loaded on demand. Their ids are then
   appended to `conformance.cases`, and a failure keeps that render and every later one on the CPU, labelled as above. Results
   do not change: only when the Quality cases run, and so which ids a Speed-only view's record lists (the two built-in cases
-  and the Speed case).
+  and the Speed case). Both checks belong to the view, not to the render that started them (2.28.0, #675): a render's
+  `signal` ends only that render's wait, so a concurrent render that was not aborted still gets the check's outcome, and
+  `prepared.dispose()` ends a running check; a render that was waiting for it runs as one started after `dispose()`
+  (`disposed`).
 - *Single flight.* GPU renders of one view run one at a time on its device; concurrent `render` calls queue rather than
   reject with `busy`. CPU renders are unaffected.
 - *Refused at render time.* What only a render can tell (a view coarser than the exact area mean, a footprint above 6 real
@@ -1892,6 +2019,12 @@ with that reason for `"require"`:
   render asks the renderer again.
 - *Device loss.* A render during which the device is lost falls back to the CPU for that render, and every later render of the
   view runs on the CPU, labelled `device-lost`. With `"require"` that event is an error.
+- *Compile and memory failures (2.28.0, #692, owner decision 2026-11-21).* The self-check does not build every pipeline a render
+  uses (the composite material module and probe, the coupled and neighbor variants, the image-plane module). Under `"auto"` a
+  render whose kernel the device does not compile runs the CPU reference, labelled `gpu-validation`, and that kernel is not
+  compiled again for the view's device, so later renders that use it fall back the same way; a render during which the device
+  runs out of memory runs the CPU reference, labelled `out-of-memory`, and the next render tries the GPU again. With
+  `"require"` both are thrown as `ImageKernelExecutionError` with that reason, as before.
 - *Abort.* A render's `signal` aborts its GPU dispatch; the render rejects with the engine's abort error, as a CPU render does.
 - `dispose()` releases a device the view acquired (not one an accelerator handle shares) and the scene records the renderer
   uploaded for it. Later renders run on the CPU

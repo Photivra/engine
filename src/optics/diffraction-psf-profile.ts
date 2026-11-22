@@ -81,8 +81,12 @@ export const DIFFRACTION_LIMITED_PSF_PROFILE_MODEL = /* @__PURE__ */ Object.free
  * sampling of `simulateCapture` and the display view (`sensor.spectralStepNanometers` 1 nm over 380–780 nm), so `lens.diffraction`
  * builds one exact kernel per spectral node at every allowed step; it was 64 before 2.15.0, which refused every step under 6.25 nm.
  * The work and memory are linear in the count (measured in docs/PSF_FOUNDATION.md, "Spectral nodes").
+ * `maximumBeta` (2.28.0, #686): the largest β = p·f_c = pitch/(λ·N_w), the cell side over the cut-off period, at the shortest wavelength.
+ * The real-space cell work grows as β, so a request above it is refused before any cell is integrated. 1e5 keeps every documented use
+ * (whole-frame cells reach β ≈ 250; the tests go to 400) and keeps one wavelength at radius 2 to under a second.
  */
-export const DIFFRACTION_LIMITED_PSF_PROFILE_LIMITS = /* @__PURE__ */ Object.freeze({ maximumWavelengths: 400, maximumKernelRadiusSamples: 32 });
+export const DIFFRACTION_LIMITED_PSF_PROFILE_LIMITS = /* @__PURE__ */ Object.freeze({ maximumWavelengths: 400, maximumKernelRadiusSamples: 32, maximumBeta: 1e5 });
+const MAXIMUM_BETA = 1e5;
 /**
  * Internal: β = p·f_c (cell side over the cut-off period) from which `calculateAiryCellEnergies` integrates the cells in
  * real space (2.5); below it, also a (β, R) whose frequency-domain work is too large (2.28.0).
@@ -146,11 +150,11 @@ export interface DiffractionLimitedPsfProfile {
 const EVIDENCE: readonly EvidenceProvenance[] = /* @__PURE__ */ Object.freeze([/* @__PURE__ */ Object.freeze({ sourceOrigin: "photivra" as const,
   sourceReference: "photivra:diffraction-limited-psf-profile", reuseStatus: "photivra-owned" as const })]);
 const LIMITATIONS = /* @__PURE__ */ Object.freeze([
-  "Scalar Fraunhofer diffraction of an ideal, uniformly lit circular pupil (Airy pattern); no aberration, apodization, polarization or stray light.",
-  "Exactly in focus: no defocus or depth of field. Thin lens with unity pupil magnification; the pupil-to-image distance is the thin-lens image distance.",
-  "The on-axis PSF is declared unchanged across the field (isoplanatic); no field-dependent aberration or pupil clipping.",
-  "PSF energy is binned into square sample cells; the finite window misses the Airy tail energy listed per wavelength and is renormalized to unit sum.",
-  "Wavelengths are used as given, in the declared basis, without air/vacuum conversion."
+  "Scalar Fraunhofer diffraction of an ideal circular pupil (Airy); no aberration, apodization, polarization or stray light.",
+  "In focus (no defocus); thin lens with unity pupil magnification.",
+  "The on-axis PSF is used across the field (isoplanatic).",
+  "PSF energy in square cells of a finite window (tail energy listed per wavelength), renormalized to unit sum.",
+  "Wavelengths as given (no air/vacuum conversion)."
 ]);
 
 function positive(value: unknown, name: string): number {
@@ -197,6 +201,9 @@ function sinc(x: number): number {
  * multiplies the node or panel counts (1 in production; the tests use 2 to check convergence).
  */
 export function calculateAiryCellEnergies(beta: number, radius: number, scale = 1): { cells: Float64Array; radialNodes: number; angularNodes: number; realSpace: boolean } {
+  // #686: a non-finite or huge β would never leave the panel loop; refuse it before the cache or any integration. The profile's
+  // first wavelength is its shortest, with the largest β, so a profile above the bound fails before any cell is integrated.
+  if (!(beta > 0 && beta <= MAXIMUM_BETA)) throw new InvalidConfigurationError("Diffraction beta must be in (0, 100000].");
   // 2.6: a pure function of (β, R, scale), so results are memoized (most recently used first) and handed out as copies.
   // Tiles of one frame, and captures that change only the exposure or the scene, rebuild the same kernels.
   const key = beta + "|" + radius + "|" + scale, cached = AIRY_CELL_CACHE.get(key);
@@ -428,7 +435,7 @@ export function createDiffractionLimitedPsfProfile(input: CreateDiffractionLimit
     records.push({ wavelengthNm: nm, cutoffFrequencyCyclesPerMicrometer: cutoff, firstZeroRadiusMicrometers: AIRY_FIRST_ZERO_PER_LAMBDA_N * lambdaN,
       capturedEnergyFraction: captured, truncatedEnergyFraction: truncated, centreSampleFraction: kernel[radius * size + radius]! });
   }
-  const uncertainty = { kind: "not-quantified" as const, limitation: "Ideal diffraction-limited model; no measured lens or quadrature error bound." };
+  const uncertainty = { kind: "not-quantified" as const, limitation: "Ideal diffraction-limited model; no error bound." };
   const nodes = [-fieldX, fieldX].flatMap((fx) => [-fieldY, fieldY].flatMap((fy) => wavelengths.map((nm, index) => ({
     nodeId: "airy-" + (fx < 0 ? "xm" : "xp") + "-" + (fy < 0 ? "ym" : "yp") + "-" + index,
     coordinate: { focalLengthMm, focusDiopters, apertureFNumber: fNumber, fieldXmm: fx, fieldYmm: fy, wavelengthNm: nm, signedDefocusImagePlaneMicrometers: 0 },

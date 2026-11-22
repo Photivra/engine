@@ -282,9 +282,13 @@ export function calculateGeometricFocusBreathing(
       );
     }
     // Stable smaller root of v^2 - T v + f T = 0: v = 2 f T / (T + sqrt(T^2 - 4 f T)).
-    imageDistanceMm =
-      (2 * f * conjugateSum) /
-      (conjugateSum + Math.sqrt(conjugateSum * conjugateSum - 4 * f * conjugateSum));
+    // 2.28.0 (optics-25): when T^2 overflows, the root is taken as T sqrt(1 - 4f/T), which cannot; finite T^2 keeps
+    // the expression as before.
+    const squared = conjugateSum * conjugateSum;
+    const root = Number.isFinite(squared)
+      ? Math.sqrt(squared - 4 * f * conjugateSum)
+      : conjugateSum * Math.sqrt(1 - (4 * f) / conjugateSum);
+    imageDistanceMm = (2 * f * conjugateSum) / (conjugateSum + root);
     objectDistanceMm = conjugateSum - imageDistanceMm;
     effectiveFocalLengthMm = f;
   } else if (input.focusingMethod === "fixed-image-distance-internal-focus") {

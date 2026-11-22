@@ -116,6 +116,11 @@ export interface ResolvedMixedIllumination {
   /** Spectral irradiance at a plane point, W·m⁻²·nm⁻¹: (u, v) chart coordinates for the blend, (xM, yM) metres for the point sources. */
   irradianceAt(u: number, v: number, xM: number, yM: number, wavelengthNanometers: number): number;
   /**
+   * #735: `irradianceAt` at each of `wavelengths` into `out`: the point's blend segment and fraction and each point source's
+   * cos θ/d² resolved once, then each node from the same expressions in the same order, so `out[n]` is `irradianceAt(…, wavelengths[n])`.
+   */
+  irradianceSpectrumAt(u: number, v: number, xM: number, yM: number, wavelengths: readonly number[], out: Float64Array): void;
+  /**
    * At the frame center: the illuminance, the blend's source weights, each light's illuminance there (w_i·E_i; a point's
    * I·cos θ/d²) and the strongest light (the largest, the first on a tie; an index into `sources`).
    */
@@ -171,7 +176,7 @@ export function resolveMixedIllumination(value: unknown, resolveIlluminant: (val
   });
   // #639: the flash, the last point: Q = p·Q_full cd·s, the intensity Q/T over the window T.
   if (record.flash !== undefined) {
-    if (moving) fail("illumination.flash does not support motion: the pulse freezes the scene at one instant, which the temporal quadrature does not place.");
+    if (moving) fail("illumination.flash does not support motion (the temporal quadrature does not place the pulse).");
     const f = fields(record.flash, ".flash", ["illuminant", "position", "output", "powerFraction"]), o = fields(f.output, ".flash.output", ["guideNumberM", "candelaSeconds", "luxSeconds", "distanceM"]);
     const option = (f.illuminant ?? { kind: "planckian", temperatureKelvin: 5500 }) as CaptureIlluminant, illuminant = resolveIlluminant(option);
     const power = f.powerFraction === undefined ? 1 : positive(f.powerFraction, ".flash.powerFraction", 1), forms = Object.keys(o).sort().join();
@@ -232,17 +237,40 @@ export function resolveMixedIllumination(value: unknown, resolveIlluminant: (val
     }) : sources.map((_, i) => i / (n - 1));
   }
   /**
-   * The blend at a point: the lower source i and the fraction f of source i + 1 (f = 0: source i alone). On a gradient, the segment
+   * #735: resolves the blend at a point, once for all its spectral nodes: the lower source `low` and the fraction `frac` of source
+   * low + 1 (0: source low alone), and each point source's cos θ/d² at plane point (x, y) m. On a gradient, the segment
    * [stops[i], stops[i + 1]) that holds t; equal stops are passed over, so the later source takes the stop.
    */
-  const at = (u: number, v: number): [number, number] => {
-    const t = position(u, v);
-    if (!stops) return [t, 0];
-    let i = 0;
-    while (i < n - 1 && t >= stops[i + 1]!) i++;
-    return i === n - 1 || t <= stops[i]! ? [i, 0] : [i, (t - stops[i]!) / (stops[i + 1]! - stops[i]!)];
+  let low = 0, frac = 0;
+  const falloffs = new Float64Array(points.length);
+  // Each shape at the nodes of one wavelength list (the same doubles the shape gives), for irradianceSpectrumAt.
+  let nodesOf: readonly number[] | undefined, sourceNodes: Float64Array[] = [], pointNodes: Float64Array[] = [];
+  const resolvePoint = (u: number, v: number, x: number, y: number): void => {
+    low = 0; frac = 0;
+    if (n > 0) {
+      const t = position(u, v);
+      if (!stops) low = t;
+      else {
+        while (low < n - 1 && t >= stops[low + 1]!) low++;
+        if (!(low === n - 1 || t <= stops[low]!)) frac = (t - stops[low]!) / (stops[low + 1]! - stops[low]!);
+      }
+    }
+    for (let j = 0; j < points.length; j++) falloffs[j] = falloff(points[j]!, x, y);
   };
-  const [i0, f0] = at(0, 0), weights = sources.map((_, i) => (i === i0 ? 1 - f0 : i === i0 + 1 ? f0 : 0));
+  /**
+   * The irradiance at the resolved point from the shapes' values at one node: `lower` and `upper` the blend's two sources' (k·S(λ)
+   * itself where one source has weight 1), then each point source's c_j·S_j(λ)·cos θ/d² in order, S_j at `nm` or, with k ≥ 0, from
+   * the node table.
+   */
+  const combine = (lower: number, upper: number, k: number, nm: number): number => {
+    let e: number;
+    if (n === 0) e = 0;
+    else { const a = sources[low]!.irradianceScale * lower; e = frac === 0 ? a : (1 - frac) * a + frac * (sources[low + 1]!.irradianceScale * upper); }
+    for (let j = 0; j < points.length; j++) e += points[j]!.scale * (k < 0 ? points[j]!.shape(nm) : pointNodes[j]![k]!) * falloffs[j]!;
+    return e;
+  };
+  resolvePoint(0, 0, 0, 0);
+  const i0 = low, f0 = frac, weights = sources.map((_, i) => (i === i0 ? 1 - f0 : i === i0 + 1 ? f0 : 0));
   // Every light at the frame center, the blend's sources first: a point source's irradiance scale there is c_j·cos θ/d².
   const lights = [...sources, ...points.map((p) => {
     const atCenter = falloff(p, 0, 0);
@@ -252,17 +280,19 @@ export function resolveMixedIllumination(value: unknown, resolveIlluminant: (val
   const illuminancesLux = lights.map((l, i) => (i < n ? weights[i]! * l.illuminanceLux : l.illuminanceLux));
   let strongest = 0, illuminanceLux = 0;
   illuminancesLux.forEach((e, i) => { illuminanceLux += e; if (e > illuminancesLux[strongest]!) strongest = i; });
-  /** The blend's irradiance (k·S(λ) itself where one source has weight 1). */
-  const ambient = (u: number, v: number, nm: number): number => {
-    if (n === 0) return 0;
-    const [i, f] = at(u, v), a = sources[i]!.irradianceScale * shapes[i]!(nm);
-    return f === 0 ? a : (1 - f) * a + f * (sources[i + 1]!.irradianceScale * shapes[i + 1]!(nm));
-  };
   return Object.freeze({ sources: Object.freeze(lights), blend: blend && Object.freeze(blend),
-    irradianceAt: points.length === 0 ? (u: number, v: number, _x: number, _y: number, nm: number): number => ambient(u, v, nm) : (u: number, v: number, x: number, y: number, nm: number): number => {
-      let e = ambient(u, v, nm);
-      for (const p of points) e += p.scale * p.shape(nm) * falloff(p, x, y);
-      return e;
+    irradianceAt: (u: number, v: number, x: number, y: number, nm: number): number => {
+      resolvePoint(u, v, x, y);
+      return combine(n > 0 ? shapes[low]!(nm) : 0, frac === 0 ? 0 : shapes[low + 1]!(nm), -1, nm);
+    },
+    irradianceSpectrumAt(u: number, v: number, x: number, y: number, wavelengths: readonly number[], out: Float64Array): void {
+      resolvePoint(u, v, x, y);
+      if (nodesOf !== wavelengths) {
+        nodesOf = wavelengths;
+        sourceNodes = shapes.map((shape) => Float64Array.from(wavelengths, shape));
+        pointNodes = points.map((p) => Float64Array.from(wavelengths, p.shape));
+      }
+      for (let k = 0; k < wavelengths.length; k++) out[k] = combine(n > 0 ? sourceNodes[low]![k]! : 0, frac === 0 ? 0 : sourceNodes[low + 1]![k]!, k, 0);
     },
     center: Object.freeze({ illuminanceLux, weights, illuminancesLux, strongestSource: strongest }), flash: record.flash !== undefined });
 }
@@ -286,7 +316,7 @@ export function meterFlash(samples: { relativeLinearSignal: number }[], total: r
  */
 export function flashAloneShutter(minimumSeconds: number, maximumSeconds: number, assume: (id: string, kind: "model", value: unknown, explanation: string) => void): number {
   const t = Math.min(maximumSeconds, Math.max(minimumSeconds, 1 / 125));
-  assume("exposure.flashShutter", "model", t, "The flash alone lights the scene (no ambient reading), so every shutter gives the same exposure: the automatic mode takes 1/125 s within the body's range and resolves the rest at it.");
+  assume("exposure.flashShutter", "model", t, "Flash alone (no ambient reading): every shutter gives the same exposure, so the automatic mode takes 1/125 s within the body's range.");
   return t;
 }
 
@@ -317,6 +347,5 @@ export function rebindFlashAssumptions(assumptions: { id: string; value: unknown
 
 /** Internal (#639): under a rolling shutter the flash needs one instant at which every row is open, t ≥ the readout skew τ. */
 export function requireFlashRows(shutterSeconds: number, skewSeconds: number): void {
-  if (shutterSeconds < skewSeconds) throw new InvalidScientificInputError("illumination.flash with motion.shutter \"rolling\" needs a shutter time of at least the readout skew, " +
-    skewSeconds + " s, so that every row is open when the flash fires.");
+  if (shutterSeconds < skewSeconds) throw new InvalidScientificInputError("illumination.flash with a rolling shutter needs a shutter time ≥ the readout skew, " + skewSeconds + " s.");
 }

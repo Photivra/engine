@@ -82,6 +82,6 @@ export function resolveLensFilter(value: unknown, range: { minimum: number; maxi
     profiles, filterIds: profiles.map((p) => p.filterId), spectrallyFlat: flat, linearTransmissionFactor: t, attenuationStops: composed.combinedAttenuationStops,
     scientificStatus: composed.scientificStatus, sampleWavelengths: wavelengths, transmissionAt,
     evidence: profiles.flatMap((p) => p.evidence), limitations: [...profiles.flatMap((p) => p.limitations),
-      ...(spectral.length > 1 ? ["The stack's transmission is sampled at its filters' sample wavelengths and interpolated linearly (an approximation of the product of two or more spectral filters)."] : [])]
+      ...(spectral.length > 1 ? ["The stack's transmission is interpolated linearly between its filters' sample wavelengths (an approximation)."] : [])]
   };
 }

@@ -172,6 +172,6 @@ export function handShakeAssumption(assume: (id: string, kind: "model", value: u
     boundDegrees: { pitch: degrees(trajectory.boundRad.pitch), yaw: degrees(trajectory.boundRad.yaw) },
     rmsDisplacementDegreesOverExposure: degrees(handShakeRms(trajectory, shutterSeconds)),
     components: trajectory.components.map((c) => ({ ...c })) },
-  "Hand shake (#641, motion/hand-shake.ts): a bounded, seeded trajectory added to the camera rotation at every midpoint of every site; sway at 0.7–5.6 Hz and tremor at 8–12 Hz " +
-    "on pitch and yaw, 4.39 °/s RMS (Xiao et al. 2009), scaled by 2^−stabilizationStops. A generic approximation, not a measurement.");
+  "Hand shake (#641): a bounded, seeded pitch and yaw trajectory in the camera rotation; sway 0.7–5.6 Hz, tremor 8–12 Hz, 4.39 °/s RMS " +
+    "(Xiao et al. 2009) × 2^−stabilizationStops. A generic approximation.");
 }

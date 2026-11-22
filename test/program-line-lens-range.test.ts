@@ -3,10 +3,12 @@
  * #583: in program mode the program line follows the lens's f-number range (`lens.ideal` widestFNumber/narrowestFNumber,
  * `lens.prime`, `lens.catalogue`). Requests whose range holds the line (f/4–f/16), and requests with no range, keep their bytes.
  * #585: a range narrower than about f/1 anchors the exposure at the body's shortest shutter; requests that resolved before keep theirs.
+ * #673: a sensor profile whose base ISO is above 100 moves the anchor's shutter; its program line's stops are measured from that anchor.
  */
 import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
-import { simulateCapture, simulateDisplayView, type SimulateCaptureOptions, type SimulateCaptureResult } from "../src/index.js";
+import { resolveSensorProfile, SENSOR_PROFILES, simulateCapture, simulateDisplayView, type SensorProfile, type SimulateCaptureOptions,
+  type SimulateCaptureResult } from "../src/index.js";
 import { scaledTimeout } from "./helpers/test-timeout.js";
 
 const sha = (data: ArrayBufferView | string): string => createHash("sha256")
@@ -34,6 +36,7 @@ const UNCHANGED: Record<string, SimulateCaptureOptions> = {
 // catalogue50's assumptions re-pinned for #567 (2.20.0): lens.catalogue.character reports the lens's bokeh; its image, RAW and exposure are unchanged.
 // Every assumptions digest re-pinned for 2.22.0: raw.expectedSignal's method is "per-site-integrated-electrons" (before "tabulated-expected-electrons")
 // and its explanation says so; samples, RAW codes and exposure are unchanged (the same on x64 and arm64).
+// 2.28.0 (#674, the catalogue PSF's exact cell integration): catalogue50's samples, codes and assumptions re-pinned (x64 and arm64).
 const PINNED: Record<string, Record<string, string>> = {
   tierLens: { samples: "e93c1106936f4744f0e16b5718eb7c88f2d33844652e4e56dc168ecc3b1e91f8", codes: "ace2bd2120a3f5b59e2076a289198be5f235ef19f3a35d399ca97f983633b28d",
     exposure: "00b53a317629402d6abb579d4805ec2dc134ff172ac6ab779162d2ab6e55f379", assumptions: "e8e5a4d37a2e67c02b4629645f98fdabd3c17ae26d5f1df13955f7d96f36708e" },
@@ -47,8 +50,11 @@ const PINNED: Record<string, Record<string, string>> = {
     exposure: "00b53a317629402d6abb579d4805ec2dc134ff172ac6ab779162d2ab6e55f379", assumptions: "98284a9376537ce9dde98b2ef392e00c600f5ffca9e52d81982433e7f0367842" },
   // #588 and #589: samples and codes re-pinned on the merged tree: the exact catalogue quadrature reads the star's ties at lattice
   // points (#588; test/simulate-capture-lens-catalogue-ties.test.ts), and the off-axis kernels carry the PSF's own centroid (#589).
-  catalogue50: { samples: "d14f71e0d15541621bf2e0f54a08237c6d58d6a762a764fe04f43172b1bf2fa1", codes: "6e9885b34fb07a068711607dd975a99fa8a8619005f274ddfbd4fc9d60eda3f9",
-    exposure: "bb54027b8c93f83b0a5a524441a9e1ee0ee153a8c0eb9699fefe7806bc64ccd8", assumptions: "719ef58f535b470602ff35bd3af5a4588a0be6e3af25c8a1ede9928737975866" },
+  // #681 (2.28.0): exposure re-pinned, samples, codes and assumptions unchanged. Its ideal ISO is 99.99999999999997 (residual
+  // -4.8e-16 stops), which reported clamped "minimum", "iso-minimum" and quantized; now clamped false, "none", not quantized.
+  // The settings are unchanged (f/10.46, 1/125 s, ISO 100).
+  catalogue50: { samples: "9445f3892b824c8b7aa7bf0f628a72fdc9addc9f1a0402b05f4731c8a05112ce", codes: "91f6a851bb85d0d89d22b1d1eed711f1c8e07ff71b85021bcec7c446581677a6",
+    exposure: "90155d028eb540cd029ddc97732b06f646ce867d220f428fd75d7dee773fd9bb", assumptions: "3af60f63dc51575e280abe6fd6605e7505daad584413f8af1107efb8f97dc14d" },
   idealAboveF8Manual: { samples: "5e929bb9533f1c4c0007f96a44bb58016f959311184609bf38fe4c99ba44eab3", codes: "a7c8a08b2e99486fcc001e4197343bb5ff6c24ed5251e8d0209857a47c739874",
     exposure: "006914fc3987a766d02070f5bb328685533ac903998205648c496168de997191", assumptions: "49f0fafb48448904a3b4ca40184b0ead1944826334df702b4d7b582468e4d2c9" },
   idealBelowF8Aperture: { samples: "e93c1106936f4744f0e16b5718eb7c88f2d33844652e4e56dc168ecc3b1e91f8", codes: "c6d4a30f45b20872c38650cc5c0ce9e13595033744c365f4aa388879737d2d81",
@@ -170,5 +176,29 @@ describe("program line limited to the lens's f-number range (#583)", () => {
       // Program and aperture priority reach the meter target in 20 lx (shutter priority at 1/4000 s and manual at 1/8000 s cannot).
       if (exposure.mode === "program" || exposure.mode === "aperture-priority") expect(Math.abs(capture.exposure.standardExposureDeviationStops!), exposure.mode).toBeLessThan(0.5);
     }
+  }, scaledTimeout(60_000));
+});
+
+describe("program mode on a sensor profile whose base ISO is above 100 (#673)", () => {
+  const ff = resolveSensorProfile("full-frame-24mp-bsi-2020s");
+  const base200: SensorProfile = { ...ff, id: "copy-200", baseIso: 200, maximumIso: 102400,
+    readNoise: { lowGainElectrons: 3, highGainElectrons: 3, highGainFromIso: null }, highGainFullWellElectrons: null };
+  const line = (r: SimulateCaptureResult): unknown => r.assumptions.find((a) => a.id === "exposure.programLine")!.value;
+  it("resolves on every profile and on a base-200 copy, at the meter target, with the default ISO and with Auto ISO", async () => {
+    for (const profile of [...SENSOR_PROFILES, base200]) for (const exposure of [{ mode: "program" as const }, { mode: "program" as const, iso: "auto" as const }]) {
+      const r = await simulateCapture({ ...base, scene: { preset: "uniform" }, sensor: { profile }, exposure });
+      expect(Math.abs(r.exposure.standardExposureDeviationStops!), profile.id).toBeLessThan(1e-6);
+      if (profile.baseIso > 100) expect(line(r), profile.id).toMatchObject({ profileId: "facade-generic-program-line-base-iso", nodes: [{ aperture: 16, shutterSeconds: 1 / 2000 },
+        { aperture: 16, shutterSeconds: 1 / 125 }, { aperture: 4, shutterSeconds: 1 / 125 }, { aperture: 4, shutterSeconds: 128 / 125 }] });
+      else expect(line(r), profile.id).toBe("facade-generic-program-line");
+    }
+  }, scaledTimeout(60_000));
+  it("measures the line's stops from the base-ISO anchor: f/8 at 1/125 s lies on it, 0.32 stops from the base-125 anchor", async () => {
+    const r = await simulateCapture({ ...base, sensor: { profile: resolveSensorProfile("full-frame-24mp-stacked-sports-2020s") }, exposure: { mode: "program" } });
+    const nodes = (line(r) as { nodes: { opticalExposureStopsFromReference: number; aperture: number; shutterSeconds: number }[] }).nodes;
+    // The reference is f/8 at 1/125 s × 100/125, so f/16 at 1/125 s is log2(1.25 / 4) stops from it.
+    expect(nodes[1]!.opticalExposureStopsFromReference).toBeCloseTo(Math.log2(1.25 / 4), 12);
+    expect(nodes[2]!.opticalExposureStopsFromReference).toBeCloseTo(Math.log2(1.25 * 4), 12);
+    expect((nodes[1]!.opticalExposureStopsFromReference + nodes[2]!.opticalExposureStopsFromReference) / 2).toBeCloseTo(Math.log2(1.25), 12);
   }, scaledTimeout(60_000));
 });

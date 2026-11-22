@@ -159,7 +159,7 @@ export function planEnvironmentSensorPhotoSignal(input: Omit<CalculateEnvironmen
   const owned = ownership === "engine-owned" ? input : structuredClone(input);
   requirePublicOpaqueId(owned.temporalIntegrationId, "Environment integration requires a public identity.");
   if (!Number.isSafeInteger(owned.temporalSampleCount) || owned.temporalSampleCount < 1 || owned.temporalSampleCount > 256 ||
-    owned.sensor.responseApplication.sourcePlane.value !== "sensor-package-incident" ||
+    owned.sensor?.responseApplication.sourcePlane.value !== "sensor-package-incident" ||
     (owned.fieldThroughput?.kind !== "unity" && owned.fieldThroughput?.kind !== "radial-illumination-vignetting") || typeof owned.fieldThroughput.limitation !== "string" || !owned.fieldThroughput.limitation.trim()) {
     throw new InvalidScientificInputError("Environment exposure requires package-incident response, 1..256 midpoints and explicit supported field throughput.");
   }

@@ -24,7 +24,8 @@
 import console from "node:console";
 import process from "node:process";
 import { execFileSync } from "node:child_process";
-import { appendFileSync } from "node:fs";
+import { appendFileSync, realpathSync } from "node:fs";
+import { pathToFileURL } from "node:url";
 
 export function proofName(tree, job, runtime) {
   if (!/^[0-9a-f]{40}$/.test(tree)) throw new Error(`not a tree SHA: ${tree}`);
@@ -158,4 +159,4 @@ async function main([command, job, workflow]) {
   else throw new Error(`unknown command ${command}`);
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) await main(process.argv.slice(2));
+if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href) await main(process.argv.slice(2));
