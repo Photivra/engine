@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Unit tests of the site generator (node --test site/test/). They read the repository's real sources.
+// Unit tests of the site generator (node --test site/test/*.mjs). They read the repository's real sources.
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";

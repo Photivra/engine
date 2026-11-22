@@ -9,7 +9,7 @@
   },
   "scripts": {
     "build": "node build.mjs",
-    "test": "node --test test/",
+    "test": "node --test test/*.mjs",
     "check": "node checks/run-all.mjs"
   },
   "devDependencies": {

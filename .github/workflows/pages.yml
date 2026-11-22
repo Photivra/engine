@@ -108,7 +108,7 @@ jobs:
         run: node scripts/check-license-policy.mjs site/package-lock.json
       - name: Unit tests of the generator, checks and gates
         run: |
-          node --test site/test/
+          node --test site/test/*.mjs
           node --test scripts/test-gates.mjs
       - name: Build the site
         run: npm run build --prefix site

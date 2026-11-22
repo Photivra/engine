@@ -184,7 +184,7 @@ The site at `https://engine.photivra.com/` (design: [engine-site.md](design/engi
 ```sh
 npm ci && npm run build                       # the engine, for the rendered examples
 npm ci --ignore-scripts --prefix site         # the site's tools (its own package.json and lockfile)
-node --test site/test/ scripts/test-gates.mjs # unit tests of the generator, its checks and the gates it relies on
+node --test site/test/*.mjs scripts/test-gates.mjs # unit tests of the generator, its checks and the gates it relies on
 npm run build --prefix site                   # into _site/
 npm run check --prefix site                   # every check of the design's section 15, including the browser pass and Lighthouse
 node site/checks/serve.mjs _site              # look at it on http://127.0.0.1:4173
