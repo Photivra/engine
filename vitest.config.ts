@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 import { configDefaults, defineConfig } from "vitest/config";
 import WeightedShardSequencer from "./test/helpers/weighted-shard-sequencer.js";
+import { coverageExcludedTests } from "./test/helpers/coverage-excluded-tests.js";
 // #536: the tests run the shader text the build ships (comments and indentation stripped); PHOTIVRA_WGSL_MINIFY=0 runs the source text.
 import { wgslMinifyPlugin } from "./scripts/lib/wgsl-minify.mjs";
 
@@ -31,7 +32,8 @@ const shardRun = process.argv.some((argument) => argument === "--shard" || argum
 export default defineConfig({
   plugins: process.env.PHOTIVRA_WGSL_MINIFY === "0" ? [] : [wgslMinifyPlugin()],
   test: {
-    exclude: ["**/node_modules/**", ".claude/**", ...configDefaults.exclude],
+    // Coverage runs only: the files in test/helpers/coverage-excluded-tests.ts (they still run in plain runs).
+    exclude: ["**/node_modules/**", ".claude/**", ...configDefaults.exclude, ...(coverageRun ? coverageExcludedTests : [])],
     testTimeout: 5_000 * timeoutScale,
     hookTimeout: 10_000 * timeoutScale,
     env: { PHOTIVRA_TEST_TIMEOUT_SCALE: String(timeoutScale) },
