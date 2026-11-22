@@ -489,7 +489,7 @@ Closing the #709 gaps in design terms: site-only Markdown uses repository-relati
 - **No preview deployment.** Nothing unreleased is published anywhere.
 - The `github-pages` environment allows deployments from `main` and from `v*` tags only (owner task).
 
-**Build job, in order:** check out; Node as the publish workflow pins it, with the support-policy guard; install and build the engine at the root (for the examples); `npm ci --ignore-scripts --prefix site`; the generator's unit tests; the site build (pages, examples, search page, then the Tailwind CLI, then hashing); the same build into a second directory and a byte comparison; each check of section 15 as its own step; upload the artifact.
+**Build job, in order:** check out; Node as the publish workflow pins it, with the support-policy guard; install and build the engine at the root (for the examples); `npm ci --ignore-scripts --prefix site`; the deploy decision (14.3; after the site install, because the guard uses the site's Markdown parser); the generator's unit tests; the site build (pages, examples, search page, then the Tailwind CLI, then hashing); the same build into a second directory and a byte comparison; each check of section 15 as its own step; upload the artifact.
 
 ### 14.3 The publication guard
 
