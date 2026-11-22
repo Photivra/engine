@@ -38,7 +38,7 @@ export function findChrome() {
  */
 export async function launchChrome(extraFlags = []) {
   const executable = findChrome();
-  if (!executable) throw new Error("No Chromium found: install one (npx playwright install chromium) or set SITE_CHROME");
+  if (!executable) throw new Error("No Chromium found: install one (npx --no-install playwright-core install chromium after the root npm ci) or set SITE_CHROME");
   const profile = mkdtempSync(join(tmpdir(), "site-chrome-"));
   const child = spawn(executable, ["--headless=new", "--remote-debugging-port=0", `--user-data-dir=${profile}`, "--no-first-run",
     "--no-default-browser-check", "--disable-background-networking", "--disable-component-update", "--disable-sync",

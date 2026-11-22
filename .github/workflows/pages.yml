@@ -131,8 +131,9 @@ jobs:
       - name: "Check: identity of the built output"
         run: node scripts/check-project-identity.mjs --dir _site
       - name: Install Playwright's Chromium
-        # The same command and version as webgpu.yml: the checks drive Chromium over the DevTools protocol, no npm package.
-        run: npx --yes playwright@1.63.0 install --with-deps chromium
+        # The same command as webgpu.yml: the lockfile's playwright-core (installed by the root npm ci above; nothing
+        # fetched outside the lockfile). The checks drive Chromium over the DevTools protocol, no npm package.
+        run: npx --no-install playwright-core install --with-deps chromium
       - name: "Check: browser pass (requests, storage, reflow, focus, axe-core in both color schemes, search)"
         run: node site/checks/browser.mjs _site
       - name: "Check: Lighthouse floors"
