@@ -59,6 +59,8 @@ Each item is described in its entry below.
     radiometry requirement accepts it again).
   - *Exposure and colour:* `foundation-08`, `foundation-09` (white-balance fields read by truthiness before), `foundation-10`.
   - *Optics:* #686 (β above 1e5), #687, #726, `optics-08`, `optics-14`, `optics-15`, `optics-17`, `optics-19`, `optics-24`.
+  - *Input bounds:* work and memory limits on DNG import and rewrite, release sequences, temporal samples, composite charts
+    and diffraction profiles (Input bounds, below).
 
 ### New API
 
@@ -871,30 +873,34 @@ benchmark is not run by CI.
     the bilinear corners in line and skipping the zone moments the exact path does not read gave no gain, and a centroid cache
     keyed by kernel object changed samples (the key was not safe in that form), so nothing byte-identical worth its bytes was
     found.
-- **Input bounds.** Limits on inputs whose size sets the work or memory of one call, checked before allocation;
-  results for requests within them are unchanged, except Airy cells that change method (below).
-  - *DNG.* At most 64 opcodes are applied per opcode list (the rest are reported, not applied); FixBadPixelsList rectangles are
-    marked in one pass; a WarpRectilinear or FixVignetteRadial coefficient beyond ±10⁶ makes its list malformed, and opcode results
-    stay finite. `maximumBytes` now counts semantic masks, which are decoded strip by strip; a file whose masks push the estimate
-    over it now fails with `InvalidConfigurationError`. A file with very many strips or tiles imports. A tag that must hold one
-    value and holds none, a header with no IFD, and a decoded JPEG XL tile PNG without a leading 13-byte IHDR fail with
-    `InvalidConfigurationError`. An exception thrown by the caller's `jpegXlDecoder` rejects the import with `InvalidConfigurationError` (the original as
-    `cause`; `InvalidConfigurationError` takes an optional `{ cause }`). `serializeRewrittenDng` requires strip or tile tables that match the image layout and do not
-    overlap, and copied tag values that, with the strips or tiles, fit in the file's size. The DNG noise estimate's median selection has an O(n log n) worst case.
-  - *Release sequences* hold at most 10,000 frames (`maximumLogicalFramesPerSequence` too).
-  - *Temporal samples.* The rotation and translation quadratures, the extended-object projection and the stabilized capture
-    samples take at most 256 temporal samples and 65,536 nodes (samples × points), checked before the points are read.
-  - *Charts.* A composite's distinct dead-leaves elements together use at most 8,388,608 lookup cells and 8,000,000 disks;
-    dead-leaves elements with the same radii, seed and aspect share one generated texture.
-  - *Optics.* `calculateDetailLimit` refuses finite inputs whose image geometry overflows (it did not return); Airy cells whose
-    frequency-domain work would exceed 2.5 × 10⁸ steps use the real-space method (cells move by at most 2 × 10⁻¹³; only explicit kernel
-    radii of 10 or more); a diffraction profile whose largest β times (R + 1)² times its wavelength count exceeds 400 × 32 × 33² is refused.
-  - *Sensor.* Spectral curves are interpolated by binary search (same values); channel lists and evidence lists with holes are
-    refused at their first hole.
-  - *CI.* A test-once proof counts only from a successful run on the tree it names; a re-run of `publish.yml` for a version that
-    is already published passes only when the registry's `dist.integrity` matches the verified tarball. The WebGPU workflow
-    installs Chromium with the lockfile's `playwright-core` 1.63.0, a new exactly pinned devDependency (Apache-2.0; owner decision
-    2026-11-21), instead of `npx --yes playwright@1.63.0`.
+
+### Input bounds
+
+Limits on inputs whose size sets the work or memory of one call, checked before allocation; results for requests within them
+are unchanged, except Airy cells that change method (below).
+
+- *DNG.* At most 64 opcodes are applied per opcode list (the rest are reported, not applied); FixBadPixelsList rectangles are
+  marked in one pass; a WarpRectilinear or FixVignetteRadial coefficient beyond ±10⁶ makes its list malformed, and opcode results
+  stay finite. `maximumBytes` now counts semantic masks, which are decoded strip by strip; a file whose masks push the estimate
+  over it now fails with `InvalidConfigurationError`. A file with very many strips or tiles imports. A tag that must hold one
+  value and holds none, a header with no IFD, and a decoded JPEG XL tile PNG without a leading 13-byte IHDR fail with
+  `InvalidConfigurationError`. An exception thrown by the caller's `jpegXlDecoder` rejects the import with `InvalidConfigurationError` (the original as
+  `cause`; `InvalidConfigurationError` takes an optional `{ cause }`). `serializeRewrittenDng` requires strip or tile tables that match the image layout and do not
+  overlap, and copied tag values that, with the strips or tiles, fit in the file's size. The DNG noise estimate's median selection has an O(n log n) worst case.
+- *Release sequences* hold at most 10,000 frames (`maximumLogicalFramesPerSequence` too).
+- *Temporal samples.* The rotation and translation quadratures, the extended-object projection and the stabilized capture
+  samples take at most 256 temporal samples and 65,536 nodes (samples × points), checked before the points are read.
+- *Charts.* A composite's distinct dead-leaves elements together use at most 8,388,608 lookup cells and 8,000,000 disks;
+  dead-leaves elements with the same radii, seed and aspect share one generated texture.
+- *Optics.* `calculateDetailLimit` refuses finite inputs whose image geometry overflows (it did not return); Airy cells whose
+  frequency-domain work would exceed 2.5 × 10⁸ steps use the real-space method (cells move by at most 2 × 10⁻¹³; only explicit kernel
+  radii of 10 or more); a diffraction profile whose largest β times (R + 1)² times its wavelength count exceeds 400 × 32 × 33² is refused.
+- *Sensor.* Spectral curves are interpolated by binary search (same values); channel lists and evidence lists with holes are
+  refused at their first hole.
+- *CI.* A test-once proof counts only from a successful run on the tree it names; a re-run of `publish.yml` for a version that
+  is already published passes only when the registry's `dist.integrity` matches the verified tarball. The WebGPU and Pages workflows
+  install Chromium with the lockfile's `playwright-core` 1.63.0, a new exactly pinned devDependency (Apache-2.0; owner decision
+  2026-11-21), instead of `npx --yes playwright@1.63.0`.
 
 ## 2.27.0 — published November 19, 2026
 

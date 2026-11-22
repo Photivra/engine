@@ -16,6 +16,7 @@
     catalogue fast check read from the whole frame (#733), the box aperture's offsets to second order (#685), self-describing
     region parts (#728);
   - the low-severity fixes of the 2.27.0 review (#698–#703) and the other fixes listed in the changelog;
+  - work and memory limits on inputs, checked before allocation (the changelog's "Input bounds");
   - CI, gates and the documentation site (#659, #665, #666, #669, #693–#697, #703, #709, #713).
 - **Why a minor version:**
   - 7 new root exports, 2,110 → 2,117 (runtime exports 722 → 725), new result fields and two new fast methods. Nothing is
@@ -82,7 +83,8 @@ requests (#732, `lens.diffraction/kernel-window`), the catalogue-lens PSF (#674)
 removed registry entries (#670), the catalogue fast region (#733), the box aperture's offset expansion (#685,
 `lens.catalogue/view-offset-expansion`), joins of region parts (#728), the widened unions, #658's shorter texts, metric print
 sizes (#717), report fields (#681, #729, #688, `foundation-07`), portable exposure math (`foundation-06`), GPU results (#716,
-#661, #692, `gpu-05`), deep freezes (#682, #683, #722, `optics-06`) and the consolidated list of newly refused inputs.
+#661, #692, `gpu-05`), deep freezes (#682, #683, #722, `optics-06`), the consolidated list of newly refused inputs and the input
+bounds.
 
 ## Sizes
 
@@ -131,15 +133,19 @@ Per-part figures are in the record. Times are host-dependent; the benchmark is i
 1. **GitHub CI** on the exact commit that is tagged (CI and WebGPU). Tag it only when its CI is green.
 2. **The owner's explicit approval** to tag `v2.28.0` (AGENTS.md rule 3).
 
+Update the release branch to `main`'s tip before its last CI run and do not merge anything else first: a pull request's proofs
+count only when its head tree is `main`'s tree after the squash. If they do not, wait for `main`'s own WebGPU run after the merge
+(or run it on the tag) before re-running the publish jobs.
+
 ## Before the tag
 
-- [x] The owner's hardware GPU run on the release commit, recorded in [WEBGPU_DEVICES.md](WEBGPU_DEVICES.md) (the lens passes of
-  #661 and #716's GPU results).
+- [x] The owner's hardware GPU runs, recorded in [WEBGPU_DEVICES.md](WEBGPU_DEVICES.md) (the lens passes of #661 and #716's GPU
+  results): the conformance suite, 205 of 205 on 0aa0e00, and the `app-lens` preview acceptance, 2 of 2 on 4ec2508.
 - [ ] The WebGPU conformance run on the release commit (all three parts; the publish workflow's `WebGPU conformance proofs` job
   requires them).
-- [ ] The figure-batch record `docs/benchmarks/2026-11-21-figure-batch-2.27.0-2.28.0.json` committed and its figures entered in
+- [x] The figure-batch record `docs/benchmarks/2026-11-21-figure-batch-2.27.0-2.28.0.json` committed and its figures entered in
   [Benchmarks](#benchmarks) and the changelog.
-- [ ] The fast worker's limit set ([Sizes](#sizes)).
+- [x] The fast worker's limit set ([Sizes](#sizes)).
 - [ ] The owner's GitHub Pages setup, then the repository variable `PAGES_DEPLOY` set to `true`
   ([DEVELOPERS.md](DEVELOPERS.md#documentation-site)).
 - [ ] The owner's approval to tag `v2.28.0` (AGENTS.md rule 3).
