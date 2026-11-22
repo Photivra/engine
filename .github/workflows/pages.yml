@@ -80,13 +80,21 @@ jobs:
         run: |
           node --test .github/test-node-lts-policy.mjs
           node .github/node-lts-policy.mjs
+      - name: Install the engine
+        run: npm ci --ignore-scripts
+      - name: Build the engine (for the rendered examples)
+        run: npm run build
+      - name: Install the site tools
+        run: npm ci --ignore-scripts --prefix site
       - name: Decide whether to deploy (publication guard)
         id: decide
         env:
           EVENT: ${{ github.event_name }}
         # Pull requests never deploy. A publish run deploys: its success is the proof, and the build shows that version as
         # published. A push to main or a manual run deploys only if the changelog's newest section is package.json's
-        # version marked published (site/guard.mjs, design 14.3).
+        # version marked published (site/guard.mjs, design 14.3). This step runs after "Install the site tools" because
+        # site/guard.mjs reads the changelog with the site's Markdown parser (marked), and before "Build the site", which
+        # reads SITE_PUBLISHED_VERSION.
         run: |
           case "$EVENT" in
             pull_request)
@@ -98,12 +106,6 @@ jobs:
             *)
               node site/guard.mjs ;;
           esac
-      - name: Install the engine
-        run: npm ci --ignore-scripts
-      - name: Build the engine (for the rendered examples)
-        run: npm run build
-      - name: Install the site tools
-        run: npm ci --ignore-scripts --prefix site
       - name: Licence policy of the site tools
         run: node scripts/check-license-policy.mjs site/package-lock.json
       - name: Unit tests of the generator, checks and gates
