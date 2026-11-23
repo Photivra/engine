@@ -38,7 +38,7 @@ import { createBuiltInBayerDemosaicProfiles } from "../sensor/raw-reconstruction
 import type { SensorColorSamplingProfile } from "../sensor/color-sampling.js";
 import { applyDngOpcodes, type DngStageImage } from "./dng-opcodes.js";
 import { applyDngProfileGainTableMap, applyDngRgbTables } from "./dng-profile-maps.js";
-import { developDngStageImage } from "./dng-stage-image.js";
+import { developDngStageImage, type DngStageImageResult } from "./dng-stage-image.js";
 import type { ImportedDngRaw } from "./dng-import.js";
 import { requireImportedDngRaw } from "./dng-raw-measurements.js";
 
@@ -228,6 +228,43 @@ function transformPixels(m: ColorMatrix3x3, data: Float32Array, pixels: number):
 
 /** Full color development of an imported DNG (see the module comment). */
 export async function developDngImage(raw: ImportedDngRaw, options: DevelopDngImageOptions = {}): Promise<DevelopedDngImage> {
+  const developed = await developDngLinear(raw, options);
+  return developed.finish(developed.linear, developed.scale);
+}
+
+/**
+ * Internal (#740, 2.29.0): {@link developDngImage}'s chain split at its linear image, so that `simulateTypicalProcessing` can work
+ * between steps 4's color matrices and its tone curve. `linear` is the cropped (not yet oriented) image in linear sRGB (D65), or
+ * after a ProfileGainTableMap the same image back in linear sRGB, before BaselineExposure and the push; `scale` is 2^(baseline +
+ * push), which `finish` applies with the tone curve. `finish(linear, scale)` runs the rest (tone curve, RGBTables, gamut handling,
+ * sRGB encoding, Orientation) and builds the result; it may write into `linear`. `developDngImage` is `finish(linear, scale)` of
+ * this, so its bytes are those of the single function it replaces. `stageOf`, when given, returns the stage image in place of
+ * `developDngStageImage(raw, options)` (the frame merge); it receives the options that call would get.
+ */
+export interface DngLinearDevelopment {
+  width: number;
+  height: number;
+  linear: Float32Array;
+  scale: number;
+  /** The demosaic that ran ("bilinear" or "ahd" for a CFA mosaic; "none" for LinearRaw). */
+  demosaic: DevelopedDngImage["demosaic"];
+  fast: boolean;
+  /** The assumptions so far (the array `finish` extends and returns). */
+  assumptions: string[];
+  finish(linear: Float32Array, scale: number): DevelopedDngImage;
+}
+
+/** Internal (#740): the stage width and height and the cropped output's, before Orientation, of a full-size development. */
+export function developedDngCrop(raw: ImportedDngRaw, W: number, H: number, crop: "default" | "active-area"): { x: number; y: number; width: number; height: number } {
+  const dc = raw.defaultCrop;
+  const x = crop === "default" ? Math.max(0, Math.round(dc.x)) : 0, y = crop === "default" ? Math.max(0, Math.round(dc.y)) : 0;
+  const width = crop === "default" ? Math.min(W - x, Math.round(dc.width)) : W, height = crop === "default" ? Math.min(H - y, Math.round(dc.height)) : H;
+  return { x, y, width, height };
+}
+
+/** Internal (#740): see {@link DngLinearDevelopment}. */
+export async function developDngLinear(raw: ImportedDngRaw, options: DevelopDngImageOptions = {},
+  stageOf?: (options: { format: "srgb-8" | "srgb-16"; fast: boolean; opcodes?: boolean }) => DngStageImageResult): Promise<DngLinearDevelopment> {
   requireImportedDngRaw(raw, "developDngImage");
   if (options === null || typeof options !== "object") fail("options must be an object.");
   for (const key of Object.keys(options)) if (!KEYS.includes(key)) fail("unknown option " + JSON.stringify(key) + ".");
@@ -254,7 +291,8 @@ export async function developDngImage(raw: ImportedDngRaw, options: DevelopDngIm
   const notes: string[] = [];
 
   // 1. Stage image.
-  const stage = developDngStageImage(raw, { format, fast, ...(options.opcodes === undefined ? {} : { opcodes: options.opcodes }) });
+  const stageOptions = { format, fast, ...(options.opcodes === undefined ? {} : { opcodes: options.opcodes }) };
+  const stage = stageOf ? stageOf(stageOptions) : developDngStageImage(raw, stageOptions);
   notes.push(...stage.assumptions);
   const W = stage.width, H = stage.height;
   // 3. White balance and camera → XYZ D50.
@@ -361,9 +399,8 @@ export async function developDngImage(raw: ImportedDngRaw, options: DevelopDngIm
   const baseline = options.baselineExposure === false ? 0 : raw.baselineExposure ?? 0, scale = 2 ** (baseline + push);
 
   // Output region (stage coordinates) and orientation.
-  const dc = raw.defaultCrop;
-  let rx0 = crop === "default" ? Math.max(0, Math.round(dc.x)) : 0, ry0 = crop === "default" ? Math.max(0, Math.round(dc.y)) : 0;
-  let rw = crop === "default" ? Math.min(W - rx0, Math.round(dc.width)) : W, rh = crop === "default" ? Math.min(H - ry0, Math.round(dc.height)) : H;
+  const region = developedDngCrop(raw, W, H, crop);
+  let rx0 = region.x, ry0 = region.y, rw = region.width, rh = region.height;
   if (!(rw > 0 && rh > 0)) throw new InvalidScientificInputError("developDngImage: the default crop lies outside the image.");
   // Half size: the crop on the halved grid, [⌊x/2⌋, ⌈(x + w)/2⌉) on each axis (within the halved stage). The exact path develops
   // the full-size pixels under it (twice its size) and averages them; the fast path works on the binned grid directly.
@@ -409,43 +446,46 @@ export async function developDngImage(raw: ImportedDngRaw, options: DevelopDngIm
     linear = out; rw = hw; rh = hh;
     notes.push("developDngImage.size.half: the exact full-size development averaged over each 2 × 2 block in linear light, before the tone curve.");
   }
-  const profile = { gamutHandling } as SdrRenderingProfile, maximum = format === "srgb-8" ? 255 : 65535;
-  const codes = format === "srgb-8" ? new Uint8Array(rw * rh * 3) : new Uint16Array(rw * rh * 3), scratch = new Float64Array(3);
-  const counts: SdrPixelCounts = { negative: 0, above: 0, changed: 0, low: 0, high: 0, outOfGamut: false };
-  if (useTables) {
-    // RGBTables act on ProPhoto RGB after the tone curve (DNG SDK order): tone here, then the tables, then the encoding alone.
-    const [[s00, s01, s02], [s10, s11, s12], [s20, s21, s22]] = srgbToProphoto;
-    for (let p = 0; p < rw * rh; p++) {
-      tone(linear[3 * p]! * scale, linear[3 * p + 1]! * scale, linear[3 * p + 2]! * scale, scratch);
-      const r = scratch[0]!, g = scratch[1]!, bl = scratch[2]!;
-      linear[3 * p] = Math.min(1, Math.max(0, s00 * r + s01 * g + s02 * bl)); linear[3 * p + 1] = Math.min(1, Math.max(0, s10 * r + s11 * g + s12 * bl));
-      linear[3 * p + 2] = Math.min(1, Math.max(0, s20 * r + s21 * g + s22 * bl));
-    }
-    notes.push(...applyDngRgbTables({ image: { width: rw, height: rh, data: linear }, tables: raw.rgbTables!, masks: raw.semanticMasks }));
-    transformPixels(prophotoToSrgb, linear, rw * rh);
-    renderSdrRunInto(linear, 0, rw * rh, profile, prepareSdrPixelTone({ toneCurve: "identity" }), 1, maximum, codes, 0, scratch, counts);
-    notes.push("developDngImage.rgbTables: applied in ProPhoto after the tone curve.");
-  } else renderSdrRunInto(linear, 0, rw * rh, profile, tone, scale, maximum, codes, 0, scratch, counts);
-  if (counts.outOfGamut) throw new InvalidScientificInputError("developDngImage: a pixel is out of range and gamutHandling is \"reject-out-of-range\".");
+  const finish = (linear: Float32Array, scale: number): DevelopedDngImage => {
+    const profile = { gamutHandling } as SdrRenderingProfile, maximum = format === "srgb-8" ? 255 : 65535;
+    const codes = format === "srgb-8" ? new Uint8Array(rw * rh * 3) : new Uint16Array(rw * rh * 3), scratch = new Float64Array(3);
+    const counts: SdrPixelCounts = { negative: 0, above: 0, changed: 0, low: 0, high: 0, outOfGamut: false };
+    if (useTables) {
+      // RGBTables act on ProPhoto RGB after the tone curve (DNG SDK order): tone here, then the tables, then the encoding alone.
+      const [[s00, s01, s02], [s10, s11, s12], [s20, s21, s22]] = srgbToProphoto;
+      for (let p = 0; p < rw * rh; p++) {
+        tone(linear[3 * p]! * scale, linear[3 * p + 1]! * scale, linear[3 * p + 2]! * scale, scratch);
+        const r = scratch[0]!, g = scratch[1]!, bl = scratch[2]!;
+        linear[3 * p] = Math.min(1, Math.max(0, s00 * r + s01 * g + s02 * bl)); linear[3 * p + 1] = Math.min(1, Math.max(0, s10 * r + s11 * g + s12 * bl));
+        linear[3 * p + 2] = Math.min(1, Math.max(0, s20 * r + s21 * g + s22 * bl));
+      }
+      notes.push(...applyDngRgbTables({ image: { width: rw, height: rh, data: linear }, tables: raw.rgbTables!, masks: raw.semanticMasks }));
+      transformPixels(prophotoToSrgb, linear, rw * rh);
+      renderSdrRunInto(linear, 0, rw * rh, profile, prepareSdrPixelTone({ toneCurve: "identity" }), 1, maximum, codes, 0, scratch, counts);
+      notes.push("developDngImage.rgbTables: applied in ProPhoto after the tone curve.");
+    } else renderSdrRunInto(linear, 0, rw * rh, profile, tone, scale, maximum, codes, 0, scratch, counts);
+    if (counts.outOfGamut) throw new InvalidScientificInputError("developDngImage: a pixel is out of range and gamutHandling is \"reject-out-of-range\".");
 
-  // 5. Orientation.
-  const o = options.orientation === false ? 1 : raw.orientation, swap = o >= 5;
-  const ow = swap ? rh : rw, oh = swap ? rw : rh;
-  let samples = codes;
-  if (o !== 1) {
-    samples = format === "srgb-8" ? new Uint8Array(codes.length) : new Uint16Array(codes.length);
-    for (let y = 0; y < rh; y++) for (let x = 0; x < rw; x++) {
-      const [u, v] = orient(o, x, y, rw, rh), from = 3 * (y * rw + x), to = 3 * (v * ow + u);
-      samples[to] = codes[from]!; samples[to + 1] = codes[from + 1]!; samples[to + 2] = codes[from + 2]!;
+    // 5. Orientation.
+    const o = options.orientation === false ? 1 : raw.orientation, swap = o >= 5;
+    const ow = swap ? rh : rw, oh = swap ? rw : rh;
+    let samples = codes;
+    if (o !== 1) {
+      samples = format === "srgb-8" ? new Uint8Array(codes.length) : new Uint16Array(codes.length);
+      for (let y = 0; y < rh; y++) for (let x = 0; x < rw; x++) {
+        const [u, v] = orient(o, x, y, rw, rh), from = 3 * (y * rw + x), to = 3 * (v * ow + u);
+        samples[to] = codes[from]!; samples[to + 1] = codes[from + 1]!; samples[to + 2] = codes[from + 2]!;
+      }
     }
-  }
-  if (raw.lossySource) notes.push("developDngImage.source: the raw data is lossy.");
-  if (raw.assumptions.some((a) => a.startsWith("dngImport.notApplied: ProfileToneCurve") || a.startsWith("dngImport.notApplied: ProfileHueSatMap") || a.startsWith("dngImport.notApplied: ProfileLookTable")))
-    notes.push("developDngImage.profile: the file's profile tone curve and hue/saturation or look tables are not applied; the engine's tone curve is used.");
-  return {
-    width: ow, height: oh, format, samples,
-    whiteBalance: { source, cameraNeutral: [neutral[0], neutral[1], neutral[2]], chromaticity: { x: xy.x, y: xy.y }, correlatedColorTemperatureKelvin: cctOf(xy) },
-    cameraToXyzD50: flat(M), exposure: { baselineExposureStops: baseline, pushStops: push, label: push > 0 ? "Brightened in editing by " + push + " stops (same noise, not a longer exposure)." : push < 0 ? "Darkened in editing by " + -push + " stops." : null },
-    demosaic, size, fast: { requested: fast, defaultedFrom: options.fast === undefined ? "format" : "request" }, clippedPixelCount: clipped, assumptions: notes
+    if (raw.lossySource) notes.push("developDngImage.source: the raw data is lossy.");
+    if (raw.assumptions.some((a) => a.startsWith("dngImport.notApplied: ProfileToneCurve") || a.startsWith("dngImport.notApplied: ProfileHueSatMap") || a.startsWith("dngImport.notApplied: ProfileLookTable")))
+      notes.push("developDngImage.profile: the file's profile tone curve and hue/saturation or look tables are not applied; the engine's tone curve is used.");
+    return {
+      width: ow, height: oh, format, samples,
+      whiteBalance: { source, cameraNeutral: [neutral[0], neutral[1], neutral[2]], chromaticity: { x: xy.x, y: xy.y }, correlatedColorTemperatureKelvin: cctOf(xy) },
+      cameraToXyzD50: flat(M), exposure: { baselineExposureStops: baseline, pushStops: push, label: push > 0 ? "Brightened in editing by " + push + " stops (same noise, not a longer exposure)." : push < 0 ? "Darkened in editing by " + -push + " stops." : null },
+      demosaic, size, fast: { requested: fast, defaultedFrom: options.fast === undefined ? "format" : "request" }, clippedPixelCount: clipped, assumptions: notes
+    };
   };
+  return { width: rw, height: rh, linear, scale, demosaic, fast, assumptions: notes, finish };
 }

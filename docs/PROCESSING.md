@@ -141,6 +141,25 @@ The ITU-R BT.2100 PQ (also SMPTE ST 2084) and HLG transfer functions are not par
 
 HDR operator outputs are display-referred linear RGB in the input primaries. Encode them with the SDR rendering primitives.
 
+## Typical processing stages
+
+`simulateTypicalProcessing(input, provider?)` (2.29.0, #740) runs the stages that phone cameras commonly apply to a burst, as a simulation of typical stages, not of any device's processing. Its result is labeled "Simulation of typical processing stages; not the processing of a specific device". The input is 1 to 32 DNG frames as `parseDngRawImage` or `importDngRawImage` returns them: a simulated capture enters as its DNG (`output.format: "dng"`, one capture per `sensor.noiseSeed` for a burst), an imported file as it is. The stages run in this order, the order of Hasinoff et al. (2016) and of the survey by Delbracio et al. (2021):
+
+1. **Merge.** The mean of the frames' linearized stage images (`developDngStageImage`: the CFA mosaic or LinearRaw, normalized to 0..1 by the black and white levels), sample by sample, before the demosaic. With N frames of independent noise the mean keeps the signal and divides each sample's noise variance by N (tested on seeded Poisson frames for N = 2, 4, 8 and 16, within 5 %, the mean within 10⁻⁶). The frames must agree in size, CFA, levels, crop, opcodes and color metadata, else the request is refused. There is no alignment and no outlier rejection: the frames are taken as registered, unlike the tile alignment and robust merge of Hasinoff et al. Each frame's samples are clipped to 0..1 before the mean, which biases the mean of the darkest samples upward.
+2. **Development** to linear sRGB (D65): `developDngImage`'s chain up to its tone curve (demosaic, DNG color, white balance, ProfileGainTableMap), with `develop`'s white balance, push, tone curve, gamut handling, crop and Orientation.
+3. **Noise reduction:** the bilateral filter of `createBilateralFilterTask` (Tomasi & Manduchi 1998) on linear sRGB, spatial σ 1 pixel and range σ 0.02 by default.
+4. **Local tone mapping:** the Durand & Dorsey operator on linear sRGB (contrast 5, spatial σ 2 % of the longer side, range σ 0.4 log₁₀ by default). It maps the largest base value to luminance 1, so BaselineExposure and the push do not change its output level.
+5. **Saturation:** out = Y + gain·(RGB − Y) in linear light (default gain 1.2), Y the luminance of linear sRGB (the Y row of its RGB → XYZ matrix). This is the saturation matrix of Haeberli (1993). Gain 1 is the identity bit for bit, gain 0 gives gray, a neutral pixel keeps its value for every gain, and luminance is unchanged (tested within 10⁻¹²). Y is formed as G + w_R·(R − G) + w_B·(B − G), which is exactly G for a neutral pixel.
+6. `developDngImage`'s tone curve, RGBTables, gamut handling, sRGB encoding and Orientation.
+
+Stages 3 to 5 act on the developed image after BaselineExposure and the push, in float32, and each uses one global parameter set (no per-pixel noise model and no scene analysis). Each stage is on with its defaults when omitted and off with `false`. With one frame and every stage `false` the result equals `developDngImage`'s bit for bit, the plain side of a side-by-side comparison; stages 3 and 4 equal their standalone tasks on the same input bit for bit. No stage uses a per-channel table: the merge, the filters, the tone and the saturation steps are closed-form per sample or pixel.
+
+**Fast and full methods.** The demosaic and WarpRectilinear follow `fast` as in `developDngImage`. The local tone mapping's base layer is the registry entry `simulateTypicalProcessing/local-tone-mapping` (override `localToneMapping.fast`): fast is the paper's piecewise-linear bilateral with spatial downsampling (`createDurandDorseyToneMappingTask`); full is the direct bilateral of log₁₀ luminance over each pixel's window of radius ⌈3σ_s⌉ with reflect-101 borders (`createDurandDorseyDirectToneMappingTask`). The default is fast for "srgb-8" and "srgb-16"; `fast: false` gives every full method. The direct base's work is W·H·(2⌈3σ_s⌉ + 1)² tap evaluations; above 2 · 10¹¹ the request is refused before anything is allocated, with the numbers and the options that lower it (`localToneMapping.spatialSigmaFraction`, or `localToneMapping.fast: true`). At the default spatial σ that admits images up to about 1,900 × 1,900 pixels. Measured on an Apple-silicon Mac under load (512 × 512, σ_s = 10 px): the direct base about 0.25 · 10⁹ taps per second (3.9 s), the fast operator 0.13 s; 2 · 10¹¹ taps take about 13 minutes at that rate.
+
+**Bound of the fast method** against the full one (measured on three 64 × 64 scenes, the developed color-patches chart, a 100:1 edge with texture and a four-decade ramp, at σ_s = 2.56 px without downsampling and 8 px with downsampling 2; `test/typical-processing.test.ts`): the base layers differ by at most 0.0274 log₁₀ and the output luminance by at most 6.3 % (the ramp at σ_s = 8 px; at most 0.0095 log₁₀ and 0.44 % without downsampling). The test holds them within 0.03 log₁₀ and 7 %.
+
+The working memory is estimated per phase before anything is allocated (the frames' sum, the development, each stage; the demosaic's own scratch is not counted) and checked against `maximumWorkingBytes` (default 1 GiB).
+
 ## Focus stacking
 
 `createFocusStackTask({ frames, sharpnessSigmaPixels?, pyramidLevels? })` works as follows:
@@ -193,7 +212,10 @@ All filters use one global parameter set. Linear RAW noise is signal-dependent, 
 - Buades, A., Coll, B. & Morel, J.-M. (2005). A non-local algorithm for image denoising. *Proc. CVPR 2005*, vol. 2, 60–65; and Buades et al. (2011), Non-local means denoising, *Image Processing On Line* 1.
 - W3C CSS Color Module Level 4, Lab (free); also CIE 15 (Colorimetry): CIELAB.
 - Durand, F. & Dorsey, J. (2002). Fast bilateral filtering for the display of high-dynamic-range images. *ACM TOG* 21(3), 257–266.
+- Delbracio, M., Kelly, D., Brown, M. S. & Milanfar, P. (2021). Mobile computational photography: a tour. *Annual Review of Vision Science* 7; free copy arXiv:2102.09000.
 - EMVA Standard 1288: linear camera model and quantization noise variance 1/12 DN².
+- Haeberli, P. (1993). Matrix operations for image processing. Grafica Obscura (Silicon Graphics), free online.
+- Hasinoff, S. W., Sharlet, D., Geiss, R., Adams, A., Barron, J. T., Kainz, F., Chen, J. & Levoy, M. (2016). Burst photography for high dynamic range and low-light imaging on mobile cameras. *ACM TOG* 35(6), SIGGRAPH Asia 2016; free copy from the authors.
 - Granados, M., Ajdin, B., Wand, M., Theobalt, C., Seidel, H.-P. & Lensch, H. P. A. (2010). Optimal HDR reconstruction with linear digital cameras. *Proc. CVPR 2010*.
 - Gunturk, B. K., Glotzbach, J., Altunbasak, Y., Schafer, R. W. & Mersereau, R. M. (2005). Demosaicking: color filter array interpolation. *IEEE Signal Processing Magazine* 22(1).
 - Losson, O., Macaire, L. & Yang, Y. (2010). Comparison of color demosaicing methods. *Advances in Imaging and Electron Physics* 162, 173–265. doi:10.1016/S1076-5670(10)62005-8; open copy HAL hal-00683233.
