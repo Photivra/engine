@@ -1708,10 +1708,10 @@ function resolveParsed(
 
 /**
  * @internal #760: for the Quality kit's batch resolver (`resolveLensSampledPsfKernelsAt`, lens-psf-kernels.ts), by position: the
- * checked resolve and the resolve after its checks, each taking a centroid-aligned blend in place of the module's, and
- * bilinearSample. Not exported from the package.
+ * checked resolve and the resolve after its checks, each taking a centroid-aligned blend in place of the module's, and the
+ * module's blend. Not exported from the package.
  */
-export const LENS_PSF_RESOLVE_STEPS = [resolveLensSampledPsfCore, resolveParsed, bilinearSample] as const;
+export const LENS_PSF_RESOLVE_STEPS = [resolveLensSampledPsfCore, resolveParsed, centroidAlignedValues] as const;
 
 /**
  * Internal (2.0 performance): the kernel resolveLensSampledPsf returns for the same input, computed by

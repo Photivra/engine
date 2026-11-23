@@ -264,18 +264,17 @@ function keptBlend(weighted: readonly WeightedNode[]): number[] {
     targetY = targetY + weight * k[1]!;
   }
   for (let i = 0; i < weighted.length; i++) {
-    const { node, weight } = weighted[i]!, k = kept[i]!, dx = k[0]! - targetX, dy = k[1]! - targetY;
+    const weight = weighted[i]!.weight, k = kept[i]!, dx = k[0]! - targetX, dy = k[1]! - targetY;
     for (let column = 0; column < w; column++) { const x = column + dx; fxs[column] = x - (x0s[column] = Math.floor(x)); }
-    // Reads within PAD samples of the kernel are the padded copy's (bilinearSample reads zero outside); a larger shift calls it.
-    if (x0s[0]! < -PAD || x0s[w - 1]! >= w + PAD - 1 || Math.floor(dy) < -PAD || Math.floor(h - 1 + dy) >= h + PAD - 1) {
-      for (let row = 0, t = 0; row < h; row++) for (let column = 0; column < w; column++) values[t++]! += weight * LENS_PSF_RESOLVE_STEPS[2](node.kernel, column + dx, row + dy);
-      continue;
-    }
+    // Reads within PAD samples of the kernel are the padded copy's (bilinearSample reads zero outside); a larger shift takes the
+    // resolver's own blend for every node, the same values.
+    if (x0s[0]! < -PAD || x0s[w - 1]! >= w + PAD - 1 || Math.floor(dy) < -PAD || Math.floor(h - 1 + dy) >= h + PAD - 1) return LENS_PSF_RESOLVE_STEPS[2](weighted);
+    // bilinearSample skips a corner whose fraction is 0; here it adds 0 · value, which leaves every value (finite, non-negative) as is.
     for (let row = 0, t = 0; row < h; row++) {
       const y = row + dy, y0 = Math.floor(y), fy = y - y0, base = 2 + (y0 + PAD) * pw + PAD;
       for (let column = 0; column < w; column++) {
-        const x0 = x0s[column]!, fx = fxs[column]!, a = k[base + x0]!, b = k[base + pw + x0]!, top = fx === 0 ? a : (1 - fx) * a + fx * k[base + x0 + 1]!;
-        values[t++]! += weight * (fy === 0 ? top : (1 - fy) * top + fy * (fx === 0 ? b : (1 - fx) * b + fx * k[base + pw + x0 + 1]!));
+        const x0 = base + x0s[column]!, fx = fxs[column]!;
+        values[t++]! += weight * ((1 - fy) * ((1 - fx) * k[x0]! + fx * k[x0 + 1]!) + fy * ((1 - fx) * k[x0 + pw]! + fx * k[x0 + pw + 1]!));
       }
     }
   }
