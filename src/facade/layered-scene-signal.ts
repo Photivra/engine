@@ -41,20 +41,37 @@
  * never a channel response summed over the spectrum, nothing keyed by material or level. Every site integrates its spectra
  * against its own channel response when it is read. Every value depends only on its lattice point, so regions and parts
  * equal the whole view bit for bit and tiles dropped and recomputed have the same bits.
+ *
+ * Modules (2.29.0, group L0: a split without a change of bits, pinned by test/layered-scene-seams.test.ts). Each holds one
+ * part of the sum and states the interface the later layered groups extend:
+ * - `layered-lattice-geometry.ts`: lattice groups (opaque lattice-frame handles), a lattice point's frame point and field
+ *   factor (`framePoint`), each card's edges near a lattice point as half-planes (`edges`, axis-aligned today), the surface a
+ *   point sees alone, the chief ray's surface;
+ * - `layered-surface-radiance.ts`: a surface's spectral radiance at a frame point (`radiance`);
+ * - `layered-visibility.ts`: the open Px intervals of a pupil row (`rowIntervals`), the rows' breaks and V_k (`share`);
+ * - `layered-edge-sum.ts`: the kernel checks and the edge bound, and S at a lattice point (`sumAt`) over each surface's
+ *   kernel groups `{ nodes, kernel }` (one today);
+ * - this module: the validation (in its 2.28.0 order), the tiles (the surface tiles apply the field factor), the diffraction
+ *   that follows the sum, the single-surface delegation and the display view's signal. Its exports are unchanged; the
+ *   lattice gains `parts` (the four modules' objects), its input extends the geometry's and the radiance's inputs and takes
+ *   optional `kernelGroups`, and a layer's kernel may say it is `shaped`.
  */
 
 import { InvalidConfigurationError } from "../core/configuration-error.js";
-import { DEFOCUS_DIRECT_KERNEL_MAXIMUM_RADIUS_SITES } from "../optics/site-kernel-runs.js";
 import { createDisplayViewExpectedSignal, type DisplayViewExpectedSignal, type DisplayViewExpectedSignalInput, type DisplayViewQueryOffset,
   type DisplayViewScene } from "./expected-signal.js";
 import type { SiteKernelFieldZones } from "./diffraction-provider.js";
 import { createSpectralLatticeTiles, type SpectralLatticeTiles } from "./spectral-lattice-tiles.js";
+import { LAYERED_LATTICE_GROUP_LIMIT, createLayeredLatticeGeometry, type LayeredFramePoint, type LayeredGeometryInput, type LayeredLatticeGeometry } from "./layered-lattice-geometry.js";
+import { createLayeredSurfaceRadiance, type LayeredSurfaceRadiance, type LayeredSurfaceRadianceInput } from "./layered-surface-radiance.js";
+import { createLayeredVisibility, type LayeredVisibility } from "./layered-visibility.js";
+import { LAYERED_EDGE_MAXIMUM_KERNEL_RADIUS_SITES, checkLayeredKernelGroups, checkLayeredSurfaceKernel, createLayeredEdgeSum, layeredKernelGroups, type LayeredEdgeSum,
+  type LayeredKernelGroup, type LayeredLayerKernel } from "./layered-edge-sum.js";
+
+export { LAYERED_EDGE_MAXIMUM_KERNEL_RADIUS_SITES };
 
 /** Occlusion rows per site of a pupil region's widest footprint: the fast and full methods (registry entry `scene.layers/occlusion-samples`). */
 export const LAYERED_OCCLUSION_SAMPLES = /* @__PURE__ */ Object.freeze({ fast: 4, full: 16 });
-/** Largest defocus kernel radius of a surface in a scene of more than one surface (edge sites sum it directly). */
-export const LAYERED_EDGE_MAXIMUM_KERNEL_RADIUS_SITES = DEFOCUS_DIRECT_KERNEL_MAXIMUM_RADIUS_SITES;
-
 /** One surface of the sum, nearest first. */
 export interface LayeredSceneLayer {
   /** The surface's rectangle in frame units (u right, v up); null for the far surface (the last), which has no edge. */
@@ -63,8 +80,8 @@ export interface LayeredSceneLayer {
   blurRadiusSites: number;
   /** The surface's scene at the spectral nodes, in frame units (its print continues beyond its rectangle). */
   scene: DisplayViewScene;
-  /** Its defocus kernel on the site lattice, (2R + 1)² row-major weights (the PSF), or null in focus (a unit tap). */
-  kernel: { radius: number; weights: Float64Array } | null;
+  /** Its defocus kernel on the site lattice, (2R + 1)² row-major weights (the PSF), or null in focus (a unit tap); `shaped` for a shaped kernel. */
+  kernel: LayeredLayerKernel | null;
   /** The cat's eye: field zones whose kernels (radius `kernel.radius`) replace `kernel` per lattice point. */
   zones?: SiteKernelFieldZones;
   /**
@@ -75,12 +92,11 @@ export interface LayeredSceneLayer {
   signalInput?: DisplayViewExpectedSignalInput;
 }
 
-export interface LayeredSceneLatticeInput {
-  nativeWidth: number;
-  nativeHeight: number;
-  /** Frame output width: g = 2 / outputWidth frame units per site. */
-  outputWidth: number;
-  wavelengthsNm: readonly number[];
+/**
+ * The lattice's input: the geometry's (`layered-lattice-geometry.ts`: raster and output width) and the radiance's
+ * (`layered-surface-radiance.ts`: spectral nodes), so that the groups that own those modules add their inputs there.
+ */
+export interface LayeredSceneLatticeInput extends LayeredGeometryInput, LayeredSurfaceRadianceInput {
   layers: readonly LayeredSceneLayer[];
   /** Each node's in-focus diffraction kernel, (2R + 1)² row-major; omitted without diffraction. */
   diffraction?: { radius: number; perNode: readonly Float64Array[] };
@@ -88,6 +104,13 @@ export interface LayeredSceneLatticeInput {
   occlusionSamples: number;
   /** Bytes the spectral tiles may hold in all. Default 64 MiB. */
   capacityBytes?: number;
+  /**
+   * Per surface, its kernel groups (`layered-edge-sum.ts`): each covers spectral nodes [from, to), together [0, N) in order,
+   * each of radius at most the layer's `kernel` radius (the geometry's reach and the edge bound are taken from that kernel).
+   * Default: one group over all nodes with the layer's `kernel` (and `zones`), {@link layeredKernelGroups}. The single-surface
+   * delegation (`signalInput`) does not read them.
+   */
+  kernelGroups?: readonly (readonly LayeredKernelGroup[])[];
 }
 
 /** The layered sum on the site lattice, shared by the view's signal and the capture's provider. */
@@ -118,239 +141,64 @@ export interface LayeredSceneLattice {
   /** Lattice points whose S was computed as an edge point (diagnostics). */
   readonly edgePoints: number;
   readonly tiles: { surfaces: SpectralLatticeTiles; sum: SpectralLatticeTiles };
+  /** The modules the sum is built from (2.29.0, group L0), for the later groups and the module tests. */
+  readonly parts: { geometry: LayeredLatticeGeometry; radiance: LayeredSurfaceRadiance; visibility: LayeredVisibility; edgeSum: LayeredEdgeSum };
 }
 
 const fail = (message: string): never => { throw new InvalidConfigurationError(message); };
 const TILE = 32;
 const GROUP_TOLERANCE = 1e-9;
 /** Key spacing of the per-surface tiles: key = surface·SURFACE_KEYS + group. */
-const SURFACE_KEYS = 4096;
-/** Most occlusion rows of one pupil region. */
-const MAXIMUM_SAMPLES_PER_AXIS = 1024;
+const SURFACE_KEYS = LAYERED_LATTICE_GROUP_LIMIT;
 
 /** Internal: builds the layered sum (see the module comment). Fails for an invalid layer list or a kernel that is too large. */
 export function createLayeredSceneLattice(input: LayeredSceneLatticeInput): LayeredSceneLattice {
-  const { nativeWidth: W, nativeHeight: H, wavelengthsNm, layers } = input, g = 2 / input.outputWidth, N = wavelengthsNm.length;
+  const { nativeWidth: W, nativeHeight: H, wavelengthsNm, layers } = input, N = wavelengthsNm.length;
   if (!(Number.isInteger(W) && W > 0 && Number.isInteger(H) && H > 0 && input.outputWidth > 0)) fail("Layered scene: invalid raster.");
   if (!Array.isArray(layers) || layers.length < 1) fail("Layered scene: at least one surface is required.");
   const K = layers.length;
   layers.forEach((layer, k) => {
     if ((layer.rect === null) !== (k === K - 1)) fail("Layered scene: the last surface, and only it, is the far surface (rect null).");
     if (!Number.isFinite(layer.blurRadiusSites)) fail("Layered scene: blur radii must be finite.");
-    const R = layer.kernel ? layer.kernel.radius : 0;
-    if (layer.kernel && layer.kernel.weights.length !== (2 * R + 1) ** 2) fail("Layered scene: a kernel must have (2R + 1)² taps.");
-    if (K > 1 && R > LAYERED_EDGE_MAXIMUM_KERNEL_RADIUS_SITES)
-      fail("Layered scene: a surface's blur needs a kernel radius of " + R + " sites; at card edges the layered sum takes at most " +
-        LAYERED_EDGE_MAXIMUM_KERNEL_RADIUS_SITES + ". Reduce the defocus or the f-number's aperture.");
-    if (layer.zones && !layer.kernel) fail("Layered scene: field zones need the surface's axis kernel (its radius).");
+    checkLayeredSurfaceKernel(layer, K);
     if (layer.scene.kind === "materials" && layer.scene.whiteRadiance.length !== N) fail("Layered scene: white radiance must match the spectral nodes.");
   });
   const samples = input.occlusionSamples;
   if (!Number.isInteger(samples) || samples < 1 || samples > 32) fail("Layered scene: occlusionSamples must be an integer from 1 to 32.");
   const diffraction = input.diffraction, Rd = diffraction ? diffraction.radius : 0;
   if (diffraction && (diffraction.perNode.length !== N || diffraction.perNode.some((k) => k.length !== (2 * Rd + 1) ** 2))) fail("Layered scene: one diffraction kernel per node, (2R + 1)² taps.");
-  // Per surface: material spectra at the nodes (copies, as the expected signal's tables), ray-map scale and footprint half-size.
-  const spectra = layers.map((layer): Float64Array[] => {
-    const scene = layer.scene;
-    if (scene.kind !== "materials") return [];
-    const white = scene.whiteRadiance;
-    return scene.materials.map((m: { neutral: number } | { radiance: Float64Array }): Float64Array => {
-      if (!("neutral" in m)) return Float64Array.from(m.radiance);
-      const out = new Float64Array(white.length);
-      for (let n = 0; n < white.length; n++) out[n] = m.neutral * white[n]!;
-      return out;
-    });
-  });
-  const rho = layers.map((l) => l.blurRadiusSites), radius = layers.map((l) => (l.kernel ? l.kernel.radius : 0));
-  // Every ray of a lattice point and every tap it reads lie within this many sites of it on surface j (blades reach past the unit circle).
-  const reachOf = layers.map((_, j) => Math.max(radius[j]! + 0.5, 1.25 * Math.abs(rho[j]!) + 0.5));
-  const groups: { fx: number; fy: number }[] = [];
-  /** Rectangles in each group's continuous lattice coordinates: X = u/g − ½ + W/2 − fx, Y = −v/g − ½ + H/2 − fy. */
-  const rects: (Float64Array | null)[][] = [];
-  const toLattice = (fx: number, fy: number): (Float64Array | null)[] => layers.map((l) => l.rect === null ? null :
-    Float64Array.of(l.rect.u0 / g - 0.5 + W / 2 - fx, -l.rect.v1 / g - 0.5 + H / 2 - fy, l.rect.u1 / g - 0.5 + W / 2 - fx, -l.rect.v0 / g - 0.5 + H / 2 - fy));
-  const siteRects = toLattice(0, 0);
-  function groupOf(fx: number, fy: number): number {
-    const at = groups.findIndex((q) => Math.abs(q.fx - fx) <= GROUP_TOLERANCE && Math.abs(q.fy - fy) <= GROUP_TOLERANCE);
-    if (at >= 0) return at;
-    if (!(fx >= 0 && fx < 1 && fy >= 0 && fy < 1)) fail("Layered scene: a lattice shift must be in [0, 1).");
-    if (groups.length >= SURFACE_KEYS) fail("Layered scene: too many lattice groups.");
-    groups.push({ fx, fy }); rects.push(toLattice(fx, fy));
-    return groups.length - 1;
-  }
-  // The facade's lattice formula (expected-signal.ts, diffraction-provider.ts), the same expressions.
-  const latticeU = (group: number, p: number): number => { const fx = groups[group]!.fx; return fx === 0 ? (p + 0.5 - W / 2) * g : (p + 0.5 + fx - W / 2) * g; };
-  const latticeV = (group: number, q: number): number => { const fy = groups[group]!.fy; return fy === 0 ? -(q + 0.5 - H / 2) * g : -(q + 0.5 + fy - H / 2) * g; };
-  let lookups = 0, edgePoints = 0;
+  const kernelGroups = input.kernelGroups ?? layeredKernelGroups(layers, W, H, N);
+  checkLayeredKernelGroups(kernelGroups, layers, N);
+  const geometry = createLayeredLatticeGeometry(input), radiance = createLayeredSurfaceRadiance(input);
   const capacity = input.capacityBytes ?? 64 * 1024 * 1024;
-  // Surface radiance at the nodes per lattice point (key: surface, group).
+  // Surface radiance at the nodes per lattice point (key: surface, group), times the point's field factor (1 today: the
+  // radiance's own bits); a factor of 0 leaves the point's zeros without reading the scene.
+  const point: LayeredFramePoint = { u: 0, v: 0, factor: 1 };
   const surfaceTiles = createSpectralLatticeTiles({ tile: TILE, nodes: N, capacityBytes: Math.max(capacity / 2, TILE * TILE * N * 8 + TILE), fill(key, x0, y0, width, height, out) {
-    const k = Math.floor(key / SURFACE_KEYS), group = key - k * SURFACE_KEYS, scene = layers[k]!.scene;
-    for (let j = 0; j < height; j++) {
-      const v = latticeV(group, y0 + j);
-      for (let i = 0; i < width; i++) {
-        const u = latticeU(group, x0 + i), at = (j * width + i) * N;
-        if (scene.kind === "materials") {
-          const L = spectra[k]![scene.materialAt(u, v)];
-          if (L === undefined) fail("Unknown chart material.");
-          out.set(L!, at); lookups++;
-        } else { for (let n = 0; n < N; n++) out[at + n] = scene.radianceAt(u, v, wavelengthsNm[n]!); lookups += N; }
-      }
+    const k = Math.floor(key / SURFACE_KEYS), group = key - k * SURFACE_KEYS;
+    for (let j = 0; j < height; j++) for (let i = 0; i < width; i++) {
+      const at = (j * width + i) * N, factor = geometry.framePoint(group, x0 + i, y0 + j, point).factor;
+      if (factor === 0) continue;
+      radiance.radiance(k, point, out, at);
+      if (factor !== 1) for (let n = 0; n < N; n++) out[at + n] = out[at + n]! * factor;
     }
   } });
   const floorDiv = (a: number): number => Math.floor(a / TILE);
   /** Surface k's radiance at lattice point (p, q) of a group: the tile array and the offset of its first node. */
-  let lastSurfaceKey = -1, lastSTX = 0, lastSTY = 0, lastSurfaceTile: Float64Array = new Float64Array(0);
-  function surfaceAt(k: number, group: number, p: number, q: number): number {
+  let lastSurfaceKey = -1, lastSTX = 0, lastSTY = 0;
+  const surfaces = { tile: new Float64Array(0) as Float64Array, at(k: number, group: number, p: number, q: number): number {
     const key = k * SURFACE_KEYS + group, tx = floorDiv(p), ty = floorDiv(q);
     if (key !== lastSurfaceKey || tx !== lastSTX || ty !== lastSTY) {
-      lastSurfaceTile = surfaceTiles.rows(key, tx, ty, 0, TILE); lastSurfaceKey = key; lastSTX = tx; lastSTY = ty;
+      surfaces.tile = surfaceTiles.rows(key, tx, ty, 0, TILE); lastSurfaceKey = key; lastSTX = tx; lastSTY = ty;
     }
     return ((q - ty * TILE) * TILE + p - tx * TILE) * N;
-  }
-  /** 0: the box is outside the rectangle, 1: inside it, 2: across its edge. Closed rectangles. */
-  const relation = (r: Float64Array, x0: number, y0: number, x1: number, y1: number): number =>
-    x1 < r[0]! || x0 > r[2]! || y1 < r[1]! || y0 > r[3]! ? 0 : x0 >= r[0]! && x1 <= r[2]! && y0 >= r[1]! && y1 <= r[3]! ? 1 : 2;
-  /** The one surface every ray and tap of a point (lattice coordinates x, y of a rectangle set) reaches, or −1. */
-  function surfaceOfPoint(r: (Float64Array | null)[], x: number, y: number, extra: number): number {
-    for (let j = 0; j < K; j++) {
-      const rect = r[j]!;
-      if (rect === null) return j;
-      const h = reachOf[j]! + extra, s = relation(rect, x - h, y - h, x + h, y + h);
-      if (s === 1) return j;
-      if (s === 2) return -1;
-    }
-    return K - 1;
-  }
-  const kernelWeights = (k: number, p: number, q: number): Float64Array | null => {
-    const layer = layers[k]!;
-    if (!layer.kernel) return null;
-    if (!layer.zones) return layer.kernel.weights;
-    const z = layer.zones, zx = Math.min(z.columns - 1, Math.floor(Math.min(W - 1, Math.max(0, p)) / z.size)),
-      zy = Math.min(z.rows - 1, Math.floor(Math.min(H - 1, Math.max(0, q)) / z.size));
-    return zoneKernel(k, zy * z.columns + zx);
-  };
-  const zoneCache = new Map<number, Float64Array>();
-  function zoneKernel(k: number, zone: number): Float64Array {
-    const key = k * 65536 + zone;
-    let w = zoneCache.get(key);
-    if (!w) {
-      w = layers[k]!.zones!.kernelOf(zone);
-      if (w.length !== layers[k]!.kernel!.weights.length) fail("Layered scene: a zone kernel must have the surface's kernel radius.");
-      zoneCache.set(key, w);
-      if (zoneCache.size > 256) zoneCache.delete(zoneCache.keys().next().value!);
-    }
-    return w;
-  }
-  /**
-   * V_k(p, t): the share of tap t's pupil region (P-box [a0, a1] × [b0, b1]) whose rays at (x, y) hit surface k and pass the
-   * nearer cards. Rays meet surface j at (x − ρ_j·Px, y − ρ_j·Py).
-   */
-  function visibility(r: (Float64Array | null)[], k: number, x: number, y: number, a0: number, a1: number, b0: number, b1: number): number {
-    // The widest footprint, in sites, of the region's rays on a rectangle they cross.
-    let across = 0;
-    const span = Math.max(a1 - a0, b1 - b0);
-    for (let j = 0; j <= k; j++) {
-      const rect = r[j]!;
-      if (rect === null) continue;
-      const s = rho[j]!, xa = x - s * a0, xb = x - s * a1, ya = y - s * b0, yb = y - s * b1;
-      const rel = relation(rect, Math.min(xa, xb), Math.min(ya, yb), Math.max(xa, xb), Math.max(ya, yb));
-      if (j === k ? rel === 0 : rel === 1) return 0;
-      if (rel === 2) across = Math.max(across, Math.abs(s) * span, 1e-300);
-    }
-    if (across === 0) return 1;
-    // n rows per site of that footprint (n = occlusionSamples), at least n per region.
-    const m = Math.min(MAXIMUM_SAMPLES_PER_AXIS, samples * Math.max(1, Math.ceil(across - 1e-9)));
-    // Rows of the region: along each row the open part is exact (the pupil's chord and each rectangle's interval in Px). The rows
-    // are split at every rectangle's edge in Py, so within a segment only the chord changes, and rows are spread over the
-    // segments by length (midpoints, each row weighted by its height).
-    let breaks = 0;
-    rowBreaks[breaks++] = b0; rowBreaks[breaks++] = b1;
-    for (let j = 0; j <= k; j++) {
-      const rect = r[j]!, s = rho[j]!;
-      if (rect === null || s === 0) continue;
-      for (const e of [(y - rect[1]!) / s, (y - rect[3]!) / s]) if (e > b0 && e < b1) rowBreaks[breaks++] = e;
-    }
-    const cuts = rowBreaks.subarray(0, breaks).sort();
-    let kept = 0, visible = 0;
-    for (let pass = 0; pass < 2 && !(kept > 0); pass++) for (let segment = 0; segment + 1 < breaks; segment++) {
-      const c0 = cuts[segment]!, c1 = cuts[segment + 1]!;
-      if (!(c1 > c0)) continue;
-      const rows = Math.max(1, Math.round(m * (c1 - c0) / (b1 - b0))), h = (c1 - c0) / rows;
-      for (let sj = 0; sj < rows; sj++) {
-        const py = c0 + (sj + 0.5) * h;
-        let lo = a0, hi = a1;
-        if (pass === 0) {
-          const w2 = 1 - py * py;
-          if (!(w2 > 0)) continue;
-          const w = Math.sqrt(w2);
-          lo = Math.max(lo, -w); hi = Math.min(hi, w);
-        }
-        if (!(hi > lo)) continue;
-        kept += h * (hi - lo);
-        // The own rectangle: X0 ≤ x − ρ_k·Px ≤ X1 and Y0 ≤ y − ρ_k·Py ≤ Y1.
-        const own = r[k]!;
-        if (own !== null && !intervalOf(own, rho[k]!, x, y, py)) continue;
-        if (own !== null) { lo = Math.max(lo, spanLo); hi = Math.min(hi, spanHi); if (!(hi > lo)) continue; }
-        // Nearer cards remove their intervals: merge them (sorted by start) and keep what is left of [lo, hi].
-        let count = 0;
-        for (let j = 0; j < k; j++) if (intervalOf(r[j]!, rho[j]!, x, y, py) && spanHi > lo && spanLo < hi) { cutLo[count] = spanLo; cutHi[count] = spanHi; count++; }
-        let open = hi - lo;
-        if (count > 0) {
-          for (let a = 1; a < count; a++) for (let b = a; b > 0 && cutLo[b - 1]! > cutLo[b]!; b--) {
-            const tl = cutLo[b]!, th = cutHi[b]!; cutLo[b] = cutLo[b - 1]!; cutHi[b] = cutHi[b - 1]!; cutLo[b - 1] = tl; cutHi[b - 1] = th;
-          }
-          let at = lo;
-          for (let c = 0; c < count; c++) {
-            const cl = Math.max(cutLo[c]!, at), ch = Math.min(cutHi[c]!, hi);
-            if (ch > cl) { open -= ch - cl; at = ch; }
-          }
-        }
-        visible += h * open;
-      }
-    }
-    return kept > 0 ? Math.min(1, Math.max(0, visible / kept)) : 0;
-  }
-  /** The Px interval [spanLo, spanHi] of row Py whose rays meet rectangle `rect` at scale s; false when the row misses it. */
-  let spanLo = 0, spanHi = 0;
-  const cutLo = new Float64Array(K), cutHi = new Float64Array(K), rowBreaks = new Float64Array(2 * K + 2);
-  function intervalOf(rect: Float64Array, s: number, x: number, y: number, py: number): boolean {
-    const ry = y - s * py;
-    if (!(ry >= rect[1]! && ry <= rect[3]!)) return false;
-    if (s === 0) { if (!(x >= rect[0]! && x <= rect[2]!)) return false; spanLo = -Infinity; spanHi = Infinity; return true; }
-    const e0 = (x - rect[0]!) / s, e1 = (x - rect[2]!) / s;
-    spanLo = Math.min(e0, e1); spanHi = Math.max(e0, e1);
-    return true;
-  }
-  /** S at lattice point (p, q) of a group into out (zeroed): the layered sum, or one surface's sum away from edges. */
-  function sumAt(group: number, p: number, q: number, out: Float64Array, at: number): void {
-    const r = rects[group]!, x = p, y = q, single = surfaceOfPoint(r, x, y, 0);
-    if (single < 0) edgePoints++;
-    for (let k = single < 0 ? 0 : single; k < (single < 0 ? K : single + 1); k++) {
-      const rect = r[k]!;
-      if (single < 0 && rect !== null && relation(rect, x - reachOf[k]!, y - reachOf[k]!, x + reachOf[k]!, y + reachOf[k]!) === 0) continue;
-      const weights = kernelWeights(k, p, q), R = weights ? radius[k]! : 0, s = rho[k]!;
-      for (let tv = -R, t = 0; tv <= R; tv++) for (let tu = -R; tu <= R; tu++, t++) {
-        const w = weights ? weights[t]! : 1;
-        if (w === 0) continue;
-        let f = w;
-        if (single < 0) {
-          let a0 = -1, a1 = 1, b0 = -1, b1 = 1;
-          if (R > 0 && s !== 0) { a0 = (tu - 0.5) / s; a1 = (tu + 0.5) / s; b0 = (tv - 0.5) / s; b1 = (tv + 0.5) / s; if (s < 0) { [a0, a1] = [a1, a0]; [b0, b1] = [b1, b0]; } }
-          const vis = visibility(r, k, x, y, a0, a1, b0, b1);
-          if (vis === 0) continue;
-          f = w * vis;
-        }
-        const o = surfaceAt(k, group, p - tu, q - tv), L = lastSurfaceTile;
-        for (let n = 0; n < N; n++) out[at + n] = out[at + n]! + f * L[o + n]!;
-      }
-      // Every ray of this point reaches surface k or a nearer one: farther surfaces add nothing.
-      if (single < 0 && rect !== null && relation(rect, x - reachOf[k]!, y - reachOf[k]!, x + reachOf[k]!, y + reachOf[k]!) === 1) break;
-    }
-  }
+  } };
+  const visibility = createLayeredVisibility({ geometry, occlusionSamples: samples });
+  const edgeSum = createLayeredEdgeSum({ geometry, visibility, surfaces, kernelGroups, capacityBytes: capacity });
   const sumTiles = createSpectralLatticeTiles({ tile: TILE, nodes: N, capacityBytes: Math.max(capacity / 2, TILE * TILE * N * 8 + TILE), fill(group, x0, y0, width, height, out) {
-    for (let j = 0; j < height; j++) for (let i = 0; i < width; i++) sumAt(group, x0 + i, y0 + j, out, (j * width + i) * N);
+    for (let j = 0; j < height; j++) for (let i = 0; i < width; i++) edgeSum.sumAt(group, x0 + i, y0 + j, out, (j * width + i) * N);
   } });
+  const chief: LayeredFramePoint = { u: 0, v: 0, factor: 1 };
   function spectrumAt(group: number, p: number, q: number, out: Float64Array): void {
     if (!diffraction) {
       const tx = floorDiv(p), ty = floorDiv(q), row = q - ty * TILE, tile = sumTiles.rows(group, tx, ty, row, row + 1), o = (row * TILE + p - tx * TILE) * N;
@@ -367,22 +215,17 @@ export function createLayeredSceneLattice(input: LayeredSceneLatticeInput): Laye
     }
   }
   return {
-    nodes: N, groupOf, groups, spectrumAt, latticeU, latticeV,
-    surfaceOf: (group, p, q) => surfaceOfPoint(rects[group]!, p, q, 0),
-    siteSurface: (x, y, reach) => surfaceOfPoint(siteRects, x, y, reach),
+    nodes: N, groupOf: geometry.groupOf, groups: geometry.groups, spectrumAt, latticeU: geometry.latticeU, latticeV: geometry.latticeV,
+    surfaceOf: geometry.surfaceOf, siteSurface: geometry.siteSurface,
     chiefSurface(u, v): { surface: number; material: number } {
-      for (let j = 0; j < K; j++) {
-        const rc = layers[j]!.rect;
-        if (rc === null || (u >= rc.u0 && u <= rc.u1 && v >= rc.v0 && v <= rc.v1)) {
-          const scene = layers[j]!.scene;
-          return { surface: j, material: scene.kind === "materials" ? scene.materialAt(u, v) : -1 };
-        }
-      }
-      return { surface: K - 1, material: -1 };
+      const surface = geometry.chiefSurface(u, v);
+      chief.u = u; chief.v = v;
+      return { surface, material: radiance.material(surface, chief) };
     },
-    get lookups(): number { return lookups; },
-    get edgePoints(): number { return edgePoints; },
-    tiles: { surfaces: surfaceTiles, sum: sumTiles }
+    get lookups(): number { return radiance.lookups; },
+    get edgePoints(): number { return edgeSum.edgePoints; },
+    tiles: { surfaces: surfaceTiles, sum: sumTiles },
+    parts: { geometry, radiance, visibility, edgeSum }
   };
 }
 
