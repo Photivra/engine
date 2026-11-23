@@ -20,7 +20,7 @@
  *   - #744: with `lens.projection`, `lens.distortion` or `lens.vignetting` the lattice takes the lens map of the facade's prepared
  *     lens geometry (`createLayeredLensMap`), the same one for the capture and the view; the capture's environment declares the same
  *     lens field mapping and vignetting. A surface's single-plane input (`signalInput`) is omitted under a lens map, so every site
- *     takes the layered sum. The view's pilot maps its planar points through `rasterFramePoint`. A fisheye is
+ *     takes the layered sum. The view's pilot and the focus mask map their planar points through `rasterFramePoint`. A fisheye is
  *     refused when the request reads a point 75° or more off the axis (`checkLayeredFisheyeFieldAngle`, owner decision). The
  *     ideal reference keeps the planar lattice (no camera effects).
  *   - #745: with `illumination`, each surface is the lit radiance scene of `layeredLitSurfaceScene`: the blend at its own frame
@@ -29,6 +29,7 @@
  *     512, a shaped kernel's 128).
  *   - #761: with `chartSize` the cards are placed in chart units (u = ±1 at the chart's left and right edges, at the subject
  *     distance); the far surface continues beyond the chart (no surround).
+ *   - #752: `focusMask`, the in-focus mask of a view (`createLayeredFocusMask`).
  */
 
 import { InvalidConfigurationError } from "../core/configuration-error.js";
@@ -48,6 +49,7 @@ import { createLayeredSceneProvider } from "./layered-scene-provider.js";
 import type { LayeredLayerKernel } from "./layered-edge-sum.js";
 import { checkLayeredFisheyeFieldAngle, createLayeredLatticeGeometry, createLayeredLensMap, type LayeredFramePoint, type LayeredLensMap } from "./layered-lattice-geometry.js";
 import { layeredLitSurfaceScene } from "./layered-surface-radiance.js";
+import { createLayeredFocusMask, type DisplayViewFocusMask } from "./layered-chart-query.js";
 import type { DisplayViewScene } from "./expected-signal.js";
 import type { ResolvedMixedIllumination } from "./mixed-illumination.js";
 import type { PreparedDefocusImageSpaceGeometry } from "./defocus-image-space-provider.js";
@@ -110,6 +112,12 @@ export interface LayeredRequest {
   view(context: LayeredRequestContext, input: { wavelengths: readonly number[]; white: Float64Array; perNode: readonly [Float64Array, Float64Array, Float64Array];
     offsets: readonly DisplayViewQueryOffset[]; channelAt(x: number, y: number): number; diffraction: { radius: number; perNode: readonly Float64Array[] } | undefined }):
     { reach: number; signal(): DisplayViewExpectedSignal };
+  /**
+   * #752: the in-focus mask of the rectangle `region` of a `viewWidth` × `viewHeight` view (display pixels), at circle of confusion
+   * `circleOfConfusionMm`: each pixel centre's chief-ray surface (through the lens map) and its thin-lens blur at the resolved focus.
+   */
+  focusMask(context: LayeredRequestContext, view: { width: number; height: number; region: { x: number; y: number; width: number; height: number } },
+    circleOfConfusionMm: number): DisplayViewFocusMask;
 }
 
 type RequestPart = Record<string, unknown>;
@@ -232,6 +240,19 @@ export function resolveLayeredRequest(input: { top: Record<string, unknown>; len
         }
         return signal;
       } };
+    },
+    focusMask(context, view, circleOfConfusionMm) {
+      const map = lensMapOf(context), { width: W, height: H } = view, g = 2 / W, at: LayeredFramePoint = { u: 0, v: 0, factor: 1 };
+      const geometry = map && createLayeredLatticeGeometry({ nativeWidth: context.nativeWidth, nativeHeight: context.nativeHeight, outputWidth: context.width,
+        layers: surfaces.map((s) => ({ rect: s.rect, blurRadiusSites: 0, kernel: null })), lensMap: map });
+      return createLayeredFocusMask({ scene: resolved, outputWidth: W, outputHeight: H, rectangle: { x0: view.region.x, y0: view.region.y, width: view.region.width, height: view.region.height },
+        focalLengthMm: context.focalLengthMm, aperture: context.fNumber, focusDistanceM: context.focusDistanceM, circleOfConfusionMm,
+        // The display pixel's centre as a planar raster point, through the lens map (null where it sees no scene), in the scene's (chart) units.
+        framePointAt: (x, y) => {
+          let u = (x + 0.5 - W / 2) * g, v = -(y + 0.5 - H / 2) * g;
+          if (geometry) { const p = geometry.rasterFramePoint(u, v, at); if (p.factor === 0) return null; u = p.u; v = p.v; }
+          return c === 1 ? { u, v } : { u: u * c, v: v * c };
+        } });
     }
   };
   /** #744: the lens map of the facade's lens geometry (one per request; the capture's and the view's are the same map). */

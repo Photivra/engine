@@ -131,6 +131,7 @@ import { resolveChartMaterialLayers, type ChartMaterialLayerScene, type Resolved
 import { imagePlaneSupport, layeredSceneSupport } from "./image-plane-support.js";
 import type { LayeredRequest } from "./layered-scene-setup.js";
 import type { LayeredChartDepth, LayeredChartScene } from "./layered-chart-scene.js";
+import type { DisplayViewFocusMask } from "./focus-mask.js";
 import { resolveCaptureIlluminant, calculateIlluminantIrradianceScale, buildPlanarSceneRadianceProvider, requireCallerScene, FACADE_SPECTRAL_RANGE_NANOMETERS,
   resolveChartSizeOption, type ChartSizeOption,
   PHOTOPIC_MAXIMUM_LUMINOUS_EFFICACY_LM_PER_W, type CaptureIlluminant, type CallerMaterialScene, type CallerRadianceScene, type CallerReflectanceScene, type ImagePlaneScene, type ResolvedCallerScene,
@@ -1696,6 +1697,13 @@ export interface SimulateDisplayViewOptions {
   format?: "srgb-8" | "srgb-16";
   /** Render only this rectangle of the display view, in display pixels; byte-identical to the same pixels of the whole view. */
   region?: { x: number; y: number; width: number; height: number };
+  /**
+   * From 2.29.0 (#752): also return `view.focusMask`, an in-focus guide for the rendered rectangle: per display pixel max(0, 1 − c/c₀), c the
+   * thin-lens blur circle of the surface the pixel centre sees (a layered scene's chief-ray surface through the lens; one value for a
+   * single-plane scene) at the resolved focus (with `lens.focusScatter`, the sampled one), c₀ `circleOfConfusionMm` (default the frame's
+   * diagonal / 1500, as `scene.layers`). Analytic: the same with `fast` true or false and on the CPU and GPU. `false` or omitted: none.
+   */
+  focusMask?: boolean | { circleOfConfusionMm?: number };
 }
 /** Result of {@link simulateDisplayView}: the full-resolution capture resized for display, estimated; not a capture. */
 export interface DisplayViewResult {
@@ -1711,7 +1719,9 @@ export interface DisplayViewResult {
    * the samples per axis and, with `view.region`, the rendered rectangle.
    */
   view: { width: number; height: number; frameWidth: number; frameHeight: number; scaleX: number; scaleY: number; samplesPerAxis: number;
-    region?: { x: number; y: number; width: number; height: number } };
+    region?: { x: number; y: number; width: number; height: number };
+    /** #752, with `view.focusMask`: the in-focus mask of the rendered rectangle (row-major scores, its circle of confusion and label). */
+    focusMask?: DisplayViewFocusMask };
   /**
    * The resolved exposure of the capture this view shows; `standardExposureDeviationStops`, `standardExposureIlluminanceLux`
    * and `greyCardDeviationStops` as in {@link SimulateCaptureResult}.
@@ -1884,11 +1894,13 @@ export interface DisplayViewRunContext {
   /** #550: with `illumination`, resolves it again with the given illuminant formulas (the view's portable ones). */
   mixedIllumination?: ((resolve: (value: CaptureIlluminant) => ResolvedCaptureIlluminant) => ResolvedMixedIllumination) | undefined;
 }
-export interface ParsedDisplayView { width: number; height: number; samplesPerAxis: number; bitDepth: 8 | 16; format: "srgb-8" | "srgb-16"; region?: { x: number; y: number; width: number; height: number } }
+export interface ParsedDisplayView { width: number; height: number; samplesPerAxis: number; bitDepth: 8 | 16; format: "srgb-8" | "srgb-16"; region?: { x: number; y: number; width: number; height: number };
+  /** #752: the focus mask asked for: its circle of confusion in mm, or 0 for the default. */
+  focusMask?: number }
 /** Internal: validates a display view against the capture's output size and fills its defaults. */
 export function parseDisplayViewOption(value: unknown, frameWidth: number, frameHeight: number): ParsedDisplayView {
   if (value === undefined) fail("simulateDisplayView needs a view, for example { width: 384, height: 256 }.");
-  const v = allowKeys(value, "view", ["width", "height", "samplesPerAxis", "format", "region"]);
+  const v = allowKeys(value, "view", ["width", "height", "samplesPerAxis", "format", "region", "focusMask"]);
   const width = integerIn(v.width, "view.width", 1, frameWidth), height = integerIn(v.height, "view.height", 1, frameHeight);
   const samplesPerAxis = v.samplesPerAxis === undefined ? SIMULATE_DISPLAY_VIEW_DEFAULT_SAMPLES_PER_AXIS : integerIn(v.samplesPerAxis, "view.samplesPerAxis", 1, 32);
   const format = v.format === undefined ? "srgb-8" : v.format;
@@ -1899,7 +1911,10 @@ export function parseDisplayViewOption(value: unknown, frameWidth: number, frame
     const x = integerIn(r.x, "view.region.x", 0, width - 1), y = integerIn(r.y, "view.region.y", 0, height - 1);
     region = { x, y, width: integerIn(r.width, "view.region.width", 1, width - x), height: integerIn(r.height, "view.region.height", 1, height - y) };
   }
-  return { width, height, samplesPerAxis, bitDepth: format === "srgb-8" ? 8 : 16, format: format as "srgb-8" | "srgb-16", ...(region ? { region } : {}) };
+  // #752: true or a record (its circle of confusion; 0 for the default); false is none.
+  const m = v.focusMask, c = m === true || m === false || m === undefined ? undefined : allowKeys(m, "view.focusMask", ["circleOfConfusionMm"]).circleOfConfusionMm;
+  return { width, height, samplesPerAxis, bitDepth: format === "srgb-8" ? 8 : 16, format: format as "srgb-8" | "srgb-16", ...(region ? { region } : {}),
+    ...(m === undefined || m === false ? {} : { focusMask: c === undefined ? 0 : positive(c, "view.focusMask.circleOfConfusionMm") }) };
 }
 
 /**

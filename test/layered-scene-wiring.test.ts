@@ -1,15 +1,16 @@
 // SPDX-License-Identifier: Apache-2.0
 /**
  * 2.29.0 wave-3 wiring (group LW1) of layered chart scenes through the public API: lens distortion, vignetting and fisheye
- * projections (#744), mixed illumination (#745), large blur and the kernel checks before allocation (#749), and chartSize (#761).
- * Each whole render goes through simulateCapture or simulateDisplayView; the capture's environment is checked against the view per
- * site within 1e-9 relative, and regions against the whole frame.
+ * projections (#744), mixed illumination (#745), large blur and the kernel checks before allocation (#749), chartSize (#761) and the
+ * view's focus mask (#752). Each whole render goes through simulateCapture or simulateDisplayView; the capture's environment is
+ * checked against the view per site within 1e-9 relative, and regions against the whole frame.
  */
 import { beforeAll, describe, expect, it } from "vitest";
 import { calculateEnvironmentSensorPhotoSignal, createPlanarSceneRadianceProvider, prepareDisplayView, prepareLayeredChartScenes, simulateCapture,
   simulateDisplayView, type LayeredChartScene, type SimulateCaptureOptions } from "../src/index.js";
 import { simulateDisplayViewWithInternals } from "../src/facade/simulate-display-view.js";
 import { createLayeredSceneProvider } from "../src/facade/layered-scene-provider.js";
+import { calculateLayeredChartSurfaceAt } from "../src/facade/layered-chart-query.js";
 import type { LayeredSceneLattice } from "../src/facade/layered-scene-signal.js";
 import { scaledTimeout } from "./helpers/test-timeout.js";
 
@@ -142,6 +143,36 @@ describe("layered chart scenes, 2.29.0 wiring (LW1)", () => {
     expect(most).toBeLessThanOrEqual(1);
     expect(differ).toBeLessThan(half.image.samples.length / 50);
     expect(half.assumptions.find((a) => a.id === "scene.layers")!.value).toMatchObject({ chartUnitsPerFrameUnit: 2 });
+  }, scaledTimeout(240_000));
+
+  it("#752: the focus mask scores each surface's pixels as its depth report; regions equal the whole view; one value on a single plane", async () => {
+    for (const fNumber of [2, 4, 8]) {
+      const request = options({ lens: { ...lens, fNumber }, output: { width: 48, height: 32 } });
+      const prepared = await prepareDisplayView(request);
+      const whole = await prepared.render({ width: 48, height: 32, samplesPerAxis: 1, focusMask: true }), mask = whole.view.focusMask!;
+      const layers = whole.scene.layers!, c0 = Math.hypot(48, 32) * 3 / 1000 / 1500;
+      expect(mask).toMatchObject({ width: 48, height: 32, circleOfConfusionMm: c0 });
+      expect(mask.label).toMatch(/^Geometric thin-lens focus guide/);
+      for (let y = 0; y < 32; y++) for (let x = 0; x < 48; x++) {
+        const at = calculateLayeredChartSurfaceAt({ scene, aspect: 32 / 48, u: (x + 0.5 - 24) * 2 / 48, v: -(y + 0.5 - 16) * 2 / 48 });
+        const layer = layers.find((l) => l.kind === at.kind && l.index === at.index)!, expected = Math.max(0, 1 - layer.defocusDiameterSites * 3 / 1000 / c0);
+        expect(Math.abs(mask.score[y * 48 + x]! - expected)).toBeLessThanOrEqual(Math.max(1e-12, Math.abs(expected) * 2 ** -24));
+        expect(mask.score[y * 48 + x]! > 0).toBe(layer.withinDepthOfField);
+      }
+      const part = await prepared.render({ width: 48, height: 32, samplesPerAxis: 1, focusMask: { circleOfConfusionMm: c0 }, region: { x: 7, y: 5, width: 11, height: 9 } });
+      for (let j = 0; j < 9; j++) for (let i = 0; i < 11; i++) expect(part.view.focusMask!.score[j * 11 + i]).toBe(mask.score[(j + 5) * 48 + i + 7]);
+      // fast: false gives the same mask.
+      const exact = await simulateDisplayView({ ...request, fast: false }, { width: 48, height: 32, samplesPerAxis: 1, focusMask: true });
+      expect(Array.from(exact.view.focusMask!.score)).toEqual(Array.from(mask.score));
+      prepared.dispose();
+    }
+    // A single-plane scene: one value, the subject distance's blur against c0.
+    const flat = await simulateDisplayView({ ...options(), scene: { preset: "siemens-star" }, subjectDistanceM: 3, lens: { ...lens, fNumber: 8 } }, { width: 12, height: 8, focusMask: { circleOfConfusionMm: 0.1 } });
+    expect(new Set(flat.view.focusMask!.score).size).toBe(1);
+    expect(flat.view.focusMask!.score[0]).toBeCloseTo(1 - 50 * 50 * 1000 / (8 * 3000 * 1950) / 0.1, 6);
+    expect((await simulateDisplayView(options(), { width: 12, height: 8 })).view.focusMask).toBeUndefined();
+    for (const focusMask of ["yes", null, { circleOfConfusionMm: -1 }, { c: 1 }])
+      await expect(simulateDisplayView(options(), { width: 12, height: 8, focusMask } as never)).rejects.toThrow(/view\.focusMask/);
   }, scaledTimeout(240_000));
 
   it("a capture's region equals the whole frame through the lens map and the blend", async () => {
