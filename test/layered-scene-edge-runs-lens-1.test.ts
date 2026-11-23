@@ -2,7 +2,7 @@
 /**
  * The layered edge sum by runs (#749, #750) through a lens map (#744): where a point's rows do not hold (curved card edges,
  * `rowsHold` false) the run sum takes `share` per tap and so equals the direct sum bit for bit; where they hold, runs over the
- * half-planes' rows equal the direct sum within 1e-9 relative. Part 1 of 3: the barrel distortion and the fisheye (every second row).. The cases and the check are in
+ * half-planes' rows equal the direct sum within 1e-9 relative. Part 1 of 3: the barrel distortion and the fisheye (every second row). The cases and the check are in
  * test/helpers/layered-edge-runs-lens.ts (one file split for the per-file coverage budget; the cases, rows and bounds are unchanged).
  */
 import { it } from "vitest";

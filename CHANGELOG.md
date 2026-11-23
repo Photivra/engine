@@ -52,11 +52,13 @@ Each item is described in its entry below.
   `motion.handheld.seed` and `motion.handheld.stabilizationStops`; `sensor.readNoise: {}`; a part's `fast` or `region.fast` that
   is not a boolean in both from-parts calls.
 - **`calculateProgramLine` with `ev100`: results are identical across Node versions.** `standardExposureLuminance` takes
-  2^EV100 by `portableExp2` (V8's `2 ** x` rounds some non-integer x differently on Node 22 and on Node 24 and 26). On Node 24
-  and 26, for a non-integer `ev100` the selection's `luminanceCdPerSquareMeter` moves by at most 1 ulp, and its
-  `standardExposureDeviationStops` (a rounding residual near 1e-14) with it; settings are unchanged. In the 135-result lock
-  of `test/calculation-bundles.test.ts`, the 27 results with `ev100: 11.5` move (the lock is re-recorded); Node 22's results
-  are unchanged.
+  2^EV100 by `portableExp2` (V8's `2 ** x` rounds some non-integer x differently on Node 22 and on Node 24 and 26). For some
+  non-integer `ev100` (on every Node version; integers do not move) 2^EV100 moves by 1 ulp: the selection's
+  `luminanceCdPerSquareMeter` by at most 2 ulps, and with it `sceneEv100`, `standardExposureDeviationStops` (a rounding
+  residual near 1e-14) and, for some values, the continuous `shutterSeconds`/`idealShutterSeconds` and
+  `aperture`/`idealAperture` in their last digits (about 1e-15 relative). In the 135-result lock of
+  `test/calculation-bundles.test.ts`, the 27 results with `ev100: 11.5` move on Node 24 and 26 (luminance by 1 ulp and the
+  deviation; the lock is re-recorded); on Node 22 the lock's results are unchanged.
 - **Ties of the ISO, shutter and aperture snaps (`foundation-05`, #753).** Requests within 1e-9 stops of a tie take the
   documented side (the lower ISO, the shorter shutter, the narrower aperture): compensation 0.5 and 1.5 give ISO 100 and 200
   (200 and 400 before), third-stop compensation 0.5 gives ISO 125 (160 before).

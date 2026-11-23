@@ -81,7 +81,7 @@ being refused and the new layered refusals; the layered kernel bounds (512 and 1
 the layered run sum and the tabulated layered capture (rule 3, the seam locks re-recorded); #748's framing under focus
 scatter; #741 without a per-wavelength axial-color blur; #746's 16 midpoints at 0.95 % of the local swing; #767's
 `lens.diffraction` execution label in views; #786's refused `{}` and `null` options; the ISO, shutter and aperture ties
-(`foundation-05`); `calculateProgramLine` with a non-integer `ev100` identical across Node versions (1 ulp on Node 24 and 26); #738's whole-stop list; `sensor-03`, `sensor-04`, `optics-22`, `optics-26`; temperatures at or below
+(`foundation-05`); `calculateProgramLine` with a non-integer `ev100` identical across Node versions (some non-integer `ev100`: last-digit moves of the luminance and what follows from it, on every Node version); #738's whole-stop list; `sensor-03`, `sensor-04`, `optics-22`, `optics-26`; temperatures at or below
 absolute zero (#742); and the facade items of #730.
 
 ## Sizes
