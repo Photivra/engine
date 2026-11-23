@@ -8686,18 +8686,18 @@ See [False color (2.28)](QUICK_START.md#false-color-228) for the definition, the
 light, as a simulation of typical phone processing stages (not of any device). With one frame and every stage `false` it returns
 `developDngImage`'s image bit for bit.
 
-```js
+```ts
 import { parseDngRawImage, simulateCapture, simulateTypicalProcessing } from "@photivra/engine";
 
 const frames = [];
 for (const noiseSeed of [1, 2, 3, 4]) {
   const capture = await simulateCapture({ scene: { preset: "color-patches" }, sensor: { noiseSeed }, output: { width: 96, height: 64, format: "dng" } });
-  frames.push(parseDngRawImage({ bytes: capture.image.dng }));
+  frames.push(parseDngRawImage({ bytes: capture.image.dng! }));
 }
 const processed = await simulateTypicalProcessing({ frames, saturation: { gain: 1.3 } });
 const plain = await simulateTypicalProcessing({ frames: [frames[0]], merge: false, noiseReduction: false, localToneMapping: false, saturation: false });
 console.log(processed.label, processed.stages.map((s) => s.stage), plain.width, plain.height);
 ```
 
-See [Typical processing stages](PROCESSING.md#typical-processing-stages) for the stages, their sources, the fast and full local tone
+See [Typical processing stages](https://github.com/Photivra/engine/blob/main/docs/PROCESSING.md#typical-processing-stages) for the stages, their sources, the fast and full local tone
 mapping, its measured bound and the work bound of the full method.
