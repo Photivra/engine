@@ -17,6 +17,7 @@
  * @see docs/PROCESSING.md for equations, sources and limits.
  */
 
+import { InvalidConfigurationError } from "../core/configuration-error.js";
 import { InvalidScientificInputError, InvalidScientificResultError } from "../core/validation.js";
 import {
   autoLevels, collapse, collapseRows, convolveRows, convolveSeparable, gaussianKernel, gaussianPyramid, gaussianPyramidRows, laplacianPyramid,
@@ -212,22 +213,109 @@ export function createDurandDorseyToneMappingTask(input: DurandDorseyToneMapping
         }
         yield;
       }
-      if (!(bHi >= bLo)) { bLo = 0; bHi = 0; } // all-zero image
-      const factor = bHi > bLo ? Math.log10(contrast) / (bHi - bLo) : 1, offset = bHi * factor, out = new Float32Array(3 * n);
-      let above = 0;
-      for (let y = 0; y < H; y++) {
-        for (let i = y * W; i < (y + 1) * W; i++) {
-          const lw = wr * d[3 * i]! + wg * d[3 * i + 1]! + wb * d[3 * i + 2]!;
-          if (!(lw > 0)) { out[3 * i] = 0; out[3 * i + 1] = 0; out[3 * i + 2] = 0; continue; }
-          const ratio = 10 ** (base[i]! * factor + (logL[i]! - base[i]!) - offset) / lw;
-          for (let c = 0; c < 3; c++) { const v = (out[3 * i + c] = Math.max(0, d[3 * i + c]!) * ratio); if (v > 1) above++; }
-        }
-        requireFiniteOutput(out, 3 * y * W, 3 * (y + 1) * W, "Durand-Dorsey tone mapping");
-        yield;
-      }
+      const { out, above, factor } = yield* durandDorseyCompress(d, W, H, [wr, wg, wb], logL, base, bLo, bHi, contrast);
       return { width: W, height: H, data: out, baseLog10: base, compressionFactor: factor, aboveOneSampleCount: above,
         provenance: processingProvenance("tone-durand-dorsey-2002-bilateral", [
           "Base = fast piecewise-linear bilateral filter of log10 luminance (spatial sigma " + sigmaS + " px, range sigma " + sigmaR + ", downsampling " + z + ").",
+          "Base compressed to a " + contrast + ":1 contrast, detail kept, largest base mapped to luminance 1.",
+          "Colour scaled by the luminance ratio; display-referred linear output without gamut mapping or transfer encoding."]) };
+    }
+  });
+}
+
+/** Both base layers' last pass: the base compressed to the target contrast, the detail kept, the colour scaled by the luminance ratio. */
+function* durandDorseyCompress(d: Float32Array, W: number, H: number, [wr, wg, wb]: readonly [number, number, number], logL: Float32Array, base: Float32Array,
+  bLo: number, bHi: number, contrast: number): Generator<void, { out: Float32Array; above: number; factor: number }, void> {
+  if (!(bHi >= bLo)) { bLo = 0; bHi = 0; } // all-zero image
+  const factor = bHi > bLo ? Math.log10(contrast) / (bHi - bLo) : 1, offset = bHi * factor, out = new Float32Array(3 * W * H);
+  let above = 0;
+  for (let y = 0; y < H; y++) {
+    for (let i = y * W; i < (y + 1) * W; i++) {
+      const lw = wr * d[3 * i]! + wg * d[3 * i + 1]! + wb * d[3 * i + 2]!;
+      if (!(lw > 0)) { out[3 * i] = 0; out[3 * i + 1] = 0; out[3 * i + 2] = 0; continue; }
+      const ratio = 10 ** (base[i]! * factor + (logL[i]! - base[i]!) - offset) / lw;
+      for (let c = 0; c < 3; c++) { const v = (out[3 * i + c] = Math.max(0, d[3 * i + c]!) * ratio); if (v > 1) above++; }
+    }
+    requireFiniteOutput(out, 3 * y * W, 3 * (y + 1) * W, "Durand-Dorsey tone mapping");
+    yield;
+  }
+  return { out, above, factor };
+}
+
+/**
+ * #740 (2.29.0): the largest work of {@link createDurandDorseyDirectToneMappingTask}, in tap evaluations: pixels × (2⌈3σ_s⌉ + 1)²
+ * ≤ 2 · 10¹¹ (owner decision, 2.29.0 plan decision 9). A request above it is refused before anything is allocated.
+ */
+export const DURAND_DORSEY_DIRECT_MAXIMUM_WORK = 2e11;
+
+/** #740: the tap evaluations of the direct base layer of a W × H image at spatial σ (pixels): W·H·(2⌈3σ⌉ + 1)². */
+export function durandDorseyDirectWork(width: number, height: number, spatialSigmaPixels: number): number {
+  return width * height * (2 * Math.ceil(3 * spatialSigmaPixels) + 1) ** 2;
+}
+
+/** Input of {@link createDurandDorseyDirectToneMappingTask}: the fast operator's, without its downsampling. */
+export type DurandDorseyDirectToneMappingInput = Omit<DurandDorseyToneMappingInput, "downsampleFactor">;
+
+/**
+ * #740 (2.29.0): Durand & Dorsey (2002) with the bilateral base computed directly, the full-quality method of
+ * `simulateTypicalProcessing`'s local tone mapping. Per pixel i of finite log₁₀ luminance v_i, over the window |dx|, |dy| ≤ ⌈3σ_s⌉
+ * (reflect-101 borders): base_i = Σ_j g(dx)·g(dy)·exp(−(v_j − v_i)²/(2σ_r²))·v_j / Σ_j g(dx)·g(dy)·exp(−(v_j − v_i)²/(2σ_r²)), with
+ * g(k) = exp(−k²/(2σ_s²)) (the spatial Gaussian, separable), pixels of luminance ≤ 0 left out as in the fast operator. The
+ * compression and colour pass are the fast operator's. Work W·H·(2⌈3σ_s⌉ + 1)², bounded by {@link DURAND_DORSEY_DIRECT_MAXIMUM_WORK}.
+ */
+export function createDurandDorseyDirectToneMappingTask(input: DurandDorseyDirectToneMappingInput, provider: ProcessingProvider): ProcessingTask<DurandDorseyToneMappingOutput> {
+  const r = requireOptions(input, ["image", "inputColorSpace", "spatialSigmaPixels", "rangeSigmaLog10", "targetContrast", "maximumWorkingBytes"],
+    "createDurandDorseyDirectToneMappingTask input");
+  const image = requireImage(r.image, "image"), space = requireEnum(r.inputColorSpace, SPACES, "inputColorSpace");
+  const W = image.width, H = image.height, n = W * H;
+  const sigmaS = optionalFiniteIn(r.spatialSigmaPixels, Math.max(0.5, 0.02 * Math.max(W, H)), "spatialSigmaPixels", 0, 1e5, true);
+  const sigmaR = optionalFiniteIn(r.rangeSigmaLog10, 0.4, "rangeSigmaLog10", 0, 100, true);
+  const contrast = optionalFiniteIn(r.targetContrast, 5, "targetContrast", 1, 1e12, true);
+  const work = durandDorseyDirectWork(W, H, sigmaS);
+  if (!(work <= DURAND_DORSEY_DIRECT_MAXIMUM_WORK)) {
+    throw new InvalidConfigurationError("The direct bilateral base needs " + work + " tap evaluations (" + W + " × " + H + " pixels, window radius " + Math.ceil(3 * sigmaS) +
+      "), more than " + DURAND_DORSEY_DIRECT_MAXIMUM_WORK + "; lower spatialSigmaPixels or use createDurandDorseyToneMappingTask.");
+  }
+  const weights = luminanceWeights(space), [wr, wg, wb] = weights, rad = Math.ceil(3 * sigmaS);
+  return createProcessingTask({
+    provider, totalTileCount: 4 * H, estimatedWorkingBytes: n * (3 * 4 + 4 + 4) + (2 * rad + 1) * 8 + (W + 2 * rad) * 4, maximumWorkingBytes: maximumWorkingBytes(r.maximumWorkingBytes),
+    body: function* (): ProcessingBody<DurandDorseyToneMappingOutput> {
+      yield* finiteRows(image.data, W, H, 3, "image");
+      const d = image.data, logL = new Float32Array(n), g = new Float64Array(2 * rad + 1), k = 1 / (2 * sigmaR * sigmaR);
+      for (let t = -rad; t <= rad; t++) g[t + rad] = Math.exp(-(t * t) / (2 * sigmaS * sigmaS));
+      for (let y = 0; y < H; y++) {
+        for (let x = 0; x < W; x++) {
+          const i = y * W + x, l = wr * d[3 * i]! + wg * d[3 * i + 1]! + wb * d[3 * i + 2]!;
+          logL[i] = l > 0 ? Math.log10(l) : -Infinity;
+        }
+        yield;
+      }
+      const base = new Float32Array(n), columns = new Int32Array(W + 2 * rad);
+      for (let t = -rad; t < W + rad; t++) columns[t + rad] = reflect(t, W);
+      let bLo = Infinity, bHi = -Infinity;
+      for (let y = 0; y < H; y++) {
+        for (let x = 0; x < W; x++) {
+          const v = logL[y * W + x]!;
+          if (!(v > -Infinity)) { base[y * W + x] = -Infinity; continue; }
+          let s = 0, ws = 0;
+          for (let dy = -rad; dy <= rad; dy++) {
+            const row = reflect(y + dy, H) * W, gy = g[dy + rad]!;
+            for (let dx = -rad; dx <= rad; dx++) {
+              const u = logL[row + columns[x + dx + rad]!]!;
+              if (!(u > -Infinity)) continue;
+              const w = gy * g[dx + rad]! * Math.exp(-((u - v) ** 2) * k);
+              s += w * u; ws += w;
+            }
+          }
+          const b = (base[y * W + x] = s / ws);
+          bLo = Math.min(bLo, b); bHi = Math.max(bHi, b);
+        }
+        yield;
+      }
+      const { out, above, factor } = yield* durandDorseyCompress(d, W, H, weights, logL, base, bLo, bHi, contrast);
+      return { width: W, height: H, data: out, baseLog10: base, compressionFactor: factor, aboveOneSampleCount: above,
+        provenance: processingProvenance("tone-durand-dorsey-2002-bilateral-direct", [
+          "Base = direct bilateral filter of log10 luminance (spatial sigma " + sigmaS + " px, window radius " + rad + ", range sigma " + sigmaR + ").",
           "Base compressed to a " + contrast + ":1 contrast, detail kept, largest base mapped to luminance 1.",
           "Colour scaled by the luminance ratio; display-referred linear output without gamut mapping or transfer encoding."]) };
     }
