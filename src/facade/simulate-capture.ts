@@ -124,7 +124,7 @@ import { sumFixedPatternSites } from "../sensor/fixed-pattern-noise.js";
 import { sensorProfileFrame } from "../equipment/sensor-profile-frame.js";
 import type { SimulateCaptureSubjectMotion, SubjectMotion } from "../motion/subject-motion.js";
 import type { HandShakeOptions } from "../motion/hand-shake.js";
-import { exportKit, loadedKit, OK_CATALOGUE_OPTICS_ASSUMPTIONS, OK_CREATE_SUBJECT_MOTION_PROVIDER, OK_FLASH_ALONE_SHUTTER, OK_HAND_SHAKE_ASSUMPTION, OK_HAND_SHAKE_QUADRUPLES, OK_METER_FLASH, OK_PARSE_SENSOR_PROFILE, OK_REBIND_FLASH_ASSUMPTIONS, OK_REQUIRE_FLASH_ROWS, OK_RESOLVE_HAND_SHAKE, OK_RESOLVE_LENS_FILTER, OK_RESOLVE_MIXED_ILLUMINATION, OK_SENSOR_PROFILE_BODY, OK_SENSOR_PROFILE_SATURATION_ISO, OK_SOLVE_FLASH_SHUTTER, OK_SUBJECT_TRAVEL_M, optInKit, QK_CALCULATE_DEFOCUS_FIELD_VARIATION, QK_CREATE_AHD_DEMOSAIC_TASK, QK_CREATE_DEFOCUS_BOKEH_SITE_KERNEL, QK_CREATE_DEFOCUS_IMAGE_SPACE_PROVIDER, QK_CREATE_DIFFRACTION_LIMITED_PSF_PROFILE, QK_CREATE_OFFSET_EXPANSION, QK_NEIGHBOR_HIGHLIGHT_RING, QK_NEIGHBOR_HIGHLIGHT_THRESHOLD, QK_PLAN_DEFOCUS_BOKEH_ZONES, QK_PREPARE_DEFOCUS_IMAGE_SPACE_GEOMETRY, QK_RECONSTRUCT_HIGHLIGHTS_FROM_NEIGHBORS, QK_REGISTER_DIFFRACTION_PSF_KEY, QK_RESOLVE_DEFOCUS_BOKEH_OPTIONS, QK_SITE_DIFFRACTION_KERNEL, qualityKit } from "./on-demand-kits.js";
+import { exportKit, kitLoader, loadedKit, OK_CATALOGUE_OPTICS_ASSUMPTIONS, OK_CREATE_SUBJECT_MOTION_PROVIDER, OK_FLASH_ALONE_SHUTTER, OK_HAND_SHAKE_ASSUMPTION, OK_HAND_SHAKE_QUADRUPLES, OK_METER_FLASH, OK_PARSE_SENSOR_PROFILE, OK_REBIND_FLASH_ASSUMPTIONS, OK_REQUIRE_FLASH_ROWS, OK_RESOLVE_HAND_SHAKE, OK_RESOLVE_LENS_FILTER, OK_RESOLVE_MIXED_ILLUMINATION, OK_SENSOR_PROFILE_BODY, OK_SENSOR_PROFILE_SATURATION_ISO, OK_SOLVE_FLASH_SHUTTER, OK_SUBJECT_TRAVEL_M, optInKit, QK_CALCULATE_DEFOCUS_FIELD_VARIATION, QK_CREATE_AHD_DEMOSAIC_TASK, QK_CREATE_DEFOCUS_BOKEH_SITE_KERNEL, QK_CREATE_DEFOCUS_IMAGE_SPACE_PROVIDER, QK_CREATE_DIFFRACTION_LIMITED_PSF_PROFILE, QK_CREATE_OFFSET_EXPANSION, QK_NEIGHBOR_HIGHLIGHT_RING, QK_NEIGHBOR_HIGHLIGHT_THRESHOLD, QK_PLAN_DEFOCUS_BOKEH_ZONES, QK_PREPARE_DEFOCUS_IMAGE_SPACE_GEOMETRY, QK_RECONSTRUCT_HIGHLIGHTS_FROM_NEIGHBORS, QK_REGISTER_DIFFRACTION_PSF_KEY, QK_RESOLVE_DEFOCUS_BOKEH_OPTIONS, QK_SITE_DIFFRACTION_KERNEL, qualityKit } from "./on-demand-kits.js";
 import { characterizeReadout, parseSensorCharacteristics, sensorReport, SENSOR_CHARACTERISTIC_KEYS, type SimulateCaptureSensorCharacteristics, type SimulateCaptureSensorReport } from "../sensor/sensor-characteristics.js";
 import { resolveChartScene, chartMaterialInputs, CHART_SCENE_PRESETS, type ChartScene, type ResolvedChartScene } from "./chart-scenes.js";
 import { resolveChartMaterialLayers, type ChartMaterialLayerScene, type ResolvedChartMaterialLayers } from "./chart-material-layers.js";
@@ -2108,7 +2108,8 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
       if (lensOptions[key] !== undefined) fail("lens.catalogue cannot be combined with lens." + key + ": the catalogue lens sets its own optics.");
     // #554: with a sensor profile, the lens is resolved on the profile's sensor (sensor.profileView), the capture being its centred frame.
     catalogueFrame = profileSensor ?? frameMm();
-    lensKit = await import("./generic-lens-capture.js");
+    // #730 facade-18: through the kit loader, so a failed load is ImageKernelExecutionError "quality-code-unavailable" as documented.
+    lensKit = await kitLoader("catalogue lens", () => import("./generic-lens-capture.js")).load();
     catalogue = lensKit.resolveGenericLens({ lensId: catalogueId as string, activeImagingArea: catalogueFrame });
     // #554: the phone lenses are fixed to a phone sensor profile, and it takes only them.
     if ((catalogue.set === "phone") !== (profile?.fixedLenses === "phone")) fail("lens.catalogue: the phone lenses go only with a phone sensor.profile (fixedLenses \"phone\"), which takes only them.");
@@ -3742,7 +3743,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   if (veil && (rotating || subject || boxSamples !== 1 || antiAliasing || mixed || provider.chartMaterialAt === undefined || provider.materialRadiance === undefined))
     fail("lens.catalogue.flare needs a still camera and a chart or material scene under uniform light, without sensor.antiAliasing or sensor.pixelAperture.");
   if (catalogueFlare || breathing) loadedKit(optInKit)[OK_CATALOGUE_OPTICS_ASSUMPTIONS](assume, catalogue!, breathing ? { scale: breathingScale, planeDistanceM } : undefined, catalogueFlare, veil);
-  const viewLensKit = displayView && lensGeometry ? await import("./display-view-lens-signal.js") : undefined;
+  const viewLensKit = displayView && lensGeometry ? await kitLoader("display view lens", () => import("./display-view-lens-signal.js")).load() : undefined;
   // 2.20.0: the field zones are lens.catalogue's fast method in the view; exact resolves the PSF at every site (zones of one site).
   const displayViewLensPsf = viewLensKit && catalogue && lensPsf ?
     viewLensKit.createDisplayViewLensPsf(lensPsf.configuration.psf as Parameters<typeof viewLensKit.createDisplayViewLensPsf>[0], catalogueKernelRadius, nativeWidth, nativeHeight, pitch,

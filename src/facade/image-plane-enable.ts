@@ -6,6 +6,7 @@
  */
 
 import { imagePlaneSupport, setImagePlaneSupport } from "./image-plane-support.js";
+import { kitLoader } from "./on-demand-kits.js";
 
 /**
  * 2.21 (#581): enables `{ kind: "image-plane" }` scenes (a photo as a flat print, docs/IMAGE_PLANE.md) in this JavaScript realm by
@@ -14,5 +15,6 @@ import { imagePlaneSupport, setImagePlaneSupport } from "./image-plane-support.j
  * message saying so.
  */
 export async function prepareImagePlaneScenes(): Promise<void> {
-  if (!imagePlaneSupport()) setImagePlaneSupport(await import("./image-plane.js"));
+  // #730 facade-18: a failed load is ImageKernelExecutionError "quality-code-unavailable", as for the kits.
+  if (!imagePlaneSupport()) setImagePlaneSupport(await kitLoader("image-plane scene", () => import("./image-plane.js")).load());
 }
