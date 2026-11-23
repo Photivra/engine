@@ -22,7 +22,7 @@
 
 import { InvalidScientificResultError } from "../core/validation.js";
 import type { LensCorrectionChannel } from "./lens-corrections.js";
-import { genericLensDispersion } from "../equipment/generic-lens-catalogue.js";
+import { genericLensDispersion } from "../equipment/generic-lens-dispersion.js";
 
 /**
  * Effective wavelengths of the red, green and blue channels for the lateral-colour map, nm: a generic approximation of where

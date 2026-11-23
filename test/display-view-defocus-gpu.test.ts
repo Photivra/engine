@@ -28,6 +28,7 @@ import { displayViewGpuFixture, renderOnGpuQuality, runtimeOf } from "./helpers/
 import { DEFOCUS_GPU_EXTRA, DEFOCUS_GPU_GRID } from "./helpers/display-view-defocus-gpu-fixtures.js";
 import { scaledTimeout } from "./helpers/test-timeout.js";
 import { checkDefocusGpuCase as checkCase } from "./helpers/display-view-defocus-gpu-check.js";
+import { wgslIncludes } from "./helpers/wgsl-text.js";
 
 const E = 2 * WEBGPU_F32_UNIT_ROUNDOFF;
 const report: Record<string, unknown>[] = [];
@@ -159,7 +160,7 @@ describe("#492: defocus in the GPU display view (float32 emulation) vs the CPU r
     // The blocked pass binds no tap records; since 2.21.0 it reads the tap-list pass's spectral table (no material rows).
     expect(DISPLAY_VIEW_QUALITY_SITES_BLOCKED_WGSL).not.toMatch(/@binding\(2\)/u);
     expect(DISPLAY_VIEW_QUALITY_SITES_BLOCKED_WGSL).not.toMatch(/@binding\(7\)/u);
-    expect(DISPLAY_VIEW_QUALITY_SITES_WGSL).toMatch(/@binding\(2\) var<storage, read> taps/u);
+    expect(wgslIncludes(DISPLAY_VIEW_QUALITY_SITES_WGSL, "@binding(2) var<storage, read> taps")).toBe(true);
     expect(DISPLAY_VIEW_QUALITY_SITES_BLOCKED_WGSL.match(/var<storage/gu)!.length).toBeLessThanOrEqual(8);
   });
 

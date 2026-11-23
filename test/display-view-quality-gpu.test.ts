@@ -24,6 +24,7 @@ import { CHART_COMPOSITE_MATERIAL_MODULE_ID } from "../src/gpu/display-view-comp
 import { FIXTURE_ASPECT, layeredScene } from "./helpers/chart-composite-fixtures.js";
 import { materialModulesOf } from "./helpers/display-view-gpu-fixture.js";
 import { qualityMaterialModule, qualityMaterialSetup } from "../src/gpu/display-view-quality-gpu.js";
+import { wgslCount, wgslIncludes } from "./helpers/wgsl-text.js";
 
 const sensor = { pixelPitchMicrometers: 6, pixelAperture: { kind: "box" as const, samplesPerAxis: 2 }, antiAliasing: { kind: "four-spot" as const } };
 const output = { ...SMALL_FRAME, format: "srgb-8" as const, demosaic: "ahd" as const };
@@ -118,13 +119,13 @@ describe("display view Quality kernels (float32 emulation) vs the CPU reference"
 
   it("the three kernels assemble: the lattice pass takes the material module, the others are self-contained", () => {
     const lattice = assembleDisplayViewQualityLatticeWgsl(chartPresetMaterialWgsl());
-    expect(lattice).toContain("fn material_at(p: vec2<f32>) -> u32");
-    expect(lattice.match(/const E: f32/gu)).toHaveLength(1);
-    expect(lattice.match(/const SLACK: f32/gu)).toHaveLength(1);
-    expect(DISPLAY_VIEW_QUALITY_LATTICE_WGSL).not.toContain("fn material_at(");
+    expect(wgslIncludes(lattice, "fn material_at(p: vec2<f32>) -> u32")).toBe(true);
+    expect(wgslCount(lattice, "const E: f32")).toBe(1);
+    expect(wgslCount(lattice, "const SLACK: f32")).toBe(1);
+    expect(wgslIncludes(DISPLAY_VIEW_QUALITY_LATTICE_WGSL, "fn material_at(")).toBe(false);
     for (const code of [DISPLAY_VIEW_QUALITY_SITES_WGSL, DISPLAY_VIEW_QUALITY_PIXELS_WGSL]) {
-      expect(code).toContain("@compute @workgroup_size(64)");
-      expect(code).not.toContain("material_at");
+      expect(wgslIncludes(code, "@compute @workgroup_size(64)")).toBe(true);
+      expect(wgslIncludes(code, "material_at")).toBe(false);
     }
     // The pixel kernel binds five storage buffers and one uniform (2.22.0: the correction's state table and bitmap are gone).
     expect(DISPLAY_VIEW_QUALITY_PIXELS_WGSL.match(/var<storage/gu)).toHaveLength(5);

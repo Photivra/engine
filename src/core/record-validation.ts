@@ -121,6 +121,23 @@ export const UNCERTAINTY_VARIANT_FIELDS: Readonly<Record<string, readonly string
   "not-quantified": /* @__PURE__ */ Object.freeze(["kind", "limitation"])
 });
 
+/** The shared uncertainty union, as `UNCERTAINTY_VARIANT_FIELDS` describes it. */
+export type ConfigUncertainty = { kind: "relative"; fraction: number; basis: string } | { kind: "not-quantified"; limitation: string };
+/**
+ * Parses the shared uncertainty union (2.29.0, #753 `gpu-B3`: one copy for the profiles' parsers). `fraction` and `text` are the
+ * caller's own field checks, so each parser keeps its messages: unknown fields, then the fraction, then the text fields, then
+ * `<path>.kind is invalid.`
+ */
+export function parseConfigUncertainty(
+  value: unknown, path: string, fraction: (value: unknown, path: string) => number, text: (value: unknown, path: string) => string
+): ConfigUncertainty {
+  const record = requireConfigRecord(value, path, null);
+  rejectUnknownVariantFields(record, "kind", UNCERTAINTY_VARIANT_FIELDS, path);
+  if (record.kind === "relative") return { kind: "relative", fraction: fraction(record.fraction, path + ".fraction"), basis: text(record.basis, path + ".basis") };
+  if (record.kind === "not-quantified") return { kind: "not-quantified", limitation: text(record.limitation, path + ".limitation") };
+  throw new InvalidConfigurationError(path + ".kind is invalid.");
+}
+
 /**
  * For a record whose allowed fields depend on a discriminator (for example `kind` or
  * `schemaVersion`), rejects fields that the selected variant does not define. An unrecognized

@@ -7,7 +7,12 @@
  * or JavaScript source, and only in ways that cannot change the WGSL token stream:
  * - a line comment (`//` to the end of the line) is removed;
  * - a block comment (WGSL block comments nest) is replaced by one space;
- * - spaces and tabs at the start and end of each line are removed.
+ * - spaces and tabs at the start and end of each line are removed;
+ * - (2.29.0, #658) inside a line, a run of spaces and tabs becomes one space, and that space is removed where it touches an
+ *   identifier or number character on one side and a punctuation character on the other, or a bracket, comma or semicolon
+ *   (`( ) [ ] { } , ;`) on either side. Neither can join two tokens into one: an identifier or literal cannot continue into
+ *   punctuation, no multi-character token begins or ends with a bracket, comma or semicolon, and a space between two other
+ *   punctuation characters (as in `a - -b`, `a / *p` or `> =`) always stays, so no operator or comment opener can form.
  *
  * Every newline is kept, so line numbers (and so source maps) of everything after a shader stay exact, and so do
  * line-anchored edits such as `/^const SLACK: f32 = …\n/m`. A line that contains a `${…}` interpolation is left
@@ -86,6 +91,16 @@ function stripCommentsFromLine(line, state) {
   return out;
 }
 
+/**
+ * Removes blankspace inside one line where it cannot separate two tokens (see the module comment): next to an identifier or number
+ * character on one side and punctuation on the other, or next to a bracket, comma or semicolon.
+ */
+function tighten(line) {
+  return line.replace(/[ \t]+/gu, " ")
+    .replace(/([A-Za-z0-9_]) (?=[^A-Za-z0-9_ ])/gu, "$1").replace(/([^A-Za-z0-9_ ]) (?=[A-Za-z0-9_])/gu, "$1")
+    .replace(/([()[\]{},;]) /gu, "$1").replace(/ (?=[()[\]{},;])/gu, "");
+}
+
 const SENTINEL = (k) => "\uE000" + k + "\uE000";
 const HAS_SENTINEL = /\uE000\d+\uE000/u;
 
@@ -110,7 +125,7 @@ function minifyTemplateBody(chunks, expressions) {
     // A backslash may only disappear inside a removed comment, and never as a line continuation (a raw "\\" before
     // the newline): then every escape sequence is either removed whole or kept whole.
     if (/\\[ \t]*$/u.test(line)) state.unsafe = true;
-    const kept = stripCommentsFromLine(line, state).replace(/^[ \t]+|[ \t]+$/gu, "");
+    const kept = tighten(stripCommentsFromLine(line, state).replace(/^[ \t]+|[ \t]+$/gu, ""));
     if (kept.includes("\\")) state.unsafe = true;
     return kept;
   });
@@ -141,14 +156,35 @@ export function minifyWgslTemplates(source) {
 }
 
 /**
- * The WGSL token stream of shader text: comments removed (block comments nest), split on blankspace. Interpolations
- * (`${…}` in a literal body) are kept as single tokens. Used by tests to show minification changes no token.
+ * WGSL's syntactic tokens of more than one character (WGSL §3.5 "Syntactic Tokens"), longest first: the lexer takes the longest
+ * match. `>>`, `>=` and `>>=` are listed although template-list discovery (WGSL §3.9) may split them in the parser: the minifier
+ * never joins or splits two punctuation characters, so a lexical stream that takes them whole compares the same either way.
+ */
+const MULTI_CHARACTER_TOKENS = ["<<=", ">>=", "&&", "||", "->", "<=", ">=", "==", "!=", "<<", ">>", "++", "--", "+=", "-=", "*=", "/=", "%=", "&=", "|=", "^="];
+/** Identifiers (ASCII; the engine's shaders use no other), and decimal and hexadecimal int and float literals with their suffixes (WGSL §3.6, §5.2). */
+const WORD = /[A-Za-z_][A-Za-z0-9_]*|0[xX](?:[0-9a-fA-F]*\.[0-9a-fA-F]+|[0-9a-fA-F]+\.?)(?:[pP][+-]?[0-9]+)?[fhiu]?|(?:[0-9]*\.[0-9]+|[0-9]+\.?)(?:[eE][+-]?[0-9]+)?[fhiu]?/uy;
+
+/**
+ * The WGSL token stream of shader text (2.29.0, #658: a lexer, so that blankspace the minifier removes between two tokens cannot
+ * hide a change): comments removed (block comments nest) and blankspace skipped (WGSL §3: both only separate tokens), then the
+ * longest identifier, literal or syntactic token at each position. An interpolation (`${…}` in a literal body) is one token.
+ * Used by tests and the build to show that minification changes no token.
  */
 export function wgslTokens(body) {
   const tokens = [];
   const state = { blockDepth: 0 };
-  for (const line of body.split("\n")) {
-    for (const token of stripCommentsFromLine(line, state).split(/[ \t\r]+/u)) if (token !== "") tokens.push(token);
+  let text = "";
+  for (const line of body.split("\n")) text += stripCommentsFromLine(line, state) + "\n";
+  for (let i = 0; i < text.length;) {
+    const c = text[i];
+    if (c === " " || c === "\t" || c === "\r" || c === "\n") { i++; continue; }
+    if (c === "$" && text[i + 1] === "{") { const end = skipExpression(text, i + 2) + 1; tokens.push(text.slice(i, end)); i = end; continue; }
+    WORD.lastIndex = i;
+    const word = WORD.exec(text);
+    if (word) { tokens.push(word[0]); i += word[0].length; continue; }
+    const multi = MULTI_CHARACTER_TOKENS.find((t) => text.startsWith(t, i));
+    tokens.push(multi ?? c);
+    i += multi ? multi.length : 1;
   }
   return tokens;
 }

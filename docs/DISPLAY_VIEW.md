@@ -1863,7 +1863,8 @@ root exports of the built package, minified, gzip level 9; `test/capture-bundle.
   | export | **10,395 B** | 10,400 B | 10,500 B |
   | lens passes | **10,200 B** | 10,200 B | (no row) |
   | false color | **5,094 B** | 5,100 B | (no row) |
-- **Shipped shaders are minified (2.14, #536).** `npm run build` strips comments and indentation from the WGSL source
+- **Shipped shaders are minified (2.14, #536; tighter from 2.29.0, #658).** `npm run build` strips comments, indentation and
+  the blankspace between tokens that cannot join them from the WGSL source
   (`scripts/minify-wgsl-dist.mjs`, see [WebGPU, Shipped shader text](WEBGPU.md#shipped-shader-text)). Measured on the app's
   production build (Vite 8, app 0.50.0 at `a82a5eb`, engine `main` at `42ec9d8` packed before and after): the GPU session
   chunk went from 159,675 B / 52,917 B gzip to 142,399 B / 46,430 B gzip (−6,487 B gzip), and the app's total JavaScript from

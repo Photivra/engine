@@ -38,6 +38,15 @@ import { portableExp2, portableLog2 } from "../core/portable-math.js";
 
 type UnknownRecord = Record<string, unknown>;
 
+/**
+ * #753 `foundation-05` (2.29.0): two selectable settings whose distances from the ideal value differ by at most this many stops
+ * are a tie, which takes the documented side: the lower ISO, the shorter shutter time, the narrower aperture. The ideal value of
+ * a reachable tie (half-stop compensation, an illuminance half a stop from the anchor) arrives a few ulp off the exact tie from
+ * rounding upstream (1e-15 to 6e-15 relative), so the former 1e-15 stops missed them and the side was left to rounding. 1e-9
+ * stops is the resolver's program-line consistency tolerance too.
+ */
+const TIE_TOLERANCE_STOPS = 1e-9;
+
 export const EXPOSURE_MODE_RESOLVER_VERSION =
   "0.5.0" as const;
 
@@ -1529,11 +1538,11 @@ function nearestDiscreteIso(
     if (
       distance <
         selectedDistance -
-          1e-15 ||
+          TIE_TOLERANCE_STOPS ||
       (Math.abs(
         distance -
           selectedDistance
-      ) <= 1e-15 &&
+      ) <= TIE_TOLERANCE_STOPS &&
         candidate < selected)
     ) {
       selected = candidate;
@@ -1876,11 +1885,11 @@ function nearestDiscreteShutter(
     if (
       distance <
         selectedDistance -
-          1e-15 ||
+          TIE_TOLERANCE_STOPS ||
       (Math.abs(
         distance -
           selectedDistance
-      ) <= 1e-15 &&
+      ) <= TIE_TOLERANCE_STOPS &&
         candidate < selected)
     ) {
       selected = candidate;
@@ -2204,11 +2213,11 @@ function nearestDiscreteAperture(
     if (
       distance <
         selectedDistance -
-          1e-15 ||
+          TIE_TOLERANCE_STOPS ||
       (Math.abs(
         distance -
           selectedDistance
-      ) <= 1e-15 &&
+      ) <= TIE_TOLERANCE_STOPS &&
         candidate > selected)
     ) {
       selected = candidate;

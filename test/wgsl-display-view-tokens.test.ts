@@ -10,6 +10,10 @@ import { assembleDisplayViewSpeedWgsl } from "../src/gpu/wgsl-display-view-speed
 import { assembleDisplayViewQualityLatticeWgsl, assembleDisplayViewQualityPixelsWgsl, DISPLAY_VIEW_QUALITY_SITES_BLOCKED_WGSL,
   DISPLAY_VIEW_QUALITY_SITES_WGSL } from "../src/gpu/wgsl-display-view-quality-kernel.js";
 import { displayViewCoupledWgsl } from "../src/gpu/wgsl-display-view-coupled.js";
+import { CHART_RADIANCE_WGSL } from "../src/gpu/wgsl-chart-kernel.js";
+import { CHART_COMPOSITE_PROBE_WGSL, chartCompositeWgsl } from "../src/gpu/wgsl-chart-composite-kernel.js";
+import { chartPresetMaterialWgsl } from "../src/gpu/display-view-chart-material-module.js";
+import { chartCompositeMaterialWgsl, displayViewModuleCommonWgsl } from "../src/gpu/display-view-composite-material-module.js";
 import { wgslTokens } from "../scripts/lib/wgsl-minify.mjs";
 
 const MATERIAL = "fn material_at(p: vec2<f32>) -> u32 { return 0u; }";
@@ -29,21 +33,42 @@ describe("display-view shader tokens (#658)", () => {
       "quality-sites-blocked": DISPLAY_VIEW_QUALITY_SITES_BLOCKED_WGSL,
       "quality-pixels": assembleDisplayViewQualityPixelsWgsl(),
       "quality-pixels+coupled": assembleDisplayViewQualityPixelsWgsl(displayViewCoupledWgsl(false)),
-      "quality-pixels+coupled+neighbors": assembleDisplayViewQualityPixelsWgsl(displayViewCoupledWgsl(true))
+      "quality-pixels+coupled+neighbors": assembleDisplayViewQualityPixelsWgsl(displayViewCoupledWgsl(true)),
+      "chart-radiance": CHART_RADIANCE_WGSL,
+      "chart-preset-material": chartPresetMaterialWgsl(),
+      "chart-composite-dekker": chartCompositeWgsl("dekker"),
+      "chart-composite-fma": chartCompositeWgsl("fma"),
+      "chart-composite-probe": CHART_COMPOSITE_PROBE_WGSL,
+      "composite-material-dekker": chartCompositeMaterialWgsl("dekker"),
+      "composite-material-fma": chartCompositeMaterialWgsl("fma"),
+      "module-common-dekker": displayViewModuleCommonWgsl("dekker")
     };
     expect(Object.fromEntries(Object.entries(shaders).map(([name, code]) => [name, hash(code)]))).toEqual(PINNED);
   });
 });
 
-/** Recorded on main at 7c07a5e (2.27.0's shaders), before #658; the Speed and Quality pixel hashes equal the review's (#658). */
+/**
+ * WGSL lexer tokens (`wgslTokens`, 2.29.0): recorded on e229-int at 783f38f (2.28.0's shaders) with the minifier of 2.28.0
+ * (comments and indentation only), and the same on the source text (PHOTIVRA_WGSL_MINIFY=0). 2.28.0's pins split on blankspace
+ * only; those split tokens equal the lexer's wherever blankspace separates every token, so they could not see a space the
+ * minifier removed between two tokens. The chart and composite shaders are pinned too, since #658's seams assemble them from parts.
+ */
 const PINNED: Record<string, string> = {
-  "speed": "58c3b93e8b659f41:3748",
-  "speed+coupled": "748b826220919f49:7211",
-  "speed+coupled+neighbors": "8cb8c764bce01642:7495",
-  "quality-lattice": "196e02b4ec572898:1602",
-  "quality-sites": "64962af53987d15c:2163",
-  "quality-sites-blocked": "c5bad3f34c9ff339:2257",
-  "quality-pixels": "610be4a34fcebc18:4946",
-  "quality-pixels+coupled": "697b6b0c2126867d:8409",
-  "quality-pixels+coupled+neighbors": "a6874e7c64f74603:8693"
+  "speed": "ff6148ba41d46d80:6801",
+  "speed+coupled": "b7732515fc13660b:13906",
+  "speed+coupled+neighbors": "4c7b3472c8b8c6c5:14589",
+  "quality-lattice": "e79c95f4e82f9303:3065",
+  "quality-sites": "db9bdf9059641bfe:4151",
+  "quality-sites-blocked": "94f3f6388e0d60a6:4269",
+  "quality-pixels": "0f4d932727ddc6a4:10628",
+  "quality-pixels+coupled": "7b1f0f1a71aa2d37:17733",
+  "quality-pixels+coupled+neighbors": "bffeb37b3daeb106:18416",
+  "chart-radiance": "cda195dc53f7e613:1935",
+  "chart-preset-material": "d3fec8b2e2b1afd4:1638",
+  "chart-composite-dekker": "08acd1d4c997e906:7137",
+  "chart-composite-fma": "00954844da7f5a5e:7137",
+  "chart-composite-probe": "1992964c729c4eaa:1840",
+  "composite-material-dekker": "2488a90a93bf71b8:7274",
+  "composite-material-fma": "44e168af6a3ff5c0:7274",
+  "module-common-dekker": "9c89f165dc54ea90:1516"
 };

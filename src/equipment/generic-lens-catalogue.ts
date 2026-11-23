@@ -44,7 +44,6 @@ import { requireInputKeys, requireInputObject } from "../core/record-validation.
 import type { EvidenceProvenance } from "../core/evidence-provenance.js";
 import { calculateEquivalentFocalLength35Mm } from "../camera/equivalent-focal-length.js";
 import type { LensProjectionModel } from "../camera/lens-projection.js";
-import { FRAUNHOFER_C_LINE_NM, FRAUNHOFER_D_LINE_NM, FRAUNHOFER_F_LINE_NM } from "../optics/longitudinal-chromatic-aberration.js";
 import type { RadialDistortionProfile } from "../optics/radial-distortion.js";
 import type { IlluminationVignettingProfile } from "../optics/illumination-vignetting.js";
 import type { DefocusBokehOptions } from "../optics/defocus-bokeh-kernel.js";
@@ -214,11 +213,8 @@ export const GENERIC_LENS_EVIDENCE: readonly EvidenceProvenance[] = /* @__PURE__
     reuseStatus: "factual-reference-only" as const, note: "Qualitative descriptions of how these effects vary with lens class and aperture; no data reproduced." })
 ]);
 
-/** Normalised Cauchy dispersion D(λ) = (1/λ² − 1/λ_d²)/(1/λ_F² − 1/λ_C²): 0 at the d line, F minus C = 1. */
-export function genericLensDispersion(wavelengthNm: number): number {
-  const inv = (nm: number): number => 1 / (nm * nm);
-  return (inv(wavelengthNm) - inv(FRAUNHOFER_D_LINE_NM)) / (inv(FRAUNHOFER_F_LINE_NM) - inv(FRAUNHOFER_C_LINE_NM));
-}
+// #765 (2.29.0): the dispersion is generic-lens-dispersion.ts, so a module that needs only it does not import the catalogue.
+export { genericLensDispersion } from "./generic-lens-dispersion.js";
 
 /** A catalogue lens's character resolved for a sensor, an f-number and a focus distance. Aberrations in waves at 550 nm. */
 export interface GenericLensCharacter {

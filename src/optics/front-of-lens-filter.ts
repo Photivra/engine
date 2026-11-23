@@ -35,7 +35,7 @@ import {
   type SpectralWavelengthBasis
 } from "../core/spectral.js";
 import { InvalidScientificInputError } from "../core/validation.js";
-import { requireInputKeys, rejectUnknownVariantFields, UNCERTAINTY_VARIANT_FIELDS, requireConfigRecord as requireRecord, requireTrimmedConfigString as requireNonEmptyString, requireConfigFinite as requireFinite, parseConfigScientificStatus as parseScientificStatus, parseConfigLimitations as parseLimitations, requireConfigFiniteAboveZero as requirePositiveFinite, requireConfigFiniteAtLeastZero as requireNonNegativeFinite } from "../core/record-validation.js";
+import { parseConfigUncertainty, requireInputKeys, rejectUnknownVariantFields, requireConfigRecord as requireRecord, requireTrimmedConfigString as requireNonEmptyString, requireConfigFinite as requireFinite, parseConfigScientificStatus as parseScientificStatus, parseConfigLimitations as parseLimitations, requireConfigFiniteAboveZero as requirePositiveFinite, requireConfigFiniteAtLeastZero as requireNonNegativeFinite } from "../core/record-validation.js";
 
 export const FRONT_OF_LENS_FILTER_PROFILE_SCHEMA_VERSION =
   "0.1.0" as const;
@@ -303,56 +303,19 @@ export function parseResolvedBasis(
   return parsed;
 }
 
+function requireUncertaintyFraction(value: unknown, path: string): number {
+  const fraction = requireNonNegativeFinite(value, path);
+  if (fraction > 1) {
+    throw new InvalidConfigurationError(path + " must be less than or equal to one.");
+  }
+  return fraction;
+}
+
 function parseUncertainty(
   value: unknown,
   path: string
 ): FrontOfLensFilterUncertainty {
-  const record = requireRecord(
-    value,
-    path, null
-  );
-  rejectUnknownVariantFields(record, "kind", UNCERTAINTY_VARIANT_FIELDS, path);
-
-  if (record.kind === "relative") {
-    const fraction =
-      requireNonNegativeFinite(
-        record.fraction,
-        path + ".fraction"
-      );
-    if (fraction > 1) {
-      throw new InvalidConfigurationError(
-        path +
-          ".fraction must be less than or equal to one."
-      );
-    }
-    return {
-      kind: "relative",
-      fraction,
-      basis:
-        requireNonEmptyString(
-          record.basis,
-          path + ".basis"
-        )
-    };
-  }
-
-  if (
-    record.kind ===
-    "not-quantified"
-  ) {
-    return {
-      kind: "not-quantified",
-      limitation:
-        requireNonEmptyString(
-          record.limitation,
-          path + ".limitation"
-        )
-    };
-  }
-
-  throw new InvalidConfigurationError(
-    path + ".kind is invalid."
-  );
+  return parseConfigUncertainty(value, path, requireUncertaintyFraction, requireNonEmptyString);
 }
 
 function parseReusableNumericEvidence(
