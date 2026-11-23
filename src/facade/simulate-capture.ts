@@ -1614,7 +1614,9 @@ function joinNativeRawParts(value: unknown, plan: NativeRawOutput["plan"], width
   parts.forEach((part, k) => {
     const rect = part?.region?.nativeRect, raw = part?.raw;
     if (!rect || !raw) bad(k, "needs raw and region.nativeRect (a region render's result).");
-    if ((part.region.fast ?? part.fast) === true && !fast) bad(k, "a fast method rendered it, but this request resolves to the exact methods (fast: false, the default for a DNG, JPEG or PNG). Render the parts with fast: false, or pass fast: true here.");
+    // #786: a part's fast and region.fast are booleans when present, so a malformed part cannot skip this check.
+    for (const flag of [part.fast, part.region.fast]) if (flag !== undefined && typeof flag !== "boolean") bad(k, "fast and region.fast must be true or false.");
+    if ((part.region.fast ?? part.fast) && !fast) bad(k, "a fast method rendered it, but this request resolves to the exact methods (fast: false, the default for a DNG, JPEG or PNG). Render the parts with fast: false, or pass fast: true here.");
     // #728: a part names its request's key; one of another request (scene, exposure, sensor, lens, motion or resolved counts) is refused.
     if (part.region.requestKey !== undefined && part.region.requestKey !== key) bad(k, "its region.requestKey is another request's: not the same request.");
     const { x, y, width: w, height: h } = rect!;
@@ -2238,6 +2240,8 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
     subject = { vx: finite(v.x, "velocityMPerSec.x", 0), vy: finite(v.y, "velocityMPerSec.y", 0), omega: finite(record.angularVelocityRadPerSec, "angularVelocityRadPerSec", 0),
       region: r && { cx: finite(r.centerXM, "region.centerXM"), cy: finite(r.centerYM, "region.centerYM"), hw: positive(r.widthM, "motion.subject.region.widthM") / 2,
         hh: positive(r.heightM, "motion.subject.region.heightM") / 2 } };
+    // #786: a record without a velocity or rotation is not an omitted option.
+    if (record.velocityMPerSec === undefined && record.angularVelocityRadPerSec === undefined) fail("motion.subject needs velocityMPerSec or angularVelocityRadPerSec.");
     subjectFast = fastOverride(record, "motion.subject");
     await optInKit.load();
   }
@@ -2344,7 +2348,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   }
   const exposureGain = exposureCompensationStops === 0 ? 1 : 2 ** exposureCompensationStops;
   // #601: the hue-preserving gamut handling. Opt-in: no assumption when omitted.
-  const gamutHandling = outputOptions.gamutHandling ?? "clip-components";
+  const gamutHandling = outputOptions.gamutHandling === undefined ? "clip-components" : outputOptions.gamutHandling;
   if (gamutHandling !== "clip-components" && gamutHandling !== "desaturate-to-luminance") fail("output.gamutHandling must be clip-components or desaturate-to-luminance.");
   if (outputOptions.gamutHandling !== undefined) {
     if (linearPath) fail("output.gamutHandling applies to the sRGB rendering only, not with a wide-gamut output.colorEncoding or output.gamutMapping \"perceptual\".");

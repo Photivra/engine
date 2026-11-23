@@ -206,6 +206,8 @@ export function parseSensorCharacteristics(sensor: Record<string, unknown>): Par
   checkFieldRanges(sensor, SENSOR_CHARACTERISTIC_KEYS, "");
   const c = sensor as SimulateCaptureSensorCharacteristics, fullWell = c.fullWell;
   if (fullWell && fullWell.electrons === undefined) fail("sensor.fullWell.electrons is required.");
+  // #786: an empty record is not an omitted option.
+  if (c.readNoise && Object.keys(c.readNoise).length === 0) fail("sensor.readNoise needs lowGainElectrons, highGainElectrons or highGainFromIso.");
   if (fullWell?.link === "none" && fullWell.referencePixelPitchMicrometers !== undefined) fail("sensor.fullWell.referencePixelPitchMicrometers applies only to link \"pixel-area\".");
   return { ...c, qeScale: (c.peakQuantumEfficiency ?? 0.5) / 0.5 };
 }
