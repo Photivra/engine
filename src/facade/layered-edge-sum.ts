@@ -39,7 +39,10 @@
  * - {@link LayeredEdgeSum.sumAt}`(group, p, q, out, at)` adds S at lattice point (p, q) of a group into `out[at … at + N)`
  *   (zero on entry); {@link LayeredEdgeSum.sumRows} a block of points with the same bits, one surface at a time. Each value
  *   depends only on the point, so tiles keep their bits whatever was read before.
- * - The visibility is read only through `rowIntervals`, `rowBreaks` and `share` (whose buffers grow to the counts they return),
+ * - Where the visibility's `rowsHold(group, p, q)` is false (#744: a curved card edge across the point's reach), the point's taps
+ *   take `share` one by one (the direct sum), whatever the kernel; points that see one surface still sum by runs.
+ * - The visibility is read only through `rowIntervals`, `rowBreaks`, `rowsHold` and `share` (buffers sized from the published
+ *   `rowIntervalsCapacity` and `rowBreaksCapacity`, and grown to any larger count returned),
  *   card edges only through `layeredBoxRelation`; the tap-to-pupil scale ρ_k is taken in one place per kernel group
  *   (`pupilScale`), so #741 (group LC) may give a kernel group its own.
  * - #741 (group LC) passes several kernel groups per surface (a kernel per spectral node or per node group for axial color);
@@ -218,6 +221,11 @@ export function createLayeredEdgeSum(input: LayeredEdgeSumInput): LayeredEdgeSum
   const { geometry, visibility, surfaces, kernelGroups } = input, K = geometry.surfaces, rho = geometry.blurRadiusSites, reachOf = geometry.reachSites;
   const runs = typeof surfaces.rowSum === "function", N = kernelGroups.length > 0 ? kernelGroups[0]![kernelGroups[0]!.length - 1]!.nodes.to : 0;
   const direct = input.method === "direct";
+  // From #744 (group LG): the published buffer capacities, and whether a point's rows hold for every tap (false where a curved
+  // edge crossing its reach is not a straight line within tolerance: there the point takes \`share\` per tap). Read when present,
+  // so that this module works with the planar visibility too (whose rows always hold).
+  const published = visibility as LayeredVisibility & { readonly rowIntervalsCapacity?: number; readonly rowBreaksCapacity?: number; rowsHold?(group: number, p: number, q: number): boolean };
+  const rowsHold = typeof published.rowsHold === "function" ? published.rowsHold.bind(visibility) : (): boolean => true;
   let edgePoints = 0;
   const rowsCache = new WeakMap<Float64Array, KernelRows>();
   const rowsOf = (weights: Float64Array, R: number): KernelRows => {
@@ -239,7 +247,9 @@ export function createLayeredEdgeSum(input: LayeredEdgeSumInput): LayeredEdgeSum
     for (let n = from; n < to; n++) out[at + n] = out[at + n]! + w * acc[n]!;
   }
   // Classification of one kernel row's taps (see sumAt): buffers.
-  let breaks = new Float64Array(16), rowA = new Float64Array(16), rowB = new Float64Array(16);
+  const intervalsCapacity = Math.max(16, published.rowIntervalsCapacity ?? 2 * K), breaksCapacity = Math.max(16, published.rowBreaksCapacity ?? 2 * K + 2);
+  // Sized from the published capacities; each still grows to a larger count it is given.
+  let breaks = new Float64Array(breaksCapacity), rowA = new Float64Array(intervalsCapacity), rowB = new Float64Array(intervalsCapacity);
   const open = new Intervals(), closed = new Intervals(), segOpen = new Intervals(), segClosed = new Intervals(), scratch = new Intervals();
   function breaksOf(group: number, k: number, p: number, q: number, b0: number, b1: number): number {
     let n = visibility.rowBreaks(group, k, p, q, b0, b1, breaks);
@@ -388,7 +398,7 @@ export function createLayeredEdgeSum(input: LayeredEdgeSumInput): LayeredEdgeSum
       for (const kernelGroup of kernelGroups[k]!) {
         const { nodes: { from, to }, kernel } = kernelGroup, s = pupilScale(k);
         const weights = kernel.weightsAt(p, q), R = weights ? kernel.radius : 0;
-        if (!weights || direct || (single < 0 && s === 0)) { directSum(group, k, x, y, s, single, weights, R, from, to, out, at); continue; }
+        if (!weights || direct || (single < 0 && (s === 0 || !rowsHold(group, p, q)))) { directSum(group, k, x, y, s, single, weights, R, from, to, out, at); continue; }
         const rows = rowsOf(weights, R);
         if (single < 0) bands(group, k, x, y, Math.min((-R - 0.5) / s, (R + 0.5) / s), Math.max((-R - 0.5) / s, (R + 0.5) / s));
         for (let tv = -R; tv <= R; tv++) {
