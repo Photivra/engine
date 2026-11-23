@@ -23,6 +23,7 @@ import { calculateDefocusFieldVariation, createDefocusImageSpaceProvider, prepar
 import { createDisplayViewCoupledRendering } from "./display-view-rendering.js";
 import { NEIGHBOR_HIGHLIGHT_RING, NEIGHBOR_HIGHLIGHT_THRESHOLD, reconstructHighlightsFromNeighbors } from "../color/neighbor-highlight-reconstruction.js";
 import { createOffsetExpansion } from "./display-view-offset-expansion.js";
+import { resolveLensSampledPsfKernelsAt } from "../optics/lens-psf-kernels.js";
 
 /**
  * #658: the kit is one exported tuple, read by position (the `QK_*` constants of src/facade/on-demand-kits.ts, which a bundler
@@ -45,5 +46,6 @@ export const QUALITY_KIT = [
   NEIGHBOR_HIGHLIGHT_RING,
   NEIGHBOR_HIGHLIGHT_THRESHOLD,
   reconstructHighlightsFromNeighbors,
-  createOffsetExpansion
+  createOffsetExpansion,
+  resolveLensSampledPsfKernelsAt
 ] as const;

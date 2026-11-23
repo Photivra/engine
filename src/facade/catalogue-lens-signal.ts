@@ -116,8 +116,13 @@ export interface CatalogueLensSignalInput {
    * chain without the box pixel aperture; with it, each site's centre kernel on the box-folded scene). #632: `lens.catalogue.flare` on an exact request renders this way; otherwise a test hook.
    */
   exactKernels?: boolean;
-  /** #632: the veiling glare (see {@link CatalogueLensSignal.veiled}): its fraction g and the lattice step of the frame mean. */
-  veil?: { fraction: number; step: number };
+  /**
+   * #632: the veiling glare (see {@link CatalogueLensSignal.veiled}): its fraction g and the lattice step of the frame mean. #730
+   * facade-13: `key`, when given, names everything the frame mean depends on (the capture passes its request without the region,
+   * which fixes the raster, the step, the spectral nodes, the lens, the framing and the scene); the last mean is kept under it, so the
+   * next region or part of the same request reads no lattice point for it.
+   */
+  veil?: { fraction: number; step: number; key?: string | undefined };
 }
 
 export interface CatalogueLensSignal {
@@ -186,6 +191,8 @@ function cellOf(axis: readonly number[], v: number): { i: number; f: number } {
  */
 export interface CatalogueLensSignalTestHook { exactKernels?: boolean; onInput?(input: CatalogueLensSignalInput): void }
 let testHook: CatalogueLensSignalTestHook | undefined;
+/** facade-13: the last keyed frame mean of the veil (one spectrum per node; no channel value). */
+let lastVeil: { key: string; mean: { radiance: Float64Array; samples: number } } | undefined;
 export function setCatalogueLensSignalTestHook(hook: CatalogueLensSignalTestHook | undefined): void { testHook = hook; }
 
 /** The fast method's expected signal (see the module comment). */
@@ -366,7 +373,9 @@ export function createCatalogueLensSignal(given: CatalogueLensSignalInput): Cata
   };
   // #632: the veil's frame mean, from the lattice (no PSF: the kernels keep the energy, so only light spread across the frame's edge differs).
   let veilMean: { radiance: Float64Array; samples: number } | undefined;
-  if (input.veil) {
+  const veilKey = input.veil?.key;
+  if (veilKey !== undefined && veilKey === lastVeil?.key) veilMean = lastVeil.mean;
+  else if (input.veil) {
     const radiance = new Float64Array(nodes), step = input.veil.step;
     let samples = 0;
     for (let q = step >> 1; q < H; q += step) for (let p = step >> 1; p < W; p += step, samples++) {
@@ -377,6 +386,7 @@ export function createCatalogueLensSignal(given: CatalogueLensSignalInput): Cata
     }
     for (let n = 0; n < nodes; n++) radiance[n] = radiance[n]! / samples;
     veilMean = { radiance, samples };
+    if (veilKey !== undefined) lastVeil = { key: veilKey, mean: veilMean };
   }
   const g = input.veil?.fraction ?? 0;
   return {

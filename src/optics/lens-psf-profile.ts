@@ -289,7 +289,8 @@ interface AxisBracket {
   exact: boolean;
 }
 
-interface WeightedNode {
+/** @internal */
+export interface WeightedNode {
   node:
     LensSampledPsfGridNode;
   weight: number;
@@ -1475,9 +1476,9 @@ function bilinearSample(
 
 function normalizedKernel(
   template: LensPsfKernel,
-  values: readonly number[]
+  values: readonly number[] | Float64Array
 ): LensPsfKernel {
-  const sum = values.reduce((acc, value) => acc + value, 0);
+  const sum = (values as number[]).reduce((acc, value) => acc + value, 0);
   if (!Number.isFinite(sum) || sum <= 0) {
     throw new InvalidScientificInputError(
       "Interpolated PSF energy must remain finite and positive."
@@ -1490,7 +1491,7 @@ function normalizedKernel(
     samplePitchMicrometersY: template.samplePitchMicrometersY,
     centerSampleX: template.centerSampleX,
     centerSampleY: template.centerSampleY,
-    normalizedIntensity: values.map((value) => value / sum)
+    normalizedIntensity: (values as number[]).map((value) => value / sum)
   };
 }
 
@@ -1500,7 +1501,8 @@ function normalizedKernel(
  * unchanged.
  */
 function interpolateKernelCentroidAligned(
-  weighted: readonly WeightedNode[]
+  weighted: readonly WeightedNode[],
+  blend: LensPsfBlend = centroidAlignedValues
 ): LensPsfKernel {
   const first = weighted[0]?.node.kernel;
   if (first === undefined) {
@@ -1512,6 +1514,18 @@ function interpolateKernelCentroidAligned(
     // An exact grid node is already a validated unit-energy kernel; return it bit-for-bit.
     return { ...first, normalizedIntensity: [...first.normalizedIntensity] };
   }
+  return normalizedKernel(first, blend(weighted));
+}
+
+/** @internal A centroid-aligned blend of two or more nodes, before its normalization. */
+export type LensPsfBlend = (weighted: readonly WeightedNode[]) => readonly number[] | Float64Array;
+
+/**
+ * The centroid-aligned blend before its normalization. #760: the Quality kit passes a faster one with the same values
+ * (`resolveLensSampledPsfKernelsAt`, lens-psf-kernels.ts).
+ */
+function centroidAlignedValues(weighted: readonly WeightedNode[]): number[] {
+  const first = weighted[0]!.node.kernel;
   const centroids = weighted.map((entry) => kernelCentroid(entry.node.kernel));
   const target = centroids.reduce(
     (acc, centroid, index) => ({
@@ -1531,7 +1545,7 @@ function interpolateKernelCentroidAligned(
       }
     }
   });
-  return normalizedKernel(first, values);
+  return values;
 }
 
 /**
@@ -1587,7 +1601,8 @@ function weightedScalar(
 }
 
 /** The resolved PSF before its result envelope; resolveLensSampledPsf and the lean native executor share it. */
-interface ResolvedLensSampledPsfCore {
+/** @internal */
+export interface ResolvedLensSampledPsfCore {
   profile: LensSampledPsfProfile;
   query: ReturnType<typeof queryCoordinate>;
   rotational: boolean;
@@ -1600,15 +1615,19 @@ interface ResolvedLensSampledPsfCore {
 
 function resolveLensSampledPsfCore(
   input:
-    ResolveLensSampledPsfInput
+    ResolveLensSampledPsfInput,
+  blend?: LensPsfBlend
 ): ResolvedLensSampledPsfCore {
   requireInputKeys(input, "resolveLensSampledPsf", ["profile", "focalLengthMm", "focus", "apertureFNumber", "fieldPointMm", "wavelengthNm", "signedDefocusImagePlaneMicrometers"]);
-  const profile =
-    parseOwnedOrUntrustedProfile(
-      input.profile
-    );
-  const query =
-    queryCoordinate(input);
+  return resolveParsed(parseOwnedOrUntrustedProfile(input.profile), queryCoordinate(input), blend);
+}
+
+/** resolveLensSampledPsfCore after its input checks (the profile parsed, the query checked). */
+function resolveParsed(
+  profile: LensSampledPsfProfile,
+  query: ReturnType<typeof queryCoordinate>,
+  blend?: LensPsfBlend
+): ResolvedLensSampledPsfCore {
   const rotational =
     profile.interpolation ===
     "rotationally-symmetric-radial-field-centroid-aligned";
@@ -1640,9 +1659,9 @@ function resolveLensSampledPsfCore(
     profile.interpolation === "bounded-regular-grid-multilinear"
       ? interpolateKernel(weighted)
       : fieldAngleRadians === 0
-        ? interpolateKernelCentroidAligned(weighted)
+        ? interpolateKernelCentroidAligned(weighted, blend)
         : rotateKernel(
-            interpolateKernelCentroidAligned(weighted),
+            interpolateKernelCentroidAligned(weighted, blend),
             fieldAngleRadians
           );
   const bestFocus =
@@ -1686,6 +1705,13 @@ function resolveLensSampledPsfCore(
 
   return { profile, query, rotational, exact, weighted, kernel, bestFocus, throughput };
 }
+
+/**
+ * @internal #760: for the Quality kit's batch resolver (`resolveLensSampledPsfKernelsAt`, lens-psf-kernels.ts), by position: the
+ * checked resolve and the resolve after its checks, each taking a centroid-aligned blend in place of the module's, and
+ * bilinearSample. Not exported from the package.
+ */
+export const LENS_PSF_RESOLVE_STEPS = [resolveLensSampledPsfCore, resolveParsed, bilinearSample] as const;
 
 /**
  * Internal (2.0 performance): the kernel resolveLensSampledPsf returns for the same input, computed by

@@ -185,7 +185,7 @@ export interface SignalTables {
 export interface GroupTables { fx: number; fy: number; members: { ix: number; iy: number; weight: number }[]; minIx: number; maxIx: number; minIy: number; maxIy: number;
   cw: number; ch: number; nodeKernels: Float64Array[]; perNode: Float64Array[][] }
 /** A render's lattice group: the fixed part and its own window cache (lattice points [cx0, cx0 + cpw) × [cy0, cy0 + cph)). */
-interface Group extends GroupTables { cache: Int32Array | Float64Array; cx0: number; cy0: number; cpw: number; cph: number }
+interface Group extends GroupTables { cache: Int32Array | Float64Array; cx0: number; cy0: number; cpw: number; cph: number; kt?: Float64Array[] }
 /** Per input object: the tables, and the filled path's lattice material rings per group (created on first use), which depend on its `materialAt` and raster. */
 interface PreparedSignal { tables: SignalTables; rings: ({ width: number; material: Int16Array | Int32Array; rowId: Int32Array } | undefined)[] }
 const PREPARED = new WeakMap<DisplayViewExpectedSignalInput, PreparedSignal>();
@@ -625,9 +625,14 @@ export function createDisplayViewExpectedSignal(input: DisplayViewExpectedSignal
       if (scene.kind === "materials") {
         for (let dy = 0; dy < ch; dy++) for (let dx = 0; dx < cw; dx++) tapMaterials[t++] = latticeMaterial(group, p0 + dx, q0 + dy);
       } else {
-        for (let dy = 0; dy < ch; dy++) for (let dx = 0; dx < cw; dx++) {
-          const radiance = latticeRadiance(group, p0 + dx, q0 + dy);
-          for (let n = 0; n < nodes; n++) sum += group.perNode[n]![c]![dy * cw + dx]! * radiance[n]!;
+        // #760: the channel's kernel per tap and node in one array (tap-major), and a cached point's radiance read where it is kept: the
+        // same products, summed in the same order (taps row by row, nodes in order).
+        const k = (group.kt ??= [0, 1, 2].map((cc) => Float64Array.from({ length: cw * ch * nodes }, (_, e) => group.perNode[e % nodes]![cc]![(e - e % nodes) / nodes]!)))[c]!;
+        const cache = group.cache as Float64Array, cpw = group.cpw;
+        for (let dy = 0, e = 0; dy < ch; dy++) for (let dx = 0; dx < cw; dx++, e += nodes) {
+          const i = p0 + dx - group.cx0, j = q0 + dy - group.cy0, at = (j * cpw + i) * nodes;
+          const hit = i >= 0 && j >= 0 && i < cpw && j < group.cph && !Number.isNaN(cache[at]!), src = hit ? cache : latticeRadiance(group, p0 + dx, q0 + dy), o = hit ? at : 0;
+          for (let n = 0; n < nodes; n++) sum += k[e + n]! * src[o + n]!;
         }
       }
     }
