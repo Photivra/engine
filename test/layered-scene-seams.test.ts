@@ -345,7 +345,7 @@ describe("layered sum seams (L0): the module interfaces", () => {
 // The refusals ---------------------------------------------------------------------------------------------------------------
 
 describe("layered sum seams (L0): the refusal table keeps every message", () => {
-  it("gives the messages of 783f38f, the first present row first", () => {
+  it("gives the messages of 783f38f for the rows that remain, the first present row first", () => {
     const scene = { kind: "layered-chart", cards: [{ distanceM: 1.6, centerU: 0.2, centerV: 0, width: 1, height: 0.8, scene: { preset: "slanted-edge" } }], backPlane: { distanceM: 3, reflectance: 0.5 } };
     // [request top level, lens, the message recorded at 783f38f (null: accepted)].
     const cases: [Record<string, unknown>, Record<string, unknown>, string | null][] = [
@@ -353,15 +353,16 @@ describe("layered sum seams (L0): the refusal table keeps every message", () => 
       [{ motion: {} }, {}, null],
       [{ motion: { subject: {}, x: 1 } }, {}, "scene.kind \"layered-chart\" does not support motion.subject in 2.27.0: each surface's defocus and occlusion are rendered for a still camera and scene. Omit it, or use a single-plane scene."],
       [{}, { projection: "rectilinear" }, null],
-      [{}, { projection: "fisheye-equidistant" }, "scene.kind \"layered-chart\" does not support lens.projection other than \"rectilinear\" in 2.27.0: the layered sum maps every surface through the rectilinear lens. Omit it, or use a single-plane scene."],
-      [{}, { distortion: {} }, "scene.kind \"layered-chart\" does not support lens.distortion in 2.27.0: the layered sum maps every surface through the distortion-free lens. Omit it, or use a single-plane scene."],
-      [{}, { vignetting: {} }, "scene.kind \"layered-chart\" does not support lens.vignetting in 2.27.0: the layered sum takes one radiance-to-irradiance factor over the field. Omit it, or use a single-plane scene."],
+      // 2.29.0 wave 3 (LW1): the projection, distortion, vignetting, chartSize and illumination rows are removed (#744, #745, #761).
+      [{}, { projection: "fisheye-equidistant" }, null],
+      [{}, { distortion: {} }, null],
+      [{}, { vignetting: {} }, null],
       [{}, { catalogue: "x" }, "scene.kind \"layered-chart\" does not support lens.catalogue in 2.27.0: a catalogue lens has its own distortion, vignetting and PSF. Omit it, or use a single-plane scene."],
       [{}, { pupilSampling: {} }, "scene.kind \"layered-chart\" does not support lens.pupilSampling in 2.27.0: the layered sum renders the defocus and occlusion of each surface itself. Omit it, or use a single-plane scene."],
       [{}, { psf: {} }, "scene.kind \"layered-chart\" does not support lens.psf in 2.27.0: a caller PSF declares its own defocus. Omit it, or use a single-plane scene."],
-      [{ chartSize: {} }, {}, "scene.kind \"layered-chart\" does not support chartSize in 2.27.0: cards are placed in frame units, each at its own size. Omit it, or use a single-plane scene."],
-      [{ illumination: {} }, {}, "scene.kind \"layered-chart\" does not support illumination (mixed lighting) in 2.27.0: every surface is lit by the one illuminant. Omit it, or use a single-plane scene."],
-      [{ chartSize: {}, illumination: {} }, { psf: {}, distortion: {} }, "scene.kind \"layered-chart\" does not support lens.distortion in 2.27.0: the layered sum maps every surface through the distortion-free lens. Omit it, or use a single-plane scene."],
+      [{ chartSize: {} }, {}, null],
+      [{ illumination: {} }, {}, null],
+      [{ chartSize: {}, illumination: {} }, { psf: {}, distortion: {} }, "scene.kind \"layered-chart\" does not support lens.psf in 2.27.0: a caller PSF declares its own defocus. Omit it, or use a single-plane scene."],
       [{}, {}, null]];
     for (const [top, lens, message] of cases) {
       const run = (): unknown => resolveLayeredRequest({ top: { scene, ...top }, lens, aspect: 0.75, displayView: false });
