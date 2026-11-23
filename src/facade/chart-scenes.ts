@@ -142,7 +142,7 @@ export interface DeadLeavesChartScene {
   preset: "dead-leaves";
   /** Smallest disk radius, frame units, [0.002, radiusMaximum). Default 0.01. */
   radiusMinimum?: number;
-  /** Largest disk radius, frame units, (radiusMinimum, 2]. Default 0.5. */
+  /** Largest disk radius, frame units, (radiusMinimum, 2) (2 itself is refused). Default 0.5. */
   radiusMaximum?: number;
   /** Grey range (neutral reflectances). Defaults 0.2 and 0.6. */
   minimumReflectance?: number;
@@ -218,7 +218,7 @@ export interface SlantedSquaresChartScene {
 /** 2.3: straight lines at every multiple of `spacing` from the centre in u and v (a distortion and registration grid). */
 export interface LineGridChartScene {
   preset: "line-grid";
-  /** Distance between lines, frame units, (0, 2]. Default 1/3 (six cells across). */
+  /** Distance between lines, frame units, (0, 2) (2 itself is refused). Default 1/3 (six cells across). */
   spacing?: number;
   /** Line width, frame units, (0, spacing). Default 0.01. */
   lineWidth?: number;
@@ -732,7 +732,8 @@ function resolveScene(scene: unknown, aspect: number, context: ChartContext): Re
         const e = value as Record<string, unknown>;
         for (const key of Object.keys(e)) if (!["scene", "centerU", "centerV", "width", "height", "mask"].includes(key)) throw new InvalidConfigurationError("Unknown " + name + " field: " + key + ".");
         const cu = finiteIn(e.centerU, name + ".centerU", -1e6, 1e6), cv = finiteIn(e.centerV, name + ".centerV", -1e6, 1e6);
-        const width = finiteIn(e.width, name + ".width", 0, 1e6, true), height = finiteIn(e.height, name + ".height", 0, 1e6, true);
+        // #730 facade-15 (d): above 1e-300, so that the element's scale 2 / width is finite (a subnormal width made it infinite).
+        const width = finiteIn(e.width, name + ".width", 1e-300, 1e6, true), height = finiteIn(e.height, name + ".height", 1e-300, 1e6, true);
         const mask = e.mask === undefined ? "rectangle" : e.mask;
         if (mask !== "rectangle" && mask !== "ellipse") throw new InvalidConfigurationError(name + ".mask must be rectangle or ellipse.");
         if (e.mask === undefined) defaulted.push("elements." + index + ".placement.mask");
@@ -777,9 +778,12 @@ const DEAD_LEAVES_MARGIN = 0.1;
 function generateDeadLeaves(rMin: number, rMax: number, seed: number, aspect: number, budget?: DeadLeavesBudget): { diskCount: number; levelAt(u: number, v: number): number;
   tables: Omit<Extract<ChartGeometry, { kind: "dead-leaves" }>, "kind"> } {
   const u0 = -1 - DEAD_LEAVES_MARGIN, v0 = -aspect - DEAD_LEAVES_MARGIN, width = 2 + 2 * DEAD_LEAVES_MARGIN, height = 2 * aspect + 2 * DEAD_LEAVES_MARGIN;
-  const cell = Math.max(rMin, Math.sqrt(width * height / DEAD_LEAVES_MAXIMUM_CELLS));
-  const nx = Math.ceil(width / cell), ny = Math.ceil(height / cell), cells = nx * ny;
-  if (!(cells <= DEAD_LEAVES_MAXIMUM_CELLS)) throw new InvalidConfigurationError("Dead leaves: the chart aspect is too extreme for the lookup grid.");
+  // #730 facade-15 (b): rounding both axes up can pass the cell limit (at aspect 4 with the smallest radius, at 96 with the defaults), so the
+  // cell grows by 0.01 % steps until the grid fits; a grid that fits keeps its cell. The cells only index the disks: the texture is the same
+  // at any cell size (a cell closes once a disk covers it whole), and only the disk limit below can refuse the chart.
+  let cell = Math.max(rMin, Math.sqrt(width * height / DEAD_LEAVES_MAXIMUM_CELLS)), nx = 0, ny = 0;
+  for (;; cell *= 1.0001) if ((nx = Math.ceil(width / cell)) * (ny = Math.ceil(height / cell)) <= DEAD_LEAVES_MAXIMUM_CELLS) break;
+  const cells = nx * ny;
   if (budget && cells > budget.cells) throw new InvalidConfigurationError(DEAD_LEAVES_COMPOSITE_LIMIT);
   const maximumDisks = Math.min(DEAD_LEAVES_MAXIMUM_DISKS, budget?.disks ?? DEAD_LEAVES_MAXIMUM_DISKS);
   const closed = new Uint8Array(cells), head = new Int32Array(cells).fill(-1), tail = new Int32Array(cells).fill(-1);
@@ -912,7 +916,8 @@ export interface ChartBarGroupTarget {
 }
 /**
  * The bar groups of a `bar-groups` chart, or of every `bar-groups` element of a composite, in the chart's
- * frame units (2.3). `aspect` is the chart's height / width, as for {@link resolveChartScene}.
+ * frame units (2.3). `aspect` is the chart's height / width, as for {@link resolveChartScene}. A composite's
+ * `background` is not listed (#730 facade-15): call this with the background chart alone (its elements may cover parts of it).
  */
 export function calculateBarGroupTargets(input: { scene: ChartScene; aspect: number }): ChartBarGroupTarget[] {
   requireInputKeys(input, "calculateBarGroupTargets", ["scene", "aspect"]);
@@ -939,7 +944,8 @@ export interface ChartSlantedSquare {
 /**
  * Squares and edges of a `slanted-squares` chart, or of every `slanted-squares` element of a composite, in
  * the chart's frame units (2.3), for slanted-edge regions of interest (Burns, PICS 2000). Directions are unit
- * vectors along each edge (u right, v up).
+ * vectors along each edge (u right, v up). A composite's `background` is not listed (#730 facade-15): call this with the
+ * background chart alone (its elements may cover parts of it).
  */
 export function calculateSlantedSquareEdges(input: { scene: ChartScene; aspect: number }): ChartSlantedSquare[] {
   requireInputKeys(input, "calculateSlantedSquareEdges", ["scene", "aspect"]);
