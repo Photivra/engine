@@ -351,4 +351,26 @@ describe("the app's capture-worker shape", () => {
     // The worker's rows: the chunks other than the body and the noise measure are the worker's plus the stub (in the first load).
     expect(withFalseColor.totalGzip - body.gzip - noise.gzip - worker.totalGzip).toBeLessThanOrEqual(400);
   }, testTimeout(120_000));
+
+  /**
+   * 2.29.0 (owner decision 3 of the 2.29.0 plan): the layered chart scene code is one on-demand chunk ("layered", a row of its own) and the
+   * layered GPU passes (#750) a second ("layered GPU"), each limit its measurement rounded up to the next 100 B. Both are reachable only
+   * through prepareLayeredChartScenes() (the capture worker's shape carries neither, above). Measured with rolldown 1.2.14 on the 2.29.0
+   * integration tree: the layered chunk 23,230 B gzip, the layered GPU chunk 8,331 B. In this shape the GPU chunk imports the session's
+   * and the Quality host's modules statically, so the session chunk splits in two (about +1,020 B over all chunks, as with
+   * prepareImagePlaneScenes).
+   */
+  it("keeps the layered scene code and its GPU passes in their own on-demand chunks", async () => {
+    const layered = await bundle([...WORKER_SHAPE, "prepareLayeredChartScenes"]);
+    const scene = layered.chunks.filter((c) => [...c.modules].some((id) => /facade\/layered-(?!scene-enable)/u.test(id)));
+    expect(scene).toHaveLength(1);
+    expect(scene[0]!.isEntry).toBe(false);
+    for (const id of scene[0]!.modules) expect(layered.modules.has(id), id).toBe(false);
+    expect(scene[0]!.gzip).toBeLessThanOrEqual(23_300);
+    const gpu = layered.chunks.filter((c) => c.modules.has("gpu/display-view-layered-gpu.ts"));
+    expect(gpu.map((c) => [...c.modules].sort())).toEqual([["gpu/display-view-layered-gpu.ts", "gpu/wgsl-display-view-layered-kernel.ts"]]);
+    expect(layered.chunks.filter((c) => c.imports.includes(gpu[0]!.fileName))).toEqual([]);
+    expect(layered.chunks.filter((c) => c.dynamicImports.includes(gpu[0]!.fileName)).map((c) => c.fileName)).toEqual([scene[0]!.fileName]);
+    expect(gpu[0]!.gzip).toBeLessThanOrEqual(8_400);
+  }, testTimeout(120_000));
 });
