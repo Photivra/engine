@@ -178,6 +178,9 @@ const LICENSE_ALLOWLIST = [
   { path: "CHANGELOG.md", license: "0BSD", reason: `${LICENCE_NAMES_IN_DOCS} (2.28.0: the site tools' development-only licence)` },
   { path: "docs/design/engine-site.md", license: "OFL-1.1", reason: `${LICENCE_NAMES_IN_DOCS} (the site design names the typeface's licence)` },
   { path: "docs/design/engine-site.md", license: "JSON", reason: "false positive: a table row about the site's structured data (\"license\" pointing to the SPDX page of the project's licence)" },
+  // 2.29.0 (#757, owner-approved site development dependency highlight.js 11.12.0, recorded in THIRD_PARTY.md): files that name its licence.
+  { path: "site/lib/highlight.mjs", license: "BSD-3-Clause", reason: `${LICENCE_NAMES_IN_DOCS} (the comment naming highlight.js's licence; no highlight.js code in the file)` },
+  { path: "docs/design/engine-site.md", license: "BSD-3-Clause", reason: `${LICENCE_NAMES_IN_DOCS} (the site design names highlight.js's licence)` },
   { path: "site/lib/templates.mjs", license: "LicenseRef-scancode-unknown", reason: "false positive: the footer template's copyright and licence-name placeholders" },
   ...["BSD-2-Clause", "BSD-3-Clause", "BlueOak-1.0.0", "ISC", "MIT", "MPL-2.0", "0BSD", "CC0-1.0"]
     .map((license) => ({ path: "site/package-lock.json", license, reason: SITE_LOCK })),
