@@ -7,7 +7,12 @@
  * or JavaScript source, and only in ways that cannot change the WGSL token stream:
  * - a line comment (`//` to the end of the line) is removed;
  * - a block comment (WGSL block comments nest) is replaced by one space;
- * - spaces and tabs at the start and end of each line are removed.
+ * - spaces and tabs at the start and end of each line are removed;
+ * - (2.29.0, #658) inside a line, a run of spaces and tabs becomes one space, and that space is removed where it touches an
+ *   identifier or number character on one side and a punctuation character on the other, or a bracket, comma or semicolon
+ *   (`( ) [ ] { } , ;`) on either side. Neither can join two tokens into one: an identifier or literal cannot continue into
+ *   punctuation, no multi-character token begins or ends with a bracket, comma or semicolon, and a space between two other
+ *   punctuation characters (as in `a - -b`, `a / *p` or `> =`) always stays, so no operator or comment opener can form.
  *
  * Every newline is kept, so line numbers (and so source maps) of everything after a shader stay exact, and so do
  * line-anchored edits such as `/^const SLACK: f32 = …\n/m`. A line that contains a `${…}` interpolation is left
@@ -86,6 +91,16 @@ function stripCommentsFromLine(line, state) {
   return out;
 }
 
+/**
+ * Removes blankspace inside one line where it cannot separate two tokens (see the module comment): next to an identifier or number
+ * character on one side and punctuation on the other, or next to a bracket, comma or semicolon.
+ */
+function tighten(line) {
+  return line.replace(/[ \t]+/gu, " ")
+    .replace(/([A-Za-z0-9_]) (?=[^A-Za-z0-9_ ])/gu, "$1").replace(/([^A-Za-z0-9_ ]) (?=[A-Za-z0-9_])/gu, "$1")
+    .replace(/([()[\]{},;]) /gu, "$1").replace(/ (?=[()[\]{},;])/gu, "");
+}
+
 const SENTINEL = (k) => "\uE000" + k + "\uE000";
 const HAS_SENTINEL = /\uE000\d+\uE000/u;
 
@@ -110,7 +125,7 @@ function minifyTemplateBody(chunks, expressions) {
     // A backslash may only disappear inside a removed comment, and never as a line continuation (a raw "\\" before
     // the newline): then every escape sequence is either removed whole or kept whole.
     if (/\\[ \t]*$/u.test(line)) state.unsafe = true;
-    const kept = stripCommentsFromLine(line, state).replace(/^[ \t]+|[ \t]+$/gu, "");
+    const kept = tighten(stripCommentsFromLine(line, state).replace(/^[ \t]+|[ \t]+$/gu, ""));
     if (kept.includes("\\")) state.unsafe = true;
     return kept;
   });

@@ -32,7 +32,7 @@
  * arithmetic (flagging points within their bound of its edge); the surround is the materials table's last entry.
  */
 import { ImageKernelExecutionError, WEBGPU_F32_UNIT_ROUNDOFF } from "./image-kernel-execution.js";
-import { chartCompositeWgsl, type ChartCompositeProductPath } from "./wgsl-chart-composite-kernel.js";
+import { CHART_COMPOSITE_MATERIAL_WGSL, chartCompositeModuleCommonWgsl, type ChartCompositeProductPath } from "./wgsl-chart-composite-kernel.js";
 import { chartGpuPresetCode } from "./chart-radiance-gpu.js";
 import { dwSplit, packChartScene, probeChartCompositeDevice, type PackedChartScene } from "./chart-composite-gpu.js";
 import type { ChartCompositeProbeRecord } from "./image-kernel-execution.js";
@@ -73,17 +73,14 @@ export const DISPLAY_VIEW_LATTICE = /* @__PURE__ */ Object.freeze({ scaleUHi: 0,
  */
 /** The composite kernel's text renamed for a display-view module: its flag is `material_uncertain`, its barrier word `lattice.zero`. */
 function renameForDisplayView(code: string): string {
-  return code.replace(/^const SLACK: f32 = [^\n]*\n/mu, "").replace(/\bflagged\b/gu, "material_uncertain").replace(/\bmargin\(/gu, "bmargin(").replace(/\bparams\.zero\b/gu, "lattice.zero");
+  return code.replace(/\bflagged\b/gu, "material_uncertain").replace(/\bmargin\(/gu, "bmargin(").replace(/\bparams\.zero\b/gu, "lattice.zero");
 }
 /**
  * #581: the composite kernel's common part (double-float32 with its rounding barrier, the bound arithmetic, `bfloor`) renamed for a
  * display-view module (shared by the composite and the image-plane modules); the kernel's preamble gives E and SLACK.
  */
 export function displayViewModuleCommonWgsl(path: ChartCompositeProductPath): string {
-  const source = chartCompositeWgsl(path);
-  const commonStart = source.indexOf("const DW: f32"), commonEnd = source.indexOf("struct Params");
-  if (commonStart < 0 || commonEnd < commonStart) throw new ImageKernelExecutionError("gpu-validation", "The composite chart kernel's material functions were not found.");
-  return renameForDisplayView(source.slice(commonStart, commonEnd));
+  return renameForDisplayView(chartCompositeModuleCommonWgsl(path, "params.zero"));
 }
 /** The lattice uniform and the offsets table of a display-view module (@group(1) bindings 2 and 3; `DISPLAY_VIEW_LATTICE`). */
 export const LATTICE_BINDINGS_WGSL = `struct LatticeParams {
@@ -112,13 +109,11 @@ fn lattice_point(p: f32, scale: D, axis: u32) -> D {
   return d_mul(d_add(D(site, 0.0), D(c_hi, c_lo)), scale);
 }`;
 export function chartCompositeMaterialWgsl(path: ChartCompositeProductPath = "dekker"): string {
-  const source = chartCompositeWgsl(path), bodyStart = source.indexOf("const SEGMENT_BOX"), bodyEnd = source.indexOf("@compute");
-  if (bodyStart < 0 || bodyEnd < bodyStart) throw new ImageKernelExecutionError("gpu-validation", "The composite chart kernel's material functions were not found.");
   return `${displayViewModuleCommonWgsl(path)}
 @group(1) @binding(0) var<storage, read> af: array<f32>;
 @group(1) @binding(1) var<storage, read> ai: array<u32>;
 ${LATTICE_BINDINGS_WGSL}
-${renameForDisplayView(source.slice(bodyStart, bodyEnd))}
+${renameForDisplayView(CHART_COMPOSITE_MATERIAL_WGSL)}
 ${LATTICE_POINT_WGSL}
 fn material_at(p: vec2<f32>) -> u32 {
   var u = lattice_point(p.x, D(lattice.scale_u_hi, lattice.scale_u_lo), 0u);

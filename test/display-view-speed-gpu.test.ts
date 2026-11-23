@@ -19,6 +19,7 @@ import { resolvePortableChartScene } from "../src/facade/chart-scenes.js";
 import { createFakeGpu } from "./helpers/fake-webgpu.js";
 import { SMALL_FRAME, SMALL_VIEW, compareDisplayViews, displayViewGpuFixture, renderOnGpu, runtimeOf, type DisplayViewAgreement } from "./helpers/display-view-gpu-fixture.js";
 import { scaledTimeout } from "./helpers/test-timeout.js";
+import { wgslCount, wgslIncludes } from "./helpers/wgsl-text.js";
 
 const sensor = { pixelPitchMicrometers: 6, pixelAperture: { kind: "box" as const, samplesPerAxis: 2 } };
 const output = { ...SMALL_FRAME, format: "srgb-8" as const };
@@ -155,14 +156,14 @@ describe("display view Speed kernel (float32 emulation) vs the CPU reference", (
 
   it("the material module renames the chart kernel's classification and binds it at group 1", () => {
     const wgsl = chartPresetMaterialWgsl(), shader = assembleDisplayViewSpeedWgsl(wgsl);
-    expect(wgsl).toContain("fn material_at(p: vec2<f32>) -> u32");
-    expect(wgsl).toContain("var<private> material_uncertain: bool;");
-    expect(wgsl).toContain("@group(1) @binding(0) var<uniform> chart: ChartParams;");
+    expect(wgslIncludes(wgsl, "fn material_at(p: vec2<f32>) -> u32")).toBe(true);
+    expect(wgslIncludes(wgsl, "var<private> material_uncertain: bool;")).toBe(true);
+    expect(wgslIncludes(wgsl, "@group(1) @binding(0) var<uniform> chart: ChartParams;")).toBe(true);
     expect(wgsl).not.toMatch(/\bparams\.|\baux\[|\bflagged\b/u);
-    expect(shader).toContain("const SAFETY: f32 = 8.0;");
+    expect(wgslIncludes(shader, "const SAFETY: f32 = 8.0;")).toBe(true);
     // One definition of each shared constant.
-    expect(shader.match(/const E: f32/gu)).toHaveLength(1);
-    expect(shader.match(/const SLACK: f32/gu)).toHaveLength(1);
+    expect(wgslCount(shader, "const E: f32")).toBe(1);
+    expect(wgslCount(shader, "const SLACK: f32")).toBe(1);
   });
 
   it("a one-pixel region render of the reference is the whole view's pixel (the recomputation of flagged pixels relies on it)", async () => {

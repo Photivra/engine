@@ -12,6 +12,7 @@ import { CHART_COMPOSITE_PROBE_WGSL, chartCompositeWgsl } from "../src/gpu/wgsl-
 import { chartCompositeMaterialWgsl, DISPLAY_VIEW_LATTICE, displayViewLatticeConstants } from "../src/gpu/display-view-composite-material-module.js";
 import { SMALL_FRAME, SMALL_VIEW, displayViewGpuFixture } from "./helpers/display-view-gpu-fixture.js";
 import { FIXTURE_ASPECT, layeredScene } from "./helpers/chart-composite-fixtures.js";
+import { wgslTokens } from "../scripts/lib/wgsl-minify.mjs";
 
 /** Each shader that holds the arithmetic, with the expression of its zero word. */
 const SHADERS: [string, string, string][] = [
@@ -37,14 +38,17 @@ function body(source: string, name: string): string {
   throw new Error(`fn ${name} is not closed`);
 }
 
-/** Every binary + − × ÷ in `code` whose innermost enclosing call is not `ob(...)` (binary operators are written with spaces around them). */
+/**
+ * Every binary + − × ÷ in `code` whose innermost enclosing call is not `ob(...)`. 2.29.0 (#658): read from the WGSL tokens, since
+ * the shipped text has no spaces around operators; an operator is binary when the token before it ends an operand.
+ */
 function unwrappedOperations(code: string): string[] {
-  const stack: string[] = [], found: string[] = [];
-  for (let i = 0; i < code.length; i++) {
-    const c = code[i]!;
-    if (c === "(") stack.push(/([A-Za-z_][A-Za-z_0-9]*)\s*$/u.exec(code.slice(0, i))?.[1] ?? "");
-    else if (c === ")") stack.pop();
-    else if ("+-*/".includes(c) && code[i - 1] === " " && code[i + 1] === " " && stack.at(-1) !== "ob") found.push(code.slice(Math.max(0, i - 24), i + 24).trim());
+  const tokens = wgslTokens(code) as string[], stack: string[] = [], found: string[] = [];
+  for (let i = 0; i < tokens.length; i++) {
+    const t = tokens[i]!, before = tokens[i - 1] ?? "";
+    if (t === "(") stack.push(/^[A-Za-z_]\w*$/u.test(before) ? before : "");
+    else if (t === ")") stack.pop();
+    else if (["+", "-", "*", "/"].includes(t) && /^(?:[\w.]+|\)|\])$/u.test(before) && stack.at(-1) !== "ob") found.push(tokens.slice(Math.max(0, i - 6), i + 6).join(" "));
   }
   return found;
 }
@@ -52,12 +56,12 @@ function unwrappedOperations(code: string): string[] {
 describe("the rounding barrier in the composite chart shaders", () => {
   it.each(SHADERS)("%s: ob() reads the host's zero word, and no placeholder is left", (_name, source, zero) => {
     expect(source).not.toContain("BARRIER_ZERO");
-    expect(body(source, "ob").trim()).toBe(`return bitcast<f32>(bitcast<u32>(x) ^ ${zero});`);
+    expect(wgslTokens(body(source, "ob"))).toEqual(wgslTokens(`return bitcast<f32>(bitcast<u32>(x) ^ ${zero});`));
   });
 
   it.each(SHADERS)("%s: every operation of the error-free transforms is wrapped, and every bounded value", (_name, source) => {
     for (const name of TRANSFORMS) expect(unwrappedOperations(body(source, name)), name).toEqual([]);
-    for (const name of BOUNDED_VALUES) expect(body(source, name), name).toMatch(/let v = ob\(a\.v [-+*/] b\.v\);/u);
+    for (const name of BOUNDED_VALUES) expect(body(source, name), name).toMatch(/let v ?= ?ob\(a\.v ?[-+*/] ?b\.v\);/u);
   });
 
   it("the host's zero words: the display-view lattice uniform holds 0 in the word `lattice.zero` reads", async () => {
@@ -67,6 +71,6 @@ describe("the rounding barrier in the composite chart shaders", () => {
     const lattice = displayViewLatticeConstants(fixture.input.signalInput, null, 7);
     expect(DISPLAY_VIEW_LATTICE.zero).toBe(11);
     expect(new Uint32Array(lattice.params)[DISPLAY_VIEW_LATTICE.zero]).toBe(0);
-    expect(chartCompositeMaterialWgsl()).toMatch(/offsets: u32, placed: u32, surround: u32, zero: u32,/u);
+    expect(chartCompositeMaterialWgsl()).toMatch(/offsets: ?u32, ?placed: ?u32, ?surround: ?u32, ?zero: ?u32,/u);
   });
 });

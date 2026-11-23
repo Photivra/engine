@@ -917,16 +917,22 @@ From 2.14 (#536) the published package carries the engine's WGSL without comment
 
 - line comments are removed and block comments (which nest in WGSL) become one space;
 - spaces and tabs at the start and end of a line are removed;
-- every newline stays, so line numbers, source maps and line-anchored edits such as `/^const SLACK: f32 = …\n/m` still hold;
+- since 2.29.0 ([#658](https://github.com/Photivra/engine/issues/658)), inside a line a run of spaces and tabs becomes one
+  space, and that space is removed where it touches an identifier or number character on one side and punctuation on the
+  other, or a bracket, comma or semicolon on either side (`let x = a.x - -b;` ships as `let x=a.x- -b;`). Neither can join two
+  tokens: a space between two other punctuation characters (`- -`, `/ *`, `> =`) always stays;
+- every newline stays, so line numbers and source maps still hold;
 - a line holding a `${…}` interpolation, the literal's first and last lines, and any literal where a block comment or an
   escape could interact with them are left exactly as written.
 
-WGSL treats comments and whitespace only as token separators, and the build fails if any literal's tokens, line count or
-count of tagged literals changes. The tests and the WebGPU suites run the same minified text (a Vite plugin in the Vitest
-configs, and the conformance page's server); `PHOTIVRA_WGSL_MINIFY=0` runs the source text instead.
-`test/wgsl-minify.test.ts` checks every literal with an independent tokenizer and every text anchor the engine uses to edit
-its own shaders (`display-view-chart-material-module.ts`, `display-view-composite-material-module.ts`,
-`wgsl-chart-composite-kernel.ts`). On the Apple M5 Pro (Chromium 153, hardware adapter), `npm run test:webgpu` passed all
+WGSL treats comments and whitespace only as token separators, and the build fails if any literal's tokens (read by a WGSL
+lexer, `wgslTokens`), line count or count of tagged literals changes. The tests and the WebGPU suites run the same minified
+text (a Vite plugin in the Vitest configs, and the conformance page's server); `PHOTIVRA_WGSL_MINIFY=0` runs the source text
+instead. `test/wgsl-minify.test.ts` checks every literal with an independent lexer and every text anchor the engine uses to
+edit its own shaders; since 2.29.0 the display view's material modules take their parts of the chart kernels as separate
+literals (`CHART_MATERIAL_WGSL`, `CHART_COMPOSITE_MATERIAL_WGSL`, `chartCompositeModuleCommonWgsl`) instead of searching
+the kernels' text, so only word-anchored renames are left. `test/wgsl-display-view-tokens.test.ts` pins the lexer tokens of
+the display view's assembled shaders and of the chart kernels. On the Apple M5 Pro (Chromium 153, hardware adapter), `npm run test:webgpu` passed all
 167 tests with the minified and with the source text, and the 2,911 recorded values of the two runs (maxima, bounds,
 differing and flagged counts) were identical; only the stage timings differ.
 
