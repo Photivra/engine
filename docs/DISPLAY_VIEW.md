@@ -342,7 +342,10 @@ the kernel spreads its light, as for any environment PSF.
   kernel the sources run over the site lattice of each fractional offset, with #548's lattice formula. The combined
   kernels and per-material sums are the view's own tables, unchanged.
 - **What it equals.** In focus without a kernel: the environment's per-query sum. In focus with `lens.diffraction`: the
-  environment PSF quadrature (one scene query per tap). Out of focus: #548's image-space disc, and the view records the
+  environment PSF quadrature (one scene query per tap) where the capture takes it, and, where the taps pass 100 000 scene
+  queries per site, the capture's image-space lattice sum of #761 (the same terms in another order); the view's
+  `lens.diffraction` assumption reports the capture's `execution` for the request (2.29.0, #767: before, a view always
+  reported `"environment-psf-quadrature"`). Out of focus: #548's image-space disc, and the view records the
   capture's `lens.defocus` assumption (`execution: "image-space-convolution"`, `imageSpaceOptions`, `fieldVariation`).
   The disc's own approximations, and its field-variation bounds, are #548's ([Quick start, Optics](QUICK_START.md#optics)).
 - **Unchanged:** both estimators, the noise, AHD and its correction, the development and the highlight count run on
@@ -366,10 +369,20 @@ the kernel spreads its light, as for any environment PSF.
   radius is refused with a rolling shutter and rotation, as in the capture.
 - **Refused:** a mapping or vignetting profile that does not reach the farthest source point the view reads: the outer site centres
   plus the kernel radius and the largest query offset (the message names the reach and the point). `lens.pupilSampling`
-  and `lens.psf` stay refused. The capture's own request limits apply first: rotation with the four-spot filter and
-  `lens.diffraction` in focus (the PSF quadrature) can exceed the environment's 100 000 scene queries per site, and
-  both the capture and the view then refuse it (the app's Quality options at f/8 with the default eight midpoints need
-  217 728).
+  and `lens.psf` stay refused. The capture's own request limits apply first, counted as the capture counts them
+  (2.29.0, #767): where the capture sums the diffraction taps on the site lattice (#761), the view leaves them out of its
+  count too (temporal samples × spectral nodes × filter spots × pixel-aperture nodes), so camera rotation, hand shake or a
+  moving subject with `lens.diffraction`, the four-spot filter and the box aperture render, fast and with `fast: false`,
+  with or without `lens.defocus` and AHD. Before 2.29.0 the view counted every tap and refused them (the app's Quality
+  options at f/8 with the default eight midpoints needed 217 728). Still refused, by both the capture and the view: a
+  catalogue lens with motion and the filter over the bound, and a count over 100 000 without the taps (for example 128
+  temporal samples at a 5 nm step: 128 × 81 × 1 × 4 × 4 × 1 = 165 888). The view's own refusal of a rotating subject and
+  of `motion.subject` under a rolling shutter is unchanged. One request renders as a view and not as a capture: camera
+  rotation under a rolling shutter on a fast request, where the capture's fast method takes each tap's own point
+  (`lens.diffraction/rolling-shutter-taps`) and is over the bound; the view has one method there, the lattice one (each
+  site at its own instants), so it renders in both modes. Each site's expected electrons equal the capture's within 1e-9
+  relative (measured 4e-15 at most), and the view matches the box-downsized capture
+  (`test/display-view-motion-diffraction-lattice.test.ts`).
 - **GPU:** these requests stay on the CPU reference. With `gpu: "auto"` the prepared view runs the CPU path labelled
   `unsupported-on-backend` (the limitation names #563), and no device is requested; `"require"` fails with that reason.
   An app can show "estimated on the CPU" from `diagnostics.fast.execution`. No `src/gpu` code changed.
@@ -423,7 +436,8 @@ the reference's own noise is the standard error of its three-seed mean (scratch 
 
 In every case the RMS difference is no larger than the reference's own noise, so the view's error is below what these
 blocks resolve; every mean error is within 0.04 code (the validation's limit is 0.5). The Quality distortion block (6 × 6)
-fell on a flat square. Quality with rotation is refused (below).
+fell on a flat square. Quality with rotation was refused until 2.29.0 (#767); its cost is below, and it is checked against the
+capture per site and against the box-downsized capture (`test/display-view-motion-diffraction-lattice.test.ts`).
 
 **Cost** (the app request of [A device-pixel view rendered in parts](#a-device-pixel-view-rendered-in-parts), f/8, 2028 × 1352
 in 96 × 96 parts, 30 of 294 parts timed, two repeats interleaved:
@@ -444,7 +458,7 @@ projection; `rotation` yaw 0.05 and pitch 0.03 rad/s at 1/125 s, the default eig
 | Quality | vignetting | 389–415 ms | 41.8–44.1 | 5.2× | 117–123 s |
 | Quality | fisheye | 350 ms | 37.5 | 4.5× | 104 s |
 | Quality | distortion + vignetting | 510–526 ms | 54.8–56.5 | 6.7× | 151–156 s |
-| Quality | rotation | refused | | | |
+| Quality | rotation (8 midpoints; 2.29.0, #767) | 3338–3376 ms | 357.0–362.0 | 26× (against 127–131 ms, 13.6–13.9 µs, measured with it) | 989–1006 s |
 
 - Prepare times do not change (28–55 ms over every row).
 - **Speed** reads one scene point per query offset per midpoint, through the lens. Its cost is the mapping: radial
@@ -453,8 +467,19 @@ projection; `rotation` yaw 0.05 and pitch 0.03 rad/s at 1/125 s, the default eig
 - **Quality** sums every kernel tap with its own field factor, so the rectilinear view's shortcut (a site whose kernel
   reads one material takes a precomputed value) does not apply; most of the time is that sum (about 400 taps per site
   here), the lattice points themselves are cached.
-- **Quality with rotation** is refused by the capture's own request limit (217 728 scene queries per site against the
-  environment's 100 000; see the refusals above).
+- **Quality with rotation** renders since 2.29.0 (#767). It was refused by the per-tap count (217 728 scene queries per site
+  against the environment's 100 000); the view now counts as the capture does, without the taps (see the refusals above).
+  Its row was measured on its own, against its own no-lens row: `ROWS=2 LENS=none,rotation node scripts/benchmark-display-view.mjs --app`,
+  November 23, 2026, commit a23aa32, Node 26.13.1, Apple M5 Pro, load average 5.6–8.2 from other work, two repeats. Each site
+  sums 8 midpoints × 4 lattice groups × 49 taps (the fast kernel window) per spectral node, each tap with its own field factor,
+  so it is the slowest row; a whole 2028 × 1352 view takes about 17 minutes on one thread. It stays on the CPU reference.
+- **Coarse views of a moving subject are slow.** A moving subject is read as spectral radiance, so the lens signal's lattice
+  cache holds about 21 times fewer points than for a chart (at 16 midpoints, 4 lattice groups and 21 nodes, a window of
+  about 32 × 64 lattice points). Where one display pixel's window does not fit, the points are read as needed, without the
+  cache: correct and bounded, but about an order of magnitude slower. Measured on a 6000 × 4000 frame (6 µm, f/8, slanted
+  edge, 4 display pixels on the edge, K = 16; a shared machine, load average 4 to 6, so upper bounds): 192 display pixels
+  wide, a moving subject takes 0.5 s fast and 15.6 s with `fast: false` (11.7 s without the filter); 96 wide, 8.9 s and
+  21.9 s; camera yaw at `fast: false` takes 0.5 s and 0.8 s. The same holds without the filter, before and after 2.29.0.
 - The capture's own cost with these options (#548's table in [Quick start, Optics](QUICK_START.md#optics)) is far higher;
   the view's follows the display pixels as before.
 
@@ -2107,6 +2132,11 @@ model:
   projection, distortion, vignetting and rotation themselves render since #563, and `lens.catalogue` since #569
   ([Catalogue lenses](#catalogue-lenses-569));
 - `lens.defocus` with a disc radius above 512 sites (as the capture refuses it; 64 before 2.17.0);
+- the capture's bound of 100 000 scene queries per site, counted as the capture counts it: since 2.29.0 (#767) without the
+  diffraction taps where the capture sums them on the site lattice, so camera rotation, hand shake or a moving subject with
+  `lens.diffraction` and the four-spot filter render. A catalogue lens with motion and the filter over the bound stays refused,
+  as in the capture, and so do a rotating subject and `motion.subject` under a rolling shutter
+  ([Lens projection, distortion, vignetting and rotation](#lens-projection-distortion-vignetting-and-rotation));
 - `output.whiteBalance: "auto"`: the capture measures it from its noisy full-resolution RAW (use
   `"scene-illuminant"` or a fixed white balance, as for region tiles);
 - luminance tone curves (`extended-reinhard-luminance`, `naka-rushton-luminance`) and
