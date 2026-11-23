@@ -77,7 +77,7 @@ describe("the surface at a frame point (#747)", () => {
     const dir = mkdtempSync(join(tmpdir(), "photivra-layered-query-"));
     try {
       const entry = join(dir, "entry.mjs");
-      writeFileSync(entry, `import { calculateLayeredChartSurfaceAt } from ${JSON.stringify(resolve("src/facade/layered-chart-query.ts"))};\nglobalThis.keep = [calculateLayeredChartSurfaceAt];\n`);
+      writeFileSync(entry, `import { calculateLayeredChartSurfaceAt } from ${JSON.stringify(resolve("src/index.ts"))};\nglobalThis.keep = [calculateLayeredChartSurfaceAt];\n`);
       const build = await rolldown({ input: entry, logLevel: "silent", resolve: { extensionAlias: { ".js": [".ts", ".js"] } } });
       const { output } = await build.generate({ format: "esm", minify: true });
       await build.close();

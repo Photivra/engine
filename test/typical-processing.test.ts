@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 import { describe, expect, it } from "vitest";
 import { createBilateralFilterTask, createDurandDorseyToneMappingTask, developDngImage, InvalidConfigurationError, InvalidScientificInputError, parseDngRawImage,
-  simulateCapture, type DevelopDngImageOptions, type ImportedDngRaw, type ProcessingTask } from "../src/index.js";
-import { simulateTypicalProcessing, type SimulateTypicalProcessingInput } from "../src/facade/typical-processing-entry.js";
+  simulateCapture, simulateTypicalProcessing, type DevelopDngImageOptions, type ImportedDngRaw, type ProcessingTask,
+  type SimulateTypicalProcessingInput } from "../src/index.js";
 import { developDngLinear } from "../src/capture/dng-development.js";
 import { createDurandDorseyDirectToneMappingTask, DURAND_DORSEY_DIRECT_MAXIMUM_WORK } from "../src/processing/tone-mapping.js";
 import { meanOfFrames } from "../src/processing/frame-merge.js";

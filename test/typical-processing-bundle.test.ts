@@ -12,7 +12,7 @@ import { wgslMinifyPlugin } from "../scripts/lib/wgsl-minify.mjs";
  * #740 (2.29.0 plan, owner decision 3): `simulateTypicalProcessing`'s body is its own on-demand chunk with a measured row ("typical
  * processing", limit its measurement rounded up to the next 100 B), and the stub's added first-load bytes are a second row. Measured
  * like test/capture-bundle.test.ts (rolldown 1.2.14, minified ESM, the shipped WGSL minifier, gzip level 9), with the app's
- * capture-worker shape and the stub imported from its module (the root export is added at integration).
+ * capture-worker shape and the root export.
  */
 
 const WORKER_SHAPE = ["NATIVE_RAW_LIMITS", "prepareDisplayView", "serializeSimulatedCaptureDngFromParts", "simulateCapture", "simulateIdealReference"];
@@ -26,9 +26,8 @@ async function bundle(withTypical: boolean): Promise<{ chunks: Chunk[]; eagerGzi
   const dir = mkdtempSync(join(tmpdir(), "photivra-typical-"));
   try {
     const entry = join(dir, "entry.mjs");
-    writeFileSync(entry, `import { ${WORKER_SHAPE.join(", ")} } from ${JSON.stringify(resolve("src/index.ts"))};\n` +
-      (withTypical ? `import { simulateTypicalProcessing } from ${JSON.stringify(resolve("src/facade/typical-processing-entry.ts"))};\n` : "") +
-      `globalThis.keep = [${WORKER_SHAPE.join(", ")}${withTypical ? ", simulateTypicalProcessing" : ""}];\n`);
+    const names = withTypical ? [...WORKER_SHAPE, "simulateTypicalProcessing"] : WORKER_SHAPE;
+    writeFileSync(entry, `import { ${names.join(", ")} } from ${JSON.stringify(resolve("src/index.ts"))};\nglobalThis.keep = [${names.join(", ")}];\n`);
     const build = await rolldown({ input: entry, logLevel: "silent", resolve: { extensionAlias: { ".js": [".ts", ".js"] } }, plugins: [wgslMinifyPlugin()] });
     const { output } = await build.generate({ format: "esm", minify: true });
     await build.close();
