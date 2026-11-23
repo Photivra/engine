@@ -32,9 +32,10 @@
 
 import { approximationResult, type CalculationResult } from "../core/calculation-result.js";
 import { InvalidConfigurationError } from "../core/configuration-error.js";
-import { requireAllowlistedRecord } from "../core/record-validation.js";
+import { requireAllowlistedRecord, requireInputFiniteAboveZero } from "../core/record-validation.js";
 import { IRRADIANCE_CONVOLUTION_LIMITS } from "./irradiance-convolution.js";
-import { markEngineOwnedLensSampledPsfProfile, resolveLensSampledPsf, type ResolveLensSampledPsfInput } from "./lens-psf-profile.js";
+import { kernelCentroid, LENS_PSF_RESOLVE_STEPS, markEngineOwnedLensSampledPsfProfile, resolveLensSampledPsf, type ResolveLensSampledPsfInput,
+  type WeightedNode } from "./lens-psf-profile.js";
 
 export const LENS_PSF_CONVOLUTION_KERNELS_SCHEMA_VERSION = "0.1.0" as const;
 /**
@@ -215,4 +216,73 @@ function resolveKernels(input: LensPsfConvolutionKernelsInput, ownedProfile: obj
       "PSF taps between sites are split bilinearly (an approximation).",
     "Pupil throughput is reported per patch, not applied to the kernels."
   ]);
+}
+
+/**
+ * #760: `resolveLensSampledPsfKernel({ ...state, wavelengthNm })` for each of `wavelengthsNm`, in order, as one array (node n's kernel at
+ * n · taps): the same values, bit for bit, and the same error at the same wavelength. In the Quality kit (on demand); the capture
+ * passes it to the display view's field PSF. The first wavelength runs the resolver's input checks and parse; every other input is the
+ * same, so each later wavelength is checked as the resolver checks it (`requireInputFiniteAboveZero`) and resolved by the resolver's
+ * own steps from there. Every resolve blends with `keptBlend`.
+ */
+export function resolveLensSampledPsfKernelsAt(state: Omit<ResolveLensSampledPsfInput, "wavelengthNm">, wavelengthsNm: readonly number[]): Float64Array {
+  let out = new Float64Array(0);
+  for (let n = 0, first; n < wavelengthsNm.length; n++) {
+    const values = n === 0 ? (first = LENS_PSF_RESOLVE_STEPS[0]({ ...state, wavelengthNm: wavelengthsNm[0] } as ResolveLensSampledPsfInput, keptBlend)).kernel.normalizedIntensity :
+      LENS_PSF_RESOLVE_STEPS[1](first!.profile, { coordinate: { ...first!.query.coordinate, wavelengthNm: requireInputFiniteAboveZero(wavelengthsNm[n], "wavelengthNm") },
+        focus: first!.query.focus }, keptBlend).kernel.normalizedIntensity;
+    if (n === 0) out = new Float64Array(wavelengthsNm.length * values.length);
+    out.set(values, n * values.length);
+  }
+  return out;
+}
+
+/** Zero samples around each kept node kernel. */
+const PAD = 2;
+/**
+ * facade-08: per parsed node, its kernel's centroid (`kernelCentroid`) at [0] and [1], then its values with PAD zero samples around
+ * them, made when a blend first reads the node. An engine-owned profile's parse is cached and frozen, so its nodes, and these, are
+ * computed once; any other profile is parsed again by each resolve, with new nodes.
+ */
+const KEPT = new WeakMap<object, Float64Array>();
+
+/**
+ * The resolver's centroid-aligned blend (`centroidAlignedValues`), the same arithmetic in its order: the target centroid summed node
+ * by node from 0; then node by node, row by row, column by column, values[row·w + column] += weight · bilinearSample(kernel,
+ * column + dx, row + dy), dx and dy the node's centroid minus the target. Faster by the kept centroids and padded values, and by
+ * taking the floors and fractions once per column and per row.
+ */
+function keptBlend(weighted: readonly WeightedNode[]): number[] {
+  const first = weighted[0]!.node.kernel, w = first.widthSamples, h = first.heightSamples, pw = w + 2 * PAD, values: number[] = new Array(w * h).fill(0);
+  const x0s = new Int32Array(w), fxs = new Float64Array(w), kept: Float64Array[] = [];
+  let targetX = 0, targetY = 0;
+  for (const { node, weight } of weighted) {
+    let k = KEPT.get(node);
+    if (!k) {
+      const kernel = node.kernel, centroid = kernelCentroid(kernel), kw = kernel.widthSamples;
+      KEPT.set(node, k = new Float64Array(2 + (kw + 2 * PAD) * (kernel.heightSamples + 2 * PAD)));
+      k[0] = centroid.x; k[1] = centroid.y;
+      kernel.normalizedIntensity.forEach((value, i) => { k![2 + (Math.floor(i / kw) + PAD) * (kw + 2 * PAD) + i % kw + PAD] = value; });
+    }
+    kept.push(k);
+    targetX = targetX + weight * k[0]!;
+    targetY = targetY + weight * k[1]!;
+  }
+  for (let i = 0; i < weighted.length; i++) {
+    const { node, weight } = weighted[i]!, k = kept[i]!, dx = k[0]! - targetX, dy = k[1]! - targetY;
+    for (let column = 0; column < w; column++) { const x = column + dx; fxs[column] = x - (x0s[column] = Math.floor(x)); }
+    // Reads within PAD samples of the kernel are the padded copy's (bilinearSample reads zero outside); a larger shift calls it.
+    if (x0s[0]! < -PAD || x0s[w - 1]! >= w + PAD - 1 || Math.floor(dy) < -PAD || Math.floor(h - 1 + dy) >= h + PAD - 1) {
+      for (let row = 0, t = 0; row < h; row++) for (let column = 0; column < w; column++) values[t++]! += weight * LENS_PSF_RESOLVE_STEPS[2](node.kernel, column + dx, row + dy);
+      continue;
+    }
+    for (let row = 0, t = 0; row < h; row++) {
+      const y = row + dy, y0 = Math.floor(y), fy = y - y0, base = 2 + (y0 + PAD) * pw + PAD;
+      for (let column = 0; column < w; column++) {
+        const x0 = x0s[column]!, fx = fxs[column]!, a = k[base + x0]!, b = k[base + pw + x0]!, top = fx === 0 ? a : (1 - fx) * a + fx * k[base + x0 + 1]!;
+        values[t++]! += weight * (fy === 0 ? top : (1 - fy) * top + fy * (fx === 0 ? b : (1 - fx) * b + fx * k[base + pw + x0 + 1]!));
+      }
+    }
+  }
+  return values;
 }
