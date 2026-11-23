@@ -56,7 +56,8 @@ async function captureAgainstView(request: SimulateCaptureOptions, sites = 60): 
     const reference = electrons(capture.request.siteInput(index).environment, provider.evaluateRadiance.bind(provider));
     worst = Math.max(worst, Math.abs(signal.site(x, y) - reference) / reference);
   }
-  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) if (lattice.siteSurface(x, y, 1) < 0) edges++;
+  const still = lattice.groupOf(0, 0);
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) if (lattice.siteSurface(still, x, y, 1) < 0) edges++;
   return { worst, edges, lattice };
 }
 
