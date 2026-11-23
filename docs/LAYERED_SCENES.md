@@ -40,7 +40,38 @@ in the quick start describe the options that reduce it, and what each costs.
 - Metering, white balance and the display view's pilot read, at each frame point, the surface its chief ray meets, sharp and
   without the point lights (the meter reads the scene before the lens; the lights are single lattice cells).
 - The ideal reference of a layered scene reads the layered sum without diffraction (defocus and occlusion are the scene's depth
-  structure) at the pixel-aperture nodes, with the full occlusion rows by default.
+  structure) at the pixel-aperture nodes, with the full occlusion rows by default. It keeps the rectilinear, distortion-free
+  lattice (no camera effects), whatever the request's lens.
+- From 2.29.0 (#744): `lens.projection`, `lens.distortion` and `lens.vignetting` apply to layered scenes. The sum moves to the
+  sensor's site lattice through the lens (see [Through a lens](#through-a-lens-2290)). A fisheye renders only while every point the
+  request reads stays under 75° off the axis (15° inside the horizon); beyond that it is refused with the angle found.
+- From 2.29.0 (#745): `illumination` (mixed lighting) lights each surface point by the blend and point sources at its own frame
+  point, as one light field over the frame's angles: an approximation, with no shadows between surfaces and no falloff with depth.
+  A back plane's point lights keep their own spectrum. Metering, white balance and the pilot read the chief ray's surface under the
+  blend, as the single-plane mixed path does.
+- From 2.29.0 (#761): `chartSize` sets the metres per frame unit of the cards: they are placed in chart units, u = ±1 at the chart's
+  left and right edges at `subjectDistanceM` (and v = ±heightM / widthM at its top and bottom), and the far surface continues
+  beyond the chart, as the frame does without it; there is no surround, so `chartSize.surroundReflectance` is refused.
+  `scene.chart` reports the chart's image size as for a single-plane chart.
+- From 2.29.0: `view.focusMask` on `simulateDisplayView` and `PreparedDisplayView.render` returns an in-focus guide per display
+  pixel ([DISPLAY_VIEW.md](DISPLAY_VIEW.md#in-focus-mask-2290)): for a layered scene the chief ray's surface at each pixel centre,
+  through the lens.
+
+### Tap to focus (#747)
+
+`calculateLayeredChartSurfaceAt({ scene, aspect, u, v })` gives the surface the chief ray through a frame point sees and its
+distance along the axis (the `finite-surface` focus target). With a rectilinear lens a pixel centre (x, y) of a W × H frame is
+u = (x + ½ − W/2)·2/W, v = −(y + ½ − H/2)·2/W:
+
+```ts
+const at = calculateLayeredChartSurfaceAt({ scene, aspect: H / W, u: (x + 0.5 - W / 2) * 2 / W, v: -(y + 0.5 - H / 2) * 2 / W });
+const focused = await simulateCapture({ ...options, lens: { ...options.lens, focusDistanceM: at.distanceM } });
+```
+
+`calculateLayeredChartSurfaceAtPixel({ scene, output: { width, height }, pixel: { x, y }, sensor: { pixelPitchMicrometers }, lens:
+{ focalLengthMm, focusDistanceM?, projection?, distortion? }, subjectDistanceM, chartSize? })` maps the output pixel's centre through
+the request's lens with the engine's own mapping (the one the view's pilot reads) and returns the same record, or null where the
+pixel sees no scene (90° and beyond, or outside a fisheye's image circle). It does not take `lens.catalogue`.
 
 ## The scene
 
@@ -157,6 +188,25 @@ The capture's and ideal reference's provider answers each environment query of a
 the same sum (after diffraction), and the environment declares no further PSF. Capture and view therefore form the same
 per-site sum and agree within 1e-9 relative.
 
+### Through a lens (2.29.0)
+
+With `lens.projection`, `lens.distortion` or `lens.vignetting` (#744) the lattice is the sensor's site lattice in image space, as
+the single-plane image-space path has it (#548). A lattice point's sensor point goes through the lens (the inverse distortion,
+then the projection) to a field direction, which is one frame point on every surface (frame units are angles); its field factor
+(vignetting throughput times the distortion's area factor) multiplies each surface's radiance there. Defocus and occlusion stay on
+the lattice. Near a lattice point each card edge, a curve in image space, is taken as its tangent line, an approximation of second
+order in the edge's curvature that is measured at every point; where it deviates by more than 1/32 site, each kernel tap takes its
+own tangents. Every site takes the layered sum (the single-surface shortcut does not read the lens).
+
+The capture's environment declares the request's lens field mapping and vignetting, and the provider keys each query by its
+lattice point through the lens and divides by the query point's field factor, so the capture and the view form the same per-site
+sum (within 1e-9 relative, `test/layered-scene-wiring.test.ts`). The display view's pilot reads the frame point its planar point
+maps to.
+
+Fisheyes: the frame coordinate (tan θ) grows without bound toward the horizon, so a layered request with a fisheye projection is
+refused when any point it reads (the outer sites widened by the lattice's reach) looks 75° or more off the axis (owner decision,
+2.29.0).
+
 ## Accuracy
 
 Measured by the module tests (`test/layered-scene-*.test.ts`):
@@ -192,17 +242,19 @@ series would give a card two places farther back).
   it is a starting value, to be revisited with the spacing once the presets can be looked at.
 - A preset whose nearest card would be within 1 % of the focal length is refused.
 
-## Limits and refusals (2.27.0)
+## Limits and refusals (2.29.0)
 
 - No GPU path: a layered scene renders on the CPU, labelled `unsupported-on-backend` under `gpu: "auto"` (`"require"` fails).
-- Refused with layered scenes, each with a message naming the option: `motion` of any kind, `lens.projection` other than
-  rectilinear, `lens.distortion`, `lens.vignetting`, `lens.catalogue`, `lens.pupilSampling`, `lens.psf` (a caller PSF),
-  `chartSize`, `illumination` (mixed lighting), and `lens.defocus.catsEye` with `lens.diffraction` (as for any scene). A single
-  card without a back plane renders on the single-plane path, so `simulateDisplayView` refuses the cat's eye for it. Also refused:
-  two lights that can fall in one site (closer than one site on both axes), and a surface kernel radius
-  above 64 sites in a scene of more than one surface (edge sites sum the kernel directly).
-- The provider's lattice argument needs the still, rectilinear, distortion-free camera with one radiance-to-irradiance factor
-  over the field, as the single-plane object-space convolution does.
+- Refused with layered scenes, each with a message naming the option: `motion` of any kind, `lens.catalogue`,
+  `lens.pupilSampling`, `lens.psf` (a caller PSF), and `lens.defocus.catsEye` with `lens.diffraction` (as for any scene). A
+  single card without a back plane renders on the single-plane path, so `simulateDisplayView` refuses the cat's eye for it. Also
+  refused: two lights that can fall in one site (closer than one site on both axes); a fisheye that reads a point 75° or more off
+  the axis; `chartSize.surroundReflectance`; and `illumination` with `chartSize` (in 2.29.0: the blend would be placed in chart
+  units while the scene's metering reads the frame).
+- Kernel bounds in a scene of more than one surface (#749): a disc's kernel radius above 512 sites (the single-plane bound,
+  `lens.defocus: The blur circle is …`) and a shaped kernel's above 128 (`lens.defocus: a surface's blur needs a kernel radius of …`)
+  are refused, every surface checked before any kernel is built. `calculateLayeredChartKernelRadii` gives each surface's radius
+  and whether it is within the bound.
 - The ray map is the aberration-free linear one at every surface; with a shaped kernel, V is the share of the disc's rays in
   the tap's region (the kernel's weight carries the shape).
 
