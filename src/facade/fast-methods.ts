@@ -26,7 +26,7 @@ export interface SimulateCaptureFastMethod {
   /** "fast-and-exact": both methods exist; "exact-only": the record takes `fast`, but there is no fast method yet (reports false). */
   methods: "fast-and-exact" | "exact-only";
   /** Where it applies. */
-  runs: readonly ("simulateCapture" | "simulateDisplayView" | "prepareDisplayView" | "developDngStageImage" | "developDngImage")[];
+  runs: readonly ("simulateCapture" | "simulateDisplayView" | "prepareDisplayView" | "developDngStageImage" | "developDngImage" | "simulateTypicalProcessing")[];
   /** The fast method and the exact one, in words (empty for exact-only). */
   fast: string;
   exact: string;
@@ -57,11 +57,11 @@ export const SIMULATE_CAPTURE_FAST_METHODS: readonly SimulateCaptureFastMethod[]
     exact: "at least 10 cells per field interval when the field-grid method runs on an exact request (lens.catalogue fast: true with an export or fast: false)", followsFormatDefault: true,
     resolver: { file: CAPTURE, call: "catalogueFastGridSubdivisions(catalogue!.lensId, fastTop)" }, report: { assumption: "fast.lens.catalogue" } },
   { id: "lens.catalogue/cats-eye", override: "lens.catalogue", methods: "fast-and-exact", runs: ["simulateCapture", "simulateDisplayView", "prepareDisplayView"],
-    fast: "#567: with lens.defocus, the lens's bokeh without its cat's eye (the axis kernel everywhere)",
+    fast: "#567: with lens.defocus, the lens's bokeh without its cat's eye (the axis kernel everywhere); #741 (2.29.0): on a layered chart scene, each surface's bokeh kernel without its cat's eye",
     exact: "the cat's eye shaped at each field point (fast wides and normals)", followsFormatDefault: true,
     resolver: { file: CAPTURE, call: "resolveFast(catalogueFast, fastTop)" }, report: { applied: "lens.catalogue", assumption: "fast.lens.catalogue.catsEye" } },
-  { id: "lens.catalogue/view-psf-zones", override: "lens.catalogue", methods: "fast-and-exact", runs: ["simulateDisplayView", "prepareDisplayView"],
-    fast: "#569 (H1): 64 field zones along the longer side, each with the PSF at its centre",
+  { id: "lens.catalogue/view-psf-zones", override: "lens.catalogue", methods: "fast-and-exact", runs: ["simulateCapture", "simulateDisplayView", "prepareDisplayView"],
+    fast: "#569 (H1): 64 field zones along the longer side, each with the PSF at its centre; #741 (2.29.0): also the PSF that follows a layered chart scene's sum, in its captures and views",
     exact: "one zone per site: the PSF at each site centre", followsFormatDefault: true,
     resolver: { file: CAPTURE, call: "resolveFast(catalogueFast, fastTop)" }, report: { applied: "lens.catalogue", assumption: "view.lensPsf" } },
   { id: "lens.catalogue/view-uniform-window", override: "lens.catalogue", methods: "fast-and-exact", runs: ["simulateDisplayView", "prepareDisplayView"],
@@ -101,7 +101,7 @@ export const SIMULATE_CAPTURE_FAST_METHODS: readonly SimulateCaptureFastMethod[]
     exact: "every row at its own instants, regrouped by rows: the same sum as each tap at the site's instants", followsFormatDefault: true,
     resolver: { file: CAPTURE, call: "rollingBands: fastTop" }, report: { assumption: "view.defocus" } },
   { id: "prepareDisplayView.gpu", override: "fast", methods: "fast-and-exact", runs: ["prepareDisplayView"],
-    fast: "gpu \"auto\": WebGPU float32 where a conforming device supports the request (a bounded approximation), else the CPU reference",
+    fast: "gpu \"auto\": WebGPU float32 where a conforming device supports the request (a bounded approximation), else the CPU reference; and (2.29.0, #750) layered chart scenes on the planar map: the layered sum's taps and sites in float32 within an a-priori bound, each tap's visibility the CPU reference's",
     exact: "gpu \"off\": the CPU reference; an explicit gpu wins", followsFormatDefault: true,
     resolver: { file: VIEW, call: "parsePrepareDisplayViewOptions(prepareOptions, (options as { fast?: unknown } | null | undefined)?.fast !== false)" },
     report: { field: "diagnostics.fast.execution" } },
@@ -122,10 +122,10 @@ export const SIMULATE_CAPTURE_FAST_METHODS: readonly SimulateCaptureFastMethod[]
     fast: "#551: with the default count and a still camera, one temporal midpoint per site of the subject's streak plus one, when that is fewer than the default (8 fast, 16 exact)",
     exact: "the default temporal midpoints: 8 on a fast request, 16 on an exact one (sensor.temporalSampleCount; an explicit count always wins)", followsFormatDefault: true,
     resolver: { file: CAPTURE, call: "resolveFast(subjectFast, fastTop)" }, report: { applied: "motion.subject", assumption: "fast.motion.subject" } },
-  { id: "dngImport.warpRectilinear", override: "fast", methods: "fast-and-exact", runs: ["developDngStageImage"],
+  { id: "dngImport.warpRectilinear", override: "fast", methods: "fast-and-exact", runs: ["developDngStageImage", "simulateTypicalProcessing"],
     fast: "#600: an imported DNG's WarpRectilinear opcode resampled bilinearly", exact: "cubic convolution (Keys, a = −0.75, the DNG SDK's kernel); default fast unless format names an export", followsFormatDefault: true,
     resolver: { file: "src/capture/dng-stage-image.ts", call: "resolveFast(options.fast, fastFormatDefault(format, \"capture\"))" }, report: { field: "fast" } },
-  { id: "developDngImage/demosaic", override: "fast", methods: "fast-and-exact", runs: ["developDngImage"],
+  { id: "developDngImage/demosaic", override: "fast", methods: "fast-and-exact", runs: ["developDngImage", "simulateTypicalProcessing"],
     fast: "#607 (2.24.0): an imported DNG's mosaic demosaiced with the built-in bilinear kernels, and WarpRectilinear resampled bilinearly",
     exact: "adaptive homogeneity-directed demosaicing (AHD, Hirakawa & Parks 2005) and cubic-convolution WarpRectilinear; default fast for srgb-8 and srgb-16", followsFormatDefault: true,
     resolver: { file: "src/capture/dng-development.ts", call: "resolveFast(options.fast, fastFormatDefault(format, \"capture\"))" }, report: { field: "fast" } },
@@ -133,6 +133,12 @@ export const SIMULATE_CAPTURE_FAST_METHODS: readonly SimulateCaptureFastMethod[]
     fast: "#622 (2.25.0): with size \"half\", each 2 × 2 CFA repeat binned into one RGB pixel (the mean of its sites of each color) instead of a full-size demosaic",
     exact: "the full-size exact development (AHD) averaged over each 2 × 2 block in linear light before the tone curve; default fast for srgb-8 and srgb-16", followsFormatDefault: true,
     resolver: { file: "src/capture/dng-development.ts", call: "resolveFast(options.fast, fastFormatDefault(format, \"capture\"))" }, report: { field: "demosaic" } },
+  { id: "simulateTypicalProcessing/local-tone-mapping", override: "localToneMapping", methods: "fast-and-exact", runs: ["simulateTypicalProcessing"],
+    fast: "#740: the Durand-Dorsey base layer by the paper's piecewise-linear bilateral filter with spatial downsampling",
+    exact: "the direct bilateral filter of log10 luminance over each pixel's window of radius ceil(3 sigma), refused above 2e11 tap evaluations; default fast for srgb-8 and srgb-16",
+    followsFormatDefault: true,
+    resolver: { file: "src/facade/typical-processing.ts", call: "resolveFast(ltm.fast as boolean | undefined, fast)" },
+    report: { assumption: "fast.simulateTypicalProcessing.localToneMapping", field: "fast.applied.localToneMapping" } },
   { id: "output.toneCurve/view-luminance-moments", override: "fast", methods: "fast-and-exact", runs: ["simulateDisplayView", "prepareDisplayView"],
     fast: "#593: a luminance tone curve's moments by an 8-point Gauss–Hermite rule in luminance where its range stays clear of L = 0 (else the full rule)",
     exact: "a composite 4 × 16-point Gauss–Legendre rule over the luminance's ±8.5σ, split at L = 0", followsFormatDefault: true,
