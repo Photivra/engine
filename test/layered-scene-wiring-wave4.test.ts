@@ -97,6 +97,16 @@ describe("layered chart scenes, 2.29.0 wiring (LW2)", () => {
     await expect(simulateCapture(catalogue({ catalogue: { kind: "pv-50-1.8", flare: true } }))).rejects.toThrow(/does not support lens\.catalogue\.flare in 2\.29\.0/);
   }, scaledTimeout(240_000));
 
+  it("#797: a catalogue fisheye is refused where it reads 75° or more off the axis, on a whole capture, a region and a view alike", async () => {
+    for (const kind of ["pv-15-2.8-fisheye-pro", "pv-8-3.5-fisheye-pro"]) {
+      const options = catalogue({ catalogue: kind, fNumber: 4 });
+      await expect(simulateCapture(options), kind).rejects.toThrow(/render only within 75° of the axis/);
+      await expect(simulateCapture({ ...options, output: { ...options.output, region: { x: 40, y: 24, width: 8, height: 8 } } } as SimulateCaptureOptions), kind)
+        .rejects.toThrow(/render only within 75° of the axis/);
+      await expect(simulateDisplayView(options, { width: 48, height: 32 }), kind).rejects.toThrow(/render only within 75° of the axis/);
+    }
+  }, scaledTimeout(120_000));
+
   it("#748: with lens.focusScatter every surface's blur and kernel are those of a request focused at the sampled focus; each blur is the defocus circle there", async () => {
     const scattered = catalogue({ focusScatter: { seed: 7, shotIndex: 2 } }), a = await simulateCapture(scattered);
     const sampled = assumed(a, "lens.focusScatter").focusDistanceM as number, f = assumed(a, "lens.catalogue").focalLengthMm as number;
@@ -108,6 +118,7 @@ describe("layered chart scenes, 2.29.0 wiring (LW2)", () => {
     let codes = 0;
     for (let i = 0; i < a.image.samples.length; i++) codes = Math.max(codes, Math.abs(a.image.samples[i]! - b.image.samples[i]!));
     expect(codes).toBeGreaterThan(0);
+    expect(a.scene.framedWidthM).toBe((await simulateCapture(catalogue())).scene.framedWidthM);
     for (const layer of a.scene.layers!) {
       const c = calculateDefocusCircle({ focalLengthMm: f, aperture: 1.8, focusDistanceM: sampled, subjectDistanceM: layer.distanceM }).value.diameterMm * 1000 / 375;
       expect(Math.abs(layer.defocusDiameterSites - c)).toBeLessThanOrEqual(1e-12 * Math.max(1, c));
@@ -164,7 +175,7 @@ describe("layered chart scenes, 2.29.0 wiring (LW2)", () => {
     // A moving camera does not take the GPU passes, nor does a lens map.
     expect(preparedDisplayViewParts(prepared, "test")[0].gpuRequest.layeredGpu).toBeUndefined();
     // A moving subject stays refused.
-    await expect(simulateCapture(moving({ subject: { velocityMPerSec: { x: 0.1 } } }))).rejects.toThrow(/does not support motion\.subject in 2\.27\.0: which surface moves is not defined by the request/);
+    await expect(simulateCapture(moving({ subject: { velocityMPerSec: { x: 0.1 } } }))).rejects.toThrow(/does not support motion\.subject in 2\.29\.0: which surface moves is not defined by the request/);
   }, scaledTimeout(240_000));
 
   it("#746: work above 2²⁴ layered sums is refused before any lattice is built, with the numbers; a region of the frame renders", async () => {

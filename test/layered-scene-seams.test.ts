@@ -356,7 +356,7 @@ describe("layered sum seams (L0): the refusal table keeps every message", () => 
       // 2.29.0 wave 4 (LW2): camera motion renders (#746), so the motion row is now a motion.subject row with its own reason.
       [{ motion: { angularVelocityRadPerSec: {} } }, {}, null],
       [{ motion: {} }, {}, null],
-      [{ motion: { x: 1, subject: {} } }, {}, "scene.kind \"layered-chart\" does not support motion.subject in 2.27.0: which surface moves is not defined by the request. Omit it, or use a single-plane scene."],
+      [{ motion: { x: 1, subject: {} } }, {}, "scene.kind \"layered-chart\" does not support motion.subject in 2.29.0: which surface moves is not defined by the request. Omit it, or use a single-plane scene."],
       [{}, { projection: "rectilinear" }, null],
       // 2.29.0 wave 3 (LW1): the projection, distortion, vignetting, chartSize and illumination rows are removed (#744, #745, #761).
       [{}, { projection: "fisheye-equidistant" }, null],
@@ -365,11 +365,11 @@ describe("layered sum seams (L0): the refusal table keeps every message", () => 
       // 2.29.0 wave 4 (LW2): the catalogue lens renders (#741); its flare is refused.
       [{}, { catalogue: "x" }, null],
       [{}, { catalogue: { kind: "x", flare: true } }, "scene.kind \"layered-chart\" does not support lens.catalogue.flare in 2.29.0: the veiling glare is formed from a single-plane scene's materials. Omit it, or use a single-plane scene."],
-      [{}, { pupilSampling: {} }, "scene.kind \"layered-chart\" does not support lens.pupilSampling in 2.27.0: the layered sum renders the defocus and occlusion of each surface itself. Omit it, or use a single-plane scene."],
-      [{}, { psf: {} }, "scene.kind \"layered-chart\" does not support lens.psf in 2.27.0: a caller PSF declares its own defocus. Omit it, or use a single-plane scene."],
+      [{}, { pupilSampling: {} }, "scene.kind \"layered-chart\" does not support lens.pupilSampling in 2.29.0: the layered sum renders the defocus and occlusion of each surface itself. Omit it, or use a single-plane scene."],
+      [{}, { psf: {} }, "scene.kind \"layered-chart\" does not support lens.psf in 2.29.0: a caller PSF declares its own defocus. Omit it, or use a single-plane scene."],
       [{ chartSize: {} }, {}, null],
       [{ illumination: {} }, {}, null],
-      [{ chartSize: {}, illumination: {} }, { psf: {}, distortion: {} }, "scene.kind \"layered-chart\" does not support lens.psf in 2.27.0: a caller PSF declares its own defocus. Omit it, or use a single-plane scene."],
+      [{ chartSize: {}, illumination: {} }, { psf: {}, distortion: {} }, "scene.kind \"layered-chart\" does not support lens.psf in 2.29.0: a caller PSF declares its own defocus. Omit it, or use a single-plane scene."],
       [{}, {}, null]];
     for (const [top, lens, message] of cases) {
       const run = (): unknown => resolveLayeredRequest({ top: { scene, ...top }, lens, aspect: 0.75, displayView: false });

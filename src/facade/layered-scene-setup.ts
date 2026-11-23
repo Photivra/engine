@@ -218,7 +218,7 @@ export interface LayeredView {
 
 type RequestPart = Record<string, unknown>;
 /** The release the refusal messages name. */
-const LAYERED_REFUSALS_RELEASE = "2.27.0";
+const LAYERED_REFUSALS_RELEASE = "2.29.0";
 /**
  * The options layered scenes refuse, one row each: the request path the message names, whether the request has the option,
  * and the reason. Rows are checked in order and the first present one fails the request. A group that makes an option render
@@ -228,16 +228,13 @@ interface LayeredRefusal {
   readonly option: string;
   present(top: RequestPart, lens: RequestPart): boolean;
   readonly reason: string;
-  /** The release the message names, when not {@link LAYERED_REFUSALS_RELEASE}. */
-  readonly release?: string;
 }
 const part = (value: unknown): RequestPart => (typeof value === "object" && value !== null ? value as RequestPart : {});
 const LAYERED_REFUSALS: readonly LayeredRefusal[] = [
   // 2.29.0 (#746): camera motion renders; a moving subject stays refused (owner decision 9).
   { option: "motion.subject", present: (top) => part(top.motion).subject !== undefined, reason: "which surface moves is not defined by the request" },
   // 2.29.0 (#741): the catalogue lens renders; its flare does not (the veil is formed from a single-plane chart's materials).
-  { option: "lens.catalogue.flare", present: (_, lens) => part(lens.catalogue).flare === true, reason: "the veiling glare is formed from a single-plane scene's materials",
-    release: "2.29.0" },
+  { option: "lens.catalogue.flare", present: (_, lens) => part(lens.catalogue).flare === true, reason: "the veiling glare is formed from a single-plane scene's materials" },
   { option: "lens.pupilSampling", present: (_, lens) => lens.pupilSampling !== undefined, reason: "the layered sum renders the defocus and occlusion of each surface itself" },
   { option: "lens.psf", present: (_, lens) => lens.psf !== undefined, reason: "a caller PSF declares its own defocus" }];
 
@@ -247,7 +244,7 @@ export function resolveLayeredRequest(input: { top: Record<string, unknown>; len
   chartSize?: { widthM: number; heightM: number } | undefined; metresPerFrameUnit?: number }): LayeredRequest {
   const { top, lens, chartSize } = input;
   for (const refusal of LAYERED_REFUSALS) if (refusal.present(top, lens))
-    fail("scene.kind \"layered-chart\" does not support " + refusal.option + " in " + (refusal.release ?? LAYERED_REFUSALS_RELEASE) + ": " + refusal.reason + ". Omit it, or use a single-plane scene.");
+    fail("scene.kind \"layered-chart\" does not support " + refusal.option + " in " + LAYERED_REFUSALS_RELEASE + ": " + refusal.reason + ". Omit it, or use a single-plane scene.");
   if (chartSize) {
     if ((top.chartSize as RequestPart).surroundReflectance !== undefined)
       fail("chartSize.surroundReflectance does not apply to a layered chart scene: its far surface continues beyond the chart. Omit it.");
@@ -325,8 +322,8 @@ export function resolveLayeredRequest(input: { top: Record<string, unknown>; len
           " Sites whose lattice points all see one surface take that surface's single-plane sum.") +
         (lit ? " #745: each surface point is lit by the illumination's blend and point sources at its own frame point, one light field over the frame's angles " +
           "(an approximation: no shadows between surfaces, no falloff with depth)." : "") +
-        (cat ? " #741: with a catalogue lens each surface's kernel is the lens's bokeh at its signed blur less the PSF's balancing defocus; the lens's PSF, with its axial colour, " +
-          "follows the sum per field zone (no opposite colour fringes on either side of the focus plane). Occlusion uses each surface's nominal thin-lens ray map (an approximation)." +
+        (cat ? " #741: with a catalogue lens each surface's kernel is the lens's bokeh at its signed blur less the PSF's balancing defocus; the lens's PSF, with its axial color, " +
+          "follows the sum per field zone (no opposite color fringes on either side of the focus plane). Occlusion uses each surface's nominal thin-lens ray map (an approximation)." +
           (cat.breathingScale === 1 ? "" : " #748: focus breathing scales every surface's frame point by " + cat.breathingScale + ".") : "") +
         (motion ? " #746: the camera turns about the entrance pupil (no parallax), so every surface moves together: each of the " + T + " temporal midpoints is one layered sum " +
           "through the lens map at its instant, and a site's value is their mean" + (motion.timesAt ? ", each row at its own instants (rolling shutter)" : "") +
@@ -497,7 +494,8 @@ export function resolveLayeredRequest(input: { top: Record<string, unknown>; len
       ...(map ? { lensMap: map, marginSites: Math.ceil(Math.max(0, ...offsets.map((o) => Math.max(Math.abs(o.x), Math.abs(o.y))))) + 1 + (diffraction ? diffraction.radius : 0) } : {}) };
     // A point outside a caller fisheye's image circle has no ray (the projection fails there): it counts as looking backward.
     const geometry = context.lensGeometry!, backward = { x: 0, y: 0, z: -1 };
-    if (map && fisheye) checkLayeredFisheyeFieldAngle({ geometry: { lookOf: (x, y, t) => { try { return geometry.lookOf(x, y, t); } catch { return backward; } } }, pitchMicrometers: context.pitch, nativeWidth: context.nativeWidth, nativeHeight: context.nativeHeight,
+    // #797: a catalogue fisheye too (its projection comes from the lens, not from lens.projection).
+    if (map && (fisheye || cat !== undefined && cat.lens.projection !== "rectilinear")) checkLayeredFisheyeFieldAngle({ geometry: { lookOf: (x, y, t) => { try { return geometry.lookOf(x, y, t); } catch { return backward; } } }, pitchMicrometers: context.pitch, nativeWidth: context.nativeWidth, nativeHeight: context.nativeHeight,
       reachSites: createLayeredLatticeGeometry(input).lensReachSites });
     return input;
   }

@@ -147,7 +147,7 @@ describe("layered chart scenes through the public API (#652)", () => {
     const lens = options.lens!;
     const cases: [Partial<SimulateCaptureOptions>, RegExp][] = [
       // 2.29.0 (#746): camera motion renders; a moving subject stays refused.
-      [{ motion: { subject: { velocityMPerSec: { x: 0.1 } } } }, /does not support motion\.subject in 2\.27\.0: which surface moves is not defined by the request/],
+      [{ motion: { subject: { velocityMPerSec: { x: 0.1 } } } }, /does not support motion\.subject in 2\.29\.0: which surface moves is not defined by the request/],
       [{ lens: { ...lens, pupilSampling: { radialSamples: 2, angularSamples: 8 } } }, /does not support lens\.pupilSampling/],
       // 2.29.0 (#741): the catalogue lens renders; its flare does not.
       [{ lens: { catalogue: { kind: "pv-50-1.8", flare: true }, fNumber: 4 } }, /does not support lens\.catalogue\.flare in 2\.29\.0/],
@@ -159,7 +159,7 @@ describe("layered chart scenes through the public API (#652)", () => {
         /^lens\.defocus: a surface's blur needs a kernel radius of \d+ sites; at card edges the layered sum takes at most 128 for a shaped kernel/]];
     // A caller PSF: the one a plain chart capture with diffraction resolves (a valid lens.psf, so the layered refusal is what fails).
     const psf = (await simulateCapture({ ...options, scene: { preset: "uniform", reflectance: 0.5 }, lens: { ...lens, diffraction: "circular-aperture" } })).request.diffraction!.psf;
-    cases.push([{ lens: { ...lens, psf } } as never, /does not support lens\.psf in 2\.27\.0: a caller PSF declares its own defocus/]);
+    cases.push([{ lens: { ...lens, psf } } as never, /does not support lens\.psf in 2\.29\.0: a caller PSF declares its own defocus/]);
     for (const [extra, message] of cases) await expect(simulateCapture({ ...options, ...extra } as SimulateCaptureOptions), String(message)).rejects.toThrow(message);
     const crowded: LayeredChartScene = { ...scene, backPlane: { distanceM: 3, pointLights: { seed: 1, columns: 16, rows: 12, luminousIntensityCandela: 1 } } };
     await expect(simulateCapture({ ...options, scene: crowded })).rejects.toThrow(/two lights can fall in one site/);
