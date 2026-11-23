@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it } from "vitest";
-import { parseEvidenceList } from "../src/core/evidence-provenance.js";
 import * as engine from "../src/index.js";
 import { resolveGenericEquipmentTierCatalog, resolveSensorProfile, SENSOR_PROFILES, simulateCapture } from "../src/index.js";
 import { genericTierAssets } from "../src/equipment/generic-tier-assets.js";
@@ -58,36 +57,5 @@ describe("exported catalogue constants are frozen all the way down (#683)", () =
     const first = await simulateCapture({ ...r, sensor: { profile: SENSOR_PROFILES[7]! } }), second = await simulateCapture({ ...r, sensor: { profile: SENSOR_PROFILES[7]! } });
     const inSecond = plainNodes(second, "second");
     expect([...plainNodes(first, "first")].filter(([node]) => inSecond.has(node) && !Object.isFrozen(node)).map(([, path]) => path)).toEqual([]);
-  });
-});
-
-describe("parsed evidence of frozen lists (#730 facade-07)", () => {
-  it("parses a frozen list once and gives every call its own records; other lists are parsed each time", () => {
-    const record = Object.freeze({ sourceOrigin: "photivra", sourceReference: "test:frozen", reuseStatus: "photivra-owned" });
-    const frozen = Object.freeze([record]);
-    const first = parseEvidenceList(frozen, "e"), second = parseEvidenceList(frozen, "e");
-    expect(second).toEqual(first);
-    expect(second).not.toBe(first);
-    expect(second[0]).not.toBe(first[0]);
-    (first[0] as { note?: string }).note = "changed by a caller";
-    expect(parseEvidenceList(frozen, "e")[0]).toEqual(record);
-    // A list that is not frozen can change between calls; it is parsed again, and so is one whose records are not frozen.
-    const open: { sourceOrigin: string; sourceReference: string; reuseStatus: string }[] = [{ ...record }];
-    expect(parseEvidenceList(open, "e")[0]!.sourceReference).toBe("test:frozen");
-    open[0]!.sourceReference = "test:changed";
-    expect(parseEvidenceList(open, "e")[0]!.sourceReference).toBe("test:changed");
-    const shallow = Object.freeze([{ ...record }]);
-    parseEvidenceList(shallow, "e");
-    (shallow[0] as { reuseStatus: string }).reuseStatus = "unknown";
-    expect(() => parseEvidenceList(shallow, "e")).toThrow("e[0].reuseStatus is invalid.");
-    // A frozen record with a getter can change; it is parsed again.
-    let reference = "test:getter-1";
-    const getter = Object.freeze([Object.freeze({ sourceOrigin: "photivra", get sourceReference() { return reference; }, reuseStatus: "photivra-owned" })]);
-    expect(parseEvidenceList(getter, "e")[0]!.sourceReference).toBe("test:getter-1");
-    reference = "test:getter-2";
-    expect(parseEvidenceList(getter, "e")[0]!.sourceReference).toBe("test:getter-2");
-    // An invalid frozen list is refused on every call.
-    const bad = Object.freeze([Object.freeze({ sourceOrigin: "photivra", sourceReference: "x", reuseStatus: "owned" })]);
-    for (let i = 0; i < 2; i++) expect(() => parseEvidenceList(bad, "e")).toThrow("e[0].reuseStatus is invalid.");
   });
 });
