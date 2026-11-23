@@ -111,7 +111,7 @@ describe("motion with lens.diffraction, the four-spot filter and a box at full q
   }, scaledTimeout(120_000));
 
   it("renders a subject at rest as the still scene (#688)", async () => {
-    const still = await simulateCapture(request({ motion: undefined, pitch: 4 })), rest = await simulateCapture(request({ motion: { subject: {} }, pitch: 4 }));
+    const still = await simulateCapture(request({ motion: undefined, pitch: 4 })), rest = await simulateCapture(request({ motion: { subject: { velocityMPerSec: {} } }, pitch: 4 }));
     expect(Array.from(rest.raw.codes)).toEqual(Array.from(still.raw.codes));
   }, scaledTimeout(60_000));
 

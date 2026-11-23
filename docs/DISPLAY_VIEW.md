@@ -294,6 +294,28 @@ no uniform material (`uniformMaterial` −1, `tracksMaterial` and `marksReads` f
 chief-ray surface and material. The capture's provider answers each query of a lattice point with the same sum, so capture and
 view agree per site within 1e-9 relative (`test/layered-scene-facade.test.ts`).
 
+From 2.29.0, with `lens.projection`, `lens.distortion` or `lens.vignetting` (#744) a layered view's lattice goes through the
+capture's lens geometry, every site takes the layered sum (the single-surface shortcut does not read the lens), and the pilot reads
+the frame point its planar point maps to (`rasterFramePoint`); the view does not build the single-plane lens signal of the next
+section for a layered scene. With `illumination` (#745) each surface point is lit by the blend at its own frame point. Capture and
+view agree per site within 1e-9 relative through the lens and the blend (`test/layered-scene-wiring.test.ts`).
+
+### In-focus mask (2.29.0)
+
+`view.focusMask: true | { circleOfConfusionMm }` (#752; false or omitted: none) adds `view.focusMask = { width, height,
+circleOfConfusionMm, score, label }` to the result, for the rendered rectangle, row-major. Per display pixel, `score` is
+max(0, 1 − c / c₀): c the geometric blur-circle diameter (`calculateDefocusCircle`, thin lens) of the surface the pixel centre
+sees, at the resolved focus (with `lens.focusScatter` the sampled one), and c₀ the circle of confusion (default the frame's
+diagonal / 1500, as `scene.layers`). A score above 0 is "within the depth of field" by the same limits as
+`scene.layers[].withinDepthOfField`.
+
+- A layered scene: each pixel centre's chief-ray surface, through the lens (projection, distortion) and in chart units with
+  `chartSize`; a pixel that sees no scene scores 0.
+- Any other scene: one value for the frame, the subject distance's blur circle.
+- It is analytic: no image is analyzed and nothing is rendered for it, so it is the same with `fast` true or false and on the CPU
+  and GPU routes, and a region's mask equals the same pixels of the whole view's. `label` says it is a geometric thin-lens guide
+  without diffraction or aberrations.
+
 ### Lens projection, distortion, vignetting and rotation
 
 (2.22.0, #551: `motion.subject` takes this path too. Its sideways motion, under a global shutter, is read at each temporal

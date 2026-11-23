@@ -16,9 +16,12 @@ describe("the veil's frame mean kept per request (facade-13)", () => {
     await simulateCapture({ scene: { preset: "checkerboard", squaresAcross: 7 }, subjectDistanceM: 3, lens: { catalogue: { kind: "pv-16-2.8", flare: true }, fNumber: 8 },
       sensor: { pixelPitchMicrometers: 375, spectralStepNanometers: 50 }, output: { width: 96, height: 64, format: "srgb-16" }, fast: false });
     setCatalogueLensSignalTestHook(undefined);
-    expect(input?.veil).toBeDefined();
-    const keyed = (key: string): CatalogueLensSignalInput => ({ ...input!, veil: { ...input!.veil!, key } });
-    const unkeyed = createCatalogueLensSignal(input!), first = createCatalogueLensSignal(keyed("a")), second = createCatalogueLensSignal(keyed("a"));
+    // The capture keys its veil by the request without its region (the wiring of facade-13).
+    expect(typeof input?.veil?.key).toBe("string");
+    const veil = { ...input!.veil! };
+    delete veil.key;
+    const keyed = (key: string): CatalogueLensSignalInput => ({ ...input!, veil: { ...veil, key } });
+    const unkeyed = createCatalogueLensSignal({ ...input!, veil }), first = createCatalogueLensSignal(keyed("a")), second = createCatalogueLensSignal(keyed("a"));
     expect(unkeyed.lookups).toBeGreaterThan(0);
     expect(first.lookups).toBe(unkeyed.lookups);
     expect(second.lookups).toBe(0);

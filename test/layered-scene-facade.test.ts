@@ -137,22 +137,20 @@ describe("layered chart scenes through the public API (#652)", () => {
     expect((lit.assumptions.find((a) => a.id === "scene.layers")!.value as { catsEye: boolean }).catsEye).toBe(true);
   }, scaledTimeout(240_000));
 
-  it("refuses what 2.27.0 does not render, with clear messages", async () => {
+  it("refuses what 2.29.0 does not render, with clear messages", async () => {
     const options = layeredOptions({ output: { width: 16, height: 12 } });
     const lens = options.lens!;
     const cases: [Partial<SimulateCaptureOptions>, RegExp][] = [
       [{ motion: { angularVelocityRadPerSec: { yaw: 0.1 } } }, /does not support motion\.angularVelocityRadPerSec in 2\.27\.0/],
       [{ motion: { subject: { velocityMPerSec: { x: 0.1 } } } }, /does not support motion\.subject/],
-      [{ lens: { ...lens, projection: "fisheye-equidistant" } }, /lens\.projection other than "rectilinear"/],
-      [{ lens: { ...lens, distortion: { kind: "radial", profile: { normalizationRadiusMm: 1, maximumNormalizedRadius: 1, coefficients: { k1: -0.1, k2: 0, k3: 0 } } } } }, /does not support lens\.distortion/],
-      [{ lens: { ...lens, vignetting: { normalizationRadiusMm: 1, maximumNormalizedRadius: 1, coefficients: { r2: -0.2, r4: 0, r6: 0 } } } }, /does not support lens\.vignetting/],
       [{ lens: { ...lens, pupilSampling: { radialSamples: 2, angularSamples: 8 } } }, /does not support lens\.pupilSampling/],
       [{ lens: { catalogue: "pv-50-1.8", fNumber: 4 } }, /does not support lens\.catalogue/],
-      [{ chartSize: { widthM: 0.5 } }, /does not support chartSize/],
-      [{ illumination: { sources: [{ illuminant: { kind: "cie-a" }, illuminanceLux: 1000 }] } } as never, /does not support illumination \(mixed lighting\)/],
+      // 2.29.0 (#761): chartSize renders; its surround does not apply, and illumination with chartSize is refused.
+      [{ chartSize: { widthM: 0.5, surroundReflectance: 0.5 } }, /chartSize\.surroundReflectance does not apply to a layered chart scene/],
+      [{ chartSize: { widthM: 0.5 }, illumination: { sources: [{ illuminant: { kind: "cie-a" }, illuminanceLux: 1000 }] } } as never, /does not support illumination with chartSize in 2\.29\.0/],
       [{ lens: { ...lens, diffraction: "circular-aperture", defocus: { model: "geometric-disc", catsEye: { apertures: [{ radiusMm: 9, shiftPerTanFieldMm: 40 }] } } } }, /catsEye cannot be combined with lens\.diffraction/],
       [{ lens: { ...lens, focusDistanceM: 10, defocus: { model: "geometric-disc", blades: { count: 7 } } }, sensor: { pixelPitchMicrometers: 1, spectralStepNanometers: 40 } },
-        /kernel radius of \d+ sites; at card edges the layered sum takes at most 128 for a shaped kernel/]];
+        /^lens\.defocus: a surface's blur needs a kernel radius of \d+ sites; at card edges the layered sum takes at most 128 for a shaped kernel/]];
     // A caller PSF: the one a plain chart capture with diffraction resolves (a valid lens.psf, so the layered refusal is what fails).
     const psf = (await simulateCapture({ ...options, scene: { preset: "uniform", reflectance: 0.5 }, lens: { ...lens, diffraction: "circular-aperture" } })).request.diffraction!.psf;
     cases.push([{ lens: { ...lens, psf } } as never, /does not support lens\.psf in 2\.27\.0: a caller PSF declares its own defocus/]);

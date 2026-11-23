@@ -1803,8 +1803,9 @@ rectangle of it (`region: { centerXM, centerYM, widthM, heightM }` in metres at 
 
 - `velocityMPerSec: { x, y }` is a translation in m/s on the plane (+x right, +y up as seen from the camera).
   `angularVelocityRadPerSec` adds a rotation about an axis parallel to the optical axis, counter-clockwise as seen from
-  the camera: the optical axis for the whole scene, the region's center for a region. A subject at rest (no velocity
-  and no rotation, `subject: {}` included) renders as the still scene it equals, with one temporal sample (#688).
+  the camera: the optical axis for the whole scene, the region's center for a region. A subject at rest (zero velocity
+  and no rotation) renders as the still scene it equals, with one temporal sample (#688). A record with neither
+  `velocityMPerSec` nor `angularVelocityRadPerSec` (`subject: {}`) is refused (2.29.0, #786).
 - The model is rigid motion of a planar layer. At time t from the first opening (camera rotation's time reference), a
   subject point at rest q is at R(ωt)(q − c) + c + v·t. A plane point shows the subject where one is there, else the
   region's rest rectangle shows a neutral 18 % background (what the subject revealed), else the still scene. The background
