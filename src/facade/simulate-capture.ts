@@ -2783,9 +2783,6 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   const compensation = exposureOptions.compensationStops === undefined ? DEFAULTS.compensationStops : exposureOptions.compensationStops;
   if (typeof compensation !== "number" || !Number.isFinite(compensation) || Math.abs(compensation) > 10) fail("exposure.compensationStops must be within ±10.");
   if (exposureOptions.compensationStops === undefined) assume("exposure.compensationStops", "default", 0, "No exposure compensation.");
-  // #730 facade-04 (owner decision 2026-11-23: note, not refuse): manual mode with a fixed ISO sets no exposure from the target.
-  else if (compensation && mode === "manual" && !automaticIso) assume("exposure.compensationStops", "model", compensation,
-    "Manual mode with a fixed ISO: the compensation moves only the meter target (exposure.resolution.targetResidual), not the settings.");
   // #569: a lens whose range excludes f/8 (the catalogue's PV 800 9, f/9–f/32; an ideal lens with a narrowed range) takes the same reference
   // exposure at the aperture of its range nearest f/8, N0 with t = 1/125 s × (N0/8)², which has the same N²/t and so the same reference
   // luminance; every other request keeps f/8, 1/125 s. #585: when that t is shorter than the body's shortest shutter (N0 below about f/1),

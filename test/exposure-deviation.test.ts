@@ -41,21 +41,6 @@ describe("exposure.standardExposureDeviationStops (#515)", { timeout: 60_000 }, 
     expect(expected).toBeGreaterThan(9);
   });
 
-  it("notes that manual mode with a fixed ISO keeps its settings under a compensation (#730 facade-04, owner decision 2026-11-23)", async () => {
-    const [plain, compensated, auto] = await Promise.all([simulateCapture(small), simulateCapture({ ...small, exposure: { compensationStops: 3 } }),
-      simulateCapture({ ...small, exposure: { iso: "auto", compensationStops: 3 } })]);
-    // Accepted (not refused): the same settings, samples and deviation, and an assumption that says so.
-    expect(compensated.exposure.settings).toEqual(plain.exposure.settings);
-    expect(compensated.image.samples).toEqual(plain.image.samples);
-    expect(compensated.exposure.standardExposureDeviationStops).toBe(plain.exposure.standardExposureDeviationStops);
-    const note = compensated.assumptions.find((a) => a.id === "exposure.compensationStops")!;
-    expect(note).toMatchObject({ kind: "model", value: 3 });
-    expect(note.explanation).toContain("moves only the meter target");
-    expect(plain.assumptions.find((a) => a.id === "exposure.compensationStops")!.kind).toBe("default");
-    // With Auto ISO the compensation sets the exposure; no note.
-    expect(auto.assumptions.find((a) => a.id === "exposure.compensationStops")).toBeUndefined();
-  });
-
   it("is the same in the display view and null, never infinite, for a black scene", async () => {
     const options = { ...small, lens: { fNumber: 11 } } as SimulateCaptureOptions;
     const [capture, view] = await Promise.all([simulateCapture(options), simulateDisplayView(options, { width: 2, height: 2 })]);
