@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it } from "vitest";
-import { InvalidConfigurationError, parseDngRawImage, simulateCapture, simulateDisplayView, type SimulateCaptureOptions, type SimulateCaptureResult } from "../src/index.js";
+import { InvalidConfigurationError, parseDngRawImage, resolveSensorProfile, simulateCapture, simulateDisplayView, type SimulateCaptureOptions, type SimulateCaptureResult } from "../src/index.js";
 import { scaledTimeout } from "./helpers/test-timeout.js";
 
 // #555 (sensor characteristics) and #535 (noise figure).
@@ -68,6 +68,26 @@ describe("sensor characteristics (#555)", () => {
     }
     expect((await dark({ readNoise: { highGainFromIso: 1e6 } }, 1600)).sensor.readNoise).toEqual({ lowGainElectrons: 2, highGainElectrons: 2, highGainFromIso: null });
     await expect(uniform({ readNoise: { lowGainElectrons: -1 } })).rejects.toThrow(InvalidConfigurationError);
+  }, scaledTimeout(60_000));
+
+  it("refuse a high-gain read noise on a single-gain sensor and report the low gain as resolved (#753 sensor-03, sensor-04)", async () => {
+    const fsi = { profile: resolveSensorProfile("full-frame-24mp-fsi-2010s") }, at = (iso: number): Partial<SimulateCaptureOptions> => ({ exposure: { mode: "manual", iso } });
+    // sensor-03 (owner decision 2026-11-23): refused, where it was accepted and listed as applied with no effect.
+    await expect(uniform({ ...fsi, readNoise: { highGainElectrons: 0.5 } }, at(6400))).rejects.toThrow("sensor.readNoise.highGainElectrons needs highGainFromIso: this sensor has one conversion gain.");
+    const plain = await uniform(fsi, at(6400)), switched = await uniform({ ...fsi, readNoise: { highGainElectrons: 0.5, highGainFromIso: 400 } }, at(6400));
+    expect(plain.sensor.readNoise).toEqual({ lowGainElectrons: 4, highGainElectrons: 4, highGainFromIso: null });
+    expect(plain.sensor.dynamicRangeStops).toBeCloseTo(7.892, 3);
+    expect(switched.sensor.readNoise).toEqual({ lowGainElectrons: 4, highGainElectrons: 0.5, highGainFromIso: 400 });
+    expect(switched.sensor.dynamicRangeStops).toBeCloseTo(10.889, 3);
+    // The switch may sit below ISO 100 (from the lowest marking, 32): the phone profile starts at ISO 40.
+    const phone = await uniform({ profile: resolveSensorProfile("phone-50mp-stacked"), readNoise: { highGainElectrons: 0.5, highGainFromIso: 64 } }, at(64));
+    expect(phone.sensor.readNoise).toMatchObject({ highGainElectrons: 0.5, highGainFromIso: 64 });
+    expect(phone.sensor.midGrey!.noiseElectrons.read).toBe(0.5);
+    await expect(uniform({ readNoise: { highGainFromIso: 31 } })).rejects.toThrow("sensor.readNoise.highGainFromIso must be a number from 32 to 10000000.");
+    // sensor-04: with the switch at base ISO no setting uses the low gain; the report keeps its 2 e⁻ (it read 1.1 before).
+    expect((await uniform({ readNoise: { highGainFromIso: 100 } })).sensor.readNoise).toEqual({ lowGainElectrons: 2, highGainElectrons: 1.1, highGainFromIso: 100 });
+    // A switch between two settings reads as the first setting that uses the high gain (documented on the report's field).
+    expect((await uniform({ readNoise: { highGainFromIso: 150 } })).sensor.readNoise).toEqual({ lowGainElectrons: 2, highGainElectrons: 1.1, highGainFromIso: 160 });
   }, scaledTimeout(60_000));
 
   it("set the readout time as the rolling-shutter skew", async () => {
