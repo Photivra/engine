@@ -333,17 +333,17 @@ async function prepareView(context: DisplayViewRunContext): Promise<PreparedView
     const cpuSignalInput = regrouped ? regroupedSignalInput : signalInput;
     // The native columns the region's windows span, beyond one window's width: a filled band need not be wider (a speed hint).
     // #563: through the lens (projection, distortion, vignetting, rotation) when the request has them.
-    const signal = layeredView ? layeredView.signal() : (context.lens ?? createDisplayViewExpectedSignal)(cpuSignalInput, Math.ceil((viewRegion.width + 2) * nativeWidth / v.width));
+    const signal = layeredView ? layeredView.signal(costArgs) : (context.lens ?? createDisplayViewExpectedSignal)(cpuSignalInput, Math.ceil((viewRegion.width + 2) * nativeWidth / v.width));
     return { signal, regrouped, setup: { frameWidth: width, frameHeight: height, margin, nativeWidth, nativeHeight, viewWidth: v.width, viewHeight: v.height,
       region: viewRegion, samplesPerAxis: v.samplesPerAxis, uniformSamplesPerAxis: uniformSamplesOf(v.samplesPerAxis), reachSites, bitDepth: v.bitDepth, seed: noiseSeed, signal, readout, demosaic: demosaicTable,
       ...(ahdCandidates && ahdChoice ? { candidates: ahdCandidates, ahdChoice } : {}),
-      gains, clipLevel, matrix, toneCurve: viewToneCurve, ...(rendering ? { rendering, coupled: coupled! } : {}), yieldControl, checkAbort, gpu: { signalInput, chart: viewChart ?? null, layers: materialLayers ?? null, placement, ...(defocusKernel && !largeDefocus ? { defocusRadius: defocusKernel.radius } : {}), reference: cpuSignalInput, ...(lensGpu ? { lens: lensGpu } : {}) } } };
+      gains, clipLevel, matrix, toneCurve: viewToneCurve, ...(rendering ? { rendering, coupled: coupled! } : {}), yieldControl, checkAbort, gpu: { signalInput, chart: viewChart ?? null, layers: materialLayers ?? null, placement, ...(defocusKernel && !largeDefocus ? { defocusRadius: defocusKernel.radius } : {}), reference: cpuSignalInput, ...(lensGpu ? { lens: lensGpu } : {}), ...layeredView?.gpu } } };
   };
   // #492: out of focus the view reads the defocus disc (its kernel in signalInput.kernels); the GPU Quality site pass gathers it (step 2c).
   // #661: a catalogue-lens view with a radial distortion describes its lens signal for the renderer (DisplayViewGpuRequest.lensView).
   const lensSetup = lensGpu?.lens.psf ? lensGpu.lens : undefined;
   const gpuRequest: DisplayViewGpuRequest = { ahd, lens: !!context.lens, ...(lensSetup ? { lensView: { catalogueZones: (lensSetup.psf?.zoneSites ?? 0) > 1,
-    still: lensSetup.times.length === 1 && !lensSetup.timesAt && !lensGpu!.geometry.handShake && !context.movingScene, rectilinear: !lensSetup.zeroBeyondHorizon, flare: !!lensSetup.veil } } : {}), ...(layeredView ? { layered: true } : {}), ...(viewMixed ? { mixedIllumination: true } : {}), defocus: defocusKernel !== null, ...(largeDefocus ? { largeDefocus: true } : {}), diffraction: diffraction !== undefined, antiAliasing: antiAliasing !== undefined, boxSamples, toneCurve: viewToneCurve, ...(highlightMode === "reconstruct" || highlightMode === "reconstruct-neighbors" || context.gamutHandling === "desaturate-to-luminance" ? { coupled: true } : {}),
+    still: lensSetup.times.length === 1 && !lensSetup.timesAt && !lensGpu!.geometry.handShake && !context.movingScene, rectilinear: !lensSetup.zeroBeyondHorizon, flare: !!lensSetup.veil } } : {}), ...(layeredView ? { layered: true, ...layeredView.request } : {}), ...(viewMixed ? { mixedIllumination: true } : {}), defocus: defocusKernel !== null, ...(largeDefocus ? { largeDefocus: true } : {}), diffraction: diffraction !== undefined, antiAliasing: antiAliasing !== undefined, boxSamples, toneCurve: viewToneCurve, ...(highlightMode === "reconstruct" || highlightMode === "reconstruct-neighbors" || context.gamutHandling === "desaturate-to-luminance" ? { coupled: true } : {}),
     scene: chart ? "chart" : materialLayers ? "material-layers" : callerScene!.kind, ...(detail ? { detail: true } : {}) };
   const render: RenderPreparedView = async (v, run, viewInternals, gpu) => {
     const { started, viewStarted } = run;

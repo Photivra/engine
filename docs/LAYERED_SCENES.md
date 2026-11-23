@@ -188,6 +188,17 @@ The capture's and ideal reference's provider answers each environment query of a
 the same sum (after diffraction), and the environment declares no further PSF. Capture and view therefore form the same
 per-site sum and agree within 1e-9 relative.
 
+2.29.0 (#751): a capture's expected electrons per site are the layered signal of the capture's own lattice (the values its provider
+answers with, integrated against each site's channel response over its query offsets, spectral nodes and temporal midpoints), the
+tabulated native RAW path that single-plane charts take. One site of each CFA phase runs the full environment chain, and its readout
+must be reproduced bit for bit and its electrons within 1e-9; otherwise the environment chain renders the frame. The sensor stage
+is the native one with each site's own seeds. Measured on the issue's frame (the tabletop preset, 192 × 128 output of 187.5 µm
+sites, 50 mm at f/4 focused at 1 m, default options; Apple M5 Pro, Node 26.13.1, load average about 4, the fastest of four runs in
+one process): the environment chain 238 ms, the tabulated path 22 ms, a single-plane Siemens star 16 ms. The RAW codes equal the
+chain's code for code there and in `test/layered-scene-wiring-wave4.test.ts` (still, rolling-shutter rotation and a catalogue lens). A
+profile of the chain on that frame puts most of its time in the per-site record checks of the environment and almost none in the
+layered sum itself.
+
 ### Through a lens (2.29.0)
 
 With `lens.projection`, `lens.distortion` or `lens.vignetting` (#744) the lattice is the sensor's site lattice in image space, as
@@ -206,6 +217,50 @@ maps to.
 Fisheyes: the frame coordinate (tan θ) grows without bound toward the horizon, so a layered request with a fisheye projection is
 refused when any point it reads (the outer sites widened by the lattice's reach) looks 75° or more off the axis (owner decision,
 2.29.0).
+
+### A catalogue lens (2.29.0)
+
+With `lens.catalogue` (#741) the lattice maps through the lens's own distortion, vignetting and projection as above. Each surface's
+kernel is the lens's bokeh (its blades and spherical aberration, and on the full method its cat's eye per field zone) for the signed
+blur σ·c − b, b = 8·N·W040/p the balancing defocus of the lens's PSF, as the single-plane catalogue path forms it. The lens's PSF,
+built without a defocus kernel and with its axial and lateral colour, follows the sum at each spectral node per field zone: 64 zones
+along the long side on the fast method (`lens.catalogue/view-psf-zones`), zones of one site on the full one, for the capture and the
+view alike. The axial colour stays in the PSF: surfaces on either side of the focus plane do not fringe in opposite colours (a
+per-wavelength blur was measured against the lens's defocused wave PSF and not taken; owner decision 4). Occlusion uses each
+surface's nominal thin-lens ray map σ·c/2 (an approximation, measured in `test/layered-catalogue-kernels.test.ts`). The
+`scene.layers` assumption reports `catalogue: { kernels, signedBlurSites, psfZoneSites, breathingScale }`. `lens.catalogue.flare` is
+refused with layered scenes (its veil is formed from a single-plane scene's materials).
+
+Focus (#748): with `lens.focusScatter` every surface's blur and kernel are computed at the sampled focus, and `result.scene.layers`
+reports the blur there; the frame keeps the requested focus's thin-lens framing, as on the single-plane path. With
+`lens.catalogue.breathing` every surface's frame point scales by 1 + Δ (the lattice's frame scale 1 / (1 + Δ)), as the single plane's
+distance does: a card larger than the frame renders as the single-plane catalogue view of its print with breathing (equal there to
+1e-9 relative on the full method), and a card edge moves by the predicted u₀·(w/2)·(1/(1 + Δ) − 1) sites within one site.
+
+### Camera motion (2.29.0)
+
+A camera rotation about the entrance pupil has no parallax (#746): frame units are angles, so every surface moves together and the
+rotation is a change of the lattice's direction map at each instant. `motion.angularVelocityRadPerSec` and `motion.handheld` turn
+each look direction by one rotation matrix per instant; each temporal midpoint is one layered sum, and a site's value is the mean
+over its midpoints (the environment's: 8 on a fast request, 16 on an exact one, as on flat scenes). Against the mean of 64 still
+renders, 16 midpoints are 0.95 % of the local swing on a moving edge (the temporal quadrature of sharp moving edges, which the
+single-plane path shares; `test/layered-scene-motion.test.ts` keeps it below 1 %). A rolling shutter reads every row at its own
+instants (no row bands: the bands measured 0.18 code RMS against every row, and every row costs about 1.1× the bands); one whose
+rolling readout scans by columns is refused. `motion.subject` stays refused (which surface moves is not defined by the request).
+
+Cost: every site of a moving camera takes the layered sum once per midpoint. Measured at module level (group LM, the layered
+benchmark's 192 × 128 region on card 2's edge, 50 mm f/2 at 1 m, 6 µm, radii 3 1 0 1 3 8 sites, 21 spectral nodes, load about 7):
+15 to 22 µs per site and midpoint, against 15.5 µs per site still through the lens map. A request is refused before any lattice
+is built when its sites (a capture's region or raster, a view's footprint with its reach) times its midpoints pass 2²⁴, the layered
+sums of a still camera's largest default frame (4096 × 4096 sites); the message gives the numbers. `estimateDisplayViewRender`
+counts the midpoints.
+
+### On the GPU (2.29.0)
+
+A layered view on the planar map (a still, rectilinear, distortion-free camera, one illuminant, no cat's eye zones) renders on the
+GPU under `gpu: "auto"` or `"require"` (#750): its own on-demand chunk sums the taps and sites in float32 within the a-priori bound
+the result reports, each tap's visibility the CPU reference's, computed on the host in float64. Other layered views render on the
+CPU, labelled `unsupported-on-backend` with the reason (docs/WEBGPU.md).
 
 ## Accuracy
 
@@ -244,13 +299,15 @@ series would give a card two places farther back).
 
 ## Limits and refusals (2.29.0)
 
-- No GPU path: a layered scene renders on the CPU, labelled `unsupported-on-backend` under `gpu: "auto"` (`"require"` fails).
-- Refused with layered scenes, each with a message naming the option: `motion` of any kind, `lens.catalogue`,
+- The GPU takes a layered view on the planar map only (above); every other layered view renders on the CPU, labelled
+  `unsupported-on-backend` under `gpu: "auto"` (`"require"` fails).
+- Refused with layered scenes, each with a message naming the option: `motion.subject`, `lens.catalogue.flare`,
   `lens.pupilSampling`, `lens.psf` (a caller PSF), and `lens.defocus.catsEye` with `lens.diffraction` (as for any scene). A
   single card without a back plane renders on the single-plane path, so `simulateDisplayView` refuses the cat's eye for it. Also
   refused: two lights that can fall in one site (closer than one site on both axes); a fisheye that reads a point 75° or more off
   the axis; `chartSize.surroundReflectance`; and `illumination` with `chartSize` (in 2.29.0: the blend would be placed in chart
-  units while the scene's metering reads the frame).
+  units while the scene's metering reads the frame); a rolling shutter that scans by columns; a moving camera's work above 2²⁴
+  layered sums.
 - Kernel bounds in a scene of more than one surface (#749): a disc's kernel radius above 512 sites (the single-plane bound,
   `lens.defocus: The blur circle is …`) and a shaped kernel's above 128 (`lens.defocus: a surface's blur needs a kernel radius of …`)
   are refused, every surface checked before any kernel is built. `calculateLayeredChartKernelRadii` gives each surface's radius
@@ -268,7 +325,8 @@ distance (2.6 % edge sites at f/2 and f/8), CPU time of the process, the second 
 | f/2 (kernel radii 3, 1, 0, 1, 3 and 8 sites) | 0.26 s | 0.20 s | 0.88 s | 0.80 s |
 | f/8 (radii 1, 0, 0, 0, 1 and 2) | 0.05 s | 0.05 s | 0.79 s | 0.80 s |
 
-The capture region runs the environment chain per site through the layered provider (never the single-plane tables).
+The capture region ran the environment chain per site through the layered provider in 2.27.0; from 2.29.0 it takes the
+tabulated path (#751, above).
 
 Cost, module level, for a 192 × 128-site region at a card corner of the tabletop preset (6000 × 4000 sites of 6 µm, 50 mm,
 focused at 1 m, a 2 × 2 pixel aperture, one process, CPU time on a machine at load average 80–240): about 2–3 µs per site

@@ -69,7 +69,7 @@ export function estimateDisplayViewRender(prepared: PreparedDisplayView, view: S
   const input = setup.gpu!.reference!, large = setup.gpu!.signalInput.largeKernel, lensPsf = context.lensPsf, lens = context.lens, rendering = setup.rendering;
   return estimateFromFacts({ setup, signal, detail: parts.detail, overlaps, exactMaximum: EXACT_AREA_MEAN_MAX_PIXELS,
     method: regrouped ? "regrouped" : large ? "runs" : input.kernels ? "taps" : "point", radius: input.kernels?.radius ?? 0,
-    disc: regrouped ? input.largeKernel!.radius : large ? large.radius : null, offsets: input.offsets.length, nodes: input.wavelengthsNm.length, midpoints: lens?.midpoints ?? 1,
+    disc: regrouped ? input.largeKernel!.radius : large ? large.radius : null, offsets: input.offsets.length, nodes: input.wavelengthsNm.length, midpoints: lens?.midpoints ?? context.layered?.midpoints ?? 1,
     bandRows: regrouped ? lens?.bandRows ?? null : null, zoneSites: lensPsf ? lensPsf.zoneSites : null, uniformWindows: lensPsf ? context.lensUniformWindows === true : null,
     chain: rendering ? (rendering.fast ? "3-or-6" : 16) : null });
 }

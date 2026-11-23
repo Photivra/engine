@@ -3035,7 +3035,8 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
     // The vignetting depends on the f-number only (output.lensCorrections reads it).
     catalogueCornerStops = character.character.vignetting.cornerStops;
     let extraKernel: ReturnType<typeof genericLensBokehKernel> | undefined;
-    if (lensOptions.defocus !== undefined) {
+    // #741: a layered scene's surfaces take the lens's bokeh in their own kernels (layered-scene-setup.ts), not in its PSF.
+    if (lensOptions.defocus !== undefined && !layered?.multi) {
       const disc = resolveDefocusDisc({ focalLengthMm, aperture: fNumber, focusDistanceM, subjectDistanceM, pitchMicrometers: pitch });
       let discRadius: number;
       try { discRadius = requireDefocusDiscKernelRadius(disc.diameterSites); } catch { fail("lens.defocus: " + defocusDiscLimitMessage(disc.diameterSites, disc.diameterMicrometers)); }
@@ -3065,7 +3066,8 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
     const queryReach = Math.max(0, ...queryOffsetsSites.map((q) => Math.max(Math.abs(q.x), Math.abs(q.y))));
     const reachMm = (kernelRadius + queryReach + 1) * pitch / 1000;
     const frameHalfMm = { x: nativeWidth * pitch / 2000, y: nativeHeight * pitch / 2000 }, extentMm = { x: frameHalfMm.x + reachMm, y: frameHalfMm.y + reachMm };
-    const reachRadius = Math.hypot(extentMm.x, extentMm.y) / catalogue.halfDiagonalMm;
+    // #741: the distortion and vignetting also cover the sites a layered sum reads through the lens beyond that (its kernels' pupil boxes).
+    const layeredMm = (layered?.reach(character, focusDistanceM, pitch) ?? 0) * pitch / 1000, reachRadius = Math.hypot(extentMm.x + layeredMm, extentMm.y + layeredMm) / catalogue.halfDiagonalMm;
     const b = 1 - 2 ** (-character.character.vignetting.cornerStops / 2);
     if (!(b * reachRadius * reachRadius < 0.98))
       fail("lens.catalogue: the " + catalogue.name + "'s vignetting E(ρ) = (1 − bρ²)² is defined inside ρ < " + (1 / Math.sqrt(b)).toFixed(3) + " of the frame's half-diagonal, and this frame's PSF reach goes to ρ = " +
@@ -3092,6 +3094,13 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
       catalogueTaps = (2 * built.kernelRadiusSites + 1) ** 2; catalogueKernelRadius = built.kernelRadiusSites;
       psfReport = { aberrationKernelRadiusSites: built.aberrationKernelRadiusSites, kernelRadiusSites: built.kernelRadiusSites, maximumTruncatedEnergyFraction: built.maximumTruncatedEnergyFraction,
         fieldNodesMm: { x: built.fieldXmm, y: built.fieldYmm }, wavelengthNodesNm: built.wavelengthsNm, transformSize: built.transformSize, maximumPhaseStepWaves: built.maximumPhaseStepWaves };
+    }
+    // #741, #748: a layered scene's lattice takes the lens's kernels and its PSF per field zone (layered-scene-setup.ts); the environment declares no PSF.
+    if (layered?.multi) {
+      layered.catalogue = [character, lensPsf];
+      lensPsf = catalogueTaps = undefined;
+      // lens.catalogue's fast method runs: the PSF's field zones (64 along the long side: wider than one site above 64 sites) or the bokeh without its cat's eye.
+      if (catalogueFastRequested && (c.bokeh.catsEye || Math.max(nativeWidth, nativeHeight) > 64)) markFast("lens.catalogue");
     }
     assume("lens.catalogue.character", "model", { lensId: catalogue.lensId, fNumber, focusDistanceM, magnification: c.magnification, closeFocusGain: c.closeFocusGain, pupilScale: c.pupilScale,
       aberrationsWaves550: { ...c.aberrations }, lateralColor: { ...c.lateralColor }, distortionCorner: c.distortion.corner, vignettingCornerStops: c.vignetting.cornerStops,
@@ -3502,7 +3511,8 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   const spectralSamplingByChannel = Object.fromEntries(CHANNELS.map((channelId) => [channelId, { channelId, wavelengthBasis: "vacuum" as const, wavelengthRangeNanometers: range,
     maximumSubintervalWidthNanometers: spectralStep }])) as Record<Channel, unknown>;
   // Diffraction (2.1): Airy kernels at the resolved f-number on the site pitch, one per spectral node of the sensor quadrature.
-  let diffraction: DiffractionLimitedPsfProfile | undefined, diffractionPsf: typeof lensPsf | undefined, diffractionLattice = false;
+  // #741: a layered scene's lattice holds a catalogue lens's PSF (the environment declares none).
+  let diffraction: DiffractionLimitedPsfProfile | undefined, diffractionPsf: typeof lensPsf | undefined, diffractionLattice = !!layered?.catalogue;
   // The spectral nodes of the sensor quadrature, over all channels, ascending.
   const quadratureWavelengths = (): number[] => [...new Set(CHANNELS.flatMap((channelId) => calculateSensorSpectralQuadrature({ ...(spectralSamplingByChannel[channelId] as { channelId: string;
       wavelengthBasis: "vacuum"; wavelengthRangeNanometers: { minimum: number; maximum: number }; maximumSubintervalWidthNanometers: number }), colorSamplingProfile,
@@ -3802,6 +3812,9 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   const viewLensRaw = viewLensKit && lensFieldMapping?.distortion?.kind === "radial" ? { focalLengthMm, focusDistanceM,
     angularVelocityRadPerSec: angular, ...(handShake ? { handShake } : {}), lensMapping: prepareEnvironmentLensFieldMapping(lensFieldMapping), ...(vignetting ? { vignetting } : {}),
     undistort: viewLensKit.undistortedImagePointNewton } : undefined;
+  // #746: a layered scene's lattice turns with the camera (layered-scene-setup.ts), at the environment's temporal midpoints: (i + ½)·shutter/T under a global shutter.
+  if (rotating && layered) layered.motion = [angular, handShake, Array.from({ length: temporalSampleCount }, (_, i) => (i + 0.5) * (shutterSeconds / temporalSampleCount)),
+    rollingRotation && rollingSiteTimes(), regionNative];
   const viewLensSetup = viewLensKit && { geometry: viewLensRaw ? loadedKit(qualityKit)[QK_PREPARE_DEFOCUS_IMAGE_SPACE_GEOMETRY](viewLensRaw) : lensGeometry!, rollingBands: fastTop, uniformWindows, ...(offsetExpansion ? { offsetExpansion: loadedKit(qualityKit)[QK_CREATE_OFFSET_EXPANSION] } : {}),
     times: rotating || subject ? Array.from({ length: temporalSampleCount }, (_, i) => (i + 0.5) * (shutterSeconds / temporalSampleCount)) : [0], timesAt: rollingRotation ? rollingSiteTimes() : undefined,
     distanceM: planeDistanceM, metresPerFrameUnit,
@@ -4047,6 +4060,9 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
     tabulated = await renderTabulatedNativeRaw({ input: environmentRaw, region: regionNative, siteInput, evaluateRadiance: verificationProvider.evaluateRadiance,
       electrons: createDisplayViewExpectedSignal(perTapSum ? { ...signalInput, perTapSum } : signalInput), onTile: rawTick, tileWidth, yieldControl: () => yieldControl(), checkAbort });
   }
+  // #751: a layered scene's sites take the layered sum its provider answers with (layered-scene-setup.ts), checked per CFA phase against the chain.
+  else if (layered?.multi && dngParts === undefined) tabulated = await renderTabulatedNativeRaw({ input: environmentRaw, region: regionNative, siteInput,
+    evaluateRadiance: rawProvider().evaluateRadiance, electrons: layered.electrons(context), onTile: rawTick, tileWidth, yieldControl: () => yieldControl(), checkAbort });
   let rawOutput: { raw: NativeRawOutput; providerEvaluationCount: number };
   if (dngParts !== undefined) {
     rawOutput = { raw: joinNativeRawParts(dngParts, plan, nativeWidth, nativeHeight, partsCaller, fastReport.requested, requestKey!), providerEvaluationCount: 0 };
@@ -4067,7 +4083,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
     rawOutput = { raw: tabulated.raw, providerEvaluationCount: tabulated.providerEvaluationCount };
     // The verification's relative difference itself is not reported: it is a last-bits quantity, and captures use the JavaScript
     // engine's own Math functions, so it differs between engines while the results are the same.
-    assume("raw.expectedSignal", "model", { method: "per-site-integrated-electrons", verificationSites: 4, tolerance: TABULATED_RELATIVE_TOLERANCE, ...(perTapSum ? { sum: "per-tap" } : {}) },
+    if (layered?.multi) layered.noteElectrons(context); else assume("raw.expectedSignal", "model", { method: "per-site-integrated-electrons", verificationSites: 4, tolerance: TABULATED_RELATIVE_TOLERANCE, ...(perTapSum ? { sum: "per-tap" } : {}) },
     "Each native site's expected photo electrons are integrated per site when the site is read: the sum over the pixel-aperture nodes, anti-aliasing spots, diffraction taps and spectral nodes " +
       "of each tap's material spectrum against the site's channel response (the display view's expected signal), " +
       "the same quantity the environment chain computes for this still, rectilinear, distortion-free planar scene, formed in another order, so it can differ in the last bits. The sensor stage (dark charge, Poisson draws, " +

@@ -15,9 +15,11 @@
  * defocus, occlusion and (when given) diffraction are all in the lattice values.
  *
  * #744, a lens map (`lattice.parts.geometry.lensMap`: distortion, a projection, vignetting) or a frame scale: as
- * `createDefocusImageSpaceProvider` does, a query is keyed by its lattice point. Its direction (its frame point times the frame
- * scale, as a direction again, when the scale is not 1) goes back through the lens to its sensor point (`sensorPointOf`: the
- * projection, then the forward distortion), which is located on the lattice of its fractional query offset within 1e-4 site
+ * `createDefocusImageSpaceProvider` does, a query is keyed by its lattice point. Its direction goes back through the lens to its
+ * sensor point (`sensorPointOf`: the projection, then the forward distortion), which is located on the lattice of its fractional
+ * query offset within 1e-4 site. #748 (2.29.0 wiring): a frame scale (focus breathing) is in the lattice values only (each lattice
+ * point reads the scene at its frame point divided by the scale); the environment's own lens geometry has no breathing, so a site's
+ * query direction is the lens map's at its lattice point and is not scaled
  * (the round trip through the inverse distortion). The environment declares the same lens mapping and vignetting, so it
  * multiplies each answer by the query point's field factor F(q) again: the answer is the lattice value divided by F(q) (whose
  * sum already holds F at every source point), and each site gets the view's sum. A direction at or beyond 90° gets the base
@@ -87,7 +89,7 @@ export function createLayeredSceneProvider(input: LayeredSceneProviderInput): Pl
   const scale = input.metresPerFrameUnit, distance = input.distanceM, baseEvaluate = base.evaluateRadiance;
   const spectrum = new Float64Array(wavelengthsNm.length);
   let lastKey = -1, queries = 0;
-  const geometry = lattice.parts.geometry, lens = geometry.lensMap, frameScale = geometry.frameScale, mapped = !geometry.planar, moving = geometry.timeDependent;
+  const geometry = lattice.parts.geometry, lens = geometry.lensMap, mapped = !geometry.planar, moving = geometry.timeDependent;
   const tolerance = mapped ? LENS_LATTICE_TOLERANCE_SITES : LATTICE_TOLERANCE_SITES;
   // #746: the request times seen (the key's time index), and the lattice frames of the instants read last (groups per shift).
   const times: number[] = [], timeIndex = new Map<number, number>(), latticeKeys = shifts.length * LH * LW;
@@ -140,17 +142,11 @@ export function createLayeredSceneProvider(input: LayeredSceneProviderInput): Pl
     return { x: x / length, y: y / length, z: distance / length };
   }
   /**
-   * #744: the lattice key of a look direction through the lens map (or the scaled planar map) at time t, or undefined; #746 with a
+   * #744: the lattice key of a look direction through the lens map (or the planar map with a frame scale) at time t, or undefined; #746 with a
    * moving camera, plus the time's index times the lattice keys.
    */
   function keyOfLook(look: { x: number; y: number; z: number } | undefined, t: number): number | undefined {
     if (look === undefined) return undefined;
-    if (frameScale !== 1) {
-      // The lattice holds the frame point scaled by 1 / frameScale: the direction of the query's frame point times the scale.
-      if (!(look.z > 0)) return undefined;
-      const d = distance / look.z;
-      look = lookOfFrame(look.x * d / scale * frameScale, look.y * d / scale * frameScale);
-    }
     let sx: number, sy: number;
     if (lens) {
       const point = moving ? lens.sensorPointOf(look, t) : lens.sensorPointOf(look);
