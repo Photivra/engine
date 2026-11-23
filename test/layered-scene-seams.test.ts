@@ -165,3 +165,120 @@ describe("layered sum seams (L0): the cases of scripts/benchmark-layered-scenes.
       expect(got[key], name + " " + key).toBe(BENCHMARK_LOCKS[name]![key]);
   }, scaledTimeout(180_000));
 });
+
+// The interfaces the later layered groups build on ---------------------------------------------------------------------------
+
+describe("layered sum seams (L0): the module interfaces", () => {
+  const f = fixture(40, 28), specs = threeSurfaces(-2.6, 1.8, 4.2), input = signalInputOf(f, specs, FULL, false);
+  const lattice = createLayeredSceneLattice(input), { geometry, visibility } = lattice.parts;
+  const g0 = lattice.groupOf(0, 0), g1 = lattice.groupOf(0.25, 0.75);
+
+  it("framePoint is the lattice formula at every instant; edges are each card's rectangle in lattice coordinates", () => {
+    const point = { u: 0, v: 0 };
+    for (const group of [g0, g1]) for (let q = -3; q < f.H + 3; q += 2) for (let p = -3; p < f.W + 3; p += 3) {
+      for (const instant of [undefined, 0, 0.5]) {
+        expect(geometry.framePoint(group, p, q, point, instant)).toBe(point);
+        expect(point).toEqual({ u: geometry.latticeU(group, p), v: geometry.latticeV(group, q) });
+      }
+      const edges = geometry.edges(group, p, q), { fx, fy } = geometry.groups[group]!;
+      expect(edges).toHaveLength(3);
+      expect(edges[2]).toBeNull();
+      for (const k of [0, 1]) {
+        const r = specs[k]!.rect!, e = edges[k]!;
+        // The rectangle's frame-unit corners map to its box: X = u/g − ½ + W/2 − fx, Y = −v/g − ½ + H/2 − fy.
+        expect(Array.from(e)).toEqual([r.u0 / f.g - 0.5 + f.W / 2 - fx, -r.v1 / f.g - 0.5 + f.H / 2 - fy, r.u1 / f.g - 0.5 + f.W / 2 - fx, -r.v0 / f.g - 0.5 + f.H / 2 - fy]);
+      }
+    }
+    expect(lattice.chiefSurface(-0.5, 0)).toEqual({ surface: 0, material: lattice.parts.radiance.material(0, { u: -0.5, v: 0 }) });
+    expect(geometry.chiefSurface(0.5, 0)).toBe(1);
+    expect(geometry.chiefSurface(0.95, 0)).toBe(2);
+  });
+
+  // The three surfaces above, and a strip in front of a blurred back plane (the strip cuts the middle of the back plane's rows).
+  const strip: SurfaceSpec[] = [{ rect: { u0: 0.005, u1: 0.045, v0: -0.4, v1: 0.4 }, rho: 0.6, reflectances: [0.1] }, { rect: null, rho: 6, reflectances: [0.7] }];
+  for (const [name, set] of [["three surfaces", specs], ["a strip", strip]] as const) it("rowIntervals gives the open part of a pupil row exactly, and rowBreaks the rows' edges: " + name, () => {
+    const lat = set === specs ? lattice : createLayeredSceneLattice(signalInputOf(f, set, FULL, false)), geo = lat.parts.geometry, vis = lat.parts.visibility, g = lat.groupOf(0, 0);
+    // Brute force along each row: a ray at Px reaches surface k when its point is inside k's rectangle (if any) and outside
+    // every nearer one (frame units, as the fixture's reference integration).
+    const reaches = (k: number, x: number, y: number, px: number, py: number): boolean => {
+      for (let j = 0; j <= k; j++) {
+        const s = set[j]!, X = x - s.rho * px, Y = y - s.rho * py, u = (X + 0.5 - f.W / 2) * f.g, v = -(Y + 0.5 - f.H / 2) * f.g, r = s.rect;
+        const inside = r === null || (u >= r.u0 && u <= r.u1 && v >= r.v0 && v <= r.v1);
+        if (j === k ? !inside : inside) return false;
+      }
+      return true;
+    };
+    const out = new Float64Array(6), breaks = new Float64Array(8);
+    let checked = 0, rowsWithGaps = 0;
+    const wrong: string[] = [];
+    for (let q = 2; q < f.H - 2; q += 3) for (let p = 2; p < f.W - 2; p += 2) {
+      if (geo.surfaceOf(g, p, q) >= 0) continue;
+      for (let k = 0; k < set.length; k++) for (let row = 0; row < 9; row++) {
+        const py = -0.95 + row * 0.2375, w = Math.sqrt(1 - py * py), count = vis.rowIntervals(g, k, p, q, py, -w, w, out);
+        if (count > 1) rowsWithGaps++;
+        for (let c = 0; c < count; c++) {
+          expect(out[2 * c]!).toBeGreaterThanOrEqual(-w);
+          expect(out[2 * c + 1]!).toBeGreaterThan(out[2 * c]!);
+          expect(out[2 * c + 1]!).toBeLessThanOrEqual(w);
+          if (c > 0) expect(out[2 * c]!).toBeGreaterThan(out[2 * c - 1]!);
+        }
+        for (let i = 0; i < 400; i++) {
+          const px = -w + (i + 0.5) * 2 * w / 400;
+          let inside = false, near = false;
+          for (let c = 0; c < count; c++) {
+            if (px >= out[2 * c]! && px <= out[2 * c + 1]!) inside = true;
+            if (Math.abs(px - out[2 * c]!) < 1e-9 || Math.abs(px - out[2 * c + 1]!) < 1e-9) near = true;
+          }
+          if (near) continue;
+          if (inside !== reaches(k, p, q, px, py)) wrong.push(`k ${k} at (${p}, ${q}) row ${py} Px ${px}`);
+          checked++;
+        }
+        // Row breaks: b0, b1 and every card edge's Py between them, sorted.
+        const n = vis.rowBreaks(g, k, p, q, -1, 1, breaks), list = Array.from(breaks.subarray(0, n));
+        expect(list).toEqual([...list].sort((a, b) => a - b));
+        expect(list[0]).toBe(-1);
+        expect(list[n - 1]).toBe(1);
+        for (let j = 0; j <= k; j++) {
+          const r = geo.edges(g, p, q)[j], s = set[j]!.rho;
+          if (r) for (const e of [(q - r[1]!) / s, (q - r[3]!) / s]) if (e > -1 && e < 1) expect(list).toContain(e);
+        }
+      }
+    }
+    expect(wrong).toEqual([]);
+    expect(checked).toBeGreaterThan(10_000);
+    if (set === strip) expect(rowsWithGaps).toBeGreaterThan(0);
+  });
+
+  it("share is 0 or 1 away from edges and the share of the open rows across them", () => {
+    // A point on surface 0 alone: the whole pupil reaches it and none reaches the surfaces behind.
+    let alone = -1, ax = 0, ay = 0;
+    for (let q = 0; q < f.H && alone < 0; q++) for (let p = 0; p < f.W; p++) if (geometry.surfaceOf(g0, p, q) === 0) { alone = 0; ax = p; ay = q; break; }
+    expect(alone).toBe(0);
+    expect(visibility.share(g0, 0, ax, ay, -1, 1, -1, 1)).toBe(1);
+    expect(visibility.share(g0, 1, ax, ay, -1, 1, -1, 1)).toBe(0);
+    // At an edge point the shares of the surfaces add up to the whole pupil, within the full method's energy bound (0.2 %).
+    let edgePoints = 0;
+    for (let q = 2; q < f.H - 2; q += 4) for (let p = 2; p < f.W - 2; p += 4) {
+      if (geometry.surfaceOf(g0, p, q) >= 0) continue;
+      let total = 0;
+      edgePoints++;
+      for (let k = 0; k < 3; k++) total += visibility.share(g0, k, p, q, -1, 1, -1, 1);
+      expect(Math.abs(total - 1)).toBeLessThan(0.002);
+    }
+    expect(edgePoints).toBeGreaterThan(5);
+  });
+
+  it("kernel groups: the sum split into node groups has the bits of one group; invalid groups are refused", () => {
+    const N = WAVELENGTHS.length, one = createLayeredSceneSignal(input, lattice);
+    const kernelOf = (l: typeof input.layers[number]): { radius: number; weightsAt(): Float64Array | null } => ({ radius: l.kernel ? l.kernel.radius : 0, weightsAt: () => (l.kernel ? l.kernel.weights : null) });
+    const split = { ...input, kernelGroups: input.layers.map((l) => [{ nodes: { from: 0, to: 1 }, kernel: kernelOf(l) }, { nodes: { from: 1, to: N }, kernel: kernelOf(l) }]) };
+    const two = createLayeredSceneSignal(split, createLayeredSceneLattice(split));
+    one.window(0, 0, f.W, f.H); two.window(0, 0, f.W, f.H);
+    for (let y = 0; y < f.H; y++) for (let x = 0; x < f.W; x++) expect(two.site(x, y)).toBe(one.site(x, y));
+    expect(two.edgeSites).toBeGreaterThan(50);
+    const gap = { ...input, kernelGroups: input.layers.map((l) => [{ nodes: { from: 0, to: 1 }, kernel: kernelOf(l) }, { nodes: { from: 2, to: N }, kernel: kernelOf(l) }]) };
+    expect(() => createLayeredSceneLattice(gap)).toThrow(/kernel groups/);
+    const wide = { ...input, kernelGroups: input.layers.map((l) => [{ nodes: { from: 0, to: N }, kernel: { ...kernelOf(l), radius: kernelOf(l).radius + 1 } }]) };
+    expect(() => createLayeredSceneLattice(wide)).toThrow(/kernel groups/);
+  });
+});
