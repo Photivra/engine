@@ -16,14 +16,6 @@ GENERIC_THIRD_STOP_SHUTTER_SECONDS = Object.freeze([1 / 8000, 1 / 6400, 1 / 5000
   15, 20, 25, 30] as const)
 ```
 
-## GenericEquipmentTier
-
-The exact contract is declared below; use the domain guide for assumptions and staged integration.
-
-```ts
-export type GenericEquipmentTier = "consumer" | "prosumer" | "professional";
-```
-
 ## GenericEquipmentTierPreset
 
 The exact contract is declared below; use the domain guide for assumptions and staged integration.
@@ -90,21 +82,4 @@ export interface GenericTierLensAssets {
   profileReferences: readonly { profileId: string; profileVersion: string }[];
   limitations: readonly string[];
 }
-```
-
-## GenericTierPresetVersion
-
-The exact versions of the generic tier presets (no "latest" alias). 2.1.0 (2.14, round 5) adds the third-stop ISO
-settings; 2.0.0 is kept, whole-stop, so saved selections and records of it still resolve to exactly what they named.
-
-```ts
-export type GenericTierPresetVersion = "2.0.0" | "2.1.0";
-```
-
-## GenericVersionedAsset
-
-The exact contract is declared below; use the domain guide for assumptions and staged integration.
-
-```ts
-export interface GenericVersionedAsset<T> { assetId: string; assetVersion: string; profile: T }
 ```

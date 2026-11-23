@@ -28,7 +28,9 @@ export interface CalculateLateralColorFringeInput {
   pixelPitchMicrometers: number;
   /**
    * The field position as fractions of the frame's half-width (x, +right) and half-height (y, +up) from the optical axis, each
-   * in [−1, 1]. Default `{ x: 1, y: 1 }`: the top-right corner.
+   * in [−1, 1]. Default `{ x: 1, y: 1 }`: the top-right corner. 2.29.0 (#753 optics-26): on a lens whose image circle
+   * (`resolveGenericLens(...).imageCircleRadiusMm`, a circular fisheye's 180° circle) does not reach the corner, the default is the
+   * point on that diagonal at the circle's edge, and a position outside the circle, where the lens forms no image, is refused.
    */
   fieldPosition?: { x: number; y: number };
   /**

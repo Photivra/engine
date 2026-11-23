@@ -91,8 +91,9 @@ export interface SimulateCaptureSensorCharacteristics {
    * Read noise, RMS e⁻ (0–100), of one physical photosite, as a sensor datasheet gives it (2.22.0: on a tier too; a rendered site that
    * sums N photosites, above the tier's 6 µm or a profile's own pitch, takes it ×√N), of the low and the high conversion gain, and
    * the dual-gain switch: the ISO setting from
-   * which the high conversion gain is used (any ISO from 100; above the body's highest ISO, the low gain is used throughout).
-   * An omitted field keeps the body's value. Needs readout regimes that declare their exposure index (the tiers do).
+   * which the high conversion gain is used (any ISO from 32, the lowest ISO marking; above the body's highest ISO, the low gain is used throughout).
+   * An omitted field keeps the body's value. Needs readout regimes that declare their exposure index (the tiers do). 2.29.0 (#753 sensor-03):
+   * `highGainElectrons` on a sensor with one conversion gain (no switch in the body or the request) is refused; set `highGainFromIso` with it.
    */
   readNoise?: { lowGainElectrons?: number; highGainElectrons?: number; highGainFromIso?: number };
   /** Readout time, s (1e-6 to 1): the rolling shutter's top-to-bottom skew. Default: the body's (tiers 8, 15 and 30 ms). */
@@ -122,7 +123,12 @@ export interface SimulateCaptureSensorReport {
   peakQuantumEfficiency: number;
   /** Full-well capacity, e⁻: the base-ISO saturation charge (`sensor.capacityElectrons`). */
   fullWellElectrons: number;
-  /** Read noise, RMS e⁻, of each conversion gain, and the ISO from which the high gain is used (null: one gain throughout). */
+  /**
+   * Read noise, RMS e⁻, of each conversion gain, and the ISO from which the high gain is used (null: one gain throughout).
+   * `highGainFromIso` is the first ISO setting of the body that uses the high gain (a request's switch between two settings reads as
+   * the next one up). 2.29.0 (#753 sensor-04): `lowGainElectrons` is the low gain's value as resolved, also when the switch is at the
+   * base ISO and no setting uses the low gain.
+   */
   readNoise: { lowGainElectrons: number; highGainElectrons: number; highGainFromIso: number | null };
   /** The body's rolling readout skew, s (null when it declares no rolling readout). */
   readoutSeconds: number | null;

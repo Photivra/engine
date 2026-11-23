@@ -1,6 +1,6 @@
 {
-  "packageVersion": "2.28.0",
-  "engineApiVersion": "2.28.0",
+  "packageVersion": "2.29.0",
+  "engineApiVersion": "2.29.0",
   "exports": [
     {
       "name": "AbsoluteUncertaintyEstimate",
@@ -1023,6 +1023,16 @@
       "kind": "type"
     },
     {
+      "name": "calculateIdealLensDetailLimit",
+      "source": "src/optics/detail-limit-ideal.ts",
+      "kind": "runtime"
+    },
+    {
+      "name": "CalculateIdealLensDetailLimitInput",
+      "source": "src/optics/detail-limit-ideal.ts",
+      "kind": "type"
+    },
+    {
       "name": "CalculateIdealPolygonDiffractionInput",
       "source": "src/optics/polygon-diffraction.ts",
       "kind": "type"
@@ -1150,6 +1160,21 @@
     {
       "name": "calculateLayeredChartDepths",
       "source": "src/facade/layered-chart-scene.ts",
+      "kind": "runtime"
+    },
+    {
+      "name": "calculateLayeredChartKernelRadii",
+      "source": "src/facade/layered-chart-scene.ts",
+      "kind": "runtime"
+    },
+    {
+      "name": "calculateLayeredChartSurfaceAt",
+      "source": "src/facade/layered-chart-query.ts",
+      "kind": "runtime"
+    },
+    {
+      "name": "calculateLayeredChartSurfaceAtPixel",
+      "source": "src/facade/layered-chart-pixel.ts",
       "kind": "runtime"
     },
     {
@@ -3149,7 +3174,7 @@
     },
     {
       "name": "DETAIL_LIMIT_LIMITS",
-      "source": "src/optics/detail-limit.ts",
+      "source": "src/optics/detail-limit-ideal.ts",
       "kind": "runtime"
     },
     {
@@ -3290,6 +3315,11 @@
     {
       "name": "DisplayViewFastReport",
       "source": "src/facade/display-view-gpu.ts",
+      "kind": "type"
+    },
+    {
+      "name": "DisplayViewFocusMask",
+      "source": "src/facade/focus-mask.ts",
       "kind": "type"
     },
     {
@@ -3918,7 +3948,17 @@
       "kind": "type"
     },
     {
+      "name": "FalseColorNoise",
+      "source": "src/facade/false-color.ts",
+      "kind": "type"
+    },
+    {
       "name": "FalseColorResult",
+      "source": "src/facade/false-color.ts",
+      "kind": "type"
+    },
+    {
+      "name": "FalseColorStatistics",
       "source": "src/facade/false-color.ts",
       "kind": "type"
     },
@@ -4309,7 +4349,7 @@
     },
     {
       "name": "GenericEquipmentTier",
-      "source": "src/equipment/generic-tier-assets.ts",
+      "source": "src/equipment/generic-tier-exposure.ts",
       "kind": "type"
     },
     {
@@ -4454,12 +4494,12 @@
     },
     {
       "name": "GenericTierPresetVersion",
-      "source": "src/equipment/generic-tier-assets.ts",
+      "source": "src/equipment/generic-tier-exposure.ts",
       "kind": "type"
     },
     {
       "name": "GenericVersionedAsset",
-      "source": "src/equipment/generic-tier-assets.ts",
+      "source": "src/equipment/generic-tier-exposure.ts",
       "kind": "type"
     },
     {
@@ -5158,6 +5198,11 @@
       "kind": "type"
     },
     {
+      "name": "LayeredChartKernelRadius",
+      "source": "src/facade/layered-chart-scene.ts",
+      "kind": "type"
+    },
+    {
       "name": "LayeredChartPointLights",
       "source": "src/facade/layered-chart-scene.ts",
       "kind": "type"
@@ -5165,6 +5210,16 @@
     {
       "name": "LayeredChartScene",
       "source": "src/facade/layered-chart-scene.ts",
+      "kind": "type"
+    },
+    {
+      "name": "LayeredChartSurfaceAt",
+      "source": "src/facade/layered-chart-query.ts",
+      "kind": "type"
+    },
+    {
+      "name": "LayeredChartSurfaceAtPixelInput",
+      "source": "src/facade/layered-chart-pixel.ts",
       "kind": "type"
     },
     {
@@ -9998,6 +10053,16 @@
       "kind": "runtime"
     },
     {
+      "name": "simulateTypicalProcessing",
+      "source": "src/facade/typical-processing-entry.ts",
+      "kind": "runtime"
+    },
+    {
+      "name": "SimulateTypicalProcessingInput",
+      "source": "src/facade/typical-processing.ts",
+      "kind": "type"
+    },
+    {
       "name": "SimultaneousExposureBoundarySchedule",
       "source": "src/sensor/exposure-window.ts",
       "kind": "type"
@@ -10415,6 +10480,21 @@
     {
       "name": "TtlFlashExposure",
       "source": "src/exposure/flash-ttl.ts",
+      "kind": "type"
+    },
+    {
+      "name": "TypicalProcessingDevelopOptions",
+      "source": "src/facade/typical-processing.ts",
+      "kind": "type"
+    },
+    {
+      "name": "TypicalProcessingResult",
+      "source": "src/facade/typical-processing.ts",
+      "kind": "type"
+    },
+    {
+      "name": "TypicalProcessingStage",
+      "source": "src/facade/typical-processing.ts",
       "kind": "type"
     },
     {

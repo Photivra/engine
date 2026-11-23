@@ -191,7 +191,10 @@ export type FrontOfLensFilterTransmissionModel =
       /** k1: intensity transmittance for light polarized along the transmission axis, (0, 1]. */
       principalTransmittance:
         EvidenceBackedFact<number>;
-      /** k1 / k2. Finite and >= 1. Use a large finite ratio for a near-ideal polarizer. */
+      /**
+       * k1 / k2. Finite and >= 1. Use a large finite ratio for a near-ideal polarizer. From 2.29.0 a crossed pair transmits
+       * k1 k2 within double rounding at any ratio (it read high from about 1e15 and was refused from 1e17 before).
+       */
       extinctionRatio:
         EvidenceBackedFact<number>;
       /** Transmission-axis angle as mounted, degrees counter-clockwise from image +X. */

@@ -1,5 +1,231 @@
 # Changelog
 
+## 2.29.0 — unreleased (prepared November 23, 2026)
+
+A minor release: layered chart scenes through a lens (projection, distortion, vignetting, a catalogue lens), under mixed light,
+with camera motion, focus scatter and breathing, larger blur at card edges and on the GPU (#741, #744–#751); tap to focus and an
+in-focus mask (#747, #752); `simulateTypicalProcessing` (#740) and false color with noise (#743); full-quality motion with
+diffraction and the anti-aliasing filter in captures and display views (#761, #762, #767); faster full-quality catalogue-lens and
+mixed-light frames (#760); smaller bundles (#658, #765) and the low-severity fixes of #730, #738, #742 and #753. It is minor
+because it adds 16 root exports (2,117 → 2,133; runtime exports 725 → 730), new options and result fields and one fast method
+(`simulateTypicalProcessing/local-tone-mapping`), and changes some outputs and refusals (listed first below); nothing is removed
+from the root and no export changes kind. See the
+[2.29.0 release record](https://github.com/Photivra/engine/blob/main/docs/RELEASE_2_29_0.md).
+
+### Output and behavior changes (migration)
+
+Each item is described in its entry below.
+
+- **Layered chart scenes render requests they refused (#741, #744–#746, #748, #761).** With `lens.projection`,
+  `lens.distortion`, `lens.vignetting`, `lens.catalogue`, `illumination`, `chartSize`, camera rotation, `motion.handheld` or a
+  rolling shutter. `motion.subject` stays refused, now with the reason ("which surface moves is not defined by the request");
+  newly refused with layered scenes: `lens.catalogue.flare`, `chartSize.surroundReflectance`, `illumination` with `chartSize`, a
+  fisheye point 75° or more off the axis, a rolling readout that scans by columns, and a moving camera's work above 2²⁴ layered
+  sums.
+- **Layered kernel refusals (#749).** Card-edge kernels are taken to 512 sites (disc) and 128 (shaped kernels) instead of 64; a
+  larger one is refused before any kernel is built, and the two messages start with `lens.defocus:`.
+- **Layered output (#749, #751, #746, #741).** The run sum replaces the direct sum at disc edges (within 1e-9 relative per site,
+  rule 3; the layered seam locks are re-recorded). Layered captures take the tabulated native RAW path (the same RAW codes in every
+  test case). A radiance plane's pilot material is −1 (the seams test's lattice lock is re-recorded; values unchanged).
+  Lens-mapped layered views choose their uniform pixels with the pilot mapped once. Layered views on the planar map under
+  `gpu: "auto"` ask the device.
+- **#748: focus scatter keeps the requested focus's framing.** On a layered scene with `lens.focusScatter`, every surface's blur,
+  kernel and `scene.layers` report are those of the sampled focus, but the frame keeps the requested focus's thin-lens framing (as
+  on the single-plane path), so the pixels are not those of a request focused at the sampled focus (documented).
+- **#741 without axial color as a per-wavelength blur.** Owner decision 4's go/no-go did not pass; the axial color stays in the
+  lens's PSF on layered scenes (no opposite fringes on either side of the focus plane). Follow-up: #799.
+- **#746: 16 temporal midpoints on a layered scene are 0.95 % of the local swing** from the mean of 64 still renders on a moving
+  edge (the plan's target was 0.5 %; documented, and the test keeps it below 1 %).
+- **#767: a display view's `lens.diffraction` assumption reports `execution: "image-space-convolution"`** where the diffraction
+  taps pass 100,000 scene queries per site (for example rotation with diffraction and a 2 × 2 box at 16 midpoints), as the
+  capture does; it reported `"environment-psf-quadrature"`. No sample changes on views that rendered before. A view's refusal
+  with the filter now gives the capture's count (the taps' factor 1).
+- **#786: `motion.subject: {}` is refused** ("motion.subject needs velocityMPerSec or angularVelocityRadPerSec."); it was
+  documented as a subject at rest (a zero velocity still is one). Also refused: `null` for `output.gamutHandling`,
+  `motion.handheld.seed` and `motion.handheld.stabilizationStops`; `sensor.readNoise: {}`; a part's `fast` or `region.fast` that
+  is not a boolean in both from-parts calls.
+- **Ties of the ISO, shutter and aperture snaps (`foundation-05`, #753).** Requests within 1e-9 stops of a tie take the
+  documented side (the lower ISO, the shorter shutter, the narrower aperture): compensation 0.5 and 1.5 give ISO 100 and 200
+  (200 and 400 before), third-stop compensation 0.5 gives ISO 125 (160 before).
+- **#738:** Auto ISO in whole stops on a caller sensor profile with base ISO 160, 320 or 640 lists base × 2^k up to the highest
+  ISO (it ended at 640). Built-in profiles are unchanged.
+- **Sensor (`sensor-03`, `sensor-04`, #753).** `sensor.readNoise.highGainElectrons` on a single-gain sensor without
+  `highGainFromIso` is refused (it had no effect); `highGainFromIso` may be set from ISO 32.
+  `result.sensor.readNoise.lowGainElectrons` is the resolved low gain when the switch is at or below base ISO.
+- **Optics (`optics-22`, `optics-26`, #753).** Polarizer stacks are computed without cancellation: a crossed pair transmits
+  k1·k2 at any extinction ratio (it read high from 1e15 and was refused from 1e17); other polarizer results move by a few ulp.
+  `calculateLateralColorFringe` defaults to the image circle's edge on a circular fisheye and refuses a position outside it.
+- **#742: Celsius temperatures at or below absolute zero are refused** in the dark-current, charge-capacity,
+  saturation-capacity, spectral-response, air-index and browser-native inputs.
+- **Facade (#730).** The two from-parts functions refuse undefined parts (`facade-03`); dead-leaves charts whose coarse lookup
+  grid overflowed render, and a composite element of width or height at or below 1e-300 is refused (`facade-15`); flat
+  `lens.filter` profiles of either wavelength basis stack with a spectral one (`facade-16`); the catalogue lens, the display
+  view's lens signal and the image-plane and layered scene code fail to load with `ImageKernelExecutionError`
+  `"quality-code-unavailable"` (`facade-18`); a two-row frame with rotation under a rolling shutter and `lens.defocus` renders as
+  a view (`facade-17`); the last bits of expected electrons of image-space `lens.defocus` on material scenes can change, about
+  1e-16 relative (`facade-14`).
+- **Now render (refused before):** motion (camera rotation, hand shake, a moving subject) with `lens.diffraction`, the
+  four-spot filter and a box at full quality in captures (#761, #762) and display views (#767).
+- **Held for a later release:** `facade-04` (an assumption noting that `exposure.compensationStops` in manual mode with a fixed
+  ISO changes no setting; follow-up #800), `facade-05`, `-06` and `-07` (owner decision 2: the fast row's room).
+
+### New API
+
+- `simulateTypicalProcessing(input, provider?)`, with `SimulateTypicalProcessingInput`, `TypicalProcessingDevelopOptions`,
+  `TypicalProcessingResult` and `TypicalProcessingStage` (#740; Processing, below).
+- `calculateLayeredChartSurfaceAt` and `LayeredChartSurfaceAt` (#747); `calculateLayeredChartSurfaceAtPixel` and
+  `LayeredChartSurfaceAtPixelInput` (#747); `calculateLayeredChartKernelRadii` and `LayeredChartKernelRadius` (#764);
+  `DisplayViewFocusMask` (#752); `LAYERED_CHART_LIMITS.maximumEdgeKernelRadiusSites` (#764).
+- `calculateIdealLensDetailLimit` and `CalculateIdealLensDetailLimitInput` (#765).
+- `FalseColorNoise` and `FalseColorStatistics`, with `measure.noise` and `result.noise` on `simulateFalseColor` (#743).
+- The display view's `focusMask` option and `view.focusMask` (#752).
+
+### Sizes
+
+Measured on the capture worker's shape (`test/capture-bundle.test.ts`) with rolldown 1.2.14, Node 26, gzip level 9, on the
+integration tree. No limit is raised; the new rows' limits are their measurements rounded up to the next 100 B (owner decision 3).
+
+| Row | 2.28.0 | 2.29.0 | Limit |
+| --- | --- | --- | --- |
+| fast worker | 338,840 B | **338,820 B** | 338,900 B |
+| on demand | 51,977 B | **51,743 B** | 52,000 B (#658's target: 49,400 B) |
+| export kit | 10,395 B | **10,393 B** | 10,400 B |
+| lens passes | 10,200 B | **9,919 B** | 10,200 B |
+| false-color body; entry delta | 5,094 B; 348 B | **5,094 B; 289 B** | 5,100 B; 400 B |
+| false-color noise (#743, new) | — | **3,572 B** | 3,600 B |
+| layered chunk (new) | — | **23,230 B** | 23,300 B |
+| layered GPU chunk (#750, new) | — | **8,331 B** | 8,400 B |
+| typical processing (#740, new): body; entry delta | — | **17,889 B; 1,332 B** | 17,900 B; 1,400 B |
+| `calculateProgramLine` (#765, new) | 24,838 B | **14,508 B** | 14,600 B |
+| `calculateIdealLensDetailLimit`; `calculateDetailLimit` (#765, new) | —; 10,200 B | **4,954 B; 10,299 B** | 5,000 B; 10,300 B |
+
+Savings that made the room: the WGSL minifier tightens blankspace, lines with an interpolation and newlines at brackets,
+commas and semicolons, and six untagged shader literals are tagged (#658; tokens unchanged, pinned by lexer hashes; source maps
+may point a few columns early inside tightened interpolation lines); shared parser and CFA row-pattern helpers (`gpu-B3`); the
+false-color stub uses the shared kit loader. #658's on-demand target is not met and #658 stays open. A bundle with
+`prepareLayeredChartScenes` splits the GPU session chunk in two (about +1,020 B over all chunks, as `prepareImagePlaneScenes`
+does).
+
+### Benchmarks
+
+`docs/benchmarks/2026-11-23-figure-batch-2.28.0-2.29.0.json` records #760's pair runs of the #670 set's catalogue-768 and
+mixed-light parts (shared machine): `fast: false` catalogue-768 39.81 → 18.94 CPU s (2.1×), mixed light 33.97 → 19.46 CPU s
+(1.7×), samples equal. Below the plan's 4× estimate, so #760 stays open. Times are host-dependent and not run by CI.
+
+### Known limitations
+
+- **#741:** no axial color as a per-wavelength blur (above). The shaped kernel's taps map to the pupil linearly in the
+  visibility, so a uniform scene is within 6.0 % across card edges with a strong spherical aberration (PV 85 1.8; 2.7 % with
+  PV 85 1.2 Pro); the existing `lens.defocus` `sphericalAberration` on layered scenes shows 15.2 % and 6.9 % for the same W040,
+  discs 0.01 % (#799). Occlusion uses each surface's nominal thin-lens ray map (an approximation).
+- **#746:** 16 midpoints at 0.95 % of the local swing (above); a rolling shutter reads every row at its own instants (no row
+  bands on layered scenes: they measured 0.18 code RMS against every row).
+- **#748:** the framing under focus scatter (above).
+- **#750:** the GPU takes only layered views on the planar map (a still, rectilinear, distortion-free camera, one illuminant, no
+  cat's eye zones, kernels up to 96 sites); other layered views render on the CPU, labeled `unsupported-on-backend`.
+- **#767:** coarse display views of a moving subject with diffraction at `fast: false` (below about 550 display pixels across a
+  6000-pixel frame) read lattice points without the ring and are slow (15.6 s for 4 display pixels at 192 wide in the
+  measured case; follow-up #801). Camera rotation under a rolling shutter on a fast request renders as a view and
+  is refused as a capture.
+- **#760** (below its estimate) and **#711** (met) are in their entries; #737 (WebAssembly research) is not in this release.
+
+### Layered chart scenes
+
+- **Through a lens (#744).** With `lens.projection`, `lens.distortion` or `lens.vignetting` the layered sum moves to the
+  sensor's site lattice in image space: each lattice point maps through the lens to a field direction, one frame point on every
+  surface; card edges are taken as their tangent lines near a point (half-planes; where a curved edge leaves its tangent by more
+  than the tolerance, the point sums tap by tap). The capture's environment keeps the lens's field mapping and vignetting and
+  declares no PSF. A fisheye point 75° or more off the axis is refused.
+- **Mixed light (#745).** `illumination` lights each surface point by the blend at its own frame point, as one light field over
+  the frame's angles (no shadows between surfaces, no falloff with depth; an approximation, labeled).
+- **Larger blur at card edges (#749, #750 CPU).** A disc kernel row is one run of constant weight; the visible part of a pupil
+  row is a set of intervals, so an edge site sums rows by prefix differences of the surface's spectral radiance, and shaped
+  kernels by runs of equal weight. Bounds 512 (disc) and 128 (shaped), checked before allocation, exported as
+  `LAYERED_CHART_LIMITS.maximumEdgeKernelRadiusSites` and per surface by `calculateLayeredChartKernelRadii` (#764).
+- **`chartSize` (#761).** Places the cards in chart units (u = ±1 at the chart's edges at the subject distance); the far surface
+  continues beyond the chart.
+- **A catalogue lens (#741, #748).** Each surface's blur is the lens's own bokeh (blades, spherical aberration, the cat's eye per
+  field zone on the full method) at its signed blur less the PSF's balancing defocus, and the lens's PSF, with its axial and
+  lateral color, follows the sum per field zone (64 zones along the long side fast, zones of one site full, for the capture and
+  the view; the existing entries `lens.catalogue/view-psf-zones` and `lens.catalogue/cats-eye` cover it). `lens.focusScatter` and
+  `lens.catalogue.breathing` apply; the `scene.layers` assumption reports `catalogue.breathingScale`.
+- **Camera motion (#746).** Camera rotation and hand shake turn each look direction by one rotation matrix per instant; each
+  temporal midpoint is one layered sum (8 fast, 16 full, as on flat scenes), every row of a rolling shutter at its own instants.
+  Work above 2²⁴ layered sums is refused with its numbers; `estimateDisplayViewRender` counts the midpoints.
+- **On the GPU (#750).** With `gpu` `"auto"` or `"require"`, a layered view on the planar map sums its taps and sites in float32
+  within the a-priori bound the result reports; each tap's visibility is the CPU reference's, computed on the host in float64.
+  Its own on-demand chunk; the `prepareDisplayView.gpu` entry covers it (docs/WEBGPU.md, "Layered chart scenes on the GPU").
+- **Faster whole-frame captures (#751).** A layered capture takes the tabulated native RAW path: each site's expected electrons are
+  the layered signal of the capture's own lattice, checked at one site per CFA phase against the environment chain within 1e-9.
+  The issue's frame (192 × 128 output) in 22 ms instead of 238 ms (Apple M5 Pro, Node 26.13.1), the same RAW codes.
+- **Tap to focus (#747).** `calculateLayeredChartSurfaceAt({ scene, aspect, u, v })` gives the surface the chief ray through a
+  frame point sees and its distance along the axis; `calculateLayeredChartSurfaceAtPixel` maps an output pixel through the
+  request's lens first (`null` where it sees no scene). The first export bundles without the lens catalogue.
+- **In-focus mask (#752).** `view.focusMask: true | { circleOfConfusionMm }` returns a score per display pixel,
+  max(0, 1 − c / c₀), from each pixel's chief-ray surface (a single-plane scene: one value), c₀ the frame's diagonal / 1500 by
+  default. Analytic: the same fast or full, on the CPU and the GPU; labeled a geometric thin-lens guide.
+- **Seams (L0).** The layered sum is split into its modules (geometry, radiance, visibility, edge sum), bit for bit.
+
+### Capture and display view
+
+- **Motion with diffraction and the four-spot filter at full quality (#761, #762).** Camera motion, hand shake or a moving
+  subject with `lens.diffraction`, the four-spot filter and a box render at full quality where the per-tap quadrature passed
+  100,000 scene queries per site: the scene provider sums the taps on the site lattice at each instant (the same terms in
+  another order), within a 64 MiB band budget; a region too wide for it is refused with the numbers. The refusal over the
+  per-site bound names its factors (`facade-19`); field zones' kernels are built once per band (`facade-12`); the image-space
+  defocus provider's values no longer depend on the window (`facade-14`).
+- **Display views of the same requests (#767).** The view counts its scene queries as the capture does, without the diffraction
+  taps where the capture sums them on the lattice; each site's expected electrons equal the capture's within 1e-9 relative
+  (measured 3.9e-15). A catalogue lens with motion and the filter over the bound, `motion.subject` under a rolling shutter or
+  rotating, and a count over 100,000 without the taps stay refused.
+- **Faster full-quality catalogue-lens and mixed-light frames (#760).** A catalogue view's lens PSF is resolved per site in one
+  batch from the full-quality code (`facade-08`), and a radiance scene sums its taps from a tap-major kernel table, with the
+  same results; the flare veil's frame mean is computed once for the regions and parts of one request (`facade-13`).
+- **#711: rolling shutter with defocus.** The row blocks of the regrouped lens signal let the view's per-pixel memo replay real
+  pixels; on #711's region the rolling, out-of-focus render 5.82–5.88 → 4.69–4.70 CPU s, 2.56–2.68× the in-focus render
+  (target 3×, met); byte-identical.
+- **Rotation quadrature (`sensor-28`, #753).** The exposure windows and geometry are resolved once for all phases: 256 phases ×
+  1 point 1.9 → 1.1 ms, bit for bit.
+- **Kit loads (`facade-18`).** The four other on-demand modules load through the kit loader and its error.
+
+### Processing and false color
+
+- **`simulateTypicalProcessing` (#740).** Phone-style processing of a burst of DNG frames as a simulation of typical stages, not
+  of a device: the frames' mean before the demosaic, `developDngImage`'s development, bilateral noise reduction, Durand–Dorsey
+  local tone mapping and a saturation gain in linear light, then `developDngImage`'s tone curve and encoding. One frame with
+  every stage off equals `developDngImage` bit for bit. New fast method `simulateTypicalProcessing/local-tone-mapping`: the
+  paper's downsampled piecewise-linear bilateral filter fast, the direct bilateral filter full, refused above 2 × 10¹¹ tap
+  evaluations. Its code loads on demand in its own chunk (docs/PROCESSING.md).
+- **False color with noise (#743).** `simulateFalseColor` takes `measure.noise`: `result.noise` reports `withNoise` (the
+  capture's noisy mosaic, demosaiced), `noiseOnly` (a full-color sensor with noise, without a demosaic) and `demosaicOnly`, each
+  against the noise-free full-color reference. The noisy mosaic is the RAW of `simulateCapture` at `fast: false` and the seed.
+  Loaded on demand in its own chunk; without `measure.noise` the result is unchanged.
+
+### Bundles and calculations
+
+- **#765.** `calculateProgramLine` reads only the tiers' exposure side (`equipment/generic-tier-exposure.ts`): 24,838 → 14,508 B,
+  results pinned by 135 hashes. `calculateIdealLensDetailLimit` is `calculateDetailLimit` for an ideal lens in a module without
+  the lens catalogue (4,954 B).
+- **#658.** The WGSL savings above; the Speed, Quality and lens shaders' tokens are unchanged (17 pinned lexer hashes), and their
+  text needs the SwiftShader and hardware runs (Gates).
+
+### Gates and tests
+
+- **Shard weights (#742).** Re-recorded from two 2.28.0 coverage runs (the mean of each file's two times); the recorder keeps a
+  file no report times and drops removed files. New files are entered by hand (local time under coverage × 2.8).
+- **#755.** The lens offset-expansion test is back in coverage runs as six files; the coverage-exclusion helper is removed.
+  `display-view-speed-gpu.test.ts` is split in two (it recorded 908 s on CI). The `combined` display-view hash locks kept for
+  2.28.0 are removed; `samples` and `internals` locks are unchanged.
+- **WebGPU.** The layered GPU suite joins the SwiftShader conformance run; the shader-text changes of #658 and the layered passes
+  are run on SwiftShader and on hardware (docs/WEBGPU_DEVICES.md).
+
+### Site and docs
+
+Code examples on the documentation site are syntax-colored at build time on a dark ground (#757; new site development
+dependency highlight.js 11.12.0, recorded in THIRD_PARTY.md); the site uses the Photivra icon files and a theme color (#758);
+docs/COLOR_PATCHES.md names the closest reference colors by set and kind, not by brand (#756). docs/LENS_CATALOGUE.md states the
+display view's fast method correctly (`facade-20`).
+
 ## 2.28.0 — published November 22, 2026
 
 A minor release: lower CPU cost of full-quality and batch figure renders (#670, #731, #734, #735, #684, #722), catalogue-lens

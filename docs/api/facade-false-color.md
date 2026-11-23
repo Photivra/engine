@@ -2,6 +2,29 @@
 
 The package and root API versions are recorded once in [Navigation](../API_REFERENCE.md) · [Developer guide](https://github.com/Photivra/engine/blob/main/docs/DEVELOPERS.md). Generated signatures retain independent schema/model versions. Only the exports listed here are root-package contracts; module-local helpers are not supported deep imports.
 
+## FalseColorNoise
+
+#743: `result.noise`, the color error with noise, each measure against the noise-free full-color reference.
+
+```ts
+export interface FalseColorNoise {
+  /** The noise seed of the capture the noisy mosaic comes from. */
+  seed: number;
+  /** The capture's noisy mosaic (the RAW `simulateCapture` returns at `fast: false` and this seed), demosaiced and developed: demosaic and noise together. */
+  withNoise: FalseColorStatistics;
+  /** A full-color sensor with noise (each site's three channels drawn independently, through the capture's readout chain), developed without a demosaic: chroma noise alone. */
+  noiseOnly: FalseColorStatistics;
+  /** The noise-free measure: `chromaDifference` itself. */
+  demosaicOnly: FalseColorStatistics;
+  /** With `measure.map`: each measure's map (`demosaicOnly` is `result.map`). */
+  maps?: { withNoise: NonNullable<FalseColorResult["map"]>; noiseOnly: NonNullable<FalseColorResult["map"]>; demosaicOnly: NonNullable<FalseColorResult["map"]> };
+  /** With `measure.images`: the developed images of `withNoise` and `noiseOnly` (sRGB 8-bit RGBA); the reference is `result.images.reference`. */
+  images?: { withNoise: Uint8ClampedArray; noiseOnly: Uint8ClampedArray };
+  /** Wall-clock milliseconds: the three capture runs (with the extra planes' expected signal), the measure and the whole call. */
+  timingsMs: { captures: number; measure: number; total: number };
+}
+```
+
 ## FalseColorResult
 
 Result of `simulateFalseColor`: the demosaic's color error per output pixel, summarized. Not a capture.
@@ -36,9 +59,19 @@ export interface FalseColorResult {
   diagnostics: { siteEvaluations: number; sceneLookups: number; timingsMs: { signal: number; measure: number; total: number } };
   provenance: { scientificStatus: "approximation"; cameraPresetId: string; cameraPresetVersion: string; evidence: readonly EvidenceProvenance[]; composedContracts: readonly string[];
     limitations: readonly string[] };
-  /** The request's assumptions, then `falseColor.reference`, `falseColor.capture` and `falseColor.metric`. */
+  /** #743: with `measure.noise`, the measures with noise. */
+  noise?: FalseColorNoise;
+  /** The request's assumptions, then `falseColor.reference`, `falseColor.capture` and `falseColor.metric` (and `falseColor.noise` with `measure.noise`). */
   assumptions: readonly SimulateCaptureAssumption[];
 }
+```
+
+## FalseColorStatistics
+
+One statistics block of the a*b* difference (`chromaDifference` and each measure of `noise`).
+
+```ts
+export type FalseColorStatistics = FalseColorResult["chromaDifference"];
 ```
 
 ## SimulateFalseColorOptions
@@ -55,5 +88,10 @@ export interface SimulateFalseColorOptions {
   map?: boolean | { maximum?: number };
   /** Also return the two developed images (sRGB 8-bit RGBA). Default false. */
   images?: boolean;
+  /**
+   * #743 (2.29.0): `true` or `{ seed }`: also measure with noise (`result.noise`). `seed` (uint32) replaces `sensor.noiseSeed` for the
+   * capture the noisy mosaic comes from. Default off: without it the result is that of 2.28.0, bit for bit.
+   */
+  noise?: true | { seed?: number };
 }
 ```
