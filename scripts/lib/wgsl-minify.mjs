@@ -141,14 +141,35 @@ export function minifyWgslTemplates(source) {
 }
 
 /**
- * The WGSL token stream of shader text: comments removed (block comments nest), split on blankspace. Interpolations
- * (`${…}` in a literal body) are kept as single tokens. Used by tests to show minification changes no token.
+ * WGSL's syntactic tokens of more than one character (WGSL §3.5 "Syntactic Tokens"), longest first: the lexer takes the longest
+ * match. `>>`, `>=` and `>>=` are listed although template-list discovery (WGSL §3.9) may split them in the parser: the minifier
+ * never joins or splits two punctuation characters, so a lexical stream that takes them whole compares the same either way.
+ */
+const MULTI_CHARACTER_TOKENS = ["<<=", ">>=", "&&", "||", "->", "<=", ">=", "==", "!=", "<<", ">>", "++", "--", "+=", "-=", "*=", "/=", "%=", "&=", "|=", "^="];
+/** Identifiers (ASCII; the engine's shaders use no other), and decimal and hexadecimal int and float literals with their suffixes (WGSL §3.6, §5.2). */
+const WORD = /[A-Za-z_][A-Za-z0-9_]*|0[xX](?:[0-9a-fA-F]*\.[0-9a-fA-F]+|[0-9a-fA-F]+\.?)(?:[pP][+-]?[0-9]+)?[fhiu]?|(?:[0-9]*\.[0-9]+|[0-9]+\.?)(?:[eE][+-]?[0-9]+)?[fhiu]?/uy;
+
+/**
+ * The WGSL token stream of shader text (2.29.0, #658: a lexer, so that blankspace the minifier removes between two tokens cannot
+ * hide a change): comments removed (block comments nest) and blankspace skipped (WGSL §3: both only separate tokens), then the
+ * longest identifier, literal or syntactic token at each position. An interpolation (`${…}` in a literal body) is one token.
+ * Used by tests and the build to show that minification changes no token.
  */
 export function wgslTokens(body) {
   const tokens = [];
   const state = { blockDepth: 0 };
-  for (const line of body.split("\n")) {
-    for (const token of stripCommentsFromLine(line, state).split(/[ \t\r]+/u)) if (token !== "") tokens.push(token);
+  let text = "";
+  for (const line of body.split("\n")) text += stripCommentsFromLine(line, state) + "\n";
+  for (let i = 0; i < text.length;) {
+    const c = text[i];
+    if (c === " " || c === "\t" || c === "\r" || c === "\n") { i++; continue; }
+    if (c === "$" && text[i + 1] === "{") { const end = skipExpression(text, i + 2) + 1; tokens.push(text.slice(i, end)); i = end; continue; }
+    WORD.lastIndex = i;
+    const word = WORD.exec(text);
+    if (word) { tokens.push(word[0]); i += word[0].length; continue; }
+    const multi = MULTI_CHARACTER_TOKENS.find((t) => text.startsWith(t, i));
+    tokens.push(multi ?? c);
+    i += multi ? multi.length : 1;
   }
   return tokens;
 }
