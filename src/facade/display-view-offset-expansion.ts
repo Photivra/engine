@@ -9,7 +9,7 @@
  * own material at its own (u, v); where all offsets of a point read one material m, B = (Σ_o w_o·F_o)·L_m per node. The mapped
  * centres and each centre's 18 coefficients are kept in rings tagged with the centre and the instant, so a centre's coefficients depend
  * only on its 3 × 3 centres: regions equal the whole view. Measured against the full method in
- * test/display-view-lens-offset-expansion.test.ts. Per-site integration is unchanged: B holds spectra only.
+ * test/display-view-lens-offset-expansion-1.test.ts to -6.test.ts. Per-site integration is unchanged: B holds spectra only.
  */
 
 import { InvalidConfigurationError } from "../core/configuration-error.js";

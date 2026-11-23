@@ -1,5 +1,4 @@
 // SPDX-License-Identifier: Apache-2.0
-import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { InvalidConfigurationError, calculateEnvironmentSensorPhotoSignal, createPlanarSceneRadianceProvider, serializeDisplayViewCorrectionStates, bindDisplayViewCorrectionStates,
   prepareDisplayView, simulateCapture, simulateDisplayView, SIMULATE_DISPLAY_VIEW_DEFAULT_SAMPLES_PER_AXIS, type CalculateEnvironmentSensorPhotoSignalInput,
@@ -14,18 +13,13 @@ import { displayViewDigests } from "./helpers/display-view-digests.js";
 // #508: the arm64 hashes of the "keeps its bytes" locks whose bytes differ there, keyed by the x64 lock (recorded on
 // Node 24.19.0 and 24.22.1, macOS arm64 and Linux arm64). The Speed case without diffraction is the same on both.
 /** #697: a case's locks (test/helpers/display-view-digests.ts); each is an x64 lock, with its arm64 hash below if its bytes differ there. */
-interface Lock { combined: string; samples: string; internals: string }
+interface Lock { samples: string; internals: string }
 const ARM64_DISPLAY_VIEW_HASHES: Readonly<Record<string, string>> = {
-  // #697: the combined and internals locks whose bytes differ on arm64 (the samples locks are the same on both). Re-recorded for #732.
-  "4e7ad07ab2d98963b7b75010a2fdf4c2d117e1a63a81743fadf67665080012d8": "2394f008b46f0816bfba8d6e91421d96814a27a0e53eb92e34151a31861fa55e",
+  // #697: the internals locks whose bytes differ on arm64 (the samples locks are the same on both). Re-recorded for #732.
   "bef9689c1c9c997368a3e9a2658df65584bd066bccefae0e604d37553d3eb0df": "0dc4b29c250bffca3cc437e5d343ab60cc01639d08200527c9870ea2ac148a13",
-  "7edf23687e2fc2e356b545fec108937b071579f831ea35684b1209bb0e573f25": "156a2b28d19de5c3fe9c1fe5d1c914e81861e725f48627b45842a7617044ac04",
   "8d827f27aff1812d9a61ac744177989944584feaedc91aa518225f19e5e52ee8": "7059af9c31ea3d5ed5964aab51c506b7991cd6503ad373a28c4e650173730353",
-  "8d15df0e4467691124275b878da1a077a312fa9d3471bd328dc338f7ba830a1a": "1eabf3bb723871f98086ac06811e2a2c7e9fb8b459d86f7a0242e3cebff959c4",
   "f96c46a24ad84f23b4427e23a2be738bed9f29391b458cbb91f75673fec3649a": "1a025aff25f12ed65401e13d14cdc3d1e5beec24cb7bfee67552090dfb3515d5",
-  "ce833d286599b798324a738cf4fcd71369512d0f635fba0afd36bc924bae5660": "4a3346d4e0a5c5a5df7f27c7d9a6ef266f464b71c02baf6341e7e2e7eda2a3b9",
   "a78e38b3f01b8c1fec1a7ce1a5f50464cae5e33c175749941e08afa21ef0b4b4": "127c1db2455806ee6c2e54ef8564055784de1eeb191d6633b24221d0c7f4eca5",
-  "859f6f33e6dd02308d4fb64bd5b6deb0ad647a1c2308582a92ff9b445a0b9f63": "aadeaabf8820fdb4d673eb3df1828998b14523af902aedb65894ed29f162e88e",
   "4582f7bb71f2ea1cdca403ea042a7c3b9a8b3fa05c48914c798bad4aa3b23b27": "c7b6a96d6bbcb44f059e86b13a5843280c2230ebafcc0712c0b0229f4d08b2e5"
 };
 
@@ -261,24 +255,24 @@ describe("simulateDisplayView", () => {
     // 2.28.0 (#697): each case locks two digests, `samples` (the image bytes only) and `internals` (the expected values, the noise
     // standard deviations and the diagnostics), recorded at main (99782e7, 2.27.0's results) on x64 (Node 24.1.0 under Rosetta 2) and
     // arm64, before any 2.28.0 output change. A change that claims "samples unchanged" leaves every `samples` lock as it is.
-    // `combined` is the digest of the locks above, over both; it is kept for 2.28.0 only, then removed.
-    // Record all three with RECORD_DISPLAY_VIEW_HASHES=1 (prints them; asserts nothing).
+    // 2.29.0 (#742): the `combined` digest over both, kept for 2.28.0 only, is removed.
+    // Record both with RECORD_DISPLAY_VIEW_HASHES=1 (prints them; asserts nothing).
     const red = { kind: "function" as const, wavelengthRangeNanometers: { minimum: 380, maximum: 780 }, evaluate: (nm: number): number => (nm > 600 ? 0.7 : 0.08) };
     const rings = (p: { u: number; v: number }): number => { const t = 20 * (p.u * p.u + p.v * p.v), f = t - Math.floor(t); return 0.1 + 0.6 * (f < 0.5 ? 2 * f : 2 - 2 * f); };
     const cases: [SimulateCaptureOptions, SimulateDisplayViewOptions, Lock][] = [
       [{ scene: { preset: "siemens-star" }, lens: { fNumber: 8, diffraction: "circular-aperture" }, sensor: { pixelPitchMicrometers: 1.4, antiAliasing: { kind: "four-spot" } },
-        output: { width: 400, height: 300 } }, { width: 20, height: 15 }, { combined: "4e7ad07ab2d98963b7b75010a2fdf4c2d117e1a63a81743fadf67665080012d8", samples: "5406d4f872753f1ed54e9f486114d7ce826e7658741686baaf09e281dc0ee749", internals: "bef9689c1c9c997368a3e9a2658df65584bd066bccefae0e604d37553d3eb0df" }],
+        output: { width: 400, height: 300 } }, { width: 20, height: 15 }, { samples: "5406d4f872753f1ed54e9f486114d7ce826e7658741686baaf09e281dc0ee749", internals: "bef9689c1c9c997368a3e9a2658df65584bd066bccefae0e604d37553d3eb0df" }],
       [{ scene: { preset: "uniform", reflectance: 0.18 }, lens: { fNumber: 8, diffraction: "circular-aperture" }, exposure: { iso: 1600, shutterSeconds: 1 / 2000 },
-        sensor: { pixelPitchMicrometers: 1.4 }, output: { width: 200, height: 150, demosaic: "ahd" } }, { width: 10, height: 8 }, { combined: "7edf23687e2fc2e356b545fec108937b071579f831ea35684b1209bb0e573f25", samples: "e47ce7451de7dc9fc6d3e3e9e919f2c73f6211a4a867e44299752fc921bc36db", internals: "8d827f27aff1812d9a61ac744177989944584feaedc91aa518225f19e5e52ee8" }],
+        sensor: { pixelPitchMicrometers: 1.4 }, output: { width: 200, height: 150, demosaic: "ahd" } }, { width: 10, height: 8 }, { samples: "e47ce7451de7dc9fc6d3e3e9e919f2c73f6211a4a867e44299752fc921bc36db", internals: "8d827f27aff1812d9a61ac744177989944584feaedc91aa518225f19e5e52ee8" }],
       [{ scene: { preset: "patches", patches: [{ patchId: "a", reflectance: red }, { patchId: "b", reflectance: 0.5 }], columns: 2 }, chartSize: { widthM: 0.002, surroundReflectance: 0.3 },
         lens: { diffraction: "circular-aperture" }, sensor: { pixelPitchMicrometers: 2 }, output: { width: 60, height: 40, borderHandling: "mirror" } }, { width: 12, height: 8 },
-      { combined: "8d15df0e4467691124275b878da1a077a312fa9d3471bd328dc338f7ba830a1a", samples: "b8f2304d4471d75bf4cc7e3f502fa88543ab6fe09e1584ec4258e774428d2d57", internals: "f96c46a24ad84f23b4427e23a2be738bed9f29391b458cbb91f75673fec3649a" }],
+      { samples: "b8f2304d4471d75bf4cc7e3f502fa88543ab6fe09e1584ec4258e774428d2d57", internals: "f96c46a24ad84f23b4427e23a2be738bed9f29391b458cbb91f75673fec3649a" }],
       [{ scene: { kind: "reflectance-function", sceneId: "rings", evaluate: rings }, lens: { diffraction: "circular-aperture" },
-        sensor: { pixelAperture: { kind: "box", samplesPerAxis: 2 } }, output: { width: 48, height: 32 } }, { width: 12, height: 8 }, { combined: "ce833d286599b798324a738cf4fcd71369512d0f635fba0afd36bc924bae5660", samples: "ac6f912cd0be6d58f7bde04a4150dde75752ab57734a1bb820a1120e279667c5", internals: "a78e38b3f01b8c1fec1a7ce1a5f50464cae5e33c175749941e08afa21ef0b4b4" }],
+        sensor: { pixelAperture: { kind: "box", samplesPerAxis: 2 } }, output: { width: 48, height: 32 } }, { width: 12, height: 8 }, { samples: "ac6f912cd0be6d58f7bde04a4150dde75752ab57734a1bb820a1120e279667c5", internals: "a78e38b3f01b8c1fec1a7ce1a5f50464cae5e33c175749941e08afa21ef0b4b4" }],
       [{ scene: { preset: "dead-leaves" }, lens: { fNumber: 11, diffraction: "circular-aperture" }, sensor: { pixelPitchMicrometers: 4 },
         output: { width: 300, height: 200, demosaic: "ahd", toneCurve: "positive-reinhard-per-channel" } }, { width: 30, height: 20, region: { x: 5, y: 4, width: 9, height: 7 }, format: "srgb-16" },
-      { combined: "859f6f33e6dd02308d4fb64bd5b6deb0ad647a1c2308582a92ff9b445a0b9f63", samples: "df718aef04c925ebdb0dcef7ebe3780585c22948011f74ce0c212ece67dab7b4", internals: "4582f7bb71f2ea1cdca403ea042a7c3b9a8b3fa05c48914c798bad4aa3b23b27" }],
-      [{ scene: { preset: "dead-leaves" }, sensor: { pixelPitchMicrometers: 2 }, output: { width: 300, height: 200 } }, { width: 30, height: 20 }, { combined: "92c3c98e64304843f89968c2c3ddb0ca72467fb993f09c27a657232be4c18245", samples: "494a5750cead031184c5b56ece2f183f6ab62b2abc3eefc29fb6578259e26e41", internals: "61fb99997bb6c0fb46865e9c1378857ceded90f1a6e8a3bf4427f36238e32a7e" }]
+      { samples: "df718aef04c925ebdb0dcef7ebe3780585c22948011f74ce0c212ece67dab7b4", internals: "4582f7bb71f2ea1cdca403ea042a7c3b9a8b3fa05c48914c798bad4aa3b23b27" }],
+      [{ scene: { preset: "dead-leaves" }, sensor: { pixelPitchMicrometers: 2 }, output: { width: 300, height: 200 } }, { width: 30, height: 20 }, { samples: "494a5750cead031184c5b56ece2f183f6ab62b2abc3eefc29fb6578259e26e41", internals: "61fb99997bb6c0fb46865e9c1378857ceded90f1a6e8a3bf4427f36238e32a7e" }]
     ];
     const recorded: unknown[] = [];
     for (const [k, [options, view, lock]] of cases.entries()) {
@@ -295,7 +289,7 @@ describe("simulateDisplayView", () => {
       delete diagnostics.highlight;
       const got = displayViewDigests(result.image.samples, [internals.expected, internals.noiseStd], JSON.stringify(diagnostics));
       if (process.env.RECORD_DISPLAY_VIEW_HASHES === "1") { recorded.push([k + 1, got]); continue; }
-      for (const key of ["samples", "internals", "combined"] as const)
+      for (const key of ["samples", "internals"] as const)
         expect(got[key], `case ${k + 1} ${key}`).toBe(hashLockOnThisArchitecture(lock[key], ARM64_DISPLAY_VIEW_HASHES));
     }
     if (recorded.length > 0) console.log(JSON.stringify({ arch: process.arch, node: process.version, recorded }));
@@ -310,14 +304,11 @@ describe("simulateDisplayView", () => {
     const internalsOnly = displayViewDigests(samples, [moved, noise], "{}");
     expect(internalsOnly.samples).toBe(base.samples);
     expect(internalsOnly.internals).not.toBe(base.internals);
-    expect(internalsOnly.combined).not.toBe(base.combined);
-    // The 2.27.0 re-recordings changed the expected values; had a sample moved with them, only the combined digest would have recorded it.
+    // The 2.27.0 re-recordings changed the expected values; had a sample moved with them, 2.27.0's single digest would have hidden it in the same re-recording.
     const bumped = Uint8Array.from(samples); bumped[3] = 41;
     const both = displayViewDigests(bumped, [moved, noise], "{}");
     expect(both.samples).not.toBe(base.samples);
     expect(both.internals).toBe(internalsOnly.internals);
-    // The combined digest is the pre-2.28.0 lock's construction: samples, then each internal array, then the text.
-    expect(base.combined).toBe(createHash("sha256").update(samples).update(new Uint8Array(expected.buffer)).update(new Uint8Array(noise.buffer)).update("{}").digest("hex"));
   });
 
   it("keeps the deprecated correction-state API as checked no-ops (2.22.0: the AHD low-signal correction was removed)", async () => {

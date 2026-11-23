@@ -37,29 +37,29 @@ async function digest(options: SimulateCaptureOptions, view: SimulateDisplayView
 // (lens.catalogue/view-uniform-window, new fast default): site electrons within 5.8·10⁻⁹, expected values within 6.1·10⁻⁹ relative.
 // 2.28.0 (#697): each case also locks `samples` (the image bytes only) and `internals` (expected values, noise, the saturation flags
 // and the counts), recorded at main (99782e7, 2.27.0's results) on x64 (Node 24.1.0 under Rosetta 2) and arm64. A change that claims
-// "samples unchanged" leaves the `samples` locks as they are. `combined` is the lock recorded before; it is kept for 2.28.0 only.
+// "samples unchanged" leaves the `samples` locks as they are. 2.29.0 (#742): the `combined` lock, kept for 2.28.0 only, is removed.
 // 2.28.0 (#674, the catalogue PSF's exact cell integration): every case re-recorded on x64 (Node 24.1.0 under Rosetta 2) and arm64,
 // the same on both: the internals of all 17 and the samples of the 12 at 2 and 1 real pixels per display pixel moved (the 8x cases'
 // samples hold).
 /** [case, x64 locks]; the arm64 hash of a lock whose bytes differ there is in ARM64_HASHES (none: every case is the same on both). */
 const LOCKS: readonly [string, Readonly<DisplayViewDigests>][] = [
-  ["plain-8x", { combined: "413a16a15156db080b7272c67795fbcd581f439a0c55871c77347254d0293abe", samples: "afa824be89d4ebd5fa9bc84e6c541cee421a97935b02c7557d99128dee2b6d57", internals: "aa2800c4386346a93125580f47748f9239fd872ee6d59f6542aeece73d9267ee" }],
-  ["plain-2x", { combined: "8480616483ec096c10aba25fd023c4c79820841b777fd0ecdcc98efb2fd68bb8", samples: "8fd4043fece064c999cdada7c489ccf72f24d8ceab922b93303b66625d5d9fac", internals: "8a40f67ea1802ebf8249b428bab1a2cd829350be35d939271cd5d7629bec6e7d" }],
-  ["plain-1x", { combined: "d967d372cd548a9f12456721985be2a00d5381735798170df18de01ec55425f7", samples: "fa27a4ee64e296770815cb0fdb3170db7fab261469fcb46ccab1678137df52fb", internals: "c037bfb1dcd7ff78309339e5ee97dfea82136716721e49ec84945e8c1fe31801" }],
-  ["corrections-8x", { combined: "8d04391e77f6688ae70d54c914e33cb15efa569f212a3474eebefffe6e188c23", samples: "b0a7eeb0a3dee2e6668fe10f59903ed2dd2b4a16b2e2273feeba0466e3364458", internals: "724a7285b6df943e2d1eaac9fab7cd31b9d3701be2ee202a163d8eb6185845e7" }],
-  ["corrections-2x", { combined: "936b370b1b54b3d967f9cb0750b79ca271db9a072d671d91db512c3e87daf090", samples: "4867c46d91adeca6882ec7625a0869a6df6869e8df1b30038ebfd2fd3e1ad76d", internals: "181d9dd07d86486cf3e9ca252f73a84f274ac3bcc0fa408dbea039fc2c41e9ba" }],
-  ["corrections-1x", { combined: "69972dba80f2cde56d965e975f5eb85a512b6130dae2b3919a47518694ccdec2", samples: "7428ebf5d92c107244aa7bc1a8c2ac6d27e4f9c94fe616a0b3cca9b94a76c638", internals: "c92e94315529aeb24697ed4f8456feff924edf1777c426170ec3041ab5292fd9" }],
-  ["sharpening-8x", { combined: "926ff47965c70a6649b536404d9ab01ddc2e92301f4254a7db37466e6d1a5d91", samples: "0d2d608643e9981ca6a91cb9601a3511cc8bdd122e1d81f07a308b7f8948e13c", internals: "28531c28487a99c45eceb8d961ff2ff92f096a0c291e44aa3149163739a958dd" }],
-  ["sharpening-2x", { combined: "474318a8c1e0b91f86cb5399e52e2073d4bdea08eb40e5849df1b0382c7245ea", samples: "68513f3dad6688e88b3bdd504e6161ffa5d4e23035a86382b1be98c75e025d14", internals: "178d660d26095121860784541165d942d1d501315b107ef1a33e4dcc42b61335" }],
-  ["sharpening-1x", { combined: "c56d2124dc896cb79f6fc78ab0f570f09c8a5bf0b9084074219b8968147d8fff", samples: "b3a290bd6a4ecb9d799c5e7388adfc44459f0a9edbc5e0dc08e8ee4e1a592e14", internals: "038ef1a7b32edbc3a5a29c8a3516c43675a7bc9b8c24d89e8a73659d4e019d2d" }],
-  ["both-8x", { combined: "823e32c2605258ff5f7b3ccb6710a2b0e87ed59e1ce026e5d9c18f2170c6cd1c", samples: "aba11a1d2911e2a002615825b574e5a46a117d56c00f11154fd4218545d66b8e", internals: "47f63ed31de8415121814bae1d937d25a5fc9831e018a2e8fd1fe4eca6512b07" }],
-  ["both-2x", { combined: "be093293694b379dd9db2d08223ad2e38a1b8c05c743c799385522be5f22e76d", samples: "58bfc575fcc506fa8d6124f34430059306d4fb769e1a4c432557bfbeb4324610", internals: "2da9ae9e288c95e5d306ee4d10ce5302ff33ee5ee1e5908f6c994221c638e6c1" }],
-  ["both-1x", { combined: "ec0863d6c3010e14b4c9f4561db73b1b965960f92cd04ffa570bc807d9dc2212", samples: "e391ac96045f6b0edf798c6e3e4eb81cb9e0b14c9fab6eed52e8049fec1edb9c", internals: "368fca9a5dd8180238171696da32dd5ffa8a309139924eb3753f1466d06fb941" }],
-  ["corrections-exact-8x", { combined: "e038694b9605c664f0c5c82c6ee267114ff5abf80d93a5f648676d022dcaa04e", samples: "3b40b1ef247ed250996cc41cd1743f574fb8e1dbf1aa6bcda89c283fea049036", internals: "97e5fa5286ca231ee6f524fe2b5a013769096d58290f5211a759ca59f14eb416" }],
-  ["both-exact-2x", { combined: "1cefdd28541987846641a920a7dcc22faabf0dc289f2f33bcce28158a529ba59", samples: "a376a67546ba1a2a04ffd926b0991a0ceb6ade58a26ad61da90474d38c957275", internals: "8baa161013a4421ba27d6788729ede1054617ccfc0dc8773871571f07d0cb45f" }],
-  ["both-ahd-2x", { combined: "ea4d0c069a94edbe84f648b04aa297f6d1b041ca5fe22934c97cc37cd9a4966e", samples: "4a1635daceee863ebb786cce30faea7415aa37c92ca9797561202f9749f279be", internals: "2538b4cad2c57da49a1f8866e5975cd8dd22ae6259db768c4656e1cd0394899a" }],
-  ["both-region-2x", { combined: "1590494f94bc5bd9adfa3e47b5a46a43f198d7ff63b02ceee5a85118e5127dfd", samples: "fd710a095fdc876395c790ea34096998ce5b1d3787df71afd61bd0e5b0b80dee", internals: "1b02a324dc9502db4f2ededf4acda5fdf0e566596965d66bdf0a169b8a124e2e" }],
-  ["neighbors-2x", { combined: "186850740c1eb8c49cd46677c52a9fc1ce4935b040a328dc7778b073af18b49b", samples: "f58d46509d9fd8805a1b4dee9d840dc39266ca6f69eb3c9a6e8109f9b0137984", internals: "42fba5e41af8aba95452c50b5c7647bedaa4fde75ecb0a3746b9a73d746fa0b4" }],
+  ["plain-8x", { samples: "afa824be89d4ebd5fa9bc84e6c541cee421a97935b02c7557d99128dee2b6d57", internals: "aa2800c4386346a93125580f47748f9239fd872ee6d59f6542aeece73d9267ee" }],
+  ["plain-2x", { samples: "8fd4043fece064c999cdada7c489ccf72f24d8ceab922b93303b66625d5d9fac", internals: "8a40f67ea1802ebf8249b428bab1a2cd829350be35d939271cd5d7629bec6e7d" }],
+  ["plain-1x", { samples: "fa27a4ee64e296770815cb0fdb3170db7fab261469fcb46ccab1678137df52fb", internals: "c037bfb1dcd7ff78309339e5ee97dfea82136716721e49ec84945e8c1fe31801" }],
+  ["corrections-8x", { samples: "b0a7eeb0a3dee2e6668fe10f59903ed2dd2b4a16b2e2273feeba0466e3364458", internals: "724a7285b6df943e2d1eaac9fab7cd31b9d3701be2ee202a163d8eb6185845e7" }],
+  ["corrections-2x", { samples: "4867c46d91adeca6882ec7625a0869a6df6869e8df1b30038ebfd2fd3e1ad76d", internals: "181d9dd07d86486cf3e9ca252f73a84f274ac3bcc0fa408dbea039fc2c41e9ba" }],
+  ["corrections-1x", { samples: "7428ebf5d92c107244aa7bc1a8c2ac6d27e4f9c94fe616a0b3cca9b94a76c638", internals: "c92e94315529aeb24697ed4f8456feff924edf1777c426170ec3041ab5292fd9" }],
+  ["sharpening-8x", { samples: "0d2d608643e9981ca6a91cb9601a3511cc8bdd122e1d81f07a308b7f8948e13c", internals: "28531c28487a99c45eceb8d961ff2ff92f096a0c291e44aa3149163739a958dd" }],
+  ["sharpening-2x", { samples: "68513f3dad6688e88b3bdd504e6161ffa5d4e23035a86382b1be98c75e025d14", internals: "178d660d26095121860784541165d942d1d501315b107ef1a33e4dcc42b61335" }],
+  ["sharpening-1x", { samples: "b3a290bd6a4ecb9d799c5e7388adfc44459f0a9edbc5e0dc08e8ee4e1a592e14", internals: "038ef1a7b32edbc3a5a29c8a3516c43675a7bc9b8c24d89e8a73659d4e019d2d" }],
+  ["both-8x", { samples: "aba11a1d2911e2a002615825b574e5a46a117d56c00f11154fd4218545d66b8e", internals: "47f63ed31de8415121814bae1d937d25a5fc9831e018a2e8fd1fe4eca6512b07" }],
+  ["both-2x", { samples: "58bfc575fcc506fa8d6124f34430059306d4fb769e1a4c432557bfbeb4324610", internals: "2da9ae9e288c95e5d306ee4d10ce5302ff33ee5ee1e5908f6c994221c638e6c1" }],
+  ["both-1x", { samples: "e391ac96045f6b0edf798c6e3e4eb81cb9e0b14c9fab6eed52e8049fec1edb9c", internals: "368fca9a5dd8180238171696da32dd5ffa8a309139924eb3753f1466d06fb941" }],
+  ["corrections-exact-8x", { samples: "3b40b1ef247ed250996cc41cd1743f574fb8e1dbf1aa6bcda89c283fea049036", internals: "97e5fa5286ca231ee6f524fe2b5a013769096d58290f5211a759ca59f14eb416" }],
+  ["both-exact-2x", { samples: "a376a67546ba1a2a04ffd926b0991a0ceb6ade58a26ad61da90474d38c957275", internals: "8baa161013a4421ba27d6788729ede1054617ccfc0dc8773871571f07d0cb45f" }],
+  ["both-ahd-2x", { samples: "4a1635daceee863ebb786cce30faea7415aa37c92ca9797561202f9749f279be", internals: "2538b4cad2c57da49a1f8866e5975cd8dd22ae6259db768c4656e1cd0394899a" }],
+  ["both-region-2x", { samples: "fd710a095fdc876395c790ea34096998ce5b1d3787df71afd61bd0e5b0b80dee", internals: "1b02a324dc9502db4f2ededf4acda5fdf0e566596965d66bdf0a169b8a124e2e" }],
+  ["neighbors-2x", { samples: "f58d46509d9fd8805a1b4dee9d840dc39266ca6f69eb3c9a6e8109f9b0137984", internals: "42fba5e41af8aba95452c50b5c7647bedaa4fde75ecb0a3746b9a73d746fa0b4" }],
 ];
 const ARM64_HASHES: Readonly<Record<string, string>> = {
 };
@@ -87,7 +87,7 @@ describe("display view lens corrections and sharpening share their sites and pix
         displayViewDetailBand.pixels = band;
         for (const [name, lock] of LOCKS) {
           const got = await digest(...CASES[name]!);
-          for (const key of ["samples", "internals", "combined"] as const) expect(got[key], name + " " + band + " " + key).toBe(hashLockOnThisArchitecture(lock[key], ARM64_HASHES));
+          for (const key of ["samples", "internals"] as const) expect(got[key], name + " " + band + " " + key).toBe(hashLockOnThisArchitecture(lock[key], ARM64_HASHES));
         }
       }
     } finally { displayViewDetailBand.pixels = pixels; }
