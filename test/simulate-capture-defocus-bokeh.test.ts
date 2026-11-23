@@ -187,11 +187,11 @@ describe("zoned gather (#553)", () => {
   const kernelB = Float64Array.from({ length: width * width }, (_, k) => (k === 12 ? 0.5 : k % 4 === 0 ? 0.08 : 0));
   it("gives gatherInterior's bits when every zone holds one kernel", () => {
     const zoned = createZonedGather({ size: 3, columns: 3, rows: 2, kernelOf: () => kernelA }, R, gridWidth, nativeWidth, nativeHeight, 0);
-    expect(Array.from(zoned(samples, 0, 0, nativeWidth, rows))).toEqual(Array.from(gatherInterior(samples, kernelTaps(kernelA, R, gridWidth), gridWidth, nativeWidth, rows, R)));
+    expect(Array.from(zoned([samples], 0, 0, nativeWidth, rows)[0]!)).toEqual(Array.from(gatherInterior(samples, kernelTaps(kernelA, R, gridWidth), gridWidth, nativeWidth, rows, R)));
   });
   it("sums each output site with its own zone's kernel", () => {
     const zoned = createZonedGather({ size: 3, columns: 3, rows: 2, kernelOf: (z) => (z % 2 === 0 ? kernelA : kernelB) }, R, gridWidth, nativeWidth, nativeHeight, 0);
-    const out = zoned(samples, 0, 0, nativeWidth, rows);
+    const out = zoned([samples], 0, 0, nativeWidth, rows)[0]!;
     for (let y = 0; y < rows; y++) for (let x = 0; x < nativeWidth; x++) {
       const k = (Math.floor(y / 3) * 3 + Math.floor(x / 3)) % 2 === 0 ? kernelA : kernelB;
       let sum = 0;
