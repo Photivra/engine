@@ -28,6 +28,7 @@ export function layout(site, page) {
 <meta http-equiv="Content-Security-Policy" content="${page.script ? CSP_SEARCH : CSP}">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="light dark">
+<meta name="theme-color" content="#111214">
 <meta name="referrer" content="no-referrer">
 <title>${escapeHtml(page.title)}</title>
 ${page.description ? `<meta name="description" content="${escapeHtml(page.description)}">\n` : ""}${page.noindex ? "<meta name=\"robots\" content=\"noindex\">\n" : ""}${canonical}<link rel="sitemap" type="application/xml" href="/sitemap.xml">
