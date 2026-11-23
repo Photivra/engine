@@ -98,6 +98,9 @@ const SOURCES = [
   "Haeberli (1993), Matrix operations for image processing, Grafica Obscura (saturation)"
 ] as const;
 
+/** The assumption id of the registry entry `simulateTypicalProcessing/local-tone-mapping`. */
+const LTM_ASSUMPTION = "fast.simulateTypicalProcessing.localToneMapping";
+
 function fail(message: string): never { throw new InvalidConfigurationError("simulateTypicalProcessing: " + message); }
 
 function record(value: unknown, keys: readonly string[], path: string): Record<string, unknown> {
@@ -221,7 +224,7 @@ export async function runTypicalProcessing(input: SimulateTypicalProcessingInput
   if (ltm) {
     const options = { image: image(), inputColorSpace: "linear-srgb-d65", spatialSigmaPixels: ltmSigma, rangeSigmaLog10: ltmRange, targetContrast: ltmContrast, maximumWorkingBytes } as const;
     linear = (await runTask(ltmFast ? createDurandDorseyToneMappingTask(options, provider) : createDurandDorseyDirectToneMappingTask(options, provider))).data;
-    assumptions.push("fast.simulateTypicalProcessing.localToneMapping: " + (ltmFast
+    assumptions.push(LTM_ASSUMPTION + ": " + (ltmFast
       ? "the base layer by Durand and Dorsey's piecewise-linear bilateral filter with spatial downsampling (fast); the full method filters every pixel's window directly (localToneMapping.fast: false)."
       : "the base layer by the direct bilateral filter over each pixel's window of radius " + Math.ceil(3 * ltmSigma) + " (full quality)."));
     assumptions.push("typicalProcessing.localToneMapping: the operator maps the largest base value to luminance 1, so BaselineExposure and the push do not change its output level.");
