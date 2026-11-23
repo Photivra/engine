@@ -2023,7 +2023,8 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
 
   // Camera
   const cameraOption = pick<GenericEquipmentTier | GenericEquipmentTierPreset>(top, "camera", "camera", DEFAULTS.camera,
-    "Generic Photivra tier preset 2.0.0 (synthetic educational values, not a real camera).");
+    // #730 facade-06 (a): the version the tier ids use (2.1.0 since 2.14), from the preset itself.
+    "Generic Photivra tier preset " + GENERIC_TIER_ASSETS[0]!.presetVersion + " (synthetic educational values, not a real camera).");
   let preset: GenericEquipmentTierPreset;
   if (typeof cameraOption === "string") preset = GENERIC_TIER_ASSETS.find((p) => p.tier === cameraOption) ?? fail("Unknown camera tier.");
   else preset = parseCallerCameraPreset(cameraOption);
@@ -2770,7 +2771,9 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   const referenceLuminance = sosReferenceLuminance(reference.aperture, reference.shutterSeconds, reference.iso);
   assume("exposure.referenceExposure", "model", { ...reference, meteredLuminanceCdPerSquareMeter: referenceLuminance },
     "Exposure anchor: f/8, 1/125 s, ISO 100 gives the CIPA DC-004 standard output sensitivity reference exposure H = 10/S = 0.1 lx·s for an average scene luminance of 10·N²/(0.65·t·S) ≈ 1230.77 cd/m² (camera equation H = 0.65·L·t/N²)" +
-    (referenceAperture === DEFAULTS.fNumber ? "." : "; the lens excludes f/8: " + (reference.shutterSeconds > sameShutter ? "the shortest shutter" : "the same N²/t") + " at f/" + referenceAperture + "."));
+    (referenceAperture === DEFAULTS.fNumber ? "." : "; the lens excludes f/8: " + (reference.shutterSeconds > sameShutter ? "the shortest shutter" : "the same N²/t") + " at f/" + referenceAperture + ".") +
+    // #730 facade-06 (d): a profile whose base ISO is above 100 takes the anchor at its base ISO.
+    (reference.iso === DEFAULTS.iso ? "" : " At the sensor profile's base ISO, the same N²/(t·S): f/" + reference.aperture + ", " + reference.shutterSeconds + " s, ISO " + reference.iso + "."));
   const meterProfile = body.metering[0]!.profile, zones = 16, zoneSamples: { sampleId: string; positionOrientedCaptureUv: { u: number; v: number }; relativeLinearSignal: number; areaWeight: number }[] = [];
   // #624: the meter reads through lens.filter: L·T for a spectrally flat stack, the photopic integral of L(λ)·T(λ) otherwise.
   const filterT = lensFilter?.transmissionAt;
@@ -2802,7 +2805,9 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
     (lensFilter.spectrallyFlat ? "Spectrally flat: one factor, resolved at 550 nm." : "Spectral: sampled at the filters' wavelengths (vacuum) and interpolated linearly; the meter integrates the photopic luminance through it.") +
     " Inter-filter reflections, flare and light leaks are not modelled; the filter's evidence and limitations are the caller's.");
   assume("exposure.metering", "model", { policy: meterProfile.policy.kind, zones: zones * zones },
-    "The body's " + meterProfile.policy.kind + " meter reads scene luminance on a 16 × 16 zone grid, before the lens (no lens transmission, vignetting or flare).");
+    // #730 facade-06 (b): what the meter reads, from the request (the grey card; lens.filter, through which it reads).
+    "The body's " + meterProfile.policy.kind + " meter reads " + (metering === "grey-card" ? "the grey card (exposure.meteringSource)" : "scene luminance") + " on a 16 × 16 zone grid, " +
+    (lensFilter ? "through lens.filter but " : "") + "before the lens (no lens transmission, vignetting or flare).");
   if (metering === "grey-card") {
     // 2.14: incident metering. Every zone reads the 18 % Lambertian grey card under the request's illuminance, L = 0.18·E/π.
     if (callerScene?.kind === "radiance-function") fail('exposure.metering "grey-card" needs a scene lit by the illuminance; a radiance-function scene ignores illuminanceLux.');
@@ -4326,7 +4331,8 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
     provenance: { scientificStatus: "approximation" as const, cameraPresetId: preset.presetId, cameraPresetVersion: preset.presetVersion,
       evidence: [...FACADE_EVIDENCE, ...preset.evidence],
       composedContracts: ["resolveGenericEquipmentExposureCapabilities", "meterRelativeExposure", "createExposureMeterTargetFromMeteringResult",
-        "resolve" + (mode === "manual" ? "Manual" : mode === "aperture-priority" ? "AperturePriority" : mode === "shutter-priority" ? "ShutterPriority" : "ProgramAuto") + "ExposureMode",
+        // #730 facade-06 (c): the resolver that ran (Auto ISO's own in aperture priority; manual or shutter priority after a flash-only reading).
+        "resolve" + (as === "manual" ? "Manual" : autoIsoAperturePriority ? "AperturePriorityAutoIso" : as === "aperture-priority" ? "AperturePriority" : as === "shutter-priority" ? "ShutterPriority" : "ProgramAuto") + "ExposureMode",
         ...(rollingSchedule ? ["resolveElectronicRollingShutterExposureSchedule", "createRollingShutterCaptureExposureSchedule"] : []),
         ...(diffraction ? ["createDiffractionLimitedPsfProfile", ...(diffractionObjectSpace ? ["resolveLensPsfConvolutionKernels", ...(defocusSiteKernels ? [] : ["calculateIrradianceConvolution"])] : [])] : []),
         ...(defocusSiteKernels ? ["calculateDefocusCircle", defocusImageSpace ? "defocus disc site kernel (image-space convolution)" : "defocus disc site kernel (object-space convolution)"] : []),
