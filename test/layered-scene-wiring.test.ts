@@ -1,15 +1,16 @@
 // SPDX-License-Identifier: Apache-2.0
 /**
  * 2.29.0 wave-3 wiring (group LW1) of layered chart scenes through the public API: lens distortion, vignetting and fisheye
- * projections (#744), mixed illumination (#745), large blur and the kernel checks before allocation (#749), chartSize (#761) and the
- * view's focus mask (#752). Each whole render goes through simulateCapture or simulateDisplayView; the capture's environment is
- * checked against the view per site within 1e-9 relative, and regions against the whole frame.
+ * projections (#744), mixed illumination (#745), large blur and the kernel checks before allocation (#749), chartSize (#761), the
+ * view's focus mask (#752) and the pixel query (#747). Each whole render goes through simulateCapture or simulateDisplayView; the
+ * capture's environment is checked against the view per site within 1e-9 relative, and regions against the whole frame.
  */
 import { beforeAll, describe, expect, it } from "vitest";
 import { calculateEnvironmentSensorPhotoSignal, createPlanarSceneRadianceProvider, prepareDisplayView, prepareLayeredChartScenes, simulateCapture,
   simulateDisplayView, type LayeredChartScene, type SimulateCaptureOptions } from "../src/index.js";
 import { simulateDisplayViewWithInternals } from "../src/facade/simulate-display-view.js";
 import { createLayeredSceneProvider } from "../src/facade/layered-scene-provider.js";
+import { calculateLayeredChartSurfaceAtPixel } from "../src/facade/layered-chart-pixel.js";
 import { calculateLayeredChartSurfaceAt } from "../src/facade/layered-chart-query.js";
 import type { LayeredSceneLattice } from "../src/facade/layered-scene-signal.js";
 import { scaledTimeout } from "./helpers/test-timeout.js";
@@ -173,6 +174,32 @@ describe("layered chart scenes, 2.29.0 wiring (LW1)", () => {
     expect((await simulateDisplayView(options(), { width: 12, height: 8 })).view.focusMask).toBeUndefined();
     for (const focusMask of ["yes", null, { circleOfConfusionMm: -1 }, { c: 1 }])
       await expect(simulateDisplayView(options(), { width: 12, height: 8, focusMask } as never)).rejects.toThrow(/view\.focusMask/);
+  }, scaledTimeout(240_000));
+
+  it("#747: the surface at a pixel through the lens equals the view's pilot read and the focus mask, for every pixel", async () => {
+    const requests: [string, SimulateCaptureOptions][] = [["rectilinear", options()], ["distortion", options({ lens: { ...lens, distortion } })], ["fisheye", fisheye(24)]];
+    for (const [name, request] of requests) {
+      const { signal } = await simulateDisplayViewWithInternals(request, { width: 12, height: 8, samplesPerAxis: 1 });
+      const lattice = (signal as unknown as { lattice: LayeredSceneLattice }).lattice, geometry = lattice.parts.geometry, W = request.output!.width!, H = request.output!.height!;
+      const view = await simulateDisplayView(request, { width: W, height: H, samplesPerAxis: 1, focusMask: true }), layers = view.scene.layers!;
+      const surfaces = [...scene.cards.map((_, i) => ({ kind: "card", index: i })), { kind: "back-plane", index: -1 }];
+      const given = request.lens as { ideal: { focalLengthMm: number }; focusDistanceM: number; projection?: string; distortion?: unknown };
+      const r = { focalLengthMm: given.ideal.focalLengthMm, focusDistanceM: given.focusDistanceM, ...(given.projection ? { projection: given.projection } : {}), ...(given.distortion ? { distortion: given.distortion } : {}) };
+      for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+        const at = calculateLayeredChartSurfaceAtPixel({ scene, output: { width: W, height: H }, pixel: { x, y }, sensor: { pixelPitchMicrometers: request.sensor!.pixelPitchMicrometers! },
+          lens: r, subjectDistanceM: request.subjectDistanceM! })!;
+        const p = geometry.rasterFramePoint((x + 0.5 - W / 2) * 2 / W, -(y + 0.5 - H / 2) * 2 / W, { u: 0, v: 0, factor: 1 });
+        expect(at, name).not.toBeNull();
+        expect([at.kind, at.index], name + " " + x + "," + y).toEqual([surfaces[lattice.chiefSurface(p.u, p.v).surface]!.kind, surfaces[lattice.chiefSurface(p.u, p.v).surface]!.index]);
+        const layer = layers.find((l) => l.kind === at.kind && l.index === at.index)!;
+        expect(view.view.focusMask!.score[y * W + x]! > 0, name).toBe(layer.withinDepthOfField);
+      }
+    }
+    // Outside a fisheye's image circle (a 10 mm equisolid lens on this frame): no scene.
+    expect(calculateLayeredChartSurfaceAtPixel({ scene, output: { width: 96, height: 64 }, pixel: { x: 0, y: 0 }, sensor: { pixelPitchMicrometers: 375 },
+      lens: { focalLengthMm: 10, projection: "fisheye-equisolid-angle" }, subjectDistanceM: 2 })).toBeNull();
+    expect(() => calculateLayeredChartSurfaceAtPixel({ scene, output: { width: 96, height: 64 }, pixel: { x: 96, y: 0 }, sensor: { pixelPitchMicrometers: 3 }, lens: { focalLengthMm: 50 }, subjectDistanceM: 2 }))
+      .toThrow(/pixel\.x must be an integer from 0 to 95/);
   }, scaledTimeout(240_000));
 
   it("a capture's region equals the whole frame through the lens map and the blend", async () => {
