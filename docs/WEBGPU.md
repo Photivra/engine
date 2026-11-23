@@ -921,7 +921,12 @@ From 2.14 (#536) the published package carries the engine's WGSL without comment
   space, and that space is removed where it touches an identifier or number character on one side and punctuation on the
   other, or a bracket, comma or semicolon on either side (`let x = a.x - -b;` ships as `let x=a.x- -b;`). Neither can join two
   tokens: a space between two other punctuation characters (`- -`, `/ *`, `> =`) always stays;
-- every newline stays, so line numbers and source maps still hold (columns on a tightened line move);
+- every newline stays in its literal, so line numbers and source maps of the code after a shader still hold (columns on a
+  tightened line move). Since 2.29.0 a line is joined onto the one before it where the newline touches a bracket, comma or
+  semicolon, or an empty line (`{`, `let a=1;` and `}` on three lines ship as `{let a=1;}`), and the newlines removed are put
+  back as empty lines just before the next line holding an interpolation and before the literal's last line, so every
+  interpolation keeps its line; the first and last lines, a line holding an interpolation and the line after it are never
+  joined;
 - since 2.29.0 a line holding a `${…}` interpolation is tightened by the same rules between its interpolations, and a space
   that touches an interpolation stays, since its text is not known (`let i = gid.x * ${N}u + 1;` ships as
   `let i=gid.x* ${N}u+1;`);

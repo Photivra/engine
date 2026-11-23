@@ -62,10 +62,10 @@
 
 import type { createOffsetExpansion } from "./display-view-offset-expansion.js";
 import { InvalidConfigurationError } from "../core/configuration-error.js";
-import { createSiteKernelRunsLattice, type SiteKernelRunsRowPattern } from "../optics/site-kernel-runs.js";
+import { createSiteKernelRunsLattice } from "../optics/site-kernel-runs.js";
 import type { PreparedDefocusImageSpaceGeometry } from "./defocus-image-space-provider.js";
 import { resolveLensSampledPsfKernel, type ResolveLensSampledPsfInput } from "../optics/lens-psf-profile.js";
-import { createMaterialSums, displayViewSignalTables, materialSpectrumSignal, type DisplayViewExpectedSignal, type DisplayViewExpectedSignalInput } from "./expected-signal.js";
+import { cfaRowPatterns, createMaterialSums, displayViewSignalTables, materialSpectrumSignal, type DisplayViewExpectedSignal, type DisplayViewExpectedSignalInput } from "./expected-signal.js";
 import { createRollingRegroupedLensSignal, regroupedLensDefocusCheaper, rollingLensBands, rollingScanLines, type RollingLensBands } from "./display-view-lens-regroup.js";
 
 export { regroupedLensDefocusCheaper, rollingLensBands, rollingScanLines, type RollingLensBands } from "./display-view-lens-regroup.js";
@@ -742,11 +742,7 @@ function createLargeLensSignal(input: DisplayViewExpectedSignalInput, inFocusTil
     return tile;
   };
   // Which sites of a tile row hold channel c: the CFA's 2 × 2 period (tile origins are even).
-  const phase = [0, 1].map((py) => [0, 1].map((px) => channelAt(px, py)));
-  const patterns: SiteKernelRunsRowPattern[] = [0, 1, 2].map((c) => (row: number) => {
-    const p = phase[row & 1]!, even = p[0] === c, odd = p[1] === c;
-    return even && odd ? { start: 0, step: 1 } : even ? { start: 0, step: 2 } : odd ? { start: 1, step: 2 } : null;
-  });
+  const patternOf = cfaRowPatterns(channelAt), patterns = [0, 1, 2].map((c) => patternOf(c));
   const lattice = createSiteKernelRunsLattice({ runs, tile: LARGE_OUTPUT_TILE, fields: 3, capacityBytes: LARGE_CACHE_BYTES, pattern: (c) => patterns[c],
     source: (x0, y0, width, height) => (c: number): Float64Array => {
       const samples = new Float64Array(width * height);

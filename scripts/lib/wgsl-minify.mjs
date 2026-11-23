@@ -14,8 +14,10 @@
  *   punctuation, no multi-character token begins or ends with a bracket, comma or semicolon, and a space between two other
  *   punctuation characters (as in `a - -b`, `a / *p` or `> =`) always stays, so no operator or comment opener can form.
  *
- * Every newline is kept, so line numbers (and so source maps) of everything after a shader stay exact, and so do
- * line-anchored edits such as `/^const SLACK: f32 = …\n/m`. A line that contains a `${…}` interpolation and a comment
+ * Every newline is kept, so line numbers (and so source maps) of everything after a shader stay exact. (2.29.0, #658) Inside a
+ * literal, a newline next to a bracket, comma or semicolon (or an empty line) is moved: the lines are joined and the newlines put
+ * back as empty lines just before the next line with an interpolation and before the literal's last line (see joinLines), so the
+ * literal keeps its line count and every interpolation stays on its own line. A line that contains a `${…}` interpolation and a comment
  * opener or a backslash is left untouched, so an interpolation can never end up inside or outside a comment differently
  * than written. (2.29.0, #658) Any other interpolation line is tightened by the same rules, piece by piece between its
  * interpolations, and blankspace that touches an interpolation stays as one space, since its text is not known here;
@@ -26,8 +28,9 @@
  * always start comments in shader text.
  *
  * WGSL treats comments and whitespace only as token separators (WGSL §3 "Textual structure": "comments …
- * behave as blankspace"), and every removed run either touches a newline that stays or is replaced by a space,
- * so the tokens and their order are unchanged. `wgslTokens()` gives that token stream for tests.
+ * behave as blankspace"), and every removed run either touches a newline that stays or is replaced by a space, and
+ * a newline is moved only from between a bracket, comma or semicolon (or nothing) and its neighbour, so the tokens and their
+ * order are unchanged. `wgslTokens()` gives that token stream for tests.
  */
 
 const TAG = /\/\*\s*wgsl\s*\*\/\s*`/gu;
@@ -148,7 +151,31 @@ function minifyTemplateBody(chunks, expressions) {
     return kept;
   });
   if (state.unsafe || state.blockDepth !== 0) return null;
-  return out.join("\n").replace(/\uE000(\d+)\uE000/gu, (_, k) => "${" + expressions[Number(k)] + "}");
+  return joinLines(out).replace(/\uE000(\d+)\uE000/gu, (_, k) => "${" + expressions[Number(k)] + "}");
+}
+
+/** A bracket, comma or semicolon: no WGSL token begins or ends with one, so nothing is needed between it and its neighbour. */
+const SEPARATOR = /[()[\]{},;]/u;
+
+/**
+ * (2.29.0, #658) Joins the minified lines of one literal where the newline cannot separate two tokens: a line onto the one before it
+ * when that ends with a bracket, comma or semicolon, the line starts with one, or either is empty. The first line, the last line,
+ * a line with an interpolation and the line after it are never joined, so text kept as written (which may end in a line comment)
+ * never runs on. The newlines a run of joined lines removes are put back, as empty lines, just before the next line with an
+ * interpolation and before the last line: the literal keeps its line count, and every interpolation its line.
+ */
+function joinLines(lines) {
+  let text = lines[0], line = "", removed = 0;
+  for (let i = 1; i < lines.length; i++) {
+    const next = lines[i], interpolated = HAS_SENTINEL.test(next), last = i === lines.length - 1;
+    const free = i > 1 && !last && !interpolated && !HAS_SENTINEL.test(lines[i - 1]) &&
+      (line === "" || next === "" || SEPARATOR.test(line[line.length - 1]) || SEPARATOR.test(next[0]));
+    if (free) { text += next; line += next; removed++; continue; }
+    if (interpolated || last) { text += "\n".repeat(removed); removed = 0; }
+    text += "\n" + next;
+    line = next;
+  }
+  return text;
 }
 
 /**

@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 /**
  * #536: the build strips comments and indentation from the `/* wgsl *\/` shader literals (scripts/lib/wgsl-minify.mjs), and
- * since 2.29.0 (#658) the blankspace inside a line that cannot separate two tokens; the tests run that shipped text
+ * since 2.29.0 (#658) the blankspace inside a line that cannot separate two tokens, and the newlines next to a bracket, comma or
+ * semicolon (moved to the next interpolation line or the literal's end); the tests run that shipped text
  * (vitest.config.ts). These tests show it is safe by construction:
  * - every literal of src/ is minified, keeps its line count and keeps its WGSL tokens, read by a lexer written here;
  * - every text anchor the engine uses to edit its own shader text matches the minified text exactly as often as the source;
@@ -154,12 +155,13 @@ describe("WGSL minification (#536)", () => {
 
   it("handles interpolations, nested block comments and escapes as documented", () => {
     const one = (body: string): { minified: string; kept: boolean } => minifyWgslTemplates("const s = /* wgsl */ `" + body + "`;").literals[0]!;
-    expect(one("\n  // comment\n  let a = 1; // tail\n  /* x /* nested */ still */ let b = 2;\n").minified).toBe("\n\nlet a=1;\nlet b=2;\n");
+    // 2.29.0 (#658): lines are joined after a semicolon (or an empty line), and the newlines put back before the last line.
+    expect(one("\n  // comment\n  let a = 1; // tail\n  /* x /* nested */ still */ let b = 2;\n").minified).toBe("\nlet a=1;let b=2;\n\n\n");
     // #658: blankspace next to an identifier or number and punctuation, or next to a bracket, comma or semicolon, goes; a space
     // between two other punctuation characters stays, so no operator or comment opener forms.
     expect(one("\n  fn f(a: vec2<f32>, b: f32) -> f32 {\n  let x = a.x - -b * 1.5e-3 / *p;\n  if (x >= 0.0 && y < z) { return x > = y; }\n").minified)
-      .toBe("\nfn f(a:vec2<f32>,b:f32)->f32{\nlet x=a.x- -b*1.5e-3/ *p;\nif(x>=0.0&&y<z){return x> =y;}\n");
-    expect(one("\n  @group(0) @binding(1) var<storage, read> t: array<f32>;\n  let m = a & &b;\n").minified).toBe("\n@group(0)@binding(1)var<storage,read>t:array<f32>;\nlet m=a& &b;\n");
+      .toBe("\nfn f(a:vec2<f32>,b:f32)->f32{let x=a.x- -b*1.5e-3/ *p;if(x>=0.0&&y<z){return x> =y;}\n\n\n");
+    expect(one("\n  @group(0) @binding(1) var<storage, read> t: array<f32>;\n  let m = a & &b;\n").minified).toBe("\n@group(0)@binding(1)var<storage,read>t:array<f32>;let m=a& &b;\n\n");
     // A line with an interpolation and a comment stays as written, comment included.
     expect(one("\n  let a = ${x}; // keeps\n  let b = 2;\n").minified).toBe("\n  let a = ${x}; // keeps\nlet b=2;\n");
     expect(one("\n  let a = ${x}; /* keeps */\n  let b = 2;\n").kept).toBe(true);
@@ -167,10 +169,16 @@ describe("WGSL minification (#536)", () => {
     expect(one("\n    let a = f(${x}u + i, ${y}) * -${z};\n  ${w}  \n  fn g(i: u32) -> f32 { return k[${n}u  +  i]; }\n").minified)
       .toBe("\nlet a=f(${x}u+i, ${y})* -${z};\n${w}\nfn g(i:u32)->f32{return k[${n}u+i];}\n");
     expect(one("\n  a ${x}  ${y} b\n  c\n").minified).toBe("\na ${x} ${y} b\nc\n");
+    // 2.29.0 (#658): a newline between two word characters (or two other punctuation characters) stays; a line with an interpolation
+    // and the line after it are not joined, and the removed newlines come back just before it, so it keeps its line.
+    const joined = one("\n  let a = b\n  + c;\n  x = y\n  z;\n  ${q}\n  w;\n  v;\n").minified;
+    expect(joined).toBe("\nlet a=b\n+c;x=y\nz;\n\n${q}\nw;v;\n\n");
+    expect(joined.split("\n").indexOf("${q}")).toBe(5);
+    expect(one("\n  let a = ${x}; // keeps\n  b;\n  c;\n").minified).toBe("\n  let a = ${x}; // keeps\nb;c;\n\n");
     // A block comment open across an interpolation line: the literal is kept whole.
     expect(one("\n  /* open\n  ${x}\n  */\n").kept).toBe(true);
     // An escaped backtick inside a removed comment goes with the comment; one in code keeps the literal whole.
-    expect(one("\n  // a \\`quote\\`\n  let a = 1;\n").minified).toBe("\n\nlet a=1;\n");
+    expect(one("\n  // a \\`quote\\`\n  let a = 1;\n").minified).toBe("\nlet a=1;\n\n");
     expect(one("\n  let a = \\`b\\`;\n  x;\n").kept).toBe(true);
     // Nested templates in an interpolation are copied unchanged, and the parser finds the right end.
     const nested = minifyWgslTemplates("const s = /* wgsl */ `\n  a\n  ${f(`\n  inner // not wgsl\n`, \"}\")}\n  b\n`; const t = 1;");
