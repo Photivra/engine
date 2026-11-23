@@ -105,7 +105,8 @@ describe("WGSL minification (#536)", () => {
     // + #716's bilinear axis that the image-plane Speed module and Quality lattice pass share (src/gpu/display-view-image-quality.ts).
     // 2.29.0 (#658): + the chart kernel's material part and the composite kernel's material part and two common parts, the seams
     // the display view's material modules take instead of searching the kernels' text.
-    expect(literals).toBe(46);
+    // 2.29.0 (#750): + the layered passes (the sum and the sites, src/gpu/wgsl-display-view-layered-kernel.ts).
+    expect(literals).toBe(48);
     // #658: 2.28.0's minifier (comments and indentation) measured after < 0.86 · before.
     expect(after).toBeLessThan(0.78 * before);
   });
