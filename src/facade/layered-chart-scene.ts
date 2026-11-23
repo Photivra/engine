@@ -29,7 +29,9 @@
 
 import { InvalidConfigurationError } from "../core/configuration-error.js";
 import { calculateDepthOfField } from "../optics/depth-of-field.js";
-import { resolveDefocusDisc } from "../optics/defocus-disc-kernel.js";
+import { DEFOCUS_DISC_KERNEL_MAXIMUM_RADIUS_SITES, resolveDefocusDisc } from "../optics/defocus-disc-kernel.js";
+import { defocusBokehKernelRadius, resolveDefocusBokehOptions, type DefocusBokehOptions } from "../optics/defocus-bokeh-kernel.js";
+import { DEFOCUS_DIRECT_KERNEL_MAXIMUM_RADIUS_SITES } from "../optics/site-kernel-runs.js";
 import { createDeterministicUniformStream } from "../sensor/stochastic-seed.js";
 import { DIGIT_SEGMENTS, NUMERAL_ADVANCE, NUMERAL_WIDTH, SEGMENTS, resolveChartMaterial, resolveChartScene, type ChartReflectance, type ChartScene,
   type ResolvedChartScene } from "./chart-scenes.js";
@@ -81,7 +83,14 @@ export interface LayeredChartScene {
   backPlane?: LayeredChartBackPlane;
 }
 
-export const LAYERED_CHART_LIMITS = /* @__PURE__ */ Object.freeze({ maximumCards: 16, maximumLightsAcross: 256, maximumCandela: 1e7 });
+/**
+ * Limits of layered chart scenes. `maximumEdgeKernelRadiusSites` (from 2.29.0, #764): the largest defocus kernel radius, in sites,
+ * the layered sum takes at card edges, for the uniform disc (`disc`) and for a kernel shaped by `lens.defocus` bokeh options
+ * (`shaped`); a scene of more than one surface whose kernel is larger is refused. {@link calculateLayeredChartKernelRadii} checks
+ * a request against them before rendering.
+ */
+export const LAYERED_CHART_LIMITS = /* @__PURE__ */ Object.freeze({ maximumCards: 16, maximumLightsAcross: 256, maximumCandela: 1e7,
+  maximumEdgeKernelRadiusSites: /* @__PURE__ */ Object.freeze({ disc: DEFOCUS_DIRECT_KERNEL_MAXIMUM_RADIUS_SITES, shaped: DEFOCUS_DIRECT_KERNEL_MAXIMUM_RADIUS_SITES }) });
 /** Default reflectance of the back plane. */
 export const LAYERED_CHART_DEFAULT_BACK_PLANE_REFLECTANCE = 0.18;
 
@@ -304,6 +313,54 @@ export function layeredChartDepths(scene: ResolvedLayeredChartScene, input: Omit
     const side = s.distanceM > focusDistanceM ? 1 : s.distanceM < focusDistanceM ? -1 : 0;
     return { kind: s.kind, index: s.index, distanceM: s.distanceM, defocusDiameterSites: disc.diameterSites, signedBlurRadiusSites: side * disc.diameterSites / 2,
       withinDepthOfField: s.distanceM >= dof.nearLimitM && (dof.farLimitM === null || s.distanceM <= dof.farLimitM) };
+  });
+}
+
+/** Per surface: the defocus kernel radius a request needs and whether the renderer takes it (#764). */
+export interface LayeredChartKernelRadius {
+  kind: "card" | "back-plane";
+  /** Card index in the scene's `cards`, or −1 for the back plane. */
+  index: number;
+  /** Radius R of the surface's defocus kernel, sites (0 in focus): the kernel the request renders, (2R + 1)² taps. */
+  kernelRadiusSites: number;
+  /** True when R is within the bound the request's route applies (see {@link calculateLayeredChartKernelRadii}): the request renders this surface's blur. */
+  withinBound: boolean;
+}
+
+/**
+ * From 2.29.0 (#764): the defocus kernel radius of each surface of a layered chart scene, nearest first, and whether it is within
+ * the bound the renderer applies, without building a kernel or rendering. The radius is the one the facade builds: the disc of
+ * `createDefocusDiscSiteKernel` (⌈c/2 − ½⌉ for the blur diameter c in sites, `calculateDefocusCircle`), or with `defocus` bokeh
+ * options (`blades`, `sphericalAberration`, `catsEye`, as `lens.defocus` takes them) the shaped kernel's reach on the surface's
+ * side of the focus plane, on axis (a cat's eye's field zones keep the axis kernel's radius), from the same function the kernel
+ * builder uses.
+ *
+ * The bound: a scene of more than one surface takes the layered sum, which refuses a kernel radius above
+ * `LAYERED_CHART_LIMITS.maximumEdgeKernelRadiusSites` (`disc` without bokeh options, `shaped` with them). A scene of one card and no
+ * back plane renders on the single-plane path: there the bound is `DEFOCUS_DISC_KERNEL_MAXIMUM_RADIUS_SITES` (512), and with a cat's eye
+ * the capture's 64 sites. Only the kernel size is checked: other refusals (options layered scenes do not support, a cat's eye with
+ * `lens.diffraction`) are not. The scene and the bokeh options are validated as a request's are; the lens values follow
+ * `calculateDefocusCircle` (positive and finite, distances beyond the focal length), failing with `InvalidScientificInputError`.
+ * Geometric thin-lens blur (no diffraction), an approximation.
+ */
+export function calculateLayeredChartKernelRadii(input: { scene: LayeredChartScene; focalLengthMm: number; aperture: number; focusDistanceM: number;
+  pixelPitchMicrometers: number; defocus?: { model: "geometric-disc" } & DefocusBokehOptions }): LayeredChartKernelRadius[] {
+  const record = allow(input, "calculateLayeredChartKernelRadii input", ["scene", "focalLengthMm", "aperture", "focusDistanceM", "pixelPitchMicrometers", "defocus"]);
+  const resolved = resolveLayeredChartScene({ scene: record.scene as LayeredChartScene, aspect: 2 / 3 });
+  const { focalLengthMm, aperture, focusDistanceM, pixelPitchMicrometers } = input;
+  let options: ReturnType<typeof resolveDefocusBokehOptions> | undefined;
+  if (record.defocus !== undefined) {
+    const { model, ...bokeh } = allow(record.defocus, "defocus", ["model", "blades", "sphericalAberration", "catsEye"]);
+    if (model !== "geometric-disc") fail("defocus.model must be \"geometric-disc\".");
+    if (Object.keys(bokeh).length > 0) options = resolveDefocusBokehOptions(bokeh, "defocus");
+  }
+  const limits = LAYERED_CHART_LIMITS.maximumEdgeKernelRadiusSites;
+  const bound = !resolved.singlePlane ? (options ? limits.shaped : limits.disc) : options?.catsEye ? DEFOCUS_DIRECT_KERNEL_MAXIMUM_RADIUS_SITES : DEFOCUS_DISC_KERNEL_MAXIMUM_RADIUS_SITES;
+  return resolved.surfaces.map((s) => {
+    const disc = resolveDefocusDisc({ focalLengthMm, aperture, focusDistanceM, subjectDistanceM: s.distanceM, pitchMicrometers: pixelPitchMicrometers }), c = disc.diameterSites;
+    const radius = !(c > 0) ? 0 : !options ? disc.kernelRadiusSites :
+      defocusBokehKernelRadius({ diameterSites: c, side: s.distanceM > focusDistanceM ? 1 : -1, fNumber: aperture, focalLengthMm, pitchMicrometers: pixelPitchMicrometers, options });
+    return { kind: s.kind, index: s.index, kernelRadiusSites: radius, withinBound: radius <= bound };
   });
 }
 
