@@ -250,7 +250,7 @@ Defined once in the Tailwind theme (section 9) as CSS variables that change with
 | Token | Light | Dark | Use |
 | --- | --- | --- | --- |
 | `ground` | `#FFFFFF` | `#111113` | Page background |
-| `surface` | `#F2F2F7` | `#1C1C1E` | Code blocks, inline code, cards, the current item in a list |
+| `surface` | `#F2F2F7` | `#1C1C1E` | Inline code, cards, the current item in a list (code blocks: see below) |
 | `ink` | `#1C1C1E` | `#F2F2F7` | Text, links, filled buttons |
 | `muted` | `#5F5F64` | `#AEAEB2` | Secondary text, labels |
 | `rule` | `#D1D1D6` | `#3A3A3C` | Hairlines (decoration only) |
@@ -259,7 +259,19 @@ Defined once in the Tailwind theme (section 9) as CSS variables that change with
 
 - Six of the seven are the sibling site's values. The dark ground is `#111113` rather than black: these are long pages of text and code, and the app's black ground is a camera screen's, not a document's. `control` is new: a form field's border must reach 3:1 (WCAG 1.4.11), which `rule` does not.
 - **No accent color.** Links are the text color, underlined; they never depend on color. In navigation lists, where every item is a link, the underline appears on hover and focus and the current item is marked by weight and a `surface` background as well as `aria-current`.
-- **Code is not colored.** No syntax highlighting in 2.28.0: it would add a dependency to approve and several times the markup to each of 2,366 `ts` blocks. Code is set in the monospace stack on `surface`.
+- **Code is colored (2.29.0, #757).** 2.28.0 set code plain on `surface`. Since 2.29.0 code blocks sit on one near-black ground, `#111214`, in both schemes, and are colored at build time by `site/lib/highlight.mjs`: highlight.js (a pinned development dependency, BSD-3-Clause) finds the tokens of TypeScript and JavaScript, shell and JSON blocks, and its classes are mapped to six one-letter ones, so each colored token costs a short span and no style attribute (the Content-Security-Policy is unchanged). Other blocks, inline code and the license texts stay plain. The spans are flat and hold only the code's own text, so selecting and copying gives the plain code. Print sets code dark on white, keywords and function names bold and comments italic.
+
+  | Class | Token | Color | Contrast on `#111214` |
+  | --- | --- | --- | --- |
+  | | text, punctuation | `#E6EDF3` | 15.9 |
+  | `k` | keyword | `#FF7B72` | 7.4 |
+  | `s` | string | `#A5D6FF` | 12.2 |
+  | `n` | number, literal, constant | `#79C0FF` | 9.6 |
+  | `c` | comment | `#9AA4AF` | 7.4 |
+  | `f` | function name | `#D2A8FF` | 9.6 |
+  | `t` | type, built-in name | `#FFA657` | 9.7 |
+
+  Every color is above WCAG AA's 4.5:1; the axe pass checks it in both schemes.
 - "Function" and "Type" are words in a small outlined label, not colors.
 
 ### 8.3 Type
@@ -432,7 +444,7 @@ The target is WCAG 2.2 level AA. The site states no conformance claim; this sect
 
   - `BreadcrumbList` on every inner page, the same items as the visible breadcrumb.
   - **Never:** ratings, reviews, download or star counts, awards, an `offers` block, or any property with no source file. The check compares every value with its source.
-- **Icons:** `favicon.ico` (32 px), an SVG icon and a 180 px touch icon, self-hosted. No web app manifest: the site is not an installable app. The artwork is decision 11.
+- **Icons:** `favicon.ico` (16, 32 and 48 px), an SVG icon and a 180 px touch icon, self-hosted, and `<meta name="theme-color" content="#111214">`. No web app manifest: the site is not an installable app. Since 2.29.0 (#758) they are the Photivra icon files, committed unchanged; decision 11 covered 2.28.0's interim icon.
 - **`/llms.txt`:** the repository's `llms.txt`, served unchanged (decision 14).
 - **Headings and links:** one `h1` per page; descriptive link text; `lang="en-US"`.
 
@@ -468,7 +480,7 @@ The generator, its layout under `site/`, the page head, the sitemap, the link re
 | 6 | Budgets are measured with gzip, not Brotli | To be confirmed against what the host serves (section 18); gzip is the larger, so the budget is safe either way |
 | 7 | No `CNAME` file question is reopened: the plan's file and its check stay | |
 | 8 | The static request check gains: `script-src` appears only on `/search/`; the one script holds no `fetch`, `XMLHttpRequest`, storage or cookie access; no page other than `/search/` has a `<script>` that is not `application/ld+json` | Section 2, rule 3 |
-| 9 | `html-validate`, `axe-core`, Tailwind and `marked` as the plan lists them; no syntax highlighter, no typography plugin, no image or font tooling | Sections 8 and 9 |
+| 9 | `html-validate`, `axe-core`, Tailwind and `marked` as the plan lists them; no syntax highlighter (until 2.29.0: highlight.js, #757), no typography plugin, no image or font tooling | Sections 8 and 9 |
 
 Closing the #709 gaps in design terms: site-only Markdown uses repository-relative links (gap 1); a change confined to `site/**` or `docs/design/**` runs no engine tests once the scope rule exists (gap 2); heading ids come from the shared `anchors()` module, which skips fenced code, and the parity test is stated against that module (gaps 3 and 4); the Pages check is not a required check (gap 5); the `workflow_run` deployment is guarded as in 14.2 (gap 6).
 
@@ -551,9 +563,9 @@ Each as it was proposed, with the recommendation; the site in `site/` is built t
 6. **Split the usage guide, the quick start and the display-view guide into one page per `##` section,** with a contents page each. Recommended; as single pages they are several times over the page budget.
 7. **Publish six more guides** beside the three the ticket names: Agent guide, Color patches, Image-plane scene, Mixed lighting and flash, Light sources, Content Credentials. Recommended: `llms.txt` already presents them as starting points, each is one line in the page map, and without them links from the published guides to these documents leave the site.
 8. **Typeface: Inter, self-hosted (two subset files), with the system monospace font for code.** Recommended, for one look across the two sites. It adds font files and a license record for the owner's review; recording it in `THIRD_PARTY.md` edits a file that is packed into the npm package, which the pull request must name. The alternative is the system font stack: no files, nothing to record, and a first view about 50 kB smaller.
-9. **No syntax highlighting and no accent color in 2.28.0.** Recommended.
+9. **No syntax highlighting and no accent color in 2.28.0.** Recommended. (2.29.0 colors code blocks, #757; section 8.2.)
 10. **Lighthouse in the workflow as one more site development dependency, with the sibling site's floors** (performance 95, accessibility 100, best practices 95, SEO 100). Recommended. The alternative is to run it by hand after each deployment.
-11. **Icon and social image.** There is no logo in this repository. Recommended: a type-only social image (the name, the abstract and the package name) and, until a Photivra mark is provided, an icon that is the letter "P" in Inter Bold on the dark ground. The owner may instead supply the brand's mark for both.
+11. **Icon and social image.** There is no logo in this repository. Recommended: a type-only social image (the name, the abstract and the package name) and, until a Photivra mark is provided, an icon that is the letter "P" in Inter Bold on the dark ground. The owner may instead supply the brand's mark for both. (2.29.0 uses the Photivra icon files, #758.)
 12. **The publication guard** (14.3): a push to `main` deploys only when the changelog's newest section is marked published and matches `package.json`; the release deployment shows "Published" without a date until the record lands. Recommended.
 13. **Run the Pages workflow on pull requests that change `src/**`,** so an engine change that breaks a rendered example fails before the release. Recommended; it adds a few minutes to those pull requests and is not a required check.
 14. **Serve the repository's `llms.txt` unchanged at `/llms.txt`.** Recommended.
