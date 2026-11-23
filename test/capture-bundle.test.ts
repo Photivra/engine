@@ -328,19 +328,27 @@ describe("the app's capture-worker shape", () => {
    * #739 (owner decision 2026-11-21): `simulateFalseColor`'s body is its own on-demand chunk ("false color", a row of its own, limit its
    * measurement rounded up to the next 100 B) and the capture worker does not import it, so the worker's rows add 0 B. Measured with
    * rolldown 1.2.14: the body 5,023 B gzip; the stub adds 348 B to the first load of a bundle that imports the function.
+   * #743 (2.29.0, owner decision 3 of the 2.29.0 plan): `measure.noise`'s code is a second on-demand chunk ("false-color noise", a row
+   * of its own, limit its measurement rounded up to the next 100 B), loaded only with `measure.noise`; the body is unchanged. Measured
+   * with rolldown 1.2.14 on the 2.29.0 tree: the noise chunk 3,566 B gzip; the stub's dispatch moves the entry delta from 329 B to 381 B.
    */
-  it("keeps simulateFalseColor out of the worker and its body in one on-demand chunk", async () => {
+  it("keeps simulateFalseColor out of the worker and its body and noise measure in on-demand chunks", async () => {
     const worker = await bundle(WORKER_SHAPE), withFalseColor = await bundle([...WORKER_SHAPE, "simulateFalseColor"]);
-    for (const id of ["facade/false-color.ts", "facade/false-color-entry.ts"]) expect([...worker.lazyModules, ...worker.modules.keys()]).not.toContain(id);
-    const body = withFalseColor.chunks.filter((c) => c.modules.has("facade/false-color.ts"));
-    expect(body).toHaveLength(1);
-    expect([...body[0]!.modules]).toEqual(["facade/false-color.ts"]);
-    expect(withFalseColor.modules.has("facade/false-color.ts")).toBe(false);
-    expect(withFalseColor.lazyModules.has("facade/false-color.ts")).toBe(true);
-    expect(withFalseColor.chunks.filter((c) => c.imports.includes(body[0]!.fileName))).toEqual([]);
-    expect(body[0]!.imports).toEqual([]);
-    expect(body[0]!.gzip).toBeLessThanOrEqual(5_100);
-    // The worker's rows: the chunks other than the body are the worker's plus the stub (in the first load).
-    expect(withFalseColor.totalGzip - body[0]!.gzip - worker.totalGzip).toBeLessThanOrEqual(400);
+    const lazy = ["facade/false-color.ts", "facade/false-color-noise.ts"];
+    for (const id of [...lazy, "facade/false-color-entry.ts"]) expect([...worker.lazyModules, ...worker.modules.keys()]).not.toContain(id);
+    const [body, noise] = lazy.map((id) => {
+      const chunks = withFalseColor.chunks.filter((c) => c.modules.has(id));
+      expect(chunks).toHaveLength(1);
+      expect([...chunks[0]!.modules]).toEqual([id]);
+      expect(withFalseColor.modules.has(id)).toBe(false);
+      expect(withFalseColor.lazyModules.has(id)).toBe(true);
+      expect(withFalseColor.chunks.filter((c) => c.imports.includes(chunks[0]!.fileName))).toEqual([]);
+      expect(chunks[0]!.imports).toEqual([]);
+      return chunks[0]!;
+    }) as [Bundle["chunks"][number], Bundle["chunks"][number]];
+    expect(body.gzip).toBeLessThanOrEqual(5_100);
+    expect(noise.gzip).toBeLessThanOrEqual(3_600);
+    // The worker's rows: the chunks other than the body and the noise measure are the worker's plus the stub (in the first load).
+    expect(withFalseColor.totalGzip - body.gzip - noise.gzip - worker.totalGzip).toBeLessThanOrEqual(400);
   }, testTimeout(120_000));
 });
