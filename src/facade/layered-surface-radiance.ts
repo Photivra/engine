@@ -20,11 +20,28 @@
  * - {@link LayeredSurfaceRadiance.material}`(k, point)`: the material index at the point, or −1 for a radiance scene (the
  *   chief ray's surface, metering and the pilot).
  * - `lookups`: scene lookups so far (one per material lookup, one per node for a radiance scene), for diagnostics.
+ *
+ * A radiance scene is read through its spectrum form when it has one (`radianceSpectrumAt`, #735: the point resolved once for all
+ * nodes, the same values as `radianceAt` per node), else per node.
+ *
+ * Mixed illumination (#745, 2.29.0 group LR). {@link layeredLitSurfaceScene} gives a surface under an `illumination` as a
+ * radiance scene: each frame point (u, v) of the surface is lit by the blend at that frame point, E(u, v, λ) = Σ_j w_j(u, v)·S_j(λ)
+ * plus the point sources (`mixed-illumination.ts`), and L_k = ρ_k(λ)·E(u, v, λ)/π, formed at the spectral nodes when a tile is
+ * filled; a back plane's light cell adds its lights' own I_e/A to its lit plane. The blend's coordinates are frame units (a
+ * layered scene's chart coordinates) and a point source's plane point is (u, v)·metresPerFrameUnit, the plane at the reference
+ * (subject) distance. Approximation (labeled): one light field over the frame's angles, the same for every surface whatever
+ * its depth, so no shadows between surfaces, no falloff with depth, and no light between surfaces. Each value is the
+ * single-plane mixed path's expression (`scene-radiance.ts`, `litRadianceSpectrumAt`: reflectance × irradiance / π, in that
+ * order), so a surface filling the frame gives the single-plane values bit for bit. Without an illumination nothing changes:
+ * a neutral material keeps `m.neutral * white[n]`. The pilot and the chief ray's material read a radiance scene (−1), as the
+ * single-plane mixed path has no material access either.
  */
 
 import { InvalidConfigurationError } from "../core/configuration-error.js";
 import type { DisplayViewScene } from "./expected-signal.js";
 import type { LayeredFramePoint } from "./layered-lattice-geometry.js";
+import { layeredSurfaceScene, type ResolvedLayeredSurface } from "./layered-chart-scene.js";
+import type { ResolvedMixedIllumination } from "./mixed-illumination.js";
 
 /** Surface radiance at the spectral nodes (see the module comment). */
 export interface LayeredSurfaceRadiance {
@@ -60,6 +77,7 @@ export function createLayeredSurfaceRadiance(input: LayeredSurfaceRadianceInput)
     });
   });
   let lookups = 0;
+  const scratch = new Float64Array(N);
   return {
     radiance(k, point, out, at): void {
       const scene = layers[k]!.scene, { u, v } = point;
@@ -67,12 +85,66 @@ export function createLayeredSurfaceRadiance(input: LayeredSurfaceRadianceInput)
         const L = spectra[k]![scene.materialAt(u, v)];
         if (L === undefined) fail("Unknown chart material.");
         out.set(L!, at); lookups++;
-      } else { for (let n = 0; n < N; n++) out[at + n] = scene.radianceAt(u, v, wavelengthsNm[n]!); lookups += N; }
+      } else {
+        const spectrum = scene.radianceSpectrumAt;
+        if (spectrum) { spectrum(u, v, wavelengthsNm, scratch); out.set(scratch, at); } else for (let n = 0; n < N; n++) out[at + n] = scene.radianceAt(u, v, wavelengthsNm[n]!);
+        lookups += N;
+      }
     },
     material(k, point): number {
       const scene = layers[k]!.scene;
       return scene.kind === "materials" ? scene.materialAt(point.u, point.v) : -1;
     },
     get lookups(): number { return lookups; }
+  };
+}
+
+/** The lit surface's input (see {@link layeredLitSurfaceScene}); the last three are `layeredSurfaceScene`'s (the light cells). */
+export interface LayeredLitSurfaceInput {
+  wavelengthsNm: readonly number[];
+  /** The resolved `illumination` (`resolveMixedIllumination`): its per-node and spectrum forms. */
+  illumination: Pick<ResolvedMixedIllumination, "irradianceAt" | "irradianceSpectrumAt">;
+  /** g = 2 / outputWidth, frame units per site. */
+  siteFrameUnits: number;
+  /** Metres per frame unit at `referenceDistanceM`: a point source's plane point is (u, v) times it. */
+  metresPerFrameUnit: number;
+  referenceDistanceM: number;
+}
+
+/**
+ * Internal (#745): surface `surface` lit by a mixed illumination, as a radiance scene for the layered sum and for the
+ * single-plane input of the sites that see it alone (see the module comment). Reflectances at the nodes are taken once; a
+ * spectral reflectance outside [0, 1] fails as on the single-plane path.
+ */
+export function layeredLitSurfaceScene(surface: ResolvedLayeredSurface, input: LayeredLitSurfaceInput): Extract<DisplayViewScene, { kind: "radiance" }> {
+  const { wavelengthsNm, illumination: light, metresPerFrameUnit: scale } = input;
+  if (!(scale > 0 && Number.isFinite(scale))) fail("Layered scene: metresPerFrameUnit must be a positive number.");
+  // The material lookup and its light-cell checks are the plain surface's (white 1: the radiances are not used).
+  const materialAt = layeredSurfaceScene(surface, { ...input, whiteRadiance: new Float64Array(wavelengthsNm.length).fill(1) }).materialAt;
+  const materials = surface.materials, lights = surface.lights;
+  const reflectanceOf = (m: number, nm: number): number => {
+    // The light cell (index materials.length) is the plane, material 0, plus its lights.
+    const material = materials[m < materials.length ? m : 0];
+    if (material === undefined) return fail("Unknown chart material.");
+    if (material.kind === "neutral") return material.reflectance;
+    const value = material.spectrum.evaluate(nm);
+    return value >= 0 && value <= 1 ? value : fail("Chart reflectance spectrum left [0, 1].");
+  };
+  const rows = Array.from({ length: materials.length + (lights ? 1 : 0) }, (_, m) => Float64Array.from(wavelengthsNm, (nm) => reflectanceOf(m, nm)));
+  // A light cell's own radiance I_e(λ)/A, A the site's area on the plane (`layeredSurfaceScene`'s expressions).
+  const side = lights ? input.siteFrameUnits * scale * surface.distanceM / input.referenceDistanceM : 0, area = side * side;
+  const emitted = lights ? Float64Array.from(wavelengthsNm, (nm) => lights.intensityAt(nm) / area) : undefined, cell = materials.length;
+  return {
+    kind: "radiance",
+    radianceAt(u, v, nm): number {
+      const m = materialAt(u, v), value = reflectanceOf(m, nm) * light.irradianceAt(u, v, u * scale, v * scale, nm) / Math.PI;
+      return m === cell && lights ? value + lights.intensityAt(nm) / area : value;
+    },
+    radianceSpectrumAt(u, v, wavelengths, out): void {
+      const m = materialAt(u, v), own = wavelengths === wavelengthsNm, row = own ? rows[m] : undefined;
+      light.irradianceSpectrumAt(u, v, u * scale, v * scale, wavelengths, out);
+      for (let n = 0; n < wavelengths.length; n++) out[n] = (row ? row[n]! : reflectanceOf(m, wavelengths[n]!)) * out[n]! / Math.PI;
+      if (m === cell && lights) for (let n = 0; n < wavelengths.length; n++) out[n] = out[n]! + (own ? emitted![n]! : lights.intensityAt(wavelengths[n]!) / area);
+    }
   };
 }
