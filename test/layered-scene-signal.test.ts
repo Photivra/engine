@@ -221,12 +221,14 @@ describe("layered scenes: a point light (test 6)", () => {
 
 describe("layered scenes: lattice validation", () => {
   const f = fixture(16, 16);
-  it("refuses a far surface that is not last, a kernel above 64 sites with edges, and bad sub-sample counts", () => {
+  it("refuses a far surface that is not last, a kernel above the edge bound (512 sites, 128 shaped), and bad sub-sample counts", () => {
     const base = layersOf(f, [{ rect: { u0: 0, u1: 1, v0: 0, v1: 1 }, rho: 1, reflectances: [0.5] }, { rect: null, rho: 2, reflectances: [0.5] }]);
     const input = { nativeWidth: 16, nativeHeight: 16, outputWidth: 16, wavelengthsNm: WAVELENGTHS, occlusionSamples: 4 };
     expect(() => createLayeredSceneLattice({ ...input, layers: [base[1]!, base[0]!] })).toThrow(/far surface/);
-    const big = { ...base[1]!, kernel: { radius: 65, weights: new Float64Array(131 * 131) } };
-    expect(() => createLayeredSceneLattice({ ...input, layers: [base[0]!, big] })).toThrow(/at most 64/);
+    const big = { ...base[1]!, kernel: { radius: 513, weights: new Float64Array(1027 * 1027) } };
+    expect(() => createLayeredSceneLattice({ ...input, layers: [base[0]!, big] })).toThrow(/radius of 513 sites; at card edges the layered sum takes at most 512\./);
+    const shaped = { ...base[1]!, kernel: { radius: 129, weights: new Float64Array(259 * 259), shaped: true } };
+    expect(() => createLayeredSceneLattice({ ...input, layers: [base[0]!, shaped] })).toThrow(/at most 128 for a shaped kernel/);
     expect(() => createLayeredSceneLattice({ ...input, layers: base, occlusionSamples: 0 })).toThrow(/occlusionSamples/);
     const withoutKernels = { ...base[0]!.signalInput! };
     delete (withoutKernels as { kernels?: unknown }).kernels;

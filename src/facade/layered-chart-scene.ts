@@ -85,12 +85,13 @@ export interface LayeredChartScene {
 
 /**
  * Limits of layered chart scenes. `maximumEdgeKernelRadiusSites` (from 2.29.0, #764): the largest defocus kernel radius, in sites,
- * the layered sum takes at card edges, for the uniform disc (`disc`) and for a kernel shaped by `lens.defocus` bokeh options
- * (`shaped`); a scene of more than one surface whose kernel is larger is refused. {@link calculateLayeredChartKernelRadii} checks
+ * the layered sum takes at card edges, for the uniform disc (`disc`, 512: `DEFOCUS_DISC_KERNEL_MAXIMUM_RADIUS_SITES`, as a single
+ * plane) and for a kernel shaped by `lens.defocus` bokeh options (`shaped`, 128; #749); a scene of more than one surface whose
+ * kernel is larger is refused. {@link calculateLayeredChartKernelRadii} checks
  * a request against them before rendering.
  */
 export const LAYERED_CHART_LIMITS = /* @__PURE__ */ Object.freeze({ maximumCards: 16, maximumLightsAcross: 256, maximumCandela: 1e7,
-  maximumEdgeKernelRadiusSites: /* @__PURE__ */ Object.freeze({ disc: DEFOCUS_DIRECT_KERNEL_MAXIMUM_RADIUS_SITES, shaped: DEFOCUS_DIRECT_KERNEL_MAXIMUM_RADIUS_SITES }) });
+  maximumEdgeKernelRadiusSites: /* @__PURE__ */ Object.freeze({ disc: DEFOCUS_DISC_KERNEL_MAXIMUM_RADIUS_SITES, shaped: 128 }) });
 /** Default reflectance of the back plane. */
 export const LAYERED_CHART_DEFAULT_BACK_PLANE_REFLECTANCE = 0.18;
 

@@ -151,7 +151,8 @@ describe("layered chart scenes through the public API (#652)", () => {
       [{ chartSize: { widthM: 0.5 } }, /does not support chartSize/],
       [{ illumination: { sources: [{ illuminant: { kind: "cie-a" }, illuminanceLux: 1000 }] } } as never, /does not support illumination \(mixed lighting\)/],
       [{ lens: { ...lens, diffraction: "circular-aperture", defocus: { model: "geometric-disc", catsEye: { apertures: [{ radiusMm: 9, shiftPerTanFieldMm: 40 }] } } } }, /catsEye cannot be combined with lens\.diffraction/],
-      [{ lens: { ...lens, focusDistanceM: 10 }, sensor: { pixelPitchMicrometers: 1, spectralStepNanometers: 40 } }, /kernel radius of \d+ sites; at card edges the layered sum takes at most 64/]];
+      [{ lens: { ...lens, focusDistanceM: 10, defocus: { model: "geometric-disc", blades: { count: 7 } } }, sensor: { pixelPitchMicrometers: 1, spectralStepNanometers: 40 } },
+        /kernel radius of \d+ sites; at card edges the layered sum takes at most 128 for a shaped kernel/]];
     // A caller PSF: the one a plain chart capture with diffraction resolves (a valid lens.psf, so the layered refusal is what fails).
     const psf = (await simulateCapture({ ...options, scene: { preset: "uniform", reflectance: 0.5 }, lens: { ...lens, diffraction: "circular-aperture" } })).request.diffraction!.psf;
     cases.push([{ lens: { ...lens, psf } } as never, /does not support lens\.psf in 2\.27\.0: a caller PSF declares its own defocus/]);

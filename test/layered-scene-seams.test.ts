@@ -18,6 +18,11 @@
  * Recorded at `783f38f` (2.28.0, before the split; the module locks again with their counters apart, and three more cases,
  * for the second L0 commit) on arm64 (Node 26.13.1) and x64 (Node 24.1.0 under Rosetta 2): every lock
  * has the same bytes on both, so there is no arm64 table (docs/NUMERICAL_CORRECTNESS.md, "Test hash locks and platforms").
+ * Re-recorded for 2.29.0 group LE (#749, #750): the edge sum by runs regroups the direct sum (rule 3 of the 2.29.0 plan; the
+ * sum tiles fill one surface at a time, the surface tiles keep row sums). Measured against c99daa1's direct sum: the module
+ * locks' lattice values and site signals within 1.9e-15 relative (every case); the benchmark cases' images and RAW codes keep
+ * their bits, the view's expected values within 2.3e-13 relative (card 0; card 2 keeps its bits). The counters of the
+ * small-tile case move (the surface tiles' bytes count the row sums).
  * Record with RECORD_LAYERED_SEAM_HASHES=1 (prints them; asserts nothing).
  */
 import { createHash, type Hash } from "node:crypto";
@@ -127,40 +132,40 @@ function moduleDigest(c: ModuleCase): ModuleLock {
 
 const MODULE_LOCKS: readonly ModuleLock[] = [
   // box offsets, diffraction, full
-  { lattice: "0f05167080aa74ecb1d2007b8395aa23c00c2fde53848a07c7df9f84989f814a",
-    signal: "e474cb1b7ad1fa854b66b6058b834300f8c1046f2bb0918e811722bea9f02318",
+  { lattice: "f411b00d30358596a956b747216d8c24da371cfc2073b8b979fd47a3d38e51d0",
+    signal: "fc7b1bd4d50a8f4d2f3e71e919eae1ca9dd930841f0357619983e4d0d50bcdf0",
     counters: '{"afterSites":{"edgeSites":1385,"delegatedSites":151,"lookups":78812,"edgePoints":3176},"edgePoints":3176,"lookups":73728,"surfaceTiles":[72,2304],"sumTiles":[36,552]}' },
   // box offsets, diffraction, fast
-  { lattice: "b9c2dcf95aa7e12895e9e8ae23db51be692e281c887aaf16fb3b9f9c03f3c0f3",
-    signal: "2b4c23f6b9173f745926e9a7b9bb41b08b6cbf9660554477433fc4aff7a1a030",
+  { lattice: "06c556c7bee740d42432d8d8418af33ee002505c9e6785f11c06aead480e6d6e",
+    signal: "c162c10aad5e825c30d4403e6dd513237d5015f168d0e98c2130156ed25b4cb8",
     counters: '{"afterSites":{"edgeSites":1385,"delegatedSites":151,"lookups":78812,"edgePoints":3176},"edgePoints":3176,"lookups":73728,"surfaceTiles":[72,2304],"sumTiles":[36,552]}' },
   // the layered sum's own path (no single-plane input), full
-  { lattice: "99738737a4367d87f5edfb1f62f102102144075d07895f302674da231be4e164",
-    signal: "6ea3182cb520cf40c91d89250704f3baa96c4d2ca36323fc443886cd3c616412",
+  { lattice: "e3dbf08546cfd9ca6496ff9dcb9894949624fb486cae431efe05e521ca1b88c5",
+    signal: "73b4f2e2b39d5f0b95537ad8abb2b7a6e6c91e3473689caaba221656d16359df",
     counters: '{"afterSites":{"edgeSites":1120,"delegatedSites":0,"lookups":15360,"edgePoints":619},"edgePoints":619,"lookups":18432,"surfaceTiles":[18,576],"sumTiles":[9,120]}' },
   // field zones (cat's eye)
-  { lattice: "7f1147fc5cab63a10d05085fce6fb41d39285ab51b29f39f19f7c5bca959237d",
-    signal: "7c2aba891122edcd5534bf02138b790cbc7caa7c84b2473af8645fd713b87cc2",
+  { lattice: "c4c1079cfa207f98dbd380046d6b08aee111404abc8f800d86c98cca1db48faf",
+    signal: "41753a8c33bbb044f2c241bebab1d343b89bdd47f94f58561ea49d4289d26f77",
     counters: '{"afterSites":{"edgeSites":1120,"delegatedSites":0,"lookups":14336,"edgePoints":793},"edgePoints":793,"lookups":17408,"surfaceTiles":[17,544],"sumTiles":[9,120]}' },
   // a radiance back plane, box offsets
-  { lattice: "212cbad7568377f69abbefca215a6c127885002810c9140937dc4ddd8f8626cf",
-    signal: "fa42272a6d11e29c02fe4bfbd7e343f8ac34f832b71ec9f862ee6248a5c9a08a",
+  { lattice: "e4709be48bbaa74fa4f0484cab88028ac331eb3c721a5efb6d10f203e50400d3",
+    signal: "a8c654efcbfd2bfbf97e4c6343b6c002db1fa96b32eb5eb5ffe3135e5600215a",
     counters: '{"afterSites":{"edgeSites":936,"delegatedSites":184,"lookups":121384,"edgePoints":2356},"edgePoints":2356,"lookups":196608,"surfaceTiles":[72,2304],"sumTiles":[36,480]}' },
   // both cards in front of the focus plane, small tiles
-  { lattice: "0c61db8322f5b88a49435b32a0a99f8b90e9260df0ebe7526d2f697beb2777e7",
-    signal: "bcb0b4a43f9a798fe04758a1fe7a35840b5e4ba912abda45ae62864797e76adc",
-    counters: '{"afterSites":{"edgeSites":1271,"delegatedSites":49,"lookups":24159387,"edgePoints":11514},"edgePoints":25443,"lookups":53978112,"surfaceTiles":[52713,1686816],"sumTiles":[2211,2799]}' },
+  { lattice: "3b041bace3e577187f39c772aed776c79533b072f295982277e8014978216639",
+    signal: "010865cd6a8107b0069ccb1621f15bcec519cb5af570a73e7b5b9242b0772cd8",
+    counters: '{"afterSites":{"edgeSites":1271,"delegatedSites":49,"lookups":1332379,"edgePoints":11514},"edgePoints":25443,"lookups":2867200,"surfaceTiles":[2800,89600],"sumTiles":[2211,2799]}' },
   // an in-focus card behind rho -34, full (the row clamp)
-  { lattice: "4418808ad6026ad0779b40e8de0fb75489e1d422439b72b08331142df90e40f5",
-    signal: "5fed972f6212fe09a746c668ceaa7c807c4f7b92c85b2a330dc3cfde66949a03",
+  { lattice: "f89c1f42f66e5bfc4aa37e73b135d3b5a8144212baa1492f65aa00015079a2a6",
+    signal: "65f9af8de380e5da94ab64fe7972e31f0db7e5ab559c2bb34e1d8167bde4db38",
     counters: '{"afterSites":{"edgeSites":384,"delegatedSites":0,"lookups":9216,"edgePoints":512},"edgePoints":1792,"lookups":11264,"surfaceTiles":[11,352],"sumTiles":[4,56]}' },
   // a kernel two sites wider than its disc
-  { lattice: "f07fd2b89de3136d7293942063e0d8f40a781c7407153e3a0bcad20d005a3238",
-    signal: "501d04a65a2c08f9ab77abfa8b1c7206fe3ba5ddda8294e9a40ba978a3ba8dc3",
+  { lattice: "8f31f1ea2711fed3309e2fb3bb4dad36b040799605ce9616c3441ea87f833872",
+    signal: "30895f8b282a2210f335c0b05f1849c0d2f7fbcdd9cf38dc24d19217abe4cc5f",
     counters: '{"afterSites":{"edgeSites":1120,"delegatedSites":0,"lookups":11264,"edgePoints":842},"edgePoints":842,"lookups":18432,"surfaceTiles":[18,576],"sumTiles":[9,120]}' },
   // a null kernel with rho -2.6
-  { lattice: "d6e8eff2bf3a13f71f14b52bf54b0c16709ae2fc8b72d019cddb4231605e9f93",
-    signal: "6aa9cb282680778e68024e969671373d793111d6519d5dc88bc69db23277cdf0",
+  { lattice: "afd2384888c671b232a4547caf70ca5d46cfdd991112a4cf461b38e0e0b73d94",
+    signal: "a6113343b2ec68323e316b57b20f1acc1ab39d9cc3bf01ec6f35ae608ef0560d",
     counters: '{"afterSites":{"edgeSites":1120,"delegatedSites":0,"lookups":11264,"edgePoints":696},"edgePoints":696,"lookups":18432,"surfaceTiles":[18,576],"sumTiles":[9,120]}' }
 ];
 
@@ -182,10 +187,10 @@ const BENCHMARK_LOCKS: Readonly<Record<string, BenchmarkLock>> = {
   "card 2 f/2 full": { view: "0015dad8320a1cbfae5e3f9cf44278ad8fde0361335d80627dfbc9fa30abb4e1", viewInternals: "6eb3f0b20525fad90d2303bae86aede350356711ccd40a4889a64913499ce49f", capture: "6fc2c5f0a4614b5a4fe3dc02a6dec08c25db28918e111656e2eda764caae9005" },
   "card 2 f/8 fast": { view: "8936ba6bf935254a6fd7abd043a557d04378b9d972a3c29d244da99970820638", viewInternals: "be76878c02b46ee3e1dcade2792e0e3cc095406f93b18eda3413f33039fd6be0", capture: "444552e9cb487a4b80131084f8aa018a3a4cd7df442886cabb50b427f4634c1c" },
   "card 2 f/8 full": { view: "8936ba6bf935254a6fd7abd043a557d04378b9d972a3c29d244da99970820638", viewInternals: "be76878c02b46ee3e1dcade2792e0e3cc095406f93b18eda3413f33039fd6be0", capture: "444552e9cb487a4b80131084f8aa018a3a4cd7df442886cabb50b427f4634c1c" },
-  "card 0 f/2 fast": { view: "902c2da82e8690eb33283b70131e6cfea3948b7501d79b534ceac85114a3e30b", viewInternals: "10cd9c306afe6130db2bb8d56fe2d7aa5d14cc2773daf08813c42a041afea0b9", capture: "612fa2d3ec0c0dc918cc9e399d45ee8c50615fa4e1a16a230d6ad600df5a87c4" },
-  "card 0 f/2 full": { view: "d296fa790c04f0a3aede1cb2c53060aa0040f0f4178412072fd684d7bf2ec0a1", viewInternals: "244cbe7f3f9562bf94366c074245134a8ba4b14c26a3c0c56f0c6f59f00c5073", capture: "21826e46b502c1ba79c5ba7c8ee5d0cf7e63d737864546de8c3630efb411839b" },
-  "card 0 f/8 fast": { view: "d2a71972fc14380e7a579eba85ef4187b92951f066a44ba1ecc0136cc0058267", viewInternals: "330f9f3dcb2e312a1d4a55d04c6b5acb90d01cab30119ea208bcee9c5d2de24c", capture: "d8e70ebf8b64de350ca496e459da220e47505e338cdc90590382dfb13b3b56d9" },
-  "card 0 f/8 full": { view: "3ebfb87dd8d93abfdc8127483b9e55facf48e7c1de8313824996330c489bdaa6", viewInternals: "0bcb52befe3ba3b206c9dfbd15621e62cd74e41f70cd56054abc7327a1b9758e", capture: "dcf7cb075aa6e6aab42d89002bdd2121f58b829d9288941a7662485c5792a331" }
+  "card 0 f/2 fast": { view: "902c2da82e8690eb33283b70131e6cfea3948b7501d79b534ceac85114a3e30b", viewInternals: "d0360866536335e4c25f79fe90542c80a2c48a71e813f40ce612a7af918e7cc7", capture: "612fa2d3ec0c0dc918cc9e399d45ee8c50615fa4e1a16a230d6ad600df5a87c4" },
+  "card 0 f/2 full": { view: "d296fa790c04f0a3aede1cb2c53060aa0040f0f4178412072fd684d7bf2ec0a1", viewInternals: "56868718653ef05cae7a6cdcf1e727a112ec00992cd4dada6061582651fca489", capture: "21826e46b502c1ba79c5ba7c8ee5d0cf7e63d737864546de8c3630efb411839b" },
+  "card 0 f/8 fast": { view: "d2a71972fc14380e7a579eba85ef4187b92951f066a44ba1ecc0136cc0058267", viewInternals: "d30f5c5995026321e56e657f5c354b1beffb7f280c1998ad8c51083b8c352a48", capture: "d8e70ebf8b64de350ca496e459da220e47505e338cdc90590382dfb13b3b56d9" },
+  "card 0 f/8 full": { view: "3ebfb87dd8d93abfdc8127483b9e55facf48e7c1de8313824996330c489bdaa6", viewInternals: "feb3258fc66466f97bc21f06c7cf37ab7a2d29bda846facedd55b1d3fe34dc83", capture: "dcf7cb075aa6e6aab42d89002bdd2121f58b829d9288941a7662485c5792a331" }
 };
 
 describe("layered sum seams (L0): the cases of scripts/benchmark-layered-scenes.mjs keep their bits", () => {
