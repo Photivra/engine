@@ -141,8 +141,10 @@ describe("WGSL minification (#536)", () => {
     expect(CHART_MATERIAL_WGSL).toBe(literals[0]!.minified);
     expect(CHART_MATERIAL_WGSL).toContain("var<private>flagged:bool;");
     expect(CHART_RADIANCE_WGSL.split("\n").length).toBe(literals[1]!.original.split("\n").length + CHART_MATERIAL_WGSL.split("\n").length - 1);
-    // Only lines that hold an interpolation keep their indentation; the kernel's two indented ones use CHART_WORKGROUP_SIZE.
-    expect(CHART_RADIANCE_WGSL.split("\n").filter((line) => /^[ \t]+\S/u.test(line))).toEqual(["  let i = gid.x + gid.y * groups.x * 256u;"]);
+    // No line keeps its indentation: since 2.29.0 (#658) the lines that hold an interpolation are tightened too, here the kernel's
+    // two that use CHART_WORKGROUP_SIZE, with one space kept next to the interpolation.
+    expect(CHART_RADIANCE_WGSL.split("\n").filter((line) => /^[ \t]+\S/u.test(line))).toEqual([]);
+    expect(CHART_RADIANCE_WGSL).toContain("\nlet i=gid.x+gid.y*groups.x* 256u;\n");
     expect(CHART_RADIANCE_WGSL).not.toMatch(/\/\//u);
     expect(SDR_WGSL).not.toMatch(/^\s*\/\//mu);
   });
@@ -155,8 +157,13 @@ describe("WGSL minification (#536)", () => {
     expect(one("\n  fn f(a: vec2<f32>, b: f32) -> f32 {\n  let x = a.x - -b * 1.5e-3 / *p;\n  if (x >= 0.0 && y < z) { return x > = y; }\n").minified)
       .toBe("\nfn f(a:vec2<f32>,b:f32)->f32{\nlet x=a.x- -b*1.5e-3/ *p;\nif(x>=0.0&&y<z){return x> =y;}\n");
     expect(one("\n  @group(0) @binding(1) var<storage, read> t: array<f32>;\n  let m = a & &b;\n").minified).toBe("\n@group(0)@binding(1)var<storage,read>t:array<f32>;\nlet m=a& &b;\n");
-    // A line with an interpolation stays as written, comment included.
+    // A line with an interpolation and a comment stays as written, comment included.
     expect(one("\n  let a = ${x}; // keeps\n  let b = 2;\n").minified).toBe("\n  let a = ${x}; // keeps\nlet b=2;\n");
+    expect(one("\n  let a = ${x}; /* keeps */\n  let b = 2;\n").kept).toBe(true);
+    // #658: any other interpolation line is tightened between its interpolations; blankspace next to an interpolation stays one space.
+    expect(one("\n    let a = f(${x}u + i, ${y}) * -${z};\n  ${w}  \n  fn g(i: u32) -> f32 { return k[${n}u  +  i]; }\n").minified)
+      .toBe("\nlet a=f(${x}u+i, ${y})* -${z};\n${w}\nfn g(i:u32)->f32{return k[${n}u+i];}\n");
+    expect(one("\n  a ${x}  ${y} b\n  c\n").minified).toBe("\na ${x} ${y} b\nc\n");
     // A block comment open across an interpolation line: the literal is kept whole.
     expect(one("\n  /* open\n  ${x}\n  */\n").kept).toBe(true);
     // An escaped backtick inside a removed comment goes with the comment; one in code keeps the literal whole.
@@ -164,7 +171,7 @@ describe("WGSL minification (#536)", () => {
     expect(one("\n  let a = \\`b\\`;\n  x;\n").kept).toBe(true);
     // Nested templates in an interpolation are copied unchanged, and the parser finds the right end.
     const nested = minifyWgslTemplates("const s = /* wgsl */ `\n  a\n  ${f(`\n  inner // not wgsl\n`, \"}\")}\n  b\n`; const t = 1;");
-    expect(nested.code).toBe("const s = /* wgsl */ `\na\n  ${f(`\n  inner // not wgsl\n`, \"}\")}\nb\n`; const t = 1;");
+    expect(nested.code).toBe("const s = /* wgsl */ `\na\n${f(`\n  inner // not wgsl\n`, \"}\")}\nb\n`; const t = 1;");
     // Untagged templates are not touched.
     expect(minifyWgslTemplates("const s = `\n  // x\n`;").code).toBe("const s = `\n  // x\n`;");
   });

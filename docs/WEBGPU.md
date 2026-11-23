@@ -921,9 +921,12 @@ From 2.14 (#536) the published package carries the engine's WGSL without comment
   space, and that space is removed where it touches an identifier or number character on one side and punctuation on the
   other, or a bracket, comma or semicolon on either side (`let x = a.x - -b;` ships as `let x=a.x- -b;`). Neither can join two
   tokens: a space between two other punctuation characters (`- -`, `/ *`, `> =`) always stays;
-- every newline stays, so line numbers and source maps still hold;
-- a line holding a `${…}` interpolation, the literal's first and last lines, and any literal where a block comment or an
-  escape could interact with them are left exactly as written.
+- every newline stays, so line numbers and source maps still hold (columns on a tightened line move);
+- since 2.29.0 a line holding a `${…}` interpolation is tightened by the same rules between its interpolations, and a space
+  that touches an interpolation stays, since its text is not known (`let i = gid.x * ${N}u + 1;` ships as
+  `let i=gid.x* ${N}u+1;`);
+- a line holding an interpolation and a comment or an escape, the literal's first and last lines, and any literal where a
+  block comment or an escape could interact with them are left exactly as written.
 
 WGSL treats comments and whitespace only as token separators, and the build fails if any literal's tokens (read by a WGSL
 lexer, `wgslTokens`), line count or count of tagged literals changes. The tests and the WebGPU suites run the same minified
