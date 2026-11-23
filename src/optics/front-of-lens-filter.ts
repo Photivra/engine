@@ -927,12 +927,12 @@ function twiceRadians(angleDegrees: number): number {
 }
 
 /**
- * cos and sin of twice an angle in degrees. A multiple of 45 degrees gives the exact values (2.29.0, optics-22: at 90 degrees
+ * cos and sin of twice an angle in degrees, rounded to the exact 0 or ±1 at a multiple of 45 degrees (2.29.0, optics-22: at 90 degrees
  * sin(pi) is 1.2e-16 in double precision, which would leave a crossed pair a residue of about 1e-33 of the light).
  */
 function cosSinTwice(angleDegrees: number): [number, number] {
-  const r = ((angleDegrees % 180) + 180) % 180, twice = twiceRadians(angleDegrees);
-  return r % 45 === 0 ? [[1, 0, -1, 0][r / 45]!, [0, 1, 0, -1][r / 45]!] : [Math.cos(twice), Math.sin(twice)];
+  const twice = twiceRadians(angleDegrees), c = Math.cos(twice), sn = Math.sin(twice);
+  return angleDegrees % 45 ? [c, sn] : [Math.round(c), Math.round(sn)];
 }
 
 function stokesFromState(state: LinearPolarizationState): LinearStokes {
