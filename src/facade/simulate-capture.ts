@@ -124,7 +124,7 @@ import { sumFixedPatternSites } from "../sensor/fixed-pattern-noise.js";
 import { sensorProfileFrame } from "../equipment/sensor-profile-frame.js";
 import type { SimulateCaptureSubjectMotion, SubjectMotion } from "../motion/subject-motion.js";
 import type { HandShakeOptions } from "../motion/hand-shake.js";
-import { exportKit, kitLoader, loadedKit, OK_CATALOGUE_OPTICS_ASSUMPTIONS, OK_CREATE_SUBJECT_MOTION_PROVIDER, OK_FLASH_ALONE_SHUTTER, OK_HAND_SHAKE_ASSUMPTION, OK_HAND_SHAKE_QUADRUPLES, OK_METER_FLASH, OK_PARSE_SENSOR_PROFILE, OK_REBIND_FLASH_ASSUMPTIONS, OK_REQUIRE_FLASH_ROWS, OK_RESOLVE_HAND_SHAKE, OK_RESOLVE_LENS_FILTER, OK_RESOLVE_MIXED_ILLUMINATION, OK_SENSOR_PROFILE_BODY, OK_SENSOR_PROFILE_SATURATION_ISO, OK_SOLVE_FLASH_SHUTTER, OK_SUBJECT_TRAVEL_M, optInKit, QK_CALCULATE_DEFOCUS_FIELD_VARIATION, QK_CREATE_AHD_DEMOSAIC_TASK, QK_CREATE_DEFOCUS_BOKEH_SITE_KERNEL, QK_CREATE_DEFOCUS_IMAGE_SPACE_PROVIDER, QK_CREATE_DIFFRACTION_LIMITED_PSF_PROFILE, QK_CREATE_OFFSET_EXPANSION, QK_NEIGHBOR_HIGHLIGHT_RING, QK_NEIGHBOR_HIGHLIGHT_THRESHOLD, QK_PLAN_DEFOCUS_BOKEH_ZONES, QK_PREPARE_DEFOCUS_IMAGE_SPACE_GEOMETRY, QK_RECONSTRUCT_HIGHLIGHTS_FROM_NEIGHBORS, QK_REGISTER_DIFFRACTION_PSF_KEY, QK_RESOLVE_DEFOCUS_BOKEH_OPTIONS, QK_SITE_DIFFRACTION_KERNEL, qualityKit } from "./on-demand-kits.js";
+import { exportKit, kitLoader, loadedKit, OK_CATALOGUE_OPTICS_ASSUMPTIONS, OK_CREATE_SUBJECT_MOTION_PROVIDER, OK_FLASH_ALONE_SHUTTER, OK_HAND_SHAKE_ASSUMPTION, OK_HAND_SHAKE_QUADRUPLES, OK_METER_FLASH, OK_PARSE_SENSOR_PROFILE, OK_REBIND_FLASH_ASSUMPTIONS, OK_REQUIRE_FLASH_ROWS, OK_RESOLVE_HAND_SHAKE, OK_RESOLVE_LENS_FILTER, OK_RESOLVE_MIXED_ILLUMINATION, OK_SENSOR_PROFILE_BODY, OK_SENSOR_PROFILE_SATURATION_ISO, OK_SOLVE_FLASH_SHUTTER, OK_SUBJECT_TRAVEL_M, optInKit, QK_CALCULATE_DEFOCUS_FIELD_VARIATION, QK_CREATE_AHD_DEMOSAIC_TASK, QK_CREATE_DEFOCUS_BOKEH_SITE_KERNEL, QK_CREATE_DEFOCUS_IMAGE_SPACE_PROVIDER, QK_CREATE_DIFFRACTION_LIMITED_PSF_PROFILE, QK_CREATE_OFFSET_EXPANSION, QK_NEIGHBOR_HIGHLIGHT_RING, QK_NEIGHBOR_HIGHLIGHT_THRESHOLD, QK_PLAN_DEFOCUS_BOKEH_ZONES, QK_PREPARE_DEFOCUS_IMAGE_SPACE_GEOMETRY, QK_RECONSTRUCT_HIGHLIGHTS_FROM_NEIGHBORS, QK_REGISTER_DIFFRACTION_PSF_KEY, QK_RESOLVE_DEFOCUS_BOKEH_OPTIONS, QK_RESOLVE_LENS_PSF_KERNELS_AT, QK_SITE_DIFFRACTION_KERNEL, qualityKit } from "./on-demand-kits.js";
 import { characterizeReadout, parseSensorCharacteristics, sensorReport, SENSOR_CHARACTERISTIC_KEYS, type SimulateCaptureSensorCharacteristics, type SimulateCaptureSensorReport } from "../sensor/sensor-characteristics.js";
 import { resolveChartScene, chartMaterialInputs, CHART_SCENE_PRESETS, type ChartScene, type ResolvedChartScene } from "./chart-scenes.js";
 import { resolveChartMaterialLayers, type ChartMaterialLayerScene, type ResolvedChartMaterialLayers } from "./chart-material-layers.js";
@@ -3760,7 +3760,8 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   // 2.20.0: the field zones are lens.catalogue's fast method in the view; exact resolves the PSF at every site (zones of one site).
   const displayViewLensPsf = viewLensKit && catalogue && lensPsf ?
     viewLensKit.createDisplayViewLensPsf(lensPsf.configuration.psf as Parameters<typeof viewLensKit.createDisplayViewLensPsf>[0], catalogueKernelRadius, nativeWidth, nativeHeight, pitch,
-      catalogueFastRequested ? undefined : Math.max(nativeWidth, nativeHeight)) : undefined;
+      // #760: the Quality kit's batch resolver (the same kernels), loaded with the lens geometry.
+      catalogueFastRequested ? undefined : Math.max(nativeWidth, nativeHeight), qualityKit.loaded?.[QK_RESOLVE_LENS_PSF_KERNELS_AT]) : undefined;
     // #655 step 6: the uniform-window fast method (lens.catalogue's fast) on chart and material scenes; it runs on the CPU.
   const uniformWindows = displayViewLensPsf !== undefined && catalogueFastRequested && provider.chartMaterialAt !== undefined && !subject;
   if (displayViewLensPsf && (displayViewLensPsf.zoneSites > 1 || uniformWindows)) markFast("lens.catalogue");
@@ -3966,12 +3967,18 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
     // #733: the check reads the whole frame's top-left and centre 2 × 2 blocks (a region's own provider covers only the region, so
     // there each block is read through a provider windowed to it; the window never changes a value), so every region takes the frame's method.
     // #632: with flare, an exact request takes each site's exact kernels (the exact method's sum), and a fast one whose check fails does too.
+    // #730 facade-13: the veil's frame mean is kept under the request without its region (every region and part of one request
+    // has the same mean); a request that does not serialize (a function inside) gets no key and computes it.
+    const veilKey = (): string | undefined => {
+      try { return JSON.stringify({ ...options, output: { ...options.output, region: undefined } }, (_, value: unknown) => { if (typeof value === "function") throw 0; return value; }); }
+      catch { return undefined; }
+    };
     const render = async (exactKernels: boolean): Promise<typeof tabulated> => {
       const signal = lensKit!.createCatalogueLensSignal({ nativeWidth, nativeHeight, pitch, psf: lensPsf!.configuration.psf, wavelengthsNm: wavelengths, electronsPerRadiance: perNode, gridSubdivisions,
         scene: signalInput.scene as Extract<typeof signalInput.scene, { kind: "materials" }>, channelAt: signalInput.channelAt,
         distortion: { normalizationRadiusMm: radial.normalizationRadiusMm, coefficients: { k1: radial.coefficients.k1, k2: radial.coefficients.k2 ?? 0, k3: radial.coefficients.k3 ?? 0 } },
         ...(vignetting ? { vignetting } : {}), projection: projection === "fisheye-equisolid-angle" ? projection : "rectilinear", outsideImageCircleSeesNothing: catalogue!.kind === "fisheye",
-        focalLengthMm, focusDistanceM, distanceM: planeDistanceM, metresPerFrameUnit, ...(exactKernels ? { exactKernels } : {}), ...(veil ? { veil } : {}),
+        focalLengthMm, focusDistanceM, distanceM: planeDistanceM, metresPerFrameUnit, ...(exactKernels ? { exactKernels } : {}), ...(veil ? { veil: { ...veil, key: veilKey() } } : {}),
         // #629: the box pixel aperture's N × N nodes (midpoint rule, equal weights), folded into each lattice point's scene value.
         ...(boxSamples > 1 ? { queryOffsets: apertureNodeOffsets(boxSamples).map((o) => ({ ...o, weight: 1 / (boxSamples * boxSamples) })) } : {}) });
       const out = await renderTabulatedNativeRaw({ input: environmentRaw, region: regionNative, siteInput, evaluateRadiance: rawProvider().evaluateRadiance,
