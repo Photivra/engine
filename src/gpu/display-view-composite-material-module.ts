@@ -83,15 +83,18 @@ export function displayViewModuleCommonWgsl(path: ChartCompositeProductPath): st
   return renameForDisplayView(chartCompositeModuleCommonWgsl(path, "params.zero"));
 }
 /** The lattice uniform and the offsets table of a display-view module (@group(1) bindings 2 and 3; `DISPLAY_VIEW_LATTICE`). */
-export const LATTICE_BINDINGS_WGSL = `struct LatticeParams {
+export const LATTICE_BINDINGS_WGSL = /* wgsl */ `
+struct LatticeParams {
   scale_u_hi: f32, scale_u_lo: f32, scale_v_hi: f32, scale_v_lo: f32,
   chart_k_hi: f32, chart_k_lo: f32, chart_aspect: f32, tolerance: f32,
   offsets: u32, placed: u32, surround: u32, zero: u32,
 };
 @group(1) @binding(2) var<uniform> lattice: LatticeParams;
-@group(1) @binding(3) var<storage, read> lattice_offsets: array<vec4<f32>>;`;
+@group(1) @binding(3) var<storage, read> lattice_offsets: array<vec4<f32>>;
+`;
 /** The exact lattice point recovery (see the module comment), shared by the composite and the image-plane modules. */
-export const LATTICE_POINT_WGSL = `// The exact lattice point of one axis from the kernel's p = fl(fl(x + c)·scale): the offset whose constant c puts p/scale
+export const LATTICE_POINT_WGSL = /* wgsl */ `
+// The exact lattice point of one axis from the kernel's p = fl(fl(x + c)·scale): the offset whose constant c puts p/scale
 // nearest an integer x, then (x + c)·scale in double-float32 from the exact integer and the float64 constants (hi + lo).
 fn lattice_point(p: f32, scale: D, axis: u32) -> D {
   let rough = p / scale.h;
@@ -107,9 +110,10 @@ fn lattice_point(p: f32, scale: D, axis: u32) -> D {
   }
   if (!(best <= lattice.tolerance)) { material_uncertain = true; }
   return d_mul(d_add(D(site, 0.0), D(c_hi, c_lo)), scale);
-}`;
+}
+`;
 export function chartCompositeMaterialWgsl(path: ChartCompositeProductPath = "dekker"): string {
-  return `${displayViewModuleCommonWgsl(path)}
+  return /* wgsl */ `${displayViewModuleCommonWgsl(path)}
 @group(1) @binding(0) var<storage, read> af: array<f32>;
 @group(1) @binding(1) var<storage, read> ai: array<u32>;
 ${LATTICE_BINDINGS_WGSL}

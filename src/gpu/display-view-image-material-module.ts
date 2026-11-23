@@ -67,7 +67,7 @@ const KEPT_SCENES = 2;
 
 /** The module's WGSL with one product path (see the module comment). */
 export function imagePlaneMaterialWgsl(path: ChartCompositeProductPath = "dekker"): string {
-  return `${displayViewModuleCommonWgsl(path)}
+  return /* wgsl */ `${displayViewModuleCommonWgsl(path)}
 @group(1) @binding(0) var<storage, read> photo_signal: array<f32>;
 struct PhotoParams {
   width: u32, height: u32, nearest: u32, row0: u32,

@@ -23,7 +23,8 @@ import type { DisplayViewGpuMaterialModule } from "./display-view-speed-gpu.js";
 export function chartPresetMaterialWgsl(): string {
   const body = CHART_MATERIAL_WGSL
     .replace(/\bparams\./gu, "chart.").replace(/\baux\[/gu, "chart_aux[").replace(/\bflagged\b/gu, "material_uncertain").replace("fn material(", "fn material_at(");
-  return `const SAFETY: f32 = 8.0;
+  return /* wgsl */ `
+const SAFETY: f32 = 8.0;
 struct ChartParams {
   count: u32, columns: u32, preset: u32, na: u32,
   nb: u32, nc: u32, wavelength_mode: u32, pad0: u32,

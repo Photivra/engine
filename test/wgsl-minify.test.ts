@@ -104,8 +104,10 @@ describe("WGSL minification (#536)", () => {
     // catalogue-lens passes (the lens lattice, the pre-integrated points and the sites).
     // + #716's bilinear axis that the image-plane Speed module and Quality lattice pass share (src/gpu/display-view-image-quality.ts).
     // 2.29.0 (#658): + the chart kernel's material part and the composite kernel's material part and two common parts, the seams
-    // the display view's material modules take instead of searching the kernels' text.
-    expect(literals).toBe(46);
+    // the display view's material modules take instead of searching the kernels' text. + the six untagged shader literals of the
+    // display view's material modules and the image-plane Quality lattice pass (chart preset, composite: lattice bindings, lattice
+    // point and module; image plane: material module and lattice pass).
+    expect(literals).toBe(52);
     // #658: 2.28.0's minifier (comments and indentation) measured after < 0.86 · before.
     expect(after).toBeLessThan(0.78 * before);
   });
