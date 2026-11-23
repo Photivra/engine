@@ -81,7 +81,7 @@ modelling choices (such as "no lens PSF") as `kind: "model"`.
 | `exposure.iso` | 100 | Selects the body's ISO readout regime (gain and read noise). From 2.14 the tier bodies (preset 2.1.0) take the third-stop settings `GENERIC_THIRD_STOP_ISO_SETTINGS` (100, 125, 160, 200 … up to the body's maximum: 6400, 12 800 or 25 600). `"auto"` lets Auto ISO choose it from the meter in any mode (see [Auto ISO](#auto-iso-516)); it steps in whole stops unless `exposure.autoIso.isoSteps: "third-stop"`. |
 | `exposure.autoIso` | none | With `iso: "auto"` only. `aperture-priority` requires `{ slowestPreferredShutterSeconds, afterMaximumIso? }`, and `program` takes them optionally; the slowest shutter may be `"auto"`, set by `automaticSlowestShutter`. Every mode takes `limits: { maximum, minimum? }`, the photographer's Auto ISO range (see [Auto ISO](#auto-iso-516)). |
 | `exposure.shutterSeconds` | 1/125 | Used in `manual` and `shutter-priority`. |
-| `exposure.compensationStops` | 0 | Applied to the meter target. |
+| `exposure.compensationStops` | 0 | Applied to the meter target. In manual mode with a fixed ISO it changes no setting (only the target, seen in `exposure.resolution.targetResidual`); from 2.29.0 a `model` assumption `exposure.compensationStops` says so. |
 | `exposure.metering` | `"scene-average"` | 2.14: or `"grey-card"`, incident metering: the meter reads an 18 % grey card under the scene's illuminance instead of the scene, so the automatic modes and Auto ISO land on `greyCardDeviationStops` = 0 (see [Exposure](#exposure)). Reported as `exposure.metering`. |
 | `scene` | required | A chart preset or a caller function (below). |
 | `subjectDistanceM` | 5 | Distance of the scene plane. |
