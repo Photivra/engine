@@ -14,9 +14,12 @@
  *
  * A spectrally flat stack (ND, optical density, linear polarizers, which the bridge treats as neutral for unpolarized scene
  * light) is one factor, resolved at 550 nm as `calculateFilteredExposureTime` resolves it; the air/vacuum wavelength difference
- * (under 0.3 nm in the visible) does not matter for it. A stack with a `spectral-transmission` filter must state its wavelengths
- * in vacuum (the facade's basis) and is sampled at its filters' sample wavelengths and interpolated linearly between them, which
+ * (under 0.3 nm in the visible) does not matter for it. A `spectral-transmission` filter must state its wavelengths in vacuum
+ * (the facade's basis); a stack with one is sampled at its filters' sample wavelengths and interpolated linearly between them, which
  * is exact for one spectral filter and an approximation for two or more. Every filter must cover the facade's 380–780 nm range.
+ * 2.29.0 (#730 facade-16): flat filters may state either basis in any stack (before, every filter of a stack had to state the same
+ * one, so the engine's air-basis ND presets could not follow a spectral filter): a flat filter's value does not depend on the
+ * wavelength, so each is read in the stack's basis (vacuum with a spectral filter, else the first filter's).
  */
 
 import { InvalidConfigurationError } from "../core/configuration-error.js";
@@ -57,13 +60,13 @@ export function resolveLensFilter(value: unknown, range: { minimum: number; maxi
       throw new InvalidConfigurationError("lens.filter " + parsed.filterId + " covers " + r.minimum + "–" + r.maximum + " nm; the capture needs " + range.minimum + "–" + range.maximum + " nm.");
     return parsed;
   });
-  const basis = profiles[0]!.wavelengthBasis;
-  if (profiles.some((p) => p.wavelengthBasis !== basis)) throw new InvalidConfigurationError("lens.filter: every filter must state its wavelengths in the same basis (air or vacuum).");
   const spectral = profiles.filter((p) => p.transmission.kind === "spectral-transmission");
-  if (spectral.length > 0 && basis !== "vacuum")
+  if (spectral.some((p) => p.wavelengthBasis !== "vacuum"))
     throw new InvalidConfigurationError("lens.filter: a spectral-transmission filter must state its wavelengths in vacuum, the capture's basis.");
-  const at = (nm: number): number => composeFrontOfLensFilterTransmission({ filters: profiles, wavelengthNanometers: nm, wavelengthBasis: basis }).combinedLinearTransmissionFactor;
-  const flat = spectral.length === 0, composed = composeFrontOfLensFilterTransmission({ filters: profiles, wavelengthNanometers: FLAT_WAVELENGTH, wavelengthBasis: basis });
+  // facade-16: a flat filter is read in the stack's basis; its value is the same in either.
+  const flat = spectral.length === 0, basis = flat ? profiles[0]!.wavelengthBasis : "vacuum", stack = profiles.map((p) => ({ ...p, wavelengthBasis: basis }));
+  const at = (nm: number): number => composeFrontOfLensFilterTransmission({ filters: stack, wavelengthNanometers: nm, wavelengthBasis: basis }).combinedLinearTransmissionFactor;
+  const composed = composeFrontOfLensFilterTransmission({ filters: stack, wavelengthNanometers: FLAT_WAVELENGTH, wavelengthBasis: basis });
   const t = composed.combinedLinearTransmissionFactor;
   const wavelengths = flat ? [range.minimum, range.maximum] : [...new Set([range.minimum, range.maximum, ...spectral.flatMap((p) =>
     (p.transmission as Extract<FrontOfLensFilterProfile["transmission"], { kind: "spectral-transmission" }>).samples.value.map((s) => s.wavelengthNanometers))
