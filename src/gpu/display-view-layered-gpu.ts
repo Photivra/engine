@@ -18,7 +18,9 @@
  *   card edge, surface by surface in the reference's order (skipped when its card is outside the point's reach, last when the card
  *   holds all of it), and kernel row by kernel row, the taps whose pupil regions certainly reach the surface (runs with factor 1),
  *   certainly miss it (left out), or may reach part of it, whose V is the reference's own `visibility.share` with the reference's
- *   own arguments. A tap is "certain" only when every card's relation to its region's ray box (`layeredBoxRelation`, as `share`
+ *   own arguments. One surface's spans at a point form a list, shared by every point where it is provably the same: away from
+ *   every card edge of one axis, `share` reads the point's coordinate on that axis only through relations that are then certain,
+ *   so along a card's edge one list serves the whole edge (`listKey`). A tap is "certain" only when every card's relation to its region's ray box (`layeredBoxRelation`, as `share`
  *   decides it) holds with a margin far above float64 rounding (`DISPLAY_VIEW_LAYERED_MARGIN`), so the factor of every tap is the
  *   value `share` returns for it: 1 and 0 exactly where it decides, V elsewhere. The reference's run sum (#749) takes the same V per
  *   tap (its runs are taps whose V is 1); only its order of summation differs. Each surface's radiance at the lattice points comes
@@ -77,6 +79,8 @@ const MAXIMUM_SURFACES = 256;
 export const DISPLAY_VIEW_LAYERED_MARGIN = 2 ** -36;
 /** Span words held for one sum dispatch at most (4 MiB of spans), and the bytes the Quality host counts for them in a band. */
 const SPAN_CHUNK_WORDS = 1 << 20;
+/** The tap cache's key range (`tapV`): surfaces nearest first up to this many, lattice coordinates within ±this. */
+const TAP_CACHE_SURFACES = 12, TAP_CACHE_COORDINATE = 32768;
 /** Span words the host keeps for the lists of one render before it starts a new store (64 MiB). */
 const STORE_CAP_WORDS = 1 << 24;
 const UNIT = /* @__PURE__ */ Float64Array.of(1);
@@ -137,7 +141,7 @@ function grow(a: Uint32Array<ArrayBuffer>, size: number): Uint32Array<ArrayBuffe
 
 /** The passes of one render (see `DisplayViewQualityLensPasses`). */
 export function createDisplayViewLayeredPasses(runtime: WebGpuRuntime, setup: DisplayViewSetup, quality: DisplayViewExpectedSignalInput, pipelines: PipelineSource):
-  DisplayViewQualityLensPasses & { stats: { edgePoints: number; spans: number; shares: number; sumDispatches: number; hostMilliseconds: number };
+  DisplayViewQualityLensPasses & { stats: { edgePoints: number; spans: number; lists: number; shares: number; sumDispatches: number; hostMilliseconds: number };
     spansAt(group: number, p: number, q: number): { k: number; tv: number; u0: number; u1: number; f: number }[] } {
   const lattice = latticeOf(setup)!, layers = layeredOf(setup)!.layers, geometry = lattice.parts.geometry, visibility = lattice.parts.visibility, tiles = lattice.tiles.surfaces;
   const K = geometry.surfaces, rho = geometry.blurRadiusSites, reach = geometry.reachSites, N = quality.wavelengthsNm.length, TILE = tiles.tile;
@@ -185,15 +189,18 @@ export function createDisplayViewLayeredPasses(runtime: WebGpuRuntime, setup: Di
   // Per S value: the radiance values a device may flush (each below 2⁻¹²⁶, Σ w·f ≤ the kernel's sum per surface) and the products and partials.
   const sumTerms = K * (2 * Rmax + 1) ** 2, sTiny = (K * Math.max(1, ...weightSum) + 2 * sumTerms + 2) * FLOAT32_MINIMUM_NORMAL;
   const sumLabel = "photivra-display-view-layered-sum", sitesLabel = "photivra-display-view-layered-sites";
-  /** Counts, and the host's own time (the points' surfaces, the radiance windows and the edge points' spans; uploads and dispatches apart). */
-  const stats = { edgePoints: 0, spans: 0, shares: 0, sumDispatches: 0, hostMilliseconds: 0 };
+  /** Counts (`lists`: the surface lists built), and the host's own time (the points' surfaces, the radiance windows and the edge points' spans; uploads and dispatches apart). */
+  const stats = { edgePoints: 0, spans: 0, lists: 0, shares: 0, sumDispatches: 0, hostMilliseconds: 0 };
 
   // ---------------------------------------------------------------------------------------------------------------
   // Surface lists (see the module comment): an edge point's spans for one surface, in kernel-row order. A list is kept in `store`
   // (span words) with its factors in float64 (`storeFactors`, for the tests) and shared by every point whose list is provably the same
   // (`listKey`).
   let store = new Uint32Array(1 << 14), storeFactors = new Float64Array(1 << 12), storeSpans = 0;
-  const lists: { first: number; count: number; taps: number }[] = [], cache = new Map<string, number>();
+  const lists: { first: number; count: number; taps: number }[] = [], cache = new Map<string, number>(), tapCache: (Map<number, number> | undefined)[] = [];
+  // Kept rows (see `rowSpans`): per row its first span and count in `rowStore` (u0, u1 per span) and `rowFactors`.
+  const rowCache: (Map<number, number> | undefined)[] = [], rowFirst: number[] = [], rowCount: number[] = [];
+  let rowStore = new Uint32Array(1 << 12), rowFactors = new Float64Array(1 << 11), rowSpanCount = 0;
   let listFirst = 0;
   /** Appends a span (surface k, kernel row tv, taps u0 … u1, factor f) to the list being built, merging an open span into the one before it. */
   function push(k: number, tv: number, u0: number, u1: number, f: number): void {
@@ -235,16 +242,31 @@ export function createDisplayViewLayeredPasses(runtime: WebGpuRuntime, setup: Di
   function rowSpans(lg: number, rects: readonly (LayeredCardEdges | null)[], k: number, p: number, q: number, tv: number, s: number, weights: Float64Array): void {
     const R = radius[k]!, row = tv + R, lo = rowLo[k]![row]!, hi = rowHi[k]![row]!;
     if (lo > hi) return;
+    // The Y relations (the row's), then with every one certain the row's key: its spans are then a function of p and those relations
+    // (as for a tap, `tapV`), kept per row.
+    for (let j = 0; j <= k; j++) {
+      const rect = rects[j];
+      if (!rect) continue;
+      // The ray box of tap (tu, tv) on card j: centre (p − r·tu, q − r·tv), half-width |r|/2, r = ρ_j/ρ_k (share's x − ρ_j·a over the tap's cell a ∈ (tu ∓ ½)/ρ_k).
+      const r = rho[j]! / s, h = Math.abs(r) / 2, Y0 = rect[1]!, Y1 = rect[3]!, delta = marginOf(rect, r, R), yc = q - r * tv;
+      yRel[j] = yc - h >= Y0 + delta && yc + h <= Y1 - delta ? 1 : yc + h < Y0 - delta || yc - h > Y1 + delta ? 0 : 2;
+    }
+    let yBits = 0, yCertain = k < TAP_CACHE_SURFACES && Math.abs(p) < TAP_CACHE_COORDINATE && Math.abs(q) < TAP_CACHE_COORDINATE;
+    for (let j = 0; j <= k && yCertain; j++) if (rects[j]) { if (yRel[j] === 2) yCertain = false; else yBits = 2 * yBits + yRel[j]!; }
+    const side = 2 * R + 1, rowKey = yCertain ? ((row * 65536 + p + TAP_CACHE_COORDINATE) * 2 ** (k + 1) + yBits) : -1;
+    const rows = rowKey < 0 ? undefined : (rowCache[lg * K + k] ??= new Map<number, number>()), kept = rows?.get(rowKey);
+    if (kept !== undefined) {
+      for (let i = rowFirst[kept]!, end = i + rowCount[kept]!; i < end; i++) push(k, tv, rowStore[2 * i]! | 0, rowStore[2 * i + 1]! | 0, rowFactors[i]!);
+      return;
+    }
+    const start = storeSpans;
     breaks.length = 0;
     breaks.push(lo, hi + 1);
     const clamp = (v: number): number => (v < -R - 2 ? -R - 2 : v > R + 2 ? R + 2 : v);
     for (let j = 0; j <= k; j++) {
       const rect = rects[j];
       if (!rect) continue;
-      // The ray box of tap (tu, tv) on card j: centre (p − r·tu, q − r·tv), half-width |r|/2, r = ρ_j/ρ_k (share's x − ρ_j·a over the tap's cell a ∈ (tu ∓ ½)/ρ_k).
-      const r = rho[j]! / s, h = Math.abs(r) / 2, X0 = rect[0]!, Y0 = rect[1]!, X1 = rect[2]!, Y1 = rect[3]!, delta = marginOf(rect, r, R);
-      const yc = q - r * tv;
-      yRel[j] = yc - h >= Y0 + delta && yc + h <= Y1 - delta ? 1 : yc + h < Y0 - delta || yc - h > Y1 + delta ? 0 : 2;
+      const r = rho[j]! / s, h = Math.abs(r) / 2, X0 = rect[0]!, X1 = rect[2]!, delta = marginOf(rect, r, R);
       // X inside: B ≤ r·tu ≤ A; outside: r·tu > C or r·tu < D.
       const A = p - h - X0 - delta, B = p + h - X1 + delta, C = p + h - X0 + delta, D = p - h - X1 - delta;
       if (r > 0) { inLo[j] = clamp(Math.ceil(B / r)); inHi[j] = clamp(Math.floor(A / r)); outAbove[j] = clamp(Math.floor(C / r) + 1); outBelow[j] = clamp(Math.ceil(D / r)); }
@@ -256,9 +278,6 @@ export function createDisplayViewLayeredPasses(runtime: WebGpuRuntime, setup: Di
       for (const b of [inLo[j]!, inHi[j]! + 1, outBelow[j]!, outAbove[j]!]) if (b > lo && b <= hi) breaks.push(b);
     }
     breaks.sort((a, b) => a - b);
-    const side = 2 * R + 1;
-    let b0 = (tv - 0.5) / s, b1 = (tv + 0.5) / s;
-    if (s < 0) [b0, b1] = [b1, b0];
     for (let i = 0; i + 1 < breaks.length; i++) {
       const first = breaks[i]!, last = breaks[i + 1]! - 1;
       if (last < first) continue;
@@ -267,13 +286,51 @@ export function createDisplayViewLayeredPasses(runtime: WebGpuRuntime, setup: Di
       if (c === 1) { push(k, tv, first, last, 1); continue; }
       for (let tu = first; tu <= last; tu++) {
         if (weights[row * side + tu + R] === 0) continue;
-        let a0 = (tu - 0.5) / s, a1 = (tu + 0.5) / s;
-        if (s < 0) [a0, a1] = [a1, a0];
-        const V = visibility.share(lg, k, p, q, a0, a1, b0, b1);
-        stats.shares++;
+        const V = tapV(lg, rects, k, p, q, tv, tu, s, side, yCertain ? yBits : -1);
         if (V > 0) push(k, tv, tu, tu, V);
       }
     }
+    if (rows) {
+      // Keep the row's spans (the list's spans from `start`; none merged into the row before it, whose key differs).
+      const count = storeSpans - start, at = rowSpanCount;
+      rowStore = grow(rowStore, 2 * (at + count));
+      if (rowFactors.length < at + count) { const b = new Float64Array(2 * (at + count)); b.set(rowFactors); rowFactors = b; }
+      for (let i = 0; i < count; i++) {
+        const o = (start + i) * DISPLAY_VIEW_LAYERED_SPAN_WORDS;
+        rowStore[2 * (at + i)] = store[o + 1]!; rowStore[2 * (at + i) + 1] = store[o + 2]!; rowFactors[at + i] = storeFactors[start + i]!;
+      }
+      rowSpanCount += count;
+      rows.set(rowKey, rowFirst.length);
+      rowFirst.push(at); rowCount.push(count);
+    }
+  }
+  /**
+   * V of tap (tu, tv) of surface k at edge point (p, q): `share` with the reference's arguments, kept per tap. With every card's Y
+   * relation certain for the tap's region (`yBits` ≥ 0), no card's horizontal edge crosses its rays: `share` then reads q only through
+   * those relations (no row break, no row's presence moves), so V is a function of p and the relations, and the value is kept by them.
+   * With every card's X relation certain, `share`'s interval ends are the region's own (or empty) whatever p is, so V is a function of
+   * q and those relations. Otherwise `share` runs.
+   */
+  function tapV(lg: number, rects: readonly (LayeredCardEdges | null)[], k: number, p: number, q: number, tv: number, tu: number, s: number, side: number, yBits: number): number {
+    let key = -1;
+    if (yBits >= 0) key = (((tv + radius[k]!) * side + tu + radius[k]!) * 65536 + p + TAP_CACHE_COORDINATE) * 2 ** (k + 1) * 2 + yBits * 2;
+    else if (k < TAP_CACHE_SURFACES && Math.abs(q) < TAP_CACHE_COORDINATE) {
+      let xBits = 0;
+      for (let j = 0; j <= k && xBits >= 0; j++) if (rects[j]) {
+        const x = tu >= inLo[j]! && tu <= inHi[j]! ? 1 : tu < outBelow[j]! || tu >= outAbove[j]! ? 0 : 2;
+        xBits = x === 2 ? -1 : 2 * xBits + x;
+      }
+      if (xBits >= 0) key = (((tv + radius[k]!) * side + tu + radius[k]!) * 65536 + q + TAP_CACHE_COORDINATE) * 2 ** (k + 1) * 2 + xBits * 2 + 1;
+    }
+    const cache = key < 0 ? undefined : (tapCache[lg * K + k] ??= new Map<number, number>());
+    const kept = cache?.get(key);
+    if (kept !== undefined) return kept;
+    let a0 = (tu - 0.5) / s, a1 = (tu + 0.5) / s, b0 = (tv - 0.5) / s, b1 = (tv + 0.5) / s;
+    if (s < 0) { [a0, a1] = [a1, a0]; [b0, b1] = [b1, b0]; }
+    const V = visibility.share(lg, k, p, q, a0, a1, b0, b1);
+    stats.shares++;
+    cache?.set(key, V);
+    return V;
   }
   /**
    * The key of surface k's list at edge point (p, q) of layered group lg, or null when it is the point's own. Away from every card
@@ -309,6 +366,7 @@ export function createDisplayViewLayeredPasses(runtime: WebGpuRuntime, setup: Di
     for (let i = listFirst; i < storeSpans; i++) taps += (store[i * DISPLAY_VIEW_LAYERED_SPAN_WORDS + 2]! | 0) - (store[i * DISPLAY_VIEW_LAYERED_SPAN_WORDS + 1]! | 0) + 1;
     const id = lists.length;
     lists.push({ first: listFirst, count: storeSpans - listFirst, taps });
+    stats.lists++;
     if (key !== null) cache.set(key, id);
     return id;
   }
@@ -326,7 +384,7 @@ export function createDisplayViewLayeredPasses(runtime: WebGpuRuntime, setup: Di
     return n;
   }
   /** Forgets every list (when the store has grown past its cap between dispatches). */
-  function clearLists(): void { lists.length = 0; cache.clear(); storeSpans = 0; }
+  function clearLists(): void { lists.length = 0; cache.clear(); tapCache.length = 0; storeSpans = 0; rowCache.length = 0; rowFirst.length = 0; rowCount.length = 0; rowSpanCount = 0; }
 
   // ---------------------------------------------------------------------------------------------------------------
   const windowBytes = (lw: number, lh: number): number => radius.reduce((sum, R) => sum + (lw + 2 * R) * (lh + 2 * R) * N * 4, 0);
@@ -489,7 +547,7 @@ export function createDisplayViewLayeredPasses(runtime: WebGpuRuntime, setup: Di
             entryIds = grow(entryIds, entryCount + n);
             // The point's first entry pair (absolute: after the dispatch's point words, which `dispatch` lays out first).
             pointCodes[2 * count] = n; pointCodes[2 * count + 1] = entryCount;
-            for (let e = 0; e < n; e++) { entryIds[entryCount++] = entries[e]!; inDispatch.set(entries[e]!, 1); }
+            for (let e = 0; e < n; e++) { entryIds[entryCount++] = entries[e]!; inDispatch.set(entries[e]!, 1); stats.spans += lists[entries[e]!]!.count; }
             stats.edgePoints++;
           }
           count++; work += taps; words += newWords;

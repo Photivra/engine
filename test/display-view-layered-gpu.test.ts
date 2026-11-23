@@ -26,10 +26,11 @@ describe("layered display view on the GPU (#750)", () => {
     try { expect(await DISPLAY_VIEW_LAYERED_CONFORMANCE_CASE.run(runtime, undefined)).toBe(true); } finally { runtime.destroy(); }
   }, scaledTimeout(60_000));
 
-  it("forms each edge point's sum from the reference's own visibility (every tap's factor is share's)", () => {
+  it("forms each edge point's sum from the reference's own visibility (every tap's factor is share's, shared lists and kept taps included)", () => {
     // The spans in float64 against the reference's run sum (`edgeSum.sumAt`): equal within float64 rounding at every edge point.
-    for (const f of [fixture(40, 30), fixture(40, 30, { box: true })]) {
-      const { setup } = layeredView(f, CARDS);
+    const large = [{ ...CARDS[0]!, rho: -6 }, { ...CARDS[1]!, rho: 9 }, { ...CARDS[2]!, rho: 12 }];
+    for (const [f, specs] of [[fixture(40, 30), CARDS], [fixture(40, 30, { box: true }), CARDS], [fixture(64, 48), large]] as const) {
+      const { setup } = layeredView(f, specs);
       const lattice = (setup.signal as unknown as { lattice: ReturnType<typeof createLayeredSceneLattice> }).lattice;
       const quality = { ...setup.gpu!.signalInput, kernels: { radius: 0, perNode: WAVELENGTHS.map(() => Float64Array.of(1)) } };
       const passes = createDisplayViewLayeredPasses(null as unknown as WebGpuRuntime, setup, quality, () => Promise.reject(new Error("no pipelines")));
