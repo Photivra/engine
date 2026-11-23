@@ -3,6 +3,7 @@
 // (read at the same instants, so the same values bit for bit), and a site's block is found without reordering the block cache on
 // every change of block. Values are unchanged: a block's in-focus value at a position does not depend on the rectangle it came from.
 import { describe, expect, it } from "vitest";
+import { simulateDisplayView } from "../src/index.js";
 import { createRollingRegroupedLensSignal, LENS_ROW_SEGMENT } from "../src/facade/display-view-lens-regroup.js";
 import type { DisplayViewExpectedSignalInput } from "../src/facade/expected-signal.js";
 import { siteKernelRuns } from "../src/optics/site-kernel-runs.js";
@@ -68,5 +69,22 @@ describe("rolling lens signal row blocks (#711)", () => {
     const { s, sites } = signal(1);
     for (let x = 0; x < 2 * LENS_ROW_SEGMENT; x++) s.site(x, 5);
     expect(sites()).toBe((2 * LENS_ROW_SEGMENT + 2 * D) * (1 + 2 * D));
+  });
+  it("reports its sites as cached, so the view may replay a real pixel read again", () => {
+    const { s, sites } = signal();
+    expect(s.cachesSites).toBe(true);
+    const first = s.site(5, 3), read = sites();
+    expect(s.site(5, 3)).toBe(first);
+    expect(sites()).toBe(read);
+  });
+});
+
+describe("rolling lens view of a two-row frame (#730 facade-17)", () => {
+  // The band height's start value compared a row with the row below it; with two rows, row 1 had none (a TypeError before 2.29.0).
+  for (const fast of [true, false]) it(`renders with fast: ${fast}`, async () => {
+    const view = await simulateDisplayView({ scene: { preset: "siemens-star" }, lens: { fNumber: 4, focusDistanceM: 4.6, defocus: { model: "geometric-disc" } },
+      motion: { shutter: "rolling", angularVelocityRadPerSec: { yaw: 0.2 } }, output: { width: 64, height: 2, borderHandling: "mirror" }, fast }, { width: 64, height: 2 });
+    expect(view.image.width * view.image.height).toBe(128);
+    expect(Array.from(view.image.samples).every((v) => Number.isFinite(v))).toBe(true);
   });
 });
