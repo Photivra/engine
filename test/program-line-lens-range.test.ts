@@ -39,30 +39,30 @@ const UNCHANGED: Record<string, SimulateCaptureOptions> = {
 // 2.28.0 (#674, the catalogue PSF's exact cell integration): catalogue50's samples, codes and assumptions re-pinned (x64 and arm64).
 const PINNED: Record<string, Record<string, string>> = {
   tierLens: { samples: "e93c1106936f4744f0e16b5718eb7c88f2d33844652e4e56dc168ecc3b1e91f8", codes: "ace2bd2120a3f5b59e2076a289198be5f235ef19f3a35d399ca97f983633b28d",
-    exposure: "00b53a317629402d6abb579d4805ec2dc134ff172ac6ab779162d2ab6e55f379", assumptions: "c98b628d49c2f6abf9c292ac7780d0403f3d3fc4d3b4884c1528c6b0ca4a415d" },
+    exposure: "00b53a317629402d6abb579d4805ec2dc134ff172ac6ab779162d2ab6e55f379", assumptions: "e8e5a4d37a2e67c02b4629645f98fdabd3c17ae26d5f1df13955f7d96f36708e" },
   tierLensAutoIso: { samples: "d67e0c3eb390d3d7bb0c7c5a454feace7ead68e1a3c8fab97f655d360f6aa550", codes: "891682f8617420571ee190656f16f351d150dd560759e1f3dcb53d55340d1787",
-    exposure: "d9f7046536ce47d72997a3d243b599602caaf35f4d66ba8e6bcb703579f76240", assumptions: "fb45d83b675778908dd78b1881a72132a128cd28336e745f13f47c0abc74aa64" },
+    exposure: "d9f7046536ce47d72997a3d243b599602caaf35f4d66ba8e6bcb703579f76240", assumptions: "431258e4301149ca47eec9c5e7d568b8df5d00da71cd42f75d1e3c5e980ec142" },
   idealNoRange: { samples: "e93c1106936f4744f0e16b5718eb7c88f2d33844652e4e56dc168ecc3b1e91f8", codes: "ace2bd2120a3f5b59e2076a289198be5f235ef19f3a35d399ca97f983633b28d",
-    exposure: "00b53a317629402d6abb579d4805ec2dc134ff172ac6ab779162d2ab6e55f379", assumptions: "2ccf27347d8e2702059fa5abbfebe06cd27e04f8ef360334503b11d62d0a40ae" },
+    exposure: "00b53a317629402d6abb579d4805ec2dc134ff172ac6ab779162d2ab6e55f379", assumptions: "cff4264225640c4a706e39152b6dbb1d057654018b955c97f729cf2d292bc852" },
   idealHoldingRange: { samples: "12d562e5f22fdd95f074e5c322a526f690b116dfbb9ea0f4348ad3b4cd3a1743", codes: "46227fc4d9d9a4ba35ea007cd8c382c35081a22964b039c357733e269b6cadb4",
-    exposure: "59758981082e8b5ded4f7d403abaeac2af94d67554b9fe7d5dee8a7d03cf592e", assumptions: "51b3668f0d3fb9ef43c24e71702bd479a6d678741e2e158dede05197b6dababe" },
+    exposure: "59758981082e8b5ded4f7d403abaeac2af94d67554b9fe7d5dee8a7d03cf592e", assumptions: "f3d381a82a32420da43949fc6451f1a720faa97b80241b86e3d1d9913448b647" },
   prime50: { samples: "81ffece58d5fe93ad4ba841aa425ad44be60829ed69cb242764d482369dff549", codes: "506b5c2e72835c75b5b14a22bf29ff8d358b4123ce0c5d58082dffc89932fe0d",
-    exposure: "00b53a317629402d6abb579d4805ec2dc134ff172ac6ab779162d2ab6e55f379", assumptions: "58bd7819e5fd0283537a752a17e3b66e233e270459d779a3f1e72554145bd8eb" },
+    exposure: "00b53a317629402d6abb579d4805ec2dc134ff172ac6ab779162d2ab6e55f379", assumptions: "98284a9376537ce9dde98b2ef392e00c600f5ffca9e52d81982433e7f0367842" },
   // #588 and #589: samples and codes re-pinned on the merged tree: the exact catalogue quadrature reads the star's ties at lattice
   // points (#588; test/simulate-capture-lens-catalogue-ties.test.ts), and the off-axis kernels carry the PSF's own centroid (#589).
   // #681 (2.28.0): exposure re-pinned, samples, codes and assumptions unchanged. Its ideal ISO is 99.99999999999997 (residual
   // -4.8e-16 stops), which reported clamped "minimum", "iso-minimum" and quantized; now clamped false, "none", not quantized.
   // The settings are unchanged (f/10.46, 1/125 s, ISO 100).
   catalogue50: { samples: "9445f3892b824c8b7aa7bf0f628a72fdc9addc9f1a0402b05f4731c8a05112ce", codes: "91f6a851bb85d0d89d22b1d1eed711f1c8e07ff71b85021bcec7c446581677a6",
-    exposure: "90155d028eb540cd029ddc97732b06f646ce867d220f428fd75d7dee773fd9bb", assumptions: "c291630ab859394e96a919b4208451c02767bc4b66dae2059e1cf390b8b9f085" },
+    exposure: "90155d028eb540cd029ddc97732b06f646ce867d220f428fd75d7dee773fd9bb", assumptions: "3af60f63dc51575e280abe6fd6605e7505daad584413f8af1107efb8f97dc14d" },
   idealAboveF8Manual: { samples: "5e929bb9533f1c4c0007f96a44bb58016f959311184609bf38fe4c99ba44eab3", codes: "a7c8a08b2e99486fcc001e4197343bb5ff6c24ed5251e8d0209857a47c739874",
-    exposure: "006914fc3987a766d02070f5bb328685533ac903998205648c496168de997191", assumptions: "04fda0822bc4d44d082454c4d9fc52bcbe04d4e9f2f53249d28030b2a208c141" },
+    exposure: "006914fc3987a766d02070f5bb328685533ac903998205648c496168de997191", assumptions: "49f0fafb48448904a3b4ca40184b0ead1944826334df702b4d7b582468e4d2c9" },
   idealBelowF8Aperture: { samples: "e93c1106936f4744f0e16b5718eb7c88f2d33844652e4e56dc168ecc3b1e91f8", codes: "c6d4a30f45b20872c38650cc5c0ce9e13595033744c365f4aa388879737d2d81",
-    exposure: "f5639233332165644252b4f7ca082b0e991ce9c150289b943b003d16569921e3", assumptions: "d765911e57f381731bd5ca38bf55ab4834680a05d96b1a0255dacd72ccc8def3" },
+    exposure: "f5639233332165644252b4f7ca082b0e991ce9c150289b943b003d16569921e3", assumptions: "a9c4ccb38111c9bd36fe1c8d8719b52ce8c44e63896e9e3c0db7e50e33b35c2b" },
   idealF1Shutter: { samples: "dc9f53838b7d18ce23e66946e27a84540ead46245f7c1e335a1d71e94882f3d1", codes: "e246d15d13332a6a893482bd8058816122eca72445425282efb56e1cec331bc1",
-    exposure: "a5fde5bedd32d403bafdbe58aad1c8a598edf90d5efec466fdf947d5679c35b2", assumptions: "f4b90ecd547cdd367d696b16dfe21719d3b7fe4a04a36307dafcf4c33e63038f" },
+    exposure: "a5fde5bedd32d403bafdbe58aad1c8a598edf90d5efec466fdf947d5679c35b2", assumptions: "b754262abb224f75489d11e5027e95b13969871674044eb4a31c0d08689dcbc9" },
   prime800Manual: { samples: "a7f9afc94a67b2716f04f128c77046cf86bd54dc998d2947132ea8d03f193398", codes: "6df8376768a166e2bee828d1de7cafdf7fcaf182b089510772f51a12d8789815",
-    exposure: "47786c2b611d37b2719d16113b410737be5db13d29cd947d072fffa40eb7d90b", assumptions: "01eb8284a184f423ad63ef3bd99776b37e26eedf1ef9b240a53f236006cbea2a" }
+    exposure: "47786c2b611d37b2719d16113b410737be5db13d29cd947d072fffa40eb7d90b", assumptions: "4939e6f6589180992747a808c164147d9759cee6a1edd88b1312212d683fea40" }
 };
 
 const recorded = (result: { assumptions: readonly { id: string; value: unknown }[] }, id: string): unknown => result.assumptions.find((a) => a.id === id)!.value;

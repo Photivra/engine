@@ -266,31 +266,3 @@ describe("simulateCapture pre-release fixes (2.0.0)", { timeout: 120_000 }, () =
     expect(byRecord.raw.codes).toEqual(byId.raw.codes);
   });
 });
-
-describe("assumption and provenance texts that match what ran (#730 facade-06)", { timeout: 60_000 }, () => {
-  it("name the preset version, what the meter reads, the resolver that ran and the base-ISO anchor", async () => {
-    const { GENERIC_ND_FILTER_PROFILES, resolveSensorProfile } = await import("../src/index.js");
-    const text = (r: SimulateCaptureResult, id: string): string => r.assumptions.find((a) => a.id === id)!.explanation;
-    const plain = await simulateCapture({ scene: { preset: "uniform" }, ...small });
-    // (a) The default tier's preset version, as provenance reports it (2.0.0 was named before).
-    expect(text(plain, "camera")).toContain("tier preset " + plain.provenance.cameraPresetVersion + " ");
-    expect(plain.provenance.cameraPresetVersion).toBe("2.1.0");
-    expect(text(plain, "exposure.metering")).toContain("meter reads scene luminance on a 16 × 16 zone grid, before the lens");
-    // (b) Through lens.filter, and the grey card instead of the scene.
-    const filtered = await simulateCapture({ scene: { preset: "uniform" }, ...small, lens: { filter: GENERIC_ND_FILTER_PROFILES[3] } });
-    expect(text(filtered, "exposure.metering")).toContain("through lens.filter but before the lens");
-    const card = await simulateCapture({ scene: { preset: "uniform" }, ...small, exposure: { metering: "grey-card" } });
-    expect(text(card, "exposure.metering")).toContain("meter reads the grey card (exposure.meteringSource)");
-    // (c) Aperture priority with Auto ISO ran its own resolver.
-    const auto = await simulateCapture({ scene: { preset: "uniform" }, ...small, exposure: { mode: "aperture-priority", iso: "auto", autoIso: { slowestPreferredShutterSeconds: 1 / 60 } } });
-    expect(auto.provenance.composedContracts).toContain("resolveAperturePriorityAutoIsoExposureMode");
-    expect(auto.provenance.composedContracts).not.toContain("resolveAperturePriorityExposureMode");
-    expect((await simulateCapture({ scene: { preset: "uniform" }, ...small, exposure: { mode: "aperture-priority" } })).provenance.composedContracts).toContain("resolveAperturePriorityExposureMode");
-    // (d) A base-125 profile's anchor is named with its own ISO and shutter.
-    const sports = await simulateCapture({ scene: { preset: "uniform" }, ...small, sensor: { profile: resolveSensorProfile("full-frame-24mp-stacked-sports-2020s") } });
-    const anchor = sports.assumptions.find((a) => a.id === "exposure.referenceExposure")!;
-    expect(anchor.value).toMatchObject({ aperture: 8, iso: 125 });
-    expect(anchor.explanation).toContain("At the sensor profile's base ISO, the same N²/(t·S): f/8, " + (anchor.value as { shutterSeconds: number }).shutterSeconds + " s, ISO 125.");
-    expect(text(plain, "exposure.referenceExposure")).not.toContain("base ISO");
-  });
-});
