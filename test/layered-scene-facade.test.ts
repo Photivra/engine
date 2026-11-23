@@ -120,16 +120,20 @@ describe("layered chart scenes through the public API (#652)", () => {
     expect(layers[0]!.withinDepthOfField).toBe(false);
   }, scaledTimeout(120_000));
 
-  it("renders regions identical to the whole view, the preset with point lights and the cat's eye in the view, labelled on the CPU", async () => {
+  it("renders regions identical to the whole view, the preset with point lights and the cat's eye in the view, labelled on the CPU without a device", async () => {
     const options = layeredOptions({ output: { width: 96, height: 64 } });
     const prepared = await prepareDisplayView(options, { gpu: "auto" });
     const whole = await prepared.render({ width: 24, height: 16 }), part = await prepared.render({ width: 24, height: 16, region: { x: 5, y: 3, width: 9, height: 7 } });
     for (let j = 0; j < 7; j++) for (let i = 0; i < 9; i++) for (let k = 0; k < 3; k++)
       expect(part.image.samples[(j * 9 + i) * 3 + k]).toBe(whole.image.samples[((j + 3) * 24 + i + 5) * 3 + k]);
-    expect(whole.diagnostics.fast.execution).toMatchObject({ backend: "cpu-reference", fallbackReason: "unsupported-on-backend" });
-    // gpu-06 (#702): the reason names no release, which would be wrong in the next one.
-    expect(whole.diagnostics.fast.execution.limitations.join(" ")).toMatch(/layered chart scenes render on the CPU \(#652\)/u);
-    expect(whole.diagnostics.fast.execution.limitations.join(" ")).not.toMatch(/\b2\.\d+\.\d+\b/u);
+    // 2.29.0 (#750): a view on the planar map asks the device for the layered GPU passes; this test process has none.
+    expect(whole.diagnostics.fast.execution).toMatchObject({ backend: "cpu-reference", fallbackReason: "webgpu-unavailable" });
+    // Through a lens map the layered sum renders on the CPU, with that reason. gpu-06 (#702): the reason names no release, which would be wrong in the next one.
+    const mapped = await (await prepareDisplayView(layeredOptions({ output: { width: 48, height: 32 }, lens: { focalLengthMm: 50, fNumber: 4, focusDistanceM: 2, projection: "fisheye-equisolid-angle" } }),
+      { gpu: "auto" })).render({ width: 12, height: 8 });
+    expect(mapped.diagnostics.fast.execution).toMatchObject({ backend: "cpu-reference", fallbackReason: "unsupported-on-backend" });
+    expect(mapped.diagnostics.fast.execution.limitations.join(" ")).toMatch(/layered chart scenes render on the CPU \(#652\)/u);
+    expect(mapped.diagnostics.fast.execution.limitations.join(" ")).not.toMatch(/\b2\.\d+\.\d+\b/u);
     const preset = resolveLayeredChartPreset({ scale: "tabletop", cards: 3, focusDistanceM: 1, lens: { focalLengthMm: 50 }, aspect: 2 / 3 });
     const lit = await simulateDisplayView({ scene: preset, subjectDistanceM: 1, lens: { focalLengthMm: 50, fNumber: 4, focusDistanceM: 1,
       defocus: { model: "geometric-disc", blades: { count: 6 }, catsEye: { apertures: [{ radiusMm: 9, shiftPerTanFieldMm: 40 }] } } },
@@ -142,10 +146,11 @@ describe("layered chart scenes through the public API (#652)", () => {
     const options = layeredOptions({ output: { width: 16, height: 12 } });
     const lens = options.lens!;
     const cases: [Partial<SimulateCaptureOptions>, RegExp][] = [
-      [{ motion: { angularVelocityRadPerSec: { yaw: 0.1 } } }, /does not support motion\.angularVelocityRadPerSec in 2\.27\.0/],
-      [{ motion: { subject: { velocityMPerSec: { x: 0.1 } } } }, /does not support motion\.subject/],
+      // 2.29.0 (#746): camera motion renders; a moving subject stays refused.
+      [{ motion: { subject: { velocityMPerSec: { x: 0.1 } } } }, /does not support motion\.subject in 2\.27\.0: which surface moves is not defined by the request/],
       [{ lens: { ...lens, pupilSampling: { radialSamples: 2, angularSamples: 8 } } }, /does not support lens\.pupilSampling/],
-      [{ lens: { catalogue: "pv-50-1.8", fNumber: 4 } }, /does not support lens\.catalogue/],
+      // 2.29.0 (#741): the catalogue lens renders; its flare does not.
+      [{ lens: { catalogue: { kind: "pv-50-1.8", flare: true }, fNumber: 4 } }, /does not support lens\.catalogue\.flare in 2\.29\.0/],
       // 2.29.0 (#761): chartSize renders; its surround does not apply, and illumination with chartSize is refused.
       [{ chartSize: { widthM: 0.5, surroundReflectance: 0.5 } }, /chartSize\.surroundReflectance does not apply to a layered chart scene/],
       [{ chartSize: { widthM: 0.5 }, illumination: { sources: [{ illuminant: { kind: "cie-a" }, illuminanceLux: 1000 }] } } as never, /does not support illumination with chartSize in 2\.29\.0/],

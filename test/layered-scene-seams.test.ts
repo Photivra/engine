@@ -13,7 +13,7 @@
  *   fast and full occlusion rows differ: image samples, the view's expected values and noise standard deviations, and the
  *   capture's RAW codes.
  *
- * - The refusal messages of `layered-scene-setup.ts` for 14 requests, as 783f38f gives them.
+ * - The refusal messages of `layered-scene-setup.ts` for 15 requests: 783f38f's for the rows that remain, 2.29.0's for the motion.subject and flare rows.
  *
  * Recorded at `783f38f` (2.28.0, before the split; the module locks again with their counters apart, and three more cases,
  * for the second L0 commit) on arm64 (Node 26.13.1) and x64 (Node 24.1.0 under Rosetta 2): every lock
@@ -353,15 +353,18 @@ describe("layered sum seams (L0): the refusal table keeps every message", () => 
     const scene = { kind: "layered-chart", cards: [{ distanceM: 1.6, centerU: 0.2, centerV: 0, width: 1, height: 0.8, scene: { preset: "slanted-edge" } }], backPlane: { distanceM: 3, reflectance: 0.5 } };
     // [request top level, lens, the message recorded at 783f38f (null: accepted)].
     const cases: [Record<string, unknown>, Record<string, unknown>, string | null][] = [
-      [{ motion: { angularVelocityRadPerSec: {} } }, {}, "scene.kind \"layered-chart\" does not support motion.angularVelocityRadPerSec in 2.27.0: each surface's defocus and occlusion are rendered for a still camera and scene. Omit it, or use a single-plane scene."],
+      // 2.29.0 wave 4 (LW2): camera motion renders (#746), so the motion row is now a motion.subject row with its own reason.
+      [{ motion: { angularVelocityRadPerSec: {} } }, {}, null],
       [{ motion: {} }, {}, null],
-      [{ motion: { subject: {}, x: 1 } }, {}, "scene.kind \"layered-chart\" does not support motion.subject in 2.27.0: each surface's defocus and occlusion are rendered for a still camera and scene. Omit it, or use a single-plane scene."],
+      [{ motion: { x: 1, subject: {} } }, {}, "scene.kind \"layered-chart\" does not support motion.subject in 2.27.0: which surface moves is not defined by the request. Omit it, or use a single-plane scene."],
       [{}, { projection: "rectilinear" }, null],
       // 2.29.0 wave 3 (LW1): the projection, distortion, vignetting, chartSize and illumination rows are removed (#744, #745, #761).
       [{}, { projection: "fisheye-equidistant" }, null],
       [{}, { distortion: {} }, null],
       [{}, { vignetting: {} }, null],
-      [{}, { catalogue: "x" }, "scene.kind \"layered-chart\" does not support lens.catalogue in 2.27.0: a catalogue lens has its own distortion, vignetting and PSF. Omit it, or use a single-plane scene."],
+      // 2.29.0 wave 4 (LW2): the catalogue lens renders (#741); its flare is refused.
+      [{}, { catalogue: "x" }, null],
+      [{}, { catalogue: { kind: "x", flare: true } }, "scene.kind \"layered-chart\" does not support lens.catalogue.flare in 2.29.0: the veiling glare is formed from a single-plane scene's materials. Omit it, or use a single-plane scene."],
       [{}, { pupilSampling: {} }, "scene.kind \"layered-chart\" does not support lens.pupilSampling in 2.27.0: the layered sum renders the defocus and occlusion of each surface itself. Omit it, or use a single-plane scene."],
       [{}, { psf: {} }, "scene.kind \"layered-chart\" does not support lens.psf in 2.27.0: a caller PSF declares its own defocus. Omit it, or use a single-plane scene."],
       [{ chartSize: {} }, {}, null],
