@@ -43,6 +43,8 @@
  *     columns is refused. Work above {@link LAYERED_MOTION_WORK_LIMIT} layered sums is refused before any lattice is built.
  *   - #750: a view on the planar map (still, rectilinear, distortion-free, one illuminant, no cat's eye) hands the layered GPU
  *     passes its layers and loader (`gpu/display-view-layered-gpu.ts`, its own chunk, loaded only from here).
+ *   - #751: a capture's expected electrons are the layered signal of the capture's own lattice (`electrons`), so the facade
+ *     takes the tabulated native RAW path, checked per CFA phase against the chain.
  */
 
 import { InvalidConfigurationError } from "../core/configuration-error.js";
@@ -102,8 +104,10 @@ export interface LayeredRequestContext {
   provider: PlanarSceneRadianceProvider;
   /** #748: the frame's width at the subject distance (2 × metresPerFrameUnit × the breathing scale). */
   framedWidthM: number;
-  axisChannelResponse(caller: string): { wavelengths: number[] };
+  axisChannelResponse(caller: string): { wavelengths: number[]; electronsPerRadiance: Record<"red" | "green" | "blue", Map<number, number>> };
   viewFast: { layers: boolean };
+  /** #751: the anti-aliasing filter's spots (their weights, in the order of `queryOffsetsSites` within each aperture node). */
+  antiAliasing?: { components: readonly { normalizedWeight: number }[] } | undefined;
   /** #744: the facade's prepared lens geometry (still camera) with a projection, distortion or vignetting; undefined without them. */
   lensGeometry?: Pick<PreparedDefocusImageSpaceGeometry, "lookOf" | "sensorPointOf"> | undefined;
   /** #745: the request's `illumination`, resolved with an illuminant resolver (the capture's, or the view's portable one). */
@@ -175,6 +179,10 @@ export interface LayeredRequest {
    * kernels and their pupil boxes), at the focus and pitch, for the catalogue's field profiles. Only on a layered sum.
    */
   reach(lens: ResolvedGenericLens, focusDistanceM: number, pitch: number): number;
+  /** #751: the capture's expected electrons per native site: the layered signal of the capture's own lattice (after `provider`). */
+  electrons(context: LayeredRequestContext): DisplayViewExpectedSignal;
+  /** #751: records the `raw.expectedSignal` assumption once the tabulated path passed its check. */
+  noteElectrons(context: LayeredRequestContext): void;
   /** The depth report and kernels, once the f-number is resolved; records the `scene.layers` assumption and sets `scene`. */
   report(context: LayeredRequestContext): void;
   /** `result.scene.layers`, once reported. */
@@ -334,8 +342,27 @@ export function resolveLayeredRequest(input: { top: Record<string, unknown>; len
       const wavelengths = context.axisChannelResponse("simulateCapture").wavelengths;
       checkWork(mov?.sites);
       const diffraction = cat ? catalogueDiffraction(context, wavelengths) : diffractionOf(context, wavelengths);
-      return providerOf(context, lattice(context, wavelengths, whiteOf(context, wavelengths), diffraction, context.queryOffsetsSites, true,
-        context.mixedIllumination?.(resolveCaptureIlluminant)), wavelengths, context.queryOffsetsSites);
+      captureInput = latticeInputOf(context, wavelengths, layersOf(context, wavelengths, whiteOf(context, wavelengths), diffraction, context.mixedIllumination?.(resolveCaptureIlluminant)),
+        diffraction, context.queryOffsetsSites, true);
+      captureLattice = createLayeredSceneLattice(captureInput);
+      return providerOf(context, captureLattice, wavelengths, context.queryOffsetsSites);
+    },
+    electrons(context) {
+      // #751: the capture's own lattice (the provider's, built first), its query offsets and weights as the expected signal forms them.
+      const { electronsPerRadiance, wavelengths } = context.axisChannelResponse("simulateCapture"), n = context.boxSamples;
+      const spots = context.antiAliasing ? context.antiAliasing.components : [{ normalizedWeight: 1 }];
+      const offsets = context.queryOffsetsSites.map((o, i) => ({ x: o.x, y: o.y, weight: spots[i % spots.length]!.normalizedWeight / (n * n) }));
+      const perNode = (["red", "green", "blue"] as const).map((c) => Float64Array.from(wavelengths, (nm) => electronsPerRadiance[c].get(nm) ?? 0)) as unknown as
+        readonly [Float64Array, Float64Array, Float64Array];
+      const input = { ...captureInput!, offsets, electronsPerRadiance: perNode, channelAt: (x: number, y: number): number => ((y & 1) === 0 ? (x & 1) : 1 + (x & 1)), ...instantsOf() };
+      return createLayeredSceneSignal(input, captureLattice!);
+    },
+    noteElectrons(context) {
+      context.assume("raw.expectedSignal", "model", { method: "per-site-integrated-electrons", scene: "layered-sum", verificationSites: 4, tolerance: 1e-9 },
+        "#751: each native site's expected photo electrons are the layered sum the provider answers the environment with, integrated per site against the site's channel " +
+        "response over its query offsets, spectral nodes and temporal midpoints when the site is read: the same terms as the environment chain, formed in another order, so they " +
+        "can differ in the last bits. The sensor stage is the native one with each site's own seeds. One site of each CFA phase ran the full chain: its readout was " +
+        "reproduced bit for bit and its electrons agreed within the tolerance.");
     },
     reference(context) {
       const wavelengths = context.axisChannelResponse("simulateIdealReference").wavelengths, n = context.boxSamples;
@@ -386,6 +413,8 @@ export function resolveLayeredRequest(input: { top: Record<string, unknown>; len
 
   /** The catalogue lens and the moving camera, resolved by `report`. */
   let cat: LayeredCatalogueLens | undefined, mov: LayeredMotion | undefined;
+  /** #751: the capture's lattice and its input, shared by its provider and its expected electrons. */
+  let captureLattice: LayeredSceneLattice | undefined, captureInput: Parameters<typeof createLayeredSceneLattice>[0] | undefined;
   /** #748: the geometry's frame scale (1 / (1 + Δ) with focus breathing). */
   const frameScale = (): number => 1 / (cat?.breathingScale ?? 1);
   /** #746: refuses a moving camera's work above the bound before any lattice is built. */

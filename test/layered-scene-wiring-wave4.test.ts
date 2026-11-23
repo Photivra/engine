@@ -1,15 +1,16 @@
 // SPDX-License-Identifier: Apache-2.0
 /**
  * 2.29.0 wave-4 wiring (group LW2) of layered chart scenes through the public API: a catalogue lens (#741), its focus scatter and
- * breathing (#748), camera rotation with a global or rolling shutter (#746) and the layered GPU route (#750). Each whole render goes
- * through simulateCapture or simulateDisplayView; the capture's environment is checked against the view per site within 1e-9
- * relative, and regions against the whole frame.
+ * breathing (#748), camera rotation with a global or rolling shutter (#746), the layered GPU route (#750) and the tabulated native
+ * RAW path of layered captures (#751). Each whole render goes through simulateCapture or simulateDisplayView; the capture's environment
+ * is checked against the view per site within 1e-9 relative, regions against the whole frame, and the tabulated RAW against the chain.
  */
 import { beforeAll, describe, expect, it } from "vitest";
 import { calculateDefocusCircle, calculateEnvironmentSensorPhotoSignal, createPlanarSceneRadianceProvider, estimateDisplayViewRender, prepareDisplayView, prepareLayeredChartScenes,
   simulateCapture, simulateDisplayView, type LayeredChartScene, type SimulateCaptureOptions } from "../src/index.js";
 import { preparedDisplayViewParts, simulateDisplayViewWithInternals } from "../src/facade/simulate-display-view.js";
 import { createLayeredSceneProvider } from "../src/facade/layered-scene-provider.js";
+import { setTabulatedNativeRawEnabled } from "../src/capture/native-environment-tabulated.js";
 import { LAYERED_MOTION_WORK_LIMIT } from "../src/facade/layered-scene-setup.js";
 import type { LayeredFramePoint } from "../src/facade/layered-lattice-geometry.js";
 import type { LayeredSceneLattice } from "../src/facade/layered-scene-signal.js";
@@ -55,6 +56,17 @@ async function captureAgainstView(request: SimulateCaptureOptions, sites = 40): 
     worst = Math.max(worst, Math.abs(signal.site(x, y) - reference) / reference);
   }
   return worst;
+}
+
+/** #751: the capture's RAW codes on the tabulated path and on the environment chain: the codes that differ, and whether the tabulated path ran. */
+async function tabulatedAgainstChain(request: SimulateCaptureOptions): Promise<{ differing: number; tabulated: boolean }> {
+  const fast = await simulateCapture(request);
+  setTabulatedNativeRawEnabled(false);
+  let chain: Awaited<ReturnType<typeof simulateCapture>>;
+  try { chain = await simulateCapture(request); } finally { setTabulatedNativeRawEnabled(true); }
+  let differing = 0;
+  for (let i = 0; i < fast.raw.codes.length; i++) if (fast.raw.codes[i] !== chain.raw.codes[i]) differing++;
+  return { differing, tabulated: assumed(fast, "raw.expectedSignal")?.scene === "layered-sum" && assumed(chain, "raw.expectedSignal") === undefined };
 }
 
 describe("layered chart scenes, 2.29.0 wiring (LW2)", () => {
@@ -177,6 +189,17 @@ describe("layered chart scenes, 2.29.0 wiring (LW2)", () => {
     const lensed = await prepareDisplayView(catalogue(), { gpu: "off" });
     expect(preparedDisplayViewParts(lensed, "test")[0].gpuRequest.layeredGpu).toBeUndefined();
   }, scaledTimeout(180_000));
+
+  it("#751: a layered capture takes the tabulated native RAW path; its RAW equals the environment chain's code for code; a region equals the whole frame", async () => {
+    for (const request of [{ ...moving({}), motion: undefined } as unknown as SimulateCaptureOptions, moving({ angularVelocityRadPerSec: { yaw: 0.2 }, shutter: "rolling" }), catalogue()]) {
+      const { differing, tabulated } = await tabulatedAgainstChain(request);
+      expect(tabulated).toBe(true);
+      expect(differing).toBe(0);
+    }
+    const request = catalogue(), whole = await simulateCapture(request), part = await simulateCapture({ ...request, output: { ...request.output, region: { x: 20, y: 10, width: 24, height: 16 } } } as SimulateCaptureOptions);
+    const W = 98, nr = part.region!.nativeRect;
+    for (let j = 0; j < nr.height; j++) for (let i = 0; i < nr.width; i++) expect(part.raw.codes[j * nr.width + i]).toBe(whole.raw.codes[(nr.y + j) * W + nr.x + i]);
+  }, scaledTimeout(240_000));
 
   it("the view's pilot maps its planar point through the lens map once", async () => {
     const request = catalogue(), { signal } = await simulateDisplayViewWithInternals(request, { width: 12, height: 8, samplesPerAxis: 1 });

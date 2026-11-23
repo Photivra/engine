@@ -4060,6 +4060,9 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
     tabulated = await renderTabulatedNativeRaw({ input: environmentRaw, region: regionNative, siteInput, evaluateRadiance: verificationProvider.evaluateRadiance,
       electrons: createDisplayViewExpectedSignal(perTapSum ? { ...signalInput, perTapSum } : signalInput), onTile: rawTick, tileWidth, yieldControl: () => yieldControl(), checkAbort });
   }
+  // #751: a layered scene's sites take the layered sum its provider answers with (layered-scene-setup.ts), checked per CFA phase against the chain.
+  else if (layered?.multi && dngParts === undefined) tabulated = await renderTabulatedNativeRaw({ input: environmentRaw, region: regionNative, siteInput,
+    evaluateRadiance: rawProvider().evaluateRadiance, electrons: layered.electrons(context), onTile: rawTick, tileWidth, yieldControl: () => yieldControl(), checkAbort });
   let rawOutput: { raw: NativeRawOutput; providerEvaluationCount: number };
   if (dngParts !== undefined) {
     rawOutput = { raw: joinNativeRawParts(dngParts, plan, nativeWidth, nativeHeight, partsCaller, fastReport.requested, requestKey!), providerEvaluationCount: 0 };
@@ -4080,7 +4083,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
     rawOutput = { raw: tabulated.raw, providerEvaluationCount: tabulated.providerEvaluationCount };
     // The verification's relative difference itself is not reported: it is a last-bits quantity, and captures use the JavaScript
     // engine's own Math functions, so it differs between engines while the results are the same.
-    assume("raw.expectedSignal", "model", { method: "per-site-integrated-electrons", verificationSites: 4, tolerance: TABULATED_RELATIVE_TOLERANCE, ...(perTapSum ? { sum: "per-tap" } : {}) },
+    if (layered?.multi) layered.noteElectrons(context); else assume("raw.expectedSignal", "model", { method: "per-site-integrated-electrons", verificationSites: 4, tolerance: TABULATED_RELATIVE_TOLERANCE, ...(perTapSum ? { sum: "per-tap" } : {}) },
     "Each native site's expected photo electrons are integrated per site when the site is read: the sum over the pixel-aperture nodes, anti-aliasing spots, diffraction taps and spectral nodes " +
       "of each tap's material spectrum against the site's channel response (the display view's expected signal), " +
       "the same quantity the environment chain computes for this still, rectilinear, distortion-free planar scene, formed in another order, so it can differ in the last bits. The sensor stage (dark charge, Poisson draws, " +

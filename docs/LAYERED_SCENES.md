@@ -188,6 +188,17 @@ The capture's and ideal reference's provider answers each environment query of a
 the same sum (after diffraction), and the environment declares no further PSF. Capture and view therefore form the same
 per-site sum and agree within 1e-9 relative.
 
+2.29.0 (#751): a capture's expected electrons per site are the layered signal of the capture's own lattice (the values its provider
+answers with, integrated against each site's channel response over its query offsets, spectral nodes and temporal midpoints), the
+tabulated native RAW path that single-plane charts take. One site of each CFA phase runs the full environment chain, and its readout
+must be reproduced bit for bit and its electrons within 1e-9; otherwise the environment chain renders the frame. The sensor stage
+is the native one with each site's own seeds. Measured on the issue's frame (the tabletop preset, 192 × 128 output of 187.5 µm
+sites, 50 mm at f/4 focused at 1 m, default options; Apple M5 Pro, Node 26.13.1, load average about 4, the fastest of four runs in
+one process): the environment chain 238 ms, the tabulated path 22 ms, a single-plane Siemens star 16 ms. The RAW codes equal the
+chain's code for code there and in `test/layered-scene-wiring-wave4.test.ts` (still, rolling-shutter rotation and a catalogue lens). A
+profile of the chain on that frame puts most of its time in the per-site record checks of the environment and almost none in the
+layered sum itself.
+
 ### Through a lens (2.29.0)
 
 With `lens.projection`, `lens.distortion` or `lens.vignetting` (#744) the lattice is the sensor's site lattice in image space, as
@@ -314,7 +325,8 @@ distance (2.6 % edge sites at f/2 and f/8), CPU time of the process, the second 
 | f/2 (kernel radii 3, 1, 0, 1, 3 and 8 sites) | 0.26 s | 0.20 s | 0.88 s | 0.80 s |
 | f/8 (radii 1, 0, 0, 0, 1 and 2) | 0.05 s | 0.05 s | 0.79 s | 0.80 s |
 
-The capture region runs the environment chain per site through the layered provider (never the single-plane tables).
+The capture region ran the environment chain per site through the layered provider in 2.27.0; from 2.29.0 it takes the
+tabulated path (#751, above).
 
 Cost, module level, for a 192 × 128-site region at a card corner of the tabletop preset (6000 × 4000 sites of 6 µm, 50 mm,
 focused at 1 m, a 2 × 2 pixel aperture, one process, CPU time on a machine at load average 80–240): about 2–3 µs per site
