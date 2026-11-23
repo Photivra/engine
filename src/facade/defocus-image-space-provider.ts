@@ -65,6 +65,7 @@ import { LARGE_DEFOCUS_CACHE_BYTES, createLargeDefocusNodeLattice, type LargeDef
 const BAND_ROWS = 32;
 const CACHED_BANDS = 2;
 const LATTICE_TOLERANCE_SITES = 1e-4;
+const UNIT_KERNEL = /* @__PURE__ */ new Float64Array([1]);
 
 /** The camera geometry the environment uses for each site query (the same options as the site inputs). */
 export interface DefocusImageSpaceGeometry {
@@ -225,14 +226,20 @@ export interface DefocusImageSpaceProviderInput {
    * sees no scene (zero radiance), and a query in such a direction gets the base provider's zero, instead of failing.
    */
   zeroBeyondHorizon?: boolean;
+  /**
+   * #565, #588: the PSF quadrature's tap sources, read at their lattice points: a unit kernel (instead of `siteKernels`), on lattices
+   * that hold every tap of a PSF of radius `kernelRadius` (the query offsets shifted by −R, 0 and +R on both axes).
+   */
+  latticeTaps?: boolean;
 }
 
 /** Internal (not exported from the package): the base provider with the defocus disc applied in image space (#548). */
 export function createDefocusImageSpaceProvider(input: DefocusImageSpaceProviderInput): PlanarSceneRadianceProvider {
-  const { base, geometry, wavelengthsNm, nativeWidth: W, nativeHeight: H, kernelRadius: R } = input;
+  const { base, geometry, wavelengthsNm, nativeWidth: W, nativeHeight: H } = input, unitTaps = input.latticeTaps === true, R = unitTaps ? 0 : input.kernelRadius;
   const mmPerSite = input.sitePitchMicrometers / 1000;
   const index = new Map(wavelengthsNm.map((nm, i) => [nm, i]));
-  const offsets = input.queryOffsetsSites ?? [{ x: 0, y: 0 }];
+  const given = input.queryOffsetsSites ?? [{ x: 0, y: 0 }];
+  const offsets = unitTaps ? [-1, 0, 1].flatMap((k) => { const r = k * input.kernelRadius; return given.map((o) => ({ x: o.x + r, y: o.y + r })); }) : given;
   const fraction = (value: number): number => { const f = value - Math.floor(value); return f > 1 - 1e-6 ? 0 : f < 1e-6 ? 0 : f; };
   const shifts: { x: number; y: number }[] = [];
   for (const o of offsets) {
@@ -248,7 +255,7 @@ export function createDefocusImageSpaceProvider(input: DefocusImageSpaceProvider
   const NW = lx1 - lx0, gridWidth = NW + 2 * R;
   const large = input.largeKernel;
   const psf = input.diffractionPsf, kernels = large ? [] : wavelengthsNm.map((nm) => psf ? siteDiffractionKernel(psf, nm, input.sitePitchMicrometers, R, "Diffraction kernels must sample the site pitch exactly.") :
-    checkedSiteKernel(input.siteKernels!(nm), R));
+    checkedSiteKernel(unitTaps ? UNIT_KERNEL : input.siteKernels!(nm), R));
   const taps = kernels.map((kernel) => kernelTaps(kernel, R, gridWidth));
   const zonedGather = input.fieldZones ? createZonedGather(input.fieldZones, R, gridWidth, W, H, M) : undefined;
   const sharedKernel = !large && (zonedGather !== undefined || kernels.every((kernel) => kernel === kernels[0]));

@@ -992,7 +992,6 @@ const DEFAULTS = /* @__PURE__ */ Object.freeze({ camera: "professional" as const
   whiteBalance: "scene-illuminant" as const, jpegQuantizationStep: 1, pixelPitchMicrometers: 6, spectralStepNanometers: 20,
   temporalSampleCount: 1, noiseSeed: 1, illuminantKelvin: 6500 });
 /** #565: the one-tap kernel that makes the image-space provider read each query at its lattice point. */
-const UNIT_SITE_KERNEL = /* @__PURE__ */ new Float64Array([1]);
 /**
  * #515: deviation, in stops, of the exposure the settings give from the CIPA DC-004-2020 standard exposure for the metered
  * luminance L: Δ = log2(N²/t) − log2(0.65·L·S/10) = log2(L_ref(N, t, S) / L), with L_ref the luminance that the settings
@@ -3687,10 +3686,9 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
       ...(antiAliasing || boxSamples > 1 ? { queryOffsetsSites } : {}) }) :
     // #565, #588: the PSF quadrature reads each tap's source at its lattice point (a unit kernel on #548's lattice), so ties resolve as on the lattice.
     (diffraction || catalogueTaps !== undefined) && latticeTaps ? loadedKit(qualityKit)[QK_CREATE_DEFOCUS_IMAGE_SPACE_PROVIDER]({ base: sceneProvider, geometry: lensGeometry,
+      kernelRadius: diffraction ? diffraction.kernelRadiusSamples : catalogueKernelRadius, queryOffsetsSites,
       // #761, #762: the diffraction kernels on the lattice (bands within 64 MiB; under a rolling shutter one row per instant), else a unit tap per source point.
-      ...(diffractionLattice ? { diffractionPsf: diffractionPsf!.configuration.psf, kernelRadius: diffraction!.kernelRadiusSamples, queryOffsetsSites,
-      ...(rollingRotation ? { bandRows: 1 } : {}) } : { siteKernels: () => UNIT_SITE_KERNEL, kernelRadius: 0,
-        queryOffsetsSites: [-1, 0, 1].flatMap((k) => { const r = k * (diffraction ? diffraction.kernelRadiusSamples : catalogueKernelRadius); return queryOffsetsSites.map((o) => ({ x: o.x + r, y: o.y + r })); }) }),
+      ...(diffractionLattice ? { diffractionPsf: diffractionPsf!.configuration.psf, ...(rollingRotation ? { bandRows: 1 } : {}) } : { latticeTaps: true }),
       wavelengthsNm: diffraction ? diffraction.profile.axes.wavelengthNm : quadratureWavelengths(), nativeWidth, nativeHeight, sitePitchMicrometers: pitch, distanceM: planeDistanceM, metresPerFrameUnit,
       timesPerBand: temporalSampleCount, zeroBeyondHorizon: catalogue?.kind === "fisheye", ...(window ? { window } : {}),
       ...(subject ? { timeDependentScene: true } : {}) }) : sceneProvider;
@@ -3699,9 +3697,8 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   // #652: a layered scene's provider answers each query with the layered sum (no environment PSF; never the single-plane tables).
   const rawProvider = (): PlanarSceneRadianceProvider => (rawProviderBuilt ??= layered?.multi ? layered.provider(context) : diffractedProvider(regionNative));
   // #730 facade-19: a capture over the bound is refused here, with its factors (before: only with the filter; the display view keeps that).
-  if ((antiAliasing || !displayView) && perSite > 1e5) fail("These options need " + perSite + " scene queries per site (" + [temporalSampleCount, ...queryFactors, perSite / queriesPerSite * psfTaps]
-    .map((n, i) => n + " " + ["temporal samples", "spectral nodes", "pupil rays", "filter spots", "pixel-aperture nodes", "PSF taps"][i]).filter((f) => !f.startsWith("1 ")).join(" × ") +
-    "); the environment admits at most 100000.");
+  if ((antiAliasing || !displayView) && perSite > 1e5) fail("These options need " + perSite + " scene queries per site (temporal samples × spectral nodes × pupil rays × filter spots × " +
+    "pixel-aperture nodes × PSF taps: " + [temporalSampleCount, ...queryFactors, perSite / queriesPerSite * psfTaps].join(" × ") + "); the environment admits at most 100000.");
   const evaluations = nativeWidth * nativeHeight * perSite;
   // The native task admits at most 100 000 radiance queries per tile.
   const tileWidth = Math.max(1, Math.min(256, Math.floor(100_000 / perSite)));

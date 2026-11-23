@@ -35,8 +35,9 @@ const request = (o: { fNumber?: number; pitch?: number; shutterSeconds?: number;
   output: { width: o.width ?? 20, height: o.height ?? 14 }, ...(o.motion ? { motion: o.motion } : {}), fast: false } as SimulateCaptureOptions);
 const yaw = { angularVelocityRadPerSec: { yaw: 0.02 } }, subject = { subject: { velocityMPerSec: { x: 0.5 } } };
 const execution = (r: SimulateCaptureResult): unknown => (r.assumptions.find((a) => a.id === "lens.diffraction")!.value as { execution: string }).execution;
-const latticeCall = (radius: (r: number) => boolean): { input: Input; provider: PlanarSceneRadianceProvider } =>
-  captured.calls.filter((c) => radius((c.input as Input).kernelRadius)).at(-1) as { input: Input; provider: PlanarSceneRadianceProvider };
+/** The last image-space provider the facade built for the lattice taps (#565, `latticeTaps`) or for the new path (`diffractionPsf`). */
+const latticeCall = (diffractionPsf: boolean): { input: Input; provider: PlanarSceneRadianceProvider } =>
+  captured.calls.filter((c) => ((c.input as Input).diffractionPsf !== undefined) === diffractionPsf).at(-1) as { input: Input; provider: PlanarSceneRadianceProvider };
 
 /** The whole frame's RAW codes and samples under a region's rectangles. */
 function expectRegionOfWhole(whole: SimulateCaptureResult, part: SimulateCaptureResult, region: { x: number; y: number; width: number; height: number }, width: number): void {
@@ -65,7 +66,7 @@ describe("motion with lens.diffraction, the four-spot filter and a box at full q
       // At most 16 midpoints × 21 nodes × 4 spots × 4 box nodes per site (a channel may take fewer nodes), no taps.
       expect(whole.diagnostics.providerEvaluationCount, name).toBeLessThanOrEqual(native.pixelWidth * native.pixelHeight * 16 * 21 * 4 * 4);
       expect(whole.diagnostics.providerEvaluationCount, name).toBeGreaterThan(native.pixelWidth * native.pixelHeight * 16 * 4 * 4);
-      expect(latticeCall((r) => r > 0).input.diffractionPsf, name).toBeDefined();
+      expect(latticeCall(true).input.bandRows, name).toBe(name.startsWith("rolling") ? 1 : undefined);
       expectRegionOfWhole(whole, await simulateCapture({ ...options, output: { ...options.output, region } }), region, 20);
     }
   }, scaledTimeout(240_000));
@@ -76,12 +77,12 @@ describe("motion with lens.diffraction, the four-spot filter and a box at full q
       captured.calls.length = 0;
       const quadrature = await simulateCapture(request({ motion, sensor: { temporalSampleCount: 2, spectralStepNanometers: 40 }, width: 8, height: 6 }));
       expect(quadrature.request.diffraction!.execution).toBe("environment-psf-quadrature");
-      const facadeLattice = latticeCall((r) => r === 0), q = facadeLattice.input;
+      const facadeLattice = latticeCall(false), q = facadeLattice.input;
       // The same request with 16 midpoints takes the new path: its provider's inputs are the quadrature's lattice with the diffraction kernels.
-      const sixteen = await simulateCapture(request({ motion, sensor: { spectralStepNanometers: 40 }, width: 8, height: 6 })), next = latticeCall((r) => r > 0).input, d = quadrature.request.diffraction!, R = d.profile.kernelRadiusSamples;
-      const third = q.queryOffsetsSites!.length / 3, offsets = q.queryOffsetsSites!.slice(third, 2 * third);
-      expect(next.queryOffsetsSites).toEqual(offsets);
-      expect(next.kernelRadius).toBe(R);
+      const sixteen = await simulateCapture(request({ motion, sensor: { spectralStepNanometers: 40 }, width: 8, height: 6 })), next = latticeCall(true).input, d = quadrature.request.diffraction!, R = d.profile.kernelRadiusSamples;
+      expect(q.latticeTaps).toBe(true);
+      expect(next.queryOffsetsSites).toEqual(q.queryOffsetsSites);
+      expect([next.kernelRadius, q.kernelRadius]).toEqual([R, R]);
       expect(next.wavelengthsNm).toEqual(q.wavelengthsNm);
       expect(next.diffractionPsf).toEqual(d.psf.configuration.psf);
       // The new path's provider on the quadrature request's scene and geometry; the reference reads the environment's own PSF taps.
@@ -116,16 +117,16 @@ describe("motion with lens.diffraction, the four-spot filter and a box at full q
 
   it("refuses with the factors (facade-19): a catalogue lens with motion and the filter, a capture without the filter, and the view as before; and a band that does not fit", async () => {
     await expect(simulateCapture({ ...request({ motion: yaw }), lens: { catalogue: "pv-50-1.8", fNumber: 8 } } as SimulateCaptureOptions)).rejects.toThrow(
-      "These options need 435456 scene queries per site (16 temporal samples × 21 spectral nodes × 4 filter spots × 4 pixel-aperture nodes × 81 PSF taps); the environment admits at most 100000.");
+      "These options need 435456 scene queries per site (temporal samples × spectral nodes × pupil rays × filter spots × pixel-aperture nodes × PSF taps: 16 × 21 × 1 × 4 × 4 × 81); the environment admits at most 100000.");
     const issue = { scene: { preset: "slanted-edge" }, sensor: { pixelAperture: { kind: "box", samplesPerAxis: 16 }, temporalSampleCount: 256 }, motion: { angularVelocityRadPerSec: { yaw: 0.01 } },
       output: { width: 4, height: 4 } } as SimulateCaptureOptions;
-    await expect(simulateCapture(issue)).rejects.toThrow("These options need 1376256 scene queries per site (256 temporal samples × 21 spectral nodes × 256 pixel-aperture nodes); the environment admits at most 100000.");
+    await expect(simulateCapture(issue)).rejects.toThrow("These options need 1376256 scene queries per site (temporal samples × spectral nodes × pupil rays × filter spots × pixel-aperture nodes × PSF taps: 256 × 21 × 1 × 1 × 256 × 1); the environment admits at most 100000.");
     // The display view does not query per site: without the filter it renders as before, with it the bound applies as before.
     const view = { ...issue, sensor: { ...issue.sensor, temporalSampleCount: 32 }, output: { width: 48, height: 32 } } as SimulateCaptureOptions;
     await expect(simulateCapture(view)).rejects.toThrow("These options need 172032 scene queries per site");
     await expect(simulateDisplayView(view, { width: 24, height: 16 })).resolves.toBeDefined();
     await expect(simulateDisplayView({ ...request({ motion: yaw, width: 48, height: 32 }) }, { width: 24, height: 16 })).rejects.toThrow(
-      "These options need 435456 scene queries per site (16 temporal samples × 21 spectral nodes × 4 filter spots × 4 pixel-aperture nodes × 81 PSF taps)");
+      "These options need 435456 scene queries per site (temporal samples × spectral nodes × pupil rays × filter spots × pixel-aperture nodes × PSF taps: 16 × 21 × 1 × 4 × 4 × 81)");
     // 80 nodes × 16 instants × 4 shifts × a 484-site lattice row × 4 rows kept: 76 MiB.
     await expect(simulateCapture(request({ motion: yaw, sensor: { spectralStepNanometers: 5 }, width: 480, height: 4 }))).rejects.toThrow(
       /^The image-space convolution keeps 76 MiB for one row of sites \(80 spectral nodes × 16 instants × 4 lattice shifts × 484 sites × 4 rows, and one row's grid\); the limit is 64 MiB\. Render a narrower output\.region\.$/);
