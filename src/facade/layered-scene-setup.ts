@@ -4,7 +4,7 @@
  * The facade's wiring of layered chart scenes (#652; docs/LAYERED_SCENES.md), loaded on demand: `simulate-capture.ts` imports it
  * only for a request whose `scene.kind` is `"layered-chart"`, so default captures and views carry none of it.
  *
- * - Request: the refusals (`LAYERED_REFUSALS`, one row per option with its release), the scene (`resolveLayeredChartScene` for
+ * - Request: the refusals (`LAYERED_REFUSALS`, one row per option), the scene (`resolveLayeredChartScene` for
  *   the frame's aspect) and the route. One card without a back plane is a single-plane chart scene: a centred card filling the frame (width 2, height 2·aspect, no depth label) passes
  *   its own `scene` to the existing path (the same bytes as that chart), any other single card a material scene of its print; the
  *   single-plane path then applies `lens.defocus` at the card's distance. More surfaces take the layered sum.
@@ -31,6 +31,7 @@ import { layeredChartDepths, layeredSurfaceScene, resolveLayeredChartScene, type
   type ResolvedLayeredChartScene } from "./layered-chart-scene.js";
 import { LAYERED_OCCLUSION_SAMPLES, createLayeredSceneLattice, createLayeredSceneSignal, type LayeredSceneLattice, type LayeredSceneLayer } from "./layered-scene-signal.js";
 import { createLayeredSceneProvider } from "./layered-scene-provider.js";
+import type { LayeredLayerKernel } from "./layered-edge-sum.js";
 
 const fail = (message: string): never => { throw new InvalidConfigurationError(message); };
 const UNIT = /* @__PURE__ */ Float64Array.of(1);
@@ -61,7 +62,7 @@ export interface LayeredRequestContext {
 }
 
 /** One surface's kernel: the disc or shaped kernel (null in focus) and, with a cat's eye, its field zones. */
-interface SurfaceKernel { kernel: { radius: number; weights: Float64Array } | null; zones?: SiteKernelFieldZones }
+interface SurfaceKernel { kernel: LayeredLayerKernel | null; zones?: SiteKernelFieldZones }
 
 /** A layered request, resolved (see the module comment). */
 export interface LayeredRequest {
@@ -89,37 +90,38 @@ export interface LayeredRequest {
 }
 
 type RequestPart = Record<string, unknown>;
+/** The release the refusal messages name. */
+const LAYERED_REFUSALS_RELEASE = "2.27.0";
 /**
- * The options layered scenes refuse, one row each: the release whose message states the refusal, the request path the message
- * names, whether the request has the option, and the reason. Rows are checked in order and the first present one fails the
- * request. A group that makes an option render removes its row and nothing else (2.29.0: wiring groups LW1 and LW2).
+ * The options layered scenes refuse, one row each: the request path the message names, whether the request has the option,
+ * and the reason. Rows are checked in order and the first present one fails the request. A group that makes an option render
+ * removes its row and nothing else (2.29.0: wiring groups LW1 and LW2).
  */
 interface LayeredRefusal {
-  readonly release: string;
   readonly option: string | ((top: RequestPart) => string);
   present(top: RequestPart, lens: RequestPart): boolean;
   readonly reason: string;
 }
 const motionKeys = (top: RequestPart): string[] => (typeof top.motion === "object" && top.motion !== null ? Object.keys(top.motion) : []);
 const LAYERED_REFUSALS: readonly LayeredRefusal[] = [
-  { release: "2.27.0", option: (top): string => { const motion = motionKeys(top); return "motion" + (motion.length > 0 ? "." + motion[0] : ""); },
+  { option: (top): string => { const motion = motionKeys(top); return "motion" + (motion.length > 0 ? "." + motion[0] : ""); },
     present: (top) => top.motion !== undefined && motionKeys(top).length > 0, reason: "each surface's defocus and occlusion are rendered for a still camera and scene" },
-  { release: "2.27.0", option: "lens.projection other than \"rectilinear\"", present: (_, lens) => lens.projection !== undefined && lens.projection !== "rectilinear",
+  { option: "lens.projection other than \"rectilinear\"", present: (_, lens) => lens.projection !== undefined && lens.projection !== "rectilinear",
     reason: "the layered sum maps every surface through the rectilinear lens" },
-  { release: "2.27.0", option: "lens.distortion", present: (_, lens) => lens.distortion !== undefined, reason: "the layered sum maps every surface through the distortion-free lens" },
-  { release: "2.27.0", option: "lens.vignetting", present: (_, lens) => lens.vignetting !== undefined, reason: "the layered sum takes one radiance-to-irradiance factor over the field" },
-  { release: "2.27.0", option: "lens.catalogue", present: (_, lens) => lens.catalogue !== undefined, reason: "a catalogue lens has its own distortion, vignetting and PSF" },
-  { release: "2.27.0", option: "lens.pupilSampling", present: (_, lens) => lens.pupilSampling !== undefined, reason: "the layered sum renders the defocus and occlusion of each surface itself" },
-  { release: "2.27.0", option: "lens.psf", present: (_, lens) => lens.psf !== undefined, reason: "a caller PSF declares its own defocus" },
-  { release: "2.27.0", option: "chartSize", present: (top) => top.chartSize !== undefined, reason: "cards are placed in frame units, each at its own size" },
-  { release: "2.27.0", option: "illumination (mixed lighting)", present: (top) => top.illumination !== undefined, reason: "every surface is lit by the one illuminant" }];
+  { option: "lens.distortion", present: (_, lens) => lens.distortion !== undefined, reason: "the layered sum maps every surface through the distortion-free lens" },
+  { option: "lens.vignetting", present: (_, lens) => lens.vignetting !== undefined, reason: "the layered sum takes one radiance-to-irradiance factor over the field" },
+  { option: "lens.catalogue", present: (_, lens) => lens.catalogue !== undefined, reason: "a catalogue lens has its own distortion, vignetting and PSF" },
+  { option: "lens.pupilSampling", present: (_, lens) => lens.pupilSampling !== undefined, reason: "the layered sum renders the defocus and occlusion of each surface itself" },
+  { option: "lens.psf", present: (_, lens) => lens.psf !== undefined, reason: "a caller PSF declares its own defocus" },
+  { option: "chartSize", present: (top) => top.chartSize !== undefined, reason: "cards are placed in frame units, each at its own size" },
+  { option: "illumination (mixed lighting)", present: (top) => top.illumination !== undefined, reason: "every surface is lit by the one illuminant" }];
 
 /** Validates and resolves a layered request (see the module comment). */
 export function resolveLayeredRequest(input: { top: Record<string, unknown>; lens: Record<string, unknown>; aspect: number; displayView: boolean }): LayeredRequest {
   const { top, lens, aspect } = input;
   for (const refusal of LAYERED_REFUSALS) if (refusal.present(top, lens)) {
     const option = typeof refusal.option === "string" ? refusal.option : refusal.option(top);
-    fail("scene.kind \"layered-chart\" does not support " + option + " in " + refusal.release + ": " + refusal.reason + ". Omit it, or use a single-plane scene.");
+    fail("scene.kind \"layered-chart\" does not support " + option + " in " + LAYERED_REFUSALS_RELEASE + ": " + refusal.reason + ". Omit it, or use a single-plane scene.");
   }
   const scene = top.scene as LayeredChartScene, resolved = resolveLayeredChartScene({ scene, aspect }), surfaces = resolved.surfaces;
   const defocus = lens.defocus as { catsEye?: unknown } | undefined;
@@ -236,13 +238,13 @@ function surfaceKernels(context: LayeredRequestContext, depths: readonly Layered
       } catch (error) { const message = (error as Error).message; return fail(message.startsWith("lens.defocus") ? message : "lens.defocus: " + message); }
     };
     const axis = build();
-    if (!options.catsEye) return { kernel: { radius: axis.radius, weights: axis.weights } };
+    if (!options.catsEye) return { kernel: { radius: axis.radius, weights: axis.weights, shaped: true } };
     // The field tangent of a native point (sites from the top-left corner), output-image axes (+Y up), on the planar lattice.
     const g = 2 / width, tangent = g * context.metresPerFrameUnit / context.subjectDistanceM;
     const plan = kit[QK_PLAN_DEFOCUS_BOKEH_ZONES]({ options, nativeWidth, nativeHeight, radius: axis.radius, fNumber, focalLengthMm,
       fieldOf: (x, y) => ({ x: (x - nativeWidth / 2) * tangent, y: -(y - nativeHeight / 2) * tangent }), kernelAt: build });
     if (!(plan.minimumOpenAreaRatio > 0)) fail("lens.defocus.catsEye: the clipping apertures close the pupil in part of the frame; reduce shiftPerTanFieldMm or enlarge radiusMm.");
-    return { kernel: { radius: axis.radius, weights: axis.weights }, zones: plan.zones };
+    return { kernel: { radius: axis.radius, weights: axis.weights, shaped: true }, zones: plan.zones };
   });
 }
 

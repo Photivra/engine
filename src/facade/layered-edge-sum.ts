@@ -13,6 +13,12 @@
  * shaped kernel, or with a cat's eye its field zone's kernel at the lattice point), so the sum is the same at every node.
  *
  * Interface for the later 2.29.0 groups:
+ * - {@link checkLayeredSurfaceKernel} and {@link checkLayeredKernelGroups}: the kernel checks and the edge bound
+ *   ({@link LAYERED_EDGE_MAXIMUM_KERNEL_RADIUS_SITES}, 64 sites for discs and shaped kernels alike today). A kernel says whether
+ *   it is `shaped` (blades, spherical aberration, cat's eye) or a disc, so that #749 (group LE) can enforce separate bounds
+ *   for the two (`LAYERED_CHART_LIMITS.maximumEdgeKernelRadiusSites: { disc, shaped }` of #764, group LQ) after both merge.
+ * - `capacityBytes` ({@link LayeredEdgeSumInput}): the bytes the edge sum's own stores may hold. It keeps none today; #749's
+ *   prefix rows take their store from it.
  * - {@link LayeredEdgeSum.sumAt}`(group, p, q, out, at)` adds S at lattice point (p, q) of a group into `out[at … at + N)`
  *   (zero on entry). Each value depends only on the point, so tiles keep their bits whatever was read before.
  * - #749 and #750 (group LE) replace the direct sum over (2R + 1)² taps at edge points by row runs over
@@ -22,14 +28,20 @@
  */
 
 import { InvalidConfigurationError } from "../core/configuration-error.js";
+import { DEFOCUS_DIRECT_KERNEL_MAXIMUM_RADIUS_SITES } from "../optics/site-kernel-runs.js";
 import type { SiteKernelFieldZones } from "./diffraction-provider.js";
 import { layeredBoxRelation, type LayeredLatticeGeometry } from "./layered-lattice-geometry.js";
 import type { LayeredVisibility } from "./layered-visibility.js";
+
+/** Largest defocus kernel radius of a surface in a scene of more than one surface (edge sites sum it directly). */
+export const LAYERED_EDGE_MAXIMUM_KERNEL_RADIUS_SITES = DEFOCUS_DIRECT_KERNEL_MAXIMUM_RADIUS_SITES;
 
 /** A surface's defocus kernel on the site lattice: light from s lands at s + t with weight D(t). */
 export interface LayeredSurfaceKernel {
   /** Kernel radius R in sites (the weights are (2R + 1)², row-major). */
   readonly radius: number;
+  /** A shaped kernel (blades, spherical aberration, cat's eye) rather than the uniform disc; undefined is a disc. */
+  readonly shaped?: boolean | undefined;
   /** The weights at lattice point (p, q) (a cat's eye: its field zone's kernel), or null for a unit tap (in focus). Read only. */
   weightsAt(p: number, q: number): Float64Array | null;
 }
@@ -52,10 +64,10 @@ export interface LayeredEdgeSumInput {
   geometry: LayeredLatticeGeometry;
   visibility: LayeredVisibility;
   surfaces: LayeredSurfaceTileReader;
-  /** Per surface (nearest first), its kernel groups; together they cover the nodes [0, N) once. */
+  /** Per surface (nearest first), its kernel groups; together they cover the nodes [0, N) once ({@link checkLayeredKernelGroups}). */
   kernelGroups: readonly (readonly LayeredKernelGroup[])[];
-  /** Spectral nodes N. */
-  nodes: number;
+  /** Bytes the edge sum's own stores may hold (the lattice's whole budget; it keeps none today, see the module comment). */
+  capacityBytes: number;
 }
 
 /** The layered sum at a lattice point (see the module comment). */
@@ -68,11 +80,34 @@ export interface LayeredEdgeSum {
 
 const fail = (message: string): never => { throw new InvalidConfigurationError(message); };
 
+/** A surface's kernel as the layer list gives it: (2R + 1)² row-major weights, and whether it is shaped. */
+export interface LayeredLayerKernel { radius: number; weights: Float64Array; shaped?: boolean | undefined }
+
+/**
+ * Internal: the kernel checks of one surface of `surfaces` (`createLayeredSceneLattice` calls it for each layer, in its
+ * validation order): the weight count, the edge bound in a scene of more than one surface, and field zones' axis kernel.
+ */
+export function checkLayeredSurfaceKernel(layer: { readonly kernel: LayeredLayerKernel | null; readonly zones?: unknown }, surfaces: number): void {
+  const R = layer.kernel ? layer.kernel.radius : 0;
+  if (layer.kernel && layer.kernel.weights.length !== (2 * R + 1) ** 2) fail("Layered scene: a kernel must have (2R + 1)² taps.");
+  if (surfaces > 1 && R > LAYERED_EDGE_MAXIMUM_KERNEL_RADIUS_SITES)
+    fail("Layered scene: a surface's blur needs a kernel radius of " + R + " sites; at card edges the layered sum takes at most " +
+      LAYERED_EDGE_MAXIMUM_KERNEL_RADIUS_SITES + ". Reduce the defocus or the f-number's aperture.");
+  if (layer.zones && !layer.kernel) fail("Layered scene: field zones need the surface's axis kernel (its radius).");
+}
+
+/** Internal: kernel groups cover each surface's nodes [0, nodes) in order, each of radius at most the surface kernel's. */
+export function checkLayeredKernelGroups(kernelGroups: readonly (readonly LayeredKernelGroup[])[], layers: readonly { readonly kernel: { readonly radius: number } | null }[], nodes: number): void {
+  if (kernelGroups.length !== layers.length || kernelGroups.some((groups, k) => groups.length < 1 || groups.some((g, i) => g.nodes.from !== (i === 0 ? 0 : groups[i - 1]!.nodes.to) ||
+    !(g.nodes.to > g.nodes.from) || !Number.isInteger(g.kernel.radius) || g.kernel.radius < 0 || g.kernel.radius > (layers[k]!.kernel ? layers[k]!.kernel!.radius : 0)) ||
+    groups[groups.length - 1]!.nodes.to !== nodes)) fail("Layered scene: each surface's kernel groups must cover the spectral nodes in order, each within the surface's kernel radius.");
+}
+
 /**
  * Internal: today's kernel groups of a layer list: per surface one group over all N nodes, the surface's kernel (null in focus)
  * or, with field zones, its zone's kernel at the lattice point (zone kernels kept in one cache of at most 256 for all surfaces).
  */
-export function layeredKernelGroups(layers: readonly { readonly kernel: { radius: number; weights: Float64Array } | null; readonly zones?: SiteKernelFieldZones | undefined }[],
+export function layeredKernelGroups(layers: readonly { readonly kernel: LayeredLayerKernel | null; readonly zones?: SiteKernelFieldZones | undefined }[],
   nativeWidth: number, nativeHeight: number, nodes: number): LayeredKernelGroup[][] {
   const W = nativeWidth, H = nativeHeight;
   const zoneCache = new Map<number, Float64Array>();
@@ -94,7 +129,7 @@ export function layeredKernelGroups(layers: readonly { readonly kernel: { radius
         zy = Math.min(z.rows - 1, Math.floor(Math.min(H - 1, Math.max(0, q)) / z.size));
       return zoneKernel(k, zy * z.columns + zx);
     };
-    return [{ nodes: { from: 0, to: nodes }, kernel: { radius: kernel ? kernel.radius : 0, weightsAt } }];
+    return [{ nodes: { from: 0, to: nodes }, kernel: { radius: kernel ? kernel.radius : 0, shaped: kernel?.shaped, weightsAt } }];
   });
 }
 

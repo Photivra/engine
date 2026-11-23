@@ -8,20 +8,24 @@
  * Coordinates.
  * - Frame units (u right, v up; the frame is 2 wide), the units of every surface's rectangle and scene. Frame units are angles,
  *   so the chief ray of a lattice point meets every surface at the same frame point.
- * - A lattice group is a fractional shift (fx, fy) in [0, 1) of the native site lattice (a pixel-aperture node or an
- *   anti-aliasing spot of the expected signal); lattice point (p, q) of a group is site (p, q) shifted by (fx, fy). Groups are
- *   registered on first use and keep their index.
+ * - A lattice group is an opaque handle for one lattice frame: today a fractional shift (fx, fy) in [0, 1) of the native
+ *   site lattice (a pixel-aperture node or an anti-aliasing spot of the expected signal); lattice point (p, q) of a group is
+ *   site (p, q) shifted by (fx, fy). Groups are registered on first use and keep their index. #746 (group LM) extends the
+ *   handle to (fx, fy, instant): a moving camera's instant is part of the group, so no function here takes an instant, and
+ *   everything keyed by group (rectangles, tiles) is keyed by instant with it.
  * - Continuous lattice coordinates (X right, Y down) of a group: X = u/g − ½ + W/2 − fx, Y = −v/g − ½ + H/2 − fy, with
  *   g = 2 / outputWidth frame units per site. Lattice point (p, q) is at (X, Y) = (p, q). The ray through lattice point (x, y)
  *   and pupil point P (pupil-radius units, native axes) meets surface j at (x − ρ_j·Px, y − ρ_j·Py), ρ_j the surface's signed
  *   blur radius in sites.
  *
  * Interface for the later 2.29.0 groups (each change must keep this module's values bit for bit where it does not apply):
- * - {@link LayeredLatticeGeometry.framePoint}`(group, p, q, out, instant?)`: today the planar, rectilinear map (the facade's
- *   lattice formula, the same expressions as `latticeU` and `latticeV`), the same at every instant. #744 (group LG) maps the
- *   lattice point's sensor point through the lens (inverse distortion, then the projection) and takes a frame scale (1 today;
- *   #748's breathing); #746 (group LM) applies the camera rotation at `instant`. `latticeU`/`latticeV` stay the separable
- *   planar form for the callers that need it (the capture's provider keys its queries by them).
+ * - {@link LayeredLatticeGeometry.framePoint}`(group, p, q, out)`: the frame point (u, v) of a lattice point and its field
+ *   factor. Today the planar, rectilinear map (the facade's lattice formula, the same expressions as `latticeU` and
+ *   `latticeV`) with factor 1. #744 (group LG) maps the lattice point's sensor point through the lens (inverse distortion,
+ *   then the projection), takes a frame scale (1 today; #748's breathing) and sets the factor (vignetting throughput ×
+ *   distortion area factor; 0 where the point sees no scene, as beyond a fisheye's 90°); #746 (group LM) applies the camera
+ *   rotation of the group's instant. `latticeU`/`latticeV` stay the separable planar form for the lattice's own callers (the
+ *   capture's provider does not use them: it inverts the planar formula in its own `keyOf`).
  * - {@link LayeredLatticeGeometry.edges}`(group, p, q)`: per surface (nearest first), the card's edges near lattice point (p, q)
  *   as half-planes in the group's continuous lattice coordinates, or null for the far surface. Today every card is an
  *   axis-aligned rectangle, the same at every point, given as its four half-planes X ≥ X0, Y ≥ Y0, X ≤ X1, Y ≤ Y1 in the box form
@@ -36,8 +40,11 @@ import { InvalidConfigurationError } from "../core/configuration-error.js";
 /** Most lattice groups of one lattice; also the key spacing of the per-surface tiles (key = surface·this + group). */
 export const LAYERED_LATTICE_GROUP_LIMIT = 4096;
 
-/** A frame point, frame units (u right, v up). */
-export interface LayeredFramePoint { u: number; v: number }
+/**
+ * A lattice point's frame point, frame units (u right, v up), and its field factor: the surface radiance there is multiplied
+ * by `factor` (1 today; 0 leaves the point dark without reading the scene).
+ */
+export interface LayeredFramePoint { u: number; v: number; factor: number }
 
 /**
  * A card's edges near a lattice point, in a group's continuous lattice coordinates (X right, Y down): today the four
@@ -65,19 +72,17 @@ export interface LayeredGeometryInput {
 
 /** The layered sum's geometry (see the module comment). */
 export interface LayeredLatticeGeometry {
-  readonly nativeWidth: number;
-  readonly nativeHeight: number;
   /** Surfaces, nearest first. */
   readonly surfaces: number;
   /** Each surface's signed blur radius ρ in sites: the ray map's scale at its depth. */
   readonly blurRadiusSites: readonly number[];
   /** Each surface's reach: every ray of a lattice point and every kernel tap it reads lie within this many sites of it on that surface. */
   readonly reachSites: readonly number[];
-  /** The lattice group of a fractional shift (fx, fy) in [0, 1), registered on first use (shifts within 1e-9 are one group). */
+  /** The lattice group (an opaque frame handle) of a fractional shift (fx, fy) in [0, 1), registered on first use (shifts within 1e-9 are one group). */
   groupOf(fx: number, fy: number): number;
   readonly groups: readonly { fx: number; fy: number }[];
-  /** Frame point of lattice point (p, q) of a group, into `out` (returned). Today the same at every `instant`. */
-  framePoint(group: number, p: number, q: number, out: LayeredFramePoint, instant?: number): LayeredFramePoint;
+  /** Frame point and field factor of lattice point (p, q) of a group, into `out` (returned). */
+  framePoint(group: number, p: number, q: number, out: LayeredFramePoint): LayeredFramePoint;
   /** The planar frame u of lattice column p of a group, and v of row q (the facade's lattice formula). */
   latticeU(group: number, p: number): number;
   latticeV(group: number, q: number): number;
@@ -136,8 +141,8 @@ export function createLayeredLatticeGeometry(input: LayeredGeometryInput): Layer
     return K - 1;
   }
   return {
-    nativeWidth: W, nativeHeight: H, surfaces: K, blurRadiusSites: rho, reachSites: reachOf, groupOf, groups, latticeU, latticeV,
-    framePoint(group, p, q, out): LayeredFramePoint { out.u = latticeU(group, p); out.v = latticeV(group, q); return out; },
+    surfaces: K, blurRadiusSites: rho, reachSites: reachOf, groupOf, groups, latticeU, latticeV,
+    framePoint(group, p, q, out): LayeredFramePoint { out.u = latticeU(group, p); out.v = latticeV(group, q); out.factor = 1; return out; },
     edges: (group) => rects[group]!,
     surfaceOf: (group, p, q) => surfaceOfPoint(rects[group]!, p, q, 0),
     siteSurface: (x, y, reach) => surfaceOfPoint(siteRects, x, y, reach),

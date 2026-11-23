@@ -13,10 +13,10 @@
  *
  * Interface for the later 2.29.0 groups:
  * - {@link LayeredSurfaceRadiance.radiance}`(k, point, out, at)` writes the N node values of surface k at frame point `point`
- *   into `out[at … at + N)`. Each value depends only on (k, point), so tiles dropped and refilled keep their bits. #745 (group
+ *   (its u and v; the caller applies `point.factor`) into `out[at … at + N)`. Each value depends only on (k, point), so tiles dropped and refilled keep their bits. #745 (group
  *   LR) lights each surface point by the illumination blend at its own frame point (E(u, v, λ) = Σ_j w_j(u, v)·S_j(λ),
- *   L_k = ρ_k(λ)·E/π) here, without changing the single-illuminant values; #744 (group LG) multiplies by the field factor
- *   where the geometry gives one.
+ *   L_k = ρ_k(λ)·E/π) here, without changing the single-illuminant values. The field factor of #744 is the geometry's
+ *   (`LayeredFramePoint.factor`), applied by the lattice's tile fill, not here.
  * - {@link LayeredSurfaceRadiance.material}`(k, point)`: the material index at the point, or −1 for a radiance scene (the
  *   chief ray's surface, metering and the pilot).
  * - `lookups`: scene lookups so far (one per material lookup, one per node for a radiance scene), for diagnostics.
@@ -28,7 +28,6 @@ import type { LayeredFramePoint } from "./layered-lattice-geometry.js";
 
 /** Surface radiance at the spectral nodes (see the module comment). */
 export interface LayeredSurfaceRadiance {
-  readonly nodes: number;
   /** Surface k's spectral radiance at frame point `point`, at each node, into `out[at … at + nodes)`. */
   radiance(k: number, point: LayeredFramePoint, out: Float64Array, at: number): void;
   /** Surface k's material at frame point `point`, or −1 for a radiance scene. */
@@ -62,7 +61,6 @@ export function createLayeredSurfaceRadiance(input: LayeredSurfaceRadianceInput)
   });
   let lookups = 0;
   return {
-    nodes: N,
     radiance(k, point, out, at): void {
       const scene = layers[k]!.scene, { u, v } = point;
       if (scene.kind === "materials") {

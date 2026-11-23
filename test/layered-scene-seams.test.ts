@@ -4,15 +4,19 @@
  * `layered-visibility.ts`, `layered-edge-sum.ts`, assembled by `layered-scene-signal.ts`) without changing a bit of output.
  *
  * - Module level: the spectral lattice values (`spectrumAt` of every lattice group over the raster and a margin), each lattice
- *   point's surface, the chief ray's surface and the pilot, the view signal of every site and the counters, for six small
- *   lattices (box offsets and diffraction, the fast and full rows, the layered sum's own path, field zones, a radiance scene and
- *   overlapping cards on both sides of the focus plane).
+ *   point's surface, the chief ray's surface and the pilot, the view signal of every site, and the counters apart, for nine
+ *   small lattices (box offsets and diffraction, the fast and full rows, the layered sum's own path, field zones, a radiance
+ *   scene, overlapping cards on both sides of the focus plane, the row clamp, a kernel wider than its disc's reach, and a
+ *   surface with ρ ≠ 0 and no kernel).
  * - Through the public API: the eight renders of `scripts/benchmark-layered-scenes.mjs` (the tabletop preset at f/2 and f/8,
  *   fast and full, the display view's region and the capture's region), and the same eight on a blurred card's edge, where the
  *   fast and full occlusion rows differ: image samples, the view's expected values and noise standard deviations, and the
  *   capture's RAW codes.
  *
- * Recorded at `783f38f` (2.28.0, before the split) on arm64 (Node 26.13.1) and x64 (Node 24.1.0 under Rosetta 2): every lock
+ * - The refusal messages of `layered-scene-setup.ts` for 14 requests, as 783f38f gives them.
+ *
+ * Recorded at `783f38f` (2.28.0, before the split; the module locks again with their counters apart, and three more cases,
+ * for the second L0 commit) on arm64 (Node 26.13.1) and x64 (Node 24.1.0 under Rosetta 2): every lock
  * has the same bytes on both, so there is no arm64 table (docs/NUMERICAL_CORRECTNESS.md, "Test hash locks and platforms").
  * Record with RECORD_LAYERED_SEAM_HASHES=1 (prints them; asserts nothing).
  */
@@ -21,6 +25,7 @@ import { beforeAll, describe, expect, it } from "vitest";
 import { prepareDisplayView, prepareLayeredChartScenes, resolveLayeredChartPreset, simulateCapture, type SimulateCaptureOptions } from "../src/index.js";
 import { simulateDisplayViewWithInternals } from "../src/facade/simulate-display-view.js";
 import type { DisplayViewScene } from "../src/facade/expected-signal.js";
+import { resolveLayeredRequest } from "../src/facade/layered-scene-setup.js";
 import { LAYERED_OCCLUSION_SAMPLES, createLayeredSceneLattice, createLayeredSceneSignal, type LayeredSceneSignalInput } from "../src/facade/layered-scene-signal.js";
 import { scaledTimeout } from "./helpers/test-timeout.js";
 import { WAVELENGTHS, fixture, signalInputOf, type SurfaceSpec } from "./helpers/layered-scene-fixtures.js";
@@ -64,10 +69,34 @@ const moduleCases: ModuleCase[] = [
     return { ...base, layers: base.layers.map((l, k) => (k === 2 ? { ...l, scene: radianceBack, signalInput: { ...l.signalInput!, scene: radianceBack } } : l)) };
   } },
   { name: "both cards in front of the focus plane, small tiles", input: () => ({ ...signalInputOf(fixture(44, 30, { diffraction: true }), threeSurfaces(-4.4, -2.1, 0), FAST),
-    capacityBytes: 4 * 32 * 32 * 3 * 8 }) }
+    capacityBytes: 4 * 32 * 32 * 3 * 8 }) },
+  // An in-focus card behind a card blurred to ρ = −34: the in-focus card's whole-pupil region crosses the near card's edge over
+  // 68 sites, so its rows reach the clamp (16 · 68 > 1024).
+  { name: "an in-focus card behind rho -34, full (the row clamp)", input: () => signalInputOf(fixture(24, 16), [
+    { rect: { u0: -1, u1: 0.05, v0: -1, v1: 1 }, rho: -34, reflectances: [0.15] },
+    { rect: { u0: -0.5, u1: 0.6, v0: -0.4, v1: 0.3 }, rho: 0, reflectances: [0.3, 0.9], materialAt: cardA },
+    { rect: null, rho: 3, reflectances: [0.6] }], FULL, false) },
+  // A kernel two sites wider than its disc (zero rings): the reach is radius + 0.5, above 1.25·|ρ| + 0.5.
+  { name: "a kernel two sites wider than its disc", input: (): LayeredSceneSignalInput => {
+    const base = signalInputOf(fixture(40, 28), threeSurfaces(-2.6, 1.8, 4.2), FULL, false);
+    return { ...base, layers: base.layers.map((l, k) => (k === 1 ? { ...l, kernel: padded(l.kernel!, 2) } : l)) };
+  } },
+  // A surface with ρ ≠ 0 and no kernel: its taps are one unit tap over the whole pupil.
+  { name: "a null kernel with rho -2.6", input: (): LayeredSceneSignalInput => {
+    const base = signalInputOf(fixture(40, 28), threeSurfaces(-2.6, 1.8, 4.2), FAST, false);
+    return { ...base, layers: base.layers.map((l, k) => (k === 0 ? { ...l, kernel: null } : l)) };
+  } }
 ];
 
-function moduleDigest(c: ModuleCase): { lattice: string; signal: string } {
+/** A kernel with `extra` rings of zero weights around it. */
+function padded(kernel: { radius: number; weights: Float64Array }, extra: number): { radius: number; weights: Float64Array } {
+  const R = kernel.radius, width = 2 * R + 1, wide = width + 2 * extra, weights = new Float64Array(wide * wide);
+  for (let j = 0; j < width; j++) for (let i = 0; i < width; i++) weights[(j + extra) * wide + i + extra] = kernel.weights[j * width + i]!;
+  return { radius: R + extra, weights };
+}
+
+interface ModuleLock { lattice: string; signal: string; counters: string }
+function moduleDigest(c: ModuleCase): ModuleLock {
   const input = c.input(), lattice = createLayeredSceneLattice(input), signal = createLayeredSceneSignal(input, lattice);
   const W = input.nativeWidth, H = input.nativeHeight, N = WAVELENGTHS.length, margin = 6;
   // The view signal of every site first (it registers the lattice groups), then the lattice values of each group.
@@ -76,7 +105,7 @@ function moduleDigest(c: ModuleCase): { lattice: string; signal: string } {
   for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) sites[y * W + x] = signal.site(x, y);
   const s = createHash("sha256");
   update(s, sites);
-  s.update(JSON.stringify({ edgeSites: signal.edgeSites, delegatedSites: signal.delegatedSites, lookups: signal.lookups, edgePoints: lattice.edgePoints }));
+  const afterSites = { edgeSites: signal.edgeSites, delegatedSites: signal.delegatedSites, lookups: signal.lookups, edgePoints: lattice.edgePoints };
   const l = createHash("sha256"), spectrum = new Float64Array(N), surfaces: number[] = [];
   for (let group = 0; group < lattice.groups.length; group++) for (let q = -margin; q < H + margin; q++) for (let p = -margin; p < W + margin; p++) {
     lattice.spectrumAt(group, p, q, spectrum);
@@ -89,31 +118,58 @@ function moduleDigest(c: ModuleCase): { lattice: string; signal: string } {
     const u = -1 + i / 10, v = -0.7 + j * 0.07, at = lattice.chiefSurface(u, v);
     chief.push(at.surface, at.material, signal.pilot(u, v), lattice.latticeU(0, i), lattice.latticeV(0, j));
   }
-  l.update(JSON.stringify({ groups: lattice.groups, surfaces, chief, edgePoints: lattice.edgePoints, lookups: lattice.lookups }));
-  return { lattice: hex(l), signal: hex(s) };
+  l.update(JSON.stringify({ groups: lattice.groups, surfaces, chief }));
+  // The counters on their own: a change of work (lookups, edge points, tiles) shows apart from a change of values.
+  const tiles = (t: typeof lattice.tiles.sum): number[] => [t.tilesComputed, t.rowsComputed];
+  const counters = JSON.stringify({ afterSites, edgePoints: lattice.edgePoints, lookups: lattice.lookups, surfaceTiles: tiles(lattice.tiles.surfaces), sumTiles: tiles(lattice.tiles.sum) });
+  return { lattice: hex(l), signal: hex(s), counters };
 }
 
-const MODULE_LOCKS: readonly { lattice: string; signal: string }[] = [
+const MODULE_LOCKS: readonly ModuleLock[] = [
   // box offsets, diffraction, full
-  { lattice: "71d837a02631358ce8917b183c457030e560420f917a8e87dca16c25168bfc3f", signal: "d9df84dbbff57475d6240af0a5fb9ebd9366d33b480d12d42afa9d0af7d6d854" },
+  { lattice: "0f05167080aa74ecb1d2007b8395aa23c00c2fde53848a07c7df9f84989f814a",
+    signal: "e474cb1b7ad1fa854b66b6058b834300f8c1046f2bb0918e811722bea9f02318",
+    counters: '{"afterSites":{"edgeSites":1385,"delegatedSites":151,"lookups":78812,"edgePoints":3176},"edgePoints":3176,"lookups":73728,"surfaceTiles":[72,2304],"sumTiles":[36,552]}' },
   // box offsets, diffraction, fast
-  { lattice: "d8294ce9169f3e0b479690a299a33016ea7019af65e9a5fc60306d36a9409416", signal: "45a1697144656995cf3f5976f0052ce8dd0cacf598fd121da4f1c3b37aff8b4e" },
+  { lattice: "b9c2dcf95aa7e12895e9e8ae23db51be692e281c887aaf16fb3b9f9c03f3c0f3",
+    signal: "2b4c23f6b9173f745926e9a7b9bb41b08b6cbf9660554477433fc4aff7a1a030",
+    counters: '{"afterSites":{"edgeSites":1385,"delegatedSites":151,"lookups":78812,"edgePoints":3176},"edgePoints":3176,"lookups":73728,"surfaceTiles":[72,2304],"sumTiles":[36,552]}' },
   // the layered sum's own path (no single-plane input), full
-  { lattice: "101ae41f85aa0e74146bf2c38f15264fe8dfe3273d1db5f421915f6a041194fc", signal: "4953b4841b769f56251452001cd9f9f2b92403530016fa1020a0313dbbfde7b9" },
+  { lattice: "99738737a4367d87f5edfb1f62f102102144075d07895f302674da231be4e164",
+    signal: "6ea3182cb520cf40c91d89250704f3baa96c4d2ca36323fc443886cd3c616412",
+    counters: '{"afterSites":{"edgeSites":1120,"delegatedSites":0,"lookups":15360,"edgePoints":619},"edgePoints":619,"lookups":18432,"surfaceTiles":[18,576],"sumTiles":[9,120]}' },
   // field zones (cat's eye)
-  { lattice: "e5dd29c770a805e0dd74b6bcb062fca57ab9d9cd03cc2c0be4de9c300e8874e0", signal: "a23f4834ef90282c3fdf4c0277df0fed3ac41ced90a18ae2c54c8775a15223aa" },
+  { lattice: "7f1147fc5cab63a10d05085fce6fb41d39285ab51b29f39f19f7c5bca959237d",
+    signal: "7c2aba891122edcd5534bf02138b790cbc7caa7c84b2473af8645fd713b87cc2",
+    counters: '{"afterSites":{"edgeSites":1120,"delegatedSites":0,"lookups":14336,"edgePoints":793},"edgePoints":793,"lookups":17408,"surfaceTiles":[17,544],"sumTiles":[9,120]}' },
   // a radiance back plane, box offsets
-  { lattice: "c23a1d768e63ff062de27ba5468b6f3340ec8ba98355d439c6df84d2e6693d4b", signal: "7468c8436946e578b044dfeb585a9fa701ddedc3f1c750c3d83cf6c677ed49fe" },
+  { lattice: "212cbad7568377f69abbefca215a6c127885002810c9140937dc4ddd8f8626cf",
+    signal: "fa42272a6d11e29c02fe4bfbd7e343f8ac34f832b71ec9f862ee6248a5c9a08a",
+    counters: '{"afterSites":{"edgeSites":936,"delegatedSites":184,"lookups":121384,"edgePoints":2356},"edgePoints":2356,"lookups":196608,"surfaceTiles":[72,2304],"sumTiles":[36,480]}' },
   // both cards in front of the focus plane, small tiles
-  { lattice: "c12518046fa3d7fb9bb5ef86b1136df957d6b3ed10159d3858330f1d56e78a00", signal: "f88bdd077566f0a8d2b30fdb87b8a4492637fc56b2ce4a94e53b7d01f19f0f73" }
+  { lattice: "0c61db8322f5b88a49435b32a0a99f8b90e9260df0ebe7526d2f697beb2777e7",
+    signal: "bcb0b4a43f9a798fe04758a1fe7a35840b5e4ba912abda45ae62864797e76adc",
+    counters: '{"afterSites":{"edgeSites":1271,"delegatedSites":49,"lookups":24159387,"edgePoints":11514},"edgePoints":25443,"lookups":53978112,"surfaceTiles":[52713,1686816],"sumTiles":[2211,2799]}' },
+  // an in-focus card behind rho -34, full (the row clamp)
+  { lattice: "4418808ad6026ad0779b40e8de0fb75489e1d422439b72b08331142df90e40f5",
+    signal: "5fed972f6212fe09a746c668ceaa7c807c4f7b92c85b2a330dc3cfde66949a03",
+    counters: '{"afterSites":{"edgeSites":384,"delegatedSites":0,"lookups":9216,"edgePoints":512},"edgePoints":1792,"lookups":11264,"surfaceTiles":[11,352],"sumTiles":[4,56]}' },
+  // a kernel two sites wider than its disc
+  { lattice: "f07fd2b89de3136d7293942063e0d8f40a781c7407153e3a0bcad20d005a3238",
+    signal: "501d04a65a2c08f9ab77abfa8b1c7206fe3ba5ddda8294e9a40ba978a3ba8dc3",
+    counters: '{"afterSites":{"edgeSites":1120,"delegatedSites":0,"lookups":11264,"edgePoints":842},"edgePoints":842,"lookups":18432,"surfaceTiles":[18,576],"sumTiles":[9,120]}' },
+  // a null kernel with rho -2.6
+  { lattice: "d6e8eff2bf3a13f71f14b52bf54b0c16709ae2fc8b72d019cddb4231605e9f93",
+    signal: "6aa9cb282680778e68024e969671373d793111d6519d5dc88bc69db23277cdf0",
+    counters: '{"afterSites":{"edgeSites":1120,"delegatedSites":0,"lookups":11264,"edgePoints":696},"edgePoints":696,"lookups":18432,"surfaceTiles":[18,576],"sumTiles":[9,120]}' }
 ];
 
 describe("layered sum seams (L0): module-level values keep their bits", () => {
-  it("pins the spectral lattice values, surfaces and site signals of six lattices", () => {
+  it("pins the spectral lattice values, surfaces, site signals and counters of nine lattices", () => {
     const recorded = moduleCases.map((c) => [c.name, moduleDigest(c)] as const);
     if (RECORD) { console.log(JSON.stringify({ arch: process.arch, node: process.version, module: recorded })); return; }
     expect(recorded).toHaveLength(MODULE_LOCKS.length);
-    for (const [k, [name, got]] of recorded.entries()) for (const key of ["lattice", "signal"] as const)
+    for (const [k, [name, got]] of recorded.entries()) for (const key of ["lattice", "signal", "counters"] as const)
       expect(got[key], name + " " + key).toBe(MODULE_LOCKS[k]![key]);
   }, scaledTimeout(120_000));
 });
@@ -173,13 +229,11 @@ describe("layered sum seams (L0): the module interfaces", () => {
   const lattice = createLayeredSceneLattice(input), { geometry, visibility } = lattice.parts;
   const g0 = lattice.groupOf(0, 0), g1 = lattice.groupOf(0.25, 0.75);
 
-  it("framePoint is the lattice formula at every instant; edges are each card's rectangle in lattice coordinates", () => {
-    const point = { u: 0, v: 0 };
+  it("framePoint is the lattice formula with factor 1; edges are each card's rectangle in lattice coordinates", () => {
+    const point = { u: 0, v: 0, factor: 0 };
     for (const group of [g0, g1]) for (let q = -3; q < f.H + 3; q += 2) for (let p = -3; p < f.W + 3; p += 3) {
-      for (const instant of [undefined, 0, 0.5]) {
-        expect(geometry.framePoint(group, p, q, point, instant)).toBe(point);
-        expect(point).toEqual({ u: geometry.latticeU(group, p), v: geometry.latticeV(group, q) });
-      }
+      expect(geometry.framePoint(group, p, q, point)).toBe(point);
+      expect(point).toEqual({ u: geometry.latticeU(group, p), v: geometry.latticeV(group, q), factor: 1 });
       const edges = geometry.edges(group, p, q), { fx, fy } = geometry.groups[group]!;
       expect(edges).toHaveLength(3);
       expect(edges[2]).toBeNull();
@@ -189,7 +243,7 @@ describe("layered sum seams (L0): the module interfaces", () => {
         expect(Array.from(e)).toEqual([r.u0 / f.g - 0.5 + f.W / 2 - fx, -r.v1 / f.g - 0.5 + f.H / 2 - fy, r.u1 / f.g - 0.5 + f.W / 2 - fx, -r.v0 / f.g - 0.5 + f.H / 2 - fy]);
       }
     }
-    expect(lattice.chiefSurface(-0.5, 0)).toEqual({ surface: 0, material: lattice.parts.radiance.material(0, { u: -0.5, v: 0 }) });
+    expect(lattice.chiefSurface(-0.5, 0)).toEqual({ surface: 0, material: lattice.parts.radiance.material(0, { u: -0.5, v: 0, factor: 1 }) });
     expect(geometry.chiefSurface(0.5, 0)).toBe(1);
     expect(geometry.chiefSurface(0.95, 0)).toBe(2);
   });
@@ -280,5 +334,34 @@ describe("layered sum seams (L0): the module interfaces", () => {
     expect(() => createLayeredSceneLattice(gap)).toThrow(/kernel groups/);
     const wide = { ...input, kernelGroups: input.layers.map((l) => [{ nodes: { from: 0, to: N }, kernel: { ...kernelOf(l), radius: kernelOf(l).radius + 1 } }]) };
     expect(() => createLayeredSceneLattice(wide)).toThrow(/kernel groups/);
+  });
+});
+
+// The refusals ---------------------------------------------------------------------------------------------------------------
+
+describe("layered sum seams (L0): the refusal table keeps every message", () => {
+  it("gives the messages of 783f38f, the first present row first", () => {
+    const scene = { kind: "layered-chart", cards: [{ distanceM: 1.6, centerU: 0.2, centerV: 0, width: 1, height: 0.8, scene: { preset: "slanted-edge" } }], backPlane: { distanceM: 3, reflectance: 0.5 } };
+    // [request top level, lens, the message recorded at 783f38f (null: accepted)].
+    const cases: [Record<string, unknown>, Record<string, unknown>, string | null][] = [
+      [{ motion: { angularVelocityRadPerSec: {} } }, {}, "scene.kind \"layered-chart\" does not support motion.angularVelocityRadPerSec in 2.27.0: each surface's defocus and occlusion are rendered for a still camera and scene. Omit it, or use a single-plane scene."],
+      [{ motion: {} }, {}, null],
+      [{ motion: { subject: {}, x: 1 } }, {}, "scene.kind \"layered-chart\" does not support motion.subject in 2.27.0: each surface's defocus and occlusion are rendered for a still camera and scene. Omit it, or use a single-plane scene."],
+      [{}, { projection: "rectilinear" }, null],
+      [{}, { projection: "fisheye-equidistant" }, "scene.kind \"layered-chart\" does not support lens.projection other than \"rectilinear\" in 2.27.0: the layered sum maps every surface through the rectilinear lens. Omit it, or use a single-plane scene."],
+      [{}, { distortion: {} }, "scene.kind \"layered-chart\" does not support lens.distortion in 2.27.0: the layered sum maps every surface through the distortion-free lens. Omit it, or use a single-plane scene."],
+      [{}, { vignetting: {} }, "scene.kind \"layered-chart\" does not support lens.vignetting in 2.27.0: the layered sum takes one radiance-to-irradiance factor over the field. Omit it, or use a single-plane scene."],
+      [{}, { catalogue: "x" }, "scene.kind \"layered-chart\" does not support lens.catalogue in 2.27.0: a catalogue lens has its own distortion, vignetting and PSF. Omit it, or use a single-plane scene."],
+      [{}, { pupilSampling: {} }, "scene.kind \"layered-chart\" does not support lens.pupilSampling in 2.27.0: the layered sum renders the defocus and occlusion of each surface itself. Omit it, or use a single-plane scene."],
+      [{}, { psf: {} }, "scene.kind \"layered-chart\" does not support lens.psf in 2.27.0: a caller PSF declares its own defocus. Omit it, or use a single-plane scene."],
+      [{ chartSize: {} }, {}, "scene.kind \"layered-chart\" does not support chartSize in 2.27.0: cards are placed in frame units, each at its own size. Omit it, or use a single-plane scene."],
+      [{ illumination: {} }, {}, "scene.kind \"layered-chart\" does not support illumination (mixed lighting) in 2.27.0: every surface is lit by the one illuminant. Omit it, or use a single-plane scene."],
+      [{ chartSize: {}, illumination: {} }, { psf: {}, distortion: {} }, "scene.kind \"layered-chart\" does not support lens.distortion in 2.27.0: the layered sum maps every surface through the distortion-free lens. Omit it, or use a single-plane scene."],
+      [{}, {}, null]];
+    for (const [top, lens, message] of cases) {
+      const run = (): unknown => resolveLayeredRequest({ top: { scene, ...top }, lens, aspect: 0.75, displayView: false });
+      if (message === null) expect(run).not.toThrow();
+      else expect(run).toThrow(message);
+    }
   });
 });
