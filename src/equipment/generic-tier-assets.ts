@@ -12,8 +12,9 @@
 
 import type { EvidenceBackedFact, EvidenceProvenance } from "../core/evidence-provenance.js";
 import { freezeOwnedData } from "../core/owned-data.js";
-import { parseGenericBodyExposureCapabilityProfile, parseGenericLensExposureCapabilityProfile,
-  type GenericBodyExposureCapabilityProfile, type GenericLensExposureCapabilityProfile } from "./exposure-capabilities.js";
+import type { GenericBodyExposureCapabilityProfile, GenericLensExposureCapabilityProfile } from "./exposure-capabilities.js";
+import { GENERIC_TIER_EVIDENCE, GENERIC_TIER_LIMITATIONS, genericBodyExposureProfile, genericLensExposureProfile, genericMeteringProfiles, genericTierIsoValues,
+  type GenericEquipmentTier, type GenericTierPresetVersion, type GenericVersionedAsset } from "./generic-tier-exposure.js";
 import { parseIsoCapabilityProfile, type IsoCapabilityProfile } from "./iso-capabilities.js";
 import { parseGenericReleaseCapabilityProfile, type GenericReleaseCapabilityProfile } from "./release-capabilities.js";
 import { parseFocusControlProfile, type FocusControlProfile } from "../capture/focus-control.js";
@@ -21,16 +22,15 @@ import { parseWhiteBalanceProfile, type WhiteBalanceProfile } from "../color/whi
 import { parseStabilizationSystemProfile, STABILIZATION_UNMODELED_SCOPE, type StabilizationSystemProfile } from "../stabilization/system.js";
 import { parseSensorReadoutConversionProfile, type SensorReadoutConversionProfile } from "../sensor/raw-readout.js";
 import { parseGenericIsoSignalChainProfile, type GenericIsoSignalChainProfile } from "../sensor/iso-signal-chain.js";
-import { parseExposureMeteringProfile, type ExposureMeteringProfile } from "../exposure/metering.js";
+import type { ExposureMeteringProfile } from "../exposure/metering.js";
 import { parseGenericBodyMeteringCapabilityProfile, type GenericBodyMeteringCapabilityProfile } from "./metering-capabilities.js";
 import { parseFlashSyncCapabilityProfile, type FlashSyncCapabilityProfile } from "../exposure/flash.js";
 import type { SensorReadoutTimingDeclaration } from "../sensor/readout-timing.js";
 import { createIsoGainReadoutRegimes } from "../sensor/iso-gain.js";
 import { parseSensorFixedPatternNoiseProfile, type SensorFixedPatternNoiseProfile } from "../sensor/fixed-pattern-noise.js";
-import { GENERIC_THIRD_STOP_ISO_SETTINGS, GENERIC_WHOLE_STOP_ISO_SETTINGS } from "./generic-iso-settings.js";
 
-export type GenericEquipmentTier = "consumer" | "prosumer" | "professional";
-export interface GenericVersionedAsset<T> { assetId: string; assetVersion: string; profile: T }
+// #765 (2.29.0): the exposure side of the tiers (and these types) is built by generic-tier-exposure.ts, which the presets below call.
+export type { GenericEquipmentTier, GenericTierPresetVersion, GenericVersionedAsset } from "./generic-tier-exposure.js";
 export interface GenericTierBodyAssets {
   exposure: GenericBodyExposureCapabilityProfile;
   iso: IsoCapabilityProfile;
@@ -79,17 +79,8 @@ export interface GenericEquipmentTierPreset {
   tradeoffs: readonly string[];
 }
 
-// #682: frozen where defined; every tier profile, and every capture's `provenance.evidence`, references these records.
-const tierEvidence: readonly EvidenceProvenance[] = /* @__PURE__ */ Object.freeze([/* @__PURE__ */ Object.freeze({ sourceOrigin: "photivra",
-  sourceReference: "photivra:generic-tier-assets-v1", reuseStatus: "photivra-owned" } as const)]);
-const tierLimitations: readonly string[] = /* @__PURE__ */ Object.freeze(["Synthetic educational design values; no named camera/lens calibration or population ranking."]);
+const tierEvidence = GENERIC_TIER_EVIDENCE, tierLimitations = GENERIC_TIER_LIMITATIONS;
 const evidence = tierEvidence, limitations = tierLimitations;
-const fact = <T>(value: T): EvidenceBackedFact<T> => ({ value, evidence });
-/**
- * The exact versions of the generic tier presets (no "latest" alias). 2.1.0 (2.14, round 5) adds the third-stop ISO
- * settings; 2.0.0 is kept, whole-stop, so saved selections and records of it still resolve to exactly what they named.
- */
-export type GenericTierPresetVersion = "2.0.0" | "2.1.0";
 // #646: the ISO setting lists are defined in generic-iso-settings.ts (no imports), so the sensor-profile record need not import the
 // tier assets; re-exported unchanged.
 export { GENERIC_THIRD_STOP_ISO_SETTINGS, GENERIC_WHOLE_STOP_ISO_SETTINGS } from "./generic-iso-settings.js";
@@ -129,11 +120,10 @@ export function bodyAssets(version: GenericTierPresetVersion, id: string, isoMax
   dataReadoutSeconds: number, gain: number, maxAngle: number, continuousAf: boolean, advancedPolicies: boolean, source?: GenericBodyAssetsSource): GenericTierBodyAssets {
   const evidence = source?.evidence ?? tierEvidence, limitations = source?.limitations ?? tierLimitations;
   const fact = <T>(value: T): EvidenceBackedFact<T> => ({ value, evidence });
-  const isoValues: number[] = source ? [...source.isoValues] : (version === "2.0.0" ? GENERIC_WHOLE_STOP_ISO_SETTINGS : GENERIC_THIRD_STOP_ISO_SETTINGS).filter((v) => v <= isoMax);
+  const isoValues: number[] = source ? [...source.isoValues] : genericTierIsoValues(version, isoMax);
   const baseIso = isoValues[0]!, single = sensor.highGainFromIso > isoMax;
-  const exposure = parseGenericBodyExposureCapabilityProfile({ schemaVersion: "0.1.0", profileId: id+":exposure", profileVersion: version,
-    scientificStatus: "approximation", evidence, shutter: { durationSecondsRange: fact({ minimum: 1/8000, maximum: 30 }), settingGrid: { kind: "continuous-within-range" } },
-    iso: { range: fact({ minimum: baseIso, maximum: isoMax }), settingGrid: { kind: "discrete-values", values: fact(isoValues) }, autoIso: fact("supported") } });
+  // #765: the exposure side is built by generic-tier-exposure.ts, the same code calculateProgramLine reads the tiers with.
+  const exposure = genericBodyExposureProfile(version, id, isoValues, isoMax, evidence);
   const iso = parseIsoCapabilityProfile({ schemaVersion: "0.1.0", profileId: id+":iso", profileVersion: version,
     capabilityMeaning: "reported-exposure-index-capability-not-physical-gain", standard: { exposureIndexRange: { minimum: baseIso, maximum: isoMax },
       settingGrid: { kind: "discrete-values", values: isoValues } }, expandedSettings: [], autoIso: { availability: "supported", standardExposureIndexRange: { minimum: baseIso, maximum: isoMax }, evidence },
@@ -172,12 +162,7 @@ export function bodyAssets(version: GenericTierPresetVersion, id: string, isoMax
       channelGains: fact({ red: 1, green: 1, blue: 1 }) }], awbPolicies: [
       { policyId: "neutral-priority", intent: "neutral-priority", correctionStrength: fact(1) },
       ...(advancedPolicies ? [{ policyId: "ambience", intent: "ambience-preserving", correctionStrength: fact(.5) }] : [])], evidence, limitations });
-  const metering = [{ kind: "multi-zone-uniform" }, ...(advancedPolicies ? [{ kind: "highlight-weighted", minimumWeightFraction: .2, exponent: 2 }] : [])]
-    .map((policy): GenericVersionedAsset<ExposureMeteringProfile> => ({ assetId: id+":meter:"+policy.kind, assetVersion: version,
-      profile: parseExposureMeteringProfile({ schemaVersion: "0.1.0", profileId: id+":meter:"+policy.kind, scientificStatus: "approximation",
-        inputDomain: "relative-pre-exposure-linear-signal", captureRegion: "oriented-active-capture", policy,
-        target: { kind: "relative-signal-reference", targetRelativeSignal: .18, evidence }, evidence,
-        limitations: [...limitations, "0.18 is a declared target policy, not universal scene/camera truth."] }) }));
+  const metering = genericMeteringProfiles(version, id, advancedPolicies, evidence, limitations);
   const meteringCapabilities = parseGenericBodyMeteringCapabilityProfile({ schemaVersion: "0.1.0", profileId: id+":metering-capabilities", profileVersion: version,
     scientificStatus: "approximation", evidence, supportedMeteringProfiles: metering.map((m) => ({ meteringProfileId: m.profile.profileId, policyKind: m.profile.policy.kind, evidence })),
     spotFocusPointLinkage: { availability: "unsupported", evidence } });
@@ -200,10 +185,8 @@ export function bodyAssets(version: GenericTierPresetVersion, id: string, isoMax
       captureModeId: "native-still", timingProfileId: timingId, supportedOrdinarySyncModes: ["front-curtain", "rear-curtain"],
       highSpeedSyncSupported: false, ordinarySyncRequiresWholeActiveFrameSimultaneouslyExposed: true, evidence, limitations }) };
 }
-function lensAssets(version: GenericTierPresetVersion, id: string, r: GenericTierLensAssets["matchedReference"]): GenericTierLensAssets {
-  return { form: "prime", exposure: parseGenericLensExposureCapabilityProfile({ schemaVersion: "0.1.0", profileId: id+":exposure", profileVersion: version,
-    scientificStatus: "approximation", evidence, focalLengthMmRange: fact({ minimum: 50, maximum: 50 }), aperture: { widestAvailableFNumber: {
-      kind: "constant", fNumber: fact(4) }, narrowestAvailableFNumber: fact(16), settingGrid: { kind: "continuous-within-range" } } }),
+function lensAssets(version: GenericTierPresetVersion, id: string, r: GenericTierLensAssets["matchedReference"], exposure = genericLensExposureProfile(version, id)): GenericTierLensAssets {
+  return { form: "prime", exposure,
     matchedReference: r, profileReferences: ["radial", "lateral-ca", "vignetting", "breathing", "transmission", "pupil", "stray", "correction"]
       .map((role) => ({ profileId: id+":"+role, profileVersion: version })),
     limitations: [...limitations, "Optical reference response is limited to 50 mm, f/4, focus 5 m and explicit field/defocus/wavelength slices; capabilities do not authorize extrapolation.",

@@ -20,7 +20,8 @@
 import { approximationResult, type CalculationResult } from "../core/calculation-result.js";
 import { InvalidScientificInputError } from "../core/validation.js";
 import { requireInputKeys, requireInputObject } from "../core/record-validation.js";
-import { genericLensDispersion, resolveGenericLens } from "../equipment/generic-lens-catalogue.js";
+import { resolveGenericLens } from "../equipment/generic-lens-catalogue.js";
+import { genericLensDispersion } from "../equipment/generic-lens-dispersion.js";
 import { GENERIC_LENS_CORRECTION_CHANNEL_WAVELENGTHS_NM, type ChannelDispersion } from "../output/developed-lens-corrections.js";
 
 export interface CalculateLateralColorFringeInput {
