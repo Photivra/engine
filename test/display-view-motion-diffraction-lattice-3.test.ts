@@ -4,81 +4,16 @@
  * lens signal (display-view-lens-signal.ts) already sums each site's kernel taps on the site lattice; it was refused by the capture's
  * per-tap count. Since #767 the capture's lattice flag (#761) also holds for a view, so the view counts its queries as the capture does,
  * without the taps, and reports `execution: "image-space-convolution"` where the taps pass 100000.
+ *
+ * Part 3 of 3 (regions, combinations, refusals and the estimate). One file in 2.29.0's group V, split at integration for the per-file coverage budget; the
+ * requests are in test/helpers/display-view-motion-diffraction-cases.ts, and the cases and bounds are unchanged.
  */
-import { describe, expect, it, vi } from "vitest";
-
-const captured = vi.hoisted(() => ({ calls: [] as { input: unknown; provider: unknown }[] }));
-vi.mock("../src/facade/defocus-image-space-provider.js", async (importOriginal): Promise<typeof import("../src/facade/defocus-image-space-provider.js")> => {
-  const actual = await importOriginal<typeof import("../src/facade/defocus-image-space-provider.js")>();
-  return { ...actual, createDefocusImageSpaceProvider: (input): ReturnType<typeof actual.createDefocusImageSpaceProvider> => { const provider = actual.createDefocusImageSpaceProvider(input); captured.calls.push({ input, provider }); return provider; } };
-});
-
-import { calculateEnvironmentSensorPhotoSignal, estimateDisplayViewRender, prepareDisplayView, simulateCapture, simulateDisplayView, type PlanarSceneRadianceProvider,
-  type SimulateCaptureOptions } from "../src/index.js";
-import { simulateDisplayViewWithInternals } from "../src/facade/simulate-display-view.js";
+import { describe, expect, it } from "vitest";
+import { estimateDisplayViewRender, prepareDisplayView, simulateCapture, simulateDisplayView, type SimulateCaptureOptions } from "../src/index.js";
 import { scaledTimeout } from "./helpers/test-timeout.js";
-
-const electrons = (environment: unknown, evaluateRadiance: unknown): number => (calculateEnvironmentSensorPhotoSignal({ ...(environment as object), evaluateRadiance } as never)
-  .value as unknown as { photo: { value: { photoSignal: { expectedGeneratedElectronCount: number } } } }).photo.value.photoSignal.expectedGeneratedElectronCount;
-const filter = { antiAliasing: { kind: "four-spot" }, pixelAperture: { kind: "box", samplesPerAxis: 2 } } as const;
-type Request = { fNumber?: number; pitch?: number; shutterSeconds?: number; motion?: SimulateCaptureOptions["motion"]; lens?: object; sensor?: object; output?: object; scene?: string;
-  width?: number; height?: number; fast?: boolean };
-const request = (o: Request): SimulateCaptureOptions => ({
-  scene: { preset: o.scene ?? "slanted-edge" }, subjectDistanceM: 2, lens: { prime: 50, fNumber: o.fNumber ?? 8, diffraction: "circular-aperture", ...o.lens },
-  sensor: { pixelPitchMicrometers: o.pitch ?? 6, ...filter, ...o.sensor }, exposure: { mode: "manual", iso: 100, shutterSeconds: o.shutterSeconds ?? 1 / 15 },
-  output: { width: o.width ?? 20, height: o.height ?? 14, ...o.output }, ...(o.motion ? { motion: o.motion } : {}), ...(o.fast === false ? { fast: false } : {}) } as SimulateCaptureOptions);
-const yaw = { angularVelocityRadPerSec: { yaw: 0.02 } }, subject = { subject: { velocityMPerSec: { x: 0.5 } } }, handheld = { handheld: { seed: 7 } };
-const defocus = { focusDistanceM: 1.8, defocus: { model: "geometric-disc" } };
-type Assumed = { assumptions: readonly { id: string; value: unknown }[] };
-const execution = (r: Assumed): string => (r.assumptions.find((a) => a.id === "lens.diffraction")!.value as { execution: string }).execution;
+import { defocus, execution, handheld, request, subject, yaw, type Request } from "./helpers/display-view-motion-diffraction-cases.js";
 
 describe("the display view with motion, lens.diffraction and the anti-aliasing filter (#767)", () => {
-  it("gives the capture's expected electrons per site within 1e-9 (every fifth site, fast: false)", async () => {
-    const cases: [string, Request][] = [
-      ["yaw 1/15 s", { motion: yaw }],
-      ["hand shake", { motion: handheld }],
-      ["subject f/8, 4 µm", { motion: subject, pitch: 4 }],
-      ["subject f/16, 4 µm", { motion: subject, pitch: 4, fNumber: 16 }],
-      ["yaw, dead leaves", { motion: yaw, scene: "dead-leaves" }],
-      ["rolling yaw 1/60 s", { motion: { ...yaw, shutter: "rolling" }, shutterSeconds: 1 / 60 }],
-      ["yaw, lens.defocus", { motion: yaw, lens: defocus }]];
-    for (const [name, o] of cases) {
-      const options = request({ ...o, fast: false });
-      captured.calls.length = 0;
-      const capture = await simulateCapture(options);
-      // The capture's image-space provider: diffraction on the site lattice (#761), or diffraction ⊛ the disc with lens.defocus (#548).
-      const { provider } = captured.calls.at(-1) as { provider: PlanarSceneRadianceProvider }, evaluate = provider.evaluateRadiance.bind(provider);
-      const { signal } = await simulateDisplayViewWithInternals(options, { width: 10, height: 7, samplesPerAxis: 1 });
-      const native = capture.plan.exposure.geometry.nativeRaster;
-      let largest = 0;
-      for (let i = 0; i < native.pixelWidth * native.pixelHeight; i += 5) {
-        const reference = electrons(capture.request.siteInput(i).environment, evaluate);
-        largest = Math.max(largest, Math.abs(signal.site(i % native.pixelWidth, Math.floor(i / native.pixelWidth)) - reference) / reference);
-      }
-      expect(largest, name).toBeLessThan(1e-9);
-    }
-  }, scaledTimeout(240_000));
-
-  it("matches the box-downsized capture: camera yaw and a moving subject at 1/60 s", async () => {
-    const decode = (code: number): number => { const e = code / 65535; return e <= 0.04045 ? e / 12.92 : ((e + 0.055) / 1.055) ** 2.4; };
-    const encode8 = (l: number): number => 255 * (l <= 0.0031308 ? l * 12.92 : 1.055 * Math.min(1, l) ** (1 / 2.4) - 0.055);
-    for (const motion of [yaw, subject]) {
-      const options = request({ motion, pitch: 3, shutterSeconds: 1 / 60, width: 96, height: 64, fast: false });
-      const capture = await simulateCapture({ ...options, output: { ...options.output, format: "srgb-16" } });
-      const { internals } = await simulateDisplayViewWithInternals(options, { width: 12, height: 8, samplesPerAxis: 16 });
-      let sq = 0, max = 0;
-      for (let j = 0; j < 8; j++) for (let i = 0; i < 12; i++) for (let k = 0; k < 3; k++) {
-        let reference = 0;
-        for (let y = 8 * j; y < 8 * j + 8; y++) for (let x = 8 * i; x < 8 * i + 8; x++) reference += decode(capture.image.samples[(y * 96 + x) * 3 + k]!) / 64;
-        const difference = encode8(internals.expected[(j * 12 + i) * 3 + k]!) - encode8(reference);
-        sq += difference * difference; max = Math.max(max, Math.abs(difference));
-      }
-      // The thresholds of test/display-view-lens.test.ts ("matches the box-downsized capture"); the reference keeps its own noise.
-      expect(Math.sqrt(sq / (8 * 12 * 3))).toBeLessThan(0.6);
-      expect(max).toBeLessThan(3);
-    }
-  }, scaledTimeout(120_000));
-
   it("is region-identical and the same when prepared: yaw, a moving subject and rolling yaw, fast and full", async () => {
     for (const fast of [true, false]) for (const o of [{ motion: yaw }, { motion: subject }, { motion: { ...yaw, shutter: "rolling" as const }, shutterSeconds: 1 / 60 }]) {
       const options = request({ ...o, width: 48, height: 32, fast }), whole = await simulateDisplayView(options, { width: 16, height: 12 }), prepared = await prepareDisplayView(options);

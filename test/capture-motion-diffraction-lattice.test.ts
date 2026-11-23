@@ -122,7 +122,7 @@ describe("motion with lens.diffraction, the four-spot filter and a box at full q
       output: { width: 4, height: 4 } } as SimulateCaptureOptions;
     await expect(simulateCapture(issue)).rejects.toThrow("These options need 1376256 scene queries per site (temporal samples × spectral nodes × pupil rays × filter spots × pixel-aperture nodes × PSF taps: 256 × 21 × 1 × 1 × 256 × 1); the environment admits at most 100000.");
     // The display view does not query per site: without the filter it renders as before; with it, since #767, it counts as the capture does
-    // (the taps summed on the site lattice), so the yaw request renders (test/display-view-motion-diffraction-lattice.test.ts).
+    // (the taps summed on the site lattice), so the yaw request renders (test/display-view-motion-diffraction-lattice-1.test.ts to -3).
     const view = { ...issue, sensor: { ...issue.sensor, temporalSampleCount: 32 }, output: { width: 48, height: 32 } } as SimulateCaptureOptions;
     await expect(simulateCapture(view)).rejects.toThrow("These options need 172032 scene queries per site");
     await expect(simulateDisplayView(view, { width: 24, height: 16 })).resolves.toBeDefined();

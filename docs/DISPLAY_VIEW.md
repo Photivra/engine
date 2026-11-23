@@ -382,7 +382,7 @@ the kernel spreads its light, as for any environment PSF.
   (`lens.diffraction/rolling-shutter-taps`) and is over the bound; the view has one method there, the lattice one (each
   site at its own instants), so it renders in both modes. Each site's expected electrons equal the capture's within 1e-9
   relative (measured 4e-15 at most), and the view matches the box-downsized capture
-  (`test/display-view-motion-diffraction-lattice.test.ts`).
+  (`test/display-view-motion-diffraction-lattice-1.test.ts` to `-3.test.ts`).
 - **GPU:** these requests stay on the CPU reference. With `gpu: "auto"` the prepared view runs the CPU path labelled
   `unsupported-on-backend` (the limitation names #563), and no device is requested; `"require"` fails with that reason.
   An app can show "estimated on the CPU" from `diagnostics.fast.execution`. No `src/gpu` code changed.
@@ -437,7 +437,7 @@ the reference's own noise is the standard error of its three-seed mean (scratch 
 In every case the RMS difference is no larger than the reference's own noise, so the view's error is below what these
 blocks resolve; every mean error is within 0.04 code (the validation's limit is 0.5). The Quality distortion block (6 × 6)
 fell on a flat square. Quality with rotation was refused until 2.29.0 (#767); its cost is below, and it is checked against the
-capture per site and against the box-downsized capture (`test/display-view-motion-diffraction-lattice.test.ts`).
+capture per site and against the box-downsized capture (`test/display-view-motion-diffraction-lattice-1.test.ts` to `-3.test.ts`).
 
 **Cost** (the app request of [A device-pixel view rendered in parts](#a-device-pixel-view-rendered-in-parts), f/8, 2028 × 1352
 in 96 × 96 parts, 30 of 294 parts timed, two repeats interleaved:
