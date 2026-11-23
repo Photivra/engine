@@ -307,7 +307,7 @@ const photoCommon = (path: ChartCompositeProductPath): string => displayViewModu
 
 /** Pass 1's WGSL (see the module comment). */
 export function imagePlaneQualityLatticeWgsl(path: ChartCompositeProductPath): string {
-  return `${DISPLAY_VIEW_QUALITY_COMMON_WGSL}
+  return /* wgsl */ `${DISPLAY_VIEW_QUALITY_COMMON_WGSL}
 @group(0) @binding(1) var<storage, read> groups: array<u32>;
 @group(0) @binding(2) var<storage, read_write> lattice_values: array<f32>;
 @group(0) @binding(3) var<storage, read_write> lattice_flags: array<u32>;

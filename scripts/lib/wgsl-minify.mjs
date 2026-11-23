@@ -15,10 +15,13 @@
  *   punctuation characters (as in `a - -b`, `a / *p` or `> =`) always stays, so no operator or comment opener can form.
  *
  * Every newline is kept, so line numbers (and so source maps) of everything after a shader stay exact, and so do
- * line-anchored edits such as `/^const SLACK: f32 = …\n/m`. A line that contains a `${…}` interpolation is left
- * untouched, so an interpolation can never end up inside or outside a comment differently than written, and its
- * columns keep their source-map positions. The first line (after the opening backtick) and the last line (before the
- * closing one) are left untouched too. A backslash (a template escape) may only be removed inside a comment, where its
+ * line-anchored edits such as `/^const SLACK: f32 = …\n/m`. A line that contains a `${…}` interpolation and a comment
+ * opener or a backslash is left untouched, so an interpolation can never end up inside or outside a comment differently
+ * than written. (2.29.0, #658) Any other interpolation line is tightened by the same rules, piece by piece between its
+ * interpolations, and blankspace that touches an interpolation stays as one space, since its text is not known here;
+ * columns on such a line move left, so a source map points a few columns early inside its interpolations, never at
+ * another line. The first line (after the opening backtick) and the last line (before the closing one) are left
+ * untouched too. A backslash (a template escape) may only be removed inside a comment, where its
  * whole escape sequence goes with it; a literal with a backslash in shader code or ending a line is left whole. Expressions inside `${…}` are copied unchanged. WGSL has no string literals, so `//` and `/*`
  * always start comments in shader text.
  *
@@ -101,6 +104,19 @@ function tighten(line) {
     .replace(/([()[\]{},;]) /gu, "$1").replace(/ (?=[()[\]{},;])/gu, "");
 }
 
+/**
+ * A line with interpolations (sentinels) and no comment opener or backslash: each static piece tightened, the blankspace next to an
+ * interpolation kept as one space.
+ */
+function tightenInterpolated(line) {
+  return line.replace(/^[ \t]+|[ \t]+$/gu, "").split(/(\uE000\d+\uE000)/u).map((piece, k, pieces) => {
+    if (k % 2 === 1) return piece;
+    const lead = k > 0 && /^[ \t]/u.test(piece) ? " " : "", tail = k < pieces.length - 1 && /[ \t]$/u.test(piece) ? " " : "";
+    const inner = tighten(piece.replace(/^[ \t]+|[ \t]+$/gu, ""));
+    return inner === "" ? lead || tail : lead + inner + tail;
+  }).join("");
+}
+
 const SENTINEL = (k) => "\uE000" + k + "\uE000";
 const HAS_SENTINEL = /\uE000\d+\uE000/u;
 
@@ -116,7 +132,9 @@ function minifyTemplateBody(chunks, expressions) {
   if (lines.length < 3) return null;
   const state = { blockDepth: 0 };
   const out = lines.map((line, index) => {
-    if (index === 0 || index === lines.length - 1 || HAS_SENTINEL.test(line)) {
+    const inner = index > 0 && index < lines.length - 1;
+    if (inner && state.blockDepth === 0 && HAS_SENTINEL.test(line) && !/\/\/|\/\*|\\/u.test(line)) return tightenInterpolated(line);
+    if (!inner || HAS_SENTINEL.test(line)) {
       // Kept as written. A line comment on it ends at its own newline; a block comment on it, or one still open when it
       // starts, could span lines differently from the minified neighbours, so the whole literal is then left unchanged.
       if (state.blockDepth > 0 || line.includes("/*")) state.unsafe = true;

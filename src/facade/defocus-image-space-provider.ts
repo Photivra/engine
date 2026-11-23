@@ -264,14 +264,16 @@ export function createDefocusImageSpaceProvider(input: DefocusImageSpaceProvider
   const timeDependent = geometry.timeDependent || input.timeDependentScene === true;
   // #761: with a byte budget, the tallest band (at most bandRows) whose kept bands fit: each holds shifts × nodes × rows × NW values, and
   // a site row's queries span 2M + 1 lattice rows at each of its instants (the cache's capacity below); one band's grid is built at a time.
-  const times = timeDependent ? Math.max(1, input.timesPerBand ?? 1) : 1, rowBytes = shifts.length * wavelengthsNm.length * NW * 8 * times;
-  const bandBytes = (rows: number): number => Math.max(CACHED_BANDS, Math.ceil((2 * M + 2) / rows)) * rows * rowBytes + gridWidth * (rows + 2 * R) * 40;
+  const perBand = Math.max(1, input.timesPerBand ?? 1), times = timeDependent ? perBand : 1, rowBytes = shifts.length * wavelengthsNm.length * NW * 8 * times;
+  // The bands of `rows` rows one site row's queries span (its query offsets reach M lattice rows either way).
+  const bandsOf = (rows: number): number => Math.max(CACHED_BANDS, Math.ceil((2 * M + 2) / rows));
+  const bandBytes = (rows: number): number => bandsOf(rows) * rows * rowBytes + gridWidth * (rows + 2 * R) * 40;
   let BAND = input.bandRows ?? BAND_ROWS;
   const capacityBytes = input.capacityBytes ?? (psf ? 64 * 1048576 : undefined);
   if (capacityBytes !== undefined) {
     while (BAND > 1 && bandBytes(BAND) > capacityBytes) BAND--;
     if (bandBytes(1) > capacityBytes) throw new InvalidConfigurationError("The image-space convolution keeps " + Math.ceil(bandBytes(1) / 1048576) + " MiB for one row of sites (" +
-      wavelengthsNm.length + " spectral nodes × " + times + " instants × " + shifts.length + " lattice shifts × " + NW + " sites × " + Math.max(CACHED_BANDS, 2 * M + 2) +
+      wavelengthsNm.length + " spectral nodes × " + times + " instants × " + shifts.length + " lattice shifts × " + NW + " sites × " + bandsOf(1) +
       " rows, and one row's grid); the limit is " + capacityBytes / 1048576 + " MiB. Render a narrower output.region.");
   }
   const now = (): number => globalThis.performance?.now() ?? Date.now();
@@ -307,8 +309,8 @@ export function createDefocusImageSpaceProvider(input: DefocusImageSpaceProvider
     zonedGather ? zonedGather(samples, lx0, y0, NW, rows) : samples.map((s) => gatherInterior(s, taps[0]!, gridWidth, NW, rows, R));
   // Bands per time (LRU over (time, band)): values[shift][node] holds G_t / F at the band's own lattice points.
   const cache = new Map<string, Float64Array[][]>();
-  // The bands one site row's queries span (its query offsets reach M lattice rows either way), at each of its instants.
-  const capacity = Math.max(CACHED_BANDS, Math.ceil((2 * M + 2) / BAND)) * Math.max(1, input.timesPerBand ?? 1);
+  // The bands one site row's queries span, at each of its instants.
+  const capacity = bandsOf(BAND) * perBand;
   // The last band read, so consecutive queries of one band skip the cache key (most queries).
   let lastBand = -1, lastTime = NaN, lastValues: Float64Array[][] | undefined;
   function band(b: number, time: number): Float64Array[][] {
@@ -393,7 +395,7 @@ export function createDefocusImageSpaceProvider(input: DefocusImageSpaceProvider
   // #564: one run lattice per (time, shift) of the samples F·L at the lattice points, and the own field factors F by tile, so a
   // query is answered with (K ⊛ D ⊛ F·L) / F as on the band path.
   const largeLattices = new Map<string, { lattice: LargeDefocusNodeLattice; own: Map<number, Float64Array> }>();
-  const largeLatticeCount = shifts.length * Math.max(1, input.timesPerBand ?? 1);
+  const largeLatticeCount = shifts.length * perBand;
   // Lattice points at most `reach` beyond the lattice feed queried values: the defocus kernel's radius plus the diffraction kernel's.
   const reach = large ? large.runs.radius + (large.diffraction ? large.diffraction.radius : 0) : 0;
   function largeValue(s: number, time: number, w: number, li: number, lj: number): number {
