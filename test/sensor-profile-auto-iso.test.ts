@@ -45,6 +45,31 @@ describe("Auto ISO in whole stops on every sensor profile (#672)", () => {
     }
   }, scaledTimeout(60_000));
 
+  it("lists the whole stops of base 160, 320 and 640 up to the highest ISO, and keeps every built-in profile's choices (#738)", async () => {
+    const LUX = [2e6, 2e5, 2e4, 4e3, 1e3, 500, 250, 125, 60, 30, 15, 8, 4, 2, 1, 0.5, 0.1, 0.02];
+    const isos = async (p: SensorProfile): Promise<number[]> => {
+      const out: number[] = [];
+      for (const lux of LUX) out.push((await capture(lux, { sensor: { profile: p } }, autoIso("manual"))).exposure.settings.iso);
+      return [...new Set(out)];
+    };
+    // Recorded on 2.28.0 before the change: the built-in profiles' choices over the sweep are unchanged.
+    const BUILT_IN: Record<string, number[]> = {
+      "full-frame-24mp-bsi-2020s": [100, 400, 1600, 3200, 6400, 12800, 25600, 51200],
+      "full-frame-45mp-stacked-2020s": [80, 100, 400, 1600, 3200, 6400, 12800, 25600],
+      "full-frame-24mp-stacked-sports-2020s": [125, 500, 2000, 4000, 8000, 16000, 32000, 64000],
+      "full-frame-24mp-fsi-2010s": [80, 100, 400, 1600, 3200, 6400, 12800, 25600],
+      "aps-c-24mp-fsi-2020s": [80, 100, 400, 1600, 3200, 6400, 12800, 25600],
+      "aps-c-26mp-bsi-2020s": [80, 100, 400, 1600, 3200, 6400, 12800, 25600],
+      "medium-format-100mp-bsi-16bit": [80, 100, 400, 1600, 3200, 6400, 12800],
+      "phone-50mp-stacked": [40, 100, 400, 1600, 3200, 6400],
+    };
+    expect(Object.keys(BUILT_IN).sort()).toEqual(SENSOR_PROFILES.map((p) => p.id).sort());
+    for (const p of SENSOR_PROFILES) expect(await isos(p), p.id).toEqual(BUILT_IN[p.id]);
+    // Before: [160, 640], [320, 640] and [640]. The nominal markings stand for base·2^k (1250 for 1280, 2500 for 2560).
+    const fromBase = (base: number): number[] => [...new Set([base, 640, 2500, 5000, 10000, 20000, 40000, 80000])].filter((iso) => iso >= base);
+    for (const base of [160, 320, 640]) expect(await isos(copy(base)), String(base)).toEqual(fromBase(base));
+  }, scaledTimeout(60_000));
+
   it("keeps the bytes and settings of requests that resolved before (recorded at 2.27.0)", async () => {
     const sports = resolveSensorProfile("full-frame-24mp-stacked-sports-2020s");
     const cases: [string, Partial<SimulateCaptureOptions>, SimulateCaptureOptions["exposure"], number, number, string][] = [
@@ -55,8 +80,8 @@ describe("Auto ISO in whole stops on every sensor profile (#672)", () => {
       ["base 100 profile, manual", { sensor: { profile: ff } }, { mode: "manual" }, 5, 51200, "09acea7a3ef9ea9c"],
       ["base 125 profile, shutter priority", { sensor: { profile: sports } }, { mode: "shutter-priority" }, 5, 64000, "1897841b47bd263c"],
       ["base 50 copy, manual", { sensor: { profile: copy(50) } }, { mode: "manual" }, 2e5, 50, "a96089a3acf6ab70"],
-      // A base-160 copy keeps its list (160, 320, 640): it contains the reference ISO, so it resolved before and is unchanged.
-      ["base 160 copy, aperture priority", { sensor: { profile: copy(160) } }, { mode: "aperture-priority", autoIso: { slowestPreferredShutterSeconds: 1 / 60 } }, 0.5, 640, "2505b7fb8fedad65"],
+      // #738 (2.29.0): a base-160 copy's list no longer ends at 640 (it chose 640 and "2505b7fb8fedad65" before); it reaches 80 000.
+      ["base 160 copy, aperture priority", { sensor: { profile: copy(160) } }, { mode: "aperture-priority", autoIso: { slowestPreferredShutterSeconds: 1 / 60 } }, 0.5, 80000, "f927d44e3ceacba3"],
     ];
     for (const [name, extra, exposure, lux, iso, hash] of cases) {
       const r = await capture(lux, extra, { iso: "auto", ...exposure });

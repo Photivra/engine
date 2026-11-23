@@ -1263,14 +1263,17 @@ function luminanceOf(radiance: (nm: number) => number): number {
  * Auto ISO's default `isoSteps: "whole-stop"`. A whole-stop grid is returned unchanged, so 2.0.0 records resolve as before.
  * #672: when that list leaves out the reference exposure's ISO (ISO 100 on a profile whose base ISO is below 100, which every exposure mode
  * refuses) and the grid is a third-stop grid, the whole stops are every third setting counted from the reference ISO, and the base ISO.
- * Counting positions keeps the nominal markings (1250, not 1280). Every other grid keeps the list it had.
+ * Counting positions keeps the nominal markings (1250, not 1280). #738 (2.29.0): the whole stops from the base ISO take the nominal
+ * marking nearest each base·2^k too, so a base of 160, 320 or 640 lists them up to the highest ISO (before, the list ended at 640).
  */
 function wholeStopIsoCapabilities(capabilities: ResolvedGenericEquipmentExposureCapabilities, referenceIso: number): ResolvedGenericEquipmentExposureCapabilities {
   const grid = capabilities.iso.settingGrid;
   if (grid.kind !== "discrete-values") return capabilities;
   // `at` matches at least every ISO the resolvers' grid check matches (32 ε relative: the reference ISO is 100 or more).
   const values = grid.values, at = (list: readonly number[]): number => list.findIndex((iso) => Math.abs(iso / referenceIso - 1) < 1e-12);
-  let whole = values.filter((iso) => Number.isInteger(Math.log2(iso / values[0]!)));
+  // #738: base·2^k for every k up to the grid's top, each the setting within 1/12 stop of it (the nominal marking: 1250 for 1280 on a
+  // base-160 grid), so a base of 160, 320 or 640 no longer stops at 640. Exact powers of two keep their lists.
+  let whole = values.filter((iso) => { const stops = Math.log2(iso / values[0]!); return Math.abs(stops - Math.round(stops)) < 1 / 12; });
   const from = at(values);
   if (at(whole) < 0 && from >= 0 && values.every((iso, i) => !i || Math.abs(3 * Math.log2(iso / values[i - 1]!) - 1) < .1))
     whole = values.filter((_, i) => !i || (i - from) % 3 === 0);
