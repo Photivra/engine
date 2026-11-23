@@ -55,6 +55,35 @@
  *   that follows the sum, the single-surface delegation and the display view's signal. Its exports are unchanged; the
  *   lattice gains `parts` (the four modules' objects), its input extends the geometry's and the radiance's inputs and takes
  *   optional `kernelGroups`, and a layer's kernel may say it is `shaped`.
+ *
+ * Camera motion (#746, group LM). A camera rotation about the entrance pupil has no parallax: frame units are angles, so every
+ * surface moves together and the rotation is a change of the lattice's direction map at each instant (the lens map's
+ * `timeDependent`, `layered-lattice-geometry.ts`). Each temporal midpoint t is one layered sum on the lattice frames (fx, fy, t),
+ * the tiles keyed by group and so by instant, and a site's value is the mean over its midpoints:
+ *   μ_c(x) = (1/T) Σ_t Σ_o w_o Σ_n A_c(λ_n)·S_t(x + o)[n],
+ * the capture environment's own temporal sum (each midpoint a still camera, as #548's image-space path takes it). `motion.handheld`
+ * (hand shake) is a sampled rotation and takes the same path.
+ * - Global shutter: every site reads the same T midpoints (`instants`): T sums per frame.
+ * - Rolling shutter (`instantsOfRow`): each native row has its own midpoints; every lattice point a site reads (its query offsets
+ *   and the diffraction taps) is read at the site's instants, as the single-plane path reads every kernel tap at them (#640). The
+ *   full method takes every row at its own instants; the fast method (`bandRows`, `motion.shutter.rolling/view-row-bands`) groups
+ *   the rows into fixed bands whose rows read their middle row's instants (the band height from `rollingLensBands`: the in-focus
+ *   image moves by at most 1/128 site). The frames of the rows read last are kept (their groups live, their tiles cached); a row
+ *   frame dropped releases its groups (`releaseGroup`), so a render may read far more frames than the 4096 live groups.
+ * - Every site of a moving camera takes the layered sum: a surface's single-plane input (`signalInput`) has no motion, so it is not
+ *   read (a site that sees one surface gets that surface's single-plane sum within rounding all the same). `siteSurface` takes a
+ *   group, so it answers at that group's instant.
+ * - Tiles (#746): a moving lattice keeps 8-site tiles filled row by row (a still one 32-site tiles, filled whole), so a row frame
+ *   allocates and fills only the rows its sites reach; the bytes stay within `capacityBytes`.
+ * - The pilot (a classifier of the scene at a raster point, for the view's sampling only) is the chief ray's surface and its
+ *   material through the lens map at the first, middle and last midpoint of the point's row; a point that sees different
+ *   surfaces or materials there is NaN (never uniform). A radiance surface's material is −1.
+ * `motion.subject` stays refused with layered scenes (which surface moves is not defined by the request).
+ *
+ * Field zones of the PSF that follows the sum (#741, group LC). `diffraction.zones` gives each lattice point's spectral nodes the
+ * kernels of its field zone (the zone of its native position, clamped to the raster), instead of `diffraction.perNode` for the
+ * whole frame: zone-centre kernels on fast requests, zones of one site on full ones. Zones whose kernels all equal `perNode`
+ * give the unzoned values bit for bit.
  */
 
 import { InvalidConfigurationError } from "../core/configuration-error.js";
@@ -62,7 +91,8 @@ import { createDisplayViewExpectedSignal, type DisplayViewExpectedSignal, type D
   type DisplayViewScene } from "./expected-signal.js";
 import type { SiteKernelFieldZones } from "./diffraction-provider.js";
 import { createSpectralLatticeRowSumTiles, createSpectralLatticeTiles, type SpectralLatticeRowSumTiles, type SpectralLatticeTiles } from "./spectral-lattice-tiles.js";
-import { LAYERED_LATTICE_GROUP_LIMIT, createLayeredLatticeGeometry, type LayeredFramePoint, type LayeredGeometryInput, type LayeredLatticeGeometry } from "./layered-lattice-geometry.js";
+import { LAYERED_LATTICE_GROUP_LIMIT, createLayeredLatticeGeometry, type LayeredFramePoint, type LayeredGeometryInput, type LayeredLatticeFrame,
+  type LayeredLatticeGeometry } from "./layered-lattice-geometry.js";
 import { createLayeredSurfaceRadiance, type LayeredSurfaceRadiance, type LayeredSurfaceRadianceInput } from "./layered-surface-radiance.js";
 import { createLayeredVisibility, type LayeredVisibility } from "./layered-visibility.js";
 import { LAYERED_EDGE_MAXIMUM_KERNEL_RADIUS_SITES, checkLayeredKernelGroups, checkLayeredSurfaceKernel, createLayeredEdgeSum, layeredKernelGroups, type LayeredEdgeSum,
@@ -93,13 +123,29 @@ export interface LayeredSceneLayer {
 }
 
 /**
+ * #741 (group LC): the field zones of the PSF that follows the layered sum. Zone (zx, zy) holds the lattice points whose native
+ * position (their lattice index, clamped to the raster) lies in [zx·size, (zx + 1)·size) × [zy·size, (zy + 1)·size).
+ */
+export interface LayeredDiffractionZones {
+  /** Zone side in native sites. */
+  size: number;
+  columns: number;
+  rows: number;
+  /** Each spectral node's kernel of zone zy·columns + zx, (2R + 1)² row-major with R the diffraction radius (called once per zone while it is kept). */
+  kernelsOf(zone: number): readonly Float64Array[];
+}
+
+/**
  * The lattice's input: the geometry's (`layered-lattice-geometry.ts`: raster and output width) and the radiance's
  * (`layered-surface-radiance.ts`: spectral nodes), so that the groups that own those modules add their inputs there.
  */
 export interface LayeredSceneLatticeInput extends LayeredGeometryInput, LayeredSurfaceRadianceInput {
   layers: readonly LayeredSceneLayer[];
-  /** Each node's in-focus diffraction kernel, (2R + 1)² row-major; omitted without diffraction. */
-  diffraction?: { radius: number; perNode: readonly Float64Array[] };
+  /**
+   * Each node's in-focus diffraction kernel (the PSF that follows the sum), (2R + 1)² row-major; omitted without one. With `zones`
+   * (#741) each lattice point takes its field zone's kernels instead; `perNode` must still be given (the axis zone's, say).
+   */
+  diffraction?: { radius: number; perNode: readonly Float64Array[]; zones?: LayeredDiffractionZones | undefined };
   /** Occlusion rows per site of footprint ({@link LAYERED_OCCLUSION_SAMPLES}), 1 to 32. */
   occlusionSamples: number;
   /** Bytes the spectral tiles may hold in all. Default 64 MiB. */
@@ -116,19 +162,22 @@ export interface LayeredSceneLatticeInput extends LayeredGeometryInput, LayeredS
 /** The layered sum on the site lattice, shared by the view's signal and the capture's provider. */
 export interface LayeredSceneLattice {
   readonly nodes: number;
-  /** The lattice group of a fractional shift (fx, fy) in [0, 1), registered on first use. */
-  groupOf(fx: number, fy: number): number;
-  readonly groups: readonly { fx: number; fy: number }[];
+  /** The lattice group of a fractional shift (fx, fy) in [0, 1) at an instant (#746; default 0), registered on first use. */
+  groupOf(fx: number, fy: number, instant?: number): number;
+  /** #746: frees a group that is no longer read (`layered-lattice-geometry.ts`). */
+  releaseGroup(group: number): void;
+  /** The live groups' frames by slot. */
+  readonly groups: readonly (LayeredLatticeFrame | undefined)[];
   /**
    * The spectral radiance reaching lattice point (p, q) of a group, after each node's diffraction kernel: Σ_s K_n(s)·S(p − s)[n]
    * at each node, into `out`. The same bits for the same point, whatever was read before.
    */
   spectrumAt(group: number, p: number, q: number, out: Float64Array): void;
   /**
-   * The surface every lattice point within `reach` sites of the native site (x, y) sees alone, or −1 when some of them see a
-   * card edge (conservative: −1 can also mean one surface).
+   * The surface every lattice point within `reach` sites of the native site (x, y) sees alone at the group's instant, or −1 when
+   * some of them see a card edge (conservative: −1 can also mean one surface).
    */
-  siteSurface(x: number, y: number, reach: number): number;
+  siteSurface(group: number, x: number, y: number, reach: number): number;
   /** The surface whose rays reach lattice point (p, q) of a group alone, or −1 at an edge. */
   surfaceOf(group: number, p: number, q: number): number;
   /** Frame point of lattice point (p, q) of a group (the facade's lattice formula). */
@@ -146,12 +195,20 @@ export interface LayeredSceneLattice {
 }
 
 const fail = (message: string): never => { throw new InvalidConfigurationError(message); };
-const TILE = 32;
-/** Block of the surface tiles' row sums (`spectral-lattice-tiles.ts`, `createSpectralLatticeRowSumTiles`): an eighth of a tile row. */
-const ROW_SUM_BLOCK = 8;
+/**
+ * Tile side of a still lattice, and (#746) of a moving camera's: a frame per instant multiplies the tiles a row reads by the
+ * midpoints, so smaller tiles keep each frame's allocation to the rows it reads. The surface tiles' row sums take blocks of a
+ * quarter of a tile row (`spectral-lattice-tiles.ts`, `createSpectralLatticeRowSumTiles`).
+ */
+const STILL_TILE = 32, MOVING_TILE = 8;
 const GROUP_TOLERANCE = 1e-9;
-/** Key spacing of the per-surface tiles: key = surface·SURFACE_KEYS + group. */
+/**
+ * Slot spacing of the per-surface tile keys: group handle generation·L + slot (L = this) has key (generation·K + k)·L + slot for
+ * surface k of K, so a released slot's next group never meets its tiles (k·L + group while no group was released, as in 2.28.0).
+ */
 const SURFACE_KEYS = LAYERED_LATTICE_GROUP_LIMIT;
+/** #741: field zones' kernels kept at once. */
+const ZONE_KERNELS_KEPT = 64;
 
 /** Internal: builds the layered sum (see the module comment). Fails for an invalid layer list or a kernel that is too large. */
 export function createLayeredSceneLattice(input: LayeredSceneLatticeInput): LayeredSceneLattice {
@@ -167,18 +224,29 @@ export function createLayeredSceneLattice(input: LayeredSceneLatticeInput): Laye
   });
   const samples = input.occlusionSamples;
   if (!Number.isInteger(samples) || samples < 1 || samples > 32) fail("Layered scene: occlusionSamples must be an integer from 1 to 32.");
-  const diffraction = input.diffraction, Rd = diffraction ? diffraction.radius : 0;
-  if (diffraction && (diffraction.perNode.length !== N || diffraction.perNode.some((k) => k.length !== (2 * Rd + 1) ** 2))) fail("Layered scene: one diffraction kernel per node, (2R + 1)² taps.");
+  const diffraction = input.diffraction, Rd = diffraction ? diffraction.radius : 0, zones = diffraction?.zones;
+  const kernelsValid = (perNode: readonly Float64Array[]): boolean => perNode.length === N && perNode.every((k) => k.length === (2 * Rd + 1) ** 2);
+  if (diffraction && !kernelsValid(diffraction.perNode)) fail("Layered scene: one diffraction kernel per node, (2R + 1)² taps.");
+  const badZones = "Layered scene: invalid diffraction zones.";
+  if (zones && !(Number.isInteger(zones.size) && zones.size > 0 && Number.isInteger(zones.columns) && zones.columns > 0 && Number.isInteger(zones.rows) && zones.rows > 0 &&
+    typeof zones.kernelsOf === "function")) fail(badZones);
   const kernelGroups = input.kernelGroups ?? layeredKernelGroups(layers, W, H, N);
   checkLayeredKernelGroups(kernelGroups, layers, N);
   const geometry = createLayeredLatticeGeometry(input), radiance = createLayeredSurfaceRadiance(input);
+  const TILE = geometry.timeDependent ? MOVING_TILE : STILL_TILE, ROW_SUM_BLOCK = TILE / 4;
   const capacity = input.capacityBytes ?? 64 * 1024 * 1024;
   // Surface radiance at the nodes per lattice point (key: surface, group), times the point's field factor (1 today: the
   // radiance's own bits); a factor of 0 leaves the point's zeros without reading the scene. The tiles keep their rows' block
   // and row sums for the edge sum's runs (2.29.0, #749).
   const point: LayeredFramePoint = { u: 0, v: 0, factor: 1 };
+  // Surface key (generation·K + k)·L + slot of group handle generation·L + slot (SURFACE_KEYS = L).
+  const surfaceKey = (k: number, group: number): number => {
+    if (group < SURFACE_KEYS) return k * SURFACE_KEYS + group;
+    const slot = group % SURFACE_KEYS;
+    return (((group - slot) / SURFACE_KEYS) * K + k) * SURFACE_KEYS + slot;
+  };
   const surfaceTiles = createSpectralLatticeRowSumTiles({ tile: TILE, nodes: N, block: ROW_SUM_BLOCK, capacityBytes: Math.max(capacity / 2, TILE * TILE * N * 8 + TILE + TILE * (TILE / ROW_SUM_BLOCK + 1) * N * 8 + TILE), fill(key, x0, y0, width, height, out) {
-    const k = Math.floor(key / SURFACE_KEYS), group = key - k * SURFACE_KEYS;
+    const slot = key % SURFACE_KEYS, rest = (key - slot) / SURFACE_KEYS, k = rest % K, group = ((rest - k) / K) * SURFACE_KEYS + slot;
     for (let j = 0; j < height; j++) for (let i = 0; i < width; i++) {
       const at = (j * width + i) * N, factor = geometry.framePoint(group, x0 + i, y0 + j, point).factor;
       if (factor === 0) continue;
@@ -187,16 +255,23 @@ export function createLayeredSceneLattice(input: LayeredSceneLatticeInput): Laye
     }
   } });
   const floorDiv = (a: number): number => Math.floor(a / TILE);
-  /** Surface k's radiance at lattice point (p, q) of a group: the tile array and the offset of its first node. */
-  let lastSurfaceKey = -1, lastSTX = 0, lastSTY = 0;
+  /**
+   * Surface k's radiance at lattice point (p, q) of a group: the tile array and the offset of its first node. A still lattice fills
+   * a tile whole when it is first read; #746: a moving camera's tiles row by row, since a rolling shutter's row frame reads only
+   * the rows its sites reach (a tile's values do not depend on which rows were filled).
+   */
+  let lastSurfaceKey = -1, lastSTX = 0, lastSTY = 0, lastSRow = -1;
+  const rowWise = geometry.timeDependent;
   const surfaces = { tile: new Float64Array(0) as Float64Array, at(k: number, group: number, p: number, q: number): number {
-    const key = k * SURFACE_KEYS + group, tx = floorDiv(p), ty = floorDiv(q);
-    if (key !== lastSurfaceKey || tx !== lastSTX || ty !== lastSTY) {
-      surfaces.tile = surfaceTiles.tileAt(key, tx, ty); lastSurfaceKey = key; lastSTX = tx; lastSTY = ty;
+    const key = surfaceKey(k, group), tx = floorDiv(p), ty = floorDiv(q);
+    if (key !== lastSurfaceKey || tx !== lastSTX || ty !== lastSTY || (rowWise && q !== lastSRow)) {
+      const row = q - ty * TILE;
+      surfaces.tile = rowWise ? surfaceTiles.rows(key, tx, ty, row, row + 1) : surfaceTiles.tileAt(key, tx, ty);
+      lastSurfaceKey = key; lastSTX = tx; lastSTY = ty; lastSRow = q;
     }
     return ((q - ty * TILE) * TILE + p - tx * TILE) * N;
   }, rowSum(k: number, group: number, p0: number, p1: number, q: number, out: Float64Array, from: number, to: number): void {
-    surfaceTiles.rowSum(k * SURFACE_KEYS + group, p0, p1, q, out, from, to);
+    surfaceTiles.rowSum(surfaceKey(k, group), p0, p1, q, out, from, to);
   } };
   const visibility = createLayeredVisibility({ geometry, occlusionSamples: samples });
   const edgeSum = createLayeredEdgeSum({ geometry, visibility, surfaces, kernelGroups, capacityBytes: capacity });
@@ -204,23 +279,38 @@ export function createLayeredSceneLattice(input: LayeredSceneLatticeInput): Laye
     edgeSum.sumRows(group, x0, y0, width, height, out);
   } });
   const chief: LayeredFramePoint = { u: 0, v: 0, factor: 1 };
+  // #741: the kernels of the field zones read last (least recently used first), each checked when it is first resolved.
+  const zoneKernels = new Map<number, readonly Float64Array[]>();
+  function kernelsAt(p: number, q: number): readonly Float64Array[] {
+    if (!zones) return diffraction!.perNode;
+    const zx = Math.min(zones.columns - 1, Math.floor(Math.min(W - 1, Math.max(0, p)) / zones.size)),
+      zy = Math.min(zones.rows - 1, Math.floor(Math.min(H - 1, Math.max(0, q)) / zones.size)), zone = zy * zones.columns + zx;
+    let kernels = zoneKernels.get(zone);
+    if (kernels) { zoneKernels.delete(zone); zoneKernels.set(zone, kernels); return kernels; }
+    kernels = zones.kernelsOf(zone);
+    if (!kernelsValid(kernels)) fail(badZones);
+    zoneKernels.set(zone, kernels);
+    if (zoneKernels.size > ZONE_KERNELS_KEPT) zoneKernels.delete(zoneKernels.keys().next().value!);
+    return kernels;
+  }
   function spectrumAt(group: number, p: number, q: number, out: Float64Array): void {
     if (!diffraction) {
       const tx = floorDiv(p), ty = floorDiv(q), row = q - ty * TILE, tile = sumTiles.rows(group, tx, ty, row, row + 1), o = (row * TILE + p - tx * TILE) * N;
       for (let n = 0; n < N; n++) out[n] = tile[o + n]!;
       return;
     }
+    const perNode = kernelsAt(p, q);
     out.fill(0);
     for (let sv = -Rd, s = 0; sv <= Rd; sv++) {
       const qq = q - sv, ty = floorDiv(qq), row = qq - ty * TILE;
       for (let su = -Rd; su <= Rd; su++, s++) {
         const pp = p - su, tx = floorDiv(pp), tile = sumTiles.rows(group, tx, ty, row, row + 1), o = (row * TILE + pp - tx * TILE) * N;
-        for (let n = 0; n < N; n++) out[n] = out[n]! + diffraction.perNode[n]![s]! * tile[o + n]!;
+        for (let n = 0; n < N; n++) out[n] = out[n]! + perNode[n]![s]! * tile[o + n]!;
       }
     }
   }
   return {
-    nodes: N, groupOf: geometry.groupOf, groups: geometry.groups, spectrumAt, latticeU: geometry.latticeU, latticeV: geometry.latticeV,
+    nodes: N, groupOf: geometry.groupOf, releaseGroup: geometry.releaseGroup, groups: geometry.groups, spectrumAt, latticeU: geometry.latticeU, latticeV: geometry.latticeV,
     surfaceOf: geometry.surfaceOf, siteSurface: geometry.siteSurface,
     chiefSurface(u, v): { surface: number; material: number } {
       const surface = geometry.chiefSurface(u, v);
@@ -240,55 +330,137 @@ export interface LayeredSceneSignalInput extends LayeredSceneLatticeInput {
   /** Per CFA channel, expected electrons per unit spectral radiance at each node. */
   electronsPerRadiance: readonly [Float64Array, Float64Array, Float64Array];
   channelAt(x: number, y: number): number;
+  /**
+   * #746: the temporal midpoints every site reads, seconds from exposure start (a global shutter). Read only when the lens map is
+   * time dependent (a still camera takes one frame, instant 0); default [0].
+   */
+  instants?: readonly number[] | undefined;
+  /**
+   * #746: a rolling shutter that scans by rows: native row y's own midpoints, instead of `instants` (every lattice point a site of the
+   * row reads is read at them). Read only when the lens map is time dependent.
+   */
+  instantsOfRow?: ((y: number) => readonly number[]) | undefined;
+  /**
+   * #746, the fast method `motion.shutter.rolling/view-row-bands` (with `instantsOfRow`): rows in fixed bands of this many (an odd
+   * count from 1 to 63, `rollingLensBands`) read the instants of their band's middle row. Default 1: every row at its own instants.
+   */
+  bandRows?: number | undefined;
 }
 
 /** Largest cache window of the signal, in sites; larger windows are not cached. */
 const SITE_CACHE_LIMIT = 1 << 22;
+/** #746: rolling-shutter row frames kept at most (their groups live, their tiles cached). */
+const ROW_FRAMES_KEPT = 64;
+/** #746: the live lattice groups a signal's row frames may hold; the rest stays free for a capture provider sharing the lattice. */
+const ROW_FRAME_GROUPS = LAYERED_LATTICE_GROUP_LIMIT / 2;
+/** #746: most rows of a fast row band (`LENS_ROW_BAND_MAXIMUM_ROWS` − 1 of `display-view-lens-regroup.ts`). */
+const MAXIMUM_BAND_ROWS = 63;
+
+/** #746: a site row's lattice frames: its instants, and the group of each (instant, shift) at instant·shifts + shift. */
+interface RowFrame { readonly instants: readonly number[]; readonly groups: readonly number[] }
 
 /**
  * Internal: the display view's expected signal of a layered scene (see the module comment): per site, the single-plane path of
- * the one surface its lattice points see, or the layered sum. `lattice` may be shared with a capture provider of the same input.
+ * the one surface its lattice points see, or the layered sum; with a moving camera (#746) the mean of the layered sum over the
+ * site's temporal midpoints. `lattice` may be shared with a capture provider of the same input.
  */
 export function createLayeredSceneSignal(input: LayeredSceneSignalInput, lattice: LayeredSceneLattice = createLayeredSceneLattice(input)): DisplayViewExpectedSignal & {
-  readonly edgeSites: number; readonly delegatedSites: number; readonly lattice: LayeredSceneLattice } {
-  const { offsets, electronsPerRadiance: A, channelAt, layers } = input, N = input.wavelengthsNm.length;
-  // Offsets grouped by fractional shift, as the expected signal groups them (buildTables).
+  readonly edgeSites: number; readonly delegatedSites: number; readonly lattice: LayeredSceneLattice; readonly rowFramesBuilt: number } {
+  const { offsets, electronsPerRadiance: A, channelAt, layers } = input, N = input.wavelengthsNm.length, H = input.nativeHeight, g = 2 / input.outputWidth;
+  const geometry = lattice.parts.geometry, moving = geometry.timeDependent, rolling = moving && input.instantsOfRow !== undefined;
+  const bandRows = rolling ? input.bandRows ?? 1 : 1, badMotion = "Layered scene: invalid temporal midpoints or bandRows.";
+  if (!(Number.isInteger(bandRows) && bandRows >= 1 && bandRows <= MAXIMUM_BAND_ROWS)) fail(badMotion);
+  const validInstants = (instants: readonly number[]): readonly number[] => {
+    if (!Array.isArray(instants) || instants.length < 1 || !instants.every((t) => Number.isFinite(t))) fail(badMotion);
+    return instants;
+  };
+  // Offsets by fractional shift, as the expected signal groups them (buildTables): the shifts in the order they first appear.
   const frac = (v: number): number => { const f = v - Math.floor(v); return f > 1 - GROUP_TOLERANCE || f < GROUP_TOLERANCE ? 0 : f; };
-  const members: { group: number; ix: number; iy: number; weight: number }[] = [];
+  const shifts: { fx: number; fy: number }[] = [], members: { shift: number; ix: number; iy: number; weight: number }[] = [];
   let reach = input.diffraction ? input.diffraction.radius : 0;
   for (const o of offsets) {
     const fx = frac(o.x), fy = frac(o.y), ix = Math.round(o.x - fx), iy = Math.round(o.y - fy);
-    members.push({ group: lattice.groupOf(fx, fy), ix, iy, weight: o.weight });
+    let shift = shifts.findIndex((s) => Math.abs(s.fx - fx) <= GROUP_TOLERANCE && Math.abs(s.fy - fy) <= GROUP_TOLERANCE);
+    if (shift < 0) { shift = shifts.length; shifts.push({ fx, fy }); }
+    members.push({ shift, ix, iy, weight: o.weight });
     reach = Math.max(reach, Math.abs(ix) + 1 + (input.diffraction ? input.diffraction.radius : 0), Math.abs(iy) + 1 + (input.diffraction ? input.diffraction.radius : 0));
   }
-  // Members in the expected signal's order: by group, then as listed.
-  members.sort((a, b) => a.group - b.group);
+  // Members in the expected signal's order: by shift (their group on a still lattice), then as listed.
+  members.sort((a, b) => a.shift - b.shift);
+  const S = shifts.length;
+  /** The groups of a frame at these instants (each instant's shifts in order), each held once while the frame is kept. */
+  function frameOf(instants: readonly number[]): RowFrame {
+    const groups: number[] = [];
+    for (const t of instants) for (const s of shifts) groups.push(lattice.groupOf(s.fx, s.fy, t));
+    return { instants, groups };
+  }
+  // One frame for every site (a still camera's: instant 0; a global shutter's midpoints), or the rolling shutter's row frames, least
+  // recently used first.
+  const global = !moving ? frameOf([0]) : rolling ? undefined : frameOf(validInstants(input.instants ?? [0]));
+  const rowFrames = new Map<number, RowFrame>();
+  let rowFramesBuilt = 0, rowFramesKept = 1;
+  if (rolling) {
+    const perFrame = S * validInstants(input.instantsOfRow!(0)).length;
+    if (perFrame > ROW_FRAME_GROUPS) fail("Layered scene: a row reads more than " + ROW_FRAME_GROUPS + " lattice frames.");
+    rowFramesKept = Math.max(1, Math.min(ROW_FRAMES_KEPT, Math.floor(ROW_FRAME_GROUPS / perFrame)));
+  }
+  /** The lattice frames native row y reads (its band's middle row's under the fast method). */
+  function frameOfRow(y: number): RowFrame {
+    if (global) return global;
+    const key = Math.floor(y / bandRows);
+    let frame = rowFrames.get(key);
+    if (frame) { rowFrames.delete(key); rowFrames.set(key, frame); return frame; }
+    frame = frameOf(validInstants(input.instantsOfRow!(bandRows === 1 ? y : Math.min(H - 1, key * bandRows + (bandRows >> 1)))));
+    rowFramesBuilt++;
+    rowFrames.set(key, frame);
+    if (rowFrames.size > rowFramesKept) {
+      const [oldKey, old] = rowFrames.entries().next().value!;
+      rowFrames.delete(oldKey);
+      for (const group of old.groups) lattice.releaseGroup(group);
+    }
+    return frame;
+  }
   const delegates: (DisplayViewExpectedSignal | undefined)[] = layers.map(() => undefined);
   const delegateWindow: (boolean)[] = layers.map(() => false);
   layers.forEach((l) => { if (l.signalInput && !l.signalInput.kernels) fail("Layered scene: a surface's single-plane input must carry kernels (the lattice formula)."); });
   let window = { x0: 0, y0: 0, x1: 0, y1: 0 }, cache = new Float64Array(0), cacheWidth = 0, edgeSites = 0, delegatedSites = 0;
   const spectrum = new Float64Array(N);
+  /** A surface's single-plane signal (a still camera only: the single-plane input has no motion, so a moving camera's sites all take the sum). */
   function delegate(k: number): DisplayViewExpectedSignal | undefined {
     const l = layers[k]!;
-    if (!l.signalInput || l.zones) return undefined;
+    if (!l.signalInput || l.zones || moving) return undefined;
     let d = delegates[k];
     if (!d) d = delegates[k] = createDisplayViewExpectedSignal(l.signalInput);
     if (!delegateWindow[k]) { d.window(window.x0, window.y0, window.x1, window.y1); delegateWindow[k] = true; }
     return d;
   }
   function compute(x: number, y: number): number {
-    const k = lattice.siteSurface(x, y, reach), d = k >= 0 ? delegate(k) : undefined;
+    const frame = frameOfRow(y), groups = frame.groups, T = frame.instants.length;
+    const k = moving ? -1 : lattice.siteSurface(groups[0]!, x, y, reach), d = k >= 0 ? delegate(k) : undefined;
     if (d) { delegatedSites++; return d.site(x, y); }
     edgeSites++;
     const a = A[channelAt(x, y)]!;
-    let sum = 0;
-    for (const m of members) {
-      lattice.spectrumAt(m.group, x + m.ix, y + m.iy, spectrum);
-      let v = 0;
-      for (let n = 0; n < N; n++) v += a[n]! * spectrum[n]!;
-      sum += m.weight * v;
+    let total = 0;
+    for (let i = 0; i < T; i++) {
+      let sum = 0;
+      for (const m of members) {
+        lattice.spectrumAt(groups[i * S + m.shift]!, x + m.ix, y + m.iy, spectrum);
+        let v = 0;
+        for (let n = 0; n < N; n++) v += a[n]! * spectrum[n]!;
+        sum += m.weight * v;
+      }
+      total = i === 0 ? sum : total + sum;
     }
-    return sum;
+    // The mean over the midpoints (a still camera's one value as it is).
+    return T === 1 ? total : total / T;
+  }
+  const point: LayeredFramePoint = { u: 0, v: 0, factor: 1 };
+  /** The pilot's value at one instant: the chief ray's surface and material through the lens map (−1 where it sees no scene). */
+  function pilotAt(u: number, v: number, t: number): number {
+    geometry.rasterFramePoint(u, v, point, t);
+    if (point.factor === 0) return -1;
+    const chief = lattice.chiefSurface(point.u, point.v);
+    return chief.surface * 65536 + chief.material;
   }
   return {
     window(x0, y0, x1, y1): void {
@@ -306,8 +478,11 @@ export function createLayeredSceneSignal(input: LayeredSceneSignalInput, lattice
       return v;
     },
     pilot(u, v): number {
-      const chief = lattice.chiefSurface(u, v), scene = layers[chief.surface]!.scene;
-      return chief.material >= 0 ? chief.surface * 65536 + chief.material : chief.surface * 65536 + (scene.kind === "radiance" ? scene.radianceAt(u, v, input.wavelengthsNm[0]!) : 0);
+      if (!moving) return pilotAt(u, v, 0);
+      // The first, middle and last midpoint of the point's row (its nearest native row, clamped to the raster).
+      const instants = frameOfRow(Math.min(H - 1, Math.max(0, Math.round(-v / g + H / 2 - 0.5)))).instants, T = instants.length;
+      const first = pilotAt(u, v, instants[0]!);
+      return T === 1 || (pilotAt(u, v, instants[T >> 1]!) === first && pilotAt(u, v, instants[T - 1]!) === first) ? first : NaN;
     },
     get lookups(): number { return lattice.lookups + delegates.reduce((s, d) => s + (d ? d.lookups : 0), 0); },
     uniformMaterial: -1,
@@ -317,6 +492,7 @@ export function createLayeredSceneSignal(input: LayeredSceneSignalInput, lattice
     markReads(): void { fail("Layered scene: markReads is not available."); },
     get edgeSites(): number { return edgeSites; },
     get delegatedSites(): number { return delegatedSites; },
+    get rowFramesBuilt(): number { return rowFramesBuilt; },
     lattice
   };
 }

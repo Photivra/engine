@@ -22,6 +22,12 @@
  * multiplies each answer by the query point's field factor F(q) again: the answer is the lattice value divided by F(q) (whose
  * sum already holds F at every source point), and each site gets the view's sum. A direction at or beyond 90° gets the base
  * provider's zero with the map's `zeroBeyondHorizon`, as the single-plane image-space path gives it (#588).
+ *
+ * #746, a moving camera (the lens map's `timeDependent`): each environment temporal midpoint is a still camera, so a query at time
+ * t goes back through the lens at t and reads the lattice frame of its shift at instant t (`groupOf(fx, fy, t)`), the frame the
+ * view's signal reads for the same site and midpoint. Under the fast rolling-shutter bands (`rowBands`) a query at its row's i-th
+ * midpoint reads the i-th midpoint of its band's middle row, as the view does. The lean lookup's key carries the request time (an
+ * index into the distinct times seen). The frames of the instants read last are kept; older ones are released.
  */
 
 import { InvalidConfigurationError } from "../core/configuration-error.js";
@@ -51,7 +57,16 @@ export interface LayeredSceneProviderInput {
   metresPerFrameUnit: number;
   /** Offsets of the query points from the site centres in sites (+x right, +y down). Default: one zero offset. */
   queryOffsetsSites?: readonly { x: number; y: number }[];
+  /**
+   * #746, the fast rolling-shutter bands (the view's `bandRows` and `instantsOfRow`): a query at its row's i-th midpoint reads the
+   * lattice at the i-th midpoint of its band's middle row. Omitted: every query at its own time. Each lattice shift must come from
+   * offsets of one whole-site row part (so that a lattice row gives its site row).
+   */
+  rowBands?: { bandRows: number; instantsOfRow(y: number): readonly number[] } | undefined;
 }
+
+/** #746: instants whose lattice frames a provider keeps (at most this many groups in all, the rest left to a view's signal). */
+const PROVIDER_FRAME_GROUPS = 2048;
 
 /** Internal: the layered sum as a planar scene provider (see the module comment). */
 export function createLayeredSceneProvider(input: LayeredSceneProviderInput): PlanarSceneRadianceProvider & { readonly queries: number } {
@@ -60,18 +75,48 @@ export function createLayeredSceneProvider(input: LayeredSceneProviderInput): Pl
   if (lattice.nodes !== wavelengthsNm.length) throw new InvalidConfigurationError("Layered scene provider: the lattice must have the query's spectral nodes.");
   const offsets = input.queryOffsetsSites ?? [{ x: 0, y: 0 }];
   const fraction = (value: number): number => { const f = value - Math.floor(value); return f > 1 - LATTICE_TOLERANCE_SITES ? 0 : f < LATTICE_TOLERANCE_SITES ? 0 : f; };
-  const shifts: { x: number; y: number; group: number }[] = [];
+  const shifts: { x: number; y: number; group: number; row: number }[] = [];
   for (const o of offsets) {
-    const fx = fraction(o.x), fy = fraction(o.y);
-    if (!shifts.some((s) => Math.abs(s.x - fx) <= LATTICE_TOLERANCE_SITES && Math.abs(s.y - fy) <= LATTICE_TOLERANCE_SITES)) shifts.push({ x: fx, y: fy, group: lattice.groupOf(fx, fy) });
+    const fx = fraction(o.x), fy = fraction(o.y), row = Math.round(o.y - fy);
+    const s = shifts.find((s) => Math.abs(s.x - fx) <= LATTICE_TOLERANCE_SITES && Math.abs(s.y - fy) <= LATTICE_TOLERANCE_SITES);
+    if (!s) shifts.push({ x: fx, y: fy, group: lattice.groupOf(fx, fy), row });
+    else if (s.row !== row) s.row = NaN;
   }
   const M = Math.max(0, ...offsets.map((o) => Math.ceil(Math.max(Math.abs(o.x), Math.abs(o.y)) - LATTICE_TOLERANCE_SITES))) + 1;
   const LW = W + 2 * M, LH = H + 2 * M;
   const scale = input.metresPerFrameUnit, distance = input.distanceM, baseEvaluate = base.evaluateRadiance;
   const spectrum = new Float64Array(wavelengthsNm.length);
   let lastKey = -1, queries = 0;
-  const geometry = lattice.parts.geometry, lens = geometry.lensMap, frameScale = geometry.frameScale, mapped = !geometry.planar;
+  const geometry = lattice.parts.geometry, lens = geometry.lensMap, frameScale = geometry.frameScale, mapped = !geometry.planar, moving = geometry.timeDependent;
   const tolerance = mapped ? LENS_LATTICE_TOLERANCE_SITES : LATTICE_TOLERANCE_SITES;
+  // #746: the request times seen (the key's time index), and the lattice frames of the instants read last (groups per shift).
+  const times: number[] = [], timeIndex = new Map<number, number>(), latticeKeys = shifts.length * LH * LW;
+  const frames = new Map<number, number[]>(), framesKept = Math.max(1, Math.floor(PROVIDER_FRAME_GROUPS / shifts.length));
+  const bands = moving ? input.rowBands : undefined;
+  if (bands && !(Number.isInteger(bands.bandRows) && bands.bandRows >= 1 && shifts.every((s) => Number.isInteger(s.row))))
+    throw new InvalidConfigurationError("Layered scene provider: row bands need whole rows and one row offset per lattice shift.");
+  /** The group of shift s at instant t (registered with its instant's shifts; the least recently read instant's released). */
+  function groupAt(s: number, t: number): number {
+    if (!moving) return shifts[s]!.group;
+    let groups = frames.get(t);
+    if (groups) { frames.delete(t); frames.set(t, groups); return groups[s]!; }
+    groups = shifts.map((shift) => lattice.groupOf(shift.x, shift.y, t));
+    frames.set(t, groups);
+    if (frames.size > framesKept) {
+      const [oldT, old] = frames.entries().next().value!;
+      frames.delete(oldT);
+      for (const group of old) lattice.releaseGroup(group);
+    }
+    return groups[s]!;
+  }
+  /** The lattice instant a query at time t of lattice row lj (with the margin) on shift s reads: t, or its band's (#746). */
+  function instantOf(t: number, s: number, lj: number): number {
+    if (!bands || bands.bandRows === 1) return t;
+    const y = Math.min(H - 1, Math.max(0, lj - M - shifts[s]!.row)), own = bands.instantsOfRow(y), i = own.indexOf(t);
+    if (i < 0) throw new InvalidConfigurationError("Layered scene query time is not a midpoint of its row.");
+    const b = Math.floor(y / bands.bandRows);
+    return bands.instantsOfRow(Math.min(H - 1, b * bands.bandRows + (bands.bandRows >> 1)))[i]!;
+  }
   /** The lattice key ((shift·LH + q + M)·LW + p + M) of continuous lattice point (fi, fj) of the unshifted lattice, or undefined off the lattices and the raster's margin. */
   function keyOfLattice(fi: number, fj: number): number | undefined {
     for (let s = 0; s < shifts.length; s++) {
@@ -85,7 +130,7 @@ export function createLayeredSceneProvider(input: LayeredSceneProviderInput): Pl
   }
   /** The lattice key of frame point (u, v) (the planar map), or undefined off the lattices and the raster's margin. */
   function keyOf(u: number, v: number): number | undefined {
-    if (mapped) return keyOfLook(lookOfFrame(u, v));
+    if (mapped) return keyOfLook(lookOfFrame(u, v), 0);
     const fi = u / g - 0.5 + W / 2, fj = -v / g - 0.5 + H / 2;
     return keyOfLattice(fi, fj);
   }
@@ -94,26 +139,33 @@ export function createLayeredSceneProvider(input: LayeredSceneProviderInput): Pl
     const x = u * scale, y = v * scale, length = Math.hypot(x, y, distance);
     return { x: x / length, y: y / length, z: distance / length };
   }
-  /** #744: the lattice key of a look direction through the lens map (or the scaled planar map), or undefined. */
-  function keyOfLook(look: { x: number; y: number; z: number } | undefined): number | undefined {
+  /**
+   * #744: the lattice key of a look direction through the lens map (or the scaled planar map) at time t, or undefined; #746 with a
+   * moving camera, plus the time's index times the lattice keys.
+   */
+  function keyOfLook(look: { x: number; y: number; z: number } | undefined, t: number): number | undefined {
     if (look === undefined) return undefined;
     if (frameScale !== 1) {
       // The lattice holds the frame point scaled by 1 / frameScale: the direction of the query's frame point times the scale.
       if (!(look.z > 0)) return undefined;
-      const t = distance / look.z;
-      look = lookOfFrame(look.x * t / scale * frameScale, look.y * t / scale * frameScale);
+      const d = distance / look.z;
+      look = lookOfFrame(look.x * d / scale * frameScale, look.y * d / scale * frameScale);
     }
     let sx: number, sy: number;
     if (lens) {
-      const point = lens.sensorPointOf(look);
+      const point = moving ? lens.sensorPointOf(look, t) : lens.sensorPointOf(look);
       if (point === undefined) return undefined;
       sx = point.x; sy = point.y;
     } else {
       if (!(look.z > 0)) return undefined;
-      const t = distance / look.z;
-      sx = look.x * t / scale / g; sy = -look.y * t / scale / g;
+      const d = distance / look.z;
+      sx = look.x * d / scale / g; sy = -look.y * d / scale / g;
     }
-    return keyOfLattice(sx - 0.5 + W / 2, sy - 0.5 + H / 2);
+    const key = keyOfLattice(sx - 0.5 + W / 2, sy - 0.5 + H / 2);
+    if (!moving || key === undefined) return key;
+    let index = timeIndex.get(t);
+    if (index === undefined) { index = times.length; times.push(t); timeIndex.set(t, index); }
+    return index * latticeKeys + key;
   }
   const at = { u: 0, v: 0, factor: 1 };
   let factor = 1;
@@ -121,7 +173,8 @@ export function createLayeredSceneProvider(input: LayeredSceneProviderInput): Pl
     const w = index.get(nm);
     if (w === undefined || key === undefined) throw new InvalidConfigurationError("Layered scene query is off the site lattice; the layered sum does not apply.");
     if (key !== lastKey) {
-      const li = key % LW, rest = (key - li) / LW, lj = rest % LH, s = (rest - lj) / LH, group = shifts[s]!.group;
+      const ti = Math.floor(key / latticeKeys), local = key - ti * latticeKeys;
+      const li = local % LW, rest = (local - li) / LW, lj = rest % LH, s = (rest - lj) / LH, group = moving ? groupAt(s, instantOf(times[ti]!, s, lj)) : shifts[s]!.group;
       lattice.spectrumAt(group, li - M, lj - M, spectrum);
       // #744: the environment multiplies by the query point's field factor again.
       if (mapped) factor = geometry.framePoint(group, li - M, lj - M, at).factor;
@@ -135,9 +188,9 @@ export function createLayeredSceneProvider(input: LayeredSceneProviderInput): Pl
     const t = distance / -o.z;
     return { u: -o.x * t / scale, v: -o.y * t / scale };
   };
-  /** The lattice key of an outgoing direction (scene toward camera). */
-  const keyOfDirection = (o: Readonly<{ x: number; y: number; z: number }>): number | undefined => {
-    if (mapped) return keyOfLook({ x: -o.x, y: -o.y, z: -o.z });
+  /** The lattice key of an outgoing direction (scene toward camera) at time t. */
+  const keyOfDirection = (o: Readonly<{ x: number; y: number; z: number }>, t: number): number | undefined => {
+    if (mapped) return keyOfLook({ x: -o.x, y: -o.y, z: -o.z }, t);
     const point = frameOf(o);
     return point && keyOf(point.u, point.v);
   };
@@ -146,13 +199,13 @@ export function createLayeredSceneProvider(input: LayeredSceneProviderInput): Pl
     const result = baseEvaluate.call(base, request), o = (request.target as { outgoingDirectionUnitVector: { x: number; y: number; z: number } }).outgoingDirectionUnitVector;
     // #744 (#588): at or beyond the horizon the base provider's own zero.
     if (beyondHorizon(o)) return result;
-    return { ...result, spectralRadianceWattsPerSquareMeterSteradianNanometer: valueOfKey(keyOfDirection(o), request.wavelengthNanometers) };
+    return { ...result, spectralRadianceWattsPerSquareMeterSteradianNanometer: valueOfKey(keyOfDirection(o, request.timeSecondsFromExposureStart), request.wavelengthNanometers) };
   };
   if (isInternalSceneRadianceEvaluator(baseEvaluate)) {
     markInternalSceneRadianceEvaluator(evaluateRadiance);
     registerInternalRadianceAccess(evaluateRadiance, {
       tabulated: false,
-      keyOfDirection: (o) => (beyondHorizon(o) ? undefined : keyOfDirection(o)),
+      keyOfDirection: (o, t) => (beyondHorizon(o) ? undefined : keyOfDirection(o, t)),
       radianceOfKey: valueOfKey
     });
   }

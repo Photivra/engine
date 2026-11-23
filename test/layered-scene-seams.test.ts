@@ -23,6 +23,9 @@
  * locks' lattice values and site signals within 1.9e-15 relative (every case); the benchmark cases' images and RAW codes keep
  * their bits, the view's expected values within 2.3e-13 relative (card 0; card 2 keeps its bits). The counters of the
  * small-tile case move (the surface tiles' bytes count the row sums).
+ * Re-recorded for 2.29.0 group LM (#746): the pilot returns the chief ray's surface and material only, so on the radiance back
+ * plane it is the surface with material −1 instead of the radiance at the first node; only that case's lattice lock moves (its
+ * values, site signals and counters keep their bits, checked against the old pilot).
  * Record with RECORD_LAYERED_SEAM_HASHES=1 (prints them; asserts nothing).
  */
 import { createHash, type Hash } from "node:crypto";
@@ -117,13 +120,14 @@ function moduleDigest(c: ModuleCase): ModuleLock {
     update(l, spectrum);
     surfaces.push(lattice.surfaceOf(group, p, q));
   }
-  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) surfaces.push(lattice.siteSurface(x, y, 1), lattice.siteSurface(x, y, 3));
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) surfaces.push(lattice.siteSurface(0, x, y, 1), lattice.siteSurface(0, x, y, 3));
   const chief: number[] = [];
   for (let j = 0; j <= 20; j++) for (let i = 0; i <= 20; i++) {
     const u = -1 + i / 10, v = -0.7 + j * 0.07, at = lattice.chiefSurface(u, v);
     chief.push(at.surface, at.material, signal.pilot(u, v), lattice.latticeU(0, i), lattice.latticeV(0, j));
   }
-  l.update(JSON.stringify({ groups: lattice.groups, surfaces, chief }));
+  // #746: a group's frame also holds its instant (0 here); the shifts are hashed as before.
+  l.update(JSON.stringify({ groups: lattice.groups.map((f) => ({ fx: f!.fx, fy: f!.fy })), surfaces, chief }));
   // The counters on their own: a change of work (lookups, edge points, tiles) shows apart from a change of values.
   const tiles = (t: typeof lattice.tiles.sum): number[] => [t.tilesComputed, t.rowsComputed];
   const counters = JSON.stringify({ afterSites, edgePoints: lattice.edgePoints, lookups: lattice.lookups, surfaceTiles: tiles(lattice.tiles.surfaces), sumTiles: tiles(lattice.tiles.sum) });
@@ -147,8 +151,8 @@ const MODULE_LOCKS: readonly ModuleLock[] = [
   { lattice: "c4c1079cfa207f98dbd380046d6b08aee111404abc8f800d86c98cca1db48faf",
     signal: "41753a8c33bbb044f2c241bebab1d343b89bdd47f94f58561ea49d4289d26f77",
     counters: '{"afterSites":{"edgeSites":1120,"delegatedSites":0,"lookups":14336,"edgePoints":793},"edgePoints":793,"lookups":17408,"surfaceTiles":[17,544],"sumTiles":[9,120]}' },
-  // a radiance back plane, box offsets
-  { lattice: "e4709be48bbaa74fa4f0484cab88028ac331eb3c721a5efb6d10f203e50400d3",
+  // a radiance back plane, box offsets (#746: the pilot is the surface and its material, −1 on the radiance plane)
+  { lattice: "4823332758a689fa6e588abfd019d5ba4c5b1199193050c5ebbf147c891de481",
     signal: "a8c654efcbfd2bfbf97e4c6343b6c002db1fa96b32eb5eb5ffe3135e5600215a",
     counters: '{"afterSites":{"edgeSites":936,"delegatedSites":184,"lookups":121384,"edgePoints":2356},"edgePoints":2356,"lookups":196608,"surfaceTiles":[72,2304],"sumTiles":[36,480]}' },
   // both cards in front of the focus plane, small tiles

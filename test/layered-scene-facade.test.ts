@@ -76,7 +76,8 @@ describe("layered chart scenes through the public API (#652)", () => {
         const reference = electrons(capture.request.siteInput(index).environment, provider.evaluateRadiance.bind(provider));
         worst = Math.max(worst, Math.abs(signal.site(x, y) - reference) / reference);
       }
-      for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) if (lattice.siteSurface(x, y, 1) < 0) edge++;
+      const still = lattice.groupOf(0, 0);
+      for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) if (lattice.siteSurface(still, x, y, 1) < 0) edge++;
       expect(edge).toBeGreaterThan(20);
       expect(worst).toBeLessThan(1e-9);
     }

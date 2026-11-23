@@ -8,11 +8,16 @@
  * Coordinates.
  * - Frame units (u right, v up; the frame is 2 wide), the units of every surface's rectangle and scene. Frame units are angles,
  *   so the chief ray of a lattice point meets every surface at the same frame point.
- * - A lattice group is an opaque handle for one lattice frame: today a fractional shift (fx, fy) in [0, 1) of the native
- *   site lattice (a pixel-aperture node or an anti-aliasing spot of the expected signal); lattice point (p, q) of a group is
- *   site (p, q) shifted by (fx, fy). Groups are registered on first use and keep their index. #746 (group LM) extends the
- *   handle to (fx, fy, instant): a moving camera's instant is part of the group, so no function here takes an instant, and
- *   everything keyed by group (rectangles, tiles) is keyed by instant with it.
+ * - A lattice group is an opaque handle for one lattice frame (fx, fy, instant): a fractional shift (fx, fy) in [0, 1) of the
+ *   native site lattice (a pixel-aperture node or an anti-aliasing spot of the expected signal) and, with a moving camera (#746),
+ *   an instant (seconds from exposure start) whose camera rotation the lens map applies; lattice point (p, q) of a group is
+ *   site (p, q) shifted by (fx, fy), seen at that instant. A still camera's frames all have instant 0. The functions below take
+ *   the group, never an instant, and everything keyed by group (rectangles, tiles, memos) is keyed by instant with it.
+ *   Groups are registered on first use and keep their handle until released ({@link LayeredLatticeGeometry.releaseGroup}; each
+ *   `groupOf` call holds its group once and each release drops one hold, so readers sharing a lattice release only their own): at
+ *   most {@link LAYERED_LATTICE_GROUP_LIMIT} are live at once, in slots that a released group frees for a later one. A handle is
+ *   generation·LIMIT + slot, so it is never given out twice and a released handle fails when used; a lattice that never releases
+ *   a group has handles 0, 1, 2, … (a rolling shutter at full quality reads far more frames than the limit over a render).
  * - Continuous lattice coordinates (X right, Y down) of a group: lattice point (p, q) is at (X, Y) = (p, q), the sensor point
  *   (X + ½ + fx − W/2, Y + ½ + fy − H/2) sites from the raster's centre. The ray through lattice point (x, y) and pupil point P
  *   (pupil-radius units, native axes) meets surface j's image at (x − ρ_j·Px, y − ρ_j·Py), ρ_j the surface's signed blur radius in
@@ -53,7 +58,9 @@
  *
  * Interface for the later 2.29.0 groups (each change must keep this module's values bit for bit where it does not apply):
  * - {@link LayeredLatticeGeometry.framePoint}`(group, p, q, out)`: the frame point (u, v) of a lattice point and its field
- *   factor. #746 (group LM) applies the camera rotation of the group's instant. `latticeU`/`latticeV` stay the separable planar
+ *   factor. #746: the lens map applies the camera rotation of the group's instant (`LayeredLensMap.timeDependent`; a moving
+ *   camera always has a lens map, the rectilinear one at least, so the planar map is the still camera's). Each instant's frame
+ *   is a still camera's, so the card edges come from the same map (half-planes; roll included). `latticeU`/`latticeV` stay the separable planar
  *   form for the lattice's own callers (the capture's provider does not use them: it inverts the planar formula, or the lens map,
  *   in its own `keyOf`). {@link LayeredLatticeGeometry.rasterFramePoint} maps the renderer's planar pilot point through the lens.
  * - {@link LayeredLatticeGeometry.edges}`(group, p, q)`: per surface (nearest first), the card's edges near lattice point (p, q)
@@ -64,8 +71,12 @@
  */
 
 import { InvalidConfigurationError } from "../core/configuration-error.js";
+import { applyPhysicalCameraRotation, shakenAngularVelocity, type CameraAngularVelocityRadPerSec } from "../motion/camera-rotation.js";
 
-/** Most lattice groups of one lattice; also the key spacing of the per-surface tiles (key = surface·this + group). */
+/**
+ * Most live lattice groups of one lattice; also the slot spacing of group handles (generation·this + slot) and of the per-surface
+ * tile keys of `layered-scene-signal.ts`.
+ */
 export const LAYERED_LATTICE_GROUP_LIMIT = 4096;
 
 /**
@@ -90,20 +101,26 @@ export interface LayeredFramePoint { u: number; v: number; factor: number }
 export type LayeredCardEdges = Float64Array;
 
 /**
- * The lens's map of a sensor point to its frame point (#744), for a still camera. Sensor points are in sites from the raster's
- * centre (+x right, +y down). {@link createLayeredLensMap} builds it from the facade's prepared lens geometry.
+ * The lens's map of a sensor point to its frame point (#744), with the camera rotation at an instant (#746). Sensor points are in
+ * sites from the raster's centre (+x right, +y down). {@link createLayeredLensMap} builds it from the facade's prepared lens geometry.
  */
 export interface LayeredLensMap {
   /**
    * The frame point (frame units, u right, v up) and field factor (vignetting throughput × distortion area factor) of sensor
-   * point (x, y), into `out` (returned); factor 0 where the point sees no scene (u and v are then unused).
+   * point (x, y) at instant `timeSeconds` (default 0; ignored unless `timeDependent`), into `out` (returned); factor 0 where the
+   * point sees no scene (u and v are then unused).
    */
-  framePointOf(x: number, y: number, out: LayeredFramePoint): LayeredFramePoint;
-  /** The sensor point (sites from the centre) whose ray looks in direction `look` (unit, toward the scene), or undefined. */
-  sensorPointOf(look: { x: number; y: number; z: number }): { x: number; y: number } | undefined;
+  framePointOf(x: number, y: number, out: LayeredFramePoint, timeSeconds?: number): LayeredFramePoint;
+  /** The sensor point (sites from the centre) whose ray at instant `timeSeconds` (default 0) looks in direction `look` (unit, toward the scene), or undefined. */
+  sensorPointOf(look: { x: number; y: number; z: number }, timeSeconds?: number): { x: number; y: number } | undefined;
   /** A direction at or beyond 90° sees no scene (zero radiance) instead of failing: catalogue fisheyes (#588). */
   readonly zeroBeyondHorizon: boolean;
+  /** #746: true when the map depends on the instant (camera rotation or hand shake); absent or false for a still camera. */
+  readonly timeDependent?: boolean | undefined;
 }
+
+/** A lattice group's frame: its fractional shift and its instant (seconds from exposure start; 0 for a still camera). */
+export interface LayeredLatticeFrame { readonly fx: number; readonly fy: number; readonly instant: number }
 
 /** What the geometry reads of each surface (nearest first; the last is the far surface, rect null). */
 export interface LayeredGeometryLayer {
@@ -153,9 +170,24 @@ export interface LayeredLatticeGeometry {
   readonly blurRadiusSites: readonly number[];
   /** Each surface's reach: every ray of a lattice point and every kernel tap it reads lie within this many sites of it on that surface. */
   readonly reachSites: readonly number[];
-  /** The lattice group (an opaque frame handle) of a fractional shift (fx, fy) in [0, 1), registered on first use (shifts within 1e-9 are one group). */
-  groupOf(fx: number, fy: number): number;
-  readonly groups: readonly { fx: number; fy: number }[];
+  /** #746: true when the lens map depends on the instant; a still geometry gives every instant the frame of instant 0. */
+  readonly timeDependent: boolean;
+  /**
+   * The lattice group (an opaque frame handle) of a fractional shift (fx, fy) in [0, 1) at `instant` seconds (default 0; taken as 0
+   * when the geometry is not `timeDependent`), registered on first use: shifts within 1e-9 and the same instant are one group. Fails
+   * when {@link LAYERED_LATTICE_GROUP_LIMIT} groups are live.
+   */
+  groupOf(fx: number, fy: number, instant?: number): number;
+  /**
+   * #746: drops one hold of a group (each `groupOf` call that returned it holds it once). With no hold left its slot is free for a
+   * later frame: its handle then fails wherever it is used and is never given out again (its tiles and memos, keyed by handle, are
+   * never read again). A caller releases only groups it no longer reads, once per `groupOf` call.
+   */
+  releaseGroup(group: number): void;
+  /** The live groups' frames by slot (a handle's slot is handle mod {@link LAYERED_LATTICE_GROUP_LIMIT}); undefined for a free slot. */
+  readonly groups: readonly (LayeredLatticeFrame | undefined)[];
+  /** Groups live now. */
+  readonly liveGroups: number;
   /** Frame point and field factor of lattice point (p, q) of a group, into `out` (returned). */
   framePoint(group: number, p: number, q: number, out: LayeredFramePoint): LayeredFramePoint;
   /** The planar frame u of lattice column p of a group, and v of row q (the facade's lattice formula; not the lens map's). */
@@ -163,9 +195,9 @@ export interface LayeredLatticeGeometry {
   latticeV(group: number, q: number): number;
   /**
    * The frame point and field factor of the renderer's planar raster point (u, v) (its pilot point: sensor point (u/g, −v/g)
-   * sites from the centre) through the lens map; (u, v) and 1 on the planar map.
+   * sites from the centre) through the lens map at `instant` (default 0; #746); (u, v) and 1 on the planar map.
    */
-  rasterFramePoint(u: number, v: number, out: LayeredFramePoint): LayeredFramePoint;
+  rasterFramePoint(u: number, v: number, out: LayeredFramePoint, instant?: number): LayeredFramePoint;
   /** Per surface, its card's edges near lattice point (p, q) of a group, or null for the far surface (valid until the next call for another point). */
   edges(group: number, p: number, q: number): readonly (LayeredCardEdges | null)[];
   /**
@@ -180,8 +212,8 @@ export interface LayeredLatticeGeometry {
    * (conservative: −1 can also mean one surface).
    */
   surfaceOf(group: number, p: number, q: number): number;
-  /** The same for every lattice point within `reach` sites of native site (x, y), on the unshifted lattice. */
-  siteSurface(x: number, y: number, reach: number): number;
+  /** The same for every lattice point within `reach` sites of native site (x, y), on the unshifted lattice at the group's instant (its shift is not read). */
+  siteSurface(group: number, x: number, y: number, reach: number): number;
   /** The first surface along the chief ray of frame point (u, v). */
   chiefSurface(u: number, v: number): number;
 }
@@ -221,21 +253,49 @@ const UNKNOWN = /* @__PURE__ */ Float64Array.of(0, 0, -1, Infinity, 0, 0, -1, In
 const FULL = /* @__PURE__ */ Float64Array.of(0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0);
 
 /**
- * The facade's lens geometry (`prepareDefocusImageSpaceGeometry` of `defocus-image-space-provider.ts`, a still camera at time 0)
- * as a {@link LayeredLensMap}: a sensor point's look direction and field factor, and its frame point by the base provider's own
- * plane arithmetic (as `createDefocusImageSpaceProvider` maps its lattice points). Directions at or beyond 90° have factor 0
- * with `zeroBeyondHorizon` and fail without it.
+ * The facade's lens geometry (`prepareDefocusImageSpaceGeometry` of `defocus-image-space-provider.ts`) as a {@link LayeredLensMap}:
+ * a sensor point's look direction and field factor, and its frame point by the base provider's own plane arithmetic (as
+ * `createDefocusImageSpaceProvider` maps its lattice points). Directions at or beyond 90° have factor 0 with `zeroBeyondHorizon` and
+ * fail without it.
+ *
+ * #746, a moving camera. With `motion` (the environment's angular velocity and hand shake) and the still camera's geometry, the look
+ * direction at instant t is the still one turned by the camera's rotation at t (`applyPhysicalCameraRotation`, camera to reference,
+ * by the displacement the environment forms: the shaken velocity at t times t), as one matrix per instant, so a lattice point costs
+ * no trigonometry; the sensor point of a direction turns it back (the transposed matrix) through the still geometry. Every
+ * projection model's ray is the rotated still ray, so this is the prepared moving geometry's `lookOf` and `sensorPointOf` up to
+ * rounding (test/layered-scene-motion.test.ts). A geometry prepared with the rotation itself (`timeDependent`) is also read at the
+ * instant, without `motion`.
  */
 export function createLayeredLensMap(input: {
   geometry: { lookOf(xMm: number, yMm: number, timeSeconds: number): { x: number; y: number; z: number; factor: number };
-    sensorPointOf(look: { x: number; y: number; z: number }, timeSeconds: number): { x: number; y: number } | undefined };
+    sensorPointOf(look: { x: number; y: number; z: number }, timeSeconds: number): { x: number; y: number } | undefined; timeDependent?: boolean | undefined };
   pitchMicrometers: number; distanceM: number; metresPerFrameUnit: number; zeroBeyondHorizon?: boolean | undefined;
+  motion?: { angularVelocityRadPerSec: CameraAngularVelocityRadPerSec; handShake?: readonly number[] | undefined } | undefined;
 }): LayeredLensMap {
-  const { geometry, distanceM: distance, metresPerFrameUnit: scale } = input, mm = input.pitchMicrometers / 1000, zeroBeyondHorizon = input.zeroBeyondHorizon === true;
+  const { geometry, distanceM: distance, metresPerFrameUnit: scale, motion } = input, mm = input.pitchMicrometers / 1000, zeroBeyondHorizon = input.zeroBeyondHorizon === true;
+  const omega = motion?.angularVelocityRadPerSec, shake = motion?.handShake;
+  const rotating = omega !== undefined && (omega.pitch !== 0 || omega.yaw !== 0 || omega.roll !== 0 || shake !== undefined);
+  if (rotating && geometry.timeDependent === true) fail("Layered scene: a lens map takes the rotation once (a still geometry with motion, or a moving geometry).");
+  const timeDependent = rotating || geometry.timeDependent === true;
+  // The camera-to-reference rotation at the last instant asked, columns m[0..2], m[3..5], m[6..8] (the rotated basis vectors).
+  let at = NaN;
+  const m = new Float64Array(9);
+  const rotationAt = (t: number): Float64Array => {
+    if (t !== at) {
+      const w = shakenAngularVelocity(omega!, shake, t), d = { pitch: w.pitch * t, yaw: w.yaw * t, roll: w.roll * t };
+      for (let i = 0; i < 3; i++) { const c = applyPhysicalCameraRotation({ x: i === 0 ? 1 : 0, y: i === 1 ? 1 : 0, z: i === 2 ? 1 : 0 }, d, "camera-to-reference"); m[3 * i] = c.x; m[3 * i + 1] = c.y; m[3 * i + 2] = c.z; }
+      at = t;
+    }
+    return m;
+  };
   return {
-    zeroBeyondHorizon,
-    framePointOf(x, y, out): LayeredFramePoint {
-      const look = geometry.lookOf(x * mm, y * mm, 0);
+    zeroBeyondHorizon, timeDependent,
+    framePointOf(x, y, out, timeSeconds = 0): LayeredFramePoint {
+      let look = geometry.lookOf(x * mm, y * mm, timeDependent && !rotating ? timeSeconds : 0);
+      if (rotating) {
+        const r = rotationAt(timeSeconds);
+        look = { x: r[0]! * look.x + r[3]! * look.y + r[6]! * look.z, y: r[1]! * look.x + r[4]! * look.y + r[7]! * look.z, z: r[2]! * look.x + r[5]! * look.y + r[8]! * look.z, factor: look.factor };
+      }
       if (!(look.z > 0)) {
         if (!zeroBeyondHorizon) fail("Layered scene: a lattice point's ray does not point toward the scene.");
         out.u = 0; out.v = 0; out.factor = 0; return out;
@@ -244,8 +304,12 @@ export function createLayeredLensMap(input: {
       out.u = look.x * t / scale; out.v = look.y * t / scale; out.factor = look.factor;
       return out;
     },
-    sensorPointOf(look): { x: number; y: number } | undefined {
-      const point = geometry.sensorPointOf(look, 0);
+    sensorPointOf(look, timeSeconds = 0): { x: number; y: number } | undefined {
+      if (rotating) {
+        const r = rotationAt(timeSeconds);
+        look = { x: r[0]! * look.x + r[1]! * look.y + r[2]! * look.z, y: r[3]! * look.x + r[4]! * look.y + r[5]! * look.z, z: r[6]! * look.x + r[7]! * look.y + r[8]! * look.z };
+      }
+      const point = geometry.sensorPointOf(look, timeDependent && !rotating ? timeSeconds : 0);
       return point && { x: point.x / mm, y: point.y / mm };
     }
   };
@@ -291,27 +355,52 @@ export function createLayeredLatticeGeometry(input: LayeredGeometryInput): Layer
   const rho = layers.map((l) => l.blurRadiusSites), radius = layers.map((l) => (l.kernel ? l.kernel.radius : 0));
   // Every ray of a lattice point and every tap it reads lie within this many sites of it on surface j (blades reach past the unit circle).
   const reachOf = layers.map((_, j) => Math.max(radius[j]! + 0.5, 1.25 * Math.abs(rho[j]!) + 0.5));
-  const groups: { fx: number; fy: number }[] = [];
   const frameScale = input.frameScale ?? 1;
   if (!(frameScale > 0 && Number.isFinite(frameScale))) fail("Layered scene: the frame scale must be positive and finite.");
-  const lensMap = input.lensMap, planar = lensMap === undefined && frameScale === 1;
-  /** Rectangles in each group's continuous lattice coordinates: X = u/g − ½ + W/2 − fx, Y = −v/g − ½ + H/2 − fy. */
+  const lensMap = input.lensMap, planar = lensMap === undefined && frameScale === 1, timeDependent = lensMap?.timeDependent === true;
+  /** Rectangles in each group's continuous lattice coordinates (by slot): X = u/g − ½ + W/2 − fx, Y = −v/g − ½ + H/2 − fy. */
   const rects: (LayeredCardEdges | null)[][] = [];
   const toLattice = (fx: number, fy: number): (LayeredCardEdges | null)[] => layers.map((l) => l.rect === null ? null :
     Float64Array.of(l.rect.u0 / g - 0.5 + W / 2 - fx, -l.rect.v1 / g - 0.5 + H / 2 - fy, l.rect.u1 / g - 0.5 + W / 2 - fx, -l.rect.v0 / g - 0.5 + H / 2 - fy));
   const siteRects = planar ? toLattice(0, 0) : [];
-  function groupOf(fx: number, fy: number): number {
-    const at = groups.findIndex((q) => Math.abs(q.fx - fx) <= GROUP_TOLERANCE && Math.abs(q.fy - fy) <= GROUP_TOLERANCE);
-    if (at >= 0) return at;
+  // #746: the groups' slots. A slot holds one live frame; its handle is generation·L + slot, the generation counting the slot's releases.
+  const L = LAYERED_LATTICE_GROUP_LIMIT, groups: (LayeredLatticeFrame | undefined)[] = [];
+  const slotFx = new Float64Array(L), slotFy = new Float64Array(L), slotT = new Float64Array(L), slotHandle = new Float64Array(L).fill(-1), slotGeneration = new Float64Array(L),
+    slotHolds = new Float64Array(L);
+  /** Live slots by instant, in registration order (a still lattice's are all at instant 0). */
+  const byInstant = new Map<number, number[]>(), free: number[] = [];
+  let nextSlot = 0, live = 0;
+  /** The slot of a live group; fails for a released or unknown handle. */
+  function slotOf(group: number): number {
+    const s = group % L;
+    if (!(slotHandle[s] === group)) fail("Layered scene: lattice group " + group + " is not live.");
+    return s;
+  }
+  function groupOf(fx: number, fy: number, instant = 0): number {
+    const t = timeDependent ? instant : 0;
+    const slots = byInstant.get(t);
+    if (slots) for (const s of slots) if (Math.abs(slotFx[s]! - fx) <= GROUP_TOLERANCE && Math.abs(slotFy[s]! - fy) <= GROUP_TOLERANCE) { slotHolds[s]!++; return slotHandle[s]!; }
     if (!(fx >= 0 && fx < 1 && fy >= 0 && fy < 1)) fail("Layered scene: a lattice shift must be in [0, 1).");
-    if (groups.length >= LAYERED_LATTICE_GROUP_LIMIT) fail("Layered scene: too many lattice groups.");
-    groups.push({ fx, fy });
-    if (planar) rects.push(toLattice(fx, fy));
-    return groups.length - 1;
+    if (live >= L) fail("Layered scene: more than " + L + " lattice frames are live.");
+    const s = free.length > 0 ? free.pop()! : nextSlot++, handle = slotGeneration[s]! * L + s;
+    slotFx[s] = fx; slotFy[s] = fy; slotT[s] = t; slotHandle[s] = handle; slotHolds[s] = 1; live++;
+    groups[s] = Object.freeze({ fx, fy, instant: t });
+    if (slots) slots.push(s); else byInstant.set(t, [s]);
+    if (planar) rects[s] = toLattice(fx, fy);
+    return handle;
+  }
+  function releaseGroup(group: number): void {
+    const s = slotOf(group);
+    if (--slotHolds[s]! > 0) return;
+    const slots = byInstant.get(slotT[s]!)!;
+    slots.splice(slots.indexOf(s), 1);
+    if (slots.length === 0) byInstant.delete(slotT[s]!);
+    slotHandle[s] = -1; slotGeneration[s]!++; groups[s] = undefined; live--; free.push(s);
+    if (memoGroup === group) memoGroup = -1;
   }
   // The facade's lattice formula (expected-signal.ts, diffraction-provider.ts), the same expressions.
-  const latticeU = (group: number, p: number): number => { const fx = groups[group]!.fx; return fx === 0 ? (p + 0.5 - W / 2) * g : (p + 0.5 + fx - W / 2) * g; };
-  const latticeV = (group: number, q: number): number => { const fy = groups[group]!.fy; return fy === 0 ? -(q + 0.5 - H / 2) * g : -(q + 0.5 + fy - H / 2) * g; };
+  const latticeU = (group: number, p: number): number => { const fx = slotFx[slotOf(group)]!; return fx === 0 ? (p + 0.5 - W / 2) * g : (p + 0.5 + fx - W / 2) * g; };
+  const latticeV = (group: number, q: number): number => { const fy = slotFy[slotOf(group)]!; return fy === 0 ? -(q + 0.5 - H / 2) * g : -(q + 0.5 + fy - H / 2) * g; };
   /** The one surface every ray and tap of a point (lattice coordinates x, y of a rectangle set) reaches, or −1. */
   function surfaceOfPoint(r: readonly (LayeredCardEdges | null)[], x: number, y: number, extra: number): number {
     for (let j = 0; j < K; j++) {
@@ -330,25 +419,27 @@ export function createLayeredLatticeGeometry(input: LayeredGeometryInput): Layer
     }
     return K - 1;
   }
-  const common = { surfaces: K, blurRadiusSites: rho, reachSites: reachOf, groupOf, groups, latticeU, latticeV, chiefSurface };
+  // The edges of the last point asked (group, p, q), kept until another point is asked (share reads them once per tap).
+  let memoGroup = -1, memoP = NaN, memoQ = NaN;
+  const common = { surfaces: K, blurRadiusSites: rho, reachSites: reachOf, timeDependent, groupOf, releaseGroup, groups, latticeU, latticeV, chiefSurface };
   if (planar) {
     return {
-      ...common, planar: true, lensMap: undefined, frameScale: 1, lensReachSites: 0,
+      ...common, planar: true, lensMap: undefined, frameScale: 1, lensReachSites: 0, get liveGroups(): number { return live; },
       framePoint(group, p, q, out): LayeredFramePoint { out.u = latticeU(group, p); out.v = latticeV(group, q); out.factor = 1; return out; },
       rasterFramePoint(u, v, out): LayeredFramePoint { out.u = u; out.v = v; out.factor = 1; return out; },
-      edges: (group) => rects[group]!,
-      edgesNear(group, k, _x, _y, _h, out): LayeredCardEdges { const r = rects[group]![k]!; out.set(r); return out.subarray(0, 4); },
-      surfaceOf: (group, p, q) => surfaceOfPoint(rects[group]!, p, q, 0),
-      siteSurface: (x, y, reach) => surfaceOfPoint(siteRects, x, y, reach)
+      edges: (group) => rects[slotOf(group)]!,
+      edgesNear(group, k, _x, _y, _h, out): LayeredCardEdges { const r = rects[slotOf(group)]![k]!; out.set(r); return out.subarray(0, 4); },
+      surfaceOf: (group, p, q) => surfaceOfPoint(rects[slotOf(group)]!, p, q, 0),
+      siteSurface(group, x, y, reach): number { slotOf(group); return surfaceOfPoint(siteRects, x, y, reach); }
     };
   }
   // The lens map (#744). A frame scale without a lens map scales the planar map.
   const framePointOf = lensMap ? lensMap.framePointOf : (x: number, y: number, out: LayeredFramePoint): LayeredFramePoint => { out.u = x * g; out.v = -y * g; out.factor = 1; return out; };
   const at: LayeredFramePoint = { u: 0, v: 0, factor: 1 };
-  /** The frame point of continuous lattice point (x, y) of shift (fx, fy) into `at`; false where it sees no scene or lies beyond the reach. */
-  function mapAt(fx: number, fy: number, x: number, y: number): boolean {
+  /** The frame point of continuous lattice point (x, y) of shift (fx, fy) at instant t into `at`; false where it sees no scene or lies beyond the reach. */
+  function mapAt(fx: number, fy: number, t: number, x: number, y: number): boolean {
     if (!(x >= -lensReach && y >= -lensReach && x <= W - 1 + lensReach && y <= H - 1 + lensReach)) { at.factor = 0; return false; }
-    framePointOf(x + 0.5 + fx - W / 2, y + 0.5 + fy - H / 2, at);
+    framePointOf(x + 0.5 + fx - W / 2, y + 0.5 + fy - H / 2, at, t);
     if (at.factor === 0) return false;
     if (frameScale !== 1) { at.u /= frameScale; at.v /= frameScale; }
     if (!(Number.isFinite(at.u) && Number.isFinite(at.v) && Number.isFinite(at.factor))) fail("Layered scene: the lens map gives no finite frame point at a lattice point.");
@@ -363,34 +454,34 @@ export function createLayeredLatticeGeometry(input: LayeredGeometryInput): Layer
   if (!(margin >= 0 && Number.isFinite(margin))) fail("Layered scene: the lattice margin must be non-negative and finite.");
   const lensReach = margin + Math.max(sampleBox, ...reachOf) + 1;
   // One linearization: the map's value and Jacobian at the point.
-  let u0 = 0, v0 = 0, jux = 0, juy = 0, jvx = 0, jvy = 0, linearized = 0, lfx = 0, lfy = 0, lx = 0, ly = 0;
+  let u0 = 0, v0 = 0, jux = 0, juy = 0, jvx = 0, jvy = 0, linearized = 0, lfx = 0, lfy = 0, lt = 0, lx = 0, ly = 0;
   const S = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [-1, -1], [1, -1], [-1, 1]] as const;
   /**
-   * Linearizes the map at (x, y) of shift (fx, fy). `linearized`: 1 done; 3 no tangent at the horizon (the point or a difference
-   * step sees no scene, and some sample of the box of half-size h about it does); 0 the point and that box see no scene.
+   * Linearizes the map at (x, y) of shift (fx, fy) at instant t. `linearized`: 1 done; 3 no tangent at the horizon (the point or a
+   * difference step sees no scene, and some sample of the box of half-size h about it does); 0 the point and that box see no scene.
    */
-  function linearize(fx: number, fy: number, x: number, y: number, h: number): number {
-    lfx = fx; lfy = fy; lx = x; ly = y; cornersH = NaN;
-    if (!mapAt(fx, fy, x, y)) {
-      for (let i = 0; i < 8; i++) if (mapAt(fx, fy, x + S[i]![0] * h, y + S[i]![1] * h)) return (linearized = 3);
+  function linearize(fx: number, fy: number, t: number, x: number, y: number, h: number): number {
+    lfx = fx; lfy = fy; lt = t; lx = x; ly = y; cornersH = NaN;
+    if (!mapAt(fx, fy, t, x, y)) {
+      for (let i = 0; i < 8; i++) if (mapAt(fx, fy, t, x + S[i]![0] * h, y + S[i]![1] * h)) return (linearized = 3);
       return (linearized = 0);
     }
     u0 = at.u; v0 = at.v;
-    if (!gradientAt(fx, fy, x, y)) return (linearized = 3);
+    if (!gradientAt(fx, fy, t, x, y)) return (linearized = 3);
     jux = gux; juy = guy; jvx = gvx; jvy = gvy;
     return (linearized = 1);
   }
   /** The map's Jacobian at (x, y) by central differences, into gux … gvy; false where a step sees no scene. */
   let gux = 0, guy = 0, gvx = 0, gvy = 0;
-  function gradientAt(fx: number, fy: number, x: number, y: number): boolean {
+  function gradientAt(fx: number, fy: number, t: number, x: number, y: number): boolean {
     const E = JACOBIAN_STEP;
-    if (!mapAt(fx, fy, x + E, y)) return false;
+    if (!mapAt(fx, fy, t, x + E, y)) return false;
     let ux = at.u, vx = at.v;
-    if (!mapAt(fx, fy, x - E, y)) return false;
+    if (!mapAt(fx, fy, t, x - E, y)) return false;
     ux -= at.u; vx -= at.v;
-    if (!mapAt(fx, fy, x, y + E)) return false;
+    if (!mapAt(fx, fy, t, x, y + E)) return false;
     let uy = at.u, vy = at.v;
-    if (!mapAt(fx, fy, x, y - E)) return false;
+    if (!mapAt(fx, fy, t, x, y - E)) return false;
     uy -= at.u; vy -= at.v;
     gux = ux / (2 * E); gvx = vx / (2 * E); guy = uy / (2 * E); gvy = vy / (2 * E);
     return Math.hypot(gux, guy) > 0 && Math.hypot(gvx, gvy) > 0;
@@ -408,7 +499,7 @@ export function createLayeredLatticeGeometry(input: LayeredGeometryInput): Layer
     if (h === cornersH) return cornersOk;
     cornersH = h; cornersOk = true;
     for (let i = 0; i < 4 && cornersOk; i++) {
-      cornersOk = mapAt(lfx, lfy, lx + S[i + 4]![0] * h, ly + S[i + 4]![1] * h);
+      cornersOk = mapAt(lfx, lfy, lt, lx + S[i + 4]![0] * h, ly + S[i + 4]![1] * h);
       cu[i] = at.u; cv[i] = at.v;
     }
     return cornersOk;
@@ -432,8 +523,8 @@ export function createLayeredLatticeGeometry(input: LayeredGeometryInput): Layer
       for (let step = 0; step < 2 && ok; step++) {
         const n2 = ggx * ggx + ggy * ggy;
         x -= (vx - level) * ggx / n2; y -= (vx - level) * ggy / n2;
-        ok = mapAt(lfx, lfy, x, y);
-        if (ok) { vx = isV ? at.v : at.u; ok = gradientAt(lfx, lfy, x, y); }
+        ok = mapAt(lfx, lfy, lt, x, y);
+        if (ok) { vx = isV ? at.v : at.u; ok = gradientAt(lfx, lfy, lt, x, y); }
         if (ok) { ggx = isV ? gvx : gux; ggy = isV ? gvy : guy; }
       }
       if (ok) { value = vx; gx = ggx; gy = ggy; tx = x; ty = y; }
@@ -447,10 +538,10 @@ export function createLayeredLatticeGeometry(input: LayeredGeometryInput): Layer
     const along = ax * (lx - px) + ay * (ly - py), reach = h * (Math.abs(ax) + Math.abs(ay)), s0 = along - reach, s1 = along + reach;
     for (let i = 0; i < 3; i++) {
       const t = i === 0 ? s0 : i === 1 ? (s0 + s1) / 2 : s1, zx = px + ax * t, zy = py + ay * t;
-      if (!mapAt(lfx, lfy, zx, zy)) { out[o + 3] = Infinity; return; }
+      if (!mapAt(lfx, lfy, lt, zx, zy)) { out[o + 3] = Infinity; return; }
       const here = (isV ? at.v : at.u) - level;
       // The level difference over the map's own derivative along the normal there (a quarter-site step): the offset in sites.
-      if (!mapAt(lfx, lfy, zx + a * JACOBIAN_STEP, zy + b * JACOBIAN_STEP)) { out[o + 3] = Infinity; return; }
+      if (!mapAt(lfx, lfy, lt, zx + a * JACOBIAN_STEP, zy + b * JACOBIAN_STEP)) { out[o + 3] = Infinity; return; }
       const slope = sigma * ((isV ? at.v : at.u) - level - here) / JACOBIAN_STEP;
       if (!(slope > 0)) { out[o + 3] = Infinity; return; }
       e9[i] = sigma * here / slope;
@@ -471,40 +562,38 @@ export function createLayeredLatticeGeometry(input: LayeredGeometryInput): Layer
     halfPlane(true, rc.v0, 1, h, out, 8); halfPlane(true, rc.v1, -1, h, out, 12);
     return out;
   }
-  // The edges of the last point asked (group, p, q), kept until another point is asked (share reads them once per tap).
   const memo: (LayeredCardEdges | null)[] = layers.map((l) => (l.rect === null ? null : new Float64Array(16)));
-  let memoGroup = -1, memoP = NaN, memoQ = NaN;
   function edges(group: number, p: number, q: number): readonly (LayeredCardEdges | null)[] {
     if (group === memoGroup && p === memoP && q === memoQ) return memo;
-    const shift = groups[group]!;
-    linearize(shift.fx, shift.fy, p, q, sampleBox);
+    const s = slotOf(group);
+    linearize(slotFx[s]!, slotFy[s]!, slotT[s]!, p, q, sampleBox);
     for (let k = 0; k < K; k++) if (memo[k] !== null) cardFrom(k, boxOf[k]!, memo[k]!);
     memoGroup = group; memoP = p; memoQ = q;
     return memo;
   }
   const siteCards: (LayeredCardEdges | null)[] = layers.map((l) => (l.rect === null ? null : new Float64Array(16)));
   return {
-    ...common, planar: false, lensMap, frameScale, lensReachSites: lensReach,
+    ...common, planar: false, lensMap, frameScale, lensReachSites: lensReach, get liveGroups(): number { return live; },
     framePoint(group, p, q, out): LayeredFramePoint {
-      const shift = groups[group]!;
-      if (mapAt(shift.fx, shift.fy, p, q)) { out.u = at.u; out.v = at.v; out.factor = at.factor; } else { out.u = 0; out.v = 0; out.factor = 0; }
+      const s = slotOf(group);
+      if (mapAt(slotFx[s]!, slotFy[s]!, slotT[s]!, p, q)) { out.u = at.u; out.v = at.v; out.factor = at.factor; } else { out.u = 0; out.v = 0; out.factor = 0; }
       return out;
     },
-    rasterFramePoint(u, v, out): LayeredFramePoint {
-      framePointOf(u / g, -v / g, out);
+    rasterFramePoint(u, v, out, instant = 0): LayeredFramePoint {
+      framePointOf(u / g, -v / g, out, timeDependent ? instant : 0);
       if (out.factor !== 0 && frameScale !== 1) { out.u /= frameScale; out.v /= frameScale; }
       return out;
     },
     edges,
     edgesNear(group, k, x, y, h, out): LayeredCardEdges {
-      const shift = groups[group]!, hs = Math.max(h, 0.0625);
+      const s = slotOf(group), hs = Math.max(h, 0.0625);
       // A region whose footprint centre sees no scene ends dark on this card (the surface radiance there is 0).
-      if (linearize(shift.fx, shift.fy, x, y, hs) === 0 || linearized === 3) { out.set(FULL); return out; }
+      if (linearize(slotFx[s]!, slotFy[s]!, slotT[s]!, x, y, hs) === 0 || linearized === 3) { out.set(FULL); return out; }
       return cardFrom(k, hs, out);
     },
     surfaceOf: (group, p, q) => surfaceOfPoint(edges(group, p, q), p, q, 0),
-    siteSurface(x, y, reach): number {
-      linearize(0, 0, x, y, sampleBox + reach);
+    siteSurface(group, x, y, reach): number {
+      linearize(0, 0, slotT[slotOf(group)]!, x, y, sampleBox + reach);
       for (let k = 0; k < K; k++) if (siteCards[k] !== null) cardFrom(k, boxOf[k]! + reach, siteCards[k]!);
       return surfaceOfPoint(siteCards, x, y, reach);
     }
