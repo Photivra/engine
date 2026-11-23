@@ -99,7 +99,10 @@ export type FrontOfLensFilterTransmissionModel =
       /** k1: intensity transmittance for light polarized along the transmission axis, (0, 1]. */
       principalTransmittance:
         EvidenceBackedFact<number>;
-      /** k1 / k2. Finite and >= 1. Use a large finite ratio for a near-ideal polarizer. */
+      /**
+       * k1 / k2. Finite and >= 1. Use a large finite ratio for a near-ideal polarizer. From 2.29.0 a crossed pair transmits
+       * k1 k2 within double rounding at any ratio (it read high from about 1e15 and was refused from 1e17 before).
+       */
       extinctionRatio:
         EvidenceBackedFact<number>;
       /** Transmission-axis angle as mounted, degrees counter-clockwise from image +X. */
@@ -867,11 +870,16 @@ function transmissionEvidence(
     .samples.evidence;
 }
 
-/** Linear Stokes vector (S0, S1, S2); circular S3 is not modeled. */
+/**
+ * Linear Stokes vector (S0, S1, S2); circular S3 is not modeled. 2.29.0 (#753 optics-22): with `m`, the intensity across the
+ * polarization, (S0 - hypot(S1, S2)) / 2, carried apart from S0, so that light a polarizer has nearly extinguished keeps its
+ * value instead of the rounding residue of S0 - |S|.
+ */
 interface LinearStokes {
   s0: number;
   s1: number;
   s2: number;
+  m: number;
 }
 
 const UNPOLARIZED: LinearPolarizationState = /* @__PURE__ */ Object.freeze({
@@ -918,12 +926,22 @@ function twiceRadians(angleDegrees: number): number {
   return Number.isFinite(twice) ? twice : (2 * (angleDegrees % 180) * Math.PI) / 180;
 }
 
+/**
+ * cos and sin of twice an angle in degrees. A multiple of 45 degrees gives the exact values (2.29.0, optics-22: at 90 degrees
+ * sin(pi) is 1.2e-16 in double precision, which would leave a crossed pair a residue of about 1e-33 of the light).
+ */
+function cosSinTwice(angleDegrees: number): [number, number] {
+  const r = ((angleDegrees % 180) + 180) % 180, twice = twiceRadians(angleDegrees);
+  return r % 45 === 0 ? [[1, 0, -1, 0][r / 45]!, [0, 1, 0, -1][r / 45]!] : [Math.cos(twice), Math.sin(twice)];
+}
+
 function stokesFromState(state: LinearPolarizationState): LinearStokes {
-  const twice = twiceRadians(state.angleDegrees);
+  const [c, sn] = cosSinTwice(state.angleDegrees), degree = state.degreeOfLinearPolarization;
   return {
     s0: 1,
-    s1: state.degreeOfLinearPolarization * Math.cos(twice),
-    s2: state.degreeOfLinearPolarization * Math.sin(twice)
+    s1: degree * c,
+    s2: degree * sn,
+    m: (1 - degree) / 2
   };
 }
 
@@ -941,6 +959,16 @@ function stateFromStokes(stokes: LinearStokes): LinearPolarizationState {
 /**
  * Mueller matrix of a linear diattenuator (principal intensity transmittances k1 along the axis
  * and k2 across it, axis at theta) applied to a linear Stokes vector.
+ *
+ * 2.29.0 (#753 optics-22): evaluated in the axis frame without cancellation. With the incoming state
+ * there, x = P cos 2(psi - theta) and y = P sin 2(psi - theta), the intensities along and across the
+ * axis are a = M cos^2 + m sin^2 and d = M sin^2 + m cos^2 (M = S0 - m and m the intensities along and
+ * across the polarization), each a sum of non-negative terms, and the squared cosine or sine that
+ * vanishes is y^2 / (2P (P -+ x)). The diattenuator gives S0' = k1 a + k2 d, S1' = k1 a - k2 d and
+ * S2' = sqrt(k1 k2) y in the axis frame (the same Mueller matrix, regrouped), rotated back by 2 theta,
+ * and m' = k1 k2 M m / M' (the coherency matrix's determinant, M m, is multiplied by k1 k2). Before,
+ * S0' = (k1 + k2)/2 S0 + (k1 - k2)/2 x cancelled for light polarized across the axis: a crossed pair
+ * read 30 % high at an extinction ratio of 1e16 and was refused from 1e17.
  */
 function applyLinearPolarizer(
   stokes: LinearStokes,
@@ -948,22 +976,18 @@ function applyLinearPolarizer(
   k2: number,
   axisDegrees: number
 ): LinearStokes {
-  const twice = twiceRadians(axisDegrees);
-  const c = Math.cos(twice);
-  const sn = Math.sin(twice);
-  const sum = (k1 + k2) / 2;
-  const difference = (k1 - k2) / 2;
-  const geometric = Math.sqrt(k1 * k2);
+  const [c, sn] = cosSinTwice(axisDegrees);
+  const x = c * stokes.s1 + sn * stokes.s2, y = c * stokes.s2 - sn * stokes.s1, p = Math.hypot(x, y);
+  const m = stokes.m, major = stokes.s0 - m;
+  // cos^2 and sin^2 of (psi - theta); unpolarized light (p = 0) has half of each.
+  const cos2 = p === 0 ? 0.5 : x < 0 ? (y * y) / (2 * p * (p - x)) : (p + x) / (2 * p), sin2 = p === 0 ? 0.5 : x < 0 ? (p - x) / (2 * p) : (y * y) / (2 * p * (p + x));
+  const a = k1 * (major * cos2 + m * sin2), d = k2 * (major * sin2 + m * cos2);
+  const s0 = a + d, s1 = a - d, s2 = Math.sqrt(k1 * k2) * y, majorOut = (s0 + Math.hypot(s1, s2)) / 2;
   return {
-    s0: sum * stokes.s0 + difference * (c * stokes.s1 + sn * stokes.s2),
-    s1:
-      difference * c * stokes.s0 +
-      (sum * c * c + geometric * sn * sn) * stokes.s1 +
-      (sum - geometric) * c * sn * stokes.s2,
-    s2:
-      difference * sn * stokes.s0 +
-      (sum - geometric) * c * sn * stokes.s1 +
-      (sum * sn * sn + geometric * c * c) * stokes.s2
+    s0,
+    s1: c * s1 - sn * s2,
+    s2: sn * s1 + c * s2,
+    m: majorOut > 0 ? (k1 * k2 * major * m) / majorOut : 0
   };
 }
 
@@ -1068,7 +1092,8 @@ function resolveComponent(
     outgoing = {
       s0: incoming.s0 * factor,
       s1: incoming.s1 * factor,
-      s2: incoming.s2 * factor
+      s2: incoming.s2 * factor,
+      m: incoming.m * factor
     };
   }
 

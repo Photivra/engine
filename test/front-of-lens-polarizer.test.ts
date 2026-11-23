@@ -164,3 +164,37 @@ describe("polarization angles near the top of the double range (optics-23, #700)
     expect(at210.linearTransmissionFactor).toBeCloseTo(at30.linearTransmissionFactor, 14);
   });
 });
+
+describe("polarizer stacks without cancellation (#753 optics-22)", () => {
+  it("transmits k1 k2 through a crossed pair at any extinction ratio, without cancellation (#753 optics-22)", () => {
+    // Before 2.29.0: 2.5e-5 relative error at 1e12, 0.25 % at 1e15, 30 % high at 1e16 and an error from 1e17.
+    for (const ratio of [1e6, 1e12, 1e15, 1e16, 1e17, 1e20, 1e300]) {
+      const k1 = 0.8, k2 = k1 / ratio;
+      const crossed = composeFrontOfLensFilterTransmission({ filters: [polarizer(0, k1, ratio), polarizer(90, k1, ratio)], ...at });
+      expect(Math.abs(crossed.combinedLinearTransmissionFactor / (k1 * k2) - 1), String(ratio)).toBeLessThan(1e-9);
+      // A single polarizer with light fully polarized across its axis transmits k2.
+      const across = resolveFrontOfLensFilterTransmission({ profile: polarizer(0, k1, ratio), ...at, incidentPolarization: { degreeOfLinearPolarization: 1, angleDegrees: 90 } });
+      expect(Math.abs(across.linearTransmissionFactor / k2 - 1), String(ratio)).toBeLessThan(1e-9);
+    }
+  });
+
+  it("matches the coherency-matrix product of a polarizer stack at general angles", () => {
+    // Independent reference: J' = R D R^T J R D R^T for each polarizer (D = diag(sqrt k1, sqrt k2) on the field), from partially polarized light.
+    const stack = [[10, 0.9, 50], [37, 0.7, 300], [100, 0.85, 1e4]] as const;
+    const deg = Math.PI / 180, P = 0.4, psi = 22 * deg;
+    let j = [[(1 + P * Math.cos(2 * psi)) / 2, (P * Math.sin(2 * psi)) / 2], [(P * Math.sin(2 * psi)) / 2, (1 - P * Math.cos(2 * psi)) / 2]];
+    const mul = (a: number[][], b: number[][]): number[][] => [[a[0]![0]! * b[0]![0]! + a[0]![1]! * b[1]![0]!, a[0]![0]! * b[0]![1]! + a[0]![1]! * b[1]![1]!],
+      [a[1]![0]! * b[0]![0]! + a[1]![1]! * b[1]![0]!, a[1]![0]! * b[0]![1]! + a[1]![1]! * b[1]![1]!]];
+    for (const [axis, k1, ratio] of stack) {
+      const c = Math.cos(axis * deg), sn = Math.sin(axis * deg), r = [[c, -sn], [sn, c]], rt = [[c, sn], [-sn, c]];
+      const m = mul(mul(r, [[Math.sqrt(k1), 0], [0, Math.sqrt(k1 / ratio)]]), rt);
+      j = mul(mul(m, j), m);
+    }
+    const result = composeFrontOfLensFilterTransmission({ filters: stack.map(([axis, k1, ratio]) => polarizer(axis, k1, ratio)), ...at,
+      incidentPolarization: { degreeOfLinearPolarization: P, angleDegrees: 22 } });
+    const s0 = j[0]![0]! + j[1]![1]!, s1 = j[0]![0]! - j[1]![1]!, s2 = 2 * j[0]![1]!;
+    expect(result.combinedLinearTransmissionFactor / s0 - 1).toBeCloseTo(0, 12);
+    expect(result.transmittedPolarization.degreeOfLinearPolarization).toBeCloseTo(Math.hypot(s1, s2) / s0, 12);
+    expect(result.transmittedPolarization.angleDegrees).toBeCloseTo(((Math.atan2(s2, s1) * 90) / Math.PI + 180) % 180, 9);
+  });
+});
