@@ -23,6 +23,7 @@ import type {
 } from "../output/capture-geometry.js";
 import {
   calculateCaptureExposureWindows,
+  parseDirectionFact,
   type CaptureExposureWindows,
   type ExposureBoundarySchedule,
   type SourcedCaptureBoundaryDirection,
@@ -34,10 +35,8 @@ import type {
 import {
   calculateSensorReadoutTiming,
   type CaptureShutterMechanism,
-  type NativeSensorReadoutScanDirection,
   type SensorReadoutTiming,
   type SensorReadoutTimingDeclaration,
-  type SourcedSensorReadoutFact,
   type SourcedSensorTimingSeconds
 } from "./readout-timing.js";
 import type {
@@ -115,14 +114,6 @@ const SHUTTER_MECHANISMS =
     "electronic"
   ]);
 
-const SCAN_DIRECTIONS =
-  new Set<NativeSensorReadoutScanDirection>([
-    "top-to-bottom",
-    "bottom-to-top",
-    "left-to-right",
-    "right-to-left"
-  ]);
-
 function parseSecondsFact(
   value: unknown,
   path: string,
@@ -151,32 +142,6 @@ function parseSecondsFact(
   };
 }
 
-function parseDirectionFact(
-  value: unknown,
-  path: string
-): SourcedSensorReadoutFact<NativeSensorReadoutScanDirection> {
-  const record =
-    requireRecord(value, path, ["value", "evidence"]);
-  if (
-    typeof record.value !== "string" ||
-    !SCAN_DIRECTIONS.has(
-      record.value as NativeSensorReadoutScanDirection
-    )
-  ) {
-    throw new InvalidConfigurationError(
-      path + ".value is invalid."
-    );
-  }
-  return {
-    value:
-      record.value as NativeSensorReadoutScanDirection,
-    evidence:
-      parseEvidenceList(
-        record.evidence,
-        path + ".evidence"
-      )
-  };
-}
 
 function parseBoundarySchedule(
   value: unknown,

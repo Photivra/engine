@@ -14,7 +14,7 @@ import { resolveColorSamplingSite } from "../sensor/color-sampling.js";
 import { parseExportSensorColorProfile, type ExportSensorColorProfile } from "./photographic-export.js";
 import { prepareSensorColorDevelopment, type RawHighlightMode, type SensorColorDevelopment } from "../color/sensor-color-development.js";
 import { calculateSdrRendering, parseSdrRenderingProfile, prepareSdrPixelTone, type SdrRenderingProfile, type SdrRenderingResult } from "../output/sdr-rendering.js";
-import { renderSdrRunInto, type NativeTaskProgress, type SdrPixelCounts } from "../output/native-capture-sdr.js";
+import { renderSdrRunInto, sdrOutputEncoding, type NativeTaskProgress, type SdrPixelCounts } from "../output/native-capture-sdr.js";
 import { transformOrientedRasterPointToNative } from "../output/capture-geometry.js";
 import { InvalidConfigurationError } from "../core/configuration-error.js";
 import { DEFAULT_HOST_YIELD_CADENCE, createHostYieldGate, type HostYieldCadence } from "./host-yield-cadence.js";
@@ -262,9 +262,6 @@ export function developNativeRawReference(input: NativeRawDevelopmentInput): {in
     for(const key of ["renderingNegativeSampleCount","renderingAboveReferenceSampleCount","toneChangedSampleCount","gamutClippedLowSampleCount","gamutClippedHighSampleCount"] as const)diagnostics[key]+=rendered.diagnostics[key];
   }
   return {integerSamples:out,diagnostics,highlight:highlightOf(v.highlightMode,counts)};
-}
-function sdrOutputEncoding(maximum: number): SdrRenderingResult["outputEncoding"] {
-  return {imageState:"output-referred-sdr",colorSpace:"srgb",primariesXy:{red:[.64,.33],green:[.30,.60],blue:[.15,.06]},whitePointXy:[.3127,.3290],referenceWhiteLuminanceCdM2:80,codeMinimum:0,codeMaximum:maximum};
 }
 /**
  * Creates a native RAW development task.

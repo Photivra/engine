@@ -32,7 +32,7 @@ import {
   parseFocusPlane,
   type FocusPlane
 } from "./focus-state.js";
-import { requireInputKeys, rejectUnknownVariantFields, UNCERTAINTY_VARIANT_FIELDS, requireConfigRecord as requireRecord, requireTrimmedConfigString as requireNonEmptyString, requireConfigFinite as requireFinite, parseConfigScientificStatus as parseStatus, requireConfigNonNegativeSafeInteger as requireNonNegativeSafeInteger, requireConfigPositiveSafeInteger as requirePositiveSafeInteger, requireInputFinite as requireScientificFinite, parseConfigLimitations as parseLimitations, requireConfigFiniteAboveZero as requirePositiveFinite, requireConfigFiniteAtLeastZero as requireNonNegativeFinite, requireInputFiniteAboveZero as requireScientificPositiveFinite, requireConfigUnitInterval as requireUnitInterval } from "../core/record-validation.js";
+import { parseConfigUncertainty, requireInputKeys, requireConfigRecord as requireRecord, requireTrimmedConfigString as requireNonEmptyString, requireConfigFinite as requireFinite, parseConfigScientificStatus as parseStatus, requireConfigNonNegativeSafeInteger as requireNonNegativeSafeInteger, requireConfigPositiveSafeInteger as requirePositiveSafeInteger, requireInputFinite as requireScientificFinite, parseConfigLimitations as parseLimitations, requireConfigFiniteAboveZero as requirePositiveFinite, requireConfigFiniteAtLeastZero as requireNonNegativeFinite, requireInputFiniteAboveZero as requireScientificPositiveFinite, requireConfigUnitInterval as requireUnitInterval } from "../core/record-validation.js";
 
 export const LENS_SAMPLED_PSF_PROFILE_SCHEMA_VERSION =
   "0.1.0" as const;
@@ -312,41 +312,7 @@ export function parseUncertainty(
   value: unknown,
   path: string
 ): LensPsfUncertainty {
-  const record =
-    requireRecord(value, path, null);
-  rejectUnknownVariantFields(record, "kind", UNCERTAINTY_VARIANT_FIELDS, path);
-  if (record.kind === "relative") {
-    return {
-      kind: "relative",
-      fraction:
-        requireNonNegativeFinite(
-          record.fraction,
-          path + ".fraction"
-        ),
-      basis:
-        requireNonEmptyString(
-          record.basis,
-          path + ".basis"
-        )
-    };
-  }
-  if (
-    record.kind ===
-    "not-quantified"
-  ) {
-    return {
-      kind: "not-quantified",
-      limitation:
-        requireNonEmptyString(
-          record.limitation,
-          path +
-            ".limitation"
-        )
-    };
-  }
-  throw new InvalidConfigurationError(
-    path + ".kind is invalid."
-  );
+  return parseConfigUncertainty(value, path, requireNonNegativeFinite, requireNonEmptyString);
 }
 
 function parseAxis(
