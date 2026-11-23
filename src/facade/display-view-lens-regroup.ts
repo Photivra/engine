@@ -77,7 +77,9 @@ export function rollingLensBands(geometry: PreparedDefocusImageSpaceGeometry, ti
     return worst;
   };
   let perRow = 0;
-  for (const row of [...new Set([0, H >> 1, H - 2])]) for (const x of columns) perRow = Math.max(perRow, shift(x, row, row + 1));
+  // The neighbour row stays on the raster (#730 `facade-17`: with two rows, row H >> 1 = 1 has no row below it; a row against itself
+  // shifts by 0, so the clamp changes nothing else).
+  for (const row of [...new Set([0, H >> 1, H - 2])]) for (const x of columns) perRow = Math.max(perRow, shift(x, row, Math.min(H - 1, row + 1)));
   let rows = perRow > 0 ? 2 * Math.floor(LENS_ROW_BAND_MAXIMUM_SHIFT_SITES / perRow) + 1 : LENS_ROW_BAND_MAXIMUM_ROWS - 1;
   rows = Math.max(1, Math.min(LENS_ROW_BAND_MAXIMUM_ROWS - 1, rows));
   for (;;) {
@@ -176,7 +178,9 @@ export function createRollingRegroupedLensSignal(source: RollingRegroupedLensInp
     get blocksComputed(): number { return computed; },
     uniformMaterial: -1,
     tracksMaterial: false,
-    cachesSites: false,
+    // #711: the blocks are kept for the signal and a site's value depends only on its block, so a site read again gives the same
+    // bits without new work; the view's per-pixel memo may then replay a real pixel's terms (as for the lens signal's ring).
+    cachesSites: true,
     marksReads: false,
     markReads(): void { /* never called: marksReads is false */ },
     window(): void { /* the blocks are fixed and kept for the signal; a window changes nothing */ },
