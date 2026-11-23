@@ -64,5 +64,8 @@ describe("whole-frame DNG from region parts (#391)", () => {
     await expect(serializeSimulatedCaptureDngFromParts({ ...options, output: { ...options.output, region: { x: 0, y: 0, width: 8, height: 8 } } }, parts)).rejects.toThrow("no output.region");
     await expect(serializeSimulatedCaptureDngFromParts({ ...options, output: { ...options.output, format: "png" } }, parts)).rejects.toThrow("output.format \"dng\"");
     await expect(serializeSimulatedCaptureDngFromParts(options, [])).rejects.toThrow("at least one part");
+    // #730 facade-03: undefined parts are refused as [] and null are, not rendered as a whole capture.
+    await expect(serializeSimulatedCaptureDngFromParts(options, undefined as unknown as [])).rejects.toThrow("at least one part");
+    await expect(serializeSimulatedCaptureDngFromParts({ ...options, output: { ...options.output, region: { x: 0, y: 0, width: 8, height: 8 } } }, undefined as unknown as [])).rejects.toThrow("no output.region");
   }, scaledTimeout(120_000));
 });

@@ -3916,7 +3916,8 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   const tabulatedScene = !layered?.multi && (chart !== undefined || callerScene?.kind === "material-function" || callerScene?.kind === "image-plane");
   // #391: a DNG from region parts takes the whole frame's RAW from the parts instead of rendering it.
   // #571: simulateCaptureFromParts takes the RAW from the parts in the same way, then develops it as a capture does.
-  const dngParts = run === "dng-from-parts" || run === "develop-from-parts" ? viewOption : undefined,
+  // #730 facade-03: the entry function decides a parts run, not the value, so an undefined `parts` is refused as `null` is.
+  const dngParts = run === "dng-from-parts" || run === "develop-from-parts" ? viewOption ?? null : undefined,
     partsCaller = run === "dng-from-parts" ? "serializeSimulatedCaptureDngFromParts" : "simulateCaptureFromParts";
   if (dngParts !== undefined && regionNative) fail(partsCaller + " takes the whole frame: the options take no output.region.");
   let tabulated: Awaited<ReturnType<typeof renderTabulatedNativeRaw>>, perTapSum = false;
