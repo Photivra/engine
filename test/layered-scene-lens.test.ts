@@ -20,10 +20,13 @@
  * 6. The capture's provider keyed through the lens: capture and view per site within 1e-9 relative (four lattice groups), the
  *    lean lookup, refusals off the lattice, and the base provider's zero beyond a fisheye's horizon.
  * 7. `edges` keeps the last point's arrays (memoized per point).
+ * 8. The fisheye refusal (owner decision): a framing whose widened raster stays under 75° off the axis passes, one just beyond
+ *    (or reading outside the image circle) is refused with the limit in the message. Tests 4 and 6 call the modules directly, without
+ *    this check, so they also measure the rim band the wiring will refuse.
  */
 import { describe, expect, it } from "vitest";
 import { createDefocusImageSpaceProvider, prepareDefocusImageSpaceGeometry, type PreparedDefocusImageSpaceGeometry } from "../src/facade/defocus-image-space-provider.js";
-import { createLayeredLensMap, createLayeredLatticeGeometry, layeredBoxRelation, type LayeredFramePoint, type LayeredLensMap } from "../src/facade/layered-lattice-geometry.js";
+import { LAYERED_FISHEYE_MAXIMUM_FIELD_ANGLE_DEGREES, checkLayeredFisheyeFieldAngle, createLayeredLensMap, createLayeredLatticeGeometry, layeredBoxRelation, type LayeredFramePoint, type LayeredLensMap } from "../src/facade/layered-lattice-geometry.js";
 import { createLayeredSceneProvider } from "../src/facade/layered-scene-provider.js";
 import { LAYERED_OCCLUSION_SAMPLES, createLayeredSceneLattice, createLayeredSceneSignal, type LayeredSceneSignalInput } from "../src/facade/layered-scene-signal.js";
 import { internalRadianceAccess, markInternalSceneRadianceEvaluator } from "../src/core/internal-radiance-evaluator.js";
@@ -384,5 +387,27 @@ describe("#744: edges are memoized per point (test 7)", () => {
     expect(Array.from(geometry.edges(group, 60, 30)[0]!)).toEqual(Array.from(copy));
     expect(geometry.planar).toBe(false);
     expect(geometry.lensReachSites).toBeGreaterThan(0);
+  });
+});
+
+describe("#744: the fisheye field-angle refusal (owner decision: under 75°)", () => {
+  const l = lens(12, "fisheye-equisolid-angle", -0.02, false), reachSites = 6;
+  // The raster (3:2, 375 µm sites) whose widened corner looks at `degrees` off the axis, by bisection on its width in sites.
+  const angleOf = (width: number): number => {
+    const x = (width / 2 - 0.5 + reachSites) * PITCH / 1000, y = (width / 3 - 0.5 + reachSites) * PITCH / 1000, look = l.geometry.lookOf(x, y, 0);
+    return Math.acos(look.z / Math.hypot(look.x, look.y, look.z)) * 180 / Math.PI;
+  };
+  const widthAt = (degrees: number): number => { let lo = 4, hi = 120; for (let i = 0; i < 60; i++) { const m = (lo + hi) / 2; if (angleOf(m) < degrees) lo = m; else hi = m; } return lo; };
+  const check = (width: number): number => checkLayeredFisheyeFieldAngle({ geometry: l.geometry, pitchMicrometers: PITCH, nativeWidth: width, nativeHeight: width * 2 / 3, reachSites });
+
+  it("renders a framing just inside 75° and refuses one just outside, naming the limit", () => {
+    const inside = widthAt(74.5), outside = widthAt(75.5);
+    expect(check(inside)).toBeGreaterThan(74);
+    expect(check(inside)).toBeLessThan(LAYERED_FISHEYE_MAXIMUM_FIELD_ANGLE_DEGREES);
+    expect(() => check(outside)).toThrow(/only within 75° of the axis \(15° inside the horizon\); this request reads points 75\.\d° off the axis/);
+  });
+
+  it("refuses a framing that reads outside the image circle", () => {
+    expect(() => check(W)).toThrow(/outside the image circle/);
   });
 });

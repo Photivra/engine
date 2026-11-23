@@ -44,6 +44,8 @@
  *   the curved card. Where an edge that crosses a point's reach deviates by more than {@link LAYERED_EDGE_CURVATURE_TOLERANCE_SITES},
  *   the visibility takes each kernel tap's pupil region with the tangents at that region's own footprint instead, split in four
  *   until each piece is within the tolerance (`layered-visibility.ts`, `rowsHold`).
+ *   Fisheyes: the wiring refuses a layered request that reads any point 75° or more off the axis
+ *   ({@link checkLayeredFisheyeFieldAngle}; owner decision), so the rule below applies only to lens maps used without that check.
  *   At the horizon (an approximation, labeled: the scene is not defined there). A ray whose point on a surface sees no scene ends
  *   there, dark. A lattice point whose whole reach box sees no scene has no card (every value it reads is 0); one whose box
  *   straddles the horizon has no tangent map to trust, so its rows do not hold and each tap's region takes its own tangents, a
@@ -247,6 +249,40 @@ export function createLayeredLensMap(input: {
       return point && { x: point.x / mm, y: point.y / mm };
     }
   };
+}
+
+/**
+ * The largest field angle, in degrees, a layered chart scene with a fisheye lens may read (owner decision, 2.29.0): 15° inside the
+ * horizon. Nearer the horizon the frame coordinate (tan θ) blows up and the tangent edges are not within the layered sum's bounds.
+ */
+export const LAYERED_FISHEYE_MAXIMUM_FIELD_ANGLE_DEGREES = 75;
+
+/**
+ * Internal, for the wiring of a layered chart scene with a fisheye lens: fails unless every sensor point the request reads (the
+ * native raster's outer site centres widened by `reachSites`, the lattice's `lensReachSites`) looks less than
+ * {@link LAYERED_FISHEYE_MAXIMUM_FIELD_ANGLE_DEGREES} off the axis. The boundary of that rectangle is checked at 64 points per side
+ * (the radial projections' field angle grows with the radius, so the largest is on it); a point that looks backward (outside the
+ * image circle) counts as 180°. Returns the largest field angle found, in degrees.
+ */
+export function checkLayeredFisheyeFieldAngle(input: {
+  geometry: { lookOf(xMm: number, yMm: number, timeSeconds: number): { x: number; y: number; z: number } };
+  pitchMicrometers: number; nativeWidth: number; nativeHeight: number; reachSites: number;
+}): number {
+  const mm = input.pitchMicrometers / 1000, hx = (input.nativeWidth / 2 - 0.5 + input.reachSites) * mm, hy = (input.nativeHeight / 2 - 0.5 + input.reachSites) * mm;
+  let largest = 0;
+  const N = 64;
+  for (let i = 0; i <= N; i++) {
+    const t = -1 + 2 * i / N;
+    for (const [x, y] of [[t * hx, -hy], [t * hx, hy], [-hx, t * hy], [hx, t * hy]] as const) {
+      const look = input.geometry.lookOf(x, y, 0), length = Math.hypot(look.x, look.y, look.z);
+      largest = Math.max(largest, Math.acos(Math.max(-1, Math.min(1, look.z / length))) * 180 / Math.PI);
+    }
+  }
+  if (!(largest < LAYERED_FISHEYE_MAXIMUM_FIELD_ANGLE_DEGREES))
+    fail("Layered chart scenes with a fisheye lens render only within " + LAYERED_FISHEYE_MAXIMUM_FIELD_ANGLE_DEGREES + "° of the axis (15° inside the horizon); " +
+      "this request reads points " + (largest >= 180 ? "outside the image circle" : largest.toFixed(1) + "° off the axis") +
+      ". Use a longer focal length, a smaller frame or less defocus.");
+  return largest;
 }
 
 /** Internal: the geometry of a layer list (validated by the caller, `createLayeredSceneLattice`). */
