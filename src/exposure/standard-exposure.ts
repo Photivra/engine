@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
+import { portableExp2 } from "../core/portable-math.js";
 
 /**
  * The engine's standard exposure, shared by `simulateCapture` (its exposure anchor, meter and deviation reports) and the
@@ -32,7 +33,10 @@ export function standardExposureValue100(luminanceCdPerSquareMeter: number): num
   return Math.log2(CAMERA_EQUATION_CONSTANT * luminanceCdPerSquareMeter * 100 / SOS_REFERENCE_EXPOSURE_NUMERATOR_LUX_SECONDS);
 }
 
-/** Luminance (cd/m²) whose standard exposure at ISO 100 is `ev100`: L = 10·2^EV100/(0.65·100). */
+/**
+ * Luminance (cd/m²) whose standard exposure at ISO 100 is `ev100`: L = 10·2^EV100/(0.65·100). 2.29.0: 2^EV100 by `portableExp2`, so
+ * the result is the same on every JavaScript engine (V8's `2 ** x` rounds some non-integer x differently between Node 22 and 24).
+ */
 export function standardExposureLuminance(ev100: number): number {
-  return SOS_REFERENCE_EXPOSURE_NUMERATOR_LUX_SECONDS * 2 ** ev100 / (CAMERA_EQUATION_CONSTANT * 100);
+  return SOS_REFERENCE_EXPOSURE_NUMERATOR_LUX_SECONDS * portableExp2(ev100) / (CAMERA_EQUATION_CONSTANT * 100);
 }

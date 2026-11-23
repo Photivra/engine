@@ -46,7 +46,7 @@ describe("calculation bundles (#765)", () => {
     const line = await bundle(["calculateProgramLine"]);
     expect(line.modules.filter((id) => HEAVY.test(id))).toEqual([]);
     expect(line.modules).toContain("equipment/generic-tier-exposure.ts");
-    // Measured 14,508 B (24,838 B on 2.28.0).
+    // Measured 14,508 B (24,838 B on 2.28.0); 14,500 B once standardExposureLuminance took portableExp2 (2.29.0).
     expect(line.gzip).toBeLessThanOrEqual(14_600);
   }, testTimeout(120_000));
 
@@ -109,7 +109,10 @@ describe("the moves change no result (#765)", () => {
   });
 
   it("calculateProgramLine is unchanged for every tier", () => {
-    // 135 results (tiers × ISO × lens ranges × scene brightness), serialized, as recorded on 2.28.0 (783f38f) before the move.
+    // 135 results (tiers × ISO × lens ranges × scene brightness), serialized; recorded on 2.28.0 (783f38f) before the move, then
+    // re-recorded in 2.29.0 when standardExposureLuminance took portableExp2 (the same on Node 22, 24 and 26): the 27 results with
+    // ev100 11.5 move on Node 24 and 26, their selection's luminanceCdPerSquareMeter by 1 ulp and its standardExposureDeviationStops
+    // (a rounding residual near 1e-14) with it; the move itself (#765) changed no result.
     const out: unknown[] = [];
     for (const camera of ["consumer", "prosumer", "professional"] as const) for (const iso of [100, 200, 1600]) {
       for (const lens of [undefined, { widestFNumber: 2.8, narrowestFNumber: 22 }, { widestFNumber: 5.6, narrowestFNumber: 8 }]) {
@@ -118,6 +121,6 @@ describe("the moves change no result (#765)", () => {
         }
       }
     }
-    expect(createHash("sha256").update(JSON.stringify(out)).digest("hex").slice(0, 16) + ":" + out.length).toBe("ea272ce3e466fc9b:135");
+    expect(createHash("sha256").update(JSON.stringify(out)).digest("hex").slice(0, 16) + ":" + out.length).toBe("df106070b8804e94:135");
   });
 });

@@ -51,6 +51,12 @@ Each item is described in its entry below.
   documented as a subject at rest (a zero velocity still is one). Also refused: `null` for `output.gamutHandling`,
   `motion.handheld.seed` and `motion.handheld.stabilizationStops`; `sensor.readNoise: {}`; a part's `fast` or `region.fast` that
   is not a boolean in both from-parts calls.
+- **`calculateProgramLine` with `ev100`: results are identical across Node versions.** `standardExposureLuminance` takes
+  2^EV100 by `portableExp2` (V8's `2 ** x` rounds some non-integer x differently on Node 22 and on Node 24 and 26). On Node 24
+  and 26, for a non-integer `ev100` the selection's `luminanceCdPerSquareMeter` moves by at most 1 ulp, and its
+  `standardExposureDeviationStops` (a rounding residual near 1e-14) with it; settings are unchanged. In the 135-result lock
+  of `test/calculation-bundles.test.ts`, the 27 results with `ev100: 11.5` move (the lock is re-recorded); Node 22's results
+  are unchanged.
 - **Ties of the ISO, shutter and aperture snaps (`foundation-05`, #753).** Requests within 1e-9 stops of a tie take the
   documented side (the lower ISO, the shorter shutter, the narrower aperture): compensation 0.5 and 1.5 give ISO 100 and 200
   (200 and 400 before), third-stop compensation 0.5 gives ISO 125 (160 before).
@@ -103,7 +109,7 @@ integration tree. No limit is raised; the new rows' limits are their measurement
 | layered chunk (new) | — | **22,962 B** | 23,000 B |
 | layered GPU chunk (#750, new) | — | **8,331 B** | 8,400 B |
 | typical processing (#740, new): body; entry delta | — | **17,889 B; 1,331 B** | 17,900 B; 1,400 B |
-| `calculateProgramLine` (#765, new) | 24,838 B | **14,508 B** | 14,600 B |
+| `calculateProgramLine` (#765, new) | 24,838 B | **14,500 B** | 14,600 B |
 | `calculateIdealLensDetailLimit`; `calculateDetailLimit` (#765, new) | —; 10,200 B | **4,954 B; 10,299 B** | 5,000 B; 10,300 B |
 
 Savings that made the room: the WGSL minifier tightens blankspace, lines with an interpolation and newlines at brackets,
@@ -212,7 +218,7 @@ mixed-light parts (shared machine): `fast: false` catalogue-768 39.81 → 18.94 
 
 ### Bundles and calculations
 
-- **#765.** `calculateProgramLine` reads only the tiers' exposure side (`equipment/generic-tier-exposure.ts`): 24,838 → 14,508 B,
+- **#765.** `calculateProgramLine` reads only the tiers' exposure side (`equipment/generic-tier-exposure.ts`): 24,838 → 14,500 B,
   results pinned by 135 hashes. `calculateIdealLensDetailLimit` is `calculateDetailLimit` for an ideal lens in a module without
   the lens catalogue (4,954 B).
 - **#658.** The WGSL savings above; the Speed, Quality and lens shaders' tokens are unchanged (17 pinned lexer hashes), and their

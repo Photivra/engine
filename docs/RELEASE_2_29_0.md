@@ -81,7 +81,7 @@ being refused and the new layered refusals; the layered kernel bounds (512 and 1
 the layered run sum and the tabulated layered capture (rule 3, the seam locks re-recorded); #748's framing under focus
 scatter; #741 without a per-wavelength axial-color blur; #746's 16 midpoints at 0.95 % of the local swing; #767's
 `lens.diffraction` execution label in views; #786's refused `{}` and `null` options; the ISO, shutter and aperture ties
-(`foundation-05`); #738's whole-stop list; `sensor-03`, `sensor-04`, `optics-22`, `optics-26`; temperatures at or below
+(`foundation-05`); `calculateProgramLine` with a non-integer `ev100` identical across Node versions (1 ulp on Node 24 and 26); #738's whole-stop list; `sensor-03`, `sensor-04`, `optics-22`, `optics-26`; temperatures at or below
 absolute zero (#742); and the facade items of #730.
 
 ## Sizes
@@ -100,7 +100,7 @@ is raised; the new rows' limits are their measurements rounded up to the next 10
 | layered chunk (new) | — | **22,962 B** | 23,000 B |
 | layered GPU chunk (new) | — | **8,331 B** | 8,400 B |
 | typical processing: body; entry delta (new) | — | **17,889 B; 1,331 B** | 17,900 B; 1,400 B |
-| `calculateProgramLine` (new row) | 24,838 B | **14,508 B** | 14,600 B |
+| `calculateProgramLine` (new row) | 24,838 B | **14,500 B** | 14,600 B |
 | `calculateIdealLensDetailLimit`; `calculateDetailLimit` (new rows) | —; 10,200 B | **4,954 B; 10,299 B** | 5,000 B; 10,300 B |
 
 ## Benchmarks
