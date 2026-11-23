@@ -3532,7 +3532,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
     // 2.29.0), the scene provider sums the taps on the site lattice at each instant (defocus-image-space-provider.ts), so a site asks only
     // its temporal, spectral, filter and aperture nodes: the same terms in another order.
     // #744: a layered scene's lattice holds the diffraction (its provider declares no PSF), with or without a lens map.
-    diffractionLattice = !!layered?.multi || !displayView && !!latticeTaps && !defocusKernel && queriesPerSite * (2 * kernelRadiusSamples + 1) ** 2 > 1e5;
+    diffractionLattice = !!layered?.multi || !!latticeTaps && !defocusKernel && queriesPerSite * (2 * kernelRadiusSamples + 1) ** 2 > 1e5;
     const inputOf = (radius: number): Parameters<typeof createDiffractionLimitedPsfProfile>[0] => ({ aperture: "circular", focalLengthMm, apertureFNumber: fNumber, focus: { kind: "finite", distanceM: focusDistanceM },
       wavelengthsNm: wavelengths, samplePitchMicrometers: pitch, kernelRadiusSamples: radius, fieldHalfExtentMm: aaReachMm === 0 ? { x: imagingArea.widthMm / 2, y: imagingArea.heightMm / 2 } :
         { x: imagingArea.widthMm / 2 + aaReachMm, y: imagingArea.heightMm / 2 + aaReachMm },

@@ -115,18 +115,18 @@ describe("motion with lens.diffraction, the four-spot filter and a box at full q
     expect(Array.from(rest.raw.codes)).toEqual(Array.from(still.raw.codes));
   }, scaledTimeout(60_000));
 
-  it("refuses with the factors (facade-19): a catalogue lens with motion and the filter, a capture without the filter, and the view as before; and a band that does not fit", async () => {
+  it("refuses with the factors (facade-19): a catalogue lens with motion and the filter, a capture without the filter, and the view (rendered since #767); and a band that does not fit", async () => {
     await expect(simulateCapture({ ...request({ motion: yaw }), lens: { catalogue: "pv-50-1.8", fNumber: 8 } } as SimulateCaptureOptions)).rejects.toThrow(
       "These options need 435456 scene queries per site (temporal samples × spectral nodes × pupil rays × filter spots × pixel-aperture nodes × PSF taps: 16 × 21 × 1 × 4 × 4 × 81); the environment admits at most 100000.");
     const issue = { scene: { preset: "slanted-edge" }, sensor: { pixelAperture: { kind: "box", samplesPerAxis: 16 }, temporalSampleCount: 256 }, motion: { angularVelocityRadPerSec: { yaw: 0.01 } },
       output: { width: 4, height: 4 } } as SimulateCaptureOptions;
     await expect(simulateCapture(issue)).rejects.toThrow("These options need 1376256 scene queries per site (temporal samples × spectral nodes × pupil rays × filter spots × pixel-aperture nodes × PSF taps: 256 × 21 × 1 × 1 × 256 × 1); the environment admits at most 100000.");
-    // The display view does not query per site: without the filter it renders as before, with it the bound applies as before.
+    // The display view does not query per site: without the filter it renders as before; with it, since #767, it counts as the capture does
+    // (the taps summed on the site lattice), so the yaw request renders (test/display-view-motion-diffraction-lattice.test.ts).
     const view = { ...issue, sensor: { ...issue.sensor, temporalSampleCount: 32 }, output: { width: 48, height: 32 } } as SimulateCaptureOptions;
     await expect(simulateCapture(view)).rejects.toThrow("These options need 172032 scene queries per site");
     await expect(simulateDisplayView(view, { width: 24, height: 16 })).resolves.toBeDefined();
-    await expect(simulateDisplayView({ ...request({ motion: yaw, width: 48, height: 32 }) }, { width: 24, height: 16 })).rejects.toThrow(
-      "These options need 435456 scene queries per site (temporal samples × spectral nodes × pupil rays × filter spots × pixel-aperture nodes × PSF taps: 16 × 21 × 1 × 4 × 4 × 81)");
+    await expect(simulateDisplayView({ ...request({ motion: yaw, width: 48, height: 32 }) }, { width: 24, height: 16 })).resolves.toBeDefined();
     // 80 nodes × 16 instants × 4 shifts × a 484-site lattice row × 4 rows kept: 76 MiB.
     await expect(simulateCapture(request({ motion: yaw, sensor: { spectralStepNanometers: 5 }, width: 480, height: 4 }))).rejects.toThrow(
       /^The image-space convolution keeps 76 MiB for one row of sites \(80 spectral nodes × 16 instants × 4 lattice shifts × 484 sites × 4 rows, and one row's grid\); the limit is 64 MiB\. Render a narrower output\.region\.$/);
