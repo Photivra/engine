@@ -894,9 +894,13 @@ for (const layer of view.scene.layers ?? []) console.log(layer.kind, layer.dista
   print on the single-plane path at the card's distance.
 - Occlusion at card edges: 4 rows per site of footprint on fast requests (the display view and sRGB samples), 16 with
   `fast: false`, the exports and the ideal reference (`scene.layers/occlusion-samples`).
-- Not in 2.27.0 (refused with a message): motion, non-rectilinear projections, `lens.distortion`, `lens.vignetting`,
-  `lens.catalogue`, `lens.pupilSampling`, `lens.psf`, `chartSize` and `illumination`; no GPU path (`gpu: "auto"` renders on the
-  CPU, labelled `unsupported-on-backend`). Details: [Layered scenes](https://github.com/Photivra/engine/blob/main/docs/LAYERED_SCENES.md).
+- Since 2.29.0 layered scenes also take `lens.projection`, `lens.distortion`, `lens.vignetting`, `lens.catalogue` (with
+  `lens.focusScatter` and `lens.catalogue.breathing`), `illumination`, `chartSize`, camera rotation, `motion.handheld` and a
+  rolling shutter, and a view on the planar map (a still, rectilinear, distortion-free camera, one illuminant) renders on the
+  GPU under `gpu: "auto"`. Still refused with a message: `motion.subject`, `lens.catalogue.flare`, `lens.pupilSampling` and
+  `lens.psf`. `calculateLayeredChartSurfaceAt` and `calculateLayeredChartSurfaceAtPixel` give the surface at a point for tap to
+  focus, and the view's `focusMask` an in-focus score per display pixel. Details:
+  [Layered scenes](https://github.com/Photivra/engine/blob/main/docs/LAYERED_SCENES.md).
 
 ## White balance
 

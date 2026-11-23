@@ -232,7 +232,8 @@ surface's nominal thin-lens ray map σ·c/2 (an approximation, measured in `test
 refused with layered scenes (its veil is formed from a single-plane scene's materials).
 
 Focus (#748): with `lens.focusScatter` every surface's blur and kernel are computed at the sampled focus, and `result.scene.layers`
-reports the blur there; the frame keeps the requested focus's thin-lens framing, as on the single-plane path. With
+reports the blur there; the frame keeps the requested focus's thin-lens framing, as on the single-plane path, so the depths,
+kernels and report equal those of a request focused at the sampled focus but the pixels do not (the framing differs). With
 `lens.catalogue.breathing` every surface's frame point scales by 1 + Δ (the lattice's frame scale 1 / (1 + Δ)), as the single plane's
 distance does: a card larger than the frame renders as the single-plane catalogue view of its print with breathing (equal there to
 1e-9 relative on the full method), and a card edge moves by the predicted u₀·(w/2)·(1/(1 + Δ) − 1) sites within one site.
