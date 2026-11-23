@@ -153,4 +153,14 @@ describe("simulateFalseColor with measure.noise (#743)", () => {
     await expect(simulateFalseColor({ ...options, fast: true }, { noise: true })).rejects.toThrow(/fast: true/);
     await expect(simulateFalseColor(options, { noise: true, bogus: 1 } as never)).rejects.toThrow(/bogus/);
   }, 60_000);
+
+  it("takes noise: undefined as the key left out, and refuses false and null", async () => {
+    const options = request(grating(0.3), "ahd");
+    const plain = await simulateFalseColor(options, { map: true }), undefinedNoise = await simulateFalseColor(options, { noise: undefined, map: true } as never);
+    const untimed = (r: typeof plain): unknown => ({ ...r, diagnostics: { ...r.diagnostics, timingsMs: undefined } });
+    expect(untimed(undefinedNoise)).toEqual(untimed(plain));
+    expect(undefinedNoise.noise).toBeUndefined();
+    for (const noise of [false, null, 0])
+      await expect(simulateFalseColor(options, { noise } as never)).rejects.toThrow("simulateFalseColor: measure.noise must be true or { seed }.");
+  }, 60_000);
 });

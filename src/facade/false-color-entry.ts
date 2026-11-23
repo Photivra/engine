@@ -54,6 +54,12 @@ export async function simulateFalseColor(options: SimulateCaptureOptions, measur
     now: clockMs,
     versions: { facade: SIMULATE_CAPTURE_FACADE_VERSION, engine: ENGINE_API_VERSION }, evidence: FACADE_EVIDENCE
   };
+  // #743: noise: undefined is the key left out; false or null is refused here (the body's key check does not know noise).
+  if (typeof measure === "object" && measure !== null && "noise" in measure && !measure.noise) {
+    if (measure.noise !== undefined) fail("simulateFalseColor: measure.noise must be true or { seed }.");
+    measure = { ...measure };
+    delete measure.noise;
+  }
   return await (measure?.noise ? (await noiseBody.load()).measureFalseColorNoise(options, measure, deps, measureFalseColor,
     runCapture, EXPOSURE_BUILD_UP_STAGES, samplePoisson, createResettableUniformStream, deriveNativeSiteStreamSeedUint32) : measureFalseColor(options, measure, deps));
 }
