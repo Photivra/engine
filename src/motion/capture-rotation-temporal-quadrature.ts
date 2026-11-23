@@ -33,7 +33,7 @@ import {
 import type { RasterPoint, RasterVector } from "../output/capture-geometry.js";
 import type { ImagePlanePointMm } from "./camera-rotation.js";
 import {
-  calculateCaptureRotationInverseMappings,
+  prepareCaptureRotationInverseMappings,
   type CalculateCaptureRotationInverseMappingsInput
 } from "./capture-rotation-inverse-mapping.js";
 import { requireInputKeys, requireInputObject } from "../core/record-validation.js";
@@ -168,19 +168,14 @@ export function calculateCaptureRotationTemporalQuadrature(
     ...instantaneousInput
   } = input;
 
+  // #753 `sensor-28` (2.29.0): the exposure windows, capture geometry and sensor metrics are resolved once for every phase.
+  const mappingsAt = prepareCaptureRotationInverseMappings(instantaneousInput);
   const phaseResults = Array.from(
     { length: temporalSampleCount },
-    (_, temporalSampleIndex) => {
-      const localExposurePhase = midpointPhase(
-        temporalSampleIndex,
-        temporalSampleCount
-      );
-
-      return calculateCaptureRotationInverseMappings({
-        ...instantaneousInput,
-        localExposurePhase
-      });
-    }
+    (_, temporalSampleIndex) => mappingsAt(midpointPhase(
+      temporalSampleIndex,
+      temporalSampleCount
+    ))
   );
 
   const firstResult = phaseResults[0];

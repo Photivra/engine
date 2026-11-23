@@ -209,11 +209,28 @@ export function calculateCaptureRotationInverseMappings(
   input: CalculateCaptureRotationInverseMappingsInput
 ): CalculationResult<CaptureRotationInverseMappings> {
   requireInputKeys(input, "calculateCaptureRotationInverseMappings", ["imagingArea", "focalLengthMm", "focusDistanceM", "angularVelocityRadPerSec", "localExposurePhase", "orientation", "samplePointsNative", "nativeRaster", "activeCaptureRect", "shutterMechanism", "nominalExposureDurationSeconds", "opening", "closing"]);
+  requireImagingAreaAndFocalLength(input);
+  requireExposurePhase(input.localExposurePhase);
+  return prepareCaptureRotationInverseMappings(input)(input.localExposurePhase);
+}
+
+function requireImagingAreaAndFocalLength(input: Pick<CalculateCaptureRotationInverseMappingsInput, "imagingArea" | "focalLengthMm">): void {
   requireInputObject(input.imagingArea, "imagingArea");
   requirePositiveFinite("imagingArea.widthMm", input.imagingArea.widthMm);
   requirePositiveFinite("imagingArea.heightMm", input.imagingArea.heightMm);
   requirePositiveFinite("focalLengthMm", input.focalLengthMm);
-  requireExposurePhase(input.localExposurePhase);
+}
+
+/**
+ * #753 `sensor-28` (2.29.0): the phase-independent part of {@link calculateCaptureRotationInverseMappings}, resolved once (the
+ * exposure windows, the capture geometry, the sensor metrics and each point's image-plane position), and a function that maps
+ * the points at one phase with the same arithmetic. `calculateCaptureRotationTemporalQuadrature` calls it once for all its
+ * phases instead of resolving the windows, geometry and metrics again at every phase. The phase is not checked here.
+ */
+export function prepareCaptureRotationInverseMappings(
+  input: Omit<CalculateCaptureRotationInverseMappingsInput, "localExposurePhase">
+): (localExposurePhase: number) => CalculationResult<CaptureRotationInverseMappings> {
+  requireImagingAreaAndFocalLength(input);
   requireNonEmptySamples(input.samplePointsNative);
 
   const exposureWindows = calculateCaptureExposureWindows({
@@ -246,123 +263,127 @@ export function calculateCaptureRotationInverseMappings(
   const pitchYmm =
     sensorGeometry.value.sampling.pitchYMicrometers / 1000;
 
-  let inverseRotationProvenance: CalculationProvenance | undefined;
-  const samples = input.samplePointsNative.map((point, index) => {
-    const exposure = exposureWindows.value.samples[index];
-    if (exposure === undefined) {
+  // Each point's position on the image plane, found at the first phase and reused by the others (the same order of checks).
+  const destinationImagePoints: ImagePlanePointMm[] = [];
+  return (localExposurePhase: number): CalculationResult<CaptureRotationInverseMappings> => {
+    let inverseRotationProvenance: CalculationProvenance | undefined;
+    const samples = input.samplePointsNative.map((point, index) => {
+      const exposure = exposureWindows.value.samples[index];
+      if (exposure === undefined) {
+        throw new InvalidScientificInputError(
+          "Exposure-window sample alignment failed."
+        );
+      }
+
+      const destinationImagePointMm = destinationImagePoints[index] ??= nativePointToImagePlane(
+        point,
+        geometry.activeCapture.nativeRect,
+        geometry.activeCapture.physicalBoundsFromOpticalAxisMm
+      );
+      const captureTimeSecondsFromReference = captureTimeAtPhase(
+        exposure,
+        localExposurePhase
+      );
+
+      const inverse = calculateInverseCameraRotationImageMapping({
+        focalLengthMm: input.focalLengthMm,
+        imagePointMm: destinationImagePointMm,
+        timeSecondsFromExposureStart:
+          captureTimeSecondsFromReference,
+        angularVelocityRadPerSec: input.angularVelocityRadPerSec,
+        ...(input.focusDistanceM === undefined
+          ? {}
+          : { focusDistanceM: input.focusDistanceM }),
+        samplingPitchMicrometers: {
+          x: sensorGeometry.value.sampling.pitchXMicrometers,
+          y: sensorGeometry.value.sampling.pitchYMicrometers
+        }
+      });
+      inverseRotationProvenance ??= inverse.provenance;
+
+      const nativeX = inverse.value.deltaMm.x / pitchXmm;
+      const nativeY = -inverse.value.deltaMm.y / pitchYmm;
+      const inverseDisplacementNativeSamples = {
+        x: nativeX,
+        y: nativeY,
+        distance: Math.hypot(nativeX, nativeY)
+      };
+      const orientedVector = transformNativeRasterVectorToOriented({
+        vector: {
+          x: inverseDisplacementNativeSamples.x,
+          y: inverseDisplacementNativeSamples.y
+        },
+        orientation: input.orientation
+      });
+      const inverseDisplacementOrientedSamples = {
+        ...orientedVector,
+        distance: Math.hypot(orientedVector.x, orientedVector.y)
+      };
+
+      return {
+        destinationPointNative: { ...point },
+        destinationImagePointMm,
+        localExposureWindow: {
+          startSecondsFromCaptureReference:
+            exposure.startOffsetSecondsFromOpeningReference,
+          endSecondsFromCaptureReference:
+            exposure.endOffsetSecondsFromOpeningReference,
+          durationSeconds: exposure.localExposureDurationSeconds
+        },
+        localExposurePhase: localExposurePhase,
+        captureTimeSecondsFromReference,
+        referenceImagePointMm: {
+          ...inverse.value.referenceImagePointMm
+        },
+        inverseDisplacementImagePlaneMm: {
+          ...inverse.value.deltaMm
+        },
+        inverseDisplacementNativeSamples,
+        inverseDisplacementOrientedSamples
+      };
+    });
+
+    if (inverseRotationProvenance === undefined) {
       throw new InvalidScientificInputError(
-        "Exposure-window sample alignment failed."
+        "At least one inverse rotation mapping sample is required."
       );
     }
 
-    const destinationImagePointMm = nativePointToImagePlane(
-      point,
-      geometry.activeCapture.nativeRect,
-      geometry.activeCapture.physicalBoundsFromOpticalAxisMm
+    return approximationResult(
+      {
+        timeReference: "first-opening-boundary-phase",
+        referenceTimeSecondsFromCaptureReference: 0,
+        mappingMeaning:
+          "instantaneous-destination-to-exposure-start-reference-ray",
+        orientation: input.orientation,
+        localExposurePhase: localExposurePhase,
+        imagingArea: { ...input.imagingArea },
+        activeCaptureRect: {
+          ...exposureWindows.value.activeCaptureRect
+        },
+        samples,
+        componentProvenance: {
+          exposureWindows: exposureWindows.provenance,
+          sensorGeometry: sensorGeometry.provenance,
+          inverseCameraRotation: inverseRotationProvenance
+        }
+      },
+      "capture-rotation-instantaneous-inverse-mapping",
+      "1.0.0",
+      [
+        "Destination native capture location determines the local exposure window.",
+        "The caller explicitly selects one phase within each local exposure interval; no midpoint or other phase is inferred.",
+        "The first opening-boundary phase is the reference image time and is bound to t=0 of the camera-rotation model for this composition.",
+        "Pure rotation is inverted analytically after local capture time is known; no iterative or fixed-point solver is used.",
+        "Sensor data-readout timing is not an input and is not assumed to equal any exposure boundary.",
+        "Reference image-plane coordinates are not clamped to the active capture and may fall outside it under motion.",
+        "Native geometric sample displacement uses the full physical imaging-area/native-raster pitch and is not output-resolution dependent.",
+        "Physical capture orientation rotates reported native displacement only; it does not alter native exposure timing.",
+        "The mapping lives in the ideal pre-lens image plane and does not compose radial distortion, chromatic aberration, PSF, or output resampling.",
+        "This is an instantaneous mapping, not finite-exposure integration or a blur kernel.",
+        "Camera translation, depth parallax, subject motion, deformation, occlusion changes, flash/flicker and shutter shock are excluded.",
+        "The model does not claim the global rolling/capture-scan picture-taking map is one-to-one for arbitrary motion."
+      ]
     );
-    const captureTimeSecondsFromReference = captureTimeAtPhase(
-      exposure,
-      input.localExposurePhase
-    );
-
-    const inverse = calculateInverseCameraRotationImageMapping({
-      focalLengthMm: input.focalLengthMm,
-      imagePointMm: destinationImagePointMm,
-      timeSecondsFromExposureStart:
-        captureTimeSecondsFromReference,
-      angularVelocityRadPerSec: input.angularVelocityRadPerSec,
-      ...(input.focusDistanceM === undefined
-        ? {}
-        : { focusDistanceM: input.focusDistanceM }),
-      samplingPitchMicrometers: {
-        x: sensorGeometry.value.sampling.pitchXMicrometers,
-        y: sensorGeometry.value.sampling.pitchYMicrometers
-      }
-    });
-    inverseRotationProvenance ??= inverse.provenance;
-
-    const nativeX = inverse.value.deltaMm.x / pitchXmm;
-    const nativeY = -inverse.value.deltaMm.y / pitchYmm;
-    const inverseDisplacementNativeSamples = {
-      x: nativeX,
-      y: nativeY,
-      distance: Math.hypot(nativeX, nativeY)
-    };
-    const orientedVector = transformNativeRasterVectorToOriented({
-      vector: {
-        x: inverseDisplacementNativeSamples.x,
-        y: inverseDisplacementNativeSamples.y
-      },
-      orientation: input.orientation
-    });
-    const inverseDisplacementOrientedSamples = {
-      ...orientedVector,
-      distance: Math.hypot(orientedVector.x, orientedVector.y)
-    };
-
-    return {
-      destinationPointNative: { ...point },
-      destinationImagePointMm,
-      localExposureWindow: {
-        startSecondsFromCaptureReference:
-          exposure.startOffsetSecondsFromOpeningReference,
-        endSecondsFromCaptureReference:
-          exposure.endOffsetSecondsFromOpeningReference,
-        durationSeconds: exposure.localExposureDurationSeconds
-      },
-      localExposurePhase: input.localExposurePhase,
-      captureTimeSecondsFromReference,
-      referenceImagePointMm: {
-        ...inverse.value.referenceImagePointMm
-      },
-      inverseDisplacementImagePlaneMm: {
-        ...inverse.value.deltaMm
-      },
-      inverseDisplacementNativeSamples,
-      inverseDisplacementOrientedSamples
-    };
-  });
-
-  if (inverseRotationProvenance === undefined) {
-    throw new InvalidScientificInputError(
-      "At least one inverse rotation mapping sample is required."
-    );
-  }
-
-  return approximationResult(
-    {
-      timeReference: "first-opening-boundary-phase",
-      referenceTimeSecondsFromCaptureReference: 0,
-      mappingMeaning:
-        "instantaneous-destination-to-exposure-start-reference-ray",
-      orientation: input.orientation,
-      localExposurePhase: input.localExposurePhase,
-      imagingArea: { ...input.imagingArea },
-      activeCaptureRect: {
-        ...exposureWindows.value.activeCaptureRect
-      },
-      samples,
-      componentProvenance: {
-        exposureWindows: exposureWindows.provenance,
-        sensorGeometry: sensorGeometry.provenance,
-        inverseCameraRotation: inverseRotationProvenance
-      }
-    },
-    "capture-rotation-instantaneous-inverse-mapping",
-    "1.0.0",
-    [
-      "Destination native capture location determines the local exposure window.",
-      "The caller explicitly selects one phase within each local exposure interval; no midpoint or other phase is inferred.",
-      "The first opening-boundary phase is the reference image time and is bound to t=0 of the camera-rotation model for this composition.",
-      "Pure rotation is inverted analytically after local capture time is known; no iterative or fixed-point solver is used.",
-      "Sensor data-readout timing is not an input and is not assumed to equal any exposure boundary.",
-      "Reference image-plane coordinates are not clamped to the active capture and may fall outside it under motion.",
-      "Native geometric sample displacement uses the full physical imaging-area/native-raster pitch and is not output-resolution dependent.",
-      "Physical capture orientation rotates reported native displacement only; it does not alter native exposure timing.",
-      "The mapping lives in the ideal pre-lens image plane and does not compose radial distortion, chromatic aberration, PSF, or output resampling.",
-      "This is an instantaneous mapping, not finite-exposure integration or a blur kernel.",
-      "Camera translation, depth parallax, subject motion, deformation, occlusion changes, flash/flicker and shutter shock are excluded.",
-      "The model does not claim the global rolling/capture-scan picture-taking map is one-to-one for arbitrary motion."
-    ]
-  );
+  };
 }
