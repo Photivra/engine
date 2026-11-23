@@ -7716,7 +7716,7 @@ rendered) and `breathing: true` its focus breathing (the field of view times 1 +
 unchanged. `calculateSubjectDistanceForFraming` and `calculateChartFraming` take `catalogue` (an id or `{ kind, breathing? }`) instead of a
 focal length (#631): a fisheye frames the chart through its equisolid projection and distortion, as the capture renders it.
 `calculateLateralColorFringe({ lensId, activeImagingArea, pixelPitchMicrometers, fieldPosition? })` gives the lens's lateral color as a
-fringe width: the blue-minus-red image displacement in µm and pixels at a field position (default the corner; #580); its `channelDispersion` for
+fringe width: the blue-minus-red image displacement in µm and pixels at a field position (default the corner, or on a circular fisheye the image circle's edge on that diagonal; a position outside the circle is refused; #580, #753); its `channelDispersion` for
 the capture's own channels comes from `calculateCameraChannelResponse({ illuminant })` (#591, full quality: a 5 nm grid by default). Equations, tables and the
 chart measurements: [LENS_CATALOGUE.md](https://github.com/Photivra/engine/blob/main/docs/LENS_CATALOGUE.md).
 

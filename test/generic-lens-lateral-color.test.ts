@@ -15,6 +15,25 @@ const FULL_FRAME = { widthMm: 36, heightMm: 24 };
 const D = (nm: number): number => (nm ** -2 - 587.5618 ** -2) / (486.1327 ** -2 - 656.2725 ** -2);
 
 describe("calculateLateralColorFringe (#580)", () => {
+  it("defaults to the image circle's edge on a circular fisheye and refuses a position outside it (#753 optics-26)", () => {
+    const lens = resolveGenericLens({ lensId: "pv-8-3.5-fisheye-pro", activeImagingArea: FULL_FRAME }), circle = lens.imageCircleRadiusMm!;
+    expect(lens.fisheyeImage).toBe("circular");
+    expect(circle).toBeCloseTo(11.31, 2);
+    const at = (fieldPosition?: { x: number; y: number }): LateralColorFringe =>
+      calculateLateralColorFringe({ lensId: lens.lensId, activeImagingArea: FULL_FRAME, pixelPitchMicrometers: 6, ...(fieldPosition ? { fieldPosition } : {}) }).value;
+    // Before 2.29.0 the default was the corner, (18, 12) mm, 21.63 mm from the axis: outside the 180° circle, where the lens forms no image.
+    const fallback = at(), s = circle / Math.hypot(18, 12);
+    expect(fallback.imagePointMm.x).toBeCloseTo(18 * s, 12);
+    expect(fallback.imagePointMm.y).toBeCloseTo(12 * s, 12);
+    expect(Math.hypot(fallback.imagePointMm.x, fallback.imagePointMm.y)).toBeCloseTo(circle, 12);
+    expect(fallback.fringeWidthMicrometers).toBeCloseTo(at({ x: s, y: s }).fringeWidthMicrometers, 12);
+    expect(() => at({ x: 1, y: 1 })).toThrow(InvalidScientificInputError);
+    expect(() => at({ x: 1, y: 1 })).toThrow("outside the lens's image circle");
+    expect(() => at({ x: 0, y: 0.9 })).not.toThrow();
+    // A lens whose image covers the frame keeps the corner.
+    expect(calculateLateralColorFringe({ lensId: "pv-24-1.8", activeImagingArea: FULL_FRAME, pixelPitchMicrometers: 6 }).value.imagePointMm).toEqual({ x: 18, y: 12 });
+  });
+
   it("is the lens's L·R·H·(D(465) − D(610)) at the corner by default, in µm and pixels", () => {
     const r = calculateLateralColorFringe({ lensId: "pv-24-1.8", activeImagingArea: FULL_FRAME, pixelPitchMicrometers: 6 });
     const lens = resolveGenericLens({ lensId: "pv-24-1.8", activeImagingArea: FULL_FRAME }), R = Math.hypot(18, 12);
