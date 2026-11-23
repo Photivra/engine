@@ -1051,6 +1051,18 @@ function createLargeKernelSignal(input: DisplayViewExpectedSignalInput): Display
   };
 }
 
+/**
+ * Which sites of a row hold channel c, from the CFA's 2 × 2 period (`channelAt` read once at x, y ∈ {0, 1}; columns start at even
+ * positions): the returned function gives channel c's pattern for rows counted from row y0.
+ */
+export function cfaRowPatterns(channelAt: (x: number, y: number) => number): (c: number, y0?: number) => SiteKernelRunsRowPattern {
+  const phase = [0, 1].map((py) => [0, 1].map((px) => channelAt(px, py)));
+  return (c, y0 = 0) => (row) => {
+    const p = phase[(y0 + row) & 1]!, even = p[0] === c, odd = p[1] === c;
+    return even && odd ? { start: 0, step: 1 } : even ? { start: 0, step: 2 } : odd ? { start: 1, step: 2 } : null;
+  };
+}
+
 function prepareLargeKernel(input: DisplayViewExpectedSignalInput): LargeKernelState {
   const W = input.nativeWidth, H = input.nativeHeight, g = 2 / input.outputWidth, nodes = input.wavelengthsNm.length, R = input.kernels!.radius;
   const tables = displayViewSignalTables(input), { spectra, groups } = tables, scene = input.scene, acc = createMaterialSums(nodes, spectra);
@@ -1169,11 +1181,7 @@ function prepareLargeKernel(input: DisplayViewExpectedSignalInput): LargeKernelS
     return tile.values;
   }
   // Which sites of a tile row hold channel c: the CFA's 2 × 2 period, from channelAt (tile origins are even).
-  const phase = [0, 1].map((py) => [0, 1].map((px) => input.channelAt(px, py)));
-  const patterns: SiteKernelRunsRowPattern[] = [0, 1, 2].map((c) => (row: number) => {
-    const p = phase[row & 1]!, even = p[0] === c, odd = p[1] === c;
-    return even && odd ? { start: 0, step: 1 } : even ? { start: 0, step: 2 } : odd ? { start: 1, step: 2 } : null;
-  });
+  const patternOf = cfaRowPatterns(input.channelAt), patterns = [0, 1, 2].map((c) => patternOf(c));
   // #653: output rows on demand, in fixed blocks of LARGE_OUTPUT_ROW_BLOCK rows; the in-focus rows they read are computed on demand too.
   state.lattice = createSiteKernelRunsLattice({ runs: input.largeKernel!, tile: LARGE_OUTPUT_TILE, rowBlock: LARGE_OUTPUT_ROW_BLOCK, fields: 3, capacityBytes: LARGE_CACHE_BYTES,
     pattern: (c) => patterns[c], source: (x0, y0, width, height) => (c: number): Float64Array => {

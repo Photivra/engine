@@ -33,9 +33,9 @@
  */
 
 import { InvalidConfigurationError } from "../core/configuration-error.js";
-import { convolveSiteKernelRuns, type SiteKernelRunsRowPattern } from "../optics/site-kernel-runs.js";
+import { convolveSiteKernelRuns } from "../optics/site-kernel-runs.js";
 import type { PreparedDefocusImageSpaceGeometry } from "./defocus-image-space-provider.js";
-import type { DisplayViewExpectedSignal, DisplayViewExpectedSignalInput } from "./expected-signal.js";
+import { cfaRowPatterns, type DisplayViewExpectedSignal, type DisplayViewExpectedSignalInput } from "./expected-signal.js";
 
 /** Block width (native columns) and the bytes of convolved blocks kept per signal. */
 export const LENS_ROW_SEGMENT = 128, LENS_ROW_CACHE_BYTES = 32 * 1048576;
@@ -132,11 +132,7 @@ export function createRollingRegroupedLensSignal(source: RollingRegroupedLensInp
   const runs = maybeRuns, W = input.nativeWidth, H = input.nativeHeight, S = LENS_ROW_SEGMENT, D = runs.radius, channelAt = input.channelAt;
   const h = Math.max(1, Math.min(LENS_ROW_BAND_MAXIMUM_ROWS, Math.floor(source.bandRows)));
   // Which sites of a block row hold channel c: the CFA's 2 × 2 period (block columns start at even positions; rows at any).
-  const phase = [0, 1].map((py) => [0, 1].map((px) => channelAt(px, py)));
-  const patterns = (c: number, y0: number): SiteKernelRunsRowPattern => (row: number) => {
-    const p = phase[(y0 + row) & 1]!, even = p[0] === c, odd = p[1] === c;
-    return even && odd ? { start: 0, step: 1 } : even ? { start: 0, step: 2 } : odd ? { start: 1, step: 2 } : null;
-  };
+  const patterns = cfaRowPatterns(channelAt);
   const blocks = new Map<number, Float64Array>(), capacity = Math.max(4, Math.floor(LENS_ROW_CACHE_BYTES / (S * h * 8)));
   // #711: the in-focus samples of the last 8 blocks computed (by block key), for their right neighbours.
   const edges = new Map<number, { xb: number; s: Float64Array[] }>();
