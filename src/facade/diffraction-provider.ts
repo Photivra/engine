@@ -169,7 +169,7 @@ export function createDiffractedPlanarProvider(input: DiffractedPlanarProviderIn
           for (let gx = 0, x = lx0; gx < gridWidth; gx++, x++) materialOf[gy * gridWidth + gx] = materialAt(uOf(x), v);
         }
       }
-      return wavelengthsNm.map((nm, w) => {
+      const all = wavelengthsNm.map((nm, w) => {
         const samples = new Float64Array(size);
         if (materialOf) {
           const radiance = new Map<number, number>();
@@ -185,10 +185,12 @@ export function createDiffractedPlanarProvider(input: DiffractedPlanarProviderIn
             for (let gx = 0, x = lx0; gx < gridWidth; gx++, x++) samples[gy * gridWidth + gx] = base.radianceAt(uOf(x), v, nm);
           }
         }
-        if (zonedGather) return zonedGather(samples, lx0, y0, NW, rows);
+        if (zonedGather) return samples;
         if (!convolve) return gatherInterior(samples, taps[w]!, gridWidth, NW, rows, R);
         return convolve(samples, kernels[w]!);
       });
+      // #730 facade-12: with field zones every node's samples are gathered together, so each zone's kernel is built once per band and shift.
+      return zonedGather ? zonedGather(all, lx0, y0, NW, rows) : all;
     });
     bands.set(b, values);
     if (bands.size > CACHED_BANDS) bands.delete(bands.keys().next().value!);
@@ -360,10 +362,12 @@ export interface SiteKernelFieldZones {
  * #553: the band gather with {@link SiteKernelFieldZones}: out(x) = Σ_t K_z(t)·samples(x − t), z the zone of output site x
  * (its native site, clamped to the raster for the margins of offset lattices). Each value is summed over its zone's taps in
  * the order of {@link gatherInterior} (v outer, u inner, ascending), so a zoned gather whose zones all hold one kernel gives
- * gatherInterior's bits. The zones' taps are built on first use and the last 3 rows of zones kept.
+ * gatherInterior's bits. The zones' taps are built on first use and the last 3 rows of zones kept. #730 facade-12: every array of
+ * `samples` (each spectral node's, or each material's) is gathered in one pass, zones outside and arrays inside, so a band builds each
+ * zone's taps once instead of once per node; each value keeps its tap order.
  */
 export function createZonedGather(zones: SiteKernelFieldZones, R: number, gridWidth: number, nativeWidth: number, nativeHeight: number, margin: number):
-  (samples: Float64Array, latticeX0: number, latticeY0: number, width: number, rows: number) => Float64Array {
+  (samples: readonly Float64Array[], latticeX0: number, latticeY0: number, width: number, rows: number) => Float64Array[] {
   const cache = new Map<number, { offsets: Int32Array; weights: Float64Array }>(), capacity = 3 * zones.columns;
   const tapsOf = (zone: number): { offsets: Int32Array; weights: Float64Array } => {
     let taps = cache.get(zone);
@@ -375,20 +379,26 @@ export function createZonedGather(zones: SiteKernelFieldZones, R: number, gridWi
   };
   const zoneOf = (lattice: number, extent: number, count: number): number => Math.min(count - 1, Math.floor(Math.min(extent - 1, Math.max(0, lattice - margin)) / zones.size));
   return (samples, latticeX0, latticeY0, width, rows) => {
-    checkSamples(samples);
-    const out = new Float64Array(width * rows), columnZone = new Int32Array(width);
+    for (const s of samples) checkSamples(s);
+    const out = samples.map(() => new Float64Array(width * rows)), columnZone = new Int32Array(width);
     for (let x = 0; x < width; x++) columnZone[x] = zoneOf(latticeX0 + x, nativeWidth, zones.columns);
     for (let y = 0; y < rows; y++) {
       const rowBase = (y + R) * gridWidth + R, zoneRow = zoneOf(latticeY0 + y, nativeHeight, zones.rows) * zones.columns;
-      let x = 0;
-      while (x < width) {
-        const zx = columnZone[x]!, { offsets, weights } = tapsOf(zoneRow + zx), count = weights.length;
-        for (; x < width && columnZone[x] === zx; x++) {
-          const base = rowBase + x;
-          let sum = 0;
-          for (let k = 0; k < count; k++) sum += samples[base + offsets[k]!]! * weights[k]!;
-          out[y * width + x] = sum;
+      let x0 = 0;
+      while (x0 < width) {
+        const zx = columnZone[x0]!, { offsets, weights } = tapsOf(zoneRow + zx), count = weights.length;
+        let x1 = x0;
+        while (x1 < width && columnZone[x1] === zx) x1++;
+        for (let n = 0; n < samples.length; n++) {
+          const source = samples[n]!, target = out[n]!;
+          for (let x = x0; x < x1; x++) {
+            const base = rowBase + x;
+            let sum = 0;
+            for (let k = 0; k < count; k++) sum += source[base + offsets[k]!]! * weights[k]!;
+            target[y * width + x] = sum;
+          }
         }
+        x0 = x1;
       }
     }
     return out;

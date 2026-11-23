@@ -38,6 +38,12 @@
  *
  * What is approximate is the disc itself (`lens.defocus` labels it; the facade records the field-variation bounds of
  * each combination), not this evaluation of it.
+ *
+ * #761, #762: in-focus `lens.diffraction` with camera rotation, a moving subject, a lens mapping or vignetting, where the lattice
+ * taps' quadrature (#565: one scene query per tap, each read at its lattice point) would pass the environment's 100000 queries per
+ * site, takes each node's diffraction kernel as K here (`diffractionPsf`): the same terms, summed in another order. Its kept bands
+ * are bounded (`capacityBytes`, 64 MiB): the band height falls to fit, down to one row, and a window whose one-row bands do not fit
+ * is refused with the numbers.
  */
 
 // #564: a defocus kernel above 64 sites (`largeKernel`) takes the run lattice of large-defocus-lattice.ts instead of the bands:
@@ -51,6 +57,7 @@ import { applyPhysicalCameraRotation, resolveProjectionDistanceMm, shakenAngular
 import { prepareIlluminationVignettingThroughput, type IlluminationVignettingProfile } from "../optics/illumination-vignetting.js";
 import { distortedImagePoint, undistortedImagePoint, type PreparedEnvironmentLensFieldMapping } from "../optics/sensor-environment-query.js";
 import { checkedSiteKernel, createZonedGather, gatherInterior, kernelTaps, type SiteKernelFieldZones } from "./diffraction-provider.js";
+import { siteDiffractionKernel } from "../optics/site-diffraction-kernel.js";
 import type { PlanarSceneRadianceProvider } from "./scene-radiance.js";
 import { LARGE_DEFOCUS_CACHE_BYTES, createLargeDefocusNodeLattice, type LargeDefocusKernel, type LargeDefocusNodeLattice } from "./large-defocus-lattice.js";
 
@@ -168,7 +175,9 @@ export interface DefocusImageSpaceProviderInput {
   base: PlanarSceneRadianceProvider;
   geometry: PreparedDefocusImageSpaceGeometry;
   /** Each spectral node's kernel on the site lattice, (2·kernelRadius + 1)² taps, row-major (the disc, or diffraction ⊛ disc). */
-  siteKernels: (wavelengthNm: number) => Float64Array;
+  siteKernels?: (wavelengthNm: number) => Float64Array;
+  /** #761: instead of `siteKernels`, each node's diffraction kernel of this PSF on the site pitch (`siteDiffractionKernel`), radius `kernelRadius`. */
+  diffractionPsf?: Parameters<typeof siteDiffractionKernel>[0];
   wavelengthsNm: readonly number[];
   kernelRadius: number;
   nativeWidth: number;
@@ -190,6 +199,18 @@ export interface DefocusImageSpaceProviderInput {
   bandRows?: number;
   /** Most distinct request times kept per band (the temporal sample count). Default 1. */
   timesPerBand?: number;
+  /**
+   * #761: bytes the kept bands may hold in all (every lattice shift, spectral node and instant, plus one band's grid while it is
+   * built). The band height is then the largest (at most `bandRows`) that fits, down to one row; a window whose one-row bands do not
+   * fit is refused with the numbers. Default: 64 MiB with `diffractionPsf`; otherwise `bandRows` as given, without a bound.
+   */
+  capacityBytes?: number;
+  /**
+   * #730 facade-14: the scene's material count (a fixed-size chart's surround included). With one kernel for every node, the
+   * convolution is regrouped by material when there are fewer materials than nodes; the choice depends on the scene only, never on
+   * the window. Omitted: never regrouped.
+   */
+  materialCount?: number | undefined;
   /** Called with the duration in ms of each band convolution (diagnostics only). */
   onConvolution?: (milliseconds: number) => void;
   /**
@@ -226,13 +247,26 @@ export function createDefocusImageSpaceProvider(input: DefocusImageSpaceProvider
   if (!(lx0 < lx1 && ly0 < ly1)) throw new InvalidConfigurationError("Defocus window must overlap the native raster.");
   const NW = lx1 - lx0, gridWidth = NW + 2 * R;
   const large = input.largeKernel;
-  const kernels = large ? [] : wavelengthsNm.map((nm) => checkedSiteKernel(input.siteKernels(nm), R));
+  const psf = input.diffractionPsf, kernels = large ? [] : wavelengthsNm.map((nm) => psf ? siteDiffractionKernel(psf, nm, input.sitePitchMicrometers, R, "Diffraction kernels must sample the site pitch exactly.") :
+    checkedSiteKernel(input.siteKernels!(nm), R));
   const taps = kernels.map((kernel) => kernelTaps(kernel, R, gridWidth));
   const zonedGather = input.fieldZones ? createZonedGather(input.fieldZones, R, gridWidth, W, H, M) : undefined;
   const sharedKernel = !large && (zonedGather !== undefined || kernels.every((kernel) => kernel === kernels[0]));
   const scale = input.metresPerFrameUnit, distance = input.distanceM;
   const materialAt = base.chartMaterialAt?.bind(base), materialRadiance = base.materialRadiance?.bind(base), zeroBeyond = input.zeroBeyondHorizon === true;
-  const timeDependent = geometry.timeDependent || input.timeDependentScene === true, BAND = input.bandRows ?? BAND_ROWS;
+  const timeDependent = geometry.timeDependent || input.timeDependentScene === true;
+  // #761: with a byte budget, the tallest band (at most bandRows) whose kept bands fit: each holds shifts × nodes × rows × NW values, and
+  // a site row's queries span 2M + 1 lattice rows at each of its instants (the cache's capacity below); one band's grid is built at a time.
+  const times = timeDependent ? Math.max(1, input.timesPerBand ?? 1) : 1, rowBytes = shifts.length * wavelengthsNm.length * NW * 8 * times;
+  const bandBytes = (rows: number): number => Math.max(CACHED_BANDS, Math.ceil((2 * M + 2) / rows)) * rows * rowBytes + gridWidth * (rows + 2 * R) * 40;
+  let BAND = input.bandRows ?? BAND_ROWS;
+  const capacityBytes = input.capacityBytes ?? (psf ? 64 * 1048576 : undefined);
+  if (capacityBytes !== undefined) {
+    while (BAND > 1 && bandBytes(BAND) > capacityBytes) BAND--;
+    if (bandBytes(1) > capacityBytes) throw new InvalidConfigurationError("The image-space convolution keeps " + Math.ceil(bandBytes(1) / 1048576) + " MiB for one row of sites (" +
+      wavelengthsNm.length + " spectral nodes × " + times + " instants × " + shifts.length + " lattice shifts × " + NW + " sites × " + Math.max(CACHED_BANDS, 2 * M + 2) +
+      " rows, and one row's grid); the limit is " + capacityBytes / 1048576 + " MiB. Render a narrower output.region.");
+  }
   const now = (): number => globalThis.performance?.now() ?? Date.now();
   // Lattice point (li, lj) of shift s, as a native sensor point in mm (+Y down): site centre plus the shift.
   const xMmOf = (li: number, s: { x: number }): number => (li - M + 0.5 + s.x - W / 2) * mmPerSite;
@@ -261,6 +295,9 @@ export function createDefocusImageSpaceProvider(input: DefocusImageSpaceProvider
     } else for (let k = 0; k < size; k++) samples[k] = factor[k]! * base.radianceAt(u[k]!, v[k]!, nm, time);
     return samples;
   }
+  // Every array of samples gathered with the zones (all at once), or with the shared kernel.
+  const gatherAll = (samples: Float64Array[], y0: number, rows: number): Float64Array[] =>
+    zonedGather ? zonedGather(samples, lx0, y0, NW, rows) : samples.map((s) => gatherInterior(s, taps[0]!, gridWidth, NW, rows, R));
   // Bands per time (LRU over (time, band)): values[shift][node] holds G_t / F at the band's own lattice points.
   const cache = new Map<string, Float64Array[][]>();
   // The bands one site row's queries span (its query offsets reach M lattice rows either way), at each of its instants.
@@ -292,29 +329,30 @@ export function createDefocusImageSpaceProvider(input: DefocusImageSpaceProvider
       for (let y = 0; y < rows; y++) for (let x = 0; x < NW; x++) own[y * NW + x] = factor[(y + R) * gridWidth + x + R]!;
       // One kernel for every node (the disc without diffraction) and fewer materials than nodes: the convolution is linear, so
       // G_λ = Σ_m L_m(λ)·(K ⊛ F·[material = m]); one convolution per material instead of one per node, the same sum regrouped.
-      if (material && sharedKernel) {
-        const present = [...new Set(material)];
-        if (present.length < wavelengthsNm.length) {
-          const perMaterial = present.map((m) => {
-            const samples = new Float64Array(size);
-            for (let k = 0; k < size; k++) if (material[k] === m) samples[k] = factor[k]!;
-            return zonedGather ? zonedGather(samples, lx0, y0, NW, rows) : gatherInterior(samples, taps[0]!, gridWidth, NW, rows, R);
-          });
-          return wavelengthsNm.map((nm) => {
-            const radiance = present.map((m) => materialRadiance!(m, nm)), out = new Float64Array(rows * NW);
-            for (const value of radiance) if (!(value >= 0 && value <= 2 ** 100)) throw new InvalidConfigurationError("Irradiance samples must be finite, non-negative and within the declared magnitude.");
-            for (let k = 0; k < out.length; k++) {
-              let sum = 0;
-              for (let i = 0; i < present.length; i++) sum += radiance[i]! * perMaterial[i]![k]!;
-              out[k] = sum / own[k]!;
-            }
-            return out;
-          });
-        }
+      // #730 facade-14: regrouped when the scene has fewer materials than nodes, and the band's materials summed in ascending index, so
+      // a value's bits do not depend on the window (a material the band holds but a point's taps miss adds an exact zero).
+      if (material && sharedKernel && (input.materialCount ?? Infinity) < wavelengthsNm.length) {
+        const present = [...new Set(material)].sort((a, b) => a - b);
+        const perMaterial = gatherAll(present.map((m) => {
+          const samples = new Float64Array(size);
+          for (let k = 0; k < size; k++) if (material[k] === m) samples[k] = factor[k]!;
+          return samples;
+        }), y0, rows);
+        return wavelengthsNm.map((nm) => {
+          const radiance = present.map((m) => materialRadiance!(m, nm)), out = new Float64Array(rows * NW);
+          for (const value of radiance) if (!(value >= 0 && value <= 2 ** 100)) throw new InvalidConfigurationError("Irradiance samples must be finite, non-negative and within the declared magnitude.");
+          for (let k = 0; k < out.length; k++) {
+            let sum = 0;
+            for (let i = 0; i < present.length; i++) sum += radiance[i]! * perMaterial[i]![k]!;
+            out[k] = sum / own[k]!;
+          }
+          return out;
+        });
       }
+      // #730 facade-12: with field zones every node's samples are gathered together, so each zone's kernel is built once per band and shift.
+      const all = zonedGather ? gatherAll(wavelengthsNm.map((nm) => samplesOf(nm, time, factor, u, v, material)), y0, rows) : undefined;
       return wavelengthsNm.map((nm, w) => {
-        const samples = samplesOf(nm, time, factor, u, v, material);
-        const gathered = zonedGather ? zonedGather(samples, lx0, y0, NW, rows) : gatherInterior(samples, taps[w]!, gridWidth, NW, rows, R);
+        const gathered = all ? all[w]! : gatherInterior(samplesOf(nm, time, factor, u, v, material), taps[w]!, gridWidth, NW, rows, R);
         for (let k = 0; k < gathered.length; k++) gathered[k] = gathered[k]! / own[k]!;
         return gathered;
       });

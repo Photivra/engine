@@ -2643,8 +2643,10 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   // Radiance queries per native site: spectral subintervals × temporal midpoints × pupil rays × PSF taps.
   const psfTaps = lensPsf ? Math.max(1, ...((lensPsf.configuration.psf.profile.nodes ?? []) as readonly { kernel?: { widthSamples?: unknown; heightSamples?: unknown } }[])
     .map((node) => Number(node.kernel?.widthSamples) * Number(node.kernel?.heightSamples)).filter((taps) => Number.isSafeInteger(taps) && taps > 0)) : 1;
-  let queriesPerSite = temporalSampleCount * (Math.ceil((FACADE_SPECTRAL_RANGE_NANOMETERS.maximum - FACADE_SPECTRAL_RANGE_NANOMETERS.minimum) / spectralStep) + 1) *
-    (pupil ? pupil.radialSamples * pupil.angularSamples : 1) * psfTaps * (antiAliasing ? antiAliasing.components.length : 1) * boxSamples * boxSamples;
+  // #730 facade-19: the factors after the temporal samples, named by a refusal.
+  const queryFactors = [Math.ceil((FACADE_SPECTRAL_RANGE_NANOMETERS.maximum - FACADE_SPECTRAL_RANGE_NANOMETERS.minimum) / spectralStep) + 1,
+    pupil ? pupil.radialSamples * pupil.angularSamples : 1, antiAliasing ? antiAliasing.components.length : 1, boxSamples * boxSamples];
+  let queriesPerSite = temporalSampleCount * queryFactors.reduce((a, b) => a * b) * psfTaps;
 
   // Scene and illuminant
   // The scene is the one required input: the facade never guesses what is being photographed.
@@ -3498,7 +3500,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   const spectralSamplingByChannel = Object.fromEntries(CHANNELS.map((channelId) => [channelId, { channelId, wavelengthBasis: "vacuum" as const, wavelengthRangeNanometers: range,
     maximumSubintervalWidthNanometers: spectralStep }])) as Record<Channel, unknown>;
   // Diffraction (2.1): Airy kernels at the resolved f-number on the site pitch, one per spectral node of the sensor quadrature.
-  let diffraction: DiffractionLimitedPsfProfile | undefined, diffractionPsf: typeof lensPsf | undefined;
+  let diffraction: DiffractionLimitedPsfProfile | undefined, diffractionPsf: typeof lensPsf | undefined, diffractionLattice = false;
   // The spectral nodes of the sensor quadrature, over all channels, ascending.
   const quadratureWavelengths = (): number[] => [...new Set(CHANNELS.flatMap((channelId) => calculateSensorSpectralQuadrature({ ...(spectralSamplingByChannel[channelId] as { channelId: string;
       wavelengthBasis: "vacuum"; wavelengthRangeNanometers: { minimum: number; maximum: number }; maximumSubintervalWidthNanometers: number }), colorSamplingProfile,
@@ -3514,6 +3516,10 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
     // #732 (owner decision 2026-11-21): a fast request without an explicit radius takes the window to the second dark ring.
     const second = Math.min(32, Math.ceil(AIRY_SECOND_ZERO_PER_LAMBDA_N * lambdaN / pitch)), window = diffractionRadiusOption === null && resolveFast(diffractionFast, fastTop) && second < third;
     const kernelRadiusSamples = diffractionRadiusOption ?? (window ? second : third);
+    // #761, #762: where the lattice taps' quadrature (#565) would pass the bound of 100000 scene queries per site (a request refused before
+    // 2.29.0), the scene provider sums the taps on the site lattice at each instant (defocus-image-space-provider.ts), so a site asks only
+    // its temporal, spectral, filter and aperture nodes: the same terms in another order.
+    diffractionLattice = !displayView && !!latticeTaps && !defocusKernel && queriesPerSite * (2 * kernelRadiusSamples + 1) ** 2 > 1e5;
     const inputOf = (radius: number): Parameters<typeof createDiffractionLimitedPsfProfile>[0] => ({ aperture: "circular", focalLengthMm, apertureFNumber: fNumber, focus: { kind: "finite", distanceM: focusDistanceM },
       wavelengthsNm: wavelengths, samplePitchMicrometers: pitch, kernelRadiusSamples: radius, fieldHalfExtentMm: aaReachMm === 0 ? { x: imagingArea.widthMm / 2, y: imagingArea.heightMm / 2 } :
         { x: imagingArea.widthMm / 2 + aaReachMm, y: imagingArea.heightMm / 2 + aaReachMm },
@@ -3540,7 +3546,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
     assume("lens.diffraction", "model", { model: diffraction.model, aperture: "circular-aperture", fNumber, workingFNumber: diffraction.workingFNumber,
       kernelRadiusSamples, samplePitchMicrometers: pitch, maximumTruncatedEnergyFraction: diffraction.maximumTruncatedEnergyFraction,
       truncatedEnergyByWavelength: diffraction.wavelengths.map((w) => ({ wavelengthNm: w.wavelengthNm, truncatedEnergyFraction: w.truncatedEnergyFraction })),
-      execution: diffractionObjectSpace ? "object-space-convolution" : defocusImageSpace ? "image-space-convolution" : "environment-psf-quadrature" },
+      execution: diffractionObjectSpace ? "object-space-convolution" : defocusImageSpace || diffractionLattice ? "image-space-convolution" : "environment-psf-quadrature" },
       "Scalar Fraunhofer diffraction of an ideal, aberration-free circular pupil (Airy pattern, createDiffractionLimitedPsfProfile) at the resolved f-number, in focus, with D = f/N and the thin-lens image distance (working f-number N·v/f). " +
       "One kernel per spectral node, binned into site-sized cells over a " + (2 * kernelRadiusSamples + 1) + " × " + (2 * kernelRadiusSamples + 1) + " window" +
       (diffractionRadiusOption !== null ? "" : window ? " (to the second dark ring, #732)" : thirdRingSites > 32 ? " (capped at 32 sites; the third dark ring at the longest node needs " + thirdRingSites + ")" :
@@ -3548,7 +3554,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
       (diffractionObjectSpace ? "Applied as an object-space convolution: the scene radiance on the site lattice is convolved once per spectral node (calculateIrradianceConvolution) and the provider answers each site query with it, so the site inputs declare no PSF; this equals the per-tap environment PSF quadrature for this still, distortion-free planar scene (request.diffraction.psf). " :
         defocusImageSpace ? "Applied with lens.defocus as one image-space kernel per spectral node (the diffraction kernel convolved with the disc) on the sensor's site lattice (#548; see the lens.defocus assumption), " +
           "the same sum as the environment PSF quadrature with that kernel. " :
-        "Applied through the environment PSF quadrature (one scene query per kernel tap), because camera rotation, a lens field mapping or vignetting moves the taps off the site lattice" + (latticeTaps ? "; each tap reads the scene at its lattice point (#565). " : ". ")) +
+        "Applied through the environment PSF quadrature (one scene query per kernel tap), because camera rotation, a lens field mapping or vignetting moves the taps off the site lattice" + (latticeTaps ? "; each tap reads the scene at its lattice point (#565)" + (diffractionLattice ? ", summed there by the scene provider (#761)" : "") + ". " : ". ")) +
       "No defocus, aberration or pupil clipping; " + (boxAperture ? "the pixel aperture is integrated as declared by sensor.pixelAperture." : "the sensor pixel aperture is still point-sampled at the site centre."));
   }
   // #492: each spectral node's kernel for lens.defocus out of focus: the disc, or with lens.diffraction the node's diffraction kernel convolved
@@ -3609,6 +3615,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
     limitation: "No environment PSF: lens diffraction is applied upstream by the scene provider as an object-space convolution (request.diffraction)." } : undefined) ??
     (defocusSiteKernels && defocusImageSpace ? { kind: "not-applied" as const, evidence, limitation: "No environment PSF: lens defocus" + (diffraction ? " (with lens.diffraction)" : "") +
       " is applied upstream by the scene provider as an image-space convolution on the sensor's site lattice (lens.defocus)." } : undefined) ??
+    (diffractionLattice ? { kind: "not-applied" as const, evidence, limitation: "No environment PSF: lens diffraction is applied upstream by the scene provider on the sensor's site lattice (#761)." } : undefined) ??
     diffractionPsf ?? (defocusSiteKernels ? { kind: "not-applied" as const, evidence,
       limitation: "No environment PSF: lens defocus is applied upstream by the scene provider as an object-space convolution (lens.defocus)." } : undefined) ??
     { kind: "not-applied" as const, evidence, limitation: "No lens PSF (point optics)." };
@@ -3664,7 +3671,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
       ...(defocusSiteKernels.large ? { largeKernel: defocusSiteKernels.large } : {}),
       wavelengthsNm: defocusSiteKernels.wavelengthsNm, kernelRadius: defocusSiteKernels.radius, nativeWidth, nativeHeight, sitePitchMicrometers: pitch, distanceM: planeDistanceM,
       metresPerFrameUnit, queryOffsetsSites, timesPerBand: temporalSampleCount, onConvolution: (ms) => { defocusMs += ms; }, ...(window ? { window } : {}), ...(subject ? { timeDependentScene: true } : {}),
-      ...(rollingRotation ? { bandRows: 1 } : {}),
+      ...(rollingRotation ? { bandRows: 1 } : {}), materialCount: (chart ?? callerScene as { materials?: readonly unknown[] } | undefined)?.materials?.length,
       ...(bokehZones ? { fieldZones: bokehZones.zones } : {}) }) :
     defocusSiteKernels ? createDiffractedPlanarProvider({ base: provider, siteKernels: defocusSiteKernels.at, ...(defocusSiteKernels.large ? { largeKernel: defocusSiteKernels.large } : {}),
       wavelengthsNm: defocusSiteKernels.wavelengthsNm, kernelRadius: defocusSiteKernels.radius, nativeWidth, nativeHeight, outputWidth: width,
@@ -3679,16 +3686,22 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
       // The environment queries each site at each aperture node minus each split offset (sites, +x right, +y down).
       ...(antiAliasing || boxSamples > 1 ? { queryOffsetsSites } : {}) }) :
     // #565, #588: the PSF quadrature reads each tap's source at its lattice point (a unit kernel on #548's lattice), so ties resolve as on the lattice.
-    (diffraction || catalogueTaps !== undefined) && latticeTaps ? loadedKit(qualityKit)[QK_CREATE_DEFOCUS_IMAGE_SPACE_PROVIDER]({ base: sceneProvider, geometry: lensGeometry, siteKernels: () => UNIT_SITE_KERNEL,
-      kernelRadius: 0, wavelengthsNm: diffraction ? diffraction.profile.axes.wavelengthNm : quadratureWavelengths(), nativeWidth, nativeHeight, sitePitchMicrometers: pitch, distanceM: planeDistanceM, metresPerFrameUnit,
-      queryOffsetsSites: [-1, 0, 1].flatMap((k) => { const r = k * (diffraction ? diffraction.kernelRadiusSamples : catalogueKernelRadius); return queryOffsetsSites.map((o) => ({ x: o.x + r, y: o.y + r })); }),
+    (diffraction || catalogueTaps !== undefined) && latticeTaps ? loadedKit(qualityKit)[QK_CREATE_DEFOCUS_IMAGE_SPACE_PROVIDER]({ base: sceneProvider, geometry: lensGeometry,
+      // #761, #762: the diffraction kernels on the lattice (bands within 64 MiB; under a rolling shutter one row per instant), else a unit tap per source point.
+      ...(diffractionLattice ? { diffractionPsf: diffractionPsf!.configuration.psf, kernelRadius: diffraction!.kernelRadiusSamples, queryOffsetsSites,
+      ...(rollingRotation ? { bandRows: 1 } : {}) } : { siteKernels: () => UNIT_SITE_KERNEL, kernelRadius: 0,
+        queryOffsetsSites: [-1, 0, 1].flatMap((k) => { const r = k * (diffraction ? diffraction.kernelRadiusSamples : catalogueKernelRadius); return queryOffsetsSites.map((o) => ({ x: o.x + r, y: o.y + r })); }) }),
+      wavelengthsNm: diffraction ? diffraction.profile.axes.wavelengthNm : quadratureWavelengths(), nativeWidth, nativeHeight, sitePitchMicrometers: pitch, distanceM: planeDistanceM, metresPerFrameUnit,
       timesPerBand: temporalSampleCount, zeroBeyondHorizon: catalogue?.kind === "fisheye", ...(window ? { window } : {}),
       ...(subject ? { timeDependentScene: true } : {}) }) : sceneProvider;
   // Built on first use: a capture that takes the tabulated path (#394 step 2) never queries it, and its kernels cost a setup.
   let rawProviderBuilt: PlanarSceneRadianceProvider | undefined;
   // #652: a layered scene's provider answers each query with the layered sum (no environment PSF; never the single-plane tables).
   const rawProvider = (): PlanarSceneRadianceProvider => (rawProviderBuilt ??= layered?.multi ? layered.provider(context) : diffractedProvider(regionNative));
-  if (antiAliasing && perSite > 100_000) fail("sensor.antiAliasing with these options needs " + perSite + " scene queries per site; the environment admits at most 100000.");
+  // #730 facade-19: a capture over the bound is refused here, with its factors (before: only with the filter; the display view keeps that).
+  if ((antiAliasing || !displayView) && perSite > 1e5) fail("These options need " + perSite + " scene queries per site (" + [temporalSampleCount, ...queryFactors, perSite / queriesPerSite * psfTaps]
+    .map((n, i) => n + " " + ["temporal samples", "spectral nodes", "pupil rays", "filter spots", "pixel-aperture nodes", "PSF taps"][i]).filter((f) => !f.startsWith("1 ")).join(" × ") +
+    "); the environment admits at most 100000.");
   const evaluations = nativeWidth * nativeHeight * perSite;
   // The native task admits at most 100 000 radiance queries per tile.
   const tileWidth = Math.max(1, Math.min(256, Math.floor(100_000 / perSite)));
@@ -4329,7 +4342,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
       fast: Object.values(fastReport.applied).includes(true), requestKey: requestKey! } } : {}),
     request: { environmentRaw: finalRawInput, siteInput, development, whiteBalanceState,
       ...(diffraction ? { diffraction: { profile: diffraction, psf: diffractionPsf!, execution: diffractionObjectSpace ? "object-space-convolution" as const :
-        defocusImageSpace ? "image-space-convolution" as const : "environment-psf-quadrature" as const } } : {}) },
+        defocusImageSpace || diffractionLattice ? "image-space-convolution" as const : "environment-psf-quadrature" as const } } : {}) },
     sensor,
     exposure: { mode, settings: { fNumber, shutterSeconds, iso: resolvedIso }, ev100: Math.log2(fNumber ** 2 / shutterSeconds), ...isoReport,
       metering, meteredSceneLuminanceCdPerSquareMeter: meteredLuminance, standardExposureDeviationStops: exposureDeviationStops,
