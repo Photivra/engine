@@ -1,7 +1,7 @@
 # 2.29.0 release
 
-> **Prepared November 23, 2026; not yet published.** npm publishing runs only from the owner's `v2.29.0` tag
-> ([Before the tag](#before-the-tag)).
+> **Published November 23, 2026 (23:20 UTC).** The `v2.29.0` tag is on `a9ce205` (`main` after #802); npm publishing ran
+> from the tag ([Publication](#publication)).
 
 ## At a glance
 
@@ -152,8 +152,25 @@ count only when its head tree is `main`'s tree after the squash.
 ## Before the tag
 
 - [x] The hardware GPU run, recorded in [WEBGPU_DEVICES.md](WEBGPU_DEVICES.md) (#658's shader text and #750's layered passes):
-  213 of 213 on ebfb513.
-- [ ] The release review of the whole diff and its fixes.
-- [ ] The WebGPU conformance run on the release commit (all three parts; the publish workflow's `WebGPU conformance proofs` job
-  requires them).
-- [ ] The owner's approval to tag `v2.29.0` (AGENTS.md rule 3).
+  213 of 213 on ebfb513, and 213 of 213 again on the release commit a9ce205.
+- [x] The release review of the whole diff and its fixes.
+- [x] The WebGPU conformance run on the release commit (all three parts; the publish workflow's `WebGPU conformance proofs` job
+  requires them): #802's run on the tree of `a9ce205`, and `main`'s run on `a9ce205` ([Publication](#publication)).
+- [x] The owner's approval to tag `v2.29.0` (AGENTS.md rule 3).
+- [x] After publication:
+  - [x] npm version, dist-tag, integrity and provenance verified;
+  - [x] GitHub release notes published;
+  - [x] publication dates updated in `CHANGELOG.md`, `README.md`, `SECURITY.md`, `docs/DEVELOPERS.md` and this record.
+
+## Publication
+
+| Fact | Value |
+| --- | --- |
+| Tag | `v2.29.0` (annotated, `77761d7`) → `a9ce2056f9de171efc39a376499ac3e041968711` (#802 on `main`), created 23:17:14 UTC. #802's head `a8b5e04` has the same tree as `a9ce205`; its CI ([run 45281263921](https://github.com/Photivra/engine/actions/runs/45281263921)), WebGPU ([45281263593](https://github.com/Photivra/engine/actions/runs/45281263593)), native performance ([45281263794](https://github.com/Photivra/engine/actions/runs/45281263794)) and Pages ([45281263817](https://github.com/Photivra/engine/actions/runs/45281263817)) runs passed before the merge, each on attempt 1. `main` on `a9ce205`: CI [45285722477](https://github.com/Photivra/engine/actions/runs/45285722477), WebGPU [45285722306](https://github.com/Photivra/engine/actions/runs/45285722306), Pages [45285722513](https://github.com/Photivra/engine/actions/runs/45285722513) and native performance [45285722533](https://github.com/Photivra/engine/actions/runs/45285722533) passed |
+| Hardware GPU run | The owner's `test:webgpu:hardware` on the release commit `a9ce205` before the tag (Apple M5 Pro, `apple` / `metal-3`, the installed Chrome, headless, hardware adapter required): 213 of 213 passed in 9 files, `softwareAdapter: false` in every report, 648 s ([WEBGPU_DEVICES.md](WEBGPU_DEVICES.md)) |
+| Publish workflow | [Publish npm run 45287478138](https://github.com/Photivra/engine/actions/runs/45287478138), attempt 1 (started 23:17:18 UTC): the `WebGPU conformance proofs` job and the coverage gate passed; publish job 23:19:52 to 23:20:06 UTC; the run finished at 23:20:07 UTC |
+| npm | `@photivra/engine@2.29.0`, dist-tag `latest`, registry time 23:28:16 UTC, November 23, 2026 |
+| Integrity | `sha512-V7zz15eA59B5V5hlTmV0xMYUVDCQ+ZcZLrJacqSUXMpG7m2zr4cgg69V4cQDS9Kibic5qrLwdIgRhU+KsG2WLg==` (shasum `0f6e4b95a4adf4fa68133a7603fccb9512934499`, 1,349 files) |
+| Provenance | SLSA provenance v1 attestation, recorded in the Sigstore transparency log (log index 4059990160) |
+| GitHub release | [`v2.29.0`](https://github.com/Photivra/engine/releases/tag/v2.29.0), "@photivra/engine 2.29.0", the changelog's summary of 2.29.0 |
+| Documentation site | The Pages run on the push of `a9ce205` ([45285722513](https://github.com/Photivra/engine/actions/runs/45285722513)) built and checked the site and deployed nothing: the changelog still read as prepared. The Pages run after the publish ([45287898461](https://github.com/Photivra/engine/actions/runs/45287898461)) built, checked and deployed the site |
