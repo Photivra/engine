@@ -7,6 +7,7 @@
  * copied, given a canonical identity and frozen once. Photo and dark signal, accumulated charge,
  * random noise and RAW values are still computed at execution time.
  */
+import { requireAboveAbsoluteZeroCelsius } from "../core/temperature-validation.js";
 import { stringifyCanonicalJson } from "../core/canonical-json.js";
 import { freezeOwnedData } from "../core/owned-data.js";
 import {
@@ -222,6 +223,7 @@ function validateDarkCurrentTemperature(
       "Browser-native prepared site operating temperature must be finite."
     );
   }
+  requireAboveAbsoluteZeroCelsius(operatingTemperatureC, "Browser-native prepared site operating temperature", InvalidScientificInputError);
   const model = profile.temperatureModel;
   if (model.kind === "fixed-reference-temperature") {
     if (operatingTemperatureC !== model.referenceTemperatureC) {

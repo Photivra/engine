@@ -260,30 +260,30 @@ soft patch at lower chroma than its strong one.
 | PV-N4 | `neutral-4` | `#7B7B7B` | Neutral 5 (22) | colorchecker-srgb | `#7A7A7A` | 0.28 |
 | PV-N5 | `neutral-5` | `#565656` | Neutral 3.5 (23) | colorchecker-srgb | `#555555` | 0.35 |
 | PV-N6 | `neutral-6` | `#353535` | Black (24) | colorchecker-srgb | `#343434` | 0.17 |
-| PV-S1 | `red` | `#BF3428` | Firewalla (Simple Icons 9.21.0) | brands | `#C8332D` | 2.23 |
+| PV-S1 | `red` | `#BF3428` | a brand red (Simple Icons 9.21.0) | brands | `#C8332D` | 2.23 |
 | PV-S2 | `yellow` | `#E6C02A` | yellow (X-Rite before Nov 2014) | colorchecker-lab | `#EEC614` | 2.27 |
-| PV-S3 | `green` | `#359C4C` | Gunicorn (Simple Icons 9.21.0) | brands | `#499848` | 2.52 |
-| PV-S4 | `cyan` | `#3C98AA` | Open Source Hardware (Simple Icons 9.21.0) | brands | `#0099B0` | 2.47 |
-| PV-S5 | `blue` | `#3C4C9E` | Picard Surgelés (Simple Icons 9.21.0) | brands | `#2D4999` | 2.38 |
-| PV-S6 | `magenta` | `#B4408E` | MusicBrainz (Simple Icons 2.19.0) | brands | `#BA478F` | 2.30 |
+| PV-S3 | `green` | `#359C4C` | a brand green (Simple Icons 9.21.0) | brands | `#499848` | 2.52 |
+| PV-S4 | `cyan` | `#3C98AA` | a brand cyan (Simple Icons 9.21.0) | brands | `#0099B0` | 2.47 |
+| PV-S5 | `blue` | `#3C4C9E` | a brand blue (Simple Icons 9.21.0) | brands | `#2D4999` | 2.38 |
+| PV-S6 | `magenta` | `#B4408E` | a brand magenta (Simple Icons 2.19.0) | brands | `#BA478F` | 2.30 |
 | PV-T1 | `red-soft` | `#C77B78` | RAL 3014 Antique pink | ral | `#D47479` | 3.88 |
-| PV-T2 | `yellow-soft` | `#DCC985` | Glance (Simple Icons 16.36.0) | brands | `#D9C38C` | 3.31 |
+| PV-T2 | `yellow-soft` | `#DCC985` | a brand yellow (Simple Icons 16.36.0) | brands | `#D9C38C` | 3.31 |
 | PV-T3 | `green-soft` | `#7FAE85` | RAL 6021 Pale green | ral | `#86A47C` | 4.24 |
 | PV-T4 | `cyan-soft` | `#7DB9C2` | RAL 6034 Pastel turquoise | ral | `#7FB0B2` | 3.77 |
-| PV-T5 | `blue-soft` | `#7486BD` | Discord (Simple Icons 1.20.0) | brands | `#7289DA` | 4.37 |
-| PV-T6 | `magenta-soft` | `#B984A8` | Sass (Simple Icons 1.20.0) | brands | `#CC6699` | 9.14 |
-| PV-P1 | `skin-pale` | `#E8C3AA` | Setapp (Simple Icons 9.21.0) | brands | `#E6C3A5` | 2.33 |
+| PV-T5 | `blue-soft` | `#7486BD` | a brand blue (Simple Icons 1.20.0) | brands | `#7289DA` | 4.37 |
+| PV-T6 | `magenta-soft` | `#B984A8` | a brand pink (Simple Icons 1.20.0) | brands | `#CC6699` | 9.14 |
+| PV-P1 | `skin-pale` | `#E8C3AA` | a brand beige (Simple Icons 9.21.0) | brands | `#E6C3A5` | 2.33 |
 | PV-P2 | `skin-medium` | `#C99A7D` | Light skin (2) | colorchecker-srgb | `#C29682` | 3.45 |
-| PV-P3 | `skin-tan` | `#A3714F` | Mocha (Simple Icons 2.19.0) | brands | `#8D6748` | 6.06 |
+| PV-P3 | `skin-tan` | `#A3714F` | a brand brown (Simple Icons 2.19.0) | brands | `#8D6748` | 6.06 |
 | PV-P4 | `skin-deep` | `#6A4532` | RAL 8007 Fawn brown | ral | `#6F4A2F` | 3.57 |
-| PV-M1 | `sky-blue` | `#6893CB` | Goldman Sachs (Simple Icons 16.36.0) | brands | `#7399C6` | 2.47 |
+| PV-M1 | `sky-blue` | `#6893CB` | a brand blue (Simple Icons 16.36.0) | brands | `#7399C6` | 2.47 |
 | PV-M2 | `foliage-green` | `#4B692C` | darkolivegreen | css | `#556B2F` | 2.40 |
 | PV-M3 | `brick-red` | `#9C4A3A` | RAL 3016 Coral red | ral | `#AC4034` | 4.04 |
 | PV-M4 | `sand` | `#D5C29B` | RAL 1014 Ivory | ral | `#DDC49A` | 2.41 |
 | PV-M5 | `teal` | `#2E7F7C` | teal | css | `#008080` | 2.40 |
-| PV-M6 | `lavender` | `#A99BCB` | Refined GitHub (Simple Icons 16.36.0) | brands | `#9E95B7` | 4.71 |
-| PV-G1 | `deep-orange` | `#DC511A` | Klout (Simple Icons 1.20.0) | brands | `#E44600` | 2.15 |
-| PV-G2 | `deep-violet` | `#4C1E9C` | Kodular (Simple Icons 16.36.0) | brands | `#4527A0` | 2.17 |
+| PV-M6 | `lavender` | `#A99BCB` | a brand violet (Simple Icons 16.36.0) | brands | `#9E95B7` | 4.71 |
+| PV-G1 | `deep-orange` | `#DC511A` | a brand orange (Simple Icons 1.20.0) | brands | `#E44600` | 2.15 |
+| PV-G2 | `deep-violet` | `#4C1E9C` | a brand violet (Simple Icons 16.36.0) | brands | `#4527A0` | 2.17 |
 
 **Sources of the "Its sRGB" column.** Each value is the closest reference color's own published sRGB hex, or for
 `colorchecker-lab` a conversion of its published CIELAB, given as a factual result of the check. Nothing else from the

@@ -500,7 +500,7 @@ r.sensor.dynamicRangeStops; r.sensor.midGrey?.snrDecibels;
 | --- | --- | --- | --- |
 | `peakQuantumEfficiency` | 0.05–0.9 | 0.5 | Multiplies every channel's EQE curve by value / 0.5: the curves keep their shape and the colour matrix, and the collected charge scales in proportion. 0.9 keeps the blue channel's peak below 1. |
 | `fullWell` | 100–1e10 e⁻ at the pitch | the body's base-ISO saturation at 6 µm, × pitch²/36 µm² | The charge at the RAW white level at base ISO (the saturation capacity of EMVA 1288 Release 4.0). `link: "pixel-area"` (default) scales `electrons`, the full well at `referencePixelPitchMicrometers` (default 6, or with `sensor.profile` the profile's own pitch, 2.25.0), by (pitch / reference)²; `link: "none"` uses it at any pitch. |
-| `readNoise` | 0–100 e⁻; switch ISO 100–1e7 | the body's (tiers: 2/1.1, 3/1.4 and 6/2.5 e⁻ per 6 µm photosite, ×√N above 6 µm; switch at ISO 800) | Read noise of one physical photosite (2.22.0, tiers and profiles alike; a rendered site that sums N photosites takes it ×√N) for the low and the high conversion gain, and `highGainFromIso`, the ISO from which the high gain is used. A switch above the body's top ISO keeps the low gain throughout. |
+| `readNoise` | 0–100 e⁻; switch ISO 32–1e7 (2.29.0; 100–1e7 before) | the body's (tiers: 2/1.1, 3/1.4 and 6/2.5 e⁻ per 6 µm photosite, ×√N above 6 µm; switch at ISO 800) | Read noise of one physical photosite (2.22.0, tiers and profiles alike; a rendered site that sums N photosites takes it ×√N) for the low and the high conversion gain, and `highGainFromIso`, the ISO from which the high gain is used. A switch above the body's top ISO keeps the low gain throughout. From 2.29.0 a `highGainElectrons` on a sensor with one conversion gain needs `highGainFromIso` (it was ignored before, and is now refused), and the report's `lowGainElectrons` is the low gain's value even when the switch is at base ISO; its `highGainFromIso` is the first ISO setting that uses the high gain. |
 | `readoutSeconds` | 1e-6–1 s | the body's (8, 15, 30 ms) | The rolling shutter's top-to-bottom skew (`motion.shutter: "rolling"`; `motion.rollingShutterSkewSeconds` still overrides it). |
 | `adcBitDepth` | 12, 14, 16 | the body's (consumer 12, others 14) | The black level scales by 2^Δbits (1 024 at 14 bits → 4 096 at 16), the saturation code is 2^bits − 1 and the conversion gain follows, so the same charge reaches the same fraction of the code range. A 16-bit RAW writes a 16-bit DNG with white level 65 535. |
 | `fixedPatternNoise` | `true`/`false` | `false` | The body's synthetic fixed-pattern profile (PRNU, DSNU, hot pixels, row and column offsets), the same pattern in every capture. Not available in `simulateDisplayView`, which refuses it. |
@@ -894,9 +894,13 @@ for (const layer of view.scene.layers ?? []) console.log(layer.kind, layer.dista
   print on the single-plane path at the card's distance.
 - Occlusion at card edges: 4 rows per site of footprint on fast requests (the display view and sRGB samples), 16 with
   `fast: false`, the exports and the ideal reference (`scene.layers/occlusion-samples`).
-- Not in 2.27.0 (refused with a message): motion, non-rectilinear projections, `lens.distortion`, `lens.vignetting`,
-  `lens.catalogue`, `lens.pupilSampling`, `lens.psf`, `chartSize` and `illumination`; no GPU path (`gpu: "auto"` renders on the
-  CPU, labelled `unsupported-on-backend`). Details: [Layered scenes](https://github.com/Photivra/engine/blob/main/docs/LAYERED_SCENES.md).
+- Since 2.29.0 layered scenes also take `lens.projection`, `lens.distortion`, `lens.vignetting`, `lens.catalogue` (with
+  `lens.focusScatter` and `lens.catalogue.breathing`), `illumination`, `chartSize`, camera rotation, `motion.handheld` and a
+  rolling shutter, and a view on the planar map (a still, rectilinear, distortion-free camera, one illuminant) renders on the
+  GPU under `gpu: "auto"`. Still refused with a message: `motion.subject`, `lens.catalogue.flare`, `lens.pupilSampling` and
+  `lens.psf`. `calculateLayeredChartSurfaceAt` and `calculateLayeredChartSurfaceAtPixel` give the surface at a point for tap to
+  focus, and the view's `focusMask` an in-focus score per display pixel. Details:
+  [Layered scenes](https://github.com/Photivra/engine/blob/main/docs/LAYERED_SCENES.md).
 
 ## White balance
 
@@ -1803,8 +1807,9 @@ rectangle of it (`region: { centerXM, centerYM, widthM, heightM }` in metres at 
 
 - `velocityMPerSec: { x, y }` is a translation in m/s on the plane (+x right, +y up as seen from the camera).
   `angularVelocityRadPerSec` adds a rotation about an axis parallel to the optical axis, counter-clockwise as seen from
-  the camera: the optical axis for the whole scene, the region's center for a region. A subject at rest (no velocity
-  and no rotation, `subject: {}` included) renders as the still scene it equals, with one temporal sample (#688).
+  the camera: the optical axis for the whole scene, the region's center for a region. A subject at rest (zero velocity
+  and no rotation) renders as the still scene it equals, with one temporal sample (#688). A record with neither
+  `velocityMPerSec` nor `angularVelocityRadPerSec` (`subject: {}`) is refused (2.29.0, #786).
 - The model is rigid motion of a planar layer. At time t from the first opening (camera rotation's time reference), a
   subject point at rest q is at R(ωt)(q − c) + c + v·t. A plane point shows the subject where one is there, else the
   region's rest rectangle shows a neutral 18 % background (what the subject revealed), else the still scene. The background
@@ -2375,9 +2380,53 @@ Measured (64 × 64, defaults unless noted; mean / 95th percentile / maximum of d
 It costs three expected-signal passes and the demosaic: a 768 × 512 zone plate with diffraction at f/8 took 1.9 s (bilinear)
 and 2.4 s (AHD) of CPU against 0.8–1.0 s for the `fast: false` capture of the same request (one arm64 machine under load).
 
-**Limits.** Expected values only: no photon, dark or read noise and no ADC rounding (chroma noise is a separate quantity). Per
+**With noise (2.29).** `measure.noise` (`true`, or `{ seed }` with a uint32 seed that replaces `sensor.noiseSeed`) adds
+`result.noise` (#743): three statistics blocks of the same form as `chromaDifference`, each against the same noise-free
+full-color reference, and the seed used:
+
+- `demosaicOnly`: the measure above (`chromaDifference` itself);
+- `noiseOnly`: a full-color sensor with noise, developed without a demosaic: chroma noise alone;
+- `withNoise`: the capture's noisy mosaic, demosaiced (with AHD the direction is chosen on the noisy mosaic) and developed alike:
+  both together, as a capture shows them.
+
+The noisy mosaic is the RAW of the capture itself: `simulateCapture` of the request at `fast: false` and the seed, so its draws
+are the capture's own seeded streams and readout chain and the mosaic equals that capture's `result.raw` bit for bit. For
+`noiseOnly` each site's own channel is that code; its two other channels are read by two more runs of the same capture whose
+sensor stage draws the photo and dark counts of that channel's expected electrons from their own streams (stream IDs
+`0x46434e00` to `0x46434e03`) and reads them out through the site's own chain (full-well clip, read noise, ADC). Codes are
+normalized as the capture's development normalizes them. With `measure.map` the result has `noise.maps` (one per measure,
+`demosaicOnly` being `result.map`), with `measure.images` the developed `withNoise` and `noiseOnly` images; the
+`falseColor.noise` assumption records the method. Without `measure.noise` the result is 2.28.0's, bit for bit; with it the other
+fields are unchanged. A region equals the same pixels of the whole frame bit for bit (the capture runs on the region widened by
+the demosaic reach, with the whole frame's site indices and seeds).
+
+```ts
+const result = await simulateFalseColor({ scene: grating, output: { width: 64, height: 64, demosaic: "ahd" } }, { noise: true });
+const { demosaicOnly, noiseOnly, withNoise } = result.noise!;
+console.log(demosaicOnly.mean.toFixed(2), noiseOnly.mean.toFixed(2), withNoise.mean.toFixed(2));
+```
+
+Measured (64 × 64, manual exposure at 1/125 s and ISO 100, and at 1/4000 s and ISO 3200; mean / 95th percentile / maximum of d,
+`demosaicOnly` → `noiseOnly` → `withNoise`):
+
+| Scene | ISO | Bilinear | AHD |
+| --- | --- | --- | --- |
+| Uniform field | 100 | 0 → 1.27 / 2.8 / 5.0 → 0.94 / 2.2 / 4.5 | 0 → 1.28 / 2.8 / 5.5 → 0.73 / 1.6 / 2.9 |
+| Uniform field | 3200 | 0 → 7.21 / 15.6 / 32.0 → 5.27 / 12.0 / 25.6 | 0 → 7.23 / 15.7 / 32.0 → 4.05 / 8.6 / 18.7 |
+| Grating, 0.25 cycles/pixel | 100 | 36.62 / 72.0 / 72.0 → 1.15 / 2.5 / 5.0 → 36.62 / 72.1 / 72.6 | 16.91 / 50.5 / 50.5 → 1.15 / 2.5 / 5.5 → 16.89 / 50.6 / 51.0 |
+| Grating, 0.25 cycles/pixel | 3200 | 36.62 / 72.0 / 72.0 → 6.51 / 14.4 / 31.7 → 36.60 / 72.2 / 75.4 | 16.91 / 50.5 / 50.5 → 6.51 / 14.2 / 31.7 → 17.15 / 50.9 / 54.6 |
+| Siemens star | 3200 | 42.63 / 88.8 / 119.7 → 7.31 / 16.8 / 32.0 → 44.49 / 89.0 / 119.7 | 29.59 / 83.0 / 114.4 → 7.32 / 17.2 / 38.4 → 31.00 / 83.2 / 111.4 |
+
+On a uniform field the root mean square of `noiseOnly` is within 1 % of the value predicted from the per-channel variances
+(shot noise, dark charge, read noise and ADC quantization, propagated through the development to a\*b\*), and `withNoise` is
+lower than `noiseOnly` because the demosaic averages neighboring sites. As the exposure rises, `withNoise` tends to
+`demosaicOnly`. Cost: the noise-free measure, one more expected-signal pass and three `fast: false` captures of the request
+(or of the region): the 768 × 512 zone plate above took 3.4 s (bilinear) and 4.7 s (AHD) against 0.8 s and 1.4 s without noise
+(one arm64 machine). The code loads on demand, in a chunk of its own, only for a request with `measure.noise`.
+
+**Limits.** Without `measure.noise`, expected values only: no photon, dark or read noise and no ADC rounding. Per
 output pixel, not weighted by viewing distance or display size (no S-CIELAB spatial filtering). With AHD the direction is the
-one chosen on the noise-free mosaic. Always full quality (`fast: false`, on the CPU; `fast: true` is refused, top-level or on an option record: `lens.catalogue`,
+one chosen on the noise-free mosaic (on the noisy one for `noise.withNoise`). Always full quality (`fast: false`, on the CPU; `fast: true` is refused, top-level or on an option record: `lens.catalogue`,
 `lens.diffraction`, `motion.subject`, `output.demosaic`, `sensor.pixelAperture`, `sensor.antiAliasing`). **Refused**, with
 an `InvalidConfigurationError` naming the function, because they change color after the demosaic or have no expected-signal
 path: the luminance tone curves, `highlightMode` `"reconstruct"` and `"reconstruct-neighbors"`, `gamutHandling:

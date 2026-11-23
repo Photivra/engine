@@ -46,7 +46,8 @@ area), not the rendered site's.
 **ISO settings (#635).** `resolveSensorProfileIsoSettings(profile)` returns the ISO values a capture takes with the profile: the
 markings of `SENSOR_PROFILE_ISO_MARKINGS` (third stops from ISO 32 to 102 400) from its base ISO to its maximum, for example
 ISO 40–6 400 for the phone profile. It checks the record as a capture does, so a caller's copy gets its own list.
-Auto ISO's default whole stops (`exposure.autoIso.isoSteps: "whole-stop"`) are the base ISO·2^k. When that list leaves out
+Auto ISO's default whole stops (`exposure.autoIso.isoSteps: "whole-stop"`) are the base ISO·2^k, each the marking within 1/12
+stop of it (from 2.29.0, #738: ISO 160, 320, 640, 1 250, 2 500 … on a base-160 profile, where the list ended at 640 before). When that list leaves out
 ISO 100, the exposure reference's ISO (base ISO 32, 40, 64 or 80), they are every third marking counted from ISO 100, with the
 base ISO kept (#672): ISO 80, 100, 200, 400 … on a base-80 profile, ISO 40, 50, 100, 200 … on the phone profile.
 

@@ -13,6 +13,7 @@
  * limits.
  */
 
+import { requireAboveAbsoluteZeroCelsius } from "../core/temperature-validation.js";
 import {
   approximationResult,
   calculatedResult,
@@ -207,10 +208,10 @@ function parseTemperatureModel(
       kind:
         "fixed-reference-temperature",
       referenceTemperatureC:
-        requireFinite(
+        requireAboveAbsoluteZeroCelsius(requireFinite(
           record.referenceTemperatureC,
           "sensorDarkCurrent.temperatureModel.referenceTemperatureC"
-        ),
+        ), "sensorDarkCurrent.temperatureModel.referenceTemperatureC"),
       darkCurrentElectronsPerSecond:
         requireNonNegativeFinite(
           record.darkCurrentElectronsPerSecond,
@@ -270,12 +271,12 @@ function parseTemperatureModel(
             "]", ["temperatureC", "darkCurrentElectronsPerSecond"]
         );
         const temperatureC =
-          requireFinite(
+          requireAboveAbsoluteZeroCelsius(requireFinite(
             parsed.temperatureC,
             "sensorDarkCurrent.temperatureModel.samples[" +
               index +
               "].temperatureC"
-          );
+          ), "sensorDarkCurrent.temperatureModel.samples[" + index + "].temperatureC");
         if (
           temperatureC <=
           previousTemperature
@@ -493,6 +494,7 @@ function resolveDarkCurrentRate(
       "operatingTemperatureC must be finite."
     );
   }
+  requireAboveAbsoluteZeroCelsius(operatingTemperatureC, "operatingTemperatureC", InvalidScientificInputError);
 
   if (
     model.kind ===

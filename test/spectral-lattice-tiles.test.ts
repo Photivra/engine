@@ -6,13 +6,15 @@
  * - A tile dropped by the byte budget and computed again has the same bits.
  * - Rows filled on demand equal the same rows of a whole tile, bit for bit, in any order; only missing rows are filled.
  * - The store never holds more than its capacity.
+ * - Row sums (2.29.0, #749): `rowSum` over any run equals the plain sum within 1e-14 relative, with the same bits whatever was asked
+ *   before (tiles dropped and computed again included), and without cancellation next to a bright point; the sums count in the bytes.
  * - The helper's comparisons: relative differences, codes, and a region against the same pixels of a whole view; and the helper on
  *   two real methods that form the same sum (#643's per-tap sum against the per-material sums) and on a region of a prepared view.
  */
 import { describe, expect, it } from "vitest";
 import { createDisplayViewExpectedSignal } from "../src/facade/expected-signal.js";
 import { simulateDisplayViewWithInternals } from "../src/facade/simulate-display-view.js";
-import { createSpectralLatticeTiles, type SpectralLatticeTilesInput } from "../src/facade/spectral-lattice-tiles.js";
+import { createSpectralLatticeRowSumTiles, createSpectralLatticeTiles, type SpectralLatticeTilesInput } from "../src/facade/spectral-lattice-tiles.js";
 import { prepareDisplayView, type SimulateCaptureOptions } from "../src/index.js";
 import { compareCodes, compareRegionWithWhole, compareRelative, compareSiteElectrons, expectRegionEqualsWhole, expectSiteElectronsEquivalent,
   expectViewsEquivalent, relativeDifference } from "./helpers/view-equivalence.js";
@@ -135,6 +137,62 @@ describe("spectral lattice tiles", () => {
     fail = false;
     const values = tiles.tileAt(0, 0, 0);
     expect(Array.from(values.subarray(0, 8))).toEqual([0, 1, 2, 3, 4, 5, 6, 7]);
+  });
+
+  it("sums runs of a row from block sums: the plain sum within 1e-14, the same bits in any order, the sums in the bytes", () => {
+    const fill: SpectralLatticeTilesInput["fill"] = (key, x0, y0, width, height, out) => {
+      for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) for (let n = 0; n < NODES; n++) out[(y * width + x) * NODES + n] = radiance(key, x0 + x, y0 + y, n);
+    };
+    const tileBytes = 16 * 16 * NODES * 8 + 16 + 16 * 3 * NODES * 8 + 16;
+    const make = (capacityTiles: number): ReturnType<typeof createSpectralLatticeRowSumTiles> =>
+      createSpectralLatticeRowSumTiles({ tile: 16, nodes: NODES, block: 8, capacityBytes: capacityTiles * tileBytes, fill });
+    expect(() => createSpectralLatticeRowSumTiles({ tile: 16, nodes: NODES, block: 8, capacityBytes: tileBytes - 1, fill })).toThrow(new RegExp(`at least one tile \\(${tileBytes} bytes\\)`));
+    const roomy = make(64), tight = make(2);
+    // Runs of every length from 1 to 70 (within one tile, across tiles, negative positions), on rows of several tiles.
+    const runs: [number, number, number][] = [];
+    for (let length = 1; length <= 70; length++) for (const x0 of [-37, -16, -3, 0, 5, 8, 13]) runs.push([x0, x0 + length - 1, (length * 7 + x0) % 23 - 11]);
+    let worst = 0;
+    const sums = runs.map(([x0, x1, y]) => {
+      const a = new Float64Array(NODES), plain = new Float64Array(NODES);
+      roomy.rowSum(3, x0, x1, y, a, 0, NODES);
+      for (let x = x0; x <= x1; x++) for (let n = 0; n < NODES; n++) plain[n] = plain[n]! + radiance(3, x, y, n);
+      for (let n = 0; n < NODES; n++) worst = Math.max(worst, Math.abs(a[n]! - plain[n]!) / plain[n]!);
+      return a;
+    });
+    expect(worst).toBeLessThan(1e-14);
+    expect(worst).toBeGreaterThan(0);
+    // The same bits in reverse order on a store that drops tiles, and nodes [from, to) alone.
+    for (let i = runs.length - 1; i >= 0; i--) {
+      const [x0, x1, y] = runs[i]!, b = new Float64Array(NODES), part = new Float64Array(NODES);
+      tight.rowSum(3, x0, x1, y, b, 0, NODES);
+      expect(bits(b)).toEqual(bits(sums[i]!));
+      tight.rowSum(3, x0, x1, y, part, 4, 9);
+      expect(Array.from(part)).toEqual(Array.from(sums[i]!, (v, n) => (n >= 4 && n < 9 ? v : 0)));
+    }
+    expect(tight.tilesComputed).toBeGreaterThan(roomy.tilesComputed);
+    expect(tight.bytesHeld).toBeLessThanOrEqual(2 * tileBytes);
+    expect(roomy.bytesHeld).toBe(roomy.tilesComputed * tileBytes);
+    // rowSum adds into `out`, and takes integer arguments.
+    const twice = new Float64Array(NODES);
+    roomy.rowSum(3, 2, 40, 1, twice, 0, NODES); roomy.rowSum(3, 2, 40, 1, twice, 0, NODES);
+    const once = new Float64Array(NODES);
+    roomy.rowSum(3, 2, 40, 1, once, 0, NODES);
+    for (let n = 0; n < NODES; n++) expect(Math.abs(twice[n]! / (2 * once[n]!) - 1)).toBeLessThan(1e-15);
+    expect(() => roomy.rowSum(0, 3, 2, 0, once, 0, NODES)).toThrow(/x0 ≤ x1/);
+    expect(() => roomy.rowSum(0, 0, 2, 0.5, once, 0, NODES)).toThrow(/x0 ≤ x1/);
+    expect(() => roomy.rowSum(0, 0, 2, 0, once, 3, NODES + 1)).toThrow(/nodes/);
+    expect(() => createSpectralLatticeRowSumTiles({ tile: 16, nodes: NODES, block: 5, capacityBytes: 1e7, fill })).toThrow(/block must/);
+    // A point 1e12 times brighter than its row: runs beside it in the same tile row keep their digits (sums only, no differences).
+    const bright = createSpectralLatticeRowSumTiles({ tile: 16, nodes: 1, block: 8, capacityBytes: 1e6, fill(_key, x0, y0, width, height, out) {
+      for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) out[y * width + x] = x0 + x === 5 ? 1e12 : 1e-3 * (1 + (((x0 + x) % 7) + 7) % 7);
+    } });
+    for (const [x0, x1] of [[6, 15], [0, 4], [6, 40], [-20, 4], [8, 15]] as const) {
+      const got = new Float64Array(1);
+      bright.rowSum(0, x0, x1, 3, got, 0, 1);
+      let plain = 0;
+      for (let x = x0; x <= x1; x++) plain += 1e-3 * (1 + (((x % 7) + 7) % 7));
+      expect(Math.abs(got[0]! - plain) / plain).toBeLessThan(1e-14);
+    }
   });
 
   it("refuses invalid shapes, capacities and indices", () => {

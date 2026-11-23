@@ -731,6 +731,28 @@ Before the first use on a request the host checks its model of the mapping again
 
 **Code size (#661, layout B).** The lens passes are their own on-demand chunk (`display-view-lens-gpu.ts` and `wgsl-display-view-lens-kernel.ts`), which only the Quality host's dynamic import reaches, at the first catalogue-lens render. The chunk imports no module statically: the Quality host hands it what it takes from the Quality kernels, the session's modules and the entry (`DisplayViewLensHost`, a positional tuple), so it shares no module with another chunk and the session chunk stays one chunk (a shared module made the bundler split it, about +11.7 kB on the fast row). `test/capture-bundle.test.ts` measures it as its own row, "lens" (10,200 B gzip; owner decision 2026-11-21), and checks its two modules, that only the Quality chunk loads it and that exactly four chunks hold `gpu/` modules. It writes E = 2⁻²³ out instead of importing it; `test/display-view-lens-gpu.test.ts` checks it equals `2 * WEBGPU_F32_UNIT_ROUNDOFF`.
 
+### Layered chart scenes on the GPU (#750)
+
+From 2.29.0 a layered chart scene's display view (docs/LAYERED_SCENES.md) renders on `webgpu-f32` under `gpu: "auto"` or `"require"` when it is on the planar map. The GPU takes passes 1 and 2 of the Quality path (`src/gpu/display-view-layered-gpu.ts`, `src/gpu/wgsl-display-view-layered-kernel.ts`); pass 3, the float64 finishing and the recomputation of flagged display pixels are the Quality host's, the recomputation with the view's own layered signal. The float64 reference is the layered sum of `src/facade/layered-scene-signal.ts` through `renderDisplayView`:
+
+S(p)[n] = Σ_k Σ_t D_k(t) · V_k(p, t) · L_k(p − t)[n] (each lattice point p of each lattice group), and site_c(x) = Σ_g Σ_d Σ_n C_{n,c}(d) · S_g(x + d)[n] + dark_c (each native site x of channel c),
+
+where D_k is surface k's defocus kernel, V_k the share of tap t's pupil region whose rays reach surface k (the visibility's `share`), L_k the surface's spectral radiance at the nodes and C_{n,c}(d) the reference's combined kernel per node and channel. No value holds a channel response summed over the spectrum: S and L are spectral radiance at the nodes, and A_c enters per node when a site is read.
+
+1. **On the host, in float64, with the reference's own functions.** Each lattice point's surface (`geometry.surfaceOf`). For a point at a card edge, surface by surface in the reference's order, and kernel row by kernel row, the taps whose pupil regions certainly reach the surface (runs with factor 1), certainly miss it (left out), or may reach part of it, whose factor is the reference's own `visibility.share`. A tap is "certain" only when every card's relation to its region's ray box holds with a margin of 2⁻³⁶ of the magnitudes compared (`DISPLAY_VIEW_LAYERED_MARGIN`), far above the float64 rounding of the reference's comparison, so every factor is `share`'s value for that tap; the reference's run sum (#749) takes the same factor per tap and differs only in its order of summation. Away from a card edge on one axis a surface's list of spans depends only on the other coordinate and which cards contain the point, so one list serves a whole card edge, and rows and taps whose card relations are all certain are kept by those relations (5238a16: `share` calls 1,526,376 → 89,196 on the timing case below).
+2. **Sum (pass 1).** One invocation per lattice point and spectral node: a point that sees one surface sums every tap of that surface's kernel; an edge point sums the spans of its surfaces' lists. The sum is blocked: a row partial over its taps, a surface partial over its rows, the total over the surfaces. Each surface's radiance at the lattice points is the lattice tiles' value rounded once to float32.
+3. **Sites (pass 2).** One invocation per native site: Σ_g Σ_dy Σ_dx Σ_n C·S as the image-plane Quality pass sums its lattice radiance, then the Quality path's readout moments (`write_site`).
+
+**Bound (first order; the host doubles every pixel bound).** Every term is non-negative. A sum term w·f·L carries the host roundings of w, f and L (E/2 each, E = 2⁻²³), the product w·f (E; none when f = 1) and the product with L (E), and at most 2R additions in its row, 2R in its surface and K − 1 over the surfaces: S carries (4R + K + 2.5)·E relative. A site adds C's rounding and the product, then at most N − 1 + cw − 1 + ch − 1 + G − 1 additions and the dark electrons: (4R + K + N + cw + ch + G + 2)·E relative, plus `site_tiny` (what a device that flushes results below the float32 normal range can drop). No lattice point is flagged (no material is decided on the GPU); a display pixel the Quality pixel pass flags is recomputed on the host with the view's layered signal.
+
+**Envelope.** The planar map (a still camera, a rectilinear lens without distortion or vignetting), one illuminant, chart-material surfaces, disc and shaped kernels without a cat's eye up to 96 sites (`DISPLAY_VIEW_LAYERED_MAXIMUM_KERNEL_RADIUS`), each surface's one kernel group, and the Quality path's own limits (at most 64 lattice groups, 96 spectral nodes). Everything else (a lens map, camera motion, mixed light, a cat's eye, radiance surfaces, larger kernels) runs the CPU reference, labeled `unsupported-on-backend` with the reason. The self-check runs with the Speed and Quality checks before the first layered render.
+
+**The public path.** `prepareLayeredChartScenes()` loads the layered-scene code, which puts a planar layered view's layers in `setup.gpu.layered` and the loader of the layered passes in `DisplayViewGpuRequest.layeredGpu`; the session asks the device for a layered view only when the request carries it. Without it (or when the chunk fails to load) every layered view renders on the CPU, labeled as before.
+
+**Code size.** The passes are their own on-demand chunk, reachable only from the layered-scene code; `test/capture-bundle.test.ts` measures it as its own row, "layered GPU" (8,331 B gzip, limit 8,400 B). In a bundle with `prepareLayeredChartScenes` the chunk imports the session's and the Quality host's modules statically, as the image-plane GPU module does, so the session chunk splits in two (about +1,020 B over all chunks; none more in a bundle that already has `prepareImagePlaneScenes`). The capture worker's shape is unchanged.
+
+**Tests and measurements.** `test/display-view-layered-gpu.test.ts` (fake device with float32 emulation): every edge point's spans against the reference's run sum in float64 within 1e-12, five cases inside the a-priori bounds with samples within one code, the self-check and the envelope. `test/webgpu/display-view-layered.webgpu.ts` runs the same cases on a real device: on SwiftShader (Chromium headless) 8 of 8 passed during development, the largest expected-value bound used 0.46 % and the variance's 0.03 %, 0 samples differing and 0 flagged. A timing case runs on hardware only (a 480 × 360 frame at a third of its size, two cards and a back plane at radii 14, 20 and 29): on an Apple M5 Pro (metal-3), median of 3 warm renders, 16 nodes CPU 4,281 ms and GPU 278 ms (the host's part 225 ms), 41 nodes CPU 7,939 ms and GPU 441 ms (host 321 ms), from a development run of this file only; the release-gate runs are in the [hardware record](WEBGPU_DEVICES.md).
+
 ## Error bounds (a priori, reported per result)
 
 **Assumptions: the WGSL accuracy table.** The bounds assume a device that meets the W3C WebGPU Shading Language specification, §15.7 *Floating Point Evaluation* ([W3C Candidate Recommendation Draft, 26 October 2026](https://www.w3.org/TR/WGSL/#floating-point-evaluation); the table is §15.7.4 *Floating Point Accuracy*, the ULP definition follows Muller 2005), and nothing more:
@@ -917,16 +939,30 @@ From 2.14 (#536) the published package carries the engine's WGSL without comment
 
 - line comments are removed and block comments (which nest in WGSL) become one space;
 - spaces and tabs at the start and end of a line are removed;
-- every newline stays, so line numbers, source maps and line-anchored edits such as `/^const SLACK: f32 = …\n/m` still hold;
-- a line holding a `${…}` interpolation, the literal's first and last lines, and any literal where a block comment or an
-  escape could interact with them are left exactly as written.
+- since 2.29.0 ([#658](https://github.com/Photivra/engine/issues/658)), inside a line a run of spaces and tabs becomes one
+  space, and that space is removed where it touches an identifier or number character on one side and punctuation on the
+  other, or a bracket, comma or semicolon on either side (`let x = a.x - -b;` ships as `let x=a.x- -b;`). Neither can join two
+  tokens: a space between two other punctuation characters (`- -`, `/ *`, `> =`) always stays;
+- every newline stays in its literal, so line numbers and source maps of the code after a shader still hold (columns on a
+  tightened line move). Since 2.29.0 a line is joined onto the one before it where the newline touches a bracket, comma or
+  semicolon, or an empty line (`{`, `let a=1;` and `}` on three lines ship as `{let a=1;}`), and the newlines removed are put
+  back as empty lines just before the next line holding an interpolation and before the literal's last line, so every
+  interpolation keeps its line; the first and last lines, a line holding an interpolation and the line after it are never
+  joined;
+- since 2.29.0 a line holding a `${…}` interpolation is tightened by the same rules between its interpolations, and a space
+  that touches an interpolation stays, since its text is not known (`let i = gid.x * ${N}u + 1;` ships as
+  `let i=gid.x* ${N}u+1;`);
+- a line holding an interpolation and a comment or an escape, the literal's first and last lines, and any literal where a
+  block comment or an escape could interact with them are left exactly as written.
 
-WGSL treats comments and whitespace only as token separators, and the build fails if any literal's tokens, line count or
-count of tagged literals changes. The tests and the WebGPU suites run the same minified text (a Vite plugin in the Vitest
-configs, and the conformance page's server); `PHOTIVRA_WGSL_MINIFY=0` runs the source text instead.
-`test/wgsl-minify.test.ts` checks every literal with an independent tokenizer and every text anchor the engine uses to edit
-its own shaders (`display-view-chart-material-module.ts`, `display-view-composite-material-module.ts`,
-`wgsl-chart-composite-kernel.ts`). On the Apple M5 Pro (Chromium 153, hardware adapter), `npm run test:webgpu` passed all
+WGSL treats comments and whitespace only as token separators, and the build fails if any literal's tokens (read by a WGSL
+lexer, `wgslTokens`), line count or count of tagged literals changes. The tests and the WebGPU suites run the same minified
+text (a Vite plugin in the Vitest configs, and the conformance page's server); `PHOTIVRA_WGSL_MINIFY=0` runs the source text
+instead. `test/wgsl-minify.test.ts` checks every literal with an independent lexer and every text anchor the engine uses to
+edit its own shaders; since 2.29.0 the display view's material modules take their parts of the chart kernels as separate
+literals (`CHART_MATERIAL_WGSL`, `CHART_COMPOSITE_MATERIAL_WGSL`, `chartCompositeModuleCommonWgsl`) instead of searching
+the kernels' text, so only word-anchored renames are left. `test/wgsl-display-view-tokens.test.ts` pins the lexer tokens of
+the display view's assembled shaders and of the chart kernels. On the Apple M5 Pro (Chromium 153, hardware adapter), `npm run test:webgpu` passed all
 167 tests with the minified and with the source text, and the 2,911 recorded values of the two runs (maxima, bounds,
 differing and flagged counts) were identical; only the stage timings differ.
 

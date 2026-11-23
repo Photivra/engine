@@ -6,6 +6,7 @@ import { headingSlug } from "../../scripts/lib/anchors.mjs";
 import { loadDocument, renderTokens, renderInline, newRenderState, firstParagraph, plainInline, codeIndicesIn } from "./markdown.mjs";
 import { splitChangelog, statusLine } from "./changelog.mjs";
 import { LinkMap } from "./links.mjs";
+import { highlight } from "./highlight.mjs";
 import { escapeHtml, fill, firstSentence, cut, plural, longDate } from "./html.mjs";
 import { breadcrumbs, documentLayout, linkList, pager } from "./templates.mjs";
 import { searchBody, countPhrase } from "./search.mjs";
@@ -143,8 +144,8 @@ export function buildPages(site) {
 <p class="small muted">${escapeHtml(versionLine)}</p>
 </div>
 <div>
-<pre class="code" tabindex="0" role="region" aria-label="Install command"><code>${escapeHtml(installCommand)}</code></pre>
-<pre class="code" tabindex="0" role="region" aria-label="Example: simulate a capture"><code>${escapeHtml(firstExample.text)}</code></pre>
+<pre class="code" tabindex="0" role="region" aria-label="Install command"><code>${highlight(installCommand, "sh")}</code></pre>
+<pre class="code" tabindex="0" role="region" aria-label="Example: simulate a capture"><code>${highlight(firstExample.text, firstExample.lang)}</code></pre>
 </div>
 </section>
 </div>
@@ -189,7 +190,7 @@ ${figure(homeExample, sources, site, { home: true })}
     const article = `${breadcrumbs([{ label: page.heading }])}
 <h1>${escapeHtml(page.heading)}</h1>
 <p>${escapeHtml(page.intro)}</p>
-<pre class="code" tabindex="0" role="region" aria-label="Install command"><code>${escapeHtml(installCommand)}</code></pre>
+<pre class="code" tabindex="0" role="region" aria-label="Install command"><code>${highlight(installCommand, "sh")}</code></pre>
 ${renderTokens(nodeSupport.tokens, { from: "NODE_SUPPORT.md", links, shift: 1, state })}
 ${sourceLink("NODE_SUPPORT.md")}`;
     const body = documentLayout({ side: "", article, toc: tocOf(nodeSupport.tokens, 2).map((item) => item) });
@@ -385,7 +386,7 @@ ${areaHtml}`;
     const article = `${breadcrumbs(crumbs)}
 <h1 id="${escapeHtml(release.id)}">${escapeHtml(release.version)}</h1>
 <div class="meta">${status ? `<span>${escapeHtml(status)}</span>` : ""}${release.version === version ? "<span>Current release</span>" : ""}</div>
-${release.published ? `<pre class="code" tabindex="0" role="region" aria-label="Install command"><code>${escapeHtml(`npm install ${sources.packageName}@${release.version}`)}</code></pre>\n` : ""}${content}
+${release.published ? `<pre class="code" tabindex="0" role="region" aria-label="Install command"><code>${highlight(`npm install ${sources.packageName}@${release.version}`, "sh")}</code></pre>\n` : ""}${content}
 ${more.length ? `<h2 id="more-about-this-release">More about this release</h2>\n<ul>${more.join("")}</ul>` : ""}
 ${pager(releases[index - 1] && { href: releases[index - 1].url, label: releases[index - 1].version }, releases[index + 1] ? { href: releases[index + 1].url, label: releases[index + 1].version } : { href: historyUrl, label: "engine API history" }, ["Newer", "Older"])}`;
     pages.push({

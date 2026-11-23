@@ -1,6 +1,6 @@
 # Public API reference
 
-Generated from the exact root exports for **@photivra/engine 2.28.0 / root contract 2.28.0** by `node scripts/generate-api-reference.mjs`. No module deep import is supported.
+Generated from the exact root exports for **@photivra/engine 2.29.0 / root contract 2.29.0** by `node scripts/generate-api-reference.mjs`. No module deep import is supported.
 
 Use [the developer guide](https://github.com/Photivra/engine/blob/main/docs/DEVELOPERS.md) for executable paths and scientific boundaries. Types are contracts, not runtime validation: parse untrusted data, preserve units/reference frames, read assessment blockers, and retain evidence/limitations. Optional properties do not imply a universal default. Model/schema IDs remain independent of the distribution.
 
@@ -1125,12 +1125,19 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 | Export | Kind |
 | --- | --- |
 | [`GENERIC_THIRD_STOP_SHUTTER_SECONDS`](api/equipment-generic-tier-assets.md#generic_third_stop_shutter_seconds) | Runtime |
-| [`GenericEquipmentTier`](api/equipment-generic-tier-assets.md#genericequipmenttier) | Type |
 | [`GenericEquipmentTierPreset`](api/equipment-generic-tier-assets.md#genericequipmenttierpreset) | Type |
 | [`GenericTierBodyAssets`](api/equipment-generic-tier-assets.md#generictierbodyassets) | Type |
 | [`GenericTierLensAssets`](api/equipment-generic-tier-assets.md#generictierlensassets) | Type |
-| [`GenericTierPresetVersion`](api/equipment-generic-tier-assets.md#generictierpresetversion) | Type |
-| [`GenericVersionedAsset`](api/equipment-generic-tier-assets.md#genericversionedasset) | Type |
+
+## equipment/generic-tier-exposure.ts
+
+[Detailed contracts](api/equipment-generic-tier-exposure.md) · [Source](https://github.com/Photivra/engine/blob/main/src/equipment/generic-tier-exposure.ts)
+
+| Export | Kind |
+| --- | --- |
+| [`GenericEquipmentTier`](api/equipment-generic-tier-exposure.md#genericequipmenttier) | Type |
+| [`GenericTierPresetVersion`](api/equipment-generic-tier-exposure.md#generictierpresetversion) | Type |
+| [`GenericVersionedAsset`](api/equipment-generic-tier-exposure.md#genericversionedasset) | Type |
 
 ## equipment/generic-tier-presets.ts
 
@@ -1643,7 +1650,9 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 
 | Export | Kind |
 | --- | --- |
+| [`FalseColorNoise`](api/facade-false-color.md#falsecolornoise) | Type |
 | [`FalseColorResult`](api/facade-false-color.md#falsecolorresult) | Type |
+| [`FalseColorStatistics`](api/facade-false-color.md#falsecolorstatistics) | Type |
 | [`SimulateFalseColorOptions`](api/facade-false-color.md#simulatefalsecoloroptions) | Type |
 
 ## facade/fast-methods.ts
@@ -1655,6 +1664,14 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 | [`SIMULATE_CAPTURE_FAST_METHODS`](api/facade-fast-methods.md#simulate_capture_fast_methods) | Runtime |
 | [`SimulateCaptureFastMethod`](api/facade-fast-methods.md#simulatecapturefastmethod) | Type |
 
+## facade/focus-mask.ts
+
+[Detailed contracts](api/facade-focus-mask.md) · [Source](https://github.com/Photivra/engine/blob/main/src/facade/focus-mask.ts)
+
+| Export | Kind |
+| --- | --- |
+| [`DisplayViewFocusMask`](api/facade-focus-mask.md#displayviewfocusmask) | Type |
+
 ## facade/image-plane-enable.ts
 
 [Detailed contracts](api/facade-image-plane-enable.md) · [Source](https://github.com/Photivra/engine/blob/main/src/facade/image-plane-enable.ts)
@@ -1663,6 +1680,24 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 | --- | --- |
 | [`prepareImagePlaneScenes`](api/facade-image-plane-enable.md#prepareimageplanescenes) | Runtime |
 
+## facade/layered-chart-pixel.ts
+
+[Detailed contracts](api/facade-layered-chart-pixel.md) · [Source](https://github.com/Photivra/engine/blob/main/src/facade/layered-chart-pixel.ts)
+
+| Export | Kind |
+| --- | --- |
+| [`calculateLayeredChartSurfaceAtPixel`](api/facade-layered-chart-pixel.md#calculatelayeredchartsurfaceatpixel) | Runtime |
+| [`LayeredChartSurfaceAtPixelInput`](api/facade-layered-chart-pixel.md#layeredchartsurfaceatpixelinput) | Type |
+
+## facade/layered-chart-query.ts
+
+[Detailed contracts](api/facade-layered-chart-query.md) · [Source](https://github.com/Photivra/engine/blob/main/src/facade/layered-chart-query.ts)
+
+| Export | Kind |
+| --- | --- |
+| [`calculateLayeredChartSurfaceAt`](api/facade-layered-chart-query.md#calculatelayeredchartsurfaceat) | Runtime |
+| [`LayeredChartSurfaceAt`](api/facade-layered-chart-query.md#layeredchartsurfaceat) | Type |
+
 ## facade/layered-chart-scene.ts
 
 [Detailed contracts](api/facade-layered-chart-scene.md) · [Source](https://github.com/Photivra/engine/blob/main/src/facade/layered-chart-scene.ts)
@@ -1670,12 +1705,14 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 | Export | Kind |
 | --- | --- |
 | [`calculateLayeredChartDepths`](api/facade-layered-chart-scene.md#calculatelayeredchartdepths) | Runtime |
+| [`calculateLayeredChartKernelRadii`](api/facade-layered-chart-scene.md#calculatelayeredchartkernelradii) | Runtime |
 | [`LAYERED_CHART_LIMITS`](api/facade-layered-chart-scene.md#layered_chart_limits) | Runtime |
 | [`LAYERED_CHART_PRESET_SCALES`](api/facade-layered-chart-scene.md#layered_chart_preset_scales) | Runtime |
 | [`LAYERED_CHART_PRESET_STEP_RATIO`](api/facade-layered-chart-scene.md#layered_chart_preset_step_ratio) | Runtime |
 | [`LayeredChartBackPlane`](api/facade-layered-chart-scene.md#layeredchartbackplane) | Type |
 | [`LayeredChartCard`](api/facade-layered-chart-scene.md#layeredchartcard) | Type |
 | [`LayeredChartDepth`](api/facade-layered-chart-scene.md#layeredchartdepth) | Type |
+| [`LayeredChartKernelRadius`](api/facade-layered-chart-scene.md#layeredchartkernelradius) | Type |
 | [`LayeredChartPointLights`](api/facade-layered-chart-scene.md#layeredchartpointlights) | Type |
 | [`LayeredChartScene`](api/facade-layered-chart-scene.md#layeredchartscene) | Type |
 | [`LayeredFrameRectangle`](api/facade-layered-chart-scene.md#layeredframerectangle) | Type |
@@ -1864,6 +1901,25 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 | --- | --- |
 | [`calculateChartFraming`](api/facade-subject-framing.md#calculatechartframing) | Runtime |
 | [`calculateSubjectDistanceForFraming`](api/facade-subject-framing.md#calculatesubjectdistanceforframing) | Runtime |
+
+## facade/typical-processing-entry.ts
+
+[Detailed contracts](api/facade-typical-processing-entry.md) · [Source](https://github.com/Photivra/engine/blob/main/src/facade/typical-processing-entry.ts)
+
+| Export | Kind |
+| --- | --- |
+| [`simulateTypicalProcessing`](api/facade-typical-processing-entry.md#simulatetypicalprocessing) | Runtime |
+
+## facade/typical-processing.ts
+
+[Detailed contracts](api/facade-typical-processing.md) · [Source](https://github.com/Photivra/engine/blob/main/src/facade/typical-processing.ts)
+
+| Export | Kind |
+| --- | --- |
+| [`SimulateTypicalProcessingInput`](api/facade-typical-processing.md#simulatetypicalprocessinginput) | Type |
+| [`TypicalProcessingDevelopOptions`](api/facade-typical-processing.md#typicalprocessingdevelopoptions) | Type |
+| [`TypicalProcessingResult`](api/facade-typical-processing.md#typicalprocessingresult) | Type |
+| [`TypicalProcessingStage`](api/facade-typical-processing.md#typicalprocessingstage) | Type |
 
 ## gpu/image-kernel-accelerator.ts
 
@@ -2176,6 +2232,16 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 | [`DefocusCircle`](api/optics-depth-of-field.md#defocuscircle) | Type |
 | [`DepthOfField`](api/optics-depth-of-field.md#depthoffield) | Type |
 
+## optics/detail-limit-ideal.ts
+
+[Detailed contracts](api/optics-detail-limit-ideal.md) · [Source](https://github.com/Photivra/engine/blob/main/src/optics/detail-limit-ideal.ts)
+
+| Export | Kind |
+| --- | --- |
+| [`calculateIdealLensDetailLimit`](api/optics-detail-limit-ideal.md#calculateideallensdetaillimit) | Runtime |
+| [`CalculateIdealLensDetailLimitInput`](api/optics-detail-limit-ideal.md#calculateideallensdetaillimitinput) | Type |
+| [`DETAIL_LIMIT_LIMITS`](api/optics-detail-limit-ideal.md#detail_limit_limits) | Runtime |
+
 ## optics/detail-limit.ts
 
 [Detailed contracts](api/optics-detail-limit.md) · [Source](https://github.com/Photivra/engine/blob/main/src/optics/detail-limit.ts)
@@ -2184,7 +2250,6 @@ Start here to find a function by task. [Using Photivra from an agent](AGENT_GUID
 | --- | --- |
 | [`calculateDetailLimit`](api/optics-detail-limit.md#calculatedetaillimit) | Runtime |
 | [`CalculateDetailLimitInput`](api/optics-detail-limit.md#calculatedetaillimitinput) | Type |
-| [`DETAIL_LIMIT_LIMITS`](api/optics-detail-limit.md#detail_limit_limits) | Runtime |
 | [`DetailLimit`](api/optics-detail-limit.md#detaillimit) | Type |
 | [`DetailLimitBasis`](api/optics-detail-limit.md#detaillimitbasis) | Type |
 | [`DetailLimitCatalogueLens`](api/optics-detail-limit.md#detaillimitcataloguelens) | Type |

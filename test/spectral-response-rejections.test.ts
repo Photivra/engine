@@ -20,6 +20,9 @@ const cases: RejectionCase[] = [
   ["non-object reference conditions", (p): void => { p.channels[0].referenceConditions = 5; }, ".referenceConditions must be an object."],
   ["a non-finite reference temperature", (p): void => { p.channels[0].referenceConditions.temperatureC = Number.NaN; },
     ".temperatureC must be a finite number."],
+  // #742: a temperature below absolute zero.
+  ["a reference temperature below absolute zero", (p): void => { p.channels[0].referenceConditions.temperatureC = -300; },
+    ".temperatureC must be above absolute zero (-273.15 °C)."],
   ["a zero sample wavelength", (p): void => { p.channels[0].externalQuantumEfficiency.samples[0].wavelengthNanometers = 0; },
     ".wavelengthNanometers must be greater than zero."],
   ["a negative uncertainty fraction", (p): void => { p.channels[0].uncertainty.fraction = -0.01; }, ".fraction must be greater than or equal to zero."],

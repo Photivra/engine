@@ -29,7 +29,7 @@ import type {
   SceneIlluminationTemporalProfile
 } from "./illumination-temporal.js";
 import type { Vector3 } from "./scene.js";
-import { requireInputObject, requireInputArray, requireInputKeys, rejectUnknownVariantFields, UNCERTAINTY_VARIANT_FIELDS, requireConfigRecord as requireRecord, requireTrimmedConfigString as requireNonEmptyString, requireConfigFiniteNumber as requireFinite, parseConfigLimitations as parseLimitations, requireConfigFraction as requireFraction, requireConfigNumberAtLeastZero as requireNonNegativeFinite } from "../core/record-validation.js";
+import { parseConfigUncertainty, requireInputObject, requireInputArray, requireInputKeys, rejectUnknownVariantFields, requireConfigRecord as requireRecord, requireTrimmedConfigString as requireNonEmptyString, requireConfigFiniteNumber as requireFinite, parseConfigLimitations as parseLimitations, requireConfigFraction as requireFraction, requireConfigNumberAtLeastZero as requireNonNegativeFinite } from "../core/record-validation.js";
 import { hypot3 } from "../core/portable-math.js";
 import { parseVector3 } from "./illumination.js";
 
@@ -268,33 +268,7 @@ function parseUncertainty(
   value: unknown,
   path: string
 ): SceneRadianceUncertainty {
-  const record = requireRecord(value, path, null);
-  rejectUnknownVariantFields(record, "kind", UNCERTAINTY_VARIANT_FIELDS, path);
-  if (record.kind === "relative") {
-    return {
-      kind: "relative",
-      fraction: requireNonNegativeFinite(
-        record.fraction,
-        path + ".fraction"
-      ),
-      basis: requireNonEmptyString(
-        record.basis,
-        path + ".basis"
-      )
-    };
-  }
-  if (record.kind === "not-quantified") {
-    return {
-      kind: "not-quantified",
-      limitation: requireNonEmptyString(
-        record.limitation,
-        path + ".limitation"
-      )
-    };
-  }
-  throw new InvalidConfigurationError(
-    path + ".kind is invalid."
-  );
+  return parseConfigUncertainty(value, path, requireNonNegativeFinite, requireNonEmptyString);
 }
 
 function parseArtifact(

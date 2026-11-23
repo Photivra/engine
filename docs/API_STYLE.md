@@ -284,7 +284,13 @@ have a fast method, a measured and bounded approximation of it. One flag style s
   2.27.0 speed-ups (#649, #653, the regrouped lens defocus and the Newton distortion inverse of #651 and #655) give the same
   results within rounding and take no flag. In 2.28.0: `lens.diffraction`'s default kernel window (#732, `lens.diffraction/kernel-window`:
   to the second dark ring at the longest node fast, the third exact; an explicit `kernelRadiusSamples` always wins; reported in
-  `diagnostics.fast.applied["lens.diffraction"]` and the `fast.lens.diffraction` assumption's `window`, with its a-priori bound). The
+  `diagnostics.fast.applied["lens.diffraction"]` and the `fast.lens.diffraction` assumption's `window`, with its a-priori bound). In
+  2.29.0: `simulateTypicalProcessing`'s local tone mapping (#740, `simulateTypicalProcessing/local-tone-mapping`, the
+  `localToneMapping` record's flag: the Durand–Dorsey base layer by the paper's downsampled piecewise-linear bilateral filter fast,
+  the direct bilateral filter exact, refused above 2 × 10¹¹ tap evaluations; reported in `fast.applied.localToneMapping` and the
+  `fast.simulateTypicalProcessing.localToneMapping` assumption), and its demosaic and WarpRectilinear follow `developDngImage`'s
+  entries; `lens.catalogue/view-psf-zones` and `lens.catalogue/cats-eye` also cover layered chart scenes with a catalogue lens (#741),
+  and `prepareDisplayView`'s `gpu` entry layered views on the planar map (#750). The
   records of `sensor.antiAliasing` and `output.demosaic` (in captures) take `fast` with no fast method yet. `test/fast-methods-registry.test.ts` fails when a record accepts `fast` without an entry, an entry
   lacks its resolver or report, or a format default leaves the rule. **Every new fast method adds its entry.**
 - **The same words on WebGPU.** The image-kernel execution record carries `fast` (`false` for `cpu-reference`, `true` for

@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 import { configDefaults, defineConfig } from "vitest/config";
 import WeightedShardSequencer from "./test/helpers/weighted-shard-sequencer.js";
-import { coverageExcludedTests } from "./test/helpers/coverage-excluded-tests.js";
 // #536: the tests run the shader text the build ships (comments and indentation stripped); PHOTIVRA_WGSL_MINIFY=0 runs the source text.
 import { wgslMinifyPlugin } from "./scripts/lib/wgsl-minify.mjs";
 
@@ -32,11 +31,12 @@ const shardRun = process.argv.some((argument) => argument === "--shard" || argum
 export default defineConfig({
   plugins: process.env.PHOTIVRA_WGSL_MINIFY === "0" ? [] : [wgslMinifyPlugin()],
   test: {
-    // Coverage runs only: the files in test/helpers/coverage-excluded-tests.ts (they still run in plain runs).
-    exclude: ["**/node_modules/**", ".claude/**", ...configDefaults.exclude, ...(coverageRun ? coverageExcludedTests : [])],
+    exclude: ["**/node_modules/**", ".claude/**", ...configDefaults.exclude],
     testTimeout: 5_000 * timeoutScale,
     hookTimeout: 10_000 * timeoutScale,
-    env: { PHOTIVRA_TEST_TIMEOUT_SCALE: String(timeoutScale) },
+    // #755: PHOTIVRA_COVERAGE_RUN tells a test it runs under coverage, where one check of
+    // test/display-view-lens-offset-expansion-6.test.ts reads its report from a region instead of the whole view.
+    env: { PHOTIVRA_TEST_TIMEOUT_SCALE: String(timeoutScale), ...(coverageRun ? { PHOTIVRA_COVERAGE_RUN: "1" } : {}) },
     // `--shard=k/n` balanced by measured per-file time (test/helpers/weighted-shard-sequencer.ts).
     sequence: { sequencer: WeightedShardSequencer },
     coverage: {

@@ -96,6 +96,32 @@ describe("lens signal with the defocus regrouped (#651)", () => {
     }
   }, scaledTimeout(180_000));
 
+  it("lets the view replay a real pixel read again (#711: the row blocks report cached sites), with the same samples and expected values", async () => {
+    // 24 × 16 sites under a 3 × 2 view: 8 × 8 real pixels per display pixel (the stratified estimator, above the exact path's 25) and
+    // 144 samples, so many samples land on a real pixel read before.
+    const options = kinds[2]![1](1.4), view = { width: 3, height: 2, samplesPerAxis: 12 };
+    const p = await prepare(options, view), setup = p.setup;
+    for (const rollingBands of [false, true]) {
+      const factory = prepareDisplayViewLensSignal({ ...p.lens, rollingBands }, p.W, p.H, 0, "test");
+      const counted = (cachesSites: boolean): { signal: DisplayViewExpectedSignal; reads: () => number } => {
+        const inner = factory(p.regrouped);
+        expect(inner.cachesSites).toBe(true);
+        let reads = 0;
+        const signal = Object.create(inner, {
+          cachesSites: { value: cachesSites },
+          site: { value: (x: number, y: number): number => { reads++; return inner.site(x, y); } }
+        }) as DisplayViewExpectedSignal;
+        return { signal, reads: () => reads };
+      };
+      const replayed = counted(true), every = counted(false);
+      const a = await renderDisplayView({ ...setup, signal: replayed.signal, reachSites: setup.reachSites });
+      const b = await renderDisplayView({ ...setup, signal: every.signal, reachSites: setup.reachSites });
+      expect(replayed.reads()).toBeLessThan(every.reads());
+      expect(Array.from(a.samples)).toEqual(Array.from(b.samples));
+      expect(Array.from(a.expected)).toEqual(Array.from(b.expected));
+    }
+  }, scaledTimeout(180_000));
+
   /*
    * Go/no-go of the fast method (#651 step 3): against the full method (each row at its own instants) on the validation charts, the
    * expected values within 0.1 code RMS and 1 code at most. A 1200 × 800 frame with the benchmark's lens, focus (disc radius 11), rotation and a

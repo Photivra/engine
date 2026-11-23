@@ -342,43 +342,57 @@ export interface DefocusBokehKernelParameters {
   field?: { x: number; y: number };
 }
 
-/** Internal: the shaped defocus kernel for one field point (see the module comment). Fails past the radius cap or when the pupil closes. */
-export function createDefocusBokehSiteKernel(input: DefocusBokehKernelParameters): DefocusBokehSiteKernel {
-  const { diameterSites, side, fNumber, options } = input;
-  const a = diameterSites / 2, pupilRadiusMm = input.focalLengthMm / fNumber / 2, field = input.field ?? { x: 0, y: 0 };
-  const sa = options.sphericalAberration;
+/**
+ * The open pupil (pupil-radius units, +Y up), the signed thin-lens blur radius s = σ·c/2 and the spherical aberration b (sites) of
+ * a shaped kernel, its reach (how far from the chief ray its blur extends, max over the open pupil of |s·ρ + b·ρ³|, sites) and
+ * the open pupil's largest ρ². Fails when the cat's eye closes the pupil.
+ */
+function shapedBlur(input: DefocusBokehKernelParameters): [polygon: Polygon, openAreaRatio: number, s: number, b: number, extent: number, rhoMax2: number] {
+  const { fNumber, options } = input, field = input.field ?? { x: 0, y: 0 }, sa = options.sphericalAberration;
   const q = sa ? sa.atFNumber / fNumber : 0, w040 = sa ? sa.w040Micrometers * ((q * q) * (q * q)) : 0, b = 8 * fNumber * w040 / input.pitchMicrometers;
-  const { polygon, openAreaRatio } = openPupil(options, fNumber, pupilRadiusMm, field);
+  const { polygon, openAreaRatio } = openPupil(options, fNumber, input.focalLengthMm / fNumber / 2, field);
   if (polygon.length < 6 || openAreaRatio <= 0)
     throw new InvalidScientificInputError("lens.defocus: the cat's-eye apertures close the pupil at field tangent (" + field.x + ", " + field.y + ").");
-  const s = side * a;
-  if (b === 0) {
-    // Uniform blur: the open pupil scaled by σ·c/2, +Y up to native +Y down.
-    const image: Polygon = [];
-    let extent = 0;
-    for (let k = 0; k < polygon.length; k += 2) {
-      const x = s * polygon[k]!, y = -s * polygon[k + 1]!;
-      image.push(x, y);
-      extent = Math.max(extent, Math.abs(x), Math.abs(y));
-    }
-    const radius = requireRadius(extent, input.pitchMicrometers);
-    const width = 2 * radius + 1, weights = polygonCellAreas(image, radius);
-    normalizeSiteKernel(weights, largestIndex(weights));
-    return { diameterSites, radius, width, weights, openAreaRatio, method: "exact-polygon-cell-area", raySamples: 0, sphericalAberrationSites: 0 };
-  }
-  // Spherical aberration: y(P) = (σc/2 + bρ²)·P, binned. The extent bound: max over ρ ≤ ρmax of |s·ρ + b·ρ³|.
-  let rhoMax2 = 0, xmin = Infinity, xmax = -Infinity, ymin = Infinity, ymax = -Infinity;
+  const s = input.side * input.diameterSites / 2;
+  let rhoMax2 = 0, extent = 0;
   for (let k = 0; k < polygon.length; k += 2) {
     const x = polygon[k]!, y = polygon[k + 1]!;
     rhoMax2 = Math.max(rhoMax2, x * x + y * y);
+    extent = Math.max(extent, Math.abs(s * x), Math.abs(s * y));
+  }
+  if (b !== 0) {
+    const rhoMax = Math.sqrt(rhoMax2), stationary2 = -s / (3 * b);
+    extent = Math.abs(s * rhoMax + b * rhoMax * rhoMax2);
+    if (stationary2 > 0 && stationary2 < rhoMax2) { const r = Math.sqrt(stationary2); extent = Math.max(extent, Math.abs(s * r + b * r * stationary2)); }
+  }
+  return [polygon, openAreaRatio, s, b, extent, rhoMax2];
+}
+
+/**
+ * Internal (2.29.0, #764): the kernel radius in sites that {@link createDefocusBokehSiteKernel} builds for these parameters, without
+ * building it and without the radius cap (the same reach, so the two cannot differ). Fails when the cat's eye closes the pupil.
+ */
+export function defocusBokehKernelRadius(input: DefocusBokehKernelParameters): number {
+  return radiusOfExtent(shapedBlur(input)[4]);
+}
+
+/** Internal: the shaped defocus kernel for one field point (see the module comment). Fails past the radius cap or when the pupil closes. */
+export function createDefocusBokehSiteKernel(input: DefocusBokehKernelParameters): DefocusBokehSiteKernel {
+  const { diameterSites } = input, [polygon, openAreaRatio, s, b, extent, rhoMax2] = shapedBlur(input);
+  const radius = requireRadius(extent, input.pitchMicrometers), width = 2 * radius + 1;
+  if (b === 0) {
+    // Uniform blur: the open pupil scaled by σ·c/2, +Y up to native +Y down.
+    const weights = polygonCellAreas(polygon.map((v, k) => (k & 1 ? -s : s) * v), radius);
+    normalizeSiteKernel(weights, largestIndex(weights));
+    return { diameterSites, radius, width, weights, openAreaRatio, method: "exact-polygon-cell-area", raySamples: 0, sphericalAberrationSites: 0 };
+  }
+  // Spherical aberration: y(P) = (σc/2 + bρ²)·P, binned.
+  let xmin = Infinity, xmax = -Infinity, ymin = Infinity, ymax = -Infinity;
+  for (let k = 0; k < polygon.length; k += 2) {
+    const x = polygon[k]!, y = polygon[k + 1]!;
     xmin = Math.min(xmin, x); xmax = Math.max(xmax, x); ymin = Math.min(ymin, y); ymax = Math.max(ymax, y);
   }
-  const rhoMax = Math.sqrt(rhoMax2);
-  let extent = Math.abs(s * rhoMax + b * rhoMax * rhoMax2);
-  const stationary2 = -s / (3 * b);
-  if (stationary2 > 0 && stationary2 < rhoMax2) { const r = Math.sqrt(stationary2); extent = Math.max(extent, Math.abs(s * r + b * r * stationary2)); }
-  const radius = requireRadius(extent, input.pitchMicrometers);
-  const width = 2 * radius + 1, weights = new Float64Array(width * width);
+  const weights = new Float64Array(width * width);
   // Pupil step: rays at most 1/8 site apart where the map is steepest (|s| + 3|b|ρ²), and at least 64 steps per pupil radius.
   const h = Math.min(1 / 64, 1 / (8 * (Math.abs(s) + 3 * Math.abs(b) * rhoMax2)));
   const rows = Math.ceil((ymax - ymin) / h), columns = Math.ceil((xmax - xmin) / h), n = polygon.length;

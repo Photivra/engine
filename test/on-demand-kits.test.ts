@@ -5,7 +5,7 @@
  * Quality kit. Results are unchanged by the split: the hash locks of every path (diffraction, AHD, defocus, profiles, mixed light,
  * moving subjects, coupled rendering) run through these loads. The bundle shape is checked in test/capture-bundle.test.ts.
  */
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { ImageKernelExecutionError, simulateCapture, simulateDisplayView } from "../src/index.js";
 import * as kits from "../src/facade/on-demand-kits.js";
 import * as qualityKitModule from "../src/facade/quality-kit.js";
@@ -20,6 +20,7 @@ import * as imageSpace from "../src/facade/defocus-image-space-provider.js";
 import * as rendering from "../src/facade/display-view-rendering.js";
 import * as neighbors from "../src/color/neighbor-highlight-reconstruction.js";
 import * as offsetExpansion from "../src/facade/display-view-offset-expansion.js";
+import * as lensPsfKernels from "../src/optics/lens-psf-kernels.js";
 import * as profileBody from "../src/equipment/sensor-profile-body.js";
 import * as mixed from "../src/facade/mixed-illumination.js";
 import * as subjectMotion from "../src/motion/subject-motion.js";
@@ -77,6 +78,24 @@ describe("on-demand CPU kits (#594)", () => {
     const odd = kits.kitLoader("odd", () => Promise.reject("offline"));
     await expect(odd.load()).rejects.toThrow("the engine's odd code could not be loaded: offline");
   });
+  // #730 facade-18: the on-demand modules outside the three kits fail as the kits do, with the documented domain error.
+  it("turn a failed load of the catalogue lens, the view's lens signal, the image-plane and the layered scene code into quality-code-unavailable", async () => {
+    const gone = ["generic-lens-capture", "display-view-lens-signal", "image-plane", "layered-scene-setup"];
+    try {
+      vi.resetModules();
+      for (const name of gone) vi.doMock("../src/facade/" + name + ".js", () => { throw new Error("module " + name + " moved away"); });
+      const engine = await import("../src/index.js");
+      const reasonOf = (p: Promise<unknown>): Promise<unknown> => p.then(() => "resolved", (error: unknown) => error instanceof engine.ImageKernelExecutionError ? error.reason : error);
+      expect(await reasonOf(engine.simulateCapture({ scene: { preset: "siemens-star" }, lens: { catalogue: "pv-50-1.8" }, output: { width: 8, height: 8 } }))).toBe("quality-code-unavailable");
+      expect(await reasonOf(engine.simulateDisplayView({ scene: { preset: "siemens-star" }, lens: { projection: "fisheye-equisolid-angle" }, output: { width: 16, height: 16 } }, { width: 8, height: 8 })))
+        .toBe("quality-code-unavailable");
+      expect(await reasonOf(engine.prepareImagePlaneScenes())).toBe("quality-code-unavailable");
+      expect(await reasonOf(engine.prepareLayeredChartScenes())).toBe("quality-code-unavailable");
+    } finally {
+      for (const name of gone) vi.doUnmock("../src/facade/" + name + ".js");
+      vi.resetModules();
+    }
+  }, scaledTimeout(60_000));
   // #658: each kit is one tuple read by position; every position constant names the export it stands for, and every slot is used.
   it("read every export at the position its constant names", () => {
     const positions = kits as unknown as Record<string, number>;
@@ -84,7 +103,7 @@ describe("on-demand CPU kits (#594)", () => {
       expect(pairs.map(([, constant]) => positions[constant]).sort((a, b) => a! - b!)).toEqual(tuple.map((_, i) => i));
       for (const [name, constant] of pairs) expect(tuple[positions[constant]!], name).toBe(modules[name]);
     };
-    check(qualityKitModule.QUALITY_KIT, { ...diffractionProfile, ...siteDiffraction, ...demosaic, ...bokehKernel, ...bokehZones, ...largeLattice, ...imageSpace, ...rendering, ...neighbors, ...offsetExpansion }, [["createDiffractionLimitedPsfProfile", "QK_CREATE_DIFFRACTION_LIMITED_PSF_PROFILE"], ["registerDiffractionPsfKey", "QK_REGISTER_DIFFRACTION_PSF_KEY"], ["siteDiffractionKernel", "QK_SITE_DIFFRACTION_KERNEL"], ["createAhdDemosaicTask", "QK_CREATE_AHD_DEMOSAIC_TASK"], ["createDefocusBokehSiteKernel", "QK_CREATE_DEFOCUS_BOKEH_SITE_KERNEL"], ["resolveDefocusBokehOptions", "QK_RESOLVE_DEFOCUS_BOKEH_OPTIONS"], ["planDefocusBokehZones", "QK_PLAN_DEFOCUS_BOKEH_ZONES"], ["LARGE_DEFOCUS_CACHE_BYTES", "QK_LARGE_DEFOCUS_CACHE_BYTES"], ["createLargeDefocusNodeLattice", "QK_CREATE_LARGE_DEFOCUS_NODE_LATTICE"], ["calculateDefocusFieldVariation", "QK_CALCULATE_DEFOCUS_FIELD_VARIATION"], ["createDefocusImageSpaceProvider", "QK_CREATE_DEFOCUS_IMAGE_SPACE_PROVIDER"], ["prepareDefocusImageSpaceGeometry", "QK_PREPARE_DEFOCUS_IMAGE_SPACE_GEOMETRY"], ["createDisplayViewCoupledRendering", "QK_CREATE_DISPLAY_VIEW_COUPLED_RENDERING"], ["NEIGHBOR_HIGHLIGHT_RING", "QK_NEIGHBOR_HIGHLIGHT_RING"], ["NEIGHBOR_HIGHLIGHT_THRESHOLD", "QK_NEIGHBOR_HIGHLIGHT_THRESHOLD"], ["reconstructHighlightsFromNeighbors", "QK_RECONSTRUCT_HIGHLIGHTS_FROM_NEIGHBORS"], ["createOffsetExpansion", "QK_CREATE_OFFSET_EXPANSION"]] as const);
+    check(qualityKitModule.QUALITY_KIT, { ...diffractionProfile, ...siteDiffraction, ...demosaic, ...bokehKernel, ...bokehZones, ...largeLattice, ...imageSpace, ...rendering, ...neighbors, ...offsetExpansion, ...lensPsfKernels }, [["createDiffractionLimitedPsfProfile", "QK_CREATE_DIFFRACTION_LIMITED_PSF_PROFILE"], ["registerDiffractionPsfKey", "QK_REGISTER_DIFFRACTION_PSF_KEY"], ["siteDiffractionKernel", "QK_SITE_DIFFRACTION_KERNEL"], ["createAhdDemosaicTask", "QK_CREATE_AHD_DEMOSAIC_TASK"], ["createDefocusBokehSiteKernel", "QK_CREATE_DEFOCUS_BOKEH_SITE_KERNEL"], ["resolveDefocusBokehOptions", "QK_RESOLVE_DEFOCUS_BOKEH_OPTIONS"], ["planDefocusBokehZones", "QK_PLAN_DEFOCUS_BOKEH_ZONES"], ["LARGE_DEFOCUS_CACHE_BYTES", "QK_LARGE_DEFOCUS_CACHE_BYTES"], ["createLargeDefocusNodeLattice", "QK_CREATE_LARGE_DEFOCUS_NODE_LATTICE"], ["calculateDefocusFieldVariation", "QK_CALCULATE_DEFOCUS_FIELD_VARIATION"], ["createDefocusImageSpaceProvider", "QK_CREATE_DEFOCUS_IMAGE_SPACE_PROVIDER"], ["prepareDefocusImageSpaceGeometry", "QK_PREPARE_DEFOCUS_IMAGE_SPACE_GEOMETRY"], ["createDisplayViewCoupledRendering", "QK_CREATE_DISPLAY_VIEW_COUPLED_RENDERING"], ["NEIGHBOR_HIGHLIGHT_RING", "QK_NEIGHBOR_HIGHLIGHT_RING"], ["NEIGHBOR_HIGHLIGHT_THRESHOLD", "QK_NEIGHBOR_HIGHLIGHT_THRESHOLD"], ["reconstructHighlightsFromNeighbors", "QK_RECONSTRUCT_HIGHLIGHTS_FROM_NEIGHBORS"], ["createOffsetExpansion", "QK_CREATE_OFFSET_EXPANSION"], ["resolveLensSampledPsfKernelsAt", "QK_RESOLVE_LENS_PSF_KERNELS_AT"]] as const);
     check(optInKitModule.OPT_IN_KIT, { ...profileBody, ...mixed, ...subjectMotion, ...lensFilter, ...catalogueOptics, ...detail, ...handShake }, [["parseSensorProfile", "OK_PARSE_SENSOR_PROFILE"], ["sensorProfileBody", "OK_SENSOR_PROFILE_BODY"], ["sensorProfileSaturationIso", "OK_SENSOR_PROFILE_SATURATION_ISO"], ["flashAloneShutter", "OK_FLASH_ALONE_SHUTTER"], ["meterFlash", "OK_METER_FLASH"], ["rebindFlashAssumptions", "OK_REBIND_FLASH_ASSUMPTIONS"], ["requireFlashRows", "OK_REQUIRE_FLASH_ROWS"], ["resolveMixedIllumination", "OK_RESOLVE_MIXED_ILLUMINATION"], ["solveFlashShutter", "OK_SOLVE_FLASH_SHUTTER"], ["createSubjectMotionProvider", "OK_CREATE_SUBJECT_MOTION_PROVIDER"], ["subjectTravelM", "OK_SUBJECT_TRAVEL_M"], ["resolveLensFilter", "OK_RESOLVE_LENS_FILTER"], ["catalogueOpticsAssumptions", "OK_CATALOGUE_OPTICS_ASSUMPTIONS"], ["renderDisplayViewDetail", "OK_RENDER_DISPLAY_VIEW_DETAIL"], ["handShakeAssumption", "OK_HAND_SHAKE_ASSUMPTION"], ["handShakeQuadruples", "OK_HAND_SHAKE_QUADRUPLES"], ["resolveHandShake", "OK_RESOLVE_HAND_SHAKE"]] as const);
   });
 });

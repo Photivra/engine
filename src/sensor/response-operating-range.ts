@@ -36,7 +36,7 @@ import type {
 import type {
   SensorSpatioSpectralIrradianceReduction
 } from "./spatio-spectral-reduction.js";
-import { requireInputObject, requireInputKeys, rejectUnknownVariantFields, UNCERTAINTY_VARIANT_FIELDS, requireConfigRecord as requireRecord, requireConfigString as requireNonEmptyString, requireConfigPositiveFinite as requirePositiveFinite, requireConfigNonNegativeFinite as requireFiniteNonNegative } from "../core/record-validation.js";
+import { parseConfigUncertainty, requireInputObject, requireInputKeys, rejectUnknownVariantFields, requireConfigRecord as requireRecord, requireConfigString as requireNonEmptyString, requireConfigPositiveFinite as requirePositiveFinite, requireConfigNonNegativeFinite as requireFiniteNonNegative } from "../core/record-validation.js";
 import { parseReferenceConditionPolicy, conditionsMatch } from "./response-application-compatibility.js";
 import { parseReferenceConditions } from "./spectral-response.js";
 
@@ -243,41 +243,7 @@ export function parseUncertainty(
   value: unknown,
   path: string
 ): SensorSpectralResponseUncertainty {
-  const record =
-    requireRecord(value, path, null);
-  rejectUnknownVariantFields(record, "kind", UNCERTAINTY_VARIANT_FIELDS, path);
-
-  if (record.kind === "relative") {
-    const fraction =
-      requireFiniteNonNegative(
-        record.fraction,
-        path + ".fraction"
-      );
-    return {
-      kind: "relative",
-      fraction,
-      basis: requireNonEmptyString(
-        record.basis,
-        path + ".basis"
-      )
-    };
-  }
-
-  if (
-    record.kind === "not-quantified"
-  ) {
-    return {
-      kind: "not-quantified",
-      limitation: requireNonEmptyString(
-        record.limitation,
-        path + ".limitation"
-      )
-    };
-  }
-
-  throw new InvalidConfigurationError(
-    path + ".kind is invalid."
-  );
+  return parseConfigUncertainty(value, path, requireFiniteNonNegative, requireNonEmptyString);
 }
 
 

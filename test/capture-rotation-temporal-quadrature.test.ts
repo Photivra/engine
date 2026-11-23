@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
+import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -390,5 +391,28 @@ describe("capture rotation temporal quadrature rejects a missing, null or non-ob
     const { probedPaths, escaped } = await probeSubObjects(call, input);
     expect(probedPaths).toBeGreaterThan(5);
     expect(escaped).toEqual([]);
+  });
+});
+
+describe("capture rotation temporal quadrature resolves the windows, geometry and metrics once (#753 sensor-28)", () => {
+  const input = (temporalSampleCount: number): CalculateCaptureRotationTemporalQuadratureInput => ({
+    ...baseInput(), temporalSampleCount, focusDistanceM: 3, angularVelocityRadPerSec: { pitch: 0.05, yaw: -0.2, roll: 0.3 }, orientation: "portrait-clockwise",
+    opening: scanned("top-to-bottom", 0.004, "test:open"), closing: scanned("top-to-bottom", 0.004, "test:close"),
+    samplePointsNative: [{ x: 0, y: 0 }, { x: 3000, y: 2000 }, { x: 5999.5, y: 3999.5 }, { x: 120.25, y: 3001.75 }]
+  });
+  const digest = (value: unknown): string => createHash("sha256").update(JSON.stringify(value)).digest("hex").slice(0, 16);
+  it.each([[1, "c93452e4b880cd20"], [3, "f7026e28a6ce4b6c"], [64, "042cf09f4acc323f"]] as const)("is bit-identical for %i phases", (count, pinned) => {
+    const result = calculateCaptureRotationTemporalQuadrature(input(count));
+    // Recorded on 2.28.0 (783f38f), before the change.
+    expect(digest(result)).toBe(pinned);
+    // And node by node the instantaneous mapping at the node's phase, as before.
+    const instantaneous: Partial<CalculateCaptureRotationTemporalQuadratureInput> = input(count);
+    delete instantaneous.temporalSampleCount;
+    for (const [i, point] of result.value.points.entries()) for (const node of point.nodes) {
+      const sample = calculateCaptureRotationInverseMappings({ ...instantaneous, localExposurePhase: node.localExposurePhase } as never).value.samples[i]!;
+      expect(node.referenceImagePointMm).toEqual(sample.referenceImagePointMm);
+      expect(node.inverseDisplacementOrientedSamples).toEqual(sample.inverseDisplacementOrientedSamples);
+      expect(node.captureTimeSecondsFromReference).toBe(sample.captureTimeSecondsFromReference);
+    }
   });
 });

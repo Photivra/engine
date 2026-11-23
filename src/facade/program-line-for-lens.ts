@@ -13,7 +13,7 @@ import { InvalidScientificInputError, requirePositiveFinite } from "../core/vali
 import { InvalidConfigurationError } from "../core/configuration-error.js";
 import { requireInputKeys, requireInputObject } from "../core/record-validation.js";
 import type { EvidenceProvenance } from "../core/evidence-provenance.js";
-import { GENERIC_TIER_ASSETS, type GenericEquipmentTier } from "../equipment/generic-tier-assets.js";
+import { genericTierExposure, type GenericEquipmentTier } from "../equipment/generic-tier-exposure.js";
 import { IDEAL_LENS_LIMITS } from "../equipment/ideal-lens.js";
 import { resolveGenericEquipmentExposureCapabilities } from "../equipment/exposure-capabilities.js";
 import { createExposureMeterTargetFromMeteringResult } from "../exposure/metering-target.js";
@@ -114,7 +114,8 @@ export interface ProgramLine {
 export function calculateProgramLine(input: CalculateProgramLineInput): CalculationResult<ProgramLine> {
   requireInputKeys(input, "calculateProgramLine", ["camera", "lens", "iso", "ev100", "luminanceCdPerSquareMeter"]);
   const camera = input.camera ?? "professional";
-  const preset = GENERIC_TIER_ASSETS.find((p) => p.tier === camera);
+  // #765: the tier's exposure side only (equal to GENERIC_TIER_ASSETS', built by the same code), so this bundles without the rest of the tier assets.
+  const preset = genericTierExposure("2.1.0").find((p) => p.tier === camera);
   if (!preset) throw new InvalidConfigurationError('camera must be "consumer", "prosumer" or "professional".');
   const iso = input.iso ?? 100;
   requirePositiveFinite("iso", iso);

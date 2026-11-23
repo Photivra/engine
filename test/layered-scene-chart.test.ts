@@ -6,9 +6,13 @@
  */
 import { describe, expect, it } from "vitest";
 import { calculateDefocusCircle, calculateDepthOfField } from "../src/optics/depth-of-field.js";
-import { InvalidConfigurationError, calculateLayeredChartDepths } from "../src/index.js";
+import { InvalidConfigurationError, InvalidScientificInputError, calculateLayeredChartDepths, prepareLayeredChartScenes, simulateCapture, type SimulateCaptureOptions } from "../src/index.js";
+import { createDefocusDiscSiteKernel, DEFOCUS_DISC_KERNEL_MAXIMUM_RADIUS_SITES } from "../src/optics/defocus-disc-kernel.js";
+import { calculateDefocusBokehKernel, createDefocusBokehSiteKernel, defocusBokehKernelRadius, resolveDefocusBokehOptions, type DefocusBokehOptions } from "../src/optics/defocus-bokeh-kernel.js";
+import { LAYERED_EDGE_MAXIMUM_KERNEL_RADIUS_SITES } from "../src/facade/layered-scene-signal.js";
+import { scaledTimeout } from "./helpers/test-timeout.js";
 import { calculateIlluminantIrradianceScale, resolveCaptureIlluminant } from "../src/facade/scene-radiance.js";
-import { LAYERED_CHART_PRESET_SCALES, layeredChartDepths, layeredSurfaceScene, resolveLayeredChartPreset, resolveLayeredChartScene,
+import { LAYERED_CHART_LIMITS, LAYERED_CHART_PRESET_SCALES, calculateLayeredChartKernelRadii, layeredChartDepths, layeredSurfaceScene, resolveLayeredChartPreset, resolveLayeredChartScene,
   type LayeredChartScene } from "../src/facade/layered-chart-scene.js";
 
 const aspect = 2 / 3;
@@ -149,4 +153,100 @@ describe("layered chart scenes: staircase presets", () => {
     expect(() => resolveLayeredChartPreset({ scale: "huge" as "large", focusDistanceM: 1, lens: { focalLengthMm: 50 } })).toThrow(/scale/);
     expect(() => resolveLayeredChartPreset({ scale: "macro", cards: 10, focusDistanceM: 1, lens: { focalLengthMm: 50 } })).toThrow(/cards/);
   });
+});
+
+describe("layered chart scenes: kernel radius bound (#764)", () => {
+  const bokehs: DefocusBokehOptions[] = [{ blades: { count: 7 } }, { blades: { count: 5, curvature: 0.4, firstBladeEdgeAngleDegrees: 12 } },
+    { sphericalAberration: { w040Micrometers: 0.6, atFNumber: 2 } }, { sphericalAberration: { w040Micrometers: -0.8, atFNumber: 1.4 } },
+    { blades: { count: 9 }, sphericalAberration: { w040Micrometers: 0.4, atFNumber: 2.8 }, catsEye: { apertures: [{ radiusMm: 9, shiftPerTanFieldMm: 40 }] } }];
+  const scene: LayeredChartScene = { kind: "layered-chart", cards: [card(0.7), card(1), card(1.3)], backPlane: { distanceM: 4 } };
+
+  it("exports the bounds the layered sum enforces", () => {
+    expect(LAYERED_CHART_LIMITS.maximumEdgeKernelRadiusSites).toBe(LAYERED_EDGE_MAXIMUM_KERNEL_RADIUS_SITES);
+    expect(LAYERED_CHART_LIMITS.maximumEdgeKernelRadiusSites).toEqual({ disc: DEFOCUS_DISC_KERNEL_MAXIMUM_RADIUS_SITES, shaped: 128 });
+    expect(Object.isFrozen(LAYERED_CHART_LIMITS.maximumEdgeKernelRadiusSites)).toBe(true);
+  });
+
+  it("gives the radius of the kernel the facade builds, for discs and shaped kernels, over a sweep", () => {
+    let shapedChecked = 0;
+    for (const focalLengthMm of [35, 85]) for (const aperture of [1.4, 2.8, 8]) for (const pixelPitchMicrometers of [2.5, 9]) {
+      const lens = { focalLengthMm, aperture, focusDistanceM: 1, pixelPitchMicrometers };
+      const depths = layeredChartDepths(resolveLayeredChartScene({ aspect, scene }), { ...lens, circleOfConfusionMm: 0.03 });
+      const discs = calculateLayeredChartKernelRadii({ scene, ...lens });
+      expect(discs.map((r) => [r.kind, r.index])).toEqual(depths.map((d) => [d.kind, d.index]));
+      discs.forEach((r, k) => {
+        const c = depths[k]!.defocusDiameterSites, built = c > 0 && r.kernelRadiusSites <= DEFOCUS_DISC_KERNEL_MAXIMUM_RADIUS_SITES ? createDefocusDiscSiteKernel(c) : null;
+        expect(r.kernelRadiusSites).toBe(built ? built.radius : c > 0 ? Math.ceil(c / 2 - 0.5) : 0);
+        expect(r.withinBound).toBe(r.kernelRadiusSites <= LAYERED_CHART_LIMITS.maximumEdgeKernelRadiusSites.disc);
+      });
+      expect(discs[1]!.kernelRadiusSites).toBe(0);
+      for (const bokeh of bokehs) {
+        const shaped = calculateLayeredChartKernelRadii({ scene, ...lens, defocus: { model: "geometric-disc", ...bokeh } }), options = resolveDefocusBokehOptions(bokeh, "lens.defocus");
+        shaped.forEach((r, k) => {
+          const d = depths[k]!;
+          if (!(d.defocusDiameterSites > 0)) { expect(r.kernelRadiusSites).toBe(0); return; }
+          const parameters = { diameterSites: d.defocusDiameterSites, side: d.distanceM > 1 ? 1 as const : -1 as const, fNumber: aperture, focalLengthMm, pitchMicrometers: pixelPitchMicrometers, options };
+          expect(r.kernelRadiusSites).toBe(defocusBokehKernelRadius(parameters));
+          // Building the kernel costs time under coverage: build those within 96 sites (the layered bound and above), the radius alone for the rest.
+          if (r.kernelRadiusSites <= 96) {
+            expect(r.kernelRadiusSites).toBe(createDefocusBokehSiteKernel(parameters).radius);
+            expect(r.kernelRadiusSites).toBe(calculateDefocusBokehKernel({ focalLengthMm, aperture, focusDistanceM: 1, subjectDistanceM: d.distanceM, pixelPitchMicrometers, bokeh }).value.kernelRadiusSites);
+            shapedChecked++;
+          } else if (r.kernelRadiusSites > DEFOCUS_DISC_KERNEL_MAXIMUM_RADIUS_SITES) expect(() => createDefocusBokehSiteKernel(parameters)).toThrow(InvalidScientificInputError);
+          expect(r.withinBound).toBe(r.kernelRadiusSites <= LAYERED_CHART_LIMITS.maximumEdgeKernelRadiusSites.shaped);
+        });
+      }
+    }
+    expect(shapedChecked).toBeGreaterThan(100);
+  });
+
+  it("applies the single-plane bound to one card without a back plane, and validates its input", () => {
+    const one: LayeredChartScene = { kind: "layered-chart", cards: [card(0.5)] }, lens = { focalLengthMm: 50, aperture: 1.4, focusDistanceM: 1 };
+    // The blur at 0.5 m: c ≈ 1.88 mm; at 3 µm about 626 sites across, radius 313: within the disc's bounds (512 with or without
+    // edges), past the shaped kernel's edge bound (128), within the single-plane bound.
+    const [disc] = calculateLayeredChartKernelRadii({ scene: one, ...lens, pixelPitchMicrometers: 3 });
+    expect(disc!.kernelRadiusSites).toBeGreaterThan(128);
+    expect(disc!.withinBound).toBe(true);
+    const back = { ...one, backPlane: { distanceM: 3 } }, blades = { model: "geometric-disc" as const, blades: { count: 7 } };
+    expect(calculateLayeredChartKernelRadii({ scene: back, ...lens, pixelPitchMicrometers: 3 })[0]!.withinBound).toBe(true);
+    expect(calculateLayeredChartKernelRadii({ scene: back, ...lens, pixelPitchMicrometers: 3, defocus: blades })[0]!.withinBound).toBe(false);
+    expect(calculateLayeredChartKernelRadii({ scene: one, ...lens, pixelPitchMicrometers: 3, defocus: blades })[0]!.withinBound).toBe(true);
+    const catsEye = { model: "geometric-disc" as const, catsEye: { apertures: [{ radiusMm: 30, shiftPerTanFieldMm: 40 }] } };
+    expect(calculateLayeredChartKernelRadii({ scene: one, ...lens, pixelPitchMicrometers: 3, defocus: catsEye })[0]!.withinBound).toBe(false);
+    expect(calculateLayeredChartKernelRadii({ scene: one, ...lens, pixelPitchMicrometers: 1 })[0]!.withinBound).toBe(false);
+    expect(() => calculateLayeredChartKernelRadii({ scene: one, ...lens, pixelPitchMicrometers: 2, extra: 1 } as never)).toThrow(/unknown field "extra"/);
+    expect(() => calculateLayeredChartKernelRadii({ scene: one, ...lens, pixelPitchMicrometers: 2, defocus: { model: "gaussian" } as never })).toThrow(/geometric-disc/);
+    expect(() => calculateLayeredChartKernelRadii({ scene: one, ...lens, pixelPitchMicrometers: 2, defocus: { model: "geometric-disc", blades: { count: 2 } } })).toThrow(InvalidScientificInputError);
+    expect(() => calculateLayeredChartKernelRadii({ scene: { ...one, cards: [] }, ...lens, pixelPitchMicrometers: 2 })).toThrow(InvalidConfigurationError);
+    expect(() => calculateLayeredChartKernelRadii({ scene: one, ...lens, pixelPitchMicrometers: 0 })).toThrow(InvalidScientificInputError);
+  });
+
+  it("matches the renderer: a radius within the bound renders, one outside is refused with the same number", async () => {
+    await prepareLayeredChartScenes();
+    // A card in focus over part of the frame and a far back plane behind it whose blur sets the radius (the pitch is chosen for it).
+    const scene: LayeredChartScene = { kind: "layered-chart", cards: [{ ...card(1), centerU: -0.3, width: 0.6, height: 0.3 }], backPlane: { distanceM: 100 } };
+    const lens = { focalLengthMm: 50, fNumber: 4, focusDistanceM: 1 };
+    const micrometres = calculateDefocusCircle({ focalLengthMm: 50, aperture: 4, focusDistanceM: 1, subjectDistanceM: 100 }).value.diameterMm * 1000;
+    const request = (pitch: number, defocus?: SimulateCaptureOptions["lens"] extends infer L ? L extends { defocus?: infer D } ? D : never : never): SimulateCaptureOptions =>
+      ({ scene, subjectDistanceM: 1, lens: { ...lens, ...(defocus ? { defocus } : {}) }, sensor: { pixelPitchMicrometers: pitch, spectralStepNanometers: 80 }, output: { width: 12, height: 8 },
+        exposure: { mode: "manual", shutterSeconds: 1 / 125, iso: 100 } });
+    const radii = (pitch: number, defocus?: { model: "geometric-disc" } & DefocusBokehOptions): number[] =>
+      calculateLayeredChartKernelRadii({ scene, focalLengthMm: 50, aperture: 4, focusDistanceM: 1, pixelPitchMicrometers: pitch, ...(defocus ? { defocus } : {}) }).map((r) => r.kernelRadiusSites);
+    // Discs: c / pitch = 1024.5 sites (radius 512, the bound) renders; 1026 (radius 513) is refused by the disc's own limit.
+    expect(radii(micrometres / 1024.5)).toEqual([0, 512]);
+    const within = await simulateCapture(request(micrometres / 1024.5));
+    expect(within.scene.layers!.map((l) => l.defocusDiameterSites > 0)).toEqual([false, true]);
+    expect(within.assumptions.find((a) => a.id === "scene.layers")!.value).toMatchObject({ kernelRadiusSites: [0, 512] });
+    expect(calculateLayeredChartKernelRadii({ scene, focalLengthMm: 50, aperture: 4, focusDistanceM: 1, pixelPitchMicrometers: micrometres / 1026 })[1]).toEqual(
+      { kind: "back-plane", index: -1, kernelRadiusSites: 513, withinBound: false });
+    await expect(simulateCapture(request(micrometres / 1026))).rejects.toThrow("The blur circle is 1,026 sites across; the engine renders at most 1,025 sites");
+    // A shaped kernel (seven blades) at the shaped bound renders; just past it, refused with the function's radius.
+    const blades = { model: "geometric-disc" as const, blades: { count: 7 } }, sizes = Array.from({ length: 81 }, (_, i) => 200 + i / 2);
+    const at = sizes.filter((c) => radii(micrometres / c, blades)[1]! <= 128).pop()!, past = sizes.find((c) => radii(micrometres / c, blades)[1]! > 128)!;
+    const [, inside] = radii(micrometres / at, blades), [, shaped] = radii(micrometres / past, blades);
+    expect(inside).toBeGreaterThan(120);
+    expect((await simulateCapture(request(micrometres / at, blades))).assumptions.find((a) => a.id === "scene.layers")!.value).toMatchObject({ kernelRadiusSites: [0, inside] });
+    expect(shaped).toBeGreaterThan(128);
+    await expect(simulateCapture(request(micrometres / past, blades))).rejects.toThrow(new RegExp("needs a kernel radius of " + shaped + " sites; at card edges the layered sum takes at most 128 for a shaped kernel"));
+  }, scaledTimeout(120_000));
 });

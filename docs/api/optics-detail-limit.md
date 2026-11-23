@@ -52,16 +52,6 @@ export interface CalculateDetailLimitInput {
 }
 ```
 
-## DETAIL_LIMIT_LIMITS
-
-Limits of `calculateDetailLimit`: the wavelength range and the largest wavefront (sum of the magnitudes of its terms, in
-waves) whose transfer function is integrated. Beyond it the blur is geometric and the quadrature would grow without
-bound; use `calculateDefocusCircle` for such a blur.
-
-```ts
-DETAIL_LIMIT_LIMITS = Object.freeze({ minimumWavelengthNm: 380, maximumWavelengthNm: 780, maximumWavefrontWaves: 64 })
-```
-
 ## DetailLimit
 
 The exact contract is declared below; use the domain guide for assumptions and staged integration.

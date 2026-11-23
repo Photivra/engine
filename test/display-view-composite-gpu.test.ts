@@ -25,6 +25,7 @@ import { SMALL_FRAME, SMALL_VIEW, compareDisplayViews, displayViewGpuFixture, ma
 import { acceptanceOf } from "./helpers/display-view-acceptance-metrics.js";
 import { allElementsComposite, COMPOSITE_ELEMENTS, elementRect, FIXTURE_ASPECT, labelLayer, layeredScene } from "./helpers/chart-composite-fixtures.js";
 import { scaledTimeout } from "./helpers/test-timeout.js";
+import { wgslCount, wgslIncludes } from "./helpers/wgsl-text.js";
 
 const sensor = { pixelPitchMicrometers: 6, pixelAperture: { kind: "box" as const, samplesPerAxis: 2 } };
 const output = { ...SMALL_FRAME, format: "srgb-8" as const };
@@ -288,16 +289,16 @@ describe("display view Speed kernel with the composite material module (float32 
 
   it("the module's WGSL: the composite kernel's classification renamed, its records at group 1, one definition of each shared constant", () => {
     const wgsl = chartCompositeMaterialWgsl(), shader = assembleDisplayViewSpeedWgsl(wgsl);
-    expect(wgsl).toContain("fn material_at(p: vec2<f32>) -> u32");
-    expect(wgsl).toContain("var<private> material_uncertain: bool;");
-    expect(wgsl).toContain("@group(1) @binding(0) var<storage, read> af: array<f32>;");
-    expect(wgsl).toContain("@group(1) @binding(1) var<storage, read> ai: array<u32>;");
-    expect(wgsl).toContain("fn material(p: vec4<f32>) -> u32");
-    expect(wgsl).toContain("fn bmargin(x: B) -> f32");
+    expect(wgslIncludes(wgsl, "fn material_at(p: vec2<f32>) -> u32")).toBe(true);
+    expect(wgslIncludes(wgsl, "var<private> material_uncertain: bool;")).toBe(true);
+    expect(wgslIncludes(wgsl, "@group(1) @binding(0) var<storage, read> af: array<f32>;")).toBe(true);
+    expect(wgslIncludes(wgsl, "@group(1) @binding(1) var<storage, read> ai: array<u32>;")).toBe(true);
+    expect(wgslIncludes(wgsl, "fn material(p: vec4<f32>) -> u32")).toBe(true);
+    expect(wgslIncludes(wgsl, "fn bmargin(x: B) -> f32")).toBe(true);
     expect(wgsl).not.toMatch(/\bflagged\b|@group\(0\)|struct Params|\bparams\.|\bmargin\(|@compute/u);
-    expect(shader.match(/const E: f32/gu)).toHaveLength(1);
-    expect(shader.match(/const SLACK: f32/gu)).toHaveLength(1);
-    expect(shader.match(/const SAFETY: f32 = 4\.0;/gu)).toHaveLength(1);
+    expect(wgslCount(shader, "const E: f32")).toBe(1);
+    expect(wgslCount(shader, "const SLACK: f32")).toBe(1);
+    expect(wgslCount(shader, "const SAFETY: f32 = 4.0;")).toBe(1);
   });
 
   it("reports the measured agreement", () => {

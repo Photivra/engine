@@ -25,7 +25,8 @@ export interface BarGroupsChartScene {
 ## calculateBarGroupTargets
 
 The bar groups of a `bar-groups` chart, or of every `bar-groups` element of a composite, in the chart's
-frame units (2.3). `aspect` is the chart's height / width, as for {@link resolveChartScene}.
+frame units (2.3). `aspect` is the chart's height / width, as for {@link resolveChartScene}. A composite's
+`background` is not listed (#730 facade-15): call this with the background chart alone (its elements may cover parts of it).
 
 ```ts
 export function calculateBarGroupTargets(input: { scene: ChartScene; aspect: number }): ChartBarGroupTarget[];
@@ -47,7 +48,8 @@ This call is synchronous; any supplied provider must follow its explicit synchro
 
 Squares and edges of a `slanted-squares` chart, or of every `slanted-squares` element of a composite, in
 the chart's frame units (2.3), for slanted-edge regions of interest (Burns, PICS 2000). Directions are unit
-vectors along each edge (u right, v up).
+vectors along each edge (u right, v up). A composite's `background` is not listed (#730 facade-15): call this with the
+background chart alone (its elements may cover parts of it).
 
 ```ts
 export function calculateSlantedSquareEdges(input: { scene: ChartScene; aspect: number }): ChartSlantedSquare[];
@@ -291,7 +293,7 @@ export interface DeadLeavesChartScene {
   preset: "dead-leaves";
   /** Smallest disk radius, frame units, [0.002, radiusMaximum). Default 0.01. */
   radiusMinimum?: number;
-  /** Largest disk radius, frame units, (radiusMinimum, 2]. Default 0.5. */
+  /** Largest disk radius, frame units, (radiusMinimum, 2) (2 itself is refused). Default 0.5. */
   radiusMaximum?: number;
   /** Grey range (neutral reflectances). Defaults 0.2 and 0.6. */
   minimumReflectance?: number;
@@ -361,7 +363,7 @@ export interface HyperbolicWedgeChartScene {
 ```ts
 export interface LineGridChartScene {
   preset: "line-grid";
-  /** Distance between lines, frame units, (0, 2]. Default 1/3 (six cells across). */
+  /** Distance between lines, frame units, (0, 2) (2 itself is refused). Default 1/3 (six cells across). */
   spacing?: number;
   /** Line width, frame units, (0, spacing). Default 0.01. */
   lineWidth?: number;

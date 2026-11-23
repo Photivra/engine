@@ -62,7 +62,7 @@ describe("catalogue-lens display view: the pre-integrated kernel pass (#655)", (
       const kernels = psf.zoneKernels(0, input.wavelengthsNm);
       // A fresh input object with the zone's kernels: its tables (lattice groups, combined kernels) are built from them.
       const zoneInput: DisplayViewExpectedSignalInput = { ...input, kernels: { radius: lens.psf!.radius, perNode: [...kernels.perNode] }, perTapSum: false };
-      // The full methods: no uniform windows, no offset expansion (#685; test/display-view-lens-offset-expansion.test.ts measures it).
+      // The full methods: no uniform windows, no offset expansion (#685; test/display-view-lens-offset-expansion-1.test.ts to -5.test.ts measure it).
       const regrouped = sites(prepareDisplayViewLensSignal({ ...lens, psf, uniformWindows: false, offsetExpansion: undefined }, W, H, 0, "test")(zoneInput), W, H);
       const reference = sites(prepareDisplayViewLensSignal({ ...lens, psf: undefined }, W, H, 0, "test")(zoneInput), W, H);
       expect(largestRelative(regrouped, reference)).toBeLessThan(1e-9);

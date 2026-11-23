@@ -191,7 +191,8 @@ export function parseSecondsFact(
   };
 }
 
-function parseDirectionFact(
+/** Parses a sourced scan direction (`{ value, evidence }`). Not a root export. */
+export function parseDirectionFact(
   value: unknown,
   path: string
 ): SourcedCaptureBoundaryDirection {

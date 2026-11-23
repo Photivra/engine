@@ -25,24 +25,11 @@ export const CHART_WORKGROUP_SIZE = 256;
 export const CHART_PRESET_CODE = /* @__PURE__ */ Object.freeze({ uniform: 0, "slanted-edge": 1, "siemens-star": 2, "step-wedge": 3, "grey-ramp": 4, checkerboard: 5,
   "point-grid": 6, patches: 7 } as const);
 
-export const CHART_RADIANCE_WGSL = /* wgsl */ `
-const E: f32 = 1.1920928955078125e-7;
-const SAFETY: f32 = 4.0;
-const SLACK: f32 = 1e-14;
-struct Params {
-  count: u32, columns: u32, preset: u32, na: u32,
-  nb: u32, nc: u32, wavelength_mode: u32, pad0: u32,
-  f0: f32, f1: f32, f2: f32, f3: f32,
-  f4: f32, f5: f32, f6: f32, f7: f32,
-};
-@group(0) @binding(0) var<uniform> params: Params;
-@group(0) @binding(1) var<storage, read> points: array<vec2<f32>>;
-@group(0) @binding(2) var<storage, read> table: array<f32>;
-@group(0) @binding(3) var<storage, read> aux: array<f32>;
-@group(0) @binding(4) var<storage, read> selectors: array<u32>;
-@group(0) @binding(5) var<storage, read_write> values: array<f32>;
-@group(0) @binding(6) var<storage, read_write> flags: array<u32>;
-
+/**
+ * The chart's material classification: the `flagged` flag and `material(p)` with its helpers. The display view's chart module
+ * (display-view-chart-material-module.ts) takes it from here and renames it, so no search of the kernel's text is needed (#658).
+ */
+export const CHART_MATERIAL_WGSL = /* wgsl */ `
 var<private> flagged: bool;
 fn check(distance: f32, bound: f32) { if (!(abs(distance) > SAFETY * bound)) { flagged = true; } }
 // Flags t when it lies within the bound of an integer n with lo <= n <= hi.
@@ -157,6 +144,27 @@ fn material(p: vec2<f32>) -> u32 {
     }
   }
 }
+`;
+
+export const CHART_RADIANCE_WGSL = /* wgsl */ `
+const E: f32 = 1.1920928955078125e-7;
+const SAFETY: f32 = 4.0;
+const SLACK: f32 = 1e-14;
+struct Params {
+  count: u32, columns: u32, preset: u32, na: u32,
+  nb: u32, nc: u32, wavelength_mode: u32, pad0: u32,
+  f0: f32, f1: f32, f2: f32, f3: f32,
+  f4: f32, f5: f32, f6: f32, f7: f32,
+};
+@group(0) @binding(0) var<uniform> params: Params;
+@group(0) @binding(1) var<storage, read> points: array<vec2<f32>>;
+@group(0) @binding(2) var<storage, read> table: array<f32>;
+@group(0) @binding(3) var<storage, read> aux: array<f32>;
+@group(0) @binding(4) var<storage, read> selectors: array<u32>;
+@group(0) @binding(5) var<storage, read_write> values: array<f32>;
+@group(0) @binding(6) var<storage, read_write> flags: array<u32>;
+
+${CHART_MATERIAL_WGSL}
 @compute @workgroup_size(${CHART_WORKGROUP_SIZE})
 fn main(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_workgroups) groups: vec3<u32>) {
   let i = gid.x + gid.y * groups.x * ${CHART_WORKGROUP_SIZE}u;

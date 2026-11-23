@@ -586,3 +586,12 @@ describe("nested input errors (sensor-11, #701)", () => {
       .toThrow(expect.objectContaining({ name: "InvalidConfigurationError" }));
   });
 });
+
+describe("temperatures below absolute zero (#742)", () => {
+  it("refuses a reference or an operating temperature at or below -273.15 °C", () => {
+    expect(() => parseSensorCameraSaturationCapacityProfile(profile({ temperatureApplicability: { kind: "exact-reference-temperature", temperatureC: -1e9 } })))
+      .toThrow(".temperatureC must be above absolute zero (-273.15 °C).");
+    expect(() => assessSensorCameraSaturationCapacity({ accumulatedCharge: charge(80, 150), saturationProfile: profile(), operatingStateId: "state-a", operatingTemperatureC: -300 }))
+      .toThrow("operatingTemperatureC must be above absolute zero (-273.15 °C).");
+  });
+});

@@ -28,7 +28,7 @@ import type { SensorReadoutArchitecture } from "./architecture.js";
 import { requireInputKeys, requireConfigRecord as requireRecord } from "../core/record-validation.js";
 import { InvalidConfigurationError } from "../core/configuration-error.js";
 import { fullRect } from "../core/shared-helpers.js";
-import { normalizedScanPosition, validateNativeRaster, scanVector, requirePositiveFinite, validateActiveCaptureRect, validateShutterMechanism } from "./exposure-window.js";
+import { normalizedScanPosition, parseDirectionFact, validateNativeRaster, scanVector, requirePositiveFinite, validateActiveCaptureRect, validateShutterMechanism } from "./exposure-window.js";
 
 /**
  * The readout mode chosen for one capture.
@@ -150,12 +150,6 @@ export interface SensorReadoutTiming {
 }
 
 const READOUT_MODES = new Set<SensorReadoutMode>(["rolling", "global"]);
-const SCAN_DIRECTIONS = new Set<NativeSensorReadoutScanDirection>([
-  "top-to-bottom",
-  "bottom-to-top",
-  "left-to-right",
-  "right-to-left"
-]);
 
 function requireNonNegativeFinite(name: string, value: unknown): number {
   if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
@@ -187,25 +181,6 @@ function parseSecondsFact(
   };
 }
 
-function parseDirectionFact(
-  value: unknown,
-  path: string
-): SourcedSensorReadoutFact<NativeSensorReadoutScanDirection> {
-  const record = requireRecord(value, path, ["value", "evidence"]);
-  if (
-    typeof record.value !== "string" ||
-    !SCAN_DIRECTIONS.has(
-      record.value as NativeSensorReadoutScanDirection
-    )
-  ) {
-    throw new InvalidConfigurationError(path + ".value is invalid.");
-  }
-
-  return {
-    value: record.value as NativeSensorReadoutScanDirection,
-    evidence: parseEvidenceList(record.evidence, path + ".evidence")
-  };
-}
 
 function parseReadoutDeclaration(
   value: unknown

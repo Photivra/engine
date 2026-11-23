@@ -20,7 +20,9 @@ such as `lens.diffraction`, is refused), and refuses what changes color after th
 demosaic or has no expected-signal path (luminance tone curves, highlight reconstruction, `desaturate-to-luminance`,
 `output.lensCorrections`, `output.sharpening`, `output.diffractionCorrection`, `output.region` (use `measure.region`), JPEG, PNG and
 DNG output, `whiteBalance: "auto"`, `lens.pupilSampling`, a caller `lens.psf`, `lens.defocus.catsEye`, `sensor.fixedPatternNoise`,
-layered chart scenes). Asynchronous; it yields to the host and honors `options.signal`. Its code loads on demand.
+layered chart scenes). With `measure.noise` (#743) it also measures the capture's noisy mosaic demosaiced (`noise.withNoise`) and a
+full-color sensor with noise (`noise.noiseOnly`) against the same reference; the noisy mosaic is the RAW of `simulateCapture` at
+`fast: false` and the measure's seed. Asynchronous; it yields to the host and honors `options.signal`. Its code loads on demand.
 
 ```ts
 export async function simulateFalseColor(options: SimulateCaptureOptions, measure?: SimulateFalseColorOptions): Promise<FalseColorResult>;

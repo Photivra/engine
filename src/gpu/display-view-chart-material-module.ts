@@ -16,16 +16,15 @@ import { ImageKernelExecutionError } from "./image-kernel-execution.js";
 import { chartGpuConstants, chartGpuPresetCode } from "./chart-radiance-gpu.js";
 import type { ChartRadianceBatchPlan } from "../facade/chart-radiance-batch.js";
 import type { ResolvedChartScene } from "../facade/chart-scenes.js";
-import { CHART_RADIANCE_WGSL } from "./wgsl-chart-kernel.js";
+import { CHART_MATERIAL_WGSL } from "./wgsl-chart-kernel.js";
 import type { DisplayViewGpuMaterialModule } from "./display-view-speed-gpu.js";
 
 /** The chart kernel's `material` function and its helpers, renamed for the display-view kernel (see the module comment). */
 export function chartPresetMaterialWgsl(): string {
-  const start = CHART_RADIANCE_WGSL.indexOf("var<private> flagged: bool;"), end = CHART_RADIANCE_WGSL.indexOf("@compute");
-  if (start < 0 || end < start) throw new ImageKernelExecutionError("gpu-validation", "The chart kernel's material function was not found.");
-  const body = CHART_RADIANCE_WGSL.slice(start, end)
+  const body = CHART_MATERIAL_WGSL
     .replace(/\bparams\./gu, "chart.").replace(/\baux\[/gu, "chart_aux[").replace(/\bflagged\b/gu, "material_uncertain").replace("fn material(", "fn material_at(");
-  return `const SAFETY: f32 = 8.0;
+  return /* wgsl */ `
+const SAFETY: f32 = 8.0;
 struct ChartParams {
   count: u32, columns: u32, preset: u32, na: u32,
   nb: u32, nc: u32, wavelength_mode: u32, pad0: u32,

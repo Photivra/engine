@@ -16,12 +16,42 @@ export function calculateLayeredChartDepths(input: { scene: LayeredChartScene; f
 
 This call is synchronous; any supplied provider must follow its explicit synchronous contract.
 
-## LAYERED_CHART_LIMITS
+## calculateLayeredChartKernelRadii
 
-The exact contract is declared below; use the domain guide for assumptions and staged integration.
+From 2.29.0 (#764): the defocus kernel radius of each surface of a layered chart scene, nearest first, and whether it is within
+the bound the renderer applies, without building a kernel or rendering. The radius is the one the facade builds: the disc of
+`createDefocusDiscSiteKernel` (⌈c/2 − ½⌉ for the blur diameter c in sites, `calculateDefocusCircle`), or with `defocus` bokeh
+options (`blades`, `sphericalAberration`, `catsEye`, as `lens.defocus` takes them) the shaped kernel's reach on the surface's
+side of the focus plane, on axis (a cat's eye's field zones keep the axis kernel's radius), from the same function the kernel
+builder uses.
+
+The bound: a scene of more than one surface takes the layered sum, which refuses a kernel radius above
+`LAYERED_CHART_LIMITS.maximumEdgeKernelRadiusSites` (`disc` without bokeh options, `shaped` with them). A scene of one card and no
+back plane renders on the single-plane path: there the bound is `DEFOCUS_DISC_KERNEL_MAXIMUM_RADIUS_SITES` (512), and with a cat's eye
+the capture's 64 sites. Only the kernel size is checked: other refusals (options layered scenes do not support, a cat's eye with
+`lens.diffraction`) are not. The scene and the bokeh options are validated as a request's are; the lens values follow
+`calculateDefocusCircle` (positive and finite, distances beyond the focal length), failing with `InvalidScientificInputError`.
+Geometric thin-lens blur (no diffraction), an approximation. It does not take `lens.catalogue` (a catalogue lens's kernels are the
+lens's bokeh less its PSF's balancing defocus, formed when the request renders).
 
 ```ts
-LAYERED_CHART_LIMITS = Object.freeze({ maximumCards: 16, maximumLightsAcross: 256, maximumCandela: 1e7 })
+export function calculateLayeredChartKernelRadii(input: { scene: LayeredChartScene; focalLengthMm: number; aperture: number; focusDistanceM: number;
+  pixelPitchMicrometers: number; defocus?: { model: "geometric-disc" } & DefocusBokehOptions }): LayeredChartKernelRadius[];
+```
+
+This call is synchronous; any supplied provider must follow its explicit synchronous contract.
+
+## LAYERED_CHART_LIMITS
+
+Limits of layered chart scenes. `maximumEdgeKernelRadiusSites` (from 2.29.0, #764): the largest defocus kernel radius, in sites,
+the layered sum takes at card edges, for the uniform disc (`disc`, 512: `DEFOCUS_DISC_KERNEL_MAXIMUM_RADIUS_SITES`, as a single
+plane) and for a kernel shaped by `lens.defocus` bokeh options (`shaped`, 128; #749); a scene of more than one surface whose
+kernel is larger is refused. {@link calculateLayeredChartKernelRadii} checks
+a request against them before rendering.
+
+```ts
+LAYERED_CHART_LIMITS = Object.freeze({ maximumCards: 16, maximumLightsAcross: 256, maximumCandela: 1e7,
+  maximumEdgeKernelRadiusSites: Object.freeze({ disc: DEFOCUS_DISC_KERNEL_MAXIMUM_RADIUS_SITES, shaped: 128 }) })
 ```
 
 ## LAYERED_CHART_PRESET_SCALES
@@ -90,6 +120,22 @@ export interface LayeredChartDepth {
   signedBlurRadiusSites: number;
   /** Between the near and far limits of `calculateDepthOfField` at the circle of confusion. */
   withinDepthOfField: boolean;
+}
+```
+
+## LayeredChartKernelRadius
+
+Per surface: the defocus kernel radius a request needs and whether the renderer takes it (#764).
+
+```ts
+export interface LayeredChartKernelRadius {
+  kind: "card" | "back-plane";
+  /** Card index in the scene's `cards`, or −1 for the back plane. */
+  index: number;
+  /** Radius R of the surface's defocus kernel, sites (0 in focus): the kernel the request renders, (2R + 1)² taps. */
+  kernelRadiusSites: number;
+  /** True when R is within the bound the request's route applies (see {@link calculateLayeredChartKernelRadii}): the request renders this surface's blur. */
+  withinBound: boolean;
 }
 ```
 

@@ -79,12 +79,14 @@ const SEGMENT_ORDER = "abcdefg";
 const segmentRows = SEGMENT_ORDER.split("").map((s) => `vec4<f32>(${SEGMENTS[s]!.map((x) => x.toFixed(2)).join(", ")})`).join(", ");
 const digitMasks = DIGIT_SEGMENTS.map((segments) => segments.split("").reduce((mask, s) => mask | (1 << SEGMENT_ORDER.indexOf(s)), 0)).map((m) => m + "u").join(", ");
 
-const COMMON_TEMPLATE = /* wgsl */ `
-const E: f32 = 1.1920928955078125e-7;
+/** The common part's first constants (#658: parts, so that a display-view module takes the common part without the kernel's E and SLACK). */
+const COMMON_CONSTANTS_WGSL = /* wgsl */ `
 const DW: f32 = 9.094947017729282e-13;
 const TINY: f32 = 7.52316384526264e-37;
 const SAFETY: f32 = 4.0;
-const SLACK: f32 = 1e-14;
+`;
+/** The rest of the common part: double-float32 with its rounding barrier, the bound arithmetic and `bfloor`. */
+const COMMON_BODY_TEMPLATE = /* wgsl */ `
 const PI: f32 = 3.14159265358979;
 const HALF_PI: f32 = 1.5707963267948966;
 const QUARTER_PI: f32 = 0.7853981633974483;
@@ -169,26 +171,17 @@ fn bfloor(x: B, lo: f32, hi: f32) -> f32 {
 }
 fn parity_even(i: i32, j: i32) -> bool { return ((i + j) & 1) == 0; }
 `;
+const COMMON_TEMPLATE = /* wgsl */ `
+const E: f32 = 1.1920928955078125e-7;
+${COMMON_CONSTANTS_WGSL}
+const SLACK: f32 = 1e-14;
+${COMMON_BODY_TEMPLATE}`;
 
-/** The product path of the double-float32 arithmetic: Dekker's (unfused evaluation as written) or the fma one (a fused `fma`). */
-export type ChartCompositeProductPath = "dekker" | "fma";
-/** `zero`: the WGSL expression of the host's zero word the rounding barrier reads (a uniform the compiler cannot see). */
-const commonWgsl = (path: ChartCompositeProductPath, zero: string): string => COMMON_TEMPLATE.replace("d_mul_PRODUCT_PATH", "d_mul_" + path).replaceAll("BARRIER_ZERO", zero);
-
-/** The composite kernel compiled with one product path (`d_mul`): the probe's choice for the device. */
-export function chartCompositeWgsl(path: ChartCompositeProductPath): string {
-  return /* wgsl */ `${commonWgsl(path, "params.zero")}
-// zero: 0, set by the host; the rounding barrier's word.
-struct Params { count: u32, columns: u32, wavelength_mode: u32, zero: u32 };
-@group(0) @binding(0) var<uniform> params: Params;
-@group(0) @binding(1) var<storage, read> points: array<vec4<f32>>;
-@group(0) @binding(2) var<storage, read> table: array<f32>;
-@group(0) @binding(3) var<storage, read> af: array<f32>;
-@group(0) @binding(4) var<storage, read> ai: array<u32>;
-@group(0) @binding(5) var<storage, read> selectors: array<u32>;
-@group(0) @binding(6) var<storage, read_write> values: array<f32>;
-@group(0) @binding(7) var<storage, read_write> flags: array<u32>;
-
+/**
+ * The composite classification: the segment and digit tables, the cos and sin polynomials, the element and layer classifiers and
+ * `material(p)`. The display view's composite module takes it from here (#658: a seam, not a search of the kernel's text).
+ */
+export const CHART_COMPOSITE_MATERIAL_WGSL = /* wgsl */ `
 const SEGMENT_BOX = array<vec4<f32>, 7>(${segmentRows});
 const DIGIT_MASK = array<u32, 10>(${digitMasks});
 const NUMERAL_ADVANCE: f32 = ${NUMERAL_ADVANCE};
@@ -472,6 +465,31 @@ fn material(p: vec4<f32>) -> u32 {
   return 0u;
 }
 
+`;
+
+/** The product path of the double-float32 arithmetic: Dekker's (unfused evaluation as written) or the fma one (a fused `fma`). */
+export type ChartCompositeProductPath = "dekker" | "fma";
+/** `zero`: the WGSL expression of the host's zero word the rounding barrier reads (a uniform the compiler cannot see). */
+const productPath = (template: string, path: ChartCompositeProductPath, zero: string): string => template.replace("d_mul_PRODUCT_PATH", "d_mul_" + path).replaceAll("BARRIER_ZERO", zero);
+const commonWgsl = (path: ChartCompositeProductPath, zero: string): string => productPath(COMMON_TEMPLATE, path, zero);
+/** The common part without the kernel's own E and SLACK constants, for a display-view module (whose kernel preamble gives them). */
+export const chartCompositeModuleCommonWgsl = (path: ChartCompositeProductPath, zero: string): string => productPath(COMMON_CONSTANTS_WGSL + COMMON_BODY_TEMPLATE, path, zero);
+
+/** The composite kernel compiled with one product path (`d_mul`): the probe's choice for the device. */
+export function chartCompositeWgsl(path: ChartCompositeProductPath): string {
+  return /* wgsl */ `${commonWgsl(path, "params.zero")}
+// zero: 0, set by the host; the rounding barrier's word.
+struct Params { count: u32, columns: u32, wavelength_mode: u32, zero: u32 };
+@group(0) @binding(0) var<uniform> params: Params;
+@group(0) @binding(1) var<storage, read> points: array<vec4<f32>>;
+@group(0) @binding(2) var<storage, read> table: array<f32>;
+@group(0) @binding(3) var<storage, read> af: array<f32>;
+@group(0) @binding(4) var<storage, read> ai: array<u32>;
+@group(0) @binding(5) var<storage, read> selectors: array<u32>;
+@group(0) @binding(6) var<storage, read_write> values: array<f32>;
+@group(0) @binding(7) var<storage, read_write> flags: array<u32>;
+
+${CHART_COMPOSITE_MATERIAL_WGSL}
 @compute @workgroup_size(${CHART_COMPOSITE_WORKGROUP_SIZE})
 fn main(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_workgroups) groups: vec3<u32>) {
   let i = gid.x + gid.y * groups.x * ${CHART_COMPOSITE_WORKGROUP_SIZE}u;

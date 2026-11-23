@@ -51,7 +51,9 @@ export interface DisplayViewResult {
    * the samples per axis and, with `view.region`, the rendered rectangle.
    */
   view: { width: number; height: number; frameWidth: number; frameHeight: number; scaleX: number; scaleY: number; samplesPerAxis: number;
-    region?: { x: number; y: number; width: number; height: number } };
+    region?: { x: number; y: number; width: number; height: number };
+    /** #752, with `view.focusMask`: the in-focus mask of the rendered rectangle (row-major scores, its circle of confusion and label). */
+    focusMask?: DisplayViewFocusMask };
   /**
    * The resolved exposure of the capture this view shows; `standardExposureDeviationStops`, `standardExposureIlluminanceLux`
    * and `greyCardDeviationStops` as in {@link SimulateCaptureResult}.
@@ -1197,6 +1199,13 @@ export interface SimulateDisplayViewOptions {
   format?: "srgb-8" | "srgb-16";
   /** Render only this rectangle of the display view, in display pixels; byte-identical to the same pixels of the whole view. */
   region?: { x: number; y: number; width: number; height: number };
+  /**
+   * From 2.29.0 (#752): also return `view.focusMask`, an in-focus guide for the rendered rectangle: per display pixel max(0, 1 − c/c₀), c the
+   * thin-lens blur circle of the surface the pixel centre sees (a layered scene's chief-ray surface through the lens; one value for a
+   * single-plane scene) at the resolved focus (with `lens.focusScatter`, the sampled one), c₀ `circleOfConfusionMm` (default the frame's
+   * diagonal / 1500, as `scene.layers`). Analytic: the same with `fast` true or false and on the CPU and GPU. `false` or omitted: none.
+   */
+  focusMask?: boolean | { circleOfConfusionMm?: number };
 }
 ```
 

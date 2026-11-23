@@ -76,7 +76,8 @@ describe("layered chart scenes through the public API (#652)", () => {
         const reference = electrons(capture.request.siteInput(index).environment, provider.evaluateRadiance.bind(provider));
         worst = Math.max(worst, Math.abs(signal.site(x, y) - reference) / reference);
       }
-      for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) if (lattice.siteSurface(x, y, 1) < 0) edge++;
+      const still = lattice.groupOf(0, 0);
+      for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) if (lattice.siteSurface(still, x, y, 1) < 0) edge++;
       expect(edge).toBeGreaterThan(20);
       expect(worst).toBeLessThan(1e-9);
     }
@@ -119,16 +120,20 @@ describe("layered chart scenes through the public API (#652)", () => {
     expect(layers[0]!.withinDepthOfField).toBe(false);
   }, scaledTimeout(120_000));
 
-  it("renders regions identical to the whole view, the preset with point lights and the cat's eye in the view, labelled on the CPU", async () => {
+  it("renders regions identical to the whole view, the preset with point lights and the cat's eye in the view, labelled on the CPU without a device", async () => {
     const options = layeredOptions({ output: { width: 96, height: 64 } });
     const prepared = await prepareDisplayView(options, { gpu: "auto" });
     const whole = await prepared.render({ width: 24, height: 16 }), part = await prepared.render({ width: 24, height: 16, region: { x: 5, y: 3, width: 9, height: 7 } });
     for (let j = 0; j < 7; j++) for (let i = 0; i < 9; i++) for (let k = 0; k < 3; k++)
       expect(part.image.samples[(j * 9 + i) * 3 + k]).toBe(whole.image.samples[((j + 3) * 24 + i + 5) * 3 + k]);
-    expect(whole.diagnostics.fast.execution).toMatchObject({ backend: "cpu-reference", fallbackReason: "unsupported-on-backend" });
-    // gpu-06 (#702): the reason names no release, which would be wrong in the next one.
-    expect(whole.diagnostics.fast.execution.limitations.join(" ")).toMatch(/layered chart scenes render on the CPU \(#652\)/u);
-    expect(whole.diagnostics.fast.execution.limitations.join(" ")).not.toMatch(/\b2\.\d+\.\d+\b/u);
+    // 2.29.0 (#750): a view on the planar map asks the device for the layered GPU passes; this test process has none.
+    expect(whole.diagnostics.fast.execution).toMatchObject({ backend: "cpu-reference", fallbackReason: "webgpu-unavailable" });
+    // Through a lens map the layered sum renders on the CPU, with that reason. gpu-06 (#702): the reason names no release, which would be wrong in the next one.
+    const mapped = await (await prepareDisplayView(layeredOptions({ output: { width: 48, height: 32 }, lens: { focalLengthMm: 50, fNumber: 4, focusDistanceM: 2, projection: "fisheye-equisolid-angle" } }),
+      { gpu: "auto" })).render({ width: 12, height: 8 });
+    expect(mapped.diagnostics.fast.execution).toMatchObject({ backend: "cpu-reference", fallbackReason: "unsupported-on-backend" });
+    expect(mapped.diagnostics.fast.execution.limitations.join(" ")).toMatch(/layered chart scenes render on the CPU \(#652\)/u);
+    expect(mapped.diagnostics.fast.execution.limitations.join(" ")).not.toMatch(/\b2\.\d+\.\d+\b/u);
     const preset = resolveLayeredChartPreset({ scale: "tabletop", cards: 3, focusDistanceM: 1, lens: { focalLengthMm: 50 }, aspect: 2 / 3 });
     const lit = await simulateDisplayView({ scene: preset, subjectDistanceM: 1, lens: { focalLengthMm: 50, fNumber: 4, focusDistanceM: 1,
       defocus: { model: "geometric-disc", blades: { count: 6 }, catsEye: { apertures: [{ radiusMm: 9, shiftPerTanFieldMm: 40 }] } } },
@@ -137,24 +142,24 @@ describe("layered chart scenes through the public API (#652)", () => {
     expect((lit.assumptions.find((a) => a.id === "scene.layers")!.value as { catsEye: boolean }).catsEye).toBe(true);
   }, scaledTimeout(240_000));
 
-  it("refuses what 2.27.0 does not render, with clear messages", async () => {
+  it("refuses what 2.29.0 does not render, with clear messages", async () => {
     const options = layeredOptions({ output: { width: 16, height: 12 } });
     const lens = options.lens!;
     const cases: [Partial<SimulateCaptureOptions>, RegExp][] = [
-      [{ motion: { angularVelocityRadPerSec: { yaw: 0.1 } } }, /does not support motion\.angularVelocityRadPerSec in 2\.27\.0/],
-      [{ motion: { subject: { velocityMPerSec: { x: 0.1 } } } }, /does not support motion\.subject/],
-      [{ lens: { ...lens, projection: "fisheye-equidistant" } }, /lens\.projection other than "rectilinear"/],
-      [{ lens: { ...lens, distortion: { kind: "radial", profile: { normalizationRadiusMm: 1, maximumNormalizedRadius: 1, coefficients: { k1: -0.1, k2: 0, k3: 0 } } } } }, /does not support lens\.distortion/],
-      [{ lens: { ...lens, vignetting: { normalizationRadiusMm: 1, maximumNormalizedRadius: 1, coefficients: { r2: -0.2, r4: 0, r6: 0 } } } }, /does not support lens\.vignetting/],
+      // 2.29.0 (#746): camera motion renders; a moving subject stays refused.
+      [{ motion: { subject: { velocityMPerSec: { x: 0.1 } } } }, /does not support motion\.subject in 2\.29\.0: which surface moves is not defined by the request/],
       [{ lens: { ...lens, pupilSampling: { radialSamples: 2, angularSamples: 8 } } }, /does not support lens\.pupilSampling/],
-      [{ lens: { catalogue: "pv-50-1.8", fNumber: 4 } }, /does not support lens\.catalogue/],
-      [{ chartSize: { widthM: 0.5 } }, /does not support chartSize/],
-      [{ illumination: { sources: [{ illuminant: { kind: "cie-a" }, illuminanceLux: 1000 }] } } as never, /does not support illumination \(mixed lighting\)/],
+      // 2.29.0 (#741): the catalogue lens renders; its flare does not.
+      [{ lens: { catalogue: { kind: "pv-50-1.8", flare: true }, fNumber: 4 } }, /does not support lens\.catalogue\.flare in 2\.29\.0/],
+      // 2.29.0 (#761): chartSize renders; its surround does not apply, and illumination with chartSize is refused.
+      [{ chartSize: { widthM: 0.5, surroundReflectance: 0.5 } }, /chartSize\.surroundReflectance does not apply to a layered chart scene/],
+      [{ chartSize: { widthM: 0.5 }, illumination: { sources: [{ illuminant: { kind: "cie-a" }, illuminanceLux: 1000 }] } } as never, /does not support illumination with chartSize in 2\.29\.0/],
       [{ lens: { ...lens, diffraction: "circular-aperture", defocus: { model: "geometric-disc", catsEye: { apertures: [{ radiusMm: 9, shiftPerTanFieldMm: 40 }] } } } }, /catsEye cannot be combined with lens\.diffraction/],
-      [{ lens: { ...lens, focusDistanceM: 10 }, sensor: { pixelPitchMicrometers: 1, spectralStepNanometers: 40 } }, /kernel radius of \d+ sites; at card edges the layered sum takes at most 64/]];
+      [{ lens: { ...lens, focusDistanceM: 10, defocus: { model: "geometric-disc", blades: { count: 7 } } }, sensor: { pixelPitchMicrometers: 1, spectralStepNanometers: 40 } },
+        /^lens\.defocus: a surface's blur needs a kernel radius of \d+ sites; at card edges the layered sum takes at most 128 for a shaped kernel/]];
     // A caller PSF: the one a plain chart capture with diffraction resolves (a valid lens.psf, so the layered refusal is what fails).
     const psf = (await simulateCapture({ ...options, scene: { preset: "uniform", reflectance: 0.5 }, lens: { ...lens, diffraction: "circular-aperture" } })).request.diffraction!.psf;
-    cases.push([{ lens: { ...lens, psf } } as never, /does not support lens\.psf in 2\.27\.0: a caller PSF declares its own defocus/]);
+    cases.push([{ lens: { ...lens, psf } } as never, /does not support lens\.psf in 2\.29\.0: a caller PSF declares its own defocus/]);
     for (const [extra, message] of cases) await expect(simulateCapture({ ...options, ...extra } as SimulateCaptureOptions), String(message)).rejects.toThrow(message);
     const crowded: LayeredChartScene = { ...scene, backPlane: { distanceM: 3, pointLights: { seed: 1, columns: 16, rows: 12, luminousIntensityCandela: 1 } } };
     await expect(simulateCapture({ ...options, scene: crowded })).rejects.toThrow(/two lights can fall in one site/);

@@ -43,7 +43,7 @@ import {
   type SceneRadianceEvaluationRequest,
   type SceneRadianceEvaluationResult
 } from "../schema/scene-radiance.js";
-import { requireInputKeys, rejectUnknownVariantFields, UNCERTAINTY_VARIANT_FIELDS, requireConfigRecord as requireRecord, requireTrimmedConfigString as requireNonEmptyString, parseConfigScientificStatus as parseScientificStatus, requireInputPositiveFinite as requirePositiveFiniteScientific, parseConfigLimitations as parseLimitations, requireConfigFiniteAboveZero as requirePositiveFinite } from "../core/record-validation.js";
+import { parseConfigUncertainty, requireInputKeys, rejectUnknownVariantFields, requireConfigRecord as requireRecord, requireTrimmedConfigString as requireNonEmptyString, parseConfigScientificStatus as parseScientificStatus, requireInputPositiveFinite as requirePositiveFiniteScientific, parseConfigLimitations as parseLimitations, requireConfigFiniteAboveZero as requirePositiveFinite } from "../core/record-validation.js";
 import { requireFraction } from "../color/white-balance.js";
 
 /**
@@ -319,43 +319,7 @@ function parseUncertainty(
   value: unknown,
   path: string
 ): OpticalBridgeUncertainty {
-  const record =
-    requireRecord(value, path, null);
-  rejectUnknownVariantFields(record, "kind", UNCERTAINTY_VARIANT_FIELDS, path);
-
-  if (record.kind === "relative") {
-    return {
-      kind: "relative",
-      fraction:
-        requireFraction(
-          record.fraction,
-          path + ".fraction"
-        ),
-      basis:
-        requireNonEmptyString(
-          record.basis,
-          path + ".basis"
-        )
-    };
-  }
-
-  if (
-    record.kind ===
-    "not-quantified"
-  ) {
-    return {
-      kind: "not-quantified",
-      limitation:
-        requireNonEmptyString(
-          record.limitation,
-          path + ".limitation"
-        )
-    };
-  }
-
-  throw new InvalidConfigurationError(
-    path + ".kind is invalid."
-  );
+  return parseConfigUncertainty(value, path, requireFraction, requireNonEmptyString);
 }
 
 function parseReusableNumericEvidence(

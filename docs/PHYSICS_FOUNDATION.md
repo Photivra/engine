@@ -466,6 +466,7 @@ T = (k1 + k2)/2 + (k1 − k2)/2 · P · cos 2(ψ − θ)
 Here `P` is the incident degree of linear polarization, `ψ` its angle and `θ` the filter axis. For `P = 1` this is Malus's law, `k1 cos²(ψ − θ) + k2 sin²(ψ − θ)`. For unpolarized light it is `(k1 + k2)/2`.
 
 - Callers may declare a partially polarized `incidentPolarization`; results report the transmitted state.
+- From 2.29.0 (#753 `optics-22`) each matrix is evaluated in the filter's axis frame, as the intensities along and across the axis, `T = k1·(M cos² + m sin²) + k2·(M sin² + m cos²)` with `M` and `m` the intensities along and across the light's polarization; `m` is carried from filter to filter. Every term is non-negative, so a crossed pair transmits `k1·k2` to double rounding at any extinction ratio (before, the result read high from a ratio of about 1e15 and was refused from 1e17). Results at ordinary ratios change by a few units in the last place.
 - Schema `0.1.0` profiles, and compositions without a polarizer, are unchanged (same factors and composition model).
 - The scene-to-sensor bridge treats scene light as unpolarized.
 - Not modelled: circular polarization, retardance (the quarter-wave plate in a circular polarizer), dependence on angle of incidence, and depolarization.

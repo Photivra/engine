@@ -62,10 +62,10 @@
 
 import type { createOffsetExpansion } from "./display-view-offset-expansion.js";
 import { InvalidConfigurationError } from "../core/configuration-error.js";
-import { createSiteKernelRunsLattice, type SiteKernelRunsRowPattern } from "../optics/site-kernel-runs.js";
+import { createSiteKernelRunsLattice } from "../optics/site-kernel-runs.js";
 import type { PreparedDefocusImageSpaceGeometry } from "./defocus-image-space-provider.js";
 import { resolveLensSampledPsfKernel, type ResolveLensSampledPsfInput } from "../optics/lens-psf-profile.js";
-import { createMaterialSums, displayViewSignalTables, materialSpectrumSignal, type DisplayViewExpectedSignal, type DisplayViewExpectedSignalInput } from "./expected-signal.js";
+import { cfaRowPatterns, createMaterialSums, displayViewSignalTables, materialSpectrumSignal, type DisplayViewExpectedSignal, type DisplayViewExpectedSignalInput } from "./expected-signal.js";
 import { createRollingRegroupedLensSignal, regroupedLensDefocusCheaper, rollingLensBands, rollingScanLines, type RollingLensBands } from "./display-view-lens-regroup.js";
 
 export { regroupedLensDefocusCheaper, rollingLensBands, rollingScanLines, type RollingLensBands } from "./display-view-lens-regroup.js";
@@ -112,10 +112,30 @@ export interface DisplayViewLensPsf {
   zoneKernels(zone: number, wavelengthsNm: readonly number[]): DisplayViewLensZoneKernels;
 }
 
+/** A zone's sums and moments (DisplayViewLensZoneKernels), in the order sums, momentX, momentY, momentXX, momentYY, momentXY. */
+function zoneMoments(perNode: readonly Float64Array[], R: number): Float64Array[] {
+  const nodes = perNode.length, m = Array.from({ length: 6 }, () => new Float64Array(nodes));
+  for (let n = 0; n < nodes; n++) {
+    const k = perNode[n]!;
+    let s = 0, mx = 0, my = 0, mxx = 0, myy = 0, mxy = 0;
+    for (let v = -R, t = 0; v <= R; v++) for (let u = -R; u <= R; u++, t++) {
+      const w = k[t]!; s += w; mx += w * -u; my += w * -v; mxx += w * u * u; myy += w * v * v; mxy += w * u * v;
+    }
+    m[0]![n] = s; m[1]![n] = mx; m[2]![n] = my; m[3]![n] = mxx; m[4]![n] = myy; m[5]![n] = mxy;
+  }
+  return m;
+}
+
 /** #655 step 5: bytes of zone PSF kernels kept across prepared views (all lenses and views together). */
 export const DISPLAY_VIEW_LENS_ZONE_CACHE_BYTES = 32 * 1048576;
 const zoneCache = new Map<string, DisplayViewLensZoneKernels>();
 let zoneCacheBytes = 0, zoneResolves = 0, zoneHits = 0, nextContentId = 1;
+/**
+ * #760: the eviction cursor, an iterator over the zone cache in insertion order. Every entry before it was evicted or moved to the
+ * end (deleted and set again), so its next entry is the Map's first: the least recently used. A fresh `entries().next()` per
+ * eviction finds the same entry but steps over every deleted slot before it (a zone of one site evicts once per site).
+ */
+let evictCursor: IterableIterator<[string, DisplayViewLensZoneKernels]> | undefined;
 /** Content signatures seen recently → their id in the zone cache's keys (at most 16 kept; an evicted one gets a new id). */
 const contentIds = new Map<string, number>();
 const wavelengthKeys = new WeakMap<readonly number[], string>();
@@ -125,7 +145,7 @@ export function displayViewLensZoneCacheState(): { resolves: number; hits: numbe
   return { resolves: zoneResolves, hits: zoneHits, bytes: zoneCacheBytes, zones: zoneCache.size };
 }
 /** Internal test hook: forgets the zone kernels kept across views. */
-export function clearDisplayViewLensZoneCache(): void { zoneCache.clear(); zoneCacheBytes = 0; }
+export function clearDisplayViewLensZoneCache(): void { zoneCache.clear(); zoneCacheBytes = 0; evictCursor = undefined; }
 
 /** Every number of the PSF resolver input, the kernel radius, the raster, the pitch and the zone count, as one string. */
 function contentSignature(psf: unknown, R: number, W: number, H: number, pitch: number, zones: number): string | undefined {
@@ -140,16 +160,20 @@ function contentSignature(psf: unknown, R: number, W: number, H: number, pitch: 
  * of kernel radius R, on the W × H native raster of `pitch` µm.
  */
 export function createDisplayViewLensPsf(psf: Omit<ResolveLensSampledPsfInput, "fieldPointMm" | "wavelengthNm">, R: number, W: number, H: number, pitch: number,
-  zones = DISPLAY_VIEW_LENS_PSF_ZONES): DisplayViewLensPsf {
+  zones = DISPLAY_VIEW_LENS_PSF_ZONES, kernelsAt?: (state: Omit<ResolveLensSampledPsfInput, "wavelengthNm">, wavelengthsNm: readonly number[]) => readonly (readonly number[])[]): DisplayViewLensPsf {
   const Z = Math.ceil(Math.max(W, H) / zones), zonesX = Math.ceil(W / Z), zonesY = Math.ceil(H / Z), w = 2 * R + 1;
   const zoneOf = (x: number, y: number): number => Math.floor(y / Z) * zonesX + Math.floor(x / Z);
   const kernelsOf = (zone: number, wavelengthsNm: readonly number[]): Float64Array[] => {
     // The zone's centre in sites from the top-left corner (an edge zone may be narrower), in image millimetres (+Y up).
     const zx = zone % zonesX, zy = (zone - zx) / zonesX, fieldPointMm = { x: ((zx * Z + Math.min(W, zx * Z + Z)) / 2 - W / 2) * pitch / 1000,
       y: (H / 2 - (zy * Z + Math.min(H, zy * Z + Z)) / 2) * pitch / 1000 };
-    return wavelengthsNm.map((wavelengthNm) => {
+    // #760: `kernelsAt` (the Quality kit's resolveLensSampledPsfKernelsAt, when the capture passes it) resolves every node at once, the
+    // same kernels; the nodes' kernels share one buffer.
+    const all = kernelsAt?.({ ...psf, fieldPointMm } as Omit<ResolveLensSampledPsfInput, "wavelengthNm">, wavelengthsNm), buffer = new Float64Array(wavelengthsNm.length * w * w);
+    return wavelengthsNm.map((wavelengthNm, n) => {
       // Every node of the engine-built profile has the same (2R + 1)² window, so every resolved kernel has it too.
-      const values = resolveLensSampledPsfKernel({ ...psf, fieldPointMm, wavelengthNm } as ResolveLensSampledPsfInput).normalizedIntensity, out = new Float64Array(w * w);
+      const values = all ? all[n]! : resolveLensSampledPsfKernel({ ...psf, fieldPointMm, wavelengthNm } as ResolveLensSampledPsfInput).normalizedIntensity;
+      const out = buffer.subarray(n * w * w, (n + 1) * w * w);
       for (let j = 0; j < w; j++) for (let i = 0; i < w; i++) out[(w - 1 - j) * w + i] = values[j * w + i]!;
       return out;
     });
@@ -175,22 +199,18 @@ export function createDisplayViewLensPsf(psf: Omit<ResolveLensSampledPsfInput, "
       if (kernels) { zoneCache.delete(key); zoneCache.set(key, kernels); zoneHits++; }
       else {
         const perNode = kernelsOf(zone, wavelengthsNm), nodes = perNode.length;
-        const sums = new Float64Array(nodes), momentX = new Float64Array(nodes), momentY = new Float64Array(nodes);
-        const momentXX = new Float64Array(nodes), momentYY = new Float64Array(nodes), momentXY = new Float64Array(nodes);
-        for (let n = 0; n < nodes; n++) {
-          const k = perNode[n]!;
-          let s = 0, mx = 0, my = 0, mxx = 0, myy = 0, mxy = 0;
-          for (let v = -R, t = 0; v <= R; v++) for (let u = -R; u <= R; u++, t++) {
-            const w = k[t]!; s += w; mx += w * -u; my += w * -v; mxx += w * u * u; myy += w * v * v; mxy += w * u * v;
-          }
-          sums[n] = s; momentX[n] = mx; momentY[n] = my; momentXX[n] = mxx; momentYY[n] = myy; momentXY[n] = mxy;
-        }
-        kernels = Object.freeze({ perNode: Object.freeze(perNode), sums, momentX, momentY, momentXX, momentYY, momentXY });
+        // #760: the moments when first read (the uniform windows and the GPU's lens pass read them; fast: false never does).
+        let moments: Float64Array[] | undefined;
+        const moment = (i: number) => (): Float64Array => (moments ??= zoneMoments(perNode, R))[i]!;
+        kernels = Object.freeze(Object.defineProperties({ perNode: Object.freeze(perNode) }, { sums: { get: moment(0) }, momentX: { get: moment(1) },
+          momentY: { get: moment(2) }, momentXX: { get: moment(3) }, momentYY: { get: moment(4) }, momentXY: { get: moment(5) } }) as DisplayViewLensZoneKernels);
         zoneResolves++;
         const bytes = nodes * (w * w + 6) * 8;
         zoneCache.set(key, kernels); zoneCacheBytes += bytes;
         while (zoneCacheBytes > DISPLAY_VIEW_LENS_ZONE_CACHE_BYTES && zoneCache.size > 1) {
-          const [oldest, dropped] = zoneCache.entries().next().value!;
+          let next = evictCursor?.next();
+          if (!next || next.done) next = (evictCursor = zoneCache.entries()).next();
+          const [oldest, dropped] = next.value!;
           zoneCache.delete(oldest); zoneCacheBytes -= dropped.perNode.length * (dropped.perNode[0]!.length + 6) * 8;
         }
       }
@@ -722,11 +742,7 @@ function createLargeLensSignal(input: DisplayViewExpectedSignalInput, inFocusTil
     return tile;
   };
   // Which sites of a tile row hold channel c: the CFA's 2 × 2 period (tile origins are even).
-  const phase = [0, 1].map((py) => [0, 1].map((px) => channelAt(px, py)));
-  const patterns: SiteKernelRunsRowPattern[] = [0, 1, 2].map((c) => (row: number) => {
-    const p = phase[row & 1]!, even = p[0] === c, odd = p[1] === c;
-    return even && odd ? { start: 0, step: 1 } : even ? { start: 0, step: 2 } : odd ? { start: 1, step: 2 } : null;
-  });
+  const patternOf = cfaRowPatterns(channelAt), patterns = [0, 1, 2].map((c) => patternOf(c));
   const lattice = createSiteKernelRunsLattice({ runs, tile: LARGE_OUTPUT_TILE, fields: 3, capacityBytes: LARGE_CACHE_BYTES, pattern: (c) => patterns[c],
     source: (x0, y0, width, height) => (c: number): Float64Array => {
       const samples = new Float64Array(width * height);

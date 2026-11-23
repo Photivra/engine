@@ -12,6 +12,7 @@
  * limits.
  */
 
+import { requireAboveAbsoluteZeroCelsius } from "../core/temperature-validation.js";
 import { parseUncertainty } from "./spectral-response.js";
 import {
   approximationResult,
@@ -203,7 +204,7 @@ export function parseSiteApplicability<T>(value: unknown, path: string, approxim
 export function parseTemperatureApplicability<T>(value: unknown, path: string): T {
   const record = requireRecord(value, path, null);
   rejectUnknownVariantFields(record, "kind", { "exact-reference-temperature": ["kind", "temperatureC"], "not-modeled": ["kind", "limitation", "evidence"] }, path);
-  if (record.kind === "exact-reference-temperature") return { kind: "exact-reference-temperature", temperatureC: requireFinite(record.temperatureC, path + ".temperatureC") } as T;
+  if (record.kind === "exact-reference-temperature") return { kind: "exact-reference-temperature", temperatureC: requireAboveAbsoluteZeroCelsius(requireFinite(record.temperatureC, path + ".temperatureC"), path + ".temperatureC") } as T;
   if (record.kind === "not-modeled") {
     return { kind: "not-modeled", limitation: requireNonEmptyString(record.limitation, path + ".limitation"), evidence: parseEvidenceList(record.evidence, path + ".evidence") } as T;
   }
@@ -483,6 +484,7 @@ export function assessSensorCameraSaturationCapacity(
       "operatingTemperatureC must be finite."
     );
   }
+  requireAboveAbsoluteZeroCelsius(input.operatingTemperatureC, "operatingTemperatureC", InvalidScientificInputError);
   if (
     profile.temperatureApplicability.kind ===
       "exact-reference-temperature" &&

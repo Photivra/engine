@@ -185,7 +185,7 @@ export interface SignalTables {
 export interface GroupTables { fx: number; fy: number; members: { ix: number; iy: number; weight: number }[]; minIx: number; maxIx: number; minIy: number; maxIy: number;
   cw: number; ch: number; nodeKernels: Float64Array[]; perNode: Float64Array[][] }
 /** A render's lattice group: the fixed part and its own window cache (lattice points [cx0, cx0 + cpw) × [cy0, cy0 + cph)). */
-interface Group extends GroupTables { cache: Int32Array | Float64Array; cx0: number; cy0: number; cpw: number; cph: number }
+interface Group extends GroupTables { cache: Int32Array | Float64Array; cx0: number; cy0: number; cpw: number; cph: number; kt?: Float64Array[] }
 /** Per input object: the tables, and the filled path's lattice material rings per group (created on first use), which depend on its `materialAt` and raster. */
 interface PreparedSignal { tables: SignalTables; rings: ({ width: number; material: Int16Array | Int32Array; rowId: Int32Array } | undefined)[] }
 const PREPARED = new WeakMap<DisplayViewExpectedSignalInput, PreparedSignal>();
@@ -625,9 +625,14 @@ export function createDisplayViewExpectedSignal(input: DisplayViewExpectedSignal
       if (scene.kind === "materials") {
         for (let dy = 0; dy < ch; dy++) for (let dx = 0; dx < cw; dx++) tapMaterials[t++] = latticeMaterial(group, p0 + dx, q0 + dy);
       } else {
-        for (let dy = 0; dy < ch; dy++) for (let dx = 0; dx < cw; dx++) {
-          const radiance = latticeRadiance(group, p0 + dx, q0 + dy);
-          for (let n = 0; n < nodes; n++) sum += group.perNode[n]![c]![dy * cw + dx]! * radiance[n]!;
+        // #760: the channel's kernel per tap and node in one array (tap-major), and a cached point's radiance read where it is kept: the
+        // same products, summed in the same order (taps row by row, nodes in order).
+        const k = (group.kt ??= [0, 1, 2].map((cc) => Float64Array.from({ length: cw * ch * nodes }, (_, e) => group.perNode[e % nodes]![cc]![(e - e % nodes) / nodes]!)))[c]!;
+        const cache = group.cache as Float64Array, cpw = group.cpw;
+        for (let dy = 0, e = 0; dy < ch; dy++) for (let dx = 0; dx < cw; dx++, e += nodes) {
+          const i = p0 + dx - group.cx0, j = q0 + dy - group.cy0, at = (j * cpw + i) * nodes;
+          const hit = i >= 0 && j >= 0 && i < cpw && j < group.cph && !Number.isNaN(cache[at]!), src = hit ? cache : latticeRadiance(group, p0 + dx, q0 + dy), o = hit ? at : 0;
+          for (let n = 0; n < nodes; n++) sum += k[e + n]! * src[o + n]!;
         }
       }
     }
@@ -1046,6 +1051,18 @@ function createLargeKernelSignal(input: DisplayViewExpectedSignalInput): Display
   };
 }
 
+/**
+ * Which sites of a row hold channel c, from the CFA's 2 × 2 period (`channelAt` read once at x, y ∈ {0, 1}; columns start at even
+ * positions): the returned function gives channel c's pattern for rows counted from row y0.
+ */
+export function cfaRowPatterns(channelAt: (x: number, y: number) => number): (c: number, y0?: number) => SiteKernelRunsRowPattern {
+  const phase = [0, 1].map((py) => [0, 1].map((px) => channelAt(px, py)));
+  return (c, y0 = 0) => (row) => {
+    const p = phase[(y0 + row) & 1]!, even = p[0] === c, odd = p[1] === c;
+    return even && odd ? { start: 0, step: 1 } : even ? { start: 0, step: 2 } : odd ? { start: 1, step: 2 } : null;
+  };
+}
+
 function prepareLargeKernel(input: DisplayViewExpectedSignalInput): LargeKernelState {
   const W = input.nativeWidth, H = input.nativeHeight, g = 2 / input.outputWidth, nodes = input.wavelengthsNm.length, R = input.kernels!.radius;
   const tables = displayViewSignalTables(input), { spectra, groups } = tables, scene = input.scene, acc = createMaterialSums(nodes, spectra);
@@ -1164,11 +1181,7 @@ function prepareLargeKernel(input: DisplayViewExpectedSignalInput): LargeKernelS
     return tile.values;
   }
   // Which sites of a tile row hold channel c: the CFA's 2 × 2 period, from channelAt (tile origins are even).
-  const phase = [0, 1].map((py) => [0, 1].map((px) => input.channelAt(px, py)));
-  const patterns: SiteKernelRunsRowPattern[] = [0, 1, 2].map((c) => (row: number) => {
-    const p = phase[row & 1]!, even = p[0] === c, odd = p[1] === c;
-    return even && odd ? { start: 0, step: 1 } : even ? { start: 0, step: 2 } : odd ? { start: 1, step: 2 } : null;
-  });
+  const patternOf = cfaRowPatterns(input.channelAt), patterns = [0, 1, 2].map((c) => patternOf(c));
   // #653: output rows on demand, in fixed blocks of LARGE_OUTPUT_ROW_BLOCK rows; the in-focus rows they read are computed on demand too.
   state.lattice = createSiteKernelRunsLattice({ runs: input.largeKernel!, tile: LARGE_OUTPUT_TILE, rowBlock: LARGE_OUTPUT_ROW_BLOCK, fields: 3, capacityBytes: LARGE_CACHE_BYTES,
     pattern: (c) => patterns[c], source: (x0, y0, width, height) => (c: number): Float64Array => {

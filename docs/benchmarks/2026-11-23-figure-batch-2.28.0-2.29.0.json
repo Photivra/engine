@@ -1,0 +1,322 @@
+{
+ "benchmark": "figure-batch",
+ "issue": 760,
+ "script": "scripts/benchmark-figure-batch.mjs",
+ "cases": "scripts/lib/figure-batch-cases.mjs",
+ "recordedDateUtc": "2026-11-23",
+ "measurementPolicy": "informational-only-no-ci-threshold",
+ "machine": {
+  "cpuModel": "Apple M5 Pro",
+  "logicalCpuCount": 18,
+  "platform": "darwin",
+  "arch": "arm64",
+  "node": "v26.13.1",
+  "load": "other work on the machine during the session (load average 5.9 to 7.8); rely on the ratios of the paired runs, the counts and the hashes"
+ },
+ "builds": {
+  "before": "e229-int at c99daa1 (2.28.0 plus the 2.29.0 wave 1 groups)",
+  "after": "e229-C2 at aa328d6 (#760: the Quality kit's batch PSF resolver and the display view's zone cache changes, 6d2136c; facade-13, 9fd7840; the radiance-scene tap sum, aa328d6) with its routing patch for the wave-3 wiring applied (the capture passes the batch resolver to the display view's field PSF); without the patch the catalogue view keeps the per-call resolver"
+ },
+ "method": {
+  "flags": "exact = fast: false (batch figure renders); default = fast omitted",
+  "pair": "part tier: one band per case, one process per case, flag and build; the two builds of a case started together; CPU s = prepare + render (user + system); REPEATS 1"
+ },
+ "commands": [
+  "JOBS=1 TIMEOUT=900 OUT=\u2026 node scripts/benchmark-figure-batch.mjs pair <c99daa1 dist> <e229-C2 dist with the routing patch> catalogue-768 mixed-light"
+ ],
+ "profile": {
+  "command": "JOBS=1 FLAGS=exact PROFILE=<dir> node scripts/benchmark-figure-batch.mjs parts catalogue-768 mixed-light (on c99daa1)",
+  "catalogue-768": {
+   "cpuSeconds": 36.47,
+   "note": "fast: false resolves the PSF at every native site (zones of one site), once per spectral node: 20 nodes, 3 \u00d7 3 kernels, 8 grid corners per resolve, about 2.5 \u00b5s each",
+   "inclusiveShares": {
+    "resolveLensSampledPsfKernel": 0.765,
+    "interpolateKernelCentroidAligned": 0.538,
+    "bilinearSample": 0.284,
+    "kernelCentroid": 0.096,
+    "zoneKernels (self)": 0.084
+   }
+  },
+  "mixed-light": {
+   "cpuSeconds": 31.55,
+   "note": "a radiance scene: every tap of a site sums its spectral nodes against the kernel (expected-signal.ts, kernelSite); the mixed-light blend is a small share",
+   "selfShares": {
+    "kernelSite": 0.595,
+    "latticeRadiance": 0.226,
+    "irradianceSpectrumAt (mixed-illumination.ts)": 0.047,
+    "combine (mixed-illumination.ts)": 0.019
+   }
+  }
+ },
+ "pairs": [
+  {
+   "tier": "pair",
+   "id": "catalogue-768",
+   "flag": "exact",
+   "a": {
+    "id": "catalogue-768",
+    "flag": "exact",
+    "engine": "2.28.0",
+    "node": "v26.13.1",
+    "arch": "arm64",
+    "prepareCpu": 0.192,
+    "renderCpu": 39.614,
+    "wall": 35.366,
+    "maxRssMB": 840,
+    "work": {
+     "sampleCount": 135168,
+     "siteEvaluations": 3648248,
+     "sceneLookups": 1359241
+    },
+    "sha256": "2b53a5ccd89ddc160adcddccc6240926b161261cf881fe17b03f76c188c81a6d",
+    "width": 768,
+    "height": 11,
+    "fastApplied": {
+     "lens.catalogue": false,
+     "sensor.antiAliasing": false,
+     "output.demosaic.ahd": false
+    },
+    "load": [
+     7.7,
+     7.2
+    ],
+    "commit": "c99daa1"
+   },
+   "b": {
+    "id": "catalogue-768",
+    "flag": "exact",
+    "engine": "2.28.0",
+    "node": "v26.13.1",
+    "arch": "arm64",
+    "prepareCpu": 0.197,
+    "renderCpu": 18.741,
+    "wall": 15.715,
+    "maxRssMB": 773,
+    "work": {
+     "sampleCount": 135168,
+     "siteEvaluations": 3648248,
+     "sceneLookups": 1359241
+    },
+    "sha256": "2b53a5ccd89ddc160adcddccc6240926b161261cf881fe17b03f76c188c81a6d",
+    "width": 768,
+    "height": 11,
+    "fastApplied": {
+     "lens.catalogue": false,
+     "sensor.antiAliasing": false,
+     "output.demosaic.ahd": false
+    },
+    "load": [
+     7.7,
+     7.8
+    ],
+    "commit": "aa328d6 + routing patch"
+   },
+   "ratio": 0.476,
+   "samplesEqual": true
+  },
+  {
+   "tier": "pair",
+   "id": "catalogue-768",
+   "flag": "default",
+   "a": {
+    "id": "catalogue-768",
+    "flag": "default",
+    "engine": "2.28.0",
+    "node": "v26.13.1",
+    "arch": "arm64",
+    "prepareCpu": 0.198,
+    "renderCpu": 0.726,
+    "wall": 0.529,
+    "maxRssMB": 201,
+    "work": {
+     "sampleCount": 19998,
+     "siteEvaluations": 539754,
+     "sceneLookups": 3624883
+    },
+    "sha256": "bd8ffb0526fde360505f757118aa0d1074773ee26de475b1e30f1db52023dae5",
+    "width": 768,
+    "height": 11,
+    "fastApplied": {
+     "lens.catalogue": true,
+     "sensor.antiAliasing": false,
+     "output.demosaic.ahd": false
+    },
+    "load": [
+     7.2,
+     7.2
+    ],
+    "commit": "c99daa1"
+   },
+   "b": {
+    "id": "catalogue-768",
+    "flag": "default",
+    "engine": "2.28.0",
+    "node": "v26.13.1",
+    "arch": "arm64",
+    "prepareCpu": 0.203,
+    "renderCpu": 1.124,
+    "wall": 0.928,
+    "maxRssMB": 195,
+    "work": {
+     "sampleCount": 19998,
+     "siteEvaluations": 539754,
+     "sceneLookups": 3624883
+    },
+    "sha256": "bd8ffb0526fde360505f757118aa0d1074773ee26de475b1e30f1db52023dae5",
+    "width": 768,
+    "height": 11,
+    "fastApplied": {
+     "lens.catalogue": true,
+     "sensor.antiAliasing": false,
+     "output.demosaic.ahd": false
+    },
+    "load": [
+     7.2,
+     7.2
+    ],
+    "commit": "aa328d6 + routing patch"
+   },
+   "ratio": 1.446,
+   "samplesEqual": true
+  },
+  {
+   "tier": "pair",
+   "id": "mixed-light",
+   "flag": "exact",
+   "a": {
+    "id": "mixed-light",
+    "flag": "exact",
+    "engine": "2.28.0",
+    "node": "v26.13.1",
+    "arch": "arm64",
+    "prepareCpu": 0.153,
+    "renderCpu": 33.818,
+    "wall": 33.228,
+    "maxRssMB": 207,
+    "work": {
+     "sampleCount": 135168,
+     "siteEvaluations": 3649904,
+     "sceneLookups": 445190147
+    },
+    "sha256": "766e311c8e552b234466c5e6b0a7c7d067a3176663af2dc2a64e502266698236",
+    "width": 768,
+    "height": 11,
+    "fastApplied": {
+     "lens.diffraction": false,
+     "sensor.antiAliasing": false,
+     "sensor.pixelAperture.box": false,
+     "output.demosaic.ahd": false
+    },
+    "load": [
+     7.2,
+     6.3
+    ],
+    "commit": "c99daa1"
+   },
+   "b": {
+    "id": "mixed-light",
+    "flag": "exact",
+    "engine": "2.28.0",
+    "node": "v26.13.1",
+    "arch": "arm64",
+    "prepareCpu": 0.15,
+    "renderCpu": 19.314,
+    "wall": 18.828,
+    "maxRssMB": 205,
+    "work": {
+     "sampleCount": 135168,
+     "siteEvaluations": 3649904,
+     "sceneLookups": 445190147
+    },
+    "sha256": "766e311c8e552b234466c5e6b0a7c7d067a3176663af2dc2a64e502266698236",
+    "width": 768,
+    "height": 11,
+    "fastApplied": {
+     "lens.diffraction": false,
+     "sensor.antiAliasing": false,
+     "sensor.pixelAperture.box": false,
+     "output.demosaic.ahd": false
+    },
+    "load": [
+     7.2,
+     6.8
+    ],
+    "commit": "aa328d6 + routing patch"
+   },
+   "ratio": 0.573,
+   "samplesEqual": true
+  },
+  {
+   "tier": "pair",
+   "id": "mixed-light",
+   "flag": "default",
+   "a": {
+    "id": "mixed-light",
+    "flag": "default",
+    "engine": "2.28.0",
+    "node": "v26.13.1",
+    "arch": "arm64",
+    "prepareCpu": 0.158,
+    "renderCpu": 16.307,
+    "wall": 16.017,
+    "maxRssMB": 177,
+    "work": {
+     "sampleCount": 83508,
+     "siteEvaluations": 2255128,
+     "sceneLookups": 284143054
+    },
+    "sha256": "f0a6446ac3d9eefad7ceba23cb0810feb3cb2dfd6de3f719d4252b23ebd16752",
+    "width": 768,
+    "height": 11,
+    "fastApplied": {
+     "lens.diffraction": true,
+     "sensor.antiAliasing": false,
+     "sensor.pixelAperture.box": false,
+     "output.demosaic.ahd": false
+    },
+    "load": [
+     6.3,
+     6.6
+    ],
+    "commit": "c99daa1"
+   },
+   "b": {
+    "id": "mixed-light",
+    "flag": "default",
+    "engine": "2.28.0",
+    "node": "v26.13.1",
+    "arch": "arm64",
+    "prepareCpu": 0.159,
+    "renderCpu": 9.899,
+    "wall": 9.659,
+    "maxRssMB": 176,
+    "work": {
+     "sampleCount": 83508,
+     "siteEvaluations": 2255128,
+     "sceneLookups": 284143054
+    },
+    "sha256": "f0a6446ac3d9eefad7ceba23cb0810feb3cb2dfd6de3f719d4252b23ebd16752",
+    "width": 768,
+    "height": 11,
+    "fastApplied": {
+     "lens.diffraction": true,
+     "sensor.antiAliasing": false,
+     "sensor.pixelAperture.box": false,
+     "output.demosaic.ahd": false
+    },
+    "load": [
+     6.3,
+     6.7
+    ],
+    "commit": "aa328d6 + routing patch"
+   },
+   "ratio": 0.611,
+   "samplesEqual": true
+  }
+ ],
+ "notes": [
+  "Every pair's samples are equal (samplesEqual), and the work counts are the same: the changes keep each value's arithmetic and its order.",
+  "Target of the 2.29.0 plan: at least 4\u00d7 less CPU time on each frame (an estimate from 2.27.0's profile). Measured: about 2.1\u00d7 on the catalogue frame and about 1.7\u00d7 on the mixed-light frame (fast: false), so #760 stays open with this profile.",
+  "catalogue-768 default (0.92 \u2192 1.33 CPU s) is a sub-second part on a loaded machine; its path (field zones) is unchanged apart from the zone cache's eviction and moments."
+ ]
+}

@@ -1,6 +1,6 @@
 # Developer guide
 
-This is the entry point for **@photivra/engine 2.28.0**, root API contract **2.28.0**. 2.28.0 was published on November 22, 2026 ([2.28.0 release record](RELEASE_2_28_0.md)).
+This is the entry point for **@photivra/engine 2.29.0**, root API contract **2.29.0**. 2.29.0 was prepared on November 23, 2026; npm publishing runs only from the owner's `v2.29.0` tag, and the [2.29.0 release record](RELEASE_2_29_0.md) states whether that has happened. The latest published release is 2.28.0 (November 22, 2026, [record](RELEASE_2_28_0.md)).
 
 Repository `main` may later describe newer development. For the stable contract, use a published release's packaged docs or its exact tag. [Release notes and migration](RELEASE_1_3_0.md) explain why the package version and the root API version are now the same number.
 
@@ -10,13 +10,13 @@ The package does **not** supply a hosted API, a renderer, a UI, commercial camer
 
 ## Install and calculate
 
-Install with `npm install @photivra/engine@2.28.0`. The [2.28.0 release record](RELEASE_2_28_0.md) and the [changelog](../CHANGELOG.md) describe the current release.
+Install with `npm install @photivra/engine@2.29.0`. The [2.29.0 release record](RELEASE_2_29_0.md) and the [changelog](../CHANGELOG.md) describe the current release.
 
 ```ts
 import { calculateFieldOfView, ENGINE_API_VERSION } from "@photivra/engine";
 
 const horizontal = calculateFieldOfView({ focalLengthMm: 50, sensorDimensionMm: 36 });
-console.log(ENGINE_API_VERSION); // 2.28.0: matches the package version
+console.log(ENGINE_API_VERSION); // 2.29.0: matches the package version
 console.log(horizontal.value.degrees); // approximately 39.60, ideal infinity-focus geometry
 console.log(horizontal.provenance); // read assumptions/status with the value
 ```
@@ -192,7 +192,7 @@ node site/checks/serve.mjs _site              # look at it on http://127.0.0.1:4
 
 The browser pass and Lighthouse need Chromium (`npx --no-install playwright-core install chromium` after the root `npm ci`, as `webgpu.yml` and `pages.yml` do, or set `SITE_CHROME`).
 
-- **Layout.** `site/build.mjs` (entry), `site/lib/` (page list, Markdown, links, changelog, search page, rendered examples, templates), `site/styles/site.css` (Tailwind CSS, compiled by the pinned CLI), `site/assets/` (the search script, the Inter subsets, icons and the social image, all committed finished; `site/tools/` remakes them), `site/checks/` and `site/test/`.
+- **Layout.** `site/build.mjs` (entry), `site/lib/` (page list, Markdown and its build-time syntax coloring, links, changelog, search page, rendered examples, templates), `site/styles/site.css` (Tailwind CSS, compiled by the pinned CLI), `site/assets/` (the search script, the Inter subsets, the Photivra icon files and the social image, all committed finished; `site/tools/` remakes the subsets and the social image, and the icons are committed unchanged), `site/checks/` and `site/test/`.
 - **Rendered examples.** `site/examples/examples.json` names a fenced block by file and index; the build runs it unchanged with the engine in `dist/` and shows the engine's own PNG. A block that throws, an image over 400 kB, more than three on a page or more than twelve in all fails the build.
 - **Links.** Write site-only Markdown with repository-relative links, like every other document, so `docs:check` checks them; the generator turns a link to a published file into its site address and any other into its GitHub address, and fails on a missing file.
 - **Heading ids** come from `scripts/lib/anchors.mjs`, the module `docs:check` uses; the build fails if marked and that module disagree on a heading.

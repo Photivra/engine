@@ -111,7 +111,9 @@ describe("root exports reject malformed input with domain errors (API review #4)
     // 2.25 (#635): a whole sensor profile record, checked by parseSensorProfile as a capture checks it ("Unknown profile field: ...").
     "resolveSensorProfileIsoSettings",
     // #739 (2.28.0): the capture request, checked as simulateCapture checks it; its second argument has its own allowlist ("measure").
-    "simulateFalseColor"
+    "simulateFalseColor",
+    // #740 (2.29.0): the input record's own allowlist ("simulateTypicalProcessing: unknown option ..."); a processing provider second.
+    "simulateTypicalProcessing"
   ]);
   const NO_INPUT_OBJECT = new Set([
     // Positional scalars or bound objects, a string id, raw bytes, result factories or no argument at all.

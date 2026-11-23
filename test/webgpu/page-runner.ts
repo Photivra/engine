@@ -7,7 +7,7 @@ import { calculateChartRadianceBatch, createImageKernelAccelerator, ImageKernelE
   type NativeCaptureSdrInput, type NativeCaptureSdrProvider, type NativeCaptureSdrTile, type NativeCaptureSdrTileRequest,
   type NativeRawDevelopmentInput, type PackedSensorRawInput, type TemporalExposureSumInput, type ChartRadianceBatchInput } from "../../src/index.js";
 import { decodeTransport, encodeTransport } from "./codec.js";
-import { displayViewGpuFixture, materialModulesOf, renderOnGpu, renderOnGpuQuality, timeCpuStages } from "../helpers/display-view-gpu-fixture.js";
+import { compareDisplayViews, displayViewGpuFixture, materialModulesOf, renderOnGpu, renderOnGpuQuality, timeCpuStages } from "../helpers/display-view-gpu-fixture.js";
 import { DISPLAY_VIEW_SPEED_CONFORMANCE_CASE } from "../../src/gpu/display-view-speed-gpu.js";
 import { DISPLAY_VIEW_QUALITY_CONFORMANCE_CASE, DISPLAY_VIEW_QUALITY_DEFOCUS_CONFORMANCE_CASE } from "../../src/gpu/display-view-quality-gpu.js";
 import { acquireWebGpuRuntime, createComputePipeline, type WebGpuRuntime } from "../../src/gpu/webgpu-runtime.js";
@@ -22,6 +22,9 @@ import type { SimulateCaptureOptions, SimulateDisplayViewOptions } from "../../s
 import { displayViewLensGpuFixture, renderLensOnGpu } from "../helpers/display-view-lens-gpu-fixture.js";
 import { loadDisplayViewLensGpu } from "../../src/gpu/display-view-quality-gpu.js";
 import { createDisplayViewGpuRenderer } from "../../src/gpu/display-view-gpu-renderer.js";
+import { layeredTimingSetup, renderLayeredCase } from "../helpers/display-view-layered-gpu-fixture.js";
+import { DISPLAY_VIEW_LAYERED_CONFORMANCE_CASE, renderDisplayViewLayeredOnGpu } from "../../src/gpu/display-view-layered-gpu.js";
+import { renderDisplayView } from "../../src/facade/display-view.js";
 
 interface RunRequest<T> { input: T; maximumBandBytes?: number; timeCpu?: boolean; repeat?: number; reference?: boolean }
 
@@ -322,6 +325,47 @@ export async function displayViewLensConformance(): Promise<string> {
   const device = await runtime();
   try { return encodeTransport({ outcome: await (await loadDisplayViewLensGpu()).displayViewLensConformanceCase(materialModulesOf(device).probe).run(device, undefined) }); }
   finally { device.destroy(); }
+}
+
+/** #750: a named layered case (test/helpers/display-view-layered-gpu-fixture.ts) on the device and its CPU reference. */
+export async function displayViewLayered(payload: string): Promise<string> {
+  const { name } = decodeTransport<{ name: string }>(payload), device = await runtime();
+  try {
+    const start = performance.now(), { cpu, gpu } = await renderLayeredCase(device, name), milliseconds = performance.now() - start;
+    return encodeTransport({ cpu: { samples: cpu.samples, expected: cpu.expected, noiseStd: cpu.noiseStd, saturated: cpu.saturated },
+      gpu: { samples: gpu.samples, expected: gpu.expected, noiseStd: gpu.noiseStd, expectedValueBound: gpu.expectedValueBound, varianceBound: gpu.varianceBound,
+        expectedValueAbsoluteBound: gpu.expectedValueAbsoluteBound, varianceAbsoluteBound: gpu.varianceAbsoluteBound, saturated: gpu.saturated },
+      flaggedPixelIndices: gpu.flaggedPixelIndices, hostRecomputedPixelIndices: gpu.hostRecomputedPixelIndices, highlightRecomputedPixelIndices: gpu.highlightRecomputedPixelIndices,
+      execution: gpu.execution, gpuMilliseconds: milliseconds, stageMilliseconds: gpu.stageMilliseconds, tapsPerSite: gpu.tapsPerSite, cpuStages: null, layered: gpu.layered,
+      siteSumRelativeBound: gpu.siteSumRelativeBound });
+  } finally { device.destroy(); }
+}
+
+/** #750: the layered passes' self-check case on the device. */
+export async function displayViewLayeredConformance(): Promise<string> {
+  const device = await runtime();
+  try { return encodeTransport({ outcome: await DISPLAY_VIEW_LAYERED_CONFORMANCE_CASE.run(device, undefined) }); }
+  finally { device.destroy(); }
+}
+
+/**
+ * #750: the time of the timing case (`layeredTimingSetup`) on the CPU reference and on the device (each on a fresh setup, so both
+ * fill their tiles; the device's first render compiles its pipelines and is not timed), with the GPU result's agreement.
+ */
+export async function displayViewLayeredTiming(payload: string): Promise<string> {
+  const { width, height, nodes, repeat } = decodeTransport<{ width: number; height: number; nodes: number; repeat: number }>(payload), make = layeredTimingSetup(width, height, nodes);
+  const device = await runtime(), pipelines = (label: string, code: string): Promise<GPUComputePipeline> => createComputePipeline(device, label, code, undefined);
+  try {
+    let start = performance.now();
+    const cpu = await renderDisplayView(make()), cpuMilliseconds = performance.now() - start;
+    await renderDisplayViewLayeredOnGpu(device, 64 * 1024 * 1024, make(), new AbortController(), undefined, pipelines);
+    const runs: number[] = [];
+    let gpu: Awaited<ReturnType<typeof renderDisplayViewLayeredOnGpu>> | undefined;
+    for (let i = 0; i < repeat; i++) { start = performance.now(); gpu = await renderDisplayViewLayeredOnGpu(device, 64 * 1024 * 1024, make(), new AbortController(), undefined, pipelines); runs.push(performance.now() - start); }
+    const a = compareDisplayViews(cpu, gpu!);
+    return encodeTransport({ cpuMilliseconds, gpuRuns: runs, outsideExpectedBound: a.outsideExpectedBound, outsideVarianceBound: a.outsideVarianceBound, largestCodeDifference: a.largestCodeDifference,
+      stageMilliseconds: gpu!.stageMilliseconds, layered: gpu!.layered });
+  } finally { device.destroy(); }
 }
 
 /**

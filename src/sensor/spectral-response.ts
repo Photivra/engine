@@ -13,6 +13,7 @@
  * limits.
  */
 
+import { requireAboveAbsoluteZeroCelsius } from "../core/temperature-validation.js";
 import {
   calculatedResult,
   type CalculationResult
@@ -34,7 +35,7 @@ import {
   parseSensorColorSamplingProfile,
   type SensorColorSamplingProfile
 } from "./color-sampling.js";
-import { requireInputKeys, rejectUnknownFields, rejectUnknownVariantFields, UNCERTAINTY_VARIANT_FIELDS, requireConfigRecord as requireRecord, requireConfigString as requireNonEmptyString, parseConfigScientificStatus as parseScientificStatus, requireConfigFiniteNumber as requireFinite, requireConfigFraction as requireFraction, requireConfigNumberAboveZero as requirePositiveFinite } from "../core/record-validation.js";
+import { parseConfigUncertainty, requireConfigNumberAtLeastZero, requireInputKeys, rejectUnknownFields, requireConfigRecord as requireRecord, requireConfigString as requireNonEmptyString, parseConfigScientificStatus as parseScientificStatus, requireConfigFiniteNumber as requireFinite, requireConfigFraction as requireFraction, requireConfigNumberAboveZero as requirePositiveFinite } from "../core/record-validation.js";
 
 type UnknownRecord = Record<string, unknown>;
 
@@ -273,43 +274,7 @@ export function parseUncertainty(
   value: unknown,
   path: string
 ): SensorSpectralResponseUncertainty {
-  const record = requireRecord(value, path, null);
-  rejectUnknownVariantFields(record, "kind", UNCERTAINTY_VARIANT_FIELDS, path);
-
-  if (record.kind === "relative") {
-    const fraction = requireFinite(
-      record.fraction,
-      path + ".fraction"
-    );
-    if (fraction < 0) {
-      throw new InvalidConfigurationError(
-        path +
-          ".fraction must be greater than or equal to zero."
-      );
-    }
-    return {
-      kind: "relative",
-      fraction,
-      basis: requireNonEmptyString(
-        record.basis,
-        path + ".basis"
-      )
-    };
-  }
-
-  if (record.kind === "not-quantified") {
-    return {
-      kind: "not-quantified",
-      limitation: requireNonEmptyString(
-        record.limitation,
-        path + ".limitation"
-      )
-    };
-  }
-
-  throw new InvalidConfigurationError(
-    path + ".kind is invalid."
-  );
+  return parseConfigUncertainty(value, path, requireConfigNumberAtLeastZero, requireNonEmptyString);
 }
 
 /** Parses a reference or operating conditions record (temperature, incidence angle 0 to 90 degrees, polarization); shared by the response, application and operating-range parsers. */
@@ -321,10 +286,10 @@ export function parseReferenceConditions(
   const temperatureC =
     record.temperatureC === undefined
       ? undefined
-      : requireFinite(
+      : requireAboveAbsoluteZeroCelsius(requireFinite(
           record.temperatureC,
           path + ".temperatureC"
-        );
+        ), path + ".temperatureC");
   const incidenceAngleDegreesFromNormal =
     record.incidenceAngleDegreesFromNormal ===
     undefined

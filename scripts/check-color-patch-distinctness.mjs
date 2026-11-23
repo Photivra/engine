@@ -27,6 +27,7 @@
  * Usage (needs `npm run build` first, and network access; behind an HTTPS proxy run Node with NODE_USE_ENV_PROXY=1):
  *   node scripts/check-color-patch-distinctness.mjs                # check the published values; exit 1 on a failure
  *   node scripts/check-color-patch-distinctness.mjs --print        # also print each patch's closest reference color
+ *       # (a brands-set color by its kind and release, "a brand red (Simple Icons 9.21.0)", not by its brand: #756)
  *   node scripts/check-color-patch-distinctness.mjs --candidates /path/outside/repo/candidates.json
  *       # check candidate values instead: a JSON array of { patchId, group, cielabD65: [L, a, b], srgbHex }
  *   node scripts/check-color-patch-distinctness.mjs --source-dir /path/outside/repo   # use local copies of the files
@@ -146,6 +147,39 @@ const decode = (c) => (c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
 const linearToHex = (linear) => "#" + linear.map((c) => Math.round(255 * encode(Math.min(1, Math.max(0, c)))).toString(16).padStart(2, "0").toUpperCase()).join("");
 const hexToLab = (hex) => xyzToLab(multiply(LINEAR_SRGB_TO_XYZ, [1, 3, 5].map((i) => decode(parseInt(hex.slice(i, i + 2), 16) / 255))), D65);
 
+/**
+ * A generic word for a color's kind, from its CIELAB (D65): gray, white or black below chroma 8; otherwise its hue angle
+ * (degrees) read as red, orange, yellow, green, cyan, blue, violet or magenta, with brown for a dark orange or yellow,
+ * beige for a light low-chroma one, and pink for a light, moderate-chroma magenta or red. Wording only; the check does
+ * not use it.
+ */
+export function colorKindWord([L, a, b]) {
+  const chroma = Math.hypot(a, b), hue = (Math.atan2(b, a) * 180 / Math.PI + 360) % 360;
+  if (chroma < 8) return L > 85 ? "white" : L < 25 ? "black" : "gray";
+  const warm = hue >= 45 && hue < 105;
+  if (warm && L < 50) return "brown";
+  if (warm && L >= 70 && chroma < 25) return "beige";
+  if ((hue >= 330 || hue < 45) && L >= 55 && chroma < 50) return "pink";
+  if (hue < 20 || hue >= 330) return "magenta";
+  if (hue < 45) return "red";
+  if (hue < 75) return "orange";
+  if (hue < 105) return "yellow";
+  if (hue < 170) return "green";
+  if (hue < 235) return "cyan";
+  if (hue < 295) return "blue";
+  return "violet";
+}
+
+/**
+ * How the published docs name a reference color (#756): a brands-set color by its kind and its Simple Icons release
+ * ("a brand red (Simple Icons 9.21.0)"), never by the brand; every other set by its own color name.
+ */
+export function describeReference(reference) {
+  if (reference.set !== "brands") return reference.name;
+  const release = /\(Simple Icons ([0-9.]+)\)$/.exec(reference.name)?.[1];
+  return "a brand " + colorKindWord(reference.lab ?? hexToLab(reference.hex)) + (release ? " (Simple Icons " + release + ")" : "");
+}
+
 async function load(source, sourceDirectory) {
   let text;
   if (sourceDirectory) {
@@ -200,7 +234,7 @@ async function main() {
   if (process.argv.includes("--print")) {
     console.log("\n| Code | Id | sRGB | Closest reference color | Set | Its sRGB | ΔE00 |\n| --- | --- | --- | --- | --- | --- | --- |");
     for (const [i, row] of report.entries()) {
-      console.log("| " + (patches[i].code ?? "") + " | `" + row.patchId + "` | `" + patches[i].srgbHex + "` | " + row.closest.r.name + " | " + row.closest.r.set + " | `" + row.closest.r.hex + "` | " + row.closest.deltaE.toFixed(2) + " |");
+      console.log("| " + (patches[i].code ?? "") + " | `" + row.patchId + "` | `" + patches[i].srgbHex + "` | " + describeReference(row.closest.r) + " | " + row.closest.r.set + " | `" + row.closest.r.hex + "` | " + row.closest.deltaE.toFixed(2) + " |");
     }
   }
   console.log(failures === 0 ? "All " + patches.length + " patches are distinct from the reference colors (no equal hex; ΔE00 ≥ " + MINIMUM_DELTA_E00.toFixed(1) + " except neutrals)."

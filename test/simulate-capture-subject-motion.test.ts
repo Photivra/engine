@@ -52,7 +52,7 @@ describe("subject motion (#551)", () => {
     }
     // A chart scene: the still capture takes the tabulated path, the moving one the environment chain (the same sums).
     const star = { scene: { preset: "siemens-star" as const }, output: { width: 16, height: 12 }, fast: false };
-    const stillStar = await simulateCapture({ ...star, sensor: { temporalSampleCount: 8 } }), zeroStar = await simulateCapture({ ...star, motion: { subject: {} } });
+    const stillStar = await simulateCapture({ ...star, sensor: { temporalSampleCount: 8 } }), zeroStar = await simulateCapture({ ...star, motion: { subject: { velocityMPerSec: {} } } });
     expect(samples(zeroStar)).toEqual(samples(stillStar));
   }, scaledTimeout(60_000));
 
@@ -60,7 +60,7 @@ describe("subject motion (#551)", () => {
     for (const fast of [true, false]) for (const scene of [edge, { preset: "slanted-edge" as const }]) {
       const options = { ...request(32, 24, { fast }), scene } as SimulateCaptureOptions;
       const still = await simulateCapture(options);
-      for (const subject of [{}, { velocityMPerSec: { x: 0, y: 0 } }, { velocityMPerSec: { x: 0 }, angularVelocityRadPerSec: 0, region: { centerXM: 0, centerYM: 0, widthM: 0.004, heightM: 0.002 } }]) {
+      for (const subject of [{ velocityMPerSec: {} }, { velocityMPerSec: { x: 0, y: 0 } }, { velocityMPerSec: { x: 0 }, angularVelocityRadPerSec: 0, region: { centerXM: 0, centerYM: 0, widthM: 0.004, heightM: 0.002 } }]) {
         const zero = await simulateCapture({ ...options, motion: { subject } });
         expect(zero.raw.codes).toEqual(still.raw.codes);
         expect(zero.image.samples).toEqual(still.image.samples);
@@ -70,7 +70,7 @@ describe("subject motion (#551)", () => {
         expect(zero.assumptions.find((a) => a.id === "motion.subject")?.value).toMatchObject({ atRest: true });
       }
     }
-    const view = await simulateDisplayView({ ...request(32, 24), motion: { subject: {} } }, { width: 16, height: 12 }), stillView = await simulateDisplayView(request(32, 24), { width: 16, height: 12 });
+    const view = await simulateDisplayView({ ...request(32, 24), motion: { subject: { angularVelocityRadPerSec: 0 } } }, { width: 16, height: 12 }), stillView = await simulateDisplayView(request(32, 24), { width: 16, height: 12 });
     expect(view.image.samples).toEqual(stillView.image.samples);
     await expect(simulateCapture({ ...request(16, 8), motion: { subject: { velocityMPerSec: { x: 1e5 } } } })).rejects.toThrow(InvalidConfigurationError);
   }, scaledTimeout(120_000));
@@ -237,9 +237,9 @@ describe("subject motion (#551)", () => {
     let calls = 0;
     const scene = { kind: "radiance-function" as const, sceneId: "never", evaluate: (): number => { calls++; return 0.01; } };
     const bad: unknown[] = [{ spin: 1 }, { velocityMPerSec: { x: Number.NaN } }, { velocityMPerSec: { z: 1 } }, { angularVelocityRadPerSec: "1" }, { region: { centerXM: 0, centerYM: 0, widthM: 0, heightM: 1 } },
-      { revealedReflectance: 0.5 }, { fast: "yes" }, 3];
+      { revealedReflectance: 0.5 }, { fast: "yes" }, 3, {}, { region: { centerXM: 0, centerYM: 0, widthM: 1, heightM: 1 } }];
     for (const subject of bad) await expect(simulateCapture({ scene, motion: { subject } } as unknown as SimulateCaptureOptions), JSON.stringify(subject)).rejects.toThrow(InvalidConfigurationError);
-    await expect(simulateCapture({ scene, lens: { pupilSampling: { radialSamples: 1, angularSamples: 4 } }, motion: { subject: {} } })).rejects.toThrow(/pupilSampling/u);
+    await expect(simulateCapture({ scene, lens: { pupilSampling: { radialSamples: 1, angularSamples: 4 } }, motion: { subject: { velocityMPerSec: { x: 1 } } } })).rejects.toThrow(/pupilSampling/u);
     expect(calls).toBe(0);
   });
 });

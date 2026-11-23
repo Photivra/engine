@@ -88,7 +88,8 @@ export function createHandShakeTrajectory(options: HandShakeOptions = {}): HandS
 }
 
 function handShakeTrajectoryOf(options: HandShakeOptions): HandShakeTrajectory {
-  const seed = options.seed ?? 0, stops = options.stabilizationStops ?? 0;
+  // #786: null is refused, not read as omitted.
+  const seed = options.seed === undefined ? 0 : options.seed, stops = options.stabilizationStops === undefined ? 0 : options.stabilizationStops;
   if (!Number.isInteger(seed) || seed < 0 || seed > 0xffffffff) throw new InvalidConfigurationError("motion.handheld.seed must be an integer from 0 to 4294967295.");
   if (typeof stops !== "number" || !(stops >= 0 && stops <= HAND_SHAKE_MAXIMUM_STABILIZATION_STOPS))
     throw new InvalidConfigurationError("motion.handheld.stabilizationStops must be a number from 0 to " + HAND_SHAKE_MAXIMUM_STABILIZATION_STOPS + ".");

@@ -1891,7 +1891,11 @@ export { SIMULATE_CAPTURE_FACADE_VERSION, SIMULATE_CAPTURE_DEFAULT_ILLUMINANCE_L
   type DisplayViewHighlightDiagnostics, SIMULATE_DISPLAY_VIEW_DEFAULT_SAMPLES_PER_AXIS } from "./facade/simulate-capture.js";
 export { simulateCaptureFromParts } from "./facade/develop-joined-parts.js";
 // #739: the false color of a demosaic (its body loads on demand).
-export { simulateFalseColor, SIMULATE_FALSE_COLOR_LIMITS, type FalseColorResult, type SimulateFalseColorOptions } from "./facade/false-color-entry.js";
+export { simulateFalseColor, SIMULATE_FALSE_COLOR_LIMITS, type FalseColorResult, type SimulateFalseColorOptions, type FalseColorNoise,
+  type FalseColorStatistics } from "./facade/false-color-entry.js";
+// 2.29.0 (#740): typical processing stages of a burst of DNG frames (its body loads on demand).
+export { simulateTypicalProcessing, type SimulateTypicalProcessingInput, type TypicalProcessingDevelopOptions, type TypicalProcessingResult,
+  type TypicalProcessingStage } from "./facade/typical-processing-entry.js";
 export { EXPOSURE_BUILD_UP_MAXIMUM_FRACTIONS, EXPOSURE_BUILD_UP_STREAM_BASE, simulateExposureBuildUp, type SimulateExposureBuildUpFrame, type SimulateExposureBuildUpOptions,
   type SimulateExposureBuildUpResult } from "./facade/exposure-build-up.js";
 export type { SimulateCaptureSensorCharacteristics, SimulateCaptureSensorReport, SimulateCaptureNoiseComponents, SimulateCaptureNativeSensorReport, SimulateCaptureMidGreyFigure } from "./sensor/sensor-characteristics.js";
@@ -1944,7 +1948,12 @@ export { prepareLayeredChartScenes } from "./facade/layered-scene-enable.js";
 // 2.27.0 (#652): layered chart scenes (docs/LAYERED_SCENES.md); the layered sum and its provider load on demand, for such a request only.
 export { resolveLayeredChartPreset, calculateLayeredChartDepths, LAYERED_CHART_PRESET_SCALES, LAYERED_CHART_PRESET_STEP_RATIO, LAYERED_CHART_LIMITS,
   type LayeredChartScene, type LayeredChartCard, type LayeredChartBackPlane, type LayeredChartPointLights, type LayeredChartDepth,
-  type ResolvedLayeredChartScene, type ResolvedLayeredSurface, type LayeredFrameRectangle } from "./facade/layered-chart-scene.js";
+  type ResolvedLayeredChartScene, type ResolvedLayeredSurface, type LayeredFrameRectangle, calculateLayeredChartKernelRadii,
+  type LayeredChartKernelRadius } from "./facade/layered-chart-scene.js";
+// 2.29.0 (#747, #752): the surface at a frame point or an output pixel (tap to focus) and the display view's in-focus mask.
+export { calculateLayeredChartSurfaceAt, type LayeredChartSurfaceAt } from "./facade/layered-chart-query.js";
+export { calculateLayeredChartSurfaceAtPixel, type LayeredChartSurfaceAtPixelInput } from "./facade/layered-chart-pixel.js";
+export type { DisplayViewFocusMask } from "./facade/focus-mask.js";
 export { prepareQualityPaths } from "./facade/quality-paths.js";
 export type { MixedIllumination, MixedIlluminationBlend, MixedIlluminationFlash, MixedIlluminationPoint, MixedIlluminationPointSource, MixedIlluminationSource } from "./facade/mixed-illumination.js";
 export { CHART_RADIANCE_BATCH_SCHEMA_VERSION, CHART_RADIANCE_BATCH_LIMITS, calculateChartRadianceBatchPlan, calculateChartRadianceBatch,
@@ -1989,6 +1998,8 @@ export { SIMULATE_CAPTURE_FAST_METHODS, type SimulateCaptureFastMethod } from ".
 export {
   DETAIL_LIMIT_LIMITS,
   calculateDetailLimit,
+  calculateIdealLensDetailLimit,
+  type CalculateIdealLensDetailLimitInput,
   type CalculateDetailLimitInput,
   type DetailLimit,
   type DetailLimitBasis,

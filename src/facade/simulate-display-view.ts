@@ -28,6 +28,8 @@ import { runCapture, apertureNodeOffsets, bilinearPhaseProfiles, clockMs, fail, 
 import { createHostYield } from "./host-yield.js";
 import { OK_RENDER_DISPLAY_VIEW_DETAIL, optInKit, QK_CREATE_DISPLAY_VIEW_COUPLED_RENDERING, qualityKit } from "./on-demand-kits.js";
 import { createDefocusDiscSiteKernel } from "../optics/defocus-disc-kernel.js";
+import { calculateDefocusCircle } from "../optics/depth-of-field.js";
+import { FOCUS_MASK_LABEL, focusMaskScore } from "./focus-mask.js";
 import { siteKernelRuns } from "../optics/site-kernel-runs.js";
 import { cpuDisplayViewExecution, parsePrepareDisplayViewOptions, type DisplayViewExecution, type DisplayViewGpuRequest, type PrepareDisplayViewOptions } from "./display-view-gpu.js";
 import type { DisplayViewGpuSession } from "./display-view-gpu-session.js";
@@ -331,17 +333,17 @@ async function prepareView(context: DisplayViewRunContext): Promise<PreparedView
     const cpuSignalInput = regrouped ? regroupedSignalInput : signalInput;
     // The native columns the region's windows span, beyond one window's width: a filled band need not be wider (a speed hint).
     // #563: through the lens (projection, distortion, vignetting, rotation) when the request has them.
-    const signal = layeredView ? layeredView.signal() : (context.lens ?? createDisplayViewExpectedSignal)(cpuSignalInput, Math.ceil((viewRegion.width + 2) * nativeWidth / v.width));
+    const signal = layeredView ? layeredView.signal(costArgs) : (context.lens ?? createDisplayViewExpectedSignal)(cpuSignalInput, Math.ceil((viewRegion.width + 2) * nativeWidth / v.width));
     return { signal, regrouped, setup: { frameWidth: width, frameHeight: height, margin, nativeWidth, nativeHeight, viewWidth: v.width, viewHeight: v.height,
       region: viewRegion, samplesPerAxis: v.samplesPerAxis, uniformSamplesPerAxis: uniformSamplesOf(v.samplesPerAxis), reachSites, bitDepth: v.bitDepth, seed: noiseSeed, signal, readout, demosaic: demosaicTable,
       ...(ahdCandidates && ahdChoice ? { candidates: ahdCandidates, ahdChoice } : {}),
-      gains, clipLevel, matrix, toneCurve: viewToneCurve, ...(rendering ? { rendering, coupled: coupled! } : {}), yieldControl, checkAbort, gpu: { signalInput, chart: viewChart ?? null, layers: materialLayers ?? null, placement, ...(defocusKernel && !largeDefocus ? { defocusRadius: defocusKernel.radius } : {}), reference: cpuSignalInput, ...(lensGpu ? { lens: lensGpu } : {}) } } };
+      gains, clipLevel, matrix, toneCurve: viewToneCurve, ...(rendering ? { rendering, coupled: coupled! } : {}), yieldControl, checkAbort, gpu: { signalInput, chart: viewChart ?? null, layers: materialLayers ?? null, placement, ...(defocusKernel && !largeDefocus ? { defocusRadius: defocusKernel.radius } : {}), reference: cpuSignalInput, ...(lensGpu ? { lens: lensGpu } : {}), ...layeredView?.gpu } } };
   };
   // #492: out of focus the view reads the defocus disc (its kernel in signalInput.kernels); the GPU Quality site pass gathers it (step 2c).
   // #661: a catalogue-lens view with a radial distortion describes its lens signal for the renderer (DisplayViewGpuRequest.lensView).
   const lensSetup = lensGpu?.lens.psf ? lensGpu.lens : undefined;
   const gpuRequest: DisplayViewGpuRequest = { ahd, lens: !!context.lens, ...(lensSetup ? { lensView: { catalogueZones: (lensSetup.psf?.zoneSites ?? 0) > 1,
-    still: lensSetup.times.length === 1 && !lensSetup.timesAt && !lensGpu!.geometry.handShake && !context.movingScene, rectilinear: !lensSetup.zeroBeyondHorizon, flare: !!lensSetup.veil } } : {}), ...(layeredView ? { layered: true } : {}), ...(viewMixed ? { mixedIllumination: true } : {}), defocus: defocusKernel !== null, ...(largeDefocus ? { largeDefocus: true } : {}), diffraction: diffraction !== undefined, antiAliasing: antiAliasing !== undefined, boxSamples, toneCurve: viewToneCurve, ...(highlightMode === "reconstruct" || highlightMode === "reconstruct-neighbors" || context.gamutHandling === "desaturate-to-luminance" ? { coupled: true } : {}),
+    still: lensSetup.times.length === 1 && !lensSetup.timesAt && !lensGpu!.geometry.handShake && !context.movingScene, rectilinear: !lensSetup.zeroBeyondHorizon, flare: !!lensSetup.veil } } : {}), ...(layeredView ? { layered: true, ...layeredView.request } : {}), ...(viewMixed ? { mixedIllumination: true } : {}), defocus: defocusKernel !== null, ...(largeDefocus ? { largeDefocus: true } : {}), diffraction: diffraction !== undefined, antiAliasing: antiAliasing !== undefined, boxSamples, toneCurve: viewToneCurve, ...(highlightMode === "reconstruct" || highlightMode === "reconstruct-neighbors" || context.gamutHandling === "desaturate-to-luminance" ? { coupled: true } : {}),
     scene: chart ? "chart" : materialLayers ? "material-layers" : callerScene!.kind, ...(detail ? { detail: true } : {}) };
   const render: RenderPreparedView = async (v, run, viewInternals, gpu) => {
     const { started, viewStarted } = run;
@@ -358,6 +360,11 @@ async function prepareView(context: DisplayViewRunContext): Promise<PreparedView
       "The image the full-resolution capture of this request would give after resizing to " + v.width + " × " + v.height + ": each display pixel is the area-weighted mean, in linear light (sRGB samples decoded with the sRGB EOTF), " +
       "of the real output pixels its rectangle covers (" + scaleX + " × " + scaleY + " real pixels), then sRGB-encoded and rounded. The real capture's own samples are rounded to the view's bit depth before averaging.");
     const uniformSamplesPerAxis = uniformSamplesOf(v.samplesPerAxis);
+    // #752: the in-focus mask of the rendered rectangle (analytic, the same on every route): a layered scene's per pixel, else one value.
+    const circleOfConfusionMm = v.focusMask || Math.hypot(width, height) * pitch / 1000 / 1500;
+    const focusMask = v.focusMask !== undefined && (context.layered ? context.layered.focusMask(context, { width: v.width, height: v.height, region: viewRegion }, circleOfConfusionMm) :
+      { width: viewRegion.width, height: viewRegion.height, circleOfConfusionMm, label: FOCUS_MASK_LABEL, score: new Float32Array(viewRegion.width * viewRegion.height).fill(focusMaskScore(
+        calculateDefocusCircle({ focalLengthMm, aperture: fNumber, focusDistanceM, subjectDistanceM }).value.diameterMm, circleOfConfusionMm)) });
     const siteSentence = "the expected electrons of the real sites its demosaic reads are exact at the real pitch (the scene sampled at those sites through the pixel aperture, " +
       "anti-aliasing filter and diffraction kernels, with the capture's own query arithmetic, so the colour mosaic and its aliasing are the real sensor's), and the per-site clip at white, the highlight clip, the tone curve " +
       "and the clip to [0, 1] act on the pixel's own noise distribution, approximated as normal.";
@@ -423,7 +430,8 @@ async function prepareView(context: DisplayViewRunContext): Promise<PreparedView
     return Object.freeze({ kind: "display-view" as const, label: "Display view: the full-resolution capture resized to " + v.width + " × " + v.height + " (estimated); not a capture.",
       facadeVersion: SIMULATE_CAPTURE_FACADE_VERSION, engineApiVersion: ENGINE_API_VERSION,
       image: { width: viewRegion.width, height: viewRegion.height, format: v.format, samples: rendered.samples },
-      view: { width: v.width, height: v.height, frameWidth: width, frameHeight: height, scaleX, scaleY, samplesPerAxis: v.samplesPerAxis, ...(v.region ? { region: { ...v.region } } : {}) },
+      view: { width: v.width, height: v.height, frameWidth: width, frameHeight: height, scaleX, scaleY, samplesPerAxis: v.samplesPerAxis, ...(v.region ? { region: { ...v.region } } : {}),
+        ...(focusMask ? { focusMask } : {}) },
       exposure: { mode, settings: { fNumber, shutterSeconds, iso: resolvedIso }, ev100: Math.log2(fNumber ** 2 / shutterSeconds), ...isoReport, standardExposureDeviationStops, standardExposureIlluminanceLux, greyCardDeviationStops, metering },
       sensor: context.sensor,
       scene: { sceneId: chart ? "chart:" + chart.preset : callerScene!.sceneId, preset: scenePreset, parameters: (chart ?? callerScene as { parameters?: Readonly<Record<string, unknown>> }).parameters ?? {},
