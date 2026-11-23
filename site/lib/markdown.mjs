@@ -1,9 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // Markdown to HTML with marked: GitHub heading ids from the shared anchors module, link rewriting, named and focusable
-// scroll regions for tables and code, task lists without form controls, and raw HTML shown as text.
+// scroll regions for tables and code, code colored at build time (highlight.mjs), task lists without form controls, and
+// raw HTML shown as text.
 import { Marked } from "marked";
 import { headings as sharedHeadings, headingSlug } from "../../scripts/lib/anchors.mjs";
 import { escapeHtml, decodeEntities } from "./html.mjs";
+import { highlight } from "./highlight.mjs";
 
 let context = null;
 
@@ -23,7 +25,7 @@ const renderer = {
     context.regions.set(kind, count);
     const text = token.text.replace(/\n$/u, "");
     const figure = token._codeIndex !== undefined ? context.figures?.(token._codeIndex) ?? "" : "";
-    return `<pre class="code" tabindex="0" role="region" aria-label="${escapeHtml(`${kind} ${count}`)}"><code>${escapeHtml(text)}</code></pre>\n${figure}`;
+    return `<pre class="code" tabindex="0" role="region" aria-label="${escapeHtml(`${kind} ${count}`)}"><code>${highlight(text, lang)}</code></pre>\n${figure}`;
   },
   table(token) {
     context.tables++;

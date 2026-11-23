@@ -168,6 +168,15 @@
     background: var(--surface); border-radius: var(--radius-lg); padding: 1rem 1.125rem; overflow-x: auto;
     line-height: 1.5; tab-size: 2; max-width: 100%;
   }
+  /* Code blocks (#757): one near-black ground in both schemes; token colors from highlight.mjs's six classes, each at
+     least 7:1 against the ground (WCAG AA asks 4.5:1). */
+  pre.code { background: #111214; color: #e6edf3; color-scheme: dark; }
+  .code .k { color: #ff7b72; }
+  .code .s { color: #a5d6ff; }
+  .code .n { color: #79c0ff; }
+  .code .c { color: #9aa4af; }
+  .code .f { color: #d2a8ff; }
+  .code .t { color: #ffa657; }
   .scroll { overflow-x: auto; max-width: 100%; }
   .prose table, .api-areas table { border-collapse: collapse; width: 100%; font-size: 0.9375rem; }
   .prose th, .prose td { text-align: left; vertical-align: top; padding: 0.5rem 0.75rem 0.5rem 0; border-bottom: 1px solid var(--rule); }
@@ -310,4 +319,9 @@
   header.site nav, form.search, .side, .toc, footer.site ul, .skip, .pager { display: none; }
   body { background: #fff; color: #000; }
   .prose a[href]::after { content: " (" attr(href) ")"; font-size: 0.875em; overflow-wrap: anywhere; }
+  /* Code prints dark on white; tokens by weight and style instead of color. */
+  pre.code { background: #fff; color: #000; color-scheme: light; border: 1px solid #000; }
+  .code span { color: #000; }
+  .code .k, .code .f { font-weight: 700; }
+  .code .c { font-style: italic; }
 }
