@@ -10,14 +10,15 @@ import { runtimeOf } from "./helpers/display-view-gpu-fixture.js";
 import { WAVELENGTHS, fixture } from "./helpers/layered-scene-fixtures.js";
 import { CARDS, LAYERED_GPU_CASES, layeredView, renderLayeredCase } from "./helpers/display-view-layered-gpu-fixture.js";
 import { scaledTimeout } from "./helpers/test-timeout.js";
-import type { DisplayViewSetup } from "../src/facade/display-view.js";
+import { renderDisplayView, type DisplayViewSetup } from "../src/facade/display-view.js";
 import { displayViewSignalTables } from "../src/facade/expected-signal.js";
 import { LAYERED_LATTICE_GROUP_LIMIT } from "../src/facade/layered-lattice-geometry.js";
 import { createLayeredSceneLattice, type LayeredSceneLayer } from "../src/facade/layered-scene-signal.js";
+import { openDisplayViewGpuSession } from "../src/facade/display-view-gpu-session.js";
 import type { DisplayViewGpuRequest } from "../src/facade/display-view-gpu.js";
 import { conformanceVerdict } from "../src/gpu/display-view-speed-gpu.js";
 import type { WebGpuRuntime } from "../src/gpu/webgpu-runtime.js";
-import { DISPLAY_VIEW_LAYERED_CONFORMANCE_CASE, createDisplayViewLayeredPasses, displayViewLayeredGpuSupports, displayViewLayeredGpuUnsupportedReason } from "../src/gpu/display-view-layered-gpu.js";
+import { DISPLAY_VIEW_LAYERED_CONFORMANCE_CASE, createDisplayViewLayeredPasses, createLayeredDisplayViewGpuRenderer, displayViewLayeredGpuSupports, displayViewLayeredGpuUnsupportedReason } from "../src/gpu/display-view-layered-gpu.js";
 
 describe("layered display view on the GPU (#750)", () => {
   it("passes its self-check on the fake device", async () => {
@@ -87,4 +88,32 @@ describe("layered display view on the GPU (#750)", () => {
     expect(displayViewLayeredGpuUnsupportedReason(withLayers(layers.map((l, k) => (k === 2 ? { ...l, kernel: wide } : l))))).toMatch(/above 96/u);
     expect(displayViewLayeredGpuUnsupportedReason(withLayers(undefined))).toMatch(/no layered GPU input/u);
   });
+
+  it("is taken by the GPU session only through the request's loader (DisplayViewGpuRequest.layeredGpu)", async () => {
+    const f = fixture(40, 30), { setup } = layeredView(f, CARDS), cpu = (): ReturnType<typeof renderDisplayView> => renderDisplayView(setup);
+    const request: DisplayViewGpuRequest = { ahd: false, diffraction: false, antiAliasing: false, boxSamples: 1, toneCurve: "identity", scene: "material-function", layered: true };
+    // Without the loader: no device is requested; the CPU renders, labelled.
+    const plain = await openDisplayViewGpuSession({ gpu: "auto", gpuDevice: createFakeGpu().gpu }, request, undefined);
+    const off = await plain.render(setup, undefined, cpu);
+    expect(off.execution.backend).toBe("cpu-reference");
+    expect(off.execution.fallbackReason).toBe("unsupported-on-backend");
+    await expect(openDisplayViewGpuSession({ gpu: "require", gpuDevice: createFakeGpu().gpu }, request, undefined)).rejects.toThrow(/layered chart scenes render on the CPU/u);
+    // With it: the layered renderer renders on the device, after the self-checks (Speed, Quality and the layered case).
+    let loads = 0;
+    const session = await openDisplayViewGpuSession({ gpu: "auto", gpuDevice: createFakeGpu().gpu }, { ...request, layeredGpu: async (base, runtime) => { loads++; return createLayeredDisplayViewGpuRenderer(base, runtime); } }, undefined);
+    try {
+      const on = await session.render(setup, undefined, cpu);
+      expect(loads).toBe(1);
+      expect(on.execution.backend).toBe("webgpu-f32");
+      expect(on.execution.conformance?.cases).toContain(DISPLAY_VIEW_LAYERED_CONFORMANCE_CASE.id);
+      const reference = await renderDisplayView(setup);
+      for (let i = 0; i < reference.samples.length; i++) expect(Math.abs(on.rendered.samples[i]! - reference.samples[i]!)).toBeLessThanOrEqual(1);
+    } finally { session.dispose(); }
+    // A loader that resolves to a refusing renderer (a failed load) falls back under "auto".
+    const refused = await openDisplayViewGpuSession({ gpu: "auto", gpuDevice: createFakeGpu().gpu },
+      { ...request, layeredGpu: async (base) => ({ ...base, supports: (): string => "the layered GPU code did not load" }) }, undefined);
+    const fallback = await refused.render(setup, undefined, cpu);
+    expect(fallback.execution.backend).toBe("cpu-reference");
+    expect(fallback.execution.limitations.join(" ")).toMatch(/did not load/u);
+  }, scaledTimeout(180_000));
 });
