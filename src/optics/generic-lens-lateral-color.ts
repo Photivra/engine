@@ -33,7 +33,9 @@ export interface CalculateLateralColorFringeInput {
   pixelPitchMicrometers: number;
   /**
    * The field position as fractions of the frame's half-width (x, +right) and half-height (y, +up) from the optical axis, each
-   * in [−1, 1]. Default `{ x: 1, y: 1 }`: the top-right corner.
+   * in [−1, 1]. Default `{ x: 1, y: 1 }`: the top-right corner. 2.29.0 (#753 optics-26): on a lens whose image circle
+   * (`resolveGenericLens(...).imageCircleRadiusMm`, a circular fisheye's 180° circle) does not reach the corner, the default is the
+   * point on that diagonal at the circle's edge, and a position outside the circle, where the lens forms no image, is refused.
    */
   fieldPosition?: { x: number; y: number };
   /**
@@ -90,12 +92,16 @@ export function calculateLateralColorFringe(input: CalculateLateralColorFringeIn
   requireInputKeys(input, "calculateLateralColorFringe", ["lensId", "activeImagingArea", "pixelPitchMicrometers", "fieldPosition", "channelDispersion"]);
   const lens = resolveGenericLens({ lensId: input.lensId, activeImagingArea: input.activeImagingArea });
   const pitch = positiveFinite(input.pixelPitchMicrometers, "pixelPitchMicrometers");
+  // optics-26: the image circle's radius, mm (null: the image covers the frame).
+  const circle = lens.imageCircleRadiusMm;
   let u = 1, v = 1;
   if (input.fieldPosition !== undefined) {
     requireInputObject(input.fieldPosition, "fieldPosition");
     requireInputKeys(input.fieldPosition, "fieldPosition", ["x", "y"]);
     u = fieldCoordinate(input.fieldPosition.x, "fieldPosition.x"); v = fieldCoordinate(input.fieldPosition.y, "fieldPosition.y");
-  }
+    if (circle !== null && Math.hypot(u * input.activeImagingArea.widthMm, v * input.activeImagingArea.heightMm) / 2 > circle * (1 + 1e-12))
+      throw new InvalidScientificInputError("fieldPosition lies outside the lens's image circle (radius " + circle + " mm); the lens forms no image there.");
+  } else if (circle !== null) u = v = Math.min(1, circle / lens.halfDiagonalMm);
   const x = u * input.activeImagingArea.widthMm / 2, y = v * input.activeImagingArea.heightMm / 2, r = Math.hypot(x, y);
   const fieldHeight = r / lens.halfDiagonalMm, { red, blue } = GENERIC_LENS_CORRECTION_CHANNEL_WAVELENGTHS_NM, given = input.channelDispersion;
   let dispersion = { red: genericLensDispersion(red), blue: genericLensDispersion(blue) };

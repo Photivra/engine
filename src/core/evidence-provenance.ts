@@ -140,12 +140,22 @@ export function parseEvidenceProvenance(
 }
 
 /**
+ * #730 facade-07 (2.29.0): the parsed records of frozen evidence lists (the engine's presets are deep-frozen), so a list met
+ * again is checked once. A frozen list of frozen records with data properties only (no getters) cannot change, so its parse is
+ * the same each time; every call still gets its own copies.
+ */
+const parsedFrozenEvidence = new WeakMap<object, readonly EvidenceProvenance[]>();
+const frozenData = (o: object): boolean => Object.isFrozen(o) && Object.values(Object.getOwnPropertyDescriptors(o)).every((d) => "value" in d);
+
+/**
  * Parses a non-empty evidence array.
  */
 export function parseEvidenceList(
   value: unknown,
   path: string
 ): readonly EvidenceProvenance[] {
+  const known = parsedFrozenEvidence.get(value as object);
+  if (known) return known.map((entry) => ({ ...entry }));
   if (!Array.isArray(value) || value.length === 0) {
     throw new InvalidConfigurationError(
       `${path} must be a non-empty array.`
@@ -153,7 +163,9 @@ export function parseEvidenceList(
   }
 
   // 2.28.0: Array.from visits holes too, so a sparse list fails at its first hole instead of after a walk of its whole length.
-  return Array.from(value, (entry, index) =>
+  const parsed = Array.from(value, (entry, index) =>
     parseEvidenceProvenance(entry, `${path}[${index}]`)
   );
+  if (frozenData(value) && value.every(frozenData)) parsedFrozenEvidence.set(value, parsed.map((entry) => ({ ...entry })));
+  return parsed;
 }

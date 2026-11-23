@@ -5,7 +5,7 @@
  * Quality kit. Results are unchanged by the split: the hash locks of every path (diffraction, AHD, defocus, profiles, mixed light,
  * moving subjects, coupled rendering) run through these loads. The bundle shape is checked in test/capture-bundle.test.ts.
  */
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { ImageKernelExecutionError, simulateCapture, simulateDisplayView } from "../src/index.js";
 import * as kits from "../src/facade/on-demand-kits.js";
 import * as qualityKitModule from "../src/facade/quality-kit.js";
@@ -77,6 +77,24 @@ describe("on-demand CPU kits (#594)", () => {
     const odd = kits.kitLoader("odd", () => Promise.reject("offline"));
     await expect(odd.load()).rejects.toThrow("the engine's odd code could not be loaded: offline");
   });
+  // #730 facade-18: the on-demand modules outside the three kits fail as the kits do, with the documented domain error.
+  it("turn a failed load of the catalogue lens, the view's lens signal, the image-plane and the layered scene code into quality-code-unavailable", async () => {
+    const gone = ["generic-lens-capture", "display-view-lens-signal", "image-plane", "layered-scene-setup"];
+    try {
+      vi.resetModules();
+      for (const name of gone) vi.doMock("../src/facade/" + name + ".js", () => { throw new Error("module " + name + " moved away"); });
+      const engine = await import("../src/index.js");
+      const reasonOf = (p: Promise<unknown>): Promise<unknown> => p.then(() => "resolved", (error: unknown) => error instanceof engine.ImageKernelExecutionError ? error.reason : error);
+      expect(await reasonOf(engine.simulateCapture({ scene: { preset: "siemens-star" }, lens: { catalogue: "pv-50-1.8" }, output: { width: 8, height: 8 } }))).toBe("quality-code-unavailable");
+      expect(await reasonOf(engine.simulateDisplayView({ scene: { preset: "siemens-star" }, lens: { projection: "fisheye-equisolid-angle" }, output: { width: 16, height: 16 } }, { width: 8, height: 8 })))
+        .toBe("quality-code-unavailable");
+      expect(await reasonOf(engine.prepareImagePlaneScenes())).toBe("quality-code-unavailable");
+      expect(await reasonOf(engine.prepareLayeredChartScenes())).toBe("quality-code-unavailable");
+    } finally {
+      for (const name of gone) vi.doUnmock("../src/facade/" + name + ".js");
+      vi.resetModules();
+    }
+  }, scaledTimeout(60_000));
   // #658: each kit is one tuple read by position; every position constant names the export it stands for, and every slot is used.
   it("read every export at the position its constant names", () => {
     const positions = kits as unknown as Record<string, number>;

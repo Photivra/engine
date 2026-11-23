@@ -12,6 +12,7 @@
  * limits.
  */
 
+import { requireAboveAbsoluteZeroCelsius } from "../core/temperature-validation.js";
 import {
   approximationResult,
   type CalculationResult
@@ -401,6 +402,7 @@ export function assessSensorPhysicalChargeCapacity(
       "operatingTemperatureC must be finite."
     );
   }
+  requireAboveAbsoluteZeroCelsius(input.operatingTemperatureC, "operatingTemperatureC", InvalidScientificInputError);
   if (
     profile.temperatureApplicability.kind ===
       "exact-reference-temperature" &&

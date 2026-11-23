@@ -14,6 +14,7 @@
 import { describe, expect, it } from "vitest";
 import { GENERIC_ND_FILTER_PROFILES, InvalidConfigurationError, SIMULATE_CAPTURE_DEFAULT_ILLUMINANCE_LUX, calculateFilteredExposureTime,
   simulateCapture, simulateDisplayView, simulateIdealReference, type FrontOfLensFilterProfile, type SimulateCaptureOptions } from "../src/index.js";
+import { resolveLensFilter } from "../src/facade/lens-filter.js";
 import { scaledTimeout } from "./helpers/test-timeout.js";
 
 const output = { width: 16, height: 12 } as const;
@@ -118,6 +119,20 @@ describe("lens.filter (#624)", { timeout: scaledTimeout(600_000) }, () => {
     const added = warm.exposure.standardExposureDeviationStops! - open.exposure.standardExposureDeviationStops!;
     expect(added).toBeGreaterThan(-Math.log2(0.6));
     expect(added).toBeLessThan(-Math.log2(0.3));
+  });
+
+  it("stacks a spectral filter with the air-basis ND presets: the spectral table times the ND factor (#730 facade-16)", async () => {
+    const base = { scene: { preset: "uniform", reflectance: 0.5 }, output, exposure: { mode: "manual", shutterSeconds: 1 / 30, iso: 100 } } as SimulateCaptureOptions;
+    // Refused before 2.29.0: "every filter must state its wavelengths in the same basis (air or vacuum)".
+    const [stacked, relabelled] = await Promise.all([simulateCapture(withFilter(base, [warming, nd(3)])),
+      simulateCapture(withFilter(base, [warming, { ...nd(3), wavelengthBasis: "vacuum" }]))]);
+    expect(nd(3).wavelengthBasis).toBe("air");
+    expect(stacked.image.samples).toEqual(relabelled.image.samples);
+    // The stack's transmission is warming(λ) × 0.125 at every sample wavelength (0.05 at 380 nm to 0.95 at 780 nm).
+    const filter = resolveLensFilter([warming, nd(3)], { minimum: 380, maximum: 780 });
+    for (const nm of filter.sampleWavelengths) expect(filter.transmissionAt(nm)).toBeCloseTo((0.05 + 0.9 * (nm - 380) / 400) * 0.125, 14);
+    // Flat filters of both bases stack too, as their product.
+    expect(resolveLensFilter([nd(3), { ...nd(6), wavelengthBasis: "vacuum" }], { minimum: 380, maximum: 780 }).linearTransmissionFactor).toBeCloseTo(2 ** -9, 15);
   });
 
   it("refuses filters it cannot apply", async () => {

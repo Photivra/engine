@@ -32,7 +32,7 @@
 
 import { markInternalNativeTileReader, markInternalSceneRadianceEvaluator, registerInternalRadianceAccess } from "../core/internal-radiance-evaluator.js";
 import { InvalidConfigurationError } from "../core/configuration-error.js";
-import { InvalidScientificResultError } from "../core/validation.js";
+import { InvalidScientificInputError, InvalidScientificResultError } from "../core/validation.js";
 import { requireInputObject } from "../core/record-validation.js";
 import { ENGINE_API_VERSION } from "../core/version.js";
 import type { EvidenceProvenance } from "../core/evidence-provenance.js";
@@ -87,7 +87,7 @@ import { resolveCaptureColorModel } from "../color/capture-color.js";
 import { evaluateBt709Oetf, evaluateSrgbEncoding, resolveRgbColorSpace } from "../color/rgb-color-spaces.js";
 import type { PngColourEncoding } from "../output/png-encoder.js";
 import { parseOutputTextMetadata, type OutputTextMetadata } from "../output/text-metadata.js";
-import { parseLensProjectionModel, type LensProjectionModel } from "../camera/lens-projection.js";
+import { LENS_PROJECTION_MODELS, parseLensProjectionModel, type LensProjectionModel } from "../camera/lens-projection.js";
 import { prepareEnvironmentLensFieldMapping, type EnvironmentLensFieldMapping } from "../optics/sensor-environment-query.js";
 import type { RadialDistortionProfile } from "../optics/radial-distortion.js";
 import type { BrownConradyDistortionProfile } from "../optics/brown-conrady-distortion.js";
@@ -124,7 +124,7 @@ import { sumFixedPatternSites } from "../sensor/fixed-pattern-noise.js";
 import { sensorProfileFrame } from "../equipment/sensor-profile-frame.js";
 import type { SimulateCaptureSubjectMotion, SubjectMotion } from "../motion/subject-motion.js";
 import type { HandShakeOptions } from "../motion/hand-shake.js";
-import { exportKit, loadedKit, OK_CATALOGUE_OPTICS_ASSUMPTIONS, OK_CREATE_SUBJECT_MOTION_PROVIDER, OK_FLASH_ALONE_SHUTTER, OK_HAND_SHAKE_ASSUMPTION, OK_HAND_SHAKE_QUADRUPLES, OK_METER_FLASH, OK_PARSE_SENSOR_PROFILE, OK_REBIND_FLASH_ASSUMPTIONS, OK_REQUIRE_FLASH_ROWS, OK_RESOLVE_HAND_SHAKE, OK_RESOLVE_LENS_FILTER, OK_RESOLVE_MIXED_ILLUMINATION, OK_SENSOR_PROFILE_BODY, OK_SENSOR_PROFILE_SATURATION_ISO, OK_SOLVE_FLASH_SHUTTER, OK_SUBJECT_TRAVEL_M, optInKit, QK_CALCULATE_DEFOCUS_FIELD_VARIATION, QK_CREATE_AHD_DEMOSAIC_TASK, QK_CREATE_DEFOCUS_BOKEH_SITE_KERNEL, QK_CREATE_DEFOCUS_IMAGE_SPACE_PROVIDER, QK_CREATE_DIFFRACTION_LIMITED_PSF_PROFILE, QK_CREATE_OFFSET_EXPANSION, QK_NEIGHBOR_HIGHLIGHT_RING, QK_NEIGHBOR_HIGHLIGHT_THRESHOLD, QK_PLAN_DEFOCUS_BOKEH_ZONES, QK_PREPARE_DEFOCUS_IMAGE_SPACE_GEOMETRY, QK_RECONSTRUCT_HIGHLIGHTS_FROM_NEIGHBORS, QK_REGISTER_DIFFRACTION_PSF_KEY, QK_RESOLVE_DEFOCUS_BOKEH_OPTIONS, QK_SITE_DIFFRACTION_KERNEL, qualityKit } from "./on-demand-kits.js";
+import { exportKit, kitLoader, loadedKit, OK_CATALOGUE_OPTICS_ASSUMPTIONS, OK_CREATE_SUBJECT_MOTION_PROVIDER, OK_FLASH_ALONE_SHUTTER, OK_HAND_SHAKE_ASSUMPTION, OK_HAND_SHAKE_QUADRUPLES, OK_METER_FLASH, OK_PARSE_SENSOR_PROFILE, OK_REBIND_FLASH_ASSUMPTIONS, OK_REQUIRE_FLASH_ROWS, OK_RESOLVE_HAND_SHAKE, OK_RESOLVE_LENS_FILTER, OK_RESOLVE_MIXED_ILLUMINATION, OK_SENSOR_PROFILE_BODY, OK_SENSOR_PROFILE_SATURATION_ISO, OK_SOLVE_FLASH_SHUTTER, OK_SUBJECT_TRAVEL_M, optInKit, QK_CALCULATE_DEFOCUS_FIELD_VARIATION, QK_CREATE_AHD_DEMOSAIC_TASK, QK_CREATE_DEFOCUS_BOKEH_SITE_KERNEL, QK_CREATE_DEFOCUS_IMAGE_SPACE_PROVIDER, QK_CREATE_DIFFRACTION_LIMITED_PSF_PROFILE, QK_CREATE_OFFSET_EXPANSION, QK_NEIGHBOR_HIGHLIGHT_RING, QK_NEIGHBOR_HIGHLIGHT_THRESHOLD, QK_PLAN_DEFOCUS_BOKEH_ZONES, QK_PREPARE_DEFOCUS_IMAGE_SPACE_GEOMETRY, QK_RECONSTRUCT_HIGHLIGHTS_FROM_NEIGHBORS, QK_REGISTER_DIFFRACTION_PSF_KEY, QK_RESOLVE_DEFOCUS_BOKEH_OPTIONS, QK_SITE_DIFFRACTION_KERNEL, qualityKit } from "./on-demand-kits.js";
 import { characterizeReadout, parseSensorCharacteristics, sensorReport, SENSOR_CHARACTERISTIC_KEYS, type SimulateCaptureSensorCharacteristics, type SimulateCaptureSensorReport } from "../sensor/sensor-characteristics.js";
 import { resolveChartScene, chartMaterialInputs, CHART_SCENE_PRESETS, type ChartScene, type ResolvedChartScene } from "./chart-scenes.js";
 import { resolveChartMaterialLayers, type ChartMaterialLayerScene, type ResolvedChartMaterialLayers } from "./chart-material-layers.js";
@@ -1190,6 +1190,16 @@ export const DARK_CURRENT_ELECTRONS_PER_SECOND = 1;
 const OPERATING_TEMPERATURE_C = 20;
 
 export function fail(message: string): never { throw new InvalidConfigurationError(message); }
+/**
+ * #730 facade-05: a camera setting against the resolved capabilities, before the resolvers see it, refused with the caller's option
+ * path and the range or the settings (the resolvers named their own fields: "manualAperture", "isoControl.iso"). The same checks
+ * and error class as the resolvers' (src/exposure/exposure-mode-resolver.ts, validateSettingAgainstGrid), so no valid request changes.
+ */
+function checkSetting(value: number, minimum: number, maximum: number, grid: ResolvedGenericEquipmentExposureCapabilities["iso"]["settingGrid"] | undefined, path: string): void {
+  const values = grid?.kind === "discrete-values" ? grid.values : undefined;
+  if (value < minimum || value > maximum || values && !values.some((v) => Math.abs(v - value) <= Number.EPSILON * 32 * Math.max(Math.abs(v), Math.abs(value), 1)))
+    throw new InvalidScientificInputError(path + " " + value + " is not available: " + (values ? "one of " + values.join(", ") : "from " + minimum + " to " + maximum) + ".");
+}
 /** Where `output.metadata` goes in each file format (reported in the `output.metadata` assumption). */
 const TEXT_METADATA_LAYOUT = /* @__PURE__ */ Object.freeze({
   jpeg: "XMP packet in APP1 (dc:description, xmp:CreatorTool, dc:rights, exif:UserComment), plus a COM segment holding the comment",
@@ -1263,14 +1273,17 @@ function luminanceOf(radiance: (nm: number) => number): number {
  * Auto ISO's default `isoSteps: "whole-stop"`. A whole-stop grid is returned unchanged, so 2.0.0 records resolve as before.
  * #672: when that list leaves out the reference exposure's ISO (ISO 100 on a profile whose base ISO is below 100, which every exposure mode
  * refuses) and the grid is a third-stop grid, the whole stops are every third setting counted from the reference ISO, and the base ISO.
- * Counting positions keeps the nominal markings (1250, not 1280). Every other grid keeps the list it had.
+ * Counting positions keeps the nominal markings (1250, not 1280). #738 (2.29.0): the whole stops from the base ISO take the nominal
+ * marking nearest each base·2^k too, so a base of 160, 320 or 640 lists them up to the highest ISO (before, the list ended at 640).
  */
 function wholeStopIsoCapabilities(capabilities: ResolvedGenericEquipmentExposureCapabilities, referenceIso: number): ResolvedGenericEquipmentExposureCapabilities {
   const grid = capabilities.iso.settingGrid;
   if (grid.kind !== "discrete-values") return capabilities;
   // `at` matches at least every ISO the resolvers' grid check matches (32 ε relative: the reference ISO is 100 or more).
   const values = grid.values, at = (list: readonly number[]): number => list.findIndex((iso) => Math.abs(iso / referenceIso - 1) < 1e-12);
-  let whole = values.filter((iso) => Number.isInteger(Math.log2(iso / values[0]!)));
+  // #738: base·2^k for every k up to the grid's top, each the setting within 1/12 stop of it (the nominal marking: 1250 for 1280 on a
+  // base-160 grid), so a base of 160, 320 or 640 no longer stops at 640. Exact powers of two keep their lists.
+  let whole = values.filter((iso) => { const stops = Math.log2(iso / values[0]!); return Math.abs(stops - Math.round(stops)) < 1 / 12; });
   const from = at(values);
   if (at(whole) < 0 && from >= 0 && values.every((iso, i) => !i || Math.abs(3 * Math.log2(iso / values[i - 1]!) - 1) < .1))
     whole = values.filter((_, i) => !i || (i - from) % 3 === 0);
@@ -2020,7 +2033,8 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
 
   // Camera
   const cameraOption = pick<GenericEquipmentTier | GenericEquipmentTierPreset>(top, "camera", "camera", DEFAULTS.camera,
-    "Generic Photivra tier preset 2.0.0 (synthetic educational values, not a real camera).");
+    // #730 facade-06 (a): the version the tier ids use (2.1.0 since 2.14), from the preset itself.
+    "Generic Photivra tier preset " + GENERIC_TIER_ASSETS[0]!.presetVersion + " (synthetic educational values, not a real camera).");
   let preset: GenericEquipmentTierPreset;
   if (typeof cameraOption === "string") preset = GENERIC_TIER_ASSETS.find((p) => p.tier === cameraOption) ?? fail("Unknown camera tier.");
   else preset = parseCallerCameraPreset(cameraOption);
@@ -2105,7 +2119,8 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
       if (lensOptions[key] !== undefined) fail("lens.catalogue cannot be combined with lens." + key + ": the catalogue lens sets its own optics.");
     // #554: with a sensor profile, the lens is resolved on the profile's sensor (sensor.profileView), the capture being its centred frame.
     catalogueFrame = profileSensor ?? frameMm();
-    lensKit = await import("./generic-lens-capture.js");
+    // #730 facade-18: through the kit loader, so a failed load is ImageKernelExecutionError "quality-code-unavailable" as documented.
+    lensKit = await kitLoader("catalogue lens", () => import("./generic-lens-capture.js")).load();
     catalogue = lensKit.resolveGenericLens({ lensId: catalogueId as string, activeImagingArea: catalogueFrame });
     // #554: the phone lenses are fixed to a phone sensor profile, and it takes only them.
     if ((catalogue.set === "phone") !== (profile?.fixedLenses === "phone")) fail("lens.catalogue: the phone lenses go only with a phone sensor.profile (fixedLenses \"phone\"), which takes only them.");
@@ -2122,6 +2137,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   const focalDefault = lensExposure.focalLengthMmRange.value.minimum;
   const focalLengthMm = lensRange ? lensRange.focalLengthMm :
     positive(pick(lensOptions, "focalLengthMm", "lens.focalLengthMm", focalDefault, "The preset lens's focal length (the generic primes are 50 mm)."), "lens.focalLengthMm");
+  if (!lensRange) checkSetting(focalLengthMm, lensExposure.focalLengthMmRange.value.minimum, lensExposure.focalLengthMmRange.value.maximum, undefined, "lens.focalLengthMm");
   const capabilities = resolveGenericEquipmentExposureCapabilities({ bodyProfile: body.exposure, lensProfile: lensExposure, selectedFocalLengthMm: focalLengthMm });
   const subjectDistanceM = positive(pick(top, "subjectDistanceM", "subjectDistanceM", DEFAULTS.subjectDistanceM, "Scene plane 5 m in front of the camera (the generic tiers' reference focus distance)."), "subjectDistanceM");
   // #569: twice the focal length itself is admitted (magnification 1, the catalogue Macro's close focus f·(1 + 1/1)).
@@ -2150,6 +2166,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
     if (pupil.radialSamples * pupil.angularSamples > 256) fail("lens.pupilSampling needs at most 256 rays (radialSamples × angularSamples).");
   }
   // 2.0 optics hooks: only what the environment site contract accepts.
+  if (lensOptions.projection !== undefined && !(LENS_PROJECTION_MODELS as readonly unknown[]).includes(lensOptions.projection)) fail("lens.projection must be one of " + LENS_PROJECTION_MODELS.join(", ") + ".");
   const projection: LensProjectionModel | undefined = lensOptions.projection === undefined ? (catalogue && catalogue.projection !== "rectilinear" ? catalogue.projection : undefined) :
     parseLensProjectionModel(lensOptions.projection);
   let distortion: SimulateCaptureLensDistortion | undefined;
@@ -2749,10 +2766,14 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   const automaticIso = isoOption === "auto";
   if (typeof isoOption === "string" && !automaticIso) fail('exposure.iso must be a positive finite number or "auto".');
   const iso = automaticIso ? NaN : positive(isoOption, "exposure.iso");
+  if (!automaticIso) checkSetting(iso, capabilities.iso.minimum, capabilities.iso.maximum, capabilities.iso.settingGrid, "exposure.iso");
   if (exposureOptions.autoIso !== undefined && !automaticIso) fail('exposure.autoIso applies only with exposure.iso "auto"; omit it.');
   const compensation = exposureOptions.compensationStops === undefined ? DEFAULTS.compensationStops : exposureOptions.compensationStops;
   if (typeof compensation !== "number" || !Number.isFinite(compensation) || Math.abs(compensation) > 10) fail("exposure.compensationStops must be within ±10.");
   if (exposureOptions.compensationStops === undefined) assume("exposure.compensationStops", "default", 0, "No exposure compensation.");
+  // #730 facade-04 (owner decision 2026-11-23: note, not refuse): manual mode with a fixed ISO sets no exposure from the target.
+  else if (compensation && mode === "manual" && !automaticIso) assume("exposure.compensationStops", "model", compensation,
+    "Manual mode with a fixed ISO: the compensation moves only the meter target (exposure.resolution.targetResidual), not the settings.");
   // #569: a lens whose range excludes f/8 (the catalogue's PV 800 9, f/9–f/32; an ideal lens with a narrowed range) takes the same reference
   // exposure at the aperture of its range nearest f/8, N0 with t = 1/125 s × (N0/8)², which has the same N²/t and so the same reference
   // luminance; every other request keeps f/8, 1/125 s. #585: when that t is shorter than the body's shortest shutter (N0 below about f/1),
@@ -2763,7 +2784,9 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   const referenceLuminance = sosReferenceLuminance(reference.aperture, reference.shutterSeconds, reference.iso);
   assume("exposure.referenceExposure", "model", { ...reference, meteredLuminanceCdPerSquareMeter: referenceLuminance },
     "Exposure anchor: f/8, 1/125 s, ISO 100 gives the CIPA DC-004 standard output sensitivity reference exposure H = 10/S = 0.1 lx·s for an average scene luminance of 10·N²/(0.65·t·S) ≈ 1230.77 cd/m² (camera equation H = 0.65·L·t/N²)" +
-    (referenceAperture === DEFAULTS.fNumber ? "." : "; the lens excludes f/8: " + (reference.shutterSeconds > sameShutter ? "the shortest shutter" : "the same N²/t") + " at f/" + referenceAperture + "."));
+    (referenceAperture === DEFAULTS.fNumber ? "." : "; the lens excludes f/8: " + (reference.shutterSeconds > sameShutter ? "the shortest shutter" : "the same N²/t") + " at f/" + referenceAperture + ".") +
+    // #730 facade-06 (d): a profile whose base ISO is above 100 takes the anchor at its base ISO.
+    (reference.iso === DEFAULTS.iso ? "" : " At the sensor profile's base ISO, the same N²/(t·S): f/" + reference.aperture + ", " + reference.shutterSeconds + " s, ISO " + reference.iso + "."));
   const meterProfile = body.metering[0]!.profile, zones = 16, zoneSamples: { sampleId: string; positionOrientedCaptureUv: { u: number; v: number }; relativeLinearSignal: number; areaWeight: number }[] = [];
   // #624: the meter reads through lens.filter: L·T for a spectrally flat stack, the photopic integral of L(λ)·T(λ) otherwise.
   const filterT = lensFilter?.transmissionAt;
@@ -2795,7 +2818,9 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
     (lensFilter.spectrallyFlat ? "Spectrally flat: one factor, resolved at 550 nm." : "Spectral: sampled at the filters' wavelengths (vacuum) and interpolated linearly; the meter integrates the photopic luminance through it.") +
     " Inter-filter reflections, flare and light leaks are not modelled; the filter's evidence and limitations are the caller's.");
   assume("exposure.metering", "model", { policy: meterProfile.policy.kind, zones: zones * zones },
-    "The body's " + meterProfile.policy.kind + " meter reads scene luminance on a 16 × 16 zone grid, before the lens (no lens transmission, vignetting or flare).");
+    // #730 facade-06 (b): what the meter reads, from the request (the grey card; lens.filter, through which it reads).
+    "The body's " + meterProfile.policy.kind + " meter reads " + (metering === "grey-card" ? "the grey card (exposure.meteringSource)" : "scene luminance") + " on a 16 × 16 zone grid, " +
+    (lensFilter ? "through lens.filter but " : "") + "before the lens (no lens transmission, vignetting or flare).");
   if (metering === "grey-card") {
     // 2.14: incident metering. Every zone reads the 18 % Lambertian grey card under the request's illuminance, L = 0.18·E/π.
     if (callerScene?.kind === "radiance-function") fail('exposure.metering "grey-card" needs a scene lit by the illuminance; a radiance-function scene ignores illuminanceLux.');
@@ -2820,6 +2845,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   const checkFNumber = (): void => {
     if (clamp(fNumber) !== fNumber)
       fail("lens.fNumber " + fNumber + " is outside the " + lensRange!.name + " range f/" + lensRange!.widestFNumber + "–f/" + lensRange!.narrowestFNumber + ".");
+    checkSetting(fNumber, capabilities.aperture.widestAvailableFNumber, capabilities.aperture.narrowestAvailableFNumber, capabilities.aperture.settingGrid, "lens.fNumber");
   };
   if (mode === "manual" || mode === "aperture-priority") {
     // #554: a fixed-aperture lens (the phone lenses) defaults to its one f-number.
@@ -2832,6 +2858,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   }
   if (mode === "manual" || mode === "shutter-priority") {
     shutterSeconds = positive(pick(exposureOptions, "shutterSeconds", "exposure.shutterSeconds", DEFAULTS.shutterSeconds, "1/125 s."), "exposure.shutterSeconds");
+    checkSetting(shutterSeconds, capabilities.shutter.minimumSeconds, capabilities.shutter.maximumSeconds, capabilities.shutter.settingGrid, "exposure.shutterSeconds");
   } else {
     if (exposureOptions.shutterSeconds !== undefined) fail("exposure.shutterSeconds is resolved automatically in " + mode + " mode; omit it.");
     shutterSeconds = NaN;
@@ -3739,7 +3766,7 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   if (veil && (rotating || subject || boxSamples !== 1 || antiAliasing || mixed || provider.chartMaterialAt === undefined || provider.materialRadiance === undefined))
     fail("lens.catalogue.flare needs a still camera and a chart or material scene under uniform light, without sensor.antiAliasing or sensor.pixelAperture.");
   if (catalogueFlare || breathing) loadedKit(optInKit)[OK_CATALOGUE_OPTICS_ASSUMPTIONS](assume, catalogue!, breathing ? { scale: breathingScale, planeDistanceM } : undefined, catalogueFlare, veil);
-  const viewLensKit = displayView && lensGeometry ? await import("./display-view-lens-signal.js") : undefined;
+  const viewLensKit = displayView && lensGeometry ? await kitLoader("display view lens", () => import("./display-view-lens-signal.js")).load() : undefined;
   // 2.20.0: the field zones are lens.catalogue's fast method in the view; exact resolves the PSF at every site (zones of one site).
   const displayViewLensPsf = viewLensKit && catalogue && lensPsf ?
     viewLensKit.createDisplayViewLensPsf(lensPsf.configuration.psf as Parameters<typeof viewLensKit.createDisplayViewLensPsf>[0], catalogueKernelRadius, nativeWidth, nativeHeight, pitch,
@@ -3916,7 +3943,8 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   const tabulatedScene = !layered?.multi && (chart !== undefined || callerScene?.kind === "material-function" || callerScene?.kind === "image-plane");
   // #391: a DNG from region parts takes the whole frame's RAW from the parts instead of rendering it.
   // #571: simulateCaptureFromParts takes the RAW from the parts in the same way, then develops it as a capture does.
-  const dngParts = run === "dng-from-parts" || run === "develop-from-parts" ? viewOption : undefined,
+  // #730 facade-03: the entry function decides a parts run, not the value, so an undefined `parts` is refused as `null` is.
+  const dngParts = run === "dng-from-parts" || run === "develop-from-parts" ? viewOption ?? null : undefined,
     partsCaller = run === "dng-from-parts" ? "serializeSimulatedCaptureDngFromParts" : "simulateCaptureFromParts";
   if (dngParts !== undefined && regionNative) fail(partsCaller + " takes the whole frame: the options take no output.region.");
   let tabulated: Awaited<ReturnType<typeof renderTabulatedNativeRaw>>, perTapSum = false;
@@ -4318,7 +4346,8 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
     provenance: { scientificStatus: "approximation" as const, cameraPresetId: preset.presetId, cameraPresetVersion: preset.presetVersion,
       evidence: [...FACADE_EVIDENCE, ...preset.evidence],
       composedContracts: ["resolveGenericEquipmentExposureCapabilities", "meterRelativeExposure", "createExposureMeterTargetFromMeteringResult",
-        "resolve" + (mode === "manual" ? "Manual" : mode === "aperture-priority" ? "AperturePriority" : mode === "shutter-priority" ? "ShutterPriority" : "ProgramAuto") + "ExposureMode",
+        // #730 facade-06 (c): the resolver that ran (Auto ISO's own in aperture priority; manual or shutter priority after a flash-only reading).
+        "resolve" + (as === "manual" ? "Manual" : autoIsoAperturePriority ? "AperturePriorityAutoIso" : as === "aperture-priority" ? "AperturePriority" : as === "shutter-priority" ? "ShutterPriority" : "ProgramAuto") + "ExposureMode",
         ...(rollingSchedule ? ["resolveElectronicRollingShutterExposureSchedule", "createRollingShutterCaptureExposureSchedule"] : []),
         ...(diffraction ? ["createDiffractionLimitedPsfProfile", ...(diffractionObjectSpace ? ["resolveLensPsfConvolutionKernels", ...(defocusSiteKernels ? [] : ["calculateIrradianceConvolution"])] : [])] : []),
         ...(defocusSiteKernels ? ["calculateDefocusCircle", defocusImageSpace ? "defocus disc site kernel (image-space convolution)" : "defocus disc site kernel (object-space convolution)"] : []),

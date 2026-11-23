@@ -121,6 +121,9 @@ describe("developing joined parts (#571)", () => {
     // With a detail stage the region is refused for the stage first.
     await expect(simulateCaptureFromParts({ ...options, output: { ...options.output, region: { x: 0, y: 0, width: 8, height: 8 } } }, parts)).rejects.toThrow("not combinable with output.region");
     await expect(simulateCaptureFromParts(options, [])).rejects.toThrow("simulateCaptureFromParts needs at least one part");
+    // #730 facade-03: undefined parts are refused as [] is, not rendered as a whole capture.
+    await expect(simulateCaptureFromParts(options, undefined as unknown as [])).rejects.toThrow("simulateCaptureFromParts needs at least one part");
+    await expect(simulateCaptureFromParts({ ...options, output: { width: 24, height: 16, region: { x: 0, y: 0, width: 8, height: 8 } } }, undefined as unknown as [])).rejects.toThrow("no output.region");
     const aborted = new AbortController();
     aborted.abort();
     await expect(simulateCaptureFromParts({ ...options, signal: aborted.signal }, parts)).rejects.toThrow("aborted");

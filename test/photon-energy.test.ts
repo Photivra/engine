@@ -591,3 +591,10 @@ describe("air phase refractive index range (sensor-22, #701)", () => {
     expect(parseSourcedAirPhaseRefractiveIndex({ ...airIndex(), phaseRefractiveIndex: 1 }).phaseRefractiveIndex).toBe(1);
   });
 });
+
+describe("temperatures below absolute zero (#742)", () => {
+  it("refuses an air temperature at or below -273.15 °C", () => {
+    expect(() => parseSourcedAirPhaseRefractiveIndex(airIndex({ referenceConditions: { temperatureC: -280, pressurePascal: 101_325, relativeHumidityFraction: 0.4,
+      carbonDioxideMoleFraction: 0.00042 } }))).toThrow(".temperatureC must be above absolute zero (-273.15 °C).");
+  });
+});

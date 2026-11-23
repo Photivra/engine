@@ -13,6 +13,7 @@
  * limits.
  */
 
+import { requireAboveAbsoluteZeroCelsius } from "../core/temperature-validation.js";
 import {
   calculatedResult,
   type CalculationResult
@@ -285,10 +286,10 @@ export function parseReferenceConditions(
   const temperatureC =
     record.temperatureC === undefined
       ? undefined
-      : requireFinite(
+      : requireAboveAbsoluteZeroCelsius(requireFinite(
           record.temperatureC,
           path + ".temperatureC"
-        );
+        ), path + ".temperatureC");
   const incidenceAngleDegreesFromNormal =
     record.incidenceAngleDegreesFromNormal ===
     undefined

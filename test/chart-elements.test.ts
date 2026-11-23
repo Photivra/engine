@@ -153,7 +153,28 @@ describe("composite charts (2.3)", () => {
       [{ scene: { preset: "composite", elements: [] }, centerU: 0, centerV: 0, width: 1, height: 1 }]];
     for (const elements of bad) expect(() => resolveChartScene({ scene: { preset: "composite", elements } as never, aspect: 1 })).toThrow(InvalidConfigurationError);
     expect(() => resolveChartScene({ scene: { preset: "composite", background: { preset: "composite", elements: [] }, elements: [] } as never, aspect: 1 })).toThrow(InvalidConfigurationError);
+    // #730 facade-15 (d): a subnormal width gave an infinite scale and a TypeError in reflectanceAt; it is refused.
+    for (const [width, height] of [[1e-320, 0.5], [0.5, 1e-320]])
+      expect(() => resolveChartScene({ scene: { preset: "composite", elements: [{ scene: { preset: "uniform" }, centerU: 0, centerV: 0, width, height }] } as never, aspect: 0.75 }))
+        .toThrow("is outside its supported range.");
   });
+
+  it("states the bounds it applies and fits the dead-leaves lookup grid at any aspect (#730 facade-15)", () => {
+    // (a) The upper bounds are open, as the JSDoc now says: 2 itself is refused.
+    expect(() => resolveChartScene({ scene: { preset: "line-grid", spacing: 2 }, aspect: 0.75 })).toThrow("spacing is outside its supported range.");
+    expect(() => resolveChartScene({ scene: { preset: "dead-leaves", radiusMaximum: 2 }, aspect: 0.75 })).toThrow("radiusMaximum is outside its supported range.");
+    // (b) At aspect 4 the coarse grid's two round-ups passed the cell limit ("the chart aspect is too extreme"); the cell is enlarged until it fits,
+    // and the texture is still fully covered. Aspect 3 used the same cell before and after.
+    const tall = resolveChartScene({ scene: { preset: "dead-leaves", radiusMinimum: 0.002 }, aspect: 4 });
+    expect(tall.parameters.diskCount).toBeGreaterThan(0);
+    for (const [u, v] of [[0, 0], [0.9, 3.9], [-0.9, -3.9]] as const) expect(Number.isFinite(tall.reflectanceAt(u, v, 550))).toBe(true);
+    // The default radii at aspect 96 now meet the disk limit, which names what to change.
+    expect(() => resolveChartScene({ scene: { preset: "dead-leaves" }, aspect: 96 })).toThrow("raise radiusMinimum");
+    // (c) A composite's background is not listed by the target functions (documented); the background alone lists its targets.
+    const bars = { preset: "bar-groups", lineWidthsPerPictureHeight: [40] } as const;
+    expect(calculateBarGroupTargets({ scene: bars, aspect: 0.75 })).toHaveLength(1);
+    expect(calculateBarGroupTargets({ scene: { preset: "composite", background: bars, elements: [{ scene: { preset: "uniform" }, centerU: 0.8, centerV: 0.5, width: 0.1, height: 0.1 }] } as CompositeChartScene, aspect: 0.75 })).toHaveLength(0);
+  }, 120_000);
 
   it("runs through the capture facade and hashes caller spectra of elements", async () => {
     const red = { kind: "tabulated" as const, samples: [{ wavelengthNanometers: 380, value: 0.05 }, { wavelengthNanometers: 600, value: 0.05 }, { wavelengthNanometers: 620, value: 0.7 }, { wavelengthNanometers: 780, value: 0.7 }] };

@@ -39,8 +39,9 @@ export interface SimulateCaptureSensorCharacteristics {
    * Read noise, RMS e⁻ (0–100), of one physical photosite, as a sensor datasheet gives it (2.22.0: on a tier too; a rendered site that
    * sums N photosites, above the tier's 6 µm or a profile's own pitch, takes it ×√N), of the low and the high conversion gain, and
    * the dual-gain switch: the ISO setting from
-   * which the high conversion gain is used (any ISO from 100; above the body's highest ISO, the low gain is used throughout).
-   * An omitted field keeps the body's value. Needs readout regimes that declare their exposure index (the tiers do).
+   * which the high conversion gain is used (any ISO from 32, the lowest ISO marking; above the body's highest ISO, the low gain is used throughout).
+   * An omitted field keeps the body's value. Needs readout regimes that declare their exposure index (the tiers do). 2.29.0 (#753 sensor-03):
+   * `highGainElectrons` on a sensor with one conversion gain (no switch in the body or the request) is refused; set `highGainFromIso` with it.
    */
   readNoise?: { lowGainElectrons?: number; highGainElectrons?: number; highGainFromIso?: number };
   /** Readout time, s (1e-6 to 1): the rolling shutter's top-to-bottom skew. Default: the body's (tiers 8, 15 and 30 ms). */
@@ -86,7 +87,12 @@ export interface SimulateCaptureSensorReport {
   peakQuantumEfficiency: number;
   /** Full-well capacity, e⁻: the base-ISO saturation charge (`sensor.capacityElectrons`). */
   fullWellElectrons: number;
-  /** Read noise, RMS e⁻, of each conversion gain, and the ISO from which the high gain is used (null: one gain throughout). */
+  /**
+   * Read noise, RMS e⁻, of each conversion gain, and the ISO from which the high gain is used (null: one gain throughout).
+   * `highGainFromIso` is the first ISO setting of the body that uses the high gain (a request's switch between two settings reads as
+   * the next one up). 2.29.0 (#753 sensor-04): `lowGainElectrons` is the low gain's value as resolved, also when the switch is at the
+   * base ISO and no setting uses the low gain.
+   */
   readNoise: { lowGainElectrons: number; highGainElectrons: number; highGainFromIso: number | null };
   /** The body's rolling readout skew, s (null when it declares no rolling readout). */
   readoutSeconds: number | null;
@@ -166,7 +172,7 @@ export type FieldRange = readonly [number, number] | readonly unknown[] | 0 | ((
 /** Accepted ranges (design limits) and values of each characteristic, by path below `sensor`. */
 const RANGES: Readonly<Record<string, FieldRange>> = { peakQuantumEfficiency: [0.05, 0.9], fullWell: 0, "fullWell.electrons": [100, 1e10],
   "fullWell.link": ["pixel-area", "none"], "fullWell.referencePixelPitchMicrometers": [0.5, 1000], readNoise: 0, "readNoise.lowGainElectrons": [0, 100],
-  "readNoise.highGainElectrons": [0, 100], "readNoise.highGainFromIso": [100, 1e7], readoutSeconds: [1e-6, 1], adcBitDepth: [12, 14, 16], fixedPatternNoise: [true, false] };
+  "readNoise.highGainElectrons": [0, 100], "readNoise.highGainFromIso": [32, 1e7], readoutSeconds: [1e-6, 1], adcBitDepth: [12, 14, 16], fixedPatternNoise: [true, false] };
 function fail(message: string): never { throw new InvalidConfigurationError(message); }
 /**
  * Checks `keys` of `record` against `ranges` (by path below `root`; nested records by "a.b"). An undefined field is skipped, or
@@ -205,9 +211,11 @@ export function parseSensorCharacteristics(sensor: Record<string, unknown>): Par
 }
 
 const noiseOf = (regime: SensorReadoutConversionRegime): number => Math.hypot(...regime.readNoiseComponents.map((c) => c.rmsElectrons.value));
+/** #753 sensor-04: the low gain's read noise of a profile `characterizeReadout` built with `sensor.readNoise` (no regime may use it). */
+const lowGainOf = new WeakMap<SensorReadoutConversionProfile, number>();
 /** The body's dual-gain read noise: the base regime's, and the first high-conversion-gain regime's with its ISO (none: the low gain throughout). */
 export function declaredReadNoise(profile: SensorReadoutConversionProfile): SimulateCaptureSensorReport["readNoise"] {
-  const regimes = profile.regimes, high = regimes.find((r) => r.exposureIndexGain?.conversionGainMode === "high-conversion-gain"), low = noiseOf(regimes[0]!);
+  const regimes = profile.regimes, high = regimes.find((r) => r.exposureIndexGain?.conversionGainMode === "high-conversion-gain"), low = lowGainOf.get(profile) ?? noiseOf(regimes[0]!);
   return { lowGainElectrons: low, highGainElectrons: high ? noiseOf(high) : low, highGainFromIso: high ? high.exposureIndexGain!.exposureIndex : null };
 }
 
@@ -223,7 +231,9 @@ export function declaredReadNoise(profile: SensorReadoutConversionProfile): Simu
 export function characterizeReadout(profile: SensorReadoutConversionProfile, chargeScale: number, c?: ParsedSensorCharacteristics, readNoiseScale = 1): SensorReadoutConversionProfile {
   const bits = c?.adcBitDepth, n = c?.readNoise, declared = n && declaredReadNoise(profile);
   if (chargeScale === 1 && !bits && !n && readNoiseScale === 1) return profile;
-  return parseSensorReadoutConversionProfile({ ...profile, regimes: profile.regimes.map((regime) => {
+  // #753 sensor-03 (owner decision 2026-11-23): a high-gain read noise needs a switch, the request's or the body's.
+  if (n?.highGainElectrons !== undefined && (n.highGainFromIso ?? declared!.highGainFromIso) === null) fail("sensor.readNoise.highGainElectrons needs highGainFromIso: this sensor has one conversion gain.");
+  const characterized = parseSensorReadoutConversionProfile({ ...profile, regimes: profile.regimes.map((regime) => {
     const adc = regime.adc, rescale = bits !== undefined && bits !== adc.bitDepth;
     // sensor-25: INL knots are codes of the declared ADC; they are not rescaled, so another bit depth is refused here.
     if (rescale && adc.integralNonLinearity) fail("sensor.adcBitDepth cannot change the bit depth of a readout whose ADC declares integral non-linearity.");
@@ -241,6 +251,8 @@ export function characterizeReadout(profile: SensorReadoutConversionProfile, cha
     } else if (readNoiseScale !== 1) out.readNoiseComponents = regime.readNoiseComponents.map((component) => ({ ...component, rmsElectrons: { ...component.rmsElectrons, value: component.rmsElectrons.value * readNoiseScale } }));
     return out;
   }) });
+  if (n) lowGainOf.set(characterized, (n.lowGainElectrons ?? declared!.lowGainElectrons) * readNoiseScale);
+  return characterized;
 }
 
 /** Charge at the RAW white level and the read-plus-quantization floor of one regime, e⁻. */

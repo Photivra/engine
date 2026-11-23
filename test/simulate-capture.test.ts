@@ -213,6 +213,30 @@ describe("simulateCapture facade", { timeout: 60_000 }, () => {
   });
 });
 
+describe("messages that name the option and its range (#730 facade-05)", { timeout: 60_000 }, () => {
+  it("refuses an out-of-range setting with the caller's option path, before the resolvers", async () => {
+    const { calculateChartFraming, InvalidScientificInputError } = await import("../src/index.js");
+    const refuse = async (options: Record<string, unknown>, message: string): Promise<void> => {
+      const error = await simulateCapture({ scene: { preset: "uniform" }, ...small, ...options } as never).then(() => undefined, (e: unknown) => e);
+      expect(error, message).toBeInstanceOf(Error);
+      expect((error as Error).message).toBe(message);
+    };
+    // Before: "manualAperture lies outside the resolved equipment capability range." and the like.
+    await refuse({ lens: { fNumber: 2.8 } }, "lens.fNumber 2.8 is not available: from 4 to 16.");
+    await refuse({ exposure: { iso: 50 } }, "exposure.iso 50 is not available: one of 100, 125, 160, 200, 250, 320, 400, 500, 640, 800, 1000, 1250, 1600, 2000, 2500, 3200, 4000, 5000, 6400, 8000, 10000, 12800, 16000, 20000, 25600.");
+    await expect(simulateCapture({ scene: { preset: "uniform" }, ...small, exposure: { iso: 123 } })).rejects.toThrow(/^exposure\.iso 123 is not available: one of 100, 125, 160, /u);
+    await expect(simulateCapture({ scene: { preset: "uniform" }, ...small, exposure: { iso: 123 } })).rejects.toThrow(InvalidScientificInputError);
+    await refuse({ exposure: { shutterSeconds: 60 } }, "exposure.shutterSeconds 60 is not available: from 0.000125 to 30.");
+    await refuse({ lens: { focalLengthMm: 85 } }, "lens.focalLengthMm 85 is not available: from 50 to 50.");
+    await refuse({ lens: { projection: "equisolid" } }, "lens.projection must be one of rectilinear, fisheye-equidistant, fisheye-equisolid-angle, fisheye-stereographic, fisheye-orthographic, equirectangular.");
+    // Settings on the grid still render.
+    expect((await simulateCapture({ scene: { preset: "uniform" }, ...small, lens: { fNumber: 4 }, exposure: { iso: 125, shutterSeconds: 30 } })).exposure.settings).toMatchObject({ fNumber: 4, iso: 125, shutterSeconds: 30 });
+    // The framing functions name the bound.
+    expect(() => calculateChartFraming({ sensor: { widthMm: 36, heightMm: 24 }, focalLengthMm: 50, chart: { widthM: 1, heightM: 0.75 }, subjectDistanceM: 1e11 } as never))
+      .toThrow("must be a positive finite number, at most 1e7.");
+  });
+});
+
 describe("simulateCapture pre-release fixes (2.0.0)", { timeout: 120_000 }, () => {
   const tabulated = (values: readonly [number, number][]): { kind: "tabulated"; samples: { wavelengthNanometers: number; value: number }[] } =>
     ({ kind: "tabulated", samples: values.map(([wavelengthNanometers, value]) => ({ wavelengthNanometers, value })) });
@@ -264,5 +288,33 @@ describe("simulateCapture pre-release fixes (2.0.0)", { timeout: 120_000 }, () =
     const byRecord = await simulateCapture({ camera: structuredClone(preset), scene: { preset: "uniform" }, ...small });
     expect(byRecord.image.samples).toEqual(byId.image.samples);
     expect(byRecord.raw.codes).toEqual(byId.raw.codes);
+  });
+});
+
+describe("assumption and provenance texts that match what ran (#730 facade-06)", { timeout: 60_000 }, () => {
+  it("name the preset version, what the meter reads, the resolver that ran and the base-ISO anchor", async () => {
+    const { GENERIC_ND_FILTER_PROFILES, resolveSensorProfile } = await import("../src/index.js");
+    const text = (r: SimulateCaptureResult, id: string): string => r.assumptions.find((a) => a.id === id)!.explanation;
+    const plain = await simulateCapture({ scene: { preset: "uniform" }, ...small });
+    // (a) The default tier's preset version, as provenance reports it (2.0.0 was named before).
+    expect(text(plain, "camera")).toContain("tier preset " + plain.provenance.cameraPresetVersion + " ");
+    expect(plain.provenance.cameraPresetVersion).toBe("2.1.0");
+    expect(text(plain, "exposure.metering")).toContain("meter reads scene luminance on a 16 × 16 zone grid, before the lens");
+    // (b) Through lens.filter, and the grey card instead of the scene.
+    const filtered = await simulateCapture({ scene: { preset: "uniform" }, ...small, lens: { filter: GENERIC_ND_FILTER_PROFILES[3] } });
+    expect(text(filtered, "exposure.metering")).toContain("through lens.filter but before the lens");
+    const card = await simulateCapture({ scene: { preset: "uniform" }, ...small, exposure: { metering: "grey-card" } });
+    expect(text(card, "exposure.metering")).toContain("meter reads the grey card (exposure.meteringSource)");
+    // (c) Aperture priority with Auto ISO ran its own resolver.
+    const auto = await simulateCapture({ scene: { preset: "uniform" }, ...small, exposure: { mode: "aperture-priority", iso: "auto", autoIso: { slowestPreferredShutterSeconds: 1 / 60 } } });
+    expect(auto.provenance.composedContracts).toContain("resolveAperturePriorityAutoIsoExposureMode");
+    expect(auto.provenance.composedContracts).not.toContain("resolveAperturePriorityExposureMode");
+    expect((await simulateCapture({ scene: { preset: "uniform" }, ...small, exposure: { mode: "aperture-priority" } })).provenance.composedContracts).toContain("resolveAperturePriorityExposureMode");
+    // (d) A base-125 profile's anchor is named with its own ISO and shutter.
+    const sports = await simulateCapture({ scene: { preset: "uniform" }, ...small, sensor: { profile: resolveSensorProfile("full-frame-24mp-stacked-sports-2020s") } });
+    const anchor = sports.assumptions.find((a) => a.id === "exposure.referenceExposure")!;
+    expect(anchor.value).toMatchObject({ aperture: 8, iso: 125 });
+    expect(anchor.explanation).toContain("At the sensor profile's base ISO, the same N²/(t·S): f/8, " + (anchor.value as { shutterSeconds: number }).shutterSeconds + " s, ISO 125.");
+    expect(text(plain, "exposure.referenceExposure")).not.toContain("base ISO");
   });
 });
