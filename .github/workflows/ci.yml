@@ -194,8 +194,8 @@ jobs:
           fi
 
   coverage-shard:
-    # The coverage run (the whole test suite under V8 coverage, except the files in
-    # test/helpers/coverage-excluded-tests.ts) split into ten parallel
+    # The coverage run (the whole test suite under V8 coverage; since 2.29.0, #755, no file is
+    # left out) split into ten parallel
     # parts balanced by measured time (test/helpers/weighted-shard-sequencer.ts). Each part
     # runs every test of its share under coverage and keeps the raw coverage in a Vitest
     # blob report; no part checks the thresholds on its own (vitest.config.ts).
