@@ -96,7 +96,8 @@ export async function openDisplayViewGpuSession(options: ParsedPrepareDisplayVie
   if (request.lens && !request.lensView) return fallBack(options, "unsupported-on-backend", "the GPU display-view renderers do not render lens.projection, lens.distortion, lens.vignetting or " +
     "camera rotation (#563), or lens.catalogue without a radial distortion; the CPU reference renders them. No device was requested.");
   if (request.detail) return fallBack(options, "unsupported-on-backend", "lens corrections and sharpening run on the CPU (#628).");
-  if (request.layered) return fallBack(options, "unsupported-on-backend", "layered chart scenes render on the CPU (#652).");
+  // #750: a layered view whose request carries the layered passes' loader (the layered-scene wiring) asks the device; others render on the CPU.
+  if (request.layered && !request.layeredGpu) return fallBack(options, "unsupported-on-backend", "layered chart scenes render on the CPU (#652).");
   // #597: an image-plane print under mixed light renders on the device (its Quality passes light each lattice point); charts keep the CPU.
   if (request.mixedIllumination && request.scene !== "image-plane") return fallBack(options, "unsupported-on-backend", "the GPU renderers light chart materials with one illuminant; the CPU reference renders mixed illumination (#550). No device was requested.");
   let runtime: WebGpuRuntime, owned = false;
@@ -119,7 +120,7 @@ export async function openDisplayViewGpuSession(options: ParsedPrepareDisplayVie
     if ("failure" in acquired) return fallBack(options, acquired.failure, acquired.message);
     runtime = acquired.runtime; owned = true;
   }
-  const renderer = factory(runtime), supported = renderer.supports(request);
+  const base = factory(runtime), renderer = request.layeredGpu ? await request.layeredGpu(base, runtime) : base, supported = renderer.supports(request);
   if (supported !== true) {
     if (owned) runtime.destroy();
     return fallBack(options, "unsupported-on-backend", "the GPU display-view renderer \"" + renderer.id + "\" does not support this request: " + supported, runtime.adapter);

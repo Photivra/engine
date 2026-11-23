@@ -179,6 +179,13 @@ export interface DisplayViewGpuRequest {
   /** #652: true for a layered chart scene of more than one surface: the CPU reference renders it (layered-scene-signal.ts) in 2.27.0. */
   layered?: boolean;
   /**
+   * #750 (2.29.0): with `layered`, the loader of the layered GPU passes (`src/gpu/display-view-layered-gpu.ts`, an on-demand chunk that
+   * only the layered-scene code reaches): given the engine's renderer and the device, it resolves to the renderer the session uses for
+   * the view (`createLayeredDisplayViewGpuRenderer`), or to one whose `supports` says why not (a failed load). Absent: the CPU reference
+   * renders every layered view, as in 2.27.0.
+   */
+  layeredGpu?: (base: DisplayViewGpuRenderer, runtime: DisplayViewGpuRuntimeHandle) => Promise<DisplayViewGpuRenderer>;
+  /**
    * #550: true when the request has `illumination` (mixed lighting): the radiance at a point is no longer a function of its
    * material, so the GPU material lookup cannot render it; the CPU reference does, exactly, and no device is requested.
    */

@@ -107,7 +107,8 @@ describe("WGSL minification (#536)", () => {
     // the display view's material modules take instead of searching the kernels' text. + the six untagged shader literals of the
     // display view's material modules and the image-plane Quality lattice pass (chart preset, composite: lattice bindings, lattice
     // point and module; image plane: material module and lattice pass).
-    expect(literals).toBe(52);
+    // 2.29.0 (#750): + the layered passes (the sum and the sites, src/gpu/wgsl-display-view-layered-kernel.ts).
+    expect(literals).toBe(54);
     // #658: 2.28.0's minifier (comments and indentation) measured after < 0.86 · before.
     expect(after).toBeLessThan(0.78 * before);
   });
