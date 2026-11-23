@@ -32,7 +32,7 @@
 
 import { markInternalNativeTileReader, markInternalSceneRadianceEvaluator, registerInternalRadianceAccess } from "../core/internal-radiance-evaluator.js";
 import { InvalidConfigurationError } from "../core/configuration-error.js";
-import { InvalidScientificInputError, InvalidScientificResultError } from "../core/validation.js";
+import { InvalidScientificResultError } from "../core/validation.js";
 import { requireInputObject } from "../core/record-validation.js";
 import { ENGINE_API_VERSION } from "../core/version.js";
 import type { EvidenceProvenance } from "../core/evidence-provenance.js";
@@ -87,7 +87,7 @@ import { resolveCaptureColorModel } from "../color/capture-color.js";
 import { evaluateBt709Oetf, evaluateSrgbEncoding, resolveRgbColorSpace } from "../color/rgb-color-spaces.js";
 import type { PngColourEncoding } from "../output/png-encoder.js";
 import { parseOutputTextMetadata, type OutputTextMetadata } from "../output/text-metadata.js";
-import { LENS_PROJECTION_MODELS, parseLensProjectionModel, type LensProjectionModel } from "../camera/lens-projection.js";
+import { parseLensProjectionModel, type LensProjectionModel } from "../camera/lens-projection.js";
 import { prepareEnvironmentLensFieldMapping, type EnvironmentLensFieldMapping } from "../optics/sensor-environment-query.js";
 import type { RadialDistortionProfile } from "../optics/radial-distortion.js";
 import type { BrownConradyDistortionProfile } from "../optics/brown-conrady-distortion.js";
@@ -1189,16 +1189,6 @@ export const DARK_CURRENT_ELECTRONS_PER_SECOND = 1;
 const OPERATING_TEMPERATURE_C = 20;
 
 export function fail(message: string): never { throw new InvalidConfigurationError(message); }
-/**
- * #730 facade-05: a camera setting against the resolved capabilities, before the resolvers see it, refused with the caller's option
- * path and the range or the settings (the resolvers named their own fields: "manualAperture", "isoControl.iso"). The same checks
- * and error class as the resolvers' (src/exposure/exposure-mode-resolver.ts, validateSettingAgainstGrid), so no valid request changes.
- */
-function checkSetting(value: number, minimum: number, maximum: number, grid: ResolvedGenericEquipmentExposureCapabilities["iso"]["settingGrid"] | undefined, path: string): void {
-  const values = grid?.kind === "discrete-values" ? grid.values : undefined;
-  if (value < minimum || value > maximum || values && !values.some((v) => Math.abs(v - value) <= Number.EPSILON * 32 * Math.max(Math.abs(v), Math.abs(value), 1)))
-    throw new InvalidScientificInputError(path + " " + value + " is not available: " + (values ? "one of " + values.join(", ") : "from " + minimum + " to " + maximum) + ".");
-}
 /** Where `output.metadata` goes in each file format (reported in the `output.metadata` assumption). */
 const TEXT_METADATA_LAYOUT = /* @__PURE__ */ Object.freeze({
   jpeg: "XMP packet in APP1 (dc:description, xmp:CreatorTool, dc:rights, exif:UserComment), plus a COM segment holding the comment",
@@ -2136,7 +2126,6 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   const focalDefault = lensExposure.focalLengthMmRange.value.minimum;
   const focalLengthMm = lensRange ? lensRange.focalLengthMm :
     positive(pick(lensOptions, "focalLengthMm", "lens.focalLengthMm", focalDefault, "The preset lens's focal length (the generic primes are 50 mm)."), "lens.focalLengthMm");
-  if (!lensRange) checkSetting(focalLengthMm, lensExposure.focalLengthMmRange.value.minimum, lensExposure.focalLengthMmRange.value.maximum, undefined, "lens.focalLengthMm");
   const capabilities = resolveGenericEquipmentExposureCapabilities({ bodyProfile: body.exposure, lensProfile: lensExposure, selectedFocalLengthMm: focalLengthMm });
   const subjectDistanceM = positive(pick(top, "subjectDistanceM", "subjectDistanceM", DEFAULTS.subjectDistanceM, "Scene plane 5 m in front of the camera (the generic tiers' reference focus distance)."), "subjectDistanceM");
   // #569: twice the focal length itself is admitted (magnification 1, the catalogue Macro's close focus f·(1 + 1/1)).
@@ -2165,7 +2154,6 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
     if (pupil.radialSamples * pupil.angularSamples > 256) fail("lens.pupilSampling needs at most 256 rays (radialSamples × angularSamples).");
   }
   // 2.0 optics hooks: only what the environment site contract accepts.
-  if (lensOptions.projection !== undefined && !(LENS_PROJECTION_MODELS as readonly unknown[]).includes(lensOptions.projection)) fail("lens.projection must be one of " + LENS_PROJECTION_MODELS.join(", ") + ".");
   const projection: LensProjectionModel | undefined = lensOptions.projection === undefined ? (catalogue && catalogue.projection !== "rectilinear" ? catalogue.projection : undefined) :
     parseLensProjectionModel(lensOptions.projection);
   let distortion: SimulateCaptureLensDistortion | undefined;
@@ -2767,7 +2755,6 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   const automaticIso = isoOption === "auto";
   if (typeof isoOption === "string" && !automaticIso) fail('exposure.iso must be a positive finite number or "auto".');
   const iso = automaticIso ? NaN : positive(isoOption, "exposure.iso");
-  if (!automaticIso) checkSetting(iso, capabilities.iso.minimum, capabilities.iso.maximum, capabilities.iso.settingGrid, "exposure.iso");
   if (exposureOptions.autoIso !== undefined && !automaticIso) fail('exposure.autoIso applies only with exposure.iso "auto"; omit it.');
   const compensation = exposureOptions.compensationStops === undefined ? DEFAULTS.compensationStops : exposureOptions.compensationStops;
   if (typeof compensation !== "number" || !Number.isFinite(compensation) || Math.abs(compensation) > 10) fail("exposure.compensationStops must be within ±10.");
@@ -2846,7 +2833,6 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   const checkFNumber = (): void => {
     if (clamp(fNumber) !== fNumber)
       fail("lens.fNumber " + fNumber + " is outside the " + lensRange!.name + " range f/" + lensRange!.widestFNumber + "–f/" + lensRange!.narrowestFNumber + ".");
-    checkSetting(fNumber, capabilities.aperture.widestAvailableFNumber, capabilities.aperture.narrowestAvailableFNumber, capabilities.aperture.settingGrid, "lens.fNumber");
   };
   if (mode === "manual" || mode === "aperture-priority") {
     // #554: a fixed-aperture lens (the phone lenses) defaults to its one f-number.
@@ -2859,7 +2845,6 @@ export async function runCapture(options: SimulateCaptureOptions, run: CaptureRu
   }
   if (mode === "manual" || mode === "shutter-priority") {
     shutterSeconds = positive(pick(exposureOptions, "shutterSeconds", "exposure.shutterSeconds", DEFAULTS.shutterSeconds, "1/125 s."), "exposure.shutterSeconds");
-    checkSetting(shutterSeconds, capabilities.shutter.minimumSeconds, capabilities.shutter.maximumSeconds, capabilities.shutter.settingGrid, "exposure.shutterSeconds");
   } else {
     if (exposureOptions.shutterSeconds !== undefined) fail("exposure.shutterSeconds is resolved automatically in " + mode + " mode; omit it.");
     shutterSeconds = NaN;

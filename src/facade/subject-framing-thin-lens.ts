@@ -127,7 +127,7 @@ export interface CatalogueChoice { lens: ResolvedGenericLens; breathing: boolean
 
 /** @internal */
 export function positive(value: unknown, name: string): number {
-  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0 || value > 1e7) throw new InvalidConfigurationError(name + " must be a positive finite number, at most 1e7.");
+  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0 || value > 1e7) throw new InvalidConfigurationError(name + " must be a positive finite number.");
   return value;
 }
 
