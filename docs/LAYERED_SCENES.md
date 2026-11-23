@@ -215,7 +215,9 @@ sum (within 1e-9 relative, `test/layered-scene-wiring.test.ts`). The display vie
 maps to.
 
 Fisheyes: the frame coordinate (tan θ) grows without bound toward the horizon, so a layered request with a fisheye projection is
-refused when any point it reads (the outer sites widened by the lattice's reach) looks 75° or more off the axis (2.29.0; follow-up #797).
+refused when any point it reads (the outer sites widened by the lattice's reach) looks 75° or more off the axis (2.29.0;
+follow-up #797). The two catalogue fisheyes read such points on every frame (their focal lengths scale with the frame), so a
+layered request with either is refused.
 
 ### A catalogue lens (2.29.0)
 
