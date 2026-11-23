@@ -12,6 +12,7 @@
  * limits.
  */
 
+import { requireAboveAbsoluteZeroCelsius } from "../core/temperature-validation.js";
 import {
   calculatedResult,
   type CalculationResult
@@ -205,10 +206,10 @@ function parseReferenceConditions(
     requireRecord(value, path, ["temperatureC", "pressurePascal", "relativeHumidityFraction", "carbonDioxideMoleFraction"]);
 
   const temperatureC =
-    requireFinite(
+    requireAboveAbsoluteZeroCelsius(requireFinite(
       record.temperatureC,
       path + ".temperatureC"
-    );
+    ), path + ".temperatureC");
   const pressurePascal =
     requirePositiveFinite(
       record.pressurePascal,

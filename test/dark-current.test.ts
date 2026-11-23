@@ -654,3 +654,17 @@ describe("dark-current edge inputs (sensor-11, sensor-23, #701)", () => {
     expect(rate).toBeCloseTo(Math.exp(0.5 * Math.log(5e-324)), 170);
   });
 });
+
+describe("temperatures below absolute zero (#742)", () => {
+  it("refuses a reference, a table or an operating temperature at or below -273.15 °C", () => {
+    const below = "must be above absolute zero (-273.15 °C).";
+    expect(() => parseSensorDarkCurrentProfile(exactProfile({ temperatureModel: { kind: "fixed-reference-temperature", referenceTemperatureC: -300, darkCurrentElectronsPerSecond: 4 } })))
+      .toThrow("sensorDarkCurrent.temperatureModel.referenceTemperatureC " + below);
+    expect(() => parseSensorDarkCurrentProfile(exactProfile({ temperatureModel: { kind: "piecewise-linear-temperature-table", interpolation: "piecewise-linear", outsideRangeBehavior: "fail-closed", samples: [
+      { temperatureC: -273.15, darkCurrentElectronsPerSecond: 0 }, { temperatureC: 20, darkCurrentElectronsPerSecond: 4 }] } as SensorDarkCurrentProfile["temperatureModel"] })))
+      .toThrow("sensorDarkCurrent.temperatureModel.samples[0].temperatureC " + below);
+    expect(() => calculateSensorDarkCurrentCharge({ exposure: exposure(), darkCurrentProfile: exactProfile(), operatingTemperatureC: -500 })).toThrow("operatingTemperatureC " + below);
+    expect(calculateSensorDarkCurrentCharge({ exposure: exposure(), darkCurrentProfile: exactProfile({ temperatureModel: { kind: "fixed-reference-temperature",
+      referenceTemperatureC: -273, darkCurrentElectronsPerSecond: 4 } }), operatingTemperatureC: -273 }).value.darkCurrentElectronsPerSecond).toBe(4);
+  });
+});
