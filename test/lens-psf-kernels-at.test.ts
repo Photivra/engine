@@ -43,6 +43,8 @@ function perCall(state: State, wavelengths: readonly number[]): Float64Array {
   const kernels = wavelengths.map((wavelengthNm) => resolveLensSampledPsfKernel({ ...state, wavelengthNm } as ResolveLensSampledPsfInput).normalizedIntensity);
   return Float64Array.from(kernels.flat());
 }
+/** The batch resolver's kernels, as one array. */
+const batch = (state: State, wavelengths: readonly number[]): Float64Array => Float64Array.from(resolveLensSampledPsfKernelsAt(state, wavelengths).flat());
 const radius = (state: Omit<State, "fieldPointMm">): number => (state.profile as LensSampledPsfProfile).nodes[0]!.kernel.centerSampleX;
 const same = (a: Float64Array, b: Float64Array): boolean => a.length === b.length && a.every((v, i) => Object.is(v, b[i]));
 const errorOf = (f: () => unknown): string => { try { f(); return "no error"; } catch (error) { return (error as Error).constructor.name + ": " + (error as Error).message; } };
@@ -53,7 +55,7 @@ describe("resolveLensSampledPsfKernelsAt (#760)", () => {
       const { state, half } = catalogueState(lensId, fNumber, pitch);
       for (const fieldPointMm of fieldPoints(state.profile as LensSampledPsfProfile, half)) {
         const at = { ...state, fieldPointMm };
-        expect(same(resolveLensSampledPsfKernelsAt(at, WAVELENGTHS), perCall(at, WAVELENGTHS)), `${lensId} (${fieldPointMm.x}, ${fieldPointMm.y})`).toBe(true);
+        expect(same(batch(at, WAVELENGTHS), perCall(at, WAVELENGTHS)), `${lensId} (${fieldPointMm.x}, ${fieldPointMm.y})`).toBe(true);
       }
     }
   });
@@ -83,7 +85,7 @@ describe("resolveLensSampledPsfKernelsAt (#760)", () => {
     for (const variant of [structuredClone(profile), multilinear, shifted]) {
       for (const fieldPointMm of fieldPoints(profile, half).slice(0, 30)) {
         const at = { ...state, profile: variant, fieldPointMm } as State;
-        expect(same(resolveLensSampledPsfKernelsAt(at, WAVELENGTHS), perCall(at, WAVELENGTHS))).toBe(true);
+        expect(same(batch(at, WAVELENGTHS), perCall(at, WAVELENGTHS))).toBe(true);
       }
     }
   });

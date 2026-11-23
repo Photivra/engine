@@ -160,7 +160,7 @@ function contentSignature(psf: unknown, R: number, W: number, H: number, pitch: 
  * of kernel radius R, on the W × H native raster of `pitch` µm.
  */
 export function createDisplayViewLensPsf(psf: Omit<ResolveLensSampledPsfInput, "fieldPointMm" | "wavelengthNm">, R: number, W: number, H: number, pitch: number,
-  zones = DISPLAY_VIEW_LENS_PSF_ZONES, kernelsAt?: (state: Omit<ResolveLensSampledPsfInput, "wavelengthNm">, wavelengthsNm: readonly number[]) => Float64Array): DisplayViewLensPsf {
+  zones = DISPLAY_VIEW_LENS_PSF_ZONES, kernelsAt?: (state: Omit<ResolveLensSampledPsfInput, "wavelengthNm">, wavelengthsNm: readonly number[]) => readonly (readonly number[])[]): DisplayViewLensPsf {
   const Z = Math.ceil(Math.max(W, H) / zones), zonesX = Math.ceil(W / Z), zonesY = Math.ceil(H / Z), w = 2 * R + 1;
   const zoneOf = (x: number, y: number): number => Math.floor(y / Z) * zonesX + Math.floor(x / Z);
   const kernelsOf = (zone: number, wavelengthsNm: readonly number[]): Float64Array[] => {
@@ -172,7 +172,7 @@ export function createDisplayViewLensPsf(psf: Omit<ResolveLensSampledPsfInput, "
     const all = kernelsAt?.({ ...psf, fieldPointMm } as Omit<ResolveLensSampledPsfInput, "wavelengthNm">, wavelengthsNm), buffer = new Float64Array(wavelengthsNm.length * w * w);
     return wavelengthsNm.map((wavelengthNm, n) => {
       // Every node of the engine-built profile has the same (2R + 1)² window, so every resolved kernel has it too.
-      const values = all ? all.subarray(n * w * w) : resolveLensSampledPsfKernel({ ...psf, fieldPointMm, wavelengthNm } as ResolveLensSampledPsfInput).normalizedIntensity;
+      const values = all ? all[n]! : resolveLensSampledPsfKernel({ ...psf, fieldPointMm, wavelengthNm } as ResolveLensSampledPsfInput).normalizedIntensity;
       const out = buffer.subarray(n * w * w, (n + 1) * w * w);
       for (let j = 0; j < w; j++) for (let i = 0; i < w; i++) out[(w - 1 - j) * w + i] = values[j * w + i]!;
       return out;

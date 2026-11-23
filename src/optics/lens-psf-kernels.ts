@@ -35,7 +35,7 @@ import { InvalidConfigurationError } from "../core/configuration-error.js";
 import { requireAllowlistedRecord, requireInputFiniteAboveZero } from "../core/record-validation.js";
 import { IRRADIANCE_CONVOLUTION_LIMITS } from "./irradiance-convolution.js";
 import { kernelCentroid, LENS_PSF_RESOLVE_STEPS, markEngineOwnedLensSampledPsfProfile, resolveLensSampledPsf, type ResolveLensSampledPsfInput,
-  type WeightedNode } from "./lens-psf-profile.js";
+  type ResolvedLensSampledPsfCore, type WeightedNode } from "./lens-psf-profile.js";
 
 export const LENS_PSF_CONVOLUTION_KERNELS_SCHEMA_VERSION = "0.1.0" as const;
 /**
@@ -219,22 +219,17 @@ function resolveKernels(input: LensPsfConvolutionKernelsInput, ownedProfile: obj
 }
 
 /**
- * #760: `resolveLensSampledPsfKernel({ ...state, wavelengthNm })` for each of `wavelengthsNm`, in order, as one array (node n's kernel at
- * n · taps): the same values, bit for bit, and the same error at the same wavelength. In the Quality kit (on demand); the capture
- * passes it to the display view's field PSF. The first wavelength runs the resolver's input checks and parse; every other input is the
- * same, so each later wavelength is checked as the resolver checks it (`requireInputFiniteAboveZero`) and resolved by the resolver's
- * own steps from there. Every resolve blends with `keptBlend`.
+ * #760: `resolveLensSampledPsfKernel({ ...state, wavelengthNm }).normalizedIntensity` for each of `wavelengthsNm`, in order: the same
+ * values, bit for bit, and the same error at the same wavelength. In the Quality kit (on demand); the capture passes it to the display
+ * view's field PSF. The first wavelength runs the resolver's input checks and parse; every other input is the same, so each later
+ * wavelength is checked as the resolver checks it (`requireInputFiniteAboveZero`) and resolved by the resolver's own steps from there.
+ * Every resolve blends with `keptBlend`.
  */
-export function resolveLensSampledPsfKernelsAt(state: Omit<ResolveLensSampledPsfInput, "wavelengthNm">, wavelengthsNm: readonly number[]): Float64Array {
-  let out = new Float64Array(0);
-  for (let n = 0, first; n < wavelengthsNm.length; n++) {
-    const values = n === 0 ? (first = LENS_PSF_RESOLVE_STEPS[0]({ ...state, wavelengthNm: wavelengthsNm[0] } as ResolveLensSampledPsfInput, keptBlend)).kernel.normalizedIntensity :
-      LENS_PSF_RESOLVE_STEPS[1](first!.profile, { coordinate: { ...first!.query.coordinate, wavelengthNm: requireInputFiniteAboveZero(wavelengthsNm[n], "wavelengthNm") },
-        focus: first!.query.focus }, keptBlend).kernel.normalizedIntensity;
-    if (n === 0) out = new Float64Array(wavelengthsNm.length * values.length);
-    out.set(values, n * values.length);
-  }
-  return out;
+export function resolveLensSampledPsfKernelsAt(state: Omit<ResolveLensSampledPsfInput, "wavelengthNm">, wavelengthsNm: readonly number[]): readonly (readonly number[])[] {
+  let first: ResolvedLensSampledPsfCore;
+  return wavelengthsNm.map((wavelengthNm, n) => (n ? LENS_PSF_RESOLVE_STEPS[1](first.profile, { coordinate: { ...first.query.coordinate,
+    wavelengthNm: requireInputFiniteAboveZero(wavelengthNm, "wavelengthNm") }, focus: first.query.focus }, keptBlend) :
+    first = LENS_PSF_RESOLVE_STEPS[0]({ ...state, wavelengthNm } as ResolveLensSampledPsfInput, keptBlend)).kernel.normalizedIntensity);
 }
 
 /** Zero samples around each kept node kernel. */
