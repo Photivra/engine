@@ -19,8 +19,8 @@
   - 16 new root exports, 2,117 → 2,133 (runtime exports 725 → 730), new options and result fields and one new fast method
     (`simulateTypicalProcessing/local-tone-mapping`). Nothing is removed from the root and no export changes kind.
   - Some outputs, report fields and refusals change ([Default and output changes](#default-and-output-changes)).
-- **Capture-worker sizes:** fast worker 338,820 B (limit 338,900 B); on demand 51,743 B (limit 52,000 B); no limit raised; four
-  new rows ([Sizes](#sizes)). #658's 49,400 B target is not met and #658 stays open.
+- **Capture-worker sizes:** fast worker 338,820 B (limit 338,900 B); on demand 51,743 B (limit 52,000 B); no limit raised;
+  new rows for the new chunks and the #765 calculation bundles ([Sizes](#sizes)). #658's 49,400 B target is not met and #658 stays open.
 
 ## Scope
 
@@ -95,11 +95,11 @@ is raised; the new rows' limits are their measurements rounded up to the next 10
 | on demand | 51,977 B | **51,743 B** | 52,000 B |
 | export kit | 10,395 B | **10,393 B** | 10,400 B |
 | lens passes | 10,200 B | **9,919 B** | 10,200 B |
-| false-color body; entry delta | 5,094 B; 348 B | **5,094 B; 289 B** | 5,100 B; 400 B |
+| false-color body; entry delta | 5,094 B; 348 B | **5,094 B; 355 B** | 5,100 B; 400 B |
 | false-color noise (new) | — | **3,572 B** | 3,600 B |
-| layered chunk (new) | — | **23,230 B** | 23,300 B |
+| layered chunk (new) | — | **22,962 B** | 23,000 B |
 | layered GPU chunk (new) | — | **8,331 B** | 8,400 B |
-| typical processing: body; entry delta (new) | — | **17,889 B; 1,332 B** | 17,900 B; 1,400 B |
+| typical processing: body; entry delta (new) | — | **17,889 B; 1,331 B** | 17,900 B; 1,400 B |
 | `calculateProgramLine` (new row) | 24,838 B | **14,508 B** | 14,600 B |
 | `calculateIdealLensDetailLimit`; `calculateDetailLimit` (new rows) | —; 10,200 B | **4,954 B; 10,299 B** | 5,000 B; 10,300 B |
 
@@ -113,26 +113,30 @@ mixed-light parts on a shared machine: `fast: false` catalogue-768 39.81 → 18.
 
 - #741: no axial color as a per-wavelength blur (the go/no-go failed; #799); a shaped kernel's energy at card
   edges is within 6.0 % on a uniform scene with a strong spherical aberration (#799).
+- #744: a layered request with a fisheye is refused where it reads a point 75° or more off the axis (#797).
 - #746: 16 temporal midpoints are 0.95 % of the local swing from 64 stills on a moving edge.
 - #748: a layered request with focus scatter keeps the requested focus's framing.
 - #750: the GPU takes layered views on the planar map only.
 - #760: 2.1× and 1.7× against the plan's 4× estimate; #760 stays open.
-- #767: coarse moving-subject views with diffraction at `fast: false` are slow (#801).
+- #767: coarse moving-subject views with diffraction at `fast: false` are slow (#798).
 - #658: the on-demand target of 49,400 B is not met.
 
 ## Local runs on the integration branch
 
 On one machine (Apple M5 Pro, macOS 27.2.1, Node 26.13.1), one heavy process at a time, November 23, 2026, on the integration
-tree (`e229-I`; the GPU runs on ebfb513 with this record's version surfaces and documents not yet committed):
+tree (`e229-I`). The CPU runs are of the tree after the release review's fixes; the GPU runs are of ebfb513 with this record's
+version surfaces and documents not yet committed (the review's fixes change no shader text: the minified WGSL files are byte for
+byte the same size, 275,084 B):
 
 | Run | Result | Duration |
 | --- | --- | --- |
 | `npm run check:static` (lint, typecheck, license, header, identity and browser-surface gates) | passed | 15 s |
-| `npx vitest run` (the whole suite) | 516 files passed, 1 skipped; 5,332 tests passed, 2 skipped (the two opt-in tests) | 283 s |
-| `npm run coverage` | the same counts; statements 96.20 %, branches 92.86 %, functions 98.54 %, lines 97.88 % (thresholds 90/80/90/90) | 593 s |
+| `npx vitest run` (the whole suite) | 516 files passed, 1 skipped; 5,332 tests passed, 2 skipped (the two opt-in tests) | 247 s |
+| `npm run coverage` | the same counts; statements 96.20 %, branches 92.86 %, functions 98.54 %, lines 97.88 % (thresholds 90/80/90/90) | 585 s |
 | `npm run test:webgpu` (SwiftShader, Chromium headless) | 213 of 213 in 9 files, the layered file 8 of 8 | 1,393 s |
 | `npm run test:webgpu:hardware` (Apple M5 Pro, WebGPU on Metal, Chrome 158) | 213 of 213 in 9 files ([hardware record](WEBGPU_DEVICES.md)) | 646 s |
 | `npm run build`, `npm run pack:check`, `npm run release:consumer-check`, `npm run docs:check` | passed (54 WGSL literals minified; 1,349 packed files; 187 typed doc snippets) | — |
+| The CI hash-lock set (macOS job's files) and the layered seam locks | 10 files, 95 tests passed | 7 s |
 | The CI tool tests, `scripts/test-gates.mjs` and the site's tests, build and checks | passed | — |
 
 The preview acceptance (`accept:gpu:hardware`) was not run for this release.

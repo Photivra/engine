@@ -47,7 +47,7 @@ async function bundle(withTypical: boolean): Promise<{ chunks: Chunk[]; eagerGzi
 
 describe("simulateTypicalProcessing bundles (#740)", () => {
   /**
-   * Measured on the e229-P tree (2026-11-23): the body 17,889 B gzip (limit 17,900 B); the stub adds 1,348 B to the first load (limit
+   * Measured on the 2.29.0 integration tree (2026-11-23): the body 17,889 B gzip (limit 17,900 B); the stub adds 1,331 B to the first load (limit
    * 1,400 B), 874 B of it the correlated-color-temperature functions of color/illuminants.ts that the development's white balance
    * uses (that module is in the first load already, so its newly used exports render there). In a bundle with both, processing/demosaic.ts
    * leaves the CPU Quality kit for a chunk of its own that both import (+1,448 B over all chunks); the worker's own rows are unchanged.

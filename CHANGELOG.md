@@ -20,10 +20,14 @@ Each item is described in its entry below.
   `lens.distortion`, `lens.vignetting`, `lens.catalogue`, `illumination`, `chartSize`, camera rotation, `motion.handheld` or a
   rolling shutter. `motion.subject` stays refused, now with the reason ("which surface moves is not defined by the request");
   newly refused with layered scenes: `lens.catalogue.flare`, `chartSize.surroundReflectance`, `illumination` with `chartSize`, a
-  fisheye point 75° or more off the axis, a rolling readout that scans by columns, and a moving camera's work above 2²⁴ layered
+  fisheye point 75° or more off the axis (a fisheye projection or a catalogue fisheye; follow-up #797), a rolling readout that scans by columns, and a moving camera's work above 2²⁴ layered
   sums.
 - **Layered kernel refusals (#749).** Card-edge kernels are taken to 512 sites (disc) and 128 (shaped kernels) instead of 64; a
-  larger one is refused before any kernel is built, and the two messages start with `lens.defocus:`.
+  larger one is refused before any kernel is built, and the two messages start with `lens.defocus:`. With a catalogue lens whose
+  cat's eye closes the pupil in part of the frame, a layered request is refused ("lens.defocus.catsEye: the clipping apertures
+  close the pupil in part of the frame; …", #741).
+- **Layered refusal texts name 2.29.0.** `scene.kind "layered-chart" does not support <option> in 2.29.0: …` (2.27.0 and
+  2.28.0 named 2.27.0) for `motion.subject`, `lens.catalogue.flare`, `lens.pupilSampling` and `lens.psf`.
 - **Layered output (#749, #751, #746, #741).** The run sum replaces the direct sum at disc edges (within 1e-9 relative per site,
   rule 3; the layered seam locks are re-recorded). Layered captures take the tabulated native RAW path (the same RAW codes in every
   test case). A radiance plane's pilot material is −1 (the seams test's lattice lock is re-recorded; values unchanged).
@@ -40,6 +44,9 @@ Each item is described in its entry below.
   taps pass 100,000 scene queries per site (for example rotation with diffraction and a 2 × 2 box at 16 midpoints), as the
   capture does; it reported `"environment-psf-quadrature"`. No sample changes on views that rendered before. A view's refusal
   with the filter now gives the capture's count (the taps' factor 1).
+- **#743: `measure.noise`** of `simulateFalseColor`: `undefined` is the key left out; `false` and `null` are refused
+  ("simulateFalseColor: measure.noise must be true or { seed }.").
+- **Registry text:** `lens.catalogue/view-psf-zones`'s `fast` text says "center" (it said "centre") and adds its layered use.
 - **#786: `motion.subject: {}` is refused** ("motion.subject needs velocityMPerSec or angularVelocityRadPerSec."); it was
   documented as a subject at rest (a zero velocity still is one). Also refused: `null` for `output.gamutHandling`,
   `motion.handheld.seed` and `motion.handheld.stabilizationStops`; `sensor.readNoise: {}`; a part's `fast` or `region.fast` that
@@ -91,11 +98,11 @@ integration tree. No limit is raised; the new rows' limits are their measurement
 | on demand | 51,977 B | **51,743 B** | 52,000 B (#658's target: 49,400 B) |
 | export kit | 10,395 B | **10,393 B** | 10,400 B |
 | lens passes | 10,200 B | **9,919 B** | 10,200 B |
-| false-color body; entry delta | 5,094 B; 348 B | **5,094 B; 289 B** | 5,100 B; 400 B |
+| false-color body; entry delta | 5,094 B; 348 B | **5,094 B; 355 B** | 5,100 B; 400 B |
 | false-color noise (#743, new) | — | **3,572 B** | 3,600 B |
-| layered chunk (new) | — | **23,230 B** | 23,300 B |
+| layered chunk (new) | — | **22,962 B** | 23,000 B |
 | layered GPU chunk (#750, new) | — | **8,331 B** | 8,400 B |
-| typical processing (#740, new): body; entry delta | — | **17,889 B; 1,332 B** | 17,900 B; 1,400 B |
+| typical processing (#740, new): body; entry delta | — | **17,889 B; 1,331 B** | 17,900 B; 1,400 B |
 | `calculateProgramLine` (#765, new) | 24,838 B | **14,508 B** | 14,600 B |
 | `calculateIdealLensDetailLimit`; `calculateDetailLimit` (#765, new) | —; 10,200 B | **4,954 B; 10,299 B** | 5,000 B; 10,300 B |
 
@@ -120,12 +127,14 @@ mixed-light parts (shared machine): `fast: false` catalogue-768 39.81 → 18.94 
   discs 0.01 % (#799). Occlusion uses each surface's nominal thin-lens ray map (an approximation).
 - **#746:** 16 midpoints at 0.95 % of the local swing (above); a rolling shutter reads every row at its own instants (no row
   bands on layered scenes: they measured 0.18 code RMS against every row).
+- **#744:** a layered request with a fisheye projection or a catalogue fisheye is refused where it reads a point 75° or more off
+  the axis (#797).
 - **#748:** the framing under focus scatter (above).
 - **#750:** the GPU takes only layered views on the planar map (a still, rectilinear, distortion-free camera, one illuminant, no
   cat's eye zones, kernels up to 96 sites); other layered views render on the CPU, labeled `unsupported-on-backend`.
 - **#767:** coarse display views of a moving subject with diffraction at `fast: false` (below about 550 display pixels across a
   6000-pixel frame) read lattice points without the ring and are slow (15.6 s for 4 display pixels at 192 wide in the
-  measured case; follow-up #801). Camera rotation under a rolling shutter on a fast request renders as a view and
+  measured case; follow-up #798). Camera rotation under a rolling shutter on a fast request renders as a view and
   is refused as a capture.
 - **#760** (below its estimate) and **#711** (met) are in their entries; #737 (WebAssembly research) is not in this release.
 

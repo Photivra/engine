@@ -61,7 +61,7 @@ export const SIMULATE_CAPTURE_FAST_METHODS: readonly SimulateCaptureFastMethod[]
     exact: "the cat's eye shaped at each field point (fast wides and normals)", followsFormatDefault: true,
     resolver: { file: CAPTURE, call: "resolveFast(catalogueFast, fastTop)" }, report: { applied: "lens.catalogue", assumption: "fast.lens.catalogue.catsEye" } },
   { id: "lens.catalogue/view-psf-zones", override: "lens.catalogue", methods: "fast-and-exact", runs: ["simulateCapture", "simulateDisplayView", "prepareDisplayView"],
-    fast: "#569 (H1): 64 field zones along the longer side, each with the PSF at its centre; #741 (2.29.0): also the PSF that follows a layered chart scene's sum, in its captures and views",
+    fast: "#569 (H1): 64 field zones along the longer side, each with the PSF at its center; #741 (2.29.0): also the PSF that follows a layered chart scene's sum, in its captures and views",
     exact: "one zone per site: the PSF at each site centre", followsFormatDefault: true,
     resolver: { file: CAPTURE, call: "resolveFast(catalogueFast, fastTop)" }, report: { applied: "lens.catalogue", assumption: "view.lensPsf" } },
   { id: "lens.catalogue/view-uniform-window", override: "lens.catalogue", methods: "fast-and-exact", runs: ["simulateDisplayView", "prepareDisplayView"],

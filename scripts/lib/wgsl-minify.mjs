@@ -98,8 +98,8 @@ function stripCommentsFromLine(line, state) {
 }
 
 /**
- * Removes blankspace inside one line where it cannot separate two tokens (see the module comment): next to an identifier or number
- * character on one side and punctuation on the other, or next to a bracket, comma or semicolon.
+ * Removes blankspace inside one line where, for valid WGSL, it cannot separate two tokens (see the module comment): next to an
+ * identifier or number character on one side and punctuation on the other, or next to a bracket, comma or semicolon.
  */
 function tighten(line) {
   return line.replace(/[ \t]+/gu, " ")

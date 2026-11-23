@@ -49,18 +49,18 @@ in the quick start describe the options that reduce it, and what each costs.
   point, as one light field over the frame's angles: an approximation, with no shadows between surfaces and no falloff with depth.
   A back plane's point lights keep their own spectrum. Metering, white balance and the pilot read the chief ray's surface under the
   blend, as the single-plane mixed path does.
-- From 2.29.0 (#761): `chartSize` sets the metres per frame unit of the cards: they are placed in chart units, u = ±1 at the chart's
+- From 2.29.0 (#761): `chartSize` sets the meters per frame unit of the cards: they are placed in chart units, u = ±1 at the chart's
   left and right edges at `subjectDistanceM` (and v = ±heightM / widthM at its top and bottom), and the far surface continues
   beyond the chart, as the frame does without it; there is no surround, so `chartSize.surroundReflectance` is refused.
   `scene.chart` reports the chart's image size as for a single-plane chart.
 - From 2.29.0: `view.focusMask` on `simulateDisplayView` and `PreparedDisplayView.render` returns an in-focus guide per display
-  pixel ([DISPLAY_VIEW.md](DISPLAY_VIEW.md#in-focus-mask-2290)): for a layered scene the chief ray's surface at each pixel centre,
+  pixel ([DISPLAY_VIEW.md](DISPLAY_VIEW.md#in-focus-mask-2290)): for a layered scene the chief ray's surface at each pixel center,
   through the lens.
 
 ### Tap to focus (#747)
 
 `calculateLayeredChartSurfaceAt({ scene, aspect, u, v })` gives the surface the chief ray through a frame point sees and its
-distance along the axis (the `finite-surface` focus target). With a rectilinear lens a pixel centre (x, y) of a W × H frame is
+distance along the axis (the `finite-surface` focus target). With a rectilinear lens a pixel center (x, y) of a W × H frame is
 u = (x + ½ − W/2)·2/W, v = −(y + ½ − H/2)·2/W:
 
 ```ts
@@ -69,7 +69,7 @@ const focused = await simulateCapture({ ...options, lens: { ...options.lens, foc
 ```
 
 `calculateLayeredChartSurfaceAtPixel({ scene, output: { width, height }, pixel: { x, y }, sensor: { pixelPitchMicrometers }, lens:
-{ focalLengthMm, focusDistanceM?, projection?, distortion? }, subjectDistanceM, chartSize? })` maps the output pixel's centre through
+{ focalLengthMm, focusDistanceM?, projection?, distortion? }, subjectDistanceM, chartSize? })` maps the output pixel's center through
 the request's lens with the engine's own mapping (the one the view's pilot reads) and returns the same record, or null where the
 pixel sees no scene (90° and beyond, or outside a fisheye's image circle). It does not take `lens.catalogue`.
 
@@ -215,17 +215,16 @@ sum (within 1e-9 relative, `test/layered-scene-wiring.test.ts`). The display vie
 maps to.
 
 Fisheyes: the frame coordinate (tan θ) grows without bound toward the horizon, so a layered request with a fisheye projection is
-refused when any point it reads (the outer sites widened by the lattice's reach) looks 75° or more off the axis (owner decision,
-2.29.0).
+refused when any point it reads (the outer sites widened by the lattice's reach) looks 75° or more off the axis (2.29.0; follow-up #797).
 
 ### A catalogue lens (2.29.0)
 
 With `lens.catalogue` (#741) the lattice maps through the lens's own distortion, vignetting and projection as above. Each surface's
 kernel is the lens's bokeh (its blades and spherical aberration, and on the full method its cat's eye per field zone) for the signed
 blur σ·c − b, b = 8·N·W040/p the balancing defocus of the lens's PSF, as the single-plane catalogue path forms it. The lens's PSF,
-built without a defocus kernel and with its axial and lateral colour, follows the sum at each spectral node per field zone: 64 zones
+built without a defocus kernel and with its axial and lateral color, follows the sum at each spectral node per field zone: 64 zones
 along the long side on the fast method (`lens.catalogue/view-psf-zones`), zones of one site on the full one, for the capture and the
-view alike. The axial colour stays in the PSF: surfaces on either side of the focus plane do not fringe in opposite colours (a
+view alike. The axial color stays in the PSF: surfaces on either side of the focus plane do not fringe in opposite colors (a
 per-wavelength blur was measured against the lens's defocused wave PSF and not taken; owner decision 4). Occlusion uses each
 surface's nominal thin-lens ray map σ·c/2 (an approximation, measured in `test/layered-catalogue-kernels.test.ts`). The
 `scene.layers` assumption reports `catalogue: { kernels, signedBlurSites, psfZoneSites, breathingScale }`. `lens.catalogue.flare` is
@@ -249,7 +248,7 @@ single-plane path shares; `test/layered-scene-motion.test.ts` keeps it below 1 %
 instants (no row bands: the bands measured 0.18 code RMS against every row, and every row costs about 1.1× the bands); one whose
 rolling readout scans by columns is refused. `motion.subject` stays refused (which surface moves is not defined by the request).
 
-Cost: every site of a moving camera takes the layered sum once per midpoint. Measured at module level (group LM, the layered
+Cost: every site of a moving camera takes the layered sum once per midpoint. Measured at module level (the layered
 benchmark's 192 × 128 region on card 2's edge, 50 mm f/2 at 1 m, 6 µm, radii 3 1 0 1 3 8 sites, 21 spectral nodes, load about 7):
 15 to 22 µs per site and midpoint, against 15.5 µs per site still through the lens map. A request is refused before any lattice
 is built when its sites (a capture's region or raster, a view's footprint with its reach) times its midpoints pass 2²⁴, the layered
@@ -261,7 +260,7 @@ counts the midpoints.
 A layered view on the planar map (a still, rectilinear, distortion-free camera, one illuminant, no cat's eye zones) renders on the
 GPU under `gpu: "auto"` or `"require"` (#750): its own on-demand chunk sums the taps and sites in float32 within the a-priori bound
 the result reports, each tap's visibility the CPU reference's, computed on the host in float64. Other layered views render on the
-CPU, labelled `unsupported-on-backend` with the reason (docs/WEBGPU.md).
+CPU, labeled `unsupported-on-backend` with the reason (docs/WEBGPU.md).
 
 ## Accuracy
 
@@ -300,7 +299,7 @@ series would give a card two places farther back).
 
 ## Limits and refusals (2.29.0)
 
-- The GPU takes a layered view on the planar map only (above); every other layered view renders on the CPU, labelled
+- The GPU takes a layered view on the planar map only (above); every other layered view renders on the CPU, labeled
   `unsupported-on-backend` under `gpu: "auto"` (`"require"` fails).
 - Refused with layered scenes, each with a message naming the option: `motion.subject`, `lens.catalogue.flare`,
   `lens.pupilSampling`, `lens.psf` (a caller PSF), and `lens.defocus.catsEye` with `lens.diffraction` (as for any scene). A
@@ -312,7 +311,7 @@ series would give a card two places farther back).
 - Kernel bounds in a scene of more than one surface (#749): a disc's kernel radius above 512 sites (the single-plane bound,
   `lens.defocus: The blur circle is …`) and a shaped kernel's above 128 (`lens.defocus: a surface's blur needs a kernel radius of …`)
   are refused, every surface checked before any kernel is built. `calculateLayeredChartKernelRadii` gives each surface's radius
-  and whether it is within the bound.
+  and whether it is within the bound. It does not take `lens.catalogue`.
 - The ray map is the aberration-free linear one at every surface; with a shaped kernel, V is the share of the disc's rays in
   the tap's region (the kernel's weight carries the shape).
 

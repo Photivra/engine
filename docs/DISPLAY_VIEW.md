@@ -304,12 +304,12 @@ view agree per site within 1e-9 relative through the lens and the blend (`test/l
 
 `view.focusMask: true | { circleOfConfusionMm }` (#752; false or omitted: none) adds `view.focusMask = { width, height,
 circleOfConfusionMm, score, label }` to the result, for the rendered rectangle, row-major. Per display pixel, `score` is
-max(0, 1 − c / c₀): c the geometric blur-circle diameter (`calculateDefocusCircle`, thin lens) of the surface the pixel centre
+max(0, 1 − c / c₀): c the geometric blur-circle diameter (`calculateDefocusCircle`, thin lens) of the surface the pixel center
 sees, at the resolved focus (with `lens.focusScatter` the sampled one), and c₀ the circle of confusion (default the frame's
 diagonal / 1500, as `scene.layers`). A score above 0 is "within the depth of field" by the same limits as
 `scene.layers[].withinDepthOfField`.
 
-- A layered scene: each pixel centre's chief-ray surface, through the lens (projection, distortion) and in chart units with
+- A layered scene: each pixel center's chief-ray surface, through the lens (projection, distortion) and in chart units with
   `chartSize`; a pixel that sees no scene scores 0.
 - Any other scene: one value for the frame, the subject distance's blur circle.
 - It is analytic: no image is analyzed and nothing is rendered for it, so it is the same with `fast` true or false and on the CPU

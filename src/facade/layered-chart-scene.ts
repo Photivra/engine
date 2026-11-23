@@ -342,7 +342,8 @@ export interface LayeredChartKernelRadius {
  * the capture's 64 sites. Only the kernel size is checked: other refusals (options layered scenes do not support, a cat's eye with
  * `lens.diffraction`) are not. The scene and the bokeh options are validated as a request's are; the lens values follow
  * `calculateDefocusCircle` (positive and finite, distances beyond the focal length), failing with `InvalidScientificInputError`.
- * Geometric thin-lens blur (no diffraction), an approximation.
+ * Geometric thin-lens blur (no diffraction), an approximation. It does not take `lens.catalogue` (a catalogue lens's kernels are the
+ * lens's bokeh less its PSF's balancing defocus, formed when the request renders).
  */
 export function calculateLayeredChartKernelRadii(input: { scene: LayeredChartScene; focalLengthMm: number; aperture: number; focusDistanceM: number;
   pixelPitchMicrometers: number; defocus?: { model: "geometric-disc" } & DefocusBokehOptions }): LayeredChartKernelRadius[] {

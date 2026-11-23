@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 /**
- * #767: the requests of test/display-view-motion-diffraction-lattice-1 to -3.test.ts (one file in 2.29.0's groups, split at
- * integration for the per-file coverage budget; the cases and bounds are unchanged).
+ * #767: the requests of test/display-view-motion-diffraction-lattice-1 to -3.test.ts (split from one file
+ * for the per-file coverage budget; the cases and bounds are unchanged).
  */
 import type { SimulateCaptureOptions } from "../../src/index.js";
 

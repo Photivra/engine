@@ -5,7 +5,7 @@
  * per-tap count. Since #767 the capture's lattice flag (#761) also holds for a view, so the view counts its queries as the capture does,
  * without the taps, and reports `execution: "image-space-convolution"` where the taps pass 100000.
  *
- * Part 3 of 3 (regions, combinations, refusals and the estimate). One file in 2.29.0's group V, split at integration for the per-file coverage budget; the
+ * Part 3 of 3 (regions, combinations, refusals and the estimate). Split from one file for the per-file coverage budget (2.29.0); the
  * requests are in test/helpers/display-view-motion-diffraction-cases.ts, and the cases and bounds are unchanged.
  */
 import { describe, expect, it } from "vitest";
