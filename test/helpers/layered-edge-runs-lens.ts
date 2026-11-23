@@ -1,18 +1,19 @@
 // SPDX-License-Identifier: Apache-2.0
 /**
- * The layered edge sum by runs (#749, #750) through a lens map (#744), the check of LE and LG together.
+ * The cases and the check of test/layered-scene-edge-runs-lens-1 to -3.test.ts (one file split for the per-file coverage budget):
+ * the layered edge sum by runs (#749, #750) through a lens map (#744).
  * Where a point's rows do not hold (curved card edges, \`rowsHold\` false) the run sum takes \`share\` per tap and so equals the
  * direct sum bit for bit; where they hold, runs over the half-planes' rows equal the direct sum within 1e-9 relative.
  */
-import { expect, it } from "vitest";
-import { prepareDefocusImageSpaceGeometry, type PreparedDefocusImageSpaceGeometry } from "../src/facade/defocus-image-space-provider.js";
-import { createLayeredLensMap, type LayeredFramePoint, type LayeredLensMap } from "../src/facade/layered-lattice-geometry.js";
-import { createLayeredEdgeSum, type LayeredSurfaceTileReader } from "../src/facade/layered-edge-sum.js";
-import { LAYERED_OCCLUSION_SAMPLES, createLayeredSceneLattice, type LayeredSceneLattice, type LayeredSceneSignalInput } from "../src/facade/layered-scene-signal.js";
-import { undistortedImagePointNewton } from "../src/optics/radial-distortion-newton.js";
-import { prepareEnvironmentLensFieldMapping } from "../src/optics/sensor-environment-query.js";
-import type { LensProjectionModel } from "../src/camera/lens-projection.js";
-import { WAVELENGTHS, fixture, signalInputOf, type SurfaceSpec } from "./helpers/layered-scene-fixtures.js";
+import { expect } from "vitest";
+import { prepareDefocusImageSpaceGeometry, type PreparedDefocusImageSpaceGeometry } from "../../src/facade/defocus-image-space-provider.js";
+import { createLayeredLensMap, type LayeredFramePoint, type LayeredLensMap } from "../../src/facade/layered-lattice-geometry.js";
+import { createLayeredEdgeSum, type LayeredSurfaceTileReader } from "../../src/facade/layered-edge-sum.js";
+import { LAYERED_OCCLUSION_SAMPLES, createLayeredSceneLattice, type LayeredSceneLattice, type LayeredSceneSignalInput } from "../../src/facade/layered-scene-signal.js";
+import { undistortedImagePointNewton } from "../../src/optics/radial-distortion-newton.js";
+import { prepareEnvironmentLensFieldMapping } from "../../src/optics/sensor-environment-query.js";
+import type { LensProjectionModel } from "../../src/camera/lens-projection.js";
+import { WAVELENGTHS, fixture, signalInputOf, type SurfaceSpec } from "./layered-scene-fixtures.js";
 
 const { fast: FAST, full: FULL } = LAYERED_OCCLUSION_SAMPLES;
 const W = 96, H = 64, PITCH = 375, HALF_DIAGONAL = 21.633307652783937, DISTANCE = 1, N = WAVELENGTHS.length;
@@ -57,7 +58,7 @@ function readerOf(lattice: LayeredSceneLattice, runs: boolean): LayeredSurfaceTi
   return reader;
 }
 
-const cases: { name: string; lens: () => Lens; specs: (l: Lens) => SurfaceSpec[]; samples: number }[] = [
+export const EDGE_RUNS_LENS_CASES: { name: string; lens: () => Lens; specs: (l: Lens) => SurfaceSpec[]; samples: number }[] = [
   { name: "a strong barrel distortion with vignetting", lens: () => lens(20, "rectilinear", -0.08, true), samples: FULL,
     specs: (l) => [{ rect: cardRight(l, 26, -40, 40), rho: -2.5, reflectances: [0.15] }, { rect: null, rho: 4, reflectances: [0.9] }] },
   { name: "an equisolid fisheye", lens: () => lens(12, "fisheye-equisolid-angle", -0.02, false), samples: FULL,
@@ -66,7 +67,8 @@ const cases: { name: string; lens: () => Lens; specs: (l: Lens) => SurfaceSpec[]
     specs: (l) => [{ rect: cardRight(l, 16, -24, 24, 30), rho: -9, reflectances: [0.1] }, { rect: cardRight(l, 24, -20, 20, 32), rho: 0.8, reflectances: [0.95] },
       { rect: null, rho: 4, reflectances: [0.4] }] }];
 
-for (const c of cases) it(c.name + ": runs equal the direct sum (share per tap where rows do not hold)", () => {
+/** Checks case c at the edge points of rows q = rowOffset, rowOffset + rowStep, ... (every point of each such row). */
+export function checkEdgeRunsLens(c: (typeof EDGE_RUNS_LENS_CASES)[number], rowOffset: number, rowStep: number): void {
   const l = c.lens(), input: LayeredSceneSignalInput = { ...signalInputOf(fixture(W, H), c.specs(l), c.samples, false), lensMap: l.map, marginSites: 1 };
   const lattice = createLayeredSceneLattice(input), { geometry, visibility } = lattice.parts;
   const kernelGroups = input.layers.map((layer) => [{ nodes: { from: 0, to: N }, kernel: { radius: layer.kernel ? layer.kernel.radius : 0, weightsAt: (): Float64Array | null => (layer.kernel ? layer.kernel.weights : null) } }]);
@@ -74,7 +76,7 @@ for (const c of cases) it(c.name + ": runs equal the direct sum (share per tap w
   const direct = createLayeredEdgeSum({ geometry, visibility, surfaces: readerOf(lattice, false), kernelGroups, capacityBytes: 1 << 26, method: "direct" });
   const group = lattice.groupOf(0, 0), a = new Float64Array(N), b = new Float64Array(N);
   let notHolding = 0, holdingEdge = 0, worstHolding = 0, differingNotHolding = 0;
-  for (let q = 0; q < H; q += c.samples === FAST ? 6 : 2) for (let p = 0; p < W; p++) {
+  for (let q = rowOffset; q < H; q += rowStep) for (let p = 0; p < W; p++) {
     if (geometry.surfaceOf(group, p, q) >= 0) continue;
     a.fill(0); b.fill(0);
     runs.sumAt(group, p, q, a, 0); direct.sumAt(group, p, q, b, 0);
@@ -86,9 +88,9 @@ for (const c of cases) it(c.name + ": runs equal the direct sum (share per tap w
       for (let n = 0; n < N; n++) if (a[n] !== b[n]) worstHolding = Math.max(worstHolding, Math.abs(a[n]! - b[n]!) / Math.max(Math.abs(a[n]!), Math.abs(b[n]!)));
     }
   }
-  console.log(`${c.name}: edge points ${notHolding + holdingEdge}, rows do not hold at ${notHolding} (differing values ${differingNotHolding}), hold at ${holdingEdge} (worst relative ${worstHolding.toExponential(2)})`);
+  console.log(`${c.name}, rows ${rowOffset} + ${rowStep}k: edge points ${notHolding + holdingEdge}, rows do not hold at ${notHolding} (differing values ${differingNotHolding}), hold at ${holdingEdge} (worst relative ${worstHolding.toExponential(2)})`);
   expect(differingNotHolding).toBe(0);
   expect(worstHolding).toBeLessThan(1e-9);
   // The barrel distortion's edges are straight within tolerance at almost every point (runs); the fisheyes' are not (share per tap).
   if (l.zeroBeyondHorizon) expect(notHolding).toBeGreaterThan(0); else expect(holdingEdge).toBeGreaterThan(notHolding);
-}, 300_000);
+}
