@@ -162,7 +162,8 @@ describe("layered chart scenes: kernel radius bound (#764)", () => {
   const scene: LayeredChartScene = { kind: "layered-chart", cards: [card(0.7), card(1), card(1.3)], backPlane: { distanceM: 4 } };
 
   it("exports the bounds the layered sum enforces", () => {
-    expect(LAYERED_CHART_LIMITS.maximumEdgeKernelRadiusSites).toEqual({ disc: LAYERED_EDGE_MAXIMUM_KERNEL_RADIUS_SITES, shaped: LAYERED_EDGE_MAXIMUM_KERNEL_RADIUS_SITES });
+    expect(LAYERED_CHART_LIMITS.maximumEdgeKernelRadiusSites).toBe(LAYERED_EDGE_MAXIMUM_KERNEL_RADIUS_SITES);
+    expect(LAYERED_CHART_LIMITS.maximumEdgeKernelRadiusSites).toEqual({ disc: DEFOCUS_DISC_KERNEL_MAXIMUM_RADIUS_SITES, shaped: 128 });
     expect(Object.isFrozen(LAYERED_CHART_LIMITS.maximumEdgeKernelRadiusSites)).toBe(true);
   });
 
@@ -201,11 +202,15 @@ describe("layered chart scenes: kernel radius bound (#764)", () => {
 
   it("applies the single-plane bound to one card without a back plane, and validates its input", () => {
     const one: LayeredChartScene = { kind: "layered-chart", cards: [card(0.5)] }, lens = { focalLengthMm: 50, aperture: 1.4, focusDistanceM: 1 };
-    // The blur at 0.5 m: c ≈ 1.88 mm; at 3 µm about 626 sites across, radius 313: past the edge bound, within the single-plane bound.
+    // The blur at 0.5 m: c ≈ 1.88 mm; at 3 µm about 626 sites across, radius 313: within the disc's bounds (512 with or without
+    // edges), past the shaped kernel's edge bound (128), within the single-plane bound.
     const [disc] = calculateLayeredChartKernelRadii({ scene: one, ...lens, pixelPitchMicrometers: 3 });
-    expect(disc!.kernelRadiusSites).toBeGreaterThan(64);
+    expect(disc!.kernelRadiusSites).toBeGreaterThan(128);
     expect(disc!.withinBound).toBe(true);
-    expect(calculateLayeredChartKernelRadii({ scene: { ...one, backPlane: { distanceM: 3 } }, ...lens, pixelPitchMicrometers: 3 })[0]!.withinBound).toBe(false);
+    const back = { ...one, backPlane: { distanceM: 3 } }, blades = { model: "geometric-disc" as const, blades: { count: 7 } };
+    expect(calculateLayeredChartKernelRadii({ scene: back, ...lens, pixelPitchMicrometers: 3 })[0]!.withinBound).toBe(true);
+    expect(calculateLayeredChartKernelRadii({ scene: back, ...lens, pixelPitchMicrometers: 3, defocus: blades })[0]!.withinBound).toBe(false);
+    expect(calculateLayeredChartKernelRadii({ scene: one, ...lens, pixelPitchMicrometers: 3, defocus: blades })[0]!.withinBound).toBe(true);
     const catsEye = { model: "geometric-disc" as const, catsEye: { apertures: [{ radiusMm: 30, shiftPerTanFieldMm: 40 }] } };
     expect(calculateLayeredChartKernelRadii({ scene: one, ...lens, pixelPitchMicrometers: 3, defocus: catsEye })[0]!.withinBound).toBe(false);
     expect(calculateLayeredChartKernelRadii({ scene: one, ...lens, pixelPitchMicrometers: 1 })[0]!.withinBound).toBe(false);
@@ -218,26 +223,30 @@ describe("layered chart scenes: kernel radius bound (#764)", () => {
 
   it("matches the renderer: a radius within the bound renders, one outside is refused with the same number", async () => {
     await prepareLayeredChartScenes();
-    // A card in focus over part of the frame and a back plane behind it whose blur sets the radius (the pitch is chosen for it).
-    const scene: LayeredChartScene = { kind: "layered-chart", cards: [{ ...card(1), centerU: -0.3, width: 0.6, height: 0.3 }], backPlane: { distanceM: 2 } };
+    // A card in focus over part of the frame and a far back plane behind it whose blur sets the radius (the pitch is chosen for it).
+    const scene: LayeredChartScene = { kind: "layered-chart", cards: [{ ...card(1), centerU: -0.3, width: 0.6, height: 0.3 }], backPlane: { distanceM: 100 } };
     const lens = { focalLengthMm: 50, fNumber: 4, focusDistanceM: 1 };
-    const micrometres = calculateDefocusCircle({ focalLengthMm: 50, aperture: 4, focusDistanceM: 1, subjectDistanceM: 2 }).value.diameterMm * 1000;
+    const micrometres = calculateDefocusCircle({ focalLengthMm: 50, aperture: 4, focusDistanceM: 1, subjectDistanceM: 100 }).value.diameterMm * 1000;
     const request = (pitch: number, defocus?: SimulateCaptureOptions["lens"] extends infer L ? L extends { defocus?: infer D } ? D : never : never): SimulateCaptureOptions =>
       ({ scene, subjectDistanceM: 1, lens: { ...lens, ...(defocus ? { defocus } : {}) }, sensor: { pixelPitchMicrometers: pitch, spectralStepNanometers: 80 }, output: { width: 12, height: 8 },
         exposure: { mode: "manual", shutterSeconds: 1 / 125, iso: 100 } });
     const radii = (pitch: number, defocus?: { model: "geometric-disc" } & DefocusBokehOptions): number[] =>
       calculateLayeredChartKernelRadii({ scene, focalLengthMm: 50, aperture: 4, focusDistanceM: 1, pixelPitchMicrometers: pitch, ...(defocus ? { defocus } : {}) }).map((r) => r.kernelRadiusSites);
-    // Discs: c / pitch = 128.5 sites (radius 64) and 130 (radius 65).
-    expect(radii(micrometres / 128.5)).toEqual([0, 64]);
-    const within = await simulateCapture(request(micrometres / 128.5));
+    // Discs: c / pitch = 1024.5 sites (radius 512, the bound) renders; 1026 (radius 513) is refused by the disc's own limit.
+    expect(radii(micrometres / 1024.5)).toEqual([0, 512]);
+    const within = await simulateCapture(request(micrometres / 1024.5));
     expect(within.scene.layers!.map((l) => l.defocusDiameterSites > 0)).toEqual([false, true]);
-    expect(within.assumptions.find((a) => a.id === "scene.layers")!.value).toMatchObject({ kernelRadiusSites: [0, 64] });
-    expect(calculateLayeredChartKernelRadii({ scene, focalLengthMm: 50, aperture: 4, focusDistanceM: 1, pixelPitchMicrometers: micrometres / 130 })[1]).toEqual(
-      { kind: "back-plane", index: -1, kernelRadiusSites: 65, withinBound: false });
-    await expect(simulateCapture(request(micrometres / 130))).rejects.toThrow(/needs a kernel radius of 65 sites; at card edges the layered sum takes at most 64/);
-    // A shaped kernel (seven blades) just past the bound: refused with the function's radius.
-    const blades = { model: "geometric-disc" as const, blades: { count: 7 } }, [, shaped] = radii(micrometres / 129, blades);
-    expect(shaped).toBeGreaterThan(64);
-    await expect(simulateCapture(request(micrometres / 129, blades))).rejects.toThrow(new RegExp("needs a kernel radius of " + shaped + " sites"));
+    expect(within.assumptions.find((a) => a.id === "scene.layers")!.value).toMatchObject({ kernelRadiusSites: [0, 512] });
+    expect(calculateLayeredChartKernelRadii({ scene, focalLengthMm: 50, aperture: 4, focusDistanceM: 1, pixelPitchMicrometers: micrometres / 1026 })[1]).toEqual(
+      { kind: "back-plane", index: -1, kernelRadiusSites: 513, withinBound: false });
+    await expect(simulateCapture(request(micrometres / 1026))).rejects.toThrow("The blur circle is 1,026 sites across; the engine renders at most 1,025 sites");
+    // A shaped kernel (seven blades) at the shaped bound renders; just past it, refused with the function's radius.
+    const blades = { model: "geometric-disc" as const, blades: { count: 7 } }, sizes = Array.from({ length: 81 }, (_, i) => 200 + i / 2);
+    const at = sizes.filter((c) => radii(micrometres / c, blades)[1]! <= 128).pop()!, past = sizes.find((c) => radii(micrometres / c, blades)[1]! > 128)!;
+    const [, inside] = radii(micrometres / at, blades), [, shaped] = radii(micrometres / past, blades);
+    expect(inside).toBeGreaterThan(120);
+    expect((await simulateCapture(request(micrometres / at, blades))).assumptions.find((a) => a.id === "scene.layers")!.value).toMatchObject({ kernelRadiusSites: [0, inside] });
+    expect(shaped).toBeGreaterThan(128);
+    await expect(simulateCapture(request(micrometres / past, blades))).rejects.toThrow(new RegExp("needs a kernel radius of " + shaped + " sites; at card edges the layered sum takes at most 128 for a shaped kernel"));
   }, scaledTimeout(120_000));
 });

@@ -61,7 +61,7 @@ import { InvalidConfigurationError } from "../core/configuration-error.js";
 import { createDisplayViewExpectedSignal, type DisplayViewExpectedSignal, type DisplayViewExpectedSignalInput, type DisplayViewQueryOffset,
   type DisplayViewScene } from "./expected-signal.js";
 import type { SiteKernelFieldZones } from "./diffraction-provider.js";
-import { createSpectralLatticeTiles, type SpectralLatticeTiles } from "./spectral-lattice-tiles.js";
+import { createSpectralLatticeRowSumTiles, createSpectralLatticeTiles, type SpectralLatticeRowSumTiles, type SpectralLatticeTiles } from "./spectral-lattice-tiles.js";
 import { LAYERED_LATTICE_GROUP_LIMIT, createLayeredLatticeGeometry, type LayeredFramePoint, type LayeredGeometryInput, type LayeredLatticeGeometry } from "./layered-lattice-geometry.js";
 import { createLayeredSurfaceRadiance, type LayeredSurfaceRadiance, type LayeredSurfaceRadianceInput } from "./layered-surface-radiance.js";
 import { createLayeredVisibility, type LayeredVisibility } from "./layered-visibility.js";
@@ -140,13 +140,15 @@ export interface LayeredSceneLattice {
   readonly lookups: number;
   /** Lattice points whose S was computed as an edge point (diagnostics). */
   readonly edgePoints: number;
-  readonly tiles: { surfaces: SpectralLatticeTiles; sum: SpectralLatticeTiles };
+  readonly tiles: { surfaces: SpectralLatticeRowSumTiles; sum: SpectralLatticeTiles };
   /** The modules the sum is built from (2.29.0, group L0), for the later groups and the module tests. */
   readonly parts: { geometry: LayeredLatticeGeometry; radiance: LayeredSurfaceRadiance; visibility: LayeredVisibility; edgeSum: LayeredEdgeSum };
 }
 
 const fail = (message: string): never => { throw new InvalidConfigurationError(message); };
 const TILE = 32;
+/** Block of the surface tiles' row sums (`spectral-lattice-tiles.ts`, `createSpectralLatticeRowSumTiles`): an eighth of a tile row. */
+const ROW_SUM_BLOCK = 8;
 const GROUP_TOLERANCE = 1e-9;
 /** Key spacing of the per-surface tiles: key = surface·SURFACE_KEYS + group. */
 const SURFACE_KEYS = LAYERED_LATTICE_GROUP_LIMIT;
@@ -172,9 +174,10 @@ export function createLayeredSceneLattice(input: LayeredSceneLatticeInput): Laye
   const geometry = createLayeredLatticeGeometry(input), radiance = createLayeredSurfaceRadiance(input);
   const capacity = input.capacityBytes ?? 64 * 1024 * 1024;
   // Surface radiance at the nodes per lattice point (key: surface, group), times the point's field factor (1 today: the
-  // radiance's own bits); a factor of 0 leaves the point's zeros without reading the scene.
+  // radiance's own bits); a factor of 0 leaves the point's zeros without reading the scene. The tiles keep their rows' block
+  // and row sums for the edge sum's runs (2.29.0, #749).
   const point: LayeredFramePoint = { u: 0, v: 0, factor: 1 };
-  const surfaceTiles = createSpectralLatticeTiles({ tile: TILE, nodes: N, capacityBytes: Math.max(capacity / 2, TILE * TILE * N * 8 + TILE), fill(key, x0, y0, width, height, out) {
+  const surfaceTiles = createSpectralLatticeRowSumTiles({ tile: TILE, nodes: N, block: ROW_SUM_BLOCK, capacityBytes: Math.max(capacity / 2, TILE * TILE * N * 8 + TILE + TILE * (TILE / ROW_SUM_BLOCK + 1) * N * 8 + TILE), fill(key, x0, y0, width, height, out) {
     const k = Math.floor(key / SURFACE_KEYS), group = key - k * SURFACE_KEYS;
     for (let j = 0; j < height; j++) for (let i = 0; i < width; i++) {
       const at = (j * width + i) * N, factor = geometry.framePoint(group, x0 + i, y0 + j, point).factor;
@@ -189,14 +192,16 @@ export function createLayeredSceneLattice(input: LayeredSceneLatticeInput): Laye
   const surfaces = { tile: new Float64Array(0) as Float64Array, at(k: number, group: number, p: number, q: number): number {
     const key = k * SURFACE_KEYS + group, tx = floorDiv(p), ty = floorDiv(q);
     if (key !== lastSurfaceKey || tx !== lastSTX || ty !== lastSTY) {
-      surfaces.tile = surfaceTiles.rows(key, tx, ty, 0, TILE); lastSurfaceKey = key; lastSTX = tx; lastSTY = ty;
+      surfaces.tile = surfaceTiles.tileAt(key, tx, ty); lastSurfaceKey = key; lastSTX = tx; lastSTY = ty;
     }
     return ((q - ty * TILE) * TILE + p - tx * TILE) * N;
+  }, rowSum(k: number, group: number, p0: number, p1: number, q: number, out: Float64Array, from: number, to: number): void {
+    surfaceTiles.rowSum(k * SURFACE_KEYS + group, p0, p1, q, out, from, to);
   } };
   const visibility = createLayeredVisibility({ geometry, occlusionSamples: samples });
   const edgeSum = createLayeredEdgeSum({ geometry, visibility, surfaces, kernelGroups, capacityBytes: capacity });
   const sumTiles = createSpectralLatticeTiles({ tile: TILE, nodes: N, capacityBytes: Math.max(capacity / 2, TILE * TILE * N * 8 + TILE), fill(group, x0, y0, width, height, out) {
-    for (let j = 0; j < height; j++) for (let i = 0; i < width; i++) edgeSum.sumAt(group, x0 + i, y0 + j, out, (j * width + i) * N);
+    edgeSum.sumRows(group, x0, y0, width, height, out);
   } });
   const chief: LayeredFramePoint = { u: 0, v: 0, factor: 1 };
   function spectrumAt(group: number, p: number, q: number, out: Float64Array): void {
