@@ -27,8 +27,8 @@
  *
  * #746, a moving camera (the lens map's `timeDependent`): each environment temporal midpoint is a still camera, so a query at time
  * t goes back through the lens at t and reads the lattice frame of its shift at instant t (`groupOf(fx, fy, t)`), the frame the
- * view's signal reads for the same site and midpoint. Under the fast rolling-shutter bands (`rowBands`) a query at its row's i-th
- * midpoint reads the i-th midpoint of its band's middle row, as the view does. The lean lookup's key carries the request time (an
+ * view's signal reads for the same site and midpoint (no row bands on layered scenes: every row at its own instants). The lean
+ * lookup's key carries the request time (an
  * index into the distinct times seen). The frames of the instants read last are kept; older ones are released.
  */
 
@@ -59,12 +59,6 @@ export interface LayeredSceneProviderInput {
   metresPerFrameUnit: number;
   /** Offsets of the query points from the site centres in sites (+x right, +y down). Default: one zero offset. */
   queryOffsetsSites?: readonly { x: number; y: number }[];
-  /**
-   * #746, the fast rolling-shutter bands (the view's `bandRows` and `instantsOfRow`): a query at its row's i-th midpoint reads the
-   * lattice at the i-th midpoint of its band's middle row. Omitted: every query at its own time. Each lattice shift must come from
-   * offsets of one whole-site row part (so that a lattice row gives its site row).
-   */
-  rowBands?: { bandRows: number; instantsOfRow(y: number): readonly number[] } | undefined;
 }
 
 /** #746: instants whose lattice frames a provider keeps (at most this many groups in all, the rest left to a view's signal). */
@@ -77,12 +71,10 @@ export function createLayeredSceneProvider(input: LayeredSceneProviderInput): Pl
   if (lattice.nodes !== wavelengthsNm.length) throw new InvalidConfigurationError("Layered scene provider: the lattice must have the query's spectral nodes.");
   const offsets = input.queryOffsetsSites ?? [{ x: 0, y: 0 }];
   const fraction = (value: number): number => { const f = value - Math.floor(value); return f > 1 - LATTICE_TOLERANCE_SITES ? 0 : f < LATTICE_TOLERANCE_SITES ? 0 : f; };
-  const shifts: { x: number; y: number; group: number; row: number }[] = [];
+  const shifts: { x: number; y: number; group: number }[] = [];
   for (const o of offsets) {
-    const fx = fraction(o.x), fy = fraction(o.y), row = Math.round(o.y - fy);
-    const s = shifts.find((s) => Math.abs(s.x - fx) <= LATTICE_TOLERANCE_SITES && Math.abs(s.y - fy) <= LATTICE_TOLERANCE_SITES);
-    if (!s) shifts.push({ x: fx, y: fy, group: lattice.groupOf(fx, fy), row });
-    else if (s.row !== row) s.row = NaN;
+    const fx = fraction(o.x), fy = fraction(o.y);
+    if (!shifts.some((s) => Math.abs(s.x - fx) <= LATTICE_TOLERANCE_SITES && Math.abs(s.y - fy) <= LATTICE_TOLERANCE_SITES)) shifts.push({ x: fx, y: fy, group: lattice.groupOf(fx, fy) });
   }
   const M = Math.max(0, ...offsets.map((o) => Math.ceil(Math.max(Math.abs(o.x), Math.abs(o.y)) - LATTICE_TOLERANCE_SITES))) + 1;
   const LW = W + 2 * M, LH = H + 2 * M;
@@ -94,9 +86,6 @@ export function createLayeredSceneProvider(input: LayeredSceneProviderInput): Pl
   // #746: the request times seen (the key's time index), and the lattice frames of the instants read last (groups per shift).
   const times: number[] = [], timeIndex = new Map<number, number>(), latticeKeys = shifts.length * LH * LW;
   const frames = new Map<number, number[]>(), framesKept = Math.max(1, Math.floor(PROVIDER_FRAME_GROUPS / shifts.length));
-  const bands = moving ? input.rowBands : undefined;
-  if (bands && !(Number.isInteger(bands.bandRows) && bands.bandRows >= 1 && shifts.every((s) => Number.isInteger(s.row))))
-    throw new InvalidConfigurationError("Layered scene provider: row bands need whole rows and one row offset per lattice shift.");
   /** The group of shift s at instant t (registered with its instant's shifts; the least recently read instant's released). */
   function groupAt(s: number, t: number): number {
     if (!moving) return shifts[s]!.group;
@@ -110,14 +99,6 @@ export function createLayeredSceneProvider(input: LayeredSceneProviderInput): Pl
       for (const group of old) lattice.releaseGroup(group);
     }
     return groups[s]!;
-  }
-  /** The lattice instant a query at time t of lattice row lj (with the margin) on shift s reads: t, or its band's (#746). */
-  function instantOf(t: number, s: number, lj: number): number {
-    if (!bands || bands.bandRows === 1) return t;
-    const y = Math.min(H - 1, Math.max(0, lj - M - shifts[s]!.row)), own = bands.instantsOfRow(y), i = own.indexOf(t);
-    if (i < 0) throw new InvalidConfigurationError("Layered scene query time is not a midpoint of its row.");
-    const b = Math.floor(y / bands.bandRows);
-    return bands.instantsOfRow(Math.min(H - 1, b * bands.bandRows + (bands.bandRows >> 1)))[i]!;
   }
   /** The lattice key ((shift·LH + q + M)·LW + p + M) of continuous lattice point (fi, fj) of the unshifted lattice, or undefined off the lattices and the raster's margin. */
   function keyOfLattice(fi: number, fj: number): number | undefined {
@@ -170,7 +151,7 @@ export function createLayeredSceneProvider(input: LayeredSceneProviderInput): Pl
     if (w === undefined || key === undefined) throw new InvalidConfigurationError("Layered scene query is off the site lattice; the layered sum does not apply.");
     if (key !== lastKey) {
       const ti = Math.floor(key / latticeKeys), local = key - ti * latticeKeys;
-      const li = local % LW, rest = (local - li) / LW, lj = rest % LH, s = (rest - lj) / LH, group = moving ? groupAt(s, instantOf(times[ti]!, s, lj)) : shifts[s]!.group;
+      const li = local % LW, rest = (local - li) / LW, lj = rest % LH, s = (rest - lj) / LH, group = moving ? groupAt(s, times[ti]!) : shifts[s]!.group;
       lattice.spectrumAt(group, li - M, lj - M, spectrum);
       // #744: the environment multiplies by the query point's field factor again.
       if (mapped) factor = geometry.framePoint(group, li - M, lj - M, at).factor;

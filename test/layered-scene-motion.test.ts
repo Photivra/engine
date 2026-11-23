@@ -60,7 +60,7 @@ const SPECS: SurfaceSpec[] = [
   { rect: { u0: -0.15, u1: 0.65, v0: -0.3, v1: 0.55 }, rho: 0.8, reflectances: [0.3, 0.9], materialAt: (u) => (u < 0.3 ? 0 : 1) },
   { rect: null, rho: 3.2, reflectances: [0.5, 0.05], materialAt: (u, v) => (u + v < 0 ? 0 : 1) }];
 
-const withMotion = (input: LayeredSceneSignalInput, map: LayeredLensMap, motion: Partial<Pick<LayeredSceneSignalInput, "instants" | "instantsOfRow" | "bandRows">>,
+const withMotion = (input: LayeredSceneSignalInput, map: LayeredLensMap, motion: Partial<Pick<LayeredSceneSignalInput, "instants" | "instantsOfRow">>,
   marginSites = 3): LayeredSceneSignalInput => ({ ...input, lensMap: map, marginSites, ...motion });
 const sitesOf = (signal: ReturnType<typeof createLayeredSceneSignal>, W: number, H: number): Float64Array => {
   const out = new Float64Array(W * H);
@@ -168,20 +168,20 @@ const rowInstants = (H: number, T: number, skew: number) => (y: number): readonl
 const encode8 = (l: number): number => 255 * (l <= 0.0031308 ? l * 12.92 : 1.055 * Math.min(1, Math.max(0, l)) ** (1 / 2.4) - 0.055);
 
 describe("#746: a rolling shutter, row bands against every row (test 4)", () => {
-  it("each band reads its middle row's instants; against every row at its own, the measured error in display codes", () => {
+  // Layered scenes take every row at its own instants (owner decision, 2.29.0); this measures the row bands they do not take
+  // (each row read at its band's middle row's instants), the evidence for that decision.
+  it("bands that read their middle row's instants, against every row at its own: the measured error in display codes", () => {
     const f = fixture(40, 32), l = movingLens(f, { pitch: 0.1, yaw: 0.5, roll: 0.3 }), instantsOfRow = rowInstants(f.H, 8, 1.5e-3);
     const bands = rollingLensBands(l.geometry, (_x, y) => instantsOfRow(y), f.W, f.H, PITCH), h = bands.rows;
     expect(h).toBe(5);
     expect(bands.shiftSites).toBeLessThanOrEqual(1 / 128);
     const base = signalInputOf(f, SPECS, FAST, false);
-    const fullSignal = createLayeredSceneSignal(withMotion(base, l.map, { instantsOfRow })), fastSignal = createLayeredSceneSignal(withMotion(base, l.map, { instantsOfRow, bandRows: h }));
-    const full = sitesOf(fullSignal, f.W, f.H), fast = sitesOf(fastSignal, f.W, f.H);
+    const fullSignal = createLayeredSceneSignal(withMotion(base, l.map, { instantsOfRow }));
+    const full = sitesOf(fullSignal, f.W, f.H);
     expect(fullSignal.rowFramesBuilt).toBe(f.H);
-    expect(fastSignal.rowFramesBuilt).toBe(Math.ceil(f.H / h));
-    // The band method is every row at its band's middle row's instants, bit for bit; a middle row is the full method's.
+    // The bands: every row at its band's middle row's instants; a middle row is the full method's.
     const middleOf = (y: number): number => Math.min(f.H - 1, Math.floor(y / h) * h + (h >> 1));
-    const banded = sitesOf(createLayeredSceneSignal(withMotion(base, l.map, { instantsOfRow: (y) => instantsOfRow(middleOf(y)) })), f.W, f.H);
-    expect(Array.from(fast)).toEqual(Array.from(banded));
+    const fast = sitesOf(createLayeredSceneSignal(withMotion(base, l.map, { instantsOfRow: (y) => instantsOfRow(middleOf(y)) })), f.W, f.H);
     for (let y = 0; y < f.H; y++) if (middleOf(y) === y) for (let x = 0; x < f.W; x++) expect(fast[y * f.W + x]).toBe(full[y * f.W + x]);
     // In display codes (each channel's brightest site at 0.9): measured 0.18 code RMS and 1.6 codes at most on this edge-dense frame
     // with an in-focus card. The 1/128-site shift moves point-sampled material and card edges across lattice points (aliasing, as #651
@@ -250,28 +250,17 @@ describe("#746: capture against view through the provider (test 6)", () => {
       return total / instants.length;
     } });
   const instantsOfRow = rowInstants(f.H, 4, 2e-3);
-  for (const [name, motion, rowBands] of [
-    ["global shutter, 6 midpoints", { instants: midpoints(6) }, undefined],
-    ["rolling, every row at its own instants", { instantsOfRow }, undefined],
-    ["rolling, bands of 5 rows", { instantsOfRow, bandRows: 5 }, { bandRows: 5, instantsOfRow }]] as const) it(name + ": per site within 1e-9 relative", () => {
+  for (const [name, motion] of [
+    ["global shutter, 6 midpoints", { instants: midpoints(6) }],
+    ["rolling, every row at its own instants", { instantsOfRow }]] as const) it(name + ": per site within 1e-9 relative", () => {
     const input = withMotion(signalInputOf(f, SPECS, FAST, false), l.map, motion), view = createLayeredSceneSignal(input);
     const provider = createLayeredSceneProvider({ base: baseProvider(), lattice: createLayeredSceneLattice(input), wavelengthsNm: WAVELENGTHS, nativeWidth: f.W, nativeHeight: f.H,
-      outputWidth: f.W, distanceM: DISTANCE, metresPerFrameUnit: l.scale, queryOffsetsSites: f.offsets, ...(rowBands ? { rowBands } : {}) });
+      outputWidth: f.W, distanceM: DISTANCE, metresPerFrameUnit: l.scale, queryOffsetsSites: f.offsets });
     const rows = "instants" in motion ? (): readonly number[] => motion.instants : instantsOfRow;
     view.window(0, 0, f.W, f.H);
     expectSiteElectronsEquivalent(view, captureOf(provider, rows), { x0: 0, y0: 0, x1: f.W, y1: f.H });
     expect(provider.queries).toBeGreaterThan(0);
   }, scaledTimeout(120_000));
-
-  it("refuses row bands with a shift of two row parts, and a query time that is not its row's", () => {
-    const input = withMotion(signalInputOf(f, SPECS, FAST, false), l.map, { instantsOfRow });
-    const make = (offsets: readonly { x: number; y: number }[]): ReturnType<typeof createLayeredSceneProvider> => createLayeredSceneProvider({ base: baseProvider(),
-      lattice: createLayeredSceneLattice(input), wavelengthsNm: WAVELENGTHS, nativeWidth: f.W, nativeHeight: f.H, outputWidth: f.W, distanceM: DISTANCE,
-      metresPerFrameUnit: l.scale, queryOffsetsSites: offsets, rowBands: { bandRows: 3, instantsOfRow } });
-    expect(() => make([{ x: 0, y: -0.25 }, { x: 0, y: 0.75 }])).toThrow("Layered scene provider: row bands need whole rows and one row offset per lattice shift.");
-    const provider = make([{ x: 0, y: 0 }]), look = l.geometry.lookOf(0.5 * PITCH / 1000, 0.5 * PITCH / 1000, 0.001);
-    expect(() => provider.evaluateRadiance(request({ x: -look.x, y: -look.y, z: -look.z }, 550, 0.001))).toThrow("Layered scene query time is not a midpoint of its row.");
-  });
 });
 
 describe("#746 and #741: group handles and field zones (test 7)", () => {
@@ -331,8 +320,8 @@ describe("#746 and #741: group handles and field zones (test 7)", () => {
     const bad = createLayeredSceneLattice({ ...base, diffraction: { ...d, zones: { size: 40, columns: 1, rows: 1, kernelsOf: () => [d.perNode[0]!] } } });
     expect(() => bad.spectrumAt(bad.groupOf(0, 0), 3, 3, a)).toThrow("Layered scene: invalid diffraction zones.");
     const f2 = fixture(24, 16), moving = withMotion(signalInputOf(f2, SPECS, FAST, false), sliding(f2, 1), {});
-    expect(() => createLayeredSceneSignal({ ...moving, instants: [] })).toThrow("Layered scene: invalid temporal midpoints or bandRows.");
-    expect(() => createLayeredSceneSignal({ ...moving, instantsOfRow: () => [0], bandRows: 64 })).toThrow("Layered scene: invalid temporal midpoints or bandRows.");
+    expect(() => createLayeredSceneSignal({ ...moving, instants: [] })).toThrow("Layered scene: invalid temporal midpoints.");
+    expect(() => createLayeredSceneSignal({ ...moving, instantsOfRow: () => [Number.NaN] }).site(0, 0)).toThrow("Layered scene: invalid temporal midpoints.");
     expect(() => createLayeredSceneSignal({ ...moving, instantsOfRow: () => midpoints(2049) })).toThrow("Layered scene: a row reads more than 2048 lattice frames.");
   });
 });

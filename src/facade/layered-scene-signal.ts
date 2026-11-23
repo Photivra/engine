@@ -66,9 +66,8 @@
  * - Global shutter: every site reads the same T midpoints (`instants`): T sums per frame.
  * - Rolling shutter (`instantsOfRow`): each native row has its own midpoints; every lattice point a site reads (its query offsets
  *   and the diffraction taps) is read at the site's instants, as the single-plane path reads every kernel tap at them (#640). The
- *   full method takes every row at its own instants; the fast method (`bandRows`, `motion.shutter.rolling/view-row-bands`) groups
- *   the rows into fixed bands whose rows read their middle row's instants (the band height from `rollingLensBands`: the in-focus
- *   image moves by at most 1/128 site). The frames of the rows read last are kept (their groups live, their tiles cached); a row
+ *   fast and full methods alike take every row at its own instants (no row bands on layered scenes, owner decision of 2.29.0:
+ *   bands measured 0.18 code RMS against every row at about 1.1× less time). The frames of the rows read last are kept (their groups live, their tiles cached); a row
  *   frame dropped releases its groups (`releaseGroup`), so a render may read far more frames than the 4096 live groups.
  * - Every site of a moving camera takes the layered sum: a surface's single-plane input (`signalInput`) has no motion, so it is not
  *   read (a site that sees one surface gets that surface's single-plane sum within rounding all the same). `siteSurface` takes a
@@ -340,11 +339,6 @@ export interface LayeredSceneSignalInput extends LayeredSceneLatticeInput {
    * row reads is read at them). Read only when the lens map is time dependent.
    */
   instantsOfRow?: ((y: number) => readonly number[]) | undefined;
-  /**
-   * #746, the fast method `motion.shutter.rolling/view-row-bands` (with `instantsOfRow`): rows in fixed bands of this many (an odd
-   * count from 1 to 63, `rollingLensBands`) read the instants of their band's middle row. Default 1: every row at its own instants.
-   */
-  bandRows?: number | undefined;
 }
 
 /** Largest cache window of the signal, in sites; larger windows are not cached. */
@@ -353,8 +347,6 @@ const SITE_CACHE_LIMIT = 1 << 22;
 const ROW_FRAMES_KEPT = 64;
 /** #746: the live lattice groups a signal's row frames may hold; the rest stays free for a capture provider sharing the lattice. */
 const ROW_FRAME_GROUPS = LAYERED_LATTICE_GROUP_LIMIT / 2;
-/** #746: most rows of a fast row band (`LENS_ROW_BAND_MAXIMUM_ROWS` − 1 of `display-view-lens-regroup.ts`). */
-const MAXIMUM_BAND_ROWS = 63;
 
 /** #746: a site row's lattice frames: its instants, and the group of each (instant, shift) at instant·shifts + shift. */
 interface RowFrame { readonly instants: readonly number[]; readonly groups: readonly number[] }
@@ -368,8 +360,7 @@ export function createLayeredSceneSignal(input: LayeredSceneSignalInput, lattice
   readonly edgeSites: number; readonly delegatedSites: number; readonly lattice: LayeredSceneLattice; readonly rowFramesBuilt: number } {
   const { offsets, electronsPerRadiance: A, channelAt, layers } = input, N = input.wavelengthsNm.length, H = input.nativeHeight, g = 2 / input.outputWidth;
   const geometry = lattice.parts.geometry, moving = geometry.timeDependent, rolling = moving && input.instantsOfRow !== undefined;
-  const bandRows = rolling ? input.bandRows ?? 1 : 1, badMotion = "Layered scene: invalid temporal midpoints or bandRows.";
-  if (!(Number.isInteger(bandRows) && bandRows >= 1 && bandRows <= MAXIMUM_BAND_ROWS)) fail(badMotion);
+  const badMotion = "Layered scene: invalid temporal midpoints.";
   const validInstants = (instants: readonly number[]): readonly number[] => {
     if (!Array.isArray(instants) || instants.length < 1 || !instants.every((t) => Number.isFinite(t))) fail(badMotion);
     return instants;
@@ -404,15 +395,14 @@ export function createLayeredSceneSignal(input: LayeredSceneSignalInput, lattice
     if (perFrame > ROW_FRAME_GROUPS) fail("Layered scene: a row reads more than " + ROW_FRAME_GROUPS + " lattice frames.");
     rowFramesKept = Math.max(1, Math.min(ROW_FRAMES_KEPT, Math.floor(ROW_FRAME_GROUPS / perFrame)));
   }
-  /** The lattice frames native row y reads (its band's middle row's under the fast method). */
+  /** The lattice frames native row y reads (its own instants). */
   function frameOfRow(y: number): RowFrame {
     if (global) return global;
-    const key = Math.floor(y / bandRows);
-    let frame = rowFrames.get(key);
-    if (frame) { rowFrames.delete(key); rowFrames.set(key, frame); return frame; }
-    frame = frameOf(validInstants(input.instantsOfRow!(bandRows === 1 ? y : Math.min(H - 1, key * bandRows + (bandRows >> 1)))));
+    let frame = rowFrames.get(y);
+    if (frame) { rowFrames.delete(y); rowFrames.set(y, frame); return frame; }
+    frame = frameOf(validInstants(input.instantsOfRow!(y)));
     rowFramesBuilt++;
-    rowFrames.set(key, frame);
+    rowFrames.set(y, frame);
     if (rowFrames.size > rowFramesKept) {
       const [oldKey, old] = rowFrames.entries().next().value!;
       rowFrames.delete(oldKey);
