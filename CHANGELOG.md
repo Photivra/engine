@@ -1,6 +1,6 @@
 # Changelog
 
-## 2.29.0 — unreleased (prepared November 23, 2026)
+## 2.29.0 — published November 23, 2026
 
 A minor release: layered chart scenes through a lens (projection, distortion, vignetting, a catalogue lens), under mixed light,
 with camera motion, focus scatter and breathing, larger blur at card edges and on the GPU (#741, #744–#751); tap to focus and an
